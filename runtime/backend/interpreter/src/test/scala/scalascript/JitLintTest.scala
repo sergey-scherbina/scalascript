@@ -123,6 +123,106 @@ class JitLintTest extends AnyFunSuite with Matchers:
     r.forDef("withZero").bailReasons should contain (JitBailReason.ZeroParams)
     r.forDef("withThree").bailReasons should contain (JitBailReason.TooManyParams(3))
 
+  // ── recursive ADT eval ─────────────────────────────────────────────
+
+  test("recursive ADT eval ObjToLong — should JIT (arm self-calls)"):
+    val code =
+      """sealed trait Expr
+        |case class Num(n: Int) extends Expr
+        |case class Add(l: Expr, r: Expr) extends Expr
+        |case class Mul(l: Expr, r: Expr) extends Expr
+        |def eval(e: Expr): Int = e match
+        |  case Num(n)    => n
+        |  case Add(l, r) => eval(l) + eval(r)
+        |  case Mul(l, r) => eval(l) * eval(r)
+        |eval(Num(1))""".stripMargin
+    val r = lintFor(code).forDef("eval")
+    r.willJit shouldBe true
+    r.bailReasons shouldBe empty
+
+  test("recursive ADT eval — JIT direct interface evaluates tree correctly"):
+    val src = s"# Test\n\n```scalascript\n${
+      """sealed trait Expr
+        |case class Num(n: Int) extends Expr
+        |case class Add(l: Expr, r: Expr) extends Expr
+        |case class Mul(l: Expr, r: Expr) extends Expr
+        |def eval(e: Expr): Int = e match
+        |  case Num(n)    => n
+        |  case Add(l, r) => eval(l) + eval(r)
+        |  case Mul(l, r) => eval(l) * eval(r)
+        |def build(d: Int): Expr =
+        |  if d <= 0 then Num(1)
+        |  else Add(build(d - 1), Mul(build(d - 1), Num(2)))
+        |val tree = build(3)
+        |eval(tree)""".stripMargin}\n```\n"
+    val module = scalascript.parser.Parser.parse(src)
+    val devNull = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
+    val interp = Interpreter(devNull)
+    interp.runSections(module)
+    import scalascript.interpreter.Value
+    import scalascript.interpreter.vm.jit.{JitBackend, JitGlobals, ObjToLong}
+    val evalFun = interp.exportedGlobals("eval")
+    val jitR = JitBackend.default.tryCompile(evalFun.asInstanceOf[Value.FunV], interp)
+    assert(jitR != null, "eval should JIT-compile")
+    assert(jitR.direct != null, "eval JitResult should have a direct interface")
+    assert(jitR.direct.isInstanceOf[ObjToLong], s"direct should be ObjToLong, got ${jitR.direct.getClass.getName}")
+    val tree = interp.exportedGlobals("tree")
+    assert(tree.isInstanceOf[Value.InstanceV], "tree should be an InstanceV")
+    val result = JitGlobals.withInterp(interp) {
+      jitR.direct.asInstanceOf[ObjToLong].apply(tree.asInstanceOf[AnyRef])
+    }
+    // build(3) = Add(build(2), Mul(build(2), Num(2))); eval(build(2))=9 → 9 + 9*2 = 27
+    assert(result == 27L, s"eval(build(3)) via JIT should be 27, got $result")
+
+  // ── 2-param recursive ADT eval (gEval) ───────────────────────────
+
+  test("gEval (scale: Int, e: Expr) — should JIT (2-param arm self-calls)"):
+    val r = lintFor(
+      """sealed trait Expr
+        |case class Num(n: Int) extends Expr
+        |case class Add(l: Expr, r: Expr) extends Expr
+        |case class Mul(l: Expr, r: Expr) extends Expr
+        |def gEval(scale: Int, e: Expr): Int = e match
+        |  case Num(n)    => n * scale
+        |  case Add(l, r) => gEval(scale, l) + gEval(scale, r)
+        |  case Mul(l, r) => gEval(scale, l) * gEval(scale, r)
+        |gEval(2, Num(1))""".stripMargin
+    ).forDef("gEval")
+    r.willJit shouldBe true
+    r.bailReasons shouldBe empty
+
+  test("gEval — JIT direct interface evaluates correctly"):
+    val src = s"# Test\n\n```scalascript\n${
+      """sealed trait Expr
+        |case class Num(n: Int) extends Expr
+        |case class Add(l: Expr, r: Expr) extends Expr
+        |case class Mul(l: Expr, r: Expr) extends Expr
+        |def gEval(scale: Int, e: Expr): Int = e match
+        |  case Num(n)    => n * scale
+        |  case Add(l, r) => gEval(scale, l) + gEval(scale, r)
+        |  case Mul(l, r) => gEval(scale, l) * gEval(scale, r)
+        |val tree = Add(Num(1), Mul(Num(2), Num(3)))
+        |gEval(2, tree)""".stripMargin}\n```\n"
+    val module = scalascript.parser.Parser.parse(src)
+    val devNull = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
+    val interp = Interpreter(devNull)
+    interp.runSections(module)
+    import scalascript.interpreter.Value
+    import scalascript.interpreter.vm.jit.{JitBackend, JitGlobals}
+    import scalascript.interpreter.vm.jit.LongObjToLong
+    val gEvalFun = interp.exportedGlobals("gEval")
+    val jitR = JitBackend.default.tryCompile(gEvalFun.asInstanceOf[Value.FunV], interp)
+    assert(jitR != null, "gEval should JIT-compile")
+    assert(jitR.direct != null, "gEval JitResult should have a direct interface")
+    assert(jitR.direct.isInstanceOf[LongObjToLong], s"direct should be LongObjToLong, got ${jitR.direct.getClass.getName}")
+    val tree = interp.exportedGlobals("tree")
+    assert(tree.isInstanceOf[Value.InstanceV], "tree should be an InstanceV")
+    // gEval(2, Add(Num(1), Mul(Num(2), Num(3)))) = (1*2) + (2*2)*(3*2) = 2 + 24 = 26
+    val result = JitGlobals.withInterp(interp) {
+      jitR.direct.asInstanceOf[LongObjToLong].apply(2L, tree.asInstanceOf[AnyRef])
+    }
+    assert(result == 26L, s"gEval(2, Add(Num(1),Mul(Num(2),Num(3)))) via JIT should be 26, got $result")
+
   // ── fallback ──────────────────────────────────────────────────────
 
   test("function with no detectable cliff but JIT bail reports UnknownShape"):
