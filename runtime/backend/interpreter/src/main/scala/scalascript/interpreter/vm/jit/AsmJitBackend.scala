@@ -76,6 +76,7 @@ object AsmJitBackend extends JitBackend:
   // ── doCompile ─────────────────────────────────────────────────────────────
 
   private def doCompile(f: Value.FunV, interp: Interpreter): JitResult | Null =
+    if f.usingParams.nonEmpty || f.returnsThrows then return null
     if isBoolReturning(f.body) then return null
     val paramSet   = f.params.toSet
     val paramIsRef = new Array[Boolean](f.params.length)
@@ -102,24 +103,28 @@ object AsmJitBackend extends JitBackend:
     val n     = classCounter.incrementAndGet()
     val cname = s"scalascript/interpreter/vm/jit/asm/AsmJit$$$n"
 
+    val staticName = sanitize(f.name)
     val pureFns    = mutable.LinkedHashMap.empty[String, ClassWriter => Unit]
     val ctx = GenCtx(
-      funName    = f.name,
-      params     = paramSet,
-      paramNames = f.params.toArray,
-      paramSlots = paramSlots,
-      paramIsRef = paramIsRef,
-      isDouble   = isDouble,
-      bindings   = Map.empty,
-      interp     = interp,
-      pureFns    = pureFns,
-      selfClass  = cname,
-      allocSlot  = () => { val s = nextLocal; nextLocal += 2; s }
+      funName          = f.name,
+      staticMethodName = staticName,
+      params           = paramSet,
+      paramNames       = f.params.toArray,
+      paramSlots       = paramSlots,
+      paramIsRef       = paramIsRef,
+      isDouble         = isDouble,
+      bindings         = Map.empty,
+      interp           = interp,
+      pureFns          = pureFns,
+      selfClass        = cname,
+      allocSlot        = () => { val s = nextLocal; nextLocal += 2; s }
     )
 
     val ifaceInternal = if ifaceName != null then ifaceName.replace('.', '/') else null
     val ifaces: Array[String] = if ifaceInternal != null then Array(ifaceInternal) else Array.empty
-    val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES)
+    val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
+      override def getCommonSuperClass(t1: String, t2: String): String = "java/lang/Object"
+    }
     cw.visit(V21, ACC_PUBLIC | ACC_FINAL, cname, null, "java/lang/Object", ifaces)
 
     val init = cw.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null)
@@ -129,12 +134,13 @@ object AsmJitBackend extends JitBackend:
     init.visitInsn(RETURN); init.visitMaxs(1, 1); init.visitEnd()
 
     val staticDesc = buildStaticDesc(paramIsRef, isDouble)
-    val smv        = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, "apply", staticDesc, null, null)
+    val smv        = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, staticName, staticDesc, null, null)
     smv.visitCode()
 
     val bodyOk = emitFnBody(f, ctx, interp, smv, isDouble)
     if !bodyOk then return null
-    smv.visitMaxs(0, 0); smv.visitEnd()
+    try smv.visitMaxs(0, 0) catch case _: Throwable => return null
+    smv.visitEnd()
 
     for (_, emitFn) <- pureFns do emitFn(cw)
 
@@ -143,24 +149,31 @@ object AsmJitBackend extends JitBackend:
       bMv.visitCode()
       var bSlot = 1
       for i <- 0 until f.params.length do
-        if paramIsRef(i) then { bMv.visitVarInsn(ALOAD, bSlot); bSlot += 2 }
+        if paramIsRef(i) then { bMv.visitVarInsn(ALOAD, bSlot); bSlot += 1 }
         else if isDouble  then { bMv.visitVarInsn(DLOAD, bSlot); bSlot += 2 }
         else               { bMv.visitVarInsn(LLOAD, bSlot); bSlot += 2 }
-      bMv.visitMethodInsn(INVOKESTATIC, cname, "apply", staticDesc, false)
+      bMv.visitMethodInsn(INVOKESTATIC, cname, staticName, staticDesc, false)
       bMv.visitInsn(if isDouble then DRETURN else LRETURN)
-      bMv.visitMaxs(0, 0); bMv.visitEnd()
+      try bMv.visitMaxs(0, 0) catch case _: Throwable => return null
+      bMv.visitEnd()
 
     cw.visitEnd()
-    val bytes  = cw.toByteArray
+    val bytes  = try cw.toByteArray catch case _: Throwable => return null
     val loader = new InMemoryClassLoader(getClass.getClassLoader)
-    val cls    = try loader.define(cname.replace('/', '.'), bytes) catch case _: Throwable => return null
+    val cls = {
+      val c = try loader.define(cname.replace('/', '.'), bytes) catch case _: Throwable => null
+      if c == null then return null else c
+    }
 
     val ptypes: Array[Class[?]] = paramIsRef.map(r =>
       if r then classOf[Object] else if isDouble then classOf[Double] else classOf[Long])
     val rtype: Class[?] = if isDouble then classOf[Double] else classOf[Long]
     val mt = java.lang.invoke.MethodType.methodType(rtype, ptypes.asInstanceOf[Array[Class[?]]])
-    val mh = try java.lang.invoke.MethodHandles.lookup().findStatic(cls, "apply", mt)
-             catch case _: Throwable => return null
+    val mh = {
+      val h = try java.lang.invoke.MethodHandles.lookup().findStatic(cls, staticName, mt)
+              catch case _: Throwable => null
+      if h == null then return null else h
+    }
     val direct: AnyRef | Null =
       if ifaceName != null then
         try cls.getConstructor().newInstance().asInstanceOf[AnyRef]
@@ -194,17 +207,18 @@ object AsmJitBackend extends JitBackend:
   // ── Walker context ────────────────────────────────────────────────────────
 
   private case class GenCtx(
-    funName:    String,
-    params:     Set[String],
-    paramNames: Array[String],
-    paramSlots: Array[Int],
-    paramIsRef: Array[Boolean],
-    isDouble:   Boolean,
-    bindings:   Map[String, (Int, Boolean)],  // name → (slot, isRef)
-    interp:     Interpreter,
-    pureFns:    mutable.LinkedHashMap[String, ClassWriter => Unit],
-    selfClass:  String,
-    allocSlot:  () => Int
+    funName:          String,
+    staticMethodName: String,
+    params:           Set[String],
+    paramNames:       Array[String],
+    paramSlots:       Array[Int],
+    paramIsRef:       Array[Boolean],
+    isDouble:         Boolean,
+    bindings:         Map[String, (Int, Boolean)],  // name → (slot, isRef)
+    interp:           Interpreter,
+    pureFns:          mutable.LinkedHashMap[String, ClassWriter => Unit],
+    selfClass:        String,
+    allocSlot:        () => Int
   ):
     def isRefName(n: String): Boolean =
       bindings.get(n) match
@@ -269,7 +283,7 @@ object AsmJitBackend extends JitBackend:
   // ── walkDouble ────────────────────────────────────────────────────────────
 
   private def walkDouble(t: Term, ctx: GenCtx, mv: MethodVisitor): Boolean = t match
-    case Lit.Double(v) => mv.visitLdcInsn(v);        true
+    case Lit.Double(v) => mv.visitLdcInsn(java.lang.Double.parseDouble(v.toString)); true
     case Lit.Int(v)    => mv.visitLdcInsn(v.toDouble); true
     case Lit.Long(v)   => mv.visitLdcInsn(v.toDouble); true
     case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
@@ -322,7 +336,7 @@ object AsmJitBackend extends JitBackend:
                else                       walkLong(rem.head, ctx, mv)
       if !ok then return false
       i += 1; rem = rem.tail
-    mv.visitMethodInsn(INVOKESTATIC, ctx.selfClass, "apply",
+    mv.visitMethodInsn(INVOKESTATIC, ctx.selfClass, ctx.staticMethodName,
       buildStaticDesc(ctx.paramIsRef, ctx.isDouble), false)
     true
 
@@ -897,6 +911,17 @@ object AsmJitBackend extends JitBackend:
       if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
       then sb.append(c) else sb.append('_')
       i += 1
+    sb.toString
+
+  private def sanitize(name: String): String =
+    val sb = new StringBuilder
+    var i = 0
+    while i < name.length do
+      val c = name.charAt(i)
+      if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
+      then sb.append(c) else sb.append('_')
+      i += 1
+    if sb.isEmpty || (sb.charAt(0) >= '0' && sb.charAt(0) <= '9') then sb.insert(0, "fn_")
     sb.toString
 
   // ── InMemoryClassLoader ───────────────────────────────────────────────────
