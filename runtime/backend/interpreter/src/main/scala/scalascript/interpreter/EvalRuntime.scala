@@ -375,13 +375,15 @@ private[interpreter] object EvalRuntime:
         case _ => null
     if receiverVal == null then return null
 
-    // For MapV: pre-extract keys/values into Object[] once to avoid per-iteration iterator allocation.
+    // Pre-extract collection items into Object[] to avoid per-iteration allocation / virtual dispatch.
     val refObj: AnyRef = receiverVal match
       case mv: Value.MapV =>
         val arr: Array[Value] =
           if entry.mapIsKeyMode then mv.entries.keysIterator.toArray
           else mv.entries.valuesIterator.toArray
         arr.asInstanceOf[AnyRef]
+      case lv: Value.ListV if entry.listPreExtract =>
+        lv.items.toArray[AnyRef].asInstanceOf[AnyRef]
       case other => other.asInstanceOf[AnyRef]
     val refs = Array[AnyRef](refObj)
     try
