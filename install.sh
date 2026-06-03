@@ -7,6 +7,15 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$ROOT/bin"
 LIB="$BIN/lib"
 
+if ! command -v java &>/dev/null; then
+    echo "Error: JDK not found. Run ./setup.sh first to install required tools." >&2
+    exit 1
+fi
+if ! command -v sbt &>/dev/null; then
+    echo "Error: sbt not found. Run ./setup.sh first to install required tools." >&2
+    exit 1
+fi
+
 echo "Staging ssc (thin jar + deps) via sbt cli/installBin..."
 (cd "$ROOT" && sbt -no-colors cli/installBin)
 [ -f "$LIB/ssc.jar" ]  || { echo "Stage did not produce $LIB/ssc.jar" >&2; exit 1; }
