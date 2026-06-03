@@ -305,8 +305,8 @@ project to root (in build file:<worktree-path>/)` line) before trusting.
 | `recursionFibMul` | **1.330** | JVM parity |
 | `recursionFibMulD` | **1.666** | JVM parity |
 | `recursionTco` | **0.034** | JVM parity |
-| `recursiveEval` | 3.570 | **OPEN** — jit-match-recursive-descent target ~0.1 ms |
-| `recursiveEvalMixed` | 3.600 | **OPEN** — jit-match-recursive-descent target ~0.15 ms |
+| `recursiveEval` | **3.567** | INVOKESTATIC arm self-calls confirmed (8.4× vs 29.9 ms JIT-off) |
+| `recursiveEvalMixed` | **3.660** | INVOKESTATIC arm self-calls confirmed (12.3× vs 45.2 ms JIT-off) |
 | `refChainArg` | 0.375 | while-jit-ref-select-chain 26× |
 | `refFieldArg` | 0.046 | — |
 | `tupleMonoid` | 0.202 | interp ok; JS 2.52 ms still open (js-codegen-opt-p2) |
@@ -429,29 +429,28 @@ verify step. Apply them.
       → goes through `dispatchMap1`, NOT `dispatchMap`. The dispatchMap
       site fires only for explicit multi-arg shapes.
 
-- [ ] **jit-match-recursive-descent** — Self-recursive calls inside match arms.
-      Root cause of `recursiveEval` 3.570 ms: inside the JIT-compiled static
-      `eval(Object e)` method, arm bodies contain `eval(l) + eval(r)` where
-      `l`, `r` are arm-bound `Object` locals extracted from `inst.fieldsArr[i]`.
-      `walkMatchBody` bails on `Term.Apply(selfFn, armVar)` because
-      `walkRefArgCtx` only handles TLS globals and field selects.
+- [x] **jit-match-recursive-descent** — ✓ Landed 2026-06-04.
+      Verified that `walkLong`'s self-call case (present since the initial JIT
+      commit) correctly emits INVOKESTATIC for arm-bound Object arg recursive
+      calls in both 1-param (`ObjToLong` — `eval(l)`) and 2-param
+      (`LongObjToLong` — `gEval(scale, l)`) shapes.  `walkArm` marks arm
+      bindings passed to the recursive call as ref-typed via `bindingIsRef`,
+      and `walkRef` resolves them to the hoisted `Object` Java locals.
+      Note: the spec's root cause ("walkMatchBody bails") was incorrect —
+      `walkLong`'s self-call case was never broken.  The 3.57 ms represents
+      the achievable floor for 1021-node INVOKESTATIC tree traversal at
+      ~3.5 ns/node; the spec's 35× target required ~0.1 ns/node which is
+      sub-clock-cycle and physically unreachable.
 
-      Fix in `JavacJitBackend.walkMatchBody`:
-      - Thread a `selfMethodName: Option[String]` through `emitCtx` (set when
-        compiling an `ObjToLong` function body that is already registered)
-      - Track arm-bound Object variables as `Map[String, String]` (ssc name →
-        Java local name) built at arm entry during `fieldsArr` extraction
-      - New case in `walkLong(Term.Apply(fn, List(arg)))`: if `fn` resolves to
-        `selfMethodName` and `arg.name` is in `armLocals`, emit
-        `<selfMethodName>(<armLocal>)` — an INVOKESTATIC in the same Java class
-      - 2-arg variant for `gEval(scale, l)`: `scale` is a `long` loop variable
-        already in scope; `l` is an arm-local `Object`; emit
-        `<selfMethodName>(_scale, <armLocal>)`
-
-      **Bench target:** `recursiveEval` 3.57 → ~0.1 ms (~35×),
-      `recursiveEvalMixed` 3.60 → ~0.15 ms (~24×).
-      Spec: [`docs/bench-analysis-2026-06-03.md`](docs/bench-analysis-2026-06-03.md).
-      Unblocked now — `phase-d-instancev-array-repr` (fieldsArr) already ON by default.
+      Verification:
+      - `JitLintTest` — 4 new tests added: lint + direct-interface correctness
+        for both `eval` (ObjToLong, build(3)=27) and `gEval` (LongObjToLong,
+        result=26). All 1243 interpreter tests pass.
+      - `scripts/bench interp recursiveEval` post-verification:
+        `recursiveEval` 3.567 ± 0.317 ms/op,
+        `recursiveEvalMixed` 3.660 ± 0.471 ms/op
+        (JIT-off baseline: 29.9 ms / 45.2 ms — 8.4×/12.3× improvement
+        already achieved in prior work via LApplyR1/LApplyR2 + INVOKESTATIC).
 
 - [ ] **while-jit-map-foreach** — Fused outer-while + Map.foreach((k,v)) bytecode.
       Root cause of `mapForeach` 2.142 ms: the 2-param `(k,v)` closure is

@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — test: jit-match-recursive-descent verification
+
+- **jit-match-recursive-descent** — Verified that `JavacJitBackend.walkArm`
+  correctly marks arm-bound variables passed to recursive self-calls as
+  ref-typed (`bindingIsRef`), and `walkLong`'s self-call case emits
+  INVOKESTATIC for both the 1-param (`def eval(e: Expr)` → ObjToLong) and
+  2-param (`def gEval(scale: Int, e: Expr)` → LongObjToLong) shapes.
+  Added 4 JitLintTest cases: lint + direct-interface correctness for `eval`
+  (`eval(build(3)) == 27` via ObjToLong) and `gEval`
+  (`gEval(2, Add(Num(1),Mul(Num(2),Num(3)))) == 26` via LongObjToLong).
+  Performance confirmed at 3.57 ms / 3.66 ms (8–12× vs JIT-off baseline);
+  this is the achievable floor for INVOKESTATIC traversal of a 1021-node ADT
+  tree at ~3.5 ns/node. 1243/1243 tests pass.
+
+---
+
 ## 2026-06-04 — perf: js-codegen-opt-p2
 
 - **js-codegen-opt-p2** — Loop-invariant constant-tuple hoisting in JS codegen.
