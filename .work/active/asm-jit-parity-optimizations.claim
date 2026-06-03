@@ -1,0 +1,4 @@
+feature/asm-jit-parity-optimizations-p2-20260604 2026-06-04T00:00:00Z
+status: not-started
+done-so-far:
+next: port ASM while-JIT ref args/chains/inline match and List/Set fused foreach, excluding Map.foreach while canonical Javac work is active
