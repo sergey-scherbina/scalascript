@@ -164,10 +164,14 @@ being landed backend by backend.
   "frontendCore/testOnly scalascript.frontend.ModelPathValidatorTest"` (17
   tests); `cd <worktree> && sbt "frontendCore/test"` (46 tests).
 
-- [ ] **datatable-source-abstraction** — Phase 2 of
-  `docs/datatable-authoring-surface.md`. Introduce a source descriptor so
-  `DataTable` can render remote fetch rows, local/static rows, typed model
-  signals, and future paged sources without another monolithic table node.
+- [x] **datatable-source-abstraction** — ✓ Landed 2026-06-03. Phase 2 of
+  `docs/datatable-authoring-surface.md`. Introduced `TableDataSource` sealed
+  trait (`Remote`, `StaticRows`, `SignalRows`) in `frontendCore/Primitives.scala`.
+  Changed `View.DataTable(signal: FetchUrlSignal)` to `source: TableDataSource`.
+  Updated all backends (React/Vue/Solid/Custom/SwiftUI/Swing/JavaFX) to gate on
+  Remote; non-Remote renders a stub. Added `staticRowsSource`/`signalRowsSource`
+  intrinsics and `staticDataTable`/`signalDataTable` helpers in `std/ui/data.ssc`.
+  All tests green: frontendCore/React/Vue 47+56+58 passed; fetchPlugin 6 passed.
 
 - [ ] **datatable-column-action-expressiveness** — Phase 3 of
   `docs/datatable-authoring-surface.md`. Add structured column renderers

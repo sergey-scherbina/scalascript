@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — datatable-source-abstraction (Phase 2)
+
+- **datatable-source-abstraction** — Introduced `TableDataSource` sealed trait
+  (`Remote(FetchUrlSignal)`, `StaticRows(List[Map[String,Any]])`,
+  `SignalRows(ReactiveSignal[?])`) in `frontendCore`. Changed
+  `View.DataTable(signal)` to `View.DataTable(source)`. All 7 backends gate
+  Remote-specific logic on the Remote variant; StaticRows/SignalRows emit a
+  header-only stub. New `staticRowsSource`/`signalRowsSource` intrinsics in
+  `FetchIntrinsics`; `staticDataTable`/`signalDataTable` helpers in
+  `std/ui/data.ssc`. FetchIntrinsics legacy path preserves bare-signal callers.
+  47+56+58+6 tests green across frontendCore/React/Vue/fetchPlugin.
+
+---
+
 ## 2026-06-03 — dual-bank-lapply-r1-to-ref + A.2/A.3 JIT slices
 
 - **dual-bank-lapply-r1-to-ref** — `ObjToObject` typed JIT interface;
