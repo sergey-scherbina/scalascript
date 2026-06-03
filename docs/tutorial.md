@@ -1366,15 +1366,17 @@ Import the widget library and create reactive signals:
 [heading, text](std/ui/typography.ssc)
 [textField, actionButton](std/ui/input.ssc)
 [showWhen, fragment_](std/ui/reactive.ssc)
-[badge, fetchTable](std/ui/display.ssc)
+[badge](std/ui/display.ssc)
+[fcol, rowDelete, dataTable](std/ui/data.ssc)
 
 ```scalascript
 val refreshTick = signal[Int]("refreshTick", 0)
 val newItem     = signal[String]("newItem",   "")
+val todoRows    = fetchUrlSignal("todos", "/api/todos", refreshTick)
 ```
 ````
 
-`fetchTable` renders the todo list, fetching from `/api/todos` and
+`dataTable` renders the todo list from a `fetchUrlSignal`, fetching from `/api/todos` and
 re-fetching whenever `refreshTick` increments.  `fetchActionClear` posts
 to `/api/todos`, then clears `newItem` and bumps `refreshTick`:
 
@@ -1382,7 +1384,11 @@ to `/api/todos`, then clears `newItem` and bumps `refreshTick`:
 ## Todo panel
 
 ```scalascript
-val todosTable = fetchTable("/api/todos", "/api/todos/delete", refreshTick)
+val todosTable = dataTable(
+  todoRows,
+  [fcol("Task", "text")],
+  [rowDelete("/api/todos/delete", "id", refreshTick)]
+)
 
 val todoPanel = vstack(gap = 12)(
   heading(2, "Todos"),
@@ -1508,17 +1514,22 @@ route("POST", "/api/todos/delete") { req =>
 
 [textField, actionButton](std/ui/input.ssc)
 
-[fetchTable](std/ui/display.ssc)
+[fcol, rowDelete, dataTable](std/ui/data.ssc)
 
 ```scalascript
 val refreshTick = signal[Int]("refreshTick", 0)
 val newItem     = signal[String]("newItem",   "")
+val todoRows    = fetchUrlSignal("todos", "/api/todos", refreshTick)
 ```
 
 ## UI
 
 ```scalascript
-val todosTable = fetchTable("/api/todos", "/api/todos/delete", refreshTick)
+val todosTable = dataTable(
+  todoRows,
+  [fcol("Task", "text")],
+  [rowDelete("/api/todos/delete", "id", refreshTick)]
+)
 
 val tree = vstack(gap = 16)(
   heading(1, "Todos"),
@@ -1542,8 +1553,8 @@ serve(lower(tree, defaultTheme), 8080)
 
 - Add authentication — a `route("POST", "/login")` route that sets a session
   cookie, then guard the REST routes with `req.session.get("user")`.
-- Switch from `Response.text(body)` to `Response.json(rows)` and use
-  `fetchTable` with typed columns.
+- Switch from `Response.text(body)` to `Response.json(rows)` and add more
+  `dataTable` columns.
 - Add PostgreSQL + sops-encrypted credentials for a production deploy.
 - Replace the hand-crafted JSON string with `jsonStringify` from `std/json`.
 - Add a search box: `signal[String]("filter", "")`, pass it to

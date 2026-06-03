@@ -86,9 +86,9 @@ val view = lower(defaultTheme(vstack([
     textInput(newNote, "Add a note..."),
     button("Add", fetchActionClear("POST", "/api/notes", newNote, tick))
   ]),
-  dataTable(fetchUrl = "/api/notes", tick = tick,
-    columns = [fcol("Note", "text")],
-    actions = [rowDelete("/api/notes/delete", "id", tick)])
+  dataTable(notes,
+    [fcol("Note", "text")],
+    [rowDelete("/api/notes/delete", "id", tick)])
 ])))
 
 serve(view, 8080)

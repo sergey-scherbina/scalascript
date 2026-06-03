@@ -246,6 +246,20 @@ small and dependency-aware because multiple agents are working in parallel.
       Swing `JTable` renderer; `dataTable`/`fcol`/`rowDelete`/`rowPost`/`rowLink`
       .ssc authoring surface; grep gate confirms zero `FetchTable` references.
       See `examples/frontend/data-table/data-table.ssc`.
+- [x] **datatable-authoring-surface-cleanup** - ✓ Landed 2026-06-03.
+      Aligned the public `.ssc` toolkit surface and docs with the landed
+      `View.DataTable(signal, columns, actions)` contract. Fixed the missing
+      `rowEditAction` import in `runtime/std/ui/data.ssc`, made interpreter
+      `fieldColumn` accept the null/default edit action emitted by `fcol`, made
+      row-action intrinsics accept null/default `emptyHeaders` from std/ui
+      helpers, migrated examples away from stale
+      `dataTable(fetchUrl = ..., tick = ...)` calls, and added regression
+      coverage. Spec: `docs/datatable-authoring-surface.md`.
+- [ ] **datatable-next-generalization** - Follow-up design and implementation
+      slices for a more universal table: DataTable path validation, a
+      source abstraction beyond `FetchUrlSignal`, richer column renderers, and
+      transport-neutral row action payloads. Spec:
+      `docs/datatable-authoring-surface.md §Phases 1-3`.
 - [x] **cli-command-result-exitcode** - ✓ Landed 2026-06-02. Introduced an
       internal `CommandResult` / `ExitCode` path, `CliCommand.runResult`,
       registry dispatch results, and top-level exit-code propagation. `LspCmd`

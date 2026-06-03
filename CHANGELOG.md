@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — DataTable authoring surface cleanup
+
+- **datatable-authoring-surface-cleanup** — Documented the post-`FetchTable`
+  `DataTable` authoring contract, fixed std/ui `rowEdit` wiring, made the
+  interpreter fetch plugin accept std/ui default `editable`/`emptyHeaders`
+  shapes, migrated examples/docs to `fetchUrlSignal(...)` +
+  `dataTable(signal, columns, actions)`, and added focused regression coverage.
+
 ## 2026-06-02 — JvmGen UI bridge split
 
 - **jvmgen-ui-bridge-split** — Extracted the frontend

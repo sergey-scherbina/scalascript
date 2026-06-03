@@ -139,6 +139,34 @@ being landed backend by backend.
   `FetchTable` and all its plumbing deleted (grep gate: 0 hits).
   React (56), Vue (58), Solid (63), Custom (63), Swing (19), FetchPlugin (5) tests pass.
 
+- [x] **datatable-authoring-surface-cleanup** — ✓ Landed 2026-06-03. Phase 0
+  of `docs/datatable-authoring-surface.md`: imported `rowEditAction` in
+  `runtime/std/ui/data.ssc`; made interpreter `fieldColumn` accept the
+  null/default edit action emitted by `fcol`; made row-action intrinsics accept
+  null/default `emptyHeaders` from std/ui helpers, including the bare
+  `Value.NativeFnV("emptyHeaders", ...)` sentinel; migrated examples/docs to
+  the explicit `fetchUrlSignal(...)` + `dataTable(signal, columns, actions)`
+  contract; added editable-column intrinsic coverage and a source guard that
+  keeps `rowEditAction` imported by `std/ui/data.ssc`. Verification:
+  `git diff --check`; `rg -n "dataTable\\(fetchUrl|fetchTable\\(|fetchTable\\b|fetchTableView" runtime/std/ui examples docs/native-platform.md docs/user-guide.md docs/tutorial.md README.md` (no hits);
+  `cd <worktree> && sbt "fetchPlugin/testOnly scalascript.compiler.plugin.fetch.FetchPluginInterpreterTest" "backendInterpreter/testOnly scalascript.JvmGenSwingRuntimeTest" "backendInterpreterServer/testOnly scalascript.ToolkitDemoValidateTest"`.
+
+- [ ] **datatable-path-validation** — Phase 1 of
+  `docs/datatable-authoring-surface.md`. Extend structural validation so
+  `FieldColumnDef.fieldPath`, `RowDelete.idField`, `RowPost.bodyField`,
+  `RowLink.fieldPath`, and inline-edit fields can be checked when `DataTable`
+  row model evidence is available. Keep untyped/fetch-only rows permissive.
+
+- [ ] **datatable-source-abstraction** — Phase 2 of
+  `docs/datatable-authoring-surface.md`. Introduce a source descriptor so
+  `DataTable` can render remote fetch rows, local/static rows, typed model
+  signals, and future paged sources without another monolithic table node.
+
+- [ ] **datatable-column-action-expressiveness** — Phase 3 of
+  `docs/datatable-authoring-surface.md`. Add structured column renderers
+  (date, money, status, link, responsive width) and normalize row actions around
+  payload builders instead of a single `bodyField` string.
+
 - [x] **cli-command-result-exitcode** - ✓ Landed 2026-06-02. Introduced
   internal `ExitCode` / `CommandResult`, `CliCommand.runResult` compatibility
   default, `CommandRegistry.dispatchResult`, and top-level launcher propagation.

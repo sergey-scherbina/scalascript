@@ -8,6 +8,13 @@ import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, FetchJsonSignal, Ev
 import scalascript.plugin.api.PluginNative
 
 object FetchIntrinsics:
+  private def isNullish(value: Any): Boolean =
+    value == null || value == Value.UnitV || value == Value.NullV
+
+  private def isEmptyHeadersArg(value: Any): Boolean =
+    isNullish(value) || (value match
+      case Value.NativeFnV("emptyHeaders", _) => true
+      case _                                  => false)
 
   @nowarn("cat=deprecation")
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
@@ -128,6 +135,10 @@ object FetchIntrinsics:
                   Value.Foreign("RowActionDef", ea: RowActionDef.RowInlineEdit)) =>
           Value.Foreign("FieldColumnDef",
             FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), Some(ea)))
+        case List(title: String, fieldPath: String, align: String, editAction)
+            if isNullish(editAction) =>
+          Value.Foreign("FieldColumnDef",
+            FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty)))
         case _ => throw InterpretError("fieldColumn(title, fieldPath[, align[, editAction]])")
     },
 
@@ -145,6 +156,11 @@ object FetchIntrinsics:
           Value.Foreign("RowActionDef",
             RowActionDef.RowDelete(url, idField, tick.asInstanceOf[ReactiveSignal[Int]],
               if h.id == "__ssc_empty_headers" then None else Some(h)))
+        case List(url: String, idField: String,
+                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]), headers)
+            if isEmptyHeadersArg(headers) =>
+          Value.Foreign("RowActionDef",
+            RowActionDef.RowDelete(url, idField, tick.asInstanceOf[ReactiveSignal[Int]]))
         case _ => throw InterpretError("rowDeleteAction(url, idField, tick[, headers])")
     },
 
@@ -162,6 +178,11 @@ object FetchIntrinsics:
           Value.Foreign("RowActionDef",
             RowActionDef.RowPost(label, method, url, bodyField, tick.asInstanceOf[ReactiveSignal[Int]],
               if h.id == "__ssc_empty_headers" then None else Some(h)))
+        case List(label: String, method: String, url: String, bodyField: String,
+                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]), headers)
+            if isEmptyHeadersArg(headers) =>
+          Value.Foreign("RowActionDef",
+            RowActionDef.RowPost(label, method, url, bodyField, tick.asInstanceOf[ReactiveSignal[Int]]))
         case _ => throw InterpretError("rowPostAction(label, method, url, bodyField, tick[, headers])")
     },
 
@@ -190,6 +211,11 @@ object FetchIntrinsics:
           Value.Foreign("RowActionDef",
             RowActionDef.RowInlineEdit(method, url, idField, tick.asInstanceOf[ReactiveSignal[Int]],
               if h.id == "__ssc_empty_headers" then None else Some(h)))
+        case List(method: String, url: String, idField: String,
+                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]), headers)
+            if isEmptyHeadersArg(headers) =>
+          Value.Foreign("RowActionDef",
+            RowActionDef.RowInlineEdit(method, url, idField, tick.asInstanceOf[ReactiveSignal[Int]]))
         case _ => throw InterpretError("rowEditAction(method, url, idField, tick[, headers])")
     },
 

@@ -323,7 +323,7 @@ enum View[+A]:
 
 > **Migration note**: `View.FetchTable` was removed (v0.4/2026-06-02). Use
 > `View.DataTable(signal, columns, actions)` or the `.ssc` surface
-> `dataTable(fetchUrl, tick, columns, actions, headers?)`.
+> `fetchUrlSignal(...)` plus `dataTable(signal, columns, actions)`.
 > `DataTableLowering` composes `ModelView/ForModel/ModelText/Button` nodes.
 
 ### 5.3 Supporting types
@@ -1562,7 +1562,7 @@ Step-by-step: run `ssc migrate-deps`, run `ssc migrate-native-platform`, rebuild
 |-------|-------------|------------|------|
 | **P0 — Spec & migration** | Schema update (`schemas/frontmatter.yaml`), `validate-frontmatter.scala` extension, `scripts/migrate-native-platform.scala` codemod, `MIGRATION.md` entry | Low | 1 w |
 | **P1 — IR Foundation** | `enum View[+A]`, Style sub-records, `WidgetRef`, `id` rename (4 sites), Platform enum, `FrontendFrameworkSpi` extension, `EmittedArtifact`, `--target` dispatch in CLI | Medium | 3–4 w |
-| **P2 — Web renderer update** ✓ | Custom / Vue / React / Solid updated for new `View[+A]` and `Style`; `fetchTable` toolkit helper | Medium | 2 w |
+| **P2 — Web renderer update** ✓ | Custom / Vue / React / Solid updated for new `View[+A]` and `Style`; DataTable toolkit helper | Medium | 2 w |
 | **P2 — Toolchain UX** ✓ | `ssc toolchain check/install`, interactive prompt, auto-install via Coursier / mise / Homebrew / apt / scoop | Low | 1 w |
 | **P2 — Std intrinsics on native** | `httpGet` / `Db.query` / `loadConfig` — native backend mappings (Ktor, URLSession, libcurl, Room, GRDB, libsqlite3) | Medium | 2 w |
 | **P3 — Electron** ✓ | `electron` renderer, `--target desktop`, `electron-main.js` generation + packaging | Low | 1–2 w |

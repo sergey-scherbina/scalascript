@@ -50,7 +50,7 @@ route("POST", "/api/messages/delete") { req =>
 
 ## UI Imports
 
-[signal, serve, fetchActionClear](std/ui/primitives.ssc)
+[signal, serve, fetchUrlSignal, fetchActionClear](std/ui/primitives.ssc)
 
 [lower](std/ui/lower.ssc)
 
@@ -71,6 +71,7 @@ route("POST", "/api/messages/delete") { req =>
 ```scalascript
 val message = signal[String]("message", "")
 val refresh = signal[Int]("refresh", 0)
+val rows    = fetchUrlSignal("messages", "/api/messages", refresh)
 
 val tree = vstack(gap = 12)(
   heading(1, "JavaFX full-stack"),
@@ -78,9 +79,9 @@ val tree = vstack(gap = 12)(
   divider(),
   textField(value = message, label = "Message"),
   actionButton(fetchActionClear("POST", "/api/messages", message, refresh), "Save"),
-  dataTable(fetchUrl = "/api/messages", tick = refresh,
-    columns = [fcol("Message", "text")],
-    actions = [rowDelete("/api/messages/delete", "id", refresh)]),
+  dataTable(rows,
+    [fcol("Message", "text")],
+    [rowDelete("/api/messages/delete", "id", refresh)]),
   hstack(gap = 4)(
     rawText("Refresh tick: "),
     signalText_(refresh)

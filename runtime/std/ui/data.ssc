@@ -25,7 +25,7 @@ that set the provided `Signal[String]` to the clicked column's key — the
 caller is responsible for re-building the rows in sorted order.
 
 [TkNode, TableColumn, TableNode, DataTableNode](nodes.ssc)
-[fieldColumn, rowDeleteAction, rowPostAction, rowLinkAction, dataTableView, emptyHeaders](primitives.ssc)
+[fieldColumn, rowDeleteAction, rowPostAction, rowLinkAction, rowEditAction, dataTableView, emptyHeaders](primitives.ssc)
 
 ```scalascript
 def tableCol(label: String, key: String): TableColumn = TableColumn(label, key)

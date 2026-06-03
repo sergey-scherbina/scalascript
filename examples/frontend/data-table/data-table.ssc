@@ -55,10 +55,9 @@ val selected = signal[String]("selected", "")
 val sig      = fetchUrlSignal("employees", "/api/employees", tick)
 
 val empTable = dataTable(
-  fetchUrl = "/api/employees",
-  tick     = tick,
-  columns  = [fcol("Name", "name"), fcol("Department", "department"), fcol("Salary", "salary")],
-  actions  = [
+  sig,
+  [fcol("Name", "name"), fcol("Department", "department"), fcol("Salary", "salary")],
+  [
     rowDelete("/api/employees/delete", "id", tick),
     rowPost("Promote", "POST", "/api/employees/promote", "id", tick),
     rowLink("Select", selected, "name")

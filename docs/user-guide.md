@@ -1308,7 +1308,7 @@ dispatch through `InProcessBackendTransport` without opening a socket, and
 instead of launching nested `scala-cli`. In generated JVM/Swing apps,
 `fetchAction` / `fetchActionClear` button handlers can dispatch to backend
 routes through a generated JVM `BackendTransport` without opening an HTTP
-socket. Swing `fetchTable` can also load rows and delete them through the same
+socket. Swing `dataTable` can also load rows and delete them through the same
 transport adapter. Generated JVM/Swing typed clients use that transport too.
 Broader frontend client selection is still planned. Distributed clients, browser-to-JVM apps, and
 server-only/client-only split commands remain HTTP/REST. See
@@ -1321,7 +1321,7 @@ on the interpreter path and currently reports that Swing interpreter intrinsics
 are planned.  `ssc run-jvm --frontend swing --transport in-process` is accepted
 as the monolithic JVM mode.  Swing `fetchAction` / `fetchActionClear` handlers
 call generated JVM backend routes in the same process via a generated
-`BackendTransport`; `fetchTable` loads rows and deletes through the same
+`BackendTransport`; `dataTable` loads rows and deletes through the same
 dispatcher.  Generated typed route clients also use this transport.
 
 *Window icon.* Set `app-icon: path/to/icon.png` in front matter; JvmGen
@@ -2743,9 +2743,9 @@ Import selectively from each `std/ui` sub-module:
 [heading, text](std/ui/typography.ssc)
 [textField, checkbox, signalButton, actionButton](std/ui/input.ssc)
 [showWhen, signalText_, fragment_, rawText](std/ui/reactive.ssc)
-[badge, spinner, signalPre, fetchTable](std/ui/display.ssc)
+[badge, spinner, signalPre](std/ui/display.ssc)
 [card, cardWithHeader, modal](std/ui/containers.ssc)
-[tableCol, tableRow, table, sortableTable](std/ui/data.ssc)
+[tableCol, tableRow, table, sortableTable, fcol, rowDelete, rowPost, rowLink, rowEdit, dataTable](std/ui/data.ssc)
 [route, router, link, hashRouter](std/ui/routing.ssc)
 ```
 
@@ -2842,7 +2842,6 @@ showWhen(submitted,
 | `badge(content, variant)` | Colored pill badge; variants: `"success"` `"warning"` `"danger"` `"notification"` `"default"` |
 | `spinner()` | CSS spinning loader |
 | `signalPre(signal)` | `<pre>` block showing a `Signal[String]`; preserves newlines |
-| `fetchTable(fetchUrl, deleteUrl, tick)` | Reactive table — GETs `fetchUrl` on mount and on `tick` change; renders rows with a Delete button per row that POSTs the row's `id` to `deleteUrl` |
 
 ```scalascript
 val logs = signal[String]("logs", "")
@@ -2931,17 +2930,22 @@ actionButton(fetchActionClear("POST", "/api/todos", text, refresh), "Add")
 actionButton(incSignal(refresh), "Reload")
 ```
 
-#### `fetchTable` — reactive REST table
+#### `dataTable` — reactive REST table
 
 ```scalascript
 val refresh = signal[Int]("refresh", 0)
+val todos   = fetchUrlSignal("todos", "/api/todos", refresh)
 
 // Fetches GET /api/todos → renders rows; each row has a Delete button
 // that POSTs {id} to /api/todos/delete, then bumps refresh.
-fetchTable("/api/todos", "/api/todos/delete", refresh)
+dataTable(
+  todos,
+  [fcol("Task", "text")],
+  [rowDelete("/api/todos/delete", "id", refresh)]
+)
 ```
 
-`fetchTable` expects the server to return a JSON array:
+`dataTable` consumes a `fetchUrlSignal`; the signal expects the server to return a JSON array:
 ```json
 [{"id": 1, "text": "Buy milk"}, {"id": 2, "text": "Write tests"}]
 ```

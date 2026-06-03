@@ -112,9 +112,10 @@ val alert = showWhen(submitted,
 ```scalascript
 val refreshTick = signal[Int]("refreshTick", 0)
 val newItem     = signal[String]("newItem",   "")
-val todosTable  = dataTable(fetchUrl = "/api/todos", tick = refreshTick,
-                    columns = [fcol("Task", "text")],
-                    actions = [rowDelete("/api/todos/delete", "id", refreshTick)])
+val todosRows   = fetchUrlSignal("todos", "/api/todos", refreshTick)
+val todosTable  = dataTable(todosRows,
+                    [fcol("Task", "text")],
+                    [rowDelete("/api/todos/delete", "id", refreshTick)])
 ```
 
 ## Full tree
