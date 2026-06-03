@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — CI green audit (batch-1 + batch-2)
+
+- **ci-green-audit** — Fixed all CLI test failures introduced by the
+  May 2026 directory refactor (`cli/`→`tools/cli/`, `std/`→`runtime/std/`)
+  and MessagePack binary artifact format migration. Three commits:
+  batch-1 (a800cb69, 11 failures), SimpleYaml colon-in-value parse error
+  (bb6d5fa0), batch-2 (b15dbffb, 9 failures). All `cli/` tests now pass
+  or cancel gracefully when optional prerequisites are absent.
+
 ## 2026-06-03 — DataTable path validation
 
 - **datatable-path-validation** — Extended `ModelPathValidator` to validate

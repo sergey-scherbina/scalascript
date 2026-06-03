@@ -592,17 +592,11 @@ verify step. Apply them.
       stable**. No Direction C code changes until this spec lands and
       is reviewed. Per `noble-discovering-knuth.md` Direction C.
 
-- [ ] **ci-green-audit** — after the Phase C+D interpreter-perf
-      continuation lands (or sooner if any blocks main), audit the GitHub
-      Actions CI: list all currently failing / red workflows via
-      `gh run list --limit 30 --status failure` and `gh workflow list`,
-      open the latest failed run for each, classify
-      (real regression | env / flake | obsolete config | needs update),
-      and fix or unblock each. Bias toward landing the fix in the same
-      commit as the diagnosis; if the failure is environmental and a
-      retry succeeds, document it (don't just re-run blindly). Includes
-      `.github/workflows/*.yml` updates if obsolete Java / Scala / SBT
-      versions are pinned.
+- [x] **ci-green-audit** — ✓ Landed 2026-06-02/03: batch-1 (a800cb69,
+      11 failures) + SimpleYaml (bb6d5fa0) + batch-2 (b15dbffb, 9 CLI
+      failures). Root causes: dir refactor (cli/→tools/cli/,
+      std/→runtime/std/), MessagePack binary artifact format, missing
+      compiler driver guard. All cli/ tests now pass or cancel cleanly.
 
 ## Tooling
 
