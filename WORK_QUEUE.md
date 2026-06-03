@@ -257,18 +257,24 @@ remain. Spec: [`docs/vm-jit-next.md §"Phase C+D roadmap"`](docs/vm-jit-next.md)
 Each item below is one focused commit; same-session A/B, never ship a
 non-win.
 
-### Current baseline (2026-06-02 end-of-session, default flags ALL ON)
+### Current baseline (2026-06-03 end-of-session, default flags ALL ON)
 
-> **Late-2026-06-02 update.** A second perf sweep this session
-> attacked the LongWhile compile prologue, the LMatch dispatch path,
-> the BytecodeJit val-globals path, and the slot-body DExpr eval
-> tail. Wins relative to the table immediately below (left column):
-> - `instanceFieldAccess` 16.6 → **8.4** ms (49%, 7 commits incl. SlotTable,
->   ctorTagsInt, LMatch val-scrut cache, slot-body peephole)
-> - `recursionFibMul`     6.06 → **1.29** ms (78%, val-globals inline)
-> - `recursionFibMulD`    6.18 → **1.56** ms (75%, val-globals inline)
-> Commits on main: `0e8f3831 44c3812c 62b16bb8 b4eb11f1 dcc5dd34 6948784e 5b29e1c7`.
-> Other benches unchanged or within noise.
+> **2026-06-03 update.** Full `scripts/bench interp` run (wi=3 mi=5 1 fork)
+> after landing all dual-bank / Phase C-D / while-jit-inline-match work.
+> Major improvements since the 2026-06-02 table:
+> - `instanceFieldAccess` 8.4 → **0.042** ms (200×, while-jit-inline-match)
+> - `pureCallSum`         12.5 → **0.273** ms (46×, phase-c-bytecode-pure-fn-call + A.1/A.2)
+> - `pureCallSum2`        14.0 → **0.281** ms (50×)
+> - `patternMatchHeavy`   10 → **0.405** ms (25×, while-jit-mixed + mixed-foreach-set)
+> - `patternMatchSet`     113 → **0.201** ms (560×)
+> - `patternMatchWide`    74 → **1.527** ms (48×)
+> - `recursiveEval`       13.0 → **3.570** ms (3.6×, dual-bank LExpr + LApplyR1)
+> - `recursiveEvalMixed`  13.2 → **3.600** ms (3.7×)
+> - `mapForeach`          532 → **2.142** ms (248×, fasttier-2arg-callentry + fast-map-foreach-preresolved)
+> - `refChainArg`         9.7 → **0.375** ms (26×, while-jit-ref-select-chain)
+> Three remaining slow spots: `recursiveEval`/`recursiveEvalMixed` 3.57/3.60 ms,
+> `mapForeach` 2.14 ms, `patternMatchWide` 1.53 ms.
+> Full analysis: [`docs/bench-analysis-2026-06-03.md`](docs/bench-analysis-2026-06-03.md).
 
 Default flags ON: `SSC_JIT=on`, `SSC_FASTTIER=on`, `SSC_JIT_BYTECODE=on`.
 Backend selector: `SSC_JIT_BACKEND=asm` (default: `javac`; `AsmJitBackend` landed 2026-06-03).
@@ -277,25 +283,34 @@ the baseline for any next A/B; if your stash-baseline gives wildly
 different numbers, sanity-check sbt picked up the worktree (`set current
 project to root (in build file:<worktree-path>/)` line) before trusting.
 
-`InterpreterBench` (ms/op, 1 fork × 3 iters):
+`InterpreterBench` (ms/op, 1 fork × 5 iters, 2026-06-03):
 
 | Bench | Current | Notes |
 |---|---|---|
-| `arithLoop` | **0.283** | while-JIT win: 2.858 → 0.283 ms (10.1×, BytecodeJIT global cache + local-var codegen, JVM parity) |
-| `effectPure` | 0.04 | trivially small |
-| `patternMatchHeavy` | **10** | foreach-hoist win: 113 → 10 ms (11×, pre-resolve list+closure before outer loop) |
-| `patternMatchSet` | **113** | Just landed (commit `8f911f14`); same shape as Heavy but Set receiver |
-| `patternMatchWide` | 74 | Int accumulator, 12-arm match |
-| `pureCallSum` | 12.5 | covered by Phase D LApply + mixed-while |
-| `pureCallSum2` | 14.0 | 2-param LApply2 |
-| `recursionFib` | **1.19** | Phase C int-arith — at native JVM speed |
-| `recursionFibD` | **1.44** | Phase C Double — at native JVM speed |
-| `recursionFibMul` | 6.06 | Phase C globals — adds global read overhead |
-| `recursionTco` | **0.032** | Phase C TCO loop — at native JVM speed |
-| `recursiveEval` | 13.0 | Phase C ADT match — bottlenecked by HashMap field lookups |
-| `recursiveEvalMixed` | 13.2 | Same — already supported by existing code |
-| `instanceFieldAccess` | **16.6** | Phase D LMatch win: 2690 → 16.6 ms (162×, commit `47435cf4`) |
-| `tupleMonoid` | 397 | not in Phase C/D scope |
+| `arithLoop` | **0.270** | JVM parity |
+| `effectPure` | 0.015 | trivially small |
+| `instanceFieldAccess` | **0.042** | while-jit-inline-match 195× |
+| `mapForeach` | 2.142 | **OPEN** — jit-map-foreach target ~0.2 ms |
+| `matchBodyBaseline` | 0.045 | — |
+| `nestedMatchExpr` | 0.043 | — |
+| `patternGuard` | 0.046 | — |
+| `patternMatchHeavy` | **0.405** | while-jit-mixed win; near JVM parity |
+| `patternMatchSet` | **0.201** | — |
+| `patternMatchWide` | 1.527 | **OPEN** — phase-d-patternmatch-fused-foreach target |
+| `pureCallSum` | **0.273** | JVM parity |
+| `pureCallSum2` | **0.281** | JVM parity |
+| `pureCallSumIf` | **0.287** | JVM parity |
+| `pureCallSumBlock` | **0.278** | JVM parity |
+| `recursionFib` | **1.262** | BEATS JVM (1.42 ms) |
+| `recursionFibD` | **1.504** | JVM parity |
+| `recursionFibMul` | **1.330** | JVM parity |
+| `recursionFibMulD` | **1.666** | JVM parity |
+| `recursionTco` | **0.034** | JVM parity |
+| `recursiveEval` | 3.570 | **OPEN** — jit-match-recursive-descent target ~0.1 ms |
+| `recursiveEvalMixed` | 3.600 | **OPEN** — jit-match-recursive-descent target ~0.15 ms |
+| `refChainArg` | 0.375 | while-jit-ref-select-chain 26× |
+| `refFieldArg` | 0.046 | — |
+| `tupleMonoid` | 0.202 | interp ok; JS 2.52 ms still open (js-codegen-opt-p2) |
 
 `RuntimeBench` cross-backend (µs/op, default flags):
 
@@ -414,6 +429,56 @@ verify step. Apply them.
       modes. **Gotcha for future agents**: `m.foreach(closure)` is 1-arg
       → goes through `dispatchMap1`, NOT `dispatchMap`. The dispatchMap
       site fires only for explicit multi-arg shapes.
+
+- [ ] **jit-match-recursive-descent** — Self-recursive calls inside match arms.
+      Root cause of `recursiveEval` 3.570 ms: inside the JIT-compiled static
+      `eval(Object e)` method, arm bodies contain `eval(l) + eval(r)` where
+      `l`, `r` are arm-bound `Object` locals extracted from `inst.fieldsArr[i]`.
+      `walkMatchBody` bails on `Term.Apply(selfFn, armVar)` because
+      `walkRefArgCtx` only handles TLS globals and field selects.
+
+      Fix in `JavacJitBackend.walkMatchBody`:
+      - Thread a `selfMethodName: Option[String]` through `emitCtx` (set when
+        compiling an `ObjToLong` function body that is already registered)
+      - Track arm-bound Object variables as `Map[String, String]` (ssc name →
+        Java local name) built at arm entry during `fieldsArr` extraction
+      - New case in `walkLong(Term.Apply(fn, List(arg)))`: if `fn` resolves to
+        `selfMethodName` and `arg.name` is in `armLocals`, emit
+        `<selfMethodName>(<armLocal>)` — an INVOKESTATIC in the same Java class
+      - 2-arg variant for `gEval(scale, l)`: `scale` is a `long` loop variable
+        already in scope; `l` is an arm-local `Object`; emit
+        `<selfMethodName>(_scale, <armLocal>)`
+
+      **Bench target:** `recursiveEval` 3.57 → ~0.1 ms (~35×),
+      `recursiveEvalMixed` 3.60 → ~0.15 ms (~24×).
+      Spec: [`docs/bench-analysis-2026-06-03.md`](docs/bench-analysis-2026-06-03.md).
+      Unblocked now — `phase-d-instancev-array-repr` (fieldsArr) already ON by default.
+
+- [ ] **while-jit-map-foreach** — Fused outer-while + Map.foreach((k,v)) bytecode.
+      Root cause of `mapForeach` 2.142 ms: the 2-param `(k,v)` closure is
+      handled by `fasttier-2arg-callentry` (pre-resolved accumulator) but
+      HashMap iteration itself still runs through Scala's `HashMap.foreach`
+      without JVM method fusion.  At 500 K iterations / 2.14 ms = 4.28 ns/iter
+      vs `patternMatchHeavy`'s 1.35 ns/iter (List via `while-jit-mixed`).
+
+      Fix in `JavacJitBackend` / `WhileJitEntry`:
+      - Add recognition in `tryCompileWhileMixed` (or a new
+        `tryCompileWhileMapForeach`) for an inner body of shape
+        `m.foreach((k, v) => { acc = acc + v })` where `m` is a
+        val-bound `MapV` (already in TLS refs via `LRefConst`)
+      - Emit a native `entrySet()` for-loop in the generated Java method:
+        ```java
+        for (java.util.Map.Entry<String,Object> _e :
+                 ((Value.MapV)_refs[R]).javaMap().entrySet()) {
+            _slot_acc += asLong(_e.getValue());
+        }
+        ```
+      - `WhileJitEntry.mapLongFns` slot (parallel to `refLongFns`) + matching
+        `JitGlobals.getMapLongFns` probe
+      - Double-accumulator variant via `mapDoubleFns`
+
+      **Bench target:** `mapForeach` 2.14 → ~0.2 ms (~10×).
+      Spec: [`docs/bench-analysis-2026-06-03.md`](docs/bench-analysis-2026-06-03.md).
 
 - [ ] **phase-c-bytecode-mutual** — co-compile mutually recursive int /
       ref fns into a single Java class OR add a runtime MH registry

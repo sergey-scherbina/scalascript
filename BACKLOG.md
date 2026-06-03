@@ -2165,6 +2165,33 @@ gated on same-session A/B + full suite green with the gate off AND on.
       for JitLint's UnknownShape → specific categories. All tracked in
       WORK_QUEUE.md.
 
+- [ ] **jit-match-recursive-descent** — Self-recursive calls inside match arms:
+      `eval(l) + eval(r)` where `l`, `r` are arm-bound `Object` locals.
+      Currently `walkMatchBody` bails on `Term.Apply(selfFn, List(armVar))`
+      because `walkRefArgCtx` only handles TLS-preloaded globals (`LRefConst`)
+      and field selects (`LRefFieldGet`), not arm-local variables.  Fix:
+      track arm-bound Object variables in `emitCtx`; when a self-recursive
+      call's argument is one of those locals, emit `INVOKESTATIC` to the same
+      static method with the arm-local as the `Object` param.  2-arg variant
+      covers `gEval(scale, l)` (Int + Object mixed params, `scale` is a `long`
+      in scope from the outer match entry).
+      Spec: [`docs/bench-analysis-2026-06-03.md`](docs/bench-analysis-2026-06-03.md).
+      **Bench target:** `recursiveEval` 3.57 → ~0.1 ms (~35×),
+      `recursiveEvalMixed` 3.60 → ~0.15 ms (~24×).
+
+- [ ] **while-jit-map-foreach** — Fused outer-while + `map.foreach((k,v) => acc += v)`
+      bytecode path.  `fasttier-2arg-callentry` handles the 2-param closure
+      shape via FastTier pre-resolved accumulator but the HashMap iteration
+      still runs through Scala's `HashMap.foreach` (4.28 ns/iter vs
+      `patternMatchHeavy`'s 1.35 ns/iter via `while-jit-mixed`).
+      Fix: extend `tryCompileWhileMixed` (or add `tryCompileWhileMapForeach`)
+      to recognise a val-bound `MapV` receiver and emit an `entrySet()` for-loop
+      in the generated Java method.  `WhileJitEntry` gains a `mapLongFns` slot
+      carrying the per-entry extraction fn; `JitGlobals.getMapLongFns` mirrors
+      the existing `getRefLongFns` API.
+      Spec: [`docs/bench-analysis-2026-06-03.md`](docs/bench-analysis-2026-06-03.md).
+      **Bench target:** `mapForeach` 2.14 → ~0.2 ms (~10×).
+
 - [ ] **direct-style-eval** (deferred multi-week, post Directions A+B) —
       Migrate `eval(term, env, interp): Computation` to direct-style
       `eval(...): Value` returning the raw value, with effects via
