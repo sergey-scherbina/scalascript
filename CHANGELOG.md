@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — AsmJitBackend — direct AST→JVM bytecode JIT
+
+- **asm-jit-backend** — Second implementation of the `JitBackend` SPI: emits
+  JVM class files directly via ASM 9.7 instead of roundtripping through
+  `javax.tools.JavaCompiler`. Full parity with `JavacJitBackend`: arithmetic,
+  TCO while-loop, ADT pattern match, instance field access, Double functions,
+  free globals, pure-function call inlining. Selected via
+  `SSC_JIT_BACKEND=asm`; Javac remains the default. Build dep: `org.ow2.asm
+  9.7` in `backendInterpreter`. Three correctness bugs found and fixed during
+  parity testing: (1) `Lit.Double(v)` in scalameta 4.17 yields `String` at
+  runtime — must call `Double.parseDouble(v.toString)` before `visitLdcInsn`;
+  (2) bridge method `bSlot` increment for Object (ref) params was `+= 2`,
+  must be `+= 1`; (3) `returnsThrows` guard missing from `doCompile` —
+  throws-typed functions must fall back to tree-walk so the interpreter can
+  auto-wrap the result in `Right`. 1218/1220 tests pass in ASM mode (same
+  pre-existing flaky failures as default mode). Bench parity: `recursionFib`
+  1.4 ms, `recursionFibD` 1.7 ms, `recursionTco` 36 µs, `arithLoop` 0.27 ms.
+
 ## 2026-06-03 — CI green audit (batch-1 + batch-2)
 
 - **ci-green-audit** — Fixed all CLI test failures introduced by the

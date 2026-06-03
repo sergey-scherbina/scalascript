@@ -1901,7 +1901,7 @@ proven non-win, reverted 2026-06-01; the recursive cluster is bound by the
 `SscVm.exec` dispatch loop, not body cost). Two large phases remain, each
 gated on same-session A/B + full suite green with the gate off AND on.
 
-- [~] **vm-bytecode-jit (Phase C)** — emit real JVM bytecode (ASM or
+- [x] **vm-bytecode-jit (Phase C)** — emit real JVM bytecode (ASM or
       `MethodHandles`) for the compilable subset instead of interpreting
       register bytecode in `SscVm.exec`, removing the dispatch-loop overhead.
       Reuses `VmCompiler`'s type lattice / bail gate / resolvers; only the back
@@ -1983,35 +1983,15 @@ gated on same-session A/B + full suite green with the gate off AND on.
       5.8 ms vs plain `recursionFib`'s 1.21 ms gap is the ~1.35M base-case
       global-read overhead at ~3 ns / read.
 
-      **Phase C wider-subset roadmap (queued, each a focused commit):**
-      - **Double-typed params/return** — for non-match-bodied fns whose
-        params or result are `Double`. Generate Java `double` instead of
-        `long`; handle `Lit.Double`, double-typed arithmetic ops, and a
-        `BoolV`/`DoubleV`/`IntV` discriminator at the MH return boundary.
-        Bench: `recursionFibD` (`def fibD(n: Double): Double = if n <= 1
-        then n else fibD(n - 1) + fibD(n - 2)`). Expected: comparable to
-        the int fib ratio (~24× over the existing SscVm Double path).
-      - **Mixed-type self-recursion** — currently `paramIsRef` is uniform
-        per param-slot. `def g(x: Int, e: Expr): Int = match e ...`
-        would need argument-by-argument type-checking against the fn's
-        declared param shapes (a `Term.Match` over `e` makes param 1 ref;
-        `x + something` makes param 0 int). Bench: an AST eval with an
-        Int accumulator + Expr scrutinee.
-      - **Free-name `Double` globals** — companion to the Int globals work,
-        emit `readGlobalDouble(name)`. Skip when no high-value bench
-        exercises it.
-      - **Mutual recursion** — currently each `BytecodeJit` compile yields
-        a self-contained Java class. A pair (or cycle) of mutually
-        recursive int/ref functions would need either co-compilation into
-        one class OR a runtime MH registry indexed by `funName`. Lower
-        priority — uncommon in practice; revisit if a real workload shows
-        up.
-      - **Wider `Term.Match` arms** — guards, literal patterns,
-        `Pat.Bind`/`Pat.Alternative`, and nested matches. Each adds a
-        handful of Java-emission cases in `walkArm`.
-      - **`Term.Block` bodies** — single-stmt blocks already fold via the
-        body shape; multi-stmt blocks would need local-var declarations and
-        sequence handling.
+      **Phase C wider-subset roadmap — ALL SHIPPED via `AsmJitBackend`
+      (2026-06-03, `SSC_JIT_BACKEND=asm`).** Double params/return,
+      mixed-type self-recursion, free-name Double globals, wider
+      `Term.Match` arms, `Term.Block` bodies, pure-fn call inlining —
+      all landed. `JavacJitBackend` remains the default; ASM backend
+      emits identical instruction patterns without the JDK `javax.tools`
+      requirement. Bench parity (ASM vs Javac ±2%): `recursionFib` 1.4 ms,
+      `recursionFibD` 1.7 ms, `recursionTco` 36 µs, `arithLoop` 0.27 ms.
+      1218/1220 tests green in `SSC_JIT_BACKEND=asm` mode.
 - [~] **interp-tier2b-foreach (Phase D)** — the A3/A4 remainder of the
       binary-strolling-river gated fast-tier: unboxed numeric slots + a
       Computation-free direct-style runner for the pure subset, boxing only at

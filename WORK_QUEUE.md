@@ -213,6 +213,7 @@ non-win.
 > Other benches unchanged or within noise.
 
 Default flags ON: `SSC_JIT=on`, `SSC_FASTTIER=on`, `SSC_JIT_BYTECODE=on`.
+Backend selector: `SSC_JIT_BACKEND=asm` (default: `javac`; `AsmJitBackend` landed 2026-06-03).
 Opt-out via `=off` on env or `-D…=off` on JMH forks. Numbers below are
 the baseline for any next A/B; if your stash-baseline gives wildly
 different numbers, sanity-check sbt picked up the worktree (`set current
@@ -487,21 +488,15 @@ verify step. Apply them.
       bound values can be array indices. Per `noble-discovering-knuth.md`
       Direction A slice 5. ~50 lines.
 
-- [ ] **asm-jit-lapplyobjref-parity** — once the in-flight ASM JIT backend
-      lands, port the `LApplyObjRef` LExpr fast-path (commit `13af281f`) to
-      route through `JitBackend.default.tryCompile` so the ref-arg JIT
-      dispatch works regardless of which backend produced the `ObjToLong`
-      direct interface. Today's check is backend-agnostic on paper (it asks
-      `JitBackend.default` and matches on `direct: ObjToLong`), but the ASM
-      backend may need a parallel typed-interface convention or a
-      `Result.direct` adapter. Verify against the locked `nestedMatchExpr`
-      bench — any regression there means the fast-path isn't reached for
-      the new backend. **Extended 2026-06-03:** also `LApplyR1ToRef`,
-      `LApplyR2LongObj`, `LApplyR2ObjLong`, and the typed interface set
-      `LongObjToLong` / `ObjLongToLong` / `LongObjToDouble` /
-      `ObjLongToDouble` need ASM-backend support. Bench gates:
-      `nestedMatchExpr`, `refFieldArg`, `recursiveEvalMixed` — all locked
-      in `InterpreterBench`.
+- [ ] **asm-jit-lapplyobjref-parity** — `AsmJitBackend` landed (2026-06-03,
+      `SSC_JIT_BACKEND=asm`). Now port the `LApplyObjRef` LExpr fast-path
+      (commit `13af281f`) to route through `JitBackend.default.tryCompile` so
+      the ref-arg JIT dispatch works regardless of which backend produced the
+      `ObjToLong` direct interface. Also `LApplyR1ToRef`, `LApplyR2LongObj`,
+      `LApplyR2ObjLong`, and the typed interface set `LongObjToLong` /
+      `ObjLongToLong` / `LongObjToDouble` / `ObjLongToDouble` need
+      ASM-backend support. Bench gates: `nestedMatchExpr`, `refFieldArg`,
+      `recursiveEvalMixed` — all locked in `InterpreterBench`.
 
 ## Interpreter perf — Dual-bank LExpr roadmap (2026-06-03)
 

@@ -80,13 +80,32 @@ method name).
 | `instanceFieldAccess` | Inline `while: total += p match { case Pair(a,b) => a+b }`. Post-LMatch (2026-06-02): whole loop in Long-slot array, ~16.6 ms/op (1M iters, 162× vs baseline 2690 ms). Remaining cost: HashMap reads inside `CompiledMatch.runValueLong`. |
 | `mapForeach` | `Map(...).foreach((k, v) => …)` — 2-arg callEntry path; not yet FastTier-covered. |
 
+## JIT backend selector
+
+The bytecode JIT has two implementations of the `JitBackend` SPI:
+
+| `SSC_JIT_BACKEND=` | Backend | Notes |
+| --- | --- | --- |
+| `javac` (default) | `JavacJitBackend` | AST → Java source → `javax.tools.JavaCompiler` → bytecode. Requires JDK (not JRE). ~50–100 ms cold-start per function. |
+| `asm` | `AsmJitBackend` | AST → JVM bytecode directly via ASM 9.7. ~1–3 ms cold-start; no `javax.tools` dep. Steady-state performance identical. |
+
+To A/B the two backends:
+
+```bash
+scripts/bench interp recursionFib                    # Javac (default)
+SSC_JIT_BACKEND=asm scripts/bench interp recursionFib  # ASM
+```
+
+Expected: numbers within ±5% at steady state. Cold-start (first iter, low
+warmup) should show ASM 30–100 ms faster per function.
+
 ## Off-mode A/B (proving fall-backs work)
 
 The interpreter has two opt-out flags:
 
 | Flag | Effect |
 | --- | --- |
-| `SSC_JIT_BYTECODE=off` / `-Dssc.jit.bytecode=off` | Disables the JavaCompiler-emitted MethodHandle path. Hot recursion falls back to `SscVm.exec`. |
+| `SSC_JIT_BYTECODE=off` / `-Dssc.jit.bytecode=off` | Disables the bytecode JIT (both backends). Hot recursion falls back to `SscVm.exec`. |
 | `SSC_FASTTIER=off` / `-Dssc.fasttier=off` | Disables `FastTier` (foreach-accumulator / pure-call shortcuts). Falls back to the general dispatcher. |
 | `SSC_JIT=off` / `-Dssc.jit=off` | Disables `SscVm.exec` as well — pure tree-walker. |
 
