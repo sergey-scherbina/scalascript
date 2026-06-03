@@ -28,19 +28,4 @@ def workload(): Double =
     shapes.foreach(s => { total = total + area(s) })
     i = i + 1
   total
-
-val WARMUP = 3
-val REPS   = 10
-var _w = 0
-while _w < WARMUP do
-  workload()
-  _w += 1
-
-val _t0 = System.currentTimeMillis()
-var _r = 0
-while _r < REPS do
-  workload()
-  _r += 1
-val _ms = System.currentTimeMillis() - _t0
-println(s"BENCH_MS: ${_ms.toDouble / REPS}")
 ```

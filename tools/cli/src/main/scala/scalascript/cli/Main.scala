@@ -6793,21 +6793,22 @@ private[cli] def timed[A](name: String)(body: => A): (A, PhaseResult) =
   (result, PhaseResult(name, wallMs, alloc))
 
 /** `ssc bench <file.ssc> [options]` — run a .ssc file through all three
- *  backends (interpreter, JvmGen, JsGen) and print a wall-clock comparison
- *  table.  Interpreter timing is in-process (no JVM startup overhead); JVM/JS
- *  times include ssc subprocess + scala-cli / node startup.
+ *  backends (interpreter, JvmGen, JsGen) and print a comparison table.
+ *  Warmup + timing are embedded inside a generated wrapper script, so
+ *  compilation and process-startup costs are excluded from measurements.
  *
  *  Options:
  *  {{{
  *    --no-interp        skip interpreter backend
  *    --no-jvm           skip JVM backend
  *    --no-js            skip JS backend
- *    --warmup N         warmup iterations per backend (default 2)
- *    --reps N           measured iterations per backend (default 7)
+ *    --warmup N         warmup iterations (default 5)
+ *    --reps N           measured iterations (default 20)
  *    --smoke            quick interpreter-only smoke over bench/corpus/hello-world.ssc
- *    --target-ms N      optional p50 threshold for measured backends
- *    --require-target   exit non-zero when any measured backend exceeds --target-ms
+ *    --target-ms N      optional threshold (ms/iter)
+ *    --require-target   exit non-zero when any backend exceeds --target-ms
  *    --baseline         write results to bench/BASELINE_RUNTIME.md
+ *    --machine          print machine-readable BENCH lines for each backend
  *  }}}
  */
 final class BenchCmd extends CliCommand:
@@ -6816,16 +6817,17 @@ final class BenchCmd extends CliCommand:
   override def category = "Run & develop"
   def run(args: List[String]): Unit =
     if args.isEmpty then
-      System.err.println("Usage: ssc bench [--smoke] [--no-interp] [--no-jvm] [--no-js] [--warmup N] [--reps N] [--target-ms N] [--require-target] [--baseline] <file.ssc>")
+      System.err.println("Usage: ssc bench [--smoke] [--no-interp] [--no-jvm] [--no-js] [--warmup N] [--reps N] [--target-ms N] [--require-target] [--baseline] [--machine] <file.ssc>")
       System.exit(1)
 
     var runInterp  = true
     var runJvm     = true
     var runJs      = true
-    var warmup     = 2
-    var reps       = 7
+    var warmup     = 5
+    var reps       = 20
     var smoke      = false
     var writeBase  = false
+    var machine    = false
     var targetMs: Option[Long] = None
     var requireTarget = false
     var warmupExplicit = false
@@ -6848,11 +6850,12 @@ final class BenchCmd extends CliCommand:
         case "--smoke"                   => smoke = true; i += 1
         case "--baseline"                => writeBase = true;  i += 1
         case "--require-target"          => requireTarget = true; i += 1
-        case "--warmup" if i+1 < arr.length => warmup = arr(i+1).toIntOption.getOrElse(2); warmupExplicit = true; i += 2
-        case "--reps"   if i+1 < arr.length => reps   = arr(i+1).toIntOption.getOrElse(7); repsExplicit = true; i += 2
+        case "--machine"                 => machine = true; i += 1
+        case "--warmup" if i+1 < arr.length => warmup = arr(i+1).toIntOption.getOrElse(5); warmupExplicit = true; i += 2
+        case "--reps"   if i+1 < arr.length => reps   = arr(i+1).toIntOption.getOrElse(20); repsExplicit = true; i += 2
         case "--target-ms" if i+1 < arr.length => targetMs = Some(parseTarget(arr(i+1))); i += 2
-        case s if s.startsWith("--warmup=") => warmup = s.stripPrefix("--warmup=").toIntOption.getOrElse(2); warmupExplicit = true; i += 1
-        case s if s.startsWith("--reps=")   => reps   = s.stripPrefix("--reps=").toIntOption.getOrElse(7); repsExplicit = true; i += 1
+        case s if s.startsWith("--warmup=") => warmup = s.stripPrefix("--warmup=").toIntOption.getOrElse(5); warmupExplicit = true; i += 1
+        case s if s.startsWith("--reps=")   => reps   = s.stripPrefix("--reps=").toIntOption.getOrElse(20); repsExplicit = true; i += 1
         case s if s.startsWith("--target-ms=") => targetMs = Some(parseTarget(s.stripPrefix("--target-ms="))); i += 1
         case f if !f.startsWith("-")     => fileArg = Some(f); i += 1
         case other => System.err.println(s"bench: unknown flag $other"); System.exit(1)
@@ -6907,138 +6910,183 @@ final class BenchCmd extends CliCommand:
     if runJs && !nodeAvail then
       System.err.println("[warn] node not found — skipping JS backend")
 
-    // Locate the running ssc.jar via class-source URL, falling back to SSC_JAR env.
-    val sscJarPath: String = sys.env.getOrElse("SSC_JAR", {
-      val src = classOf[scalascript.interpreter.Interpreter].getProtectionDomain.getCodeSource
-      if src != null then
-        val u = src.getLocation
-        if u.getProtocol == "file" then java.nio.file.Paths.get(u.toURI).toString
-        else "ssc"
-      else "ssc"
-    })
+    // Find the ssc script: prefer ssc.lib.path (set by bin/ssc), then SSC env, then PATH.
     val sscCmd: Seq[String] =
-      if sscJarPath == "ssc" then Seq("ssc")
-      else Seq("java", "-jar", sscJarPath)
+      sys.props.get("ssc.lib.path").flatMap { libPath =>
+        val script = java.nio.file.Paths.get(libPath).resolve("bin/ssc")
+        if java.nio.file.Files.isExecutable(script) then Some(Seq(script.toString))
+        else None
+      }.orElse(sys.env.get("SSC").map(s => Seq(s)))
+       .getOrElse(Seq("ssc"))
 
-    // Measure wall-clock median for a subprocess command (warmup + reps).
-    // Uses ProcessBuilder with stdin from /dev/null and output discarded to avoid
-    // pipe-inheritance hangs when the subprocess itself spawns grandchildren
-    // (e.g. ssc run-jvm → scala-cli → JVM).
-    def timeSubproc(cmd: Seq[String], warmupN: Int, repsN: Int): Option[Long] =
-      def runOnce(): Int =
-        val pb = new java.lang.ProcessBuilder(cmd*)
-        pb.redirectInput(new java.io.File("/dev/null"))
-        pb.redirectOutput(ProcessBuilder.Redirect.DISCARD)
-        pb.redirectError(ProcessBuilder.Redirect.DISCARD)
-        scala.util.Try(pb.start().waitFor()).getOrElse(1)
-      for _ <- 1 to warmupN do runOnce()
-      val times = scala.collection.mutable.ArrayBuffer.empty[Long]
-      for _ <- 1 to repsN do
-        val t0 = System.nanoTime()
-        val rc = runOnce()
-        val ms = (System.nanoTime() - t0) / 1_000_000L
-        if rc == 0 then times += ms
-      if times.isEmpty then None
+    // Extract ScalaScript code from a Markdown fence (```scalascript...```) or return raw.
+    def extractCode(content: String): String =
+      val marker = "```scalascript"
+      val start  = content.indexOf(marker)
+      if start < 0 then content
       else
-        val sorted = times.sorted
-        Some(sorted(sorted.length / 2))
+        val codeStart = content.indexOf('\n', start) + 1
+        val endFence  = content.indexOf("\n```", codeStart)
+        if endFence < 0 then content.substring(codeStart)
+        else content.substring(codeStart, endFence)
 
-    // Measure interpreter in-process (no startup overhead).
-    def timeInterp(repsN: Int, warmupN: Int): Option[Long] =
-      val module = scalascript.parser.Parser.parse(os.read(path))
-      val nullOut = new java.io.PrintStream(java.io.OutputStream.nullOutputStream(), false, "UTF-8")
-      for _ <- 1 to warmupN do
-        try scalascript.interpreter.Interpreter(out = nullOut, baseDir = Some(path / os.up), headless = true).run(module)
-        catch case _: Throwable => ()
-      val times = new Array[Long](repsN)
-      for i <- 0 until repsN do
-        val t0 = System.nanoTime()
-        try scalascript.interpreter.Interpreter(out = nullOut, baseDir = Some(path / os.up), headless = true).run(module)
-        catch case _: Throwable => ()
-        times(i) = (System.nanoTime() - t0) / 1_000_000L
-      java.util.Arrays.sort(times)
-      Some(times(repsN / 2))
+    // Wrap user code with a self-contained timing harness that prints BENCH_MS.
+    // Uses markdown format so emit-scala/emit-js work correctly.
+    def generateWrapper(code: String, warmupN: Int, repsN: Int): String =
+      s"""# bench-wrapper
+         |
+         |```scalascript
+         |$code
+         |
+         |var _ssc_w = 0
+         |while _ssc_w < $warmupN do
+         |  workload()
+         |  _ssc_w += 1
+         |val _ssc_t0 = System.currentTimeMillis()
+         |var _ssc_r = 0
+         |while _ssc_r < $repsN do
+         |  workload()
+         |  _ssc_r += 1
+         |val _ssc_ms = System.currentTimeMillis() - _ssc_t0
+         |println(s"BENCH_MS: $${_ssc_ms.toDouble / $repsN}")
+         |```
+         |""".stripMargin
 
-    val name = path.last.stripSuffix(".ssc")
-    println(s"\nssc bench — $name")
-    println("=" * 60)
-    println(s"Warmup: $warmup  Reps: $reps")
-    println()
+    def parseBenchMs(output: String): Option[Double] =
+      output.linesIterator
+        .filter(_.startsWith("BENCH_MS:"))
+        .flatMap(l => l.stripPrefix("BENCH_MS:").trim.toDoubleOption)
+        .toSeq.lastOption
 
-    println("Running...")
+    val name    = path.last.stripSuffix(".ssc")
+    val userCode = extractCode(os.read(path))
+    val wrapper  = generateWrapper(userCode, warmup, reps)
 
-    val ti: Option[Long] = if runInterp then
-      print(s"  interpreter... ")
-      val r = timeInterp(reps, warmup)
-      println(r.fold("ERR")(n => s"${n}ms"))
+    // Run interpreter in-process: parse wrapper, capture stdout, parse BENCH_MS.
+    def timeInterp(): Option[Double] =
+      val module = scalascript.parser.Parser.parse(wrapper)
+      val outBuf = new java.io.ByteArrayOutputStream()
+      val outPs  = new java.io.PrintStream(outBuf, true, "UTF-8")
+      try scalascript.interpreter.Interpreter(out = outPs, baseDir = Some(path / os.up), headless = true).run(module)
+      catch case _: Throwable => ()
+      parseBenchMs(outBuf.toString("UTF-8"))
+
+    // Run wrapper via emit-scala → scala-cli (compilation excluded; JIT warms during warmup iters).
+    def timeJvm(): Option[Double] =
+      val tmpSsc = os.Path(s"/tmp/ssc-bench-jvm-$name.ssc")
+      val tmpSc  = os.Path(s"/tmp/ssc-bench-jvm-$name.sc")
+      os.write.over(tmpSsc, wrapper)
+      val emit = os.proc(sscCmd ++ Seq("emit-scala", tmpSsc.toString))
+        .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+      if emit.exitCode != 0 then return None
+      os.write.over(tmpSc, emit.out.bytes)
+      val run = os.proc("scala-cli", tmpSc.toString)
+        .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+      if run.exitCode != 0 then None
+      else parseBenchMs(run.out.text())
+
+    // Run wrapper via emit-js → node (compilation excluded; V8 JITs during warmup iters).
+    def timeJs(): Option[Double] =
+      val tmpSsc = os.Path(s"/tmp/ssc-bench-js-$name.ssc")
+      val tmpCjs = os.Path(s"/tmp/ssc-bench-js-$name.cjs")
+      os.write.over(tmpSsc, wrapper)
+      val emit = os.proc(sscCmd ++ Seq("emit-js", tmpSsc.toString))
+        .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+      if emit.exitCode != 0 then return None
+      os.write.over(tmpCjs, emit.out.bytes)
+      val run = os.proc("node", tmpCjs.toString)
+        .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+      if run.exitCode != 0 then None
+      else parseBenchMs(run.out.text())
+
+    def fmtMs(ms: Double): String =
+      if ms < 1.0 then f"$ms%.3f" else if ms < 10.0 then f"$ms%.2f" else f"$ms%.1f"
+
+    if !machine then
+      println(s"\nssc bench — $name")
+      println("=" * 60)
+      println(s"Warmup: $warmup  Reps: $reps")
+      println()
+      println("Running...")
+
+    val ti: Option[Double] = if runInterp then
+      if !machine then print(s"  interp... ")
+      val r = timeInterp()
+      if !machine then println(r.fold("ERR")(ms => s"${fmtMs(ms)} ms/iter"))
       r
     else None
 
-    val tj: Option[Long] = if jvmAvail then
-      print(s"  jvm (subprocess)... ")
-      val r = timeSubproc(sscCmd ++ Seq("run-jvm", path.toString), warmup, reps)
-      println(r.fold("ERR")(n => s"${n}ms"))
+    val tj: Option[Double] = if jvmAvail then
+      if !machine then print(s"  jvm... ")
+      val r = timeJvm()
+      if !machine then println(r.fold("ERR")(ms => s"${fmtMs(ms)} ms/iter"))
       r
     else None
 
-    val ts: Option[Long] = if nodeAvail then
-      print(s"  js (subprocess)... ")
-      val r = timeSubproc(sscCmd ++ Seq("run-js", path.toString), warmup, reps)
-      println(r.fold("ERR")(n => s"${n}ms"))
+    val ts: Option[Double] = if nodeAvail then
+      if !machine then print(s"  js... ")
+      val r = timeJs()
+      if !machine then println(r.fold("ERR")(ms => s"${fmtMs(ms)} ms/iter"))
       r
     else None
 
-    // Build markdown table
-    val sb = new StringBuilder
-    var header = "| Backend | p50 ms |"
-    var sep    = "|---|---:|"
-    if ti.isDefined && (tj.isDefined || ts.isDefined) then
-      header += " vs Interpreter |"
-      sep    += "---:|"
-    sb.append("\n")
-    sb.append(header).append("\n")
-    sb.append(sep).append("\n")
+    if machine then
+      ti.foreach(ms => println(s"BENCH interp ${fmtMs(ms)}"))
+      tj.foreach(ms => println(s"BENCH jvm ${fmtMs(ms)}"))
+      ts.foreach(ms => println(s"BENCH js ${fmtMs(ms)}"))
+    else
+      // Build markdown table
+      val sb = new StringBuilder
+      var header = "| Backend | ms/iter |"
+      var sep    = "|---|---:|"
+      if ti.isDefined && (tj.isDefined || ts.isDefined) then
+        header += " vs interp |"
+        sep    += "---:|"
+      sb.append("\n")
+      sb.append(header).append("\n")
+      sb.append(sep).append("\n")
 
-    def row(label: String, ms: Option[Long], base: Option[Long]): String =
-      val msStr = ms.fold("ERR")(n => s"$n")
-      val ratioStr = (ms, base) match
-        case (Some(m), Some(b)) if b > 0 && (tj.isDefined || ts.isDefined) =>
-          f" ${m.toDouble / b.toDouble}%.2fx |"
-        case _ if tj.isDefined || ts.isDefined => " — |"
-        case _ => ""
-      s"| $label | $msStr |$ratioStr"
+      def row(label: String, ms: Option[Double], base: Option[Double]): String =
+        val msStr = ms.fold("n/a")(fmtMs)
+        val ratioStr = (ms, base) match
+          case (Some(m), Some(b)) if b > 0 && (tj.isDefined || ts.isDefined) =>
+            f" ${m / b}%.2fx |"
+          case _ if tj.isDefined || ts.isDefined => " — |"
+          case _ => ""
+        s"| $label | $msStr |$ratioStr"
 
-    if runInterp then sb.append(row("Interpreter (in-process)", ti, ti)).append("\n")
-    if jvmAvail  then sb.append(row("JvmGen + scala-cli", tj, ti)).append("\n")
-    if nodeAvail then sb.append(row("JsGen + node", ts, ti)).append("\n")
+      if runInterp then sb.append(row("interp (in-process)", ti, ti)).append("\n")
+      if jvmAvail  then sb.append(row("jvm (emit-scala → scala-cli)", tj, ti)).append("\n")
+      if nodeAvail then sb.append(row("js (emit-js → node)", ts, ti)).append("\n")
 
-    val table = sb.result()
-    println(table)
+      val table = sb.result()
+      println(table)
 
-    val hw = s"${System.getProperty("os.name")} ${System.getProperty("os.arch")}, JVM ${System.getProperty("java.version")}"
-    println(s"Date: ${java.time.Instant.now()}")
-    println(s"Hardware: $hw")
-    println(s"Notes: warmup=$warmup reps=$reps; interpreter times are in-process (no JVM startup)")
-    targetMs.foreach { limit =>
-      val exceeded = List(
-        "interpreter" -> ti.filter(_ > limit),
-        "jvm"         -> tj.filter(_ > limit),
-        "js"          -> ts.filter(_ > limit)
-      ).collect { case (name, Some(ms)) => s"$name=${ms}ms" }
-      if exceeded.isEmpty then println(s"Target: <= ${limit}ms p50 (met)")
-      else
-        val msg = s"Target: <= ${limit}ms p50 (exceeded: ${exceeded.mkString(", ")})"
-        if requireTarget then System.err.println(msg) else println(msg)
-        if requireTarget then System.exit(1)
-    }
+      val hw = s"${System.getProperty("os.name")} ${System.getProperty("os.arch")}, JVM ${System.getProperty("java.version")}"
+      println(s"Date: ${java.time.Instant.now()}")
+      println(s"Hardware: $hw")
+      println(s"Notes: warmup=$warmup reps=$reps; warmup+timing inside wrapper, compilation excluded")
 
-    if writeBase then
-      val baseDir = findRepoRoot(path).map(_ / "bench").getOrElse(path / os.up / os.up / "bench")
-      val outPath = baseDir / "BASELINE_RUNTIME.md"
-      if os.exists(baseDir) then
-        val content = s"# Runtime Benchmark Baseline\n\nFile: `$name.ssc`  \nDate: ${java.time.Instant.now()}  \nWarmup: $warmup  Reps: $reps\n$table\nHardware: $hw\n"
-        os.write.over(outPath, content)
-        println(s"\nBaseline written to ${outPath}")
+      targetMs.foreach { limit =>
+        val exceeded = List(
+          "interp" -> ti.filter(_ > limit.toDouble),
+          "jvm"    -> tj.filter(_ > limit.toDouble),
+          "js"     -> ts.filter(_ > limit.toDouble)
+        ).collect { case (lbl, Some(ms)) => s"$lbl=${fmtMs(ms)}ms" }
+        if exceeded.isEmpty then println(s"Target: <= ${limit}ms/iter (met)")
+        else
+          val msg = s"Target: <= ${limit}ms/iter (exceeded: ${exceeded.mkString(", ")})"
+          if requireTarget then System.err.println(msg) else println(msg)
+          if requireTarget then System.exit(1)
+      }
+
+      if writeBase then
+        val baseDir = findRepoRoot(path).map(_ / "bench").getOrElse(path / os.up / os.up / "bench")
+        val outPath = baseDir / "BASELINE_RUNTIME.md"
+        if os.exists(baseDir) then
+          val content = s"# Runtime Benchmark Baseline\n\nFile: `$name.ssc`  \nDate: ${java.time.Instant.now()}  \nWarmup: $warmup  Reps: $reps\n$table\nHardware: $hw\n"
+          os.write.over(outPath, content)
+          println(s"\nBaseline written to ${outPath}")
 
 /** `ssc profile <file.ssc> [options]` — instrument each compiler phase and
  *  report wall-clock time, heap allocation delta, optional flame-graph JSON
