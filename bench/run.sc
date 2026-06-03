@@ -45,11 +45,15 @@ val filterNames   = args.filterNot(_.startsWith("--")).toSet
 
 case class BenchResult(name: String, medianMs: Long, minMs: Long, maxMs: Long, output: String)
 
+def logStderr(line: String): Unit =
+  if !line.startsWith("NOTE: Picked up") && !line.contains("skipping backend plugin") then
+    System.err.println(line)
+
 def runOnce(sscPath: String, corpusFile: String): (Long, String) =
   val buf = new java.io.ByteArrayOutputStream
   val ps  = new java.io.PrintStream(buf, true)
   val t0  = System.currentTimeMillis()
-  val rc  = Process(Seq(sscPath, corpusFile)).!(ProcessLogger(ps.println, System.err.println))
+  val rc  = Process(Seq(sscPath, corpusFile)).!(ProcessLogger(ps.println, logStderr))
   val t1  = System.currentTimeMillis()
   if rc != 0 then System.err.println(s"[WARN] non-zero exit for $corpusFile")
   (t1 - t0, buf.toString.trim)
@@ -89,7 +93,7 @@ val sscPath = if Files.exists(sscBin) then sscBin.toString
              else sys.env.getOrElse("SSC", "ssc")  // fallback: PATH
 
 // Verify ssc is usable
-val sscCheck = Process(Seq(sscPath, "--version")).!(ProcessLogger(_ => (), _ => ()))
+val sscCheck = Process(Seq(sscPath, "help")).!(ProcessLogger(_ => (), _ => ()))
 if sscCheck != 0 then
   System.err.println(s"[ERROR] ssc not found at $sscPath. Build with `sbt cli/stage` or set SSC env.")
   sys.exit(1)
