@@ -6921,11 +6921,34 @@ final class BenchCmd extends CliCommand:
     // Wrap user code with a self-contained timing harness that prints BENCH_MS.
     // Uses markdown format so emit-scala/emit-js process it correctly.
     def generateWrapper(code: String, warmupN: Int, repsN: Int): String =
+      // JVM pre-warm: BytecodeJIT reduces eval calls to ~10 per workload() iteration
+      // for TCO workloads — far below JVM C2 threshold (~10 K invocations).
+      // Three stages:
+      //   fib-22 : exercises tree-walk eval/callFun (~140 K calls, 5 reps)
+      //   tco-50 : exercises JitRuntime / MH-invoke path (10 K cache-hit calls)
+      //   pwm    : mutual-tail-call shape → forces tcoTrampoline itself into C2
+      //            (plain tco pre-warm bypasses tcoTrampoline via JIT short-circuit)
       s"""# bench-wrapper
          |
          |```scalascript
          |$code
          |
+         |def _ssc_pfib(n: Int): Int = if n <= 1 then n else _ssc_pfib(n - 1) + _ssc_pfib(n - 2)
+         |def _ssc_ptco(n: Int, a: Int): Int = if n <= 0 then a else _ssc_ptco(n - 1, a + n)
+         |def _ssc_pwm(n: Int): Int = _ssc_pwm_i(n, 0)
+         |def _ssc_pwm_i(n: Int, a: Int): Int = if n <= 0 then a else _ssc_pwm_i(n - 1, a + n)
+         |var _ssc_pi = 0
+         |while _ssc_pi < 5 do
+         |  _ssc_pfib(22)
+         |  _ssc_pi += 1
+         |var _ssc_pj = 0
+         |while _ssc_pj < 10000 do
+         |  _ssc_ptco(50, 0)
+         |  _ssc_pj += 1
+         |var _ssc_pk = 0
+         |while _ssc_pk < 30000 do
+         |  _ssc_pwm(5)
+         |  _ssc_pk += 1
          |var _ssc_w = 0
          |while _ssc_w < $warmupN do
          |  workload()
