@@ -570,3 +570,81 @@ Carry the project's hard-won rules:
 - Per phase: commit (no `Co-Authored-By` trailer) → `git fetch origin &&
   git rebase origin/main` → full `backendInterpreter/test` (~1204 green) →
   ff-merge `git push origin HEAD:main`.
+
+---
+
+## Phase E — Dual-bank LExpr + JIT-ability lint (2026-06-03)
+
+The 5 commits landed on main 2026-06-03 close the "JIT compiles but
+the call site never reaches it" cliff. Roadmap detail in
+`~/.claude/plans/noble-discovering-knuth.md`; per-commit summary in
+WORK_QUEUE.md under "Interpreter perf — Dual-bank LExpr roadmap".
+
+### Why this phase mattered
+
+`LApplyObjRef` (commit `13af281f`) closed one specific shape — `f(item)`
+where `f` JIT-compiles to ObjToLong and `item` is a val-bound InstanceV.
+Root-cause investigation found `LExpr` was single-bank: every node's
+`eval(slots: Array[Long]): Long` returned Long and read Long slots, so
+any ref-typed subterm hit `slotOf(-1)` and the whole compileExpr fold
+collapsed to null. The bail propagated outward silently — JFR-validated:
+400+ samples in `evalCore` for the canonical `f(item)` shape pre-fix.
+
+### Phase E commits
+
+- `e8c2f64b` (Commit 1): dual-bank LExpr infra. `LExpr.eval(slots,
+  refs)` signature change; `LRefExpr` empty hierarchy; `SlotTable`
+  kind tags (`SlotKindLong`/`Ref`/`Double`); `EmptyRefs` singleton; both
+  while-loop entries pre-allocate the refs bank when `refCount > 0`.
+  No behavioural change.
+- `f7fc2b34` (Commit 2): `LApplyR1(argR: LRefExpr, ObjToLong)` +
+  `LRefConst(v: AnyRef)` replace specialised `LApplyObjRef`.
+  `compileRefExpr(term)` handles `Term.Name` for val-bound InstanceV.
+  Both `compileExpr` sites use it before slot-arg probe.
+- `96ab9004` (Commit 3): `LRefFieldGet(instR, fieldIdx)` for
+  `inst.field` access. `compileRefExpr` extended to `Term.Select`.
+  Bench `refFieldArg` (`f(item.right)`) locked.
+- `0a43e4b1` (Phase 2): `JitLint` analyser + `ssc lint-jit` CLI.
+  8 `JitBailReason` categories with structural-fix suggestions.
+- `1bd98d51` (Phase 1b): 2-arg ref-mixed dispatch. 4 new typed
+  ifaces (`LongObjToLong`, `ObjLongToLong`, `LongObjToDouble`,
+  `ObjLongToDouble`). `JavacJitBackend.determineInterface` covers all
+  2-arg (paramIsRef × isDouble) combos. `JitRuntime.invokeBytecode2`
+  unboxed-dispatch for each. `LApplyR2LongObj` / `LApplyR2ObjLong`.
+
+### Cumulative bench impact (InterpreterBench, ms/op)
+
+| Bench | Pre-session | Post Phase 1+1b+2 | Δ |
+|---|---:|---:|---|
+| `nestedMatchExpr` | 2700 | 8.5 | 318× |
+| `refFieldArg` | ~2700 | 14 | ~170× |
+| `recursionFibMul` | 5.96 | 1.29 | 4.6× |
+| `recursiveEvalMixed` | 8.0 | 3.67 | 2.2× |
+| `recursiveEval` | 7.5 | 3.7 | 2.0× |
+| `instanceFieldAccess` | 16.5 | 8.4 | -49% |
+
+Tests: 1226/1226 green after each commit.
+
+### Remaining items (deferred, see WORK_QUEUE.md)
+
+- `dual-bank-lapply-r1-to-ref` — `ObjToObject` JIT interface +
+  `LApplyR1ToRef` for `f(g(x))` ref-returning chains.
+- `dual-bank-lref-match` — `LRefMatch(scrutR, cm)` for match-returning-ref.
+- `jit-pattern-guard-conditional-arm` — let `case x if cond =>` arms JIT.
+- `jit-lint-recognisers-pure-predicates` — factor out JavacJitBackend
+  predicates so `JitLint` reports specific reasons instead of
+  `UnknownShape`.
+
+### Methodology lessons (this phase)
+
+- **Silent bails are the enemy.** The `LApplyObjRef` work proved
+  pattern-by-pattern recogniser extension is reactive; structural
+  fixes (dual-bank) close whole categories at once.
+- **The JFR signal is gold for direction-finding.** When `evalCore`
+  shows up as 40%+ of CPU in a bench where JIT was supposed to work,
+  the bail isn't where you think it is — keep climbing the call stack.
+- **Lint and runtime must share predicates.** Today `JitLint.lintFun`
+  calls the live `JitBackend.default.tryCompile` cache as ground truth,
+  so the two can never drift. Direction further out: extract
+  recogniser predicates into pure functions and have both the JIT
+  emit path AND the lint analyser call them.

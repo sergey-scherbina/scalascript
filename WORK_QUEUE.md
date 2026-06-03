@@ -496,7 +496,97 @@ verify step. Apply them.
       backend may need a parallel typed-interface convention or a
       `Result.direct` adapter. Verify against the locked `nestedMatchExpr`
       bench — any regression there means the fast-path isn't reached for
-      the new backend.
+      the new backend. **Extended 2026-06-03:** also `LApplyR1ToRef`,
+      `LApplyR2LongObj`, `LApplyR2ObjLong`, and the typed interface set
+      `LongObjToLong` / `ObjLongToLong` / `LongObjToDouble` /
+      `ObjLongToDouble` need ASM-backend support. Bench gates:
+      `nestedMatchExpr`, `refFieldArg`, `recursiveEvalMixed` — all locked
+      in `InterpreterBench`.
+
+## Interpreter perf — Dual-bank LExpr roadmap (2026-06-03)
+
+The "make JIT work always" strategic plan from
+`~/.claude/plans/noble-discovering-knuth.md`. Phase 1 (dual-bank LExpr)
++ Phase 1b (2-arg ref-mixed) + Phase 2 (JitLint) shipped 2026-06-03.
+Remaining items below are the "deferred" parts of the plan — each
+gives the bench/shape it unblocks so a future agent can pick the
+highest-impact item.
+
+- [x] **dual-bank-lexpr-infra** — ✓ Landed 2026-06-03 commit `e8c2f64b`.
+      `LExpr.eval(slots, refs)` signature; `LRefExpr` empty hierarchy;
+      `SlotTable` kind tags (`SlotKindLong` / `Ref` / `Double`);
+      `EmptyRefs` singleton; both tryLongWhileAssign and
+      tryMixedLongWhile while-loop entries pre-allocate the refs bank
+      based on `slotOfName.refCount`. No behavioural change.
+
+- [x] **dual-bank-lapply-r1** — ✓ Landed 2026-06-03 commit `f7fc2b34`.
+      `LApplyR1(argR: LRefExpr, ObjToLong)` + `LRefConst(v: AnyRef)`
+      replace the specialised `LApplyObjRef` (commit 13af281f).
+      `compileRefExpr(term)` recognises `Term.Name` for val-bound
+      InstanceV. Both `compileExpr` sites use it before the slot-arg
+      compileExpr probe. Generalises the 1-arg ref-arg JIT fast-path.
+
+- [x] **dual-bank-lref-field-get** — ✓ Landed 2026-06-03 commit `96ab9004`.
+      `LRefFieldGet(instR, fieldIdx)` reads `inst.fieldsArr[idx]` via the
+      LRefExpr chain. `compileRefExpr` extended to `Term.Select(qual,
+      fieldName)` with static type lookup from val snapshots. Bench
+      `refFieldArg` locked in: `f(item.right)` shape — was
+      tree-walk ~2700 ms, now LMatch parity ~14 ms (~170×).
+
+- [x] **dual-bank-r2-mixed** — ✓ Landed 2026-06-03 commit `1bd98d51`.
+      2-arg ref-mixed JIT dispatch. New typed ifaces:
+      `LongObjToLong` / `ObjLongToLong` / `LongObjToDouble` /
+      `ObjLongToDouble`. `JavacJitBackend.determineInterface` covers
+      all 2-arg (paramIsRef × resultIsDouble) combos.
+      `JitRuntime.invokeBytecode2` typed direct dispatch for each
+      combination. `EvalRuntime.LApplyR2LongObj` / `LApplyR2ObjLong`
+      + 2-arg refMixed fast path in both compileExpr sites. Bench:
+      `recursiveEvalMixed` 7.97 → 3.67 ms (-54%, 2.2×).
+
+- [x] **jit-lint-analyser** — ✓ Landed 2026-06-03 commit `0a43e4b1`.
+      `vm/jit/JitLint.scala` walks `interp.globals`, simulates JIT
+      compile, reports `JitBailReason` per Defn.Def (TryCatch,
+      EffectReturn, UsingParams, VarargParam, PatternGuard,
+      NonAdtScrutinee, NonExtractPattern, MixedReturnType,
+      UnknownShape). CLI: `ssc lint-jit <file> [--json] [--quiet]
+      [--fail-on-bail]`. 6-fixture test suite in `JitLintTest`.
+
+- [ ] **dual-bank-lapply-r1-to-ref** — `LApplyR1ToRef(argR: LRefExpr,
+      ObjToObject)` for `f(g(x))` chains where `g` returns ref. **Blocked
+      on `ObjToObject` typed interface** — the JIT backend currently emits
+      only Long/Double returns from `walkLong`/`walkDouble`. Needs JIT
+      walker support for ref-returning bodies first (probably a new
+      `walkRefBody` parallel to `walkMatchBody`). Add bench
+      `modRefFieldArgChain` (`f(g(item).field)` or similar) to lock the
+      win once the JIT side lands. Estimated 2 commits (JIT walker
+      + LExpr wire-up).
+
+- [ ] **dual-bank-lref-match** — `LRefMatch(scrutR, cm)` — match returning
+      ref in LExpr position. Today only Long-returning match (`LMatch`)
+      is wired. Use case: `f(e match { case Add(_, r) => r; case x => x })`
+      where the match's result is the ref arg to `f`. Lower priority than
+      `LApplyR1ToRef` because the explicit field-access shape (`e.right`)
+      already covers most cases via `LRefFieldGet`. ~80 lines.
+
+- [ ] **jit-pattern-guard-conditional-arm** — extend
+      `JavacJitBackend.walkArm` to handle `case x if cond => body` by
+      emitting `if (cond) <body> else <fall-through>` inside the switch
+      case. Unblocks all the `withGuard` shapes the JitLint reports as
+      `PatternGuard`. Real-world impact: any reusable validation arm
+      (`case Cmd(x) if x > 0 => …`) currently tree-walks. Needs careful
+      thinking about exhaustiveness — guarded arms can't be `default`,
+      so the compiler emits a separate fallthrough block. Estimated
+      ~60 lines + bench `modPatternGuard` to lock.
+
+- [ ] **jit-lint-recognisers-pure-predicates** — factor out the
+      `JavacJitBackend.tryCompile` bail predicates into pure inspection
+      functions so `JitLint.classifyBailReasons` can ask them directly.
+      Eliminates the `UnknownShape` fallback in most cases — instead the
+      lint reports the EXACT shape the JIT can't handle (e.g.
+      "`Term.ApplyInfix` operator `xor` not in walker's op set"). Larger
+      refactor; ~200 lines of recogniser extraction + ~50 lines of new
+      `JitBailReason` subtypes. Treated as documentation work — the
+      analyser is correct today; this just makes the reports specific.
 
 - [x] **phase-d-patternmatch-double-slot** — ✓ Landed 2026-06-02 commits `c2986e33` / `e583843c`.
       Double-acc slot bypass: `FastTier.accSlotTls`/`accNameTls` `ThreadLocal[Array[Long]]` pair;

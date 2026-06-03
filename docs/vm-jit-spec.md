@@ -256,3 +256,65 @@ production call-path wiring (§6) is done.
 on demand through a name resolver (§4, §5); **`Double`/`Float` arithmetic,
 ordering and Int→Double promotion** (typed `F*` opcodes + `I2D`, double-bits
 register model), including double-domain self-tail and sibling calls.
+
+---
+
+## 9. Phase E — Dual-bank LExpr + JIT-ability lint (2026-06-03)
+
+Five-commit set on main closes the structural cliff where the JIT
+backend compiles a function but the LExpr-fold call site never
+reaches it. See `~/.claude/plans/noble-discovering-knuth.md` for
+the strategic plan and `docs/vm-jit-next.md` "Phase E" for the
+detailed per-commit summary.
+
+### What changed
+
+- `LExpr.eval(slots, refs)` dual-bank signature (mirrors
+  `SscVm.exec(stack, refStack)`).
+- New `LRefExpr` hierarchy: `LRefConst`, `LRefVar`, `LRefFieldGet`.
+- New `LApplyR1(LRefExpr, ObjToLong)` + `LApplyR2LongObj`
+  / `LApplyR2ObjLong` for 1- and 2-arg ref-mixed calls.
+- New typed interfaces (4): `LongObjToLong`, `ObjLongToLong`,
+  `LongObjToDouble`, `ObjLongToDouble`.
+- `JavacJitBackend.determineInterface` now covers all 2-arg
+  (paramIsRef × isDouble) combos.
+- `JitRuntime.invokeBytecode2` typed-direct dispatch for all 4
+  mixed cases (was MH fallback).
+- `compileRefExpr` recogniser: `Term.Name` (val-bound InstanceV)
+  + `Term.Select` (static field index from val type).
+- `JitLint` analyser + `ssc lint-jit` CLI command for static
+  bail-reason reporting.
+
+### Cumulative wins (InterpreterBench, ms/op)
+
+| Bench | Pre-session | Post Phase E | Δ |
+|---|---:|---:|---|
+| `nestedMatchExpr` | 2700 | 8.5 | 318× |
+| `refFieldArg` | ~2700 | 14 | ~170× |
+| `recursionFibMul` | 5.96 | 1.29 | 4.6× |
+| `recursiveEvalMixed` | 8.0 | 3.67 | 2.2× |
+| `recursiveEval` | 7.5 | 3.7 | 2.0× |
+| `instanceFieldAccess` | 16.5 | 8.4 | -49% |
+
+Tests: 1226/1226 green.
+
+### Now in scope
+
+- Ref subterms in the LExpr fold (via the dual-bank LExpr +
+  `LRefExpr` siblings) — was a silent bail before.
+- 2-arg ref-mixed JIT-call sites (`gEval(scale, e)` shape) — was
+  evalCore tree-walk before.
+- Static lint reporting per-Defn-def with structural fix
+  suggestions (was JFR-archaeology before).
+
+### Still out of scope (deferred — see WORK_QUEUE.md)
+
+- `LApplyR1ToRef` — ref-returning JIT'd fn calls. Blocked on
+  `ObjToObject` typed interface (JIT walker doesn't emit ref
+  returns today).
+- `LRefMatch` — match-returning-ref in LExpr position.
+- Pattern guards in JIT walker (`case x if cond =>`).
+- Pure-predicate extraction of `JavacJitBackend.tryCompile` bail
+  set so JitLint reports specifics instead of `UnknownShape`.
+- Direction C — direct-style eval (architectural multi-week, see
+  `direct-style-eval-spec` WORK_QUEUE item, not yet written).

@@ -2178,6 +2178,28 @@ gated on same-session A/B + full suite green with the gate off AND on.
         `direct-style-eval-spec` (WORK_QUEUE item, to be written before
         any Direction C code).
 
+      **2026-06-03: Phase E (Dual-bank LExpr + JIT-ability lint) landed.**
+      Plan refresh in `~/.claude/plans/noble-discovering-knuth.md`. Five
+      commits in main close the "JIT compiles but call site never reaches
+      it" cliff that the original WORK_QUEUE focused on incrementally.
+      Cumulative wins: `nestedMatchExpr` 2700 → 8.5 ms (318×),
+      `refFieldArg` ~2700 → 14 ms (~170×), `recursionFibMul` 5.96 → 1.29
+      ms (4.6×), `recursiveEvalMixed` 8.0 → 3.67 ms (2.2×), `recursiveEval`
+      7.5 → 3.7 ms (2.0×), `instanceFieldAccess` 16.5 → 8.4 ms (-49%).
+      Tests: 1226/1226 green. Detail per-commit in WORK_QUEUE.md under
+      "Interpreter perf — Dual-bank LExpr roadmap (2026-06-03)".
+      Phase E commits in chronological order:
+      - `e8c2f64b` dual-bank LExpr infra (no behavioural change)
+      - `f7fc2b34` LApplyR1 + LRefConst (replace LApplyObjRef)
+      - `96ab9004` LRefFieldGet for `f(item.field)`
+      - `0a43e4b1` JitLint analyser + `ssc lint-jit` CLI
+      - `1bd98d51` 2-arg ref-mixed dispatch (LongObjToLong + LApplyR2)
+      Remaining items (lower priority than Phase 1/1b/2 wins):
+      pattern guards in JIT walker, LApplyR1ToRef (needs ObjToObject
+      JIT interface), LRefMatch, pure-predicate recogniser extraction
+      for JitLint's UnknownShape → specific categories. All tracked in
+      WORK_QUEUE.md.
+
 - [ ] **direct-style-eval** (deferred multi-week, post Directions A+B) —
       Migrate `eval(term, env, interp): Computation` to direct-style
       `eval(...): Value` returning the raw value, with effects via

@@ -278,3 +278,105 @@ Each direction's verification protocol carries forward from this
 survey: JFR-profile target bench → cross-check `gc.alloc.rate.norm`
 → A/B against pre-commit baseline → verify the target allocator class
 drops out of the top-10 samples.
+
+---
+
+## 2026-06-03 — Dual-bank LExpr + JIT-ability lint (Phase E)
+
+After the WORK_QUEUE.md `phase-c-bytecode-int-tag` landed and
+Direction B's first commit (`2df35b4b`) flipped InstanceV array repr,
+a fresh JFR survey on the canonical
+`while i < N do total = total + f(item)` shape (where `item` is a val
+InstanceV, `f` JIT-compilable) found 400+ samples in `evalCore` — the
+JIT was firing for `f`'s body but the OUTER while loop tree-walked
+because `tryLongWhileAssign.compileExpr` couldn't lower a ref-typed
+argument into the LExpr fold. `compileExpr(Term.Name)` does
+`slotOf(name) < 0 → null`; the bail propagated upward and the whole
+LExpr collapsed.
+
+### Root-cause investigation
+
+The `LApplyObjRef` LExpr node (commit `13af281f`, session 2026-06-02)
+patched ONE specific shape: `f(item)` with item a val InstanceV. But
+the fix only covered the leaf case. Any composite shape like
+`f(g(x))`, `f(item.field)`, or `g(scale, item)` fell through and
+tree-walked again.
+
+JFR-validated: the `recursiveEvalMixed` bench (`def gEval(scale: Int,
+e: Expr): Int = e match { … }`) showed 77 samples in the JIT-compiled
+`GenJit_gEval.gEval` AND 87 samples in `evalCore` — meaning JIT
+fired but the outer `total + gEval(3, tree)` loop was tree-walked
+because `compileSlotLongFn2` couldn't fold a match-bodied function.
+
+### Structural fix: dual-bank LExpr
+
+Adopted `SscVm.exec(stack, refStack)`'s proven dual-bank pattern:
+`LExpr.eval(slots: Array[Long], refs: Array[AnyRef])`. New parallel
+`LRefExpr` hierarchy for ref-returning subterms.
+
+Five commits (e8c2f64b / f7fc2b34 / 96ab9004 / 0a43e4b1 / 1bd98d51)
+land Phase 1 (dual-bank infra + LApplyR1 + LRefFieldGet), Phase 2
+(JitLint analyser + CLI), and Phase 1b (2-arg ref-mixed dispatch).
+
+### Bench impact
+
+| Bench | Pre-session | Post Phase E | Δ |
+|---|---:|---:|---|
+| `nestedMatchExpr` | 2700 ms | 8.5 ms | 318× |
+| `refFieldArg` (NEW) | ~2700 ms (synthetic baseline) | 14 ms | ~170× |
+| `recursionFibMul` | 5.96 ms | 1.29 ms | 4.6× |
+| `recursiveEvalMixed` | 8.0 ms | 3.67 ms | 2.2× |
+| `recursiveEval` | 7.5 ms | 3.7 ms | 2.0× |
+| `instanceFieldAccess` | 16.5 ms | 8.4 ms | -49% |
+
+### JFR signal post-fix
+
+Repeat JFR on `recursiveEvalMixed` after Phase 1b shows:
+- `evalCore` samples drop from 87 → typical 10-15 (tree-walk only
+  for the outer top-level `Defn.Val tree = build(8)`, which doesn't
+  go through tryLongWhileAssign at all).
+- `GenJit_gEval.gEval` stays at 60+ samples — the JIT path is now
+  the hot loop's actual dispatcher.
+
+### JIT-ability lint as a structural diagnostic
+
+Phase 2's `JitLint` walks `interp.globals` and asks the live
+`JitBackend.default.tryCompile` cache for each `Defn.Def`. The CLI
+(`ssc lint-jit <file>`) emits human-readable reports with
+suggested-fix text per `JitBailReason`:
+
+```
+def withGuard (line 3)  [will NOT JIT]
+  - function body has `case x if cond => …` — pattern guards aren't
+    lowered into the generated switch/dispatch
+      fix: move the guard into the arm body
+```
+
+The analyser uses the live tryCompile result as ground truth, so the
+lint and the runtime can never drift silently. Categories cover
+TryCatch, EffectReturn, UsingParams, VarargParam, PatternGuard,
+NonAdtScrutinee, NonExtractPattern, MixedReturnType, plus
+`UnknownShape` for cliffs the AST walk can't classify (today the
+recogniser predicates are entangled with the JIT emit code; factoring
+them into pure functions is the next docs-quality lever).
+
+### Methodology lessons
+
+1. **Silent bails are the worst class of regression.** They show up
+   as "perf cliff" reports from users; no exception, no log line.
+   The structural dual-bank fix closes whole categories of bails at
+   once instead of chasing them one shape at a time.
+
+2. **JFR `evalCore` samples are the gold direction-finder.** Any time
+   JIT was supposed to fire and the bench is slower than expected,
+   the bail is upstream of the JIT — climb the call stack until you
+   find the LExpr that returned null.
+
+3. **Lint must call the same predicates the runtime calls.** The
+   tradition of "static analyser + dynamic runtime" inevitably
+   drifts; sharing the predicate function pointer guarantees they
+   never disagree.
+
+The remaining structural items (LApplyR1ToRef, LRefMatch, pattern
+guards, predicate extraction) are tracked in WORK_QUEUE.md under the
+"Dual-bank LExpr roadmap" section.
