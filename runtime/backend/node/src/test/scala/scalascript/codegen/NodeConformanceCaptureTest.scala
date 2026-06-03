@@ -27,8 +27,8 @@ class NodeConformanceCaptureTest extends AnyFunSuite:
 
   private lazy val repoRoot: Path =
     var p = Paths.get(sys.props.getOrElse("user.dir", ".")).toAbsolutePath
-    while p != null && !Files.exists(p.resolve("conformance")) do p = p.getParent
-    require(p != null, "could not locate repo root with a conformance/ dir")
+    while p != null && !Files.exists(p.resolve("build.sbt")) do p = p.getParent
+    require(p != null, "could not locate repo root (no build.sbt found)")
     p
 
   private def workDir(label: String): Path =
@@ -70,8 +70,8 @@ class NodeConformanceCaptureTest extends AnyFunSuite:
 
   private def runConformance(name: String): Unit =
     assume(hasNode, "node not available")
-    val src      = Files.readString(repoRoot.resolve(s"conformance/$name.ssc"))
-    val expected = Files.readString(repoRoot.resolve(s"conformance/expected/$name.txt")).stripTrailing
+    val src      = Files.readString(repoRoot.resolve(s"tests/conformance/$name.ssc"))
+    val expected = Files.readString(repoRoot.resolve(s"tests/conformance/expected/$name.txt")).stripTrailing
     val (code, sources) = compileToOutputs(src)
     val got = runNode(workDir(name), code, sources)
     assert(got == expected,

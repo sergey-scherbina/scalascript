@@ -111,7 +111,7 @@ class I18nSsrTest extends AnyFunSuite with Matchers:
     JsRuntime should include ("let _i18nLocale")
     JsRuntime should include ("let _i18nTable")
     JsRuntime should include ("function setLocale")
-    JsRuntime should include ("function t(key)")
+    JsRuntime should include ("function _i18n(key)")
     JsRuntime should include ("function wc(tag")
 
   test("JsGen: _i18nTable initialized from front-matter translations"):

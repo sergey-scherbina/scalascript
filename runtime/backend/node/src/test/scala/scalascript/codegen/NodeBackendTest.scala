@@ -23,7 +23,7 @@ class NodeBackendTest extends AnyFunSuite:
   }
 
   test("capabilities declare node.js, node, and sql block langs (v1.27 Phase 4)") {
-    assert(backend.capabilities.blockLanguages == Set("node.js", "node", "sql"))
+    assert(backend.capabilities.blockLanguages == Set("node.js", "node", "sql", "graphql"))
   }
 
   test("scalascript-only module — bundle is JsGen output, no glue prefix") {

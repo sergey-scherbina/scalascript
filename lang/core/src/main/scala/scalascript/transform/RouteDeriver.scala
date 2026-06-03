@@ -57,8 +57,11 @@ object RouteDeriver:
             module.copy(manifest = Some(manifest.copy(apiClients = clients)))
 
   private def mergeEndpoints(existing: List[ApiEndpointDecl], fresh: List[ApiEndpointDecl]): List[ApiEndpointDecl] =
-    val seen = existing.map(e => e.method -> e.path).toSet
-    existing ++ fresh.filterNot(e => seen.contains(e.method -> e.path))
+    val freshByKey = fresh.map(e => (e.method -> e.path) -> e).toMap
+    // fresh wins on conflict so re-deriving with baseDir can upgrade typed endpoints
+    val upgraded = existing.map(e => freshByKey.getOrElse(e.method -> e.path, e))
+    val existingKeys = existing.map(e => e.method -> e.path).toSet
+    upgraded ++ fresh.filterNot(e => existingKeys.contains(e.method -> e.path))
 
   private def collectEndpoints(
     module:  Module,

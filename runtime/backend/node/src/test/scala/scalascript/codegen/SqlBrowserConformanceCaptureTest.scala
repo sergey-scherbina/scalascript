@@ -39,8 +39,8 @@ class SqlBrowserConformanceCaptureTest extends AnyFunSuite:
    *  conformance/ dir. */
   private lazy val repoRoot: Path =
     var p = Paths.get(sys.props.getOrElse("user.dir", ".")).toAbsolutePath
-    while p != null && !Files.exists(p.resolve("conformance")) do p = p.getParent
-    require(p != null, "could not locate repo root with a conformance/ dir")
+    while p != null && !Files.exists(p.resolve("build.sbt")) do p = p.getParent
+    require(p != null, "could not locate repo root (no build.sbt found)")
     p
 
   private def cacheDir(label: String): Path =
@@ -89,8 +89,8 @@ class SqlBrowserConformanceCaptureTest extends AnyFunSuite:
   test("conformance/sql-browser-basic.ssc matches expected stdout under NodeBackend + node"):
     assume(hasNode, "node not available")
     assume(hasNpm,  "npm not available")
-    val src      = Files.readString(repoRoot.resolve("conformance/sql-browser-basic.ssc"))
-    val expected = Files.readString(repoRoot.resolve("conformance/expected/sql-browser-basic.txt")).stripTrailing
+    val src      = Files.readString(repoRoot.resolve("tests/conformance/sql-browser-basic.ssc"))
+    val expected = Files.readString(repoRoot.resolve("tests/conformance/expected/sql-browser-basic.txt")).stripTrailing
     val (code, sources) = compileToOutputs(src)
     val pkg = packageJson(sources)
     val got = runMjs(cacheDir("sql-browser-basic"), code, pkg)

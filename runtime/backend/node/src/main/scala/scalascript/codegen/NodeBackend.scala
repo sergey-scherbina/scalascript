@@ -142,18 +142,19 @@ class NodeBackend extends Backend:
   private val NodePrintlnWriteThrough: String =
     """|// v1.27 — write-through println for the Node target.  Replaces
        |// JsRuntime's buffered _println so async/IIFE-wrapped user code
-       |// reaches stdout promptly.  Rebinds `Console.println` too —
-       |// the runtime captures `_println` by reference at init time so
-       |// reassigning `_println` alone leaves CPS-emitted dispatches
-       |// (`_dispatch(Console, 'println', …)` from actor bodies)
-       |// pointing at the buffered original.
-       |_println = function(s) {
-       |  _output.push(s);
-       |  if (typeof process !== 'undefined' && process.stdout) {
-       |    process.stdout.write(s + '\n');
+       |// reaches stdout promptly.  Does NOT push to _output — the
+       |// end-of-script flush in JsGen reads _output; pushing here would
+       |// cause every line to be printed twice on the sync path.
+       |// Mirrors the async-IIFE override emitted by JsGen (lines that
+       |// also skip _output.push to avoid the same double-print).
+       |if (typeof process !== 'undefined' && process.stdout) {
+       |  _println = function(...args) { process.stdout.write(args.map(_show).join(' ') + '\n'); };
+       |  _print   = function(...args) { process.stdout.write(args.map(_show).join(''));         };
+       |  if (typeof Console !== 'undefined') {
+       |    Console.println = _println;
+       |    Console.print   = _print;
        |  }
-       |};
-       |if (typeof Console !== 'undefined') Console.println = _println;
+       |}
        |""".stripMargin
 
   /** Walk the module's IR in document order and concatenate the

@@ -41,10 +41,14 @@ object SimpleYaml:
     def parseDocument(): Any =
       skipBlank()
       if done then return null
-      val ind = curIndent
-      if isSeqLine(cur) then parseBlockSeq(ind)
-      else if isMapLine(cur) then parseBlockMap(ind)
-      else { val s = cur.trim; i += 1; parseScalar(s) }
+      val s = cur.trim
+      if s.startsWith("[") then { i += 1; parseFlowSeq(s.drop(1)) }
+      else if s.startsWith("{") then { i += 1; parseFlowMap(s.drop(1)) }
+      else
+        val ind = curIndent
+        if isSeqLine(cur) then parseBlockSeq(ind)
+        else if isMapLine(cur) then parseBlockMap(ind)
+        else { i += 1; parseScalar(s) }
 
     // ── block structures ────────────────────────────────────────────────────
 

@@ -31,15 +31,15 @@ class CrossPlatformSmokeTest extends AnyFunSuite:
     val norm = InterfaceExtractor.normalizeLineEndings(crlf)
     assert(new String(norm, "UTF-8") == "hello\nworld\n")
 
-  test("normalizeLineEndings — bare CR stripped (classic Mac line endings)"):
+  test("normalizeLineEndings — bare CR converted to LF (classic Mac line endings)"):
     val cr = "hello\rworld\r".getBytes("UTF-8")
     val norm = InterfaceExtractor.normalizeLineEndings(cr)
-    assert(new String(norm, "UTF-8") == "helloworld")
+    assert(new String(norm, "UTF-8") == "hello\nworld\n")
 
-  test("normalizeLineEndings — mixed CRLF and bare CR both removed"):
+  test("normalizeLineEndings — mixed CRLF and bare CR both normalized to LF"):
     val mixed = "a\r\nb\rc\r\n".getBytes("UTF-8")
     val norm = InterfaceExtractor.normalizeLineEndings(mixed)
-    assert(new String(norm, "UTF-8") == "a\nbc\n")
+    assert(new String(norm, "UTF-8") == "a\nb\nc\n")
 
   test("normalizeLineEndings — empty input stays empty"):
     val empty = Array.emptyByteArray

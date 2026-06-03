@@ -66,7 +66,7 @@ class LinkerDedupCliTest extends AnyFunSuite:
       |effect Foo:
       |  def bar(): Int
       |
-      |def usesFoo(): Int = Foo.bar()
+      |def usesFoo(): Int ! Foo = Foo.bar()
       |```
       |""".stripMargin
 

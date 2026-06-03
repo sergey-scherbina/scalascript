@@ -789,9 +789,10 @@ class JsGen(
     // v1.61.6 sub-capabilities
     // HtmlDsl — Part1b: HTTP serve/route/sessions/metrics/password/TOTP
     val hasHtmlDsl = allText.contains("serve(") || allText.contains("route(") ||
+                     allText.contains("serveAsync(") ||
                      allText.contains("WsRoom(") || allText.contains(".session") ||
                      allText.contains("metrics.") || module.manifest.exists(_.routes.nonEmpty)
-    if hasHtmlDsl then caps += HtmlDsl
+    if hasHtmlDsl then { caps += HtmlDsl; caps += Jwt }  // Part1b uses _bearerFromAuth from Part1c
     // Jwt — Part1c: JwtSign/JwtVerify/OAuth2/CSRF/BearerToken
     val hasJwt = allText.contains("JwtSign(") || allText.contains("JwtVerify(") ||
                  allText.contains("OAuth2.") || allText.contains("bearerToken") ||
@@ -799,6 +800,7 @@ class JsGen(
     if hasJwt then caps += Jwt
     // WsServer — Part1d: WebSocket connections, SSE, CORS, outbound HTTP client
     val hasWsServer = allText.contains("WsConnection(") || allText.contains("WsRoom(") ||
+                      allText.contains("serveAsync(") ||
                       allText.contains("sse(") || allText.contains("cors(") ||
                       allText.contains("httpGet(") || allText.contains("httpPost(") ||
                       allText.contains("httpPut(") || allText.contains("httpPatch(") ||

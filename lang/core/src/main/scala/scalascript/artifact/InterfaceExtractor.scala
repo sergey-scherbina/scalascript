@@ -55,7 +55,9 @@ object InterfaceExtractor:
       var i   = 0
       while i < bytes.length do
         val b = bytes(i)
-        if b != '\r'.toByte then out.write(b.toInt)
+        if b == '\r'.toByte then
+          if i + 1 >= bytes.length || bytes(i + 1) != '\n'.toByte then out.write('\n'.toInt)
+        else out.write(b.toInt)
         i += 1
       out.toByteArray
 
