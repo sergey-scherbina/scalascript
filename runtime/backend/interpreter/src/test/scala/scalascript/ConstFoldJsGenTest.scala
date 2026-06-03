@@ -152,6 +152,47 @@ class ConstFoldJsGenTest extends AnyFunSuite:
     assert(js.contains("const x = true"),
       s"expected 'const x = true':\n${extractConst(js, "x")}")
 
+  // ── Loop-invariant constant-tuple hoisting (p2) ──────────────────────────
+
+  test("constant ++ in while body is hoisted before loop"):
+    val js = gen(ssc(
+      """|def workload(): (Int, Int, Int, Int) =
+         |  var i = 0
+         |  var last = (0, 0, 0, 0)
+         |  while i < 100000 do
+         |    last = (1, 2) ++ (3, 4)
+         |    i = i + 1
+         |  last""".stripMargin))
+    assert(js.contains("_k0"), s"expected hoist const _k0; got:\n$js")
+    assert(js.contains("Object.freeze(Object.assign([1, 2, 3, 4]"), s"expected frozen [1,2,3,4] in hoist; got:\n$js")
+    assert(!js.contains("_tupleConcat"), s"_tupleConcat should be eliminated; got:\n$js")
+    assert(js.indexOf("const _k0") < js.indexOf("while"), "hoist must appear before while loop")
+
+  test("literal tuple in while body is hoisted before loop"):
+    val js = gen(ssc(
+      """|def f(): (Int, Int) =
+         |  var i = 0
+         |  var r = (0, 0)
+         |  while i < 10 do
+         |    r = (1, 2)
+         |    i = i + 1
+         |  r""".stripMargin))
+    assert(js.contains("_k0"), s"expected hoist const _k0; got:\n$js")
+    assert(js.contains("Object.freeze"), s"hoisted tuple should be frozen; got:\n$js")
+    assert(js.indexOf("const _k0") < js.indexOf("while"), "hoist must appear before while loop")
+
+  test("non-constant tuple in while body is not hoisted"):
+    val js = gen(ssc(
+      """|def f(x: Int): (Int, Int) =
+         |  var i = 0
+         |  var r = (0, 0)
+         |  while i < 10 do
+         |    r = (x, 2)
+         |    i = i + 1
+         |  r""".stripMargin))
+    assert(!js.contains("_k0"), s"non-constant should not be hoisted; got:\n$js")
+    assert(!js.contains("Object.freeze"), s"non-constant should not be frozen; got:\n$js")
+
   // ── No folding when not all literals ─────────────────────────────────────
 
   test("no folding when LHS is not a literal"):

@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — perf: js-codegen-opt-p2
+
+- **js-codegen-opt-p2** — Loop-invariant constant-tuple hoisting in JS codegen.
+  When `(1,2)++(3,4)` appears inside a while-loop body and all elements are literals,
+  the compile-time-folded result is hoisted as `const _k0 = Object.freeze(Object.assign([1,2,3,4],{_isTuple:true}))`
+  before the loop; the body becomes `last = _k0; i++` with zero heap allocations.
+  Three while-loop codegen sites instrumented (genFunctionBody, genBlockStats, genBlockAsIife).
+  tuple-monoid: 4.24 ms/iter → 0.025 ms/iter (−99%, 170×). 1236/1236 tests passed.
+  Full analysis in `docs/js-codegen-opt-p2.md`.
+
+---
+
 ## 2026-06-03 — perf: phase-c bytecode mutual co-emit
 
 - **phase-c-bytecode-mutual** — `JavacJitBackend` now co-emits JIT-compatible

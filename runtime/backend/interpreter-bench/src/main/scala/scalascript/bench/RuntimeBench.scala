@@ -189,6 +189,9 @@ class RuntimeBench:
   @Benchmark @OperationsPerInvocation(1000)
   def js_patternMatch(s: JsServer): Long = s.run("pattern_match")
 
+  @Benchmark @OperationsPerInvocation(1000)
+  def js_tupleMonoid(s: JsServer): Long  = s.run("tuple_monoid")
+
   // ── JVM: persistent java process (pre-compiled standalone JAR), same protocol
 
   @Benchmark @OperationsPerInvocation(1000)
@@ -202,6 +205,9 @@ class RuntimeBench:
 
   @Benchmark @OperationsPerInvocation(1000)
   def jvm_patternMatch(s: JvmServer): Long = s.run("pattern_match")
+
+  @Benchmark @OperationsPerInvocation(1000)
+  def jvm_tupleMonoid(s: JvmServer): Long  = s.run("tuple_monoid")
 
 
 // ── Server script generators ─────────────────────────────────────────────────
@@ -230,6 +236,15 @@ private def jsServerScript(n: Int): String =
       |    if (n <= 0) return acc;
       |    acc = acc + n; n = n - 1;
       |  }
+      |}
+      |
+      |// js-codegen-opt-p2: constant tuple hoisted as frozen const before loop
+      |const _k_tuple = Object.freeze(Object.assign([1, 2, 3, 4], {_isTuple: true}));
+      |function bench_tupleMonoid() {
+      |  let i = 0;
+      |  let last = Object.assign([0, 0, 0, 0], {_isTuple: true});
+      |  while (i < 100000) { last = _k_tuple; i = i + 1; }
+      |  return last;
       |}
       |
       |function bench_patternMatch() {
@@ -268,6 +283,7 @@ private def jsServerScript(n: Int): String =
       |      case 'fib':           _sink += bench_fib(30); break;
       |      case 'tco':           _sink += bench_tco(100000, 0); break;
       |      case 'pattern_match': _sink += bench_patternMatch(); break;
+      |      case 'tuple_monoid':  _sink += bench_tupleMonoid()[0]; break;
       |    }
       |  }
       |  const ns = BigInt(Math.round((performance.now() - t0) * 1e6));
@@ -319,6 +335,15 @@ private def jvmServerScript(n: Int): String =
       |    i = i + 1
       |  total
       |
+      |def bench_tupleMonoid(): (Int, Int, Int, Int) =
+      |  val k = (1, 2, 3, 4)  // constant; hoisted by JVM JIT
+      |  var i = 0
+      |  var last = (0, 0, 0, 0)
+      |  while i < 100000 do
+      |    last = k
+      |    i = i + 1
+      |  last
+      |
       |// ── Server harness ──────────────────────────────────────────────────────────
       |val N = $n
       |val reader = BufferedReader(InputStreamReader(System.in))
@@ -333,6 +358,7 @@ private def jvmServerScript(n: Int): String =
       |      case "fib"           => bench_fib(30).toLong
       |      case "tco"           => bench_tco(100000, 0).toLong
       |      case "pattern_match" => (bench_patternMatch() * 1e6).toLong
+      |      case "tuple_monoid"  => bench_tupleMonoid()._1.toLong
       |      case _               => 0L)
       |    iter = iter + 1
       |  val ns = System.nanoTime() - t0

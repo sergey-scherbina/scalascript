@@ -37,11 +37,10 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
   construction. Full before/after table and post-mortem are in
   `docs/js-codegen-opt-p1.md`.
 
-- [ ] **js-codegen-opt-p2** — Loop-invariant constant tuple hoisting.
-  Hoist `(1,2)++(3,4)` in while-body as `const _kN = Object.freeze(Object.assign([1,2,3,4], {_isTuple:true}))`.
-  Requires detecting all-literal expressions that don't reference loop-scoped vars.
-  Unblocked by p1; start here to recover the tuple-monoid allocation regression
-  exposed by the p1 correctness fix.
+- [x] **js-codegen-opt-p2** — Loop-invariant constant tuple hoisting. ✓ Landed 2026-06-04.
+  `(1,2)++(3,4)` in while-body hoisted as `const _k0 = Object.freeze(Object.assign([1,2,3,4],{_isTuple:true}))`.
+  tuple-monoid: 4.24 ms → 0.025 ms (170×). 1236 conformance tests passed.
+  See `docs/js-codegen-opt-p2.md`.
 
 ---
 

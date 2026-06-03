@@ -399,10 +399,41 @@ class JsGen(
   private var caseClassFieldTypeMap: Map[String, Map[String, String]] = Map.empty
   // Variables statically known to hold Double/Float values — arithmetic on them uses direct JS operators.
   private val numericVars = scala.collection.mutable.Set[String]()
+  // js-codegen-opt-p2: loop-invariant constant tuple hoisting.
+  // While-loop codegen sets this buffer; constant-tuple exprs append (name, frozenExpr)
+  // and return the name instead of re-allocating on every iteration.
+  private var loopHoistBuf: mutable.Buffer[(String, String)] | Null = null
+  private var hoistIdx: Int = 0
 
   private def freshTmp(): String =
     tmpIdx += 1
     s"_t$tmpIdx"
+
+  private def isLiteralTerm(t: Term): Boolean = t match
+    case _: Lit.Int | _: Lit.Double | _: Lit.Float | _: Lit.Long |
+         _: Lit.String | _: Lit.Boolean | Lit.Unit() => true
+    case _ => false
+
+  private def isConstantTupleExpr(t: Term): Boolean = t match
+    case Term.Tuple(elems) => elems.forall(isLiteralTerm)
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) if op.value == "++" || op.value == ":::" =>
+      isConstantTupleExpr(lhs) && argClause.values.asInstanceOf[List[Term]].forall(e => isLiteralTerm(e) || isConstantTupleExpr(e))
+    case _ => false
+
+  private def collectConstantTupleElems(t: Term): List[String] = t match
+    case Term.Tuple(elems) => elems.map(genExpr)
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) if op.value == "++" || op.value == ":::" =>
+      collectConstantTupleElems(lhs) ++ argClause.values.asInstanceOf[List[Term]].flatMap {
+        case te: Term.Tuple => collectConstantTupleElems(te)
+        case other          => List(genExpr(other))
+      }
+    case _ => List(genExpr(t))
+
+  private def freshHoistConst(value: String): String =
+    val name = s"_k$hoistIdx"
+    hoistIdx += 1
+    loopHoistBuf.nn += ((name, value))
+    name
 
   private def line(s: String): Unit =
     sb.append("  " * indent).append(s).append("\n")
@@ -1486,7 +1517,14 @@ class JsGen(
       else
       s match
         case tw: Term.While =>
-          line(s"while (${genExpr(tw.expr)}) { ${genExpr(tw.body)}; }")
+          val savedBuf = loopHoistBuf
+          val newBuf   = mutable.Buffer.empty[(String, String)]
+          loopHoistBuf = newBuf
+          val bodyJs = genExpr(tw.body)
+          val condJs = genExpr(tw.expr)
+          loopHoistBuf = savedBuf
+          newBuf.foreach { (k, v) => line(s"const $k = $v;") }
+          line(s"while ($condJs) { $bodyJs; }")
         case t: Term if isLast && topLevel =>
           // Track main() calls; auto-output non-unit last expression
           t match
@@ -2224,8 +2262,13 @@ class JsGen(
         val isLast = i == stats.length - 1
         s match
           case tw: Term.While =>
-            val cond = genExpr(tw.expr)
+            val savedBuf = loopHoistBuf
+            val newBuf   = mutable.Buffer.empty[(String, String)]
+            loopHoistBuf = newBuf
             val body = genWhileBodyInline(tw.body)
+            val cond = genExpr(tw.expr)
+            loopHoistBuf = savedBuf
+            newBuf.foreach { (k, v) => line(s"const $k = $v;") }
             line(s"while ($cond) { $body; }")
             if isLast then line("return undefined;")
           case tm: Term.Match if isLast =>
@@ -2394,7 +2437,14 @@ class JsGen(
         val pad = "  "
         s match
           case tw: Term.While =>
-            val body = s"while (${genExpr(tw.expr)}) { ${genWhileBodyInline(tw.body)}; }"
+            val savedBuf = loopHoistBuf
+            val newBuf   = mutable.Buffer.empty[(String, String)]
+            loopHoistBuf = newBuf
+            val twBody = genWhileBodyInline(tw.body)
+            val twCond = genExpr(tw.expr)
+            loopHoistBuf = savedBuf
+            newBuf.foreach { (k, v) => inner.append(pad).append(s"const $k = $v;\n") }
+            val body = s"while ($twCond) { $twBody; }"
             if isLast then inner.append(pad).append(body).append(" return undefined;\n")
             else inner.append(pad).append(body).append("\n")
           case t: Term if isLast =>
@@ -2724,7 +2774,10 @@ class JsGen(
     // Tuple
     case Term.Tuple(elems) =>
       val elemsJs = elems.map(genExpr).mkString(", ")
-      s"Object.assign([$elemsJs], {_isTuple: true})"
+      if loopHoistBuf != null && elems.forall(isLiteralTerm) then
+        freshHoistConst(s"Object.freeze(Object.assign([$elemsJs], {_isTuple: true}))")
+      else
+        s"Object.assign([$elemsJs], {_isTuple: true})"
 
     // Assignment
     case Term.Assign(lhs, rhs) =>
@@ -2732,9 +2785,15 @@ class JsGen(
 
     // While
     case t: Term.While =>
-      val cond = genExpr(t.expr)
-      val body = genWhileBodyInline(t.body)
-      s"(() => { while ($cond) { $body; } })()"
+      val savedBuf = loopHoistBuf
+      val newBuf   = mutable.Buffer.empty[(String, String)]
+      loopHoistBuf = newBuf
+      val bodyJs = genWhileBodyInline(t.body)
+      val condJs = genExpr(t.expr)
+      loopHoistBuf = savedBuf
+      val hoistJs = newBuf.map((k, v) => s"const $k = $v;").mkString(" ")
+      if hoistJs.isEmpty then s"(() => { while ($condJs) { $bodyJs; } })()"
+      else s"(() => { $hoistJs while ($condJs) { $bodyJs; } })()"
 
     // For-do
     case t: Term.For =>
@@ -3322,7 +3381,19 @@ class JsGen(
       // Constant folding: both operands are compile-time literals
       val constResult =
         if args.length == 1 then foldConstant(lhs, op.value, args.head) else None
-      constResult.getOrElse {
+      // js-codegen-opt-p2: constant-tuple-concat hoisting.
+      // When inside a while loop (loopHoistBuf set) and both sides are all-literal, compile-time
+      // fold the concat into a single frozen array hoisted before the loop.
+      val tupleHoist: Option[String] =
+        if (op.value == "++" || op.value == ":::") && loopHoistBuf != null && isConstantTupleExpr(lhs) &&
+           args.asInstanceOf[List[Term]].forall(e => isLiteralTerm(e) || isConstantTupleExpr(e)) then
+          val elems = collectConstantTupleElems(lhs) ++ args.asInstanceOf[List[Term]].flatMap {
+            case te: Term.Tuple => collectConstantTupleElems(te)
+            case other          => List(genExpr(other))
+          }
+          Some(freshHoistConst(s"Object.freeze(Object.assign([${elems.mkString(", ")}], {_isTuple: true}))"))
+        else None
+      tupleHoist.orElse(constResult).getOrElse {
         val lhsJs = genExpr(lhs)
         val rhsJs = if args.length == 1 then genExpr(args.head) else args.map(genExpr).mkString(", ")
         op.value match
