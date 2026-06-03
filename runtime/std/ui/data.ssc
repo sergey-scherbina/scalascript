@@ -14,6 +14,8 @@ exports:
   - rowLink
   - rowEdit
   - dataTable
+  - staticDataTable
+  - signalDataTable
 ---
 
 # `std.ui.data` — data widget constructors
@@ -25,7 +27,7 @@ that set the provided `Signal[String]` to the clicked column's key — the
 caller is responsible for re-building the rows in sorted order.
 
 [TkNode, TableColumn, TableNode, DataTableNode](nodes.ssc)
-[fieldColumn, rowDeleteAction, rowPostAction, rowLinkAction, rowEditAction, dataTableView, emptyHeaders](primitives.ssc)
+[fieldColumn, rowDeleteAction, rowPostAction, rowLinkAction, rowEditAction, dataTableView, emptyHeaders, staticRowsSource, signalRowsSource](primitives.ssc)
 
 ```scalascript
 def tableCol(label: String, key: String): TableColumn = TableColumn(label, key)
@@ -69,4 +71,16 @@ def rowEdit(method: String, url: String, idField: String, tick: Any,
 def dataTable(signal: Any, columns: List[Any],
               actions: List[Any] = []): TkNode =
   DataTableNode(signal, columns, actions)
+
+// staticDataTable — builds a DataTable backed by static in-memory rows.
+// rows is a List of Map[String, Any]; no fetch is performed.
+def staticDataTable(rows: List[Any], columns: List[Any],
+                    actions: List[Any] = []): Any =
+  dataTableView(staticRowsSource(rows), columns, actions)
+
+// signalDataTable — builds a DataTable backed by a reactive signal.
+// sig must be a ReactiveSignal whose value is a list of row maps.
+def signalDataTable(sig: Any, columns: List[Any],
+                    actions: List[Any] = []): Any =
+  dataTableView(signalRowsSource(sig), columns, actions)
 ```

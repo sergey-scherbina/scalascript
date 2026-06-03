@@ -31,6 +31,8 @@ exports:
   - rowLinkAction
   - rowEditAction
   - dataTableView
+  - staticRowsSource
+  - signalRowsSource
 ---
 
 # `std.ui.primitives` — UI primitive extern defs
@@ -131,8 +133,15 @@ extern def rowLinkAction(label: String, signal: Signal[String], fieldPath: Strin
 extern def rowEditAction(method: String, url: String, idField: String,
                          tick: Signal[Int], headers: Signal[String] = emptyHeaders): Any
 
-// dataTableView — builds a View.DataTable from a FetchUrlSignal + column/action descriptors.
+// dataTableView — builds a View.DataTable from a TableDataSource + column/action descriptors.
 // Web backends lower to <table><thead><tbody> chrome via DataTableLowering.
 // Swing renders natively as JTable.
-extern def dataTableView(signal: Signal[String], columns: List[Any], actions: List[Any]): View
+// Also accepts a bare FetchUrlSignal for the legacy Remote path.
+extern def dataTableView(source: Any, columns: List[Any], actions: List[Any]): View
+
+// staticRowsSource — wraps a static list of row maps into a TableDataSource.StaticRows.
+extern def staticRowsSource(rows: List[Any]): Any
+
+// signalRowsSource — wraps a reactive signal into a TableDataSource.SignalRows.
+extern def signalRowsSource(sig: Any): Any
 ```

@@ -3,7 +3,7 @@ package scalascript.compiler.plugin.fetch
 import scala.annotation.nowarn
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.compiler.plugin.frontend.FrontendInterpreterPlugin
-import scalascript.frontend.{EventHandler, FieldColumnDef, FetchUrlSignal, RowActionDef, View}
+import scalascript.frontend.{EventHandler, FieldColumnDef, FetchUrlSignal, RowActionDef, TableDataSource, View}
 import scalascript.interpreter.Value
 import scalascript.testkit.TestInterpreter
 
@@ -104,7 +104,10 @@ class FetchPluginInterpreterTest extends AnyFunSuite:
     )
     result match
       case Value.Foreign("View", dt: View.DataTable) =>
-        assert(dt.signal.fetchUrl == "/api/employees")
+        val fetchUrl = dt.source match
+          case TableDataSource.Remote(sig) => sig.fetchUrl
+          case other => fail(s"expected Remote source, got $other"); ""
+        assert(fetchUrl == "/api/employees")
         assert(dt.columns.length == 3)
         assert(dt.columns(0).title == "Name")
         assert(dt.columns(0).fieldPath == "name")

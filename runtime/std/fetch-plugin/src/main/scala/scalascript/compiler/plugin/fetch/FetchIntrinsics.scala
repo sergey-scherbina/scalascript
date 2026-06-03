@@ -4,7 +4,7 @@ import scala.annotation.nowarn
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{InterpretError, Value}
-import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, FetchJsonSignal, EventHandler, View, FieldColumnDef, RowActionDef}
+import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, FetchJsonSignal, EventHandler, View, FieldColumnDef, RowActionDef, TableDataSource}
 import scalascript.plugin.api.PluginNative
 
 object FetchIntrinsics:
@@ -219,8 +219,9 @@ object FetchIntrinsics:
         case _ => throw InterpretError("rowEditAction(method, url, idField, tick[, headers])")
     },
 
-    // dataTableView(signal, columns, actions): View
-    // Builds a View.DataTable from a FetchUrlSignal + lists of FieldColumnDef/RowActionDef.
+    // dataTableView(source, columns, actions): View
+    // Builds a View.DataTable from a TableDataSource + lists of FieldColumnDef/RowActionDef.
+    // Accepts either a TableDataSource Foreign value, or a FetchUrlSignal directly (legacy path).
     QualifiedName("dataTableView") -> PluginNative.evalLegacy { (_, args) =>
       def toColumns(v: Value): List[FieldColumnDef] = v match
         case Value.ListV(items) => items.collect {
@@ -231,10 +232,37 @@ object FetchIntrinsics:
           case Value.Foreign("RowActionDef", a: RowActionDef) => a }
         case _ => Nil
       args match
-        case List(Value.Foreign("ReactiveSignal", sig: FetchUrlSignal),
+        case List(Value.Foreign("TableDataSource", src: TableDataSource),
                   cols: Value, acts: Value) =>
           Value.Foreign("View",
-            View.DataTable(sig, toColumns(cols), toActions(acts)))
-        case _ => throw InterpretError("dataTableView(signal, columns, actions)")
+            View.DataTable(src, toColumns(cols), toActions(acts)))
+        case List(Value.Foreign("ReactiveSignal", sig: FetchUrlSignal),
+                  cols: Value, acts: Value) =>
+          // Legacy path: bare FetchUrlSignal → wrap as Remote automatically.
+          Value.Foreign("View",
+            View.DataTable(TableDataSource.Remote(sig), toColumns(cols), toActions(acts)))
+        case _ => throw InterpretError("dataTableView(source, columns, actions)")
+    },
+
+    // staticRowsSource(rows: List[Map[String, Any]]): TableDataSource.StaticRows
+    QualifiedName("staticRowsSource") -> PluginNative.evalLegacy { (_, args) =>
+      def toRows(v: Value): List[Map[String, Any]] = v match
+        case Value.ListV(items) => items.collect {
+          case Value.Foreign("Map", m: Map[?, ?]) => m.asInstanceOf[Map[String, Any]]
+          case Value.Foreign("Object", m: Map[?, ?]) => m.asInstanceOf[Map[String, Any]]
+        }
+        case _ => Nil
+      args match
+        case List(rows: Value) =>
+          Value.Foreign("TableDataSource", TableDataSource.StaticRows(toRows(rows)))
+        case _ => throw InterpretError("staticRowsSource(rows)")
+    },
+
+    // signalRowsSource(sig: ReactiveSignal[?]): TableDataSource.SignalRows
+    QualifiedName("signalRowsSource") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(Value.Foreign("ReactiveSignal", sig: ReactiveSignal[?])) =>
+          Value.Foreign("TableDataSource", TableDataSource.SignalRows(sig))
+        case _ => throw InterpretError("signalRowsSource(signal)")
     },
   )
