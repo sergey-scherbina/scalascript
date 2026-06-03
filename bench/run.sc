@@ -48,11 +48,15 @@ val filterNames   = args.filterNot(_.startsWith("--")).toSet
 
 // ── backend descriptors ──────────────────────────────────────────────────────
 
-case class Backend(label: String, subCmd: Option[String], warmup: Int, reps: Int)
+// cmd: (sscPath, effectiveFile) => command to run
+case class Backend(label: String, warmup: Int, reps: Int, cmd: (String, String) => Seq[String])
 
-val interpBackend = Backend("interp", None,            WARMUP, REPS)
-val jvmBackend    = Backend("jvm",    Some("run-jvm"), 1,      3)
-val jsBackend     = Backend("js",     Some("run-js"),  1,      3)
+val interpBackend = Backend("interp", WARMUP, REPS, (ssc, f) => Seq(ssc, f))
+// JVM: emit-scala → stable /tmp/ssc-bench-jvm-<name>.sc, run via scala-cli.
+// scala-cli caches compiled bytecode per-file, so warmup=1 populates the
+// bytecode cache and measured runs exclude Scala compilation (~0.5s vs ~5s).
+val jvmBackend    = Backend("jvm",    1,      3,    (_,   f) => Seq("scala-cli", f))
+val jsBackend     = Backend("js",     0,      3,    (ssc, f) => Seq(ssc, "run-js", f))
 
 val activeBackends: Seq[Backend] =
   if compareMode then Seq(interpBackend, jvmBackend, jsBackend)
@@ -66,9 +70,7 @@ def logStderr(line: String): Unit =
   if !line.startsWith("NOTE: Picked up") && !line.contains("skipping backend plugin") then
     System.err.println(line)
 
-def runOnce(sscPath: String, subCmd: Option[String], corpusFile: String,
-            errLog: String => Unit = logStderr): Option[(Long, String)] =
-  val cmd = Seq(sscPath) ++ subCmd.toSeq ++ Seq(corpusFile)
+def runOnce(cmd: Seq[String], errLog: String => Unit): Option[(Long, String)] =
   val buf = new java.io.ByteArrayOutputStream
   val ps  = new java.io.PrintStream(buf, true)
   val t0  = System.currentTimeMillis()
@@ -77,24 +79,44 @@ def runOnce(sscPath: String, subCmd: Option[String], corpusFile: String,
   if rc != 0 then None else Some((t1 - t0, buf.toString.trim))
 
 def benchFile(sscPath: String, backend: Backend, file: java.io.File): Option[BenchResult] =
-  val name = file.getName.replaceAll("\\.ssc$", "")
-  val tag  = if activeBackends.size > 1 then s"$name [${backend.label}]" else name
-  val errLog: String => Unit = if backend.subCmd.isDefined then _ => () else logStderr
+  val name   = file.getName.replaceAll("\\.ssc$", "")
+  val tag    = if activeBackends.size > 1 then s"$name [${backend.label}]" else name
+  val errLog: String => Unit = if backend.label == "interp" then logStderr else _ => ()
+
+  // JVM: emit Scala source to a stable temp .sc so scala-cli can cache its
+  // compiled bytecode across warmup+measure runs.  Return None if JvmGen fails
+  // (e.g. effects or HTTP intrinsics that JVM backend doesn't support).
+  val effectiveFile: Option[String] = backend.label match
+    case "jvm" =>
+      val tmp = java.io.File(s"/tmp/ssc-bench-jvm-$name.sc")
+      val rc  = Process(Seq(sscPath, "emit-scala", file.getAbsolutePath))
+                  .#>(tmp).!(ProcessLogger(_ => (), _ => ()))
+      // Verify the emitted file actually compiles (scala-cli dry-run check)
+      if rc != 0 then None else Some(tmp.getAbsolutePath)
+    case _ => Some(file.getAbsolutePath)
+
   print(s"  $tag: warming up... ")
   Console.flush()
-  (1 to backend.warmup).foreach(_ => runOnce(sscPath, backend.subCmd, file.getAbsolutePath, errLog))
-  val results = (1 to backend.reps).flatMap(_ => runOnce(sscPath, backend.subCmd, file.getAbsolutePath, errLog))
-  if results.isEmpty then
-    println("n/a")
-    None
-  else
-    val times  = results.map(_._1).sorted
-    val output = results.last._2
-    val med    = times(times.length / 2)
-    val min    = times.head
-    val max    = times.last
-    println(s"$med ms (min $min, max $max)")
-    Some(BenchResult(name, med, min, max, output))
+
+  effectiveFile match
+    case None =>
+      println("n/a")
+      None
+    case Some(f) =>
+      val runCmd = backend.cmd(sscPath, f)
+      (1 to backend.warmup).foreach(_ => runOnce(runCmd, errLog))
+      val results = (1 to backend.reps).flatMap(_ => runOnce(runCmd, errLog))
+      if results.isEmpty then
+        println("n/a")
+        None
+      else
+        val times  = results.map(_._1).sorted
+        val output = results.last._2
+        val med    = times(times.length / 2)
+        val min    = times.head
+        val max    = times.last
+        println(s"$med ms (min $min, max $max)")
+        Some(BenchResult(name, med, min, max, output))
 
 // ── table formatters ─────────────────────────────────────────────────────────
 
