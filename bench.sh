@@ -2,4 +2,4 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec scala-cli "$ROOT/bench/run.sc"
+exec scala-cli "$ROOT/bench/run.sc" -- "$@"
