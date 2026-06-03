@@ -935,6 +935,17 @@ considered finished** — always as a dedicated commit, never bundled into
 the feature commit.  The two-step pattern (docs commit → queue commit) is
 **mandatory**, not optional.
 
+**After the final push, verify the claim is gone from origin/main:**
+
+```bash
+git fetch origin
+git ls-tree origin/main .work/active/ | grep "${TASK_SLUG}.claim" \
+  && echo "ERROR: claim still on origin/main — release commit did not land" \
+  || echo "OK: claim released"
+```
+
+Do not consider the task finished until this check prints `OK`.
+
 ### Checking who's doing what
 
 Preferred quick check:
@@ -955,6 +966,23 @@ locked, not ahead of `origin/main`, and whose `HEAD` is already contained in
 `origin/main`. These are cleanup candidates, not automatic deletions. Use the
 printed `git worktree remove --force ... && git branch -D ...` command only
 after verifying the branch is not a deliberately parked long-lived worktree.
+
+**Always `git fetch origin` before reading claim state.** Other agents push
+continuously; without a fetch your view of `.work/active/` is stale and you
+will misread who owns what.
+
+**How to read another agent's task status:**
+
+| Signal | Meaning |
+|--------|---------|
+| `<slug>.claim` present in `git ls-tree origin/main .work/active/` | Task **in progress** by another agent |
+| `release-claim: <slug>` commit in `git log --oneline origin/main` | Task **done** — agent finished and released |
+| Worktree exists but no claim on origin/main | **Cleanup artifact** — task is done, worktree was not removed yet |
+| `[ ]` in `WORK_QUEUE.md` despite release-claim commit | Minor bookkeeping gap — task is still done; WORK_QUEUE is not authoritative |
+
+`git ls-tree origin/main .work/active/` is the **only authoritative source**.
+`ls .work/active/`, `git worktree list`, and `WORK_QUEUE.md` are hints only —
+do not trust them without confirming against origin/main.
 
 ```bash
 git fetch origin
