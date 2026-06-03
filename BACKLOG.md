@@ -4,6 +4,23 @@ Open and planned milestones — what still needs to be done.
 Active in-progress work is in [ACTIVE.md](ACTIVE.md).
 Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
+## JS Codegen Performance
+
+- [ ] **js-codegen-opt-p1** — Four targeted JS codegen fixes (2026-06-03):
+      (A) TCO bypass guard — non-recursive functions currently get a `while(true)` wrapper
+      because `hasNonTailSelfCall` returns false for zero-self-call fns; fix: add
+      `anywhereContainsSelfCall` guard. (B) `genMatchAsStmts` — emit `Term.Match` as an
+      `if-else` chain in tail/return position instead of an IIFE. (C) TCO multi-param temp
+      vars — `[p1,p2]=[e1,e2]` → individual `const` temps, eliminates 100K heap allocs in
+      `recursion-tco`. (D) Fix `++` infix multi-arg bug — `(1,2)++(3,4)` drops `4`; wrap
+      multi-args as tuple.
+      **Spec:** [`docs/js-codegen-opt-p1.md`](docs/js-codegen-opt-p1.md)
+
+- [ ] **js-codegen-opt-p2** — Loop-invariant constant tuple hoisting: `(1,2)++(3,4)` in
+      a while body should be hoisted as a module-level frozen constant, eliminating
+      100K `Object.assign` allocs in `tuple-monoid`. Requires detecting all-literal
+      tuple-concat expressions and emitting a `const _kN = Object.freeze(Object.assign(...))`.
+
 ## Conformance Fixes — cross-backend gaps (2026-06-02)
 
 Four categories of conformance test failures that affect all backends or specific
