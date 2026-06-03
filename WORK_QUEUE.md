@@ -1213,7 +1213,7 @@ which are the most numerous.
   line; parsing tests restricted to `backends: int`; all 3 parsing-* conformance tests
   PASS [INT].
 
-- [ ] **conf-fix-http-client-js-jvm** — Implement `httpGet`/`httpPost`/`httpClient`
+- [x] **conf-fix-http-client-js-jvm** ✓ Landed 2026-06-03 — Implement `httpGet`/`httpPost`/`httpClient`
   on JS and JVM backends, and gate the test on `requires: HttpClient` to skip in
   network-restricted CI.
   **Root cause**: Only the interpreter has these intrinsics; JS/JVM codegens have

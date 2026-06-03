@@ -3150,6 +3150,18 @@ class JsGen(
       val bodyJs = genExpr(bodyArgClause.values.head.asInstanceOf[Term])
       s"validate(() => $bodyJs)"
 
+    // httpClient(url) { block } — block must be a lazy thunk so the
+    // base-URL ThreadLocal is set before the block executes.  Without this
+    // special case the outer apply compiles as _call(httpClient(url), body()),
+    // which evaluates httpClient(url) with no block argument → TypeError.
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(Term.Name("httpClient"), urlArgClause),
+        blockArgClause)
+        if blockArgClause.values.size == 1 =>
+      val urlJs   = genExpr(urlArgClause.values.head.asInstanceOf[Term])
+      val blockJs = genExpr(blockArgClause.values.head.asInstanceOf[Term])
+      s"httpClient($urlJs, () => $blockJs)"
+
     // Function application
     case app: Term.Apply =>
       genApply(app)

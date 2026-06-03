@@ -69,21 +69,21 @@ val backendFeatures: Map[String, Set[String]] = Map(
     "ExtensionMethods", "DefaultParameters", "ForComprehensions", "WhileLoops",
     "TailCallOptimization", "StringInterpolators", "ModuleImports",
     "ConsoleIO", "HttpServer", "WebSockets", "Auth", "FileSystem", "Crypto",
-    "Dataset"
+    "Dataset", "HttpClient"
   ),
   "js" -> Set(
     "AlgebraicEffects", "MutableState", "PatternMatching", "TypeClasses",
     "ExtensionMethods", "DefaultParameters", "ForComprehensions", "WhileLoops",
     "TailCallOptimization", "StringInterpolators", "ModuleImports",
     "ConsoleIO", "HttpServer", "WebSockets", "Auth", "FileSystem", "Crypto",
-    "McpServer", "McpClient", "Dataset"
+    "McpServer", "McpClient", "Dataset", "HttpClient"
   ),
   "jvm" -> Set(
     "AlgebraicEffects", "MutableState", "PatternMatching", "TypeClasses",
     "ExtensionMethods", "DefaultParameters", "ForComprehensions", "WhileLoops",
     "TailCallOptimization", "StringInterpolators", "ModuleImports",
     "ConsoleIO", "HttpServer", "WebSockets", "Auth", "FileSystem", "Crypto",
-    "McpServer", "McpClient", "Dataset"
+    "McpServer", "McpClient", "Dataset", "HttpClient"
   )
 )
 

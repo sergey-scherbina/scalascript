@@ -362,6 +362,21 @@ private[codegen] trait JvmGenBlockAnalysis:
       found
     }
 
+  private val outboundHttpFns = Set(
+    "httpGet", "httpPost", "httpPut", "httpPatch", "httpDelete", "httpClient",
+    "httpGetStream", "httpPostStream"
+  )
+  private[codegen] def blocksUseOutboundHttp(blocks: List[JvmGen.Block]): Boolean =
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name(n), _) if outboundHttpFns(n) => found = true
+        }
+      }
+      found
+    }
+
   private[codegen] def blocksUseRetry(blocks: List[JvmGen.Block]): Boolean =
     blocks.exists { b =>
       var found = false

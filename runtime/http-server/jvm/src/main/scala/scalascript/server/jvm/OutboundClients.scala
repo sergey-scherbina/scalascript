@@ -19,7 +19,7 @@ def httpTimeout(ms: Int): Unit  = _httpTimeoutMs = ms.toLong
 def httpRetry(n: Int, delayMs: Int = 1000): Unit = { _httpMaxRetries = n; _httpRetryDelay = delayMs.toLong }
 
 private def _httpDoRequest(method: String, url: String, body: String,
-    headers: Map[String, String]): Any =
+    headers: Map[String, String]): Response =
   import java.net.http.{HttpClient as JHC, HttpRequest, HttpResponse}
   import scala.jdk.CollectionConverters.*
   val effectiveUrl = if _httpBaseUrl.nonEmpty && !url.startsWith("http") then _httpBaseUrl + url else url
@@ -48,19 +48,19 @@ private def _httpDoRequest(method: String, url: String, body: String,
   }.toMap
   Response(status = resp.statusCode(), body = resp.body(), headers = hdrs)
 
-def httpGet(url: String, headers: Map[String, String] = Map.empty): Any =
+def httpGet(url: String, headers: Map[String, String] = Map.empty): Response =
   _httpDoRequest("GET", url, "", headers)
 
-def httpPost(url: String, body: String, headers: Map[String, String] = Map.empty): Any =
+def httpPost(url: String, body: String = "", headers: Map[String, String] = Map.empty): Response =
   _httpDoRequest("POST", url, body, headers)
 
-def httpPut(url: String, body: String, headers: Map[String, String] = Map.empty): Any =
+def httpPut(url: String, body: String = "", headers: Map[String, String] = Map.empty): Response =
   _httpDoRequest("PUT", url, body, headers)
 
-def httpPatch(url: String, body: String, headers: Map[String, String] = Map.empty): Any =
+def httpPatch(url: String, body: String = "", headers: Map[String, String] = Map.empty): Response =
   _httpDoRequest("PATCH", url, body, headers)
 
-def httpDelete(url: String, headers: Map[String, String] = Map.empty): Any =
+def httpDelete(url: String, headers: Map[String, String] = Map.empty): Response =
   _httpDoRequest("DELETE", url, "", headers)
 
 def httpClient(baseUrl: String)(block: => Any): Any =

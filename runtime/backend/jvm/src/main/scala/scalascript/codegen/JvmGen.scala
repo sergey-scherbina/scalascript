@@ -290,7 +290,7 @@ class JvmGen(
     val usesHttpServer =
       effectOps.nonEmpty || blocksUseRoutes(blocks) || frontmatterRoutes.nonEmpty ||
       objectStores.nonEmpty || blocksUseJson(blocks) || blocksUseMcp(blocks) ||
-      effectiveFrontend.isDefined
+      effectiveFrontend.isDefined || blocksUseOutboundHttp(blocks)
     if blocksUseMcp(blocks) then
       sb.append(s"""//> using dep "$JvmMcpDep"\n""")
     val usesTypedData = blocksUseTypedData(blocks)
@@ -832,7 +832,7 @@ class JvmGen(
     if blocksUseReactive(blocks)                           then caps += Reactive
     if effectOps.nonEmpty || blocksUseRoutes(blocks) ||
        frontmatterRoutes.nonEmpty || blocksUseJson(blocks) ||
-       blocksUseMcp(blocks)                                then caps += Serve
+       blocksUseMcp(blocks) || blocksUseOutboundHttp(blocks) then caps += Serve
     if blocksUseMcp(blocks)                                then caps += Mcp
     if blocksUseDataset(blocks)                            then caps += Dataset
     if blocksUseJson(blocks)                               then caps += Json

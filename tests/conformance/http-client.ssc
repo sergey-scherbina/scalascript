@@ -1,5 +1,6 @@
 ---
 name: http-client
+requires: HttpClient
 ---
 
 # v1.5 Phase B — `httpGet` / `httpPost` / `httpClient` primitives
