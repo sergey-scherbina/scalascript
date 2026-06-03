@@ -558,10 +558,38 @@ private[interpreter] object EvalRuntime:
    *  `instanceFieldAccess` (`BoxesRunTime.boxToInteger <- slotOf$1`).
    *  Linear scan is faster than a HashMap probe for the small N (≤ 8
    *  typical) seen in real bench shapes, and zero Int allocations. */
+  // Slot-kind tags. The single slot index space is shared by the parallel
+  // Long bank and Ref bank (see SscVm's exec for the proven pattern); the
+  // kind tag says which bank the slot's "real" value lives in. Phase 1
+  // Commit 1 introduces the tags but only Long is populated; later commits
+  // register Ref-kind slots when compileExpr accepts ref subterms.
+  private val SlotKindLong:   Byte = 0
+  private val SlotKindRef:    Byte = 1
+  @scala.annotation.unused
+  private val SlotKindDouble: Byte = 2
+
+  /** Static empty Array[AnyRef] used as the `refs` argument of `LExpr.eval`
+   *  when the enclosing loop has registered zero Ref-kind slots. Sharing a
+   *  read-only singleton avoids per-loop-entry allocation; per-loop arrays
+   *  are sized to `SlotTable.size` only when at least one Ref slot exists.
+   *  Safe to share across threads because no LExpr.eval ever writes to
+   *  `refs` — writes happen only at LRefExpr-result-store sites in the
+   *  enclosing while loop. */
+  private val EmptyRefs: Array[AnyRef] = new Array[AnyRef](0)
+
   private final class SlotTable(initialCapacity: Int = 8):
     private var names: Array[String] = new Array[String](initialCapacity)
+    /** Parallel per-slot kind tag (SlotKindLong / Ref / Double). Defaults to
+     *  Long; callers that register a ref-typed loop var use
+     *  `registerKind(name, SlotKindRef)` so the eval loop knows to allocate
+     *  the `refs` bank and store the value there. */
+    private var kinds: Array[Byte]   = new Array[Byte](initialCapacity)
     private var _size: Int = 0
+    private var _refCount: Int = 0
     def size: Int = _size
+    /** Number of slots registered as `SlotKindRef`. Used by the while-loop
+     *  entry to decide between `EmptyRefs` (zero) and a sized `Array[AnyRef]`. */
+    def refCount: Int = _refCount
     /** Linear scan; -1 if absent. */
     def slotIndex(name: String): Int =
       var i = 0
@@ -569,38 +597,61 @@ private[interpreter] object EvalRuntime:
         if names(i) == name then return i
         i += 1
       -1
-    /** Register a name; returns its (existing or new) slot index. */
-    def register(name: String): Int =
+    /** Register a name as a Long-kind slot; returns its slot index. Existing
+     *  callers behave unchanged — Long is the default. */
+    def register(name: String): Int = registerKind(name, SlotKindLong)
+    /** Register a name with an explicit kind. If the name already exists,
+     *  returns the existing index regardless of the requested kind (callers
+     *  must check `kindAt` if they care). */
+    def registerKind(name: String, kind: Byte): Int =
       val existing = slotIndex(name)
       if existing >= 0 then existing
       else
         if _size == names.length then
-          val grown = new Array[String](names.length * 2)
+          val grown  = new Array[String](names.length * 2)
+          val grownK = new Array[Byte](names.length * 2)
           System.arraycopy(names, 0, grown, 0, _size)
+          System.arraycopy(kinds, 0, grownK, 0, _size)
           names = grown
+          kinds = grownK
         names(_size) = name
+        kinds(_size) = kind
+        if kind == SlotKindRef then _refCount += 1
         val i = _size
         _size += 1
         i
     def contains(name: String): Boolean = slotIndex(name) >= 0
     /** Name at slot index. */
     def nameAt(idx: Int): String = names(idx)
+    /** Kind tag at slot index. */
+    def kindAt(idx: Int): Byte = kinds(idx)
 
-  // ── Unboxed-long fast path for integer while-assign loops ───────────────
-  // A while-loop whose body is only `name = <int-arith>` assignments and whose
-  // condition is an integer comparison runs entirely in unboxed `long` slots,
-  // boxing each var back to a pooled IntV only once on loop exit. This removes
-  // the per-iteration IntV allocation that JFR showed is ~99% of arithLoop's
-  // bytes (counter vars escape the −2048..16383 intV pool almost immediately).
+  // ── Dual-bank fast path for integer/ref while-assign loops ─────────────
+  // A while-loop whose body is `name = <int-arith>` assignments runs entirely
+  // in unboxed `long` slots, boxing each var back to a pooled IntV only once
+  // on loop exit. The `refs: Array[AnyRef]` parallel bank (added in Phase 1
+  // Commit 1 of the dual-bank LExpr roadmap) lets ref-typed subterms — an
+  // `InstanceV` argument, a field-extract result, a ref-returning fn call —
+  // participate in the same compiled LExpr fold instead of forcing a tree-walk
+  // bail. Commit 1 reshapes the eval contract; later commits populate
+  // `LRefExpr` subtypes that actually read/write `refs`. Mirrors
+  // `SscVm.exec(stack, refStack, base)` proven design.
   private sealed abstract class LExpr:
-    def eval(slots: Array[Long]): Long
+    def eval(slots: Array[Long], refs: Array[AnyRef]): Long
+  /** Ref-returning sibling of `LExpr`. Commit 1 introduces the empty
+   *  hierarchy; later commits add subtypes (LRefConst, LRefVar,
+   *  LRefFieldGet, LApplyR1ToRef, LRefMatch, …) that let ref subterms
+   *  compose without crossing a tree-walk boundary. */
+  @scala.annotation.unused
+  private sealed abstract class LRefExpr:
+    def eval(slots: Array[Long], refs: Array[AnyRef]): AnyRef
   private final class LConst(v: Long) extends LExpr:
-    def eval(slots: Array[Long]): Long = v
+    def eval(slots: Array[Long], refs: Array[AnyRef]): Long = v
   private final class LVar(idx: Int) extends LExpr:
-    def eval(slots: Array[Long]): Long = slots(idx)
+    def eval(slots: Array[Long], refs: Array[AnyRef]): Long = slots(idx)
   private final class LBin(op: Int, l: LExpr, r: LExpr) extends LExpr:
-    def eval(slots: Array[Long]): Long =
-      val a = l.eval(slots); val b = r.eval(slots)
+    def eval(slots: Array[Long], refs: Array[AnyRef]): Long =
+      val a = l.eval(slots, refs); val b = r.eval(slots, refs)
       op match
         case 0 => a + b
         case 1 => a - b
@@ -608,10 +659,10 @@ private[interpreter] object EvalRuntime:
         case 3 => a / b
         case _ => a % b
   private sealed abstract class LCond:
-    def eval(slots: Array[Long]): Boolean
+    def eval(slots: Array[Long], refs: Array[AnyRef]): Boolean
   private final class LCmp(op: Int, l: LExpr, r: LExpr) extends LCond:
-    def eval(slots: Array[Long]): Boolean =
-      val a = l.eval(slots); val b = r.eval(slots)
+    def eval(slots: Array[Long], refs: Array[AnyRef]): Boolean =
+      val a = l.eval(slots, refs); val b = r.eval(slots, refs)
       op match
         case 0 => a < b
         case 1 => a <= b
@@ -620,9 +671,11 @@ private[interpreter] object EvalRuntime:
         case 4 => a == b
         case _ => a != b
   private final class LAnd(l: LCond, r: LCond) extends LCond:
-    def eval(slots: Array[Long]): Boolean = l.eval(slots) && r.eval(slots)
+    def eval(slots: Array[Long], refs: Array[AnyRef]): Boolean =
+      l.eval(slots, refs) && r.eval(slots, refs)
   private final class LOr(l: LCond, r: LCond) extends LCond:
-    def eval(slots: Array[Long]): Boolean = l.eval(slots) || r.eval(slots)
+    def eval(slots: Array[Long], refs: Array[AnyRef]): Boolean =
+      l.eval(slots, refs) || r.eval(slots, refs)
 
   /** Primitive-Long-arg function interface used by `LApply` / `LApply2`.
    *  Scala's `Function2[Long, Env, Long]` / `Function3[Long, Long, Env, Long]`
@@ -652,8 +705,8 @@ private[interpreter] object EvalRuntime:
     slotFn:       LongEnvFn1,
     interp:       Interpreter
   ) extends LExpr:
-    def eval(slots: Array[Long]): Long =
-      val arg = argL.eval(slots)
+    def eval(slots: Array[Long], refs: Array[AnyRef]): Long =
+      val arg = argL.eval(slots, refs)
       val fnV = interp.globals.getOrElse(fnName, null)
       fnV match
         case fn: Value.FunV if fn.body eq expectedBody =>
@@ -675,7 +728,7 @@ private[interpreter] object EvalRuntime:
     objFn: scalascript.interpreter.vm.jit.ObjToLong,
     arg:   AnyRef
   ) extends LExpr:
-    def eval(slots: Array[Long]): Long = objFn.apply(arg)
+    def eval(slots: Array[Long], refs: Array[AnyRef]): Long = objFn.apply(arg)
 
   /** 2-arg parallel of `LApply`. Folds `g(x, y)` into the enclosing unboxed-
    *  Long loop without boxing either arg or result. */
@@ -687,9 +740,9 @@ private[interpreter] object EvalRuntime:
     slotFn:       LongEnvFn2,
     interp:       Interpreter
   ) extends LExpr:
-    def eval(slots: Array[Long]): Long =
-      val a0 = arg0L.eval(slots)
-      val a1 = arg1L.eval(slots)
+    def eval(slots: Array[Long], refs: Array[AnyRef]): Long =
+      val a0 = arg0L.eval(slots, refs)
+      val a1 = arg1L.eval(slots, refs)
       val fnV = interp.globals.getOrElse(fnName, null)
       fnV match
         case fn: Value.FunV if fn.body eq expectedBody =>
@@ -720,7 +773,7 @@ private[interpreter] object EvalRuntime:
      *  per-iter lookup runs so reassignments within the loop are seen. */
     cachedScrut: Value | Null = null
   ) extends LExpr:
-    def eval(slots: Array[Long]): Long =
+    def eval(slots: Array[Long], refs: Array[AnyRef]): Long =
       val scrutV =
         if cachedScrut ne null then cachedScrut
         else
@@ -1002,6 +1055,13 @@ private[interpreter] object EvalRuntime:
     while a < body.names.length do
       assignSlot(a) = slotOfName.slotIndex(body.names(a))
       a += 1
+    // Allocate the parallel Ref bank only when at least one slot was
+    // registered as `SlotKindRef`; otherwise share the static `EmptyRefs`
+    // singleton — Phase 1 Commit 1 has zero callers register Ref slots,
+    // so this is always EmptyRefs today.
+    val refs: Array[AnyRef] =
+      if slotOfName.refCount == 0 then EmptyRefs
+      else new Array[AnyRef](slotOfName.size)
     // Run in unboxed long space (condition already true on entry → do-while).
     // The try/catch handles a rare `LApply` runtime bail (a function was
     // reassigned mid-loop so its body no longer matches the compiled `DExpr`):
@@ -1013,9 +1073,9 @@ private[interpreter] object EvalRuntime:
       while running do
         var i = 0
         while i < rhsL.length do
-          slots(assignSlot(i)) = rhsL(i).eval(slots)
+          slots(assignSlot(i)) = rhsL(i).eval(slots, refs)
           i += 1
-        running = condL.eval(slots)
+        running = condL.eval(slots, refs)
       // Box final values of assigned vars back into env + globals (once).
       val local = frameView.underlying
       var w = 0
@@ -1244,6 +1304,10 @@ private[interpreter] object EvalRuntime:
     while a < body.names.length do
       assignSlot(a) = slotOfName.slotIndex(body.names(a))
       a += 1
+    // Parallel Ref bank — see tryLongWhileAssign for the EmptyRefs rationale.
+    val refs: Array[AnyRef] =
+      if slotOfName.refCount == 0 then EmptyRefs
+      else new Array[AnyRef](slotOfName.size)
 
     try
       var running = true
@@ -1271,10 +1335,10 @@ private[interpreter] object EvalRuntime:
         // 2. Long-slot assigns.
         var i = 0
         while i < rhsL.length do
-          slots(assignSlot(i)) = rhsL(i).eval(slots)
+          slots(assignSlot(i)) = rhsL(i).eval(slots, refs)
           i += 1
         // 3. Cond.
-        running = condL.eval(slots)
+        running = condL.eval(slots, refs)
       // Write back final slot values.
       val local = frameView.underlying
       var w = 0
