@@ -69,6 +69,10 @@ val InterpreterIntrinsics: Map[QualifiedName, IntrinsicImpl] =
     ),
     QualifiedName("Console.print") -> NativeImpl((ctx, args) =>
       ctx.out.print(args.map(formatArg).mkString(" "))
+    ),
+    // System.currentTimeMillis() — cross-backend timing (matches JS Date.now(), Scala System)
+    QualifiedName("System.currentTimeMillis") -> NativeImpl((_, _) =>
+      java.lang.System.currentTimeMillis()
     )
   ) ++ CoreIntrinsics     // Stage 5+/E — Core:     intrinsics/Core.scala
     // HTTP / WS / MCP / JSON / Request / Frontend / Auth / OAuth / JDBC / UI now ship as plugins.

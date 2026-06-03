@@ -48,6 +48,11 @@ private[interpreter] object BuiltinsRuntime:
     interp.globals("println") = interp.globals("Console.println")
     interp.globals("print")   = interp.globals("Console.print")
 
+    // System companion — cross-backend timing API (matches JS Date.now(), Scala System).
+    interp.globals("System") = Value.InstanceV("System", Map(
+      "currentTimeMillis" -> interp.globals("System.currentTimeMillis")
+    ))
+
     // Plugin-provided companion objects (Db, DriverManager, Graph) are set up in
     // setupPluginCompanions, called from ensurePluginsLoaded after the plugin
     // intrinsics have been registered.
