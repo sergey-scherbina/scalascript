@@ -1,4 +1,0 @@
-feature/coord-status-clean-worktrees-20260603 2026-06-03T20:22:56Z
-status: in-progress
-done-so-far: scripts/coord-status reports clean landed linked worktrees and AGENTS documents the signal
-next: land queue/changelog bookkeeping and release claim

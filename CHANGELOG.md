@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — coord-status clean landed worktrees
+
+- **coord-status-clean-worktrees** — `scripts/coord-status` now reports a
+  `clean landed worktrees` section for linked worktrees that are clean, unlocked,
+  not ahead of `origin/main`, and whose `HEAD` is already contained in
+  `origin/main`; each entry includes an explicit cleanup command. `AGENTS.md`
+  documents the signal as advisory so agents can prune stale landed worktrees
+  without touching dirty or live work.
+
+---
+
 ## 2026-06-03 — while-jit-mixed-foreach-set: extend fused while+foreach JIT to SetV receivers
 
 - **while-jit-mixed-foreach-set** — `tryCompileWhileMixed` (JavacJitBackend) and

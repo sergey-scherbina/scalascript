@@ -133,6 +133,14 @@ being landed backend by backend.
   `scripts/coord-status --no-fetch` against a tree containing an invalid
   datatable marker.
 
+- [x] **coord-status-clean-worktrees** — ✓ Landed 2026-06-03. Extended
+  `scripts/coord-status` with a `clean landed worktrees` section that lists
+  linked worktrees that are clean, unlocked, not ahead of `origin/main`, and
+  whose `HEAD` is already contained in `origin/main`; each entry prints a
+  cleanup command. Locked, dirty, ahead, prunable, and main-checkout worktrees
+  are excluded. Verification: `bash -n scripts/coord-status`;
+  `scripts/coord-status --no-fetch`; `git diff --check`.
+
 - [x] **frontend-view-traversal-core** - ✓ Landed 2026-06-02. Added
   `ViewTraversal` in `frontend/core` (`children` + `foreachDepthFirst`) with
   adaptive-branch options and migrated React's fetch-signal collector to it.
