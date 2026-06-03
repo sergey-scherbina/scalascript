@@ -1,0 +1,4 @@
+feature/coord-status-clean-worktrees-20260603 2026-06-03T20:22:56Z
+status: not-started
+done-so-far:
+next: add coord-status detection for clean landed worktrees and document cleanup signal
