@@ -1684,9 +1684,13 @@ class JsGen(
       else if mutualGroups.contains(fname) && params.nonEmpty && !hasDefaults &&
               !containsAwaitClient(d.body) then
         genMutualTcoFun(d, fname, params)
-      // Self-TCO: emit a while-loop trampoline when all self-calls are in tail position
+      // Self-TCO: emit a while-loop trampoline when the function calls itself and all
+      // self-calls are in tail position. The anywhereContainsSelfCall guard is required
+      // because hasNonTailSelfCall returns false for non-recursive functions too (zero
+      // non-tail self-calls), which would incorrectly wrap every function in while(true).
       else if params.nonEmpty && fname.nonEmpty && !hasDefaults &&
               !containsAwaitClient(d.body) &&
+              anywhereContainsSelfCall(d.body, fname) &&
               !hasNonTailSelfCall(d.body, fname, tailPos = true) then
         // Formals are _p shadow-names so we can declare mutable let params inside.
         // safeJsParam guards against JS reserved words (e.g. `default` → `default_p`).
@@ -1710,6 +1714,12 @@ class JsGen(
             line(s"$fnKw $fname($paramsStr) {")
             indent += 1
             withParamRenames(defRenames)(genFunctionBody(bodyStats))
+            indent -= 1
+            line("}")
+          case tm: Term.Match =>
+            line(s"$fnKw $fname($paramsStr) {")
+            indent += 1
+            withParamRenames(defRenames)(genMatchAsStmts(tm, t => line(s"return ${genExpr(t)};")))
             indent -= 1
             line("}")
           case expr =>
@@ -2141,7 +2151,10 @@ class JsGen(
       case Term.Apply.After_4_6_0(Term.Name(`fname`), argClause) =>
         val newArgs = argClause.values.map(v => genExpr(v.asInstanceOf[Term]))
         if params.length == 1 then line(s"${params(0)} = ${newArgs(0)};")
-        else line(s"[${params.mkString(", ")}] = [${newArgs.mkString(", ")}];")
+        else
+          val temps = newArgs.indices.map(i => s"_tco$i")
+          line(s"const ${temps.zip(newArgs).map((t, v) => s"$t = $v").mkString(", ")};")
+          params.zip(temps).foreach { (p, t) => line(s"$p = $t;") }
         line("continue;")
       case Term.Apply.After_4_6_0(Term.Name(n), argClause) if friends.contains(n) =>
         val newArgs = argClause.values.map(v => genExpr(v.asInstanceOf[Term]))
@@ -2175,7 +2188,11 @@ class JsGen(
       if params.length == 1 then
         line(s"${params(0)} = ${newArgs(0)};")
       else
-        line(s"[${params.mkString(", ")}] = [${newArgs.mkString(", ")}];")
+        // Use individual const temps to avoid temporary array allocation.
+        // All RHS are evaluated before any LHS is written (cross-referencing is safe).
+        val temps = newArgs.indices.map(i => s"_tco$i")
+        line(s"const ${temps.zip(newArgs).map((t, v) => s"$t = $v").mkString(", ")};")
+        params.zip(temps).foreach { (p, t) => line(s"$p = $t;") }
       line("continue;")
     case t: Term.If =>
       line(s"if (${genExpr(t.cond)}) {")
@@ -2192,6 +2209,8 @@ class JsGen(
         case t: Term => genTcoBody(t, fname, params)
         case _       => ()
       }
+    case tm: Term.Match =>
+      genMatchAsStmts(tm, t => genTcoBody(t, fname, params))
     case other =>
       line(s"return ${genExpr(other)};")
 
@@ -2209,6 +2228,8 @@ class JsGen(
             val body = genWhileBodyInline(tw.body)
             line(s"while ($cond) { $body; }")
             if isLast then line("return undefined;")
+          case tm: Term.Match if isLast =>
+            genMatchAsStmts(tm, t => line(s"return ${genExpr(t)};"))
           case t: Term if isLast =>
             line(s"return ${genExpr(t)};")
           case t: Term =>
@@ -2320,6 +2341,33 @@ class JsGen(
       s"(yield ${genExpr(argClause.values.head.asInstanceOf[Term])})"
     case Term.Block(stats) => stats.map(genGenStatItem).mkString("\n")
     case _                 => genExpr(t)
+
+  // Emits a Term.Match as an if-else chain of statements. Each case arm is emitted
+  // with its bindings as const declarations followed by the arm body via `bodyEmit`.
+  // This avoids the IIFE that genExpr(Term.Match) produces, eliminating arrow-fn
+  // allocation + call overhead when the match is in a return/tail position.
+  private def genMatchAsStmts(t: Term.Match, bodyEmit: Term => Unit): Unit =
+    val scrutVar = freshTmp()
+    line(s"const $scrutVar = ${genExpr(t.expr)};")
+    var lastWasWildcard = false
+    t.casesBlock.cases.zipWithIndex.foreach { (c, idx) =>
+      val (cond, bindings) = genPattern(scrutVar, c.pat)
+      if cond == "true" then
+        lastWasWildcard = true
+        if idx > 0 then { indent -= 1; line("} else {"); indent += 1 }
+        else { line("{"); indent += 1 }
+      else
+        lastWasWildcard = false
+        val kw = if idx == 0 then "if" else "} else if"
+        if idx > 0 then indent -= 1
+        line(s"$kw ($cond) {")
+        indent += 1
+      bindings.foreach { case (n, e) => line(s"const $n = $e;") }
+      bodyEmit(c.body.asInstanceOf[Term])
+    }
+    indent -= 1
+    if lastWasWildcard then line("}")
+    else line(s"} else { throw new Error('Match failure: ' + _show($scrutVar)); }")
 
   // Emits while-body stats as a flat semicolon-separated string — no IIFE wrapper.
   private def genWhileBodyInline(body: Term): String = body match
@@ -3281,7 +3329,13 @@ class JsGen(
           case "::" => s"[${genExpr(lhs)}, ...(${genExpr(args.head)})]"
           case ":+" => s"[...($lhsJs), ${genExpr(args.head)}]"
           case "+:" => s"[${genExpr(lhs)}, ...(${genExpr(args.head)})]"
-          case "++" | ":::" => s"_tupleConcat($lhsJs, ${genExpr(args.head)})"
+          case "++" | ":::" =>
+            // Scalameta parses `a ++ (b, c)` as two infix args [b, c], not one Tuple(b,c).
+            // Wrap multiple args as a JS tuple so _tupleConcat sees the full RHS.
+            val rhsArgJs = args match
+              case List(single) => genExpr(single)
+              case multi        => s"Object.assign([${multi.map(a => genExpr(a.asInstanceOf[Term])).mkString(", ")}], {_isTuple: true})"
+            s"_tupleConcat($lhsJs, $rhsArgJs)"
           // HTML DSL: `attr.cls := "hero"` builds an Attr object.
           case ":=" => s"_attr($lhsJs, $rhsJs)"
           // v1.6 actors: `pid ! msg` enqueues into the receiver's mailbox.
@@ -4033,7 +4087,10 @@ class JsGen(
 
     // Infix — bind both sides, then apply op
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
-      val rhs = argClause.values.head
+      val rhsTerms = argClause.values.collect { case t: Term => t }
+      val rhs: Term = rhsTerms match
+        case List(single) => single
+        case multi        => Term.Tuple(multi.map(_.asInstanceOf[scala.meta.Term]))
       bindArgsCps(List(lhs, rhs)) { case List(vl, vr) =>
         op.value match
           case "::"           => s"[$vl, ...$vr]"
