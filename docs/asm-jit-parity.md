@@ -46,9 +46,10 @@ lagged the recent Javac and dual-bank work in these areas:
 | `ObjToObject` ref-returning match functions | Supported by `walkRefMatchBody` | Implemented in `f48bcf1f` | P1 done |
 | Function sibling / mutual co-emit | Supported for long-returning int/ref-param functions | Implemented in `f48bcf1f` | P1 done |
 | Binding ref classification for sibling calls | Callee-param-aware | Implemented in `f48bcf1f` | P1 done |
+| Wildcard / named catch-all ADT match arms | Supported by wider match lowering | Implemented in Phase 2 rebase follow-up | P2 done |
 | While-JIT ref args (`ObjToLong`, `ObjToObject`, field/select chains, inline match) | Supported in `tryCompileWhileLong` | Implemented in Phase 2 | P2 done |
 | Fused while + foreach List/Set | Supported in `tryCompileWhileMixed` | Implemented in Phase 2 | P2 done |
-| Fused while + Map.foreach | Still open in `WORK_QUEUE.md` for Javac too | Out of scope until Javac lands | Follow-up |
+| Fused while + Map.foreach | Supported in `tryCompileWhileMixed` with `mapIsKeyMode` | Implemented in Phase 2 rebase follow-up | P2 done |
 
 ## Implementation Status
 
@@ -88,12 +89,19 @@ Phase 2 landed on 2026-06-04:
 - `tryCompileWhileMixed` now fuses val-bound `ListV` and `SetV` foreach loops
   with `ObjToLong` or `ObjToDouble` accumulator functions. List receivers use a
   head/tail loop; Set receivers use a Scala iterator loop.
+- After rebasing over `phase-c-bytecode-wider-match`, ASM top-level match
+  lowering also accepts wildcard and named catch-all arms.
+- After rebasing over `while-jit-map-foreach`, ASM `tryCompileWhileMixed` also
+  fuses `MapV.foreach((k, v) => acc = acc + kOrV)` by consuming the
+  pre-extracted `Object[]` that EvalRuntime passes via `JitGlobals.getRefs()[0]`;
+  `WhileJitEntry.mapIsKeyMode` is preserved for key-vs-value extraction.
 
 Verified on 2026-06-04 with:
 
 - `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-p2-20260604 && sbt "backendInterpreter/compile"`
-- `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-p2-20260604 && sbt "backendInterpreter/testOnly scalascript.SscVmTest"` — 25/25
-- `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-p2-20260604 && SSC_JIT_BACKEND=asm sbt "backendInterpreter/testOnly scalascript.SscVmTest scalascript.InterpreterTest scalascript.JitLintTest"` — 178/178
+- `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-p2-20260604 && sbt "backendInterpreter/testOnly scalascript.SscVmTest"` — 27/27
+- `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-p2-20260604 && SSC_JIT_BACKEND=asm sbt "backendInterpreter/testOnly scalascript.JitLintTest"` — 17/17
+- `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-p2-20260604 && SSC_JIT_BACKEND=asm sbt "backendInterpreter/testOnly scalascript.SscVmTest scalascript.InterpreterTest scalascript.JitLintTest"` — 183/183
 
 ## Architecture
 
@@ -132,12 +140,10 @@ Port Javac's richer while emitter to ASM:
 - Returned `WhileJitEntry` carries the resolved ref names and function arrays.
 - Add a real ASM `tryCompileWhileMixed` for ListV/SetV foreach fusion, using
   the existing `refDoubleFns` slot for Double accumulators.
-
-### Follow-up: Map.foreach
-
-When `while-jit-map-foreach` lands for Javac, repeat the same audit and port the
-Map-specific iterator emission into ASM. This spec intentionally does not invent
-that shape ahead of the canonical Javac implementation.
+- Add the MapV branch after the canonical Javac implementation lands: detect
+  two-parameter `Map.foreach`, preserve `mapIsKeyMode`, and iterate the
+  pre-extracted `Object[]` from `JitGlobals.getRefs()[0]` with a plain index
+  loop.
 
 ## Migration
 
@@ -159,8 +165,10 @@ Phase 1:
 Phase 2:
 
 - Add direct ASM tests in `SscVmTest` for inline ref-match RHS,
-  `ObjToObject` ref-arg chains, ListV fused foreach with `ObjToLong`, and SetV
-  fused foreach with `ObjToDouble`.
+  `ObjToObject` ref-arg chains, ListV fused foreach with `ObjToLong`, SetV
+  fused foreach with `ObjToDouble`, and MapV foreach key/value modes.
+- Re-run `JitLintTest` under `SSC_JIT_BACKEND=asm` after any Javac match-shape
+  expansion, because it is the quickest detector for parity drift.
 - Re-run existing while/ref tests under `SSC_JIT_BACKEND=asm`:
   `InterpreterTest` ref-chain/inline-match tests and the JIT-specific suites.
 - Benchmark with `scripts/bench interp nestedMatchExpr`, `scripts/bench interp refFieldArg`,
