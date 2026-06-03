@@ -9,12 +9,7 @@ import scalascript.interpreter.{Interpreter, Value}
  *
  *  Categories cover the common bail cliffs in `JavacJitBackend.tryCompile`
  *  and `EvalRuntime.compileExpr` — both lints share this classification so
- *  a "lint passes" report is equivalent to "JIT compiles" in steady state.
- *
- *  Phase 2 Commit 1: the inventory is the structural cliffs the lint can
- *  detect from a single-pass AST walk. Future commits will surface the
- *  remaining "unknown shape" bails by factoring out the actual recogniser
- *  predicates from JavacJitBackend so the lint can ask them directly. */
+ *  a "lint passes" report is equivalent to "JIT compiles" in steady state. */
 sealed trait JitBailReason:
   def description: String
   /** Suggested refactor when one applies. Some cliffs are structural (e.g.
@@ -41,9 +36,17 @@ object JitBailReason:
       "with `*`); the JIT compiles fixed-arity signatures only"
     val suggestedFix = Some("convert the vararg site to take an explicit " +
       "`List[T]` or `Seq[T]` argument")
+  /** Guards in Int/Long-scrutinee matches are not compiled — the JIT emits a
+   *  Java switch on the type tag (ADT) or a direct long value; there is no
+   *  per-case re-dispatch for failed guards in that path.
+   *  Note: guards on ADT (InstanceV) scrutinees ARE compiled since the
+   *  while-jit-ref-select-chain slice via a fallback if-chain emitter
+   *  (`walkArmAsIfBranch`). This reason is only reported when the backend
+   *  actually fails to compile the function. */
   case object PatternGuard extends JitBailReason:
-    val description = "function body has `case x if cond => …` — pattern " +
-      "guards aren't lowered into the generated switch/dispatch"
+    val description = "function body has `case x if cond => …` in a match on " +
+      "an Int/Long/non-ADT scrutinee; guards on such matches are not compiled " +
+      "(guards on ADT (InstanceV) scrutinee matches are supported)"
     val suggestedFix = Some("move the guard into the arm body: `case x => " +
       "if cond then …; else <next-arm-body>`")
   case object NonAdtScrutinee extends JitBailReason:
@@ -60,6 +63,31 @@ object JitBailReason:
       "arms; the JIT picks one numeric type for the entire body"
     val suggestedFix = Some("widen all arms to Double by writing `.toDouble` " +
       "explicitly, or keep them all Int")
+  /** The function body's top-level expression is a comparison or logical
+   *  operator (`<`, `<=`, `>`, `>=`, `==`, `!=`, `&&`, `||`). The JIT
+   *  always generates `long`-returning static methods; a bool-typed result
+   *  would be silently misrepresented as Int 0/1 to callers that expect
+   *  a `BoolV`. */
+  case object BoolBody extends JitBailReason:
+    val description = "function body is a comparison or logical expression " +
+      "(`<`, `<=`, `>`, `>=`, `==`, `!=`, `&&`, `||`); the JIT emits `long` " +
+      "and the result would be misrepresented as Int 0/1 rather than BoolV"
+    val suggestedFix = Some("wrap the comparison in an explicit `if`: " +
+      "`def pred(x: Int): Boolean = x > 0` → `def pred(x: Int): Int = if x > 0 then 1 else 0`")
+  /** No parameters — the JIT requires at least one typed parameter to build
+   *  a fixed-arity static method signature. */
+  case object ZeroParams extends JitBailReason:
+    val description = "function has zero parameters; the JIT requires at least " +
+      "one Int/Long/Double/ADT parameter to generate a fixed-arity static method"
+    val suggestedFix = None
+  /** More than two parameters — the JIT supports 1- and 2-parameter functions
+   *  (covering both the single-param and mixed Long+ref/Long+Long pairs).
+   *  3+ param functions always fall back to SscVm.exec. */
+  case class TooManyParams(n: Int) extends JitBailReason:
+    val description = s"function has $n parameters; the JIT compiles 1- and " +
+      "2-parameter functions only (1 ref, 1 long, 1 double, long+ref, long+long, ref+long)"
+    val suggestedFix = Some("split into smaller helpers or fold the extra state " +
+      "into a 2-param while loop (accumulator + loop variable)")
   case object UnknownShape extends JitBailReason:
     val description = "function would not JIT (no specific structural cliff " +
       "detected — either a Term shape the JIT walker doesn't emit, or the " +
@@ -91,6 +119,24 @@ final case class JitLintReport(
       }.mkString("\n")
       s"$header  [will NOT JIT]\n$body"
 
+/** Pure predicates shared between `JitLint.classifyBailReasons` and
+ *  `JavacJitBackend.doCompile`. Keeping the logic in one place prevents
+ *  the lint and the backend from silently diverging after a backend change.
+ *
+ *  All functions are pure (no interpreter access, no side effects) and
+ *  operate on scala.meta AST nodes only. */
+private[jit] object JitPredicates:
+  /** True iff the top-level result type of `t` is Boolean (comparison or
+   *  short-circuit logical). `JavacJitBackend` always emits `long`-returning
+   *  static methods; a bool-typed body would be misrepresented as Int 0/1. */
+  def isBoolReturning(t: Term): Boolean = t match
+    case Term.ApplyInfix.After_4_6_0(_, op, _, _) =>
+      val s = op.value
+      s == "<" || s == "<=" || s == ">" || s == ">=" || s == "==" || s == "!=" || s == "&&" || s == "||"
+    case ti: Term.If =>
+      isBoolReturning(ti.thenp) || isBoolReturning(ti.elsep)
+    case _ => false
+
 /** Analyser that walks the interpreter's globals after a module is loaded
  *  and reports JIT-compilability for every Defn.Def. Reuses the live
  *  `JitBackend.default.tryCompile` cache as the ground-truth predicate so
@@ -105,15 +151,10 @@ final case class JitLintReport(
  *      System.err.println("Some functions will not JIT — see above")
  *  }}}
  *
- *  Phase 2 Commit 1 limitations:
- *  - The classifier sees only what an AST walk of `f.body` can detect.
- *    Some bails happen deeper inside the walker (e.g. an unsupported
- *    Term.ApplyInfix op) and surface as `UnknownShape`.
- *  - Detail beyond the listed JitBailReason categories needs the
- *    JavacJitBackend recognisers to be factored out into pure predicates;
- *    deferred to Phase 2 Commit 2.
- *  - Only top-level FunVs are linted; closures and locally-defined defs
- *    that never reach `interp.globals` are skipped. */
+ *  The classifier calls the same predicates as `JavacJitBackend.doCompile`
+ *  (via `JitPredicates`) so the lint and the backend cannot diverge silently.
+ *  Remaining "unknown shape" bails (Term shapes the walker can't classify
+ *  without running `doCompile`) still surface as `UnknownShape`. */
 object JitLint:
   /** Lint every top-level `def` in the interpreter's globals. Returns one
    *  report per FunV, sorted by name. Pure (no side effects on the
@@ -130,7 +171,6 @@ object JitLint:
     val line = posLineOf(fn.body)
     val backendResult = JitBackend.default.tryCompile(fn, interp)
     if backendResult != null then
-      // The backend successfully compiled — no static bail to report.
       JitLintReport(name, line, Nil)
     else
       val reasons = classifyBailReasons(fn)
@@ -140,43 +180,45 @@ object JitLint:
       JitLintReport(name, line, nonEmpty)
 
   /** Walk `fn.body` + the param/return metadata and collect every visible
-   *  structural cliff. Returns Nil if no obvious cliff is detected — the
-   *  caller then reports `UnknownShape`. */
+   *  structural cliff. The checks mirror `JavacJitBackend.doCompile`'s
+   *  early-bail predicates so the lint and the backend stay in sync.
+   *  Returns Nil if no obvious cliff is detected — the caller then reports
+   *  `UnknownShape`. */
   private def classifyBailReasons(fn: Value.FunV): List[JitBailReason] =
     val buf = scala.collection.mutable.ListBuffer.empty[JitBailReason]
+    // Param-count check mirrors doCompile's `if f.params.length != 1 && … != 2`.
+    if fn.params.isEmpty then buf += JitBailReason.ZeroParams
+    else if fn.params.length > 2 then buf += JitBailReason.TooManyParams(fn.params.length)
     if fn.usingParams.nonEmpty then buf += JitBailReason.UsingParams
     if fn.paramTypes.exists(_.endsWith("*")) then buf += JitBailReason.VarargParam
     if fn.returnsThrows then buf += JitBailReason.EffectReturn
+    // Bool-body check mirrors doCompile's `if isBoolReturning(f.body) then return null`.
+    if JitPredicates.isBoolReturning(fn.body) then buf += JitBailReason.BoolBody
     walkForCliffs(fn.body, buf)
     buf.toList.distinct
 
   /** Recursive AST traversal that pushes a `JitBailReason` for each visible
-   *  cliff. Falls back to `Tree.children.foreach(walkForCliffs(_, …))` so
-   *  every node is examined exactly once. */
+   *  structural cliff. Falls back to `Tree.children.foreach(walkForCliffs(_, …))`
+   *  so every node is visited exactly once. */
   private def walkForCliffs(t: Tree, buf: scala.collection.mutable.ListBuffer[JitBailReason]): Unit =
     t match
       case _: Term.Try =>
         buf += JitBailReason.TryCatch
       case tm: Term.Match =>
-        // Scrutinee must be a Term.Name resolving to a parameter (the JIT's
-        // walkMatchBody requires this). A compound expr forces a tree-walk.
         tm.expr match
-          case _: Term.Name => () // ok shape; deeper-walker may still bail
+          case _: Term.Name => ()
           case _            => buf += JitBailReason.NonAdtScrutinee
         tm.casesBlock.cases.foreach { c =>
           if c.cond.nonEmpty then buf += JitBailReason.PatternGuard
           c.pat match
-            case _: Pat.Extract => () // standard ctor pattern; ok
-            case _: Pat.Var     => () // bare binding; ok in catch-all arms
-            case _: Pat.Wildcard => () // ok in catch-all arms
-            case _              => buf += JitBailReason.NonExtractPattern
+            case _: Pat.Extract  => ()
+            case _: Pat.Var      => ()
+            case _: Pat.Wildcard => ()
+            case _               => buf += JitBailReason.NonExtractPattern
           walkForCliffs(c.body, buf)
         }
       case _ => t.children.foreach(walkForCliffs(_, buf))
 
-  /** Best-effort source line extraction. scala.meta carries `Position` on
-   *  every Tree node parsed from source; the start row is 0-indexed so we
-   *  +1 for human display. Returns None for synthetic trees with no pos. */
   private def posLineOf(t: Tree): Option[Int] =
     val p = t.pos
     if p == scala.meta.inputs.Position.None then None

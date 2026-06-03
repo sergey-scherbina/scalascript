@@ -85,18 +85,9 @@ object JavacJitBackend extends JitBackend:
     walk(t)
     hit
 
-  /** True iff the body's top-level result is a Boolean (comparison or
-   *  short-circuit). `JavacJitBackend` returns `long` from every generated method
-   *  and the caller wraps as `IntV(0|1)` — a Boolean-returning fn would then
-   *  be misrepresented to consumers expecting `BoolV`. Bail in that case so
-   *  the SscVm.exec / tree-walk path handles those correctly. */
-  private def isBoolReturning(t: Term): Boolean = t match
-    case Term.ApplyInfix.After_4_6_0(_, op, _, _) =>
-      val s = op.value
-      s == "<" || s == "<=" || s == ">" || s == ">=" || s == "==" || s == "!=" || s == "&&" || s == "||"
-    case ti: Term.If =>
-      isBoolReturning(ti.thenp) || isBoolReturning(ti.elsep)
-    case _ => false
+  /** Delegates to the shared `JitPredicates.isBoolReturning` so the lint and
+   *  the backend use identical logic. See `JitPredicates` for the rationale. */
+  private def isBoolReturning(t: Term): Boolean = JitPredicates.isBoolReturning(t)
 
   /** Returns the fully-qualified name of the JitInterface that matches the
    *  compiled function's signature, or null for unsupported shapes (e.g.
