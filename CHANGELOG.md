@@ -4,6 +4,36 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — js-while-pmatch: JS codegen — IIFE elimination + numeric arithmetic fast-path
+
+- **js-while-pmatch** — Four optimizations to JsGen to speed up numeric JS output:
+
+  1. **While-loop IIFE removal**: `genFunctionBody` now special-cases `Term.While`
+     to emit `while(cond){body}` directly instead of routing through `genExpr`
+     (which wraps in an outer IIFE). New `genWhileBodyInline` helper flattens
+     `Term.Block` bodies as `;`-separated statements, eliminating the inner IIFE
+     that `genBlockAsIife` emitted per iteration. **arith-loop: 5.65→1.79 ms (3.2×)**.
+
+  2. **Case class field name access**: `caseClassFieldsByType` pre-pass (already
+     scanned for API client warnings) is now stored at module scope and used in
+     `genPattern`. Case class destructuring emits `scrutVar.fieldName` instead of
+     `Object.values(scrutVar).slice(1)[i]`.
+
+  3. **Double/Float numeric tracking**: `numericVars` (var/val/param declarations)
+     and `numericFunctions` (`:Double`/`:Float` return types) parallel the existing
+     `intVars`/`intFunctions`. Case class field types scanned in
+     `caseClassFieldTypeMap`; Double/Float-typed pattern-bound variables added to
+     `numericVars`. New `isNumericExpr` predicate mirrors `isIntExpr`.
+
+  4. **Direct arithmetic for numeric expressions**: `genArith` emits `(a op b)`
+     directly (no `_arith` call, no `typeof` string guard) when `isNumericExpr`
+     holds for both operands. Covers `*`, `+`, `-`, `/`, `%`, `<`, `>`, `<=`, `>=`,
+     `==`, `!=`. **pattern-match-heavy: all `_arith` calls eliminated from hot path**.
+
+  Commit: `b575547c`. Tests: 1230/1230 green.
+
+---
+
 ## 2026-06-03 — while-jit-inline-match: inline match on val-bound InstanceV
 
 - **while-jit-inline-match** — Added `Term.Match` case to `walkLocalSlotCtx`
