@@ -491,3 +491,33 @@ class InterpreterBench:
   @Benchmark
   def mapForeach(): Unit =
     Interpreter(devNull).runSections(modMapForeach)
+
+  // Pattern guard bench: `case A(n) if n >= 0 => n; case A(n) => -n`.
+  // Pre-guard-JIT: guard bails → tree-walk every call.
+  // Post-guard-JIT: if-chain form compiled → ObjToLong JIT path hot.
+  // Uses pre-built val-bound instances so the outer while-loop routes through
+  // LApplyR1(LRefConst, jitResult) and the bench isolates guard dispatch cost.
+  private val modPatternGuard: Module = src(
+    """sealed trait E
+      |case class A(n: Int) extends E
+      |case class B(n: Int) extends E
+      |def absVal(e: E): Int = e match
+      |  case A(n) if n >= 0 => n
+      |  case A(n)           => -n
+      |  case B(n) if n >= 0 => n
+      |  case B(n)           => -n
+      |val aPos = A(5)
+      |val aNeg = A(-3)
+      |val bPos = B(7)
+      |val bNeg = B(-2)
+      |var total = 0
+      |var i = 0
+      |while i < 1000000 do
+      |  total = total + absVal(aPos) + absVal(aNeg) + absVal(bPos) + absVal(bNeg)
+      |  i = i + 1
+      |total""".stripMargin
+  )
+
+  @Benchmark
+  def patternGuard(): Unit =
+    Interpreter(devNull).runSections(modPatternGuard)

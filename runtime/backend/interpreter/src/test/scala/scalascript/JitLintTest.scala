@@ -37,7 +37,7 @@ class JitLintTest extends AnyFunSuite with Matchers:
 
   // ── one cliff per category ──────────────────────────────────────
 
-  test("pattern guard reports PatternGuard"):
+  test("Pat.Extract guard with compilable cond — should JIT"):
     val r = lintFor(
       """sealed trait E
         |case class A(n: Int) extends E
@@ -45,6 +45,16 @@ class JitLintTest extends AnyFunSuite with Matchers:
         |  case A(n) if n > 0 => n
         |  case A(n)          => -n
         |f(A(3))""".stripMargin
+    ).forDef("f")
+    r.willJit shouldBe true
+    r.bailReasons shouldBe empty
+
+  test("non-extract guard (Int match) still reports PatternGuard"):
+    val r = lintFor(
+      """def f(x: Int): Int = x match
+        |  case n if n > 0 => n
+        |  case n          => -n
+        |f(3)""".stripMargin
     ).forDef("f")
     r.willJit shouldBe false
     r.bailReasons should contain (JitBailReason.PatternGuard)
