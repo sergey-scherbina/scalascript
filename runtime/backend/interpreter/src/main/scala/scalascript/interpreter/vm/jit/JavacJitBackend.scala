@@ -1397,9 +1397,11 @@ object JavacJitBackend extends JitBackend:
       return null
     val (listName, fnName) = info
 
-    // Verify the list receiver is a val-bound ListV (SetV support later).
+    // Accept val-bound ListV or SetV receivers.
     val listVal = interp.globals.getOrElse(listName, null)
-    if !listVal.isInstanceOf[scalascript.interpreter.Value.ListV] then
+    val receiverIsList = listVal.isInstanceOf[scalascript.interpreter.Value.ListV]
+    val receiverIsSet  = !receiverIsList && listVal.isInstanceOf[scalascript.interpreter.Value.SetV]
+    if !receiverIsList && !receiverIsSet then
       whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
       return null
 
@@ -1454,7 +1456,10 @@ object JavacJitBackend extends JitBackend:
       sb.append(s"    $jitPkg.ObjToDouble _dfn0 = $jitPkg.JitGlobals.getRefDoubleFns()[0];\n")
     else
       sb.append(s"    $jitPkg.ObjToLong _fn0 = $jitPkg.JitGlobals.getRefFns()[0];\n")
-    sb.append(s"    $valuePkg.Value.ListV _list0 = ($valuePkg.Value.ListV) $jitPkg.JitGlobals.getRefs()[0];\n")
+    if receiverIsSet then
+      sb.append(s"    $valuePkg.Value.SetV _set0 = ($valuePkg.Value.SetV) $jitPkg.JitGlobals.getRefs()[0];\n")
+    else
+      sb.append(s"    $valuePkg.Value.ListV _list0 = ($valuePkg.Value.ListV) $jitPkg.JitGlobals.getRefs()[0];\n")
     // Load int slots.
     k = 0
     while k < names.length do
@@ -1467,15 +1472,24 @@ object JavacJitBackend extends JitBackend:
       sb.append(s"    long _acc = v[$accSlotIdx];\n")
     // Outer while.
     sb.append(s"    while ($condJava) {\n")
-    // Inner foreach loop over list items.
-    sb.append(s"      scala.collection.immutable.List<?> _items = _list0.items();\n")
-    sb.append(s"      while (!_items.isEmpty()) {\n")
-    if accIsDouble then
-      sb.append(s"        _acc += _dfn0.apply(_items.head());\n")
+    // Inner foreach loop over receiver items (List head/tail or Set iterator).
+    if receiverIsSet then
+      sb.append(s"      scala.collection.Iterator<?> _iter = _set0.items().iterator();\n")
+      sb.append(s"      while (_iter.hasNext()) {\n")
+      if accIsDouble then
+        sb.append(s"        _acc += _dfn0.apply(_iter.next());\n")
+      else
+        sb.append(s"        _acc += _fn0.apply(_iter.next());\n")
+      sb.append(s"      }\n")
     else
-      sb.append(s"        _acc += _fn0.apply(_items.head());\n")
-    sb.append(s"        _items = (scala.collection.immutable.List<?>) _items.tail();\n")
-    sb.append(s"      }\n")
+      sb.append(s"      scala.collection.immutable.List<?> _items = _list0.items();\n")
+      sb.append(s"      while (!_items.isEmpty()) {\n")
+      if accIsDouble then
+        sb.append(s"        _acc += _dfn0.apply(_items.head());\n")
+      else
+        sb.append(s"        _acc += _fn0.apply(_items.head());\n")
+      sb.append(s"        _items = (scala.collection.immutable.List<?>) _items.tail();\n")
+      sb.append(s"      }\n")
     // Int-assign RHSes.
     k = 0
     while k < names.length do
