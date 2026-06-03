@@ -108,8 +108,15 @@ object JavacJitBackend extends JitBackend:
     if n == 1 then
       if paramIsRef(0) then if isDouble then s"$pkg.ObjToDouble" else s"$pkg.ObjToLong"
       else if isDouble then s"$pkg.DoubleFn1" else s"$pkg.LongFn1"
-    else if n == 2 && !paramIsRef(0) && !paramIsRef(1) then
-      if isDouble then s"$pkg.DoubleFn2" else s"$pkg.LongFn2"
+    else if n == 2 then
+      (paramIsRef(0), paramIsRef(1)) match
+        case (false, false) =>
+          if isDouble then s"$pkg.DoubleFn2"   else s"$pkg.LongFn2"
+        case (false, true)  =>
+          if isDouble then s"$pkg.LongObjToDouble" else s"$pkg.LongObjToLong"
+        case (true,  false) =>
+          if isDouble then s"$pkg.ObjLongToDouble" else s"$pkg.ObjLongToLong"
+        case (true,  true)  => null  // both-ref not yet wired; rare shape
     else null
 
   private def doCompile(f: Value.FunV, interp: scalascript.interpreter.Interpreter): JitResult | Null =

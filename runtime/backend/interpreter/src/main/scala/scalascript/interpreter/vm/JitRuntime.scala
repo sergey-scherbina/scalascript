@@ -1,7 +1,7 @@
 package scalascript.interpreter.vm
 
 import scalascript.interpreter.{Value, Computation, Interpreter}
-import scalascript.interpreter.vm.jit.{JitBackend, JitResult, JitGlobals, LongFn1, DoubleFn1, ObjToLong, ObjToDouble, LongFn2, DoubleFn2}
+import scalascript.interpreter.vm.jit.{JitBackend, JitResult, JitGlobals, LongFn1, DoubleFn1, ObjToLong, ObjToDouble, LongFn2, DoubleFn2, LongObjToLong, LongObjToDouble, ObjLongToLong, ObjLongToDouble}
 import java.lang as jl
 
 /** Run-time JIT bridge between the tree-walking interpreter and [[SscVm]].
@@ -240,18 +240,45 @@ object JitRuntime:
   private def invokeBytecode2(r: JitResult, a: Value, b: Value, interp: Interpreter): Computation | Null =
     val d = r.direct
     if d != null then
-      // unboxed path: only pure-long or pure-double 2-param (no mixed ref+numeric)
+      // Unboxed dispatch for every (paramIsRef, paramIsRef) × resultIsDouble
+      // combination JavacJitBackend.determineInterface emits. The mixed
+      // Long+Ref interfaces (added 2026-06-03) unblock the
+      // `recursiveEvalMixed` shape `gEval(scale: Int, e: Expr): Int` which
+      // previously fell through to the MethodHandle path and boxed both args.
       try
-        if r.resultIsDouble then
-          val x = a match { case Value.IntV(v) => v.toDouble; case Value.DoubleV(v) => v; case _ => return null }
-          val y = b match { case Value.IntV(v) => v.toDouble; case Value.DoubleV(v) => v; case _ => return null }
-          val result = JitGlobals.withInterp(interp) { d.asInstanceOf[DoubleFn2].apply(x, y) }
-          Computation.Pure(Value.doubleV(result))
-        else
-          val x = a match { case Value.IntV(v) => v; case _ => return null }
-          val y = b match { case Value.IntV(v) => v; case _ => return null }
-          val result = JitGlobals.withInterp(interp) { d.asInstanceOf[LongFn2].apply(x, y) }
-          Computation.pureIntV(result)
+        val isDoubleResult = r.resultIsDouble
+        val pr0 = r.paramIsRef(0); val pr1 = r.paramIsRef(1)
+        (pr0, pr1) match
+          case (false, false) =>
+            if isDoubleResult then
+              val x = a match { case Value.IntV(v) => v.toDouble; case Value.DoubleV(v) => v; case _ => return null }
+              val y = b match { case Value.IntV(v) => v.toDouble; case Value.DoubleV(v) => v; case _ => return null }
+              val result = JitGlobals.withInterp(interp) { d.asInstanceOf[DoubleFn2].apply(x, y) }
+              Computation.Pure(Value.doubleV(result))
+            else
+              val x = a match { case Value.IntV(v) => v; case _ => return null }
+              val y = b match { case Value.IntV(v) => v; case _ => return null }
+              val result = JitGlobals.withInterp(interp) { d.asInstanceOf[LongFn2].apply(x, y) }
+              Computation.pureIntV(result)
+          case (false, true) =>
+            val x = a match { case Value.IntV(v) => v; case _ => return null }
+            val yRef = b match { case _: Value.InstanceV => b.asInstanceOf[AnyRef]; case _ => return null }
+            if isDoubleResult then
+              val result = JitGlobals.withInterp(interp) { d.asInstanceOf[LongObjToDouble].apply(x, yRef) }
+              Computation.Pure(Value.doubleV(result))
+            else
+              val result = JitGlobals.withInterp(interp) { d.asInstanceOf[LongObjToLong].apply(x, yRef) }
+              Computation.pureIntV(result)
+          case (true, false) =>
+            val xRef = a match { case _: Value.InstanceV => a.asInstanceOf[AnyRef]; case _ => return null }
+            val y = b match { case Value.IntV(v) => v; case _ => return null }
+            if isDoubleResult then
+              val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjLongToDouble].apply(xRef, y) }
+              Computation.Pure(Value.doubleV(result))
+            else
+              val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjLongToLong].apply(xRef, y) }
+              Computation.pureIntV(result)
+          case (true, true) => return null   // both-ref direct iface not wired; falls back to MH
       catch case _: Throwable => null
     else
       val a0 = marshalBytecode(a, r.paramIsRef(0), r.resultIsDouble)

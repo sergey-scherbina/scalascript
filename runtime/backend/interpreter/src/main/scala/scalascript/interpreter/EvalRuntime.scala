@@ -758,6 +758,32 @@ private[interpreter] object EvalRuntime:
     def eval(slots: Array[Long], refs: Array[AnyRef]): Long =
       objFn.apply(argR.eval(slots, refs))
 
+  /** 2-arg ref-mixed fast path — `f(longExpr, refExpr)` where `f` is
+   *  bytecode-JIT-compiled to a `LongObjToLong` direct interface (param 0
+   *  is numeric Long, param 1 is ref InstanceV, result is Long).
+   *  Targets `gEval(scale: Int, e: Expr): Int` in the recursiveEvalMixed
+   *  bench shape — previously every outer-loop iteration tree-walked
+   *  through evalCore because compileExpr's 2-arg apply path required the
+   *  pure-arith `compileSlotLongFn2`, which a match-bodied `gEval` can't
+   *  satisfy. */
+  private final class LApplyR2LongObj(
+    arg0L: LExpr,
+    arg1R: LRefExpr,
+    objFn: scalascript.interpreter.vm.jit.LongObjToLong
+  ) extends LExpr:
+    def eval(slots: Array[Long], refs: Array[AnyRef]): Long =
+      objFn.apply(arg0L.eval(slots, refs), arg1R.eval(slots, refs))
+
+  /** Symmetric variant — `f(refExpr, longExpr)` where param 0 is ref
+   *  and param 1 is Long. Same lift as LApplyR2LongObj. */
+  private final class LApplyR2ObjLong(
+    arg0R: LRefExpr,
+    arg1L: LExpr,
+    objFn: scalascript.interpreter.vm.jit.ObjLongToLong
+  ) extends LExpr:
+    def eval(slots: Array[Long], refs: Array[AnyRef]): Long =
+      objFn.apply(arg0R.eval(slots, refs), arg1L.eval(slots, refs))
+
   /** 2-arg parallel of `LApply`. Folds `g(x, y)` into the enclosing unboxed-
    *  Long loop without boxing either arg or result. */
   private final class LApply2(
@@ -1010,23 +1036,56 @@ private[interpreter] object EvalRuntime:
                   case _ => null
           // 2-arg parallel: `g(x, y)` where `g` is a pure 2-param fn.
           case fnName: Term.Name if ap.argClause.values.lengthCompare(2) == 0 =>
-            val arg0L = compileExpr(ap.argClause.values.head)
-            if arg0L == null then null
+            val a0Term = ap.argClause.values.head
+            val a1Term = ap.argClause.values(1)
+            // Ref-mixed JIT fast path — `f(longExpr, refExpr)` and the
+            // symmetric `f(refExpr, longExpr)`. Detected BEFORE the
+            // slot-arg compileExpr probe so a ref-typed arg name doesn't
+            // force the whole expression to bail (same lift as the 1-arg
+            // refFast path that landed in commit 13af281f / f7fc2b34).
+            // Unblocks `gEval(scale, e)` in recursiveEvalMixed.
+            val mixedFast: LExpr | Null =
+              interp.globals.getOrElse(fnName.value, null) match
+                case fn: Value.FunV
+                    if fn.params.length == 2 && fn.usingParams.isEmpty
+                       && !fn.returnsThrows =>
+                  val bcRes = scalascript.interpreter.vm.jit.JitBackend.default.tryCompile(fn, interp)
+                  if bcRes == null || bcRes.resultIsDouble then null
+                  else
+                    bcRes.direct match
+                      case ot: scalascript.interpreter.vm.jit.LongObjToLong
+                          if !bcRes.paramIsRef(0) && bcRes.paramIsRef(1) =>
+                        val a0L = compileExpr(a0Term)
+                        val a1R = compileRefExpr(a1Term)
+                        if a0L == null || a1R == null then null
+                        else new LApplyR2LongObj(a0L, a1R, ot)
+                      case ot: scalascript.interpreter.vm.jit.ObjLongToLong
+                          if bcRes.paramIsRef(0) && !bcRes.paramIsRef(1) =>
+                        val a0R = compileRefExpr(a0Term)
+                        val a1L = compileExpr(a1Term)
+                        if a0R == null || a1L == null then null
+                        else new LApplyR2ObjLong(a0R, a1L, ot)
+                      case _ => null
+                case _ => null
+            if mixedFast != null then mixedFast
             else
-              val arg1L = compileExpr(ap.argClause.values(1))
-              if arg1L == null then null
+              val arg0L = compileExpr(a0Term)
+              if arg0L == null then null
               else
-                interp.globals.getOrElse(fnName.value, null) match
-                  case fn: Value.FunV
-                      if fn.params.length == 2
-                         && fn.usingParams.isEmpty
-                         && !fn.returnsThrows
-                         && (fn.defaults.isEmpty || fn.defaults.forall(_.isEmpty))
-                         && (fn.paramTypes.length < 2 || !fn.paramTypes(1).endsWith("*")) =>
-                    val slotFn = PatternRuntime.compileSlotLongFn2(fn.body, fn.params.head, fn.params(1), interp)
-                    if slotFn == null then null
-                    else new LApply2(arg0L, arg1L, fnName.value, fn.body, slotFn, interp)
-                  case _ => null
+                val arg1L = compileExpr(a1Term)
+                if arg1L == null then null
+                else
+                  interp.globals.getOrElse(fnName.value, null) match
+                    case fn: Value.FunV
+                        if fn.params.length == 2
+                           && fn.usingParams.isEmpty
+                           && !fn.returnsThrows
+                           && (fn.defaults.isEmpty || fn.defaults.forall(_.isEmpty))
+                           && (fn.paramTypes.length < 2 || !fn.paramTypes(1).endsWith("*")) =>
+                      val slotFn = PatternRuntime.compileSlotLongFn2(fn.body, fn.params.head, fn.params(1), interp)
+                      if slotFn == null then null
+                      else new LApply2(arg0L, arg1L, fnName.value, fn.body, slotFn, interp)
+                    case _ => null
           case _ => null
       // `p match { case Ctor(a, b) => a + b }` inlined as LMatch:
       // compiles the match once (cached), bails if not longCapable or if any
@@ -1276,23 +1335,56 @@ private[interpreter] object EvalRuntime:
                   case _ => null
           // 2-arg parallel: `g(x, y)` where `g` is a pure 2-param fn.
           case fnName: Term.Name if ap.argClause.values.lengthCompare(2) == 0 =>
-            val arg0L = compileExpr(ap.argClause.values.head)
-            if arg0L == null then null
+            val a0Term = ap.argClause.values.head
+            val a1Term = ap.argClause.values(1)
+            // Ref-mixed JIT fast path — `f(longExpr, refExpr)` and the
+            // symmetric `f(refExpr, longExpr)`. Detected BEFORE the
+            // slot-arg compileExpr probe so a ref-typed arg name doesn't
+            // force the whole expression to bail (same lift as the 1-arg
+            // refFast path that landed in commit 13af281f / f7fc2b34).
+            // Unblocks `gEval(scale, e)` in recursiveEvalMixed.
+            val mixedFast: LExpr | Null =
+              interp.globals.getOrElse(fnName.value, null) match
+                case fn: Value.FunV
+                    if fn.params.length == 2 && fn.usingParams.isEmpty
+                       && !fn.returnsThrows =>
+                  val bcRes = scalascript.interpreter.vm.jit.JitBackend.default.tryCompile(fn, interp)
+                  if bcRes == null || bcRes.resultIsDouble then null
+                  else
+                    bcRes.direct match
+                      case ot: scalascript.interpreter.vm.jit.LongObjToLong
+                          if !bcRes.paramIsRef(0) && bcRes.paramIsRef(1) =>
+                        val a0L = compileExpr(a0Term)
+                        val a1R = compileRefExpr(a1Term)
+                        if a0L == null || a1R == null then null
+                        else new LApplyR2LongObj(a0L, a1R, ot)
+                      case ot: scalascript.interpreter.vm.jit.ObjLongToLong
+                          if bcRes.paramIsRef(0) && !bcRes.paramIsRef(1) =>
+                        val a0R = compileRefExpr(a0Term)
+                        val a1L = compileExpr(a1Term)
+                        if a0R == null || a1L == null then null
+                        else new LApplyR2ObjLong(a0R, a1L, ot)
+                      case _ => null
+                case _ => null
+            if mixedFast != null then mixedFast
             else
-              val arg1L = compileExpr(ap.argClause.values(1))
-              if arg1L == null then null
+              val arg0L = compileExpr(a0Term)
+              if arg0L == null then null
               else
-                interp.globals.getOrElse(fnName.value, null) match
-                  case fn: Value.FunV
-                      if fn.params.length == 2
-                         && fn.usingParams.isEmpty
-                         && !fn.returnsThrows
-                         && (fn.defaults.isEmpty || fn.defaults.forall(_.isEmpty))
-                         && (fn.paramTypes.length < 2 || !fn.paramTypes(1).endsWith("*")) =>
-                    val slotFn = PatternRuntime.compileSlotLongFn2(fn.body, fn.params.head, fn.params(1), interp)
-                    if slotFn == null then null
-                    else new LApply2(arg0L, arg1L, fnName.value, fn.body, slotFn, interp)
-                  case _ => null
+                val arg1L = compileExpr(a1Term)
+                if arg1L == null then null
+                else
+                  interp.globals.getOrElse(fnName.value, null) match
+                    case fn: Value.FunV
+                        if fn.params.length == 2
+                           && fn.usingParams.isEmpty
+                           && !fn.returnsThrows
+                           && (fn.defaults.isEmpty || fn.defaults.forall(_.isEmpty))
+                           && (fn.paramTypes.length < 2 || !fn.paramTypes(1).endsWith("*")) =>
+                      val slotFn = PatternRuntime.compileSlotLongFn2(fn.body, fn.params.head, fn.params(1), interp)
+                      if slotFn == null then null
+                      else new LApply2(arg0L, arg1L, fnName.value, fn.body, slotFn, interp)
+                    case _ => null
           case _ => null
       // `p match { case Ctor(a, b) => a + b }` inlined as LMatch:
       // compiles the match once (cached), bails if not longCapable or if any
