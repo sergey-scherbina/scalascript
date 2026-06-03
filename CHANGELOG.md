@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — jit-lint-recognisers-pure-predicates: JitLint precision + shared predicates
+
+- **jit-lint-recognisers-pure-predicates** — `JitPredicates` package-private object
+  factors out `isBoolReturning` so `JavacJitBackend.doCompile` and
+  `JitLint.classifyBailReasons` share one implementation (can't silently diverge).
+  Three new `JitBailReason` variants replace `UnknownShape` for common cases:
+  - `BoolBody` — body is a comparison/logical expression (`<`, `>`, `&&`, …);
+    the JIT emits `long`, a bool-typed result would be mis-wrapped as Int 0/1.
+  - `ZeroParams` — zero parameters; JIT requires ≥ 1 typed param.
+  - `TooManyParams(n)` — > 2 parameters; JIT supports 1- and 2-param only.
+  `PatternGuard` description updated: guards on ADT (InstanceV) scrutinee matches
+  ARE compiled (via `walkArmAsIfBranch`); the reason only fires for Int/Long-scrutinee
+  guarded matches. JitLintTest: 10 tests (was 7). 1233/1233 interpreter suite green.
+
 ## 2026-06-03 — js-while-pmatch: JS codegen — IIFE elimination + numeric arithmetic fast-path
 
 - **js-while-pmatch** — Four optimizations to JsGen to speed up numeric JS output:

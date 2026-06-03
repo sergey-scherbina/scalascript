@@ -626,15 +626,15 @@ highest-impact item.
         `instanceFieldAccess`: 8.4 → 0.043 ms (~195×)
       Tests: 1230/1230 green.
 
-- [ ] **jit-lint-recognisers-pure-predicates** — factor out the
-      `JavacJitBackend.tryCompile` bail predicates into pure inspection
-      functions so `JitLint.classifyBailReasons` can ask them directly.
-      Eliminates the `UnknownShape` fallback in most cases — instead the
-      lint reports the EXACT shape the JIT can't handle (e.g.
-      "`Term.ApplyInfix` operator `xor` not in walker's op set"). Larger
-      refactor; ~200 lines of recogniser extraction + ~50 lines of new
-      `JitBailReason` subtypes. Treated as documentation work — the
-      analyser is correct today; this just makes the reports specific.
+- [x] **jit-lint-recognisers-pure-predicates** — ✓ Landed 2026-06-03 commit `92eeca9a`.
+      `JitPredicates` object hosts `isBoolReturning` so both
+      `JavacJitBackend.doCompile` and `JitLint.classifyBailReasons` call
+      the same implementation. Three new `JitBailReason` variants:
+      `BoolBody`, `ZeroParams`, `TooManyParams(n)` — previously all
+      reported `UnknownShape`. `PatternGuard` description updated: guards
+      on ADT scrutinees ARE compiled (via `walkArmAsIfBranch`); the reason
+      only fires for Int/Long-scrutinee matches. JitLintTest: 10 tests
+      (was 7). 1233/1233 interpreter suite green.
 
 - [x] **phase-d-patternmatch-double-slot** — ✓ Landed 2026-06-02 commits `c2986e33` / `e583843c`.
       Double-acc slot bypass: `FastTier.accSlotTls`/`accNameTls` `ThreadLocal[Array[Long]]` pair;
