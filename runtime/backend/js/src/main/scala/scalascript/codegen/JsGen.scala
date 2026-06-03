@@ -376,6 +376,8 @@ class JsGen(
   // Zero-explicit-param defs (def f: T = body). In JS these compile to function f() { return body; }.
   // When called as f(x), we must generate _call(f(), x) so the returned function gets applied.
   private val zeroParamFns = scala.collection.mutable.Set.empty[String]
+  // User-defined functions with :Int or :Long return type — their call sites can use isIntExpr.
+  private val intFunctions = scala.collection.mutable.Set.empty[String]
   // v1.27 Phase 3 — sql block emission state.  Mirrors JvmGen's
   // `sqlBlockCounter` / `sqlPerSection`: sequential `_sqlBlock_<n>`
   // names, and per-section "first-only" tracking so only the first
@@ -407,13 +409,25 @@ class JsGen(
     funcParamOrder.clear()
     multiParamGroupFns.clear()
     zeroParamFns.clear()
+    intFunctions.clear()
     def collectDefs(stats: List[Stat]): Unit = stats.foreach {
       case d: Defn.Def =>
-        val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toList
+        val paramVals = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+        val params = paramVals.map(_.name.value).toList
         if params.nonEmpty then funcParamOrder(d.name.value) = params
         val explicitGroups = d.paramClauseGroups.flatMap(_.paramClauses).filterNot(_.mod.nonEmpty)
         if explicitGroups.size > 1 then multiParamGroupFns += d.name.value
         if explicitGroups.isEmpty then zeroParamFns += d.name.value
+        // Track Int/Long return type for isIntExpr at call sites.
+        d.decltpe match
+          case Some(Type.Name("Int" | "Long")) => intFunctions += d.name.value
+          case _ => ()
+        // Track Int/Long-typed parameters so arithmetic on them avoids _arith.
+        paramVals.foreach { pv =>
+          pv.decltpe match
+            case Some(Type.Name("Int" | "Long")) => intVars += pv.name.value
+            case _ => ()
+        }
       case _ => ()
     }
     def scanSection(section: Section): Unit =
@@ -3451,6 +3465,12 @@ class JsGen(
             val argsJs = argVals.mkString(", ")
             s"_dispatch($qualJs, '$method', [$argsJs])"
 
+      // Known user-defined function with params — emit a direct JS call.
+      // Safe because funcParamOrder only contains `def f(...)` declarations;
+      // Array/Map values are vals, never in funcParamOrder.
+      case Term.Name(n) if funcParamOrder.contains(n) =>
+        s"$n(${argVals.mkString(", ")})"
+
       // Regular function call or constructor — wrap in `_call` so a
       // bare Array / Map reference (`xs(i)` / `m(k)`) is dispatched as
       // indexing rather than failing with "not a function".
@@ -4460,6 +4480,7 @@ class JsGen(
     case _: Lit.Int | _: Lit.Long                 => true
     case _: Lit.Double | _: Lit.Float              => false
     case Term.Name(n)                              => intVars.contains(n)
+    case Term.Apply.After_4_6_0(Term.Name(n), _)  => intFunctions.contains(n)
     case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("toInt" | "toLong")), _) => true
     case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("toDouble" | "toFloat")), _) => false
     // Collection / String methods that always return an Int regardless of the
