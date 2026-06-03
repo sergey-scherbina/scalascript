@@ -113,36 +113,17 @@ object JavacJitBackend extends JitBackend:
   private def doCompile(f: Value.FunV, interp: scalascript.interpreter.Interpreter): JitResult | Null =
     if isBoolReturning(f.body) then return null
     val paramSet = f.params.toSet
-    // Per-param ref/int classification. A param is ref when it is the
-    // scrutinee of a `Term.Match` body (the top-level match shape) — the only
-    // ref-typed case the initial slice supports. A param read in arithmetic
-    // (the pure-int subset) is int.
-    val paramIsRef = new Array[Boolean](f.params.length)
-    // Walk the body to find every Term.Match whose scrutinee is a parameter
-    // name; mark that param as ref. Covers both the top-level
-    // `def f(x) = x match { … }` shape (handled by walkMatchBody) and the
-    // nested-as-expression shape `def f(x) = 1 + (x match { … })` that
-    // walkMatchExpr handles. Without this walk, the nested case would compile
-    // the function with a `long` param, then the InstanceV cast in walkMatchExpr
-    // would be type-incompatible with the param type and javac would bail.
-    def markRefScrutinees(t: scala.meta.Tree): Unit = t match
-      case tm: Term.Match =>
-        tm.expr match
-          case n: Term.Name =>
-            val idx = f.params.indexOf(n.value)
-            if idx >= 0 then paramIsRef(idx) = true
-          case _ =>
-        markRefScrutinees(tm.expr)
-        tm.casesBlock.cases.foreach(c => markRefScrutinees(c.body))
-      case _ => t.children.foreach(markRefScrutinees)
-    markRefScrutinees(f.body)
+    val paramIsRef = classifyParamRefs(f)
     // For ref-param match functions (ADT match → result) also treat the body as
     // Double when it contains any Lit.Double — `walkMatchBody` will call
     // `walkDouble` per arm body, which propagates auto-promotion correctly.
     // The old `!paramIsRef.exists(identity)` guard blocked this path; removing
     // it lets `area(s: Shape): Double` compile to `static double area(Object s)`.
     val isDouble = bodyHasDoubleLit(f.body)
-    val ctx = new GenCtx(f.name, paramSet, f.params.toArray, paramIsRef, isDouble, Map.empty, interp)
+    val coEmit = new CoEmitState
+    coEmit.signatures.put(f.name, MethodSig(f.params.toArray, paramIsRef, isDouble))
+    coEmit.emitted.add(f.name)
+    val ctx = new GenCtx(f.name, paramSet, f.params.toArray, paramIsRef, isDouble, Map.empty, interp, coEmit)
     // Try ref-returning (ObjToObject) path first for 1-param ref-scrutinee matches:
     // `def g(x: T): T = x match { case C(a, b) => a }` where the arm body names
     // a ref-typed binding.  `walkRefMatchBody` returns null whenever arm bodies
@@ -167,36 +148,7 @@ object JavacJitBackend extends JitBackend:
             val r = compileAndLink(className, sanitize(f.name), source, paramIsRef, classOf[Object], isDouble = false)
             if r != null then return r
         case _ =>
-    val bodyStmts =
-      f.body match
-        case tm: Term.Match if paramIsRef.exists(identity) =>
-          walkMatchBody(tm, ctx, interp)
-        case b: Term.Block if b.stats.lengthCompare(1) > 0 =>
-          // Direction A.5: multi-stat block — emit val-bindings as Java locals,
-          // then return the final expression. Special case: when the final stat
-          // is a param-ref match, use walkMatchBody for it (preserves the
-          // switch-statement form instead of wrapping in an IIFE).
-          b.stats.last match
-            case tm: Term.Match if paramIsRef.exists(identity) =>
-              walkBlockStmts(b.stats.init, ctx) match
-                case null  => null
-                case prefix =>
-                  val tailCtx = blockStmtsCtx(b.stats.init, ctx)
-                  if tailCtx == null then null
-                  else
-                    val matchPart = walkMatchBody(tm, tailCtx, interp)
-                    if matchPart == null then null else prefix + matchPart
-            case _ =>
-              walkBlockStmts(b.stats, ctx)
-        case other =>
-          val tco = tryTcoBody(other.asInstanceOf[Term], ctx)
-          if tco != null then tco
-          else if isDouble then
-            val e = walkDouble(other.asInstanceOf[Term], ctx)
-            if e == null then null else s"return $e;"
-          else
-            val e = walkLong(other.asInstanceOf[Term], ctx)
-            if e == null then null else s"return $e;"
+    val bodyStmts = walkFunctionBody(f, ctx, interp)
     if bodyStmts == null then return null
 
     val className = s"GenJit_${sanitize(f.name)}_${System.identityHashCode(f.body)}"
@@ -217,7 +169,8 @@ object JavacJitBackend extends JitBackend:
       s"""public class $className$implementsClause {
          |  public static $returnType ${sanitize(f.name)}($params) {
          |    $bodyStmts
-         |  }$applyMethod
+         |  }
+         |${ctx.coEmit.extraMethods.valuesIterator.mkString}$applyMethod
          |}
          |""".stripMargin
     compileAndLink(className, sanitize(f.name), source, paramIsRef, if isDouble then classOf[Double] else classOf[Long], isDouble)
@@ -278,6 +231,144 @@ object JavacJitBackend extends JitBackend:
 
   // ── AST → Java source walker ──────────────────────────────────────────────
 
+  private final case class MethodSig(paramNames: Array[String], paramIsRef: Array[Boolean], isDouble: Boolean)
+
+  private final class CoEmitState:
+    val signatures:   scala.collection.mutable.HashMap[String, MethodSig] =
+      scala.collection.mutable.HashMap.empty
+    val extraMethods: scala.collection.mutable.LinkedHashMap[String, String] =
+      scala.collection.mutable.LinkedHashMap.empty
+    val emitting:     scala.collection.mutable.HashSet[String] =
+      scala.collection.mutable.HashSet.empty
+    val emitted:      scala.collection.mutable.HashSet[String] =
+      scala.collection.mutable.HashSet.empty
+
+  // Per-param ref/int classification. A param is ref when it is the scrutinee
+  // of a `Term.Match` body (top-level or nested expression form). A param read
+  // only in arithmetic remains primitive long/double.
+  private def classifyParamRefs(f: Value.FunV): Array[Boolean] =
+    val paramIsRef = new Array[Boolean](f.params.length)
+    def markRefScrutinees(t: scala.meta.Tree): Unit = t match
+      case tm: Term.Match =>
+        tm.expr match
+          case n: Term.Name =>
+            val idx = f.params.indexOf(n.value)
+            if idx >= 0 then paramIsRef(idx) = true
+          case _ =>
+        markRefScrutinees(tm.expr)
+        tm.casesBlock.cases.foreach(c => markRefScrutinees(c.body))
+      case _ => t.children.foreach(markRefScrutinees)
+    markRefScrutinees(f.body)
+    paramIsRef
+
+  private def jitCompatibleSibling(f: Value.FunV): Boolean =
+    f.name.nonEmpty &&
+      (f.params.length == 1 || f.params.length == 2) &&
+      f.usingParams.isEmpty &&
+      !f.returnsThrows &&
+      (f.defaults.isEmpty || f.defaults.forall(_.isEmpty)) &&
+      (f.paramTypes.isEmpty || !f.paramTypes.exists(_.endsWith("*"))) &&
+      !isBoolReturning(f.body)
+
+  private def walkFunctionBody(
+    f:      Value.FunV,
+    ctx:    GenCtx,
+    interp: scalascript.interpreter.Interpreter
+  ): String | Null =
+    f.body match
+      case tm: Term.Match if ctx.paramIsRef.exists(identity) =>
+        walkMatchBody(tm, ctx, interp)
+      case b: Term.Block if b.stats.lengthCompare(1) > 0 =>
+        // Direction A.5: multi-stat block — emit val-bindings as Java locals,
+        // then return the final expression. Special case: when the final stat
+        // is a param-ref match, use walkMatchBody for it (preserves the
+        // switch-statement form instead of wrapping in an IIFE).
+        b.stats.last match
+          case tm: Term.Match if ctx.paramIsRef.exists(identity) =>
+            walkBlockStmts(b.stats.init, ctx) match
+              case null  => null
+              case prefix =>
+                val tailCtx = blockStmtsCtx(b.stats.init, ctx)
+                if tailCtx == null then null
+                else
+                  val matchPart = walkMatchBody(tm, tailCtx, interp)
+                  if matchPart == null then null else prefix + matchPart
+          case _ =>
+            walkBlockStmts(b.stats, ctx)
+      case other =>
+        val tco = tryTcoBody(other.asInstanceOf[Term], ctx)
+        if tco != null then tco
+        else if ctx.isDouble then
+          val e = walkDouble(other.asInstanceOf[Term], ctx)
+          if e == null then null else s"return $e;"
+        else
+          val e = walkLong(other.asInstanceOf[Term], ctx)
+          if e == null then null else s"return $e;"
+
+  private def ensureCoEmittedLong(fnName: String, ctx: GenCtx): MethodSig | Null =
+    if ctx.coEmit.emitted.contains(fnName) || ctx.coEmit.emitting.contains(fnName) then
+      return ctx.coEmit.signatures.getOrElse(fnName, null)
+    val fnV = ctx.interp.globals.getOrElse(fnName, null)
+    if !fnV.isInstanceOf[Value.FunV] then return null
+    val fn = fnV.asInstanceOf[Value.FunV]
+    if !jitCompatibleSibling(fn) then return null
+    val paramIsRef = classifyParamRefs(fn)
+    val isDouble = bodyHasDoubleLit(fn.body)
+    if isDouble then return null
+    val sig = MethodSig(fn.params.toArray, paramIsRef, isDouble = false)
+    ctx.coEmit.signatures.put(fnName, sig)
+    ctx.coEmit.emitting.add(fnName)
+    val fnCtx = new GenCtx(fn.name, fn.params.toSet, sig.paramNames, sig.paramIsRef, isDouble = false, Map.empty, ctx.interp, ctx.coEmit)
+    val bodyStmts = walkFunctionBody(fn, fnCtx, ctx.interp)
+    ctx.coEmit.emitting.remove(fnName)
+    if bodyStmts == null then
+      ctx.coEmit.signatures.remove(fnName)
+      return null
+    val params = fn.params.zipWithIndex.map { case (p, i) =>
+      if sig.paramIsRef(i) then s"Object ${sanitize(p)}" else s"long ${sanitize(p)}"
+    }.mkString(", ")
+    val methodSrc =
+      s"""  public static long ${sanitize(fn.name)}($params) {
+         |    $bodyStmts
+         |  }
+         |""".stripMargin
+    ctx.coEmit.extraMethods.put(fnName, methodSrc)
+    ctx.coEmit.emitted.add(fnName)
+    sig
+
+  private def emitLongCall(fnName: String, args: List[Term], ctx: GenCtx): String | Null =
+    val sig =
+      if fnName == ctx.funName then MethodSig(ctx.paramNames, ctx.paramIsRef, ctx.isDouble)
+      else ensureCoEmittedLong(fnName, ctx)
+    if sig == null || sig.isDouble || args.length != sig.paramNames.length then return null
+    val sb = new StringBuilder
+    sb.append(sanitize(fnName)).append('(')
+    var i = 0
+    var rem = args
+    while rem.nonEmpty do
+      if i > 0 then sb.append(", ")
+      val argStr =
+        if sig.paramIsRef(i) then walkRef(rem.head, ctx)
+        else walkLong(rem.head, ctx)
+      if argStr == null then return null
+      sb.append(argStr)
+      i += 1
+      rem = rem.tail
+    sb.append(')').toString
+
+  private def callParamIsRef(fnName: String, argIdx: Int, ctx: GenCtx): Boolean =
+    val sig =
+      if fnName == ctx.funName then MethodSig(ctx.paramNames, ctx.paramIsRef, ctx.isDouble)
+      else
+        ctx.coEmit.signatures.get(fnName) match
+          case Some(s) => s
+          case None =>
+            ctx.interp.globals.getOrElse(fnName, null) match
+              case fn: Value.FunV if jitCompatibleSibling(fn) =>
+                MethodSig(fn.params.toArray, classifyParamRefs(fn), bodyHasDoubleLit(fn.body))
+              case _ => null
+    sig != null && argIdx >= 0 && argIdx < sig.paramIsRef.length && sig.paramIsRef(argIdx)
+
   /** Walker context: function name + params + pattern bindings currently in
    *  scope. `bindings(name)` maps a pattern binding to `(javaVarName, isRef)`.
    *  Params shadowed by bindings (rare; doesn't happen in the bench shape)
@@ -289,7 +380,8 @@ object JavacJitBackend extends JitBackend:
     val paramIsRef:  Array[Boolean],
     val isDouble:    Boolean,
     val bindings:    Map[String, (String, Boolean)],
-    val interp:      scalascript.interpreter.Interpreter
+    val interp:      scalascript.interpreter.Interpreter,
+    val coEmit:      CoEmitState
   ):
     def isRefName(n: String): Boolean =
       bindings.get(n) match
@@ -303,7 +395,7 @@ object JavacJitBackend extends JitBackend:
         case None =>
           if params.contains(n) then sanitize(n) else null
     def withBindings(more: Iterable[(String, (String, Boolean))]): GenCtx =
-      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings ++ more, interp)
+      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings ++ more, interp, coEmit)
 
   private def walkLong(t: Term, ctx: GenCtx): String | Null = t match
     case Lit.Int(v)  => s"${v}L"
@@ -363,23 +455,7 @@ object JavacJitBackend extends JitBackend:
         case _ => null
     case ap: Term.Apply =>
       ap.fun match
-        case fn: Term.Name if fn.value == ctx.funName =>
-          val args = ap.argClause.values
-          if args.length != ctx.paramNames.length then return null
-          val sb = new StringBuilder
-          sb.append(sanitize(ctx.funName)).append('(')
-          var i = 0
-          var rem = args
-          while rem.nonEmpty do
-            if i > 0 then sb.append(", ")
-            val argStr =
-              if ctx.paramIsRef(i) then walkRef(rem.head, ctx)
-              else walkLong(rem.head, ctx)
-            if argStr == null then return null
-            sb.append(argStr)
-            i += 1
-            rem = rem.tail
-          sb.append(')').toString
+        case fn: Term.Name => emitLongCall(fn.value, ap.argClause.values, ctx)
         case _ => null
     case Term.ApplyUnary(op, arg) if op.value == "-" || op.value == "+" =>
       val a = walkLong(arg, ctx); if a == null then return null
@@ -664,7 +740,7 @@ object JavacJitBackend extends JitBackend:
         var bi = 0
         while bi < n do
           if bindNames(bi).startsWith("_unused$") then bindIsRef(bi) = false
-          else bindIsRef(bi) = bindingIsRef(c.body, bindNames(bi), ctx.funName)
+          else bindIsRef(bi) = bindingIsRef(c.body, bindNames(bi), ctx)
           bi += 1
         val bindingMap = scala.collection.mutable.LinkedHashMap.empty[String, (String, Boolean)]
         var k = 0
@@ -727,7 +803,7 @@ object JavacJitBackend extends JitBackend:
         var bi = 0
         while bi < n do
           if bindNames(bi).startsWith("_unused$") then bindIsRef(bi) = false
-          else bindIsRef(bi) = bindingIsRef(c.body, bindNames(bi), ctx.funName)
+          else bindIsRef(bi) = bindingIsRef(c.body, bindNames(bi), ctx)
           bi += 1
         val bindingMap = scala.collection.mutable.LinkedHashMap.empty[String, (String, Boolean)]
         var k = 0
@@ -797,7 +873,7 @@ object JavacJitBackend extends JitBackend:
         var bi = 0
         while bi < n do
           if bindNames(bi).startsWith("_unused$") then bindIsRef(bi) = false
-          else bindIsRef(bi) = bindingIsRef(c.body, bindNames(bi), ctx.funName)
+          else bindIsRef(bi) = bindingIsRef(c.body, bindNames(bi), ctx)
           bi += 1
         val bindingMap = scala.collection.mutable.LinkedHashMap.empty[String, (String, Boolean)]
         var k = 0
@@ -1076,20 +1152,24 @@ object JavacJitBackend extends JitBackend:
     sb.append("}")
     sb.toString
 
-  /** True iff `bindingName` appears as a `Term.Name` arg in a
-   *  `Term.Apply(Term.Name(funName), …)` anywhere in `armBody`. Used by
-   *  `walkArm` to classify a pattern binding as ref (passed back into the
-   *  self-recursive call → must be `Object` in Java) vs int (consumed only
-   *  by arithmetic / returned as the int result). */
-  private def bindingIsRef(armBody: Term, bindingName: String, funName: String): Boolean =
+  /** True iff `bindingName` appears as a `Term.Name` arg in a JIT-able call
+   *  position whose corresponding callee param is ref-typed. Used by `walkArm`
+   *  to classify pattern bindings as `Object` in Java for both self-recursive
+   *  and co-emitted sibling calls. */
+  private def bindingIsRef(armBody: Term, bindingName: String, ctx: GenCtx): Boolean =
     var hit = false
     def walk(t: scala.meta.Tree): Unit =
       if hit then ()
       else t match
-        case Term.Apply.After_4_6_0(Term.Name(`funName`), argClause) =>
-          argClause.values.foreach {
-            case Term.Name(n) if n == bindingName => hit = true
-            case other                            => walk(other)
+        case Term.Apply.After_4_6_0(Term.Name(fnName), argClause) =>
+          var idx = 0
+          argClause.values.foreach { arg =>
+            arg match
+              case Term.Name(n) if n == bindingName && callParamIsRef(fnName, idx, ctx) =>
+                hit = true
+              case other =>
+                walk(other)
+            idx += 1
           }
         case _ => t.children.foreach(walk)
     walk(armBody)
@@ -1686,7 +1766,7 @@ object JavacJitBackend extends JitBackend:
       // walkMatchBody finds it in ctx.params and generates the InstanceV cast.
       val genCtx = new GenCtx(
         methodName, Set(scrutName), Array(scrutName), Array(true),
-        false, Map.empty, ctx.interp
+        false, Map.empty, ctx.interp, new CoEmitState
       )
       val matchBody = walkMatchBody(tm, genCtx, ctx.interp)
       if matchBody == null then return null

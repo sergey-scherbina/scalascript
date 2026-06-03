@@ -5,6 +5,7 @@ import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.Interpreter
 import scalascript.interpreter.Value
 import scalascript.interpreter.vm.{SscVm, VmCompiler}
+import scalascript.interpreter.vm.jit.{JavacJitBackend, LongFn1, ObjToLong}
 import scalascript.parser.Parser
 
 /** Verifies the proof-of-concept bytecode VM (docs/vm-jit-spec.md):
@@ -97,6 +98,57 @@ class SscVmTest extends AnyFunSuite with Matchers:
     SscVm.run(cfn.get, Array(10L)) shouldBe 1L
     SscVm.run(cfn.get, Array(7L))  shouldBe 0L
     SscVm.run(cfn.get, Array(0L))  shouldBe 1L
+  }
+
+  test("Javac bytecode JIT co-emits a sibling pure-int function") {
+    val interp = interpOf(
+      """def dbl(x: Int): Int = x * 2
+        |def useDbl(n: Int): Int = dbl(n) + dbl(n + 1)""".stripMargin)
+    val useDbl = interp.globalsView("useDbl").asInstanceOf[Value.FunV]
+    val jitR = JavacJitBackend.tryCompile(useDbl, interp)
+    jitR should not be null
+    jitR.paramIsRef shouldBe Array(false)
+    jitR.resultIsDouble shouldBe false
+    jitR.direct.isInstanceOf[LongFn1] shouldBe true
+    jitR.direct.asInstanceOf[LongFn1].apply(3L) shouldBe 14L
+  }
+
+  test("Javac bytecode JIT co-emits mutually recursive pure-int functions") {
+    val interp = interpOf(
+      """def isEven(n: Int): Int = if n == 0 then 1 else isOdd(n - 1)
+        |def isOdd(n: Int): Int  = if n == 0 then 0 else isEven(n - 1)""".stripMargin)
+    val isEven = interp.globalsView("isEven").asInstanceOf[Value.FunV]
+    val jitR = JavacJitBackend.tryCompile(isEven, interp)
+    jitR should not be null
+    jitR.paramIsRef shouldBe Array(false)
+    jitR.resultIsDouble shouldBe false
+    jitR.direct.isInstanceOf[LongFn1] shouldBe true
+    val direct = jitR.direct.asInstanceOf[LongFn1]
+    direct.apply(10L) shouldBe 1L
+    direct.apply(7L) shouldBe 0L
+    direct.apply(0L) shouldBe 1L
+  }
+
+  test("Javac bytecode JIT co-emits mutually recursive ref-param match functions") {
+    val interp = interpOf(
+      """sealed trait Chain
+        |case class Leaf(n: Int) extends Chain
+        |case class Link(next: Chain) extends Chain
+        |def a(c: Chain): Int = c match
+        |  case Leaf(n)  => n
+        |  case Link(x)  => b(x) + 1
+        |def b(c: Chain): Int = c match
+        |  case Leaf(n)  => n * 2
+        |  case Link(x)  => a(x) + 2
+        |val chain = Link(Link(Leaf(5)))""".stripMargin)
+    val a = interp.globalsView("a").asInstanceOf[Value.FunV]
+    val chain = interp.globalsView("chain").asInstanceOf[AnyRef]
+    val jitR = JavacJitBackend.tryCompile(a, interp)
+    jitR should not be null
+    jitR.paramIsRef shouldBe Array(true)
+    jitR.resultIsDouble shouldBe false
+    jitR.direct.isInstanceOf[ObjToLong] shouldBe true
+    jitR.direct.asInstanceOf[ObjToLong].apply(chain) shouldBe 8L
   }
 
   // ── Double-domain support (raw VM result is double *bits*) ──────────
