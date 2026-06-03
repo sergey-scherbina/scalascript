@@ -2,11 +2,21 @@
 
 ## Status
 
-Partially implemented.  The shared IR foundation landed on 2026-06-02
-(`v1.66.0-typed-models-ir`).  SwiftUI support landed in `v1.66.1`; React
-support landed in `v1.66.2`; Vue support landed in `v1.66.3`. Solid, Custom,
-Electron, Swing, JavaFX, and the busi dashboard example are tracked in
-`WORK_QUEUE.md`.
+**Fully implemented across all backends — all phases landed 2026-06-02.**
+
+| Version | What landed |
+|---|---|
+| `v1.66.0` | Shared IR: `ModelDef`, `ModelField`, `ModelFieldType`, `FetchJsonSignal`, `ModelView`, `ForModel`, `ModelText` in `frontend/core` |
+| `v1.66.1` | SwiftUI: `emitModelStructs` → `struct X: Decodable [+ Identifiable]`, typed `@State` + `JSONDecoder`, `if let`, `ForEach`, `Text(path)` |
+| `v1.66.2` | React: `useState(null)` + `r.json()`, `ModelView` → null-guard, `ForModel` → `.map`, `ModelText` → property access |
+| `v1.66.3` | Vue: mount-fetch parity + `r.json()`, `v-if`/`v-for`/`{{ bs.field }}` |
+| `v1.66.4` | Solid: `createSignal(null)` + `r.json()`, `<Show>`/`<For>`/`createTextNode` |
+| `v1.66.5` | Custom (StaticJs): `__ssc_signals` cells, `r.json()` decode, DOM-patching |
+| `v1.66.6` | Electron: delegates to Custom emitter; typed models inherited with zero extra emitter code |
+| `v1.66.7` | Swing: `modelData`/`withModel` on `RuntimeState`, `modelField` dot-path, `JLabel`/`JList` via `JsonDecoder` SPI |
+| `v1.66.8` | JavaFX: same plan as Swing via `JavaFxRuntime`, using JavaFX observable properties |
+| `v1.66.9` | `busi-dashboard.ssc` example: BalanceSheet/TrialBalance/AuditLog, three-tab layout, `SwiftUIModelSmokeTest` |
+| follow-up | `ViewTraversal.children`/`foreachDepthFirst` in `frontend/core` — React's fetch-signal collector migrated first |
 
 This document is the cross-backend contract.  Backend-specific details that are
 only true for SwiftUI remain in [`docs/swiftui-typed-models.md`](swiftui-typed-models.md).
@@ -106,32 +116,36 @@ tick. Typed fetch uses `response.json()` and stores the result in a `ref`.
 
 ### Solid
 
-Solid has the same parity requirement as Vue.  Typed fetch stores JSON in a
-signal/accessor; `ModelView` lowers to `<Show>`, and `ForModel` lowers to
-`<For>`.
+**Landed v1.66.4.** Typed fetch stores JSON in a `createSignal(null)` accessor;
+`ModelView` lowers to `<Show when={...}>`; `ForModel` lowers to `<For each={...}>`;
+`ModelText` lowers to `createTextNode(String(varName.fieldPath))`.
+`registerSignal` skips `FetchUrlSignal` (no `@State` analogue needed). 11 new
+tests; all 46 Solid tests green.
 
 ### Custom / Static JS
 
-The custom emitter should use the existing `__ssc_signals` runtime and DOM
-patching machinery.  For typed fetch, the only decode difference is
-`r.json()` instead of `r.text()`.
+**Landed v1.66.5.** `__ssc_signals` cells carry typed fetch state (null/false/false/''
+for JSON variants). `r.json()` replaces `r.text()` for `CodecHint.Json` signals.
+DOM-patching machinery remains unchanged.
 
 ### Electron
 
-Electron should verify that the web lowering and host bridge agree inside the
-Electron bundle. If Electron delegates to the web emitter, the task is a focused
-round-trip smoke test rather than a separate lowering implementation.
+**Landed v1.66.6.** Electron delegates the renderer output to the Custom (StaticJs)
+emitter, so typed models are inherited with zero extra emitter code. The host
+bridge is unaffected.
 
 ### Swing
 
-Swing should use the model-case-class emitter and a small `JsonDecoder` hook.
-The runtime fetch dispatcher remains responsible for IO; typed models are a
-decode/binding layer on top of the existing dispatcher.
+**Landed v1.66.7.** `modelData`/`withModel` fields added to `RuntimeState`.
+`modelField` helper resolves dot-path field access. `ModelView`/`ForModel`/`ModelText`
+cases added to `addTo`; async fetch goes through the `JsonDecoder` SPI and existing
+`fetchDispatcher`. 7 new tests, all 19 Swing tests green.
 
 ### JavaFX
 
-JavaFX should follow the Swing plan against `JavaFxRuntime`, using JavaFX
-observable properties where that is more natural than Swing's observer surface.
+**Landed v1.66.8.** Same plan as Swing against `JavaFxRuntime`. JavaFX observable
+properties used where more natural than Swing's observer surface. 7 new tests,
+all 15 JavaFX tests green.
 
 ## Maintenance notes
 
@@ -153,18 +167,19 @@ The next infrastructure step should be a shared `ViewTraversal` /
 This helper should not render anything.  It should only describe what is
 reachable in the IR.  Backends keep their own lowering code.
 
-## Phases
+## Phases — all landed 2026-06-02
 
-1. `v1.66.0-typed-models-ir` - landed shared IR foundation.
-2. `v1.66.1-swiftui-typed-models` - landed SwiftUI support.
-3. `v1.66.2-react-typed-models` - landed React support.
-4. `v1.66.3-vue-typed-models` - landed Vue support.
-5. `v1.66.4` through `v1.66.8` - remaining backend parity.
-6. `v1.66.9-busi-dashboard` - end-to-end user-facing example.
-7. `frontend-view-traversal-core` - landed 2026-06-02: `frontend/core`
-   now has `ViewTraversal.children` / `foreachDepthFirst`, with adaptive
-   branch options. React's fetch-signal collector is the first migrated
-   backend collector; other collectors/backends remain incremental follow-ups.
+1. ✓ `v1.66.0-typed-models-ir` — shared IR foundation (`frontend/core`).
+2. ✓ `v1.66.1-swiftui-typed-models` — SwiftUI support; `SwiftUITypedModelsTest` (16 tests).
+3. ✓ `v1.66.2-react-typed-models` — React support.
+4. ✓ `v1.66.3-vue-typed-models` — Vue support.
+5. ✓ `v1.66.4-solid-typed-models` — Solid support; 11 new tests, 46 Solid total.
+6. ✓ `v1.66.5-custom-typed-models` — Custom (StaticJs) support.
+7. ✓ `v1.66.6-electron-typed-models` — Electron; no extra emitter code.
+8. ✓ `v1.66.7-swing-typed-models` — Swing; 7 new tests, 19 Swing total.
+9. ✓ `v1.66.8-javafx-typed-models` — JavaFX; 7 new tests, 15 JavaFX total.
+10. ✓ `v1.66.9-busi-dashboard` — `busi-dashboard.ssc` example + `SwiftUIModelSmokeTest`.
+11. ✓ `frontend-view-traversal-core` — `ViewTraversal.children`/`foreachDepthFirst` in `frontend/core`.
 
 ## Testing strategy
 

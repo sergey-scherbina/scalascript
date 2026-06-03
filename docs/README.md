@@ -45,7 +45,12 @@ document by topic.
 - [modularity.md](modularity.md) — Modularity — three layers
 - [arch-library-modularity.md](arch-library-modularity.md) — Library Modularity spec
 - [optimization-roadmap.md](optimization-roadmap.md) — Optimization & Modularity Roadmap
-- [performance.md](performance.md) — Performance & Memory (v1.61)
+- [performance.md](performance.md) — Performance & Memory (v1.61 roadmap + shipped phases)
+- [benchmarks.md](benchmarks.md) — Benchmark reference (scripts/bench, JMH, corpus workloads)
+- [vm-jit-spec.md](vm-jit-spec.md) — Hot-spot register VM + run-time BytecodeJIT spec
+- [vm-jit-next.md](vm-jit-next.md) — Interpreter performance — next optimization phases
+- [instancev-array-repr-spec.md](instancev-array-repr-spec.md) — InstanceV positional array fields (Direction B)
+- [interpreter-perf-findings-2026-06.md](interpreter-perf-findings-2026-06.md) — JFR profiling findings (2026-06-02)
 - [arch-metaprogramming-v2.md](arch-metaprogramming-v2.md) — Metaprogramming v2.x Roadmap
 - [arch-dsl-hooks.md](arch-dsl-hooks.md) — DSL Platform Hooks
 - [arch-ffi.md](arch-ffi.md) — Lightweight FFI (@jvm / @js)
@@ -111,6 +116,8 @@ document by topic.
 - [javafx-desktop-frontend.md](javafx-desktop-frontend.md) — JavaFX Desktop Frontend
 - [jvm-desktop-frontend.md](jvm-desktop-frontend.md) — JVM Desktop Frontend
 - [swiftui.md](swiftui.md) — SwiftUI Native Frontend Backend
+- [swiftui-typed-models.md](swiftui-typed-models.md) — SwiftUI Typed JSON Models (v1.66)
+- [typed-models-ir.md](typed-models-ir.md) — Typed Models IR — cross-backend contract
 - [pwa-plugin.md](pwa-plugin.md) — Progressive Web App support
 - [repl-web.md](repl-web.md) — REPL Web-Aware Mode + `mount()`
 - [mount-handlers.md](mount-handlers.md) — Mount handlers

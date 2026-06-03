@@ -296,9 +296,35 @@ enum View[+A]:
 
   /** DOM portal. Compile error on non-web targets. */
   case Portal(target: String, children: Seq[View[?]]) extends View[Nothing]
+
+  // ── Typed fetch / model-data nodes ────────────────────────────────────────
+  // All backends support these; see docs/typed-models-ir.md for the spec.
+
+  /** Renders `template` only when typed data is loaded; binds decoded value as `bindingVar`. */
+  case ModelView(signal: FetchUrlSignal, bindingVar: String, template: View[?], style: Style = Style())
+      extends View[Nothing]
+
+  /** Iterates a list field (`fieldPath`) of the bound variable; each element is `itemVar`. */
+  case ForModel(bindingVar: String, fieldPath: String, itemVar: String,
+                template: View[?], style: Style = Style()) extends View[Nothing]
+
+  /** Renders a single scalar field path as text. */
+  case ModelText(varName: String, fieldPath: String, style: Style = Style()) extends View[Nothing]
+
+  /** Fetched data table with typed columns and per-row actions.
+   *  Web backends lower via `DataTableLowering` to `<table><thead><tbody>` + reactive cells.
+   *  Native backends (Swing, JavaFX, SwiftUI) render natively. */
+  case DataTable(
+    signal:  FetchUrlSignal,
+    columns: List[FieldColumnDef],
+    actions: List[RowActionDef]
+  ) extends View[Nothing]
 ```
 
-> **Note**: The old monolithic `FetchTable` IR node was removed in v0.4. Use `View.DataTable(signal, columns, actions)` instead, or the `.ssc` surface `dataTable(fetchUrl, tick, columns, actions)`. `DataTableLowering` produces standard `<table><thead><tbody>` chrome via `ModelView/ForModel/ModelText/Button`.
+> **Migration note**: `View.FetchTable` was removed (v0.4/2026-06-02). Use
+> `View.DataTable(signal, columns, actions)` or the `.ssc` surface
+> `dataTable(fetchUrl, tick, columns, actions, headers?)`.
+> `DataTableLowering` composes `ModelView/ForModel/ModelText/Button` nodes.
 
 ### 5.3 Supporting types
 
@@ -974,7 +1000,7 @@ JetBrains' extension of Jetpack Compose to Desktop (macOS, Windows, Linux), iOS,
 
 ### 11.4 EventHandler native lowering
 
-All 10 `EventHandler` cases from `frontend/core/src/main/scala/scalascript/frontend/Primitives.scala`:
+All 13 `EventHandler` cases from `frontend/core/src/main/scala/scalascript/frontend/Primitives.scala`:
 
 | `EventHandler` case | Web | Compose | SwiftUI | GTK | RN |
 |---|---|---|---|---|---|
@@ -988,6 +1014,9 @@ All 10 `EventHandler` cases from `frontend/core/src/main/scala/scalascript/front
 | `RemoveSelfFromList(list, i)` | `<list>.splice(i,1)` | `<list>.removeAt(i)` | `<list>.remove(at:)` | `g_list_remove` | filter by index |
 | `InputChange(id)` | `oninput = e => setId(e.target.value)` | `onValueChange = { v -> id = v }` | `TextField($id)` | `g_signal_connect("changed")` | `onChangeText={setId}` |
 | `FetchAction(method,url,...)` | `await fetch(url, {method})` | `httpClient.<method>(url)` | `URLSession.shared.data(...)` | `curl_easy_perform` | `await fetch(url)` |
+| `DeleteItem(idField, url, tick)` | POST `url` with `item[idField]` body; bumps tick | — | `URLSession` Task; `"\(item.idField)"` body (requires `ForModel` ctx) | — | — |
+| `ItemAction(method, url, bodyField, tick)` | `method` request; `item[bodyField]` body; bumps tick | — | `URLSession` Task; `item.bodyField` body | — | — |
+| `SetFieldToSignal(signal, fieldPath)` | `__setSignal(signal, item[fieldPath])` | — | `signal = fieldPath` | — | — |
 
 ---
 

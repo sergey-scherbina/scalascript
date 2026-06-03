@@ -1,4 +1,4 @@
-# SwiftUI Native Frontend Backend (v1.47)
+# SwiftUI Native Frontend Backend (v1.47 → v1.66)
 
 ## 1. Goals
 
@@ -213,8 +213,8 @@ that don't declare `frontend: swiftui` are unaffected.
 
 ## 8. v1.65 — `ssc emit --frontend swiftui` pathway
 
-**Status:** Planned.  **Spec:** this section.
-**Depends on:** v1.48 ✓ (SwiftUIFrameworkBackend + SwiftUIEmitter exist)
+**Status: ✓ All three phases landed 2026-06-02.**
+**Spec:** this section.  **Depends on:** v1.48 ✓ (SwiftUIFrameworkBackend + SwiftUIEmitter exist)
 
 ### 8.1 Motivation
 
@@ -334,3 +334,130 @@ the parse test can still pass.
   golden-output assertions (≥ 4 new tests).
 - Phase 3: `SwiftUIDashboardSmokeTest` — calls `swiftc -parse`; skipped when
   `swift` not on PATH (macOS CI only).
+
+---
+
+## 9. v1.66 — Typed JSON models + DataTable
+
+**Status: ✓ All phases landed 2026-06-02.**  Full cross-backend spec:
+[`docs/typed-models-ir.md`](typed-models-ir.md).  SwiftUI-specific detail:
+[`docs/swiftui-typed-models.md`](swiftui-typed-models.md).
+
+### 9.1 What shipped
+
+#### Model structs (`emitModelStructs`)
+
+`FrontendModule.models: List[ModelDef]` carries `@model case class` descriptors
+parsed from `.ssc` source.  `SwiftUIEmitter.emitModelStructs` emits them before
+`struct ContentView`:
+
+```swift
+struct BalanceSheet: Decodable, Identifiable {
+    let id: String
+    let total: Double
+    let lines: [AssetLine]
+    let note: String?
+}
+struct AssetLine: Decodable, Identifiable {
+    let code: String
+    let amount: Double
+    var id: String { code }   // computed — not named 'id'
+}
+```
+
+- `Identifiable` added when any field is named `id`, `code`, `seq`, or `docId`.
+- When the identifying field is not named `id`, a `var id: T { fieldName }`
+  computed property is generated.
+- Nested types, `List[T]` → `[T]`, `Option[T]` → `T?` all handled.
+- `emitModelStructs(Nil)` returns `""` — no output when no models.
+
+#### Typed fetch state (`FetchJsonSignal`)
+
+`FetchJsonSignal(id, fetchUrl, tickId, modelTypeName)` extends `FetchUrlSignal`
+and adds `CodecHint.Json(modelTypeName)`.  The emitter generates four `@State`
+vars instead of one:
+
+```swift
+@State private var balanceSheet: BalanceSheet? = nil
+@State private var balanceSheet_loading: Bool = false
+@State private var balanceSheet_loaded: Bool = false
+@State private var balanceSheet_error: String = ""
+```
+
+The private fetch method uses `JSONDecoder`:
+
+```swift
+private func _load_balanceSheet() async {
+    balanceSheet_loading = true
+    guard let _url = URL(string: "/api/balance-sheet") else { return }
+    do {
+        let (data, _) = try await URLSession.shared.data(from: _url)
+        balanceSheet = try JSONDecoder().decode(BalanceSheet.self, from: data)
+        balanceSheet_loaded = true
+    } catch {
+        balanceSheet_error = error.localizedDescription
+    }
+    balanceSheet_loading = false
+}
+```
+
+#### View nodes
+
+| IR node | Swift output |
+|---|---|
+| `View.ModelView(sig, "bs", template)` | `if let bs = balanceSheet { <template> }` |
+| `View.ForModel("bs", "lines", "line", template)` | `ForEach(Array(bs.lines.enumerated()), id: \.offset) { _, line in <template> }` |
+| `View.ModelText("bs", "total")` | `Text("\(bs.total)")` |
+
+`ForCtx.modelItemVar` threads the Swift item variable into children of
+`ForModel`, enabling `DeleteItem` to resolve the correct field path (see §9.2).
+
+#### DataTable (`View.DataTable`)
+
+`View.DataTable(signal, columns, actions)` emits a `List { }` with a header row
+and a `ForEach` over the fetched `[[String: Any]]` array.  Columns are declared
+as `FieldColumnDef(title, fieldPath, editAction?)`:
+
+```ssc
+val empTable = dataTable(
+  fetchUrl = "/api/employees", tick = tick,
+  columns = [fcol("Name","name"), fcol("Dept","department")],
+  actions = [rowDelete("/api/employees/delete", idField="id", tick)])
+```
+
+**Editable columns** (`RowInlineEdit`): emit a `TextField` with a `Binding` over
+an `_edit_<signalId>: [String: String]` buffer; `.onSubmit` fires a `PUT`/`PATCH`
+request via `URLSession` and bumps the edit tick.
+
+**Row actions** (`RowDelete`, `RowPost`, `RowLink`): emit `Button` cells that
+fire `Task { @MainActor in URLSession… }` blocks using the row's dictionary
+values as the request body or URL.
+
+The full `.task`/`.onChange` fetch lifecycle is generated for DataTable signals
+just as for `FetchUrlSignal`.
+
+### 9.2 EventHandler additions
+
+| Handler | Swift output |
+|---|---|
+| `EventHandler.ItemAction(method, url, bodyField, tick)` | `Task { @MainActor in }` using `item.<bodyField>` as body; bumps tick |
+| `EventHandler.SetFieldToSignal(signal, fieldPath)` | `signal = fieldPath` |
+| `EventHandler.DeleteItem(idField, deleteUrl, tick)` inside `ForModel` | `_req.httpBody = "\(itemVar.idField)".data(using: .utf8)` |
+| `EventHandler.DeleteItem` outside `ForModel` | `// DeleteItem: no ForModel context` comment |
+
+### 9.3 Test coverage
+
+| Suite | Tests |
+|---|---|
+| `SwiftUITypedModelsTest` | 16 tests: `emitModelStructs` (8), `FetchJsonSignal` state/fetch (2), `ModelView`/`ForModel`/`ModelText` (3), `DeleteItem` in/outside `ForModel` (2), model structs before `ContentView` (1) |
+| `SwiftUIModelSmokeTest` | 15 tests: busi-dashboard 3-signal 3-tab layout; `swiftc -parse` gate |
+| `SwiftUIEmitterTest` | DataTable tests (12): header, `.task`, `.onChange`, edit buffer, PUT submit, re-fetch |
+
+### 9.4 Phases
+
+| Phase | Slug | What shipped |
+|---|---|---|
+| 1 | `v1.66.1-swiftui-typed-models` | `emitModelStructs`, `FetchJsonSignal`, `ModelView`, `ForModel`, `ModelText` |
+| 2 | `v1.66.9-busi-dashboard` | `busi-dashboard.ssc` example + `SwiftUIModelSmokeTest` |
+| 3 | `fix(swiftui/datatable)` | Inline edit correctness + 12 new DataTable tests |
+| 4 | `fix(swiftui): DeleteItem` | `ForCtx.modelItemVar` threads item var; `DeleteItem` resolves `idField` |

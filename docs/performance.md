@@ -1,6 +1,15 @@
 # Performance & Memory — v1.61
 
-Status: **spec landed 2026-05-28. Implementation: v1.61.0 (bench infra) ✓, v1.61.1–7 pending.**
+Status: **spec landed 2026-05-28. All v1.61 themes shipped (under different
+milestone names) by 2026-06-02.** See §3 below for the original roadmap; see
+§3b for the what-shipped summary and current benchmark numbers.
+
+Companion docs:
+- [`docs/vm-jit-spec.md`](vm-jit-spec.md) — register VM + BytecodeJIT spec and end-to-end numbers
+- [`docs/vm-jit-next.md`](vm-jit-next.md) — next optimization phases (Directions A–C backlog)
+- [`docs/instancev-array-repr-spec.md`](instancev-array-repr-spec.md) — Direction B (InstanceV array repr)
+- [`docs/interpreter-perf-findings-2026-06.md`](interpreter-perf-findings-2026-06.md) — JFR profiling 2026-06-02
+- [`docs/benchmarks.md`](benchmarks.md) — how to run benchmarks
 
 ---
 
@@ -134,6 +143,44 @@ Files: `JsGen.scala` (preamble split + `detectCapabilities`), `JvmGen.scala`.
 **Fix.** Widen `IntV` pool to `[-2048..16383]`; add `DoubleV` 0.0/1.0 pool. Switch `TupleV` to `Array[Value]`. Split `FunV` into hot `FunVCore` + `FunVMeta` sidecar. Move `Span` to `IdentityHashMap[AstNode, Span]` sidecar. Use `upickle.default.writeBinary` (MessagePack) for artifacts; accept both formats on read.
 
 Files: `Value.scala`, `AST.scala`, `ArtifactIO.scala`.
+
+---
+
+## 3b. What shipped (2026-05-28 → 2026-06-02)
+
+The v1.61 themes all shipped, though often under the milestone names in
+`WORK_QUEUE.md` rather than the v1.61.x labels below.  The strategy evolved
+from precomputed dispatch tables to a hot-spot JIT — faster to reach and with
+far larger gains on the target workloads.
+
+| v1.61 theme | What shipped | Gains |
+|---|---|---|
+| **v1.61.1** dispatch table | `DispatchRuntime` dispatch table → `LMatch` LExpr in `tryLongWhileAssign`; `SlotTable` replaces `LinkedHashMap` | `instanceFieldAccess` 2690 → 16.6 ms (162×) |
+| **v1.61.2** pure-path | `Computation.purify` cached wrappers (−38% Pure allocs); `FastTier` foreach pre-resolve; `LApplyR1`/`LRefConst` dual-bank | `arithLoop` ~2–4× |
+| **v1.61.3** Env overhaul | `SlotTable` + `FrameMap` throughout `tryLong`/`MixedLongWhile`; env not rebuilt per iteration | included in SlotTable gains |
+| **v1.61.4** pattern-match | `CompiledMatch` + `ctorTagsInt` int-tag dispatch; ADT `match` → Java `switch(int)`; `LMatch` scrutinee caching | `patternMatchHeavy` ~1.3× from int-tag alone |
+| **v1.61.7** memory repr | `InstanceV.fieldsArr: Array[Value]` replaces `Map[String, Value]`; direct index reads in `PatternRuntime` arm handlers | `recursiveEval` 12.9 ms (direction B activation) |
+
+Additionally, a register VM + BytecodeJIT layer shipped (v1.62-equivalent work,
+not in the original v1.61 spec), with substantially larger gains on integer-heavy
+workloads:
+
+| Workload | Baseline (tree-walk) | After JIT (2026-06-02) | Gain |
+|---|---|---|---|
+| `recursionFib` (fib 30) | ~28.9 ms | 1.21 ms | 24× |
+| `recursionTco` (sum 100k) | ~1.08 ms | 32 µs | 34× |
+| `arithLoop` (sum 1M) | ~85 ms | ~3.1 ms | 27× |
+| `instanceFieldAccess` | ~2690 ms | 16.6 ms | 162× |
+| `pureCallSum` | ~13 ms | 0.28 ms | 47× |
+
+Full cross-backend numbers and JFR findings are in
+[`docs/vm-jit-next.md`](vm-jit-next.md) and
+[`docs/interpreter-perf-findings-2026-06.md`](interpreter-perf-findings-2026-06.md).
+
+**Outstanding from v1.61 spec:**
+- v1.61.5 JS codegen inlining — partially done (IIFE removal); full typed-dispatch inlining still open
+- v1.61.6 preamble sub-capabilities — tracked as `conf-fix` items in BACKLOG
+- v1.61.7 `TupleV`→`Array[Value]`, `FunV` split, artifact binary format — deferred
 
 ---
 
