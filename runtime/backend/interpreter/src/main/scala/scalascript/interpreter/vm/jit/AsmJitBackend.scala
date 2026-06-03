@@ -58,12 +58,7 @@ object AsmJitBackend extends JitBackend:
         case _             => tree.children.foreach(walk)
     walk(t); hit
 
-  private def isBoolReturning(t: Term): Boolean = t match
-    case Term.ApplyInfix.After_4_6_0(_, op, _, _) =>
-      val s = op.value
-      s == "<" || s == "<=" || s == ">" || s == ">=" || s == "==" || s == "!=" || s == "&&" || s == "||"
-    case ti: Term.If => isBoolReturning(ti.thenp) || isBoolReturning(ti.elsep)
-    case _           => false
+  private def isBoolReturning(t: Term): Boolean = JitPredicates.isBoolReturning(t)
 
   private def determineInterface(n: Int, paramIsRef: Array[Boolean], isDouble: Boolean): String | Null =
     if n == 1 then
@@ -80,23 +75,59 @@ object AsmJitBackend extends JitBackend:
         case (true,  true)  => null
     else null
 
+  private final case class MethodSig(
+    methodName: String,
+    paramNames: Array[String],
+    paramIsRef: Array[Boolean],
+    isDouble:   Boolean
+  )
+
+  private final class CoEmitState:
+    val signatures:   mutable.HashMap[String, MethodSig] =
+      mutable.HashMap.empty
+    val extraMethods: mutable.LinkedHashMap[String, ClassWriter => Boolean] =
+      mutable.LinkedHashMap.empty
+    val emitting:     mutable.HashSet[String] =
+      mutable.HashSet.empty
+    val emitted:      mutable.HashSet[String] =
+      mutable.HashSet.empty
+
+  private def classifyParamRefs(f: Value.FunV): Array[Boolean] =
+    val paramIsRef = new Array[Boolean](f.params.length)
+    def markRef(t: scala.meta.Tree): Unit = t match
+      case tm: Term.Match =>
+        tm.expr match
+          case n: Term.Name =>
+            val idx = f.params.indexOf(n.value)
+            if idx >= 0 then paramIsRef(idx) = true
+          case _ =>
+        markRef(tm.expr)
+        tm.casesBlock.cases.foreach(c => markRef(c.body))
+      case _ => t.children.foreach(markRef)
+    markRef(f.body)
+    paramIsRef
+
+  private def jitCompatibleSibling(f: Value.FunV): Boolean =
+    f.name.nonEmpty &&
+      (f.params.length == 1 || f.params.length == 2) &&
+      f.usingParams.isEmpty &&
+      !f.returnsThrows &&
+      (f.defaults.isEmpty || f.defaults.forall(_.isEmpty)) &&
+      (f.paramTypes.isEmpty || !f.paramTypes.exists(_.endsWith("*"))) &&
+      !isBoolReturning(f.body)
+
+  private def staticMethodName(name: String): String = sanitize(name)
+
   // ── doCompile ─────────────────────────────────────────────────────────────
 
   private def doCompile(f: Value.FunV, interp: Interpreter): JitResult | Null =
     if f.usingParams.nonEmpty || f.returnsThrows then return null
     if isBoolReturning(f.body) then return null
     val paramSet   = f.params.toSet
-    val paramIsRef = new Array[Boolean](f.params.length)
-    def markRef(t: scala.meta.Tree): Unit = t match
-      case tm: Term.Match =>
-        tm.expr match
-          case n: Term.Name => val idx = f.params.indexOf(n.value); if idx >= 0 then paramIsRef(idx) = true
-          case _            =>
-        markRef(tm.expr); tm.casesBlock.cases.foreach(c => markRef(c.body))
-      case _ => t.children.foreach(markRef)
-    markRef(f.body)
+    val paramIsRef = classifyParamRefs(f)
     val isDouble   = bodyHasDoubleLit(f.body)
     val ifaceName  = determineInterface(f.params.length, paramIsRef, isDouble)
+    val coEmit     = new CoEmitState
 
     // Assign JVM local-variable slots. Always allocate 2 per variable (safe for
     // longs/doubles; wastes one slot for Object refs but is correct with COMPUTE_FRAMES).
@@ -110,8 +141,9 @@ object AsmJitBackend extends JitBackend:
     val n     = classCounter.incrementAndGet()
     val cname = s"scalascript/interpreter/vm/jit/asm/AsmJit$$$n"
 
-    val staticName = sanitize(f.name)
-    val pureFns    = mutable.LinkedHashMap.empty[String, ClassWriter => Unit]
+    val staticName = staticMethodName(f.name)
+    coEmit.signatures.put(f.name, MethodSig(staticName, f.params.toArray, paramIsRef, isDouble))
+    coEmit.emitted.add(f.name)
     val ctx = GenCtx(
       funName          = f.name,
       staticMethodName = staticName,
@@ -122,10 +154,17 @@ object AsmJitBackend extends JitBackend:
       isDouble         = isDouble,
       bindings         = Map.empty,
       interp           = interp,
-      pureFns          = pureFns,
+      coEmit           = coEmit,
       selfClass        = cname,
       allocSlot        = () => { val s = nextLocal; nextLocal += 2; s }
     )
+
+    if f.params.length == 1 && paramIsRef(0) then
+      f.body match
+        case tm: Term.Match =>
+          val refR = tryCompileObjToObject(tm, ctx, interp, cname)
+          if refR != null then return refR
+        case _ =>
 
     val ifaceInternal = if ifaceName != null then ifaceName.replace('.', '/') else null
     val ifaces: Array[String] = if ifaceInternal != null then Array(ifaceInternal) else Array.empty
@@ -149,7 +188,9 @@ object AsmJitBackend extends JitBackend:
     try smv.visitMaxs(0, 0) catch case _: Throwable => return null
     smv.visitEnd()
 
-    for (_, emitFn) <- pureFns do emitFn(cw)
+    val extraIt = coEmit.extraMethods.valuesIterator
+    while extraIt.hasNext do
+      if !extraIt.next()(cw) then return null
 
     if ifaceName != null then
       val bMv = cw.visitMethod(ACC_PUBLIC, "apply", staticDesc, null, null)
@@ -188,6 +229,56 @@ object AsmJitBackend extends JitBackend:
       else null
     new JitResult(mh, paramIsRef, isDouble, direct)
 
+  private def tryCompileObjToObject(
+    tm:     Term.Match,
+    ctx:    GenCtx,
+    interp: Interpreter,
+    cname:  String
+  ): JitResult | Null =
+    val ifaceInternal = "scalascript/interpreter/vm/jit/ObjToObject"
+    val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
+      override def getCommonSuperClass(t1: String, t2: String): String = "java/lang/Object"
+    }
+    cw.visit(V21, ACC_PUBLIC | ACC_FINAL, cname, null, "java/lang/Object", Array(ifaceInternal))
+
+    val init = cw.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null)
+    init.visitCode()
+    init.visitVarInsn(ALOAD, 0)
+    init.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false)
+    init.visitInsn(RETURN)
+    init.visitMaxs(1, 1)
+    init.visitEnd()
+
+    val staticDesc = "(Ljava/lang/Object;)Ljava/lang/Object;"
+    val smv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, ctx.staticMethodName, staticDesc, null, null)
+    smv.visitCode()
+    if !emitRefMatchBody(tm, ctx, interp, smv) then return null
+    try smv.visitMaxs(0, 0) catch case _: Throwable => return null
+    smv.visitEnd()
+
+    val bMv = cw.visitMethod(ACC_PUBLIC, "apply", staticDesc, null, null)
+    bMv.visitCode()
+    bMv.visitVarInsn(ALOAD, 1)
+    bMv.visitMethodInsn(INVOKESTATIC, cname, ctx.staticMethodName, staticDesc, false)
+    bMv.visitInsn(ARETURN)
+    try bMv.visitMaxs(0, 0) catch case _: Throwable => return null
+    bMv.visitEnd()
+
+    cw.visitEnd()
+    val bytes = try cw.toByteArray catch case _: Throwable => return null
+    val loader = new InMemoryClassLoader(getClass.getClassLoader)
+    val cls =
+      try loader.define(cname.replace('/', '.'), bytes)
+      catch case _: Throwable => return null
+    val mt = java.lang.invoke.MethodType.methodType(classOf[Object], classOf[Object])
+    val mh =
+      try java.lang.invoke.MethodHandles.lookup().findStatic(cls, ctx.staticMethodName, mt)
+      catch case _: Throwable => return null
+    val direct =
+      try cls.getConstructor().newInstance().asInstanceOf[AnyRef]
+      catch case _: Throwable => return null
+    new JitResult(mh, Array(true), resultIsDouble = false, direct)
+
   /** Direction A.5: process non-final `Defn.Val` stats, emitting LSTORE/DSTORE
    *  bytecode for each. Returns the updated GenCtx with the new bindings on
    *  success, or null if any stat is not a compilable val-binding. */
@@ -205,6 +296,16 @@ object AsmJitBackend extends JitBackend:
         case _ => return null
       rem = rem.tail
     curCtx
+
+  private def emitBlockExpr(stats: List[Stat], ctx: GenCtx, mv: MethodVisitor, isDouble: Boolean): Boolean =
+    if stats.isEmpty then return false
+    val tailCtx = emitValBindings(stats.init, ctx, mv)
+    if tailCtx == null then return false
+    stats.last match
+      case last: Term =>
+        if isDouble then walkDouble(last, tailCtx, mv)
+        else walkLong(last, tailCtx, mv)
+      case _ => false
 
   private def emitFnBody(f: Value.FunV, ctx: GenCtx, interp: Interpreter,
                          mv: MethodVisitor, isDouble: Boolean): Boolean =
@@ -254,7 +355,7 @@ object AsmJitBackend extends JitBackend:
     isDouble:         Boolean,
     bindings:         Map[String, (Int, Boolean)],  // name → (slot, isRef)
     interp:           Interpreter,
-    pureFns:          mutable.LinkedHashMap[String, ClassWriter => Unit],
+    coEmit:           CoEmitState,
     selfClass:        String,
     allocSlot:        () => Int
   ):
@@ -281,6 +382,8 @@ object AsmJitBackend extends JitBackend:
       b.stats.head match
         case inner: Term => walkLong(inner, ctx, mv)
         case _           => false
+    case b: Term.Block if b.stats.lengthCompare(1) > 0 =>
+      emitBlockExpr(b.stats, ctx, mv, isDouble = false)
     case tm: Term.Match =>
       walkMatchExpr(tm, ctx, mv)
     case tn: Term.Name =>
@@ -311,10 +414,15 @@ object AsmJitBackend extends JitBackend:
             mv.visitLdcInsn(0L); mv.visitJumpInsn(GOTO, Le)
             mv.visitLabel(Lt); mv.visitLdcInsn(1L); mv.visitLabel(Le); true }
         case _ => false
+    case Term.ApplyUnary(op, arg) if op.value == "-" || op.value == "+" =>
+      walkLong(arg, ctx, mv) && {
+        if op.value == "-" then mv.visitInsn(LNEG)
+        true
+      }
     case ap: Term.Apply =>
       ap.fun match
-        case fn: Term.Name if fn.value == ctx.funName =>
-          emitSelfCall(ap.argClause.values, ctx, mv)
+        case fn: Term.Name =>
+          emitLongCall(fn.value, ap.argClause.values, ctx, mv)
         case _ => false
     case _ => false
 
@@ -328,6 +436,8 @@ object AsmJitBackend extends JitBackend:
       b.stats.head match
         case inner: Term => walkDouble(inner, ctx, mv)
         case _           => false
+    case b: Term.Block if b.stats.lengthCompare(1) > 0 =>
+      emitBlockExpr(b.stats, ctx, mv, isDouble = true)
     case tm: Term.Match =>
       walkMatchExpr(tm, ctx, mv)
     case tn: Term.Name =>
@@ -358,6 +468,11 @@ object AsmJitBackend extends JitBackend:
             mv.visitLdcInsn(0.0); mv.visitJumpInsn(GOTO, Le)
             mv.visitLabel(Lt); mv.visitLdcInsn(1.0); mv.visitLabel(Le); true }
         case _ => false
+    case Term.ApplyUnary(op, arg) if op.value == "-" || op.value == "+" =>
+      walkDouble(arg, ctx, mv) && {
+        if op.value == "-" then mv.visitInsn(DNEG)
+        true
+      }
     case ap: Term.Apply =>
       ap.fun match
         case fn: Term.Name if fn.value == ctx.funName =>
@@ -377,6 +492,107 @@ object AsmJitBackend extends JitBackend:
     mv.visitMethodInsn(INVOKESTATIC, ctx.selfClass, ctx.staticMethodName,
       buildStaticDesc(ctx.paramIsRef, ctx.isDouble), false)
     true
+
+  private def emitStaticFunction(
+    cw:        ClassWriter,
+    cname:     String,
+    f:         Value.FunV,
+    sig:       MethodSig,
+    parentCtx: GenCtx
+  ): Boolean =
+    val paramSlots = new Array[Int](sig.paramNames.length)
+    var nextSlot0  = 0
+    var i = 0
+    while i < sig.paramNames.length do
+      paramSlots(i) = nextSlot0
+      nextSlot0 += 2
+      i += 1
+    var nextLocal = nextSlot0
+    val fnCtx = GenCtx(
+      funName          = f.name,
+      staticMethodName = sig.methodName,
+      params           = f.params.toSet,
+      paramNames       = sig.paramNames,
+      paramSlots       = paramSlots,
+      paramIsRef       = sig.paramIsRef,
+      isDouble         = sig.isDouble,
+      bindings         = Map.empty,
+      interp           = parentCtx.interp,
+      coEmit           = parentCtx.coEmit,
+      selfClass        = cname,
+      allocSlot        = () => { val s = nextLocal; nextLocal += 2; s }
+    )
+    val mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, sig.methodName,
+      buildStaticDesc(sig.paramIsRef, sig.isDouble), null, null)
+    mv.visitCode()
+    val ok = emitFnBody(f, fnCtx, parentCtx.interp, mv, sig.isDouble)
+    if !ok then return false
+    try mv.visitMaxs(0, 0) catch case _: Throwable => return false
+    mv.visitEnd()
+    true
+
+  private def ensureCoEmittedLong(fnName: String, ctx: GenCtx): MethodSig | Null =
+    if ctx.coEmit.emitted.contains(fnName) || ctx.coEmit.emitting.contains(fnName) then
+      return ctx.coEmit.signatures.getOrElse(fnName, null)
+    val fnV = ctx.interp.globals.getOrElse(fnName, null)
+    if !fnV.isInstanceOf[Value.FunV] then return null
+    val fn = fnV.asInstanceOf[Value.FunV]
+    if !jitCompatibleSibling(fn) then return null
+    val paramIsRef = classifyParamRefs(fn)
+    val isDouble   = bodyHasDoubleLit(fn.body)
+    if isDouble then return null
+    val sig = MethodSig(staticMethodName(fn.name), fn.params.toArray, paramIsRef, isDouble = false)
+    ctx.coEmit.signatures.put(fnName, sig)
+    ctx.coEmit.emitting.add(fnName)
+    val scratch = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
+      override def getCommonSuperClass(t1: String, t2: String): String = "java/lang/Object"
+    }
+    scratch.visit(V21, ACC_PUBLIC | ACC_FINAL,
+      s"scalascript/interpreter/vm/jit/asm/AsmJitScratch$$${classCounter.incrementAndGet()}",
+      null, "java/lang/Object", Array.empty)
+    val ok =
+      try
+        val bodyOk = emitStaticFunction(scratch, ctx.selfClass, fn, sig, ctx)
+        scratch.visitEnd()
+        if bodyOk then scratch.toByteArray; bodyOk
+      catch case _: Throwable => false
+    ctx.coEmit.emitting.remove(fnName)
+    if !ok then
+      ctx.coEmit.signatures.remove(fnName)
+      return null
+    ctx.coEmit.extraMethods.put(fnName, (cw: ClassWriter) => emitStaticFunction(cw, ctx.selfClass, fn, sig, ctx))
+    ctx.coEmit.emitted.add(fnName)
+    sig
+
+  private def emitLongCall(fnName: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
+    val sig =
+      if fnName == ctx.funName then ctx.coEmit.signatures.getOrElse(fnName, MethodSig(ctx.staticMethodName, ctx.paramNames, ctx.paramIsRef, ctx.isDouble))
+      else ensureCoEmittedLong(fnName, ctx)
+    if sig == null || sig.isDouble || args.length != sig.paramNames.length then return false
+    var i = 0
+    var rem = args
+    while rem.nonEmpty do
+      val ok = if sig.paramIsRef(i) then walkRef(rem.head, ctx, mv)
+               else walkLong(rem.head, ctx, mv)
+      if !ok then return false
+      i += 1
+      rem = rem.tail
+    mv.visitMethodInsn(INVOKESTATIC, ctx.selfClass, sig.methodName,
+      buildStaticDesc(sig.paramIsRef, sig.isDouble), false)
+    true
+
+  private def callParamIsRef(fnName: String, argIdx: Int, ctx: GenCtx): Boolean =
+    val sig =
+      if fnName == ctx.funName then ctx.coEmit.signatures.getOrElse(fnName, MethodSig(ctx.staticMethodName, ctx.paramNames, ctx.paramIsRef, ctx.isDouble))
+      else
+        ctx.coEmit.signatures.get(fnName) match
+          case Some(s) => s
+          case None =>
+            ctx.interp.globals.getOrElse(fnName, null) match
+              case fn: Value.FunV if jitCompatibleSibling(fn) =>
+                MethodSig(staticMethodName(fn.name), fn.params.toArray, classifyParamRefs(fn), bodyHasDoubleLit(fn.body))
+              case _ => null
+    sig != null && argIdx >= 0 && argIdx < sig.paramIsRef.length && sig.paramIsRef(argIdx)
 
   // ── walkRef ───────────────────────────────────────────────────────────────
 
@@ -534,7 +750,7 @@ object AsmJitBackend extends JitBackend:
         if fieldOrder.length != n then return false
 
         val bindIsRef = Array.tabulate(n) { bi =>
-          !bindNames(bi).startsWith("_unused$") && bindingIsRef(c.body, bindNames(bi), ctx.funName)
+          !bindNames(bi).startsWith("_unused$") && bindingIsRef(c.body, bindNames(bi), ctx)
         }
 
         // Hoist fieldsArr lookup.
@@ -587,6 +803,123 @@ object AsmJitBackend extends JitBackend:
         if !bodyOk then return false
         if exprForm then mv.visitJumpInsn(GOTO, endLbl.asInstanceOf[Label])
         else mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN)
+        true
+      case _ => false
+
+  private def emitRefMatchBody(tm: Term.Match, ctx: GenCtx, interp: Interpreter,
+                               mv: MethodVisitor): Boolean =
+    val scrutName = tm.expr match
+      case n: Term.Name => n.value
+      case _            => return false
+    if !ctx.params.contains(scrutName) then return false
+    val scrutSlot = ctx.slotOf(scrutName)
+    if scrutSlot < 0 then return false
+    val cases = tm.casesBlock.cases
+    val casesArr = cases.toArray
+    if casesArr.isEmpty || casesArr.exists(_.cond.nonEmpty) then return false
+    val wildcardIdx = casesArr.indexWhere(_.pat.isInstanceOf[Pat.Var])
+    if wildcardIdx >= 0 && wildcardIdx != casesArr.length - 1 then return false
+
+    mv.visitVarInsn(ALOAD, scrutSlot)
+    mv.visitTypeInsn(CHECKCAST, instVInt)
+    val instSlot = ctx.allocSlot()
+    mv.visitVarInsn(ASTORE, instSlot)
+
+    val tags = resolveArmTags(casesArr, interp)
+    val allTagged = wildcardIdx < 0 && tags.forall(_ != 0)
+    val armLbls = Array.fill(casesArr.length)(new Label)
+    val throwLbl = new Label
+    val defLbl = if wildcardIdx >= 0 then armLbls(wildcardIdx) else throwLbl
+
+    if allTagged then
+      mv.visitVarInsn(ALOAD, instSlot)
+      mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "typeTag", "()I", false)
+      emitSwitch(mv, tags, armLbls, defLbl)
+    else
+      mv.visitVarInsn(ALOAD, instSlot)
+      mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "typeName", "()Ljava/lang/String;", false)
+      emitStringChain(mv, cases, armLbls, defLbl)
+
+    var ci = 0
+    var rem = cases
+    while rem.nonEmpty do
+      mv.visitLabel(armLbls(ci))
+      if !emitRefArmBody(rem.head, ctx, interp, instSlot, mv) then return false
+      ci += 1
+      rem = rem.tail
+
+    if wildcardIdx < 0 then
+      mv.visitLabel(throwLbl)
+      emitThrow(mv, "AsmJitBackend: no ref case matched")
+    true
+
+  private def emitRefArmBody(c: scala.meta.Case, ctx: GenCtx, interp: Interpreter,
+                             instSlot: Int, mv: MethodVisitor): Boolean =
+    if c.cond.nonEmpty then return false
+    c.pat match
+      case ext: scala.meta.Pat.Extract =>
+        val ctorName = ext.fun match
+          case Term.Name(n) => n
+          case _            => return false
+        val argPats = ext.argClause.values.toArray
+        val n = argPats.length
+        val bindNames = new Array[String](n)
+        var i = 0
+        while i < n do
+          argPats(i) match
+            case Pat.Var(Term.Name(bn)) => bindNames(i) = bn
+            case _: Pat.Wildcard        => bindNames(i) = s"_unused$$_$i"
+            case _                      => return false
+          i += 1
+        val fieldOrder = interp.typeFieldOrder.getOrElse(ctorName, Nil).toArray
+        if fieldOrder.length != n then return false
+        val fieldTypes = interp.typeFieldTypes.getOrElse(ctorName, Nil).toArray
+        def isPrimField(fi: Int): Boolean =
+          fi < fieldTypes.length && (fieldTypes(fi) match
+            case "Int" | "Long" | "Double" | "Boolean" => true
+            case _ => false)
+        def usesName(tree: scala.meta.Tree, name: String): Boolean =
+          var hit = false
+          def loop(t: scala.meta.Tree): Unit =
+            if !hit then t match
+              case Term.Name(n) if n == name => hit = true
+              case _ => t.children.foreach(loop)
+          loop(tree)
+          hit
+
+        val faSlot =
+          if n > 0 then
+            val s = ctx.allocSlot()
+            mv.visitVarInsn(ALOAD, instSlot)
+            mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "fieldsArr", s"()[L$valueInt;", false)
+            mv.visitVarInsn(ASTORE, s)
+            s
+          else -1
+
+        val newBindings = mutable.Map.empty[String, (Int, Boolean)]
+        i = 0
+        while i < n do
+          if !bindNames(i).startsWith("_unused$") && usesName(c.body, bindNames(i)) then
+            val bSlot = ctx.allocSlot()
+            val isRef = !isPrimField(i)
+            emitLoadField(mv, instSlot, faSlot, i, fieldOrder(i), n > 0)
+            if isRef then
+              mv.visitVarInsn(ASTORE, bSlot)
+            else
+              mv.visitTypeInsn(CHECKCAST, intVInt)
+              mv.visitMethodInsn(INVOKEVIRTUAL, intVInt, "v", "()J", false)
+              mv.visitVarInsn(LSTORE, bSlot)
+            newBindings(bindNames(i)) = (bSlot, isRef)
+          i += 1
+
+        val newCtx = ctx.withBindings(newBindings.toMap)
+        if !walkRef(c.body, newCtx, mv) then return false
+        mv.visitInsn(ARETURN)
+        true
+      case Pat.Var(Term.Name(xName)) =>
+        val newCtx = ctx.withBindings(Map(xName -> (instSlot, true)))
+        if !walkRef(c.body, newCtx, mv) then return false
+        mv.visitInsn(ARETURN)
         true
       case _ => false
 
@@ -676,12 +1009,20 @@ object AsmJitBackend extends JitBackend:
     if !baseOk then return false
     mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN); true
 
-  private def bindingIsRef(armBody: Term, bindingName: String, funName: String): Boolean =
+  private def bindingIsRef(armBody: Term, bindingName: String, ctx: GenCtx): Boolean =
     var hit = false
     def walk(t: scala.meta.Tree): Unit =
       if !hit then t match
-        case Term.Apply.After_4_6_0(Term.Name(`funName`), ac) =>
-          ac.values.foreach { case Term.Name(n) if n == bindingName => hit = true; case o => walk(o) }
+        case Term.Apply.After_4_6_0(Term.Name(fnName), ac) =>
+          var idx = 0
+          ac.values.foreach { arg =>
+            arg match
+              case Term.Name(n) if n == bindingName && callParamIsRef(fnName, idx, ctx) =>
+                hit = true
+              case other =>
+                walk(other)
+            idx += 1
+          }
         case _ => t.children.foreach(walk)
     walk(armBody); hit
 
@@ -718,10 +1059,14 @@ object AsmJitBackend extends JitBackend:
           case Term.Name(n) => n; case _ => ""
         case _ => ""
       if name.nonEmpty then
+        val next = new Label
         mv.visitInsn(DUP)
         mv.visitLdcInsn(name)
         mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "equals", "(Ljava/lang/Object;)Z", false)
-        mv.visitJumpInsn(IFNE, labels(ci))
+        mv.visitJumpInsn(IFEQ, next)
+        mv.visitInsn(POP)
+        mv.visitJumpInsn(GOTO, labels(ci))
+        mv.visitLabel(next)
       ci += 1; rem = rem.tail
     mv.visitInsn(POP)
     mv.visitJumpInsn(GOTO, defLbl)
