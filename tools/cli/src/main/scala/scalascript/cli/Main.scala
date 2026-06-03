@@ -6792,44 +6792,44 @@ private[cli] def timed[A](name: String)(body: => A): (A, PhaseResult) =
   val alloc  = (rt.totalMemory - rt.freeMemory) - heap0
   (result, PhaseResult(name, wallMs, alloc))
 
-/** `ssc bench <file.ssc> [options]` — run a .ssc file through all three
- *  backends (interpreter, JvmGen, JsGen) and print a comparison table.
- *  Warmup + timing are embedded inside a generated wrapper script, so
- *  compilation and process-startup costs are excluded from measurements.
+/** `ssc bench <file.ssc> [options]` — benchmark a .ssc file using exactly
+ *  one backend.  Warmup + timing are embedded inside a generated wrapper
+ *  script so compilation and process-startup costs are excluded.
+ *
+ *  The backend is selected with the global `--backend <interp|jvm|js>` flag
+ *  (default: interp), shared with other ssc commands.
  *
  *  Options:
  *  {{{
- *    --no-interp        skip interpreter backend
- *    --no-jvm           skip JVM backend
- *    --no-js            skip JS backend
- *    --warmup N         warmup iterations (default 5)
- *    --reps N           measured iterations (default 20)
- *    --smoke            quick interpreter-only smoke over bench/corpus/hello-world.ssc
- *    --target-ms N      optional threshold (ms/iter)
- *    --require-target   exit non-zero when any backend exceeds --target-ms
- *    --baseline         write results to bench/BASELINE_RUNTIME.md
- *    --machine          print machine-readable BENCH lines for each backend
+ *    --backend <interp|jvm|js>   (global flag) backend to use (default: interp)
+ *    --warmup N                  warmup iterations (default 5)
+ *    --reps N                    measured iterations (default 20)
+ *    --smoke                     quick interp smoke over bench/corpus/hello-world.ssc
+ *    --target-ms N               fail if result exceeds N ms/iter
+ *    --require-target            exit non-zero when --target-ms is exceeded
+ *    --baseline                  write result to bench/BASELINE_RUNTIME.md
+ *    --machine                   print machine-readable BENCH line
  *  }}}
  */
 final class BenchCmd extends CliCommand:
   def name = "bench"
-  override def summary = "Benchmark .ssc execution time"
+  override def summary = "Benchmark .ssc execution time on one backend"
   override def category = "Run & develop"
   def run(args: List[String]): Unit =
     if args.isEmpty then
-      System.err.println("Usage: ssc bench [--smoke] [--no-interp] [--no-jvm] [--no-js] [--warmup N] [--reps N] [--target-ms N] [--require-target] [--baseline] [--machine] <file.ssc>")
+      System.err.println("Usage: ssc bench [--backend <interp|jvm|js>] [--warmup N] [--reps N] [--smoke] [--target-ms N] [--require-target] [--baseline] [--machine] <file.ssc>")
       System.exit(1)
 
-    var runInterp  = true
-    var runJvm     = true
-    var runJs      = true
+    // --backend is a global flag (GlobalFlags), consumed before we see args.
+    // Read it from ActiveFlags; default to "interp".
+    var backend    = ActiveFlags.current.backend.getOrElse("interp")
     var warmup     = 5
     var reps       = 20
     var smoke      = false
     var writeBase  = false
     var machine    = false
     var targetMs: Option[Long] = None
-    var requireTarget = false
+    var requireTarget  = false
     var warmupExplicit = false
     var repsExplicit   = false
     var fileArg: Option[String] = None
@@ -6840,37 +6840,35 @@ final class BenchCmd extends CliCommand:
       0L
     }
 
+    val validBackends = Set("interp", "jvm", "js")
+    if !validBackends(backend) then
+      System.err.println(s"bench: unknown backend '$backend', valid: ${validBackends.mkString(", ")}")
+      System.exit(1)
+
     val arr = args.toArray
     var i   = 0
     while i < arr.length do
       arr(i) match
-        case "--no-interp"               => runInterp = false; i += 1
-        case "--no-jvm"                  => runJvm    = false; i += 1
-        case "--no-js"                   => runJs     = false; i += 1
-        case "--smoke"                   => smoke = true; i += 1
-        case "--baseline"                => writeBase = true;  i += 1
-        case "--require-target"          => requireTarget = true; i += 1
-        case "--machine"                 => machine = true; i += 1
+        case "--smoke"          => smoke = true; i += 1
+        case "--baseline"       => writeBase = true; i += 1
+        case "--require-target" => requireTarget = true; i += 1
+        case "--machine"        => machine = true; i += 1
         case "--warmup" if i+1 < arr.length => warmup = arr(i+1).toIntOption.getOrElse(5); warmupExplicit = true; i += 2
         case "--reps"   if i+1 < arr.length => reps   = arr(i+1).toIntOption.getOrElse(20); repsExplicit = true; i += 2
         case "--target-ms" if i+1 < arr.length => targetMs = Some(parseTarget(arr(i+1))); i += 2
-        case s if s.startsWith("--warmup=") => warmup = s.stripPrefix("--warmup=").toIntOption.getOrElse(5); warmupExplicit = true; i += 1
-        case s if s.startsWith("--reps=")   => reps   = s.stripPrefix("--reps=").toIntOption.getOrElse(20); repsExplicit = true; i += 1
+        case s if s.startsWith("--warmup=")    => warmup = s.stripPrefix("--warmup=").toIntOption.getOrElse(5); warmupExplicit = true; i += 1
+        case s if s.startsWith("--reps=")      => reps   = s.stripPrefix("--reps=").toIntOption.getOrElse(20); repsExplicit = true; i += 1
         case s if s.startsWith("--target-ms=") => targetMs = Some(parseTarget(s.stripPrefix("--target-ms="))); i += 1
-        case f if !f.startsWith("-")     => fileArg = Some(f); i += 1
+        case f if !f.startsWith("-")  => fileArg = Some(f); i += 1
         case other => System.err.println(s"bench: unknown flag $other"); System.exit(1)
 
     if smoke then
       if !warmupExplicit then warmup = 0
       if !repsExplicit then reps = 1
-      runJvm = false
-      runJs = false
+      backend = "interp"
 
     if warmup < 0 || reps <= 0 then
       System.err.println("bench: --warmup must be >= 0 and --reps must be positive")
-      System.exit(1)
-    if !runInterp && !runJvm && !runJs then
-      System.err.println("bench: at least one backend must be enabled")
       System.exit(1)
     if requireTarget && targetMs.isEmpty then
       System.err.println("bench: --require-target requires --target-ms N")
@@ -6889,7 +6887,7 @@ final class BenchCmd extends CliCommand:
       case Some(file) => os.Path(file, os.pwd)
       case None if smoke =>
         findRepoRoot(os.pwd).map(_ / "bench" / "corpus" / "hello-world.ssc").getOrElse {
-          System.err.println("bench: --smoke could not find bench/corpus/hello-world.ssc from the current directory")
+          System.err.println("bench: --smoke could not find bench/corpus/hello-world.ssc")
           System.exit(1)
           os.pwd / "bench" / "corpus" / "hello-world.ssc"
         }
@@ -6899,16 +6897,6 @@ final class BenchCmd extends CliCommand:
         os.pwd / "missing.ssc"
     if !os.exists(path) then
       System.err.println(s"bench: file not found: $path"); System.exit(1)
-
-    // Check tool availability
-    val jvmAvail = runJvm && JvmBytecode.scalaCliAvailable
-    if runJvm && !jvmAvail then
-      System.err.println("[warn] scala-cli not found — skipping JVM backend")
-    val nodeAvail = runJs && scala.util.Try {
-      os.proc("node", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
-    }.getOrElse(false)
-    if runJs && !nodeAvail then
-      System.err.println("[warn] node not found — skipping JS backend")
 
     // Find the ssc script: prefer ssc.lib.path (set by bin/ssc), then SSC env, then PATH.
     val sscCmd: Seq[String] =
@@ -6931,7 +6919,7 @@ final class BenchCmd extends CliCommand:
         else content.substring(codeStart, endFence)
 
     // Wrap user code with a self-contained timing harness that prints BENCH_MS.
-    // Uses markdown format so emit-scala/emit-js work correctly.
+    // Uses markdown format so emit-scala/emit-js process it correctly.
     def generateWrapper(code: String, warmupN: Int, repsN: Int): String =
       s"""# bench-wrapper
          |
@@ -6958,7 +6946,10 @@ final class BenchCmd extends CliCommand:
         .flatMap(l => l.stripPrefix("BENCH_MS:").trim.toDoubleOption)
         .toSeq.lastOption
 
-    val name    = path.last.stripSuffix(".ssc")
+    def fmtMs(ms: Double): String =
+      if ms < 1.0 then f"$ms%.3f" else if ms < 10.0 then f"$ms%.2f" else f"$ms%.1f"
+
+    val name     = path.last.stripSuffix(".ssc")
     val userCode = extractCode(os.read(path))
     val wrapper  = generateWrapper(userCode, warmup, reps)
 
@@ -6971,7 +6962,7 @@ final class BenchCmd extends CliCommand:
       catch case _: Throwable => ()
       parseBenchMs(outBuf.toString("UTF-8"))
 
-    // Run wrapper via emit-scala → scala-cli (compilation excluded; JIT warms during warmup iters).
+    // emit-scala → stable /tmp/*.sc → scala-cli (compilation excluded from timing).
     def timeJvm(): Option[Double] =
       val tmpSsc = os.Path(s"/tmp/ssc-bench-jvm-$name.ssc")
       val tmpSc  = os.Path(s"/tmp/ssc-bench-jvm-$name.sc")
@@ -6985,7 +6976,7 @@ final class BenchCmd extends CliCommand:
       if run.exitCode != 0 then None
       else parseBenchMs(run.out.text())
 
-    // Run wrapper via emit-js → node (compilation excluded; V8 JITs during warmup iters).
+    // emit-js → stable /tmp/*.cjs → node (compilation excluded from timing).
     def timeJs(): Option[Double] =
       val tmpSsc = os.Path(s"/tmp/ssc-bench-js-$name.ssc")
       val tmpCjs = os.Path(s"/tmp/ssc-bench-js-$name.cjs")
@@ -6999,92 +6990,51 @@ final class BenchCmd extends CliCommand:
       if run.exitCode != 0 then None
       else parseBenchMs(run.out.text())
 
-    def fmtMs(ms: Double): String =
-      if ms < 1.0 then f"$ms%.3f" else if ms < 10.0 then f"$ms%.2f" else f"$ms%.1f"
+    // Check tool availability for the selected backend.
+    backend match
+      case "jvm" if !JvmBytecode.scalaCliAvailable =>
+        System.err.println("bench: scala-cli not found — cannot run jvm backend"); System.exit(1)
+      case "js" if !scala.util.Try {
+        os.proc("node", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
+      }.getOrElse(false) =>
+        System.err.println("bench: node not found — cannot run js backend"); System.exit(1)
+      case _ => ()
 
     if !machine then
-      println(s"\nssc bench — $name")
+      println(s"\nssc bench — $name  [backend: $backend]")
       println("=" * 60)
       println(s"Warmup: $warmup  Reps: $reps")
       println()
-      println("Running...")
 
-    val ti: Option[Double] = if runInterp then
-      if !machine then print(s"  interp... ")
-      val r = timeInterp()
-      if !machine then println(r.fold("ERR")(ms => s"${fmtMs(ms)} ms/iter"))
-      r
-    else None
-
-    val tj: Option[Double] = if jvmAvail then
-      if !machine then print(s"  jvm... ")
-      val r = timeJvm()
-      if !machine then println(r.fold("ERR")(ms => s"${fmtMs(ms)} ms/iter"))
-      r
-    else None
-
-    val ts: Option[Double] = if nodeAvail then
-      if !machine then print(s"  js... ")
-      val r = timeJs()
-      if !machine then println(r.fold("ERR")(ms => s"${fmtMs(ms)} ms/iter"))
-      r
-    else None
+    val result: Option[Double] = backend match
+      case "jvm"    => timeJvm()
+      case "js"     => timeJs()
+      case _        => timeInterp()
 
     if machine then
-      ti.foreach(ms => println(s"BENCH interp ${fmtMs(ms)}"))
-      tj.foreach(ms => println(s"BENCH jvm ${fmtMs(ms)}"))
-      ts.foreach(ms => println(s"BENCH js ${fmtMs(ms)}"))
+      result.foreach(ms => println(s"BENCH $backend ${fmtMs(ms)}"))
     else
-      // Build markdown table
-      val sb = new StringBuilder
-      var header = "| Backend | ms/iter |"
-      var sep    = "|---|---:|"
-      if ti.isDefined && (tj.isDefined || ts.isDefined) then
-        header += " vs interp |"
-        sep    += "---:|"
-      sb.append("\n")
-      sb.append(header).append("\n")
-      sb.append(sep).append("\n")
-
-      def row(label: String, ms: Option[Double], base: Option[Double]): String =
-        val msStr = ms.fold("n/a")(fmtMs)
-        val ratioStr = (ms, base) match
-          case (Some(m), Some(b)) if b > 0 && (tj.isDefined || ts.isDefined) =>
-            f" ${m / b}%.2fx |"
-          case _ if tj.isDefined || ts.isDefined => " — |"
-          case _ => ""
-        s"| $label | $msStr |$ratioStr"
-
-      if runInterp then sb.append(row("interp (in-process)", ti, ti)).append("\n")
-      if jvmAvail  then sb.append(row("jvm (emit-scala → scala-cli)", tj, ti)).append("\n")
-      if nodeAvail then sb.append(row("js (emit-js → node)", ts, ti)).append("\n")
-
-      val table = sb.result()
-      println(table)
-
+      val msStr = result.fold("n/a")(fmtMs)
+      println(s"$backend: $msStr ms/iter")
       val hw = s"${System.getProperty("os.name")} ${System.getProperty("os.arch")}, JVM ${System.getProperty("java.version")}"
-      println(s"Date: ${java.time.Instant.now()}")
+      println(s"\nDate: ${java.time.Instant.now()}")
       println(s"Hardware: $hw")
       println(s"Notes: warmup=$warmup reps=$reps; warmup+timing inside wrapper, compilation excluded")
 
       targetMs.foreach { limit =>
-        val exceeded = List(
-          "interp" -> ti.filter(_ > limit.toDouble),
-          "jvm"    -> tj.filter(_ > limit.toDouble),
-          "js"     -> ts.filter(_ > limit.toDouble)
-        ).collect { case (lbl, Some(ms)) => s"$lbl=${fmtMs(ms)}ms" }
-        if exceeded.isEmpty then println(s"Target: <= ${limit}ms/iter (met)")
-        else
-          val msg = s"Target: <= ${limit}ms/iter (exceeded: ${exceeded.mkString(", ")})"
-          if requireTarget then System.err.println(msg) else println(msg)
-          if requireTarget then System.exit(1)
+        result.filter(_ > limit.toDouble) match
+          case None => println(s"Target: <= ${limit}ms/iter (met)")
+          case Some(ms) =>
+            val msg = s"Target: <= ${limit}ms/iter (exceeded: $backend=${fmtMs(ms)}ms)"
+            if requireTarget then System.err.println(msg) else println(msg)
+            if requireTarget then System.exit(1)
       }
 
       if writeBase then
         val baseDir = findRepoRoot(path).map(_ / "bench").getOrElse(path / os.up / os.up / "bench")
         val outPath = baseDir / "BASELINE_RUNTIME.md"
         if os.exists(baseDir) then
-          val content = s"# Runtime Benchmark Baseline\n\nFile: `$name.ssc`  \nDate: ${java.time.Instant.now()}  \nWarmup: $warmup  Reps: $reps\n$table\nHardware: $hw\n"
+          val content = s"# Runtime Benchmark Baseline\n\nFile: `$name.ssc`  Backend: $backend  \nDate: ${java.time.Instant.now()}  Warmup: $warmup  Reps: $reps\n\n$backend: $msStr ms/iter\n\nHardware: $hw\n"
           os.write.over(outPath, content)
           println(s"\nBaseline written to ${outPath}")
 
