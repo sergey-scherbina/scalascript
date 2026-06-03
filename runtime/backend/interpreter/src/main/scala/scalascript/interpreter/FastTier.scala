@@ -817,6 +817,98 @@ private[interpreter] object FastTier:
     else interp.globals(shape.accName) = Value.intV(acc)
     PureUnit
 
+  /** Pre-resolved shape for `m.foreach((k, v) => acc = acc + v)` with Long accumulator.
+   *  `useFirst` selects the map key (true) or map value (false). */
+  final class ResolvedLongMapAccum(val accName: String, val useFirst: Boolean)
+
+  /** Pre-resolved shape for Map foreach with Double accumulator. */
+  final class ResolvedDoubleMapAccum(val accName: String, val useFirst: Boolean)
+
+  /** Resolve the 2-arg closure shape once at setup for Long-acc Map foreach.
+   *  Returns null if the body isn't `acc = acc + paramRef` or `acc` isn't IntV. */
+  def tryResolveLongMapAccum(closure: Value.FunV, interp: Interpreter): ResolvedLongMapAccum | Null =
+    if !enabled then return null
+    if closure.params.length != 2 then return null
+    if closure.usingParams.nonEmpty then return null
+    val p1    = closure.params(0)
+    val p2    = closure.params(1)
+    val shape = analyzeMapAccum(closure.body, p1, p2)
+    if shape == null then return null
+    val accV  = interp.globals.getOrElse(shape.accName, null)
+    if (accV eq null) || !accV.isInstanceOf[Value.IntV] then return null
+    new ResolvedLongMapAccum(shape.accName, shape.useFirst)
+
+  /** Double-typed parallel of `tryResolveLongMapAccum`. */
+  def tryResolveDoubleMapAccum(closure: Value.FunV, interp: Interpreter): ResolvedDoubleMapAccum | Null =
+    if !enabled then return null
+    if closure.params.length != 2 then return null
+    if closure.usingParams.nonEmpty then return null
+    val p1    = closure.params(0)
+    val p2    = closure.params(1)
+    val shape = analyzeMapAccum(closure.body, p1, p2)
+    if shape == null then return null
+    val accV  = interp.globals.getOrElse(shape.accName, null)
+    if (accV eq null) || !accV.isInstanceOf[Value.DoubleV] then return null
+    new ResolvedDoubleMapAccum(shape.accName, shape.useFirst)
+
+  /** Fast Map foreach inner loop — skips per-iteration guard checks by using
+   *  pre-resolved `ResolvedLongMapAccum` and the caller-supplied `cachedSlot`. */
+  def runLongAccumForeachMapFast(
+    m:          scala.collection.immutable.Map[Value, Value],
+    resolved:   ResolvedLongMapAccum,
+    interp:     Interpreter,
+    cachedSlot: Array[Long] | Null
+  ): Computation | Null =
+    val slot    = if cachedSlot ne null then cachedSlot else accSlotTls.get()
+    val useSlot = slot != null && slot(1) != 0L
+    var acc =
+      if useSlot then slot(0)
+      else
+        val v = interp.globals.getOrElse(resolved.accName, null)
+        if (v eq null) || !v.isInstanceOf[Value.IntV] then return null
+        v.asInstanceOf[Value.IntV].v
+    val it = m.iterator
+    while it.hasNext do
+      val kv  = it.next()
+      val src = if resolved.useFirst then kv._1 else kv._2
+      src match
+        case Value.IntV(x) => acc = acc + x
+        case _ =>
+          if useSlot then slot(1) = 0L
+          return null
+    if useSlot then slot(0) = acc
+    else interp.globals(resolved.accName) = Value.intV(acc)
+    PureUnit
+
+  /** Double-typed parallel of `runLongAccumForeachMapFast`. */
+  def runDoubleAccumForeachMapFast(
+    m:          scala.collection.immutable.Map[Value, Value],
+    resolved:   ResolvedDoubleMapAccum,
+    interp:     Interpreter,
+    cachedSlot: Array[Long] | Null
+  ): Computation | Null =
+    val slot    = if cachedSlot ne null then cachedSlot else accSlotTls.get()
+    val useSlot = slot != null && slot(1) != 0L
+    var acc =
+      if useSlot then longBitsToDouble(slot(0))
+      else
+        val v = interp.globals.getOrElse(resolved.accName, null)
+        if (v eq null) || !v.isInstanceOf[Value.DoubleV] then return null
+        v.asInstanceOf[Value.DoubleV].v
+    val it = m.iterator
+    while it.hasNext do
+      val kv  = it.next()
+      val src = if resolved.useFirst then kv._1 else kv._2
+      src match
+        case Value.DoubleV(x) => acc = acc + x
+        case Value.IntV(x)    => acc = acc + x.toDouble
+        case _ =>
+          if useSlot then slot(1) = 0L
+          return null
+    if useSlot then slot(0) = doubleToRawLongBits(acc)
+    else interp.globals(resolved.accName) = Value.doubleV(acc)
+    PureUnit
+
   /** Double-typed parallel of `tryLongAccumForeachMap`. Accepts both `DoubleV`
    *  and `IntV` (the latter widens to `double`) at the source position —
    *  mirrors Scala's numeric promotion in `total = total + v` where `total` is
