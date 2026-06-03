@@ -525,10 +525,16 @@ class JvmGen(
       else None
     val libPath = Option(System.getProperty("ssc.lib.path"))
     val installed = libPath.flatMap(path => findIn(java.nio.file.Paths.get(path, "bin", "lib", "jars")))
+    // Locate jars/ relative to the running jar — works for `java -jar ssc.jar`
+    // from any CWD, since the dep jars live next to ssc.jar in bin/lib/jars/.
+    val jarLocal = Option(this.getClass.getProtectionDomain).flatMap(pd => Option(pd.getCodeSource))
+      .flatMap(cs => Option(cs.getLocation))
+      .flatMap(url => scala.util.Try(java.nio.file.Paths.get(url.toURI).getParent).toOption)
+      .flatMap(dir => findIn(dir.resolve("jars")))
     val cwd = java.nio.file.Paths.get(".").toAbsolutePath.normalize()
     val staged = findIn(cwd.resolve("bin").resolve("lib").resolve("jars"))
     val devTarget = findInDevTree(cwd)
-    val found = installed.orElse(staged).orElse(devTarget)
+    val found = installed.orElse(jarLocal).orElse(staged).orElse(devTarget)
     found
       .map(p => s"""//> using jar "${p.toAbsolutePath}"\n""")
       .getOrElse(s"""//> using dep "io.scalascript::$artifactBase:0.1.0-SNAPSHOT"\n""")
