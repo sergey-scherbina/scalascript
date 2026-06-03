@@ -480,13 +480,12 @@ verify step. Apply them.
       achieved by the int-tag landing alone: current ~1700 µs on a
       clean system (4.4×, exceeded the 3× spec target).
 
-- [ ] **phase-c-bytecode-block-multistat** (Direction A.5) — currently
-      only single-expr bodies compile in BytecodeJit. Multi-stat bodies
-      (let-bindings + sequences) bail. Generate Java `{ … }` blocks
-      with local variables for binding values; track scope. Benefits
-      compound with `phase-d-instancev-array-repr-activation` because
-      bound values can be array indices. Per `noble-discovering-knuth.md`
-      Direction A slice 5. ~50 lines.
+- [x] **phase-c-bytecode-block-multistat** (Direction A.5) — ✓ Landed 2026-06-03
+      commit `6e11cc62`. `JavacJitBackend.walkBlockStmts` + `blockStmtsCtx`:
+      multi-stat `Term.Block` bodies compile to Java `long`/`double` locals +
+      final return. Expression-context multi-stat blocks use LongSupplier IIFE.
+      `AsmJitBackend.emitValBindings`: LSTORE/DSTORE + slot allocation. Both
+      backends support block-ends-with-match. 1228/1228 tests green.
 
 - [ ] **asm-jit-lapplyobjref-parity** — `AsmJitBackend` landed (2026-06-03,
       `SSC_JIT_BACKEND=asm`). Now port the `LApplyObjRef` LExpr fast-path

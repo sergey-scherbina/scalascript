@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — JIT Direction A.5 — multi-stat block bodies
+
+- **phase-c-bytecode-block-multistat** — `JavacJitBackend` gains
+  `walkBlockStmts` / `blockStmtsCtx`: multi-stat `Term.Block` bodies are now
+  JIT-compiled. Non-final `Defn.Val` bindings emit as Java `long`/`double`
+  locals; the final `Term` compiles via the existing walkers (including
+  block-ends-with-match). Expression-context multi-stat blocks use a
+  `LongSupplier`/`DoubleSupplier` IIFE. `AsmJitBackend` gets the parallel
+  `emitValBindings` helper (LSTORE/DSTORE bytecode + slot allocation via
+  `ctx.allocSlot`). Both backends handle the block-ends-with-`Term.Match`
+  path. Test: `sumSquares(5)` (two val-bindings, recursive call) = 55.
+  1228/1228 tests green. Commit `6e11cc62`.
+
+---
+
 ## 2026-06-03 — perf/interpreter-opt merge (63 micro-opts + 5 fixes)
 
 - **interpreter-opt branch merged** — 63-commit null-optimisation branch
