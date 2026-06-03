@@ -11,8 +11,8 @@ import scalascript.artifact.{ArtifactIO, JvmArtifactIO, JsArtifactIO}
  *  unqualified and behave identically. */
 object ArtifactInfoPrinters:
 
-  def printScimInfo(path: os.Path, json: String, fileSize: Long, jsonMode: Boolean, sectionsMode: Boolean = false): Unit =
-    ArtifactIO.readInterface(json) match
+  def printScimInfo(path: os.Path, bytes: Array[Byte], fileSize: Long, jsonMode: Boolean, sectionsMode: Boolean = false): Unit =
+    ArtifactIO.readInterface(bytes) match
       case Left(err) =>
         System.err.println(s"info: $err")
         System.exit(1)
@@ -73,13 +73,16 @@ object ArtifactInfoPrinters:
         println(s"  - $id: $h")
       }
 
-  def printScirInfo(path: os.Path, json: String, fileSize: Long, jsonMode: Boolean, sectionsMode: Boolean = false): Unit =
+  def printScirInfo(path: os.Path, bytes: Array[Byte], fileSize: Long, jsonMode: Boolean, sectionsMode: Boolean = false): Unit =
     // Decode the artifact directly so we have access to the sectionHashes map
     // for `--sections`; the legacy `readIr` returns a tuple that drops it.
-    val artEither =
-      scala.util.Try(upickle.default.read[scalascript.ir.ModuleIrArtifact](json)).toEither.left.map { e =>
-        s"Failed to parse .scir artifact: ${e.getMessage}"
-      }
+    import upickle.default.{read as upickleRead, readBinary as upickleReadBinary}
+    val artEither: Either[String, scalascript.ir.ModuleIrArtifact] =
+      val tryParse =
+        if bytes.nonEmpty && bytes(0) == '{'.toByte
+        then scala.util.Try(upickleRead[scalascript.ir.ModuleIrArtifact](new String(bytes, "UTF-8")))
+        else scala.util.Try(upickleReadBinary[scalascript.ir.ModuleIrArtifact](bytes))
+      tryParse.toEither.left.map { e => s"Failed to parse .scir artifact: ${e.getMessage}" }
     artEither match
       case Left(err) =>
         System.err.println(s"info: $err")
@@ -88,14 +91,14 @@ object ArtifactInfoPrinters:
         if jsonMode then
           // Round-trip through writeIr so the canonical pretty form is
           // emitted (matches pre-Phase-3 behaviour).
-          val nm = scala.util.Try(upickle.default.read[scalascript.ir.NormalizedModule](art.body)).getOrElse(
+          val nm = scala.util.Try(upickleRead[scalascript.ir.NormalizedModule](art.body)).getOrElse(
             scalascript.ir.NormalizedModule(manifest = None, sections = Nil))
           println(ArtifactIO.writeIr(nm, art.pkg, art.moduleName, art.sourceHash, art.sectionHashes))
         else
           // Body byte size — `art.body` is the embedded JSON string.
           val bodyBytes = art.body.length
           val sectionCount =
-            scala.util.Try(upickle.default.read[scalascript.ir.NormalizedModule](art.body).sections.length).getOrElse(0)
+            scala.util.Try(upickleRead[scalascript.ir.NormalizedModule](art.body).sections.length).getOrElse(0)
           println(s"file: $path")
           println(s"format: .scir (module IR artifact)")
           println(s"magic: ${art.magic}")
@@ -109,8 +112,8 @@ object ArtifactInfoPrinters:
           if sectionsMode then
             printSectionHashes(art.sectionHashes)
 
-  def printScjvmInfo(path: os.Path, json: String, fileSize: Long, jsonMode: Boolean, sectionsMode: Boolean = false): Unit =
-    JvmArtifactIO.readJvm(json) match
+  def printScjvmInfo(path: os.Path, bytes: Array[Byte], fileSize: Long, jsonMode: Boolean, sectionsMode: Boolean = false): Unit =
+    JvmArtifactIO.readJvm(bytes) match
       case Left(err) =>
         System.err.println(s"info: $err")
         System.exit(1)
@@ -132,8 +135,8 @@ object ArtifactInfoPrinters:
           if sectionsMode then
             printSectionHashes(art.sectionHashes)
 
-  def printScjsInfo(path: os.Path, json: String, fileSize: Long, jsonMode: Boolean, sectionsMode: Boolean = false): Unit =
-    JsArtifactIO.readJs(json) match
+  def printScjsInfo(path: os.Path, bytes: Array[Byte], fileSize: Long, jsonMode: Boolean, sectionsMode: Boolean = false): Unit =
+    JsArtifactIO.readJs(new String(bytes, "UTF-8")) match
       case Left(err) =>
         System.err.println(s"info: $err")
         System.exit(1)

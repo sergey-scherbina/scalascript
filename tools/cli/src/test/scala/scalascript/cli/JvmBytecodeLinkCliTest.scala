@@ -60,9 +60,22 @@ class JvmBytecodeLinkCliTest extends AnyFunSuite:
     if res.isFailure || !res.toOption.exists(_.exitCode == 0) then
       cancel("`scala-cli` not on PATH — needed for compile-jvm --bytecode")
 
+  private def compilerDriverAvailable: Boolean =
+    scalascript.imports.ImportResolver.libPath
+      .exists(p => os.exists(p / "bin" / "lib" / "compiler" / "jars"))
+
+  private def requireCompilerDriver(): Unit =
+    if !compilerDriverAvailable then
+      cancel("compiler-driver jars not staged (run `sbt cli/stage`); skipping --bytecode test")
+
   private def runSsc(cwd: os.Path, args: String*): os.CommandResult =
     val jar = requireJar()
-    val cmd: Seq[os.Shellable] = Seq[os.Shellable]("java", "-jar", jar.toString) ++
+    val libPathArg: Seq[os.Shellable] =
+      scalascript.imports.ImportResolver.libPath
+        .map(p => Seq[os.Shellable](s"-Dssc.lib.path=$p"))
+        .getOrElse(Seq.empty)
+    val cmd: Seq[os.Shellable] =
+      Seq[os.Shellable]("java") ++ libPathArg ++ Seq[os.Shellable]("-jar", jar.toString) ++
       args.map(a => a: os.Shellable)
     os.proc(cmd).call(cwd = cwd, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
 
@@ -146,6 +159,7 @@ class JvmBytecodeLinkCliTest extends AnyFunSuite:
 
   test("compile-jvm --bytecode produces a .scjvm with a non-empty classBundle"):
     requireScalaCli()
+    requireCompilerDriver()
     val sandbox = os.temp.dir(prefix = "ssc-bytecode-")
     try
       val src = sandbox / "a.ssc"
@@ -193,6 +207,7 @@ class JvmBytecodeLinkCliTest extends AnyFunSuite:
 
   test("link --backend jvm --bytecode packs class bundles into a JAR with expected entries"):
     requireScalaCli()
+    requireCompilerDriver()
     val sandbox = os.temp.dir(prefix = "ssc-bytecode-")
     try
       val artDir = sandbox / "artifacts"
@@ -280,6 +295,7 @@ class JvmBytecodeLinkCliTest extends AnyFunSuite:
 
   test("compile-jvm --bytecode + link --bytecode + java -cp produce expected stdout (1 module)"):
     requireScalaCli()
+    requireCompilerDriver()
     val stdlib = requireScalaStdlib()
     val sandbox = os.temp.dir(prefix = "ssc-bytecode-")
     try
@@ -308,6 +324,7 @@ class JvmBytecodeLinkCliTest extends AnyFunSuite:
 
   test("compile-jvm --bytecode + link --bytecode + java -cp run b → calls a.add (2 modules)"):
     requireScalaCli()
+    requireCompilerDriver()
     val stdlib = requireScalaStdlib()
     val sandbox = os.temp.dir(prefix = "ssc-bytecode-")
     try

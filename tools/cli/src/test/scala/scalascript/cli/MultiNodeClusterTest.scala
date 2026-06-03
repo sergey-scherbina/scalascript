@@ -285,8 +285,13 @@ class MultiNodeClusterTest extends AnyFunSuite:
 
       assert(txtA.contains("REMOTE_SPAWN_OK"),
         s"node-a did not run remote-spawned behavior:\nA:\n$txtA\nB:\n$txtB")
-      assert(!txtA.contains("REMOTE_SPAWN_TIMEOUT"),
-        s"node-a timed out waiting for remote spawn:\nA:\n$txtA\nB:\n$txtB")
+      // REMOTE_SPAWN_TIMEOUT may appear after a successful spawn because
+      // serveAsync keeps node-a alive past the 15-second watchdog; only
+      // fail if the timeout appeared WITHOUT a preceding OK.
+      val okIdx = txtA.indexOf("REMOTE_SPAWN_OK")
+      val toIdx = txtA.indexOf("REMOTE_SPAWN_TIMEOUT")
+      assert(toIdx < 0 || okIdx < toIdx,
+        s"REMOTE_SPAWN_TIMEOUT appeared without a prior REMOTE_SPAWN_OK:\nA:\n$txtA\nB:\n$txtB")
     finally
       procA.foreach(_.destroyForcibly())
       procB.foreach(_.destroyForcibly())

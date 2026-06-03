@@ -1,8 +1,9 @@
 package scalascript.cli
 
 import org.scalatest.funsuite.AnyFunSuite
-import upickle.default.read as upickleRead
+import upickle.default.{read as upickleRead, readBinary as upickleReadBinary}
 import ujson.Value as JsonValue
+import scalascript.artifact.ArtifactIO
 
 /** v2.0 — end-to-end smoke tests for separate-compilation CLI commands.
  *
@@ -100,12 +101,13 @@ class V2ArtifactCliTest extends AnyFunSuite:
       val scim = sandbox / "a.scim"
       assert(os.exists(scim), s"expected $scim to be written; got dir: ${os.list(sandbox).mkString(", ")}")
 
-      // Parse as raw JSON and validate envelope + exports.
-      val json = upickleRead[JsonValue](os.read(scim))
-      assert(json("magic").str == "SSCART", s"magic mismatch: ${json("magic")}")
-      assert(json("abiVersion").str == "2.0", s"abiVersion mismatch: ${json("abiVersion")}")
+      // Read binary .scim and validate envelope + exports.
+      val iface = ArtifactIO.readInterface(os.read.bytes(scim))
+        .fold(err => fail(err), identity)
+      assert(iface.magic == "SSCART", s"magic mismatch: ${iface.magic}")
+      assert(iface.abiVersion == "2.0", s"abiVersion mismatch: ${iface.abiVersion}")
 
-      val exportNames = json("exports").arr.map(_("name").str).toList
+      val exportNames = iface.exports.map(_.name)
       assert(exportNames.contains("add"),
         s"expected 'add' in exports; got: ${exportNames.mkString(", ")}")
     finally os.remove.all(sandbox)
@@ -125,14 +127,18 @@ class V2ArtifactCliTest extends AnyFunSuite:
       val scir = sandbox / "a.scir"
       assert(os.exists(scir), s"expected $scir to be written")
 
-      val json = upickleRead[JsonValue](os.read(scir))
-      assert(json("magic").str == "SSCART", s"magic mismatch: ${json("magic")}")
-      assert(json("abiVersion").str == "2.0", s"abiVersion mismatch: ${json("abiVersion")}")
+      val bytes = os.read.bytes(scir)
+      val art = (
+        if bytes.nonEmpty && bytes(0) == '{'.toByte
+        then upickleRead[scalascript.ir.ModuleIrArtifact](new String(bytes, "UTF-8"))
+        else upickleReadBinary[scalascript.ir.ModuleIrArtifact](bytes)
+      )
+      assert(art.magic == "SSCART", s"magic mismatch: ${art.magic}")
+      assert(art.abiVersion == "2.0", s"abiVersion mismatch: ${art.abiVersion}")
       // `body` is the NormalizedModule serialised as a JSON string.
-      val body = json("body").str
-      assert(body.nonEmpty, "expected non-empty body in .scir")
+      assert(art.body.nonEmpty, "expected non-empty body in .scir")
       // Body should at minimum parse as JSON and contain the section heading.
-      val bodyJson = upickleRead[JsonValue](body)
+      val bodyJson = upickleRead[JsonValue](art.body)
       // Sanity: NormalizedModule has a `sections` array.
       assert(bodyJson.obj.contains("sections"),
         s"expected NormalizedModule body to have 'sections' field, got keys: ${bodyJson.obj.keys.mkString(", ")}")
@@ -274,10 +280,15 @@ class V2ArtifactCliTest extends AnyFunSuite:
       assert(os.exists(outScir), s"expected $outScir to be written")
 
       // The linked .scir body should contain sections from both modules.
-      val envelope = upickleRead[JsonValue](os.read(outScir))
-      assert(envelope("magic").str == "SSCART")
-      assert(envelope("abiVersion").str == "2.0")
-      val body = upickleRead[JsonValue](envelope("body").str)
+      val outBytes = os.read.bytes(outScir)
+      val art = (
+        if outBytes.nonEmpty && outBytes(0) == '{'.toByte
+        then upickleRead[scalascript.ir.ModuleIrArtifact](new String(outBytes, "UTF-8"))
+        else upickleReadBinary[scalascript.ir.ModuleIrArtifact](outBytes)
+      )
+      assert(art.magic == "SSCART")
+      assert(art.abiVersion == "2.0")
+      val body = upickleRead[JsonValue](art.body)
       val sectionTitles = body("sections").arr.map(_("heading")("text").str).toList
       assert(sectionTitles.contains("Module A"),
         s"expected 'Module A' in linked sections; got: ${sectionTitles.mkString(", ")}")

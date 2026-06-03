@@ -65,9 +65,22 @@ class JvmBytecodeRuntimeSeparationTest extends AnyFunSuite:
     if res.isFailure || !res.toOption.exists(_.exitCode == 0) then
       cancel("`scala-cli` not on PATH — needed for compile-jvm --bytecode")
 
+  private def compilerDriverAvailable: Boolean =
+    scalascript.imports.ImportResolver.libPath
+      .exists(p => os.exists(p / "bin" / "lib" / "compiler" / "jars"))
+
+  private def requireCompilerDriver(): Unit =
+    if !compilerDriverAvailable then
+      cancel("compiler-driver jars not staged (run `sbt cli/stage`); skipping --bytecode test")
+
   private def runSsc(cwd: os.Path, args: String*): os.CommandResult =
     val jar = requireJar()
-    val cmd: Seq[os.Shellable] = Seq[os.Shellable]("java", "-jar", jar.toString) ++
+    val libPathArg: Seq[os.Shellable] =
+      scalascript.imports.ImportResolver.libPath
+        .map(p => Seq[os.Shellable](s"-Dssc.lib.path=$p"))
+        .getOrElse(Seq.empty)
+    val cmd: Seq[os.Shellable] =
+      Seq[os.Shellable]("java") ++ libPathArg ++ Seq[os.Shellable]("-jar", jar.toString) ++
       args.map(a => a: os.Shellable)
     os.proc(cmd).call(cwd = cwd, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
 
@@ -153,6 +166,7 @@ class JvmBytecodeRuntimeSeparationTest extends AnyFunSuite:
 
   test("compile-jvm --bytecode produces a small module .scjvm and a shared _runtime.scjvm-runtime"):
     requireScalaCli()
+    requireCompilerDriver()
     val sandbox = os.temp.dir(prefix = "ssc-split-runtime-")
     try
       val artDir = sandbox / "artifacts"
@@ -193,6 +207,7 @@ class JvmBytecodeRuntimeSeparationTest extends AnyFunSuite:
 
   test("re-running compile-jvm --bytecode on unchanged source leaves the runtime untouched"):
     requireScalaCli()
+    requireCompilerDriver()
     val sandbox = os.temp.dir(prefix = "ssc-split-runtime-")
     try
       val artDir = sandbox / "artifacts"
@@ -227,6 +242,7 @@ class JvmBytecodeRuntimeSeparationTest extends AnyFunSuite:
 
   test("compiling a second module with a new capability widens the runtime's capability union"):
     requireScalaCli()
+    requireCompilerDriver()
     val sandbox = os.temp.dir(prefix = "ssc-split-runtime-")
     try
       val artDir = sandbox / "artifacts"
@@ -261,6 +277,7 @@ class JvmBytecodeRuntimeSeparationTest extends AnyFunSuite:
 
   test("compile-jvm --bytecode + link --bytecode + java -cp run a_sc"):
     requireScalaCli()
+    requireCompilerDriver()
     val stdlib = requireScalaStdlib()
     val sandbox = os.temp.dir(prefix = "ssc-split-runtime-")
     try
@@ -298,6 +315,7 @@ class JvmBytecodeRuntimeSeparationTest extends AnyFunSuite:
 
   test("compile-runtime --capabilities builds a standalone _runtime.scjvm-runtime"):
     requireScalaCli()
+    requireCompilerDriver()
     val sandbox = os.temp.dir(prefix = "ssc-split-runtime-")
     try
       val artDir = sandbox / "artifacts"

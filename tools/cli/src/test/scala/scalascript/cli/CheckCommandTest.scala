@@ -51,6 +51,14 @@ class CheckCommandTest extends AnyFunSuite:
       stdout = os.Pipe
     )
 
+  // Strip JVM launcher notes ("NOTE: Picked up JDK_JAVA_OPTIONS: …",
+  // "Picked up JAVA_TOOL_OPTIONS: …", etc.) from stderr so assertions on
+  // quiet-mode tests are not broken by the host environment's JVM settings.
+  private def appStderr(res: os.CommandResult): String =
+    res.err.text().linesIterator
+      .filterNot(l => l.startsWith("NOTE: Picked up ") || l.startsWith("Picked up "))
+      .mkString("\n").trim
+
   // ── Fixture helpers ───────────────────────────────────────────────────────
 
   /** A minimal well-typed `.ssc` file. */
@@ -253,7 +261,7 @@ class CheckCommandTest extends AnyFunSuite:
       val fixture = writeBadFixture(sandbox)
       val res     = runSsc(sandbox, "check", "--quiet", fixture.last)
       val out     = res.out.text()
-      val err     = res.err.text()
+      val err     = appStderr(res)
       assert(res.exitCode == 1,
         s"expected exit 1 with --quiet on type error; got ${res.exitCode}")
       assert(out.isEmpty,
@@ -269,7 +277,7 @@ class CheckCommandTest extends AnyFunSuite:
       val fixture = writeGoodFixture(sandbox)
       val res     = runSsc(sandbox, "check", "--quiet", fixture.last)
       val out     = res.out.text()
-      val err     = res.err.text()
+      val err     = appStderr(res)
       assert(res.exitCode == 0,
         s"expected exit 0 with --quiet on clean file; got ${res.exitCode}")
       assert(out.isEmpty,
@@ -340,7 +348,7 @@ class CheckCommandTest extends AnyFunSuite:
     try
       val fixture = writeBadFixture(sandbox)
       val res     = runSsc(sandbox, "check", "--quiet", "--json", fixture.last)
-      val err     = res.err.text()
+      val err     = appStderr(res)
       assert(res.exitCode == 1,
         s"expected exit 1; got ${res.exitCode}")
       assert(err.isEmpty,

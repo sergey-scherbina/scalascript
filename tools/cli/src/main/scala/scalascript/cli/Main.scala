@@ -27,10 +27,10 @@ import ArtifactInfoPrinters.*
 @main def ssc(rawArgs: String*): Unit =
   // --quiet silences third-party SLF4J library output (commonmark, …)
   // by raising the slf4j-simple threshold to error.  Must run before any SLF4J
-  // logger is first touched.
-  val (quietFlags, args0) = rawArgs.partition(_ == "--quiet")
-  if quietFlags.nonEmpty then
+  // logger is first touched.  Keep --quiet in args0 so subcommands can see it.
+  if rawArgs.contains("--quiet") then
     System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "error")
+  val args0 = rawArgs
 
   // --logs.key=value → System.setProperty("scalascript.logger.key", "value").
   // Must run first so the logger reads properties before any first log call.
@@ -3779,8 +3779,12 @@ final class InfoCmd extends CliCommand:
       System.exit(1)
 
     // If first arg looks like a registry name (<group>/<artifact>), dispatch to registry info.
+    // A path is a file reference (not a registry name) if it starts with '/', './', '../',
+    // or refers to a file that exists on disk.
     val firstArg = files.head
-    if firstArg.contains('/') && !Set("scim", "scir", "scjvm", "scjs").contains(firstArg.split('.').lastOption.getOrElse("")) then
+    val looksLikeFilePath = firstArg.startsWith("/") || firstArg.startsWith("./") ||
+      firstArg.startsWith("../") || os.exists(os.Path(firstArg, os.pwd))
+    if !looksLikeFilePath && firstArg.contains('/') && !Set("scim", "scir", "scjvm", "scjs").contains(firstArg.split('.').lastOption.getOrElse("")) then
       import scalascript.imports.RegistryClient
       val url     = RegistryClient.effectiveUrl(registryArg)
       val entries = RegistryClient.load(url, refresh = registryArg.isDefined)
@@ -3812,14 +3816,13 @@ final class InfoCmd extends CliCommand:
       System.exit(1)
 
     try
-      val raw     = os.read(path)
       val bytes   = os.read.bytes(path)
       val fileSize = bytes.length
       ext match
-        case "scim"  => printScimInfo(path, raw, fileSize, jsonMode, sectionsMode)
-        case "scir"  => printScirInfo(path, raw, fileSize, jsonMode, sectionsMode)
-        case "scjvm" => printScjvmInfo(path, raw, fileSize, jsonMode, sectionsMode)
-        case "scjs"  => printScjsInfo(path, raw, fileSize, jsonMode, sectionsMode)
+        case "scim"  => printScimInfo(path, bytes, fileSize, jsonMode, sectionsMode)
+        case "scir"  => printScirInfo(path, bytes, fileSize, jsonMode, sectionsMode)
+        case "scjvm" => printScjvmInfo(path, bytes, fileSize, jsonMode, sectionsMode)
+        case "scjs"  => printScjsInfo(path, bytes, fileSize, jsonMode, sectionsMode)
         case _       => () // unreachable — extension already validated above
     catch case e: Exception =>
       System.err.println(s"info: ${e.getMessage}")

@@ -43,11 +43,11 @@ class SingletonFailoverTest extends AnyFunSuite:
     val joinStmt =
       if peerUrls.isEmpty then "()"
       else s"joinCluster(List($joinList))"
-    // Relative path back up to std/cluster/singleton.ssc — imports
+    // Relative path back up to runtime/std/cluster/singleton.ssc — imports
     // must be relative to the .ssc file's directory, and our scripts
-    // live at <repo>/cli/target/ssc-singleton-failover/.  Three `..`
+    // live at <repo>/tools/cli/target/ssc-singleton-failover/.  Four `..`
     // hops up gets us to the repo root.
-    val singletonPath = "../../../std/cluster/singleton.ssc"
+    val singletonPath = "../../../../runtime/std/cluster/singleton.ssc"
     val _ = stdRepoRoot
     s"""---
        |name: node-$nodeId
@@ -133,17 +133,17 @@ class SingletonFailoverTest extends AnyFunSuite:
 
   test("Singleton migrates on leader-kill, new instance receives ticks"):
     val jar = requireJar()
-    // Resolve the worktree (or canonical) repo root that owns `std/`
-    // so the node processes can import `std/cluster/singleton.ssc`
+    // Resolve the worktree (or canonical) repo root that owns `runtime/std/`
+    // so the node processes can import `runtime/std/cluster/singleton.ssc`
     // on a relative path.  Walk up from os.pwd looking for a sibling
-    // `std/cluster/singleton.ssc`.
+    // `runtime/std/cluster/singleton.ssc`.
     val stdRepoRoot: String =
       def findStd(p: os.Path, depth: Int): Option[os.Path] =
         if depth == 0 then None
-        else if os.exists(p / "std" / "cluster" / "singleton.ssc") then Some(p)
+        else if os.exists(p / "runtime" / "std" / "cluster" / "singleton.ssc") then Some(p)
         else findStd(p / os.up, depth - 1)
       findStd(os.pwd, 6).map(_.toString)
-        .getOrElse(fail("can't locate std/cluster/singleton.ssc above os.pwd"))
+        .getOrElse(fail("can't locate runtime/std/cluster/singleton.ssc above os.pwd"))
     val sandbox = os.pwd / "target" / "ssc-singleton-failover"
     os.remove.all(sandbox)
     os.makeDir.all(sandbox)
