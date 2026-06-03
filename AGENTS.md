@@ -14,9 +14,17 @@ cat .git 2>/dev/null | head -1
 | Output | Meaning | Action |
 |--------|---------|--------|
 | `gitdir: /path/.git/worktrees/NAME` | ✓ in a worktree | continue |
-| file missing or `.git` is a directory | ✗ in shared main | **create a worktree right now** |
+| file missing or `.git` is a directory | ✗ in shared main | create a worktree before normal project work; see the coordination exception below |
 
-If you are **not** in a worktree — create one before doing anything else:
+**Coordination exception:** task claims, claim releases, pause/resume files,
+status checks, and local `main` synchronization are **main-checkout
+operations**. Do not create a worktree before claiming. A claim committed from a
+worktree is invalid because it stays on the feature branch and never becomes
+visible on `origin/main`.
+
+If you are **not** in a worktree and you are about to do ordinary project work
+(code, docs, tests, implementation planning tied to edits) — create one before
+continuing:
 
 ```bash
 BRANCH="feature/your-task-name"
@@ -334,12 +342,16 @@ files (it has happened repeatedly).  Even "small" changes to `AGENTS.md`
 / `BACKLOG.md` / a one-line bug fix go through a worktree on a
 feature branch.
 
-The shared `main` checkout is only ever for two things:
+The shared `main` checkout is only ever for three things:
 
 1. Reading state (`git log`, `git status`, file viewing).
 2. Fast-forward merge of *your* `feature/<name>` branch into `main`
    followed immediately by `git push origin main` (Rule 3).  No
    stops, no edits in between.
+3. Coordination operations that must be visible on `origin/main`:
+   task claims, claim releases, pause/resume files, and local `main`
+   synchronization.  These operations stage only the coordination file
+   they are changing and never touch sibling dirty work in shared `main`.
 
 #### When EnterWorktree is unavailable — create one manually
 
@@ -542,9 +554,10 @@ done
 
 If a sibling's branch name, modified files, or recent commits overlap
 with your candidate item — pick a different item. Check both
-`git worktree list` (active worktrees) and `.work/active/` (claimed tasks)
-before deciding what's free. Don't coordinate through chat; the git state
-is the contract.
+`git worktree list` (active worktrees) and
+`git ls-tree origin/main .work/active/` (authoritative remote claims) before
+deciding what's free. Don't coordinate through chat; the git state is the
+contract.
 
 If your item already landed on `origin/main` (search recent commits),
 mark it done in `BACKLOG.md`/`ACTIVE.md` + add a line to `CHANGELOG.md`, then move on.
@@ -753,6 +766,12 @@ unique by task slug, so two agents can never produce a git conflict when
 adding different tasks' claim files. Conflicts arise only if two agents
 claim the *same* task simultaneously — but the rejected push prevents that.
 
+A claim is valid only if `.work/active/<task-slug>.claim` is visible on
+`origin/main`. Local branches, local worktrees, unpushed commits, and local
+files do **not** count as claims. `git worktree list` is a collision hint, not
+the mutex: if it shows a worktree for an unclaimed pending task, inspect/report
+before starting, but the remote claim list remains authoritative.
+
 ### Claiming a task (step by step)
 
 Run these commands from the **main checkout** (not inside a worktree):
@@ -761,9 +780,18 @@ Run these commands from the **main checkout** (not inside a worktree):
 # ══ MUST run from the MAIN CHECKOUT (/Users/sergiy/work/my/scalascript) ══
 # ══ NEVER run from a worktree — commits there go on the feature branch,  ══
 # ══ not on main, so the claim file never reaches origin/main.            ══
+test "$(pwd)" = "/Users/sergiy/work/my/scalascript"
+test "$(git symbolic-ref --short HEAD)" = "main"
+test -d .git                                    # .git must be a directory, not a worktree file
 
 # 1. Fetch fresh remote state
 git fetch origin
+if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+  git merge --ff-only origin/main               # if this fails, stop and inspect
+fi
+git diff --cached --quiet                       # index must be clean before claiming
+# `git status -s` may show sibling working-tree changes in shared main.
+# Do not reset, stash, restore, or stage them; stage only the claim file below.
 
 # 2. Read what's available — use git show/ls-tree (safe from any context)
 git show origin/main:WORK_QUEUE.md              # ordered pending list
@@ -776,16 +804,18 @@ git ls-tree origin/main .work/active/           # currently claimed slugs
 TASK_SLUG="v1.46-phase5-derivation"   # example
 WORKTREE_NAME="feature+phase5-derivation"
 
-# 4. Sync the main checkout, then write the claim file
-git reset --hard origin/main          # ← only safe on the main checkout
+# 4. Write only the claim file
 echo "$WORKTREE_NAME $(date -u +%Y-%m-%dT%H:%M:%SZ)" > ".work/active/${TASK_SLUG}.claim"
 git add ".work/active/${TASK_SLUG}.claim"
+test "$(git diff --cached --name-only)" = ".work/active/${TASK_SLUG}.claim"
 git commit -m "claim: ${TASK_SLUG}"
 
 # 5. Atomic push — this is the mutex
 git push origin main
 # SUCCESS → you own the task, proceed to step 6
 # REJECTED (non-fast-forward) → another agent moved main first; go back to step 1
+git fetch origin
+git show "origin/main:.work/active/${TASK_SLUG}.claim"   # must succeed
 ```
 
 **Why this works:** If agents A and B both try to claim the same task at the same
@@ -797,6 +827,12 @@ The loser refetches, sees the winner's claim file, and picks a different task.
 worktree's feature branch (e.g. `feature/v153`). Then `git push origin main`
 pushes the LOCAL `main` ref — which has no new commit. The push succeeds silently,
 the claim file is invisible on `origin/main`, and another agent picks the same task.
+
+If you accidentally made `claim: <slug>` in a worktree or feature branch:
+**stop immediately**. Do not implement the task. Return to the main checkout,
+claim correctly against `origin/main`, then either delete the bad local
+claim-only branch/worktree or rebase useful implementation work onto the
+properly claimed branch.
 
 ### Starting work after a successful claim
 
@@ -859,8 +895,16 @@ done
 A claim file with no corresponding live worktree is stale. To release it:
 
 ```bash
-git fetch origin && git reset --hard origin/main
+test "$(pwd)" = "/Users/sergiy/work/my/scalascript"
+test "$(git symbolic-ref --short HEAD)" = "main"
+test -d .git
+git fetch origin
+if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+  git merge --ff-only origin/main
+fi
+git diff --cached --quiet
 git rm ".work/active/${TASK_SLUG}.claim"
+test "$(git diff --cached --name-only)" = ".work/active/${TASK_SLUG}.claim"
 git commit -m "release-claim: ${TASK_SLUG} (agent gone)"
 git push origin main
 ```
@@ -877,7 +921,8 @@ running (check `git worktree list` and the timestamp inside the file).
 When the user says **"статус"** / **"status"** / **"план"** / **"что делаем"**:
 
 1. `git fetch origin` — get fresh state
-2. Read `WORK_QUEUE.md` groups + `ls .work/active/`
+2. Read `git show origin/main:WORK_QUEUE.md` groups +
+   `git ls-tree origin/main .work/active/`
 3. Print a structured summary (do NOT start working):
 
 ```
@@ -934,6 +979,8 @@ left open with uncommitted changes reported to the user.
 
 **File-based pause (for unattended sessions):**
 Create the file `.work/paused` in the repo and push it to `origin/main`:
+run these commands from the main checkout, not from a worktree, and stage only
+the pause/resume file.
 
 ```bash
 # To pause:
@@ -976,7 +1023,14 @@ then pause — it survives context rotations and works across sessions.
 ```
 LOOP:
     1.  # ── From the MAIN CHECKOUT, not from any worktree ──
+        test "$(pwd)" = "/Users/sergiy/work/my/scalascript"
+        test "$(git symbolic-ref --short HEAD)" = "main"
+        test -d .git
         git fetch origin
+        if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+            git merge --ff-only origin/main
+        fi
+        git diff --cached --quiet
         # Re-read AGENTS.md — pick up protocol changes without restarting:
         Read git show origin/main:AGENTS.md and apply any updated rules
         # Check paused and queue via remote — safe from any context:
@@ -995,9 +1049,16 @@ LOOP:
             ask the user ONE clear question, wait, then proceed
 
     4.  # ── Claim — MUST happen from the MAIN CHECKOUT ──
-        git reset --hard origin/main   # sync main checkout before writing
+        test "$(pwd)" = "/Users/sergiy/work/my/scalascript"
+        test "$(git symbolic-ref --short HEAD)" = "main"
+        test -d .git
+        test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+        git diff --cached --quiet
+        # `git status -s` may show sibling dirty work; do not touch or stage it.
         echo "<worktree-name> <timestamp>" > .work/active/<slug>.claim
-        git add .work/active/<slug>.claim && git commit -m "claim: <slug>"
+        git add .work/active/<slug>.claim
+        test "$(git diff --cached --name-only)" = ".work/active/<slug>.claim"
+        git commit -m "claim: <slug>"
         git push origin main
         if push rejected → go to step 1 (lost the race to another agent)
 
