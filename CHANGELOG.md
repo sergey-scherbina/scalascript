@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — perf/interpreter-opt merge (63 micro-opts + 5 fixes)
+
+- **interpreter-opt branch merged** — 63-commit null-optimisation branch
+  (`perf/interpreter-opt`) landed into main via `--no-ff` merge commit
+  `06aa0a5b`. Brings null-based dispatch tables, IMap direct constructors,
+  CharV pool, FrameMap chain iteration, pure-path short-circuit, and a
+  ReusableFrame1 for hot iteration callbacks. Five correctness bugs found and
+  fixed during test runs: (1) `ImportResolver.discoverStdRoot` / `jarDir`
+  removed from the branch — restored 6-candidate std-path chain; (2)
+  `evalBlock` closure iteration overwrote FrameMap params when a child
+  interpreter's builtins share the same name as a param — fixed with
+  `!b.contains(k)` guard; (3) `infix2` `++` fallback skipped
+  `extensionDispatch` so `Doc.++` produced wrong output — fixed; (4) `callValue1/2`
+  fast paths bypassed TCO for named self-tail-recursive functions — added TCO
+  guard; (5) effect test used one-shot resume on a `multi effect` — fixed test
+  declaration. All 1227 tests green. Merge commit `06aa0a5b`.
+
+---
+
 ## 2026-06-03 — JIT pattern guard if-chain + unary minus
 
 - **jit-pattern-guard-conditional-arm** — `walkMatchBody` now detects when
