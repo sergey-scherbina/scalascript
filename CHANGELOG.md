@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — JIT pattern guard if-chain + unary minus
+
+- **jit-pattern-guard-conditional-arm** — `walkMatchBody` now detects when
+  any arm has a guard (`c.cond.nonEmpty`) and emits an if-chain form instead
+  of a Java switch. New `walkArmAsIfBranch` (~80 lines) emits
+  `if (inst.typeTag() == N) { bindings; if (guard) { return body; } }`;
+  guard conditions are compiled via the existing `walkBool` walker. Also adds
+  `Term.ApplyUnary("-"/"+"...)` support to `walkLong` and `walkDouble`.
+  Bench `patternGuard` (4 × 1M pre-built val calls): 13,570 → 11.7 ms/op
+  (~1,160×). JitLint updated: Pat.Extract guarded match now `willJit = true`.
+  1227/1227 tests green. Commit `8924f4e6`.
+
 ## 2026-06-03 — AsmJitBackend — direct AST→JVM bytecode JIT
 
 - **asm-jit-backend** — Second implementation of the `JitBackend` SPI: emits

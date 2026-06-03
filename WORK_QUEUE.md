@@ -563,15 +563,17 @@ highest-impact item.
       `LApplyR1ToRef` because the explicit field-access shape (`e.right`)
       already covers most cases via `LRefFieldGet`. ~80 lines.
 
-- [ ] **jit-pattern-guard-conditional-arm** — extend
-      `JavacJitBackend.walkArm` to handle `case x if cond => body` by
-      emitting `if (cond) <body> else <fall-through>` inside the switch
-      case. Unblocks all the `withGuard` shapes the JitLint reports as
-      `PatternGuard`. Real-world impact: any reusable validation arm
-      (`case Cmd(x) if x > 0 => …`) currently tree-walks. Needs careful
-      thinking about exhaustiveness — guarded arms can't be `default`,
-      so the compiler emits a separate fallthrough block. Estimated
-      ~60 lines + bench `modPatternGuard` to lock.
+- [x] **jit-pattern-guard-conditional-arm** — ✓ Landed 2026-06-03 commit `8924f4e6`.
+      `walkMatchBody` detects `hasAnyGuard`; when true emits an if-chain form
+      via new `walkArmAsIfBranch` (~80 lines) instead of Java switch. Each arm
+      is `if (inst.typeTag() == N) { bindings; if (guard) { return body; } }`.
+      Guard conditions compiled via existing `walkBool` (supports `<`, `<=`,
+      `>`, `>=`, `==`, `!=`, `&&`, `||`). Also added `Term.ApplyUnary("-"/"+")
+      to `walkLong` and `walkDouble`. JitLint test updated: Pat.Extract guarded
+      match now `willJit = true`; new test for non-extract guard (still bails).
+      **Bench `patternGuard` (4 × 1M pre-built val calls, ms/op):
+        JIT off: 13,570 → JIT on: 11.7 → ~1,160× speedup.**
+      Tests: 1227/1227 green.
 
 - [ ] **jit-lint-recognisers-pure-predicates** — factor out the
       `JavacJitBackend.tryCompile` bail predicates into pure inspection
