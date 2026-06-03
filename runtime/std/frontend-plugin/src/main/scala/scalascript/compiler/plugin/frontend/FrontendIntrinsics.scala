@@ -10,6 +10,8 @@ import scalascript.plugin.api.PluginContext
 
 object FrontendIntrinsics:
 
+  private val computedIdCounter = new java.util.concurrent.atomic.AtomicInteger(0)
+
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
     // NB: `args` is `List[Any]` post-unwrap (Interpreter.installNativeIntrinsics
@@ -130,6 +132,24 @@ object FrontendIntrinsics:
       args match
         case List() => Value.Foreign("ReactiveSignal", new ReactiveSignal[String]("__hash__", ""))
         case _      => throw InterpretError("hashSignal()")
+    },
+
+    // ── computedSignal(f: () => String): Signal[String] ───────────────────────
+    // JVM: evaluates f() once for the static initial value.
+    // JS emitter wires "__computed__N" to a computed() ref that re-runs f reactively.
+    QualifiedName("computedSignal") -> PluginNative.evalLegacy { (ctx, args) =>
+      def mkSignal(raw: Any): Value =
+        val str = raw match
+          case s: String        => s
+          case Value.StringV(s) => s
+          case null             => ""
+          case other            => other.toString
+        Value.Foreign("ReactiveSignal",
+          new ReactiveSignal[String](s"__computed__${computedIdCounter.getAndIncrement()}", str))
+      args match
+        case List(fn: Value.FunV)      => mkSignal(ctx.invokeCallback(fn, Nil))
+        case List(fn: Value.NativeFnV) => mkSignal(ctx.invokeCallback(fn, Nil))
+        case _ => throw InterpretError("computedSignal(f)")
     },
 
     // ── serve — frontend and REST variants ───────────────────────────────────
