@@ -50,11 +50,9 @@ val filterNames   = args.filterNot(_.startsWith("--")).toSet
 
 case class Backend(label: String, subCmd: Option[String], warmup: Int, reps: Int)
 
-// interp: fast, use full warmup+reps
-// jvm/js: include compile round-trip, so fewer reps
 val interpBackend = Backend("interp", None,            WARMUP, REPS)
-val jvmBackend    = Backend("jvm",    Some("run-jvm"), 0,      3)
-val jsBackend     = Backend("js",     Some("run-js"),  0,      3)
+val jvmBackend    = Backend("jvm",    Some("run-jvm"), 1,      3)
+val jsBackend     = Backend("js",     Some("run-js"),  1,      3)
 
 val activeBackends: Seq[Backend] =
   if compareMode then Seq(interpBackend, jvmBackend, jsBackend)
@@ -81,8 +79,6 @@ def runOnce(sscPath: String, subCmd: Option[String], corpusFile: String,
 def benchFile(sscPath: String, backend: Backend, file: java.io.File): Option[BenchResult] =
   val name = file.getName.replaceAll("\\.ssc$", "")
   val tag  = if activeBackends.size > 1 then s"$name [${backend.label}]" else name
-  // Suppress stderr for jvm/js in compare mode — compile errors are expected for
-  // corpus files that use interpreter-only intrinsics; we just show n/a.
   val errLog: String => Unit = if backend.subCmd.isDefined then _ => () else logStderr
   print(s"  $tag: warming up... ")
   Console.flush()
