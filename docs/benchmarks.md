@@ -15,6 +15,8 @@ full command list; `scripts/bench list` enumerates every available
 | Run one interpreter bench | `scripts/bench interp recursionFib` |
 | Run all benches with AsmJitBackend | `scripts/bench asm` |
 | Run one bench with AsmJitBackend | `scripts/bench asm recursionFib` |
+| Wall-clock with ASM column added | `./bench.sh --asm` |
+| Wall-clock ASM backend only | `./bench.sh --backend interp-asm` |
 | Compare interp vs JS vs JVM | `scripts/bench cross` |
 | Measure codegen time | `scripts/bench gen` |
 | Measure compile pipeline | `scripts/bench compile` |

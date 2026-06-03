@@ -7,8 +7,10 @@
  *
  * Usage (from repo root):
  *   ./bench.sh                              # compare all backends (interp, jvm, js)
+ *   ./bench.sh --asm                        # add interp-asm column (AsmJitBackend)
  *   ./bench.sh arith-loop recursion-fib    # filter by workload name
  *   ./bench.sh --backend interp            # single backend only
+ *   ./bench.sh --backend interp-asm        # ASM JIT backend only
  *   ./bench.sh --warmup 10 --reps 50       # custom warmup / measured iterations
  *   ./bench.sh --baseline                  # write bench/BASELINE.md
  *
@@ -33,8 +35,10 @@ val baselineOut = Paths.get(s"$root/bench/BASELINE.md")
 // ── arg parsing ───────────────────────────────────────────────────────────────
 
 val writeBaseline = args.contains("--baseline")
+val includeAsm    = args.contains("--asm")
 
-// --backend <b>: limit to a single backend; default is all three
+// --backend <b>: limit to a single backend; default is all three.
+// Synthetic backend "interp-asm" runs ssc --backend interp with SSC_JIT_BACKEND=asm.
 val backendFlag: Option[String] =
   val idx = args.indexOf("--backend")
   if idx >= 0 && idx + 1 < args.length then Some(args(idx + 1))
@@ -42,7 +46,7 @@ val backendFlag: Option[String] =
 
 val backends: Seq[String] = backendFlag match
   case Some(b) => Seq(b)
-  case None    => Seq("interp", "jvm", "js")
+  case None    => Seq("interp", "jvm", "js") ++ (if includeAsm then Seq("interp-asm") else Nil)
 
 // --warmup N / --reps N / --warmup-time N: pass-through to ssc bench (defaults mirror BenchCmd)
 def parseInt2(flag: String, default: Int): Int =
@@ -90,16 +94,20 @@ def runSscBenchBackend(sscPath: String, file: java.io.File, b: String): Option[D
   val errLog: String => Unit = line =>
     if !line.startsWith("NOTE: Picked up") && !line.contains("skipping backend plugin") then
       System.err.println(line)
+  // "interp-asm" is a synthetic backend: run ssc --backend interp with SSC_JIT_BACKEND=asm.
+  val (actualBackend, extraEnv) = b match
+    case "interp-asm" => ("interp", Seq("SSC_JIT_BACKEND" -> "asm"))
+    case other        => (other,    Nil)
   // --backend is a global flag; must come before the subcommand name.
   // --warmup-time overrides --warmup when present.
   val warmupArgs = warmupTimeMs match
     case Some(ms) => Seq("--warmup-time", ms.toString)
     case None     => Seq("--warmup", warmup.toString)
-  val cmd = Seq(sscPath, "--backend", b, "bench", "--machine") ++
+  val cmd = Seq(sscPath, "--backend", actualBackend, "bench", "--machine") ++
             warmupArgs ++ Seq("--reps", reps.toString, file.getAbsolutePath)
   val buf = new java.io.ByteArrayOutputStream
   val ps  = new java.io.PrintStream(buf, true)
-  Process(cmd).!(ProcessLogger(ps.println, errLog))
+  Process(cmd, None, extraEnv*).!(ProcessLogger(ps.println, errLog))
   parseBenchLine(buf.toString.trim)
 
 def formatTable(
