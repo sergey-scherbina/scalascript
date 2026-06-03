@@ -423,22 +423,16 @@ verify step. Apply them.
       unrelated). No targeted bench moved measurably in this session due to
       system noise, but the change is correct infrastructure.
 
-- [ ] **phase-c-bytecode-if-in-while** (Direction A.2) — `tryCompileWhileLong`'s
-      `walkLocalSlot` / `walkLocalBool` bail on `Term.If` in RHS. Mirror
-      the `walkLong` ternary emission for the locals-based walker
-      (~30 lines). Helps loops with `x = if cond then a else b`
-      shapes. Per `noble-discovering-knuth.md` Direction A slice 2.
+- [x] **phase-c-bytecode-if-in-while** (Direction A.2) — ✓ Landed 2026-06-03
+      commit `b4ae788c`. `walkLocalSlotCtx` covers `Term.If` (ternary
+      emission) and single-stat `Term.Block`. Loops with
+      `x = if cond then a else b` now compile via while-JIT.
 
-- [ ] **phase-c-bytecode-pure-fn-call** (Direction A.3) — `walkLong`
-      only emits the self-recursive case for `Term.Apply`. Add a path
-      that detects a globals-bound `def` whose body is
-      `compileSlotD`-foldable, compiles it to its own Java class
-      (cached), and emits a static call by sanitised name. Add `LongFn1`
-      / `LongFn2` traits per arity in `JitInterfaces.scala` parallel to
-      the existing typed interfaces. **Helps `pureCallSum`/`pureCallSum2`
-      (13–14 ms each)** — currently the per-iter eval dispatch is the
-      bottleneck. Per `noble-discovering-knuth.md` Direction A slice 3.
-      ~60 lines + traits.
+- [x] **phase-c-bytecode-pure-fn-call** (Direction A.3) — ✓ Landed 2026-06-03
+      commit `4a4a1e09`. `walkLong` `Term.Apply` path detects globals-bound
+      `def` and emits a static call by sanitised name. `LongFn1`/`LongFn2`
+      traits added. **Bench `pureCallSum`/`pureCallSum2`: 13 → 0.28 ms (47×,
+      JVM parity).**
 
 - [ ] **phase-c-bytecode-foreach-static** (Direction A.4) — combine
       `tryCompileWhileLong` with `walkArm`: detect
@@ -487,15 +481,14 @@ verify step. Apply them.
       `AsmJitBackend.emitValBindings`: LSTORE/DSTORE + slot allocation. Both
       backends support block-ends-with-match. 1228/1228 tests green.
 
-- [ ] **asm-jit-lapplyobjref-parity** — `AsmJitBackend` landed (2026-06-03,
-      `SSC_JIT_BACKEND=asm`). **Partial progress 2026-06-03 commit `5152e001`**:
-      `determineInterface` now returns `LongObjToLong`, `ObjLongToLong`,
-      `LongObjToDouble`, `ObjLongToDouble` for 2-param mixed cases (parity
-      with JavacJit). Remaining: port `LApplyObjRef` LExpr fast-path
-      (commit `13af281f`) to route through `JitBackend.default.tryCompile` so
-      ref-arg JIT dispatch works regardless of which backend produced the
-      `ObjToLong` direct interface. Bench gates: `nestedMatchExpr`, `refFieldArg`,
-      `recursiveEvalMixed` — all locked in `InterpreterBench`.
+- [x] **asm-jit-lapplyobjref-parity** — ✓ Landed 2026-06-03. Two commits:
+      `5152e001` (AsmJitBackend 2-param ref-mixed typed interfaces:
+      `LongObjToLong`/`ObjLongToLong`/`LongObjToDouble`/`ObjLongToDouble`)
+      + `f7fc2b34` (dual-bank-lapply-r1 replaced `LApplyObjRef` with
+      `LApplyR1` routing through `JitBackend.default.tryCompile` — works
+      regardless of which JIT backend produced the `ObjToLong` interface).
+      Bench gates `nestedMatchExpr`/`refFieldArg`/`recursiveEvalMixed`
+      all locked in `InterpreterBench`.
 
 ## Interpreter perf — Dual-bank LExpr roadmap (2026-06-03)
 
@@ -545,15 +538,14 @@ highest-impact item.
       UnknownShape). CLI: `ssc lint-jit <file> [--json] [--quiet]
       [--fail-on-bail]`. 6-fixture test suite in `JitLintTest`.
 
-- [ ] **dual-bank-lapply-r1-to-ref** — `LApplyR1ToRef(argR: LRefExpr,
-      ObjToObject)` for `f(g(x))` chains where `g` returns ref. **Blocked
-      on `ObjToObject` typed interface** — the JIT backend currently emits
-      only Long/Double returns from `walkLong`/`walkDouble`. Needs JIT
-      walker support for ref-returning bodies first (probably a new
-      `walkRefBody` parallel to `walkMatchBody`). Add bench
-      `modRefFieldArgChain` (`f(g(item).field)` or similar) to lock the
-      win once the JIT side lands. Estimated 2 commits (JIT walker
-      + LExpr wire-up).
+- [x] **dual-bank-lapply-r1-to-ref** — ✓ Landed 2026-06-03. `ObjToObject`
+      typed interface in `JitInterfaces.scala`; `walkRefArm` + `walkRefMatchBody`
+      in `JavacJitBackend` emit ref-returning Java switch (with `Pat.Var`
+      wildcard-arm `default:` support); `doCompile` tries ObjToObject path
+      first for 1-param ref-scrutinee match bodies; `LApplyR1ToRef(argR:
+      LRefExpr, ObjToObject)` in `EvalRuntime`; `compileRefExpr` `Term.Apply`
+      case wired in both while-loop entries. Bench `refChainArg`
+      (`leafVal(getLeft(tree))` × 1M): **191 → 9.9 ms (19×)**. 1230/1230 green.
 
 - [x] **dual-bank-lref-match** — ✓ Landed 2026-06-03 commit `2305e321`.
       `LRefMatch(scrutR: LRefExpr, cm: CompiledMatch)` extends `LRefExpr`.

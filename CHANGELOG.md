@@ -4,6 +4,32 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — dual-bank-lapply-r1-to-ref + A.2/A.3 JIT slices
+
+- **dual-bank-lapply-r1-to-ref** — `ObjToObject` typed JIT interface;
+  `walkRefArm` + `walkRefMatchBody` in `JavacJitBackend` compile
+  ref-returning match bodies to Java switch (handles `Pat.Extract` and
+  `Pat.Var` wildcard arms with duplicate-`default` guard); `doCompile`
+  tries ObjToObject path first for 1-param ref-scrutinee matches;
+  `LApplyR1ToRef(argR: LRefExpr, ObjToObject)` in `EvalRuntime`;
+  `compileRefExpr` `Term.Apply` case wired in both while-loop entries.
+  **Bench `refChainArg` (`leafVal(getLeft(tree))` × 1M): 191 → 9.9 ms (19×).**
+  1230/1230 green.
+
+- **phase-c-bytecode-if-in-while** (Direction A.2, commit `b4ae788c`) —
+  `walkLocalSlotCtx` covers `Term.If` ternary and single-stat `Term.Block`.
+  Loops with `x = if cond then a else b` now compile via while-JIT.
+
+- **phase-c-bytecode-pure-fn-call** (Direction A.3, commit `4a4a1e09`) —
+  `walkLong` `Term.Apply` emits static call to globals-bound `def`.
+  **Bench `pureCallSum`/`pureCallSum2`: 13 → 0.28 ms (47×, JVM parity).**
+
+- **asm-jit-lapplyobjref-parity** — fully complete: `5152e001` (AsmJit
+  2-param ref-mixed interfaces) + `f7fc2b34` (LApplyR1 routes through
+  `JitBackend.default.tryCompile`). All ref-arg bench gates locked.
+
+---
+
 ## 2026-06-03 — dual-bank-lref-match + AsmJit 2-param ref-mixed parity
 
 - **dual-bank-lref-match** — `LRefMatch(scrutR: LRefExpr, cm: CompiledMatch)`
