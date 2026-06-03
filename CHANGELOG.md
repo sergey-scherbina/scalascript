@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — perf: phase-c bytecode mutual co-emit
+
+- **phase-c-bytecode-mutual** — `JavacJitBackend` now co-emits JIT-compatible
+  sibling defs as static methods in the same generated Java class, so
+  long-returning sibling calls and mutual-recursion cycles no longer bail out
+  of the bytecode backend. Covered by direct Javac bytecode tests for pure-int
+  sibling calls, pure-int mutual recursion, and ref-param ADT match mutual
+  recursion. `recursiveEval`/`recursiveEvalMixed` post-change bench stayed in
+  noise versus baseline.
+
+---
+
 ## 2026-06-03 — perf: phase-d-instancev flag flip
 
 - **phase-d-instancev-array-repr-flag-flip** — StatRuntime case-class constructors

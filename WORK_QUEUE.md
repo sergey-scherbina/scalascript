@@ -480,13 +480,23 @@ verify step. Apply them.
       **Bench target:** `mapForeach` 2.14 → ~0.2 ms (~10×).
       Spec: [`docs/bench-analysis-2026-06-03.md`](docs/bench-analysis-2026-06-03.md).
 
-- [ ] **phase-c-bytecode-mutual** — co-compile mutually recursive int /
-      ref fns into a single Java class OR add a runtime MH registry
-      indexed by fn name. Lower priority — uncommon in practice. Rough
-      design sketch: keep one `BytecodeJit` cache entry per fn but track
-      a "compile-unit" set; if compiling fn A finds a `Term.Apply` to
-      sibling fn B, recursively compile B first into the SAME class
-      (using a co-emit Java template with two static methods).
+- [x] **phase-c-bytecode-mutual** — ✓ Landed 2026-06-03 commit `5b31db2`.
+      `JavacJitBackend` co-emits JIT-compatible sibling defs as extra static
+      methods in the same generated Java class and lets mutually recursive
+      cycles call each other via ordinary static calls. Covered: pure-int
+      sibling calls, pure-int mutual recursion, and mutually recursive
+      long-returning ref-param ADT match functions (`Object` params classified
+      from match scrutinees and sibling call positions). Out of scope until a
+      concrete workload needs it: double-returning cycles and `ObjToObject` /
+      ref-returning mutual cycles.
+
+      Verification:
+      - `cd .worktrees/feature/phase-c-bytecode-mutual-20260603 && sbt "backendInterpreter/testOnly scalascript.SscVmTest"` — 16 tests green.
+      - `cd .worktrees/feature/phase-c-bytecode-mutual-20260603 && sbt "backendInterpreter/test"` — 1236 tests green.
+      - `scripts/bench interp recursiveEval` after the binding classifier change:
+        `recursiveEval` 3.629 ± 0.078 ms/op,
+        `recursiveEvalMixed` 3.718 ± 0.153 ms/op. Baseline before this slice:
+        3.518 ± 0.132 / 3.743 ± 0.051 ms/op; no meaningful regression signal.
 
 - [x] **phase-c-bytecode-int-tag** — ✓ Landed 2026-06-02 commit `ebb3e9a3`
       (merge `f5ab3f20`). Added `var typeTag: Int = 0` to `Value.InstanceV`;
