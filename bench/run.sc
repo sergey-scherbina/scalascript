@@ -3,7 +3,7 @@
 //> using javaOpt "-Xss8m"
 
 /**
- * ScalaScript benchmark harness — in-process edition.
+ * ScalaScript benchmark harness.
  *
  * Usage (from repo root):
  *   ./bench.sh                              # run all workloads, interpreter only
@@ -11,15 +11,9 @@
  *   ./bench.sh --compare                   # interp vs jvm vs js
  *   ./bench.sh --baseline                  # write bench/BASELINE.md
  *
- * Each corpus file manages its own warmup + timing internally and prints
- * a final line "BENCH_MS: X.X" (ms per iteration).  The harness runs each
- * file once per backend and parses that line, so process startup is never
- * counted in the measurement.
- *
- * Backend emit strategy (compilation excluded from timing):
- *   interp — ssc <file.ssc>     (interpreter process; internal warmup warms interp)
- *   jvm    — ssc emit-scala → stable /tmp/…sc → scala-cli (bytecode cached by scala-cli)
- *   js     — ssc emit-js    → stable /tmp/…cjs → node
+ * Delegates per-file timing to `ssc bench --machine`, which generates a
+ * wrapper with warmup+timing harness, runs each backend once, and prints
+ * BENCH <backend> <ms> lines.  Compilation is excluded from timing.
  */
 
 import scala.sys.process.*
@@ -40,118 +34,46 @@ val compareMode   = args.contains("--compare")
 val writeBaseline = args.contains("--baseline")
 val filterNames   = args.filterNot(_.startsWith("--")).toSet
 
-// ── backend descriptors ──────────────────────────────────────────────────────
-
-// cmd: (sscPath, effectiveFile) => command to run once
-case class Backend(label: String, cmd: (String, String) => Seq[String])
-
-val interpBackend = Backend("interp", (ssc, f) => Seq(ssc, f))
-// JVM: emit-scala → stable temp .sc; scala-cli caches bytecode so the
-// in-corpus warmup iterations run on JIT-compiled code.
-val jvmBackend    = Backend("jvm",    (_,   f) => Seq("scala-cli", f))
-// JS: emit-js → stable temp .cjs; V8 JITs the code during in-corpus warmup.
-val jsBackend     = Backend("js",     (_,   f) => Seq("node", f))
-
-val activeBackends: Seq[Backend] =
-  if compareMode then Seq(interpBackend, jvmBackend, jsBackend)
-  else Seq(interpBackend)
+val backends = if compareMode then Seq("interp", "jvm", "js") else Seq("interp")
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-
-case class BenchResult(name: String, msPerIter: Double, output: String)
-
-def logStderr(line: String): Unit =
-  if !line.startsWith("NOTE: Picked up") && !line.contains("skipping backend plugin") then
-    System.err.println(line)
-
-def parseBenchMs(output: String): Option[Double] =
-  output.linesIterator
-    .filter(_.startsWith("BENCH_MS:"))
-    .flatMap(l => l.stripPrefix("BENCH_MS:").trim.toDoubleOption)
-    .toSeq.lastOption
-
-def runFile(cmd: Seq[String], errLog: String => Unit): Option[String] =
-  val buf = new java.io.ByteArrayOutputStream
-  val ps  = new java.io.PrintStream(buf, true)
-  val rc  = Process(cmd).!(ProcessLogger(ps.println, errLog))
-  if rc != 0 then None else Some(buf.toString.trim)
-
-def benchFile(sscPath: String, backend: Backend, file: java.io.File): Option[BenchResult] =
-  val name   = file.getName.replaceAll("\\.ssc$", "")
-  val tag    = if activeBackends.size > 1 then s"$name [${backend.label}]" else name
-  val errLog: String => Unit = if backend.label == "interp" then logStderr else _ => ()
-
-  // Emit to a stable temp file for JVM/JS so transpilation is not counted.
-  // Returns None if the backend does not support this file (e.g. effects in JvmGen).
-  val effectiveFile: Option[String] = backend.label match
-    case "jvm" =>
-      val tmp = java.io.File(s"/tmp/ssc-bench-jvm-$name.sc")
-      val rc  = Process(Seq(sscPath, "emit-scala", file.getAbsolutePath))
-                  .#>(tmp).!(ProcessLogger(_ => (), _ => ()))
-      if rc != 0 then None else Some(tmp.getAbsolutePath)
-    case "js" =>
-      val tmp = java.io.File(s"/tmp/ssc-bench-js-$name.cjs")
-      val rc  = Process(Seq(sscPath, "emit-js", file.getAbsolutePath))
-                  .#>(tmp).!(ProcessLogger(_ => (), _ => ()))
-      if rc != 0 then None else Some(tmp.getAbsolutePath)
-    case _ => Some(file.getAbsolutePath)
-
-  print(s"  $tag: running... ")
-  Console.flush()
-
-  effectiveFile match
-    case None =>
-      println("n/a")
-      None
-    case Some(f) =>
-      val runCmd = backend.cmd(sscPath, f)
-      runFile(runCmd, errLog) match
-        case None =>
-          println("n/a")
-          None
-        case Some(output) =>
-          parseBenchMs(output) match
-            case None =>
-              println("n/a (no BENCH_MS line)")
-              None
-            case Some(ms) =>
-              val fmt = if ms < 1.0 then f"$ms%.3f" else if ms < 10.0 then f"$ms%.2f" else f"$ms%.1f"
-              println(s"$fmt ms/iter")
-              Some(BenchResult(name, ms, output))
-
-// ── table formatters ─────────────────────────────────────────────────────────
 
 def fmtMs(ms: Double): String =
   if ms < 1.0 then f"$ms%.3f" else if ms < 10.0 then f"$ms%.2f" else f"$ms%.1f"
 
-def formatTable(results: Seq[BenchResult], label: String): String =
-  val nameCells  = results.map(r => s"`${r.name}`")
-  val timeCells  = results.map(r => fmtMs(r.msPerIter))
-  val colLabel   = s"$label (ms/iter)"
+def runSscBench(sscPath: String, file: java.io.File): Map[String, Option[Double]] =
+  val name = file.getName.replaceAll("\\.ssc$", "")
+  print(s"  $name: ")
+  Console.flush()
+  val extraFlags = if compareMode then Seq.empty else Seq("--no-jvm", "--no-js")
+  val cmd = Seq(sscPath, "bench", "--machine") ++ extraFlags ++ Seq(file.getAbsolutePath)
+  val buf = new java.io.ByteArrayOutputStream
+  val ps  = new java.io.PrintStream(buf, true)
+  val errLog: String => Unit = line =>
+    if !line.startsWith("NOTE: Picked up") && !line.contains("skipping backend plugin") then
+      System.err.println(line)
+  Process(cmd).!(ProcessLogger(ps.println, errLog))
+  val output = buf.toString.trim
+  val results: Map[String, Option[Double]] = output.linesIterator.collect {
+    case line if line.startsWith("BENCH ") =>
+      val parts = line.split(" ", 3)
+      if parts.length == 3 then parts(1) -> parts(2).toDoubleOption
+      else parts(1) -> None
+  }.toMap
+  val summary = backends.map(b => results.get(b).flatten.fold("n/a")(fmtMs)).mkString("  ")
+  println(summary)
+  results
 
-  val w0 = ("Workload" +: nameCells).map(_.length).max
-  val w1 = (colLabel   +: timeCells).map(_.length).max
-
-  def pad(s: String, w: Int)  = s.padTo(w, ' ')
-  def rpad(s: String, w: Int) = (" " * (w - s.length)) + s
-
-  val header = s"| ${pad("Workload", w0)} | ${rpad(colLabel, w1)} |"
-  val sep    = s"| ${"-" * w0} | ${"-" * w1} |"
-  val rows   = results.zip(nameCells).zip(timeCells).map { case ((_, name), time) =>
-    s"| ${pad(name, w0)} | ${rpad(time, w1)} |"
-  }
-  (header +: sep +: rows).mkString("\n")
-
-def formatCompareTable(
+def formatTable(
     workloads: Seq[String],
     byBackend: Map[String, Map[String, Option[Double]]]
 ): String =
-  val bLabels   = activeBackends.map(b => s"${b.label} (ms/iter)")
+  val bLabels   = backends.map(b => s"$b (ms/iter)")
   val nameCells = workloads.map(n => s"`$n`")
 
   val w0 = ("Workload" +: nameCells).map(_.length).max
-  val ws = activeBackends.zipWithIndex.map { (b, i) =>
-    val vals = workloads.map(n => byBackend.get(b.label).flatMap(_.get(n)).flatten.fold("n/a")(fmtMs))
+  val ws = backends.zipWithIndex.map { (b, i) =>
+    val vals = workloads.map(n => byBackend.get(b).flatMap(_.get(n)).flatten.fold("n/a")(fmtMs))
     (bLabels(i) +: vals).map(_.length).max
   }
 
@@ -159,10 +81,10 @@ def formatCompareTable(
   def rpad(s: String, w: Int) = (" " * (w - s.length)) + s
 
   val header = s"| ${pad("Workload", w0)} | ${bLabels.zip(ws).map((l, w) => rpad(l, w)).mkString(" | ")} |"
-  val sep    = s"| ${"-" * w0} | ${ws.map(w => "─" * (w - 1) + ":").mkString(" | ")} |"
+  val sep    = s"| ${"-" * w0} | ${ws.map(w => "-" * w).mkString(" | ")} |"
   val rows   = workloads.zip(nameCells).map { (name, cell) =>
-    val vals = activeBackends.zip(ws).map { (b, w) =>
-      val v = byBackend.get(b.label).flatMap(_.get(name)).flatten.fold("n/a")(fmtMs)
+    val vals = backends.zip(ws).map { (b, w) =>
+      val v = byBackend.get(b).flatMap(_.get(name)).flatten.fold("n/a")(fmtMs)
       rpad(v, w)
     }
     s"| ${pad(cell, w0)} | ${vals.mkString(" | ")} |"
@@ -172,7 +94,7 @@ def formatCompareTable(
 // ── main ─────────────────────────────────────────────────────────────────────
 
 println()
-println("ScalaScript benchmark harness — v1.62.0")
+println("ScalaScript benchmark harness")
 println("=" * 60)
 
 val sscPath = if Files.exists(sscBin) then sscBin.toString
@@ -193,37 +115,28 @@ if corpusFiles.isEmpty then
   System.err.println(s"[ERROR] No corpus files found in $corpusDir matching $filterNames")
   sys.exit(1)
 
-println(s"Corpus: ${corpusFiles.map(_.getName.replaceAll("\\.ssc$","")).mkString(", ")}")
-if compareMode then
-  println(s"Mode:   in-process (warmup + timing inside each corpus file)")
-  println(s"Backends: ${activeBackends.map(_.label).mkString(", ")}")
-else
-  println(s"Mode:   in-process (warmup + timing inside each corpus file); ssc = $sscPath")
+println(s"Corpus:   ${corpusFiles.map(_.getName.replaceAll("\\.ssc$","")).mkString(", ")}")
+println(s"Backends: ${backends.mkString(", ")}")
+println(s"ssc:      $sscPath")
 println()
 
-if compareMode then
-  val byBackend = scala.collection.mutable.Map.empty[String, scala.collection.mutable.Map[String, Option[Double]]]
-  for b <- activeBackends do
-    val bMap = scala.collection.mutable.Map.empty[String, Option[Double]]
-    for f <- corpusFiles do
-      val name = f.getName.replaceAll("\\.ssc$", "")
-      bMap(name) = benchFile(sscPath, b, f).map(_.msPerIter)
-    byBackend(b.label) = bMap
-    println()
+val byBackend = scala.collection.mutable.Map.empty[String, scala.collection.mutable.Map[String, Option[Double]]]
+for b <- backends do byBackend(b) = scala.collection.mutable.Map.empty
 
-  val workloads = corpusFiles.map(_.getName.replaceAll("\\.ssc$", ""))
-  val table = formatCompareTable(workloads, byBackend.view.mapValues(_.toMap).toMap)
-  println(table)
-  println()
-else
-  val results = corpusFiles.flatMap(f => benchFile(sscPath, interpBackend, f))
-  val table   = formatTable(results, interpBackend.label)
-  println()
-  println(table)
-  println()
+for f <- corpusFiles do
+  val results = runSscBench(sscPath, f)
+  val name = f.getName.replaceAll("\\.ssc$", "")
+  for b <- backends do
+    byBackend(b)(name) = results.get(b).flatten
 
-  if writeBaseline then
-    val ts      = java.time.LocalDate.now.toString
-    val content = s"""# Benchmark Baseline — $ts\n\nGenerated by `./bench.sh --baseline`.\nIn-process timing: warmup + measurement inside each corpus file.\n\n${formatTable(results, interpBackend.label)}\n"""
-    Files.writeString(baselineOut, content)
-    println(s"Baseline written to bench/BASELINE.md")
+println()
+val workloads = corpusFiles.map(_.getName.replaceAll("\\.ssc$", ""))
+val table = formatTable(workloads, byBackend.view.mapValues(_.toMap).toMap)
+println(table)
+println()
+
+if writeBaseline then
+  val ts      = java.time.LocalDate.now.toString
+  val content = s"""# Benchmark Baseline — $ts\n\nGenerated by `./bench.sh --baseline`.\nDelegates per-file timing to `ssc bench --machine`.\n\n$table\n"""
+  Files.writeString(baselineOut, content)
+  println(s"Baseline written to bench/BASELINE.md")

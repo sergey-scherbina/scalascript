@@ -4,19 +4,4 @@ Minimal dispatch baseline — println overhead per call.
 
 ```scalascript
 def workload(): Unit = println("hello")
-
-val WARMUP = 10
-val REPS   = 100
-var _w = 0
-while _w < WARMUP do
-  workload()
-  _w += 1
-
-val _t0 = System.currentTimeMillis()
-var _r = 0
-while _r < REPS do
-  workload()
-  _r += 1
-val _ms = System.currentTimeMillis() - _t0
-println(s"BENCH_MS: ${_ms.toDouble / REPS}")
 ```

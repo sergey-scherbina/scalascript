@@ -12,19 +12,4 @@ def compute(n: Int): Int ! Logger =
   acc
 
 def workload(): Int = runLogger { compute(10000) }
-
-val WARMUP = 5
-val REPS   = 20
-var _w = 0
-while _w < WARMUP do
-  workload()
-  _w += 1
-
-val _t0 = System.currentTimeMillis()
-var _r = 0
-while _r < REPS do
-  workload()
-  _r += 1
-val _ms = System.currentTimeMillis() - _t0
-println(s"BENCH_MS: ${_ms.toDouble / REPS}")
 ```
