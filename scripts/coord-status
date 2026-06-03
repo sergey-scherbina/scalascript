@@ -15,6 +15,7 @@ Shows the authoritative remote queue/claims plus local worktree state:
   - current origin/main commit
   - active .work/active/*.claim files from origin/main
   - live and prunable git worktrees
+  - clean linked worktrees whose HEAD has already landed on origin/main
   - first pending WORK_QUEUE.md item that looks free to pick
 
 This script is read-only except for `git fetch origin`.
@@ -157,10 +158,12 @@ echo
 
 live_keys=""
 live_records=""
+clean_landed_worktrees=""
 print_worktree() {
   local wt_dir="$1"
   local branch="$2"
   local prunable="$3"
+  local locked="$4"
   local branch_name="$branch"
   local base_name
   base_name="${wt_dir##*/}"
@@ -168,6 +171,9 @@ print_worktree() {
   [[ -n "$branch_name" ]] || branch_name="(detached)"
   printf '%s\n' "$wt_dir"
   printf '  branch: %s\n' "$branch_name"
+  if [[ -n "$locked" ]]; then
+    printf '  locked: %s\n' "$locked"
+  fi
 
   if [[ -n "$prunable" ]]; then
     printf '  prunable: %s\n' "$prunable"
@@ -198,21 +204,31 @@ print_worktree() {
   if [[ -n "$ahead" ]]; then
     printf '  ahead of %s:\n%s\n' "$REMOTE_REF" "$(printf '%s\n' "$ahead" | sed 's/^/    /')"
   fi
+
+  if [[ -z "$status" && -z "$ahead" && -z "$locked" && ! -d "$wt_dir/.git" ]]; then
+    if git -C "$wt_dir" merge-base --is-ancestor HEAD "$REMOTE_REF" 2>/dev/null; then
+      local head
+      head="$(git -C "$wt_dir" rev-parse --short HEAD 2>/dev/null || true)"
+      clean_landed_worktrees="${clean_landed_worktrees}"$'\n'"${wt_dir}|${branch_name}|${head}"
+    fi
+  fi
 }
 
 echo "== worktrees =="
 wt_dir=""
 wt_branch=""
 wt_prunable=""
+wt_locked=""
 while IFS= read -r line; do
   case "$line" in
     worktree\ *)
       if [[ -n "$wt_dir" ]]; then
-        print_worktree "$wt_dir" "$wt_branch" "$wt_prunable"
+        print_worktree "$wt_dir" "$wt_branch" "$wt_prunable" "$wt_locked"
       fi
       wt_dir="${line#worktree }"
       wt_branch=""
       wt_prunable=""
+      wt_locked=""
       ;;
     branch\ refs/heads/*)
       wt_branch="${line#branch refs/heads/}"
@@ -220,10 +236,34 @@ while IFS= read -r line; do
     prunable\ *)
       wt_prunable="${line#prunable }"
       ;;
+    locked*)
+      wt_locked="${line#locked }"
+      if [[ "$wt_locked" = "$line" ]]; then
+        wt_locked="locked"
+      fi
+      ;;
   esac
 done < <(git -C "$ROOT" worktree list --porcelain)
 if [[ -n "$wt_dir" ]]; then
-  print_worktree "$wt_dir" "$wt_branch" "$wt_prunable"
+  print_worktree "$wt_dir" "$wt_branch" "$wt_prunable" "$wt_locked"
+fi
+echo
+
+echo "== clean landed worktrees =="
+if [[ -z "$clean_landed_worktrees" ]]; then
+  echo "none"
+else
+  while IFS='|' read -r wt_dir branch_name head; do
+    [[ -n "$wt_dir" ]] || continue
+    printf '%s\n' "$wt_dir"
+    printf '  branch: %s\n' "$branch_name"
+    printf '  head: %s is already in %s\n' "${head:-unknown}" "$REMOTE_REF"
+    printf '  cleanup: git worktree remove --force %q' "$wt_dir"
+    if [[ "$branch_name" != "(detached)" ]]; then
+      printf ' && git branch -D %q' "$branch_name"
+    fi
+    printf '\n'
+  done <<<"$clean_landed_worktrees"
 fi
 echo
 

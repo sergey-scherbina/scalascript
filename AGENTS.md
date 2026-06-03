@@ -948,6 +948,12 @@ flags stale-looking claims, marks pending items that already look occupied by
 live worktrees/branches, flags invalid suffix-less active markers, and avoids
 shell-specific pitfalls in the manual commands below.
 
+It also reports `clean landed worktrees`: linked worktrees that are clean, not
+locked, not ahead of `origin/main`, and whose `HEAD` is already contained in
+`origin/main`. These are cleanup candidates, not automatic deletions. Use the
+printed `git worktree remove --force ... && git branch -D ...` command only
+after verifying the branch is not a deliberately parked long-lived worktree.
+
 ```bash
 git fetch origin
 git ls-tree origin/main .work/active/   # all active claims on remote (authoritative)
