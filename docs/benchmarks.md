@@ -11,8 +11,10 @@ full command list; `scripts/bench list` enumerates every available
 
 | You want to … | Command |
 | --- | --- |
-| Run all interpreter benches | `scripts/bench interp` |
+| Run all interpreter benches (Javac JIT) | `scripts/bench interp` |
 | Run one interpreter bench | `scripts/bench interp recursionFib` |
+| Run all benches with AsmJitBackend | `scripts/bench asm` |
+| Run one bench with AsmJitBackend | `scripts/bench asm recursionFib` |
 | Compare interp vs JS vs JVM | `scripts/bench cross` |
 | Measure codegen time | `scripts/bench gen` |
 | Measure compile pipeline | `scripts/bench compile` |
@@ -92,8 +94,9 @@ The bytecode JIT has two implementations of the `JitBackend` SPI:
 To A/B the two backends:
 
 ```bash
-scripts/bench interp recursionFib                    # Javac (default)
-SSC_JIT_BACKEND=asm scripts/bench interp recursionFib  # ASM
+scripts/bench interp recursionFib   # Javac (default)
+scripts/bench asm    recursionFib   # ASM
+scripts/bench asm                   # all benches with ASM backend
 ```
 
 Expected: numbers within ±5% at steady state. Cold-start (first iter, low
