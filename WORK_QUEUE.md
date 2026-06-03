@@ -451,6 +451,17 @@ verify step. Apply them.
       bound values can be array indices. Per `noble-discovering-knuth.md`
       Direction A slice 5. ~50 lines.
 
+- [ ] **asm-jit-lapplyobjref-parity** — once the in-flight ASM JIT backend
+      lands, port the `LApplyObjRef` LExpr fast-path (commit `13af281f`) to
+      route through `JitBackend.default.tryCompile` so the ref-arg JIT
+      dispatch works regardless of which backend produced the `ObjToLong`
+      direct interface. Today's check is backend-agnostic on paper (it asks
+      `JitBackend.default` and matches on `direct: ObjToLong`), but the ASM
+      backend may need a parallel typed-interface convention or a
+      `Result.direct` adapter. Verify against the locked `nestedMatchExpr`
+      bench — any regression there means the fast-path isn't reached for
+      the new backend.
+
 - [x] **phase-d-patternmatch-double-slot** — ✓ Landed 2026-06-02 commits `c2986e33` / `e583843c`.
       Double-acc slot bypass: `FastTier.accSlotTls`/`accNameTls` `ThreadLocal[Array[Long]]` pair;
       `withAccSlot(name, slot)(thunk)` setter/clearer (try/finally); `peekDoubleAccName(apply, interp)`
