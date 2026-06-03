@@ -667,7 +667,17 @@ object AsmJitBackend extends JitBackend:
     val armLbls  = Array.fill(casesArr.length)(new Label)
     val defLbl   = new Label
 
-    if allTagged then
+    if casesArr.exists(_.cond.nonEmpty) then
+      var ci = 0
+      var rem = cases
+      while rem.nonEmpty do
+        if !emitArmAsIfBranch(rem.head, ctx, interp, instSlot, mv, if allTagged then tags(ci) else 0, allTagged) then return false
+        ci += 1
+        rem = rem.tail
+      mv.visitLabel(defLbl)
+      emitThrow(mv, "AsmJitBackend: no guarded case matched")
+      return true
+    else if allTagged then
       mv.visitVarInsn(ALOAD, instSlot)
       mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "typeTag", "()I", false)
       emitSwitch(mv, tags, armLbls, defLbl)
@@ -803,6 +813,103 @@ object AsmJitBackend extends JitBackend:
         if !bodyOk then return false
         if exprForm then mv.visitJumpInsn(GOTO, endLbl.asInstanceOf[Label])
         else mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN)
+        true
+      case _ => false
+
+  private def emitArmAsIfBranch(c: scala.meta.Case, ctx: GenCtx, interp: Interpreter,
+                                instSlot: Int, mv: MethodVisitor,
+                                intTag: Int, allTagged: Boolean): Boolean =
+    c.pat match
+      case ext: scala.meta.Pat.Extract =>
+        val ctorName = ext.fun match
+          case Term.Name(n) => n
+          case _            => return false
+        val nextLbl = new Label
+        if allTagged && intTag > 0 then
+          mv.visitVarInsn(ALOAD, instSlot)
+          mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "typeTag", "()I", false)
+          emitIconst(mv, intTag)
+          mv.visitJumpInsn(IF_ICMPNE, nextLbl)
+        else
+          mv.visitVarInsn(ALOAD, instSlot)
+          mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "typeName", "()Ljava/lang/String;", false)
+          mv.visitLdcInsn(ctorName)
+          mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "equals", "(Ljava/lang/Object;)Z", false)
+          mv.visitJumpInsn(IFEQ, nextLbl)
+
+        val argPats = ext.argClause.values.toArray
+        val n       = argPats.length
+        val bindNames = new Array[String](n)
+        var i = 0
+        while i < n do
+          argPats(i) match
+            case Pat.Var(Term.Name(bn)) => bindNames(i) = bn
+            case _: Pat.Wildcard        => bindNames(i) = s"_unused$$_$i"
+            case _                      => return false
+          i += 1
+        val fieldOrder = interp.typeFieldOrder.getOrElse(ctorName, Nil).toArray
+        if fieldOrder.length != n then return false
+
+        val bindIsRef = Array.tabulate(n) { bi =>
+          !bindNames(bi).startsWith("_unused$") && bindingIsRef(c.body, bindNames(bi), ctx)
+        }
+
+        val faSlot =
+          if n > 0 then
+            val s = ctx.allocSlot()
+            mv.visitVarInsn(ALOAD, instSlot)
+            mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "fieldsArr", s"()[L$valueInt;", false)
+            mv.visitVarInsn(ASTORE, s)
+            s
+          else -1
+
+        val newBindings = mutable.Map.empty[String, (Int, Boolean)]
+        i = 0
+        while i < n do
+          if !bindNames(i).startsWith("_unused$") then
+            val fname = fieldOrder(i)
+            val isRef = bindIsRef(i)
+            val bSlot = ctx.allocSlot()
+            emitLoadField(mv, instSlot, faSlot, i, fname, n > 0)
+            if isRef then
+              mv.visitVarInsn(ASTORE, bSlot)
+            else if ctx.isDouble then
+              val rawSlot = ctx.allocSlot()
+              mv.visitVarInsn(ASTORE, rawSlot)
+              val LisD = new Label
+              val Lm = new Label
+              mv.visitVarInsn(ALOAD, rawSlot)
+              mv.visitTypeInsn(INSTANCEOF, dblVInt)
+              mv.visitJumpInsn(IFNE, LisD)
+              mv.visitVarInsn(ALOAD, rawSlot)
+              mv.visitTypeInsn(CHECKCAST, intVInt)
+              mv.visitMethodInsn(INVOKEVIRTUAL, intVInt, "v", "()J", false)
+              mv.visitInsn(L2D)
+              mv.visitJumpInsn(GOTO, Lm)
+              mv.visitLabel(LisD)
+              mv.visitVarInsn(ALOAD, rawSlot)
+              mv.visitTypeInsn(CHECKCAST, dblVInt)
+              mv.visitMethodInsn(INVOKEVIRTUAL, dblVInt, "v", "()D", false)
+              mv.visitLabel(Lm)
+              mv.visitVarInsn(DSTORE, bSlot)
+            else
+              mv.visitTypeInsn(CHECKCAST, intVInt)
+              mv.visitMethodInsn(INVOKEVIRTUAL, intVInt, "v", "()J", false)
+              mv.visitVarInsn(LSTORE, bSlot)
+            newBindings(bindNames(i)) = (bSlot, isRef)
+          i += 1
+
+        val newCtx = ctx.withBindings(newBindings.toMap)
+        c.cond match
+          case Some(cond) =>
+            if !walkBool(cond, newCtx, mv, nextLbl) then return false
+          case None =>
+        val bodyOk =
+          if ctx.isDouble then walkDouble(c.body, newCtx, mv)
+          else walkLong(c.body, newCtx, mv)
+        if !bodyOk then return false
+        mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN)
+        mv.visitLabel(nextLbl)
         true
       case _ => false
 
