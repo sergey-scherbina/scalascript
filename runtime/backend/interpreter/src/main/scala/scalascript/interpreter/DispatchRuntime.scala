@@ -22,6 +22,10 @@ private[interpreter] object DispatchRuntime:
     if n < tupleTypeNames.length then tupleTypeNames(n) else s"Tuple$n"
 
   def dispatch(recv: Value, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    // `.asInstanceOf[T]` — types are erased; always a no-op at runtime.
+    // Must be first: type-specific dispatchers (dispatchMap, dispatchList, etc.)
+    // throw on unknown methods before reaching dispatchFallback.
+    if name == "asInstanceOf" then return Pure(recv)
     // Extensions early-exit: avoid 7 HashMap lookups when no extensions registered.
     if interp.extensions.nonEmpty then
       val typeName: String = recv match
@@ -2849,9 +2853,6 @@ private[interpreter] object DispatchRuntime:
   // ── Cross-type ++ (bare operands) and final fallback ──────────────────────
 
   private def dispatchFallback(recv: Value, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
-    // `.asInstanceOf[T]` — ScalaScript's dynamic runtime already has the right
-    // type; the cast is a no-op here (mirrors Scala semantics at runtime).
-    if name == "asInstanceOf" then return Pure(recv)
     // Cross-type ++ cases: bare value on LEFT with TupleV/UnitV on right
     if name == "++" then
       args match

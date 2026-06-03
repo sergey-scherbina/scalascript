@@ -106,3 +106,28 @@ println(result.length)
 println(result(0)._1)"""
     ) shouldBe "1\n42"
   }
+
+  // ── asInstanceOf is a no-op for all Value subtypes ────────────────────────
+
+  test("asInstanceOf no-op on Map") {
+    captured(
+"""val m = Map("a" -> 1)
+val m2 = m.asInstanceOf[Map[String, Int]]
+println(m2("a"))"""
+    ) shouldBe "1"
+  }
+
+  test("asInstanceOf no-op on List") {
+    captured(
+"""val xs = List(1, 2, 3)
+val ys = xs.asInstanceOf[List[Int]]
+println(ys.length)"""
+    ) shouldBe "3"
+  }
+
+  test("asInstanceOf no-op on Int") {
+    captured(
+"""val n: Any = 42
+println(n.asInstanceOf[Int])"""
+    ) shouldBe "42"
+  }
