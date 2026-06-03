@@ -298,6 +298,40 @@ object TableDataSource:
   case class StaticRows(rows: List[Map[String, Any]])                 extends TableDataSource
   case class SignalRows(signal: ReactiveSignal[?])                    extends TableDataSource
 
+// ── Column kind ───────────────────────────────────────────────────────────────
+
+/** Rendering hint for a `FieldColumnDef` cell.  Backends may ignore kinds they
+ *  do not support and fall back to plain text. */
+sealed trait ColumnKind
+object ColumnKind:
+  /** Plain text — render field value as a string (default). */
+  case object Text extends ColumnKind
+  /** Date/time — render field value via locale-aware date formatting.
+   *  `format` is an optional IETF/BCP47 locale tag or `"short"/"medium"/"long"`. */
+  case class Date(format: Option[String] = None) extends ColumnKind
+  /** Monetary amount — render field value with a currency symbol.
+   *  `currency` is an ISO 4217 code (default `"USD"`); `locale` is a BCP 47 tag. */
+  case class Money(currency: Option[String] = None, locale: Option[String] = None) extends ColumnKind
+  /** Status badge — render field value as a colored pill.
+   *  `colorMap` maps status string values to CSS color strings. */
+  case class StatusBadge(colorMap: Map[String, String] = Map.empty) extends ColumnKind
+  /** Hyperlink — render field value inside an `<a>` element.
+   *  `urlTemplate` may use `:value` as a placeholder for the field value itself. */
+  case class Link(urlTemplate: Option[String] = None) extends ColumnKind
+
+// ── Row payload ───────────────────────────────────────────────────────────────
+
+/** Describes what data a `RowPost` / `EventHandler.ItemAction` sends as the
+ *  HTTP request body.  Replaces the old single `bodyField: String` contract. */
+sealed trait RowPayload
+object RowPayload:
+  /** Send a single field value from the current row as the request body. */
+  case class Field(name: String)           extends RowPayload
+  /** Serialise the entire row object as a JSON body. */
+  case object WholeRow                     extends RowPayload
+  /** Serialise a named subset of row fields as a JSON object body. */
+  case class Fields(names: List[String])   extends RowPayload
+
 // ── View IR ───────────────────────────────────────────────────────────────────
 
 /** Unified View IR.  `A` carries the typed witness for cases that produce
@@ -411,6 +445,12 @@ enum View[+A]:
    *  - SwiftUI: `Text(<varName>.<path>)`
    *  - React/Vue/Solid: `<span>{<varName>.<path>}</span>` or plain text node */
   case ModelText(varName: String, fieldPath: String, style: Style = Style()) extends View[Nothing]
+
+  /** Kind-aware model field renderer for DataTable columns.  Produced by
+   *  `DataTableLowering` when a column's `kind != ColumnKind.Text`.
+   *  `itemVar` is the ForModel iteration variable; `fieldPath` addresses the row field. */
+  case FormattedField(itemVar: String, fieldPath: String, kind: ColumnKind,
+                      style: Style = Style()) extends View[Nothing]
 
   /** Inline-editable cell.  Produced by `DataTableLowering` when a `FieldColumnDef`
    *  carries an `editAction`.  Renders as a transparent `<input>` that fires the
@@ -551,10 +591,10 @@ object EventHandler:
   final case class DeleteItem(idField: String, deleteUrl: String,
                               onSuccessTick: ReactiveSignal[Int],
                               headers: Option[ReactiveSignal[String]] = None) extends EventHandler
-  /** Custom per-row action — sends the current iteration item's `bodyField`
-   *  value to `url` via `method` (POST/PUT).  Used inside `ForModel`; the row
+  /** Custom per-row action — sends the current iteration item's `payload`
+   *  to `url` via `method` (POST/PUT).  Used inside `ForModel`; the row
    *  object is the current item.  Increments `onSuccessTick` on success. */
-  final case class ItemAction(method: String, url: String, bodyField: String,
+  final case class ItemAction(method: String, url: String, payload: RowPayload,
                               onSuccessTick: ReactiveSignal[Int],
                               headers: Option[ReactiveSignal[String]] = None) extends EventHandler
   /** Navigate / select — writes the current iteration item's `fieldPath` value
@@ -566,7 +606,9 @@ object EventHandler:
 /** A single column in a `View.DataTable` — renders the row's `fieldPath` value
  *  under the header `title`.  `align` is an optional CSS text-align value. */
 final case class FieldColumnDef(title: String, fieldPath: String, align: Option[String] = None,
-                                editAction: Option[RowActionDef.RowInlineEdit] = None)
+                                editAction: Option[RowActionDef.RowInlineEdit] = None,
+                                kind: ColumnKind = ColumnKind.Text,
+                                width: Option[String] = None)
 
 /** A per-row action in a `View.DataTable`.  Each lowers to a `View.Button` whose
  *  `EventHandler` is bound to the current iteration item. */
@@ -574,9 +616,9 @@ enum RowActionDef:
   /** Delete the row — POSTs `item.idField` to `url`, bumps `onSuccessTick`. */
   case RowDelete(url: String, idField: String, onSuccessTick: ReactiveSignal[Int],
                  headers: Option[ReactiveSignal[String]] = None)
-  /** Custom action button labelled `label` — sends `item.bodyField` to `url`
+  /** Custom action button labelled `label` — sends the row `payload` to `url`
    *  via `method` (default POST), bumps `onSuccessTick`. */
-  case RowPost(label: String, method: String, url: String, bodyField: String,
+  case RowPost(label: String, method: String, url: String, payload: RowPayload,
                onSuccessTick: ReactiveSignal[Int],
                headers: Option[ReactiveSignal[String]] = None)
   /** Navigate / select button labelled `label` — writes `item.fieldPath` into `signal`. */

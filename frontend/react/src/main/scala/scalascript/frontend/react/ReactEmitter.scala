@@ -170,7 +170,7 @@ private[react] object ReactEmitter:
           case _                                         => ()
         }
         dt.columns.foreach {
-          case FieldColumnDef(_, _, _, Some(RowActionDef.RowInlineEdit(_, _, _, tick, hOpt))) =>
+          case FieldColumnDef(_, _, _, Some(RowActionDef.RowInlineEdit(_, _, _, tick, hOpt)), _, _) =>
             register(tick); hOpt.foreach(register)
           case _ => ()
         }
@@ -714,6 +714,9 @@ private[react] object ReactEmitter:
     case View.ModelText(varName, fieldPath, _) =>
       s"String(${varName}.${fieldPath})"
 
+    case View.FormattedField(varName, fieldPath, kind, _) =>
+      formattedFieldExpr(varName, fieldPath, kind)
+
     case View.EditableCell(varName, fieldPath, action) =>
       val urlJs      = jsString(action.url)
       val methodJs   = jsString(action.method.toUpperCase)
@@ -857,12 +860,13 @@ private[react] object ReactEmitter:
         Some(s"${jsString(onKey)}: () => fetch($delUrlJs, {method: 'POST', body: String($modelItemVar.$idField)$headersJs}).then(r => r.text()).then(_ => $setter(t => t + 1))")
       case EventHandler.DeleteItem(_, _, _, _) =>
         Some(s"/* '$eventName' is DeleteItem outside ForModel context — no-op */")
-      case EventHandler.ItemAction(method, url, bodyField, tick, hOpt) if modelItemVar.nonEmpty =>
+      case EventHandler.ItemAction(method, url, payload, tick, hOpt) if modelItemVar.nonEmpty =>
         val setter    = setterName(tick.id)
+        val bodyJs    = rowPayloadExpr(modelItemVar, payload)
         val urlJs     = jsString(url)
         val methodJs  = jsString(method)
         val headersJs = hOpt.map(h => s", headers: JSON.parse(${h.id} || '{}')").getOrElse("")
-        Some(s"${jsString(onKey)}: () => fetch($urlJs, {method: $methodJs, body: String($modelItemVar.$bodyField)$headersJs}).then(r => r.text()).then(_ => $setter(t => t + 1))")
+        Some(s"${jsString(onKey)}: () => fetch($urlJs, {method: $methodJs, body: $bodyJs$headersJs}).then(r => r.text()).then(_ => $setter(t => t + 1))")
       case EventHandler.ItemAction(_, _, _, _, _) =>
         Some(s"/* '$eventName' is ItemAction outside ForModel context — no-op */")
       case EventHandler.SetFieldToSignal(signal, fieldPath) if modelItemVar.nonEmpty =>
@@ -887,6 +891,36 @@ private[react] object ReactEmitter:
   /** State-variable name → React setter name. */
   private def setterName(varName: String): String =
     "set" + varName.headOption.fold("")(_.toUpper.toString) + varName.drop(1)
+
+  /** Build the JS body expression for a RowPayload. */
+  private def rowPayloadExpr(itemVar: String, payload: RowPayload): String = payload match
+    case RowPayload.Field(name)   => s"String($itemVar.$name)"
+    case RowPayload.WholeRow      => s"JSON.stringify($itemVar)"
+    case RowPayload.Fields(names) =>
+      val entries = names.map(n => s"[${jsString(n)}, $itemVar.$n]").mkString(", ")
+      s"JSON.stringify(Object.fromEntries([$entries]))"
+
+  /** Build the JS expression for a FormattedField (kind-aware cell renderer). */
+  private def formattedFieldExpr(varName: String, fieldPath: String, kind: ColumnKind): String =
+    val raw = s"String($varName.$fieldPath)"
+    kind match
+      case ColumnKind.Text        => raw
+      case ColumnKind.Date(fmtOpt) =>
+        val opts = fmtOpt.map(f => s", ${jsString(f)}").getOrElse("")
+        s"(v => { try { return new Date(v).toLocaleDateString(undefined$opts) } catch(e) { return v } })($raw)"
+      case ColumnKind.Money(curOpt, locOpt) =>
+        val cur = jsString(curOpt.getOrElse("USD"))
+        val loc = jsString(locOpt.getOrElse("en-US"))
+        s"(v => { try { return new Intl.NumberFormat($loc, {style:'currency', currency:$cur}).format(Number(v)) } catch(e) { return v } })($raw)"
+      case ColumnKind.StatusBadge(colorMap) =>
+        val mapJs  = colorMap.map { case (k, v) => s"${jsString(k)}: ${jsString(v)}" }.mkString("{", ", ", "}")
+        val colExpr = s"(${if colorMap.isEmpty then "{}" else mapJs})[String($varName.$fieldPath)] || ''"
+        s"h('span', { style: { background: $colExpr, padding: '2px 8px', borderRadius: '9999px', fontSize: '0.85em' } }, $raw)"
+      case ColumnKind.Link(urlOpt) =>
+        val href = urlOpt match
+          case Some(tpl) => s"${jsString(tpl)}.replace(':value', String($varName.$fieldPath))"
+          case None      => s"'#'"
+        s"h('a', { href: $href }, $raw)"
 
   /** JS literal for arbitrary Scala values used as signal initials
    *  or attribute defaults.  Mirrors the Custom backend's

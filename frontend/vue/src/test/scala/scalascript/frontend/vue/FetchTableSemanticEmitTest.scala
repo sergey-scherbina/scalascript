@@ -69,7 +69,7 @@ class DataTableEmitTest extends AnyFunSuite:
     val actTick = new ReactiveSignal[Int]("actTick", 0)
     val btn = View.Button(
       label   = View.Text(() => "Promote", Style()),
-      action  = EventHandler.ItemAction("POST", "/api/emp/promote", "id", actTick),
+      action  = EventHandler.ItemAction("POST", "/api/emp/promote", RowPayload.Field("id"), actTick),
       enabled = () => true,
       style   = Style()
     )

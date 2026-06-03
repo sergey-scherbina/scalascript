@@ -30,12 +30,19 @@ object DataTableLowering:
         val bindingVar = sig.id
         val itemVar    = "row"
         val headerRow  = elem("tr",
-          dt.columns.map(c => elem("th", List(View.Text(() => c.title, Style())))))
+          dt.columns.map { c =>
+            val widthStyle = c.width.map(w => Map("style" -> AttrValue.Str(s"width:$w"))).getOrElse(Map.empty)
+            View.Element("th", widthStyle, noEvents, List(View.Text(() => c.title, Style())))
+          })
         val thead = elem("thead", List(headerRow))
         val dataCells = dt.columns.map { c =>
-          c.editAction match
-            case Some(ea) => elem("td", List(View.EditableCell(itemVar, c.fieldPath, ea)))
-            case None     => elem("td", List(View.ModelText(itemVar, c.fieldPath)))
+          val widthStyle = c.width.map(w => Map("style" -> AttrValue.Str(s"width:$w"))).getOrElse(Map.empty)
+          val inner = c.editAction match
+            case Some(ea) => View.EditableCell(itemVar, c.fieldPath, ea)
+            case None =>
+              if c.kind == ColumnKind.Text then View.ModelText(itemVar, c.fieldPath)
+              else View.FormattedField(itemVar, c.fieldPath, c.kind)
+          View.Element("td", widthStyle, noEvents, List(inner))
         }
         val actionCells = dt.actions.map(a => elem("td", List(actionButton(a))))
         val bodyRow = elem("tr", dataCells ++ actionCells)
@@ -46,7 +53,10 @@ object DataTableLowering:
       case _ =>
         // StaticRows and SignalRows: emit header only as stub; full rendering in Phase 3.
         val headerRow = elem("tr",
-          dt.columns.map(c => elem("th", List(View.Text(() => c.title, Style())))))
+          dt.columns.map { c =>
+            val widthStyle = c.width.map(w => Map("style" -> AttrValue.Str(s"width:$w"))).getOrElse(Map.empty)
+            View.Element("th", widthStyle, noEvents, List(View.Text(() => c.title, Style())))
+          })
         val thead = elem("thead", List(headerRow))
         elem("table", List(thead, elem("tbody", Nil)))
 
@@ -54,9 +64,9 @@ object DataTableLowering:
     case RowActionDef.RowDelete(url, idField, tick, headers) =>
       View.Button(View.Text(() => "Delete", Style()),
         EventHandler.DeleteItem(idField, url, tick, headers))
-    case RowActionDef.RowPost(label, method, url, bodyField, tick, headers) =>
+    case RowActionDef.RowPost(label, method, url, payload, tick, headers) =>
       View.Button(View.Text(() => label, Style()),
-        EventHandler.ItemAction(method, url, bodyField, tick, headers))
+        EventHandler.ItemAction(method, url, payload, tick, headers))
     case RowActionDef.RowLink(label, signal, fieldPath) =>
       View.Button(View.Text(() => label, Style()),
         EventHandler.SetFieldToSignal(signal, fieldPath))

@@ -152,7 +152,7 @@ class ModelPathValidatorTest extends AnyFunSuite:
       ),
       actions = List(
         RowActionDef.RowDelete("/api/employees/delete", "id", empTick),
-        RowActionDef.RowPost("Promote", "POST", "/api/employees/promote", "id", empTick),
+        RowActionDef.RowPost("Promote", "POST", "/api/employees/promote", RowPayload.Field("id"), empTick),
         RowActionDef.RowLink("Select", ReactiveSignal[String]("selected", ""), "name")
       )
     )
@@ -189,7 +189,7 @@ class ModelPathValidatorTest extends AnyFunSuite:
       ),
       actions = List(
         RowActionDef.RowDelete("/api/employees/delete", "deleteMissing", empTick),
-        RowActionDef.RowPost("Promote", "POST", "/api/employees/promote", "postMissing", empTick),
+        RowActionDef.RowPost("Promote", "POST", "/api/employees/promote", RowPayload.Field("postMissing"), empTick),
         RowActionDef.RowLink("Select", ReactiveSignal[String]("selected", ""), "linkMissing")
       )
     )

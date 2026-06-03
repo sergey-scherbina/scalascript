@@ -383,6 +383,11 @@ object SwiftUIEmitter:
         val dotPath = fieldPath.replace('.', '.')
         emitMods(s"""${pad}Text("\\(${escapeSwiftIdent(varName)}.$dotPath)")""", style, indent)
 
+      case View.FormattedField(varName, fieldPath, _, style) =>
+        // TODO(datatable-p3): kind-aware rendering for SwiftUI (Date/Money/StatusBadge/Link)
+        val dotPath = fieldPath.replace('.', '.')
+        emitMods(s"""${pad}Text("\\(${escapeSwiftIdent(varName)}.$dotPath)")""", style, indent)
+
       case dt: View.DataTable =>
         dt.source match
           case TableDataSource.Remote(sig) =>
@@ -443,13 +448,21 @@ object SwiftUIEmitter:
                    |${pad4}  let _ = try? await URLSession.shared.data(for: _req)
                    |${pad4}  ${tick.id} += 1
                    |${pad4}} }""".stripMargin
-              case RowActionDef.RowPost(label, method, url, bodyField, tick, _) =>
-                val key = bodyField.split("\\.").head
+              case RowActionDef.RowPost(label, method, url, payload, tick, _) =>
+                val bodyExpr = payload match
+                  case RowPayload.Field(name) =>
+                    val key = name.split("\\.").head
+                    s"((_row[${swiftStringLit(key)}] as? String) ?? \"\").data(using: .utf8)"
+                  case RowPayload.WholeRow =>
+                    "(try? JSONSerialization.data(withJSONObject: _row)) ?? Data()"
+                  case RowPayload.Fields(names) =>
+                    val entries = names.map(n => s"${swiftStringLit(n)}: _row[${swiftStringLit(n)}] ?? \"\"").mkString(", ")
+                    s"(try? JSONSerialization.data(withJSONObject: [$entries])) ?? Data()"
                 s"""${pad4}Button(${swiftStringLit(label)}) { Task { @MainActor in
                    |${pad4}  guard let _url = URL(string: ${swiftStringLit(url)}) else { return }
                    |${pad4}  var _req = URLRequest(url: _url)
                    |${pad4}  _req.httpMethod = ${swiftStringLit(method.toUpperCase)}
-                   |${pad4}  _req.httpBody = ((_row[${swiftStringLit(key)}] as? String) ?? "").data(using: .utf8)
+                   |${pad4}  _req.httpBody = $bodyExpr
                    |${pad4}  let _ = try? await URLSession.shared.data(for: _req)
                    |${pad4}  ${tick.id} += 1
                    |${pad4}} }""".stripMargin
@@ -592,14 +605,20 @@ object SwiftUIEmitter:
            |${pad3}${onSuccessTick.id} += 1
            |${pad2}} catch {}
            |${pad}}""".stripMargin
-      case EventHandler.ItemAction(method, url, bodyField, onSuccessTick, _) =>
+      case EventHandler.ItemAction(method, url, payload, onSuccessTick, _) =>
         val pad2 = " " * (indent + 4)
         val pad3 = " " * (indent + 8)
+        val bodyExpr = payload match
+          case RowPayload.Field(name)    => s"(String($name)).data(using: .utf8)"
+          case RowPayload.WholeRow       => "(try? JSONSerialization.data(withJSONObject: _row)) ?? Data()"
+          case RowPayload.Fields(names)  =>
+            val entries = names.map(n => s"${swiftStringLit(n)}: $n").mkString(", ")
+            s"(try? JSONSerialization.data(withJSONObject: [$entries])) ?? Data()"
         s"""${pad}Task { @MainActor in
            |${pad2}guard let _url = URL(string: ${swiftStringLit(url)}) else { return }
            |${pad2}var _req = URLRequest(url: _url)
            |${pad2}_req.httpMethod = ${swiftStringLit(method.toUpperCase)}
-           |${pad2}_req.httpBody = $bodyField.data(using: .utf8)
+           |${pad2}_req.httpBody = $bodyExpr
            |${pad2}do {
            |${pad3}let (_, _) = try await URLSession.shared.data(for: _req)
            |${pad3}${onSuccessTick.id} += 1

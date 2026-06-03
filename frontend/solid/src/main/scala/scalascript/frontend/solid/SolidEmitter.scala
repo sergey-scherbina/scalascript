@@ -376,7 +376,7 @@ private[solid] object SolidEmitter:
           case _                                         => ()
         }
         dt.columns.foreach {
-          case FieldColumnDef(_, _, _, Some(RowActionDef.RowInlineEdit(_, _, _, tick, hOpt))) =>
+          case FieldColumnDef(_, _, _, Some(RowActionDef.RowInlineEdit(_, _, _, tick, hOpt)), _, _) =>
             registerSignal(tick); hOpt.foreach(registerSignal)
           case _ => ()
         }
@@ -392,8 +392,9 @@ private[solid] object SolidEmitter:
         statements += s"const $theadVar = document.createElement('thead'); $theadVar.setAttribute('style', 'background:#f9fafb');"
         statements += s"const $trHVar = document.createElement('tr');"
         dt.columns.foreach { col =>
-          val thVar = freshVar()
-          statements += s"const $thVar = document.createElement('th'); $thVar.setAttribute('style', $thStyle); $thVar.textContent = ${jsString(col.title)}; $trHVar.appendChild($thVar);"
+          val thVar      = freshVar()
+          val widthExtra = col.width.map(w => s" $thVar.style.width = ${jsString(w)};").getOrElse("")
+          statements += s"const $thVar = document.createElement('th'); $thVar.setAttribute('style', $thStyle);$widthExtra $thVar.textContent = ${jsString(col.title)}; $trHVar.appendChild($thVar);"
         }
         if dt.actions.nonEmpty then
           val thActVar = freshVar()
@@ -415,10 +416,19 @@ private[solid] object SolidEmitter:
             statements += s"  for (const __row of ($tableId() || [])) {"
             statements += s"    const __tr = document.createElement('tr');"
             dt.columns.foreach { col =>
-              val tdVar = freshVar()
+              val tdVar    = freshVar()
+              val widthAttr = col.width.map(w => s" $tdVar.style.width = ${jsString(w)};").getOrElse("")
               col.editAction match
                 case None =>
-                  statements += s"    const $tdVar = document.createElement('td'); $tdVar.setAttribute('style', $tdStyle); $tdVar.textContent = String(__row.${col.fieldPath}); __tr.appendChild($tdVar);"
+                  col.kind match
+                    case ColumnKind.StatusBadge(_) | ColumnKind.Link(_) =>
+                      val cellExpr = solidFormattedExpr("__row", col.fieldPath, col.kind)
+                      statements += s"    const $tdVar = document.createElement('td'); $tdVar.setAttribute('style', $tdStyle);$widthAttr $tdVar.appendChild($cellExpr); __tr.appendChild($tdVar);"
+                    case ColumnKind.Text =>
+                      statements += s"    const $tdVar = document.createElement('td'); $tdVar.setAttribute('style', $tdStyle);$widthAttr $tdVar.textContent = String(__row.${col.fieldPath}); __tr.appendChild($tdVar);"
+                    case _ =>
+                      val cellExpr = solidFormattedExpr("__row", col.fieldPath, col.kind)
+                      statements += s"    const $tdVar = document.createElement('td'); $tdVar.setAttribute('style', $tdStyle);$widthAttr $tdVar.textContent = $cellExpr; __tr.appendChild($tdVar);"
                 case Some(ea) =>
                   val inpVar    = freshVar()
                   val actSetter = setterName(ea.onSuccessTick.id)
@@ -427,7 +437,7 @@ private[solid] object SolidEmitter:
                   val idKey     = jsString(ea.idField.split('.').last)
                   val valKey    = jsString(col.fieldPath.split('.').last)
                   val inpStyle  = jsString("border:1px solid transparent;background:transparent;width:100%;font-family:inherit;font-size:inherit;color:inherit;outline:none;padding:0")
-                  statements += s"    const $tdVar = document.createElement('td'); $tdVar.setAttribute('style', $tdStyle);"
+                  statements += s"    const $tdVar = document.createElement('td'); $tdVar.setAttribute('style', $tdStyle);$widthAttr"
                   statements += s"    const $inpVar = document.createElement('input'); $inpVar.type = 'text'; $inpVar.value = String(__row.${col.fieldPath}); $inpVar.setAttribute('style', $inpStyle);"
                   statements += s"    $inpVar.addEventListener('focus', (e) => { e.target.style.border = '1px solid #3b82f6'; e.target.style.background = '#fff'; });"
                   statements += s"    $inpVar.addEventListener('blur', ((r) => (e) => { const _v = e.target.value; fetch($urlJs, {method: $methodJs, headers: {'Content-Type': 'application/json'}, body: JSON.stringify({[$idKey]: String(r.${ea.idField}), [$valKey]: _v})}).then(x => x.text()).then(_ => $actSetter(t => t + 1)); })(__row));"
@@ -446,14 +456,15 @@ private[solid] object SolidEmitter:
                   statements += s"    const $btnVar = document.createElement('button'); $btnVar.setAttribute('style', $delStyle); $btnVar.textContent = 'Delete';"
                   statements += s"    $btnVar.addEventListener('click', () => fetch($delUrlJs, {method: 'POST', body: String(__row.$idField)$actHeaders}).then(r => r.text()).then(_ => $actSetter(t => t + 1)));"
                   statements += s"    $tdActVar.appendChild($btnVar);"
-                case RowActionDef.RowPost(label, method, url, bodyField, tick, actHOpt) =>
+                case RowActionDef.RowPost(label, method, url, payload, tick, actHOpt) =>
                   val btnVar     = freshVar()
                   val actUrlJs   = jsString(url)
                   val actMethod  = jsString(method)
                   val actSetter  = setterName(tick.id)
                   val actHeaders = actHOpt.map(h => s", headers: JSON.parse(${h.id}() || '{}')").getOrElse("")
+                  val bodyJs     = solidRowPayloadExpr("__row", payload)
                   statements += s"    const $btnVar = document.createElement('button'); $btnVar.setAttribute('style', $btnStyle); $btnVar.textContent = ${jsString(label)};"
-                  statements += s"    $btnVar.addEventListener('click', () => fetch($actUrlJs, {method: $actMethod, body: String(__row.$bodyField)$actHeaders}).then(r => r.text()).then(_ => $actSetter(t => t + 1)));"
+                  statements += s"    $btnVar.addEventListener('click', () => fetch($actUrlJs, {method: $actMethod, body: $bodyJs$actHeaders}).then(r => r.text()).then(_ => $actSetter(t => t + 1)));"
                   statements += s"    $tdActVar.appendChild($btnVar);"
                 case RowActionDef.RowLink(label, signal, fieldPath) =>
                   val btnVar    = freshVar()
@@ -873,6 +884,16 @@ private[solid] object SolidEmitter:
         statements += s"const $v = document.createTextNode(String($varName.$fieldPath));"
         v
 
+      case View.FormattedField(varName, fieldPath, kind, _) =>
+        val v = freshVar()
+        val expr = solidFormattedExpr(varName, fieldPath, kind)
+        kind match
+          case ColumnKind.StatusBadge(_) | ColumnKind.Link(_) =>
+            statements += s"const $v = $expr;"
+          case _ =>
+            statements += s"const $v = document.createTextNode($expr);"
+        v
+
       case View.Adaptive(web, _, _, fallback) =>
         compile(web.getOrElse(fallback))
 
@@ -953,16 +974,17 @@ private[solid] object SolidEmitter:
           else
             statements +=
               s"// $targetVar: '$eventName' is DeleteItem outside ForModel context — no-op."
-        case EventHandler.ItemAction(method, url, bodyField, tick, hOpt) =>
+        case EventHandler.ItemAction(method, url, payload, tick, hOpt) =>
           if currentItemVar.nonEmpty then
             registerSignal(tick)
             hOpt.foreach(registerSignal)
             val setter    = setterName(tick.id)
+            val bodyJs    = solidRowPayloadExpr(currentItemVar, payload)
             val urlJs     = jsString(url)
             val methodJs  = jsString(method)
             val headersJs = hOpt.map(h => s", headers: JSON.parse(${h.id}() || '{}')").getOrElse("")
             statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
-              s"fetch($urlJs, {method: $methodJs, body: String($currentItemVar.$bodyField)$headersJs})" +
+              s"fetch($urlJs, {method: $methodJs, body: $bodyJs$headersJs})" +
               s".then(r => r.text()).then(_ => $setter(t => t + 1)));"
           else
             statements +=
@@ -998,6 +1020,34 @@ private[solid] object SolidEmitter:
 
   private def setterName(varName: String): String =
     "set" + varName.headOption.fold("")(_.toUpper.toString) + varName.drop(1)
+
+  /** Build the JS body expression for a RowPayload (Solid/imperative DOM style). */
+  private def solidRowPayloadExpr(itemVar: String, payload: RowPayload): String = payload match
+    case RowPayload.Field(name)   => s"String($itemVar.$name)"
+    case RowPayload.WholeRow      => s"JSON.stringify($itemVar)"
+    case RowPayload.Fields(names) =>
+      val entries = names.map(n => s"[${jsString(n)}, $itemVar.$n]").mkString(", ")
+      s"JSON.stringify(Object.fromEntries([$entries]))"
+
+  /** Build the JS expression for a FormattedField (kind-aware, imperative DOM).
+   *  For StatusBadge/Link returns a DOM element expression; for others returns a string. */
+  private def solidFormattedExpr(varName: String, fieldPath: String, kind: ColumnKind): String =
+    kind match
+      case ColumnKind.Text        => s"String($varName.$fieldPath)"
+      case ColumnKind.Date(fmtOpt) =>
+        val opts = fmtOpt.map(f => s", ${jsString(f)}").getOrElse("")
+        s"(v => { try { return new Date(v).toLocaleDateString(undefined$opts) } catch(e) { return v } })(String($varName.$fieldPath))"
+      case ColumnKind.Money(curOpt, locOpt) =>
+        val cur = jsString(curOpt.getOrElse("USD"))
+        val loc = jsString(locOpt.getOrElse("en-US"))
+        s"(v => { try { return new Intl.NumberFormat($loc, {style:'currency', currency:$cur}).format(Number(v)) } catch(e) { return v } })(String($varName.$fieldPath))"
+      case ColumnKind.StatusBadge(colorMap) =>
+        val mapJs = colorMap.map { case (k, v) => s"${jsString(k)}: ${jsString(v)}" }.mkString("{", ", ", "}")
+        val mapLit = if colorMap.isEmpty then "{}" else mapJs
+        s"""(() => { const _v = String($varName.$fieldPath); const _c = ($mapLit)[_v] || ''; const _s = document.createElement('span'); _s.textContent = _v; if(_c) { _s.style.background = _c; _s.style.padding = '2px 8px'; _s.style.borderRadius = '9999px'; _s.style.fontSize = '0.85em'; } return _s; })()"""
+      case ColumnKind.Link(urlOpt) =>
+        val href = urlOpt.map(t => s"${jsString(t)}.replace(':value', String($varName.$fieldPath))").getOrElse("'#'")
+        s"""(() => { const _a = document.createElement('a'); _a.href = $href; _a.textContent = String($varName.$fieldPath); return _a; })()"""
 
   private def collectFetchSignals(view: View[?]): Seq[FetchUrlSignal] =
     val seen = scala.collection.mutable.LinkedHashMap.empty[String, FetchUrlSignal]

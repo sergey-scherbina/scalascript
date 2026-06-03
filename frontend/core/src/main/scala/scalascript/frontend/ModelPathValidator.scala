@@ -130,8 +130,11 @@ object ModelPathValidator:
         dt.actions.foldLeft(withColumns) {
           case (errors, RowActionDef.RowDelete(_, idField, _, _)) =>
             validatePath("DataTableRowDelete", rowModel, idField, rowModel, models, errors)
-          case (errors, RowActionDef.RowPost(_, _, _, bodyField, _, _)) =>
-            validatePath("DataTableRowPost", rowModel, bodyField, rowModel, models, errors)
+          case (errors, RowActionDef.RowPost(_, _, _, payload, _, _)) =>
+            payload match
+              case RowPayload.Field(name)   => validatePath("DataTableRowPost", rowModel, name, rowModel, models, errors)
+              case RowPayload.WholeRow      => errors
+              case RowPayload.Fields(names) => names.foldLeft(errors)((e, n) => validatePath("DataTableRowPost", rowModel, n, rowModel, models, e))
           case (errors, RowActionDef.RowLink(_, _, fieldPath)) =>
             validatePath("DataTableRowLink", rowModel, fieldPath, rowModel, models, errors)
           case (errors, RowActionDef.RowInlineEdit(_, _, idField, _, _)) =>

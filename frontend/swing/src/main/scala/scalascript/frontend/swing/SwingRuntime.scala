@@ -439,9 +439,20 @@ object SwingRuntime:
                 val r = d.request("POST", url, idVal)
                 if r.status >= 200 && r.status < 300 then state.incrementSignal(tick.id, 1)
               }
-            case RowActionDef.RowPost(_, method, url, bodyField, tick, _) =>
-              val colIdx  = dt.columns.indexWhere(_.fieldPath == bodyField)
-              val bodyVal = if colIdx >= 0 then String.valueOf(tableModel.getValueAt(sel, colIdx)) else ""
+            case RowActionDef.RowPost(_, method, url, payload, tick, _) =>
+              val bodyVal = payload match
+                case RowPayload.Field(name) =>
+                  val ci = dt.columns.indexWhere(_.fieldPath == name)
+                  if ci >= 0 then String.valueOf(tableModel.getValueAt(sel, ci)) else ""
+                case RowPayload.WholeRow =>
+                  (0 until tableModel.getColumnCount).map { ci =>
+                    s""""${tableModel.getColumnName(ci)}": "${tableModel.getValueAt(sel, ci)}""""
+                  }.mkString("{", ", ", "}")
+                case RowPayload.Fields(names) =>
+                  names.flatMap { n =>
+                    val ci = dt.columns.indexWhere(_.fieldPath == n)
+                    if ci >= 0 then Some(s""""$n": "${tableModel.getValueAt(sel, ci)}"""") else None
+                  }.mkString("{", ", ", "}")
               state.fetchDispatcher.foreach { d =>
                 val r = d.request(method, url, bodyVal)
                 if r.status >= 200 && r.status < 300 then state.incrementSignal(tick.id, 1)

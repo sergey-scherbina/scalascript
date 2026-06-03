@@ -356,9 +356,20 @@ object JavaFxRuntime:
                       Platform.runLater(() => state.incrementSignal(tick.id, 1))
                   } catch case _: Exception => ()
                 ).start()
-              case RowActionDef.RowPost(_, method, url, bodyField, tick, _) =>
-                val colIdx  = dt.columns.indexWhere(_.fieldPath == bodyField)
-                val bodyVal = if colIdx >= 0 then row.get(colIdx) else ""
+              case RowActionDef.RowPost(_, method, url, payload, tick, _) =>
+                val bodyVal = payload match
+                  case RowPayload.Field(name) =>
+                    val ci = dt.columns.indexWhere(_.fieldPath == name)
+                    if ci >= 0 then row.get(ci) else ""
+                  case RowPayload.WholeRow =>
+                    (0 until row.size).map { ci =>
+                      s""""${dt.columns(ci).fieldPath}": "${row.get(ci)}""""
+                    }.mkString("{", ", ", "}")
+                  case RowPayload.Fields(names) =>
+                    names.flatMap { n =>
+                      val ci = dt.columns.indexWhere(_.fieldPath == n)
+                      if ci >= 0 then Some(s""""$n": "${row.get(ci)}"""") else None
+                    }.mkString("{", ", ", "}")
                 Thread(() =>
                   try state.fetchDispatcher.foreach { d =>
                     val r = d.request(method, url, bodyVal)

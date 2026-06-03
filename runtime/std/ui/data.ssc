@@ -16,6 +16,13 @@ exports:
   - dataTable
   - staticDataTable
   - signalDataTable
+  - dcol
+  - mcol
+  - scol
+  - lcol
+  - fieldBody
+  - wholeRowBody
+  - fieldsBody
 ---
 
 # `std.ui.data` — data widget constructors
@@ -27,7 +34,7 @@ that set the provided `Signal[String]` to the clicked column's key — the
 caller is responsible for re-building the rows in sorted order.
 
 [TkNode, TableColumn, TableNode, DataTableNode](nodes.ssc)
-[fieldColumn, rowDeleteAction, rowPostAction, rowLinkAction, rowEditAction, dataTableView, emptyHeaders, staticRowsSource, signalRowsSource](primitives.ssc)
+[fieldColumn, rowDeleteAction, rowPostAction, rowLinkAction, rowEditAction, dataTableView, emptyHeaders, staticRowsSource, signalRowsSource, fieldPayload, wholeRowPayload, fieldsPayload, dateColumn, moneyColumn, statusColumn, linkColumn](primitives.ssc)
 
 ```scalascript
 def tableCol(label: String, key: String): TableColumn = TableColumn(label, key)
@@ -83,4 +90,31 @@ def staticDataTable(rows: List[Any], columns: List[Any],
 def signalDataTable(sig: Any, columns: List[Any],
                     actions: List[Any] = []): Any =
   dataTableView(signalRowsSource(sig), columns, actions)
+
+// ── Column kind shorthand helpers ─────────────────────────────────────────────
+// dcol — date column: renders field value as locale-aware date string.
+def dcol(title: String, fieldPath: String, align: String = "", format: String = ""): Any =
+  dateColumn(title, fieldPath, align, format)
+
+// mcol — money column: renders field value with currency symbol.
+def mcol(title: String, fieldPath: String, align: String = "", currency: String = "USD", locale: String = ""): Any =
+  moneyColumn(title, fieldPath, align, currency, locale)
+
+// scol — status column: renders field value as a colored badge pill.
+def scol(title: String, fieldPath: String, align: String = "", colorMap: Any = null): Any =
+  statusColumn(title, fieldPath, align, colorMap)
+
+// lcol — link column: renders field value as a hyperlink.
+def lcol(title: String, fieldPath: String, urlTemplate: String = "", align: String = ""): Any =
+  linkColumn(title, fieldPath, align, urlTemplate)
+
+// ── Row payload helpers ───────────────────────────────────────────────────────
+// fieldBody — send a single field value as the request body.
+def fieldBody(name: String): Any = fieldPayload(name)
+
+// wholeRowBody — send the entire row object as a JSON body.
+def wholeRowBody(): Any = wholeRowPayload()
+
+// fieldsBody — send a named subset of row fields as a JSON object body.
+def fieldsBody(names: List[String]): Any = fieldsPayload(names)
 ```

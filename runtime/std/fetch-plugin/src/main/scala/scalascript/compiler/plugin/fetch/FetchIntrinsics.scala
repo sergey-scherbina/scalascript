@@ -4,7 +4,7 @@ import scala.annotation.nowarn
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{InterpretError, Value}
-import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, FetchJsonSignal, EventHandler, View, FieldColumnDef, RowActionDef, TableDataSource}
+import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, FetchJsonSignal, EventHandler, View, FieldColumnDef, RowActionDef, TableDataSource, ColumnKind, RowPayload}
 import scalascript.plugin.api.PluginNative
 
 object FetchIntrinsics:
@@ -164,26 +164,31 @@ object FetchIntrinsics:
         case _ => throw InterpretError("rowDeleteAction(url, idField, tick[, headers])")
     },
 
-    // rowPostAction(label, method, url, bodyField, tick[, headers]): RowActionDef
+    // rowPostAction(label, method, url, payload, tick[, headers]): RowActionDef
+    // payload may be a String (backward compat → RowPayload.Field) or a Foreign("RowPayload", ...)
     QualifiedName("rowPostAction") -> PluginNative.evalLegacy { (_, args) =>
+      def toPayload(v: Any): RowPayload = v match
+        case s: String                                    => RowPayload.Field(s)
+        case Value.Foreign("RowPayload", p: RowPayload)   => p
+        case _                                            => throw InterpretError("rowPostAction: invalid payload argument")
       args match
-        case List(label: String, method: String, url: String, bodyField: String,
+        case List(label: String, method: String, url: String, payloadArg,
                   Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
           Value.Foreign("RowActionDef",
-            RowActionDef.RowPost(label, method, url, bodyField, tick.asInstanceOf[ReactiveSignal[Int]]))
-        case List(label: String, method: String, url: String, bodyField: String,
+            RowActionDef.RowPost(label, method, url, toPayload(payloadArg), tick.asInstanceOf[ReactiveSignal[Int]]))
+        case List(label: String, method: String, url: String, payloadArg,
                   Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
                   Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
           val h = headers.asInstanceOf[ReactiveSignal[String]]
           Value.Foreign("RowActionDef",
-            RowActionDef.RowPost(label, method, url, bodyField, tick.asInstanceOf[ReactiveSignal[Int]],
+            RowActionDef.RowPost(label, method, url, toPayload(payloadArg), tick.asInstanceOf[ReactiveSignal[Int]],
               if h.id == "__ssc_empty_headers" then None else Some(h)))
-        case List(label: String, method: String, url: String, bodyField: String,
+        case List(label: String, method: String, url: String, payloadArg,
                   Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]), headers)
             if isEmptyHeadersArg(headers) =>
           Value.Foreign("RowActionDef",
-            RowActionDef.RowPost(label, method, url, bodyField, tick.asInstanceOf[ReactiveSignal[Int]]))
-        case _ => throw InterpretError("rowPostAction(label, method, url, bodyField, tick[, headers])")
+            RowActionDef.RowPost(label, method, url, toPayload(payloadArg), tick.asInstanceOf[ReactiveSignal[Int]]))
+        case _ => throw InterpretError("rowPostAction(label, method, url, payload, tick[, headers])")
     },
 
     // rowLinkAction(label, signal, fieldPath): RowActionDef
@@ -217,6 +222,91 @@ object FetchIntrinsics:
           Value.Foreign("RowActionDef",
             RowActionDef.RowInlineEdit(method, url, idField, tick.asInstanceOf[ReactiveSignal[Int]]))
         case _ => throw InterpretError("rowEditAction(method, url, idField, tick[, headers])")
+    },
+
+    // ── RowPayload constructors ──────────────────────────────────────────────
+
+    // fieldPayload(name: String): RowPayload.Field
+    QualifiedName("fieldPayload") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(name: String) => Value.Foreign("RowPayload", RowPayload.Field(name))
+        case _ => throw InterpretError("fieldPayload(name)")
+    },
+
+    // wholeRowPayload(): RowPayload.WholeRow
+    QualifiedName("wholeRowPayload") -> PluginNative.evalLegacy { (_, _) =>
+      Value.Foreign("RowPayload", RowPayload.WholeRow)
+    },
+
+    // fieldsPayload(names: List[String]): RowPayload.Fields
+    QualifiedName("fieldsPayload") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(Value.ListV(items)) =>
+          val names = items.collect { case Value.StringV(s) => s }
+          Value.Foreign("RowPayload", RowPayload.Fields(names))
+        case _ => throw InterpretError("fieldsPayload(names)")
+    },
+
+    // ── Column kind constructors ─────────────────────────────────────────────
+
+    // dateColumn(title, fieldPath, align?, format?): FieldColumnDef
+    QualifiedName("dateColumn") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(title: String, fieldPath: String) =>
+          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, None, None, ColumnKind.Date(), None))
+        case List(title: String, fieldPath: String, align: String) =>
+          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None, ColumnKind.Date(), None))
+        case List(title: String, fieldPath: String, align: String, fmt) =>
+          val fmtOpt = if isNullish(fmt) then None else Some(fmt.toString).filter(_.nonEmpty)
+          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None, ColumnKind.Date(fmtOpt), None))
+        case _ => throw InterpretError("dateColumn(title, fieldPath[, align[, format]])")
+    },
+
+    // moneyColumn(title, fieldPath, align?, currency?, locale?): FieldColumnDef
+    QualifiedName("moneyColumn") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(title: String, fieldPath: String) =>
+          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, None, None, ColumnKind.Money(), None))
+        case List(title: String, fieldPath: String, align: String) =>
+          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None, ColumnKind.Money(), None))
+        case List(title: String, fieldPath: String, align: String, currency: String) =>
+          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None,
+            ColumnKind.Money(Some(currency).filter(_.nonEmpty)), None))
+        case List(title: String, fieldPath: String, align: String, currency: String, locale: String) =>
+          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None,
+            ColumnKind.Money(Some(currency).filter(_.nonEmpty), Some(locale).filter(_.nonEmpty)), None))
+        case _ => throw InterpretError("moneyColumn(title, fieldPath[, align[, currency[, locale]]])")
+    },
+
+    // statusColumn(title, fieldPath, align?, colorMap?): FieldColumnDef
+    QualifiedName("statusColumn") -> PluginNative.evalLegacy { (_, args) =>
+      def toColorMap(v: Any): Map[String, String] = v match
+        case Value.Foreign("Map", m: Map[?, ?])    => m.asInstanceOf[Map[String, String]]
+        case Value.Foreign("Object", m: Map[?, ?]) => m.asInstanceOf[Map[String, String]]
+        case _ => Map.empty
+      args match
+        case List(title: String, fieldPath: String) =>
+          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, None, None, ColumnKind.StatusBadge(), None))
+        case List(title: String, fieldPath: String, align: String) =>
+          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None, ColumnKind.StatusBadge(), None))
+        case List(title: String, fieldPath: String, align: String, colorMap) =>
+          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None,
+            ColumnKind.StatusBadge(toColorMap(colorMap)), None))
+        case _ => throw InterpretError("statusColumn(title, fieldPath[, align[, colorMap]])")
+    },
+
+    // linkColumn(title, fieldPath, align?, urlTemplate?): FieldColumnDef
+    QualifiedName("linkColumn") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(title: String, fieldPath: String) =>
+          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, None, None, ColumnKind.Link(), None))
+        case List(title: String, fieldPath: String, align: String) =>
+          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None, ColumnKind.Link(), None))
+        case List(title: String, fieldPath: String, align: String, urlTemplate) =>
+          val tplOpt = if isNullish(urlTemplate) then None else Some(urlTemplate.toString).filter(_.nonEmpty)
+          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), None,
+            ColumnKind.Link(tplOpt), None))
+        case _ => throw InterpretError("linkColumn(title, fieldPath[, align[, urlTemplate]])")
     },
 
     // dataTableView(source, columns, actions): View

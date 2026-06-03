@@ -33,6 +33,13 @@ exports:
   - dataTableView
   - staticRowsSource
   - signalRowsSource
+  - fieldPayload
+  - wholeRowPayload
+  - fieldsPayload
+  - dateColumn
+  - moneyColumn
+  - statusColumn
+  - linkColumn
 ---
 
 # `std.ui.primitives` — UI primitive extern defs
@@ -144,4 +151,19 @@ extern def staticRowsSource(rows: List[Any]): Any
 
 // signalRowsSource — wraps a reactive signal into a TableDataSource.SignalRows.
 extern def signalRowsSource(sig: Any): Any
+
+// ── RowPayload constructors ───────────────────────────────────────────────────
+extern def fieldPayload(name: String): Any
+extern def wholeRowPayload(): Any
+extern def fieldsPayload(names: List[String]): Any
+
+// ── Column kind constructors ──────────────────────────────────────────────────
+extern def dateColumn(title: String, fieldPath: String, align: String = "",
+                      format: String = ""): Any
+extern def moneyColumn(title: String, fieldPath: String, align: String = "",
+                       currency: String = "USD", locale: String = ""): Any
+extern def statusColumn(title: String, fieldPath: String, align: String = "",
+                        colorMap: Any = null): Any
+extern def linkColumn(title: String, fieldPath: String, align: String = "",
+                      urlTemplate: String = ""): Any
 ```
