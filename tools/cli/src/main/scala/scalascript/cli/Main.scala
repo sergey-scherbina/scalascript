@@ -6930,13 +6930,13 @@ final class BenchCmd extends CliCommand:
          |while _ssc_w < $warmupN do
          |  workload()
          |  _ssc_w += 1
-         |val _ssc_t0 = System.currentTimeMillis()
+         |val _ssc_t0 = System.nanoTime()
          |var _ssc_r = 0
          |while _ssc_r < $repsN do
          |  workload()
          |  _ssc_r += 1
-         |val _ssc_ms = System.currentTimeMillis() - _ssc_t0
-         |println(s"BENCH_MS: $${_ssc_ms.toDouble / $repsN}")
+         |val _ssc_ns = System.nanoTime() - _ssc_t0
+         |println(s"BENCH_MS: $${_ssc_ns.toDouble / ($repsN * 1000000.0)}")
          |```
          |""".stripMargin
 

@@ -2469,6 +2469,11 @@ class JsGen(
           Term.Select(Term.Name("System"), Term.Name("currentTimeMillis")), _) =>
       "Date.now()"
 
+    // System.nanoTime() → nanoseconds via performance.now() (μs precision in Node/browsers)
+    case Term.Apply.After_4_6_0(
+          Term.Select(Term.Name("System"), Term.Name("nanoTime")), _) =>
+      "Math.round(performance.now() * 1e6)"
+
     // Stage 5+/B.3 — qualified intrinsic dispatch for `Obj.method(args)`.
     case Term.Apply.After_4_6_0(Term.Select(Term.Name(obj), Term.Name(method)), argClause)
         if dispatchIntrinsicJs(s"$obj.$method", argClause).isDefined =>

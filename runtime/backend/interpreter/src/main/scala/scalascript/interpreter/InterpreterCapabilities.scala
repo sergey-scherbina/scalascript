@@ -73,6 +73,10 @@ val InterpreterIntrinsics: Map[QualifiedName, IntrinsicImpl] =
     // System.currentTimeMillis() — cross-backend timing (matches JS Date.now(), Scala System)
     QualifiedName("System.currentTimeMillis") -> NativeImpl((_, _) =>
       java.lang.System.currentTimeMillis()
+    ),
+    // System.nanoTime() — nanosecond timing for sub-millisecond benchmarks
+    QualifiedName("System.nanoTime") -> NativeImpl((_, _) =>
+      java.lang.System.nanoTime()
     )
   ) ++ CoreIntrinsics     // Stage 5+/E — Core:     intrinsics/Core.scala
     // HTTP / WS / MCP / JSON / Request / Frontend / Auth / OAuth / JDBC / UI now ship as plugins.

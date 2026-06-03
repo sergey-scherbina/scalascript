@@ -50,7 +50,8 @@ private[interpreter] object BuiltinsRuntime:
 
     // System companion — cross-backend timing API (matches JS Date.now(), Scala System).
     interp.globals("System") = Value.InstanceV("System", Map(
-      "currentTimeMillis" -> interp.globals("System.currentTimeMillis")
+      "currentTimeMillis" -> interp.globals("System.currentTimeMillis"),
+      "nanoTime"          -> interp.globals("System.nanoTime")
     ))
 
     // Plugin-provided companion objects (Db, DriverManager, Graph) are set up in
