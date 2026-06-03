@@ -29,7 +29,9 @@ private[interpreter] object CallRuntime:
         f.usingParams.isEmpty &&
         !f.returnsThrows &&
         (f.defaults.isEmpty || f.defaults.head.isEmpty) &&
-        (f.paramTypes.isEmpty || !f.paramTypes.head.endsWith("*")) =>
+        (f.paramTypes.isEmpty || !f.paramTypes.head.endsWith("*")) &&
+        // Skip fast path for named self-tail-recursive functions — they need tcoTrampoline.
+        (f.name.isEmpty || { val i = TcoRuntime.tcoInfoFor(f, interp); !i.isSelfTailRec && i.tailTargets.isEmpty }) =>
       val callEnv:  Env = FrameMap.one(f.params.head, arg, interp.closureWithSelfFor(f))
       val frameName = if f.name.nonEmpty then f.name else "<anon>"
       val relLine   = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
@@ -54,7 +56,8 @@ private[interpreter] object CallRuntime:
         f.usingParams.isEmpty &&
         !f.returnsThrows &&
         (f.defaults.isEmpty || f.defaults.head.isEmpty) &&
-        (f.paramTypes.lengthCompare(2) < 2 || !f.paramTypes(1).endsWith("*")) =>
+        (f.paramTypes.lengthCompare(2) < 2 || !f.paramTypes(1).endsWith("*")) &&
+        (f.name.isEmpty || { val i = TcoRuntime.tcoInfoFor(f, interp); !i.isSelfTailRec && i.tailTargets.isEmpty }) =>
       val callEnv:  Env = FrameMap.two(f.params.head, a, f.params(1), b, interp.closureWithSelfFor(f))
       val frameName = if f.name.nonEmpty then f.name else "<anon>"
       val relLine   = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
