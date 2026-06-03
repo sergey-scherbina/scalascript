@@ -820,7 +820,9 @@ def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
 lazy val cli = project
   .in(file("tools/cli"))
   .enablePlugins(SbtProguard, GraalVMNativeImagePlugin)
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron, frontendSwing, frontendJavaFx, frontendSwiftUI, graphPlugin, deployPlugin, httpPlugin, wsPlugin, frontendPlugin, fetchPlugin)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, frontendPlugin, fetchPlugin)
+  // Frontend backends — derived from allFrontends registry (arch-build-registry Phase 4)
+  .dependsOn(allFrontends.map(f => ClasspathDependency(f.project, None)): _*)
   .settings(
     name := "scalascript-cli",
     libraryDependencies ++= Seq(
@@ -2687,6 +2689,21 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("payments",        paymentsPlugin,        "scalascript-payments-plugin"),
 )
 
+// ── Frontend backend registry (arch-build-registry Phase 4) ─────────────
+// Canonical list of all frontend backend projects.
+// Derives: root aggregate, cli dependsOn.
+// `frontendCore` is intentionally excluded — it is the shared library, not a backend.
+lazy val allFrontends: Seq[FrontendSpec] = Seq(
+  FrontendSpec("custom",   frontendCustom),
+  FrontendSpec("react",    frontendReact),
+  FrontendSpec("solid",    frontendSolid),
+  FrontendSpec("vue",      frontendVue),
+  FrontendSpec("electron", frontendElectron),
+  FrontendSpec("swing",    frontendSwing),
+  FrontendSpec("javafx",   frontendJavaFx),
+  FrontendSpec("swiftui",  frontendSwiftUI),
+)
+
 // ── Payments — Stripe adapter ─────────────────────────────────────────────
 lazy val paymentsStripe = project
   .in(file("runtime/std/payments-stripe"))
@@ -3224,7 +3241,8 @@ lazy val root = project
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
     cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, blockchainBitcoin, blockchainCosmos, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultTrezor, walletVaultMpcFireblocks, walletVaultMpcCoinbase, walletVaultMpcLit, walletVaultMpcZengo, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerJs, walletVaultLedgerBluetoothJs, walletVaultLedgerEthereum, walletVaultLedgerSolana, walletVaultLedgerBitcoin, walletVaultLedgerCardano, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
-    frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron, frontendSwing, frontendJavaFx, frontendSwiftUI,
+    frontendCore,
+    // Frontend backends — derived from allFrontends registry below (arch-build-registry Phase 4)
     // frontendToolkit retired — replaced by std/ui/*.ssc (Phase 7a-7d)
     frontendExamples,
     // std plugins are aggregated via allPlugins registry below
@@ -3237,6 +3255,8 @@ lazy val root = project
     markupCore, markupCoreJs, markupJs, markupNode,
     bureauCore, bureauSigning, bureauPlFiscal, bureauPlRegistry, bureauPlSocial, bureauEu, bureauScheduler, bureauMock,
   )
+  // Frontend backends — derived from allFrontends registry (arch-build-registry Phase 4)
+  .aggregate(allFrontends.map(_.project: ProjectReference): _*)
   // Std plugins — derived from allPlugins registry (arch-build-registry-p1)
   .aggregate(allPlugins.map(_.project: ProjectReference): _*)
   .settings(

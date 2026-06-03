@@ -256,9 +256,10 @@ small and dependency-aware because multiple agents are working in parallel.
       into `JvmRuntimeUiPrimitives.source`; generated `emit-scala` output for
       the dashboard frontend example stays byte-identical after normalizing
       absolute jar paths.
-- [ ] **build-family-registry** - Extend the build registry approach to one
-      repeated family such as frontend backends, std runtime plugins, or
-      benchmark modules. Spec: `docs/arch-build-registry.md §Phase 4`.
+- [x] **build-family-registry** - ✓ Landed 2026-06-03. `FrontendSpec` + `allFrontends`
+      registry for 8 frontend backends; `root` aggregate and `cli` dependsOn
+      derived from `allFrontends`. Mirrors the existing `PluginSpec`/`allPlugins`
+      pattern. Spec: `docs/arch-build-registry.md §Phase 4`.
 
 ## Exact Numerics — BigInt, Decimal, Money (v1.64 planned)
 

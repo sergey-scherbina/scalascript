@@ -150,10 +150,8 @@ being landed backend by backend.
   examples/frontend/dashboard/dashboard.ssc` compared byte-identical against
   `origin/main` after normalizing absolute `//> using jar` paths.
 
-- [ ] **build-family-registry** - Migrate one repeated `build.sbt` family
-  (frontend backends, std runtime plugins, or benchmarks) to a declarative
-  registry that derives aggregate/test/package wiring. Spec:
-  `docs/arch-build-registry.md §Phase 4`.
+- [x] **build-family-registry** — ✓ Landed 2026-06-03. `FrontendSpec` +
+  `allFrontends` registry; root aggregate + cli derived from it.
 
 ## Interpreter perf — Phase C + D continuation (open)
 
