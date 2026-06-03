@@ -152,6 +152,30 @@ object JavacJitBackend extends JitBackend:
     // it lets `area(s: Shape): Double` compile to `static double area(Object s)`.
     val isDouble = bodyHasDoubleLit(f.body)
     val ctx = new GenCtx(f.name, paramSet, f.params.toArray, paramIsRef, isDouble, Map.empty, interp)
+    // Try ref-returning (ObjToObject) path first for 1-param ref-scrutinee matches:
+    // `def g(x: T): T = x match { case C(a, b) => a }` where the arm body names
+    // a ref-typed binding.  `walkRefMatchBody` returns null whenever arm bodies
+    // are Long-typed (numeric binding or Long expression), naturally gating this
+    // path to definitively ref-returning functions.
+    if f.params.length == 1 && paramIsRef(0) then
+      f.body match
+        case tm: Term.Match =>
+          val refStmts = walkRefMatchBody(tm, ctx, interp)
+          if refStmts != null then
+            val className = s"GenJit_${sanitize(f.name)}_${System.identityHashCode(f.body)}"
+            val pname = sanitize(f.params(0))
+            val ifaceRef = "scalascript.interpreter.vm.jit.ObjToObject"
+            val source =
+              s"""public class $className implements $ifaceRef {
+                 |  public static Object ${sanitize(f.name)}(Object $pname) {
+                 |    $refStmts
+                 |  }
+                 |  public Object apply(Object n) { return ${sanitize(f.name)}(n); }
+                 |}
+                 |""".stripMargin
+            val r = compileAndLink(className, sanitize(f.name), source, paramIsRef, classOf[Object], isDouble = false)
+            if r != null then return r
+        case _ =>
     val bodyStmts =
       f.body match
         case tm: Term.Match if paramIsRef.exists(identity) =>
@@ -205,7 +229,19 @@ object JavacJitBackend extends JitBackend:
          |  }$applyMethod
          |}
          |""".stripMargin
+    compileAndLink(className, sanitize(f.name), source, paramIsRef, if isDouble then classOf[Double] else classOf[Long], isDouble)
 
+  /** Compile a Java source string in-memory, load the class, bind a MethodHandle
+   *  to the static method, and instantiate the class as a typed direct interface.
+   *  Used by both the Long/Double-returning path and the ObjToObject path. */
+  private def compileAndLink(
+    className:  String,
+    methodName: String,
+    source:     String,
+    paramIsRef: Array[Boolean],
+    rtype:      Class[?],
+    isDouble:   Boolean
+  ): JitResult | Null =
     val compiler = ToolProvider.getSystemJavaCompiler
     if compiler == null then return null
 
@@ -235,21 +271,18 @@ object JavacJitBackend extends JitBackend:
       try loader.loadClass(className)
       catch case _: Throwable => return null
 
-    val ptypes: Array[Class[?]] = paramIsRef.zipWithIndex.map { case (isRef, _) =>
+    val ptypes: Array[Class[?]] = paramIsRef.map(isRef =>
       if isRef then classOf[Object]
       else if isDouble then classOf[Double]
       else classOf[Long]
-    }
-    val rtype: Class[?] = if isDouble then classOf[Double] else classOf[Long]
+    )
     val mt = MethodType.methodType(rtype, ptypes.asInstanceOf[Array[Class[?]]])
     val mh =
-      try MethodHandles.lookup().findStatic(cls, sanitize(f.name), mt)
+      try MethodHandles.lookup().findStatic(cls, methodName, mt)
       catch case _: Throwable => return null
     val direct: AnyRef | Null =
-      if ifaceName != null then
-        try cls.getConstructor().newInstance().asInstanceOf[AnyRef]
-        catch case _: Throwable => null
-      else null
+      try cls.getConstructor().newInstance().asInstanceOf[AnyRef]
+      catch case _: Throwable => null
     new JitResult(mh, paramIsRef, isDouble, direct)
 
   // ── AST → Java source walker ──────────────────────────────────────────────
@@ -826,6 +859,127 @@ object JavacJitBackend extends JitBackend:
         sb.append(s"return $armBodyJava;\n      }\n    ")
         sb.toString
       case _ => null
+
+  /** Emit a single match arm for a ref-returning match body (`ObjToObject`).
+   *  Fields whose static type (from `interp.typeFieldTypes`) is a primitive
+   *  ("Int"/"Long"/"Double"/"Boolean") are declared `long`; ADT/String fields
+   *  are declared `Object`.  `walkRef` bails on numeric bindings, so
+   *  `walkRefMatchBody` naturally only succeeds for ref-returning arms. */
+  private def walkRefArm(c: scala.meta.Case, ctx: GenCtx, interp: scalascript.interpreter.Interpreter, intTag: Int): String | Null =
+    if c.cond.nonEmpty then return null
+    c.pat match
+      case ext: scala.meta.Pat.Extract =>
+        val ctorName = ext.fun match
+          case Term.Name(n) => n
+          case _            => return null
+        val argPats = ext.argClause.values.toArray
+        val n       = argPats.length
+        val bindNames = new Array[String](n)
+        var i = 0
+        while i < n do
+          argPats(i) match
+            case Pat.Var(Term.Name(bn)) => bindNames(i) = bn
+            case _: Pat.Wildcard        => bindNames(i) = "_unused$" + i
+            case _                      => return null
+          i += 1
+        val fieldOrder = interp.typeFieldOrder.getOrElse(ctorName, Nil).toArray
+        if fieldOrder.length != n then return null
+        val fieldTypes = interp.typeFieldTypes.getOrElse(ctorName, Nil)
+        def isPrimField(fi: Int): Boolean = fi < fieldTypes.length && (fieldTypes(fi) match
+          case "Int" | "Long" | "Double" | "Boolean" => true
+          case _                                      => false)
+        val bindingMap = scala.collection.mutable.LinkedHashMap.empty[String, (String, Boolean)]
+        var k = 0
+        while k < n do
+          if !bindNames(k).startsWith("_unused$") then
+            bindingMap += (bindNames(k) -> (sanitize(bindNames(k)) + "_a", !isPrimField(k)))
+          k += 1
+        val newCtx = ctx.withBindings(bindingMap.toMap)
+        val sb = new StringBuilder
+        if intTag > 0 then sb.append(s"  case $intTag: {\n      ")
+        else               sb.append(s"""  case "${escape(ctorName)}": {\n      """)
+        val faVar = s"__fa_${sanitize(ctorName)}"
+        if n > 0 then sb.append(s"scalascript.interpreter.Value[] $faVar = inst.fieldsArr();\n      ")
+        var fi = 0
+        while fi < n do
+          if !bindNames(fi).startsWith("_unused$") then
+            val (jvar, isRef) = bindingMap(bindNames(fi))
+            val fname = fieldOrder(fi)
+            val readExpr =
+              if n > 0 then s"""$faVar != null ? $faVar[$fi] : inst.fields().apply("${escape(fname)}")"""
+              else          s"""inst.fields().apply("${escape(fname)}")"""
+            if isRef then sb.append(s"Object $jvar = $readExpr;\n      ")
+            else          sb.append(s"long $jvar = ((scalascript.interpreter.Value.IntV)($readExpr)).v();\n      ")
+          fi += 1
+        val armBodyJava = walkRef(c.body, newCtx)
+        if armBodyJava == null then return null
+        sb.append(s"return (Object)$armBodyJava;\n    }\n    ")
+        sb.toString
+      // Wildcard-bind arm `case x => x` — binds the whole scrutinee to x.
+      // In the switch context, x = inst (already cast to InstanceV before the switch).
+      // Becomes the `default:` case; only valid as the last arm.
+      case pv: scala.meta.Pat.Var =>
+        val xName = pv.name.value
+        val xBind = sanitize(xName) + "_a"
+        val newCtx = ctx.withBindings(Map(xName -> (xBind, true)))
+        val armBodyJava = walkRef(c.body, newCtx)
+        if armBodyJava == null then return null
+        val sb = new StringBuilder
+        sb.append(s"  default: {\n      Object $xBind = inst;\n      return (Object)$armBodyJava;\n    }\n    ")
+        sb.toString
+      case _ => null
+
+  /** Like `walkMatchBody` but for `ObjToObject` (ref-returning) match bodies.
+   *  Returns null if any arm is non-Extract, guarded, or if `walkRefArm` fails
+   *  (e.g. arm body is a numeric binding — only Long-returning matches bail). */
+  private def walkRefMatchBody(tm: Term.Match, ctx: GenCtx, interp: scalascript.interpreter.Interpreter): String | Null =
+    val scrutName = tm.expr match
+      case n: Term.Name => n.value
+      case _            => return null
+    if !ctx.params.contains(scrutName) then return null
+    val scrutJava = sanitize(scrutName)
+    val cases    = tm.casesBlock.cases
+    val casesArr = cases.toArray
+    if casesArr.exists(_.cond.nonEmpty) then return null
+    val armTags  = new Array[Int](casesArr.length)
+    var allTagged = true
+    var ai = 0
+    while ai < casesArr.length do
+      casesArr(ai).pat match
+        case ext: scala.meta.Pat.Extract => ext.fun match
+          case Term.Name(cn) =>
+            val tag = interp.typeTagMap.getOrElse(cn, 0)
+            if tag == 0 then allTagged = false
+            armTags(ai) = tag
+          case _ => allTagged = false
+        case _ => allTagged = false
+      ai += 1
+    val sb = new StringBuilder
+    sb.append(s"scalascript.interpreter.Value.InstanceV inst = (scalascript.interpreter.Value.InstanceV) $scrutJava;\n    ")
+    if allTagged then sb.append("switch (inst.typeTag()) {\n    ")
+    else
+      sb.append("String tn = inst.typeName();\n    ")
+      sb.append("switch (tn) {\n    ")
+    var ci = 0
+    var restList = cases
+    var hasWildcard = false
+    while restList.nonEmpty do
+      restList.head.pat match
+        case _: scala.meta.Pat.Var => hasWildcard = true
+        case _                     =>
+      val arm = walkRefArm(restList.head, ctx, interp, if allTagged then armTags(ci) else 0)
+      if arm == null then return null
+      sb.append(arm)
+      restList = restList.tail
+      ci += 1
+    if !hasWildcard then
+      if allTagged then
+        sb.append("  default: throw new RuntimeException(\"walkRefMatchBody: no case matched, tag=\" + inst.typeTag());\n    }")
+      else
+        sb.append("  default: throw new RuntimeException(\"walkRefMatchBody: no case matched, typeName=\" + tn);\n    }")
+    else
+      sb.append("}")
+    sb.toString
 
   /** TCO body emission: `if cond then base else recur(args)` (or vice versa)
    *  with a self-call in tail position → Java `while (true) { ... }` loop.

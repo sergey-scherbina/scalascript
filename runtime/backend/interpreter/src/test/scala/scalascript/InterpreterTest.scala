@@ -111,6 +111,28 @@ class InterpreterTest extends AnyFunSuite with Matchers:
     """) shouldBe "500"
   }
 
+  test("while loop with f(g(item)) ref-arg chain via LApplyR1ToRef") {
+    captured("""
+      sealed trait Node
+      case class Leaf(v: Int) extends Node
+      case class Branch(left: Node, right: Node) extends Node
+      val leaf5 = Leaf(5)
+      val tree  = Branch(leaf5, Leaf(99))
+      def getLeft(b: Node): Node = b match
+        case Branch(l, _) => l
+        case x            => x
+      def leafVal(n: Node): Int = n match
+        case Leaf(v)    => v
+        case Branch(_, _) => -1
+      var sum = 0
+      var i = 0
+      while i < 100 do
+        sum = sum + leafVal(getLeft(tree))
+        i = i + 1
+      println(sum)
+    """) shouldBe "500"
+  }
+
   test("nested functions and closures") {
     captured("""
       def adder(x: Int) = (y: Int) => x + y

@@ -795,6 +795,18 @@ private[interpreter] object EvalRuntime:
     def eval(slots: Array[Long], refs: Array[AnyRef]): Long =
       objFn.apply(arg0R.eval(slots, refs), arg1L.eval(slots, refs))
 
+  /** Ref-returning function call in LRefExpr position: `g(refExpr)` where `g`
+   *  is bytecode-JIT-compiled to an `ObjToObject` direct interface (1 ref param,
+   *  ref return). Enables `f(g(item))` chains where `g` extracts an ADT sub-field
+   *  and `f` takes the result as a ref arg (→ LApplyR1).
+   *  Phase 1 Commit 3 (dual-bank-lapply-r1-to-ref). */
+  private final class LApplyR1ToRef(
+    argR:  LRefExpr,
+    objFn: scalascript.interpreter.vm.jit.ObjToObject
+  ) extends LRefExpr:
+    def eval(slots: Array[Long], refs: Array[AnyRef]): AnyRef =
+      objFn.apply(argR.eval(slots, refs))
+
   /** 2-arg parallel of `LApply`. Folds `g(x, y)` into the enclosing unboxed-
    *  Long loop without boxing either arg or result. */
   private final class LApply2(
@@ -979,6 +991,23 @@ private[interpreter] object EvalRuntime:
         else
           val cm = PatternRuntime.compileMatch(tm, interp)
           if cm.valueCapable then new LRefMatch(scrutR, cm) else null
+      // `g(refExpr)` — resolves to LApplyR1ToRef when g is JIT-compiled to
+      // ObjToObject (1 ref param, ref return).  Enables f(g(item)) chains.
+      case ap: Term.Apply if ap.argClause.values.lengthCompare(1) == 0 =>
+        ap.fun match
+          case fnName: Term.Name =>
+            val argR = compileRefExpr(ap.argClause.values.head)
+            if argR == null then null
+            else interp.globals.getOrElse(fnName.value, null) match
+              case fn: Value.FunV
+                  if fn.params.length == 1 && fn.usingParams.isEmpty && !fn.returnsThrows =>
+                val bcRes = scalascript.interpreter.vm.jit.JitBackend.default.tryCompile(fn, interp)
+                if bcRes == null then null
+                else bcRes.direct match
+                  case oo: scalascript.interpreter.vm.jit.ObjToObject => new LApplyR1ToRef(argR, oo)
+                  case _ => null
+              case _ => null
+          case _ => null
       case _ => null
     def compileExpr(term: Term): LExpr | Null = term match
       case Lit.Int(v)  => new LConst(v.toLong)
@@ -1289,6 +1318,23 @@ private[interpreter] object EvalRuntime:
         else
           val cm = PatternRuntime.compileMatch(tm, interp)
           if cm.valueCapable then new LRefMatch(scrutR, cm) else null
+      // `g(refExpr)` — resolves to LApplyR1ToRef when g is JIT-compiled to
+      // ObjToObject (1 ref param, ref return).  Enables f(g(item)) chains.
+      case ap: Term.Apply if ap.argClause.values.lengthCompare(1) == 0 =>
+        ap.fun match
+          case fnName: Term.Name =>
+            val argR = compileRefExpr(ap.argClause.values.head)
+            if argR == null then null
+            else interp.globals.getOrElse(fnName.value, null) match
+              case fn: Value.FunV
+                  if fn.params.length == 1 && fn.usingParams.isEmpty && !fn.returnsThrows =>
+                val bcRes = scalascript.interpreter.vm.jit.JitBackend.default.tryCompile(fn, interp)
+                if bcRes == null then null
+                else bcRes.direct match
+                  case oo: scalascript.interpreter.vm.jit.ObjToObject => new LApplyR1ToRef(argR, oo)
+                  case _ => null
+              case _ => null
+          case _ => null
       case _ => null
     def compileExpr(term: Term): LExpr | Null = term match
       case Lit.Int(v)  => new LConst(v.toLong)
