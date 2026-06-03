@@ -1,0 +1,4 @@
+feature/phase-c-bytecode-mutual-20260603 2026-06-03T21:39:10Z
+status: not-started
+done-so-far:
+next: add focused mutual-recursion JIT repro and choose minimal bytecode-JIT path
