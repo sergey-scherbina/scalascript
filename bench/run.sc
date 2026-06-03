@@ -53,10 +53,12 @@ case class Backend(label: String, warmup: Int, reps: Int, cmd: (String, String) 
 
 val interpBackend = Backend("interp", WARMUP, REPS, (ssc, f) => Seq(ssc, f))
 // JVM: emit-scala → stable /tmp/ssc-bench-jvm-<name>.sc, run via scala-cli.
-// scala-cli caches compiled bytecode per-file, so warmup=1 populates the
+// scala-cli caches compiled bytecode per-file, so warmup populates the
 // bytecode cache and measured runs exclude Scala compilation (~0.5s vs ~5s).
-val jvmBackend    = Backend("jvm",    1,      3,    (_,   f) => Seq("scala-cli", f))
-val jsBackend     = Backend("js",     0,      3,    (ssc, f) => Seq(ssc, "run-js", f))
+val jvmBackend    = Backend("jvm",    WARMUP, REPS, (_,   f) => Seq("scala-cli", f))
+// JS: emit-js → stable /tmp/ssc-bench-js-<name>.cjs, run via node.
+// node parses/JITs the file on first run; subsequent runs hit V8's code cache.
+val jsBackend     = Backend("js",     WARMUP, REPS, (_,   f) => Seq("node", f))
 
 val activeBackends: Seq[Backend] =
   if compareMode then Seq(interpBackend, jvmBackend, jsBackend)
@@ -86,12 +88,19 @@ def benchFile(sscPath: String, backend: Backend, file: java.io.File): Option[Ben
   // JVM: emit Scala source to a stable temp .sc so scala-cli can cache its
   // compiled bytecode across warmup+measure runs.  Return None if JvmGen fails
   // (e.g. effects or HTTP intrinsics that JVM backend doesn't support).
+  // JS:  emit JS to a stable temp .cjs, run via node directly (no ssc startup).
+  // Both patterns ensure compilation/transpilation time is absorbed in warmup,
+  // not measured.
   val effectiveFile: Option[String] = backend.label match
     case "jvm" =>
       val tmp = java.io.File(s"/tmp/ssc-bench-jvm-$name.sc")
       val rc  = Process(Seq(sscPath, "emit-scala", file.getAbsolutePath))
                   .#>(tmp).!(ProcessLogger(_ => (), _ => ()))
-      // Verify the emitted file actually compiles (scala-cli dry-run check)
+      if rc != 0 then None else Some(tmp.getAbsolutePath)
+    case "js" =>
+      val tmp = java.io.File(s"/tmp/ssc-bench-js-$name.cjs")
+      val rc  = Process(Seq(sscPath, "emit-js", file.getAbsolutePath))
+                  .#>(tmp).!(ProcessLogger(_ => (), _ => ()))
       if rc != 0 then None else Some(tmp.getAbsolutePath)
     case _ => Some(file.getAbsolutePath)
 
@@ -192,8 +201,8 @@ if corpusFiles.isEmpty then
 
 println(s"Corpus:   ${corpusFiles.map(_.getName.replaceAll("\\.ssc$","")).mkString(", ")}")
 if compareMode then
-  println(s"Backends: ${activeBackends.map(b => s"${b.label} (warmup=${b.warmup} reps=${b.reps})").mkString(", ")}")
-  println(s"Note:     jvm/js times include a full compile round-trip")
+  println(s"Backends: ${activeBackends.map(_.label).mkString(", ")} — warmup=$WARMUP reps=$REPS each")
+  println(s"Note:     jvm/js compile in warmup phase; measured runs are execution-only")
 else
   println(s"Warmup: $WARMUP × $REPS reps; ssc = $sscPath")
 println()
