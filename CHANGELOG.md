@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — jit-fieldsarr-no-null-check: remove dead fieldsArr null-check from JIT arm emission
+
+- **jit-fieldsarr-no-null-check** — After `phase-d-instancev-array-repr-activation`,
+  `StatRuntime` always populates `fieldsArr` at every InstanceV construction site, so the
+  defensive `faVar != null ? faVar[i] : inst.fields().apply(name)` ternary emitted by all
+  four JIT arm-emission sites (`walkArm` switch, `walkArmAsIfBranch`, `walkMatchBody`,
+  `walkRefArm`) was dead code. The dead branch prevented the JVM from proving `faVar`
+  non-null, blocking implicit null-check elimination on the hot array-read path. Replaced
+  with a direct `faVar[i]`; removed the now-unused `val fname = fieldOrder(fi)` in each
+  site (4 insertions, 18 deletions). Bench (2f, wi=3, mi=5, ms/op):
+  **patternMatchHeavy: 1.128 → 0.861 ms (~24%)**. 1233/1233 tests green.
+
 ## 2026-06-03 — fast-map-foreach-preresolved: PreResolvedFast Map foreach variants
 
 - **fast-map-foreach-preresolved** — `PreResolvedFastLongMapForeach` and

@@ -458,6 +458,15 @@ verify step. Apply them.
       once at setup; `runLong/DoubleAccumForeachMapFast` use pre-wired `cachedSlot`
       field, bypassing TLS on each iteration. Bench: mapForeach 2.238 → 2.023 ms (~10%).
 
+- [x] **jit-fieldsarr-no-null-check** — ✓ Landed 2026-06-03 commit `1380fec5`.
+      After `phase-d-instancev-array-repr-activation`, `StatRuntime` always populates
+      `fieldsArr` at InstanceV construction; the `faVar != null ? faVar[i] : inst.fields().apply(name)`
+      ternary in all four JIT arm-emission sites (`walkArm` switch, `walkArmAsIfBranch`,
+      `walkMatchBody`, `walkRefArm`) was dead code that prevented the JVM from proving
+      `faVar` non-null and eliminated an implicit null-check opportunity on array access.
+      Replaced with direct `faVar[i]`; removed now-unused `val fname = fieldOrder(fi)`.
+      4 insertions, 18 deletions. Bench: patternMatchHeavy 1.128 → 0.861 ms (~24%).
+
 - [ ] **phase-c-bytecode-foreach-static** (Direction A.4) — combine
       `tryCompileWhileLong` with `walkArm`: detect
       `xs.foreach(s => acc = acc + fn(s))` over a stable
