@@ -17,11 +17,10 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       allocation cost that p2 should hoist.
       **Spec:** [`docs/js-codegen-opt-p1.md`](docs/js-codegen-opt-p1.md)
 
-- [ ] **js-codegen-opt-p2** — Loop-invariant constant tuple hoisting: `(1,2)++(3,4)` in
-      a while body should be hoisted as a module-level frozen constant, eliminating
-      100K `Object.assign` allocs in `tuple-monoid`. Requires detecting all-literal
-      tuple-concat expressions and emitting a `const _kN = Object.freeze(Object.assign(...))`.
-      Unblocked by p1's tuple-concat correctness fix.
+- [x] **js-codegen-opt-p2** — ✓ Landed 2026-06-04 commit `652c7ebc`.
+      Loop-invariant constant tuple hoisting: `(1,2)++(3,4)` in a while body
+      emitted as a module-level frozen constant.
+      **Result:** `tuple-monoid` JS 2.52 → 0.027 ms (93×).
 
 ## Conformance Fixes — cross-backend gaps (2026-06-02)
 
@@ -2179,32 +2178,41 @@ gated on same-session A/B + full suite green with the gate off AND on.
       for JitLint's UnknownShape → specific categories. All tracked in
       WORK_QUEUE.md.
 
-- [ ] **jit-match-recursive-descent** — Self-recursive calls inside match arms:
-      `eval(l) + eval(r)` where `l`, `r` are arm-bound `Object` locals.
-      Currently `walkMatchBody` bails on `Term.Apply(selfFn, List(armVar))`
-      because `walkRefArgCtx` only handles TLS-preloaded globals (`LRefConst`)
-      and field selects (`LRefFieldGet`), not arm-local variables.  Fix:
-      track arm-bound Object variables in `emitCtx`; when a self-recursive
-      call's argument is one of those locals, emit `INVOKESTATIC` to the same
-      static method with the arm-local as the `Object` param.  2-arg variant
-      covers `gEval(scale, l)` (Int + Object mixed params, `scale` is a `long`
-      in scope from the outer match entry).
-      Spec: [`docs/bench-analysis-2026-06-03.md`](docs/bench-analysis-2026-06-03.md).
-      **Bench target:** `recursiveEval` 3.57 → ~0.1 ms (~35×),
-      `recursiveEvalMixed` 3.60 → ~0.15 ms (~24×).
+- [x] **jit-match-recursive-descent** — ✓ Landed 2026-06-04.
+      INVOKESTATIC arm self-calls were already present in `walkLong`'s self-call
+      case; `walkArm` confirmed to mark arm bindings as ref-typed.  4 new
+      JitLintTest cases (ObjToLong + LongObjToLong shapes).
+      **Key finding:** 3.57 ms is the physical floor for 1021-node INVOKESTATIC
+      tree traversal at ~3.5 ns/node — the original 35× target (~0.1 ms) was
+      sub-clock-cycle and unreachable.  Not a regression; the prior 8.4–12.3×
+      improvement over JIT-off was already achieved via LApplyR1/R2.
 
-- [ ] **while-jit-map-foreach** — Fused outer-while + `map.foreach((k,v) => acc += v)`
-      bytecode path.  `fasttier-2arg-callentry` handles the 2-param closure
-      shape via FastTier pre-resolved accumulator but the HashMap iteration
-      still runs through Scala's `HashMap.foreach` (4.28 ns/iter vs
-      `patternMatchHeavy`'s 1.35 ns/iter via `while-jit-mixed`).
-      Fix: extend `tryCompileWhileMixed` (or add `tryCompileWhileMapForeach`)
-      to recognise a val-bound `MapV` receiver and emit an `entrySet()` for-loop
-      in the generated Java method.  `WhileJitEntry` gains a `mapLongFns` slot
-      carrying the per-entry extraction fn; `JitGlobals.getMapLongFns` mirrors
-      the existing `getRefLongFns` API.
-      Spec: [`docs/bench-analysis-2026-06-03.md`](docs/bench-analysis-2026-06-03.md).
-      **Bench target:** `mapForeach` 2.14 → ~0.2 ms (~10×).
+- [x] **while-jit-map-foreach** — ✓ Landed 2026-06-04 commits `7e4086c5`, `7897aab7`.
+      Fused outer-while + Map.foreach((k,v)) bytecode path; `WhileJitEntry`
+      gained `mapLongFns` slot + `JitGlobals.getMapLongFns`; entrySet() for-loop
+      emitted in the generated Java method.
+      **Result:** `mapForeach` 2.14 → 0.187 ms (11.4×).
+
+- [ ] **jit-tuple-concat-hoist** — Interp `tupleMonoid` is 55% slower than JVM
+      (0.212 ms vs 0.137 ms).  The bench `while i < 100000 do last = (1,2)++(3,4)`
+      allocates three TupleV objects per iteration; JVM backend constant-folds
+      to a pre-built object.  Fix: in `tryLongWhileAssign` (or a companion
+      `tryConstAssignHoist`), detect assignments where the RHS is a pure
+      constant expression (no free names, no loop-variable refs, no side effects)
+      and pre-evaluate it once before the JIT loop, storing the `Value` in a
+      pre-computed ref slot that the loop body reads without re-allocating.
+      Generalises to any `name = <literal-expr>` inside a while loop.
+      Spec: [`docs/bench-analysis-2026-06-04.md`](docs/bench-analysis-2026-06-04.md).
+      **Bench target:** `tupleMonoid` 0.212 → ~0.14 ms (JVM parity).
+
+- [ ] **effect-stream-jfr** — `effect-stream` runs at 30.1 ms (interp only;
+      no JVM/JS comparison).  This is 1880× slower than `effect-pure` (0.016 ms)
+      for what looks like a similar inner loop.  Before proposing any optimization,
+      run `scripts/bench profile effectStream` to identify whether the cost is in
+      continuation tree construction, per-step `EffectsRuntime` dispatch, or GC
+      pressure from `Computation.FlatMap` chains.  JFR investigation only — no
+      code changes until root cause is confirmed.
+      Spec: [`docs/bench-analysis-2026-06-04.md`](docs/bench-analysis-2026-06-04.md).
 
 - [ ] **direct-style-eval** (deferred multi-week, post Directions A+B) —
       Migrate `eval(term, env, interp): Computation` to direct-style

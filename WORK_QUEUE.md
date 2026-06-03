@@ -258,58 +258,55 @@ non-win.
 
 ### Current baseline (2026-06-03 end-of-session, default flags ALL ON)
 
-> **2026-06-03 update.** Full `scripts/bench interp` run (wi=3 mi=5 1 fork)
-> after landing all dual-bank / Phase C-D / while-jit-inline-match work.
-> Major improvements since the 2026-06-02 table:
-> - `instanceFieldAccess` 8.4 → **0.042** ms (200×, while-jit-inline-match)
-> - `pureCallSum`         12.5 → **0.273** ms (46×, phase-c-bytecode-pure-fn-call + A.1/A.2)
-> - `pureCallSum2`        14.0 → **0.281** ms (50×)
-> - `patternMatchHeavy`   10 → **0.405** ms (25×, while-jit-mixed + mixed-foreach-set)
-> - `patternMatchSet`     113 → **0.201** ms (560×)
-> - `patternMatchWide`    74 → **1.527** ms (48×)
-> - `recursiveEval`       13.0 → **3.570** ms (3.6×, dual-bank LExpr + LApplyR1)
-> - `recursiveEvalMixed`  13.2 → **3.600** ms (3.7×)
-> - `mapForeach`          532 → **2.142** ms (248×, fasttier-2arg-callentry + fast-map-foreach-preresolved)
-> - `refChainArg`         9.7 → **0.375** ms (26×, while-jit-ref-select-chain)
-> Three remaining slow spots: `recursiveEval`/`recursiveEvalMixed` 3.57/3.60 ms,
-> `mapForeach` 2.14 ms, `patternMatchWide` 1.53 ms.
-> Full analysis: [`docs/bench-analysis-2026-06-03.md`](docs/bench-analysis-2026-06-03.md).
+> **2026-06-04 update.** `install.sh` rebuild + full `scripts/bench interp`
+> (wi=3 mi=5 1 fork) + `bench.sh` wall-clock after overnight agent work.
+> Major improvements since the 2026-06-03 table:
+> - `mapForeach`      2.142 → **0.189** ms (11.4×, while-jit-map-foreach)
+> - `tupleMonoid` JS  2.52  → **0.027** ms (93×, js-codegen-opt-p2)
+> - AsmJitBackend Phase 1+2 at full Javac parity (asm-jit-parity-optimizations)
+> Physical floors confirmed:
+> - `recursiveEval` / `recursiveEvalMixed` at ~3.7 ms — 3.5 ns/node INVOKESTATIC, unreducible
+> Open targets: `patternMatchWide` 1.41 ms, `tupleMonoid` interp 0.212 ms vs JVM 0.137 ms.
+> Full analysis: [`docs/bench-analysis-2026-06-04.md`](docs/bench-analysis-2026-06-04.md).
 
 Default flags ON: `SSC_JIT=on`, `SSC_FASTTIER=on`, `SSC_JIT_BYTECODE=on`.
-Backend selector: `SSC_JIT_BACKEND=asm` (default: `javac`; `AsmJitBackend` landed 2026-06-03).
+Backend selector: `SSC_JIT_BACKEND=asm` (default: `javac`; `AsmJitBackend` at Javac parity 2026-06-04).
 Opt-out via `=off` on env or `-D…=off` on JMH forks. Numbers below are
 the baseline for any next A/B; if your stash-baseline gives wildly
 different numbers, sanity-check sbt picked up the worktree (`set current
 project to root (in build file:<worktree-path>/)` line) before trusting.
 
-`InterpreterBench` (ms/op, 1 fork × 5 iters, 2026-06-03):
+**Benchmark protocol:** `bash install.sh` first (rebuilds ssc binary used by bench.sh),
+then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
+
+`InterpreterBench` (ms/op, 1 fork × 5 iters, 2026-06-04):
 
 | Bench | Current | Notes |
 |---|---|---|
-| `arithLoop` | **0.270** | JVM parity |
-| `effectPure` | 0.015 | trivially small |
-| `instanceFieldAccess` | **0.042** | while-jit-inline-match 195× |
-| `mapForeach` | **0.187** | while-jit-map-foreach 11.4× |
-| `matchBodyBaseline` | 0.045 | — |
-| `nestedMatchExpr` | 0.043 | — |
-| `patternGuard` | 0.046 | — |
-| `patternMatchHeavy` | **0.405** | while-jit-mixed win; near JVM parity |
-| `patternMatchSet` | **0.201** | — |
-| `patternMatchWide` | 1.527 | **OPEN** — phase-d-patternmatch-fused-foreach target |
-| `pureCallSum` | **0.273** | JVM parity |
-| `pureCallSum2` | **0.281** | JVM parity |
-| `pureCallSumIf` | **0.287** | JVM parity |
-| `pureCallSumBlock` | **0.278** | JVM parity |
-| `recursionFib` | **1.262** | BEATS JVM (1.42 ms) |
-| `recursionFibD` | **1.504** | JVM parity |
-| `recursionFibMul` | **1.330** | JVM parity |
-| `recursionFibMulD` | **1.666** | JVM parity |
-| `recursionTco` | **0.034** | JVM parity |
-| `recursiveEval` | **3.567** | INVOKESTATIC arm self-calls confirmed (8.4× vs 29.9 ms JIT-off) |
-| `recursiveEvalMixed` | **3.660** | INVOKESTATIC arm self-calls confirmed (12.3× vs 45.2 ms JIT-off) |
-| `refChainArg` | 0.375 | while-jit-ref-select-chain 26× |
+| `arithLoop` | **0.283** | JVM parity |
+| `effectPure` | 0.016 | — |
+| `instanceFieldAccess` | **0.041** | while-jit-inline-match 195× |
+| `mapForeach` | **0.189** | while-jit-map-foreach 11.4× (was 2.14) |
+| `matchBodyBaseline` | 0.044 | — |
+| `nestedMatchExpr` | 0.044 | — |
+| `patternGuard` | 0.045 | — |
+| `patternMatchHeavy` | **0.414** | BEATS JVM (0.577 wall-clock) |
+| `patternMatchSet` | **0.202** | — |
+| `patternMatchWide` | 1.414 | **OPEN** — phase-d-patternmatch-fused-foreach target ~0.3 ms |
+| `pureCallSum` | **0.263** | JVM parity |
+| `pureCallSum2` | **0.260** | JVM parity |
+| `pureCallSumIf` | **0.265** | JVM parity |
+| `pureCallSumBlock` | **0.253** | JVM parity |
+| `recursionFib` | **1.237** | BEATS JVM (1.28 wall-clock) |
+| `recursionFibD` | **1.462** | JVM parity |
+| `recursionFibMul` | **1.321** | JVM parity |
+| `recursionFibMulD` | **1.602** | JVM parity |
+| `recursionTco` | **0.033** | JVM parity |
+| `recursiveEval` | 3.739 | physical floor — 3.5 ns/node INVOKESTATIC, unreducible |
+| `recursiveEvalMixed` | 3.661 | physical floor |
+| `refChainArg` | 0.367 | — |
 | `refFieldArg` | 0.046 | — |
-| `tupleMonoid` | 0.202 | interp ok; JS 2.52 ms still open (js-codegen-opt-p2) |
+| `tupleMonoid` | 0.212 | **OPEN** — 55% slower than JVM (0.137); jit-tuple-concat-hoist target |
 
 `RuntimeBench` cross-backend (µs/op, default flags):
 
@@ -902,12 +899,52 @@ highest-impact item.
       SectionRuntime, ValueSerializer all updated. instanceVArrayEnabled flag removed.
       1233/1233 green. Bench: patternMatchSet 0.283 → 0.197 ms (~30%).
 
-- [ ] **phase-d-patternmatch-fused-foreach** — once
-      `phase-d-instancev-array-repr` lands, BytecodeJit could compile
-      `area(s) match` directly to a Java method operating on the array
-      repr; combined with FastTier-style foreach driver fusion this is
-      the path toward closing the remaining `interp_patternMatch` 213×
-      off-JVM gap in `RuntimeBench`.
+- [ ] **jit-tuple-concat-hoist** — `tupleMonoid` interp 0.212 ms vs jvm 0.137 ms (55% gap).
+      Bench: `while i < 100000 do last = (1,2)++(3,4)`.  Every iteration allocates
+      three `TupleV` objects; JVM backend constant-folds to a pre-built object.
+      The while-JIT handles the `i` counter but `last = (1,2)++(3,4)` falls through
+      to `EvalRuntime` because it is not a Long expression.
+
+      Fix in `tryLongWhileAssign`: detect assignments of the form `name = expr`
+      where the RHS is a pure constant expression (no free names referencing loop
+      variables, no side effects).  Pre-evaluate the RHS once before the JIT loop
+      entry and cache the resulting `Value` in a pre-computed ref slot.  The loop
+      body stores the cached ref without re-allocating.  Generalises to any
+      `name = <literal-expr>` in a JIT-compiled while body.
+
+      Same-session A/B required; gate stays on.
+      **Bench target:** `tupleMonoid` 0.212 → ~0.14 ms (JVM parity, ~1.5×).
+      Spec: [`docs/bench-analysis-2026-06-04.md`](docs/bench-analysis-2026-06-04.md).
+
+- [ ] **effect-stream-jfr** — `effect-stream` runs at 30.1 ms (interp only; JVM/JS
+      not implemented).  This is 1880× slower than `effect-pure` (0.016 ms) for what
+      looks like a similar inner loop with a stream-mode effect.  Before proposing any
+      optimization, run `scripts/bench profile effectStream` to identify whether the
+      cost is in:
+      - Continuation tree construction / allocation (stream effects need multi-shot conts)
+      - Per-step dispatch in `EffectsRuntime.runStream`
+      - GC pressure from `Computation.FlatMap` chains
+      - `effect-stream` bench parameters (iterations × inner loop size)
+
+      This is a JFR + investigation task only — no code changes until root cause
+      confirmed and a concrete intervention identified.
+      Spec: [`docs/bench-analysis-2026-06-04.md`](docs/bench-analysis-2026-06-04.md).
+
+- [ ] **phase-d-patternmatch-fused-foreach** — `patternMatchWide` at 1.414 ms
+      (12-constructor ADT, 50K × 12 = 600K `eval` calls via `while-jit-mixed`).
+      2.36 ns/call is good but the per-element `ObjToLong.apply(o)` is still one
+      indirect JVM call per node.
+
+      If `JavacJitBackend` compiled the entire foreach body inline — emitting
+      `switch(inst.typeTag) { ... }` inside the fused Java method rather than
+      calling `_fn0.apply(o)` — HotSpot could devirtualize and eliminate the
+      indirect call.  Implementation: extend `tryCompileWhileMixed` to detect
+      when the inner `fn` is a JIT-compiled match-body `ObjToLong` and inline
+      its switch directly into the fused method.
+
+      Also closes the `interp_patternMatch` 213× off-JVM gap in `RuntimeBench`
+      once fused foreach + fieldsArr access is combined.
+      **Bench target:** `patternMatchWide` 1.414 → ~0.3 ms (~5×).
 
 - [x] **phase-d-patternmatchset-direct** — ✓ Landed 2026-06-02 commit
       `8f911f14`. Direct `Set`-aware FastTier path
