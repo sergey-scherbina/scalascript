@@ -1,4 +1,4 @@
-package scalascript.interpreter.vm
+package scalascript.interpreter.vm.jit
 
 // Typed unboxed dispatch interfaces implemented by JIT-generated classes.
 // All methods have primitive JVM descriptors so callers skip boxing.

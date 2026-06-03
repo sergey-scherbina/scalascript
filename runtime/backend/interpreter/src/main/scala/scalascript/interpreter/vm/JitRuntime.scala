@@ -1,6 +1,7 @@
 package scalascript.interpreter.vm
 
 import scalascript.interpreter.{Value, Computation, Interpreter}
+import scalascript.interpreter.vm.jit.{JitBackend, JitResult, JitGlobals, LongFn1, DoubleFn1, ObjToLong, ObjToDouble, LongFn2, DoubleFn2}
 import java.lang as jl
 
 /** Run-time JIT bridge between the tree-walking interpreter and [[SscVm]].
@@ -47,7 +48,7 @@ object JitRuntime:
   final class Entry:
     @volatile var compiled: SscVm.CompiledFn | Null = null
     @volatile var disabled: Boolean = false
-    @volatile var bytecode: BytecodeJit.Result | Null = null
+    @volatile var bytecode: JitResult | Null = null
     @volatile var bytecodeTried: Boolean = false
     var calls: Int = 0
 
@@ -163,15 +164,15 @@ object JitRuntime:
    *  tried at most once per FunV; the underlying `BytecodeJit.tryCompile`
    *  caches by body AST so a rebuilt FunV with the same body skips compile).
    *  Returns the `Result` (handle + paramIsRef) or null. */
-  private def bytecodeFor(f: Value.FunV, interp: Interpreter): BytecodeJit.Result | Null =
-    if !BytecodeJit.enabled then return null
+  private def bytecodeFor(f: Value.FunV, interp: Interpreter): JitResult | Null =
+    if !JitBackend.default.enabled then return null
     val e = entryFor(f)
     val r = e.bytecode
     if r != null then return r
     if e.bytecodeTried then return null
     cache.synchronized:
       if !e.bytecodeTried then
-        e.bytecode     = BytecodeJit.tryCompile(f, interp)
+        e.bytecode     = JitBackend.default.tryCompile(f, interp)
         e.bytecodeTried = true
     e.bytecode
 
@@ -195,11 +196,11 @@ object JitRuntime:
         case Value.IntV(x) => jl.Long.valueOf(x)
         case _             => null
 
-  private def wrapBytecodeResult(r: BytecodeJit.Result, out: AnyRef): Computation =
+  private def wrapBytecodeResult(r: JitResult, out: AnyRef): Computation =
     if r.resultIsDouble then Computation.Pure(Value.doubleV(out.asInstanceOf[jl.Double].doubleValue))
     else Computation.pureIntV(out.asInstanceOf[jl.Long].longValue)
 
-  private def invokeBytecode1(r: BytecodeJit.Result, arg: Value, interp: Interpreter): Computation | Null =
+  private def invokeBytecode1(r: JitResult, arg: Value, interp: Interpreter): Computation | Null =
     val d = r.direct
     if d != null then
       try
@@ -209,22 +210,22 @@ object JitRuntime:
               case Value.IntV(x)    => x.toDouble
               case Value.DoubleV(x) => x
               case _                => return null
-            val result = BytecodeJit.withInterp(interp) { d.asInstanceOf[DoubleFn1].apply(n) }
+            val result = JitGlobals.withInterp(interp) { d.asInstanceOf[DoubleFn1].apply(n) }
             Computation.Pure(Value.doubleV(result))
           else
             val n = arg match
               case Value.IntV(x) => x
               case _             => return null
-            val result = BytecodeJit.withInterp(interp) { d.asInstanceOf[LongFn1].apply(n) }
+            val result = JitGlobals.withInterp(interp) { d.asInstanceOf[LongFn1].apply(n) }
             Computation.pureIntV(result)
         else
           arg match
             case _: Value.InstanceV =>
               if r.resultIsDouble then
-                val result = BytecodeJit.withInterp(interp) { d.asInstanceOf[ObjToDouble].apply(arg.asInstanceOf[AnyRef]) }
+                val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjToDouble].apply(arg.asInstanceOf[AnyRef]) }
                 Computation.Pure(Value.doubleV(result))
               else
-                val result = BytecodeJit.withInterp(interp) { d.asInstanceOf[ObjToLong].apply(arg.asInstanceOf[AnyRef]) }
+                val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjToLong].apply(arg.asInstanceOf[AnyRef]) }
                 Computation.pureIntV(result)
             case _ => null
       catch case _: Throwable => null
@@ -232,11 +233,11 @@ object JitRuntime:
       val a0 = marshalBytecode(arg, r.paramIsRef(0), r.resultIsDouble)
       if a0 == null then return null
       val out =
-        try BytecodeJit.withInterp(interp) { r.mh.invoke(a0).asInstanceOf[AnyRef] }
+        try JitGlobals.withInterp(interp) { r.mh.invoke(a0).asInstanceOf[AnyRef] }
         catch case _: Throwable => return null
       wrapBytecodeResult(r, out)
 
-  private def invokeBytecode2(r: BytecodeJit.Result, a: Value, b: Value, interp: Interpreter): Computation | Null =
+  private def invokeBytecode2(r: JitResult, a: Value, b: Value, interp: Interpreter): Computation | Null =
     val d = r.direct
     if d != null then
       // unboxed path: only pure-long or pure-double 2-param (no mixed ref+numeric)
@@ -244,12 +245,12 @@ object JitRuntime:
         if r.resultIsDouble then
           val x = a match { case Value.IntV(v) => v.toDouble; case Value.DoubleV(v) => v; case _ => return null }
           val y = b match { case Value.IntV(v) => v.toDouble; case Value.DoubleV(v) => v; case _ => return null }
-          val result = BytecodeJit.withInterp(interp) { d.asInstanceOf[DoubleFn2].apply(x, y) }
+          val result = JitGlobals.withInterp(interp) { d.asInstanceOf[DoubleFn2].apply(x, y) }
           Computation.Pure(Value.doubleV(result))
         else
           val x = a match { case Value.IntV(v) => v; case _ => return null }
           val y = b match { case Value.IntV(v) => v; case _ => return null }
-          val result = BytecodeJit.withInterp(interp) { d.asInstanceOf[LongFn2].apply(x, y) }
+          val result = JitGlobals.withInterp(interp) { d.asInstanceOf[LongFn2].apply(x, y) }
           Computation.pureIntV(result)
       catch case _: Throwable => null
     else
@@ -258,7 +259,7 @@ object JitRuntime:
       val b0 = marshalBytecode(b, r.paramIsRef(1), r.resultIsDouble)
       if b0 == null then return null
       val out =
-        try BytecodeJit.withInterp(interp) { r.mh.invoke(a0, b0).asInstanceOf[AnyRef] }
+        try JitGlobals.withInterp(interp) { r.mh.invoke(a0, b0).asInstanceOf[AnyRef] }
         catch case _: Throwable => return null
       wrapBytecodeResult(r, out)
 
@@ -269,7 +270,7 @@ object JitRuntime:
    *  omits it entirely when `slotFreeNames.isEmpty`, since generated code then
    *  never calls `readGlobalDouble`). */
   def tryGetObjToDouble(f: Value.FunV, interp: Interpreter): ObjToDouble | Null =
-    if !BytecodeJit.enabled then return null
+    if !JitBackend.default.enabled then return null
     val r = bytecodeFor(f, interp)
     if r == null then return null
     if !r.resultIsDouble then return null
@@ -281,7 +282,7 @@ object JitRuntime:
   /** For FastTier: try to get an `ObjToLong` direct interface for a
    *  1-param ref → long JIT-compiled function. Parallel to `tryGetObjToDouble`. */
   def tryGetObjToLong(f: Value.FunV, interp: Interpreter): ObjToLong | Null =
-    if !BytecodeJit.enabled then return null
+    if !JitBackend.default.enabled then return null
     val r = bytecodeFor(f, interp)
     if r == null then return null
     if r.resultIsDouble then return null
@@ -296,7 +297,7 @@ object JitRuntime:
    *  list-shaped arg convention. Returns null on any miss → caller continues
    *  with the trampoline. */
   def tryBytecodeList(f: Value.FunV, args: List[Value], interp: Interpreter): Computation | Null =
-    if !BytecodeJit.enabled || f.name.isEmpty then return null
+    if !JitBackend.default.enabled || f.name.isEmpty then return null
     val n = f.params.length
     if n < 1 || n > 2 || args.length != n then return null
     val bc = bytecodeFor(f, interp)
@@ -358,7 +359,7 @@ object JitRuntime:
         // Phase C bytecode JIT for 1- or 2-param funcs; bypasses the
         // SscVm.exec dispatch loop when the body fits its subset
         // (incl. the TCO `while`-loop pattern from `tryTcoBody`).
-        if (n == 1 || n == 2) && BytecodeJit.enabled then
+        if (n == 1 || n == 2) && JitBackend.default.enabled then
           val bc = bytecodeFor(f, interp)
           if bc != null then
             val r = if n == 1 then invokeBytecode1(bc, args.head, interp)

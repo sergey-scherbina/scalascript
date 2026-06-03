@@ -3,7 +3,7 @@ package scalascript.interpreter
 import scala.meta.Term
 import Computation.PureUnit
 import java.lang.Double.{doubleToRawLongBits, longBitsToDouble}
-import scalascript.interpreter.vm.{ObjToDouble, ObjToLong}
+import scalascript.interpreter.vm.jit.{ObjToDouble, ObjToLong}
 
 /** Gated fast-tier (binary-strolling-river plan A3/A4).
  *

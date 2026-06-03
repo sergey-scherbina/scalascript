@@ -236,7 +236,7 @@ private[interpreter] object EvalRuntime:
         if cached eq WhileJitMiss then return null
         else cached.asInstanceOf[java.lang.reflect.Method]
       else
-        val m = scalascript.interpreter.vm.BytecodeJit.tryCompileWhileLong(
+        val m = scalascript.interpreter.vm.jit.JitBackend.default.tryCompileWhileLong(
           t.expr, body.names, body.rhs, interp
         )
         interp.whileJitCache.put(t, if m == null then WhileJitMiss else m.asInstanceOf[AnyRef])
@@ -251,7 +251,7 @@ private[interpreter] object EvalRuntime:
         case _             => return null
       k += 1
     try
-      scalascript.interpreter.vm.BytecodeJit.withInterp(interp) {
+      scalascript.interpreter.vm.jit.JitGlobals.withInterp(interp) {
         method.invoke(null, args.asInstanceOf[AnyRef])
       }
     catch

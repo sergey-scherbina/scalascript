@@ -1,6 +1,6 @@
-package scalascript.interpreter.vm
+package scalascript.interpreter.vm.jit
 
-import java.lang.invoke.{MethodHandles, MethodHandle, MethodType}
+import java.lang.invoke.{MethodHandles, MethodType}
 import javax.tools.{ToolProvider, JavaFileObject, SimpleJavaFileObject, ForwardingJavaFileManager, JavaFileManager, FileObject}
 import java.io.{ByteArrayOutputStream, OutputStream}
 import java.net.URI
@@ -38,101 +38,32 @@ import scalascript.interpreter.Value
  *  23.8×, recursionTco 33.6×, recursiveEval 2.45×) with the full 1205-test
  *  suite green in both modes. Opt out via `SSC_JIT_BYTECODE=off` /
  *  `-Dssc.jit.bytecode=off` if a regression needs A/B isolation. */
-object BytecodeJit:
+object JavacJitBackend extends JitBackend:
+
+  override val id: String = "javac"
 
   /** Default **ON**. Opt out via env `SSC_JIT_BYTECODE=off` or the parallel
    *  system property `-Dssc.jit.bytecode=off` (JMH forks — `-D` propagates
    *  through `-jvmArgsAppend`, env vars do not always). The off-switch
    *  matches the pattern set by `SSC_JIT` and `SSC_FASTTIER`. */
-  val enabled: Boolean =
+  override val enabled: Boolean =
     !sys.env.get("SSC_JIT_BYTECODE").map(_.toLowerCase).contains("off") &&
       !sys.props.get("ssc.jit.bytecode").map(_.toLowerCase).contains("off")
 
-  /** Compilation result. `paramIsRef(i)` is true when the i-th param is
-   *  passed as an `Object` (an `InstanceV`); otherwise the param is `long`
-   *  (the Int case) when `resultIsDouble=false`, or `double` (the all-double
-   *  case) when `resultIsDouble=true`. `resultIsDouble` also drives the
-   *  caller's IntV-vs-DoubleV result wrapping in `JitRuntime`.
-   *
-   *  `direct`, when non-null, is an instance of one of the `JitInterfaces`
-   *  traits (LongFn1 / DoubleFn1 / ObjToLong / ObjToDouble / LongFn2 /
-   *  DoubleFn2) whose `apply` method calls the JIT-generated static method
-   *  directly with unboxed primitives, eliminating the Long.valueOf allocations
-   *  that `MethodHandle.invoke` produces. `JitRuntime.invokeBytecode*` uses
-   *  this when non-null; falls back to `mh` when null (mixed-param functions
-   *  or functions where instantiation failed). */
-  final class Result(
-    val mh:             MethodHandle,
-    val paramIsRef:     Array[Boolean],
-    val resultIsDouble: Boolean = false,
-    val direct:         AnyRef | Null = null
-  )
-
-  /** Per-thread interpreter handle for the free-name globals read path.
-   *  `JitRuntime` sets this on each MH invocation; the generated Java code
-   *  calls back into `readGlobalLong(name)` to resolve a free `Int` global
-   *  by name. The lookup adds one HashMap miss + a type cast per read, but
-   *  the rest of the function body still benefits from the bytecode-JIT'd
-   *  hot path. */
-  private val interpTls: ThreadLocal[scalascript.interpreter.Interpreter] =
-    new ThreadLocal[scalascript.interpreter.Interpreter]()
-
-  def withInterp[A](interp: scalascript.interpreter.Interpreter)(thunk: => A): A =
-    val prev = interpTls.get()
-    interpTls.set(interp)
-    // Restore via `set(prev)` rather than `remove()` even when `prev == null`:
-    // `remove()` deletes the per-thread ThreadLocalMap.Entry, and the next
-    // outer call's `set(interp)` then re-allocates it. JFR profiling on
-    // `recursiveEval` showed ~10 MB/op of `ThreadLocalMap$Entry` allocations
-    // on this exact path — one Entry per outer bytecode-JIT invocation, of
-    // which there are millions per script. Setting the slot to `null` leaves
-    // the Entry intact with a null value; `readGlobalLong/Double` already
-    // check for `interp == null`, so semantics are preserved. Per-thread
-    // memory cost: ~32 bytes that never shrink — negligible.
-    try thunk
-    finally interpTls.set(prev)
-
-  /** Called by generated Java code: read a top-level `Int` global by name and
-   *  return its `Long` value. Throws `RuntimeException` if the name is
-   *  missing or not an `IntV` — caller's MH invocation catches and falls
-   *  back to the SscVm.exec / tree-walk path. */
-  def readGlobalLong(name: String): Long =
-    val interp = interpTls.get()
-    if interp == null then throw new RuntimeException("BytecodeJit.readGlobalLong: no interp in TLS")
-    val v = interp.globals.getOrElse(name, null)
-    v match
-      case Value.IntV(x) => x
-      case _             => throw new RuntimeException(s"BytecodeJit.readGlobalLong: '$name' not an Int")
-
-  /** Double-globals parallel of `readGlobalLong`. Resolves to `DoubleV` only;
-   *  an `IntV` value at runtime throws and the wrapping MH invocation falls
-   *  back to the SscVm.exec / tree-walk path. The compile-time gate in
-   *  `walkDouble` only emits this call when the current `interp.globals`
-   *  resolves the name to `DoubleV`, so the runtime mismatch only occurs if
-   *  the global is reassigned to a non-Double value between compile time and
-   *  call time — a rare shape; safer to bail than to silently widen IntV. */
-  def readGlobalDouble(name: String): Double =
-    val interp = interpTls.get()
-    if interp == null then throw new RuntimeException("BytecodeJit.readGlobalDouble: no interp in TLS")
-    val v = interp.globals.getOrElse(name, null)
-    v match
-      case Value.DoubleV(x) => x
-      case _                => throw new RuntimeException(s"BytecodeJit.readGlobalDouble: '$name' not a Double")
-
-  /** Cache by FunV body AST identity. Value is a `Result` on hit or the
+  /** Cache by FunV body AST identity. Value is a `JitResult` on hit or the
    *  `BailSentinel` on miss (so we don't re-attempt compilation for the same
    *  body). Synchronized via the cache monitor. */
   private val cache = new java.util.IdentityHashMap[scala.meta.Term, AnyRef]()
   private val BailSentinel: AnyRef = new AnyRef
 
-  def tryCompile(f: Value.FunV, interp: scalascript.interpreter.Interpreter): Result | Null =
+  override def tryCompile(f: Value.FunV, interp: scalascript.interpreter.Interpreter): JitResult | Null =
     if !enabled || f.name.isEmpty then return null
     if f.params.length != 1 && f.params.length != 2 then return null
     val body = f.body
     cache.synchronized {
       val cached = cache.get(body)
       if cached != null then
-        return if cached eq BailSentinel then null else cached.asInstanceOf[Result]
+        return if cached eq BailSentinel then null else cached.asInstanceOf[JitResult]
     }
     val result = doCompile(f, interp)
     cache.synchronized {
@@ -155,7 +86,7 @@ object BytecodeJit:
     hit
 
   /** True iff the body's top-level result is a Boolean (comparison or
-   *  short-circuit). `BytecodeJit` returns `long` from every generated method
+   *  short-circuit). `JavacJitBackend` returns `long` from every generated method
    *  and the caller wraps as `IntV(0|1)` — a Boolean-returning fn would then
    *  be misrepresented to consumers expecting `BoolV`. Bail in that case so
    *  the SscVm.exec / tree-walk path handles those correctly. */
@@ -173,7 +104,7 @@ object BytecodeJit:
    *  and exposes a primitive `apply` method so JitRuntime can dispatch without
    *  boxing. */
   private def determineInterface(n: Int, paramIsRef: Array[Boolean], isDouble: Boolean): String | Null =
-    val pkg = "scalascript.interpreter.vm"
+    val pkg = "scalascript.interpreter.vm.jit"
     if n == 1 then
       if paramIsRef(0) then if isDouble then s"$pkg.ObjToDouble" else s"$pkg.ObjToLong"
       else if isDouble then s"$pkg.DoubleFn1" else s"$pkg.LongFn1"
@@ -181,7 +112,7 @@ object BytecodeJit:
       if isDouble then s"$pkg.DoubleFn2" else s"$pkg.LongFn2"
     else null
 
-  private def doCompile(f: Value.FunV, interp: scalascript.interpreter.Interpreter): Result | Null =
+  private def doCompile(f: Value.FunV, interp: scalascript.interpreter.Interpreter): JitResult | Null =
     if isBoolReturning(f.body) then return null
     val paramSet = f.params.toSet
     // Per-param ref/int classification. A param is ref when it is the
@@ -260,7 +191,7 @@ object BytecodeJit:
       catch case _: Throwable => false
     if !ok then return null
 
-    val loader = new ClassLoader(classOf[BytecodeJit.type].getClassLoader):
+    val loader = new ClassLoader(classOf[JavacJitBackend.type].getClassLoader):
       override def findClass(name: String): Class[?] =
         if name == className then
           val bytes = classBytes.toByteArray
@@ -285,7 +216,7 @@ object BytecodeJit:
         try cls.getConstructor().newInstance().asInstanceOf[AnyRef]
         catch case _: Throwable => null
       else null
-    new Result(mh, paramIsRef, isDouble, direct)
+    new JitResult(mh, paramIsRef, isDouble, direct)
 
   // ── AST → Java source walker ──────────────────────────────────────────────
 
@@ -350,7 +281,7 @@ object BytecodeJit:
             case Value.IntV(v) if ctx.interp.valNames.contains(tn.value) =>
               s"${v}L"
             case _: Value.IntV =>
-              s"""scalascript.interpreter.vm.BytecodeJit$$.MODULE$$.readGlobalLong("${escape(tn.value)}")"""
+              s"""scalascript.interpreter.vm.jit.JitGlobals$$.MODULE$$.readGlobalLong("${escape(tn.value)}")"""
             case _ => null
     case ti: Term.If =>
       val c = walkBool(ti.cond, ctx); if c == null then return null
@@ -452,7 +383,7 @@ object BytecodeJit:
             case Value.DoubleV(v) if ctx.interp.valNames.contains(tn.value) =>
               v.toString.toDouble.toString
             case _: Value.DoubleV =>
-              s"""scalascript.interpreter.vm.BytecodeJit$$.MODULE$$.readGlobalDouble("${escape(tn.value)}")"""
+              s"""scalascript.interpreter.vm.jit.JitGlobals$$.MODULE$$.readGlobalDouble("${escape(tn.value)}")"""
             case _ => null
     case ti: Term.If =>
       val c = walkBool(ti.cond, ctx); if c == null then return null
@@ -543,9 +474,9 @@ object BytecodeJit:
       restList = restList.tail
       ci += 1
     if allTagged then
-      sb.append("  default: throw new RuntimeException(\"BytecodeJit: no case matched, tag=\" + inst.typeTag());\n    }")
+      sb.append("  default: throw new RuntimeException(\"JavacJitBackend: no case matched, tag=\" + inst.typeTag());\n    }")
     else
-      sb.append("  default: throw new RuntimeException(\"BytecodeJit: no case matched, typeName=\" + tn);\n    }")
+      sb.append("  default: throw new RuntimeException(\"JavacJitBackend: no case matched, typeName=\" + tn);\n    }")
     sb.toString
 
   /** Emit a `Term.Match` as a Java switch *expression* (Java 14+) — the
@@ -611,9 +542,9 @@ object BytecodeJit:
       restList = restList.tail
       ci += 1
     if allTagged then
-      sb.append("  default -> { throw new RuntimeException(\"BytecodeJit: no case matched, tag=\" + inst.typeTag()); }\n      };\n    }))")
+      sb.append("  default -> { throw new RuntimeException(\"JavacJitBackend: no case matched, tag=\" + inst.typeTag()); }\n      };\n    }))")
     else
-      sb.append("  default -> { throw new RuntimeException(\"BytecodeJit: no case matched, typeName=\" + inst.typeName()); }\n      };\n    }))")
+      sb.append("  default -> { throw new RuntimeException(\"JavacJitBackend: no case matched, typeName=\" + inst.typeName()); }\n      };\n    }))")
     sb.append(s".$getterMethod()")
     sb.toString
 
@@ -884,7 +815,7 @@ object BytecodeJit:
     val pureFnEmissions:  scala.collection.mutable.LinkedHashMap[String, String]
   )
 
-  def tryCompileWhileLong(
+  override def tryCompileWhileLong(
     cond:  Term,
     names: Array[String],
     rhs:   Array[Term],
@@ -956,7 +887,7 @@ object BytecodeJit:
     if !ok then
       whileLongGlobalCache.put(cond, WhileLongMiss)
       return null
-    val loader = new ClassLoader(classOf[BytecodeJit.type].getClassLoader):
+    val loader = new ClassLoader(classOf[JavacJitBackend.type].getClassLoader):
       override def findClass(name: String): Class[?] =
         if name == className then
           val bytes = classBytes.toByteArray
