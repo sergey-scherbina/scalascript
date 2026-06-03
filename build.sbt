@@ -667,7 +667,10 @@ lazy val interpreterBench = project
   .enablePlugins(JmhPlugin)
   .settings(
     name := "scalascript-interpreter-bench",
-    Jmh / scalacOptions ++= sharedScalacOptions
+    Jmh / scalacOptions ++= sharedScalacOptions,
+    // Pin forked JMH JVM to 4g so it doesn't inherit JDK_JAVA_OPTIONS (-Xmx8g).
+    // Without this, bench + bloop together exceed physical RAM on a 36GB machine.
+    Jmh / javaOptions ++= Seq("-Xmx4g", "-XX:+UseG1GC")
   )
 
 // JMH microbenchmarks for the compiler hot paths (parser + typer + unifier).
@@ -679,7 +682,8 @@ lazy val compilerBench = project
   .enablePlugins(JmhPlugin)
   .settings(
     name := "scalascript-compiler-bench",
-    Jmh / scalacOptions ++= sharedScalacOptions
+    Jmh / scalacOptions ++= sharedScalacOptions,
+    Jmh / javaOptions ++= Seq("-Xmx4g", "-XX:+UseG1GC")
   )
 
 // Interpreter-owned HTTP/WS server runtime.  The route registries
