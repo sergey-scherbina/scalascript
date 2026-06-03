@@ -1,4 +1,0 @@
-feature/asm-jit-parity-optimizations-20260604 2026-06-04T00:00:00Z
-status: not-started
-done-so-far:
-next: audit AsmJitBackend vs JavacJitBackend, write spec/backlog/queue, then port missing safe optimizations
