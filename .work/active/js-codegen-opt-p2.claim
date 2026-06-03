@@ -1,0 +1,4 @@
+feature+js-codegen-opt-p2 2026-06-03T21:33:51Z
+status: not-started
+done-so-far:
+next: analyze JsGen.scala tuple/++ codegen paths
