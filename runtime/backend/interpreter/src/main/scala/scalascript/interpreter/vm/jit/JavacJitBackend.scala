@@ -1459,6 +1459,32 @@ object JavacJitBackend extends JitBackend:
             if nargs == 1 then s"$sanitised($a0)"
             else                s"$sanitised($a0, $a1)"
         case _ => null
+    // Inline match on a val-bound InstanceV global: `p match { case Pair(a,b) => a+b }`.
+    // The scrutinee resolves to a `_rN` ref slot; the match is co-emitted as a static
+    // helper method `fn_imatch_HASH(Object scrutName)` that wraps `walkMatchBody` output.
+    // The call site emits `fn_imatch_HASH(_rN)`.  Not valid inside callee static methods
+    // (isCallee=true) since they have no ref preamble and cannot access TLS ref arrays.
+    case tm: Term.Match if ctx.interp != null && !ctx.isCallee =>
+      val scrutRefJava = walkRefArgCtx(tm.expr, ctx)
+      if scrutRefJava == null then return null
+      val scrutName = tm.expr match
+        case n: Term.Name => n.value
+        case _            => return null
+      val methodName = "fn_imatch_" + Integer.toUnsignedString(System.identityHashCode(tm))
+      if ctx.pureFnEmissions.contains(methodName) then
+        return s"$methodName($scrutRefJava)"
+      // Temporary GenCtx: treats the scrutinee as a single ref param so that
+      // walkMatchBody finds it in ctx.params and generates the InstanceV cast.
+      val genCtx = new GenCtx(
+        methodName, Set(scrutName), Array(scrutName), Array(true),
+        false, Map.empty, ctx.interp
+      )
+      val matchBody = walkMatchBody(tm, genCtx, ctx.interp)
+      if matchBody == null then return null
+      val methodSrc =
+        s"  public static long $methodName(Object ${sanitize(scrutName)}) {\n    $matchBody\n  }\n"
+      ctx.pureFnEmissions(methodName) = methodSrc
+      s"$methodName($scrutRefJava)"
     case _ => null
 
   /** Resolve a Term to a Java ref expression (`_rN`, `_objFnN.apply(_rM)`,
