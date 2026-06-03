@@ -3,8 +3,8 @@ package scalascript.frontend
 /** Lowers a `View.DataTable` into standard composable IR.
  *
  *  Produces a `<table>` with a static `<thead>` (column headers) and a
- *  reactive `<tbody>` gated by a `ModelView` that fetches via `dt.signal`.
- *  Each row is a `ForModel` iteration emitting `<tr>` cells with
+ *  reactive `<tbody>` gated by a `ModelView` that fetches via the Remote
+ *  signal.  Each row is a `ForModel` iteration emitting `<tr>` cells with
  *  `ModelText` for data columns and `Button` for action columns.
  *
  *  `ModelView` wraps ONLY the `<tbody>` so the header row renders immediately
@@ -12,7 +12,10 @@ package scalascript.frontend
  *
  *  Web backends (React, Vue) call `lower()` from their `DataTable` render arm
  *  and recurse into the returned View tree.  Solid and Custom use a direct
- *  imperative DOM implementation instead (no span-wrapper issues, no TDZ). */
+ *  imperative DOM implementation instead (no span-wrapper issues, no TDZ).
+ *
+ *  Non-Remote sources (StaticRows, SignalRows) are stubs — they emit the
+ *  header row and an empty body; full rendering will be added in a future phase. */
 object DataTableLowering:
 
   private val noAttrs   = Map.empty[String, AttrValue]
@@ -22,22 +25,30 @@ object DataTableLowering:
     View.Element(tag, noAttrs, noEvents, children)
 
   def lower(dt: View.DataTable): View[?] =
-    val bindingVar = dt.signal.id
-    val itemVar    = "row"
-    val headerRow  = elem("tr",
-      dt.columns.map(c => elem("th", List(View.Text(() => c.title, Style())))))
-    val thead = elem("thead", List(headerRow))
-    val dataCells = dt.columns.map { c =>
-      c.editAction match
-        case Some(ea) => elem("td", List(View.EditableCell(itemVar, c.fieldPath, ea)))
-        case None     => elem("td", List(View.ModelText(itemVar, c.fieldPath)))
-    }
-    val actionCells = dt.actions.map(a => elem("td", List(actionButton(a))))
-    val bodyRow = elem("tr", dataCells ++ actionCells)
-    val tbody = elem("tbody",
-      List(View.ModelView(dt.signal, bindingVar,
-        View.ForModel(bindingVar, "", itemVar, bodyRow))))
-    elem("table", List(thead, tbody))
+    dt.source match
+      case TableDataSource.Remote(sig) =>
+        val bindingVar = sig.id
+        val itemVar    = "row"
+        val headerRow  = elem("tr",
+          dt.columns.map(c => elem("th", List(View.Text(() => c.title, Style())))))
+        val thead = elem("thead", List(headerRow))
+        val dataCells = dt.columns.map { c =>
+          c.editAction match
+            case Some(ea) => elem("td", List(View.EditableCell(itemVar, c.fieldPath, ea)))
+            case None     => elem("td", List(View.ModelText(itemVar, c.fieldPath)))
+        }
+        val actionCells = dt.actions.map(a => elem("td", List(actionButton(a))))
+        val bodyRow = elem("tr", dataCells ++ actionCells)
+        val tbody = elem("tbody",
+          List(View.ModelView(sig, bindingVar,
+            View.ForModel(bindingVar, "", itemVar, bodyRow))))
+        elem("table", List(thead, tbody))
+      case _ =>
+        // StaticRows and SignalRows: emit header only as stub; full rendering in Phase 3.
+        val headerRow = elem("tr",
+          dt.columns.map(c => elem("th", List(View.Text(() => c.title, Style())))))
+        val thead = elem("thead", List(headerRow))
+        elem("table", List(thead, elem("tbody", Nil)))
 
   private def actionButton(a: RowActionDef): View.Button = a match
     case RowActionDef.RowDelete(url, idField, tick, headers) =>

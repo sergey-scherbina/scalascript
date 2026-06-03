@@ -143,7 +143,7 @@ class ModelPathValidatorTest extends AnyFunSuite:
 
   test("validate: DataTable valid typed columns and actions → no error") {
     val view = View.DataTable(
-      empSig,
+      TableDataSource.Remote(empSig),
       columns = List(
         FieldColumnDef("Name", "name",
           editAction = Some(RowActionDef.RowInlineEdit("PATCH", "/api/employees", "id", empTick))),
@@ -163,7 +163,7 @@ class ModelPathValidatorTest extends AnyFunSuite:
   test("validate: DataTable raw fetch signal remains permissive") {
     val rawSig = FetchUrlSignal("rows", "/api/rows", "tick")
     val view = View.DataTable(
-      rawSig,
+      TableDataSource.Remote(rawSig),
       columns = List(FieldColumnDef("Anything", "not.a.real.path")),
       actions = List(RowActionDef.RowDelete("/api/delete", "missingId", empTick))
     )
@@ -171,9 +171,18 @@ class ModelPathValidatorTest extends AnyFunSuite:
     assert(ModelPathValidator.validate(view, models).isEmpty)
   }
 
+  test("validate: DataTable static rows source is permissive") {
+    val view = View.DataTable(
+      TableDataSource.StaticRows(List(Map("name" -> "Alice", "dept" -> "Eng"))),
+      columns = List(FieldColumnDef("Name", "name")),
+      actions = Nil
+    )
+    assert(ModelPathValidator.validate(view, models).isEmpty)
+  }
+
   test("validate: DataTable invalid typed column/action paths → errors") {
     val view = View.DataTable(
-      empSig,
+      TableDataSource.Remote(empSig),
       columns = List(
         FieldColumnDef("Bad column", "missingColumn",
           editAction = Some(RowActionDef.RowInlineEdit("PATCH", "/api/employees", "missingId", empTick)))

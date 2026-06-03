@@ -285,6 +285,19 @@ enum ImageSource:
   case Asset(name: String)
   case Base64(data: String, mime: String)
 
+// ── TableDataSource ───────────────────────────────────────────────────────────
+
+/** Source of row data for `View.DataTable`.
+ *
+ *  `Remote`     — classic behaviour: fetch from a `FetchUrlSignal`.
+ *  `StaticRows` — data supplied at build time as a list of maps.
+ *  `SignalRows`  — data driven by an arbitrary `ReactiveSignal[?]`. */
+sealed trait TableDataSource
+object TableDataSource:
+  case class Remote(signal: FetchUrlSignal)                           extends TableDataSource
+  case class StaticRows(rows: List[Map[String, Any]])                 extends TableDataSource
+  case class SignalRows(signal: ReactiveSignal[?])                    extends TableDataSource
+
 // ── View IR ───────────────────────────────────────────────────────────────────
 
 /** Unified View IR.  `A` carries the typed witness for cases that produce
@@ -409,13 +422,13 @@ enum View[+A]:
                     action: RowActionDef.RowInlineEdit) extends View[Nothing]
 
   /** Reactive data table with typed columns and per-row actions.  Backed by
-   *  `signal` (a `FetchUrlSignal`, typically `FetchJsonSignal` resolving to a
-   *  JSON array), renders a `<table>` with a header row from `columns` and a
-   *  reactive body row per fetched item.  `actions` add per-row action buttons.
+   *  `source` (a `TableDataSource`), renders a `<table>` with a header row
+   *  from `columns` and a reactive body row per item.  `actions` add per-row
+   *  action buttons.
    *
    *  Web backends lower this to standard `<table><thead><tbody>` chrome via
    *  `DataTableLowering`; Swing/JavaFX render it natively (JTable / TableView). */
-  case DataTable(signal: FetchUrlSignal, columns: List[FieldColumnDef],
+  case DataTable(source: TableDataSource, columns: List[FieldColumnDef],
                  actions: List[RowActionDef] = Nil, style: Style = Style()) extends View[Nothing]
 
   /** Static text node — internal use by web renderers.  Produced by the

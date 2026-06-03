@@ -115,7 +115,10 @@ object ModelPathValidator:
       models: List[ModelDef],
       acc:    List[PathError]
   ): List[PathError] =
-    rowModelName(dt.signal) match
+    val sigOpt: Option[FetchUrlSignal] = dt.source match
+      case TableDataSource.Remote(sig) => Some(sig)
+      case _                           => None
+    sigOpt.flatMap(rowModelName) match
       case None => acc
       case Some(rowModel) =>
         val withColumns = dt.columns.foldLeft(acc) { (errors, col) =>
