@@ -1153,8 +1153,9 @@ object JavacJitBackend extends JitBackend:
    *  `<sanitisedName>(<arg>)` instead of bailing. Helps `pureCallSum` /
    *  `pureCallSum2` (the 13-14 ms per-iter eval dispatch).
    *
-   *  `refNames` / `refFnNames` accumulate lazily as `walkLocalSlotCtx`
-   *  encounters InstanceV globals and ObjToLong fn calls. */
+   *  `refNames` / `refFnNames` / `refObjFnNames` accumulate lazily as
+   *  `walkLocalSlotCtx` encounters InstanceV globals, ObjToLong fn calls,
+   *  and ObjToObject-chained ref args. */
   private final class WhileGenCtx(
     val slots:           Array[String],
     val interp:          scalascript.interpreter.Interpreter | Null,
@@ -1162,6 +1163,8 @@ object JavacJitBackend extends JitBackend:
     val refNames:        scala.collection.mutable.ArrayBuffer[String] =
                            scala.collection.mutable.ArrayBuffer.empty,
     val refFnNames:      scala.collection.mutable.ArrayBuffer[String] =
+                           scala.collection.mutable.ArrayBuffer.empty,
+    val refObjFnNames:   scala.collection.mutable.ArrayBuffer[String] =
                            scala.collection.mutable.ArrayBuffer.empty,
     // true when this ctx is for an inlined callee body — the callee method is
     // co-emitted as a static method without a ref preamble, so ObjToLong ref
@@ -1177,6 +1180,11 @@ object JavacJitBackend extends JitBackend:
       val i = refFnNames.indexOf(name)
       if i >= 0 then i
       else { refFnNames += name; refFnNames.length - 1 }
+
+    def refObjFnIdx(name: String): Int =
+      val i = refObjFnNames.indexOf(name)
+      if i >= 0 then i
+      else { refObjFnNames += name; refObjFnNames.length - 1 }
 
   override def tryCompileWhileLong(
     cond:  Term,
@@ -1216,6 +1224,13 @@ object JavacJitBackend extends JitBackend:
       var ri = 0
       while ri < nRefFns do
         sb.append(s"    $jitPkg.ObjToLong _fn$ri = _fn[$ri];\n")
+        ri += 1
+    val nRefObjFns = ctx.refObjFnNames.length
+    if nRefObjFns > 0 then
+      sb.append(s"    $jitPkg.ObjToObject[] _objFn = $jitPkg.JitGlobals.getRefObjFns();\n")
+      var ri = 0
+      while ri < nRefObjFns do
+        sb.append(s"    $jitPkg.ObjToObject _objFn$ri = _objFn[$ri];\n")
         ri += 1
     val nRefs = ctx.refNames.length
     if nRefs > 0 then
@@ -1286,9 +1301,9 @@ object JavacJitBackend extends JitBackend:
     if method == null then
       whileLongGlobalCache.put(cond, WhileLongMiss)
       return null
-    // Resolve ObjToLong fn instances now (compile-time interp available).
-    // These are cached in `JavacJitBackend.cache`; re-resolving at each
-    // tryWhileJit invocation would require another globals lookup per call.
+    // Resolve ObjToLong and ObjToObject fn instances now (compile-time interp
+    // available). Cached in `whileLongGlobalCache`; re-resolving per call
+    // would add a globals lookup per loop invocation.
     val refFnsArr: Array[ObjToLong] =
       if ctx.refFnNames.isEmpty || interp == null then Array.empty[ObjToLong]
       else
@@ -1307,10 +1322,29 @@ object JavacJitBackend extends JitBackend:
           whileLongGlobalCache.put(cond, WhileLongMiss)
           return null
         arr
+    val refObjFnsArr: Array[ObjToObject] =
+      if ctx.refObjFnNames.isEmpty || interp == null then Array.empty[ObjToObject]
+      else
+        val arr = new Array[ObjToObject](ctx.refObjFnNames.length)
+        var fi = 0
+        var ok2 = true
+        while fi < ctx.refObjFnNames.length && ok2 do
+          val fnV = interp.globals.getOrElse(ctx.refObjFnNames(fi), null)
+          if !fnV.isInstanceOf[Value.FunV] then ok2 = false
+          else
+            val jitR = tryCompile(fnV.asInstanceOf[Value.FunV], interp)
+            if jitR == null || jitR.direct == null || !jitR.direct.isInstanceOf[ObjToObject] then ok2 = false
+            else arr(fi) = jitR.direct.asInstanceOf[ObjToObject]
+          fi += 1
+        if !ok2 then
+          whileLongGlobalCache.put(cond, WhileLongMiss)
+          return null
+        arr
     val entry = new WhileJitEntry(
       method,
       if ctx.refNames.isEmpty then Array.empty[String] else ctx.refNames.toArray,
-      refFnsArr
+      refFnsArr,
+      refObjFnsArr
     )
     whileLongGlobalCache.put(cond, entry.asInstanceOf[AnyRef])
     entry
@@ -1427,10 +1461,17 @@ object JavacJitBackend extends JitBackend:
         case _ => null
     case _ => null
 
-  /** Resolve a Term to a `_rN` ref-slot Java expression, or null if the term
-   *  is not a val-bound InstanceV global.  Long slots (`_vN`) and literals
-   *  return null — they are not refs and must use the long path.
-   *  Registers the name in `ctx.refNames` on first encounter. */
+  /** Resolve a Term to a Java ref expression (`_rN`, `_objFnN.apply(_rM)`,
+   *  etc.), or null if the term cannot be used as a ref arg.
+   *
+   *  Supported forms:
+   *  - `Term.Name(n)` — val-bound InstanceV global → `"_r$i"`.
+   *  - `Term.Select(Term.Name(n), field)` — InstanceV field access →
+   *    `"_r$i"` where the ref slot key is `"n.field"`.  At invocation time
+   *    `EvalRuntime.tryWhileJit` resolves dotted keys via a two-level lookup.
+   *  - `Term.Apply(fn, [refArg])` — single-arg `ObjToObject`-compiled fn →
+   *    `"_objFn$j.apply($innerRef)"`.  Registered in `ctx.refObjFnNames`.
+   *    Only valid at outer-loop level (not inside a callee static method). */
   private def walkRefArgCtx(t: Term, ctx: WhileGenCtx): String | Null = t match
     case tn: Term.Name if ctx.interp != null =>
       // If the name is already a long slot, it's not a ref.
@@ -1442,6 +1483,35 @@ object JavacJitBackend extends JitBackend:
         case _: Value.InstanceV =>
           val ri = ctx.refIdx(tn.value)
           s"_r$ri"
+        case _ => null
+    case ts: Term.Select if ctx.interp != null =>
+      ts.qual match
+        case qn: Term.Name =>
+          ctx.interp.globals.getOrElse(qn.value, null) match
+            case inst: Value.InstanceV =>
+              val fieldName = ts.name.value
+              inst.fields.getOrElse(fieldName, null) match
+                case _: Value.InstanceV =>
+                  val ri = ctx.refIdx(s"${qn.value}.$fieldName")
+                  s"_r$ri"
+                case _ => null
+            case _ => null
+        case _ => null
+    case ap: Term.Apply if ctx.interp != null && !ctx.isCallee =>
+      ap.fun match
+        case fnName: Term.Name if ap.argClause.values.lengthCompare(1) == 0 =>
+          val innerRefJava = walkRefArgCtx(ap.argClause.values.head, ctx)
+          if innerRefJava == null then return null
+          val fnV = ctx.interp.globals.getOrElse(fnName.value, null)
+          if !fnV.isInstanceOf[Value.FunV] then return null
+          val fn = fnV.asInstanceOf[Value.FunV]
+          if fn.params.length != 1 then return null
+          val jitR = tryCompile(fn, ctx.interp)
+          if jitR == null || !jitR.paramIsRef(0) || jitR.resultIsDouble ||
+             jitR.direct == null || !jitR.direct.isInstanceOf[ObjToObject]
+          then return null
+          val oi = ctx.refObjFnIdx(fnName.value)
+          s"_objFn$oi.apply($innerRefJava)"
         case _ => null
     case _ => null
 

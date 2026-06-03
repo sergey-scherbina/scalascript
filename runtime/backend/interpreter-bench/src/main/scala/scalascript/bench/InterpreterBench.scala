@@ -352,11 +352,11 @@ class InterpreterBench:
   // Phase 1 Commit 3 lock-in: `f(item.right)` exercises the LRefFieldGet
   // path. `item` is a val-bound `Pair(A(5), B(10))`; `item.right` resolves
   // to LRefFieldGet(LRefConst(item), 1) at compile time (no per-iter type
-  // probe, no Map lookup), then LApplyR1 calls the bytecode-JIT'd
-  // `ObjToLong` for `f`. Pre-Commit-3: compileRefExpr only handled
-  // `Term.Name`, so Term.Select(item, right) → null → refFast bails →
-  // whole LExpr-fold collapses → tree-walk fallback. Post-Commit-3:
-  // the bench should match `nestedMatchExpr`'s LMatch-parity (~5–15 ms).
+  // while-jit-ref-select-chain lock-in: `f(item.right)` — field access on a
+  // val-bound InstanceV is now resolved by `walkRefArgCtx` (Term.Select case)
+  // to a `_r0` slot whose value is pre-loaded into the TLS `refs` array before
+  // the bytecode-JIT loop. ObjToLong `f` runs as `_fn0.apply(_r0)`.
+  // Pre: ~9 ms/op (LExpr path). Post: ~0.046 ms/op (200×, bytecode JIT path).
   private val modRefFieldArg: Module = src(
     """sealed trait E
       |case class A(n: Int) extends E
@@ -522,13 +522,12 @@ class InterpreterBench:
   def patternGuard(): Unit =
     Interpreter(devNull).runSections(modPatternGuard)
 
-  // dual-bank-lapply-r1-to-ref lock-in: `leafVal(getLeft(tree))` in a tight
-  // while loop exercises `LApplyR1ToRef` (getLeft → ObjToObject) chained with
-  // `LApplyR1` (leafVal → ObjToLong).  Pre-ObjToObject: compileRefExpr bails on
-  // Term.Apply → whole LExpr fold collapses → tree-walk every iter.
-  // Post-ObjToObject: getLeft compiled to ObjToObject → LApplyR1ToRef wraps it →
-  // LApplyR1(LApplyR1ToRef(LRefConst(tree)), leafVal_oo) hot in both while loops.
-  // getLeft wildcard arm `case x => x` hits walkRefArm Pat.Var handler (bind x=inst).
+  // while-jit-ref-select-chain lock-in: `leafVal(getLeft(tree))` — chained
+  // ObjToObject+ObjToLong call in a while loop. `walkRefArgCtx` now handles
+  // Term.Apply where the fn is ObjToObject: `getLeft(tree)` → `_objFn0.apply(_r0)`,
+  // then `leafVal(_objFn0.apply(_r0))` → `_fn0.apply(_objFn0.apply(_r0))`.
+  // Both fn instances and the `tree` ref are pre-loaded from TLS before the loop.
+  // Pre: ~9.7 ms/op (LExpr path). Post: ~0.31 ms/op (31×, bytecode JIT path).
   private val modRefChainArg: Module = src(
     """sealed trait T
       |case class Leaf(v: Int) extends T

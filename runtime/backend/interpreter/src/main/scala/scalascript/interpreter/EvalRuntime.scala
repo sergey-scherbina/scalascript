@@ -255,18 +255,31 @@ private[interpreter] object EvalRuntime:
         case Value.IntV(v) => args(k) = v
         case _             => return null
       k += 1
-    if entry.refNames.length > 0 then
-      // Collect InstanceV values for each ref name; bail if any no longer holds.
+    if entry.refNames.length > 0 || entry.refObjFns.length > 0 then
+      // Collect InstanceV values for each ref name.  Names are either simple
+      // ("item") or dotted ("item.field") — the dot form does a two-level
+      // globals → InstanceV.fields lookup.  Bail if any slot no longer holds.
       val refs = new Array[AnyRef](entry.refNames.length)
       var ri = 0
       while ri < entry.refNames.length do
-        interp.globals.getOrElse(entry.refNames(ri), null) match
+        val name   = entry.refNames(ri)
+        val dotIdx = name.indexOf('.')
+        val v: Value | Null =
+          if dotIdx < 0 then
+            interp.globals.getOrElse(name, null)
+          else
+            val base  = name.substring(0, dotIdx)
+            val field = name.substring(dotIdx + 1)
+            interp.globals.getOrElse(base, null) match
+              case inst: Value.InstanceV => inst.fields.getOrElse(field, null)
+              case _                     => null
+        v match
           case v: Value.InstanceV => refs(ri) = v.asInstanceOf[AnyRef]
           case _                  => return null
         ri += 1
       try
         scalascript.interpreter.vm.jit.JitGlobals.withInterp(interp) {
-          scalascript.interpreter.vm.jit.JitGlobals.withRefs(refs, entry.refFns) {
+          scalascript.interpreter.vm.jit.JitGlobals.withRefs(refs, entry.refFns, entry.refObjFns) {
             entry.method.invoke(null, args.asInstanceOf[AnyRef])
           }
         }
