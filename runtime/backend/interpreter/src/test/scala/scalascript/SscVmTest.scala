@@ -110,7 +110,13 @@ class SscVmTest extends AnyFunSuite with Matchers:
     }
 
   private def runMixedEntry(entry: WhileJitEntry, interp: Interpreter, receiverName: String, slots: Array[Long]): Unit =
-    val receiver = interp.globalsView(receiverName).asInstanceOf[AnyRef]
+    val receiver = interp.globalsView(receiverName) match
+      case mv: Value.MapV =>
+        val arr =
+          if entry.mapIsKeyMode then mv.entries.keysIterator.toArray
+          else mv.entries.valuesIterator.toArray
+        arr.asInstanceOf[AnyRef]
+      case other => other.asInstanceOf[AnyRef]
     JitGlobals.withInterp(interp) {
       JitGlobals.withRefs(Array(receiver), entry.refFns, Array.empty[ObjToObject], entry.refDoubleFns) {
         entry.method.invoke(null, slots.asInstanceOf[AnyRef])
@@ -422,6 +428,49 @@ class SscVmTest extends AnyFunSuite with Matchers:
     runMixedEntry(entry, interp, "xs", slots)
     slots(0) shouldBe 3L
     java.lang.Double.longBitsToDouble(slots(1)) shouldBe 12.0
+  }
+
+  test("ASM mixed while JIT fuses Map foreach value mode with Long accumulator") {
+    val defs =
+      """val m = Map("a" -> 1, "b" -> 2, "c" -> 3)""".stripMargin
+    val whileSrc =
+      """var acc = 0
+        |var i = 0
+        |while i < 4 do
+        |  m.foreach((k, v) => acc = acc + v)
+        |  i = i + 1""".stripMargin
+    val (interp, w, foreachApply, names, rhs) = mixedWhileParts(defs, whileSrc)
+    names shouldBe Array("i")
+    val entry = AsmJitBackend.tryCompileWhileMixed(w.expr, names, rhs, foreachApply, "acc", accIsDouble = false, interp)
+    entry should not be null
+    entry.mapIsKeyMode shouldBe false
+    entry.refFns shouldBe empty
+    entry.refDoubleFns shouldBe empty
+    val slots = Array(0L, 0L)
+    runMixedEntry(entry, interp, "m", slots)
+    slots shouldBe Array(4L, 24L)
+  }
+
+  test("ASM mixed while JIT fuses Map foreach key mode with Double accumulator") {
+    val defs =
+      """val m = Map(1 -> "a", 2 -> "b")""".stripMargin
+    val whileSrc =
+      """var acc = 0.0
+        |var i = 0
+        |while i < 3 do
+        |  m.foreach((k, v) => acc = acc + k)
+        |  i = i + 1""".stripMargin
+    val (interp, w, foreachApply, names, rhs) = mixedWhileParts(defs, whileSrc)
+    names shouldBe Array("i")
+    val entry = AsmJitBackend.tryCompileWhileMixed(w.expr, names, rhs, foreachApply, "acc", accIsDouble = true, interp)
+    entry should not be null
+    entry.mapIsKeyMode shouldBe true
+    entry.refFns shouldBe empty
+    entry.refDoubleFns shouldBe empty
+    val slots = Array(0L, java.lang.Double.doubleToRawLongBits(0.0))
+    runMixedEntry(entry, interp, "m", slots)
+    slots(0) shouldBe 3L
+    java.lang.Double.longBitsToDouble(slots(1)) shouldBe 9.0
   }
 
   // ── Double-domain support (raw VM result is double *bits*) ──────────

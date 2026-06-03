@@ -645,6 +645,9 @@ object AsmJitBackend extends JitBackend:
     case "<"  => IFLT; case "<=" => IFLE; case ">"  => IFGT
     case ">=" => IFGE; case "==" => IFEQ; case "!=" => IFNE; case _ => IFEQ
 
+  private def isCatchAllPat(p: scala.meta.Pat): Boolean =
+    p.isInstanceOf[Pat.Wildcard] || p.isInstanceOf[Pat.Var]
+
   // ── Match body (top-level: emits RETURN inside each arm) ─────────────────
 
   private def emitMatchBody(tm: Term.Match, ctx: GenCtx, interp: Interpreter,
@@ -663,9 +666,12 @@ object AsmJitBackend extends JitBackend:
     val cases    = tm.casesBlock.cases
     val casesArr = cases.toArray
     val tags     = resolveArmTags(casesArr, interp)
-    val allTagged = tags.forall(_ != 0)
+    val wildcardIdx = casesArr.indexWhere(c => isCatchAllPat(c.pat))
+    if wildcardIdx >= 0 && wildcardIdx != casesArr.length - 1 then return false
+    val allTagged = wildcardIdx < 0 && tags.forall(_ != 0)
     val armLbls  = Array.fill(casesArr.length)(new Label)
-    val defLbl   = new Label
+    val throwLbl = new Label
+    val defLbl   = if wildcardIdx >= 0 then armLbls(wildcardIdx) else throwLbl
 
     if casesArr.exists(_.cond.nonEmpty) then
       var ci = 0
@@ -674,8 +680,9 @@ object AsmJitBackend extends JitBackend:
         if !emitArmAsIfBranch(rem.head, ctx, interp, instSlot, mv, if allTagged then tags(ci) else 0, allTagged) then return false
         ci += 1
         rem = rem.tail
-      mv.visitLabel(defLbl)
-      emitThrow(mv, "AsmJitBackend: no guarded case matched")
+      if wildcardIdx < 0 then
+        mv.visitLabel(throwLbl)
+        emitThrow(mv, "AsmJitBackend: no guarded case matched")
       return true
     else if allTagged then
       mv.visitVarInsn(ALOAD, instSlot)
@@ -692,8 +699,10 @@ object AsmJitBackend extends JitBackend:
       if !emitArmBody(rem.head, ctx, interp, instSlot, mv, exprForm = false, null) then return false
       ci += 1; rem = rem.tail
 
-    mv.visitLabel(defLbl)
-    emitThrow(mv, "AsmJitBackend: no case matched"); true
+    if wildcardIdx < 0 then
+      mv.visitLabel(throwLbl)
+      emitThrow(mv, "AsmJitBackend: no case matched")
+    true
 
   // ── Match expression (nested match: leaves value on stack) ───────────────
 
@@ -711,10 +720,14 @@ object AsmJitBackend extends JitBackend:
 
     val cases    = tm.casesBlock.cases
     val casesArr = cases.toArray
+    val wildcardIdx = casesArr.indexWhere(c => isCatchAllPat(c.pat))
+    // Wildcard/Pat.Var must be last arm (catch-all).
+    if wildcardIdx >= 0 && wildcardIdx != casesArr.length - 1 then return false
     val tags     = resolveArmTags(casesArr, ctx.interp)
-    val allTagged = tags.forall(_ != 0)
+    val allTagged = wildcardIdx < 0 && tags.forall(_ != 0)
     val armLbls  = Array.fill(casesArr.length)(new Label)
-    val defLbl   = new Label
+    val throwLbl = new Label
+    val defLbl   = if wildcardIdx >= 0 then armLbls(wildcardIdx) else throwLbl
     val endLbl   = new Label
 
     if allTagged then
@@ -732,8 +745,9 @@ object AsmJitBackend extends JitBackend:
       if !emitArmBody(rem.head, ctx, ctx.interp, instSlot, mv, exprForm = true, endLbl) then return false
       ci += 1; rem = rem.tail
 
-    mv.visitLabel(defLbl)
-    emitThrow(mv, "AsmJitBackend: no case matched")
+    if wildcardIdx < 0 then
+      mv.visitLabel(throwLbl)
+      emitThrow(mv, "AsmJitBackend: no case matched")
     mv.visitLabel(endLbl); true
 
   // ── Single arm emission ───────────────────────────────────────────────────
@@ -810,6 +824,23 @@ object AsmJitBackend extends JitBackend:
         val bodyOk =
           if ctx.isDouble then walkDouble(c.body, newCtx, mv)
           else walkLong(c.body, newCtx, mv)
+        if !bodyOk then return false
+        if exprForm then mv.visitJumpInsn(GOTO, endLbl.asInstanceOf[Label])
+        else mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN)
+        true
+      case _: Pat.Wildcard =>
+        val bodyOk = if ctx.isDouble then walkDouble(c.body, ctx, mv) else walkLong(c.body, ctx, mv)
+        if !bodyOk then return false
+        if exprForm then mv.visitJumpInsn(GOTO, endLbl.asInstanceOf[Label])
+        else mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN)
+        true
+      case pv: Pat.Var =>
+        val xName = pv.name.value
+        val xSlot = ctx.allocSlot()
+        mv.visitVarInsn(ALOAD, instSlot)
+        mv.visitVarInsn(ASTORE, xSlot)
+        val newCtx = ctx.withBindings(Map(xName -> (xSlot, true)))
+        val bodyOk = if ctx.isDouble then walkDouble(c.body, newCtx, mv) else walkLong(c.body, newCtx, mv)
         if !bodyOk then return false
         if exprForm then mv.visitJumpInsn(GOTO, endLbl.asInstanceOf[Label])
         else mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN)
@@ -909,6 +940,35 @@ object AsmJitBackend extends JitBackend:
         if !bodyOk then return false
         mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN)
         mv.visitLabel(nextLbl)
+        true
+      case _: Pat.Wildcard =>
+        val nextLbl = new Label
+        c.cond match
+          case Some(cond) =>
+            if !walkBool(cond, ctx, mv, nextLbl) then return false
+          case None =>
+        val bodyOk =
+          if ctx.isDouble then walkDouble(c.body, ctx, mv)
+          else walkLong(c.body, ctx, mv)
+        if !bodyOk then return false
+        mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN)
+        if c.cond.nonEmpty then mv.visitLabel(nextLbl)
+        true
+      case pv: Pat.Var =>
+        val xName = pv.name.value
+        if xName.isEmpty then return false
+        val newCtx = ctx.withBindings(Map(xName -> (instSlot, true)))
+        val nextLbl = new Label
+        c.cond match
+          case Some(cond) =>
+            if !walkBool(cond, newCtx, mv, nextLbl) then return false
+          case None =>
+        val bodyOk =
+          if ctx.isDouble then walkDouble(c.body, newCtx, mv)
+          else walkLong(c.body, newCtx, mv)
+        if !bodyOk then return false
+        mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN)
+        if c.cond.nonEmpty then mv.visitLabel(nextLbl)
         true
       case _ => false
 
@@ -1349,6 +1409,43 @@ object AsmJitBackend extends JitBackend:
           case _ => null
       case _ => null
 
+  private def analyzeForeachMapApply(foreachApply: Term, accName: String): (String, Boolean) | Null =
+    foreachApply match
+      case ta: Term.Apply =>
+        ta.fun match
+          case Term.Select(qual, Term.Name("foreach")) =>
+            val mapName = qual match
+              case Term.Name(n) => n
+              case _            => return null
+            ta.argClause.values match
+              case List(fn: Term.Function) if fn.paramClause.values.lengthCompare(2) == 0 =>
+                val p1 = fn.paramClause.values.head.name.value
+                val p2 = fn.paramClause.values(1).name.value
+                if p1.isEmpty || p2.isEmpty then return null
+                val core = fn.body match
+                  case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+                    b.stats.head match
+                      case t: Term => t
+                      case _       => return null
+                  case t => t
+                core match
+                  case a: Term.Assign =>
+                    a.lhs match
+                      case Term.Name(`accName`) =>
+                        a.rhs match
+                          case Term.ApplyInfix.After_4_6_0(Term.Name(`accName`), op, _, ac)
+                              if op.value == "+" && ac.values.lengthCompare(1) == 0 =>
+                            ac.values.head match
+                              case Term.Name(`p1`) => (mapName, true)
+                              case Term.Name(`p2`) => (mapName, false)
+                              case _               => null
+                          case _ => null
+                      case _ => null
+                  case _ => null
+              case _ => null
+          case _ => null
+      case _ => null
+
   override def tryCompileWhileMixed(
     cond:         Term,
     names:        Array[String],
@@ -1362,6 +1459,10 @@ object AsmJitBackend extends JitBackend:
     val cached = whileMixedCache.get(foreachApply)
     if cached eq WhileMixedMiss then return null
     if cached != null then return cached.asInstanceOf[WhileJitEntry]
+
+    val mapInfo = analyzeForeachMapApply(foreachApply, accName)
+    if mapInfo != null then
+      return tryCompileWhileMapForeach(cond, names, rhs, foreachApply, accIsDouble, mapInfo, interp)
 
     val info = analyzeForeachApply(foreachApply, accName)
     if info == null then { whileMixedCache.put(foreachApply, WhileMixedMiss); return null }
@@ -1522,6 +1623,196 @@ object AsmJitBackend extends JitBackend:
     )
     whileMixedCache.put(foreachApply, entry.asInstanceOf[AnyRef])
     entry
+
+  private def tryCompileWhileMapForeach(
+    cond:         Term,
+    names:        Array[String],
+    rhs:          Array[Term],
+    foreachApply: Term,
+    accIsDouble:  Boolean,
+    mapInfo:      (String, Boolean),
+    interp:       Interpreter
+  ): WhileJitEntry | Null =
+    val (mapName, useFirst) = mapInfo
+    val mapVal = interp.globals.getOrElse(mapName, null)
+    if !mapVal.isInstanceOf[Value.MapV] then
+      whileMixedCache.put(foreachApply, WhileMixedMiss)
+      return null
+
+    val n = classCounter.incrementAndGet()
+    val cname = s"scalascript/interpreter/vm/jit/asm/AsmWhileMap$$$n"
+    val pureFns = mutable.LinkedHashMap.empty[String, WhilePureFn]
+    val ctx = WhileCtx(names, interp, pureFns, cname)
+
+    val condEmit = walkWhileBool(cond, ctx)
+    if condEmit == null then { whileMixedCache.put(foreachApply, WhileMixedMiss); return null }
+
+    val rhsEmits = new Array[MethodVisitor => Unit](names.length)
+    var k = 0
+    while k < names.length do
+      val e = walkWhileSlot(rhs(k), ctx)
+      if e == null then { whileMixedCache.put(foreachApply, WhileMixedMiss); return null }
+      rhsEmits(k) = e
+      k += 1
+
+    val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
+      override def getCommonSuperClass(t1: String, t2: String): String = "java/lang/Object"
+    }
+    cw.visit(V21, ACC_PUBLIC | ACC_FINAL, cname, null, "java/lang/Object", Array.empty)
+    val mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, "run", "([J)V", null, null)
+    mv.visitCode()
+
+    val accSlotIdx = names.length
+    val accLocal = 1 + names.length * 2
+    var nextLocal = accLocal + 2
+    def allocLocal(): Int =
+      val s = nextLocal
+      nextLocal += 1
+      s
+
+    val arraySlot = allocLocal()
+    val lenSlot = allocLocal()
+    val indexSlot = allocLocal()
+    val itemSlot = allocLocal()
+
+    mv.visitFieldInsn(GETSTATIC, globalsInt, "MODULE$", s"L$globalsInt;")
+    mv.visitMethodInsn(INVOKEVIRTUAL, globalsInt, "getRefs", "()[Ljava/lang/Object;", false)
+    emitIconst(mv, 0)
+    mv.visitInsn(AALOAD)
+    mv.visitTypeInsn(CHECKCAST, "[Ljava/lang/Object;")
+    mv.visitVarInsn(ASTORE, arraySlot)
+    mv.visitVarInsn(ALOAD, arraySlot)
+    mv.visitInsn(ARRAYLENGTH)
+    mv.visitVarInsn(ISTORE, lenSlot)
+
+    k = 0
+    while k < names.length do
+      mv.visitVarInsn(ALOAD, 0)
+      emitIconst(mv, k)
+      mv.visitInsn(LALOAD)
+      mv.visitVarInsn(LSTORE, 1 + k * 2)
+      k += 1
+
+    mv.visitVarInsn(ALOAD, 0)
+    emitIconst(mv, accSlotIdx)
+    mv.visitInsn(LALOAD)
+    if accIsDouble then
+      mv.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "longBitsToDouble", "(J)D", false)
+      mv.visitVarInsn(DSTORE, accLocal)
+    else mv.visitVarInsn(LSTORE, accLocal)
+
+    val outerHead = new Label
+    val outerEnd = new Label
+    mv.visitLabel(outerHead)
+    condEmit(mv, outerEnd)
+    emitMapArrayForeachAccum(mv, arraySlot, lenSlot, indexSlot, itemSlot, accLocal, accIsDouble)
+
+    k = 0
+    while k < names.length do
+      rhsEmits(k)(mv)
+      mv.visitVarInsn(LSTORE, 1 + k * 2)
+      k += 1
+    mv.visitJumpInsn(GOTO, outerHead)
+    mv.visitLabel(outerEnd)
+
+    k = 0
+    while k < names.length do
+      mv.visitVarInsn(ALOAD, 0)
+      emitIconst(mv, k)
+      mv.visitVarInsn(LLOAD, 1 + k * 2)
+      mv.visitInsn(LASTORE)
+      k += 1
+    mv.visitVarInsn(ALOAD, 0)
+    emitIconst(mv, accSlotIdx)
+    if accIsDouble then
+      mv.visitVarInsn(DLOAD, accLocal)
+      mv.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "doubleToRawLongBits", "(D)J", false)
+    else mv.visitVarInsn(LLOAD, accLocal)
+    mv.visitInsn(LASTORE)
+    mv.visitInsn(RETURN)
+    mv.visitMaxs(0, 0)
+    mv.visitEnd()
+
+    for (_, pf) <- pureFns do pf.emit(cw)
+    cw.visitEnd()
+
+    val bytes = cw.toByteArray
+    val loader = new InMemoryClassLoader(getClass.getClassLoader)
+    val cls = try loader.define(cname.replace('/', '.'), bytes)
+              catch case _: Throwable => { whileMixedCache.put(foreachApply, WhileMixedMiss); return null }
+    val method =
+      try
+        val m = cls.getMethod("run", classOf[Array[Long]])
+        m.setAccessible(true)
+        m
+      catch case _: Throwable => null
+    if method == null then
+      whileMixedCache.put(foreachApply, WhileMixedMiss)
+      return null
+
+    val entry = new WhileJitEntry(
+      method,
+      Array.empty[String],
+      Array.empty[ObjToLong],
+      Array.empty[ObjToObject],
+      Array.empty[ObjToDouble],
+      mapIsKeyMode = useFirst
+    )
+    whileMixedCache.put(foreachApply, entry.asInstanceOf[AnyRef])
+    entry
+
+  private def emitMapArrayForeachAccum(
+    mv:          MethodVisitor,
+    arraySlot:   Int,
+    lenSlot:     Int,
+    indexSlot:   Int,
+    itemSlot:    Int,
+    accLocal:    Int,
+    accIsDouble: Boolean
+  ): Unit =
+    val head = new Label
+    val done = new Label
+    mv.visitInsn(ICONST_0)
+    mv.visitVarInsn(ISTORE, indexSlot)
+    mv.visitLabel(head)
+    mv.visitVarInsn(ILOAD, indexSlot)
+    mv.visitVarInsn(ILOAD, lenSlot)
+    mv.visitJumpInsn(IF_ICMPGE, done)
+    if accIsDouble then
+      mv.visitVarInsn(ALOAD, arraySlot)
+      mv.visitVarInsn(ILOAD, indexSlot)
+      mv.visitInsn(AALOAD)
+      mv.visitVarInsn(ASTORE, itemSlot)
+      mv.visitVarInsn(DLOAD, accLocal)
+      mv.visitVarInsn(ALOAD, itemSlot)
+      mv.visitTypeInsn(INSTANCEOF, dblVInt)
+      val intValue = new Label
+      val haveValue = new Label
+      mv.visitJumpInsn(IFEQ, intValue)
+      mv.visitVarInsn(ALOAD, itemSlot)
+      mv.visitTypeInsn(CHECKCAST, dblVInt)
+      mv.visitMethodInsn(INVOKEVIRTUAL, dblVInt, "v", "()D", false)
+      mv.visitJumpInsn(GOTO, haveValue)
+      mv.visitLabel(intValue)
+      mv.visitVarInsn(ALOAD, itemSlot)
+      mv.visitTypeInsn(CHECKCAST, intVInt)
+      mv.visitMethodInsn(INVOKEVIRTUAL, intVInt, "v", "()J", false)
+      mv.visitInsn(L2D)
+      mv.visitLabel(haveValue)
+      mv.visitInsn(DADD)
+      mv.visitVarInsn(DSTORE, accLocal)
+    else
+      mv.visitVarInsn(LLOAD, accLocal)
+      mv.visitVarInsn(ALOAD, arraySlot)
+      mv.visitVarInsn(ILOAD, indexSlot)
+      mv.visitInsn(AALOAD)
+      mv.visitTypeInsn(CHECKCAST, intVInt)
+      mv.visitMethodInsn(INVOKEVIRTUAL, intVInt, "v", "()J", false)
+      mv.visitInsn(LADD)
+      mv.visitVarInsn(LSTORE, accLocal)
+    mv.visitIincInsn(indexSlot, 1)
+    mv.visitJumpInsn(GOTO, head)
+    mv.visitLabel(done)
 
   private def emitListForeachAccum(
     mv:           MethodVisitor,
