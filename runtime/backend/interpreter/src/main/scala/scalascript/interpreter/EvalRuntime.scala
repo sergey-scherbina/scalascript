@@ -218,7 +218,12 @@ private[interpreter] object EvalRuntime:
    *  On the first call for a given `Term.While`, attempts to compile the loop
    *  condition and all-int assigns to a Java `static void run(long[] v)` method
    *  via `BytecodeJit.tryCompileWhileLong`. Subsequent calls use the cached
-   *  `Method`; a cached `WhileJitMiss` sentinel skips immediately.
+   *  `WhileJitEntry`; a cached `WhileJitMiss` sentinel skips immediately.
+   *
+   *  When the compiled loop calls JIT-compiled `ObjToLong` functions with
+   *  val-bound InstanceV arguments, `entry.refNames` is non-empty.  The
+   *  invocation wraps the `method.invoke` in `JitGlobals.withRefs` so the
+   *  generated code can read `_rN` and `_fnM` from TLS.
    *
    *  Precondition: the condition was already found to be true (caller checked).
    *  The compiled method runs the FULL remaining loop from current slot values.
@@ -231,17 +236,17 @@ private[interpreter] object EvalRuntime:
     interp:    Interpreter
   ): Computation | Null =
     val cached = interp.whileJitCache.get(t)
-    val method: java.lang.reflect.Method | Null =
+    val entry: scalascript.interpreter.vm.jit.WhileJitEntry | Null =
       if cached != null then
         if cached eq WhileJitMiss then return null
-        else cached.asInstanceOf[java.lang.reflect.Method]
+        else cached.asInstanceOf[scalascript.interpreter.vm.jit.WhileJitEntry]
       else
-        val m = scalascript.interpreter.vm.jit.JitBackend.default.tryCompileWhileLong(
+        val e = scalascript.interpreter.vm.jit.JitBackend.default.tryCompileWhileLong(
           t.expr, body.names, body.rhs, interp
         )
-        interp.whileJitCache.put(t, if m == null then WhileJitMiss else m.asInstanceOf[AnyRef])
-        m
-    if method == null then return null
+        interp.whileJitCache.put(t, if e == null then WhileJitMiss else e.asInstanceOf[AnyRef])
+        e
+    if entry == null then return null
     val n = body.names.length
     val args = new Array[Long](n)
     var k = 0
@@ -250,12 +255,30 @@ private[interpreter] object EvalRuntime:
         case Value.IntV(v) => args(k) = v
         case _             => return null
       k += 1
-    try
-      scalascript.interpreter.vm.jit.JitGlobals.withInterp(interp) {
-        method.invoke(null, args.asInstanceOf[AnyRef])
-      }
-    catch
-      case _: Throwable => return null
+    if entry.refNames.length > 0 then
+      // Collect InstanceV values for each ref name; bail if any no longer holds.
+      val refs = new Array[AnyRef](entry.refNames.length)
+      var ri = 0
+      while ri < entry.refNames.length do
+        interp.globals.getOrElse(entry.refNames(ri), null) match
+          case v: Value.InstanceV => refs(ri) = v.asInstanceOf[AnyRef]
+          case _                  => return null
+        ri += 1
+      try
+        scalascript.interpreter.vm.jit.JitGlobals.withInterp(interp) {
+          scalascript.interpreter.vm.jit.JitGlobals.withRefs(refs, entry.refFns) {
+            entry.method.invoke(null, args.asInstanceOf[AnyRef])
+          }
+        }
+      catch
+        case _: Throwable => return null
+    else
+      try
+        scalascript.interpreter.vm.jit.JitGlobals.withInterp(interp) {
+          entry.method.invoke(null, args.asInstanceOf[AnyRef])
+        }
+      catch
+        case _: Throwable => return null
     val local = frameView.underlying
     k = 0
     while k < n do

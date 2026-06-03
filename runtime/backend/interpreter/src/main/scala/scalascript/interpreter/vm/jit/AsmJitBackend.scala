@@ -764,11 +764,11 @@ object AsmJitBackend extends JitBackend:
     names:  Array[String],
     rhs:    Array[Term],
     interp: Interpreter | Null
-  ): java.lang.reflect.Method | Null =
+  ): WhileJitEntry | Null =
     if !enabled then return null
     val cached = whileCache.get(cond)
     if cached eq WhileMiss then return null
-    if cached != null then return cached.asInstanceOf[java.lang.reflect.Method]
+    if cached != null then return cached.asInstanceOf[WhileJitEntry]
 
     val n     = classCounter.incrementAndGet()
     val cname = s"scalascript/interpreter/vm/jit/asm/AsmWhile$$$n"
@@ -822,14 +822,18 @@ object AsmJitBackend extends JitBackend:
     val loader = new InMemoryClassLoader(getClass.getClassLoader)
     val cls    = try loader.define(cname.replace('/', '.'), bytes)
                  catch case _: Throwable => { whileCache.put(cond, WhileMiss); return null }
-    val result =
+    val method =
       try
         val m = cls.getMethod("run", classOf[Array[Long]])
         m.setAccessible(true)
         m
       catch case _: Throwable => null
-    whileCache.put(cond, if result == null then WhileMiss else result.asInstanceOf[AnyRef])
-    result
+    if method == null then
+      whileCache.put(cond, WhileMiss)
+      return null
+    val entry = new WhileJitEntry(method, Array.empty[String], Array.empty[ObjToLong])
+    whileCache.put(cond, entry.asInstanceOf[AnyRef])
+    entry
 
   // ── While-loop walker context and types ──────────────────────────────────
 

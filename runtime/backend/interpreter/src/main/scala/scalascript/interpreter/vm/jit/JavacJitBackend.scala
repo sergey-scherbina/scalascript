@@ -1151,24 +1151,44 @@ object JavacJitBackend extends JitBackend:
    *  unique pure top-level def referenced from a body RHS gets co-emitted
    *  as a static method in the generated class; the body emits
    *  `<sanitisedName>(<arg>)` instead of bailing. Helps `pureCallSum` /
-   *  `pureCallSum2` (the 13-14 ms per-iter eval dispatch). */
+   *  `pureCallSum2` (the 13-14 ms per-iter eval dispatch).
+   *
+   *  `refNames` / `refFnNames` accumulate lazily as `walkLocalSlotCtx`
+   *  encounters InstanceV globals and ObjToLong fn calls. */
   private final class WhileGenCtx(
-    val slots:            Array[String],
-    val interp:           scalascript.interpreter.Interpreter | Null,
-    val pureFnEmissions:  scala.collection.mutable.LinkedHashMap[String, String]
-  )
+    val slots:           Array[String],
+    val interp:          scalascript.interpreter.Interpreter | Null,
+    val pureFnEmissions: scala.collection.mutable.LinkedHashMap[String, String],
+    val refNames:        scala.collection.mutable.ArrayBuffer[String] =
+                           scala.collection.mutable.ArrayBuffer.empty,
+    val refFnNames:      scala.collection.mutable.ArrayBuffer[String] =
+                           scala.collection.mutable.ArrayBuffer.empty,
+    // true when this ctx is for an inlined callee body — the callee method is
+    // co-emitted as a static method without a ref preamble, so ObjToLong ref
+    // calls cannot be used inside it.
+    val isCallee:        Boolean = false
+  ):
+    def refIdx(name: String): Int =
+      val i = refNames.indexOf(name)
+      if i >= 0 then i
+      else { refNames += name; refNames.length - 1 }
+
+    def refFnIdx(name: String): Int =
+      val i = refFnNames.indexOf(name)
+      if i >= 0 then i
+      else { refFnNames += name; refFnNames.length - 1 }
 
   override def tryCompileWhileLong(
     cond:  Term,
     names: Array[String],
     rhs:   Array[Term],
     interp: scalascript.interpreter.Interpreter | Null = null
-  ): java.lang.reflect.Method | Null =
+  ): WhileJitEntry | Null =
     if !enabled then return null
     // Global cache: avoid javac on every Interpreter instance / benchmark iter.
     val globalCached = whileLongGlobalCache.get(cond)
     if globalCached eq WhileLongMiss then return null
-    if globalCached != null then return globalCached.asInstanceOf[java.lang.reflect.Method]
+    if globalCached != null then return globalCached.asInstanceOf[WhileJitEntry]
     val ctx = new WhileGenCtx(
       names,
       interp,
@@ -1186,7 +1206,25 @@ object JavacJitBackend extends JitBackend:
     val sb = new StringBuilder
     sb.append(s"public final class $className {\n")
     sb.append(s"  public static void run(long[] v) {\n")
-    // Copy array to named locals so the JVM can register-allocate them.
+    // Ref preamble: if any ObjToLong fn calls were emitted, load the fn and
+    // ref arrays from TLS once before the loop and extract to locals so the
+    // JVM can treat them as de-facto constants after the first iteration.
+    val jitPkg = "scalascript.interpreter.vm.jit"
+    val nRefFns = ctx.refFnNames.length
+    if nRefFns > 0 then
+      sb.append(s"    $jitPkg.ObjToLong[] _fn = $jitPkg.JitGlobals.getRefFns();\n")
+      var ri = 0
+      while ri < nRefFns do
+        sb.append(s"    $jitPkg.ObjToLong _fn$ri = _fn[$ri];\n")
+        ri += 1
+    val nRefs = ctx.refNames.length
+    if nRefs > 0 then
+      sb.append(s"    Object[] _r = $jitPkg.JitGlobals.getRefs();\n")
+      var ri = 0
+      while ri < nRefs do
+        sb.append(s"    Object _r$ri = _r[$ri];\n")
+        ri += 1
+    // Copy long array to named locals so the JVM can register-allocate them.
     // Sequential semantics: each assign sees the updated value of prior
     // assigns in the same iteration (matches tryLongWhileAssign behaviour).
     var i = 0
@@ -1239,14 +1277,43 @@ object JavacJitBackend extends JitBackend:
     val cls = try loader.loadClass(className) catch case _: Throwable =>
       whileLongGlobalCache.put(cond, WhileLongMiss)
       return null
-    val result =
+    val method =
       try
         val m = cls.getMethod("run", classOf[Array[Long]])
         m.setAccessible(true)
         m
       catch case _: Throwable => null
-    whileLongGlobalCache.put(cond, if result == null then WhileLongMiss else result.asInstanceOf[AnyRef])
-    result
+    if method == null then
+      whileLongGlobalCache.put(cond, WhileLongMiss)
+      return null
+    // Resolve ObjToLong fn instances now (compile-time interp available).
+    // These are cached in `JavacJitBackend.cache`; re-resolving at each
+    // tryWhileJit invocation would require another globals lookup per call.
+    val refFnsArr: Array[ObjToLong] =
+      if ctx.refFnNames.isEmpty || interp == null then Array.empty[ObjToLong]
+      else
+        val arr = new Array[ObjToLong](ctx.refFnNames.length)
+        var fi = 0
+        var ok2 = true
+        while fi < ctx.refFnNames.length && ok2 do
+          val fnV = interp.globals.getOrElse(ctx.refFnNames(fi), null)
+          if !fnV.isInstanceOf[Value.FunV] then ok2 = false
+          else
+            val jitR = tryCompile(fnV.asInstanceOf[Value.FunV], interp)
+            if jitR == null || jitR.direct == null || !jitR.direct.isInstanceOf[ObjToLong] then ok2 = false
+            else arr(fi) = jitR.direct.asInstanceOf[ObjToLong]
+          fi += 1
+        if !ok2 then
+          whileLongGlobalCache.put(cond, WhileLongMiss)
+          return null
+        arr
+    val entry = new WhileJitEntry(
+      method,
+      if ctx.refNames.isEmpty then Array.empty[String] else ctx.refNames.toArray,
+      refFnsArr
+    )
+    whileLongGlobalCache.put(cond, entry.asInstanceOf[AnyRef])
+    entry
 
   /** Walk a Term to a Java `long` expression using `_v$idx` local variables
    *  (as declared in the generated method prologue). Supports:
@@ -1297,13 +1364,34 @@ object JavacJitBackend extends JitBackend:
     case ap: Term.Apply =>
       ap.fun match
         case fnName: Term.Name if ctx.interp != null =>
-          val sanitised = pureFnMethodName(fnName.value)
-          // Resolve callee → check it's a pure FunV of the right arity →
-          // ensure (or emit) its co-compiled method in this class.
           val nargs = ap.argClause.values.length
           if (nargs != 1 && nargs != 2) then return null
-          // Compile arg expressions first (each must itself fit the slot subset).
           val args = ap.argClause.values
+          // ObjToLong fast path: single arg that resolves to a val-bound
+          // InstanceV global → function must be JIT-compiled as ObjToLong.
+          // The arg is emitted as `_rN` (loaded from JitGlobals.getRefs()
+          // before the loop); the call is `_fnM.apply(_rN)`.
+          // We MUST take this branch (not fall through to the pure-long path)
+          // when the arg is a ref: passing a ref as `long _v0` would be a
+          // Java type error.
+          // Only valid at the outer-loop level (not inside a co-emitted callee
+          // static method): callee methods have no ref preamble.
+          if nargs == 1 && !ctx.isCallee then
+            val argRefJava = walkRefArgCtx(args.head, ctx)
+            if argRefJava != null then
+              val fnV = ctx.interp.globals.getOrElse(fnName.value, null)
+              if !fnV.isInstanceOf[Value.FunV] then return null
+              val fn = fnV.asInstanceOf[Value.FunV]
+              if fn.params.length != 1 then return null
+              val jitR = tryCompile(fn, ctx.interp)
+              if jitR == null || !jitR.paramIsRef(0) || jitR.resultIsDouble || jitR.direct == null ||
+                 !jitR.direct.isInstanceOf[ObjToLong]
+              then return null
+              val fi = ctx.refFnIdx(fnName.value)
+              return s"_fn$fi.apply($argRefJava)"
+          val sanitised = pureFnMethodName(fnName.value)
+          // Pure-long path: resolve callee → check it's a pure FunV of the
+          // right arity → ensure (or emit) its co-compiled method in this class.
           val a0 = walkLocalSlotCtx(args.head, ctx); if a0 == null then return null
           val a1 =
             if nargs == 2 then
@@ -1313,7 +1401,6 @@ object JavacJitBackend extends JitBackend:
             if nargs == 1 then s"$sanitised($a0)"
             else                s"$sanitised($a0, $a1)"
           else
-            // Look up callee in interp.globals; must be a pure FunV.
             val fnV = ctx.interp.globals.getOrElse(fnName.value, null)
             if (fnV eq null) || !fnV.isInstanceOf[Value.FunV] then return null
             val fn = fnV.asInstanceOf[Value.FunV]
@@ -1323,12 +1410,12 @@ object JavacJitBackend extends JitBackend:
             if fn.paramTypes.nonEmpty && fn.paramTypes.exists(_.endsWith("*")) then return null
             // Walk the callee body with the callee's params as the slot list —
             // walkLocalSlotCtx then emits param refs as `_v0` / `_v1`.
+            // isCallee=true: the co-emitted static method has no ref preamble.
             val calleeCtx = new WhileGenCtx(
-              fn.params.toArray, ctx.interp, ctx.pureFnEmissions
+              fn.params.toArray, ctx.interp, ctx.pureFnEmissions,
+              isCallee = true
             )
             val bodyJava = walkLocalSlotCtx(fn.body, calleeCtx); if bodyJava == null then return null
-            // Pre-stamp the emission so a recursive call to self resolves to
-            // an existing entry (prevents infinite walk).
             val params =
               if nargs == 1 then "long _v0"
               else                "long _v0, long _v1"
@@ -1337,6 +1424,24 @@ object JavacJitBackend extends JitBackend:
             ctx.pureFnEmissions(sanitised) = methodSrc
             if nargs == 1 then s"$sanitised($a0)"
             else                s"$sanitised($a0, $a1)"
+        case _ => null
+    case _ => null
+
+  /** Resolve a Term to a `_rN` ref-slot Java expression, or null if the term
+   *  is not a val-bound InstanceV global.  Long slots (`_vN`) and literals
+   *  return null — they are not refs and must use the long path.
+   *  Registers the name in `ctx.refNames` on first encounter. */
+  private def walkRefArgCtx(t: Term, ctx: WhileGenCtx): String | Null = t match
+    case tn: Term.Name if ctx.interp != null =>
+      // If the name is already a long slot, it's not a ref.
+      var si = 0
+      while si < ctx.slots.length do
+        if ctx.slots(si) == tn.value then return null
+        si += 1
+      ctx.interp.globals.getOrElse(tn.value, null) match
+        case _: Value.InstanceV =>
+          val ri = ctx.refIdx(tn.value)
+          s"_r$ri"
         case _ => null
     case _ => null
 

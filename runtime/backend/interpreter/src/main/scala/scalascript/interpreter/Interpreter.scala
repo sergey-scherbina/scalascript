@@ -608,7 +608,7 @@ class Interpreter(
     java.util.IdentityHashMap()
 
   /** Cache of JIT-compiled while-loop runners, keyed by `Term.While` AST identity.
-   *  Value is a `java.lang.reflect.Method` (success) or `EvalRuntime.WhileJitMiss`
+   *  Value is a `WhileJitEntry` (success) or `EvalRuntime.WhileJitMiss`
    *  (compilation failed — don't retry). Absent key = not yet attempted. */
   private[interpreter] val whileJitCache: java.util.IdentityHashMap[scala.meta.Term.While, AnyRef] =
     java.util.IdentityHashMap()

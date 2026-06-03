@@ -19,7 +19,7 @@ trait JitBackend:
     names:  Array[String],
     rhs:    Array[Term],
     interp: Interpreter | Null
-  ): java.lang.reflect.Method | Null
+  ): WhileJitEntry | Null
 
 object JitBackend:
   /** Active backend. `SSC_JIT_BACKEND=asm` selects `AsmJitBackend`;

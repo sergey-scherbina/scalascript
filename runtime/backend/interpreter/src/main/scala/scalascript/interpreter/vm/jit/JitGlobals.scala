@@ -10,7 +10,9 @@ import scalascript.interpreter.{Interpreter, Value}
  *  hot path. */
 object JitGlobals:
 
-  private val interpTls: ThreadLocal[Interpreter] = new ThreadLocal[Interpreter]()
+  private val interpTls:  ThreadLocal[Interpreter]    = new ThreadLocal[Interpreter]()
+  private val refsTls:    ThreadLocal[Array[AnyRef]]   = new ThreadLocal[Array[AnyRef]]()
+  private val refFnsTls:  ThreadLocal[Array[ObjToLong]] = new ThreadLocal[Array[ObjToLong]]()
 
   def withInterp[A](interp: Interpreter)(thunk: => A): A =
     val prev = interpTls.get()
@@ -26,6 +28,24 @@ object JitGlobals:
     // memory cost: ~32 bytes that never shrink — negligible.
     try thunk
     finally interpTls.set(prev)
+
+  /** Set per-invocation ref arrays for a `WhileJitEntry` that uses InstanceV
+   *  arguments.  The generated `run(long[])` method calls `getRefs()` /
+   *  `getRefFns()` to read the Object and ObjToLong slots; the caller wraps
+   *  `method.invoke` in this block.  Uses the same `set(prev)` restore
+   *  pattern as `withInterp` to avoid ThreadLocalMap.Entry churn. */
+  def withRefs[A](refs: Array[AnyRef], fns: Array[ObjToLong])(thunk: => A): A =
+    val prevR = refsTls.get()
+    val prevF = refFnsTls.get()
+    refsTls.set(refs)
+    refFnsTls.set(fns)
+    try thunk
+    finally
+      refsTls.set(prevR)
+      refFnsTls.set(prevF)
+
+  def getRefs(): Array[AnyRef]    = refsTls.get()
+  def getRefFns(): Array[ObjToLong] = refFnsTls.get()
 
   /** Called by generated Java code: read a top-level `Int` global by name and
    *  return its `Long` value. Throws `RuntimeException` if the name is
