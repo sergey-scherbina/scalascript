@@ -7,5 +7,20 @@ def sumTco(n: Int, acc: Int): Int =
   if n <= 0 then acc
   else sumTco(n - 1, acc + n)
 
-println(sumTco(100000, 0))
+def workload(): Int = sumTco(100000, 0)
+
+val WARMUP = 2
+val REPS   = 5
+var _w = 0
+while _w < WARMUP do
+  workload()
+  _w += 1
+
+val _t0 = System.currentTimeMillis()
+var _r = 0
+while _r < REPS do
+  workload()
+  _r += 1
+val _ms = System.currentTimeMillis() - _t0
+println(s"BENCH_MS: ${_ms.toDouble / REPS}")
 ```

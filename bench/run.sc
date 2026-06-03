@@ -3,36 +3,30 @@
 //> using javaOpt "-Xss8m"
 
 /**
- * ScalaScript interpreter benchmark harness.
+ * ScalaScript benchmark harness — in-process edition.
  *
  * Usage (from repo root):
  *   ./bench.sh                              # run all workloads, interpreter only
  *   ./bench.sh arith-loop recursion-fib    # filter by name
- *   ./bench.sh --compare                   # interp vs jvm vs js (wall-clock incl. compile)
+ *   ./bench.sh --compare                   # interp vs jvm vs js
  *   ./bench.sh --baseline                  # write bench/BASELINE.md
  *
- * The harness invokes `ssc` (the ScalaScript CLI) for each corpus file,
- * measuring wall-clock time over WARMUP + REPS runs.  It prints a markdown
- * table and optionally writes bench/BASELINE.md when --baseline flag is given.
+ * Each corpus file manages its own warmup + timing internally and prints
+ * a final line "BENCH_MS: X.X" (ms per iteration).  The harness runs each
+ * file once per backend and parses that line, so process startup is never
+ * counted in the measurement.
  *
- * Design notes:
- *   - Uses subprocess `ssc` rather than embedding the interpreter directly so
- *     the benchmark is backend-agnostic and reflects real-world startup cost.
- *   - For tight interpreter microbenchmarks that need JMH-level accuracy, see
- *     runtime/backend/interpreter-bench/ (sbt-jmh module, v1.61.0 deliverable).
- *   - WARMUP runs are discarded; the median of REPS is reported.
- *   - --compare mode uses fewer reps for jvm/js because each run includes
- *     a full scala-cli / node compilation round-trip.
+ * Backend emit strategy (compilation excluded from timing):
+ *   interp — ssc <file.ssc>     (interpreter process; internal warmup warms interp)
+ *   jvm    — ssc emit-scala → stable /tmp/…sc → scala-cli (bytecode cached by scala-cli)
+ *   js     — ssc emit-js    → stable /tmp/…cjs → node
  */
 
 import scala.sys.process.*
 import java.nio.file.{Files, Paths}
 import scala.jdk.CollectionConverters.*
 
-// ── configuration ────────────────────────────────────────────────────────────
-
-val WARMUP = 2
-val REPS   = 7
+// ── paths ─────────────────────────────────────────────────────────────────────
 
 val root        = Paths.get(getClass.getResource("/").toURI).getParent.getParent.getParent.toAbsolutePath
                   .toString.replaceAll("/bench/.*", "") match
@@ -48,17 +42,15 @@ val filterNames   = args.filterNot(_.startsWith("--")).toSet
 
 // ── backend descriptors ──────────────────────────────────────────────────────
 
-// cmd: (sscPath, effectiveFile) => command to run
-case class Backend(label: String, warmup: Int, reps: Int, cmd: (String, String) => Seq[String])
+// cmd: (sscPath, effectiveFile) => command to run once
+case class Backend(label: String, cmd: (String, String) => Seq[String])
 
-val interpBackend = Backend("interp", WARMUP, REPS, (ssc, f) => Seq(ssc, f))
-// JVM: emit-scala → stable /tmp/ssc-bench-jvm-<name>.sc, run via scala-cli.
-// scala-cli caches compiled bytecode per-file, so warmup populates the
-// bytecode cache and measured runs exclude Scala compilation (~0.5s vs ~5s).
-val jvmBackend    = Backend("jvm",    WARMUP, REPS, (_,   f) => Seq("scala-cli", f))
-// JS: emit-js → stable /tmp/ssc-bench-js-<name>.cjs, run via node.
-// node parses/JITs the file on first run; subsequent runs hit V8's code cache.
-val jsBackend     = Backend("js",     WARMUP, REPS, (_,   f) => Seq("node", f))
+val interpBackend = Backend("interp", (ssc, f) => Seq(ssc, f))
+// JVM: emit-scala → stable temp .sc; scala-cli caches bytecode so the
+// in-corpus warmup iterations run on JIT-compiled code.
+val jvmBackend    = Backend("jvm",    (_,   f) => Seq("scala-cli", f))
+// JS: emit-js → stable temp .cjs; V8 JITs the code during in-corpus warmup.
+val jsBackend     = Backend("js",     (_,   f) => Seq("node", f))
 
 val activeBackends: Seq[Backend] =
   if compareMode then Seq(interpBackend, jvmBackend, jsBackend)
@@ -66,31 +58,31 @@ val activeBackends: Seq[Backend] =
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-case class BenchResult(name: String, medianMs: Long, minMs: Long, maxMs: Long, output: String)
+case class BenchResult(name: String, msPerIter: Double, output: String)
 
 def logStderr(line: String): Unit =
   if !line.startsWith("NOTE: Picked up") && !line.contains("skipping backend plugin") then
     System.err.println(line)
 
-def runOnce(cmd: Seq[String], errLog: String => Unit): Option[(Long, String)] =
+def parseBenchMs(output: String): Option[Double] =
+  output.linesIterator
+    .filter(_.startsWith("BENCH_MS:"))
+    .flatMap(l => l.stripPrefix("BENCH_MS:").trim.toDoubleOption)
+    .toSeq.lastOption
+
+def runFile(cmd: Seq[String], errLog: String => Unit): Option[String] =
   val buf = new java.io.ByteArrayOutputStream
   val ps  = new java.io.PrintStream(buf, true)
-  val t0  = System.currentTimeMillis()
   val rc  = Process(cmd).!(ProcessLogger(ps.println, errLog))
-  val t1  = System.currentTimeMillis()
-  if rc != 0 then None else Some((t1 - t0, buf.toString.trim))
+  if rc != 0 then None else Some(buf.toString.trim)
 
 def benchFile(sscPath: String, backend: Backend, file: java.io.File): Option[BenchResult] =
   val name   = file.getName.replaceAll("\\.ssc$", "")
   val tag    = if activeBackends.size > 1 then s"$name [${backend.label}]" else name
   val errLog: String => Unit = if backend.label == "interp" then logStderr else _ => ()
 
-  // JVM: emit Scala source to a stable temp .sc so scala-cli can cache its
-  // compiled bytecode across warmup+measure runs.  Return None if JvmGen fails
-  // (e.g. effects or HTTP intrinsics that JVM backend doesn't support).
-  // JS:  emit JS to a stable temp .cjs, run via node directly (no ssc startup).
-  // Both patterns ensure compilation/transpilation time is absorbed in warmup,
-  // not measured.
+  // Emit to a stable temp file for JVM/JS so transpilation is not counted.
+  // Returns None if the backend does not support this file (e.g. effects in JvmGen).
   val effectiveFile: Option[String] = backend.label match
     case "jvm" =>
       val tmp = java.io.File(s"/tmp/ssc-bench-jvm-$name.sc")
@@ -104,7 +96,7 @@ def benchFile(sscPath: String, backend: Backend, file: java.io.File): Option[Ben
       if rc != 0 then None else Some(tmp.getAbsolutePath)
     case _ => Some(file.getAbsolutePath)
 
-  print(s"  $tag: warming up... ")
+  print(s"  $tag: running... ")
   Console.flush()
 
   effectiveFile match
@@ -113,26 +105,29 @@ def benchFile(sscPath: String, backend: Backend, file: java.io.File): Option[Ben
       None
     case Some(f) =>
       val runCmd = backend.cmd(sscPath, f)
-      (1 to backend.warmup).foreach(_ => runOnce(runCmd, errLog))
-      val results = (1 to backend.reps).flatMap(_ => runOnce(runCmd, errLog))
-      if results.isEmpty then
-        println("n/a")
-        None
-      else
-        val times  = results.map(_._1).sorted
-        val output = results.last._2
-        val med    = times(times.length / 2)
-        val min    = times.head
-        val max    = times.last
-        println(s"$med ms (min $min, max $max)")
-        Some(BenchResult(name, med, min, max, output))
+      runFile(runCmd, errLog) match
+        case None =>
+          println("n/a")
+          None
+        case Some(output) =>
+          parseBenchMs(output) match
+            case None =>
+              println("n/a (no BENCH_MS line)")
+              None
+            case Some(ms) =>
+              val fmt = if ms < 1.0 then f"$ms%.3f" else if ms < 10.0 then f"$ms%.2f" else f"$ms%.1f"
+              println(s"$fmt ms/iter")
+              Some(BenchResult(name, ms, output))
 
 // ── table formatters ─────────────────────────────────────────────────────────
 
+def fmtMs(ms: Double): String =
+  if ms < 1.0 then f"$ms%.3f" else if ms < 10.0 then f"$ms%.2f" else f"$ms%.1f"
+
 def formatTable(results: Seq[BenchResult], label: String): String =
   val nameCells  = results.map(r => s"`${r.name}`")
-  val timeCells  = results.map(r => s"${r.medianMs} (${r.minMs}...${r.maxMs})")
-  val colLabel   = s"$label (ms)"
+  val timeCells  = results.map(r => fmtMs(r.msPerIter))
+  val colLabel   = s"$label (ms/iter)"
 
   val w0 = ("Workload" +: nameCells).map(_.length).max
   val w1 = (colLabel   +: timeCells).map(_.length).max
@@ -142,21 +137,21 @@ def formatTable(results: Seq[BenchResult], label: String): String =
 
   val header = s"| ${pad("Workload", w0)} | ${rpad(colLabel, w1)} |"
   val sep    = s"| ${"-" * w0} | ${"-" * w1} |"
-  val rows   = results.zip(nameCells).zip(timeCells).map { case ((r, name), time) =>
+  val rows   = results.zip(nameCells).zip(timeCells).map { case ((_, name), time) =>
     s"| ${pad(name, w0)} | ${rpad(time, w1)} |"
   }
   (header +: sep +: rows).mkString("\n")
 
 def formatCompareTable(
     workloads: Seq[String],
-    byBackend: Map[String, Map[String, Option[Long]]]  // backend → workload → median
+    byBackend: Map[String, Map[String, Option[Double]]]
 ): String =
-  val bLabels   = activeBackends.map(b => s"${b.label} (ms)")
+  val bLabels   = activeBackends.map(b => s"${b.label} (ms/iter)")
   val nameCells = workloads.map(n => s"`$n`")
 
   val w0 = ("Workload" +: nameCells).map(_.length).max
   val ws = activeBackends.zipWithIndex.map { (b, i) =>
-    val vals = workloads.map(n => byBackend.get(b.label).flatMap(_.get(n)).flatten.fold("n/a")(_.toString))
+    val vals = workloads.map(n => byBackend.get(b.label).flatMap(_.get(n)).flatten.fold("n/a")(fmtMs))
     (bLabels(i) +: vals).map(_.length).max
   }
 
@@ -167,7 +162,7 @@ def formatCompareTable(
   val sep    = s"| ${"-" * w0} | ${ws.map(w => "─" * (w - 1) + ":").mkString(" | ")} |"
   val rows   = workloads.zip(nameCells).map { (name, cell) =>
     val vals = activeBackends.zip(ws).map { (b, w) =>
-      val v = byBackend.get(b.label).flatMap(_.get(name)).flatten.fold("n/a")(_.toString)
+      val v = byBackend.get(b.label).flatMap(_.get(name)).flatten.fold("n/a")(fmtMs)
       rpad(v, w)
     }
     s"| ${pad(cell, w0)} | ${vals.mkString(" | ")} |"
@@ -177,13 +172,12 @@ def formatCompareTable(
 // ── main ─────────────────────────────────────────────────────────────────────
 
 println()
-println("ScalaScript benchmark harness — v1.61.0")
+println("ScalaScript benchmark harness — v1.62.0")
 println("=" * 60)
 
 val sscPath = if Files.exists(sscBin) then sscBin.toString
-             else sys.env.getOrElse("SSC", "ssc")  // fallback: PATH
+             else sys.env.getOrElse("SSC", "ssc")
 
-// Verify ssc is usable
 val sscCheck = Process(Seq(sscPath, "help")).!(ProcessLogger(_ => (), _ => ()))
 if sscCheck != 0 then
   System.err.println(s"[ERROR] ssc not found at $sscPath. Build with `sbt cli/installBin` or set SSC env.")
@@ -199,22 +193,21 @@ if corpusFiles.isEmpty then
   System.err.println(s"[ERROR] No corpus files found in $corpusDir matching $filterNames")
   sys.exit(1)
 
-println(s"Corpus:   ${corpusFiles.map(_.getName.replaceAll("\\.ssc$","")).mkString(", ")}")
+println(s"Corpus: ${corpusFiles.map(_.getName.replaceAll("\\.ssc$","")).mkString(", ")}")
 if compareMode then
-  println(s"Backends: ${activeBackends.map(_.label).mkString(", ")} — warmup=$WARMUP reps=$REPS each")
-  println(s"Note:     jvm/js compile in warmup phase; measured runs are execution-only")
+  println(s"Mode:   in-process (warmup + timing inside each corpus file)")
+  println(s"Backends: ${activeBackends.map(_.label).mkString(", ")}")
 else
-  println(s"Warmup: $WARMUP × $REPS reps; ssc = $sscPath")
+  println(s"Mode:   in-process (warmup + timing inside each corpus file); ssc = $sscPath")
 println()
 
 if compareMode then
-  // Run all backends for each corpus file; collect into backend→workload→median
-  val byBackend = scala.collection.mutable.Map.empty[String, scala.collection.mutable.Map[String, Option[Long]]]
+  val byBackend = scala.collection.mutable.Map.empty[String, scala.collection.mutable.Map[String, Option[Double]]]
   for b <- activeBackends do
-    val bMap = scala.collection.mutable.Map.empty[String, Option[Long]]
+    val bMap = scala.collection.mutable.Map.empty[String, Option[Double]]
     for f <- corpusFiles do
       val name = f.getName.replaceAll("\\.ssc$", "")
-      bMap(name) = benchFile(sscPath, b, f).map(_.medianMs)
+      bMap(name) = benchFile(sscPath, b, f).map(_.msPerIter)
     byBackend(b.label) = bMap
     println()
 
@@ -231,6 +224,6 @@ else
 
   if writeBaseline then
     val ts      = java.time.LocalDate.now.toString
-    val content = s"""# Benchmark Baseline — $ts\n\nGenerated by `./bench.sh --baseline`.\nEach number is the median of $REPS runs after $WARMUP warmup runs, wall-clock ms.\n\n${formatTable(results, interpBackend.label)}\n"""
+    val content = s"""# Benchmark Baseline — $ts\n\nGenerated by `./bench.sh --baseline`.\nIn-process timing: warmup + measurement inside each corpus file.\n\n${formatTable(results, interpBackend.label)}\n"""
     Files.writeString(baselineOut, content)
     println(s"Baseline written to bench/BASELINE.md")

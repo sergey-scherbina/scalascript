@@ -21,11 +21,26 @@ val shapes: List[Shape] = List(
   Circle(1.0), Rect(2.0, 3.0), Triangle(4.0, 5.0), Point(0.0, 0.0), Line(7.0)
 )
 
-var total = 0.0
-var i = 0
-while i < 100000 do
-  shapes.foreach(s => { total = total + area(s) })
-  i = i + 1
+def workload(): Double =
+  var total = 0.0
+  var i = 0
+  while i < 100000 do
+    shapes.foreach(s => { total = total + area(s) })
+    i = i + 1
+  total
 
-println(total)
+val WARMUP = 3
+val REPS   = 10
+var _w = 0
+while _w < WARMUP do
+  workload()
+  _w += 1
+
+val _t0 = System.currentTimeMillis()
+var _r = 0
+while _r < REPS do
+  workload()
+  _r += 1
+val _ms = System.currentTimeMillis() - _t0
+println(s"BENCH_MS: ${_ms.toDouble / REPS}")
 ```

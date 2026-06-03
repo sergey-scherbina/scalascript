@@ -3,12 +3,28 @@
 Effect dispatch + Source allocation — Stream.emit in a loop.
 
 ```scalascript
-val (src, _) = runStream {
-  var i = 0
-  while i < 10000 do
-    Stream.emit(i)
-    i = i + 1
-}
-val lst = src.runToList()
-println(lst.length)
+def workload(): Int =
+  val (src, _) = runStream {
+    var i = 0
+    while i < 10000 do
+      Stream.emit(i)
+      i = i + 1
+  }
+  val lst = src.runToList()
+  lst.length
+
+val WARMUP = 3
+val REPS   = 10
+var _w = 0
+while _w < WARMUP do
+  workload()
+  _w += 1
+
+val _t0 = System.currentTimeMillis()
+var _r = 0
+while _r < REPS do
+  workload()
+  _r += 1
+val _ms = System.currentTimeMillis() - _t0
+println(s"BENCH_MS: ${_ms.toDouble / REPS}")
 ```

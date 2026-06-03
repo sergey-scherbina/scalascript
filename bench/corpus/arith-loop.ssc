@@ -3,10 +3,26 @@
 Hot path: IntV boxing, env lookup, while-loop overhead.
 
 ```scalascript
-var i = 0
-var sum = 0
-while i < 1000000 do
-  sum = sum + i
-  i = i + 1
-println(sum)
+def workload(): Long =
+  var i = 0
+  var sum = 0L
+  while i < 1000000 do
+    sum = sum + i
+    i = i + 1
+  sum
+
+val WARMUP = 5
+val REPS   = 20
+var _w = 0
+while _w < WARMUP do
+  workload()
+  _w += 1
+
+val _t0 = System.currentTimeMillis()
+var _r = 0
+while _r < REPS do
+  workload()
+  _r += 1
+val _ms = System.currentTimeMillis() - _t0
+println(s"BENCH_MS: ${_ms.toDouble / REPS}")
 ```
