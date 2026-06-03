@@ -96,6 +96,21 @@ class InterpreterTest extends AnyFunSuite with Matchers:
     """) shouldBe "55"
   }
 
+  test("while loop with ref-arg match in LRefExpr position (LRefMatch)") {
+    captured("""
+      enum Shape:
+        case Circle(r: Int)
+        case Square(s: Int)
+      val shape: Shape = Shape.Circle(5)
+      var total = 0
+      var i = 0
+      while i < 100 do
+        total = total + (shape match { case Shape.Circle(r) => r; case Shape.Square(s) => s })
+        i = i + 1
+      println(total)
+    """) shouldBe "500"
+  }
+
   test("nested functions and closures") {
     captured("""
       def adder(x: Int) = (y: Int) => x + y

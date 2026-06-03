@@ -672,6 +672,17 @@ private[interpreter] object EvalRuntime:
           if arr ne null then arr(fieldIdx)
           else throw PatternRuntime.NotDouble
         case _ => throw PatternRuntime.NotDouble
+
+  /** Ref-returning match in LRefExpr position. Scrutinee is any `LRefExpr`
+   *  (LRefConst, LRefFieldGet, …). `cm.runValue` must succeed (returns non-null)
+   *  or the enclosing while-loop falls back to tree-walk via `NotDouble`.
+   *  Only wired when `cm.valueCapable` is true. */
+  private final class LRefMatch(scrutR: LRefExpr, cm: PatternRuntime.CompiledMatch) extends LRefExpr:
+    def eval(slots: Array[Long], refs: Array[AnyRef]): AnyRef =
+      val scrutV = scrutR.eval(slots, refs).asInstanceOf[Value]
+      val result = cm.runValue(scrutV, Map.empty)
+      if result ne null then result else throw PatternRuntime.NotDouble
+
   private final class LConst(v: Long) extends LExpr:
     def eval(slots: Array[Long], refs: Array[AnyRef]): Long = v
   private final class LVar(idx: Int) extends LExpr:
@@ -962,6 +973,12 @@ private[interpreter] object EvalRuntime:
             val qualR = compileRefExpr(qual)
             if qualR == null then null
             else new LRefFieldGet(qualR, fieldIdx)
+      case tm: Term.Match =>
+        val scrutR = compileRefExpr(tm.expr)
+        if scrutR == null then null
+        else
+          val cm = PatternRuntime.compileMatch(tm, interp)
+          if cm.valueCapable then new LRefMatch(scrutR, cm) else null
       case _ => null
     def compileExpr(term: Term): LExpr | Null = term match
       case Lit.Int(v)  => new LConst(v.toLong)
@@ -1266,6 +1283,12 @@ private[interpreter] object EvalRuntime:
             val qualR = compileRefExpr(qual)
             if qualR == null then null
             else new LRefFieldGet(qualR, fieldIdx)
+      case tm: Term.Match =>
+        val scrutR = compileRefExpr(tm.expr)
+        if scrutR == null then null
+        else
+          val cm = PatternRuntime.compileMatch(tm, interp)
+          if cm.valueCapable then new LRefMatch(scrutR, cm) else null
       case _ => null
     def compileExpr(term: Term): LExpr | Null = term match
       case Lit.Int(v)  => new LConst(v.toLong)
