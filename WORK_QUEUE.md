@@ -599,6 +599,22 @@ highest-impact item.
         JIT off: 13,570 → JIT on: 11.7 → ~1,160× speedup.**
       Tests: 1227/1227 green.
 
+- [x] **while-jit-ref-select-chain** — ✓ Landed 2026-06-03 commit `225d7e32`.
+      Extended `walkRefArgCtx` with two new term shapes:
+      1. `Term.Select(Name(n), field)` — resolves `n.field` at compile time
+         (both must be InstanceV globals); registers dotted key `"n.field"` in
+         `refNames`. `tryWhileJit` resolves dotted keys via two-level
+         `globals → InstanceV.fields` lookup.
+      2. `Term.Apply(fn, [refArg])` where fn is `ObjToObject`-compiled — emits
+         `_objFnN.apply(innerRef)` in generated Java. New `refObjFns:
+         Array[ObjToObject]` field on `WhileJitEntry`; new TLS
+         `refObjFnsTls` / `getRefObjFns()` in `JitGlobals`; `withRefs` gains
+         3rd arg `objFns`. `AsmJitBackend` passes `Array.empty[ObjToObject]`.
+      **Bench wins (wi=3 mi=5 ms/op):**
+        `refFieldArg`  (`f(item.right)`):         9.2 → 0.046 ms (~200×)
+        `refChainArg`  (`leafVal(getLeft(tree))`): 9.7 → 0.308 ms (~31×)
+      Tests: 1230/1230 green.
+
 - [ ] **jit-lint-recognisers-pure-predicates** — factor out the
       `JavacJitBackend.tryCompile` bail predicates into pure inspection
       functions so `JitLint.classifyBailReasons` can ask them directly.

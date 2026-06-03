@@ -4,6 +4,26 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — while-jit-ref-select-chain: field-select + ObjToObject chain args
+
+- **while-jit-ref-select-chain** — Extended `walkRefArgCtx` in
+  `tryCompileWhileLong` with two new term shapes:
+  1. `Term.Select(Name(n), field)` — field access on a val-bound `InstanceV`
+     global: resolves `n.field` at compile time, registers dotted key `"n.field"`
+     in `refNames`. At invocation time `tryWhileJit` resolves dotted keys via a
+     two-level `globals → InstanceV.fields` lookup.
+  2. `Term.Apply(fn, [refArg])` where `fn` is `ObjToObject`-compiled — chained
+     ref call: emits `_objFnN.apply(innerRef)` in generated Java. New
+     `refObjFns: Array[ObjToObject]` field on `WhileJitEntry`; new TLS slot
+     `refObjFnsTls` + `getRefObjFns()` in `JitGlobals`. `withRefs` gains a 3rd
+     arg for `ObjToObject` instances.
+  Commit: `225d7e32`.  Tests: 1230/1230 green.
+  **Bench wins (wi=3 mi=5 ms/op):**
+    `refFieldArg`  (`f(item.right)`):          9.2 → 0.046 ms (~200×)
+    `refChainArg`  (`leafVal(getLeft(tree))`):  9.7 → 0.308 ms (~31×)
+
+---
+
 ## 2026-06-03 — while-jit-ref-args: ObjToLong calls in tryCompileWhileLong
 
 - **while-jit-ref-args** — Extended `tryCompileWhileLong` (the Java-source
