@@ -444,6 +444,26 @@ private[interpreter] object EvalRuntime:
     def run(interp: Interpreter): Computation | Null =
       FastTier.runLongAccumForeachSetFast(set, resolved, interp, cachedSlot)
 
+  private final class PreResolvedFastLongMapForeach(
+    val applyIdx: Int,
+    val map:      scala.collection.immutable.Map[Value, Value],
+    val resolved: FastTier.ResolvedLongMapAccum
+  ) extends PreResolvedForeach:
+    var cachedSlot: Array[Long] | Null = null
+    override def setCachedSlot(slot: Array[Long]): Unit = cachedSlot = slot
+    def run(interp: Interpreter): Computation | Null =
+      FastTier.runLongAccumForeachMapFast(map, resolved, interp, cachedSlot)
+
+  private final class PreResolvedFastDoubleMapForeach(
+    val applyIdx: Int,
+    val map:      scala.collection.immutable.Map[Value, Value],
+    val resolved: FastTier.ResolvedDoubleMapAccum
+  ) extends PreResolvedForeach:
+    var cachedSlot: Array[Long] | Null = null
+    override def setCachedSlot(slot: Array[Long]): Unit = cachedSlot = slot
+    def run(interp: Interpreter): Computation | Null =
+      FastTier.runDoubleAccumForeachMapFast(map, resolved, interp, cachedSlot)
+
   /** Recognize `while cond do { apply1; ...; applyN; assign1; ...; assignM }`
    *  with `N ≥ 1` and `M ≥ 1`. Returns null if the body has no leading applies
    *  (use the plain `collectFastAssignBody` path), no trailing assigns, or any
@@ -546,7 +566,14 @@ private[interpreter] object EvalRuntime:
                             if r != null then new PreResolvedFastLongSetForeach(applyIdx, sv.items, r)
                             else new PreResolvedSetForeach(applyIdx, sv.items, funV, isDouble)
                         case mv: Value.MapV =>
-                          new PreResolvedMapForeach(applyIdx, mv.entries, funV, isDouble)
+                          if isDouble then
+                            val r = FastTier.tryResolveDoubleMapAccum(funV, interp)
+                            if r != null then new PreResolvedFastDoubleMapForeach(applyIdx, mv.entries, r)
+                            else new PreResolvedMapForeach(applyIdx, mv.entries, funV, isDouble)
+                          else
+                            val r = FastTier.tryResolveLongMapAccum(funV, interp)
+                            if r != null then new PreResolvedFastLongMapForeach(applyIdx, mv.entries, r)
+                            else new PreResolvedMapForeach(applyIdx, mv.entries, funV, isDouble)
                         case _ => null
                   case _ => null
               case _ => null
