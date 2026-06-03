@@ -69,8 +69,15 @@ object AsmJitBackend extends JitBackend:
     if n == 1 then
       if paramIsRef(0) then if isDouble then s"$jitPkg.ObjToDouble" else s"$jitPkg.ObjToLong"
       else if isDouble then s"$jitPkg.DoubleFn1" else s"$jitPkg.LongFn1"
-    else if n == 2 && !paramIsRef(0) && !paramIsRef(1) then
-      if isDouble then s"$jitPkg.DoubleFn2" else s"$jitPkg.LongFn2"
+    else if n == 2 then
+      (paramIsRef(0), paramIsRef(1)) match
+        case (false, false) =>
+          if isDouble then s"$jitPkg.DoubleFn2"      else s"$jitPkg.LongFn2"
+        case (false, true)  =>
+          if isDouble then s"$jitPkg.LongObjToDouble" else s"$jitPkg.LongObjToLong"
+        case (true,  false) =>
+          if isDouble then s"$jitPkg.ObjLongToDouble" else s"$jitPkg.ObjLongToLong"
+        case (true,  true)  => null
     else null
 
   // ── doCompile ─────────────────────────────────────────────────────────────
