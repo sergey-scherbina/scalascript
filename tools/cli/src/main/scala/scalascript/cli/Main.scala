@@ -6833,7 +6833,8 @@ final class BenchCmd extends CliCommand:
     var requireTarget  = false
     var warmupExplicit   = false
     var repsExplicit     = false
-    var warmupTimeMs: Option[Long] = None
+    // Default: 1 s time-based warmup. --warmup N clears this (count-based).
+    var warmupTimeMs: Option[Long] = Some(1000L)
     var fileArg: Option[String] = None
 
     def parseTarget(raw: String): Long = raw.toLongOption.getOrElse {
@@ -6855,14 +6856,14 @@ final class BenchCmd extends CliCommand:
         case "--baseline"       => writeBase = true; i += 1
         case "--require-target" => requireTarget = true; i += 1
         case "--machine"        => machine = true; i += 1
-        case "--warmup" if i+1 < arr.length => warmup = arr(i+1).toIntOption.getOrElse(5); warmupExplicit = true; i += 2
+        case "--warmup" if i+1 < arr.length => warmup = arr(i+1).toIntOption.getOrElse(5); warmupExplicit = true; warmupTimeMs = None; i += 2
         case "--warmup-time" if i+1 < arr.length =>
           warmupTimeMs = arr(i+1).toLongOption.filter(_ > 0).orElse {
             System.err.println(s"bench: --warmup-time must be a positive integer (milliseconds)"); System.exit(1); None
           }; i += 2
         case "--reps"   if i+1 < arr.length => reps   = arr(i+1).toIntOption.getOrElse(20); repsExplicit = true; i += 2
         case "--target-ms" if i+1 < arr.length => targetMs = Some(parseTarget(arr(i+1))); i += 2
-        case s if s.startsWith("--warmup=")      => warmup = s.stripPrefix("--warmup=").toIntOption.getOrElse(5); warmupExplicit = true; i += 1
+        case s if s.startsWith("--warmup=")      => warmup = s.stripPrefix("--warmup=").toIntOption.getOrElse(5); warmupExplicit = true; warmupTimeMs = None; i += 1
         case s if s.startsWith("--warmup-time=") =>
           warmupTimeMs = s.stripPrefix("--warmup-time=").toLongOption.filter(_ > 0).orElse {
             System.err.println(s"bench: --warmup-time must be a positive integer (milliseconds)"); System.exit(1); None
@@ -6873,11 +6874,12 @@ final class BenchCmd extends CliCommand:
         case other => System.err.println(s"bench: unknown flag $other"); System.exit(1)
 
     if smoke then
+      warmupTimeMs = None
       if !warmupExplicit then warmup = 0
       if !repsExplicit then reps = 1
       backend = "interp"
 
-    if warmup < 0 || reps <= 0 then
+    if warmupTimeMs.isEmpty && warmup < 0 || reps <= 0 then
       System.err.println("bench: --warmup must be >= 0 and --reps must be positive")
       System.exit(1)
     if requireTarget && targetMs.isEmpty then

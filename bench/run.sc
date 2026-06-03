@@ -54,12 +54,17 @@ def parseInt2(flag: String, default: Int): Int =
 val warmup = parseInt2("--warmup", 5)
 val reps   = parseInt2("--reps",  20)
 
-// --warmup-time N: time-based warmup in milliseconds; overrides --warmup when present
+// --warmup-time N: time-based warmup in milliseconds.
+// Default: 1000 ms unless --warmup (count-based) is explicitly passed.
 val warmupTimeMs: Option[Long] =
-  val idx = args.indexOf("--warmup-time")
-  if idx >= 0 && idx + 1 < args.length then args(idx + 1).toLongOption
-  else args.collectFirst { case s if s.startsWith("--warmup-time=") =>
-    s.stripPrefix("--warmup-time=").toLongOption }.flatten
+  val explicit =
+    val idx = args.indexOf("--warmup-time")
+    if idx >= 0 && idx + 1 < args.length then args(idx + 1).toLongOption
+    else args.collectFirst { case s if s.startsWith("--warmup-time=") =>
+      s.stripPrefix("--warmup-time=").toLongOption }.flatten
+  if explicit.isDefined then explicit
+  else if args.exists(a => a == "--warmup" || a.startsWith("--warmup=")) then None
+  else Some(1000L)
 
 // non-flag args that don't belong to --backend/--warmup/--warmup-time/--reps are workload filters
 val filterNames: Set[String] =
