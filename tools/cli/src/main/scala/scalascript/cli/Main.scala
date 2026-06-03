@@ -6803,6 +6803,7 @@ private[cli] def timed[A](name: String)(body: => A): (A, PhaseResult) =
  *  {{{
  *    --backend <interp|jvm|js>   (global flag) backend to use (default: interp)
  *    --warmup N                  warmup iterations (default 5)
+ *    --warmup-time N             warmup for N milliseconds (time-based; overrides --warmup)
  *    --reps N                    measured iterations (default 20)
  *    --smoke                     quick interp smoke over bench/corpus/hello-world.ssc
  *    --target-ms N               fail if result exceeds N ms/iter
@@ -6817,7 +6818,7 @@ final class BenchCmd extends CliCommand:
   override def category = "Run & develop"
   def run(args: List[String]): Unit =
     if args.isEmpty then
-      System.err.println("Usage: ssc bench [--backend <interp|jvm|js>] [--warmup N] [--reps N] [--smoke] [--target-ms N] [--require-target] [--baseline] [--machine] <file.ssc>")
+      System.err.println("Usage: ssc bench [--backend <interp|jvm|js>] [--warmup N] [--warmup-time N] [--reps N] [--smoke] [--target-ms N] [--require-target] [--baseline] [--machine] <file.ssc>")
       System.exit(1)
 
     // --backend is a global flag (GlobalFlags), consumed before we see args.
@@ -6830,8 +6831,9 @@ final class BenchCmd extends CliCommand:
     var machine    = false
     var targetMs: Option[Long] = None
     var requireTarget  = false
-    var warmupExplicit = false
-    var repsExplicit   = false
+    var warmupExplicit   = false
+    var repsExplicit     = false
+    var warmupTimeMs: Option[Long] = None
     var fileArg: Option[String] = None
 
     def parseTarget(raw: String): Long = raw.toLongOption.getOrElse {
@@ -6854,9 +6856,17 @@ final class BenchCmd extends CliCommand:
         case "--require-target" => requireTarget = true; i += 1
         case "--machine"        => machine = true; i += 1
         case "--warmup" if i+1 < arr.length => warmup = arr(i+1).toIntOption.getOrElse(5); warmupExplicit = true; i += 2
+        case "--warmup-time" if i+1 < arr.length =>
+          warmupTimeMs = arr(i+1).toLongOption.filter(_ > 0).orElse {
+            System.err.println(s"bench: --warmup-time must be a positive integer (milliseconds)"); System.exit(1); None
+          }; i += 2
         case "--reps"   if i+1 < arr.length => reps   = arr(i+1).toIntOption.getOrElse(20); repsExplicit = true; i += 2
         case "--target-ms" if i+1 < arr.length => targetMs = Some(parseTarget(arr(i+1))); i += 2
-        case s if s.startsWith("--warmup=")    => warmup = s.stripPrefix("--warmup=").toIntOption.getOrElse(5); warmupExplicit = true; i += 1
+        case s if s.startsWith("--warmup=")      => warmup = s.stripPrefix("--warmup=").toIntOption.getOrElse(5); warmupExplicit = true; i += 1
+        case s if s.startsWith("--warmup-time=") =>
+          warmupTimeMs = s.stripPrefix("--warmup-time=").toLongOption.filter(_ > 0).orElse {
+            System.err.println(s"bench: --warmup-time must be a positive integer (milliseconds)"); System.exit(1); None
+          }; i += 1
         case s if s.startsWith("--reps=")      => reps   = s.stripPrefix("--reps=").toIntOption.getOrElse(20); repsExplicit = true; i += 1
         case s if s.startsWith("--target-ms=") => targetMs = Some(parseTarget(s.stripPrefix("--target-ms="))); i += 1
         case f if !f.startsWith("-")  => fileArg = Some(f); i += 1
@@ -6920,7 +6930,8 @@ final class BenchCmd extends CliCommand:
 
     // Wrap user code with a self-contained timing harness that prints BENCH_MS.
     // Uses markdown format so emit-scala/emit-js process it correctly.
-    def generateWrapper(code: String, warmupN: Int, repsN: Int): String =
+    def generateWrapper(code: String, warmupN: Int, repsN: Int,
+                        warmupTimeMs: Option[Long]): String =
       // JVM pre-warm: BytecodeJIT reduces eval calls to ~10 per workload() iteration
       // for TCO workloads — far below JVM C2 threshold (~10 K invocations).
       // Three stages:
@@ -6928,6 +6939,15 @@ final class BenchCmd extends CliCommand:
       //   tco-50 : exercises JitRuntime / MH-invoke path (10 K cache-hit calls)
       //   pwm    : mutual-tail-call shape → forces tcoTrampoline itself into C2
       //            (plain tco pre-warm bypasses tcoTrampoline via JIT short-circuit)
+      // With --warmup-time the user-specified warmup loop runs until a wall-clock
+      // deadline rather than a fixed iteration count; the pre-warm block above still
+      // runs first so the JVM's own C2 is in play before the timed phase starts.
+      val warmupBlock = warmupTimeMs match
+        case Some(ms) =>
+          val ns = ms * 1000000L
+          s"val _ssc_wt_end = System.nanoTime() + ${ns}L\nwhile System.nanoTime() < _ssc_wt_end do\n  workload()"
+        case None =>
+          s"var _ssc_w = 0\nwhile _ssc_w < $warmupN do\n  workload()\n  _ssc_w += 1"
       s"""# bench-wrapper
          |
          |```scalascript
@@ -6949,10 +6969,7 @@ final class BenchCmd extends CliCommand:
          |while _ssc_pk < 30000 do
          |  _ssc_pwm(5)
          |  _ssc_pk += 1
-         |var _ssc_w = 0
-         |while _ssc_w < $warmupN do
-         |  workload()
-         |  _ssc_w += 1
+         |$warmupBlock
          |val _ssc_t0 = System.nanoTime()
          |var _ssc_r = 0
          |while _ssc_r < $repsN do
@@ -6974,7 +6991,7 @@ final class BenchCmd extends CliCommand:
 
     val name     = path.last.stripSuffix(".ssc")
     val userCode = extractCode(os.read(path))
-    val wrapper  = generateWrapper(userCode, warmup, reps)
+    val wrapper  = generateWrapper(userCode, warmup, reps, warmupTimeMs)
 
     // Run interpreter in-process: parse wrapper, capture stdout, parse BENCH_MS.
     def timeInterp(): Option[Double] =
@@ -7023,10 +7040,13 @@ final class BenchCmd extends CliCommand:
         System.err.println("bench: node not found — cannot run js backend"); System.exit(1)
       case _ => ()
 
+    val warmupDesc = warmupTimeMs match
+      case Some(ms) => s"${ms}ms (time-based)"
+      case None     => s"$warmup iters"
     if !machine then
       println(s"\nssc bench — $name  [backend: $backend]")
       println("=" * 60)
-      println(s"Warmup: $warmup  Reps: $reps")
+      println(s"Warmup: $warmupDesc  Reps: $reps")
       println()
 
     val result: Option[Double] = backend match
@@ -7042,7 +7062,7 @@ final class BenchCmd extends CliCommand:
       val hw = s"${System.getProperty("os.name")} ${System.getProperty("os.arch")}, JVM ${System.getProperty("java.version")}"
       println(s"\nDate: ${java.time.Instant.now()}")
       println(s"Hardware: $hw")
-      println(s"Notes: warmup=$warmup reps=$reps; warmup+timing inside wrapper, compilation excluded")
+      println(s"Notes: warmup=$warmupDesc reps=$reps; warmup+timing inside wrapper, compilation excluded")
 
       targetMs.foreach { limit =>
         result.filter(_ > limit.toDouble) match
@@ -7057,7 +7077,7 @@ final class BenchCmd extends CliCommand:
         val baseDir = findRepoRoot(path).map(_ / "bench").getOrElse(path / os.up / os.up / "bench")
         val outPath = baseDir / "BASELINE_RUNTIME.md"
         if os.exists(baseDir) then
-          val content = s"# Runtime Benchmark Baseline\n\nFile: `$name.ssc`  Backend: $backend  \nDate: ${java.time.Instant.now()}  Warmup: $warmup  Reps: $reps\n\n$backend: $msStr ms/iter\n\nHardware: $hw\n"
+          val content = s"# Runtime Benchmark Baseline\n\nFile: `$name.ssc`  Backend: $backend  \nDate: ${java.time.Instant.now()}  Warmup: $warmupDesc  Reps: $reps\n\n$backend: $msStr ms/iter\n\nHardware: $hw\n"
           os.write.over(outPath, content)
           println(s"\nBaseline written to ${outPath}")
 

@@ -44,7 +44,7 @@ val backends: Seq[String] = backendFlag match
   case Some(b) => Seq(b)
   case None    => Seq("interp", "jvm", "js")
 
-// --warmup N / --reps N: pass-through to ssc bench (defaults mirror BenchCmd)
+// --warmup N / --reps N / --warmup-time N: pass-through to ssc bench (defaults mirror BenchCmd)
 def parseInt2(flag: String, default: Int): Int =
   val idx = args.indexOf(flag)
   if idx >= 0 && idx + 1 < args.length then args(idx + 1).toIntOption.getOrElse(default)
@@ -54,12 +54,20 @@ def parseInt2(flag: String, default: Int): Int =
 val warmup = parseInt2("--warmup", 5)
 val reps   = parseInt2("--reps",  20)
 
-// non-flag args that don't belong to --backend/--warmup/--reps are workload filters
+// --warmup-time N: time-based warmup in milliseconds; overrides --warmup when present
+val warmupTimeMs: Option[Long] =
+  val idx = args.indexOf("--warmup-time")
+  if idx >= 0 && idx + 1 < args.length then args(idx + 1).toLongOption
+  else args.collectFirst { case s if s.startsWith("--warmup-time=") =>
+    s.stripPrefix("--warmup-time=").toLongOption }.flatten
+
+// non-flag args that don't belong to --backend/--warmup/--warmup-time/--reps are workload filters
 val filterNames: Set[String] =
-  val backendVal = backendFlag.getOrElse("")
-  val warmupVal  = args.indexOf("--warmup") match { case i if i >= 0 && i+1 < args.length => args(i+1); case _ => "" }
-  val repsVal    = args.indexOf("--reps")   match { case i if i >= 0 && i+1 < args.length => args(i+1); case _ => "" }
-  args.filterNot(a => a.startsWith("--") || a == backendVal || a == warmupVal || a == repsVal).toSet
+  val backendVal    = backendFlag.getOrElse("")
+  val warmupVal     = args.indexOf("--warmup")      match { case i if i >= 0 && i+1 < args.length => args(i+1); case _ => "" }
+  val warmupTimeVal = args.indexOf("--warmup-time") match { case i if i >= 0 && i+1 < args.length => args(i+1); case _ => "" }
+  val repsVal       = args.indexOf("--reps")        match { case i if i >= 0 && i+1 < args.length => args(i+1); case _ => "" }
+  args.filterNot(a => a.startsWith("--") || a == backendVal || a == warmupVal || a == warmupTimeVal || a == repsVal).toSet
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -78,9 +86,12 @@ def runSscBenchBackend(sscPath: String, file: java.io.File, b: String): Option[D
     if !line.startsWith("NOTE: Picked up") && !line.contains("skipping backend plugin") then
       System.err.println(line)
   // --backend is a global flag; must come before the subcommand name.
-  val cmd = Seq(sscPath, "--backend", b, "bench", "--machine",
-                "--warmup", warmup.toString, "--reps", reps.toString,
-                file.getAbsolutePath)
+  // --warmup-time overrides --warmup when present.
+  val warmupArgs = warmupTimeMs match
+    case Some(ms) => Seq("--warmup-time", ms.toString)
+    case None     => Seq("--warmup", warmup.toString)
+  val cmd = Seq(sscPath, "--backend", b, "bench", "--machine") ++
+            warmupArgs ++ Seq("--reps", reps.toString, file.getAbsolutePath)
   val buf = new java.io.ByteArrayOutputStream
   val ps  = new java.io.PrintStream(buf, true)
   Process(cmd).!(ProcessLogger(ps.println, errLog))
@@ -139,7 +150,10 @@ if corpusFiles.isEmpty then
 
 println(s"Corpus:   ${corpusFiles.map(_.getName.replaceAll("\\.ssc$","")).mkString(", ")}")
 println(s"Backends: ${backends.mkString(", ")}")
-println(s"Warmup:   $warmup   Reps: $reps")
+val warmupDisplay = warmupTimeMs match
+  case Some(ms) => s"${ms}ms (time-based)"
+  case None     => s"$warmup iters"
+println(s"Warmup:   $warmupDisplay   Reps: $reps")
 println(s"ssc:      $sscPath")
 println()
 
