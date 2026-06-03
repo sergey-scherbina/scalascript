@@ -683,10 +683,7 @@ object JavacJitBackend extends JitBackend:
         while fi < n do
           if !bindNames(fi).startsWith("_unused$") then
             val (jvar, isRef) = bindingMap(bindNames(fi))
-            val fname = fieldOrder(fi)
-            val readExpr =
-              if n > 0 then s"""$faVar != null ? $faVar[$fi] : inst.fields().apply("${escape(fname)}")"""
-              else          s"""inst.fields().apply("${escape(fname)}")"""
+            val readExpr = s"$faVar[$fi]"
             if isRef then
               sb.append(s"""Object $jvar = $readExpr;\n        """)
             else if ctx.isDouble then
@@ -751,10 +748,7 @@ object JavacJitBackend extends JitBackend:
         while fi < n do
           if !bindNames(fi).startsWith("_unused$") then
             val (jvar, isRef) = bindingMap(bindNames(fi))
-            val fname = fieldOrder(fi)
-            val readExpr =
-              if n > 0 then s"""$faVar != null ? $faVar[$fi] : inst.fields().apply("${escape(fname)}")"""
-              else          s"""inst.fields().apply("${escape(fname)}")"""
+            val readExpr = s"$faVar[$fi]"
             if isRef then
               sb.append(s"""Object $jvar = $readExpr;\n      """)
             else if ctx.isDouble then
@@ -827,12 +821,7 @@ object JavacJitBackend extends JitBackend:
         while fi < n do
           if !bindNames(fi).startsWith("_unused$") then
             val (jvar, isRef) = bindingMap(bindNames(fi))
-            val fname = fieldOrder(fi)
-            val readExpr =
-              if n > 0 then
-                s"""$faVar != null ? $faVar[$fi] : inst.fields().apply("${escape(fname)}")"""
-              else
-                s"""inst.fields().apply("${escape(fname)}")"""
+            val readExpr = s"$faVar[$fi]"
             if isRef then
               sb.append(s"""Object $jvar = $readExpr;\n      """)
             else if ctx.isDouble then
@@ -895,10 +884,7 @@ object JavacJitBackend extends JitBackend:
         while fi < n do
           if !bindNames(fi).startsWith("_unused$") then
             val (jvar, isRef) = bindingMap(bindNames(fi))
-            val fname = fieldOrder(fi)
-            val readExpr =
-              if n > 0 then s"""$faVar != null ? $faVar[$fi] : inst.fields().apply("${escape(fname)}")"""
-              else          s"""inst.fields().apply("${escape(fname)}")"""
+            val readExpr = s"$faVar[$fi]"
             if isRef then sb.append(s"Object $jvar = $readExpr;\n      ")
             else          sb.append(s"long $jvar = ((scalascript.interpreter.Value.IntV)($readExpr)).v();\n      ")
           fi += 1
