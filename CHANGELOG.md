@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — claim protocol hardening
+
+- **coord-claim-protocol-hardening** — Tightened coordination docs around the
+  canonical `.work/active/<slug>.claim` filename, documented repair steps for
+  suffix-less active markers, clarified that read-only status audits should use
+  remote `git show`/`git ls-tree` from the main checkout, and updated
+  `scripts/coord-status` to report invalid markers explicitly instead of
+  silently printing "active claims: none".
+
+---
+
 ## 2026-06-03 — datatable-source-abstraction (Phase 2)
 
 - **datatable-source-abstraction** — Introduced `TableDataSource` sealed trait

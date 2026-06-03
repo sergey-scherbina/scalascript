@@ -1,4 +1,0 @@
-feature/coord-claim-protocol-hardening-20260603 2026-06-03T14:31:52Z
-status: in-progress
-done-so-far: AGENTS.md and scripts/coord-status now flag suffix-less active markers
-next: land bookkeeping and release claim

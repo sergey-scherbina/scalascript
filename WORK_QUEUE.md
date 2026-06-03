@@ -1,7 +1,11 @@
 # Work Queue
 
 Agents: claim the top available task using the protocol in `AGENTS.md §"Task claiming protocol"`.
-Work top-to-bottom within each group. A task is "available" if its slug has no file in `.work/active/`.
+Work top-to-bottom within each group. A task is "available" only if
+`.work/active/<slug>.claim` does not exist on `origin/main`. Files in
+`.work/active/` without the `.claim` suffix are invalid coordination markers:
+run `scripts/coord-status`, report/fix the marker, and do not start overlapping
+work until it is repaired or released.
 
 **Loop control** — pause: push `.work/paused` to `origin/main`. Resume: remove it and push.
 Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` / `"status"`.
@@ -120,6 +124,14 @@ being landed backend by backend.
   stale `@nowarn`). Focused verification passed with temporary sbt-session
   overrides removing `-Werror` only from those frontend deps:
   `cli/compile` and `cli/testOnly scalascript.cli.CommandRegistryTest` (8 tests).
+
+- [x] **coord-claim-protocol-hardening** — ✓ Landed 2026-06-03. Tightened
+  claim instructions so every valid claim must be
+  `.work/active/<slug>.claim`, documented recovery for suffix-less active
+  markers, and taught `scripts/coord-status` to flag invalid markers instead of
+  silently reporting "no claims". Verification: `git diff --check`;
+  `scripts/coord-status --no-fetch` against a tree containing an invalid
+  datatable marker.
 
 - [x] **frontend-view-traversal-core** - ✓ Landed 2026-06-02. Added
   `ViewTraversal` in `frontend/core` (`children` + `foreachDepthFirst`) with
