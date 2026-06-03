@@ -1,4 +1,0 @@
-feature+jit-match-recursive-descent 2026-06-03T21:44:09Z
-status: not-started
-done-so-far:
-next: read BytecodeJit walkMatchBody + emitCtx, design selfMethodName threading
