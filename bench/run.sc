@@ -35,8 +35,9 @@ val writeBaseline = args.contains("--baseline")
 
 // --backend <b>: limit to a single backend; default is all three
 val backendFlag: Option[String] =
-  args.sliding(2).collectFirst { case Seq("--backend", b) => b }
-    .orElse(args.collectFirst { case s if s.startsWith("--backend=") => s.stripPrefix("--backend=") })
+  val idx = args.indexOf("--backend")
+  if idx >= 0 && idx + 1 < args.length then Some(args(idx + 1))
+  else args.collectFirst { case s if s.startsWith("--backend=") => s.stripPrefix("--backend=") }
 
 val backends: Seq[String] = backendFlag match
   case Some(b) => Seq(b)
@@ -44,8 +45,8 @@ val backends: Seq[String] = backendFlag match
 
 // non-flag args that don't belong to --backend are workload filters
 val filterNames: Set[String] =
-  val flagArgs = args.sliding(2).collect { case Seq("--backend", _) => Seq("--backend", "") }.flatten.toSet
-  args.filterNot(a => a.startsWith("--") || flagArgs(a)).toSet
+  val backendVal = backendFlag.getOrElse("")
+  args.filterNot(a => a.startsWith("--") || a == backendVal).toSet
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
