@@ -638,13 +638,25 @@ private[interpreter] object EvalRuntime:
   // `SscVm.exec(stack, refStack, base)` proven design.
   private sealed abstract class LExpr:
     def eval(slots: Array[Long], refs: Array[AnyRef]): Long
-  /** Ref-returning sibling of `LExpr`. Commit 1 introduces the empty
-   *  hierarchy; later commits add subtypes (LRefConst, LRefVar,
-   *  LRefFieldGet, LApplyR1ToRef, LRefMatch, …) that let ref subterms
-   *  compose without crossing a tree-walk boundary. */
-  @scala.annotation.unused
+  /** Ref-returning sibling of `LExpr`. Lets ref subterms (val-bound
+   *  InstanceV args, ref slots, field-extract results, ref-returning
+   *  fn calls) compose inside the LExpr fold without crossing a
+   *  tree-walk boundary. Phase 1 Commit 2: LRefConst + LRefVar.
+   *  Commit 3: LRefFieldGet, LApplyR1ToRef, LRefMatch. */
   private sealed abstract class LRefExpr:
     def eval(slots: Array[Long], refs: Array[AnyRef]): AnyRef
+
+  /** Compile-time snapshot of a val-bound ref. `interp.valNames`
+   *  (populated by Defn.Val at module load) guarantees the value can't be
+   *  reassigned, so the per-iter eval skips the HashMap probe entirely. */
+  private final class LRefConst(v: AnyRef) extends LRefExpr:
+    def eval(slots: Array[Long], refs: Array[AnyRef]): AnyRef = v
+
+  /** Read a ref slot from the parallel refs bank. Populated by Commit 3
+   *  when ref-typed loop vars are registered via `SlotTable.registerKind`. */
+  @scala.annotation.unused
+  private final class LRefVar(idx: Int) extends LRefExpr:
+    def eval(slots: Array[Long], refs: Array[AnyRef]): AnyRef = refs(idx)
   private final class LConst(v: Long) extends LExpr:
     def eval(slots: Array[Long], refs: Array[AnyRef]): Long = v
   private final class LVar(idx: Int) extends LExpr:
@@ -714,21 +726,22 @@ private[interpreter] object EvalRuntime:
         case _ =>
           throw PatternRuntime.NotDouble
 
-  /** Ref-arg JIT fast path: `f(item)` where `f` has been bytecode-JIT-compiled
-   *  to an `ObjToLong` direct interface (paramIsRef[0] = true, result is Long)
-   *  AND `item` is a `val`-bound global `InstanceV`. Both `f` and `item` are
-   *  snapshot at compile time; per-iter eval is a single typed-interface call
-   *  — no HashMap probe, no Computation/IntV boxing, no `marshalAndRun`
-   *  dispatch. Unblocks the LMatch-style fast path for shapes where the
-   *  function body isn't a top-level `Term.Match` (e.g. `def f(e) = 1 + (e
-   *  match { … })`): without this LExpr variant, `compileExpr` on
-   *  `Term.Apply` would `slotOf(itemName)` → -1 (item is ref, not Int slot)
-   *  → null → bail to tree-walk, leaving the JIT'd MH unused. */
-  private final class LApplyObjRef(
-    objFn: scalascript.interpreter.vm.jit.ObjToLong,
-    arg:   AnyRef
+  /** Generalised ref-arg JIT fast path: `f(<ref-expr>)` where `f` is
+   *  bytecode-JIT-compiled to an `ObjToLong` direct interface
+   *  (paramIsRef[0] = true, result is Long), and the argument is *any*
+   *  compileable LRefExpr (val snapshot, ref slot, field-get, ref-returning
+   *  fn call). Replaces the original `LApplyObjRef` which only handled a
+   *  bare val-bound `InstanceV` — now that the arg can be any ref subterm,
+   *  composite shapes like `f(g(item))` or `f(item.field)` stay inside the
+   *  LExpr fold instead of forcing a tree-walk break. Phase 1 Commit 2:
+   *  the only LRefExpr compileRefExpr returns is LRefConst (val snapshot);
+   *  Commit 3 wires LRefFieldGet + LApplyR1ToRef. */
+  private final class LApplyR1(
+    argR:  LRefExpr,
+    objFn: scalascript.interpreter.vm.jit.ObjToLong
   ) extends LExpr:
-    def eval(slots: Array[Long], refs: Array[AnyRef]): Long = objFn.apply(arg)
+    def eval(slots: Array[Long], refs: Array[AnyRef]): Long =
+      objFn.apply(argR.eval(slots, refs))
 
   /** 2-arg parallel of `LApply`. Folds `g(x, y)` into the enclosing unboxed-
    *  Long loop without boxing either arg or result. */
@@ -878,6 +891,16 @@ private[interpreter] object EvalRuntime:
         frameView.getOrElse(name, null) match
           case Value.IntV(_) => slotOfName.register(name)
           case _             => -1
+    // Compile a ref-typed term into an LRefExpr or null on bail. Phase 1
+    // Commit 2: handles only `Term.Name` resolving to a val-bound `InstanceV`
+    // (LRefConst snapshot). Commit 3 extends to ref field access
+    // (LRefFieldGet) and ref-returning fn calls (LApplyR1ToRef).
+    def compileRefExpr(term: Term): LRefExpr | Null = term match
+      case n: Term.Name if interp.valNames.contains(n.value) =>
+        interp.globals.getOrElse(n.value, null) match
+          case inst: Value.InstanceV => new LRefConst(inst)
+          case _                     => null
+      case _ => null
     def compileExpr(term: Term): LExpr | Null = term match
       case Lit.Int(v)  => new LConst(v.toLong)
       case Lit.Long(v) => new LConst(v)
@@ -909,18 +932,19 @@ private[interpreter] object EvalRuntime:
         ap.fun match
           case fnName: Term.Name if ap.argClause.values.lengthCompare(1) == 0 =>
             val argTerm = ap.argClause.values.head
-            // Ref-arg JIT fast path: `f(item)` where `item` is a val-bound
-            // global InstanceV and `f`'s body has been bytecode-JIT-compiled
-            // to ObjToLong. Detected BEFORE the slot-arg path so a ref-typed
-            // arg name doesn't waste a `slotOf` probe (which would return -1
-            // and force the whole compileExpr to bail).
-            val refFast: LExpr | Null = argTerm match
-              case argName: Term.Name
-                  if interp.valNames.contains(argName.value) =>
-                val argV = interp.globals.getOrElse(argName.value, null)
-                val fnV  = interp.globals.getOrElse(fnName.value, null)
-                (argV, fnV) match
-                  case (inst: Value.InstanceV, fn: Value.FunV)
+            // Ref-arg JIT fast path via the dual-bank LExpr lowering. The
+            // arg is compiled to an LRefExpr (Commit 2: LRefConst for a
+            // val-bound InstanceV; Commit 3: LRefFieldGet for inst.field,
+            // LApplyR1ToRef for f(g(item)) chains) and wrapped in
+            // LApplyR1, which calls the bytecode-JIT'd ObjToLong direct
+            // interface per iter without HashMap probes, Computation
+            // boxing, or marshalling.
+            val refFast: LExpr | Null =
+              val argR = compileRefExpr(argTerm)
+              if argR == null then null
+              else
+                interp.globals.getOrElse(fnName.value, null) match
+                  case fn: Value.FunV
                       if fn.params.length == 1 && fn.usingParams.isEmpty
                          && !fn.returnsThrows =>
                     val bcRes = scalascript.interpreter.vm.jit.JitBackend.default.tryCompile(fn, interp)
@@ -929,10 +953,9 @@ private[interpreter] object EvalRuntime:
                     else
                       bcRes.direct match
                         case ot: scalascript.interpreter.vm.jit.ObjToLong =>
-                          new LApplyObjRef(ot, inst)
+                          new LApplyR1(argR, ot)
                         case _ => null
                   case _ => null
-              case _ => null
             if refFast != null then refFast
             else
               val argL = compileExpr(argTerm)
@@ -1118,6 +1141,16 @@ private[interpreter] object EvalRuntime:
         frameView.getOrElse(name, null) match
           case Value.IntV(_) => slotOfName.register(name)
           case _             => -1
+    // Compile a ref-typed term into an LRefExpr or null on bail. Phase 1
+    // Commit 2: handles only `Term.Name` resolving to a val-bound `InstanceV`
+    // (LRefConst snapshot). Commit 3 extends to ref field access
+    // (LRefFieldGet) and ref-returning fn calls (LApplyR1ToRef).
+    def compileRefExpr(term: Term): LRefExpr | Null = term match
+      case n: Term.Name if interp.valNames.contains(n.value) =>
+        interp.globals.getOrElse(n.value, null) match
+          case inst: Value.InstanceV => new LRefConst(inst)
+          case _                     => null
+      case _ => null
     def compileExpr(term: Term): LExpr | Null = term match
       case Lit.Int(v)  => new LConst(v.toLong)
       case Lit.Long(v) => new LConst(v)
@@ -1144,18 +1177,19 @@ private[interpreter] object EvalRuntime:
         ap.fun match
           case fnName: Term.Name if ap.argClause.values.lengthCompare(1) == 0 =>
             val argTerm = ap.argClause.values.head
-            // Ref-arg JIT fast path: `f(item)` where `item` is a val-bound
-            // global InstanceV and `f`'s body has been bytecode-JIT-compiled
-            // to ObjToLong. Detected BEFORE the slot-arg path so a ref-typed
-            // arg name doesn't waste a `slotOf` probe (which would return -1
-            // and force the whole compileExpr to bail).
-            val refFast: LExpr | Null = argTerm match
-              case argName: Term.Name
-                  if interp.valNames.contains(argName.value) =>
-                val argV = interp.globals.getOrElse(argName.value, null)
-                val fnV  = interp.globals.getOrElse(fnName.value, null)
-                (argV, fnV) match
-                  case (inst: Value.InstanceV, fn: Value.FunV)
+            // Ref-arg JIT fast path via the dual-bank LExpr lowering. The
+            // arg is compiled to an LRefExpr (Commit 2: LRefConst for a
+            // val-bound InstanceV; Commit 3: LRefFieldGet for inst.field,
+            // LApplyR1ToRef for f(g(item)) chains) and wrapped in
+            // LApplyR1, which calls the bytecode-JIT'd ObjToLong direct
+            // interface per iter without HashMap probes, Computation
+            // boxing, or marshalling.
+            val refFast: LExpr | Null =
+              val argR = compileRefExpr(argTerm)
+              if argR == null then null
+              else
+                interp.globals.getOrElse(fnName.value, null) match
+                  case fn: Value.FunV
                       if fn.params.length == 1 && fn.usingParams.isEmpty
                          && !fn.returnsThrows =>
                     val bcRes = scalascript.interpreter.vm.jit.JitBackend.default.tryCompile(fn, interp)
@@ -1164,10 +1198,9 @@ private[interpreter] object EvalRuntime:
                     else
                       bcRes.direct match
                         case ot: scalascript.interpreter.vm.jit.ObjToLong =>
-                          new LApplyObjRef(ot, inst)
+                          new LApplyR1(argR, ot)
                         case _ => null
                   case _ => null
-              case _ => null
             if refFast != null then refFast
             else
               val argL = compileExpr(argTerm)
