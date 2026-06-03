@@ -6,14 +6,13 @@
  * ScalaScript benchmark harness.
  *
  * Usage (from repo root):
- *   ./bench.sh                              # run all workloads, interpreter only
- *   ./bench.sh arith-loop recursion-fib    # filter by name
- *   ./bench.sh --compare                   # interp vs jvm vs js
+ *   ./bench.sh                              # compare all backends (interp, jvm, js)
+ *   ./bench.sh arith-loop recursion-fib    # filter by workload name
+ *   ./bench.sh --backend interp            # single backend only
  *   ./bench.sh --baseline                  # write bench/BASELINE.md
  *
- * Delegates per-file timing to `ssc bench --machine`, which generates a
- * wrapper with warmup+timing harness, runs each backend once, and prints
- * BENCH <backend> <ms> lines.  Compilation is excluded from timing.
+ * Delegates per-file timing to `ssc bench --machine --backend <b>` (one
+ * call per backend per file).  Compilation is excluded from all timings.
  */
 
 import scala.sys.process.*
@@ -30,39 +29,46 @@ val corpusDir   = Paths.get(s"$root/bench/corpus")
 val sscBin      = Paths.get(s"$root/bin/ssc")
 val baselineOut = Paths.get(s"$root/bench/BASELINE.md")
 
-val compareMode   = args.contains("--compare")
-val writeBaseline = args.contains("--baseline")
-val filterNames   = args.filterNot(_.startsWith("--")).toSet
+// ── arg parsing ───────────────────────────────────────────────────────────────
 
-val backends = if compareMode then Seq("interp", "jvm", "js") else Seq("interp")
+val writeBaseline = args.contains("--baseline")
+
+// --backend <b>: limit to a single backend; default is all three
+val backendFlag: Option[String] =
+  args.sliding(2).collectFirst { case Seq("--backend", b) => b }
+    .orElse(args.collectFirst { case s if s.startsWith("--backend=") => s.stripPrefix("--backend=") })
+
+val backends: Seq[String] = backendFlag match
+  case Some(b) => Seq(b)
+  case None    => Seq("interp", "jvm", "js")
+
+// non-flag args that don't belong to --backend are workload filters
+val filterNames: Set[String] =
+  val flagArgs = args.sliding(2).collect { case Seq("--backend", _) => Seq("--backend", "") }.flatten.toSet
+  args.filterNot(a => a.startsWith("--") || flagArgs(a)).toSet
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 def fmtMs(ms: Double): String =
   if ms < 1.0 then f"$ms%.3f" else if ms < 10.0 then f"$ms%.2f" else f"$ms%.1f"
 
-def runSscBench(sscPath: String, file: java.io.File): Map[String, Option[Double]] =
-  val name = file.getName.replaceAll("\\.ssc$", "")
-  print(s"  $name: ")
-  Console.flush()
-  val extraFlags = if compareMode then Seq.empty else Seq("--no-jvm", "--no-js")
-  val cmd = Seq(sscPath, "bench", "--machine") ++ extraFlags ++ Seq(file.getAbsolutePath)
-  val buf = new java.io.ByteArrayOutputStream
-  val ps  = new java.io.PrintStream(buf, true)
+def parseBenchLine(output: String): Option[Double] =
+  output.linesIterator.collectFirst {
+    case line if line.startsWith("BENCH ") =>
+      val parts = line.split(" ", 3)
+      if parts.length == 3 then parts(2).toDoubleOption else None
+  }.flatten
+
+def runSscBenchBackend(sscPath: String, file: java.io.File, b: String): Option[Double] =
   val errLog: String => Unit = line =>
     if !line.startsWith("NOTE: Picked up") && !line.contains("skipping backend plugin") then
       System.err.println(line)
+  // --backend is a global flag; must come before the subcommand name.
+  val cmd = Seq(sscPath, "--backend", b, "bench", "--machine", file.getAbsolutePath)
+  val buf = new java.io.ByteArrayOutputStream
+  val ps  = new java.io.PrintStream(buf, true)
   Process(cmd).!(ProcessLogger(ps.println, errLog))
-  val output = buf.toString.trim
-  val results: Map[String, Option[Double]] = output.linesIterator.collect {
-    case line if line.startsWith("BENCH ") =>
-      val parts = line.split(" ", 3)
-      if parts.length == 3 then parts(1) -> parts(2).toDoubleOption
-      else parts(1) -> None
-  }.toMap
-  val summary = backends.map(b => results.get(b).flatten.fold("n/a")(fmtMs)).mkString("  ")
-  println(summary)
-  results
+  parseBenchLine(buf.toString.trim)
 
 def formatTable(
     workloads: Seq[String],
@@ -120,14 +126,20 @@ println(s"Backends: ${backends.mkString(", ")}")
 println(s"ssc:      $sscPath")
 println()
 
+// Collect results: byBackend(backend)(workload) = Option[Double]
 val byBackend = scala.collection.mutable.Map.empty[String, scala.collection.mutable.Map[String, Option[Double]]]
 for b <- backends do byBackend(b) = scala.collection.mutable.Map.empty
 
 for f <- corpusFiles do
-  val results = runSscBench(sscPath, f)
-  val name = f.getName.replaceAll("\\.ssc$", "")
+  val wname = f.getName.replaceAll("\\.ssc$", "")
+  print(s"  $wname:")
   for b <- backends do
-    byBackend(b)(name) = results.get(b).flatten
+    print(s"  $b...")
+    Console.flush()
+    val ms = runSscBenchBackend(sscPath, f, b)
+    byBackend(b)(wname) = ms
+    print(ms.fold("n/a")(fmtMs))
+  println()
 
 println()
 val workloads = corpusFiles.map(_.getName.replaceAll("\\.ssc$", ""))
@@ -137,6 +149,6 @@ println()
 
 if writeBaseline then
   val ts      = java.time.LocalDate.now.toString
-  val content = s"""# Benchmark Baseline — $ts\n\nGenerated by `./bench.sh --baseline`.\nDelegates per-file timing to `ssc bench --machine`.\n\n$table\n"""
+  val content = s"""# Benchmark Baseline — $ts\n\nGenerated by `./bench.sh --baseline`.\nDelegates per-file timing to `ssc bench --machine --backend <b>`.\n\n$table\n"""
   Files.writeString(baselineOut, content)
   println(s"Baseline written to bench/BASELINE.md")
