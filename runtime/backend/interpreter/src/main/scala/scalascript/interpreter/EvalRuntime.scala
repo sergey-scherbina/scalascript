@@ -271,8 +271,14 @@ private[interpreter] object EvalRuntime:
             val base  = name.substring(0, dotIdx)
             val field = name.substring(dotIdx + 1)
             interp.globals.getOrElse(base, null) match
-              case inst: Value.InstanceV => inst.fields.getOrElse(field, null)
-              case _                     => null
+              case inst: Value.InstanceV =>
+                val arr = inst.fieldsArr
+                if arr != null then
+                  val fo = interp.typeFieldOrder.getOrElse(inst.typeName, Nil)
+                  val idx = fo.indexOf(field)
+                  if idx >= 0 && idx < arr.length then arr(idx) else null
+                else inst.fields.getOrElse(field, null)
+              case _ => null
         v match
           case v: Value.InstanceV => refs(ri) = v.asInstanceOf[AnyRef]
           case _                  => return null

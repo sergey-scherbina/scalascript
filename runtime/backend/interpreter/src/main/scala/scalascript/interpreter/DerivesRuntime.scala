@@ -119,7 +119,7 @@ private[interpreter] object DerivesRuntime:
         // Unknown typeclass — try looking up TC.derived in globals
         interp.globals.getOrElse(tcName, null) match
           case tcObj: Value.InstanceV =>
-            val fn = tcObj.fields.getOrElse("derived", null)
+            val fn = tcObj.effectiveFields.getOrElse("derived", null)
             if fn != null then Computation.run(interp.callValue1(fn, derivedMirror, Map.empty))
             else Value.UnitV
           case _ => Value.UnitV
@@ -136,18 +136,22 @@ private[interpreter] object DerivesRuntime:
     case (Value.UnitV,       Value.UnitV)       => true
     case (Value.ListV(xs),   Value.ListV(ys))   =>
       xs.length == ys.length && xs.zip(ys).forall { case (x, y) => structuralEq(x, y) }
-    case (Value.InstanceV(t1, f1), Value.InstanceV(t2, f2)) =>
-      t1 == t2 && f1.keySet == f2.keySet && f1.keys.forall(k => structuralEq(f1(k), f2(k)))
+    case (ia: Value.InstanceV, ib: Value.InstanceV) =>
+      if ia.typeName != ib.typeName then false
+      else
+        val fa = ia.effectiveFields; val fb = ib.effectiveFields
+        fa.keySet == fb.keySet && fa.keys.forall(k => structuralEq(fa(k), fb(k)))
     case _ => a == b
 
   private def structuralShow(v: Value, interp: Interpreter): String = v match
-    case Value.InstanceV(typeName, fields) =>
-      if fields.isEmpty then typeName
+    case inst: Value.InstanceV =>
+      val fields = inst.effectiveFields
+      if fields.isEmpty then inst.typeName
       else
-        val fieldStr = interp.typeFieldOrder.get(typeName) match
+        val fieldStr = interp.typeFieldOrder.get(inst.typeName) match
           case Some(order) => order.map(k => s"$k=${structuralShow(fields.getOrElse(k, Value.UnitV), interp)}").mkString(", ")
           case None        => fields.map { case (k, v) => s"$k=${structuralShow(v, interp)}" }.mkString(", ")
-        s"$typeName($fieldStr)"
+        s"${inst.typeName}($fieldStr)"
     case _ => Value.show(v)
 
   private def structuralHash(v: Value, interp: Interpreter): Int = v match
@@ -157,11 +161,12 @@ private[interpreter] object DerivesRuntime:
     case Value.BoolV(b)   => b.##
     case Value.UnitV      => 0
     case Value.ListV(xs)  => xs.foldLeft(1)((acc, x) => acc * 31 + structuralHash(x, interp))
-    case Value.InstanceV(typeName, fields) =>
-      val fieldHashes = interp.typeFieldOrder.get(typeName) match
+    case inst: Value.InstanceV =>
+      val fields = inst.effectiveFields
+      val fieldHashes = interp.typeFieldOrder.get(inst.typeName) match
         case Some(order) => order.map(k => structuralHash(fields.getOrElse(k, Value.UnitV), interp))
         case None        => fields.values.map(structuralHash(_, interp)).toList
-      fieldHashes.foldLeft(typeName.##)((acc, h) => acc * 31 + h)
+      fieldHashes.foldLeft(inst.typeName.##)((acc, h) => acc * 31 + h)
     case _ => v.##
 
   private def structuralCompare(a: Value, b: Value, interp: Interpreter): Int = (a, b) match
@@ -169,11 +174,12 @@ private[interpreter] object DerivesRuntime:
     case (Value.DoubleV(x), Value.DoubleV(y)) => x.compareTo(y)
     case (Value.StringV(x), Value.StringV(y)) => x.compareTo(y)
     case (Value.BoolV(x),   Value.BoolV(y))   => x.compareTo(y)
-    case (Value.InstanceV(t1, f1), Value.InstanceV(t2, f2)) if t1 == t2 =>
-      interp.typeFieldOrder.get(t1) match
+    case (ia: Value.InstanceV, ib: Value.InstanceV) if ia.typeName == ib.typeName =>
+      val fa = ia.effectiveFields; val fb = ib.effectiveFields
+      interp.typeFieldOrder.get(ia.typeName) match
         case Some(order) =>
           order.iterator.map { k =>
-            structuralCompare(f1.getOrElse(k, Value.UnitV), f2.getOrElse(k, Value.UnitV), interp)
+            structuralCompare(fa.getOrElse(k, Value.UnitV), fb.getOrElse(k, Value.UnitV), interp)
           }.find(_ != 0).getOrElse(0)
         case None => 0
     case _ => 0

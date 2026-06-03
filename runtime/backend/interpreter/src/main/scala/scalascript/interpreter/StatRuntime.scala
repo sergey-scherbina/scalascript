@@ -24,19 +24,22 @@ private[interpreter] object StatRuntime:
         inst.typeTag = tag
         Pure(inst)
       case List(p0) if args.length == 1 =>
-        val inst = Value.InstanceV(itn, new IMap.Map1(p0, args.head))
-        if Value.instanceVArrayEnabled then inst.fieldsArr = Array[Value](args.head)
+        val inst = Value.InstanceV(itn, Map.empty)
+        inst.fieldsArr  = Array[Value](args.head)
+        inst.fieldNames = Array[String](p0)
         inst.typeTag = tag
         Pure(inst)
       case List(p0, p1) if args.length == 2 =>
-        val inst = Value.InstanceV(itn, new IMap.Map2(p0, args.head, p1, args(1)))
-        if Value.instanceVArrayEnabled then inst.fieldsArr = Array[Value](args.head, args(1))
+        val inst = Value.InstanceV(itn, Map.empty)
+        inst.fieldsArr  = Array[Value](args.head, args(1))
+        inst.fieldNames = Array[String](p0, p1)
         inst.typeTag = tag
         Pure(inst)
       case _ if args.length >= paramNames.length =>
         val take = args.take(paramNames.length)
-        val inst = Value.InstanceV(itn, Map.from(paramNames.lazyZip(take)))
-        if Value.instanceVArrayEnabled then inst.fieldsArr = take.toArray
+        val inst = Value.InstanceV(itn, Map.empty)
+        inst.fieldsArr  = take.toArray
+        inst.fieldNames = paramNames.toArray
         inst.typeTag = tag
         Pure(inst)
       case _ =>
@@ -176,8 +179,9 @@ private[interpreter] object StatRuntime:
       val classTag = interp.typeTagFor(typeName)
       val classFallbackCtor: List[Value] => Computation = args => {
         val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
-        val inst = Value.InstanceV(typeName.intern(), Map.from(paramNames.lazyZip(filled)))
-        if Value.instanceVArrayEnabled then inst.fieldsArr = filled.toArray
+        val inst = Value.InstanceV(typeName.intern(), Map.empty)
+        inst.fieldsArr  = filled.toArray
+        inst.fieldNames = paramNames.toArray
         inst.typeTag = classTag
         Pure(inst)
       }
@@ -241,8 +245,9 @@ private[interpreter] object StatRuntime:
             val enumTag = interp.typeTagFor(caseName)
             val enumFallbackCtor: List[Value] => Computation = args => {
               val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
-              val inst = Value.InstanceV(caseName.intern(), Map.from(paramNames.lazyZip(filled)))
-              if Value.instanceVArrayEnabled then inst.fieldsArr = filled.toArray
+              val inst = Value.InstanceV(caseName.intern(), Map.empty)
+              inst.fieldsArr  = filled.toArray
+              inst.fieldNames = paramNames.toArray
               inst.typeTag = enumTag
               Pure(inst)
             }

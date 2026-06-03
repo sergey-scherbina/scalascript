@@ -213,6 +213,15 @@ object FrameMap:
         fields.foreachEntry { (k, v) => keys(i) = k; vals(i) = v; i += 1 }
         new FrameMapN(keys, vals, parent)
 
+  /** Build a frame from parallel name/value arrays (as stored in `InstanceV.fieldNames` /
+   *  `InstanceV.fieldsArr`).  Avoids iterating a Map when the caller already has arrays. */
+  def fromArrays(names: Array[String], vals: Array[Value], parent: Map[String, Value]): Map[String, Value] =
+    names.length match
+      case 0 => parent
+      case 1 => new FrameMap1(names(0), vals(0), parent)
+      case 2 => new FrameMap2(names(0), vals(0), names(1), vals(1), parent)
+      case _ => new FrameMapN(names, vals, parent)
+
   /** Like fromMap but also inlines an extra (selfName, selfRef) slot so the
    *  self-reference for a named class method is available without an additional
    *  Map.updated call on the parent (which for MutableEnvView is a full copy). */
@@ -318,10 +327,26 @@ object Value:
     /** Positional fields; null when the instance bypasses StatRuntime.
      *  Index matches `Interpreter.typeFieldOrder(typeName)`. */
     var fieldsArr: Array[Value] | Null = null
+    /** Parallel field-name array; set alongside fieldsArr by StatRuntime. Null for
+     *  bare InstanceV constructed outside StatRuntime (intrinsics, actor runtime, etc.). */
+    var fieldNames: Array[String] | Null = null
     /** Opaque int tag assigned by `Interpreter.typeTagFor`; 0 means unregistered.
      *  BytecodeJit emits `switch(inst.typeTag())` → JVM `tableswitch` (O(1))
      *  instead of `switch(inst.typeName())` → string hash+equals per arm. */
     var typeTag: Int = 0
+    /** Effective fields as a Map: uses `fieldsArr + fieldNames` when set (StatRuntime
+     *  instances), otherwise falls back to the `fields` constructor argument.
+     *  Use this wherever code previously read `inst.fields` for named lookups. */
+    def effectiveFields: Map[String, Value] =
+      val arr   = fieldsArr
+      val names = fieldNames
+      if arr == null || names == null then fields
+      else FrameMap.fromArrays(names, arr, Map.empty)
+    override def equals(that: Any): Boolean = that match
+      case other: InstanceV =>
+        typeName == other.typeName && effectiveFields == other.effectiveFields
+      case _ => false
+    override def hashCode: Int = typeName.## * 31 + effectiveFields.##
   final case class ListV(items: List[Value])     extends Value
   final case class OptionV(inner: Value | Null)  extends Value
   final case class TupleV(elems: List[Value])    extends Value
@@ -340,17 +365,6 @@ object Value:
    *  `"DataSource"`, …) used by `resolveGiven` keyed lookups; `handle`
    *  is the JVM object passed verbatim to / from intrinsics. */
   final case class Foreign(typeName: String, handle: Any) extends Value
-  /** Capability flag for the InstanceV positional array representation
-   *  (Direction B of the perf roadmap). Default ON: `InstanceV.fieldsArr`
-   *  is populated at construction; hot readers (PatternRuntime, BytecodeJit)
-   *  use `fieldsArr(idx)` instead of `fields.apply(name)`.
-   *
-   *  Opt OUT via `SSC_INSTANCEV_ARRAY=off` env var or
-   *  `-Dssc.instancev.array=off` system property. */
-  val instanceVArrayEnabled: Boolean =
-    !sys.env.get("SSC_INSTANCEV_ARRAY").contains("off") &&
-      !sys.props.get("ssc.instancev.array").contains("off")
-
   // Pool for common small integer values (-2048..16383). `intV(n)` returns a
   // cached instance for in-range values, avoiding a heap allocation on every
   // arithmetic result. Wider range covers typical loop counters beyond 1024
@@ -449,9 +463,10 @@ object Value:
       // closures.  `v.toString` reads like JSON: strings quoted,
       // arrays / objects bracketed.
       fields.get("_inner").map(show).getOrElse("JsonValue(?)")
-    case InstanceV(t, fields) =>
-      if fields.isEmpty then t
-      else fields.values.iterator.map(show).mkString(s"$t(", ", ", ")")
+    case inst: Value.InstanceV =>
+      val fields = inst.effectiveFields
+      if fields.isEmpty then inst.typeName
+      else fields.values.iterator.map(show).mkString(s"${inst.typeName}(", ", ", ")")
     case FunV(ps, _, _, _, _, _, _, _) => s"<function(${ps.length})>"
     case NativeFnV(name, _)   => s"<native:$name>"
     case DocV(parts)          => parts.map(show).mkString("\n")

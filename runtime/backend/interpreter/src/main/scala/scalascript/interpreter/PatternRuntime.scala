@@ -1255,16 +1255,20 @@ private[interpreter] object PatternRuntime:
       else
         val args = argClause.values
         scrutinee match
-          case Value.InstanceV(t, fields) if t == typeName =>
-            val order = interp.typeFieldOrder.getOrElse(t, fields.keys.toList)
+          case inst: Value.InstanceV if inst.typeName == typeName =>
+            val arr   = inst.fieldsArr
+            val order = interp.typeFieldOrder.getOrElse(inst.typeName,
+              if arr != null then Nil else inst.fields.keys.toList)
             if args.length != order.length then null
             else
-              var curEnv: Env | Null = env; var as = args; var os = order
+              var curEnv: Env | Null = env; var as = args; var os = order; var oi = 0
               while curEnv != null && as.nonEmpty do
-                val fv = fields.getOrElse(os.head, null)
+                val fv: Value | Null =
+                  if arr != null then arr(oi)
+                  else inst.fields.getOrElse(os.head, null)
                 curEnv = if fv == null then null
                          else matchPat(as.head, fv, curEnv.asInstanceOf[Env], interp)
-                as = as.tail; os = os.tail
+                as = as.tail; os = os.tail; oi += 1
               curEnv
           case ov: Value.OptionV if ov.inner != null && typeName == "Some" && args.length == 1 =>
             matchPat(args.head, ov.inner, env, interp)
@@ -1321,7 +1325,13 @@ private[interpreter] object PatternRuntime:
         case Term.Name(qn) => env.getOrElse(qn, interp.globals.getOrElse(qn, null))
         case _             => null
       val v: Value | Null = recv match
-        case inst: Value.InstanceV => inst.fields.getOrElse(n, null)
+        case inst: Value.InstanceV =>
+          val arr = inst.fieldsArr
+          if arr != null then
+            val fo = interp.typeFieldOrder.getOrElse(inst.typeName, Nil)
+            val idx = fo.indexOf(n)
+            if idx >= 0 && idx < arr.length then arr(idx) else null
+          else inst.fields.getOrElse(n, null)
         case _                     => env.getOrElse(n, interp.globals.getOrElse(n, null))
       if v != null && v == scrutinee then env else null
     case _ => null

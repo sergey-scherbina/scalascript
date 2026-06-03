@@ -972,7 +972,11 @@ private[interpreter] object DispatchRuntime:
       case _             => dispatchString(recv, s, name, arg :: Nil, env, interp)
 
   /** 1-arg fast path for InstanceV: field access and class method call. */
-  private def dispatchInstance1(recv: Value, typeName: String, fields: Map[String, Value], name: String, arg: Value, env: Env, interp: Interpreter): Computation =
+  private def dispatchInstance1(recv: Value, typeName: String, fields0: Map[String, Value], name: String, arg: Value, env: Env, interp: Interpreter): Computation =
+    val fields: Map[String, Value] = recv match
+      case inst: Value.InstanceV if inst.fieldsArr != null && fields0.isEmpty =>
+        instanceFieldsMap(inst)
+      case _ => fields0
     typeName match
       case "Right" => name match
         case "map"     =>
@@ -2639,7 +2643,12 @@ private[interpreter] object DispatchRuntime:
 
   // ── InstanceV ───────────────────────────────────────────────────────────────
 
-  private def dispatchInstance(recv: Value, typeName: String, fields: Map[String, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+  private def dispatchInstance(recv: Value, typeName: String, fields0: Map[String, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    // Use fieldsArr-backed map when the instance was created by StatRuntime (fields0 == Map.empty).
+    val fields: Map[String, Value] = recv match
+      case inst: Value.InstanceV if inst.fieldsArr != null && fields0.isEmpty =>
+        instanceFieldsMap(inst)
+      case _ => fields0
     typeName match
       case "Pid" => name match
         case "tell" | "!" => args match
@@ -2753,7 +2762,11 @@ private[interpreter] object DispatchRuntime:
   private def isPluginBridgeInstance(typeName: String): Boolean =
     typeName == "Source" || typeName == "RemoteSource" || typeName == "ReactiveSignal"
 
-  private def dispatchOrdinaryInstance(recv: Value, typeName: String, fields: Map[String, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+  private def dispatchOrdinaryInstance(recv: Value, typeName: String, fields0: Map[String, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    val fields: Map[String, Value] = recv match
+      case inst: Value.InstanceV if inst.fieldsArr != null && fields0.isEmpty =>
+        instanceFieldsMap(inst)
+      case _ => fields0
     if name == "getMessage" && args.isEmpty then
       Pure(fields.getOrElse("message", Value.EmptyStr))
     else
@@ -2769,7 +2782,11 @@ private[interpreter] object DispatchRuntime:
       else
         dispatchInstanceAfterMethods(recv, fields, name, args, env, interp)
 
-  private def dispatchInstanceFallback(recv: Value, typeName: String, fields: Map[String, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+  private def dispatchInstanceFallback(recv: Value, typeName: String, fields0: Map[String, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    val fields: Map[String, Value] = recv match
+      case inst: Value.InstanceV if inst.fieldsArr != null && fields0.isEmpty =>
+        instanceFieldsMap(inst)
+      case _ => fields0
     // Source.distributed bridge — dispatches to DStreams plugin when loaded (v1.63.1)
     if typeName == "Source" && name == "distributed" then
       val fn = interp.globals.getOrElse("Source.distributed", null)
@@ -2829,11 +2846,32 @@ private[interpreter] object DispatchRuntime:
       case Some(fn) => interp.callValuePrepend(fn, recv, args, env)
       case None     => dispatchFallback(recv, name, args, env, interp)
 
+  /** Reconstruct a `Map[String, Value]` from `fieldsArr + fieldNames` for
+   *  instances created by StatRuntime (which now stores `Map.empty` in `fields`).
+   *  Used only for `callTypeMethod` to make instance fields available inside
+   *  method bodies; field reads go through `resolveField` / `fieldsArr` directly. */
+  private def instanceFieldsMap(inst: Value.InstanceV): Map[String, Value] =
+    val arr   = inst.fieldsArr
+    val names = inst.fieldNames
+    if arr == null || names == null then inst.fields
+    else FrameMap.fromArrays(names, arr, Map.empty)
+
   private def dispatchInstanceAfterMethods(recv: Value, fields: Map[String, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    // Resolve field value: prefer fieldsArr index lookup (O(1)) when available,
+    // otherwise fall back to the fields Map (non-StatRuntime instances).
+    inline def resolveField(inst: Value.InstanceV): Value | Null =
+      val arr = inst.fieldsArr
+      if arr != null then
+        val fo = interp.typeFieldOrder.getOrElse(inst.typeName, Nil)
+        val idx = fo.indexOf(name)
+        if idx >= 0 && idx < arr.length then arr(idx) else null
+      else inst.fields.getOrElse(name, null)
     // No-arg / native field access (must precede enum-companion check so plain
     // field values like IntV(3) are returned directly instead of being "called")
     if args.isEmpty then
-      val fieldV = fields.getOrElse(name, null)
+      val fieldV: Value | Null = recv match
+        case inst: Value.InstanceV => resolveField(inst)
+        case _                     => fields.getOrElse(name, null)
       fieldV match
         case null =>
           if name == "toString" then Pure(Value.StringV(Value.show(recv)))
@@ -2844,11 +2882,15 @@ private[interpreter] object DispatchRuntime:
         case f: Value.NativeFnV                     => f.f(Nil)
         case v                                      => Pure(v)
     // Enum companion call (Color.RGB(1,2,3)) — only when args are present
-    else if fields.contains(name) then
-      interp.callValue(fields(name), args, env)
     else
-      val ext = extensionDispatch(recv, name, args, env, interp)
-      if ext != null then ext else interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})")
+      val fieldV: Value | Null = recv match
+        case inst: Value.InstanceV => resolveField(inst)
+        case _                     => fields.getOrElse(name, null)
+      if fieldV != null then
+        interp.callValue(fieldV, args, env)
+      else
+        val ext = extensionDispatch(recv, name, args, env, interp)
+        if ext != null then ext else interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})")
 
   // ── Cross-type ++ (bare operands) and final fallback ──────────────────────
 
@@ -3215,8 +3257,9 @@ private[interpreter] object DispatchRuntime:
         case pid @ Value.InstanceV("Pid", _) => Perform("Actor", "send", pid :: rhs :: Nil)
         case _                               => dispatch(lhs, op, rhs :: Nil, env, interp)
       case ":=" => lhs match
-        case Value.InstanceV("AttrKey", fields) =>
-          val nv = fields.getOrElse("name", null)
+        case inst @ Value.InstanceV("AttrKey", _) =>
+          val effF = instanceFieldsMap(inst)
+          val nv = effF.getOrElse("name", null)
           val name = if nv == null then "" else Value.show(nv)
           Pure(Value.InstanceV("Attr", new IMap.Map2(
             "name",  Value.StringV(name),
@@ -3252,7 +3295,9 @@ private[interpreter] object DispatchRuntime:
     val iter = interp.globals.iterator
     while iter.hasNext do
       iter.next() match
-        case (_, Value.InstanceV(n, fields)) if n.endsWith(suffix) && fields.contains(method) =>
-          return interp.callValuePrepend(fields(method), recv, args, env)
+        case (_, inst: Value.InstanceV) if inst.typeName.endsWith(suffix) =>
+          val effF = instanceFieldsMap(inst)
+          if effF.contains(method) then
+            return interp.callValuePrepend(effF(method), recv, args, env)
         case _ =>
     null

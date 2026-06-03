@@ -1725,7 +1725,14 @@ object JavacJitBackend extends JitBackend:
           ctx.interp.globals.getOrElse(qn.value, null) match
             case inst: Value.InstanceV =>
               val fieldName = ts.name.value
-              inst.fields.getOrElse(fieldName, null) match
+              val fieldVal: Value | Null =
+                val arr = inst.fieldsArr
+                if arr != null then
+                  val fo = ctx.interp.typeFieldOrder.getOrElse(inst.typeName, Nil)
+                  val idx = fo.indexOf(fieldName)
+                  if idx >= 0 && idx < arr.length then arr(idx) else null
+                else inst.fields.getOrElse(fieldName, null)
+              fieldVal match
                 case _: Value.InstanceV =>
                   val ri = ctx.refIdx(s"${qn.value}.$fieldName")
                   s"_r$ri"

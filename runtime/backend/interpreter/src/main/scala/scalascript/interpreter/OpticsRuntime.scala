@@ -56,7 +56,8 @@ private[interpreter] object OpticsRuntime:
   def lensGet(target: Value, path: List[String]): Value = path match
     case Nil          => target
     case head :: rest => target match
-      case Value.InstanceV(_, fields) =>
+      case inst: Value.InstanceV =>
+        val fields = inst.effectiveFields
         val v = fields.getOrElse(head, null)
         if v == null then throw InterpretError(s"Lens.get: no field '$head' on ${Value.show(target)}")
         lensGet(v, rest)
@@ -65,9 +66,10 @@ private[interpreter] object OpticsRuntime:
   def lensSet(target: Value, path: List[String], newVal: Value): Value = path match
     case Nil          => newVal
     case head :: rest => target match
-      case Value.InstanceV(typeName, fields) =>
+      case inst: Value.InstanceV =>
+        val fields = inst.effectiveFields
         val child = fields.getOrElse(head, throw InterpretError(s"Lens.set: no field '$head'"))
-        Value.InstanceV(typeName, fields.updated(head, lensSet(child, rest, newVal)))
+        Value.InstanceV(inst.typeName, fields.updated(head, lensSet(child, rest, newVal)))
       case _ => throw InterpretError(s"Lens.set: not an instance at '$head'")
 
   def buildPathLens(path: List[String], interp: Interpreter): Value.InstanceV =
@@ -142,7 +144,7 @@ private[interpreter] object OpticsRuntime:
     })
     val andThenFn = Value.NativeFnV("Prism.andThen", {
       case List(other: Value.InstanceV) if other.typeName == "Prism" =>
-        other.fields.getOrElse("_variant", null) match
+        other.effectiveFields.getOrElse("_variant", null) match
           case Value.StringV(inner) => Pure(buildPrismChain(variantName, inner, interp))
           case _ => throw InterpretError("Prism.andThen: malformed Prism")
       case List(_) =>
@@ -165,9 +167,10 @@ private[interpreter] object OpticsRuntime:
     buildPrism(innerVariant, interp)
 
   def composedLens(a: Value.InstanceV, b: Value.InstanceV, interp: Interpreter): Value.InstanceV =
-    val aGet = a.fields("get");    val bGet = b.fields("get")
-    val aSet = a.fields("set");    val bSet = b.fields("set")
-    val aMod = a.fields("modify"); val bMod = b.fields("modify")
+    val aEff = a.effectiveFields; val bEff = b.effectiveFields
+    val aGet = aEff("get");    val bGet = bEff("get")
+    val aSet = aEff("set");    val bSet = bEff("set")
+    val aMod = aEff("modify"); val bMod = bEff("modify")
     val getFn = Value.NativeFnV("Lens.get", {
       case List(s) =>
         interp.callValue1(aGet, s, Map.empty).flatMap(x => interp.callValue1(bGet, x, Map.empty))
@@ -209,8 +212,8 @@ private[interpreter] object OpticsRuntime:
   def opticGetOption(target: Value, steps: List[PathStep]): Value | Null = steps match
     case Nil => target
     case PathStep.FieldStep(n) :: rest => target match
-      case Value.InstanceV(_, fields) =>
-        val v = fields.getOrElse(n, null)
+      case inst: Value.InstanceV =>
+        val v = inst.effectiveFields.getOrElse(n, null)
         if v == null then null else opticGetOption(v, rest)
       case _ => null
     case PathStep.SomeStep :: rest => target match
@@ -230,9 +233,10 @@ private[interpreter] object OpticsRuntime:
   def opticSet(target: Value, steps: List[PathStep], newVal: Value): Value = steps match
     case Nil => newVal
     case PathStep.FieldStep(n) :: rest => target match
-      case Value.InstanceV(typeName, fields) =>
+      case inst: Value.InstanceV =>
+        val fields = inst.effectiveFields
         val child = fields.getOrElse(n, null)
-        if child != null then Value.InstanceV(typeName, fields.updated(n, opticSet(child, rest, newVal)))
+        if child != null then Value.InstanceV(inst.typeName, fields.updated(n, opticSet(child, rest, newVal)))
         else target
       case _ => target
     case PathStep.SomeStep :: rest => target match
@@ -296,8 +300,8 @@ private[interpreter] object OpticsRuntime:
   def opticGetAll(target: Value, steps: List[PathStep]): List[Value] = steps match
     case Nil => List(target)
     case PathStep.FieldStep(n) :: rest => target match
-      case Value.InstanceV(_, fields) =>
-        val v = fields.getOrElse(n, null)
+      case inst: Value.InstanceV =>
+        val v = inst.effectiveFields.getOrElse(n, null)
         if v == null then Nil else opticGetAll(v, rest)
       case _ => Nil
     case PathStep.SomeStep :: rest => target match
@@ -320,11 +324,12 @@ private[interpreter] object OpticsRuntime:
     steps match
     case Nil => interp.callValue1(f, target, Map.empty)
     case PathStep.FieldStep(n) :: rest => target match
-      case Value.InstanceV(typeName, fields) =>
+      case inst: Value.InstanceV =>
+        val fields = inst.effectiveFields
         val child = fields.getOrElse(n, null)
         if child != null then
           opticModifyAll(child, rest, f, interp).map(updated =>
-            Value.InstanceV(typeName, fields.updated(n, updated)))
+            Value.InstanceV(inst.typeName, fields.updated(n, updated)))
         else Pure(target)
       case _ => Pure(target)
     case PathStep.SomeStep :: rest => target match
@@ -430,7 +435,9 @@ private[interpreter] object OpticsRuntime:
     FlatMap(qualC, qualV =>
       interp.threadValues(comps) { newVals =>
         qualV match
-          case Value.InstanceV(typeName, fields) =>
+          case inst: Value.InstanceV =>
+            val typeName = inst.typeName
+            val fields = inst.effectiveFields
             val order = interp.typeFieldOrder.getOrElse(typeName, fields.keys.toList)
             val named = tags.zip(newVals).collect { case (Some(n), v) => n -> v }.toMap
             val positionals = tags.zip(newVals).collect { case (None, v) => v }

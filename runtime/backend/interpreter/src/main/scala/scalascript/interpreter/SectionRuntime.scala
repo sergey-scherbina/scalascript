@@ -285,7 +285,7 @@ private[interpreter] object SectionRuntime:
     case fn: Value.FunV =>
       fn.copy(closure = ctx ++ fn.closure)
     case inst: Value.InstanceV =>
-      val enrichedFields = inst.fields.view.mapValues(enrichFnClosures(_, ctx)).toMap
+      val enrichedFields = inst.effectiveFields.view.mapValues(enrichFnClosures(_, ctx)).toMap
       inst.copy(fields = enrichedFields)
     case _ => v
 

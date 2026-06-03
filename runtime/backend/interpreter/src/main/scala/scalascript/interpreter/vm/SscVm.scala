@@ -161,13 +161,31 @@ object SscVm:
             case _                                                   => 0L
         case GETFI =>
           val inst = refStack(base + b(pc)).asInstanceOf[Value.InstanceV]
-          stack(base + a(pc)) = inst.fields(sp(c(pc))) match
+          val arr  = inst.fieldsArr
+          val fv: Value =
+            if arr != null then
+              val names = inst.fieldNames
+              val fname = sp(c(pc))
+              var idx = 0
+              while idx < names.length && names(idx) != fname do idx += 1
+              arr(idx).asInstanceOf[Value]
+            else
+              inst.fields(sp(c(pc)))
+          stack(base + a(pc)) = fv match
             case Value.IntV(x)    => x
             case Value.DoubleV(d) => jl.Double.doubleToRawLongBits(d)
             case other            => throw new RuntimeException(s"GETFI: non-numeric field ${other}")
         case GETFR =>
           val inst = refStack(base + b(pc)).asInstanceOf[Value.InstanceV]
-          refStack(base + a(pc)) = inst.fields(sp(c(pc))).asInstanceOf[AnyRef]
+          val arr  = inst.fieldsArr
+          if arr != null then
+            val names = inst.fieldNames
+            val fname = sp(c(pc))
+            var idx = 0
+            while idx < names.length && names(idx) != fname do idx += 1
+            refStack(base + a(pc)) = arr(idx).asInstanceOf[AnyRef]
+          else
+            refStack(base + a(pc)) = inst.fields(sp(c(pc))).asInstanceOf[AnyRef]
         case MFAIL => throw new RuntimeException("VM match: no case matched")
         case JMP   => pc = a(pc); pc -= 1  // -1 cancels the trailing pc += 1
         case JF    =>
