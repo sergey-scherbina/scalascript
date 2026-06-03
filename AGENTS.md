@@ -5,6 +5,8 @@
 
 ## MANDATORY: first action in every session
 
+**If the conversation begins with a context summary (the previous session ran out of context and was compressed), treat it as a new session start: re-read this file (AGENTS.md) before any other action. The summary does not guarantee AGENTS.md was read correctly or that it has not changed.**
+
 Before any file read, planning, or write — verify whether you are in a worktree.
 
 ```bash
