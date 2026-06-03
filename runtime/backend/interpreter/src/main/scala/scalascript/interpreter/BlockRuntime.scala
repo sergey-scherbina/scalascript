@@ -41,9 +41,13 @@ private[interpreter] object BlockRuntime:
           cur = fm2.parent
         // If the terminal parent is the real globals map, skip it.
         // Otherwise it's a closure HashMap — iterate and capture non-global entries.
+        // IMPORTANT: params already in `b` (from the FrameMap chain above) take
+        // priority — do NOT overwrite them with closure entries that happen to carry
+        // a same-named but semantically-different value (e.g. the HTML `<a>` tag
+        // from a child interpreter's enriched closure overwriting a param named `a`).
         if cur ne interp.globals then
           cur.foreachEntry { (k, v) =>
-            if interp.globals.getOrElse(k, null) != v then b(k) = v
+            if !b.contains(k) && interp.globals.getOrElse(k, null) != v then b(k) = v
           }
         b
       case _ =>
