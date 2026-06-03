@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — DataTable Phase 3 (ColumnKind + RowPayload)
+
+- **datatable-column-action-expressiveness** — Added `ColumnKind` sealed trait
+  (Text/Date/Money/StatusBadge/Link) and `RowPayload` sealed trait
+  (Field/WholeRow/Fields) replacing the old `bodyField: String` contract.
+  Extended `FieldColumnDef` with `kind` + `width`. Added `View.FormattedField`
+  for kind-aware cell rendering. All emitters (React/Vue/Solid/Custom/SwiftUI/
+  Swing/JavaFx), `ModelPathValidator`, `ViewTraversal`, `FetchIntrinsics`, and
+  `std/ui/primitives.ssc` / `data.ssc` updated. New intrinsics:
+  `fieldPayload`, `wholeRowPayload`, `fieldsPayload`, `dateColumn`,
+  `moneyColumn`, `statusColumn`, `linkColumn`. Shorthands: `dcol/mcol/scol/lcol`,
+  `fieldBody/wholeRowBody/fieldsBody`. 58 tests green.
+
 ## 2026-06-03 — claim protocol hardening
 
 - **coord-claim-protocol-hardening** — Tightened coordination docs around the

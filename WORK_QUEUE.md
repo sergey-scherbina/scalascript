@@ -185,10 +185,11 @@ being landed backend by backend.
   intrinsics and `staticDataTable`/`signalDataTable` helpers in `std/ui/data.ssc`.
   All tests green: frontendCore/React/Vue 47+56+58 passed; fetchPlugin 6 passed.
 
-- [ ] **datatable-column-action-expressiveness** — Phase 3 of
-  `docs/datatable-authoring-surface.md`. Add structured column renderers
-  (date, money, status, link, responsive width) and normalize row actions around
-  payload builders instead of a single `bodyField` string.
+- [x] **datatable-column-action-expressiveness** — ✓ Landed 2026-06-03 (eb51bf99).
+  Phase 3 of `docs/datatable-authoring-surface.md`. Added `ColumnKind`
+  (Text/Date/Money/StatusBadge/Link), `RowPayload` (Field/WholeRow/Fields),
+  `View.FormattedField`, width hints on columns. Updated all 8 emitters +
+  `FetchIntrinsics` + `primitives.ssc` / `data.ssc`. 58 tests green.
 
 - [x] **cli-command-result-exitcode** - ✓ Landed 2026-06-02. Introduced
   internal `ExitCode` / `CommandResult`, `CliCommand.runResult` compatibility
