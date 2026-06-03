@@ -958,6 +958,139 @@ object JavacJitBackend extends JitBackend:
         s"  default: { Object $xBind = inst;\n      return $armBodyJava;\n    }\n    "
       case _ => null
 
+  /** Try to inline the match body of `funV` as a Java `switch (inst.typeTag())`
+   *  block that accumulates into `_acc` directly — zero virtual dispatch.
+   *  Returns the switch block string (caller prefixes `Value.InstanceV inst = cast(elem);`)
+   *  or null if the function is not a 1-param, guard-free, fully int-tagged match. */
+  private def tryBuildInlineMatchAccum(
+    funV:        Value.FunV,
+    accIsDouble: Boolean,
+    interp:      scalascript.interpreter.Interpreter
+  ): String | Null =
+    if funV.params.length != 1 then return null
+    val paramName = funV.params.head
+    val tm = funV.body match
+      case m: Term.Match => m
+      case _             => return null
+    val scrutName = tm.expr match
+      case n: Term.Name => n.value
+      case _            => return null
+    if scrutName != paramName then return null
+    val casesArr = tm.casesBlock.cases.toArray
+    if casesArr.exists(_.cond.nonEmpty) then return null
+    val armTags = new Array[Int](casesArr.length)
+    var ai = 0
+    while ai < casesArr.length do
+      casesArr(ai).pat match
+        case ext: scala.meta.Pat.Extract => ext.fun match
+          case Term.Name(cn) =>
+            val tag = interp.typeTagMap.getOrElse(cn, 0)
+            if tag == 0 then return null
+            armTags(ai) = tag
+          case _ => return null
+        case _: Pat.Wildcard => // wildcard OK as last arm
+        case _: Pat.Var      => // var OK as last arm
+        case _               => return null
+      ai += 1
+    val paramSet  = Set(paramName)
+    val paramArr  = Array(paramName)
+    val paramIsRef = Array(true)
+    val coEmit    = new CoEmitState
+    coEmit.signatures.put("__inlineMatch", MethodSig(paramArr, paramIsRef, accIsDouble))
+    coEmit.emitted.add("__inlineMatch")
+    val ctx = new GenCtx("__inlineMatch", paramSet, paramArr, paramIsRef, accIsDouble, Map.empty, interp, coEmit)
+    val sb = new StringBuilder
+    sb.append("switch (inst.typeTag()) {\n")
+    ai = 0
+    while ai < casesArr.length do
+      val armStr = walkArmForAccum(casesArr(ai), ctx, interp, armTags(ai), accIsDouble)
+      if armStr == null then return null
+      sb.append(armStr)
+      ai += 1
+    val hasWildcard = casesArr.lastOption.exists(c => c.pat.isInstanceOf[Pat.Wildcard] || c.pat.isInstanceOf[Pat.Var])
+    if !hasWildcard then
+      sb.append(s"  default: throw new RuntimeException(\"JavacJitBackend: inline match no case matched, tag=\" + inst.typeTag());\n")
+    sb.append("}")
+    sb.toString
+
+  /** Emit one match arm for inline-accum: `case TAG: { <bindings>; _acc += body; break; }` */
+  private def walkArmForAccum(
+    c:           scala.meta.Case,
+    ctx:         GenCtx,
+    interp:      scalascript.interpreter.Interpreter,
+    intTag:      Int,
+    accIsDouble: Boolean
+  ): String | Null =
+    if c.cond.nonEmpty then return null
+    c.pat match
+      case ext: scala.meta.Pat.Extract =>
+        val ctorName = ext.fun match
+          case Term.Name(n) => n
+          case _            => return null
+        val argPats = ext.argClause.values.toArray
+        val n = argPats.length
+        val bindNames = new Array[String](n)
+        var i = 0
+        while i < n do
+          argPats(i) match
+            case Pat.Var(Term.Name(bn)) => bindNames(i) = bn
+            case _: Pat.Wildcard        => bindNames(i) = "_unused$" + i
+            case _                      => return null
+          i += 1
+        val fieldOrder = interp.typeFieldOrder.getOrElse(ctorName, Nil).toArray
+        if fieldOrder.length != n then return null
+        val bindIsRef = new Array[Boolean](n)
+        var bi = 0
+        while bi < n do
+          if bindNames(bi).startsWith("_unused$") then bindIsRef(bi) = false
+          else bindIsRef(bi) = bindingIsRef(c.body, bindNames(bi), ctx)
+          bi += 1
+        val bindingMap = scala.collection.mutable.LinkedHashMap.empty[String, (String, Boolean)]
+        var k = 0
+        while k < n do
+          if !bindNames(k).startsWith("_unused$") then
+            val jvar = sanitize(bindNames(k)) + "_a"
+            bindingMap += (bindNames(k) -> (jvar, bindIsRef(k)))
+          k += 1
+        val newCtx = ctx.withBindings(bindingMap.toMap)
+        val sb = new StringBuilder
+        if intTag > 0 then sb.append(s"  case $intTag: {\n")
+        else               sb.append(s"""  case 0: { // untagged fallback\n""")
+        val faVar = s"__fa_${sanitize(ctorName)}"
+        if n > 0 then sb.append(s"    scalascript.interpreter.Value[] $faVar = inst.fieldsArr();\n")
+        var fi = 0
+        while fi < n do
+          if !bindNames(fi).startsWith("_unused$") then
+            val (jvar, isRef) = bindingMap(bindNames(fi))
+            val readExpr = s"$faVar[$fi]"
+            if isRef then
+              sb.append(s"    Object $jvar = $readExpr;\n")
+            else if accIsDouble then
+              val raw = s"_rf${fi}_${sanitize(ctorName)}"
+              sb.append(s"    Object $raw = $readExpr;\n")
+              sb.append(s"    double $jvar = $raw instanceof scalascript.interpreter.Value.DoubleV ? ((scalascript.interpreter.Value.DoubleV) $raw).v() : (double) ((scalascript.interpreter.Value.IntV) $raw).v();\n")
+            else
+              sb.append(s"    long $jvar = ((scalascript.interpreter.Value.IntV) ($readExpr)).v();\n")
+          fi += 1
+        val armBodyJava = if accIsDouble then walkDouble(c.body, newCtx) else walkLong(c.body, newCtx)
+        if armBodyJava == null then return null
+        sb.append(s"    _acc += $armBodyJava;\n")
+        sb.append(s"    break;\n")
+        sb.append(s"  }\n")
+        sb.toString
+      case _: Pat.Wildcard =>
+        val armBodyJava = if accIsDouble then walkDouble(c.body, ctx) else walkLong(c.body, ctx)
+        if armBodyJava == null then return null
+        s"  default: { _acc += $armBodyJava; break; }\n"
+      case pv: scala.meta.Pat.Var =>
+        val xName = pv.name.value
+        val xBind = sanitize(xName) + "_a"
+        val newCtx = ctx.withBindings(Map(xName -> (xBind, true)))
+        val armBodyJava = if accIsDouble then walkDouble(c.body, newCtx) else walkLong(c.body, newCtx)
+        if armBodyJava == null then return null
+        s"  default: { Object $xBind = inst; _acc += $armBodyJava; break; }\n"
+      case _ => null
+
   /** Emit a single match arm for a ref-returning match body (`ObjToObject`).
    *  Fields whose static type (from `interp.typeFieldTypes`) is a primitive
    *  ("Int"/"Long"/"Double"/"Boolean") are declared `long`; ADT/String fields
@@ -1597,6 +1730,10 @@ object JavacJitBackend extends JitBackend:
       whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
       return null
 
+    // Try to inline the match body — eliminates ObjToLong virtual dispatch.
+    val funVTyped = fnVal.asInstanceOf[scalascript.interpreter.Value.FunV]
+    val inlineMatchSwitch: String | Null = tryBuildInlineMatchAccum(funVTyped, accIsDouble, interp)
+
     // Compile cond + int-assign RHSes via existing walkers.
     val ctx = new WhileGenCtx(names, interp, scala.collection.mutable.LinkedHashMap.empty)
     val condJava = walkLocalBoolCtx(cond, ctx)
@@ -1621,13 +1758,18 @@ object JavacJitBackend extends JitBackend:
     sb.append(s"public final class $className {\n")
     sb.append(s"  @SuppressWarnings(\"unchecked\")\n")
     sb.append(s"  public static void run(long[] v) {\n")
-    // Load function and list from TLS once before the loop.
-    if accIsDouble then
-      sb.append(s"    $jitPkg.ObjToDouble _dfn0 = $jitPkg.JitGlobals.getRefDoubleFns()[0];\n")
-    else
-      sb.append(s"    $jitPkg.ObjToLong _fn0 = $jitPkg.JitGlobals.getRefFns()[0];\n")
+    // Load function from TLS only when not inlining the match body.
+    if inlineMatchSwitch == null then
+      if accIsDouble then
+        sb.append(s"    $jitPkg.ObjToDouble _dfn0 = $jitPkg.JitGlobals.getRefDoubleFns()[0];\n")
+      else
+        sb.append(s"    $jitPkg.ObjToLong _fn0 = $jitPkg.JitGlobals.getRefFns()[0];\n")
     if receiverIsSet then
       sb.append(s"    $valuePkg.Value.SetV _set0 = ($valuePkg.Value.SetV) $jitPkg.JitGlobals.getRefs()[0];\n")
+    else if inlineMatchSwitch != null then
+      // Pre-extracted Object[] — EvalRuntime converts ListV to array before invocation.
+      sb.append(s"    Object[] _larr = (Object[]) $jitPkg.JitGlobals.getRefs()[0];\n")
+      sb.append(s"    int _llen = _larr.length;\n")
     else
       sb.append(s"    $valuePkg.Value.ListV _list0 = ($valuePkg.Value.ListV) $jitPkg.JitGlobals.getRefs()[0];\n")
     // Load int slots.
@@ -1646,10 +1788,19 @@ object JavacJitBackend extends JitBackend:
     if receiverIsSet then
       sb.append(s"      scala.collection.Iterator<?> _iter = _set0.items().iterator();\n")
       sb.append(s"      while (_iter.hasNext()) {\n")
-      if accIsDouble then
+      if inlineMatchSwitch != null then
+        sb.append(s"        $valuePkg.Value.InstanceV inst = ($valuePkg.Value.InstanceV) _iter.next();\n")
+        sb.append(s"        $inlineMatchSwitch\n")
+      else if accIsDouble then
         sb.append(s"        _acc += _dfn0.apply(_iter.next());\n")
       else
         sb.append(s"        _acc += _fn0.apply(_iter.next());\n")
+      sb.append(s"      }\n")
+    else if inlineMatchSwitch != null then
+      // Pre-extracted array path — faster than head()/tail() traversal.
+      sb.append(s"      for (int _li = 0; _li < _llen; _li++) {\n")
+      sb.append(s"        $valuePkg.Value.InstanceV inst = ($valuePkg.Value.InstanceV) _larr[_li];\n")
+      sb.append(s"        $inlineMatchSwitch\n")
       sb.append(s"      }\n")
     else
       sb.append(s"      scala.collection.immutable.List<?> _items = _list0.items();\n")
@@ -1721,9 +1872,14 @@ object JavacJitBackend extends JitBackend:
     val entry = new WhileJitEntry(
       method,
       Array.empty[String],
-      if fnObjToLong  != null then Array(fnObjToLong)  else Array.empty[ObjToLong],
+      if inlineMatchSwitch != null then Array.empty[ObjToLong]
+      else if fnObjToLong  != null then Array(fnObjToLong)
+      else Array.empty[ObjToLong],
       Array.empty[ObjToObject],
-      if fnObjToDouble != null then Array(fnObjToDouble) else Array.empty[ObjToDouble]
+      if inlineMatchSwitch != null then Array.empty[ObjToDouble]
+      else if fnObjToDouble != null then Array(fnObjToDouble)
+      else Array.empty[ObjToDouble],
+      listPreExtract = inlineMatchSwitch != null && receiverIsList
     )
     whileMixedGlobalCache.put(foreachApply, entry.asInstanceOf[AnyRef])
     entry

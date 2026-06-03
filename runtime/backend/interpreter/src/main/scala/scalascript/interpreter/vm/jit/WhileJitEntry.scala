@@ -21,10 +21,11 @@ package scalascript.interpreter.vm.jit
  *    reads it from `JitGlobals.getRefDoubleFns()`.  The list receiver is
  *    passed via `getRefs()[0]` at call time (not stored here). */
 final class WhileJitEntry(
-  val method:       java.lang.reflect.Method,
-  val refNames:     Array[String],
-  val refFns:       Array[ObjToLong],
-  val refObjFns:    Array[ObjToObject],
-  val refDoubleFns: Array[ObjToDouble] = Array.empty[ObjToDouble],
-  val mapIsKeyMode: Boolean            = false
+  val method:          java.lang.reflect.Method,
+  val refNames:        Array[String],
+  val refFns:          Array[ObjToLong],
+  val refObjFns:       Array[ObjToObject],
+  val refDoubleFns:    Array[ObjToDouble] = Array.empty[ObjToDouble],
+  val mapIsKeyMode:    Boolean            = false,
+  val listPreExtract:  Boolean            = false
 )
