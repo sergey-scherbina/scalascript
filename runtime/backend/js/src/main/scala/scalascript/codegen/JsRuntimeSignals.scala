@@ -409,7 +409,7 @@ function _ssc_ui_mount(sigs) {
 function _ssc_ui_renderPage(view) {
   const { body, sigs } = _ssc_ui_renderBody(view);
   const sigJson = JSON.stringify(Object.fromEntries(sigs));
-  const script = `<script>_ssc_ui_mount(new Map(Object.entries(${sigJson})));</script>`;
+  const script = `<script>_ssc_ui_mount(new Map(Object.entries(${sigJson})));<\/script>`;
   return { body, script };
 }
 
@@ -424,7 +424,7 @@ function _ssc_ui_serve(treeOrPort, portOrUndef, extraCssOrUndef) {
   route('GET', '/')((_req) => {
     const { body, sigs } = _ssc_ui_renderBody(view);
     const sigJson = JSON.stringify(Object.fromEntries(sigs));
-    const script = `<script>_ssc_ui_mount(new Map(Object.entries(${sigJson})));</script>`;
+    const script = `<script>_ssc_ui_mount(new Map(Object.entries(${sigJson})));<\/script>`;
     const html = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
