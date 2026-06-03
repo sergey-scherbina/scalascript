@@ -104,7 +104,7 @@ def benchFile(sscPath: String, backend: Backend, file: java.io.File): Option[Ben
 
 def formatTable(results: Seq[BenchResult], label: String): String =
   val nameCells  = results.map(r => s"`${r.name}`")
-  val timeCells  = results.map(r => s"${r.medianMs} (${r.minMs} – ${r.maxMs})")
+  val timeCells  = results.map(r => s"${r.medianMs} (${r.minMs}...${r.maxMs})")
   val colLabel   = s"$label (ms)"
 
   val w0 = ("Workload" +: nameCells).map(_.length).max
