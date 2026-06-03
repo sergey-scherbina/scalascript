@@ -4,6 +4,30 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — tco-mutual-tail-jit-bypass: JIT bypass for wrapper→TCO calls
+
+- **tco-mutual-tail-jit-bypass** — Fixed 1218× regression in `recursion-tco`
+  benchmark (313 ms → 0.257 ms) caused by mutual-tail-call detection.
+  
+  **Root cause**: `def workload() = sumTco(100000, 0)` — the tail call to
+  `sumTco` sets `tcoInfoFor(workload).tailTargets = Set("sumTco")` → `hasMutualTail=true`
+  → `tcoTrampoline` activated for `workload`. Inside the trampoline, `sumTco` is
+  replaced by a `MutualTailCall` stub. When fired, the trampoline switches to
+  `curFun=sumTco` and tree-walks `sumTco.body` 100K times (each iteration throws
+  a `TailCall` exception), bypassing the bytecode-JIT while-loop entirely.
+  
+  **Fix**: in the `MutualTailCall` handler of `tcoTrampoline`, try
+  `JitRuntime.tryRunList(next, mc.args, eager=true)` before re-entering the
+  trampoline loop for `next`. If JIT (bytecode or register-VM) handles the
+  call, return the result directly; tree-walk only when JIT returns null.
+  
+  Commit: `4e22abb5`. Tests: 1230/1230 green.
+  **Bench wins (bench.sh --warmup 3 --reps 5):**
+    `recursion-tco` (`sumTco(100000, 0)`):  313 ms → 0.257 ms (1218×)
+    `recursion-fib` (`fib(30)`):            1.32 ms (unchanged)
+
+---
+
 ## 2026-06-03 — while-jit-ref-select-chain: field-select + ObjToObject chain args
 
 - **while-jit-ref-select-chain** — Extended `walkRefArgCtx` in
