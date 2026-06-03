@@ -5,7 +5,7 @@ import javax.tools.{ToolProvider, JavaFileObject, SimpleJavaFileObject, Forwardi
 import java.io.{ByteArrayOutputStream, OutputStream}
 import java.net.URI
 
-import scala.meta.{Term, Lit, Pat}
+import scala.meta.{Term, Lit, Pat, Stat, Defn}
 import scalascript.interpreter.Value
 
 /** Phase C: bytecode JIT for pure-int self-recursive functions.
@@ -156,6 +156,23 @@ object JavacJitBackend extends JitBackend:
       f.body match
         case tm: Term.Match if paramIsRef.exists(identity) =>
           walkMatchBody(tm, ctx, interp)
+        case b: Term.Block if b.stats.lengthCompare(1) > 0 =>
+          // Direction A.5: multi-stat block — emit val-bindings as Java locals,
+          // then return the final expression. Special case: when the final stat
+          // is a param-ref match, use walkMatchBody for it (preserves the
+          // switch-statement form instead of wrapping in an IIFE).
+          b.stats.last match
+            case tm: Term.Match if paramIsRef.exists(identity) =>
+              walkBlockStmts(b.stats.init, ctx) match
+                case null  => null
+                case prefix =>
+                  val tailCtx = blockStmtsCtx(b.stats.init, ctx)
+                  if tailCtx == null then null
+                  else
+                    val matchPart = walkMatchBody(tm, tailCtx, interp)
+                    if matchPart == null then null else prefix + matchPart
+            case _ =>
+              walkBlockStmts(b.stats, ctx)
         case other =>
           val tco = tryTcoBody(other.asInstanceOf[Term], ctx)
           if tco != null then tco
@@ -267,13 +284,15 @@ object JavacJitBackend extends JitBackend:
   private def walkLong(t: Term, ctx: GenCtx): String | Null = t match
     case Lit.Int(v)  => s"${v}L"
     case Lit.Long(v) => s"${v}L"
-    // Direction A.1: single-stmt block (`{ expr }`) unwraps to its inner term.
-    // Mirrors the same treatment in walkLocalSlotCtx; multi-stmt blocks bail
-    // until A.5.
+    // Direction A.1/A.5: single-stmt block unwraps; multi-stmt blocks use IIFE.
     case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
       b.stats.head match
         case inner: Term => walkLong(inner, ctx)
         case _           => null
+    case b: Term.Block if b.stats.lengthCompare(1) > 0 =>
+      val stmts = walkBlockStmts(b.stats, ctx)
+      if stmts == null then null
+      else s"((java.util.function.LongSupplier)(() -> { $stmts })).getAsLong()"
     // Nested `Term.Match` in expression context (e.g. `total + (e match { … })`).
     // The function body's top-level match is emitted as statements by
     // `walkMatchBody`; here we need an expression form, so we delegate to
@@ -380,11 +399,15 @@ object JavacJitBackend extends JitBackend:
     case Lit.Double(v) => v.toString.toDouble.toString
     case Lit.Int(v)    => s"((double) ${v}L)"
     case Lit.Long(v)   => s"((double) ${v}L)"
-    // Direction A.1: 1-stmt block unwrap parallel to walkLong.
+    // Direction A.1/A.5: 1-stmt block unwraps; multi-stmt blocks use IIFE.
     case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
       b.stats.head match
         case inner: Term => walkDouble(inner, ctx)
         case _           => null
+    case b: Term.Block if b.stats.lengthCompare(1) > 0 =>
+      val stmts = walkBlockStmts(b.stats, ctx)
+      if stmts == null then null
+      else s"((java.util.function.DoubleSupplier)(() -> { $stmts })).getAsDouble()"
     // Nested `Term.Match` in Double-typed expression context; mirrors
     // walkLong's treatment via the DoubleSupplier IIFE.
     case tm: Term.Match =>
@@ -812,6 +835,56 @@ object JavacJitBackend extends JitBackend:
    *  Args are evaluated through temp locals BEFORE param-slot updates so the
    *  new-arg computation reads the OLD param values (mirrors how the
    *  trampoline copies args via `TailCall.args` snapshot). */
+  /** Direction A.5: Emit Java `long`/`double` local declarations for `Defn.Val`
+   *  stats, followed by `return <expr>;` for the last `Term`.
+   *  Returns null if any stat is not a simple `val n = <long-or-double-expr>`
+   *  or the final term can't compile via walkLong/walkDouble.
+   *  Only non-ref (Long/Double) val bindings supported in the initial slice. */
+  private def walkBlockStmts(stats: List[Stat], ctx: GenCtx): String | Null =
+    val sb = new StringBuilder
+    var curCtx = ctx
+    var rem = stats
+    while rem.nonEmpty do
+      val stat = rem.head
+      rem = rem.tail
+      if rem.isEmpty then
+        stat match
+          case last: Term =>
+            val e = if curCtx.isDouble then walkDouble(last, curCtx)
+                    else walkLong(last, curCtx)
+            if e == null then return null
+            sb.append(s"return $e;")
+          case _ => return null
+      else
+        stat match
+          case Defn.Val(_, List(Pat.Var(n)), _, rhs: Term) =>
+            val jn = sanitize(n.value)
+            val e = if curCtx.isDouble then walkDouble(rhs, curCtx)
+                    else walkLong(rhs, curCtx)
+            if e == null then return null
+            val jType = if curCtx.isDouble then "double" else "long"
+            sb.append(s"$jType $jn = $e;\n      ")
+            curCtx = curCtx.withBindings(Seq(n.value -> (jn, false)))
+          case _ => return null
+    sb.toString
+
+  /** Returns the GenCtx after threading all non-final `val` bindings from
+   *  `stats`, used to build the tail context for a block-with-match-end. */
+  private def blockStmtsCtx(stats: List[Stat], ctx: GenCtx): GenCtx | Null =
+    var curCtx = ctx
+    var rem = stats
+    while rem.nonEmpty do
+      rem.head match
+        case Defn.Val(_, List(Pat.Var(n)), _, rhs: Term) =>
+          val jn = sanitize(n.value)
+          val e = if curCtx.isDouble then walkDouble(rhs, curCtx)
+                  else walkLong(rhs, curCtx)
+          if e == null then return null
+          curCtx = curCtx.withBindings(Seq(n.value -> (jn, false)))
+        case _ => return null
+      rem = rem.tail
+    curCtx
+
   private def tryTcoBody(t: Term, ctx: GenCtx): String | Null = t match
     case ti: Term.If =>
       val recArgsT = asSelfRecur(ti.thenp, ctx.funName)

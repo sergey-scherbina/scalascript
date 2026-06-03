@@ -3,7 +3,7 @@ package scalascript.interpreter.vm.jit
 import org.objectweb.asm.{ClassWriter, MethodVisitor, Label}
 import org.objectweb.asm.Opcodes.*
 
-import scala.meta.{Term, Lit, Pat}
+import scala.meta.{Term, Lit, Pat, Stat, Defn}
 import scala.collection.mutable
 import scalascript.interpreter.{Interpreter, Value}
 
@@ -181,11 +181,42 @@ object AsmJitBackend extends JitBackend:
       else null
     new JitResult(mh, paramIsRef, isDouble, direct)
 
+  /** Direction A.5: process non-final `Defn.Val` stats, emitting LSTORE/DSTORE
+   *  bytecode for each. Returns the updated GenCtx with the new bindings on
+   *  success, or null if any stat is not a compilable val-binding. */
+  private def emitValBindings(stats: List[Stat], ctx: GenCtx, mv: MethodVisitor): GenCtx | Null =
+    var curCtx = ctx
+    var rem = stats
+    while rem.nonEmpty do
+      rem.head match
+        case Defn.Val(_, List(Pat.Var(n)), _, rhs: Term) =>
+          val slot = curCtx.allocSlot()
+          val ok = if curCtx.isDouble then walkDouble(rhs, curCtx, mv) else walkLong(rhs, curCtx, mv)
+          if !ok then return null
+          mv.visitVarInsn(if curCtx.isDouble then DSTORE else LSTORE, slot)
+          curCtx = curCtx.withBindings(Map(n.value -> (slot, false)))
+        case _ => return null
+      rem = rem.tail
+    curCtx
+
   private def emitFnBody(f: Value.FunV, ctx: GenCtx, interp: Interpreter,
                          mv: MethodVisitor, isDouble: Boolean): Boolean =
     f.body match
       case tm: Term.Match if ctx.paramIsRef.exists(identity) =>
         emitMatchBody(tm, ctx, interp, mv)
+      case b: Term.Block if b.stats.lengthCompare(1) > 0 =>
+        // Direction A.5: multi-stat block — emit val-bindings then the final expr.
+        b.stats.last match
+          case tm: Term.Match if ctx.paramIsRef.exists(identity) =>
+            val tailCtx = emitValBindings(b.stats.init, ctx, mv)
+            tailCtx != null && emitMatchBody(tm, tailCtx, interp, mv)
+          case last: Term =>
+            val tailCtx = emitValBindings(b.stats.init, ctx, mv)
+            tailCtx != null && (
+              if isDouble then walkDouble(last, tailCtx, mv) && { mv.visitInsn(DRETURN); true }
+              else             walkLong(last, tailCtx, mv)   && { mv.visitInsn(LRETURN); true }
+            )
+          case _ => false
       case other =>
         val tco = tryTcoBody(other.asInstanceOf[Term], ctx, mv)
         if tco then true

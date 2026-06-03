@@ -86,6 +86,16 @@ class InterpreterTest extends AnyFunSuite with Matchers:
     """) shouldBe "55"
   }
 
+  test("recursive function with multi-stat block body (JIT A.5)") {
+    captured("""
+      def sumSquares(n: Int): Int =
+        val sq = n * n
+        val prev = if n <= 1 then 0 else sumSquares(n - 1)
+        prev + sq
+      println(sumSquares(5))
+    """) shouldBe "55"
+  }
+
   test("nested functions and closures") {
     captured("""
       def adder(x: Int) = (y: Int) => x + y
