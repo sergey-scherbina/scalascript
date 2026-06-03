@@ -658,13 +658,20 @@ verify step. Apply them.
       current Javac optimization surface. Spec:
       [`docs/asm-jit-parity.md`](docs/asm-jit-parity.md).
 
-      Phase 1 (this worktree): function-backend parity:
+      Phase 1: ✓ Landed 2026-06-04 commit `f48bcf1f`.
       shared `JitPredicates.isBoolReturning`, unary `+`/`-`, multi-statement
       expression blocks, `ObjToObject` ref-returning match functions, and
       long-returning sibling/mutual co-emit with callee-param-aware ref binding
-      classification. Tests: direct ASM lock-ins in `SscVmTest`.
+      classification. Also fixed ASM string-chain fallback to clear `typeName`
+      before arm-label jumps. Tests: direct ASM lock-ins in `SscVmTest`.
+      Verification:
+      `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-20260604 && sbt "backendInterpreter/compile"`;
+      `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-20260604 && sbt "backendInterpreter/testOnly scalascript.SscVmTest"`
+      (21/21);
+      `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-20260604 && SSC_JIT_BACKEND=asm sbt "backendInterpreter/testOnly scalascript.InterpreterTest"`
+      (139/139).
 
-      Phase 2 (follow-up unless Phase 1 finishes early): while-backend parity:
+      Phase 2 (open follow-up): while-backend parity:
       ref arg preambles (`refs`, `ObjToLong`, `ObjToObject`), field/select and
       ref-returning call chains, inline match helpers, and List/Set fused
       foreach in a real ASM `tryCompileWhileMixed`.

@@ -1982,6 +1982,10 @@ gated on same-session A/B + full suite green with the gate off AND on.
       gap under `asm-jit-parity-optimizations`
       ([`docs/asm-jit-parity.md`](docs/asm-jit-parity.md),
       `WORK_QUEUE.md`).
+      **2026-06-04 update:** function-backend ASM parity landed in
+      `f48bcf1f` (unary/block expressions, `ObjToObject`, sibling/mutual
+      co-emit, callee-param-aware ref binding). While-backend parity remains
+      open as Phase 2 in `WORK_QUEUE.md`.
 - [~] **interp-tier2b-foreach (Phase D)** — the A3/A4 remainder of the
       binary-strolling-river gated fast-tier: unboxed numeric slots + a
       Computation-free direct-style runner for the pure subset, boxing only at

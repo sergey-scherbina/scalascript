@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — perf: ASM JIT function parity
+
+- **asm-jit-parity-optimizations Phase 1** — `AsmJitBackend` now matches the
+  current Javac function-backend subset for shared boolean-return bails,
+  unary `+`/`-`, multi-statement expression blocks, direct `ObjToObject`
+  ref-returning matches, and long-returning sibling/mutual co-emit including
+  ref-param ADT match functions. String-chain fallback now clears `typeName`
+  before arm-label jumps. Verified with `SscVmTest` 21/21 and
+  `SSC_JIT_BACKEND=asm` `InterpreterTest` 139/139. Phase 2 while-backend
+  parity remains open in `WORK_QUEUE.md`.
+
+---
+
 ## 2026-06-04 — test: jit-match-recursive-descent verification
 
 - **jit-match-recursive-descent** — Verified that `JavacJitBackend.walkArm`

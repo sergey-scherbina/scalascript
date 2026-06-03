@@ -32,21 +32,46 @@ Javac support:
 
 ## Current Gap Audit
 
-As of 2026-06-04, `AsmJitBackend` has the original arithmetic/match/TCO/double
-coverage and pure-long while co-emission, but it lags the recent Javac and
-dual-bank work in these areas:
+The 2026-06-04 audit found that `AsmJitBackend` had the original
+arithmetic/match/TCO/double coverage and pure-long while co-emission, but
+lagged the recent Javac and dual-bank work in these areas:
 
 | Area | Javac status | ASM status | Priority |
 |---|---|---|---|
-| Boolean-return guard | Uses shared `JitPredicates.isBoolReturning` | Local copy can drift | P1 |
-| Unary `+`/`-` in function walkers | Supported in `walkLong` / `walkDouble` | Missing outside while walker | P1 |
-| Multi-statement block expressions | Supported via supplier/IIFE | Only top-level function body support | P1 |
-| `ObjToObject` ref-returning match functions | Supported by `walkRefMatchBody` | Missing | P1 |
-| Function sibling / mutual co-emit | Supported for long-returning int/ref-param functions | Missing; self-call only | P1 |
-| Binding ref classification for sibling calls | Callee-param-aware | Self-call-name-only | P1 |
+| Boolean-return guard | Uses shared `JitPredicates.isBoolReturning` | Implemented in `f48bcf1f` | P1 done |
+| Unary `+`/`-` in function walkers | Supported in `walkLong` / `walkDouble` | Implemented in `f48bcf1f` | P1 done |
+| Multi-statement block expressions | Supported via supplier/IIFE | Implemented in `f48bcf1f` | P1 done |
+| `ObjToObject` ref-returning match functions | Supported by `walkRefMatchBody` | Implemented in `f48bcf1f` | P1 done |
+| Function sibling / mutual co-emit | Supported for long-returning int/ref-param functions | Implemented in `f48bcf1f` | P1 done |
+| Binding ref classification for sibling calls | Callee-param-aware | Implemented in `f48bcf1f` | P1 done |
 | While-JIT ref args (`ObjToLong`, `ObjToObject`, field/select chains, inline match) | Supported in `tryCompileWhileLong` | Pure-long only | P2 |
 | Fused while + foreach List/Set | Supported in `tryCompileWhileMixed` | Missing override | P2 |
 | Fused while + Map.foreach | Still open in `WORK_QUEUE.md` for Javac too | Out of scope until Javac lands | Follow-up |
+
+## Implementation Status
+
+Phase 1 landed in `f48bcf1f`:
+
+- `AsmJitBackend` now reuses `JitPredicates.isBoolReturning`.
+- Function walkers support unary `+`/`-` and multi-statement expression blocks.
+- Long-returning sibling calls and mutual recursion are co-emitted into the
+  same ASM-generated class, including ref-param ADT match functions.
+- Pattern binding ref classification is callee-param-aware rather than
+  self-call-only.
+- One-ref-param ref-returning match functions can compile to direct
+  `ObjToObject`.
+- The shared ASM string-chain fallback now clears the `typeName` value before
+  jumping to arm labels, so string-switch fallback arms start with a clean
+  operand stack.
+
+Verified on 2026-06-04 with:
+
+- `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-20260604 && sbt "backendInterpreter/compile"`
+- `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-20260604 && sbt "backendInterpreter/testOnly scalascript.SscVmTest"` — 21/21
+- `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-20260604 && SSC_JIT_BACKEND=asm sbt "backendInterpreter/testOnly scalascript.InterpreterTest"` — 139/139
+
+Phase 2 remains open: while-JIT ref args, ref-returning chains, inline match
+helpers, and List/Set fused foreach in ASM.
 
 ## Architecture
 
