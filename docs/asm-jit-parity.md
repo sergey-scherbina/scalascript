@@ -46,8 +46,8 @@ lagged the recent Javac and dual-bank work in these areas:
 | `ObjToObject` ref-returning match functions | Supported by `walkRefMatchBody` | Implemented in `f48bcf1f` | P1 done |
 | Function sibling / mutual co-emit | Supported for long-returning int/ref-param functions | Implemented in `f48bcf1f` | P1 done |
 | Binding ref classification for sibling calls | Callee-param-aware | Implemented in `f48bcf1f` | P1 done |
-| While-JIT ref args (`ObjToLong`, `ObjToObject`, field/select chains, inline match) | Supported in `tryCompileWhileLong` | Pure-long only | P2 |
-| Fused while + foreach List/Set | Supported in `tryCompileWhileMixed` | Missing override | P2 |
+| While-JIT ref args (`ObjToLong`, `ObjToObject`, field/select chains, inline match) | Supported in `tryCompileWhileLong` | Implemented in Phase 2 | P2 done |
+| Fused while + foreach List/Set | Supported in `tryCompileWhileMixed` | Implemented in Phase 2 | P2 done |
 | Fused while + Map.foreach | Still open in `WORK_QUEUE.md` for Javac too | Out of scope until Javac lands | Follow-up |
 
 ## Implementation Status
@@ -75,8 +75,25 @@ Verified on 2026-06-04 with:
 - `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-20260604 && SSC_JIT_BACKEND=asm sbt "backendInterpreter/testOnly scalascript.InterpreterTest"` — 139/139
 - `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-20260604 && SSC_JIT_BACKEND=asm sbt "backendInterpreter/testOnly scalascript.SscVmTest scalascript.InterpreterTest scalascript.JitLintTest"` — 174/174
 
-Phase 2 remains open: while-JIT ref args, ref-returning chains, inline match
-helpers, and List/Set fused foreach in ASM.
+Phase 2 landed on 2026-06-04:
+
+- `tryCompileWhileLong` now carries ref globals, `ObjToLong` functions, and
+  `ObjToObject` functions through `WhileJitEntry`.
+- Generated ASM while methods hoist `JitGlobals.getRefs()`, `getRefFns()`,
+  and `getRefObjFns()` into locals before the loop.
+- `walkWhileSlot` now supports ref global arguments, simple field/select refs,
+  `ObjToObject` ref-returning chains, and inline one-ref-param match helpers.
+- ASM match constructor extraction accepts both unqualified `Leaf(...)` and
+  qualified `Shape.Leaf(...)` patterns, matching interpreter pattern semantics.
+- `tryCompileWhileMixed` now fuses val-bound `ListV` and `SetV` foreach loops
+  with `ObjToLong` or `ObjToDouble` accumulator functions. List receivers use a
+  head/tail loop; Set receivers use a Scala iterator loop.
+
+Verified on 2026-06-04 with:
+
+- `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-p2-20260604 && sbt "backendInterpreter/compile"`
+- `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-p2-20260604 && sbt "backendInterpreter/testOnly scalascript.SscVmTest"` — 25/25
+- `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-p2-20260604 && SSC_JIT_BACKEND=asm sbt "backendInterpreter/testOnly scalascript.SscVmTest scalascript.InterpreterTest scalascript.JitLintTest"` — 178/178
 
 ## Architecture
 
@@ -141,6 +158,9 @@ Phase 1:
 
 Phase 2:
 
+- Add direct ASM tests in `SscVmTest` for inline ref-match RHS,
+  `ObjToObject` ref-arg chains, ListV fused foreach with `ObjToLong`, and SetV
+  fused foreach with `ObjToDouble`.
 - Re-run existing while/ref tests under `SSC_JIT_BACKEND=asm`:
   `InterpreterTest` ref-chain/inline-match tests and the JIT-specific suites.
 - Benchmark with `scripts/bench interp nestedMatchExpr`, `scripts/bench interp refFieldArg`,
