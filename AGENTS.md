@@ -627,14 +627,45 @@ push.  Four places to check:
 | `docs/<feature>.md` | Feature has its own spec doc — keep it in sync with what was actually built (see "Keep the spec in sync" above) |
 
 A feature with no doc update is **incomplete** — treat it the same as a
-failing test.  The doc commit may land on the same branch as the code,
-pushed together or as a follow-up commit in the same push.
+failing test.
+
+**MANDATORY: doc updates go in their own separate commit** (not mixed with
+feature code).  Example:
+
+```bash
+git commit -m "docs(<slug>): update user-guide + spec for <feature>"
+git push origin <branch>:main
+```
 
 #### 3b. Update milestone files
 
-Mark the phase or item landed in the same push:
-- Open item in `BACKLOG.md` or `ACTIVE.md` → update with `✓ Landed (YYYY-MM-DD)` and summary.
-- Milestone fully complete → remove from `BACKLOG.md`/`ACTIVE.md`, add one-liner to `CHANGELOG.md`.
+**MANDATORY: queue/milestone updates go in their own separate commit**,
+after the doc commit (or after the feature commit if no doc changes).
+Never bundle queue bookkeeping into a feature or doc commit.
+
+Steps:
+- Open item in `WORK_QUEUE.md` → change `[ ]` to `[x]`, add a brief
+  landed summary (commit hash + date).
+- Open item in `BACKLOG.md` or `ACTIVE.md` → update with
+  `✓ Landed (YYYY-MM-DD)` and summary.
+- Milestone fully complete → remove from `BACKLOG.md`/`ACTIVE.md`, add
+  one-liner to `CHANGELOG.md` (newest-first).
+
+Example final two commits after every piece of work:
+
+```bash
+# Commit 1 — documentation (if any doc changed)
+git add docs/ README.md
+git commit -m "docs(<slug>): <what changed>"
+git push origin <branch>:main
+
+# Commit 2 — queue / milestone bookkeeping (always)
+git add WORK_QUEUE.md BACKLOG.md CHANGELOG.md   # whichever apply
+git commit -m "docs: mark <slug> done in WORK_QUEUE + CHANGELOG entry"
+git push origin <branch>:main
+```
+
+Both commits must be pushed before the task is considered finished.
 
 #### 3c. Merge and push
 
@@ -858,14 +889,20 @@ git rm ".work/active/${TASK_SLUG}.claim"
 # ... edit WORK_QUEUE.md ...
 git add WORK_QUEUE.md
 
-# Include these in your final commit (or as a separate follow-up commit)
-git commit -m "done: ${TASK_SLUG} — <one-line summary>"
+# Commit 1 (if docs changed): documentation updates
+# git add docs/ README.md && git commit -m "docs(${TASK_SLUG}): ..."
+# git push origin "${WORKTREE_NAME}:main"
+
+# Commit 2 (always): queue / milestone bookkeeping
+git add WORK_QUEUE.md CHANGELOG.md   # + BACKLOG.md / ACTIVE.md if relevant
+git commit -m "docs: mark ${TASK_SLUG} done in WORK_QUEUE + CHANGELOG entry"
 git push origin "${WORKTREE_NAME}:main"
 ```
 
-Removing the claim and marking done **must be in the same push as the feature
-work** so there is never a window where the task looks incomplete while the
-code is already on main.
+Removing the claim and marking done **must be pushed before the task is
+considered finished** — always as a dedicated commit, never bundled into
+the feature commit.  The two-step pattern (docs commit → queue commit) is
+**mandatory**, not optional.
 
 ### Checking who's doing what
 
