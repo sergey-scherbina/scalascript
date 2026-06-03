@@ -104,17 +104,19 @@ def benchFile(sscPath: String, backend: Backend, file: java.io.File): Option[Ben
 
 def formatTable(results: Seq[BenchResult], label: String): String =
   val nameCells  = results.map(r => s"`${r.name}`")
-  val timeCells  = results.map(r => s"${r.medianMs} ms (min ${r.minMs}, max ${r.maxMs})")
+  val timeCells  = results.map(r => s"${r.medianMs} (${r.minMs} – ${r.maxMs})")
+  val colLabel   = s"$label (ms)"
 
   val w0 = ("Workload" +: nameCells).map(_.length).max
-  val w1 = (label      +: timeCells).map(_.length).max
+  val w1 = (colLabel   +: timeCells).map(_.length).max
 
-  def pad(s: String, w: Int) = s.padTo(w, ' ')
+  def pad(s: String, w: Int)  = s.padTo(w, ' ')
+  def rpad(s: String, w: Int) = (" " * (w - s.length)) + s
 
-  val header = s"| ${pad("Workload", w0)} | ${pad(label, w1)} |"
+  val header = s"| ${pad("Workload", w0)} | ${rpad(colLabel, w1)} |"
   val sep    = s"| ${"-" * w0} | ${"-" * w1} |"
   val rows   = results.zip(nameCells).zip(timeCells).map { case ((r, name), time) =>
-    s"| ${pad(name, w0)} | ${pad(time, w1)} |"
+    s"| ${pad(name, w0)} | ${rpad(time, w1)} |"
   }
   (header +: sep +: rows).mkString("\n")
 
