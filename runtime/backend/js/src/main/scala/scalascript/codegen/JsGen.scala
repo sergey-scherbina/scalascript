@@ -378,6 +378,8 @@ class JsGen(
   private val zeroParamFns = scala.collection.mutable.Set.empty[String]
   // User-defined functions with :Int or :Long return type — their call sites can use isIntExpr.
   private val intFunctions = scala.collection.mutable.Set.empty[String]
+  // User-defined functions with :Double or :Float return type — their call sites can use isNumericExpr.
+  private val numericFunctions = scala.collection.mutable.Set.empty[String]
   // v1.27 Phase 3 — sql block emission state.  Mirrors JvmGen's
   // `sqlBlockCounter` / `sqlPerSection`: sequential `_sqlBlock_<n>`
   // names, and per-section "first-only" tracking so only the first
@@ -389,6 +391,14 @@ class JsGen(
   // Typeclass parent map: TC -> List[parentTC], accumulated from all trait declarations.
   // Used when registering `given` instances to also register under parent TC keys.
   private val tcParentMap = scala.collection.mutable.Map.empty[String, List[String]]
+  // Case class type name → ordered field names; populated per module by genModule.
+  // Used in genPattern to emit scrutVar.fieldName instead of Object.values(...)[i].
+  private var caseClassFieldsByType: Map[String, List[String]] = Map.empty
+  // Case class type name → (field name → declared type); populated per module by genModule.
+  // Used in genPattern to add Double/Float-typed bound vars to numericVars.
+  private var caseClassFieldTypeMap: Map[String, Map[String, String]] = Map.empty
+  // Variables statically known to hold Double/Float values — arithmetic on them uses direct JS operators.
+  private val numericVars = scala.collection.mutable.Set[String]()
 
   private def freshTmp(): String =
     tmpIdx += 1
@@ -410,6 +420,7 @@ class JsGen(
     multiParamGroupFns.clear()
     zeroParamFns.clear()
     intFunctions.clear()
+    numericFunctions.clear()
     def collectDefs(stats: List[Stat]): Unit = stats.foreach {
       case d: Defn.Def =>
         val paramVals = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
@@ -418,14 +429,16 @@ class JsGen(
         val explicitGroups = d.paramClauseGroups.flatMap(_.paramClauses).filterNot(_.mod.nonEmpty)
         if explicitGroups.size > 1 then multiParamGroupFns += d.name.value
         if explicitGroups.isEmpty then zeroParamFns += d.name.value
-        // Track Int/Long return type for isIntExpr at call sites.
+        // Track Int/Long/Double/Float return type for isIntExpr/isNumericExpr at call sites.
         d.decltpe match
-          case Some(Type.Name("Int" | "Long")) => intFunctions += d.name.value
+          case Some(Type.Name("Int" | "Long"))     => intFunctions     += d.name.value
+          case Some(Type.Name("Double" | "Float")) => numericFunctions += d.name.value
           case _ => ()
-        // Track Int/Long-typed parameters so arithmetic on them avoids _arith.
+        // Track Int/Long/Double/Float-typed parameters so arithmetic on them avoids _arith.
         paramVals.foreach { pv =>
           pv.decltpe match
-            case Some(Type.Name("Int" | "Long")) => intVars += pv.name.value
+            case Some(Type.Name("Int" | "Long"))         => intVars += pv.name.value
+            case Some(Type.Name("Double" | "Float"))     => numericVars += pv.name.value
             case _ => ()
         }
       case _ => ()
@@ -542,6 +555,8 @@ class JsGen(
   def genModule(module: Module): String =
     sb.clear()
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
+    caseClassFieldsByType = caseClassFieldsInModule(module)
+    caseClassFieldTypeMap = caseClassFieldTypesInModule(module)
     collectFuncParamOrders(module)
     analyzeMutualRecursion(module)
     analyzeEffects(module)
@@ -882,6 +897,30 @@ class JsGen(
     def scanStats(stats: List[scala.meta.Stat]): Unit = stats.foreach {
       case d: Defn.Class if d.mods.exists(_.isInstanceOf[Mod.Case]) =>
         result(d.name.value) = d.ctor.paramClauses.flatMap(_.values).map(_.name.value).toList
+      case _ => ()
+    }
+    def scanSection(s: Section): Unit =
+      s.content.foreach {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          cb.tree.foreach { node => ScalaNode.fold(node) {
+            case Source(stats)     => scanStats(stats); ()
+            case Term.Block(stats) => scanStats(stats); ()
+            case _                 => ()
+          }}
+        case _ => ()
+      }
+      s.subsections.foreach(scanSection)
+    module.sections.foreach(scanSection)
+    result.toMap
+
+  private def caseClassFieldTypesInModule(module: Module): Map[String, Map[String, String]] =
+    val result = scala.collection.mutable.Map.empty[String, Map[String, String]]
+    def scanStats(stats: List[scala.meta.Stat]): Unit = stats.foreach {
+      case d: Defn.Class if d.mods.exists(_.isInstanceOf[Mod.Case]) =>
+        val fields = d.ctor.paramClauses.flatMap(_.values).flatMap { pv =>
+          pv.decltpe.collect { case Type.Name(t) => pv.name.value -> t }
+        }.toMap
+        result(d.name.value) = fields
       case _ => ()
     }
     def scanSection(s: Section): Unit =
@@ -1503,6 +1542,7 @@ class JsGen(
       pats match
         case List(Pat.Var(n)) =>
           if isIntExpr(rhs) then intVars += n.value
+          else if isNumericExpr(rhs) then numericVars += n.value
           line(s"const ${n.value} = ${genExpr(rhs)};")
         case List(pat) =>
           // Tuple/pattern destructuring
@@ -1513,6 +1553,7 @@ class JsGen(
 
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
       if isIntExpr(rhs) then intVars += n.value
+      else if isNumericExpr(rhs) then numericVars += n.value
       line(s"let ${n.value} = ${genExpr(rhs)};")
 
     // arch-ffi-p1 — @js("expr") / @jvm-only handling for extern defs.
@@ -2163,13 +2204,17 @@ class JsGen(
       stats.zipWithIndex.foreach { (s, i) =>
         val isLast = i == stats.length - 1
         s match
+          case tw: Term.While =>
+            val cond = genExpr(tw.expr)
+            val body = genWhileBodyInline(tw.body)
+            line(s"while ($cond) { $body; }")
+            if isLast then line("return undefined;")
           case t: Term if isLast =>
             line(s"return ${genExpr(t)};")
           case t: Term =>
             line(genExpr(t) + ";")
           case stat =>
             genStat(stat)
-        // After each non-last stat, continue with remaining
       }
 
   // ── Generator / coroutine body helpers ───────────────────────────────
@@ -2276,6 +2321,15 @@ class JsGen(
     case Term.Block(stats) => stats.map(genGenStatItem).mkString("\n")
     case _                 => genExpr(t)
 
+  // Emits while-body stats as a flat semicolon-separated string — no IIFE wrapper.
+  private def genWhileBodyInline(body: Term): String = body match
+    case Term.Block(stats) =>
+      stats.map {
+        case t: Term => genExpr(t)
+        case stat    => genStatInline(stat)
+      }.mkString("; ")
+    case t => genExpr(t)
+
   private def genBlockAsIife(stats: List[Stat]): String =
     if stats.isEmpty then "undefined"
     else if stats.length == 1 then
@@ -2292,7 +2346,7 @@ class JsGen(
         val pad = "  "
         s match
           case tw: Term.While =>
-            val body = s"while (${genExpr(tw.expr)}) { ${genExpr(tw.body)}; }"
+            val body = s"while (${genExpr(tw.expr)}) { ${genWhileBodyInline(tw.body)}; }"
             if isLast then inner.append(pad).append(body).append(" return undefined;\n")
             else inner.append(pad).append(body).append("\n")
           case t: Term if isLast =>
@@ -2631,7 +2685,7 @@ class JsGen(
     // While
     case t: Term.While =>
       val cond = genExpr(t.expr)
-      val body = genExpr(t.body)
+      val body = genWhileBodyInline(t.body)
       s"(() => { while ($cond) { $body; } })()"
 
     // For-do
@@ -3235,12 +3289,14 @@ class JsGen(
           case "->" =>
             s"Object.assign([$lhsJs, $rhsJs], {_isTuple: true})"
           case "*" =>
+            val rIsNum = args.headOption.exists(isNumericExpr)
             if isIntExpr(lhs) && args.headOption.exists(isIntExpr) then s"($lhsJs * $rhsJs)"
+            else if isNumericExpr(lhs) && rIsNum then s"($lhsJs * $rhsJs)"
             else s"(typeof ($lhsJs) === 'string' ? ($lhsJs).repeat($rhsJs) : _arith('*', $lhsJs, $rhsJs))"
           // Exact numerics: value-based `==` for Decimal/BigInt when operands
           // aren't both statically Int (then native === is correct and faster).
-          case "==" if isIntExpr(lhs) && args.headOption.exists(isIntExpr) => s"($lhsJs === $rhsJs)"
-          case "!=" if isIntExpr(lhs) && args.headOption.exists(isIntExpr) => s"($lhsJs !== $rhsJs)"
+          case "==" if isNumericExpr(lhs) && args.headOption.exists(isNumericExpr) => s"($lhsJs === $rhsJs)"
+          case "!=" if isNumericExpr(lhs) && args.headOption.exists(isNumericExpr) => s"($lhsJs !== $rhsJs)"
           case "==" => s"_arith('==', $lhsJs, $rhsJs)"
           case "!=" => s"_arith('!=', $lhsJs, $rhsJs)"
           case "&&" => s"($lhsJs && $rhsJs)"
@@ -3257,9 +3313,11 @@ class JsGen(
           // route arithmetic/comparison through _arith so BigInt/Decimal work
           // (native JS `+` throws on BigInt+Number and can't add Decimal objects).
           // `+` keeps string-concat semantics (handled inside _arith's number path).
+          // When both sides are provably numeric (Double/Float/Int/Long), use JS operators directly.
           case "+" | "-" | "/" | "%" | "<" | ">" | "<=" | ">="
               if !(isIntExpr(lhs) && args.headOption.exists(isIntExpr)) =>
-            s"_arith('${op.value}', $lhsJs, $rhsJs)"
+            if isNumericExpr(lhs) && args.headOption.exists(isNumericExpr) then s"($lhsJs ${op.value} $rhsJs)"
+            else s"_arith('${op.value}', $lhsJs, $rhsJs)"
           case other => s"($lhsJs $other $rhsJs)"
       }
 
@@ -3985,7 +4043,7 @@ class JsGen(
           case "!"            => s"Actor.send($vl, $vr)"
           case "->"           => s"Object.assign([$vl, $vr], {_isTuple: true})"
           case "*"            =>
-            if isIntExpr(lhs) && isIntExpr(rhs) then s"($vl * $vr)"
+            if isNumericExpr(lhs) && isNumericExpr(rhs) then s"($vl * $vr)"
             else s"(typeof ($vl) === 'string' ? ($vl).repeat($vr) : ($vl) * ($vr))"
           case "=="           => s"($vl === $vr)"
           case "!="           => s"($vl !== $vr)"
@@ -4238,9 +4296,24 @@ class JsGen(
           (s"($scrutVar && $scrutVar._type === '_None')", Nil)
 
         case _ =>
-          // Case class or enum case extract
+          // Case class or enum case extract — use field names when available
+          val knownFields = caseClassFieldsByType.get(typeName)
+          val fieldTypes  = caseClassFieldTypeMap.get(typeName).getOrElse(Map.empty)
           val fields = args.zipWithIndex.map { (p, i) =>
-            genPattern(s"Object.values($scrutVar).slice(1)[$i]", p)
+            val fieldName = knownFields.flatMap(_.lift(i))
+            val accessor = fieldName match
+              case Some(fname) => s"$scrutVar.$fname"
+              case None        => s"Object.values($scrutVar).slice(1)[$i]"
+            // Track Double/Float-typed bound vars for direct JS arithmetic
+            p match
+              case Pat.Var(nm) =>
+                fieldName.foreach { fname =>
+                  fieldTypes.get(fname) match
+                    case Some("Double" | "Float") => numericVars += nm.value
+                    case _ => ()
+                }
+              case _ => ()
+            genPattern(accessor, p)
           }
           val typeCond = s"($scrutVar && $scrutVar._type === '$typeName')"
           val subCond = fields.map(_._1).filter(_ != "true").mkString(" && ")
@@ -4497,6 +4570,18 @@ class JsGen(
         if Set("+", "-", "*", "/", "%").contains(op) =>
       argClause.values.headOption.exists(r => isIntExpr(l) && isIntExpr(r))
     case _ => false
+
+  /** Returns true if the term is provably numeric (Int, Long, Double, or Float — never a String). */
+  private def isNumericExpr(t: Term): Boolean = isIntExpr(t) || (t match
+    case _: Lit.Double | _: Lit.Float => true
+    case Term.Name(n)                 => numericVars.contains(n)
+    case Term.Apply.After_4_6_0(Term.Name(n), _)  => numericFunctions.contains(n)
+    case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("toDouble" | "toFloat")), _) => true
+    case Term.ApplyInfix.After_4_6_0(l, Term.Name(op), _, argClause)
+        if Set("+", "-", "*", "/", "%").contains(op) =>
+      argClause.values.headOption.exists(r => isNumericExpr(l) && isNumericExpr(r))
+    case _ => false
+  )
 
   /** Escape a string value for a JS string literal (double-quoted). */
   private def escapeJsString(s: String): String =
