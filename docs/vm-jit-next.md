@@ -380,10 +380,14 @@ Both directions stay open and are queued in order of bench impact.
 3. **Free-name `Double` globals** — companion to the Int globals work
    (commit `7162a155`). Emit `BytecodeJit.readGlobalDouble(name)`.
 
-4. **Mutual recursion** — each `BytecodeJit` compile yields a self-
-   contained class today. A pair / cycle of mutually recursive funcs
-   needs either co-compilation OR a runtime MH registry indexed by fn
-   name. Lower priority — uncommon in practice.
+4. **Mutual recursion** — landed 2026-06-03 for long-returning functions
+   whose params classify as primitive `long` or ref `Object`. `JavacJitBackend`
+   now tracks a per-compile-unit method set and co-emits JIT-compatible sibling
+   defs as extra static methods in the same generated Java class; cycles call
+   each other via ordinary `INVOKESTATIC`. Covered shapes include pure-int
+   sibling calls, pure-int mutual recursion, and mutually recursive ref-param
+   ADT match functions. Still out of scope until a concrete workload needs it:
+   double-returning cycles and `ObjToObject` / ref-returning mutual cycles.
 
 5. **Wider `Term.Match` arms** — guards, literal patterns, `Pat.Bind`,
    `Pat.Alternative`, nested matches. Each adds a few Java-emission
