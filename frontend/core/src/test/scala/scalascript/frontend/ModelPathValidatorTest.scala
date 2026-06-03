@@ -19,10 +19,19 @@ class ModelPathValidatorTest extends AnyFunSuite:
     ModelField("note",  ModelFieldType.Optional(ModelFieldType.Str))
   ))
 
-  private val models = List(lineDef, sheetDef)
+  private val employeeDef = ModelDef("Employee", List(
+    ModelField("id",         ModelFieldType.Str),
+    ModelField("name",       ModelFieldType.Str),
+    ModelField("department", ModelFieldType.Str),
+    ModelField("salary",     ModelFieldType.DblF)
+  ))
+
+  private val models = List(lineDef, sheetDef, employeeDef)
 
   private val bsTick = ReactiveSignal[Int]("bsTick", 0)
   private val bsSig  = new FetchJsonSignal("bs", "/api/bs", bsTick.id, "BalanceSheet")
+  private val empTick = ReactiveSignal[Int]("empTick", 0)
+  private val empSig  = new FetchJsonSignal("employees", "/api/employees", empTick.id, "Employee")
 
   // ── validate returns Nil when models is empty ─────────────────────────────
 
@@ -128,6 +137,61 @@ class ModelPathValidatorTest extends AnyFunSuite:
       View.ModelText("data", "anyField"))
     // 'data' bound from a RawText signal — no type known — silently skipped
     assert(ModelPathValidator.validate(view, models).isEmpty)
+  }
+
+  // ── DataTable: typed signal validates row paths ──────────────────────────
+
+  test("validate: DataTable valid typed columns and actions → no error") {
+    val view = View.DataTable(
+      empSig,
+      columns = List(
+        FieldColumnDef("Name", "name",
+          editAction = Some(RowActionDef.RowInlineEdit("PATCH", "/api/employees", "id", empTick))),
+        FieldColumnDef("Department", "department"),
+        FieldColumnDef("Salary", "salary")
+      ),
+      actions = List(
+        RowActionDef.RowDelete("/api/employees/delete", "id", empTick),
+        RowActionDef.RowPost("Promote", "POST", "/api/employees/promote", "id", empTick),
+        RowActionDef.RowLink("Select", ReactiveSignal[String]("selected", ""), "name")
+      )
+    )
+
+    assert(ModelPathValidator.validate(view, models).isEmpty)
+  }
+
+  test("validate: DataTable raw fetch signal remains permissive") {
+    val rawSig = FetchUrlSignal("rows", "/api/rows", "tick")
+    val view = View.DataTable(
+      rawSig,
+      columns = List(FieldColumnDef("Anything", "not.a.real.path")),
+      actions = List(RowActionDef.RowDelete("/api/delete", "missingId", empTick))
+    )
+
+    assert(ModelPathValidator.validate(view, models).isEmpty)
+  }
+
+  test("validate: DataTable invalid typed column/action paths → errors") {
+    val view = View.DataTable(
+      empSig,
+      columns = List(
+        FieldColumnDef("Bad column", "missingColumn",
+          editAction = Some(RowActionDef.RowInlineEdit("PATCH", "/api/employees", "missingId", empTick)))
+      ),
+      actions = List(
+        RowActionDef.RowDelete("/api/employees/delete", "deleteMissing", empTick),
+        RowActionDef.RowPost("Promote", "POST", "/api/employees/promote", "postMissing", empTick),
+        RowActionDef.RowLink("Select", ReactiveSignal[String]("selected", ""), "linkMissing")
+      )
+    )
+
+    val errors = ModelPathValidator.validate(view, models)
+    assert(errors.size == 5)
+    assert(errors.exists(e => e.node == "DataTableColumn" && e.path == "missingColumn"))
+    assert(errors.exists(e => e.node == "DataTableInlineEdit" && e.path == "missingId"))
+    assert(errors.exists(e => e.node == "DataTableRowDelete" && e.path == "deleteMissing"))
+    assert(errors.exists(e => e.node == "DataTableRowPost" && e.path == "postMissing"))
+    assert(errors.exists(e => e.node == "DataTableRowLink" && e.path == "linkMissing"))
   }
 
   // ── validateModule ────────────────────────────────────────────────────────

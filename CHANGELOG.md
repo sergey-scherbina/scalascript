@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — DataTable path validation
+
+- **datatable-path-validation** — Extended `ModelPathValidator` to validate
+  typed `View.DataTable` column/action field paths against the row model carried
+  by `FetchJsonSignal` / `CodecHint.Json`, while keeping raw fetch-backed tables
+  permissive. Added focused frontend-core coverage.
+
 ## 2026-06-03 — DataTable authoring surface cleanup
 
 - **datatable-authoring-surface-cleanup** — Documented the post-`FetchTable`

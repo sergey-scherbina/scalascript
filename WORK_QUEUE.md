@@ -151,11 +151,18 @@ being landed backend by backend.
   `git diff --check`; `rg -n "dataTable\\(fetchUrl|fetchTable\\(|fetchTable\\b|fetchTableView" runtime/std/ui examples docs/native-platform.md docs/user-guide.md docs/tutorial.md README.md` (no hits);
   `cd <worktree> && sbt "fetchPlugin/testOnly scalascript.compiler.plugin.fetch.FetchPluginInterpreterTest" "backendInterpreter/testOnly scalascript.JvmGenSwingRuntimeTest" "backendInterpreterServer/testOnly scalascript.ToolkitDemoValidateTest"`.
 
-- [ ] **datatable-path-validation** — Phase 1 of
-  `docs/datatable-authoring-surface.md`. Extend structural validation so
-  `FieldColumnDef.fieldPath`, `RowDelete.idField`, `RowPost.bodyField`,
-  `RowLink.fieldPath`, and inline-edit fields can be checked when `DataTable`
-  row model evidence is available. Keep untyped/fetch-only rows permissive.
+- [x] **datatable-path-validation** — ✓ Landed 2026-06-03. Phase 1 of
+  `docs/datatable-authoring-surface.md`: `ModelPathValidator` now validates
+  typed `View.DataTable` descriptors as semantic nodes when
+  `dt.signal.codec == CodecHint.Json(rowModelName)`. It checks
+  `FieldColumnDef.fieldPath`, editable-column `RowInlineEdit.idField`,
+  `RowDelete.idField`, `RowPost.bodyField`, and `RowLink.fieldPath`; raw
+  fetch-backed tables remain permissive. Design note: do not validate
+  `DataTableLowering.lower(dt)` directly because its synthetic
+  `ForModel(signal.id, "", "row", ...)` table chrome would create false
+  non-list errors. Verification: `git diff --check`; `cd <worktree> && sbt
+  "frontendCore/testOnly scalascript.frontend.ModelPathValidatorTest"` (17
+  tests); `cd <worktree> && sbt "frontendCore/test"` (46 tests).
 
 - [ ] **datatable-source-abstraction** — Phase 2 of
   `docs/datatable-authoring-surface.md`. Introduce a source descriptor so

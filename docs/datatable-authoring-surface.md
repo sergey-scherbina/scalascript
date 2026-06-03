@@ -1,6 +1,6 @@
 # DataTable Authoring Surface
 
-Status: Phase 0 cleanup in progress, 2026-06-03.
+Status: Phase 1 path validation landed, 2026-06-03.
 
 This spec records the post-`FetchTable` public contract for authoring
 fetch-backed tables from `.ssc` code and the follow-up work that can make
@@ -125,6 +125,24 @@ paths with the same model/path resolver used by `ModelText` and `ForModel`
 where model evidence is available. Unmodelled row shapes should remain allowed
 but should not suppress validation when a signal is typed.
 
+Landed 2026-06-03: `ModelPathValidator` now treats `View.DataTable` as a
+semantic node. If `dt.signal.codec == CodecHint.Json(rowModelName)`, it
+validates:
+
+- each `FieldColumnDef.fieldPath`;
+- each editable column's `RowInlineEdit.idField`;
+- `RowDelete.idField`;
+- `RowPost.bodyField`;
+- `RowLink.fieldPath`;
+- defensive `RowInlineEdit.idField` values if an inline-edit action appears in
+  the row-action list.
+
+Raw `FetchUrlSignal` / `CodecHint.RawText` tables remain permissive. The
+validator intentionally does not validate `DataTableLowering.lower(dt)` because
+the lowering uses `ModelView(dt.signal, signal.id, ForModel(signal.id, "", ...))`
+as table chrome; validating that synthetic empty `ForModel` path would produce
+false non-list errors for row-model signals.
+
 ### Phase 2 - Data source abstraction
 
 Split table chrome from the fetch-only source:
@@ -155,8 +173,9 @@ string so actions can send an id, whole row, or structured JSON object.
   null/default edit-action and row-action header coverage, source guard for the
   `rowEditAction` import in `std/ui/data.ssc`, and targeted example
   parse/compile smoke for examples changed by the migration.
-- Phase 1: frontend-core validator unit tests for valid and invalid field
-  paths; backend smoke only if diagnostics are wired into compile paths.
+- Phase 1: frontend-core validator unit tests for valid and invalid typed
+  DataTable paths, plus a raw fetch permissive case. Backend smoke only if
+  diagnostics are wired into compile paths.
 - Phase 2: core IR construction tests plus one web and one native backend smoke.
 - Phase 3: per-backend renderer snapshots for each new column/action kind.
 
@@ -175,3 +194,8 @@ The old `FetchTable` API was convenient, but it mixed three concerns in one
 constructor: fetching, table layout, and row mutation. The new explicit signal
 contract is a better long-term foundation because headers, refresh triggers,
 typed fetches, and future local/paged sources remain visible at the call site.
+
+For validation, `DataTable` stays semantic. It is tempting to reuse
+`DataTableLowering` and let the existing `ModelText` / `ForModel` validators
+catch paths, but the lowering is renderer chrome, not the source contract. The
+source contract is row fields relative to the typed fetch signal's JSON model.

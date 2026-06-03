@@ -2,21 +2,23 @@ package scalascript.frontend
 
 import scalascript.ast.{ModelDef, ModelFieldType}
 
-/** Validates `ModelText`/`ForModel` field paths structurally against model descriptors.
+/** Validates typed frontend field paths structurally against model descriptors.
  *
  *  Walks a `View` tree, tracking the binding context established by enclosing
  *  `ModelView` and `ForModel` nodes, and calls `ModelPathResolver` for every
- *  path reference found in `ModelText` and `ForModel` field paths.
+ *  path reference found in `ModelText`, `ForModel`, and typed `DataTable`
+ *  descriptors.
  *
  *  Only produces errors when the binding var is in scope (i.e., when the type is
- *  known). References to vars not introduced by any enclosing `ModelView`/`ForModel`
- *  are silently ignored — they may be valid in a dynamic context. */
+ *  known). References to vars not introduced by any enclosing `ModelView`/`ForModel`,
+ *  and `DataTable` nodes backed by raw/untyped fetch signals, are silently ignored
+ *  — they may be valid in a dynamic context. */
 object ModelPathValidator:
 
   final case class PathError(node: String, varName: String, path: String, message: String):
     override def toString: String = s"$node '$varName.$path': $message"
 
-  /** Validate all `ModelText`/`ForModel` paths reachable from `root`.
+  /** Validate all typed field paths reachable from `root`.
    *
    *  Returns a (possibly empty) list of validation errors.
    *  Pass `models = Nil` to skip validation entirely (legacy modules). */
@@ -79,6 +81,9 @@ object ModelPathValidator:
               case Right(_)  => acc
               case Left(msg) => PathError("ModelText", varName, fieldPath, msg) :: acc
 
+      case dt: View.DataTable =>
+        validateDataTable(dt, models, acc)
+
       // ── tree walk for all container nodes ───────────────────────────────
       case View.Fragment(children)              => children.foldLeft(acc)((a, c) => walk(c, ctx, models, a))
       case View.Column(children, _, _, _)       => children.foldLeft(acc)((a, c) => walk(c, ctx, models, a))
@@ -104,3 +109,45 @@ object ModelPathValidator:
         try walk(comp.render(props.asInstanceOf[Nothing]), ctx, models, acc)
         catch case _: Exception => acc
       case _                                    => acc
+
+  private def validateDataTable(
+      dt:     View.DataTable,
+      models: List[ModelDef],
+      acc:    List[PathError]
+  ): List[PathError] =
+    rowModelName(dt.signal) match
+      case None => acc
+      case Some(rowModel) =>
+        val withColumns = dt.columns.foldLeft(acc) { (errors, col) =>
+          val withField = validatePath("DataTableColumn", rowModel, col.fieldPath, rowModel, models, errors)
+          col.editAction match
+            case Some(edit) => validatePath("DataTableInlineEdit", rowModel, edit.idField, rowModel, models, withField)
+            case None       => withField
+        }
+        dt.actions.foldLeft(withColumns) {
+          case (errors, RowActionDef.RowDelete(_, idField, _, _)) =>
+            validatePath("DataTableRowDelete", rowModel, idField, rowModel, models, errors)
+          case (errors, RowActionDef.RowPost(_, _, _, bodyField, _, _)) =>
+            validatePath("DataTableRowPost", rowModel, bodyField, rowModel, models, errors)
+          case (errors, RowActionDef.RowLink(_, _, fieldPath)) =>
+            validatePath("DataTableRowLink", rowModel, fieldPath, rowModel, models, errors)
+          case (errors, RowActionDef.RowInlineEdit(_, _, idField, _, _)) =>
+            validatePath("DataTableInlineEdit", rowModel, idField, rowModel, models, errors)
+        }
+
+  private def rowModelName(signal: FetchUrlSignal): Option[String] =
+    signal.codec match
+      case CodecHint.Json(name) if name.nonEmpty => Some(name)
+      case _                                     => None
+
+  private def validatePath(
+      node:          String,
+      varName:       String,
+      path:          String,
+      rootModelName: String,
+      models:        List[ModelDef],
+      acc:           List[PathError]
+  ): List[PathError] =
+    ModelPathResolver.resolve(path, rootModelName, models) match
+      case Right(_)  => acc
+      case Left(msg) => PathError(node, varName, path, msg) :: acc

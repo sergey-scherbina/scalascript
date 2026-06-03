@@ -255,11 +255,16 @@ small and dependency-aware because multiple agents are working in parallel.
       helpers, migrated examples away from stale
       `dataTable(fetchUrl = ..., tick = ...)` calls, and added regression
       coverage. Spec: `docs/datatable-authoring-surface.md`.
+- [x] **datatable-path-validation** - ✓ Landed 2026-06-03. Extended
+      `ModelPathValidator` so typed `View.DataTable` descriptors validate
+      columns, delete/post/link action paths, and inline-edit id fields against
+      the row model from `FetchJsonSignal` / `CodecHint.Json`. Raw fetch-backed
+      tables remain permissive. Spec: `docs/datatable-authoring-surface.md`.
 - [ ] **datatable-next-generalization** - Follow-up design and implementation
-      slices for a more universal table: DataTable path validation, a
-      source abstraction beyond `FetchUrlSignal`, richer column renderers, and
+      slices for a more universal table after path validation: a source
+      abstraction beyond `FetchUrlSignal`, richer column renderers, and
       transport-neutral row action payloads. Spec:
-      `docs/datatable-authoring-surface.md §Phases 1-3`.
+      `docs/datatable-authoring-surface.md §Phases 2-3`.
 - [x] **cli-command-result-exitcode** - ✓ Landed 2026-06-02. Introduced an
       internal `CommandResult` / `ExitCode` path, `CliCommand.runResult`,
       registry dispatch results, and top-level exit-code propagation. `LspCmd`
