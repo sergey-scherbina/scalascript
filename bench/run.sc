@@ -75,11 +75,22 @@ def benchFile(sscPath: String, file: java.io.File): BenchResult =
   BenchResult(name, med, min, max, output)
 
 def formatTable(results: Seq[BenchResult]): String =
-  val header = "| Workload | Median ms | Min ms | Max ms | Sample output |"
-  val sep    = "|---|---:|---:|---:|---|"
-  val rows   = results.map { r =>
-    val out = r.output.take(40).replace("|", "\\|")
-    s"| `${r.name}` | ${r.medianMs} | ${r.minMs} | ${r.maxMs} | `$out` |"
+  val outCells = results.map(r => s"`${r.output.take(40).replace("|", "\\|")}`")
+  val nameCells = results.map(r => s"`${r.name}`")
+
+  val w0 = ("Workload"   +: nameCells).map(_.length).max
+  val w1 = ("Median ms"  +: results.map(_.medianMs.toString)).map(_.length).max
+  val w2 = ("Min ms"     +: results.map(_.minMs.toString)).map(_.length).max
+  val w3 = ("Max ms"     +: results.map(_.maxMs.toString)).map(_.length).max
+  val w4 = ("Sample output" +: outCells).map(_.length).max
+
+  def pad(s: String, w: Int)  = s.padTo(w, ' ')
+  def rpad(s: String, w: Int) = (" " * (w - s.length)) + s
+
+  val header = s"| ${pad("Workload", w0)} | ${pad("Median ms", w1)} | ${pad("Min ms", w2)} | ${pad("Max ms", w3)} | ${pad("Sample output", w4)} |"
+  val sep    = s"| ${"-" * w0} | ${"─" * (w1 - 1)}: | ${"─" * (w2 - 1)}: | ${"─" * (w3 - 1)}: | ${"-" * w4} |"
+  val rows   = results.zip(nameCells).zip(outCells).map { case ((r, name), out) =>
+    s"| ${pad(name, w0)} | ${rpad(r.medianMs.toString, w1)} | ${rpad(r.minMs.toString, w2)} | ${rpad(r.maxMs.toString, w3)} | ${pad(out, w4)} |"
   }
   (header +: sep +: rows).mkString("\n")
 
