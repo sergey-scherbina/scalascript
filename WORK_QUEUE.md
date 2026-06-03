@@ -14,33 +14,34 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ## JS Codegen Performance (open)
 
-- [ ] **js-codegen-opt-p1** — Four JS codegen fixes to eliminate hot-path overhead.
-  Branch: `feature/js-codegen-opt-p1`. Spec: `docs/js-codegen-opt-p1.md`.
+- [x] **js-codegen-opt-p1** — ✓ Landed 2026-06-03 commit `957a66f0`.
+  Four JS codegen fixes to eliminate hot-path overhead and repair tuple concat
+  correctness. Spec: `docs/js-codegen-opt-p1.md`.
 
   Slices:
-  - **A — TCO bypass for non-recursive functions** (`JsGen.scala:1688`):
-    Add `anywhereContainsSelfCall(d.body, fname)` guard so only genuinely recursive
-    functions get the `while(true)` trampoline. `area(s: Shape)` and similar
-    non-recursive pattern-dispatch functions currently get the wrapper unnecessarily.
-  - **B — `genMatchAsStmts`** (`JsGen.scala`):
-    When `Term.Match` appears as last term in `genFunctionBody` or inside `genTcoBody`,
-    emit it as an `if-else` chain with `const` bindings + explicit `return` instead of
-    calling `genExpr` which produces `((_t1 => {...})(scrutExpr))`. Eliminates arrow-fn
-    object creation + call per `area` invocation (500K in hot loop).
-  - **C — TCO multi-param temp vars** (`JsGen.scala:2178`, `2144`):
-    Replace `[n, acc] = [(n-1), (acc+n)];` with `const _t0=(n-1),_t1=(acc+n); n=_t0; acc=_t1;`
-    in `genTcoBody` and `genMutualTcoBody`. Eliminates 100K temp-array allocs in `recursion-tco`.
-  - **D — Fix `++` multi-arg infix bug** (`JsGen.scala:3284`, `4042`):
-    `(1,2)++(3,4)` is parsed as two args `[3,4]`; codegen takes `args.head=3`, drops `4`.
-    Wrap multi-args as `Object.assign([a,b,...], {_isTuple:true})`.
+  - **A — TCO bypass for non-recursive functions**: added
+    `anywhereContainsSelfCall(d.body, fname)` so only genuinely recursive
+    functions get the `while(true)` trampoline.
+  - **B — `genMatchAsStmts`**: emits tail/return-position `Term.Match` as an
+    if-else chain with const bindings and explicit return/continue, avoiding
+    the old IIFE shape and fixing wildcard/catch-all syntax.
+  - **C — TCO multi-param temp vars**: replaced array destructuring with
+    individual temporary constants in `genTcoBody` and `genMutualTcoBody`.
+  - **D — Fixed `++` multi-arg infix bug**: `(1,2)++(3,4)` now preserves all
+    RHS tuple elements in both direct and CPS infix paths.
 
-  **Baseline (js vs jvm, --warmup-time 1000ms):** arith-loop 2.2×, recursion-tco 4.1×,
-  tuple-monoid 18×, pattern-match-heavy 60×. See full table in `docs/js-codegen-opt-p1.md`.
+  Verification: all 1233 conformance tests passed in the implementation commit.
+  Measured result: most wins were code-shape/correctness rather than wall-clock
+  because V8 already optimised through several old patterns; tuple-monoid now
+  computes the correct 4-tuple and regresses until p2 hoists constant tuple
+  construction. Full before/after table and post-mortem are in
+  `docs/js-codegen-opt-p1.md`.
 
 - [ ] **js-codegen-opt-p2** — Loop-invariant constant tuple hoisting.
   Hoist `(1,2)++(3,4)` in while-body as `const _kN = Object.freeze(Object.assign([1,2,3,4], {_isTuple:true}))`.
   Requires detecting all-literal expressions that don't reference loop-scoped vars.
-  Blocked until p1 lands (fixes the bug first).
+  Unblocked by p1; start here to recover the tuple-monoid allocation regression
+  exposed by the p1 correctness fix.
 
 ---
 

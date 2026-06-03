@@ -1,6 +1,7 @@
 # JS Codegen Optimisation — Phase 1
 
 **Date:** 2026-06-03  
+**Status:** Landed 2026-06-03 (`957a66f0`; all 1233 conformance tests passed)
 **Branch:** `feature/js-codegen-opt-p1`  
 **Baseline** (with `--warmup-time 1000ms`):
 
@@ -186,4 +187,4 @@ type is known). Deferred to **js-codegen-opt-p2**.
 | C     | TCO multi-param temp vars | `JsGen.scala:2178`, `2144` | cleaner code; V8 already elides array |
 | D     | Fix `++` multi-arg bug | `JsGen.scala:3284`, `4042` | tuple-monoid: correctness fix |
 
-All four land in one commit to `feature/js-codegen-opt-p1`.
+All four landed in one commit to `feature/js-codegen-opt-p1`.

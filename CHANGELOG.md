@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — js-codegen-opt-p1
+
+- **js-codegen-opt-p1** — Landed four targeted JS codegen fixes in
+  `JsGen.scala`: non-recursive functions no longer get the self-TCO
+  `while(true)` wrapper; tail/return-position `Term.Match` lowers to if-else
+  statements instead of an IIFE; TCO multi-param reassignment uses temporary
+  constants instead of array destructuring; and `++` infix calls with multiple
+  RHS args preserve the full tuple. All 1233 conformance tests passed.
+  Measured results and p2 follow-up notes are in `docs/js-codegen-opt-p1.md`.
+
+---
+
 ## 2026-06-03 — coord-status clean landed worktrees
 
 - **coord-status-clean-worktrees** — `scripts/coord-status` now reports a
