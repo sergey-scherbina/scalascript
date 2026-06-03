@@ -636,7 +636,10 @@ lazy val backendInterpreter = project
   .dependsOn(wireCore, backendSpi, markupCore, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, backendConfigRuntime, frontendCore, backendJvm % Test, backendGraphRuntime % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test)
   .settings(
     name := "scalascript-backend-interpreter",
-    libraryDependencies ++= Seq(scalatestTest),
+    libraryDependencies ++= Seq(
+      scalatestTest,
+      "org.ow2.asm" % "asm" % "9.7"
+    ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
     // JvmGen scala-cli runtime smoke tests read these resources to find
