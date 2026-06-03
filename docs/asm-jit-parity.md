@@ -10,7 +10,8 @@ The immediate goal is parity for user-visible hot paths that already have
 Javac support:
 
 - Long/Double function body conveniences: shared boolean-return bails, unary
-  `+`/`-`, and multi-statement blocks in expression position.
+  `+`/`-`, multi-statement blocks in expression position, and guarded ADT
+  match bodies.
 - Ref-returning match functions (`ObjToObject`) used by chained ref arguments
   such as `leafVal(getLeft(tree))`.
 - Function-level sibling calls and mutual recursion in long-returning functions,
@@ -41,6 +42,7 @@ lagged the recent Javac and dual-bank work in these areas:
 | Boolean-return guard | Uses shared `JitPredicates.isBoolReturning` | Implemented in `f48bcf1f` | P1 done |
 | Unary `+`/`-` in function walkers | Supported in `walkLong` / `walkDouble` | Implemented in `f48bcf1f` | P1 done |
 | Multi-statement block expressions | Supported via supplier/IIFE | Implemented in `f48bcf1f` | P1 done |
+| Guarded ADT match bodies | Supported by `walkArmAsIfBranch` | Implemented in `02fbc176` | P1 done |
 | `ObjToObject` ref-returning match functions | Supported by `walkRefMatchBody` | Implemented in `f48bcf1f` | P1 done |
 | Function sibling / mutual co-emit | Supported for long-returning int/ref-param functions | Implemented in `f48bcf1f` | P1 done |
 | Binding ref classification for sibling calls | Callee-param-aware | Implemented in `f48bcf1f` | P1 done |
@@ -50,10 +52,12 @@ lagged the recent Javac and dual-bank work in these areas:
 
 ## Implementation Status
 
-Phase 1 landed in `f48bcf1f`:
+Phase 1 landed in `f48bcf1f` and `02fbc176`:
 
 - `AsmJitBackend` now reuses `JitPredicates.isBoolReturning`.
 - Function walkers support unary `+`/`-` and multi-statement expression blocks.
+- Top-level guarded ADT matches lower to sequential constructor checks plus
+  guard checks, matching Javac's `walkArmAsIfBranch` subset.
 - Long-returning sibling calls and mutual recursion are co-emitted into the
   same ASM-generated class, including ref-param ADT match functions.
 - Pattern binding ref classification is callee-param-aware rather than
@@ -69,6 +73,7 @@ Verified on 2026-06-04 with:
 - `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-20260604 && sbt "backendInterpreter/compile"`
 - `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-20260604 && sbt "backendInterpreter/testOnly scalascript.SscVmTest"` — 21/21
 - `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-20260604 && SSC_JIT_BACKEND=asm sbt "backendInterpreter/testOnly scalascript.InterpreterTest"` — 139/139
+- `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-20260604 && SSC_JIT_BACKEND=asm sbt "backendInterpreter/testOnly scalascript.SscVmTest scalascript.InterpreterTest scalascript.JitLintTest"` — 174/174
 
 Phase 2 remains open: while-JIT ref args, ref-returning chains, inline match
 helpers, and List/Set fused foreach in ASM.
@@ -91,6 +96,7 @@ Extend the direct function compiler in `AsmJitBackend`:
   the current function.
 - Add an ASM `ObjToObject` path for 1-ref-param ref-returning match bodies,
   including extract arms and wildcard bind defaults.
+- Add sequential-if lowering for top-level guarded ADT matches.
 - Add unary and multi-statement expression block support in function walkers.
 
 All Phase 1 changes are local to `AsmJitBackend` plus focused tests.
