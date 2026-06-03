@@ -661,6 +661,22 @@ private[interpreter] object EvalRuntime:
         case _ =>
           throw PatternRuntime.NotDouble
 
+  /** Ref-arg JIT fast path: `f(item)` where `f` has been bytecode-JIT-compiled
+   *  to an `ObjToLong` direct interface (paramIsRef[0] = true, result is Long)
+   *  AND `item` is a `val`-bound global `InstanceV`. Both `f` and `item` are
+   *  snapshot at compile time; per-iter eval is a single typed-interface call
+   *  — no HashMap probe, no Computation/IntV boxing, no `marshalAndRun`
+   *  dispatch. Unblocks the LMatch-style fast path for shapes where the
+   *  function body isn't a top-level `Term.Match` (e.g. `def f(e) = 1 + (e
+   *  match { … })`): without this LExpr variant, `compileExpr` on
+   *  `Term.Apply` would `slotOf(itemName)` → -1 (item is ref, not Int slot)
+   *  → null → bail to tree-walk, leaving the JIT'd MH unused. */
+  private final class LApplyObjRef(
+    objFn: scalascript.interpreter.vm.jit.ObjToLong,
+    arg:   AnyRef
+  ) extends LExpr:
+    def eval(slots: Array[Long]): Long = objFn.apply(arg)
+
   /** 2-arg parallel of `LApply`. Folds `g(x, y)` into the enclosing unboxed-
    *  Long loop without boxing either arg or result. */
   private final class LApply2(
@@ -840,20 +856,46 @@ private[interpreter] object EvalRuntime:
         ap.fun match
           case fnName: Term.Name if ap.argClause.values.lengthCompare(1) == 0 =>
             val argTerm = ap.argClause.values.head
-            val argL    = compileExpr(argTerm)
-            if argL == null then null
+            // Ref-arg JIT fast path: `f(item)` where `item` is a val-bound
+            // global InstanceV and `f`'s body has been bytecode-JIT-compiled
+            // to ObjToLong. Detected BEFORE the slot-arg path so a ref-typed
+            // arg name doesn't waste a `slotOf` probe (which would return -1
+            // and force the whole compileExpr to bail).
+            val refFast: LExpr | Null = argTerm match
+              case argName: Term.Name
+                  if interp.valNames.contains(argName.value) =>
+                val argV = interp.globals.getOrElse(argName.value, null)
+                val fnV  = interp.globals.getOrElse(fnName.value, null)
+                (argV, fnV) match
+                  case (inst: Value.InstanceV, fn: Value.FunV)
+                      if fn.params.length == 1 && fn.usingParams.isEmpty
+                         && !fn.returnsThrows =>
+                    val bcRes = scalascript.interpreter.vm.jit.JitBackend.default.tryCompile(fn, interp)
+                    if bcRes == null then null
+                    else if !bcRes.paramIsRef(0) || bcRes.resultIsDouble then null
+                    else
+                      bcRes.direct match
+                        case ot: scalascript.interpreter.vm.jit.ObjToLong =>
+                          new LApplyObjRef(ot, inst)
+                        case _ => null
+                  case _ => null
+              case _ => null
+            if refFast != null then refFast
             else
-              interp.globals.getOrElse(fnName.value, null) match
-                case fn: Value.FunV
-                    if fn.params.length == 1
-                       && fn.usingParams.isEmpty
-                       && !fn.returnsThrows
-                       && (fn.defaults.isEmpty || fn.defaults.head.isEmpty)
-                       && (fn.paramTypes.isEmpty || !fn.paramTypes.head.endsWith("*")) =>
-                  val slotFn = PatternRuntime.compileSlotLongFn1(fn.body, fn.params.head, interp)
-                  if slotFn == null then null
-                  else new LApply(argL, fnName.value, fn.body, slotFn, interp)
-                case _ => null
+              val argL = compileExpr(argTerm)
+              if argL == null then null
+              else
+                interp.globals.getOrElse(fnName.value, null) match
+                  case fn: Value.FunV
+                      if fn.params.length == 1
+                         && fn.usingParams.isEmpty
+                         && !fn.returnsThrows
+                         && (fn.defaults.isEmpty || fn.defaults.head.isEmpty)
+                         && (fn.paramTypes.isEmpty || !fn.paramTypes.head.endsWith("*")) =>
+                    val slotFn = PatternRuntime.compileSlotLongFn1(fn.body, fn.params.head, interp)
+                    if slotFn == null then null
+                    else new LApply(argL, fnName.value, fn.body, slotFn, interp)
+                  case _ => null
           // 2-arg parallel: `g(x, y)` where `g` is a pure 2-param fn.
           case fnName: Term.Name if ap.argClause.values.lengthCompare(2) == 0 =>
             val arg0L = compileExpr(ap.argClause.values.head)
@@ -1042,20 +1084,46 @@ private[interpreter] object EvalRuntime:
         ap.fun match
           case fnName: Term.Name if ap.argClause.values.lengthCompare(1) == 0 =>
             val argTerm = ap.argClause.values.head
-            val argL    = compileExpr(argTerm)
-            if argL == null then null
+            // Ref-arg JIT fast path: `f(item)` where `item` is a val-bound
+            // global InstanceV and `f`'s body has been bytecode-JIT-compiled
+            // to ObjToLong. Detected BEFORE the slot-arg path so a ref-typed
+            // arg name doesn't waste a `slotOf` probe (which would return -1
+            // and force the whole compileExpr to bail).
+            val refFast: LExpr | Null = argTerm match
+              case argName: Term.Name
+                  if interp.valNames.contains(argName.value) =>
+                val argV = interp.globals.getOrElse(argName.value, null)
+                val fnV  = interp.globals.getOrElse(fnName.value, null)
+                (argV, fnV) match
+                  case (inst: Value.InstanceV, fn: Value.FunV)
+                      if fn.params.length == 1 && fn.usingParams.isEmpty
+                         && !fn.returnsThrows =>
+                    val bcRes = scalascript.interpreter.vm.jit.JitBackend.default.tryCompile(fn, interp)
+                    if bcRes == null then null
+                    else if !bcRes.paramIsRef(0) || bcRes.resultIsDouble then null
+                    else
+                      bcRes.direct match
+                        case ot: scalascript.interpreter.vm.jit.ObjToLong =>
+                          new LApplyObjRef(ot, inst)
+                        case _ => null
+                  case _ => null
+              case _ => null
+            if refFast != null then refFast
             else
-              interp.globals.getOrElse(fnName.value, null) match
-                case fn: Value.FunV
-                    if fn.params.length == 1
-                       && fn.usingParams.isEmpty
-                       && !fn.returnsThrows
-                       && (fn.defaults.isEmpty || fn.defaults.head.isEmpty)
-                       && (fn.paramTypes.isEmpty || !fn.paramTypes.head.endsWith("*")) =>
-                  val slotFn = PatternRuntime.compileSlotLongFn1(fn.body, fn.params.head, interp)
-                  if slotFn == null then null
-                  else new LApply(argL, fnName.value, fn.body, slotFn, interp)
-                case _ => null
+              val argL = compileExpr(argTerm)
+              if argL == null then null
+              else
+                interp.globals.getOrElse(fnName.value, null) match
+                  case fn: Value.FunV
+                      if fn.params.length == 1
+                         && fn.usingParams.isEmpty
+                         && !fn.returnsThrows
+                         && (fn.defaults.isEmpty || fn.defaults.head.isEmpty)
+                         && (fn.paramTypes.isEmpty || !fn.paramTypes.head.endsWith("*")) =>
+                    val slotFn = PatternRuntime.compileSlotLongFn1(fn.body, fn.params.head, interp)
+                    if slotFn == null then null
+                    else new LApply(argL, fnName.value, fn.body, slotFn, interp)
+                  case _ => null
           // 2-arg parallel: `g(x, y)` where `g` is a pure 2-param fn.
           case fnName: Term.Name if ap.argClause.values.lengthCompare(2) == 0 =>
             val arg0L = compileExpr(ap.argClause.values.head)

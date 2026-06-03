@@ -303,6 +303,52 @@ class InterpreterBench:
       |total""".stripMargin
   )
 
+  // EA / call-site verification probe. `def f(e: E): Int = 1 + (e match …)`
+  // has the Match as a *sub-expression*, exercising both
+  //   - `JavacJitBackend.walkMatchExpr` (Java switch expression in IIFE), and
+  //   - the `LApplyObjRef` LExpr fast-path that lets the outer
+  //     `tryLongWhileAssign` loop call the JIT'd ObjToLong directly for a
+  //     val-bound ref argument (the original tree-walk fallback ran at
+  //     ~2.7 µs/iter; LApplyObjRef brings it into LMatch parity).
+  private val modNestedMatchExpr: Module = src(
+    """sealed trait E
+      |case class A(n: Int) extends E
+      |case class B(n: Int) extends E
+      |def f(e: E): Int = 1 + (e match
+      |  case A(n) => n
+      |  case B(n) => n + 100)
+      |val item = A(5)
+      |var total = 0
+      |var i = 0
+      |while i < 1000000 do
+      |  total = total + f(item)
+      |  i = i + 1
+      |total""".stripMargin
+  )
+
+  // Baseline twin: same `f(item)` call shape in a 1M-iter while loop, but
+  // `f`'s body IS `e match { … }` directly. This shape hits the LMatch
+  // inline path: `total = total + f(item)` doesn't actually call `f` at
+  // run-time — `tryLongWhileAssign` recognises that `f.body` is a Match
+  // and inlines it via `PatternRuntime.compileMatch` → `runValueLong`,
+  // so the inner loop is fully unboxed Long. Useful as a target for the
+  // LApplyObjRef fast-path to match.
+  private val modMatchBodyBaseline: Module = src(
+    """sealed trait E
+      |case class A(n: Int) extends E
+      |case class B(n: Int) extends E
+      |def f(e: E): Int = e match
+      |  case A(n) => 1 + n
+      |  case B(n) => 1 + n + 100
+      |val item = A(5)
+      |var total = 0
+      |var i = 0
+      |while i < 1000000 do
+      |  total = total + f(item)
+      |  i = i + 1
+      |total""".stripMargin
+  )
+
   private val devNull = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
 
   // ── benchmarks ───────────────────────────────────────────────────
@@ -404,6 +450,14 @@ class InterpreterBench:
   @Benchmark
   def instanceFieldAccess(): Unit =
     Interpreter(devNull).runSections(modInstanceFieldAccess)
+
+  @Benchmark
+  def nestedMatchExpr(): Unit =
+    Interpreter(devNull).runSections(modNestedMatchExpr)
+
+  @Benchmark
+  def matchBodyBaseline(): Unit =
+    Interpreter(devNull).runSections(modMatchBodyBaseline)
 
   @Benchmark
   def mapForeach(): Unit =

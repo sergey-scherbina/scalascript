@@ -120,14 +120,24 @@ object JavacJitBackend extends JitBackend:
     // ref-typed case the initial slice supports. A param read in arithmetic
     // (the pure-int subset) is int.
     val paramIsRef = new Array[Boolean](f.params.length)
-    f.body match
+    // Walk the body to find every Term.Match whose scrutinee is a parameter
+    // name; mark that param as ref. Covers both the top-level
+    // `def f(x) = x match { … }` shape (handled by walkMatchBody) and the
+    // nested-as-expression shape `def f(x) = 1 + (x match { … })` that
+    // walkMatchExpr handles. Without this walk, the nested case would compile
+    // the function with a `long` param, then the InstanceV cast in walkMatchExpr
+    // would be type-incompatible with the param type and javac would bail.
+    def markRefScrutinees(t: scala.meta.Tree): Unit = t match
       case tm: Term.Match =>
         tm.expr match
           case n: Term.Name =>
             val idx = f.params.indexOf(n.value)
             if idx >= 0 then paramIsRef(idx) = true
           case _ =>
-      case _ =>
+        markRefScrutinees(tm.expr)
+        tm.casesBlock.cases.foreach(c => markRefScrutinees(c.body))
+      case _ => t.children.foreach(markRefScrutinees)
+    markRefScrutinees(f.body)
     // For ref-param match functions (ADT match → result) also treat the body as
     // Double when it contains any Lit.Double — `walkMatchBody` will call
     // `walkDouble` per arm body, which propagates auto-promotion correctly.
