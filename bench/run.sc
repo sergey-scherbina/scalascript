@@ -9,6 +9,7 @@
  *   ./bench.sh                              # compare all backends (interp, jvm, js)
  *   ./bench.sh arith-loop recursion-fib    # filter by workload name
  *   ./bench.sh --backend interp            # single backend only
+ *   ./bench.sh --warmup 10 --reps 50       # custom warmup / measured iterations
  *   ./bench.sh --baseline                  # write bench/BASELINE.md
  *
  * Delegates per-file timing to `ssc bench --machine --backend <b>` (one
@@ -43,10 +44,22 @@ val backends: Seq[String] = backendFlag match
   case Some(b) => Seq(b)
   case None    => Seq("interp", "jvm", "js")
 
-// non-flag args that don't belong to --backend are workload filters
+// --warmup N / --reps N: pass-through to ssc bench (defaults mirror BenchCmd)
+def parseInt2(flag: String, default: Int): Int =
+  val idx = args.indexOf(flag)
+  if idx >= 0 && idx + 1 < args.length then args(idx + 1).toIntOption.getOrElse(default)
+  else args.collectFirst { case s if s.startsWith(flag + "=") => s.stripPrefix(flag + "=").toIntOption.getOrElse(default) }
+       .getOrElse(default)
+
+val warmup = parseInt2("--warmup", 5)
+val reps   = parseInt2("--reps",  20)
+
+// non-flag args that don't belong to --backend/--warmup/--reps are workload filters
 val filterNames: Set[String] =
   val backendVal = backendFlag.getOrElse("")
-  args.filterNot(a => a.startsWith("--") || a == backendVal).toSet
+  val warmupVal  = args.indexOf("--warmup") match { case i if i >= 0 && i+1 < args.length => args(i+1); case _ => "" }
+  val repsVal    = args.indexOf("--reps")   match { case i if i >= 0 && i+1 < args.length => args(i+1); case _ => "" }
+  args.filterNot(a => a.startsWith("--") || a == backendVal || a == warmupVal || a == repsVal).toSet
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -65,7 +78,9 @@ def runSscBenchBackend(sscPath: String, file: java.io.File, b: String): Option[D
     if !line.startsWith("NOTE: Picked up") && !line.contains("skipping backend plugin") then
       System.err.println(line)
   // --backend is a global flag; must come before the subcommand name.
-  val cmd = Seq(sscPath, "--backend", b, "bench", "--machine", file.getAbsolutePath)
+  val cmd = Seq(sscPath, "--backend", b, "bench", "--machine",
+                "--warmup", warmup.toString, "--reps", reps.toString,
+                file.getAbsolutePath)
   val buf = new java.io.ByteArrayOutputStream
   val ps  = new java.io.PrintStream(buf, true)
   Process(cmd).!(ProcessLogger(ps.println, errLog))
@@ -124,6 +139,7 @@ if corpusFiles.isEmpty then
 
 println(s"Corpus:   ${corpusFiles.map(_.getName.replaceAll("\\.ssc$","")).mkString(", ")}")
 println(s"Backends: ${backends.mkString(", ")}")
+println(s"Warmup:   $warmup   Reps: $reps")
 println(s"ssc:      $sscPath")
 println()
 
