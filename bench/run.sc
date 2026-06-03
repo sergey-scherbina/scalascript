@@ -103,20 +103,18 @@ def benchFile(sscPath: String, backend: Backend, file: java.io.File): Option[Ben
 // ── table formatters ─────────────────────────────────────────────────────────
 
 def formatTable(results: Seq[BenchResult]): String =
-  val nameCells = results.map(r => s"`${r.name}`")
+  val nameCells  = results.map(r => s"`${r.name}`")
+  val timeCells  = results.map(r => s"${r.medianMs} ms (min ${r.minMs}, max ${r.maxMs})")
 
-  val w0 = ("Workload"  +: nameCells).map(_.length).max
-  val w1 = ("Median ms" +: results.map(_.medianMs.toString)).map(_.length).max
-  val w2 = ("Min ms"    +: results.map(_.minMs.toString)).map(_.length).max
-  val w3 = ("Max ms"    +: results.map(_.maxMs.toString)).map(_.length).max
+  val w0 = ("Workload" +: nameCells).map(_.length).max
+  val w1 = ("Time"     +: timeCells).map(_.length).max
 
-  def pad(s: String, w: Int)  = s.padTo(w, ' ')
-  def rpad(s: String, w: Int) = (" " * (w - s.length)) + s
+  def pad(s: String, w: Int) = s.padTo(w, ' ')
 
-  val header = s"| ${pad("Workload", w0)} | ${pad("Median ms", w1)} | ${pad("Min ms", w2)} | ${pad("Max ms", w3)} |"
-  val sep    = s"| ${"-" * w0} | ${"─" * (w1 - 1)}: | ${"─" * (w2 - 1)}: | ${"─" * (w3 - 1)}: |"
-  val rows   = results.zip(nameCells).map { case (r, name) =>
-    s"| ${pad(name, w0)} | ${rpad(r.medianMs.toString, w1)} | ${rpad(r.minMs.toString, w2)} | ${rpad(r.maxMs.toString, w3)} |"
+  val header = s"| ${pad("Workload", w0)} | ${pad("Time", w1)} |"
+  val sep    = s"| ${"-" * w0} | ${"-" * w1} |"
+  val rows   = results.zip(nameCells).zip(timeCells).map { case ((r, name), time) =>
+    s"| ${pad(name, w0)} | ${pad(time, w1)} |"
   }
   (header +: sep +: rows).mkString("\n")
 
