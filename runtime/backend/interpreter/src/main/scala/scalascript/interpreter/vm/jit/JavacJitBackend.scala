@@ -1457,6 +1457,47 @@ object JavacJitBackend extends JitBackend:
           case _ => null
       case _ => null
 
+  /** Analyse `m.foreach((k, v) => { acc = acc + k })` or
+   *  `m.foreach((k, v) => { acc = acc + v })` (Map 2-param closure).
+   *  Returns `(mapName, useFirst)` where `useFirst=true` means use the key
+   *  (first param), `false` means use the value (second param). */
+  private def analyzeForeachMapApply(foreachApply: Term, accName: String): (String, Boolean) | Null =
+    foreachApply match
+      case ta: Term.Apply =>
+        ta.fun match
+          case Term.Select(qual, Term.Name("foreach")) =>
+            val mapName = qual match
+              case Term.Name(n) => n
+              case _            => return null
+            ta.argClause.values match
+              case List(fn: Term.Function) if fn.paramClause.values.lengthCompare(2) == 0 =>
+                val p1 = fn.paramClause.values.head.name.value
+                val p2 = fn.paramClause.values(1).name.value
+                if p1.isEmpty || p2.isEmpty then return null
+                val core = fn.body match
+                  case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+                    b.stats.head match
+                      case t: Term => t
+                      case _       => return null
+                  case t => t
+                core match
+                  case a: Term.Assign =>
+                    a.lhs match
+                      case Term.Name(`accName`) =>
+                        a.rhs match
+                          case Term.ApplyInfix.After_4_6_0(Term.Name(`accName`), op, _, argClause)
+                              if op.value == "+" && argClause.values.lengthCompare(1) == 0 =>
+                            argClause.values.head match
+                              case Term.Name(`p1`) => (mapName, true)
+                              case Term.Name(`p2`) => (mapName, false)
+                              case _               => null
+                          case _ => null
+                      case _ => null
+                  case _ => null
+              case _ => null
+          case _ => null
+      case _ => null
+
   override def tryCompileWhileMixed(
     cond:         Term,
     names:        Array[String],
@@ -1470,6 +1511,13 @@ object JavacJitBackend extends JitBackend:
     val cached = whileMixedGlobalCache.get(foreachApply)
     if cached eq WhileMixedMiss then return null
     if cached != null then return cached.asInstanceOf[WhileJitEntry]
+
+    // Map 2-param foreach path: m.foreach((k, v) => { acc = acc + v })
+    val mapInfo = analyzeForeachMapApply(foreachApply, accName)
+    if mapInfo != null then
+      return tryCompileWhileMapForeach(
+        cond, names, rhs, foreachApply, accIsDouble, mapInfo, interp
+      )
 
     val info = analyzeForeachApply(foreachApply, accName)
     if info == null then
@@ -1635,6 +1683,127 @@ object JavacJitBackend extends JitBackend:
       Array.empty[ObjToObject],
       if fnObjToDouble != null then Array(fnObjToDouble) else Array.empty[ObjToDouble]
     )
+    whileMixedGlobalCache.put(foreachApply, entry.asInstanceOf[AnyRef])
+    entry
+
+  /** Compile the `while + m.foreach((k,v) => acc += v)` shape for a `MapV`
+   *  receiver.  Emits a Java iterator loop over `MapV.entries()` that
+   *  extracts `IntV.v()` (or `DoubleV.v()`) from each entry directly, without
+   *  a JIT-compiled inner function — the closure body is just a direct map
+   *  field select, not an arbitrary function call. */
+  private def tryCompileWhileMapForeach(
+    cond:         Term,
+    names:        Array[String],
+    rhs:          Array[Term],
+    foreachApply: Term,
+    accIsDouble:  Boolean,
+    mapInfo:      (String, Boolean),
+    interp:       scalascript.interpreter.Interpreter
+  ): WhileJitEntry | Null =
+    val (mapName, useFirst) = mapInfo
+    val mapVal = interp.globals.getOrElse(mapName, null)
+    if !mapVal.isInstanceOf[scalascript.interpreter.Value.MapV] then
+      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+      return null
+
+    val ctx = new WhileGenCtx(names, interp, scala.collection.mutable.LinkedHashMap.empty)
+    val condJava = walkLocalBoolCtx(cond, ctx)
+    if condJava == null then
+      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+      return null
+    val rhsJava = new Array[String](names.length)
+    var k = 0
+    while k < names.length do
+      rhsJava(k) = walkLocalSlotCtx(rhs(k), ctx)
+      if rhsJava(k) == null then
+        whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+        return null
+      k += 1
+
+    val accSlotIdx = names.length
+    val className  = s"WhileMap_${Integer.toUnsignedString(System.identityHashCode(foreachApply))}"
+    val jitPkg     = "scalascript.interpreter.vm.jit"
+    val valuePkg   = "scalascript.interpreter"
+    val sb = new StringBuilder
+    sb.append(s"public final class $className {\n")
+    sb.append(s"  @SuppressWarnings(\"unchecked\")\n")
+    sb.append(s"  public static void run(long[] v) {\n")
+    // refs[0] is a pre-extracted Object[] of keys or values (no per-iteration iterator allocation).
+    sb.append(s"    Object[] _mvals = (Object[]) $jitPkg.JitGlobals.getRefs()[0];\n")
+    sb.append(s"    int _mlen = _mvals.length;\n")
+    k = 0
+    while k < names.length do
+      sb.append(s"    long _v$k = v[$k];\n")
+      k += 1
+    if accIsDouble then
+      sb.append(s"    double _acc = Double.longBitsToDouble(v[$accSlotIdx]);\n")
+    else
+      sb.append(s"    long _acc = v[$accSlotIdx];\n")
+    sb.append(s"    while ($condJava) {\n")
+    sb.append(s"      for (int _mi = 0; _mi < _mlen; _mi++) {\n")
+    if accIsDouble then
+      sb.append(s"        Object _mval = _mvals[_mi];\n")
+      sb.append(s"        _acc += _mval instanceof $valuePkg.Value.DoubleV ? (($valuePkg.Value.DoubleV)_mval).v() : (double)(($valuePkg.Value.IntV)_mval).v();\n")
+    else
+      sb.append(s"        _acc += (($valuePkg.Value.IntV)_mvals[_mi]).v();\n")
+    sb.append(s"      }\n")
+    k = 0
+    while k < names.length do
+      sb.append(s"      _v$k = ${rhsJava(k)};\n")
+      k += 1
+    sb.append(s"    }\n")
+    k = 0
+    while k < names.length do
+      sb.append(s"    v[$k] = _v$k;\n")
+      k += 1
+    if accIsDouble then
+      sb.append(s"    v[$accSlotIdx] = Double.doubleToRawLongBits(_acc);\n")
+    else
+      sb.append(s"    v[$accSlotIdx] = _acc;\n")
+    sb.append(s"  }\n")
+    val emissionIt = ctx.pureFnEmissions.valuesIterator
+    while emissionIt.hasNext do sb.append(emissionIt.next())
+    sb.append("}\n")
+
+    val source = sb.toString
+    val compiler = ToolProvider.getSystemJavaCompiler
+    if compiler == null then
+      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+      return null
+    val classBytes = new ByteArrayOutputStream()
+    val javaFile = new SimpleJavaFileObject(URI.create(s"string:///$className.java"), JavaFileObject.Kind.SOURCE):
+      override def getCharContent(ignoreEncodingErrors: Boolean): CharSequence = source
+    val standard = compiler.getStandardFileManager(null, null, null)
+    val fm = new ForwardingJavaFileManager[JavaFileManager](standard):
+      override def getJavaFileForOutput(loc: JavaFileManager.Location, name: String, kind: JavaFileObject.Kind, sib: FileObject) =
+        new SimpleJavaFileObject(URI.create(s"mem:///$name.class"), kind):
+          override def openOutputStream(): OutputStream = classBytes
+    val task = compiler.getTask(null, fm, null, null, null, java.util.Arrays.asList(javaFile))
+    val ok = try task.call().booleanValue() catch case _: Throwable => false
+    if !ok then
+      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+      return null
+    val loader = new ClassLoader(classOf[JavacJitBackend.type].getClassLoader):
+      override def findClass(name: String): Class[?] =
+        if name == className then
+          val bytes = classBytes.toByteArray
+          defineClass(name, bytes, 0, bytes.length)
+        else super.findClass(name)
+    val cls = try loader.loadClass(className) catch case _: Throwable =>
+      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+      return null
+    val method =
+      try
+        val m = cls.getMethod("run", classOf[Array[Long]])
+        m.setAccessible(true)
+        m
+      catch case _: Throwable => null
+    if method == null then
+      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+      return null
+
+    val entry = new WhileJitEntry(method, Array.empty[String], Array.empty[ObjToLong], Array.empty[ObjToObject],
+                                   Array.empty[ObjToDouble], mapIsKeyMode = useFirst)
     whileMixedGlobalCache.put(foreachApply, entry.asInstanceOf[AnyRef])
     entry
 
