@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — perf: phase-c-bytecode-wider-match (wildcard/catch-all arms)
+
+- **phase-c-bytecode-wider-match** — `Pat.Wildcard` and `Pat.Var` catch-all arms now compile
+  in all JIT arm walkers (`walkArm` switch form, `walkArmAsIfBranch` if-chain form,
+  `walkArmExpr` switch-expression form). `walkMatchBody` and `walkMatchExpr` skip the
+  throw-default when a wildcard arm is present. `walkRefArm`/`walkRefMatchBody` already
+  supported `Pat.Var`. 17 JitLintTest + 1251 full suite green.
+
+---
+
 ## 2026-06-04 — perf: while-jit-map-foreach (11.4×)
 
 - **while-jit-map-foreach** — Fuses `while i < N do m.foreach((k,v) => acc += v)` into a

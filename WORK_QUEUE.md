@@ -539,11 +539,12 @@ verify step. Apply them.
       `HashMap$Node.findNode` from the per-iter `globals.getOrElse(scrutName)`
       lookup — a separate lever (scrutinee invariance caching).
 
-- [ ] **phase-c-bytecode-wider-match** — guards, literal patterns,
-      `Pat.Bind`/`Pat.Alternative`, nested matches. Each adds a handful
-      of Java-emission cases in `walkArm`. Largely mechanical; treat as
-      cleanup work to be done when a bench shows a specific shape
-      bailing.
+- [x] **phase-c-bytecode-wider-match** — ✓ Landed 2026-06-04. Wildcard/catch-all
+      arms (`Pat.Wildcard` + `Pat.Var`) in all arm walkers (`walkArm`,
+      `walkArmAsIfBranch`, `walkArmExpr`) and both match builders
+      (`walkMatchBody`, `walkMatchExpr`). 17 JitLintTest + 1251 suite green.
+      Remaining deferred (no bench bailing yet): literal field patterns, `Pat.Bind`,
+      `Pat.Alternative`.
 
 - [x] **phase-c-bytecode-block-single** (Direction A.1) — ✓ Landed 2026-06-02
       commit `b4eb11f1`. `walkLong` / `walkDouble` / `walkRef` now unwrap

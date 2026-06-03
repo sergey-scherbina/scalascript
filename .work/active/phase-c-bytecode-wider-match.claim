@@ -1,4 +1,0 @@
-feature/phase-c-bytecode-wider-match-20260604 2026-06-03T22:48:04Z
-status: not-started
-done-so-far:
-next: read walkArm + current match shape, identify guard/literal/Pat.Bind/Pat.Alternative gaps, implement slice by slice
