@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — perf: phase-d-instancev flag flip
+
+- **phase-d-instancev-array-repr-flag-flip** — StatRuntime case-class constructors
+  pass Map.empty + populate `fieldsArr + fieldNames` in parallel; IMap.Map1/Map2/
+  Map.from no longer allocated per hot InstanceV. `effectiveFields` method + overridden
+  `equals`/`hashCode` unify StatRuntime vs deserialized InstanceV comparisons.
+  Value.show, DerivesRuntime, DispatchRuntime, OpticsRuntime, PatternRuntime,
+  SectionRuntime, ValueSerializer all updated. instanceVArrayEnabled flag removed.
+  1233/1233 green. Bench: patternMatchSet 0.283 → 0.197 ms (~30%).
+
+---
+
 ## 2026-06-03 — js-codegen-opt-p1
 
 - **js-codegen-opt-p1** — Landed four targeted JS codegen fixes in

@@ -773,11 +773,14 @@ highest-impact item.
 - [x] **phase-d-instancev-array-repr-activation** — ✓ Done as part of `2df35b4b` above.
       Flag is ON by default; StatRuntime populates `fieldsArr` at every InstanceV construction.
 
-- [ ] **phase-d-instancev-array-repr-flag-flip** — Drop `fields: Map[String, Value]`
-      field entirely from `InstanceV`; rely solely on `fieldsArr`. Requires updating
-      all pattern-match sites and `ValueSerializer` wire format. Deferred until
-      a stable benchmark window confirms no regressions (target: 1-2 weeks after
-      `2df35b4b`).
+- [x] **phase-d-instancev-array-repr-flag-flip** — ✓ Landed 2026-06-03 commit `97f420f9`.
+      StatRuntime hot-path constructors now write Map.empty into `fields` and populate
+      `fieldsArr + fieldNames` in parallel; IMap.Map1/Map2/Map.from not allocated per
+      InstanceV. `effectiveFields` method added to InstanceV; `equals`/`hashCode`
+      overridden to use it (fixes StatRuntime vs deserialized InstanceV cross-comparison).
+      Value.show, DerivesRuntime, DispatchRuntime, OpticsRuntime, PatternRuntime,
+      SectionRuntime, ValueSerializer all updated. instanceVArrayEnabled flag removed.
+      1233/1233 green. Bench: patternMatchSet 0.283 → 0.197 ms (~30%).
 
 - [ ] **phase-d-patternmatch-fused-foreach** — once
       `phase-d-instancev-array-repr` lands, BytecodeJit could compile
