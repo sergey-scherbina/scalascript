@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — while-jit-mixed-foreach-set: extend fused while+foreach JIT to SetV receivers
+
+- **while-jit-mixed-foreach-set** — `tryCompileWhileMixed` (JavacJitBackend) and
+  `tryWhileJitMixed` (EvalRuntime) now accept `Value.SetV` receivers alongside
+  `Value.ListV`. For SetV, emits `Set.iterator()/hasNext()/next()` inner loop;
+  all other codegen (outer while, int-assign RHSes, accumulator writeback)
+  unchanged. EvalRuntime receiver-resolution match adds `sv: Value.SetV` arm.
+  Bench (5i wi=3 ms/op): **patternMatchSet: 0.797 → 0.283 ms (~2.8×)**.
+  1233/1233 tests green.
+
 ## 2026-06-03 — while-jit-mixed-foreach: fuse outer while + inner foreach into single JVM method
 
 - **while-jit-mixed-foreach** — The `{ xs.foreach(s => acc = acc + fn(s)); i = i+1 }` body

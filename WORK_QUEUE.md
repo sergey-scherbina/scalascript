@@ -483,9 +483,18 @@ verify step. Apply them.
       as `while-jit-mixed-foreach` (commit `70ff8947`). Implemented via
       `tryCompileWhileMixed` (new SPI method) rather than merging into
       `tryCompileWhileLong`; generates `WhileMixed_<n>` Java class with fused
-      outer while + inner foreach. SetV not yet fused (SetV falls back to
-      existing PreResolvedFastDoubleSetForeach path). patternMatchHeavy 2.37×,
-      interp_patternMatch 1.73×.
+      outer while + inner foreach. SetV extended in `while-jit-mixed-foreach-set`
+      (commit `767eeea0`). patternMatchHeavy 2.37×, interp_patternMatch 1.73×.
+
+- [x] **while-jit-mixed-foreach-set** — ✓ Landed 2026-06-03 commit `767eeea0`.
+      Extended `tryCompileWhileMixed` (JavacJitBackend) and `tryWhileJitMixed`
+      (EvalRuntime) to accept `Value.SetV` receivers alongside `Value.ListV`.
+      For SetV, generates `Set.iterator()/hasNext()/next()` inner loop instead
+      of the List `head/tail` unroll; all other codegen (outer while, int-assign
+      RHSes, accumulator writeback) unchanged. EvalRuntime receiver resolution
+      now matches both `lv: Value.ListV` and `sv: Value.SetV` from globals.
+      Bench (5i wi=3 ms/op): patternMatchSet 0.797 → 0.283 ms (~2.8×).
+      1233/1233 tests green.
 
 - [x] **phase-c-bytecode-match-double-body** — ✓ Landed 2026-06-02.
       Three sub-pieces, three different landings:
