@@ -521,3 +521,34 @@ class InterpreterBench:
   @Benchmark
   def patternGuard(): Unit =
     Interpreter(devNull).runSections(modPatternGuard)
+
+  // dual-bank-lapply-r1-to-ref lock-in: `leafVal(getLeft(tree))` in a tight
+  // while loop exercises `LApplyR1ToRef` (getLeft → ObjToObject) chained with
+  // `LApplyR1` (leafVal → ObjToLong).  Pre-ObjToObject: compileRefExpr bails on
+  // Term.Apply → whole LExpr fold collapses → tree-walk every iter.
+  // Post-ObjToObject: getLeft compiled to ObjToObject → LApplyR1ToRef wraps it →
+  // LApplyR1(LApplyR1ToRef(LRefConst(tree)), leafVal_oo) hot in both while loops.
+  // getLeft wildcard arm `case x => x` hits walkRefArm Pat.Var handler (bind x=inst).
+  private val modRefChainArg: Module = src(
+    """sealed trait T
+      |case class Leaf(v: Int) extends T
+      |case class Branch(left: T, right: T) extends T
+      |def getLeft(b: T): T = b match
+      |  case Branch(l, _) => l
+      |  case x            => x
+      |def leafVal(n: T): Int = n match
+      |  case Leaf(v)      => v
+      |  case Branch(_, _) => 0
+      |val leaf = Leaf(7)
+      |val tree = Branch(leaf, Leaf(99))
+      |var total = 0
+      |var i = 0
+      |while i < 1000000 do
+      |  total = total + leafVal(getLeft(tree))
+      |  i = i + 1
+      |total""".stripMargin
+  )
+
+  @Benchmark
+  def refChainArg(): Unit =
+    Interpreter(devNull).runSections(modRefChainArg)

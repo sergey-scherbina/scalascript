@@ -19,3 +19,7 @@ trait LongObjToLong   { def apply(a: Long,   b: AnyRef): Long }
 trait ObjLongToLong   { def apply(a: AnyRef, b: Long):   Long }
 trait LongObjToDouble { def apply(a: Long,   b: AnyRef): Double }
 trait ObjLongToDouble { def apply(a: AnyRef, b: Long):   Double }
+// Ref-returning interface — for functions that take and return an InstanceV
+// (e.g. `def getLeft(t: Tree): Tree = t match { case Node(l, _) => l }`).
+// Used by LApplyR1ToRef in EvalRuntime to build f(g(item)) ref-arg chains.
+trait ObjToObject     { def apply(n: AnyRef): AnyRef }
