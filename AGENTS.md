@@ -804,8 +804,11 @@ git ls-tree origin/main .work/active/           # currently claimed slugs
 TASK_SLUG="v1.46-phase5-derivation"   # example
 WORKTREE_NAME="feature+phase5-derivation"
 
-# 4. Write only the claim file
-echo "$WORKTREE_NAME $(date -u +%Y-%m-%dT%H:%M:%SZ)" > ".work/active/${TASK_SLUG}.claim"
+# 4. Write only the claim file (extended format; line 1 is backward-compatible)
+printf '%s\nstatus: not-started\ndone-so-far:\nnext: %s\n' \
+  "$WORKTREE_NAME $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  "<first planned step>" \
+  > ".work/active/${TASK_SLUG}.claim"
 git add ".work/active/${TASK_SLUG}.claim"
 test "$(git diff --cached --name-only)" = ".work/active/${TASK_SLUG}.claim"
 git commit -m "claim: ${TASK_SLUG}"
@@ -911,6 +914,92 @@ git push origin main
 
 Only do this if you are certain the agent that wrote the claim is no longer
 running (check `git worktree list` and the timestamp inside the file).
+
+### Claim file format
+
+Write the extended format when creating a claim. Line 1 is backward-compatible
+with old single-line claims:
+
+```
+<worktree-name> <ISO-timestamp>
+status: not-started
+done-so-far:
+next: <first planned step>
+```
+
+Update `status`, `done-so-far`, and `next` at each intermediate commit so a
+resuming agent sees what was already done:
+
+```
+feature+phase5-derivation 2026-06-03T10:15:16Z
+status: in-progress
+done-so-far: Derivation.scala skeleton, DerivationTest stubs pass
+next: implement case-class derivation, run sbt test
+```
+
+Valid `status` values: `not-started`, `in-progress`, `blocked`.
+
+Old single-line format (`<worktree-name> <timestamp>` only) is still valid;
+missing fields are treated as `status: unknown`, `done-so-far: unknown`.
+
+### Finding an active claim you did not make in this session
+
+**Never assume a claim is yours just because it exists.** A claim on
+`origin/main` that you did not write during this session may belong to a
+parallel agent or a previous dead session — you cannot tell from the claim
+alone.
+
+When `git ls-tree origin/main .work/active/` shows an active claim, run this
+triage before doing anything else:
+
+```bash
+SLUG=<task-slug>
+WT="/Users/sergiy/work/my/scalascript/.worktrees/feature+${SLUG#*-}"  # adjust name
+
+# 1. Read the claim (format, age, status)
+git show origin/main:.work/active/$SLUG.claim
+
+# 2. Does the worktree still exist?
+git worktree list | grep "$SLUG"
+
+# 3. Is there uncommitted work in it?
+git -C "$WT" status --short 2>/dev/null | head -20
+
+# 4. Were project files touched recently (last 15 min)?
+find "$WT" -not -path '*/.git/*' \( -name '*.scala' -o -name '*.ssc' -o -name '*.md' \) \
+  -mmin -15 2>/dev/null | head -10
+```
+
+Interpret the results:
+
+| Worktree | Dirty files | Recent activity (< 15 min) | Conclusion |
+|---|---|---|---|
+| missing | — | — | Orphan claim — safe to release and reclaim |
+| exists | no | no | Claimed but no work started — likely dead session |
+| exists | yes | no | Work in progress, session died — ask user to resume or abandon |
+| exists | yes or no | **yes** | Possibly live agent — do **not** touch; skip and ask user |
+
+Then **report to the user** with the findings and ask for direction:
+
+```
+Found active claim: <slug>
+  Claimed at: <timestamp>, worktree: <name>
+  Worktree: [exists / missing]
+  Uncommitted changes: [N files / none]
+  Recent file activity (< 15 min): [yes — <file list> / no]
+  Claim status: [not-started / in-progress / blocked / unknown]
+  Done so far: [text from claim / unknown]
+  Next step:   [text from claim / unknown]
+
+Assessment: <one sentence>
+
+Options:
+  (a) Review the uncommitted work and continue
+  (b) Abandon the worktree, release the claim, pick the next task
+  (c) Leave as-is and pick the next task (if work may be active)
+```
+
+Do not start implementing until the user responds.
 
 ---
 
@@ -1055,7 +1144,9 @@ LOOP:
         test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
         git diff --cached --quiet
         # `git status -s` may show sibling dirty work; do not touch or stage it.
-        echo "<worktree-name> <timestamp>" > .work/active/<slug>.claim
+        printf '%s\nstatus: not-started\ndone-so-far:\nnext: %s\n' \
+          "<worktree-name> <timestamp>" "<first planned step>" \
+          > .work/active/<slug>.claim
         git add .work/active/<slug>.claim
         test "$(git diff --cached --name-only)" = ".work/active/<slug>.claim"
         git commit -m "claim: <slug>"
@@ -1065,7 +1156,13 @@ LOOP:
     5.  EnterWorktree("<worktree-name>") off the now-updated origin/main
 
     6.  Implement, run tests, fix until green
-        (if tests are red and unfixable → leave worktree open, report, STOP)
+        At each intermediate commit — update the claim file too:
+          status: in-progress
+          done-so-far: <one-line summary of what was just committed>
+          next: <next planned step>
+        Stage and commit the claim file together with the code change.
+        if tests are red and unfixable → update claim (status: blocked), leave
+          worktree open, report, STOP
 
     7.  Update docs: README.md + docs/user-guide.md + docs/<feature>.md (Rule 3a)
 
@@ -1075,8 +1172,18 @@ LOOP:
           update BACKLOG.md / ACTIVE.md / CHANGELOG.md as appropriate
 
     9.  Rebase on origin/main if it moved; push to origin/main
-   10.  ExitWorktree(remove)
-   11.  Report: "✓ <task-slug>: <one-line summary>"
+   10.  # ── Full cleanup — MUST complete before claiming next task ──
+        ExitWorktree(remove) or:
+          git worktree remove --force <path>
+          rm -rf <path>                       # remove dir if worktree remove left it
+        git branch -D <branch>               # delete local feature branch
+        # verify nothing remains:
+        git worktree list                    # must not show the finished branch
+        test ! -d <path>                     # directory must be gone
+   11.  # ── Report BEFORE starting next loop iteration ──
+        # Send the completion message NOW — before fetch, before claiming, before
+        # any step-1 work. The user must see "✓ done" before next claim appears.
+        Report: "✓ <task-slug>: <one-line summary>"
    12.  Go to LOOP
 ```
 
