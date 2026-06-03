@@ -289,7 +289,7 @@ project to root (in build file:<worktree-path>/)` line) before trusting.
 | `arithLoop` | **0.270** | JVM parity |
 | `effectPure` | 0.015 | trivially small |
 | `instanceFieldAccess` | **0.042** | while-jit-inline-match 195× |
-| `mapForeach` | 2.142 | **OPEN** — jit-map-foreach target ~0.2 ms |
+| `mapForeach` | **0.187** | while-jit-map-foreach 11.4× |
 | `matchBodyBaseline` | 0.045 | — |
 | `nestedMatchExpr` | 0.043 | — |
 | `patternGuard` | 0.046 | — |
@@ -452,7 +452,7 @@ verify step. Apply them.
         (JIT-off baseline: 29.9 ms / 45.2 ms — 8.4×/12.3× improvement
         already achieved in prior work via LApplyR1/LApplyR2 + INVOKESTATIC).
 
-- [ ] **while-jit-map-foreach** — Fused outer-while + Map.foreach((k,v)) bytecode.
+- [x] **while-jit-map-foreach** — ✓ Landed 2026-06-04. Fused outer-while + Map.foreach((k,v)) bytecode.
       Root cause of `mapForeach` 2.142 ms: the 2-param `(k,v)` closure is
       handled by `fasttier-2arg-callentry` (pre-resolved accumulator) but
       HashMap iteration itself still runs through Scala's `HashMap.foreach`

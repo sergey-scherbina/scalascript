@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — perf: while-jit-map-foreach (11.4×)
+
+- **while-jit-map-foreach** — Fuses `while i < N do m.foreach((k,v) => acc += v)` into a
+  single generated Java method. Key insight: the bottleneck was not Tuple2 allocation (already
+  eliminated via `valuesIterator()`) but the per-outer-iteration `Iterator` object creation
+  (100K × ~5 ns ≈ 500 µs). Fix: pre-extract `MapV.entries().valuesIterator().toArray` once
+  at call time, pass it as `refs[0]`; generated Java iterates over `Object[] _mvals` with a
+  plain `for` loop — zero per-iteration allocation.
+  - `WhileJitEntry.mapIsKeyMode: Boolean = false` — tells runtime whether to extract keys or values
+  - `tryCompileWhileMapForeach` emits `Object[] _mvals = (Object[]) JitGlobals.getRefs()[0]`
+    with a `for (int _mi = 0; _mi < _mlen; _mi++)` inner loop
+  - `tryWhileJitMixed` pre-extracts the array based on `entry.mapIsKeyMode`
+  - `mapForeach`: **2.142 ms → 0.187 ms (11.4×)**. 1248 tests green.
+
+---
+
 ## 2026-06-04 — perf: ASM JIT function parity
 
 - **asm-jit-parity-optimizations Phase 1** — `AsmJitBackend` now matches the
