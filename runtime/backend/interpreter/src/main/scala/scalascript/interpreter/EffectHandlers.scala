@@ -460,6 +460,7 @@ private[interpreter] object EffectHandlers:
   // Collects Stream.emit(x) calls; handles complete()/error(msg)/request(n).
   // Returns (Source[A], R): a tuple of the emitted source and the body's final value.
   def streamRun(initial: Computation, interp: Interpreter): Computation =
+    interp.ensurePluginsLoaded()
     val buf        = scala.collection.mutable.ListBuffer.empty[Value]
     var terminated = false
     var errorMsg   = Option.empty[String]

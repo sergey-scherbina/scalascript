@@ -819,7 +819,25 @@ def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
     val manifest  = s"id: $pluginId\nversion: ${version.value}\nkind:\n  - plugin\n"
     val manifestF = target.value / "sscpkg-manifest.yaml"
     IO.write(manifestF, manifest)
-    IO.zip(Seq(manifestF -> "manifest.yaml", jar -> s"intrinsics/$pkgName.jar"), outFile, None)
+    // Bundle only the managed deps that this plugin introduces exclusively —
+    // i.e. not already contributed by its dependsOn projects (which are already
+    // on the ssc runtime classpath).  We compute the "provided" set as the
+    // union of managedClasspath from all transitive dependsOn projects, then
+    // subtract it from this project's managed classpath.
+    val providedByDeps = (Compile / managedClasspath)
+      .all(ScopeFilter(inDependencies(ThisProject, includeRoot = false)))
+      .value.flatten.map(_.data.getName).toSet
+    val externalDeps = (Compile / managedClasspath).value.files.filter { f =>
+      val n = f.getName
+      !providedByDeps.contains(n) &&
+      !n.startsWith("scalascript-") &&
+      !n.startsWith("scala3-") &&
+      !n.startsWith("scala-library")
+    }
+    val entries =
+      Seq(manifestF -> "manifest.yaml", jar -> s"intrinsics/$pkgName.jar") ++
+      externalDeps.map(f => f -> s"intrinsics/${f.getName}")
+    IO.zip(entries, outFile, None)
     outFile
   }
 )
@@ -827,7 +845,7 @@ def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
 lazy val cli = project
   .in(file("tools/cli"))
   .enablePlugins(SbtProguard, GraalVMNativeImagePlugin)
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, frontendPlugin, fetchPlugin)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, frontendPlugin, fetchPlugin, streamsPlugin)
   // Frontend backends — derived from allFrontends registry (arch-build-registry Phase 4)
   .dependsOn(allFrontends.map(f => ClasspathDependency(f.project, None)): _*)
   .settings(
