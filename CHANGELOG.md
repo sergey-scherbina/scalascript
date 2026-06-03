@@ -4,6 +4,27 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — while-jit-ref-args: ObjToLong calls in tryCompileWhileLong
+
+- **while-jit-ref-args** — Extended `tryCompileWhileLong` (the Java-source
+  while-loop JIT) to compile loops that call a JIT-compiled `ObjToLong`
+  function with a val-bound `InstanceV` argument. New `WhileJitEntry` replaces
+  bare `Method` in the `JitBackend` SPI; carries `refNames` (variable names
+  to read from `interp.globals` at each invocation) and `refFns`
+  (pre-resolved `ObjToLong` instances). `JitGlobals.withRefs(refs, fns)` TLS
+  sets both arrays around each `method.invoke`; generated Java reads
+  `JitGlobals.getRefs()` / `getRefFns()` once before the loop.
+  Guards: `isInstanceOf[ObjToLong]` prevents ObjToObject functions from
+  being misidentified; `isCallee = true` blocks the ref path inside
+  co-emitted callee static methods (which have no ref preamble).
+  Commit: `b1c728af`.  Tests: 1230/1230 green.
+  **Bench wins (wi=5 mi=5 ms/op):**
+    `patternGuard` 12.4 → 0.044 ms (282×)
+    `matchBodyBaseline` 8.4 → 0.043 ms (196×)
+    `nestedMatchExpr` 8.6 → 0.042 ms (205×)
+
+---
+
 ## 2026-06-03 — DataTable Phase 3 (ColumnKind + RowPayload)
 
 - **datatable-column-action-expressiveness** — Added `ColumnKind` sealed trait

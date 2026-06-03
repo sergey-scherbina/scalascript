@@ -564,6 +564,22 @@ highest-impact item.
       case wired in both while-loop entries. Bench `refChainArg`
       (`leafVal(getLeft(tree))` × 1M): **191 → 9.9 ms (19×)**. 1230/1230 green.
 
+- [x] **while-jit-ref-args** — ✓ Landed 2026-06-03 commit `b1c728af`.
+      `tryCompileWhileLong` now handles while bodies that call a JIT-compiled
+      `ObjToLong` function with a val-bound `InstanceV` argument (e.g.
+      `total = total + absVal(aPos) + absVal(aNeg) + ...`).  New `WhileJitEntry`
+      replaces bare `Method` in the SPI; carries `refNames` (globals to read
+      per invocation) + `refFns` (ObjToLong instances, resolved at JIT time).
+      `JitGlobals.withRefs(refs, fns)` TLS mirrors `withInterp`. Guard:
+      `isInstanceOf[ObjToLong]` prevents ObjToObject fns (e.g. `getLeft`)
+      from being misidentified; `!ctx.isCallee` blocks the path inside
+      co-emitted callee static methods (no ref preamble there).
+      **Bench wins (wi=5 mi=5 ms/op):**
+        patternGuard:      12.4 → 0.044  (282×)
+        matchBodyBaseline:  8.4 → 0.043  (196×)
+        nestedMatchExpr:    8.6 → 0.042  (205×)
+      Tests: 1230/1230 green.
+
 - [x] **dual-bank-lref-match** — ✓ Landed 2026-06-03 commit `2305e321`.
       `LRefMatch(scrutR: LRefExpr, cm: CompiledMatch)` extends `LRefExpr`.
       `compileRefExpr` in both tryLongWhileAssign + tryMixedLongWhile gains
