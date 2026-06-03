@@ -451,6 +451,13 @@ verify step. Apply them.
       traits added. **Bench `pureCallSum`/`pureCallSum2`: 13 → 0.28 ms (47×,
       JVM parity).**
 
+- [x] **fast-map-foreach-preresolved** — ✓ Landed 2026-06-03 commit `1611e438`.
+      `PreResolvedFastLongMapForeach` + `PreResolvedFastDoubleMapForeach` complete the
+      fast-variant series (List/Set already had these). `ResolvedLong/DoubleMapAccum`
+      structs carry `accName + useFirst`; `tryResolveLong/DoubleMapAccum` check guards
+      once at setup; `runLong/DoubleAccumForeachMapFast` use pre-wired `cachedSlot`
+      field, bypassing TLS on each iteration. Bench: mapForeach 2.238 → 2.023 ms (~10%).
+
 - [ ] **phase-c-bytecode-foreach-static** (Direction A.4) — combine
       `tryCompileWhileLong` with `walkArm`: detect
       `xs.foreach(s => acc = acc + fn(s))` over a stable

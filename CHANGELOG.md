@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — fast-map-foreach-preresolved: PreResolvedFast Map foreach variants
+
+- **fast-map-foreach-preresolved** — `PreResolvedFastLongMapForeach` and
+  `PreResolvedFastDoubleMapForeach` complete the fast-variant series for
+  `tryPreResolveForeach`. Previously the MapV path re-ran ~5 guard checks
+  (enabled, params.length, usingParams, `analyzeMapAccum` IdentityHashMap
+  cache, `globals.getOrElse`) and 2 TLS probes (`accSlotTls` + `accNameTls`)
+  on every outer iteration. New `ResolvedLong/DoubleMapAccum` structs carry
+  `accName + useFirst`; `tryResolveLong/DoubleMapAccum` check these guards
+  once at setup; `runLong/DoubleAccumForeachMapFast` use the pre-wired
+  `cachedSlot` field directly, bypassing TLS on each inner call.
+  Bench (2f, ms/op): **mapForeach: 2.238 → 2.023 ms (~10%)**.
+  1233/1233 tests green.
+
 ## 2026-06-03 — jit-lint-recognisers-pure-predicates: JitLint precision + shared predicates
 
 - **jit-lint-recognisers-pure-predicates** — `JitPredicates` package-private object
