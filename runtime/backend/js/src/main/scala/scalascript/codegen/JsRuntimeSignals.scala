@@ -211,16 +211,24 @@ function _ssc_ui_renderBody(view) {
       case '_Fragment':      return (v.children || []).map(walk).join('');
       case '_DataTableView': {
         if (v.signal) collectSig(v.signal);
+        const fg = v.signal && v.signal._fetchGet;
+        if (fg && fg.tick)    collectSig(fg.tick);
+        if (fg && fg.headers) collectSig(fg.headers);
         (v.actions || []).forEach(function(a) {
           if (a.tick) collectSig(a.tick);
           if (a.headers) collectSig(a.headers);
           if (a._type === '_RowLink' && a.signal) collectSig(a.signal);
         });
         const dtSigId  = (v.signal && v.signal.id != null) ? String(v.signal.id) : '';
-        const dtUrl    = (v.signal && v.signal._fetchGet) ? _esc(v.signal._fetchGet.url) : '';
+        const dtUrl    = fg ? _esc(fg.url) : '';
+        const dtTick   = (fg && fg.tick && fg.tick.id != null) ? String(fg.tick.id) : '';
+        const dtHdr    = (fg && fg.headers && fg.headers.id != null) ? String(fg.headers.id) : '';
         const dtCols   = _esc(JSON.stringify((v.columns || []).map(function(c) { return {title: c.title, fieldPath: c.fieldPath}; })));
         const dtActs   = _esc(JSON.stringify((v.actions || []).map(function(a) { return a; })));
-        return `<div data-ssc-datatable="${dtSigId}" data-ssc-datatable-url="${dtUrl}" data-ssc-datatable-cols="${dtCols}" data-ssc-datatable-acts="${dtActs}" style="overflow-x:auto"></div>`;
+        let dtAttrs = `data-ssc-datatable="${dtSigId}" data-ssc-datatable-url="${dtUrl}" data-ssc-datatable-cols="${dtCols}" data-ssc-datatable-acts="${dtActs}"`;
+        if (dtTick) dtAttrs += ` data-ssc-datatable-tick="${dtTick}"`;
+        if (dtHdr)  dtAttrs += ` data-ssc-datatable-headers="${dtHdr}"`;
+        return `<div ${dtAttrs} style="overflow-x:auto"></div>`;
       }
       default: return '';
     }
@@ -297,10 +305,12 @@ function _ssc_ui_mount(sigs) {
   });
   // DataTable — generalised fetch-backed table with columns + actions
   document.querySelectorAll('[data-ssc-datatable]').forEach(function(container) {
-    var sigId   = container.getAttribute('data-ssc-datatable');
-    var fetchUrl = container.getAttribute('data-ssc-datatable-url');
-    var rawCols = container.getAttribute('data-ssc-datatable-cols');
-    var rawActs = container.getAttribute('data-ssc-datatable-acts');
+    var sigId      = container.getAttribute('data-ssc-datatable');
+    var fetchUrl   = container.getAttribute('data-ssc-datatable-url');
+    var rawCols    = container.getAttribute('data-ssc-datatable-cols');
+    var rawActs    = container.getAttribute('data-ssc-datatable-acts');
+    var headersId  = container.getAttribute('data-ssc-datatable-headers');
+    var tickId     = container.getAttribute('data-ssc-datatable-tick');
     var cols, acts;
     try { cols = JSON.parse(rawCols || '[]'); } catch(_e) { cols = []; }
     try { acts = JSON.parse(rawActs || '[]'); } catch(_e) { acts = []; }
@@ -375,9 +385,12 @@ function _ssc_ui_mount(sigs) {
       tbl.appendChild(tbody); container.appendChild(tbl);
     }
     function doFetch() {
-      fetch(fetchUrl).then(function(r) { return r.json(); }).then(renderTable);
+      var opts = {};
+      if (headersId) { var hs = getHeaders(headersId); if (hs) opts.headers = hs; }
+      fetch(fetchUrl, opts).then(function(r) { return r.json(); }).then(renderTable);
     }
     doFetch();
+    if (tickId) _sub(tickId, function(t) { if ((t | 0) > 0) doFetch(); });
     acts.forEach(function(act) {
       if ((act._type === '_RowDelete' || act._type === '_RowPost') && act.tick && act.tick.id) {
         var tId = String(act.tick.id);
