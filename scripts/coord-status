@@ -110,15 +110,22 @@ echo "== $REMOTE_REF =="
 git -C "$ROOT" log --oneline -1 "$REMOTE_REF"
 echo
 
-claim_files="$(
-  git -C "$ROOT" ls-tree -r --name-only "$REMOTE_REF" .work/active 2>/dev/null |
-    grep '\.claim$' || true
+active_files="$(git -C "$ROOT" ls-tree -r --name-only "$REMOTE_REF" .work/active 2>/dev/null || true)"
+claim_files="$(printf '%s\n' "$active_files" | grep '\.claim$' || true)"
+invalid_active_files="$(
+  printf '%s\n' "$active_files" |
+    grep -Ev '(^$|^\.work/active/_placeholder$|\.claim$)' || true
 )"
 
 claimed_slugs=""
+invalid_slugs=""
 echo "== active claims =="
 if [[ -z "$claim_files" ]]; then
-  echo "none"
+  if [[ -n "$invalid_active_files" ]]; then
+    echo "none (invalid active markers found below)"
+  else
+    echo "none"
+  fi
 else
   while IFS= read -r claim_file; do
     [[ -n "$claim_file" ]] || continue
@@ -129,6 +136,22 @@ else
     printf '%-42s %s\n' "$slug" "$owner"
     claimed_slugs="${claimed_slugs}"$'\n'"${slug}"
   done <<<"$claim_files"
+fi
+echo
+
+echo "== invalid active markers =="
+if [[ -z "$invalid_active_files" ]]; then
+  echo "none"
+else
+  while IFS= read -r marker_file; do
+    [[ -n "$marker_file" ]] || continue
+    marker="${marker_file##*/}"
+    owner="$(git -C "$ROOT" show "$REMOTE_REF:$marker_file" 2>/dev/null || true)"
+    owner="${owner//$'\n'/ }"
+    printf '%-42s %s\n' "$marker" "$owner"
+    printf '  repair: git mv %s %s.claim\n' "$marker_file" "$marker_file"
+    invalid_slugs="${invalid_slugs}"$'\n'"${marker}"
+  done <<<"$invalid_active_files"
 fi
 echo
 
@@ -245,6 +268,13 @@ else
         [[ -n "$slug" ]] || continue
         desc="$(printf '%s\n' "$line" | sed -n 's/^- \[ \] \*\*[^*][^*]*\*\*[[:space:]]*//p')"
         if printf '%s\n' "$claimed_slugs" | grep -Fxq "$slug"; then
+          continue
+        fi
+        if printf '%s\n' "$invalid_slugs" | grep -Fxq "$slug"; then
+          if [[ -z "$occupied_item" ]]; then
+            occupied_item="${section}: ${slug} ${desc}"
+            occupied_reason="invalid active marker: .work/active/${slug} (rename to .work/active/${slug}.claim or release it)"
+          fi
           continue
         fi
         live_match="$(find_live_match "$slug" || true)"

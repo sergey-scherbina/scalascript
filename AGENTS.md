@@ -797,6 +797,11 @@ unique by task slug, so two agents can never produce a git conflict when
 adding different tasks' claim files. Conflicts arise only if two agents
 claim the *same* task simultaneously — but the rejected push prevents that.
 
+Files in `.work/active/` without the `.claim` suffix are **invalid
+coordination markers**. They do not satisfy the claim protocol, and tooling
+must flag them instead of silently treating the task as free. If you see one,
+report or repair it before starting overlapping work.
+
 A claim is valid only if `.work/active/<task-slug>.claim` is visible on
 `origin/main`. Local branches, local worktrees, unpushed commits, and local
 files do **not** count as claims. `git worktree list` is a collision hint, not
@@ -829,8 +834,11 @@ git show origin/main:WORK_QUEUE.md              # ordered pending list
 git ls-tree origin/main .work/active/           # currently claimed slugs
 # ⚠ Do NOT use `cat WORK_QUEUE.md` or `ls .work/active/` — those read from
 #   the local branch, which may be stale or a worktree's feature branch.
+# ⚠ Any `.work/active/<slug>` file without `.claim` is an invalid marker. Do
+#   not treat the task as safely free; repair or report it first.
 
 # 3. Pick the highest-priority Pending task whose slug has no .claim file
+#    and no invalid suffix-less marker in .work/active/
 #    (if every Pending task is claimed, wait or read BACKLOG.md for unlisted work)
 TASK_SLUG="v1.46-phase5-derivation"   # example
 WORKTREE_NAME="feature+phase5-derivation"
@@ -867,6 +875,27 @@ If you accidentally made `claim: <slug>` in a worktree or feature branch:
 claim correctly against `origin/main`, then either delete the bad local
 claim-only branch/worktree or rebase useful implementation work onto the
 properly claimed branch.
+
+If a claim reached `origin/main` but the file was named without `.claim`
+(for example `.work/active/<slug>`), fix only the marker from the main
+checkout:
+
+```bash
+test "$(pwd)" = "/Users/sergiy/work/my/scalascript"
+test "$(git symbolic-ref --short HEAD)" = "main"
+test -d .git
+TASK_SLUG="<slug>"
+git fetch origin
+git merge --ff-only origin/main
+git mv ".work/active/${TASK_SLUG}" ".work/active/${TASK_SLUG}.claim"
+git diff --cached --name-status
+git commit -m "fix-claim: ${TASK_SLUG}"
+git push origin main
+```
+
+If the invalid marker belongs to a live parallel agent, do not repair it
+silently unless the user asked you to. Report the owner/worktree first; the
+owner can rebase or remove the corrected `.claim` file at completion.
 
 ### Starting work after a successful claim
 
@@ -912,10 +941,12 @@ Preferred quick check:
 scripts/coord-status
 ```
 
-It reads `origin/main` for the queue and claims, shows local worktrees,
+This is a read-only coordination/status operation; run it from the main checkout
+when possible and do not create a review worktree just to inspect state. It
+reads `origin/main` for the queue and claims, shows local worktrees,
 flags stale-looking claims, marks pending items that already look occupied by
-live worktrees/branches, and avoids shell-specific pitfalls in the manual
-commands below.
+live worktrees/branches, flags invalid suffix-less active markers, and avoids
+shell-specific pitfalls in the manual commands below.
 
 ```bash
 git fetch origin
@@ -924,6 +955,8 @@ git ls-tree origin/main .work/active/   # all active claims on remote (authorita
 git ls-tree origin/main .work/active/ | awk '{print $4}' | grep '\.claim$' | while read claim_file; do
   printf "%-40s %s\n" "$(basename "$claim_file" .claim)" "$(git show "origin/main:$claim_file")"
 done
+# Also check for invalid suffix-less markers; these need repair/report:
+git ls-tree origin/main .work/active/ | awk '{print $4}' | grep -Ev '(^.work/active/_placeholder$|\.claim$)' || true
 # ⚠ Do NOT use `ls .work/active/` or `cat .work/active/*.claim` from a worktree —
 #   those read from the local branch which may predate recent claim commits.
 # ⚠ In zsh, do not name the loop variable `path`: it is tied to `PATH` and can
