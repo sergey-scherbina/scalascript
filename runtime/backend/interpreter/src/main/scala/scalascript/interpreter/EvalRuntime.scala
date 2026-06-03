@@ -351,8 +351,8 @@ private[interpreter] object EvalRuntime:
         case Value.IntV(v) => v
         case _             => return null
 
-    // Resolve the list receiver from globals at call time (val-bound, stable).
-    val listVal: scalascript.interpreter.Value.ListV | Null =
+    // Resolve the receiver (ListV or SetV) from globals at call time (val-bound, stable).
+    val receiverVal: Value | Null =
       foreachApply match
         case ta: scala.meta.Term.Apply =>
           ta.fun match
@@ -361,13 +361,14 @@ private[interpreter] object EvalRuntime:
                 case scala.meta.Term.Name(n2) =>
                   interp.globals.getOrElse(n2, null) match
                     case lv: Value.ListV => lv
-                    case _              => null
+                    case sv: Value.SetV  => sv
+                    case _               => null
                 case _ => null
             case _ => null
         case _ => null
-    if listVal == null then return null
+    if receiverVal == null then return null
 
-    val refs = Array[AnyRef](listVal.asInstanceOf[AnyRef])
+    val refs = Array[AnyRef](receiverVal.asInstanceOf[AnyRef])
     try
       if accIsDouble then
         scalascript.interpreter.vm.jit.JitGlobals.withInterp(interp) {
