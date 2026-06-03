@@ -64,7 +64,7 @@ object SimpleYaml:
         if colonIdx >= 0 then
           val key   = unquote(trimmed.take(colonIdx).trim)
           val after = trimmed.drop(colonIdx + 1).trim
-          val value = parseInlineOrNext(after, mapIndent)
+          val value = parseInlineOrNext(after, mapIndent, fromMapValue = true)
           result.put(key, value)
       result
 
@@ -76,12 +76,18 @@ object SimpleYaml:
         val trimmed = cur.stripLeading()
         i += 1
         val content = trimmed.drop(if trimmed.startsWith("- ") then 2 else 1).trim
-        val item = parseInlineOrNext(content, seqIndent)
+        val item = parseInlineOrNext(content, seqIndent, fromMapValue = false)
         result.add(item)
       result
 
-    // Parse a value that is either same-line (ahead) or on the next indented line(s)
-    private def parseInlineOrNext(ahead: String, parentIndent: Int): Any =
+    // Parse a value that is either same-line (ahead) or on the next indented line(s).
+    // `fromMapValue` = true when parsing the VALUE part of a block map entry; in that
+    // context a `: ` inside a plain scalar is a YAML spec error (it would terminate the
+    // scalar and start an ambiguous new mapping indicator).  SnakeYAML rejected these with
+    // "mapping values are not allowed here"; we reproduce that behaviour so existing tests
+    // and user diagnostics remain consistent.  Sequence items pass false — an inline
+    // `key: value` in a `- key: value` line IS a legitimate nested map, not an error.
+    private def parseInlineOrNext(ahead: String, parentIndent: Int, fromMapValue: Boolean): Any =
       if ahead.isEmpty then
         skipBlank()
         if !done && curIndent > parentIndent then
@@ -92,7 +98,12 @@ object SimpleYaml:
       else if ahead.startsWith("[") then parseFlowSeq(ahead.drop(1))
       else if ahead.startsWith("{") then parseFlowMap(ahead.drop(1))
       else if ahead == "|" || ahead == ">" then parseLiteralBlock(parentIndent)
-      else if findKeyColon(ahead) >= 0 then parseFirstMapEntry(ahead, parentIndent)
+      else if findKeyColon(ahead) >= 0 then
+        if fromMapValue then
+          throw new ParseError(
+            s"mapping values are not allowed here (plain scalar value contains `: `); " +
+            s"quote the value if it is a literal string: $ahead")
+        parseFirstMapEntry(ahead, parentIndent)
       else parseScalar(ahead)
 
     // Parse an inline map entry (key: value on the same line as `-`) and any
@@ -125,7 +136,7 @@ object SimpleYaml:
             if ci2 >= 0 then
               val k = unquote(t.take(ci2).trim)
               val a = t.drop(ci2 + 1).trim
-              result.put(k, parseInlineOrNext(a, mapInd))
+              result.put(k, parseInlineOrNext(a, mapInd, fromMapValue = true))
       result
 
     // ── literal/folded block scalars (|, >) ────────────────────────────────
