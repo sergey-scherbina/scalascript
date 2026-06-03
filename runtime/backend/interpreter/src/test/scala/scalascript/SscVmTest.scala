@@ -5,8 +5,10 @@ import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.Interpreter
 import scalascript.interpreter.Value
 import scalascript.interpreter.vm.{SscVm, VmCompiler}
-import scalascript.interpreter.vm.jit.{AsmJitBackend, JavacJitBackend, LongFn1, ObjToLong, ObjToObject}
+import scalascript.interpreter.vm.jit.{AsmJitBackend, JavacJitBackend, JitGlobals, LongFn1, ObjToLong, ObjToObject, WhileJitEntry}
+import scalascript.ast.{Content, ScalaNode}
 import scalascript.parser.Parser
+import scala.meta.{Source, Term}
 
 /** Verifies the proof-of-concept bytecode VM (docs/vm-jit-spec.md):
  *  compiling real parsed integer functions and checking VM results equal
@@ -35,6 +37,85 @@ class SscVmTest extends AnyFunSuite with Matchers:
       interp.globalsView.get(name) match
         case Some(fv: Value.FunV) => fv
         case _                    => null
+
+  private def whileParts(defs: String, whileSrc: String): (Interpreter, Term.While, Array[String], Array[Term]) =
+    val interp = interpOf(defs)
+    val module = Parser.parse(s"# T\n\n```scala\n$defs\n$whileSrc\n```\n")
+    val w = firstWhile(module)
+    val assigns: List[Term.Assign] = w.body match
+      case b: Term.Block => b.stats.collect { case a: Term.Assign => a }
+      case a: Term.Assign => List(a)
+      case _ => fail(s"Unsupported while body: ${w.body}")
+    val names = assigns.map {
+      case Term.Assign(Term.Name(n), _) => n
+      case other => fail(s"Unsupported assignment lhs: $other")
+    }.toArray
+    val rhs = assigns.map(_.rhs).toArray
+    (interp, w, names, rhs)
+
+  private def firstWhile(module: scalascript.ast.Module): Term.While =
+    var found: Term.While | Null = null
+    def loop(t: scala.meta.Tree): Unit =
+      if found == null then t match
+        case w: Term.While => found = w
+        case _             => t.children.foreach(loop)
+    module.sections.foreach { section =>
+      section.content.foreach {
+        case cb: Content.CodeBlock =>
+          cb.tree.foreach(node => ScalaNode.fold(node) {
+            case Source(stats)     => stats.foreach(loop)
+            case Term.Block(stats) => stats.foreach(loop)
+            case other             => loop(other)
+          })
+        case _ => ()
+      }
+    }
+    if found != null then found.asInstanceOf[Term.While] else fail("No while term found")
+
+  private def mixedWhileParts(defs: String, whileSrc: String): (Interpreter, Term.While, Term, Array[String], Array[Term]) =
+    val interp = interpOf(defs)
+    val module = Parser.parse(s"# T\n\n```scala\n$defs\n$whileSrc\n```\n")
+    val w = firstWhile(module)
+    val stats = w.body match
+      case b: Term.Block => b.stats
+      case other         => fail(s"Unsupported mixed while body: $other")
+    val foreachApply = stats.collectFirst {
+      case ap: Term.Apply =>
+        ap.fun match
+          case Term.Select(_, Term.Name("foreach")) => ap
+          case _                                    => null
+    }.orNull
+    if foreachApply == null then fail("No foreach apply found")
+    val assigns = stats.collect { case a: Term.Assign => a }
+    val names = assigns.map {
+      case Term.Assign(Term.Name(n), _) => n
+      case other => fail(s"Unsupported assignment lhs: $other")
+    }.toArray
+    val rhs = assigns.map(_.rhs).toArray
+    (interp, w, foreachApply, names, rhs)
+
+  private def resolveWhileRefs(entry: WhileJitEntry, interp: Interpreter): Array[AnyRef] =
+    entry.refNames.map { name =>
+      if name.indexOf('.') >= 0 then fail(s"Direct test resolver only supports simple ref globals, got `$name`")
+      interp.globalsView.getOrElse(name, null) match
+        case inst: Value.InstanceV => inst.asInstanceOf[AnyRef]
+        case other => fail(s"Ref `$name` did not resolve to InstanceV: $other")
+    }
+
+  private def runWhileEntry(entry: WhileJitEntry, interp: Interpreter, slots: Array[Long]): Unit =
+    JitGlobals.withInterp(interp) {
+      JitGlobals.withRefs(resolveWhileRefs(entry, interp), entry.refFns, entry.refObjFns) {
+        entry.method.invoke(null, slots.asInstanceOf[AnyRef])
+      }
+    }
+
+  private def runMixedEntry(entry: WhileJitEntry, interp: Interpreter, receiverName: String, slots: Array[Long]): Unit =
+    val receiver = interp.globalsView(receiverName).asInstanceOf[AnyRef]
+    JitGlobals.withInterp(interp) {
+      JitGlobals.withRefs(Array(receiver), entry.refFns, Array.empty[ObjToObject], entry.refDoubleFns) {
+        entry.method.invoke(null, slots.asInstanceOf[AnyRef])
+      }
+    }
 
   test("compiles and runs recursive fib") {
     val fib = funOf("fib",
@@ -237,6 +318,110 @@ class SscVmTest extends AnyFunSuite with Matchers:
     jitR.direct.isInstanceOf[ObjToObject] shouldBe true
     val out = jitR.direct.asInstanceOf[ObjToObject].apply(chain).asInstanceOf[AnyRef]
     (out eq leaf) shouldBe true
+  }
+
+  test("ASM while JIT compiles inline ref match RHS") {
+    val defs =
+      """enum Shape:
+        |  case Circle(r: Int)
+        |  case Square(s: Int)
+        |val shape: Shape = Shape.Circle(5)""".stripMargin
+    val whileSrc =
+      """var total = 0
+        |var i = 0
+        |while i < 100 do
+        |  total = total + (shape match { case Shape.Circle(r) => r; case Shape.Square(s) => s })
+        |  i = i + 1""".stripMargin
+    val (interp, w, names, rhs) = whileParts(defs, whileSrc)
+    names shouldBe Array("total", "i")
+    val entry = AsmJitBackend.tryCompileWhileLong(w.expr, names, rhs, interp)
+    entry should not be null
+    entry.refNames shouldBe Array("shape")
+    entry.refFns shouldBe empty
+    entry.refObjFns shouldBe empty
+    val slots = Array(0L, 0L)
+    runWhileEntry(entry, interp, slots)
+    slots shouldBe Array(500L, 100L)
+  }
+
+  test("ASM while JIT compiles ObjToObject ref-arg chains") {
+    val defs =
+      """sealed trait Node
+        |case class Leaf(v: Int) extends Node
+        |case class Branch(left: Node, right: Node) extends Node
+        |val leaf5 = Leaf(5)
+        |val tree  = Branch(leaf5, Leaf(99))
+        |def getLeft(b: Node): Node = b match
+        |  case Branch(l, _) => l
+        |  case x            => x
+        |def leafVal(n: Node): Int = n match
+        |  case Leaf(v)      => v
+        |  case Branch(_, _) => -1""".stripMargin
+    val whileSrc =
+      """var sum = 0
+        |var i = 0
+        |while i < 100 do
+        |  sum = sum + leafVal(getLeft(tree))
+        |  i = i + 1""".stripMargin
+    val (interp, w, names, rhs) = whileParts(defs, whileSrc)
+    names shouldBe Array("sum", "i")
+    val entry = AsmJitBackend.tryCompileWhileLong(w.expr, names, rhs, interp)
+    entry should not be null
+    entry.refNames shouldBe Array("tree")
+    entry.refFns.length shouldBe 1
+    entry.refObjFns.length shouldBe 1
+    val slots = Array(0L, 0L)
+    runWhileEntry(entry, interp, slots)
+    slots shouldBe Array(500L, 100L)
+  }
+
+  test("ASM mixed while JIT fuses List foreach with ObjToLong accumulator") {
+    val defs =
+      """sealed trait Node
+        |case class Leaf(v: Int) extends Node
+        |val xs = List(Leaf(1), Leaf(2), Leaf(3))
+        |def leafVal(n: Node): Int = n match
+        |  case Leaf(v) => v""".stripMargin
+    val whileSrc =
+      """var acc = 0
+        |var i = 0
+        |while i < 4 do
+        |  xs.foreach(x => acc = acc + leafVal(x))
+        |  i = i + 1""".stripMargin
+    val (interp, w, foreachApply, names, rhs) = mixedWhileParts(defs, whileSrc)
+    names shouldBe Array("i")
+    val entry = AsmJitBackend.tryCompileWhileMixed(w.expr, names, rhs, foreachApply, "acc", accIsDouble = false, interp)
+    entry should not be null
+    entry.refFns.length shouldBe 1
+    entry.refDoubleFns shouldBe empty
+    val slots = Array(0L, 0L)
+    runMixedEntry(entry, interp, "xs", slots)
+    slots shouldBe Array(4L, 24L)
+  }
+
+  test("ASM mixed while JIT fuses Set foreach with ObjToDouble accumulator") {
+    val defs =
+      """sealed trait Node
+        |case class Leaf(v: Int) extends Node
+        |val xs = Set(Leaf(1), Leaf(2))
+        |def weight(n: Node): Double = n match
+        |  case Leaf(v) => v + 0.5""".stripMargin
+    val whileSrc =
+      """var acc = 0.0
+        |var i = 0
+        |while i < 3 do
+        |  xs.foreach(x => acc = acc + weight(x))
+        |  i = i + 1""".stripMargin
+    val (interp, w, foreachApply, names, rhs) = mixedWhileParts(defs, whileSrc)
+    names shouldBe Array("i")
+    val entry = AsmJitBackend.tryCompileWhileMixed(w.expr, names, rhs, foreachApply, "acc", accIsDouble = true, interp)
+    entry should not be null
+    entry.refFns shouldBe empty
+    entry.refDoubleFns.length shouldBe 1
+    val slots = Array(0L, java.lang.Double.doubleToRawLongBits(0.0))
+    runMixedEntry(entry, interp, "xs", slots)
+    slots(0) shouldBe 3L
+    java.lang.Double.longBitsToDouble(slots(1)) shouldBe 12.0
   }
 
   // ── Double-domain support (raw VM result is double *bits*) ──────────

@@ -744,8 +744,8 @@ object AsmJitBackend extends JitBackend:
     if c.cond.nonEmpty then return false
     c.pat match
       case ext: scala.meta.Pat.Extract =>
-        val ctorName = ext.fun match
-          case Term.Name(n) => n; case _ => return false
+        val ctorName = extractCtorName(ext.fun)
+        if ctorName == null then return false
         val argPats = ext.argClause.values.toArray
         val n       = argPats.length
         val bindNames = new Array[String](n)
@@ -821,9 +821,8 @@ object AsmJitBackend extends JitBackend:
                                 intTag: Int, allTagged: Boolean): Boolean =
     c.pat match
       case ext: scala.meta.Pat.Extract =>
-        val ctorName = ext.fun match
-          case Term.Name(n) => n
-          case _            => return false
+        val ctorName = extractCtorName(ext.fun)
+        if ctorName == null then return false
         val nextLbl = new Label
         if allTagged && intTag > 0 then
           mv.visitVarInsn(ALOAD, instSlot)
@@ -965,9 +964,8 @@ object AsmJitBackend extends JitBackend:
     if c.cond.nonEmpty then return false
     c.pat match
       case ext: scala.meta.Pat.Extract =>
-        val ctorName = ext.fun match
-          case Term.Name(n) => n
-          case _            => return false
+        val ctorName = extractCtorName(ext.fun)
+        if ctorName == null then return false
         val argPats = ext.argClause.values.toArray
         val n = argPats.length
         val bindNames = new Array[String](n)
@@ -1135,12 +1133,17 @@ object AsmJitBackend extends JitBackend:
 
   // ── Switch/string-chain helpers ───────────────────────────────────────────
 
+  private def extractCtorName(t: Term): String | Null = t match
+    case Term.Name(n)                     => n
+    case Term.Select(_, Term.Name(n))     => n
+    case _                                => null
+
   private def resolveArmTags(cases: Array[scala.meta.Case], interp: Interpreter): Array[Int] =
     cases.map { c =>
       c.pat match
-        case ext: scala.meta.Pat.Extract => ext.fun match
-          case Term.Name(n) => interp.typeTagMap.getOrElse(n, 0)
-          case _            => 0
+        case ext: scala.meta.Pat.Extract =>
+          val name = extractCtorName(ext.fun)
+          if name == null then 0 else interp.typeTagMap.getOrElse(name, 0)
         case _ => 0
     }
 
@@ -1162,8 +1165,9 @@ object AsmJitBackend extends JitBackend:
     var ci = 0; var rem = cases
     while rem.nonEmpty do
       val name = rem.head.pat match
-        case ext: scala.meta.Pat.Extract => ext.fun match
-          case Term.Name(n) => n; case _ => ""
+        case ext: scala.meta.Pat.Extract =>
+          val n = extractCtorName(ext.fun)
+          if n == null then "" else n
         case _ => ""
       if name.nonEmpty then
         val next = new Label
@@ -1238,10 +1242,13 @@ object AsmJitBackend extends JitBackend:
       rhsEmits(k) = e
       k += 1
 
-    val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES)
+    val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
+      override def getCommonSuperClass(t1: String, t2: String): String = "java/lang/Object"
+    }
     cw.visit(V21, ACC_PUBLIC | ACC_FINAL, cname, null, "java/lang/Object", Array.empty)
     val mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, "run", "([J)V", null, null)
     mv.visitCode()
+    emitWhileRefPreamble(ctx, mv, names.length)
 
     // array → named locals (slots 1..1+2*n, since slot 0 = the long[] ref)
     var i = 0
@@ -1283,9 +1290,315 @@ object AsmJitBackend extends JitBackend:
     if method == null then
       whileCache.put(cond, WhileMiss)
       return null
-    val entry = new WhileJitEntry(method, Array.empty[String], Array.empty[ObjToLong], Array.empty[ObjToObject])
+    val refFnsArr = resolveWhileRefFns(ctx, interp)
+    if refFnsArr == null then { whileCache.put(cond, WhileMiss); return null }
+    val refObjFnsArr = resolveWhileRefObjFns(ctx, interp)
+    if refObjFnsArr == null then { whileCache.put(cond, WhileMiss); return null }
+    val entry = new WhileJitEntry(
+      method,
+      if ctx.refNames.isEmpty then Array.empty[String] else ctx.refNames.toArray,
+      refFnsArr,
+      refObjFnsArr
+    )
     whileCache.put(cond, entry.asInstanceOf[AnyRef])
     entry
+
+  // ── mixed while + foreach fused JIT ─────────────────────────────────────
+
+  private val whileMixedCache = new java.util.IdentityHashMap[Term, AnyRef]()
+  private val WhileMixedMiss  = new AnyRef
+
+  private def analyzeForeachApply(foreachApply: Term, accName: String): (String, String) | Null =
+    foreachApply match
+      case ta: Term.Apply =>
+        ta.fun match
+          case Term.Select(qual, Term.Name("foreach")) =>
+            val receiverName = qual match
+              case Term.Name(n) => n
+              case _            => return null
+            ta.argClause.values match
+              case List(fn: Term.Function) if fn.paramClause.values.lengthCompare(1) == 0 =>
+                val paramName = fn.paramClause.values.head.name.value
+                if paramName.isEmpty then return null
+                val core = fn.body match
+                  case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+                    b.stats.head match
+                      case t: Term => t
+                      case _       => return null
+                  case t => t
+                core match
+                  case a: Term.Assign =>
+                    a.lhs match
+                      case Term.Name(`accName`) =>
+                        a.rhs match
+                          case Term.ApplyInfix.After_4_6_0(Term.Name(`accName`), op, _, ac)
+                              if op.value == "+" && ac.values.lengthCompare(1) == 0 =>
+                            ac.values.head match
+                              case ap: Term.Apply if ap.argClause.values.lengthCompare(1) == 0 =>
+                                ap.fun match
+                                  case Term.Name(fnName) =>
+                                    ap.argClause.values.head match
+                                      case Term.Name(`paramName`) => (receiverName, fnName)
+                                      case _                      => null
+                                  case _ => null
+                              case _ => null
+                          case _ => null
+                      case _ => null
+                  case _ => null
+              case _ => null
+          case _ => null
+      case _ => null
+
+  override def tryCompileWhileMixed(
+    cond:         Term,
+    names:        Array[String],
+    rhs:          Array[Term],
+    foreachApply: Term,
+    accName:      String,
+    accIsDouble:  Boolean,
+    interp:       Interpreter
+  ): WhileJitEntry | Null =
+    if !enabled then return null
+    val cached = whileMixedCache.get(foreachApply)
+    if cached eq WhileMixedMiss then return null
+    if cached != null then return cached.asInstanceOf[WhileJitEntry]
+
+    val info = analyzeForeachApply(foreachApply, accName)
+    if info == null then { whileMixedCache.put(foreachApply, WhileMixedMiss); return null }
+    val (receiverName, fnName) = info
+
+    val receiverVal = interp.globals.getOrElse(receiverName, null)
+    val receiverIsList = receiverVal.isInstanceOf[Value.ListV]
+    val receiverIsSet  = !receiverIsList && receiverVal.isInstanceOf[Value.SetV]
+    if !receiverIsList && !receiverIsSet then
+      whileMixedCache.put(foreachApply, WhileMixedMiss)
+      return null
+
+    val fnVal = interp.globals.getOrElse(fnName, null)
+    if !fnVal.isInstanceOf[Value.FunV] then
+      whileMixedCache.put(foreachApply, WhileMixedMiss)
+      return null
+    val jitR = tryCompile(fnVal.asInstanceOf[Value.FunV], interp)
+    if jitR == null || jitR.direct == null then
+      whileMixedCache.put(foreachApply, WhileMixedMiss)
+      return null
+    val fnObjToLong: ObjToLong | Null =
+      if !accIsDouble && jitR.direct.isInstanceOf[ObjToLong] then jitR.direct.asInstanceOf[ObjToLong] else null
+    val fnObjToDouble: ObjToDouble | Null =
+      if accIsDouble && jitR.direct.isInstanceOf[ObjToDouble] then jitR.direct.asInstanceOf[ObjToDouble] else null
+    if (!accIsDouble && fnObjToLong == null) || (accIsDouble && fnObjToDouble == null) then
+      whileMixedCache.put(foreachApply, WhileMixedMiss)
+      return null
+
+    val n = classCounter.incrementAndGet()
+    val cname = s"scalascript/interpreter/vm/jit/asm/AsmWhileMixed$$$n"
+    val pureFns = mutable.LinkedHashMap.empty[String, WhilePureFn]
+    val ctx = WhileCtx(names, interp, pureFns, cname)
+
+    val condEmit = walkWhileBool(cond, ctx)
+    if condEmit == null then { whileMixedCache.put(foreachApply, WhileMixedMiss); return null }
+
+    val rhsEmits = new Array[MethodVisitor => Unit](names.length)
+    var k = 0
+    while k < names.length do
+      val e = walkWhileSlot(rhs(k), ctx)
+      if e == null then { whileMixedCache.put(foreachApply, WhileMixedMiss); return null }
+      rhsEmits(k) = e
+      k += 1
+
+    val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
+      override def getCommonSuperClass(t1: String, t2: String): String = "java/lang/Object"
+    }
+    cw.visit(V21, ACC_PUBLIC | ACC_FINAL, cname, null, "java/lang/Object", Array.empty)
+    val mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, "run", "([J)V", null, null)
+    mv.visitCode()
+
+    val accSlotIdx = names.length
+    val accLocal = 1 + names.length * 2
+    var nextObjLocal = accLocal + 2
+    def allocObjLocal(): Int =
+      val s = nextObjLocal
+      nextObjLocal += 1
+      s
+
+    val fnSlot = allocObjLocal()
+    mv.visitFieldInsn(GETSTATIC, globalsInt, "MODULE$", s"L$globalsInt;")
+    if accIsDouble then
+      mv.visitMethodInsn(INVOKEVIRTUAL, globalsInt, "getRefDoubleFns",
+        "()[Lscalascript/interpreter/vm/jit/ObjToDouble;", false)
+      emitIconst(mv, 0)
+      mv.visitInsn(AALOAD)
+      mv.visitTypeInsn(CHECKCAST, "scalascript/interpreter/vm/jit/ObjToDouble")
+    else
+      mv.visitMethodInsn(INVOKEVIRTUAL, globalsInt, "getRefFns",
+        "()[Lscalascript/interpreter/vm/jit/ObjToLong;", false)
+      emitIconst(mv, 0)
+      mv.visitInsn(AALOAD)
+      mv.visitTypeInsn(CHECKCAST, "scalascript/interpreter/vm/jit/ObjToLong")
+    mv.visitVarInsn(ASTORE, fnSlot)
+
+    val receiverSlot = allocObjLocal()
+    mv.visitFieldInsn(GETSTATIC, globalsInt, "MODULE$", s"L$globalsInt;")
+    mv.visitMethodInsn(INVOKEVIRTUAL, globalsInt, "getRefs", "()[Ljava/lang/Object;", false)
+    emitIconst(mv, 0)
+    mv.visitInsn(AALOAD)
+    mv.visitTypeInsn(CHECKCAST,
+      if receiverIsSet then "scalascript/interpreter/Value$SetV" else "scalascript/interpreter/Value$ListV")
+    mv.visitVarInsn(ASTORE, receiverSlot)
+
+    k = 0
+    while k < names.length do
+      mv.visitVarInsn(ALOAD, 0)
+      emitIconst(mv, k)
+      mv.visitInsn(LALOAD)
+      mv.visitVarInsn(LSTORE, 1 + k * 2)
+      k += 1
+
+    mv.visitVarInsn(ALOAD, 0)
+    emitIconst(mv, accSlotIdx)
+    mv.visitInsn(LALOAD)
+    if accIsDouble then
+      mv.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "longBitsToDouble", "(J)D", false)
+      mv.visitVarInsn(DSTORE, accLocal)
+    else mv.visitVarInsn(LSTORE, accLocal)
+
+    val outerHead = new Label
+    val outerEnd = new Label
+    mv.visitLabel(outerHead)
+    condEmit(mv, outerEnd)
+    val foreachScratchSlot = allocObjLocal()
+    if receiverIsSet then emitSetForeachAccum(mv, receiverSlot, fnSlot, foreachScratchSlot, accLocal, accIsDouble)
+    else emitListForeachAccum(mv, receiverSlot, fnSlot, foreachScratchSlot, accLocal, accIsDouble)
+
+    k = 0
+    while k < names.length do
+      rhsEmits(k)(mv)
+      mv.visitVarInsn(LSTORE, 1 + k * 2)
+      k += 1
+    mv.visitJumpInsn(GOTO, outerHead)
+    mv.visitLabel(outerEnd)
+
+    k = 0
+    while k < names.length do
+      mv.visitVarInsn(ALOAD, 0)
+      emitIconst(mv, k)
+      mv.visitVarInsn(LLOAD, 1 + k * 2)
+      mv.visitInsn(LASTORE)
+      k += 1
+    mv.visitVarInsn(ALOAD, 0)
+    emitIconst(mv, accSlotIdx)
+    if accIsDouble then
+      mv.visitVarInsn(DLOAD, accLocal)
+      mv.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "doubleToRawLongBits", "(D)J", false)
+    else mv.visitVarInsn(LLOAD, accLocal)
+    mv.visitInsn(LASTORE)
+    mv.visitInsn(RETURN)
+    mv.visitMaxs(0, 0)
+    mv.visitEnd()
+
+    for (_, pf) <- pureFns do pf.emit(cw)
+    cw.visitEnd()
+
+    val bytes = cw.toByteArray
+    val loader = new InMemoryClassLoader(getClass.getClassLoader)
+    val cls = try loader.define(cname.replace('/', '.'), bytes)
+              catch case _: Throwable => { whileMixedCache.put(foreachApply, WhileMixedMiss); return null }
+    val method =
+      try
+        val m = cls.getMethod("run", classOf[Array[Long]])
+        m.setAccessible(true)
+        m
+      catch case _: Throwable => null
+    if method == null then
+      whileMixedCache.put(foreachApply, WhileMixedMiss)
+      return null
+
+    val entry = new WhileJitEntry(
+      method,
+      Array.empty[String],
+      if fnObjToLong != null then Array(fnObjToLong) else Array.empty[ObjToLong],
+      Array.empty[ObjToObject],
+      if fnObjToDouble != null then Array(fnObjToDouble) else Array.empty[ObjToDouble]
+    )
+    whileMixedCache.put(foreachApply, entry.asInstanceOf[AnyRef])
+    entry
+
+  private def emitListForeachAccum(
+    mv:           MethodVisitor,
+    receiverSlot: Int,
+    fnSlot:       Int,
+    itemsSlot:    Int,
+    accLocal:     Int,
+    accIsDouble:  Boolean
+  ): Unit =
+    val head = new Label
+    val done = new Label
+    mv.visitVarInsn(ALOAD, receiverSlot)
+    mv.visitMethodInsn(INVOKEVIRTUAL, "scalascript/interpreter/Value$ListV", "items",
+      "()Lscala/collection/immutable/List;", false)
+    mv.visitVarInsn(ASTORE, itemsSlot)
+    mv.visitLabel(head)
+    mv.visitVarInsn(ALOAD, itemsSlot)
+    mv.visitMethodInsn(INVOKEVIRTUAL, "scala/collection/immutable/List", "isEmpty", "()Z", false)
+    mv.visitJumpInsn(IFNE, done)
+    if accIsDouble then mv.visitVarInsn(DLOAD, accLocal) else mv.visitVarInsn(LLOAD, accLocal)
+    mv.visitVarInsn(ALOAD, fnSlot)
+    mv.visitVarInsn(ALOAD, itemsSlot)
+    mv.visitMethodInsn(INVOKEVIRTUAL, "scala/collection/immutable/List", "head", "()Ljava/lang/Object;", false)
+    if accIsDouble then
+      mv.visitMethodInsn(INVOKEINTERFACE, "scalascript/interpreter/vm/jit/ObjToDouble",
+        "apply", "(Ljava/lang/Object;)D", true)
+      mv.visitInsn(DADD)
+      mv.visitVarInsn(DSTORE, accLocal)
+    else
+      mv.visitMethodInsn(INVOKEINTERFACE, "scalascript/interpreter/vm/jit/ObjToLong",
+        "apply", "(Ljava/lang/Object;)J", true)
+      mv.visitInsn(LADD)
+      mv.visitVarInsn(LSTORE, accLocal)
+    mv.visitVarInsn(ALOAD, itemsSlot)
+    mv.visitMethodInsn(INVOKEVIRTUAL, "scala/collection/immutable/List", "tail",
+      "()Lscala/collection/LinearSeq;", false)
+    mv.visitTypeInsn(CHECKCAST, "scala/collection/immutable/List")
+    mv.visitVarInsn(ASTORE, itemsSlot)
+    mv.visitJumpInsn(GOTO, head)
+    mv.visitLabel(done)
+
+  private def emitSetForeachAccum(
+    mv:           MethodVisitor,
+    receiverSlot: Int,
+    fnSlot:       Int,
+    iterSlot:     Int,
+    accLocal:     Int,
+    accIsDouble:  Boolean
+  ): Unit =
+    val head = new Label
+    val done = new Label
+    mv.visitVarInsn(ALOAD, receiverSlot)
+    mv.visitMethodInsn(INVOKEVIRTUAL, "scalascript/interpreter/Value$SetV", "items",
+      "()Lscala/collection/immutable/Set;", false)
+    mv.visitMethodInsn(INVOKEINTERFACE, "scala/collection/IterableOnce", "iterator",
+      "()Lscala/collection/Iterator;", true)
+    mv.visitVarInsn(ASTORE, iterSlot)
+    mv.visitLabel(head)
+    mv.visitVarInsn(ALOAD, iterSlot)
+    mv.visitMethodInsn(INVOKEINTERFACE, "scala/collection/Iterator", "hasNext", "()Z", true)
+    mv.visitJumpInsn(IFEQ, done)
+    if accIsDouble then mv.visitVarInsn(DLOAD, accLocal) else mv.visitVarInsn(LLOAD, accLocal)
+    mv.visitVarInsn(ALOAD, fnSlot)
+    mv.visitVarInsn(ALOAD, iterSlot)
+    mv.visitMethodInsn(INVOKEINTERFACE, "scala/collection/Iterator", "next", "()Ljava/lang/Object;", true)
+    if accIsDouble then
+      mv.visitMethodInsn(INVOKEINTERFACE, "scalascript/interpreter/vm/jit/ObjToDouble",
+        "apply", "(Ljava/lang/Object;)D", true)
+      mv.visitInsn(DADD)
+      mv.visitVarInsn(DSTORE, accLocal)
+    else
+      mv.visitMethodInsn(INVOKEINTERFACE, "scalascript/interpreter/vm/jit/ObjToLong",
+        "apply", "(Ljava/lang/Object;)J", true)
+      mv.visitInsn(LADD)
+      mv.visitVarInsn(LSTORE, accLocal)
+    mv.visitJumpInsn(GOTO, head)
+    mv.visitLabel(done)
 
   // ── While-loop walker context and types ──────────────────────────────────
 
@@ -1293,8 +1606,27 @@ object AsmJitBackend extends JitBackend:
     slots:     Array[String],
     interp:    Interpreter | Null,
     pureFns:   mutable.LinkedHashMap[String, WhilePureFn],
-    selfClass: String
-  )
+    selfClass: String,
+    isCallee:  Boolean = false
+  ):
+    val refNames:      mutable.ArrayBuffer[String] = mutable.ArrayBuffer.empty
+    val refFnNames:    mutable.ArrayBuffer[String] = mutable.ArrayBuffer.empty
+    val refObjFnNames: mutable.ArrayBuffer[String] = mutable.ArrayBuffer.empty
+    var refSlots:      Array[Int] = Array.empty
+    var refFnSlots:    Array[Int] = Array.empty
+    var refObjFnSlots: Array[Int] = Array.empty
+
+    def refIdx(name: String): Int =
+      val i = refNames.indexOf(name)
+      if i >= 0 then i else { refNames += name; refNames.length - 1 }
+
+    def refFnIdx(name: String): Int =
+      val i = refFnNames.indexOf(name)
+      if i >= 0 then i else { refFnNames += name; refFnNames.length - 1 }
+
+    def refObjFnIdx(name: String): Int =
+      val i = refObjFnNames.indexOf(name)
+      if i >= 0 then i else { refObjFnNames += name; refObjFnNames.length - 1 }
 
   private case class WhilePureFn(emit: ClassWriter => Unit)
 
@@ -1302,6 +1634,67 @@ object AsmJitBackend extends JitBackend:
   private type CondEmitter = (MethodVisitor, Label) => Unit
   // SlotEmitter: emits a long-typed value onto the stack.
   private type SlotEmitter = MethodVisitor => Unit
+  // RefEmitter: emits an Object-typed value onto the stack.
+  private type RefEmitter = MethodVisitor => Unit
+
+  private def emitWhileRefPreamble(ctx: WhileCtx, mv: MethodVisitor, nLongSlots: Int): Unit =
+    var nextLocal = 1 + nLongSlots * 2
+    def nextObjSlot(): Int =
+      val s = nextLocal
+      nextLocal += 1
+      s
+
+    if ctx.refFnNames.nonEmpty then
+      val arrSlot = nextObjSlot()
+      ctx.refFnSlots = Array.fill(ctx.refFnNames.length)(0)
+      mv.visitFieldInsn(GETSTATIC, globalsInt, "MODULE$", s"L$globalsInt;")
+      mv.visitMethodInsn(INVOKEVIRTUAL, globalsInt, "getRefFns",
+        "()[Lscalascript/interpreter/vm/jit/ObjToLong;", false)
+      mv.visitVarInsn(ASTORE, arrSlot)
+      var i = 0
+      while i < ctx.refFnNames.length do
+        val slot = nextObjSlot()
+        ctx.refFnSlots(i) = slot
+        mv.visitVarInsn(ALOAD, arrSlot)
+        emitIconst(mv, i)
+        mv.visitInsn(AALOAD)
+        mv.visitTypeInsn(CHECKCAST, "scalascript/interpreter/vm/jit/ObjToLong")
+        mv.visitVarInsn(ASTORE, slot)
+        i += 1
+
+    if ctx.refObjFnNames.nonEmpty then
+      val arrSlot = nextObjSlot()
+      ctx.refObjFnSlots = Array.fill(ctx.refObjFnNames.length)(0)
+      mv.visitFieldInsn(GETSTATIC, globalsInt, "MODULE$", s"L$globalsInt;")
+      mv.visitMethodInsn(INVOKEVIRTUAL, globalsInt, "getRefObjFns",
+        "()[Lscalascript/interpreter/vm/jit/ObjToObject;", false)
+      mv.visitVarInsn(ASTORE, arrSlot)
+      var i = 0
+      while i < ctx.refObjFnNames.length do
+        val slot = nextObjSlot()
+        ctx.refObjFnSlots(i) = slot
+        mv.visitVarInsn(ALOAD, arrSlot)
+        emitIconst(mv, i)
+        mv.visitInsn(AALOAD)
+        mv.visitTypeInsn(CHECKCAST, "scalascript/interpreter/vm/jit/ObjToObject")
+        mv.visitVarInsn(ASTORE, slot)
+        i += 1
+
+    if ctx.refNames.nonEmpty then
+      val arrSlot = nextObjSlot()
+      ctx.refSlots = Array.fill(ctx.refNames.length)(0)
+      mv.visitFieldInsn(GETSTATIC, globalsInt, "MODULE$", s"L$globalsInt;")
+      mv.visitMethodInsn(INVOKEVIRTUAL, globalsInt, "getRefs", "()[Ljava/lang/Object;", false)
+      mv.visitVarInsn(ASTORE, arrSlot)
+      var i = 0
+      while i < ctx.refNames.length do
+        val slot = nextObjSlot()
+        ctx.refSlots(i) = slot
+        mv.visitVarInsn(ALOAD, arrSlot)
+        emitIconst(mv, i)
+        mv.visitInsn(AALOAD)
+        mv.visitVarInsn(ASTORE, slot)
+        i += 1
 
   private def walkWhileBool(t: Term, ctx: WhileCtx): CondEmitter | Null = t match
     case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
@@ -1363,13 +1756,44 @@ object AsmJitBackend extends JitBackend:
         val Le = new Label; val Ld = new Label
         c(mv, Le); a(mv); mv.visitJumpInsn(GOTO, Ld)
         mv.visitLabel(Le); b(mv); mv.visitLabel(Ld)
+    case tm: Term.Match if ctx.interp != null && !ctx.isCallee =>
+      val scrutRef = walkWhileRefArg(tm.expr, ctx)
+      if scrutRef == null then return null
+      val scrutName = tm.expr match
+        case n: Term.Name => n.value
+        case _            => return null
+      val methodName = "fn_imatch_" + Integer.toUnsignedString(System.identityHashCode(tm))
+      if !ctx.pureFns.contains(methodName) then
+        ctx.pureFns(methodName) = WhilePureFn(cw => emitWhileInlineMatchHelper(cw, methodName, scrutName, tm, ctx))
+      val sc = ctx.selfClass
+      mv =>
+        scrutRef(mv)
+        mv.visitMethodInsn(INVOKESTATIC, sc, methodName, "(Ljava/lang/Object;)J", false)
     case ap: Term.Apply =>
       ap.fun match
         case fnName: Term.Name if ctx.interp != null =>
-          val san   = pureFnName(fnName.value)
           val nargs = ap.argClause.values.length
           if nargs != 1 && nargs != 2 then return null
           val args  = ap.argClause.values
+          if nargs == 1 && !ctx.isCallee then
+            val refArg = walkWhileRefArg(args.head, ctx)
+            if refArg != null then
+              val fnV = ctx.interp.globals.getOrElse(fnName.value, null)
+              if !fnV.isInstanceOf[Value.FunV] then return null
+              val fn = fnV.asInstanceOf[Value.FunV]
+              if fn.params.length != 1 then return null
+              val jitR = tryCompile(fn, ctx.interp)
+              if jitR == null || !jitR.paramIsRef(0) || jitR.resultIsDouble ||
+                 jitR.direct == null || !jitR.direct.isInstanceOf[ObjToLong]
+              then return null
+              val fi = ctx.refFnIdx(fnName.value)
+              return mv =>
+                mv.visitVarInsn(ALOAD, ctx.refFnSlots(fi))
+                refArg(mv)
+                mv.visitMethodInsn(INVOKEINTERFACE, "scalascript/interpreter/vm/jit/ObjToLong",
+                  "apply", "(Ljava/lang/Object;)J", true)
+
+          val san   = pureFnName(fnName.value)
           val a0    = walkWhileSlot(args.head, ctx); if a0 == null then return null
           val a1Opt: Option[SlotEmitter] =
             if nargs == 2 then
@@ -1383,7 +1807,7 @@ object AsmJitBackend extends JitBackend:
             if fn.usingParams.nonEmpty || fn.returnsThrows then return null
             if fn.defaults.nonEmpty && fn.defaults.exists(_.nonEmpty) then return null
             if fn.paramTypes.nonEmpty && fn.paramTypes.exists(_.endsWith("*")) then return null
-            val calleeCtx = WhileCtx(fn.params.toArray, ctx.interp, ctx.pureFns, ctx.selfClass)
+            val calleeCtx = WhileCtx(fn.params.toArray, ctx.interp, ctx.pureFns, ctx.selfClass, isCallee = true)
             val bodyEmit  = walkWhileSlot(fn.body, calleeCtx); if bodyEmit == null then return null
             val desc = if nargs == 1 then "(J)J" else "(JJ)J"
             ctx.pureFns(san) = WhilePureFn(cw => {
@@ -1396,6 +1820,122 @@ object AsmJitBackend extends JitBackend:
           else mv => { a0(mv); a1Opt.get(mv); mv.visitMethodInsn(INVOKESTATIC, sc, san, desc, false) }
         case _ => null
     case _ => null
+
+  private def walkWhileRefArg(t: Term, ctx: WhileCtx): RefEmitter | Null = t match
+    case tn: Term.Name if ctx.interp != null =>
+      var si = 0
+      while si < ctx.slots.length do
+        if ctx.slots(si) == tn.value then return null
+        si += 1
+      ctx.interp.globals.getOrElse(tn.value, null) match
+        case _: Value.InstanceV =>
+          val ri = ctx.refIdx(tn.value)
+          mv => mv.visitVarInsn(ALOAD, ctx.refSlots(ri))
+        case _ => null
+    case ts: Term.Select if ctx.interp != null =>
+      ts.qual match
+        case qn: Term.Name =>
+          ctx.interp.globals.getOrElse(qn.value, null) match
+            case inst: Value.InstanceV =>
+              val fieldName = ts.name.value
+              val fieldVal: Value | Null =
+                val arr = inst.fieldsArr
+                if arr != null then
+                  val fo = ctx.interp.typeFieldOrder.getOrElse(inst.typeName, Nil)
+                  val idx = fo.indexOf(fieldName)
+                  if idx >= 0 && idx < arr.length then arr(idx) else null
+                else inst.fields.getOrElse(fieldName, null)
+              fieldVal match
+                case _: Value.InstanceV =>
+                  val ri = ctx.refIdx(s"${qn.value}.$fieldName")
+                  mv => mv.visitVarInsn(ALOAD, ctx.refSlots(ri))
+                case _ => null
+            case _ => null
+        case _ => null
+    case ap: Term.Apply if ctx.interp != null && !ctx.isCallee =>
+      ap.fun match
+        case fnName: Term.Name if ap.argClause.values.lengthCompare(1) == 0 =>
+          val innerRef = walkWhileRefArg(ap.argClause.values.head, ctx)
+          if innerRef == null then return null
+          val fnV = ctx.interp.globals.getOrElse(fnName.value, null)
+          if !fnV.isInstanceOf[Value.FunV] then return null
+          val fn = fnV.asInstanceOf[Value.FunV]
+          if fn.params.length != 1 then return null
+          val jitR = tryCompile(fn, ctx.interp)
+          if jitR == null || !jitR.paramIsRef(0) || jitR.resultIsDouble ||
+             jitR.direct == null || !jitR.direct.isInstanceOf[ObjToObject]
+          then return null
+          val oi = ctx.refObjFnIdx(fnName.value)
+          mv =>
+            mv.visitVarInsn(ALOAD, ctx.refObjFnSlots(oi))
+            innerRef(mv)
+            mv.visitMethodInsn(INVOKEINTERFACE, "scalascript/interpreter/vm/jit/ObjToObject",
+              "apply", "(Ljava/lang/Object;)Ljava/lang/Object;", true)
+        case _ => null
+    case _ => null
+
+  private def emitWhileInlineMatchHelper(
+    cw:        ClassWriter,
+    methodName: String,
+    scrutName:  String,
+    tm:         Term.Match,
+    whileCtx:   WhileCtx
+  ): Unit =
+    if whileCtx.interp == null then return
+    var nextLocal = 2
+    val coEmit = new CoEmitState
+    coEmit.signatures.put(methodName, MethodSig(methodName, Array(scrutName), Array(true), isDouble = false))
+    coEmit.emitted.add(methodName)
+    val genCtx = GenCtx(
+      funName          = methodName,
+      staticMethodName = methodName,
+      params           = Set(scrutName),
+      paramNames       = Array(scrutName),
+      paramSlots       = Array(0),
+      paramIsRef       = Array(true),
+      isDouble         = false,
+      bindings         = Map.empty,
+      interp           = whileCtx.interp,
+      coEmit           = coEmit,
+      selfClass        = whileCtx.selfClass,
+      allocSlot        = () => { val s = nextLocal; nextLocal += 2; s }
+    )
+    val mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, methodName, "(Ljava/lang/Object;)J", null, null)
+    mv.visitCode()
+    val ok = emitMatchBody(tm, genCtx, whileCtx.interp, mv)
+    if !ok then emitThrow(mv, "AsmJitBackend: inline while match failed")
+    mv.visitMaxs(0, 0)
+    mv.visitEnd()
+
+  private def resolveWhileRefFns(ctx: WhileCtx, interp: Interpreter | Null): Array[ObjToLong] | Null =
+    if ctx.refFnNames.isEmpty then return Array.empty[ObjToLong]
+    if interp == null then return null
+    val arr = new Array[ObjToLong](ctx.refFnNames.length)
+    var i = 0
+    while i < ctx.refFnNames.length do
+      interp.globals.getOrElse(ctx.refFnNames(i), null) match
+        case fn: Value.FunV =>
+          val jitR = tryCompile(fn, interp)
+          if jitR == null || jitR.direct == null || !jitR.direct.isInstanceOf[ObjToLong] then return null
+          arr(i) = jitR.direct.asInstanceOf[ObjToLong]
+        case _ => return null
+      i += 1
+    arr
+
+  private def resolveWhileRefObjFns(ctx: WhileCtx, interp: Interpreter | Null): Array[ObjToObject] | Null =
+    if ctx.refObjFnNames.isEmpty then return Array.empty[ObjToObject]
+    if interp == null then return null
+    val arr = new Array[ObjToObject](ctx.refObjFnNames.length)
+    var i = 0
+    while i < ctx.refObjFnNames.length do
+      interp.globals.getOrElse(ctx.refObjFnNames(i), null) match
+        case fn: Value.FunV =>
+          val jitR = tryCompile(fn, interp)
+          if jitR == null || jitR.direct == null || !jitR.direct.isInstanceOf[ObjToObject] then return null
+          arr(i) = jitR.direct.asInstanceOf[ObjToObject]
+        case _ => return null
+      i += 1
+    arr
 
   private def pureFnName(name: String): String =
     val sb = new StringBuilder("fn_")
