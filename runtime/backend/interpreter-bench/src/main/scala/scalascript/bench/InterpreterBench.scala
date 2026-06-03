@@ -349,6 +349,31 @@ class InterpreterBench:
       |total""".stripMargin
   )
 
+  // Phase 1 Commit 3 lock-in: `f(item.right)` exercises the LRefFieldGet
+  // path. `item` is a val-bound `Pair(A(5), B(10))`; `item.right` resolves
+  // to LRefFieldGet(LRefConst(item), 1) at compile time (no per-iter type
+  // probe, no Map lookup), then LApplyR1 calls the bytecode-JIT'd
+  // `ObjToLong` for `f`. Pre-Commit-3: compileRefExpr only handled
+  // `Term.Name`, so Term.Select(item, right) → null → refFast bails →
+  // whole LExpr-fold collapses → tree-walk fallback. Post-Commit-3:
+  // the bench should match `nestedMatchExpr`'s LMatch-parity (~5–15 ms).
+  private val modRefFieldArg: Module = src(
+    """sealed trait E
+      |case class A(n: Int) extends E
+      |case class B(n: Int) extends E
+      |case class Pair(left: E, right: E)
+      |def f(e: E): Int = 1 + (e match
+      |  case A(n) => n
+      |  case B(n) => n + 100)
+      |val item = Pair(A(5), B(10))
+      |var total = 0
+      |var i = 0
+      |while i < 1000000 do
+      |  total = total + f(item.right)
+      |  i = i + 1
+      |total""".stripMargin
+  )
+
   private val devNull = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
 
   // ── benchmarks ───────────────────────────────────────────────────
@@ -454,6 +479,10 @@ class InterpreterBench:
   @Benchmark
   def nestedMatchExpr(): Unit =
     Interpreter(devNull).runSections(modNestedMatchExpr)
+
+  @Benchmark
+  def refFieldArg(): Unit =
+    Interpreter(devNull).runSections(modRefFieldArg)
 
   @Benchmark
   def matchBodyBaseline(): Unit =

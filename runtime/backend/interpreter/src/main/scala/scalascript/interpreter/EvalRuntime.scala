@@ -652,11 +652,26 @@ private[interpreter] object EvalRuntime:
   private final class LRefConst(v: AnyRef) extends LRefExpr:
     def eval(slots: Array[Long], refs: Array[AnyRef]): AnyRef = v
 
-  /** Read a ref slot from the parallel refs bank. Populated by Commit 3
-   *  when ref-typed loop vars are registered via `SlotTable.registerKind`. */
+  /** Read a ref slot from the parallel refs bank. Populated when ref-typed
+   *  loop vars are registered via `SlotTable.registerKind(_, SlotKindRef)`. */
   @scala.annotation.unused
   private final class LRefVar(idx: Int) extends LRefExpr:
     def eval(slots: Array[Long], refs: Array[AnyRef]): AnyRef = refs(idx)
+
+  /** `instExpr.fieldName` as a ref expression. `fieldIdx` is resolved at
+   *  compile time from `interp.typeFieldOrder(typeName)`, so eval is one
+   *  ref-deref + one array index — no String hashing, no Map lookup. At
+   *  runtime the receiver must be an `InstanceV` with a non-null
+   *  `fieldsArr`; both mismatches throw `NotDouble` so the enclosing
+   *  while-loop falls back to tree-walk and re-runs correctly. */
+  private final class LRefFieldGet(instR: LRefExpr, fieldIdx: Int) extends LRefExpr:
+    def eval(slots: Array[Long], refs: Array[AnyRef]): AnyRef =
+      instR.eval(slots, refs) match
+        case inst: Value.InstanceV =>
+          val arr = inst.fieldsArr
+          if arr ne null then arr(fieldIdx)
+          else throw PatternRuntime.NotDouble
+        case _ => throw PatternRuntime.NotDouble
   private final class LConst(v: Long) extends LExpr:
     def eval(slots: Array[Long], refs: Array[AnyRef]): Long = v
   private final class LVar(idx: Int) extends LExpr:
@@ -900,6 +915,27 @@ private[interpreter] object EvalRuntime:
         interp.globals.getOrElse(n.value, null) match
           case inst: Value.InstanceV => new LRefConst(inst)
           case _                     => null
+      // `inst.field` — resolves to LRefFieldGet when the receiver's static
+      // type can be inferred from a val snapshot. We need typeName at
+      // compile time to look up the static field index via
+      // `interp.typeFieldOrder`; without it the per-iter type-probe would
+      // defeat the win.
+      case Term.Select(qual, Term.Name(fieldName)) =>
+        val qualType: String | Null = qual match
+          case qn: Term.Name if interp.valNames.contains(qn.value) =>
+            interp.globals.getOrElse(qn.value, null) match
+              case inst: Value.InstanceV => inst.typeName
+              case _                     => null
+          case _ => null
+        if qualType == null then null
+        else
+          val order = interp.typeFieldOrder.getOrElse(qualType, Nil)
+          val fieldIdx = order.indexOf(fieldName)
+          if fieldIdx < 0 then null
+          else
+            val qualR = compileRefExpr(qual)
+            if qualR == null then null
+            else new LRefFieldGet(qualR, fieldIdx)
       case _ => null
     def compileExpr(term: Term): LExpr | Null = term match
       case Lit.Int(v)  => new LConst(v.toLong)
@@ -1150,6 +1186,27 @@ private[interpreter] object EvalRuntime:
         interp.globals.getOrElse(n.value, null) match
           case inst: Value.InstanceV => new LRefConst(inst)
           case _                     => null
+      // `inst.field` — resolves to LRefFieldGet when the receiver's static
+      // type can be inferred from a val snapshot. We need typeName at
+      // compile time to look up the static field index via
+      // `interp.typeFieldOrder`; without it the per-iter type-probe would
+      // defeat the win.
+      case Term.Select(qual, Term.Name(fieldName)) =>
+        val qualType: String | Null = qual match
+          case qn: Term.Name if interp.valNames.contains(qn.value) =>
+            interp.globals.getOrElse(qn.value, null) match
+              case inst: Value.InstanceV => inst.typeName
+              case _                     => null
+          case _ => null
+        if qualType == null then null
+        else
+          val order = interp.typeFieldOrder.getOrElse(qualType, Nil)
+          val fieldIdx = order.indexOf(fieldName)
+          if fieldIdx < 0 then null
+          else
+            val qualR = compileRefExpr(qual)
+            if qualR == null then null
+            else new LRefFieldGet(qualR, fieldIdx)
       case _ => null
     def compileExpr(term: Term): LExpr | Null = term match
       case Lit.Int(v)  => new LConst(v.toLong)
