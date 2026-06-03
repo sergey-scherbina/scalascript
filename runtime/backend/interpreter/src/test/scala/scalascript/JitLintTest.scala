@@ -223,6 +223,57 @@ class JitLintTest extends AnyFunSuite with Matchers:
     }
     assert(result == 26L, s"gEval(2, Add(Num(1),Mul(Num(2),Num(3)))) via JIT should be 26, got $result")
 
+  // ── wildcard / catch-all arms ─────────────────────────────────────
+
+  test("ADT match with wildcard catch-all arm — should JIT"):
+    val r = lintFor(
+      """sealed trait Expr
+        |case class Num(n: Int) extends Expr
+        |case class Add(l: Expr, r: Expr) extends Expr
+        |def isNum(e: Expr): Int = e match
+        |  case Num(n) => 1
+        |  case _      => 0
+        |isNum(Num(1))""".stripMargin
+    ).forDef("isNum")
+    r.willJit shouldBe true
+    r.bailReasons shouldBe empty
+
+  test("ADT match with wildcard catch-all arm — evaluates correctly via JIT"):
+    val src = s"# Test\n\n```scalascript\n${
+      """sealed trait Expr
+        |case class Num(n: Int) extends Expr
+        |case class Add(l: Expr, r: Expr) extends Expr
+        |def isNum(e: Expr): Int = e match
+        |  case Num(n) => 1
+        |  case _      => 0
+        |val a = isNum(Num(42))
+        |val b = isNum(Add(Num(1), Num(2)))
+        |a + b * 10""".stripMargin}\n```\n"
+    val module = scalascript.parser.Parser.parse(src)
+    val devNull = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
+    val interp = Interpreter(devNull)
+    interp.runSections(module)
+    import scalascript.interpreter.Value
+    interp.exportedGlobals.get("a") match
+      case Some(Value.IntV(v)) => assert(v == 1L, s"isNum(Num(42)) should be 1, got $v")
+      case other => fail(s"unexpected a=$other")
+    interp.exportedGlobals.get("b") match
+      case Some(Value.IntV(v)) => assert(v == 0L, s"isNum(Add(...)) should be 0, got $v")
+      case other => fail(s"unexpected b=$other")
+
+  test("ADT match with named catch-all arm (Pat.Var) — should JIT"):
+    val r = lintFor(
+      """sealed trait Shape
+        |case class Circle(r: Double) extends Shape
+        |case class Rect(w: Double, h: Double) extends Shape
+        |def classify(s: Shape): Int = s match
+        |  case Circle(_) => 1
+        |  case other     => 2
+        |classify(Circle(1.0))""".stripMargin
+    ).forDef("classify")
+    r.willJit shouldBe true
+    r.bailReasons shouldBe empty
+
   // ── fallback ──────────────────────────────────────────────────────
 
   test("function with no detectable cliff but JIT bail reports UnknownShape"):

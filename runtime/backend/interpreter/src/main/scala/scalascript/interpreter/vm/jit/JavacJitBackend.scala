@@ -611,6 +611,7 @@ object JavacJitBackend extends JitBackend:
     // fails its guard, execution must continue to the next arm rather than
     // falling through to the next switch case (which may have a different tag).
     val hasAnyGuard = casesArr.exists(_.cond.nonEmpty)
+    val hasWildcard = casesArr.exists(c => c.pat.isInstanceOf[Pat.Wildcard] || c.pat.isInstanceOf[Pat.Var])
     if hasAnyGuard then
       var ci = 0
       var restList = cases
@@ -620,10 +621,11 @@ object JavacJitBackend extends JitBackend:
         sb.append(arm)
         restList = restList.tail
         ci += 1
-      if allTagged then
-        sb.append("throw new RuntimeException(\"JavacJitBackend: no case matched, tag=\" + inst.typeTag());")
-      else
-        sb.append("throw new RuntimeException(\"JavacJitBackend: no case matched, typeName=\" + inst.typeName());")
+      if !hasWildcard then
+        if allTagged then
+          sb.append("throw new RuntimeException(\"JavacJitBackend: no case matched, tag=\" + inst.typeTag());")
+        else
+          sb.append("throw new RuntimeException(\"JavacJitBackend: no case matched, typeName=\" + inst.typeName());")
     else
       if allTagged then
         sb.append("switch (inst.typeTag()) {\n    ")
@@ -638,10 +640,13 @@ object JavacJitBackend extends JitBackend:
         sb.append(arm)
         restList = restList.tail
         ci += 1
-      if allTagged then
-        sb.append("  default: throw new RuntimeException(\"JavacJitBackend: no case matched, tag=\" + inst.typeTag());\n    }")
+      if !hasWildcard then
+        if allTagged then
+          sb.append("  default: throw new RuntimeException(\"JavacJitBackend: no case matched, tag=\" + inst.typeTag());\n    }")
+        else
+          sb.append("  default: throw new RuntimeException(\"JavacJitBackend: no case matched, typeName=\" + tn);\n    }")
       else
-        sb.append("  default: throw new RuntimeException(\"JavacJitBackend: no case matched, typeName=\" + tn);\n    }")
+        sb.append("}")
     sb.toString
 
   /** Emit a `Term.Match` as a Java switch *expression* (Java 14+) — the
@@ -698,6 +703,7 @@ object JavacJitBackend extends JitBackend:
       sb.append("switch (inst.typeTag()) {\n      ")
     else
       sb.append("switch (inst.typeName()) {\n      ")
+    val hasWildcardExpr = casesArr.exists(c => c.pat.isInstanceOf[Pat.Wildcard] || c.pat.isInstanceOf[Pat.Var])
     var ci = 0
     var restList = cases
     while restList.nonEmpty do
@@ -706,10 +712,13 @@ object JavacJitBackend extends JitBackend:
       sb.append(arm)
       restList = restList.tail
       ci += 1
-    if allTagged then
-      sb.append("  default -> { throw new RuntimeException(\"JavacJitBackend: no case matched, tag=\" + inst.typeTag()); }\n      };\n    }))")
+    if !hasWildcardExpr then
+      if allTagged then
+        sb.append("  default -> { throw new RuntimeException(\"JavacJitBackend: no case matched, tag=\" + inst.typeTag()); }\n      };\n    }))")
+      else
+        sb.append("  default -> { throw new RuntimeException(\"JavacJitBackend: no case matched, typeName=\" + inst.typeName()); }\n      };\n    }))")
     else
-      sb.append("  default -> { throw new RuntimeException(\"JavacJitBackend: no case matched, typeName=\" + inst.typeName()); }\n      };\n    }))")
+      sb.append("};\n    }))")
     sb.append(s".$getterMethod()")
     sb.toString
 
@@ -775,6 +784,17 @@ object JavacJitBackend extends JitBackend:
         if armBodyJava == null then return null
         sb.append(s"yield $armBodyJava;\n      }\n    ")
         sb.toString
+      case _: Pat.Wildcard =>
+        val armBodyJava = if ctx.isDouble then walkDouble(c.body, ctx) else walkLong(c.body, ctx)
+        if armBodyJava == null then return null
+        s"      default -> { yield $armBodyJava; }\n    "
+      case pv: scala.meta.Pat.Var =>
+        val xName = pv.name.value
+        val xBind = sanitize(xName) + "_a"
+        val newCtx = ctx.withBindings(Map(xName -> (xBind, true)))
+        val armBodyJava = if ctx.isDouble then walkDouble(c.body, newCtx) else walkLong(c.body, newCtx)
+        if armBodyJava == null then return null
+        s"      default -> { Object $xBind = inst; yield $armBodyJava; }\n    "
       case _ => null
 
   /** Emit a single match arm as an `if (tagCheck) { bindings; [if (guard) { ]return body;[ }] }`
@@ -846,6 +866,17 @@ object JavacJitBackend extends JitBackend:
           sb.append(s"return $armBodyJava;\n    ")
         sb.append("  }\n    ")
         sb.toString
+      case _: Pat.Wildcard =>
+        val armBodyJava = if ctx.isDouble then walkDouble(c.body, ctx) else walkLong(c.body, ctx)
+        if armBodyJava == null then return null
+        s"return $armBodyJava;\n    "
+      case pv: scala.meta.Pat.Var =>
+        val xName = pv.name.value
+        val xBind = sanitize(xName) + "_a"
+        val newCtx = ctx.withBindings(Map(xName -> (xBind, true)))
+        val armBodyJava = if ctx.isDouble then walkDouble(c.body, newCtx) else walkLong(c.body, newCtx)
+        if armBodyJava == null then return null
+        s"Object $xBind = inst;\n    return $armBodyJava;\n    "
       case _ => null
 
   /** `intTag > 0` means emit `case $intTag:` (int switch); `intTag == 0` means
@@ -914,6 +945,17 @@ object JavacJitBackend extends JitBackend:
         if armBodyJava == null then return null
         sb.append(s"return $armBodyJava;\n      }\n    ")
         sb.toString
+      case _: Pat.Wildcard =>
+        val armBodyJava = if ctx.isDouble then walkDouble(c.body, ctx) else walkLong(c.body, ctx)
+        if armBodyJava == null then return null
+        s"  default: { return $armBodyJava; }\n    "
+      case pv: scala.meta.Pat.Var =>
+        val xName = pv.name.value
+        val xBind = sanitize(xName) + "_a"
+        val newCtx = ctx.withBindings(Map(xName -> (xBind, true)))
+        val armBodyJava = if ctx.isDouble then walkDouble(c.body, newCtx) else walkLong(c.body, newCtx)
+        if armBodyJava == null then return null
+        s"  default: { Object $xBind = inst;\n      return $armBodyJava;\n    }\n    "
       case _ => null
 
   /** Emit a single match arm for a ref-returning match body (`ObjToObject`).
