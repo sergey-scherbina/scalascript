@@ -1977,6 +1977,11 @@ gated on same-session A/B + full suite green with the gate off AND on.
       requirement. Bench parity (ASM vs Javac ±2%): `recursionFib` 1.4 ms,
       `recursionFibD` 1.7 ms, `recursionTco` 36 µs, `arithLoop` 0.27 ms.
       1218/1220 tests green in `SSC_JIT_BACKEND=asm` mode.
+      **2026-06-04 audit follow-up:** newer Javac/dual-bank optimizations
+      landed after the original ASM note; track and close the current parity
+      gap under `asm-jit-parity-optimizations`
+      ([`docs/asm-jit-parity.md`](docs/asm-jit-parity.md),
+      `WORK_QUEUE.md`).
 - [~] **interp-tier2b-foreach (Phase D)** — the A3/A4 remainder of the
       binary-strolling-river gated fast-tier: unboxed numeric slots + a
       Computation-free direct-style runner for the pure subset, boxing only at

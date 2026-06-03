@@ -654,6 +654,24 @@ verify step. Apply them.
       Bench gates `nestedMatchExpr`/`refFieldArg`/`recursiveEvalMixed`
       all locked in `InterpreterBench`.
 
+- [ ] **asm-jit-parity-optimizations** — bring `AsmJitBackend` back to the
+      current Javac optimization surface. Spec:
+      [`docs/asm-jit-parity.md`](docs/asm-jit-parity.md).
+
+      Phase 1 (this worktree): function-backend parity:
+      shared `JitPredicates.isBoolReturning`, unary `+`/`-`, multi-statement
+      expression blocks, `ObjToObject` ref-returning match functions, and
+      long-returning sibling/mutual co-emit with callee-param-aware ref binding
+      classification. Tests: direct ASM lock-ins in `SscVmTest`.
+
+      Phase 2 (follow-up unless Phase 1 finishes early): while-backend parity:
+      ref arg preambles (`refs`, `ObjToLong`, `ObjToObject`), field/select and
+      ref-returning call chains, inline match helpers, and List/Set fused
+      foreach in a real ASM `tryCompileWhileMixed`.
+
+      Explicit non-goal: `while-jit-map-foreach` parity before the canonical
+      Javac Map.foreach implementation lands.
+
 ## Interpreter perf — Dual-bank LExpr roadmap (2026-06-03)
 
 The "make JIT work always" strategic plan from
