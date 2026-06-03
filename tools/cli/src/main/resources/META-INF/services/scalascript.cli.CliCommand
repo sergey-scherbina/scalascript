@@ -53,3 +53,4 @@ scalascript.cli.commands.ToolchainCmd
 scalascript.cli.commands.HelpCmd
 scalascript.cli.commands.ListBackendsCmd
 scalascript.cli.commands.InstallCmd
+scalascript.cli.LintJitCmd
