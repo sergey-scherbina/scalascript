@@ -1,5 +1,0 @@
-agent: claude-sonnet-4-6
-task: phase-d-patternmatch-fused-foreach
-started: 2026-06-04
-worktree: .worktrees/feature/phase-d-patternmatch-fused-foreach-20260604
-branch: feature/phase-d-patternmatch-fused-foreach-20260604
