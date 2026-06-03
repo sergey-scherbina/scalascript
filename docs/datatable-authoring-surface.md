@@ -1,6 +1,6 @@
 # DataTable Authoring Surface
 
-Status: Phase 1 path validation landed, 2026-06-03.
+Status: Phase 2 data source abstraction landed, 2026-06-03.
 
 This spec records the post-`FetchTable` public contract for authoring
 fetch-backed tables from `.ssc` code and the follow-up work that can make
@@ -139,24 +139,31 @@ validates:
 
 Raw `FetchUrlSignal` / `CodecHint.RawText` tables remain permissive. The
 validator intentionally does not validate `DataTableLowering.lower(dt)` because
-the lowering uses `ModelView(dt.signal, signal.id, ForModel(signal.id, "", ...))`
-as table chrome; validating that synthetic empty `ForModel` path would produce
+the lowering uses `ModelView(sig, signal.id, ForModel(signal.id, "", ...))` as
+table chrome; validating that synthetic empty `ForModel` path would produce
 false non-list errors for row-model signals.
 
 ### Phase 2 - Data source abstraction
 
-Split table chrome from the fetch-only source:
+Landed 2026-06-03: `View.DataTable.signal: FetchUrlSignal` replaced by
+`source: TableDataSource`.
 
 ```scala
-enum TableDataSource:
-  case Remote(signal: FetchUrlSignal)
-  case StaticRows(rows: List[Map[String, Any]])
-  case SignalRows(signal: ReactiveSignal[?])
-  case Paged(...)
+sealed trait TableDataSource
+object TableDataSource:
+  case class Remote(signal: FetchUrlSignal)                           extends TableDataSource
+  case class StaticRows(rows: List[Map[String, Any]])                 extends TableDataSource
+  case class SignalRows(signal: ReactiveSignal[?])                    extends TableDataSource
 ```
 
-This can let the same column/action model serve local data, typed model data,
-and paged remote data without replacing `View.DataTable` again.
+All backends (React, Vue, Solid, Custom, SwiftUI, Swing, JavaFX) gate Remote-specific
+signal access on `Remote`; `StaticRows` and `SignalRows` render a stub (header row
+only / `EmptyView()`).  Full rendering for non-Remote sources is deferred to Phase 3.
+
+`FetchIntrinsics.dataTableView` updated to accept a `TableDataSource` Foreign value
+or a bare `FetchUrlSignal` (legacy path auto-wrapped as `Remote`).
+New intrinsics: `staticRowsSource`, `signalRowsSource`.
+New `.ssc` helpers: `staticDataTable`, `signalDataTable` in `std/ui/data.ssc`.
 
 ### Phase 3 - Column and action expressiveness
 
