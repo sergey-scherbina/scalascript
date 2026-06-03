@@ -2764,6 +2764,28 @@ class JsGen(
       val awaitPrefix = if usesRunActors then "await " else ""
       s"${awaitPrefix}_runActors(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
+    // v1.4 effect runners — body must be wrapped in a thunk so that effect ops
+    // build a Free tree which the runner's _handle/_handleOneShot can interpret.
+    // Simple runners: runF(body) → runF(() => cps(body))
+    case Term.Apply.After_4_6_0(Term.Name(runner), bodyArgClause)
+        if bodyArgClause.values.size == 1 &&
+           Set("runLogger","runLoggerJson","runLoggerToList",
+               "runRandom","runClock","runEnv","runHttp",
+               "runRetry","runRetryNoSleep",
+               "runCache","runCacheBypass","runTx","runStream").contains(runner) =>
+      val bodyJs = genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      s"$runner(() => $bodyJs)"
+    // Curried runners: runF(arg)(body) → runF(arg)(() => cps(body))
+    case Term.Apply.After_4_6_0(
+          Term.Apply.After_4_6_0(Term.Name(runner), argClause),
+          bodyArgClause)
+        if bodyArgClause.values.size == 1 &&
+           Set("runRandomSeeded","runClockAt","runEnvWith",
+               "runState","runAuthWith","runHttpStub").contains(runner) =>
+      val argJs  = argClause.values.map(v => genExpr(v.asInstanceOf[Term])).mkString(", ")
+      val bodyJs = genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      s"$runner($argJs)(() => $bodyJs)"
+
     // `receive(timeout = N) { case … }` — same machinery as `receive`
     // but the matcher is registered with `wrapSome=true` and the
     // driver tracks a deadline.
@@ -3655,6 +3677,25 @@ class JsGen(
         if bodyArgClause.values.size == 1 =>
       val awaitPrefix = if usesRunActors then "await " else ""
       s"${awaitPrefix}_runActors(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
+    // v1.4 effect runners inside CPS body — same thunk-wrapping as genExpr
+    case Term.Apply.After_4_6_0(Term.Name(runner), bodyArgClause)
+        if bodyArgClause.values.size == 1 &&
+           Set("runLogger","runLoggerJson","runLoggerToList",
+               "runRandom","runClock","runEnv","runHttp",
+               "runRetry","runRetryNoSleep",
+               "runCache","runCacheBypass","runTx","runStream").contains(runner) =>
+      val bodyJs = genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      s"$runner(() => $bodyJs)"
+    case Term.Apply.After_4_6_0(
+          Term.Apply.After_4_6_0(Term.Name(runner), argClause),
+          bodyArgClause)
+        if bodyArgClause.values.size == 1 &&
+           Set("runRandomSeeded","runClockAt","runEnvWith",
+               "runState","runAuthWith","runHttpStub").contains(runner) =>
+      val argJs  = argClause.values.map(v => genExpr(v.asInstanceOf[Term])).mkString(", ")
+      val bodyJs = genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      s"$runner($argJs)(() => $bodyJs)"
 
     case Term.Apply.After_4_6_0(
             Term.Apply.After_4_6_0(Term.Name("receive"), timeoutArgClause),
