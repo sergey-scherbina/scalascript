@@ -458,6 +458,18 @@ verify step. Apply them.
       once at setup; `runLong/DoubleAccumForeachMapFast` use pre-wired `cachedSlot`
       field, bypassing TLS on each iteration. Bench: mapForeach 2.238 → 2.023 ms (~10%).
 
+- [x] **while-jit-mixed-foreach** — ✓ Landed 2026-06-03 commit `70ff8947`.
+      Fused outer while + inner `xs.foreach(s => acc += fn(s))` into a single
+      JVM-compiled Java method via new `tryCompileWhileMixed` SPI. Eliminates
+      per-outer-iteration virtual dispatch to `PreResolvedForeach.run` and
+      TLS slot reads; enables JVM devirtualization of the monomorphic `fn.apply(item)`
+      call site. `WhileJitEntry.refDoubleFns` + `JitGlobals.getRefDoubleFns` for
+      Double-acc; `EvalRuntime.tryWhileJitMixed` tries fused path first, falls back.
+      Bench (2f wi=3 mi=10 ms/op):
+      patternMatchHeavy 0.936 → 0.397 ms (2.37×);
+      patternMatchWide 1.628 → 1.389 ms (1.17×);
+      interp_patternMatch 1167 → 676 µs (1.73×, 1.21× above JVM floor).
+
 - [x] **jit-fieldsarr-no-null-check** — ✓ Landed 2026-06-03 commit `1380fec5`.
       After `phase-d-instancev-array-repr-activation`, `StatRuntime` always populates
       `fieldsArr` at InstanceV construction; the `faVar != null ? faVar[i] : inst.fields().apply(name)`
@@ -467,17 +479,13 @@ verify step. Apply them.
       Replaced with direct `faVar[i]`; removed now-unused `val fname = fieldOrder(fi)`.
       4 insertions, 18 deletions. Bench: patternMatchHeavy 1.128 → 0.861 ms (~24%).
 
-- [ ] **phase-c-bytecode-foreach-static** (Direction A.4) — combine
-      `tryCompileWhileLong` with `walkArm`: detect
-      `xs.foreach(s => acc = acc + fn(s))` over a stable
-      `ListV` / `SetV` global and emit a Java `for` loop directly. Gated
-      on `phase-d-instancev-array-repr-activation` landing first so
-      `walkArm` field reads use array indexing AND on
-      `phase-c-bytecode-match-double-body` (sibling plan
-      `typed-seeking-cosmos.md`) so the inner match arms compile too.
-      Helps `patternMatchHeavy` / `Set` / `Wide` if/when the outer
-      while can be lifted into the JIT class. Per
-      `noble-discovering-knuth.md` Direction A slice 4.
+- [x] **phase-c-bytecode-foreach-static** (Direction A.4) — ✓ Landed 2026-06-03
+      as `while-jit-mixed-foreach` (commit `70ff8947`). Implemented via
+      `tryCompileWhileMixed` (new SPI method) rather than merging into
+      `tryCompileWhileLong`; generates `WhileMixed_<n>` Java class with fused
+      outer while + inner foreach. SetV not yet fused (SetV falls back to
+      existing PreResolvedFastDoubleSetForeach path). patternMatchHeavy 2.37×,
+      interp_patternMatch 1.73×.
 
 - [x] **phase-c-bytecode-match-double-body** — ✓ Landed 2026-06-02.
       Three sub-pieces, three different landings:

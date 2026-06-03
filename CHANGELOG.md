@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — while-jit-mixed-foreach: fuse outer while + inner foreach into single JVM method
+
+- **while-jit-mixed-foreach** — The `{ xs.foreach(s => acc = acc + fn(s)); i = i+1 }` body
+  pattern ran via `tryMixedLongWhile` (a Scala `while` loop) with a
+  `PreResolvedForeach` virtual dispatch per outer iteration, preventing JVM
+  devirtualization of the monomorphic `fn.apply(item)` call and leaving
+  per-iter TLS round-trips in place. New `tryCompileWhileMixed` in `JitBackend`
+  SPI generates a single Java class with a fused outer while + inner `for` loop
+  over `list.items()`: `while (cond) { for item in list: acc += fn.apply(item); i++; }`.
+  `WhileJitEntry` gains `refDoubleFns: Array[ObjToDouble]` for the Double-acc
+  case; `JitGlobals` adds a 4-arg `withRefs` overload and `getRefDoubleFns()`.
+  `tryWhileJitMixed` in `EvalRuntime` attempts the fused JIT first, then falls
+  back to the existing `tryMixedLongWhile` + `PreResolvedForeach` path.
+  Bench (2f, wi=3, mi=10, ms/op):
+  **patternMatchHeavy: 0.936 → 0.397 ms (2.37×);
+  patternMatchWide: 1.628 → 1.389 ms (1.17×);
+  interp_patternMatch (RuntimeBench): 1167 → 676 µs (1.73×, now 1.21× above JVM floor)**.
+  1233/1233 tests green.
+
 ## 2026-06-03 — jit-fieldsarr-no-null-check: remove dead fieldsArr null-check from JIT arm emission
 
 - **jit-fieldsarr-no-null-check** — After `phase-d-instancev-array-repr-activation`,
