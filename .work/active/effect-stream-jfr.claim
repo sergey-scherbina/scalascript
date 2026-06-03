@@ -1,0 +1,5 @@
+agent: claude-sonnet-4-6
+task: effect-stream-jfr
+started: 2026-06-04
+worktree: .worktrees/feature/effect-stream-jfr-20260604
+branch: feature/effect-stream-jfr-20260604
