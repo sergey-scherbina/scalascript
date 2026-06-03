@@ -1985,7 +1985,12 @@ gated on same-session A/B + full suite green with the gate off AND on.
       **2026-06-04 update:** function-backend ASM parity landed in
       `f48bcf1f` + `02fbc176` (unary/block expressions, guarded ADT matches,
       `ObjToObject`, sibling/mutual co-emit, callee-param-aware ref binding).
-      While-backend parity remains open as Phase 2 in `WORK_QUEUE.md`.
+      **2026-06-04 Phase 2 update:** while-backend ASM parity landed in
+      `77cc22dc` plus rebase follow-up `702ce5f5`: ref
+      globals/functions in `WhileJitEntry`, inline ref-match RHS helpers,
+      `ObjToObject` ref chains, qualified ADT constructor patterns, wildcard /
+      named catch-all ADT arms, ListV/SetV fused foreach, and MapV foreach
+      key/value fusion through `mapIsKeyMode`.
 - [~] **interp-tier2b-foreach (Phase D)** — the A3/A4 remainder of the
       binary-strolling-river gated fast-tier: unboxed numeric slots + a
       Computation-free direct-style runner for the pure subset, boxing only at

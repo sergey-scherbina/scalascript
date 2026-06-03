@@ -655,8 +655,8 @@ verify step. Apply them.
       Bench gates `nestedMatchExpr`/`refFieldArg`/`recursiveEvalMixed`
       all locked in `InterpreterBench`.
 
-- [ ] **asm-jit-parity-optimizations** — bring `AsmJitBackend` back to the
-      current Javac optimization surface. Spec:
+- [x] **asm-jit-parity-optimizations** — ✓ Landed 2026-06-04. Brought
+      `AsmJitBackend` back to the current Javac optimization surface. Spec:
       [`docs/asm-jit-parity.md`](docs/asm-jit-parity.md).
 
       Phase 1: ✓ Landed 2026-06-04 commits `f48bcf1f`, `02fbc176`.
@@ -675,13 +675,31 @@ verify step. Apply them.
       `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-20260604 && SSC_JIT_BACKEND=asm sbt "backendInterpreter/testOnly scalascript.SscVmTest scalascript.InterpreterTest scalascript.JitLintTest"`
       (174/174).
 
-      Phase 2 (open follow-up): while-backend parity:
-      ref arg preambles (`refs`, `ObjToLong`, `ObjToObject`), field/select and
-      ref-returning call chains, inline match helpers, and List/Set fused
-      foreach in a real ASM `tryCompileWhileMixed`.
+      Phase 2: ✓ Landed 2026-06-04 commits `77cc22dc`, `702ce5f5`.
+      ASM while-JIT now carries ref globals,
+      `ObjToLong`, and `ObjToObject` arrays through `WhileJitEntry`; generated
+      while methods hoist TLS refs and ref functions into locals;
+      `walkWhileSlot` supports ref globals, simple field/select refs,
+      `ObjToObject` chains, and inline ref-match RHS helpers. ASM match
+      constructor extraction accepts qualified patterns such as
+      `Shape.Circle(...)`. ASM also overrides `tryCompileWhileMixed` for
+      ListV/SetV foreach fusion with `ObjToLong` and `ObjToDouble`
+      accumulator functions.
 
-      Explicit non-goal: `while-jit-map-foreach` parity before the canonical
-      Javac Map.foreach implementation lands.
+      Rebase parity follow-up: after `phase-c-bytecode-wider-match` and
+      `while-jit-map-foreach` landed on `origin/main`, ASM also gained
+      wildcard / named catch-all ADT match arms and MapV foreach key/value
+      fusion via `WhileJitEntry.mapIsKeyMode` plus the runtime-provided
+      pre-extracted `Object[]`.
+
+      Verification:
+      `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-p2-20260604 && sbt "backendInterpreter/compile"`;
+      `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-p2-20260604 && sbt "backendInterpreter/testOnly scalascript.SscVmTest"`
+      (27/27);
+      `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-p2-20260604 && SSC_JIT_BACKEND=asm sbt "backendInterpreter/testOnly scalascript.JitLintTest"`
+      (17/17);
+      `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/asm-jit-parity-optimizations-p2-20260604 && SSC_JIT_BACKEND=asm sbt "backendInterpreter/testOnly scalascript.SscVmTest scalascript.InterpreterTest scalascript.JitLintTest"`
+      (183/183).
 
 ## Interpreter perf — Dual-bank LExpr roadmap (2026-06-03)
 

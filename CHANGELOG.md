@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — perf: ASM JIT while/map parity
+
+- **asm-jit-parity-optimizations Phase 2** — `AsmJitBackend` now matches the
+  current Javac while/match subset: ref globals/functions in `WhileJitEntry`,
+  hoisted TLS refs/ref-fns in generated while methods, `ObjToObject` ref-arg
+  chains, inline ref-match RHS helpers, qualified ADT constructor patterns,
+  wildcard / named catch-all ADT arms, ListV/SetV fused foreach, and MapV
+  foreach key/value fusion via `mapIsKeyMode` and the runtime-provided
+  pre-extracted `Object[]`. Verified with `SscVmTest` plus
+  `SscVmTest`/`InterpreterTest`/`JitLintTest` under `SSC_JIT_BACKEND=asm`
+  (183/183).
+
+---
+
 ## 2026-06-04 — perf: phase-c-bytecode-wider-match (wildcard/catch-all arms)
 
 - **phase-c-bytecode-wider-match** — `Pat.Wildcard` and `Pat.Var` catch-all arms now compile
