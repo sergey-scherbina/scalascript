@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — while-jit-inline-match: inline match on val-bound InstanceV
+
+- **while-jit-inline-match** — Added `Term.Match` case to `walkLocalSlotCtx`
+  in `tryCompileWhileLong`. When the match scrutinee resolves to a val-bound
+  `InstanceV` ref slot, a static helper method `fn_imatch_HASH(Object scrutName)`
+  is co-emitted using the existing `walkMatchBody` infrastructure — typeTag
+  switch + Int field extraction compiled to native bytecode. Call site:
+  `fn_imatch_HASH(_rN)`. Guard: `!ctx.isCallee` (callee static methods have
+  no ref preamble). Covers `total + (p match { case Pair(a,b) => a+b })`
+  inline ADT matches in tight while loops.
+  Commit: `3f05c7f0`.  Tests: 1230/1230 green.
+  **Bench win (wi=3 mi=5 ms/op):**
+    `instanceFieldAccess`: 8.4 → 0.043 ms (~195×)
+
+---
+
 ## 2026-06-03 — tco-mutual-tail-jit-bypass: JIT bypass for wrapper→TCO calls
 
 - **tco-mutual-tail-jit-bypass** — Fixed 1218× regression in `recursion-tco`

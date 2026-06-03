@@ -615,6 +615,17 @@ highest-impact item.
         `refChainArg`  (`leafVal(getLeft(tree))`): 9.7 → 0.308 ms (~31×)
       Tests: 1230/1230 green.
 
+- [x] **while-jit-inline-match** — ✓ Landed 2026-06-03 commit `3f05c7f0`.
+      Added `Term.Match` case to `walkLocalSlotCtx` in `tryCompileWhileLong`.
+      When the scrutinee resolves to a val-bound InstanceV ref slot, a static
+      helper `fn_imatch_HASH(Object scrutName)` is co-emitted using the existing
+      `walkMatchBody` infrastructure — typeTag-switch + Int field extraction runs
+      in native bytecode. Call site: `fn_imatch_HASH(_rN)`. Guard: `!isCallee`.
+      Covers `total + (p match { case Pair(a,b) => a+b })` inline ADT matches.
+      **Bench (wi=3 mi=5 ms/op):**
+        `instanceFieldAccess`: 8.4 → 0.043 ms (~195×)
+      Tests: 1230/1230 green.
+
 - [ ] **jit-lint-recognisers-pure-predicates** — factor out the
       `JavacJitBackend.tryCompile` bail predicates into pure inspection
       functions so `JitLint.classifyBailReasons` can ask them directly.
