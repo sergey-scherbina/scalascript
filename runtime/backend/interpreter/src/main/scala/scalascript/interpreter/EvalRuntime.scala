@@ -357,7 +357,7 @@ private[interpreter] object EvalRuntime:
         case Value.IntV(v) => v
         case _             => return null
 
-    // Resolve the receiver (ListV or SetV) from globals at call time (val-bound, stable).
+    // Resolve the receiver (ListV, SetV, or MapV) from globals at call time (val-bound, stable).
     val receiverVal: Value | Null =
       foreachApply match
         case ta: scala.meta.Term.Apply =>
@@ -368,13 +368,22 @@ private[interpreter] object EvalRuntime:
                   interp.globals.getOrElse(n2, null) match
                     case lv: Value.ListV => lv
                     case sv: Value.SetV  => sv
+                    case mv: Value.MapV  => mv
                     case _               => null
                 case _ => null
             case _ => null
         case _ => null
     if receiverVal == null then return null
 
-    val refs = Array[AnyRef](receiverVal.asInstanceOf[AnyRef])
+    // For MapV: pre-extract keys/values into Object[] once to avoid per-iteration iterator allocation.
+    val refObj: AnyRef = receiverVal match
+      case mv: Value.MapV =>
+        val arr: Array[Value] =
+          if entry.mapIsKeyMode then mv.entries.keysIterator.toArray
+          else mv.entries.valuesIterator.toArray
+        arr.asInstanceOf[AnyRef]
+      case other => other.asInstanceOf[AnyRef]
+    val refs = Array[AnyRef](refObj)
     try
       if accIsDouble then
         scalascript.interpreter.vm.jit.JitGlobals.withInterp(interp) {
@@ -1877,28 +1886,38 @@ private[interpreter] object EvalRuntime:
                          || (!mapIsDouble && initV.isInstanceOf[Value.IntV])
                        )
                     then
-                      // Map foreach slot bypass — encodes Double as raw bits,
-                      // Long directly. Same slot/TLS as the Double List path.
-                      val initBits =
-                        if mapIsDouble then
-                          doubleToRawLongBits(initV.asInstanceOf[Value.DoubleV].v)
-                        else
-                          initV.asInstanceOf[Value.IntV].v
-                      val slot = Array[Long](initBits, 1L)
-                      val preResolved = tryPreResolveForeach(
-                        mixedBody.leadingApplies(foreachApplyIdx),
-                        foreachApplyIdx, isDouble = mapIsDouble,
-                        interp, mixedBody.names, frameView
+                      // Fused JIT path: compile outer while + inner Map.foreach into one
+                      // Java method, emitting an iterator loop over MapV.entries().
+                      val initDouble =
+                        if mapIsDouble then initV.asInstanceOf[Value.DoubleV].v
+                        else initV.asInstanceOf[Value.IntV].v.toDouble
+                      val jitR = tryWhileJitMixed(
+                        t, mixedBody, foreachApplyIdx, mapAccName, mapIsDouble, initDouble, frameView, interp
                       )
-                      if preResolved ne null then preResolved.setCachedSlot(slot)
-                      val r = FastTier.withAccSlot(mapAccName, slot) {
-                        tryMixedLongWhile(t, mixedBody, frameView, interp, preResolved)
-                      }
-                      if r != null && slot(1) != 0L then
-                        interp.globals(mapAccName) =
-                          if mapIsDouble then Value.doubleV(longBitsToDouble(slot(0)))
-                          else                Value.intV(slot(0))
-                      r
+                      if jitR != null then jitR
+                      else
+                        // Fallback: Map foreach slot bypass — encodes Double as raw bits,
+                        // Long directly. Same slot/TLS as the Double List path.
+                        val initBits =
+                          if mapIsDouble then
+                            doubleToRawLongBits(initV.asInstanceOf[Value.DoubleV].v)
+                          else
+                            initV.asInstanceOf[Value.IntV].v
+                        val slot = Array[Long](initBits, 1L)
+                        val preResolved = tryPreResolveForeach(
+                          mixedBody.leadingApplies(foreachApplyIdx),
+                          foreachApplyIdx, isDouble = mapIsDouble,
+                          interp, mixedBody.names, frameView
+                        )
+                        if preResolved ne null then preResolved.setCachedSlot(slot)
+                        val r = FastTier.withAccSlot(mapAccName, slot) {
+                          tryMixedLongWhile(t, mixedBody, frameView, interp, preResolved)
+                        }
+                        if r != null && slot(1) != 0L then
+                          interp.globals(mapAccName) =
+                            if mapIsDouble then Value.doubleV(longBitsToDouble(slot(0)))
+                            else                Value.intV(slot(0))
+                        r
                     else tryMixedLongWhile(t, mixedBody, frameView, interp)
                   else tryMixedLongWhile(t, mixedBody, frameView, interp)
             case _                  => null

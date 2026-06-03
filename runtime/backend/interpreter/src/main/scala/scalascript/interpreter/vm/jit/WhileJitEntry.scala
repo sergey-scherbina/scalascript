@@ -25,5 +25,6 @@ final class WhileJitEntry(
   val refNames:     Array[String],
   val refFns:       Array[ObjToLong],
   val refObjFns:    Array[ObjToObject],
-  val refDoubleFns: Array[ObjToDouble] = Array.empty[ObjToDouble]
+  val refDoubleFns: Array[ObjToDouble] = Array.empty[ObjToDouble],
+  val mapIsKeyMode: Boolean            = false
 )
