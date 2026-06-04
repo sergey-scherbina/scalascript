@@ -846,8 +846,10 @@ TASK_SLUG="v1.46-phase5-derivation"   # example
 WORKTREE_NAME="feature+phase5-derivation"
 
 # 4. Write only the claim file (extended format; line 1 is backward-compatible)
-printf '%s\nstatus: not-started\ndone-so-far:\nnext: %s\n' \
+printf '%s\nagent: %s\nheartbeat: %s\nstatus: not-started\ndone-so-far:\nnext: %s\n' \
   "$WORKTREE_NAME $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  "<agent-id>" \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   "<first planned step>" \
   > ".work/active/${TASK_SLUG}.claim"
 git add ".work/active/${TASK_SLUG}.claim"
@@ -1028,16 +1030,31 @@ with old single-line claims:
 
 ```
 <worktree-name> <ISO-timestamp>
+agent: <agent-id>
+heartbeat: <ISO-timestamp>
 status: not-started
 done-so-far:
 next: <first planned step>
 ```
 
-Update `status`, `done-so-far`, and `next` at each intermediate commit so a
-resuming agent sees what was already done:
+**`agent`** — who made the claim. Use a short, recognisable identifier:
+`claude-code`, `codex`, `claude-opus-4-7`, `claude-sonnet-4-6`, or whatever
+tool is running the session. This field is the primary signal for "is this mine
+or someone else's?" — an agent reading a claim file it did not write can
+immediately see whether it is the same tool or a different one.
+
+**`heartbeat`** — the ISO timestamp of the last time the agent actively updated
+the claim on `origin/main`. Update it together with every `claim-update` commit.
+A heartbeat older than ~20 minutes means the agent is likely gone or paused;
+treat the claim as potentially orphaned.
+
+Update `agent`, `heartbeat`, `status`, `done-so-far`, and `next` at each
+intermediate commit so a resuming agent sees what was already done:
 
 ```
 feature+phase5-derivation 2026-06-03T10:15:16Z
+agent: claude-code
+heartbeat: 2026-06-03T11:42:00Z
 status: in-progress
 done-so-far: Derivation.scala skeleton, DerivationTest stubs pass
 next: implement case-class derivation, run sbt test
@@ -1046,7 +1063,8 @@ next: implement case-class derivation, run sbt test
 Valid `status` values: `not-started`, `in-progress`, `blocked`.
 
 Old single-line format (`<worktree-name> <timestamp>` only) is still valid;
-missing fields are treated as `status: unknown`, `done-so-far: unknown`.
+missing fields are treated as `status: unknown`, `agent: unknown`,
+`heartbeat: unknown`.
 
 ### Finding an active claim you did not make in this session
 
@@ -1071,33 +1089,35 @@ git worktree list | grep "$SLUG"
 # 3. Is there uncommitted work in it?
 git -C "$WT" status --short 2>/dev/null | head -20
 
-# 4. Were project files touched recently (last 15 min)?
-find "$WT" -not -path '*/.git/*' \( -name '*.scala' -o -name '*.ssc' -o -name '*.md' \) \
-  -mmin -15 2>/dev/null | head -10
+# 4. How fresh is the heartbeat? (primary liveness signal)
+git show origin/main:.work/active/$SLUG.claim | grep -E '^(agent:|heartbeat:)'
+# A heartbeat within the last ~20 min means a possibly live agent.
+# Missing or old heartbeat → likely dead session.
 ```
 
 Interpret the results:
 
-| Worktree | Dirty files | Recent activity (< 15 min) | Conclusion |
+| Worktree | Dirty files | Heartbeat age | Conclusion |
 |---|---|---|---|
-| missing | — | — | Orphan claim — safe to release and reclaim |
-| exists | no | no | Claimed but no work started — likely dead session |
-| exists | yes | no | Work in progress, session died — ask user to resume or abandon |
-| exists | yes or no | **yes** | Possibly live agent — do **not** touch; skip and ask user |
+| missing | — | any | Orphan claim — safe to release and reclaim |
+| exists | no | > 20 min or missing | Claimed but no active work — likely dead session |
+| exists | yes | > 20 min | Work in progress, agent probably gone — ask user |
+| exists | yes or no | **< 20 min** | **Possibly live agent — do not touch; skip and ask user** |
 
 Then **report to the user** with the findings and ask for direction:
 
 ```
 Found active claim: <slug>
   Claimed at: <timestamp>, worktree: <name>
+  Agent: [agent-id from claim / unknown]
+  Heartbeat: [timestamp — N min ago / missing]
   Worktree: [exists / missing]
   Uncommitted changes: [N files / none]
-  Recent file activity (< 15 min): [yes — <file list> / no]
   Claim status: [not-started / in-progress / blocked / unknown]
   Done so far: [text from claim / unknown]
   Next step:   [text from claim / unknown]
 
-Assessment: <one sentence>
+Assessment: <one sentence, e.g. "codex agent, heartbeat 45 min ago — likely dead session with work in progress">
 
 Options:
   (a) Review the uncommitted work and continue
@@ -1250,8 +1270,8 @@ LOOP:
         test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
         git diff --cached --quiet
         # `git status -s` may show sibling dirty work; do not touch or stage it.
-        printf '%s\nstatus: not-started\ndone-so-far:\nnext: %s\n' \
-          "<worktree-name> <timestamp>" "<first planned step>" \
+        printf '%s\nagent: %s\nheartbeat: %s\nstatus: not-started\ndone-so-far:\nnext: %s\n' \
+          "<worktree-name> <timestamp>" "<agent-id>" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<first planned step>" \
           > .work/active/<slug>.claim
         git add .work/active/<slug>.claim
         test "$(git diff --cached --name-only)" = ".work/active/<slug>.claim"
@@ -1263,10 +1283,15 @@ LOOP:
 
     6.  Implement, run tests, fix until green
         At each intermediate commit — update the claim file too:
+          agent: <agent-id>          ← same value as at claim time
+          heartbeat: <current ISO timestamp>   ← refresh every update
           status: in-progress
           done-so-far: <one-line summary of what was just committed>
           next: <next planned step>
         Stage and commit the claim file together with the code change.
+        Also refresh `heartbeat` whenever work stays dirty/uncommitted for
+        more than ~10 minutes — a stale heartbeat (> 20 min) is the signal
+        other agents use to decide the claim is orphaned.
         if tests are red and unfixable → update claim (status: blocked), leave
           worktree open, report, STOP
 
