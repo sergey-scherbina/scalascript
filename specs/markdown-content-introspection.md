@@ -374,7 +374,7 @@ a compile error by itself.
       `ContentValue` data when parsing succeeds and a parser is available.
 - [x] Structured `yaml @ui=toolkit` blocks lower directly to interactive
       `std/ui` controls through `contentToolkitNode()`.
-- [ ] `contentToolkitBlock(id)` and `contentToolkitSection(id)` select exactly
+- [x] `contentToolkitBlock(id)` and `contentToolkitSection(id)` select exactly
       one Markdown-authored block or section by stable id so one document can
       contain multiple independent frontend regions.
 - [x] Every fenced code block enters the content tree as an embedded language
@@ -628,3 +628,10 @@ parser-side `DocumentContent`, interpreter `contentDocument()`,
 `std/ui/content.ssc` lowering, and a React emit smoke. The remaining work is the
 full metadata lookup API, JS/JVM exposure, artifact round-trip, custom renderer
 registry, tables, and cross-backend conformance.
+
+The selector slice landed on 2026-06-05: `contentToolkitBlock(id)` renders one
+explicitly identified block such as `yaml @id=... @ui=toolkit`, and
+`contentToolkitSection(id)` renders one heading section by stable id. Missing
+block ids and duplicate block ids report interpreter errors. Verified with:
+`cd /Users/sergiy/work/my/scalascript/.worktrees/feature/content-toolkit-selectors && sbt "backendInterpreterServer/testOnly scalascript.MarkdownContentFrontendSmokeTest" "cli/testOnly scalascript.cli.MarkdownContentFrontendCliTest"`
+(3 interpreter-server tests + 2 CLI tests passed).
