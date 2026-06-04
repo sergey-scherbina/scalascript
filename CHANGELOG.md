@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — fix(js): effect-stream JS while-loop — side-channel Stream.emit
+
+- **js-effect-stream-while** — `effect-stream` JS now produces valid output.
+  Root cause: `Stream.emit(i)` calls inside while loops returned Free monad
+  `_Perform` nodes that the while loop discarded — they never reached `_handle`.
+  Fix: `Stream.emit` now pushes to a module-level `_streamBuf` side-channel
+  buffer when inside a `runStream` call (returning `undefined`), and the
+  `runStream` body is emitted with `genExpr` (plain JS, not CPS-transformed)
+  so while/var loops work correctly. `_mkStreamSource` wraps the collected
+  buffer with synchronous `runToList()` / `toList()` methods.
+  **Result:** `effect-stream` JS **0.327 ms/iter** (was n/a in bench.sh).
+
+---
+
 ## 2026-06-04 — fix(jvm): effect-pure + effect-stream JVM backend — T!Eff, ThreadLocal stream
 
 - **jvm-effect-types** — JVM backend now compiles and runs `T ! Eff` effect-typed

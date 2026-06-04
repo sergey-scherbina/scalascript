@@ -1012,20 +1012,12 @@ highest-impact item.
       sub-effecting verifier warning; relax Typer for runner block args.
       Results: effect-pure JVM **0.005 ms/op**; effect-stream JVM **0.067 ms/op**.
 
-- [ ] **js-effect-stream-while** — `effect-stream` JS produces no output (silent n/a).
-      JS codegen compiles the `while i < N do Stream.emit(i)` body inside `runStream`
-      as a plain while loop with `_dispatch(Stream, 'emit', [i])` calls whose
-      Computation return value is discarded:
-        `runStream(() => _bind(0, i => (() => { while (...) { _dispatch(Stream,'emit',[i]); i=...; } })()))`
-      Because the emits are not threaded through `_bind`, the `runStream` handler
-      never intercepts them — the stream stays empty.  Fix: JS codegen must detect
-      `Stream.emit` calls inside a `runStream` body and generate a `_bind`-chained
-      sequence rather than a plain while loop (or implement a synchronous-trampoline
-      `_performSync` that the while loop can call and have the handler intercept via
-      a side-channel buffer).  The synchronous side-channel approach (emit pushes to
-      an array that `runStream` already holds open) is simpler and consistent with how
-      the synchronous `_handle` mechanism works.
-      **Target:** `effect-stream` JS shows a valid number in `bench.sh`.
+- [x] **js-effect-stream-while** — ✓ Landed 2026-06-04.
+      Side-channel buffer approach: `Stream.emit` pushes to `_streamBuf` when inside
+      `runStream`; `runStream` body emitted with `genExpr` (not `genCpsExpr`) so
+      while/var loops work as plain JS. `_mkStreamSource` adds synchronous
+      `runToList()` / `toList()` to the returned source. No CPS trampoline needed.
+      Result: `effect-stream` JS **0.327 ms/iter** (was n/a).
 
 - [ ] **effect-pure-pure-path** — `effect-pure` interp 0.047 ms vs JS 0.006 ms (8×).
       Workload: `runLogger { while i < 10000 do acc = acc + i; i = i + 1 }`.

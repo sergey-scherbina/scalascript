@@ -1,4 +1,0 @@
-feature/js-effect-stream-while 2026-06-04T04:35:26Z
-status: not-started
-done-so-far:
-next: implement synchronous side-channel emit in JS runStream preamble
