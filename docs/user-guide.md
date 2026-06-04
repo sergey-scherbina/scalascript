@@ -2772,8 +2772,8 @@ const [count, setCount] = useState(0)
 
 Use `seedSignal(name, source)` when a text input should start from a fetched
 or computed `Signal[String]` but remain user-editable. The primitive works in
-the JS/browser runtime and in the React, Vue, Solid, Custom JS, and SwiftUI
-frontend emitters:
+the JS/browser runtime and in the React, Vue, Solid, Custom JS, SwiftUI, Swing,
+and JavaFX frontend emitters:
 
 ```scalascript
 val serverName = fetchUrlSignal("serverName", "/api/profile/name", refresh)

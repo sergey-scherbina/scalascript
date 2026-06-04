@@ -46,7 +46,7 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   The draft mirrors the source while pristine; `inputChange` / `setSignal`
   marks it dirty, so later fetch refreshes do not overwrite user edits.
   Includes interpreter/JVM/JS shims, browser runtime pristine-source wiring,
-  React/Vue/Solid/Custom/SwiftUI emitter lowering, docs, and
+  React/Vue/Solid/Custom/SwiftUI/Swing/JavaFX emitter lowering, docs, and
   `examples/seed-signal.ssc`.
 
 ---
