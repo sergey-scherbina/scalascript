@@ -362,24 +362,52 @@ class Typer(
       Some(if raw.head.isDigit then "_" + raw else raw)
 
   private def predeclareStat(stat: scala.meta.Tree, scope: Scope): Unit = stat match
-    case Defn.Val(_, pats, _, _) =>
+    case Defn.Val(_, pats, tpeOpt, _) =>
+      val declared = tpeOpt.map(typeAnnotToSType)
       pats.foreach {
-        case Pat.Var(n) => scope.define(Symbol(n.value, SType.Any, SymbolKind.Val))
-        case _          => ()
+        case Pat.Var(n) => scope.define(Symbol(n.value, declared.getOrElse(SType.Any), SymbolKind.Val))
+        case pat        => bindPatVars(pat, scope, declared)
       }
-    case d: Defn.Var =>
-      d.pats.foreach {
-        case Pat.Var(n) => scope.define(Symbol(n.value, SType.Any, SymbolKind.Var, mutable = true))
-        case _          => ()
+    case Defn.Var.After_4_7_2(_, pats, tpeOpt, _) =>
+      val declared = tpeOpt.map(typeAnnotToSType)
+      pats.foreach {
+        case Pat.Var(n) => scope.define(Symbol(n.value, declared.getOrElse(SType.Any), SymbolKind.Var, mutable = true))
+        case pat        => bindPatVars(pat, scope, declared)
       }
-    case d: Defn.Def    => scope.define(Symbol(d.name.value, SType.Any, SymbolKind.Def))
-    case d: Defn.Class  => scope.define(Symbol(d.name.value, SType.Any, SymbolKind.Class))
-    case d: Defn.Object => scope.define(Symbol(d.name.value, SType.Any, SymbolKind.Object))
-    case d: Defn.Trait  => scope.define(Symbol(d.name.value, SType.Any, SymbolKind.Trait))
+    case d: Defn.Def =>
+      val paramTypes = d.paramClauseGroups
+        .flatMap(_.paramClauses)
+        .flatMap(_.values)
+        .toList
+        .map(p => p.decltpe.map(typeAnnotToSType).getOrElse(SType.Any))
+      val (retType, effects) = parseDeclReturnType(d.decltpe)
+      scope.define(Symbol(
+        d.name.value,
+        SType.Function(paramTypes, retType.getOrElse(SType.Any), effects),
+        SymbolKind.Def
+      ))
+    case d: Defn.Class =>
+      val fields = classFieldTypes(d)
+      classFields(d.name.value) = fields
+      scope.define(Symbol(
+        d.name.value,
+        SType.Function(fields.map(_._2), SType.named0(d.name.value)),
+        SymbolKind.Class
+      ))
+    case d: Defn.Object => scope.define(Symbol(d.name.value, SType.named0(d.name.value), SymbolKind.Object))
+    case d: Defn.Trait  => scope.define(Symbol(d.name.value, SType.named0(d.name.value), SymbolKind.Trait))
     case d: Defn.Enum   =>
-      scope.define(Symbol(d.name.value, SType.Any, SymbolKind.Enum))
+      val enumType = SType.named0(d.name.value)
+      scope.define(Symbol(d.name.value, enumType, SymbolKind.Enum))
       d.templ.body.stats.foreach {
-        case ec: Defn.EnumCase => scope.define(Symbol(ec.name.value, SType.Any, SymbolKind.Val))
+        case ec: Defn.EnumCase =>
+          val caseSTypes = ec.ctor.paramClauses.flatMap(_.values).map { p =>
+            p.decltpe.map(typeAnnotToSType).getOrElse(SType.Any)
+          }.toList
+          val caseType =
+            if caseSTypes.isEmpty then enumType
+            else SType.Function(caseSTypes, enumType)
+          scope.define(Symbol(ec.name.value, caseType, SymbolKind.Val))
         case _                 => ()
       }
     case d: Defn.Given  =>
@@ -480,7 +508,9 @@ class Typer(
           out += DefSummary(name.value, SymbolKind.Val, declType, Nil)
         case other =>
           // Tuple/extractor patterns: `val (l, r) = ...`, `val Some(x) = ...`
-          bindPatVars(other, scope)
+          bindPatVars(other, scope, Some(declType)).foreach { (name, tpe) =>
+            out += DefSummary(name, SymbolKind.Val, tpe, Nil)
+          }
       }
 
     // var name: T = rhs
@@ -656,6 +686,8 @@ class Typer(
     case Lit.Char(_)    => SType.Char
     case Lit.Unit()     => SType.Unit
     case Lit.Null()     => SType.Null
+    case Term.Tuple(args) =>
+      SType.Tuple(args.map(inferType(_, scope)).toList)
 
     case t @ Term.Name(name) =>
       scope.lookup(name) match
@@ -716,32 +748,37 @@ class Typer(
       dischargeEffect(bodyType, effName)
 
     case Term.Apply.After_4_6_0(fun, argClause) =>
-      inferType(fun, scope) match
-        case SType.Function(paramTypes, retType, _) =>
-          val args = argClause.values
-          // Only check arity for non-variadic functions.
-          // Variadic: represented as single SType.Any param in our prelude.
-          val isVariadic = paramTypes == List(SType.Any)
-          // Underflow is permitted — trailing parameters may have defaults that
-          // the lightweight typer does not track. Only flag overflow.
-          if !isVariadic && paramTypes.nonEmpty && args.length > paramTypes.length then
-            errors += TypeError(
-              s"Wrong number of arguments: expected ${paramTypes.length}, got ${args.length}",
-              posToSpan(argClause.pos)
-            )
-          // Check argument types for known-param functions (only those provided).
-          if !isVariadic then
-            args.zip(paramTypes).foreach { (arg, expected) =>
-              val actual = inferType(arg, scope)
-              checkAssignable(actual, expected, arg.pos)
-            }
-          retType
-        case _ => SType.Any
+      inferKnownApply(fun, argClause.values.toList, scope) match
+        case Some(tpe) => tpe
+        case None =>
+          inferCallableType(fun, scope) match
+            case SType.Function(paramTypes, retType, _) =>
+              val args = argClause.values
+              // Only check arity for non-variadic functions.
+              // Variadic: represented as single SType.Any param in our prelude.
+              val isVariadic = paramTypes == List(SType.Any)
+              // Underflow is permitted — trailing parameters may have defaults that
+              // the lightweight typer does not track. Only flag overflow.
+              if !isVariadic && paramTypes.nonEmpty && args.length > paramTypes.length then
+                errors += TypeError(
+                  s"Wrong number of arguments: expected ${paramTypes.length}, got ${args.length}",
+                  posToSpan(argClause.pos)
+                )
+              // Check argument types for known-param functions (only those provided).
+              if !isVariadic then
+                args.zip(paramTypes).foreach { (arg, expected) =>
+                  val actual = inferType(arg, scope)
+                  checkAssignable(actual, expected, arg.pos)
+                }
+              retType
+            case _ => SType.Any
 
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
       val lhsType  = inferType(lhs, scope)
       val rhsType  = argClause.values.headOption.map(inferType(_, scope)).getOrElse(SType.Any)
-      checkBinaryOp(lhsType, op.value, rhsType, op.pos)
+      if op.value == "->" && argClause.values.length == 1 then
+        SType.Tuple(List(lhsType, rhsType))
+      else checkBinaryOp(lhsType, op.value, rhsType, op.pos)
 
     case Term.Block(stats) =>
       val blockScope = scope.child("<block>")
@@ -839,17 +876,16 @@ class Typer(
     case _: Term.PartialFunction  => SType.Any
     case _: Term.AnonymousFunction => SType.Any
 
-    // `scrutinee match { case … => body }` — LUB across arms.  Same
-    // policy as if/else (line ~458): when every arm body infers to
-    // the same type, propagate it; any divergence collapses to Any.
-    // Pattern-introduced bindings (e.g. `case Some(x) => x + 1`) are
-    // NOT bound in the arm-body scope yet — we walk with the outer
-    // scope, so references to pattern vars surface as `Any` and we
-    // stay sound by not pretending we know more.
+    // `scrutinee match { case … => body }` — LUB across arms. Same
+    // policy as if/else: when every arm body infers to the same type,
+    // propagate it; any divergence collapses to Any. Pattern variables
+    // are bound in a per-case scope, using the scrutinee type for simple
+    // tuple / typed / extractor patterns when available.
     case t: Term.Match =>
+      val scrutineeType = inferType(t.expr, scope)
       val armTypes = t.casesBlock.cases.map { c =>
         val caseScope = scope.child("<case>")
-        bindPatVars(c.pat, caseScope)
+        bindPatVars(c.pat, caseScope, Some(scrutineeType))
         inferType(c.body, caseScope)
       }
       armTypes.headOption match
@@ -858,16 +894,148 @@ class Typer(
 
     case _                        => SType.Any
 
-  private def bindPatVars(pat: scala.meta.Tree, scope: Scope): Unit = pat match
-    case Pat.Var(n)          => scope.define(Symbol(n.value, SType.Any, SymbolKind.Val))
-    case p: Pat.Extract      => p.argClause.values.foreach(bindPatVars(_, scope))
-    case Pat.ExtractInfix.After_4_6_0(lhs, _, argClause) =>
-      bindPatVars(lhs, scope)
-      argClause.values.foreach(bindPatVars(_, scope))
-    case Pat.Tuple(args)     => args.foreach(bindPatVars(_, scope))
-    case p: Pat.Typed        => bindPatVars(p.lhs, scope)
-    case p: Pat.Bind         => bindPatVars(p.lhs, scope); bindPatVars(p.rhs, scope)
-    case _                   => ()
+  private def bindPatVars(
+      pat: scala.meta.Tree,
+      scope: Scope,
+      expected: Option[SType]
+  ): List[(String, SType)] = pat match
+    case Pat.Var(n) =>
+      val tpe = expected.getOrElse(SType.Any)
+      scope.define(Symbol(n.value, tpe, SymbolKind.Val))
+      List(n.value -> tpe)
+    case p: Pat.Extract =>
+      val argTypes = expectedExtractArgTypes(p.fun, expected)
+      p.argClause.values.zipWithIndex.flatMap { (arg, idx) =>
+        bindPatVars(arg, scope, argTypes.lift(idx).flatten)
+      }.toList
+    case Pat.ExtractInfix.After_4_6_0(lhs, op, argClause) =>
+      val listElem = collectionElementType(expected.getOrElse(SType.Any))
+      val lhsExpected = if op.value == "::" then listElem else None
+      val rhsExpected = if op.value == "::" then expected else None
+      bindPatVars(lhs, scope, lhsExpected) ++
+        argClause.values.flatMap(bindPatVars(_, scope, rhsExpected)).toList
+    case Pat.Tuple(args) =>
+      val elemTypes = expected match
+        case Some(SType.Tuple(elems)) => elems.map(Some(_))
+        case _                       => Nil
+      args.zipWithIndex.flatMap { (arg, idx) =>
+        bindPatVars(arg, scope, elemTypes.lift(idx).flatten)
+      }.toList
+    case p: Pat.Typed =>
+      bindPatVars(p.lhs, scope, Some(typeAnnotToSType(p.rhs)))
+    case p: Pat.Bind =>
+      bindPatVars(p.lhs, scope, expected) ++ bindPatVars(p.rhs, scope, expected)
+    case _ => Nil
+
+  private def classFieldTypes(d: Defn.Class): List[(String, SType)] =
+    d.ctor.paramClauses
+      .flatMap(_.values)
+      .map(p => p.name.value -> p.decltpe.map(typeAnnotToSType).getOrElse(SType.Any))
+      .toList
+
+  private def inferCallableType(fun: Term, scope: Scope): SType = fun match
+    case Term.Select(qual, Term.Name("apply")) =>
+      inferType(qual, scope) match
+        case f @ SType.Function(_, _, _) => f
+        case _                           => inferType(fun, scope)
+    case Term.ApplyType.After_4_6_0(inner, _) =>
+      inferCallableType(inner, scope)
+    case _ => inferType(fun, scope)
+
+  private def inferKnownApply(fun: Term, args: List[Term], scope: Scope): Option[SType] =
+    appliedConstructorName(fun).flatMap {
+      case ("Some" | "Option", targs) =>
+        Some(SType.option(firstExplicitOrInferred(targs, args, scope)))
+      case ("List", targs) =>
+        Some(SType.list(firstExplicitOrInferred(targs, args, scope)))
+      case ("Vector", targs) =>
+        Some(SType.Named("Vector", List(firstExplicitOrInferred(targs, args, scope))))
+      case ("Set", targs) =>
+        Some(SType.Named("Set", List(firstExplicitOrInferred(targs, args, scope))))
+      case ("Seq", targs) =>
+        Some(SType.Named("Seq", List(firstExplicitOrInferred(targs, args, scope))))
+      case ("Array", targs) =>
+        Some(SType.Named("Array", List(firstExplicitOrInferred(targs, args, scope))))
+      case ("Map", targs) =>
+        Some(inferMapConstructor(targs, args, scope))
+      case ("Right", targs) =>
+        val left  = targs.headOption.getOrElse(SType.Nothing)
+        val right = targs.lift(1).getOrElse(firstExplicitOrInferred(Nil, args, scope))
+        Some(SType.Named("Either", List(left, right)))
+      case ("Left", targs) =>
+        val left  = targs.headOption.getOrElse(firstExplicitOrInferred(Nil, args, scope))
+        val right = targs.lift(1).getOrElse(SType.Nothing)
+        Some(SType.Named("Either", List(left, right)))
+      case _ => None
+    }
+
+  private def appliedConstructorName(fun: Term): Option[(String, List[SType])] = fun match
+    case Term.Name(n) => Some(n -> Nil)
+    case Term.Select(Term.Name(n), Term.Name("apply")) => Some(n -> Nil)
+    case Term.Select(_, Term.Name(n)) => Some(n -> Nil)
+    case Term.ApplyType.After_4_6_0(inner, targs) =>
+      appliedConstructorName(inner).map { (name, _) =>
+        name -> targs.map(typeAnnotToSType).toList
+      }
+    case _ => None
+
+  private def firstExplicitOrInferred(targs: List[SType], args: List[Term], scope: Scope): SType =
+    targs.headOption.getOrElse(commonType(args.map(inferType(_, scope))))
+
+  private def inferMapConstructor(targs: List[SType], args: List[Term], scope: Scope): SType =
+    if targs.length >= 2 then SType.map(targs(0), targs(1))
+    else
+      val pairTypes = args.map(inferType(_, scope))
+      val pairs = pairTypes.collect { case SType.Tuple(List(k, v)) => k -> v }
+      if pairs.length == pairTypes.length then
+        SType.map(commonType(pairs.map(_._1)), commonType(pairs.map(_._2)))
+      else SType.map(SType.Any, SType.Any)
+
+  private def commonType(types: List[SType]): SType =
+    val concrete = types.filterNot(_ == SType.Nothing)
+    if concrete.isEmpty then SType.Nothing
+    else if concrete.exists(_ == SType.Any) then SType.Any
+    else if concrete.forall(_ == concrete.head) then concrete.head
+    else commonNumericType(concrete).getOrElse {
+      concrete match
+        case (first @ SType.Named(name, args)) :: rest
+            if rest.forall {
+              case SType.Named(n, as) => n == name && as.length == args.length
+              case _                  => false
+            } =>
+          val allArgs = (first :: rest).collect { case SType.Named(_, as) => as }
+          SType.Named(name, args.indices.map(i => commonType(allArgs.map(_(i)))).toList)
+        case _ => SType.Any
+    }
+
+  private def commonNumericType(types: List[SType]): Option[SType] =
+    val numeric = Set(SType.Int, SType.Long, SType.Double, SType.BigInt, SType.Decimal)
+    if !types.forall(numeric.contains) then None
+    else if types.contains(SType.Double) && (types.contains(SType.BigInt) || types.contains(SType.Decimal)) then
+      Some(SType.Any)
+    else if types.contains(SType.Double) then Some(SType.Double)
+    else if types.contains(SType.Decimal) then Some(SType.Decimal)
+    else if types.contains(SType.BigInt) then Some(SType.BigInt)
+    else if types.contains(SType.Long) then Some(SType.Long)
+    else Some(SType.Int)
+
+  private def expectedExtractArgTypes(fun: Term, expected: Option[SType]): List[Option[SType]] =
+    termLastName(fun) match
+      case Some("Some") => List(collectionElementType(expected.getOrElse(SType.Any)))
+      case Some(name) =>
+        classFields.get(name).map(_.map((_, tpe) => Some(tpe))).getOrElse(Nil)
+      case None => Nil
+
+  private def collectionElementType(tpe: SType): Option[SType] = tpe match
+    case SType.Named("List" | "Vector" | "Set" | "Seq" | "Array" | "Option", List(elem)) =>
+      Some(elem)
+    case _ => None
+
+  private def termLastName(term: Term): Option[String] = term match
+    case Term.Name(n) => Some(n)
+    case Term.Select(_, Term.Name(n)) => Some(n)
+    case Term.ApplyType.After_4_6_0(inner, _) => termLastName(inner)
+    case _ => None
 
   /** Best-effort field-access inference for `qual.field`:
    *

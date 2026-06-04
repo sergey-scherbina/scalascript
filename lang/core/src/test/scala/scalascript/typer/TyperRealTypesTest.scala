@@ -13,8 +13,11 @@ import scalascript.parser.Parser
  *  The inference is intentionally narrow:
  *    - declared annotations always win (round-trip via `typeAnnotToSType`);
  *    - inference for un-annotated `Def` / `Val` bodies covers literals,
- *      single-`VarRef`, simple arithmetic, blocks, and if/else;
- *    - anything richer (calls, selects, lambdas, news) falls back to `Any`.
+ *      single-`VarRef`, simple arithmetic, blocks, if/else, typed lambdas,
+ *      constructor calls, known collection/Option/Either calls, and some
+ *      tuple / extractor pattern bindings;
+ *    - anything richer (unknown calls, unknown selects, untyped lambdas)
+ *      falls back to `Any`.
  */
 class TyperRealTypesTest extends AnyFunSuite:
 
@@ -293,12 +296,75 @@ class TyperRealTypesTest extends AnyFunSuite:
       """def go(x: Int) = x match
         |  case _ => List(x)
         |""".stripMargin, "go")
-    // List(x) currently infers to `Any` (call-site inference) — match
-    // shouldn't make it worse than that, and shouldn't promote to a
-    // mismatched type.
-    d.tpe match
-      case SType.Function(List(SType.Int), _, _) => ()  // any return is OK
-      case other => fail(s"expected (Int) => _, got ${other.show}")
+    assert(d.tpe == SType.Function(List(SType.Int), SType.list(SType.Int)),
+      s"expected (Int) => List[Int], got ${d.tpe.show}")
+
+  // ── Constructor / tuple / pattern inference that previously collapsed ──
+
+  test("val w/o decltpe — known collection constructors infer element types"):
+    assert(summaryOf("val xs = List(1, 2, 3)", "xs").tpe == SType.list(SType.Int))
+    assert(summaryOf("""val names = Vector("a", "b")""", "names").tpe ==
+      SType.Named("Vector", List(SType.String)))
+    assert(summaryOf("val flags = Set(true, false)", "flags").tpe ==
+      SType.Named("Set", List(SType.Boolean)))
+
+  test("val w/o decltpe — Option and Either constructors infer type arguments"):
+    assert(summaryOf("val opt = Some(42)", "opt").tpe == SType.option(SType.Int))
+    assert(summaryOf("""val right = Right("ok")""", "right").tpe ==
+      SType.Named("Either", List(SType.Nothing, SType.String)))
+    assert(summaryOf("""val left = Left("err")""", "left").tpe ==
+      SType.Named("Either", List(SType.String, SType.Nothing)))
+
+  test("val w/o decltpe — tuple and Map constructors infer key/value types"):
+    assert(summaryOf("""val pair = "a" -> 1""", "pair").tpe ==
+      SType.Tuple(List(SType.String, SType.Int)))
+    assert(summaryOf("""val m = Map("a" -> 1, "b" -> 2)""", "m").tpe ==
+      SType.map(SType.String, SType.Int))
+
+  test("destructuring val summaries keep tuple element types"):
+    val defs = summaries("""val (id, name) = (1, "alice")""").map(d => d.name -> d.tpe).toMap
+    assert(defs("id") == SType.Int, s"expected id: Int, got ${defs("id").show}")
+    assert(defs("name") == SType.String, s"expected name: String, got ${defs("name").show}")
+
+  test("match typed pattern variable gets the annotated type"):
+    val d = summaryOf(
+      """def inc(x: Any) = x match
+        |  case i: Int => i + 1
+        |""".stripMargin, "inc")
+    assert(d.tpe == SType.Function(List(SType.Any), SType.Int),
+      s"expected (Any) => Int, got ${d.tpe.show}")
+
+  test("match Some extractor binds element type from scrutinee Option"):
+    val d = summaryOf(
+      """def inc(opt: Option[Int]) = opt match
+        |  case Some(i) => i + 1
+        |""".stripMargin, "inc")
+    assert(d.tpe == SType.Function(List(SType.option(SType.Int)), SType.Int),
+      s"expected (Option[Int]) => Int, got ${d.tpe.show}")
+
+  test("match case-class extractor binds constructor field types"):
+    val d = summaryOf(
+      """case class User(id: Int, name: String)
+        |def userId(u: User) = u match
+        |  case User(id, _) => id + 1
+        |""".stripMargin, "userId")
+    assert(d.tpe == SType.Function(List(SType.Named("User", Nil)), SType.Int),
+      s"expected (User) => Int, got ${d.tpe.show}")
+
+  test("forward predeclaration keeps annotated vals and later classes typed"):
+    val use = summaryOf(
+      """def use() = answer + 1
+        |val answer: Int = 41
+        |""".stripMargin, "use")
+    assert(use.tpe == SType.Function(Nil, SType.Int),
+      s"expected () => Int, got ${use.tpe.show}")
+
+    val make = summaryOf(
+      """def make() = Foo(1)
+        |case class Foo(x: Int)
+        |""".stripMargin, "make")
+    assert(make.tpe == SType.Function(Nil, SType.Named("Foo", Nil)),
+      s"expected () => Foo, got ${make.tpe.show}")
 
   // ── Tier-5 .scim granularity — Term.Select on case-class field ─────────
   //
