@@ -125,7 +125,7 @@ object JavacJitBackend extends JitBackend:
     val coEmit = new CoEmitState
     coEmit.signatures.put(f.name, MethodSig(f.params.toArray, paramIsRef, isDouble))
     coEmit.emitted.add(f.name)
-    val ctx = new GenCtx(f.name, paramSet, f.params.toArray, paramIsRef, isDouble, Map.empty, interp, coEmit)
+    val ctx = new GenCtx(f.name, paramSet, f.params.toArray, paramIsRef, isDouble, Map.empty, interp, coEmit, f.paramTypes.toArray)
     // Try ref-returning (ObjToObject) path first for 1-param ref-scrutinee matches:
     // `def g(x: T): T = x match { case C(a, b) => a }` where the arm body names
     // a ref-typed binding.  `walkRefMatchBody` returns null whenever arm bodies
@@ -289,6 +289,10 @@ object JavacJitBackend extends JitBackend:
           case _ =>
         markRefScrutinees(tm.expr)
         tm.casesBlock.cases.foreach(c => markRefScrutinees(c.body))
+      // `param.field` access ⇒ param is an InstanceV ref, not a Long.
+      case Term.Select(n: Term.Name, _) =>
+        val idx = f.params.indexOf(n.value)
+        if idx >= 0 then paramIsRef(idx) = true
       case _ => t.children.foreach(markRefScrutinees)
     markRefScrutinees(f.body)
     paramIsRef
@@ -413,7 +417,8 @@ object JavacJitBackend extends JitBackend:
     val isDouble:    Boolean,
     val bindings:    Map[String, (String, Boolean)],
     val interp:      scalascript.interpreter.Interpreter,
-    val coEmit:      CoEmitState
+    val coEmit:      CoEmitState,
+    val paramTypes:  Array[String] = Array.empty
   ):
     def isRefName(n: String): Boolean =
       bindings.get(n) match
@@ -426,8 +431,12 @@ object JavacJitBackend extends JitBackend:
         case Some((jvar, _)) => jvar
         case None =>
           if params.contains(n) then sanitize(n) else null
+    /** Declared type name of a ref param (e.g. "Vec"), or null if unknown. */
+    def refTypeOf(n: String): String | Null =
+      val idx = paramNames.indexOf(n)
+      if idx >= 0 && idx < paramTypes.length then paramTypes(idx) else null
     def withBindings(more: Iterable[(String, (String, Boolean))]): GenCtx =
-      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings ++ more, interp, coEmit)
+      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings ++ more, interp, coEmit, paramTypes)
 
   private def walkLong(t: Term, ctx: GenCtx): String | Null = t match
     case Lit.Int(v)  => s"${v}L"
@@ -485,6 +494,8 @@ object JavacJitBackend extends JitBackend:
           val r = walkLong(argClause.values.head, ctx); if r == null then return null
           s"(($l $opStr $r) ? 1L : 0L)"
         case _ => null
+    case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
+      emitRefFieldNumeric(objName, field, ctx, wantDouble = false)
     case ap: Term.Apply =>
       ap.fun match
         case fn: Term.Name => emitLongCall(fn.value, ap.argClause.values, ctx)
@@ -493,6 +504,33 @@ object JavacJitBackend extends JitBackend:
       val a = walkLong(arg, ctx); if a == null then return null
       s"(${op.value}$a)"
     case _ => null
+
+  /** Emit a Java expression reading InstanceV field `obj.field` off a ref param,
+   *  yielding a primitive (`long` if !wantDouble, `double` if wantDouble).
+   *  Resolves the field index from the param's declared type via `typeFieldOrder`,
+   *  reads `fieldsArr[idx]` with a `fields().apply(name)` Map fallback, and unboxes.
+   *  Returns null (caller bails to the interpreter) when the type/field is unknown
+   *  or the field's primitive kind does not match `wantDouble`. */
+  private def emitRefFieldNumeric(objName: String, field: String, ctx: GenCtx,
+                                  wantDouble: Boolean): String | Null =
+    val tn = ctx.refTypeOf(objName)
+    if tn == null then return null
+    val fo  = ctx.interp.typeFieldOrder.getOrElse(tn, Nil)
+    val idx = fo.indexOf(field)
+    if idx < 0 then return null
+    val ft    = ctx.interp.typeFieldTypes.getOrElse(tn, Nil)
+    val ftype = if idx < ft.length then ft(idx) else ""
+    if wantDouble then { if ftype != "Double" then return null }
+    else if ftype != "Int" && ftype != "Long" then return null
+    val jvar    = ctx.resolveLocal(objName)
+    if jvar == null then return null
+    val wrapper = if wantDouble then "scalascript.interpreter.Value.DoubleV"
+                  else              "scalascript.interpreter.Value.IntV"
+    val inst    = s"((scalascript.interpreter.Value.InstanceV) $jvar)"
+    val arr     = s"$inst.fieldsArr()[$idx]"
+    val mapVal  = s"""$inst.fields().apply("${escape(field)}")"""
+    val raw     = s"($inst.fieldsArr() != null ? $arr : $mapVal)"
+    s"((($wrapper) $raw).v())"
 
   /** Emit a Java `Object`-typed expression. Only `Term.Name` (referencing a
    *  ref-classified name in scope) is supported in the initial slice. */
@@ -684,6 +722,8 @@ object JavacJitBackend extends JitBackend:
           val r = walkDouble(argClause.values.head, ctx); if r == null then return null
           s"(($l $opStr $r) ? 1.0 : 0.0)"
         case _ => null
+    case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
+      emitRefFieldNumeric(objName, field, ctx, wantDouble = true)
     case ap: Term.Apply =>
       ap.fun match
         case fn: Term.Name if fn.value == ctx.funName =>
@@ -1582,7 +1622,10 @@ object JavacJitBackend extends JitBackend:
     // true when this ctx is for an inlined callee body — the callee method is
     // co-emitted as a static method without a ref preamble, so ObjToLong ref
     // calls cannot be used inside it.
-    val isCallee:        Boolean = false
+    val isCallee:        Boolean = false,
+    // Local val-bound InstanceV names (frame locals of the benched fn) so a
+    // ref arg like `normSq(v)` JITs even though `v` is not in interp.globals.
+    val localRefs:       Set[String] = Set.empty
   ):
     def refIdx(name: String): Int =
       val i = refNames.indexOf(name)
@@ -1603,17 +1646,20 @@ object JavacJitBackend extends JitBackend:
     cond:  Term,
     names: Array[String],
     rhs:   Array[Term],
-    interp: scalascript.interpreter.Interpreter | Null = null
+    interp: scalascript.interpreter.Interpreter | Null = null,
+    locals: Map[String, Value]
   ): WhileJitEntry | Null =
     if !enabled then return null
     // Global cache: avoid javac on every Interpreter instance / benchmark iter.
     val globalCached = whileLongGlobalCache.get(cond)
     if globalCached eq WhileLongMiss then return null
     if globalCached != null then return globalCached.asInstanceOf[WhileJitEntry]
+    val localRefs = locals.iterator.collect { case (k, _: Value.InstanceV) => k }.toSet
     val ctx = new WhileGenCtx(
       names,
       interp,
-      scala.collection.mutable.LinkedHashMap.empty[String, String]
+      scala.collection.mutable.LinkedHashMap.empty[String, String],
+      localRefs = localRefs
     )
     val condJava = walkLocalBoolCtx(cond, ctx)
     if condJava == null then return null
@@ -2487,6 +2533,9 @@ object JavacJitBackend extends JitBackend:
         si += 1
       ctx.interp.globals.getOrElse(tn.value, null) match
         case _: Value.InstanceV =>
+          val ri = ctx.refIdx(tn.value)
+          s"_r$ri"
+        case _ if ctx.localRefs.contains(tn.value) =>
           val ri = ctx.refIdx(tn.value)
           s"_r$ri"
         case _ => null

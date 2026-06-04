@@ -19,7 +19,8 @@ trait JitBackend:
     cond:   Term,
     names:  Array[String],
     rhs:    Array[Term],
-    interp: Interpreter | Null
+    interp: Interpreter | Null,
+    locals: Map[String, Value] = Map.empty
   ): WhileJitEntry | Null
 
   /** Fused outer-while + inner-foreach JIT compilation.

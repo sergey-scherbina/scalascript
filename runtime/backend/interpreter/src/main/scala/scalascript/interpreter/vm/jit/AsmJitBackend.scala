@@ -103,6 +103,10 @@ object AsmJitBackend extends JitBackend:
           case _ =>
         markRef(tm.expr)
         tm.casesBlock.cases.foreach(c => markRef(c.body))
+      // `param.field` access ⇒ param is an InstanceV ref, not a Long.
+      case Term.Select(n: Term.Name, _) =>
+        val idx = f.params.indexOf(n.value)
+        if idx >= 0 then paramIsRef(idx) = true
       case _ => t.children.foreach(markRef)
     markRef(f.body)
     paramIsRef
@@ -156,7 +160,8 @@ object AsmJitBackend extends JitBackend:
       interp           = interp,
       coEmit           = coEmit,
       selfClass        = cname,
-      allocSlot        = () => { val s = nextLocal; nextLocal += 2; s }
+      allocSlot        = () => { val s = nextLocal; nextLocal += 2; s },
+      paramTypes       = f.paramTypes.toArray
     )
 
     if f.params.length == 1 && paramIsRef(0) then
@@ -602,12 +607,18 @@ object AsmJitBackend extends JitBackend:
     interp:           Interpreter,
     coEmit:           CoEmitState,
     selfClass:        String,
-    allocSlot:        () => Int
+    allocSlot:        () => Int,
+    paramTypes:       Array[String] = Array.empty
   ):
     def isRefName(n: String): Boolean =
       bindings.get(n) match
         case Some((_, r)) => r
         case None => val i = paramNames.indexOf(n); i >= 0 && paramIsRef(i)
+
+    /** Declared type of a ref param (e.g. "Vec"), or null if unknown. */
+    def refTypeOf(n: String): String | Null =
+      val i = paramNames.indexOf(n)
+      if i >= 0 && i < paramTypes.length then paramTypes(i) else null
 
     def slotOf(n: String): Int =
       bindings.get(n) match
@@ -664,12 +675,53 @@ object AsmJitBackend extends JitBackend:
         if op.value == "-" then mv.visitInsn(LNEG)
         true
       }
+    case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
+      emitRefFieldNumeric(objName, field, ctx, mv, wantDouble = false)
     case ap: Term.Apply =>
       ap.fun match
         case fn: Term.Name =>
           emitLongCall(fn.value, ap.argClause.values, ctx, mv)
         case _ => false
     case _ => false
+
+  /** Emit InstanceV field access `obj.field` on a ref param, leaving a primitive
+   *  (long if !wantDouble, double if wantDouble) on the stack.  Resolves the
+   *  field index from the param's declared type via `typeFieldOrder`, reads
+   *  `fieldsArr[idx]` (Map fallback when the array is null), and unboxes.
+   *  Returns false (caller falls back to the interpreter) when the type/field
+   *  is unknown or the field's primitive kind does not match `wantDouble`. */
+  private def emitRefFieldNumeric(objName: String, field: String, ctx: GenCtx,
+                                  mv: MethodVisitor, wantDouble: Boolean): Boolean =
+    val tn = ctx.refTypeOf(objName)
+    if tn == null then return false
+    val fo  = ctx.interp.typeFieldOrder.getOrElse(tn, Nil)
+    val idx = fo.indexOf(field)
+    if idx < 0 then return false
+    val ft    = ctx.interp.typeFieldTypes.getOrElse(tn, Nil)
+    val ftype = if idx < ft.length then ft(idx) else ""
+    if wantDouble then { if ftype != "Double" then return false }
+    else if ftype != "Int" && ftype != "Long" then return false
+    val slot  = ctx.slotOf(objName)
+    if slot < 0 then return false
+    // The param slot is typed Object; re-bind it as InstanceV in a fresh slot
+    // (via CHECKCAST before ASTORE) so the verifier accepts the InstanceV
+    // virtual calls in fieldsArr/emitMapApply.
+    val instSlot = ctx.allocSlot()
+    mv.visitVarInsn(ALOAD, slot)
+    mv.visitTypeInsn(CHECKCAST, instVInt)
+    mv.visitVarInsn(ASTORE, instSlot)
+    val faSlot = ctx.allocSlot()
+    mv.visitVarInsn(ALOAD, instSlot)
+    mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "fieldsArr", s"()[L$valueInt;", false)
+    mv.visitVarInsn(ASTORE, faSlot)
+    emitLoadField(mv, instSlot, faSlot, idx, field, hasArr = true)  // leaves Value on stack
+    if wantDouble then
+      mv.visitTypeInsn(CHECKCAST, dblVInt)
+      mv.visitMethodInsn(INVOKEVIRTUAL, dblVInt, "v", "()D", false)
+    else
+      mv.visitTypeInsn(CHECKCAST, intVInt)
+      mv.visitMethodInsn(INVOKEVIRTUAL, intVInt, "v", "()J", false)
+    true
 
   // ── walkDouble ────────────────────────────────────────────────────────────
 
@@ -718,6 +770,8 @@ object AsmJitBackend extends JitBackend:
         if op.value == "-" then mv.visitInsn(DNEG)
         true
       }
+    case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
+      emitRefFieldNumeric(objName, field, ctx, mv, wantDouble = true)
     case ap: Term.Apply =>
       ap.fun match
         case fn: Term.Name if fn.value == ctx.funName =>
@@ -765,7 +819,8 @@ object AsmJitBackend extends JitBackend:
       interp           = parentCtx.interp,
       coEmit           = parentCtx.coEmit,
       selfClass        = cname,
-      allocSlot        = () => { val s = nextLocal; nextLocal += 2; s }
+      allocSlot        = () => { val s = nextLocal; nextLocal += 2; s },
+      paramTypes       = f.paramTypes.toArray
     )
     val mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, sig.methodName,
       buildStaticDesc(sig.paramIsRef, sig.isDouble), null, null)
@@ -1524,7 +1579,8 @@ object AsmJitBackend extends JitBackend:
     cond:   Term,
     names:  Array[String],
     rhs:    Array[Term],
-    interp: Interpreter | Null
+    interp: Interpreter | Null,
+    locals: Map[String, Value]
   ): WhileJitEntry | Null =
     if !enabled then return null
     val cached = whileCache.get(cond)
@@ -1534,7 +1590,11 @@ object AsmJitBackend extends JitBackend:
     val n     = classCounter.incrementAndGet()
     val cname = s"scalascript/interpreter/vm/jit/asm/AsmWhile$$$n"
     val pureFns = mutable.LinkedHashMap.empty[String, WhilePureFn]
-    val ctx   = WhileCtx(names, interp, pureFns, cname)
+    // Local val-bound InstanceV names (e.g. `val v = Vec(3,4)` inside the
+    // benched fn) so walkWhileRefArg can route them through the ref-call lane;
+    // EvalRuntime re-resolves the actual value from the frame at run time.
+    val localRefs = locals.iterator.collect { case (k, _: Value.InstanceV) => k }.toSet
+    val ctx   = WhileCtx(names, interp, pureFns, cname, localRefs = localRefs)
 
     val condEmit = walkWhileBool(cond, ctx)
     if condEmit == null then { whileCache.put(cond, WhileMiss); return null }
@@ -2498,11 +2558,12 @@ object AsmJitBackend extends JitBackend:
   // ── While-loop walker context and types ──────────────────────────────────
 
   private case class WhileCtx(
-    slots:     Array[String],
-    interp:    Interpreter | Null,
-    pureFns:   mutable.LinkedHashMap[String, WhilePureFn],
-    selfClass: String,
-    isCallee:  Boolean = false
+    slots:      Array[String],
+    interp:     Interpreter | Null,
+    pureFns:    mutable.LinkedHashMap[String, WhilePureFn],
+    selfClass:  String,
+    isCallee:   Boolean = false,
+    localRefs:  Set[String] = Set.empty
   ):
     val refNames:      mutable.ArrayBuffer[String] = mutable.ArrayBuffer.empty
     val refFnNames:    mutable.ArrayBuffer[String] = mutable.ArrayBuffer.empty
@@ -2727,6 +2788,9 @@ object AsmJitBackend extends JitBackend:
         si += 1
       ctx.interp.globals.getOrElse(tn.value, null) match
         case _: Value.InstanceV =>
+          val ri = ctx.refIdx(tn.value)
+          mv => mv.visitVarInsn(ALOAD, ctx.refSlots(ri))
+        case _ if ctx.localRefs.contains(tn.value) =>
           val ri = ctx.refIdx(tn.value)
           mv => mv.visitVarInsn(ALOAD, ctx.refSlots(ri))
         case _ => null

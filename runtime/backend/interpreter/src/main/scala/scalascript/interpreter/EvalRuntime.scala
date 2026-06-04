@@ -241,8 +241,12 @@ private[interpreter] object EvalRuntime:
         if cached eq WhileJitMiss then return null
         else cached.asInstanceOf[scalascript.interpreter.vm.jit.WhileJitEntry]
       else
+        val localRefs: Map[String, Value] =
+          frameView.underlying.iterator.collect {
+            case (k, v: Value.InstanceV) => (k, v: Value)
+          }.toMap
         val e = scalascript.interpreter.vm.jit.JitBackend.default.tryCompileWhileLong(
-          t.expr, body.names, body.rhs, interp
+          t.expr, body.names, body.rhs, interp, localRefs
         )
         interp.whileJitCache.put(t, if e == null then WhileJitMiss else e.asInstanceOf[AnyRef])
         e
@@ -268,11 +272,15 @@ private[interpreter] object EvalRuntime:
         val dotIdx = name.indexOf('.')
         val v: Value | Null =
           if dotIdx < 0 then
-            interp.globals.getOrElse(name, null)
+            frameView.getOrElse(name, null) match
+              case null => interp.globals.getOrElse(name, null)
+              case fv   => fv
           else
             val base  = name.substring(0, dotIdx)
             val field = name.substring(dotIdx + 1)
-            interp.globals.getOrElse(base, null) match
+            (frameView.getOrElse(base, null) match
+              case null => interp.globals.getOrElse(base, null)
+              case fv   => fv) match
               case inst: Value.InstanceV =>
                 val arr = inst.fieldsArr
                 if arr != null then

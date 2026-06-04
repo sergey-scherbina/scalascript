@@ -342,7 +342,7 @@ class SscVmTest extends AnyFunSuite with Matchers:
         |  i = i + 1""".stripMargin
     val (interp, w, names, rhs) = whileParts(defs, whileSrc)
     names shouldBe Array("total", "i")
-    val entry = AsmJitBackend.tryCompileWhileLong(w.expr, names, rhs, interp)
+    val entry = AsmJitBackend.tryCompileWhileLong(w.expr, names, rhs, interp, Map.empty)
     entry should not be null
     entry.refNames shouldBe Array("shape")
     entry.refFns shouldBe empty
@@ -373,7 +373,7 @@ class SscVmTest extends AnyFunSuite with Matchers:
         |  i = i + 1""".stripMargin
     val (interp, w, names, rhs) = whileParts(defs, whileSrc)
     names shouldBe Array("sum", "i")
-    val entry = AsmJitBackend.tryCompileWhileLong(w.expr, names, rhs, interp)
+    val entry = AsmJitBackend.tryCompileWhileLong(w.expr, names, rhs, interp, Map.empty)
     entry should not be null
     entry.refNames shouldBe Array("tree")
     entry.refFns.length shouldBe 1
