@@ -119,9 +119,48 @@ final case class JitLintReport(
       }.mkString("\n")
       s"$header  [will NOT JIT]\n$body"
 
-/** Pure predicates shared between `JitLint.classifyBailReasons` and
- *  `JavacJitBackend.doCompile`. Keeping the logic in one place prevents
- *  the lint and the backend from silently diverging after a backend change.
+/** Side-by-side lint result for both backends, produced by
+ *  `JitLint.lintInterpreterCompare`.  Useful for surfacing functions that
+ *  JIT on Javac but not ASM (or vice-versa) so ASM-parity regressions are
+ *  visible without running a full benchmark. */
+final case class JitLintCompareReport(
+  defName: String,
+  defLine: Option[Int],
+  javac:   JitLintReport,
+  asm:     JitLintReport
+):
+  def bothJit:      Boolean = javac.willJit  && asm.willJit
+  def asmOnlyFails: Boolean = javac.willJit  && !asm.willJit
+  def javacOnlyFails: Boolean = !javac.willJit && asm.willJit
+  def bothFail:     Boolean = !javac.willJit && !asm.willJit
+  def anyFail:      Boolean = !javac.willJit || !asm.willJit
+
+  def humanReadable: String =
+    val header   = s"def $defName${defLine.fold("")(l => s" (line $l)")}"
+    val javacTag = if javac.willJit then "[JAVAC OK]" else "[JAVAC FAIL]"
+    val asmTag   = if asm.willJit   then "[ASM OK]"   else "[ASM FAIL]"
+    val sb = new StringBuilder(s"$header  $javacTag $asmTag")
+    if bothFail && javac.bailReasons == asm.bailReasons then
+      appendReasons("  both", javac.bailReasons, sb)
+    else
+      if !javac.willJit then appendReasons("  JAVAC", javac.bailReasons, sb)
+      if !asm.willJit   then appendReasons("  ASM",   asm.bailReasons,   sb)
+    sb.toString
+
+  private def appendReasons(
+    label:   String,
+    reasons: List[JitBailReason],
+    sb:      StringBuilder
+  ): Unit =
+    sb.append(s"\n$label:")
+    reasons.foreach { r =>
+      sb.append(s"\n    - ${r.description}")
+      r.suggestedFix.foreach(f => sb.append(s"\n      fix: $f"))
+    }
+
+/** Pure predicates shared between the structural bail classifier and each
+ *  `JitBackend` implementation.  Keeping the logic in one place prevents the
+ *  lint and the backends from silently diverging after a backend change.
  *
  *  All functions are pure (no interpreter access, no side effects) and
  *  operate on scala.meta AST nodes only. */
@@ -137,70 +176,25 @@ private[jit] object JitPredicates:
       isBoolReturning(ti.thenp) || isBoolReturning(ti.elsep)
     case _ => false
 
-/** Analyser that walks the interpreter's globals after a module is loaded
- *  and reports JIT-compilability for every Defn.Def. Reuses the live
- *  `JitBackend.default.tryCompile` cache as the ground-truth predicate so
- *  the lint and the runtime can never diverge silently.
- *
- *  Typical use:
- *  {{{
- *    val interp = Interpreter(System.out)
- *    interp.runSections(parseModule(src))
- *    val report = JitLint.lintInterpreter(interp)
- *    if report.exists(!_.willJit) then
- *      System.err.println("Some functions will not JIT — see above")
- *  }}}
- *
- *  The classifier calls the same predicates as `JavacJitBackend.doCompile`
- *  (via `JitPredicates`) so the lint and the backend cannot diverge silently.
- *  Remaining "unknown shape" bails (Term shapes the walker can't classify
- *  without running `doCompile`) still surface as `UnknownShape`. */
-object JitLint:
-  /** Lint every top-level `def` in the interpreter's globals. Returns one
-   *  report per FunV, sorted by name. Pure (no side effects on the
-   *  interpreter — uses the existing tryCompile cache). */
-  def lintInterpreter(interp: Interpreter): List[JitLintReport] =
-    interp.globals.iterator
-      .collect { case (name, fn: Value.FunV) => (name, fn) }
-      .toList
-      .sortBy(_._1)
-      .map { case (name, fn) => lintFun(name, fn, interp) }
-
-  /** Lint a single FunV — invoked from `lintInterpreter` or directly. */
-  def lintFun(name: String, fn: Value.FunV, interp: Interpreter): JitLintReport =
-    val line = posLineOf(fn.body)
-    val backendResult = JitBackend.default.tryCompile(fn, interp)
-    if backendResult != null then
-      JitLintReport(name, line, Nil)
-    else
-      val reasons = classifyBailReasons(fn)
-      val nonEmpty =
-        if reasons.nonEmpty then reasons
-        else List(JitBailReason.UnknownShape)
-      JitLintReport(name, line, nonEmpty)
-
-  /** Walk `fn.body` + the param/return metadata and collect every visible
-   *  structural cliff. The checks mirror `JavacJitBackend.doCompile`'s
-   *  early-bail predicates so the lint and the backend stay in sync.
-   *  Returns Nil if no obvious cliff is detected — the caller then reports
-   *  `UnknownShape`. */
-  private def classifyBailReasons(fn: Value.FunV): List[JitBailReason] =
+  /** Walk `fn.body` and the param/return metadata and collect every visible
+   *  structural bail cliff.  Mirrors `JavacJitBackend.doCompile`'s early-bail
+   *  predicates; backends may call this then append their own specifics.
+   *  Returns Nil when no obvious cliff is found — caller reports UnknownShape. */
+  def classifyBailReasons(fn: Value.FunV): List[JitBailReason] =
     val buf = scala.collection.mutable.ListBuffer.empty[JitBailReason]
-    // Param-count check mirrors doCompile's `if f.params.length != 1 && … != 2`.
     if fn.params.isEmpty then buf += JitBailReason.ZeroParams
     else if fn.params.length > 2 then buf += JitBailReason.TooManyParams(fn.params.length)
     if fn.usingParams.nonEmpty then buf += JitBailReason.UsingParams
     if fn.paramTypes.exists(_.endsWith("*")) then buf += JitBailReason.VarargParam
     if fn.returnsThrows then buf += JitBailReason.EffectReturn
-    // Bool-body check mirrors doCompile's `if isBoolReturning(f.body) then return null`.
-    if JitPredicates.isBoolReturning(fn.body) then buf += JitBailReason.BoolBody
-    walkForCliffs(fn.body, buf)
+    if isBoolReturning(fn.body) then buf += JitBailReason.BoolBody
+    walkForBailCliffs(fn.body, buf)
     buf.toList.distinct
 
-  /** Recursive AST traversal that pushes a `JitBailReason` for each visible
-   *  structural cliff. Falls back to `Tree.children.foreach(walkForCliffs(_, …))`
-   *  so every node is visited exactly once. */
-  private def walkForCliffs(t: Tree, buf: scala.collection.mutable.ListBuffer[JitBailReason]): Unit =
+  /** Recursive AST traversal: pushes a `JitBailReason` for each visible
+   *  structural cliff.  Falls back to `Tree.children.foreach(…)` so every
+   *  node is visited exactly once. */
+  def walkForBailCliffs(t: Tree, buf: scala.collection.mutable.ListBuffer[JitBailReason]): Unit =
     t match
       case _: Term.Try =>
         buf += JitBailReason.TryCatch
@@ -215,9 +209,67 @@ object JitLint:
             case _: Pat.Var      => ()
             case _: Pat.Wildcard => ()
             case _               => buf += JitBailReason.NonExtractPattern
-          walkForCliffs(c.body, buf)
+          walkForBailCliffs(c.body, buf)
         }
-      case _ => t.children.foreach(walkForCliffs(_, buf))
+      case _ => t.children.foreach(walkForBailCliffs(_, buf))
+
+/** Analyser that walks the interpreter's globals after a module is loaded
+ *  and reports JIT-compilability for every Defn.Def.
+ *
+ *  `lintFun` and `lintInterpreter` accept an explicit `backend` parameter
+ *  (defaulting to `JitBackend.default`) so callers can target Javac, ASM, or
+ *  any future backend without changing the env var.  `lintInterpreterCompare`
+ *  runs both Javac and ASM in a single pass and returns a side-by-side diff.
+ *
+ *  Ground truth is always `backend.tryCompile` — the live compile cache —
+ *  so the lint and the runtime can never diverge silently.  When compilation
+ *  fails the structural reason is derived from `backend.classifyBailReasons`,
+ *  which each backend may specialise beyond the shared `JitPredicates` base. */
+object JitLint:
+
+  /** Lint every top-level `def` in the interpreter's globals against
+   *  `backend` (default: `JitBackend.default`).  Returns one report per
+   *  FunV, sorted by name. */
+  def lintInterpreter(
+    interp:  Interpreter,
+    backend: JitBackend = JitBackend.default
+  ): List[JitLintReport] =
+    interp.globals.iterator
+      .collect { case (name, fn: Value.FunV) => (name, fn) }
+      .toList
+      .sortBy(_._1)
+      .map { case (name, fn) => lintFun(name, fn, interp, backend) }
+
+  /** Lint a single FunV against `backend` (default: `JitBackend.default`).
+   *  Invoked from `lintInterpreter` or directly. */
+  def lintFun(
+    name:    String,
+    fn:      Value.FunV,
+    interp:  Interpreter,
+    backend: JitBackend = JitBackend.default
+  ): JitLintReport =
+    val line = posLineOf(fn.body)
+    if backend.tryCompile(fn, interp) != null then
+      JitLintReport(name, line, Nil)
+    else
+      val reasons = backend.classifyBailReasons(fn)
+      JitLintReport(name, line, if reasons.nonEmpty then reasons else List(JitBailReason.UnknownShape))
+
+  /** Run both `JavacJitBackend` and `AsmJitBackend` on every top-level def
+   *  and return a side-by-side comparison.  Functions that compile on Javac
+   *  but not ASM (or vice-versa) are immediately visible without a benchmark
+   *  run. */
+  def lintInterpreterCompare(interp: Interpreter): List[JitLintCompareReport] =
+    interp.globals.iterator
+      .collect { case (name, fn: Value.FunV) => (name, fn) }
+      .toList
+      .sortBy(_._1)
+      .map { case (name, fn) =>
+        val line   = posLineOf(fn.body)
+        val javacR = lintFun(name, fn, interp, JavacJitBackend)
+        val asmR   = lintFun(name, fn, interp, AsmJitBackend)
+        JitLintCompareReport(name, line, javacR, asmR)
+      }
 
   private def posLineOf(t: Tree): Option[Int] =
     val p = t.pos

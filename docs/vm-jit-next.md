@@ -610,6 +610,12 @@ collapsed to null. The bail propagated outward silently — JFR-validated:
   Bench `refFieldArg` (`f(item.right)`) locked.
 - `0a43e4b1` (Phase 2): `JitLint` analyser + `ssc lint-jit` CLI.
   8 `JitBailReason` categories with structural-fix suggestions.
+- (Phase 2b): `--backend javac|asm|both` flag on `ssc lint-jit`.
+  `JitBackend.classifyBailReasons` SPI; `JitPredicates.classifyBailReasons`
+  shared predicates; `JitLintCompareReport` + `lintInterpreterCompare`;
+  explicit `backend` param on `lintFun`/`lintInterpreter`.
+  `--backend both` shows per-function `[JAVAC OK] [ASM FAIL]` diff.
+  28 tests green.
 - `1bd98d51` (Phase 1b): 2-arg ref-mixed dispatch. 4 new typed
   ifaces (`LongObjToLong`, `ObjLongToLong`, `LongObjToDouble`,
   `ObjLongToDouble`). `JavacJitBackend.determineInterface` covers all

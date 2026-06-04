@@ -5,11 +5,12 @@ import scalascript.interpreter.{Interpreter, Value}
 
 /** SPI boundary for bytecode-JIT backends.
  *
- *  Today there is exactly one implementation — `JavacJitBackend` (Java source
- *  → `javax.tools.JavaCompiler` → in-memory class → `MethodHandle`).  The
- *  trait exists to make the architectural intent explicit and to provide a
- *  clean extension point for a future ASM backend without touching any caller
- *  code. */
+ *  Today there are two implementations:
+ *  - `JavacJitBackend` (Java source → `javax.tools.JavaCompiler` → bytecode)
+ *  - `AsmJitBackend` (AST → JVM bytecode directly via ASM 9.7)
+ *
+ *  The trait provides a clean extension point for future backends and lets
+ *  `JitLint` target any backend explicitly via the `backend` parameter. */
 trait JitBackend:
   def id: String
   def enabled: Boolean
@@ -46,6 +47,21 @@ trait JitBackend:
     accIsDouble:  Boolean,
     interp:       Interpreter
   ): WhileJitEntry | Null = null
+
+  /** Static structural analysis: which `JitBailReason`s explain why
+   *  `tryCompile` would return null for this function.
+   *
+   *  The default implementation delegates to `JitPredicates.classifyBailReasons`
+   *  which covers the structural cliffs shared by both Javac and ASM backends
+   *  (param count, `using` params, varargs, effect return, bool body,
+   *  try/catch, non-extract patterns, non-ADT scrutinees).  Backends may
+   *  override to add or suppress reasons specific to their implementation.
+   *
+   *  `JitLint.lintFun` calls this only when `tryCompile` has already returned
+   *  null, so it does not need to re-run any compilation.  Returns Nil when
+   *  no structural cliff is detected — `JitLint` then reports `UnknownShape`. */
+  def classifyBailReasons(fn: Value.FunV): List[JitBailReason] =
+    JitPredicates.classifyBailReasons(fn)
 
 object JitBackend:
   /** Active backend. `SSC_JIT_BACKEND=asm` selects `AsmJitBackend`;

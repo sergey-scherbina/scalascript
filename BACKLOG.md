@@ -2193,6 +2193,72 @@ gated on same-session A/B + full suite green with the gate off AND on.
       emitted in the generated Java method.
       **Result:** `mapForeach` 2.14 → 0.187 ms (11.4×).
 
+- [ ] **asm-jit-purecall-bug** — `pureCallSum`, `pureCallSum2`, `pureCallSumBlock`,
+      `pureCallSumIf` show catastrophic regressions in ASM mode vs Javac mode
+      (2026-06-04 JMH run):
+        - `pureCallSum`:      0.295 → 11.215 ms/op (+3700%)
+        - `pureCallSum2`:     0.283 → 12.175 ms/op (+4300%)
+        - `pureCallSumBlock`: 0.259 → 2676 ms/op (~10,000×)
+        - `pureCallSumIf`:    0.279 → 2774 ms/op (~10,000×)
+      These benchmarks exercise the FastTier pure-call path (`LApply1`/`LApply2`
+      + `compileSlotLongFn1/2`) for functions with literal body, block body, and
+      if-expression body.  The catastrophic numbers for Block and If variants
+      strongly indicate that `AsmJitBackend` generates broken bytecode for one of:
+      (a) block-bodied functions (let bindings in body), (b) if-expressions, or
+      (c) the FastTier hook that detects pure-call candidates doesn't fire in ASM
+      mode (wrong cache key, wrong body shape check, or code structure difference
+      from Javac that breaks the `fn.body eq expectedBody` identity check).
+      Profile first: `SSC_JIT_BACKEND=asm scripts/bench profile pureCallSum` to
+      identify whether the code reaches the fast path or falls through to the
+      general dispatcher.
+      **Bench target:** parity with Javac (within ±5%).
+
+- [ ] **asm-jit-patternmatch-regression** — Pattern-match benchmarks are
+      consistently slower in ASM mode (2026-06-04 JMH run):
+        - `patternMatchHeavy`: 0.438 → 0.720 ms/op (+64%)
+        - `patternMatchSet`:   0.211 → 0.838 ms/op (+297%)
+        - `patternMatchWide`:  1.416 → 1.685 ms/op (+19%)
+      Likely cause: the FastTier match-dispatch path (or `CompiledMatch.runValueLong`)
+      doesn't fire in ASM mode because the generated function shape differs from
+      what `tryLongAccumForeach` / `compileSlotLongFn1` expect.  Profile with
+      `SSC_JIT_BACKEND=asm scripts/bench profile patternMatchHeavy` to confirm
+      whether the issue is in the outer foreach or the inner match dispatch.
+      **Bench target:** parity with Javac (within ±5%).
+
+- [ ] **jit-lint-while-coverage** — `ssc lint-jit` currently only checks
+      `FunV` entries in `interp.globals` (top-level `def`s).  Top-level
+      `while` loops — compiled by `tryCompileWhileLong` / `tryCompileWhileMixed`
+      — are invisible to the lint even though they are the hottest JIT target
+      in most workloads.  Adding while-loop coverage would surface issues like
+      the ASM while-backend regressions that currently only appear at bench time.
+
+      **Design:**
+      - Add `JitLint.lintWhileLoops(interp, backend): List[JitLintWhileReport]`
+        that scans `interp.topLevelExprs` (or equivalent — TBD depending on
+        what the interpreter exposes) for `Term.While` nodes and calls
+        `backend.tryCompileWhileLong` as ground truth for each one.
+      - `JitLintWhileReport` mirrors `JitLintReport`: line, bail reason (at
+        minimum: `WhileNotCompiled` for now — more granular once the while-JIT
+        bail predicates are extracted from `JavacJitBackend`).
+      - `lintInterpreterCompare` extended to call both while-loop lint paths
+        when running `--backend both`.
+      - CLI: `ssc lint-jit --include-while` to opt-in (gated because
+        running `tryCompileWhileLong` is side-effectful — it populates the
+        while-JIT cache and may trigger compilation).
+
+      **Implementation note:** `interp.topLevelExprs` may not exist yet as a
+      public API.  The interpreter likely discards top-level non-def expressions
+      after evaluation.  The while-lint may need to operate on the AST of the
+      source before execution (requires a `--static` lint mode that parses +
+      extracts def bodies without running the module, which was deferred as a
+      follow-up when `LintJitCmd` was first written).  Scope this carefully
+      before coding.
+
+      **Blocking:** `asm-jit-purecall-bug` and `asm-jit-patternmatch-regression`
+      should be fixed first — the while-lint would report false positives for
+      those shapes until the underlying ASM bugs are patched.
+      Spec: `docs/jit-lint-while-coverage.md` (to be created when work starts).
+
 - [ ] **jit-tuple-concat-hoist** — Interp `tupleMonoid` is 55% slower than JVM
       (0.212 ms vs 0.137 ms).  The bench `while i < 100000 do last = (1,2)++(3,4)`
       allocates three TupleV objects per iteration; JVM backend constant-folds

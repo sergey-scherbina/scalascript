@@ -3,7 +3,7 @@ package scalascript
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.Interpreter
-import scalascript.interpreter.vm.jit.{JitLint, JitBailReason}
+import scalascript.interpreter.vm.jit.{AsmJitBackend, JitLint, JitBailReason, JavacJitBackend}
 import scalascript.parser.Parser
 
 /** Lint fixtures. Each test exercises exactly one category of `JitBailReason`
@@ -15,17 +15,41 @@ import scalascript.parser.Parser
 class JitLintTest extends AnyFunSuite with Matchers:
 
   private def lintFor(code: String): JitLintReportLookup =
+    lintForBackend(code, JavacJitBackend)
+
+  private def lintForAsm(code: String): JitLintReportLookup =
+    lintForBackend(code, AsmJitBackend)
+
+  private def lintForBackend(
+    code:    String,
+    backend: scalascript.interpreter.vm.jit.JitBackend
+  ): JitLintReportLookup =
     val src = s"# Test\n\n```scalascript\n$code\n```\n"
     val module = Parser.parse(src)
     val devNull = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
     val interp = Interpreter(devNull)
     interp.runSections(module)
-    new JitLintReportLookup(JitLint.lintInterpreter(interp))
+    new JitLintReportLookup(JitLint.lintInterpreter(interp, backend))
+
+  private def lintCompareFor(code: String): JitLintCompareLookup =
+    val src = s"# Test\n\n```scalascript\n$code\n```\n"
+    val module = Parser.parse(src)
+    val devNull = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
+    val interp = Interpreter(devNull)
+    interp.runSections(module)
+    new JitLintCompareLookup(JitLint.lintInterpreterCompare(interp))
 
   private final class JitLintReportLookup(reports: List[scalascript.interpreter.vm.jit.JitLintReport]):
     def forDef(name: String): scalascript.interpreter.vm.jit.JitLintReport =
       reports.find(_.defName == name).getOrElse(
         fail(s"No report for def '$name'. Available: ${reports.map(_.defName).mkString(", ")}"))
+
+  private final class JitLintCompareLookup(
+    reports: List[scalascript.interpreter.vm.jit.JitLintCompareReport]
+  ):
+    def forDef(name: String): scalascript.interpreter.vm.jit.JitLintCompareReport =
+      reports.find(_.defName == name).getOrElse(
+        fail(s"No compare report for def '$name'. Available: ${reports.map(_.defName).mkString(", ")}"))
 
   // ── happy path ────────────────────────────────────────────────────
 
@@ -285,3 +309,82 @@ class JitLintTest extends AnyFunSuite with Matchers:
     ).forDef("f")
     r.willJit shouldBe false
     r.bailReasons should not be empty
+
+  // ── explicit backend parameter ────────────────────────────────────
+
+  test("lintFun with explicit JavacJitBackend — same result as default"):
+    val r = lintFor("def f(x: Int): Int = x + 1\nf(3)").forDef("f")
+    r.willJit shouldBe true
+    r.bailReasons shouldBe empty
+
+  test("lintFun with explicit AsmJitBackend — simple arith JITs on ASM"):
+    val r = lintForAsm("def f(x: Int): Int = x + 1\nf(3)").forDef("f")
+    r.willJit shouldBe true
+    r.bailReasons shouldBe empty
+
+  test("lintFun with AsmJitBackend — ZeroParams still reported"):
+    val r = lintForAsm("def f(): Int = 42\nf()").forDef("f")
+    r.willJit shouldBe false
+    r.bailReasons should contain (JitBailReason.ZeroParams)
+
+  test("lintFun with AsmJitBackend — TryCatch still reported"):
+    val r = lintForAsm(
+      """def f(x: Int): Int = try x + 1 catch case _: Exception => 0
+        |f(3)""".stripMargin
+    ).forDef("f")
+    r.willJit shouldBe false
+    r.bailReasons should contain (JitBailReason.TryCatch)
+
+  test("lintFun with AsmJitBackend — block-body f(x) = { val y = x+1; y } JITs"):
+    val r = lintForAsm(
+      """def f(x: Int): Int = { val y = x + 1; y }
+        |f(3)""".stripMargin
+    ).forDef("f")
+    r.willJit shouldBe true
+    r.bailReasons shouldBe empty
+
+  test("lintFun with AsmJitBackend — if-body f(x) = if x>0 then x else -x JITs"):
+    val r = lintForAsm(
+      """def f(x: Int): Int = if x > 0 then x else -x
+        |f(3)""".stripMargin
+    ).forDef("f")
+    r.willJit shouldBe true
+    r.bailReasons shouldBe empty
+
+  // ── lintInterpreterCompare ───────────────────────────────────────
+
+  test("lintInterpreterCompare — simple arith shows BOTH OK"):
+    val r = lintCompareFor("def f(x: Int): Int = x + 1\nf(3)").forDef("f")
+    r.bothJit shouldBe true
+    r.asmOnlyFails shouldBe false
+    r.javacOnlyFails shouldBe false
+
+  test("lintInterpreterCompare — ZeroParams shows BOTH FAIL with same reason"):
+    val r = lintCompareFor("def f(): Int = 42\nf()").forDef("f")
+    r.bothFail shouldBe true
+    r.javac.bailReasons should contain (JitBailReason.ZeroParams)
+    r.asm.bailReasons   should contain (JitBailReason.ZeroParams)
+
+  test("lintInterpreterCompare — TooManyParams shows BOTH FAIL"):
+    val r = lintCompareFor("def f(a: Int, b: Int, c: Int): Int = a+b+c\nf(1,2,3)").forDef("f")
+    r.bothFail shouldBe true
+    r.javac.bailReasons should contain (JitBailReason.TooManyParams(3))
+    r.asm.bailReasons   should contain (JitBailReason.TooManyParams(3))
+
+  test("lintInterpreterCompare — ADT eval JITs on both backends"):
+    val r = lintCompareFor(
+      """sealed trait Expr
+        |case class Num(n: Int) extends Expr
+        |case class Add(l: Expr, r: Expr) extends Expr
+        |def eval(e: Expr): Int = e match
+        |  case Num(n)    => n
+        |  case Add(l, r) => eval(l) + eval(r)
+        |eval(Num(1))""".stripMargin
+    ).forDef("eval")
+    r.bothJit shouldBe true
+
+  test("lintInterpreterCompare — humanReadable contains JAVAC and ASM tags"):
+    val r = lintCompareFor("def f(x: Int): Int = x + 1\nf(3)").forDef("f")
+    val txt = r.humanReadable
+    txt should include ("[JAVAC OK]")
+    txt should include ("[ASM OK]")
