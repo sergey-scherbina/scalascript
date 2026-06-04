@@ -975,6 +975,25 @@ highest-impact item.
 
 - [x] **effect-stream-opt3** — Superseded by OPT-2 (trampoline eliminated entirely).
 
+- [ ] **asm-jit-patternmatch-wide-gap** — `patternMatchWide` is 25% slower in
+      AsmJitBackend vs Javac (0.795 vs 0.636 ms, 2026-06-04 run).
+      `patternMatchHeavy` and `patternMatchSet` are already at parity or faster in
+      ASM; `patternMatchWide` uses a wider ADT with more arms — likely the
+      `tryBuildInlineMatchAccum` / `walkArmForAccum` inlining path fires for
+      narrow shapes but misses a case in the wider dispatch.
+      Profile with `SSC_JIT_BACKEND=asm scripts/bench profile patternMatchWide`
+      to confirm whether the gap is in the outer foreach or inner arm selection.
+      **Bench target:** ASM parity with Javac (≤0.67 ms, ±5%).
+
+- [ ] **bench-effect-stream-corpus** — `bench.sh` reports `n/a` for `effect-stream`
+      after `effect-stream-opt2` landed.  Root cause unknown: either the corpus
+      script (`bench/corpus/effect-stream.ssc` or `bench/run.sc`) times out on the
+      new fast path (sub-millisecond output), or the result-parsing logic fails to
+      extract a number when the workload completes in under its measurement window.
+      Fix: update the corpus harness to handle sub-ms workloads (lower floor,
+      higher rep count, or switched timing unit).
+      **Target:** `effect-stream` shows a valid number in `bench.sh` (expected ~0.1 ms).
+
 - [ ] **direct-style-eval-spec** (Direction C blocking task) — write
       `docs/direct-style-eval-spec.md` covering: migration strategy
       (capability flag, phased per-call-site migration), effect

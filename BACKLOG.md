@@ -2202,6 +2202,20 @@ gated on same-session A/B + full suite green with the gate off AND on.
       Inlined match body into foreach accumulator loop in AsmJitBackend.
       patternMatchHeavy/Set at Javac parity; patternMatchWide improved from 85% to 10% gap.
 
+- [ ] **asm-jit-patternmatch-wide-gap** — Remaining 25% ASM gap on `patternMatchWide`
+      (0.795 vs 0.636 ms Javac, 2026-06-04).  `patternMatchHeavy`/`Set` are at parity
+      or faster in ASM; the wide variant (more ADT arms) still lags.  Likely
+      `tryBuildInlineMatchAccum` misses an arm-count threshold or arm-type condition
+      specific to wide dispatch.
+      Profile: `SSC_JIT_BACKEND=asm scripts/bench profile patternMatchWide`.
+      **Bench target:** ≤0.67 ms (Javac parity ±5%).
+
+- [ ] **bench-effect-stream-corpus** — `bench.sh` shows `n/a` for `effect-stream`
+      after opt2 (sub-ms workload).  The corpus timing harness likely can't resolve
+      a result that completes in under its measurement window.  Fix: lower the timing
+      floor or increase rep count for fast workloads in `bench/run.sc`.
+      **Target:** `effect-stream` displays ~0.1 ms in `bench.sh`.
+
 - [x] **jit-lint-while-coverage** — ✓ Landed 2026-06-04 commit `868deb64`.
       `ssc lint-jit --include-while` now reports JIT coverage for top-level
       while loops alongside the existing def coverage.  Source of truth is
