@@ -911,16 +911,13 @@ highest-impact item.
       patternMatchHeavy/Set still regress (foreach/closure issue,
       separate `asm-jit-patternmatch-regression` task).
 
-- [ ] **asm-jit-patternmatch-regression** — Pattern-match benchmarks slower in ASM mode
-      (2026-06-04 JMH):
-        - `patternMatchHeavy`: 0.438 → 0.720 ms/op (+64%)
-        - `patternMatchSet`:   0.211 → 0.838 ms/op (+297%)
-        - `patternMatchWide`:  1.416 → 1.685 ms/op (+19%)
-      Likely: the FastTier match-dispatch or `tryLongAccumForeach` path doesn't
-      recognize ASM-generated function shapes (different closure type or body
-      structure).  Profile with `SSC_JIT_BACKEND=asm scripts/bench profile patternMatchSet`
-      to confirm whether the issue is the foreach driver or the inner match dispatch.
-      **Bench target:** parity with Javac (within ±5%).
+- [x] **asm-jit-patternmatch-regression** — ✓ Landed 2026-06-04 commit `881d9308`.
+      Inlined match body into foreach accumulator loop in AsmJitBackend
+      (canInlineMatchAccum + tryEmitInlineMatchAccum + emitList/SetForeachAccumInline).
+      Eliminated ObjToDouble/ObjToLong interface dispatch per element.
+      Results vs Javac: patternMatchHeavy 0.378ms vs 0.413ms (ASM faster),
+      patternMatchSet 0.209ms vs 0.204ms (parity), patternMatchWide 0.812ms vs 0.738ms
+      (10% gap, improved from 85% regression). 1279 tests pass.
 
 - [x] **jit-lint-while-coverage** — ✓ Landed 2026-06-04 commit `868deb64`.
       `ssc lint-jit --include-while` reports JIT coverage for top-level while
