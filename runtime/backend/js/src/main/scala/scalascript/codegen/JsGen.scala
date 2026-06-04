@@ -2967,12 +2967,19 @@ class JsGen(
     // v1.4 effect runners — body must be wrapped in a thunk so that effect ops
     // build a Free tree which the runner's _handle/_handleOneShot can interpret.
     // Simple runners: runF(body) → runF(() => cps(body))
+    // Exception: runStream uses a side-channel buffer (Stream.emit pushes directly)
+    // so while/var loops work without a CPS trampoline.  Body is emitted as plain
+    // JS (genExpr) so mutable vars and while loops are preserved correctly.
+    case Term.Apply.After_4_6_0(Term.Name("runStream"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      val bodyJs = genExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      s"runStream(() => $bodyJs)"
     case Term.Apply.After_4_6_0(Term.Name(runner), bodyArgClause)
         if bodyArgClause.values.size == 1 &&
            Set("runLogger","runLoggerJson","runLoggerToList",
                "runRandom","runClock","runEnv","runHttp",
                "runRetry","runRetryNoSleep",
-               "runCache","runCacheBypass","runTx","runStream").contains(runner) =>
+               "runCache","runCacheBypass","runTx").contains(runner) =>
       val bodyJs = genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])
       s"$runner(() => $bodyJs)"
     // Curried runners: runF(arg)(body) → runF(arg)(() => cps(body))
@@ -3909,13 +3916,18 @@ class JsGen(
       val awaitPrefix = if usesRunActors then "await " else ""
       s"${awaitPrefix}_runActors(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
-    // v1.4 effect runners inside CPS body — same thunk-wrapping as genExpr
+    // v1.4 effect runners inside CPS body — same thunk-wrapping as genExpr.
+    // runStream uses genExpr (not genCpsExpr) — see genExpr variant above.
+    case Term.Apply.After_4_6_0(Term.Name("runStream"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      val bodyJs = genExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      s"runStream(() => $bodyJs)"
     case Term.Apply.After_4_6_0(Term.Name(runner), bodyArgClause)
         if bodyArgClause.values.size == 1 &&
            Set("runLogger","runLoggerJson","runLoggerToList",
                "runRandom","runClock","runEnv","runHttp",
                "runRetry","runRetryNoSleep",
-               "runCache","runCacheBypass","runTx","runStream").contains(runner) =>
+               "runCache","runCacheBypass","runTx").contains(runner) =>
       val bodyJs = genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])
       s"$runner(() => $bodyJs)"
     case Term.Apply.After_4_6_0(

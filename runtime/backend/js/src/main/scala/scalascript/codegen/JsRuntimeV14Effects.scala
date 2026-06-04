@@ -434,45 +434,62 @@ function runAuthWith(user) {
 // Stream.complete()    — early termination
 // Stream.error(msg)    — fail the stream
 // Stream.request(n)    — advisory demand hint (no-op in v1.51.6)
-// runStream(bodyFn)    — discharge Stream effect; returns [Source[A], R]
+// runStream(bodyFn)    — discharge Stream effect; returns [_SourceSync, R]
+//   where _SourceSync.runToList() returns the emitted values synchronously.
+//
+// Implementation: Stream.emit pushes to a module-level side-channel buffer
+// when inside a runStream body.  This makes while/var loops work without a
+// CPS trampoline — the emit is a direct side effect, not a Free monad node.
+// The CPS path (_bind chains) still works: _bind(undefined, k) → k(undefined).
+
+let _streamBuf = null;
 
 const Stream = {
-  emit:     (x)   => _perform('Stream', 'emit',     [x]),
+  emit:     (x)   => { if (_streamBuf !== null) { _streamBuf.push(x); return undefined; } return _perform('Stream', 'emit', [x]); },
   complete: ()    => _perform('Stream', 'complete',  []),
   error:    (msg) => _perform('Stream', 'error',    [msg]),
   request:  (n)   => _perform('Stream', 'request',  [n]),
 };
 
+function _mkStreamSource(data) {
+  return {
+    _data: data,
+    runToList() { return data; },
+    toList()    { return data; },
+    [Symbol.asyncIterator]: async function*() { for (const v of data) yield v; },
+  };
+}
+
 function runStream(bodyFn) {
   const emitted = [];
+  _streamBuf = emitted;
   let terminated = false;
-  let errorMsg   = null;
-  let bodyResult = undefined;
-  const handlers = {
-    'Stream.emit': function(args) {
-      if (!terminated && errorMsg === null) emitted.push(args[0]);
-      return args[args.length - 1](undefined);
-    },
-    'Stream.complete': function(args) {
-      terminated = true;
-      return args[args.length - 1](undefined);
-    },
-    'Stream.error': function(args) {
-      errorMsg = args[0] ?? 'Stream error';
-      return args[args.length - 1](undefined);
-    },
-    'Stream.request': function(args) {
-      return args[args.length - 1](undefined);  // advisory no-op
-    },
-  };
-  bodyResult = _handle(bodyFn, new Set(['Stream.emit','Stream.complete','Stream.error','Stream.request']), handlers);
-  let source;
-  if (errorMsg !== null) {
-    const msg = errorMsg;
-    source = _makeAsyncStream((async function*() { throw new Error(msg); })());
-  } else {
-    source = _makeAsyncStream((async function*(xs) { for (const v of xs) yield v; })(emitted));
+  let errorMsg = null;
+  let bodyResult;
+  try {
+    const handlers = {
+      'Stream.emit': function(args) {
+        // CPS path: emit was not intercepted by side-channel (body used _perform directly).
+        if (!terminated && errorMsg === null) emitted.push(args[0]);
+        return args[args.length - 1](undefined);
+      },
+      'Stream.complete': function(args) {
+        terminated = true;
+        return args[args.length - 1](undefined);
+      },
+      'Stream.error': function(args) {
+        errorMsg = args[0] ?? 'Stream error';
+        return args[args.length - 1](undefined);
+      },
+      'Stream.request': function(args) {
+        return args[args.length - 1](undefined);
+      },
+    };
+    bodyResult = _handle(bodyFn, new Set(['Stream.emit','Stream.complete','Stream.error','Stream.request']), handlers);
+  } finally {
+    _streamBuf = null;
   }
-  return [source, bodyResult];
+  if (errorMsg !== null) throw new Error(String(errorMsg));
+  return [_mkStreamSource(emitted), bodyResult];
 }
 """
