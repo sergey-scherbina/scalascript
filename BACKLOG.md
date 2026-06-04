@@ -11,10 +11,11 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       API from
       [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md):
       Phase 1 landed 2026-06-04 with parser `DocumentContent`, interpreter
-      `contentDocument()`, and `std/ui/content.ssc` frontend lowering. The
-      follow-up work is JS/JVM native context wiring, `contentCurrentSection`,
-      `contentSection`, `contentBlock`, `contentData`, `contentMetadata`,
-      `contentPlainText`, `contentToMarkdown`, then un-pend
+      `contentDocument()`, `contentToolkitNode()` toolkit composition, and
+      `contentView(...)` low-level frontend lowering. The follow-up work is
+      JS/JVM native context wiring, `contentCurrentSection`, `contentSection`,
+      `contentBlock`, `contentData`, `contentMetadata`, `contentPlainText`,
+      `contentToMarkdown`, then un-pend
       `tests/conformance/content-introspection.ssc`. `.scir` / `.sscc`
       round-trip, multi-link import paragraphs, and custom component registry
       support follow as later slices.

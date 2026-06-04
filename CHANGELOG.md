@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — feat(language): Markdown content toolkit bridge
+
+- **markdown-content-toolkit-view** — Added `contentToolkitNode()` for turning
+  the current Markdown document into a regular `std/ui` `TkNode` subtree that
+  can be composed with `vstack`, `card`, routers, and themed shells before
+  `lower(tree, theme)`. The content plugin now returns native-created content
+  values with stable field arrays for imported helper compatibility, and
+  `examples/content-introspection.ssc` demonstrates Markdown + toolkit
+  composition.
+
 ## 2026-06-04 — fix(cli): Markdown frontend CLI run + LAN serve URLs
 
 - **markdown-frontend-cli-serve-fix** — `ssc examples/content-introspection.ssc`
