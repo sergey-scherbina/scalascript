@@ -255,6 +255,68 @@ Hello world.
       case Left(err) => fail(s"SsccFormat.read v3 failed: $err")
   }
 
+  // ─── Phase B: scalameta token stream tests ──────────────────────────────
+
+  test("v3 phase-B: scalascript block with identifiers round-trips via sm token stream") {
+    val ssc = """
+# Users
+
+```scalascript
+case class User(userId: String, userName: String, userEmail: String)
+val users: List[User] = Nil
+def findUser(userId: String): Option[User] = users.find(_.userId == userId)
+def createUser(userName: String, userEmail: String): User =
+  User("id", userName, userEmail)
+```
+"""
+    val m  = parseModule(ssc)
+    val m2 = roundtrip(m)
+    val cb = m2.sections.head.content.collectFirst { case cb: Content.CodeBlock => cb }
+    assert(cb.isDefined)
+    assert(cb.get.lang == "scalascript")
+    assert(cb.get.tree.isDefined, "tree must be present — parsed from reconstructed sm-token source")
+    assert(cb.get.source.contains("userId"))
+    assert(cb.get.source.contains("userName"))
+    assert(cb.get.source.contains("userEmail"))
+  }
+
+  test("v3 phase-B: interpolated string survives sm token stream") {
+    val ssc = """
+# Greet
+
+```scalascript
+def greet(name: String): String = s"Hello, $name!"
+val msg: String = greet("world")
+```
+"""
+    val m  = parseModule(ssc)
+    val m2 = roundtrip(m)
+    val cb = m2.sections.head.content.collectFirst { case cb: Content.CodeBlock => cb }
+    assert(cb.isDefined)
+    assert(cb.get.source.contains("Hello"))
+    assert(cb.get.tree.isDefined)
+  }
+
+  test("v3 phase-B: source text reconstructed from token stream is parseable") {
+    val ssc = """
+# Math
+
+```scalascript
+def fib(n: Int): Int =
+  if n <= 1 then n
+  else fib(n - 1) + fib(n - 2)
+val result: Int = fib(10)
+```
+"""
+    val m  = parseModule(ssc)
+    val m2 = roundtrip(m)
+    val cb = m2.sections.head.content.collectFirst { case cb: Content.CodeBlock => cb }
+    assert(cb.isDefined)
+    assert(cb.get.tree.isDefined)
+    assert(cb.get.source.contains("fib"))
+    assert(cb.get.source.contains("result"))
+  }
+
   // ─── Size comparison ─────────────────────────────────────────────────────
 
   test("v3 vs v2 size delta on a real .ssc file (informational)") {
