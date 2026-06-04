@@ -3,6 +3,28 @@
 > This file is the durable memory of pre-code design decisions.
 > Every new Claude Code session should read it first.
 
+## MANDATORY: required skills
+
+Two skills govern how all feature work is done. Read their full instructions
+before starting any implementation. Skill files are in the submodule — read
+them directly (slash commands are not required and may not be available):
+
+| Skill | File | When to use |
+|---|---|---|
+| `spec-dev` | `.agents/plugins/spec-dev/commands/spec-dev.md` | Every new feature or change |
+| `multi-agent` | `.agents/plugins/multi-agent/commands/multi-agent.md` | Autonomous loop / queue work |
+
+**spec-dev rules (non-negotiable):**
+- Read `specs/jit-completeness.md` (or the relevant feature spec) before starting any implementation.
+- If no spec exists for the task: write it first, commit `spec: <slug>`, then implement.
+- Never start coding without a committed spec.
+- After implementation: run verify step, check off behavior items.
+
+**multi-agent rules:** follow the queue discipline in `multi-agent.md` for
+all autonomous loop work (claim → implement → push → release).
+
+---
+
 ## MANDATORY: first action in every session
 
 **If the conversation begins with a context summary (the previous session ran out of context and was compressed), treat it as a new session start: re-read this file (AGENTS.md) before any other action. The summary does not guarantee AGENTS.md was read correctly or that it has not changed.**
