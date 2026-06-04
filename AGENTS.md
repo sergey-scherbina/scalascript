@@ -277,6 +277,10 @@ specs: docs/specs
 
 See the `/spec-dev` skill for the full workflow (write → implement → verify).
 
+Skill location (read in this order):
+1. `.agents/plugins/spec-dev/commands/spec-dev.md` — submodule, always in sync
+2. `~/.claude/commands/spec-dev.md` — globally installed fallback
+
 Non-trivial in this project (spec required):
 - A new module / package in `build.sbt`
 - A new SPI trait or contract other code will depend on
