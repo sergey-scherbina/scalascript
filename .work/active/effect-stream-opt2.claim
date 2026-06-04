@@ -1,4 +1,0 @@
-feature/effect-stream-opt2 2026-06-04T01:59:43Z
-status: not-started
-done-so-far:
-next: detect while+emit body in EvalRuntime and compile to buffer-fill loop
