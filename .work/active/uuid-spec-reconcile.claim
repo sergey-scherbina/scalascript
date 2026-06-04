@@ -1,4 +1,4 @@
-feature/uuid-spec-reconcile 2026-06-04T09:01:58Z
+feature/uuid-spec-reconcile 2026-06-04T09:02:52Z
 status: not-started
 done-so-far:
 next: reconcile untracked docs/uuid.md with landed uuid-p1..p5 state
