@@ -298,7 +298,7 @@ then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 | Bench | Javac | ASM | Notes |
 |---|---|---|---|
 | `arithLoop` | 0.256 | 0.277 | parity ✓ |
-| `counterWithTupleVar` | **0.009** | — | ✓ self-assignment hoist (interp-opt-tuple-var); 58.751 → 0.009 ms (6500×, 2026-06-04) |
+| `counterWithTupleVar` | **0.009** | — | ✓ tryFoldCounterLoop (interp-opt-while-jit-wrapper+idempotent-loop); 69 ms → 0.009 ms (7667×, 2026-06-04); self-assign hoist + O(1) counter fold |
 | `effectPure` | **0.010** | — | ✓ improved via hello-world-interp-overhead+effect-pure-pure-path; gap to JS (0.006) = 1.67×; noperform IR flag remains for further closure |
 | `effectStream` | **0.083** | — | ✓ SrcList O(1) length (interp-opt-effect-stream); 0.117 → 0.083 ms (1.4×, 2026-06-04); JVM gap 1.3×; LExpr dispatch floor |
 | `instanceFieldAccess` | 0.039 | 0.041 | parity ✓ |
@@ -322,8 +322,8 @@ then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 | `recursiveEvalMixed` | 3.665 | 3.697 | **target: interp-opt-recursive-eval** (same floor; need direct-style eval) |
 | `refChainArg` | **0.046** | 0.047 | parity ✓ (javac-while-inline-objfn) |
 | `refFieldArg` | 0.047 | 0.047 | parity ✓ |
-| `tupleMonoid` | **0.013** | **0.000016** | ✓ at interp floor; 13× JVM gap is HotSpot constant-folding the entire 100K loop (not a realistic target) |
-| `tupleMonoidVal` | 0.012 | — | guard bench — val-hoist path |
+| `tupleMonoid` | **0.012** | **0.000016** | ✓ at interp floor; tryFoldCounterLoop collapses 100K loop to O(1) — JVM gap is HotSpot DCE on a long-lived server |
+| `tupleMonoidVal` | **0.011** | — | guard bench — val-hoist + counter-fold path |
 
 `RuntimeBench` cross-backend (µs/op, default flags):
 
