@@ -14,15 +14,25 @@ Simple plans for small teams.
 - Starter: $19
 - Pro: $49
 
+```yaml @id=plans-data
+plans:
+  - id: starter
+    price: 19
+  - id: pro
+    price: 49
+```
+
 ```scalascript
-[contentDocument, contentCurrentSection, contentSection, contentPlainText](std/content.ssc)
+[contentDocument, contentCurrentSection, contentSection, contentData, contentPlainText](std/content.ssc)
 
 val doc = contentDocument()
 val plans = contentSection("plans").get
 val here = contentCurrentSection()
+val data = contentData("plans-data")
 
 println(doc.title.getOrElse(""))
 println(plans.title)
 println(contentPlainText(plans))
+println(data.isDefined.toString)
 println(here.id)
 ```

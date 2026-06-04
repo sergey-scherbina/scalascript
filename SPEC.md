@@ -318,9 +318,11 @@ for the React/Solid/Vue app to consume.
 
 ### 3.4 Markdown Content Introspection (planned)
 
-ScalaScript treats Markdown body content as source syntax, not as comments.
-The planned content-introspection layer exposes that parsed body as a typed,
-immutable document snapshot available to code blocks and frontend helpers.
+ScalaScript treats Markdown-hosted content as source syntax, not as comments.
+The planned content-introspection layer exposes that parsed document as a typed,
+immutable snapshot available to code blocks and frontend helpers. The snapshot
+includes Markdown prose and structure, YAML/front-matter, and fenced embedded
+language blocks.
 
 Target API:
 
@@ -332,10 +334,12 @@ println(doc.title.getOrElse(""))
 println(contentSection("pricing").get.title)
 ```
 
-Markdown headings, prose, lists, links, images, code fences, and future table
-nodes lower into a `DocumentContent` tree. Front-matter remains the module
-manifest; `content:` inside front-matter carries content-rendering defaults.
-Lightweight metadata can be attached to Markdown nodes:
+Markdown headings, prose, lists, links, images, code fences, YAML/JSON/TOML data
+blocks, and future table nodes lower into a `DocumentContent` tree.
+Front-matter remains the module manifest, and the same YAML is exposed as typed
+`ContentValue` data under `DocumentContent.manifest`; `content:` inside
+front-matter carries content-rendering defaults. Lightweight metadata can be
+attached to Markdown nodes:
 
 ```markdown
 # Pricing {#pricing route=/pricing layout=marketing}
@@ -343,6 +347,11 @@ Lightweight metadata can be attached to Markdown nodes:
 <!-- @meta component=PlanList source=plans -->
 ## Plans
 ```
+
+Every fenced block enters the content tree as an embedded language node.
+Structured languages such as `yaml`, `json`, and `toml` may also expose parsed
+`ContentValue` data; executable or plugin-defined languages preserve their
+exact source and language tag for backend/plugin handling.
 
 The content snapshot is parse-time data. Inline `${expr}` inside prose is stored
 as expression source until an explicit renderer evaluates it, so reading

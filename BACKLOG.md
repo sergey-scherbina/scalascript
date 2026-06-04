@@ -13,13 +13,14 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       docs, `examples/content-introspection.ssc`, and pending conformance
       fixture. Next slices:
       - Phase 1: parser-side content snapshot with deterministic ids, heading
-        attributes, `<!-- @meta ... -->`, lists/links/images/code fences, and
-        inline `${expr}` capture as source.
+        attributes, `<!-- @meta ... -->`, lists/links/images, embedded language
+        blocks, YAML/front-matter and fenced YAML/JSON/TOML as `ContentValue`,
+        and inline `${expr}` capture as source.
       - Phase 2: Normalize/Denormalize plus `.scir` / `.sscc` round-trip.
       - Phase 3: `runtime/std/content.ssc` + `runtime/std/content-plugin`
         exposing `contentDocument`, `contentCurrentSection`, `contentSection`,
-        `contentMetadata`, `contentPlainText`, and `contentToMarkdown` across
-        interpreter/JS/JVM; then un-pend
+        `contentBlock`, `contentData`, `contentMetadata`, `contentPlainText`,
+        and `contentToMarkdown` across interpreter/JS/JVM; then un-pend
         `tests/conformance/content-introspection.ssc`.
       - Phase 4+: `runtime/std/ui/content.ssc` generic frontend lowering and
         later table support.

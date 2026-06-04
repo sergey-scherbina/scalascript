@@ -15,19 +15,29 @@ Simple plans for small teams.
 - Starter: $19
 - Pro: $49
 
+```yaml @id=plans-data
+plans:
+  - id: starter
+    price: 19
+  - id: pro
+    price: 49
+```
+
 ## Planned API
 
 The `std/content` runtime API is planned. This example is intentionally kept
 runnable today by showing the future code as text until the implementation
-lands.
+lands. The YAML block above is intentionally part of the planned content tree:
+it should become a structured `ContentValue`, not just a literal code string.
 
 ```text
-[contentDocument, contentCurrentSection, contentSection](std/content.ssc)
+[contentDocument, contentCurrentSection, contentSection, contentData](std/content.ssc)
 [contentView](std/ui/content.ssc)
 
 val doc = contentDocument()
 println(doc.title.getOrElse(""))
 println(contentSection("plans").get.title)
+println(contentData("plans-data").isDefined)
 
 val page = contentView(doc)
 serve(lower(page, defaultTheme), 8080)

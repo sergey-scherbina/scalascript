@@ -14,14 +14,16 @@ This unification provides:
 
 ## Construct Mappings
 
-### Markdown Body -> Document Content IR (planned)
+### Markdown Host -> Document Content IR (planned)
 
 The next planned layer keeps the existing scope/import/code behavior and also
-exposes the non-code Markdown body as typed content. This lets code blocks read
-document content as metadata, and lets frontend helpers render prose, lists,
-links, images, and future tables without user-written HTML generation.
+exposes the Markdown-hosted document as typed content. This includes prose,
+lists, links, images, YAML/front-matter, fenced YAML/JSON/TOML data blocks, and
+other embedded languages that appear as legitimate Markdown blocks. Code blocks
+can read document content as metadata, and frontend helpers can render prose,
+lists, links, images, and future tables without user-written HTML generation.
 
-```markdown
+````markdown
 # Pricing {#pricing route=/pricing layout=marketing}
 
 Simple plans for small teams.
@@ -31,7 +33,15 @@ Simple plans for small teams.
 
 - Starter: $19
 - Pro: $49
+
+```yaml @id=plans-data
+plans:
+  - id: starter
+    price: 19
+  - id: pro
+    price: 49
 ```
+````
 
 Planned AST/runtime shape:
 
@@ -43,7 +53,11 @@ DocumentContent(
       id = "pricing",
       attrs = Map("route" -> "/pricing", "layout" -> "marketing"),
       blocks = List(Paragraph(...)),
-      children = List(SectionContent(id = "plans", attrs = Map("component" -> "PlanList", ...)))
+      children = List(SectionContent(
+        id = "plans",
+        attrs = Map("component" -> "PlanList", ...),
+        blocks = List(Embedded(lang = "yaml", kind = StructuredData, data = Some(...)))
+      ))
     )
   )
 )
@@ -55,6 +69,7 @@ The public API is planned under `std/content.ssc`:
 val doc = contentDocument()
 val pricing = contentSection("pricing")
 val current = contentCurrentSection()
+val plansData = contentData("plans-data")
 ```
 
 Frontend lowering is planned separately under `std/ui/content.ssc`:

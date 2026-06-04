@@ -1,36 +1,40 @@
 # Markdown Content Introspection
 
 Status: planned. This document is the implementation contract for exposing
-Markdown body content as typed metadata and renderable frontend input. The
+Markdown-hosted content as typed metadata and renderable frontend input. The
 current parser already treats Markdown as syntax; this spec defines the next
-layer: code blocks can inspect the non-code document that surrounds them, and
-frontend code can render that document without hand-writing markup generation.
+layer: code blocks can inspect the document that surrounds them, including
+Markdown prose, YAML/front-matter, and any legitimate embedded language block.
+Frontend code can then render or adapt that document without hand-writing
+markup generation.
 
 ## Overview
 
 ScalaScript source should be useful as both executable code and structured
 content. Today front-matter is available as module metadata and headings create
-scopes, but ordinary prose, lists, links, and other Markdown body nodes are not
-exposed through a stable public API. This feature introduces a Document Content
-IR and a `std/content` API so code can read the parsed Markdown body as data.
-The frontend layer then lowers the same content IR to `std/ui` nodes or backend
-agnostic `View` trees.
+scopes, but ordinary prose, lists, links, embedded YAML blocks, and other
+Markdown-hosted language blocks are not exposed through a stable public API.
+This feature introduces a Document Content IR and a `std/content` API so code
+can read the parsed document as data. The frontend layer then lowers the same
+content IR to `std/ui` nodes or backend agnostic `View` trees.
 
 The intended authoring model is:
 
 1. Write the page, screen, manifest, or product description as Markdown.
-2. Attach lightweight metadata where plain Markdown is ambiguous.
-3. Use code blocks only for behavior, data fetching, validation, and custom
-   renderers.
-4. Let `std/content` expose the surrounding document to code and frontend
+2. Use YAML/front-matter or fenced YAML/JSON/TOML/etc. when the content is
+   naturally structured.
+3. Attach lightweight metadata where plain Markdown is ambiguous.
+4. Use executable code blocks only for behavior, data fetching, validation, and
+   custom renderers.
+5. Let `std/content` expose the surrounding document to code and frontend
    helpers.
 
 ## Interface
 
 ### Markdown authoring surface
 
-The content layer reads the existing Markdown body plus two small metadata
-extensions:
+The content layer reads the existing Markdown body, front-matter, embedded
+language blocks, and two small metadata extensions:
 
 ````markdown
 ---
@@ -50,10 +54,19 @@ Simple plans for small teams.
 - Starter: $19
 - Pro: $49
 
+```yaml @id=plans-data
+plans:
+  - id: starter
+    price: 19
+  - id: pro
+    price: 49
+```
+
 ```scalascript
 val doc = contentDocument()
 println(doc.title.getOrElse(""))
 println(contentSection("plans").get.title)
+println(contentData("plans-data").isDefined)
 ```
 ````
 
@@ -79,6 +92,20 @@ Welcome to ScalaScript.
 Plain HTML comments without the `@meta` directive remain comments and do not
 enter the content IR.
 
+Fenced code blocks are also content nodes. The language tag decides whether the
+block is executable, structured data, string content, or opaque source:
+
+| Fence tag class | Content behavior |
+|---|---|
+| `yaml`, `yml`, `json`, `toml` | Parsed into `ContentValue` when a parser is available; original source is preserved |
+| `scalascript`, `ssc`, `scala`, `sql`, `graphql`, `node.js` | Preserved as source with `kind = Executable`; normal execution/lowering stays with the existing backend rules |
+| `html`, `css`, `javascript` | Preserved as source with `kind = StringBlock`; interpolation/evaluation is renderer/backend specific |
+| Unknown or plugin-defined tags | Preserved as source with `kind = Opaque` unless a source-language plugin classifies them |
+
+Front-matter remains the module manifest, but the same parsed YAML is exposed in
+`DocumentContent.manifest` as `ContentValue` data so code can inspect it without
+depending on raw YAML maps.
+
 ### `std/content.ssc`
 
 The planned public API is deliberately data-first. Names are prefixed with
@@ -87,7 +114,7 @@ helpers.
 
 ```scalascript
 case class DocumentContent(
-  manifest: Map[String, ContentValue],
+  manifest: ContentValue,
   title: Option[String],
   description: Option[String],
   attrs: Map[String, ContentValue],
@@ -110,9 +137,15 @@ enum ContentBlock:
   case OrderedList(items: List[List[ContentBlock]], start: Int, attrs: Map[String, ContentValue])
   case Quote(blocks: List[ContentBlock], attrs: Map[String, ContentValue])
   case Image(src: String, alt: String, title: Option[String], attrs: Map[String, ContentValue])
-  case CodeFence(lang: String, source: String, attrs: Map[String, ContentValue])
+  case Embedded(lang: String, source: String, kind: EmbeddedKind, data: Option[ContentValue], attrs: Map[String, ContentValue])
   case RawHtml(source: String, attrs: Map[String, ContentValue])
   case Table(header: List[String], rows: List[List[String]], attrs: Map[String, ContentValue])
+
+enum EmbeddedKind:
+  case StructuredData
+  case Executable
+  case StringBlock
+  case Opaque
 
 enum ContentInline:
   case Text(value: String)
@@ -133,6 +166,8 @@ enum ContentValue:
 extern def contentDocument(): DocumentContent
 extern def contentCurrentSection(): SectionContent
 extern def contentSection(id: String): Option[SectionContent]
+extern def contentBlock(id: String): Option[ContentBlock]
+extern def contentData(id: String): Option[ContentValue]
 extern def contentMetadata(path: String): Option[ContentValue]
 extern def contentPlainText(block: ContentBlock): String
 extern def contentPlainText(section: SectionContent): String
@@ -147,6 +182,11 @@ returns the enclosing section for the code block that called it.
 `contentMetadata(path)` reads `content:` front-matter by dot path, for example
 `contentMetadata("defaultRenderer")`. It does not read arbitrary front-matter
 keys; callers that need the whole manifest use `contentDocument().manifest`.
+
+`contentBlock(id)` looks up any content node with an explicit `@id=...` fence
+attribute or `{#id}` metadata. `contentData(id)` is a convenience for embedded
+structured data blocks; it returns `None` for executable/string/opaque blocks or
+for structured blocks that failed to parse.
 
 ### Frontend helper API
 
@@ -175,7 +215,8 @@ The default lowering maps:
 | `BulletList` / `OrderedList` | list nodes |
 | `Link` | link node |
 | `Image` | image node with `alt` |
-| `CodeFence` | omitted by default; rendered as code/pre when `includeCode = true` |
+| `Embedded(StructuredData)` | omitted by default unless a component/custom renderer consumes it |
+| `Embedded(Executable/StringBlock/Opaque)` | omitted by default; rendered as code/pre when `includeCode = true` |
 | `Table` | table node when table parsing is enabled; otherwise not emitted |
 
 If a block or section has `component=<name>` metadata, the generic lowering
@@ -185,9 +226,15 @@ a compile error by itself.
 
 ## Behavior
 
-- [ ] The parser preserves non-code Markdown body content as a stable
+- [ ] The parser preserves Markdown-hosted content as a stable
       `DocumentContent` snapshot without changing existing section scoping or
       code block execution.
+- [ ] YAML front-matter is exposed as `DocumentContent.manifest: ContentValue`
+      while still serving as the existing module manifest.
+- [ ] Fenced YAML/JSON/TOML structured blocks preserve source and expose parsed
+      `ContentValue` data when parsing succeeds.
+- [ ] Every fenced code block enters the content tree as an embedded language
+      node, even when its execution is handled by a backend or plugin.
 - [ ] Generated section ids are deterministic: slugify heading text; if a slug
       is repeated, append `-2`, `-3`, etc. Explicit `{#id}` wins and duplicate
       explicit ids are a compile-time diagnostic.
@@ -215,6 +262,8 @@ a compile error by itself.
 - Runtime mutation of the document content. The snapshot is immutable for one
   module execution.
 - User-defined Markdown block parsers in the first implementation slice.
+- Full semantic parsing for every programming language. Unknown languages keep
+  source text plus metadata; plugins may add richer classification later.
 - Executing code fences through the content API. Code fences are represented as
   source metadata only; normal code block execution stays in the existing
   section runtime.
@@ -230,6 +279,7 @@ a compile error by itself.
 ```text
 .ssc source
   -> CommonMark AST + YAML front-matter
+  -> source-language classification for fenced blocks
   -> existing Module/Section/Content AST
   -> DocumentContent snapshot
   -> std/content runtime value
@@ -238,9 +288,27 @@ a compile error by itself.
 ```
 
 The content snapshot is built in `lang/core` after the CommonMark parse and
-before backend splitting. It should not live in the interpreter core. The
+before backend splitting. The snapshot records the host Markdown structure plus
+embedded language nodes. It should not live in the interpreter core. The
 interpreter, JS codegen, JVM codegen, and artifact writer all consume the same
 serialized content representation.
+
+### Embedded language classification
+
+Markdown is the host language. YAML front-matter and fenced code blocks are
+embedded languages inside that host. Classification is conservative:
+
+1. Built-in data languages (`yaml`, `yml`, `json`, `toml`) parse into
+   `ContentValue`.
+2. Built-in ScalaScript executable/string block languages map to
+   `EmbeddedKind.Executable` or `EmbeddedKind.StringBlock`.
+3. Source-language plugins may classify additional tags and optionally provide
+   a structured-data decoder.
+4. Unknown tags stay `Opaque` with exact source text preserved.
+
+This keeps the feature open-ended: any reasonable language that can be expressed
+as a legitimate Markdown block can participate in introspection without forcing
+ScalaScript to understand its full semantics in core.
 
 ### AST and IR placement
 
@@ -304,6 +372,14 @@ concatenates classes in source order.
   compiler, and frontend use cases all need the same source of truth. Rejected:
   direct Markdown-to-View lowering as the only API, because it would make
   non-frontend introspection depend on the UI toolkit.
+- **Markdown is the host; embedded languages keep their own dialects** - chosen
+  because YAML, JSON, SQL, GraphQL, ScalaScript, and future plugin languages
+  each have existing syntax and semantics. Rejected: translating every fenced
+  block into a Markdown-only model, because that would erase useful structure or
+  force ScalaScript core to parse too many languages.
+- **Parse structured data opportunistically** - chosen because YAML/JSON/TOML
+  are valuable as metadata/data blocks today. Rejected: requiring every
+  embedded language to have a parser before it can enter the content tree.
 - **Prefix public functions with `content`** - chosen to avoid collisions with
   existing `doc(...)` / `render(...)` content helpers. Rejected:
   `document()` / `section()` as too likely to conflict with user names.
@@ -330,9 +406,11 @@ concatenates classes in source order.
 - Add AST data classes for `DocumentContentDecl`, `SectionContentDecl`,
   block/inline content, and `ContentValue`.
 - Convert CommonMark body nodes into the snapshot while preserving source order,
-  section hierarchy, ids, attributes, spans, and code fence metadata.
+  section hierarchy, ids, attributes, spans, and embedded-language metadata.
+- Parse YAML/front-matter and fenced YAML/JSON/TOML into `ContentValue` while
+  preserving the original source text.
 - Add parser tests for headings, duplicate ids, metadata comments, lists,
-  links, inline code, and inline expression capture.
+  links, inline code, inline expression capture, and embedded data blocks.
 
 ### Phase 2 - IR and artifact round-trip
 
@@ -346,7 +424,8 @@ concatenates classes in source order.
 - Create `runtime/std/content.ssc` and `runtime/std/content-plugin`.
 - Populate native context state for interpreter, JS, and JVM backends.
 - Implement `contentDocument`, `contentCurrentSection`, `contentSection`,
-  `contentMetadata`, `contentPlainText`, and `contentToMarkdown`.
+  `contentBlock`, `contentData`, `contentMetadata`, `contentPlainText`, and
+  `contentToMarkdown`.
 - Enable the pending conformance test across INT, JS, and JVM.
 
 ### Phase 4 - Frontend lowering
@@ -354,7 +433,7 @@ concatenates classes in source order.
 - Add `runtime/std/ui/content.ssc` helpers that lower `DocumentContent` /
   `SectionContent` to the existing `std/ui` toolkit nodes.
 - Add generic renderer coverage for headings, paragraphs, lists, links, images,
-  and code fences behind `includeCode`.
+  and embedded executable/string/opaque blocks behind `includeCode`.
 - Add custom component registry hooks for `component=<name>` metadata.
 
 ### Phase 5 - Tables and richer authoring
@@ -368,6 +447,8 @@ concatenates classes in source order.
 ## Testing
 
 - Parser unit tests for content snapshot construction and metadata syntax.
+- Parser/unit tests for front-matter and fenced YAML/JSON/TOML data conversion
+  to `ContentValue`, including parse failure preserving source.
 - Normalize / Denormalize / artifact compatibility tests.
 - Interpreter plugin tests for the `std/content` externs.
 - JS and JVM code-shape tests proving the snapshot is embedded once and exposed
