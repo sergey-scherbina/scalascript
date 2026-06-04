@@ -931,7 +931,14 @@ private[interpreter] object EvalRuntime:
       if fromFn != null then
         try interp.invoke(fromFn, emitted :: Nil)
         catch case _: Throwable => emitted
-      else emitted
+      else
+        // Dstreams plugin not loaded — build a minimal Source with runToList/length so
+        // both the corpus (src.runToList().length) and JMH bench (emitted.length) work.
+        val nElems = emitted.asInstanceOf[Value.ListV].items.length
+        Value.InstanceV("Source", Map(
+          "runToList" -> Value.NativeFnV("Source.runToList", Computation.pureFn { _ => emitted }),
+          "length"    -> Value.IntV(nElems)
+        ))
     Pure(Value.TupleV(source :: Value.UnitV :: Nil))
 
   private def previewFastAssignIteration(body: FastAssignBody, cond: Term, env: Env, interp: Interpreter): java.lang.Boolean | Null =
