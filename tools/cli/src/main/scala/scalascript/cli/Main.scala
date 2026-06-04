@@ -6944,10 +6944,15 @@ final class BenchCmd extends CliCommand:
       // With --warmup-time the user-specified warmup loop runs until a wall-clock
       // deadline rather than a fixed iteration count; the pre-warm block above still
       // runs first so the JVM's own C2 is in play before the timed phase starts.
+      // time-based OR count-based warmup phase.
+      // The time-based loop uses System.nanoTime() as condition → falls to monadic
+      // Term.While, which does NOT warm the slot-counter-while path used by the timed
+      // loop below.  A follow-on counter-loop (same shape as the timed loop) forces
+      // tryMixedLongWhile + LExpr.eval into JVM C2 before measurement starts.
       val warmupBlock = warmupTimeMs match
         case Some(ms) =>
           val ns = ms * 1000000L
-          s"val _ssc_wt_end = System.nanoTime() + ${ns}L\nwhile System.nanoTime() < _ssc_wt_end do\n  workload()"
+          s"val _ssc_wt_end = System.nanoTime() + ${ns}L\nwhile System.nanoTime() < _ssc_wt_end do\n  workload()\nvar _ssc_cw = 0\nwhile _ssc_cw < 50000 do\n  workload()\n  _ssc_cw += 1"
         case None =>
           s"var _ssc_w = 0\nwhile _ssc_w < $warmupN do\n  workload()\n  _ssc_w += 1"
       s"""# bench-wrapper

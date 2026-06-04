@@ -71,24 +71,17 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       **Complexity:** Medium–High. TwoLayerGlobals must cover all globals access patterns.
       **Spec:** [`docs/interp-opt-init-builtins-cache.md`](docs/interp-opt-init-builtins-cache.md)
 
-- [ ] **interp-opt-pattern-match-wide** — `patternMatchWide` 0.647 ms
-      (12-arm sealed-trait match, 50K outer iters × 12 items = 600K `eval(o)`
-      calls; ~1.08 ns/call — INVOKESTATIC floor).
-      **Root cause:** Per-call cost (1.08 ns) is at parity with `patternMatchHeavy`
-      (1.16 ns, 3-arm match). The higher absolute total is purely 2× more work.
-      `tryMixedLongWhile` already handles the outer while + `i` slot. The 12
-      INVOKESTATIC calls per outer iteration come from `foreachReusing` dispatching
-      per list element with no batching.
-      **Approach:** JFR-profile first. If slot-sync or per-element interp overhead
-      appears beyond raw INVOKESTATIC, implement a fused `List.foreach`-accumulator
-      JIT (analogous to `while-jit-map-foreach`): detect
-      `coll.foreach(item => acc = acc + f(item))` where `coll` is a val-bound
-      `ListV` and `f` is JIT-compiled to `ObjToLong`, then emit a native Java
-      for-loop in the generated while-class body so all 12 INVOKESTATIC calls
-      happen without returning through ScalaScript dispatch.
-      **Target:** ~15–25% (0.647 → ≤0.52 ms) if overhead exists; close as
-      "at floor" if JFR shows pure INVOKESTATIC dominance.
-      **Spec:** [`docs/interp-opt-pattern-match-wide.md`](docs/interp-opt-pattern-match-wide.md) (to be created)
+- [x] **interp-opt-pattern-match-wide** — ✓ Closed 2026-06-04 as "at floor".
+      `patternMatchWide` 0.690 ms (12-arm sealed-trait match, 50K × 12 = 600K
+      `eval(o)` calls). Confirmed `tryCompileWhileMixed` IS succeeding: generates
+      a fused Java `while+for+switch(typeTag())` class with `listPreExtract=true`
+      (items pre-extracted to `Object[]` once per invocation). Hot loop is raw
+      Java array iteration with O(1) typeTag switch — zero allocation per iteration.
+      600K × ~1.15 ns/op = 0.69 ms matches the measured floor exactly.
+      JFR confirmed: zero allocation in the hot loop; setup is 141 KB/op from
+      `initBuiltins` + 12 class registrations, not from the hot path.
+      No further optimization possible without changing the algorithm or sharing
+      the builtins layer (deferred as `interp-opt-init-builtins-cache`).
 
 - [x] **interp-opt-effect-stream** — ✓ Landed 2026-06-04.
       Two slices: (1) defer buf.toList into runToList NativeFnV lambda (36902ad1);

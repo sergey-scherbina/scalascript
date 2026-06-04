@@ -308,7 +308,7 @@ then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 | `patternGuard` | 0.045 | 0.048 | parity ✓ |
 | `patternMatchHeavy` | 0.349 | — | updated 2026-06-04 evening; ASM parity needs re-run |
 | `patternMatchSet` | 0.208 | — | updated 2026-06-04 evening |
-| `patternMatchWide` | **0.647** | — | updated 2026-06-04 evening; **target: interp-opt-pattern-match-wide** (INVOKESTATIC floor 1.1 ns/call; List.forEach fuse needed) |
+| `patternMatchWide` | **0.690** | — | at floor ✓ — fused JIT while+foreach+switch active; 600K×1.15ns=0.69ms |
 | `pureCallSum` | 0.256 | — | ✓ ASM bug fixed (was 11.2 ms) |
 | `pureCallSum2` | 0.292 | — | ✓ ASM bug fixed |
 | `pureCallSumBlock` | 0.276 | — | ✓ ASM bug fixed (was 2676 ms) |
@@ -1065,21 +1065,10 @@ highest-impact item.
       Object[] used by Javac. Fix: `emitArrayForeachAccumInline` + `listPreExtract=true`.
       1283 tests pass. Commit e0c9e3d5.
 
-- [ ] **interp-opt-pattern-match-wide** — `patternMatchWide` 0.647 ms (12-arm
-      match, 50K × 12 = 600K `eval(o)` calls via JIT `ObjToLong`).
-      **Root cause:** 600K × ~1.08 ns/call = 0.65 ms is the INVOKESTATIC floor.
-      Per-call cost is essentially the same as `patternMatchHeavy` (1.16 ns) —
-      the higher absolute total is purely from 2× more work.
-      **Approach:** JFR-profile first to confirm INVOKESTATIC dominates and there
-      is no hidden allocation or dispatch overhead. If the profile shows overhead
-      beyond raw INVOKESTATIC (e.g., per-element slot-sync for `total`), investigate
-      fusing `coll.foreach(item => acc = acc + f(item))` for List into a JIT-compiled
-      inner for-loop (same strategy as `while-jit-map-foreach`). This would batch
-      all 12 INVOKESTATIC calls into a single JIT-generated Java loop, eliminating
-      per-element interp dispatch overhead.
-      **Target:** ~15–25% (0.647 → ≤0.52 ms). No win if profile confirms pure
-      INVOKESTATIC floor — close as "at floor" in that case.
-      **Spec:** [`docs/interp-opt-pattern-match-wide.md`](docs/interp-opt-pattern-match-wide.md) (to be created)
+- [x] **interp-opt-pattern-match-wide** — ✓ Closed 2026-06-04 as "at floor".
+      `tryCompileWhileMixed` IS succeeding: generates fused Java while+foreach+switch
+      with `listPreExtract=true`. 600K × ~1.15 ns/op = 0.69 ms is the floor.
+      No allocation in hot loop. Closed without code changes.
 
 - [ ] **interp-opt-recursive-eval** — `recursiveEvalMixed` 3.641 ms (2-param
       recursive tree eval — 2× overhead vs 1-param `recursiveEval` 1.898 ms).
