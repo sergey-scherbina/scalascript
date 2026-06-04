@@ -975,6 +975,47 @@ highest-impact item.
 
 - [x] **effect-stream-opt3** — Superseded by OPT-2 (trampoline eliminated entirely).
 
+- [ ] **effect-pure-pure-path** — `effect-pure` interp 0.047 ms vs JS 0.006 ms (8×).
+      Workload: `runLogger { while i < 10000 do acc = acc + i; i = i + 1 }`.
+      The inner while loop is pure (no `perform` calls), but the entire `compute`
+      function is typed `Int ! Logger`, so every iteration still goes through
+      FlatMap/Pure wrapping — the trampoline runs even though nothing is ever
+      performed.  Fix: detect at `runLogger` entry that the returned `Computation`
+      tree contains no `Perform` nodes (pure path) and short-circuit to direct
+      value extraction, bypassing the trampoline loop.  See `v1.61.2` note in
+      BACKLOG (Computation pure-path elimination).
+      **Bench target:** `effect-pure` interp ≤0.010 ms (JS parity).
+
+- [ ] **jvm-tuple-monoid-hoist** — `tuple-monoid` JVM 0.137 ms vs interp 0.013 ms
+      (JVM 10× SLOWER than interp!).  Workload: `while i < 100000 do last = (1,2)++(3,4)`.
+      The interpreter's `jit-tuple-concat-hoist` pre-evaluates the constant RHS
+      `(1,2)++(3,4)` once before the loop; the JVM codegen emits three tuple
+      allocations per iteration because the code generator has no constant-expression
+      hoisting for while-loop bodies.  Fix: in the JVM code generator's while-loop
+      emit path, detect assignments where the RHS is a closed constant expression
+      (no free variable references to loop variables) and hoist the pre-computation
+      to a `val` before the `while` block.
+      **Bench target:** `tuple-monoid` JVM ≤0.020 ms (interp parity).
+
+- [ ] **hello-world-interp-overhead** — `hello-world` interp 0.014 ms vs JVM/JS 0.002 ms
+      (7×).  Workload: `def workload(): Unit = println("hello")` — a single zero-result
+      native call.  The gap is pure interp dispatch overhead: globals lookup, FunV
+      dispatch, environment allocation, NativeFnV call path for `println`.  Profile
+      to confirm; likely fix is a ZeroParam/unit-result fast path that skips env
+      allocation for trivial single-expression functions.
+      **Bench target:** `hello-world` interp ≤0.004 ms (2× of JVM, given IO cost).
+
+- [ ] **js-pattern-match-dispatch** — `pattern-match-heavy` JS 35.9 ms vs interp
+      0.647 ms (55×).  Workload: 5-case sealed ADT `Shape`, matched 500k times via
+      `shapes.foreach(s => area(s))`.  JS codegen almost certainly emits a chain of
+      `instanceof`-style checks per match arm rather than a tag-dispatched switch.
+      Investigation: inspect emitted JS for `area` function; confirm whether it's
+      `if (s instanceof Circle)…else if…` or something worse.  Fix: add a
+      `$tag` integer field to all case class JS representations and rewrite match
+      dispatch to a JS `switch($tag)` — O(1) vs O(n) per match.
+      **Bench target:** `pattern-match-heavy` JS ≤3 ms (10× improvement; full interp
+      parity may require further work on `foreach` loop overhead).
+
 - [ ] **asm-jit-patternmatch-wide-gap** — `patternMatchWide` is 25% slower in
       AsmJitBackend vs Javac (0.795 vs 0.636 ms, 2026-06-04 run).
       `patternMatchHeavy` and `patternMatchSet` are already at parity or faster in

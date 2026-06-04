@@ -2202,6 +2202,42 @@ gated on same-session A/B + full suite green with the gate off AND on.
       Inlined match body into foreach accumulator loop in AsmJitBackend.
       patternMatchHeavy/Set at Javac parity; patternMatchWide improved from 85% to 10% gap.
 
+- [ ] **effect-pure-pure-path** — `effect-pure` interp 0.047 ms vs JS 0.006 ms (8×).
+      Workload: `runLogger { while i < 10000 do acc = acc + i; i = i + 1 }`.
+      Body is entirely pure (no `perform` calls), but `compute` is typed `Int ! Logger`
+      so the trampoline runs through FlatMap/Pure on every step regardless.
+      Fix: at the `runLogger` (or any `run*`) entry point, check whether the
+      `Computation` tree returned is free of `Perform` nodes and, if so, extract
+      the result directly via `Pure` unwrapping — bypassing `go()` loop entirely.
+      The purity check can be conservative: a single `Perform` anywhere disables
+      the fast path.  See roadmap entry `v1.61.2`.
+      **Bench target:** `effect-pure` interp ≤0.010 ms.
+
+- [ ] **jvm-tuple-monoid-hoist** — `tuple-monoid` JVM 0.137 ms vs interp 0.013 ms (10×
+      slower!).  Workload: `while i < 100000 do last = (1,2)++(3,4)`.  JVM codegen
+      emits three `TupleV`-equivalent allocations per iteration; the interpreter's
+      `jit-tuple-concat-hoist` folds the constant RHS before the loop.  Fix: in
+      JVM code generator's while-loop pass, detect assignments where the RHS is a
+      closed constant expression (no references to loop-bound variables) and lift
+      it to a `val` before the `while`.  Generalises to any pure constant assignment
+      inside a while body, not just tuples.
+      **Bench target:** `tuple-monoid` JVM ≤0.020 ms.
+
+- [ ] **hello-world-interp-overhead** — `hello-world` interp 0.014 ms vs JVM 0.002 ms
+      (7×).  Workload: single `println("hello")` call.  Cost is interp dispatch:
+      globals lookup + FunV application + env allocation + NativeFnV call.
+      Profile to confirm; likely fix is a fast path for zero-param unit-result
+      functions that avoids full environment allocation.
+      **Bench target:** `hello-world` interp ≤0.004 ms.
+
+- [ ] **js-pattern-match-dispatch** — `pattern-match-heavy` JS 35.9 ms vs interp
+      0.647 ms (55×).  Workload: 5-case sealed ADT matched 500k times.
+      JS codegen likely emits `instanceof`-style chain per arm (O(n) per match).
+      Fix: add a `$tag` integer discriminant to all case class JS objects and
+      rewrite match codegen to emit a `switch($tag)` — O(1) dispatch.
+      Investigation first: inspect emitted JS for `area` to confirm the dispatch form.
+      **Bench target:** `pattern-match-heavy` JS ≤3 ms (12× improvement).
+
 - [ ] **asm-jit-patternmatch-wide-gap** — Remaining 25% ASM gap on `patternMatchWide`
       (0.795 vs 0.636 ms Javac, 2026-06-04).  `patternMatchHeavy`/`Set` are at parity
       or faster in ASM; the wide variant (more ADT arms) still lags.  Likely
