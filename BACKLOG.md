@@ -153,6 +153,25 @@ for database primary keys and event IDs. Spec: [`docs/uuid.md`](docs/uuid.md).
 - [ ] **uuid-p6** (optional) — JVM monotonic v7 counter (`rand_a` counter within same
       millisecond, `Uuid.v7Monotonic(): Uuid ! SideEffect` explicit opt-in).
 
+## Crypto primitives — v1.66
+
+`sha256`, `hmacSha256`, `base64Encode`, `base64Decode` as stdlib
+intrinsics (JVM interpreter + JS/Node.js backend). Today these exist
+only as `extern def` stubs in `examples/plugins/crypto-plugin/` — a
+template for third-party plugins, not a standard built-in.  Spec:
+[`docs/crypto.md`](docs/crypto.md).
+
+- [ ] **crypto-p1** — JVM interpreter plugin: `runtime/std/crypto.ssc`
+      (4 extern defs), `runtime/std/crypto-plugin/` (`CryptoInterpreterPlugin`
+      + `CryptoIntrinsics` using `java.security.MessageDigest`,
+      `javax.crypto.Mac`, `java.util.Base64`), `build.sbt` wiring,
+      `META-INF/services`, `CryptoPluginTest` with NIST test vectors.
+
+- [ ] **crypto-p2** — JS backend: `JsCryptoIntrinsics` (4 `RuntimeCall`
+      entries), preamble functions in `JsRuntimePart2b.scala` using
+      Node.js `require('crypto')`, wired into `JsIntrinsics`.
+      `examples/uuid-v7.ssc`-style smoke example: `examples/crypto-demo.ssc`.
+
 ## Quality / Contracts / Type System
 
 These items come from the 2026-05-30 project-state review. They are intentionally

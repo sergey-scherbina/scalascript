@@ -1091,6 +1091,29 @@ Spec: [`docs/uuid.md`](docs/uuid.md). Work in order: p1 → p2 → p3.
 - [x] **uuid-p2** — Parse + validate ✓ Landed 2026-06-04: `uuidFromString`/`uuidIsValid` intrinsics with `Value.OptionV` return; tests for valid/invalid/normalisation.
 - [x] **uuid-p3** — JS backend ✓ Landed 2026-06-04: `JsUuidIntrinsics` with `RuntimeCall` entries; `uuidV4`/`uuidV7`/`uuidFromString`/`uuidIsValid` preamble functions using Web Crypto API; wired into `JsIntrinsics`.
 
+## Crypto primitives — v1.66
+
+Spec: [`docs/crypto.md`](docs/crypto.md). Work in order: p1 → p2.
+
+- [ ] **crypto-p1** — JVM interpreter plugin
+  _Context: new `crypto.ssc` stdlib module + `crypto-plugin` project. Spec: `docs/crypto.md §3`._
+  - `runtime/std/crypto.ssc`: 4 extern defs — `sha256`, `hmacSha256`, `base64Encode`, `base64Decode`
+  - `runtime/std/crypto-plugin/`: `CryptoInterpreterPlugin` + `CryptoIntrinsics`
+    - `sha256(s)` → `java.security.MessageDigest.getInstance("SHA-256")`
+    - `hmacSha256(key, data)` → `javax.crypto.Mac.getInstance("HmacSHA256")`
+    - `base64Encode(s)` → `java.util.Base64.getEncoder`
+    - `base64Decode(s)` → `java.util.Base64.getDecoder`
+  - `META-INF/services/scalascript.backend.spi.Backend`
+  - `build.sbt`: `lazy val cryptoPlugin`, add to `allPlugins`
+  - `CryptoPluginTest`: NIST test vectors for all 4 functions
+
+- [ ] **crypto-p2** — JS backend
+  _Context: cross-backend crypto support. Spec: `docs/crypto.md §3 Phase 2`._
+  - `runtime/backend/js/src/main/scala/scalascript/codegen/intrinsics/Crypto.scala`: `JsCryptoIntrinsics`
+  - Preamble functions in `JsRuntimePart2b.scala` using Node.js `require('crypto')`
+  - Wire into `JsIntrinsics` via `JsCapabilities.scala`
+  - `examples/crypto-demo.ssc`: smoke demo
+
 - [ ] **uuid-p4** — Opaque boundary hardening + effect system integration
   _Context: design decisions from 2026-06-04 spec session. Spec: `docs/uuid.md §3.3–3.4`._
   - `Uuid.unsafeFromString(s: String): Uuid` intrinsic — throws `InterpretError` on malformed; use for `nil`/`max` in `uuid.ssc` body
