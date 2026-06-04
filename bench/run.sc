@@ -56,7 +56,7 @@ def parseInt2(flag: String, default: Int): Int =
        .getOrElse(default)
 
 val warmup = parseInt2("--warmup", 5)
-val reps   = parseInt2("--reps",  20)
+val reps   = parseInt2("--reps", 100)
 
 // --warmup-time N: time-based warmup in milliseconds.
 // Default: 3000 ms unless --warmup (count-based) is explicitly passed.

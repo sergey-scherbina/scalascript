@@ -2548,8 +2548,12 @@ class JsGen(
 
   private def genStatInline(stat: Stat): String = stat match
     case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
+      if isIntExpr(rhs) then intVars += n.value
+      else if isNumericExpr(rhs) then numericVars += n.value
       s"const ${n.value} = ${genExpr(rhs)};"
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
+      if isIntExpr(rhs) then intVars += n.value
+      else if isNumericExpr(rhs) then numericVars += n.value
       s"let ${n.value} = ${genExpr(rhs)};"
     case d: Defn.Def =>
       val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
