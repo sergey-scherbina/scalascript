@@ -347,6 +347,9 @@ object Value:
         typeName == other.typeName && effectiveFields == other.effectiveFields
       case _ => false
     override def hashCode: Int = typeName.## * 31 + effectiveFields.##
+  object InstanceV:
+    def unapply(inst: InstanceV): Some[(String, Map[String, Value])] =
+      Some((inst.typeName, inst.effectiveFields))
   final case class ListV(items: List[Value])     extends Value
   final case class OptionV(inner: Value | Null)  extends Value
   final case class TupleV(elems: List[Value])    extends Value
