@@ -190,8 +190,49 @@ Verification:
 
 ### P3 - Route And Remote Evidence
 
-Attach structured request/response/error evidence to route/client metadata while
+Queue slug: `type-evidence-routes-p3`.
+
+Attach structured request/response evidence to route/client metadata while
 preserving the legacy `requestType` / `responseType` strings.
+
+Target additive shape:
+
+```scala
+case class ApiEndpointTypeEvidenceWire(
+  request: Option[TypeEvidenceWire] = None,
+  response: Option[TypeEvidenceWire] = None,
+  errors: List[TypeEvidenceWire] = Nil,
+  streamElement: Option[TypeEvidenceWire] = None
+)
+
+case class ApiEndpointDecl(
+  ...,
+  typeEvidence: Option[ApiEndpointTypeEvidenceWire] = None
+)
+
+case class RemoteHandlerDecl(
+  ...,
+  typeEvidence: Option[ApiEndpointTypeEvidenceWire] = None
+)
+```
+
+Scope for this slice:
+
+- parse existing `requestType` / `responseType` strings into `SType` where the
+  shape is supported;
+- classify parsed strings as `Declared` when they came from manifest/frontmatter
+  or existing typed route metadata;
+- classify missing/unsupported request/response evidence as `Unknown`;
+- keep all existing string fields intact and keep generators reading those
+  strings for now;
+- add round-trip tests proving the optional evidence survives artifact I/O and
+  old metadata without the field still reads.
+
+Out of scope:
+
+- no OpenAPI/GraphQL schema generation migration yet;
+- no strict failures for unknown route evidence;
+- no behavioral change in JS/JVM/client generation.
 
 ### P4 - Schema Consumers
 
