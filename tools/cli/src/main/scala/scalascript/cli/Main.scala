@@ -255,7 +255,7 @@ private[cli] def compileViaBackend(
     file:      os.Path,
     extras:    Map[String, String] = Map.empty
 ): CompileResult =
-  val module  = SsccFormat.forceAllTrees(loadModule(file))
+  val module  = loadModule(file)
   val ir      = Normalize(module)
   val backend = resolveBackend(backendId)
   val diags   = CapabilityCheck.validate(ir, backend.capabilities, backendId)
@@ -268,7 +268,7 @@ private[cli] def compileViaBackend(
     backend.compile(ir, opts)
 
 private[cli] def compileJsSegments(path: os.Path, noTreeShake: Boolean = false): List[Segment] =
-  val module  = SsccFormat.forceAllTrees(loadModule(path))
+  val module  = loadModule(path)
   val ir      = Normalize(module)
   val backend = resolveBackend("js")
   val diags   = CapabilityCheck.validate(ir, backend.capabilities, "js")

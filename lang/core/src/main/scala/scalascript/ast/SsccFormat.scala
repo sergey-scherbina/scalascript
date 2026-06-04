@@ -581,24 +581,16 @@ object SsccFormat:
   def readNoTrees(bytes: Array[Byte]): Either[String, Module] =
     readV3Impl(bytes, populateTrees = false)
 
-  /** Force all lazy scalameta trees in `m` in parallel using the common ForkJoin pool.
-   *  Call this after `SsccFormat.read` in hot pipelines (codegen, run, compile) that
-   *  will touch every code block's tree.  Idempotent — already-forced trees are no-ops.
+  /** Force all lazy scalameta trees in `m`.
+   *  Idempotent — already-forced lazy vals are no-ops.
    *  Returns `m` unchanged (trees are forced in place via lazy-val semantics). */
   def forceAllTrees(m: Module): Module =
-    import java.util.concurrent.{Callable, ForkJoinPool}
-    import scala.collection.mutable.ArrayBuffer
-    val nodes = ArrayBuffer.empty[ScalaNode]
     def collect(c: Content): Unit = c match
-      case cb: Content.CodeBlock => cb.tree.foreach(nodes += _)
+      case cb: Content.CodeBlock => cb.tree.foreach(_.tree)
       case _                     => ()
     def collectSection(s: Section): Unit =
       s.content.foreach(collect); s.subsections.foreach(collectSection)
     m.sections.foreach(collectSection)
-    if nodes.nonEmpty then
-      import scala.jdk.CollectionConverters.*
-      val tasks = nodes.map[Callable[Unit]](n => () => { n.tree; () }).asJava
-      ForkJoinPool.commonPool().invokeAll(tasks)
     m
 
   private def readV3(bytes: Array[Byte]): Either[String, Module] =
