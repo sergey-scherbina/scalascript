@@ -798,7 +798,9 @@ How to read agent status:
 
 See the `/multi-agent` skill for the full loop protocol (status, start/stop, loop steps, empty queue, tech debt, /compact).
 
-**Queue file for this project:** `SPRINT.md`. Completed tasks go in `CHANGELOG.md` (prepend, newest first).
+SPRINT: SPRINT.md
+BACKLOG: BACKLOG.md
+CHANGELOG: CHANGELOG.md
 
 ### Status format
 
