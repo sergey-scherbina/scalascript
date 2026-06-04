@@ -73,3 +73,4 @@ val JsIntrinsics: Map[QualifiedName, IntrinsicImpl] =
     ++ JsPaymentIntrinsics  // v1.38     — Payment:   intrinsics/Payment.scala
     ++ JsGraphqlIntrinsics  // graphql   — GraphQL:   intrinsics/Graphql.scala
     ++ JsUuidIntrinsics    // uuid      — UUID:      intrinsics/Uuid.scala
+    ++ JsCryptoIntrinsics  // crypto    — Crypto:    intrinsics/Crypto.scala

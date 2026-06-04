@@ -887,4 +887,29 @@ function uuidUnsafeFromString(s) {
   if (uuidIsValid(s)) return s.toLowerCase();
   throw new Error('uuidUnsafeFromString: not a valid UUID: ' + s);
 }
+// ── crypto ──────────────────────────────────────────────────────────────────
+const _nodeCrypto = (typeof require !== 'undefined') ? require('crypto') : null;
+function _sha256(s) {
+  const data = (typeof TextEncoder !== 'undefined')
+    ? new TextEncoder().encode(s)
+    : Buffer.from(s, 'utf8');
+  if (_nodeCrypto) {
+    return _nodeCrypto.createHash('sha256').update(data).digest('hex');
+  }
+  throw new Error('sha256: no synchronous crypto available in this environment');
+}
+function _hmacSha256(key, data) {
+  if (_nodeCrypto) {
+    return _nodeCrypto.createHmac('sha256', Buffer.from(key, 'utf8')).update(Buffer.from(data, 'utf8')).digest('hex');
+  }
+  throw new Error('hmacSha256: no synchronous crypto available in this environment');
+}
+function _base64Encode(s) {
+  if (typeof Buffer !== 'undefined') return Buffer.from(s, 'utf8').toString('base64');
+  return btoa(encodeURIComponent(s).replace(/%([0-9A-F]{2})/g, (_, p) => String.fromCharCode(parseInt(p, 16))));
+}
+function _base64Decode(s) {
+  if (typeof Buffer !== 'undefined') return Buffer.from(s, 'base64').toString('utf8');
+  return decodeURIComponent(atob(s).split('').map(c => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join(''));
+}
 """

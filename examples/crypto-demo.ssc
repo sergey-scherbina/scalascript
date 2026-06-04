@@ -1,0 +1,12 @@
+import std.crypto.*
+
+val hash = sha256("hello world")
+println(s"sha256('hello world') = $hash")
+
+val mac = hmacSha256("secret-key", "my-data")
+println(s"hmacSha256 = $mac")
+
+val encoded = base64Encode("Hello, ScalaScript!")
+val decoded = base64Decode(encoded)
+println(s"base64Encode = $encoded")
+println(s"base64Decode = $decoded")
