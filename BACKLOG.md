@@ -2220,14 +2220,24 @@ gated on same-session A/B + full suite green with the gate off AND on.
       Results: tupleMonoid 0.196 → 0.013 ms (15×), tupleMonoidVal 1.936 → 0.011 ms (176×).
       1279 tests pass.
 
-- [ ] **effect-stream-jfr** — `effect-stream` runs at 30.1 ms (interp only;
-      no JVM/JS comparison).  This is 1880× slower than `effect-pure` (0.016 ms)
-      for what looks like a similar inner loop.  Before proposing any optimization,
-      run `scripts/bench profile effectStream` to identify whether the cost is in
-      continuation tree construction, per-step `EffectsRuntime` dispatch, or GC
-      pressure from `Computation.FlatMap` chains.  JFR investigation only — no
-      code changes until root cause is confirmed.
-      Spec: [`docs/bench-analysis-2026-06-04.md`](docs/bench-analysis-2026-06-04.md).
+- [x] **effect-stream-jfr** — ✓ Confirmed 2026-06-04 (originally investigated same day).
+      effectStream 25.8ms/op, 3.5 MB/op allocation (≈8 objects per Stream.emit).
+      Root cause: FlatMap re-association (42%) + lambda closures (24%) + List cons for
+      Perform args (15%) + Perform+Pure nodes (19%). Full report: `docs/effect-stream-jfr-findings.md`.
+      Next: OPT-1 `Perform1` specialisation + OPT-2 FastTier while-emit detection.
+
+- [ ] **effect-stream-opt1** — `Perform1(effect, op, arg: AnyRef)` specialisation.
+      Eliminates the 1-element `List` wrapper for `Stream.emit(v)` — ~14% fewer
+      B/op (345 → 300 B/op).  Change `Computation` sealed trait to add `Perform1`;
+      `NativeFnV` for `Stream.emit` emits `Perform1` instead of `Perform(_, _, List(v))`.
+      All handlers in `EffectHandlers` switch on the new case.
+      **Bench target:** effectStream ≤ 22 ms/op.
+
+- [ ] **effect-stream-opt2** — FastTier `while … Stream.emit(expr)` detection.
+      In `EvalRuntime`, detect `runStream { while i < N do Stream.emit(expr); i = i+1 }`
+      and compile the body to a tight buffer-fill loop bypassing the Free Monad trampoline.
+      `OPT-1` landing first is not a prerequisite but is a good cleanup.
+      **Bench target:** effectStream ≤ 1 ms/op (100× improvement).
 
 - [ ] **direct-style-eval** (deferred multi-week, post Directions A+B) —
       Migrate `eval(term, env, interp): Computation` to direct-style
