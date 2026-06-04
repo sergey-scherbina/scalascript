@@ -6,19 +6,20 @@
 ## MANDATORY: required skills
 
 Two skills govern how all feature work is done. Read their full instructions
-before starting any implementation. Skill files live in the submodule that is
-**only initialized in the shared main repo** — always read from the absolute
-main-repo path below, regardless of whether you are in a worktree:
+before starting any implementation. Skill files are in the `.agents/plugins/`
+submodule which is **only initialized in the shared main repo** — do NOT run
+`git submodule update --init` inside a worktree.
 
-| Skill | File | When to use |
+From a worktree, find the main repo root and read skills from there:
+
+```bash
+MAIN=$(git worktree list | head -1 | awk '{print $1}')
+```
+
+| Skill | File (relative to `$MAIN`) | When to use |
 |---|---|---|
-| `spec-dev` | `/Users/sergiy/work/my/scalascript/.agents/plugins/spec-dev/commands/spec-dev.md` | Every new feature or change |
-| `multi-agent` | `/Users/sergiy/work/my/scalascript/.agents/plugins/multi-agent/commands/multi-agent.md` | Autonomous loop / queue work |
-
-**Do NOT run `git submodule update --init` inside a worktree** — the submodule
-is already initialized in the shared main repo, and re-initializing it in each
-worktree is unnecessary and error-prone. Always read skill files via the
-absolute `/Users/sergiy/work/my/scalascript/.agents/plugins/…` path.
+| `spec-dev` | `.agents/plugins/spec-dev/commands/spec-dev.md` | Every new feature or change |
+| `multi-agent` | `.agents/plugins/multi-agent/commands/multi-agent.md` | Autonomous loop / queue work |
 
 **spec-dev rules (non-negotiable):**
 - Read `specs/jit-completeness.md` (or the relevant feature spec) before starting any implementation.
@@ -197,7 +198,7 @@ Use the `/multi-repo` skill to manage them:
 - `/multi-repo update` — intentionally advance submodules to remote heads
 - `/multi-repo clone` — init missing submodules from scratch
 
-Skill location: `/Users/sergiy/work/my/scalascript/.agents/plugins/multi-repo/commands/multi-repo.md` (shared main repo).
+Skill location: `.agents/plugins/multi-repo/commands/multi-repo.md` (in main repo — use `$MAIN` from above).
 
 ---
 
@@ -303,7 +304,7 @@ Bridge hooks that the interpreter exposes *to* plugins (e.g. `NativeContext.dbCo
 
 See the `/spec-dev` skill for the full workflow (write → implement → verify).
 
-Skill location: `/Users/sergiy/work/my/scalascript/.agents/plugins/spec-dev/commands/spec-dev.md` (shared main repo).
+Skill location: `.agents/plugins/spec-dev/commands/spec-dev.md` (in main repo — use `$MAIN` from above).
 
 Non-trivial in this project (spec required):
 - A new module / package in `build.sbt`
@@ -787,7 +788,7 @@ after yourself.**
 
 See the `/multi-agent` skill for the full protocol (claim, heartbeat, triage, release).
 
-Skill location: `/Users/sergiy/work/my/scalascript/.agents/plugins/multi-agent/commands/multi-agent.md` (shared main repo).
+Skill location: `.agents/plugins/multi-agent/commands/multi-agent.md` (in main repo — use `$MAIN` from above).
 
 Key invariants:
 - Claim from the **main checkout** (`/Users/sergiy/work/my/scalascript`) only — never from a worktree
