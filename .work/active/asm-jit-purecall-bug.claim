@@ -1,4 +1,0 @@
-feature/asm-jit-purecall-bug-20260604 2026-06-04T00:33:08Z
-status: in-progress
-done-so-far:
-next: fix walkWhileSlot callee slot offset (1+fi*2 → fi*2 when isCallee=true)

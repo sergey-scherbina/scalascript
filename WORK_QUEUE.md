@@ -900,25 +900,16 @@ highest-impact item.
       SectionRuntime, ValueSerializer all updated. instanceVArrayEnabled flag removed.
       1233/1233 green. Bench: patternMatchSet 0.283 → 0.197 ms (~30%).
 
-- [ ] **asm-jit-purecall-bug** — Pure-call benchmarks regress catastrophically in ASM mode
-      (2026-06-04 JMH, `SSC_JIT_BACKEND=asm` vs Javac default):
-        - `pureCallSum`:      0.295 → 11.215 ms/op (+3700%)
-        - `pureCallSum2`:     0.283 → 12.175 ms/op (+4300%)
-        - `pureCallSumBlock`: 0.259 → 2676 ms/op (~10,000×)
-        - `pureCallSumIf`:    0.279 → 2774 ms/op (~10,000×)
-      The Block and If variants (10,000×) are almost certainly broken bytecode — the
-      JVM is running fall-through evaluation at interpreter speed, not the fast path.
-      The Sum/Sum2 variants (38–43×) suggest the FastTier `LApply1/2` path is active
-      but generating inefficient bytecode for those shapes.
-
-      Investigation steps:
-      1. `SSC_JIT_BACKEND=asm scripts/bench profile pureCallSum` — JFR CPU sample to
-         see where time is spent.
-      2. Check `AsmJitBackend` block-expression emission (let bindings in function body)
-         and if-expression emission — compare generated ASM bytecode vs Javac output.
-      3. Verify `fn.body eq expectedBody` identity check fires correctly in ASM mode;
-         the cache key may differ if ASM reconstructs AST nodes vs reusing them.
-      **Bench target:** parity with Javac (all four ≤ 0.31 ms, within ±5%).
+- [x] **asm-jit-purecall-bug** — ✓ Landed 2026-06-04 (ab324539).
+      Root cause: `walkWhileSlot` Term.Name case used `1 + fi * 2` for JVM local slot
+      index unconditionally — correct for main `run([J)V` (where slot 0 = long[] arg),
+      but wrong for callee static `(J)J`/`(JJ)J` methods where slot 0 IS the first arg.
+      Fix: when `ctx.isCallee`, use `fi * 2` instead.
+      Results (SSC_JIT_BACKEND=asm, all now at Javac parity):
+        pureCallSum: 11.2 → 0.275 ms; pureCallSumBlock: 2676 → 0.258 ms;
+        pureCallSumIf: 2774 → 0.271 ms; patternMatchWide: 1.685 → 1.363 ms.
+      patternMatchHeavy/Set still regress (foreach/closure issue,
+      separate `asm-jit-patternmatch-regression` task).
 
 - [ ] **asm-jit-patternmatch-regression** — Pattern-match benchmarks slower in ASM mode
       (2026-06-04 JMH):
