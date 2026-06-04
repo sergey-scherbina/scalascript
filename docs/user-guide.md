@@ -396,18 +396,32 @@ Use `serve(page, port)` for direct browser or phone preview; use
 `emit(page, outDir)` when you need static `index.html` + `app.js` artifacts.
 
 When one `.ssc` document contains multiple independent Markdown-authored UI
-regions, keep each region in Markdown and select it by stable id:
+regions, keep each region in Markdown and select it by stable id. If a region
+declares `component=<name>` metadata, register the matching renderer explicitly
+and pass it through `contentToolkitOptionsWithComponents`:
 
 ```scalascript
-[contentToolkitBlock, contentToolkitSection](std/ui/content.ssc)
+[contentComponent, contentToolkitBlock, contentToolkitSection, contentToolkitOptionsWithComponents](std/ui/content.ssc)
 [vstack](std/ui/layout.ssc)
+[heading](std/ui/typography.ssc)
+[rawText](std/ui/reactive.ssc)
 [lower](std/ui/lower.ssc)
 [defaultTheme](std/ui/theme.ssc)
 [serve](std/ui/primitives.ssc)
 
+val planList = contentComponent("PlanList") { ctx =>
+  vstack(gap = 4)(
+    heading(2, "Plans from component"),
+    rawText("component=" + ctx.name),
+    rawText("kind=" + ctx.kind + " id=" + ctx.id)
+  )
+}
+
+val markdownOptions = contentToolkitOptionsWithComponents([planList])
+
 val page = lower(
   vstack(gap = 16)(
-    contentToolkitSection("plans"),
+    contentToolkitSection("plans", markdownOptions),
     contentToolkitBlock("team-controls"),
     contentToolkitBlock("review-status")
   ),
@@ -420,7 +434,12 @@ serve(page, 8099)
 metadata such as `@id=team-controls @ui=toolkit` on a fenced YAML block.
 `contentToolkitSection(id)` renders a heading section by generated or explicit
 section id such as `## Plans` -> `plans` or `## Plans {#plans}`. Missing ids and
-duplicate block ids are interpreter errors.
+duplicate block ids are interpreter errors. `contentComponent(name)(render)`
+creates a typed renderer for Markdown metadata such as
+`<!-- @meta component=PlanList -->`; the renderer receives
+`ContentComponentContext` with `name`, `kind`, `id`, `attrs`, and the selected
+`section` or `block`. If metadata names a component that is not present in the
+registry, toolkit lowering falls back to the default Markdown renderer.
 
 The lower-level `View` renderer remains available when exact HTML-like Markdown
 shape is more important than toolkit composition:

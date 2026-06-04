@@ -68,19 +68,34 @@ DocumentContent(
 The first public path is frontend lowering:
 
 ```scalascript
-[contentToolkitNode, contentToolkitBlock, contentToolkitSection](std/ui/content.ssc)
+[contentComponent, contentToolkitNode, contentToolkitBlock, contentToolkitSection, contentToolkitOptionsWithComponents](std/ui/content.ssc)
 [vstack](std/ui/layout.ssc)
+[heading](std/ui/typography.ssc)
+[rawText](std/ui/reactive.ssc)
 [lower](std/ui/lower.ssc)
 [defaultTheme](std/ui/theme.ssc)
 
-val page = lower(contentToolkitNode(), defaultTheme)
+val planList = contentComponent("PlanList") { ctx =>
+  vstack(gap = 4)(
+    heading(2, "Plans from component"),
+    rawText("id=" + ctx.id)
+  )
+}
+
+val page = lower(
+  contentToolkitNode(contentToolkitOptionsWithComponents([planList])),
+  defaultTheme
+)
 ```
 
 `contentToolkitNode()` turns the current Markdown document into a regular
 `TkNode` subtree. When one document defines multiple independent frontend
 regions, `contentToolkitBlock("id")` selects a block such as
 `@id=filters @ui=toolkit` on a fenced YAML block, and
-`contentToolkitSection("plans")` selects a heading section by stable id. The low-level
+`contentToolkitSection("plans")` selects a heading section by stable id.
+Metadata such as `component=PlanList` is resolved only through an explicit
+`contentComponent("PlanList")` registry passed in toolkit options; missing
+registry entries use the default Markdown lowering. The low-level
 `contentView(contentDocument())` renderer remains available when callers need
 direct `View` nodes.
 
