@@ -67,8 +67,16 @@ The project already has several pieces of the target shape:
 - `SType` models primitives, named types, functions, unions, intersections,
   effect rows, opaque types, `BigInt`, and `Decimal`.
 - Top-level `DefSummary` inference now records declared annotations and a narrow
-  set of unannotated literals, arithmetic, `if`, blocks, `new Foo(...)`, and
-  typed lambdas.
+  set of unannotated literals, arithmetic, `if`, blocks, `new Foo(...)`, typed
+  lambdas, same-typed `match` arms, tuple literals, and known
+  `List`/`Vector`/`Set`/`Seq`/`Array`/`Map`/`Some`/`Option`/`Left`/`Right`
+  constructor calls.
+- The predeclaration pass preserves known annotations for forward references
+  and records later class / enum constructors with real signatures instead of
+  seeding every top-level name as `Any`.
+- Tuple, typed, `Some`, and local case-class extractor patterns now bind
+  pattern variables with available expected types, so destructuring summaries
+  and simple match bodies no longer collapse to `Any`.
 - `.scim` interface parsing uses `SType.show` / `parseSType`, but malformed or
   unsupported shapes collapse to `SType.Any`.
 - `apiClients:` and `remoteHandlers:` carry `requestType` / `responseType` as
