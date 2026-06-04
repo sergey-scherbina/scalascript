@@ -159,6 +159,13 @@ private[interpreter] object StdEffectsRuntime:
 
     // Stream: emit/complete/error/request — algebraic effect ops (v1.51.6).
     // Discharge via runStream { body } → (Source[A], R).
+    installStreamGlobal(interp)
+
+  /** Install just the `Stream` companion global.
+   *  Called lazily from the `runStream` eval case so that embedded interpreters
+   *  that skip `initBuiltins` (e.g. the JMH bench harness) can still use
+   *  `Stream.emit` inside a `runStream { ... }` body. */
+  def installStreamGlobal(interp: Interpreter): Unit =
     interp.globals("Stream") = Value.InstanceV("Stream", Map(
       "emit"     -> Value.NativeFnV("Stream.emit",     args => Perform("Stream", "emit",     args)),
       "complete" -> Value.NativeFnV("Stream.complete", _    => Perform("Stream", "complete", Nil)),

@@ -145,6 +145,16 @@ class InterpreterBench:
       |runLogger { compute(10000) }""".stripMargin
   )
 
+  private val modEffectStream: Module = src(
+    """val (emitted, _) = runStream {
+      |  var i = 0
+      |  while i < 10000 do
+      |    Stream.emit(i)
+      |    i = i + 1
+      |}
+      |emitted.length""".stripMargin
+  )
+
   private val modTupleMonoid: Module = src(
     """var i = 0
       |var last = (0, 0, 0, 0)
@@ -435,6 +445,10 @@ class InterpreterBench:
   @Benchmark
   def effectPure(): Unit =
     Interpreter(devNull).runSections(modEffectPure)
+
+  @Benchmark
+  def effectStream(): Unit =
+    Interpreter(devNull).runSections(modEffectStream)
 
   @Benchmark
   def tupleMonoid(): Unit =

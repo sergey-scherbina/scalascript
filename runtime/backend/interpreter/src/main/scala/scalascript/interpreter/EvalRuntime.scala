@@ -2429,6 +2429,10 @@ private[interpreter] object EvalRuntime:
     // runStream { body }  — discharges Stream.emit(x) performs; returns Source[A]
     case Term.Apply.After_4_6_0(Term.Name("runStream"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
+      // Lazily install Stream global so embedded interpreters (e.g. JMH bench
+      // harness) that skip initBuiltins can call Stream.emit inside the body.
+      if interp.globals.getOrElse("Stream", null) == null then
+        StdEffectsRuntime.installStreamGlobal(interp)
       EffectHandlers.streamRun(eval(bodyArgClause.values.head, env, interp), interp)
 
     // ── v1.4 State effect handlers ────────────────────────────────────────
