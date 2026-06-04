@@ -58,6 +58,12 @@ object SsccFormat:
     c.update(bytes)
     c.getValue.toInt
 
+  private def crc32of(bytes: Array[Byte], off: Int, len: Int): Int =
+    import java.util.zip.CRC32
+    val c = new CRC32()
+    c.update(bytes, off, len)
+    c.getValue.toInt
+
   // ─── Outer-payload gzip (v3 compressionFlag = 0x01) ─────────────────────
 
   private def gzipCompress(bytes: Array[Byte]): Array[Byte] =
@@ -69,9 +75,12 @@ object SsccFormat:
     out.toByteArray
 
   private def gzipDecompress(bytes: Array[Byte]): Array[Byte] =
+    gzipDecompress(bytes, 0)
+
+  private def gzipDecompress(bytes: Array[Byte], off: Int): Array[Byte] =
     import java.io.ByteArrayInputStream
     import java.util.zip.GZIPInputStream
-    val gz = new GZIPInputStream(new ByteArrayInputStream(bytes))
+    val gz = new GZIPInputStream(new ByteArrayInputStream(bytes, off, bytes.length - off))
     try gz.readAllBytes() finally gz.close()
 
   private def putBE32(n: Int): Array[Byte] = Array(
@@ -583,15 +592,21 @@ object SsccFormat:
     if bytes.length < 10 then return Left("truncated .sscc v3 header")
     val compressionFlag = bytes(5) & 0xff
     val storedCrc       = getBE32(bytes, 6)
-    val stored          = bytes.drop(10)
-    val actualCrc       = crc32of(stored)
+    val payloadOff      = 10
+    val actualCrc       = crc32of(bytes, payloadOff, bytes.length - payloadOff)
     if storedCrc != actualCrc then
       return Left(f"corrupt .sscc v3 file — CRC32 mismatch (stored 0x$storedCrc%08x, computed 0x$actualCrc%08x)")
-    val payloadE: Either[String, Array[Byte]] = compressionFlag match
-      case 0x00 => Right(stored)
-      case 0x01 => Try(gzipDecompress(stored)).toEither.left.map(e => s"gzip decompress failed: ${e.getMessage}")
-      case _    => Left(s"unsupported .sscc v3 compression flag 0x${compressionFlag.toHexString}")
-    if populateTrees then
-      payloadE.flatMap(payload => SsccFormatV3.read(payload, bytes => manifestFromBytes(bytes)))
-    else
-      payloadE.flatMap(payload => SsccFormatV3.readNoTrees(payload, bytes => manifestFromBytes(bytes)))
+    // Uncompressed: pass the original bytes + offset to avoid a 35KB copy.
+    // Compressed: decompress first (copy unavoidable), pass offset 0 of the new array.
+    if populateTrees then compressionFlag match
+      case 0x00 => SsccFormatV3.read(bytes, payloadOff, bytes => manifestFromBytes(bytes))
+      case 0x01 => Try(gzipDecompress(bytes, payloadOff)).toEither
+                     .left.map(e => s"gzip decompress failed: ${e.getMessage}")
+                     .flatMap(d => SsccFormatV3.read(d, 0, bytes => manifestFromBytes(bytes)))
+      case c    => Left(s"unsupported .sscc v3 compression flag 0x${c.toHexString}")
+    else compressionFlag match
+      case 0x00 => SsccFormatV3.readNoTrees(bytes, payloadOff, bytes => manifestFromBytes(bytes))
+      case 0x01 => Try(gzipDecompress(bytes, payloadOff)).toEither
+                     .left.map(e => s"gzip decompress failed: ${e.getMessage}")
+                     .flatMap(d => SsccFormatV3.readNoTrees(d, 0, bytes => manifestFromBytes(bytes)))
+      case c    => Left(s"unsupported .sscc v3 compression flag 0x${c.toHexString}")

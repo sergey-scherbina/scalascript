@@ -576,18 +576,24 @@ private[ast] object SsccFormatV3:
   /** `payloadBytes` is the raw payload (after header stripping and optional decompression).
    *  Returns `Right(module)` on success.  Trees are populated in parallel after decode. */
   def read(payloadBytes: Array[Byte], manifestReader: Array[Byte] => Manifest): Either[String, Module] =
+    read(payloadBytes, 0, manifestReader)
+
+  def read(payloadBytes: Array[Byte], payloadOffset: Int, manifestReader: Array[Byte] => Manifest): Either[String, Module] =
     scala.util.Try {
-      val m = decode(payloadBytes, manifestReader)
+      val m = decode(payloadBytes, payloadOffset, manifestReader)
       populateTrees(m)
     }.toEither.left.map(_.getMessage)
 
   /** Decode-only: trie + token stream, `tree = None` for all code blocks.
    *  For benchmarking the irreducible I/O floor without scalameta parse. */
   def readNoTrees(payloadBytes: Array[Byte], manifestReader: Array[Byte] => Manifest): Either[String, Module] =
-    scala.util.Try(decode(payloadBytes, manifestReader)).toEither.left.map(_.getMessage)
+    readNoTrees(payloadBytes, 0, manifestReader)
 
-  private def decode(payloadBytes: Array[Byte], manifestReader: Array[Byte] => Manifest): Module =
-    val pos = Array(0)
+  def readNoTrees(payloadBytes: Array[Byte], payloadOffset: Int, manifestReader: Array[Byte] => Manifest): Either[String, Module] =
+    scala.util.Try(decode(payloadBytes, payloadOffset, manifestReader)).toEither.left.map(_.getMessage)
+
+  private def decode(payloadBytes: Array[Byte], payloadOffset: Int, manifestReader: Array[Byte] => Manifest): Module =
+    val pos = Array(payloadOffset)
 
     // Decode trie section
     val trieLen    = getBE32(payloadBytes, pos(0)); pos(0) += 4

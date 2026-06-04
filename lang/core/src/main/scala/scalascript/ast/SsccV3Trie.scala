@@ -188,22 +188,26 @@ private[ast] object TrieDecoder:
     if maxId < 0 then return Array.empty
     val result = new Array[String](maxId + 1)
 
-    // DFS via manual array-based stack (avoids boxing)
-    val stackIdx = new Array[Int](nodeCount + 1)
-    val stackPfx = new Array[String](nodeCount + 1)
-    stackIdx(0) = 0
-    stackPfx(0) = ""
+    // DFS via trim-stack StringBuilder: avoids one String allocation per node.
+    // stackPfxLen[i] = sb.length when stackIdx[i] was pushed — restored on pop.
+    val sb          = new java.lang.StringBuilder(128)
+    val stackIdx    = new Array[Int](nodeCount + 1)
+    val stackPfxLen = new Array[Int](nodeCount + 1)
+    stackIdx(0)    = 0
+    stackPfxLen(0) = 0
     var top = 1
     while top > 0 do
       top -= 1
-      val idx      = stackIdx(top)
-      val fullPath = stackPfx(top) + edges(idx)
-      if terminals(idx) >= 0 then result(terminals(idx)) = fullPath
+      val idx    = stackIdx(top)
+      sb.setLength(stackPfxLen(top))
+      sb.append(edges(idx))
+      val fullLen = sb.length
+      if terminals(idx) >= 0 then result(terminals(idx)) = sb.toString
       val kids = childIndices(idx).length
       var k = kids - 1  // push in reverse so DFS order (left-to-right) is preserved
       while k >= 0 do
-        stackIdx(top) = childIndices(idx)(k)
-        stackPfx(top) = fullPath
+        stackIdx(top)    = childIndices(idx)(k)
+        stackPfxLen(top) = fullLen
         top += 1
         k -= 1
 
