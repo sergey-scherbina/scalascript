@@ -192,6 +192,12 @@ the contracts are explicit.
       metadata, route/remote/client evidence, schema consumers, typed-data /
       Dataset / Spark convergence, plugin metadata, phases, tests, and open
       questions.
+- [ ] **type-evidence-inventory-p1** - Implement the first real-types
+      tightening slice: add `TypeEvidenceKind` / `TypeEvidence`, attach optional
+      evidence to typer-created `DefSummary` values, and add an
+      `AnyEvidenceInventory` helper that counts exported `Any` by reason
+      without changing artifact formats or codegen behavior.
+      **Spec:** [`docs/type-evidence-inventory.md`](docs/type-evidence-inventory.md)
 - [x] **perf-regression-guard** - Add a lightweight performance regression
       workflow: benchmark manifest, baseline policy, ignored/generated artifact
       rules, short opt-in `ssc bench`/JMH smoke command, and documentation for
