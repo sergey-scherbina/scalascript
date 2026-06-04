@@ -601,7 +601,7 @@ object SwiftUIEmitter:
       case EventHandler.InputChange(signal) =>
         s"${pad}// InputChange handled by TextField binding on $$${signal.id}"
       case EventHandler.FetchAction(method, url, body, onSuccessTick, clearBody, _) =>
-        emitFetchTask(method, url, body.id, onSuccessTick.id, clearBody, indent)
+        emitFetchTask(method, url, body, onSuccessTick.id, clearBody, indent)
       case EventHandler.DeleteItem(idField, deleteUrl, onSuccessTick, _) =>
         val pad2 = " " * (indent + 4)
         val pad3 = " " * (indent + 8)
@@ -848,7 +848,7 @@ object SwiftUIEmitter:
   private def emitFetchTask(
     method:         String,
     url:            String,
-    bodyId:         String,
+    body:           ReactiveSignal[String],
     onSuccessTickId: String,
     clearBody:      Boolean,
     indent:         Int
@@ -856,9 +856,10 @@ object SwiftUIEmitter:
     val pad  = " " * indent
     val pad2 = " " * (indent + 4)
     val pad3 = " " * (indent + 8)
+    val bodyId     = body.id
     val urlLine    = s"""${pad2}guard let _url = URL(string: ${swiftStringLit(url)}) else { return }"""
     val successLine = s"${pad3}$onSuccessTickId += 1"
-    val clearLine   = if clearBody then s"\n${pad3}$bodyId = \"\"" else ""
+    val clearLine   = if clearBody then s"\n${pad3}${markSeedDirty(body)}$bodyId = \"\"" else ""
     val httpMethod  = method.toUpperCase
     if httpMethod == "GET" || httpMethod == "DELETE" then
       s"""${pad}Task { @MainActor in

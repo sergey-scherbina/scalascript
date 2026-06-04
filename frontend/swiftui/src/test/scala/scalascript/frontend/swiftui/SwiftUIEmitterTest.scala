@@ -563,6 +563,21 @@ class SwiftUIEmitterTest extends AnyFunSuite:
     assert(cv.contains("""formBody = """""), "expected clearBody reset")
   }
 
+  test("FetchAction clearBody marks seeded body dirty before reset") {
+    val tick = ReactiveSignal[Int]("submitTick", 0)
+    val source = ReactiveSignal[String]("serverBody", "{}")
+    val body = SeedSignal("formBody", source)
+    val btn = View.Button(
+      label  = View.Text(() => "Submit", Style()),
+      action = EventHandler.FetchAction("POST", "https://api.example.com/submit", body, tick, clearBody = true),
+      enabled = () => true,
+      style  = Style()
+    )
+    val cv = backend.emitNative(makeModule(btn), Platform.Mobile(MobileOs.iOS)).get
+      .sources.find(_._1.endsWith("ContentView.swift")).get._2
+    assert(cv.contains("formBody_pristine = false; formBody = \"\""), "expected clearBody to dirty seeded body")
+  }
+
   // ── FetchUrlSignal — onAppear / onChange ──────────────────────────────────
 
   test("FetchUrlSignal emits .task and .onChange(of:) modifiers in ContentView") {
