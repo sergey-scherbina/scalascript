@@ -1535,7 +1535,8 @@ object AsmJitBackend extends JitBackend:
 
     val accSlotIdx = names.length
     val accLocal = 1 + names.length * 2
-    var nextObjLocal = accLocal + 2
+    val invSumLocal = accLocal + 2   // 2-wide (long/double) slot for LICM-hoisted sum
+    var nextObjLocal = invSumLocal + 2
     def allocObjLocal(): Int =
       val s = nextObjLocal
       nextObjLocal += 1
@@ -1588,10 +1589,15 @@ object AsmJitBackend extends JitBackend:
       mv.visitVarInsn(DSTORE, accLocal)
     else mv.visitVarInsn(LSTORE, accLocal)
 
-    val outerHead = new Label
-    val outerEnd = new Label
-    mv.visitLabel(outerHead)
-    condEmit(mv, outerEnd)
+    // LICM pre-pass: compute invSumLocal = sum of fn over all receiver elements once,
+    // before the outer while.  The sum is loop-invariant: receiver is val-bound, items
+    // are immutable, and the outer while body can only modify local slots (not globals).
+    if accIsDouble then
+      mv.visitInsn(DCONST_0)
+      mv.visitVarInsn(DSTORE, invSumLocal)
+    else
+      mv.visitInsn(LCONST_0)
+      mv.visitVarInsn(LSTORE, invSumLocal)
     val foreachScratchSlot = allocObjLocal()
     if doInline then
       val elemSlot = allocObjLocal()
@@ -1599,12 +1605,28 @@ object AsmJitBackend extends JitBackend:
       def allocInlineSlot(): Int = { val s2 = nextInlineLocal; nextInlineLocal += 2; s2 }
       val ok =
         if receiverIsSet then
-          emitSetForeachAccumInline(mv, funVTyped, accIsDouble, receiverSlot, foreachScratchSlot, elemSlot, accLocal, allocInlineSlot, interp, cname)
+          emitSetForeachAccumInline(mv, funVTyped, accIsDouble, receiverSlot, foreachScratchSlot, elemSlot, invSumLocal, allocInlineSlot, interp, cname)
         else
-          emitArrayForeachAccumInline(mv, funVTyped, accIsDouble, receiverSlot, elemSlot, accLocal, allocInlineSlot, interp, cname)
+          emitArrayForeachAccumInline(mv, funVTyped, accIsDouble, receiverSlot, elemSlot, invSumLocal, allocInlineSlot, interp, cname)
       if !ok then { whileMixedCache.put(foreachApply, WhileMixedMiss); return null }
-    else if receiverIsSet then emitSetForeachAccum(mv, receiverSlot, fnSlot, foreachScratchSlot, accLocal, accIsDouble)
-    else emitListForeachAccum(mv, receiverSlot, fnSlot, foreachScratchSlot, accLocal, accIsDouble)
+    else if receiverIsSet then emitSetForeachAccum(mv, receiverSlot, fnSlot, foreachScratchSlot, invSumLocal, accIsDouble)
+    else emitListForeachAccum(mv, receiverSlot, fnSlot, foreachScratchSlot, invSumLocal, accIsDouble)
+
+    // Outer while: tight loop — add constant invSumLocal per iteration.
+    val outerHead = new Label
+    val outerEnd = new Label
+    mv.visitLabel(outerHead)
+    condEmit(mv, outerEnd)
+    if accIsDouble then
+      mv.visitVarInsn(DLOAD, accLocal)
+      mv.visitVarInsn(DLOAD, invSumLocal)
+      mv.visitInsn(DADD)
+      mv.visitVarInsn(DSTORE, accLocal)
+    else
+      mv.visitVarInsn(LLOAD, accLocal)
+      mv.visitVarInsn(LLOAD, invSumLocal)
+      mv.visitInsn(LADD)
+      mv.visitVarInsn(LSTORE, accLocal)
 
     k = 0
     while k < names.length do
@@ -1710,7 +1732,8 @@ object AsmJitBackend extends JitBackend:
 
     val accSlotIdx = names.length
     val accLocal = 1 + names.length * 2
-    var nextLocal = accLocal + 2
+    val invSumLocal = accLocal + 2   // 2-wide slot for LICM-hoisted map sum
+    var nextLocal = invSumLocal + 2
     def allocLocal(): Int =
       val s = nextLocal
       nextLocal += 1
@@ -1747,11 +1770,29 @@ object AsmJitBackend extends JitBackend:
       mv.visitVarInsn(DSTORE, accLocal)
     else mv.visitVarInsn(LSTORE, accLocal)
 
+    // LICM pre-pass: map items are val-bound and immutable — compute their sum once.
+    if accIsDouble then
+      mv.visitInsn(DCONST_0)
+      mv.visitVarInsn(DSTORE, invSumLocal)
+    else
+      mv.visitInsn(LCONST_0)
+      mv.visitVarInsn(LSTORE, invSumLocal)
+    emitMapArrayForeachAccum(mv, arraySlot, lenSlot, indexSlot, itemSlot, invSumLocal, accIsDouble)
+
     val outerHead = new Label
     val outerEnd = new Label
     mv.visitLabel(outerHead)
     condEmit(mv, outerEnd)
-    emitMapArrayForeachAccum(mv, arraySlot, lenSlot, indexSlot, itemSlot, accLocal, accIsDouble)
+    if accIsDouble then
+      mv.visitVarInsn(DLOAD, accLocal)
+      mv.visitVarInsn(DLOAD, invSumLocal)
+      mv.visitInsn(DADD)
+      mv.visitVarInsn(DSTORE, accLocal)
+    else
+      mv.visitVarInsn(LLOAD, accLocal)
+      mv.visitVarInsn(LLOAD, invSumLocal)
+      mv.visitInsn(LADD)
+      mv.visitVarInsn(LSTORE, accLocal)
 
     k = 0
     while k < names.length do

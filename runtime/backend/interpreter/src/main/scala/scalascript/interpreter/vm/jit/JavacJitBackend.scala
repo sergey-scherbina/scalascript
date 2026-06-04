@@ -1777,13 +1777,15 @@ object JavacJitBackend extends JitBackend:
     // Try to inline the match body — eliminates ObjToLong virtual dispatch.
     val funVTyped = fnVal.asInstanceOf[scalascript.interpreter.Value.FunV]
     val inlineMatchSwitch: String | Null = tryBuildInlineMatchAccum(funVTyped, accIsDouble, interp)
-    // LICM: when inlineMatchSwitch is available for a List receiver, we can hoist
-    // the pure foreach-accumulator out of the outer while.  The foreach result is
-    // loop-invariant because: coll is val-bound, items are immutable InstanceVs,
-    // and the match-body is structurally pure (proven by tryBuildInlineMatchAccum
-    // succeeding — walkLong/walkDouble reject any Term.Assign and impure calls).
+    // LICM: hoist the pure foreach-accumulator out of the outer while.
+    // The foreach result is loop-invariant: coll is val-bound, items are immutable,
+    // the match-body (when present) is structurally pure (walkLong/walkDouble reject
+    // Term.Assign and impure calls), and the outer while body can only modify slot
+    // vars (_v0..) via walkLocalSlotCtx — never globals the fn might read.
+    // When inlineMatchSwitch succeeded, use a second invSumMatchSwitch for the
+    // pre-pass; otherwise use _fn0/_dfn0 virtual dispatch in the pre-pass.
     val invSumMatchSwitch: String | Null =
-      if inlineMatchSwitch != null && !receiverIsSet then
+      if inlineMatchSwitch != null then
         tryBuildInlineMatchAccum(funVTyped, accIsDouble, interp, targetVar = "_invSum")
       else null
 
@@ -1836,60 +1838,45 @@ object JavacJitBackend extends JitBackend:
       sb.append(s"    double _acc = Double.longBitsToDouble(v[$accSlotIdx]);\n")
     else
       sb.append(s"    long _acc = v[$accSlotIdx];\n")
-    if invSumMatchSwitch != null then
-      // LICM path: hoist the pure foreach-accumulator out of the outer while.
-      // Compute _invSum once before the loop; the tight inner while adds a constant
-      // per iteration — HotSpot C2 strength-reduces it to a closed-form multiply.
-      if accIsDouble then sb.append(s"    double _invSum = 0.0;\n")
-      else               sb.append(s"    long _invSum = 0L;\n")
+    // Always LICM: compute _invSum once before the outer while.
+    // The pre-pass shape depends on receiver type and whether the match body is inlined.
+    if accIsDouble then sb.append(s"    double _invSum = 0.0;\n")
+    else               sb.append(s"    long _invSum = 0L;\n")
+    if receiverIsSet then
+      sb.append(s"    scala.collection.Iterator<?> _invIter = _set0.items().iterator();\n")
+      sb.append(s"    while (_invIter.hasNext()) {\n")
+      if invSumMatchSwitch != null then
+        sb.append(s"      $valuePkg.Value.InstanceV inst = ($valuePkg.Value.InstanceV) _invIter.next();\n")
+        sb.append(s"      $invSumMatchSwitch\n")
+      else if accIsDouble then
+        sb.append(s"      _invSum += _dfn0.apply(_invIter.next());\n")
+      else
+        sb.append(s"      _invSum += _fn0.apply(_invIter.next());\n")
+      sb.append(s"    }\n")
+    else if invSumMatchSwitch != null then
+      // List + inline match: pre-extracted array (no virtual dispatch).
       sb.append(s"    for (int _li = 0; _li < _llen; _li++) {\n")
       sb.append(s"      $valuePkg.Value.InstanceV inst = ($valuePkg.Value.InstanceV) _larr[_li];\n")
       sb.append(s"      $invSumMatchSwitch\n")
       sb.append(s"    }\n")
-      // Outer while: just accumulate _invSum — no inner foreach.
-      sb.append(s"    while ($condJava) {\n")
-      sb.append(s"      _acc += _invSum;\n")
-      k = 0
-      while k < names.length do
-        sb.append(s"      _v$k = ${rhsJava(k)};\n")
-        k += 1
-      sb.append(s"    }\n")
     else
-      // Standard path: inner foreach inside the outer while.
-      sb.append(s"    while ($condJava) {\n")
-      // Inner foreach loop over receiver items (List head/tail or Set iterator).
-      if receiverIsSet then
-        sb.append(s"      scala.collection.Iterator<?> _iter = _set0.items().iterator();\n")
-        sb.append(s"      while (_iter.hasNext()) {\n")
-        if inlineMatchSwitch != null then
-          sb.append(s"        $valuePkg.Value.InstanceV inst = ($valuePkg.Value.InstanceV) _iter.next();\n")
-          sb.append(s"        $inlineMatchSwitch\n")
-        else if accIsDouble then
-          sb.append(s"        _acc += _dfn0.apply(_iter.next());\n")
-        else
-          sb.append(s"        _acc += _fn0.apply(_iter.next());\n")
-        sb.append(s"      }\n")
-      else if inlineMatchSwitch != null then
-        // Pre-extracted array path — faster than head()/tail() traversal.
-        sb.append(s"      for (int _li = 0; _li < _llen; _li++) {\n")
-        sb.append(s"        $valuePkg.Value.InstanceV inst = ($valuePkg.Value.InstanceV) _larr[_li];\n")
-        sb.append(s"        $inlineMatchSwitch\n")
-        sb.append(s"      }\n")
+      // List + fn: head/tail traversal (no pre-extraction needed).
+      sb.append(s"    scala.collection.immutable.List<?> _invItems = _list0.items();\n")
+      sb.append(s"    while (!_invItems.isEmpty()) {\n")
+      if accIsDouble then
+        sb.append(s"      _invSum += _dfn0.apply(_invItems.head());\n")
       else
-        sb.append(s"      scala.collection.immutable.List<?> _items = _list0.items();\n")
-        sb.append(s"      while (!_items.isEmpty()) {\n")
-        if accIsDouble then
-          sb.append(s"        _acc += _dfn0.apply(_items.head());\n")
-        else
-          sb.append(s"        _acc += _fn0.apply(_items.head());\n")
-        sb.append(s"        _items = (scala.collection.immutable.List<?>) _items.tail();\n")
-        sb.append(s"      }\n")
-      // Int-assign RHSes.
-      k = 0
-      while k < names.length do
-        sb.append(s"      _v$k = ${rhsJava(k)};\n")
-        k += 1
+        sb.append(s"      _invSum += _fn0.apply(_invItems.head());\n")
+      sb.append(s"      _invItems = (scala.collection.immutable.List<?>) _invItems.tail();\n")
       sb.append(s"    }\n")
+    // Outer while: tight loop — accumulate constant _invSum per iteration.
+    sb.append(s"    while ($condJava) {\n")
+    sb.append(s"      _acc += _invSum;\n")
+    k = 0
+    while k < names.length do
+      sb.append(s"      _v$k = ${rhsJava(k)};\n")
+      k += 1
+    sb.append(s"    }\n")
     // Write back slots.
     k = 0
     while k < names.length do
@@ -2009,14 +1996,18 @@ object JavacJitBackend extends JitBackend:
       sb.append(s"    double _acc = Double.longBitsToDouble(v[$accSlotIdx]);\n")
     else
       sb.append(s"    long _acc = v[$accSlotIdx];\n")
-    sb.append(s"    while ($condJava) {\n")
-    sb.append(s"      for (int _mi = 0; _mi < _mlen; _mi++) {\n")
+    // LICM: map items are val-bound and immutable — hoist the foreach sum.
+    if accIsDouble then sb.append(s"    double _invSum = 0.0;\n")
+    else               sb.append(s"    long _invSum = 0L;\n")
+    sb.append(s"    for (int _mi = 0; _mi < _mlen; _mi++) {\n")
     if accIsDouble then
-      sb.append(s"        Object _mval = _mvals[_mi];\n")
-      sb.append(s"        _acc += _mval instanceof $valuePkg.Value.DoubleV ? (($valuePkg.Value.DoubleV)_mval).v() : (double)(($valuePkg.Value.IntV)_mval).v();\n")
+      sb.append(s"      Object _mval = _mvals[_mi];\n")
+      sb.append(s"      _invSum += _mval instanceof $valuePkg.Value.DoubleV ? (($valuePkg.Value.DoubleV)_mval).v() : (double)(($valuePkg.Value.IntV)_mval).v();\n")
     else
-      sb.append(s"        _acc += (($valuePkg.Value.IntV)_mvals[_mi]).v();\n")
-    sb.append(s"      }\n")
+      sb.append(s"      _invSum += (($valuePkg.Value.IntV)_mvals[_mi]).v();\n")
+    sb.append(s"    }\n")
+    sb.append(s"    while ($condJava) {\n")
+    sb.append(s"      _acc += _invSum;\n")
     k = 0
     while k < names.length do
       sb.append(s"      _v$k = ${rhsJava(k)};\n")

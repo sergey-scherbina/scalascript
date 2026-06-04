@@ -477,6 +477,102 @@ class SscVmTest extends AnyFunSuite with Matchers:
     java.lang.Double.longBitsToDouble(slots(1)) shouldBe 9.0
   }
 
+  // ── Generalized LICM: Set / Map / non-match pure-fn foreach hoisting ─
+
+  test("Javac LICM hoists Set+match foreach out of outer while (long acc)") {
+    val defs =
+      """sealed trait Node
+        |case class Leaf(v: Int) extends Node
+        |val xs = Set(Leaf(1), Leaf(2), Leaf(3))
+        |def leafVal(n: Node): Int = n match
+        |  case Leaf(v) => v""".stripMargin
+    val whileSrc =
+      """var acc = 0
+        |var i = 0
+        |while i < 5 do
+        |  xs.foreach(x => acc = acc + leafVal(x))
+        |  i = i + 1""".stripMargin
+    val (interp, w, foreachApply, names, rhs) = mixedWhileParts(defs, whileSrc)
+    names shouldBe Array("i")
+    val entry = JavacJitBackend.tryCompileWhileMixed(w.expr, names, rhs, foreachApply, "acc", accIsDouble = false, interp)
+    entry should not be null
+    val slots = Array(0L, 0L)
+    runMixedEntry(entry, interp, "xs", slots)
+    slots(0) shouldBe 5L           // i = 5
+    slots(1) shouldBe 30L          // acc = 5 * (1+2+3) = 30
+  }
+
+  test("Javac LICM hoists Map foreach out of outer while (long acc)") {
+    val defs = """val m = Map("a" -> 1, "b" -> 2, "c" -> 3)"""
+    val whileSrc =
+      """var acc = 0
+        |var i = 0
+        |while i < 4 do
+        |  m.foreach((k, v) => acc = acc + v)
+        |  i = i + 1""".stripMargin
+    val (interp, w, foreachApply, names, rhs) = mixedWhileParts(defs, whileSrc)
+    names shouldBe Array("i")
+    val entry = JavacJitBackend.tryCompileWhileMixed(w.expr, names, rhs, foreachApply, "acc", accIsDouble = false, interp)
+    entry should not be null
+    entry.mapIsKeyMode shouldBe false
+    val slots = Array(0L, 0L)
+    runMixedEntry(entry, interp, "m", slots)
+    slots(0) shouldBe 4L           // i = 4
+    slots(1) shouldBe 24L          // acc = 4 * (1+2+3) = 24
+  }
+
+  test("Javac LICM hoists List+fn foreach out of outer while (non-match body)") {
+    // inlineMatchSwitch == null path: fn compiles as ObjToLong, LICM via _fn0
+    val defs =
+      """sealed trait Node
+        |case class Leaf(v: Int) extends Node
+        |val xs = List(Leaf(10), Leaf(20), Leaf(30))
+        |def leafVal(n: Node): Int = n match
+        |  case Leaf(v) => v""".stripMargin
+    val whileSrc =
+      """var acc = 0
+        |var i = 0
+        |while i < 3 do
+        |  xs.foreach(x => acc = acc + leafVal(x))
+        |  i = i + 1""".stripMargin
+    val (interp, w, foreachApply, names, rhs) = mixedWhileParts(defs, whileSrc)
+    names shouldBe Array("i")
+    val entry = JavacJitBackend.tryCompileWhileMixed(w.expr, names, rhs, foreachApply, "acc", accIsDouble = false, interp)
+    entry should not be null
+    val slots = Array(0L, 0L)
+    runMixedEntry(entry, interp, "xs", slots)
+    slots(0) shouldBe 3L           // i = 3
+    slots(1) shouldBe 180L         // acc = 3 * (10+20+30) = 180
+  }
+
+  test("end-to-end: Set LICM foreach while gives correct result") {
+    val out = captured(
+      """sealed trait Item
+        |case class V(n: Int) extends Item
+        |val xs = Set(V(1), V(2), V(3))
+        |def f(x: Item): Int = x match
+        |  case V(n) => n * 2
+        |var total = 0
+        |var i = 0
+        |while i < 5 do
+        |  xs.foreach(x => total = total + f(x))
+        |  i = i + 1
+        |println(total)""".stripMargin)
+    out shouldBe "60"   // 5 * (2+4+6) = 60
+  }
+
+  test("end-to-end: Map LICM foreach while gives correct result") {
+    val out = captured(
+      """val m = Map("x" -> 3, "y" -> 7)
+        |var total = 0
+        |var i = 0
+        |while i < 10 do
+        |  m.foreach((k, v) => total = total + v)
+        |  i = i + 1
+        |println(total)""".stripMargin)
+    out shouldBe "100"  // 10 * (3+7) = 100
+  }
+
   // ── Double-domain support (raw VM result is double *bits*) ──────────
   private def asD(raw: Long): Double = java.lang.Double.longBitsToDouble(raw)
   private def bitsOf(d: Double): Long = java.lang.Double.doubleToRawLongBits(d)
