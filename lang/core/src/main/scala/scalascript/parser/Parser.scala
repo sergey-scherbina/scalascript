@@ -24,6 +24,10 @@ object Parser:
     .includeSourceSpans(IncludeSourceSpans.BLOCKS)
     .build()
 
+  /** Parse a YAML front-matter string to a [[Manifest]].
+   *  Exposed for `SsccFormatV3` YAML-event read path. */
+  private[scalascript] def manifestFromYaml(yaml: String): Manifest = parseManifest(yaml)
+
   def parse(source: String): Module =
     // Strip shebang line so files can be self-executing: #!/usr/bin/env ssc
     val shebangLines = if source.startsWith("#!") then 1 else 0
