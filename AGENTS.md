@@ -33,6 +33,7 @@ BRANCH="feature/your-task-name"
 WT="/Users/sergiy/work/my/scalascript/.worktrees/$BRANCH"
 git -C /Users/sergiy/work/my/scalascript fetch origin
 git -C /Users/sergiy/work/my/scalascript worktree add "$WT" -b "$BRANCH" origin/main
+git -C "$WT" submodule update --init .agents/plugins
 ```
 
 Then do all work from `$WT`. Details and common traps — in §"Workflow for parallel agents" below.
@@ -165,7 +166,8 @@ between sessions. Treat them as load-bearing.
 Use the `/multi-repo` skill to manage them:
 
 - `/multi-repo status` — state of all submodules
-- `/multi-repo sync` — fetch + pull + `git submodule update --remote --recursive`
+- `/multi-repo sync` — fetch + pull + pinned `git submodule update --init --recursive`
+- `/multi-repo update` — intentionally advance submodules to remote heads
 - `/multi-repo clone` — init missing submodules from scratch
 
 Skill location: `.agents/plugins/multi-repo/commands/multi-repo.md` (submodule).
@@ -347,6 +349,7 @@ with plain git — no tool needed:
 BRANCH="feature/your-task-name"
 WT="/Users/sergiy/work/my/scalascript/.worktrees/$BRANCH"
 git -C /Users/sergiy/work/my/scalascript worktree add "$WT" -b "$BRANCH"
+git -C "$WT" submodule update --init .agents/plugins
 ```
 
 Then do **all** work (reads, writes, compiles, tests, commits) from `$WT`
@@ -647,18 +650,21 @@ git rebase origin/main           # if origin/main moved
 # re-run the suite if the rebase touched anything
 <merge or fast-forward into main>
 git push origin main
-git branch -f main origin/main   # keep local main in sync after push
+git -C /Users/sergiy/work/my/scalascript fetch origin
+git -C /Users/sergiy/work/my/scalascript merge --ff-only origin/main
 ```
 
 No "accumulate and push at the end of the sprint". Each piece gets its
 own CI run; the user sees progress item-by-item and can redirect after
 any of them.
 
-The `git branch -f main origin/main` line is mandatory: when pushing
-from a worktree with `git push origin <branch>:main`, the local `main`
-branch is **not** updated automatically.  Without this step the next
-session sees a stale local `main`, thinks the work was not pushed, and
-may redo it.
+The local `main` fast-forward sync is mandatory: when pushing from a worktree
+with `git push origin <branch>:main`, the checked-out shared `main` working tree
+is **not** updated automatically. Without this step the next session sees a
+stale local `main`, thinks the work was not pushed, and may redo it. Do not use
+`git branch -f main origin/main` while `main` is checked out in the shared repo;
+Git rejects that. Use the explicit `git -C ... merge --ff-only origin/main`
+sync above.
 
 ### 4. After merge — delete worktree + branch immediately
 
@@ -666,9 +672,8 @@ may redo it.
 to `origin/main`, clean up:
 
 ```bash
-# From inside the worktree:
-git push origin main                              # if not already pushed
-cd /Users/sergiy/work/my/scalascript             # go to main repo
+# After the feature branch has been pushed to origin/main and local main synced:
+cd /Users/sergiy/work/my/scalascript             # go to shared main repo
 git worktree remove --force <path-to-worktree>   # remove working dir
 git branch -D <branch-name>                      # delete local branch
 git push origin --delete <branch-name>           # delete remote branch (if pushed)

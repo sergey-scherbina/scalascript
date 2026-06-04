@@ -16,7 +16,7 @@ Shows the authoritative remote queue/claims plus local worktree state:
   - active .work/active/*.claim files from origin/main
   - live and prunable git worktrees
   - clean linked worktrees whose HEAD has already landed on origin/main
-  - first pending WORK_QUEUE.md item that looks free to pick
+  - first pending configured sprint item that looks free to pick
 
 This script is read-only except for `git fetch origin`.
 
@@ -106,6 +106,17 @@ done
 if $DO_FETCH; then
   git -C "$ROOT" fetch origin --quiet
 fi
+
+agents_text="$(git -C "$ROOT" show "$REMOTE_REF:AGENTS.md" 2>/dev/null || true)"
+queue_file="$(printf '%s\n' "$agents_text" | grep -m1 '^SPRINT:' | awk '{print $2}' || true)"
+if [[ -z "$queue_file" ]]; then
+  queue_file="$(
+    printf '%s\n' "$agents_text" |
+      sed -n 's/^\*\*Queue file for this project:\*\* `\([^`]*\)`.*/\1/p' |
+      head -1
+  )"
+fi
+queue_file="${queue_file:-SPRINT.md}"
 
 echo "== $REMOTE_REF =="
 git -C "$ROOT" log --oneline -1 "$REMOTE_REF"
@@ -276,11 +287,14 @@ else
     [[ -n "$claim_file" ]] || continue
     slug="${claim_file##*/}"
     slug="${slug%.claim}"
-    owner="$(git -C "$ROOT" show "$REMOTE_REF:$claim_file" 2>/dev/null | awk '{print $1}' || true)"
-    if [[ -n "$owner" ]] && printf '%s\n' "$live_keys" | grep -Fxq "$owner"; then
+    if printf '%s\n' "$live_keys" | grep -Fxq "$slug"; then
       continue
     fi
-    printf 'maybe stale: %s (%s)\n' "$slug" "${owner:-unknown owner}"
+    if find_live_match "$slug" >/dev/null 2>&1; then
+      continue
+    fi
+    claim_summary="$(git -C "$ROOT" show "$REMOTE_REF:$claim_file" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g' || true)"
+    printf 'maybe stale: %s (%s)\n' "$slug" "${claim_summary:-unknown claim}"
     found_stale=true
   done <<<"$claim_files"
   if ! $found_stale; then
@@ -289,10 +303,10 @@ else
 fi
 echo
 
-echo "== pending WORK_QUEUE.md item status =="
-queue="$(git -C "$ROOT" show "$REMOTE_REF:WORK_QUEUE.md" 2>/dev/null || true)"
+echo "== pending $queue_file item status =="
+queue="$(git -C "$ROOT" show "$REMOTE_REF:$queue_file" 2>/dev/null || true)"
 if [[ -z "$queue" ]]; then
-  echo "WORK_QUEUE.md not found on $REMOTE_REF"
+  echo "$queue_file not found on $REMOTE_REF"
 else
   section=""
   occupied_item=""
