@@ -274,7 +274,14 @@ object JsGen:
   ): String =
     generateWithStats(module, baseDir, intrinsics, lockPath, noTreeShake)._1
 
-
+  /** Stdlib runtime singleton methods that can be emitted as direct JS calls
+   *  (`Stream.emit(x)`) instead of `_dispatch(Stream, 'emit', [x])`.
+   *  Avoids per-call `[args]` array allocation and the _dispatch type-check chain.
+   *  Safe when the receiver name is not shadowed by a user binding at the call site. */
+  val stdlibDirectCall: Set[(String, String)] = Set(
+    ("Stream", "emit"), ("Stream", "complete"), ("Stream", "error"), ("Stream", "request"),
+    ("Logger", "log"), ("Logger", "warn"), ("Logger", "error"),
+  )
 
 
 
@@ -3747,6 +3754,14 @@ class JsGen(
           // _forEach uses an indexed for-loop for arrays and falls back to _dispatch otherwise.
           case "foreach" if argVals.length == 1 =>
             s"_forEach($qualJs, ${argVals.head})"
+          // Known stdlib runtime singleton direct calls — bypass _dispatch and the per-call
+          // [args] array allocation.  Safe: the JS preamble defines these as plain function
+          // properties on const objects; direct call and _dispatch are semantically equivalent
+          // as long as the user hasn't shadowed the singleton name with a local binding.
+          case _ if qual.isInstanceOf[Term.Name] &&
+                    JsGen.stdlibDirectCall.contains(
+                      (qual.asInstanceOf[Term.Name].value, method)) =>
+            s"$qualJs.$method(${argVals.mkString(", ")})"
           case _ =>
             val argsJs = argVals.mkString(", ")
             s"_dispatch($qualJs, '$method', [$argsJs])"
@@ -4356,11 +4371,17 @@ class JsGen(
           s"(($q).reduceRight((acc, x) => ($f)(x, acc), $init))"
         }
 
-      // Method call: obj.method(args) → _dispatch
+      // Method call: obj.method(args) → _dispatch (or direct call for known singletons)
       case Term.Select(qual, Term.Name(method)) =>
-        bindArgsCps(qual :: args) { vs =>
-          s"_dispatch(${vs.head}, '$method', [${vs.tail.mkString(", ")}])"
-        }
+        // Known stdlib singleton: emit direct call bypassing _dispatch array alloc.
+        if qual.isInstanceOf[Term.Name] &&
+           JsGen.stdlibDirectCall.contains((qual.asInstanceOf[Term.Name].value, method)) then
+          val recv = qual.asInstanceOf[Term.Name].value
+          bindArgsCps(args) { vs => s"$recv.$method(${vs.mkString(", ")})" }
+        else
+          bindArgsCps(qual :: args) { vs =>
+            s"_dispatch(${vs.head}, '$method', [${vs.tail.mkString(", ")}])"
+          }
 
       // Regular function call: bind args, then call (function value itself is simple)
       case fun =>
