@@ -13,6 +13,7 @@ implemented today.
 - [`docs/openapi.md`](openapi.md)
 - [`docs/graphql.md`](graphql.md)
 - [`docs/contract-validation.md`](contract-validation.md)
+- [`docs/type-evidence-inventory.md`](type-evidence-inventory.md)
 
 ---
 
@@ -323,6 +324,8 @@ typed route clients, OpenAPI, GraphQL, and contract validation docs.
 Add a small inventory tool/test helper that counts exported `Any` by reason:
 declared, dynamic, unknown, prelude, imported, plugin-provided. Add the
 `TypeEvidence` model and focused unit tests, without changing codegen output.
+The first implementation slice is specified in
+[`docs/type-evidence-inventory.md`](type-evidence-inventory.md).
 
 ### Phase 2 - Interface And Artifact Evidence
 

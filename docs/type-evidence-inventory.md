@@ -1,0 +1,186 @@
+# Type Evidence Inventory - spec
+
+**Status:** Planned.
+**Queue item:** `type-evidence-inventory-p1`.
+**Parent roadmap:** [`docs/typer-real-types-roadmap.md`](typer-real-types-roadmap.md).
+
+This is the first implementation slice of the real-types roadmap. The goal is
+not to make every exported symbol precise immediately. The goal is to stop
+treating every `Any` as the same fact.
+
+`Any` is still valid in ScalaScript, but exported `Any` should carry a reason:
+
+- declared by the source author;
+- intentionally dynamic at a boundary;
+- imported from an interface;
+- provided by a plugin/intrinsic;
+- inferred by the compiler;
+- unknown because the compiler has no supported evidence yet.
+
+That classification gives later phases a stable baseline for interface
+evidence, strict modes, route/client metadata, OpenAPI, GraphQL, and contract
+validation.
+
+## Goals
+
+- Add a shared `TypeEvidenceKind` / `TypeEvidence` model around existing `SType`
+  values.
+- Provide small constructors/helpers for common evidence cases so callers do
+  not open-code classification strings.
+- Add an inventory helper that counts `Any` evidence by reason on exported
+  symbol summaries.
+- Keep all existing public artifact formats and generated code behavior
+  unchanged in this slice.
+- Add focused tests for evidence classification and inventory counting.
+- Record enough baseline data that later phases can reduce unknown exported
+  `Any` without re-discovering where it comes from.
+
+## Non-goals
+
+- No `.scim` / `.sscc` artifact format change in this slice.
+- No route/client/OpenAPI/GraphQL migration yet.
+- No broad inference expansion beyond what already landed in `Typer.scala`.
+- No strict-type build failures.
+- No attempt to remove dynamic `Any` at JSON, GraphQL, plugin, or foreign-code
+  boundaries.
+
+## Architecture
+
+`SType` remains the compiler type model. Evidence is metadata about how the
+compiler obtained that type.
+
+```scala
+enum TypeEvidenceKind:
+  case Declared
+  case Inferred
+  case Derived
+  case Imported
+  case PluginProvided
+  case Dynamic
+  case Unknown
+
+case class TypeEvidence(
+  tpe: SType,
+  kind: TypeEvidenceKind,
+  source: Option[SourceSpan] = None,
+  reason: Option[String] = None
+)
+```
+
+The exact file layout can change during implementation, but the preferred home
+is `lang/core/src/main/scala/scalascript/typer/Types.scala` or a nearby
+`TypeEvidence.scala` in the same package. Keeping it in `lang/core` lets typer,
+interface extraction, route derivation, and schema consumers depend on the same
+model without creating backend coupling.
+
+Rules:
+
+- Explicit source annotations produce `Declared` evidence, including explicit
+  `: Any`.
+- Supported local inference produces `Inferred` evidence.
+- Case-class, enum, codec, or schema derivation can later produce `Derived`
+  evidence.
+- Recovered interface evidence will later use `Imported`.
+- Plugin and source-language metadata will later use `PluginProvided`.
+- Intentional runtime/foreign boundaries use `Dynamic`.
+- Unsupported inference paths use `Unknown`; when the type is also `Any`, this
+  is the debt later strict modes should highlight.
+
+## Inventory Model
+
+The inventory helper should be deliberately small and deterministic:
+
+```scala
+case class AnyEvidenceCounts(
+  declared: Int = 0,
+  inferred: Int = 0,
+  derived: Int = 0,
+  imported: Int = 0,
+  pluginProvided: Int = 0,
+  dynamic: Int = 0,
+  unknown: Int = 0
+)
+```
+
+It should count only exported summaries whose evidence type is `SType.Any`.
+This avoids confusing legitimate non-`Any` inferred types with the main
+baseline this slice is meant to expose.
+
+The first implementation can operate directly on `List[DefSummary]`. Later
+phases can extend it to `.scim` interfaces, route metadata, remote handlers,
+and plugin manifests.
+
+## Migration
+
+1. Add the evidence model in `lang/core`.
+2. Add optional `evidence: Option[TypeEvidence]` to `DefSummary`, defaulting to
+   `None` for binary/source compatibility at call sites.
+3. Populate evidence in the local typer summary path where the source of the
+   type is already obvious:
+   - annotations -> `Declared`;
+   - existing supported inference -> `Inferred`;
+   - current fallback `Any` -> `Unknown`.
+4. Add the inventory helper and tests.
+5. Do not change interface serialization, code generation, runtime behavior, or
+   CLI output in this slice.
+
+## Phases
+
+### P1 - Evidence Model And Summary Inventory
+
+Queue slug: `type-evidence-inventory-p1`.
+
+Add `TypeEvidenceKind`, `TypeEvidence`, optional summary evidence, and
+`AnyEvidenceInventory` for exported `DefSummary` values. Populate only the
+typer-created summaries where evidence can be classified without changing
+artifact formats.
+
+Verification:
+
+- `core / Test / testOnly scalascript.typer.TypeEvidenceTest`
+- `core / Test / testOnly scalascript.typer.TyperRealTypesTest`
+- `core / Test / compile`
+
+### P2 - Interface Evidence Serialization
+
+Add structured evidence fields beside legacy rendered type strings in interface
+artifacts. Keep old readers/writers working.
+
+### P3 - Route And Remote Evidence
+
+Attach structured request/response/error evidence to route/client metadata while
+preserving the legacy `requestType` / `responseType` strings.
+
+### P4 - Schema Consumers
+
+Feed OpenAPI, GraphQL, and contract validation from the shared evidence and
+shape model.
+
+## Testing Strategy
+
+- Unit-test `TypeEvidence` constructors and `isAny` classification.
+- Unit-test inventory counts for each evidence kind.
+- Add typer tests showing declared `: Any`, inferred non-`Any`, and unknown
+  fallback are distinguishable in `DefSummary.evidence`.
+- Keep existing real-type inference tests green to prove the new metadata does
+  not regress `SType` output.
+
+## Open Questions
+
+1. Should exported explicit `: Any` be acceptable in future strict modes, or
+   should strict API boundaries require a separate `@dynamic` marker?
+2. Should inventory count `SType.Dynamic` separately if that type is added later,
+   or should dynamic remain evidence over `SType.Any`?
+3. Should `TypeEvidence.reason` use free-form strings for now or a small ADT of
+   stable reason codes before CLI diagnostics depend on it?
+
+## Critical Files
+
+| File | Role |
+|---|---|
+| `lang/core/src/main/scala/scalascript/typer/Types.scala` | `SType`, likely evidence model home |
+| `lang/core/src/main/scala/scalascript/typer/Typer.scala` | `DefSummary` creation and fallback classification |
+| `lang/core/src/test/scala/scalascript/typer/` | Evidence and typer regression tests |
+| `docs/typer-real-types-roadmap.md` | Parent roadmap |
+| `WORK_QUEUE.md` | Implementation queue |
+| `BACKLOG.md` | Durable milestone plan |
