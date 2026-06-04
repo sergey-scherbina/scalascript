@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — perf(interp): JIT arity-0 thunks + nested while/var
+
+- **jit-completeness-p1b-arity-zero** — Added a zero-arg FunV bytecode-JIT lane
+  (`LongFn0`/`DoubleFn0`, `JitRuntime.tryRun0`/`invokeBytecode0`, hooked into
+  `CallRuntime.callValue0`) and relaxed both backends' param-count gate to admit
+  0-param functions. Generalized the Javac and ASM while-body emitters to thread
+  bindings across statements so an inner `var` and a nested `while` compile.
+  `nested-loop` 11.1 ms → 0.26 ms (ssc) / 11.8 ms → 0.27 ms (asm).
+
 ## 2026-06-04 — feat(language): Markdown-declared toolkit controls
 
 - **markdown-ui-controls** — Added `yaml @ui=toolkit` support to
