@@ -5,6 +5,7 @@
 !.gitignore
 !.gitattributes
 !.work/
+!.agents/
 
 .ssc-artifacts/
 # Allow .ssc-artifacts/ inside scripted test fixtures (they are checked-in test data)
