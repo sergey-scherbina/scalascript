@@ -921,7 +921,7 @@ class JsGen(
     module.manifest.toList.flatMap(_.routes).foreach { r =>
       val m = jsQuote(r.method)
       val p = jsQuote(r.path)
-      line(s"route($m, $p)(${r.handler});")
+      line(s"_ssc_http_route($m, $p)(${r.handler});")
     }
 
   /** Emit `_i18nTable = { ... }` from the module's front-matter translations. */

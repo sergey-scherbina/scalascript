@@ -102,10 +102,13 @@ function effect(thunk) {
 function computed(thunk) {
   const sid = _freshReactiveId();
   const eid = _freshReactiveId();
-  _signals.set(sid, { value: undefined, subs: new Set() });
+  _signals.set(sid, { value: undefined, subs: new Set(), _isComputed: true, _f: thunk, _deps: new Set(), _effectId: eid });
   const updater = () => _signalSet(sid, thunk());
   _effects.set(eid, { thunk: updater, deps: new Set() });
   _runEffect(eid);
+  const state = _signals.get(sid);
+  const effectState = _effects.get(eid);
+  if (state && effectState) state._deps = effectState.deps;
   return {
     _type: 'Signal',
     id: sid,
@@ -143,17 +146,31 @@ function _ssc_ui_setSignal(s, v) { return { _type: '_SetSignal', s, v }; }
 function _ssc_ui_inputChange(s) { return { _type: '_InputChange', s }; }
 function _ssc_ui_toggleSignal(s) { return { _type: '_ToggleSignal', s }; }
 function _ssc_ui_eqSignal(s, value) { return computed(() => (s && s.get) ? s.get() === value : false); }
-function _ssc_ui_hashSignal() { return Signal(''); }
+function _ssc_ui_currentHash() {
+  if (typeof window === 'undefined' || !window.location) return '';
+  const raw = String(window.location.hash || '');
+  return raw.startsWith('#') ? raw.slice(1) : raw;
+}
+function _ssc_ui_hashSignal() {
+  const sig = Signal(_ssc_ui_currentHash());
+  if (typeof window !== 'undefined' && window.addEventListener) {
+    window.addEventListener('hashchange', function() { sig.set(_ssc_ui_currentHash()); });
+  }
+  return sig;
+}
 function _ssc_ui_computedSignal(f) {
-  const id = _freshReactiveId();
-  _trackingDeps = new Set();
-  var initial = '';
-  try { initial = (typeof f === 'function') ? f() : (f && f.apply) ? f.apply() : ''; } catch(_e) {}
-  const deps = _trackingDeps; _trackingDeps = null;
-  _signals.set(id, { value: String(initial == null ? '' : initial), subs: new Set(), _isComputed: true, _f: f, _deps: deps });
-  return { _type: 'Signal', id, get: () => _signalGet(id), set: () => { throw new Error('computed signal is read-only'); }, apply: () => _signalGet(id) };
+  return computed(function() {
+    try { return (typeof f === 'function') ? f() : (f && f.apply) ? f.apply() : ''; }
+    catch(_e) { return ''; }
+  });
 }
 function _ssc_ui_emit(tree, outDir) {}
+function _ssc_ui_truthy(v) {
+  if (typeof v === 'boolean') return v;
+  if (v === null || v === undefined) return false;
+  if (typeof v === 'string') return v.length > 0 && v.toLowerCase() !== 'false';
+  return !!v;
+}
 
 // Walk the View IR tree and produce a static HTML string + a Map of signal
 // ids to their current values.  Split from _ssc_ui_renderPage so that the
@@ -168,6 +185,13 @@ function _ssc_ui_renderBody(view) {
   function collectSig(s) {
     if (!s || s._type !== 'Signal') return;
     if (!sigs.has(s.id)) sigs.set(s.id, s.get());
+    const state = _signals.get(s.id);
+    if (state && state._deps) {
+      for (const depId of state._deps) {
+        const dep = _signals.get(depId);
+        if (dep && !sigs.has(depId)) sigs.set(depId, dep.value);
+      }
+    }
     if (s._seedSource) collectSig(s._seedSource);
     const fg = s._fetchGet;
     if (fg) {
@@ -232,7 +256,7 @@ function _ssc_ui_renderBody(view) {
       case '_ShowSignal': {
         collectSig(v.cond);
         const id   = v.cond && v.cond.id;
-        const show = v.cond && v.cond.get ? v.cond.get() : false;
+        const show = _ssc_ui_truthy(v.cond && v.cond.get ? v.cond.get() : false);
         const tHtml = walk(v.whenTrue);
         const fHtml = walk(v.whenFalse);
         if (!id) return show ? tHtml : fHtml;
@@ -285,24 +309,27 @@ function _ssc_ui_mount(sigs) {
   });
   var _sb = {};
   function _sub(id, fn) { (_sb[id] = _sb[id] || []).push(fn); fn(_sv[id]); }
+  function _notifyBridge(idStr, v) {
+    _sv[idStr] = v;
+    (_sb[idStr] || []).forEach(function(fn){ fn(v); });
+  }
+  function _syncBridgeSignals() {
+    Object.keys(_sb).forEach(function(idStr) {
+      var rs = _signals.get(parseInt(idStr, 10));
+      if (!rs) return;
+      var nv = rs.value;
+      if (_sv[idStr] !== nv) _notifyBridge(idStr, nv);
+    });
+  }
   function _set(id, v, opts) {
     var idStr = String(id);
     var rid = parseInt(idStr, 10);
     var rs = _signals.get(rid);
     if (rs && rs._seedSource && !(opts && opts.preserveSeedPristine)) rs._seedPristine = false;
-    _sv[idStr] = v;
-    (_sb[idStr] || []).forEach(function(fn){ fn(v); });
-    // Bridge: update reactive system and recompute dependent computed signals
-    if (rs && !rs._isComputed) {
-      rs.value = v;
-      _signals.forEach(function(cs, csid) {
-        if (cs._isComputed && cs._deps && cs._deps.has(rid)) {
-          var nv = ''; try { nv = String((typeof cs._f === 'function') ? cs._f() : ''); } catch(_e) {}
-          var csStr = String(csid);
-          if (_sv[csStr] !== nv) { _sv[csStr] = nv; (_sb[csStr] || []).forEach(function(fn){ fn(nv); }); }
-        }
-      });
-    }
+    if (rs && !rs._isComputed) _signalSet(rid, v);
+    else if (rs) rs.value = v;
+    _notifyBridge(idStr, rs ? rs.value : v);
+    _syncBridgeSignals();
   }
   var _fetchGetMounted = {};
   function _mountFetchGet(sigId, url, tickId, headersId) {
@@ -345,8 +372,9 @@ function _ssc_ui_mount(sigs) {
     var tBranch = el.querySelector('[data-ssc-branch="true"]');
     var fBranch = el.querySelector('[data-ssc-branch="false"]');
     _sub(id, function(v) {
-      if (tBranch) tBranch.style.display = v ? 'contents' : 'none';
-      if (fBranch) fBranch.style.display = v ? 'none' : 'contents';
+      var show = _ssc_ui_truthy(v);
+      if (tBranch) tBranch.style.display = show ? 'contents' : 'none';
+      if (fBranch) fBranch.style.display = show ? 'none' : 'contents';
     });
   });
   // signal text spans
@@ -579,7 +607,7 @@ function _ssc_ui_serve(treeOrPort, portOrUndef, extraCssOrUndef) {
   const view     = treeOrPort;
   const port     = portOrUndef;
   const extraCss = extraCssOrUndef || '';
-  route('GET', '/')((_req) => {
+  _ssc_http_route('GET', '/')((_req) => {
     const { body, sigs } = _ssc_ui_renderBody(view);
     const sigJson = JSON.stringify(Object.fromEntries(sigs));
     const script = `<script>_ssc_ui_mount(new Map(Object.entries(${sigJson})));<\/script>`;

@@ -262,7 +262,8 @@ class NodeBackendGraphqlTest extends AnyFunSuite:
 
   test("graphql forces the HTTP runtime (serve / route)"):
     val (code, _) = compileToOutputs(serverProgram)
-    assert(code.contains("function route("))
+    assert(code.contains("function _ssc_http_route("))
+    assert(code.contains("globalThis.route = _ssc_http_route"))
     assert(code.contains("function _ssc_http_serve("))
 
   // ── End-to-end Node round-trip ─────────────────────────────────────────

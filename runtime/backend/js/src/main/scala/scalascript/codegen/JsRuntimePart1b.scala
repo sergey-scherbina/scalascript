@@ -69,11 +69,12 @@ function _parsePath(p) {
                       : { kind: 'lit', value: s });
 }
 
-function route(method, path) {
+function _ssc_http_route(method, path) {
   return function(handler) {
     _routes.push({ method: method.toUpperCase(), path, pattern: _parsePath(path), handler });
   };
 }
+if (typeof globalThis !== 'undefined') globalThis.route = _ssc_http_route;
 
 // onWebSocket(path)(handler) — handler receives a WebSocket object with
 // `send` / `close` methods and `onMessage` / `onClose` registration.

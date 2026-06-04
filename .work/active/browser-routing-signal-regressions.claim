@@ -1,4 +1,6 @@
 feature/browser-routing-signal-regressions 2026-06-04T11:29:56Z
-status: not-started
-done-so-far:
-next: reproduce and fix busi Phase 75 browser route/signal gotchas
+agent: codex
+heartbeat: 2026-06-04T11:41:42Z
+status: in-progress
+done-so-far: Fixed browser route helper namespacing, hashSignal seeding/listener, derived signal bridge sync, and boolean computedSignal coercion; targeted tests pass.
+next: commit, rebase on origin/main, rerun changed-test smoke if needed, push, and release claim

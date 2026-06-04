@@ -602,8 +602,8 @@ function graphqlMount(resolvers, opts) {
   }
   const built   = GraphQL.schema(_graphqlSdl);
   const handler = graphqlHandler(built, resolvers, opts);
-  route('POST', '/graphql')(handler);
-  route('GET',  '/graphql')(handler);
+  _ssc_http_route('POST', '/graphql')(handler);
+  _ssc_http_route('GET',  '/graphql')(handler);
   // graphql-transport-ws subscriptions: only mount the upgrade route when the
   // resolver set actually declares subscriptions.  The schema's subscription
   // source streams are already wired by `graphqlHandler` (shared built schema).
@@ -726,8 +726,8 @@ function graphqlSubgraphMount(resolvers, a, b) {
   const built = GraphQL.schema(fedSdl);
   _graphqlApplyEntityUnion(built.schema, require('graphql'));
   const handler = graphqlHandler(built, fedResolvers, opts);
-  route('POST', '/graphql')(handler);
-  route('GET',  '/graphql')(handler);
+  _ssc_http_route('POST', '/graphql')(handler);
+  _ssc_http_route('GET',  '/graphql')(handler);
 }
 
 // serveSubgraph(port, resolvers[, entityResolvers][, opts][, tls]) — mount a
