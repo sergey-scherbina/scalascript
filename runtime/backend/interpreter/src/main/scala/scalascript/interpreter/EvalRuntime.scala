@@ -1274,6 +1274,35 @@ private[interpreter] object EvalRuntime:
           v
       cm.runValueLong(scrutV, Map.empty)
 
+  /** Pre-resolved 0-arg side-effect call node for `tryMixedLongWhile`'s inner loop.
+   *  Compiled once per loop entry; eliminates the per-iter HashMap probe, FunV
+   *  dispatch, Computation boxing, and callValue chain on each iteration. */
+  private sealed trait LEffect:
+    def run(interp: Interpreter): Unit
+
+  /** FunV variant: pre-resolved user-defined 0-arg function.
+   *  `closureEnv` = `closureWithSelfFor(fn)` captured at compile time. */
+  private final class LApplyEffect(
+    val fn:         Value.FunV,
+    val closureEnv: Env
+  ) extends LEffect:
+    def run(interp: Interpreter): Unit =
+      val relLine   = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
+      val frameName = if fn.name.nonEmpty then fn.name else "<anon>"
+      interp.callStackPush(frameName, interp.debugSourceFile, interp.debugBlockDocLine + relLine)
+      try
+        val result = try TcoRuntime.runUntilSuspension(interp.eval(fn.body, closureEnv))
+                     catch case r: ReturnSignal => Pure(r.value)
+        result match
+          case Pure(_) => ()
+          case comp    => Computation.run(comp)
+      finally
+        if interp.callStackNonEmpty then interp.callStackPop()
+
+  /** NativeFnV variant: direct dispatch, no FunV body / callStack overhead. */
+  private final class LApplyEffectNative(val fn: Value.NativeFnV) extends LEffect:
+    def run(interp: Interpreter): Unit = Computation.run(fn.f(Nil))
+
   /** Fold `while ctr OP bound do ctr = ctr + step` to `ctr = finalValue` in O(1).
    *  Only called when exactly one int-slot assignment remains after hoisting.
    *  Returns true and writes the terminal value to frame + globals if the
@@ -1997,6 +2026,32 @@ private[interpreter] object EvalRuntime:
                 if r == null then null else new LCmp(code, l, r)
       case _ => null
 
+    // Compile a single leading apply to an LEffect if the target is a known 0-arg
+    // FunV/NativeFnV that won't be re-bound during the loop.  Returns null to fall
+    // back to per-iter monadic eval.
+    def compileLeadingEffect(apply: Term): LEffect | Null = apply match
+      case ap: Term.Apply if ap.argClause.values.isEmpty =>
+        ap.fun match
+          case fnTerm: Term.Name =>
+            val fname = fnTerm.value
+            var isRebound = false
+            var kb = 0
+            while kb < body.names.length do
+              if body.names(kb) == fname then isRebound = true
+              kb += 1
+            if isRebound then return null
+            interp.globals.getOrElse(fname, null) match
+              case fn: Value.FunV
+                  if fn.params.isEmpty && fn.usingParams.isEmpty && !fn.returnsThrows &&
+                     { val ti = TcoRuntime.tcoInfoFor(fn, interp); !ti.isSelfTailRec && ti.tailTargets.isEmpty } =>
+                val env = if fn.name.nonEmpty then interp.closureWithSelfFor(fn) else fn.closure
+                new LApplyEffect(fn, env)
+              case fn: Value.NativeFnV =>
+                new LApplyEffectNative(fn)
+              case _ => null
+          case _ => null
+      case _ => null
+
     // Register assigned names + compile RHSes / cond first so we know the slot set.
     var k = 0
     while k < body.names.length do
@@ -2043,6 +2098,13 @@ private[interpreter] object EvalRuntime:
       if slotOfName.refCount == 0 then EmptyRefs
       else new Array[AnyRef](slotOfName.size)
 
+    // Pre-compile leading applies to effect nodes (once per loop entry, amortized).
+    val effects = new Array[LEffect | Null](body.leadingApplies.length)
+    var ei = 0
+    while ei < body.leadingApplies.length do
+      effects(ei) = compileLeadingEffect(body.leadingApplies(ei))
+      ei += 1
+
     try
       var running = true
       var useFastForeach = preResolved != null
@@ -2059,12 +2121,15 @@ private[interpreter] object EvalRuntime:
             // (List/Set/Map × Long/Double) absorbs the branching cost off the
             // per-inner-element path.
             if preResolved.run(interp) == null then
-              // FastTier bailed (NotDouble/wrong-shape) — fall back to eval
-              // for this apply and skip the fast path for subsequent iters.
+              // FastTier bailed (NotDouble/wrong-shape) — fall back.
               useFastForeach = false
-              Computation.run(interp.eval(body.leadingApplies(ap), frameView))
+              val eff = effects(ap)
+              if eff != null then eff.run(interp)
+              else Computation.run(interp.eval(body.leadingApplies(ap), frameView))
           else
-            Computation.run(interp.eval(body.leadingApplies(ap), frameView))
+            val eff = effects(ap)
+            if eff != null then eff.run(interp)
+            else Computation.run(interp.eval(body.leadingApplies(ap), frameView))
           ap += 1
         // 2. Long-slot assigns.
         var i = 0
