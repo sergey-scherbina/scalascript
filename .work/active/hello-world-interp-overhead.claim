@@ -1,4 +1,0 @@
-feature/hello-world-interp-overhead 2026-06-04T05:06:10Z
-status: not-started
-done-so-far:
-next: profile hello-world bench with JFR to identify dispatch overhead
