@@ -123,6 +123,16 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       effectStream interp: 0.117 → 0.083 ms; JVM gap 1.8× → 1.3×.
       Remaining 15% gap is LExpr dispatch + while-JIT overhead (floor).
 
+- [x] **interp-stream-jit-emit** — ✓ Landed 2026-06-04.
+      Part 1 (interp): WhileLongEmitRunFn JIT — compiles Stream.emit while-body to
+      a Java class that pushes raw Longs into a pre-allocated Array[Long] buffer.
+      Eliminates 5 megamorphic LExpr.eval dispatches + Value.intV wrapping per iter.
+      interp: 0.083 → 0.021 ms (4×); interp now at parity with JS (0.018 ms).
+      Part 2 (JVM): _Source holds ArrayBuffer[Any] directly — skip emitted.toArray
+      bulk-copy after every runStream call (~5 µs for 10 K emits).
+      JVM: 0.028 → 0.019 ms (1.5×); JVM now at parity with JS (0.018 ms).
+      All three backends at parity: interp 0.021, JVM 0.019, JS 0.018 ms.
+
 - [x] **interp-opt-effect-pure** — ✓ Landed 2026-06-04.
       Fast-path Pure exit in `evalHandle`: evaluate body first; if `Pure`, skip
       handledOps Set construction and trampoline entirely. Helps user-defined
