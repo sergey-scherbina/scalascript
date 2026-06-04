@@ -5,7 +5,7 @@ import scalascript.backend.spi.{IntrinsicImpl, NativeContextFeatureKeys}
 import scalascript.frontend.ReactiveSignal
 import scalascript.interpreter.{InterpretError, Value}
 import scalascript.ir.QualifiedName
-import scalascript.plugin.api.PluginNative
+import scalascript.plugin.api.{PluginContext, PluginNative}
 
 object ContentIntrinsics:
 
@@ -23,9 +23,15 @@ object ContentIntrinsics:
         case Nil      => ToolkitOptions()
         case (one: Value) :: Nil => toolkitOptions(one)
         case _        => throw InterpretError("contentToolkitNode([options])")
-      ctx.featureGet(NativeContextFeatureKeys.ContentDocument) match
-        case Some(doc: ast.DocumentContent) => toolkitDocumentNode(doc, options)
-        case _ => throw InterpretError("contentToolkitNode() is only available while running a parsed .ssc module")
+      toolkitDocumentNode(currentDocument(ctx, "contentToolkitNode()"), options)
+    },
+    QualifiedName("contentToolkitBlock") -> PluginNative.evalLegacy { (ctx, args) =>
+      val (id, options) = toolkitSelectorArgs("contentToolkitBlock", args)
+      toolkitBlockById(currentDocument(ctx, "contentToolkitBlock(id)"), id, options)
+    },
+    QualifiedName("contentToolkitSection") -> PluginNative.evalLegacy { (ctx, args) =>
+      val (id, options) = toolkitSelectorArgs("contentToolkitSection", args)
+      toolkitSectionById(currentDocument(ctx, "contentToolkitSection(id)"), id, options)
     }
   )
 
@@ -39,6 +45,20 @@ object ContentIntrinsics:
   )
 
   private case class ToolkitUiEnv(signals: Map[String, Value])
+
+  private def currentDocument(ctx: PluginContext, fn: String): ast.DocumentContent =
+    ctx.featureGet(NativeContextFeatureKeys.ContentDocument) match
+      case Some(doc: ast.DocumentContent) => doc
+      case _ => throw InterpretError(s"$fn is only available while running a parsed .ssc module")
+
+  private def toolkitSelectorArgs(fn: String, args: List[Any]): (String, ToolkitOptions) =
+    args match
+      case (id: String) :: Nil =>
+        (id, ToolkitOptions())
+      case (id: String) :: (options: Value) :: Nil =>
+        (id, toolkitOptions(options))
+      case _ =>
+        throw InterpretError(s"$fn(id, [options])")
 
   private def toolkitOptions(value: Value): ToolkitOptions =
     val fields = value match
@@ -77,6 +97,63 @@ object ContentIntrinsics:
         doc.sections.map(toolkitSectionNode(_, options, topLevel = true))
     val body = vstackNode(options.sectionGap, children)
     if options.wrapDocumentInCard then cardNode(List(body)) else body
+
+  private def toolkitBlockById(doc: ast.DocumentContent, id: String, options: ToolkitOptions): Value =
+    blocksDeep(doc).filter(block => blockId(block).contains(id)) match
+      case block :: Nil =>
+        toolkitBlockNode(block, options)
+      case Nil =>
+        throw InterpretError(s"contentToolkitBlock: no block with id '$id'")
+      case _ =>
+        throw InterpretError(s"contentToolkitBlock: duplicate block id '$id'")
+
+  private def toolkitSectionById(doc: ast.DocumentContent, id: String, options: ToolkitOptions): Value =
+    sectionsDeep(doc).filter(_.id == id) match
+      case section :: Nil =>
+        toolkitSectionNode(section, options, topLevel = true)
+      case Nil =>
+        throw InterpretError(s"contentToolkitSection: no section with id '$id'")
+      case _ =>
+        throw InterpretError(s"contentToolkitSection: duplicate section id '$id'")
+
+  private def blocksDeep(doc: ast.DocumentContent): List[ast.ContentBlock] =
+    doc.blocks.flatMap(block => blocksDeep(block)) ++
+      doc.sections.flatMap(section => blocksDeep(section))
+
+  private def blocksDeep(section: ast.SectionContent): List[ast.ContentBlock] =
+    section.blocks.flatMap(block => blocksDeep(block)) ++
+      section.children.flatMap(child => blocksDeep(child))
+
+  private def blocksDeep(block: ast.ContentBlock): List[ast.ContentBlock] =
+    block match
+      case ast.ContentBlock.BulletList(items, _) =>
+        block :: items.flatten.flatMap(child => blocksDeep(child))
+      case ast.ContentBlock.OrderedList(items, _, _) =>
+        block :: items.flatten.flatMap(child => blocksDeep(child))
+      case _ =>
+        block :: Nil
+
+  private def sectionsDeep(doc: ast.DocumentContent): List[ast.SectionContent] =
+    doc.sections.flatMap(section => sectionsDeep(section))
+
+  private def sectionsDeep(section: ast.SectionContent): List[ast.SectionContent] =
+    section :: section.children.flatMap(child => sectionsDeep(child))
+
+  private def blockId(block: ast.ContentBlock): Option[String] =
+    contentStringAttr(blockAttrs(block), "id")
+
+  private def blockAttrs(block: ast.ContentBlock): Map[String, ast.ContentValue] =
+    block match
+      case ast.ContentBlock.Paragraph(_, attrs)             => attrs
+      case ast.ContentBlock.BulletList(_, attrs)            => attrs
+      case ast.ContentBlock.OrderedList(_, _, attrs)        => attrs
+      case ast.ContentBlock.Image(_, _, _, attrs)           => attrs
+      case ast.ContentBlock.Embedded(_, _, _, _, attrs)     => attrs
+
+  private def contentStringAttr(attrs: Map[String, ast.ContentValue], name: String): Option[String] =
+    attrs.get(name) match
+      case Some(ast.ContentValue.Str(value)) => Some(value)
+      case _                                => None
 
   private def toolkitSectionNode(section: ast.SectionContent, options: ToolkitOptions, topLevel: Boolean): Value =
     val children =

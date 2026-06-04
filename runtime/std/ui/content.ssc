@@ -10,6 +10,8 @@ exports:
   - contentViewSection
   - contentViewBlock
   - contentToolkitNode
+  - contentToolkitBlock
+  - contentToolkitSection
 ---
 
 # `std.ui.content` — Markdown content lowering
@@ -107,4 +109,8 @@ case class ContentToolkitOptions(
 )
 
 extern def contentToolkitNode(options: ContentToolkitOptions = ContentToolkitOptions()): TkNode
+extern def contentToolkitBlock(id: String,
+                               options: ContentToolkitOptions = ContentToolkitOptions()): TkNode
+extern def contentToolkitSection(id: String,
+                                 options: ContentToolkitOptions = ContentToolkitOptions()): TkNode
 ```

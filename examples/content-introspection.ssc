@@ -28,10 +28,10 @@ plans:
 
 The first implemented goal is frontend from Markdown. The Markdown body above
 lowers into toolkit `TkNode` nodes before becoming frontend `View` nodes. The
-YAML block below is not executable code; it declares toolkit signals and
-controls directly in the Markdown document.
+YAML blocks below are not executable code; they declare independent toolkit
+signals and controls directly in the Markdown document.
 
-```yaml @ui=toolkit
+```yaml @id=team-controls @ui=toolkit
 signals:
   teamName: "ScalaScript team"
   enabled: false
@@ -70,7 +70,33 @@ controls:
             signal: teamName
 ```
 
-[contentToolkitNode](std/ui/content.ssc)
+```yaml @id=review-status @ui=toolkit
+signals:
+  reviewed: false
+controls:
+  type: card
+  children:
+    - type: heading
+      level: 2
+      text: Review status
+    - type: checkbox
+      signal: reviewed
+      label: Reviewed on phone
+    - type: show
+      signal: reviewed
+      then:
+        type: badge
+        text: ready
+        variant: success
+      else:
+        type: badge
+        text: pending
+        variant: warning
+```
+
+[contentToolkitBlock, contentToolkitSection](std/ui/content.ssc)
+
+[vstack](std/ui/layout.ssc)
 
 [lower](std/ui/lower.ssc)
 
@@ -79,7 +105,14 @@ controls:
 [serve](std/ui/primitives.ssc)
 
 ```scalascript
-val page = lower(contentToolkitNode(), defaultTheme)
+val page = lower(
+  vstack(gap = 16)(
+    contentToolkitSection("plans"),
+    contentToolkitBlock("team-controls"),
+    contentToolkitBlock("review-status")
+  ),
+  defaultTheme
+)
 serve(page, 8099)
 
 println("content-introspection:ok")

@@ -2,7 +2,7 @@ package scalascript
 
 import java.nio.file.Files
 import org.scalatest.funsuite.AnyFunSuite
-import scalascript.interpreter.{Interpreter, Value}
+import scalascript.interpreter.{InterpretError, Interpreter, Value}
 import scalascript.parser.Parser
 
 class MarkdownContentFrontendSmokeTest extends AnyFunSuite:
@@ -55,7 +55,7 @@ class MarkdownContentFrontendSmokeTest extends AnyFunSuite:
     assert(js.contains("Starter"))
     assert(js.contains("Pro"))
 
-  test("contentToolkitNode composes Markdown content through the std/ui toolkit"):
+  test("contentToolkitBlock and contentToolkitSection compose selected Markdown content through the std/ui toolkit"):
     val outDir = Files.createTempDirectory("ssc-markdown-content-toolkit")
     val src =
       s"""---
@@ -74,7 +74,9 @@ class MarkdownContentFrontendSmokeTest extends AnyFunSuite:
          |- Starter
          |- Pro
          |
-         |```yaml @ui=toolkit
+         |## Controls
+         |
+         |```yaml @id=team-controls @ui=toolkit
          |signals:
          |  teamName: "ScalaScript team"
          |  enabled: false
@@ -111,7 +113,39 @@ class MarkdownContentFrontendSmokeTest extends AnyFunSuite:
          |            signal: teamName
          |```
          |
-         |[contentToolkitNode](std/ui/content.ssc)
+         |```yaml @id=review-status @ui=toolkit
+         |signals:
+         |  reviewed: false
+         |controls:
+         |  type: card
+         |  children:
+         |    - type: heading
+         |      level: 2
+         |      text: Review status
+         |    - type: checkbox
+         |      signal: reviewed
+         |      label: Reviewed on phone
+         |    - type: show
+         |      signal: reviewed
+         |      then:
+         |        type: badge
+         |        text: ready
+         |        variant: success
+         |      else:
+         |        type: badge
+         |        text: pending
+         |        variant: warning
+         |```
+         |
+         |```yaml @id=unused-controls @ui=toolkit
+         |controls:
+         |  type: text
+         |  text: Unused controls
+         |```
+         |
+         |[contentToolkitBlock, contentToolkitSection](std/ui/content.ssc)
+         |
+         |[vstack](std/ui/layout.ssc)
          |
          |[lower](std/ui/lower.ssc)
          |
@@ -120,7 +154,17 @@ class MarkdownContentFrontendSmokeTest extends AnyFunSuite:
          |[emit](std/ui/primitives.ssc)
          |
          |```scala
-         |emit(lower(contentToolkitNode(), defaultTheme), "${outDir.toString}")
+         |emit(
+         |  lower(
+         |    vstack(gap = 16)(
+         |      contentToolkitSection("plans"),
+         |      contentToolkitBlock("team-controls"),
+         |      contentToolkitBlock("review-status")
+         |    ),
+         |    defaultTheme
+         |  ),
+         |  "${outDir.toString}"
+         |)
          |println("markdown-content-toolkit:ok")
          |```
          |""".stripMargin
@@ -135,18 +179,75 @@ class MarkdownContentFrontendSmokeTest extends AnyFunSuite:
     assert(buf.toString.contains("markdown-content-toolkit:ok"))
     assert(Files.exists(outDir.resolve("index.html")))
     val js = Files.readString(outDir.resolve("app.js"))
-    assert(js.contains("Pricing"))
-    assert(js.contains("Intro with "))
-    assert(js.contains("/docs"))
+    assert(js.contains("Plans"))
     assert(js.contains("Starter"))
     assert(js.contains("Pro"))
     assert(js.contains("Toolkit controls"))
     assert(js.contains("Team name"))
     assert(js.contains("Enable toolkit renderer"))
     assert(js.contains("Apply toolkit"))
+    assert(js.contains("Review status"))
+    assert(js.contains("Reviewed on phone"))
+    assert(js.contains("pending"))
+    assert(!js.contains("Unused controls"))
     assert(js.contains("h('input'"))
     assert(js.contains("h('button'"))
     assert(js.contains("checkbox"))
     assert(js.contains("display: 'flex'"))
     assert(js.contains("flexDirection: 'column'"))
-    assert(js.contains("fontSize: '32px'"))
+    assert(js.contains("fontSize: '24px'"))
+
+  test("contentToolkitBlock reports missing and duplicate selected block ids"):
+    val missingSrc =
+      """---
+        |name: markdown-content-missing-block
+        |frontend: react
+        |---
+        |
+        |# Demo
+        |
+        |[contentToolkitBlock](std/ui/content.ssc)
+        |
+        |```scala
+        |contentToolkitBlock("missing")
+        |```
+        |""".stripMargin
+
+    val missingInterp = Interpreter(headless = true, baseDir = Some(TestPaths.repoRoot))
+    missingInterp.injectGlobal("_ssc_frontend_name", Value.StringV("react"))
+    val missing = intercept[InterpretError]:
+      missingInterp.run(Parser.parse(missingSrc))
+    assert(missing.getMessage.contains("contentToolkitBlock: no block with id 'missing'"))
+
+    val duplicateSrc =
+      """---
+        |name: markdown-content-duplicate-block
+        |frontend: react
+        |---
+        |
+        |# Demo
+        |
+        |```yaml @id=same @ui=toolkit
+        |controls:
+        |  type: text
+        |  text: First
+        |```
+        |
+        |```yaml @id=same @ui=toolkit
+        |controls:
+        |  type: text
+        |  text: Second
+        |```
+        |
+        |[contentToolkitBlock](std/ui/content.ssc)
+        |
+        |```scala
+        |contentToolkitBlock("same")
+        |```
+        |""".stripMargin
+
+    val duplicateInterp = Interpreter(headless = true, baseDir = Some(TestPaths.repoRoot))
+    duplicateInterp.injectGlobal("_ssc_frontend_name", Value.StringV("react"))
+    val duplicate = intercept[InterpretError]:
+      duplicateInterp.run(Parser.parse(duplicateSrc))
+    assert(duplicate.getMessage.contains("contentToolkitBlock: duplicate block id 'same'"))
