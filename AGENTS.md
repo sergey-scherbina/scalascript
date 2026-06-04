@@ -168,9 +168,7 @@ Use the `/multi-repo` skill to manage them:
 - `/multi-repo sync` — fetch + pull + `git submodule update --remote --recursive`
 - `/multi-repo clone` — init missing submodules from scratch
 
-Skill location (read in this order):
-1. `.agents/plugins/multi-repo/commands/multi-repo.md` — submodule, always in sync
-2. `~/.claude/commands/multi-repo.md` — globally installed fallback
+Skill location: `.claude/commands/multi-repo.md` — symlinked from submodule, always in sync.
 
 ---
 
@@ -279,9 +277,7 @@ SPEC: SPEC.md
 
 See the `/spec-dev` skill for the full workflow (write → implement → verify).
 
-Skill location (read in this order):
-1. `.agents/plugins/spec-dev/commands/spec-dev.md` — submodule, always in sync
-2. `~/.claude/commands/spec-dev.md` — globally installed fallback
+Skill location: `.claude/commands/spec-dev.md` — symlinked from submodule, always in sync.
 
 Non-trivial in this project (spec required):
 - A new module / package in `build.sbt`
@@ -763,9 +759,7 @@ after yourself.**
 
 See the `/multi-agent` skill for the full protocol (claim, heartbeat, triage, release).
 
-Skill location (read in this order):
-1. `.agents/plugins/multi-agent/commands/multi-agent.md` — submodule, always in sync
-2. `~/.claude/commands/multi-agent.md` — globally installed fallback
+Skill location: `.claude/commands/multi-agent.md` — symlinked from submodule, always in sync.
 
 Key invariants:
 - Claim from the **main checkout** (`/Users/sergiy/work/my/scalascript`) only — never from a worktree
