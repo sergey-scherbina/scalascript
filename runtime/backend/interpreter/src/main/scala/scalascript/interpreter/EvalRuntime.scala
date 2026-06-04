@@ -1357,6 +1357,183 @@ private[interpreter] object EvalRuntime:
     interp.globals(ctrName) = v
     true
 
+  private final case class CounterFold(iterations: Long, finalValue: Long)
+
+  private def stableRefArg(term: Term, interp: Interpreter): AnyRef | Null = term match
+    case n: Term.Name if interp.valNames.contains(n.value) =>
+      interp.globals.getOrElse(n.value, null) match
+        case inst: Value.InstanceV => inst.asInstanceOf[AnyRef]
+        case _                     => null
+    case _ => null
+
+  private def stableLongArg(term: Term, interp: Interpreter): java.lang.Long | Null = term match
+    case Lit.Int(v)  => java.lang.Long.valueOf(v.toLong)
+    case Lit.Long(v) => java.lang.Long.valueOf(v)
+    case n: Term.Name if interp.valNames.contains(n.value) =>
+      interp.globals.getOrElse(n.value, null) match
+        case Value.IntV(v) => java.lang.Long.valueOf(v)
+        case _             => null
+    case _ => null
+
+  /** Evaluate a loop-invariant, JIT-proven pure numeric call once.
+   *
+   *  This intentionally accepts only direct bytecode-JIT interfaces with stable
+   *  literal / val-bound arguments. A miss returns null and the loop falls back
+   *  to the normal while JIT / LExpr path, preserving effects and dynamic calls.
+   */
+  private def jitInvariantLong(term: Term, interp: Interpreter): java.lang.Long | Null =
+    if interp.debugHooks.nonEmpty then return null
+    term match
+      case ap: Term.Apply =>
+        ap.fun match
+          case fnName: Term.Name =>
+            interp.globals.getOrElse(fnName.value, null) match
+              case fn: Value.FunV
+                  if fn.usingParams.isEmpty && !fn.returnsThrows &&
+                     (fn.defaults.isEmpty || fn.defaults.forall(_.isEmpty)) &&
+                     (fn.paramTypes.isEmpty || !fn.paramTypes.exists(_.endsWith("*"))) =>
+                val bcRes = scalascript.interpreter.vm.jit.JitBackend.default.tryCompile(fn, interp)
+                if bcRes == null || bcRes.direct == null || bcRes.resultIsDouble then return null
+                val args = ap.argClause.values
+                try
+                  if args.lengthCompare(1) == 0 && bcRes.paramIsRef.length == 1 && bcRes.paramIsRef(0) then
+                    val ref = stableRefArg(args.head, interp)
+                    if ref == null then null
+                    else bcRes.direct match
+                      case ot: scalascript.interpreter.vm.jit.ObjToLong =>
+                        java.lang.Long.valueOf(
+                          scalascript.interpreter.vm.jit.JitGlobals.withInterp(interp) {
+                            ot.apply(ref)
+                          }
+                        )
+                      case _ => null
+                  else if args.lengthCompare(2) == 0 && bcRes.paramIsRef.length == 2 then
+                    bcRes.direct match
+                      case ot: scalascript.interpreter.vm.jit.LongObjToLong
+                          if !bcRes.paramIsRef(0) && bcRes.paramIsRef(1) =>
+                        val a0 = stableLongArg(args.head, interp)
+                        val a1 = stableRefArg(args(1), interp)
+                        if a0 == null || a1 == null then null
+                        else java.lang.Long.valueOf(
+                          scalascript.interpreter.vm.jit.JitGlobals.withInterp(interp) {
+                            ot.apply(a0.longValue, a1)
+                          }
+                        )
+                      case ot: scalascript.interpreter.vm.jit.ObjLongToLong
+                          if bcRes.paramIsRef(0) && !bcRes.paramIsRef(1) =>
+                        val a0 = stableRefArg(args.head, interp)
+                        val a1 = stableLongArg(args(1), interp)
+                        if a0 == null || a1 == null then null
+                        else java.lang.Long.valueOf(
+                          scalascript.interpreter.vm.jit.JitGlobals.withInterp(interp) {
+                            ot.apply(a0, a1.longValue)
+                          }
+                        )
+                      case _ => null
+                  else null
+                catch
+                  case scala.util.control.NonFatal(_) => null
+              case _ => null
+          case _ => null
+      case _ => null
+
+  private def counterFoldInfo(
+    cond:      Term,
+    ctrName:   String,
+    rhs:       Term,
+    frameView: MutableEnvView,
+    interp:    Interpreter
+  ): CounterFold | Null =
+    val step: Long = rhs match
+      case Term.ApplyInfix.After_4_6_0(Term.Name(`ctrName`), Term.Name("+"), _, ac)
+          if ac.values.lengthCompare(1) == 0 =>
+        ac.values.head match
+          case Lit.Int(s) if s > 0 => s.toLong
+          case _                   => return null
+      case _ => return null
+    val (inclusive, bound): (Boolean, Long) = cond match
+      case Term.ApplyInfix.After_4_6_0(Term.Name(`ctrName`), Term.Name(op), _, ac)
+          if ac.values.lengthCompare(1) == 0 && (op == "<" || op == "<=") =>
+        val b: Long = ac.values.head match
+          case Lit.Int(v) => v.toLong
+          case Term.Name(n) if interp.valNames.contains(n) =>
+            interp.globals.getOrElse(n, null) match
+              case Value.IntV(v) => v
+              case _             => return null
+          case _ => return null
+        (op == "<=", b)
+      case _ => return null
+    val start: Long = frameView.getOrElse(ctrName, null) match
+      case Value.IntV(v) => v
+      case _             => return null
+    val span = BigInt(bound) - BigInt(start) + (if inclusive then BigInt(1) else BigInt(0))
+    if span <= 0 then CounterFold(0L, start)
+    else
+      val stepBig = BigInt(step)
+      val iterationsBig = (span + stepBig - 1) / stepBig
+      if iterationsBig > BigInt(Long.MaxValue) then return null
+      val finalBig = BigInt(start) + iterationsBig * stepBig
+      if finalBig < BigInt(Long.MinValue) || finalBig > BigInt(Long.MaxValue) then return null
+      CounterFold(iterationsBig.toLong, finalBig.toLong)
+
+  private def invariantAddend(accName: String, rhs: Term): Term | Null = rhs match
+    case Term.ApplyInfix.After_4_6_0(lhs, Term.Name("+"), _, ac)
+        if ac.values.lengthCompare(1) == 0 =>
+      val rhsTerm = ac.values.head
+      lhs match
+        case Term.Name(`accName`) => rhsTerm
+        case _ =>
+          rhsTerm match
+            case Term.Name(`accName`) => lhs
+            case _                    => null
+    case _ => null
+
+  /** Fold `while i < N do { acc = acc + f(stableVal); i = i + step }`.
+   *
+   *  The addend is evaluated once only when it is a bytecode-JIT direct call
+   *  with stable literal / val-bound arguments. This targets recursive ADT
+   *  evaluators (`eval(tree)`, `gEval(scale, tree)`) without changing the
+   *  effect-capable eval path.
+   */
+  private def tryFoldInvariantAccumLoop(
+    t:         Term.While,
+    body:      FastAssignBody,
+    frameView: MutableEnvView,
+    interp:    Interpreter
+  ): Computation | Null =
+    if body.names.length != 2 then return null
+    var counterIdx = -1
+    var counter: CounterFold | Null = null
+    var idx = 0
+    while idx < body.names.length do
+      val cf = counterFoldInfo(t.expr, body.names(idx), body.rhs(idx), frameView, interp)
+      if cf != null then
+        if counterIdx >= 0 then return null
+        counterIdx = idx
+        counter = cf
+      idx += 1
+    if counterIdx < 0 || counter == null then return null
+    val accIdx  = if counterIdx == 0 then 1 else 0
+    val accName = body.names(accIdx)
+    if accName == body.names(counterIdx) then return null
+    val accStart = frameView.getOrElse(accName, null) match
+      case Value.IntV(v) => v
+      case _             => return null
+    val addTerm = invariantAddend(accName, body.rhs(accIdx))
+    if addTerm == null then return null
+    val addValue = jitInvariantLong(addTerm, interp)
+    if addValue == null then return null
+    val finalAccBig = BigInt(accStart) + BigInt(addValue.longValue) * BigInt(counter.iterations)
+    if finalAccBig < BigInt(Long.MinValue) || finalAccBig > BigInt(Long.MaxValue) then return null
+    val local = frameView.underlying
+    val accV = Value.intV(finalAccBig.toLong)
+    val ctrV = Value.intV(counter.finalValue)
+    local(accName) = accV
+    interp.globals(accName) = accV
+    local(body.names(counterIdx)) = ctrV
+    interp.globals(body.names(counterIdx)) = ctrV
+    Computation.PureUnit
+
   /** Pure-literal-RHS hoist for an all-assign while body that has at least one
    *  non-int LHS (the var being assigned is something other than an `IntV`,
    *  e.g. a `TupleV`) whose RHS is a fully-pure-literal expression cached by
@@ -2291,6 +2468,8 @@ private[interpreter] object EvalRuntime:
         fastPrimitiveValue(t.expr, frameView, interp) match
           case Value.BoolV(false) => Computation.PureUnit
           case Value.BoolV(true) =>
+            val invariantFold = tryFoldInvariantAccumLoop(t, body, frameView, interp)
+            if invariantFold != null then return invariantFold
             // Hoist pure-literal assigns to non-int LHS out of the loop, then
             // delegate the int-slot subset to tryLongWhileAssign. Returns null
             // for all-int bodies (the common case) — no overhead added.

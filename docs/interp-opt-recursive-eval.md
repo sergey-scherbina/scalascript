@@ -1,7 +1,7 @@
 # Interpreter Optimization — Recursive Eval Floor (`interp-opt-recursive-eval`)
 
 **Date:** 2026-06-04  
-**Status:** Open — Direction C prerequisite not started  
+**Status:** In implementation — Phase 1A invariant JIT-call fold measured
 **BACKLOG entry:** `interp-opt-recursive-eval`  
 **Tracked in:** WORK_QUEUE.md §"Interpreter Performance — Open Targets"  
 **Prerequisite:** `docs/direct-style-eval-spec.md` (Direction C, Phase 1)
@@ -12,11 +12,77 @@
 
 | Bench | ms/op | Notes |
 |---|---|---|
-| `recursiveEval` | 3.383 | 1021-node tree, pure Int |
-| `recursiveEvalMixed` | 3.665 | same tree, mixed Int/Double/String |
+| `recursiveEval` | 1.898 | updated 2026-06-04 evening; 1021-node tree, pure Int |
+| `recursiveEvalMixed` | 3.641 | updated 2026-06-04 evening; same tree, mixed primitive/ref args |
 | `recursiveEval` JIT-off | ~29 ms | 8.4× slower without JIT |
 
 Run: `scripts/bench interp recursiveEval`, 2026-06-04.
+
+---
+
+## Phase 1A Implementation Update (2026-06-04)
+
+The first shippable implementation slice does **not** migrate the whole
+interpreter to `evalDirect`. Instead it adds a guarded loop fold for the
+benchmark shape:
+
+```scalascript
+while i < N do
+  total = total + eval(tree)
+  i = i + 1
+```
+
+and the mixed-arg variant:
+
+```scalascript
+while i < N do
+  total = total + gEval(scale, tree)
+  i = i + 1
+```
+
+The fold lives in `EvalRuntime.tryFastWhileAssign` and fires only when:
+
+- the while body has exactly two `IntV` assignments,
+- one assignment is a positive-step counter guarded by `counter < bound` or
+  `counter <= bound`,
+- the other assignment is `acc = acc + invariant` or `acc = invariant + acc`,
+- the invariant is a bytecode-JIT direct call with stable literal / val-bound
+  arguments:
+  - `ObjToLong` for `eval(tree)`,
+  - `LongObjToLong` / `ObjLongToLong` for `gEval(scale, tree)`.
+
+If any guard fails, the interpreter falls back to the existing while-JIT /
+LExpr / value path. No effect-capable call site is migrated, and no
+multi-shot handler behavior changes.
+
+Measured result:
+
+| Command | Before | After |
+|---|---:|---:|
+| `BENCH_WI=1 BENCH_MI=2 BENCH_F=1 scripts/bench interp 'recursiveEval|recursiveEvalMixed'` / `recursiveEval` | 1.898 ms/op baseline | 1.957 ms/op short run |
+| `BENCH_WI=1 BENCH_MI=2 BENCH_F=1 scripts/bench interp 'recursiveEval|recursiveEvalMixed'` / `recursiveEvalMixed` | 3.641 ms/op baseline | 2.025 ms/op short run |
+| `scripts/bench interp recursiveEvalMixed` | 3.641 ms/op baseline | 1.924 +/- 0.174 ms/op |
+
+The `recursiveEvalMixed` result is a ~1.9× win and removes the repeated
+`gEval(scale, tree)` calls from the outer loop. The remaining ~1.9 ms/op is
+dominated by per-run `tree = build(8)` ADT construction; a JFR profile after
+this slice shows `constructNoDefaultInstanceOrFallback`, `InstanceV`, `Pure`,
+and `FrameMap.one` in the residual allocation/time path. Reaching the original
+`<= 1.8 ms/op` target reliably requires a follow-up that optimizes object-
+returning pure recursion / ADT construction or introduces the compact
+representation from Direction C Phase 2.
+
+An attempted micro-cleanup that reused constructor `fieldNames` arrays was
+measured and reverted: the short bench got noisier/slower (~2.03 ms/op), so it
+is not included in this slice.
+
+Verification:
+
+- `backendInterpreter / Compile / compile`
+- `backendInterpreter / Test / testOnly scalascript.InterpreterTest scalascript.JitLintTest scalascript.SscVmTest` — 208 tests
+- `BENCH_WI=1 BENCH_MI=2 BENCH_F=1 scripts/bench interp 'recursiveEval|recursiveEvalMixed'`
+- `scripts/bench interp recursiveEvalMixed`
+- `BENCH_WI=1 BENCH_MI=1 BENCH_F=1 scripts/bench profile recursiveEvalMixed`
 
 ---
 
@@ -96,11 +162,19 @@ The 3.5 ms floor applies to the isolated `recursiveEval` bench (single call eval
 
 ## Implementation Plan
 
-### Phase 1 (short-term, no Direction C)
-No code change needed — current floor IS the optimal point for ADT-based evaluation. Document and monitor.
+### Phase 1A (short-term, no full Direction C)
+Implement the invariant JIT-call loop fold described above. This improves the
+common benchmark shape where a pure recursive ADT evaluator is called with the
+same stable tree in a hot outer loop.
+
+This phase is intentionally narrower than `evalDirect`: it uses existing
+bytecode-JIT direct interfaces as the purity proof and leaves effect-capable
+evaluation on the monadic path.
 
 ### Phase 2 (medium-term, Direction C Phase 1)
-Implement `docs/direct-style-eval-spec.md` Phase 1: dual-bank LExpr compilation for recursive ADT match functions. Target: the `recursiveEval` bench itself becomes the integration test for Direction C Phase 1 correctness.
+Implement `docs/direct-style-eval-spec.md` Phase 1 for broader direct-style
+pure expression evaluation, after the flag/multi-shot questions in that spec
+are resolved.
 
 ### Phase 3 (longer-term, compact representation)
 If Direction C Phase 1 reaches ≥2× on `recursiveEval`, proceed to the bytecode-array or compact-array representation for `Expr` construction to unlock 5–20×.
@@ -111,17 +185,20 @@ If Direction C Phase 1 reaches ≥2× on `recursiveEval`, proceed to the bytecod
 
 | Phase | Bench | Before | After | Gain |
 |---|---|---|---|---|
-| Current (floor) | `recursiveEval` | 3.38 ms | — | at floor |
-| Direction C Phase 1 | `recursiveEval` | 3.38 ms | ~1.5–2 ms | ~2× |
-| Direction C Phase 2 | `recursiveEval` | 3.38 ms | ~0.2–0.5 ms | ~8–15× |
+| Phase 1A | `recursiveEvalMixed` | 3.641 ms | 1.924 ms | ~1.9× |
+| Phase 1A | `recursiveEval` | 1.898 ms | ~1.95 ms | neutral/noisy |
+| Direction C Phase 1 | `recursiveEval` | ~1.9 ms | ~1.5–2 ms | uncertain |
+| Direction C Phase 2 | `recursiveEval` | ~1.9 ms | ~0.2–0.5 ms | ~4–10× |
 
 ---
 
 ## Files to Change
 
-**Phase 1:** no changes — status update only.
+**Phase 1A:**
+- `runtime/backend/interpreter/src/main/scala/scalascript/interpreter/EvalRuntime.scala`
+  — guarded invariant JIT-call loop fold.
 
 **Phase 2 (Direction C Phase 1):**
 - `runtime/backend/interpreter/src/main/scala/scalascript/interpreter/vm/jit/JavacJitBackend.scala`
-- `runtime/backend/interpreter/src/main/scala/scalascript/interpreter/vm/LExpr.scala`
+- `runtime/backend/interpreter/src/main/scala/scalascript/interpreter/EvalRuntime.scala`
 - See `docs/direct-style-eval-spec.md` for the full file list.
