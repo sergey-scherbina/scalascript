@@ -144,13 +144,9 @@ object EffectAnalysis:
       analysisResult.effectOps.map(op => op.takeWhile(_ != '.'))
     typedEffects.foreach { (funName, declared) =>
       val funIsEffectful = analysisResult.effectfulFuns.contains(funName)
-      val unaccountedDeclared = declared.filterNot { effName =>
-        // A declared effect is "accounted for" if the analysis found it reachable
-        // AND the function is marked effectful
-        funIsEffectful && reachableEffectNames.contains(effName)
-      }
-      if unaccountedDeclared.nonEmpty then
-        warnings += s"$tag '$funName' declares effect(s) ${unaccountedDeclared.mkString(", ")} but the effect reachability analysis found none"
+      // Only flag functions that ARE effectful but declare no effect row.
+      // The reverse (declared but no performs in body) is valid: a function
+      // may sub-effect and never actually perform an operation. No error.
       if funIsEffectful && declared.isEmpty then
         warnings += s"$tag '$funName' appears effectful (reaches ${reachableEffectNames.mkString(", ")}) but declares no effect row (!)"
     }

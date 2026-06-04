@@ -189,12 +189,24 @@ private[codegen] trait JvmGenTermAnalysis:
       case _            => false
     }
 
+  private val stdEffectRunners: Set[String] = Set(
+    "runLogger", "runLoggerJson", "runLoggerToList",
+    "runRandom", "runClock", "runHttp", "runEnv",
+    "runStream", "runCache", "runCacheBypass",
+    "runTx", "runRetry", "runRetryNoSleep",
+    "runRandomSeeded", "runClockAt", "runEnvWith", "runHttpStub", "runState", "runAuthWith"
+  )
+
   private[codegen] def termUsesEffects(t: Term): Boolean = t match
     case Term.Apply.After_4_6_0(Term.Apply.After_4_6_0(Term.Name("handle"), _), _) => true
     case Term.Apply.After_4_6_0(Term.Name("runAsync"), _)                         => true
     case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), _)                 => true
     case Term.Apply.After_4_6_0(Term.Name("runStorage"), _)                       => true
     case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), _)              => true
+    // Standard algebraic-effect runners need explicit thunk-wrapping in emitExpr.
+    case Term.Apply.After_4_6_0(Term.Name(n), _) if stdEffectRunners(n)           => true
+    case Term.Apply.After_4_6_0(Term.Apply.After_4_6_0(Term.Name(n), _), _)
+        if stdEffectRunners(n)                                                     => true
     case Term.Select(Term.Name(eff), Term.Name(op)) if isEffectOpRef(eff, op)     => true
     case Term.Apply.After_4_6_0(Term.Name(n), _) if isEffectfulFun(n)             => true
     case Term.Apply.After_4_6_0(Term.Select(_, Term.Name(n)), _) if isEffectfulFun(n) => true
