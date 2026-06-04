@@ -1075,17 +1075,7 @@ highest-impact item.
       Source.from is null.  1283 tests pass.  Commit 5d32b341.
       Results: effect-stream interp **0.124 ms**, jvm **0.066 ms**, js **0.331 ms**.
 
-- [ ] **direct-style-eval-spec** (Direction C blocking task) — write
-      `docs/direct-style-eval-spec.md` covering: migration strategy
-      (capability flag, phased per-call-site migration), effect
-      handling design (control-flow exceptions vs coroutines vs
-      cont-aware stack), multi-shot continuation compatibility (verify
-      against the `multishot-stack` agent worktree findings), per-file
-      migration order (`EvalRuntime` 230 sites → `BlockRuntime` 41 →
-      `PatternRuntime` 37 → tail in `DispatchRuntime`). 530+ sites
-      total. Multi-week project — **defer until Directions A + B are
-      stable**. No Direction C code changes until this spec lands and
-      is reviewed. Per `noble-discovering-knuth.md` Direction C.
+- [x] **direct-style-eval-spec** ✓ Landed 2026-06-04. `docs/direct-style-eval-spec.md`: `SSC_DIRECT_EVAL` flag, `evalDirect`/`EffectPerform` dual-entry-point design, multi-shot threat model, per-file migration order (EvalRuntime 230 → BlockRuntime 41 → PatternRuntime 37 → DispatchRuntime 89), effect-boundary detection rules, 9 open questions for review.
 
 - [x] **ci-green-audit** — ✓ Landed 2026-06-02/03: batch-1 (a800cb69,
       11 failures) + SimpleYaml (bb6d5fa0) + batch-2 (b15dbffb, 9 CLI
@@ -1100,6 +1090,20 @@ Spec: [`docs/uuid.md`](docs/uuid.md). Work in order: p1 → p2 → p3.
 - [x] **uuid-p1** — Core JVM implementation ✓ Landed 2026-06-04: `uuid.ssc` module, `uuid-plugin` with JVM `SecureRandom` v4/v7, `build.sbt` wiring, 8 tests pass, `examples/uuid-v7.ssc`.
 - [x] **uuid-p2** — Parse + validate ✓ Landed 2026-06-04: `uuidFromString`/`uuidIsValid` intrinsics with `Value.OptionV` return; tests for valid/invalid/normalisation.
 - [x] **uuid-p3** — JS backend ✓ Landed 2026-06-04: `JsUuidIntrinsics` with `RuntimeCall` entries; `uuidV4`/`uuidV7`/`uuidFromString`/`uuidIsValid` preamble functions using Web Crypto API; wired into `JsIntrinsics`.
+
+- [ ] **uuid-p4** — Opaque boundary hardening + effect system integration
+  _Context: design decisions from 2026-06-04 spec session. Spec: `docs/uuid.md §3.3–3.4`._
+  - `Uuid.unsafeFromString(s: String): Uuid` intrinsic — throws `InterpretError` on malformed; use for `nil`/`max` in `uuid.ssc` body
+  - Extension methods: `.version: Int`, `.isNil: Boolean`, `.isMax: Boolean`, `.variant: Int`
+  - `SideEffect` effect row label in the effect system (new category, not `Random`)
+  - Wire `Uuid.v4` + `Uuid.v7` into `ContainsEffectPrimitive` + `DepEffectfulnessFixpoint`
+  - `runSideEffect[A](body: A ! SideEffect): A` — trivial identity handler intrinsic
+  - `withFixedUuid[A](fixed: Uuid)(body: A ! SideEffect): A` — thread-local override for tests
+
+- [ ] **uuid-p5** — Direct/raw tier
+  _Context: pseudo-pure and library-author escape hatches. Spec: `docs/uuid.md §3.4.1`._
+  - `Uuid.v4Direct(): Uuid` + `Uuid.v7Direct(): Uuid` — inline `runSideEffect` wrappers in `uuid.ssc`
+  - `rawUuidV4(): Uuid` + `rawUuidV7(): Uuid` — intrinsics without `! SideEffect` annotation (for interop)
 
 ## Tooling
 
