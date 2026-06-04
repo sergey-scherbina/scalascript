@@ -1141,14 +1141,17 @@ Spec: [`docs/crypto.md`](docs/crypto.md). Work in order: p1 → p2.
   Verification: `core / Test / testOnly scalascript.artifact.InterfaceExtractorTest`
   (37 tests), `core / Test / testOnly scalascript.artifact.ArtifactIOTest`
   (15 tests), `core / Test / compile`.
-- [ ] **type-evidence-routes-p3** — Add optional structured request/response
-  type evidence to route/client metadata while keeping legacy `requestType` /
-  `responseType` strings as the active consumer contract. Existing generators
-  keep reading strings; this slice only persists evidence for later strict/schema
-  phases. Spec:
+- [x] **type-evidence-routes-p3** — ✓ Landed 2026-06-04 commit `347fe6f3`.
+  Added optional structured request/response evidence to normalized IR
+  route/client metadata while keeping legacy `requestType` / `responseType`
+  strings as the active consumer contract. Existing generators keep reading
+  strings; this slice persists evidence for later strict/schema phases. Spec:
   [`docs/type-evidence-inventory.md §P3`](docs/type-evidence-inventory.md#p3---route-and-remote-evidence).
-  Verification: route/client metadata evidence tests, artifact round-trip test,
-  legacy no-evidence read test, `core / Test / compile`.
+  Verification: `core / Test / testOnly scalascript.transform.RouteTypeEvidenceTest`
+  (4 tests), `core / Test / testOnly scalascript.artifact.ArtifactIOTest`
+  (17 tests), `core / Test / testOnly scalascript.parser.ApiClientsFrontmatterTest`
+  (8 tests), `core / Test / testOnly scalascript.parser.ClusterFrontmatterTest`
+  (9 tests), `core / Test / compile`.
 - [x] **perf-regression-guard** — Add a lightweight performance regression workflow: checked-in benchmark manifest/baseline policy, ignored generated artifacts, short opt-in `ssc bench`/JMH smoke command, and docs for when results are informational vs CI-blocking. ✓ Landed 2026-05-30: `ssc bench --smoke` runs a quick interpreter-only corpus smoke with optional `--target-ms/--require-target`; `scripts/perf-smoke.sh --jmh` runs an opt-in short JMH smoke; `bench/perf-manifest.yaml`, `bench/README.md`, `bench/BASELINE.md`, README, docs/performance, and the user guide document the informational-vs-blocking policy; raw runtime/JMH outputs are ignored.
 - [x] **cli-main-helper-split-p2** — Behavior-preserving CLI helper extraction: synthetic-request/render helpers → `RenderHelpers.scala`, artifact-info printers → `ArtifactInfoPrinters.scala`. Call sites import `.*` so they stay unqualified; command behavior + registry contracts unchanged. _(landed 2026-05-30)_
 - [x] **cli-main-helper-split-p3** _(landed 2026-05-30)_ — Behavior-preserving extraction of the two cleanly-decoupled `Main.scala` clusters: install/script commands → `InstallCommands.scala` (`scriptCommand` + `selfInstallCommand`) and `.ssclib` packaging + compat → `SsclibPackaging.scala` (`packageLib`, `ssclibIrEntryName`, `ssclibInterfaceBytes`, `CompatReport`, `checkSsclibCompat`, `publicSsclibSymbols`, `publicSymbolShapes`, `readSsclibInterfaces`). Both are top-level package-level defs in `scalascript.cli`, so Main's command classes call them unqualified — file-scoped `private def`s widened to `private[cli] def`, bodies byte-identical. `CheckCompatCmd`/`PackageCmd` stay in Main. Main drops 289 lines; `cli/compile` clean; `SsclibPackageCliTest` + `CommandRegistryTest` green (10). The tangled build/compile pipeline (shares the 11-ref `collectImports`) deferred to p4.

@@ -203,11 +203,11 @@ the contracts are explicit.
       defaulted fields, and `InterfaceScope` resolution still uses legacy `tpe`
       for this slice.
       **Spec:** [`docs/type-evidence-inventory.md §P2`](docs/type-evidence-inventory.md#p2---interface-evidence-serialization)
-- [ ] **type-evidence-routes-p3** - Add optional structured request/response
-      type evidence to route/client metadata while keeping legacy
-      `requestType` / `responseType` strings as the active consumer contract.
-      Existing generators keep reading strings; this slice only persists
-      evidence for later strict/schema phases.
+- [x] **type-evidence-routes-p3** - ✓ Landed 2026-06-04 commit `347fe6f3`.
+      Added optional structured request/response evidence to normalized IR
+      route/client metadata while keeping legacy `requestType` / `responseType`
+      strings as the active consumer contract. Existing generators keep reading
+      strings; this slice persists evidence for later strict/schema phases.
       **Spec:** [`docs/type-evidence-inventory.md §P3`](docs/type-evidence-inventory.md#p3---route-and-remote-evidence)
 - [x] **perf-regression-guard** - Add a lightweight performance regression
       workflow: benchmark manifest, baseline policy, ignored/generated artifact

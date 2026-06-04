@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — feat(types): route metadata type evidence
+
+- **type-evidence-routes-p3** — Added optional `ApiEndpointTypeEvidenceWire`
+  on normalized IR `ApiEndpointDecl` and `RemoteHandlerDecl`. `Normalize`
+  derives declared/unknown evidence from legacy request/response strings;
+  generators keep reading the existing strings for this slice. `.scir`
+  round-trip and legacy no-field reads are covered.
+  **Tests:** 4 `RouteTypeEvidenceTest`, 17 `ArtifactIOTest`,
+  8 `ApiClientsFrontmatterTest`, 9 `ClusterFrontmatterTest`,
+  `core / Test / compile`.
+
+---
+
 ## 2026-06-04 — feat(uuid): uuid-p4 + uuid-p5 — raw tier, unsafeFromString, withFixedUuid, effect wiring
 
 - **uuid-p4/p5** — Completed the UUID stdlib across all three backends (interpreter, JVM, JS).

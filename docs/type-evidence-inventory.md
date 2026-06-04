@@ -1,7 +1,8 @@
 # Type Evidence Inventory - spec
 
-**Status:** P1-P2 landed 2026-06-04; P3+ planned.
-**Queue item:** `type-evidence-inventory-p1`.
+**Status:** P1-P3 landed 2026-06-04; P4+ planned.
+**Queue items:** `type-evidence-inventory-p1`, `type-evidence-interface-p2`,
+`type-evidence-routes-p3`.
 **Parent roadmap:** [`docs/typer-real-types-roadmap.md`](typer-real-types-roadmap.md).
 
 This is the first implementation slice of the real-types roadmap. The goal is
@@ -192,6 +193,8 @@ Verification:
 
 Queue slug: `type-evidence-routes-p3`.
 
+Landed 2026-06-04 in commit `347fe6f3`.
+
 Attach structured request/response evidence to normalized route/client metadata
 while preserving the legacy `requestType` / `responseType` strings.
 
@@ -242,6 +245,17 @@ Out of scope:
 - no OpenAPI/GraphQL schema generation migration yet;
 - no strict failures for unknown route evidence;
 - no behavioral change in JS/JVM/client generation.
+
+Verification:
+
+- `core / Test / testOnly scalascript.transform.RouteTypeEvidenceTest`
+  (4 tests);
+- `core / Test / testOnly scalascript.artifact.ArtifactIOTest` (17 tests);
+- `core / Test / testOnly scalascript.parser.ApiClientsFrontmatterTest`
+  (8 tests);
+- `core / Test / testOnly scalascript.parser.ClusterFrontmatterTest`
+  (9 tests);
+- `core / Test / compile`.
 
 ### P4 - Schema Consumers
 

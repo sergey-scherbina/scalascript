@@ -1,4 +1,0 @@
-feature+type-evidence-routes-p3 2026-06-04T08:50:49Z
-status: in-progress
-done-so-far: Added IR route/remote type evidence fields, Normalize evidence derivation, and targeted tests
-next: push implementation, then mark queue/backlog done and release claim
