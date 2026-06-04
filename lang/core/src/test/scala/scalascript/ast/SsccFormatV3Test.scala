@@ -343,9 +343,9 @@ def createUser(userName: String, userEmail: String): User =
     val m      = parseModule(ssc)
     val mBytes = m.manifest.map(SsccFormat.manifestToBytes).getOrElse(Array.emptyByteArray)
     val v3Payload = SsccFormatV3.write(m, mBytes)
-    val v2Bytes   = SsccFormat.write(m)   // v2 (default)
     val v3Total   = 10 + v3Payload.length  // header 10 bytes
-    println(s"\n[size delta] v2=${v2Bytes.length}B  v3=${v3Total}B  ratio=${v3Total.toDouble / v2Bytes.length}")
+    val v3Write   = SsccFormat.write(m)
+    println(s"\n[size delta] v3-payload=${v3Payload.length}B  v3-total=${v3Total}B  write=${v3Write.length}B")
     // Not a hard assertion — just informational
     assert(v3Total > 0)
   }

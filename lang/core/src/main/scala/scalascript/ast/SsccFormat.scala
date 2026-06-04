@@ -29,8 +29,8 @@ import scala.util.Try
 object SsccFormat:
 
   val Magic: Array[Byte]   = Array(0x73.toByte, 0x73.toByte, 0x63.toByte, 0x63.toByte)
-  val CurrentVersion: Byte = 2   // v2 = default until Phase E flips to 3
-  val V3Version: Byte      = 3   // v3 enabled via SSC_FORMAT_V3=1
+  val CurrentVersion: Byte = 3   // v3 token-stream format is the default
+  val V3Version: Byte      = 3   // kept as alias; same as CurrentVersion
 
   // ─── Compression ─────────────────────────────────────────────────────────
 
@@ -285,10 +285,7 @@ object SsccFormat:
   private lazy given Codec[SectionPickle]      = deriveCodec[SectionPickle]
   private given Codec[ModulePickle]            = deriveCodec[ModulePickle]
 
-  // ─── Module → Pickle (compresses text, normalizes code source) ───────────
-
-  private def toPickle(m: Module): ModulePickle =
-    ModulePickle(m.manifest.map(toPickle), m.sections.map(toPickle), m.span)
+  // ─── Manifest → Pickle (used by v2 reader and v3 manifest CBOR blob) ────────
 
   private def toPickle(m: Manifest): ManifestPickle =
     ManifestPickle(
@@ -392,30 +389,6 @@ object SsccFormat:
       SchemaDefaultPickle(kind = "double", double = Some(value))
     case SchemaDefault.StringValue(value) =>
       SchemaDefaultPickle(kind = "string", string = Some(compress(value)))
-
-  private def toPickle(s: Section): SectionPickle =
-    SectionPickle(
-      heading     = HeadingPickle(s.heading.level, compress(s.heading.text), s.heading.span),
-      content     = s.content.map(toPickle),
-      subsections = s.subsections.map(toPickle),
-      span        = s.span
-    )
-
-  private def toPickle(c: Content): ContentPickle = c match
-    case p:  Content.Prose    => ContentPickle.Prose(compress(p.text), p.span)
-    case i:  Content.Import   => ContentPickle.Import(i.path, i.bindings, i.span)
-    case dl: Content.DataList => ContentPickle.DataList(dl.items.map(toPickle), dl.ordered, dl.span)
-    case cb: Content.CodeBlock =>
-      val src =
-        if Lang.isParseable(cb.lang) then
-          cb.tree match
-            case Some(t) => ScalaNode.fold(t) { tree => import scala.meta.XtensionSyntax; tree.syntax }
-            case None    => cb.source
-        else cb.source
-      ContentPickle.CodeBlock(cb.lang, compress(src), cb.span, cb.parseError, cb.lineOffset, cb.attrs)
-
-  private def toPickle(item: ListItem): ListItemPickle =
-    ListItemPickle(compress(item.content), item.nested.map(toPickle), item.span)
 
   // ─── Pickle → Module (decompresses + reconstructs Scala trees) ───────────
 
@@ -531,16 +504,8 @@ object SsccFormat:
 
   // ─── Public API ───────────────────────────────────────────────────────────
 
-  /** Serialize a [[Module]] to `.sscc` bytes.
-   *
-   *  Uses v3 (token stream) when `SSC_FORMAT_V3=1` env var is set; v2 otherwise.
-   *  Phase E will flip the default to v3. */
-  def write(module: Module): Array[Byte] =
-    if sys.env.get("SSC_FORMAT_V3").exists(_ != "0") then
-      writeV3(module)
-    else
-      val payload = Cbor.encode(toPickle(module)).toByteArray
-      Magic ++ Array(CurrentVersion) ++ putBE32(crc32of(payload)) ++ payload
+  /** Serialize a [[Module]] to `.sscc` bytes using v3 token-stream format. */
+  def write(module: Module): Array[Byte] = writeV3(module)
 
   /** Write to v3 format unconditionally (bypasses SSC_FORMAT_V3 env gate). For benchmarks. */
   def writeV3(module: Module): Array[Byte] = writeV3Impl(module)
