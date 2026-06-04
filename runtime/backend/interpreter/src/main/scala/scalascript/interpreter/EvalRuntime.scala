@@ -1120,14 +1120,15 @@ private[interpreter] object EvalRuntime:
       local(pureNames(p)) = pureValues(p)
       interp.globals(pureNames(p)) = pureValues(p)
       p += 1
-    // Compact the int-slot arrays and delegate to tryLongWhileAssign — its hot
-    // path is exactly the original code, so `arithLoop`-class benches don't
-    // pay any extra overhead.
     val intBody = new FastAssignBody(
       if intCount == intNames.length then intNames else intNames.take(intCount),
       if intCount == intRhs.length   then intRhs   else intRhs.take(intCount)
     )
-    tryLongWhileAssign(t, intBody, frameView, interp)
+    // Try the bytecode JIT first — for loops like `while i < N do i = i+1`
+    // after hoisting, the JIT produces tighter code than the LExpr loop.
+    val jit = tryWhileJit(t, intBody, frameView, interp)
+    if jit != null then jit
+    else tryLongWhileAssign(t, intBody, frameView, interp)
 
   /** Tries to run the whole while-assign loop in unboxed `long` space. Returns
    *  `PureUnit` on success (slots boxed back to env+globals on exit), or null to
