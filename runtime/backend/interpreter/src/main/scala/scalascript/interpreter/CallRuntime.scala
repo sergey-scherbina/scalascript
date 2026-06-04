@@ -38,6 +38,33 @@ private[interpreter] object CallRuntime:
     case _: Value.ListV | _: Value.MapV => DispatchRuntime.dispatch(fn, "apply", args, env, interp)
     case _ => interp.located(s"Not callable: ${Value.show(fn)}")
 
+  /** Zero-argument fast path: skips List()/env allocation for 0-param FunV calls.
+   *  Handles the common `workload()` / `thunk()` pattern without going through
+   *  the full callFun → tcoInfoFor → closureWithSelfFor machinery on every call. */
+  def callValue0(fn: Value, env: Env, interp: Interpreter): Computation =
+    callValue0Slow(fn, env, interp)
+
+  private def callValue0Slow(fn: Value, env: Env, interp: Interpreter): Computation = fn match
+    case f: Value.FunV if
+        f.params.isEmpty &&
+        f.usingParams.isEmpty &&
+        !f.returnsThrows &&
+        (f.name.isEmpty || { val i = TcoRuntime.tcoInfoFor(f, interp); !i.isSelfTailRec && i.tailTargets.isEmpty }) =>
+      val callEnv: Env = if f.name.nonEmpty then interp.closureWithSelfFor(f) else f.closure
+      val frameName = if f.name.nonEmpty then f.name else "<anon>"
+      val relLine   = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
+      interp.callStackPush(frameName, interp.debugSourceFile, interp.debugBlockDocLine + relLine)
+      val profiling = Profiler.enabled
+      val t0 = if profiling && f.name.nonEmpty then System.nanoTime() else 0L
+      val result =
+        try TcoRuntime.runUntilSuspension(interp.eval(f.body, callEnv))
+        catch case r: ReturnSignal => Pure(r.value)
+      if profiling && f.name.nonEmpty then Profiler.record(f.name, System.nanoTime() - t0)
+      if interp.callStackNonEmpty then interp.callStackPop()
+      result
+    case f: Value.NativeFnV => f.f(Nil)
+    case _ => callValue(fn, Nil, env, interp)
+
   /** Single-argument fast path: avoids allocating List(arg) on every map/filter/forEach call.
    *  For simple 1-param FunV (no varargs, no using, no defaults, no TCO) builds
    *  the call env directly.  Falls back to callValue(fn, List(arg), env, interp) otherwise. */

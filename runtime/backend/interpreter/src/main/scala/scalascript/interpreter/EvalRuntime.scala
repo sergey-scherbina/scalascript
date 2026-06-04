@@ -2208,6 +2208,7 @@ private[interpreter] object EvalRuntime:
           case one :: Nil =>
             val av = fastValue(one, env, interp)
             if av != null then return interp.callValue1(fv, av, env)
+          case Nil => return interp.callValue0(fv, env)
           case a :: b :: Nil =>
             val av1 = fastValue(a, env, interp)
             if av1 != null then

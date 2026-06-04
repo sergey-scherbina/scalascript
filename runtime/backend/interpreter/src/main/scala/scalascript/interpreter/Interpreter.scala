@@ -1391,6 +1391,10 @@ class Interpreter(
   private[interpreter] def callValue(fn: Value, args: List[Value], env: Env): Computation =
     CallRuntime.callValue(fn, args, env, this)
 
+  /** Zero-arg fast path — avoids Nil/env allocation for 0-param FunV calls. */
+  private[interpreter] def callValue0(fn: Value, env: Env): Computation =
+    CallRuntime.callValue0(fn, env, this)
+
   /** Single-arg fast path — avoids List(item) allocation in map/filter/forEach hot loops. */
   private[interpreter] def callValue1(fn: Value, arg: Value, env: Env): Computation =
     CallRuntime.callValue1(fn, arg, env, this)
@@ -1510,6 +1514,13 @@ class Interpreter(
       Computation.run(eval(parsed, extraEnv ++ globals.toMap))
     finally
       debugHooks = savedHooks
+
+  /** Evaluate a pre-parsed term against the current globals. No parsing overhead.
+   *  Uses `Map.empty` as the local env so name lookups fall through to `interp.globals`
+   *  directly — avoids the `globals.toMap` copy on every call.
+   *  Intended for microbenchmarks that pre-parse a call term and call it in a tight loop. */
+  def evalTerm(term: scala.meta.Term): Value =
+    Computation.run(eval(term, Map.empty))
 
   // ── v1.4 effect handlers — see EffectHandlers.scala ────────────────────
   //

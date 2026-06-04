@@ -5,6 +5,7 @@ import java.util.concurrent.TimeUnit
 import scalascript.interpreter.{Interpreter, InterpretError}
 import scalascript.parser.Parser
 import scalascript.ast.Module
+import scala.meta.*
 
 /** JMH microbenchmarks for the ScalaScript interpreter hot paths.
  *
@@ -413,6 +414,20 @@ class InterpreterBench:
 
   private val devNull = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
 
+  // helloWorld: measures zero-param function dispatch overhead.
+  // Uses a warm interpreter with builtins pre-loaded (println requires plugins).
+  // Pre-parses the `workload()` call term so each @Benchmark op pays
+  // only eval + dispatch — no parsing, no plugin loading.
+  private val modHelloWorld: Module = src(
+    """def workload(): Unit = println("hello")"""
+  )
+  private val helloWorldInterp: Interpreter =
+    val i = Interpreter(devNull)
+    i.run(modHelloWorld)  // loads builtins + registers workload in globals
+    i
+  private val helloWorldCallTerm: Term =
+    dialects.Scala3("workload()").parse[Term].get
+
   // ── benchmarks ───────────────────────────────────────────────────
 
   @Benchmark
@@ -600,3 +615,7 @@ class InterpreterBench:
   @Benchmark
   def refChainArg(): Unit =
     Interpreter(devNull).runSections(modRefChainArg)
+
+  @Benchmark
+  def helloWorld(): Unit =
+    helloWorldInterp.evalTerm(helloWorldCallTerm)

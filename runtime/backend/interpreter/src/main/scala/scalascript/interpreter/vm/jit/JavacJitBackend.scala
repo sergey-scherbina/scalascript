@@ -1245,8 +1245,9 @@ object JavacJitBackend extends JitBackend:
       case s: Stat        => List(s)
     val sb = new StringBuilder
     sb.append(s"while ($condStr) {\n        ")
-    for stat <- bodyStats do
-      val line = walkStatAsVoid(stat, ctx)
+    val iter = bodyStats.iterator
+    while iter.hasNext do
+      val line = walkStatAsVoid(iter.next(), ctx)
       if line == null then return null
       sb.append(line)
     sb.append("}")
