@@ -345,7 +345,61 @@ def createUser(userName: String, userEmail: String): User =
     val v3Payload = SsccFormatV3.write(m, mBytes)
     val v3Total   = 10 + v3Payload.length  // header 10 bytes
     val v3Write   = SsccFormat.write(m)
-    println(s"\n[size delta] v3-payload=${v3Payload.length}B  v3-total=${v3Total}B  write=${v3Write.length}B")
+    val v3Gzip    = SsccFormat.writeV3(m, gzip = true)
+    println(s"\n[size delta] v3-payload=${v3Payload.length}B  v3-total=${v3Total}B  write=${v3Write.length}B  gzip=${v3Gzip.length}B")
     // Not a hard assertion — just informational
     assert(v3Total > 0)
+  }
+
+  // ─── v3 gzip round-trip ───────────────────────────────────────────────────
+
+  test("v3 gzip: write with gzip=true, read decompresses correctly") {
+    val m = parseModule(
+      """---
+        |name: gzip-test
+        |version: 1.0.0
+        |---
+        |# Section
+        |
+        |Some prose.
+        |
+        |```scalascript
+        |def add(a: Int, b: Int): Int = a + b
+        |add(1, 2)
+        |```
+        |""".stripMargin)
+    val gzipBytes = SsccFormat.writeV3(m, gzip = true)
+    // compressionFlag byte is at offset 5
+    assert(gzipBytes(5) == 0x01.toByte, "compression flag should be 0x01")
+    val m2 = SsccFormat.read(gzipBytes) match
+      case Right(mod) => mod
+      case Left(err)  => fail(s"gzip read failed: $err")
+    assert(m2.manifest.flatMap(_.name).contains("gzip-test"))
+    assert(m2.sections.nonEmpty)
+  }
+
+  test("v3 gzip: uncompressed and gzip-compressed produce equal modules") {
+    val ssc =
+      """---
+        |name: gzip-eq-test
+        |version: 1.0.0
+        |---
+        |# Header
+        |
+        |Prose line.
+        |
+        |```scalascript
+        |val x = 42
+        |x + 1
+        |```
+        |""".stripMargin
+    val m           = parseModule(ssc)
+    val plainBytes  = SsccFormat.writeV3(m, gzip = false)
+    val gzipBytes   = SsccFormat.writeV3(m, gzip = true)
+    assert(gzipBytes.length < plainBytes.length, "gzip should compress the payload")
+    val m1 = SsccFormat.read(plainBytes).toOption.get
+    val m2 = SsccFormat.read(gzipBytes).toOption.get
+    assert(m1.manifest.map(_.name) == m2.manifest.map(_.name))
+    assert(m1.sections.length == m2.sections.length)
+    assert(m1.sections.head.heading.text == m2.sections.head.heading.text)
   }

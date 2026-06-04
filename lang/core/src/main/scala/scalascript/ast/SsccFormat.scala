@@ -58,6 +58,22 @@ object SsccFormat:
     c.update(bytes)
     c.getValue.toInt
 
+  // ─── Outer-payload gzip (v3 compressionFlag = 0x01) ─────────────────────
+
+  private def gzipCompress(bytes: Array[Byte]): Array[Byte] =
+    import java.io.ByteArrayOutputStream
+    import java.util.zip.GZIPOutputStream
+    val out = new ByteArrayOutputStream(bytes.length)
+    val gz  = new GZIPOutputStream(out)
+    try gz.write(bytes) finally gz.close()
+    out.toByteArray
+
+  private def gzipDecompress(bytes: Array[Byte]): Array[Byte] =
+    import java.io.ByteArrayInputStream
+    import java.util.zip.GZIPInputStream
+    val gz = new GZIPInputStream(new ByteArrayInputStream(bytes))
+    try gz.readAllBytes() finally gz.close()
+
   private def putBE32(n: Int): Array[Byte] = Array(
     ((n >>> 24) & 0xff).toByte,
     ((n >>> 16) & 0xff).toByte,
@@ -504,17 +520,26 @@ object SsccFormat:
 
   // ─── Public API ───────────────────────────────────────────────────────────
 
-  /** Serialize a [[Module]] to `.sscc` bytes using v3 token-stream format. */
+  /** Serialize a [[Module]] to `.sscc` bytes using v3 token-stream format.
+   *  Set env `SSC_V3_GZIP=1` to enable outer gzip compression. */
   def write(module: Module): Array[Byte] = writeV3(module)
 
-  /** Write to v3 format unconditionally (bypasses SSC_FORMAT_V3 env gate). For benchmarks. */
-  def writeV3(module: Module): Array[Byte] = writeV3Impl(module)
+  /** Write to v3 format unconditionally. For benchmarks.
+   *  Pass `gzip = true` to enable outer gzip compression (SSC_V3_GZIP=1 also enables it). */
+  def writeV3(module: Module, gzip: Boolean = sys.env.get("SSC_V3_GZIP").exists(_ != "0")): Array[Byte] =
+    writeV3Impl(module, gzip)
 
-  private def writeV3Impl(module: Module): Array[Byte] =
+  private val GzipFlag: Byte    = 0x01.toByte
+  private val NoCompressFlag: Byte = 0x00.toByte
+
+  private def writeV3Impl(module: Module, gzip: Boolean): Array[Byte] =
     val mBytes  = module.manifest.map(manifestToBytes).getOrElse(Array.empty[Byte])
-    val payload = SsccFormatV3.write(module, mBytes)
-    val crc     = crc32of(payload)
-    Magic ++ Array(V3Version) ++ Array(0x00.toByte) ++ putBE32(crc) ++ payload
+    val rawPayload = SsccFormatV3.write(module, mBytes)
+    val (compressionFlag, payload) =
+      if gzip then (GzipFlag, gzipCompress(rawPayload))
+      else         (NoCompressFlag, rawPayload)
+    val crc = crc32of(payload)
+    Magic ++ Array(V3Version, compressionFlag) ++ putBE32(crc) ++ payload
 
   /** Deserialize a [[Module]] from `.sscc` bytes.
    *  Returns [[Left]] with a human-readable message on any error. */
@@ -549,11 +574,13 @@ object SsccFormat:
     // v3 header: magic(4) + version(1) + compressionFlag(1) + crc32(4) = 10 bytes
     if bytes.length < 10 then return Left("truncated .sscc v3 header")
     val compressionFlag = bytes(5) & 0xff
-    if compressionFlag != 0x00 then return Left(s"unsupported .sscc v3 compression flag 0x${compressionFlag.toHexString}")
-    val storedCrc = getBE32(bytes, 6)
-    val payload   = bytes.drop(10)
-    val actualCrc = crc32of(payload)
+    val storedCrc       = getBE32(bytes, 6)
+    val stored          = bytes.drop(10)
+    val actualCrc       = crc32of(stored)
     if storedCrc != actualCrc then
-      Left(f"corrupt .sscc v3 file — CRC32 mismatch (stored 0x$storedCrc%08x, computed 0x$actualCrc%08x)")
-    else
-      SsccFormatV3.read(payload, bytes => manifestFromBytes(bytes))
+      return Left(f"corrupt .sscc v3 file — CRC32 mismatch (stored 0x$storedCrc%08x, computed 0x$actualCrc%08x)")
+    val payloadE: Either[String, Array[Byte]] = compressionFlag match
+      case 0x00 => Right(stored)
+      case 0x01 => Try(gzipDecompress(stored)).toEither.left.map(e => s"gzip decompress failed: ${e.getMessage}")
+      case _    => Left(s"unsupported .sscc v3 compression flag 0x${compressionFlag.toHexString}")
+    payloadE.flatMap(payload => SsccFormatV3.read(payload, bytes => manifestFromBytes(bytes)))
