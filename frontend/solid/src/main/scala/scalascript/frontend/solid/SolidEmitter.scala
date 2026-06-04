@@ -86,12 +86,18 @@ private[solid] object SolidEmitter:
       val setter = setterName(name)
       sb ++= s"  const [$name, $setter] = createSignal($initial);\n"
     }
+    ctx.seedSignals.foreach { (name, _) =>
+      sb ++= s"  let ${seedPristineName(name)} = true;\n"
+    }
     // A2e — list signals lower the same way scalar signals do: each
     // gets a createSignal pair.  Reads go through `name()` so
     // createEffect tracks them; writes go through `setName(next)`.
     ctx.lists.foreach { (name, initial) =>
       val setter = setterName(name)
       sb ++= s"  const [$name, $setter] = createSignal($initial);\n"
+    }
+    ctx.seedSignals.foreach { (_, seed) =>
+      sb ++= s"  createEffect(() => { const __v = ${seed.source.id}(); if (${seedPristineName(seed.id)}) ${setterName(seed.id)}(__v); });\n"
     }
     ctx.statements.foreach { stmt =>
       sb ++= "  "
@@ -107,6 +113,8 @@ private[solid] object SolidEmitter:
   private final class Ctx:
     private var counter: Int = 0
     val signals: scala.collection.mutable.LinkedHashMap[String, String] =
+      scala.collection.mutable.LinkedHashMap.empty
+    val seedSignals: scala.collection.mutable.LinkedHashMap[String, SeedSignal] =
       scala.collection.mutable.LinkedHashMap.empty
     val lists: scala.collection.mutable.LinkedHashMap[String, String] =
       scala.collection.mutable.LinkedHashMap.empty
@@ -142,6 +150,11 @@ private[solid] object SolidEmitter:
       v
 
     private def registerSignal(signal: ReactiveSignal[?]): Unit =
+      signal match
+        case seed: SeedSignal =>
+          registerSignal(seed.source)
+          seedSignals.update(seed.id, seed)
+        case _ => ()
       if signal.isInstanceOf[FetchUrlSignal] then return
       val name = signal.id
       if !name.matches("[A-Za-z_][A-Za-z0-9_]*") then
@@ -590,19 +603,18 @@ private[solid] object SolidEmitter:
         registerSignal(value)
         val base = "padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: inherit; font-family: inherit"
         val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
-        val setter = setterName(value.id)
         val v = freshVar()
         if multiline then
           statements += s"const $v = document.createElement('textarea'); $v.setAttribute('style', ${jsString(css)}); $v.setAttribute('placeholder', ${jsString(placeholder)});"
           statements += s"$v.value = ${value.id}();"
           statements += s"createEffect(() => { $v.value = ${value.id}(); });"
-          statements += s"$v.addEventListener('input', (e) => $setter(e.target.value));"
+          statements += s"$v.addEventListener('input', (e) => ${setSignalExpr(value, "e.target.value")});"
         else
           val typeStr = if secure then "password" else "text"
           statements += s"const $v = document.createElement('input'); $v.setAttribute('type', '$typeStr'); $v.setAttribute('style', ${jsString(css)}); $v.setAttribute('placeholder', ${jsString(placeholder)});"
           statements += s"$v.value = ${value.id}();"
           statements += s"createEffect(() => { $v.value = ${value.id}(); });"
-          statements += s"$v.addEventListener('input', (e) => $setter(e.target.value));"
+          statements += s"$v.addEventListener('input', (e) => ${setSignalExpr(value, "e.target.value")});"
         v
 
       case View.Toggle(checked, label, style) =>
@@ -638,7 +650,6 @@ private[solid] object SolidEmitter:
         registerSignal(selected)
         val base   = "padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: inherit; font-family: inherit"
         val css    = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
-        val setter = setterName(selected.id)
         val v = freshVar()
         statements += s"const $v = document.createElement('select'); $v.setAttribute('style', ${jsString(css)});"
         if placeholder.nonEmpty then
@@ -649,7 +660,7 @@ private[solid] object SolidEmitter:
         }
         statements += s"$v.value = String(${selected.id}());"
         statements += s"createEffect(() => { $v.value = String(${selected.id}()); });"
-        statements += s"$v.addEventListener('change', (e) => $setter(e.target.value));"
+        statements += s"$v.addEventListener('change', (e) => ${setSignalExpr(selected, "e.target.value")});"
         v
 
       case View.LazyList(items, render, _, style) =>
@@ -792,7 +803,6 @@ private[solid] object SolidEmitter:
         val inputBase = "padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; width: 100%; box-sizing: border-box; font-size: inherit; font-family: inherit"
         val inputCss  = StyleUtils.mergeCSS(inputBase, StyleUtils.styleToCSS(style))
         val labelCss  = "display: block; margin-bottom: 4px; font-size: 0.875em; font-weight: 500"
-        val setter    = setterName(value.id)
         val v   = freshVar()
         val inp = freshVar()
         statements += s"const $v = document.createElement('label'); $v.setAttribute('style', ${jsString(labelCss)});"
@@ -800,7 +810,7 @@ private[solid] object SolidEmitter:
         statements += s"const $inp = document.createElement('input'); $inp.setAttribute('style', ${jsString(inputCss)});"
         statements += s"$inp.value = String(${value.id}());"
         statements += s"createEffect(() => { $inp.value = String(${value.id}()); });"
-        statements += s"$inp.addEventListener('input', (e) => $setter(e.target.value));"
+        statements += s"$inp.addEventListener('input', (e) => ${setSignalExpr(value, "e.target.value")});"
         statements += s"$v.appendChild($inp);"
         errorMsg.foreach { msg =>
           statements += s"{ const err = document.createElement('span'); err.setAttribute('style', ${jsString("color: #ef4444; font-size: 0.75em; display: block; margin-top: 2px")}); err.textContent = ${jsString(msg)}; $v.appendChild(err); }"
@@ -912,13 +922,11 @@ private[solid] object SolidEmitter:
             " richer IR coming later."
         case EventHandler.InputChange(signal) =>
           registerSignal(signal)
-          val setter = setterName(signal.id)
-          statements += s"$targetVar.addEventListener('input', (e) => $setter(e.target.value));"
+          statements += s"$targetVar.addEventListener('input', (e) => ${setSignalExpr(signal, "e.target.value")});"
         case EventHandler.SetSignalLiteral(signal, value) =>
           registerSignal(signal)
-          val setter = setterName(signal.id)
           val v      = jsLiteral(value)
-          statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => $setter($v));"
+          statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => ${setSignalExpr(signal, v)});"
         case EventHandler.IncrementSignal(signal, by) =>
           registerSignal(signal)
           val setter = setterName(signal.id)
@@ -941,10 +949,9 @@ private[solid] object SolidEmitter:
           registerSignal(tick)
           hOpt.foreach(registerSignal)
           val setTick   = setterName(tick.id)
-          val setBody   = setterName(body.id)
           val urlJs     = jsString(url)
           val methodJs  = jsString(method)
-          val clearJs   = if clearBody then s" $setBody('');" else ""
+          val clearJs   = if clearBody then " " + setSignalStmt(body, "''") else ""
           val headersJs = hOpt.map(h => s", headers: JSON.parse(${h.id}() || '{}')").getOrElse("")
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
             s"fetch($urlJs, {method: $methodJs, body: ${body.id}()$headersJs})" +
@@ -992,8 +999,7 @@ private[solid] object SolidEmitter:
         case EventHandler.SetFieldToSignal(signal, fieldPath) =>
           if currentItemVar.nonEmpty then
             registerSignal(signal)
-            val setter = setterName(signal.id)
-            statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => $setter(String($currentItemVar.$fieldPath)));"
+            statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => ${setSignalExpr(signal, s"String($currentItemVar.$fieldPath)")});"
           else
             statements +=
               s"// $targetVar: '$eventName' is SetFieldToSignal outside ForModel context — no-op."
@@ -1020,6 +1026,23 @@ private[solid] object SolidEmitter:
 
   private def setterName(varName: String): String =
     "set" + varName.headOption.fold("")(_.toUpper.toString) + varName.drop(1)
+
+  private def seedPristineName(signalId: String): String =
+    s"${signalId}_pristine"
+
+  private def seedDirtyStmt(signal: ReactiveSignal[?]): String =
+    signal match
+      case _: SeedSignal => s"${seedPristineName(signal.id)} = false; "
+      case _             => ""
+
+  private def setSignalExpr(signal: ReactiveSignal[?], valueJs: String): String =
+    val setter = setterName(signal.id)
+    seedDirtyStmt(signal) match
+      case ""    => s"$setter($valueJs)"
+      case dirty => s"{ $dirty$setter($valueJs); }"
+
+  private def setSignalStmt(signal: ReactiveSignal[?], valueJs: String): String =
+    s"${seedDirtyStmt(signal)}${setterName(signal.id)}($valueJs);"
 
   /** Build the JS body expression for a RowPayload (Solid/imperative DOM style). */
   private def solidRowPayloadExpr(itemVar: String, payload: RowPayload): String = payload match
@@ -1052,6 +1075,7 @@ private[solid] object SolidEmitter:
   private def collectFetchSignals(view: View[?]): Seq[FetchUrlSignal] =
     val seen = scala.collection.mutable.LinkedHashMap.empty[String, FetchUrlSignal]
     def checkSig(sig: ReactiveSignal[?]): Unit = sig match
+      case seed: SeedSignal => checkSig(seed.source)
       case fs: FetchUrlSignal if !seen.contains(fs.id) => seen(fs.id) = fs
       case _ => ()
     def walk(v: View[?]): Unit = v match

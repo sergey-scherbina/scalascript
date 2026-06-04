@@ -47,6 +47,29 @@ class ReactiveEmitTest extends AnyFunSuite:
       s"expected 2 subscriber registrations; got $addCount:\n$js")
   }
 
+  test("SeedSignal — emits pristine source subscription and dirty input writes") {
+    val backend = new CustomFrameworkBackend
+    val source = new ReactiveSignal[String]("sourceName", "Ada")
+    val draft  = new SeedSignal("draftName", source)
+    val app = ComponentDef("App", Nil, _ => View.TextInput(
+      draft,
+      placeholder = "Name",
+      multiline = false,
+      secure = false,
+      style = Style()
+    ))
+    val js = backend.emit(FrontendModule(List(app), "App", "/")).js
+    assert(js.contains("__ssc_signals['sourceName'] = { value: 'Ada', subs: new Set() };"), s"source cell:\n$js")
+    assert(js.contains("__ssc_signals['draftName'] = { value: 'Ada', subs: new Set() };"), s"draft cell:\n$js")
+    assert(js.contains("__ssc_seedPristine['draftName'] = true;"), s"pristine table:\n$js")
+    assert(js.contains("if (Object.prototype.hasOwnProperty.call(__ssc_seedPristine, name) && !opts.preserveSeedPristine) __ssc_seedPristine[name] = false;"),
+      s"dirty __setSignal:\n$js")
+    assert(js.contains("__ssc_signals['sourceName'].subs.add((v) => { if (__ssc_seedPristine['draftName']) __setSignal('draftName', v, { preserveSeedPristine: true }); });"),
+      s"source subscription:\n$js")
+    assert(js.contains("addEventListener('input', (e) => __setSignal('draftName', e.target.value));"),
+      s"input write:\n$js")
+  }
+
   test("ReactiveSignal — invalid jsName rejected at emit time") {
     val backend = new CustomFrameworkBackend
     val bad = new ReactiveSignal[String]("with-dash", "x")

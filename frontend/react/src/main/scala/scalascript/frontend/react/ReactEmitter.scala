@@ -29,6 +29,7 @@ private[react] object ReactEmitter:
 
   def emit(root: View[?]): String =
     val signals      = collectSignals(root)
+    val seedSignals  = collectSeedSignals(root)
     val lists           = collectLists(root)
     val refs            = collectRefs(root)
     val fetchSignals    = collectFetchSignals(root)
@@ -42,6 +43,9 @@ private[react] object ReactEmitter:
     signals.foreach { (name, initial) =>
       val setter = setterName(name)
       sb ++= s"    const [$name, $setter] = useState($initial);\n"
+    }
+    seedSignals.foreach { seed =>
+      sb ++= s"    const ${seedPristineRefName(seed.id)} = useRef(true);\n"
     }
     lists.foreach { (name, initial) =>
       val setter = setterName(name)
@@ -77,6 +81,9 @@ private[react] object ReactEmitter:
           sb ++= s"    useEffect(() => { fetch($urlJs).then(r => r.text()).then(t => $setter(t)); }, []);\n"
           sb ++= s"    useEffect(() => { if (${fs.tickId} > 0) fetch($urlJs).then(r => r.text()).then(t => $setter(t)); }, [${fs.tickId}]);\n"
     }
+    seedSignals.foreach { seed =>
+      sb ++= s"    useEffect(() => { if (${seedPristineRefName(seed.id)}.current) ${setterName(seed.id)}(${seed.source.id}); }, [${seed.source.id}]);\n"
+    }
     // DataTable: mount-fetch + tick-driven re-fetch, parsed as JSON array.
     dataTableSigs.foreach { sig =>
       val setter   = setterName(sig.id)
@@ -101,6 +108,10 @@ private[react] object ReactEmitter:
   private def collectSignals(view: View[?]): scala.collection.mutable.LinkedHashMap[String, String] =
     val acc = scala.collection.mutable.LinkedHashMap.empty[String, String]
     def register(signal: ReactiveSignal[?]): Unit =
+      signal match
+        case seed: SeedSignal =>
+          register(seed.source)
+        case _ => ()
       val name = signal.id
       if !name.matches("[A-Za-z_][A-Za-z0-9_]*") then
         throw new IllegalArgumentException(
@@ -220,6 +231,53 @@ private[react] object ReactEmitter:
     walk(view)
     acc
 
+  private def collectSeedSignals(view: View[?]): Seq[SeedSignal] =
+    val seen = scala.collection.mutable.LinkedHashMap.empty[String, SeedSignal]
+    def checkSig(sig: ReactiveSignal[?]): Unit =
+      sig match
+        case seed: SeedSignal =>
+          if !seen.contains(seed.id) then seen(seed.id) = seed
+          checkSig(seed.source)
+        case _ => ()
+    def checkHandler(handler: EventHandler): Unit = handler match
+      case EventHandler.FetchAction(_, _, body, tick, _, hOpt) => checkSig(body); checkSig(tick); hOpt.foreach(checkSig)
+      case EventHandler.SetSignalLiteral(sig, _)               => checkSig(sig)
+      case EventHandler.IncrementSignal(sig, _)                => checkSig(sig)
+      case EventHandler.ToggleSignal(sig)                      => checkSig(sig)
+      case EventHandler.InputChange(sig)                       => checkSig(sig)
+      case EventHandler.DeleteItem(_, _, tick, hOpt)           => checkSig(tick); hOpt.foreach(checkSig)
+      case EventHandler.ItemAction(_, _, _, tick, hOpt)        => checkSig(tick); hOpt.foreach(checkSig)
+      case EventHandler.SetFieldToSignal(sig, _)               => checkSig(sig)
+      case _                                                   => ()
+    ViewTraversal.foreachDepthFirst(view, ViewTraversal.Options.Web) {
+      case View.SignalText(sig, _) => checkSig(sig)
+      case View.Element(_, attrs, events, _) =>
+        attrs.values.foreach { case AttrValue.Reactive(sig) => checkSig(sig); case _ => () }
+        events.values.foreach(checkHandler)
+      case View.ShowSignal(cond, _, _)                    => checkSig(cond)
+      case View.ModelView(signal, _, _, _)                => checkSig(signal)
+      case View.Button(_, action, _, _)                   => checkHandler(action)
+      case View.TextInput(value, _, _, _, _)              => checkSig(value)
+      case View.Toggle(checked, _, _)                     => checkSig(checked)
+      case View.Slider(value, _, _, _, _)                 => checkSig(value)
+      case View.Picker(_, selected, _, _)                 => checkSig(selected)
+      case View.TabBar(_, current, _)                     => checkSig(current)
+      case View.NavigationStack(_, current, _)            => checkSig(current)
+      case View.Sheet(_, isPresented)                     => checkSig(isPresented)
+      case View.AlertDialog(_, _, _, isPresented)         => checkSig(isPresented)
+      case View.Form(_, onSubmit, _)                      => checkHandler(onSubmit)
+      case View.FormField(_, value, _, _)                 => checkSig(value)
+      case dt: View.DataTable =>
+        dt.actions.foreach {
+          case RowActionDef.RowDelete(_, _, tick, hOpt) => checkSig(tick); hOpt.foreach(checkSig)
+          case RowActionDef.RowPost(_, _, _, _, tick, hOpt) => checkSig(tick); hOpt.foreach(checkSig)
+          case RowActionDef.RowLink(_, sig, _) => checkSig(sig)
+          case _ => ()
+        }
+      case _ => ()
+    }
+    seen.values.toSeq
+
   /** A2e — second collection pass for list signals, indexed under
    *  the same name → JS-array-literal shape that fuels per-list
    *  `useState`.  Visits the same View kinds that can carry a list
@@ -328,6 +386,7 @@ private[react] object ReactEmitter:
   private def collectFetchSignals(view: View[?]): Seq[FetchUrlSignal] =
     val seen = scala.collection.mutable.LinkedHashMap.empty[String, FetchUrlSignal]
     def checkSig(sig: ReactiveSignal[?]): Unit = sig match
+      case seed: SeedSignal => checkSig(seed.source)
       case fs: FetchUrlSignal if !seen.contains(fs.id) => seen(fs.id) = fs
       case _ => ()
     def checkHandler(handler: EventHandler): Unit = handler match
@@ -556,12 +615,11 @@ private[react] object ReactEmitter:
       val base = "padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: inherit; font-family: inherit"
       val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
       val styleObj = cssStringToReactObject(css)
-      val setter   = setterName(value.id)
       if multiline then
-        s"h('textarea', { style: $styleObj, 'value': ${value.id}, 'onChange': (e) => $setter(e.target.value), 'placeholder': ${jsString(placeholder)} })"
+        s"h('textarea', { style: $styleObj, 'value': ${value.id}, 'onChange': (e) => ${setSignalExpr(value, "e.target.value")}, 'placeholder': ${jsString(placeholder)} })"
       else
         val typeAttr = if secure then "'type': 'password'" else "'type': 'text'"
-        s"h('input', { style: $styleObj, $typeAttr, 'value': ${value.id}, 'onChange': (e) => $setter(e.target.value), 'placeholder': ${jsString(placeholder)} })"
+        s"h('input', { style: $styleObj, $typeAttr, 'value': ${value.id}, 'onChange': (e) => ${setSignalExpr(value, "e.target.value")}, 'placeholder': ${jsString(placeholder)} })"
 
     case View.Toggle(checked, label, style) =>
       val base = "display: inline-flex; align-items: center; gap: 6px; cursor: pointer"
@@ -581,7 +639,6 @@ private[react] object ReactEmitter:
       val base = "padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: inherit; font-family: inherit"
       val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
       val styleObj  = cssStringToReactObject(css)
-      val setter    = setterName(selected.id)
       val opts      = options.map { (lbl, v) =>
         val vJs = try jsLiteral(v) catch { case _: Throwable => jsString(String.valueOf(v)) }
         s"h('option', { 'value': $vJs }, ${jsString(lbl)})"
@@ -589,7 +646,7 @@ private[react] object ReactEmitter:
       val phOpt = if placeholder.nonEmpty then
         s"h('option', { 'value': '', 'disabled': true, 'hidden': true }, ${jsString(placeholder)})" +: opts
       else opts
-      s"h('select', { style: $styleObj, 'value': ${selected.id}, 'onChange': (e) => $setter(e.target.value) }, ${phOpt.mkString(", ")})"
+      s"h('select', { style: $styleObj, 'value': ${selected.id}, 'onChange': (e) => ${setSignalExpr(selected, "e.target.value")} }, ${phOpt.mkString(", ")})"
 
     case View.LazyList(items, render, _, style) =>
       val base = "overflow-y: auto"
@@ -649,12 +706,12 @@ private[react] object ReactEmitter:
 
     case View.Form(child, onSubmit, style) =>
       val handlerBody = onSubmit match
-        case EventHandler.SetSignalLiteral(sig, v) => s"${setterName(sig.id)}(${jsLiteral(v)})"
+        case EventHandler.SetSignalLiteral(sig, v) => setSignalStmt(sig, jsLiteral(v))
         case EventHandler.IncrementSignal(sig, by) => s"${setterName(sig.id)}(c => c + $by)"
         case EventHandler.ToggleSignal(sig)        => s"${setterName(sig.id)}(c => !c)"
         case EventHandler.FetchAction(method, url, body, tick, clearBody, hOpt) =>
           val setTick   = setterName(tick.id)
-          val clear     = if clearBody then s" ${setterName(body.id)}('');" else ""
+          val clear     = if clearBody then " " + setSignalStmt(body, "''") else ""
           val headersJs = hOpt.map(h => s", headers: JSON.parse(${h.id} || '{}')").getOrElse("")
           s"fetch(${jsString(url)}, {method: ${jsString(method)}, body: ${body.id}$headersJs}).then(r => r.text()).then(_ => { $setTick(t => t + 1);$clear })"
         case _ => ""
@@ -669,7 +726,6 @@ private[react] object ReactEmitter:
         case _: Int | _: Double | _: Long | _: Float => "'number'"
         case _: Boolean                               => "'checkbox'"
         case _                                        => "'text'"
-      val setter     = setterName(value.id)
       val labelObj   = cssStringToReactObject("display: block; margin-bottom: 4px; font-size: 0.875em; font-weight: 500")
       val inputBase  = "padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; width: 100%; box-sizing: border-box; font-size: inherit; font-family: inherit"
       val inputCss   = StyleUtils.mergeCSS(inputBase, StyleUtils.styleToCSS(style))
@@ -677,7 +733,7 @@ private[react] object ReactEmitter:
       val errorJs    = errorMsg.map { msg =>
         s", h('span', { style: ${cssStringToReactObject("color: #ef4444; font-size: 0.75em; display: block; margin-top: 2px")} }, ${jsString(msg)})"
       }.getOrElse("")
-      s"h('label', { style: $labelObj }, ${jsString(label)}, h('input', { 'type': $inputType, style: $inputObj, 'value': ${value.id}, 'onChange': (e) => $setter(e.target.value) })$errorJs)"
+      s"h('label', { style: $labelObj }, ${jsString(label)}, h('input', { 'type': $inputType, style: $inputObj, 'value': ${value.id}, 'onChange': (e) => ${setSignalExpr(value, "e.target.value")} })$errorJs)"
 
     case View.SafeArea(child, edges) =>
       val top    = if edges.contains(Edge.Top)      then "env(safe-area-inset-top, 0)" else "0"
@@ -813,9 +869,8 @@ private[react] object ReactEmitter:
     val onKey = onProp(eventName)
     handler match
       case EventHandler.SetSignalLiteral(signal, value) =>
-        val setter = setterName(signal.id)
         val v      = jsLiteral(value)
-        Some(s"${jsString(onKey)}: () => $setter($v)")
+        Some(s"${jsString(onKey)}: () => ${setSignalExpr(signal, v)}")
       case EventHandler.IncrementSignal(signal, by) =>
         val setter = setterName(signal.id)
         // Functional setState — avoids stale-closure read of `count`.
@@ -842,15 +897,13 @@ private[react] object ReactEmitter:
         else
           Some(s"/* '$eventName' is RemoveSelfFromList used outside an item template — no-op */")
       case EventHandler.InputChange(signal) =>
-        val setter = setterName(signal.id)
-        Some(s"'onChange': (e) => $setter(e.target.value)")
+        Some(s"'onChange': (e) => ${setSignalExpr(signal, "e.target.value")}")
       case EventHandler.FetchAction(method, url, body, tick, clearBody, hOpt) =>
         val getBody   = body.id
         val setTick   = setterName(tick.id)
-        val setBody   = setterName(body.id)
         val urlJs     = jsString(url)
         val methodJs  = jsString(method)
-        val clearJs   = if clearBody then s"; $setBody('')" else ""
+        val clearJs   = if clearBody then "; " + setSignalStmt(body, "''") else ""
         val headersJs = hOpt.map(h => s", headers: JSON.parse(${h.id} || '{}')").getOrElse("")
         Some(s"${jsString(onKey)}: () => fetch($urlJs, {method: $methodJs, body: $getBody$headersJs}).then(r => r.text()).then(_ => { $setTick(t => t + 1)$clearJs })")
       case EventHandler.DeleteItem(idField, deleteUrl, tick, hOpt) if modelItemVar.nonEmpty =>
@@ -870,8 +923,7 @@ private[react] object ReactEmitter:
       case EventHandler.ItemAction(_, _, _, _, _) =>
         Some(s"/* '$eventName' is ItemAction outside ForModel context — no-op */")
       case EventHandler.SetFieldToSignal(signal, fieldPath) if modelItemVar.nonEmpty =>
-        val setter = setterName(signal.id)
-        Some(s"${jsString(onKey)}: () => $setter(String($modelItemVar.$fieldPath))")
+        Some(s"${jsString(onKey)}: () => ${setSignalExpr(signal, s"String($modelItemVar.$fieldPath)")}")
       case EventHandler.SetFieldToSignal(_, _) =>
         Some(s"/* '$eventName' is SetFieldToSignal outside ForModel context — no-op */")
       case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
@@ -891,6 +943,23 @@ private[react] object ReactEmitter:
   /** State-variable name → React setter name. */
   private def setterName(varName: String): String =
     "set" + varName.headOption.fold("")(_.toUpper.toString) + varName.drop(1)
+
+  private def seedPristineRefName(signalId: String): String =
+    s"${signalId}Pristine"
+
+  private def seedDirtyStmt(signal: ReactiveSignal[?]): String =
+    signal match
+      case _: SeedSignal => s"${seedPristineRefName(signal.id)}.current = false; "
+      case _             => ""
+
+  private def setSignalExpr(signal: ReactiveSignal[?], valueJs: String): String =
+    val setter = setterName(signal.id)
+    seedDirtyStmt(signal) match
+      case ""    => s"$setter($valueJs)"
+      case dirty => s"{ $dirty$setter($valueJs); }"
+
+  private def setSignalStmt(signal: ReactiveSignal[?], valueJs: String): String =
+    s"${seedDirtyStmt(signal)}${setterName(signal.id)}($valueJs);"
 
   /** Build the JS body expression for a RowPayload. */
   private def rowPayloadExpr(itemVar: String, payload: RowPayload): String = payload match

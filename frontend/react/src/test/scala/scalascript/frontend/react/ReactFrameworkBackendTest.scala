@@ -107,6 +107,27 @@ class ReactFrameworkBackendTest extends AnyFunSuite:
     assert(js.contains("'onClick': () => setGreeting('world')"))
   }
 
+  test("emit — SeedSignal syncs from source while pristine and dirty-writes on input") {
+    val backend = new ReactFrameworkBackend
+    val source = new ReactiveSignal[String]("sourceName", "Ada")
+    val draft  = new SeedSignal("draftName", source)
+    val app = ComponentDef("App", Nil, _ => View.TextInput(
+      draft,
+      placeholder = "Name",
+      multiline = false,
+      secure = false,
+      style = Style()
+    ))
+    val js = backend.emit(FrontendModule(List(app), "App", "/")).js
+    assert(js.contains("const [sourceName, setSourceName] = useState('Ada');"), s"source state:\n$js")
+    assert(js.contains("const [draftName, setDraftName] = useState('Ada');"), s"draft state:\n$js")
+    assert(js.contains("const draftNamePristine = useRef(true);"), s"pristine ref:\n$js")
+    assert(js.contains("useEffect(() => { if (draftNamePristine.current) setDraftName(sourceName); }, [sourceName]);"),
+      s"source sync:\n$js")
+    assert(js.contains("'onChange': (e) => { draftNamePristine.current = false; setDraftName(e.target.value); }"),
+      s"dirty input write:\n$js")
+  }
+
   test("emit — Fragment becomes React.Fragment node") {
     val backend = new ReactFrameworkBackend
     val app = ComponentDef("App", Nil, _ => View.Fragment(Seq(

@@ -86,6 +86,28 @@ class SwiftUIEmitterTest extends AnyFunSuite:
     assert(cv.contains("""Text("\(count)")"""))
   }
 
+  test("SeedSignal emits source state, pristine binding, and source onChange sync") {
+    val source = ReactiveSignal[String]("sourceName", "Ada")
+    val draft  = SeedSignal("draftName", source)
+    val view = View.TextInput(
+      draft,
+      placeholder = "Name",
+      multiline = false,
+      secure = false,
+      style = Style()
+    )
+    val cv = backend.emitNative(makeModule(view), Platform.Mobile(MobileOs.iOS)).get
+                    .sources.find(_._1.endsWith("ContentView.swift")).get._2
+    assert(cv.contains("@State private var sourceName: String = \"Ada\""), s"source state:\n$cv")
+    assert(cv.contains("@State private var draftName: String = \"Ada\""), s"draft state:\n$cv")
+    assert(cv.contains("@State private var draftName_pristine: Bool = true"), s"pristine state:\n$cv")
+    assert(cv.contains("""TextField("Name", text: Binding(get: { draftName }, set: { draftName = $0; draftName_pristine = false }))"""),
+      s"dirty binding:\n$cv")
+    assert(cv.contains(".onChange(of: sourceName) { _, newValue in"), s"source onChange:\n$cv")
+    assert(cv.contains("if draftName_pristine {"), s"pristine guard:\n$cv")
+    assert(cv.contains("draftName = newValue"), s"source assignment:\n$cv")
+  }
+
   // ── Button ────────────────────────────────────────────────────────────────
 
   test("Button with SetSignalLiteral emits Swift action") {

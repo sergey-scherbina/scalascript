@@ -142,6 +142,7 @@ object SwiftUIEmitter:
     )
     val root          = entry.body(())
     val signals       = collectSignals(root)
+    val seedSignals   = collectSeedSignals(root)
     val fetchSigs     = collectFetchSignals(root)
     val dtSigs        = collectDataTableSignals(root)
     val fetchOwnedIds = fetchSigs.flatMap { fs =>
@@ -151,13 +152,15 @@ object SwiftUIEmitter:
     val fetchTickIds   = fetchSigs.map(_.tickId).distinct.filterNot(signalIds)
     val fetchTickDecls = fetchTickIds.map(id => s"    @State private var $id: Int = 0").mkString("\n")
     val stateDecls    = emitStateDecls(signals.filterNot(s => fetchOwnedIds(s.id)), indent = 4)
+    val seedState     = emitSeedStateDecls(seedSignals, indent = 4)
     val fetchState    = emitFetchStateDecls(fetchSigs, indent = 4)
     val dtState       = emitDataTableStateDecls(dtSigs, indent = 4)
-    val allState      = List(stateDecls, fetchTickDecls, fetchState, dtState).filter(_.nonEmpty).mkString("\n")
+    val allState      = List(stateDecls, seedState, fetchTickDecls, fetchState, dtState).filter(_.nonEmpty).mkString("\n")
     val body          = emitView(root, indent = 8)
     val fetchMods     = emitFetchModifiers(fetchSigs, indent = 8)
+    val seedMods      = emitSeedModifiers(seedSignals, indent = 8)
     val dtMods        = emitDataTableModifiers(dtSigs, indent = 8)
-    val allMods       = List(fetchMods, dtMods).filter(_.nonEmpty).mkString("\n")
+    val allMods       = List(fetchMods, seedMods, dtMods).filter(_.nonEmpty).mkString("\n")
     val fetchMethods  = emitFetchMethods(fetchSigs, indent = 4)
     val dtMethods     = emitDataTableMethods(dtSigs, indent = 4)
     val bodyWithMods  = if allMods.isEmpty then body else s"$body\n$allMods"
@@ -202,16 +205,17 @@ object SwiftUIEmitter:
         emitMods(withDisabled, style, indent)
 
       case View.TextInput(value, placeholder, multiline, secure, style) =>
+        val binding = textBinding(value)
         val base =
           if secure then
-            s"""${pad}SecureField(${swiftStringLit(placeholder)}, text: $$${value.id})"""
+            s"""${pad}SecureField(${swiftStringLit(placeholder)}, text: $binding)"""
           else if multiline then
-            s"""${pad}TextEditor(text: $$${value.id})
+            s"""${pad}TextEditor(text: $binding)
                |${pad}    .overlay(alignment: .topLeading) {
                |${pad}        if ${value.id}.isEmpty { Text(${swiftStringLit(placeholder)}).foregroundStyle(.secondary).padding(4) }
                |${pad}    }""".stripMargin
           else
-            s"""${pad}TextField(${swiftStringLit(placeholder)}, text: $$${value.id})"""
+            s"""${pad}TextField(${swiftStringLit(placeholder)}, text: $binding)"""
         emitMods(base, style, indent)
 
       case View.Toggle(checked, label, style) =>
@@ -301,7 +305,7 @@ object SwiftUIEmitter:
         emitMods(s"${pad}Form {\n${emitView(child, indent + 4, ctx)}\n${pad}}", style, indent)
 
       case View.FormField(label, value, _, style) =>
-        emitMods(s"""${pad}TextField(${swiftStringLit(label.toString)}, text: $$${value.id})""", style, indent)
+        emitMods(s"""${pad}TextField(${swiftStringLit(label.toString)}, text: ${textBinding(value)})""", style, indent)
 
       case View.Picker(options, selected, placeholder, style) =>
         val opts = options.map { case (label, _) =>
@@ -469,7 +473,7 @@ object SwiftUIEmitter:
               case RowActionDef.RowLink(label, signal, fieldPath) =>
                 val key = fieldPath.split("\\.").head
                 s"""${pad4}Button(${swiftStringLit(label)}) {
-                   |${pad4}  ${signal.id} = (_row[${swiftStringLit(key)}] as? String) ?? ""
+                   |${pad4}  ${markSeedDirty(signal)}${signal.id} = (_row[${swiftStringLit(key)}] as? String) ?? ""
                    |${pad4}}""".stripMargin
               case RowActionDef.RowInlineEdit(_, _, _, _, _) => ""
             }.filter(_.nonEmpty).mkString("\n")
@@ -507,6 +511,18 @@ object SwiftUIEmitter:
   private def emitMods(base: String, style: Style, indent: Int): String =
     val mods = emitStyleModifiers(style, indent)
     if mods.isEmpty then base else s"$base\n$mods"
+
+  private def textBinding(signal: ReactiveSignal[?]): String =
+    signal match
+      case _: SeedSignal =>
+        s"Binding(get: { ${signal.id} }, set: { ${signal.id} = $$0; ${signal.id}_pristine = false })"
+      case _ =>
+        s"$$${signal.id}"
+
+  private def markSeedDirty(signal: ReactiveSignal[?]): String =
+    signal match
+      case _: SeedSignal => s"${signal.id}_pristine = false; "
+      case _             => ""
 
   private def emitStyleModifiers(style: Style, indent: Int): String =
     val pad = " " * indent + "    "
@@ -567,7 +583,7 @@ object SwiftUIEmitter:
     val pad = " " * indent
     action match
       case EventHandler.SetSignalLiteral(signal, value) =>
-        s"${pad}${signal.id} = ${swiftLiteral(value)}"
+        s"${pad}${markSeedDirty(signal)}${signal.id} = ${swiftLiteral(value)}"
       case EventHandler.IncrementSignal(signal, by) =>
         s"${pad}${signal.id} += $by"
       case EventHandler.ToggleSignal(signal) =>
@@ -625,7 +641,7 @@ object SwiftUIEmitter:
            |${pad2}} catch {}
            |${pad}}""".stripMargin
       case EventHandler.SetFieldToSignal(signal, fieldPath) =>
-        s"${pad}${signal.id} = $fieldPath"
+        s"${pad}${markSeedDirty(signal)}${signal.id} = $fieldPath"
       case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
         s"${pad}// closure action (not serializable into generated Swift source)"
 
@@ -639,6 +655,12 @@ object SwiftUIEmitter:
         val (typeName, defaultExpr) = swiftTypeAndDefault(s.value)
         s"${pad}@State private var ${s.id}: $typeName = $defaultExpr"
       }.mkString("\n")
+
+  private def emitSeedStateDecls(seedSignals: List[SeedSignal], indent: Int): String =
+    if seedSignals.isEmpty then ""
+    else
+      val pad = " " * indent
+      seedSignals.map(seed => s"${pad}@State private var ${seed.id}_pristine: Bool = true").mkString("\n")
 
   private def emitFetchStateDecls(fetchSigs: List[FetchUrlSignal], indent: Int): String =
     if fetchSigs.isEmpty then ""
@@ -662,7 +684,12 @@ object SwiftUIEmitter:
 
   private[swiftui] def collectSignals(view: View[?]): List[SignalInitial] =
     def add(acc: Map[String, SignalInitial], sig: ReactiveSignal[?]): Map[String, SignalInitial] =
-      acc.updatedWith(sig.id) { case e @ Some(_) => e; case None => Some(SignalInitial(sig.id, sig.apply())) }
+      sig match
+        case seed: SeedSignal =>
+          val withSource = add(acc, seed.source)
+          withSource.updatedWith(seed.id) { case e @ Some(_) => e; case None => Some(SignalInitial(seed.id, seed.apply())) }
+        case _ =>
+          acc.updatedWith(sig.id) { case e @ Some(_) => e; case None => Some(SignalInitial(sig.id, sig.apply())) }
     def addList(acc: Map[String, SignalInitial], sig: ReactiveSignalList[?]): Map[String, SignalInitial] =
       acc.updatedWith(sig.id) { case e @ Some(_) => e; case None => Some(SignalInitial(sig.id, sig.initial, isList = true)) }
     def fromAction(acc: Map[String, SignalInitial], a: EventHandler): Map[String, SignalInitial] =
@@ -717,13 +744,77 @@ object SwiftUIEmitter:
         case _ => acc
     loop(Map.empty, view).values.toList.sortBy(_.id)
 
+  private[swiftui] def collectSeedSignals(view: View[?]): List[SeedSignal] =
+    val seen = scala.collection.mutable.LinkedHashMap.empty[String, SeedSignal]
+    def add(sig: ReactiveSignal[?]): Unit =
+      sig match
+        case seed: SeedSignal =>
+          if !seen.contains(seed.id) then seen(seed.id) = seed
+          add(seed.source)
+        case _ => ()
+    def fromAction(a: EventHandler): Unit =
+      a match
+        case EventHandler.SetSignalLiteral(s, _)  => add(s)
+        case EventHandler.IncrementSignal(s, _)   => add(s)
+        case EventHandler.ToggleSignal(s)         => add(s)
+        case EventHandler.InputChange(s)          => add(s)
+        case EventHandler.DeleteItem(_, _, s, h)  => add(s); h.foreach(add)
+        case EventHandler.ItemAction(_, _, _, s, h) => add(s); h.foreach(add)
+        case EventHandler.FetchAction(_, _, b, t, _, h) => add(b); add(t); h.foreach(add)
+        case EventHandler.SetFieldToSignal(s, _)  => add(s)
+        case _                                    => ()
+    def loop(v: View[?]): Unit =
+      v match
+        case View.SignalText(s, _)               => add(s)
+        case View.Button(label, a, _, _)         => fromAction(a); loop(label)
+        case View.TextInput(s, _, _, _, _)       => add(s)
+        case View.Toggle(s, _, _)                => add(s)
+        case View.Slider(s, _, _, _, _)          => add(s)
+        case View.Picker(_, s, _, _)             => add(s)
+        case View.Sheet(ch, s)                   => add(s); loop(ch)
+        case View.AlertDialog(_, _, _, s)        => add(s)
+        case View.TabBar(tabs, cur, _)           => add(cur); tabs.foreach(t => loop(t.content))
+        case View.NavigationStack(routes, cur, _) => add(cur); routes.values.foreach(f => loop(f()))
+        case View.FormField(_, s, _, _)          => add(s)
+        case View.Column(ch, _, _, _)            => ch.foreach(loop)
+        case View.Row(ch, _, _, _)               => ch.foreach(loop)
+        case View.Stack(ch, _)                   => ch.foreach(loop)
+        case View.ScrollView(ch, _, _)           => loop(ch)
+        case View.Fragment(ch)                   => ch.foreach(loop)
+        case View.Show(_, t, f)                  => loop(t()); loop(f())
+        case View.ShowSignal(s, t, f)            => add(s); loop(t); loop(f)
+        case View.For(items, r)                  => items().foreach(i => loop(r(i)))
+        case View.ForSignal(_, _, _, tmpl)       => tmpl.foreach(loop)
+        case View.Form(ch, a, _)                 => fromAction(a); loop(ch)
+        case View.Styled(ch, _)                  => loop(ch)
+        case View.Animated(ch, _, _)             => loop(ch)
+        case View.Adaptive(web, desk, mob, fb)   =>
+          List(web, desk, mob).flatten.foreach(loop); loop(fb)
+        case View.ModelView(s, _, tmpl, _)       => add(s); loop(tmpl)
+        case View.ForModel(_, _, _, tmpl, _)     => loop(tmpl)
+        case dt: View.DataTable =>
+          dt.actions.foreach {
+            case RowActionDef.RowDelete(_, _, tick, h) => add(tick); h.foreach(add)
+            case RowActionDef.RowPost(_, _, _, _, tick, h) => add(tick); h.foreach(add)
+            case RowActionDef.RowLink(_, sig, _) => add(sig)
+            case RowActionDef.RowInlineEdit(_, _, _, tick, h) => add(tick); h.foreach(add)
+          }
+        case _ => ()
+    loop(view)
+    seen.values.toList.sortBy(_.id)
+
   // ── FetchUrlSignal collection ─────────────────────────────────────────────
 
   private[swiftui] def collectFetchSignals(view: View[?]): List[FetchUrlSignal] =
     val seen = scala.collection.mutable.LinkedHashMap.empty[String, FetchUrlSignal]
+    def addSig(sig: ReactiveSignal[?]): Unit =
+      sig match
+        case seed: SeedSignal => addSig(seed.source)
+        case fs: FetchUrlSignal => seen(fs.id) = fs
+        case _ => ()
     def walk(v: View[?]): Unit = v match
-      case View.SignalText(fs: FetchUrlSignal, _)          => seen(fs.id) = fs
-      case View.TextInput(fs: FetchUrlSignal, _, _, _, _)  => seen(fs.id) = fs
+      case View.SignalText(sig, _)                         => addSig(sig)
+      case View.TextInput(sig, _, _, _, _)                 => addSig(sig)
       case View.Column(ch, _, _, _)                        => ch.foreach(walk)
       case View.Row(ch, _, _, _)                           => ch.foreach(walk)
       case View.Stack(ch, _)                               => ch.foreach(walk)
@@ -746,7 +837,7 @@ object SwiftUIEmitter:
       case View.Adaptive(web, desk, mob, fb)               =>
         List(web, desk, mob).flatten.foreach(walk); walk(fb)
       case View.ModelView(signal, _, template, _)          =>
-        seen(signal.id) = signal; walk(template)
+        addSig(signal); walk(template)
       case View.ForModel(_, _, _, template, _)             => walk(template)
       case _ => ()
     walk(view)
@@ -804,6 +895,20 @@ object SwiftUIEmitter:
         )
       }
       mods.mkString("\n")
+
+  private def emitSeedModifiers(seedSignals: List[SeedSignal], indent: Int): String =
+    if seedSignals.isEmpty then ""
+    else
+      val pad  = " " * indent
+      val pad2 = " " * (indent + 4)
+      val pad3 = " " * (indent + 8)
+      seedSignals.map { seed =>
+        s"""${pad}.onChange(of: ${seed.source.id}) { _, newValue in
+           |${pad2}if ${seed.id}_pristine {
+           |${pad3}${seed.id} = newValue
+           |${pad2}}
+           |${pad}}""".stripMargin
+      }.mkString("\n")
 
   private def headersBlock(headersId: Option[String], reqVar: String, indent: Int): String =
     headersId match

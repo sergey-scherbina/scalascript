@@ -44,12 +44,24 @@ private[custom] object StaticJsEmitter:
       ctx.reactiveSignals.toSeq.sortBy(_._1).foreach { case (name, initial) =>
         sb ++= s"__ssc_signals[${jsString(name)}] = { value: ${initial}, subs: new Set() };\n"
       }
-      sb ++= "function __setSignal(name, value) {\n"
+      if ctx.seedSignals.nonEmpty then
+        sb ++= "const __ssc_seedPristine = Object.create(null);\n"
+        ctx.seedSignals.toSeq.sortBy(_._1).foreach { case (name, _) =>
+          sb ++= s"__ssc_seedPristine[${jsString(name)}] = true;\n"
+        }
+      val setSignalArgs = if ctx.seedSignals.nonEmpty then "name, value, options" else "name, value"
+      sb ++= s"function __setSignal($setSignalArgs) {\n"
       sb ++= "  const cell = __ssc_signals[name];\n"
       sb ++= "  if (!cell) throw new Error('unknown signal: ' + name);\n"
+      if ctx.seedSignals.nonEmpty then
+        sb ++= "  const opts = options || {};\n"
+        sb ++= "  if (Object.prototype.hasOwnProperty.call(__ssc_seedPristine, name) && !opts.preserveSeedPristine) __ssc_seedPristine[name] = false;\n"
       sb ++= "  cell.value = value;\n"
       sb ++= "  cell.subs.forEach(fn => fn(value));\n"
       sb ++= "}\n"
+      ctx.seedSignals.toSeq.sortBy(_._1).foreach { case (name, seed) =>
+        sb ++= s"__ssc_signals[${jsString(seed.source.id)}].subs.add((v) => { if (__ssc_seedPristine[${jsString(name)}]) __setSignal(${jsString(name)}, v, { preserveSeedPristine: true }); });\n"
+      }
       // Expose on window for browser-side tests + manual driving.
       sb ++= "if (typeof window !== 'undefined') window.__setSignal = __setSignal;\n"
 
@@ -108,6 +120,10 @@ private[custom] object StaticJsEmitter:
       scala.collection.mutable.ArrayBuffer.empty
     val reactiveSignals: scala.collection.mutable.LinkedHashMap[String, String] =
       scala.collection.mutable.LinkedHashMap.empty
+    val seedSignals: scala.collection.mutable.LinkedHashMap[String, SeedSignal] =
+      scala.collection.mutable.LinkedHashMap.empty
+    private val mountedFetchSignals: scala.collection.mutable.LinkedHashSet[String] =
+      scala.collection.mutable.LinkedHashSet.empty
     // A2e — list signals indexed the same way; value is the JS array literal.
     val reactiveLists: scala.collection.mutable.LinkedHashMap[String, String] =
       scala.collection.mutable.LinkedHashMap.empty
@@ -155,7 +171,16 @@ private[custom] object StaticJsEmitter:
      *  initial values throws — that's a user error worth catching
      *  early). */
     private def registerSignal(signal: ReactiveSignal[?]): Unit =
-      if signal.isInstanceOf[FetchUrlSignal] then return
+      signal match
+        case seed: SeedSignal =>
+          registerSignal(seed.source)
+          seedSignals.update(seed.id, seed)
+        case _ => ()
+      signal match
+        case fs: FetchUrlSignal =>
+          ensureFetchSignal(fs)
+          return
+        case _ => ()
       val name = signal.id
       if !name.matches("[A-Za-z_][A-Za-z0-9_]*") then
         throw new IllegalArgumentException(
@@ -169,6 +194,36 @@ private[custom] object StaticJsEmitter:
             s"initial values ($existing vs $initialJs).  Names must be unique."
           )
         case _ => reactiveSignals.update(name, initialJs)
+
+    private def ensureFetchSignal(signal: FetchUrlSignal): Unit =
+      if mountedFetchSignals.add(signal.id) then
+        signal match
+          case fjs: FetchJsonSignal =>
+            reactiveSignals.update(fjs.id, "null")
+            reactiveSignals.update(s"${fjs.id}_loading", "false")
+            reactiveSignals.update(s"${fjs.id}_loaded", "false")
+            reactiveSignals.update(s"${fjs.id}_error", "''")
+          case _ =>
+            reactiveSignals.update(signal.id, "''")
+        if !reactiveSignals.contains(signal.tickId) then reactiveSignals.update(signal.tickId, "0")
+
+        val sigJs     = jsString(signal.id)
+        val tickJs    = jsString(signal.tickId)
+        val urlJs     = jsString(signal.fetchUrl)
+        val headersJs = signal.headersId.map { h =>
+          val hJs = jsString(h)
+          s", headers: JSON.parse((__ssc_signals[$hJs] ? __ssc_signals[$hJs].value : '{}') || '{}')"
+        }.getOrElse("")
+        signal match
+          case fjs: FetchJsonSignal =>
+            val loadedJs  = jsString(s"${fjs.id}_loaded")
+            val loadingJs = jsString(s"${fjs.id}_loading")
+            val errorJs   = jsString(s"${fjs.id}_error")
+            statements += s"__setSignal($loadingJs, true); fetch($urlJs$headersJs).then(r => r.json()).then(data => { __setSignal($sigJs, data); __setSignal($loadedJs, true); __setSignal($loadingJs, false); }).catch(e => { __setSignal($errorJs, String(e)); __setSignal($loadingJs, false); });"
+            statements += s"__ssc_signals[$tickJs].subs.add((t) => { if (t > 0) fetch($urlJs$headersJs).then(r => r.json()).then(data => __setSignal($sigJs, data)); });"
+          case _ =>
+            statements += s"fetch($urlJs$headersJs).then(r => r.text()).then(data => __setSignal($sigJs, data));"
+            statements += s"__ssc_signals[$tickJs].subs.add((t) => { if (t > 0) fetch($urlJs$headersJs).then(r => r.text()).then(data => __setSignal($sigJs, data)); });"
 
     /** A2e — same uniqueness contract as `registerSignal` but for
      *  list cells: name validation + duplicate-initial check. */

@@ -107,6 +107,27 @@ class SolidFrameworkBackendTest extends AnyFunSuite:
     assert(js.contains("addEventListener('click', () => setGreeting('world'))"))
   }
 
+  test("emit — SeedSignal syncs from source while pristine and dirty-writes on input") {
+    val backend = new SolidFrameworkBackend
+    val source = new ReactiveSignal[String]("sourceName", "Ada")
+    val draft  = new SeedSignal("draftName", source)
+    val app = ComponentDef("App", Nil, _ => View.TextInput(
+      draft,
+      placeholder = "Name",
+      multiline = false,
+      secure = false,
+      style = Style()
+    ))
+    val js = backend.emit(FrontendModule(List(app), "App", "/")).js
+    assert(js.contains("const [sourceName, setSourceName] = createSignal('Ada');"), s"source signal:\n$js")
+    assert(js.contains("const [draftName, setDraftName] = createSignal('Ada');"), s"draft signal:\n$js")
+    assert(js.contains("let draftName_pristine = true;"), s"pristine flag:\n$js")
+    assert(js.contains("createEffect(() => { const __v = sourceName(); if (draftName_pristine) setDraftName(__v); });"),
+      s"source sync:\n$js")
+    assert(js.contains("addEventListener('input', (e) => { draftName_pristine = false; setDraftName(e.target.value); })"),
+      s"dirty input write:\n$js")
+  }
+
   test("emit — Fragment uses DocumentFragment") {
     val backend = new SolidFrameworkBackend
     val app = ComponentDef("App", Nil, _ => View.Fragment(Seq(

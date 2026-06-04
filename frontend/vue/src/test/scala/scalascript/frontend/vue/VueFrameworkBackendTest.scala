@@ -106,6 +106,29 @@ class VueFrameworkBackendTest extends AnyFunSuite:
     assert(js.contains("'onClick': () => { this.greeting = 'world'; }"))
   }
 
+  test("emit — SeedSignal syncs from source while pristine and dirty-writes on input") {
+    val backend = new VueFrameworkBackend
+    val source = new ReactiveSignal[String]("sourceName", "Ada")
+    val draft  = new SeedSignal("draftName", source)
+    val app = ComponentDef("App", Nil, _ => View.TextInput(
+      draft,
+      placeholder = "Name",
+      multiline = false,
+      secure = false,
+      style = Style()
+    ))
+    val js = backend.emit(FrontendModule(List(app), "App", "/")).js
+    assert(js.contains("import { ref, h, Fragment, watch, createApp } from 'vue';"), s"watch import:\n$js")
+    assert(js.contains("const sourceName = ref('Ada');"), s"source ref:\n$js")
+    assert(js.contains("const draftName = ref('Ada');"), s"draft ref:\n$js")
+    assert(js.contains("const draftName_pristine = ref(true);"), s"pristine ref:\n$js")
+    assert(js.contains("watch(sourceName, (v) => { if (draftName_pristine.value) draftName.value = v; });"),
+      s"source sync:\n$js")
+    assert(js.contains("'onInput': (e) => { this.draftName_pristine = false; this.draftName = e.target.value; }"),
+      s"dirty input write:\n$js")
+    assert(js.contains("return { sourceName, draftName, draftName_pristine };"), s"returned refs:\n$js")
+  }
+
   test("emit — Fragment becomes Vue Fragment element") {
     val backend = new VueFrameworkBackend
     val app = ComponentDef("App", Nil, _ => View.Fragment(Seq(
