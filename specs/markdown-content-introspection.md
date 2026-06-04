@@ -447,7 +447,7 @@ val page = lower(
 - [x] `contentToolkitBlock(id)` and `contentToolkitSection(id)` select exactly
       one Markdown-authored block or section by stable id so one document can
       contain multiple independent frontend regions.
-- [ ] `component=<name>` metadata uses an explicit
+- [x] `component=<name>` metadata uses an explicit
       `ContentToolkitOptions.components` registry to replace default toolkit
       lowering for matching blocks or sections, with fallback when no renderer
       is registered.
@@ -700,8 +700,8 @@ concatenates classes in source order.
 Phase 1 landed the Markdown-to-frontend MVP on 2026-06-04:
 parser-side `DocumentContent`, interpreter `contentDocument()`,
 `std/ui/content.ssc` lowering, and a React emit smoke. The remaining work is the
-full metadata lookup API, JS/JVM exposure, artifact round-trip, custom renderer
-registry, tables, and cross-backend conformance.
+full metadata lookup API, JS/JVM exposure, artifact round-trip, tables, and
+cross-backend conformance.
 
 The selector slice landed on 2026-06-05: `contentToolkitBlock(id)` renders one
 explicitly identified block such as `yaml @id=... @ui=toolkit`, and
@@ -709,3 +709,13 @@ explicitly identified block such as `yaml @id=... @ui=toolkit`, and
 block ids and duplicate block ids report interpreter errors. Verified with:
 `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/content-toolkit-selectors && sbt "backendInterpreterServer/testOnly scalascript.MarkdownContentFrontendSmokeTest" "cli/testOnly scalascript.cli.MarkdownContentFrontendCliTest"`
 (3 interpreter-server tests + 2 CLI tests passed).
+
+The component registry slice landed on 2026-06-05:
+`contentComponent(name)(render)` defines an explicit toolkit renderer for
+Markdown `component=<name>` metadata, and
+`contentToolkitOptionsWithComponents([...])` passes the registry to
+`contentToolkitNode`, `contentToolkitBlock`, or `contentToolkitSection`.
+Registered renderers replace default lowering for matching blocks or sections;
+missing registry entries fall back to default Markdown lowering. Verified with:
+`cd /Users/sergiy/work/my/scalascript/.worktrees/feature/content-component-registry && sbt "backendInterpreterServer/testOnly scalascript.MarkdownContentFrontendSmokeTest" "cli/testOnly scalascript.cli.MarkdownContentFrontendCliTest"`
+(4 interpreter-server tests + 2 CLI tests passed).
