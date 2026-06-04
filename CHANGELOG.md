@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — perf(interpreter): cold init allocation
+
+- **interp-opt-init-builtins-cache** — `effectPure` cold interpreter floor is
+  down from 0.010 to **0.005 ms/op**. Profile allocation is down from 32,208 to
+  **8,728 B/op** by lazily initializing unused interpreter/actor/cluster state
+  and using direct `System.getenv` reads in actor-cluster init. Shared pure
+  builtins cache was measured and deferred. Compile, 238 targeted tests, and
+  final bench/profile pass.
+
 ## 2026-06-04 — feat(types): ssc check-types GraphQL section — P4d-γ
 
 - **type-evidence-graphql-p4d-gamma** — `ssc check-types` now prints a third

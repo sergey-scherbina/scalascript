@@ -1072,16 +1072,19 @@ highest-impact item.
       `tryBuildInlineMatchAccum` with `targetVar`. 0.690 → 0.043 ms (16×).
       `patternMatchHeavy` also benefits: 0.349 → 0.135 ms (2.6×).
 
-- [ ] **interp-opt-init-builtins-cache** — Reduce the interpreter startup/allocation
-      floor for tiny programs by caching or lazily constructing builtins state.
-      Baseline: `effectPure` interp floor at 0.010 ms vs JS 0.006 ms; JFR shows
-      `Interpreter` + `ConcurrentHashMap` allocation dominates at ~32 KB/op.
-      Approach: start with lazy `ConcurrentHashMap` fields, then evaluate whether
-      the shared immutable builtins layer is small enough for this slice. Target:
-      interp `effectPure` <= 0.008 ms for L1+L2. Spec:
-      [`docs/interp-opt-init-builtins-cache.md`](docs/interp-opt-init-builtins-cache.md).
-      Verification: `scripts/bench profile effectPure`, targeted interpreter tests,
-      and relevant compile/test subset.
+- [x] **interp-opt-init-builtins-cache** — ✓ Landed 2026-06-04.
+      Cold interpreter startup/allocation floor reduced by lazily initializing
+      unused interpreter/actor/cluster state and replacing `scala.sys.env` in
+      `ActorInterp.$init$` with direct `java.lang.System.getenv(name)` reads.
+      `BENCH_WI=1 BENCH_MI=2 BENCH_F=1 scripts/bench interp effectPure`:
+      **0.010 → 0.005 ms/op**. Profile command
+      `BENCH_WI=1 BENCH_MI=1 BENCH_F=1 scripts/bench profile effectPure`:
+      **32,208 → 8,728 B/op** and
+      0.013 → 0.006 ms/op. Shared pure builtins cache was tried and deferred:
+      it saved only ~70 B/op in this profile, below the complexity threshold
+      for a `TwoLayerGlobals` wrapper. Verification:
+      `backendInterpreter / Compile / compile`, 238 targeted actor/cluster/interpreter/effects tests,
+      final bench/profile green. Commit d42cc6b2.
 
 - [ ] **interp-opt-recursive-eval** — `recursiveEvalMixed` 3.641 ms (2-param
       recursive tree eval — 2× overhead vs 1-param `recursiveEval` 1.898 ms).

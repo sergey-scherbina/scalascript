@@ -1,4 +1,0 @@
-feature+interp-opt-init-builtins-cache 2026-06-04T11:02:03Z
-status: in-progress
-done-so-far: Lazy cold Interpreter/ActorInterp state and direct System.getenv reads reduce effectPure from 0.010 ms/op to 0.005 ms/op; profile allocation from 32,208 B/op to 8,728 B/op. Compile, targeted tests, and final bench are green.
-next: commit implementation, push to origin/main, then release claim with queue bookkeeping.
