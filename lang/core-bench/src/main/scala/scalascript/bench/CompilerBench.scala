@@ -137,11 +137,14 @@ class SsccFormatCompilerBench:
       f"sscc=${ssccBytes.length}%d B, sscc+gzip=${ssccGzip.length}%d B, " +
       f"gzip-ratio=${ssccGzip.length.toDouble/ssccBytes.length*100}%.1f%%")
 
-  /** Load from pre-compiled .sscc (v3 token stream). */
+  /** Load from pre-compiled .sscc — parallel scalameta parse (default path). */
   @Benchmark def readSscc(): Module = SsccFormat.read(ssccBytes).getOrElse(throw new RuntimeException("sscc read failed"))
 
   /** Load from pre-compiled .sscc with outer gzip compression. */
   @Benchmark def readSsccGzip(): Module = SsccFormat.read(ssccGzip).getOrElse(throw new RuntimeException("sscc gzip read failed"))
+
+  /** Decode-only: trie + token stream, no scalameta parse (measures irreducible I/O floor). */
+  @Benchmark def readSsccDecode(): Module = SsccFormat.readNoTrees(ssccBytes).getOrElse(throw new RuntimeException("sscc decode failed"))
 
   /** Baseline: parse from .ssc source text (includes CommonMark + scalameta). */
   @Benchmark def parseSource(): Module = Parser.parse(actorsSsc)

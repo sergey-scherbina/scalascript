@@ -570,7 +570,15 @@ object SsccFormat:
             .toEither.left.map(_.getMessage)
             .map(fromPickle)
 
+  /** Decode-only read: trie + token stream without scalameta parse (`tree = None`).
+   *  Useful for dependency resolution and benchmarking the irreducible I/O floor. */
+  def readNoTrees(bytes: Array[Byte]): Either[String, Module] =
+    readV3Impl(bytes, populateTrees = false)
+
   private def readV3(bytes: Array[Byte]): Either[String, Module] =
+    readV3Impl(bytes, populateTrees = true)
+
+  private def readV3Impl(bytes: Array[Byte], populateTrees: Boolean): Either[String, Module] =
     // v3 header: magic(4) + version(1) + compressionFlag(1) + crc32(4) = 10 bytes
     if bytes.length < 10 then return Left("truncated .sscc v3 header")
     val compressionFlag = bytes(5) & 0xff
@@ -583,4 +591,7 @@ object SsccFormat:
       case 0x00 => Right(stored)
       case 0x01 => Try(gzipDecompress(stored)).toEither.left.map(e => s"gzip decompress failed: ${e.getMessage}")
       case _    => Left(s"unsupported .sscc v3 compression flag 0x${compressionFlag.toHexString}")
-    payloadE.flatMap(payload => SsccFormatV3.read(payload, bytes => manifestFromBytes(bytes)))
+    if populateTrees then
+      payloadE.flatMap(payload => SsccFormatV3.read(payload, bytes => manifestFromBytes(bytes)))
+    else
+      payloadE.flatMap(payload => SsccFormatV3.readNoTrees(payload, bytes => manifestFromBytes(bytes)))
