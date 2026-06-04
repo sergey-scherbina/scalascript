@@ -83,6 +83,10 @@ The project already has several pieces of the target shape:
   `AnyEvidenceInventory` can count direct or structural exported `Any` by
   evidence kind. This is additive metadata; generated code and interface
   artifact formats are unchanged.
+- `.scim` `ExportedSymbol` entries now carry optional `TypeEvidenceWire`
+  metadata beside the legacy rendered `tpe` string. `InterfaceExtractor`
+  populates it from `DefSummary.evidence`; old artifacts without the field
+  remain readable, and `InterfaceScope` still resolves from legacy `tpe`.
 - `.scim` interface parsing uses `SType.show` / `parseSType`, but malformed or
   unsupported shapes collapse to `SType.Any`.
 - `apiClients:` and `remoteHandlers:` carry `requestType` / `responseType` as

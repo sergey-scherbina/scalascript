@@ -1,6 +1,6 @@
 # Type Evidence Inventory - spec
 
-**Status:** P1 landed 2026-06-04; P2+ planned.
+**Status:** P1-P2 landed 2026-06-04; P3+ planned.
 **Queue item:** `type-evidence-inventory-p1`.
 **Parent roadmap:** [`docs/typer-real-types-roadmap.md`](typer-real-types-roadmap.md).
 
@@ -148,6 +148,8 @@ Verification:
 ### P2 - Interface Evidence Serialization
 
 Queue slug: `type-evidence-interface-p2`.
+
+Landed 2026-06-04 in commit `24c0803d`.
 
 Add structured evidence fields beside legacy rendered type strings in interface
 artifacts. Keep old readers/writers working and keep `InterfaceScope` resolving
