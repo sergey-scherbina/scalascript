@@ -1132,6 +1132,14 @@ Spec: [`docs/crypto.md`](docs/crypto.md). Work in order: p1 → p2.
   Verification: `core / Test / testOnly scalascript.typer.TypeEvidenceTest`
   (6 tests), `core / Test / testOnly scalascript.typer.TyperRealTypesTest`
   (40 tests), `core / Test / compile`.
+- [ ] **type-evidence-interface-p2** — Add structured type-evidence metadata to
+  `.scim` exported symbols beside the existing rendered `tpe` string. Populate
+  it from `DefSummary.evidence` in `InterfaceExtractor`, keep old artifacts
+  readable via defaulted fields, and leave `InterfaceScope` resolution on legacy
+  `tpe` for this slice. Spec:
+  [`docs/type-evidence-inventory.md §P2`](docs/type-evidence-inventory.md#p2---interface-evidence-serialization).
+  Verification: interface extraction round-trip evidence test, legacy no-evidence
+  artifact read test, `core / Test / compile`.
 - [x] **perf-regression-guard** — Add a lightweight performance regression workflow: checked-in benchmark manifest/baseline policy, ignored generated artifacts, short opt-in `ssc bench`/JMH smoke command, and docs for when results are informational vs CI-blocking. ✓ Landed 2026-05-30: `ssc bench --smoke` runs a quick interpreter-only corpus smoke with optional `--target-ms/--require-target`; `scripts/perf-smoke.sh --jmh` runs an opt-in short JMH smoke; `bench/perf-manifest.yaml`, `bench/README.md`, `bench/BASELINE.md`, README, docs/performance, and the user guide document the informational-vs-blocking policy; raw runtime/JMH outputs are ignored.
 - [x] **cli-main-helper-split-p2** — Behavior-preserving CLI helper extraction: synthetic-request/render helpers → `RenderHelpers.scala`, artifact-info printers → `ArtifactInfoPrinters.scala`. Call sites import `.*` so they stay unqualified; command behavior + registry contracts unchanged. _(landed 2026-05-30)_
 - [x] **cli-main-helper-split-p3** _(landed 2026-05-30)_ — Behavior-preserving extraction of the two cleanly-decoupled `Main.scala` clusters: install/script commands → `InstallCommands.scala` (`scriptCommand` + `selfInstallCommand`) and `.ssclib` packaging + compat → `SsclibPackaging.scala` (`packageLib`, `ssclibIrEntryName`, `ssclibInterfaceBytes`, `CompatReport`, `checkSsclibCompat`, `publicSsclibSymbols`, `publicSymbolShapes`, `readSsclibInterfaces`). Both are top-level package-level defs in `scalascript.cli`, so Main's command classes call them unqualified — file-scoped `private def`s widened to `private[cli] def`, bodies byte-identical. `CheckCompatCmd`/`PackageCmd` stay in Main. Main drops 289 lines; `cli/compile` clean; `SsclibPackageCliTest` + `CommandRegistryTest` green (10). The tangled build/compile pipeline (shares the 11-ref `collectImports`) deferred to p4.
