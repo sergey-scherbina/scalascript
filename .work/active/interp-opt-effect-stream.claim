@@ -1,4 +1,0 @@
-feature/interp-opt-effect-stream 2026-06-04T08:04:42Z
-status: not-started
-done-so-far:
-next: JFR alloc profile effectStream, identify dominant allocator
