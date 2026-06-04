@@ -925,18 +925,20 @@ private[interpreter] object EvalRuntime:
       w += 1
 
     // Build result: (source, ())
-    val emitted = Value.ListV(buf.toList)
-    val fromFn  = interp.globals.getOrElse("Source.from", null)
+    // Defer buf.toList to when runToList is actually called — avoids O(N) list
+    // allocation + O(N) length traversal when the caller only needs .length.
+    val fromFn = interp.globals.getOrElse("Source.from", null)
     val source: Value =
       if fromFn != null then
+        val emitted = Value.ListV(buf.toList)
         try interp.invoke(fromFn, emitted :: Nil)
         catch case _: Throwable => emitted
       else
-        // Dstreams plugin not loaded — build a minimal Source with runToList/length so
-        // both the corpus (src.runToList().length) and JMH bench (emitted.length) work.
-        val nElems = emitted.asInstanceOf[Value.ListV].items.length
+        // Dstreams plugin not loaded — build a minimal Source with runToList/length.
+        // buf.length is O(1); buf.toList in the runToList lambda is deferred until called.
+        val nElems = buf.length
         Value.InstanceV("Source", Map(
-          "runToList" -> Value.NativeFnV("Source.runToList", Computation.pureFn { _ => emitted }),
+          "runToList" -> Value.NativeFnV("Source.runToList", Computation.pureFn { _ => Value.ListV(buf.toList) }),
           "length"    -> Value.IntV(nElems)
         ))
     Pure(Value.TupleV(source :: Value.UnitV :: Nil))
