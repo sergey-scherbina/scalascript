@@ -174,6 +174,25 @@ class InterfaceExtractorTest extends AnyFunSuite:
     assert(names == Set("foo", "bar"),
       s"expected both `foo` and `bar` when no `exports:` is set, got: $names")
 
+  test("exports — identifiers ending in underscore are collected"):
+    val iface = extract(
+      """val type_ = "event"
+        |val at_ = "2026-06-04"
+        |def seq_(xs: List[String]): String = xs.mkString(",")""".stripMargin)
+    val names = iface.exports.map(_.name).toSet
+    assert(names == Set("type_", "at_", "seq_"),
+      s"expected underscore-suffixed exports, got: $names")
+
+  test("exports — foldLeft brace lambda does not drop block exports"):
+    val iface = extract(
+      """def joined(xs: List[String]): String =
+        |  xs.foldLeft("") { (acc, item) =>
+        |    if acc == "" then item else acc + "," + item
+        |  }""".stripMargin)
+    val names = iface.exports.map(_.name).toSet
+    assert(names == Set("joined"),
+      s"expected joined export, got: $names")
+
   test("type evidence — exported symbols carry declared, inferred, and unknown evidence"):
     val iface = extract(
       """val declaredAny: Any = 1

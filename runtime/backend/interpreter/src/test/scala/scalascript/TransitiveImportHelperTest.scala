@@ -74,3 +74,61 @@ class TransitiveImportHelperTest extends AnyFunSuite with Matchers:
         |```
         |""".stripMargin)
     run(dir, "main.ssc") shouldBe "384"
+
+  test("imported module exports identifiers ending in underscore"):
+    val dir = os.temp.dir(prefix = "ssc-underscore-export-")
+    os.write(dir / "dep.ssc",
+      """---
+        |name: dep
+        |exports:
+        |  - type_
+        |  - at_
+        |  - seq_
+        |---
+        |# Dep
+        |
+        |```scalascript
+        |val type_ = "event"
+        |val at_ = "2026-06-04"
+        |def seq_(xs: List[String]): String =
+        |  xs.mkString(type_ + "@" + at_ + ":")
+        |```
+        |""".stripMargin)
+    os.write(dir / "main.ssc",
+      """# Main
+        |
+        |[type_, at_, seq_](dep.ssc)
+        |
+        |```scalascript
+        |println(type_ + "|" + at_ + "|" + seq_(List("a", "b")))
+        |```
+        |""".stripMargin)
+    run(dir, "main.ssc") shouldBe "event|2026-06-04|aevent@2026-06-04:b"
+
+  test("imported module remains exportable with foldLeft brace lambda"):
+    val dir = os.temp.dir(prefix = "ssc-brace-fold-export-")
+    os.write(dir / "dep.ssc",
+      """---
+        |name: dep
+        |exports:
+        |  - joined
+        |---
+        |# Dep
+        |
+        |```scalascript
+        |def joined(xs: List[String]): String =
+        |  xs.foldLeft("") { (acc, item) =>
+        |    if acc == "" then item else acc + "," + item
+        |  }
+        |```
+        |""".stripMargin)
+    os.write(dir / "main.ssc",
+      """# Main
+        |
+        |[joined](dep.ssc)
+        |
+        |```scalascript
+        |println(joined(List("a", "b", "c")))
+        |```
+        |""".stripMargin)
+    run(dir, "main.ssc") shouldBe "a,b,c"

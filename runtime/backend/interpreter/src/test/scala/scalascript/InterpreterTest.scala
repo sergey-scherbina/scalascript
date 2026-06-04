@@ -50,6 +50,16 @@ class InterpreterTest extends AnyFunSuite with Matchers:
     captured("println(3 != 4)") shouldBe "true"
   }
 
+  test("string comparison operators are lexicographic") {
+    captured("""
+      println("a" < "b")
+      println("a" <= "a")
+      println("b" > "a")
+      println("b" >= "b")
+      println("018f14c2-0000-7000-8000-000000000001" <= "018f14c2-0000-7000-8000-000000000002")
+    """) shouldBe "true\ntrue\ntrue\ntrue\ntrue"
+  }
+
   // ── String ──────────────────────────────────────────────────────
 
   test("string interpolation") {
