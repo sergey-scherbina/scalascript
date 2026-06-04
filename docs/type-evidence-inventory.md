@@ -1,9 +1,10 @@
 # Type Evidence Inventory - spec
 
-**Status:** P1-P4 (a/b/c) landed 2026-06-04; P4d (GraphQL) deferred.
+**Status:** P1-P4 (a/b/c) landed 2026-06-04; P4d α landed 2026-06-04; β+γ in progress.
 **Queue items:** `type-evidence-inventory-p1`, `type-evidence-interface-p2`,
 `type-evidence-routes-p3`, `type-evidence-schema-p4a`, `type-evidence-openapi-p4b`,
-`type-evidence-check-cmd-p4c`.
+`type-evidence-check-cmd-p4c`, `type-evidence-graphql-p4d-alpha`,
+`type-evidence-graphql-p4d-beta`, `type-evidence-graphql-p4d-gamma`.
 **Parent roadmap:** [`docs/typer-real-types-roadmap.md`](typer-real-types-roadmap.md).
 
 This is the first implementation slice of the real-types roadmap. The goal is
@@ -260,9 +261,9 @@ Verification:
 
 ### P4 - Schema Consumers
 
-P4 has three independent sub-slices (a, b, c) that can be claimed and landed
-separately. GraphQL evidence integration is deferred to a later roadmap because
-GraphQL uses SDL blocks with its own type model rather than frontmatter route strings.
+P4 has three independent sub-slices (a, b, c) that landed 2026-06-04, plus P4d
+(GraphQL evidence) which was initially deferred and is now in progress (α landed
+2026-06-04).
 
 #### P4a — Route Evidence Inventory Helper
 
@@ -354,6 +355,75 @@ Verification:
 - `cli / Test / testOnly scalascript.cli.CheckTypesCliTest`
 - `cli / Test / compile`
 
+#### P4d — GraphQL SDL Evidence
+
+P4d was initially deferred ("GraphQL uses SDL blocks with its own type model").
+Reconsidered: the SDL parser already runs at compile time — keeping the
+`TypeDefinitionRegistry` instead of discarding it gives a free typed surface to
+classify. Implemented as three independent sub-slices (α/β/γ).
+
+##### P4d-α — IR wire + plugin populates evidence
+
+Queue slug: `type-evidence-graphql-p4d-alpha`.
+
+Landed 2026-06-04 in commit `1b23a2e9`.
+
+Added to `lang/ir/src/main/scala/scalascript/ir/Ir.scala`:
+- `GraphQLFieldEvidenceWire(name, typeName, kind)` — per-field evidence
+- `GraphQLTypeEvidenceWire(name, kind, fields)` — per-type (Object/Interface/Input/Union/Enum/Scalar)
+- `GraphQLBlockEvidenceWire(types)` — block-level summary
+
+Additive `evidence: Option[GraphQLBlockEvidenceWire] = None` field on
+`Content.EmbeddedBlock`. Default `None` is backward-compatible with legacy `.scir`.
+
+`GraphQLSourceLanguage.compileBlock` now retains the parsed `TypeDefinitionRegistry`
+and builds `GraphQLBlockEvidenceWire`. Classification: field type names that are SDL
+built-in scalars (`Int`/`Float`/`String`/`Boolean`/`ID`), defined in the same block,
+or resolvable via `ScopeContext.resolve` → `"Declared"`. Everything else → `"Unknown"`.
+List/NonNull wrappers unwrap to the base type name. Invalid SDL → `evidence = None`.
+
+4 consumer pattern-matches updated to 4-arg (CapabilityCheck, Denormalize, NodeBackend,
+SourceLanguageDispatchTest). 8 new tests in `GraphQLEvidenceTest`.
+
+Verification:
+- `graphqlPlugin / Test / testOnly scalascript.compiler.plugin.graphql.GraphQLEvidenceTest`
+- `core / Test / testOnly scalascript.artifact.ArtifactIOTest`
+- `core / Test / compile`
+
+##### P4d-β — `GraphQLEvidenceInventory` helper
+
+Queue slug: `type-evidence-graphql-p4d-beta`.
+
+Add `GraphQLEvidenceCounts` + `GraphQLEvidenceInventory.count(manifest)` in
+`lang/core/src/main/scala/scalascript/typer/TypeEvidence.scala`. Tallies
+object/interface/input types and fields by `Declared`/`Unknown` across all
+`EmbeddedBlock("graphql", _, _, Some(ev))` blocks in the module sections.
+Missing `evidence` → 1 unknown type per block (backward-compat with legacy artifacts).
+
+Verification:
+- `core / Test / testOnly scalascript.typer.GraphQLEvidenceInventoryTest`
+- `core / Test / compile`
+
+##### P4d-γ — `ssc check-types` third section
+
+Queue slug: `type-evidence-graphql-p4d-gamma`.
+
+Extend `CheckTypesCmd` to add a third table section after routes + symbols:
+```
+GraphQL evidence:
+  object/interface/input types:  N declared, M unknown
+  fields:                        N declared, M unknown
+```
+Exit code gates on `routeCounts.allDeclared && graphqlCounts.allDeclared`.
+Update `CheckTypesCliTest` with 2 new test cases.
+
+Deferred: `ssc emit-graphql --require-declared` — no `ssc emit-graphql` command
+exists yet; record as BACKLOG item.
+
+Verification:
+- `cli / Test / testOnly scalascript.cli.CheckTypesCliTest`
+- `cli / Test / compile`
+
 ## Testing Strategy
 
 - Unit-test `TypeEvidence` constructors and `isAny` classification.
@@ -376,10 +446,10 @@ Verification:
 
 | File | Role |
 |---|---|
-| `lang/core/src/main/scala/scalascript/typer/TypeEvidence.scala` | Evidence model, `AnyEvidenceInventory`, `RouteEvidenceInventory` (P4a) |
+| `lang/core/src/main/scala/scalascript/typer/TypeEvidence.scala` | Evidence model, `AnyEvidenceInventory`, `RouteEvidenceInventory` (P4a), `GraphQLEvidenceInventory` (P4d-β) |
 | `lang/core/src/main/scala/scalascript/typer/Types.scala` | `SType` |
 | `lang/core/src/main/scala/scalascript/typer/Typer.scala` | `DefSummary` creation |
-| `lang/ir/src/main/scala/scalascript/ir/Ir.scala` | `ApiEndpointTypeEvidenceWire`, `ApiEndpointDecl`, `RemoteHandlerDecl` |
+| `lang/ir/src/main/scala/scalascript/ir/Ir.scala` | `ApiEndpointTypeEvidenceWire`, `ApiEndpointDecl`, `RemoteHandlerDecl`, `GraphQL{Field,Type,Block}EvidenceWire`, `EmbeddedBlock.evidence` (P4d) |
 | `lang/core/src/main/scala/scalascript/transform/Normalize.scala` | Evidence population from AST |
 | `tools/cli/src/main/scala/scalascript/cli/EmitCommands.scala` | OpenAPI emission (P4b) |
 | `tools/cli/src/main/scala/scalascript/cli/CheckTypesCmd.scala` | New check-types command (P4c) |
