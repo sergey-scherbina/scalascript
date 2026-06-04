@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(language): Markdown toolkit content selectors
+
+- **markdown-content-toolkit-selectors** — Added
+  `contentToolkitBlock(id)` and `contentToolkitSection(id)` so a single
+  Markdown document can define multiple independent `@ui=toolkit` blocks or
+  sections and compose only the selected regions. The live content-introspection
+  example now selects two YAML-declared control panels by `@id`.
+
 ## 2026-06-05 — docs(example): Markdown content live serve demo
 
 - **markdown-content-serve-demo** — Switched
