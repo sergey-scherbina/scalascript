@@ -1,4 +1,0 @@
-feature/jit-tuple-concat-hoist 2026-06-04T01:49:01Z
-status: not-started
-done-so-far:
-next: add tryWhileJit call in tryHoistedPureWhile before falling to tryLongWhileAssign

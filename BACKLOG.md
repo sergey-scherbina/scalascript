@@ -2213,17 +2213,12 @@ gated on same-session A/B + full suite green with the gate off AND on.
       Note: loops that were never executed (dead branches) are not visible —
       a `--static` parse-only mode remains a future follow-up.
 
-- [ ] **jit-tuple-concat-hoist** — Interp `tupleMonoid` is 55% slower than JVM
-      (0.212 ms vs 0.137 ms).  The bench `while i < 100000 do last = (1,2)++(3,4)`
-      allocates three TupleV objects per iteration; JVM backend constant-folds
-      to a pre-built object.  Fix: in `tryLongWhileAssign` (or a companion
-      `tryConstAssignHoist`), detect assignments where the RHS is a pure
-      constant expression (no free names, no loop-variable refs, no side effects)
-      and pre-evaluate it once before the JIT loop, storing the `Value` in a
-      pre-computed ref slot that the loop body reads without re-allocating.
-      Generalises to any `name = <literal-expr>` inside a while loop.
-      Spec: [`docs/bench-analysis-2026-06-04.md`](docs/bench-analysis-2026-06-04.md).
-      **Bench target:** `tupleMonoid` 0.212 → ~0.14 ms (JVM parity).
+- [x] **jit-tuple-concat-hoist** — ✓ Landed 2026-06-04 commit `47ba257c`.
+      Root cause: `tryHoistedPureWhile` delegated to `tryLongWhileAssign` (LExpr
+      virtual-dispatch loop) instead of attempting bytecode JIT first.
+      Fix: try `tryWhileJit` before `tryLongWhileAssign` for the hoisted int sub-body.
+      Results: tupleMonoid 0.196 → 0.013 ms (15×), tupleMonoidVal 1.936 → 0.011 ms (176×).
+      1279 tests pass.
 
 - [ ] **effect-stream-jfr** — `effect-stream` runs at 30.1 ms (interp only;
       no JVM/JS comparison).  This is 1880× slower than `effect-pure` (0.016 ms)
