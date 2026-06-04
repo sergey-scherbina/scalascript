@@ -417,6 +417,21 @@ class JsGen(
   private var loopHoistBuf: mutable.Buffer[(String, String)] | Null = null
   private var hoistIdx: Int = 0
 
+  // Names of `var`s declared in the function body enclosing the current while
+  // loop.  Set by genFunctionBody around while-body generation so that
+  // inlineForeachOrGenStat can recognise the invariant-accumulation pattern
+  // `stable.foreach(p => { acc = acc + f(p) })` and hoist the sum out of the loop.
+  private var loopOuterVars: Set[String] = Set.empty
+
+  private def termRefsAny(t: Term, names: Set[String]): Boolean =
+    var found = false
+    def walk(n: scala.meta.Tree): Unit =
+      if !found then n match
+        case Term.Name(v) => if names(v) then found = true
+        case _            => n.children.foreach(walk)
+    walk(t)
+    found
+
   private def freshTmp(): String =
     tmpIdx += 1
     s"_t$tmpIdx"
@@ -2324,16 +2339,23 @@ class JsGen(
     if stats.isEmpty then
       line("return undefined;")
     else
+      val outerVars: Set[String] = stats.collect {
+        case Defn.Var.After_4_7_2(_, pats, _, _) =>
+          pats.collect { case Pat.Var(n) => n.value }
+      }.flatten.toSet
       stats.zipWithIndex.foreach { (s, i) =>
         val isLast = i == stats.length - 1
         s match
           case tw: Term.While =>
-            val savedBuf = loopHoistBuf
-            val newBuf   = mutable.Buffer.empty[(String, String)]
+            val savedBuf  = loopHoistBuf
+            val savedVars = loopOuterVars
+            val newBuf    = mutable.Buffer.empty[(String, String)]
             loopHoistBuf = newBuf
+            loopOuterVars = outerVars
             val body = genWhileBodyInline(tw.body)
             val cond = genExpr(tw.expr)
             loopHoistBuf = savedBuf
+            loopOuterVars = savedVars
             newBuf.foreach { (k, v) => line(s"const $k = $v;") }
             line(s"while ($cond) { $body; }")
             if isLast then line("return undefined;")
@@ -2523,11 +2545,44 @@ class JsGen(
         case Term.Function.After_4_6_0(paramClause, fnBody)
              if paramClause.values.length == 1 =>
           val param   = paramClause.values.head.name.value
-          val qualJs  = genExpr(qual)
-          val bodyStr = genWhileBodyInline(fnBody) // call once; reuse string in both branches
-          val xsVar   = freshTmp()
-          val idxVar  = freshTmp()
-          s"const $xsVar = $qualJs; if (Array.isArray($xsVar)) { for (let $idxVar = 0; $idxVar < $xsVar.length; $idxVar++) { const $param = $xsVar[$idxVar]; $bodyStr; } } else { _forEach($xsVar, ($param) => { $bodyStr; }); }"
+          // Invariant-accumulation hoist: when the receiver is a loop-invariant
+          // name and the body is `acc = acc + f(p)` with `acc` an outer var and
+          // `f(p)` independent of any loop-mutated var, the inner sum is constant
+          // across outer iterations.  Hoist it before the loop and replace the
+          // foreach with `acc = acc + _sum` — the same O(1) strength reduction the
+          // SSC and JVM backends apply.
+          val hoisted: String | Null =
+            if loopHoistBuf == null then null
+            else (qual, fnBody) match
+              case (Term.Name(stableName),
+                    Term.Block(List(Term.Assign(Term.Name(accName),
+                      Term.ApplyInfix.After_4_6_0(Term.Name(acc2), Term.Name("+"), _, ac)))))
+                  if ac.values.length == 1
+                    && accName == acc2
+                    && loopOuterVars.contains(accName)
+                    && !loopOuterVars.contains(stableName)
+                    && !termRefsAny(ac.values.head.asInstanceOf[Term], loopOuterVars) =>
+                val addend = ac.values.head.asInstanceOf[Term]
+                // The addend lives inside the hoisted IIFE (a new scope), so it
+                // must not itself be hoisted to the outer-loop preamble.
+                val savedBuf = loopHoistBuf
+                loopHoistBuf = null
+                val addendJs = genExpr(addend)
+                val qualJs   = genExpr(qual)
+                loopHoistBuf = savedBuf
+                val sVar = freshTmp(); val xs = freshTmp(); val ix = freshTmp()
+                val sumExpr =
+                  s"(() => { let $sVar = 0; const $xs = $qualJs; if (Array.isArray($xs)) { for (let $ix = 0; $ix < $xs.length; $ix++) { const $param = $xs[$ix]; $sVar += $addendJs; } } else { _forEach($xs, ($param) => { $sVar += $addendJs; }); } return $sVar; })()"
+                val sumName = freshHoistConst(sumExpr)
+                s"$accName = $accName + $sumName"
+              case _ => null
+          if hoisted != null then hoisted
+          else
+            val qualJs  = genExpr(qual)
+            val bodyStr = genWhileBodyInline(fnBody) // call once; reuse string in both branches
+            val xsVar   = freshTmp()
+            val idxVar  = freshTmp()
+            s"const $xsVar = $qualJs; if (Array.isArray($xsVar)) { for (let $idxVar = 0; $idxVar < $xsVar.length; $idxVar++) { const $param = $xsVar[$idxVar]; $bodyStr; } } else { _forEach($xsVar, ($param) => { $bodyStr; }); }"
         case _ => genExpr(t)
     case _ => genExpr(t)
 
