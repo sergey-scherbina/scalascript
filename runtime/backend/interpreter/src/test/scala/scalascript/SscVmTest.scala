@@ -398,7 +398,8 @@ class SscVmTest extends AnyFunSuite with Matchers:
     names shouldBe Array("i")
     val entry = AsmJitBackend.tryCompileWhileMixed(w.expr, names, rhs, foreachApply, "acc", accIsDouble = false, interp)
     entry should not be null
-    entry.refFns.length shouldBe 1
+    // Inline path: fn is inlined, refFns empty; dispatch path: refFns has 1 entry.
+    entry.refFns.length should be <= 1
     entry.refDoubleFns shouldBe empty
     val slots = Array(0L, 0L)
     runMixedEntry(entry, interp, "xs", slots)
@@ -423,7 +424,8 @@ class SscVmTest extends AnyFunSuite with Matchers:
     val entry = AsmJitBackend.tryCompileWhileMixed(w.expr, names, rhs, foreachApply, "acc", accIsDouble = true, interp)
     entry should not be null
     entry.refFns shouldBe empty
-    entry.refDoubleFns.length shouldBe 1
+    // Inline path: fn is inlined, refDoubleFns empty; dispatch path: has 1 entry.
+    entry.refDoubleFns.length should be <= 1
     val slots = Array(0L, java.lang.Double.doubleToRawLongBits(0.0))
     runMixedEntry(entry, interp, "xs", slots)
     slots(0) shouldBe 3L
