@@ -261,8 +261,15 @@ controls:
 
 ```scalascript
 val page = lower(contentToolkitNode(), defaultTheme)
+serve(page, 8099)
 ```
 ````
+
+For live demos and phone/tablet previews, `serve(page, port)` is the preferred
+final bridge because the `.ssc` file is self-contained: it builds the View and
+starts the preview server in one run. `emit(page, outDir)` remains the static
+artifact path when callers need `index.html` + `app.js` for packaging or a
+separate static host.
 
 The block schema is intentionally small:
 
@@ -329,6 +336,9 @@ a compile error by itself.
 - [x] `contentToolkitNode()` renders the current Markdown document to a regular
       toolkit `TkNode`, and `contentView(...)` remains available for direct
       low-level `View` lowering.
+- [x] The runnable content-introspection demo can use `serve(page, port)` as
+      the final bridge for direct LAN/mobile preview; `emit(page, outDir)`
+      remains available for static artifact generation.
 - [ ] Interpreter, JS, and JVM backends expose byte-identical textual results
       for the non-frontend `std/content` API.
 - [ ] `.sscc` / `.scir` artifacts preserve enough content metadata for linked
