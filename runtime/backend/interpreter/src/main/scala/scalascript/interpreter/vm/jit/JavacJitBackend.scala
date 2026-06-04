@@ -2077,6 +2077,29 @@ object JavacJitBackend extends JitBackend:
               if jitR == null || !jitR.paramIsRef(0) || jitR.resultIsDouble || jitR.direct == null ||
                  !jitR.direct.isInstanceOf[ObjToLong]
               then return null
+              // Compile-time constant fold: if the entire ref-arg chain is val-bound,
+              // evaluate it at JIT-compile time and inline the result as a long literal.
+              // Only safe for val bindings (immutable), so the cached class stays correct.
+              val constVal = evalRefArgConst(args.head, ctx)
+              if constVal != null then
+                val constResult = jitR.direct.asInstanceOf[ObjToLong].apply(constVal)
+                return s"${constResult}L"
+              fn.body match
+                case tm: Term.Match =>
+                  val key = "fn_long_" + pureFnMethodName(fnName.value).stripPrefix("fn_")
+                  if !ctx.pureFnEmissions.contains(key) then
+                    val pname = fn.params.head
+                    val genCtx = new GenCtx(
+                      key, Set(pname), Array(pname), Array(true),
+                      false, Map.empty, ctx.interp, new CoEmitState
+                    )
+                    val matchBody = walkMatchBody(tm, genCtx, ctx.interp)
+                    if matchBody != null then
+                      ctx.pureFnEmissions(key) =
+                        s"  public static long $key(Object ${sanitize(pname)}) {\n    $matchBody\n  }\n"
+                  if ctx.pureFnEmissions.contains(key) then
+                    return s"$key($argRefJava)"
+                case _ =>
               val fi = ctx.refFnIdx(fnName.value)
               return s"_fn$fi.apply($argRefJava)"
           val sanitised = pureFnMethodName(fnName.value)
@@ -2199,10 +2222,54 @@ object JavacJitBackend extends JitBackend:
           if jitR == null || !jitR.paramIsRef(0) || jitR.resultIsDouble ||
              jitR.direct == null || !jitR.direct.isInstanceOf[ObjToObject]
           then return null
+          fn.body match
+            case tm: Term.Match =>
+              val key = "fn_obj_" + pureFnMethodName(fnName.value).stripPrefix("fn_")
+              if !ctx.pureFnEmissions.contains(key) then
+                val pname = fn.params.head
+                val genCtx = new GenCtx(
+                  key, Set(pname), Array(pname), Array(true),
+                  false, Map.empty, ctx.interp, new CoEmitState
+                )
+                val refBody = walkRefMatchBody(tm, genCtx, ctx.interp)
+                if refBody != null then
+                  ctx.pureFnEmissions(key) =
+                    s"  public static Object $key(Object ${sanitize(pname)}) {\n    $refBody\n  }\n"
+              if ctx.pureFnEmissions.contains(key) then
+                return s"$key($innerRefJava)"
+            case _ =>
           val oi = ctx.refObjFnIdx(fnName.value)
           s"_objFn$oi.apply($innerRefJava)"
         case _ => null
     case _ => null
+
+  /** Walk a ref-arg term to a concrete Value.InstanceV at JIT-compile time by
+   *  following val-bound globals and applying ObjToObject functions eagerly.
+   *  Returns non-null only when the entire chain is val-bound (safe to constant-fold). */
+  private def evalRefArgConst(t: Term, ctx: WhileGenCtx): AnyRef | Null =
+    if ctx.interp == null then return null
+    t match
+      case tn: Term.Name =>
+        if !ctx.interp.valNames.contains(tn.value) then return null
+        ctx.interp.globals.getOrElse(tn.value, null) match
+          case iv: Value.InstanceV => iv
+          case _                   => null
+      case ap: Term.Apply =>
+        ap.fun match
+          case fnName: Term.Name if ap.argClause.values.lengthCompare(1) == 0 =>
+            val innerVal = evalRefArgConst(ap.argClause.values.head, ctx)
+            if innerVal == null then return null
+            val fnV = ctx.interp.globals.getOrElse(fnName.value, null)
+            if !fnV.isInstanceOf[Value.FunV] then return null
+            val fn = fnV.asInstanceOf[Value.FunV]
+            if fn.params.length != 1 then return null
+            val jitR = tryCompile(fn, ctx.interp)
+            if jitR == null || !jitR.paramIsRef(0) || jitR.resultIsDouble ||
+               jitR.direct == null || !jitR.direct.isInstanceOf[ObjToObject]
+            then return null
+            jitR.direct.asInstanceOf[ObjToObject].apply(innerVal)
+          case _ => null
+      case _ => null
 
   /** Sanitise a fn name into a valid Java identifier with a `fn_` prefix
    *  to avoid collisions with the generated `run` method or Java keywords. */
