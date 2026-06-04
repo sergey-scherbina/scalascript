@@ -5,15 +5,18 @@ description: Markdown-hosted DocumentContent to low-level frontend View lowering
 package: std.ui.content
 exports:
   - ContentRenderOptions
+  - ContentToolkitOptions
   - contentView
   - contentViewSection
   - contentViewBlock
+  - contentToolkitNode
 ---
 
 # `std.ui.content` — Markdown content lowering
 
 [DocumentContent, SectionContent, ContentBlock, ContentInline](../content.ssc)
 [View, element, textNode, fragment](primitives.ssc)
+[TkNode](nodes.ssc)
 
 ```scalascript
 case class ContentRenderOptions(
@@ -93,4 +96,15 @@ def contentInlineView(inline: ContentInline,
 
     case Expr(source) =>
       textNode("${" + source + "}")
+
+case class ContentToolkitOptions(
+  includeCode: Boolean = false,
+  sectionGap: Int = 16,
+  blockGap: Int = 8,
+  listGap: Int = 4,
+  wrapDocumentInCard: Boolean = false,
+  wrapTopLevelSectionsInCards: Boolean = false
+)
+
+extern def contentToolkitNode(options: ContentToolkitOptions = ContentToolkitOptions()): TkNode
 ```

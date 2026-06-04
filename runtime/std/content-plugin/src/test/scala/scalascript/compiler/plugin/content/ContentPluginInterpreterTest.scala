@@ -41,14 +41,18 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
     interp.run(Parser.parse(source))
 
     interp.lastResult match
-      case Value.InstanceV("DocumentContent", docFields) =>
+      case docInst @ Value.InstanceV("DocumentContent", docFields) =>
+        assert(docInst.fieldNames.toList == List("manifest", "title", "description", "attrs", "sections", "blocks"))
+        assert(docInst.fieldsArr(1) == Value.OptionV(Value.StringV("Pricing")))
         assert(docFields("title") == Value.OptionV(Value.StringV("Pricing")))
         val sections = docFields("sections") match
           case Value.ListV(items) => items
           case other => fail(s"expected sections list, got $other")
         assert(sections.size == 1)
         sections.head match
-          case Value.InstanceV("SectionContent", sectionFields) =>
+          case sectionInst @ Value.InstanceV("SectionContent", sectionFields) =>
+            assert(sectionInst.fieldNames.toList == List("id", "level", "title", "attrs", "blocks", "children"))
+            assert(sectionInst.fieldsArr(2) == Value.StringV("Pricing"))
             assert(sectionFields("id") == Value.StringV("pricing"))
             assert(sectionFields("title") == Value.StringV("Pricing"))
             assert(sectionFields("attrs") == Value.MapV(Map(

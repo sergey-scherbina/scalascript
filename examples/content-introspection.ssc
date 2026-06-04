@@ -3,7 +3,7 @@ name: content-introspection
 version: 0.1.0
 frontend: react
 content:
-  defaultRenderer: std-ui
+  defaultRenderer: toolkit
 ---
 
 # Pricing {#pricing route=/pricing layout=marketing}
@@ -27,18 +27,32 @@ plans:
 ## Frontend API
 
 The first implemented goal is frontend from Markdown. The Markdown body above
-lowers to low-level frontend `View` nodes, while the YAML block becomes
+lowers into toolkit `TkNode` nodes and can be composed with the normal
+`std/ui` toolkit before becoming frontend `View` nodes. The YAML block becomes
 structured `ContentValue` data for custom renderers and later metadata APIs.
 
-[contentDocument](std/content.ssc)
+[contentToolkitNode](std/ui/content.ssc)
 
-[contentView](std/ui/content.ssc)
+[lower](std/ui/lower.ssc)
+
+[defaultTheme](std/ui/theme.ssc)
+
+[vstack](std/ui/layout.ssc)
+
+[heading, text](std/ui/typography.ssc)
 
 [emit](std/ui/primitives.ssc)
 
 ```scalascript
-val doc = contentDocument()
-val page = contentView(doc)
+val content = contentToolkitNode()
+val page = lower(
+  vstack(gap = 16)(
+    heading(1, "Markdown + toolkit"),
+    text("The Markdown document is now a regular TkNode subtree."),
+    content
+  ),
+  defaultTheme
+)
 emit(page, "/tmp/ssc-content-introspection")
 
 println("content-introspection:ok")

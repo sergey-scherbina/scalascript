@@ -54,3 +54,55 @@ class MarkdownContentFrontendSmokeTest extends AnyFunSuite:
     assert(js.contains("/hero.png"))
     assert(js.contains("Starter"))
     assert(js.contains("Pro"))
+
+  test("contentToolkitNode composes Markdown content through the std/ui toolkit"):
+    val outDir = Files.createTempDirectory("ssc-markdown-content-toolkit")
+    val src =
+      s"""---
+         |name: markdown-content-toolkit-smoke
+         |frontend: react
+         |content:
+         |  defaultRenderer: toolkit
+         |---
+         |
+         |# Pricing {#pricing route=/pricing}
+         |
+         |Intro with [docs](/docs).
+         |
+         |## Plans
+         |
+         |- Starter
+         |- Pro
+         |
+         |[contentToolkitNode](std/ui/content.ssc)
+         |
+         |[lower](std/ui/lower.ssc)
+         |
+         |[defaultTheme](std/ui/theme.ssc)
+         |
+         |[emit](std/ui/primitives.ssc)
+         |
+         |```scala
+         |emit(lower(contentToolkitNode(), defaultTheme), "${outDir.toString}")
+         |println("markdown-content-toolkit:ok")
+         |```
+         |""".stripMargin
+
+    val buf = java.io.ByteArrayOutputStream()
+    val ps  = java.io.PrintStream(buf, true)
+    val interp = Interpreter(out = ps, headless = true, baseDir = Some(TestPaths.repoRoot))
+    interp.injectGlobal("_ssc_frontend_name", Value.StringV("react"))
+    interp.run(Parser.parse(src))
+    ps.flush()
+
+    assert(buf.toString.contains("markdown-content-toolkit:ok"))
+    assert(Files.exists(outDir.resolve("index.html")))
+    val js = Files.readString(outDir.resolve("app.js"))
+    assert(js.contains("Pricing"))
+    assert(js.contains("Intro with "))
+    assert(js.contains("/docs"))
+    assert(js.contains("Starter"))
+    assert(js.contains("Pro"))
+    assert(js.contains("display: 'flex'"))
+    assert(js.contains("flexDirection: 'column'"))
+    assert(js.contains("fontSize: '32px'"))
