@@ -3,7 +3,14 @@ package scalascript.codegen
 /** JS runtime preamble (part 2b) — see `JsRuntimePart1a`. */
 val JsRuntimePart2b: String = """
 // Sync fallbacks — overridden by JsRuntimeAsyncB when Async capability is present.
-function _seqForeach(arr, fn) { for (const x of arr) fn(x); return undefined; }
+function _seqForeach(arr, fn) { for (let _i = 0; _i < arr.length; _i++) fn(arr[_i]); return undefined; }
+// _forEach: direct-call alternative to _dispatch(xs,'foreach',[fn]).
+// Routes arrays through _seqForeach (so AsyncB can override it for effectful callbacks);
+// falls back to _dispatch for Map/Set/Option and other non-array types.
+function _forEach(xs, fn) {
+  if (Array.isArray(xs)) return _seqForeach(xs, fn);
+  return _dispatch(xs, 'foreach', [fn]);
+}
 function _seqMap(arr, fn) { return arr.map(fn); }
 function _seqFlatMap(arr, fn) { return arr.flatMap(fn); }
 function _seqFilter(arr, fn, negate) { return arr.filter(x => negate ? !fn(x) : fn(x)); }

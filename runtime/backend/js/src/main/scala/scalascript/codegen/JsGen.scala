@@ -1217,6 +1217,8 @@ class JsGen(
   def genModuleSegmented(module: Module): List[JsGen.Segment] =
     sb.clear()
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
+    caseClassFieldsByType = caseClassFieldsInModule(module)
+    caseClassFieldTypeMap = caseClassFieldTypesInModule(module)
     collectFuncParamOrders(module)
     analyzeMutualRecursion(module)
     analyzeEffects(module)
@@ -3655,7 +3657,10 @@ class JsGen(
       case Term.Select(qual, Term.Name(method)) =>
         val qualJs = genExpr(qual)
         method match
-          // String * n handled specially
+          // foreach with a single fn arg: bypass _dispatch + avoid [fn] array allocation.
+          // _forEach uses an indexed for-loop for arrays and falls back to _dispatch otherwise.
+          case "foreach" if argVals.length == 1 =>
+            s"_forEach($qualJs, ${argVals.head})"
           case _ =>
             val argsJs = argVals.mkString(", ")
             s"_dispatch($qualJs, '$method', [$argsJs])"
@@ -4499,7 +4504,7 @@ class JsGen(
       val iterVar = freshTmp()
       val patJs = genForPatBinding(pat, iterVar)
       val inner = genForDoHelper(rest, bodyJs)
-      s"(() => { _dispatch($rhsJs, 'forEach', [($iterVar) => { $patJs $inner; }]); })()"
+      s"(() => { _forEach($rhsJs, ($iterVar) => { $patJs $inner; }); })()"
     case Enumerator.Guard(cond) :: rest =>
       val condJs = genExpr(cond)
       val inner = genForDoHelper(rest, bodyJs)
