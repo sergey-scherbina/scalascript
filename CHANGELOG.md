@@ -4,14 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
-## 2026-06-04 — feat(ui): seedSignal editable browser draft primitive
+## 2026-06-04 — feat(ui): seedSignal editable draft primitive
 
 - **ui-seed-signal** — Added `seedSignal(name, source: Signal[String])` for
-  browser JS forms that need a writable text draft seeded from another signal.
+  forms that need a writable text draft seeded from another signal.
   The draft mirrors the source while pristine; `inputChange` / `setSignal`
   marks it dirty, so later fetch refreshes do not overwrite user edits.
   Includes interpreter/JVM/JS shims, browser runtime pristine-source wiring,
-  docs, and `examples/seed-signal.ssc`.
+  React/Vue/Solid/Custom/SwiftUI emitter lowering, docs, and
+  `examples/seed-signal.ssc`.
 
 ---
 

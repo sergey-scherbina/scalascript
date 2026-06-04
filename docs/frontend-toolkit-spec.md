@@ -605,6 +605,12 @@ extern def serve(tree: View, port: Int): Unit
 Everything else — widget ADTs, `lower`, theme tokens, accessor
 helpers — is pure data and pure functions and belongs in `.ssc`.
 
+`seedSignal` is a portable frontend primitive. Backends lower it with a
+per-field pristine flag: the draft follows `source` until `inputChange` or
+`setSignal` writes to the draft, then later source refreshes leave the edited
+value alone. The browser runtime and the React, Vue, Solid, Custom JS, and
+SwiftUI emitters all preserve this contract.
+
 ### Encoding `Map[String, Any]` in `element()`
 
 The `element()` native decodes `attrs` and `events` values using

@@ -2770,9 +2770,10 @@ The React emitter turns each `signal(name, default)` call into:
 const [count, setCount] = useState(0)
 ```
 
-In the JS/browser runtime, use `seedSignal(name, source)` when a text input
-should start from a fetched or computed `Signal[String]` but remain
-user-editable:
+Use `seedSignal(name, source)` when a text input should start from a fetched
+or computed `Signal[String]` but remain user-editable. The primitive works in
+the JS/browser runtime and in the React, Vue, Solid, Custom JS, and SwiftUI
+frontend emitters:
 
 ```scalascript
 val serverName = fetchUrlSignal("serverName", "/api/profile/name", refresh)
