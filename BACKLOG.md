@@ -333,10 +333,12 @@ small and dependency-aware because multiple agents are working in parallel.
       columns, delete/post/link action paths, and inline-edit id fields against
       the row model from `FetchJsonSignal` / `CodecHint.Json`. Raw fetch-backed
       tables remain permissive. Spec: `docs/datatable-authoring-surface.md`.
-- [ ] **datatable-next-generalization** - Follow-up design and implementation
-      slices for a more universal table after path validation: a source
-      abstraction beyond `FetchUrlSignal`, richer column renderers, and
-      transport-neutral row action payloads. Spec:
+- [x] **datatable-next-generalization** - ✓ Landed 2026-06-03 as
+      `datatable-source-abstraction` and `datatable-column-action-expressiveness`
+      in `WORK_QUEUE.md`. The follow-up slices added `TableDataSource`
+      (`Remote`, `StaticRows`, `SignalRows`), `ColumnKind`, `RowPayload`,
+      `View.FormattedField`, width hints, std/ui helpers, and emitter/runtime
+      support across React/Vue/Solid/Custom/SwiftUI/Swing/JavaFX. Spec:
       `docs/datatable-authoring-surface.md §Phases 2-3`.
 - [x] **cli-command-result-exitcode** - ✓ Landed 2026-06-02. Introduced an
       internal `CommandResult` / `ExitCode` path, `CliCommand.runResult`,
