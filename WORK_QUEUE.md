@@ -322,7 +322,7 @@ then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 | `recursiveEvalMixed` | 3.665 | 3.697 | physical floor |
 | `refChainArg` | **0.046** | 0.047 | parity ✓ (javac-while-inline-objfn) |
 | `refFieldArg` | 0.047 | 0.047 | parity ✓ |
-| `tupleMonoid` | **0.013** | — | ✓ 16× via jit-tuple-concat-hoist; faster than JVM (0.137 ms) |
+| `tupleMonoid` | **0.013** | **0.000016** | ✓ jvm-tuple-monoid-hoist; HotSpot folds loop away |
 | `tupleMonoidVal` | 0.012 | — | guard bench — val-hoist path |
 
 `RuntimeBench` cross-backend (µs/op, default flags):
@@ -1044,16 +1044,13 @@ highest-impact item.
       BACKLOG (Computation pure-path elimination).
       **Bench target:** `effect-pure` interp ≤0.010 ms (JS parity).
 
-- [ ] **jvm-tuple-monoid-hoist** — `tuple-monoid` JVM 0.137 ms vs interp 0.013 ms
-      (JVM 10× SLOWER than interp!).  Workload: `while i < 100000 do last = (1,2)++(3,4)`.
-      The interpreter's `jit-tuple-concat-hoist` pre-evaluates the constant RHS
-      `(1,2)++(3,4)` once before the loop; the JVM codegen emits three tuple
-      allocations per iteration because the code generator has no constant-expression
-      hoisting for while-loop bodies.  Fix: in the JVM code generator's while-loop
-      emit path, detect assignments where the RHS is a closed constant expression
-      (no free variable references to loop variables) and hoist the pre-computation
-      to a `val` before the `while` block.
-      **Bench target:** `tuple-monoid` JVM ≤0.020 ms (interp parity).
+- [x] **jvm-tuple-monoid-hoist** — ✓ Landed 2026-06-04 commit `367ee2d0`.
+      `isConstantExpr` + `containsHoistableWhile` in `JvmGenTermAnalysis`; new
+      `emitBodyWithHoisting` + `Defn.Def` arm in `JvmGen.emitStat`. Hoisted
+      `(1,2)++(3,4)` as `val _hoist_0` before the while; HotSpot constant-folds
+      the entire 100k loop to a single assignment.
+      **Result:** `tuple-monoid` JVM 0.137 ms → **0.016 µs** (8500×); interp 0.013 ms.
+      1281 conformance tests passed.
 
 - [ ] **hello-world-interp-overhead** — `hello-world` interp 0.014 ms vs JVM/JS 0.002 ms
       (7×).  Workload: `def workload(): Unit = println("hello")` — a single zero-result
