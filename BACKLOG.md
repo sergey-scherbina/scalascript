@@ -44,15 +44,20 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       Compile / compile`, 208 targeted interpreter/JIT tests, short bench,
       full mixed bench, and profile bench. Commit 3174c0b4.
 
-- [ ] **interp-opt-recursive-build-floor** — Close the remaining recursive
-      benchmark floor after `interp-opt-recursive-eval` Phase 1A. JFR after the
-      fold shows the residual ~1.9 ms/op is dominated by `build(8)` / ADT
-      construction (`constructNoDefaultInstanceOrFallback`, `InstanceV`, `Pure`,
-      `FrameMap.one`). Candidate approaches: object-returning pure recursion JIT
-      for constructors like `build(d): Expr`, or Direction C compact/bytecode-array
-      representation. Target: `recursiveEvalMixed` reliably <= 1.8 ms/op and
-      `recursiveEval` below the current ~1.9 ms/op floor. Spec:
+- [x] **interp-opt-recursive-build-floor** — ✓ Landed 2026-06-04 (Phase 1B,
+      Javac). Added `LongToObject` / `resultIsRef` support plus a narrow
+      Javac object-expression walker for pure recursive ADT builders such as
+      `build(d): Expr`. `scripts/bench interp recursiveEval`: `recursiveEval`
+      **0.067 +/- 0.004 ms/op**, `recursiveEvalMixed` **0.068 +/- 0.001
+      ms/op**. Commit eb892a82. Spec:
       [`docs/interp-opt-recursive-eval.md`](docs/interp-opt-recursive-eval.md).
+
+- [ ] **interp-opt-recursive-build-floor-asm-parity** — Port the Phase 1B
+      `LongToObject` pure ADT builder path to `AsmJitBackend` after the active
+      dirty ASM worktree lands. ASM smoke still reports `recursiveEval` 2.106
+      ms/op and `recursiveEvalMixed` 1.951 ms/op with
+      `SSC_JIT_BACKEND=asm BENCH_WI=1 BENCH_MI=2 BENCH_F=1 scripts/bench interp 'recursiveEval|recursiveEvalMixed'`.
+      Spec: [`docs/interp-opt-recursive-eval.md`](docs/interp-opt-recursive-eval.md).
 
 - [x] **interp-opt-init-builtins-cache** — ✓ Landed 2026-06-04. `effectPure`
       interp floor reduced from 0.010 to **0.005 ms/op** by lazily initializing

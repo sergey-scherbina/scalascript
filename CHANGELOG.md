@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — perf(interpreter): object-returning recursive ADT builder JIT
+
+- **interp-opt-recursive-build-floor** — Phase 1B added `LongToObject` /
+  `resultIsRef` plus a narrow Javac object-expression walker for pure recursive
+  ADT builders. Default `scripts/bench interp recursiveEval`: `recursiveEval`
+  **0.067 +/- 0.004 ms/op**, `recursiveEvalMixed` **0.068 +/- 0.001 ms/op**;
+  208 targeted interpreter/JIT tests passed. ASM parity remains tracked as
+  `interp-opt-recursive-build-floor-asm-parity`.
+
 ## 2026-06-04 — perf(interpreter): invariant recursive eval loop fold
 
 - **interp-opt-recursive-eval** — Phase 1A folded invariant bytecode-JIT direct
