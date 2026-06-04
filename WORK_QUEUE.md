@@ -317,7 +317,7 @@ then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 ```
 interp_recursionFib:   1190   vs jvm 1281  (interp 0.93× — FASTER than JVM!)
 interp_recursionTco:     31   vs jvm   24  (interp 1.29× — parity)
-interp_patternMatch:  114610  vs jvm  566  (interp 203× off — main Phase D gap)
+interp_patternMatch:    666   vs jvm  575  (interp 1.16× — at parity! was 114610 µs = 203× off)
 interp_arithLoop:        283  vs jvm  274  (interp ~1× — at JVM parity, while-JIT landed)
 ```
 
