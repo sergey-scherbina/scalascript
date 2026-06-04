@@ -209,8 +209,27 @@ case class ContentToolkitOptions(
   blockGap: Int = 8,
   listGap: Int = 4,
   wrapDocumentInCard: Boolean = false,
-  wrapTopLevelSectionsInCards: Boolean = false
+  wrapTopLevelSectionsInCards: Boolean = false,
+  components: List[ContentToolkitComponent] = []
 )
+
+case class ContentComponentContext(
+  name: String,
+  kind: String,
+  id: String,
+  title: Option[String],
+  attrs: Map[String, ContentValue],
+  section: Option[SectionContent],
+  block: Option[ContentBlock],
+  data: Option[ContentValue]
+)
+
+case class ContentToolkitComponent(
+  name: String,
+  render: ContentComponentContext => TkNode
+)
+
+def contentComponent(name: String)(render: ContentComponentContext => TkNode): ContentToolkitComponent
 
 extern def contentToolkitNode(options: ContentToolkitOptions = ContentToolkitOptions()): TkNode
 extern def contentToolkitBlock(id: String,
@@ -360,6 +379,47 @@ first asks a component registry for `<name>`. If no renderer is registered, it
 falls back to the default Markdown lowering. A missing custom renderer is never
 a compile error by itself.
 
+The Phase 1 component registry is explicit and callback based: callers pass
+`ContentToolkitComponent` entries through `ContentToolkitOptions.components`.
+The renderer receives a `ContentComponentContext` with the selected block or
+section plus metadata. `kind` is `"section"` or `"block"`. `id` is the stable
+section id or explicit block id when present. `data` is populated for embedded
+structured data blocks and is `None` otherwise. The callback returns the full
+replacement `TkNode`; document/card wrapping options apply only to default
+lowering, not to custom component output.
+
+````markdown
+<!-- @meta component=PlanList source=plans -->
+## Plans
+
+- Starter: $19
+- Pro: $49
+
+[contentComponent, contentToolkitSection](std/ui/content.ssc)
+[vstack](std/ui/layout.ssc)
+[heading](std/ui/typography.ssc)
+[rawText](std/ui/reactive.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+val planList = contentComponent("PlanList") { ctx =>
+  vstack(gap = 4)(
+    heading(2, "Plans from component"),
+    rawText("source=" + ctx.attrs("source").toString)
+  )
+}
+
+val page = lower(
+  contentToolkitSection(
+    "plans",
+    ContentToolkitOptions(components = [planList])
+  ),
+  defaultTheme
+)
+```
+````
+
 ## Behavior
 
 - [x] The first implementation slice renders a Markdown-authored page or screen
@@ -377,6 +437,10 @@ a compile error by itself.
 - [x] `contentToolkitBlock(id)` and `contentToolkitSection(id)` select exactly
       one Markdown-authored block or section by stable id so one document can
       contain multiple independent frontend regions.
+- [ ] `component=<name>` metadata uses an explicit
+      `ContentToolkitOptions.components` registry to replace default toolkit
+      lowering for matching blocks or sections, with fallback when no renderer
+      is registered.
 - [x] Every fenced code block enters the content tree as an embedded language
       node, even when its execution is handled by a backend or plugin.
 - [x] Generated section ids are deterministic: slugify heading text; if a slug
@@ -586,7 +650,7 @@ concatenates classes in source order.
 - Add round-trip tests for old artifacts without content metadata and new
   artifacts with content metadata.
 
-### Phase 4 - Custom component registry
+### Phase 4 - Custom component registry (started 2026-06-05)
 
 - Add custom component registry hooks for `component=<name>` metadata.
 - Support structured `ContentValue` props from YAML/front-matter and fenced data

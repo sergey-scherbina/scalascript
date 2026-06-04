@@ -368,6 +368,10 @@ UI model. The toolkit bridge can render the whole document with
 `contentToolkitNode()` or select explicit Markdown-authored regions with
 `contentToolkitBlock(id)` and `contentToolkitSection(id)`, so one `.ssc`
 document can hold multiple independent UI fragments defined in Markdown/YAML.
+Sections or blocks annotated with `component=<name>` may opt into an explicit
+`ContentToolkitOptions.components` registry; registered callbacks receive the
+selected content metadata and return replacement toolkit nodes, while
+unregistered component names fall back to the default Markdown lowering.
 The lower-level `std/content` metadata API follows from the same snapshot
 instead of being the first goal. See
 [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md)
