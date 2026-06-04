@@ -320,7 +320,7 @@ then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 | `recursionTco` | 0.034 | 0.035 | parity ✓ |
 | `recursiveEval` | 3.383 | 3.706 | physical floor — 3.5 ns/node INVOKESTATIC, unreducible |
 | `recursiveEvalMixed` | 3.665 | 3.697 | physical floor |
-| `refChainArg` | 0.375 | 0.047 | ASM faster ✓ |
+| `refChainArg` | **0.046** | 0.047 | parity ✓ (javac-while-inline-objfn) |
 | `refFieldArg` | 0.047 | 0.047 | parity ✓ |
 | `tupleMonoid` | **0.013** | — | ✓ 16× via jit-tuple-concat-hoist; faster than JVM (0.137 ms) |
 | `tupleMonoidVal` | 0.012 | — | guard bench — val-hoist path |
@@ -985,6 +985,23 @@ highest-impact item.
 - [x] **effect-stream-opt1** — Superseded by OPT-2 (253× gain makes Perform1 moot).
 
 - [x] **effect-stream-opt3** — Superseded by OPT-2 (trampoline eliminated entirely).
+
+- [x] **javac-while-inline-objfn** — ✓ Landed 2026-06-04 commit `a725b427`.
+      Two complementary optimisations in `JavacJitBackend.walkLocalSlotCtx` /
+      `walkRefArgCtx` for ObjToLong/ObjToObject ref-arg chains in while-JIT:
+      1. **Compile-time constant fold** (`evalRefArgConst`): when the entire
+         ref-arg chain consists of val-bound globals, evaluate the ObjToObject
+         chain at JIT-compile time and inline the `long` literal directly into
+         the generated Java body. Eliminates all runtime dispatch for fixed-input
+         loops. Root cause of the gap: INVOKEINTERFACE on pre-existing lambda
+         objects benefits from prior HotSpot profiling; brand-new INVOKESTATIC
+         static methods have no warmup profile, preventing LICM.
+      2. **INVOKESTATIC co-emit fallback** (`fn_long_` / `fn_obj_` methods):
+         when the chain is not fully constant, co-emit the ObjToLong/ObjToObject
+         match bodies as static methods in the same WhileLong class so HotSpot
+         can inline them more aggressively after profiling.
+      **refChainArg** (`leafVal(getLeft(tree))` × 1M, `tree` val-bound):
+      Javac 0.377 ms → **0.046 ms (8.2×)**, matching ASM. 1281/1281 tests green.
 
 - [ ] **jvm-effect-types** — JVM backend silently produces no output (no `BENCH` line,
       no error) for any workload with `! Effect` typed functions.  `compile-jvm` reveals
