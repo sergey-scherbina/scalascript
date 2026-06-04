@@ -92,6 +92,29 @@ class ArtifactIOTest extends AnyFunSuite:
     assert(parsed.sourceHash == iface.sourceHash)
     assert(parsed.sourceHash.nonEmpty)
 
+  test(".scim read accepts legacy exported symbols without evidence field"):
+    val iface = sampleInterface.copy(
+      exports = List(
+        ExportedSymbol(
+          "x",
+          "org_example_ui_x",
+          "val",
+          "Any",
+          evidence = Some(TypeEvidenceWire("Any", "Declared", Some("legacy fixture seed")))
+        )
+      )
+    )
+    val doc = ujson.read(ArtifactIO.writeInterface(iface))
+    doc("exports").arr.foreach(_.obj.remove("evidence"))
+    val legacyJson = doc.render()
+
+    ArtifactIO.readInterface(legacyJson) match
+      case Right(parsed) =>
+        val x = parsed.exports.find(_.name == "x").getOrElse(fail("x export missing"))
+        assert(x.evidence.isEmpty)
+        assert(x.tpe == "Any")
+      case Left(err) => fail(s"legacy no-evidence .scim should read: $err")
+
   // ── .scir round-trip ───────────────────────────────────────────────────
 
   test(".scir round-trip via writeIr / readIr preserves NormalizedModule"):

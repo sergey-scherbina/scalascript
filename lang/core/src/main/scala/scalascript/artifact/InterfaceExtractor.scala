@@ -3,7 +3,7 @@ package scalascript.artifact
 import scalascript.ir.*
 import scalascript.ast
 import scalascript.transform.EffectAnalysis
-import scalascript.typer.{Typer, DefSummary, SType, SymbolKind as TSymbolKind}
+import scalascript.typer.{Typer, DefSummary, SType, TypeEvidence, SymbolKind as TSymbolKind}
 import scala.meta.*
 import scala.collection.mutable.ListBuffer
 
@@ -779,7 +779,8 @@ object InterfaceExtractor:
           inlineBodySource = inlineInfo.map(_._2),
           macroImpl = macroInfo,
           isMacroImpl = topLevelMacroImplNames.contains(d.name),
-          macroQuotedBodySource = topLevelMacroQuotedBodies.get(d.name)
+          macroQuotedBodySource = topLevelMacroQuotedBodies.get(d.name),
+          evidence         = d.evidence.map(typeEvidenceWire)
         )
       }
       .toList
@@ -993,3 +994,10 @@ object InterfaceExtractor:
     case TSymbolKind.Enum    => "enum"
     case TSymbolKind.Param   => "param"
     case TSymbolKind.TypeParam => "typeparam"
+
+  private def typeEvidenceWire(evidence: TypeEvidence): TypeEvidenceWire =
+    TypeEvidenceWire(
+      tpe = evidence.tpe.show,
+      kind = evidence.kind.toString,
+      reason = evidence.reason
+    )

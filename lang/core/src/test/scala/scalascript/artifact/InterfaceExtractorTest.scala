@@ -174,6 +174,41 @@ class InterfaceExtractorTest extends AnyFunSuite:
     assert(names == Set("foo", "bar"),
       s"expected both `foo` and `bar` when no `exports:` is set, got: $names")
 
+  test("type evidence — exported symbols carry declared, inferred, and unknown evidence"):
+    val iface = extract(
+      """val declaredAny: Any = 1
+        |val inferredInt = 42
+        |def unknownDef() = someUndefinedComplexThing()""".stripMargin
+    )
+    val byName = iface.exports.map(s => s.name -> s).toMap
+
+    val declaredAny = byName("declaredAny").evidence.getOrElse(fail("declaredAny evidence missing"))
+    assert(declaredAny.kind == "Declared")
+    assert(declaredAny.tpe == "Any")
+
+    val inferredInt = byName("inferredInt").evidence.getOrElse(fail("inferredInt evidence missing"))
+    assert(inferredInt.kind == "Inferred")
+    assert(inferredInt.tpe == "Int")
+
+    val unknownDef = byName("unknownDef").evidence.getOrElse(fail("unknownDef evidence missing"))
+    assert(unknownDef.kind == "Unknown")
+    assert(unknownDef.tpe == "() => Any")
+
+  test("type evidence — .scim JSON round-trip preserves exported evidence"):
+    val iface = extract(
+      """val declaredAny: Any = 1
+        |val inferredInt = 42
+        |def unknownDef() = someUndefinedComplexThing()""".stripMargin
+    )
+    val json = ArtifactIO.writeInterface(iface)
+    ArtifactIO.readInterface(json) match
+      case Right(parsed) =>
+        val byName = parsed.exports.map(s => s.name -> s).toMap
+        assert(byName("declaredAny").evidence.exists(_.kind == "Declared"))
+        assert(byName("inferredInt").evidence.exists(_.kind == "Inferred"))
+        assert(byName("unknownDef").evidence.exists(_.kind == "Unknown"))
+      case Left(err) => fail(s"round-trip failed: $err")
+
   test("exports filter — `exports:` listing an undefined name yields an empty subset"):
     // A name listed in `exports:` that isn't actually defined is silently
     // dropped; we don't fabricate symbols.  Real defs that ARE listed still

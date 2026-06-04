@@ -388,12 +388,27 @@ object ArtifactVersion:
   /** Human-readable description for error messages. */
   val description: String = s"ScalaScript artifact ABI $current"
 
+/** Additive wire form for typer evidence stored in `.scim`.
+ *
+ *  Kept in `lang/ir` as plain strings so the artifact model does not depend
+ *  on `lang/core`'s compiler-only `SType` / `TypeEvidence` classes.
+ *  `tpe` is the rendered `SType.show` value, and `kind` is one of the
+ *  `TypeEvidenceKind` case names (`Declared`, `Inferred`, `Unknown`, ...).
+ */
+case class TypeEvidenceWire(
+  tpe: String,
+  kind: String,
+  reason: Option[String] = None
+) derives ReadWriter
+
 /** Exported symbol entry in a `.scim` interface.
  *
  *  `kind` is one of: `val`, `def`, `object`, `type`, `given`, `extern`.
  *  `tpe` is a best-effort human-readable type string (e.g. `"Int => String"`);
- *  the typer currently produces `Any` for most names — richer types will land
- *  when the typer is extended in a later sprint. */
+ *  the typer currently produces `Any` for unsupported names.
+ *  `evidence` is optional structured metadata explaining where that rendered
+ *  type came from. It is additive; consumers keep using `tpe` until they opt
+ *  into stricter evidence-aware checks. */
 case class ExportedSymbol(
   name:     String,
   fqn:      String,           // fully-qualified mangled name: pkg segments + name
@@ -470,7 +485,11 @@ case class ExportedSymbol(
   isMacroImpl: Boolean = false,
   /** arch-meta-v2-p4 — Quoted body source of a macro implementation when it
    *  is a direct quoted expression (`'{ ... }`). */
-  macroQuotedBodySource: Option[String] = None
+  macroQuotedBodySource: Option[String] = None,
+  /** type-evidence-interface-p2 — optional structured metadata for `tpe`.
+   *  Default `None` preserves backward compatibility with `.scim` artifacts
+   *  emitted before this field existed. */
+  evidence: Option[TypeEvidenceWire] = None
 ) derives ReadWriter
 
 /** Typeclass instance entry in a `.scim` interface.
