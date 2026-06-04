@@ -300,3 +300,29 @@ private[codegen] trait JvmGenTermAnalysis:
       case _       => false
     }
 
+  /** True if `t` consists solely of literals, tuple constructors, and infix
+   *  ops on constant sub-expressions — safe to hoist out of any loop. */
+  private[codegen] def isConstantExpr(t: Term): Boolean = t match
+    case _: Lit => true
+    case Term.Tuple(elems) =>
+      elems.forall(isConstantExpr)
+    case Term.ApplyInfix.After_4_6_0(lhs, _, _, argClause) =>
+      isConstantExpr(lhs) && argClause.values.forall(isConstantExpr)
+    case _ => false
+
+  /** True if `body` is a block (or single while) containing at least one
+   *  Term.While whose body has a Term.Assign with a constant-expression RHS. */
+  private[codegen] def containsHoistableWhile(body: Term): Boolean =
+    def hasHoistableAssign(whileBody: Term): Boolean =
+      val stats: List[Stat] = whileBody match
+        case Term.Block(ss) => ss
+        case s: Stat        => List(s)
+      stats.exists {
+        case Term.Assign(_, rhs: Term) => isConstantExpr(rhs)
+        case _                         => false
+      }
+    def walk(t: Tree): Boolean = t match
+      case w: Term.While => hasHoistableAssign(w.body)
+      case _             => t.children.exists(walk)
+    walk(body)
+

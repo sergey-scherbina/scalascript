@@ -2640,6 +2640,39 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
 
   // ─── Statement emission ───────────────────────────────────────────
 
+  /** Emit a function body, hoisting constant-expression assignments out of
+   *  any while loop so the allocation happens once before the loop. */
+  private def emitBodyWithHoisting(body: Term): String =
+    body match
+      case Term.Block(stats) =>
+        var idx = 0
+        val parts = collection.mutable.ListBuffer.empty[String]
+        for stat <- stats do
+          stat match
+            case w: Term.While =>
+              val loopBodyStats: List[Stat] = w.body match
+                case Term.Block(ss) => ss
+                case s: Stat        => List(s)
+              val hoistLines = collection.mutable.ListBuffer.empty[String]
+              val newBodyLines = loopBodyStats.map {
+                case Term.Assign(lhs, rhs: Term) if isConstantExpr(rhs) =>
+                  val name = s"_hoist_$idx"
+                  idx += 1
+                  hoistLines += s"val $name = ${rhs.syntax}"
+                  s"${lhs.syntax} = $name"
+                case other => other.syntax
+              }
+              hoistLines.foreach(parts += _)
+              val whileBody = newBodyLines match
+                case Seq(single) => s" $single"
+                case many        => " {\n    " + many.mkString("\n    ") + "\n  }"
+              parts += s"while ${w.expr.syntax} do$whileBody"
+            case other =>
+              parts += other.syntax
+        "{\n  " + parts.mkString("\n  ") + "\n}"
+      case other =>
+        other.syntax
+
   private def emitStats(stats: List[Stat], out: StringBuilder, isTopLevel: Boolean): Unit =
     stats.zipWithIndex.foreach { (s, i) =>
       s match
@@ -2774,6 +2807,14 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       val paramStr = d.paramClauseGroups.map(_.syntax).mkString
       val retStr  = d.decltpe.map(t => s": ${t.syntax}").getOrElse("")
       s"${modStr}def ${d.name.value}$paramStr$retStr = ${emitExpr(d.body)}"
+
+    // Hoist loop-invariant constant assignments out of while bodies so the
+    // JVM does not re-allocate them on every iteration.
+    case d: Defn.Def if containsHoistableWhile(d.body) =>
+      val modStr   = if d.mods.isEmpty then "" else d.mods.map(_.syntax).mkString(" ") + " "
+      val paramStr = d.paramClauseGroups.map(_.syntax).mkString
+      val retStr   = d.decltpe.map(t => s": ${t.syntax}").getOrElse("")
+      s"${modStr}def ${d.name.value}$paramStr$retStr = ${emitBodyWithHoisting(d.body)}"
 
     // Strategy D, Step 3 — Defn.Object wrapping dep blocks may contain
     // effectful dep defs (marked by analyzeDepEffectfulness).  Recurse
