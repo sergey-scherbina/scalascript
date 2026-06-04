@@ -42,8 +42,6 @@ class AuNppProviderTest extends AnyFunSuite:
     try body(s"http://localhost:$port")
     finally { server.stop(0); executor.shutdownNow() }
 
-  private val testWebhookSecret = "npp-webhook-secret-test"
-
   private val senderAccount = BankAccount(
     holderName    = "Acme Pty Ltd",
     countryCode   = "AU",

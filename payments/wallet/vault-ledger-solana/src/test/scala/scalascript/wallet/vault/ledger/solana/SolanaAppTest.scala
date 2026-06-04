@@ -5,9 +5,9 @@ import org.scalatest.funsuite.AnyFunSuite
 import scala.concurrent.Await
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.*
-import scalascript.crypto.{Curve, HashAlgo}
+import scalascript.crypto.Curve
 import scalascript.wallet.spi.UnlockCredential
-import scalascript.wallet.vault.ledger.{Apdu, AppSwitchRequired, Bip32Path, MockTransport}
+import scalascript.wallet.vault.ledger.{AppSwitchRequired, Bip32Path, MockTransport}
 
 class SolanaAppTest extends AnyFunSuite:
 

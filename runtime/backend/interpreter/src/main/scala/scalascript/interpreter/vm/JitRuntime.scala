@@ -69,6 +69,7 @@ object JitRuntime:
    *  used for self-tail-recursive functions, whose single `callFun` entry
    *  already represents the whole hot loop (the VM compiles TCO to a loop). */
   private def hotCompiled(f: Value.FunV, interp: Interpreter, eager: Boolean): SscVm.CompiledFn | Null =
+    if interp.debugHooks.nonEmpty then return null
     val e = entryFor(f)
     val c = e.compiled
     if c != null then return c
@@ -166,6 +167,7 @@ object JitRuntime:
    *  Returns the `Result` (handle + paramIsRef) or null. */
   private def bytecodeFor(f: Value.FunV, interp: Interpreter): JitResult | Null =
     if !JitBackend.default.enabled then return null
+    if interp.debugHooks.nonEmpty then return null
     val e = entryFor(f)
     val r = e.bytecode
     if r != null then return r

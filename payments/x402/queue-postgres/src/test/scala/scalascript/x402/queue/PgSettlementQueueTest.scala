@@ -54,6 +54,10 @@ class PgSettlementQueueTest extends AnyFunSuite:
         updatedIds = updatedIds :+ ps.head.asInstanceOf[Long]
       Future.successful(1)
 
+    def stream[A](sql: String, ps: Any*)(f: A => Unit)(using RowDecoder[A]): Future[Unit] =
+      Future.successful(())
+    def foldLeft[A, B](sql: String, ps: Any*)(init: B)(f: (B, A) => B)(using RowDecoder[A]): Future[B] =
+      Future.successful(init)
     def transaction[A](f: PgClient => Future[A]): Future[A] = f(this)
     def close(): Unit = ()
 
