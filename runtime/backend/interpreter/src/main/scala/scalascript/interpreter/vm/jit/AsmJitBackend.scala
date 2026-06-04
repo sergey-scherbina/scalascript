@@ -2025,7 +2025,10 @@ object AsmJitBackend extends JitBackend:
       while idx < ctx.slots.length do
         if ctx.slots(idx) == tn.value then
           val fi = idx
-          return mv => mv.visitVarInsn(LLOAD, 1 + fi * 2)
+          // Callee static methods `(J)J`/`(JJ)J` have params at slot 0, 2, ...
+          // The main `run([J)V` has a long[] at slot 0, so params start at slot 1.
+          val slot = if ctx.isCallee then fi * 2 else 1 + fi * 2
+          return mv => mv.visitVarInsn(LLOAD, slot)
         idx += 1
       null
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, ac) if ac.values.lengthCompare(1) == 0 =>
