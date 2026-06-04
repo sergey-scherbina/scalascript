@@ -2643,11 +2643,27 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
 
   // ─── Statement emission ───────────────────────────────────────────
 
-  /** Emit a function body, hoisting constant-expression assignments out of
-   *  any while loop so the allocation happens once before the loop. */
+  /** Emit a function body:
+   *  1. Hoists constant-expression assignments out of while loops.
+   *  2. Rewrites `list.foreach(p => body)` that capture outer `var`s to
+   *     explicit while-loops (prevents DoubleRef / IntRef boxing).
+   *  3. When the foreach is `stable.foreach(p => { acc = acc + f(p) })` with
+   *     a Double accumulator and stable (non-var) receiver, hoists the per-
+   *     iteration sum out of the outer loop — matching the O(1) strength-
+   *     reduction that the SSC bytecode JIT applies to the same pattern. */
   private def emitBodyWithHoisting(body: Term): String =
     body match
       case Term.Block(stats) =>
+        val outerVarNames: Set[String] = stats.collect {
+          case Defn.Var.After_4_7_2(_, pats, _, _) =>
+            pats.collect { case Pat.Var(n) => n.value }
+        }.flatten.toSet
+        // Vars initialised with a Double literal — accumulator type check so we
+        // only hoist-and-sum when the temp var type matches (avoids Scala type errors).
+        val outerVarDoubleInits: Set[String] = stats.collect {
+          case Defn.Var.After_4_7_2(_, pats, _, _: Lit.Double) =>
+            pats.collect { case Pat.Var(n) => n.value }
+        }.flatten.toSet
         var idx = 0
         val parts = collection.mutable.ListBuffer.empty[String]
         for stat <- stats do
@@ -2663,6 +2679,38 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
                   idx += 1
                   hoistLines += s"val $name = ${rhs.syntax}"
                   s"${lhs.syntax} = $name"
+                case app: Term.Apply if isForeachCapturingVars(app, outerVarNames) =>
+                  // Try to hoist an invariant accumulation sum out of the loop:
+                  //   stable.foreach(p => { acc = acc + addend(p) })
+                  // → (before loop) val _sum = { …iterate stable once… }
+                  // → (in body)     acc = acc + _sum
+                  val hoisted: String | Null = app match
+                    case Term.Apply.After_4_6_0(
+                          Term.Select(Term.Name(stableName), Term.Name("foreach")),
+                          Term.ArgClause(List(Term.Function.After_4_6_0(paramClause, fnBody)), _)
+                        ) if paramClause.values.lengthCompare(1) == 0
+                          && !outerVarNames.contains(stableName) =>
+                      val paramName = paramClause.values.head.name.value
+                      fnBody match
+                        case Term.Block(List(Term.Assign(Term.Name(accName),
+                              Term.ApplyInfix.After_4_6_0(Term.Name(acc2), Term.Name("+"), _,
+                                ac)))) if ac.values.lengthCompare(1) == 0
+                                  && accName == acc2
+                                  && outerVarDoubleInits.contains(accName)
+                                  && !referencesAny(ac.values.head, outerVarNames) =>
+                          val addend   = ac.values.head
+                          val sumName  = s"_sum_$idx"
+                          val iterName = s"_iter_$idx"
+                          idx += 1
+                          hoistLines += s"val $sumName = { var _tmp: Double = 0.0; var $iterName = $stableName; while $iterName.nonEmpty do { val $paramName = $iterName.head; _tmp = _tmp + ${addend.syntax}; $iterName = $iterName.tail }; _tmp }"
+                          s"$accName = $accName + $sumName"
+                        case _ => null
+                    case _ => null
+                  if hoisted != null then hoisted
+                  else
+                    val iterName = s"_iter_$idx"
+                    idx += 1
+                    emitForeachAsWhile(app, iterName)
                 case other => other.syntax
               }
               hoistLines.foreach(parts += _)
@@ -2675,6 +2723,22 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         "{\n  " + parts.mkString("\n  ") + "\n}"
       case other =>
         other.syntax
+
+  /** Rewrite `<list>.foreach(<p> => <body>)` to an explicit while-loop so that
+   *  outer `var`s captured by the lambda are not boxed as DoubleRef / IntRef etc. */
+  private def emitForeachAsWhile(app: Term.Apply, iterName: String): String =
+    app match
+      case Term.Apply.After_4_6_0(
+            Term.Select(receiver, _),
+            Term.ArgClause(List(Term.Function.After_4_6_0(paramClause, fnBody)), _)
+          ) =>
+        val paramName = paramClause.values.head.name.value
+        val bodyStats: List[Stat] = fnBody match
+          case Term.Block(ss) => ss
+          case s: Stat        => List(s)
+        val bodyStr = bodyStats.map(_.syntax).mkString("; ")
+        s"{ var $iterName = ${receiver.syntax}; while ($iterName.nonEmpty) { val $paramName = $iterName.head; $bodyStr; $iterName = $iterName.tail } }"
+      case _ => app.syntax
 
   private def emitStats(stats: List[Stat], out: StringBuilder, isTopLevel: Boolean): Unit =
     stats.zipWithIndex.foreach { (s, i) =>
@@ -2835,9 +2899,9 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
                     else d.decltpe.map(t => s": ${t.syntax}").getOrElse("")
       s"${modStr}def ${d.name.value}$paramStr$retStr = ${emitExpr(d.body)}"
 
-    // Hoist loop-invariant constant assignments out of while bodies so the
-    // JVM does not re-allocate them on every iteration.
-    case d: Defn.Def if containsHoistableWhile(d.body) =>
+    // Hoist loop-invariant constant assignments and rewrite var-capturing foreach
+    // closures to while-loops to prevent Ref boxing.
+    case d: Defn.Def if containsHoistableWhile(d.body) || containsForeachCapturingVars(d.body) =>
       val modStr   = if d.mods.isEmpty then "" else d.mods.map(_.syntax).mkString(" ") + " "
       val paramStr = d.paramClauseGroups.map(_.syntax).mkString
       val retStr   = d.decltpe.map(t => s": ${t.syntax}").getOrElse("")

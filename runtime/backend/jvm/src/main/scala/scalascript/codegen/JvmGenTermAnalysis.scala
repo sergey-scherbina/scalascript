@@ -338,3 +338,42 @@ private[codegen] trait JvmGenTermAnalysis:
       case _             => t.children.exists(walk)
     walk(body)
 
+  /** True when `app` is `<expr>.foreach(<p> => <body>)` and `<body>`
+   *  references at least one name from `outerVars` (excluding `<p>` itself). */
+  private[codegen] def isForeachCapturingVars(app: Term.Apply, outerVars: Set[String]): Boolean =
+    if outerVars.isEmpty then return false
+    app match
+      case Term.Apply.After_4_6_0(
+            Term.Select(_, Term.Name("foreach")),
+            Term.ArgClause(List(Term.Function.After_4_6_0(paramClause, fnBody)), _)
+          ) if paramClause.values.lengthCompare(1) == 0 =>
+        val shadow = paramClause.values.head.name.value
+        def refs(t: Tree): Boolean = t match
+          case Term.Name(n) => outerVars(n) && n != shadow
+          case _            => t.children.exists(refs)
+        refs(fnBody)
+      case _ => false
+
+  /** True if `body` is a block that declares at least one `var` AND contains
+   *  a `while` loop whose body has a `foreach` closure that captures those vars. */
+  private[codegen] def containsForeachCapturingVars(body: Term): Boolean =
+    body match
+      case Term.Block(stats) =>
+        val varNames: Set[String] = stats.collect {
+          case Defn.Var.After_4_7_2(_, pats, _, _) =>
+            pats.collect { case Pat.Var(n) => n.value }
+        }.flatten.toSet
+        if varNames.isEmpty then return false
+        stats.exists {
+          case w: Term.While =>
+            val ws: List[Stat] = w.body match
+              case Term.Block(ss) => ss
+              case s: Stat        => List(s)
+            ws.exists {
+              case app: Term.Apply => isForeachCapturingVars(app, varNames)
+              case _               => false
+            }
+          case _ => false
+        }
+      case _ => false
+
