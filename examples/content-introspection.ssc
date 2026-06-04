@@ -76,14 +76,14 @@ controls:
 
 [defaultTheme](std/ui/theme.ssc)
 
-[emit](std/ui/primitives.ssc)
+[serve](std/ui/primitives.ssc)
 
 ```scalascript
 val page = lower(contentToolkitNode(), defaultTheme)
-emit(page, "/tmp/ssc-content-introspection")
+serve(page, 8099)
 
 println("content-introspection:ok")
-println("emitted: /tmp/ssc-content-introspection")
+println("serving: http://127.0.0.1:8099/")
 
 // Lower-level metadata APIs remain the follow-up slice:
 // contentSection("plans")
