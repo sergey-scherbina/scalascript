@@ -1,4 +1,0 @@
-feature/datatable-next-backlog-sync 2026-06-04T08:15:37Z
-status: in-progress
-done-so-far: Found BACKLOG datatable-next-generalization stale; implementation already landed as datatable-source-abstraction + datatable-column-action-expressiveness
-next: mark backlog item landed with references and release claim
