@@ -298,8 +298,8 @@ then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 | Bench | Javac | ASM | Notes |
 |---|---|---|---|
 | `arithLoop` | 0.256 | 0.277 | parity ✓ |
-| `counterWithTupleVar` | 58.751 | — | guard bench — non-hoist fallback path, expected slow |
-| `effectPure` | **0.016** | — | BytecodeJIT now compiles while-loop fns (was 0.047) |
+| `counterWithTupleVar` | 58.751 | — | **target: interp-opt-tuple-var** (non-hoist TupleV alloc loop; 230× vs arithLoop) |
+| `effectPure` | **0.016** | — | **target: interp-opt-effect-pure** (2.5× gap vs JS 0.006; needs noperform IR flag) |
 | `effectStream` | **0.104** | — | ✓ 253× via effect-stream-opt2 |
 | `instanceFieldAccess` | 0.039 | 0.041 | parity ✓ |
 | `mapForeach` | 0.188 | 0.187 | parity ✓ |
@@ -318,8 +318,8 @@ then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 | `recursionFibMul` | 1.315 | 1.341 | parity ✓ |
 | `recursionFibMulD` | 1.610 | 1.643 | parity ✓ |
 | `recursionTco` | 0.034 | 0.035 | parity ✓ |
-| `recursiveEval` | 3.383 | 3.706 | physical floor — 3.5 ns/node INVOKESTATIC, unreducible |
-| `recursiveEvalMixed` | 3.665 | 3.697 | physical floor |
+| `recursiveEval` | 3.383 | 3.706 | **target: interp-opt-recursive-eval** (3.5 ns/node; Direction C to break floor) |
+| `recursiveEvalMixed` | 3.665 | 3.697 | **target: interp-opt-recursive-eval** (same floor; need direct-style eval) |
 | `refChainArg` | **0.046** | 0.047 | parity ✓ (javac-while-inline-objfn) |
 | `refFieldArg` | 0.047 | 0.047 | parity ✓ |
 | `tupleMonoid` | **0.013** | **0.000016** | ✓ jvm-tuple-monoid-hoist; HotSpot folds loop away |

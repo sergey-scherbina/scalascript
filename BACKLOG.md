@@ -22,6 +22,55 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       emitted as a module-level frozen constant.
       **Result:** `tuple-monoid` JS 2.52 → 0.027 ms (93×).
 
+## Interpreter Performance — Open Targets
+
+Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 -i 5 -f 1`).
+
+- [ ] **interp-opt-tuple-var** — `counterWithTupleVar` 58 ms (~230× slower than `arithLoop`).
+      **Root cause:** any `while` body of shape `tupleVar = <expr-involving-tupleVar>` falls
+      through to the value-space loop in `tryLongWhileAssign` / `tryMixedLongWhile`, which
+      allocates a new `TupleV` on every iteration because the RHS is not a compile-time
+      pure constant (it reads the var). The bench fixture (`last = last`) is the minimal
+      regression guard for this path, but real programs hit it too: e.g.
+      `point = (point.x + dx, point.y + dy)`.
+      **Approach:** Extend the while-JIT to handle RHS expressions whose only free variables
+      are already-tracked `Long`/`Object` slots in the current `SlotTable` — i.e. a "var-read
+      is pure enough" relaxation. This keeps the tuple alive as a JVM object on the heap
+      (no re-allocation per iter) while updating the slot values individually.
+      **Target:** ≥10× (58 ms → ≤6 ms for 1M iters).
+      **Methodology:** JFR alloc profile first (`scripts/bench profile counterWithTupleVar`);
+      confirm `TupleV` dominates allocation; then implement.
+      **Spec:** [`docs/interp-opt-tuple-var.md`](docs/interp-opt-tuple-var.md)
+
+- [ ] **interp-opt-recursive-eval** — `recursiveEvalMixed` 3.6 ms (recursive tree eval,
+      ~3.5 ns/node INVOKESTATIC).
+      **Root cause:** Each node dispatch goes through one `INVOKESTATIC` JIT call
+      (already optimized by `jit-match-recursive-descent` 2026-06-04). The current floor
+      is set by the JVM INVOKESTATIC dispatch overhead times the 1021-node tree; sub-3 ns/node
+      requires either fewer dispatches per node or eliminating the tree representation.
+      **Approach (Direction C):** Direct-style eval — instead of `eval(Expr, Env)` producing
+      a `Computation` tree that is then walked, compile the SSC expression into a chain of
+      JVM stack operations using the BytecodeJIT / LExpr dual-bank pipeline, bypassing the
+      `Expr` ADT entirely. Spec: `docs/direct-style-eval-spec.md`.
+      **Target:** ≥2× (3.6 ms → ≤1.8 ms). Getting below ~1 ms requires Direction C.
+      **Prerequisite:** Direction C Phase 1 (dual-bank LExpr for recursive patterns).
+      **Spec:** [`docs/interp-opt-recursive-eval.md`](docs/interp-opt-recursive-eval.md)
+
+- [ ] **interp-opt-effect-pure** — `effectPure` interp 0.010 ms vs JS 0.006 ms / JVM 0.004 ms
+      (2.5× / 3.75× gap for effectful-typed functions with zero `perform` calls).
+      **Root cause:** JS/JVM codegen erases the `! E` effect type at compile time — a function
+      with no `perform` in its body compiles to a plain function. The interpreter cannot do
+      this erasure at parse/normalize time; `runLogger { compute(10000) }` still enters
+      `EffectsRuntime.evalHandle`, creates the `handledOps` Set, starts the trampoline, and
+      unwraps one `Pure(_)` — even though `compute` never performs.
+      **Approach:** Add a static `noperform` flag to `NormalizedDef` (set by a one-pass body
+      scan during `Normalize.apply`). In `EffectsRuntime.evalHandle`, if the body thunk
+      calls only `noperform`-flagged functions, bypass the trampoline and evaluate directly,
+      returning the `Value` unwrapped. This mirrors what JS/JVM already do at codegen time.
+      **Target:** interp ≤ 0.005 ms (matching JVM). Estimated 2–3× gain.
+      **Complexity:** Medium — one IR annotation field + one interpreter fast-path branch.
+      **Spec:** [`docs/interp-opt-effect-pure.md`](docs/interp-opt-effect-pure.md)
+
 ## Conformance Fixes — cross-backend gaps (2026-06-02)
 
 Four categories of conformance test failures that affect all backends or specific
@@ -92,8 +141,17 @@ for database primary keys and event IDs. Spec: [`docs/uuid.md`](docs/uuid.md).
 - [x] **uuid-p1** — Core JVM: done 2026-06-04.
 - [x] **uuid-p2** — Parse + validate: done 2026-06-04.
 - [x] **uuid-p3** — JS backend: done 2026-06-04.
-- [ ] **uuid-p4** (optional) — JVM monotonic v7 counter (`rand_a` counter within same
-      millisecond, `Uuid.v7Monotonic()` explicit opt-in).
+- [ ] **uuid-p4** — Opaque boundary hardening + effect system integration:
+      `Uuid.unsafeFromString(s: String): Uuid` (named coercion for known-valid strings);
+      `.version`, `.isNil`, `.isMax`, `.variant` extension methods; `SideEffect` algebraic
+      effect label + `runSideEffect` handler; `ContainsEffectPrimitive` / `DepEffectfulnessFixpoint`
+      registration for `Uuid.v4` and `Uuid.v7`; `withFixedUuid(fixed)(body)` for deterministic
+      testing.
+- [ ] **uuid-p5** — Direct/raw tier: `Uuid.v4Direct()` / `Uuid.v7Direct()` (inline `runSideEffect`
+      wrappers for script-top-level use); `rawUuidV4()` / `rawUuidV7()` low-level primitives
+      with no effect annotation (for library authors + interop).
+- [ ] **uuid-p6** (optional) — JVM monotonic v7 counter (`rand_a` counter within same
+      millisecond, `Uuid.v7Monotonic(): Uuid ! SideEffect` explicit opt-in).
 
 ## Quality / Contracts / Type System
 
