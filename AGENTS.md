@@ -1023,109 +1023,22 @@ git push origin main
 Only do this if you are certain the agent that wrote the claim is no longer
 running (check `git worktree list` and the timestamp inside the file).
 
-### Claim file format
+### Claim format, heartbeat, and triage
 
-Write the extended format when creating a claim. Line 1 is backward-compatible
-with old single-line claims:
+The claim file format (`agent:`, `heartbeat:` fields), freshness rules,
+heartbeat cadence (~10 min while dirty), and the full triage procedure for
+foreign claims are defined in the **`/multi-agent` skill**
+(`~/.claude/commands/multi-agent.md`).
 
-```
-<worktree-name> <ISO-timestamp>
-agent: <agent-id>
-heartbeat: <ISO-timestamp>
-status: not-started
-done-so-far:
-next: <first planned step>
-```
+Quick reference:
+- `/multi-agent status` — show active claims, heartbeat ages, pending tasks
+- `/multi-agent triage <slug>` — assess a claim you did not make
+- `/multi-agent heartbeat` — refresh your active claim's heartbeat
+- `/multi-agent release <slug>` — release a stale/orphaned claim
 
-**`agent`** — who made the claim. Use a short, recognisable identifier:
-`claude-code`, `codex`, `claude-opus-4-7`, `claude-sonnet-4-6`, or whatever
-tool is running the session. This field is the primary signal for "is this mine
-or someone else's?" — an agent reading a claim file it did not write can
-immediately see whether it is the same tool or a different one.
-
-**`heartbeat`** — the ISO timestamp of the last time the agent actively updated
-the claim on `origin/main`. Update it together with every `claim-update` commit.
-A heartbeat older than ~20 minutes means the agent is likely gone or paused;
-treat the claim as potentially orphaned.
-
-Update `agent`, `heartbeat`, `status`, `done-so-far`, and `next` at each
-intermediate commit so a resuming agent sees what was already done:
-
-```
-feature+phase5-derivation 2026-06-03T10:15:16Z
-agent: claude-code
-heartbeat: 2026-06-03T11:42:00Z
-status: in-progress
-done-so-far: Derivation.scala skeleton, DerivationTest stubs pass
-next: implement case-class derivation, run sbt test
-```
-
-Valid `status` values: `not-started`, `in-progress`, `blocked`.
-
-Old single-line format (`<worktree-name> <timestamp>` only) is still valid;
-missing fields are treated as `status: unknown`, `agent: unknown`,
-`heartbeat: unknown`.
-
-### Finding an active claim you did not make in this session
-
-**Never assume a claim is yours just because it exists.** A claim on
-`origin/main` that you did not write during this session may belong to a
-parallel agent or a previous dead session — you cannot tell from the claim
-alone.
-
-When `git ls-tree origin/main .work/active/` shows an active claim, run this
-triage before doing anything else:
-
-```bash
-SLUG=<task-slug>
-WT="/Users/sergiy/work/my/scalascript/.worktrees/feature+${SLUG#*-}"  # adjust name
-
-# 1. Read the claim (format, age, status)
-git show origin/main:.work/active/$SLUG.claim
-
-# 2. Does the worktree still exist?
-git worktree list | grep "$SLUG"
-
-# 3. Is there uncommitted work in it?
-git -C "$WT" status --short 2>/dev/null | head -20
-
-# 4. How fresh is the heartbeat? (primary liveness signal)
-git show origin/main:.work/active/$SLUG.claim | grep -E '^(agent:|heartbeat:)'
-# A heartbeat within the last ~20 min means a possibly live agent.
-# Missing or old heartbeat → likely dead session.
-```
-
-Interpret the results:
-
-| Worktree | Dirty files | Heartbeat age | Conclusion |
-|---|---|---|---|
-| missing | — | any | Orphan claim — safe to release and reclaim |
-| exists | no | > 20 min or missing | Claimed but no active work — likely dead session |
-| exists | yes | > 20 min | Work in progress, agent probably gone — ask user |
-| exists | yes or no | **< 20 min** | **Possibly live agent — do not touch; skip and ask user** |
-
-Then **report to the user** with the findings and ask for direction:
-
-```
-Found active claim: <slug>
-  Claimed at: <timestamp>, worktree: <name>
-  Agent: [agent-id from claim / unknown]
-  Heartbeat: [timestamp — N min ago / missing]
-  Worktree: [exists / missing]
-  Uncommitted changes: [N files / none]
-  Claim status: [not-started / in-progress / blocked / unknown]
-  Done so far: [text from claim / unknown]
-  Next step:   [text from claim / unknown]
-
-Assessment: <one sentence, e.g. "codex agent, heartbeat 45 min ago — likely dead session with work in progress">
-
-Options:
-  (a) Review the uncommitted work and continue
-  (b) Abandon the worktree, release the claim, pick the next task
-  (c) Leave as-is and pick the next task (if work may be active)
-```
-
-Do not start implementing until the user responds.
+**Never assume a claim is yours just because it exists.** Always read the
+`agent:` field first; a heartbeat older than ~20 minutes means the agent is
+likely gone.
 
 ---
 
