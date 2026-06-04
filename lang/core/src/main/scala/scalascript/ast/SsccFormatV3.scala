@@ -715,7 +715,7 @@ private[ast] object SsccFormatV3:
           case KCodeSmTokens =>
             Varint.read(bytes, pos) // consume kind
             val count = Varint.read(bytes, pos).toInt
-            val sb = new java.lang.StringBuilder
+            val sb = new java.lang.StringBuilder(count * 6)
             var i = 0
             while i < count do
               val smKind = Varint.read(bytes, pos).toInt

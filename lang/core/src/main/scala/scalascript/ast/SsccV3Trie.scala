@@ -162,38 +162,49 @@ private[ast] object TrieDecoder:
     if nodeCount == 0 then return Array.empty
 
     val edges        = new Array[String](nodeCount)
-    val terminals    = new Array[Int](nodeCount)     // -1 = non-terminal
-    val childCounts  = new Array[Int](nodeCount)
-    val childRoutes  = new Array[Array[(Byte, Int)]](nodeCount)
+    val terminals    = new Array[Int](nodeCount)   // -1 = non-terminal
+    val childIndices = new Array[Array[Int]](nodeCount)
 
-    for i <- 0 until nodeCount do
-      val edgeLen   = Varint.read(bytes, pos).toInt
-      val edgeBytes = bytes.slice(pos(0), pos(0) + edgeLen)
-      pos(0)       += edgeLen
-      edges(i)      = new String(edgeBytes, java.nio.charset.StandardCharsets.UTF_8)
+    var maxId = -1
+    var i = 0
+    while i < nodeCount do
+      val edgeLen = Varint.read(bytes, pos).toInt
+      edges(i) = new String(bytes, pos(0), edgeLen, java.nio.charset.StandardCharsets.UTF_8)
+      pos(0) += edgeLen
       val isTerminal = bytes(pos(0)) & 0xff; pos(0) += 1
-      terminals(i)   = if isTerminal == 0x01 then Varint.read(bytes, pos).toInt else -1
-      val cc         = Varint.read(bytes, pos).toInt
-      childCounts(i) = cc
-      val cc2 = new Array[(Byte, Int)](cc)
-      for j <- 0 until cc do
-        val firstByte = bytes(pos(0)).toByte; pos(0) += 1
-        val childIdx  = Varint.read(bytes, pos).toInt
-        cc2(j)        = (firstByte, childIdx)
-      childRoutes(i) = cc2
+      val tid = if isTerminal == 0x01 then Varint.read(bytes, pos).toInt else -1
+      terminals(i) = tid
+      if tid > maxId then maxId = tid
+      val cc = Varint.read(bytes, pos).toInt
+      val cix = new Array[Int](cc)
+      var j = 0
+      while j < cc do
+        pos(0) += 1  // firstByte: read and discard (used for lookup, not needed in decode DFS)
+        cix(j) = Varint.read(bytes, pos).toInt
+        j += 1
+      childIndices(i) = cix
+      i += 1
 
-    // DFS traversal to collect all (path, terminalId) pairs
-    val maxId = terminals.filter(_ >= 0).maxOption.getOrElse(-1)
     if maxId < 0 then return Array.empty
     val result = new Array[String](maxId + 1)
 
-    val stack = scala.collection.mutable.Stack.empty[(Int, String)]
-    stack.push((0, ""))
-    while stack.nonEmpty do
-      val (idx, prefix) = stack.pop()
-      val fullPath = prefix + edges(idx)
+    // DFS via manual array-based stack (avoids boxing)
+    val stackIdx = new Array[Int](nodeCount + 1)
+    val stackPfx = new Array[String](nodeCount + 1)
+    stackIdx(0) = 0
+    stackPfx(0) = ""
+    var top = 1
+    while top > 0 do
+      top -= 1
+      val idx      = stackIdx(top)
+      val fullPath = stackPfx(top) + edges(idx)
       if terminals(idx) >= 0 then result(terminals(idx)) = fullPath
-      for (_, childIdx) <- childRoutes(idx).reverseIterator do
-        stack.push((childIdx, fullPath))
+      val kids = childIndices(idx).length
+      var k = kids - 1  // push in reverse so DFS order (left-to-right) is preserved
+      while k >= 0 do
+        stackIdx(top) = childIndices(idx)(k)
+        stackPfx(top) = fullPath
+        top += 1
+        k -= 1
 
     result
