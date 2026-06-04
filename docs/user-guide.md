@@ -349,10 +349,30 @@ plans:
 Frontend MVP API:
 
 ```scalascript
+[contentToolkitNode](std/ui/content.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[vstack](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+
+val tree = vstack(gap = 16)(
+  heading(1, "Markdown + toolkit"),
+  text("The Markdown body is a regular TkNode subtree."),
+  contentToolkitNode()
+)
+val page = lower(tree, defaultTheme)
+```
+
+`contentToolkitNode()` is the toolkit bridge. It reads the current parsed
+Markdown document and returns a `TkNode`, so it can be placed inside `vstack`,
+`card`, routers, or any other `std/ui` composition before calling `lower`.
+
+The lower-level `View` renderer remains available when exact HTML-like Markdown
+shape is more important than toolkit composition:
+
+```scalascript
 [contentDocument](std/content.ssc)
-
 [contentView](std/ui/content.ssc)
-
 val page = contentView(contentDocument())
 ```
 

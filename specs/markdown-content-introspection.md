@@ -47,7 +47,7 @@ language blocks, and two small metadata extensions:
 name: pricing-page
 frontend: react
 content:
-  defaultRenderer: std-ui
+  defaultRenderer: toolkit
 ---
 
 # Pricing {#pricing route=/pricing layout=marketing}
@@ -203,6 +203,17 @@ compiler, server, and data use cases without pulling in UI dependencies. The
 `runtime/std/ui/content.ssc` surface is:
 
 ```scalascript
+case class ContentToolkitOptions(
+  includeCode: Boolean = false,
+  sectionGap: Int = 16,
+  blockGap: Int = 8,
+  listGap: Int = 4,
+  wrapDocumentInCard: Boolean = false,
+  wrapTopLevelSectionsInCards: Boolean = false
+)
+
+extern def contentToolkitNode(options: ContentToolkitOptions = ContentToolkitOptions()): TkNode
+
 case class ContentRenderOptions(
   includeCode: Boolean = false,
   evaluateInlineExpr: Boolean = true,
@@ -213,6 +224,14 @@ def contentView(doc: DocumentContent, options: ContentRenderOptions = ContentRen
 def contentViewSection(section: SectionContent, options: ContentRenderOptions = ContentRenderOptions()): View
 def contentViewBlock(block: ContentBlock, options: ContentRenderOptions = ContentRenderOptions()): View
 ```
+
+`contentToolkitNode()` is the preferred composition bridge for Phase 1. It reads
+the current parsed `.ssc` document from the content plugin and returns a regular
+`TkNode`, so callers can place Markdown content inside `vstack`, `card`,
+routers, and themed application shells before `lower(tree, theme)`.
+
+`contentView(contentDocument())` remains the lower-level renderer for callers
+that need direct `View` nodes and closer HTML-like Markdown shapes.
 
 The default lowering maps:
 
@@ -258,8 +277,9 @@ a compile error by itself.
 - [ ] Inline `${expr}` in prose is represented as `ContentInline.Expr(source)`
       until an explicit renderer evaluates it. Content introspection itself does
       not execute inline expressions.
-- [x] `contentView(...)` renders a document to the existing frontend toolkit and
-      is the primary Phase 1 success criterion.
+- [x] `contentToolkitNode()` renders the current Markdown document to a regular
+      toolkit `TkNode`, and `contentView(...)` remains available for direct
+      low-level `View` lowering.
 - [ ] Interpreter, JS, and JVM backends expose byte-identical textual results
       for the non-frontend `std/content` API.
 - [ ] `.sscc` / `.scir` artifacts preserve enough content metadata for linked
@@ -466,9 +486,9 @@ concatenates classes in source order.
 
 ## Testing
 
-- Frontend tests for `contentView(...)` generic lowering are the Phase 1 test
-  priority, plus one e2e smoke for
-  `serve(lower(contentView(contentDocument()), theme), port)`.
+- Frontend tests for `contentToolkitNode()` toolkit composition and
+  `contentView(...)` generic lowering are the Phase 1 test priority, plus an
+  e2e smoke for emitted React assets.
 - Parser unit tests for the subset required by frontend lowering: headings,
   generated/explicit ids, metadata comments, paragraphs, lists, links, images,
   inline code, inline expression capture as source, and embedded data blocks.

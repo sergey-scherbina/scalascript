@@ -68,12 +68,16 @@ DocumentContent(
 The first public path is frontend lowering:
 
 ```scalascript
-[contentDocument](std/content.ssc)
+[contentToolkitNode](std/ui/content.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
 
-[contentView](std/ui/content.ssc)
-
-val page = contentView(contentDocument())
+val page = lower(contentToolkitNode(), defaultTheme)
 ```
+
+`contentToolkitNode()` turns the current Markdown document into a regular
+`TkNode` subtree. The low-level `contentView(contentDocument())` renderer remains
+available when callers need direct `View` nodes.
 
 The broader metadata API remains planned under `std/content.ssc`:
 
