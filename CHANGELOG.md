@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — spec(language): Markdown content introspection
+
+- **markdown-content-introspection** — Added the planned `DocumentContent` /
+  `std/content` contract for reading non-code Markdown body content as typed
+  metadata, plus frontend `contentView(...)` lowering shape, user docs, a
+  phase-0 example sketch, and a pending conformance fixture. Compiler/runtime
+  implementation remains tracked in `BACKLOG.md`.
+
 ## 2026-06-04 — perf(interpreter): object-returning recursive ADT builder JIT
 
 - **interp-opt-recursive-build-floor** — Phase 1B added `LongToObject` /
