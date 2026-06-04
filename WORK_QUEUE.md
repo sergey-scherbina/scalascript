@@ -931,6 +931,27 @@ highest-impact item.
       to confirm whether the issue is the foreach driver or the inner match dispatch.
       **Bench target:** parity with Javac (within ±5%).
 
+- [ ] **jit-lint-while-coverage** — `ssc lint-jit` doesn't cover top-level
+      `while` loops (compiled by `tryCompileWhileLong` / `tryCompileWhileMixed`).
+      This is the blind spot that hides the ASM while-backend regressions until
+      bench time.  Full spec in BACKLOG.md `jit-lint-while-coverage`.
+
+      Prerequisite investigation (must precede code):
+      1. Check whether `interp.topLevelExprs` or an equivalent exists; if not,
+         the while-lint needs the AST before module execution — requires a
+         `--static` parse-only mode for `LintJitCmd` (see the existing TODO in
+         the class comment).
+      2. Decide whether `tryCompileWhileLong` is safe to call as a lint probe
+         (it populates the cache and may trigger real compilation).
+      3. Extract the structural bail predicates from `JavacJitBackend`'s while
+         compiler so `classifyWhileBailReasons` can give useful reasons rather
+         than just `WhileNotCompiled`.
+
+      **Block:** fix `asm-jit-purecall-bug` and `asm-jit-patternmatch-regression`
+      first — while-lint would report false positives until the underlying bugs
+      are patched.
+      Spec: `docs/jit-lint-while-coverage.md` (to be created when work starts).
+
 - [ ] **jit-tuple-concat-hoist** — `tupleMonoid` interp 0.212 ms vs jvm 0.137 ms (55% gap).
       Bench: `while i < 100000 do last = (1,2)++(3,4)`.  Every iteration allocates
       three `TupleV` objects; JVM backend constant-folds to a pre-built object.

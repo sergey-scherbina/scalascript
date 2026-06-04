@@ -352,13 +352,20 @@ def withGuard (line 3)  [will NOT JIT]
       fix: move the guard into the arm body
 ```
 
-The analyser uses the live tryCompile result as ground truth, so the
-lint and the runtime can never drift silently. Categories cover
-TryCatch, EffectReturn, UsingParams, VarargParam, PatternGuard,
-NonAdtScrutinee, NonExtractPattern, MixedReturnType, plus
-`UnknownShape` for cliffs the AST walk can't classify (today the
-recogniser predicates are entangled with the JIT emit code; factoring
-them into pure functions is the next docs-quality lever).
+The analyser uses the live `backend.tryCompile` result as ground truth,
+so the lint and the runtime can never drift silently.  The structural
+classifier is in `JitPredicates.classifyBailReasons` (shared between
+backends) and is exposed as the `JitBackend.classifyBailReasons` SPI
+method, which backends may override to add backend-specific reasons.
+Categories: TryCatch, EffectReturn, UsingParams, VarargParam,
+PatternGuard, NonAdtScrutinee, NonExtractPattern, MixedReturnType, plus
+`UnknownShape` for cliffs the AST walk can't classify.
+
+`ssc lint-jit --backend asm` targets AsmJitBackend specifically;
+`ssc lint-jit --backend both` runs both backends in a single pass and
+shows a per-function side-by-side diff (`[JAVAC OK] [ASM FAIL]`),
+which is the primary tool for surfacing ASM parity regressions without
+running a full benchmark.
 
 ### Methodology lessons
 
