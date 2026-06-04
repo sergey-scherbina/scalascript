@@ -78,6 +78,11 @@ The project already has several pieces of the target shape:
 - Tuple, typed, `Some`, and local case-class extractor patterns now bind
   pattern variables with available expected types, so destructuring summaries
   and simple match bodies no longer collapse to `Any`.
+- `TypeEvidenceKind` / `TypeEvidence` now classify typer-created
+  `DefSummary` values as declared, inferred, or unknown, and
+  `AnyEvidenceInventory` can count direct or structural exported `Any` by
+  evidence kind. This is additive metadata; generated code and interface
+  artifact formats are unchanged.
 - `.scim` interface parsing uses `SType.show` / `parseSType`, but malformed or
   unsupported shapes collapse to `SType.Any`.
 - `apiClients:` and `remoteHandlers:` carry `requestType` / `responseType` as

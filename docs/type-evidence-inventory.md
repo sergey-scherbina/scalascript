@@ -1,6 +1,6 @@
 # Type Evidence Inventory - spec
 
-**Status:** Planned.
+**Status:** P1 landed 2026-06-04; P2+ planned.
 **Queue item:** `type-evidence-inventory-p1`.
 **Parent roadmap:** [`docs/typer-real-types-roadmap.md`](typer-real-types-roadmap.md).
 
@@ -131,6 +131,8 @@ and plugin manifests.
 ### P1 - Evidence Model And Summary Inventory
 
 Queue slug: `type-evidence-inventory-p1`.
+
+Landed 2026-06-04 in commit `600d3523`.
 
 Add `TypeEvidenceKind`, `TypeEvidence`, optional summary evidence, and
 `AnyEvidenceInventory` for exported `DefSummary` values. Populate only the
