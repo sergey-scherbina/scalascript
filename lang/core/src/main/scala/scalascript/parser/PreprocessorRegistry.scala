@@ -25,6 +25,10 @@ object PreprocessorRegistry:
     registry(p.name) = p
     sortedCache = registry.values.toArray.sortBy(x => (x.priority, x.name))
 
+  def deregister(name: String): Unit =
+    registry.remove(name)
+    sortedCache = registry.values.toArray.sortBy(x => (x.priority, x.name))
+
   def lookup(name: String): Option[Preprocessor] = registry.get(name)
 
   /** All registered preprocessors sorted by priority (ascending). */

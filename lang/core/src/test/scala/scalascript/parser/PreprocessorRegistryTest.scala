@@ -54,7 +54,7 @@ class PreprocessorRegistryTest extends AnyFunSuite with Matchers:
       result should not include("FOO_MAGIC")
     finally
       // Deregister to avoid polluting other tests (TrieMap allows remove)
-      PreprocessorRegistry.registry.remove("test_pp_macro_expand_xyz")
+      PreprocessorRegistry.deregister("test_pp_macro_expand_xyz")
   }
 
   test("PreprocessorRegistry: applyAll runs preprocessors in priority order") {
@@ -78,8 +78,8 @@ class PreprocessorRegistryTest extends AnyFunSuite with Matchers:
       val sliceAB = log.dropWhile(x => x != "A" && x != "B").take(2)
       sliceAB should contain inOrder("B", "A")
     finally
-      PreprocessorRegistry.registry.remove("test_order_a_xyz")
-      PreprocessorRegistry.registry.remove("test_order_b_xyz")
+      PreprocessorRegistry.deregister("test_order_a_xyz")
+      PreprocessorRegistry.deregister("test_order_b_xyz")
   }
 
   // ── Backend.preprocessors ───────────────────────────────────────────────
@@ -131,7 +131,7 @@ class PreprocessorRegistryTest extends AnyFunSuite with Matchers:
     try
       PreprocessorRegistry.lookup("test_backend_pp_xyz").map(_.name) should be(Some("test_backend_pp_xyz"))
     finally
-      PreprocessorRegistry.registry.remove("test_backend_pp_xyz")
+      PreprocessorRegistry.deregister("test_backend_pp_xyz")
   }
 
   // ── Integration: preprocessForScala via Parser ──────────────────────────

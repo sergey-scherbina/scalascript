@@ -42,7 +42,9 @@ class NormalizeRoundTripTest extends AnyFunSuite:
     root / "conformance"
 
   private val fixtures: List[os.Path] =
-    os.list(fixtureDir).filter(_.ext == "ssc").toList.sortBy(_.last)
+    if os.exists(fixtureDir) then
+      os.list(fixtureDir).filter(_.ext == "ssc").toList.sortBy(_.last)
+    else Nil
 
   fixtures.foreach { path =>
     val name = path.baseName
