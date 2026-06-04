@@ -2404,7 +2404,7 @@ lazy val jsonPlugin = project
 
 lazy val contentPlugin = project
   .in(file("runtime/std/content-plugin"))
-  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, frontendCore, testUtils % Test)
   .settings(
     name := "scalascript-content-plugin",
     libraryDependencies ++= Seq(scalatestTest),

@@ -2,6 +2,7 @@ package scalascript.compiler.plugin.content
 
 import scalascript.ast
 import scalascript.backend.spi.{IntrinsicImpl, NativeContextFeatureKeys}
+import scalascript.frontend.ReactiveSignal
 import scalascript.interpreter.{InterpretError, Value}
 import scalascript.ir.QualifiedName
 import scalascript.plugin.api.PluginNative
@@ -36,6 +37,8 @@ object ContentIntrinsics:
     wrapDocumentInCard: Boolean = false,
     wrapTopLevelSectionsInCards: Boolean = false
   )
+
+  private case class ToolkitUiEnv(signals: Map[String, Value])
 
   private def toolkitOptions(value: Value): ToolkitOptions =
     val fields = value match
@@ -99,11 +102,241 @@ object ContentIntrinsics:
           case Some(t) => s"$alt ($t)"
           case None    => alt
       rawTextNode(label)
+    case ast.ContentBlock.Embedded(lang, _, _, data, attrs) if isToolkitUiBlock(lang, attrs) =>
+      data match
+        case Some(value) => toolkitUiNode(value, options)
+        case None =>
+          throw InterpretError("contentToolkitNode: @ui=toolkit requires a structured YAML/JSON/TOML block")
     case ast.ContentBlock.Embedded(lang, source, _, _, _) =>
       if options.includeCode then
         val label = if lang.isEmpty then "" else s"$lang\n"
         rawTextNode(label + source)
       else fragmentNode(Nil)
+
+  private def isToolkitUiBlock(lang: String, attrs: Map[String, ast.ContentValue]): Boolean =
+    attrs.get("ui").contains(ast.ContentValue.Str("toolkit")) &&
+      Set("yaml", "yml", "json", "toml").contains(lang)
+
+  private def toolkitUiNode(value: ast.ContentValue, options: ToolkitOptions): Value =
+    val root = contentMap(value, "@ui=toolkit")
+    val signals = root.get("signals").map(toolkitSignals).getOrElse(Map.empty)
+    val env = ToolkitUiEnv(signals)
+    root.get("controls")
+      .orElse(root.get("control"))
+      .map(toolkitControl(_, env, options))
+      .getOrElse(throw InterpretError("contentToolkitNode: @ui=toolkit block requires controls"))
+
+  private def toolkitSignals(value: ast.ContentValue): Map[String, Value] =
+    contentMap(value, "signals").map { case (name, initial) =>
+      name -> reactiveSignal(name, initial)
+    }
+
+  private def reactiveSignal(name: String, value: ast.ContentValue): Value =
+    value match
+      case ast.ContentValue.Str(v)  => Value.Foreign("ReactiveSignal", new ReactiveSignal[String](name, v))
+      case ast.ContentValue.Bool(v) => Value.Foreign("ReactiveSignal", new ReactiveSignal[Boolean](name, v))
+      case ast.ContentValue.Num(v) if isIntLike(v) =>
+        Value.Foreign("ReactiveSignal", new ReactiveSignal[Int](name, v.toInt))
+      case ast.ContentValue.Num(v) =>
+        Value.Foreign("ReactiveSignal", new ReactiveSignal[Double](name, v))
+      case ast.ContentValue.NullV =>
+        Value.Foreign("ReactiveSignal", new ReactiveSignal[String](name, ""))
+      case other =>
+        throw InterpretError(s"contentToolkitNode: signal '$name' default must be scalar, got ${contentValueKind(other)}")
+
+  private def toolkitControl(value: ast.ContentValue, env: ToolkitUiEnv, options: ToolkitOptions): Value =
+    value match
+      case ast.ContentValue.ListV(values) =>
+        fragmentNode(values.map(toolkitControl(_, env, options)))
+      case other =>
+        val fields = contentMap(other, "control")
+        val kind = normalizeControlKind(requiredContentString(fields, "type", "control"))
+        kind match
+          case "vstack" =>
+            vstackNode(
+              contentIntField(fields, "gap", options.blockGap),
+              toolkitChildren(fields, env, options)
+            )
+          case "hstack" =>
+            hstackNode(
+              contentIntField(fields, "gap", options.blockGap),
+              toolkitChildren(fields, env, options)
+            )
+          case "fragment" =>
+            fragmentNode(toolkitChildren(fields, env, options))
+          case "divider" =>
+            dividerNode()
+          case "heading" =>
+            headingNode(
+              contentIntField(fields, "level", 2),
+              requiredContentString(fields, "text", "heading")
+            )
+          case "text" | "paragraph" =>
+            textNode_(requiredContentString(fields, "text", "text"))
+          case "rawtext" =>
+            rawTextNode(requiredContentString(fields, "text", "rawText"))
+          case "signaltext" =>
+            signalTextNode(signalField(fields, env, "signalText", "signal", "value"))
+          case "show" | "showwhen" =>
+            showWhenNode(
+              signalField(fields, env, "show", "signal", "condition"),
+              requiredControlField(fields, env, options, "show", "then", "whenTrue"),
+              optionalControlField(fields, env, options, "else", "whenFalse").getOrElse(fragmentNode(Nil))
+            )
+          case "textfield" | "input" =>
+            textFieldNode(
+              signalField(fields, env, "textField", "signal", "value"),
+              contentStringField(fields, "label", ""),
+              contentBoolField(fields, "disabled", default = false),
+              contentBoolField(fields, "required", default = false)
+            )
+          case "checkbox" =>
+            checkboxNode(
+              signalField(fields, env, "checkbox", "signal", "checked"),
+              contentStringField(fields, "label", ""),
+              contentBoolField(fields, "disabled", default = false)
+            )
+          case "button" | "signalbutton" =>
+            toolkitButton(fields, env)
+          case "badge" =>
+            badgeNode(
+              firstContentString(fields, "content", "text").getOrElse(""),
+              contentStringField(fields, "variant", "default")
+            )
+          case "card" =>
+            cardNode(
+              optionalControlField(fields, env, options, "header").getOrElse(Value.NullV),
+              toolkitChildren(fields, env, options),
+              optionalControlField(fields, env, options, "footer").getOrElse(Value.NullV)
+            )
+          case otherKind =>
+            throw InterpretError(s"contentToolkitNode: unsupported control type '$otherKind'")
+
+  private def toolkitButton(fields: Map[String, ast.ContentValue], env: ToolkitUiEnv): Value =
+    val signal = signalField(fields, env, "button", "signal")
+    val value = fields.get("value").map(contentLiteral).getOrElse(Value.boolV(true))
+    val label = contentStringField(fields, "label", "")
+    fields.get("enabledWhen") match
+      case Some(ast.ContentValue.Str(name)) =>
+        showWhenNode(
+          signalRef(name, env, "button.enabledWhen"),
+          signalButtonNode(signal, value, label, disabled = false),
+          signalButtonNode(signal, value, label, disabled = true)
+        )
+      case Some(other) =>
+        throw InterpretError(s"contentToolkitNode: button.enabledWhen expected String, got ${contentValueKind(other)}")
+      case None =>
+        signalButtonNode(signal, value, label, contentBoolField(fields, "disabled", default = false))
+
+  private def toolkitChildren(
+    fields: Map[String, ast.ContentValue],
+    env: ToolkitUiEnv,
+    options: ToolkitOptions
+  ): List[Value] =
+    fields.get("children").orElse(fields.get("body")) match
+      case Some(ast.ContentValue.ListV(values)) => values.map(toolkitControl(_, env, options))
+      case Some(other) =>
+        throw InterpretError(s"contentToolkitNode: children expected List, got ${contentValueKind(other)}")
+      case None => Nil
+
+  private def requiredControlField(
+    fields: Map[String, ast.ContentValue],
+    env: ToolkitUiEnv,
+    options: ToolkitOptions,
+    context: String,
+    names: String*
+  ): Value =
+    optionalControlField(fields, env, options, names*)
+      .getOrElse(throw InterpretError(s"contentToolkitNode: $context requires ${names.mkString(" or ")}"))
+
+  private def optionalControlField(
+    fields: Map[String, ast.ContentValue],
+    env: ToolkitUiEnv,
+    options: ToolkitOptions,
+    names: String*
+  ): Option[Value] =
+    names.iterator.flatMap(name => fields.get(name)).take(1).toList match
+      case value :: Nil => Some(toolkitControl(value, env, options))
+      case _            => None
+
+  private def signalField(
+    fields: Map[String, ast.ContentValue],
+    env: ToolkitUiEnv,
+    context: String,
+    names: String*
+  ): Value =
+    val name = names.iterator.flatMap(name => contentStringOption(fields, name)).take(1).toList match
+      case value :: Nil => value
+      case _ => throw InterpretError(s"contentToolkitNode: $context requires ${names.mkString(" or ")}")
+    signalRef(name, env, context)
+
+  private def signalRef(name: String, env: ToolkitUiEnv, context: String): Value =
+    env.signals.getOrElse(
+      name,
+      throw InterpretError(s"contentToolkitNode: $context references unknown signal '$name'")
+    )
+
+  private def contentMap(value: ast.ContentValue, context: String): Map[String, ast.ContentValue] =
+    value match
+      case ast.ContentValue.MapV(values) => values
+      case other =>
+        throw InterpretError(s"contentToolkitNode: $context expected object, got ${contentValueKind(other)}")
+
+  private def requiredContentString(fields: Map[String, ast.ContentValue], name: String, context: String): String =
+    contentStringOption(fields, name)
+      .getOrElse(throw InterpretError(s"contentToolkitNode: $context requires $name"))
+
+  private def contentStringField(fields: Map[String, ast.ContentValue], name: String, default: String): String =
+    contentStringOption(fields, name).getOrElse(default)
+
+  private def firstContentString(fields: Map[String, ast.ContentValue], names: String*): Option[String] =
+    names.iterator.flatMap(name => contentStringOption(fields, name)).take(1).toList.headOption
+
+  private def contentStringOption(fields: Map[String, ast.ContentValue], name: String): Option[String] =
+    fields.get(name) match
+      case Some(ast.ContentValue.Str(v)) => Some(v)
+      case Some(other) =>
+        throw InterpretError(s"contentToolkitNode: $name expected String, got ${contentValueKind(other)}")
+      case None => None
+
+  private def contentBoolField(fields: Map[String, ast.ContentValue], name: String, default: Boolean): Boolean =
+    fields.get(name) match
+      case Some(ast.ContentValue.Bool(v)) => v
+      case Some(other) =>
+        throw InterpretError(s"contentToolkitNode: $name expected Boolean, got ${contentValueKind(other)}")
+      case None => default
+
+  private def contentIntField(fields: Map[String, ast.ContentValue], name: String, default: Int): Int =
+    fields.get(name) match
+      case Some(ast.ContentValue.Num(v)) if isIntLike(v) => v.toInt
+      case Some(other) =>
+        throw InterpretError(s"contentToolkitNode: $name expected Int, got ${contentValueKind(other)}")
+      case None => default
+
+  private def contentLiteral(value: ast.ContentValue): Value =
+    value match
+      case ast.ContentValue.Str(v)  => Value.StringV(v)
+      case ast.ContentValue.Bool(v) => Value.boolV(v)
+      case ast.ContentValue.Num(v) if isIntLike(v) => Value.intV(v.toLong)
+      case ast.ContentValue.Num(v)  => Value.doubleV(v)
+      case ast.ContentValue.NullV   => Value.NullV
+      case other =>
+        throw InterpretError(s"contentToolkitNode: literal expected scalar, got ${contentValueKind(other)}")
+
+  private def isIntLike(value: Double): Boolean =
+    value.isWhole && value >= Int.MinValue.toDouble && value <= Int.MaxValue.toDouble
+
+  private def normalizeControlKind(value: String): String =
+    value.toLowerCase(java.util.Locale.ROOT).filter(ch => ch != '-' && ch != '_')
+
+  private def contentValueKind(value: ast.ContentValue): String =
+    value match
+      case ast.ContentValue.Str(_)   => "String"
+      case ast.ContentValue.Bool(_)  => "Boolean"
+      case ast.ContentValue.Num(_)   => "Number"
+      case ast.ContentValue.ListV(_) => "List"
+      case ast.ContentValue.MapV(_)  => "Object"
+      case ast.ContentValue.NullV    => "Null"
 
   private def blocksText(blocks: List[ast.ContentBlock]): String =
     blocks.map(blockText).mkString(" ")
@@ -137,6 +370,15 @@ object ContentIntrinsics:
       "children" -> Value.ListV(children)
     )
 
+  private def hstackNode(gap: Int, children: List[Value]): Value =
+    instanceValue("HStackNode",
+      "gap" -> Value.intV(gap.toLong),
+      "children" -> Value.ListV(children)
+    )
+
+  private def dividerNode(): Value =
+    instanceValue("DividerNode")
+
   private def headingNode(level: Int, text: String): Value =
     instanceValue("HeadingNode",
       "level" -> Value.intV(level.toLong),
@@ -153,16 +395,60 @@ object ContentIntrinsics:
       "text" -> Value.StringV(text)
     )
 
+  private def showWhenNode(signal: Value, whenTrue: Value, whenFalse: Value): Value =
+    instanceValue("ShowWhenNode",
+      "signal" -> signal,
+      "whenTrue" -> whenTrue,
+      "whenFalse" -> whenFalse
+    )
+
+  private def signalTextNode(signal: Value): Value =
+    instanceValue("SignalTextNode",
+      "signal" -> signal
+    )
+
   private def fragmentNode(children: List[Value]): Value =
     instanceValue("FragmentNode",
       "children" -> Value.ListV(children)
     )
 
+  private def textFieldNode(value: Value, label: String, disabled: Boolean, required: Boolean): Value =
+    instanceValue("TextFieldNode",
+      "value" -> value,
+      "label" -> Value.StringV(label),
+      "disabled" -> Value.boolV(disabled),
+      "required" -> Value.boolV(required)
+    )
+
+  private def checkboxNode(checked: Value, label: String, disabled: Boolean): Value =
+    instanceValue("CheckboxNode",
+      "checked" -> checked,
+      "label" -> Value.StringV(label),
+      "disabled" -> Value.boolV(disabled)
+    )
+
+  private def signalButtonNode(signal: Value, value: Value, label: String, disabled: Boolean): Value =
+    instanceValue("SignalButtonNode",
+      "signal" -> signal,
+      "value" -> value,
+      "label" -> Value.StringV(label),
+      "disabled" -> Value.boolV(disabled)
+    )
+
+  private def badgeNode(content: String, variant: String): Value =
+    instanceValue("BadgeNode",
+      "content" -> Value.StringV(content),
+      "variant" -> Value.StringV(variant)
+    )
+
   private def cardNode(body: List[Value]): Value =
+    cardNode(Value.NullV, body, Value.NullV)
+
+  private def cardNode(header: Value, body: List[Value], footer: Value): Value =
     instanceValue("CardNode",
-      "header" -> Value.NullV,
+      "header" -> header,
       "body" -> Value.ListV(body),
-      "footer" -> Value.NullV
+      "footer" -> footer
     )
 
   private def documentValue(doc: ast.DocumentContent): Value =

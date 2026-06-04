@@ -74,43 +74,53 @@ class MarkdownContentFrontendSmokeTest extends AnyFunSuite:
          |- Starter
          |- Pro
          |
+         |```yaml @ui=toolkit
+         |signals:
+         |  teamName: "ScalaScript team"
+         |  enabled: false
+         |  applied: false
+         |controls:
+         |  type: card
+         |  children:
+         |    - type: heading
+         |      level: 2
+         |      text: Toolkit controls
+         |    - type: textField
+         |      signal: teamName
+         |      label: Team name
+         |    - type: checkbox
+         |      signal: enabled
+         |      label: Enable toolkit renderer
+         |    - type: button
+         |      signal: applied
+         |      value: true
+         |      label: Apply toolkit
+         |      enabledWhen: enabled
+         |    - type: show
+         |      signal: applied
+         |      then:
+         |        type: hstack
+         |        gap: 8
+         |        children:
+         |          - type: badge
+         |            text: active
+         |            variant: success
+         |          - type: rawText
+         |            text: "Preview for "
+         |          - type: signalText
+         |            signal: teamName
+         |```
+         |
          |[contentToolkitNode](std/ui/content.ssc)
          |
          |[lower](std/ui/lower.ssc)
          |
          |[defaultTheme](std/ui/theme.ssc)
          |
-         |[vstack, hstack](std/ui/layout.ssc)
-         |
-         |[heading](std/ui/typography.ssc)
-         |
-         |[card](std/ui/containers.ssc)
-         |
-         |[textField, checkbox, signalButton](std/ui/input.ssc)
-         |
-         |[showWhen, signalText_, fragment_, rawText](std/ui/reactive.ssc)
-         |
-         |[badge](std/ui/display.ssc)
-         |
-         |[signal, emit](std/ui/primitives.ssc)
+         |[emit](std/ui/primitives.ssc)
          |
          |```scala
-         |val teamName = signal("teamName", "ScalaScript team")
-         |val enabled  = signal("enabled", false)
-         |val applied  = signal("applied", false)
-         |def applyButton(disabled: Boolean) =
-         |  signalButton(applied, true, "Apply toolkit", disabled = disabled)
-         |val controls = card(
-         |  heading(2, "Toolkit controls"),
-         |  textField(value = teamName, label = "Team name"),
-         |  checkbox(checked = enabled, label = "Enable toolkit renderer"),
-         |  showWhen(enabled, applyButton(false), applyButton(true)),
-         |  showWhen(applied,
-         |    hstack(gap = 8)(badge("active", "success"), rawText("Preview for "), signalText_(teamName)),
-         |    fragment_()
-         |  )
-         |)
-         |emit(lower(vstack(gap = 16)(heading(1, "Markdown + toolkit"), controls, contentToolkitNode()), defaultTheme), "${outDir.toString}")
+         |emit(lower(contentToolkitNode(), defaultTheme), "${outDir.toString}")
          |println("markdown-content-toolkit:ok")
          |```
          |""".stripMargin
