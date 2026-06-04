@@ -1267,6 +1267,60 @@ private[interpreter] object EvalRuntime:
           v
       cm.runValueLong(scrutV, Map.empty)
 
+  /** Fold `while ctr OP bound do ctr = ctr + step` to `ctr = finalValue` in O(1).
+   *  Only called when exactly one int-slot assignment remains after hoisting.
+   *  Returns true and writes the terminal value to frame + globals if the
+   *  pattern matched; false to fall through to the JIT / LExpr loop.
+   *
+   *  Pattern requirements:
+   *  - RHS is `ctr + step` where step is a positive `Lit.Int`
+   *  - Condition is `ctr < bound` or `ctr <= bound` where bound is `Lit.Int`
+   *    or a val reference resolving to `Value.IntV`
+   *  - Current counter value is `Value.IntV` (standard Int slot)
+   *
+   *  Safe because the caller (tryHoistedPureWhile) has already proven the body
+   *  is all-assign with no Term.Apply — no side effects can occur mid-loop. */
+  private def tryFoldCounterLoop(
+    cond:      Term,
+    ctrName:   String,
+    rhs:       Term,
+    frameView: MutableEnvView,
+    interp:    Interpreter
+  ): Boolean =
+    val step: Long = rhs match
+      case Term.ApplyInfix.After_4_6_0(Term.Name(`ctrName`), Term.Name("+"), _, ac)
+          if ac.values.lengthCompare(1) == 0 =>
+        ac.values.head match
+          case Lit.Int(s) if s > 0 => s.toLong
+          case _ => return false
+      case _ => return false
+    val (isLE, bound): (Boolean, Long) = cond match
+      case Term.ApplyInfix.After_4_6_0(Term.Name(`ctrName`), Term.Name(op), _, ac)
+          if ac.values.lengthCompare(1) == 0 && (op == "<" || op == "<=") =>
+        val b: Long = ac.values.head match
+          case Lit.Int(v) => v.toLong
+          case Term.Name(n) if interp.valNames.contains(n) =>
+            interp.globals.getOrElse(n, null) match
+              case Value.IntV(v) => v
+              case _ => return false
+          case _ => return false
+        (op == "<=", b)
+      case _ => return false
+    val start: Long = frameView.getOrElse(ctrName, null) match
+      case Value.IntV(v) => v
+      case _ => return false
+    val exclusiveBound = if isLE then bound + 1L else bound
+    val finalVal: Long =
+      if start >= exclusiveBound then start
+      else
+        val iters = (exclusiveBound - start + step - 1L) / step
+        start + iters * step
+    val v = Value.intV(finalVal)
+    val local = frameView.underlying
+    local(ctrName) = v
+    interp.globals(ctrName) = v
+    true
+
   /** Pure-literal-RHS hoist for an all-assign while body that has at least one
    *  non-int LHS (the var being assigned is something other than an `IntV`,
    *  e.g. a `TupleV`) whose RHS is a fully-pure-literal expression cached by
@@ -1345,6 +1399,14 @@ private[interpreter] object EvalRuntime:
       local(pureNames(p)) = pureValues(p)
       interp.globals(pureNames(p)) = pureValues(p)
       p += 1
+    // When a single int slot remains and it is a simple +step counter, fold
+    // the loop to a single assignment: `ctr = terminalValue`.  This converts
+    // `while i < N do { <hoisted>; i = i+1 }` to `i = N` in O(1) without
+    // running the JIT loop.  Only safe here because the body is all-assign
+    // (no Term.Apply, proven by collectFastAssignBody).
+    if intCount == 1 &&
+       tryFoldCounterLoop(t.expr, intNames(0), intRhs(0), frameView, interp)
+    then return Computation.PureUnit
     val intBody = new FastAssignBody(
       if intCount == intNames.length then intNames else intNames.take(intCount),
       if intCount == intRhs.length   then intRhs   else intRhs.take(intCount)
