@@ -33,6 +33,12 @@ private[interpreter] object EffectsRuntime:
    */
   def evalHandle(body: Term, cases: List[Case], env: Env, interp: Interpreter,
                  multiShotEffects: Set[String] = Set.empty): Computation =
+    // Fast path: evaluate body first; if Pure (no perform calls), skip handler setup.
+    val initial = interp.eval(body, env)
+    initial match
+      case p: Pure => return p
+      case _ =>
+
     val handledOps: Set[(String, String)] = cases.flatMap { c =>
       c.pat match
         case Pat.Extract.After_4_6_0(Term.Select(Term.Name(eff), Term.Name(op)), _) => Some((eff, op))
@@ -150,7 +156,7 @@ private[interpreter] object EffectsRuntime:
                   current = caseBodyResult   // resume not called (e.g. early abort)
       throw InterpretError("unreachable")
 
-    handleInterp(interp.eval(body, env))
+    handleInterp(initial)
 
   /** Interpret `restartable { cases } { body }` — Common Lisp condition-system style.
    *
