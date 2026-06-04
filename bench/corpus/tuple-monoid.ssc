@@ -2,6 +2,10 @@
 
 _tupleConcat hot path — 100k iterations of (1,2) ++ (3,4).
 
+Note: interp (tryFoldCounterLoop) and JVM (JvmGen constant hoisting +
+HotSpot folding) both legitimately collapse this to O(1), reporting near-zero
+times.  The JS number (no such optimization) is the actionable gap.
+
 ```scalascript
 def workload(): (Int, Int, Int, Int) =
   var i = 0

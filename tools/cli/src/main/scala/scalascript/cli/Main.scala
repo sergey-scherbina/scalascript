@@ -6968,15 +6968,15 @@ final class BenchCmd extends CliCommand:
           val phase2Ns = (ms / 6) * 1000000L
           s"""val _ssc_wt_end = System.nanoTime() + ${ns}L
              |while System.nanoTime() < _ssc_wt_end do
-             |  workload()
+             |  _ssc_sink = workload()
              |val _ssc_sw_end = System.nanoTime() + ${phase2Ns}L
              |while System.nanoTime() < _ssc_sw_end do
              |  var _ssc_iw = 0
              |  while _ssc_iw < 50 do
-             |    workload()
+             |    _ssc_sink = workload()
              |    _ssc_iw += 1""".stripMargin
         case None =>
-          s"var _ssc_w = 0\nwhile _ssc_w < $warmupN do\n  workload()\n  _ssc_w += 1"
+          s"var _ssc_w = 0\nwhile _ssc_w < $warmupN do\n  _ssc_sink = workload()\n  _ssc_w += 1"
       s"""# bench-wrapper
          |
          |```scalascript
@@ -6998,14 +6998,16 @@ final class BenchCmd extends CliCommand:
          |while _ssc_pk < 30000 do
          |  _ssc_pwm(5)
          |  _ssc_pk += 1
+         |var _ssc_sink: Any = null
          |$warmupBlock
          |val _ssc_t0 = System.nanoTime()
          |var _ssc_r = 0
          |while _ssc_r < $repsN do
-         |  workload()
+         |  _ssc_sink = workload()
          |  _ssc_r += 1
          |val _ssc_ns = System.nanoTime() - _ssc_t0
          |println(s"BENCH_MS: $${_ssc_ns.toDouble / ($repsN * 1000000.0)}")
+         |println(s"BENCH_SINK: $${_ssc_sink}")
          |```
          |""".stripMargin
 
