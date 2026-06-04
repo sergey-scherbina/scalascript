@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — docs(example): Markdown content live serve demo
+
+- **markdown-content-serve-demo** — Switched
+  `examples/content-introspection.ssc` from `emit(page, outDir)` to
+  `serve(page, 8099)`, so the Markdown-authored toolkit page is a direct
+  browser/phone preview without a separate static-server step.
+
 ## 2026-06-05 — perf(interp): JIT arity-0 thunks + nested while/var
 
 - **jit-completeness-p1b-arity-zero** — Added a zero-arg FunV bytecode-JIT lane
