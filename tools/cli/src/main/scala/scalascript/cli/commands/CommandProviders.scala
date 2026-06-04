@@ -3,7 +3,7 @@ package scalascript.cli.commands
 import scalascript.cli.*
 import scalascript.compiler.plugin.BackendRegistry
 
-// Generated CliCommand providers (see docs/cli-command-spi.md). They carry the
+// Generated CliCommand providers (see docs/specs/cli-command-spi.md). They carry the
 // help metadata (summary / category / details) and delegate execution to the
 // command functions in the scalascript.cli package.
 

@@ -30,7 +30,7 @@ import scala.jdk.CollectionConverters.*
  *
  *  Auth: API key + IP allowlist at aggregator; legacy BACSTEL-IP uses SUN + password.
  *
- *  See docs/international-bank-rails.md §v1.55.4 for spec.
+ *  See docs/specs/international-bank-rails.md §v1.55.4 for spec.
  */
 class UkBacsProvider(val config: BacsConfig) extends BankRailsProvider:
 
@@ -212,7 +212,7 @@ class UkBacsProvider(val config: BacsConfig) extends BankRailsProvider:
   private[ukbacs] var lastDeliveredDirection: Option[String] = None
 
 /** BACS adapter configuration.
- *  See docs/international-bank-rails.md §v1.55.4 Auth section. */
+ *  See docs/specs/international-bank-rails.md §v1.55.4 Auth section. */
 case class BacsConfig(
   serviceUserNumber:     String,  // BACS Service User Number (SUN) — 6-char code
   originatorSortCode:    String,  // originator (creditor) sort code — 6 digits

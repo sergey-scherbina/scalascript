@@ -2,7 +2,7 @@ package scalascript.cli
 
 /** Renders the `Commands:` section of `ssc help` from the CommandRegistry, so
  *  the command list is single-source: a registered CliCommand with a summary
- *  appears automatically. See docs/cli-command-spi.md. */
+ *  appears automatically. See docs/specs/cli-command-spi.md. */
 object Help:
 
   /** Display order for category buckets; anything else sorts to the end. */

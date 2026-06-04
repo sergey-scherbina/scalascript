@@ -87,7 +87,7 @@ import ArtifactInfoPrinters.*
 
 private def dispatchCommand(args: List[String]): CommandResult =
   val token = args.head
-  // Registry-driven dispatch (docs/cli-command-spi.md). Unknown tokens fall
+  // Registry-driven dispatch (docs/specs/cli-command-spi.md). Unknown tokens fall
   // through to scriptCommand, which runs a named project script if defined.
   CommandRegistry.lookup(token) match
     case Some(cmd) => cmd.runResult(args.tail)
@@ -296,7 +296,7 @@ private[cli] def expectText(r: CompileResult, what: String): String = r match
     System.exit(1); ""
 
 /** Inject the HTTP/WS server backend selection into a generated
- *  scala-cli script.  See docs/http-server-spi-plan.md for the SPI
+ *  scala-cli script.  See docs/specs/http-server-spi-plan.md for the SPI
  *  design.
  *
  *  - `"jdk"` (default): no change — the default JdkServerBackend is

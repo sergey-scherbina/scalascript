@@ -9,7 +9,7 @@ import scalascript.wire.{WireCodec, WireDecodeError, WireEnvelope, WireValue}
  *  client and server negotiate binary.  JSON REST remains the public/debug
  *  fallback.
  *
- *  Spec: docs/distributed-wire-protocol.md §Phase 6 */
+ *  Spec: docs/specs/distributed-wire-protocol.md §Phase 6 */
 
 // ── Value types ───────────────────────────────────────────────────────────
 

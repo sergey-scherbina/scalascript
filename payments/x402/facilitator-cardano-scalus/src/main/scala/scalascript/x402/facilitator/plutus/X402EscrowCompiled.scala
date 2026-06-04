@@ -12,7 +12,7 @@ import java.io.IOException
  *  Splitting the build this way lets the main 3.8.3 module consume the
  *  compiled script without depending on Scalus's compiler plugin —
  *  which targets dotty 3.3.x internals and is incompatible with our
- *  Scala 3.8.3. See [`docs/x402-cardano-scalus.md`](../../../../../../../../../docs/x402-cardano-scalus.md)
+ *  Scala 3.8.3. See [`docs/specs/x402-cardano-scalus.md`](../../../../../../../../../docs/specs/x402-cardano-scalus.md)
  *  §5 "Phase 2 retry — Scala-version split build". */
 object X402EscrowCompiled:
 

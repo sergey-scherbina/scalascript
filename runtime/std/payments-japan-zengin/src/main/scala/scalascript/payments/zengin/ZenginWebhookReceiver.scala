@@ -14,7 +14,7 @@ import javax.crypto.spec.SecretKeySpec
  *    zengin.transfer.completed  → ZenginSettled(transferId, amount)
  *    zengin.transfer.failed     → ZenginRejected(transferId, reason)
  *
- *  See docs/international-bank-rails.md §7 (Japan Zengin webhook table) for event taxonomy.
+ *  See docs/specs/international-bank-rails.md §7 (Japan Zengin webhook table) for event taxonomy.
  */
 class ZenginWebhookReceiver(
     override val config:   WebhookConfig = WebhookConfig(),

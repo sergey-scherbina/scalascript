@@ -10,7 +10,7 @@ import scala.collection.concurrent.TrieMap
  *  registry is populated eagerly by `ImportResolver.extractSsclib` when it
  *  detects a `glue.jvm:` entry in `ssclib-manifest.yaml`.
  *
- *  See `docs/arch-ffi.md §6 Phase 3`. */
+ *  See `docs/specs/arch-ffi.md §6 Phase 3`. */
 object GlueClasspathRegistry:
 
   private val _jars = TrieMap.empty[String, os.Path]   // key = canonical path string

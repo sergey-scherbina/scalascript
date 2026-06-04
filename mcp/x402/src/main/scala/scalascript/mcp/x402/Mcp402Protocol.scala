@@ -1,7 +1,7 @@
 package scalascript.mcp.x402
 
 /** Protocol constants and key conventions for x402-over-MCP.
- *  See docs/mcp-x402-wallet.md §6 for the full design. */
+ *  See docs/specs/mcp-x402-wallet.md §6 for the full design. */
 object Mcp402Protocol:
 
   /** JSON-RPC error code for "Payment Required". -32402 sits inside

@@ -4,7 +4,7 @@ import scalascript.backend.spi.SourceLanguage
 import java.util.ServiceLoader
 import scala.jdk.CollectionConverters.*
 
-/** Central registry for `SourceLanguage` plugins (docs/backend-spi.md §9).
+/** Central registry for `SourceLanguage` plugins (docs/specs/backend-spi.md §9).
  *
  *  Mirrors `BackendRegistry`: ServiceLoader-based discovery from the
  *  classpath, plus extension hooks for `--plugin <jar>` /

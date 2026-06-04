@@ -51,7 +51,7 @@ object ImportResolver:
         Some(if os.isFile(p) then p / os.up else p)
     catch case _: Throwable => None
 
-  /** Pure, testable std-root discovery (see `docs/std-root-resolution.md §3`).
+  /** Pure, testable std-root discovery (see `docs/specs/std-root-resolution.md §3`).
    *  Returns the directory that *contains* a `std/` subdirectory.  First
    *  existing candidate wins:
    *    1. `ssc.std.path`  (override)

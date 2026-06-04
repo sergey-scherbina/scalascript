@@ -30,7 +30,7 @@ Key types:
 - [`ScalusSettlerConfig`](../payments/x402/facilitator-cardano-scalus/src/main/scala/scalascript/x402/facilitator/plutus/BloxbeanScalusSettler.scala) — settler config (network, keys, fees)
 - [`ReferenceScriptDeployer`](../payments/x402/facilitator-cardano-scalus/src/main/scala/scalascript/x402/facilitator/plutus/ReferenceScriptDeployer.scala) — one-time reference-script deployment helper
 
-See [`docs/x402-cardano-scalus.md`](../docs/x402-cardano-scalus.md) for the full
+See [`docs/specs/x402-cardano-scalus.md`](../docs/specs/x402-cardano-scalus.md) for the full
 design and phase breakdown.
 
 ## Step 1 — Deploy reference script (one-time)

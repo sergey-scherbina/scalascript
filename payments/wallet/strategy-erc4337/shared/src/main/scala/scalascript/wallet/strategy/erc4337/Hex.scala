@@ -11,7 +11,7 @@ package scalascript.wallet.strategy.erc4337
  *  EVM HTTP RPC client + EIP-712 / RLP codec that are not part of this
  *  slice).
  *
- *  Trade-off recorded in `docs/wallet-spi-scalajs.md` § Stage 4: we
+ *  Trade-off recorded in `docs/specs/wallet-spi-scalajs.md` § Stage 4: we
  *  duplicate ~20 LoC of hex codec to avoid cross-compiling all of
  *  `blockchain-evm` (with its `java.net.http` RPC client) in this
  *  slice.  When/if `blockchain-evm` itself cross-compiles in a future

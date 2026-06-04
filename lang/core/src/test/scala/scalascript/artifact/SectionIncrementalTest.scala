@@ -9,7 +9,7 @@ import org.scalatest.funsuite.AnyFunSuite
  *  sections of a `.ssc` module, and the [[ModuleGraph.staleSections]]
  *  helper that consumes the chain.
  *
- *  Pair-reads with `docs/v2.0-artifact-format.md` (the wire spec) and
+ *  Pair-reads with `docs/specs/v2.0-artifact-format.md` (the wire spec) and
  *  with `ModuleGraphTest` (the full-module-SHA tests it complements).
  */
 class SectionIncrementalTest extends AnyFunSuite:

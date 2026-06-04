@@ -7,7 +7,7 @@ package scalascript.backend.spi
  *  evalInterp is deferred to Phase 2 when PluginValue/PluginComputation
  *  are wired into the interpreter eval path (arch-stable-spi-p2).
  *
- *  See docs/arch-dsl-hooks.md §4a — InterpolatorRegistry. */
+ *  See docs/specs/arch-dsl-hooks.md §4a — InterpolatorRegistry. */
 trait InterpolatorImpl:
   /** Interpolator prefix, e.g. "gql", "sql", "html". */
   def name: String

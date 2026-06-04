@@ -9,7 +9,7 @@ import ObjectSyncWireCodec.given
 
 /** Round-trip and envelope-shape tests for the ObjectStore sync wire protocol.
  *
- *  Spec: docs/distributed-wire-protocol.md §Phase 6 */
+ *  Spec: docs/specs/distributed-wire-protocol.md §Phase 6 */
 class ObjectSyncWireProtocolTest extends AnyFunSuite:
 
   // ── Sample values ─────────────────────────────────────────────────────────

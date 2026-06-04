@@ -5,7 +5,7 @@ package scalascript.blockchain.spi
  *  `ConsumeWithRedeemer` for Cardano Plutus) extend this hierarchy
  *  from their respective `blockchain-<chain>` modules.
  *
- *  See docs/blockchain-spi.md §6.1 for the smart-contract surface. */
+ *  See docs/specs/blockchain-spi.md §6.1 for the smart-contract surface. */
 sealed trait TxIntent
 
 object TxIntent:

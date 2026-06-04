@@ -59,7 +59,7 @@ class FrontendFrameworksTest extends AnyFunSuite:
 
   test("Capability enum has the documented core + extension cases") {
     // The 5-core / 6-extension promise from
-    // docs/frontend-abstract-model.md — guard against accidental
+    // docs/specs/frontend-abstract-model.md — guard against accidental
     // additions or removals during the early phases.
     val all = Capability.values.toSet
     assert(all.contains(Capability.ComponentTree))

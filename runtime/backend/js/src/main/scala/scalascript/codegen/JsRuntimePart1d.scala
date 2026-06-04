@@ -847,7 +847,7 @@ function serve(port, _tlsCfg) {
 // script continues immediately; the server runs in the Node event
 // loop in the background.  Required for Tier 4 codegen multi-backend
 // cluster tests where a single Node process must both bind its WS
-// server AND run an actor scheduler (see docs/cluster-codegen-gap.md).
+// server AND run an actor scheduler (see docs/specs/cluster-codegen-gap.md).
 function serveAsync(port, _tlsCfg) {
   return _ssc_http_serve(port, _tlsCfg);
 }

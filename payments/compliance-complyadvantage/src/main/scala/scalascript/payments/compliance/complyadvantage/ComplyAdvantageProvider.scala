@@ -24,7 +24,7 @@ import scala.concurrent.{Future, ExecutionContext}
  *  Sanctions: searches PEP + Sanctions profiles; `checkSanctions` extracts
  *  "sanction" typed hits from the full search result.
  *
- *  See `docs/compliance-provider.md §complyadvantage`.
+ *  See `docs/specs/compliance-provider.md §complyadvantage`.
  */
 class ComplyAdvantageProvider(config: ComplyAdvantageConfig) extends ComplianceProvider:
 

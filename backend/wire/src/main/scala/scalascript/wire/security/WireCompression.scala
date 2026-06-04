@@ -13,7 +13,7 @@ import scalascript.wire.WireDecodeError
  *  - `"none"` — passthrough
  *  - `"gzip"` — DEFLATE with gzip header (standard JVM library)
  *
- *  Spec: docs/distributed-wire-protocol.md §Compression */
+ *  Spec: docs/specs/distributed-wire-protocol.md §Compression */
 object WireCompression:
 
   val None = "none"

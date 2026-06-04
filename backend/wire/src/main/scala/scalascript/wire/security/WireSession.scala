@@ -10,7 +10,7 @@ import scalascript.wire.{WireDecodeError, WireEnvelope}
  *  - Stamps outbound frames with `session-id` and `seq` headers.
  *  - Checks inbound frames with `WireReplayWindow` to reject replays.
  *
- *  Spec: docs/distributed-wire-protocol.md §Replay and Ordering */
+ *  Spec: docs/specs/distributed-wire-protocol.md §Replay and Ordering */
 class WireSession(val id: String = UUID.randomUUID().toString):
   private val counter = AtomicLong(0L)
 

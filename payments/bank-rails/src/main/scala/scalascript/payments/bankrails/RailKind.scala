@@ -1,7 +1,7 @@
 package scalascript.payments.bankrails
 
 /** The bank payment rail for a transfer or mandate.
- *  See docs/bank-rails.md §4.1 and docs/international-bank-rails.md §4.1. */
+ *  See docs/specs/bank-rails.md §4.1 and docs/specs/international-bank-rails.md §4.1. */
 enum RailKind:
   case SEPA_CT    // SEPA Credit Transfer  — push, T+1
   case SEPA_DD    // SEPA Core Direct Debit — pull, T+2, mandate required

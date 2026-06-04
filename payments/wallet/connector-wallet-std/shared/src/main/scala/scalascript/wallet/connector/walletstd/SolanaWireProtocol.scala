@@ -8,7 +8,7 @@ package scalascript.wallet.connector.walletstd
  *  Bit-compatible with `scalascript.blockchain.solana.SolanaMessage` —
  *  the JVM-side platform extension translates back and forth as needed
  *  at the `ChainAdapter.Tx`/`SignedTx` boundary.  See
- *  `docs/wallet-spi-scalajs.md` § Stage 3 for the rationale. */
+ *  `docs/specs/wallet-spi-scalajs.md` § Stage 3 for the rationale. */
 
 /** Solana legacy message body — the bytes that get ed25519-signed. */
 case class SolanaMessage(

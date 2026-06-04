@@ -9,7 +9,7 @@ import scalascript.ast.ModelDef
  *  `gtk`, `javafx`) are added in P3–P7; they override `emitNative` and
  *  `supportedPlatforms`.
  *
- *  See `docs/native-platform.md` §9 for the full SPI contract. */
+ *  See `docs/specs/native-platform.md` §9 for the full SPI contract. */
 trait FrontendFrameworkSpi:
 
   def name: String

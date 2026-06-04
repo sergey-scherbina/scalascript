@@ -9,7 +9,7 @@ import scalascript.ir.{QualifiedName, NormalizedModule}
  *  intrinsics — SPEI operations are runtime adapter concerns, not compile-time.
  *
  *  Registered via META-INF/services/scalascript.backend.spi.Backend.
- *  See docs/payment-rails-apac.md §MX_SPEI.
+ *  See docs/specs/payment-rails-apac.md §MX_SPEI.
  */
 class MxSpeiPlugin extends Backend:
   def id:          String = "scalascript-payments-mx-spei"

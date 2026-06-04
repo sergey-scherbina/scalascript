@@ -10,7 +10,7 @@ package scalascript.payments.bankrails
  *  determines how the aggregator routes the proxy resolution request to the
  *  PayNow directory.
  *
- *  See docs/international-bank-rails.md §v1.56.8.
+ *  See docs/specs/international-bank-rails.md §v1.56.8.
  */
 enum PayNowProxyType:
   /** Singapore mobile number in international format, e.g. "+6591234567". */

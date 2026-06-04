@@ -117,7 +117,7 @@ object Cluster:
   def autoReelect(enabled: Boolean): Unit =
     setAutoReelect(enabled)
 
-  // Leader-protocol switches (see `docs/cluster-raft.md`).  Default is
+  // Leader-protocol switches (see `docs/specs/cluster-raft.md`).  Default is
   // Bully; call exactly one of these once, before `elect()`.
   def useRaft(): Unit                       = useRaftLeaderElection()
   def useCoordinator(adapter: Any): Unit    = useExternalCoordinator(adapter)

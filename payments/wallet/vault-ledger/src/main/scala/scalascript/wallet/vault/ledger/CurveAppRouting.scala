@@ -14,7 +14,7 @@ import scalascript.crypto.Curve
  *  app, etc. The reference column corresponds to CAIP-2 namespaces
  *  defined in [[scalascript.blockchain.spi.ChainId]].
  *
- *  See docs/wallet-spi.md §5.1 (table at the bottom). */
+ *  See docs/specs/wallet-spi.md §5.1 (table at the bottom). */
 object CurveAppRouting:
 
   /** Canonical on-device app names (case-sensitive — matches what

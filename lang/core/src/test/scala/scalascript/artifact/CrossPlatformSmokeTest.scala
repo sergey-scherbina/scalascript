@@ -10,7 +10,7 @@ import scala.concurrent.duration.*
 /** Cross-platform portability smoke tests for the v2.0 artifact pipeline.
  *
  *  Covers the three historically Unix-only gaps called out in
- *  `docs/v2.0-scale-benchmark.md §Cross-platform smoke`:
+ *  `docs/specs/v2.0-scale-benchmark.md §Cross-platform smoke`:
  *    1. CRLF / CR line-ending normalization in `sourceHash`.
  *    2. Path-separator portability via os-lib.
  *    3. Concurrent artifact writes to the same directory.

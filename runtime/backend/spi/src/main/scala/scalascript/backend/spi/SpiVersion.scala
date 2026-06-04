@@ -1,6 +1,6 @@
 package scalascript.backend.spi
 
-/** Current SPI / IR version.  Per docs/backend-spi.md §13: one version
+/** Current SPI / IR version.  Per docs/specs/backend-spi.md §13: one version
  *  number for both, plain semver, no compatibility shims.  Plugins
  *  declare what they were built against; core rejects mismatches. */
 object SpiVersion:

@@ -9,7 +9,7 @@ import scalascript.ir.{QualifiedName, NormalizedModule}
  *  This plugin provides no compiler intrinsics — SWIFT operations are runtime adapter concerns.
  *
  *  Registered via META-INF/services/scalascript.backend.spi.Backend.
- *  See docs/international-bank-rails.md §8 v1.55.1.
+ *  See docs/specs/international-bank-rails.md §8 v1.55.1.
  */
 class SwiftPlugin extends Backend:
   def id:          String = "scalascript-payments-swift"

@@ -13,7 +13,7 @@ import java.time.format.DateTimeFormatter
  *    CdtTrfTxInf: InstrId, EndToEndId, UETR, IntrBkSttlmAmt,
  *                 ChrgBr, Dbtr, DbtrAgt (BICFI), Cdtr, CdtrAgt (BICFI)
  *
- *  See docs/international-bank-rails.md §8 v1.55.1.
+ *  See docs/specs/international-bank-rails.md §8 v1.55.1.
  */
 object SwiftPacs008Builder:
 

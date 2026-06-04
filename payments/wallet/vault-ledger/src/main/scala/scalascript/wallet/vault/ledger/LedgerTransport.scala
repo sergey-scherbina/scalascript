@@ -15,7 +15,7 @@ import scala.concurrent.Future
  *  lives in [[Apdu.chunkedSend]] one layer up; transports only see
  *  individual APDUs.
  *
- *  See docs/wallet-spi.md §5.1 for the architecture rationale and
+ *  See docs/specs/wallet-spi.md §5.1 for the architecture rationale and
  *  the transport-variant table. */
 trait LedgerTransport:
   /** Open the underlying connection (HID device, BLE peripheral, …).

@@ -27,8 +27,8 @@ case class EvmFacilitatorConfig(
 // Verify: signature recovery + token balance + expiry + payTo match.
 // Settle: delegate to configured settler, or return testnet Ok if none provided.
 //
-// Signature verification was missing pre-Phase-1 (see docs/wallet-spi.md §9
-// and docs/blockchain-spi.md §9.1) — a SHA-256 stub from x402-client would
+// Signature verification was missing pre-Phase-1 (see docs/specs/wallet-spi.md §9
+// and docs/specs/blockchain-spi.md §9.1) — a SHA-256 stub from x402-client would
 // silently pass `verify` even though it could never settle on-chain. Now we
 // reconstruct the canonical EIP-712 / EIP-3009 typed-data digest and call
 // ecrecover via blockchain-evm before checking balance.

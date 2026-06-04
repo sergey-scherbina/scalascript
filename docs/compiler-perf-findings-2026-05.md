@@ -1,7 +1,7 @@
 # Compiler performance — measurement findings (2026-05-30)
 
 A measurement-first investigation of the ScalaScript compiler pipeline,
-following `docs/optimization-roadmap.md`. The headline result: **most of the
+following `docs/specs/optimization-roadmap.md`. The headline result: **most of the
 roadmap's compiler-perf items are already implemented**, the typer is
 negligible, and parsing — though dominant — is largely irreducible
 (scalameta). A small, safe preprocessor optimization was the only remaining

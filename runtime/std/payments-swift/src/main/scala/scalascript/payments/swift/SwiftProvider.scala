@@ -20,7 +20,7 @@ import java.time.{Duration, Instant}
  *  UETR: If the request has no UETR, one is generated via Uetr.generate() (UUID v4)
  *  and stored on the returned BankTransfer.
  *
- *  See docs/international-bank-rails.md §8 v1.55.1.
+ *  See docs/specs/international-bank-rails.md §8 v1.55.1.
  */
 class SwiftProvider(config: SwiftConfig) extends BankRailsProvider:
 

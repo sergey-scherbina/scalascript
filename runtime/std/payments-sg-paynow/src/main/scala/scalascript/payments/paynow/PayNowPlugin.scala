@@ -9,7 +9,7 @@ import scalascript.ir.{QualifiedName, NormalizedModule}
  *  intrinsics — PayNow operations are runtime adapter concerns, not compile-time.
  *
  *  Registered via META-INF/services/scalascript.backend.spi.Backend.
- *  See docs/international-bank-rails.md §v1.56.8.
+ *  See docs/specs/international-bank-rails.md §v1.56.8.
  */
 class PayNowPlugin extends Backend:
   def id:          String = "scalascript-payments-sg-paynow"

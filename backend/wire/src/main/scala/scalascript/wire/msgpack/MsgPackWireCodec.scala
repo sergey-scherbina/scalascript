@@ -6,7 +6,7 @@ import upickle.core.LinkedHashMap
 
 /** MsgPack encoder/decoder for `WireValue` using upickle's `upack`.
  *
- *  Spec: docs/distributed-wire-protocol.md §Phase 1 */
+ *  Spec: docs/specs/distributed-wire-protocol.md §Phase 1 */
 object MsgPackWireCodec:
 
   private def mkObj(pairs: (Msg, Msg)*): Obj =

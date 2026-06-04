@@ -1,6 +1,6 @@
 package scalascript.interop.runtime
 
-/** Tier 2 of the Scala ↔ ScalaScript interop (docs/scala-interop.md).
+/** Tier 2 of the Scala ↔ ScalaScript interop (docs/specs/scala-interop.md).
  *
  *  Typed Scala-side façade for ScalaScript actors.  Same v0.1 caveat as
  *  [[Effects]]: the underlying runtime types (`ActorRef`, `_runActors`)

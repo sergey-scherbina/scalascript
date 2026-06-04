@@ -14,7 +14,7 @@ import scalascript.blockchain.spi.{ChainAdapter, TypedData}
  *    wraps an EVM `ChainAdapter` to use an ERC-4337 contract wallet
  *    instead of an EOA. Owner is any `RawSigner` (typically a passkey).
  *
- *  See docs/wallet-spi.md §6 for the design rationale. */
+ *  See docs/specs/wallet-spi.md §6 for the design rationale. */
 trait AccountStrategy:
 
   /** Discriminator: "eoa", "smart-account", "mpc-eoa", …. Used by

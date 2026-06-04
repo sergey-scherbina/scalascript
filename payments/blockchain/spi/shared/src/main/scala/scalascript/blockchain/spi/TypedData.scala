@@ -4,7 +4,7 @@ package scalascript.blockchain.spi
  *  family's signing convention; the adapter's `typedDataDigest` knows
  *  how to hash it for signing.
  *
- *  See docs/blockchain-spi.md §5 and §6 for usage. */
+ *  See docs/specs/blockchain-spi.md §5 and §6 for usage. */
 sealed trait TypedData
 
 object TypedData:

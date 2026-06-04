@@ -96,6 +96,6 @@ ssc --plugin hello-backend.jar --backend hello run /tmp/demo.ssc
 
 - Read [`docs/writing-a-backend.md`](../../../docs/writing-a-backend.md)
   for the full walk-through.
-- Read [`docs/backend-spi.md`](../../../docs/backend-spi.md) §4-8 for
+- Read [`docs/specs/backend-spi.md`](../../../docs/specs/backend-spi.md) §4-8 for
   the SPI contract reference.
 - See `examples/plugins/canned-backend/` for the subprocess variant.

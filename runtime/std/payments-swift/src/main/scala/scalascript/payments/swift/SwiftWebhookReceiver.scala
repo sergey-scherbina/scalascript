@@ -14,7 +14,7 @@ import javax.crypto.spec.SecretKeySpec
  *    gpi.v4.credits.CancellationCompleted → SwiftRejected
  *    gpi.v4.credits.Rejected           → SwiftRejected
  *
- *  See docs/international-bank-rails.md §7 and §8 v1.55.1.
+ *  See docs/specs/international-bank-rails.md §7 and §8 v1.55.1.
  */
 class SwiftWebhookReceiver(
     railKind:            RailKind        = RailKind.SWIFT_PACS008,

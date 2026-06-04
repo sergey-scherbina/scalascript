@@ -8,7 +8,7 @@ import scalascript.wire.cbor.CborWireCodec
 /** Cross-format golden vectors — every WireValue case round-trips through
  *  JSON, MsgPack, and CBOR.
  *
- *  Spec: docs/distributed-wire-protocol.md §Phase 1 Testing Strategy */
+ *  Spec: docs/specs/distributed-wire-protocol.md §Phase 1 Testing Strategy */
 class WireGoldenVectorTest extends AnyFunSuite:
 
   private val vectors: List[(String, WireValue)] = List(

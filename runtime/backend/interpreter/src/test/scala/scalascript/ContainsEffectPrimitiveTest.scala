@@ -6,7 +6,7 @@ import scalascript.codegen.JvmGen
 
 /** Unit tests for `JvmGen.containsEffectPrimitive` — Strategy D Step 1.
  *
- *  See docs/dep-cps-rewrite.md §6 Step 1 for acceptance criteria.
+ *  See docs/specs/dep-cps-rewrite.md §6 Step 1 for acceptance criteria.
  *  The predicate is the load-bearing tightness check that decides which
  *  dep-function bodies get CPS-rewritten by Step 3. Over-broad matches
  *  regress `actors-process-info.ssc` (see §4.4 "The hard part"); the

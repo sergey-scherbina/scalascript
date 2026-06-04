@@ -20,7 +20,7 @@ case class NoSuchScalascriptSymbol(naturalFqn: String, loadedCount: Int)
 case class UnresolvedJvmMember(mangledFqn: String, detail: String)
   extends RuntimeException(s"cannot resolve JVM member: $mangledFqn — $detail")
 
-/** Tier 2 of the Scala ↔ ScalaScript interop (docs/scala-interop.md).
+/** Tier 2 of the Scala ↔ ScalaScript interop (docs/specs/scala-interop.md).
  *
  *  Dynamic / reflection-based bridge for **plugin-style** consumption of
  *  ScalaScript-compiled JARs.  Use cases:

@@ -1,7 +1,7 @@
 package scalascript.crypto
 
 /** Elliptic curves and signature schemes the CryptoBackend SPI understands.
- *  See docs/blockchain-spi.md §4 for usage. */
+ *  See docs/specs/blockchain-spi.md §4 for usage. */
 enum Curve:
   /** Bitcoin / Ethereum / EVM family / Cosmos. */
   case Secp256k1

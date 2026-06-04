@@ -9,7 +9,7 @@ import scala.concurrent.{Future, ExecutionContext}
  *
  *  All methods return `Future` so network-bound adapters are non-blocking.
  *
- *  See `docs/traditional-payments.md §TaxProvider`.
+ *  See `docs/specs/traditional-payments.md §TaxProvider`.
  */
 trait TaxProvider:
 

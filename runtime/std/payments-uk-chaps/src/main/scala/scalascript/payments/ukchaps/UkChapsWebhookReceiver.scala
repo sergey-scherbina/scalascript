@@ -15,7 +15,7 @@ import javax.crypto.spec.SecretKeySpec
  *  Webhook auth: `X-CHAPS-Signature: sha256=<hex>`, HMAC-SHA256 over raw HTTP body,
  *  shared secret configured at aggregator on-boarding.
  *
- *  See docs/international-bank-rails.md §7 (UK CHAPS).
+ *  See docs/specs/international-bank-rails.md §7 (UK CHAPS).
  */
 class UkChapsWebhookReceiver(
     override val config:   WebhookConfig  = WebhookConfig(),

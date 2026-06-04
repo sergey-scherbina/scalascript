@@ -22,7 +22,7 @@ import scalascript.frontend.{Signal, View, AttrValue, EventHandler}
  *  a `currentPath`, the link behaves like a plain anchor — useful
  *  for genuinely external URLs.
  *
- *  See `docs/frontend-toolkit-spec.md` "Layer 7 — Navigation +
+ *  See `docs/specs/frontend-toolkit-spec.md` "Layer 7 — Navigation +
  *  routing" for the intended user-facing surface. */
 
 /** Single route — a path pattern + a renderer.  `path` may contain

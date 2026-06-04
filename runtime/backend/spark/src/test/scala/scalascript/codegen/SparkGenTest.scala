@@ -1373,7 +1373,7 @@ class SparkGenTest extends AnyFunSuite:
 
   // ── L.2 — Lakehouse formats: Delta Lake ──────────────────────────────────
   //
-  // See `docs/spark-lakehouse.md` for the design.  Detection runs over the
+  // See `docs/specs/spark-lakehouse.md` for the design.  Detection runs over the
   // raw block sources (substring regex, case-insensitive) and toggles:
   //   (a) a `//> using dep "io.delta:delta-spark_2.13:<v>"` header line
   //   (b) two `.config(k, v)` lines on `SparkSession.builder()` — the
@@ -1456,7 +1456,7 @@ class SparkGenTest extends AnyFunSuite:
   }
 
   test("delta config — sits between adaptive defaults and extraConfig (sort order)") {
-    // The ordering rule (see `docs/spark-lakehouse.md` § Architecture):
+    // The ordering rule (see `docs/specs/spark-lakehouse.md` § Architecture):
     //   1. Adaptive `local*` defaults (spark.ui.enabled, spark.sql.shuffle.partitions)
     //   2. Lakehouse format configs
     //   3. User `spark-config:` map
@@ -1684,7 +1684,7 @@ class SparkGenTest extends AnyFunSuite:
 
   // ── L.4 — Lakehouse formats: Apache Hudi ─────────────────────────────────
   //
-  // See `docs/spark-lakehouse.md §L.4`.  Detection and emission mirror L.3
+  // See `docs/specs/spark-lakehouse.md §L.4`.  Detection and emission mirror L.3
   // (Iceberg) and L.2 (Delta): same regex approach, Hudi-specific dep coord
   // and three config pairs (serializer + SQL extension + catalog override).
 
@@ -2070,7 +2070,7 @@ class SparkGenTest extends AnyFunSuite:
 
   // ── Phase M.2 — MLlib auto-dep detection ─────────────────────────────────
   //
-  // See `docs/spark-mllib.md` for the design.  Detection runs over the
+  // See `docs/specs/spark-mllib.md` for the design.  Detection runs over the
   // joined post-`extractSqlFns` user-block source and triggers a single
   // `//> using dep "org.apache.spark:spark-mllib_2.13:<v>"` header line.
   // No `SparkSession.builder()` configs are needed — MLlib's
@@ -2169,7 +2169,7 @@ class SparkGenTest extends AnyFunSuite:
   }
 
   test("mllib detection — commented-out import still triggers dep emit (documented)") {
-    // Documented limitation in `docs/spark-mllib.md` § Architecture:
+    // Documented limitation in `docs/specs/spark-mllib.md` § Architecture:
     // detection is a substring match, not a Scala parser, so a
     // commented-out `import org.apache.spark.ml.*` still matches.
     // The trade-off: regex stays trivial, and a redundant Coursier
@@ -3106,7 +3106,7 @@ class SparkGenTest extends AnyFunSuite:
 
   // ── L.3 — Lakehouse formats: Apache Iceberg ───────────────────────────────
   //
-  // See `docs/spark-lakehouse.md §L.3` for the design.  Detection runs over
+  // See `docs/specs/spark-lakehouse.md §L.3` for the design.  Detection runs over
   // block sources (case-insensitive regex, same as L.2 Delta).  Each trigger
   // emits:
   //   (a) `//> using dep "org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:<v>"`

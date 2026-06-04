@@ -18,7 +18,7 @@ import java.time.format.DateTimeFormatter
  *
  *  All records are exactly 120 characters wide.
  *
- *  See docs/international-bank-rails.md §v1.55.7 for spec.
+ *  See docs/specs/international-bank-rails.md §v1.55.7 for spec.
  */
 object ZenginFile:
 

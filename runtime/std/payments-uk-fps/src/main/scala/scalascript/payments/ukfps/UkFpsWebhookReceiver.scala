@@ -16,7 +16,7 @@ import javax.crypto.spec.SecretKeySpec
  *  Webhook auth: `X-FPS-Signature: sha256=<hex>`, HMAC-SHA256 over raw HTTP body,
  *  shared secret configured at aggregator on-boarding.
  *
- *  See docs/international-bank-rails.md §7 (UK FPS).
+ *  See docs/specs/international-bank-rails.md §7 (UK FPS).
  */
 class UkFpsWebhookReceiver(
     override val config:   WebhookConfig  = WebhookConfig(),

@@ -3,7 +3,7 @@ package scalascript.source
 import scalascript.backend.spi.*
 import scalascript.ir
 
-/** SourceLanguage plugin for `html` fence blocks (docs/backend-spi.md §9).
+/** SourceLanguage plugin for `html` fence blocks (docs/specs/backend-spi.md §9).
  *
  *  Stage 9+/B.1 skeleton.  Claims the `html` fence tag via
  *  ServiceLoader so `Normalize` routes html blocks through this

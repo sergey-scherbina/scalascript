@@ -10,7 +10,7 @@ import scalascript.ir.{QualifiedName, NormalizedModule}
  *
  *  Registered via META-INF/services/scalascript.backend.spi.Backend.
  *
- *  See docs/international-bank-rails.md §v1.55.4 for spec.
+ *  See docs/specs/international-bank-rails.md §v1.55.4 for spec.
  */
 class UkBacsPlugin extends Backend:
   def id:          String = "scalascript-payments-uk-bacs"

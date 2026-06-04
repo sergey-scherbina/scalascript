@@ -18,7 +18,7 @@ import java.time.format.DateTimeFormatter
  *  auto-escapes all interpolated values.  The result is serialized by
  *  PureMarkupCodec.serialize.
  *
- *  See docs/bank-rails.md §v1.54.4 and the FedNow ISO 20022 Message Guide.
+ *  See docs/specs/bank-rails.md §v1.54.4 and the FedNow ISO 20022 Message Guide.
  */
 object Iso20022Xml:
 

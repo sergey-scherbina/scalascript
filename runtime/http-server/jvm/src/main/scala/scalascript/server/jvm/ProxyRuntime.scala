@@ -260,7 +260,7 @@ def serve(port: Int, tlsCfg: _TlsConfig = null.asInstanceOf[_TlsConfig]): Unit =
 // Non-blocking variant of `serve` — launches the HTTP/WS accept loop on
 // a JDK 21+ virtual thread and returns immediately.  Required for
 // multi-node clusters where a node must both bind its WS port AND drive
-// its actor scheduler in the same process (see `docs/cluster-raft.md`
+// its actor scheduler in the same process (see `docs/specs/cluster-raft.md`
 // §9 — `serve(port)` blocks the caller and stalls the scheduler).
 //
 // Wire-equivalent to the interpreter's `serveAsync` intrinsic in

@@ -24,7 +24,7 @@ import java.time.{Duration, Instant}
  *
  *  Configuration via SepaConfig (or environment variables at construction time).
  *
- *  See docs/bank-rails.md §8 v1.54.1 and docs/international-bank-rails.md §v1.55.2.
+ *  See docs/specs/bank-rails.md §8 v1.54.1 and docs/specs/international-bank-rails.md §v1.55.2.
  */
 class SepaProvider(config: SepaConfig) extends BankRailsProvider:
 

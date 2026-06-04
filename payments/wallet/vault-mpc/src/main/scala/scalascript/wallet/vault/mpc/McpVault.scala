@@ -19,7 +19,7 @@ import scalascript.wallet.spi.*
  *  `lock` flips the cached flag — callers should drop and recreate
  *  the underlying client to force re-authentication.
  *
- *  See docs/wallet-spi.md §5 / §10 Phase 8. */
+ *  See docs/specs/wallet-spi.md §5 / §10 Phase 8. */
 class McpVault(
   val id:    String,
   client:    RemoteSigningClient,

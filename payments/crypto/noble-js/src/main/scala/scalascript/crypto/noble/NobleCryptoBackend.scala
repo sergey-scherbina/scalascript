@@ -29,7 +29,7 @@ import scalascript.crypto.*
  *  - **Argon2id** via `@noble/hashes/argon2` (RFC 9106 v0x13).
  *  - **AES-GCM encrypt / decrypt** via `@noble/ciphers/aes` (sync;
  *    SubtleCrypto is async and would force the SPI to fork — see
- *    `aesGcmEncrypt` comment + docs/wallet-spi-scalajs.md §5).
+ *    `aesGcmEncrypt` comment + docs/specs/wallet-spi-scalajs.md §5).
  *
  *  Not yet implemented on JS (raise `UnsupportedOperationException`):
  *
@@ -175,7 +175,7 @@ final class NobleCryptoBackend extends CryptoBackend:
   // inside the sync SPI on either browser or Node.  Routing through
   // noble keeps the API contract while still matching JVM ciphertext
   // bit-for-bit (verified by the Stage 5 cross-platform fixtures).
-  // See docs/wallet-spi-scalajs.md §5 Stage 5 for the rationale.
+  // See docs/specs/wallet-spi-scalajs.md §5 Stage 5 for the rationale.
 
   def aesGcmEncrypt(key: Array[Byte], iv: Array[Byte], plaintext: Array[Byte], aad: Array[Byte]): Array[Byte] =
     val cipher = NobleFacades.gcm(

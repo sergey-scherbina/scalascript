@@ -16,7 +16,7 @@ the coordinator dispatches any job.  The coordinator sends handler names
 in messages; workers look up the implementation in the local registry and
 apply it to their partition.
 
-**No closure serialisation** — this is a hard-no per `docs/mapreduce.md`
+**No closure serialisation** — this is a hard-no per `docs/specs/mapreduce.md`
 §8 and `MILESTONES.md` §v1.22.  Every node must have the same codebase
 deployed; the registry is populated at node startup.
 

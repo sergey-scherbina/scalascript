@@ -23,7 +23,7 @@ import java.time.{Duration, Instant}
  *  - Transfer cancellation after acceptance
  *  - Currencies other than USD
  *
- *  See docs/bank-rails.md §v1.54.4.
+ *  See docs/specs/bank-rails.md §v1.54.4.
  */
 class FedNowProvider(config: FedNowConfig) extends BankRailsProvider:
 

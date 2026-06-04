@@ -21,7 +21,7 @@ import java.time.Duration
  *  PayID format: `mobile` (e.g. `+61412345678`), `email` (e.g. `user@example.com`),
  *  or `abn` (Australian Business Number, e.g. `51 824 753 556`).
  *
- *  See docs/payment-rails-apac.md §AU_NPP.
+ *  See docs/specs/payment-rails-apac.md §AU_NPP.
  */
 class AuNppApi(config: AuNppConfig):
 

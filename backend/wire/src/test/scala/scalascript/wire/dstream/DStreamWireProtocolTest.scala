@@ -12,7 +12,7 @@ import DStreamWireCodec.given
  *  Every message kind is exercised through JSON, MsgPack, and CBOR using
  *  `DStreamEnvelope.apply` + `DStreamEnvelope.decode`.
  *
- *  Spec: docs/distributed-wire-protocol.md §Phase 5 */
+ *  Spec: docs/specs/distributed-wire-protocol.md §Phase 5 */
 class DStreamWireProtocolTest extends AnyFunSuite:
 
   // ── Sample messages ───────────────────────────────────────────────────────

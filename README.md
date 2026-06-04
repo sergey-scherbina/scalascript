@@ -106,11 +106,11 @@ bin/http.ssc
 |---|---|
 | [Language Specification](SPEC.md) | Formal grammar, type system, semantics, all language constructs |
 | [Direct Syntax](docs/direct-syntax.md) | Do-notation over any monad — `direct[M] { x = expr }`, `.!` postfix bind, effect-row unions |
-| [Coroutines & Generators](docs/coroutines.md) | Coroutine primitive underlying one-shot effects and generators |
-| [Algebraic Effects spec](docs/algebraic-effects.md) | Typed effect rows — `!` operator, `multi effect`, Rémy-style unification, typed stdlib, `Reader[R]`, `NonDet` |
+| [Coroutines & Generators](docs/specs/coroutines.md) | Coroutine primitive underlying one-shot effects and generators |
+| [Algebraic Effects spec](docs/specs/algebraic-effects.md) | Typed effect rows — `!` operator, `multi effect`, Rémy-style unification, typed stdlib, `Reader[R]`, `NonDet` |
 | [Error Handling](docs/error-handling.md) | Checked errors via `throws[A, E]`, `attemptCatch`, `HasStackTrace` |
-| [Metaprogramming](docs/metaprogramming.md) / [v2 macros](docs/arch-metaprogramming-v2.md) | `inline`, `derives`, `compiletime.*`; partially implemented restricted quoted macros for `ssc link` and interpreter `ssc run` with targeted unsupported-body diagnostics; interpreter `Mirror.Of[T]` and user `derived(m: Mirror)` typeclasses |
-| [DSL Authoring](docs/dsl.md) | Parser combinators, multi-pass pipelines, `runtime/std/parsing/*` |
+| [Metaprogramming](docs/specs/metaprogramming.md) / [v2 macros](docs/specs/arch-metaprogramming-v2.md) | `inline`, `derives`, `compiletime.*`; partially implemented restricted quoted macros for `ssc link` and interpreter `ssc run` with targeted unsupported-body diagnostics; interpreter `Mirror.Of[T]` and user `derived(m: Mirror)` typeclasses |
+| [DSL Authoring](docs/specs/dsl.md) | Parser combinators, multi-pass pipelines, `runtime/std/parsing/*` |
 
 **Platform & runtime**
 
@@ -118,43 +118,43 @@ bin/http.ssc
 |---|---|
 | [Architecture](docs/architecture.md) | Compiler pipeline, module structure, backend SPI |
 | [Target Backends](docs/targets.md) | Interpreter · JS transpiler · JVM — capabilities and tradeoffs |
-| [Actors & Distributed](docs/actors-dist.md) | Spawn, supervise, cluster over WebSocket |
-| [Distributed Wire Protocol](docs/distributed-wire-protocol.md) | Planned: opt-in JSON/MsgPack/CBOR internal wire layer for actors, Dataset/DStream, typed route clients/RPC, object sync, security, compression, and compatibility |
-| [Distributed Runtime](docs/distributed-runtime.md) | Planned: canonical local/remote/distributed runtime model for streams, actors, typed async calls, cluster lifecycle, cluster operations, code deployment, and worker bundles |
-| [Dataset / MapReduce](docs/mapreduce.md) | `Dataset[T]` — local, parallel, distributed |
-| [Apache Spark backend](docs/spark-streaming.md) | Spark 4 + Scala 3.7.1: `Dataset[T]`, `sql` blocks, `@SqlFn` UDFs, Structured Streaming, Delta Lake, Hive catalog, MLlib — see §13 of the User Guide |
-| [Frontend Framework SPI](docs/frontend-framework-spi-plan.md) | React / Vue / Solid / custom frontend backends; design doc has historical planning context |
-| [Frontend Toolkit](docs/frontend-toolkit-spec.md) | High-level declarative widgets: Forms, Routing, Widgets v2, Table |
-| [Cluster Management](docs/cluster-management.md) | Bully election, phi-accrual failure detector, federation, Raft, ZooKeeper client |
-| [x402 micropayments](docs/x402.md) | HTTP 402 protocol, Ethereum + Cardano flows, MCP × x402 paid tools |
-| [Bank Rails v1.54](docs/bank-rails.md) | SEPA CT/DD, ACH, Pix, FedNow — `BankRailsProvider` SPI, mandate lifecycle, async settlement |
-| [International Bank Rails v1.55](docs/international-bank-rails.md) | SWIFT MT103 + pacs.008, SEPA Instant, UK FPS/BACS/CHAPS, India UPI, Japan Zengin, Singapore PayNow |
-| [Browser SQL](docs/browser-sql.md) | Cross-backend `sql` fenced blocks (JS / Node / Wasm / JVM) |
-| [Electron SQL](docs/electron-sql.md) | Current `sqlite:` behavior in Electron desktop bundles, including the localStorage-backed renderer fallback |
-| [Electron Persistence Bridge](docs/electron-persistence-bridge.md) | Main/preload bridge for durable Electron SQLite under `app.getPath("userData")` |
+| [Actors & Distributed](docs/specs/actors-dist.md) | Spawn, supervise, cluster over WebSocket |
+| [Distributed Wire Protocol](docs/specs/distributed-wire-protocol.md) | Planned: opt-in JSON/MsgPack/CBOR internal wire layer for actors, Dataset/DStream, typed route clients/RPC, object sync, security, compression, and compatibility |
+| [Distributed Runtime](docs/specs/distributed-runtime.md) | Planned: canonical local/remote/distributed runtime model for streams, actors, typed async calls, cluster lifecycle, cluster operations, code deployment, and worker bundles |
+| [Dataset / MapReduce](docs/specs/mapreduce.md) | `Dataset[T]` — local, parallel, distributed |
+| [Apache Spark backend](docs/specs/spark-streaming.md) | Spark 4 + Scala 3.7.1: `Dataset[T]`, `sql` blocks, `@SqlFn` UDFs, Structured Streaming, Delta Lake, Hive catalog, MLlib — see §13 of the User Guide |
+| [Frontend Framework SPI](docs/specs/frontend-framework-spi-plan.md) | React / Vue / Solid / custom frontend backends; design doc has historical planning context |
+| [Frontend Toolkit](docs/specs/frontend-toolkit-spec.md) | High-level declarative widgets: Forms, Routing, Widgets v2, Table |
+| [Cluster Management](docs/specs/cluster-management.md) | Bully election, phi-accrual failure detector, federation, Raft, ZooKeeper client |
+| [x402 micropayments](docs/specs/x402.md) | HTTP 402 protocol, Ethereum + Cardano flows, MCP × x402 paid tools |
+| [Bank Rails v1.54](docs/specs/bank-rails.md) | SEPA CT/DD, ACH, Pix, FedNow — `BankRailsProvider` SPI, mandate lifecycle, async settlement |
+| [International Bank Rails v1.55](docs/specs/international-bank-rails.md) | SWIFT MT103 + pacs.008, SEPA Instant, UK FPS/BACS/CHAPS, India UPI, Japan Zengin, Singapore PayNow |
+| [Browser SQL](docs/specs/browser-sql.md) | Cross-backend `sql` fenced blocks (JS / Node / Wasm / JVM) |
+| [Electron SQL](docs/specs/electron-sql.md) | Current `sqlite:` behavior in Electron desktop bundles, including the localStorage-backed renderer fallback |
+| [Electron Persistence Bridge](docs/specs/electron-persistence-bridge.md) | Main/preload bridge for durable Electron SQLite under `app.getPath("userData")` |
 | [Secret Resolvers](secret-resolvers.md) | `${env:}` · `${file:}` · `${sops:}` · `SecretResolver` SPI for Vault / AWS SM / GCP / Doppler / 1Password |
-| [MCP Support](docs/mcp.md) | MCP server tools + resources, MCP client |
+| [MCP Support](docs/specs/mcp.md) | MCP server tools + resources, MCP client |
 | [Markdown as Syntax](docs/markdown-as-syntax.md) | How Markdown constructs map to AST nodes |
-| [SwiftUI / iOS / macOS](docs/swiftui.md) | Native Swift Package emission; `ssc run --target ios` / `--target macos`; `ssc package` + `ssc publish` to App Store / TestFlight |
-| [GraalVM native binary](docs/native-platform.md) | `ssc` native binary via GraalVM native-image; no-JVM distribution; `ssc-plugin-host.jar` bridge |
+| [SwiftUI / iOS / macOS](docs/specs/swiftui.md) | Native Swift Package emission; `ssc run --target ios` / `--target macos`; `ssc package` + `ssc publish` to App Store / TestFlight |
+| [GraalVM native binary](docs/specs/native-platform.md) | `ssc` native binary via GraalVM native-image; no-JVM distribution; `ssc-plugin-host.jar` bridge |
 | [Native plugin guide](docs/native-plugin-guide.md) | Compile a plugin to a native binary — fully JVM-free `ssc → plugin` |
 
 **Planned / partial**
 
 | | |
 |---|---|
-| [Blockchain SPI](docs/blockchain-spi.md) | Draft / planned, not fully implemented: pluggable chain abstraction below wallet and x402 support |
-| [Electron JVM REST Backend](docs/electron-jvm-rest-backend.md) | Partially implemented: explicit `ssc run --frontend electron --backend jvm-rest`, `ssc run --target desktop-jvm`, plain `ssc run` for `frontend: electron` full-stack sources, server-only `ssc run --mode server --backend jvm`, Electron client-only, and web client preview via `ssc run --mode client --frontend react --server-url ...` with opt-in `--open-browser` plus `--host`/`--port` preview binding; packaging and runtime-level JVM bind-host support remain planned |
-| [Full-stack in-process transport](docs/fullstack-in-process-transport.md) | Planned, partially implemented: `BackendTransport` types, `ssc run --transport http|in-process` parsing/diagnostics, interpreter/test-harness `InProcessBackendTransport`, same-process Swing runtime, and generated JVM/Swing`BackendTransport` dispatch for `fetchAction`, `dataTable`, and typed route clients without opening an HTTP socket; broader frontend selection remains planned |
-| [JVM Desktop Frontend](docs/jvm-desktop-frontend.md) | Partially implemented: `frontend-swing` backend, ServiceLoader registration, `ssc run-jvm --frontend swing`, static Swing toolkit subset emission, local signal action bridge, Swing `fetchAction` / `dataTable` / typed route client backend dispatch in the same JVM process, no-socket full-stack examples, and a `swing-plugin` skeleton for future interpreter intrinsics; JavaFX/Compose adapters remain planned |
-| [Typed route clients](docs/typed-route-clients.md) | Planned, partially implemented: `apiClients:` / `api-clients:` front-matter endpoint metadata parses into AST and codegen metadata; JVM/Swing generates callable in-process client methods, and JS/browser/Electron bundle codegen emits Promise-returning HTTP clients over `fetch` using `--server-url` / `__sscBackendBaseUrl`; `awaitClient(...)` gives client-side ScalaScript code a small await bridge; generated clients call a stable typed JSON codec facade sourced from `backend/typed-data`; JVM/Swing typed clients use `JsonCodec[T]`, and JS/browser/Electron typed clients use generated runtime codec metadata for known case-class/enum shapes |
-| [Contract validation](docs/contract-validation.md) | Planned, not implemented yet: shared OpenAPI/GraphQL validation model for route/resolver signatures, request/response bodies, typed errors/status codes, profiles, overlays/imports, CLI checks, compatibility diffs, and contract tests |
-| [Typer real types roadmap](docs/typer-real-types-roadmap.md) | Planned, partially implemented foundation: reduce accidental `Any` in exported symbols/IR and carry structured type evidence through case classes, enums, generics, routes/remotes, OpenAPI/GraphQL schemas, Dataset/Spark mapping, and plugin metadata |
-| [Client/server object store](docs/client-server-object-store.md) | Complete: JS/browser/Electron `IndexedDb.store[A]` typed local client store, JVM/JDBC `ObjectStore`, generated JVM REST sync routes, `Sync.pull/push/sync[A]`, durable queued `Sync.put/remove[A]`, explicit `Sync.conflicts/resolve[A]`, generated JVM conflict policies (`manual` / `server-wins` / `client-wins`), and `Sync.status` / `Sync.isOnline` / `Sync.isSyncing` UI helpers |
-| [Graph storage](docs/graph-storage.md) | Planned, partially implemented: `graphs:` front matter parses into AST/IR; JVM codegen exposes `Graph.*` over in-memory, embedded TinkerGraph property, and RDF4J memory RDF stores plus `Sparql.select` over RDF4J; the interpreter exposes `Graph.*` over in-memory property/RDF storage. Production adapters such as Neo4j, JanusGraph/TinkerPop providers, and RDF4J-compatible servers remain planned |
-| [Typed data mapping](docs/data-mapping.md) | Planned, partially implemented: `backend/typed-data` owns the shared emitted typed JSON facade for generated route clients plus `JsonValue` / `DecodeError` / `JsonCodec[A]`, explicit object helpers, `JsonFieldSpec` rename/default/key/unknown-field helpers, `derives JsonCodec` for case classes/sealed ADTs, schema annotations for derived JVM/interpreter product codecs, `schemas:` front-matter metadata for interpreter typed SQL, initial `RowValue` / `RowFieldSpec` / `RowCodec[A]` support for simple case-class rows and explicit JVM column metadata, initial `ObjectValue` / `ObjectFieldSpec[A]` / `ObjectCodec[A]` support for portable IndexedDB/ObjectStore document shapes, `VertexValue` / `EdgeValue` / `RdfValue` plus `VertexCodec[A]` / `EdgeCodec[A]` / `RdfCodec[A]` for graph/RDF mapping, `DatasetCodec[A]` for local/MapReduce Dataset element serialization and distributed worker partition payloads, `DatasetWire` JSON/MsgPack/CBOR envelope + chunk helpers for `DatasetWirePartition`, `std/mapreduce runDistributedWire` and `runDistributedShuffleWire` for direct `DatasetWirePartition` actor/shuffle payloads, `DistributedDataset.encode/decode[A]` typed boundary helpers, `DistributedDataset.run/runShuffle[A, B]` actor-effect wrappers, and `SparkSchemaCodec[A]` for Spark-like schema metadata using the same field annotations; JS/browser/Electron `IndexedDb.store[A]` typed local object storage, and JVM/JDBC `ObjectStore` storage through `ObjectCodec[A]`; `SqlRuntime.query/insert/update[A]` use `RowCodec[A]`; interpreter and JVM codegen expose `Db.query/insert/update[A]` for typed SQL reads and writes; SparkGen typed readers use `SparkSchemaCodec[A]` metadata when present and alias external column names back to Scala field names before `.as[T]`; richer cross-store convergence remains planned |
-| [Distributed binary wire protocol](docs/distributed-wire-protocol.md) | Planned, partially implemented: opt-in `wire:` config with JSON fallback plus MsgPack/CBOR profiles for internal ScalaScript distributed actors, Dataset/DStream, typed route clients/RPC, WebSocket subscriptions, object sync, compression, integrity, and future schema evolution. Implemented pieces include shared `WireEnvelope`, actor binary WS, typed RPC binary HTTP negotiation, and `DatasetWire` JSON/MsgPack/CBOR partition envelopes with chunking |
-| [Distributed runtime](docs/distributed-runtime.md) | Planned, partially implemented: `local` / `remote` / `distributed` placement vocabulary, named operation registry, code identity, stream bridges, typed actor remote spawn, `! Async` remote calls, cluster runner UX, token rotation, rolling upgrades, and cluster-aware deployment. Implemented pieces include stream bridge basics, typed actor refs/remote spawn, `ClusterCapability`, static `SeedResolver`, interpreter code identity checks, typed `cluster:` / registry front-matter metadata, interpreter `remoteHandlers:` lowering with in-process `Remote.function` plus HTTP JSON fallback routes, explicit `Remote.http[A, B](url)` calls, path-based `Remote.stub(baseUrl)` HTTP stubs, and generated `RemoteRpc` typed HTTP client metadata for `path:` remote handlers |
+| [Blockchain SPI](docs/specs/blockchain-spi.md) | Draft / planned, not fully implemented: pluggable chain abstraction below wallet and x402 support |
+| [Electron JVM REST Backend](docs/specs/electron-jvm-rest-backend.md) | Partially implemented: explicit `ssc run --frontend electron --backend jvm-rest`, `ssc run --target desktop-jvm`, plain `ssc run` for `frontend: electron` full-stack sources, server-only `ssc run --mode server --backend jvm`, Electron client-only, and web client preview via `ssc run --mode client --frontend react --server-url ...` with opt-in `--open-browser` plus `--host`/`--port` preview binding; packaging and runtime-level JVM bind-host support remain planned |
+| [Full-stack in-process transport](docs/specs/fullstack-in-process-transport.md) | Planned, partially implemented: `BackendTransport` types, `ssc run --transport http|in-process` parsing/diagnostics, interpreter/test-harness `InProcessBackendTransport`, same-process Swing runtime, and generated JVM/Swing`BackendTransport` dispatch for `fetchAction`, `dataTable`, and typed route clients without opening an HTTP socket; broader frontend selection remains planned |
+| [JVM Desktop Frontend](docs/specs/jvm-desktop-frontend.md) | Partially implemented: `frontend-swing` backend, ServiceLoader registration, `ssc run-jvm --frontend swing`, static Swing toolkit subset emission, local signal action bridge, Swing `fetchAction` / `dataTable` / typed route client backend dispatch in the same JVM process, no-socket full-stack examples, and a `swing-plugin` skeleton for future interpreter intrinsics; JavaFX/Compose adapters remain planned |
+| [Typed route clients](docs/specs/typed-route-clients.md) | Planned, partially implemented: `apiClients:` / `api-clients:` front-matter endpoint metadata parses into AST and codegen metadata; JVM/Swing generates callable in-process client methods, and JS/browser/Electron bundle codegen emits Promise-returning HTTP clients over `fetch` using `--server-url` / `__sscBackendBaseUrl`; `awaitClient(...)` gives client-side ScalaScript code a small await bridge; generated clients call a stable typed JSON codec facade sourced from `backend/typed-data`; JVM/Swing typed clients use `JsonCodec[T]`, and JS/browser/Electron typed clients use generated runtime codec metadata for known case-class/enum shapes |
+| [Contract validation](docs/specs/contract-validation.md) | Planned, not implemented yet: shared OpenAPI/GraphQL validation model for route/resolver signatures, request/response bodies, typed errors/status codes, profiles, overlays/imports, CLI checks, compatibility diffs, and contract tests |
+| [Typer real types roadmap](docs/specs/typer-real-types-roadmap.md) | Planned, partially implemented foundation: reduce accidental `Any` in exported symbols/IR and carry structured type evidence through case classes, enums, generics, routes/remotes, OpenAPI/GraphQL schemas, Dataset/Spark mapping, and plugin metadata |
+| [Client/server object store](docs/specs/client-server-object-store.md) | Complete: JS/browser/Electron `IndexedDb.store[A]` typed local client store, JVM/JDBC `ObjectStore`, generated JVM REST sync routes, `Sync.pull/push/sync[A]`, durable queued `Sync.put/remove[A]`, explicit `Sync.conflicts/resolve[A]`, generated JVM conflict policies (`manual` / `server-wins` / `client-wins`), and `Sync.status` / `Sync.isOnline` / `Sync.isSyncing` UI helpers |
+| [Graph storage](docs/specs/graph-storage.md) | Planned, partially implemented: `graphs:` front matter parses into AST/IR; JVM codegen exposes `Graph.*` over in-memory, embedded TinkerGraph property, and RDF4J memory RDF stores plus `Sparql.select` over RDF4J; the interpreter exposes `Graph.*` over in-memory property/RDF storage. Production adapters such as Neo4j, JanusGraph/TinkerPop providers, and RDF4J-compatible servers remain planned |
+| [Typed data mapping](docs/specs/data-mapping.md) | Planned, partially implemented: `backend/typed-data` owns the shared emitted typed JSON facade for generated route clients plus `JsonValue` / `DecodeError` / `JsonCodec[A]`, explicit object helpers, `JsonFieldSpec` rename/default/key/unknown-field helpers, `derives JsonCodec` for case classes/sealed ADTs, schema annotations for derived JVM/interpreter product codecs, `schemas:` front-matter metadata for interpreter typed SQL, initial `RowValue` / `RowFieldSpec` / `RowCodec[A]` support for simple case-class rows and explicit JVM column metadata, initial `ObjectValue` / `ObjectFieldSpec[A]` / `ObjectCodec[A]` support for portable IndexedDB/ObjectStore document shapes, `VertexValue` / `EdgeValue` / `RdfValue` plus `VertexCodec[A]` / `EdgeCodec[A]` / `RdfCodec[A]` for graph/RDF mapping, `DatasetCodec[A]` for local/MapReduce Dataset element serialization and distributed worker partition payloads, `DatasetWire` JSON/MsgPack/CBOR envelope + chunk helpers for `DatasetWirePartition`, `std/mapreduce runDistributedWire` and `runDistributedShuffleWire` for direct `DatasetWirePartition` actor/shuffle payloads, `DistributedDataset.encode/decode[A]` typed boundary helpers, `DistributedDataset.run/runShuffle[A, B]` actor-effect wrappers, and `SparkSchemaCodec[A]` for Spark-like schema metadata using the same field annotations; JS/browser/Electron `IndexedDb.store[A]` typed local object storage, and JVM/JDBC `ObjectStore` storage through `ObjectCodec[A]`; `SqlRuntime.query/insert/update[A]` use `RowCodec[A]`; interpreter and JVM codegen expose `Db.query/insert/update[A]` for typed SQL reads and writes; SparkGen typed readers use `SparkSchemaCodec[A]` metadata when present and alias external column names back to Scala field names before `.as[T]`; richer cross-store convergence remains planned |
+| [Distributed binary wire protocol](docs/specs/distributed-wire-protocol.md) | Planned, partially implemented: opt-in `wire:` config with JSON fallback plus MsgPack/CBOR profiles for internal ScalaScript distributed actors, Dataset/DStream, typed route clients/RPC, WebSocket subscriptions, object sync, compression, integrity, and future schema evolution. Implemented pieces include shared `WireEnvelope`, actor binary WS, typed RPC binary HTTP negotiation, and `DatasetWire` JSON/MsgPack/CBOR partition envelopes with chunking |
+| [Distributed runtime](docs/specs/distributed-runtime.md) | Planned, partially implemented: `local` / `remote` / `distributed` placement vocabulary, named operation registry, code identity, stream bridges, typed actor remote spawn, `! Async` remote calls, cluster runner UX, token rotation, rolling upgrades, and cluster-aware deployment. Implemented pieces include stream bridge basics, typed actor refs/remote spawn, `ClusterCapability`, static `SeedResolver`, interpreter code identity checks, typed `cluster:` / registry front-matter metadata, interpreter `remoteHandlers:` lowering with in-process `Remote.function` plus HTTP JSON fallback routes, explicit `Remote.http[A, B](url)` calls, path-based `Remote.stub(baseUrl)` HTTP stubs, and generated `RemoteRpc` typed HTTP client metadata for `path:` remote handlers |
 
 Dataset/MapReduce binary wire now reaches actor messages directly: `wireFormat = "msgpack" | "cbor"` sends `DatasetWire` envelope bytes for partition, shuffle-bucket, and key-result messages, while JSON keeps the object-message fallback.
 
@@ -321,7 +321,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | Project scaffolding | `ssc new my-app`, `--template lib|plugin|dsl|web-app|wasm-app`, bundled templates,`releases/install.sh`, Homebrew formula source |
 | Plugin system | `.sscpkg` format, `ssc plugin install/list/uninstall/check/pack`, `~/.scalascript/registry.yaml` |
 | sbt integration | `ScalascriptInteropPlugin`, `sscGenerateFacade`, `sscCompile`, `sscLink`, `sscTest`, `sscRun`, `sscRepl`, `sscWatch`, `sscBspSetup`, `src/main/scalascript/` source convention |
-| Config system | `config:` front-matter, ` ```yaml config "name" ` fenced blocks, `config.files: [...]`, typed `derives Config`, `JsConfigEmitter`, `ScalaConfigEmitter` — see `docs/config-system.md` |
+| Config system | `config:` front-matter, ` ```yaml config "name" ` fenced blocks, `config.files: [...]`, typed `derives Config`, `JsConfigEmitter`, `ScalaConfigEmitter` — see `docs/specs/config-system.md` |
 | Separate compilation | `ssc emit-interface`, `ssc compile-jvm/compile-js`, `ssc link`, `ssc build --incremental`, `.scim/.scir/.scjvm/.scjs` |
 
 ### Browser and UI
@@ -349,7 +349,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | Feature | Syntax |
 |---------|--------|
 | x402 micropayments | HTTP 402 → typed payment challenge / settlement via `Payment[T]`, `x402Server { … }`, `x402Client(...)` — Ethereum + Cardano payment families |
-| Blockchain SPI (draft / planned, not fully implemented) | `BlockchainBackend` trait — EVM (mainnet, L2s), Bitcoin, Solana, Cardano via pluggable backends. See [`docs/blockchain-spi.md`](docs/blockchain-spi.md) |
+| Blockchain SPI (draft / planned, not fully implemented) | `BlockchainBackend` trait — EVM (mainnet, L2s), Bitcoin, Solana, Cardano via pluggable backends. See [`docs/specs/blockchain-spi.md`](docs/specs/blockchain-spi.md) |
 | Wallet Connect (WC v2) | Relay-transport cryptographic primitives — pairing, session, JSON-RPC, X25519 / HKDF / ChaCha20-Poly1305 |
 | Browser MetaMask wallet | `x402ClientJs` helper — `Wallets.metaMask(Network.Base)` over `window.ethereum` + EIP-712 signing |
 | Ledger hardware wallets | JVM HID and browser WebHID vaults — Ledger HID APDU framing, Ethereum app signing, Cardano CIP-8 helpers |
@@ -367,9 +367,9 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | Bully leader election | `cluster.leader()` returns the current bully-elected leader; reactive on membership change |
 | Phi-accrual failure detector | Heartbeat-driven liveness; tunable phi threshold per cluster |
 | Self-health | `cluster.self.health` — driver-side health metric stream |
-| Federation | Multi-cluster gossip + cross-cluster routing — see [`docs/cluster-federation.md`](docs/cluster-federation.md) |
-| Raft consensus | Strongly-consistent state machine — see [`docs/cluster-raft.md`](docs/cluster-raft.md) |
-| ZooKeeper client | `zkClient { … }` for legacy coordinator integration — see [`docs/client-zookeeper.md`](docs/client-zookeeper.md) |
+| Federation | Multi-cluster gossip + cross-cluster routing — see [`docs/specs/cluster-federation.md`](docs/specs/cluster-federation.md) |
+| Raft consensus | Strongly-consistent state machine — see [`docs/specs/cluster-raft.md`](docs/specs/cluster-raft.md) |
+| ZooKeeper client | `zkClient { … }` for legacy coordinator integration — see [`docs/specs/client-zookeeper.md`](docs/specs/client-zookeeper.md) |
 | Operational HTTP routes | `/_ssc-cluster/status`, `/_ssc-cluster/members`, `/_ssc-cluster/leader` — built-in across all 4 frontend / Node backends |
 
 ## Examples
@@ -491,7 +491,7 @@ ssc serve 8000 target/frontend-examples/toolkit-demo/react
 Details: [`examples/frontend/README.md`](examples/frontend/README.md)
 and [`docs/user-guide.md#16-frontend-toolkit`](docs/user-guide.md).
 For SSR (`Ssr.renderToHtml`) and the full widget catalog see
-[`docs/frontend-toolkit-spec.md`](docs/frontend-toolkit-spec.md).
+[`docs/specs/frontend-toolkit-spec.md`](docs/specs/frontend-toolkit-spec.md).
 
 ## Benchmarks
 
@@ -615,7 +615,7 @@ scala-cli conformance/run.sc
 
 ScalaScript supports the following bundled backends, all loaded through the
 **Backend SPI** plugin architecture
-([`docs/backend-spi.md`](docs/backend-spi.md)):
+([`docs/specs/backend-spi.md`](docs/specs/backend-spi.md)):
 
 | Command | Backend id | How it works |
 |---------|------------|--------------|
@@ -631,8 +631,8 @@ ScalaScript supports the following bundled backends, all loaded through the
 | `ssc emit-wasm file.ssc` / `examples/run-wasm.sh` | `wasm`        | WebAssembly module — `scalascript`/`ssc` blocks lowered to Wasm IR. Cross-backend `sql` fenced blocks supported (v1.27 Phase 5). |
 | `ssc-native` (GraalVM) | `native` | No-JVM `ssc` binary; plugins via `ssc-plugin-host.jar` subprocess bridge |
 | (sub-backend) | `node`        | Node.js runtime variant of `js` — emits server-side JS with `fs`/`path` shims and a cross-backend SQL runtime (v1.27 Phase 4). |
-| (sub-backends) | `frontend-{react,vue,solid,custom}` | Frontend Framework SPI (v1.18 Phase A): same `.ssc` UI source compiled to React (`useState`/`useEffect`), Vue 3 (`ref`/render), Solid (`createSignal`/`createEffect`), or a minimal custom runtime — `ShowSignal`/`ToggleSignal`/`ForSignal` reactive primitives shared across all four. See [`docs/frontend-framework-spi-plan.md`](docs/frontend-framework-spi-plan.md). |
-| JVM desktop sub-backend | `frontend-swing` | Partially implemented JDK-only JVM desktop frontend. It provides SPI discovery, `ssc run-jvm --frontend swing`, Swing source emission for text/buttons/fields/toggles/stacks/spacers/dividers/scroll views, basic style hints, local signal actions, Swing `fetchAction` / `dataTable` / typed route client dispatch through generated JVM `BackendTransport`, no-socket full-stack examples, and a `swing-plugin` skeleton for future interpreter intrinsics; JavaFX/Compose adapters remain planned. See [`docs/jvm-desktop-frontend.md`](docs/jvm-desktop-frontend.md). |
+| (sub-backends) | `frontend-{react,vue,solid,custom}` | Frontend Framework SPI (v1.18 Phase A): same `.ssc` UI source compiled to React (`useState`/`useEffect`), Vue 3 (`ref`/render), Solid (`createSignal`/`createEffect`), or a minimal custom runtime — `ShowSignal`/`ToggleSignal`/`ForSignal` reactive primitives shared across all four. See [`docs/specs/frontend-framework-spi-plan.md`](docs/specs/frontend-framework-spi-plan.md). |
+| JVM desktop sub-backend | `frontend-swing` | Partially implemented JDK-only JVM desktop frontend. It provides SPI discovery, `ssc run-jvm --frontend swing`, Swing source emission for text/buttons/fields/toggles/stacks/spacers/dividers/scroll views, basic style hints, local signal actions, Swing `fetchAction` / `dataTable` / typed route client dispatch through generated JVM `BackendTransport`, no-socket full-stack examples, and a `swing-plugin` skeleton for future interpreter intrinsics; JavaFX/Compose adapters remain planned. See [`docs/specs/jvm-desktop-frontend.md`](docs/specs/jvm-desktop-frontend.md). |
 
 The `Backend` trait + `ServiceLoader` discovery let third parties
 add their own backend without touching `core` — drop a JAR and

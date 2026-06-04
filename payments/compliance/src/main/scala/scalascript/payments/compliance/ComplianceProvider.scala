@@ -9,7 +9,7 @@ import scala.concurrent.{Future, ExecutionContext}
  *
  *  All methods return `Future` so network-bound adapters are non-blocking.
  *
- *  See `docs/compliance-provider.md`.
+ *  See `docs/specs/compliance-provider.md`.
  */
 trait ComplianceProvider:
 

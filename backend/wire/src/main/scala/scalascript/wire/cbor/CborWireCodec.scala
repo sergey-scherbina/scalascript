@@ -20,7 +20,7 @@ import java.nio.{ByteBuffer, ByteOrder}
  *  - 6: tagged item (tag 1 = typed object, tag 2 = enum, tag 3 = pid, tag 4 = error, tag 5 = tuple)
  *  - 7: simple values + floats (Null → 0xF6, Bool, Float64)
  *
- *  Spec: docs/distributed-wire-protocol.md §Phase 1 */
+ *  Spec: docs/specs/distributed-wire-protocol.md §Phase 1 */
 object CborWireCodec:
 
   // ── CBOR tags for ScalaScript types ──────────────────────────────────────

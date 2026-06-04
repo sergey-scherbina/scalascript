@@ -19,7 +19,7 @@ import scalascript.wallet.spi.*
  *  The transport itself (relay ws + chacha20 envelope encryption)
  *  is injected.
  *
- *  See docs/wallet-spi.md §7.3 for the design. */
+ *  See docs/specs/wallet-spi.md §7.3 for the design. */
 class WalletConnectConnector(
   val manager:        AccountManager,
   transport:          WcRelayTransport,

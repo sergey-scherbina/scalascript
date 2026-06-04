@@ -11,7 +11,7 @@ import java.time.format.DateTimeFormatter
  *
  *  File is padded with "9" records to a multiple of 10 lines (blocking factor 10).
  *
- *  See docs/bank-rails.md §v1.54.2 for spec.
+ *  See docs/specs/bank-rails.md §v1.54.2 for spec.
  */
 object NachaFile:
 

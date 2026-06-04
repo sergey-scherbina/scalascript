@@ -4,7 +4,7 @@ import scalascript.wire.{WireEnvelope, WireValue}
 
 /** Debug formatting utilities for wire envelopes.
  *
- *  Spec: docs/distributed-wire-protocol.md §Observability */
+ *  Spec: docs/specs/distributed-wire-protocol.md §Observability */
 object WireDebug:
 
   /** Single-line summary of an envelope (protocol/kind/format/flags). */

@@ -17,7 +17,7 @@ import java.time.Duration
  *  Wire format: JSON to a MAS-licensed aggregator (NETS, DBS PayNow Business API,
  *  OCBC Business Connect, or MatchMove).
  *
- *  See docs/international-bank-rails.md §v1.56.8.
+ *  See docs/specs/international-bank-rails.md §v1.56.8.
  */
 class PayNowApi(config: PayNowConfig):
 

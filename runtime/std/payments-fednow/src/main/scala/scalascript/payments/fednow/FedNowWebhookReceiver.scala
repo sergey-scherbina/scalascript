@@ -18,7 +18,7 @@ import java.time.Instant
  *    fednow.credit.rejected  — negative pacs.002; reason codes AC01/CUST/DUPL/FOCR
  *    fednow.return.received  — return initiated by receiving FI
  *
- *  See docs/bank-rails.md §7.4 FedNow.
+ *  See docs/specs/bank-rails.md §7.4 FedNow.
  */
 class FedNowWebhookReceiver(
     override val config:   WebhookConfig  = WebhookConfig(),

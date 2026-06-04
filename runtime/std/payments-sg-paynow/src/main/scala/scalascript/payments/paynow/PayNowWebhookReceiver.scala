@@ -15,7 +15,7 @@ import javax.crypto.spec.SecretKeySpec
  *  Webhook auth: `X-PayNow-Signature: sha256=<hex>`, HMAC-SHA256 over raw HTTP body,
  *  shared secret configured at aggregator on-boarding.
  *
- *  See docs/international-bank-rails.md §v1.56.8.
+ *  See docs/specs/international-bank-rails.md §v1.56.8.
  */
 class PayNowWebhookReceiver(
     override val config:   WebhookConfig  = WebhookConfig(),

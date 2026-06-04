@@ -17,7 +17,7 @@
  *    site/search-index.json
  *    site/index.html
  *
- *  See docs/arch-registry.md §3e. */
+ *  See docs/specs/arch-registry.md §3e. */
 
 // Inline minimal versions of RegistryEntry and RegistrySiteGenerator
 // so this script is self-contained and doesn't depend on the sbt build.

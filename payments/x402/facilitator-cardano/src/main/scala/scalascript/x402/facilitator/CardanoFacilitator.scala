@@ -28,7 +28,7 @@ case class CardanoFacilitatorConfig(
    *  and is injected here as a function so the base module has no
    *  hard dependency on bloxbean / Scalus.
    *
-   *  See [`docs/x402-cardano-scalus.md`](../../../../../../../../docs/x402-cardano-scalus.md). */
+   *  See [`docs/specs/x402-cardano-scalus.md`](../../../../../../../../docs/specs/x402-cardano-scalus.md). */
   scalusSettle: Option[(PaymentPayload, PaymentRequirements) => Future[SettleResult]] = None,
 )
 

@@ -23,7 +23,7 @@ import scalascript.wallet.spi.{AccountManager, Vault}
  *  `wallet://audit` resource (no raw signatures — only sha256
  *  digests of results).
  *
- *  See docs/mcp-x402-wallet.md §5. */
+ *  See docs/specs/mcp-x402-wallet.md §5. */
 class McpWalletServer(
   val vault:        Vault,
   val manager:      AccountManager,

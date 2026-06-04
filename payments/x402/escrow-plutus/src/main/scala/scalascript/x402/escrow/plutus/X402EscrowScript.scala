@@ -50,7 +50,7 @@ enum EscrowRedeemer derives FromData, ToData:
  *  This is intentionally not a general CBOR/COSE parser; the off-chain
  *  client and facilitator already own the canonical wire format.
  *
- *  See [`docs/x402-cardano-scalus.md`](../../../../../../../docs/x402-cardano-scalus.md). */
+ *  See [`docs/specs/x402-cardano-scalus.md`](../../../../../../../docs/specs/x402-cardano-scalus.md). */
 @Compile
 object X402EscrowScript:
 

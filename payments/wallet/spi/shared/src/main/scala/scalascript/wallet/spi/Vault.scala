@@ -35,11 +35,11 @@ case class AccountDescriptor(
  *  - `EncryptedLocalVault` — file / IndexedDB with Argon2id+AES-GCM
  *    (wallet-spi Phase 2)
  *  - `LedgerVault` — hardware (wallet-spi Phase 7); see also
- *    docs/wallet-spi.md §5.1
+ *    docs/specs/wallet-spi.md §5.1
  *  - `MpcVault` — remote threshold-signing provider (Phase 8)
  *  - `PasskeyVault` — WebAuthn (Phase 6 owner for ERC-4337)
  *
- *  See docs/wallet-spi.md §5. */
+ *  See docs/specs/wallet-spi.md §5. */
 trait Vault:
   def kind: VaultKind
   def id: String

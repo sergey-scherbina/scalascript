@@ -15,7 +15,7 @@ exports:
 # `std.graphql` — GraphQL Server
 
 Schema-first GraphQL server backed by `graphql-java` (JVM) and `graphql-js` (Node target).
-Companion to [`docs/graphql.md`](../../docs/graphql.md).
+Companion to [`docs/specs/graphql.md`](../../docs/specs/graphql.md).
 
 ```scala
 // ── Opaque type aliases (erased at runtime) ─────────────────────────────────

@@ -26,7 +26,7 @@ import scala.jdk.CollectionConverters.*
  *    call); resets to fresh discovery when `setBackend` changes
  *    the choice.
  *
- *  See `docs/http-server-spi-plan.md` for the full design rationale. */
+ *  See `docs/specs/http-server-spi-plan.md` for the full design rationale. */
 object HttpServerBackends:
 
   @volatile private var _selectedName: Option[String]   = None

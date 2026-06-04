@@ -10,7 +10,7 @@ import scalascript.ir.{QualifiedName, NormalizedModule}
  *
  *  Registered via META-INF/services/scalascript.backend.spi.Backend.
  *
- *  See docs/bank-rails.md §v1.54.4.
+ *  See docs/specs/bank-rails.md §v1.54.4.
  */
 class FedNowPlugin extends Backend:
   def id:          String = "scalascript-payments-fednow"

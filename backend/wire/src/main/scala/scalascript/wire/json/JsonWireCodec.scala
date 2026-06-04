@@ -23,7 +23,7 @@ import ujson.*
  *  - `Pid`             → JSON object `{"$pid": {"nodeId": "...", "localId": ...}}`
  *  - `Error`           → JSON object `{"$error": {"code": "...", "message": "...", ...}}`
  *
- *  Spec: docs/distributed-wire-protocol.md §Phase 1 */
+ *  Spec: docs/specs/distributed-wire-protocol.md §Phase 1 */
 object JsonWireCodec:
 
   def encodeToValue(v: WireValue): ujson.Value = v match

@@ -3,7 +3,7 @@ package scalascript.ir
 import upickle.default.ReadWriter
 
 // ---------------------------------------------------------------------------
-// Backend SPI v0.1 — IR (docs/backend-spi.md §5)
+// Backend SPI v0.1 — IR (docs/specs/backend-spi.md §5)
 //
 // Stage 2.1: structural types that round-trip losslessly through
 // JSON / MsgPack.  Mirrors the AST closely for "near-no-op" Normalize;
@@ -636,7 +636,7 @@ case class ModuleInterface(
    *  `exports` + `Linker.mangle`.
    *
    *  Tier 1 of the Scala ↔ ScalaScript interop spec
-   *  (`docs/scala-interop.md`).  v2.0 — additive optional field, no
+   *  (`docs/specs/scala-interop.md`).  v2.0 — additive optional field, no
    *  ABI version bump. */
   scalaFacade: Map[String, String] = Map.empty
 ) derives ReadWriter

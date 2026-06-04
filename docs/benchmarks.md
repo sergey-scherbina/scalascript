@@ -181,8 +181,8 @@ Avoid:
 - `bench/README.md` — gate policy and full-run recipes (durable summaries:
   `bench/BASELINE.md`, `bench/BUNDLE_SIZES.md`).
 - `bench/perf-manifest.yaml` — manifest of smoke and full-run commands.
-- `docs/vm-jit-spec.md` — Phase-B SscVm spec (historical `VmJitBench`
+- `docs/specs/vm-jit-spec.md` — Phase-B SscVm spec (historical `VmJitBench`
   numbers; the bench was removed 2026-06-02 as it was superseded by
   `InterpreterBench` + the off-mode flags).
-- `docs/vm-jit-next.md` — current perf roadmap (Phase C BytecodeJit +
+- `docs/specs/vm-jit-next.md` — current perf roadmap (Phase C BytecodeJit +
   Phase D FastTier).

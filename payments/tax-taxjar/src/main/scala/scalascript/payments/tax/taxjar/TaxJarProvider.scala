@@ -23,7 +23,7 @@ import scala.concurrent.{Future, ExecutionContext}
  *
  *  `getSupportedJurisdictions`: hardcoded list of countries and US states.
  *
- *  See `docs/traditional-payments.md §TaxProvider §taxjar`.
+ *  See `docs/specs/traditional-payments.md §TaxProvider §taxjar`.
  */
 class TaxJarProvider(config: TaxJarConfig) extends TaxProvider:
 

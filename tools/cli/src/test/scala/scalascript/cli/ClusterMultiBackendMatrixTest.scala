@@ -14,7 +14,7 @@ import java.time.Duration
  *  both nodes is non-empty and equal.
  *
  *  This is the headline Tier 4 deliverable from
- *  [`docs/cluster-codegen-gap.md`](../../../../../../../docs/cluster-codegen-gap.md):
+ *  [`docs/specs/cluster-codegen-gap.md`](../../../../../../../docs/specs/cluster-codegen-gap.md):
  *  if this passes, multi-backend deployment is real — the peer envelopes
  *  that JVM-codegen and JS-codegen nodes emit on the `_ssc-actors` WS link
  *  are byte-compatible.
@@ -379,7 +379,7 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
   //      closing the connection.  Bully envelopes can't flow until
   //      the handshake completes, so convergence times out.  Cross-
   //      backend envelope reconciliation is a separate Tier 4 task
-  //      (`docs/cluster-codegen-gap.md` §"open issues" mentions it).
+  //      (`docs/specs/cluster-codegen-gap.md` §"open issues" mentions it).
   //
   // Once (2) is resolved (and assuming `npm` remains a reasonable
   // test dependency, or the JS bundle ships its own `package.json`

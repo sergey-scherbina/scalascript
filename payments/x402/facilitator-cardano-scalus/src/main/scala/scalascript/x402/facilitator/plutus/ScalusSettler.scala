@@ -11,7 +11,7 @@ import scala.concurrent.{ExecutionContext, Future}
  *  The CIP-8 proof carried in `PaymentPayload.cardanoProof` is passed as
  *  the validator's redeemer; the on-chain script enforces signature
  *  correctness, message-hash equality with the datum, and exact-output
- *  shape (see [`docs/x402-cardano-scalus.md`](../../../../../../../../../docs/x402-cardano-scalus.md)
+ *  shape (see [`docs/specs/x402-cardano-scalus.md`](../../../../../../../../../docs/specs/x402-cardano-scalus.md)
  *  §3.2).
  *
  *  Phase 1 ships only the trait and an `unimplemented` stub —

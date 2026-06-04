@@ -11,7 +11,7 @@ exports:
 
 Concrete `LeaderCoordinator` adapter that delegates leader-election to
 a Consul agent via its HTTP API (session + KV lock).  See
-[`docs/cluster-raft.md`](../../docs/cluster-raft.md) §5 for the
+[`docs/specs/cluster-raft.md`](../../docs/specs/cluster-raft.md) §5 for the
 adapter shape; this module wires the four function fields to Consul's
 `/v1/session/*` and `/v1/kv/*` endpoints.
 

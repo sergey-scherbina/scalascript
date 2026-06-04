@@ -13,7 +13,7 @@ import ujson.*
  *   2. Client resends with hash + query → server stores and executes.
  *   3. Server supports persistedOnly mode: reject any query not in the approved manifest.
  *
- *  Spec: docs/graphql.md §7 Phase 8.
+ *  Spec: docs/specs/graphql.md §7 Phase 8.
  */
 class GraphQLPersistedOpsTest extends AnyFunSuite:
 

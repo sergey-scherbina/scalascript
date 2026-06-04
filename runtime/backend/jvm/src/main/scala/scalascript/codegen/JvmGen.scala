@@ -2504,7 +2504,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
   //
   // **Strict semantics:** only call-site shapes that ARE primitive
   // count.  Selects, user-defined Applies, and type-inferred Anys
-  // are deliberately ignored — see docs/dep-cps-rewrite.md §4.4
+  // are deliberately ignored — see docs/specs/dep-cps-rewrite.md §4.4
   // "The hard part — predicate tightness" for why broader rules
   // regress `actors-process-info.ssc`.
   //
@@ -5170,7 +5170,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
 
   /** Server-side runtime (routes, sessions, JWT, OAuth, WS, …).
    *
-   *  Phase 3 (Option A from `docs/runtime-server-strategic-plan.md`)
+   *  Phase 3 (Option A from `docs/specs/runtime-server-strategic-plan.md`)
    *  is complete: the entire content used to live in three
    *  triple-quoted string templates (Part1 / Part1b / Part2);
    *  now it's four real Scala source files in
@@ -6188,7 +6188,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |  def subscribeLeaderEvents(): Any                      = _perform("Actor", "subscribeLeaderEvents")
        |  def setAutoReelect(enabled: Any): Any                 = _perform("Actor", "setAutoReelect", enabled)
        |  // v1.23 — leader-protocol switch (Raft / external coordinator stubs).
-       |  // See docs/cluster-raft.md for the spec.  Calling these promotes the
+       |  // See docs/specs/cluster-raft.md for the spec.  Calling these promotes the
        |  // node off Bully but the alternative protocols' actual algorithms
        |  // land in subsequent phases — for now these mark intent and let
        |  // `leaderProtocol()` observe it.

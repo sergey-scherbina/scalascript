@@ -17,7 +17,7 @@ package scalascript.blockchain.spi
  *  is distinct from one for `eip155:1`, but both are produced by the
  *  same class.
  *
- *  See docs/wallet-spi-scalajs.md §3.4 for the cross-platform pattern. */
+ *  See docs/specs/wallet-spi-scalajs.md §3.4 for the cross-platform pattern. */
 object Blockchain:
 
   private val explicit = scala.collection.mutable.LinkedHashMap.empty[ChainId, ChainAdapter]

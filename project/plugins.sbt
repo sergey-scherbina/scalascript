@@ -11,7 +11,7 @@ addSbtPlugin("com.github.sbt" % "sbt-proguard" % "0.5.0")
 // GraalVMNativeImagePlugin is part of sbt-native-packager.
 addSbtPlugin("com.github.sbt" % "sbt-native-packager" % "1.10.4")
 
-// Scala.js cross-compile (docs/wallet-spi-scalajs.md). Stage 1 cross-
+// Scala.js cross-compile (docs/specs/wallet-spi-scalajs.md). Stage 1 cross-
 // compiles crypto-spi / blockchain-spi / wallet-spi; later stages add
 // strategy + connector + vault modules.
 //

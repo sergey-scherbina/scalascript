@@ -15,7 +15,7 @@ package scalascript.crypto
  *  helper that lives in `crypto-spi/jvm/` and `crypto-spi/js/` source
  *  trees respectively.
  *
- *  See docs/blockchain-spi.md §4 for the full design rationale. */
+ *  See docs/specs/blockchain-spi.md §4 for the full design rationale. */
 trait CryptoBackend:
 
   /** Stable identifier for diagnostics / registry lookups.
@@ -138,7 +138,7 @@ trait CryptoBackend:
  *     ServiceLoader on JS — impls must call `register(...)` from a
  *     module-init block).
  *
- *  See docs/wallet-spi-scalajs.md §3.4 for the cross-platform pattern. */
+ *  See docs/specs/wallet-spi-scalajs.md §3.4 for the cross-platform pattern. */
 object CryptoBackend:
 
   private val explicit = scala.collection.mutable.LinkedHashMap.empty[String, CryptoBackend]

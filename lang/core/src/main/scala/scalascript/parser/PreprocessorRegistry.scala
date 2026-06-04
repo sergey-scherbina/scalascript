@@ -10,7 +10,7 @@ import scala.collection.concurrent.TrieMap
  *  Plugin-provided preprocessors register via `Backend.preprocessors` (loaded
  *  through `BackendRegistry`) using higher priorities (100+).
  *
- *  See `docs/arch-dsl-hooks.md §4c — PreprocessorRegistry`. */
+ *  See `docs/specs/arch-dsl-hooks.md §4c — PreprocessorRegistry`. */
 object PreprocessorRegistry:
 
   private[parser] val registry: TrieMap[String, Preprocessor] = TrieMap.empty

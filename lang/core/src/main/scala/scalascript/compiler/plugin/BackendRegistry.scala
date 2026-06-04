@@ -20,7 +20,7 @@ import scala.jdk.CollectionConverters.*
 
 /** Central registry for `Backend` plugins.
  *
- *  Per docs/backend-spi.md §12.  Combines two discovery mechanisms:
+ *  Per docs/specs/backend-spi.md §12.  Combines two discovery mechanisms:
  *
  *    1. **In-process / ServiceLoader (§12.1)** — every backend JAR on
  *       the classpath that ships a META-INF/services entry.  This is

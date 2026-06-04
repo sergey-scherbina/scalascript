@@ -6,7 +6,7 @@ package scalascript.frontend.toolkit
  *  inline CSS.  Apps swap themes by passing a different `Theme`
  *  to `App(theme = ...)` at the root.
  *
- *  See `docs/frontend-toolkit-spec.md` for the design rationale. */
+ *  See `docs/specs/frontend-toolkit-spec.md` for the design rationale. */
 case class Theme(
   colors:     ColorPalette,
   spacing:    SpacingScale,

@@ -1,13 +1,13 @@
 #!/usr/bin/env ssc
 ---
 name: dep-cps-basic
-description: Canonical green target for Strategy D (dep-mode CPS rewrite) — Steps 1-4 of docs/dep-cps-rewrite.md
+description: Canonical green target for Strategy D (dep-mode CPS rewrite) — Steps 1-4 of docs/specs/dep-cps-rewrite.md
 backends: [jvm]
 ---
 
 # Dep-mode CPS rewriter — minimal fixture
 
-Reproduces the architectural bug documented in `docs/dep-cps-rewrite.md`
+Reproduces the architectural bug documented in `docs/specs/dep-cps-rewrite.md`
 on the smallest possible surface area. When Strategy D Steps 1-4 land,
 this test must go green; before that, it fails with `Found: Any /
 Required: String` shape (the dep declares `String` return but the

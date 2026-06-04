@@ -10,7 +10,7 @@ import scalascript.db.DbScheme
  *  module's `databases:` entries to decide which npm package deps to
  *  emit (`sql.js`, `@duckdb/duckdb-wasm`) and which to skip.
  *
- *  Spec: docs/browser-sql.md § "URL → provider dispatch".
+ *  Spec: docs/specs/browser-sql.md § "URL → provider dispatch".
  */
 enum ProviderId(val id: String, val scheme: DbScheme, val npmPackage: String, val npmVersionRange: String):
   /** The URL prefix this provider handles — kept for stable API surface. */

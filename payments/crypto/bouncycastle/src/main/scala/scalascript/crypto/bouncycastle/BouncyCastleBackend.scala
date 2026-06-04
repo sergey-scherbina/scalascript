@@ -10,7 +10,7 @@ import scalascript.crypto.*
  *  so just having `scalascript-crypto-bouncycastle` on the classpath
  *  is enough to make `CryptoBackend.get()` return an instance.
  *
- *  See docs/blockchain-spi.md §4 for the SPI contract. */
+ *  See docs/specs/blockchain-spi.md §4 for the SPI contract. */
 final class BouncyCastleBackend extends CryptoBackend:
 
   def id: String = "bouncycastle-jvm"

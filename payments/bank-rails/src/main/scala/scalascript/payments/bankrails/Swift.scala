@@ -4,7 +4,7 @@ import java.time.Instant
 
 /** UUID v4 assigned at SWIFT initiation; unique across the entire GPI network.
  *  Format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
- *  See docs/international-bank-rails.md §4.3. */
+ *  See docs/specs/international-bank-rails.md §4.3. */
 opaque type Uetr = String
 object Uetr:
   def generate(): Uetr        = java.util.UUID.randomUUID().toString
@@ -17,7 +17,7 @@ object Uetr:
 
 /** SWIFT charge-bearer instruction (ISO 20022 ChrgBr field).
  *  SHA is the most common default.
- *  See docs/international-bank-rails.md §3.4. */
+ *  See docs/specs/international-bank-rails.md §3.4. */
 enum ChargeBearer:
   case OUR  // sender pays all intermediary + receiving-bank charges
   case SHA  // sender pays sending bank; receiver pays rest (default)
@@ -25,7 +25,7 @@ enum ChargeBearer:
 
 /** One hop in a SWIFT GPI tracker chain.
  *  Populated from pacs.002 status updates delivered by the GPI tracker webhook.
- *  See docs/international-bank-rails.md §3.1. */
+ *  See docs/specs/international-bank-rails.md §3.1. */
 case class GpiHop(
   agentBic:     String,                        // BIC of the institution at this hop
   status:       String,                        // ACSP / ACCC / RJCT (pacs.002 status codes)

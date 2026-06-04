@@ -39,4 +39,4 @@ ssc --list-backends
 - Canonical Response envelope (`id` + `result` or `error`).
 - A plugin.yaml manifest discoverable by `~/.scalascript/compiler/plugins/`.
 
-The wire shape is documented in `docs/backend-spi-protocol.md`.
+The wire shape is documented in `docs/specs/backend-spi-protocol.md`.

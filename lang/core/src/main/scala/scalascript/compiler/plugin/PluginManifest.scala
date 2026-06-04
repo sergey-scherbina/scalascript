@@ -6,7 +6,7 @@ import scala.jdk.CollectionConverters.*
 import scala.util.{Try, Success, Failure}
 
 /** Parsed `plugin.yaml` manifest declaring an out-of-process plugin.
- *  See docs/backend-spi.md §12.2.
+ *  See docs/specs/backend-spi.md §12.2.
  *
  *  Stage 6.2 supports the Backend role's fields; SourceLanguage role
  *  fields parse but are not yet consumed by the registry. */

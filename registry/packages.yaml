@@ -4,7 +4,7 @@
 # Submit a PR adding your package to this list.
 # CI runs: schema validation + `ssc check` on each entry.
 #
-# See docs/arch-registry.md for the full schema specification.
+# See docs/specs/arch-registry.md for the full schema specification.
 
 - name: io.scalascript/json
   version: 1.0.0

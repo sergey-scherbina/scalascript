@@ -11,7 +11,7 @@ exports:
 
 Concrete `LeaderCoordinator` adapter that delegates leader-election
 to an etcd cluster via its v3 gRPC-gateway HTTP API.  See
-[`docs/cluster-raft.md`](../../docs/cluster-raft.md) §5 for the
+[`docs/specs/cluster-raft.md`](../../docs/specs/cluster-raft.md) §5 for the
 adapter shape; this module wires the four function fields to etcd's
 `/v3/lease/*` and `/v3/kv/*` endpoints.
 

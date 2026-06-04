@@ -9,7 +9,7 @@ package scalascript.imports
  *
  *  Invoked by `tools/registry-site/generate.sc` (scala-cli) and by tests.
  *
- *  See `docs/arch-registry.md §3e`. */
+ *  See `docs/specs/arch-registry.md §3e`. */
 object RegistrySiteGenerator:
 
   /** Generate the full site under `outputDir`.  Creates all directories. */

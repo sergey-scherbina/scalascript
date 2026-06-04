@@ -290,7 +290,7 @@ escape hatch.  Two backends consume the same rewriter:
 
 Connection resolution on the JVM/Interpreter path: front-matter
 `databases:` map → `ConnectionRegistry`; `given Connection` in scope
-overrides the registry.  See `docs/postgres.md` for the
+overrides the registry.  See `docs/specs/postgres.md` for the
 `client-postgres` library that complements this with a Future-based
 async API for end-user scalascript code.
 
@@ -301,7 +301,7 @@ WASM backends.  Source semantics are unchanged: the
 `SqlBindRewriter.rewriteJdbc` output (?-templated SQL + ordered
 bind list) is consumed by `backend-sql-runtime-js`'s JS facade,
 which dispatches to one of two embedded engines based on URL prefix.
-Full spec: [`docs/browser-sql.md`](browser-sql.md).
+Full spec: [`docs/specs/browser-sql.md`](browser-sql.md).
 
 | URL prefix             | Provider        | Notes                                                                  |
 | ---------------------- | --------------- | ---------------------------------------------------------------------- |
@@ -348,7 +348,7 @@ The Wasm target ships the JS runtime + per-module registry as
 `Segment.Asset`s alongside the `.wasm` blob (`sql-runtime.mjs`,
 `sql-registry.mjs`, `package.json`); the Node target ships
 `package.json` next to `main.cjs`.  Full v1.27 spec:
-[`docs/browser-sql.md`](browser-sql.md).
+[`docs/specs/browser-sql.md`](browser-sql.md).
 
 ## Adding New Backends
 
