@@ -364,8 +364,12 @@ as expression source until an explicit renderer evaluates it, so reading
 Frontend lowering is the first public target. `std/ui/content.ssc` provides
 `contentView(...)`, `contentViewSection(...)`, and `contentViewBlock(...)`
 helpers that render the same content tree through the existing backend-agnostic
-UI model. The lower-level `std/content` metadata API follows from the same
-snapshot instead of being the first goal. See
+UI model. The toolkit bridge can render the whole document with
+`contentToolkitNode()` or select explicit Markdown-authored regions with
+`contentToolkitBlock(id)` and `contentToolkitSection(id)`, so one `.ssc`
+document can hold multiple independent UI fragments defined in Markdown/YAML.
+The lower-level `std/content` metadata API follows from the same snapshot
+instead of being the first goal. See
 [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md)
 for the full contract and remaining implementation phases.
 

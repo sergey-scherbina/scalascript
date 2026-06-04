@@ -213,6 +213,10 @@ case class ContentToolkitOptions(
 )
 
 extern def contentToolkitNode(options: ContentToolkitOptions = ContentToolkitOptions()): TkNode
+extern def contentToolkitBlock(id: String,
+                               options: ContentToolkitOptions = ContentToolkitOptions()): TkNode
+extern def contentToolkitSection(id: String,
+                                 options: ContentToolkitOptions = ContentToolkitOptions()): TkNode
 
 case class ContentRenderOptions(
   includeCode: Boolean = false,
@@ -229,6 +233,17 @@ def contentViewBlock(block: ContentBlock, options: ContentRenderOptions = Conten
 the current parsed `.ssc` document from the content plugin and returns a regular
 `TkNode`, so callers can place Markdown content inside `vstack`, `card`,
 routers, and themed application shells before `lower(tree, theme)`.
+
+`contentToolkitBlock(id)` and `contentToolkitSection(id)` are the explicit
+selection helpers for pages that define multiple independent Markdown-authored
+regions. `contentToolkitBlock` searches all document blocks, including blocks
+inside sections and list items, by explicit block metadata id such as
+`@id=filters`; it renders exactly that block through the same lowering rules as
+`contentToolkitNode()`. `contentToolkitSection` searches the section tree by the
+stable heading id, including generated ids and explicit `{#id}` values, and
+renders that section as a standalone toolkit subtree. A missing id is an
+interpreter error. Duplicate block ids are also an interpreter error; section id
+duplicates are rejected by the parser when explicit ids collide.
 
 Structured fences marked `@ui=toolkit` are consumed by `contentToolkitNode()`
 as declarative toolkit controls. They let authors define the controls in
@@ -261,6 +276,47 @@ controls:
 
 ```scalascript
 val page = lower(contentToolkitNode(), defaultTheme)
+serve(page, 8099)
+```
+````
+
+When a document contains more than one declarative control tree, give each
+fenced block an id and select the parts to compose:
+
+````markdown
+```yaml @id=filters @ui=toolkit
+signals:
+  search: ""
+controls:
+  type: textField
+  signal: search
+  label: Search
+```
+
+```yaml @id=actions @ui=toolkit
+signals:
+  submitted: false
+controls:
+  type: button
+  signal: submitted
+  value: true
+  label: Apply
+```
+
+[contentToolkitBlock](std/ui/content.ssc)
+[vstack](std/ui/layout.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[serve](std/ui/primitives.ssc)
+
+```scalascript
+val page = lower(
+  vstack(gap = 16)(
+    contentToolkitBlock("filters"),
+    contentToolkitBlock("actions")
+  ),
+  defaultTheme
+)
 serve(page, 8099)
 ```
 ````
@@ -318,6 +374,9 @@ a compile error by itself.
       `ContentValue` data when parsing succeeds and a parser is available.
 - [x] Structured `yaml @ui=toolkit` blocks lower directly to interactive
       `std/ui` controls through `contentToolkitNode()`.
+- [ ] `contentToolkitBlock(id)` and `contentToolkitSection(id)` select exactly
+      one Markdown-authored block or section by stable id so one document can
+      contain multiple independent frontend regions.
 - [x] Every fenced code block enters the content tree as an embedded language
       node, even when its execution is handled by a backend or plugin.
 - [x] Generated section ids are deterministic: slugify heading text; if a slug
