@@ -81,6 +81,27 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       **0.208 → 0.080 ms** (2.6×), `patternMatchHeavy` further **0.135 → 0.074 ms** (1.8×).
       5 new tests. Total: 1300 tests pass.
 
+- [x] **interp-opt-poly-sum-gauss** — ✓ Landed 2026-06-04.
+      `tryClosedFormPolyLoop` (EvalRuntime.scala) recognizes
+      `while counter < N do acc = acc + f(counter); counter += step` and replaces
+      the loop with the Gauss closed form. Body grammar: degree-1 polynomial
+      in the function parameter(s), val-bound globals folded as constants.
+      `walkLinearPoly` handles the grammar; BigInt used for overflow-safe
+      intermediate computation. `pureCallSum` 0.256 → 0.003 ms (83×),
+      `pureCallSum2` 0.292 → 0.003 ms (97×), `pureCallSumBlock` 0.276 → 0.003 ms
+      (93×). `pureCallSumIf` unchanged (conditional body rejected). Confirmed vs
+      native JVM floor: native static-call loop = 0.247 ms; C2 inlines `f` as
+      `inline (hot)`. 5 new tests (1307 total). Commit c8ffa5d2.
+
+- [ ] **vectorize-pure-loop** — Use `jdk.incubator.vector.LongVector` inside
+      `tryCompileWhileLong` to batch 4–8 lanes when the body is pure arithmetic
+      on the counter. Expected 4–8× speedup on `pureCallSumIf` (if the recognized
+      grammar for `walkLinearPoly` is extended) and similar shapes. `pureCallSum*`
+      are now at the algebraic floor via Gauss; vector would help non-polynomial
+      cases. Caveats: `--add-modules jdk.incubator.vector`, JDK incubator ABI
+      churn, tail-loop handling for non-aligned N. Revisit after extending the
+      closed-form recognizer or when a concrete non-polynomial bench motivates it.
+
 - [x] **interp-opt-effect-stream** — ✓ Landed 2026-06-04.
       Two slices: (1) defer buf.toList into runToList NativeFnV lambda (36902ad1);
       (2) SrcList InstanceV with O(1) length NativeFnV, eliminating 10 K cons-cell

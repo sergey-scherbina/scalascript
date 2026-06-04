@@ -320,10 +320,10 @@ then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 | `patternMatchHeavy` | **0.074** | — | 2026-06-04: LICM hoist Asm (was 0.135 ms, 1.8×; was 0.349 ms, 4.7×) |
 | `patternMatchSet` | **0.080** | — | 2026-06-04: LICM hoist Set (was 0.208 ms, 2.6×) |
 | `patternMatchWide` | **0.043** | — | 2026-06-04: LICM hoist (was 0.690 ms, 16×) |
-| `pureCallSum` | 0.256 | — | ✓ ASM bug fixed (was 11.2 ms) |
-| `pureCallSum2` | 0.292 | — | ✓ ASM bug fixed |
-| `pureCallSumBlock` | 0.276 | — | ✓ ASM bug fixed (was 2676 ms) |
-| `pureCallSumIf` | 0.278 | — | ✓ ASM bug fixed (was 2774 ms) |
+| `pureCallSum` | **0.003** | — | 2026-06-04: Gauss closed-form (was 0.256 ms, 83×) |
+| `pureCallSum2` | **0.003** | — | 2026-06-04: Gauss closed-form (was 0.292 ms, 97×) |
+| `pureCallSumBlock` | **0.003** | — | 2026-06-04: Gauss closed-form (was 0.276 ms, 93×) |
+| `pureCallSumIf` | 0.273 | — | unchanged (conditional body not affine) |
 | `recursionFib` | 1.284 | 1.247 | parity ✓ |
 | `recursionFibD` | 1.476 | 1.462 | parity ✓ |
 | `recursionFibMul` | 1.315 | 1.341 | parity ✓ |
