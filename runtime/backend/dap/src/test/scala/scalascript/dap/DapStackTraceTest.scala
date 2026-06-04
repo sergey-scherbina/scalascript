@@ -42,6 +42,7 @@ class DapStackTraceTest extends AnyFunSuite:
     })
 
     val client = Socket("127.0.0.1", port)
+    client.setSoTimeout(10000)
     try f(client, tmpFile)
     finally
       client.close()

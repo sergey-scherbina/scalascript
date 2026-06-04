@@ -22,6 +22,7 @@ class DapSessionPhase1Test extends AnyFunSuite:
     sessionThread.start()
 
     val client = Socket("127.0.0.1", port)
+    client.setSoTimeout(10000)
     try body(client)
     finally
       client.close()

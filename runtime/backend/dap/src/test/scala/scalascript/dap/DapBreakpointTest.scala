@@ -72,6 +72,7 @@ class DapBreakpointTest extends AnyFunSuite:
 
     // ── Client side ───────────────────────────────────────────────────────
     val client = Socket("127.0.0.1", port)
+    client.setSoTimeout(10000)
 
     def send(msg: Value): Unit = DapProtocol.writeMessage(client.getOutputStream, msg)
     def recv(): Value          = DapProtocol.readMessage(client.getInputStream)
