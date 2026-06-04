@@ -965,7 +965,8 @@ object JavacJitBackend extends JitBackend:
   private def tryBuildInlineMatchAccum(
     funV:        Value.FunV,
     accIsDouble: Boolean,
-    interp:      scalascript.interpreter.Interpreter
+    interp:      scalascript.interpreter.Interpreter,
+    targetVar:   String = "_acc"
   ): String | Null =
     if funV.params.length != 1 then return null
     val paramName = funV.params.head
@@ -1003,7 +1004,7 @@ object JavacJitBackend extends JitBackend:
     sb.append("switch (inst.typeTag()) {\n")
     ai = 0
     while ai < casesArr.length do
-      val armStr = walkArmForAccum(casesArr(ai), ctx, interp, armTags(ai), accIsDouble)
+      val armStr = walkArmForAccum(casesArr(ai), ctx, interp, armTags(ai), accIsDouble, targetVar)
       if armStr == null then return null
       sb.append(armStr)
       ai += 1
@@ -1013,13 +1014,14 @@ object JavacJitBackend extends JitBackend:
     sb.append("}")
     sb.toString
 
-  /** Emit one match arm for inline-accum: `case TAG: { <bindings>; _acc += body; break; }` */
+  /** Emit one match arm for inline-accum: `case TAG: { <bindings>; targetVar += body; break; }` */
   private def walkArmForAccum(
     c:           scala.meta.Case,
     ctx:         GenCtx,
     interp:      scalascript.interpreter.Interpreter,
     intTag:      Int,
-    accIsDouble: Boolean
+    accIsDouble: Boolean,
+    targetVar:   String
   ): String | Null =
     if c.cond.nonEmpty then return null
     c.pat match
@@ -1074,21 +1076,21 @@ object JavacJitBackend extends JitBackend:
           fi += 1
         val armBodyJava = if accIsDouble then walkDouble(c.body, newCtx) else walkLong(c.body, newCtx)
         if armBodyJava == null then return null
-        sb.append(s"    _acc += $armBodyJava;\n")
+        sb.append(s"    $targetVar += $armBodyJava;\n")
         sb.append(s"    break;\n")
         sb.append(s"  }\n")
         sb.toString
       case _: Pat.Wildcard =>
         val armBodyJava = if accIsDouble then walkDouble(c.body, ctx) else walkLong(c.body, ctx)
         if armBodyJava == null then return null
-        s"  default: { _acc += $armBodyJava; break; }\n"
+        s"  default: { $targetVar += $armBodyJava; break; }\n"
       case pv: scala.meta.Pat.Var =>
         val xName = pv.name.value
         val xBind = sanitize(xName) + "_a"
         val newCtx = ctx.withBindings(Map(xName -> (xBind, true)))
         val armBodyJava = if accIsDouble then walkDouble(c.body, newCtx) else walkLong(c.body, newCtx)
         if armBodyJava == null then return null
-        s"  default: { Object $xBind = inst; _acc += $armBodyJava; break; }\n"
+        s"  default: { Object $xBind = inst; $targetVar += $armBodyJava; break; }\n"
       case _ => null
 
   /** Emit a single match arm for a ref-returning match body (`ObjToObject`).
@@ -1775,6 +1777,15 @@ object JavacJitBackend extends JitBackend:
     // Try to inline the match body — eliminates ObjToLong virtual dispatch.
     val funVTyped = fnVal.asInstanceOf[scalascript.interpreter.Value.FunV]
     val inlineMatchSwitch: String | Null = tryBuildInlineMatchAccum(funVTyped, accIsDouble, interp)
+    // LICM: when inlineMatchSwitch is available for a List receiver, we can hoist
+    // the pure foreach-accumulator out of the outer while.  The foreach result is
+    // loop-invariant because: coll is val-bound, items are immutable InstanceVs,
+    // and the match-body is structurally pure (proven by tryBuildInlineMatchAccum
+    // succeeding — walkLong/walkDouble reject any Term.Assign and impure calls).
+    val invSumMatchSwitch: String | Null =
+      if inlineMatchSwitch != null && !receiverIsSet then
+        tryBuildInlineMatchAccum(funVTyped, accIsDouble, interp, targetVar = "_invSum")
+      else null
 
     // Compile cond + int-assign RHSes via existing walkers.
     val ctx = new WhileGenCtx(names, interp, scala.collection.mutable.LinkedHashMap.empty)
@@ -1825,41 +1836,60 @@ object JavacJitBackend extends JitBackend:
       sb.append(s"    double _acc = Double.longBitsToDouble(v[$accSlotIdx]);\n")
     else
       sb.append(s"    long _acc = v[$accSlotIdx];\n")
-    // Outer while.
-    sb.append(s"    while ($condJava) {\n")
-    // Inner foreach loop over receiver items (List head/tail or Set iterator).
-    if receiverIsSet then
-      sb.append(s"      scala.collection.Iterator<?> _iter = _set0.items().iterator();\n")
-      sb.append(s"      while (_iter.hasNext()) {\n")
-      if inlineMatchSwitch != null then
-        sb.append(s"        $valuePkg.Value.InstanceV inst = ($valuePkg.Value.InstanceV) _iter.next();\n")
-        sb.append(s"        $inlineMatchSwitch\n")
-      else if accIsDouble then
-        sb.append(s"        _acc += _dfn0.apply(_iter.next());\n")
-      else
-        sb.append(s"        _acc += _fn0.apply(_iter.next());\n")
-      sb.append(s"      }\n")
-    else if inlineMatchSwitch != null then
-      // Pre-extracted array path — faster than head()/tail() traversal.
-      sb.append(s"      for (int _li = 0; _li < _llen; _li++) {\n")
-      sb.append(s"        $valuePkg.Value.InstanceV inst = ($valuePkg.Value.InstanceV) _larr[_li];\n")
-      sb.append(s"        $inlineMatchSwitch\n")
-      sb.append(s"      }\n")
+    if invSumMatchSwitch != null then
+      // LICM path: hoist the pure foreach-accumulator out of the outer while.
+      // Compute _invSum once before the loop; the tight inner while adds a constant
+      // per iteration — HotSpot C2 strength-reduces it to a closed-form multiply.
+      if accIsDouble then sb.append(s"    double _invSum = 0.0;\n")
+      else               sb.append(s"    long _invSum = 0L;\n")
+      sb.append(s"    for (int _li = 0; _li < _llen; _li++) {\n")
+      sb.append(s"      $valuePkg.Value.InstanceV inst = ($valuePkg.Value.InstanceV) _larr[_li];\n")
+      sb.append(s"      $invSumMatchSwitch\n")
+      sb.append(s"    }\n")
+      // Outer while: just accumulate _invSum — no inner foreach.
+      sb.append(s"    while ($condJava) {\n")
+      sb.append(s"      _acc += _invSum;\n")
+      k = 0
+      while k < names.length do
+        sb.append(s"      _v$k = ${rhsJava(k)};\n")
+        k += 1
+      sb.append(s"    }\n")
     else
-      sb.append(s"      scala.collection.immutable.List<?> _items = _list0.items();\n")
-      sb.append(s"      while (!_items.isEmpty()) {\n")
-      if accIsDouble then
-        sb.append(s"        _acc += _dfn0.apply(_items.head());\n")
+      // Standard path: inner foreach inside the outer while.
+      sb.append(s"    while ($condJava) {\n")
+      // Inner foreach loop over receiver items (List head/tail or Set iterator).
+      if receiverIsSet then
+        sb.append(s"      scala.collection.Iterator<?> _iter = _set0.items().iterator();\n")
+        sb.append(s"      while (_iter.hasNext()) {\n")
+        if inlineMatchSwitch != null then
+          sb.append(s"        $valuePkg.Value.InstanceV inst = ($valuePkg.Value.InstanceV) _iter.next();\n")
+          sb.append(s"        $inlineMatchSwitch\n")
+        else if accIsDouble then
+          sb.append(s"        _acc += _dfn0.apply(_iter.next());\n")
+        else
+          sb.append(s"        _acc += _fn0.apply(_iter.next());\n")
+        sb.append(s"      }\n")
+      else if inlineMatchSwitch != null then
+        // Pre-extracted array path — faster than head()/tail() traversal.
+        sb.append(s"      for (int _li = 0; _li < _llen; _li++) {\n")
+        sb.append(s"        $valuePkg.Value.InstanceV inst = ($valuePkg.Value.InstanceV) _larr[_li];\n")
+        sb.append(s"        $inlineMatchSwitch\n")
+        sb.append(s"      }\n")
       else
-        sb.append(s"        _acc += _fn0.apply(_items.head());\n")
-      sb.append(s"        _items = (scala.collection.immutable.List<?>) _items.tail();\n")
-      sb.append(s"      }\n")
-    // Int-assign RHSes.
-    k = 0
-    while k < names.length do
-      sb.append(s"      _v$k = ${rhsJava(k)};\n")
-      k += 1
-    sb.append(s"    }\n")
+        sb.append(s"      scala.collection.immutable.List<?> _items = _list0.items();\n")
+        sb.append(s"      while (!_items.isEmpty()) {\n")
+        if accIsDouble then
+          sb.append(s"        _acc += _dfn0.apply(_items.head());\n")
+        else
+          sb.append(s"        _acc += _fn0.apply(_items.head());\n")
+        sb.append(s"        _items = (scala.collection.immutable.List<?>) _items.tail();\n")
+        sb.append(s"      }\n")
+      // Int-assign RHSes.
+      k = 0
+      while k < names.length do
+        sb.append(s"      _v$k = ${rhsJava(k)};\n")
+        k += 1
+      sb.append(s"    }\n")
     // Write back slots.
     k = 0
     while k < names.length do
