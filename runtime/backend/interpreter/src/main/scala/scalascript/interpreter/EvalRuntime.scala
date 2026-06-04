@@ -251,9 +251,11 @@ private[interpreter] object EvalRuntime:
     val args = entry.cachedSlots
     var k = 0
     while k < n do
-      frameView.getOrElse(body.names(k), null) match
-        case Value.IntV(v) => args(k) = v
-        case _             => return null
+      (frameView.getOrElse(body.names(k), null) match
+        case null => interp.globals.getOrElse(body.names(k), null)
+        case v    => v) match
+      case Value.IntV(v) => args(k) = v
+      case _             => return null
       k += 1
     if entry.refNames.length > 0 || entry.refObjFns.length > 0 then
       // Collect InstanceV values for each ref name.  Names are either simple
@@ -1394,9 +1396,11 @@ private[interpreter] object EvalRuntime:
           case _ => return false
         (op == "<=", b)
       case _ => return false
-    val start: Long = frameView.getOrElse(ctrName, null) match
-      case Value.IntV(v) => v
-      case _ => return false
+    val start: Long = (frameView.getOrElse(ctrName, null) match
+      case null => interp.globals.getOrElse(ctrName, null)
+      case v    => v) match
+    case Value.IntV(v) => v
+    case _             => return false
     val exclusiveBound = if isLE then bound + 1L else bound
     val finalVal: Long =
       if start >= exclusiveBound then start
@@ -1515,9 +1519,11 @@ private[interpreter] object EvalRuntime:
           case _ => return null
         (op == "<=", b)
       case _ => return null
-    val start: Long = frameView.getOrElse(ctrName, null) match
-      case Value.IntV(v) => v
-      case _             => return null
+    val start: Long = (frameView.getOrElse(ctrName, null) match
+      case null => interp.globals.getOrElse(ctrName, null)
+      case v    => v) match
+    case Value.IntV(v) => v
+    case _             => return null
     val span = BigInt(bound) - BigInt(start) + (if inclusive then BigInt(1) else BigInt(0))
     if span <= 0 then CounterFold(0L, start)
     else
@@ -1568,9 +1574,11 @@ private[interpreter] object EvalRuntime:
     val accIdx  = if counterIdx == 0 then 1 else 0
     val accName = body.names(accIdx)
     if accName == body.names(counterIdx) then return null
-    val accStart = frameView.getOrElse(accName, null) match
-      case Value.IntV(v) => v
-      case _             => return null
+    val accStart = (frameView.getOrElse(accName, null) match
+      case null => interp.globals.getOrElse(accName, null)
+      case v    => v) match
+    case Value.IntV(v) => v
+    case _             => return null
     val addTerm = invariantAddend(accName, body.rhs(accIdx))
     if addTerm == null then return null
     val addValue = jitInvariantLong(addTerm, interp)
@@ -1659,12 +1667,16 @@ private[interpreter] object EvalRuntime:
     val accName = body.names(accIdx)
     val ctrName = body.names(counterIdx)
     if accName == ctrName then return null
-    val accStart: Long = frameView.getOrElse(accName, null) match
-      case Value.IntV(v) => v
-      case _             => return null
-    val ctrStart: Long = frameView.getOrElse(ctrName, null) match
-      case Value.IntV(v) => v
-      case _             => return null
+    val accStart: Long = (frameView.getOrElse(accName, null) match
+      case null => interp.globals.getOrElse(accName, null)
+      case v    => v) match
+    case Value.IntV(v) => v
+    case _             => return null
+    val ctrStart: Long = (frameView.getOrElse(ctrName, null) match
+      case null => interp.globals.getOrElse(ctrName, null)
+      case v    => v) match
+    case Value.IntV(v) => v
+    case _             => return null
     val step: Long = body.rhs(counterIdx) match
       case Term.ApplyInfix.After_4_6_0(Term.Name(`ctrName`), Term.Name("+"), _, ac)
           if ac.values.lengthCompare(1) == 0 =>
@@ -1751,7 +1763,9 @@ private[interpreter] object EvalRuntime:
     var k = 0
     while k < body.names.length do
       val lhsName = body.names(k)
-      val v = frameView.getOrElse(lhsName, null)
+      val v = frameView.getOrElse(lhsName, null) match
+        case null => interp.globals.getOrElse(lhsName, null)
+        case vv   => vv
       if !v.isInstanceOf[Value.IntV] then
         anyNonInt = true
         val rhs = body.rhs(k)
@@ -1773,7 +1787,9 @@ private[interpreter] object EvalRuntime:
     var i = 0
     while i < body.names.length do
       val nm = body.names(i)
-      val v  = frameView.getOrElse(nm, null)
+      val v  = frameView.getOrElse(nm, null) match
+        case null => interp.globals.getOrElse(nm, null)
+        case vv   => vv
       if v.isInstanceOf[Value.IntV] then
         intNames(intCount) = nm
         intRhs(intCount) = body.rhs(i)
