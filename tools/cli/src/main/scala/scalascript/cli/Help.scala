@@ -12,6 +12,7 @@ object Help:
     "Emit & transpile",
     "Separate compilation (v2.0)",
     "Check & inspect",
+    "Diagnostics",
     "Dependencies & plugins",
     "Services & tooling",
     "Help",
