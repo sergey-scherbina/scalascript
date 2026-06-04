@@ -1,0 +1,4 @@
+feature+interp-opt-init-builtins-cache 2026-06-04T11:02:03Z
+status: not-started
+done-so-far:
+next: inspect interpreter builtin initialization and run effectPure baseline/profile
