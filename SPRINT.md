@@ -8,6 +8,17 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Language surface — Markdown frontend (next)
+
+- [ ] **markdown-frontend-mvp** — Implement
+      [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md)
+      Phase 1: parse Markdown-hosted content into a rendering-grade
+      `DocumentContent` snapshot and lower `contentView(...)` to the existing
+      `std/ui` toolkit so a page/screen authored in Markdown emits through a
+      frontend backend without hand-written UI construction. Treat the full
+      `std/content` metadata/introspection API as the follow-up slice, not the
+      first milestone.
+
 ## Interpreter perf — Phase C + D continuation (open)
 
 Spec: [`docs/vm-jit-next.md §"Phase C+D roadmap"`](docs/vm-jit-next.md).

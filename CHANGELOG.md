@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — docs(language): prioritize Markdown frontend MVP
+
+- **markdown-frontend-mvp** — Updated the planned Markdown content milestone so
+  Phase 1 is explicitly frontend from Markdown: `contentView(...)` lowering to
+  the existing frontend toolkit without hand-written markup generation.
+  `DocumentContent` remains the shared IR, while the full `std/content`
+  metadata/introspection API is now tracked as the follow-up slice.
+
 ## 2026-06-04 — spec(language): Markdown content introspection
 
 - **markdown-content-introspection** — Added the planned `DocumentContent` /

@@ -4,26 +4,36 @@ Open and planned milestones — what still needs to be done.
 Active in-progress work is in [ACTIVE.md](ACTIVE.md).
 Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
-## Language Surface — Markdown Content Introspection
+## Language Surface — Markdown Frontend from Content
 
-- [ ] **markdown-content-introspection-impl** — Implement the planned
-      `DocumentContent` / `std/content` contract from
-      [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md).
+- [ ] **markdown-frontend-mvp** — First implementation target: render a page or
+      screen authored in Markdown-hosted content through the existing `std/ui`
+      / frontend backends without hand-written markup-generation code.
+      `DocumentContent` is the supporting IR, not the end goal of Phase 1.
       Phase 0 landed 2026-06-04: spec, global `SPEC.md` planned section, user
       docs, `examples/content-introspection.ssc`, and pending conformance
-      fixture. Next slices:
-      - Phase 1: parser-side content snapshot with deterministic ids, heading
-        attributes, `<!-- @meta ... -->`, lists/links/images, embedded language
-        blocks, YAML/front-matter and fenced YAML/JSON/TOML as `ContentValue`,
-        and inline `${expr}` capture as source.
-      - Phase 2: Normalize/Denormalize plus `.scir` / `.sscc` round-trip.
-      - Phase 3: `runtime/std/content.ssc` + `runtime/std/content-plugin`
-        exposing `contentDocument`, `contentCurrentSection`, `contentSection`,
-        `contentBlock`, `contentData`, `contentMetadata`, `contentPlainText`,
-        and `contentToMarkdown` across interpreter/JS/JVM; then un-pend
-        `tests/conformance/content-introspection.ssc`.
-      - Phase 4+: `runtime/std/ui/content.ssc` generic frontend lowering and
-        later table support.
+      fixture. Phase 1 scope:
+      - Parser-side rendering-grade `DocumentContent` snapshot with
+        deterministic ids, heading attributes, `<!-- @meta ... -->`, prose,
+        lists/links/images, embedded language blocks, YAML/front-matter and
+        fenced YAML/JSON/TOML as `ContentValue`, and inline `${expr}` capture as
+        source.
+      - `runtime/std/ui/content.ssc` generic `contentView(...)` lowering for
+        headings, paragraphs, lists, links, images, and default handling for
+        embedded executable/string/opaque blocks behind `includeCode`.
+      - One frontend smoke where a Markdown-authored page emits through an
+        existing frontend backend with no manual UI tree construction.
+
+- [ ] **markdown-content-introspection-api** — After `markdown-frontend-mvp`,
+      expose the shared content snapshot as the broader `std/content` metadata
+      API from
+      [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md):
+      `runtime/std/content.ssc` + `runtime/std/content-plugin`, interpreter/JS/
+      JVM native context wiring, `contentDocument`, `contentCurrentSection`,
+      `contentSection`, `contentBlock`, `contentData`, `contentMetadata`,
+      `contentPlainText`, `contentToMarkdown`, then un-pend
+      `tests/conformance/content-introspection.ssc`. `.scir` / `.sscc`
+      round-trip and custom component registry support follow as later slices.
 
 ## JS Codegen Performance
 
