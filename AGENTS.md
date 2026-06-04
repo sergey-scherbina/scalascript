@@ -776,17 +776,14 @@ How to read agent status:
 
 ## Autonomous continuous-delivery flow
 
-### Status command
+See the `/multi-agent` skill for the full loop protocol (status, start/stop, loop steps, empty queue, tech debt, /compact).
 
-When the user says **"статус"** / **"status"** / **"план"** / **"что делаем"**:
+**Queue file for this project:** `WORK_QUEUE.md`.
 
-1. `git fetch origin` — get fresh state
-2. Read `git show origin/main:WORK_QUEUE.md` groups +
-   `git ls-tree origin/main .work/active/`
-3. Print a structured summary (do NOT start working):
+### Status format
 
 ```
-ACTIVE: <slug> [direction]      ← if something is claimed, else "nothing active"
+ACTIVE: <slug> [direction]      ← or "nothing active"
 
 Frontend & Clients    1 pending
 Language & Compiler   2 pending
@@ -797,291 +794,39 @@ Native Platform       1 pending
 Next up: <slug> — <one-line description>
 ```
 
-Show counts per direction, highlight active claims, name the next task to pick.
-All directions are independent — multiple agents can work in parallel, one per direction.
+Directions are independent — multiple agents can work in parallel, one per direction. Extra start phrase: "работай над Database" / "do Payments" — work only that direction, then stop.
 
-### Starting the loop
+### Documentation updates (loop step 7)
 
-The user starts the loop by saying any of:
+| Doc | When to update |
+|-----|----------------|
+| `README.md` | Every feature — capabilities table, CLI flag, examples table |
+| `docs/user-guide.md` | New block type, front-matter key, CLI flag, API |
+| `docs/tutorial.md` | Feature changes a step-by-step pattern users follow |
+| `docs/<feature>.md` | Feature has its own spec — keep in sync |
 
-| Phrase | Meaning |
-|--------|---------|
-| "работай" / "go" / "start" | Start from the top of WORK_QUEUE.md |
-| "продолжай" / "continue" | Resume — skip already-done tasks, pick next pending |
-| "работай над X" / "do X" | Start with a specific task slug, then continue the queue |
-| "работай над Database" / "do Payments" | Work only tasks in that direction, then stop |
-
-When the loop starts, **announce the first claimed task** before doing any work:
-
-```
-▶ <slug> [group] — <one-line description>
-```
-
-Then work silently. On each task completion report:
-
-```
-✓ <slug> — <one-line summary>
-▶ <next-slug> [group] — <description>   ← if continuing; omit if stopping
-```
-
-### Stopping the loop
-
-**To stop after the current task finishes (graceful):**
-Send any message containing "стоп", "stop", "pause", "хватит", "достаточно".
-The agent finishes the task it is currently working on (commit + push), then
-stops and waits.
-
-**To stop immediately (abort):**
-Send "стоп сейчас" / "stop now" / "abort". The agent stops at the next safe
-checkpoint (after the current compile/test run). If the work-in-progress is
-green, it is committed and pushed before stopping. If red, the worktree is
-left open with uncommitted changes reported to the user.
-
-**File-based pause (for unattended sessions):**
-Create the file `.work/paused` in the repo and push it to `origin/main`:
-run these commands from the main checkout, not from a worktree, and stage only
-the pause/resume file.
+### Bookkeeping commit (loop step 8)
 
 ```bash
-# To pause:
-touch .work/paused
-git add .work/paused && git commit -m "pause: autonomous queue"
-git push origin main
-
-# To resume:
-git rm .work/paused && git commit -m "resume: autonomous queue"
-git push origin main
+git rm .work/active/<slug>.claim
+# mark task [x] in WORK_QUEUE.md
+# update BACKLOG.md / ACTIVE.md / CHANGELOG.md as appropriate
+git commit -m "docs: mark <slug> done in WORK_QUEUE + CHANGELOG entry"
 ```
 
-The agent checks `.work/paused` at the **start of each iteration** (step 1
-below). If the file is present on `origin/main`, the agent stops the loop,
-reports the last completed task, and waits for the user to resume. This is
-the preferred mechanism when you want the loop to finish the current task
-then pause — it survives context rotations and works across sessions.
-
-**Why file-based pause is reliable:**
-- Sending a chat message only stops the current session's agent
-- `.work/paused` on `origin/main` is visible to every agent reading the repo,
-  including agents in parallel sessions or after context compaction
-
-### The loop
-
-> **⚠️ CRITICAL — worktree vs main checkout (most common double-claim bug)**
->
-> Steps 1–4 and 10–12 MUST operate on the **main checkout**
-> (`/Users/sergiy/work/my/scalascript`), never from a worktree path.
->
-> Inside a worktree, `git commit` writes to the **feature branch**, not to
-> `main`. Then `git push origin main` pushes the unchanged local `main` —
-> succeeds silently — and the claim file **never reaches `origin/main`**.
-> Other agents fetch, see no claim, and pick the same task.
->
-> For reading state (steps 1–3) always use `git ls-tree origin/main` and
-> `git show origin/main:` — these return the authoritative remote view and
-> are safe from any context (worktree or main checkout).
+### Empty queue example
 
 ```
-LOOP:
-    1.  # ── From the MAIN CHECKOUT, not from any worktree ──
-        test "$(pwd)" = "/Users/sergiy/work/my/scalascript"
-        test "$(git symbolic-ref --short HEAD)" = "main"
-        test -d .git
-        git fetch origin
-        if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
-            git merge --ff-only origin/main
-        fi
-        git diff --cached --quiet
-        # Re-read AGENTS.md — pick up protocol changes without restarting:
-        Read git show origin/main:AGENTS.md and apply any updated rules
-        # Check paused and queue via remote — safe from any context:
-        git ls-tree origin/main .work/ | grep -q paused → STOP (announce, await user)
-        if user sent a stop signal in the last message → STOP
+Очередь пуста. Из BACKLOG предлагаю добавить:
 
-    2.  # ── Read authoritative state from origin/main ──
-        git show origin/main:WORK_QUEUE.md          # pending list
-        git ls-tree origin/main .work/active/       # currently claimed slugs
-        # Do NOT use `cat WORK_QUEUE.md` or `ls .work/active/` — those read
-        # from the local branch, which may be stale or a worktree branch.
-        if no unclaimed Pending tasks → propose from BACKLOG (see §"Empty queue protocol")
+  Database:    v1.26-sql-jdbc — JDBC sql blocks (~1 неделя)
+               Разблокирует v1.27 (browser SQL) и v1.31 (transactions).
 
-    3.  Pick the highest-priority unclaimed Pending task
-        if task is genuinely ambiguous (design decision, unclear scope) →
-            ask the user ONE clear question, wait, then proceed
+  Payments:    v1.38-payment-request — Payment Request API (~3 дня)
+               Standalone — не зависит от x402 или blockchain SPI.
 
-    4.  # ── Claim — MUST happen from the MAIN CHECKOUT ──
-        test "$(pwd)" = "/Users/sergiy/work/my/scalascript"
-        test "$(git symbolic-ref --short HEAD)" = "main"
-        test -d .git
-        test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
-        git diff --cached --quiet
-        # `git status -s` may show sibling dirty work; do not touch or stage it.
-        printf '%s\nagent: %s\nheartbeat: %s\nstatus: not-started\ndone-so-far:\nnext: %s\n' \
-          "<worktree-name> <timestamp>" "<agent-id>" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<first planned step>" \
-          > .work/active/<slug>.claim
-        git add .work/active/<slug>.claim
-        test "$(git diff --cached --name-only)" = ".work/active/<slug>.claim"
-        git commit -m "claim: <slug>"
-        git push origin main
-        if push rejected → go to step 1 (lost the race to another agent)
+  Compiler:    interpreter-ergonomics — better errors + REPL (~2 дня)
+               Маленькая задача, хорошо подходит для параллельного агента.
 
-    5.  EnterWorktree("<worktree-name>") off the now-updated origin/main
-
-    6.  Implement, run tests, fix until green
-        At each intermediate commit — update the claim file too:
-          agent: <agent-id>          ← same value as at claim time
-          heartbeat: <current ISO timestamp>   ← refresh every update
-          status: in-progress
-          done-so-far: <one-line summary of what was just committed>
-          next: <next planned step>
-        Stage and commit the claim file together with the code change.
-        Also refresh `heartbeat` whenever work stays dirty/uncommitted for
-        more than ~10 minutes — a stale heartbeat (> 20 min) is the signal
-        other agents use to decide the claim is orphaned.
-        if tests are red and unfixable → update claim (status: blocked), leave
-          worktree open, report, STOP
-
-    7.  Update docs: README.md + docs/user-guide.md + docs/<feature>.md (Rule 3a)
-
-    8.  In the final commit:
-          git rm .work/active/<slug>.claim
-          mark task [x] in WORK_QUEUE.md
-          update BACKLOG.md / ACTIVE.md / CHANGELOG.md as appropriate
-
-    9.  Rebase on origin/main if it moved; push to origin/main
-   10.  # ── Full cleanup — MUST complete before claiming next task ──
-        ExitWorktree(remove) or:
-          git worktree remove --force <path>
-          rm -rf <path>                       # remove dir if worktree remove left it
-        git branch -D <branch>               # delete local feature branch
-        # verify nothing remains:
-        git worktree list                    # must not show the finished branch
-        test ! -d <path>                     # directory must be gone
-   11.  # ── Report BEFORE starting next loop iteration ──
-        # Send the completion message NOW — before fetch, before claiming, before
-        # any step-1 work. The user must see "✓ done" before next claim appears.
-        Report: "✓ <task-slug>: <one-line summary>"
-   12.  Go to LOOP
+Что добавить в очередь?
 ```
-
-**Progress cadence**: one short message per shipped item, no wall-of-text
-summaries. "✓ fix(SupervisorTest): OneForOne restart specs now pass" is
-enough. Detailed context goes in the commit message and BACKLOG.md.
-
-### Recording tech debt and improvements
-
-When you notice tech debt, a missed optimisation, or a future improvement
-**while working on any task**, record it immediately — don't rely on memory.
-
-**What to record**: anything non-trivial that is out of scope for the current
-task but worth doing later. Examples:
-- A function that's getting too large and should be split
-- A repeated pattern that deserves an abstraction
-- A performance issue you noticed but aren't fixing right now
-- A missing test family you spotted while adding one test
-- An API that would be cleaner with a different shape
-
-**How to record it**:
-
-1. Add an entry to `BACKLOG.md` in the appropriate section (or create a new
-   `## Known issues / latent flakes` / `## Tech debt` subsection if none fits):
-
-   ```markdown
-   ### [short title]
-
-   Found while working on <slug>. <One paragraph: what the issue is, why it
-   matters, rough effort.> No blocker — record and move on.
-   ```
-
-2. Optionally add a one-liner to `WORK_QUEUE.md` if it's small and actionable:
-
-   ```markdown
-   - [ ] **tech-debt-slug** — Short description
-     _Context: found during <slug>. Spec: BACKLOG.md §[title]._
-   ```
-
-3. Include this in the **same commit** as the work that surfaced it (or as a
-   follow-up commit in the same push). Never leave it in a comment or TODO in code.
-
-**Do NOT**:
-- Stop the current task to fix it
-- Add it to `WORK_QUEUE.md` unless it's small and clearly actionable
-- Ask the user for permission — just record it
-
-The user curates `BACKLOG.md` and decides priority. Your job is to surface the
-finding; their job is to decide when (or whether) it gets done.
-
-### Empty queue protocol
-
-When `WORK_QUEUE.md` has no unclaimed pending tasks, **do not stop silently**.
-Instead:
-
-1. Read `BACKLOG.md` — identify the top 3 most actionable items not yet in the queue.
-2. Present them to the user with a one-line rationale and rough effort for each:
-
-   ```
-   Очередь пуста. Из BACKLOG предлагаю добавить:
-
-     Database:    v1.26-sql-jdbc — JDBC sql blocks (~1 неделя)
-                  Разблокирует v1.27 (browser SQL) и v1.31 (transactions).
-
-     Payments:    v1.38-payment-request — Payment Request API (~3 дня)
-                  Standalone — не зависит от x402 или blockchain SPI.
-
-     Compiler:    interpreter-ergonomics — better errors + REPL (~2 дня)
-                  Маленькая задача, хорошо подходит для параллельного агента.
-
-   Что добавить в очередь?
-   ```
-
-3. Wait for the user's decision. **Do not add anything to `WORK_QUEUE.md`
-   without explicit instruction.** Priorities are the user's call.
-
-4. Once the user says which tasks to add (e.g. "добавь v1.26 и ergonomics"),
-   add them to the correct group in `WORK_QUEUE.md`, commit, push, and continue
-   the loop.
-
-**Why agents don't set priorities unilaterally**: "do payments or SQL first?"
-is a product decision involving roadmap, user demand, and dependency chains the
-agent may not fully know. Surface options; let the user choose.
-
-### 7. After a complete task — name the next work
-
-Once a task or feature is committed, pushed to `origin/main`, local `main`
-is synced, milestone files are updated, and the worktree is deleted, the
-status message to the user must also include:
-
-- the next planned tasks/features visible in `BACKLOG.md` and `WORK_QUEUE.md`
-- the one task/feature you recommend doing next, with a short reason
-
-Do this immediately after reporting what landed.  The user should not have
-to ask "what next?" after every completed slice.
-
-### 8. After a complete task — suggest `/compact` to the user
-
-Once **all** of the following are true:
-- Code committed and pushed to `origin/main`
-- Local `main` synced (`git branch -f main origin/main`)
-- Milestone files updated (`BACKLOG.md`/`ACTIVE.md`/`CHANGELOG.md` as appropriate)
-- Worktree deleted (Rule 4)
-
-…and you are reporting "done" to the user — add this one line at the end
-of your status message if the session has been long (multi-phase feature,
-autonomous loop, or any task with significant context accumulated):
-
-> To free context for the next task, run `/compact` in the prompt.
-
-**When to suggest:**
-- After completing a multi-phase milestone or a long autonomous loop
-- After any session you estimate is more than ~50% of context capacity
-- Any time you feel the next task would benefit from a clean context
-
-**When NOT to suggest:**
-- Mid-task — in-flight details not yet in git may be lost in the summary
-- Before pushing — if the summary forgets what was built, the next session
-  may redo it (this is exactly the stale-main problem from AGENTS.md §2)
-- After a trivial single-file change — not worth the overhead
-
-**Why the agent cannot do it itself:** `/compact` is a user CLI command.
-The agent has no way to invoke it. Without a timely suggestion from you,
-context accumulates silently until the system is forced to auto-compact —
-which often loses more detail than a deliberate compaction would.
