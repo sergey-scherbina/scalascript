@@ -192,10 +192,10 @@ Verification:
 
 Queue slug: `type-evidence-routes-p3`.
 
-Attach structured request/response evidence to route/client metadata while
-preserving the legacy `requestType` / `responseType` strings.
+Attach structured request/response evidence to normalized route/client metadata
+while preserving the legacy `requestType` / `responseType` strings.
 
-Target additive shape:
+Target additive shape in `lang/ir`:
 
 ```scala
 case class ApiEndpointTypeEvidenceWire(
@@ -218,10 +218,19 @@ case class RemoteHandlerDecl(
 
 Scope for this slice:
 
+- store the new field only on `scalascript.ir.ApiEndpointDecl` and
+  `scalascript.ir.RemoteHandlerDecl`; the AST/parser/SsccFormat surface stays
+  unchanged for this slice;
+- derive evidence during `Normalize` from the legacy strings and let
+  `Denormalize` drop it when rebuilding the AST compatibility view;
 - parse existing `requestType` / `responseType` strings into `SType` where the
   shape is supported;
-- classify parsed strings as `Declared` when they came from manifest/frontmatter
-  or existing typed route metadata;
+- reuse the interface type-string parser (`InterfaceScope.parseSType`) instead
+  of duplicating the grammar;
+- classify parsed concrete strings as `Declared` when they came from
+  manifest/frontmatter or existing typed route metadata;
+- classify parsed shapes containing `Any` as `Unknown`, because they are the
+  remaining route/client type debt this roadmap needs to expose;
 - classify missing/unsupported request/response evidence as `Unknown`;
 - keep all existing string fields intact and keep generators reading those
   strings for now;

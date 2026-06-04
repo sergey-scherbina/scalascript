@@ -36,6 +36,13 @@ case class RouteDecl(method: String, path: String, handler: String, span: Option
 
 case class ApiClientDecl(name: String, endpoints: List[ApiEndpointDecl], span: Option[Span] = None) derives ReadWriter
 
+case class ApiEndpointTypeEvidenceWire(
+  request:       Option[TypeEvidenceWire] = None,
+  response:      Option[TypeEvidenceWire] = None,
+  errors:        List[TypeEvidenceWire] = Nil,
+  streamElement: Option[TypeEvidenceWire] = None
+) derives ReadWriter
+
 case class ApiEndpointDecl(
   name:         String,
   method:       String,
@@ -44,7 +51,8 @@ case class ApiEndpointDecl(
   responseType: String,
   stream:       Option[String] = None,
   paginated:    Boolean = false,
-  span:         Option[Span] = None
+  span:         Option[Span] = None,
+  typeEvidence: Option[ApiEndpointTypeEvidenceWire] = None
 ) derives ReadWriter
 
 case class ClusterDecl(
@@ -72,7 +80,8 @@ case class RemoteHandlerDecl(
   path:         Option[String] = None,
   requestType:  Option[String] = None,
   responseType: Option[String] = None,
-  span:         Option[Span] = None
+  span:         Option[Span] = None,
+  typeEvidence: Option[ApiEndpointTypeEvidenceWire] = None
 ) derives ReadWriter
 
 case class RemoteSourceDecl(

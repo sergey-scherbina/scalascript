@@ -2,8 +2,10 @@ package scalascript.transform
 
 import scalascript.ast
 import scalascript.ir
+import scalascript.artifact.InterfaceScope
 import scalascript.backend.spi.{BackendOptions, Diagnostic, ScopeContext, SymbolKind}
 import scalascript.compiler.plugin.SourceLanguageRegistry
+import scalascript.typer.SType
 
 /** AST → IR conversion.
  *
@@ -70,13 +72,80 @@ object Normalize:
     ir.ApiClientDecl(c.name, c.endpoints.map(apiEndpointDecl), c.span.map(span))
 
   private def apiEndpointDecl(e: ast.ApiEndpointDecl): ir.ApiEndpointDecl =
-    ir.ApiEndpointDecl(e.name, e.method, e.path, e.requestType, e.responseType, e.stream, e.paginated, e.span.map(span))
+    ir.ApiEndpointDecl(
+      e.name,
+      e.method,
+      e.path,
+      e.requestType,
+      e.responseType,
+      e.stream,
+      e.paginated,
+      e.span.map(span),
+      Some(apiEndpointTypeEvidence(e))
+    )
+
+  private def apiEndpointTypeEvidence(e: ast.ApiEndpointDecl): ir.ApiEndpointTypeEvidenceWire =
+    val responseEvidence =
+      typeStringEvidence(e.responseType, "api endpoint response type metadata")
+    ir.ApiEndpointTypeEvidenceWire(
+      request = Some(typeStringEvidence(e.requestType, "api endpoint request type metadata")),
+      response = Some(responseEvidence),
+      streamElement = e.stream.map(_ =>
+        typeStringEvidence(e.responseType, "api endpoint stream element type metadata")
+      )
+    )
 
   private def clusterDecl(c: ast.ClusterDecl): ir.ClusterDecl =
     ir.ClusterDecl(c.name, c.nodeId, c.role, c.bind, c.advertiseUrl, c.seedNodes, c.authToken, c.placement, c.wire, c.nodes, c.seedDiscovery, c.leaderElection, c.authTokenFrom, c.heartbeat, c.quorum, c.span.map(span))
 
   private def remoteHandlerDecl(h: ast.RemoteHandlerDecl): ir.RemoteHandlerDecl =
-    ir.RemoteHandlerDecl(h.name, h.function, h.path, h.requestType, h.responseType, h.span.map(span))
+    ir.RemoteHandlerDecl(
+      h.name,
+      h.function,
+      h.path,
+      h.requestType,
+      h.responseType,
+      h.span.map(span),
+      Some(remoteHandlerTypeEvidence(h))
+    )
+
+  private def remoteHandlerTypeEvidence(h: ast.RemoteHandlerDecl): ir.ApiEndpointTypeEvidenceWire =
+    ir.ApiEndpointTypeEvidenceWire(
+      request = Some(optionalTypeStringEvidence(
+        h.requestType,
+        "remote handler request type metadata",
+        "remote handler request type metadata is missing"
+      )),
+      response = Some(optionalTypeStringEvidence(
+        h.responseType,
+        "remote handler response type metadata",
+        "remote handler response type metadata is missing"
+      ))
+    )
+
+  private def optionalTypeStringEvidence(
+      raw:           Option[String],
+      declaredReason: String,
+      missingReason:  String
+  ): ir.TypeEvidenceWire =
+    raw match
+      case Some(value) => typeStringEvidence(value, declaredReason)
+      case None        => unknownTypeEvidence(missingReason)
+
+  private def typeStringEvidence(raw: String, declaredReason: String): ir.TypeEvidenceWire =
+    val trimmed = raw.trim
+    if trimmed.isEmpty then unknownTypeEvidence("type metadata is empty")
+    else
+      val parsed = InterfaceScope.parseSType(trimmed)
+      if parsed == SType.Any && trimmed != SType.Any.show then
+        unknownTypeEvidence(s"unsupported type metadata '$trimmed'")
+      else if parsed.containsAny then
+        ir.TypeEvidenceWire(parsed.show, "Unknown", Some("type metadata contains Any"))
+      else
+        ir.TypeEvidenceWire(parsed.show, "Declared", Some(declaredReason))
+
+  private def unknownTypeEvidence(reason: String): ir.TypeEvidenceWire =
+    ir.TypeEvidenceWire(SType.Any.show, "Unknown", Some(reason))
 
   private def remoteSourceDecl(s: ast.RemoteSourceDecl): ir.RemoteSourceDecl =
     ir.RemoteSourceDecl(s.name, s.source, s.paramsType, s.itemType, s.span.map(span))

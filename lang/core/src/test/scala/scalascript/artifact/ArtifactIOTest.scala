@@ -61,6 +61,38 @@ class ArtifactIOTest extends AnyFunSuite:
       sections = List(section)
     )
 
+  private def sampleIrWithRouteEvidence: NormalizedModule =
+    val evidence = ApiEndpointTypeEvidenceWire(
+      request = Some(TypeEvidenceWire("CreateMessage", "Declared", Some("request metadata"))),
+      response = Some(TypeEvidenceWire("Message", "Declared", Some("response metadata")))
+    )
+    sampleIr.copy(
+      manifest = sampleIr.manifest.map(_.copy(
+        apiClients = List(
+          ApiClientDecl(
+            "Messages",
+            List(ApiEndpointDecl(
+              name = "create",
+              method = "POST",
+              path = "/api/messages",
+              requestType = "CreateMessage",
+              responseType = "Message",
+              typeEvidence = Some(evidence)
+            ))
+          )
+        ),
+        remoteHandlers = List(
+          RemoteHandlerDecl(
+            name = "messages.create",
+            function = "createMessage",
+            requestType = Some("CreateMessage"),
+            responseType = Some("Message"),
+            typeEvidence = Some(evidence)
+          )
+        )
+      ))
+    )
+
   private def withTempDir[A](body: os.Path => A): A =
     val d = os.temp.dir(prefix = "ssc-v2-test-")
     try body(d) finally os.remove.all(d)
@@ -130,6 +162,45 @@ class ArtifactIOTest extends AnyFunSuite:
         assert(parsedName == name)
         assert(parsedHash == hash)
       case Left(err) => fail(s".scir round-trip failed: $err")
+
+  test(".scir round-trip preserves route type evidence"):
+    val nm   = sampleIrWithRouteEvidence
+    val pkg  = List("org", "example")
+    val name = Some("demo")
+    val hash = "feedface" * 8
+    val json = ArtifactIO.writeIr(nm, pkg, name, hash)
+
+    ArtifactIO.readIr(json) match
+      case Right((parsed, _, _, _)) =>
+        val manifest = parsed.manifest.get
+        val endpointEvidence =
+          manifest.apiClients.head.endpoints.head.typeEvidence.get
+        val handlerEvidence =
+          manifest.remoteHandlers.head.typeEvidence.get
+        assert(endpointEvidence.request.map(_.tpe).contains("CreateMessage"))
+        assert(handlerEvidence.response.map(_.tpe).contains("Message"))
+      case Left(err) => fail(s".scir route evidence round-trip failed: $err")
+
+  test(".scir read accepts legacy route metadata without typeEvidence field"):
+    val nm   = sampleIrWithRouteEvidence
+    val pkg  = List("org", "example")
+    val name = Some("demo")
+    val hash = "decafbad" * 8
+    val doc  = ujson.read(ArtifactIO.writeIr(nm, pkg, name, hash))
+    val body = ujson.read(doc("body").str)
+
+    body("manifest")("apiClients").arr.foreach { client =>
+      client("endpoints").arr.foreach(_.obj.remove("typeEvidence"))
+    }
+    body("manifest")("remoteHandlers").arr.foreach(_.obj.remove("typeEvidence"))
+    doc.obj("body") = ujson.Str(body.render())
+
+    ArtifactIO.readIr(doc.render()) match
+      case Right((parsed, _, _, _)) =>
+        val manifest = parsed.manifest.get
+        assert(manifest.apiClients.head.endpoints.head.typeEvidence.isEmpty)
+        assert(manifest.remoteHandlers.head.typeEvidence.isEmpty)
+      case Left(err) => fail(s"legacy no-route-evidence .scir should read: $err")
 
   test(".scir round-trip via file write / file read preserves NormalizedModule"):
     withTempDir { d =>

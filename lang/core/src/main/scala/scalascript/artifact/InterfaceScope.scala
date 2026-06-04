@@ -153,7 +153,7 @@ object InterfaceScope:
    *  A refinement / match type binds to the immediately-preceding primary
    *  (so `A => B { def foo: Int }` parses as `A => (B { def foo: Int })`).
    */
-  private[artifact] def parseSType(tpeStr: String): SType =
+  private[scalascript] def parseSType(tpeStr: String): SType =
     val parser = TypeParser(tpeStr)
     parser.parseType() match
       case Some(t) if parser.atEnd => t
