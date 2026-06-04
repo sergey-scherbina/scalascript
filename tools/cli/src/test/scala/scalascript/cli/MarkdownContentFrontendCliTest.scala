@@ -79,16 +79,40 @@ class MarkdownContentFrontendCliTest extends AnyFunSuite:
            |
            |[defaultTheme](std/ui/theme.ssc)
            |
-           |[vstack](std/ui/layout.ssc)
+           |[vstack, hstack](std/ui/layout.ssc)
            |
            |[heading, text](std/ui/typography.ssc)
            |
-           |[emit](std/ui/primitives.ssc)
+           |[card](std/ui/containers.ssc)
+           |
+           |[textField, checkbox, signalButton](std/ui/input.ssc)
+           |
+           |[showWhen, signalText_, fragment_, rawText](std/ui/reactive.ssc)
+           |
+           |[badge](std/ui/display.ssc)
+           |
+           |[signal, emit](std/ui/primitives.ssc)
            |
            |```scalascript
+           |val teamName = signal("teamName", "ScalaScript team")
+           |val enabled  = signal("enabled", false)
+           |val applied  = signal("applied", false)
+           |def applyButton(disabled: Boolean) =
+           |  signalButton(applied, true, "Apply toolkit", disabled = disabled)
+           |val controls = card(
+           |  heading(2, "Toolkit controls"),
+           |  textField(value = teamName, label = "Team name"),
+           |  checkbox(checked = enabled, label = "Enable toolkit renderer"),
+           |  showWhen(enabled, applyButton(false), applyButton(true)),
+           |  showWhen(applied,
+           |    hstack(gap = 8)(badge("active", "success"), rawText("Preview for "), signalText_(teamName)),
+           |    fragment_()
+           |  )
+           |)
            |val tree = vstack(gap = 16)(
            |  heading(1, "Markdown + toolkit"),
            |  text("The Markdown document is now a regular TkNode subtree."),
+           |  controls,
            |  contentToolkitNode()
            |)
            |emit(lower(tree, defaultTheme), "${outDir.toString}")
@@ -109,6 +133,13 @@ class MarkdownContentFrontendCliTest extends AnyFunSuite:
       assert(js.contains("Simple plans for small teams."))
       assert(js.contains("Starter"))
       assert(js.contains("Pro"))
+      assert(js.contains("Toolkit controls"))
+      assert(js.contains("Team name"))
+      assert(js.contains("Enable toolkit renderer"))
+      assert(js.contains("Apply toolkit"))
+      assert(js.contains("h('input'"))
+      assert(js.contains("h('button'"))
+      assert(js.contains("checkbox"))
       assert(js.contains("display: 'flex'"))
       assert(js.contains("flexDirection: 'column'"))
       assert(js.contains("fontSize: '32px'"))
