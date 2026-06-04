@@ -1,7 +1,7 @@
 package scalascript.compiler.plugin.uuid
 
 import scalascript.backend.spi.*
-import scalascript.interpreter.Value
+import scalascript.interpreter.{Value, InterpretError}
 import scalascript.ir.QualifiedName
 import scalascript.plugin.api.{PluginComputation, PluginNative, PluginValue}
 
@@ -35,6 +35,20 @@ object UuidIntrinsics:
   private def isValidUuid(s: String): Boolean =
     uuidRegex.matches(s.toLowerCase)
 
+  // ── Shared generator that respects the withFixedUuid override ───────────
+  private def generateV4(ctx: NativeContext): String =
+    ctx.featureLocalGet(NativeContextFeatureKeys.UuidFixed) match
+      case Some(fixed: String) => fixed
+      case _                   => UUID.randomUUID().toString
+
+  private def generateV7WithCtx(ctx: NativeContext): String =
+    ctx.featureLocalGet(NativeContextFeatureKeys.UuidFixed) match
+      case Some(fixed: String) => fixed
+      case _                   => generateV7()
+
+  private def nativeCtx(f: (NativeContext, List[Any]) => Value): NativeImpl =
+    NativeImpl { (ctx, args) => f(ctx, args) }
+
   private def native(f: List[Any] => Value): NativeImpl =
     PluginNative.eval { (_, args) =>
       PluginComputation.pure(PluginValue.wrap(f(args.map(_.unwrap))))
@@ -42,19 +56,40 @@ object UuidIntrinsics:
 
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
-    QualifiedName("uuidV4") -> native { _ =>
-      Value.StringV(UUID.randomUUID().toString)
+    // ── effectful generators (check withFixedUuid override) ─────────────
+
+    QualifiedName("uuidV4") -> nativeCtx { (ctx, _) =>
+      Value.StringV(generateV4(ctx))
     },
 
-    QualifiedName("uuidV7") -> native { _ =>
-      Value.StringV(generateV7())
+    QualifiedName("uuidV7") -> nativeCtx { (ctx, _) =>
+      Value.StringV(generateV7WithCtx(ctx))
     },
+
+    // ── raw generators (also respect override for test predictability) ──
+
+    QualifiedName("rawUuidV4") -> nativeCtx { (ctx, _) =>
+      Value.StringV(generateV4(ctx))
+    },
+
+    QualifiedName("rawUuidV7") -> nativeCtx { (ctx, _) =>
+      Value.StringV(generateV7WithCtx(ctx))
+    },
+
+    // ── parsing / validation ─────────────────────────────────────────────
 
     QualifiedName("uuidFromString") -> native {
       case List(s: String) =>
         if isValidUuid(s) then Value.OptionV(Value.StringV(s.toLowerCase))
         else Value.NoneV
       case _ => Value.NoneV
+    },
+
+    QualifiedName("uuidUnsafeFromString") -> native {
+      case List(s: String) =>
+        if isValidUuid(s) then Value.StringV(s.toLowerCase)
+        else throw InterpretError(s"uuidUnsafeFromString: not a valid UUID: $s")
+      case _ => throw InterpretError("uuidUnsafeFromString(s: String)")
     },
 
     QualifiedName("uuidIsValid") -> native {

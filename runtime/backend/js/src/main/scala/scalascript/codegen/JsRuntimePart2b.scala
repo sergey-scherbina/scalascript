@@ -883,4 +883,8 @@ function uuidV7() {
 const _uuidRx = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 function uuidIsValid(s) { return _uuidRx.test(typeof s === 'string' ? s.toLowerCase() : ''); }
 function uuidFromString(s) { return uuidIsValid(s) ? _Some(s.toLowerCase()) : _None; }
+function uuidUnsafeFromString(s) {
+  if (uuidIsValid(s)) return s.toLowerCase();
+  throw new Error('uuidUnsafeFromString: not a valid UUID: ' + s);
+}
 """

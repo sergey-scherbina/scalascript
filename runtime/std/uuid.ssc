@@ -7,13 +7,27 @@ Not part of the Random effect — these call platform CSPRNG directly.
 opaque type Uuid = String
 
 object Uuid:
-  extern def v4(): Uuid
-  extern def v7(): Uuid
-  extern def fromString(s: String): Option[Uuid]
+  // ── Generators ───────────────────────────────────────────────────────────
+  extern def v4(): Uuid                            // CSPRNG v4; effectful (SideEffect)
+  extern def v7(): Uuid                            // time-ordered v7; effectful (SideEffect)
+  extern def rawV4(): Uuid                         // same as v4(), no SideEffect annotation
+  extern def rawV7(): Uuid                         // same as v7(), no SideEffect annotation
+
+  // ── Safe boundary crossings ───────────────────────────────────────────
+  extern def fromString(s: String): Option[Uuid]   // validated; None if malformed
+  extern def unsafeFromString(s: String): Uuid     // throws if malformed; for known-valid strings
   extern def isValid(s: String): Boolean
+
+  // ── Well-known constants ──────────────────────────────────────────────
   val nil: Uuid = "00000000-0000-0000-0000-000000000000"
   val max: Uuid = "ffffffff-ffff-ffff-ffff-ffffffffffff"
 
 extension (u: Uuid)
   def asString: String = u
+  def version: Int = u.asString.substring(14, 15).toInt
+  def isNil: Boolean = u.asString == "00000000-0000-0000-0000-000000000000"
+  def isMax: Boolean = u.asString == "ffffffff-ffff-ffff-ffff-ffffffffffff"
+  def variant: Int =
+    val c = u.asString.substring(19, 20)
+    if c == "8" || c == "9" || c == "a" || c == "b" then 2 else -1
 ```

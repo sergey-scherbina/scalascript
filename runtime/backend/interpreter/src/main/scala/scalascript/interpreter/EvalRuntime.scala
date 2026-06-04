@@ -2195,7 +2195,7 @@ private[interpreter] object EvalRuntime:
     "runClock", "runClockAt", "runEnv", "runEnvWith", "runEphemeralStorage", "runHttp",
     "runHttpStub", "runLogger", "runLoggerJson", "runLoggerToList", "runRandom",
     "runRandomSeeded", "runRetry", "runRetryNoSleep", "runState", "runStorage", "runStream",
-    "runTx", "timeout", "validate", "Focus")
+    "runSideEffect", "runTx", "timeout", "validate", "withFixedUuid", "Focus")
 
   /** Generic positional/named call dispatch for `f(args...)`, shared by the
    *  plain-application fast path and the `case _` fallthrough of `app.fun`. */
@@ -2637,6 +2637,24 @@ private[interpreter] object EvalRuntime:
           m.map { (k, v) => Value.show(k) -> Value.show(v) }.toMap
         case _ => throw InterpretError("runEnvWith(map: Map[String, String]) { body }")
       EffectHandlers.envRun(eval(bodyClause.values.head, env, interp), Some(overlay))
+
+    // ── v1.65 SideEffect handlers ─────────────────────────────────────────
+    // runSideEffect { body }             — identity; just evaluates body
+    // withFixedUuid(fixed) { body }      — overrides Uuid.v4/v7 for test determinism
+    case Term.Apply.After_4_6_0(Term.Name("runSideEffect"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      eval(bodyArgClause.values.head, env, interp)
+
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(Term.Name("withFixedUuid"), fixedClause),
+        bodyClause)
+        if fixedClause.values.size == 1 && bodyClause.values.size == 1 =>
+      val fixed = Computation.run(eval(fixedClause.values.head, env, interp)) match
+        case Value.StringV(s) => s
+        case _ => throw InterpretError("withFixedUuid(fixed: Uuid) { body }")
+      interp.nativeFeatureLocalSet("scalascript.uuid.fixed", fixed)
+      try eval(bodyClause.values.head, env, interp)
+      finally interp.nativeFeatureLocalRemove("scalascript.uuid.fixed")
 
     // ── v1.4 Http effect handlers ─────────────────────────────────────────
     // runHttp { body }                   — delegates to real httpGet/httpPost

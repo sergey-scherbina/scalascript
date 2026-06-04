@@ -231,3 +231,21 @@ class ContainsEffectPrimitiveTest extends AnyFunSuite with Matchers:
   test("primitive in default parameter — IS effectful") {
     yes("def f(p: Any = self()): Any = p")
   }
+
+  // ── UUID primitives ───────────────────────────────────────────────
+
+  test("qualified primitive — Uuid.v4()") {
+    yes("Uuid.v4()")
+  }
+
+  test("qualified primitive — Uuid.v7()") {
+    yes("Uuid.v7()")
+  }
+
+  test("Uuid.rawV4() — NOT effectful") {
+    no("Uuid.rawV4()")
+  }
+
+  test("Uuid.rawV7() — NOT effectful") {
+    no("Uuid.rawV7()")
+  }

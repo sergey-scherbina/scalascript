@@ -2517,6 +2517,8 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
   private val clockPrimitiveOps:   Set[String] = Set("now", "nowIso", "sleep")
   private val loggerPrimitiveOps:  Set[String] = Set("info", "warn", "error", "debug")
   private val asyncPrimitiveOps:   Set[String] = Set("delay", "async", "await", "parallel")
+  // Uuid.v4/v7 are SideEffect primitives; rawV4/rawV7 are deliberately excluded
+  private val uuidPrimitiveOps:    Set[String] = Set("v4", "v7")
 
   /** Step 1 — intrinsic-only predicate (default `crossDepEffectful = empty`).
    *  Step 2 — cross-dep aware variant: also matches `Term.Apply(Term.Name(n), _)`
@@ -2559,6 +2561,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       case Term.Apply.After_4_6_0(Term.Select(Term.Name("Logger"),  Term.Name(op)), _) if loggerPrimitiveOps(op)  => ()
       case Term.Apply.After_4_6_0(Term.Select(Term.Name("Async"),   Term.Name(op)), _) if asyncPrimitiveOps(op)   => ()
       case Term.Apply.After_4_6_0(Term.Select(Term.Name("Stream"),  Term.Name(_)), _)    => ()
+      case Term.Apply.After_4_6_0(Term.Select(Term.Name("Uuid"),    Term.Name(op)), _) if uuidPrimitiveOps(op)    => ()
     }.nonEmpty
 
   // ─── Strategy D, Step 2 ──────────────────────────────────────────
