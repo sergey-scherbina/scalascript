@@ -56,6 +56,32 @@ Commit `36b163`: `feat(jit): completeness p1 — Boolean, unary ops, qualified m
 
 ## 4. Planned slices
 
+### p1b — Arity-0 functions
+
+**Shape:** any top-level or local `def` with no parameters:
+
+```scala
+def workload(): Long = ...
+def answer(): Int = 42
+```
+
+**Bug:** `buildInstructions` has `if arity < 1 || arity > MaxArity then bail(...)`.
+The `arity < 1` check is wrong — zero-param functions are perfectly compilable;
+there are simply no param registers to initialise. Registers start at `r0`;
+`nextReg = 0` instead of `nextReg = arity`.
+
+**Fix:** remove `arity < 1` from the guard. `nextReg = arity` already handles
+arity 0 correctly (sets `nextReg = 0`).
+
+**Impact:** `nested-loop` and `instance-field` corpus benchmarks both use a
+zero-param `workload()` entry point — they currently bail immediately and
+fall back to tree-walk. After this fix both enter the JIT path.
+
+**Behavior:**
+- [ ] `def f(): Int = 42` compiles and returns 42
+- [ ] `def workload(): Long = ...` (nested while) compiles and runs correctly
+- [ ] no regression on arity-1..8 functions
+
 ### p2 — `Term.Select` standalone field access (54 misses)
 
 **Shape:** `obj.field` used as an expression outside of a `match` pattern.
