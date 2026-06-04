@@ -251,3 +251,92 @@ class MarkdownContentFrontendSmokeTest extends AnyFunSuite:
     val duplicate = intercept[InterpretError]:
       duplicateInterp.run(Parser.parse(duplicateSrc))
     assert(duplicate.getMessage.contains("contentToolkitBlock: duplicate block id 'same'"))
+
+  test("content toolkit component registry replaces matching sections and blocks"):
+    val outDir = Files.createTempDirectory("ssc-markdown-content-components")
+    val src =
+      s"""---
+         |name: markdown-content-component-registry
+         |frontend: react
+         |---
+         |
+         |# Pricing
+         |
+         |<!-- @meta component=PlanList source=plans -->
+         |## Plans
+         |
+         |- Starter
+         |- Pro
+         |
+         |```yaml @id=stats @component=StatsBox
+         |count: 2
+         |```
+         |
+         |<!-- @meta component=MissingComponent -->
+         |## Notes
+         |
+         |Fallback note
+         |
+         |[contentComponent, contentToolkitBlock, contentToolkitSection, contentToolkitOptionsWithComponents](std/ui/content.ssc)
+         |
+         |[vstack](std/ui/layout.ssc)
+         |
+         |[heading](std/ui/typography.ssc)
+         |
+         |[rawText](std/ui/reactive.ssc)
+         |
+         |[lower](std/ui/lower.ssc)
+         |
+         |[defaultTheme](std/ui/theme.ssc)
+         |
+         |[emit](std/ui/primitives.ssc)
+         |
+         |```scala
+         |val planList = contentComponent("PlanList") { ctx =>
+         |  vstack(gap = 4)(
+         |    heading(2, "Custom " + ctx.name),
+         |    rawText(ctx.kind + ":" + ctx.id)
+         |  )
+         |}
+         |
+         |val statsBox = contentComponent("StatsBox") { ctx =>
+         |  vstack(gap = 4)(
+         |    heading(3, "Stats " + ctx.name),
+         |    rawText(ctx.kind + ":" + ctx.id)
+         |  )
+         |}
+         |
+         |val options = contentToolkitOptionsWithComponents([planList, statsBox])
+         |emit(
+         |  lower(
+         |    vstack(gap = 16)(
+         |      contentToolkitSection("plans", options),
+         |      contentToolkitBlock("stats", options),
+         |      contentToolkitSection("notes", options)
+         |    ),
+         |    defaultTheme
+         |  ),
+         |  "${outDir.toString}"
+         |)
+         |println("markdown-content-components:ok")
+         |```
+         |""".stripMargin
+
+    val buf = java.io.ByteArrayOutputStream()
+    val ps  = java.io.PrintStream(buf, true)
+    val interp = Interpreter(out = ps, headless = true, baseDir = Some(TestPaths.repoRoot))
+    interp.injectGlobal("_ssc_frontend_name", Value.StringV("react"))
+    interp.run(Parser.parse(src))
+    ps.flush()
+
+    assert(buf.toString.contains("markdown-content-components:ok"))
+    assert(Files.exists(outDir.resolve("index.html")))
+    val js = Files.readString(outDir.resolve("app.js"))
+    assert(js.contains("Custom PlanList"))
+    assert(js.contains("section:plans"))
+    assert(js.contains("Stats StatsBox"))
+    assert(js.contains("block:stats"))
+    assert(js.contains("Notes"))
+    assert(js.contains("Fallback note"))
+    assert(!js.contains("- Starter"))
+    assert(!js.contains("- Pro"))

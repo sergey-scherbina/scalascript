@@ -23,15 +23,15 @@ object ContentIntrinsics:
         case Nil      => ToolkitOptions()
         case (one: Value) :: Nil => toolkitOptions(one)
         case _        => throw InterpretError("contentToolkitNode([options])")
-      toolkitDocumentNode(currentDocument(ctx, "contentToolkitNode()"), options)
+      toolkitDocumentNode(ctx, currentDocument(ctx, "contentToolkitNode()"), options)
     },
     QualifiedName("contentToolkitBlock") -> PluginNative.evalLegacy { (ctx, args) =>
       val (id, options) = toolkitSelectorArgs("contentToolkitBlock", args)
-      toolkitBlockById(currentDocument(ctx, "contentToolkitBlock(id)"), id, options)
+      toolkitBlockById(ctx, currentDocument(ctx, "contentToolkitBlock(id)"), id, options)
     },
     QualifiedName("contentToolkitSection") -> PluginNative.evalLegacy { (ctx, args) =>
       val (id, options) = toolkitSelectorArgs("contentToolkitSection", args)
-      toolkitSectionById(currentDocument(ctx, "contentToolkitSection(id)"), id, options)
+      toolkitSectionById(ctx, currentDocument(ctx, "contentToolkitSection(id)"), id, options)
     }
   )
 
@@ -41,7 +41,8 @@ object ContentIntrinsics:
     blockGap: Int = 8,
     listGap: Int = 4,
     wrapDocumentInCard: Boolean = false,
-    wrapTopLevelSectionsInCards: Boolean = false
+    wrapTopLevelSectionsInCards: Boolean = false,
+    components: Map[String, Value] = Map.empty
   )
 
   private case class ToolkitUiEnv(signals: Map[String, Value])
@@ -70,8 +71,30 @@ object ContentIntrinsics:
       blockGap = intField(fields, "blockGap", default = 8),
       listGap = intField(fields, "listGap", default = 4),
       wrapDocumentInCard = boolField(fields, "wrapDocumentInCard", default = false),
-      wrapTopLevelSectionsInCards = boolField(fields, "wrapTopLevelSectionsInCards", default = false)
+      wrapTopLevelSectionsInCards = boolField(fields, "wrapTopLevelSectionsInCards", default = false),
+      components = componentRegistry(fields.get("components"))
     )
+
+  private def componentRegistry(value: Option[Value]): Map[String, Value] =
+    value match
+      case None => Map.empty
+      case Some(Value.ListV(entries)) =>
+        entries.foldLeft(Map.empty[String, Value]) { (acc, entry) =>
+          val fields = entry match
+            case inst: Value.InstanceV if inst.typeName == "ContentToolkitComponent" => inst.effectiveFields
+            case other =>
+              throw InterpretError(s"ContentToolkitOptions.components: expected ContentToolkitComponent, got ${Value.show(other)}")
+          val name = fields.get("name") match
+            case Some(Value.StringV(v)) => v
+            case Some(other) =>
+              throw InterpretError(s"ContentToolkitComponent.name: expected String, got ${Value.show(other)}")
+            case None =>
+              throw InterpretError("ContentToolkitComponent.name is required")
+          val render = fields.getOrElse("render", throw InterpretError(s"ContentToolkitComponent('$name').render is required"))
+          acc.updated(name, render)
+        }
+      case Some(other) =>
+        throw InterpretError(s"ContentToolkitOptions.components: expected List, got ${Value.show(other)}")
 
   private def boolField(fields: Map[String, Value], name: String, default: Boolean): Boolean =
     fields.get(name) match
@@ -91,26 +114,26 @@ object ContentIntrinsics:
     inst.fieldsArr = fields.map(_._2).toArray
     inst
 
-  private def toolkitDocumentNode(doc: ast.DocumentContent, options: ToolkitOptions): Value =
+  private def toolkitDocumentNode(ctx: PluginContext, doc: ast.DocumentContent, options: ToolkitOptions): Value =
     val children =
-      doc.blocks.map(toolkitBlockNode(_, options)) ++
-        doc.sections.map(toolkitSectionNode(_, options, topLevel = true))
+      doc.blocks.map(toolkitBlockNode(ctx, _, options)) ++
+        doc.sections.map(toolkitSectionNode(ctx, _, options, topLevel = true))
     val body = vstackNode(options.sectionGap, children)
     if options.wrapDocumentInCard then cardNode(List(body)) else body
 
-  private def toolkitBlockById(doc: ast.DocumentContent, id: String, options: ToolkitOptions): Value =
+  private def toolkitBlockById(ctx: PluginContext, doc: ast.DocumentContent, id: String, options: ToolkitOptions): Value =
     blocksDeep(doc).filter(block => blockId(block).contains(id)) match
       case block :: Nil =>
-        toolkitBlockNode(block, options)
+        toolkitBlockNode(ctx, block, options)
       case Nil =>
         throw InterpretError(s"contentToolkitBlock: no block with id '$id'")
       case _ =>
         throw InterpretError(s"contentToolkitBlock: duplicate block id '$id'")
 
-  private def toolkitSectionById(doc: ast.DocumentContent, id: String, options: ToolkitOptions): Value =
+  private def toolkitSectionById(ctx: PluginContext, doc: ast.DocumentContent, id: String, options: ToolkitOptions): Value =
     sectionsDeep(doc).filter(_.id == id) match
       case section :: Nil =>
-        toolkitSectionNode(section, options, topLevel = true)
+        toolkitSectionNode(ctx, section, options, topLevel = true)
       case Nil =>
         throw InterpretError(s"contentToolkitSection: no section with id '$id'")
       case _ =>
@@ -155,40 +178,90 @@ object ContentIntrinsics:
       case Some(ast.ContentValue.Str(value)) => Some(value)
       case _                                => None
 
-  private def toolkitSectionNode(section: ast.SectionContent, options: ToolkitOptions, topLevel: Boolean): Value =
+  private def componentRenderer(
+      attrs: Map[String, ast.ContentValue],
+      options: ToolkitOptions
+  ): Option[(String, Value)] =
+    contentStringAttr(attrs, "component").flatMap(name => options.components.get(name).map(name -> _))
+
+  private def renderComponent(ctx: PluginContext, name: String, render: Value, context: Value): Value =
+    ctx.invokeCallback(render, List(context)) match
+      case value: Value => value
+      case other =>
+        throw InterpretError(s"contentToolkitNode: component '$name' returned non-value $other")
+
+  private def sectionComponentContext(name: String, section: ast.SectionContent): Value =
+    instanceValue("ContentComponentContext",
+      "name"    -> Value.StringV(name),
+      "kind"    -> Value.StringV("section"),
+      "id"      -> Value.StringV(section.id),
+      "title"   -> optionString(Some(section.title)),
+      "attrs"   -> attrsValue(section.attrs),
+      "section" -> Value.optionV(Some(sectionValue(section))),
+      "block"   -> Value.optionV(None),
+      "data"    -> Value.optionV(None)
+    )
+
+  private def blockComponentContext(name: String, block: ast.ContentBlock): Value =
+    instanceValue("ContentComponentContext",
+      "name"    -> Value.StringV(name),
+      "kind"    -> Value.StringV("block"),
+      "id"      -> Value.StringV(blockId(block).getOrElse("")),
+      "title"   -> optionString(None),
+      "attrs"   -> attrsValue(blockAttrs(block)),
+      "section" -> Value.optionV(None),
+      "block"   -> Value.optionV(Some(blockValue(block))),
+      "data"    -> Value.optionV(blockData(block).map(contentValue))
+    )
+
+  private def blockData(block: ast.ContentBlock): Option[ast.ContentValue] =
+    block match
+      case ast.ContentBlock.Embedded(_, _, _, data, _) => data
+      case _                                           => None
+
+  private def toolkitSectionNode(ctx: PluginContext, section: ast.SectionContent, options: ToolkitOptions, topLevel: Boolean): Value =
+    componentRenderer(section.attrs, options) match
+      case Some((name, render)) =>
+        return renderComponent(ctx, name, render, sectionComponentContext(name, section))
+      case None => ()
     val children =
       headingNode(section.level, section.title) ::
-        (section.blocks.map(toolkitBlockNode(_, options)) ++
-          section.children.map(toolkitSectionNode(_, options, topLevel = false)))
+        (section.blocks.map(toolkitBlockNode(ctx, _, options)) ++
+          section.children.map(toolkitSectionNode(ctx, _, options, topLevel = false)))
     val stack = vstackNode(options.blockGap, children)
     if topLevel && options.wrapTopLevelSectionsInCards then cardNode(List(stack)) else stack
 
-  private def toolkitBlockNode(block: ast.ContentBlock, options: ToolkitOptions): Value = block match
-    case ast.ContentBlock.Paragraph(inlines, _) =>
-      textNode_(inlineText(inlines))
-    case ast.ContentBlock.BulletList(items, _) =>
-      vstackNode(options.listGap, items.map(item => rawTextNode("- " + blocksText(item))))
-    case ast.ContentBlock.OrderedList(items, start, _) =>
-      vstackNode(options.listGap, items.zipWithIndex.map { case (item, idx) =>
-        rawTextNode(s"${start + idx}. ${blocksText(item)}")
-      })
-    case ast.ContentBlock.Image(src, alt, title, _) =>
-      val label =
-        if alt.isEmpty then src
-        else title match
-          case Some(t) => s"$alt ($t)"
-          case None    => alt
-      rawTextNode(label)
-    case ast.ContentBlock.Embedded(lang, _, _, data, attrs) if isToolkitUiBlock(lang, attrs) =>
-      data match
-        case Some(value) => toolkitUiNode(value, options)
-        case None =>
-          throw InterpretError("contentToolkitNode: @ui=toolkit requires a structured YAML/JSON/TOML block")
-    case ast.ContentBlock.Embedded(lang, source, _, _, _) =>
-      if options.includeCode then
-        val label = if lang.isEmpty then "" else s"$lang\n"
-        rawTextNode(label + source)
-      else fragmentNode(Nil)
+  private def toolkitBlockNode(ctx: PluginContext, block: ast.ContentBlock, options: ToolkitOptions): Value =
+    componentRenderer(blockAttrs(block), options) match
+      case Some((name, render)) =>
+        return renderComponent(ctx, name, render, blockComponentContext(name, block))
+      case None => ()
+    block match
+      case ast.ContentBlock.Paragraph(inlines, _) =>
+        textNode_(inlineText(inlines))
+      case ast.ContentBlock.BulletList(items, _) =>
+        vstackNode(options.listGap, items.map(item => rawTextNode("- " + blocksText(item))))
+      case ast.ContentBlock.OrderedList(items, start, _) =>
+        vstackNode(options.listGap, items.zipWithIndex.map { case (item, idx) =>
+          rawTextNode(s"${start + idx}. ${blocksText(item)}")
+        })
+      case ast.ContentBlock.Image(src, alt, title, _) =>
+        val label =
+          if alt.isEmpty then src
+          else title match
+            case Some(t) => s"$alt ($t)"
+            case None    => alt
+        rawTextNode(label)
+      case ast.ContentBlock.Embedded(lang, _, _, data, attrs) if isToolkitUiBlock(lang, attrs) =>
+        data match
+          case Some(value) => toolkitUiNode(value, options)
+          case None =>
+            throw InterpretError("contentToolkitNode: @ui=toolkit requires a structured YAML/JSON/TOML block")
+      case ast.ContentBlock.Embedded(lang, source, _, _, _) =>
+        if options.includeCode then
+          val label = if lang.isEmpty then "" else s"$lang\n"
+          rawTextNode(label + source)
+        else fragmentNode(Nil)
 
   private def isToolkitUiBlock(lang: String, attrs: Map[String, ast.ContentValue]): Boolean =
     attrs.get("ui").contains(ast.ContentValue.Str("toolkit")) &&

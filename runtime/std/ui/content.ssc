@@ -6,6 +6,10 @@ package: std.ui.content
 exports:
   - ContentRenderOptions
   - ContentToolkitOptions
+  - ContentComponentContext
+  - ContentToolkitComponent
+  - contentComponent
+  - contentToolkitOptionsWithComponents
   - contentView
   - contentViewSection
   - contentViewBlock
@@ -105,8 +109,47 @@ case class ContentToolkitOptions(
   blockGap: Int = 8,
   listGap: Int = 4,
   wrapDocumentInCard: Boolean = false,
-  wrapTopLevelSectionsInCards: Boolean = false
+  wrapTopLevelSectionsInCards: Boolean = false,
+  components: List[ContentToolkitComponent] = []
 )
+
+case class ContentComponentContext(
+  name: String,
+  kind: String,
+  id: String,
+  title: Option[String],
+  attrs: Map[String, ContentValue],
+  section: Option[SectionContent],
+  block: Option[ContentBlock],
+  data: Option[ContentValue]
+)
+
+case class ContentToolkitComponent(
+  name: String,
+  render: ContentComponentContext => TkNode
+)
+
+def contentComponent(name: String)(render: ContentComponentContext => TkNode): ContentToolkitComponent =
+  ContentToolkitComponent(name, render)
+
+def contentToolkitOptionsWithComponents(
+  components: List[ContentToolkitComponent],
+  includeCode: Boolean = false,
+  sectionGap: Int = 16,
+  blockGap: Int = 8,
+  listGap: Int = 4,
+  wrapDocumentInCard: Boolean = false,
+  wrapTopLevelSectionsInCards: Boolean = false
+): ContentToolkitOptions =
+  ContentToolkitOptions(
+    includeCode,
+    sectionGap,
+    blockGap,
+    listGap,
+    wrapDocumentInCard,
+    wrapTopLevelSectionsInCards,
+    components
+  )
 
 extern def contentToolkitNode(options: ContentToolkitOptions = ContentToolkitOptions()): TkNode
 extern def contentToolkitBlock(id: String,

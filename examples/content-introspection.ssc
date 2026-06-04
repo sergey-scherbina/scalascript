@@ -94,9 +94,13 @@ controls:
         variant: warning
 ```
 
-[contentToolkitBlock, contentToolkitSection](std/ui/content.ssc)
+[contentComponent, contentToolkitBlock, contentToolkitSection, contentToolkitOptionsWithComponents](std/ui/content.ssc)
 
 [vstack](std/ui/layout.ssc)
+
+[heading](std/ui/typography.ssc)
+
+[rawText](std/ui/reactive.ssc)
 
 [lower](std/ui/lower.ssc)
 
@@ -105,9 +109,17 @@ controls:
 [serve](std/ui/primitives.ssc)
 
 ```scalascript
+val planList = contentComponent("PlanList") { ctx =>
+  vstack(gap = 4)(
+    heading(2, "Plans from component"),
+    rawText("component=" + ctx.name),
+    rawText("kind=" + ctx.kind + " id=" + ctx.id)
+  )
+}
+
 val page = lower(
   vstack(gap = 16)(
-    contentToolkitSection("plans"),
+    contentToolkitSection("plans", contentToolkitOptionsWithComponents([planList])),
     contentToolkitBlock("team-controls"),
     contentToolkitBlock("review-status")
   ),
