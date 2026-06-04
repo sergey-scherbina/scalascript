@@ -1,0 +1,4 @@
+feature/interp-opt-tuple-var 2026-06-04T08:02:46Z
+status: not-started
+done-so-far:
+next: JFR profile counterWithTupleVar, then extend tryMixedLongWhile
