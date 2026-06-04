@@ -230,6 +230,53 @@ the current parsed `.ssc` document from the content plugin and returns a regular
 `TkNode`, so callers can place Markdown content inside `vstack`, `card`,
 routers, and themed application shells before `lower(tree, theme)`.
 
+Structured fences marked `@ui=toolkit` are consumed by `contentToolkitNode()`
+as declarative toolkit controls. They let authors define the controls in
+Markdown/YAML and keep executable code limited to the final bridge call:
+
+````markdown
+```yaml @ui=toolkit
+signals:
+  teamName: "ScalaScript team"
+  enabled: false
+  applied: false
+controls:
+  type: card
+  children:
+    - type: heading
+      level: 2
+      text: Toolkit controls
+    - type: textField
+      signal: teamName
+      label: Team name
+    - type: checkbox
+      signal: enabled
+      label: Enable toolkit renderer
+    - type: button
+      signal: applied
+      value: true
+      label: Apply toolkit
+      enabledWhen: enabled
+```
+
+```scalascript
+val page = lower(contentToolkitNode(), defaultTheme)
+```
+````
+
+The block schema is intentionally small:
+
+- `signals` is a map from stable signal id to a scalar default (`String`,
+  `Boolean`, integer, decimal, or `null`).
+- `controls` / `control` is either a control object or a list of control
+  objects. Lists lower to `FragmentNode`.
+- Supported control `type` values are `vstack`, `hstack`, `fragment`,
+  `divider`, `heading`, `text`, `rawText`, `signalText`, `show`, `textField`,
+  `checkbox`, `button`, `badge`, and `card`.
+- Signal-backed controls reference signals by name through fields such as
+  `signal`, `value`, `checked`, or `condition`. `button.enabledWhen` lowers to
+  an enabled/disabled `SignalButtonNode` pair guarded by `ShowWhenNode`.
+
 `contentView(contentDocument())` remains the lower-level renderer for callers
 that need direct `View` nodes and closer HTML-like Markdown shapes.
 
@@ -242,7 +289,7 @@ The default lowering maps:
 | `BulletList` / `OrderedList` | list nodes |
 | `Link` | link node |
 | `Image` | image node with `alt` |
-| `Embedded(StructuredData)` | omitted by default unless a component/custom renderer consumes it |
+| `Embedded(StructuredData)` | omitted by default unless it is marked `@ui=toolkit` or a component/custom renderer consumes it |
 | `Embedded(Executable/StringBlock/Opaque)` | omitted by default; rendered as code/pre when `includeCode = true` |
 
 If a block or section has `component=<name>` metadata, the generic lowering
@@ -262,6 +309,8 @@ a compile error by itself.
       while still serving as the existing module manifest.
 - [x] Fenced YAML/JSON/TOML structured blocks preserve source and expose parsed
       `ContentValue` data when parsing succeeds and a parser is available.
+- [x] Structured `yaml @ui=toolkit` blocks lower directly to interactive
+      `std/ui` controls through `contentToolkitNode()`.
 - [x] Every fenced code block enters the content tree as an embedded language
       node, even when its execution is handled by a backend or plugin.
 - [x] Generated section ids are deterministic: slugify heading text; if a slug

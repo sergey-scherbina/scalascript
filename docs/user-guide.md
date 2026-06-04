@@ -348,24 +348,48 @@ plans:
 
 Frontend MVP API:
 
+````markdown
+```yaml @ui=toolkit
+signals:
+  teamName: "ScalaScript team"
+  enabled: false
+  applied: false
+controls:
+  type: card
+  children:
+    - type: heading
+      level: 2
+      text: Toolkit controls
+    - type: textField
+      signal: teamName
+      label: Team name
+    - type: checkbox
+      signal: enabled
+      label: Enable toolkit renderer
+    - type: button
+      signal: applied
+      value: true
+      label: Apply toolkit
+      enabledWhen: enabled
+```
+````
+
 ```scalascript
 [contentToolkitNode](std/ui/content.ssc)
 [lower](std/ui/lower.ssc)
 [defaultTheme](std/ui/theme.ssc)
-[vstack](std/ui/layout.ssc)
-[heading, text](std/ui/typography.ssc)
 
-val tree = vstack(gap = 16)(
-  heading(1, "Markdown + toolkit"),
-  text("The Markdown body is a regular TkNode subtree."),
-  contentToolkitNode()
-)
-val page = lower(tree, defaultTheme)
+val page = lower(contentToolkitNode(), defaultTheme)
 ```
 
 `contentToolkitNode()` is the toolkit bridge. It reads the current parsed
 Markdown document and returns a `TkNode`, so it can be placed inside `vstack`,
 `card`, routers, or any other `std/ui` composition before calling `lower`.
+Structured fences marked `@ui=toolkit` are rendered as toolkit controls instead
+of being omitted as generic data. The fence accepts `signals:` (scalar defaults)
+and `controls:` / `control:`. Supported control `type` values are `vstack`,
+`hstack`, `fragment`, `divider`, `heading`, `text`, `rawText`, `signalText`,
+`show`, `textField`, `checkbox`, `button`, `badge`, and `card`.
 
 The lower-level `View` renderer remains available when exact HTML-like Markdown
 shape is more important than toolkit composition:
