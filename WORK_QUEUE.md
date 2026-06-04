@@ -53,6 +53,24 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
   `pattern-match-heavy` JS: **35.8 ms → 5.0 ms (7.2×)**. 1279 conformance tests passed.
   Commit `c3ea423e`.
 
+- [ ] **js-arith-inline-iife** — Fix `genStatInline` / `genBlockAsIife` to register
+      `intVars` / `numericVars` for `var` and `val` declarations, matching what `genStat`
+      already does. Root cause: `runStream` (and similar IIFE paths) call `genStatInline`
+      which skips type-tracking, so `var i = 0` leaves `i` unknown → `i < N` and `i + 1`
+      fall through to `_arith('<', i, N)` / `_arith('+', i, 1)` instead of inline `(i < N)`
+      / `(i + 1)`.
+      Baseline: `effect-stream` JS **0.369 ms** (5.7× slower than JVM 0.065 ms).
+      Target: **≤ 0.15 ms** (2.4× expected; residual is `_dispatch(Stream, 'emit', [i])`).
+      File: `runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala`
+      → `genStatInline` (line ~2549). Two-line fix + verify with `ssc --backend js run`.
+      Verification: `ssc --backend js run bench/corpus/effect-stream.ssc`,
+      conformance suite green, `bench.sh --backend js effect-stream`.
+
+- [ ] **bench-default-reps-100** — Change default `--reps` from 20 to 100 in
+      `bench/run.sc`. Current 20 reps gives ±10–15% variance (one GC pause or
+      C2-tier-up event shifts the mean). 100 reps gives ±2–3% at ~5× measurement cost.
+      File: `bench/run.sc` line ~59. One-line fix.
+
 ---
 
 ## busi-driven follow-ups (open)
