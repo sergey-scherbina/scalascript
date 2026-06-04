@@ -44,7 +44,7 @@ object CaEftConfig:
  *    450 — AFT Credit (push money to payee account)
  *    470 — AFT Debit  (pull money from payer account)
  *
- *  See docs/specs/international-bank-rails.md §CA_INTERAC for CPA 005 specification.
+ *  See specs/international-bank-rails.md §CA_INTERAC for CPA 005 specification.
  */
 case class AftRecord(
   transactionType: Int,       // 450 = credit, 470 = debit
@@ -72,7 +72,7 @@ case class AftFileHeader(
  *
  *  Auth: Bearer token (`apiKey`) on every request.
  *
- *  See docs/specs/international-bank-rails.md §CA_INTERAC for aggregator contract.
+ *  See specs/international-bank-rails.md §CA_INTERAC for aggregator contract.
  */
 class CaEftApi(config: CaEftConfig):
 

@@ -5,7 +5,7 @@ import scalascript.crypto.{Curve, HashAlgo, PublicKey}
 import scalascript.blockchain.spi.ChainId
 
 /** Compile-only / value-level smoke test for the wallet-spi
- *  cross-compile (docs/specs/wallet-spi-scalajs.md, Stage 1).
+ *  cross-compile (specs/wallet-spi-scalajs.md, Stage 1).
  *
  *  This spec lives in `shared/src/test/scala/` so the JVM and JS
  *  test runners both execute it. The goal is **not** to test signing

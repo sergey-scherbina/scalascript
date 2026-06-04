@@ -216,7 +216,7 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
   // `startNode`; the JVM codegen path must do the same so the CLI ops
   // commands (`ssc cluster status / drain / events / step-down /
   // metrics-prom`) reach codegen-built nodes.  See
-  // docs/specs/cluster-codegen-gap.md gap #3.
+  // specs/cluster-codegen-gap.md gap #3.
   test("JvmGen: startNode emits the five /_ssc-cluster/* route registrations"):
     val code = jvmCode("""
       runActors {

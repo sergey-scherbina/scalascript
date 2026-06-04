@@ -253,7 +253,7 @@ class NodeBackendTest extends AnyFunSuite:
   // INT spawns a virtual thread; on Node the existing `serve` is already
   // non-blocking (the event loop holds the process alive while the server
   // has open listeners), so `serveAsync` delegates to `serve` and the
-  // caller continues immediately.  See docs/specs/cluster-codegen-gap.md.
+  // caller continues immediately.  See specs/cluster-codegen-gap.md.
 
   test("codegen: serveAsync(port) emits a non-blocking listen, no keep-alive loop") {
     val src =

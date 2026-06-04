@@ -9,7 +9,7 @@ import scalascript.ir.{QualifiedName, NormalizedModule}
  *  intrinsics — CA EFT/Interac operations are runtime adapter concerns, not compile-time.
  *
  *  Registered via META-INF/services/scalascript.backend.spi.Backend.
- *  See docs/specs/international-bank-rails.md §CA_INTERAC.
+ *  See specs/international-bank-rails.md §CA_INTERAC.
  */
 class CaEftPlugin extends Backend:
   def id:          String = "scalascript-payments-ca-eft"

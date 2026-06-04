@@ -11,7 +11,7 @@ import scalascript.payments.webhook.WebhookReceiver
  *  `BankTransfer(status = Pending)` and terminal states (Settled/Rejected/Returned)
  *  arrive via webhooks or polling (`getTransfer`).
  *
- *  See docs/specs/bank-rails.md §4.4 for the full SPI specification.
+ *  See specs/bank-rails.md §4.4 for the full SPI specification.
  */
 trait BankRailsProvider:
   def id:             String      // "sepa" | "ach" | "pix" | "fednow" | "modern-treasury" | …

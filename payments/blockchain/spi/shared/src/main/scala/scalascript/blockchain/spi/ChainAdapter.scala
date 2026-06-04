@@ -8,7 +8,7 @@ import scalascript.crypto.{Curve, PublicKey}
  *  `EvmChainAdapter` covers all `eip155:*` chains parameterised by
  *  `chainId`, `SolanaChainAdapter` covers `solana:*`, etc.
  *
- *  See docs/specs/blockchain-spi.md §6 for the full contract surface. */
+ *  See specs/blockchain-spi.md §6 for the full contract surface. */
 trait ChainAdapter:
 
   // Path-dependent native representations. Each adapter chooses its own

@@ -15,7 +15,7 @@ import javax.crypto.spec.SecretKeySpec
  *
  *  Webhook auth: `X-SPEI-Signature: sha256=<hex>`, HMAC-SHA256 over raw HTTP body.
  *
- *  See docs/specs/payment-rails-apac.md §MX_SPEI.
+ *  See specs/payment-rails-apac.md §MX_SPEI.
  */
 class MxSpeiWebhookReceiver(
     override val config:   WebhookConfig  = WebhookConfig(),

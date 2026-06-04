@@ -28,7 +28,7 @@ import javax.crypto.spec.SecretKeySpec
  *      JSON: { "type": "...", "transferId": "...", "returnCode": "...", "description": "..." }
  *      Fired when an EFT AFT debit is returned (NSF, account closed, etc.).
  *
- *  See docs/specs/international-bank-rails.md §CA_INTERAC for webhook taxonomy.
+ *  See specs/international-bank-rails.md §CA_INTERAC for webhook taxonomy.
  */
 class CaEftWebhookReceiver(
     override val config:   WebhookConfig = WebhookConfig(),

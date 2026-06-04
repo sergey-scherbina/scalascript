@@ -18,7 +18,7 @@ import java.time.format.DateTimeFormatter
  *    Field 71A — Details of Charges (OUR / SHA / BEN)
  *
  *  The output is a plain-text MT103 message formatted per SWIFT standards.
- *  See docs/specs/international-bank-rails.md §8 v1.55.1.
+ *  See specs/international-bank-rails.md §8 v1.55.1.
  */
 object SwiftMt103Builder:
 

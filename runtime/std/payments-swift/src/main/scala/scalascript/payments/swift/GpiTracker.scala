@@ -11,7 +11,7 @@ import java.time.Instant
  *    gpi.v4.credits.CancellationCompleted    → SwiftRejected
  *    gpi.v4.credits.Rejected                 → SwiftRejected
  *
- *  See docs/specs/international-bank-rails.md §7 SWIFT webhook events.
+ *  See specs/international-bank-rails.md §7 SWIFT webhook events.
  */
 object GpiTracker:
 

@@ -10,7 +10,7 @@ import scalascript.ast.{Content, ScalaNode}
 import scalascript.parser.Parser
 import scala.meta.{Source, Term}
 
-/** Verifies the proof-of-concept bytecode VM (docs/specs/vm-jit-spec.md):
+/** Verifies the proof-of-concept bytecode VM (specs/vm-jit-spec.md):
  *  compiling real parsed integer functions and checking VM results equal
  *  the known mathematical values, plus that unsupported functions bail to None.
  */

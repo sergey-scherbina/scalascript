@@ -9,7 +9,7 @@ package scalascript.backend.spi
  *  Built-in preprocessors registered by `Parser` at class-load time use
  *  priorities 10–60.  Plugin-provided preprocessors should use 100+.
  *
- *  See `docs/specs/arch-dsl-hooks.md §4c` and `scalascript.parser.PreprocessorRegistry`. */
+ *  See `specs/arch-dsl-hooks.md §4c` and `scalascript.parser.PreprocessorRegistry`. */
 trait Preprocessor:
   /** Unique name, used for diagnostics and deduplication. */
   def name: String

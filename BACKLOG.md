@@ -15,7 +15,7 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       Before/after measurements are recorded in the spec; p1 mostly improved
       code shape/correctness, while tuple-monoid now exposes the expected
       allocation cost that p2 should hoist.
-      **Spec:** [`docs/specs/js-codegen-opt-p1.md`](docs/specs/js-codegen-opt-p1.md)
+      **Spec:** [`specs/js-codegen-opt-p1.md`](specs/js-codegen-opt-p1.md)
 
 - [x] **js-codegen-opt-p2** — ✓ Landed 2026-06-04 commit `652c7ebc`.
       Loop-invariant constant tuple hoisting: `(1,2)++(3,4)` in a while body
@@ -50,14 +50,14 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       `build(d): Expr`. `scripts/bench interp recursiveEval`: `recursiveEval`
       **0.067 +/- 0.004 ms/op**, `recursiveEvalMixed` **0.068 +/- 0.001
       ms/op**. Commit eb892a82. Spec:
-      [`docs/specs/interp-opt-recursive-eval.md`](docs/specs/interp-opt-recursive-eval.md).
+      [`specs/interp-opt-recursive-eval.md`](specs/interp-opt-recursive-eval.md).
 
 - [ ] **interp-opt-recursive-build-floor-asm-parity** — Port the Phase 1B
       `LongToObject` pure ADT builder path to `AsmJitBackend` after the active
       dirty ASM worktree lands. ASM smoke still reports `recursiveEval` 2.106
       ms/op and `recursiveEvalMixed` 1.951 ms/op with
       `SSC_JIT_BACKEND=asm BENCH_WI=1 BENCH_MI=2 BENCH_F=1 scripts/bench interp 'recursiveEval|recursiveEvalMixed'`.
-      Spec: [`docs/specs/interp-opt-recursive-eval.md`](docs/specs/interp-opt-recursive-eval.md).
+      Spec: [`specs/interp-opt-recursive-eval.md`](specs/interp-opt-recursive-eval.md).
 
 - [x] **interp-opt-init-builtins-cache** — ✓ Landed 2026-06-04. `effectPure`
       interp floor reduced from 0.010 to **0.005 ms/op** by lazily initializing
@@ -66,7 +66,7 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       Profile allocation fell from **32,208 to 8,728 B/op**. Shared pure
       builtins cache / `TwoLayerGlobals` was evaluated and deferred because the
       measured saving was only ~70 B/op after the larger init wins. Spec updated:
-      [`docs/specs/interp-opt-init-builtins-cache.md`](docs/specs/interp-opt-init-builtins-cache.md).
+      [`specs/interp-opt-init-builtins-cache.md`](specs/interp-opt-init-builtins-cache.md).
       Verification: `backendInterpreter / Compile / compile`, 238 targeted
       actor/cluster/interpreter/effects tests, `scripts/bench interp effectPure`,
       and `scripts/bench profile effectPure`. Commit d42cc6b2.
@@ -167,12 +167,12 @@ implementation notes.
 
 - [x] **enum-value-support** - Scala 3 `enum` cases usable as values (bare +
       qualified references, matching, `EnumName.values`) on all backends.
-      Spec: [`docs/specs/enum-values.md`](docs/specs/enum-values.md). ✓ Landed 2026-05-30:
+      Spec: [`specs/enum-values.md`](specs/enum-values.md). ✓ Landed 2026-05-30:
       handle `Defn.RepeatedEnumCase` in interpreter + JS codegen, JS emits an
       enum companion; 11 tests incl. JVM/JS cross-backend conformance.
 - [x] **std-root-resolution** - Well-known standard-library root so external
       projects resolve bare `std/…` imports with no `ssc.std.path` config.
-      Spec: [`docs/specs/std-root-resolution.md`](docs/specs/std-root-resolution.md).
+      Spec: [`specs/std-root-resolution.md`](specs/std-root-resolution.md).
       ✓ Landed 2026-05-30: `ImportResolver.discoverStdRoot` (override → libPath →
       jar-dir/std → dev walk-up → `~/.scalascript/std`), 8 unit tests.
 - [x] **quality-roadmap-and-jmh-ignore** - Added the quality/contract/type-system
@@ -184,7 +184,7 @@ implementation notes.
 ## UUID Library — v1.65
 
 UUID generation and parsing for all backends. Primary goal: UUID v7 (time-ordered)
-for database primary keys and event IDs. Spec: [`docs/specs/uuid.md`](docs/specs/uuid.md).
+for database primary keys and event IDs. Spec: [`specs/uuid.md`](specs/uuid.md).
 
 - [x] **uuid-p1** — Core JVM: done 2026-06-04.
 - [x] **uuid-p2** — Parse + validate: done 2026-06-04.
@@ -200,7 +200,7 @@ for database primary keys and event IDs. Spec: [`docs/specs/uuid.md`](docs/specs
 intrinsics (JVM interpreter + JS/Node.js backend). Today these exist
 only as `extern def` stubs in `examples/plugins/crypto-plugin/` — a
 template for third-party plugins, not a standard built-in.  Spec:
-[`docs/specs/crypto.md`](docs/specs/crypto.md).
+[`specs/crypto.md`](specs/crypto.md).
 
 - [x] **crypto-p1** — ✓ Landed 2026-06-04.
 - [x] **crypto-p2** — ✓ Landed 2026-06-04.
@@ -217,7 +217,7 @@ the contracts are explicit.
       errors/status codes, visibility/profile filtering, imported/overlayed
       contracts, CLI commands, CI/test strategy, and how warnings vs hard
       failures are configured. ✓ Landed 2026-05-30: added
-      [`docs/specs/contract-validation.md`](docs/specs/contract-validation.md) with shared
+      [`specs/contract-validation.md`](specs/contract-validation.md) with shared
       IR, diagnostics, protocol-specific checks, profiles/overlays/imports,
       planned CLI, baseline policy, phases, tests, and open questions.
 - [x] **typer-real-types-roadmap-spec** - Spec first. Plan the next type-system
@@ -225,7 +225,7 @@ the contracts are explicit.
       types through case classes, enums, method return types, generic calls,
       typed routes, OpenAPI/GraphQL schemas, Dataset/Spark mapping, and plugin
       metadata. ✓ Landed 2026-05-30: added
-      [`docs/specs/typer-real-types-roadmap.md`](docs/specs/typer-real-types-roadmap.md)
+      [`specs/typer-real-types-roadmap.md`](specs/typer-real-types-roadmap.md)
       with canonical type evidence, schema type shapes, exported/interface
       metadata, route/remote/client evidence, schema consumers, typed-data /
       Dataset / Spark convergence, plugin metadata, phases, tests, and open
@@ -236,29 +236,29 @@ the contracts are explicit.
       typer-created `DefSummary` values, and added an `AnyEvidenceInventory`
       helper that counts direct or structural exported `Any` by evidence kind
       without changing artifact formats or codegen behavior.
-      **Spec:** [`docs/specs/type-evidence-inventory.md`](docs/specs/type-evidence-inventory.md)
+      **Spec:** [`specs/type-evidence-inventory.md`](specs/type-evidence-inventory.md)
 - [x] **type-evidence-interface-p2** - ✓ Landed 2026-06-04 commit `24c0803d`.
       Added structured type-evidence metadata to `.scim` exported symbols
       beside the existing rendered `tpe` string. `InterfaceExtractor` populates
       it from `DefSummary.evidence`; old artifacts remain readable via
       defaulted fields, and `InterfaceScope` resolution still uses legacy `tpe`
       for this slice.
-      **Spec:** [`docs/specs/type-evidence-inventory.md §P2`](docs/specs/type-evidence-inventory.md#p2---interface-evidence-serialization)
+      **Spec:** [`specs/type-evidence-inventory.md §P2`](specs/type-evidence-inventory.md#p2---interface-evidence-serialization)
 - [x] **type-evidence-schema-p4a** - ✓ Landed 2026-06-04 commit `2aecb9cd`.
       `RouteEvidenceCounts` + `RouteEvidenceInventory.count(ir.Manifest)`; 7 tests.
-      **Spec:** [`docs/specs/type-evidence-inventory.md §P4a`](docs/specs/type-evidence-inventory.md#p4a--route-evidence-inventory-helper)
+      **Spec:** [`specs/type-evidence-inventory.md §P4a`](specs/type-evidence-inventory.md#p4a--route-evidence-inventory-helper)
 - [x] **type-evidence-openapi-p4b** - ✓ Landed 2026-06-04 commit `f3585e18`.
       `openApiEvidenceDiagnostics()` + `--require-declared` flag; 7 tests.
-      **Spec:** [`docs/specs/type-evidence-inventory.md §P4b`](docs/specs/type-evidence-inventory.md#p4b--openapi-evidence-diagnostics)
+      **Spec:** [`specs/type-evidence-inventory.md §P4b`](specs/type-evidence-inventory.md#p4b--openapi-evidence-diagnostics)
 - [x] **type-evidence-check-cmd-p4c** - ✓ Landed 2026-06-04 commit `9ea59bef`.
       `ssc check-types`: route evidence + Any-symbol inventory table; exits 0/1 on declared/unknown.
-      **Spec:** [`docs/specs/type-evidence-inventory.md §P4c`](docs/specs/type-evidence-inventory.md#p4c--ssc-check-types-cli-command)
+      **Spec:** [`specs/type-evidence-inventory.md §P4c`](specs/type-evidence-inventory.md#p4c--ssc-check-types-cli-command)
 - [x] **type-evidence-routes-p3** - ✓ Landed 2026-06-04 commit `347fe6f3`.
       Added optional structured request/response evidence to normalized IR
       route/client metadata while keeping legacy `requestType` / `responseType`
       strings as the active consumer contract. Existing generators keep reading
       strings; this slice persists evidence for later strict/schema phases.
-      **Spec:** [`docs/specs/type-evidence-inventory.md §P3`](docs/specs/type-evidence-inventory.md#p3---route-and-remote-evidence)
+      **Spec:** [`specs/type-evidence-inventory.md §P3`](specs/type-evidence-inventory.md#p3---route-and-remote-evidence)
 - [x] **perf-regression-guard** - Add a lightweight performance regression
       workflow: benchmark manifest, baseline policy, ignored/generated artifact
       rules, short opt-in `ssc bench`/JMH smoke command, and documentation for
@@ -361,19 +361,19 @@ small and dependency-aware because multiple agents are working in parallel.
       restored the missing shared typed-models IR spec referenced by the queue,
       and landed one behavior-preserving CLI leaf-command extraction
       (`LspCmd` + `GenerateFacadeCmd` out of `Main.scala`). Specs:
-      `docs/architecture.md`, `docs/specs/typed-models-ir.md`,
-      `docs/specs/frontend-abstract-model.md`, `docs/specs/cli-command-spi.md`,
-      `docs/specs/arch-build-registry.md`.
+      `docs/architecture.md`, `specs/typed-models-ir.md`,
+      `specs/frontend-abstract-model.md`, `specs/cli-command-spi.md`,
+      `specs/arch-build-registry.md`.
 - [x] **frontend-view-traversal-core** - ✓ Landed 2026-06-02. Added a small
       `frontend/core` `ViewTraversal` utility for `View[?]` trees and migrated
       React's fetch-signal collector first. Covered by core traversal tests and
       a React typed JSON fetch nested in semantic `Column`. Remaining collectors
       can migrate incrementally. Spec:
-      `docs/specs/frontend-abstract-model.md §Implementation maintenance notes`.
+      `specs/frontend-abstract-model.md §Implementation maintenance notes`.
 - [x] **typed-models-structural-types** - ✓ Landed 2026-06-02.
       `ModelPathValidator` in `frontend/core` validates in-scope `ModelText` /
       `ForModel` paths against `ModelDef` descriptors and exposes full-module
-      checks. Spec: `docs/specs/typed-models-ir.md`.
+      checks. Spec: `specs/typed-models-ir.md`.
 - [x] **datatable-generalize** - ✓ Landed 2026-06-02. Replaced monolithic
       `View.FetchTable` with `View.DataTable(signal, columns, actions)`. Added
       `EventHandler.ItemAction` + `SetFieldToSignal`; `DataTableLowering`; native
@@ -388,24 +388,24 @@ small and dependency-aware because multiple agents are working in parallel.
       row-action intrinsics accept null/default `emptyHeaders` from std/ui
       helpers, migrated examples away from stale
       `dataTable(fetchUrl = ..., tick = ...)` calls, and added regression
-      coverage. Spec: `docs/specs/datatable-authoring-surface.md`.
+      coverage. Spec: `specs/datatable-authoring-surface.md`.
 - [x] **datatable-path-validation** - ✓ Landed 2026-06-03. Extended
       `ModelPathValidator` so typed `View.DataTable` descriptors validate
       columns, delete/post/link action paths, and inline-edit id fields against
       the row model from `FetchJsonSignal` / `CodecHint.Json`. Raw fetch-backed
-      tables remain permissive. Spec: `docs/specs/datatable-authoring-surface.md`.
+      tables remain permissive. Spec: `specs/datatable-authoring-surface.md`.
 - [x] **datatable-next-generalization** - ✓ Landed 2026-06-03 as
       `datatable-source-abstraction` and `datatable-column-action-expressiveness`
       in `WORK_QUEUE.md`. The follow-up slices added `TableDataSource`
       (`Remote`, `StaticRows`, `SignalRows`), `ColumnKind`, `RowPayload`,
       `View.FormattedField`, width hints, std/ui helpers, and emitter/runtime
       support across React/Vue/Solid/Custom/SwiftUI/Swing/JavaFX. Spec:
-      `docs/specs/datatable-authoring-surface.md §Phases 2-3`.
+      `specs/datatable-authoring-surface.md §Phases 2-3`.
 - [x] **cli-command-result-exitcode** - ✓ Landed 2026-06-02. Introduced an
       internal `CommandResult` / `ExitCode` path, `CliCommand.runResult`,
       registry dispatch results, and top-level exit-code propagation. `LspCmd`
       is the first migrated command; plugin command SPI stays unchanged. Spec:
-      `docs/specs/cli-command-spi.md`.
+      `specs/cli-command-spi.md`.
 - [x] **jvmgen-ui-bridge-split** - ✓ Landed 2026-06-02. Extracted the
       frontend `std.ui.primitives` generated-source block from `JvmGen.scala`
       into `JvmRuntimeUiPrimitives.source`; generated `emit-scala` output for
@@ -414,11 +414,11 @@ small and dependency-aware because multiple agents are working in parallel.
 - [x] **build-family-registry** - ✓ Landed 2026-06-03. `FrontendSpec` + `allFrontends`
       registry for 8 frontend backends; `root` aggregate and `cli` dependsOn
       derived from `allFrontends`. Mirrors the existing `PluginSpec`/`allPlugins`
-      pattern. Spec: `docs/specs/arch-build-registry.md §Phase 4`.
+      pattern. Spec: `specs/arch-build-registry.md §Phase 4`.
 
 ## Exact Numerics — BigInt, Decimal, Money (v1.64 planned)
 
-Spec: [`docs/specs/exact-numerics.md`](docs/specs/exact-numerics.md).
+Spec: [`specs/exact-numerics.md`](specs/exact-numerics.md).
 
 ScalaScript's runtime has only `IntV(Long)` / `DoubleV(Double)` — no
 arbitrary-precision integer and no exact decimal. Accounting, finance, and
@@ -428,47 +428,47 @@ with correct rounding and cent-preserving allocation. v1.64 adds `BigInt`,
 and a `Money`/`Currency` std library — identical across interpreter, JVM, and JS.
 
 - [x] **v1.64.0-exact-numerics-spec** - Canonical spec and backlog. Adds
-      `docs/specs/exact-numerics.md`: `BigInt`/`Decimal` types, construction, numeric
+      `specs/exact-numerics.md`: `BigInt`/`Decimal` types, construction, numeric
       tower + Decimal/Double guard, division/rounding context, numeric `==` with
       normalised hashing, string serialization, JS `_Decimal` helper plan, and a
       `Money`/`Currency`/`RoundingMode`/allocation std library. ✓ Landed 2026-05-30.
 - [x] **v1.64.1-bigint-interpreter** - `Value.BigIntV(BigInt)`, `BigInt(...)`
       constructor in `BuiltinsRuntime`, arithmetic + methods + Int↔BigInt tower in
-      `DispatchRuntime`, `show`/serialize, tests. Spec: `docs/specs/exact-numerics.md
+      `DispatchRuntime`, `show`/serialize, tests. Spec: `specs/exact-numerics.md
       §4-5, §7`. ✓ Landed 2026-05-30 (9 tests; full interpreter suite green).
 - [x] **v1.64.2-decimal-interpreter** - `Value.DecimalV(BigDecimal)`,
       construction (`Decimal("…")`, `Decimal(n, scale)`), exact `+-*`,
       `divide`/MathContext, `setScale`/rounding, numeric `==` + normalised
-      `hashCode`, serialize, tests. Spec: `docs/specs/exact-numerics.md §4.4-4.7`.
+      `hashCode`, serialize, tests. Spec: `specs/exact-numerics.md §4.4-4.7`.
       ✓ Landed 2026-05-30 (14 tests; Decimal⊕Double rejected; full suite green, 1131).
 - [x] **v1.64.3-numerics-typer** - Register `BigInt`/`Decimal`/`BigDecimal`/
       `RoundingMode`; implement the numeric tower; raise the **Decimal↔Double**
-      type error; inference rules. Spec: `docs/specs/exact-numerics.md §4.3`.
+      type error; inference rules. Spec: `specs/exact-numerics.md §4.3`.
       ✓ Landed 2026-05-30 (11 tests; widening Int⊆BigInt⊆Decimal, Decimal⊕Double rejected).
 - [x] **v1.64.4-numerics-jvm-codegen** - Lower `BigInt`→`scala.math.BigInt`,
       `Decimal`→`scala.math.BigDecimal`; map all ops; cross-backend conformance
-      vs interpreter. Spec: `docs/specs/exact-numerics.md §5, §8`.
+      vs interpreter. Spec: `specs/exact-numerics.md §5, §8`.
       ✓ Landed 2026-05-30 (preamble aliases + extensions + _binOp; scala-cli
       compile-run conformance, 4 tests, byte-identical to interpreter).
 - [x] **v1.64.5-numerics-js-codegen** - Native JS `BigInt`; `_Decimal` runtime
       helper (BigInt-backed, capability-gated in preamble); ops; node-run
-      conformance vs interpreter/JVM. Spec: `docs/specs/exact-numerics.md §5, §8`.
+      conformance vs interpreter/JVM. Spec: `specs/exact-numerics.md §5, §8`.
       ✓ Landed 2026-05-30 (BigInt-backed _Decimal, all rounding modes,_arith
       operator routing, _dispatch methods; node conformance 6 tests, suite 1142).
 - [x] **v1.64.6-money-stdlib** - `runtime/std/money/`: `Currency` (ISO 4217
       table, per-org overridable), `Money`, `RoundingMode`, cent-preserving
       `allocate`/`distribute`, `format`/`parse`. Cross-backend tests. Spec:
-      `docs/specs/exact-numerics.md §6`. ✓ Landed 2026-05-30 (runtime/std/money.ssc;
+      `specs/exact-numerics.md §6`. ✓ Landed 2026-05-30 (runtime/std/money.ssc;
       7 interpreter tests + JVM/JS conformance; allocation preserves cents).
 - [x] **v1.64.7-numerics-sugar** _(optional)_ - Suffix literals `123n`/`12.34m`,
       oversized-int auto-promotion, `money"…"` interpolator — via the preprocessor
-      pass. Spec: `docs/specs/exact-numerics.md §4.2, §7`. ✓ Landed 2026-05-30:
+      pass. Spec: `specs/exact-numerics.md §4.2, §7`. ✓ Landed 2026-05-30:
       `numeric-literals` preprocessor (14 unit + 4 e2e/cross-backend tests).
       `money"…"` interpolator deferred to the Money std lib.
 
 ## Distributed Runtime (v1.63 planned)
 
-Spec: [`docs/specs/distributed-runtime.md`](docs/specs/distributed-runtime.md).
+Spec: [`specs/distributed-runtime.md`](specs/distributed-runtime.md).
 
 ScalaScript has local streams, distributed streams, local/cluster actors,
 typed route clients, Dataset workers, object sync routes, and deployment
@@ -478,7 +478,7 @@ network semantics or deployment constraints.
 
 - [x] **v1.63.0-distributed-runtime-spec** - Canonical spec and backlog.
       Merges the older placement/remoting plan and local/distributed cluster
-      architecture into `docs/specs/distributed-runtime.md`. Keeps operation names
+      architecture into `specs/distributed-runtime.md`. Keeps operation names
       such as `users.get`, code identity, registries, code deployment, and
       worker bundles, while adopting `! Async`, `BasicStreamOps`, typed
       `ActorRef[M]`, `Cluster`, `SeedResolver`, and cluster-aware deploy
@@ -600,7 +600,7 @@ network semantics or deployment constraints.
 
 ## Distributed Wire Protocol (v1.62 planned)
 
-Spec: [`docs/specs/distributed-wire-protocol.md`](docs/specs/distributed-wire-protocol.md).
+Spec: [`specs/distributed-wire-protocol.md`](specs/distributed-wire-protocol.md).
 
 Internal ScalaScript-to-ScalaScript distributed traffic currently has several
 JSON-shaped paths: actor WebSocket envelopes, typed route clients/RPC,
@@ -683,7 +683,7 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
 - [x] **arch-distribution-p1** — `DepResolver` SPI + `GithubReleaseResolver`:
   refactor `ImportResolver` into a pluggable registry; add `github:user/repo@tag`
   scheme; `DepCache` with sha256 pin; tests against mock GitHub API.
-  Spec: `docs/specs/arch-distribution.md §5 Phase 1`.
+  Spec: `specs/arch-distribution.md §5 Phase 1`.
   Landed 2026-05-29: `DepResolver`/`DepSpec`, content-addressed `DepCache`,
   built-in `GithubReleaseResolver`, `ImportResolver` dispatch for `github:`,
   `sha256:` suffix pins, and mock GitHub API tests.
@@ -691,7 +691,7 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
 - [x] **arch-distribution-p2** — Coursier wiring + JitPack:
   `MavenDepResolver` using Coursier for `dep:` scheme; `JitpackResolver` as
   thin Coursier repo wrapper; tests with embedded local Maven fixture.
-  Spec: `docs/specs/arch-distribution.md §5 Phase 2`.
+  Spec: `specs/arch-distribution.md §5 Phase 2`.
   Landed 2026-05-29: Maven-shaped `dep:` coordinates dispatch to Coursier
   command wiring; legacy `dep:org/name:version` remains on dep-sources;
   `jitpack:` enables the JitPack repository; tests use a local Maven-layout
@@ -703,11 +703,11 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
   `scalascript-core`, `scalascript-runtime`, `sbt-scalascript` on tag push;
   sbt Plugin Portal registration. Deferred until Sergiy explicitly asks to
   publish to Maven Central, sbt Plugin Portal, or other official centralized
-  repositories.  Spec: `docs/specs/arch-distribution.md §5 Phase 3`.
+  repositories.  Spec: `specs/arch-distribution.md §5 Phase 3`.
 
 - [x] **arch-distribution-p4** — Community plugin starter template:
   `templates/plugin/` with GitHub Actions release workflow; `ssc new --template plugin`;
-  new `docs/specs/community-plugins.md`.  Spec: `docs/specs/arch-distribution.md §5 Phase 4`.
+  new `specs/community-plugins.md`.  Spec: `specs/arch-distribution.md §5 Phase 4`.
   Landed 2026-05-29: bundled plugin template resources, `NewProject`
   scaffolder, `ssc new <name> --template plugin`, release workflow,
   community plugin guide, and CLI template unit test.
@@ -717,7 +717,7 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
 - [x] **arch-sbt-plugin-p1** — Source convention + `sscCompile`:
   `sscSourceDirectories` setting; `sscCompile` task forks `ssc build`; wire
   into `Compile / compile`; scripted test: `sbt compile` compiles `.ssc` files.
-  Spec: `docs/specs/arch-sbt-plugin.md §5 Phase 1`.
+  Spec: `specs/arch-sbt-plugin.md §5 Phase 1`.
   Landed 2026-05-29: added `SscRunner`, `sscSourceDirectories`, `sscBackend`,
   `sscExtraArgs`, config-scoped `sscArtifactDir`, `Compile / sscCompile`, and
   `Compile / compile` wiring; scripted `compile-sources` verifies `sbt compile`
@@ -726,7 +726,7 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
 - [x] **arch-sbt-plugin-p2** — `sscLink` + `packageBin`:
   `sscLink` task forks `ssc link`; wire into `Compile / packageBin`; scripted
   test: `sbt package` produces runnable JAR.
-  Spec: `docs/specs/arch-sbt-plugin.md §5 Phase 2`.
+  Spec: `specs/arch-sbt-plugin.md §5 Phase 2`.
   Landed 2026-05-29: added `sscLinkedJar`, `Compile / sscLink`, link command
   wiring through `SscRunner`, skip behavior for projects without `.ssc`
   artifacts, and scripted `package-link` coverage for `sbt package`.
@@ -734,7 +734,7 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
 - [x] **arch-sbt-plugin-p3** — Test integration:
   `SscTestFramework`; `sscTest` forks `ssc test --output-format junit-xml`;
   JUnit XML parsing → sbt `TestResult`; scripted test: `sbt test` discovers
-  and runs `.ssc` tests.  Spec: `docs/specs/arch-sbt-plugin.md §5 Phase 3`.
+  and runs `.ssc` tests.  Spec: `specs/arch-sbt-plugin.md §5 Phase 3`.
   Landed 2026-05-29: added `sscTestResultsDir`, `Test / sscTest`, JUnit XML
   parsing in `SscTestFramework`, `Test / test` dependency wiring, and scripted
   `test-integration` coverage for `sbt test`.
@@ -742,7 +742,7 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
 - [x] **arch-sbt-plugin-p4** — REPL / Run / Watch + BSP wiring:
   `sscRepl`, `sscRun`, `sscWatch` tasks; `BspIntegration` emits
   `.bsp/scalascript.json` for Metals/IntelliJ.
-  Spec: `docs/specs/arch-sbt-plugin.md §5 Phase 4`.
+  Spec: `specs/arch-sbt-plugin.md §5 Phase 4`.
   Landed 2026-05-29: added interactive `SscRunner`, `sscRepl`, `sscRun`,
   `sscWatch`, `sscBspSetup`, `BspIntegration`, and scripted `dev-tools`
   coverage for command wiring plus BSP file emission.
@@ -752,7 +752,7 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
 - [x] **arch-ssc-new-p1** — `ssc new` subcommand + `app`/`lib` templates + Coursier channel:
   `NewProject.scala` in CLI; `app`, `lib` templates bundled in `ssc.jar`;
   Coursier channel JSON at `releases.scalascript.io`; `sbt cli/assembly` fat JAR.
-  Spec: `docs/specs/arch-ssc-new.md §5 Phase 1`.
+  Spec: `specs/arch-ssc-new.md §5 Phase 1`.
   Landed 2026-05-29: changed `ssc new` default template to `app`, added bundled
   `app` and `lib` templates, added `releases/coursier.json`, documented the
   existing `cli/assembly` fat JAR path, expanded `NewProjectTest`, and fixed
@@ -762,15 +762,15 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
 - [x] **arch-ssc-new-p2** — Additional templates + Homebrew tap + curl installer:
   `plugin`, `dsl`, `web-app`, `wasm-app` templates; Homebrew tap formula;
   `curl | sh` installer; `README.md` Getting Started updated.
-  Spec: `docs/specs/arch-ssc-new.md §5 Phase 2`.
+  Spec: `specs/arch-ssc-new.md §5 Phase 2`.
   Landed 2026-05-29: added bundled `dsl`, `web-app`, and `wasm-app` templates
   (`plugin` already existed), repo-local Homebrew formula source,
   `releases/install.sh`, documentation updates, and `NewProjectTest` coverage.
 
 - [x] **arch-ssc-new-p3** — Standalone docs update:
-  `docs/getting-started-standalone.md`; `docs/specs/community-plugins.md`;
+  `docs/getting-started-standalone.md`; `specs/community-plugins.md`;
   `docs/user-guide.md §Installation` updated; `install.sh` gets `--dev` flag.
-  Spec: `docs/specs/arch-ssc-new.md §5 Phase 3`.
+  Spec: `specs/arch-ssc-new.md §5 Phase 3`.
   Landed 2026-05-29: added standalone getting-started guide, updated user guide
   and community plugin docs, and made root `install.sh` developer-only via
   `--dev` with standalone install guidance by default.
@@ -780,14 +780,14 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
 - [x] **arch-build-registry-p1** — `PluginSpec` in `build.sbt`:
   introduce `PluginSpec` case class; migrate all ~20 plugins; all five derived
   lists (cli deps, installBin, pluginPkgs, aggregate, pluginTests) computed from it;
-  `build.sbt` shrinks ~200 lines.  Spec: `docs/specs/arch-build-registry.md §5 Phase 1`.
+  `build.sbt` shrinks ~200 lines.  Spec: `specs/arch-build-registry.md §5 Phase 1`.
   ✓ Landed 2026-05-29.
 
 - [x] **arch-build-registry-p2** — Runtime `PluginRegistry` unification:
   new `PluginRegistry` trait in `backend/spi`; `BackendRegistry` implements it;
   `PluginManifest`/`SubprocessBackend` → `SubprocessPlugin` strategy;
   `LocalRegistry` absorbed into `RemotePluginInstaller`.
-  Spec: `docs/specs/arch-build-registry.md §5 Phase 2`.
+  Spec: `specs/arch-build-registry.md §5 Phase 2`.
   ✓ Landed 2026-05-29: added the SPI facade and source hierarchy, implemented it
   in `BackendRegistry`, introduced shared `RemotePluginInstaller`, and routed CLI
   plugin install plus `pkg:` auto-install through the shared installer.
@@ -798,12 +798,12 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
   new `runtime/scalascript-plugin-api/` sbt subproject; `PluginValue`,
   `PluginError`, `PluginComputation` opaque aliases; `JsonCodec`; `PluginContext`
   as full capability re-export; all existing plugins add dep (no code changes yet).
-  Spec: `docs/specs/arch-stable-spi.md §5 Phase 1`. ✓ Landed 2026-05-29.
+  Spec: `specs/arch-stable-spi.md §5 Phase 1`. ✓ Landed 2026-05-29.
 
 - [x] **arch-stable-spi-p2** — Capability decomposition + 3 showcase plugins:
   `HttpCap`, `WsCap`, `DbCap`, `StorageCap`, `ValidateCap`, `MountCap`;
   `NativeImpl.eval` typed; `LegacyNativeContext` shim; migrate `json-plugin`,
-  `http-plugin`, `auth-plugin`.  Spec: `docs/specs/arch-stable-spi.md §5 Phase 2`.
+  `http-plugin`, `auth-plugin`.  Spec: `specs/arch-stable-spi.md §5 Phase 2`.
   ✓ Landed 2026-05-29: added capability traits, `LegacyNativeContext`,
   `PluginNative.eval`, representative typed-bridge intrinsics in json/http/auth
   plugins, and fixed auth `verifyPassword`.
@@ -811,26 +811,26 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
 - [x] **arch-stable-spi-p3** — Full migration of all 16 `*Intrinsics.scala`:
   remove `LegacyNativeContext`; delete `isStdPluginInterpreterTest` filter;
   CI classpath check rejects `scalascript/interpreter/` in plugin subprojects.
-  Spec: `docs/specs/arch-stable-spi.md §5 Phase 3`.
+  Spec: `specs/arch-stable-spi.md §5 Phase 3`.
 
 ### Theme F — DSL platform hooks
 
 - [x] **arch-dsl-hooks-p1** — `InterpolatorRegistry` + first migration:
   `InterpolatorImpl` trait; `Backend.interpolators` field; Typer / EvalRuntime /
   JvmGen / JsGen / CapabilityCheck consult registry; migrate `json"…"` and
-  `html"…"`.  Spec: `docs/specs/arch-dsl-hooks.md §6 Phase 1`.
+  `html"…"`.  Spec: `specs/arch-dsl-hooks.md §6 Phase 1`.
   ✓ Landed 2026-05-29.
 
 - [x] **arch-dsl-hooks-p2** — `PreprocessorRegistry`:
   `Preprocessor` trait; `PreprocessorRegistry`; 5 existing preprocessors
   converted to registered instances; `Parser.parseScalaWithDiagnostic` uses it.
-  Spec: `docs/specs/arch-dsl-hooks.md §6 Phase 2`.
+  Spec: `specs/arch-dsl-hooks.md §6 Phase 2`.
   ✓ Landed 2026-05-29.
 
 - [x] **arch-dsl-hooks-p3** — `SourceLanguage` built-in migration:
   `html`, `css`, `sql`, `xml`, `javascript` fenced tags become
   `SourceLanguagePlugin` implementations; `Lang.scala` routing removed.
-  Spec: `docs/specs/arch-dsl-hooks.md §6 Phase 3`.
+  Spec: `specs/arch-dsl-hooks.md §6 Phase 3`.
   ✓ Landed 2026-05-29: registered bundled SourceLanguage plugins for
   `javascript`/`js`, `xml`, bind-aware `sql`, and bind-aware `transaction`
   alongside existing `scala`/`html`/`css`; added attrs-aware `compileBlock`
@@ -840,47 +840,47 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
 - [x] **arch-dsl-hooks-p4** — `InterpolatorCheckRegistry`:
   `InterpolatorCheck` trait; `MarkupInterpolatorCheck` migrated; plugin
   `xml-plugin` registers compile-time check.
-  Spec: `docs/specs/arch-dsl-hooks.md §6 Phase 4`.
+  Spec: `specs/arch-dsl-hooks.md §6 Phase 4`.
 
 ### Theme H — Library Modularity
 
 Identified 2026-05-28. Six concrete gaps in the library system: no multi-file
 pure-ScalaScript package format, no transitive dep propagation, no access
 control, namespace collision risk, no API lifecycle annotations, no versioning
-enforcement.  Full analysis in `docs/specs/arch-library-modularity.md`.
+enforcement.  Full analysis in `specs/arch-library-modularity.md`.
 
 - [x] **arch-lib-p1** — `@deprecated` + `@experimental` annotations:
   new annotations in `Annotation.scala`; typer emits warnings at call sites;
   `--fatal-warnings` flag; 6+ tests.
-  Spec: `docs/specs/arch-library-modularity.md §6 Phase 1`.
+  Spec: `specs/arch-library-modularity.md §6 Phase 1`.
 
 - [x] **arch-lib-p2** — `@internal` access control:
   `@internal` parsed + stored on definitions; cross-package check in Typer;
   error with clear message including source package name; per-definition and
   per-heading granularity; 8+ tests.
-  Spec: `docs/specs/arch-library-modularity.md §6 Phase 2`.
+  Spec: `specs/arch-library-modularity.md §6 Phase 2`.
 
 - [x] **arch-lib-p3** — Namespace collision detection:
   `ImportResolver` tracks name contributions per import; warning on collision;
   `--strict-namespaces` flag for error; qualified import syntax
   `[Name from alias](dep:...)`; 6+ tests.
-  Spec: `docs/specs/arch-library-modularity.md §6 Phase 3`.
+  Spec: `specs/arch-library-modularity.md §6 Phase 3`.
 
 - [x] **arch-lib-p4** — `ssclib` format + `ssc package --lib`:
   `SsclibManifest` YAML schema; `.ssclib` ZIP format (`src/` + optional `ir/`);
   `ssc package --lib` CLI command; `ImportResolver` unpacks archives; 8+ tests.
-  Spec: `docs/specs/arch-library-modularity.md §6 Phase 4`. ✓ Landed 2026-05-29.
+  Spec: `specs/arch-library-modularity.md §6 Phase 4`. ✓ Landed 2026-05-29.
 
 - [x] **arch-lib-p5** — Transitive deps + lockfile:
   BFS dep resolution from `ssclib-manifest.yaml`; conflict resolution
   (latest-wins default); `ssc-lock.yaml` generation; `ssc update`; `--strict-deps`
   flag; cycle detection; 10+ tests.
-  Spec: `docs/specs/arch-library-modularity.md §6 Phase 5`. ✓ Landed 2026-05-29.
+  Spec: `specs/arch-library-modularity.md §6 Phase 5`. ✓ Landed 2026-05-29.
 
 - [x] **arch-lib-p6** — Pre-compiled IR in `.ssclib` + compat check (v2.x):
   `ssc package --lib --precompile` → `.scim` in `ir/`; `ImportResolver` prefers
   pre-compiled; `ssc check-compat old.ssclib new.ssclib` reports API breakage.
-  Spec: `docs/specs/arch-library-modularity.md §6 Phase 6`. ✓ Landed 2026-05-29:
+  Spec: `specs/arch-library-modularity.md §6 Phase 6`. ✓ Landed 2026-05-29:
   `--precompile` writes `ir/*.scim`, `check-compat` reports removed/changed
   public symbols with source fallback, and `SsclibPackageCliTest` covers both.
 
@@ -889,56 +889,56 @@ enforcement.  Full analysis in `docs/specs/arch-library-modularity.md`.
 Identified 2026-05-28. Without a registry the ecosystem cannot grow: users
 cannot find libraries, authors cannot reach users.  Solution: GitHub repo +
 GitHub Pages static site, zero server infrastructure, PR-based publishing.
-Full spec: `docs/specs/arch-registry.md`.
+Full spec: `specs/arch-registry.md`.
 
 - [x] **arch-registry-p1** — Registry repository + `packages.yaml` schema:
   create `github.com/scalascript/registry`; define YAML schema; seed with
   3-5 first-party packages; `validate.yml` CI (schema check + `ssc check`).
-  Spec: `docs/specs/arch-registry.md §5 Phase 1`.
+  Spec: `specs/arch-registry.md §5 Phase 1`.
 
 - [x] **arch-registry-p2** — `ssc search` / `ssc info` / `ssc add` CLI:
   `RegistryClient` (fetch + cache `packages.yaml`, TTL 1h); `ssc search <query>`
   (local search with ranking); `ssc info <name>`; `ssc add <name>` writes to
-  manifest; mock-HTTP tests.  Spec: `docs/specs/arch-registry.md §5 Phase 2`.
+  manifest; mock-HTTP tests.  Spec: `specs/arch-registry.md §5 Phase 2`.
 
 - [x] **arch-registry-p3** — GitHub Pages HTML index:
   `tools/registry-site/generate.sc` scala-cli script; `publish.yml` workflow;
   `site/index.html` (client-side lunr.js search); per-package JSON pages;
-  `registry.scalascript.io` CNAME.  Spec: `docs/specs/arch-registry.md §5 Phase 3`.
+  `registry.scalascript.io` CNAME.  Spec: `specs/arch-registry.md §5 Phase 3`.
 
 - [x] **arch-registry-p4** — Private registry support:
   `registry.url` config in `~/.config/scalascript/config.yaml`; `--registry
   <url>` CLI flag; enterprise internal mirror documentation.
-  Spec: `docs/specs/arch-registry.md §5 Phase 4`.
+  Spec: `specs/arch-registry.md §5 Phase 4`.
 
 ### Theme J — Lightweight FFI (@jvm / @js + glue.jar)
 
 Identified 2026-05-28. Community libraries cannot call Java or JS APIs today —
 only `std/` plugins can.  Two-tier FFI closes the gap without requiring a full
-`BackendRegistry` plugin.  Full spec: `docs/specs/arch-ffi.md`.
+`BackendRegistry` plugin.  Full spec: `specs/arch-ffi.md`.
 
 - [x] **arch-ffi-p1** — `@jvm("expr")` annotation + JVM codegen:
   `JvmInline` annotation AST node; annotation parser; `JvmGen` emits inline
   expression as method body; `$N` argument substitution; `CapabilityCheck`
   errors on `@jvm`-only def called from JS; `examples/ffi-inline.ssc`; 10+ tests.
-  Spec: `docs/specs/arch-ffi.md §6 Phase 1`.
+  Spec: `specs/arch-ffi.md §6 Phase 1`.
 
 - [x] **arch-ffi-p2** — `@js("expr")` codegen + interpreter behaviour:
   `JsGen` emits `@js("...")` as function body; `@interpreterUnsupported`
   annotation + clear error; cross-backend parity tests (both `@jvm` + `@js`).
-  Spec: `docs/specs/arch-ffi.md §6 Phase 2`.
+  Spec: `specs/arch-ffi.md §6 Phase 2`.
 
 - [x] **arch-ffi-p3** — `jvm/glue.jar` in `.ssclib` + `ssc package --lib --jvm-glue`:
   `ssclib-manifest.yaml` `glue.jvm`/`glue.js` fields; `ImportResolver` adds
   `glue.jar` to JVM classpath; `ssc package --lib --jvm-glue <jar>`; integration
-  test with glue fixture.  Spec: `docs/specs/arch-ffi.md §6 Phase 3`.
+  test with glue fixture.  Spec: `specs/arch-ffi.md §6 Phase 3`.
   _Prerequisite: arch-lib-p4 (`.ssclib` format)._
 
 - [x] **arch-ffi-p4** — `js/glue.js` preamble injection + `META-INF/services` in glue.jar:
   JS codegen injects `js/glue.js` before `.ssc` output; `glue.jar`
   `META-INF/services` loaded into `BackendRegistry` → interpreter support;
   end-to-end JS test with `glue.js`-using library.
-  Spec: `docs/specs/arch-ffi.md §6 Phase 4`.
+  Spec: `specs/arch-ffi.md §6 Phase 4`.
 
 ### Theme G — Metaprogramming v2.x (deferred)
 
@@ -946,7 +946,7 @@ only `std/` plugins can.  Two-tier FFI closes the gap without requiring a full
   `ExportedSymbol` carries `isInline`/`inlineParamNames`/`inlineBodySource`;
   `InterfaceExtractor` populates them; `Linker.expandInlineSource` does
   lambda-lifting expansion in `CodeBlock.source`; 16 tests.
-  Spec: `docs/specs/arch-metaprogramming-v2.md §4 Phase 3`.
+  Spec: `specs/arch-metaprogramming-v2.md §4 Phase 3`.
 
 - [x] **arch-meta-v2-p4** — Restricted `QuotedMacro[A]` surface: ✓ Landed 2026-05-29.
   First slice implements parser preprocessing for `${ impl('x) }` entrypoints
@@ -956,7 +956,7 @@ only `std/` plugins can.  Two-tier FFI closes the gap without requiring a full
   subset plus `Expr[A].asValue` / `Expr[A].asTerm`. Richer quoted terms,
   compile-time constant folding, unsupported-body diagnostics, and broader
   backend conformance remain planned follow-ups.
-  Spec: `docs/specs/arch-metaprogramming-v2.md §4 Phase 4`.
+  Spec: `specs/arch-metaprogramming-v2.md §4 Phase 4`.
 
 - [x] **arch-meta-v2-p4b** — Restricted quoted macro runtime parity: ✓ Landed 2026-05-29.
   Parser helper lowering carries quoted parameter names and runtime values;
@@ -965,7 +965,7 @@ only `std/` plugins can.  Two-tier FFI closes the gap without requiring a full
   `ssc run`; `Expr.asValue` returns `Option[A]`, and `Expr.asTerm` returns an
   opaque `ScalaScriptTerm` with `name` / `value`. Example:
   `examples/quoted-macro-interpreter.ssc`. Spec:
-  `docs/specs/arch-metaprogramming-v2.md §4 Phase 4`.
+  `specs/arch-metaprogramming-v2.md §4 Phase 4`.
 
 - [x] **arch-meta-v2-p4c** — Restricted quoted macro diagnostics: ✓ Landed 2026-05-29.
   Parser preprocessing lowers unsupported entrypoints such as `${ impl(x) }`
@@ -973,7 +973,7 @@ only `std/` plugins can.  Two-tier FFI closes the gap without requiring a full
   expandable macros; the interpreter reports `quoted macro error: ...`;
   linker normalization rejects non-quoted macro bodies and explains that the
   restricted subset must return a direct quoted expression such as
-  `'{ $x + 1 }`. Spec: `docs/specs/arch-metaprogramming-v2.md §4 Phase 4`.
+  `'{ $x + 1 }`. Spec: `specs/arch-metaprogramming-v2.md §4 Phase 4`.
 
 - [x] **arch-meta-v2-p4d** — Restricted quoted macro richer unsupported-body diagnostics: ✓ Landed 2026-05-29.
   Linker unsupported-body diagnostics now classify common restricted-macro
@@ -982,7 +982,7 @@ only `std/` plugins can.  Two-tier FFI closes the gap without requiring a full
   direct quote syntax today; nested/non-top-level quotes and splices outside
   a direct quoted expression get targeted guidance while preserving direct
   quoted-expression expansion. Spec:
-  `docs/specs/arch-metaprogramming-v2.md §4 Phase 4`.
+  `specs/arch-metaprogramming-v2.md §4 Phase 4`.
 
 - [x] **arch-meta-v2-p5** — Full `Mirror`-based user typeclass derivation: ✓ Landed 2026-05-29.
   Interpreter/runtime slice registers summon-able `Mirror.Of[T]`,
@@ -991,16 +991,16 @@ only `std/` plugins can.  Two-tier FFI closes the gap without requiring a full
   `variants`, `fromProduct`, `ordinal`); and supports user-defined
   `derived(m: Mirror)` typeclasses from `derives`. Source-level `inline match`
   over `Mirror.Product/Sum` and broader backend conformance remain planned
-  follow-ups. Spec: `docs/specs/arch-metaprogramming-v2.md §4 Phase 5`.
+  follow-ups. Spec: `specs/arch-metaprogramming-v2.md §4 Phase 5`.
 
 ---
 
 ## Compiler extensibility roadmap
 
 A cross-cutting note tying together the SPI followups
-([`docs/specs/spi-followups-plan.md`](docs/specs/spi-followups-plan.md)), the
+([`specs/spi-followups-plan.md`](specs/spi-followups-plan.md)), the
 intrinsic-module extraction direction
-([`docs/specs/spi-intrinsics-design.md`](docs/specs/spi-intrinsics-design.md)),
+([`specs/spi-intrinsics-design.md`](specs/spi-intrinsics-design.md)),
 and the "deflation" benefit on the three large codegens.
 
 ### Today's pattern-matching debt
@@ -1025,8 +1025,8 @@ Costs of this shape:
 
 ### What the SPI followups deliver
 
-Stages already designed and planned in `docs/specs/spi-followups-plan.md`
-- `docs/specs/spi-intrinsics-design.md`:
+Stages already designed and planned in `specs/spi-followups-plan.md`
+- `specs/spi-intrinsics-design.md`:
 
   - **5+/A.4 — per-call-site `ExternCall` dispatch.**  ✅ **LANDED** (2026-05-18).
     Achieved via AST-level `dispatchIntrinsic` / `dispatchIntrinsicJs` in
@@ -1046,7 +1046,7 @@ Stages already designed and planned in `docs/specs/spi-followups-plan.md`
   - **5+/D — `std.ws` / `std.auth` / `std.fs` / `std.crypto`
     extraction.**  ✅ **LANDED**.  Same pattern as 5+/B; all 11
     intrinsic families migrated to `.sscpkg` plugins (2026-05-21).
-    See `docs/specs/intrinsics-migration.md`.
+    See `specs/intrinsics-migration.md`.
 
 ### Expected deflation
 
@@ -1066,7 +1066,7 @@ function on each backend it claims.
 
 ### Third-party plugin path
 
-The SPI declaration (§8 of `docs/specs/backend-spi.md`) already supports
+The SPI declaration (§8 of `specs/backend-spi.md`) already supports
 third-party intrinsic packages — a plugin author ships an `extern`
 package together with the `Backend.intrinsics` entries that
 implement it.  Once 5+/B proves the pattern in-tree, the
@@ -1083,7 +1083,7 @@ Remaining UX/distribution work (not blocking the SPI mechanism):
     pre-seeded entries landed.  Remote registry (`registry.scalascript.io`)
     deferred; no concrete demand yet.
 
-  Post-migration follow-ons (not blocking; tracked in `docs/specs/intrinsics-migration.md` §11):
+  Post-migration follow-ons (not blocking; tracked in `specs/intrinsics-migration.md` §11):
 
 - **Plugin test harness** — ✅ **LANDED (2026-05-26)**:
     `runtime/backend/test-utils` now provides `TestInterpreter(plugins =
@@ -1219,7 +1219,7 @@ unblocks downstream features as early as possible.
      Land four typer features that block idiomatic typeclass usage:
      `using` auto-resolution, context bounds, cross-file trait
      inheritance with HKT, sealed-trait extension dispatch in INT.
-     Full design in [`docs/specs/final-tagless.md`](docs/specs/final-tagless.md).
+     Full design in [`specs/final-tagless.md`](specs/final-tagless.md).
      Closes carryover items 1 + 4 from v1.1.  Unlocks idiomatic FT
      across `runtime/std/*` and unblocks v1.14 `derives` + v1.15 `throws`.
  20. **v1.15 — Checked errors via `throws`** ✓ Landed.
@@ -1242,7 +1242,7 @@ unblocks downstream features as early as possible.
      compile-time evaluator, plus Tier 1 `derives` recipes for
      `Eq` / `Show` / `Hash` / `Order` and a handful of std
      typeclasses (`Foldable` / `Traversable` / `Functor`).
-     Full design in [`docs/specs/metaprogramming.md`](docs/specs/metaprogramming.md).
+     Full design in [`specs/metaprogramming.md`](specs/metaprogramming.md).
      User-defined macros (`quoted.Expr`) explicitly out of scope —
      deferred to v2.x.  Depends on v1.13 (`Mirror` resolution).
  22. **v1.17 — MCP support (client + server)** ✓ Landed (Phases 1–7);
@@ -1267,7 +1267,7 @@ unblocks downstream features as early as possible.
      wraps `@modelcontextprotocol/sdk` on Node and
      `io.modelcontextprotocol:sdk` on JVM; interpreter +
      scalajs-spa reject at typecheck via SPI feature flags.
-     Full design in [`docs/specs/mcp.md`](docs/specs/mcp.md).  Remaining
+     Full design in [`specs/mcp.md`](specs/mcp.md).  Remaining
      v1.17.x work: INT own-impl, type-class layer,
      streaming resources.
 
@@ -1369,7 +1369,7 @@ unblocks downstream features as early as possible.
      unified codepath.
 
      **Examples + documentation** (Iter DD) ✓ — comprehensive
-     `docs/specs/oauth.md` (big-picture map, AS recipe, RS-guard recipe,
+     `specs/oauth.md` (big-picture map, AS recipe, RS-guard recipe,
      OIDC recipe, RSA+JWKS migration path, MCP integration, spec
      compliance table covering 13 RFCs + OIDC Core / Discovery) plus
      four runnable `.ssc` examples: `oauth-as-standalone`,
@@ -1716,7 +1716,7 @@ unblocks downstream features as early as possible.
      printer helpers (`runtime/std/dsl/*`).  Reified-by-default; Parser
      as ADT; left-recursion combinator family; context-in-parser
      via ADT nodes (foundation for v1.20.2).  Full design in
-     [`docs/specs/dsl.md`](docs/specs/dsl.md).
+     [`specs/dsl.md`](specs/dsl.md).
      v1.20.1 (parser error recovery), v1.20.2 (indentation-aware),
      v1.20.3 (multi-pass pipeline) — all landed.  See CHANGELOG v1.20.
  26. **v1.21 — Local map-reduce (`Dataset[T]`)** ✓ Landed.
@@ -1724,7 +1724,7 @@ unblocks downstream features as early as possible.
      local execution (v1.3 Async.parallel on JVM; sequential
      fallback on JS pending v1.3 Node parallel).  Streaming
      via v1.10 generators.  Full design in
-     [`docs/specs/mapreduce.md`](docs/specs/mapreduce.md).
+     [`specs/mapreduce.md`](specs/mapreduce.md).
  27. **v1.22 — Distributed map-reduce** ✓ Landed.
      Same `Dataset[T]` API, distributed via v1.6 distributed
      actors.  Coordinator-dispatched partitions, named-handler
@@ -1744,7 +1744,7 @@ unblocks downstream features as early as possible.
      etcd / Consul / ZooKeeper) + bounded `leaderHistory` for
      auditable leadership.  All three leader-election protocols
      share `electLeader` / `currentLeader` / `subscribeLeaderEvents`;
-     see [`docs/specs/cluster-raft.md`](docs/specs/cluster-raft.md) for the
+     see [`specs/cluster-raft.md`](specs/cluster-raft.md) for the
      unified API and per-protocol algorithms.
  29. **6+/C — HostCallback dispatcher** (~1 week).
      Stage 6+/C from spi-followups-plan.md.  Unblocks the first
@@ -1816,12 +1816,12 @@ ends up with three+ variant branches.
 
 ## v1.12 — Typed Algebraic Effects
 
-**Spec landed 2026-05-26** — `docs/specs/algebraic-effects.md` complete. Go/no-go: **go**.
+**Spec landed 2026-05-26** — `specs/algebraic-effects.md` complete. Go/no-go: **go**.
 
 Design decisions locked:
 - Effect syntax: `A ! Eff` (single), `A ! (E1, E2)` (multi, round parens).
 - Effect rows: open by default with implicit tail variable. Total function = no `!`-clause = closed empty row.
-- One-shot: `effect Foo { … }` — coroutine VT on JVM/interpreter; `function*`/`yield` on JS (closes `docs/specs/coroutines.md:236-256` gap).
+- One-shot: `effect Foo { … }` — coroutine VT on JVM/interpreter; `function*`/`yield` on JS (closes `specs/coroutines.md:236-256` gap).
 - Multi-shot: `multi effect Foo { … }` — Free-monad `Computation`-tree walk everywhere.
 - Capability passing: `?=>` context functions (Scala 3 native, zero emitter work).
 - Handler discharge: `handle[Foo](body : A ! (Foo, E)) : A ! E` — only named effect removed; tail propagates.
@@ -1839,7 +1839,7 @@ Design decisions locked:
 
 ## v1.51 — Streams with Backpressure
 
-**Spec landed 2026-05-27** — `docs/specs/streams.md` complete. Go/no-go: **go**.
+**Spec landed 2026-05-27** — `specs/streams.md` complete. Go/no-go: **go**.
 
 Design decisions locked:
 - Types: `Source[A]` / `Sink[A]` / `Flow[A, B]` / `Stream[A] = Source[A]` — zero parser changes; all `SType.Named` applications.
@@ -1895,7 +1895,7 @@ complete.
 
 ## v1.52 — Deploy to Hostings, Clouds & Kubernetes-like Environments
 
-**Spec landed 2026-05-27** — `docs/specs/deploy.md` complete. Go/no-go: **go**.
+**Spec landed 2026-05-27** — `specs/deploy.md` complete. Go/no-go: **go**.
 
 Design decisions locked:
 - **Five target categories**: container (OCI), Kubernetes-like, FaaS/serverless, static hosting, traditional hosting (SSH+systemd, rsync, SFTP/FTP, WAR drop, IIS).
@@ -1951,7 +1951,7 @@ Design decisions locked:
 
 ## v1.53 — Traditional Payment Processors
 
-**Status: spec landed 2026-05-27.**  `docs/specs/traditional-payments.md` covers the full design.
+**Status: spec landed 2026-05-27.**  `specs/traditional-payments.md` covers the full design.
 Closes the `chargeCard()` placeholder from v1.38 Payment Request.
 Implementation phases ship independently below.
 
@@ -1981,12 +1981,12 @@ Implementation phases ship independently below.
 - `payments/payment-request/.../PaymentTypes.scala:6` — `Amount` deprecated.
 - New `runtime/std/payments-stripe/` — full Stripe adapter: PaymentIntent / SCA / Customer / Vault / Subscription / Refund / Dispute / Webhook.
 - `examples/traditional-payments.ssc` — 12 worked snippets.
-- Spec: `docs/specs/traditional-payments.md §16`.
+- Spec: `specs/traditional-payments.md §16`.
 
 **v1.53.2 — PayPal Checkout + Braintree adapters (✓ Landed 2026-05-27):**
 - `runtime/std/payments-paypal/` — PayPal Checkout (OAuth2, Order API, RSA webhook verify).
 - `runtime/std/payments-braintree/` — Braintree (GraphQL, HMAC-SHA1 webhook).
-- Spec: `docs/specs/traditional-payments.md §11.2`.
+- Spec: `specs/traditional-payments.md §11.2`.
 
 **v1.53.3 — Adyen + Checkout.com adapters: ✓ Landed (2026-05-27)**
 - `runtime/std/payments-adyen/` — X-API-Key, Checkout API v71, HMAC-SHA256 webhook over 8 sorted notification fields, Drop-in/Web Components nonce support.
@@ -2007,7 +2007,7 @@ Implementation phases ship independently below.
 ## v1.60 — Tuple Monoid ✓ Landed 2026-05-28
 
 `Unit = ()` (0-tuple), `++` concatenation on tuples with monoid laws.
-Effect runners described uniformly as `Out(E) ++ (R,)`. See `docs/specs/tuple-monoid.md`.
+Effect runners described uniformly as `Out(E) ++ (R,)`. See `specs/tuple-monoid.md`.
 
 **v1.60.1** ✓ — `SType.Unit = Tuple(Nil)`, `tupleConcat`, `++` type operator, `(A,)` 1-tuple syntax, 49 tests.
 **v1.60.2** ✓ — `TupleV.++` in DispatchRuntime, `_tupleConcat` JS/JVM, 4+3 tests.
@@ -2029,8 +2029,8 @@ Effect runners described uniformly as `Out(E) ++ (R,)`. See `docs/specs/tuple-mo
 
 ## Interpreter performance — next phases (post VM 2a)
 
-**Status: spec landed 2026-06-01.** See [`docs/specs/vm-jit-next.md`](docs/specs/vm-jit-next.md).
-Successor to the shipped register-VM JIT (`docs/specs/vm-jit-spec.md`) and VM 2a
+**Status: spec landed 2026-06-01.** See [`specs/vm-jit-next.md`](specs/vm-jit-next.md).
+Successor to the shipped register-VM JIT (`specs/vm-jit-spec.md`) and VM 2a
 (ref-values + ADT match; recursiveEval 36.8× / 170× less alloc). All localized
 micro-ops are exhausted (measured — string-interning ctor tags/fields was a
 proven non-win, reverted 2026-06-01; the recursive cluster is bound by the
@@ -2131,7 +2131,7 @@ gated on same-session A/B + full suite green with the gate off AND on.
       **2026-06-04 audit follow-up:** newer Javac/dual-bank optimizations
       landed after the original ASM note; track and close the current parity
       gap under `asm-jit-parity-optimizations`
-      ([`docs/specs/asm-jit-parity.md`](docs/specs/asm-jit-parity.md),
+      ([`specs/asm-jit-parity.md`](specs/asm-jit-parity.md),
       `WORK_QUEUE.md`).
       **2026-06-04 update:** function-backend ASM parity landed in
       `f48bcf1f` + `02fbc176` (unary/block expressions, guarded ADT matches,
@@ -2162,7 +2162,7 @@ gated on same-session A/B + full suite green with the gate off AND on.
         - `patternMatchWide`  630.089 → **138.259 ms/op (−78.1%, 4.56×)**;
           `alloc.rate.norm` 28.24 MB → **4.32 MB/op (−84.7%)**.
       Full 1204-test `backendInterpreter` suite green with gate off AND on. See
-      [`docs/specs/vm-jit-next.md §"Phase D — Update 2026-06-01"`](docs/specs/vm-jit-next.md).
+      [`specs/vm-jit-next.md §"Phase D — Update 2026-06-01"`](specs/vm-jit-next.md).
       **2026-06-02: A4 (pure-call direct-style) sub-target ALSO landed** —
       generalized `EvalRuntime.pureCallValue` (previously match-bodied only) to
       run any function whose body is in `PatternRuntime.compileSlotBody`'s
@@ -2264,7 +2264,7 @@ gated on same-session A/B + full suite green with the gate off AND on.
         `evalBlock` threading STILL allocates per-stmt `FlatMap`/`Pure`
         wrappers in the value-space fallback path that some inner shapes
         still take.
-      - **`InstanceV` ordered-array repr (C-opt in `docs/specs/vm-jit-next.md`)**
+      - **`InstanceV` ordered-array repr (C-opt in `specs/vm-jit-next.md`)**
         — replaces the `Map[String, Value]` field store with an
         ordered `Array[Value]` + a typeName-keyed dispatch table.
         Eliminates the HashMap lookup in `field("name")` calls, both for
@@ -2288,7 +2288,7 @@ gated on same-session A/B + full suite green with the gate off AND on.
         HashMap lookups AND the per-element foreach call overhead. This
         is the path toward closing the remaining 213× gap.
 
-      **2026-06-02: strategic roadmap landed** (`docs/specs/instancev-array-repr-spec.md`,
+      **2026-06-02: strategic roadmap landed** (`specs/instancev-array-repr-spec.md`,
       planning file `~/.claude/plans/noble-discovering-knuth.md`). Three
       directions sequenced:
       - **Direction A** — incremental BytecodeJit extensions (5 slices,
@@ -2297,7 +2297,7 @@ gated on same-session A/B + full suite green with the gate off AND on.
         `…-block-multistat`. A.1-A.3 independent and runnable now;
         A.4/A.5 gated on Direction B Activation.
       - **Direction B** — `InstanceV` positional array fields
-        (multi-day, 5 sub-phases). See `docs/specs/instancev-array-repr-spec.md`.
+        (multi-day, 5 sub-phases). See `specs/instancev-array-repr-spec.md`.
         Biggest single remaining lever (`recursiveEval` 13 → ~5-7 ms
         projected). WORK_QUEUE: `phase-d-instancev-array-repr-infra` →
         `…-integration-patternruntime` → `…-integration-bytecodejit` →
@@ -2488,54 +2488,54 @@ XSLT deferred to v1.56.
 
 ## v2.1 — Distributed Streams (Beam-style)
 
-**Status: spec landed 2026-05-27.**  `docs/specs/distributed-streams.md` covers the full design.
+**Status: spec landed 2026-05-27.**  `specs/distributed-streams.md` covers the full design.
 Implementation phases ship independently below.
 
 - [x] **v2.1.1-dstream-native-bounded** — Core `DStream[T]` / `Pipeline` types + native bounded
   backend (wraps `Dataset[T]` partitions; no watermarks yet); `DirectRunner` test backend;
   `Feature.DistributedStreams` flag; `examples/distributed-streams.ssc`.
-  Spec: `docs/specs/distributed-streams.md §13`. (2026-05-27)
+  Spec: `specs/distributed-streams.md §13`. (2026-05-27)
 
 - [x] **v2.1.2-dstream-native-unbounded** — Processing-time windowing (`window`, `withTrigger`,
   `withAllowedLateness`, `withWatermark`), `timerProcessing(d)(f)`, `EventTime`+`WatermarkPerfect`
-  capabilities on DirectRunner/Native. Spec: `docs/specs/distributed-streams.md §13 v2.1.2`. (2026-05-27, 30 tests)
+  capabilities on DirectRunner/Native. Spec: `specs/distributed-streams.md §13 v2.1.2`. (2026-05-27, 30 tests)
 
 - [x] **v2.1.3-dstream-spark** — `SparkGen` extended: `containsDStream` detection + `dstreamSparkShim`
   emission inside `@main`. Full DStream DSL (v2.1.1+v2.1.2 operators) backed by driver-local `Seq[Any]`
   for bounded sources; `Feature.DistributedStreams` in `SparkCapabilities`. 14 new `SparkGenTest` tests;
-  integration tests gated by `SPARK_MASTER`. Spec: `docs/specs/distributed-streams.md §9.2`. (2026-05-27)
+  integration tests gated by `SPARK_MASTER`. Spec: `specs/distributed-streams.md §9.2`. (2026-05-27)
 
 - [x] **v2.1.4-dstream-kafka** — Kafka Streams backend: `runtime/backend/kafka-streams/` module,
   `KafkaStreamsGen` with `containsDStream` + `dstreamKafkaShim` emission, `Backend.KafkaStreams`/`Kafka`
   aliases, `TopologyTestDriver` helpers, `Feature.DistributedStreams` in `KafkaStreamsCapabilities`,
-  22 new `KafkaStreamsGenTest` tests. Spec: `docs/specs/distributed-streams.md §9.3`. (2026-05-27)
+  22 new `KafkaStreamsGenTest` tests. Spec: `specs/distributed-streams.md §9.3`. (2026-05-27)
 
 - [x] **v2.1.5-dstream-flink** — Flink + Beam backends: `runtime/backend/flink/` module, `FlinkGen`
   (DataStream API shim, `_flinkEnv()` helper) + `BeamGen` (Java SDK shim, `_createBeamPipeline()`,
   runner dep auto-selection), `FlinkBackend`/`BeamBackend` SPI adapters, `FlinkCapabilities`/
   `BeamCapabilities` (`Feature.DistributedStreams`), ServiceLoader registration, 30 new tests.
-  Spec: `docs/specs/distributed-streams.md §9.4–9.5`. (2026-05-27)
+  Spec: `specs/distributed-streams.md §9.4–9.5`. (2026-05-27)
 
 - [x] **v2.1.6-dstream-connectors** — Production connector stubs: `Kafka`, `Files`, `FileFormat`,
   `Jdbc`, `Pulsar`, `Kinesis` companions in all 4 shims + native interpreter intrinsics.
   `containsConnector` detection triggers shim emission. `DSource.fromDataset` bridge.
   SparkGen Kafka dep extended to cover `Kafka.source/sink/changelog` DStream usage.
-  14 new tests. Spec: `docs/specs/distributed-streams.md §6`. (2026-05-27)
+  14 new tests. Spec: `specs/distributed-streams.md §6`. (2026-05-27)
 
 - [x] **v2.1.7-dstream-stateful** — Stateful processing + timers: `statefulMap`, `statefulFlatMap`,
   `broadcastState`, `timerEventTime`; `ValueState`, `MapState`, `ListState`, `BagState`;
   `StateContext[K,S]`, `KeyedStateSpec[K,S]`. All 4 code-gen shims + native interpreter.
-  +20 new tests. Spec: `docs/specs/distributed-streams.md §5`. (2026-05-27)
+  +20 new tests. Spec: `specs/distributed-streams.md §5`. (2026-05-27)
 
 - [x] **v2.1.8-dstream-side-io** — Side inputs / side outputs: `SideInput[T]` + `object SideInput`
   (`of`, `singleton`, `asMap`); `OutputTag[B]` + `object OutputTag`; `DStream.withSideInput(si)`;
   `DStream.sideOutput(tag)` returning `(DStream[T], DStream[B])`. All 4 shims + native interpreter.
-  +8 interpreter tests, +8 generator tests (Spark/Kafka/Flink/Beam). Spec: `docs/specs/distributed-streams.md §5.6`. (2026-05-27)
+  +8 interpreter tests, +8 generator tests (Spark/Kafka/Flink/Beam). Spec: `specs/distributed-streams.md §5.6`. (2026-05-27)
 
 - [x] **v2.1.9-dstream-joins** — Windowed joins + flatten: `DStream.join(other)` (inner, KV key),
   `leftOuterJoin(other)`, `rightOuterJoin(other)`, `flatten` (stream of streams).
   All 4 shims + native interpreter. `Capability.WindowedJoins` already declared.
-  +8 interpreter tests, +8 generator tests (Spark/Kafka/Flink/Beam). Spec: `docs/specs/distributed-streams.md §5.7`. (2026-05-27)
+  +8 interpreter tests, +8 generator tests (Spark/Kafka/Flink/Beam). Spec: `specs/distributed-streams.md §5.7`. (2026-05-27)
 
 - [x] **v2.1.10-dstream-conformance** — Cross-backend conformance suite (§14.3): new
   `runtime/backend/conformance/` module (`backendConformance`) with `DStreamConformanceTest`
@@ -2554,7 +2554,7 @@ stages from the spec are implemented; the pipeline is exercised end-to-end
 via CLI subprocess tests (`emit-interface → check-with-iface → emit-ir →
 link → build --incremental`); the JVM backend produces per-module `.scjvm`
 artifacts that the linker combines incrementally.  Tracking doc:
-`docs/specs/separate-compilation-plan.md`.
+`specs/separate-compilation-plan.md`.
 
 Test coverage: 522 core tests + 75 CLI subprocess smoke tests, all green.
 
@@ -2725,7 +2725,7 @@ Phase 3 / operational hardening (landed 2026-05-19):
   tolerance, hash preservation.  Surfaced one sharp edge (Option[String]
   without explicit `= None` default isn't absent-tolerant — split tests
   into `optionalFields` vs `requiredOptionTypedFields`).
-- **`docs/specs/v2.0-artifact-format.md`**: 333 LoC wire-format spec.
+- **`specs/v2.0-artifact-format.md`**: 333 LoC wire-format spec.
   Compatibility policy in one phrase: "strict-equality on envelope,
   additive-friendly on payload."
 - **`ssc verify <dir>`**: operational health-check command. Walks
@@ -2876,7 +2876,7 @@ After Phase 4, the documented gaps are:
   artifacts surface a clear error.  5 new CLI tests in
   `SscpkgArtifactDistributionTest`.
 
-- **Getting-started tutorial** — `docs/specs/v2.0-artifact-format.md` is the
+- **Getting-started tutorial** — `specs/v2.0-artifact-format.md` is the
   wire spec; a user-facing "compile your first project with v2.0"
   doc is owed.
 
@@ -3099,7 +3099,7 @@ that uses them lands.
 Things noticed in passing while landing other work — not blocking, but
 worth a separate fix when somebody has cycles.
 
-- ~~__v1.22 distributed-_ conformance tests fail on JVM_*~~  ✓ **Landed (2026-05-20)** — dep-block CPS rewriting (Steps 0–7) landed on `feature/dep-cps`; all six tests (`distributed-{map,shuffle,failure-retry,failure-partial,heterogeneous}` + `cluster-connect`) now PASS [JVM]. Root cause was dep-block effect primitives bypassing the CPS rewriter; fixed via `analyzeDepEffectfulness` fixpoint + `cpsBody` parameter threading through the emit path. Full design history in `docs/specs/dep-cps-rewrite.md`.
+- ~~__v1.22 distributed-_ conformance tests fail on JVM_*~~  ✓ **Landed (2026-05-20)** — dep-block CPS rewriting (Steps 0–7) landed on `feature/dep-cps`; all six tests (`distributed-{map,shuffle,failure-retry,failure-partial,heterogeneous}` + `cluster-connect`) now PASS [JVM]. Root cause was dep-block effect primitives bypassing the CPS rewriter; fixed via `analyzeDepEffectfulness` fixpoint + `cpsBody` parameter threading through the emit path. Full design history in `specs/dep-cps-rewrite.md`.
 
 - ~~**`actors-process-info.ssc` JVM compile failures (Term.Match pattern-bind)**~~  ✓ **Landed (2026-05-20)** — `emitCpsExpr` `Term.Match` arm was not registering `Pat.Var` names in `anyBoundNames`, so `case Some(info) => info.links.length` emitted `info.links` directly on an `Any`-typed scrutinee binding, causing Scala compile errors. Fix: collect `Pat.Var` names per case arm and wrap with `withAnyBoundNames(...)` (mirrors the identical treatment in the `Term.PartialFunction` arm). Also fixed: `import actors.ProcessInfo` dropped via `sscDepModulePrefixes`; `_dispatch` Map key-access fallback for `processInfo`'s `Map[String,Any]` return; `object Overflow` added to runtime preamble; `_FlatMap((), senderK)` deferred resume in `_resumeBlockedSender` so `Block`-overflow sender continuation runs in its own scheduler turn (fixes `actors-bounded-mailbox.ssc` output ordering).
 
@@ -3110,10 +3110,10 @@ worth a separate fix when somebody has cycles.
   `JdbcIntrinsics`, `FrontendIntrinsics` (UiPrimitives) all migrated to
   per-family `.sscpkg` plugins.  Interpreter core ships with zero
   domain-specific intrinsics; third-party plugins can now extend the table
-  without forking.  Full migration spec: `docs/specs/intrinsics-migration.md`.
+  without forking.  Full migration spec: `specs/intrinsics-migration.md`.
 
 - **Post-migration follow-ons** (not blocking; spec §11 of
-  `docs/specs/intrinsics-migration.md`):
+  `specs/intrinsics-migration.md`):
   - **Plugin test harness** — ✅ **LANDED (2026-05-26)**:
     `runtime/backend/test-utils` now exposes `TestInterpreter(plugins =
     List(p))`, backed by explicit `Interpreter.installPlugins(...)`, plus a
@@ -3312,7 +3312,7 @@ and a JAR-vs-native comparison table.  No core changes.
 
 ## Optimization and modularity roadmap
 
-Full planning document: [`docs/specs/optimization-roadmap.md`](docs/specs/optimization-roadmap.md).
+Full planning document: [`specs/optimization-roadmap.md`](specs/optimization-roadmap.md).
 Items below are the actionable milestones extracted from that document.
 
 ### Runtime — Project Loom (virtual threads) ✓ Complete (2026-05-21)
@@ -3531,7 +3531,7 @@ it hits a breakpoint or step stop it blocks and the REPL main thread enters a
 
 **Status: Tiers 1 and 2 landed; Tier 3 (sbt plugin) and Tier 4
 (`--emit-scala-facade` compiler flag) still open.**  Full design doc:
-[`docs/specs/scala-interop.md`](docs/specs/scala-interop.md).
+[`specs/scala-interop.md`](specs/scala-interop.md).
 
 Goal: make ScalaScript-built JAR a first-class JVM-library citizen, so a
 regular Scala 3 project can `import std.foo.add` (natural FQN) instead
@@ -3609,8 +3609,8 @@ What landed:
     task hooked into `Compile / sourceGenerators`.
   - 4 scripted tests: `basic`, `identity`, `multi-module`, `no-artifacts`.
 - [x] Mill module trait `ScalascriptInteropModule` — documented as a
-  `build.sc` snippet in `docs/specs/scala-interop.md §6.3`.
-- [x] scala-cli directive documented in `docs/specs/scala-interop.md §6.4`.
+  `build.sc` snippet in `specs/scala-interop.md §6.3`.
+- [x] scala-cli directive documented in `specs/scala-interop.md §6.4`.
 
 Source lives in `tools/sbt-plugin/` (ready to extract to a separate
 `scalascript-sbt-plugin` repo for independent publish cadence when
@@ -3759,7 +3759,7 @@ view so they shape near-term decisions.
   `InterpreterTest`.
 - **Future web-services protocols.**  HTTP/2, gRPC, GraphQL, OpenAPI
   schema export — each questioned during v1.1 review and deferred
-  with concrete reasoning.  See [`docs/specs/future-protocols.md`](docs/specs/future-protocols.md)
+  with concrete reasoning.  See [`specs/future-protocols.md`](specs/future-protocols.md)
   for prerequisites, effort estimates, and why each is on hold
   until a concrete user surfaces.
 
@@ -3993,7 +3993,7 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >
 > **Phase F — Structured Streaming (in progress, 2026-05-20).**
 >
-> - [x] F.1 — Spec doc `docs/specs/spark-streaming.md`: goals / non-goals,
+> - [x] F.1 — Spec doc `specs/spark-streaming.md`: goals / non-goals,
 >       source-sink detection table (rate, file csv/json/parquet, kafka,
 >       socket, console, foreach), `awaitTermination()` shim rule, Kafka
 >       dep auto-emit rule, trigger/watermark/window passthrough,
@@ -4069,11 +4069,11 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 > (no break to the 115 existing `SparkGenTest` cases or the working
 > smoke-test set).
 >
-> Full plan: [`docs/specs/spark-lakehouse.md`](docs/specs/spark-lakehouse.md).
+> Full plan: [`specs/spark-lakehouse.md`](specs/spark-lakehouse.md).
 >
 > Phases (each independently shippable per AGENTS.md rule 3):
 >
-> - **L.1 — Spec doc (landed 2026-05-20).**  `docs/specs/spark-lakehouse.md`
+> - **L.1 — Spec doc (landed 2026-05-20).**  `specs/spark-lakehouse.md`
 >   covering goals / non-goals / detection mechanism / format →
 >   coord+config table / phases L.2–L.4 / testing strategy / open
 >   questions.  No code changes; gives the parallel Streaming track
@@ -4106,7 +4106,7 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   (Catalyst symbol changes in Spark 4 break the 3.5-bundled
 >   implementation classes).  No `iceberg-spark-runtime-4.0_2.13`
 >   artifact is published.  Re-opens once Iceberg ships a Spark 4
->   build.  Slot-in pattern in `docs/specs/spark-lakehouse.md` § L.3:
+>   build.  Slot-in pattern in `specs/spark-lakehouse.md` § L.3:
 >   `DefaultIcebergVersion` constant + extend `detectLakehouseFormats`
 >   and `lakehouseConfigs` — `genModule` itself doesn't change.
 > - **L.4 — Hudi (DEFERRED, 2026-05-20).**  Same Spark-major naming
@@ -4128,11 +4128,11 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 > break to the 141+ existing `SparkGenTest` cases or the working
 > smoke-test set.
 >
-> Full plan: [`docs/specs/spark-catalog.md`](docs/specs/spark-catalog.md).
+> Full plan: [`specs/spark-catalog.md`](specs/spark-catalog.md).
 >
 > Phases (each independently shippable per AGENTS.md rule 3):
 >
-> - **G.1 — Spec doc (landed 2026-05-20).**  `docs/specs/spark-catalog.md`
+> - **G.1 — Spec doc (landed 2026-05-20).**  `specs/spark-catalog.md`
 >   covering goals / non-goals / front-matter keys / annotation
 >   semantics / `Dataset.fromTable[T]` / composition with C.1-C.3,
 >   D, E, F, L.2 / testing strategy / open questions.  No code
@@ -4207,11 +4207,11 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 > as the Streaming / Lakehouse tracks — purely additive over Phase E
 > - F + Lakehouse L.2.
 >
-> Full plan: [`docs/specs/spark-mllib.md`](docs/specs/spark-mllib.md).
+> Full plan: [`specs/spark-mllib.md`](specs/spark-mllib.md).
 >
 > Phases (each independently shippable per AGENTS.md rule 3):
 >
-> - **M.1 — Spec doc (landed 2026-05-20).**  `docs/specs/spark-mllib.md`
+> - **M.1 — Spec doc (landed 2026-05-20).**  `specs/spark-mllib.md`
 >   covering goals / non-goals / detection mechanism / encoder bridge
 >   design / coord table / phases M.2–M.5 / testing strategy / open
 >   questions.  No code changes; gives the parallel Spark tracks a
@@ -4772,7 +4772,7 @@ Central.
   - `RowDecoder` single-column givens replaced by a generic
     `singleColumn[A]` lift over `ColumnDecoder[A]`; `queryOne[T]`
     works for every type `ColumnDecoder` supports.
-  - `docs/specs/postgres.md` rewritten to match the actual code (the
+  - `specs/postgres.md` rewritten to match the actual code (the
     previous version described a fictional `Async` / `AsyncStream`
     API that wasn't implemented).
   - `PgClientTest` extended with 7 cases pinning the new type
@@ -4793,7 +4793,7 @@ Central.
   Adding a `.stream` variant is mechanical; defer until a real
   large-result use case.
 - Browser-side SQL (sql.js / DuckDB-Wasm).  Picked up in
-  v1.27 — see [`docs/specs/browser-sql.md`](docs/specs/browser-sql.md).  As
+  v1.27 — see [`specs/browser-sql.md`](specs/browser-sql.md).  As
   predicted, no IR / spec change needed; v1.27 is an additive
   capability declaration + a JS-side runtime module.
 
@@ -4801,7 +4801,7 @@ Central.
 
 ## v1.27 — browser-side SQL (sql.js / DuckDB-Wasm)
 
-**Status: complete (2026-05-21). All 7 phases landed. Spec: [`docs/specs/browser-sql.md`](docs/specs/browser-sql.md).**
+**Status: complete (2026-05-21). All 7 phases landed. Spec: [`specs/browser-sql.md`](specs/browser-sql.md).**
 
 Extends the v1.26 `sql` fenced-block feature from JVM-only to the JS,
 Node, and Wasm backends.  Same source, same `${expr} → ?` bind rule,
@@ -4827,7 +4827,7 @@ today).
 
 ### Phase 1 — Spec + milestone (this iteration)
 
-- [x] `docs/specs/browser-sql.md` — goals, non-goals, architecture (module
+- [x] `specs/browser-sql.md` — goals, non-goals, architecture (module
       layout, URL→provider dispatch, runtime contract, override
       path), migration, 7 phases, testing strategy, 4 open
       questions.
@@ -5124,7 +5124,7 @@ Specs in `docs/`: `postgres.md`, `kafka.md`, `evm.md`, `coinbase.md`, `redis.md`
 
 ## x402 — HTTP payment protocol
 
-Spec in `docs/specs/x402.md`.
+Spec in `specs/x402.md`.
 
 ### Phase 1 — Core (`x402-core`) ✓ Landed
 
@@ -5242,7 +5242,7 @@ declares `signCip8`; EVM and Cardano wallets reject the wrong shape.
 
 ### Phase 10 — Scalus / Plutus-escrow settlement
 
-Spec in [`docs/specs/x402-cardano-scalus.md`](docs/specs/x402-cardano-scalus.md).
+Spec in [`specs/x402-cardano-scalus.md`](specs/x402-cardano-scalus.md).
 Replaces the optimistic `CardanoProvider.Blockfrost` `Ok` with on-chain
 Plutus-enforced escrow: payer locks lovelace at a script address, the
 facilitator's relayer claims via a Tx whose redeemer carries the CIP-8
@@ -5251,7 +5251,7 @@ bloxbean `cardano-client-lib`.
 
 #### Phase 1 — Spec + module scaffolding ✓ Landed (2026-05-20)
 
-- [x] `docs/specs/x402-cardano-scalus.md` — goals, escrow datum/redeemer
+- [x] `specs/x402-cardano-scalus.md` — goals, escrow datum/redeemer
       shape, off-chain flow, 6-phase plan
 - [x] New module `x402-facilitator-cardano-scalus` (build.sbt entry,
       depends on `x402Core` + `x402FacilitatorCardano`)
@@ -5269,7 +5269,7 @@ bloxbean `cardano-client-lib`.
 
 **Spike landed (2026-05-20)**: package rename + spec update with
 blocker analysis. Validator code itself NOT yet landed — six concrete
-issues documented in [`docs/specs/x402-cardano-scalus.md`](docs/specs/x402-cardano-scalus.md)
+issues documented in [`specs/x402-cardano-scalus.md`](specs/x402-cardano-scalus.md)
 §5 (Phase 2 → Spike findings). Retry order:
 
 - [x] Package rename `scalascript.x402.facilitator.scalus` →
@@ -5469,7 +5469,7 @@ issues documented in [`docs/specs/x402-cardano-scalus.md`](docs/specs/x402-carda
 
 ## Blockchain SPI — chain abstraction for x402 + wallet
 
-Spec in [`docs/specs/blockchain-spi.md`](docs/specs/blockchain-spi.md). Defines a
+Spec in [`specs/blockchain-spi.md`](specs/blockchain-spi.md). Defines a
 shared chain-abstraction layer (`ChainAdapter` / `ChainId` / `Asset`
 / `TypedData` / `recover` / queries) consumed by both `wallet-*` and
 `x402-*`. Sits above a lower-level `crypto-spi` (BouncyCastle on JVM,
@@ -5483,13 +5483,13 @@ Fixes four concrete bugs in current x402:
   (`:40-43`)
 - Hand-coded `0x70a08231` selector for `balanceOf` (`:32`)
 - x402-client SHA-256 stubs (companion fix in
-  [`docs/specs/wallet-spi.md`](docs/specs/wallet-spi.md))
+  [`specs/wallet-spi.md`](specs/wallet-spi.md))
 
 ### Phase 0 — Spec ✓ Landed (2026-05-19)
 
-- [x] `docs/specs/blockchain-spi.md` — chain abstraction, EVM facilitator
+- [x] `specs/blockchain-spi.md` — chain abstraction, EVM facilitator
       fix path, x402 per-chain migration table
-- [x] `docs/specs/wallet-spi.md` — refactored to depend on blockchain-spi
+- [x] `specs/wallet-spi.md` — refactored to depend on blockchain-spi
 - [x] `AGENTS.md` — spec-driven development workflow
 - [x] `MILESTONES.md` — this entry
 
@@ -5645,7 +5645,7 @@ regression test green.
 
 ## Wallet SPI — Scala.js cross-compile ✓ Sprint complete (2026-05-20)
 
-Spec in [`docs/specs/wallet-spi-scalajs.md`](docs/specs/wallet-spi-scalajs.md).
+Spec in [`specs/wallet-spi-scalajs.md`](specs/wallet-spi-scalajs.md).
 Six-stage migration that takes the wallet-spi track from JVM-only to
 JVM + Scala.js so the same SPI artefacts power browser PWA wallets,
 in-page dApp connectors (EIP-1193 / WalletConnect / Solana Wallet
@@ -5685,7 +5685,7 @@ connectivity") which lands the JVM side first.
 ### Stage 2 — Scala.js CryptoBackend (crypto-noble-js) ✓ Landed (2026-05-20)
 
 Resolves the `Scala.js registry pattern` open question
-([`docs/specs/wallet-spi.md`](docs/specs/wallet-spi.md) §11.1) — first impl module
+([`specs/wallet-spi.md`](specs/wallet-spi.md) §11.1) — first impl module
 that registers itself through the Stage 1 cross-platform
 `object CryptoBackend.register(...)`.
 
@@ -5771,7 +5771,7 @@ strategy module needs it (Stage 3 or 4).
       wallet-strategy-erc4337, …) keep working unchanged.  JS
       targets aggregated at the root.  Scala.js linker test fork
       disabled per module via `jsSettings(Test / fork := false)`.
-- [x] Spec update — [`docs/specs/wallet-spi-scalajs.md`](docs/specs/wallet-spi-scalajs.md)
+- [x] Spec update — [`specs/wallet-spi-scalajs.md`](specs/wallet-spi-scalajs.md)
       § Stage 3 marked landed, with the JVM-side
       blockchain-solana bridge documented as the trade-off chosen
       for the Wallet Standard cross-compile (alternative was to fork
@@ -5805,7 +5805,7 @@ strategy module needs it (Stage 3 or 4).
 - [x] JS-side tests added: 19 (`blockchainEvmAbiJs`) + 33
       (`walletStrategyErc4337Js`, of which 6 are the new
       `WebAuthnFacadeTest`).
-- [x] Spec update — [`docs/specs/wallet-spi-scalajs.md`](docs/specs/wallet-spi-scalajs.md)
+- [x] Spec update — [`specs/wallet-spi-scalajs.md`](specs/wallet-spi-scalajs.md)
       § Stage 4 marked landed; defers SmartAccountAdapter /
       BundlerClient / SmartAccount cross-compile until
       `blockchain-evm` itself crosses (Fetch RPC + RLP / EIP-1559
@@ -5827,7 +5827,7 @@ Stage 5a — light up the deferred KDF + AEAD primitives in
       synchronous, byte-identical to BouncyCastle GCM.  Chosen over
       WebCrypto SubtleCrypto because the `CryptoBackend` SPI is sync
       and `crypto.subtle.encrypt` returns a Promise (see
-      docs/specs/wallet-spi-scalajs.md §5 Stage 5a for the rationale).
+      specs/wallet-spi-scalajs.md §5 Stage 5a for the rationale).
 - [x] npm deps: pinned `@noble/ciphers ^1.2.1` next to the existing
       `@noble/curves` + `@noble/hashes` in `crypto-noble-js/package.json`.
 - [x] Cross-platform fixtures — 9 new shared hex assertions mirrored
@@ -6004,14 +6004,14 @@ surface now cross-compiles JVM + Scala.js.  All future
 `CryptoBackend` implementations are mandated to implement
 ChaCha20-Poly1305, X25519, and the Stage 5 AEAD / KDF set in
 addition to the original signing / hash / KDF surface — see
-[`docs/specs/wallet-spi-scalajs.md`](docs/specs/wallet-spi-scalajs.md) §6 for
+[`specs/wallet-spi-scalajs.md`](specs/wallet-spi-scalajs.md) §6 for
 the full SPI checklist a new backend has to cover.
 
 ---
 
 ## Wallet SPI — key management + dApp connectivity
 
-Spec in [`docs/specs/wallet-spi.md`](docs/specs/wallet-spi.md). Sits above
+Spec in [`specs/wallet-spi.md`](specs/wallet-spi.md). Sits above
 blockchain-spi. Two extension axes: key management (`Vault` /
 `RawSigner` / `AccountStrategy`) and dApp connectivity
 (`DappConnector`: EIP-1193, Wallet Standard, WalletConnect v2).
@@ -6168,7 +6168,7 @@ Landed in tandem with blockchain-spi Phase 1.
 
 ### Phase 7 — Hardware wallet Vault (Ledger multi-chain)
 
-Architecture in [`docs/specs/wallet-spi.md`](docs/specs/wallet-spi.md) §5.1. One
+Architecture in [`specs/wallet-spi.md`](specs/wallet-spi.md) §5.1. One
 device, one seed, per-chain on-device apps; the Vault routes
 `getSigner(curve, path)` to the right active app and surfaces
 `AppSwitchRequired` to the host when the user must change apps.
@@ -6244,7 +6244,7 @@ device, one seed, per-chain on-device apps; the Vault routes
       `FireblocksRemoteSigningClient`, RS256 JWT auth with `X-API-Key`,
       RAW transaction request generation, `/v1/transactions/{id}` polling,
       `FireblocksVault`, `FireblocksPlugin` ServiceLoader discovery,
-      `docs/specs/wallet-vault-mpc.md`, `examples/wallet-mpc-fireblocks.ssc`,
+      `specs/wallet-vault-mpc.md`, `examples/wallet-mpc-fireblocks.ssc`,
       and 16 mock-HTTP/JWT/wire tests.
 - [x] `wallet-vault-mpc-coinbase` — Coinbase Prime MPC adapter. ✓ Landed 2026-05-28.
 - [x] `wallet-vault-mpc-lit` — Lit Protocol threshold signing adapter. ✓ Landed 2026-05-30.
@@ -6256,7 +6256,7 @@ device, one seed, per-chain on-device apps; the Vault routes
 
 ## MCP × x402 × Wallet — agentic payments
 
-Spec in [`docs/specs/mcp-x402-wallet.md`](docs/specs/mcp-x402-wallet.md). Layers
+Spec in [`specs/mcp-x402-wallet.md`](specs/mcp-x402-wallet.md). Layers
 three integrations on top of `mcp-common`, `wallet-spi`,
 `blockchain-spi`, and `x402-*`:
 
@@ -6276,7 +6276,7 @@ Depends on `mcp-common` (v1.17 — already largely landed),
 
 ### Phase 0 — Spec ✓ Landed (2026-05-19)
 
-- [x] `docs/specs/mcp-x402-wallet.md` — architecture, tools, policy
+- [x] `specs/mcp-x402-wallet.md` — architecture, tools, policy
       model, error-code allocation, phase plan
 
 ### Phase 1 — mcp-wallet read-only ✓ Landed (2026-05-19)
@@ -6349,7 +6349,7 @@ meta round-trip, AutoPay stream hook, running-total accumulation.
 
 ## Micropayment Platform — channel-based fee amortisation for microtransactions
 
-Spec in [`docs/specs/micropayment-spi.md`](docs/specs/micropayment-spi.md). Sits above `blockchain-spi` and `wallet-spi`; peer of x402. Five strategies: ThresholdBatching (x402 Facilitator backend), EVM StateChannel, Cardano HydraHead, Probabilistic lottery, and L2Native pass-through.
+Spec in [`specs/micropayment-spi.md`](specs/micropayment-spi.md). Sits above `blockchain-spi` and `wallet-spi`; peer of x402. Five strategies: ThresholdBatching (x402 Facilitator backend), EVM StateChannel, Cardano HydraHead, Probabilistic lottery, and L2Native pass-through.
 
 ### Phase 1 — `micropayment-spi` core traits ✓ Landed (2026-05-19)
 
@@ -6448,7 +6448,7 @@ behaviour unchanged).
 
 ## OpenAPI 3.1
 
-**Spec:** [`docs/specs/openapi.md`](docs/specs/openapi.md)
+**Spec:** [`specs/openapi.md`](specs/openapi.md)
 
 Phase 1 (interpreter `/_openapi.json` + `/_swagger`) landed as part of HTTP infrastructure.
 Phase 2 landed 2026-05-29 for shared generation and JVM route emission. Phase 2b landed
@@ -6468,7 +6468,7 @@ security schemes. Phase 5 landed 2026-05-29 for standalone CLI export.
   `serveAsync` OpenAPI + Swagger default routes, and scala-cli JVM e2e coverage.
   Automatic handler return-type extraction is split to `openapi-p2b` because raw
   JVM route closures are currently `Request => Any`. Spec:
-  `docs/specs/openapi.md §5 Phase 2`.
+  `specs/openapi.md §5 Phase 2`.
 
 - [x] **openapi-p2b** — Response type metadata propagation: ✓ Landed 2026-05-29.
   carry response type metadata from typed route/front-matter/generated route
@@ -6478,7 +6478,7 @@ security schemes. Phase 5 landed 2026-05-29 for standalone CLI export.
   endpoint metadata by `(method, path)` and calls `_ssc_route_response` with the
   non-`Any` response type name; raw routes still use ordinary `route(...)`.
   Added code-shape and scala-cli e2e coverage for typed response schemas.
-  Spec: `docs/specs/openapi.md §5 Phase 2 follow-up`.
+  Spec: `specs/openapi.md §5 Phase 2 follow-up`.
 
 - [x] **openapi-p3** — `@openapi` per-route annotation: ✓ Landed 2026-05-29.
   `runtime/std/openapi.ssc` extern; `RouteEntry.metadata`; `HttpIntrinsics` merges metadata;
@@ -6487,7 +6487,7 @@ security schemes. Phase 5 landed 2026-05-29 for standalone CLI export.
   runtime marker call; interpreter and JVM generated runtimes consume pending
   metadata on the next route; shared OpenAPI generation emits summary,
   description, tags, and deprecated. Added `examples/openapi-annotation.ssc`.
-  Spec: `docs/specs/openapi.md §5 Phase 3`.
+  Spec: `specs/openapi.md §5 Phase 3`.
 
 - [x] **openapi-p4** — Security schemes + auth declarations: ✓ Landed 2026-05-29.
   `openApiSecurity(name, scheme, format)` extern; `components.securitySchemes` emission;
@@ -6496,7 +6496,7 @@ security schemes. Phase 5 landed 2026-05-29 for standalone CLI export.
   security schemes; `@openapi(security = List(...))` attaches per-route
   requirements; shared/interpreter/JVM OpenAPI output emits
   `components.securitySchemes` and operation `security`. The `authMw` heuristic
-  remains deferred in favor of explicit metadata. Spec: `docs/specs/openapi.md §5 Phase 4`.
+  remains deferred in favor of explicit metadata. Spec: `specs/openapi.md §5 Phase 4`.
 
 - [x] **openapi-p5** — `ssc emit-openapi` CLI + YAML output: ✓ Landed 2026-05-29.
   `emitOpenapiCommand` in CLI; `--format json|yaml`; `--title`/`--version`/`--server` flags;
@@ -6505,13 +6505,13 @@ security schemes. Phase 5 landed 2026-05-29 for standalone CLI export.
   via `--format yaml` or `-o *.yaml`, `--title` / `--version` / repeatable
   `--server` overrides, shared generator options, and CLI coverage for JSON,
   YAML, file output, and metadata/security preservation. Spec:
-  `docs/specs/openapi.md §5 Phase 5`.
+  `specs/openapi.md §5 Phase 5`.
 
 ---
 
 ## GraphQL
 
-**Spec:** [`docs/specs/graphql.md`](docs/specs/graphql.md)
+**Spec:** [`specs/graphql.md`](specs/graphql.md)
 
 Wires to `graphql-java` (JVM/interpreter/JVM generated) and `graphql-js`
 (JS/Node). Schema-first starts with SDL in `graphql` fenced blocks and dynamic
@@ -6599,7 +6599,7 @@ optional federation/realtime adapters.
 - [x] **graphql-p11** — Schema export/import/diff and contract tests:
   `emit-graphql-schema`, `import-graphql-schema`, `diff-graphql`,
   `test-graphql`, profile-aware schema export/diff, operation fixture tests.
-  Spec: `docs/specs/graphql.md §7 Phase 11`. Effort: ~4 days. Landed 2026-05-29 (14 tests).
+  Spec: `specs/graphql.md §7 Phase 11`. Effort: ~4 days. Landed 2026-05-29 (14 tests).
 
 - [x] **graphql-p12** — Apollo Federation v2 subgraph support:
   `GraphQLFederationEntities` case class; `GraphQL.entityResolvers(entities)` intrinsic;
@@ -6653,7 +6653,7 @@ dep where noted) and verified with a live `node` round-trip in `NodeBackendGraph
   Pure-SDL approach (no extra dep). Node conformance tests.
 
 **Status:** Complete
-**Spec:** [`docs/specs/payment-request.md`](docs/specs/payment-request.md)
+**Spec:** [`specs/payment-request.md`](specs/payment-request.md)
 
 Adds first-class support for the W3C Payment Request API with server-side
 Apple Pay merchant validation and Google Pay token decryption. The same `.ssc`
@@ -6689,7 +6689,7 @@ routes.
 ## v1.48 — SwiftUI Native Frontend (iOS + macOS)
 
 **Status:** Complete (all 3 phases landed 2026-05-26)
-**Spec:** [`docs/specs/swiftui.md`](docs/specs/swiftui.md)
+**Spec:** [`specs/swiftui.md`](specs/swiftui.md)
 
 Adds the `swiftui` frontend renderer — the first native mobile backend.
 A `.ssc` file with `frontend: swiftui` emits a complete Swift Package
@@ -7064,7 +7064,7 @@ Effort: ~3 days (notarize flow + DMG + fastlane Mac lanes + toolchain setup-sign
 ## v1.65 — `ssc emit --frontend swiftui` pathway ✓ Landed 2026-06-02
 
 **Status:** Done.
-**Spec:** [`docs/specs/swiftui.md §8`](docs/specs/swiftui.md#8-v165--ssc-emit---frontend-swiftui-pathway)
+**Spec:** [`specs/swiftui.md §8`](specs/swiftui.md#8-v165--ssc-emit---frontend-swiftui-pathway)
 
 - [x] **v1.65.1-swiftui-spi-reg** — `META-INF/services` SPI registration;
   `SwiftUIEmitPathwayTest` (8 tests); suite 57 green. ✓ 2026-06-02
@@ -7078,7 +7078,7 @@ Effort: ~3 days (notarize flow + DMG + fastlane Mac lanes + toolchain setup-sign
 ## v1.66 — SwiftUI typed JSON models (`@model` + `FetchJsonSignal`)
 
 **Status:** ✓ Complete (2026-06-04).
-**Spec:** [`docs/specs/swiftui-typed-models.md`](docs/specs/swiftui-typed-models.md)
+**Spec:** [`specs/swiftui-typed-models.md`](specs/swiftui-typed-models.md)
 **Depends on:** v1.65 ✓
 
 ### Phases

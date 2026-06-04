@@ -8,7 +8,7 @@ import scalascript.wire.msgpack.MsgPackWireCodec
 /** Tests for schema-id hashing, evolution rules, compatibility guard,
  *  and golden vectors.
  *
- *  Spec: docs/specs/distributed-wire-protocol.md §Phase 8 */
+ *  Spec: specs/distributed-wire-protocol.md §Phase 8 */
 class WireCompatibilityTest extends AnyFunSuite:
 
   // ── WireSchemaId ──────────────────────────────────────────────────────────

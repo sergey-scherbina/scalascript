@@ -22,7 +22,7 @@ import scalascript.frontend.{View, AttrValue, EventHandler, Signal}
  *  + `aria-selected`, modal/drawer emit `role="dialog"` +
  *  `aria-modal`, spinner emits `role="status"` + `aria-label`, etc.
  *
- *  See `docs/specs/frontend-toolkit-spec.md` "Layer 4 — Action + display"
+ *  See `specs/frontend-toolkit-spec.md` "Layer 4 — Action + display"
  *  and "Layer 5 — Containers" for the design intent. */
 
 // ─── SliderNode ────────────────────────────────────────────────────

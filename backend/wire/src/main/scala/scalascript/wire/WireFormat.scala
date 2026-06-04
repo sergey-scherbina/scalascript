@@ -2,7 +2,7 @@ package scalascript.wire
 
 /** Wire format identifiers and registry.
  *
- *  Spec: docs/specs/distributed-wire-protocol.md §Negotiation */
+ *  Spec: specs/distributed-wire-protocol.md §Negotiation */
 object WireFormat:
   val Json    = "json"
   val MsgPack = "msgpack"
@@ -31,7 +31,7 @@ object WireLimits:
 
 /** Front-matter `wire:` configuration block.
  *
- *  Spec: docs/specs/distributed-wire-protocol.md §Global and Front-matter Configuration */
+ *  Spec: specs/distributed-wire-protocol.md §Global and Front-matter Configuration */
 case class WireConfig(
   enabled:       Boolean            = false,
   format:        String             = WireFormat.Json,

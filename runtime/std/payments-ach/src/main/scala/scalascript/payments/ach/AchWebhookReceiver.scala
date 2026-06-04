@@ -17,7 +17,7 @@ import java.time.Instant
  *    ach.return            → AchReturn  (R-code in "r_code" field)
  *    ach.notification_of_change → AchNotificationOfChange  (C-code in "c_code" field)
  *
- *  See docs/specs/bank-rails.md §7.2 for event taxonomy.
+ *  See specs/bank-rails.md §7.2 for event taxonomy.
  */
 class AchWebhookReceiver(
     override val config:   WebhookConfig = WebhookConfig(),

@@ -6,7 +6,7 @@ import scalascript.wire.{WireEnvelope, WireFormat, WireValue}
 /** Tests for wire security and operations: HMAC, compression, sessions,
  *  replay windows, metrics, and debug dump.
  *
- *  Spec: docs/specs/distributed-wire-protocol.md §Phase 7 */
+ *  Spec: specs/distributed-wire-protocol.md §Phase 7 */
 class WireSecurityOpsTest extends AnyFunSuite:
 
   private val key      = "super-secret-key".getBytes("UTF-8")

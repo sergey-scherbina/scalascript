@@ -17,7 +17,7 @@ Bidirectional bridge between local `Source[A]` (`std.streams`) and distributed
 `DStream[A]` (`std.dstreams`), plus the `BasicStreamOps[F[_]]` shared-operator
 trait that both implement.
 
-Spec: [`docs/specs/distributed-runtime.md §Streams`](../../docs/specs/distributed-runtime.md)
+Spec: [`specs/distributed-runtime.md §Streams`](../../specs/distributed-runtime.md)
 
 ## `BasicStreamOps` — shared operators
 

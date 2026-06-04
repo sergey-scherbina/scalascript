@@ -23,7 +23,7 @@ import scala.jdk.CollectionConverters.*
  *  Mandates are stored locally; `MandateStatus.Revoked` means the customer
  *  contacted their bank per Reg E.
  *
- *  See docs/specs/bank-rails.md §v1.54.2 for full spec.
+ *  See specs/bank-rails.md §v1.54.2 for full spec.
  */
 class AchProvider(val config: AchConfig) extends BankRailsProvider:
 
@@ -213,7 +213,7 @@ class AchProvider(val config: AchConfig) extends BankRailsProvider:
   private[ach] var lastDeliveredDirection: Option[String] = None
 
 /** ACH adapter configuration.
- *  See docs/specs/bank-rails.md §v1.54.2 Auth section. */
+ *  See specs/bank-rails.md §v1.54.2 Auth section. */
 case class AchConfig(
   achSftpHost:     String,          // SFTP host for Nacha file delivery
   achSftpUser:     String,          // SFTP user

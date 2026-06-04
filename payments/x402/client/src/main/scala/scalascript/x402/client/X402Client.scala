@@ -64,7 +64,7 @@ object ScalusClaimMessage:
 // (`Wallet`, `Wallets.privateKey`, `Wallets.envKey`) stays stable; the
 // implementation produces real secp256k1 ECDSA signatures over real
 // EIP-712 digests instead of the SHA-256 stub that lived here pre-
-// Phase-1 of the wallet-spi milestone (see docs/specs/wallet-spi.md §9).
+// Phase-1 of the wallet-spi milestone (see specs/wallet-spi.md §9).
 
 private class PrivateKeyWallet(privateKeyHex: String, val network: Network)
     (using ec: ExecutionContext) extends Wallet:

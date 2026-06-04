@@ -7,7 +7,7 @@ import SscVm.*
 import java.lang as jl
 
 /** Compiles a `Value.FunV` whose params are all integer-typed and whose body
- *  is in the supported subset (see docs/specs/vm-jit-spec.md §5) into a [[CompiledFn]].
+ *  is in the supported subset (see specs/vm-jit-spec.md §5) into a [[CompiledFn]].
  *  Returns `None` on any unsupported construct — the caller then falls back to
  *  the tree-walking interpreter, so this can never change semantics.
  *

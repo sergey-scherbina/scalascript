@@ -20,7 +20,7 @@ import scala.concurrent.{Future, ExecutionContext}
  *  `screenAml` / `verifyKyc` / `checkSanctions`: use `/api/risk/v2/entities/<address>` for
  *  blockchain entity risk; falls back to format-only validation for non-blockchain entities.
  *
- *  See `docs/specs/compliance-provider.md §chainalysis`.
+ *  See `specs/compliance-provider.md §chainalysis`.
  */
 class ChainalysisProvider(config: ChainalysisConfig) extends BlockchainComplianceProvider:
 

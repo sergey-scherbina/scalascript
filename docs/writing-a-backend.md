@@ -20,7 +20,7 @@ By the end of this doc you'll have a no-op backend that:
 ## 1. Declare the Backend implementation
 
 Create one Scala file.  The full SPI surface is in
-[`docs/specs/backend-spi.md`](backend-spi.md) §4.2:
+[`specs/backend-spi.md`](backend-spi.md) §4.2:
 
 ```scala
 package mybackend

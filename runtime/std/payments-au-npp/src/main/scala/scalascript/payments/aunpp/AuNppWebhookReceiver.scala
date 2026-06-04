@@ -17,7 +17,7 @@ import java.time.Instant
  *  Webhook auth: `X-NPP-Signature: sha256=<hex>`, HMAC-SHA256 over raw HTTP body,
  *  shared secret configured at aggregator on-boarding.
  *
- *  See docs/specs/payment-rails-apac.md §AU_NPP.
+ *  See specs/payment-rails-apac.md §AU_NPP.
  */
 class AuNppWebhookReceiver(
     override val config:   WebhookConfig  = WebhookConfig(),

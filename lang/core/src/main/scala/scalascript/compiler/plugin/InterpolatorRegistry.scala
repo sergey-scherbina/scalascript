@@ -13,7 +13,7 @@ import scala.collection.concurrent.TrieMap
  *  initialisation.  Plugin-provided interpolators are registered when the
  *  plugin is loaded via BackendRegistry.
  *
- *  See docs/specs/arch-dsl-hooks.md §4a. */
+ *  See specs/arch-dsl-hooks.md §4a. */
 object InterpolatorRegistry:
 
   private val registry = TrieMap.empty[String, InterpolatorImpl]

@@ -41,12 +41,12 @@ import java.util.Base64
  *  UPI transaction limits: Rs.2,00,000 per transaction by default (Rs.5,00,000 with enhanced KYC).
  *  Aggregator enforces limits; the adapter will receive an HTTP 4xx error if exceeded.
  *
- *  Settlement: T+0 instant, 24x7x365.  See docs/specs/international-bank-rails.md section 5.
+ *  Settlement: T+0 instant, 24x7x365.  See specs/international-bank-rails.md section 5.
  *
  *  AML/KYC note: RBI regulations require full KYC for merchant on-boarding.
  *  A future ComplianceProvider SPI will handle per-transaction checks.
  *
- *  See docs/specs/international-bank-rails.md section v1.55.6.
+ *  See specs/international-bank-rails.md section v1.55.6.
  */
 class UpiProvider(config: UpiConfig) extends BankRailsProvider:
 

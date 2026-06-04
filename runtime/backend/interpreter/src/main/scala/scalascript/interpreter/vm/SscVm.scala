@@ -4,7 +4,7 @@ import java.lang as jl
 import scalascript.interpreter.Value
 
 /** Proof-of-concept register-based bytecode VM for hot integer functions.
- *  See docs/specs/vm-jit-spec.md. v0 handles `Long`-typed functions only; every
+ *  See specs/vm-jit-spec.md. v0 handles `Long`-typed functions only; every
  *  register holds a `Long`, booleans are 0/1. Not wired into the production
  *  call path — exercised directly by VmCompiler + SscVmTest.
  */

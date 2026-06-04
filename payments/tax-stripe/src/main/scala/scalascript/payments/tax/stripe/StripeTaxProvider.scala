@@ -25,7 +25,7 @@ import scala.concurrent.{Future, ExecutionContext}
  *
  *  getSupportedJurisdictions returns the countries Stripe Tax currently supports (hardcoded).
  *
- *  See `docs/specs/traditional-payments.md §TaxProvider §stripe-tax`.
+ *  See `specs/traditional-payments.md §TaxProvider §stripe-tax`.
  */
 class StripeTaxProvider(config: StripeTaxConfig) extends TaxProvider:
 

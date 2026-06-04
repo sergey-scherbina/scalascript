@@ -25,7 +25,7 @@ import scalascript.payments.money.Money
  *              05 = Reference Label (txid, max 25 chars)
  *    ID 63 — CRC-16/CCITT:               4 hex digits appended to the full string
  *
- *  See docs/specs/bank-rails.md §v1.54.3 and BACEN Manual de Padrões para Iniciação do Pix.
+ *  See specs/bank-rails.md §v1.54.3 and BACEN Manual de Padrões para Iniciação do Pix.
  */
 object PixQrCode:
 

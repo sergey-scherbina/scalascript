@@ -19,7 +19,7 @@ cat > "${OUTPUT_DIR}/demo/math.scala" << 'FACADE'
 // Each `export` aliases a legacy Tier-1 mangled JVM symbol
 // (`_ssc_runtime.X`) back to its natural ScalaScript FQN.
 // Zero runtime overhead — pure compile-time alias.
-// See docs/specs/scala-interop.md.
+// See specs/scala-interop.md.
 
 import _ssc_runtime as Ssc
 

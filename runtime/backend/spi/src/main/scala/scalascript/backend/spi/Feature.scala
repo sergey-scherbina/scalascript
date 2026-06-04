@@ -1,7 +1,7 @@
 package scalascript.backend.spi
 
 /** Language and platform features a Backend declares it supports.
- *  See docs/specs/backend-spi.md §11 — Capabilities.  Core's CapabilityCheck
+ *  See specs/backend-spi.md §11 — Capabilities.  Core's CapabilityCheck
  *  pass (Stage 4) walks the IR, collects required features, and refuses
  *  to invoke `Backend.compile` on programs that need features the
  *  backend doesn't declare.

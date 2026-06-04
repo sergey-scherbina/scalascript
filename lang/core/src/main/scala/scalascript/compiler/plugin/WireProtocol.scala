@@ -5,7 +5,7 @@ import upickle.default.ReadWriter
 
 /** Wire protocol for subprocess plugins.
  *
- *  See docs/specs/backend-spi.md §12.2.  Stage 6.1: JSON framing only
+ *  See specs/backend-spi.md §12.2.  Stage 6.1: JSON framing only
  *  (`stdio-json` — newline-delimited JSON, one message per line).
  *  MsgPack framing (`stdio-msgpack`) is a follow-up — same case-class
  *  shapes, different upickle codec.

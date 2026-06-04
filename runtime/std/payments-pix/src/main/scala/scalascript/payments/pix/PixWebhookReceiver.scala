@@ -39,7 +39,7 @@ import java.time.Instant
  *  Refund payload adds `devolucoes` array inside each pix entry; rejected payload
  *  has a top-level `"evento"` = `"pix.rejected"` and a `"codigoErro"` field.
  *
- *  See docs/specs/bank-rails.md §7.3 and §8 v1.54.3.
+ *  See specs/bank-rails.md §7.3 and §8 v1.54.3.
  */
 class PixWebhookReceiver(
     override val config:   WebhookConfig  = WebhookConfig(),

@@ -8,7 +8,7 @@ import scalascript.wire.{WireCodec, WireDecodeError, WireEnvelope, WireValue}
  *  The external Spark/Kafka/Flink/Beam engine protocols are untouched — this
  *  layer covers only the ScalaScript-native distributed runner.
  *
- *  Spec: docs/specs/distributed-wire-protocol.md §Phase 5 */
+ *  Spec: specs/distributed-wire-protocol.md §Phase 5 */
 sealed trait DStreamMsg
 
 object DStreamMsg:

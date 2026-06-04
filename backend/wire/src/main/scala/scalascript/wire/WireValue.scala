@@ -6,7 +6,7 @@ package scalascript.wire
  *  `WireCodec[A]` to/from `WireValue`. Untyped actor messages and
  *  generated bridge code operate on `WireValue` directly.
  *
- *  Spec: docs/specs/distributed-wire-protocol.md §Canonical Model */
+ *  Spec: specs/distributed-wire-protocol.md §Canonical Model */
 enum WireValue:
   case Null
   case Unit

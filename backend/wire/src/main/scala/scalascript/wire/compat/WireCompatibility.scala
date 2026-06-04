@@ -10,7 +10,7 @@ import scalascript.wire.{WireDecodeError, WireEnvelope}
  *  can be checked against a `WireSchemaRegistry` to decide whether binary
  *  traffic between two peers is safe.
  *
- *  Spec: docs/specs/distributed-wire-protocol.md §Phase 8 */
+ *  Spec: specs/distributed-wire-protocol.md §Phase 8 */
 object WireSchemaId:
 
   /** Stable content-addressed schema id: `"sha256:<first-16-hex-chars>"`.

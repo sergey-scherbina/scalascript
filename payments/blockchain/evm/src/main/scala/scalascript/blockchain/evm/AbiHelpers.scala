@@ -5,7 +5,7 @@ import scalascript.crypto.{CryptoBackend, HashAlgo}
 /** Hand-coded calldata helpers for the well-known ERC-20 / ERC-3009
  *  signatures that `blockchain-evm` Phase 1+2 use directly. A general
  *  Solidity ABI v2 codec replaces this in Phase 2 Slice B as the
- *  `blockchain-evm-abi` sub-module — see docs/specs/blockchain-spi.md §6.1.
+ *  `blockchain-evm-abi` sub-module — see specs/blockchain-spi.md §6.1.
  *
  *  Promoted from `private[evm]` to public in Slice B; callers that
  *  produce custom calldata reach for the codec module instead. */

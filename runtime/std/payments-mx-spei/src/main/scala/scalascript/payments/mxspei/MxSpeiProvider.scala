@@ -21,7 +21,7 @@ import scalascript.payments.webhook.WebhookReceiver
  *
  *  Auth: Bearer token (`apiKey`) on every request.
  *
- *  See docs/specs/payment-rails-apac.md §MX_SPEI.
+ *  See specs/payment-rails-apac.md §MX_SPEI.
  */
 class MxSpeiProvider(config: MxSpeiConfig) extends BankRailsProvider:
 

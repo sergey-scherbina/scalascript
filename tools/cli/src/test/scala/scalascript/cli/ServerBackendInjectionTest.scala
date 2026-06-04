@@ -13,7 +13,7 @@ import org.scalatest.funsuite.AnyFunSuite
  *  - unknown name throws (defense — the CLI's arg parser also
  *    validates upstream).
  *
- *  See `docs/specs/http-server-spi-plan.md` for the SPI design rationale
+ *  See `specs/http-server-spi-plan.md` for the SPI design rationale
  *  and the `// ssc compile --server-backend` wiring. */
 class ServerBackendInjectionTest extends AnyFunSuite:
 

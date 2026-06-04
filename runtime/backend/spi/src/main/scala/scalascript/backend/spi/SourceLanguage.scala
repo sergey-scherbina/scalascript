@@ -3,7 +3,7 @@ package scalascript.backend.spi
 import scalascript.ir.{NormalizedBlock, QualifiedName}
 
 /** A source-language plugin — parses, type-checks, and lowers blocks of
- *  one fence-tag dialect to IR.  See docs/specs/backend-spi.md §9.
+ *  one fence-tag dialect to IR.  See specs/backend-spi.md §9.
  *
  *  Core handles only `scalascript`/`ssc` + the Markdown host syntax.
  *  Every other fence tag (`scala`, `html`, `css`, `wat`, `csharp`,

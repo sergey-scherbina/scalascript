@@ -17,7 +17,7 @@ import java.time.Duration
  *  external observer to poll their status JSON and witness agreement.
  *
  *  The task that motivated this test
- *  (`docs/specs/cluster-raft.md` §9 "Multi-process integration test —
+ *  (`specs/cluster-raft.md` §9 "Multi-process integration test —
  *  current state") explicitly calls out polling `/_ssc-cluster/status`
  *  on each node and verifying they agree on a single non-empty
  *  `leader` field.  The earlier println-based test predates the

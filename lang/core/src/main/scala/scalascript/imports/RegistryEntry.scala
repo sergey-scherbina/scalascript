@@ -24,7 +24,7 @@ import scala.util.Try
  *  `name` and `version` are required; all other fields are optional.
  *  Allowed `url` schemes: `github:`, `jitpack:`, `dep:`, `https:`.
  *
- *  See `docs/specs/arch-registry.md §3b`. */
+ *  See `specs/arch-registry.md §3b`. */
 case class RegistryEntry(
   name:               String,
   version:            String,

@@ -26,7 +26,7 @@ import java.time.{Duration, Instant}
  *    `sortCode`, `accountNumber`, `amount` (pence), `currency` ("GBP"),
  *    `reference` (max 18 chars), `endToEndId` (max 35 chars).
  *
- *  See docs/specs/international-bank-rails.md §v1.55.3.
+ *  See specs/international-bank-rails.md §v1.55.3.
  */
 class UkFpsProvider(config: UkFpsConfig) extends BankRailsProvider:
 

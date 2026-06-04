@@ -2,7 +2,7 @@ ThisBuild / scalaVersion := "3.8.3"
 ThisBuild / organization := "io.scalascript"
 ThisBuild / version      := "0.1.0-SNAPSHOT"
 
-// Scala.js cross-compile plumbing (docs/specs/wallet-spi-scalajs.md).
+// Scala.js cross-compile plumbing (specs/wallet-spi-scalajs.md).
 // `crossProject(JVMPlatform, JSPlatform).in(file("..."))` lays out
 // `shared/` + `jvm/` + `js/`; `.jvm` / `.js` give us the per-platform
 // sbt sub-projects.  Each cross-compiled SPI below keeps a JVM-only
@@ -68,7 +68,7 @@ val javafxClassifier: String = {
 // `project/` so sbt exposes it consistently across the generated build units.
 
 // ---------------------------------------------------------------------------
-// Backend SPI v0.1 — module layout (docs/specs/backend-spi.md §4.1)
+// Backend SPI v0.1 — module layout (specs/backend-spi.md §4.1)
 //
 // Stage 1.2: sources moved out of compiler/ into the new modules.
 // ---------------------------------------------------------------------------
@@ -174,7 +174,7 @@ lazy val core = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
-// v2.0 / Tier 2 of Scala ↔ ScalaScript interop — see docs/specs/scala-interop.md.
+// v2.0 / Tier 2 of Scala ↔ ScalaScript interop — see specs/scala-interop.md.
 //
 // A small Scala 3 library that lets regular Scala projects consume
 // `.ssc`-compiled JARs with natural-FQN imports (`import std.foo.add`)
@@ -256,7 +256,7 @@ lazy val mcpCommon = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
-// v1.17.6 / Phase S1 (HTTP server SPI — docs/specs/http-server-spi-plan.md).
+// v1.17.6 / Phase S1 (HTTP server SPI — specs/http-server-spi-plan.md).
 // Trait definitions for pluggable HTTP/WS network-layer backends.
 // Three impl modules downstream consume this:
 //   - runtimeServerJvm                (default JDK impl)
@@ -291,7 +291,7 @@ lazy val runtimeServerSpi = project
     }.taskValue
   )
 
-// Phase 3 (Option A from docs/specs/runtime-server-strategic-plan.md) —
+// Phase 3 (Option A from specs/runtime-server-strategic-plan.md) —
 // JVM-specific server runtime that used to live inside the
 // `serveRuntime` triple-quoted string in JvmGen.scala.  Same
 // resource-bundle pattern as `runtimeServerCommon`: real .scala
@@ -369,8 +369,8 @@ lazy val runtimeServerJvmNetty = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
-// v1.18 / Phase A1 (Frontend framework SPI — docs/specs/frontend-framework-spi-plan.md
-// + docs/specs/frontend-abstract-model.md).  Framework-agnostic primitive
+// v1.18 / Phase A1 (Frontend framework SPI — specs/frontend-framework-spi-plan.md
+// + specs/frontend-abstract-model.md).  Framework-agnostic primitive
 // trait definitions: Signal[T], Computed[T], Effect, View, Component[P],
 // Capability enum, FrontendFrameworkSpi + FrontendFrameworks registry.
 // Four impl modules downstream consume this (frontendCustom /
@@ -401,7 +401,7 @@ lazy val frontendCustom = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
-// v1.18 / Phase B (Frontend toolkit — docs/specs/frontend-toolkit-spec.md).
+// v1.18 / Phase B (Frontend toolkit — specs/frontend-toolkit-spec.md).
 // High-level declarative widget library (Stack, Box, Text, Button,
 // TextField, Card, Alert, ...) that lowers to View primitives.
 // Backend-agnostic: same toolkit code emits to React / Vue / Solid /
@@ -584,7 +584,7 @@ lazy val backendWasm = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
-// SourceLanguage plugin for `scala` fence blocks (docs/specs/backend-spi.md §9 / Phase 9).
+// SourceLanguage plugin for `scala` fence blocks (specs/backend-spi.md §9 / Phase 9).
 // Stage 9 skeleton: SourceLanguage impl + ServiceLoader entry; the
 // existing in-core `scala`-block handling stays in place until the
 // follow-up actually routes through here.
@@ -714,7 +714,7 @@ lazy val testUtils = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
-// DAP debugger backend — Phase 1 TCP skeleton (docs/specs/dap-debugger.md).
+// DAP debugger backend — Phase 1 TCP skeleton (specs/dap-debugger.md).
 // Provides Content-Length framing, DapServer TCP accept loop, and DapSession
 // lifecycle handler (initialize / launch / configurationDone / disconnect).
 // cli depends on this % Test only so the DAP classes are on cli's test CP;
@@ -1129,7 +1129,7 @@ lazy val clientPostgres = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
-// v1.28 — Config system runtime.  Spec: docs/specs/config-system.md.
+// v1.28 — Config system runtime.  Spec: specs/config-system.md.
 //
 // Standalone module — no dependency on ir/spi/core — so the CLI,
 // backendInterpreter, and all backend codegen modules can depend on it
@@ -1176,7 +1176,7 @@ lazy val backendSqlRuntime = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
-// v1.27 — browser-side sql runtime.  Spec: docs/specs/browser-sql.md.
+// v1.27 — browser-side sql runtime.  Spec: specs/browser-sql.md.
 //
 // Companion to `backendSqlRuntime` for the JS-family backends.
 // Mostly a packaging vehicle for the hand-written `sql-runtime.mjs`
@@ -1197,7 +1197,7 @@ lazy val backendSqlRuntimeJs = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
-// Cloud-provider secret resolver plugins (docs/specs/secret-resolvers.md §aws-secret §gcp-secret §azure-kv).
+// Cloud-provider secret resolver plugins (specs/secret-resolvers.md §aws-secret §gcp-secret §azure-kv).
 // Each is a separate sbt sub-project that registers via ServiceLoader.
 // Kept as optional thin adapters so the main `backendSqlRuntime` stays
 // free of heavy cloud-SDK deps.
@@ -1482,7 +1482,7 @@ lazy val x402FacilitatorCardano = project
 
 // Plutus-escrow settlement for x402 on Cardano. Phase 1 is scaffolding —
 // trait + stub. Phase 2+ adds Scalus (validator) and bloxbean (off-chain
-// Tx building) dependencies. See docs/specs/x402-cardano-scalus.md.
+// Tx building) dependencies. See specs/x402-cardano-scalus.md.
 lazy val x402FacilitatorCardanoScalus = project
   .in(file("payments/x402/facilitator-cardano-scalus"))
   .dependsOn(x402Core, x402FacilitatorCardano, blockchainCardano, x402Client % Test)
@@ -1496,7 +1496,7 @@ lazy val x402FacilitatorCardanoScalus = project
     // (`src/main/resources/x402-escrow.plutus.hex`) emitted by the
     // `x402EscrowPlutus` 3.3.7 sub-build below. The main 3.8.3 module
     // reads the hex at runtime via `getResourceAsStream` — no Scalus
-    // dependency on this side. See `docs/specs/x402-cardano-scalus.md` §5
+    // dependency on this side. See `specs/x402-cardano-scalus.md` §5
     // "Phase 2 retry — Scala-version split build".
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
@@ -1506,7 +1506,7 @@ lazy val x402FacilitatorCardanoScalus = project
 // compiler plugin (built against dotty 3.3.x) can actually run.
 // Output is a single resource file (CBOR hex) committed under
 // `x402-facilitator-cardano-scalus/src/main/resources/` and consumed
-// by the main 3.8.3 module. See `docs/specs/x402-cardano-scalus.md` §5.
+// by the main 3.8.3 module. See `specs/x402-cardano-scalus.md` §5.
 //
 // This sub-project deliberately depends on NO other modules in this
 // repo — every other module is built for Scala 3.8.3, and TASTy isn't
@@ -1561,7 +1561,7 @@ lazy val x402EscrowPlutus = project
   )
 
 // ---------------------------------------------------------------------------
-// Wallet / blockchain SPI tracks (docs/specs/blockchain-spi.md + docs/specs/wallet-spi.md)
+// Wallet / blockchain SPI tracks (specs/blockchain-spi.md + specs/wallet-spi.md)
 //
 // Phase 1 lands four pure-trait modules below. Phase 2 adds
 // crypto-bouncycastle (JVM CryptoBackend impl) and blockchain-evm.
@@ -1569,7 +1569,7 @@ lazy val x402EscrowPlutus = project
 // Phase 3 (crypto-noble-js) per the spec.
 // ---------------------------------------------------------------------------
 
-// Cross-compiled (JVM + Scala.js) — docs/specs/wallet-spi-scalajs.md §3.2.
+// Cross-compiled (JVM + Scala.js) — specs/wallet-spi-scalajs.md §3.2.
 // Stage 1: traits + value classes in `shared/`; ServiceLoader-backed
 // `object CryptoBackend` (JVM) and explicit-registration variant (JS)
 // live in their platform source dirs.
@@ -1610,7 +1610,7 @@ lazy val cryptoBouncycastle = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
-// Scala.js-only `CryptoBackend` impl — docs/specs/wallet-spi-scalajs.md §5
+// Scala.js-only `CryptoBackend` impl — specs/wallet-spi-scalajs.md §5
 // Stage 2.  Backed by `@noble/curves` + `@noble/hashes` (npm pkgs at
 // `crypto-noble-js/package.json`; install with `npm install` from that
 // directory before running `sbt cryptoNobleJs/test`).  Output bytes
@@ -1636,7 +1636,7 @@ lazy val cryptoNobleJs = project
     Test / fork         := false,
   )
 
-// Cross-compiled (JVM + Scala.js) — docs/specs/wallet-spi-scalajs.md §3.2.
+// Cross-compiled (JVM + Scala.js) — specs/wallet-spi-scalajs.md §3.2.
 // Stage 1: SPI traits in `shared/`; `object Blockchain` ServiceLoader
 // registry (JVM) and explicit-registration variant (JS) live in their
 // platform source dirs.  upickle's `%%%` resolves to the right artefact
@@ -1660,7 +1660,7 @@ lazy val blockchainSpiJvm = blockchainSpiCross.jvm
 lazy val blockchainSpiJs  = blockchainSpiCross.js
 lazy val blockchainSpi    = blockchainSpiJvm
 
-// Cross-compiled (JVM + Scala.js) — docs/specs/wallet-spi-scalajs.md.
+// Cross-compiled (JVM + Scala.js) — specs/wallet-spi-scalajs.md.
 // Stage 1: pure SPI traits + value classes live in `shared/`; `jvm/`
 // and `js/` source dirs are empty for now (platform-specific helpers
 // like Scala.js connector glue land in later stages).  Smoke test in
@@ -1697,7 +1697,7 @@ lazy val walletSpiJs  = walletSpiCross.js
 // stays JVM-only for now and continues to use this name.
 lazy val walletSpi    = walletSpiJvm
 
-// Cross-compiled (JVM + Scala.js) — docs/specs/wallet-spi-scalajs.md § Stage 5.
+// Cross-compiled (JVM + Scala.js) — specs/wallet-spi-scalajs.md § Stage 5.
 //
 // `shared/` holds the platform-neutral pieces — BIP-39 (with the
 // English wordlist embedded as a Scala const so the JS build doesn't
@@ -1750,7 +1750,7 @@ lazy val walletVaultEncryptedJs  = walletVaultEncryptedCross.js
 // stays JVM-only and continues to use this name.
 lazy val walletVaultEncrypted    = walletVaultEncryptedJvm
 
-// Cross-compiled (JVM + Scala.js) — docs/specs/wallet-spi-scalajs.md § Stage 3.
+// Cross-compiled (JVM + Scala.js) — specs/wallet-spi-scalajs.md § Stage 3.
 // Pure SPI usage; no JVM-only deps in `shared/`.  The Stage 1 / Stage 2
 // CryptoBackend registry resolves correctly on both platforms, so the
 // same `RawPrivateKeyVault` + `EoaStrategy` link unchanged on JS.
@@ -1776,7 +1776,7 @@ lazy val walletStrategyEoaJs  = walletStrategyEoaCross.js
 // stays JVM-only for now and continues to use this name.
 lazy val walletStrategyEoa    = walletStrategyEoaJvm
 
-// wallet-spi Phase 8 — MPC Vault (docs/specs/wallet-spi.md §10).
+// wallet-spi Phase 8 — MPC Vault (specs/wallet-spi.md §10).
 // HTTP client to an external multi-party-computation signing provider.
 // No private keys local; every signature is a round-trip to a TSS /
 // FROST / GG18 quorum. The trait abstracts over actual MPC vendors;
@@ -1860,7 +1860,7 @@ lazy val walletVaultMpcZengo = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
-// Cross-compiled (JVM + Scala.js) — docs/specs/wallet-spi-scalajs.md § Stage 4.
+// Cross-compiled (JVM + Scala.js) — specs/wallet-spi-scalajs.md § Stage 4.
 //
 // `shared/` holds the pure-data + crypto-driven types: UserOperation,
 // UserOpHash{,V07}, EntryPoint, SmartAccountFactory (incl.
@@ -1910,7 +1910,7 @@ lazy val walletStrategyErc4337Js  = walletStrategyErc4337Cross.js
 // stays JVM-only and continues to use this name.
 lazy val walletStrategyErc4337    = walletStrategyErc4337Jvm
 
-// Cross-compiled (JVM + Scala.js) — docs/specs/wallet-spi-scalajs.md § Stage 3.
+// Cross-compiled (JVM + Scala.js) — specs/wallet-spi-scalajs.md § Stage 3.
 // `shared/` holds the protocol translator + EIP-6963 value types (no
 // java.* deps); `js/` adds the Scala.js browser glue that wires the
 // translator to `window.ethereum` and the EIP-6963 announce / request
@@ -1941,7 +1941,7 @@ lazy val walletConnectorEip1193Jvm = walletConnectorEip1193Cross.jvm
 lazy val walletConnectorEip1193Js  = walletConnectorEip1193Cross.js
 lazy val walletConnectorEip1193    = walletConnectorEip1193Jvm
 
-// Cross-compiled (JVM + Scala.js) — docs/specs/wallet-spi-scalajs.md § Stage 6.
+// Cross-compiled (JVM + Scala.js) — specs/wallet-spi-scalajs.md § Stage 6.
 //
 // `shared/` holds the WC v2 protocol guts: `WcTypes`, `WcRelayTransport`
 // (trait), `WsChannel` (trait), `RelayJsonRpc`, `WcSessionStore`,
@@ -1992,7 +1992,7 @@ lazy val walletConnectJs  = walletConnectCross.js
 // stays JVM-only and continues to use this name.
 lazy val walletConnect    = walletConnectJvm
 
-// Phase 7 (docs/specs/wallet-spi.md §5.1) — Ledger hardware-wallet vault.
+// Phase 7 (specs/wallet-spi.md §5.1) — Ledger hardware-wallet vault.
 // Three modules: shared types here (cross-compile-ready, JVM-only for
 // now), `wallet-vault-ledger-jvm` providing the hid4java transport,
 // and `wallet-vault-ledger-ethereum` providing the Ethereum-app signer.
@@ -2111,7 +2111,7 @@ lazy val walletVaultLedgerCardano = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
-// Cross-compiled (JVM + Scala.js) — docs/specs/wallet-spi-scalajs.md § Stage 3.
+// Cross-compiled (JVM + Scala.js) — specs/wallet-spi-scalajs.md § Stage 3.
 // `shared/` holds a `WalletStandardConnectorBase` + a small inlined
 // subset of the Solana legacy-message wire protocol (`SolanaMessage`,
 // `SolanaInstruction`, `Base58`, `CompactU16`) — both platforms parse
@@ -2205,7 +2205,7 @@ lazy val mcpX402 = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
-// Cross-compiled (JVM + Scala.js) — docs/specs/wallet-spi-scalajs.md § Stage 4.
+// Cross-compiled (JVM + Scala.js) — specs/wallet-spi-scalajs.md § Stage 4.
 // `shared/` holds the entire ABI codec (zero `java.*` deps; the few
 // `java.util.Arrays.copyOfRange` / `java.io.ByteArrayOutputStream` /
 // `java.lang.StringBuilder` calls are all in the Scala.js stdlib).
@@ -2304,7 +2304,7 @@ lazy val blockchainCosmos = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
-// Micropayment platform SPI (docs/specs/micropayment-spi.md)
+// Micropayment platform SPI (specs/micropayment-spi.md)
 // ---------------------------------------------------------------------------
 
 lazy val micropaymentSpi = project

@@ -840,7 +840,7 @@ object InterfaceExtractor:
    *  the already-filtered `exports` list, so private helpers stay out.
    *
    *  Tier 1 of the Scala ↔ ScalaScript interop spec
-   *  (`docs/specs/scala-interop.md`); updated for Tier 5 (Phase-2 split-runtime
+   *  (`specs/scala-interop.md`); updated for Tier 5 (Phase-2 split-runtime
    *  emission rewrites `object pkg: object sub:` → `package pkg.sub:`). */
   private def buildScalaFacade(pkg: List[String], exports: List[ExportedSymbol]): Map[String, String] =
     if pkg.isEmpty then return Map.empty

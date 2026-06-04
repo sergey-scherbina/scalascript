@@ -9,7 +9,7 @@ import scalascript.ir.{QualifiedName, NormalizedModule}
  *  intrinsics — UK FPS operations are runtime adapter concerns, not compile-time.
  *
  *  Registered via META-INF/services/scalascript.backend.spi.Backend.
- *  See docs/specs/international-bank-rails.md §v1.55.3.
+ *  See specs/international-bank-rails.md §v1.55.3.
  */
 class UkFpsPlugin extends Backend:
   def id:          String = "scalascript-payments-uk-fps"

@@ -327,7 +327,7 @@ case class GreetOutput(greeting: String)
 
 Mounted as `mount("GET", "/greet/:name", "handlers/greet.ssc")`, a `GET /greet/alice` request automatically fills `GreetInput(name = "alice")` from the path param and returns `{"greeting": "Hello, alice!"}`.
 
-See [`docs/specs/mount-handlers.md`](../docs/specs/mount-handlers.md) for the full typed handler spec.
+See [`specs/mount-handlers.md`](../specs/mount-handlers.md) for the full typed handler spec.
 
 See [`examples/mount-demo/`](../examples/mount-demo/) for a runnable example.
 
@@ -1004,8 +1004,8 @@ Delta-persisted — all from a single `.ssc` file.
 - Replace `Dataset.fromList` with `Dataset.fromJsonAs[RawEvent]("s3://...")` for real input; derive `SparkSchemaCodec` when storage column names differ from Scala field names.
 - Switch from `mode("overwrite")` to `mode("append")` + a Delta `MERGE INTO` for incremental loads.
 - Set `spark-hive-metastore:` in front-matter to register the output as a managed table — see User Guide §13.8.
-- Move to Structured Streaming with `spark.readStream.format("kafka")` — see [`docs/specs/spark-streaming.md`](spark-streaming.md).
-- Fit a classification pipeline on the aggregated features — see [`docs/specs/spark-mllib.md`](spark-mllib.md).
+- Move to Structured Streaming with `spark.readStream.format("kafka")` — see [`specs/spark-streaming.md`](spark-streaming.md).
+- Fit a classification pipeline on the aggregated features — see [`specs/spark-mllib.md`](spark-mllib.md).
 - For non-local clusters, swap `bin/ssc-spark` for `ssc submit ... --spark-master spark://...` (fat JAR via `spark-submit`).
 
 See the [User Guide](user-guide.md) and [SPEC.md](../SPEC.md) for full API reference.
@@ -1176,7 +1176,7 @@ ready to drop into a static-site pipeline.
   [`Table.scala`](../frontend-toolkit/src/main/scala/scalascript/frontend/toolkit/Table.scala)
   and `Tk.sortableColumn`.
 - Browse the full widget catalog in
-  [`docs/specs/frontend-toolkit-spec.md`](frontend-toolkit-spec.md).
+  [`specs/frontend-toolkit-spec.md`](frontend-toolkit-spec.md).
 
 ---
 
@@ -1718,7 +1718,7 @@ ssc run effects-demo.ssc
 
 ## What's Next
 
-- See [`docs/specs/algebraic-effects.md`](algebraic-effects.md) for the full spec:
+- See [`specs/algebraic-effects.md`](algebraic-effects.md) for the full spec:
   `EffectRow` in `SType`, Rémy-style row unification, and all typed stdlib
   discharge signatures.
 - See [`examples/algebraic-effects.ssc`](../examples/algebraic-effects.ssc)

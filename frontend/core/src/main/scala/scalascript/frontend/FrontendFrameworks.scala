@@ -34,7 +34,7 @@ import scala.jdk.CollectionConverters.*
  *    codegen-emitted scripts where the script-level classpath
  *    doesn't carry `META-INF/services` files.
  *
- *  See `docs/specs/frontend-framework-spi-plan.md`. */
+ *  See `specs/frontend-framework-spi-plan.md`. */
 object FrontendFrameworks:
 
   @volatile private var _selectedName: Option[String]              = None

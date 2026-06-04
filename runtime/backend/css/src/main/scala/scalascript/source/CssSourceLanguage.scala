@@ -3,7 +3,7 @@ package scalascript.source
 import scalascript.backend.spi.*
 import scalascript.ir
 
-/** SourceLanguage plugin for `css` fence blocks (docs/specs/backend-spi.md §9).
+/** SourceLanguage plugin for `css` fence blocks (specs/backend-spi.md §9).
  *
  *  Stage 9+/C.1 skeleton — sibling of `HtmlSourceLanguage`.  Claims
  *  the `css` fence tag via ServiceLoader; `compileBlock` currently

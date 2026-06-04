@@ -13,7 +13,7 @@ import java.net.{HttpURLConnection, URI}
  *  Results cached to `~/.cache/scalascript/registry/packages.yaml` with a
  *  1-hour TTL.  Search runs locally via substring + keyword matching.
  *
- *  See `docs/specs/arch-registry.md §3c, §3d Phase 4`. */
+ *  See `specs/arch-registry.md §3c, §3d Phase 4`. */
 object RegistryClient:
 
   val DefaultRegistryUrl  = "https://registry.scalascript.io/packages.yaml"

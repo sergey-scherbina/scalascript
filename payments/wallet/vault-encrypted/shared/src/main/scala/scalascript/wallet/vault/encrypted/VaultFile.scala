@@ -21,7 +21,7 @@ package scalascript.wallet.vault.encrypted
  *  Cross-compiled (JVM + Scala.js).  This `case class` is pure data; the
  *  filesystem `read(path)` / `write(file, path)` lives in JVM-only
  *  `wallet-vault-encrypted/jvm/.../VaultFileIo.scala`.  A future
- *  IndexedDB-backed JS store (deferred, see docs/specs/wallet-spi-scalajs.md
+ *  IndexedDB-backed JS store (deferred, see specs/wallet-spi-scalajs.md
  *  §5) will read / write the same JSON shape from a Scala.js-side
  *  helper. */
 case class VaultFile(

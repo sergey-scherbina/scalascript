@@ -31,7 +31,7 @@ import scalascript.server.{Request, Response, StreamResponse}
  *  Implementations register themselves via
  *  `META-INF/services/scalascript.server.spi.HttpServerSpi`.
  *
- *  Design doc: `docs/specs/http-server-spi-plan.md`. */
+ *  Design doc: `specs/http-server-spi-plan.md`. */
 trait HttpServerSpi:
 
   /** Short identifier — used by `setHttpServerBackend(name)` to pick

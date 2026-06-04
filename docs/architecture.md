@@ -119,7 +119,7 @@ The typer performs:
 Current implementation note: some exported summaries and route/schema metadata
 still fall back to `Any` when the local typer cannot prove a shape. The planned
 tightening pass is specified in
-[`docs/specs/typer-real-types-roadmap.md`](typer-real-types-roadmap.md); it keeps
+[`specs/typer-real-types-roadmap.md`](typer-real-types-roadmap.md); it keeps
 `Any` as an explicit dynamic boundary while carrying structured type evidence
 through exported symbols, routes/remotes, schemas, typed data mapping, Spark,
 and plugins.
@@ -185,8 +185,8 @@ trait Session extends AutoCloseable:
   def close(): Unit
 ```
 
-Full design + open questions: [`docs/specs/backend-spi.md`](backend-spi.md);
-out-of-process wire protocol: [`docs/specs/backend-spi-protocol.md`](backend-spi-protocol.md).
+Full design + open questions: [`specs/backend-spi.md`](backend-spi.md);
+out-of-process wire protocol: [`specs/backend-spi-protocol.md`](backend-spi-protocol.md).
 
 **Bundled adapters** (each in its own sbt subproject):
 
@@ -381,7 +381,7 @@ structure improvements rather than new abstractions.
 - Frontend emitters: add a shared `frontend/core` `View[?]` traversal utility
   for signals, fetches, refs, and typed model scopes. Adopt it one backend at a
   time to prevent future `View` cases from being missed in collectors.
-- Typed models: finish cross-backend parity from `docs/specs/typed-models-ir.md`,
+- Typed models: finish cross-backend parity from `specs/typed-models-ir.md`,
   then consider structural field-path validation and semantic table lowering.
 - Code generators: keep splitting giant generated-runtime and bridge clusters
   only when emitted output can be proved byte-identical.

@@ -668,7 +668,7 @@ async function _runActors(bodyFn) {
   // Mirrors `Interpreter.registerCluster*Route` (status / drain / events /
   // step-down / metrics-prom).  Installed by `startNode` so codegen-built
   // Node bundles expose the same ops surface as interpreter-run nodes —
-  // see docs/specs/cluster-codegen-gap.md (Tier 4 gating gap #3).  Idempotent
+  // see specs/cluster-codegen-gap.md (Tier 4 gating gap #3).  Idempotent
   // via a module-level flag; double `startNode` calls are no-ops.
   let _clusterRoutesInstalled = false;
   function _hasRoute(method, path) {

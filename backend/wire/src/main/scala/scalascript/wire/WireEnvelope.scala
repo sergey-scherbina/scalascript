@@ -6,7 +6,7 @@ package scalascript.wire
  *  Transport-layer framing (WS message / HTTP body / 4-byte length prefix)
  *  wraps one serialised `WireEnvelope` per message.
  *
- *  Spec: docs/specs/distributed-wire-protocol.md §Frame Envelope */
+ *  Spec: specs/distributed-wire-protocol.md §Frame Envelope */
 case class WireEnvelope(
   protocol:      String,              // "actors" | "dataset" | "dstream" | "rpc" | "object-sync"
   protocolVer:   Int,                 // per-surface protocol version

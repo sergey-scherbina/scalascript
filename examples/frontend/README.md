@@ -88,7 +88,7 @@ ssc serve 8000 target/frontend-examples/todo/custom
                      npm deps.  *Toolkit-demo through Custom is
                      currently static*: signal bindings + lambda
                      event handlers don't yet translate (Phase D
-                     follow-up; see `docs/specs/frontend-toolkit-spec.md`).
+                     follow-up; see `specs/frontend-toolkit-spec.md`).
 - **React**        — pulls React 18 from `unpkg.com` via plain
                      `<script>` tags; non-module, also runs from
                      `file://` if needed.
@@ -123,7 +123,7 @@ val doc = Ssr.renderDocument(
 
 - [`docs/frontend-usage.md`](../../docs/frontend-usage.md) — user-facing
   guide to the SPI and its primitives.
-- [`docs/specs/frontend-abstract-model.md`](../../docs/specs/frontend-abstract-model.md) — the framework-agnostic primitive
+- [`specs/frontend-abstract-model.md`](../../specs/frontend-abstract-model.md) — the framework-agnostic primitive
   contract every backend honours.
-- [`docs/specs/frontend-framework-spi-plan.md`](../../docs/specs/frontend-framework-spi-plan.md) — SPI mechanics (selection,
+- [`specs/frontend-framework-spi-plan.md`](../../specs/frontend-framework-spi-plan.md) — SPI mechanics (selection,
   ServiceLoader, codegen flags).

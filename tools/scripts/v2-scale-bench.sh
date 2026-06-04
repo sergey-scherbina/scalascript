@@ -9,7 +9,7 @@
 # counts.
 #
 # Output is a Markdown-formatted table on stdout, suitable for splicing
-# into docs/specs/v2.0-scale-benchmark.md.
+# into specs/v2.0-scale-benchmark.md.
 #
 # Requires:  cli/target/scala-3.8.3/ssc.jar  (run `sbt cli/assembly`)
 # Source set: std/  (the in-tree standard library, ~49 .ssc modules)

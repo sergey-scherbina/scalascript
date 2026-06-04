@@ -205,7 +205,7 @@ class FacadeGeneratorTest extends AnyFunSuite:
     val src = FacadeGenerator.generateFromInterfaces(List(m))("org.scala")
     assert(src.contains("AUTO-GENERATED"),
       s"missing AUTO-GENERATED marker:\n$src")
-    assert(src.contains("docs/specs/scala-interop.md"),
+    assert(src.contains("specs/scala-interop.md"),
       s"missing doc-pointer comment:\n$src")
 
   // ── Disk-based entrypoint ──────────────────────────────────────────────

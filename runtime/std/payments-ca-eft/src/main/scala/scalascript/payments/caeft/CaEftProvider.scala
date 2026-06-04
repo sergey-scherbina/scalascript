@@ -54,7 +54,7 @@ import scala.jdk.CollectionConverters.*
  *  - CA_EFT: returns `Left(BankRailsCancelError(...))` — EFT files cannot be recalled
  *    after submission to ACSS.
  *
- *  See docs/specs/international-bank-rails.md §CA_INTERAC for spec.
+ *  See specs/international-bank-rails.md §CA_INTERAC for spec.
  */
 class CaEftProvider(config: CaEftConfig) extends BankRailsProvider:
 

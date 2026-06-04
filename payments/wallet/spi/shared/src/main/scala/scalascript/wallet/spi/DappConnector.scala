@@ -39,7 +39,7 @@ object DappResponse:
  *  connectors (EIP-1193, Wallet Standard, WalletConnect v2) translate
  *  their wire protocols into `request` calls.
  *
- *  See docs/specs/wallet-spi.md §7. */
+ *  See specs/wallet-spi.md §7. */
 trait AccountManager:
   def chains: Set[ChainId]
   def strategyFor(chain: ChainId): Option[AccountStrategy]

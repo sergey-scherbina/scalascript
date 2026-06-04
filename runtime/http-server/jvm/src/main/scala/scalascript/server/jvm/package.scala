@@ -23,5 +23,5 @@ package scalascript.server
  *    - 3e — outbound HTTP/WS clients
  *    - 3f — JvmGen.serveRuntime collapses to a small emitter
  *
- *  See `docs/specs/runtime-server-strategic-plan.md` Option A. */
+ *  See `specs/runtime-server-strategic-plan.md` Option A. */
 package object jvm

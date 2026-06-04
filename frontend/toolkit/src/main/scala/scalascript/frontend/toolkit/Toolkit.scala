@@ -11,7 +11,7 @@ import scalascript.frontend.{View, AttrValue, EventHandler, Signal, ReactiveSign
  *  Not `sealed` — the toolkit's vocabulary is open-ended.  Widget
  *  packs (Form, Router, Widgets2, …) live in their own files and
  *  extend this trait directly; `Toolkit.lower` adds a `case` per
- *  pack.  See `docs/specs/frontend-toolkit-spec.md` for the design intent. */
+ *  pack.  See `specs/frontend-toolkit-spec.md` for the design intent. */
 trait ToolkitNode
 
 /** Lowering — toolkit → View.  Pure function: same toolkit tree +

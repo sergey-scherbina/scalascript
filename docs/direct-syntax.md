@@ -5,7 +5,7 @@ All three backends (interpreter, JVM, JS) ship the feature.
 
 Source of truth for the user-facing syntax, its lowering, and the
 seven locked design decisions.  See also
-[`docs/specs/backend-spi.md`](backend-spi.md) §6 (effect lowering) and
+[`specs/backend-spi.md`](backend-spi.md) §6 (effect lowering) and
 the worked example in [`docs/tutorial.md`](tutorial.md) §3.
 
 ## 1. Motivation

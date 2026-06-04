@@ -23,7 +23,7 @@ import scala.concurrent.{Future, ExecutionContext}
  *
  *  `getSupportedJurisdictions`: hardcoded list of countries and US states Avalara covers.
  *
- *  See `docs/specs/traditional-payments.md §TaxProvider §avalara`.
+ *  See `specs/traditional-payments.md §TaxProvider §avalara`.
  */
 class AvalaraTaxProvider(config: AvalaraConfig) extends TaxProvider:
 

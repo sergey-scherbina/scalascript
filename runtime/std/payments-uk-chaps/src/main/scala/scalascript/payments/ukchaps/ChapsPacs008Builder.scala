@@ -18,7 +18,7 @@ import java.time.format.DateTimeFormatter
  *  The aggregator (ClearBank, Starling Payments, Lloyds TSB CHAPS gateway)
  *  converts this pacs.008 to the BoE CHAPS IS20022 format internally.
  *
- *  See docs/specs/international-bank-rails.md §v1.55.5.
+ *  See specs/international-bank-rails.md §v1.55.5.
  */
 object ChapsPacs008Builder:
 

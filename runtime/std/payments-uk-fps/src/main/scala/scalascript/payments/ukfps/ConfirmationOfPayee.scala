@@ -12,7 +12,7 @@ import java.time.Duration
  *  authorised push payment (APP) fraud.  The aggregator's CoP service
  *  responds with one of these outcomes.
  *
- *  See docs/specs/international-bank-rails.md §v1.55.3.
+ *  See specs/international-bank-rails.md §v1.55.3.
  */
 enum CopResult:
   /** Account name exactly matches the bank's registered name. */

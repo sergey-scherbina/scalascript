@@ -5,9 +5,9 @@ milestone names) by 2026-06-02.** See §3 below for the original roadmap; see
 §3b for the what-shipped summary and current benchmark numbers.
 
 Companion docs:
-- [`docs/specs/vm-jit-spec.md`](vm-jit-spec.md) — register VM + BytecodeJIT spec and end-to-end numbers
-- [`docs/specs/vm-jit-next.md`](vm-jit-next.md) — next optimization phases (Directions A–C backlog)
-- [`docs/specs/instancev-array-repr-spec.md`](instancev-array-repr-spec.md) — Direction B (InstanceV array repr)
+- [`specs/vm-jit-spec.md`](vm-jit-spec.md) — register VM + BytecodeJIT spec and end-to-end numbers
+- [`specs/vm-jit-next.md`](vm-jit-next.md) — next optimization phases (Directions A–C backlog)
+- [`specs/instancev-array-repr-spec.md`](instancev-array-repr-spec.md) — Direction B (InstanceV array repr)
 - [`docs/interpreter-perf-findings-2026-06.md`](interpreter-perf-findings-2026-06.md) — JFR profiling 2026-06-02
 - [`docs/benchmarks.md`](benchmarks.md) — how to run benchmarks
 
@@ -174,7 +174,7 @@ workloads:
 | `pureCallSum` | ~13 ms | 0.28 ms | 47× |
 
 Full cross-backend numbers and JFR findings are in
-[`docs/specs/vm-jit-next.md`](vm-jit-next.md) and
+[`specs/vm-jit-next.md`](vm-jit-next.md) and
 [`docs/interpreter-perf-findings-2026-06.md`](interpreter-perf-findings-2026-06.md).
 
 **Outstanding from v1.61 spec:**

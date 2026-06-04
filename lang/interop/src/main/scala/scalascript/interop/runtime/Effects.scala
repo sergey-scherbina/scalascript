@@ -1,6 +1,6 @@
 package scalascript.interop.runtime
 
-/** Tier 2 of the Scala ↔ ScalaScript interop (docs/specs/scala-interop.md).
+/** Tier 2 of the Scala ↔ ScalaScript interop (specs/scala-interop.md).
  *
  *  Scala-friendly wrappers around the ScalaScript effect runtime
  *  (`_ssc_runtime._handle`, `_ssc_runtime.runActors`, …).

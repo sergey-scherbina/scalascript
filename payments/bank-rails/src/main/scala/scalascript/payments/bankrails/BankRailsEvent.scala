@@ -1,7 +1,7 @@
 package scalascript.payments.bankrails
 
 /** Typed webhook event union for all supported bank rails.
- *  See docs/specs/bank-rails.md §7 for event taxonomy. */
+ *  See specs/bank-rails.md §7 for event taxonomy. */
 enum BankRailsEvent:
   // ── SEPA Credit Transfer ─────────────────────────────────────────────────
   case SepaTransferCompleted(transfer: BankTransfer)

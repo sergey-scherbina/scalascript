@@ -596,7 +596,7 @@ object JvmBytecode:
    *  in-process via [[Scala3Driver]].  The returned out-dir holds the
    *  resulting `.class` files; the caller is responsible for clean-up.
    *
-   *  v2.0 / interop Tier 4 — see docs/specs/scala-interop.md. */
+   *  v2.0 / interop Tier 4 — see specs/scala-interop.md. */
   def compileFacade(
       facadeSources: Map[String, String],
       classpathDirs: List[os.Path]
@@ -640,7 +640,7 @@ object JvmBytecode:
    *  `smapByModule`.  Facade classes are not SMAP-injected (they're
    *  generated from `.scim`, not from `.ssc` lines).
    *
-   *  v2.0 / interop Tier 4 — see docs/specs/scala-interop.md. */
+   *  v2.0 / interop Tier 4 — see specs/scala-interop.md. */
   def packBundlesAsJarWithFacade(
       bundles:        List[(String, String)],
       smapByModule:   Map[String, String],

@@ -306,13 +306,13 @@ extern def setAutoReelect(enabled: Boolean): Unit
 // Switch this node's leader-election protocol off Bully onto Raft.
 // `electLeader` / `currentLeader` / `subscribeLeaderEvents` keep the
 // same shape; the underlying algorithm changes.  See
-// `docs/specs/cluster-raft.md` §6 for the full spec.  Must be called once,
+// `specs/cluster-raft.md` §6 for the full spec.  Must be called once,
 // before any `electLeader()`.
 extern def useRaftLeaderElection(): Unit
 
 // Switch this node onto an external-coordinator adapter (etcd / Consul /
 // ZooKeeper / custom).  Pass four functions covering the lease lifecycle;
-// see `docs/specs/cluster-raft.md` §5.  `electLeader` becomes a no-op (the
+// see `specs/cluster-raft.md` §5.  `electLeader` becomes a no-op (the
 // coordinator drives elections); `currentLeader` returns the lease
 // holder; `subscribeLeaderEvents` fires on lease changes.
 //

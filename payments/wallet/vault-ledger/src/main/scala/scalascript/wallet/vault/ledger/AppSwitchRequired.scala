@@ -6,7 +6,7 @@ package scalascript.wallet.vault.ledger
  *  this to the user ("open the Ethereum app on your Ledger") and
  *  retry the signing operation after the user switches.
  *
- *  See docs/specs/wallet-spi.md §5.1 ("App switching UX"). */
+ *  See specs/wallet-spi.md §5.1 ("App switching UX"). */
 final case class AppSwitchRequired(currentApp: String, requiredApp: String)
   extends RuntimeException(
     s"Ledger app mismatch: currently '$currentApp', need '$requiredApp'. " +

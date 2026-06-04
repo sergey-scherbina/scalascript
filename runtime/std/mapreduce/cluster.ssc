@@ -16,7 +16,7 @@ opens WS channels to each listed node and returns a `Cluster` handle; the
 coordinator uses the handle to spawn remote workers.  `cluster.close()`
 tears down all connections.
 
-The hard-no list (from `docs/specs/mapreduce.md` §8) applies:
+The hard-no list (from `specs/mapreduce.md` §8) applies:
 
 - **No implicit cluster discovery** — callers must enumerate nodes.
 - **No cross-language workers** — all nodes speak ScalaScript actors.

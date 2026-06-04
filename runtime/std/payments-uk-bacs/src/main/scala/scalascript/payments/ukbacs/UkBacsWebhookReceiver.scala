@@ -26,7 +26,7 @@ import javax.crypto.spec.SecretKeySpec
  *      JSON: { "type": "...", "ref": "...", "code": "...", "description": "..." }
  *      The "code" field carries the ARUDD/ADDACS reason code (0, 1, 2, 3, 5, 6, B, C, F, G, H).
  *
- *  ARUDD return codes (from docs/specs/international-bank-rails.md §v1.55.4):
+ *  ARUDD return codes (from specs/international-bank-rails.md §v1.55.4):
  *    0  — Instruction cancelled — refer to payer
  *    1  — Instruction cancelled — new instruction due
  *    2  — Payer deceased
@@ -39,7 +39,7 @@ import javax.crypto.spec.SecretKeySpec
  *    G  — Bank account closed on customer instructions
  *    H  — Institution refused to accept direct debit
  *
- *  See docs/specs/international-bank-rails.md §7 (BACS DD) for full webhook taxonomy.
+ *  See specs/international-bank-rails.md §7 (BACS DD) for full webhook taxonomy.
  */
 class UkBacsWebhookReceiver(
     override val config:   WebhookConfig = WebhookConfig(),
@@ -123,7 +123,7 @@ class UkBacsWebhookReceiver(
     diff == 0
 
 /** ARUDD/ADDACS return reason codes.
- *  See docs/specs/international-bank-rails.md §v1.55.4 for the full table.
+ *  See specs/international-bank-rails.md §v1.55.4 for the full table.
  */
 object AruddCode:
   /** Return a human-readable description for a given ARUDD reason code. */

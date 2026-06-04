@@ -4,7 +4,7 @@ import java.util.ServiceLoader
 import scala.jdk.CollectionConverters.*
 
 /** ServiceLoader-backed registry of `CliCommand` providers. Discovery is from
- *  `META-INF/services/scalascript.cli.CliCommand`; see docs/specs/cli-command-spi.md. */
+ *  `META-INF/services/scalascript.cli.CliCommand`; see specs/cli-command-spi.md. */
 object CommandRegistry:
 
   private lazy val cache: List[CliCommand] =

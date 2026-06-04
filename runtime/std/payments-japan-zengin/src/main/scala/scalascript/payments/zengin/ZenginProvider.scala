@@ -25,7 +25,7 @@ import scala.jdk.CollectionConverters.*
  *  Amount: JPY has no minor unit (0 decimal places).  `Money.minorUnits` equals
  *  the yen integer amount directly.
  *
- *  See docs/specs/international-bank-rails.md §v1.55.7 for full spec.
+ *  See specs/international-bank-rails.md §v1.55.7 for full spec.
  */
 /** @param config  Zengin adapter configuration
  *  @param nowJst  injectable clock for settlement window checks (defaults to real time);
@@ -183,7 +183,7 @@ class ZenginProvider(
 
 
 /** Zengin adapter configuration.
- *  See docs/specs/international-bank-rails.md §v1.55.7 for auth and field descriptions. */
+ *  See specs/international-bank-rails.md §v1.55.7 for auth and field descriptions. */
 case class ZenginConfig(
   clientId:            String,   // aggregator client ID
   apiKey:              String,   // aggregator API key (used in HMAC-SHA256 signing)

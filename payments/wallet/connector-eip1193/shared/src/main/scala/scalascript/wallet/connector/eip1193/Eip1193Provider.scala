@@ -26,7 +26,7 @@ import scalascript.wallet.spi.*
  *
  *  Anything else surfaces as `4200 unsupported method`.
  *
- *  See docs/specs/wallet-spi.md §7.1 for the connector design. */
+ *  See specs/wallet-spi.md §7.1 for the connector design. */
 class Eip1193Provider(
   val manager: AccountManager,
   ctxFor:      ChainId => ChainContext,

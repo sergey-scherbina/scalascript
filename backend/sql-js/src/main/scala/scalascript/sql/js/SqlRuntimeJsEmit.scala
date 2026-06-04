@@ -12,7 +12,7 @@ import java.io.ByteArrayOutputStream
  *  source of truth; the .mjs source itself lives in
  *  `src/main/resources/scalascript/sql/js/sql-runtime.mjs`.
  *
- *  Spec: docs/specs/browser-sql.md § "Module layout", § "Runtime contract".
+ *  Spec: specs/browser-sql.md § "Module layout", § "Runtime contract".
  */
 object SqlRuntimeJsEmit:
 

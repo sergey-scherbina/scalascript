@@ -262,7 +262,7 @@ top of the JFR findings. Each was JFR-validated or A/B-proven.
 After this session, the cumulative wins exhausted every micro-opt the
 JFR survey suggested. The remaining headroom is in three strategic
 directions captured in `~/.discovering-knuth.md` and
-`docs/specs/instancev-array-repr-spec.md`:
+`specs/instancev-array-repr-spec.md`:
 
 - **Direction A** — BytecodeJit incremental extensions (5 slices,
   proven pattern). `WORK_QUEUE.md` items `phase-c-bytecode-block-single`,

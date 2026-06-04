@@ -28,7 +28,7 @@ import java.time.Instant
  *  Per-transaction limit: AUD 1,000,000 (standard NPP cap; higher limits require
  *  bilateral agreement with the receiving NPP participant).
  *
- *  See docs/specs/payment-rails-apac.md §AU_NPP.
+ *  See specs/payment-rails-apac.md §AU_NPP.
  */
 class AuNppProvider(config: AuNppConfig) extends BankRailsProvider:
 

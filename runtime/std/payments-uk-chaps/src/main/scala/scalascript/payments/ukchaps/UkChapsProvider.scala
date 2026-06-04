@@ -29,7 +29,7 @@ import java.time.{Duration, Instant}
  *
  *  Wire format: ISO 20022 pacs.008.001.08 with SvcLvl=CHAPS, SttlmMtd=INDA.
  *
- *  See docs/specs/international-bank-rails.md §v1.55.5.
+ *  See specs/international-bank-rails.md §v1.55.5.
  */
 class UkChapsProvider(config: UkChapsConfig) extends BankRailsProvider:
 

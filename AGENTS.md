@@ -76,7 +76,7 @@ The canonical reference is [`docs/benchmarks.md`](docs/benchmarks.md): what
 each bench measures, when to use it, how to add a new one, and the gotchas
 (e.g. `Set(...)` does not work in the bench harness because
 `BuiltinsRuntime.initBuiltins` is skipped; use `.toSet`). When recording
-baselines in `SPRINT.md` / `docs/specs/vm-jit-next.md`, **name the
+baselines in `SPRINT.md` / `specs/vm-jit-next.md`, **name the
 `scripts/bench` command that produced the number** so the next agent
 re-runs the same configuration.
 
@@ -86,7 +86,7 @@ Project documentation in `AGENTS.md` is the durable session brief used by
 every agent (and across languages). Keep it consistently in English even
 when the surrounding conversation is in another language. The same rule
 applies to all other shared documentation files (`docs/`, `BACKLOG.md`,
-`docs/specs/vm-jit-next.md`, etc.) unless they are explicitly localised.
+`specs/vm-jit-next.md`, etc.) unless they are explicitly localised.
 
 ## MANDATORY: persist everything needed to continue from a fresh context
 
@@ -129,7 +129,7 @@ chore. The moment you learn something durable, record it.
 | Open work + status, high-level | `BACKLOG.md` |
 | Pending task queue + per-task implementation notes + gotchas | `SPRINT.md` |
 | Completed tasks, newest first | `CHANGELOG.md` |
-| Design specs, roadmaps | `docs/*.md` |
+| Design specs, roadmaps | `specs/*.md` |
 | Project-specific durable knowledge | `~/.claude/projects/.../memory/project_*.md` |
 | Reusable methodology, user preferences | `~/.claude/projects/.../memory/feedback_*.md` |
 | Point-in-time decisions tied to a specific change | Git commit messages |
@@ -137,7 +137,7 @@ chore. The moment you learn something durable, record it.
 
 The same fact can — and often should — live in two places. A benchmark
 baseline written into both `SPRINT.md` (where the next agent looks
-first when asked "what to do") and `docs/specs/vm-jit-next.md` (where the
+first when asked "what to do") and `specs/vm-jit-next.md` (where the
 spec is self-contained reading) survives a careless edit to one of them.
 Defense in depth.
 
@@ -272,8 +272,6 @@ Bridge hooks that the interpreter exposes *to* plugins (e.g. `NativeContext.dbCo
 
 ## Spec-driven development
 
-specs: docs/specs
-
 See the `/spec-dev` skill for the full workflow (write → implement → verify).
 
 Skill location: `.agents/plugins/spec-dev/commands/spec-dev.md` (submodule).
@@ -296,9 +294,9 @@ referenced from the spec and `README.md`. A feature with no example is
 incomplete for milestone-closure purposes.
 
 Existing specs to mirror in style:
-[`docs/specs/backend-spi.md`](docs/specs/backend-spi.md),
-[`docs/specs/x402.md`](docs/specs/x402.md),
-[`docs/specs/runtime-server-strategic-plan.md`](docs/specs/runtime-server-strategic-plan.md).
+[`specs/backend-spi.md`](specs/backend-spi.md),
+[`specs/x402.md`](specs/x402.md),
+[`specs/runtime-server-strategic-plan.md`](specs/runtime-server-strategic-plan.md).
 
 ## Workflow for parallel agents
 

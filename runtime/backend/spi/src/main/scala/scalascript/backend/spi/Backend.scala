@@ -3,7 +3,7 @@ package scalascript.backend.spi
 import scalascript.ir.{NormalizedModule, NormalizedBlock, SymbolRef, Value, QualifiedName}
 
 /** The Backend trait — produces target-platform output from normalised IR.
- *  See docs/specs/backend-spi.md §4.2.
+ *  See specs/backend-spi.md §4.2.
  *
  *  Implementations register via `META-INF/services/scalascript.backend.spi.Backend`
  *  (Stage 5) for in-process, or via `plugin.yaml` with a subprocess

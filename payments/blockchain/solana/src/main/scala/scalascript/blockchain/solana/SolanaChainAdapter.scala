@@ -11,7 +11,7 @@ import scalascript.crypto.{Curve, HashAlgo, PublicKey}
  *  and SPL Token transfer, versioned transactions, Address
  *  Lookup Tables) follows in subsequent slices.
  *
- *  See docs/specs/blockchain-spi.md §6 for the chain-adapter contract. */
+ *  See specs/blockchain-spi.md §6 for the chain-adapter contract. */
 class SolanaChainAdapter(val chainId: ChainId)(using ec: ExecutionContext) extends ChainAdapter:
 
   type Tx       = SolanaTx

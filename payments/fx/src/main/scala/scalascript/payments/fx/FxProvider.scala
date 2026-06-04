@@ -16,7 +16,7 @@ import scala.concurrent.{Future, ExecutionContext}
  *
  *  Implementations must be thread-safe (lazy-cache with synchronized refresh).
  *
- *  See `docs/specs/traditional-payments.md §FxProvider`.
+ *  See `specs/traditional-payments.md §FxProvider`.
  */
 trait FxProvider:
 

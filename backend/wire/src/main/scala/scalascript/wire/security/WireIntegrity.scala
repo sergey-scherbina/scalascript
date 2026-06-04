@@ -12,7 +12,7 @@ import scalascript.wire.{WireDecodeError, WireEnvelope}
  *  is stored as a `"hmac"` header.  Inbound frames must carry a valid HMAC
  *  or they are rejected.
  *
- *  Spec: docs/specs/distributed-wire-protocol.md §Frame Integrity */
+ *  Spec: specs/distributed-wire-protocol.md §Frame Integrity */
 object WireIntegrity:
 
   val Algorithm = "HmacSHA256"

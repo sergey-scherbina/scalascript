@@ -6,7 +6,7 @@ package scalascript.wire.security
  *  JVM transport layer.  Wire-transport implementations receive a
  *  `WireTlsConfig` and configure `SSLContext` accordingly.
  *
- *  Spec: docs/specs/distributed-wire-protocol.md §Transport Security */
+ *  Spec: specs/distributed-wire-protocol.md §Transport Security */
 case class WireTlsConfig(
   /** Path to the JKS/PKCS12 keystore (server/client identity). */
   keystorePath:     String,

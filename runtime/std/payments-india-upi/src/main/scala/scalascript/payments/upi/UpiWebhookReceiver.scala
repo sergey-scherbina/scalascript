@@ -22,7 +22,7 @@ import java.util.Base64
  *  When publicKeyPem is empty (e.g. in tests with no key configured), signature
  *  verification is skipped — callers should only do this in test environments.
  *
- *  See docs/specs/international-bank-rails.md section 7 (India UPI).
+ *  See specs/international-bank-rails.md section 7 (India UPI).
  */
 class UpiWebhookReceiver(
     publicKeyPem:          String         = "",

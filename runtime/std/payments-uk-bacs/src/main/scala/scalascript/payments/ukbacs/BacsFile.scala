@@ -26,7 +26,7 @@ import java.time.format.DateTimeFormatter
  *    - Amounts are in pence (integer, no decimal point).
  *    - Dates in DDMMYY format (processing date for the entry).
  *
- *  See docs/specs/international-bank-rails.md §v1.55.4 for spec.
+ *  See specs/international-bank-rails.md §v1.55.4 for spec.
  */
 object BacsFile:
 

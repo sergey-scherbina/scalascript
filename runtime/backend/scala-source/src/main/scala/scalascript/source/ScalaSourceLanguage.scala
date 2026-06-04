@@ -3,7 +3,7 @@ package scalascript.source
 import scalascript.backend.spi.*
 import scalascript.ir
 
-/** SourceLanguage plugin for `scala` fence blocks (docs/specs/backend-spi.md §9).
+/** SourceLanguage plugin for `scala` fence blocks (specs/backend-spi.md §9).
  *
  *  Stage 9 skeleton.  Registers via ServiceLoader so
  *  `SourceLanguageRegistry.lookup("scala")` resolves to this instance.

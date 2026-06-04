@@ -15,7 +15,7 @@ import scalascript.ir.{QualifiedName, NormalizedModule}
  *  private key.  Webhook verification uses RSA-SHA256 with the aggregator public key.
  *
  *  Registered via META-INF/services/scalascript.backend.spi.Backend.
- *  See docs/specs/international-bank-rails.md §v1.55.6.
+ *  See specs/international-bank-rails.md §v1.55.6.
  */
 class UpiPlugin extends Backend:
   def id:          String = "scalascript-payments-india-upi"

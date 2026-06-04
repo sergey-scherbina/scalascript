@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.LongAdder
  *  One `WireMetrics` instance per connection/node.  Thread-safe via
  *  `LongAdder` (low-contention increment) and `AtomicLong` (read + CAS).
  *
- *  Spec: docs/specs/distributed-wire-protocol.md §Observability */
+ *  Spec: specs/distributed-wire-protocol.md §Observability */
 class WireMetrics:
   private val _framesSent      = LongAdder()
   private val _framesReceived  = LongAdder()

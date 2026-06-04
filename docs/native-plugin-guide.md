@@ -257,5 +257,5 @@ binaries are an opt-in optimisation for distribution-sensitive scenarios.
 
 - `native-image-configs/` — reflection and resource configs for `ssc` itself (reference)
 - `tools/plugin-host/` — `SubprocessHost` source
-- `docs/specs/backend-spi.md` — Backend SPI contract
+- `specs/backend-spi.md` — Backend SPI contract
 - `BACKLOG.md §CLI — native binary` — implementation notes for all four phases

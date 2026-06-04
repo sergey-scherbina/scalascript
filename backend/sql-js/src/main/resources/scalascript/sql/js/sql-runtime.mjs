@@ -1,5 +1,5 @@
 // scalascript browser-side SQL runtime (v1.27).
-// Spec: docs/specs/browser-sql.md.
+// Spec: specs/browser-sql.md.
 //
 // Loaded verbatim into bundles emitted by backend-js / backend-node /
 // backend-wasm when the source has any `sql` fenced block.  Exposes:

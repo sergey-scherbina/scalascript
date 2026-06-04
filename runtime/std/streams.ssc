@@ -244,4 +244,4 @@ a ++ 42            // (1, "hello", 42)   — appends bare element
 () ++ 42           // 42                 — identity, not (42,)
 ```
 
-See `docs/specs/tuple-monoid.md` for the full algebraic specification.
+See `specs/tuple-monoid.md` for the full algebraic specification.

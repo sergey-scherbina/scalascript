@@ -56,15 +56,15 @@
 - v2.1.3-dstream-spark — `SparkGen` DStream shim: full pipeline DSL emitted inside `@main`, `Feature.DistributedStreams` in `SparkCapabilities`, 14 new tests ✓ (2026-05-27)
 - v2.1.2-dstream-native-unbounded — Processing-time windowing, `timerProcessing`, `withWatermark`, `EventTime`+`WatermarkPerfect` capabilities, 30 tests ✓ (2026-05-27)
 - v2.1.1-dstream-native-bounded — `DStream[T]` / `Pipeline` native bounded backend, DirectRunner, 23 tests, `examples/distributed-streams.ssc` ✓ (2026-05-27)
-- v1.53 — Traditional Payment Processors spec (`docs/specs/traditional-payments.md`) — `PaymentProvider` SPI, `Money` type, `WebhookReceiver`, 4 PSP adapter families planned ✓ (2026-05-27)
-- v2.1.0 — Distributed Streams spec (`docs/specs/distributed-streams.md`) — DStream[T], full Beam model, 5 backends, capability system ✓ (2026-05-27)
-- v1.52 — Deploy to Hostings/Clouds/K8s spec (`docs/specs/deploy.md`) + go decision ✓ (2026-05-27)
-- v1.51 — Streams with Backpressure spec (`docs/specs/streams.md`) + go decision ✓ (2026-05-27)
+- v1.53 — Traditional Payment Processors spec (`specs/traditional-payments.md`) — `PaymentProvider` SPI, `Money` type, `WebhookReceiver`, 4 PSP adapter families planned ✓ (2026-05-27)
+- v2.1.0 — Distributed Streams spec (`specs/distributed-streams.md`) — DStream[T], full Beam model, 5 backends, capability system ✓ (2026-05-27)
+- v1.52 — Deploy to Hostings/Clouds/K8s spec (`specs/deploy.md`) + go decision ✓ (2026-05-27)
+- v1.51 — Streams with Backpressure spec (`specs/streams.md`) + go decision ✓ (2026-05-27)
 - v1.50 — GraalVM native-image build + `ssc-plugin-host` bridge + native plugin guide ✓ (2026-05-27)
 - v1.12.3 — Effects stdlib: `NonDet`, `Reader`, typed discharge signatures, `examples/algebraic-effects.ssc` ✓ (2026-05-26)
 - v1.12.2 — One-shot effect runtime fast path + JS `function*` + dynamic violation check ✓ (2026-05-26)
 - v1.12.1 — Typed Algebraic Effects type system + parser + diagnostics ✓ (2026-05-26)
-- v1.12 — Typed Algebraic Effects spec (`docs/specs/algebraic-effects.md`) + go decision ✓ (2026-05-26)
+- v1.12 — Typed Algebraic Effects spec (`specs/algebraic-effects.md`) + go decision ✓ (2026-05-26)
 - v1.48 (SwiftUI Phase 3) — Reactive list lowering + `@Observable` AppModel ✓ (2026-05-26)
 - v1.46 — Typed Route Clients (all phases, including pagination) ✓ (2026-05-26)
 - v1.48 — JavaFX Typed Route Clients ✓ (2026-05-26)
@@ -82,14 +82,14 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list.
 
 | Direction | Top task | Spec |
 |-----------|----------|------|
-| **Frontend & Clients** | graph-storage-fullstack | `docs/specs/graph-storage.md §Phase 6` |
-| **Language & Compiler** | secret-resolvers-cloud | `docs/specs/secret-resolvers.md §aws-secret §gcp-secret §azure-kv` |
+| **Frontend & Clients** | graph-storage-fullstack | `specs/graph-storage.md §Phase 6` |
+| **Language & Compiler** | secret-resolvers-cloud | `specs/secret-resolvers.md §aws-secret §gcp-secret §azure-kv` |
 | **Database** | _(queue empty)_ | — |
-| **Payments & Blockchain** | v1.57-payment-rails-apac | `docs/specs/international-bank-rails.md` (new v1.57 spec) |
+| **Payments & Blockchain** | v1.57-payment-rails-apac | `specs/international-bank-rails.md` (new v1.57 spec) |
 | **Native Platform** | _(queue empty)_ | — |
-| **Distribution & Tooling** | v1.57-fx-provider | `docs/specs/traditional-payments.md §FxProvider` |
-| **Runtime & Distributed Placement** | v1.63.1-stream-bridge-basic-ops | `docs/specs/distributed-runtime.md §v1.63.1` |
-| **Runtime & Distributed** | v1.62.1-wire-core | `docs/specs/distributed-wire-protocol.md §Phase 1` |
+| **Distribution & Tooling** | v1.57-fx-provider | `specs/traditional-payments.md §FxProvider` |
+| **Runtime & Distributed Placement** | v1.63.1-stream-bridge-basic-ops | `specs/distributed-runtime.md §v1.63.1` |
+| **Runtime & Distributed** | v1.62.1-wire-core | `specs/distributed-wire-protocol.md §Phase 1` |
 
 Multiple agents can work in parallel — one per direction. Tell each: `"работай над <Direction>"`.
 

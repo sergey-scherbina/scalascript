@@ -28,7 +28,7 @@ case class Budget(
 /** Host-controlled policy that gates what the mcp-wallet-server
  *  exposes and how it behaves. The Policy is constructed by the host
  *  and is **not** mutable via MCP — an MCP client cannot loosen
- *  policy. See docs/specs/mcp-x402-wallet.md §5.3 / §9 for the security
+ *  policy. See specs/mcp-x402-wallet.md §5.3 / §9 for the security
  *  rationale. */
 case class Policy(
   /** MCP client identifiers (origin / app id) allowed to talk to the

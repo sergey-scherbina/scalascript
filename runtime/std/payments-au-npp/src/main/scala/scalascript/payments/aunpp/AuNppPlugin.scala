@@ -9,7 +9,7 @@ import scalascript.ir.{QualifiedName, NormalizedModule}
  *  intrinsics — NPP operations are runtime adapter concerns, not compile-time.
  *
  *  Registered via META-INF/services/scalascript.backend.spi.Backend.
- *  See docs/specs/payment-rails-apac.md §AU_NPP.
+ *  See specs/payment-rails-apac.md §AU_NPP.
  */
 class AuNppPlugin extends Backend:
   def id:          String = "scalascript-payments-au-npp"

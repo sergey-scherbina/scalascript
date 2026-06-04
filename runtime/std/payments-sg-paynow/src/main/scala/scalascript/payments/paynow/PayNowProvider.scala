@@ -34,7 +34,7 @@ import java.time.Instant
  *  AML/KYC note: MAS requires Customer Due Diligence for transactions above S$5,000 from
  *  individuals. Aggregators enforce this at on-boarding and per-transaction.
  *
- *  See docs/specs/international-bank-rails.md §v1.56.8.
+ *  See specs/international-bank-rails.md §v1.56.8.
  */
 class PayNowProvider(config: PayNowConfig) extends BankRailsProvider:
 

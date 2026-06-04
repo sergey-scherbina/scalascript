@@ -25,7 +25,7 @@ import java.time.format.DateTimeFormatter
  *  If the PSB rejects the instruction (e.g. account closed, wrong details),
  *  the rejection arrives via ADDACS and maps to `BacsAruddReturned`.
  *
- *  See docs/specs/international-bank-rails.md §v1.55.4 for spec.
+ *  See specs/international-bank-rails.md §v1.55.4 for spec.
  */
 object AuddisFile:
 

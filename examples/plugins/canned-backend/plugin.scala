@@ -12,7 +12,7 @@
 // Discovery: drop a plugin.yaml next to this file pointing `executable`
 // at the resulting binary (or at `scala-cli run plugin.scala`).
 //
-// See docs/specs/backend-spi-protocol.md for the wire shape.
+// See specs/backend-spi-protocol.md for the wire shape.
 
 import scala.io.StdIn
 import upickle.default.*

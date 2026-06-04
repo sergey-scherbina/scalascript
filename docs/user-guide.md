@@ -231,7 +231,7 @@ ssc> :set errorDetails true    # re-enable (default)
 errorDetails = true
 ```
 
-See [`docs/specs/repl-web.md`](repl-web.md) and [`docs/specs/mount-handlers.md`](mount-handlers.md)
+See [`specs/repl-web.md`](repl-web.md) and [`specs/mount-handlers.md`](mount-handlers.md)
 for the full command reference, handler-file contract, and typed-handler deserialization rules.
 
 ### `run --target jvm`, `run-jvm`, and `run-js` — compile and run in one step
@@ -551,7 +551,7 @@ a ++ 42                         // (1, "hello", 42)
 
 Effect runners use `Out(E) ++ (R,)` — `runStream` returns `(Source[A], R)`,
 `runLogger` returns `R` (because `Out(Logger) = ()` and `() ++ R = R`).
-See `docs/specs/tuple-monoid.md` for the full algebraic specification.
+See `specs/tuple-monoid.md` for the full algebraic specification.
 
 ### Optics
 
@@ -697,7 +697,7 @@ def greetUser(): String ! Reader[String] =
 runReader("Alice")(greetUser())   // "Hello, Alice!"
 ```
 
-See [`docs/specs/algebraic-effects.md`](algebraic-effects.md) for the full spec.
+See [`specs/algebraic-effects.md`](algebraic-effects.md) for the full spec.
 
 ### Direct Syntax (Do-Notation)
 
@@ -849,7 +849,7 @@ declarations have been collected.
 Planned, not implemented yet: a shared contract-validation command family will
 check OpenAPI and GraphQL contracts against ScalaScript route/resolver source,
 typed request/response shapes, status/error metadata, profiles, and overlays.
-See [`docs/specs/contract-validation.md`](contract-validation.md) for the planned
+See [`specs/contract-validation.md`](contract-validation.md) for the planned
 model.
 
 Per-route operation metadata can be attached to the next `route(...)` call with
@@ -966,7 +966,7 @@ Mounted on `/greet/:name`, a request `GET /greet/alice?lang=es` fills `name` fro
 (name: String, req: Request, ctx: Map[String, Any]) // all three
 ```
 
-See [`docs/specs/mount-handlers.md`](mount-handlers.md) for the full typed handler signature table and deserialization rules.
+See [`specs/mount-handlers.md`](mount-handlers.md) for the full typed handler signature table and deserialization rules.
 
 ### Request and Response
 
@@ -2191,7 +2191,7 @@ ssc plugin pack src/                    # create .sscpkg from source
 
 The plugin template creates a minimal Backend SPI project, `.sscpkg` package
 manifest, extern source declarations, and a GitHub Actions release workflow.
-See `docs/specs/community-plugins.md`.
+See `specs/community-plugins.md`.
 
 Source-language plugins own fenced code-block tags. The CLI bundles
 SourceLanguage plugins for `scala`, `html`, `css`, `javascript`/`js`, `xml`,
@@ -2517,7 +2517,7 @@ stream.writeStream.format("console").start()
 ```
 
 Examples: `spark-streaming-rate-console.ssc`, `spark-streaming-file-parquet.ssc`,
-`spark-streaming-kafka.ssc`. Full spec: [`docs/specs/spark-streaming.md`](spark-streaming.md).
+`spark-streaming-kafka.ssc`. Full spec: [`specs/spark-streaming.md`](spark-streaming.md).
 
 ### 13.7 Delta Lake (Lakehouse L.2)
 
@@ -2531,7 +2531,7 @@ val back = spark.read.format("delta").load("/tmp/users-delta")
 ```
 
 Iceberg / Hudi are deferred until upstream publishes Spark 4 + `_2.13`
-artifacts. Full spec: [`docs/specs/spark-lakehouse.md`](spark-lakehouse.md).
+artifacts. Full spec: [`specs/spark-lakehouse.md`](spark-lakehouse.md).
 
 ### 13.8 Hive metastore + `@TempView` (Phase G)
 
@@ -2570,7 +2570,7 @@ val metrics = Dataset.fromCsvAs[UserMetric](
 The reader schema uses the external `display_name` column, then projects it
 back to `name` before Spark's `Encoder[UserMetric]` materializes the dataset.
 
-Full spec: [`docs/specs/spark-catalog.md`](spark-catalog.md).
+Full spec: [`specs/spark-catalog.md`](spark-catalog.md).
 
 ### 13.9 MLlib (Phase M)
 
@@ -2593,7 +2593,7 @@ model.save("/tmp/model")
 val loaded = PipelineModel.load("/tmp/model")
 ```
 
-Full spec: [`docs/specs/spark-mllib.md`](spark-mllib.md).
+Full spec: [`specs/spark-mllib.md`](spark-mllib.md).
 
 ### 13.10 Cluster submission (`ssc submit`)
 
@@ -2649,7 +2649,7 @@ Examples: `wasm-fibonacci.ssc`, `wasm-sorting.ssc`, `wasm-matrix.ssc`,
 `wasm-primes.ssc`, `wasm-collections.ssc`, `wasm-scalascript.ssc`
 (Point geometry), `wasm-http.ssc` (HTTP Fetch via scalajs-dom).
 
-Full reference: [`docs/specs/wasm-backend.md`](wasm-backend.md).
+Full reference: [`specs/wasm-backend.md`](wasm-backend.md).
 
 ---
 
@@ -2679,8 +2679,8 @@ ShowSignal(count.get > 5) { text("big") }
 ForSignal(items) { item => li { text(item.title) } }
 ```
 
-See [`docs/specs/frontend-framework-spi-plan.md`](frontend-framework-spi-plan.md) and
-[`docs/specs/frontend-abstract-model.md`](frontend-abstract-model.md). Examples
+See [`specs/frontend-framework-spi-plan.md`](frontend-framework-spi-plan.md) and
+[`specs/frontend-abstract-model.md`](frontend-abstract-model.md). Examples
 under `examples/frontend/`.
 
 ---
@@ -3268,7 +3268,7 @@ val html = Ssr.renderToHtml(tree, Theme.default)
 val doc  = Ssr.renderDocument(tree, title = "Demo", theme = Theme.dark)
 ```
 
-Spec: [`docs/specs/frontend-toolkit-spec.md`](frontend-toolkit-spec.md).
+Spec: [`specs/frontend-toolkit-spec.md`](frontend-toolkit-spec.md).
 Cross-backend integration: [`docs/frontend-usage.md`](frontend-usage.md).
 
 ---
@@ -3392,10 +3392,10 @@ cluster Demo:
   quorum(2)
 ```
 
-Specs: [`docs/specs/cluster-management.md`](cluster-management.md),
-[`docs/specs/cluster-raft.md`](cluster-raft.md),
-[`docs/specs/cluster-federation.md`](cluster-federation.md),
-[`docs/specs/client-zookeeper.md`](client-zookeeper.md).
+Specs: [`specs/cluster-management.md`](cluster-management.md),
+[`specs/cluster-raft.md`](cluster-raft.md),
+[`specs/cluster-federation.md`](cluster-federation.md),
+[`specs/client-zookeeper.md`](client-zookeeper.md).
 
 ---
 
@@ -3452,11 +3452,11 @@ creates RAW transactions via `/v1/transactions`, and polls
 `/v1/transactions/{id}` until the signature is completed or failed.
 
 Specs:
-- [`docs/specs/x402.md`](x402.md) — protocol + flows
-- [`docs/specs/blockchain-spi.md`](blockchain-spi.md) — pluggable backends (EVM, Bitcoin, Solana, Cardano)
-- [`docs/specs/micropayment-spi.md`](micropayment-spi.md) — payment family abstraction
-- [`docs/specs/wallet-vault-mpc.md`](wallet-vault-mpc.md) — MPC remote signing vaults
-- [`docs/specs/mcp-x402-wallet.md`](mcp-x402-wallet.md) — MCP × x402 paid LLM tools
+- [`specs/x402.md`](x402.md) — protocol + flows
+- [`specs/blockchain-spi.md`](blockchain-spi.md) — pluggable backends (EVM, Bitcoin, Solana, Cardano)
+- [`specs/micropayment-spi.md`](micropayment-spi.md) — payment family abstraction
+- [`specs/wallet-vault-mpc.md`](wallet-vault-mpc.md) — MPC remote signing vaults
+- [`specs/mcp-x402-wallet.md`](mcp-x402-wallet.md) — MCP × x402 paid LLM tools
 
 Examples: `x402-server.ssc`, `x402-client.ssc`, `x402-metamask.ssc`,
 `x402-cardano.ssc` (end-to-end Cardano flow with CIP-8 wallet + Scalus
@@ -3966,7 +3966,7 @@ same directory you run `ssc` from.
 ### 23.6 Full example
 
 See [examples/pwa/pwa-demo.ssc](../examples/pwa/pwa-demo.ssc) and
-[docs/specs/pwa-plugin.md](pwa-plugin.md) for the full spec and architecture notes.
+[specs/pwa-plugin.md](pwa-plugin.md) for the full spec and architecture notes.
 
 ---
 
@@ -4020,7 +4020,7 @@ java -Dssc.features.darkMode=true   -jar myapp.jar
 ssc run -J-Dscalascript.frontend=vue myapp.ssc
 ```
 
-See [`docs/specs/config-system.md`](config-system.md) §2.4 and §3.1 for the full priority order.
+See [`specs/config-system.md`](config-system.md) §2.4 and §3.1 for the full priority order.
 
 ## 24. REPL Debugger (v1.34)
 
@@ -4093,7 +4093,7 @@ ssc> 1 + 2
 | `:help` | `:h` | Show all debug commands |
 | `:quit` | `:q` | Stop snippet, return to `ssc>` |
 
-See [docs/specs/repl-debugger.md](repl-debugger.md) for the full reference including
+See [specs/repl-debugger.md](repl-debugger.md) for the full reference including
 threading model, `:print` semantics, and known limitations.
 
 ---
@@ -4140,7 +4140,7 @@ ssc publish --target macos           # Mac App Store via fastlane
 `ReactiveSignal[T]` lowers to `@State private var` in the generated Swift
 source.
 
-Full reference: [`docs/specs/swiftui.md`](swiftui.md).
+Full reference: [`specs/swiftui.md`](swiftui.md).
 
 ---
 
@@ -4383,7 +4383,7 @@ Redis/Postgres backends in v1.53.7).
 | `ProviderUnreachable` | Network/PSP outage — retry with backoff |
 | `RateLimitExceeded(retryAfter)` | Too many requests — wait and retry |
 
-Full reference: [`docs/specs/traditional-payments.md`](traditional-payments.md),
+Full reference: [`specs/traditional-payments.md`](traditional-payments.md),
 [`examples/traditional-payments.ssc`](../examples/traditional-payments.ssc).
 
 ---
@@ -4533,29 +4533,29 @@ paths.
 
 ### Feature Quick-Links
 
-- Typed algebraic effects: §4, [docs/specs/algebraic-effects.md](algebraic-effects.md)
+- Typed algebraic effects: §4, [specs/algebraic-effects.md](algebraic-effects.md)
 - Algebraic effects: §4, `docs/architecture.md`
 - Direct syntax: [docs/direct-syntax.md](direct-syntax.md)
-- Coroutines + generators: [docs/specs/coroutines.md](coroutines.md)
-- DSL authoring: [docs/specs/dsl.md](dsl.md)
-- Dataset / MapReduce: [docs/specs/mapreduce.md](mapreduce.md)
+- Coroutines + generators: [specs/coroutines.md](coroutines.md)
+- DSL authoring: [specs/dsl.md](dsl.md)
+- Dataset / MapReduce: [specs/mapreduce.md](mapreduce.md)
 - **SQL databases + secret management: §6, §6.2, [secret-resolvers.md](../secret-resolvers.md)**
-- Apache Spark: §14 above, [docs/specs/spark-streaming.md](spark-streaming.md), [docs/specs/spark-lakehouse.md](spark-lakehouse.md), [docs/specs/spark-catalog.md](spark-catalog.md), [docs/specs/spark-mllib.md](spark-mllib.md)
-- Actors + cluster: [docs/specs/actors-dist.md](actors-dist.md), [docs/specs/cluster-management.md](cluster-management.md)
-- Frontend toolkit + framework SPI: [docs/specs/frontend-toolkit-spec.md](frontend-toolkit-spec.md), [docs/specs/frontend-framework-spi-plan.md](frontend-framework-spi-plan.md)
-- x402 micropayments + wallet SPI: [docs/specs/x402.md](x402.md), [docs/specs/wallet-spi.md](wallet-spi.md), [docs/specs/wallet-spi-scalajs.md](wallet-spi-scalajs.md), [docs/specs/blockchain-spi.md](blockchain-spi.md), [docs/specs/micropayment-spi.md](micropayment-spi.md)
-- MCP: [docs/specs/mcp.md](mcp.md)
-- Metaprogramming: [docs/specs/metaprogramming.md](metaprogramming.md), [docs/specs/arch-metaprogramming-v2.md](arch-metaprogramming-v2.md)
+- Apache Spark: §14 above, [specs/spark-streaming.md](spark-streaming.md), [specs/spark-lakehouse.md](spark-lakehouse.md), [specs/spark-catalog.md](spark-catalog.md), [specs/spark-mllib.md](spark-mllib.md)
+- Actors + cluster: [specs/actors-dist.md](actors-dist.md), [specs/cluster-management.md](cluster-management.md)
+- Frontend toolkit + framework SPI: [specs/frontend-toolkit-spec.md](frontend-toolkit-spec.md), [specs/frontend-framework-spi-plan.md](frontend-framework-spi-plan.md)
+- x402 micropayments + wallet SPI: [specs/x402.md](x402.md), [specs/wallet-spi.md](wallet-spi.md), [specs/wallet-spi-scalajs.md](wallet-spi-scalajs.md), [specs/blockchain-spi.md](blockchain-spi.md), [specs/micropayment-spi.md](micropayment-spi.md)
+- MCP: [specs/mcp.md](mcp.md)
+- Metaprogramming: [specs/metaprogramming.md](metaprogramming.md), [specs/arch-metaprogramming-v2.md](arch-metaprogramming-v2.md)
 - Error handling: [docs/error-handling.md](error-handling.md)
-- Backend SPI: [docs/specs/backend-spi.md](backend-spi.md)
+- Backend SPI: [specs/backend-spi.md](backend-spi.md)
 - Compiler plugins with intrinsics: §21 above, `examples/plugins/crypto-plugin/`
-- Config system (YAML/HOCON/JSON + typed binding): §22 above, [docs/specs/config-system.md](config-system.md)
-- Progressive Web App: §23 above, [docs/specs/pwa-plugin.md](pwa-plugin.md)
-- REPL debugger: §24 above, [docs/specs/repl-debugger.md](repl-debugger.md)
-- SwiftUI / iOS / macOS native targets: §25 above, [docs/specs/swiftui.md](swiftui.md)
+- Config system (YAML/HOCON/JSON + typed binding): §22 above, [specs/config-system.md](config-system.md)
+- Progressive Web App: §23 above, [specs/pwa-plugin.md](pwa-plugin.md)
+- REPL debugger: §24 above, [specs/repl-debugger.md](repl-debugger.md)
+- SwiftUI / iOS / macOS native targets: §25 above, [specs/swiftui.md](swiftui.md)
 - **Deploy plugin (`ssc deploy`): §26 above, [`examples/deploy.ssc`](../examples/deploy.ssc)**
-- **Traditional payment processors: §27 above, [docs/specs/traditional-payments.md](traditional-payments.md), [`examples/traditional-payments.ssc`](../examples/traditional-payments.ssc)**
-- GraalVM native binary: §28 above, [docs/specs/native-platform.md](native-platform.md), [docs/native-plugin-guide.md](native-plugin-guide.md)
-- Library packages: §29 above, [docs/specs/arch-library-modularity.md](arch-library-modularity.md)
-- Restricted quoted macros: §30 above, [docs/specs/arch-metaprogramming-v2.md](arch-metaprogramming-v2.md)
-- Mirror-based custom derives: §31 above, [docs/specs/arch-metaprogramming-v2.md](arch-metaprogramming-v2.md)
+- **Traditional payment processors: §27 above, [specs/traditional-payments.md](traditional-payments.md), [`examples/traditional-payments.ssc`](../examples/traditional-payments.ssc)**
+- GraalVM native binary: §28 above, [specs/native-platform.md](native-platform.md), [docs/native-plugin-guide.md](native-plugin-guide.md)
+- Library packages: §29 above, [specs/arch-library-modularity.md](arch-library-modularity.md)
+- Restricted quoted macros: §30 above, [specs/arch-metaprogramming-v2.md](arch-metaprogramming-v2.md)
+- Mirror-based custom derives: §31 above, [specs/arch-metaprogramming-v2.md](arch-metaprogramming-v2.md)

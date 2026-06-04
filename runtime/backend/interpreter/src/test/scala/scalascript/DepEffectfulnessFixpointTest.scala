@@ -11,7 +11,7 @@ import scalascript.parser.Parser
  *  defs that call primitives directly are marked; defs that call already-
  *  marked defs are marked transitively; pure defs are not marked.
  *
- *  See docs/specs/dep-cps-rewrite.md §6 Step 2 for acceptance criteria. */
+ *  See specs/dep-cps-rewrite.md §6 Step 2 for acceptance criteria. */
 class DepEffectfulnessFixpointTest extends AnyFunSuite with Matchers:
 
   /** Build a JvmGen, seed `depDefs` from the source by parsing it

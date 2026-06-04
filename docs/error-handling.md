@@ -8,9 +8,9 @@ restartable errors as a v1.16 successor dependent on v1.12
 algebraic-effects feasibility.
 
 Companion to [`docs/direct-syntax.md`](direct-syntax.md) §DS-7
-(thrown exceptions NOT auto-wrapped), [`docs/specs/final-tagless.md`](final-tagless.md)
+(thrown exceptions NOT auto-wrapped), [`specs/final-tagless.md`](final-tagless.md)
 (v1.13 — `using` resolution required for `Either[E, *]` monad
-lookup), and [`docs/specs/coroutines.md`](coroutines.md) §6 (algebraic
+lookup), and [`specs/coroutines.md`](coroutines.md) §6 (algebraic
 effects layer where restartable errors live).
 
 ## 1. Motivation

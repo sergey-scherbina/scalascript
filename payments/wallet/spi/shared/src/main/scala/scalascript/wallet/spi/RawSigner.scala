@@ -14,7 +14,7 @@ import scalascript.crypto.{Curve, HashAlgo, PublicKey}
  *  encoding (e.g. EIP-712 digest, EIP-3009 prefix) lives one layer up
  *  in `AccountStrategy` / `ChainAdapter`.
  *
- *  See docs/specs/wallet-spi.md §5 for the design rationale. */
+ *  See specs/wallet-spi.md §5 for the design rationale. */
 trait RawSigner:
   def curve: Curve
   def publicKey: PublicKey

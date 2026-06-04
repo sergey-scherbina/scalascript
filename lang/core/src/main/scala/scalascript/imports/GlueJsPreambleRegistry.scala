@@ -11,7 +11,7 @@ import scala.collection.concurrent.TrieMap
  *  Populated by `ImportResolver.extractSsclib` when it detects a
  *  `glue.js:` entry in `ssclib-manifest.yaml`.
  *
- *  See `docs/specs/arch-ffi.md §6 Phase 4`. */
+ *  See `specs/arch-ffi.md §6 Phase 4`. */
 object GlueJsPreambleRegistry:
 
   private val _preambles = TrieMap.empty[String, String]  // key = dep URI, value = JS content

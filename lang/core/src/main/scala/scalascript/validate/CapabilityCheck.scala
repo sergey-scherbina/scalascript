@@ -6,7 +6,7 @@ import scalascript.backend.spi.{Capabilities, Feature, Diagnostic, OutputKind}
 
 /** Validate a normalised module against a backend's declared capabilities.
  *
- *  Per docs/specs/backend-spi.md §11: core walks the IR, tags the features it
+ *  Per specs/backend-spi.md §11: core walks the IR, tags the features it
  *  uses, intersects with `backend.capabilities.features`, and emits
  *  `Diagnostic.Unsupported` entries for misses.  CLI / WebServer call
  *  this between `Normalize` and `backend.compile`.

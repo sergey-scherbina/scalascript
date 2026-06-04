@@ -25,7 +25,7 @@ import java.time.{Duration, Instant}
  *  `initiateDirectDebit` uses Pix Automático / cobv (cobrança com vencimento) — a
  *  recurring-consent scheduled debit (POST `/v2/cobv`).
  *
- *  See docs/specs/bank-rails.md §8 v1.54.3.
+ *  See specs/bank-rails.md §8 v1.54.3.
  */
 class PixProvider(config: PixConfig) extends BankRailsProvider:
 

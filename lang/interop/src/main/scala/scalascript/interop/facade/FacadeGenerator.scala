@@ -3,7 +3,7 @@ package scalascript.interop.facade
 import scalascript.ir.*
 import scalascript.artifact.ArtifactIO
 
-/** Tier 2 of the Scala ↔ ScalaScript interop (docs/specs/scala-interop.md).
+/** Tier 2 of the Scala ↔ ScalaScript interop (specs/scala-interop.md).
  *
  *  Reads `.scim` artifacts and emits Scala 3 source that re-exports the
  *  v2.0 mangled symbols under their natural dotted FQN.  Consumed by:
@@ -166,7 +166,7 @@ object FacadeGenerator:
     sb.append("// Each `export` aliases a legacy Tier-1 mangled JVM symbol\n")
     sb.append("// (`_ssc_runtime.X`) back to its natural ScalaScript FQN.\n")
     sb.append("// Zero runtime overhead — pure compile-time alias.\n")
-    sb.append("// See docs/specs/scala-interop.md.\n\n")
+    sb.append("// See specs/scala-interop.md.\n\n")
     sb.append(s"import _ssc_runtime as $RuntimeImportAlias\n\n")
     if pkg.isEmpty then
       for (leaf, mangled) <- legacyEntries.toList.sortBy(_._1) do

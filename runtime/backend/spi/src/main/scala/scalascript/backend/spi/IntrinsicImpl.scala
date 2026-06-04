@@ -4,7 +4,7 @@ import scalascript.ir.{IrExpr, EmitContext, TargetCode}
 import scala.util.control.NoStackTrace
 
 /** How a backend implements a single platform intrinsic (`extern def`
- *  marker, see docs/specs/backend-spi.md §8).
+ *  marker, see specs/backend-spi.md §8).
  *
  *  Backends populate `Backend.intrinsics: Map[QualifiedName, IntrinsicImpl]`
  *  to claim implementations.  `CapabilityCheck` (Stage 4) refuses to

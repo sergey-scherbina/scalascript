@@ -6,7 +6,7 @@ package scalascript.wire
  *  and route-client codecs. `schemaId` is a stable, content-addressed hash of
  *  the schema, used for binary compatibility checks in Phase 8.
  *
- *  Spec: docs/specs/distributed-wire-protocol.md §Canonical Model */
+ *  Spec: specs/distributed-wire-protocol.md §Canonical Model */
 trait WireCodec[A]:
   def encode(value: A): WireValue
   def decode(value: WireValue): Either[WireDecodeError, A]

@@ -9,7 +9,7 @@ import scalascript.ir.{QualifiedName, NormalizedModule}
  *  intrinsics — CHAPS operations are runtime adapter concerns, not compile-time.
  *
  *  Registered via META-INF/services/scalascript.backend.spi.Backend.
- *  See docs/specs/international-bank-rails.md §v1.55.5.
+ *  See specs/international-bank-rails.md §v1.55.5.
  */
 class UkChapsPlugin extends Backend:
   def id:          String = "scalascript-payments-uk-chaps"

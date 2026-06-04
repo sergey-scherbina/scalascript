@@ -59,7 +59,7 @@ object SparkGen:
   /** Default Delta Lake version emitted as the `delta-spark_2.13` dep
    *  coordinate when `.format("delta")` is detected anywhere in the
    *  module source.  Lakehouse track L.2 (see
-   *  `docs/specs/spark-lakehouse.md`).
+   *  `specs/spark-lakehouse.md`).
    *
    *  Pinned to **3.2.0** — the first Delta release with confirmed
    *  Spark 4.x support against the `_2.13` cross-build.  Earlier
@@ -71,7 +71,7 @@ object SparkGen:
   /** Default Apache Iceberg version emitted as the
    *  `iceberg-spark-runtime-3.5_2.13` dep coordinate when
    *  `.format("iceberg")` is detected.  Lakehouse track L.3 (see
-   *  `docs/specs/spark-lakehouse.md §L.3`).
+   *  `specs/spark-lakehouse.md §L.3`).
    *
    *  Pinned to **1.5.2** — latest stable release with confirmed
    *  Spark 3.5 runtime compatibility.  Verify on Maven Central
@@ -81,7 +81,7 @@ object SparkGen:
   /** Default Apache Hudi version emitted as the
    *  `hudi-spark3.5-bundle_2.13` dep coordinate when
    *  `.format("hudi")` is detected.  Lakehouse track L.4 (see
-   *  `docs/specs/spark-lakehouse.md §L.4`).
+   *  `specs/spark-lakehouse.md §L.4`).
    *
    *  Pinned to **0.15.0** — latest stable Hudi 0.x release with
    *  confirmed Spark 3.5 runtime compatibility.  Verify on Maven
@@ -187,7 +187,7 @@ object SparkGen:
 
   /** A `@TempView`-marked `val` declaration captured from source.
    *
-   *  Phase G.3 (v1.25 § 9.5) — see `docs/specs/spark-catalog.md`.  The
+   *  Phase G.3 (v1.25 § 9.5) — see `specs/spark-catalog.md`.  The
    *  caller emits `<varName>.createOrReplaceTempView("<viewName>")`
    *  after the cleaned `val` so subsequent `sql` blocks can
    *  `SELECT * FROM <viewName>` without manual catalog wiring.
@@ -396,7 +396,7 @@ object SparkGen:
    *  true.  Spark itself refuses to start a file-sink streaming query
    *  without `option("checkpointLocation", …)` so the codegen emits
    *  a `// note:` comment near the writer to remind users (Phase F.3
-   *  guidance — see `docs/specs/spark-streaming.md`). */
+   *  guidance — see `specs/spark-streaming.md`). */
   private val FileSinkFormatPattern = """(?i)\.format\(\s*"(?:parquet|csv|json|orc|text)"\s*\)""".r
 
   /** Does the joined module source contain a file-based streaming
@@ -424,7 +424,7 @@ object SparkGen:
   // appearing inside a string literal or a commented-out line) are
   // accepted: a redundant Coursier resolve is cheap, while properly
   // parsing user Scala fragments would require a Scala 3 parser —
-  // out of scope.  See `docs/specs/spark-mllib.md` § Architecture for the
+  // out of scope.  See `specs/spark-mllib.md` § Architecture for the
   // false-negative trade-off (dynamic / re-exported imports).
   //
   // The regex matches two surface forms:
@@ -453,7 +453,7 @@ object SparkGen:
    *  When true, `genModule` emits
    *  `//> using dep "org.apache.spark:spark-mllib_2.13:<v>"` in the
    *  header so scala-cli resolves the MLlib JAR via Coursier.
-   *  Phase M.2 — see `docs/specs/spark-mllib.md`. */
+   *  Phase M.2 — see `specs/spark-mllib.md`. */
   def containsMllib(source: String): Boolean =
     MllibImportPattern.findFirstIn(source).isDefined
 
@@ -472,7 +472,7 @@ object SparkGen:
   // When either trigger fires, `genModule` emits:
   //   - `//> using dep "org.apache.spark:spark-hive_2.13:<sparkVersion>"`
   //     in the file header (sits after the lakehouse deps, before
-  //     front-matter pass-through — see docs/specs/spark-catalog.md).
+  //     front-matter pass-through — see specs/spark-catalog.md).
   //   - `.config("spark.sql.catalogImplementation", "hive")` on the
   //     builder, BEFORE the user `spark-config:` map so a user
   //     override still wins.
@@ -497,7 +497,7 @@ object SparkGen:
    *  appear as the literal argument of `.format("…")` anywhere in the
    *  collected block sources.
    *
-   *  Track L.2 / L.3 / L.4 in `docs/specs/spark-lakehouse.md`.  Each flag
+   *  Track L.2 / L.3 / L.4 in `specs/spark-lakehouse.md`.  Each flag
    *  triggers two independent emission decisions in `genModule`:
    *
    *    1. A `//> using dep "<group>:<artifact>_2.13:<version>"` header
@@ -818,7 +818,7 @@ private class SparkGen(
     // `org.apache.spark.ml.*` class (or the abbreviated `o.a.s.ml.`
     // alias), auto-emit `//> using dep "org.apache.spark:spark-mllib_2.13:<v>"`
     // in the header so scala-cli resolves the MLlib JAR via Coursier.
-    // See `docs/specs/spark-mllib.md` for the design and the M.3 / M.4 / M.5
+    // See `specs/spark-mllib.md` for the design and the M.3 / M.4 / M.5
     // follow-ons.
     val needsMllibDep: Boolean =
       SparkGen.containsMllib(joinedUserSrc)
@@ -895,7 +895,7 @@ private class SparkGen(
     }
 
     // Lakehouse track L.2 — auto-emitted runtime deps for detected
-    // formats (see `docs/specs/spark-lakehouse.md`).  Sits BEFORE the
+    // formats (see `specs/spark-lakehouse.md`).  Sits BEFORE the
     // front-matter `dependencies:` pass-through so a user-declared
     // override in front-matter wins on scala-cli's last-write
     // semantics for duplicate coord keys.  Each line is gated on
@@ -1429,7 +1429,7 @@ private class SparkGen(
            |  // derivation can't synthesise an encoder for it; the explicit
            |  // given below routes via Spark's own `VectorUDT` user-defined
            |  // type so the wire-level column shape matches what every MLlib
-           |  // operator expects.  See `docs/specs/spark-mllib.md` § Architecture.
+           |  // operator expects.  See `specs/spark-mllib.md` § Architecture.
            |  //
            |  // Visibility note: `VectorUDT` is `private[spark]` in Spark 4.0.0,
            |  // so user code can't `new VectorUDT()` directly.  We go through
@@ -1437,7 +1437,7 @@ private class SparkGen(
            |  // `DataType` but always a `VectorUDT` instance at runtime) and
            |  // recover the concrete `UserDefinedType[Vector]` via cast.  Same
            |  // trick supplies the class-token UDTEncoder's second parameter
-           |  // expects.  See `docs/specs/spark-mllib.md` open question on UDT
+           |  // expects.  See `specs/spark-mllib.md` open question on UDT
            |  // visibility.
            |  //
            |  // Aliased to `MLVector` so it doesn't clash with

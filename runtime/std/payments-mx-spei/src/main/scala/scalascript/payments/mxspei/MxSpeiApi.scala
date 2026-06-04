@@ -18,7 +18,7 @@ import java.time.Instant
  *  Auth: Bearer token (`apiKey`) on every request.
  *  Wire format: JSON to a BANXICO-connected aggregator.
  *
- *  See docs/specs/payment-rails-apac.md §MX_SPEI.
+ *  See specs/payment-rails-apac.md §MX_SPEI.
  */
 class MxSpeiApi(config: MxSpeiConfig):
 
