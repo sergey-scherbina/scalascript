@@ -1,0 +1,4 @@
+agent: claude-sonnet-4-6
+task: interp-opt-recursive-build-floor-asm-parity
+started: 2026-06-04
+scope: Port LongToObject + emitBlockStmts + WhileLongEmitRunFn to AsmJitBackend
