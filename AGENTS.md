@@ -274,6 +274,7 @@ Bridge hooks that the interpreter exposes *to* plugins (e.g. `NativeContext.dbCo
 ## Spec-driven development
 
 specs: docs/specs
+SPEC: SPEC.md
 
 See the `/spec-dev` skill for the full workflow (write → implement → verify).
 
