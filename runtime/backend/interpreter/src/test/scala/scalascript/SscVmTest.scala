@@ -715,3 +715,76 @@ class SscVmTest extends AnyFunSuite with Matchers:
         |println(total)""".stripMargin)
     out shouldBe "14000"
   }
+
+  // ── Gauss closed-form polynomial reduction ─────────────────────────────────
+  // tryClosedFormPolyLoop replaces while+acc+f(counter) with the Gauss sum.
+  // All tests verify the numerical result, which is the same regardless of
+  // whether the closed form or the normal JIT path runs.
+
+  test("closed-form: 1-param linear f(x)=x+1 folds Σ(i+1) correctly") {
+    // Σ_{i=0}^{999999} (i+1) = 1+2+...+1000000 = 1000000*1000001/2 = 500000500000
+    val out = captured(
+      """def f(x: Int): Int = x + 1
+        |var total = 0
+        |var i = 0
+        |while i < 1000000 do
+        |  total = total + f(i)
+        |  i = i + 1
+        |println(total)""".stripMargin)
+    out shouldBe "500000500000"
+  }
+
+  test("closed-form: 2-param f(x,y)=x+y both bound to counter folds Σ2i correctly") {
+    // Σ_{i=0}^{999999} (i+i) = 2*Σi = 2*999999*1000000/2 = 999999000000
+    val out = captured(
+      """def g(x: Int, y: Int): Int = x + y
+        |var total = 0
+        |var i = 0
+        |while i < 1000000 do
+        |  total = total + g(i, i)
+        |  i = i + 1
+        |println(total)""".stripMargin)
+    out shouldBe "999999000000"
+  }
+
+  test("closed-form: block-wrapped body {x+1} is still recognized as linear") {
+    // pureCallSumBlock shape: f's body is a single-stmt block.
+    val out = captured(
+      """def fblk(x: Int): Int = { x + 1 }
+        |var total = 0
+        |var i = 0
+        |while i < 1000000 do
+        |  total = total + fblk(i)
+        |  i = i + 1
+        |println(total)""".stripMargin)
+    out shouldBe "500000500000"
+  }
+
+  test("closed-form: val-bound global constant folded into linear polynomial") {
+    // f(x) = x + k where k is an immutable val; closed form applies with b=k.
+    // Σ_{i=0}^{99999} (i+5) = 99999*100000/2 + 5*100000 = 4999950000 + 500000 = 5000450000
+    val out = captured(
+      """val k = 5
+        |def f(x: Int): Int = x + k
+        |var total = 0
+        |var i = 0
+        |while i < 100000 do
+        |  total = total + f(i)
+        |  i = i + 1
+        |println(total)""".stripMargin)
+    out shouldBe "5000450000"
+  }
+
+  test("closed-form does not fire when arg is not the counter (invariant fold handles it)") {
+    // f(42) is loop-invariant: tryFoldInvariantAccumLoop fires instead.
+    // Both paths give the correct answer 42*1000 = 42000.
+    val out = captured(
+      """def f(x: Int): Int = x + 1
+        |var total = 0
+        |var i = 0
+        |while i < 1000 do
+        |  total = total + f(42)
+        |  i = i + 1
+        |println(total)""".stripMargin)
+    out shouldBe "43000"
+  }

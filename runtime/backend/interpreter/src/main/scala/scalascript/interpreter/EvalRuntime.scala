@@ -1534,6 +1534,138 @@ private[interpreter] object EvalRuntime:
     interp.globals(body.names(counterIdx)) = ctrV
     Computation.PureUnit
 
+  /** Walk `term` as a degree-1 polynomial `a*counter + b`, where `p1` (and
+   *  optionally `p2`) are parameter names each bound to the loop counter.
+   *  Val-bound integer globals are folded as constants.  Any term outside the
+   *  {const, param, +, -, *, unary-, 1-stmt-block} grammar returns null. */
+  private def walkLinearPoly(
+    term: Term, p1: String, p2: String, interp: Interpreter
+  ): (Long, Long) | Null = term match
+    case Lit.Int(n)  => (0L, n.toLong)
+    case Lit.Long(n) => (0L, n)
+    case n: Term.Name if n.value == p1 || (p2.nonEmpty && n.value == p2) => (1L, 0L)
+    case n: Term.Name if interp.valNames.contains(n.value) =>
+      interp.globals.getOrElse(n.value, null) match
+        case Value.IntV(v) => (0L, v)
+        case _             => null
+    case Term.ApplyInfix.After_4_6_0(lhs, Term.Name("+"), _, ac)
+        if ac.values.lengthCompare(1) == 0 =>
+      val r1 = walkLinearPoly(lhs, p1, p2, interp); if r1 == null then return null
+      val r2 = walkLinearPoly(ac.values.head, p1, p2, interp); if r2 == null then return null
+      (r1._1 + r2._1, r1._2 + r2._2)
+    case Term.ApplyInfix.After_4_6_0(lhs, Term.Name("-"), _, ac)
+        if ac.values.lengthCompare(1) == 0 =>
+      val r1 = walkLinearPoly(lhs, p1, p2, interp); if r1 == null then return null
+      val r2 = walkLinearPoly(ac.values.head, p1, p2, interp); if r2 == null then return null
+      (r1._1 - r2._1, r1._2 - r2._2)
+    case Term.ApplyInfix.After_4_6_0(lhs, Term.Name("*"), _, ac)
+        if ac.values.lengthCompare(1) == 0 =>
+      val r1 = walkLinearPoly(lhs, p1, p2, interp); if r1 == null then return null
+      val r2 = walkLinearPoly(ac.values.head, p1, p2, interp); if r2 == null then return null
+      val (a1, b1) = r1; val (a2, b2) = r2
+      if a1 != 0L && a2 != 0L then return null  // degree-2 product is not affine
+      if a2 == 0L then (a1 * b2, b1 * b2) else (a2 * b1, b2 * b1)
+    case Term.ApplyUnary(op, arg) if op.value == "-" =>
+      val r = walkLinearPoly(arg, p1, p2, interp); if r == null then return null
+      (-r._1, -r._2)
+    case blk: Term.Block if blk.stats.lengthCompare(1) == 0 =>
+      blk.stats.head match
+        case inner: Term => walkLinearPoly(inner, p1, p2, interp)
+        case _           => null
+    case _ => null
+
+  /** Replace `while counter < N do { acc = acc + f(counter); counter += step }`
+   *  with the Gauss closed form, bypassing bytecode JIT entirely.
+   *
+   *  Fires when body is exactly 2 assigns, counter has a literal/val-bound
+   *  upper bound, the accumulator's addend is a 1-arg or 2-arg-counter-bound
+   *  FunV call, and that function's body is degree-1 in its parameter(s).
+   *
+   *  Formula (K = iterations, s = counter start, step = counter stride):
+   *    Σ_{j=0}^{K-1} (a*(s + j*step) + b)  =  a*step*K*(K-1)/2 + (a*s + b)*K
+   *
+   *  Returns null with no side effects on any mismatch. */
+  private def tryClosedFormPolyLoop(
+    t:         Term.While,
+    body:      FastAssignBody,
+    frameView: MutableEnvView,
+    interp:    Interpreter
+  ): Computation | Null =
+    if body.names.length != 2 then return null
+    var counterIdx = -1
+    var counter: CounterFold | Null = null
+    var idx = 0
+    while idx < body.names.length do
+      val cf = counterFoldInfo(t.expr, body.names(idx), body.rhs(idx), frameView, interp)
+      if cf != null then
+        if counterIdx >= 0 then return null
+        counterIdx = idx
+        counter = cf
+      idx += 1
+    if counterIdx < 0 || counter == null then return null
+    val accIdx  = if counterIdx == 0 then 1 else 0
+    val accName = body.names(accIdx)
+    val ctrName = body.names(counterIdx)
+    if accName == ctrName then return null
+    val accStart: Long = frameView.getOrElse(accName, null) match
+      case Value.IntV(v) => v
+      case _             => return null
+    val ctrStart: Long = frameView.getOrElse(ctrName, null) match
+      case Value.IntV(v) => v
+      case _             => return null
+    val step: Long = body.rhs(counterIdx) match
+      case Term.ApplyInfix.After_4_6_0(Term.Name(`ctrName`), Term.Name("+"), _, ac)
+          if ac.values.lengthCompare(1) == 0 =>
+        ac.values.head match
+          case Lit.Int(s) if s > 0 => s.toLong
+          case _ => return null
+      case _ => return null
+    val addTerm = invariantAddend(accName, body.rhs(accIdx))
+    if addTerm == null then return null
+    // addTerm must be a plain call f(counter) or f(counter, counter)
+    val applyFn: Term.Apply = addTerm match
+      case ap: Term.Apply => ap
+      case _              => return null
+    val fnName: String = applyFn.fun match
+      case n: Term.Name => n.value
+      case _            => return null
+    val fn: Value.FunV = interp.globals.getOrElse(fnName, null) match
+      case f: Value.FunV => f
+      case _             => return null
+    if fn.usingParams.nonEmpty || fn.returnsThrows then return null
+    if fn.defaults.exists(_.isDefined) then return null
+    val args = applyFn.argClause.values
+    val (polyA, polyB): (Long, Long) =
+      fn.params match
+        case List(p1) if args.lengthCompare(1) == 0 =>
+          args.head match
+            case n: Term.Name if n.value == ctrName => ()
+            case _ => return null
+          walkLinearPoly(fn.body, p1, "", interp) match
+            case null => return null; case r => r
+        case List(p1, p2) if args.lengthCompare(2) == 0 =>
+          (args.head, args(1)) match
+            case (n1: Term.Name, n2: Term.Name)
+                if n1.value == ctrName && n2.value == ctrName => ()
+            case _ => return null
+          walkLinearPoly(fn.body, p1, p2, interp) match
+            case null => return null; case r => r
+        case _ => return null
+    val K      = BigInt(counter.iterations)
+    val a      = BigInt(polyA)
+    val b      = BigInt(polyB)
+    val s      = BigInt(ctrStart)
+    val stpBig = BigInt(step)
+    val sumBig = a * stpBig * K * (K - 1) / 2 + (a * s + b) * K
+    val finalAccBig = BigInt(accStart) + sumBig
+    if finalAccBig < BigInt(Long.MinValue) || finalAccBig > BigInt(Long.MaxValue) then return null
+    val local = frameView.underlying
+    val accV  = Value.intV(finalAccBig.toLong)
+    val ctrV  = Value.intV(counter.finalValue)
+    local(accName) = accV; interp.globals(accName) = accV
+    local(ctrName) = ctrV; interp.globals(ctrName) = ctrV
+    Computation.PureUnit
+
   /** Pure-literal-RHS hoist for an all-assign while body that has at least one
    *  non-int LHS (the var being assigned is something other than an `IntV`,
    *  e.g. a `TupleV`) whose RHS is a fully-pure-literal expression cached by
@@ -2470,6 +2602,8 @@ private[interpreter] object EvalRuntime:
           case Value.BoolV(true) =>
             val invariantFold = tryFoldInvariantAccumLoop(t, body, frameView, interp)
             if invariantFold != null then return invariantFold
+            val closedForm = tryClosedFormPolyLoop(t, body, frameView, interp)
+            if closedForm != null then return closedForm
             // Hoist pure-literal assigns to non-int LHS out of the loop, then
             // delegate the int-slot subset to tryLongWhileAssign. Returns null
             // for all-int bodies (the common case) — no overhead added.
