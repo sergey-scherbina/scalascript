@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — feat(types): OpenAPI evidence diagnostics (P4b)
+
+- **type-evidence-openapi-p4b** — Added `openApiEvidenceDiagnostics(module: Module)`
+  to `EmitCommands`: normalizes the parsed AST module and returns a warning
+  string for each API endpoint or remote handler whose request or response
+  evidence is not `Declared`. Added `--require-declared` flag to `ssc emit-openapi`:
+  runs the diagnostic check after generating the spec; if warnings exist, prints
+  them to stderr and exits 1. Without the flag the check is skipped (no behavior change).
+  **Tests:** 7 `EmitOpenapiCliTest` (4 existing + 3 new).
+
+---
+
 ## 2026-06-04 — feat(types): route evidence inventory (P4a)
 
 - **type-evidence-schema-p4a** — Added `RouteEvidenceCounts` and

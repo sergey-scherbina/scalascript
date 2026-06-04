@@ -235,8 +235,8 @@ the contracts are explicit.
 - [x] **type-evidence-schema-p4a** - ✓ Landed 2026-06-04 commit `2aecb9cd`.
       `RouteEvidenceCounts` + `RouteEvidenceInventory.count(ir.Manifest)`; 7 tests.
       **Spec:** [`docs/type-evidence-inventory.md §P4a`](docs/type-evidence-inventory.md#p4a--route-evidence-inventory-helper)
-- [ ] **type-evidence-openapi-p4b** - Evidence-aware OpenAPI diagnostics: warnings for
-      Unknown-evidence endpoints + `ssc emit-openapi --require-declared` gate.
+- [x] **type-evidence-openapi-p4b** - ✓ Landed 2026-06-04 commit `f3585e18`.
+      `openApiEvidenceDiagnostics()` + `--require-declared` flag; 7 tests.
       **Spec:** [`docs/type-evidence-inventory.md §P4b`](docs/type-evidence-inventory.md#p4b--openapi-evidence-diagnostics)
 - [ ] **type-evidence-check-cmd-p4c** - New `ssc check-types <file.ssc>` CLI command:
       evidence inventory table + exit code gate on unknown route types.

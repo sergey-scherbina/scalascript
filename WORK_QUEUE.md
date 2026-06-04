@@ -1174,13 +1174,9 @@ Spec: [`docs/crypto.md`](docs/crypto.md). Work in order: p1 → p2.
 - [x] **type-evidence-schema-p4a** — ✓ Landed 2026-06-04 commit `2aecb9cd`.
   `RouteEvidenceCounts` + `RouteEvidenceInventory.count(ir.Manifest)` added to
   `TypeEvidence.scala`; 7 `RouteEvidenceInventoryTest` green; `core/Test/compile` clean.
-- [ ] **type-evidence-openapi-p4b** — Evidence-aware OpenAPI diagnostics.
-  Add `openApiEvidenceDiagnostics(module)` to `EmitCommands` (returns warnings for
-  Unknown-evidence endpoints); add `--require-declared` flag to `ssc emit-openapi`
-  that exits 1 if any endpoint has Unknown evidence. No schema generation change;
-  warnings go to stderr. Depends on P4a (`RouteEvidenceInventory`).
-  Spec: [`docs/type-evidence-inventory.md §P4b`](docs/type-evidence-inventory.md#p4b--openapi-evidence-diagnostics).
-  Verification: 2 new `EmitOpenapiCliTest` cases, `cli / Test / compile`.
+- [x] **type-evidence-openapi-p4b** — ✓ Landed 2026-06-04 commit `f3585e18`.
+  `openApiEvidenceDiagnostics()` + `--require-declared` flag; 7 `EmitOpenapiCliTest`
+  (4 existing + 3 new: declared-empty, unknown-reported, require-declared-passes).
 - [ ] **type-evidence-check-cmd-p4c** — New `ssc check-types <file.ssc>` CLI command.
   Compiles module, prints evidence inventory table (route endpoints/handlers declared/unknown
   + symbol Any-evidence counts), exits 1 if any route has Unknown evidence.
