@@ -2736,7 +2736,7 @@ calls `serve(lower(...), port)` or `emit(lower(...), dir)`.
 Import selectively from each `std/ui` sub-module:
 
 ```markdown
-[signal, serve, fetchUrlSignal, fetchAction, fetchActionClear, incSignal](std/ui/primitives.ssc)
+[signal, seedSignal, serve, fetchUrlSignal, fetchAction, fetchActionClear, incSignal](std/ui/primitives.ssc)
 [lower](std/ui/lower.ssc)
 [defaultTheme](std/ui/theme.ssc)
 [vstack, hstack, divider, spacer](std/ui/layout.ssc)
@@ -2769,6 +2769,19 @@ The React emitter turns each `signal(name, default)` call into:
 ```js
 const [count, setCount] = useState(0)
 ```
+
+In the JS/browser runtime, use `seedSignal(name, source)` when a text input
+should start from a fetched or computed `Signal[String]` but remain
+user-editable:
+
+```scalascript
+val serverName = fetchUrlSignal("serverName", "/api/profile/name", refresh)
+val draftName  = seedSignal("draftName", serverName)
+```
+
+The draft copies `serverName` while pristine. The first `inputChange` or
+`setSignal` write marks it dirty; later refreshes of `serverName` do not
+overwrite the edited draft.
 
 ---
 
@@ -2905,6 +2918,20 @@ These event handlers and signals bridge the browser UI to the server REST API.
 val todosJson = fetchUrlSignal("todos", "/api/todos", refresh)
 signalPre(todosJson)  // display raw JSON, or parse and render
 ```
+
+#### `seedSignal` — editable draft from fetched text
+
+```scalascript
+val refresh = signal[Int]("refresh", 0)
+val sourceName = fetchUrlSignal("sourceName", "/api/profile/name", refresh)
+val draftName = seedSignal("draftName", sourceName)
+
+textField(value = draftName, label = "Editable name")
+actionButton(incSignal(refresh), "Reload source")
+```
+
+`seedSignal` is writable. It mirrors `sourceName` until the user edits the
+field; after that, reloads update `sourceName` but leave `draftName` intact.
 
 #### `fetchAction` — POST / PUT / DELETE on click
 

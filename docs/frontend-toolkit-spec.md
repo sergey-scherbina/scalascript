@@ -555,8 +555,8 @@ of widget names.
 
 ### What truly needs intrinsics
 
-Nine operations cross the JVM/JS boundary and are legitimately
-`extern def`.  Every other function belongs in `.ssc`.
+Only boundary operations cross the JVM/JS runtime line and are legitimately
+`extern def`. Every other function belongs in `.ssc`.
 
 ```scalascript
 // std/ui/primitives.ssc
@@ -570,6 +570,9 @@ opaque type EventHandler = Any
 // ── Reactive primitives ───────────────────────────────────────────────
 // Generic T resolved at runtime by inspecting the default Value shape.
 extern def signal[T](name: String, default: T): Signal[T]
+
+// Writable String draft seeded from another String signal until first edit.
+extern def seedSignal(name: String, source: Signal[String]): Signal[String]
 
 // ── DOM element construction ──────────────────────────────────────────
 // attrs/events values are decoded by the native impl via shape-dispatch
@@ -771,6 +774,7 @@ The toolkit follows the same shape:
 ```
 extern def element(tag, attrs, events, children): View   ← primitive
 extern def signal[T](name, default): Signal[T]           ← primitive
+extern def seedSignal(name, source): Signal[String]      ← primitive
 extern def setSignal[T](sig, value): EventHandler        ← primitive
 // + pure .ssc ADT + lowering built on top
 case class VStackNode(gap, children) extends TkNode

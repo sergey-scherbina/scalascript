@@ -335,7 +335,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | Frontend Framework SPI | One `.ssc` source compiled to **React**, **Vue 3**, **Solid**, or a **custom** runtime via `frontend-{react,vue,solid,custom}` backends |
 | Reactive primitives | `Signal[T]`, `ShowSignal` (conditional render), `ToggleSignal`, `ForSignal[T]` (list render) — uniform semantics across all 4 frontend backends |
 | `runtime/std/ui` script toolkit | Declarative widget DSL from a `.ssc` file — `vstack/hstack`, `textField`, `checkbox`, `signalButton`, `actionButton`, `badge`, `spinner`, `card`, `modal`, `table`, `router` + `hashRouter`, `dataTable`, `fetchAction`; `lower(tree, theme)` + `serve(view, port)` pattern; `frontend: react` front-matter |
-| Fetch primitives | `fetchUrlSignal` — live GET binding (v2: real fetch + headers); `fetchAction/fetchActionClear` — POST/PUT/DELETE on button click with optional `headers: Signal[String]` for bearer tokens; `dataTableView` over fetch signals; `incSignal` — manual refresh; `emptyHeaders` sentinel |
+| Fetch primitives | `fetchUrlSignal` — live GET binding (v2: real fetch + headers); `seedSignal` — browser JS editable draft seeded from another `Signal[String]` until user input makes it dirty; `fetchAction/fetchActionClear` — POST/PUT/DELETE on button click with optional `headers: Signal[String]` for bearer tokens; `dataTableView` over fetch signals; `incSignal` — manual refresh; `emptyHeaders` sentinel |
 | Themes | `defaultTheme` (light) · `darkTheme` · custom `Theme(ColorPalette, SpacingScale, TypographyScale, RadiusScale)` |
 | Frontend Toolkit (v1.18 B+ / B++ / C) | High-level declarative UI via `Tk` facade (sbt API) — `vstack/hstack`, `card`, `textField`, `form` with validators, `router`, `modal/drawer/tabs`, `table`.  Backend-agnostic: lowers to React / Vue / Solid / Custom or to static HTML via `Ssr.renderToHtml`. |
 | WebAssembly target | `ssc emit-wasm file.ssc` — `scalascript` blocks lowered to Wasm; cross-backend `sql` fenced blocks supported |
@@ -440,6 +440,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | [typed-client-distributed/](examples/frontend/typed-client-distributed/) | Same-source distributed typed route client: JVM server on one machine, browser/Electron client on another via `--server-url` |
 | [auth-demo.ssc](examples/auth-demo.ssc) | Login / logout with signed cookie sessions + CSRF tokens |
 | [fetch-auth.ssc](examples/fetch-auth.ssc) | Bearer-token authed fetch: `fetchActionClear` with `headers` Signal (v1) + `fetchUrlSignal` GET with headers (v2) |
+| [seed-signal.ssc](examples/seed-signal.ssc) | Editable browser draft signal seeded from `fetchUrlSignal`; reloads update the draft only while it is pristine |
 | [oauth-demo.ssc](examples/oauth-demo.ssc) | Full OAuth2 sign-in (GitHub or Google) — state, exchange, userinfo |
 | [tls-demo.ssc](examples/tls-demo.ssc) | HTTPS + WSS server with `tls(cert, key)` |
 | [wc-demo.ssc](examples/wc-demo.ssc) | Web Components via `ssc emit-wc`, SSR + hydration |
