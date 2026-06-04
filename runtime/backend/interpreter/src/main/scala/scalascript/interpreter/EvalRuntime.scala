@@ -719,6 +719,221 @@ private[interpreter] object EvalRuntime:
       visit(t)
       hit
 
+  /** True if `t` or any descendant is a `Term.Apply` (function call that can
+   *  produce effects). `Term.ApplyInfix` (arithmetic / comparisons) is NOT
+   *  matched — only named-call applications. Used by `tryStreamEmitWhileFast`
+   *  to verify that counter RHSes / emit args are pure arithmetic and the
+   *  fast path is safe to apply. */
+  private def containsApply(t: scala.meta.Tree): Boolean = t match
+    case _: Term.Apply => true
+    case _             => t.children.exists(containsApply)
+
+  /** Fast path for `runStream { [var i = v0; ...] while cond do { Stream.emit(expr); ...; i = i + n } }`.
+   *  Compiles the loop to LExpr (unboxed Long slots) — bypasses both the Free Monad trampoline
+   *  AND per-iteration `eval` dispatch overhead.  Emit args, counter RHSes, and the condition
+   *  must all be pure integer arithmetic (no function calls); non-int emit args bail to the
+   *  slow path.
+   *
+   *  Returns null if:
+   *  - no while-loop pattern, or
+   *  - any non-emit apply or function call is found in the counter/condition terms, or
+   *  - any emit arg is non-integer or any init RHS is effectful.
+   *  Caller falls back to `EffectHandlers.streamRun` on null. */
+  private def tryStreamEmitWhileFast(
+    bodyTerm: Term,
+    env:      Env,
+    interp:   Interpreter
+  ): Computation | Null =
+    if interp.debugHooks.nonEmpty then return null
+
+    // Decompose body: optional Defn.Var init stats + terminal Term.While.
+    val (initStats, whileTerm) = bodyTerm match
+      case t: Term.While => (Nil, t)
+      case blk: Term.Block if blk.stats.nonEmpty =>
+        blk.stats.last match
+          case t: Term.While => (blk.stats.dropRight(1), t)
+          case _             => return null
+      case _ => return null
+
+    // While body must be a MixedAssignBody: leading Stream.emit applies + trailing assigns.
+    val mixedBody = collectMixedAssignBody(whileTerm.body)
+    if mixedBody == null || mixedBody.leadingApplies.isEmpty || mixedBody.names.isEmpty
+    then return null
+
+    // Collect emit arg terms; all leading applies must be Stream.emit(singleArg) with pure arg.
+    val emitArgs = new Array[Term](mixedBody.leadingApplies.length)
+    var ei = 0
+    while ei < mixedBody.leadingApplies.length do
+      mixedBody.leadingApplies(ei) match
+        case ta: Term.Apply =>
+          ta.fun match
+            case Term.Select(q: Term.Name, nm: Term.Name)
+                if q.value == "Stream" && nm.value == "emit" && ta.argClause.values.size == 1 =>
+              if containsApply(ta.argClause.values.head) then return null
+              emitArgs(ei) = ta.argClause.values.head
+            case _ => return null
+        case _ => return null
+      ei += 1
+
+    // Counter RHSes and condition must not contain function calls (pure arithmetic only).
+    var ai = 0
+    while ai < mixedBody.rhs.length do
+      if containsApply(mixedBody.rhs(ai)) then return null
+      ai += 1
+    if containsApply(whileTerm.expr) then return null
+
+    // Evaluate Defn.Var init stats to build the local frame.
+    val local     = scala.collection.mutable.HashMap.empty[String, Value]
+    val frameView = new MutableEnvView(local)
+    var initRest  = initStats
+    while initRest.nonEmpty do
+      initRest.head match
+        case Defn.Var.After_4_7_2(_, List(Pat.Var(nm)), _, rhs) =>
+          val v: Value = eval(rhs, env, interp) match
+            case Pure(pv) => pv
+            case _        => return null  // effectful init — bail
+          local(nm.value) = v
+          interp.globals(nm.value) = v
+        case _ => return null  // non-var init stat — bail
+      initRest = initRest.tail
+
+    // ── LExpr compile ────────────────────────────────────────────────────────
+    val slotOfName = new SlotTable()
+    def slotOf(name: String): Int =
+      val existing = slotOfName.slotIndex(name)
+      if existing >= 0 then existing
+      else
+        frameView.getOrElse(name, null) match
+          case Value.IntV(_) => slotOfName.register(name)
+          case _             => -1
+    def compileExpr(term: Term): LExpr | Null = term match
+      case Lit.Int(v)  => new LConst(v.toLong)
+      case Lit.Long(v) => new LConst(v)
+      case tn: Term.Name =>
+        val s = slotOf(tn.value)
+        if s < 0 then null else new LVar(s)
+      case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+          if argClause.values.lengthCompare(1) == 0 =>
+        val code = op.value match
+          case "+" => 0
+          case "-" => 1
+          case "*" => 2
+          case "/" => 3
+          case "%" => 4
+          case _   => -1
+        if code < 0 then null
+        else
+          val l = compileExpr(lhs)
+          if l == null then null
+          else
+            val r = compileExpr(argClause.values.head)
+            if r == null then null else new LBin(code, l, r)
+      case _ => null
+    def compileCond(term: Term): LCond | Null = term match
+      case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+          if argClause.values.lengthCompare(1) == 0 =>
+        op.value match
+          case "&&" =>
+            val l = compileCond(lhs)
+            if l == null then null
+            else
+              val r = compileCond(argClause.values.head)
+              if r == null then null else new LAnd(l, r)
+          case "||" =>
+            val l = compileCond(lhs)
+            if l == null then null
+            else
+              val r = compileCond(argClause.values.head)
+              if r == null then null else new LOr(l, r)
+          case other =>
+            val code = other match
+              case "<"  => 0
+              case "<=" => 1
+              case ">"  => 2
+              case ">=" => 3
+              case "==" => 4
+              case "!=" => 5
+              case _    => -1
+            if code < 0 then null
+            else
+              val l = compileExpr(lhs)
+              if l == null then null
+              else
+                val r = compileExpr(argClause.values.head)
+                if r == null then null else new LCmp(code, l, r)
+      case _ => null
+
+    // Register assigned names (must be int-valued vars in the frame).
+    var k = 0
+    while k < mixedBody.names.length do
+      if slotOf(mixedBody.names(k)) < 0 then return null
+      k += 1
+    // Compile emit arg expressions (bail if any arg is non-integer).
+    val emitLExprs = new Array[LExpr](emitArgs.length)
+    var ek = 0
+    while ek < emitArgs.length do
+      val c = compileExpr(emitArgs(ek))
+      if c == null then return null
+      emitLExprs(ek) = c
+      ek += 1
+    // Compile assign RHSes.
+    val rhsL = new Array[LExpr](mixedBody.rhs.length)
+    var j = 0
+    while j < mixedBody.rhs.length do
+      val c = compileExpr(mixedBody.rhs(j))
+      if c == null then return null
+      rhsL(j) = c
+      j += 1
+    // Compile condition.
+    val condL = compileCond(whileTerm.expr)
+    if condL == null then return null
+
+    // Initial slot values from the local frame.
+    val slots = new Array[Long](slotOfName.size)
+    var idx = 0
+    while idx < slotOfName.size do
+      frameView.getOrElse(slotOfName.nameAt(idx), null) match
+        case Value.IntV(v) => slots(idx) = v
+        case _             => return null
+      idx += 1
+    val assignSlot = new Array[Int](mixedBody.names.length)
+    var as = 0
+    while as < mixedBody.names.length do
+      assignSlot(as) = slotOfName.slotIndex(mixedBody.names(as))
+      as += 1
+    val refs: Array[AnyRef] = EmptyRefs
+
+    // ── Tight emit loop — zero eval/FlatMap overhead ─────────────────────────
+    val buf = new scala.collection.mutable.ArrayBuffer[Value](1024)
+    while condL.eval(slots, refs) do
+      var emitIdx = 0
+      while emitIdx < emitLExprs.length do
+        buf += Value.intV(emitLExprs(emitIdx).eval(slots, refs))
+        emitIdx += 1
+      var ri = 0
+      while ri < rhsL.length do
+        slots(assignSlot(ri)) = rhsL(ri).eval(slots, refs)
+        ri += 1
+
+    // Write back final slot values to the frame + globals.
+    var w = 0
+    while w < mixedBody.names.length do
+      val nm = mixedBody.names(w)
+      val v  = Value.intV(slots(assignSlot(w)))
+      local(nm) = v
+      interp.globals(nm) = v
+      w += 1
+
+    // Build result: (source, ())
+    val emitted = Value.ListV(buf.toList)
+    val fromFn  = interp.globals.getOrElse("Source.from", null)
+    val source: Value =
+      if fromFn != null then
+        try interp.invoke(fromFn, emitted :: Nil)
+        catch case _: Throwable => emitted
+      else emitted
+    Pure(Value.TupleV(source :: Value.UnitV :: Nil))
+
   private def previewFastAssignIteration(body: FastAssignBody, cond: Term, env: Env, interp: Interpreter): java.lang.Boolean | Null =
     val overlay = mutable.HashMap.empty[String, Value]
     val preview = new OverlayEnvView(env, overlay)
@@ -2438,7 +2653,13 @@ private[interpreter] object EvalRuntime:
       // harness) that skip initBuiltins can call Stream.emit inside the body.
       if interp.globals.getOrElse("Stream", null) == null then
         StdEffectsRuntime.installStreamGlobal(interp)
-      EffectHandlers.streamRun(eval(bodyArgClause.values.head, env, interp), interp)
+      val bodyTerm = bodyArgClause.values.head
+      // FastTier: `while … Stream.emit(expr); i = i+n` pattern — bypass the
+      // Free Monad trampoline by swapping in a buffer-filling emit, letting
+      // the while loop hit its all-pure fast path (zero FlatMap allocations).
+      val fast = tryStreamEmitWhileFast(bodyTerm, env, interp)
+      if fast != null then fast
+      else EffectHandlers.streamRun(eval(bodyTerm, env, interp), interp)
 
     // ── v1.4 State effect handlers ────────────────────────────────────────
     // runState(s0) { body }  — runs body intercepting State performs;
