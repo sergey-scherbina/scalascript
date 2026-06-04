@@ -26,21 +26,9 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
 Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 -i 5 -f 1`).
 
-- [ ] **interp-opt-tuple-var** — `counterWithTupleVar` 58 ms (~230× slower than `arithLoop`).
-      **Root cause:** any `while` body of shape `tupleVar = <expr-involving-tupleVar>` falls
-      through to the value-space loop in `tryLongWhileAssign` / `tryMixedLongWhile`, which
-      allocates a new `TupleV` on every iteration because the RHS is not a compile-time
-      pure constant (it reads the var). The bench fixture (`last = last`) is the minimal
-      regression guard for this path, but real programs hit it too: e.g.
-      `point = (point.x + dx, point.y + dy)`.
-      **Approach:** Extend the while-JIT to handle RHS expressions whose only free variables
-      are already-tracked `Long`/`Object` slots in the current `SlotTable` — i.e. a "var-read
-      is pure enough" relaxation. This keeps the tuple alive as a JVM object on the heap
-      (no re-allocation per iter) while updating the slot values individually.
-      **Target:** ≥10× (58 ms → ≤6 ms for 1M iters).
-      **Methodology:** JFR alloc profile first (`scripts/bench profile counterWithTupleVar`);
-      confirm `TupleV` dominates allocation; then implement.
-      **Spec:** [`docs/interp-opt-tuple-var.md`](docs/interp-opt-tuple-var.md)
+- [x] **interp-opt-tuple-var** — ✓ Landed 2026-06-04 by another agent.
+      counterWithTupleVar: 58.751 → 0.009 ms (6500×, tryFoldCounterLoop + self-assign hoist).
+      See WORK_QUEUE.md table entry for details.
 
 - [ ] **interp-opt-recursive-eval** — `recursiveEvalMixed` 3.641 ms / `recursiveEval`
       1.898 ms (recursive ADT tree eval, ~3.7 ns/node INVOKESTATIC).
