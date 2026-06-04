@@ -579,10 +579,8 @@ private[ast] object SsccFormatV3:
     read(payloadBytes, 0, manifestReader)
 
   def read(payloadBytes: Array[Byte], payloadOffset: Int, manifestReader: Array[Byte] => Manifest): Either[String, Module] =
-    scala.util.Try {
-      val m = decode(payloadBytes, payloadOffset, manifestReader)
-      populateTrees(m)
-    }.toEither.left.map(_.getMessage)
+    scala.util.Try(populateLazyTrees(decode(payloadBytes, payloadOffset, manifestReader)))
+      .toEither.left.map(_.getMessage)
 
   /** Decode-only: trie + token stream, `tree = None` for all code blocks.
    *  For benchmarking the irreducible I/O floor without scalameta parse. */
@@ -601,61 +599,23 @@ private[ast] object SsccFormatV3:
     val dict       = TrieDecoder.decode(payloadBytes, pos)
     pos(0)         = trieEnd
 
-    // Decode token stream (trees are left None; populated by populateTrees)
+    // Decode token stream (trees populated lazily on first access via ScalaNode.deferred)
     readModule(payloadBytes, pos, dict, manifestReader)
 
-  /** Parse scalameta trees for all parseable code blocks in parallel, then
-   *  return a new Module with the trees populated.  Code blocks that had a
-   *  stored parse error keep `tree = None`. */
-  private def populateTrees(m: Module): Module =
-    import java.util.concurrent.{Callable, ForkJoinPool}
-    import scala.collection.mutable.ArrayBuffer
-
-    // Collect all parseable blocks that need a tree (parseError == None only)
-    val blocks = ArrayBuffer.empty[Content.CodeBlock]
-    def collect(c: Content): Unit = c match
-      case cb: Content.CodeBlock if Lang.isParseable(cb.lang) && cb.parseError.isEmpty => blocks += cb
-      case _ => ()
-    def collectSection(s: Section): Unit =
-      s.content.foreach(collect)
-      s.subsections.foreach(collectSection)
-    m.sections.foreach(collectSection)
-
-    if blocks.isEmpty then return m
-
-    // Parse all blocks in parallel using the common ForkJoin pool.
-    // Each call to dialects.Scala3(...).parse is stateless and thread-safe.
-    import scala.jdk.CollectionConverters.*
-    val tasks: java.util.List[Callable[Content.CodeBlock]] =
-      blocks.map { cb =>
-        new Callable[Content.CodeBlock]:
-          def call(): Content.CodeBlock =
-            import scala.meta.*
-            val tree = dialects.Scala3(Input.VirtualFile("<sscc>", cb.source)).parse[Source] match
-              case Parsed.Success(t) => Some(ScalaNode(t))
-              case _                 => None
-            cb.copy(tree = tree)
-      }.asJava
-
-    val results = ForkJoinPool.commonPool().invokeAll(tasks)
-
-    // Build a map from (lang, source) → parsed CodeBlock
-    val parsedMap = new java.util.IdentityHashMap[Content.CodeBlock, Content.CodeBlock](blocks.length * 2)
-    var i = 0
-    while i < results.size do
-      parsedMap.put(blocks(i), results.get(i).get())
-      i += 1
-
-    // Rebuild Module, replacing CodeBlocks with parsed versions
-    def repopulate(c: Content): Content =
-      val parsed = parsedMap.get(c)
-      if parsed != null then parsed else c
-    def rebuildSection(s: Section): Section =
+  /** Wrap each parseable code block's tree as a `ScalaNode.deferred` thunk.
+   *  Parse fires on the first `.tree` access; never called eagerly.
+   *  Blocks with a stored parse error keep `tree = None`. */
+  private def populateLazyTrees(m: Module): Module =
+    def lazify(c: Content): Content = c match
+      case cb: Content.CodeBlock if Lang.isParseable(cb.lang) && cb.parseError.isEmpty =>
+        cb.copy(tree = Some(ScalaNode.deferred(cb.source)))
+      case other => other
+    def lazifySection(s: Section): Section =
       s.copy(
-        content     = s.content.map(repopulate),
-        subsections = s.subsections.map(rebuildSection)
+        content     = s.content.map(lazify),
+        subsections = s.subsections.map(lazifySection)
       )
-    m.copy(sections = m.sections.map(rebuildSection))
+    m.copy(sections = m.sections.map(lazifySection))
 
   private def readModule(bytes: Array[Byte], pos: Array[Int], dict: Array[String], manifestReader: Array[Byte] => Manifest): Module =
     expectKind(bytes, pos, KModuleStart)
