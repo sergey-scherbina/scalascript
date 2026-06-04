@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — feat(types): ssc check-types GraphQL section — P4d-γ
+
+- **type-evidence-graphql-p4d-gamma** — `ssc check-types` now prints a third
+  section "GraphQL evidence:" with object/interface/input type and field counts.
+  Exit code now gates on both route and GraphQL evidence being fully declared.
+  Success message: "All routes and GraphQL types have declared types."
+  8 `CheckTypesCliTest` pass. Completes P4d (α+β+γ all landed 2026-06-04).
+
 ## 2026-06-04 — feat(types): GraphQL evidence inventory helper — P4d-β
 
 - **type-evidence-graphql-p4d-beta** — `GraphQLEvidenceCounts` +

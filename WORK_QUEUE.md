@@ -1193,8 +1193,10 @@ Spec: [`docs/crypto.md`](docs/crypto.md). Work in order: p1 → p2.
   `TypeEvidence.scala`. Tallies types/fields across `graphql` blocks in module sections.
   7 `GraphQLEvidenceInventoryTest` green. `core/Test/compile` clean.
   Spec: [`docs/type-evidence-inventory.md §P4d-β`](docs/type-evidence-inventory.md).
-- [ ] **type-evidence-graphql-p4d-gamma** — `ssc check-types` GraphQL third section.
+- [x] **type-evidence-graphql-p4d-gamma** — ✓ Landed 2026-06-04 commit `3f377548`.
+  `ssc check-types` prints a third "GraphQL evidence:" section (types/fields declared/unknown).
   Exit-code gates on `routeCounts.allDeclared && graphqlCounts.allDeclared`.
+  2 new + 1 updated tests in `CheckTypesCliTest`; 8 total green. `cli/Test/compile` clean.
   Spec: [`docs/type-evidence-inventory.md §P4d-γ`](docs/type-evidence-inventory.md).
 - [x] **type-evidence-routes-p3** — ✓ Landed 2026-06-04 commit `347fe6f3`.
   Added optional structured request/response evidence to normalized IR
