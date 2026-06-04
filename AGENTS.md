@@ -273,7 +273,6 @@ Bridge hooks that the interpreter exposes *to* plugins (e.g. `NativeContext.dbCo
 ## Spec-driven development
 
 specs: docs/specs
-SPEC: SPEC.md
 
 See the `/spec-dev` skill for the full workflow (write → implement → verify).
 
@@ -791,10 +790,6 @@ How to read agent status:
 ## Autonomous continuous-delivery flow
 
 See the `/multi-agent` skill for the full loop protocol (status, start/stop, loop steps, empty queue, tech debt, /compact).
-
-SPRINT: SPRINT.md
-BACKLOG: BACKLOG.md
-CHANGELOG: CHANGELOG.md
 
 ### Status format
 
