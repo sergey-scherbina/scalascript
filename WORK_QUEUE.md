@@ -306,9 +306,9 @@ then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 | `matchBodyBaseline` | 0.044 | 0.044 | parity ✓ |
 | `nestedMatchExpr` | 0.043 | 0.045 | parity ✓ |
 | `patternGuard` | 0.045 | 0.048 | parity ✓ |
-| `patternMatchHeavy` | 0.349 | — | updated 2026-06-04 evening; ASM parity needs re-run |
+| `patternMatchHeavy` | **0.135** | — | 2026-06-04: LICM hoist (was 0.349 ms, 2.6×) |
 | `patternMatchSet` | 0.208 | — | updated 2026-06-04 evening |
-| `patternMatchWide` | **0.690** | — | at floor ✓ — fused JIT while+foreach+switch active; 600K×1.15ns=0.69ms |
+| `patternMatchWide` | **0.043** | — | 2026-06-04: LICM hoist (was 0.690 ms, 16×) |
 | `pureCallSum` | 0.256 | — | ✓ ASM bug fixed (was 11.2 ms) |
 | `pureCallSum2` | 0.292 | — | ✓ ASM bug fixed |
 | `pureCallSumBlock` | 0.276 | — | ✓ ASM bug fixed (was 2676 ms) |
@@ -1065,10 +1065,12 @@ highest-impact item.
       Object[] used by Javac. Fix: `emitArrayForeachAccumInline` + `listPreExtract=true`.
       1283 tests pass. Commit e0c9e3d5.
 
-- [x] **interp-opt-pattern-match-wide** — ✓ Closed 2026-06-04 as "at floor".
-      `tryCompileWhileMixed` IS succeeding: generates fused Java while+foreach+switch
-      with `listPreExtract=true`. 600K × ~1.15 ns/op = 0.69 ms is the floor.
-      No allocation in hot loop. Closed without code changes.
+- [x] **interp-opt-pattern-match-wide** — ✓ Landed 2026-06-04. **16×** win.
+      LICM hoist for pure foreach-accumulator in `tryCompileWhileMixed`: when
+      `inlineMatchSwitch != null && !receiverIsSet`, compute `_invSum` once before
+      the outer while, emit `_acc += _invSum` in the tight loop. Parameterized
+      `tryBuildInlineMatchAccum` with `targetVar`. 0.690 → 0.043 ms (16×).
+      `patternMatchHeavy` also benefits: 0.349 → 0.135 ms (2.6×).
 
 - [ ] **interp-opt-init-builtins-cache** — Reduce the interpreter startup/allocation
       floor for tiny programs by caching or lazily constructing builtins state.

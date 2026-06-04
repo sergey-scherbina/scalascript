@@ -71,17 +71,17 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       **Complexity:** Medium–High. TwoLayerGlobals must cover all globals access patterns.
       **Spec:** [`docs/interp-opt-init-builtins-cache.md`](docs/interp-opt-init-builtins-cache.md)
 
-- [x] **interp-opt-pattern-match-wide** — ✓ Closed 2026-06-04 as "at floor".
-      `patternMatchWide` 0.690 ms (12-arm sealed-trait match, 50K × 12 = 600K
-      `eval(o)` calls). Confirmed `tryCompileWhileMixed` IS succeeding: generates
-      a fused Java `while+for+switch(typeTag())` class with `listPreExtract=true`
-      (items pre-extracted to `Object[]` once per invocation). Hot loop is raw
-      Java array iteration with O(1) typeTag switch — zero allocation per iteration.
-      600K × ~1.15 ns/op = 0.69 ms matches the measured floor exactly.
-      JFR confirmed: zero allocation in the hot loop; setup is 141 KB/op from
-      `initBuiltins` + 12 class registrations, not from the hot path.
-      No further optimization possible without changing the algorithm or sharing
-      the builtins layer (deferred as `interp-opt-init-builtins-cache`).
+- [x] **interp-opt-pattern-match-wide** — ✓ Landed 2026-06-04. **16×** win.
+      LICM hoist for pure `foreach`-accumulator in `tryCompileWhileMixed`:
+      when `inlineMatchSwitch != null && !receiverIsSet` (List receiver with pure
+      match body proven by `tryBuildInlineMatchAccum`), compute invariant sum
+      once before the outer while, then emit `_acc += _invSum` in the tight loop.
+      `tryBuildInlineMatchAccum` parameterized with `targetVar` (default `"_acc"`).
+      `patternMatchWide`: **0.690 → 0.043 ms** (16×).
+      `patternMatchHeavy` also benefits: 0.349 → 0.135 ms (2.6×).
+      Purity is proven structurally — `walkLong`/`walkDouble` reject any
+      `Term.Assign` and impure calls, so `tryBuildInlineMatchAccum` succeeding
+      implies the foreach body is loop-invariant. No purity analysis needed.
 
 - [x] **interp-opt-effect-stream** — ✓ Landed 2026-06-04.
       Two slices: (1) defer buf.toList into runToList NativeFnV lambda (36902ad1);
