@@ -38,6 +38,21 @@ trait JitBackend:
    *
    *  Returns null if the pattern is not recognised or compilation fails;
    *  callers fall back to `tryMixedLongWhile`. */
+  /** JIT-compile a `while cond do { Stream.emit(emitArgs...); assigns... }` body
+   *  to a `WhileLongEmitRunFn` that pushes raw Long values into a caller-owned
+   *  `Array[Long]` buffer — no `Value.intV` wrapping, no virtual dispatch.
+   *  `allSlots` is the full slot-name array (slot index → name); `assignNames`
+   *  and `rhs` are the trailing assign targets and their RHS expressions.
+   *  Returns null if the pattern is not recognised or compilation fails. */
+  def tryCompileWhileLongEmit(
+    cond:        Term,
+    emitArgs:    Array[Term],
+    allSlots:    Array[String],
+    assignNames: Array[String],
+    rhs:         Array[Term],
+    interp:      Interpreter | Null
+  ): WhileLongEmitRunFn | Null = null
+
   def tryCompileWhileMixed(
     cond:         Term,
     names:        Array[String],

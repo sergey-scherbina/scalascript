@@ -903,17 +903,58 @@ private[interpreter] object EvalRuntime:
       as += 1
     val refs: Array[AnyRef] = EmptyRefs
 
-    // ── Tight emit loop — zero eval/FlatMap overhead ─────────────────────────
-    val buf = new scala.collection.mutable.ArrayBuffer[Value](1024)
-    while condL.eval(slots, refs) do
-      var emitIdx = 0
-      while emitIdx < emitLExprs.length do
-        buf += Value.intV(emitLExprs(emitIdx).eval(slots, refs))
-        emitIdx += 1
-      var ri = 0
-      while ri < rhsL.length do
-        slots(assignSlot(ri)) = rhsL(ri).eval(slots, refs)
-        ri += 1
+    // ── Try JIT-compiled emit loop (zero virtual dispatch, no Value wrapping) ──
+    // allSlotNames maps slot index → name; used as the JIT's slot context.
+    val allSlotNames = Array.tabulate(slotOfName.size)(slotOfName.nameAt)
+
+    // Try JIT compile — cache ensures this only compiles once per body identity.
+    val emitRunner = scalascript.interpreter.vm.jit.JitBackend.default
+      .tryCompileWhileLongEmit(whileTerm.expr, emitArgs, allSlotNames, mixedBody.names.toArray, mixedBody.rhs.toArray, interp)
+
+    // Pre-allocate Long buffer. 65536 covers the vast majority of loop counts.
+    // The JIT-generated inner loop has no bounds check; AIOOB is the safety
+    // net for rare >65536-emit loops. After AIOOB, slots[] is still intact
+    // (the generated Java writes back v[i] = _vi only at the end, so a
+    // mid-loop exception leaves slots unchanged), so the LExpr fallback
+    // starts from the correct initial state.
+    val JIT_BUF_CAP = 65536
+
+    var nElems:   Int                                              = 0
+    var longBuf:  Array[Long] | Null                              = null
+    var valueBuf: scala.collection.mutable.ArrayBuffer[Value] | Null = null
+
+    if emitRunner != null then
+      val lbuf  = new Array[Long](JIT_BUF_CAP)
+      var jitOk = true
+      try nElems = emitRunner.run(slots, lbuf, 0)
+      catch case _: ArrayIndexOutOfBoundsException => jitOk = false
+      if jitOk then longBuf = lbuf
+      else
+        // AIOOB: slots still holds original values. Fall back to LExpr loop.
+        val vbuf = new scala.collection.mutable.ArrayBuffer[Value](JIT_BUF_CAP + 1024)
+        while condL.eval(slots, refs) do
+          var emitIdx = 0
+          while emitIdx < emitLExprs.length do
+            vbuf += Value.intV(emitLExprs(emitIdx).eval(slots, refs))
+            emitIdx += 1
+          var ri = 0
+          while ri < rhsL.length do
+            slots(assignSlot(ri)) = rhsL(ri).eval(slots, refs)
+            ri += 1
+        nElems = vbuf.length; valueBuf = vbuf
+    else
+      // LExpr fallback: LExpr dispatch + Value.intV wrapping per iteration.
+      val vbuf = new scala.collection.mutable.ArrayBuffer[Value](1024)
+      while condL.eval(slots, refs) do
+        var emitIdx = 0
+        while emitIdx < emitLExprs.length do
+          vbuf += Value.intV(emitLExprs(emitIdx).eval(slots, refs))
+          emitIdx += 1
+        var ri = 0
+        while ri < rhsL.length do
+          slots(assignSlot(ri)) = rhsL(ri).eval(slots, refs)
+          ri += 1
+      nElems = vbuf.length; valueBuf = vbuf
 
     // Write back final slot values to the frame + globals.
     var w = 0
@@ -928,21 +969,30 @@ private[interpreter] object EvalRuntime:
     val fromFn = interp.globals.getOrElse("Source.from", null)
     val source: Value =
       if fromFn != null then
-        val emitted = Value.ListV(buf.toList)
+        // Dstreams plugin loaded — materialise to ListV for Source.from.
+        val emitted: Value = if longBuf != null then
+          var k = 0; val arr = new Array[Value](nElems)
+          while k < nElems do { arr(k) = Value.intV(longBuf(k)); k += 1 }
+          Value.ListV(arr.toList)
+        else Value.ListV(valueBuf.nn.toList)
         try interp.invoke(fromFn, emitted :: Nil)
         catch case _: Throwable => emitted
       else
-        // Dstreams plugin not loaded. Use array-backed SrcList to avoid the 10K
-        // cons-cell allocation from buf.toList. runToList().length resolves via
-        // NativeFnV (O(1)); buf.toList is deferred to srcList.toList and only
-        // materialised if user code explicitly calls it.
-        val nElems  = buf.length
+        // Dstreams plugin not loaded. Build SrcList with lazy materialisation —
+        // runToList().length resolves via NativeFnV (O(1)); actual List[Value]
+        // is deferred until user code calls .toList or iterates.
         val srcList = Value.InstanceV("SrcList", Map(
           "length"   -> Value.NativeFnV("SrcList.length",   Computation.pureFn { _ => Value.intV(nElems) }),
           "size"     -> Value.NativeFnV("SrcList.size",     Computation.pureFn { _ => Value.intV(nElems) }),
           "isEmpty"  -> Value.NativeFnV("SrcList.isEmpty",  Computation.pureFn { _ => Value.boolV(nElems == 0) }),
           "nonEmpty" -> Value.NativeFnV("SrcList.nonEmpty", Computation.pureFn { _ => Value.boolV(nElems > 0) }),
-          "toList"   -> Value.NativeFnV("SrcList.toList",   Computation.pureFn { _ => Value.ListV(buf.toList) }),
+          "toList"   -> Value.NativeFnV("SrcList.toList",   Computation.pureFn { _ =>
+            if longBuf != null then
+              var k = 0; val arr = new Array[Value](nElems)
+              while k < nElems do { arr(k) = Value.intV(longBuf(k)); k += 1 }
+              Value.ListV(arr.toList)
+            else Value.ListV(valueBuf.nn.toList)
+          }),
         ))
         Value.InstanceV("Source", Map(
           "runToList" -> Value.NativeFnV("Source.runToList", Computation.pureFn { _ => srcList }),

@@ -1761,6 +1761,110 @@ object JavacJitBackend extends JitBackend:
     whileLongGlobalCache.put(cond, entry.asInstanceOf[AnyRef])
     entry
 
+  // ── Stream.emit while-loop JIT ──────────────────────────────────────────
+
+  private val whileLongEmitGlobalCache: java.util.IdentityHashMap[Term, AnyRef] =
+    java.util.IdentityHashMap()
+  private val WhileLongEmitMiss: AnyRef = new AnyRef
+
+  override def tryCompileWhileLongEmit(
+    cond:        Term,
+    emitArgs:    Array[Term],
+    allSlots:    Array[String],
+    assignNames: Array[String],
+    rhs:         Array[Term],
+    interp:      scalascript.interpreter.Interpreter | Null
+  ): WhileLongEmitRunFn | Null =
+    if !enabled then return null
+    val cached = whileLongEmitGlobalCache.get(cond)
+    if cached eq WhileLongEmitMiss then return null
+    if cached != null then return cached.asInstanceOf[WhileLongEmitRunFn]
+    // Walk all expressions using allSlots as the slot name map.
+    val ctx = new WhileGenCtx(
+      allSlots,
+      interp,
+      scala.collection.mutable.LinkedHashMap.empty[String, String]
+    )
+    val condJava = walkLocalBoolCtx(cond, ctx)
+    if condJava == null then
+      whileLongEmitGlobalCache.put(cond, WhileLongEmitMiss); return null
+    val emitJava = new Array[String](emitArgs.length)
+    var ei = 0
+    while ei < emitArgs.length do
+      emitJava(ei) = walkLocalSlotCtx(emitArgs(ei), ctx)
+      if emitJava(ei) == null then
+        whileLongEmitGlobalCache.put(cond, WhileLongEmitMiss); return null
+      ei += 1
+    val rhsJava = new Array[String](rhs.length)
+    var k = 0
+    while k < rhs.length do
+      rhsJava(k) = walkLocalSlotCtx(rhs(k), ctx)
+      if rhsJava(k) == null then
+        whileLongEmitGlobalCache.put(cond, WhileLongEmitMiss); return null
+      k += 1
+    // Emit-while supports only pure-Long slots (no ref fns, no ref globals).
+    if ctx.refFnNames.nonEmpty || ctx.refObjFnNames.nonEmpty || ctx.refNames.nonEmpty then
+      whileLongEmitGlobalCache.put(cond, WhileLongEmitMiss); return null
+    val className = s"WhileLongEmit_${Integer.toUnsignedString(System.identityHashCode(cond))}"
+    val jitPkg    = "scalascript.interpreter.vm.jit"
+    val sb        = new StringBuilder
+    sb.append(s"public final class $className implements $jitPkg.WhileLongEmitRunFn {\n")
+    sb.append(s"  @Override public int run(long[] v, long[] buf, int bufLen) { return $className.runStatic(v, buf, bufLen); }\n")
+    sb.append(s"  public static int runStatic(long[] v, long[] buf, int bufLen) {\n")
+    var i = 0
+    while i < allSlots.length do
+      sb.append(s"    long _v$i = v[$i];\n")
+      i += 1
+    sb.append(s"    while ($condJava) {\n")
+    ei = 0
+    while ei < emitJava.length do
+      sb.append(s"      buf[bufLen++] = ${emitJava(ei)};\n")
+      ei += 1
+    i = 0
+    while i < assignNames.length do
+      // Find slot index of the assign target name.
+      var si = 0
+      while si < allSlots.length && allSlots(si) != assignNames(i) do si += 1
+      sb.append(s"      _v$si = ${rhsJava(i)};\n")
+      i += 1
+    sb.append("    }\n")
+    i = 0
+    while i < allSlots.length do
+      sb.append(s"    v[$i] = _v$i;\n")
+      i += 1
+    sb.append("    return bufLen;\n  }\n}\n")
+    val source   = sb.toString
+    val compiler = ToolProvider.getSystemJavaCompiler
+    if compiler == null then
+      whileLongEmitGlobalCache.put(cond, WhileLongEmitMiss); return null
+    val classBytes = new ByteArrayOutputStream()
+    val javaFile   = new SimpleJavaFileObject(URI.create(s"string:///$className.java"), JavaFileObject.Kind.SOURCE):
+      override def getCharContent(ignoreEncodingErrors: Boolean): CharSequence = source
+    val standard = compiler.getStandardFileManager(null, null, null)
+    val fm = new ForwardingJavaFileManager[JavaFileManager](standard):
+      override def getJavaFileForOutput(loc: JavaFileManager.Location, name: String, kind: JavaFileObject.Kind, sib: FileObject) =
+        new SimpleJavaFileObject(URI.create(s"mem:///$name.class"), kind):
+          override def openOutputStream(): OutputStream = classBytes
+    val task = compiler.getTask(null, fm, null, null, null, java.util.Arrays.asList(javaFile))
+    val ok   = try task.call().booleanValue() catch case _: Throwable => false
+    if !ok then
+      whileLongEmitGlobalCache.put(cond, WhileLongEmitMiss); return null
+    val loader = new ClassLoader(classOf[JavacJitBackend.type].getClassLoader):
+      override def findClass(name: String): Class[?] =
+        if name == className then
+          val bytes = classBytes.toByteArray
+          defineClass(name, bytes, 0, bytes.length)
+        else super.findClass(name)
+    val cls = try loader.loadClass(className) catch case _: Throwable =>
+      whileLongEmitGlobalCache.put(cond, WhileLongEmitMiss); return null
+    val runFn: WhileLongEmitRunFn | Null =
+      try cls.getConstructor().newInstance().asInstanceOf[WhileLongEmitRunFn]
+      catch case _: Throwable => null
+    if runFn == null then
+      whileLongEmitGlobalCache.put(cond, WhileLongEmitMiss); return null
+    whileLongEmitGlobalCache.put(cond, runFn.asInstanceOf[AnyRef])
+    runFn
+
   // ── mixed while + foreach fused JIT ─────────────────────────────────────
 
   private val whileMixedGlobalCache: java.util.IdentityHashMap[Term, AnyRef] =

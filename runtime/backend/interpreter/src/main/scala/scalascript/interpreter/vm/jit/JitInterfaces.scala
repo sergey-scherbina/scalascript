@@ -32,3 +32,7 @@ trait LongToObject    { def apply(n: Long): AnyRef }
 // giving callers a direct virtual-dispatch path that avoids Method.invoke
 // varargs-boxing and reflection overhead.
 trait WhileLongRunFn  { def run(slots: Array[Long]): Unit }
+// Stream-emit while-loop JIT runner.  The generated loop pushes emitted Long
+// values directly into `buf` starting at `bufLen` and returns the new length.
+// Caller pre-allocates buf with sufficient capacity; no bounds check inside.
+trait WhileLongEmitRunFn { def run(slots: Array[Long], buf: Array[Long], bufLen: Int): Int }
