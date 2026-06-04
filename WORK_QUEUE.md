@@ -1093,6 +1093,14 @@ highest-impact item.
       std/→runtime/std/), MessagePack binary artifact format, missing
       compiler driver guard. All cli/ tests now pass or cancel cleanly.
 
+## UUID Library — v1.65
+
+Spec: [`docs/uuid.md`](docs/uuid.md). Work in order: p1 → p2 → p3.
+
+- [x] **uuid-p1** — Core JVM implementation ✓ Landed 2026-06-04: `uuid.ssc` module, `uuid-plugin` with JVM `SecureRandom` v4/v7, `build.sbt` wiring, 8 tests pass, `examples/uuid-v7.ssc`.
+- [x] **uuid-p2** — Parse + validate ✓ Landed 2026-06-04: `uuidFromString`/`uuidIsValid` intrinsics with `Value.OptionV` return; tests for valid/invalid/normalisation.
+- [x] **uuid-p3** — JS backend ✓ Landed 2026-06-04: `JsUuidIntrinsics` with `RuntimeCall` entries; `uuidV4`/`uuidV7`/`uuidFromString`/`uuidIsValid` preamble functions using Web Crypto API; wired into `JsIntrinsics`.
+
 ## Tooling
 
 - [x] **cli-bundle-frontend** — bundle `frontendPlugin` + `fetchPlugin` into the CLI (Compile) so `ssc run` resolves the std/ui frontend externs (`signal`/`lower`/`emit`) and `fetch`. Previously `% Test`, so frontend programs failed with `'signal' not found`. ✓ Landed 2026-05-31: std-ui smoke now emits index.html+app.js and prints `smoke:ok` via the jar; assembly clean; busi domain regression-green. (frontendReact was already Compile.)

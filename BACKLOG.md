@@ -89,13 +89,9 @@ implementation notes.
 UUID generation and parsing for all backends. Primary goal: UUID v7 (time-ordered)
 for database primary keys and event IDs. Spec: [`docs/uuid.md`](docs/uuid.md).
 
-- [ ] **uuid-p1** — Core JVM: `uuid.ssc` module (`Uuid` type, `v4()`, `v7()`, `nil`, `max`,
-      `.asString`), `uuid-plugin` with JVM intrinsics, `build.sbt` wiring, `UuidPluginTest`
-      (format + ordering), `examples/uuid-v7.ssc`.
-- [ ] **uuid-p2** — Parse + validate: `Uuid.fromString(s): Option[Uuid]` and
-      `Uuid.isValid(s): Boolean` + intrinsics + tests.
-- [ ] **uuid-p3** — JS backend: `uuidV4` → `crypto.randomUUID()`, `uuidV7` custom
-      + `uuidFromString`/`uuidIsValid`; cross-backend conformance test.
+- [x] **uuid-p1** — Core JVM: done 2026-06-04.
+- [x] **uuid-p2** — Parse + validate: done 2026-06-04.
+- [x] **uuid-p3** — JS backend: done 2026-06-04.
 - [ ] **uuid-p4** (optional) — JVM monotonic v7 counter (`rand_a` counter within same
       millisecond, `Uuid.v7Monotonic()` explicit opt-in).
 
