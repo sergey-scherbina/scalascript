@@ -9016,6 +9016,10 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
          |    v
          |
          |// ── DataTable / fetchUrlSignal primitives ────────────────────────────────────
+         |def seedSignal(name: String, source: Any): Any =
+         |  new scalascript.frontend.SeedSignal(
+         |    name, source.asInstanceOf[scalascript.frontend.ReactiveSignal[String]])
+         |
          |def fetchUrlSignal(name: String, url: String, refreshTick: Any, headers: Any = null): Any =
          |  val _tick = refreshTick.asInstanceOf[scalascript.frontend.ReactiveSignal[?]]
          |  val _hOpt = Option(headers)

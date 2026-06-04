@@ -8,6 +8,7 @@ exports:
   - View
   - EventHandler
   - signal
+  - seedSignal
   - element
   - textNode
   - signalText
@@ -45,7 +46,7 @@ exports:
 
 # `std.ui.primitives` — UI primitive extern defs
 
-The nine boundary functions between `.ssc` widget code and the JVM/JS runtime.
+The boundary functions between `.ssc` widget code and the JVM/JS runtime.
 All other `std/ui/*.ssc` files import from here; user code rarely imports
 this file directly.
 
@@ -57,6 +58,10 @@ opaque type EventHandler = Any
 // ── Reactive ─────────────────────────────────────────────────────────────
 // Generic T resolved at runtime by the default value's shape.
 extern def signal[T](name: String, default: T): Signal[T]
+
+// seedSignal — writable String signal seeded from another String signal.
+// Copies source while pristine; inputChange/setSignal writes mark it dirty.
+extern def seedSignal(name: String, source: Signal[String]): Signal[String]
 
 // ── DOM construction ──────────────────────────────────────────────────────
 // attrs/events values decoded by shape — see spec §"Encoding Map[String,Any]".

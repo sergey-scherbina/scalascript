@@ -880,6 +880,7 @@ class JsGen(
     val hasUiHelpers = List(
       "fetchUrlSignal", "fetchAction", "fetchActionClear", "emptyHeaders",
       "dataTable", "dataTableView", "staticDataTable", "signalDataTable",
+      "seedSignal",
       "fieldColumn", "dateColumn", "moneyColumn", "statusColumn", "linkColumn",
       "fcol", "dcol", "mcol", "scol", "lcol",
       "rowDelete", "rowPost", "rowLink", "rowEdit",

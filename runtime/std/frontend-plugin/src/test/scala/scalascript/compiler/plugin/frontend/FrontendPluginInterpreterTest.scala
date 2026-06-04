@@ -1,7 +1,7 @@
 package scalascript.compiler.plugin.frontend
 
 import org.scalatest.funsuite.AnyFunSuite
-import scalascript.frontend.{AttrValue, EventHandler, FrontendFrameworks, ReactiveSignal, View}
+import scalascript.frontend.{AttrValue, EventHandler, FrontendFrameworks, ReactiveSignal, SeedSignal, View}
 import scalascript.interpreter.Value
 import scalascript.testkit.TestInterpreter
 
@@ -49,6 +49,20 @@ class FrontendPluginInterpreterTest extends AnyFunSuite:
         assert(signal.id == "count")
         assert(value == 42L)
       case other => fail(s"expected SetSignalLiteral foreign value, got $other")
+
+    val seeded = interp.eval(
+      """
+      val source = signal("source", "Ada")
+      seedSignal("draft", source)
+      """
+    )
+
+    seeded match
+      case Value.Foreign("ReactiveSignal", signal: SeedSignal) =>
+        assert(signal.id == "draft")
+        assert(signal.source.id == "source")
+        assert(signal() == "Ada")
+      case other => fail(s"expected SeedSignal foreign value, got $other")
 
   test("Frontend plugin creates derived signals and views in isolation"):
     val eq = interp.eval(

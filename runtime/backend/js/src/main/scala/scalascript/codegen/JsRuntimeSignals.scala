@@ -14,7 +14,7 @@ val JsRuntimeSignals: String = """
 // effect at most once per synchronous transaction.
 
 let _signalSeq = 0;
-const _signals = new Map();   // id → { value, subs:Set<eid>, _isComputed?, _f?, _deps? }
+const _signals = new Map();   // id → { value, subs:Set<eid>, _isComputed?, _f?, _deps?, _seedSource? }
 const _effects = new Map();   // eid → { thunk, deps:Set<sid> }
 const _effectStack = [];
 const _pendingEffects = new Set();  // insertion-ordered in JS Sets
@@ -88,6 +88,11 @@ function Signal(initial) {
   };
 }
 
+function _seedInitial(source) {
+  try { return (source && source.get) ? source.get() : ''; }
+  catch(_e) { return ''; }
+}
+
 function effect(thunk) {
   const eid = _freshReactiveId();
   _effects.set(eid, { thunk, deps: new Set() });
@@ -114,6 +119,16 @@ function computed(thunk) {
 // Provide real implementations for run-js mode so extern def symbols
 // are non-undefined when extracted from std.ui.primitives namespace.
 function _ssc_ui_signal(name, initial) { return Signal(initial); }
+function _ssc_ui_seedSignal(name, source) {
+  const initial = _seedInitial(source);
+  const sig = Signal(initial == null ? '' : String(initial));
+  const state = _signals.get(sig.id);
+  if (state) { state._seedSource = source || null; state._seedPristine = true; }
+  sig._seedSource = source || null;
+  const baseSet = sig.set;
+  sig.set = (v) => { if (state) state._seedPristine = false; baseSet(v); };
+  return sig;
+}
 function _ssc_ui_element(tag, attrs, events, children) {
   return { _type: '_Element', tag,
     attrs: (attrs instanceof Map) ? Object.fromEntries(attrs) : (attrs || {}),
@@ -151,8 +166,14 @@ function _ssc_ui_renderBody(view) {
   const voids = new Set(['br','hr','img','input','link','meta','area','base','col','embed','param','source','track','wbr']);
 
   function collectSig(s) {
-    if (s && s._type === 'Signal' && !sigs.has(s.id))
-      sigs.set(s.id, s.get());
+    if (!s || s._type !== 'Signal') return;
+    if (!sigs.has(s.id)) sigs.set(s.id, s.get());
+    if (s._seedSource) collectSig(s._seedSource);
+    const fg = s._fetchGet;
+    if (fg) {
+      if (fg.tick) collectSig(fg.tick);
+      if (fg.headers) collectSig(fg.headers);
+    }
   }
 
   function walk(v) {
@@ -258,15 +279,20 @@ function _ssc_ui_mount(sigs) {
   var _sv = {};
   sigs.forEach(function(v, id) { _sv[String(id)] = v; });
   // Seed reactive system with initial values so computedSignal reads are current
-  sigs.forEach(function(v, id) { var s = _signals.get(id); if (s && !s._isComputed) s.value = v; });
+  sigs.forEach(function(v, id) {
+    var s = _signals.get(id) || _signals.get(parseInt(String(id), 10));
+    if (s && !s._isComputed) s.value = v;
+  });
   var _sb = {};
   function _sub(id, fn) { (_sb[id] = _sb[id] || []).push(fn); fn(_sv[id]); }
-  function _set(id, v) {
-    _sv[id] = v;
-    (_sb[id] || []).forEach(function(fn){ fn(v); });
-    // Bridge: update reactive system and recompute dependent computed signals
-    var rid = parseInt(id, 10);
+  function _set(id, v, opts) {
+    var idStr = String(id);
+    var rid = parseInt(idStr, 10);
     var rs = _signals.get(rid);
+    if (rs && rs._seedSource && !(opts && opts.preserveSeedPristine)) rs._seedPristine = false;
+    _sv[idStr] = v;
+    (_sb[idStr] || []).forEach(function(fn){ fn(v); });
+    // Bridge: update reactive system and recompute dependent computed signals
     if (rs && !rs._isComputed) {
       rs.value = v;
       _signals.forEach(function(cs, csid) {
@@ -278,6 +304,41 @@ function _ssc_ui_mount(sigs) {
       });
     }
   }
+  var _fetchGetMounted = {};
+  function _mountFetchGet(sigId, url, tickId, headersId) {
+    if (!sigId || !url || _fetchGetMounted[sigId]) return;
+    _fetchGetMounted[sigId] = true;
+    function doGet() {
+      var opts = {};
+      if (headersId) {
+        var hs = _sv[headersId];
+        if (hs) { try { opts.headers = JSON.parse(hs); } catch(_e) {} }
+      }
+      fetch(url, opts).then(function(r) { return r.text(); }).then(function(t) { _set(sigId, t); });
+    }
+    doGet();
+    if (tickId) _sub(tickId, function(t) { if ((t | 0) > 0) doGet(); });
+  }
+  _signals.forEach(function(s, rawId) {
+    var sigId = String(rawId);
+    var collected = sigs.has(rawId) || sigs.has(sigId);
+    if (!collected) return;
+    if (s._seedSource && s._seedSource.id != null) {
+      var sourceId = String(s._seedSource.id);
+      if (sigs.has(s._seedSource.id) || sigs.has(sourceId)) {
+        s._seedPristine = true;
+        _sub(sourceId, function(v) {
+          if (s._seedPristine) _set(sigId, v == null ? '' : String(v), { preserveSeedPristine: true });
+        });
+      }
+    }
+    if (s._fetchGet) {
+      var fg = s._fetchGet;
+      var tickId = (fg.tick && fg.tick.id != null) ? String(fg.tick.id) : '';
+      var headersId = (fg.headers && fg.headers.id != null) ? String(fg.headers.id) : '';
+      _mountFetchGet(sigId, fg.url, tickId, headersId);
+    }
+  });
   // show/hide branches
   document.querySelectorAll('[data-ssc-cond]').forEach(function(el) {
     var id = el.getAttribute('data-ssc-cond');
@@ -497,16 +558,7 @@ function _ssc_ui_mount(sigs) {
     var url       = el.getAttribute('data-ssc-fetch-get-url');
     var tickId    = el.getAttribute('data-ssc-fetch-get-tick');
     var headersId = el.getAttribute('data-ssc-fetch-get-headers');
-    function doGet() {
-      var opts = {};
-      if (headersId) {
-        var hs = _sv[headersId];
-        if (hs) { try { opts.headers = JSON.parse(hs); } catch(_e) {} }
-      }
-      fetch(url, opts).then(function(r) { return r.text(); }).then(function(t) { _set(sigId, t); });
-    }
-    doGet();
-    if (tickId) _sub(tickId, function(t) { if ((t | 0) > 0) doGet(); });
+    _mountFetchGet(sigId, url, tickId, headersId);
   });
 }
 
@@ -555,6 +607,8 @@ function _ssc_ui_emptyHeaders() { return Signal(''); }
 function _ssc_ui_fetchUrlSignal(name, url, tick, headers) {
   var sig = Signal('');
   if (url) sig._fetchGet = { url, tick: tick || null, headers: headers || null };
+  var state = _signals.get(sig.id);
+  if (state) state._fetchGet = sig._fetchGet;
   return sig;
 }
 function _ssc_ui_fetchAction(method, url, body, tick, headers) { return { _type: '_FetchAction', method, url, body, tick, headers: headers || null }; }

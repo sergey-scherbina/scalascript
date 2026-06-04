@@ -38,6 +38,25 @@ class ReactiveSignal[T](val id: String, initial: T) extends Signal[T]:
     }
     () => synchronized { listeners.remove(id); () }
 
+/** Writable String signal seeded from another signal.
+ *
+ *  The seed copies `source` while pristine. The first explicit write marks the
+ *  signal dirty, so later source updates do not overwrite user edits. */
+final class SeedSignal(id2: String, val source: ReactiveSignal[String])
+    extends ReactiveSignal[String](id2, source()):
+  @volatile private var pristine = true
+
+  private def setFromSource(value: String): Unit =
+    if pristine then super.set(value)
+
+  source.subscribe(setFromSource)
+
+  override def set(value: String): Unit =
+    pristine = false
+    super.set(value)
+
+  def isPristine: Boolean = pristine
+
 /** Reactive list signal.  Backs `View.ForSignal`.
  *  `id` replaces `jsName` from v0.2 — same naming contract as `ReactiveSignal`. */
 final class ReactiveSignalList[T](val id: String, val initial: Seq[T])

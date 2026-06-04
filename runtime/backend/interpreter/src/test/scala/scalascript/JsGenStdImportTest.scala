@@ -63,6 +63,7 @@ class JsGenStdImportTest extends AnyFunSuite:
   test("JS signal runtime defines std/ui typed DataTable column helpers"):
     val runtime = JsGen.generateRuntime(Set(JsGen.Capability.Signals))
     List(
+      "_ssc_ui_seedSignal",
       "_ssc_ui_dateColumn",
       "_ssc_ui_moneyColumn",
       "_ssc_ui_statusColumn",
@@ -72,6 +73,9 @@ class JsGenStdImportTest extends AnyFunSuite:
     }
     assert(runtime.contains("kind: c.kind || { type: 'text' }"),
       "DataTable column serialization must preserve kind metadata")
+    assert(runtime.contains("_seedPristine"), "seedSignal must track pristine state")
+    assert(runtime.contains("preserveSeedPristine"), "source sync must not dirty the seed")
+    assert(runtime.contains("_mountFetchGet"), "hidden seed sources must still mount fetchUrlSignal")
 
   test("typed DataTable helpers trigger the JS Signals runtime capability"):
     val source =
@@ -89,3 +93,26 @@ class JsGenStdImportTest extends AnyFunSuite:
 
     val caps = JsGen.detectCapabilities(Parser.parse(source))
     assert(caps.contains(JsGen.Capability.Signals), s"expected Signals capability, got $caps")
+
+  test("seedSignal triggers the JS Signals runtime capability"):
+    val source =
+      """# App
+        |
+        |[seedSignal](std/ui/primitives.ssc)
+        |
+        |```scalascript
+        |val source = signal[String]("source", "Ada")
+        |val draft = seedSignal("draft", source)
+        |```
+        |""".stripMargin
+
+    val caps = JsGen.detectCapabilities(Parser.parse(source))
+    assert(caps.contains(JsGen.Capability.Signals), s"expected Signals capability, got $caps")
+
+  test("seedSignal example parses and emits the browser helper shim"):
+    val source = os.read(TestPaths.repoRoot / "examples" / "seed-signal.ssc")
+    val js = JsGen.generate(Parser.parse(source), baseDir = Some(TestPaths.repoRoot / "examples"))
+
+    assert(js.contains("_ssc_ui_seedSignal"), "std/ui seedSignal extern must bind to the browser helper")
+    assert(js.contains("""_call(seedSignal, "draftName", sourceName)"""),
+      "example should keep the explicit seedSignal draft construction")

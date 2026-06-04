@@ -3,7 +3,7 @@ package scalascript.compiler.plugin.frontend
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{InterpretError, Value}
-import scalascript.frontend.{ReactiveSignal, EventHandler, View, AttrValue, FrontendModule, ComponentDef, FrontendFrameworks}
+import scalascript.frontend.{ReactiveSignal, SeedSignal, EventHandler, View, AttrValue, FrontendModule, ComponentDef, FrontendFrameworks}
 import scalascript.ast.ModelDef
 import scalascript.plugin.api.PluginNative
 import scalascript.plugin.api.PluginContext
@@ -55,6 +55,15 @@ object FrontendIntrinsics:
         case List(name: String, default: Double)  =>
           Value.Foreign("ReactiveSignal", new ReactiveSignal[Double](name, default))
         case _ => throw InterpretError("signal(name, default)")
+    },
+
+    // ── seedSignal(name, source): Signal[String] ───────────────────────────
+    QualifiedName("seedSignal") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(name: String, Value.Foreign("ReactiveSignal", source: ReactiveSignal[?])) =>
+          Value.Foreign("ReactiveSignal",
+            new SeedSignal(name, source.asInstanceOf[ReactiveSignal[String]]))
+        case _ => throw InterpretError("seedSignal(name, source)")
     },
 
     // ── element(tag, attrs, events, children): View ─────────────────────────

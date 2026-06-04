@@ -1,0 +1,51 @@
+---
+name: seed-signal-demo
+version: 1.0.0
+description: seedSignal keeps an editable draft seeded from a fetched source.
+---
+
+# seedSignal demo
+
+## Backend
+
+```scalascript
+route("GET", "/api/profile/name") { _ =>
+  Response.text("Ada Lovelace")
+}
+```
+
+## Imports
+
+[signal, seedSignal, fetchUrlSignal, incSignal, serve](std/ui/primitives.ssc)
+
+[lower](std/ui/lower.ssc)
+
+[defaultTheme](std/ui/theme.ssc)
+
+[vstack, hstack](std/ui/layout.ssc)
+
+[heading, text](std/ui/typography.ssc)
+
+[textField, actionButton](std/ui/input.ssc)
+
+[signalPre](std/ui/display.ssc)
+
+## App
+
+```scalascript
+val refresh = signal[Int]("refresh", 0)
+val sourceName = fetchUrlSignal("sourceName", "/api/profile/name", refresh)
+val draftName = seedSignal("draftName", sourceName)
+
+val view = lower(defaultTheme(vstack(gap = 12)(
+  heading(1, "Profile draft"),
+  text("The field seeds from GET /api/profile/name until the user edits it."),
+  signalPre(sourceName),
+  textField(value = draftName, label = "Editable name"),
+  hstack(gap = 8)(
+    actionButton(incSignal(refresh), "Reload source")
+  )
+)))
+
+serve(view, 8080)
+```
