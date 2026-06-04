@@ -775,6 +775,85 @@ class SscVmTest extends AnyFunSuite with Matchers:
     out shouldBe "5000450000"
   }
 
+  // ── Completeness p1: Boolean, unary ops, qualified match ctors ──────────────
+
+  test("compiles Boolean literal and Boolean-returning function") {
+    // Lit.Boolean must compile; Boolean return treated as TInt (0/1)
+    val f = funOf("isPositive",
+      """def isPositive(x: Int): Boolean = x > 0""")
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    SscVm.run(cfn.get, Array(5L))  shouldBe 1L
+    SscVm.run(cfn.get, Array(-3L)) shouldBe 0L
+    SscVm.run(cfn.get, Array(0L))  shouldBe 0L
+  }
+
+  test("compiles Boolean parameter used in arithmetic expression") {
+    // Boolean param arrives as 0/1 long — standard int arithmetic must work
+    val f = funOf("boolToInt",
+      """def boolToInt(flag: Boolean): Int = if flag then 1 else 0""")
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    SscVm.run(cfn.get, Array(1L)) shouldBe 1L
+    SscVm.run(cfn.get, Array(0L)) shouldBe 0L
+  }
+
+  test("compiles unary minus on Int") {
+    val f = funOf("abs",
+      """def abs(x: Int): Int = if x < 0 then -x else x""")
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    SscVm.run(cfn.get, Array(-7L)) shouldBe 7L
+    SscVm.run(cfn.get, Array(3L))  shouldBe 3L
+    SscVm.run(cfn.get, Array(0L))  shouldBe 0L
+  }
+
+  test("compiles unary minus on Double") {
+    val f = funOf("negD",
+      """def negD(x: Double): Double = -x""")
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    cfn.get.retIsDouble shouldBe true
+    asD(SscVm.run(cfn.get, Array(bitsOf(2.5))))  shouldBe -2.5
+    asD(SscVm.run(cfn.get, Array(bitsOf(-1.0)))) shouldBe 1.0
+  }
+
+  test("compiles logical not (!) on Boolean") {
+    val f = funOf("not",
+      """def not(x: Boolean): Boolean = !x""")
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    SscVm.run(cfn.get, Array(0L)) shouldBe 1L
+    SscVm.run(cfn.get, Array(1L)) shouldBe 0L
+  }
+
+  test("end-to-end: qualified enum patterns and qualified Pat.Extract compile and run") {
+    // Tests both `case Color.Red =>` (no-arg, Term.Select pattern) and
+    // `case Shape.Circle(r) =>` (qualified Pat.Extract) paths in emitCaseHeader.
+    val out = captured(
+      """enum Color:
+        |  case Red
+        |  case Green
+        |  case Blue
+        |enum Shape:
+        |  case Circle(r: Int)
+        |  case Square(s: Int)
+        |def colorCode(c: Color): Int = c match
+        |  case Color.Red   => 1
+        |  case Color.Green => 2
+        |  case Color.Blue  => 3
+        |def area(s: Shape): Int = s match
+        |  case Shape.Circle(r) => r * r
+        |  case Shape.Square(s) => s * s
+        |var total = 0
+        |var i = 0
+        |while i < 100 do
+        |  total = total + colorCode(Color.Green) + area(Shape.Circle(3))
+        |  i = i + 1
+        |println(total)""".stripMargin)
+    out shouldBe "1100"  // 100 * (2 + 9) = 1100
+  }
+
   test("closed-form does not fire when arg is not the counter (invariant fold handles it)") {
     // f(42) is loop-invariant: tryFoldInvariantAccumLoop fires instead.
     // Both paths give the correct answer 42*1000 = 42000.

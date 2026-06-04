@@ -32,7 +32,7 @@ object VmCompiler:
     case TInt, TDouble, TRef
   import VmType.*
 
-  private val intTypes    = Set("Int", "Long", "")
+  private val intTypes    = Set("Int", "Long", "Boolean", "")
   private val doubleTypes = Set("Double", "Float")
 
   /** A name resolver: given the function currently being compiled and a free
@@ -61,7 +61,7 @@ object VmCompiler:
    *  (for `match` field extraction) via `meta`. */
   def compile(fn: Value.FunV, resolve: Resolve, meta: Meta): Option[CompiledFn] =
     try Some(new Ctx(resolve, meta).compileFn(fn))
-    catch case b: Bail => JitMissStats.record(b.reason); None
+    catch case b: Bail => { JitMissStats.record(b.reason); None }
 
   private def bail(reason: String): Nothing = throw new Bail(reason)
 
@@ -300,8 +300,9 @@ object VmCompiler:
     // return-a-register scheme needs at every use site (call args, if-branches,
     // assignments), cutting the instruction count of the hot VM dispatch loop.
     private def compileInto(t: Term, dst: Int): VmType = t match
-      case Lit.Int(v)    => emit(CONST, dst, constSlot(v.toLong), 0); setType(dst, TInt); TInt
-      case Lit.Long(v)   => emit(CONST, dst, constSlot(v), 0); setType(dst, TInt); TInt
+      case Lit.Int(v)       => emit(CONST, dst, constSlot(v.toLong), 0); setType(dst, TInt); TInt
+      case Lit.Long(v)      => emit(CONST, dst, constSlot(v), 0); setType(dst, TInt); TInt
+      case Lit.Boolean(v)   => emit(CONST, dst, constSlot(if v then 1L else 0L), 0); setType(dst, TInt); TInt
       case Lit.Double(v) =>
         emit(CONST, dst, constSlot(jl.Double.doubleToRawLongBits(v.toString.toDouble)), 0)
         setType(dst, TDouble); TDouble
@@ -385,6 +386,24 @@ object VmCompiler:
 
       case tm: Term.Match =>
         compileMatchInto(tm.expr, tm.casesBlock.cases, dst)
+
+      case Term.ApplyUnary(op, arg) =>
+        val ar = compileExpr(arg)
+        op.value match
+          case "-" =>
+            // negate: 0 - ar  (int) or  0.0 - ar  (double)
+            if typeOf(ar) == TDouble then
+              val zero = freshReg()
+              emit(CONST, zero, constSlot(jl.Double.doubleToRawLongBits(0.0)), 0)
+              setType(zero, TDouble)
+              emit(FSUB, dst, zero, ar); setType(dst, TDouble); TDouble
+            else
+              val zero = freshReg()
+              emit(CONST, zero, constSlot(0L), 0)
+              emit(SUB, dst, zero, ar); setType(dst, TInt); TInt
+          case "!" =>
+            emit(EQI, dst, ar, constSlot(0L)); setType(dst, TInt); TInt  // !x == (x == 0)
+          case other => bail(s"unsupported: unary operator '$other'")
 
       case other =>
         bail(s"unsupported: ${termName(other)}")
@@ -486,7 +505,11 @@ object VmCompiler:
       if c.cond.isDefined then bail("match: guard present (guards unsupported)")
       c.pat match
         case Pat.Extract.After_4_6_0(fn0, argClause) =>
-          val ctor = fn0 match { case n: Term.Name => n.value; case _ => bail("match: non-Name constructor") }
+          // Accept both `Bar(...)` and qualified `Foo.Bar(...)` — take the rightmost name
+          val ctor = fn0 match
+            case n: Term.Name => n.value
+            case Term.Select(_, n: Term.Name) => n.value
+            case _ => bail("match: constructor is not a name or qualified name")
           val argPats = argClause.values
           val test = freshReg()
           emit(ISTAG, test, scrutReg, strSlot(ctor))
@@ -509,6 +532,15 @@ object VmCompiler:
               case _               => bail("match: non-Var/wildcard binding")
             i += 1; ps = ps.tail
           jf
+        // No-arg enum case or case object: `case Red =>` or `case Color.Red =>`
+        case n: Term.Name =>
+          val test = freshReg()
+          emit(ISTAG, test, scrutReg, strSlot(n.value))
+          emit(JF, test, -1, 0)
+        case Term.Select(_, n: Term.Name) =>
+          val test = freshReg()
+          emit(ISTAG, test, scrutReg, strSlot(n.value))
+          emit(JF, test, -1, 0)
         case _ => bail("match: unsupported pattern shape")
 
     /** Tail-position match: each arm self-terminates (RET or a self-tail loop). */
