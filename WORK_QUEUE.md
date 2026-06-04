@@ -937,21 +937,13 @@ highest-impact item.
       `lintWhileLoops`, `lintWhileLoopsCompare`, `WhileCondShape`,
       `WhileBodyShape`.  12 new tests; 39 total pass.
 
-- [ ] **jit-tuple-concat-hoist** — `tupleMonoid` interp 0.212 ms vs jvm 0.137 ms (55% gap).
-      Bench: `while i < 100000 do last = (1,2)++(3,4)`.  Every iteration allocates
-      three `TupleV` objects; JVM backend constant-folds to a pre-built object.
-      The while-JIT handles the `i` counter but `last = (1,2)++(3,4)` falls through
-      to `EvalRuntime` because it is not a Long expression.
-
-      Fix in `tryLongWhileAssign`: detect assignments of the form `name = expr`
-      where the RHS is a pure constant expression (no free names referencing loop
-      variables, no side effects).  Pre-evaluate the RHS once before the JIT loop
-      entry and cache the resulting `Value` in a pre-computed ref slot.  The loop
-      body stores the cached ref without re-allocating.  Generalises to any
-      `name = <literal-expr>` in a JIT-compiled while body.
-
-      Same-session A/B required; gate stays on.
-      **Bench target:** `tupleMonoid` 0.212 → ~0.14 ms (JVM parity, ~1.5×).
+- [x] **jit-tuple-concat-hoist** — ✓ Landed 2026-06-04 (1989ba1c).
+      Extended `tryHoistedPureWhile` to recognise `Term.Name` RHS as hoistable
+      when the name is val-bound (`interp.valNames`).  Before: `last = k`
+      (k: val tuple) bailed to the 65 ms value-space loop.  After: k is
+      evaluated once and the loop runs through `tryLongWhileAssign` at ~2 ms
+      for 1M iters (33× speedup).  New bench `tupleMonoidVal` locks in the
+      val-name hoist path; `counterWithTupleVar` guards the non-hoist fallback.
       Spec: [`docs/bench-analysis-2026-06-04.md`](docs/bench-analysis-2026-06-04.md).
 
 - [x] **effect-stream-jfr** — ✓ Landed 2026-06-04.
