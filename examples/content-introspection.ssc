@@ -1,0 +1,39 @@
+---
+name: content-introspection
+version: 0.1.0
+content:
+  defaultRenderer: std-ui
+---
+
+# Pricing {#pricing route=/pricing layout=marketing}
+
+Simple plans for small teams.
+
+<!-- @meta component=PlanList source=plans -->
+## Plans
+
+- Starter: $19
+- Pro: $49
+
+## Planned API
+
+The `std/content` runtime API is planned. This example is intentionally kept
+runnable today by showing the future code as text until the implementation
+lands.
+
+```text
+[contentDocument, contentCurrentSection, contentSection](std/content.ssc)
+[contentView](std/ui/content.ssc)
+
+val doc = contentDocument()
+println(doc.title.getOrElse(""))
+println(contentSection("plans").get.title)
+
+val page = contentView(doc)
+serve(lower(page, defaultTheme), 8080)
+```
+
+```scalascript
+println("content-introspection: planned std/content API")
+println("spec: specs/markdown-content-introspection.md")
+```

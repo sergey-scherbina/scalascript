@@ -14,6 +14,58 @@ This unification provides:
 
 ## Construct Mappings
 
+### Markdown Body -> Document Content IR (planned)
+
+The next planned layer keeps the existing scope/import/code behavior and also
+exposes the non-code Markdown body as typed content. This lets code blocks read
+document content as metadata, and lets frontend helpers render prose, lists,
+links, images, and future tables without user-written HTML generation.
+
+```markdown
+# Pricing {#pricing route=/pricing layout=marketing}
+
+Simple plans for small teams.
+
+<!-- @meta component=PlanList source=plans -->
+## Plans
+
+- Starter: $19
+- Pro: $49
+```
+
+Planned AST/runtime shape:
+
+```text
+DocumentContent(
+  title = Some("Pricing"),
+  sections = List(
+    SectionContent(
+      id = "pricing",
+      attrs = Map("route" -> "/pricing", "layout" -> "marketing"),
+      blocks = List(Paragraph(...)),
+      children = List(SectionContent(id = "plans", attrs = Map("component" -> "PlanList", ...)))
+    )
+  )
+)
+```
+
+The public API is planned under `std/content.ssc`:
+
+```scalascript
+val doc = contentDocument()
+val pricing = contentSection("pricing")
+val current = contentCurrentSection()
+```
+
+Frontend lowering is planned separately under `std/ui/content.ssc`:
+
+```scalascript
+val page = contentView(contentDocument())
+```
+
+The full contract and implementation phases are in
+[`../specs/markdown-content-introspection.md`](../specs/markdown-content-introspection.md).
+
 ### Headings → Scopes/Namespaces
 
 Headings define the hierarchical structure of your code:

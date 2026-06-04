@@ -1,0 +1,28 @@
+---
+name: conformance-content-introspection
+version: 1.0.0
+pending: needs std/content Phase 3 implementation
+---
+
+# Pricing {#pricing route=/pricing layout=marketing}
+
+Simple plans for small teams.
+
+<!-- @meta component=PlanList source=plans -->
+## Plans
+
+- Starter: $19
+- Pro: $49
+
+```scalascript
+[contentDocument, contentCurrentSection, contentSection, contentPlainText](std/content.ssc)
+
+val doc = contentDocument()
+val plans = contentSection("plans").get
+val here = contentCurrentSection()
+
+println(doc.title.getOrElse(""))
+println(plans.title)
+println(contentPlainText(plans))
+println(here.id)
+```

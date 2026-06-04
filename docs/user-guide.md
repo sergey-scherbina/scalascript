@@ -316,6 +316,47 @@ java -Dscalascript.server.port=9090 -jar target/build/jvm/myapp.jar
 
 ## 3. Language Basics
 
+### Markdown Content Introspection (planned)
+
+ScalaScript already treats Markdown headings, links, and fenced blocks as
+language syntax. A planned `std/content` layer will expose the rest of the
+Markdown body as typed data so code can inspect prose-defined metadata and
+frontend helpers can render document content without hand-written markup.
+
+```markdown
+# Pricing {#pricing route=/pricing layout=marketing}
+
+Simple plans for small teams.
+
+<!-- @meta component=PlanList source=plans -->
+## Plans
+
+- Starter: $19
+- Pro: $49
+```
+
+Planned code-block API:
+
+```scalascript
+[contentDocument, contentCurrentSection, contentSection](std/content.ssc)
+
+val doc = contentDocument()
+println(doc.title.getOrElse(""))
+println(contentSection("plans").get.title)
+```
+
+Planned frontend API:
+
+```scalascript
+[contentView](std/ui/content.ssc)
+
+val page = contentView(contentDocument())
+```
+
+This feature is not implemented yet. The target contract, phase plan, and
+pending conformance fixture are tracked in
+[`specs/markdown-content-introspection.md`](../specs/markdown-content-introspection.md).
+
 ### Values and Variables
 
 ```scalascript
