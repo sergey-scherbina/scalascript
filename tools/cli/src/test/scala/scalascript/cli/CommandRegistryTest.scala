@@ -17,6 +17,7 @@ class CommandRegistryTest extends AnyFunSuite with Matchers:
     "add", "test", "preview", "fmt", "bench", "profile", "lsp", "debug",
     "cluster", "oauth", "toolchain",
     "help", "--help", "-h", "--list-backends",
+    "check-types", "lint-jit",
   )
 
   test("ServiceLoader discovers the command providers"):
