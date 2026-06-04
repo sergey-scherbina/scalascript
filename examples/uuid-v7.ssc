@@ -1,0 +1,15 @@
+// UUID v7 generation and validation example.
+// v7 UUIDs encode millisecond timestamps, so they sort chronologically.
+val id1 = uuidV7()
+val id2 = uuidV7()
+
+println(s"v7 #1 : $id1")
+println(s"v7 #2 : $id2")
+println(s"ordered: ${id1 <= id2}")
+
+val id4 = uuidV4()
+println(s"v4     : $id4")
+println(s"valid  : ${uuidIsValid(id4)}")
+
+val parsed = uuidFromString(id1)
+println(s"parsed : ${parsed.getOrElse("error")}")

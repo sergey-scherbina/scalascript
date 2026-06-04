@@ -72,3 +72,4 @@ val JsIntrinsics: Map[QualifiedName, IntrinsicImpl] =
     ++ JsDatasetIntrinsics  // v1.21     — Dataset:   intrinsics/Dataset.scala
     ++ JsPaymentIntrinsics  // v1.38     — Payment:   intrinsics/Payment.scala
     ++ JsGraphqlIntrinsics  // graphql   — GraphQL:   intrinsics/Graphql.scala
+    ++ JsUuidIntrinsics    // uuid      — UUID:      intrinsics/Uuid.scala

@@ -1,0 +1,19 @@
+# uuid
+
+UUID v4 (random) and v7 (time-ordered) generation, parsing, and validation.
+Not part of the Random effect — these call platform CSPRNG directly.
+
+```scalascript
+opaque type Uuid = String
+
+object Uuid:
+  extern def v4(): Uuid
+  extern def v7(): Uuid
+  extern def fromString(s: String): Option[Uuid]
+  extern def isValid(s: String): Boolean
+  val nil: Uuid = "00000000-0000-0000-0000-000000000000"
+  val max: Uuid = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+
+extension (u: Uuid)
+  def asString: String = u
+```

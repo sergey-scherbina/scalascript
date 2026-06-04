@@ -855,4 +855,32 @@ function exists(path) {
   if (!_fsMod) return false;
   return _fsMod.existsSync(path);
 }
+// UUID intrinsics — v4 (random) and v7 (time-ordered, RFC 9562 §5.7)
+function uuidV4() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  // fallback: manual assembly with crypto.getRandomValues
+  const b = new Uint8Array(16);
+  (crypto || require('crypto')).getRandomValues(b);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  return [...b].map((x,i) => (i===4||i===6||i===8||i===10?'-':'')+x.toString(16).padStart(2,'0')).join('');
+}
+function uuidV7() {
+  const now = BigInt(Date.now());
+  const rand = new Uint8Array(10);
+  (typeof crypto !== 'undefined' ? crypto : require('crypto')).getRandomValues(rand);
+  const randA = ((rand[0] & 0x0f) << 8) | rand[1];
+  const randB1 = ((rand[2] & 0x3f) << 8) | rand[3] | 0x8000;
+  const tHi = Number((now >> 16n) & 0xffffffffn).toString(16).padStart(8,'0');
+  const tLo = Number(now & 0xffffn).toString(16).padStart(4,'0');
+  const ra  = randA.toString(16).padStart(3,'0');
+  const rb1 = randB1.toString(16).padStart(4,'0');
+  const rb2 = (((rand[4]<<8)|rand[5])&0xffff).toString(16).padStart(4,'0');
+  const rb3 = (((rand[6]<<8)|rand[7])&0xffff).toString(16).padStart(4,'0');
+  const rb4 = (((rand[8]<<8)|rand[9])&0xffff).toString(16).padStart(4,'0');
+  return `${tHi}-${tLo}-7${ra}-${rb1}-${rb2}${rb3}${rb4}`;
+}
+const _uuidRx = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+function uuidIsValid(s) { return _uuidRx.test(typeof s === 'string' ? s.toLowerCase() : ''); }
+function uuidFromString(s) { return uuidIsValid(s) ? _Some(s.toLowerCase()) : _None; }
 """

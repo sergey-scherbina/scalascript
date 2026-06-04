@@ -2610,6 +2610,18 @@ lazy val deployPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.deploy"))
 
+// ── UUID — v4/v7 generation, parsing, validation ──────────────────────────
+lazy val uuidPlugin = project
+  .in(file("runtime/std/uuid-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-uuid-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.uuid"))
+
 // ── Payment Request API — interpreter plugin ──────────────────────────────
 lazy val paymentRequestPlugin = project
   .in(file("runtime/std/payment-request-plugin"))
@@ -2712,6 +2724,7 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("deploy",          deployPlugin,          "scalascript-deploy-plugin"),
   PluginSpec("payment-request", paymentRequestPlugin,  "scalascript-payment-request-plugin"),
   PluginSpec("payments",        paymentsPlugin,        "scalascript-payments-plugin"),
+  PluginSpec("uuid",            uuidPlugin,            "scalascript-uuid-plugin"),
 )
 
 // ── Frontend backend registry (arch-build-registry Phase 4) ─────────────
