@@ -925,8 +925,6 @@ private[interpreter] object EvalRuntime:
       w += 1
 
     // Build result: (source, ())
-    // Defer buf.toList to when runToList is actually called — avoids O(N) list
-    // allocation + O(N) length traversal when the caller only needs .length.
     val fromFn = interp.globals.getOrElse("Source.from", null)
     val source: Value =
       if fromFn != null then
@@ -934,12 +932,21 @@ private[interpreter] object EvalRuntime:
         try interp.invoke(fromFn, emitted :: Nil)
         catch case _: Throwable => emitted
       else
-        // Dstreams plugin not loaded — build a minimal Source with runToList/length.
-        // buf.length is O(1); buf.toList in the runToList lambda is deferred until called.
-        val nElems = buf.length
+        // Dstreams plugin not loaded. Use array-backed SrcList to avoid the 10K
+        // cons-cell allocation from buf.toList. runToList().length resolves via
+        // NativeFnV (O(1)); buf.toList is deferred to srcList.toList and only
+        // materialised if user code explicitly calls it.
+        val nElems  = buf.length
+        val srcList = Value.InstanceV("SrcList", Map(
+          "length"   -> Value.NativeFnV("SrcList.length",   Computation.pureFn { _ => Value.intV(nElems) }),
+          "size"     -> Value.NativeFnV("SrcList.size",     Computation.pureFn { _ => Value.intV(nElems) }),
+          "isEmpty"  -> Value.NativeFnV("SrcList.isEmpty",  Computation.pureFn { _ => Value.boolV(nElems == 0) }),
+          "nonEmpty" -> Value.NativeFnV("SrcList.nonEmpty", Computation.pureFn { _ => Value.boolV(nElems > 0) }),
+          "toList"   -> Value.NativeFnV("SrcList.toList",   Computation.pureFn { _ => Value.ListV(buf.toList) }),
+        ))
         Value.InstanceV("Source", Map(
-          "runToList" -> Value.NativeFnV("Source.runToList", Computation.pureFn { _ => Value.ListV(buf.toList) }),
-          "length"    -> Value.IntV(nElems)
+          "runToList" -> Value.NativeFnV("Source.runToList", Computation.pureFn { _ => srcList }),
+          "length"    -> Value.intV(nElems)
         ))
     Pure(Value.TupleV(source :: Value.UnitV :: Nil))
 
