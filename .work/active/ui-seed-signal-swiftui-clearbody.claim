@@ -1,4 +1,0 @@
-feature/ui-seed-signal-swiftui-clearbody 2026-06-04T04:30:54Z
-status: in-progress
-done-so-far: Found SwiftUI FetchAction clearBody seed dirty gap after frontend parity push
-next: add dirty-aware clearBody lowering and focused SwiftUI test
