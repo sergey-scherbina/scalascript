@@ -1,0 +1,4 @@
+feature/bench-effect-stream-corpus 2026-06-04T06:00:47Z
+status: not-started
+done-so-far:
+next: investigate bench.sh n/a for effect-stream — check bench/corpus/effect-stream.ssc and bench/run.sc
