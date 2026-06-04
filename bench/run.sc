@@ -80,6 +80,11 @@ val filterNames: Set[String] =
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
+def displayName(b: String): String = b match
+  case "interp"     => "ssc"
+  case "interp-asm" => "ssc-asm"
+  case other        => other
+
 def fmtMs(ms: Double): String =
   if ms < 1.0 then f"$ms%.3f" else if ms < 10.0 then f"$ms%.2f" else f"$ms%.1f"
 
@@ -114,7 +119,7 @@ def formatTable(
     workloads: Seq[String],
     byBackend: Map[String, Map[String, Option[Double]]]
 ): String =
-  val bLabels   = backends.map(b => s"$b (ms/iter)")
+  val bLabels   = backends.map(b => s"${displayName(b)} (ms/iter)")
   val nameCells = workloads.map(n => s"`$n`")
 
   val w0 = ("Workload" +: nameCells).map(_.length).max
@@ -162,7 +167,7 @@ if corpusFiles.isEmpty then
   sys.exit(1)
 
 println(s"Corpus:   ${corpusFiles.map(_.getName.replaceAll("\\.ssc$","")).mkString(", ")}")
-println(s"Backends: ${backends.mkString(", ")}")
+println(s"Backends: ${backends.map(displayName).mkString(", ")}")
 val warmupDisplay = warmupTimeMs match
   case Some(ms) => s"${ms}ms (time-based)"
   case None     => s"$warmup iters"
@@ -178,7 +183,7 @@ for f <- corpusFiles do
   val wname = f.getName.replaceAll("\\.ssc$", "")
   print(s"  $wname:")
   for b <- backends do
-    print(s"  $b...")
+    print(s"  ${displayName(b)}...")
     Console.flush()
     val ms = runSscBenchBackend(sscPath, f, b)
     byBackend(b)(wname) = ms
