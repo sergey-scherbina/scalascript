@@ -1,4 +1,0 @@
-feature/jvm-effect-types 2026-06-04T03:28:55Z
-status: not-started
-done-so-far:
-next: compile-jvm effect-pure/effect-stream, read error, fix effect verifier + JVM CPS translation

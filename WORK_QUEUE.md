@@ -1003,20 +1003,14 @@ highest-impact item.
       **refChainArg** (`leafVal(getLeft(tree))` × 1M, `tree` val-bound):
       Javac 0.377 ms → **0.046 ms (8.2×)**, matching ASM. 1281/1281 tests green.
 
-- [ ] **jvm-effect-types** — JVM backend silently produces no output (no `BENCH` line,
-      no error) for any workload with `! Effect` typed functions.  `compile-jvm` reveals
-      the root cause: two compiler errors:
-        `Type mismatch: expected () => Any ! Logger, found Int`
-        `[effect-verifier] 'compute' declares effect(s) Logger but reachability found none`
-      The second error shows the JVM effect verifier rejects `Int ! Logger` functions
-      whose body contains no `perform` calls (pure while loop inside an effect-typed def).
-      The first error suggests the JVM codegen wraps `runLogger { body }` incorrectly —
-      likely expecting a thunk `() => Any ! Logger` but the CPS-translated body is
-      already a flat `Int`.  Fix: (1) relax the effect verifier to allow pure bodies in
-      effect-typed defs (or suppress the error for the JVM backend path), (2) fix the
-      `runLogger`/`runStream` call-site CPS translation in JVM codegen.
-      **Affects:** `effect-pure` JVM (n/a), `effect-stream` JVM (n/a).
-      **Target:** both show valid numbers in `bench.sh` (expected ~0.003 ms / ~0.3 ms).
+- [x] **jvm-effect-types** — ✓ Landed 2026-06-04.
+      JVM backend now compiles and runs `T ! Eff` typed functions.
+      Four-part fix: (1) strip `T ! Eff` return-type annotations in emitStat;
+      (2) switch runner body emission from emitCpsExpr→emitExpr so while/var loops
+      work; (3) replace CPS runStream with ThreadLocal buffer (_Source) approach;
+      (4) intercept .runToList() calls with _Source cast; suppress false
+      sub-effecting verifier warning; relax Typer for runner block args.
+      Results: effect-pure JVM **0.005 ms/op**; effect-stream JVM **0.067 ms/op**.
 
 - [ ] **js-effect-stream-while** — `effect-stream` JS produces no output (silent n/a).
       JS codegen compiles the `while i < N do Stream.emit(i)` body inside `runStream`

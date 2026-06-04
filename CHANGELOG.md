@@ -4,6 +4,27 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — fix(jvm): effect-pure + effect-stream JVM backend — T!Eff, ThreadLocal stream
+
+- **jvm-effect-types** — JVM backend now compiles and runs `T ! Eff` effect-typed
+  functions and `runStream` with while/var loops. Four-part fix:
+  1. `JvmGenTermAnalysis` — add `stdEffectRunners` to `termUsesEffects` so
+     `runLogger`/`runStream` calls trigger `blockNeedsRewrite` → `emitStats`.
+  2. `JvmGen emitStat` — strip `T ! Eff` return-type annotation (emit as `: Any`);
+     add `.runtimeChecked` to `val (a,b) = runner(...)` tuple-destructures.
+  3. JVM preamble — replace CPS `_handle`-based `runStream` with a `ThreadLocal`
+     `ArrayBuffer` approach: `Stream.emit()` pushes to the buffer directly so
+     `while`/`var` loops work without a CPS trampoline. `_Source.runToList()`
+     returns `List[Any]` so `.length` resolves.
+  4. `emitExpr`/`emitCpsExpr` — switch runner body from `emitCpsExpr`→`emitExpr`;
+     intercept `.runToList()` with `asInstanceOf[_Source]` cast.
+  Also: `EffectAnalysis.verify` — suppress false "declares no effect row" warning
+  for sub-effecting (pure body in effect-typed def is valid). `Typer` — accept
+  `() => Any !Eff` block args for runner type-checking.
+  **Results:** `effect-pure` JVM **0.005 ms/op**; `effect-stream` JVM **0.067 ms/op**.
+
+---
+
 ## 2026-06-04 — feat(ui): seedSignal editable draft primitive
 
 - **ui-seed-signal** — Added `seedSignal(name, source: Signal[String])` for
