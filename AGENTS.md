@@ -258,8 +258,10 @@ Bridge hooks that the interpreter exposes *to* plugins (e.g. `NativeContext.dbCo
 
 ## Spec-driven development
 
+specs: docs/specs
+
 All non-trivial new features start with a **spec document** in
-`docs/<feature>.md` **before** any implementation work begins. The
+`docs/specs/<feature>.md` **before** any implementation work begins. The
 spec PR lands on its own; implementation PRs reference the spec by
 path and may amend it as reality diverges — but the spec remains the
 source of truth.
