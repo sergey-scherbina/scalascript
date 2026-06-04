@@ -364,7 +364,11 @@ object VmCompiler:
         val cr    = compileExpr(cond)
         if typeOf(cr) != TInt then bail()        // condition must be a 0/1 boolean
         val jf    = emit(JF, cr, -1, 0)
-        compileStmt(body)
+        // Compile body as void — all stats are statements, no return value needed.
+        // Avoids compileStats→compileExpr(last) which bails on Term.Assign.
+        body match
+          case Term.Block(ss) => ss.foreach(compileStmt)
+          case _              => compileStmt(body)
         emit(JMP, start, 0, 0)
         bs(jf) = ops.length
         emit(CONST, dst, constSlot(0L), 0)       // while ⇒ unit ⇒ 0

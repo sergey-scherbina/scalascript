@@ -1222,6 +1222,36 @@ object JavacJitBackend extends JitBackend:
    *  Returns null if any stat is not a simple `val n = <long-or-double-expr>`
    *  or the final term can't compile via walkLong/walkDouble.
    *  Only non-ref (Long/Double) val bindings supported in the initial slice. */
+  /** Compile one void statement inside a while body: assignment or discarded expr. */
+  private def walkStatAsVoid(stat: Stat, ctx: GenCtx): String | Null = stat match
+    case Term.Assign(nm: Term.Name, rhs: Term) =>
+      val jn = ctx.resolveLocal(nm.value)
+      if jn == null then return null
+      val e = if ctx.isDouble then walkDouble(rhs, ctx) else walkLong(rhs, ctx)
+      if e == null then return null
+      s"$jn = $e;\n        "
+    case e: Term =>
+      val str = if ctx.isDouble then walkDouble(e, ctx) else walkLong(e, ctx)
+      if str == null then null else s"$str;\n        "
+    case _ => null
+
+  /** Emit a Java while-statement for a `Term.While` appearing as a non-final
+   *  statement in a function body. Body stats are compiled as void (no return). */
+  private def walkWhileAsStmt(w: Term.While, ctx: GenCtx): String | Null =
+    val condStr = walkBool(w.expr, ctx)
+    if condStr == null then return null
+    val bodyStats: List[Stat] = w.body match
+      case Term.Block(ss) => ss
+      case s: Stat        => List(s)
+    val sb = new StringBuilder
+    sb.append(s"while ($condStr) {\n        ")
+    for stat <- bodyStats do
+      val line = walkStatAsVoid(stat, ctx)
+      if line == null then return null
+      sb.append(line)
+    sb.append("}")
+    sb.toString
+
   private def walkBlockStmts(stats: List[Stat], ctx: GenCtx): String | Null =
     val sb = new StringBuilder
     var curCtx = ctx
@@ -1247,6 +1277,18 @@ object JavacJitBackend extends JitBackend:
             val jType = if curCtx.isDouble then "double" else "long"
             sb.append(s"$jType $jn = $e;\n      ")
             curCtx = curCtx.withBindings(Seq(n.value -> (jn, false)))
+          case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs: Term) =>
+            val jn = sanitize(n.value)
+            val e = if curCtx.isDouble then walkDouble(rhs, curCtx)
+                    else walkLong(rhs, curCtx)
+            if e == null then return null
+            val jType = if curCtx.isDouble then "double" else "long"
+            sb.append(s"$jType $jn = $e;\n      ")
+            curCtx = curCtx.withBindings(Seq(n.value -> (jn, false)))
+          case w: Term.While =>
+            val ws = walkWhileAsStmt(w, curCtx)
+            if ws == null then return null
+            sb.append(ws).append("\n      ")
           case _ => return null
     sb.toString
 
