@@ -166,6 +166,12 @@ object AsmJitBackend extends JitBackend:
           if refR != null then return refR
         case _ =>
 
+    // LongToObject: recursive ADT-builder `def build(d: Int): Expr = if … then
+    // Num(1) else Add(build(d-1), …)`.  Long param, ref (InstanceV) return.
+    if f.params.length == 1 && !paramIsRef(0) && !isDouble then
+      val objR = tryCompileLongToObject(f, ctx, cname)
+      if objR != null then return objR
+
     val ifaceInternal = if ifaceName != null then ifaceName.replace('.', '/') else null
     val ifaces: Array[String] = if ifaceInternal != null then Array(ifaceInternal) else Array.empty
     val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
@@ -279,6 +285,177 @@ object AsmJitBackend extends JitBackend:
       catch case _: Throwable => return null
     new JitResult(mh, Array(true), resultIsDouble = false, direct)
 
+  // ── LongToObject: recursive ADT-builder JIT ─────────────────────────────
+  // Mirrors JavacJitBackend.walkObject / emitConstructorObject.  Compiles a
+  // 1-param Long function whose body builds InstanceV ADT values (e.g.
+  // `def build(d: Int): Expr = if d<=0 then Num(1) else Add(build(d-1), …)`)
+  // into a `LongToObject` direct interface — no interpreter re-entry per node.
+
+  private val valueModuleInt = "scalascript/interpreter/Value$"
+
+  private def tryCompileLongToObject(
+    f:     Value.FunV,
+    ctx:   GenCtx,
+    cname: String
+  ): JitResult | Null =
+    val ifaceInternal = "scalascript/interpreter/vm/jit/LongToObject"
+    val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
+      override def getCommonSuperClass(t1: String, t2: String): String = "java/lang/Object"
+    }
+    cw.visit(V21, ACC_PUBLIC | ACC_FINAL, cname, null, "java/lang/Object", Array(ifaceInternal))
+
+    val init = cw.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null)
+    init.visitCode()
+    init.visitVarInsn(ALOAD, 0)
+    init.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false)
+    init.visitInsn(RETURN); init.visitMaxs(1, 1); init.visitEnd()
+
+    val staticDesc = "(J)Ljava/lang/Object;"
+    val smv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, ctx.staticMethodName, staticDesc, null, null)
+    smv.visitCode()
+    if !emitObject(f.body.asInstanceOf[Term], ctx, smv) then return null
+    smv.visitInsn(ARETURN)
+    try smv.visitMaxs(0, 0) catch case _: Throwable => return null
+    smv.visitEnd()
+
+    val bMv = cw.visitMethod(ACC_PUBLIC, "apply", staticDesc, null, null)
+    bMv.visitCode()
+    bMv.visitVarInsn(LLOAD, 1)
+    bMv.visitMethodInsn(INVOKESTATIC, cname, ctx.staticMethodName, staticDesc, false)
+    bMv.visitInsn(ARETURN)
+    try bMv.visitMaxs(0, 0) catch case _: Throwable => return null
+    bMv.visitEnd()
+
+    cw.visitEnd()
+    val bytes  = try cw.toByteArray catch case _: Throwable => return null
+    val loader = new InMemoryClassLoader(getClass.getClassLoader)
+    val cls =
+      try loader.define(cname.replace('/', '.'), bytes)
+      catch case _: Throwable => return null
+    val mt = java.lang.invoke.MethodType.methodType(classOf[Object], classOf[Long])
+    val mh =
+      try java.lang.invoke.MethodHandles.lookup().findStatic(cls, ctx.staticMethodName, mt)
+      catch case _: Throwable => return null
+    val direct =
+      try cls.getConstructor().newInstance().asInstanceOf[AnyRef]
+      catch case _: Throwable => return null
+    new JitResult(mh, Array(false), resultIsDouble = false, direct)
+
+  /** Emit bytecode that leaves one `Object` (an InstanceV or recursive result)
+   *  on the stack. Mirrors javac `walkObject`. Returns false on unsupported
+   *  shapes so the caller can fall through to the Long path. */
+  private def emitObject(t: Term, ctx: GenCtx, mv: MethodVisitor): Boolean = t match
+    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+      b.stats.head match
+        case inner: Term => emitObject(inner, ctx, mv)
+        case _           => false
+    case ti: Term.If =>
+      val Lelse = new Label; val Lend = new Label
+      if !walkBool(ti.cond, ctx, mv, Lelse) then return false  // jump to else when cond false
+      if !emitObject(ti.thenp, ctx, mv) then return false
+      mv.visitJumpInsn(GOTO, Lend)
+      mv.visitLabel(Lelse)
+      if !emitObject(ti.elsep, ctx, mv) then return false
+      mv.visitLabel(Lend)
+      true
+    case ap: Term.Apply =>
+      ap.fun match
+        case fn: Term.Name if fn.value == ctx.funName =>
+          if ap.argClause.values.length != ctx.paramNames.length then return false
+          var rem = ap.argClause.values
+          while rem.nonEmpty do
+            if !walkLong(rem.head, ctx, mv) then return false
+            rem = rem.tail
+          val selfDesc = "(" + ("J" * ctx.paramNames.length) + ")Ljava/lang/Object;"
+          mv.visitMethodInsn(INVOKESTATIC, ctx.selfClass, ctx.staticMethodName, selfDesc, false)
+          true
+        case ctor: Term.Name if ctx.interp.typeFieldOrder.contains(ctor.value) =>
+          emitConstructorObject(ctor.value, ap.argClause.values, ctx, mv)
+        case _ => false
+    case _ => false
+
+  /** Build an InstanceV for `typeName(args…)` and leave it on the stack.
+   *  Mirrors javac `emitConstructorObject` + the `__inst` helper. */
+  private def emitConstructorObject(typeName: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
+    val fieldNames = ctx.interp.typeFieldOrder.getOrElse(typeName, Nil)
+    if fieldNames.length != args.length then return false
+    val fieldTypes = ctx.interp.typeFieldTypes.getOrElse(typeName, Nil)
+    val tag        = ctx.interp.typeTagMap.getOrElse(typeName, 0)
+
+    // new InstanceV(typeName.intern(), Map$.empty())
+    mv.visitTypeInsn(NEW, instVInt)
+    mv.visitInsn(DUP)
+    mv.visitLdcInsn(typeName)
+    mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "intern", "()Ljava/lang/String;", false)
+    mv.visitFieldInsn(GETSTATIC, "scala/collection/immutable/Map$", "MODULE$", "Lscala/collection/immutable/Map$;")
+    mv.visitMethodInsn(INVOKEVIRTUAL, "scala/collection/immutable/Map$", "empty", "()Lscala/collection/immutable/Map;", false)
+    mv.visitMethodInsn(INVOKESPECIAL, instVInt, "<init>",
+      "(Ljava/lang/String;Lscala/collection/immutable/Map;)V", false)
+    val instSlot = ctx.allocSlot()
+    mv.visitVarInsn(ASTORE, instSlot)
+
+    // fieldsArr = new Value[]{ … }
+    mv.visitVarInsn(ALOAD, instSlot)
+    emitIconst(mv, args.length)
+    mv.visitTypeInsn(ANEWARRAY, valueInt)
+    var i    = 0
+    var rest = args
+    while rest.nonEmpty do
+      val ft = if i < fieldTypes.length then fieldTypes(i) else ""
+      mv.visitInsn(DUP)
+      emitIconst(mv, i)
+      if isPrimitiveFieldType(ft) then
+        if !emitPrimitiveValue(rest.head, ft, ctx, mv) then return false
+      else if !emitObject(rest.head, ctx, mv) then return false
+      mv.visitInsn(AASTORE)
+      i += 1
+      rest = rest.tail
+    mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "fieldsArr_$eq", s"([L$valueInt;)V", false)
+
+    // fieldNames = new String[]{ … }
+    mv.visitVarInsn(ALOAD, instSlot)
+    emitIconst(mv, fieldNames.length)
+    mv.visitTypeInsn(ANEWARRAY, "java/lang/String")
+    var j    = 0
+    var nrem = fieldNames
+    while nrem.nonEmpty do
+      mv.visitInsn(DUP)
+      emitIconst(mv, j)
+      mv.visitLdcInsn(nrem.head)
+      mv.visitInsn(AASTORE)
+      j += 1
+      nrem = nrem.tail
+    mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "fieldNames_$eq", "([Ljava/lang/String;)V", false)
+
+    // typeTag = tag
+    mv.visitVarInsn(ALOAD, instSlot)
+    emitIconst(mv, tag)
+    mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "typeTag_$eq", "(I)V", false)
+
+    // leave the InstanceV on the stack as the result
+    mv.visitVarInsn(ALOAD, instSlot)
+    true
+
+  private def isPrimitiveFieldType(t: String): Boolean =
+    t == "Int" || t == "Long" || t == "Double" || t == "Boolean"
+
+  /** Emit a boxed `Value` for a primitive ADT field (Int/Long/Double).
+   *  Boolean is intentionally unsupported (no value-producing bool walker);
+   *  callers fall through to the interpreter for such constructors. */
+  private def emitPrimitiveValue(t: Term, fieldType: String, ctx: GenCtx, mv: MethodVisitor): Boolean =
+    fieldType match
+      case "Int" | "Long" =>
+        mv.visitFieldInsn(GETSTATIC, valueModuleInt, "MODULE$", s"L$valueModuleInt;")
+        if !walkLong(t, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, valueModuleInt, "intV", s"(J)L$intVInt;", false)
+        true
+      case "Double" =>
+        mv.visitFieldInsn(GETSTATIC, valueModuleInt, "MODULE$", s"L$valueModuleInt;")
+        if !walkDouble(t, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, valueModuleInt, "doubleV", s"(D)L$dblVInt;", false)
+        true
+      case _ => false
+
   /** Direction A.5: process non-final `Defn.Val` stats, emitting LSTORE/DSTORE
    *  bytecode for each. Returns the updated GenCtx with the new bindings on
    *  success, or null if any stat is not a compilable val-binding. */
@@ -307,6 +484,76 @@ object AsmJitBackend extends JitBackend:
         else walkLong(last, tailCtx, mv)
       case _ => false
 
+  /** Emit one void statement inside a while body: an assignment to a bound
+   *  local slot, or a discarded long/double expression. Mirrors javac
+   *  `walkStatAsVoid`. */
+  private def emitStatAsVoid(stat: Stat, ctx: GenCtx, mv: MethodVisitor): Boolean = stat match
+    case Term.Assign(nm: Term.Name, rhs: Term) =>
+      val slot = ctx.slotOf(nm.value)
+      if slot < 0 || ctx.isRefName(nm.value) then return false
+      val ok = if ctx.isDouble then walkDouble(rhs, ctx, mv) else walkLong(rhs, ctx, mv)
+      if !ok then return false
+      mv.visitVarInsn(if ctx.isDouble then DSTORE else LSTORE, slot)
+      true
+    case e: Term =>
+      val ok = if ctx.isDouble then walkDouble(e, ctx, mv) else walkLong(e, ctx, mv)
+      if !ok then return false
+      mv.visitInsn(POP2)   // discard long/double result (both 2-wide)
+      true
+    case _ => false
+
+  /** Emit a `Term.While` appearing as a non-final body statement. Body stats
+   *  are emitted as void (no return). Mirrors javac `walkWhileAsStmt`. */
+  private def emitWhileAsStmt(w: Term.While, ctx: GenCtx, mv: MethodVisitor): Boolean =
+    val bodyStats: List[Stat] = w.body match
+      case Term.Block(ss) => ss
+      case s: Stat        => List(s)
+    val Lhead = new Label; val Lend = new Label
+    mv.visitLabel(Lhead)
+    if !walkBool(w.expr, ctx, mv, Lend) then return false  // exit loop when cond is false
+    val it = bodyStats.iterator
+    while it.hasNext do
+      if !emitStatAsVoid(it.next(), ctx, mv) then return false
+    mv.visitJumpInsn(GOTO, Lhead)
+    mv.visitLabel(Lend)
+    true
+
+  /** Emit a multi-statement function body: val/var bindings and while loops as
+   *  local-slot bytecode, then `return <final expr>`. Mirrors javac
+   *  `walkBlockStmts` and is what closes the effect-pure gap (a function whose
+   *  body is `var…; var…; while…; <expr>`). */
+  private def emitBlockStmts(stats: List[Stat], ctx: GenCtx, mv: MethodVisitor): Boolean =
+    var curCtx = ctx
+    var rem    = stats
+    while rem.nonEmpty do
+      val stat = rem.head
+      rem = rem.tail
+      if rem.isEmpty then
+        stat match
+          case last: Term =>
+            val ok = if curCtx.isDouble then walkDouble(last, curCtx, mv) else walkLong(last, curCtx, mv)
+            if !ok then return false
+            mv.visitInsn(if curCtx.isDouble then DRETURN else LRETURN)
+          case _ => return false
+      else
+        stat match
+          case Defn.Val(_, List(Pat.Var(n)), _, rhs: Term) =>
+            val slot = curCtx.allocSlot()
+            val ok = if curCtx.isDouble then walkDouble(rhs, curCtx, mv) else walkLong(rhs, curCtx, mv)
+            if !ok then return false
+            mv.visitVarInsn(if curCtx.isDouble then DSTORE else LSTORE, slot)
+            curCtx = curCtx.withBindings(Map(n.value -> (slot, false)))
+          case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs: Term) =>
+            val slot = curCtx.allocSlot()
+            val ok = if curCtx.isDouble then walkDouble(rhs, curCtx, mv) else walkLong(rhs, curCtx, mv)
+            if !ok then return false
+            mv.visitVarInsn(if curCtx.isDouble then DSTORE else LSTORE, slot)
+            curCtx = curCtx.withBindings(Map(n.value -> (slot, false)))
+          case w: Term.While =>
+            if !emitWhileAsStmt(w, curCtx, mv) then return false
+          case _ => return false
+    true
+
   private def emitFnBody(f: Value.FunV, ctx: GenCtx, interp: Interpreter,
                          mv: MethodVisitor, isDouble: Boolean): Boolean =
     f.body match
@@ -318,12 +565,10 @@ object AsmJitBackend extends JitBackend:
           case tm: Term.Match if ctx.paramIsRef.exists(identity) =>
             val tailCtx = emitValBindings(b.stats.init, ctx, mv)
             tailCtx != null && emitMatchBody(tm, tailCtx, interp, mv)
-          case last: Term =>
-            val tailCtx = emitValBindings(b.stats.init, ctx, mv)
-            tailCtx != null && (
-              if isDouble then walkDouble(last, tailCtx, mv) && { mv.visitInsn(DRETURN); true }
-              else             walkLong(last, tailCtx, mv)   && { mv.visitInsn(LRETURN); true }
-            )
+          case _: Term =>
+            // A.5 + effect-pure: val/var bindings and while loops as local-slot
+            // bytecode, then `return <final expr>` (emitBlockStmts emits return).
+            emitBlockStmts(b.stats, ctx, mv)
           case _ => false
       case other =>
         val tco = tryTcoBody(other.asInstanceOf[Term], ctx, mv)
@@ -1371,6 +1616,140 @@ object AsmJitBackend extends JitBackend:
     )
     whileCache.put(cond, entry.asInstanceOf[AnyRef])
     entry
+
+  // ── Stream.emit while-loop JIT ──────────────────────────────────────────
+
+  private val whileEmitCache = new java.util.IdentityHashMap[Term, AnyRef]()
+  private val WhileEmitMiss  = new AnyRef
+
+  override def tryCompileWhileLongEmit(
+    cond:        Term,
+    emitArgs:    Array[Term],
+    allSlots:    Array[String],
+    assignNames: Array[String],
+    rhs:         Array[Term],
+    interp:      Interpreter | Null
+  ): WhileLongEmitRunFn | Null =
+    if !enabled then return null
+    val cached = whileEmitCache.get(cond)
+    if cached eq WhileEmitMiss then return null
+    if cached != null then return cached.asInstanceOf[WhileLongEmitRunFn]
+
+    val nSlots  = allSlots.length
+    val pureFns = mutable.LinkedHashMap.empty[String, WhilePureFn]
+    val n       = classCounter.incrementAndGet()
+    val cname   = s"scalascript/interpreter/vm/jit/asm/AsmWhileEmit$$$n"
+    val ctx     = WhileCtx(allSlots, interp, pureFns, cname)
+
+    val condEmit = walkWhileBool(cond, ctx)
+    if condEmit == null then { whileEmitCache.put(cond, WhileEmitMiss); return null }
+
+    val emitEmits = new Array[SlotEmitter](emitArgs.length)
+    var ei = 0
+    while ei < emitArgs.length do
+      val e = walkWhileSlot(emitArgs(ei), ctx)
+      if e == null then { whileEmitCache.put(cond, WhileEmitMiss); return null }
+      emitEmits(ei) = e
+      ei += 1
+
+    val rhsEmits = new Array[SlotEmitter](rhs.length)
+    var k = 0
+    while k < rhs.length do
+      val e = walkWhileSlot(rhs(k), ctx)
+      if e == null then { whileEmitCache.put(cond, WhileEmitMiss); return null }
+      rhsEmits(k) = e
+      k += 1
+
+    // Emit-while supports only pure-Long slots (no ref fns, no ref globals).
+    if ctx.refFnNames.nonEmpty || ctx.refObjFnNames.nonEmpty || ctx.refNames.nonEmpty then
+      whileEmitCache.put(cond, WhileEmitMiss); return null
+
+    // Resolve each assign target name to its slot index in `allSlots`.
+    val assignSlotIdx = new Array[Int](assignNames.length)
+    var ai = 0
+    while ai < assignNames.length do
+      var si = 0
+      while si < nSlots && allSlots(si) != assignNames(ai) do si += 1
+      if si >= nSlots then { whileEmitCache.put(cond, WhileEmitMiss); return null }
+      assignSlotIdx(ai) = si
+      ai += 1
+
+    val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
+      override def getCommonSuperClass(t1: String, t2: String): String = "java/lang/Object"
+    }
+    cw.visit(V21, ACC_PUBLIC | ACC_FINAL, cname, null, "java/lang/Object",
+      Array("scalascript/interpreter/vm/jit/WhileLongEmitRunFn"))
+    val init0 = cw.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null)
+    init0.visitCode()
+    init0.visitVarInsn(ALOAD, 0)
+    init0.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false)
+    init0.visitInsn(RETURN); init0.visitMaxs(1, 1); init0.visitEnd()
+
+    // static int runStatic(long[] v, long[] buf, int bufLen)
+    val mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, "runStatic", "([J[JI)I", null, null)
+    mv.visitCode()
+    // Move buf (param slot 1) and bufLen (param slot 2) to high locals so the
+    // named long slots (each 2-wide at 1 + i*2) can reuse slots 1.. cleanly.
+    // v stays at slot 0 (untouched) for the copy-in / copy-back.
+    val bufSlot    = 1 + nSlots * 2
+    val bufLenSlot = bufSlot + 1
+    mv.visitVarInsn(ILOAD, 2); mv.visitVarInsn(ISTORE, bufLenSlot)
+    mv.visitVarInsn(ALOAD, 1); mv.visitVarInsn(ASTORE, bufSlot)
+    var i = 0
+    while i < nSlots do
+      mv.visitVarInsn(ALOAD, 0); emitIconst(mv, i)
+      mv.visitInsn(LALOAD); mv.visitVarInsn(LSTORE, 1 + i * 2)
+      i += 1
+
+    val Lhead = new Label; val Lend = new Label
+    mv.visitLabel(Lhead)
+    condEmit(mv, Lend)
+    // buf[bufLen++] = <emitArg> for each emit argument (post-increment index).
+    ei = 0
+    while ei < emitEmits.length do
+      mv.visitVarInsn(ALOAD, bufSlot)
+      mv.visitVarInsn(ILOAD, bufLenSlot)
+      mv.visitIincInsn(bufLenSlot, 1)
+      emitEmits(ei)(mv)
+      mv.visitInsn(LASTORE)
+      ei += 1
+    // Trailing slot assigns (e.g. `i = i + 1`).
+    k = 0
+    while k < rhsEmits.length do
+      rhsEmits(k)(mv); mv.visitVarInsn(LSTORE, 1 + assignSlotIdx(k) * 2)
+      k += 1
+    mv.visitJumpInsn(GOTO, Lhead)
+    mv.visitLabel(Lend)
+
+    i = 0
+    while i < nSlots do
+      mv.visitVarInsn(ALOAD, 0); emitIconst(mv, i)
+      mv.visitVarInsn(LLOAD, 1 + i * 2); mv.visitInsn(LASTORE)
+      i += 1
+    mv.visitVarInsn(ILOAD, bufLenSlot)
+    mv.visitInsn(IRETURN); mv.visitMaxs(0, 0); mv.visitEnd()
+
+    val imv0 = cw.visitMethod(ACC_PUBLIC, "run", "([J[JI)I", null, null)
+    imv0.visitCode()
+    imv0.visitVarInsn(ALOAD, 1)
+    imv0.visitVarInsn(ALOAD, 2)
+    imv0.visitVarInsn(ILOAD, 3)
+    imv0.visitMethodInsn(INVOKESTATIC, cname, "runStatic", "([J[JI)I", false)
+    imv0.visitInsn(IRETURN); imv0.visitMaxs(0, 0); imv0.visitEnd()
+
+    for (_, pf) <- pureFns do pf.emit(cw)
+    cw.visitEnd()
+
+    val bytes = cw.toByteArray
+    val loader = new InMemoryClassLoader(getClass.getClassLoader)
+    val cls = try loader.define(cname.replace('/', '.'), bytes)
+              catch case _: Throwable => { whileEmitCache.put(cond, WhileEmitMiss); return null }
+    val runFn0: WhileLongEmitRunFn | Null =
+      try cls.getConstructor().newInstance().asInstanceOf[WhileLongEmitRunFn]
+      catch case _: Throwable => null
+    if runFn0 == null then { whileEmitCache.put(cond, WhileEmitMiss); return null }
+    whileEmitCache.put(cond, runFn0.asInstanceOf[AnyRef])
+    runFn0
 
   // ── mixed while + foreach fused JIT ─────────────────────────────────────
 
