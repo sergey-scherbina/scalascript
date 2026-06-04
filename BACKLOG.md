@@ -2239,6 +2239,16 @@ gated on same-session A/B + full suite green with the gate off AND on.
       `OPT-1` landing first is not a prerequisite but is a good cleanup.
       **Bench target:** effectStream ≤ 1 ms/op (100× improvement).
 
+- [ ] **effect-stream-opt3** — Reuse while-continuation closure across iterations.
+      The `FlatMap` re-association step in `EffectHandlers.streamRun.go` creates one new
+      lambda per iteration for the `_ => loopAgain` continuation.  If the closure is
+      "stable" (captured vars do not change identity between iterations), pre-allocate
+      once before the loop.  Only useful as intermediate improvement before OPT-2 lands
+      (OPT-2 eliminates the trampoline, making this moot).  Pair with OPT-1 if OPT-2 is
+      not yet ready.  Predicate: body captures only loop counter `i`, mutated only at
+      counter-update site.  **Savings:** ~23% fewer B/op vs OPT-1 baseline.
+      **Bench target:** effectStream B/op 3,000,000 → ≤ 2,200,000.
+
 - [ ] **direct-style-eval** (deferred multi-week, post Directions A+B) —
       Migrate `eval(term, env, interp): Computation` to direct-style
       `eval(...): Value` returning the raw value, with effects via

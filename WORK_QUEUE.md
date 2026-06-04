@@ -958,6 +958,38 @@ highest-impact item.
       `dispatchSet`'s foreach case; skips the `set.toList` allocation.
       `patternMatchSet` 148.5 → 116.4 ms (1.28×).
 
+- [ ] **effect-stream-opt1** — `Perform1(effect, op, arg: AnyRef)` specialisation.
+      Eliminates the 1-element `List` cons for `Stream.emit(v)` — the `List` wrapper
+      accounts for 14.6% of per-iteration allocations (201/1382 JFR samples).
+      Change: add `case class Perform1(effect: String, op: String, arg: AnyRef)`
+      to `Computation`; `NativeFnV` for `Stream.emit` emits `Perform1` instead of
+      `Perform(_, _, List(v))`; all handlers in `EffectHandlers` switch on the new
+      case (match stays exhaustive).  Safe preparatory step independent of OPT-2.
+      **Bench target:** effectStream B/op 3,453,200 → ≤ 3,000,000 (~14% fewer allocs).
+
+- [ ] **effect-stream-opt2** — FastTier `while … Stream.emit(expr)` detection.
+      In `EvalRuntime`, detect `runStream { while i < N do Stream.emit(expr); i = i+1 }`
+      and compile the body to a tight buffer-fill loop that bypasses the Free Monad
+      trampoline entirely:
+        `val buf = ListBuffer.empty[Value]; while i < n do { buf += eval(emitExpr); i += 1 }`
+      This eliminates all ~8 allocations per emit.  JFR root cause: `FlatMap`
+      re-association (42%) + lambda closures (24%) dominate; no trampoline = near-zero.
+      OPT-1 landing first is recommended but not required.
+      **Bench target:** effectStream 28.5 ms → ≤ 1 ms/op (≥28×, trampoline-free path).
+
+- [ ] **effect-stream-opt3** — Reuse while-continuation closure across iterations.
+      `EvalRuntime` currently allocates a fresh `_ => loopAgain` closure every
+      iteration of the while body, because the Free Monad `FlatMap` re-association
+      creates one lambda per step.  If the continuation is "stable" (no mutable
+      captured state changes between iterations), it can be pre-allocated once
+      before the loop and referenced on every step.  Prerequisite: extract
+      "closure-stable" predicate (conservative: body only captures `i` and `i`
+      only mutates at the loop counter update site).
+      Only relevant if OPT-2 is not landed (OPT-2 eliminates the trampoline
+      entirely, making OPT-3 moot).  Consider pairing with OPT-1 as an
+      intermediate improvement before OPT-2 lands.
+      **Bench target:** effectStream B/op 3,000,000 → ≤ 2,200,000 (~23% additional).
+
 - [ ] **direct-style-eval-spec** (Direction C blocking task) — write
       `docs/direct-style-eval-spec.md` covering: migration strategy
       (capability flag, phased per-call-site migration), effect
