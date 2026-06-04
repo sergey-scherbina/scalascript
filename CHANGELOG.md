@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — feat(language): Markdown-declared toolkit controls
+
+- **markdown-ui-controls** — Added `yaml @ui=toolkit` support to
+  `contentToolkitNode()`, so Markdown can declare toolkit signals and controls
+  such as text fields, checkboxes, buttons, badges, cards, and conditional
+  previews without constructing those widgets in executable `.ssc` code.
+
 ## 2026-06-04 — docs(example): Markdown toolkit demo controls
 
 - **markdown-toolkit-demo-controls** — Updated
