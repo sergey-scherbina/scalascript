@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — perf(interpreter): invariant recursive eval loop fold
+
+- **interp-opt-recursive-eval** — Phase 1A folded invariant bytecode-JIT direct
+  calls out of recursive ADT eval accumulation loops while preserving the old
+  path for effects and dynamic calls. `recursiveEvalMixed`: **3.641 -> 1.924
+  +/- 0.174 ms/op** with `scripts/bench interp recursiveEvalMixed`; compile,
+  208 targeted interpreter/JIT tests, short benches, full mixed bench, and
+  profile bench passed. Residual ~1.9 ms/op floor is now tracked separately as
+  `interp-opt-recursive-build-floor`.
+
 ## 2026-06-04 — perf(interpreter): cold init allocation
 
 - **interp-opt-init-builtins-cache** — `effectPure` cold interpreter floor is

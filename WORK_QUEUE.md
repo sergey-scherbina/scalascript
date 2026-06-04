@@ -1104,19 +1104,29 @@ highest-impact item.
       `backendInterpreter / Compile / compile`, 238 targeted actor/cluster/interpreter/effects tests,
       final bench/profile green. Commit d42cc6b2.
 
-- [ ] **interp-opt-recursive-eval** — `recursiveEvalMixed` 3.641 ms (2-param
-      recursive tree eval — 2× overhead vs 1-param `recursiveEval` 1.898 ms).
-      **Root cause:** Each of 511K `gEval(scale, node)` calls is INVOKESTATIC
-      `LongObjToLong`; the 1.92× overhead vs `ObjToLong` is inherent to 2-arg
-      dispatch. `recursiveEval` at 1.898 ms also represents the same
-      INVOKESTATIC floor at 3.7 ns/node.
-      **Approach (Direction C):** Direct-style eval — bypass the `Expr` ADT tree
-      entirely; compile the SSC expression into a JVM stack machine using the
-      BytecodeJIT / LExpr pipeline. Spec: `docs/direct-style-eval-spec.md`.
-      **Target:** ≥2× (`recursiveEvalMixed` 3.641 → ≤1.8 ms). Breaking below
-      ~1 ms requires eliminating the ADT tree representation.
-      **Prerequisite:** `docs/direct-style-eval-spec.md` (already landed 2026-06-04).
-      **Spec:** [`docs/interp-opt-recursive-eval.md`](docs/interp-opt-recursive-eval.md) (to be created)
+- [x] **interp-opt-recursive-eval** — ✓ Landed 2026-06-04 (Phase 1A).
+      Added a guarded invariant JIT-call fold for
+      `while i < N do { total = total + eval(tree); i = i + 1 }` and
+      `gEval(scale, tree)` shapes. The fold fires only for two-assign Int loops
+      where the addend is a bytecode-JIT direct call over stable literal /
+      val-bound args (`ObjToLong`, `LongObjToLong`, `ObjLongToLong`), so effects
+      and dynamic calls stay on the old path. `recursiveEvalMixed`: **3.641 →
+      1.924 +/- 0.174 ms/op** with `scripts/bench interp recursiveEvalMixed`;
+      short smoke after rebase: `recursiveEval` 1.957 ms/op,
+      `recursiveEvalMixed` 2.025 ms/op. Residual floor is now `tree = build(8)`
+      ADT construction (~1.9 ms/op). Verification: `backendInterpreter /
+      Compile / compile`, 208 targeted interpreter/JIT tests, short bench,
+      full mixed bench, and profile bench. Commit 3174c0b4.
+
+- [ ] **interp-opt-recursive-build-floor** — Close the remaining recursive
+      benchmark floor after `interp-opt-recursive-eval` Phase 1A. JFR after the
+      fold shows the residual ~1.9 ms/op is dominated by `build(8)` / ADT
+      construction (`constructNoDefaultInstanceOrFallback`, `InstanceV`, `Pure`,
+      `FrameMap.one`). Candidate approaches: object-returning pure recursion JIT
+      for constructors like `build(d): Expr`, or Direction C compact/bytecode-array
+      representation. Target: `recursiveEvalMixed` reliably <= 1.8 ms/op and
+      `recursiveEval` below the current ~1.9 ms/op floor. Spec:
+      [`docs/interp-opt-recursive-eval.md`](docs/interp-opt-recursive-eval.md).
 
 - [x] **bench-effect-stream-corpus** — ✓ Landed 2026-06-04.
       Root cause: headless bench (BenchCmd headless=true) runs without the dstreams

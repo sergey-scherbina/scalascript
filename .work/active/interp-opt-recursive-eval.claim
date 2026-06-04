@@ -1,6 +1,0 @@
-feature+interp-opt-recursive-eval 2026-06-04T11:22:44Z
-agent: codex
-heartbeat: 2026-06-04T11:35:51Z
-status: in-progress
-done-so-far: Implemented a guarded invariant JIT-call fold for `while i < N do { acc = acc + eval(tree); i = i + 1 }` / `gEval(scale, tree)` shapes; compile, 208 targeted interpreter/JIT tests, short benches, and recursiveEvalMixed full bench passed.
-next: update recursive-eval spec with results/residual build floor, then commit and push implementation.

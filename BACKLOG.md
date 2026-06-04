@@ -30,22 +30,29 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       counterWithTupleVar: 58.751 → 0.009 ms (6500×, tryFoldCounterLoop + self-assign hoist).
       See WORK_QUEUE.md table entry for details.
 
-- [ ] **interp-opt-recursive-eval** — `recursiveEvalMixed` 3.641 ms / `recursiveEval`
-      1.898 ms (recursive ADT tree eval, ~3.7 ns/node INVOKESTATIC).
-      **Root cause:** Each node dispatch is one `INVOKESTATIC` on the JIT-compiled
-      `ObjToLong` / `LongObjToLong` function (verified 2026-06-04 via
-      `jit-match-recursive-descent`). The 1.92× gap between 2-param `gEval` and
-      1-param `eval` is inherent to 2-arg dispatch; both are at the JVM
-      INVOKESTATIC floor (~3.7 ns/node). Sub-3 ns/node requires fewer dispatches
-      per node or eliminating the ADT tree representation entirely.
-      **Approach (Direction C):** Direct-style eval — compile the SSC expression
-      into a chain of JVM stack operations using the BytecodeJIT / LExpr
-      dual-bank pipeline, bypassing the `Expr` ADT altogether.
-      Spec: `docs/direct-style-eval-spec.md` (landed 2026-06-04).
-      **Target:** ≥2× (`recursiveEvalMixed` 3.641 → ≤1.8 ms). Getting below
-      ~1 ms requires eliminating the ADT tree.
-      **Prerequisite:** `docs/direct-style-eval-spec.md` (done).
-      **Spec:** [`docs/interp-opt-recursive-eval.md`](docs/interp-opt-recursive-eval.md)
+- [x] **interp-opt-recursive-eval** — ✓ Landed 2026-06-04 (Phase 1A).
+      Added a guarded invariant JIT-call fold for
+      `while i < N do { total = total + eval(tree); i = i + 1 }` and
+      `gEval(scale, tree)` shapes. The fold fires only for two-assign Int loops
+      where the addend is a bytecode-JIT direct call over stable literal /
+      val-bound args (`ObjToLong`, `LongObjToLong`, `ObjLongToLong`), so effects
+      and dynamic calls stay on the old path. `recursiveEvalMixed`: **3.641 ->
+      1.924 +/- 0.174 ms/op** with `scripts/bench interp recursiveEvalMixed`;
+      short smoke after rebase: `recursiveEval` 1.957 ms/op,
+      `recursiveEvalMixed` 2.025 ms/op. Residual floor is now `tree = build(8)`
+      ADT construction (~1.9 ms/op). Verification: `backendInterpreter /
+      Compile / compile`, 208 targeted interpreter/JIT tests, short bench,
+      full mixed bench, and profile bench. Commit 3174c0b4.
+
+- [ ] **interp-opt-recursive-build-floor** — Close the remaining recursive
+      benchmark floor after `interp-opt-recursive-eval` Phase 1A. JFR after the
+      fold shows the residual ~1.9 ms/op is dominated by `build(8)` / ADT
+      construction (`constructNoDefaultInstanceOrFallback`, `InstanceV`, `Pure`,
+      `FrameMap.one`). Candidate approaches: object-returning pure recursion JIT
+      for constructors like `build(d): Expr`, or Direction C compact/bytecode-array
+      representation. Target: `recursiveEvalMixed` reliably <= 1.8 ms/op and
+      `recursiveEval` below the current ~1.9 ms/op floor. Spec:
+      [`docs/interp-opt-recursive-eval.md`](docs/interp-opt-recursive-eval.md).
 
 - [x] **interp-opt-init-builtins-cache** — ✓ Landed 2026-06-04. `effectPure`
       interp floor reduced from 0.010 to **0.005 ms/op** by lazily initializing
