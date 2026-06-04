@@ -137,6 +137,23 @@ enum SType:
     case Error(_) => true
     case _        => false
 
+  def containsAny: Boolean = this match
+    case Named("Any", Nil)                => true
+    case Named(_, args)                   => args.exists(_.containsAny)
+    case Function(params, result, effs)   =>
+      params.exists(_.containsAny) || result.containsAny ||
+      effs.ops.exists(op => op.args.exists(_.containsAny))
+    case Tuple(elems)                     => elems.exists(_.containsAny)
+    case Union(types)                     => types.exists(_.containsAny)
+    case Intersection(types)              => types.exists(_.containsAny)
+    case Refinement(base, members)        =>
+      base.containsAny || members.exists(_.sig.containsAny)
+    case Match(scrutinee, cases)          =>
+      scrutinee.containsAny ||
+      cases.exists(c => c.pattern.containsAny || c.rhs.containsAny)
+    case EffectRow(_, ops)                => ops.exists(op => op.args.exists(_.containsAny))
+    case Var(_) | HigherKinded(_, _) | Error(_) => false
+
   def subst(m: scala.collection.immutable.IntMap[SType]): SType =
     if m.isEmpty then return this
     this match

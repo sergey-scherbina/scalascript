@@ -102,9 +102,11 @@ case class AnyEvidenceCounts(
 )
 ```
 
-It should count only exported summaries whose evidence type is `SType.Any`.
-This avoids confusing legitimate non-`Any` inferred types with the main
-baseline this slice is meant to expose.
+It should count only exported summaries whose evidence type contains `SType.Any`
+directly or structurally, such as `Any`, `List[Any]`, or `() => Any`. This
+avoids confusing legitimate non-`Any` inferred types with the main baseline this
+slice is meant to expose while still catching function signatures that hide an
+unknown return or parameter under an otherwise useful shape.
 
 The first implementation can operate directly on `List[DefSummary]`. Later
 phases can extend it to `.scim` interfaces, route metadata, remote handlers,

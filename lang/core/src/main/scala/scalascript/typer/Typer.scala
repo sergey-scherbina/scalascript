@@ -481,7 +481,7 @@ class Typer(
         // Include ALL defs (even those with no declared effects) so the verifier
         // can warn when an effectful function declares no row.
         val declaredEffects: Map[String, Set[String]] = summaries.collect {
-          case DefSummary(name, SymbolKind.Def, SType.Function(_, _, SType.EffectRow(_, ops)), _) =>
+          case DefSummary(name, SymbolKind.Def, SType.Function(_, _, SType.EffectRow(_, ops)), _, _) =>
             name -> ops.map(_.name)
         }.toMap
         if declaredEffects.nonEmpty || analysisResult.effectfulFuns.nonEmpty then
@@ -505,11 +505,23 @@ class Typer(
       pats.foreach {
         case Pat.Var(name) =>
           scope.define(Symbol(name.value, declType, SymbolKind.Val))
-          out += DefSummary(name.value, SymbolKind.Val, declType, Nil)
+          out += DefSummary(
+            name.value,
+            SymbolKind.Val,
+            declType,
+            Nil,
+            Some(declaredOrInferredEvidence(declType, tpeOpt.nonEmpty, name.pos, "val summary"))
+          )
         case other =>
           // Tuple/extractor patterns: `val (l, r) = ...`, `val Some(x) = ...`
           bindPatVars(other, scope, Some(declType)).foreach { (name, tpe) =>
-            out += DefSummary(name, SymbolKind.Val, tpe, Nil)
+            out += DefSummary(
+              name,
+              SymbolKind.Val,
+              tpe,
+              Nil,
+              Some(declaredOrInferredEvidence(tpe, tpeOpt.nonEmpty, other.pos, "pattern-bound val summary"))
+            )
           }
       }
 
@@ -519,7 +531,13 @@ class Typer(
       val declType = tpeOpt.map(typeAnnotToSType).getOrElse(rhsType)
       checkAssignable(rhsType, declType, rhs.pos)
       scope.define(Symbol(name.value, declType, SymbolKind.Var, mutable = true))
-      out += DefSummary(name.value, SymbolKind.Var, declType, Nil)
+      out += DefSummary(
+        name.value,
+        SymbolKind.Var,
+        declType,
+        Nil,
+        Some(declaredOrInferredEvidence(declType, tpeOpt.nonEmpty, name.pos, "var summary"))
+      )
 
     // def name(params...): T = body
     case d: Defn.Def =>
@@ -563,7 +581,15 @@ class Typer(
           rt
       val fnType = SType.Function(paramSTypes, retType, declaredEffects)
       scope.define(Symbol(d.name.value, fnType, SymbolKind.Def))
-      out += DefSummary(d.name.value, SymbolKind.Def, fnType, paramSTypes)
+      val hasMissingParamTypes = allParamVals.exists(_.decltpe.isEmpty)
+      val hasDeclaredSignature = declaredRet.nonEmpty && !hasMissingParamTypes
+      out += DefSummary(
+        d.name.value,
+        SymbolKind.Def,
+        fnType,
+        paramSTypes,
+        Some(declaredOrInferredEvidence(fnType, hasDeclaredSignature, d.name.pos, "def summary"))
+      )
       // Collect @deprecated / @experimental annotations after body check to avoid
       // false-positive warnings on recursive self-calls within the function body.
       d.mods.foreach {
@@ -612,13 +638,25 @@ class Typer(
       // DefSummary records the *constructor* signature so consumers of the
       // `.scim` interface see `(Int, String) => Foo` for `case class Foo(x, y)`,
       // not just `Foo`.  This matches what the typer stores in the scope.
-      out += DefSummary(d.name.value, SymbolKind.Class, ctorType, paramSTypes)
+      out += DefSummary(
+        d.name.value,
+        SymbolKind.Class,
+        ctorType,
+        paramSTypes,
+        Some(declaredOrUnknownEvidence(ctorType, d.name.pos, "class constructor declaration"))
+      )
 
     // object Name
     case d: Defn.Object =>
       val objType = SType.named0(d.name.value)
       scope.define(Symbol(d.name.value, objType, SymbolKind.Object))
-      out += DefSummary(d.name.value, SymbolKind.Object, objType, Nil)
+      out += DefSummary(
+        d.name.value,
+        SymbolKind.Object,
+        objType,
+        Nil,
+        Some(TypeEvidence.declared(objType, posToSpan(d.name.pos), Some("object declaration")))
+      )
 
     // enum Name
     case d: Defn.Enum =>
@@ -635,7 +673,13 @@ class Typer(
           scope.define(Symbol(ec.name.value, caseType, SymbolKind.Val))
         case _ => ()
       }
-      out += DefSummary(d.name.value, SymbolKind.Enum, enumType, Nil)
+      out += DefSummary(
+        d.name.value,
+        SymbolKind.Enum,
+        enumType,
+        Nil,
+        Some(TypeEvidence.declared(enumType, posToSpan(d.name.pos), Some("enum declaration")))
+      )
 
     // type Name[A, B] = T  — compile-time only; erased at runtime
     // `opaque type UserId = String` → Defn.Type with Mod.Opaque() in mods
@@ -648,7 +692,13 @@ class Typer(
         val opaqueNominalType = SType.named0(typeName)
         opaqueTypes += typeName
         scope.define(Symbol(typeName, opaqueNominalType, SymbolKind.Type))
-        out += DefSummary(typeName, SymbolKind.Type, opaqueNominalType, Nil)
+        out += DefSummary(
+          typeName,
+          SymbolKind.Type,
+          opaqueNominalType,
+          Nil,
+          Some(TypeEvidence.declared(opaqueNominalType, posToSpan(d.name.pos), Some("opaque type declaration")))
+        )
       else
         val typeParamNames = d.tparamClause.values.map(_.name.value).toList
         // Parse the RHS in a temporary context where the type params are known as
@@ -660,14 +710,26 @@ class Typer(
         else
           typeAliases(typeName) = (typeParamNames, rhsSType)
           scope.defineType(typeName, TypeScheme(Nil, rhsSType))
-          out += DefSummary(typeName, SymbolKind.Type, rhsSType, Nil)
+          out += DefSummary(
+            typeName,
+            SymbolKind.Type,
+            rhsSType,
+            Nil,
+            Some(declaredOrUnknownEvidence(rhsSType, d.name.pos, "type alias declaration"))
+          )
 
     // given declarations — `given listFunctor: Functor[List[Int]] with { ... }`
     case d: Defn.Given =>
       val n = d.name.value
       if n.nonEmpty then
         scope.define(Symbol(n, SType.Any, SymbolKind.Val))
-        out += DefSummary(n, SymbolKind.Val, SType.Any, Nil)
+        out += DefSummary(
+          n,
+          SymbolKind.Val,
+          SType.Any,
+          Nil,
+          Some(TypeEvidence.unknown(SType.Any, posToSpan(d.name.pos), Some("given declaration has no supported type evidence")))
+        )
 
     // Top-level expressions
     case t: Term => val _ = inferType(t, scope)
@@ -1497,6 +1559,26 @@ class Typer(
   private def emitWarning(msg: String, span: Option[Span]): Unit =
     errors += TypeError(msg, span, isWarning = !fatalWarnings)
 
+  private def declaredOrInferredEvidence(
+      tpe: SType,
+      declared: Boolean,
+      pos: scala.meta.Position,
+      reason: String
+  ): TypeEvidence =
+    if declared then TypeEvidence.declared(tpe, posToSpan(pos), Some(reason))
+    else if tpe.containsAny then
+      TypeEvidence.unknown(tpe, posToSpan(pos), Some(s"$reason contains unsupported Any"))
+    else TypeEvidence.inferred(tpe, posToSpan(pos), Some(reason))
+
+  private def declaredOrUnknownEvidence(
+      tpe: SType,
+      pos: scala.meta.Position,
+      reason: String
+  ): TypeEvidence =
+    if tpe.containsAny then
+      TypeEvidence.unknown(tpe, posToSpan(pos), Some(s"$reason contains unsupported Any"))
+    else TypeEvidence.declared(tpe, posToSpan(pos), Some(reason))
+
   private def posToSpan(pos: scala.meta.Position): Option[Span] =
     if pos.isEmpty then None
     else Some(Span(
@@ -1511,7 +1593,13 @@ case class TypeError(msg: String, span: Option[Span], isWarning: Boolean = false
 
 // ─── Summary of a single definition found in a code block ────────
 
-case class DefSummary(name: String, kind: SymbolKind, tpe: SType, paramTypes: List[SType]):
+case class DefSummary(
+    name: String,
+    kind: SymbolKind,
+    tpe: SType,
+    paramTypes: List[SType],
+    evidence: Option[TypeEvidence] = None
+):
   def show: String =
     val kindStr = kind.toString.toLowerCase
     s"$kindStr $name: ${tpe.show}"
