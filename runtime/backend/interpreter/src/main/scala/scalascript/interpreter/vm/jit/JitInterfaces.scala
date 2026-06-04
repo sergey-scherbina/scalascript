@@ -23,3 +23,9 @@ trait ObjLongToDouble { def apply(a: AnyRef, b: Long):   Double }
 // (e.g. `def getLeft(t: Tree): Tree = t match { case Node(l, _) => l }`).
 // Used by LApplyR1ToRef in EvalRuntime to build f(g(item)) ref-arg chains.
 trait ObjToObject     { def apply(n: AnyRef): AnyRef }
+// While-loop runner interface — implemented by all three generated while-JIT
+// class variants (WhileLong, WhileMixed, WhileMap).  The instance method
+// delegates to the static `run(long[])` inside the same generated class,
+// giving callers a direct virtual-dispatch path that avoids Method.invoke
+// varargs-boxing and reflection overhead.
+trait WhileLongRunFn  { def run(slots: Array[Long]): Unit }

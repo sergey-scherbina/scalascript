@@ -1486,13 +1486,14 @@ object JavacJitBackend extends JitBackend:
       if rhsJava(k) == null then return null
       k += 1
     val className = s"WhileLong_${Integer.toUnsignedString(System.identityHashCode(cond))}"
+    val jitPkg = "scalascript.interpreter.vm.jit"
     val sb = new StringBuilder
-    sb.append(s"public final class $className {\n")
-    sb.append(s"  public static void run(long[] v) {\n")
+    sb.append(s"public final class $className implements $jitPkg.WhileLongRunFn {\n")
+    sb.append(s"  @Override public void run(long[] v) { $className.runStatic(v); }\n")
+    sb.append(s"  public static void runStatic(long[] v) {\n")
     // Ref preamble: if any ObjToLong fn calls were emitted, load the fn and
     // ref arrays from TLS once before the loop and extract to locals so the
     // JVM can treat them as de-facto constants after the first iteration.
-    val jitPkg = "scalascript.interpreter.vm.jit"
     val nRefFns = ctx.refFnNames.length
     if nRefFns > 0 then
       sb.append(s"    $jitPkg.ObjToLong[] _fn = $jitPkg.JitGlobals.getRefFns();\n")
@@ -1567,13 +1568,10 @@ object JavacJitBackend extends JitBackend:
     val cls = try loader.loadClass(className) catch case _: Throwable =>
       whileLongGlobalCache.put(cond, WhileLongMiss)
       return null
-    val method =
-      try
-        val m = cls.getMethod("run", classOf[Array[Long]])
-        m.setAccessible(true)
-        m
+    val runFn: WhileLongRunFn | Null =
+      try cls.getConstructor().newInstance().asInstanceOf[WhileLongRunFn]
       catch case _: Throwable => null
-    if method == null then
+    if runFn == null then
       whileLongGlobalCache.put(cond, WhileLongMiss)
       return null
     // Resolve ObjToLong and ObjToObject fn instances now (compile-time interp
@@ -1616,7 +1614,8 @@ object JavacJitBackend extends JitBackend:
           return null
         arr
     val entry = new WhileJitEntry(
-      method,
+      runFn,
+      new Array[Long](names.length),
       if ctx.refNames.isEmpty then Array.empty[String] else ctx.refNames.toArray,
       refFnsArr,
       refObjFnsArr
@@ -1798,9 +1797,10 @@ object JavacJitBackend extends JitBackend:
     val jitPkg     = "scalascript.interpreter.vm.jit"
     val valuePkg   = "scalascript.interpreter"
     val sb = new StringBuilder
-    sb.append(s"public final class $className {\n")
+    sb.append(s"public final class $className implements $jitPkg.WhileLongRunFn {\n")
+    sb.append(s"  @Override public void run(long[] v) { $className.runStatic(v); }\n")
     sb.append(s"  @SuppressWarnings(\"unchecked\")\n")
-    sb.append(s"  public static void run(long[] v) {\n")
+    sb.append(s"  public static void runStatic(long[] v) {\n")
     // Load function from TLS only when not inlining the match body.
     if inlineMatchSwitch == null then
       if accIsDouble then
@@ -1902,18 +1902,16 @@ object JavacJitBackend extends JitBackend:
     val cls = try loader.loadClass(className) catch case _: Throwable =>
       whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
       return null
-    val method =
-      try
-        val m = cls.getMethod("run", classOf[Array[Long]])
-        m.setAccessible(true)
-        m
+    val runFn: WhileLongRunFn | Null =
+      try cls.getConstructor().newInstance().asInstanceOf[WhileLongRunFn]
       catch case _: Throwable => null
-    if method == null then
+    if runFn == null then
       whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
       return null
 
     val entry = new WhileJitEntry(
-      method,
+      runFn,
+      new Array[Long](names.length + 1),
       Array.empty[String],
       if inlineMatchSwitch != null then Array.empty[ObjToLong]
       else if fnObjToLong  != null then Array(fnObjToLong)
@@ -1966,9 +1964,10 @@ object JavacJitBackend extends JitBackend:
     val jitPkg     = "scalascript.interpreter.vm.jit"
     val valuePkg   = "scalascript.interpreter"
     val sb = new StringBuilder
-    sb.append(s"public final class $className {\n")
+    sb.append(s"public final class $className implements $jitPkg.WhileLongRunFn {\n")
+    sb.append(s"  @Override public void run(long[] v) { $className.runStatic(v); }\n")
     sb.append(s"  @SuppressWarnings(\"unchecked\")\n")
-    sb.append(s"  public static void run(long[] v) {\n")
+    sb.append(s"  public static void runStatic(long[] v) {\n")
     // refs[0] is a pre-extracted Object[] of keys or values (no per-iteration iterator allocation).
     sb.append(s"    Object[] _mvals = (Object[]) $jitPkg.JitGlobals.getRefs()[0];\n")
     sb.append(s"    int _mlen = _mvals.length;\n")
@@ -2033,17 +2032,15 @@ object JavacJitBackend extends JitBackend:
     val cls = try loader.loadClass(className) catch case _: Throwable =>
       whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
       return null
-    val method =
-      try
-        val m = cls.getMethod("run", classOf[Array[Long]])
-        m.setAccessible(true)
-        m
+    val runFn: WhileLongRunFn | Null =
+      try cls.getConstructor().newInstance().asInstanceOf[WhileLongRunFn]
       catch case _: Throwable => null
-    if method == null then
+    if runFn == null then
       whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
       return null
 
-    val entry = new WhileJitEntry(method, Array.empty[String], Array.empty[ObjToLong], Array.empty[ObjToObject],
+    val entry = new WhileJitEntry(runFn, new Array[Long](names.length + 1),
+                                   Array.empty[String], Array.empty[ObjToLong], Array.empty[ObjToObject],
                                    Array.empty[ObjToDouble], mapIsKeyMode = useFirst)
     whileMixedGlobalCache.put(foreachApply, entry.asInstanceOf[AnyRef])
     entry

@@ -248,7 +248,7 @@ private[interpreter] object EvalRuntime:
         e
     if entry == null then return null
     val n = body.names.length
-    val args = new Array[Long](n)
+    val args = entry.cachedSlots
     var k = 0
     while k < n do
       frameView.getOrElse(body.names(k), null) match
@@ -286,7 +286,7 @@ private[interpreter] object EvalRuntime:
       try
         scalascript.interpreter.vm.jit.JitGlobals.withInterp(interp) {
           scalascript.interpreter.vm.jit.JitGlobals.withRefs(refs, entry.refFns, entry.refObjFns) {
-            entry.method.invoke(null, args.asInstanceOf[AnyRef])
+            entry.runFn.run(args)
           }
         }
       catch
@@ -294,7 +294,7 @@ private[interpreter] object EvalRuntime:
     else
       try
         scalascript.interpreter.vm.jit.JitGlobals.withInterp(interp) {
-          entry.method.invoke(null, args.asInstanceOf[AnyRef])
+          entry.runFn.run(args)
         }
       catch
         case _: Throwable => return null
@@ -343,7 +343,7 @@ private[interpreter] object EvalRuntime:
 
     // Build slots: int assigns + accumulator.
     val n = body.names.length
-    val slots = new Array[Long](n + 1)
+    val slots = entry.cachedSlots
     var k = 0
     while k < n do
       frameView.getOrElse(body.names(k), null) match
@@ -392,7 +392,7 @@ private[interpreter] object EvalRuntime:
           scalascript.interpreter.vm.jit.JitGlobals.withRefs(
             refs, Array.empty, Array.empty, entry.refDoubleFns
           ) {
-            entry.method.invoke(null, slots.asInstanceOf[AnyRef])
+            entry.runFn.run(slots)
           }
         }
       else
@@ -400,7 +400,7 @@ private[interpreter] object EvalRuntime:
           scalascript.interpreter.vm.jit.JitGlobals.withRefs(
             refs, entry.refFns, Array.empty
           ) {
-            entry.method.invoke(null, slots.asInstanceOf[AnyRef])
+            entry.runFn.run(slots)
           }
         }
     catch
