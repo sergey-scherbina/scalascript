@@ -1,0 +1,4 @@
+feature/asm-jit-patternmatch-wide-gap 2026-06-04T05:48:42Z
+status: not-started
+done-so-far:
+next: profile patternMatchWide with SSC_JIT_BACKEND=asm scripts/bench profile patternMatchWide
