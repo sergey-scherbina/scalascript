@@ -2222,13 +2222,9 @@ gated on same-session A/B + full suite green with the gate off AND on.
       Fast path for zero-param unit-result NativeFnV avoids full env allocation.
       hello-world interp: 0.001 ms (target ≤0.004 ms achieved).
 
-- [ ] **js-pattern-match-dispatch** — `pattern-match-heavy` JS 35.9 ms vs interp
-      0.647 ms (55×).  Workload: 5-case sealed ADT matched 500k times.
-      JS codegen likely emits `instanceof`-style chain per arm (O(n) per match).
-      Fix: add a `$tag` integer discriminant to all case class JS objects and
-      rewrite match codegen to emit a `switch($tag)` — O(1) dispatch.
-      Investigation first: inspect emitted JS for `area` to confirm the dispatch form.
-      **Bench target:** `pattern-match-heavy` JS ≤3 ms (12× improvement).
+- [x] **js-pattern-match-dispatch** — ✓ Landed 2026-06-04 commit `799e8ff2`.
+      _type string chain → _tag integer + switch(_t._tag) O(1) dispatch.
+      pattern-match-heavy JS: 35.9 → 3.1 ms (11.6×). Target was ≤3 ms (12×) — achieved.
 
 - [x] **asm-jit-patternmatch-wide-gap** — ✓ Landed 2026-06-04.
       Root cause: emitListForeachAccumInline used isEmpty/head/tail (3 virtual calls/elem).
