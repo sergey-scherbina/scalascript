@@ -1,0 +1,3 @@
+agent: main-session
+task: javac-while-inline-objfn
+started: 2026-06-04
