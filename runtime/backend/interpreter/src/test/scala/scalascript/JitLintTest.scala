@@ -388,3 +388,150 @@ class JitLintTest extends AnyFunSuite with Matchers:
     val txt = r.humanReadable
     txt should include ("[JAVAC OK]")
     txt should include ("[ASM OK]")
+
+  // ── while-loop coverage ─────────────────────────────────────────────
+
+  /** Helper: load a module and return the while-loop lint reports. */
+  private def lintWhileFor(code: String): List[scalascript.interpreter.vm.jit.JitLintWhileReport] =
+    lintWhileForBackend(code, JavacJitBackend)
+
+  private def lintWhileForBackend(
+    code:    String,
+    backend: scalascript.interpreter.vm.jit.JitBackend
+  ): List[scalascript.interpreter.vm.jit.JitLintWhileReport] =
+    val src    = s"# Test\n\n```scalascript\n$code\n```\n"
+    val module = Parser.parse(src)
+    val devNull = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
+    val interp = Interpreter(devNull)
+    interp.runSections(module)
+    JitLint.lintWhileLoops(interp, backend)
+
+  test("simple Int counter while — lintWhileLoops reports [JIT OK]"):
+    val reports = lintWhileFor(
+      """|var i = 0
+         |while i < 10 do
+         |  i = i + 1""".stripMargin
+    )
+    reports should not be empty
+    reports.head.willJit shouldBe true
+    reports.head.bailReasons shouldBe empty
+
+  test("while loop not executed — does not appear in lintWhileLoops"):
+    // The condition is false from the start, so EvalRuntime never reaches the
+    // JIT path and the cache has no entry for this while node.
+    val reports = lintWhileFor(
+      """|var i = 0
+         |while i > 100 do
+         |  i = i + 1""".stripMargin
+    )
+    reports shouldBe empty
+
+  test("while with unsupported condition — reports WhileCondShape"):
+    // A string comparison that the while-JIT cond walker can't handle,
+    // but wraps a supported inner body so the body check would pass.
+    // We use a loop whose cond is a method call on a non-slot expression.
+    // The simplest way: an Int condition that uses a nested function call
+    // that the while-cond walker doesn't support (not an infix comparison).
+    val reports = lintWhileFor(
+      """|def pred(n: Int): Boolean = n < 5
+         |var i = 0
+         |while pred(i) do
+         |  i = i + 1""".stripMargin
+    )
+    // pred(i) is a Term.Apply, not an infix comparison — WhileCondShape expected
+    reports should not be empty
+    reports.head.willJit shouldBe false
+    reports.head.bailReasons should contain (JitBailReason.WhileCondShape)
+
+  test("while with two Int assigns — lintWhileLoops reports [JIT OK]"):
+    val reports = lintWhileFor(
+      """|var i = 0
+         |var acc = 0
+         |while i < 100 do
+         |  acc = acc + i
+         |  i = i + 1""".stripMargin
+    )
+    reports should not be empty
+    reports.head.willJit shouldBe true
+
+  test("lintWhileLoops — zero top-level while loops returns empty list"):
+    val reports = lintWhileFor("def f(x: Int): Int = x + 1\nf(3)")
+    reports shouldBe empty
+
+  test("lintWhileLoops — multiple loops sorted by condition line"):
+    val reports = lintWhileFor(
+      """|var i = 0
+         |var j = 0
+         |while i < 5 do
+         |  i = i + 1
+         |while j < 3 do
+         |  j = j + 1""".stripMargin
+    )
+    reports should have size 2
+    reports.forall(_.willJit) shouldBe true
+    // Reports are sorted by condLine; first loop's line < second loop's line
+    for
+      r1 <- reports.headOption
+      r2 <- reports.tail.headOption
+      l1 <- r1.condLine
+      l2 <- r2.condLine
+    do l1 should be < l2
+
+  test("lintWhileLoops with AsmJitBackend — compiled loop reports [JIT OK]"):
+    val reports = lintWhileForBackend(
+      """|var i = 0
+         |while i < 10 do
+         |  i = i + 1""".stripMargin,
+      AsmJitBackend
+    )
+    reports should not be empty
+    reports.head.willJit shouldBe true
+
+  test("JitLintWhileReport.humanReadable — [JIT OK] when compiled"):
+    val reports = lintWhileFor(
+      """|var i = 0
+         |while i < 10 do
+         |  i = i + 1""".stripMargin
+    )
+    reports should not be empty
+    reports.head.humanReadable should include ("[JIT OK]")
+
+  test("JitLintWhileReport.humanReadable — [will NOT JIT] when bail"):
+    val reports = lintWhileFor(
+      """|def pred(n: Int): Boolean = n < 5
+         |var i = 0
+         |while pred(i) do
+         |  i = i + 1""".stripMargin
+    )
+    reports should not be empty
+    val txt = reports.head.humanReadable
+    txt should include ("[will NOT JIT]")
+
+  test("lintWhileLoopsCompare — compiled loop reports BOTH OK"):
+    val src    = s"# Test\n\n```scalascript\n" +
+      """|var i = 0
+         |while i < 10 do
+         |  i = i + 1""".stripMargin + "\n```\n"
+    val module = Parser.parse(src)
+    val devNull = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
+    val interp = Interpreter(devNull)
+    interp.runSections(module)
+    val reports = JitLint.lintWhileLoopsCompare(interp)
+    reports should not be empty
+    reports.head.bothJit shouldBe true
+    reports.head.asmOnlyFails shouldBe false
+
+  test("lintWhileLoopsCompare — humanReadable contains JAVAC and ASM tags"):
+    val src    = s"# Test\n\n```scalascript\n" +
+      """|var i = 0
+         |while i < 10 do
+         |  i = i + 1""".stripMargin + "\n```\n"
+    val module = Parser.parse(src)
+    val devNull = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
+    val interp = Interpreter(devNull)
+    interp.runSections(module)
+    val reports = JitLint.lintWhileLoopsCompare(interp)
+    reports should not be empty
+    val txt = reports.head.humanReadable
+    txt should include ("[JAVAC OK]")
+    txt should include ("[ASM OK]")

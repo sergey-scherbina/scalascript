@@ -17,19 +17,28 @@ import scalascript.parser.Parser
  *  binds, network calls) runs as usual. Future commits may add a
  *  `--static` flag that builds FunVs without executing top-level
  *  Expressions, but that needs the parser/typer to expose Def-only
- *  reflection first. */
+ *  reflection first.
+ *
+ *  `--include-while`: also report JIT coverage for top-level while loops.
+ *  The while-loop reports are derived from `interp.whileJitCache`, which is
+ *  populated as loops execute during `runSections`.  Only loops that were
+ *  actually executed (i.e. the condition was true at least once) appear in
+ *  the cache.  Loops inside dead branches are not visible. */
 final class LintJitCmd extends CliCommand:
   def name = "lint-jit"
   override def summary = "Report top-level defs that won't JIT-compile, with suggested fixes"
   override def category = "Diagnostics"
   override def details = List(
-    "Flags: --json          emit machine-readable JSON instead of human text",
-    "       --quiet         print only files with at least one bail",
-    "       --fail-on-bail  exit non-zero on any bail (default: warn only)",
-    "       --backend <b>   backend to lint against: javac (default), asm, or both.",
-    "                       'both' shows a side-by-side diff — functions that JIT",
-    "                       on one backend but not the other are flagged explicitly.",
-    "                       Overrides SSC_JIT_BACKEND for the lint run only."
+    "Flags: --json            emit machine-readable JSON instead of human text",
+    "       --quiet           print only files with at least one bail",
+    "       --fail-on-bail    exit non-zero on any bail (default: warn only)",
+    "       --include-while   also report JIT coverage for top-level while loops.",
+    "                         Loops that were not executed during module load are",
+    "                         invisible (they don't appear in the cache).",
+    "       --backend <b>     backend to lint against: javac (default), asm, or both.",
+    "                         'both' shows a side-by-side diff — functions that JIT",
+    "                         on one backend but not the other are flagged explicitly.",
+    "                         Overrides SSC_JIT_BACKEND for the lint run only."
   )
 
   def run(args: List[String]): Unit =
@@ -37,29 +46,32 @@ final class LintJitCmd extends CliCommand:
     System.exit(r.exitCode.value)
 
   override def runResult(args: List[String]): CommandResult =
-    var emitJson:    Boolean         = false
-    var quiet:       Boolean         = false
-    var failOnBail:  Boolean         = false
-    var backendArg:  Option[String]  = None
+    var emitJson:      Boolean         = false
+    var quiet:         Boolean         = false
+    var failOnBail:    Boolean         = false
+    var includeWhile:  Boolean         = false
+    var backendArg:    Option[String]  = None
     val files = scala.collection.mutable.ListBuffer.empty[String]
     val it = args.iterator
     while it.hasNext do
       it.next() match
-        case "--json"         => emitJson   = true
-        case "--quiet"        => quiet      = true
-        case "--fail-on-bail" => failOnBail = true
-        case "--backend"      =>
+        case "--json"            => emitJson      = true
+        case "--quiet"           => quiet         = true
+        case "--fail-on-bail"    => failOnBail    = true
+        case "--include-while"   => includeWhile  = true
+        case "--backend"         =>
           if it.hasNext then backendArg = Some(it.next())
           else
             System.err.println("ssc lint-jit: --backend requires an argument (javac, asm, both)")
             return CommandResult.failure()
         case other if other.startsWith("--backend=") =>
           backendArg = Some(other.stripPrefix("--backend="))
-        case other            => files += other
+        case other               => files += other
 
     if files.isEmpty then
       System.err.println(
-        "usage: ssc lint-jit [--json] [--quiet] [--fail-on-bail] [--backend javac|asm|both] <file.ssc> [...]")
+        "usage: ssc lint-jit [--json] [--quiet] [--fail-on-bail] [--include-while] " +
+          "[--backend javac|asm|both] <file.ssc> [...]")
       return CommandResult.failure()
 
     val compareMode = backendArg.contains("both")
@@ -82,48 +94,81 @@ final class LintJitCmd extends CliCommand:
       interp.runSections(module)
 
       if compareMode then
-        val reports = JitLint.lintInterpreterCompare(interp)
-        val bails   = reports.filter(_.anyFail)
-        if bails.nonEmpty then anyBail = true
+        val defReports   = JitLint.lintInterpreterCompare(interp)
+        val defBails     = defReports.filter(_.anyFail)
+        if defBails.nonEmpty then anyBail = true
+        val whileReports = if includeWhile then JitLint.lintWhileLoopsCompare(interp) else Nil
+        val whileBails   = whileReports.filter(_.anyFail)
+        if whileBails.nonEmpty then anyBail = true
         if emitJson then
-          bails.foreach { r =>
+          defBails.foreach { r =>
             val javacStatus = if r.javac.willJit then "ok" else "fail"
             val asmStatus   = if r.asm.willJit   then "ok" else "fail"
             val reasons     = (r.javac.bailReasons ++ r.asm.bailReasons).distinct
             println(
-              s"""{"file":"${quote(path)}","def":"${quote(r.defName)}",""" +
+              s"""{"file":"${quote(path)}","kind":"def","def":"${quote(r.defName)}",""" +
                 s""""line":${r.defLine.fold("null")(_.toString)},""" +
                 s""""javac":"$javacStatus","asm":"$asmStatus",""" +
                 s""""reasons":[${reasons.map(b => "\"" + quote(b.description) + "\"").mkString(",")}]}"""
             )
           }
-        else if !quiet || bails.nonEmpty then
+          (if quiet then whileBails else whileReports).foreach { r =>
+            val javacStatus = if r.javac.willJit then "ok" else "fail"
+            val asmStatus   = if r.asm.willJit   then "ok" else "fail"
+            val reasons     = (r.javac.bailReasons ++ r.asm.bailReasons).distinct
+            println(
+              s"""{"file":"${quote(path)}","kind":"while",""" +
+                s""""line":${r.condLine.fold("null")(_.toString)},""" +
+                s""""javac":"$javacStatus","asm":"$asmStatus",""" +
+                s""""reasons":[${reasons.map(b => "\"" + quote(b.description) + "\"").mkString(",")}]}"""
+            )
+          }
+        else if !quiet || defBails.nonEmpty || whileBails.nonEmpty then
           println(s"=== $path ===")
-          if reports.isEmpty then println("  (no top-level defs)")
+          if defReports.isEmpty && whileReports.isEmpty then println("  (no top-level defs or while loops)")
           else
-            val toShow = if quiet then bails else reports
-            toShow.foreach(r => println(r.humanReadable))
+            val toShowDefs = if quiet then defBails else defReports
+            toShowDefs.foreach(r => println(r.humanReadable))
+            val toShowWhiles = if quiet then whileBails else whileReports
+            if toShowWhiles.nonEmpty then
+              println("-- while loops --")
+              toShowWhiles.foreach(r => println(r.humanReadable))
           println()
       else
-        val reports = JitLint.lintInterpreter(interp, backend)
-        val bails   = reports.filterNot(_.willJit)
-        if bails.nonEmpty then anyBail = true
+        val defReports   = JitLint.lintInterpreter(interp, backend)
+        val defBails     = defReports.filterNot(_.willJit)
+        if defBails.nonEmpty then anyBail = true
+        val whileReports = if includeWhile then JitLint.lintWhileLoops(interp, backend) else Nil
+        val whileBails   = whileReports.filterNot(_.willJit)
+        if whileBails.nonEmpty then anyBail = true
         val backendLabel = backendArg.getOrElse("default")
         if emitJson then
-          bails.foreach { r =>
+          defBails.foreach { r =>
             println(
-              s"""{"file":"${quote(path)}","def":"${quote(r.defName)}",""" +
+              s"""{"file":"${quote(path)}","kind":"def","def":"${quote(r.defName)}",""" +
                 s""""line":${r.defLine.fold("null")(_.toString)},""" +
                 s""""backend":"$backendLabel",""" +
                 s""""reasons":[${r.bailReasons.map(b => "\"" + quote(b.description) + "\"").mkString(",")}]}"""
             )
           }
-        else if !quiet || bails.nonEmpty then
+          (if quiet then whileBails else whileReports).foreach { r =>
+            println(
+              s"""{"file":"${quote(path)}","kind":"while",""" +
+                s""""line":${r.condLine.fold("null")(_.toString)},""" +
+                s""""backend":"$backendLabel",""" +
+                s""""reasons":[${r.bailReasons.map(b => "\"" + quote(b.description) + "\"").mkString(",")}]}"""
+            )
+          }
+        else if !quiet || defBails.nonEmpty || whileBails.nonEmpty then
           println(s"=== $path  [backend: $backendLabel] ===")
-          if reports.isEmpty then println("  (no top-level defs)")
+          if defReports.isEmpty && whileReports.isEmpty then println("  (no top-level defs or while loops)")
           else
-            val toShow = if quiet then bails else reports
-            toShow.foreach(r => println(r.humanReadable))
+            val toShowDefs = if quiet then defBails else defReports
+            toShowDefs.foreach(r => println(r.humanReadable))
+            val toShowWhiles = if quiet then whileBails else whileReports
+            if toShowWhiles.nonEmpty then
+              println("-- while loops --")
+              toShowWhiles.foreach(r => println(r.humanReadable))
           println()
     }
     if failOnBail && anyBail then CommandResult.failure()
