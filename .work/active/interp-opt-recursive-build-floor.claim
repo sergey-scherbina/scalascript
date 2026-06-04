@@ -1,0 +1,6 @@
+feature/interp-opt-recursive-build-floor 2026-06-04T11:51:40Z
+agent: codex
+heartbeat: 2026-06-04T11:51:40Z
+status: not-started
+done-so-far:
+next: inspect recursive build floor benchmarks/spec and choose a minimal isolated implementation slice
