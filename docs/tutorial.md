@@ -1113,7 +1113,9 @@ ssc serve 8000 target/frontend-examples/toolkit-demo/custom
 ```
 
 `ssc serve [port] [dir]` is built-in — no Python, no Node, no extra
-install.  Defaults: port `8080`, dir `.`.
+install.  Defaults: port `8080`, dir `.`.  It prints the local URL and
+detected LAN URLs, so phones or tablets on the same network can open the
+served demo directly.
 
 ## Step 5: Try every backend
 

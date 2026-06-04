@@ -294,6 +294,8 @@ ssc serve 8000 target/frontend-examples/todo/custom
 
 `ssc serve [port] [dir]` is the built-in static-file server in the
 CLI — no Python or Node needed.  Defaults: port `8080`, dir `.`.
+It prints both the local URL and any detected LAN URLs for opening the
+same page from another device on the network.
 
 The per-demo READMEs explain each demo's `.ssc`-level intent and how
 the four backends emit it.
