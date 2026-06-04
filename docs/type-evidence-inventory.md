@@ -147,8 +147,44 @@ Verification:
 
 ### P2 - Interface Evidence Serialization
 
+Queue slug: `type-evidence-interface-p2`.
+
 Add structured evidence fields beside legacy rendered type strings in interface
-artifacts. Keep old readers/writers working.
+artifacts. Keep old readers/writers working and keep `InterfaceScope` resolving
+from the legacy `tpe` string for this slice.
+
+Target additive wire shape:
+
+```scala
+case class TypeEvidenceWire(
+  tpe: String,
+  kind: String,
+  reason: Option[String] = None
+)
+
+case class ExportedSymbol(
+  ...,
+  evidence: Option[TypeEvidenceWire] = None
+)
+```
+
+Rules:
+
+- `InterfaceExtractor` writes `DefSummary.evidence` to `ExportedSymbol.evidence`
+  when present.
+- Legacy synthesized package-inner exports with no evidence may omit the field
+  or mark it as `Unknown`, whichever is less invasive for current tests.
+- `ArtifactIO.readInterface` must continue reading old `.scim` JSON/MessagePack
+  because the new field has a default.
+- `InterfaceScope` continues to parse `sym.tpe`; consuming structured evidence
+  belongs to a later strict/types phase.
+
+Verification:
+
+- interface extraction test proving declared/inferred/unknown evidence survives
+  `ArtifactIO.writeInterface` / `readInterface`;
+- legacy JSON fixture without evidence still reads;
+- `core / Test / compile`.
 
 ### P3 - Route And Remote Evidence
 
