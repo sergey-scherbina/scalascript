@@ -1954,6 +1954,9 @@ object JavacJitBackend extends JitBackend:
                                       case Term.Name(`paramName`) => (listName, fnName)
                                       case _                      => null
                                   case _ => null
+                              // Identity addend `acc = acc + paramName` — empty
+                              // fnName sentinel; the emit unboxes the item directly.
+                              case Term.Name(`paramName`) => (listName, "")
                               case _ => null
                           case _ => null
                       case _ => null
@@ -2038,31 +2041,47 @@ object JavacJitBackend extends JitBackend:
       whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
       return null
 
-    // Resolve and JIT-compile the inner function.
-    val fnVal = interp.globals.getOrElse(fnName, null)
-    if !fnVal.isInstanceOf[scalascript.interpreter.Value.FunV] then
-      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
-      return null
-    val jitR = tryCompile(fnVal.asInstanceOf[scalascript.interpreter.Value.FunV], interp)
-    if jitR == null || jitR.direct == null then
-      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
-      return null
-    val (isDoubleOk, fnObjToDouble, fnObjToLong) =
-      if accIsDouble then
-        jitR.direct match
-          case f: ObjToDouble => (true, f, null)
-          case _              => (false, null, null)
+    // Identity foreach `xs.foreach(s => acc = acc + s)`: empty fnName sentinel.
+    // No inner fn to resolve/JIT — the pre-pass unboxes each item directly.
+    val isIdentity = fnName.isEmpty
+
+    // Resolve and JIT-compile the inner function (skipped for identity).
+    val fnVal = if isIdentity then null else interp.globals.getOrElse(fnName, null)
+    val (fnObjToDouble, fnObjToLong): (ObjToDouble | Null, ObjToLong | Null) =
+      if isIdentity then (null, null)
       else
-        jitR.direct match
-          case f: ObjToLong => (true, null, f)
-          case _            => (false, null, null)
-    if !isDoubleOk then
-      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
-      return null
+        if !fnVal.isInstanceOf[scalascript.interpreter.Value.FunV] then
+          whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+          return null
+        val jitR = tryCompile(fnVal.asInstanceOf[scalascript.interpreter.Value.FunV], interp)
+        if jitR == null || jitR.direct == null then
+          whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+          return null
+        val (isDoubleOk, d, l) =
+          if accIsDouble then
+            jitR.direct match
+              case f: ObjToDouble => (true, f, null)
+              case _              => (false, null, null)
+          else
+            jitR.direct match
+              case f: ObjToLong => (true, null, f)
+              case _            => (false, null, null)
+        if !isDoubleOk then
+          whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+          return null
+        (d, l)
+
+    // Direct-unbox snippet for an identity item expression (Long/Double acc).
+    val valuePkgE = "scalascript.interpreter"
+    def idUnbox(itemExpr: String): String =
+      if accIsDouble then s"(($valuePkgE.Value.DoubleV) $itemExpr).v()"
+      else                s"(($valuePkgE.Value.IntV) $itemExpr).v()"
 
     // Try to inline the match body — eliminates ObjToLong virtual dispatch.
-    val funVTyped = fnVal.asInstanceOf[scalascript.interpreter.Value.FunV]
-    val inlineMatchSwitch: String | Null = tryBuildInlineMatchAccum(funVTyped, accIsDouble, interp)
+    val funVTyped =
+      if isIdentity then null else fnVal.asInstanceOf[scalascript.interpreter.Value.FunV]
+    val inlineMatchSwitch: String | Null =
+      if isIdentity then null else tryBuildInlineMatchAccum(funVTyped, accIsDouble, interp)
     // LICM: hoist the pure foreach-accumulator out of the outer while.
     // The foreach result is loop-invariant: coll is val-bound, items are immutable,
     // the match-body (when present) is structurally pure (walkLong/walkDouble reject
@@ -2100,8 +2119,9 @@ object JavacJitBackend extends JitBackend:
     sb.append(s"  @Override public void run(long[] v) { $className.runStatic(v); }\n")
     sb.append(s"  @SuppressWarnings(\"unchecked\")\n")
     sb.append(s"  public static void runStatic(long[] v) {\n")
-    // Load function from TLS only when not inlining the match body.
-    if inlineMatchSwitch == null then
+    // Load function from TLS only when not inlining the match body and not the
+    // identity foreach (which has no inner fn).
+    if inlineMatchSwitch == null && !isIdentity then
       if accIsDouble then
         sb.append(s"    $jitPkg.ObjToDouble _dfn0 = $jitPkg.JitGlobals.getRefDoubleFns()[0];\n")
       else
@@ -2131,7 +2151,9 @@ object JavacJitBackend extends JitBackend:
     if receiverIsSet then
       sb.append(s"    scala.collection.Iterator<?> _invIter = _set0.items().iterator();\n")
       sb.append(s"    while (_invIter.hasNext()) {\n")
-      if invSumMatchSwitch != null then
+      if isIdentity then
+        sb.append(s"      _invSum += ${idUnbox("_invIter.next()")};\n")
+      else if invSumMatchSwitch != null then
         sb.append(s"      $valuePkg.Value.InstanceV inst = ($valuePkg.Value.InstanceV) _invIter.next();\n")
         sb.append(s"      $invSumMatchSwitch\n")
       else if accIsDouble then
@@ -2146,10 +2168,12 @@ object JavacJitBackend extends JitBackend:
       sb.append(s"      $invSumMatchSwitch\n")
       sb.append(s"    }\n")
     else
-      // List + fn: head/tail traversal (no pre-extraction needed).
+      // List + fn (or identity): head/tail traversal (no pre-extraction needed).
       sb.append(s"    scala.collection.immutable.List<?> _invItems = _list0.items();\n")
       sb.append(s"    while (!_invItems.isEmpty()) {\n")
-      if accIsDouble then
+      if isIdentity then
+        sb.append(s"      _invSum += ${idUnbox("_invItems.head()")};\n")
+      else if accIsDouble then
         sb.append(s"      _invSum += _dfn0.apply(_invItems.head());\n")
       else
         sb.append(s"      _invSum += _fn0.apply(_invItems.head());\n")

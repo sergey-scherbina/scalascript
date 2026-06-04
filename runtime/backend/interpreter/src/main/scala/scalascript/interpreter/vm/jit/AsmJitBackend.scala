@@ -1849,6 +1849,8 @@ object AsmJitBackend extends JitBackend:
                                       case Term.Name(`paramName`) => (receiverName, fnName)
                                       case _                      => null
                                   case _ => null
+                              // identity fold: acc = acc + s  (empty fnName sentinel)
+                              case Term.Name(`paramName`) => (receiverName, "")
                               case _ => null
                           case _ => null
                       case _ => null
@@ -1923,14 +1925,15 @@ object AsmJitBackend extends JitBackend:
       whileMixedCache.put(foreachApply, WhileMixedMiss)
       return null
 
-    val fnVal = interp.globals.getOrElse(fnName, null)
-    if !fnVal.isInstanceOf[Value.FunV] then
+    val isIdentity = fnName.isEmpty
+    val fnVal = if isIdentity then null else interp.globals.getOrElse(fnName, null)
+    if !isIdentity && !fnVal.isInstanceOf[Value.FunV] then
       whileMixedCache.put(foreachApply, WhileMixedMiss)
       return null
-    val funVTyped = fnVal.asInstanceOf[Value.FunV]
-    val doInline  = canInlineMatchAccum(funVTyped, interp)
+    val funVTyped = if isIdentity then null else fnVal.asInstanceOf[Value.FunV]
+    val doInline  = !isIdentity && canInlineMatchAccum(funVTyped, interp)
     val (fnObjToLong, fnObjToDouble) =
-      if doInline then (null, null)
+      if isIdentity || doInline then (null, null)
       else
         val jitR = tryCompile(funVTyped, interp)
         if jitR == null || jitR.direct == null then
@@ -1982,7 +1985,7 @@ object AsmJitBackend extends JitBackend:
       s
 
     val fnSlot: Int =
-      if doInline then -1
+      if doInline || isIdentity then -1
       else
         val s = allocObjLocal()
         mv.visitFieldInsn(GETSTATIC, globalsInt, "MODULE$", s"L$globalsInt;")
@@ -2048,8 +2051,8 @@ object AsmJitBackend extends JitBackend:
         else
           emitArrayForeachAccumInline(mv, funVTyped, accIsDouble, receiverSlot, elemSlot, invSumLocal, allocInlineSlot, interp, cname)
       if !ok then { whileMixedCache.put(foreachApply, WhileMixedMiss); return null }
-    else if receiverIsSet then emitSetForeachAccum(mv, receiverSlot, fnSlot, foreachScratchSlot, invSumLocal, accIsDouble)
-    else emitListForeachAccum(mv, receiverSlot, fnSlot, foreachScratchSlot, invSumLocal, accIsDouble)
+    else if receiverIsSet then emitSetForeachAccum(mv, receiverSlot, fnSlot, foreachScratchSlot, invSumLocal, accIsDouble, isIdentity)
+    else emitListForeachAccum(mv, receiverSlot, fnSlot, foreachScratchSlot, invSumLocal, accIsDouble, isIdentity)
 
     // Outer while: tight loop — add constant invSumLocal per iteration.
     val outerHead = new Label
@@ -2349,7 +2352,8 @@ object AsmJitBackend extends JitBackend:
     fnSlot:       Int,
     itemsSlot:    Int,
     accLocal:     Int,
-    accIsDouble:  Boolean
+    accIsDouble:  Boolean,
+    identity:     Boolean
   ): Unit =
     val head = new Label
     val done = new Label
@@ -2362,17 +2366,25 @@ object AsmJitBackend extends JitBackend:
     mv.visitMethodInsn(INVOKEVIRTUAL, "scala/collection/immutable/List", "isEmpty", "()Z", false)
     mv.visitJumpInsn(IFNE, done)
     if accIsDouble then mv.visitVarInsn(DLOAD, accLocal) else mv.visitVarInsn(LLOAD, accLocal)
-    mv.visitVarInsn(ALOAD, fnSlot)
+    if !identity then mv.visitVarInsn(ALOAD, fnSlot)
     mv.visitVarInsn(ALOAD, itemsSlot)
     mv.visitMethodInsn(INVOKEVIRTUAL, "scala/collection/immutable/List", "head", "()Ljava/lang/Object;", false)
     if accIsDouble then
-      mv.visitMethodInsn(INVOKEINTERFACE, "scalascript/interpreter/vm/jit/ObjToDouble",
-        "apply", "(Ljava/lang/Object;)D", true)
+      if identity then
+        mv.visitTypeInsn(CHECKCAST, dblVInt)
+        mv.visitMethodInsn(INVOKEVIRTUAL, dblVInt, "v", "()D", false)
+      else
+        mv.visitMethodInsn(INVOKEINTERFACE, "scalascript/interpreter/vm/jit/ObjToDouble",
+          "apply", "(Ljava/lang/Object;)D", true)
       mv.visitInsn(DADD)
       mv.visitVarInsn(DSTORE, accLocal)
     else
-      mv.visitMethodInsn(INVOKEINTERFACE, "scalascript/interpreter/vm/jit/ObjToLong",
-        "apply", "(Ljava/lang/Object;)J", true)
+      if identity then
+        mv.visitTypeInsn(CHECKCAST, intVInt)
+        mv.visitMethodInsn(INVOKEVIRTUAL, intVInt, "v", "()J", false)
+      else
+        mv.visitMethodInsn(INVOKEINTERFACE, "scalascript/interpreter/vm/jit/ObjToLong",
+          "apply", "(Ljava/lang/Object;)J", true)
       mv.visitInsn(LADD)
       mv.visitVarInsn(LSTORE, accLocal)
     mv.visitVarInsn(ALOAD, itemsSlot)
@@ -2389,7 +2401,8 @@ object AsmJitBackend extends JitBackend:
     fnSlot:       Int,
     iterSlot:     Int,
     accLocal:     Int,
-    accIsDouble:  Boolean
+    accIsDouble:  Boolean,
+    identity:     Boolean
   ): Unit =
     val head = new Label
     val done = new Label
@@ -2404,17 +2417,25 @@ object AsmJitBackend extends JitBackend:
     mv.visitMethodInsn(INVOKEINTERFACE, "scala/collection/Iterator", "hasNext", "()Z", true)
     mv.visitJumpInsn(IFEQ, done)
     if accIsDouble then mv.visitVarInsn(DLOAD, accLocal) else mv.visitVarInsn(LLOAD, accLocal)
-    mv.visitVarInsn(ALOAD, fnSlot)
+    if !identity then mv.visitVarInsn(ALOAD, fnSlot)
     mv.visitVarInsn(ALOAD, iterSlot)
     mv.visitMethodInsn(INVOKEINTERFACE, "scala/collection/Iterator", "next", "()Ljava/lang/Object;", true)
     if accIsDouble then
-      mv.visitMethodInsn(INVOKEINTERFACE, "scalascript/interpreter/vm/jit/ObjToDouble",
-        "apply", "(Ljava/lang/Object;)D", true)
+      if identity then
+        mv.visitTypeInsn(CHECKCAST, dblVInt)
+        mv.visitMethodInsn(INVOKEVIRTUAL, dblVInt, "v", "()D", false)
+      else
+        mv.visitMethodInsn(INVOKEINTERFACE, "scalascript/interpreter/vm/jit/ObjToDouble",
+          "apply", "(Ljava/lang/Object;)D", true)
       mv.visitInsn(DADD)
       mv.visitVarInsn(DSTORE, accLocal)
     else
-      mv.visitMethodInsn(INVOKEINTERFACE, "scalascript/interpreter/vm/jit/ObjToLong",
-        "apply", "(Ljava/lang/Object;)J", true)
+      if identity then
+        mv.visitTypeInsn(CHECKCAST, intVInt)
+        mv.visitMethodInsn(INVOKEVIRTUAL, intVInt, "v", "()J", false)
+      else
+        mv.visitMethodInsn(INVOKEINTERFACE, "scalascript/interpreter/vm/jit/ObjToLong",
+          "apply", "(Ljava/lang/Object;)J", true)
       mv.visitInsn(LADD)
       mv.visitVarInsn(LSTORE, accLocal)
     mv.visitJumpInsn(GOTO, head)

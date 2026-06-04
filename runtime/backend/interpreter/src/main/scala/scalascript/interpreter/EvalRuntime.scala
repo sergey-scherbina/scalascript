@@ -2572,6 +2572,33 @@ private[interpreter] object EvalRuntime:
                   if r != null then return (idx, r.asInstanceOf[A])
                   idx += 1
                 null
+              // Identity-foreach `xs.foreach(s => acc = acc + s)` (no inner fn).
+              // Intercept BEFORE the fn-based peeks and route ONLY through the
+              // fused-JIT mixed path. On a JIT hit return it; on a miss fall
+              // through to the chain below, which (since no fn-peek matches an
+              // identity closure) ends at plain tryMixedLongWhile — the
+              // interpreter evaluates the foreach, so there is no slot-bypass
+              // writeback to get wrong.
+              val idLongPeek = peekFirst(t => FastTier.peekLongIdentityAccName(t, interp))
+              val idPeek: (Int, String, Boolean) | Null =
+                if idLongPeek != null then (idLongPeek._1, idLongPeek._2, false)
+                else
+                  val idDblPeek = peekFirst(t => FastTier.peekDoubleIdentityAccName(t, interp))
+                  if idDblPeek != null then (idDblPeek._1, idDblPeek._2, true) else null
+              if idPeek != null then
+                val (foreachApplyIdx, idAccName, idIsDouble) = idPeek
+                val initV = interp.globals.getOrElse(idAccName, null)
+                val initOk =
+                  if idIsDouble then initV.isInstanceOf[Value.DoubleV]
+                  else                initV.isInstanceOf[Value.IntV]
+                if initOk then
+                  val initD =
+                    if idIsDouble then initV.asInstanceOf[Value.DoubleV].v
+                    else               initV.asInstanceOf[Value.IntV].v.toDouble
+                  val idJit = tryWhileJitMixed(
+                    t, mixedBody, foreachApplyIdx, idAccName, idIsDouble, initD, frameView, interp
+                  )
+                  if idJit != null then return idJit
               val doublePeek = peekFirst(t => FastTier.peekDoubleAccName(t, interp))
               if doublePeek != null then
                 val (foreachApplyIdx, doubleAccName) = doublePeek

@@ -104,6 +104,62 @@ private[interpreter] object FastTier:
   def peekLongAccName(apply: Term, interp: Interpreter): String | Null =
     peek1ArgAccName(apply, interp, classOf[Value.IntV])
 
+  /** Identity-foreach peek: `xs.foreach(s => { acc = acc + s })` — the addend is
+   *  the loop param itself (no inner `fn`). Returns the accumulator name when
+   *  `acc` resolves to `accCls` in globals; null otherwise. Only routes the
+   *  fused-JIT mixed path (no slot-bypass fallback), so the closure's `fn`
+   *  machinery is bypassed entirely. */
+  def peekLongIdentityAccName(apply: Term, interp: Interpreter): String | Null =
+    peek1ArgIdentityAccName(apply, interp, classOf[Value.IntV])
+
+  def peekDoubleIdentityAccName(apply: Term, interp: Interpreter): String | Null =
+    peek1ArgIdentityAccName(apply, interp, classOf[Value.DoubleV])
+
+  private def peek1ArgIdentityAccName(apply: Term, interp: Interpreter, accCls: Class[?]): String | Null =
+    apply match
+      case ta: Term.Apply =>
+        ta.fun match
+          case Term.Select(_, Term.Name("foreach")) =>
+            ta.argClause.values match
+              case List(fn: Term.Function) if fn.paramClause.values.lengthCompare(1) == 0 =>
+                val pName = fn.paramClause.values.head.name.value
+                if pName.isEmpty then null
+                else
+                  val accName = identityAccName(fn.body, pName)
+                  if accName == null then null
+                  else
+                    val v = interp.globals.getOrElse(accName, null)
+                    if v != null && accCls.isInstance(v) then accName else null
+              case _ => null
+          case _ => null
+      case _ => null
+
+  /** Returns the accumulator name for `{ acc = acc + param }` (the addend being
+   *  the loop param itself), or null if the body is not an identity accumulate. */
+  private def identityAccName(body: Term, paramName: String): String | Null =
+    val core = body match
+      case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+        b.stats.head match
+          case t: Term => t
+          case _       => return null
+      case t => t
+    core match
+      case a: Term.Assign =>
+        a.lhs match
+          case lhsName: Term.Name =>
+            val accName = lhsName.value
+            if accName == paramName then null
+            else
+              a.rhs match
+                case Term.ApplyInfix.After_4_6_0(lhs: Term.Name, op, _, argClause)
+                    if op.value == "+" && lhs.value == accName && argClause.values.lengthCompare(1) == 0 =>
+                  argClause.values.head match
+                    case arg: Term.Name if arg.value == paramName => accName
+                    case _                                        => null
+                case _ => null
+          case _ => null
+      case _ => null
+
   private def peek1ArgAccName(apply: Term, interp: Interpreter, accCls: Class[?]): String | Null =
     apply match
       case ta: Term.Apply =>
