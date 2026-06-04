@@ -542,7 +542,10 @@ object SsccFormat:
       val payload = Cbor.encode(toPickle(module)).toByteArray
       Magic ++ Array(CurrentVersion) ++ putBE32(crc32of(payload)) ++ payload
 
-  private def writeV3(module: Module): Array[Byte] =
+  /** Write to v3 format unconditionally (bypasses SSC_FORMAT_V3 env gate). For benchmarks. */
+  def writeV3(module: Module): Array[Byte] = writeV3Impl(module)
+
+  private def writeV3Impl(module: Module): Array[Byte] =
     val mBytes  = module.manifest.map(manifestToBytes).getOrElse(Array.empty[Byte])
     val payload = SsccFormatV3.write(module, mBytes)
     val crc     = crc32of(payload)

@@ -4,7 +4,7 @@ import org.openjdk.jmh.annotations.*
 import java.util.concurrent.TimeUnit
 import scalascript.parser.Parser
 import scalascript.typer.{Typer, SType, Constraint, Unifier}
-import scalascript.ast.Module
+import scalascript.ast.{Module, SsccFormat}
 
 /** JMH microbenchmarks for the ScalaScript compiler hot paths.
  *
@@ -111,3 +111,37 @@ class UnifyBench:
   def unifyDeep(): Unifier.type =
     Unifier.unify(deepConstraints)
     Unifier
+
+
+// ── SsccFormat read v2 vs v3 ──────────────────────────────────────────────────
+
+@State(Scope.Thread)
+@BenchmarkMode(Array(Mode.AverageTime))
+@OutputTimeUnit(TimeUnit.MILLISECONDS)
+@Warmup(iterations = 3, time = 1, timeUnit = TimeUnit.SECONDS)
+@Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
+@Fork(1)
+class SsccFormatCompilerBench:
+
+  private val actorsSsc: String =
+    val path = os.pwd / "runtime" / "std" / "actors.ssc"
+    if os.exists(path) then os.read(path)
+    else
+      """# SsccFormat bench fallback
+        |
+        |```scalascript
+        |def fib(n: Int): Int = if n <= 1 then n else fib(n - 1) + fib(n - 2)
+        |fib(10)
+        |```
+        |""".stripMargin
+
+  private val module: Module       = Parser.parse(actorsSsc)
+  private val v2Bytes: Array[Byte] = SsccFormat.write(module)
+  private val v3Bytes: Array[Byte] = SsccFormat.writeV3(module)
+
+  @Setup(Level.Trial)
+  def printSizes(): Unit =
+    System.err.println(f"[SsccFormatBench] actors.ssc src=${actorsSsc.length}%d chars, v2=${v2Bytes.length}%d B, v3=${v3Bytes.length}%d B, ratio=${v3Bytes.length.toDouble/v2Bytes.length*100}%.1f%%")
+
+  @Benchmark def readV2(): Module = SsccFormat.read(v2Bytes).getOrElse(throw new RuntimeException("v2 read failed"))
+  @Benchmark def readV3(): Module = SsccFormat.read(v3Bytes).getOrElse(throw new RuntimeException("v3 read failed"))
