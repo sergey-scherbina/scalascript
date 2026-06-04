@@ -1,0 +1,4 @@
+feature+type-evidence-inventory-p1 2026-06-04T08:10:50Z
+status: not-started
+done-so-far:
+next: implement TypeEvidence model, DefSummary evidence, Any inventory helper, focused core tests
