@@ -316,7 +316,45 @@ and one `await SqlRuntimeJs.execute(...)` per block.  The section alias
 (e.g. `CacheSetup`) is exposed as `window._ssc_client['CacheSetup'].sql`
 for the React/Solid/Vue app to consume.
 
-### 3.4 Inline Interpolation
+### 3.4 Markdown Content Introspection (planned)
+
+ScalaScript treats Markdown body content as source syntax, not as comments.
+The planned content-introspection layer exposes that parsed body as a typed,
+immutable document snapshot available to code blocks and frontend helpers.
+
+Target API:
+
+```scalascript
+[contentDocument, contentCurrentSection, contentSection](std/content.ssc)
+
+val doc = contentDocument()
+println(doc.title.getOrElse(""))
+println(contentSection("pricing").get.title)
+```
+
+Markdown headings, prose, lists, links, images, code fences, and future table
+nodes lower into a `DocumentContent` tree. Front-matter remains the module
+manifest; `content:` inside front-matter carries content-rendering defaults.
+Lightweight metadata can be attached to Markdown nodes:
+
+```markdown
+# Pricing {#pricing route=/pricing layout=marketing}
+
+<!-- @meta component=PlanList source=plans -->
+## Plans
+```
+
+The content snapshot is parse-time data. Inline `${expr}` inside prose is stored
+as expression source until an explicit renderer evaluates it, so reading
+`contentDocument()` does not execute user code or cause side effects.
+
+Frontend lowering is separate from introspection. `std/ui/content.ssc` will
+provide `contentView(documentOrSection)` helpers that render the same content
+tree through the existing backend-agnostic UI model. See
+[`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md)
+for the full planned contract and implementation phases.
+
+### 3.5 Inline Interpolation
 
 Inline code with `${}` is evaluated and interpolated:
 
