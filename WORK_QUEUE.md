@@ -1042,13 +1042,14 @@ highest-impact item.
       **Result:** `tuple-monoid` JVM 0.137 ms → **0.016 µs** (8500×); interp 0.013 ms.
       1281 conformance tests passed.
 
-- [ ] **hello-world-interp-overhead** — `hello-world` interp 0.014 ms vs JVM/JS 0.002 ms
-      (7×).  Workload: `def workload(): Unit = println("hello")` — a single zero-result
-      native call.  The gap is pure interp dispatch overhead: globals lookup, FunV
-      dispatch, environment allocation, NativeFnV call path for `println`.  Profile
-      to confirm; likely fix is a ZeroParam/unit-result fast path that skips env
-      allocation for trivial single-expression functions.
-      **Bench target:** `hello-world` interp ≤0.004 ms (2× of JVM, given IO cost).
+- [x] **hello-world-interp-overhead** — ✓ Done 2026-06-04. `hello-world` interp
+      0.014 ms → **0.003 ms** (`ssc bench --reps 100000`); JMH `helloWorld`: 0.001 ms/op.
+      Target was ≤0.004 ms. Fix: `case Nil =>` fast lane in `evalPlainApply` uses
+      already-computed FunV; `callValue0` / `callValue0Slow` skip `tcoInfoFor` +
+      `tryRunList`. Also fixed: `JavacJitBackend` non-local return (-Werror blocker)
+      and `JsGenStreamsTest` pre-existing failure (Async+Effects capability for `_makeAsyncStream`).
+      Note: default 20-rep ssc bench shows ~0.011 ms (insufficient JVM warmup);
+      use `--reps 100000` for accurate hello-world measurement.
 
 - [x] **js-pattern-match-dispatch** — ✓ Addressed by `js-codegen-opt-p3` (2026-06-04).
       Root cause was `genModuleSegmented` missing field/type map initialization, not
