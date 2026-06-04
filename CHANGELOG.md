@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(language): Markdown content component registry
+
+- **markdown-content-component-registry** — Added explicit
+  `contentComponent(name)(render)` registration for Markdown `component=<name>`
+  metadata. Registered renderers replace default `contentToolkitNode` /
+  `contentToolkitBlock` / `contentToolkitSection` lowering for matching blocks
+  or sections; missing registry entries fall back to default Markdown lowering.
+
 ## 2026-06-05 — perf(jit): String-returning co-emission lane
 
 - **jit-string-concat** — Both bytecode-JIT backends (javac + asm) gain a
