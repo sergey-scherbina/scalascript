@@ -1,6 +1,7 @@
 package scalascript.typer
 
 import scalascript.ast.Span
+import scalascript.ir
 
 enum TypeEvidenceKind:
   case Declared
@@ -102,3 +103,42 @@ object AnyEvidenceInventory:
       if evidence.containsAny then counts.increment(evidence.kind)
       else counts
     }
+
+/** Counts declared / unknown evidence for API endpoints and remote handlers in a
+ *  compiled manifest.  Missing `typeEvidence` (legacy artifacts) is treated as
+ *  Unknown so old `.scir` files remain backward-compatible. */
+case class RouteEvidenceCounts(
+    endpointsDeclared: Int = 0,
+    endpointsUnknown:  Int = 0,
+    handlersDeclared:  Int = 0,
+    handlersUnknown:   Int = 0
+):
+  def allDeclared: Boolean = endpointsUnknown == 0 && handlersUnknown == 0
+  def totalEndpoints: Int  = endpointsDeclared + endpointsUnknown
+  def totalHandlers: Int   = handlersDeclared  + handlersUnknown
+
+object RouteEvidenceInventory:
+  def count(manifest: ir.Manifest): RouteEvidenceCounts =
+    val endpoints = manifest.apiClients.flatMap(_.endpoints)
+    val handlers  = manifest.remoteHandlers
+
+    val endpointsDeclared = endpoints.count(endpointIsDeclared)
+    val endpointsUnknown  = endpoints.count(!endpointIsDeclared(_))
+    val handlersDeclared  = handlers.count(handlerIsDeclared)
+    val handlersUnknown   = handlers.count(!handlerIsDeclared(_))
+
+    RouteEvidenceCounts(endpointsDeclared, endpointsUnknown, handlersDeclared, handlersUnknown)
+
+  private def wireIsDeclared(w: ir.TypeEvidenceWire): Boolean = w.kind == "Declared"
+
+  private def endpointIsDeclared(e: ir.ApiEndpointDecl): Boolean =
+    e.typeEvidence match
+      case None => false
+      case Some(ev) =>
+        ev.request.exists(wireIsDeclared) && ev.response.exists(wireIsDeclared)
+
+  private def handlerIsDeclared(h: ir.RemoteHandlerDecl): Boolean =
+    h.typeEvidence match
+      case None => false
+      case Some(ev) =>
+        ev.request.exists(wireIsDeclared) && ev.response.exists(wireIsDeclared)
