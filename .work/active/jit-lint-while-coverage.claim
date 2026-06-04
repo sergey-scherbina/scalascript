@@ -1,4 +1,0 @@
-feature+jit-lint-while-coverage 2026-06-04T00:16:51Z
-status: not-started
-done-so-far:
-next: Add JitLintWhileReport + lintWhileLoops to JitLint.scala, test, CLI

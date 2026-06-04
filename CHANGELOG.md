@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — feat: ssc lint-jit --include-while coverage
+
+- **jit-lint-while-coverage** — `ssc lint-jit --include-while` now reports JIT
+  coverage for top-level while loops alongside def coverage.  Source of truth is
+  `interp.whileJitCache` (no interpreter changes needed).  New API:
+  `JitLintWhileReport`, `JitLintWhileCompareReport`, `JitLint.lintWhileLoops`,
+  `JitLint.lintWhileLoopsCompare`, `JitBailReason.WhileCondShape / WhileBodyShape`.
+  12 new tests; all 39 pass.
+
+---
+
 ## 2026-06-04 — perf: ASM JIT while/map parity
 
 - **asm-jit-parity-optimizations Phase 2** — `AsmJitBackend` now matches the

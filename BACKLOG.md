@@ -2225,39 +2225,16 @@ gated on same-session A/B + full suite green with the gate off AND on.
       whether the issue is in the outer foreach or the inner match dispatch.
       **Bench target:** parity with Javac (within ±5%).
 
-- [ ] **jit-lint-while-coverage** — `ssc lint-jit` currently only checks
-      `FunV` entries in `interp.globals` (top-level `def`s).  Top-level
-      `while` loops — compiled by `tryCompileWhileLong` / `tryCompileWhileMixed`
-      — are invisible to the lint even though they are the hottest JIT target
-      in most workloads.  Adding while-loop coverage would surface issues like
-      the ASM while-backend regressions that currently only appear at bench time.
-
-      **Design:**
-      - Add `JitLint.lintWhileLoops(interp, backend): List[JitLintWhileReport]`
-        that scans `interp.topLevelExprs` (or equivalent — TBD depending on
-        what the interpreter exposes) for `Term.While` nodes and calls
-        `backend.tryCompileWhileLong` as ground truth for each one.
-      - `JitLintWhileReport` mirrors `JitLintReport`: line, bail reason (at
-        minimum: `WhileNotCompiled` for now — more granular once the while-JIT
-        bail predicates are extracted from `JavacJitBackend`).
-      - `lintInterpreterCompare` extended to call both while-loop lint paths
-        when running `--backend both`.
-      - CLI: `ssc lint-jit --include-while` to opt-in (gated because
-        running `tryCompileWhileLong` is side-effectful — it populates the
-        while-JIT cache and may trigger compilation).
-
-      **Implementation note:** `interp.topLevelExprs` may not exist yet as a
-      public API.  The interpreter likely discards top-level non-def expressions
-      after evaluation.  The while-lint may need to operate on the AST of the
-      source before execution (requires a `--static` lint mode that parses +
-      extracts def bodies without running the module, which was deferred as a
-      follow-up when `LintJitCmd` was first written).  Scope this carefully
-      before coding.
-
-      **Blocking:** `asm-jit-purecall-bug` and `asm-jit-patternmatch-regression`
-      should be fixed first — the while-lint would report false positives for
-      those shapes until the underlying ASM bugs are patched.
-      Spec: `docs/jit-lint-while-coverage.md` (to be created when work starts).
+- [x] **jit-lint-while-coverage** — ✓ Landed 2026-06-04 commit `868deb64`.
+      `ssc lint-jit --include-while` now reports JIT coverage for top-level
+      while loops alongside the existing def coverage.  Source of truth is
+      `interp.whileJitCache` (populated during `runSections`), so no
+      interpreter changes were needed.  New API: `JitLintWhileReport`,
+      `JitLintWhileCompareReport`, `JitLint.lintWhileLoops`,
+      `JitLint.lintWhileLoopsCompare`, `JitBailReason.WhileCondShape`,
+      `JitBailReason.WhileBodyShape`.  12 new tests; all 39 pass.
+      Note: loops that were never executed (dead branches) are not visible —
+      a `--static` parse-only mode remains a future follow-up.
 
 - [ ] **jit-tuple-concat-hoist** — Interp `tupleMonoid` is 55% slower than JVM
       (0.212 ms vs 0.137 ms).  The bench `while i < 100000 do last = (1,2)++(3,4)`
