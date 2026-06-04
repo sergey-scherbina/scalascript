@@ -1,7 +1,7 @@
 package scalascript.interpreter.vm
 
 import scalascript.interpreter.{Value, Computation, Interpreter}
-import scalascript.interpreter.vm.jit.{JitBackend, JitResult, JitGlobals, LongFn1, DoubleFn1, ObjToLong, ObjToDouble, ObjToObject, LongToObject, LongFn2, DoubleFn2, LongObjToLong, LongObjToDouble, ObjLongToLong, ObjLongToDouble}
+import scalascript.interpreter.vm.jit.{JitBackend, JitResult, JitGlobals, LongFn0, DoubleFn0, LongFn1, DoubleFn1, ObjToLong, ObjToDouble, ObjToObject, LongToObject, LongFn2, DoubleFn2, LongObjToLong, LongObjToDouble, ObjLongToLong, ObjLongToDouble}
 import java.lang as jl
 
 /** Run-time JIT bridge between the tree-walking interpreter and [[SscVm]].
@@ -203,6 +203,25 @@ object JitRuntime:
     else if r.resultIsDouble then Computation.Pure(Value.doubleV(out.asInstanceOf[jl.Double].doubleValue))
     else Computation.pureIntV(out.asInstanceOf[jl.Long].longValue)
 
+  /** 0-arg bytecode dispatch — for compiled `def workload(): Long` thunks. */
+  private def invokeBytecode0(r: JitResult, interp: Interpreter): Computation | Null =
+    val d = r.direct
+    if d != null then
+      if r.resultIsRef then return null
+      try
+        if r.resultIsDouble then
+          val result = JitGlobals.withInterp(interp) { d.asInstanceOf[DoubleFn0].apply() }
+          Computation.Pure(Value.doubleV(result))
+        else
+          val result = JitGlobals.withInterp(interp) { d.asInstanceOf[LongFn0].apply() }
+          Computation.pureIntV(result)
+      catch case _: Throwable => null
+    else
+      val out =
+        try JitGlobals.withInterp(interp) { r.mh.invoke().asInstanceOf[AnyRef] }
+        catch case _: Throwable => return null
+      wrapBytecodeResult(r, out)
+
   private def invokeBytecode1(r: JitResult, arg: Value, interp: Interpreter): Computation | Null =
     val d = r.direct
     if d != null then
@@ -344,6 +363,16 @@ object JitRuntime:
     if bc == null then return null
     if n == 1 then invokeBytecode1(bc, args.head, interp)
     else invokeBytecode2(bc, args.head, args(1), interp)
+
+  /** 0-arg entry. Returns a Pure(IntV/DoubleV) computation if the 0-param thunk
+   *  `f` is bytecode-JIT compilable, else null. Only the bytecode-JIT path
+   *  (Javac/ASM) is wired for 0-arg; the register VM is not used here. */
+  def tryRun0(f: Value.FunV, interp: Interpreter): Computation | Null =
+    if !enabled || f.name.isEmpty || f.params.nonEmpty || !JitBackend.default.enabled then null
+    else
+      val bc = bytecodeFor(f, interp)
+      if bc == null then null
+      else invokeBytecode0(bc, interp)
 
   /** 1-arg entry. Returns a Pure(IntV/DoubleV) computation if JITted, else null.
    *  Accepts either a numeric arg (numeric param) or an InstanceV (ref param,

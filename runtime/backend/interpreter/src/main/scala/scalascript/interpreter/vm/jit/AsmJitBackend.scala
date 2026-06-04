@@ -35,7 +35,7 @@ object AsmJitBackend extends JitBackend:
 
   override def tryCompile(f: Value.FunV, interp: Interpreter): JitResult | Null =
     if !enabled || f.name.isEmpty then return null
-    if f.params.length != 1 && f.params.length != 2 then return null
+    if f.params.length > 2 then return null
     val body = f.body
     cache.synchronized {
       val hit = cache.get(body)
@@ -61,7 +61,9 @@ object AsmJitBackend extends JitBackend:
   private def isBoolReturning(t: Term): Boolean = JitPredicates.isBoolReturning(t)
 
   private def determineInterface(n: Int, paramIsRef: Array[Boolean], isDouble: Boolean): String | Null =
-    if n == 1 then
+    if n == 0 then
+      if isDouble then s"$jitPkg.DoubleFn0" else s"$jitPkg.LongFn0"
+    else if n == 1 then
       if paramIsRef(0) then if isDouble then s"$jitPkg.ObjToDouble" else s"$jitPkg.ObjToLong"
       else if isDouble then s"$jitPkg.DoubleFn1" else s"$jitPkg.LongFn1"
     else if n == 2 then
@@ -489,26 +491,44 @@ object AsmJitBackend extends JitBackend:
         else walkLong(last, tailCtx, mv)
       case _ => false
 
-  /** Emit one void statement inside a while body: an assignment to a bound
-   *  local slot, or a discarded long/double expression. Mirrors javac
+  /** Emit one void statement inside a while body: an assignment to a bound local
+   *  slot, a local `var`/`val` declaration, a nested `while`, or a discarded
+   *  long/double expression. Returns the (possibly extended) context to thread
+   *  into later body statements, or null on failure. Mirrors javac
    *  `walkStatAsVoid`. */
-  private def emitStatAsVoid(stat: Stat, ctx: GenCtx, mv: MethodVisitor): Boolean = stat match
+  private def emitStatAsVoid(stat: Stat, ctx: GenCtx, mv: MethodVisitor): GenCtx | Null = stat match
     case Term.Assign(nm: Term.Name, rhs: Term) =>
       val slot = ctx.slotOf(nm.value)
-      if slot < 0 || ctx.isRefName(nm.value) then return false
+      if slot < 0 || ctx.isRefName(nm.value) then return null
       val ok = if ctx.isDouble then walkDouble(rhs, ctx, mv) else walkLong(rhs, ctx, mv)
-      if !ok then return false
+      if !ok then return null
       mv.visitVarInsn(if ctx.isDouble then DSTORE else LSTORE, slot)
-      true
+      ctx
+    case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs: Term) =>
+      val slot = ctx.allocSlot()
+      val ok = if ctx.isDouble then walkDouble(rhs, ctx, mv) else walkLong(rhs, ctx, mv)
+      if !ok then return null
+      mv.visitVarInsn(if ctx.isDouble then DSTORE else LSTORE, slot)
+      ctx.withBindings(Map(n.value -> (slot, false)))
+    case Defn.Val(_, List(Pat.Var(n)), _, rhs: Term) =>
+      val slot = ctx.allocSlot()
+      val ok = if ctx.isDouble then walkDouble(rhs, ctx, mv) else walkLong(rhs, ctx, mv)
+      if !ok then return null
+      mv.visitVarInsn(if ctx.isDouble then DSTORE else LSTORE, slot)
+      ctx.withBindings(Map(n.value -> (slot, false)))
+    case w: Term.While =>
+      if !emitWhileAsStmt(w, ctx, mv) then return null
+      ctx
     case e: Term =>
       val ok = if ctx.isDouble then walkDouble(e, ctx, mv) else walkLong(e, ctx, mv)
-      if !ok then return false
+      if !ok then return null
       mv.visitInsn(POP2)   // discard long/double result (both 2-wide)
-      true
-    case _ => false
+      ctx
+    case _ => null
 
-  /** Emit a `Term.While` appearing as a non-final body statement. Body stats
-   *  are emitted as void (no return). Mirrors javac `walkWhileAsStmt`. */
+  /** Emit a `Term.While` appearing as a non-final body statement. Body stats are
+   *  emitted as void (no return), threading bindings so an inner `var` is visible
+   *  to later stats and to a nested `while`. Mirrors javac `walkWhileAsStmt`. */
   private def emitWhileAsStmt(w: Term.While, ctx: GenCtx, mv: MethodVisitor): Boolean =
     val bodyStats: List[Stat] = w.body match
       case Term.Block(ss) => ss
@@ -516,9 +536,12 @@ object AsmJitBackend extends JitBackend:
     val Lhead = new Label; val Lend = new Label
     mv.visitLabel(Lhead)
     if !walkBool(w.expr, ctx, mv, Lend) then return false  // exit loop when cond is false
+    var curCtx = ctx
     val it = bodyStats.iterator
     while it.hasNext do
-      if !emitStatAsVoid(it.next(), ctx, mv) then return false
+      val nc = emitStatAsVoid(it.next(), curCtx, mv)
+      if nc == null then return false
+      curCtx = nc
     mv.visitJumpInsn(GOTO, Lhead)
     mv.visitLabel(Lend)
     true

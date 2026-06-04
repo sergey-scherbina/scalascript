@@ -58,7 +58,7 @@ object JavacJitBackend extends JitBackend:
 
   override def tryCompile(f: Value.FunV, interp: scalascript.interpreter.Interpreter): JitResult | Null =
     if !enabled || f.name.isEmpty then return null
-    if f.params.length != 1 && f.params.length != 2 then return null
+    if f.params.length > 2 then return null
     val body = f.body
     cache.synchronized {
       val cached = cache.get(body)
@@ -96,7 +96,9 @@ object JavacJitBackend extends JitBackend:
    *  boxing. */
   private def determineInterface(n: Int, paramIsRef: Array[Boolean], isDouble: Boolean, resultIsRef: Boolean = false): String | Null =
     val pkg = "scalascript.interpreter.vm.jit"
-    if n == 1 then
+    if n == 0 then
+      if isDouble then s"$pkg.DoubleFn0" else s"$pkg.LongFn0"
+    else if n == 1 then
       if resultIsRef then
         if paramIsRef(0) then s"$pkg.ObjToObject" else s"$pkg.LongToObject"
       else if paramIsRef(0) then if isDouble then s"$pkg.ObjToDouble" else s"$pkg.ObjToLong"
@@ -1400,21 +1402,42 @@ object JavacJitBackend extends JitBackend:
    *  Returns null if any stat is not a simple `val n = <long-or-double-expr>`
    *  or the final term can't compile via walkLong/walkDouble.
    *  Only non-ref (Long/Double) val bindings supported in the initial slice. */
-  /** Compile one void statement inside a while body: assignment or discarded expr. */
-  private def walkStatAsVoid(stat: Stat, ctx: GenCtx): String | Null = stat match
+  /** Compile one void statement inside a while body: assignment, local `var`/`val`
+   *  declaration, nested `while`, or discarded expr. Returns the emitted Java plus
+   *  the (possibly extended) context to thread into subsequent body statements — a
+   *  `var`/`val` decl introduces a binding the following statements can reference. */
+  private def walkStatAsVoid(stat: Stat, ctx: GenCtx): (String, GenCtx) | Null = stat match
     case Term.Assign(nm: Term.Name, rhs: Term) =>
       val jn = ctx.resolveLocal(nm.value)
       if jn == null then return null
       val e = if ctx.isDouble then walkDouble(rhs, ctx) else walkLong(rhs, ctx)
       if e == null then return null
-      s"$jn = $e;\n        "
+      (s"$jn = $e;\n        ", ctx)
+    case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs: Term) =>
+      val jn = sanitize(n.value)
+      val e = if ctx.isDouble then walkDouble(rhs, ctx) else walkLong(rhs, ctx)
+      if e == null then return null
+      val jType = if ctx.isDouble then "double" else "long"
+      (s"$jType $jn = $e;\n        ", ctx.withBindings(Seq(n.value -> (jn, false))))
+    case Defn.Val(_, List(Pat.Var(n)), _, rhs: Term) =>
+      val jn = sanitize(n.value)
+      val e = if ctx.isDouble then walkDouble(rhs, ctx) else walkLong(rhs, ctx)
+      if e == null then return null
+      val jType = if ctx.isDouble then "double" else "long"
+      (s"$jType $jn = $e;\n        ", ctx.withBindings(Seq(n.value -> (jn, false))))
+    case w: Term.While =>
+      val ws = walkWhileAsStmt(w, ctx)
+      if ws == null then return null
+      (s"$ws\n        ", ctx)
     case e: Term =>
       val str = if ctx.isDouble then walkDouble(e, ctx) else walkLong(e, ctx)
-      if str == null then null else s"$str;\n        "
+      if str == null then null else (s"$str;\n        ", ctx)
     case _ => null
 
   /** Emit a Java while-statement for a `Term.While` appearing as a non-final
-   *  statement in a function body. Body stats are compiled as void (no return). */
+   *  statement in a function body. Body stats are compiled as void (no return),
+   *  threading bindings so an inner `var` is visible to later stats and to a
+   *  nested `while`. Inner decls stay Java-block-scoped to the emitted `{ }`. */
   private def walkWhileAsStmt(w: Term.While, ctx: GenCtx): String | Null =
     val condStr = walkBool(w.expr, ctx)
     if condStr == null then return null
@@ -1423,11 +1446,13 @@ object JavacJitBackend extends JitBackend:
       case s: Stat        => List(s)
     val sb = new StringBuilder
     sb.append(s"while ($condStr) {\n        ")
+    var curCtx = ctx
     val iter = bodyStats.iterator
     while iter.hasNext do
-      val line = walkStatAsVoid(iter.next(), ctx)
-      if line == null then return null
-      sb.append(line)
+      val res = walkStatAsVoid(iter.next(), curCtx)
+      if res == null then return null
+      sb.append(res._1)
+      curCtx = res._2
     sb.append("}")
     sb.toString
 

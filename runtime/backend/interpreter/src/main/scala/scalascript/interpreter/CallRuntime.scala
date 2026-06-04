@@ -42,7 +42,10 @@ private[interpreter] object CallRuntime:
    *  Handles the common `workload()` / `thunk()` pattern without going through
    *  the full callFun → tcoInfoFor → closureWithSelfFor machinery on every call. */
   def callValue0(fn: Value, env: Env, interp: Interpreter): Computation =
-    callValue0Slow(fn, env, interp)
+    val jit = fn match
+      case f: Value.FunV => scalascript.interpreter.vm.JitRuntime.tryRun0(f, interp)
+      case _             => null
+    if jit != null then jit else callValue0Slow(fn, env, interp)
 
   private def callValue0Slow(fn: Value, env: Env, interp: Interpreter): Computation = fn match
     case f: Value.FunV if
