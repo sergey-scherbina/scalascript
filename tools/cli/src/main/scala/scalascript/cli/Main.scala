@@ -6945,16 +6945,36 @@ final class BenchCmd extends CliCommand:
       // deadline rather than a fixed iteration count; the pre-warm block above still
       // runs first so the JVM's own C2 is in play before the timed phase starts.
       //
-      // Note: for very cheap workloads (< ~5 µs/iter, e.g. hello-world), the timed
-      // loop at 20 reps may still show 3-4× the true floor.  Root cause: HotSpot
-      // C2 OSR for evalTerm's inner pure-fast-path while is per-loop-invocation and
-      // kicks in only after ~500+ iterations within the same loop run.  The time-based
-      // warmup runs the timed loop's sibling code but in a different loop invocation,
-      // so OSR state does not carry over.  Use --reps 500 for accurate floor values.
+      // Two-phase warmup for the time-based path:
+      //
+      // Phase 1 (time-based, monadic loop): `while nanoTime() < end do workload()`
+      //   — warms workload itself, BytecodeJIT, callValue0Slow, and C2 via the
+      //   monadic Term.While pure-fast-path (EvalRuntime line ~3307).
+      //
+      // Phase 2 (shape-correct, ~1/6 of total budget):
+      //   outer = time-bounded (prevents expensive workloads from blowing the budget)
+      //   inner = `while _ssc_iw < 50 do { workload(); _ssc_iw += 1 }`
+      //   — the inner loop has EXACTLY the same shape as the timed loop, so it
+      //   exercises the same `tryMixedLongWhile` code path and accumulates back-edges
+      //   for JVM C2 method-level compilation of `tryMixedLongWhile` itself.  For
+      //   cheap workloads (~3 µs) the 500 ms phase-2 budget yields ~3300 invocations
+      //   × 50 back-edges = 165K total — enough for C2 method compilation.  For
+      //   expensive workloads (~1 ms), phase 2 runs only ~8 invocations (irrelevant;
+      //   workload cost dwarfs any JIT overhead).  Use --reps 500 for accurate floor
+      //   values on any workload.
       val warmupBlock = warmupTimeMs match
         case Some(ms) =>
-          val ns = ms * 1000000L
-          s"val _ssc_wt_end = System.nanoTime() + ${ns}L\nwhile System.nanoTime() < _ssc_wt_end do\n  workload()"
+          val ns       = ms * 1000000L
+          val phase2Ns = (ms / 6) * 1000000L
+          s"""val _ssc_wt_end = System.nanoTime() + ${ns}L
+             |while System.nanoTime() < _ssc_wt_end do
+             |  workload()
+             |val _ssc_sw_end = System.nanoTime() + ${phase2Ns}L
+             |while System.nanoTime() < _ssc_sw_end do
+             |  var _ssc_iw = 0
+             |  while _ssc_iw < 50 do
+             |    workload()
+             |    _ssc_iw += 1""".stripMargin
         case None =>
           s"var _ssc_w = 0\nwhile _ssc_w < $warmupN do\n  workload()\n  _ssc_w += 1"
       s"""# bench-wrapper
