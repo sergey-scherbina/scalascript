@@ -260,71 +260,26 @@ Bridge hooks that the interpreter exposes *to* plugins (e.g. `NativeContext.dbCo
 
 specs: docs/specs
 
-All non-trivial new features start with a **spec document** in
-`docs/specs/<feature>.md` **before** any implementation work begins. The
-spec PR lands on its own; implementation PRs reference the spec by
-path and may amend it as reality diverges — but the spec remains the
-source of truth.
+See the `/spec-dev` skill for the full workflow (write → implement → verify).
 
-What counts as non-trivial (spec required):
-
+Non-trivial in this project (spec required):
 - A new module / package in `build.sbt`
 - A new SPI trait or contract other code will depend on
 - A cross-cutting refactor that touches more than one backend
 - Any new top-level milestone added to `BACKLOG.md`
 
-A spec covers, at minimum:
+Trivial changes (bug fixes, single-file refactors, dep bumps, doc edits) do **not** need a spec.
 
-1. **Goals** — what the feature is for; what problem it solves.
-2. **Non-goals** — what is explicitly out of scope (prunes review
-   feedback, protects the spec from scope creep).
-3. **Architecture** — module layout, contract surface (trait
-   signatures, key types), composition with existing code.
-4. **Migration** — what changes for callers of related existing
-   code; how the transition happens (one-shot replace / adapter
-   shim / parallel module).
-5. **Phases** — concrete iterations, each independently shippable
-   per Rule 3 below.
-6. **Testing strategy** — what level of testing each phase needs.
-7. **Open questions** — decisions required before Phase 1 starts.
-
-Trivial changes (bug fixes, single-file refactors, dependency bumps,
-doc edits, hardcoded-value tweaks) do **not** need a spec.
-
-### Keep the spec in sync with the implementation
-
-If reality diverges from the spec during implementation (an API turns
-out differently, a design choice changes, a phase gets split or
-merged), **update the spec in the same commit** — not in a follow-up.
-A spec that describes what was originally planned rather than what was
-actually built is worse than no spec: it misleads future agents.
-
-What "spec drift" looks like and what to do:
-
-- API signature changed → update `docs/<feature>.md` architecture section
-- Phase split into two → update phases list + `BACKLOG.md` / `ACTIVE.md` phases
-- A non-goal turned out to be necessary → move it to Goals, note why
-- An approach was abandoned → add a "Design notes" section explaining
-  what was tried and why it was replaced
-
-Never leave a "TODO: update spec" comment — do it now.
+Update the spec in the same commit if reality diverges — never leave "TODO: update spec".
 
 ### Every user-facing feature needs an example
 
-Any feature that a `.ssc` user would call directly gets a working
-example in `examples/`. The example must:
+Any feature that a `.ssc` user would call directly gets a working example in
+`examples/` — self-contained, runnable with `ssc run examples/<name>.ssc`,
+referenced from the spec and `README.md`. A feature with no example is
+incomplete for milestone-closure purposes.
 
-- Be self-contained (runnable with `ssc run examples/<name>.ssc`)
-- Demonstrate the golden path, not edge cases
-- Be referenced from the feature's spec and from `README.md` examples table
-
-Minimum: one `.ssc` file. For multi-file features (plugin + consumer,
-REST API + client): a subdirectory `examples/<feature>/`.
-
-This is not optional for features shipped in a milestone. A feature
-with no example is considered incomplete for milestone-closure purposes.
-
-Existing specs to mirror in style and depth:
+Existing specs to mirror in style:
 [`docs/backend-spi.md`](docs/backend-spi.md),
 [`docs/x402.md`](docs/x402.md),
 [`docs/runtime-server-strategic-plan.md`](docs/runtime-server-strategic-plan.md).
@@ -786,264 +741,36 @@ after yourself.**
 
 ## Task claiming protocol (multi-agent coordination)
 
-`WORK_QUEUE.md` lists tasks in priority order. Multiple agents can run
-simultaneously without stepping on each other by using this protocol.
+See the `/multi-agent` skill for the full protocol (claim, heartbeat, triage, release).
 
-### How it works
-
-The coordination primitive is **`git push origin main`**: only one agent
-can land a fast-forward push at a time. A claim is a tiny push that adds
-one file; the loser's push gets rejected and they retry with a fresh view.
-
-Active claims live in `.work/active/`. Each file is named `<task-slug>.claim`
-and contains the worktree name of the agent working on it. File names are
-unique by task slug, so two agents can never produce a git conflict when
-adding different tasks' claim files. Conflicts arise only if two agents
-claim the *same* task simultaneously — but the rejected push prevents that.
-
-Files in `.work/active/` without the `.claim` suffix are **invalid
-coordination markers**. They do not satisfy the claim protocol, and tooling
-must flag them instead of silently treating the task as free. If you see one,
-report or repair it before starting overlapping work.
-
-A claim is valid only if `.work/active/<task-slug>.claim` is visible on
-`origin/main`. Local branches, local worktrees, unpushed commits, and local
-files do **not** count as claims. `git worktree list` is a collision hint, not
-the mutex: if it shows a worktree for an unclaimed pending task, inspect/report
-before starting, but the remote claim list remains authoritative.
-
-### Claiming a task (step by step)
-
-Run these commands from the **main checkout** (not inside a worktree):
-
-```bash
-# ══ MUST run from the MAIN CHECKOUT (/Users/sergiy/work/my/scalascript) ══
-# ══ NEVER run from a worktree — commits there go on the feature branch,  ══
-# ══ not on main, so the claim file never reaches origin/main.            ══
-test "$(pwd)" = "/Users/sergiy/work/my/scalascript"
-test "$(git symbolic-ref --short HEAD)" = "main"
-test -d .git                                    # .git must be a directory, not a worktree file
-
-# 1. Fetch fresh remote state
-git fetch origin
-if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
-  git merge --ff-only origin/main               # if this fails, stop and inspect
-fi
-git diff --cached --quiet                       # index must be clean before claiming
-# `git status -s` may show sibling working-tree changes in shared main.
-# Do not reset, stash, restore, or stage them; stage only the claim file below.
-
-# 2. Read what's available — use git show/ls-tree (safe from any context)
-git show origin/main:WORK_QUEUE.md              # ordered pending list
-git ls-tree origin/main .work/active/           # currently claimed slugs
-# ⚠ Do NOT use `cat WORK_QUEUE.md` or `ls .work/active/` — those read from
-#   the local branch, which may be stale or a worktree's feature branch.
-# ⚠ Any `.work/active/<slug>` file without `.claim` is an invalid marker. Do
-#   not treat the task as safely free; repair or report it first.
-
-# 3. Pick the highest-priority Pending task whose slug has no .claim file
-#    and no invalid suffix-less marker in .work/active/
-#    (if every Pending task is claimed, wait or read BACKLOG.md for unlisted work)
-TASK_SLUG="v1.46-phase5-derivation"   # example
-WORKTREE_NAME="feature+phase5-derivation"
-
-# 4. Write only the claim file (extended format; line 1 is backward-compatible)
-printf '%s\nagent: %s\nheartbeat: %s\nstatus: not-started\ndone-so-far:\nnext: %s\n' \
-  "$WORKTREE_NAME $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  "<agent-id>" \
-  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  "<first planned step>" \
-  > ".work/active/${TASK_SLUG}.claim"
-git add ".work/active/${TASK_SLUG}.claim"
-test "$(git diff --cached --name-only)" = ".work/active/${TASK_SLUG}.claim"
-git commit -m "claim: ${TASK_SLUG}"
-
-# 5. Atomic push — this is the mutex
-git push origin main
-# SUCCESS → you own the task, proceed to step 6
-# REJECTED (non-fast-forward) → another agent moved main first; go back to step 1
-git fetch origin
-git show "origin/main:.work/active/${TASK_SLUG}.claim"   # must succeed
-```
-
-**Why this works:** If agents A and B both try to claim the same task at the same
-instant, both push. Git allows only one to fast-forward; the other is rejected
-with "Updates were rejected because the tip of your current branch is behind".
-The loser refetches, sees the winner's claim file, and picks a different task.
-
-**Why worktrees break claiming:** Inside a worktree, `git commit` writes to the
-worktree's feature branch (e.g. `feature/v153`). Then `git push origin main`
-pushes the LOCAL `main` ref — which has no new commit. The push succeeds silently,
-the claim file is invisible on `origin/main`, and another agent picks the same task.
-
-If you accidentally made `claim: <slug>` in a worktree or feature branch:
-**stop immediately**. Do not implement the task. Return to the main checkout,
-claim correctly against `origin/main`, then either delete the bad local
-claim-only branch/worktree or rebase useful implementation work onto the
-properly claimed branch.
-
-If a claim reached `origin/main` but the file was named without `.claim`
-(for example `.work/active/<slug>`), fix only the marker from the main
-checkout:
-
-```bash
-test "$(pwd)" = "/Users/sergiy/work/my/scalascript"
-test "$(git symbolic-ref --short HEAD)" = "main"
-test -d .git
-TASK_SLUG="<slug>"
-git fetch origin
-git merge --ff-only origin/main
-git mv ".work/active/${TASK_SLUG}" ".work/active/${TASK_SLUG}.claim"
-git diff --cached --name-status
-git commit -m "fix-claim: ${TASK_SLUG}"
-git push origin main
-```
-
-If the invalid marker belongs to a live parallel agent, do not repair it
-silently unless the user asked you to. Report the owner/worktree first; the
-owner can rebase or remove the corrected `.claim` file at completion.
-
-### Starting work after a successful claim
-
-```bash
-# Claim succeeded — now enter a worktree off the fresh origin/main
-# (which already includes your claim commit)
-EnterWorktree("${WORKTREE_NAME}")
-# ... do the work normally per Rules 1–5 ...
-```
-
-### Completing a task
-
-In your worktree, before the final push:
-
-```bash
-# Remove your claim file
-git rm ".work/active/${TASK_SLUG}.claim"
-
-# Mark the task done in WORK_QUEUE.md (change [ ] → [x])
-# ... edit WORK_QUEUE.md ...
-git add WORK_QUEUE.md
-
-# Commit 1 (if docs changed): documentation updates
-# git add docs/ README.md && git commit -m "docs(${TASK_SLUG}): ..."
-# git push origin "${WORKTREE_NAME}:main"
-
-# Commit 2 (always): queue / milestone bookkeeping
-git add WORK_QUEUE.md CHANGELOG.md   # + BACKLOG.md / ACTIVE.md if relevant
-git commit -m "docs: mark ${TASK_SLUG} done in WORK_QUEUE + CHANGELOG entry"
-git push origin "${WORKTREE_NAME}:main"
-```
-
-Removing the claim and marking done **must be pushed before the task is
-considered finished** — always as a dedicated commit, never bundled into
-the feature commit.  The two-step pattern (docs commit → queue commit) is
-**mandatory**, not optional.
-
-**After the final push, verify the claim is gone from origin/main:**
-
-```bash
-git fetch origin
-git ls-tree origin/main .work/active/ | grep "${TASK_SLUG}.claim" \
-  && echo "ERROR: claim still on origin/main — release commit did not land" \
-  || echo "OK: claim released"
-```
-
-Do not consider the task finished until this check prints `OK`.
-
-### Checking who's doing what
-
-Preferred quick check:
-
-```bash
-scripts/coord-status
-```
-
-This is a read-only coordination/status operation; run it from the main checkout
-when possible and do not create a review worktree just to inspect state. It
-reads `origin/main` for the queue and claims, shows local worktrees,
-flags stale-looking claims, marks pending items that already look occupied by
-live worktrees/branches, flags invalid suffix-less active markers, and avoids
-shell-specific pitfalls in the manual commands below.
-
-It also reports `clean landed worktrees`: linked worktrees that are clean, not
-locked, not ahead of `origin/main`, and whose `HEAD` is already contained in
-`origin/main`. These are cleanup candidates, not automatic deletions. Use the
-printed `git worktree remove --force ... && git branch -D ...` command only
-after verifying the branch is not a deliberately parked long-lived worktree.
-
-**Always `git fetch origin` before reading claim state.** Other agents push
-continuously; without a fetch your view of `.work/active/` is stale and you
-will misread who owns what.
-
-**How to read another agent's task status:**
-
-| Signal | Meaning |
-|--------|---------|
-| `<slug>.claim` present in `git ls-tree origin/main .work/active/` | Task **in progress** by another agent |
-| `release-claim: <slug>` commit in `git log --oneline origin/main` | Task **done** — agent finished and released |
-| Worktree exists but no claim on origin/main | **Cleanup artifact** — task is done, worktree was not removed yet |
-| `[ ]` in `WORK_QUEUE.md` despite release-claim commit | Minor bookkeeping gap — task is still done; WORK_QUEUE is not authoritative |
-
-`git ls-tree origin/main .work/active/` is the **only authoritative source**.
-`ls .work/active/`, `git worktree list`, and `WORK_QUEUE.md` are hints only —
-do not trust them without confirming against origin/main.
-
-```bash
-git fetch origin
-git ls-tree origin/main .work/active/   # all active claims on remote (authoritative)
-# or parse the content of each claim:
-git ls-tree origin/main .work/active/ | awk '{print $4}' | grep '\.claim$' | while read claim_file; do
-  printf "%-40s %s\n" "$(basename "$claim_file" .claim)" "$(git show "origin/main:$claim_file")"
-done
-# Also check for invalid suffix-less markers; these need repair/report:
-git ls-tree origin/main .work/active/ | awk '{print $4}' | grep -Ev '(^.work/active/_placeholder$|\.claim$)' || true
-# ⚠ Do NOT use `ls .work/active/` or `cat .work/active/*.claim` from a worktree —
-#   those read from the local branch which may predate recent claim commits.
-# ⚠ In zsh, do not name the loop variable `path`: it is tied to `PATH` and can
-#   make commands like `git` and `basename` disappear inside the loop.
-```
-
-### Stale claims (agent died, timed out, or was interrupted)
-
-A claim file with no corresponding live worktree is stale. To release it:
-
-```bash
-test "$(pwd)" = "/Users/sergiy/work/my/scalascript"
-test "$(git symbolic-ref --short HEAD)" = "main"
-test -d .git
-git fetch origin
-if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
-  git merge --ff-only origin/main
-fi
-git diff --cached --quiet
-git rm ".work/active/${TASK_SLUG}.claim"
-test "$(git diff --cached --name-only)" = ".work/active/${TASK_SLUG}.claim"
-git commit -m "release-claim: ${TASK_SLUG} (agent gone)"
-git push origin main
-```
-
-Only do this if you are certain the agent that wrote the claim is no longer
-running (check `git worktree list` and the timestamp inside the file).
-
-### Claim format, heartbeat, and triage
-
-The claim file format (`agent:`, `heartbeat:` fields), freshness rules,
-heartbeat cadence (~10 min while dirty), and the full triage procedure for
-foreign claims are defined in the **`/multi-agent` skill**.
-
-Skill location (read in this order, use the first that exists):
+Skill location (read in this order):
 1. `.agents/plugins/multi-agent/commands/multi-agent.md` — submodule, always in sync
 2. `~/.claude/commands/multi-agent.md` — globally installed fallback
 
-Quick reference:
-- `/multi-agent status` — show active claims, heartbeat ages, pending tasks
-- `/multi-agent triage <slug>` — assess a claim you did not make
-- `/multi-agent heartbeat` — refresh your active claim's heartbeat
-- `/multi-agent release <slug>` — release a stale/orphaned claim
+Key invariants:
+- Claim from the **main checkout** (`/Users/sergiy/work/my/scalascript`) only — never from a worktree
+- A claim is valid only when `.work/active/<slug>.claim` is visible on `origin/main`
+- Files in `.work/active/` without `.claim` suffix are invalid markers — report or repair before starting
+- Never assume a claim is yours; read the `agent:` field first
+- Heartbeat > 20 min = potentially orphaned; run `/multi-agent triage <slug>` before touching
 
-**Never assume a claim is yours just because it exists.** Always read the
-`agent:` field first; a heartbeat older than ~20 minutes means the agent is
-likely gone.
+Quick reference:
+- `/multi-agent status` — active claims, heartbeat ages, pending tasks
+- `/multi-agent claim <slug>` — claim a task
+- `/multi-agent triage <slug>` — assess a foreign claim
+- `/multi-agent heartbeat` — refresh your heartbeat
+- `/multi-agent release <slug>` — release a stale claim
+- `scripts/coord-status` — read-only status check (preferred)
+
+How to read agent status:
+
+| Signal | Meaning |
+|--------|---------|
+| `<slug>.claim` in `git ls-tree origin/main .work/active/` | In progress by another agent |
+| `release-claim: <slug>` in `git log origin/main` | Done — released |
+| Worktree exists but no claim on origin/main | Cleanup artifact |
+
+`git ls-tree origin/main .work/active/` is the only authoritative source — not `ls .work/active/`, `git worktree list`, or `WORK_QUEUE.md`.
 
 ---
 
