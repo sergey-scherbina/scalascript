@@ -6,7 +6,6 @@
 !.gitattributes
 !.work/
 !.agents/
-!.claude/
 
 .ssc-artifacts/
 # Allow .ssc-artifacts/ inside scripted test fixtures (they are checked-in test data)
@@ -29,10 +28,6 @@ build/
 
 # Scala CLI
 .scala-build/
-
-# Claude Code — only track .claude/commands/ (skill symlinks); ignore everything else
-.claude/*
-!.claude/commands
 
 # IDE
 .idea/

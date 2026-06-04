@@ -1,1 +1,0 @@
-../../.agents/plugins/spec-dev/commands/spec-dev.md

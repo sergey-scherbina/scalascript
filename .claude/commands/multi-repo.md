@@ -1,1 +1,0 @@
-../../.agents/plugins/multi-repo/commands/multi-repo.md

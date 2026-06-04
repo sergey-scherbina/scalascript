@@ -1,1 +1,0 @@
-../../.agents/plugins/multi-agent/commands/multi-agent.md
