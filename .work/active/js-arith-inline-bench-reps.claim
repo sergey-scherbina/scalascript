@@ -1,6 +1,0 @@
-feature/js-arith-inline-bench-reps 2026-06-04T11:47:59Z
-agent: claude-sonnet-4-6
-heartbeat: 2026-06-04T11:47:59Z
-status: not-started
-done-so-far:
-next: fix genStatInline intVars tracking + bench reps default
