@@ -1,6 +1,0 @@
-feature/bench-warmup-2s 2026-06-04T12:46:05Z
-agent: claude-sonnet-4-6
-heartbeat: 2026-06-04T12:46:05Z
-status: not-started
-done-so-far:
-next: reduce warmup 3000→2000ms in run.sc and Main.scala
