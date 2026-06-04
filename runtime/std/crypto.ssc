@@ -1,0 +1,30 @@
+---
+name: std-crypto
+version: 1.0.0
+description: Cryptographic hash and encoding primitives — sha256, hmacSha256, base64Encode, base64Decode.
+package: std.crypto
+exports:
+  - sha256
+  - hmacSha256
+  - base64Encode
+  - base64Decode
+---
+
+# crypto
+
+SHA-256 digest, HMAC-SHA-256, and standard Base64 encode/decode.
+Implementations are provided by the `crypto-plugin` intrinsic backend.
+
+```scalascript
+/** SHA-256 hex digest of the UTF-8 encoding of `input`. */
+extern def sha256(input: String): String
+
+/** HMAC-SHA-256 hex digest; `key` and `data` are UTF-8 strings. */
+extern def hmacSha256(key: String, data: String): String
+
+/** Standard Base64 (RFC 4648 §4) encode — UTF-8 → Base64 string with padding. */
+extern def base64Encode(s: String): String
+
+/** Standard Base64 decode — Base64 string → UTF-8 string. */
+extern def base64Decode(s: String): String
+```

@@ -2610,6 +2610,18 @@ lazy val deployPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.deploy"))
 
+// ── Crypto — sha256, hmacSha256, base64Encode, base64Decode ─────────────
+lazy val cryptoPlugin = project
+  .in(file("runtime/std/crypto-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-crypto-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.crypto"))
+
 // ── UUID — v4/v7 generation, parsing, validation ──────────────────────────
 lazy val uuidPlugin = project
   .in(file("runtime/std/uuid-plugin"))
@@ -2725,6 +2737,7 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("payment-request", paymentRequestPlugin,  "scalascript-payment-request-plugin"),
   PluginSpec("payments",        paymentsPlugin,        "scalascript-payments-plugin"),
   PluginSpec("uuid",            uuidPlugin,            "scalascript-uuid-plugin"),
+  PluginSpec("crypto",          cryptoPlugin,          "scalascript-crypto-plugin"),
 )
 
 // ── Frontend backend registry (arch-build-registry Phase 4) ─────────────
