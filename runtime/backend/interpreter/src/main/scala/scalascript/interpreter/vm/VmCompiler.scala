@@ -22,7 +22,8 @@ object VmCompiler:
    *  of a higher cap is slightly larger frames. */
   final val MaxArity = 8
 
-  private final class Bail extends RuntimeException
+  private final class Bail(val reason: String)
+    extends RuntimeException(null, null, true, false) // no stack trace — control flow only
 
   /** Static type of a register's contents. The VM stack is `Long`-typed; for a
    *  `TDouble` register the bits are an IEEE-754 double (see SscVm F* opcodes).
@@ -60,9 +61,17 @@ object VmCompiler:
    *  (for `match` field extraction) via `meta`. */
   def compile(fn: Value.FunV, resolve: Resolve, meta: Meta): Option[CompiledFn] =
     try Some(new Ctx(resolve, meta).compileFn(fn))
-    catch case _: Bail => None
+    catch case b: Bail => JitMissStats.record(b.reason); None
 
-  private def bail(): Nothing = throw new Bail
+  private def bail(reason: String): Nothing = throw new Bail(reason)
+
+  /** Pretty class name for scala.meta AST nodes: strips `_After_*` version
+   *  suffixes and `Impl` endings, inserts a dot after the first capitalised
+   *  component (`TermSelect` → `Term.Select`, `LitString` → `Lit.String`). */
+  private def termName(t: AnyRef): String =
+    t.getClass.getSimpleName
+      .replaceAll("_After.*|Impl$", "")
+      .replaceFirst("^(Lit|Term|Pat|Defn|Decl|Type|Stat|Import|Mod|Name|Pkg)([A-Z])", "$1.$2")
 
   // A param whose declared type is neither numeric nor a known ADT-bearing ref
   // is still allowed through the gate: it becomes a TRef register usable only by
@@ -81,7 +90,7 @@ object VmCompiler:
       val existing = building.get(fn)
       if existing != null then existing
       else
-        if !typeGateOk(fn) then bail()
+        if !typeGateOk(fn) then bail("typeGate: using or default params")
         val b = new Builder(fn, this)
         b.buildInstructions()
         val shell = new CompiledFn(
@@ -146,11 +155,11 @@ object VmCompiler:
     // Unified type of every value reaching a RET. None until the first leaf.
     private var retType: Option[VmType] = None
     private def unifyRet(t: VmType): Unit =
-      if t == TRef then bail()          // ref returns unsupported (RET is Long-typed)
+      if t == TRef then bail("ret: ref-typed return (RET is Long-typed)")
       retType match
         case None             => retType = Some(t)
         case Some(prev) if prev == t => ()
-        case _                => bail() // mixed Int/Double returns — fall back
+        case _                => bail("ret: mixed Int/Double returns")
     def retIsDoubleOf: Boolean = retType.contains(TDouble)
 
     // Callees referenced by CALL, in slot order; deduped by identity.
@@ -205,7 +214,7 @@ object VmCompiler:
       case "/"  => DIV; case "%"  => MOD
       case "<"  => LT;  case "<=" => LE; case ">" => GT; case ">=" => GE
       case "==" => EQ;  case "!=" => NE
-      case _    => bail()
+      case op   => bail(s"unsupported: infix operator '$op'")
 
     /** Double-domain opcode for `op`. Comparisons reuse the F* compare ops, which
      *  still write a 0/1 boolean into an (int-typed) register. */
@@ -214,7 +223,7 @@ object VmCompiler:
       case "/"  => FDIV; case "%"  => FMOD
       case "<"  => FLT;  case "<=" => FLE; case ">" => FGT; case ">=" => FGE
       case "==" => FEQ;  case "!=" => FNE
-      case _    => bail()
+      case op   => bail(s"unsupported: float infix operator '$op'")
 
     private def isCmp(op: String): Boolean = op match
       case "<" | "<=" | ">" | ">=" | "==" | "!=" => true
@@ -231,7 +240,7 @@ object VmCompiler:
      *  type and promoting the int side on a mixed pair. Returns the result type
      *  (TInt for any comparison or all-int arithmetic; TDouble otherwise). */
     private def emitArith(op: String, dst: Int, lr: Int, rr: Int): VmType =
-      if typeOf(lr) == TRef || typeOf(rr) == TRef then bail()  // no ref arithmetic/compare
+      if typeOf(lr) == TRef || typeOf(rr) == TRef then bail("ref: arithmetic/compare on TRef")
       if typeOf(lr) == TDouble || typeOf(rr) == TDouble then
         emit(fopcodeFor(op), dst, asDouble(lr), asDouble(rr))
         val rt = if isCmp(op) then TInt else TDouble
@@ -246,7 +255,7 @@ object VmCompiler:
       case "/"  => DIVI; case "%"  => MODI
       case "<"  => LTI;  case "<=" => LEI; case ">" => GTI; case ">=" => GEI
       case "==" => EQI;  case "!=" => NEI
-      case _    => bail()
+      case op   => bail(s"unsupported: immediate infix operator '$op'")
 
     /** The literal `Long` value of `t` if it is an integer literal, else None. */
     private def intLiteral(t: Term): Option[Long] = t match
@@ -273,7 +282,7 @@ object VmCompiler:
     // A bare name reuses its existing register (no copy); everything else is
     // emitted straight into a fresh register via destination-passing.
     private def compileExpr(t: Term): Int = t match
-      case n: Term.Name => locals.getOrElse(n.value, bail())
+      case n: Term.Name => locals.getOrElse(n.value, bail(s"undefined: name '${n.value}'"))
       case _            => val r = freshReg(); compileInto(t, r); r
 
     /** Whether `callee` operates in the double domain — same syntactic scan as
@@ -298,7 +307,7 @@ object VmCompiler:
         setType(dst, TDouble); TDouble
 
       case n: Term.Name =>
-        val r = locals.getOrElse(n.value, bail())
+        val r = locals.getOrElse(n.value, bail(s"undefined: name '${n.value}'"))
         if r != dst then emit(MOVE, dst, r, 0)
         val ty = typeOf(r); setType(dst, ty); ty
 
@@ -323,14 +332,14 @@ object VmCompiler:
 
       case t: Term.If =>
         val cr  = compileExpr(t.cond)
-        if typeOf(cr) != TInt then bail()        // condition must be a 0/1 boolean
+        if typeOf(cr) != TInt then bail("cond: non-boolean if-condition")
         val jf  = emit(JF, cr, -1, 0)            // patch to else-start
         val tT  = compileInto(t.thenp, dst)
         val jmp = emit(JMP, -1, 0, 0)            // patch to end
         bs(jf) = ops.length                      // JF else-target: else-branch starts here
         val eT  = compileInto(t.elsep, dst)
         as(jmp) = ops.length                     // end
-        if tT != eT then bail()                  // mixed-type branches → tree-walk
+        if tT != eT then bail("types: mismatched if-branches")
         setType(dst, tT); tT
 
       // call to self or another compilable function (int or double domain)
@@ -338,7 +347,7 @@ object VmCompiler:
         callTarget(app) match
           case Some(callee) =>
             val args = app.argClause.values
-            if args.lengthCompare(callee.params.length) != 0 then bail()
+            if args.lengthCompare(callee.params.length) != 0 then bail("call: arg count mismatch")
             val slot    = slotFor(callee)
             val argBase = freshRegs(args.length)
             var i = 0
@@ -349,12 +358,12 @@ object VmCompiler:
                 case (TDouble, TInt) =>
                   emit(I2D, argBase + i, argBase + i, 0); setType(argBase + i, TDouble)
                 case (TDouble, TDouble) | (TInt, TInt) | (TRef, TRef) => ()
-                case _ => bail()                              // ref/numeric mismatch
+                case _ => bail("call: ref/numeric arg type mismatch")
               i += 1
             emit(CALL, dst, argBase, slot)
             val rt = if calleeIsDouble(callee) then TDouble else TInt
             setType(dst, rt); rt
-          case None => bail()
+          case None => bail("call: no compilable target (free name, closure, or non-function)")
 
       case Term.Block(stats) =>
         compileStatsInto(stats, dst)
@@ -362,7 +371,7 @@ object VmCompiler:
       case Term.While(cond, body) =>
         val start = ops.length
         val cr    = compileExpr(cond)
-        if typeOf(cr) != TInt then bail()        // condition must be a 0/1 boolean
+        if typeOf(cr) != TInt then bail("cond: non-boolean while-condition")
         val jf    = emit(JF, cr, -1, 0)
         // Compile body as void — all stats are statements, no return value needed.
         // Avoids compileStats→compileExpr(last) which bails on Term.Assign.
@@ -377,7 +386,8 @@ object VmCompiler:
       case tm: Term.Match =>
         compileMatchInto(tm.expr, tm.casesBlock.cases, dst)
 
-      case _ => bail()
+      case other =>
+        bail(s"unsupported: ${termName(other)}")
 
     // Compile `t` in TAIL position: every path ends in either a RET or a
     // jump back to instruction 0 (a self-tail-call turned into a loop). This
@@ -389,7 +399,7 @@ object VmCompiler:
     private def compileTail(t: Term): Unit = t match
       case ti: Term.If =>
         val cr = compileExpr(ti.cond)
-        if typeOf(cr) != TInt then bail()        // condition must be a 0/1 boolean
+        if typeOf(cr) != TInt then bail("cond: non-boolean if-condition (tail)")
         val jf = emit(JF, cr, -1, 0)
         compileTail(ti.thenp)        // then-branch self-terminates
         bs(jf) = ops.length
@@ -400,7 +410,7 @@ object VmCompiler:
 
       case app: Term.Apply if isSelfTailCall(app) =>
         val args = app.argClause.values
-        if args.lengthCompare(fn.params.length) != 0 then bail()
+        if args.lengthCompare(fn.params.length) != 0 then bail("call: self-tail arg count mismatch")
         // Evaluate every arg into a temp BEFORE overwriting the param regs,
         // since args (e.g. `acc + n`) read the current params. Promote an int
         // arg to double when the param register is double-typed (and bail on the
@@ -413,14 +423,14 @@ object VmCompiler:
           (want, typeOf(r)) match
             case (TDouble, TInt)    => r = asDouble(r)
             case (a, b) if a == b   => ()
-            case _                  => bail()         // incompatible (incl. ref/numeric)
+            case _                  => bail("call: self-tail arg type mismatch (ref/numeric)")
           tmp(i) = r; i += 1
         i = 0
         while i < args.length do { emit(MOVE, i, tmp(i), 0); i += 1 } // params = r0..r(n-1)
         emit(JMP, 0, 0, 0)           // loop to start
 
       case Term.Block(stats) =>
-        if stats.isEmpty then bail()
+        if stats.isEmpty then bail("block: empty block in tail position")
         var rest = stats
         while rest.tail.nonEmpty do { compileStmt(rest.head); rest = rest.tail }
         compileTail(rest.head.asInstanceOf[Term])
@@ -442,22 +452,22 @@ object VmCompiler:
       case Defn.Var.After_4_7_2(_, List(Pat.Var(nm)), _, rhs) =>
         val home = freshReg(); compileInto(rhs, home); locals(nm.value) = home
       case Term.Assign(nm: Term.Name, rhs) =>
-        val dst = locals.getOrElse(nm.value, bail())
+        val dst = locals.getOrElse(nm.value, bail(s"undefined: assign to unknown var '${nm.value}'"))
         val old = typeOf(dst)
         val nt  = compileInto(rhs, dst)
-        if nt != old then bail()            // a var must not change numeric domain
+        if nt != old then bail("types: var domain change (Int↔Double)")
       case Term.Block(stats) => compileStats(stats); ()
       case e: Term            => compileExpr(e); ()
-      case _                  => bail()
+      case other              => bail(s"unsupported: stmt ${termName(other)}")
 
     private def compileStats(stats: List[Stat]): Int =
-      if stats.isEmpty then bail()
+      if stats.isEmpty then bail("block: empty stat list")
       var rest = stats
       while rest.tail.nonEmpty do { compileStmt(rest.head); rest = rest.tail }
       compileExpr(rest.head.asInstanceOf[Term])
 
     private def compileStatsInto(stats: List[Stat], dst: Int): VmType =
-      if stats.isEmpty then bail()
+      if stats.isEmpty then bail("block: empty stat list")
       var rest = stats
       while rest.tail.nonEmpty do { compileStmt(rest.head); rest = rest.tail }
       compileInto(rest.head.asInstanceOf[Term], dst)
@@ -473,18 +483,18 @@ object VmCompiler:
     /** Emit ISTAG + JF + field bindings for one case. Returns the JF instruction
      *  index, to be patched to where the next case begins. */
     private def emitCaseHeader(scrutReg: Int, c: scala.meta.Case): Int =
-      if c.cond.isDefined then bail()                 // guards unsupported
+      if c.cond.isDefined then bail("match: guard present (guards unsupported)")
       c.pat match
         case Pat.Extract.After_4_6_0(fn0, argClause) =>
-          val ctor = fn0 match { case n: Term.Name => n.value; case _ => bail() }
+          val ctor = fn0 match { case n: Term.Name => n.value; case _ => bail("match: non-Name constructor") }
           val argPats = argClause.values
           val test = freshReg()
           emit(ISTAG, test, scrutReg, strSlot(ctor))
           val jf = emit(JF, test, -1, 0)
           val info = ctx.metaFor(ctor)
-          if info == null then bail()
+          if info == null then bail(s"match: unknown ADT constructor '$ctor'")
           val (names, types) = info
-          if argPats.lengthCompare(names.length) != 0 then bail()
+          if argPats.lengthCompare(names.length) != 0 then bail("match: binding count mismatch")
           var i  = 0
           var ps = argPats
           while ps.nonEmpty do
@@ -496,15 +506,15 @@ object VmCompiler:
                 else { emit(GETFI, home, scrutReg, strSlot(names(i))); setType(home, ft) }
                 locals(nm.value) = home
               case _: Pat.Wildcard => ()              // matched but unbound
-              case _               => bail()
+              case _               => bail("match: non-Var/wildcard binding")
             i += 1; ps = ps.tail
           jf
-        case _ => bail()
+        case _ => bail("match: unsupported pattern shape")
 
     /** Tail-position match: each arm self-terminates (RET or a self-tail loop). */
     private def compileMatchTail(scrut: Term, cases: List[scala.meta.Case]): Unit =
       val sr = compileExpr(scrut)
-      if typeOf(sr) != TRef then bail()
+      if typeOf(sr) != TRef then bail("match: non-ref scrutinee")
       var rest = cases
       while rest.nonEmpty do
         val jf = emitCaseHeader(sr, rest.head)
@@ -517,7 +527,7 @@ object VmCompiler:
      *  All arms must agree on result type. */
     private def compileMatchInto(scrut: Term, cases: List[scala.meta.Case], dst: Int): VmType =
       val sr = compileExpr(scrut)
-      if typeOf(sr) != TRef then bail()
+      if typeOf(sr) != TRef then bail("match: non-ref scrutinee")
       val endJumps = mutable.ArrayBuffer.empty[Int]
       var resultType: Option[VmType] = None
       var rest = cases
@@ -527,20 +537,20 @@ object VmCompiler:
         resultType match
           case None                    => resultType = Some(bt)
           case Some(prev) if prev == bt => ()
-          case _                       => bail()
+          case _                       => bail("match: mismatched arm types")
         endJumps += emit(JMP, -1, 0, 0)
         bs(jf) = ops.length
         rest = rest.tail
       emit(MFAIL, 0, 0, 0)
       val end = ops.length
       endJumps.foreach(j => as(j) = end)
-      val rt = resultType.getOrElse(bail())
+      val rt = resultType.getOrElse(bail("match: no result type (empty cases?)"))
       setType(dst, rt); rt
 
     /** Emit the instruction stream; callee shells are resolved later by [[Ctx]]. */
     def buildInstructions(): Unit =
       val arity = fn.params.length
-      if arity < 1 || arity > MaxArity then bail()
+      if arity < 1 || arity > MaxArity then bail(s"arity: $arity out of range [1..$MaxArity]")
       var i = 0
       while i < arity do
         locals(fn.params(i)) = i                         // params occupy r0..r(arity-1)
@@ -554,4 +564,4 @@ object VmCompiler:
       // The up-front double classification must agree with the actual return
       // type derived from the RET leaves; otherwise self-call results were typed
       // wrong. Bail (→ tree-walk) rather than risk a miswrapped value.
-      if fnIsDouble && !retIsDoubleOf then bail()
+      if fnIsDouble && !retIsDoubleOf then bail("types: double heuristic/return type mismatch")
