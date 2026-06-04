@@ -397,6 +397,9 @@ class JsGen(
   // Case class type name → (field name → declared type); populated per module by genModule.
   // Used in genPattern to add Double/Float-typed bound vars to numericVars.
   private var caseClassFieldTypeMap: Map[String, Map[String, String]] = Map.empty
+  // Case class / enum case type name → integer tag; populated per module by genModule.
+  // Enables O(1) switch dispatch instead of O(n) string comparison in pattern matches.
+  private var caseClassTagMap: Map[String, Int] = Map.empty
   // Variables statically known to hold Double/Float values — arithmetic on them uses direct JS operators.
   private val numericVars = scala.collection.mutable.Set[String]()
   // js-codegen-opt-p2: loop-invariant constant tuple hoisting.
@@ -588,6 +591,7 @@ class JsGen(
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     caseClassFieldsByType = caseClassFieldsInModule(module)
     caseClassFieldTypeMap = caseClassFieldTypesInModule(module)
+    caseClassTagMap       = caseClassTagsInModule(module)
     collectFuncParamOrders(module)
     analyzeMutualRecursion(module)
     analyzeEffects(module)
@@ -981,6 +985,34 @@ class JsGen(
     module.sections.foreach(scanSection)
     result.toMap
 
+  private def caseClassTagsInModule(module: Module): Map[String, Int] =
+    var tag = 0
+    val result = scala.collection.mutable.LinkedHashMap.empty[String, Int]
+    def assignTag(name: String): Unit = { result(name) = tag; tag += 1 }
+    def scanStats(stats: List[scala.meta.Stat]): Unit = stats.foreach {
+      case d: Defn.Class if d.mods.exists(_.isInstanceOf[Mod.Case]) => assignTag(d.name.value)
+      case d: Defn.Enum =>
+        d.templ.body.stats.foreach {
+          case ec: Defn.EnumCase              => assignTag(ec.name.value)
+          case rec: Defn.RepeatedEnumCase     => rec.cases.foreach(nm => assignTag(nm.value))
+          case _                              => ()
+        }
+      case _ => ()
+    }
+    def scanSection(s: Section): Unit =
+      s.content.foreach {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          cb.tree.foreach { node => ScalaNode.fold(node) {
+            case Source(stats)     => scanStats(stats); ()
+            case Term.Block(stats) => scanStats(stats); ()
+            case _                 => ()
+          }}
+        case _ => ()
+      }
+      s.subsections.foreach(scanSection)
+    module.sections.foreach(scanSection)
+    result.toMap
+
   private def endpointPathWarnings(
     clientName: String,
     ep: ApiEndpointDecl,
@@ -1220,6 +1252,7 @@ class JsGen(
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     caseClassFieldsByType = caseClassFieldsInModule(module)
     caseClassFieldTypeMap = caseClassFieldTypesInModule(module)
+    caseClassTagMap       = caseClassTagsInModule(module)
     collectFuncParamOrders(module)
     analyzeMutualRecursion(module)
     analyzeEffects(module)
@@ -1786,8 +1819,9 @@ class JsGen(
       val params = paramVals.map(_.name.value)
       val typeName = d.name.value
       val paramsStr = paramListWithDefaults(paramVals)
-      val fields = params.map(p => s"$p: $p").mkString(", ")
-      line(s"function $typeName($paramsStr) { return {_type: '$typeName', $fields}; }")
+      val fields   = params.map(p => s"$p: $p").mkString(", ")
+      val tagField = caseClassTagMap.get(typeName).map(t => s"_tag: $t, ").getOrElse("")
+      line(s"function $typeName($paramsStr) { return {_type: '$typeName', ${tagField}$fields}; }")
       line(jsTypedJsonRegisterProduct(typeName, params, typeName))
       // Compile zero-param body methods (e.g. override def toString) as typed extension registrations.
       val destructure = if params.isEmpty then "" else s"const {${params.mkString(", ")}} = _self; "
@@ -1815,7 +1849,8 @@ class JsGen(
       val allCases = scala.collection.mutable.ListBuffer.empty[String]
       val nullary  = scala.collection.mutable.ListBuffer.empty[String]
       def emitNullary(caseName: String): Unit =
-        line(s"const $caseName = {_type: '$caseName'};")
+        val tagField = caseClassTagMap.get(caseName).map(t => s", _tag: $t").getOrElse("")
+        line(s"const $caseName = {_type: '$caseName'${tagField}};")
         line(jsTypedJsonRegisterProduct(caseName, Nil, None))
         allCases += caseName; nullary += caseName
       d.templ.body.stats.foreach {
@@ -1826,8 +1861,9 @@ class JsGen(
           if params.isEmpty then emitNullary(caseName)
           else
             val paramsStr = paramListWithDefaults(paramVals)
-            val fields = params.map(p => s"$p: $p").mkString(", ")
-            line(s"function $caseName($paramsStr) { return {_type: '$caseName', $fields}; }")
+            val fields    = params.map(p => s"$p: $p").mkString(", ")
+            val tagField  = caseClassTagMap.get(caseName).map(t => s"_tag: $t, ").getOrElse("")
+            line(s"function $caseName($paramsStr) { return {_type: '$caseName', ${tagField}$fields}; }")
             line(jsTypedJsonRegisterProduct(caseName, params, caseName))
             allCases += caseName
         // `case A, B` (comma-separated parameterless cases) → RepeatedEnumCase.
@@ -2059,7 +2095,8 @@ class JsGen(
         val typeName  = d.name.value
         val paramsStr = paramListWithDefaults(paramVals)
         val fields    = params.map(p => s"$p: $p").mkString(", ")
-        decls += s"function $typeName($paramsStr) { return {_type: '$typeName', $fields}; }"
+        val tagField  = caseClassTagMap.get(typeName).map(t => s"_tag: $t, ").getOrElse("")
+        decls += s"function $typeName($paramsStr) { return {_type: '$typeName', ${tagField}$fields}; }"
         decls += jsTypedJsonRegisterProduct(typeName, params, typeName)
         names += typeName
       case d: Defn.Enum =>
@@ -2067,7 +2104,8 @@ class JsGen(
         val allCases = scala.collection.mutable.ListBuffer.empty[String]
         val nullary  = scala.collection.mutable.ListBuffer.empty[String]
         def emitNullary(caseName: String): Unit =
-          decls += s"const $caseName = {_type: '$caseName'};"
+          val tagField = caseClassTagMap.get(caseName).map(t => s", _tag: $t").getOrElse("")
+          decls += s"const $caseName = {_type: '$caseName'${tagField}};"
           decls += jsTypedJsonRegisterProduct(caseName, Nil, None)
           names += caseName; allCases += caseName; nullary += caseName
         d.templ.body.stats.foreach {
@@ -2079,7 +2117,8 @@ class JsGen(
             else
               val paramsStr = paramListWithDefaults(paramVals)
               val fields    = params.map(p => s"$p: $p").mkString(", ")
-              decls += s"function $caseName($paramsStr) { return {_type: '$caseName', $fields}; }"
+              val tagField  = caseClassTagMap.get(caseName).map(t => s"_tag: $t, ").getOrElse("")
+              decls += s"function $caseName($paramsStr) { return {_type: '$caseName', ${tagField}$fields}; }"
               decls += jsTypedJsonRegisterProduct(caseName, params, caseName)
               names += caseName; allCases += caseName
           case rec: Defn.RepeatedEnumCase =>
@@ -2407,25 +2446,60 @@ class JsGen(
   private def genMatchAsStmts(t: Term.Match, bodyEmit: Term => Unit): Unit =
     val scrutVar = freshTmp()
     line(s"const $scrutVar = ${genExpr(t.expr)};")
-    var lastWasWildcard = false
-    t.casesBlock.cases.zipWithIndex.foreach { (c, idx) =>
+    val arms = t.casesBlock.cases.map { c =>
       val (cond, bindings) = genPattern(scrutVar, c.pat)
-      if cond == "true" then
-        lastWasWildcard = true
-        if idx > 0 then { indent -= 1; line("} else {"); indent += 1 }
-        else { line("{"); indent += 1 }
-      else
-        lastWasWildcard = false
-        val kw = if idx == 0 then "if" else "} else if"
-        if idx > 0 then indent -= 1
-        line(s"$kw ($cond) {")
-        indent += 1
-      bindings.foreach { case (n, e) => line(s"const $n = $e;") }
-      bodyEmit(c.body.asInstanceOf[Term])
+      (cond, bindings, c.body.asInstanceOf[Term])
     }
-    indent -= 1
-    if lastWasWildcard then line("}")
-    else line(s"} else { throw new Error('Match failure: ' + _show($scrutVar)); }")
+    // If all non-wildcard arms are pure integer-tag checks, emit a switch for O(1) dispatch.
+    val pureTagRx = java.util.regex.Pattern.compile(
+      s"\\(${java.util.regex.Pattern.quote(scrutVar)} && ${java.util.regex.Pattern.quote(scrutVar)}\\._tag === (\\d+)\\)"
+    )
+    def tagOf(cond: String): Option[Int] =
+      val m = pureTagRx.matcher(cond)
+      if m.matches() then Some(m.group(1).toInt) else None
+    val switchable = arms.forall { (cond, _, _) => cond == "true" || tagOf(cond).isDefined }
+    if switchable && arms.nonEmpty then
+      line(s"switch($scrutVar && ${scrutVar}._tag) {")
+      indent += 1
+      var hasDefault = false
+      arms.foreach { (cond, bindings, body) =>
+        val label = if cond == "true" then { hasDefault = true; "default:" } else s"case ${tagOf(cond).get}:"
+        line(s"$label {")
+        indent += 1
+        bindings.foreach { case (n, e) => line(s"const $n = $e;") }
+        bodyEmit(body)
+        line("break;")
+        indent -= 1
+        line("}")
+      }
+      if !hasDefault then
+        line("default: {")
+        indent += 1
+        line(s"throw new Error('Match failure: ' + _show($scrutVar));")
+        line("break;")
+        indent -= 1
+        line("}")
+      indent -= 1
+      line("}")
+    else
+      var lastWasWildcard = false
+      arms.zipWithIndex.foreach { case ((cond, bindings, body), idx) =>
+        if cond == "true" then
+          lastWasWildcard = true
+          if idx > 0 then { indent -= 1; line("} else {"); indent += 1 }
+          else { line("{"); indent += 1 }
+        else
+          lastWasWildcard = false
+          val kw = if idx == 0 then "if" else "} else if"
+          if idx > 0 then indent -= 1
+          line(s"$kw ($cond) {")
+          indent += 1
+        bindings.foreach { case (n, e) => line(s"const $n = $e;") }
+        bodyEmit(body)
+      }
+      indent -= 1
+      if lastWasWildcard then line("}")
+      else line(s"} else { throw new Error('Match failure: ' + _show($scrutVar)); }")
 
   // Emits while-body stats as a flat semicolon-separated string — no IIFE wrapper.
   private def genWhileBodyInline(body: Term): String = body match
@@ -4414,7 +4488,10 @@ class JsGen(
         case "RuntimeException" | "Exception" | "Throwable" =>
           s"($scrutVar instanceof Error || ($scrutVar && $scrutVar._type === '$typeName'))"
         case ""        => "true"    // unknown type — fall through
-        case _         => s"($scrutVar && $scrutVar._type === '$typeName')"
+        case _ =>
+          caseClassTagMap.get(typeName) match
+            case Some(tag) => s"($scrutVar && $scrutVar._tag === $tag)"
+            case None      => s"($scrutVar && $scrutVar._type === '$typeName')"
       val (innerCond, bindings) = genPattern(scrutVar, inner)
       val cond =
         if typeCond == "true" then innerCond
@@ -4473,7 +4550,9 @@ class JsGen(
               case _ => ()
             genPattern(accessor, p)
           }
-          val typeCond = s"($scrutVar && $scrutVar._type === '$typeName')"
+          val typeCond = caseClassTagMap.get(typeName) match
+            case Some(tag) => s"($scrutVar && $scrutVar._tag === $tag)"
+            case None      => s"($scrutVar && $scrutVar._type === '$typeName')"
           val subCond = fields.map(_._1).filter(_ != "true").mkString(" && ")
           val bindings = fields.flatMap(_._2)
           val cond = typeCond + (if subCond.nonEmpty then s" && $subCond" else "")
