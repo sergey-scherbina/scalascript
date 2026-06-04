@@ -1,0 +1,4 @@
+feature/ui-seed-signal-frameworks 2026-06-04T04:05:00Z
+status: not-started
+done-so-far:
+next: add seedSignal lowering to React/Vue/Solid/custom emitters and tests
