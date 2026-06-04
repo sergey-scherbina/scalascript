@@ -1058,15 +1058,12 @@ highest-impact item.
       was ≤3 ms; remaining gap (5.0 vs 3.0 ms) is from `Object.values` shape checks
       in match arms — a `$tag`-based switch is a viable follow-up if needed.
 
-- [ ] **asm-jit-patternmatch-wide-gap** — `patternMatchWide` is 25% slower in
-      AsmJitBackend vs Javac (0.795 vs 0.636 ms, 2026-06-04 run).
-      `patternMatchHeavy` and `patternMatchSet` are already at parity or faster in
-      ASM; `patternMatchWide` uses a wider ADT with more arms — likely the
-      `tryBuildInlineMatchAccum` / `walkArmForAccum` inlining path fires for
-      narrow shapes but misses a case in the wider dispatch.
-      Profile with `SSC_JIT_BACKEND=asm scripts/bench profile patternMatchWide`
-      to confirm whether the gap is in the outer foreach or inner arm selection.
-      **Bench target:** ASM parity with Javac (≤0.67 ms, ±5%).
+- [x] **asm-jit-patternmatch-wide-gap** — ✓ Done 2026-06-04. `patternMatchWide`
+      ASM 0.795 → **0.672 ms** (Javac 0.706 ms; at parity). Root cause: inline
+      match path in `tryCompileWhileMixed` traversed the Scala linked list via
+      `isEmpty/head/tail` (3 virtual calls/element) instead of the pre-extracted
+      Object[] used by Javac. Fix: `emitArrayForeachAccumInline` + `listPreExtract=true`.
+      1283 tests pass. Commit e0c9e3d5.
 
 - [ ] **bench-effect-stream-corpus** — `bench.sh` reports `n/a` for `effect-stream`
       after `effect-stream-opt2` landed.  Root cause unknown: either the corpus
