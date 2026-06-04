@@ -68,7 +68,8 @@ DocumentContent(
 The first public path is frontend lowering:
 
 ```scalascript
-[contentToolkitNode](std/ui/content.ssc)
+[contentToolkitNode, contentToolkitBlock, contentToolkitSection](std/ui/content.ssc)
+[vstack](std/ui/layout.ssc)
 [lower](std/ui/lower.ssc)
 [defaultTheme](std/ui/theme.ssc)
 
@@ -76,8 +77,12 @@ val page = lower(contentToolkitNode(), defaultTheme)
 ```
 
 `contentToolkitNode()` turns the current Markdown document into a regular
-`TkNode` subtree. The low-level `contentView(contentDocument())` renderer remains
-available when callers need direct `View` nodes.
+`TkNode` subtree. When one document defines multiple independent frontend
+regions, `contentToolkitBlock("id")` selects a block such as
+`@id=filters @ui=toolkit` on a fenced YAML block, and
+`contentToolkitSection("plans")` selects a heading section by stable id. The low-level
+`contentView(contentDocument())` renderer remains available when callers need
+direct `View` nodes.
 
 The broader metadata API remains planned under `std/content.ssc`:
 

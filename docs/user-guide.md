@@ -349,7 +349,7 @@ plans:
 Frontend MVP API:
 
 ````markdown
-```yaml @ui=toolkit
+```yaml @id=team-controls @ui=toolkit
 signals:
   teamName: "ScalaScript team"
   enabled: false
@@ -394,6 +394,33 @@ and `controls:` / `control:`. Supported control `type` values are `vstack`,
 `show`, `textField`, `checkbox`, `button`, `badge`, and `card`.
 Use `serve(page, port)` for direct browser or phone preview; use
 `emit(page, outDir)` when you need static `index.html` + `app.js` artifacts.
+
+When one `.ssc` document contains multiple independent Markdown-authored UI
+regions, keep each region in Markdown and select it by stable id:
+
+```scalascript
+[contentToolkitBlock, contentToolkitSection](std/ui/content.ssc)
+[vstack](std/ui/layout.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[serve](std/ui/primitives.ssc)
+
+val page = lower(
+  vstack(gap = 16)(
+    contentToolkitSection("plans"),
+    contentToolkitBlock("team-controls"),
+    contentToolkitBlock("review-status")
+  ),
+  defaultTheme
+)
+serve(page, 8099)
+```
+
+`contentToolkitBlock(id)` renders exactly one Markdown block with explicit
+metadata such as `@id=team-controls @ui=toolkit` on a fenced YAML block.
+`contentToolkitSection(id)` renders a heading section by generated or explicit
+section id such as `## Plans` -> `plans` or `## Plans {#plans}`. Missing ids and
+duplicate block ids are interpreter errors.
 
 The lower-level `View` renderer remains available when exact HTML-like Markdown
 shape is more important than toolkit composition:
