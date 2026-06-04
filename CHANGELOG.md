@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — feat(types): GraphQL evidence inventory helper — P4d-β
+
+- **type-evidence-graphql-p4d-beta** — `GraphQLEvidenceCounts` +
+  `GraphQLEvidenceInventory.count(module: ir.NormalizedModule)` in `TypeEvidence.scala`.
+  Walks all sections/subsections; counts Object/Interface/Input types and their fields
+  from `graphql` `EmbeddedBlock` evidence. Legacy blocks without evidence count as 1
+  unknown type. `allDeclared` predicate for CI gating. 7 new tests.
+
 ## 2026-06-04 — feat(types): GraphQL SDL type evidence — P4d-α
 
 - **type-evidence-graphql-p4d-alpha** — GraphQL SDL type evidence in IR.

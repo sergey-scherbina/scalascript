@@ -1188,8 +1188,10 @@ Spec: [`docs/crypto.md`](docs/crypto.md). Work in order: p1 → p2.
   SDL `TypeDefinitionRegistry` (Declared = SDL scalars + same-block + ScopeContext;
   Unknown = unresolved). 8 `GraphQLEvidenceTest` + 17 `ArtifactIOTest` green.
   Spec: [`docs/type-evidence-inventory.md §P4d-α`](docs/type-evidence-inventory.md).
-- [ ] **type-evidence-graphql-p4d-beta** — `GraphQLEvidenceInventory.count(manifest)` in
+- [x] **type-evidence-graphql-p4d-beta** — ✓ Landed 2026-06-04 commit `f42addb3`.
+  `GraphQLEvidenceCounts` + `GraphQLEvidenceInventory.count(ir.NormalizedModule)` added to
   `TypeEvidence.scala`. Tallies types/fields across `graphql` blocks in module sections.
+  7 `GraphQLEvidenceInventoryTest` green. `core/Test/compile` clean.
   Spec: [`docs/type-evidence-inventory.md §P4d-β`](docs/type-evidence-inventory.md).
 - [ ] **type-evidence-graphql-p4d-gamma** — `ssc check-types` GraphQL third section.
   Exit-code gates on `routeCounts.allDeclared && graphqlCounts.allDeclared`.
