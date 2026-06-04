@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — feat(types): ssc check-types command (P4c)
+
+- **type-evidence-check-cmd-p4c** — New `ssc check-types <file.ssc>` command.
+  Parses and normalizes the module without running the interpreter, prints a
+  two-section evidence inventory table (route evidence: endpoints/handlers
+  declared/unknown; symbol evidence: Any-typed exports by evidence kind), and
+  exits 0 if all routes have Declared evidence or 1 otherwise. CI-friendly gate
+  for route type coverage. Uses `RouteEvidenceInventory` (P4a) and
+  `AnyEvidenceInventory` (P1) internally.
+  **Tests:** 6 `CheckTypesCliTest`, `CommandRegistryTest` updated.
+
+---
+
 ## 2026-06-04 — feat(types): OpenAPI evidence diagnostics (P4b)
 
 - **type-evidence-openapi-p4b** — Added `openApiEvidenceDiagnostics(module: Module)`

@@ -238,8 +238,8 @@ the contracts are explicit.
 - [x] **type-evidence-openapi-p4b** - ✓ Landed 2026-06-04 commit `f3585e18`.
       `openApiEvidenceDiagnostics()` + `--require-declared` flag; 7 tests.
       **Spec:** [`docs/type-evidence-inventory.md §P4b`](docs/type-evidence-inventory.md#p4b--openapi-evidence-diagnostics)
-- [ ] **type-evidence-check-cmd-p4c** - New `ssc check-types <file.ssc>` CLI command:
-      evidence inventory table + exit code gate on unknown route types.
+- [x] **type-evidence-check-cmd-p4c** - ✓ Landed 2026-06-04 commit `9ea59bef`.
+      `ssc check-types`: route evidence + Any-symbol inventory table; exits 0/1 on declared/unknown.
       **Spec:** [`docs/type-evidence-inventory.md §P4c`](docs/type-evidence-inventory.md#p4c--ssc-check-types-cli-command)
 - [x] **type-evidence-routes-p3** - ✓ Landed 2026-06-04 commit `347fe6f3`.
       Added optional structured request/response evidence to normalized IR

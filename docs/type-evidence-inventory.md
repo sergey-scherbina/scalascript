@@ -1,8 +1,9 @@
 # Type Evidence Inventory - spec
 
-**Status:** P1-P3 landed 2026-06-04; P4+ planned.
+**Status:** P1-P4 (a/b/c) landed 2026-06-04; P4d (GraphQL) deferred.
 **Queue items:** `type-evidence-inventory-p1`, `type-evidence-interface-p2`,
-`type-evidence-routes-p3`.
+`type-evidence-routes-p3`, `type-evidence-schema-p4a`, `type-evidence-openapi-p4b`,
+`type-evidence-check-cmd-p4c`.
 **Parent roadmap:** [`docs/typer-real-types-roadmap.md`](typer-real-types-roadmap.md).
 
 This is the first implementation slice of the real-types roadmap. The goal is

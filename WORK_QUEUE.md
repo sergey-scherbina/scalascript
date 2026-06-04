@@ -1177,13 +1177,9 @@ Spec: [`docs/crypto.md`](docs/crypto.md). Work in order: p1 → p2.
 - [x] **type-evidence-openapi-p4b** — ✓ Landed 2026-06-04 commit `f3585e18`.
   `openApiEvidenceDiagnostics()` + `--require-declared` flag; 7 `EmitOpenapiCliTest`
   (4 existing + 3 new: declared-empty, unknown-reported, require-declared-passes).
-- [ ] **type-evidence-check-cmd-p4c** — New `ssc check-types <file.ssc>` CLI command.
-  Compiles module, prints evidence inventory table (route endpoints/handlers declared/unknown
-  + symbol Any-evidence counts), exits 1 if any route has Unknown evidence.
-  Depends on P4a. Spec:
-  [`docs/type-evidence-inventory.md §P4c`](docs/type-evidence-inventory.md#p4c--ssc-check-types-cli-command).
-  Verification: `cli / Test / testOnly scalascript.cli.CheckTypesCliTest`,
-  `cli / Test / compile`.
+- [x] **type-evidence-check-cmd-p4c** — ✓ Landed 2026-06-04 commit `9ea59bef`.
+  `ssc check-types <file.ssc>` prints route evidence + Any-symbol inventory table;
+  exits 0 if all routes declared, 1 otherwise. 6 `CheckTypesCliTest` + `CommandRegistryTest`.
 - [x] **type-evidence-routes-p3** — ✓ Landed 2026-06-04 commit `347fe6f3`.
   Added optional structured request/response evidence to normalized IR
   route/client metadata while keeping legacy `requestType` / `responseType`
