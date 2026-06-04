@@ -56,6 +56,16 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       **Prerequisite:** Direction C Phase 1 (dual-bank LExpr for recursive patterns).
       **Spec:** [`docs/interp-opt-recursive-eval.md`](docs/interp-opt-recursive-eval.md)
 
+- [ ] **interp-opt-effect-stream** — `effectStream` interp 0.117 ms vs JVM 0.068 ms (1.8× gap).
+      `effect-stream-opt2` (2026-06-04) eliminated the Free Monad trampoline for the
+      `while … Stream.emit` pattern (253× gain from 28 ms). Remaining gap: handler-boundary
+      setup + `runToList()` accumulation phase not covered by opt2.
+      **Approach:** fresh JFR profile on 0.12 ms baseline to identify new hot allocators; then
+      apply OPT-1 (Perform1 specialization) if Perform list-wrap still dominates, or a
+      mutable-buffer fast-path for `runStream → runToList` if list accumulation leads.
+      **Target:** interp ≤ 0.080 ms (JVM parity, ~1.5×).
+      **Spec:** [`docs/interp-opt-effect-stream.md`](docs/interp-opt-effect-stream.md)
+
 - [ ] **interp-opt-effect-pure** — `effectPure` interp 0.010 ms vs JS 0.006 ms / JVM 0.004 ms
       (2.5× / 3.75× gap for effectful-typed functions with zero `perform` calls).
       **Root cause:** JS/JVM codegen erases the `! E` effect type at compile time — a function
