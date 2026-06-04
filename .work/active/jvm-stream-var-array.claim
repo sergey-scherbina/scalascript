@@ -1,5 +1,0 @@
-agent: claude-sonnet-4-6
-branch: feature/jvm-stream-var-array
-worktree: .worktrees/feature/jvm-stream-var-array
-goal: JVM Stream perf — replace ThreadLocal with var + Array instead of List in _Source
-started: 2026-06-04
