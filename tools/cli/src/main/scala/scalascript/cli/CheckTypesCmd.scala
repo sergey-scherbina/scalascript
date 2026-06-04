@@ -2,15 +2,15 @@ package scalascript.cli
 
 import scalascript.parser.Parser
 import scalascript.transform.Normalize
-import scalascript.typer.{AnyEvidenceInventory, RouteEvidenceInventory, TypedDef, Typer}
+import scalascript.typer.{AnyEvidenceInventory, GraphQLEvidenceInventory, RouteEvidenceInventory, TypedDef, Typer}
 
-/** `ssc check-types <file.ssc>` — prints a two-section evidence inventory table
- *  for route metadata and Any-typed exported symbols, then exits 0 if all routes
- *  have declared evidence or 1 if any route has unknown evidence.
+/** `ssc check-types <file.ssc>` — prints a three-section evidence inventory table:
+ *  route metadata, Any-typed exported symbols, and GraphQL SDL type coverage.
+ *  Exits 0 when all routes and all GraphQL types have declared evidence; 1 otherwise.
  *
- *  Route section uses `RouteEvidenceInventory` on the normalized IR manifest.
- *  Symbol section uses `Typer.typeCheck` + `AnyEvidenceInventory` on DefSummary
- *  entries — no interpreter run required. */
+ *  - Route section: `RouteEvidenceInventory` on the normalized IR manifest.
+ *  - Symbol section: `Typer.typeCheck` + `AnyEvidenceInventory` on DefSummary entries.
+ *  - GraphQL section: `GraphQLEvidenceInventory` on the normalized IR module sections. */
 final class CheckTypesCmd extends CliCommand:
   def name = "check-types"
   override def summary = "Print type evidence inventory for routes and exported symbols"
@@ -40,6 +40,7 @@ final class CheckTypesCmd extends CliCommand:
       irModule.manifest.map(RouteEvidenceInventory.count).getOrElse(
         scalascript.typer.RouteEvidenceCounts()
       )
+    val graphqlCounts = GraphQLEvidenceInventory.count(irModule)
 
     val typed   = Typer.typeCheck(module)
     val allDefs = scala.collection.mutable.ListBuffer.empty[scalascript.typer.DefSummary]
@@ -65,11 +66,20 @@ final class CheckTypesCmd extends CliCommand:
     println(f"  dynamic:        ${symCounts.dynamic}%d")
     println(f"  unknown:        ${symCounts.unknown}%d")
     println()
+    println("GraphQL evidence:")
+    println(f"  object/interface/input types:  ${graphqlCounts.typesDeclared}%d declared, ${graphqlCounts.typesUnknown}%d unknown")
+    println(f"  fields:                        ${graphqlCounts.fieldsDeclared}%d declared, ${graphqlCounts.fieldsUnknown}%d unknown")
+    println()
 
-    val unknownRoutes = routeCounts.endpointsUnknown + routeCounts.handlersUnknown
-    if unknownRoutes == 0 then
-      println("All routes have declared types.")
+    val unknownRoutes  = routeCounts.endpointsUnknown + routeCounts.handlersUnknown
+    val unknownGraphQL = graphqlCounts.typesUnknown + graphqlCounts.fieldsUnknown
+    if unknownRoutes == 0 && unknownGraphQL == 0 then
+      println("All routes and GraphQL types have declared types.")
       CommandResult.Success
     else
-      println(s"$unknownRoutes route${if unknownRoutes == 1 then "" else "s"} have unknown types.")
+      val parts = List(
+        if unknownRoutes  > 0 then Some(s"$unknownRoutes route${if unknownRoutes  == 1 then "" else "s"} have unknown types") else None,
+        if unknownGraphQL > 0 then Some(s"$unknownGraphQL GraphQL type${if unknownGraphQL == 1 then "" else "s"} have unknown field types") else None
+      ).flatten
+      println(parts.mkString("; ") + ".")
       CommandResult.failure()

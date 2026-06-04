@@ -41,7 +41,9 @@ class CheckTypesCliTest extends AnyFunSuite with Matchers:
       out should include ("Route evidence:")
       out should include ("api endpoints:")
       out should include ("1 declared, 0 unknown")
-      out should include ("All routes have declared types.")
+      out should include ("GraphQL evidence:")
+      assert(out.contains("All routes and GraphQL types have declared types.") ||
+             out.contains("All routes have declared types."))
     }
 
   test("check-types exits 0 (success) when all routes declared"):
@@ -125,6 +127,43 @@ class CheckTypesCliTest extends AnyFunSuite with Matchers:
       val out = captureStdout { val _ = cmd.runResult(List(file.toString)) }
       out should include ("Symbol evidence (Any-typed exports):")
       out should include ("unknown:")
+    }
+
+  test("check-types prints GraphQL evidence section with all-declared SDL"):
+    withSscFile(
+      """|---
+         |name: gql-test
+         |---
+         |
+         |# Schema
+         |
+         |```graphql
+         |type Query { id: ID!, name: String }
+         |```
+         |"""
+    ) { file =>
+      val cmd = CheckTypesCmd()
+      val out = captureStdout { val _ = cmd.runResult(List(file.toString)) }
+      out should include ("GraphQL evidence:")
+      out should include ("object/interface/input types:")
+    }
+
+  test("check-types exits 1 when GraphQL block has unknown field type"):
+    withSscFile(
+      """|---
+         |name: gql-unknown
+         |---
+         |
+         |# Schema
+         |
+         |```graphql
+         |type Query { ghost: UnknownType }
+         |```
+         |"""
+    ) { file =>
+      val cmd    = CheckTypesCmd()
+      val result = cmd.runResult(List(file.toString))
+      result.isSuccess shouldBe false
     }
 
   test("check-types is registered in CommandRegistry"):
