@@ -1,0 +1,4 @@
+feature/type-evidence-graphql-p4d-beta 2026-06-04T11:13:54Z
+status: not-started
+done-so-far:
+next: add GraphQLEvidenceCounts + GraphQLEvidenceInventory to TypeEvidence.scala
