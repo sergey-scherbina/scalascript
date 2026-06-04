@@ -164,16 +164,8 @@ only as `extern def` stubs in `examples/plugins/crypto-plugin/` — a
 template for third-party plugins, not a standard built-in.  Spec:
 [`docs/crypto.md`](docs/crypto.md).
 
-- [ ] **crypto-p1** — JVM interpreter plugin: `runtime/std/crypto.ssc`
-      (4 extern defs), `runtime/std/crypto-plugin/` (`CryptoInterpreterPlugin`
-      + `CryptoIntrinsics` using `java.security.MessageDigest`,
-      `javax.crypto.Mac`, `java.util.Base64`), `build.sbt` wiring,
-      `META-INF/services`, `CryptoPluginTest` with NIST test vectors.
-
-- [ ] **crypto-p2** — JS backend: `JsCryptoIntrinsics` (4 `RuntimeCall`
-      entries), preamble functions in `JsRuntimePart2b.scala` using
-      Node.js `require('crypto')`, wired into `JsIntrinsics`.
-      `examples/uuid-v7.ssc`-style smoke example: `examples/crypto-demo.ssc`.
+- [x] **crypto-p1** — ✓ Landed 2026-06-04.
+- [x] **crypto-p2** — ✓ Landed 2026-06-04.
 
 ## Quality / Contracts / Type System
 
