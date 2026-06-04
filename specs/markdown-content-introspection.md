@@ -231,6 +231,16 @@ case class ContentToolkitComponent(
 
 def contentComponent(name: String)(render: ContentComponentContext => TkNode): ContentToolkitComponent
 
+def contentToolkitOptionsWithComponents(
+  components: List[ContentToolkitComponent],
+  includeCode: Boolean = false,
+  sectionGap: Int = 16,
+  blockGap: Int = 8,
+  listGap: Int = 4,
+  wrapDocumentInCard: Boolean = false,
+  wrapTopLevelSectionsInCards: Boolean = false
+): ContentToolkitOptions
+
 extern def contentToolkitNode(options: ContentToolkitOptions = ContentToolkitOptions()): TkNode
 extern def contentToolkitBlock(id: String,
                                options: ContentToolkitOptions = ContentToolkitOptions()): TkNode
@@ -413,7 +423,7 @@ val planList = contentComponent("PlanList") { ctx =>
 val page = lower(
   contentToolkitSection(
     "plans",
-    ContentToolkitOptions(components = [planList])
+    contentToolkitOptionsWithComponents([planList])
   ),
   defaultTheme
 )
