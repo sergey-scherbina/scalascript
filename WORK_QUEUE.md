@@ -299,8 +299,8 @@ then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 |---|---|---|---|
 | `arithLoop` | 0.256 | 0.277 | parity ✓ |
 | `counterWithTupleVar` | **0.009** | — | ✓ self-assignment hoist (interp-opt-tuple-var); 58.751 → 0.009 ms (6500×, 2026-06-04) |
-| `effectPure` | **0.016** | — | **target: interp-opt-effect-pure** (2.5× gap vs JS 0.006; needs noperform IR flag) |
-| `effectStream` | **0.104** | — | **target: interp-opt-effect-stream** (1.8× JVM gap remains; opt2 got while-emit, runToList not covered) |
+| `effectPure` | **0.010** | — | ✓ improved via hello-world-interp-overhead+effect-pure-pure-path; gap to JS (0.006) = 1.67×; noperform IR flag remains for further closure |
+| `effectStream` | **0.077** | — | ✓ deferred buf.toList (interp-opt-effect-stream); 0.104 → 0.077 ms (1.35×, 2026-06-04); 15% JVM gap is LExpr dispatch floor |
 | `instanceFieldAccess` | 0.039 | 0.041 | parity ✓ |
 | `mapForeach` | 0.188 | 0.187 | parity ✓ |
 | `matchBodyBaseline` | 0.044 | 0.044 | parity ✓ |
