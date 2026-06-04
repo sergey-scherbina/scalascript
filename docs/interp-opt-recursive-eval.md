@@ -1,7 +1,7 @@
 # Interpreter Optimization — Recursive Eval Floor (`interp-opt-recursive-eval`)
 
 **Date:** 2026-06-04  
-**Status:** In implementation — Phase 1A invariant JIT-call fold measured
+**Status:** Phase 1B implemented — object-returning ADT builder JIT measured
 **BACKLOG entry:** `interp-opt-recursive-eval`  
 **Tracked in:** WORK_QUEUE.md §"Interpreter Performance — Open Targets"  
 **Prerequisite:** `docs/direct-style-eval-spec.md` (Direction C, Phase 1)
@@ -83,6 +83,73 @@ Verification:
 - `BENCH_WI=1 BENCH_MI=2 BENCH_F=1 scripts/bench interp 'recursiveEval|recursiveEvalMixed'`
 - `scripts/bench interp recursiveEvalMixed`
 - `BENCH_WI=1 BENCH_MI=1 BENCH_F=1 scripts/bench profile recursiveEvalMixed`
+
+---
+
+## Phase 1B Implementation Update (2026-06-04)
+
+Phase 1B closes the residual `tree = build(8)` construction floor for the
+default `JavacJitBackend` by adding a narrow object-returning JIT path for pure
+ADT builders:
+
+```scalascript
+def build(d: Int): Expr =
+  if d <= 0 then Num(1)
+  else Add(build(d - 1), Mul(build(d - 1), Num(2)))
+```
+
+The slice intentionally does **not** implement general object-valued
+ScalaScript compilation. It accepts only:
+
+- one numeric parameter,
+- one-statement blocks, `if` expressions, and self-recursive calls over
+  long-compatible arguments,
+- registered case-class / enum constructors,
+- primitive constructor fields wrapped through `Value.intV` / `doubleV` /
+  `boolV`, and reference fields produced by nested object expressions.
+
+Architecture changes:
+
+- `JitInterfaces.LongToObject` is the direct unboxed interface for
+  `long -> AnyRef` builders.
+- `JitResult.resultIsRef` lets `JitRuntime.invokeBytecode*` wrap object
+  results as `Pure(Value)` instead of treating `resultIsDouble=false` as
+  `Long`.
+- `JitRuntime` also recognizes existing `ObjToObject` / `LongToObject` direct
+  interfaces by type so older direct ref-return paths stay safe even when a
+  backend has not yet set `resultIsRef`.
+- `JavacJitBackend.walkObject` emits Java source that constructs
+  `Value.InstanceV` directly, sets `fieldsArr`, reuses static constructor
+  `fieldNames`, and preserves `typeTag` for the existing ADT-match JIT.
+- Javac identifier sanitization now avoids Java keywords and leading digits,
+  removing noisy fallback compiler errors for names such as `double`.
+
+Measured result, default `JavacJitBackend`:
+
+| Command | Before Phase 1B | After Phase 1B |
+|---|---:|---:|
+| `BENCH_WI=1 BENCH_MI=2 BENCH_F=1 scripts/bench interp 'recursiveEval|recursiveEvalMixed'` / `recursiveEval` | 2.005 ms/op local pre-change baseline | 0.067 ms/op |
+| `BENCH_WI=1 BENCH_MI=2 BENCH_F=1 scripts/bench interp 'recursiveEval|recursiveEvalMixed'` / `recursiveEvalMixed` | 2.019 ms/op local pre-change baseline | 0.066 ms/op |
+| `scripts/bench interp recursiveEval` / `recursiveEval` | ~1.9-2.0 ms/op floor | 0.067 +/- 0.004 ms/op |
+| `scripts/bench interp recursiveEval` / `recursiveEvalMixed` | ~1.9-2.0 ms/op floor | 0.068 +/- 0.001 ms/op |
+
+The short local pre-change baseline was measured in the same worktree before
+the implementation (`recursiveEval` 2.005 ms/op, `recursiveEvalMixed` 2.019
+ms/op). The full post-change run was `scripts/bench interp recursiveEval`.
+
+ASM parity remains open. A short smoke with
+`SSC_JIT_BACKEND=asm BENCH_WI=1 BENCH_MI=2 BENCH_F=1 scripts/bench interp 'recursiveEval|recursiveEvalMixed'`
+reported `recursiveEval` 2.106 ms/op and `recursiveEvalMixed` 1.951 ms/op,
+confirming that `AsmJitBackend` does not yet have the `LongToObject` builder
+path. This was not ported in Phase 1B because another live worktree was already
+editing `AsmJitBackend.scala`; track it as a separate ASM parity item.
+
+Verification:
+
+- `backendInterpreter / Test / testOnly scalascript.InterpreterTest scalascript.JitLintTest scalascript.SscVmTest` — 208 tests
+- `BENCH_WI=1 BENCH_MI=2 BENCH_F=1 scripts/bench interp 'recursiveEval|recursiveEvalMixed'`
+- `scripts/bench interp recursiveEval`
+- `SSC_JIT_BACKEND=asm BENCH_WI=1 BENCH_MI=2 BENCH_F=1 scripts/bench interp 'recursiveEval|recursiveEvalMixed'`
 
 ---
 
@@ -172,9 +239,10 @@ bytecode-JIT direct interfaces as the purity proof and leaves effect-capable
 evaluation on the monadic path.
 
 ### Phase 2 (medium-term, Direction C Phase 1)
-Implement `docs/direct-style-eval-spec.md` Phase 1 for broader direct-style
-pure expression evaluation, after the flag/multi-shot questions in that spec
-are resolved.
+Port the Phase 1B `LongToObject` object-builder path to `AsmJitBackend` once
+the active ASM worktree has landed, then implement `docs/direct-style-eval-spec.md`
+Phase 1 for broader direct-style pure expression evaluation after the
+flag/multi-shot questions in that spec are resolved.
 
 ### Phase 3 (longer-term, compact representation)
 If Direction C Phase 1 reaches ≥2× on `recursiveEval`, proceed to the bytecode-array or compact-array representation for `Expr` construction to unlock 5–20×.
@@ -187,8 +255,11 @@ If Direction C Phase 1 reaches ≥2× on `recursiveEval`, proceed to the bytecod
 |---|---|---|---|---|
 | Phase 1A | `recursiveEvalMixed` | 3.641 ms | 1.924 ms | ~1.9× |
 | Phase 1A | `recursiveEval` | 1.898 ms | ~1.95 ms | neutral/noisy |
-| Direction C Phase 1 | `recursiveEval` | ~1.9 ms | ~1.5–2 ms | uncertain |
-| Direction C Phase 2 | `recursiveEval` | ~1.9 ms | ~0.2–0.5 ms | ~4–10× |
+| Phase 1B (Javac) | `recursiveEval` | ~2.0 ms | 0.067 ms | ~30× |
+| Phase 1B (Javac) | `recursiveEvalMixed` | ~2.0 ms | 0.068 ms | ~29× |
+| Phase 1B (ASM parity) | `recursiveEval` | ~2.1 ms | open | follow-up |
+| Direction C Phase 1 | `recursiveEval` | 0.067 ms Javac / ~2.1 ms ASM | TBD | broader scope |
+| Direction C Phase 2 | `recursiveEval` | 0.067 ms Javac | ~0.02–0.05 ms projected | compact repr |
 
 ---
 
@@ -199,6 +270,8 @@ If Direction C Phase 1 reaches ≥2× on `recursiveEval`, proceed to the bytecod
   — guarded invariant JIT-call loop fold.
 
 **Phase 2 (Direction C Phase 1):**
+- `runtime/backend/interpreter/src/main/scala/scalascript/interpreter/vm/jit/AsmJitBackend.scala`
+  — port the Phase 1B object-returning builder path.
 - `runtime/backend/interpreter/src/main/scala/scalascript/interpreter/vm/jit/JavacJitBackend.scala`
 - `runtime/backend/interpreter/src/main/scala/scalascript/interpreter/EvalRuntime.scala`
 - See `docs/direct-style-eval-spec.md` for the full file list.
