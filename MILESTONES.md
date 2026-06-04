@@ -5,7 +5,7 @@
 | File | Contents |
 |------|----------|
 | [BACKLOG.md](BACKLOG.md) | Open and planned milestones — what still needs to be done |
-| [ACTIVE.md](ACTIVE.md) | Milestones currently in progress (synced with `WORK_QUEUE.md`) |
+| [SPRINT.md](SPRINT.md) | Agent task queue — active pending tasks |
 | [CHANGELOG.md](CHANGELOG.md) | Completed milestones, newest first |
 
 ---
@@ -95,6 +95,6 @@ Multiple agents can work in parallel — one per direction. Tell each: `"раб�
 
 ## For agents
 
-- **Pick next task**: read [WORK_QUEUE.md](WORK_QUEUE.md) by direction; claim via `AGENTS.md §"Task claiming protocol"`.
+- **Pick next task**: read [SPRINT.md](SPRINT.md) for active tasks, or [BACKLOG.md](BACKLOG.md) for next milestone; claim via `AGENTS.md §"Task claiming protocol"`.
 - **Mark landed**: update `BACKLOG.md` (remove entry from direction section) + add one-liner to `CHANGELOG.md`.
 - **Start new milestone**: add it to the right direction section in `BACKLOG.md`.

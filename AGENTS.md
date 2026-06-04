@@ -76,7 +76,7 @@ The canonical reference is [`docs/benchmarks.md`](docs/benchmarks.md): what
 each bench measures, when to use it, how to add a new one, and the gotchas
 (e.g. `Set(...)` does not work in the bench harness because
 `BuiltinsRuntime.initBuiltins` is skipped; use `.toSet`). When recording
-baselines in `WORK_QUEUE.md` / `docs/specs/vm-jit-next.md`, **name the
+baselines in `SPRINT.md` / `docs/specs/vm-jit-next.md`, **name the
 `scripts/bench` command that produced the number** so the next agent
 re-runs the same configuration.
 
@@ -127,7 +127,8 @@ chore. The moment you learn something durable, record it.
 |---|---|
 | Project rules, mandatory practices | `AGENTS.md` (this file) |
 | Open work + status, high-level | `BACKLOG.md` |
-| Ordered queue + per-task implementation notes + gotchas | `WORK_QUEUE.md` |
+| Pending task queue + per-task implementation notes + gotchas | `SPRINT.md` |
+| Completed tasks, newest first | `CHANGELOG.md` |
 | Design specs, roadmaps | `docs/*.md` |
 | Project-specific durable knowledge | `~/.claude/projects/.../memory/project_*.md` |
 | Reusable methodology, user preferences | `~/.claude/projects/.../memory/feedback_*.md` |
@@ -135,7 +136,7 @@ chore. The moment you learn something durable, record it.
 | Non-obvious WHY in surprising code | Source-code comments (only when removing them would confuse a future reader) |
 
 The same fact can — and often should — live in two places. A benchmark
-baseline written into both `WORK_QUEUE.md` (where the next agent looks
+baseline written into both `SPRINT.md` (where the next agent looks
 first when asked "what to do") and `docs/specs/vm-jit-next.md` (where the
 spec is self-contained reading) survives a careless edit to one of them.
 Defense in depth.
@@ -539,7 +540,7 @@ deciding what's free. Don't coordinate through chat; the git state is the
 contract.
 
 If your item already landed on `origin/main` (search recent commits),
-mark it done in `BACKLOG.md`/`ACTIVE.md` + add a line to `CHANGELOG.md`, then move on.
+mark it done in `BACKLOG.md` + add a line to `CHANGELOG.md`, then move on.
 
 **Returning to an existing branch / worktree between iterations.**  If
 you're continuing work in a `feature/<name>` worktree you opened in a
@@ -569,7 +570,7 @@ are living documents — workflow rules and the backlog change between sessions.
 After `git rebase origin/main`, check whether any key file was updated:
 
 ```bash
-git diff HEAD~1..HEAD -- AGENTS.md MILESTONES.md BACKLOG.md ACTIVE.md CHANGELOG.md
+git diff HEAD~1..HEAD -- AGENTS.md MILESTONES.md BACKLOG.md SPRINT.md CHANGELOG.md
 ```
 
 If `AGENTS.md` changed: re-read it fully before proceeding — new rules
@@ -623,12 +624,11 @@ after the doc commit (or after the feature commit if no doc changes).
 Never bundle queue bookkeeping into a feature or doc commit.
 
 Steps:
-- Open item in `WORK_QUEUE.md` → change `[ ]` to `[x]`, add a brief
-  landed summary (commit hash + date).
-- Open item in `BACKLOG.md` or `ACTIVE.md` → update with
-  `✓ Landed (YYYY-MM-DD)` and summary.
-- Milestone fully complete → remove from `BACKLOG.md`/`ACTIVE.md`, add
-  one-liner to `CHANGELOG.md` (newest-first).
+- Remove item from `SPRINT.md` (delete the `[ ]` entry).
+- Open item in `BACKLOG.md` → update with `✓ Landed (YYYY-MM-DD)` and summary.
+- Milestone fully complete → remove from `BACKLOG.md`, add one-liner to
+  `CHANGELOG.md` (newest-first).
+- Prepend a done-entry to `CHANGELOG.md` for the completed task.
 
 Example final two commits after every piece of work:
 
@@ -639,8 +639,8 @@ git commit -m "docs(<slug>): <what changed>"
 git push origin <branch>:main
 
 # Commit 2 — queue / milestone bookkeeping (always)
-git add WORK_QUEUE.md BACKLOG.md CHANGELOG.md   # whichever apply
-git commit -m "docs: mark <slug> done in WORK_QUEUE + CHANGELOG entry"
+git add SPRINT.md BACKLOG.md CHANGELOG.md   # whichever apply
+git commit -m "docs: mark <slug> done in SPRINT + CHANGELOG entry"
 git push origin <branch>:main
 ```
 
@@ -733,20 +733,20 @@ The milestone files survive context rotations — chat history doesn't.
 
 | File | Purpose |
 |------|---------|
-| `MILESTONES.md` | Navigation index — quick status, links to the three files below |
+| `MILESTONES.md` | Navigation index — quick status, links to the files below |
 | `BACKLOG.md` | Open and planned milestones with full detail — what still needs doing |
-| `ACTIVE.md` | Milestones currently in progress (synced with `WORK_QUEUE.md`) |
+| `SPRINT.md` | Agent task queue — active pending tasks |
 | `CHANGELOG.md` | Completed milestones, compact, newest first |
 
 Use them to:
 
-- **Pick** the next item: read `BACKLOG.md` top-to-bottom; check `WORK_QUEUE.md` for claimed slugs.
+- **Pick** the next item: read `SPRINT.md` first; if empty, read `BACKLOG.md` top-to-bottom; check `.work/active/` for claimed slugs.
 - **Mark items landed** in the same commit that closes them — never push
   a finished feature whose milestone entry is still open.
 - **Mark phases complete** after each iteration: update the entry in `BACKLOG.md`
-  (or `ACTIVE.md`) with `✓ Landed (YYYY-MM-DD)` and a short summary of what was built.
+  with `✓ Landed (YYYY-MM-DD)` and a short summary of what was built.
   Do this in the same push as the implementation — not later.
-- **Mark a milestone complete**: remove its entry from `BACKLOG.md`/`ACTIVE.md`
+- **Mark a milestone complete**: remove its entry from `BACKLOG.md`
   and add a one-line summary entry (newest-first) in `CHANGELOG.md`.
 - **Capture follow-ups** discovered while working: append to the relevant section
   in `BACKLOG.md` or to the "Known issues / latent flakes" section before moving on.
@@ -790,7 +790,7 @@ How to read agent status:
 | `release-claim: <slug>` in `git log origin/main` | Done — released |
 | Worktree exists but no claim on origin/main | Cleanup artifact |
 
-`git ls-tree origin/main .work/active/` is the only authoritative source — not `ls .work/active/`, `git worktree list`, or `WORK_QUEUE.md`.
+`git ls-tree origin/main .work/active/` is the only authoritative source — not `ls .work/active/`, `git worktree list`, or `SPRINT.md`.
 
 ---
 
@@ -798,7 +798,7 @@ How to read agent status:
 
 See the `/multi-agent` skill for the full loop protocol (status, start/stop, loop steps, empty queue, tech debt, /compact).
 
-**Queue file for this project:** `WORK_QUEUE.md`.
+**Queue file for this project:** `SPRINT.md`. Completed tasks go in `CHANGELOG.md` (prepend, newest first).
 
 ### Status format
 
@@ -829,9 +829,9 @@ Directions are independent — multiple agents can work in parallel, one per dir
 
 ```bash
 git rm .work/active/<slug>.claim
-# mark task [x] in WORK_QUEUE.md
-# update BACKLOG.md / ACTIVE.md / CHANGELOG.md as appropriate
-git commit -m "docs: mark <slug> done in WORK_QUEUE + CHANGELOG entry"
+# remove item from SPRINT.md (delete the [ ] entry)
+# update BACKLOG.md / CHANGELOG.md as appropriate
+git commit -m "docs: mark <slug> done in SPRINT + CHANGELOG entry"
 ```
 
 ### Empty queue example
