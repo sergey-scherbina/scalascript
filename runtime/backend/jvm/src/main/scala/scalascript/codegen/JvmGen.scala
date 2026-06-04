@@ -2765,10 +2765,31 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       // `_bind` will unwrap).
       s"def ${d.name.value}$params: Any = ${emitCpsExpr(d.body)}"
 
+    // Non-effectful function with `T ! Eff` return-type annotation: strip the
+    // effect row (not valid Scala syntax) and emit with `: Any` return type.
+    // These functions have a pure body (no perform calls) but are declared as
+    // effect-typed so callers can pass them to effect runners (sub-effecting).
+    case d: Defn.Def if d.decltpe.exists {
+      case Type.ApplyInfix(_, Type.Name("!"), _) => true
+      case _                                     => false
+    } =>
+      val params = emitEffectfulParamGroups(d)
+      s"def ${d.name.value}$params: Any = ${emitExpr(d.body)}"
+
     // val/var: always run rhs through emitExpr so constant folding applies
     // even for non-effectful RHS (e.g. `val x = 1 + 2` folds to `val x = 3`).
     // emitExpr routes effectful terms via emitExprDeep and falls back to
     // term.syntax for anything it doesn't special-case.
+    // val (a, b) = runXxx(...) — runner returns Any at compile time but a tuple at
+    // runtime; Scala 3 warns about the narrowing pattern unless .runtimeChecked is added.
+    case Defn.Val(mods, pats, tpe, rhs)
+        if pats.exists(_.isInstanceOf[Pat.Tuple]) && termUsesEffects(rhs) =>
+      val mod = mods.map(_.syntax).mkString(" ")
+      val modStr = if mod.isEmpty then "" else mod + " "
+      val patsStr = pats.map(_.syntax).mkString(", ")
+      val tpeStr = tpe.map(t => s": ${t.syntax}").getOrElse("")
+      s"${modStr}val $patsStr$tpeStr = ${emitExpr(rhs)}.runtimeChecked"
+
     case Defn.Val(mods, pats, tpe, rhs) =>
       val mod = mods.map(_.syntax).mkString(" ")
       val modStr = if mod.isEmpty then "" else mod + " "
@@ -2802,10 +2823,13 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     // Body needs custom emit (e.g. SSC named-arg `name: value` syntax in
     // Column/Row calls): re-emit the body through emitExpr so emitCallArg
     // converts `name: value` ascriptions to `name = value` named args.
+    // When the body uses effect runners, the runner returns Any; widen
+    // the declared return type to Any so Scala 3 doesn't reject the def.
     case d: Defn.Def if termNeedsCustomEmit(d.body) =>
       val modStr  = if d.mods.isEmpty then "" else d.mods.map(_.syntax).mkString(" ") + " "
       val paramStr = d.paramClauseGroups.map(_.syntax).mkString
-      val retStr  = d.decltpe.map(t => s": ${t.syntax}").getOrElse("")
+      val retStr  = if termUsesEffects(d.body) then ": Any"
+                    else d.decltpe.map(t => s": ${t.syntax}").getOrElse("")
       s"${modStr}def ${d.name.value}$paramStr$retStr = ${emitExpr(d.body)}"
 
     // Hoist loop-invariant constant assignments out of while bodies so the
@@ -3154,6 +3178,44 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     case Term.Apply.After_4_6_0(Term.Name("runActors"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
       s"_runActors(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
+    // runToList() / toList on the result of runStream — the static type is Any
+    // because runStream returns Any, so Scala 3 can't resolve the extension.
+    // Cast to _Source so the concrete method is reachable.
+    case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("runToList" | "toList")), argClause)
+        if argClause.values.isEmpty =>
+      s"${emitExpr(qual.asInstanceOf[Term])}.asInstanceOf[_Source].runToList()"
+
+    // ── Standard algebraic-effect runners — wrap body in () => thunk ──
+    // runXxx { body }  →  runXxx(() => emitExpr(body))
+    // Without this, single-block-arg calls hit the `emitExprDeep` "Widget"
+    // path and emit `runXxx() { body }` which Scala rejects (wrong arity).
+    // Body uses emitExpr (not emitCpsExpr) so while/var inside the body
+    // emits as regular Scala — Stream.emit(i) is a direct side-effecting
+    // call via the _streamBuf ThreadLocal (no CPS trampoline needed).
+    case Term.Apply.After_4_6_0(
+        Term.Name("runLogger" | "runLoggerJson" | "runLoggerToList" |
+                  "runRandom" | "runClock" | "runHttp" | "runEnv" |
+                  "runStream" | "runCache" | "runCacheBypass" |
+                  "runTx" | "runRetry" | "runRetryNoSleep"),
+        bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      val fn   = term.asInstanceOf[Term.Apply].fun.syntax
+      val body = emitExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      s"$fn(() => $body)"
+    // Curried effect runners: runXxx(extra)(body)
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(
+          Term.Name("runRandomSeeded" | "runClockAt" | "runEnvWith" |
+                    "runHttpStub" | "runState" | "runAuthWith"),
+          extraArgClause),
+        bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      val outerApply = term.asInstanceOf[Term.Apply].fun.asInstanceOf[Term.Apply]
+      val fn    = outerApply.fun.syntax
+      val extra = extraArgClause.values.map(v => emitExpr(v.asInstanceOf[Term])).mkString(", ")
+      val body  = emitExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      s"$fn($extra)(() => $body)"
 
     case Term.Apply.After_4_6_0(
             Term.Apply.After_4_6_0(Term.Name("receive" | "receiveWithTimeout"), timeoutArgClause),
@@ -4212,6 +4274,36 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     case Term.Apply.After_4_6_0(Term.Name("runActors"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
       s"_runActors(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
+    // runToList() on runStream result inside CPS body — same cast as emitExpr variant.
+    case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("runToList" | "toList")), argClause)
+        if argClause.values.isEmpty =>
+      s"${emitExpr(qual.asInstanceOf[Term])}.asInstanceOf[_Source].runToList()"
+
+    // Standard algebraic-effect runners nested inside a CPS body.
+    // Body uses emitExpr (not emitCpsExpr) — see the emitExpr variant above.
+    case Term.Apply.After_4_6_0(
+        Term.Name("runLogger" | "runLoggerJson" | "runLoggerToList" |
+                  "runRandom" | "runClock" | "runHttp" | "runEnv" |
+                  "runStream" | "runCache" | "runCacheBypass" |
+                  "runTx" | "runRetry" | "runRetryNoSleep"),
+        bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      val fn   = term.asInstanceOf[Term.Apply].fun.syntax
+      val body = emitExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      s"$fn(() => $body)"
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(
+          Term.Name("runRandomSeeded" | "runClockAt" | "runEnvWith" |
+                    "runHttpStub" | "runState" | "runAuthWith"),
+          extraArgClause),
+        bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      val outerApply = term.asInstanceOf[Term.Apply].fun.asInstanceOf[Term.Apply]
+      val fn    = outerApply.fun.syntax
+      val extra = extraArgClause.values.map(v => emitExpr(v.asInstanceOf[Term])).mkString(", ")
+      val body  = emitExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      s"$fn($extra)(() => $body)"
 
     case Term.Apply.After_4_6_0(
             Term.Apply.After_4_6_0(Term.Name("receive" | "receiveWithTimeout"), timeoutArgClause),
@@ -8510,45 +8602,35 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |
        |// ── v1.51.6 Stream algebraic effect ────────────────────────────────────────
        |//
-       |// Stream.emit(x)       — Perform node inside a runStream body
-       |// Stream.complete()    — early termination
-       |// Stream.error(msg)    — fail the stream
+       |// Stream.emit(x)       — push to the active stream buffer
+       |// Stream.complete()    — no-op (body ends naturally)
+       |// Stream.error(msg)    — throw a RuntimeException
        |// Stream.request(n)    — advisory demand hint (no-op)
-       |// runStream(bodyThunk) — discharges Stream effect; returns (List[Any], Any)
-       |//   tuple of (emitted values as List, body result).
+       |// runStream(bodyThunk) — discharges Stream effect; returns (_Source, Any)
+       |//   where _Source.runToList() returns the emitted values.
+       |//   Uses a ThreadLocal buffer so Stream.emit is a direct side effect;
+       |//   no CPS trampoline is needed, so while/var loops work inside the body.
+       |
+       |class _Source(val _data: List[Any]):
+       |  def runToList(): List[Any] = _data
+       |  def toList: List[Any]      = _data
+       |
+       |private val _streamBuf = new java.lang.ThreadLocal[scala.collection.mutable.ArrayBuffer[Any]]
        |
        |object Stream:
-       |  def emit(x: Any): Any     = _perform("Stream", "emit",     x)
-       |  def complete(): Any       = _perform("Stream", "complete")
-       |  def error(msg: Any): Any  = _perform("Stream", "error",    msg)
-       |  def request(n: Any): Any  = _perform("Stream", "request",  n)
+       |  def emit(x: Any): Any    = { val b = _streamBuf.get; if b != null then b += x; () }
+       |  def complete(): Any      = ()
+       |  def error(msg: Any): Any = throw new RuntimeException(String.valueOf(msg))
+       |  def request(n: Any): Any = ()
        |
        |def runStream(bodyThunk: () => Any): Any =
-       |  val emitted    = scala.collection.mutable.ArrayBuffer.empty[Any]
-       |  var terminated = false
-       |  var errorMsg: Option[String] = None
-       |  val bodyResult = _handle(bodyThunk,
-       |    Set("Stream.emit", "Stream.complete", "Stream.error", "Stream.request"),
-       |    Map(
-       |      "Stream.emit" -> { (args: List[Any]) =>
-       |        if !terminated && errorMsg.isEmpty then emitted += args.head
-       |        args.last.asInstanceOf[Any => Any](())
-       |      },
-       |      "Stream.complete" -> { (args: List[Any]) =>
-       |        terminated = true
-       |        args.last.asInstanceOf[Any => Any](())
-       |      },
-       |      "Stream.error" -> { (args: List[Any]) =>
-       |        errorMsg = Some(String.valueOf(args.head))
-       |        args.last.asInstanceOf[Any => Any](())
-       |      },
-       |      "Stream.request" -> { (args: List[Any]) =>
-       |        args.last.asInstanceOf[Any => Any](())  // advisory no-op
-       |      },
-       |    ))
-       |  errorMsg match
-       |    case Some(msg) => throw new RuntimeException(msg)
-       |    case None      => (emitted.toList, bodyResult)
+       |  val emitted = scala.collection.mutable.ArrayBuffer.empty[Any]
+       |  _streamBuf.set(emitted)
+       |  try
+       |    val result = bodyThunk()
+       |    (new _Source(emitted.toList), result)
+       |  finally
+       |    _streamBuf.set(null)
        |
        |""".stripMargin
 

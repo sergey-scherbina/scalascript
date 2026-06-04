@@ -18,12 +18,13 @@ class EffectAnalysisVerifierTest extends AnyFunSuite:
     assert(warnings.exists(_.contains("declares no effect row")))
   }
 
-  test("verify: warns when function declares effects but analysis sees none") {
+  test("verify: no warning when function declares effects but body is pure (sub-effecting valid)") {
+    // A function may declare an effect it doesn't actually use — that's valid (sub-effecting).
+    // Only the reverse (effectful body with no declared row) is an error.
     val result   = EffectAnalysis.Result(Set("Logger.log"), Set.empty)
     val declared = Map("foo" -> Set("Logger"))
     val warnings = EffectAnalysis.verify(declared, result)
-    assert(warnings.exists(_.contains("foo")))
-    assert(warnings.exists(_.contains("Logger")))
+    assert(warnings.isEmpty, s"expected no warnings, got: $warnings")
   }
 
   test("verify: no warnings when declared effectful and analysis agrees") {

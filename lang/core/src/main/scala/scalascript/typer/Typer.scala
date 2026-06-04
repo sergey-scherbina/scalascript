@@ -1081,6 +1081,14 @@ class Typer(
       case _ => false
     if expectedIsOpaque && actual != expected && actual != SType.Any && actual != SType.Nothing then
       return false
+    // Effect runner block args: any value is compatible with a zero-arity effectful thunk
+    // `() => Any ! Eff` — the shape of every runLogger/runStream/etc. body parameter.
+    // The body block is evaluated directly by the interpreter and wrapped in `() => ...`
+    // by the JVM codegen; the static type of the block expression does not need to match.
+    expected match
+      case SType.Function(Nil, SType.Any, SType.EffectRow(_, ops)) if ops.nonEmpty =>
+        return true
+      case _ =>
     actual == expected ||
     actual == SType.Nothing ||
     expected == SType.Any   ||
