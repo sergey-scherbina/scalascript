@@ -129,6 +129,34 @@ class SwingFrameworkBackendTest extends AnyFunSuite:
     assert(source.contains("""bindSignal(bindings, "enabled")"""))
   }
 
+  test("emitNative lowers SeedSignal with pristine source sync") {
+    val backend = SwingFrameworkBackend()
+    val sourceSignal = ReactiveSignal[String]("serverName", "Alice")
+    val draft = SeedSignal("draftName", sourceSignal)
+    val app = ComponentDef(
+      name  = "App",
+      props = Nil,
+      body  = _ => View.Column(Seq(
+        View.TextInput(draft, placeholder = "Draft"),
+        View.Button(View.Text(() => "Refresh"), EventHandler.SetSignalLiteral(sourceSignal, "Bob")),
+        View.Button(View.Text(() => "Edit"), EventHandler.SetSignalLiteral(draft, "Carol"))
+      ))
+    )
+    val source = backend.emitNative(
+      FrontendModule(List(app), "App", "/"),
+      Platform.Desktop()
+    ).get.sources("src/main/scala/Main.scala")
+
+    assert(source.contains(""""draftName" -> "Alice""""))
+    assert(source.contains(""""serverName" -> "Alice""""))
+    assert(source.contains("""val seedPristine = mutable.Map[String, Boolean]("draftName" -> true)"""))
+    assert(source.contains("""val seedSources = Map[String, String]("draftName" -> "serverName")"""))
+    assert(source.contains("""setSeedSignal(signals, bindings, seedPristine, seedSources, "draftName", field.getText)"""))
+    assert(source.contains("""setSeedSignal(signals, bindings, seedPristine, seedSources, "serverName", "Bob")"""))
+    assert(source.contains("""setSeedSignal(signals, bindings, seedPristine, seedSources, "draftName", "Carol")"""))
+    assert(source.contains("preserveSeedPristine = true"))
+  }
+
   test("emitNative rejects non-desktop platforms") {
     val backend = SwingFrameworkBackend()
     val app = ComponentDef("App", Nil, _ => View.Text(() => "x"))
@@ -171,6 +199,25 @@ class SwingFrameworkBackendTest extends AnyFunSuite:
     count.set(7)
     SwingUtilities.invokeAndWait(() => ())
     assert(label.getText == "7")
+  }
+
+  test("SwingRuntime SeedSignal follows source until dirty") {
+    val source = ReactiveSignal[String]("serverName", "Alice")
+    val draft = SeedSignal("draftName", source)
+    val panel = SwingRuntime.buildRoot(View.SignalText(draft))
+    val label = findFirst[JLabel](panel).getOrElse(fail("missing label"))
+
+    assert(label.getText == "Alice")
+    source.set("Bob")
+    SwingUtilities.invokeAndWait(() => ())
+    assert(label.getText == "Bob")
+
+    draft.set("Carol")
+    SwingUtilities.invokeAndWait(() => ())
+    assert(label.getText == "Carol")
+    source.set("Dana")
+    SwingUtilities.invokeAndWait(() => ())
+    assert(label.getText == "Carol")
   }
 
   test("SwingRuntime dispatches FetchAction through configured in-process dispatcher") {

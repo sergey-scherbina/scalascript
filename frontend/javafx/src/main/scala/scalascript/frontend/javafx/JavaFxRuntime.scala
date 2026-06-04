@@ -525,10 +525,18 @@ object JavaFxRuntime:
   @nowarn("cat=deprecation")
   private def collectSignals(view: View[?]): List[SignalInitial] =
     def add(acc: Map[String, SignalInitial], sig: ReactiveSignal[?]): Map[String, SignalInitial] =
-      acc.updatedWith(sig.id) {
-        case existing @ Some(_) => existing
-        case None               => Some(SignalInitial(sig.id, sig.apply(), sig))
-      }
+      sig match
+        case seed: SeedSignal =>
+          val withSource = add(acc, seed.source)
+          withSource.updatedWith(seed.id) {
+            case existing @ Some(_) => existing
+            case None               => Some(SignalInitial(seed.id, seed.apply(), seed))
+          }
+        case _ =>
+          acc.updatedWith(sig.id) {
+            case existing @ Some(_) => existing
+            case None               => Some(SignalInitial(sig.id, sig.apply(), sig))
+          }
     def action(acc: Map[String, SignalInitial], h: EventHandler): Map[String, SignalInitial] =
       h match
         case EventHandler.SetSignalLiteral(s, _) => add(acc, s)

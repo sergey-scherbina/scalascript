@@ -546,10 +546,18 @@ object SwingRuntime:
   @nowarn("cat=deprecation")
   private def collectSignals(view: View[?]): List[SignalInitial] =
     def add(acc: Map[String, SignalInitial], signal: ReactiveSignal[?]): Map[String, SignalInitial] =
-      acc.updatedWith(signal.id) {
-        case existing @ Some(_) => existing
-        case None               => Some(SignalInitial(signal.id, signal.apply(), signal))
-      }
+      signal match
+        case seed: SeedSignal =>
+          val withSource = add(acc, seed.source)
+          withSource.updatedWith(seed.id) {
+            case existing @ Some(_) => existing
+            case None               => Some(SignalInitial(seed.id, seed.apply(), seed))
+          }
+        case _ =>
+          acc.updatedWith(signal.id) {
+            case existing @ Some(_) => existing
+            case None               => Some(SignalInitial(signal.id, signal.apply(), signal))
+          }
     def action(acc: Map[String, SignalInitial], handler: EventHandler): Map[String, SignalInitial] =
       handler match
         case EventHandler.SetSignalLiteral(signal, _) => add(acc, signal)

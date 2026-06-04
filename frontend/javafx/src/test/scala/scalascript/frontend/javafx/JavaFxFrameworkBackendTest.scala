@@ -111,6 +111,34 @@ class JavaFxFrameworkBackendTest extends AnyFunSuite:
     assert(source.contains(""""accept" -> true"""))
   }
 
+  test("emitNative lowers SeedSignal with pristine source sync") {
+    val backend = JavaFxFrameworkBackend()
+    val sourceSignal = ReactiveSignal[String]("serverName", "Alice")
+    val draft = SeedSignal("draftName", sourceSignal)
+    val app = ComponentDef(
+      name  = "App",
+      props = Nil,
+      body  = _ => View.Column(Seq(
+        View.TextInput(draft, placeholder = "Draft"),
+        View.Button(View.Text(() => "Refresh"), EventHandler.SetSignalLiteral(sourceSignal, "Bob")),
+        View.Button(View.Text(() => "Edit"), EventHandler.SetSignalLiteral(draft, "Carol"))
+      ))
+    )
+    val source = backend.emitNative(
+      FrontendModule(List(app), "App", "/"),
+      Platform.Desktop(DesktopOs.MacOS)
+    ).get.sources("src/main/scala/Main.scala")
+
+    assert(source.contains(""""draftName" -> "Alice""""))
+    assert(source.contains(""""serverName" -> "Alice""""))
+    assert(source.contains("""val seedPristine = mutable.Map[String, Boolean]("draftName" -> true)"""))
+    assert(source.contains("""val seedSources = Map[String, String]("draftName" -> "serverName")"""))
+    assert(source.contains("""setSeedSignal(signals, bindings, seedPristine, seedSources, "draftName", newVal)"""))
+    assert(source.contains("""setSeedSignal(signals, bindings, seedPristine, seedSources, "serverName", "Bob")"""))
+    assert(source.contains("""setSeedSignal(signals, bindings, seedPristine, seedSources, "draftName", "Carol")"""))
+    assert(source.contains("preserveSeedPristine = true"))
+  }
+
   test("emitStyle CSS — colors, border, padding") {
     val backend = JavaFxFrameworkBackend()
     val app = ComponentDef(

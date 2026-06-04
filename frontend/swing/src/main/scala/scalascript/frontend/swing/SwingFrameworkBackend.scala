@@ -60,8 +60,11 @@ private object SwingEmitter:
     )
     val root = entry.body(())
     val signals = collectSignals(root)
-    val body = emitBuilder("root", root, indent = 4)
+    val seedSignals = collectSeedSignals(root)
+    val seedCtx = SeedCtx.from(seedSignals)
+    val body = emitBuilder("root", root, 4, seedCtx)
     val signalTable = emitSignalTable(signals)
+    val seedState = emitSeedState(seedSignals, indent = 6)
     s"""//> using scala 3.8.3
        |//> using option -Wunused:all -deprecation -feature
        |
@@ -82,6 +85,7 @@ private object SwingEmitter:
        |
        |      val signals = mutable.Map[String, Any]($signalTable)
        |      val bindings = mutable.Map.empty[String, mutable.Buffer[() => Unit]]
+$seedState
        |
        |      val root = JPanel()
        |      root.setLayout(BoxLayout(root, BoxLayout.Y_AXIS))
@@ -110,6 +114,23 @@ private object SwingEmitter:
        |    signals.update(id, value)
        |    refreshSignal(bindings, id)
        |
+       |  private def setSeedSignal(
+       |      signals: mutable.Map[String, Any],
+       |      bindings: mutable.Map[String, mutable.Buffer[() => Unit]],
+       |      seedPristine: mutable.Map[String, Boolean],
+       |      seedSources: Map[String, String],
+       |      id: String,
+       |      value: Any,
+       |      preserveSeedPristine: Boolean = false
+       |  ): Unit =
+       |    if seedPristine.contains(id) && !preserveSeedPristine then seedPristine.update(id, false)
+       |    signals.update(id, value)
+       |    refreshSignal(bindings, id)
+       |    seedSources.foreach { case (seedId, sourceId) =>
+       |      if sourceId == id && seedPristine.getOrElse(seedId, false) then
+       |        setSeedSignal(signals, bindings, seedPristine, seedSources, seedId, value, preserveSeedPristine = true)
+       |    }
+       |
        |  private def incrementSignal(signals: mutable.Map[String, Any], bindings: mutable.Map[String, mutable.Buffer[() => Unit]], id: String, by: Int): Unit =
        |    val next = signals.get(id).collect { case n: Int => n }.getOrElse(0) + by
        |    setSignal(signals, bindings, id, next)
@@ -126,7 +147,7 @@ private object SwingEmitter:
        |
        |""".stripMargin
 
-  private def emitBuilder(parent: String, view: View[?], indent: Int): String =
+  private def emitBuilder(parent: String, view: View[?], indent: Int, seedCtx: SeedCtx): String =
     val pad = " " * indent
     view match
       case View.Text(content, style) =>
@@ -136,17 +157,17 @@ private object SwingEmitter:
       case View.SignalText(signal, style) =>
         emitSignalLabel(parent, signal, style, indent)
       case View.Button(label, action, enabled, style) =>
-        emitButton(parent, label, action, enabled, style, indent)
+        emitButton(parent, label, action, enabled, style, indent, seedCtx)
       case View.TextInput(value, placeholder, multiline, secure, style) =>
-        emitTextInput(parent, value, placeholder, multiline, secure, style, indent)
+        emitTextInput(parent, value, placeholder, multiline, secure, style, indent, seedCtx)
       case View.Toggle(checked, label, style) =>
         emitToggle(parent, checked, label, style, indent)
       case View.Column(children, spacing, _, style) =>
-        emitPanel(parent, children, axis = "BoxLayout.Y_AXIS", spacing, style, indent)
+        emitPanel(parent, children, "BoxLayout.Y_AXIS", spacing, style, indent, seedCtx)
       case View.Row(children, spacing, _, style) =>
-        emitPanel(parent, children, axis = "BoxLayout.X_AXIS", spacing, style, indent)
+        emitPanel(parent, children, "BoxLayout.X_AXIS", spacing, style, indent, seedCtx)
       case View.ScrollView(child, axis, style) =>
-        val childBody = emitPanel("scrollPanel", Seq(child), "BoxLayout.Y_AXIS", 0, Style(), indent + 2)
+        val childBody = emitPanel("scrollPanel", Seq(child), "BoxLayout.Y_AXIS", 0, Style(), indent + 2, seedCtx)
         emitComponent(parent, "scrollPane", s"""{
            |$pad  val scrollPanel = JPanel()
            |$pad  scrollPanel.setLayout(BoxLayout(scrollPanel, BoxLayout.Y_AXIS))
@@ -159,37 +180,37 @@ private object SwingEmitter:
       case View.Divider(axis, style) =>
         emitDivider(parent, axis, style, indent)
       case View.Fragment(children) =>
-        children.map(emitBuilder(parent, _, indent)).mkString("\n")
+        children.map(emitBuilder(parent, _, indent, seedCtx)).mkString("\n")
       case View.Show(cond, whenTrue, whenFalse) =>
-        emitBuilder(parent, if cond() then whenTrue() else whenFalse(), indent)
+        emitBuilder(parent, if cond() then whenTrue() else whenFalse(), indent, seedCtx)
       case View.ShowSignal(cond, whenTrue, whenFalse) =>
-        emitBuilder(parent, if cond.apply() then whenTrue else whenFalse, indent)
+        emitBuilder(parent, if cond.apply() then whenTrue else whenFalse, indent, seedCtx)
       case View.For(items, render) =>
-        items().map(item => emitBuilder(parent, render(item), indent)).mkString("\n")
+        items().map(item => emitBuilder(parent, render(item), indent, seedCtx)).mkString("\n")
       case View.Styled(child, style) =>
         child match
           case View.Text(content, _)          => emitComponent(parent, "label", s"""JLabel("${scalaString(content())}")""", style, indent)
           case View.TextNode(value)           => emitComponent(parent, "label", s"""JLabel("${scalaString(value())}")""", style, indent)
           case View.SignalText(signal, _)     => emitSignalLabel(parent, signal, style, indent)
           case View.Button(label, action, enabled, _) =>
-            emitButton(parent, label, action, enabled, style, indent)
+            emitButton(parent, label, action, enabled, style, indent, seedCtx)
           case View.TextInput(value, placeholder, multiline, secure, _) =>
-            emitTextInput(parent, value, placeholder, multiline, secure, style, indent)
+            emitTextInput(parent, value, placeholder, multiline, secure, style, indent, seedCtx)
           case View.Toggle(checked, label, _) =>
             emitToggle(parent, checked, label, style, indent)
-          case View.Column(children, s, _, _) => emitPanel(parent, children, "BoxLayout.Y_AXIS", s, style, indent)
-          case View.Row(children, s, _, _)    => emitPanel(parent, children, "BoxLayout.X_AXIS", s, style, indent)
+          case View.Column(children, s, _, _) => emitPanel(parent, children, "BoxLayout.Y_AXIS", s, style, indent, seedCtx)
+          case View.Row(children, s, _, _)    => emitPanel(parent, children, "BoxLayout.X_AXIS", s, style, indent, seedCtx)
           case View.Divider(axis, _)          => emitDivider(parent, axis, style, indent)
-          case _                              => emitBuilder(parent, child, indent)
+          case _                              => emitBuilder(parent, child, indent, seedCtx)
       case View.Adaptive(_, desktop, _, fallback) =>
-        emitBuilder(parent, desktop.getOrElse(fallback), indent)
+        emitBuilder(parent, desktop.getOrElse(fallback), indent, seedCtx)
       case View.Spacer(size) =>
         val px = size.map(_.round.toInt).getOrElse(8)
         s"""$pad$parent.add(Box.createRigidArea(Dimension($px, $px)))"""
       case other =>
         emitComponent(parent, "unsupported", s"""JLabel("${scalaString(s"[unsupported Swing view: ${other.productPrefix}]")}")""", Style(), indent)
 
-  private def emitPanel(parent: String, children: Seq[View[?]], axis: String, spacing: Double, style: Style, indent: Int): String =
+  private def emitPanel(parent: String, children: Seq[View[?]], axis: String, spacing: Double, style: Style, indent: Int, seedCtx: SeedCtx): String =
     val pad = " " * indent
     val childPad = " " * (indent + 2)
     val spacerDimension =
@@ -197,7 +218,7 @@ private object SwingEmitter:
       else s"Dimension(0, ${spacing.round.toInt})"
     val childBody =
       children.zipWithIndex.map { (child, idx) =>
-        val rendered = emitBuilder("panel", child, indent + 2)
+        val rendered = emitBuilder("panel", child, indent + 2, seedCtx)
         val spacer =
           if spacing > 0 && idx < children.size - 1 then
             s"\n${childPad}panel.add(Box.createRigidArea($spacerDimension))"
@@ -232,12 +253,12 @@ private object SwingEmitter:
        |$pad  label
        |$pad})""".stripMargin
 
-  private def emitButton(parent: String, label: View[?], action: EventHandler, enabled: () => Boolean, style: Style, indent: Int): String =
+  private def emitButton(parent: String, label: View[?], action: EventHandler, enabled: () => Boolean, style: Style, indent: Int, seedCtx: SeedCtx): String =
     val pad = " " * indent
     s"""$pad${parent}.add({
        |$pad  val button = JButton("${scalaString(textOf(label))}")
        |$pad  button.setEnabled(${enabled()})
-       |${emitAction("button", action, indent + 2)}
+       |${emitAction("button", action, indent + 2, seedCtx)}
        |${emitStyle("button", style, indent + 2)}
        |$pad  button
        |$pad})""".stripMargin
@@ -255,11 +276,11 @@ private object SwingEmitter:
        |$pad  checkbox
        |$pad})""".stripMargin
 
-  private def emitAction(componentName: String, action: EventHandler, indent: Int): String =
+  private def emitAction(componentName: String, action: EventHandler, indent: Int, seedCtx: SeedCtx): String =
     val pad = " " * indent
     action match
       case EventHandler.SetSignalLiteral(signal, value) =>
-        s"""$pad$componentName.addActionListener(_ => setSignal(signals, bindings, "${scalaString(signal.id)}", ${scalaLiteral(value)}))"""
+        s"""$pad$componentName.addActionListener(_ => ${setSignalExpr(signal, scalaLiteral(value), seedCtx)})"""
       case EventHandler.IncrementSignal(signal, by) =>
         s"""$pad$componentName.addActionListener(_ => incrementSignal(signals, bindings, "${scalaString(signal.id)}", $by))"""
       case EventHandler.ToggleSignal(signal) =>
@@ -357,7 +378,8 @@ private object SwingEmitter:
     multiline:   Boolean,
     secure:      Boolean,
     style:       Style,
-    indent:      Int
+    indent:      Int,
+    seedCtx:     SeedCtx
   ): String =
     val pad = " " * indent
     val id = scalaString(value.id)
@@ -367,7 +389,7 @@ private object SwingEmitter:
          |$pad  var updating = false
          |$pad  area.getDocument.addDocumentListener(new DocumentListener:
          |$pad    private def sync(): Unit =
-         |$pad      if !updating then setSignal(signals, bindings, "$id", area.getText)
+         |$pad      if !updating then ${setSignalExpr(value, "area.getText", seedCtx)}
          |$pad    def insertUpdate(e: DocumentEvent): Unit = sync()
          |$pad    def removeUpdate(e: DocumentEvent): Unit = sync()
          |$pad    def changedUpdate(e: DocumentEvent): Unit = sync()
@@ -392,7 +414,7 @@ private object SwingEmitter:
          |$pad  var updating = false
          |$pad  field.getDocument.addDocumentListener(new DocumentListener:
          |$pad    private def sync(): Unit =
-         |$pad      if !updating then setSignal(signals, bindings, "$id", field.getText)
+         |$pad      if !updating then ${setSignalExpr(value, "field.getText", seedCtx)}
          |$pad    def insertUpdate(e: DocumentEvent): Unit = sync()
          |$pad    def removeUpdate(e: DocumentEvent): Unit = sync()
          |$pad    def changedUpdate(e: DocumentEvent): Unit = sync()
@@ -450,12 +472,17 @@ private object SwingEmitter:
 
   private final case class SignalInitial(id: String, value: Any)
 
+  private final case class SeedCtx(seedIds: Set[String], sourceIds: Set[String]):
+    def needsSeedAware(signal: ReactiveSignal[?]): Boolean =
+      seedIds.contains(signal.id) || sourceIds.contains(signal.id)
+
+  private object SeedCtx:
+    def from(seeds: List[SeedSignal]): SeedCtx =
+      SeedCtx(seeds.map(_.id).toSet, seeds.map(_.source.id).toSet)
+
   private def collectSignals(view: View[?]): List[SignalInitial] =
     def add(acc: Map[String, SignalInitial], signal: ReactiveSignal[?]): Map[String, SignalInitial] =
-      acc.updatedWith(signal.id) {
-        case existing @ Some(_) => existing
-        case None               => Some(SignalInitial(signal.id, signal.apply()))
-      }
+      addSignal(acc, signal)
     def loop(acc: Map[String, SignalInitial], v: View[?]): Map[String, SignalInitial] =
       v match
         case View.SignalText(signal, _) => add(acc, signal)
@@ -487,10 +514,73 @@ private object SwingEmitter:
       case _ => acc
 
   private def addSignal(acc: Map[String, SignalInitial], signal: ReactiveSignal[?]): Map[String, SignalInitial] =
-    acc.updatedWith(signal.id) {
-      case existing @ Some(_) => existing
-      case None               => Some(SignalInitial(signal.id, signal.apply()))
-    }
+    signal match
+      case seed: SeedSignal =>
+        val withSource = addSignal(acc, seed.source)
+        withSource.updatedWith(seed.id) {
+          case existing @ Some(_) => existing
+          case None               => Some(SignalInitial(seed.id, seed.apply()))
+        }
+      case _ =>
+        acc.updatedWith(signal.id) {
+          case existing @ Some(_) => existing
+          case None               => Some(SignalInitial(signal.id, signal.apply()))
+        }
 
   private def emitSignalTable(signals: List[SignalInitial]): String =
     signals.map(s => s""""${scalaString(s.id)}" -> ${scalaLiteral(s.value)}""").mkString(", ")
+
+  private def collectSeedSignals(view: View[?]): List[SeedSignal] =
+    val seen = scala.collection.mutable.LinkedHashMap.empty[String, SeedSignal]
+    def add(signal: ReactiveSignal[?]): Unit =
+      signal match
+        case seed: SeedSignal =>
+          if !seen.contains(seed.id) then seen(seed.id) = seed
+          add(seed.source)
+        case _ => ()
+    def fromAction(action: EventHandler): Unit =
+      action match
+        case EventHandler.SetSignalLiteral(signal, _) => add(signal)
+        case EventHandler.IncrementSignal(signal, _)  => add(signal)
+        case EventHandler.ToggleSignal(signal)        => add(signal)
+        case EventHandler.InputChange(signal)         => add(signal)
+        case EventHandler.FetchAction(_, _, body, onSuccessTick, _, _) =>
+          add(body); add(onSuccessTick)
+        case _ => ()
+    def loop(v: View[?]): Unit =
+      v match
+        case View.SignalText(signal, _) => add(signal)
+        case View.Button(label, action, _, _) => fromAction(action); loop(label)
+        case View.TextInput(value, _, _, _, _) => add(value)
+        case View.Toggle(checked, _, _) => add(checked)
+        case View.Column(children, _, _, _) => children.foreach(loop)
+        case View.Row(children, _, _, _) => children.foreach(loop)
+        case View.Stack(children, _) => children.foreach(loop)
+        case View.ScrollView(child, _, _) => loop(child)
+        case View.Fragment(children) => children.foreach(loop)
+        case View.Show(_, whenTrue, whenFalse) => loop(whenTrue()); loop(whenFalse())
+        case View.ShowSignal(cond, whenTrue, whenFalse) => add(cond); loop(whenTrue); loop(whenFalse)
+        case View.For(items, render) => items().foreach(item => loop(render(item)))
+        case View.Styled(child, _) => loop(child)
+        case View.Adaptive(web, desktop, mobile, fallback) =>
+          List(web, desktop, mobile).flatten.foreach(loop); loop(fallback)
+        case _ => ()
+    loop(view)
+    seen.values.toList.sortBy(_.id)
+
+  private def emitSeedState(seeds: List[SeedSignal], indent: Int): String =
+    if seeds.isEmpty then ""
+    else
+      val pad = " " * indent
+      val pristineTable = seeds.map(seed => s""""${scalaString(seed.id)}" -> true""").mkString(", ")
+      val sourceTable = seeds.map(seed => s""""${scalaString(seed.id)}" -> "${scalaString(seed.source.id)}"""").mkString(", ")
+      s"""
+         |$pad val seedPristine = mutable.Map[String, Boolean]($pristineTable)
+         |$pad val seedSources = Map[String, String]($sourceTable)""".stripMargin
+
+  private def setSignalExpr(signal: ReactiveSignal[?], valueExpr: String, seedCtx: SeedCtx): String =
+    val id = scalaString(signal.id)
+    if seedCtx.needsSeedAware(signal) then
+      s"""setSeedSignal(signals, bindings, seedPristine, seedSources, "$id", $valueExpr)"""
+    else
+      s"""setSignal(signals, bindings, "$id", $valueExpr)"""
