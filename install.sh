@@ -16,6 +16,29 @@ if ! command -v sbt &>/dev/null; then
     exit 1
 fi
 
+# ── Git submodules ─────────────────────────────────────────────────────────────
+echo "Updating git submodules..."
+git -C "$ROOT" submodule update --init --remote --recursive
+echo "✓ submodules up to date"
+
+# ── Agent skills ──────────────────────────────────────────────────────────────
+SKILLS_SRC="$ROOT/.agents/plugins"
+if [ -d "$SKILLS_SRC" ]; then
+  echo ""
+  echo "Updating agent skills..."
+  DEST="$HOME/.claude/commands"
+  mkdir -p "$DEST"
+  for skill_dir in "$SKILLS_SRC"/*/; do
+    name="$(basename "$skill_dir")"
+    src="$skill_dir/commands/$name.md"
+    if [ -f "$src" ]; then
+      cp "$src" "$DEST/$name.md"
+      echo "  ✓ $name → $DEST/$name.md"
+    fi
+  done
+fi
+
+echo ""
 echo "Staging ssc (thin jar + deps) via sbt cli/installBin..."
 (cd "$ROOT" && sbt -no-colors cli/installBin)
 [ -f "$LIB/ssc.jar" ]  || { echo "Stage did not produce $LIB/ssc.jar" >&2; exit 1; }

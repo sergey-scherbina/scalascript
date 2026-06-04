@@ -1027,8 +1027,11 @@ running (check `git worktree list` and the timestamp inside the file).
 
 The claim file format (`agent:`, `heartbeat:` fields), freshness rules,
 heartbeat cadence (~10 min while dirty), and the full triage procedure for
-foreign claims are defined in the **`/multi-agent` skill**
-(`~/.claude/commands/multi-agent.md`).
+foreign claims are defined in the **`/multi-agent` skill**.
+
+Skill location (read in this order, use the first that exists):
+1. `.agents/plugins/multi-agent/commands/multi-agent.md` — submodule, always in sync
+2. `~/.claude/commands/multi-agent.md` — globally installed fallback
 
 Quick reference:
 - `/multi-agent status` — show active claims, heartbeat ages, pending tasks

@@ -1,0 +1,3 @@
+[submodule ".agents/plugins"]
+	path = .agents/plugins
+	url = https://github.com/sergey-scherbina/agent-plugins

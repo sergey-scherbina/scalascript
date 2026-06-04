@@ -34,6 +34,34 @@ echo ""
 echo "Verifying installation..."
 scala-cli version
 
+# ── Git submodules ─────────────────────────────────────────────────────────────
+echo ""
+echo "Initialising git submodules..."
+git -C "$(dirname "${BASH_SOURCE[0]}")" submodule update --init --recursive
+echo "✓ submodules ready"
+
+# ── Agent skills ──────────────────────────────────────────────────────────────
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILLS_SRC="$ROOT/.agents/plugins"
+if [ -d "$SKILLS_SRC" ]; then
+  echo ""
+  echo "Installing agent skills..."
+  DEST="$HOME/.claude/commands"
+  mkdir -p "$DEST"
+  for skill_dir in "$SKILLS_SRC"/*/; do
+    name="$(basename "$skill_dir")"
+    src="$skill_dir/commands/$name.md"
+    if [ -f "$src" ]; then
+      cp "$src" "$DEST/$name.md"
+      echo "  ✓ $name → $DEST/$name.md"
+    fi
+  done
+else
+  echo ""
+  echo "⚠ .agents/plugins not found — run again after pushing agent-plugins to GitHub"
+  echo "  Then: git submodule update --init"
+fi
+
 echo ""
 echo "✓ Setup complete!"
 echo ""
