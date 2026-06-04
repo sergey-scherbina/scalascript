@@ -2202,6 +2202,27 @@ gated on same-session A/B + full suite green with the gate off AND on.
       Inlined match body into foreach accumulator loop in AsmJitBackend.
       patternMatchHeavy/Set at Javac parity; patternMatchWide improved from 85% to 10% gap.
 
+- [ ] **jvm-effect-types** — JVM backend n/a for all `! Effect` typed workloads.
+      Root cause (confirmed via `ssc compile-jvm`):
+        (1) `[effect-verifier] 'compute' declares effect(s) Logger but reachability found none`
+            — verifier rejects effect-typed defs whose body has no `perform` calls.
+        (2) `Type mismatch: expected () => Any ! Logger, found Int`
+            — JVM codegen wraps `runLogger { body }` expecting a thunk but the
+            CPS-translated body is already a flat value.
+      Fix: relax verifier (pure bodies in effect-typed defs are valid), fix
+      `runLogger`/`runStream` CPS call-site in JVM codegen.
+      **Affected benches:** `effect-pure` JVM (n/a), `effect-stream` JVM (n/a).
+
+- [ ] **js-effect-stream-while** — `effect-stream` JS silent n/a.
+      JS codegen emits a plain while loop for `while … Stream.emit(i)` inside
+      `runStream`, discarding the Computation returned by each emit:
+        `runStream(() => _bind(0, i => (() => { while (...) { _dispatch(Stream,'emit',[i]); i=...; } })()))`
+      The `runStream` handler never intercepts the discarded emits → empty stream.
+      Fix: JS codegen must detect `Stream.emit` inside a `runStream` body and either
+      (a) generate `_bind`-chained emit calls, or (b) use a synchronous side-channel
+      buffer that `_perform` pushes to and `runStream` drains (simpler, consistent
+      with the synchronous `_handle` mechanism already in the JS runtime).
+
 - [ ] **effect-pure-pure-path** — `effect-pure` interp 0.047 ms vs JS 0.006 ms (8×).
       Workload: `runLogger { while i < 10000 do acc = acc + i; i = i + 1 }`.
       Body is entirely pure (no `perform` calls), but `compute` is typed `Int ! Logger`

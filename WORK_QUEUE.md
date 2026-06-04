@@ -975,6 +975,36 @@ highest-impact item.
 
 - [x] **effect-stream-opt3** — Superseded by OPT-2 (trampoline eliminated entirely).
 
+- [ ] **jvm-effect-types** — JVM backend silently produces no output (no `BENCH` line,
+      no error) for any workload with `! Effect` typed functions.  `compile-jvm` reveals
+      the root cause: two compiler errors:
+        `Type mismatch: expected () => Any ! Logger, found Int`
+        `[effect-verifier] 'compute' declares effect(s) Logger but reachability found none`
+      The second error shows the JVM effect verifier rejects `Int ! Logger` functions
+      whose body contains no `perform` calls (pure while loop inside an effect-typed def).
+      The first error suggests the JVM codegen wraps `runLogger { body }` incorrectly —
+      likely expecting a thunk `() => Any ! Logger` but the CPS-translated body is
+      already a flat `Int`.  Fix: (1) relax the effect verifier to allow pure bodies in
+      effect-typed defs (or suppress the error for the JVM backend path), (2) fix the
+      `runLogger`/`runStream` call-site CPS translation in JVM codegen.
+      **Affects:** `effect-pure` JVM (n/a), `effect-stream` JVM (n/a).
+      **Target:** both show valid numbers in `bench.sh` (expected ~0.003 ms / ~0.3 ms).
+
+- [ ] **js-effect-stream-while** — `effect-stream` JS produces no output (silent n/a).
+      JS codegen compiles the `while i < N do Stream.emit(i)` body inside `runStream`
+      as a plain while loop with `_dispatch(Stream, 'emit', [i])` calls whose
+      Computation return value is discarded:
+        `runStream(() => _bind(0, i => (() => { while (...) { _dispatch(Stream,'emit',[i]); i=...; } })()))`
+      Because the emits are not threaded through `_bind`, the `runStream` handler
+      never intercepts them — the stream stays empty.  Fix: JS codegen must detect
+      `Stream.emit` calls inside a `runStream` body and generate a `_bind`-chained
+      sequence rather than a plain while loop (or implement a synchronous-trampoline
+      `_performSync` that the while loop can call and have the handler intercept via
+      a side-channel buffer).  The synchronous side-channel approach (emit pushes to
+      an array that `runStream` already holds open) is simpler and consistent with how
+      the synchronous `_handle` mechanism works.
+      **Target:** `effect-stream` JS shows a valid number in `bench.sh`.
+
 - [ ] **effect-pure-pure-path** — `effect-pure` interp 0.047 ms vs JS 0.006 ms (8×).
       Workload: `runLogger { while i < 10000 do acc = acc + i; i = i + 1 }`.
       The inner while loop is pure (no `perform` calls), but the entire `compute`
