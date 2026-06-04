@@ -6,6 +6,7 @@ import scalascript.backend.spi.{CompileResult, Segment}
 import scalascript.backend.spi.OpenApiGenerator.OpenApiOptions
 import scalascript.interpreter.Interpreter
 import scalascript.parser.Parser
+import scalascript.transform.Normalize
 
 // `ssc emit-*` transpile/export commands: emit-js, emit-wasm, emit-openapi,
 // emit-spa, emit-wc, emit-scala. Extracted from Main.scala. (emit-spark /
@@ -99,12 +100,13 @@ final class EmitOpenapiCmd extends CliCommand:
   def name = "emit-openapi"
   override def summary = "Export OpenAPI 3.1 JSON/YAML without starting a server"
   override def category = "Emit & transpile"
-  override def details = List("Flags: --format <json|yaml>, -o <file>, --title <s>, --version <v>, --server <url>")
+  override def details = List("Flags: --format <json|yaml>, -o <file>, --title <s>, --version <v>, --server <url>, --require-declared")
   def run(args: List[String]): Unit =
     var outputArg: Option[String] = None
     var formatArg: Option[String] = None
     var title: String = "ScalaScript API"
     var version: String = "1.0.0"
+    var requireDeclared = false
     val servers = scala.collection.mutable.ArrayBuffer.empty[String]
     val files = scala.collection.mutable.ArrayBuffer.empty[String]
 
@@ -121,6 +123,8 @@ final class EmitOpenapiCmd extends CliCommand:
           version = it.next()
         case "--server" if it.hasNext =>
           servers += it.next()
+        case "--require-declared" =>
+          requireDeclared = true
         case flag if flag.startsWith("-") =>
           System.err.println(s"emit-openapi: unknown flag $flag")
           System.exit(1)
@@ -189,6 +193,36 @@ final class EmitOpenapiCmd extends CliCommand:
         os.write.over(outPath, rendered)
       case None =>
         print(rendered)
+
+    if requireDeclared then
+      val warnings = openApiEvidenceDiagnostics(module)
+      if warnings.nonEmpty then
+        warnings.foreach(w => System.err.println(s"[emit-openapi] unknown type evidence: $w"))
+        System.exit(1)
+
+private[cli] def openApiEvidenceDiagnostics(module: Module): List[String] =
+  Normalize(module).manifest.toList.flatMap { manifest =>
+    val endpoints = manifest.apiClients.flatMap(_.endpoints)
+    val handlers  = manifest.remoteHandlers
+
+    val endpointWarnings = endpoints.flatMap { e =>
+      val ev = e.typeEvidence
+      val reqKind  = ev.flatMap(_.request).map(_.kind).getOrElse("Unknown")
+      val respKind = ev.flatMap(_.response).map(_.kind).getOrElse("Unknown")
+      if reqKind == "Declared" && respKind == "Declared" then None
+      else Some(s"${e.method} ${e.path} (request: $reqKind, response: $respKind)")
+    }
+
+    val handlerWarnings = handlers.flatMap { h =>
+      val ev = h.typeEvidence
+      val reqKind  = ev.flatMap(_.request).map(_.kind).getOrElse("Unknown")
+      val respKind = ev.flatMap(_.response).map(_.kind).getOrElse("Unknown")
+      if reqKind == "Declared" && respKind == "Declared" then None
+      else Some(s"handler ${h.name} (request: $reqKind, response: $respKind)")
+    }
+
+    endpointWarnings ++ handlerWarnings
+  }
 
 private[cli] def openApiResponseTypes(module: Module): Map[(String, String), String] =
   val entries =

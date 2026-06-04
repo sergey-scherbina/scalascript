@@ -118,3 +118,55 @@ class EmitOpenapiCliTest extends AnyFunSuite with Matchers:
       yaml should include ("openapi: 3.1.0")
       yaml should include ("\"/users/{id}\":")
     finally os.remove.all(dir)
+
+  // ── P4b evidence diagnostics ──────────────────────────────────────────────
+
+  test("openApiEvidenceDiagnostics returns empty for module with declared evidence"):
+    val src =
+      """---
+        |apiClients:
+        |  Users:
+        |    endpoints:
+        |      - name: getUser
+        |        method: GET
+        |        path: /users/:id
+        |        request: Unit
+        |        response: User
+        |---
+        |
+        |# Users
+        |""".stripMargin
+    val module = scalascript.parser.Parser.parse(src)
+    val diags  = openApiEvidenceDiagnostics(module)
+    assert(diags.isEmpty, s"expected no diagnostics but got: $diags")
+
+  test("openApiEvidenceDiagnostics reports endpoints with unknown evidence"):
+    val src =
+      """---
+        |apiClients:
+        |  Orders:
+        |    endpoints:
+        |      - name: listOrders
+        |        method: GET
+        |        path: /orders
+        |        request: Any
+        |        response: Any
+        |---
+        |
+        |# Orders
+        |""".stripMargin
+    val module = scalascript.parser.Parser.parse(src)
+    val diags  = openApiEvidenceDiagnostics(module)
+    assert(diags.nonEmpty, "expected at least one diagnostic for Any-typed endpoint")
+    assert(diags.exists(_.contains("/orders")), s"expected path in diagnostic: $diags")
+
+  test("emit-openapi --require-declared passes silently for declared-evidence module"):
+    val dir = os.temp.dir(prefix = "ssc-emit-openapi-require-declared-")
+    try
+      val file = writeApi(dir)
+      val out = captureStdout {
+        CommandRegistry.dispatch("emit-openapi", List("--require-declared", file.toString))
+      }
+      val json = ujson.read(out)
+      json("openapi").str shouldBe "3.1.0"
+    finally os.remove.all(dir)
