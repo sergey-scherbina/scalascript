@@ -6,13 +6,19 @@
 ## MANDATORY: required skills
 
 Two skills govern how all feature work is done. Read their full instructions
-before starting any implementation. Skill files are in the submodule — read
-them directly (slash commands are not required and may not be available):
+before starting any implementation. Skill files live in the submodule that is
+**only initialized in the shared main repo** — always read from the absolute
+main-repo path below, regardless of whether you are in a worktree:
 
 | Skill | File | When to use |
 |---|---|---|
-| `spec-dev` | `.agents/plugins/spec-dev/commands/spec-dev.md` | Every new feature or change |
-| `multi-agent` | `.agents/plugins/multi-agent/commands/multi-agent.md` | Autonomous loop / queue work |
+| `spec-dev` | `/Users/sergiy/work/my/scalascript/.agents/plugins/spec-dev/commands/spec-dev.md` | Every new feature or change |
+| `multi-agent` | `/Users/sergiy/work/my/scalascript/.agents/plugins/multi-agent/commands/multi-agent.md` | Autonomous loop / queue work |
+
+**Do NOT run `git submodule update --init` inside a worktree** — the submodule
+is already initialized in the shared main repo, and re-initializing it in each
+worktree is unnecessary and error-prone. Always read skill files via the
+absolute `/Users/sergiy/work/my/scalascript/.agents/plugins/…` path.
 
 **spec-dev rules (non-negotiable):**
 - Read `specs/jit-completeness.md` (or the relevant feature spec) before starting any implementation.
@@ -55,7 +61,6 @@ BRANCH="feature/your-task-name"
 WT="/Users/sergiy/work/my/scalascript/.worktrees/$BRANCH"
 git -C /Users/sergiy/work/my/scalascript fetch origin
 git -C /Users/sergiy/work/my/scalascript worktree add "$WT" -b "$BRANCH" origin/main
-git -C "$WT" submodule update --init .agents/plugins
 ```
 
 Then do all work from `$WT`. Details and common traps — in §"Workflow for parallel agents" below.
@@ -192,7 +197,7 @@ Use the `/multi-repo` skill to manage them:
 - `/multi-repo update` — intentionally advance submodules to remote heads
 - `/multi-repo clone` — init missing submodules from scratch
 
-Skill location: `.agents/plugins/multi-repo/commands/multi-repo.md` (submodule).
+Skill location: `/Users/sergiy/work/my/scalascript/.agents/plugins/multi-repo/commands/multi-repo.md` (shared main repo).
 
 ---
 
@@ -298,7 +303,7 @@ Bridge hooks that the interpreter exposes *to* plugins (e.g. `NativeContext.dbCo
 
 See the `/spec-dev` skill for the full workflow (write → implement → verify).
 
-Skill location: `.agents/plugins/spec-dev/commands/spec-dev.md` (submodule).
+Skill location: `/Users/sergiy/work/my/scalascript/.agents/plugins/spec-dev/commands/spec-dev.md` (shared main repo).
 
 Non-trivial in this project (spec required):
 - A new module / package in `build.sbt`
@@ -371,7 +376,6 @@ with plain git — no tool needed:
 BRANCH="feature/your-task-name"
 WT="/Users/sergiy/work/my/scalascript/.worktrees/$BRANCH"
 git -C /Users/sergiy/work/my/scalascript worktree add "$WT" -b "$BRANCH"
-git -C "$WT" submodule update --init .agents/plugins
 ```
 
 Then do **all** work (reads, writes, compiles, tests, commits) from `$WT`
@@ -783,7 +787,7 @@ after yourself.**
 
 See the `/multi-agent` skill for the full protocol (claim, heartbeat, triage, release).
 
-Skill location: `.agents/plugins/multi-agent/commands/multi-agent.md` (submodule).
+Skill location: `/Users/sergiy/work/my/scalascript/.agents/plugins/multi-agent/commands/multi-agent.md` (shared main repo).
 
 Key invariants:
 - Claim from the **main checkout** (`/Users/sergiy/work/my/scalascript`) only — never from a worktree
