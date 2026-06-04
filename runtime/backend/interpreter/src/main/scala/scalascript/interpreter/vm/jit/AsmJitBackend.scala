@@ -1552,7 +1552,9 @@ object AsmJitBackend extends JitBackend:
     emitIconst(mv, 0)
     mv.visitInsn(AALOAD)
     mv.visitTypeInsn(CHECKCAST,
-      if receiverIsSet then "scalascript/interpreter/Value$SetV" else "scalascript/interpreter/Value$ListV")
+      if receiverIsSet then "scalascript/interpreter/Value$SetV"
+      else if doInline then "[Ljava/lang/Object;"   // pre-extracted Object[] for inline match path
+      else "scalascript/interpreter/Value$ListV")
     mv.visitVarInsn(ASTORE, receiverSlot)
 
     k = 0
@@ -1584,7 +1586,7 @@ object AsmJitBackend extends JitBackend:
         if receiverIsSet then
           emitSetForeachAccumInline(mv, funVTyped, accIsDouble, receiverSlot, foreachScratchSlot, elemSlot, accLocal, allocInlineSlot, interp, cname)
         else
-          emitListForeachAccumInline(mv, funVTyped, accIsDouble, receiverSlot, foreachScratchSlot, elemSlot, accLocal, allocInlineSlot, interp, cname)
+          emitArrayForeachAccumInline(mv, funVTyped, accIsDouble, receiverSlot, elemSlot, accLocal, allocInlineSlot, interp, cname)
       if !ok then { whileMixedCache.put(foreachApply, WhileMixedMiss); return null }
     else if receiverIsSet then emitSetForeachAccum(mv, receiverSlot, fnSlot, foreachScratchSlot, accLocal, accIsDouble)
     else emitListForeachAccum(mv, receiverSlot, fnSlot, foreachScratchSlot, accLocal, accIsDouble)
@@ -1638,7 +1640,8 @@ object AsmJitBackend extends JitBackend:
       Array.empty[String],
       if fnObjToLong != null then Array(fnObjToLong) else Array.empty[ObjToLong],
       Array.empty[ObjToObject],
-      if fnObjToDouble != null then Array(fnObjToDouble) else Array.empty[ObjToDouble]
+      if fnObjToDouble != null then Array(fnObjToDouble) else Array.empty[ObjToDouble],
+      listPreExtract = doInline && !receiverIsSet
     )
     whileMixedCache.put(foreachApply, entry.asInstanceOf[AnyRef])
     entry
@@ -1975,37 +1978,38 @@ object AsmJitBackend extends JitBackend:
     mv.visitJumpInsn(GOTO, listHead)
     true
 
-  /** List-foreach with inlined match dispatch — avoids ObjToDouble interface call. */
-  private def emitListForeachAccumInline(
-    mv:           MethodVisitor,
-    funV:         Value.FunV,
-    accIsDouble:  Boolean,
-    receiverSlot: Int,
-    itemsSlot:    Int,
-    elemSlot:     Int,
-    accLocal:     Int,
-    allocSlot:    () => Int,
-    interp:       Interpreter,
-    cname:        String
+  /** Array-backed list-foreach with inlined match dispatch.
+   *  `arrSlot` holds a pre-extracted Object[] (EvalRuntime converts ListV → array before call).
+   *  Uses indexed array access instead of isEmpty/head/tail — eliminates 3 virtual calls/element. */
+  private def emitArrayForeachAccumInline(
+    mv:          MethodVisitor,
+    funV:        Value.FunV,
+    accIsDouble: Boolean,
+    arrSlot:     Int,
+    elemSlot:    Int,
+    accLocal:    Int,
+    allocSlot:   () => Int,
+    interp:      Interpreter,
+    cname:       String
   ): Boolean =
+    val lenLocal = allocSlot()  // 2-unit slot, used as int
+    val idxLocal = allocSlot()  // 2-unit slot, used as int
     val head = new Label
     val done = new Label
-    mv.visitVarInsn(ALOAD, receiverSlot)
-    mv.visitMethodInsn(INVOKEVIRTUAL, "scalascript/interpreter/Value$ListV", "items",
-      "()Lscala/collection/immutable/List;", false)
-    mv.visitVarInsn(ASTORE, itemsSlot)
+    mv.visitVarInsn(ALOAD, arrSlot)
+    mv.visitInsn(ARRAYLENGTH)
+    mv.visitVarInsn(ISTORE, lenLocal)
+    mv.visitInsn(ICONST_0)
+    mv.visitVarInsn(ISTORE, idxLocal)
     mv.visitLabel(head)
-    mv.visitVarInsn(ALOAD, itemsSlot)
-    mv.visitMethodInsn(INVOKEVIRTUAL, "scala/collection/immutable/List", "isEmpty", "()Z", false)
-    mv.visitJumpInsn(IFNE, done)
-    mv.visitVarInsn(ALOAD, itemsSlot)
-    mv.visitMethodInsn(INVOKEVIRTUAL, "scala/collection/immutable/List", "head", "()Ljava/lang/Object;", false)
+    mv.visitVarInsn(ILOAD, idxLocal)
+    mv.visitVarInsn(ILOAD, lenLocal)
+    mv.visitJumpInsn(IF_ICMPGE, done)
+    mv.visitVarInsn(ALOAD, arrSlot)
+    mv.visitVarInsn(ILOAD, idxLocal)
+    mv.visitInsn(AALOAD)
     mv.visitVarInsn(ASTORE, elemSlot)
-    mv.visitVarInsn(ALOAD, itemsSlot)
-    mv.visitMethodInsn(INVOKEVIRTUAL, "scala/collection/immutable/List", "tail",
-      "()Lscala/collection/LinearSeq;", false)
-    mv.visitTypeInsn(CHECKCAST, "scala/collection/immutable/List")
-    mv.visitVarInsn(ASTORE, itemsSlot)
+    mv.visitIincInsn(idxLocal, 1)
     if !tryEmitInlineMatchAccum(funV, accIsDouble, mv, elemSlot, accLocal, head, allocSlot, interp, cname) then
       return false
     mv.visitLabel(done)

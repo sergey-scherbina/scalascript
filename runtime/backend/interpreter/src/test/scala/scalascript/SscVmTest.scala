@@ -116,6 +116,8 @@ class SscVmTest extends AnyFunSuite with Matchers:
           if entry.mapIsKeyMode then mv.entries.keysIterator.toArray
           else mv.entries.valuesIterator.toArray
         arr.asInstanceOf[AnyRef]
+      case lv: Value.ListV if entry.listPreExtract =>
+        lv.items.toArray[AnyRef].asInstanceOf[AnyRef]
       case other => other.asInstanceOf[AnyRef]
     JitGlobals.withInterp(interp) {
       JitGlobals.withRefs(Array(receiver), entry.refFns, Array.empty[ObjToObject], entry.refDoubleFns) {
