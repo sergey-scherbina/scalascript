@@ -42,6 +42,17 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
   tuple-monoid: 4.24 ms → 0.025 ms (170×). 1236 conformance tests passed.
   See `docs/js-codegen-opt-p2.md`.
 
+- [x] **js-codegen-opt-p3** — Fix `emit-js` field/arith regression + `_forEach` loop bypass. ✓ Landed 2026-06-04.
+  Root cause: `genModuleSegmented` (used by `emit-js`/`run-js`/bench) was missing
+  `caseClassFieldsByType` and `caseClassFieldTypeMap` initialization present in `genModule`.
+  Consequence: every case class field access emitted `Object.values(_t1).slice(1)[0]`
+  (two JS array allocs per access) and every Double/Float arithmetic used
+  `_arith('*', a, b)` (Decimal/BigInt check on every op) instead of direct `a * b`.
+  Also added `_forEach` helper (array fast-path bypassing `_dispatch` + `[fn]` array
+  allocation) and indexed `for` loop in `_seqForeach`.
+  `pattern-match-heavy` JS: **35.8 ms → 5.0 ms (7.2×)**. 1279 conformance tests passed.
+  Commit `c3ea423e`.
+
 ---
 
 ## busi-driven follow-ups (open)
@@ -1035,16 +1046,12 @@ highest-impact item.
       allocation for trivial single-expression functions.
       **Bench target:** `hello-world` interp ≤0.004 ms (2× of JVM, given IO cost).
 
-- [ ] **js-pattern-match-dispatch** — `pattern-match-heavy` JS 35.9 ms vs interp
-      0.647 ms (55×).  Workload: 5-case sealed ADT `Shape`, matched 500k times via
-      `shapes.foreach(s => area(s))`.  JS codegen almost certainly emits a chain of
-      `instanceof`-style checks per match arm rather than a tag-dispatched switch.
-      Investigation: inspect emitted JS for `area` function; confirm whether it's
-      `if (s instanceof Circle)…else if…` or something worse.  Fix: add a
-      `$tag` integer field to all case class JS representations and rewrite match
-      dispatch to a JS `switch($tag)` — O(1) vs O(n) per match.
-      **Bench target:** `pattern-match-heavy` JS ≤3 ms (10× improvement; full interp
-      parity may require further work on `foreach` loop overhead).
+- [x] **js-pattern-match-dispatch** — ✓ Addressed by `js-codegen-opt-p3` (2026-06-04).
+      Root cause was `genModuleSegmented` missing field/type map initialization, not
+      missing `$tag` dispatch. Fix: added two missing scans to `genModuleSegmented`;
+      added `_forEach` array bypass. Result: **35.8 ms → 5.0 ms (7.2×)**. Bench target
+      was ≤3 ms; remaining gap (5.0 vs 3.0 ms) is from `Object.values` shape checks
+      in match arms — a `$tag`-based switch is a viable follow-up if needed.
 
 - [ ] **asm-jit-patternmatch-wide-gap** — `patternMatchWide` is 25% slower in
       AsmJitBackend vs Javac (0.795 vs 0.636 ms, 2026-06-04 run).

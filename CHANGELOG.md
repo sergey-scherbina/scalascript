@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — perf(js): js-codegen-opt-p3 — emit-js field/arith fix + _forEach bypass
+
+- **js-codegen-opt-p3** — Fixed `genModuleSegmented` (used by `emit-js`/`run-js`/bench)
+  missing `caseClassFieldsByType` + `caseClassFieldTypeMap` initialization; added `_forEach`
+  array-bypass helper. `pattern-match-heavy` JS: 35.8 ms → 5.0 ms (7.2×). 1279 tests.
+
+---
+
 ## 2026-06-04 — feat: ssc lint-jit --include-while coverage
 
 - **jit-lint-while-coverage** — `ssc lint-jit --include-while` now reports JIT
