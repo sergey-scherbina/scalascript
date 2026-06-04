@@ -22,6 +22,20 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       emitted as a module-level frozen constant.
       **Result:** `tuple-monoid` JS 2.52 → 0.027 ms (93×).
 
+- [x] **js-bench-honest-foreach** — ✓ Landed 2026-06-04 commits `117a812c..8b3912ae`.
+      Three improvements bundled:
+      - **Part 0 (bench honesty):** add `_ssc_sink` DCE barrier to bench wrapper;
+        `tuple-monoid` JVM/interp already fold legitimately (constant hoisting).
+      - **Part B (stdlib direct calls):** bypass `_dispatch([…])` for known singleton
+        methods (`Stream.emit` etc.) — emit `Recv.method(args)` directly.
+        `effect-stream` JS 0.257 → 0.018 ms (**14×**).
+      - **Part A (foreach inlining):** detect `xs.foreach(p => body)` with a literal
+        arrow and emit a flat `for` loop; fallback to `_forEach` for non-Array receivers.
+        `pattern-match-heavy` JS 3.14 → 2.90 ms (~8% — closure allocation eliminated,
+        V8 preamble budget limits inline gain).
+      - **Bonus:** `emptyParamFns` set tracks `def f(): T`; emits `f()` not `_call(f,)`.
+        Eliminates ~0.33 ms `_call` overhead from bench harness `workload()` invocations.
+
 ## Interpreter Performance — Open Targets
 
 Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 -i 5 -f 1`).

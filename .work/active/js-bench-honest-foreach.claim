@@ -1,3 +1,0 @@
-agent: main
-started: 2026-06-04T00:00:00Z
-task: js-bench-honest-foreach — bench consume-sink + JsGen foreach-inline + Stream.emit fast-path
