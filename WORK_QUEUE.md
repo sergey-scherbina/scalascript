@@ -1070,6 +1070,17 @@ highest-impact item.
       with `listPreExtract=true`. 600K × ~1.15 ns/op = 0.69 ms is the floor.
       No allocation in hot loop. Closed without code changes.
 
+- [ ] **interp-opt-init-builtins-cache** — Reduce the interpreter startup/allocation
+      floor for tiny programs by caching or lazily constructing builtins state.
+      Baseline: `effectPure` interp floor at 0.010 ms vs JS 0.006 ms; JFR shows
+      `Interpreter` + `ConcurrentHashMap` allocation dominates at ~32 KB/op.
+      Approach: start with lazy `ConcurrentHashMap` fields, then evaluate whether
+      the shared immutable builtins layer is small enough for this slice. Target:
+      interp `effectPure` <= 0.008 ms for L1+L2. Spec:
+      [`docs/interp-opt-init-builtins-cache.md`](docs/interp-opt-init-builtins-cache.md).
+      Verification: `scripts/bench profile effectPure`, targeted interpreter tests,
+      and relevant compile/test subset.
+
 - [ ] **interp-opt-recursive-eval** — `recursiveEvalMixed` 3.641 ms (2-param
       recursive tree eval — 2× overhead vs 1-param `recursiveEval` 1.898 ms).
       **Root cause:** Each of 511K `gEval(scale, node)` calls is INVOKESTATIC
