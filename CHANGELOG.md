@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — perf(jit): String-returning co-emission lane
+
+- **jit-string-concat** — Both bytecode-JIT backends (javac + asm) gain a
+  String walker so functions that build and return Strings JIT instead of
+  bailing on `Lit.String`. Javac side adds `walkString` /
+  `ensureCoEmittedString` / `emitStringCall`; ASM side adds `walkString` /
+  `isStringExpr` / `emitStringAppend` (StringBuilder chain flattening) /
+  `buildStringDesc` / `emitStaticStringFunction` plus an `ApplyInfixPlus`
+  extractor. Covers `String + concat` (numeric operands coerced via
+  `walkLong`), `.length` on a String receiver, String params, and
+  `Apply`→String co-emission. `string-concat` 95.7 ms → 0.094 ms (ssc) /
+  95.8 ms → 0.153 ms (asm); result 188890 verified with JIT on and off.
+
 ## 2026-06-05 — feat(language): Markdown toolkit content selectors
 
 - **markdown-content-toolkit-selectors** — Added
