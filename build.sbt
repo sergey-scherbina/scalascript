@@ -1055,6 +1055,8 @@ lazy val cli = project
         (deployPlugin          / packagePlugin).value,
         (paymentRequestPlugin  / packagePlugin).value,
         (paymentsPlugin        / packagePlugin).value,
+        (uuidPlugin            / packagePlugin).value,
+        (cryptoPlugin          / packagePlugin).value,
       )
       pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
       log.info(s"bin/lib/compiler/plugins/  (${pluginPkgs.size} .sscpkg files)")
