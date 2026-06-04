@@ -14,9 +14,9 @@ This unification provides:
 
 ## Construct Mappings
 
-### Markdown Host -> Document Content IR (planned)
+### Markdown Host -> Document Content IR
 
-The next planned layer keeps the existing scope/import/code behavior and uses
+The content layer keeps the existing scope/import/code behavior and uses
 the Markdown-hosted document as the first frontend authoring surface. Prose,
 lists, links, images, YAML/front-matter, fenced YAML/JSON/TOML data blocks, and
 other embedded languages that appear as legitimate Markdown blocks lower into a
@@ -45,7 +45,7 @@ plans:
 ```
 ````
 
-Planned AST/runtime shape:
+AST/runtime shape:
 
 ```text
 DocumentContent(
@@ -65,16 +65,17 @@ DocumentContent(
 )
 ```
 
-The first planned public path is frontend lowering:
+The first public path is frontend lowering:
 
 ```scalascript
 [contentDocument](std/content.ssc)
+
 [contentView](std/ui/content.ssc)
 
 val page = contentView(contentDocument())
 ```
 
-The lower-level metadata API is planned under `std/content.ssc`:
+The broader metadata API remains planned under `std/content.ssc`:
 
 ```scalascript
 val doc = contentDocument()

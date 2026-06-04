@@ -24,28 +24,27 @@ plans:
     price: 49
 ```
 
-## Planned Frontend API
+## Frontend API
 
-The first planned goal is frontend from Markdown. This example is intentionally
-kept runnable today by showing the future code as text until the implementation
-lands. The Markdown body above should lower to frontend toolkit nodes, while the
-YAML block becomes structured `ContentValue` data for the renderer or custom
-components.
+The first implemented goal is frontend from Markdown. The Markdown body above
+lowers to low-level frontend `View` nodes, while the YAML block becomes
+structured `ContentValue` data for custom renderers and later metadata APIs.
 
-```text
 [contentDocument](std/content.ssc)
+
 [contentView](std/ui/content.ssc)
 
-val doc = contentDocument()
-val page = contentView(doc)
-serve(lower(page, defaultTheme), 8080)
-
-// Lower-level metadata APIs follow the frontend MVP:
-// contentSection("plans")
-// contentData("plans-data")
-```
+[emit](std/ui/primitives.ssc)
 
 ```scalascript
-println("content-introspection: planned Markdown-to-frontend API")
-println("spec: specs/markdown-content-introspection.md")
+val doc = contentDocument()
+val page = contentView(doc)
+emit(page, "/tmp/ssc-content-introspection")
+
+println("content-introspection:ok")
+println("emitted: /tmp/ssc-content-introspection")
+
+// Lower-level metadata APIs remain the follow-up slice:
+// contentSection("plans")
+// contentData("plans-data")
 ```

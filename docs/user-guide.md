@@ -316,15 +316,15 @@ java -Dscalascript.server.port=9090 -jar target/build/jvm/myapp.jar
 
 ## 3. Language Basics
 
-### Markdown Content Introspection (planned)
+### Markdown Frontend From Content
 
 ScalaScript already treats Markdown headings, links, YAML front-matter, and
-fenced blocks as language syntax. The first planned user-facing slice is
+fenced blocks as language syntax. The first implemented user-facing slice is
 frontend from Markdown: a Markdown-hosted document lowers to `std/ui` so pages
 and screens can be authored without hand-written markup generation. The same
-content snapshot later supports the broader `std/content` metadata API for
-prose-defined metadata, fenced YAML/JSON/TOML data, and other embedded language
-blocks.
+`DocumentContent` snapshot is exposed through `std/content` and later supports
+the broader metadata API for prose-defined metadata, fenced YAML/JSON/TOML data,
+and other embedded language blocks.
 
 ````markdown
 # Pricing {#pricing route=/pricing layout=marketing}
@@ -346,16 +346,23 @@ plans:
 ```
 ````
 
-Planned frontend API:
+Frontend MVP API:
 
 ```scalascript
 [contentDocument](std/content.ssc)
+
 [contentView](std/ui/content.ssc)
 
 val page = contentView(contentDocument())
 ```
 
-Planned lower-level introspection API:
+`contentDocument()` returns the current parsed module snapshot. `contentView`,
+`contentViewSection`, and `contentViewBlock` lower that snapshot to low-level
+frontend `View` values. Imports must be written as separate Markdown paragraphs
+(blank line between import links), matching the existing ScalaScript import
+syntax.
+
+Lower-level lookup helpers are planned after the frontend MVP:
 
 ```scalascript
 [contentDocument, contentCurrentSection, contentSection, contentData](std/content.ssc)
@@ -366,8 +373,7 @@ println(contentSection("plans").get.title)
 println(contentData("plans-data").isDefined)
 ```
 
-This feature is not implemented yet. The target contract, phase plan, and
-pending conformance fixture are tracked in
+The target contract, phase plan, and remaining metadata helpers are tracked in
 [`specs/markdown-content-introspection.md`](../specs/markdown-content-introspection.md).
 
 ### Values and Variables

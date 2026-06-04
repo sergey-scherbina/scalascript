@@ -316,24 +316,26 @@ and one `await SqlRuntimeJs.execute(...)` per block.  The section alias
 (e.g. `CacheSetup`) is exposed as `window._ssc_client['CacheSetup'].sql`
 for the React/Solid/Vue app to consume.
 
-### 3.4 Markdown Content Introspection (planned)
+### 3.4 Markdown Frontend From Content
 
 ScalaScript treats Markdown-hosted content as source syntax, not as comments.
-The first planned content milestone is frontend from Markdown: the parsed
-document lowers to frontend toolkit nodes so authors can define pages and
-screens without hand-writing markup generation. The same typed, immutable
-snapshot is also available to code blocks and metadata helpers. It includes
-Markdown prose and structure, YAML/front-matter, and fenced embedded language
-blocks.
+The first content milestone is frontend from Markdown: the parsed document
+lowers to frontend toolkit nodes so authors can define pages and screens
+without hand-writing markup generation. The same typed, immutable snapshot is
+available to code blocks through `contentDocument()` and later powers broader
+metadata helpers. It includes Markdown prose and structure, YAML/front-matter,
+and fenced embedded language blocks.
 
-Target API:
+MVP API:
 
 ```scalascript
-[contentDocument, contentCurrentSection, contentSection](std/content.ssc)
+[contentDocument](std/content.ssc)
+
+[contentView](std/ui/content.ssc)
 
 val doc = contentDocument()
 println(doc.title.getOrElse(""))
-println(contentSection("pricing").get.title)
+val page = contentView(doc)
 ```
 
 Markdown headings, prose, lists, links, images, code fences, YAML/JSON/TOML data
@@ -359,12 +361,13 @@ The content snapshot is parse-time data. Inline `${expr}` inside prose is stored
 as expression source until an explicit renderer evaluates it, so reading
 `contentDocument()` does not execute user code or cause side effects.
 
-Frontend lowering is the first public target. `std/ui/content.ssc` will provide
-`contentView(documentOrSection)` helpers that render the same content tree
-through the existing backend-agnostic UI model. The lower-level `std/content`
-metadata API follows from the same snapshot instead of being the first goal. See
+Frontend lowering is the first public target. `std/ui/content.ssc` provides
+`contentView(...)`, `contentViewSection(...)`, and `contentViewBlock(...)`
+helpers that render the same content tree through the existing backend-agnostic
+UI model. The lower-level `std/content` metadata API follows from the same
+snapshot instead of being the first goal. See
 [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md)
-for the full planned contract and implementation phases.
+for the full contract and remaining implementation phases.
 
 ### 3.5 Inline Interpolation
 

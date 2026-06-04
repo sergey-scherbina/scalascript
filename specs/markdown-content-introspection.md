@@ -1,10 +1,11 @@
 # Markdown Content Introspection
 
-Status: planned. This document is the implementation contract for the first
-content milestone: building frontend UI from Markdown-hosted content. The same
-`DocumentContent` snapshot also supports typed metadata and introspection, but
-Phase 1 is judged by whether a page or screen authored mostly as Markdown can
-lower to the existing frontend toolkit without hand-written markup generation.
+Status: Phase 1 landed 2026-06-04. This document is the implementation
+contract for the content milestone: building frontend UI from Markdown-hosted
+content first, then exposing broader metadata/introspection helpers. The same
+`DocumentContent` snapshot supports both paths, but Phase 1 is judged by
+whether a page or screen authored mostly as Markdown can lower to the existing
+frontend toolkit without hand-written markup generation.
 
 ## Overview
 
@@ -115,8 +116,8 @@ depending on raw YAML maps.
 
 The shared model is deliberately data-first because frontend rendering,
 metadata, CLI, compiler, and server use cases must all read the same source of
-truth. The full public introspection API may land after the first frontend
-slice, but the types below are the stable contract that the renderer consumes.
+truth. Phase 1 ships the stable model plus `contentDocument()` for the
+interpreter; the remaining lookup and markdown-conversion helpers are Phase 2.
 Names are prefixed with `content` to avoid collisions with existing `doc(...)`
 and `render(...)` helpers.
 
@@ -143,11 +144,8 @@ enum ContentBlock:
   case Paragraph(inlines: List[ContentInline], attrs: Map[String, ContentValue])
   case BulletList(items: List[List[ContentBlock]], attrs: Map[String, ContentValue])
   case OrderedList(items: List[List[ContentBlock]], start: Int, attrs: Map[String, ContentValue])
-  case Quote(blocks: List[ContentBlock], attrs: Map[String, ContentValue])
   case Image(src: String, alt: String, title: Option[String], attrs: Map[String, ContentValue])
   case Embedded(lang: String, source: String, kind: EmbeddedKind, data: Option[ContentValue], attrs: Map[String, ContentValue])
-  case RawHtml(source: String, attrs: Map[String, ContentValue])
-  case Table(header: List[String], rows: List[List[String]], attrs: Map[String, ContentValue])
 
 enum EmbeddedKind:
   case StructuredData
@@ -184,8 +182,9 @@ extern def contentToMarkdown(section: SectionContent): String
 ```
 
 `contentDocument()` returns a parse-time snapshot of the whole module. It is
-available from every `scalascript` / `ssc` block. `contentCurrentSection()`
-returns the enclosing section for the code block that called it.
+available from every `scalascript` / `ssc` block in the interpreter. Phase 2
+adds JS/JVM exposure plus `contentCurrentSection()`, which returns the enclosing
+section for the code block that called it.
 
 `contentMetadata(path)` reads `content:` front-matter by dot path, for example
 `contentMetadata("defaultRenderer")`. It does not read arbitrary front-matter
@@ -201,7 +200,7 @@ for structured blocks that failed to parse.
 Frontend lowering is the first user-facing target for this feature. It lives
 outside `std/content` so the shared content model can later be used by CLI,
 compiler, server, and data use cases without pulling in UI dependencies. The
-planned `runtime/std/ui/content.ssc` surface is:
+`runtime/std/ui/content.ssc` surface is:
 
 ```scalascript
 case class ContentRenderOptions(
@@ -210,9 +209,9 @@ case class ContentRenderOptions(
   sectionIdsAsAnchors: Boolean = true
 )
 
-extern def contentView(doc: DocumentContent, options: ContentRenderOptions = ContentRenderOptions()): UiNode
-extern def contentView(section: SectionContent, options: ContentRenderOptions = ContentRenderOptions()): UiNode
-extern def contentViewBlock(block: ContentBlock, options: ContentRenderOptions = ContentRenderOptions()): UiNode
+def contentView(doc: DocumentContent, options: ContentRenderOptions = ContentRenderOptions()): View
+def contentViewSection(section: SectionContent, options: ContentRenderOptions = ContentRenderOptions()): View
+def contentViewBlock(block: ContentBlock, options: ContentRenderOptions = ContentRenderOptions()): View
 ```
 
 The default lowering maps:
@@ -226,7 +225,6 @@ The default lowering maps:
 | `Image` | image node with `alt` |
 | `Embedded(StructuredData)` | omitted by default unless a component/custom renderer consumes it |
 | `Embedded(Executable/StringBlock/Opaque)` | omitted by default; rendered as code/pre when `includeCode = true` |
-| `Table` | table node when table parsing is enabled; otherwise not emitted |
 
 If a block or section has `component=<name>` metadata, the generic lowering
 first asks a component registry for `<name>`. If no renderer is registered, it
@@ -235,32 +233,33 @@ a compile error by itself.
 
 ## Behavior
 
-- [ ] The first implementation slice renders a Markdown-authored page or screen
+- [x] The first implementation slice renders a Markdown-authored page or screen
       through the existing frontend toolkit without user-written HTML or manual
       UI tree construction.
-- [ ] The parser preserves Markdown-hosted content as a stable
+- [x] The parser preserves Markdown-hosted content as a stable
       `DocumentContent` snapshot without changing existing section scoping or
       code block execution.
-- [ ] YAML front-matter is exposed as `DocumentContent.manifest: ContentValue`
+- [x] YAML front-matter is exposed as `DocumentContent.manifest: ContentValue`
       while still serving as the existing module manifest.
-- [ ] Fenced YAML/JSON/TOML structured blocks preserve source and expose parsed
-      `ContentValue` data when parsing succeeds.
-- [ ] Every fenced code block enters the content tree as an embedded language
+- [x] Fenced YAML/JSON/TOML structured blocks preserve source and expose parsed
+      `ContentValue` data when parsing succeeds and a parser is available.
+- [x] Every fenced code block enters the content tree as an embedded language
       node, even when its execution is handled by a backend or plugin.
-- [ ] Generated section ids are deterministic: slugify heading text; if a slug
+- [x] Generated section ids are deterministic: slugify heading text; if a slug
       is repeated, append `-2`, `-3`, etc. Explicit `{#id}` wins and duplicate
       explicit ids are a compile-time diagnostic.
-- [ ] Heading attributes and `<!-- @meta ... -->` directives lower into
+- [x] Heading attributes and `<!-- @meta ... -->` directives lower into
       `attrs: Map[String, ContentValue]` on the targeted node.
-- [ ] `contentDocument()` is available from every ScalaScript block and returns
-      the same immutable parse-time snapshot during one module execution.
+- [x] `contentDocument()` is available from every ScalaScript block in the
+      interpreter and returns the same immutable parse-time snapshot during one
+      module execution.
 - [ ] `contentCurrentSection()` returns the code block's enclosing section,
       including metadata and sibling prose/list blocks in that section.
 - [ ] Inline `${expr}` in prose is represented as `ContentInline.Expr(source)`
       until an explicit renderer evaluates it. Content introspection itself does
       not execute inline expressions.
-- [ ] `contentView(...)` renders a document or section to the existing frontend
-      toolkit and is the primary Phase 1 success criterion.
+- [x] `contentView(...)` renders a document to the existing frontend toolkit and
+      is the primary Phase 1 success criterion.
 - [ ] Interpreter, JS, and JVM backends expose byte-identical textual results
       for the non-frontend `std/content` API.
 - [ ] `.sscc` / `.scir` artifacts preserve enough content metadata for linked
@@ -416,7 +415,7 @@ concatenates classes in source order.
   entries, one example, and a pending conformance fixture.
 - No compiler/runtime behavior change in this phase.
 
-### Phase 1 - Markdown-to-frontend MVP
+### Phase 1 - Markdown-to-frontend MVP (landed 2026-06-04)
 
 - Add the rendering-grade `DocumentContentDecl` / `SectionContentDecl` /
   `ContentBlock` / `ContentInline` / `ContentValue` snapshot needed by the UI
@@ -434,9 +433,10 @@ concatenates classes in source order.
 
 ### Phase 2 - Full `std/content` introspection API
 
-- Create `runtime/std/content.ssc` and `runtime/std/content-plugin`.
-- Populate native context state for interpreter, JS, and JVM backends.
-- Implement `contentDocument`, `contentCurrentSection`, `contentSection`,
+- Extend `runtime/std/content.ssc` and `runtime/std/content-plugin` beyond the
+  Phase 1 `contentDocument()` interpreter API.
+- Populate native context state for JS and JVM backends.
+- Implement `contentCurrentSection`, `contentSection`,
   `contentBlock`, `contentData`, `contentMetadata`, `contentPlainText`, and
   `contentToMarkdown`.
 - Enable the pending conformance test across INT, JS, and JVM.
@@ -485,7 +485,8 @@ concatenates classes in source order.
 
 ## Results
 
-Phase 0 landed the planned public contract, docs, example, and pending
-conformance fixture. The next implementation slice is the Markdown-to-frontend
-MVP; no runtime/compiler tests are expected to pass for the new API until that
-Phase 1 work starts.
+Phase 1 landed the Markdown-to-frontend MVP on 2026-06-04:
+parser-side `DocumentContent`, interpreter `contentDocument()`,
+`std/ui/content.ssc` lowering, and a React emit smoke. The remaining work is the
+full metadata lookup API, JS/JVM exposure, artifact round-trip, custom renderer
+registry, tables, and cross-backend conformance.
