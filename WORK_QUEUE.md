@@ -282,35 +282,37 @@ project to root (in build file:<worktree-path>/)` line) before trusting.
 **Benchmark protocol:** `bash install.sh` first (rebuilds ssc binary used by bench.sh),
 then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 
-`InterpreterBench` (ms/op, 1 fork × 5 iters, 2026-06-04 — Javac default / ASM comparison):
+`InterpreterBench` (ms/op, 1 fork × 5 iters — **current baseline 2026-06-04**, Javac; ASM column from earlier run):
 
 | Bench | Javac | ASM | Notes |
 |---|---|---|---|
-| `arithLoop` | **0.276** | 0.277 | parity ✓ |
+| `arithLoop` | 0.256 | 0.277 | parity ✓ |
+| `counterWithTupleVar` | 58.751 | — | guard bench — non-hoist fallback path, expected slow |
 | `effectPure` | 0.015 | 0.015 | parity ✓ |
-| `instanceFieldAccess` | **0.039** | 0.041 | parity ✓ |
-| `mapForeach` | **0.201** | 0.187 | parity ✓ |
-| `matchBodyBaseline` | 0.047 | 0.044 | parity ✓ |
-| `nestedMatchExpr` | 0.045 | 0.045 | parity ✓ |
-| `patternGuard` | 0.046 | 0.048 | parity ✓ |
-| `patternMatchHeavy` | **0.438** | 0.720 | **ASM +64%** — asm-jit-patternmatch-regression |
-| `patternMatchSet` | **0.211** | 0.838 | **ASM +297%** — asm-jit-patternmatch-regression |
-| `patternMatchWide` | **0.670** | 1.685 | phase-d landed (2.1×); ASM still lagging |
-| `pureCallSum` | **0.295** | 11.215 | **ASM BUG +3700%** — asm-jit-purecall-bug |
-| `pureCallSum2` | **0.283** | 12.175 | **ASM BUG +4300%** — asm-jit-purecall-bug |
-| `pureCallSumIf` | **0.279** | 2774 | **ASM BUG ~10000×** — asm-jit-purecall-bug |
-| `pureCallSumBlock` | **0.259** | 2676 | **ASM BUG ~10000×** — asm-jit-purecall-bug |
-| `recursionFib` | **1.278** | 1.247 | parity ✓ |
-| `recursionFibD` | **1.457** | 1.462 | parity ✓ |
-| `recursionFibMul` | **1.305** | 1.341 | parity ✓ |
-| `recursionFibMulD` | **1.599** | 1.643 | parity ✓ |
-| `recursionTco` | **0.036** | 0.035 | parity ✓ |
-| `recursiveEval` | 3.648 | 3.706 | physical floor — 3.5 ns/node INVOKESTATIC, unreducible |
-| `recursiveEvalMixed` | 3.622 | 3.697 | physical floor |
-| `refChainArg` | 0.395 | 0.047 | ASM faster ✓ |
-| `refFieldArg` | 0.049 | 0.047 | parity ✓ |
-| `tupleMonoid` | **0.013** | - | ✓ 15× via jit-tuple-concat-hoist; faster than JVM (0.137 ms) |
-| `effectStream` | **0.102** | - | ✓ 253× via effect-stream-opt2 LExpr loop |
+| `effectStream` | **0.104** | — | ✓ 253× via effect-stream-opt2 |
+| `instanceFieldAccess` | 0.039 | 0.041 | parity ✓ |
+| `mapForeach` | 0.188 | 0.187 | parity ✓ |
+| `matchBodyBaseline` | 0.044 | 0.044 | parity ✓ |
+| `nestedMatchExpr` | 0.043 | 0.045 | parity ✓ |
+| `patternGuard` | 0.045 | 0.048 | parity ✓ |
+| `patternMatchHeavy` | 0.403 | — | ✓ improved (was 0.438); ASM parity needs re-run |
+| `patternMatchSet` | 0.256 | — | ASM parity needs re-run |
+| `patternMatchWide` | **0.636** | — | ASM column stale (pre-fix 1.685 ms); re-run `scripts/bench asm` to measure current gap |
+| `pureCallSum` | 0.256 | — | ✓ ASM bug fixed (was 11.2 ms) |
+| `pureCallSum2` | 0.292 | — | ✓ ASM bug fixed |
+| `pureCallSumBlock` | 0.276 | — | ✓ ASM bug fixed (was 2676 ms) |
+| `pureCallSumIf` | 0.278 | — | ✓ ASM bug fixed (was 2774 ms) |
+| `recursionFib` | 1.284 | 1.247 | parity ✓ |
+| `recursionFibD` | 1.476 | 1.462 | parity ✓ |
+| `recursionFibMul` | 1.315 | 1.341 | parity ✓ |
+| `recursionFibMulD` | 1.610 | 1.643 | parity ✓ |
+| `recursionTco` | 0.034 | 0.035 | parity ✓ |
+| `recursiveEval` | 3.383 | 3.706 | physical floor — 3.5 ns/node INVOKESTATIC, unreducible |
+| `recursiveEvalMixed` | 3.665 | 3.697 | physical floor |
+| `refChainArg` | 0.375 | 0.047 | ASM faster ✓ |
+| `refFieldArg` | 0.047 | 0.047 | parity ✓ |
+| `tupleMonoid` | **0.013** | — | ✓ 16× via jit-tuple-concat-hoist; faster than JVM (0.137 ms) |
+| `tupleMonoidVal` | 0.012 | — | guard bench — val-hoist path |
 
 `RuntimeBench` cross-backend (µs/op, default flags):
 
