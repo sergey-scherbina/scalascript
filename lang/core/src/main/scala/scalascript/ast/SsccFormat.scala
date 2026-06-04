@@ -74,9 +74,6 @@ object SsccFormat:
     try gz.write(bytes) finally gz.close()
     out.toByteArray
 
-  private def gzipDecompress(bytes: Array[Byte]): Array[Byte] =
-    gzipDecompress(bytes, 0)
-
   private def gzipDecompress(bytes: Array[Byte], off: Int): Array[Byte] =
     import java.io.ByteArrayInputStream
     import java.util.zip.GZIPInputStream
