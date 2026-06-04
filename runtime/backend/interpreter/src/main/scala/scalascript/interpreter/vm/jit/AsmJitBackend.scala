@@ -1305,8 +1305,14 @@ object AsmJitBackend extends JitBackend:
     val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
       override def getCommonSuperClass(t1: String, t2: String): String = "java/lang/Object"
     }
-    cw.visit(V21, ACC_PUBLIC | ACC_FINAL, cname, null, "java/lang/Object", Array.empty)
-    val mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, "run", "([J)V", null, null)
+    cw.visit(V21, ACC_PUBLIC | ACC_FINAL, cname, null, "java/lang/Object",
+      Array("scalascript/interpreter/vm/jit/WhileLongRunFn"))
+    val init0 = cw.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null)
+    init0.visitCode()
+    init0.visitVarInsn(ALOAD, 0)
+    init0.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false)
+    init0.visitInsn(RETURN); init0.visitMaxs(1, 1); init0.visitEnd()
+    val mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, "runStatic", "([J)V", null, null)
     mv.visitCode()
     emitWhileRefPreamble(ctx, mv, names.length)
 
@@ -1333,6 +1339,11 @@ object AsmJitBackend extends JitBackend:
       mv.visitVarInsn(LLOAD, 1 + i * 2); mv.visitInsn(LASTORE)
       i += 1
     mv.visitInsn(RETURN); mv.visitMaxs(0, 0); mv.visitEnd()
+    val imv0 = cw.visitMethod(ACC_PUBLIC, "run", "([J)V", null, null)
+    imv0.visitCode()
+    imv0.visitVarInsn(ALOAD, 1)
+    imv0.visitMethodInsn(INVOKESTATIC, cname, "runStatic", "([J)V", false)
+    imv0.visitInsn(RETURN); imv0.visitMaxs(0, 0); imv0.visitEnd()
 
     for (_, pf) <- pureFns do pf.emit(cw)
     cw.visitEnd()
@@ -1341,13 +1352,10 @@ object AsmJitBackend extends JitBackend:
     val loader = new InMemoryClassLoader(getClass.getClassLoader)
     val cls    = try loader.define(cname.replace('/', '.'), bytes)
                  catch case _: Throwable => { whileCache.put(cond, WhileMiss); return null }
-    val method =
-      try
-        val m = cls.getMethod("run", classOf[Array[Long]])
-        m.setAccessible(true)
-        m
+    val runFn0: WhileLongRunFn | Null =
+      try cls.getConstructor().newInstance().asInstanceOf[WhileLongRunFn]
       catch case _: Throwable => null
-    if method == null then
+    if runFn0 == null then
       whileCache.put(cond, WhileMiss)
       return null
     val refFnsArr = resolveWhileRefFns(ctx, interp)
@@ -1355,7 +1363,8 @@ object AsmJitBackend extends JitBackend:
     val refObjFnsArr = resolveWhileRefObjFns(ctx, interp)
     if refObjFnsArr == null then { whileCache.put(cond, WhileMiss); return null }
     val entry = new WhileJitEntry(
-      method,
+      runFn0,
+      new Array[Long](names.length),
       if ctx.refNames.isEmpty then Array.empty[String] else ctx.refNames.toArray,
       refFnsArr,
       refObjFnsArr
@@ -1514,8 +1523,14 @@ object AsmJitBackend extends JitBackend:
     val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
       override def getCommonSuperClass(t1: String, t2: String): String = "java/lang/Object"
     }
-    cw.visit(V21, ACC_PUBLIC | ACC_FINAL, cname, null, "java/lang/Object", Array.empty)
-    val mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, "run", "([J)V", null, null)
+    cw.visit(V21, ACC_PUBLIC | ACC_FINAL, cname, null, "java/lang/Object",
+      Array("scalascript/interpreter/vm/jit/WhileLongRunFn"))
+    val init1 = cw.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null)
+    init1.visitCode()
+    init1.visitVarInsn(ALOAD, 0)
+    init1.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false)
+    init1.visitInsn(RETURN); init1.visitMaxs(1, 1); init1.visitEnd()
+    val mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, "runStatic", "([J)V", null, null)
     mv.visitCode()
 
     val accSlotIdx = names.length
@@ -1617,6 +1632,11 @@ object AsmJitBackend extends JitBackend:
     val bytes =
       try
         mv.visitMaxs(0, 0); mv.visitEnd()
+        val imv1 = cw.visitMethod(ACC_PUBLIC, "run", "([J)V", null, null)
+        imv1.visitCode()
+        imv1.visitVarInsn(ALOAD, 1)
+        imv1.visitMethodInsn(INVOKESTATIC, cname, "runStatic", "([J)V", false)
+        imv1.visitInsn(RETURN); imv1.visitMaxs(0, 0); imv1.visitEnd()
         for (_, pf) <- pureFns do pf.emit(cw)
         cw.visitEnd(); cw.toByteArray
       catch case _: Throwable => null
@@ -1625,18 +1645,16 @@ object AsmJitBackend extends JitBackend:
     val loader = new InMemoryClassLoader(getClass.getClassLoader)
     val cls = try loader.define(cname.replace('/', '.'), bytes)
               catch case _: Throwable => { whileMixedCache.put(foreachApply, WhileMixedMiss); return null }
-    val method =
-      try
-        val m = cls.getMethod("run", classOf[Array[Long]])
-        m.setAccessible(true)
-        m
+    val runFn1: WhileLongRunFn | Null =
+      try cls.getConstructor().newInstance().asInstanceOf[WhileLongRunFn]
       catch case _: Throwable => null
-    if method == null then
+    if runFn1 == null then
       whileMixedCache.put(foreachApply, WhileMixedMiss)
       return null
 
     val entry = new WhileJitEntry(
-      method,
+      runFn1,
+      new Array[Long](names.length + 1),
       Array.empty[String],
       if fnObjToLong != null then Array(fnObjToLong) else Array.empty[ObjToLong],
       Array.empty[ObjToObject],
@@ -1680,8 +1698,14 @@ object AsmJitBackend extends JitBackend:
     val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
       override def getCommonSuperClass(t1: String, t2: String): String = "java/lang/Object"
     }
-    cw.visit(V21, ACC_PUBLIC | ACC_FINAL, cname, null, "java/lang/Object", Array.empty)
-    val mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, "run", "([J)V", null, null)
+    cw.visit(V21, ACC_PUBLIC | ACC_FINAL, cname, null, "java/lang/Object",
+      Array("scalascript/interpreter/vm/jit/WhileLongRunFn"))
+    val init2 = cw.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null)
+    init2.visitCode()
+    init2.visitVarInsn(ALOAD, 0)
+    init2.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false)
+    init2.visitInsn(RETURN); init2.visitMaxs(1, 1); init2.visitEnd()
+    val mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, "runStatic", "([J)V", null, null)
     mv.visitCode()
 
     val accSlotIdx = names.length
@@ -1754,6 +1778,11 @@ object AsmJitBackend extends JitBackend:
     mv.visitInsn(RETURN)
     mv.visitMaxs(0, 0)
     mv.visitEnd()
+    val imv2 = cw.visitMethod(ACC_PUBLIC, "run", "([J)V", null, null)
+    imv2.visitCode()
+    imv2.visitVarInsn(ALOAD, 1)
+    imv2.visitMethodInsn(INVOKESTATIC, cname, "runStatic", "([J)V", false)
+    imv2.visitInsn(RETURN); imv2.visitMaxs(0, 0); imv2.visitEnd()
 
     for (_, pf) <- pureFns do pf.emit(cw)
     cw.visitEnd()
@@ -1762,18 +1791,16 @@ object AsmJitBackend extends JitBackend:
     val loader = new InMemoryClassLoader(getClass.getClassLoader)
     val cls = try loader.define(cname.replace('/', '.'), bytes)
               catch case _: Throwable => { whileMixedCache.put(foreachApply, WhileMixedMiss); return null }
-    val method =
-      try
-        val m = cls.getMethod("run", classOf[Array[Long]])
-        m.setAccessible(true)
-        m
+    val runFn2: WhileLongRunFn | Null =
+      try cls.getConstructor().newInstance().asInstanceOf[WhileLongRunFn]
       catch case _: Throwable => null
-    if method == null then
+    if runFn2 == null then
       whileMixedCache.put(foreachApply, WhileMixedMiss)
       return null
 
     val entry = new WhileJitEntry(
-      method,
+      runFn2,
+      new Array[Long](names.length + 1),
       Array.empty[String],
       Array.empty[ObjToLong],
       Array.empty[ObjToObject],

@@ -105,7 +105,7 @@ class SscVmTest extends AnyFunSuite with Matchers:
   private def runWhileEntry(entry: WhileJitEntry, interp: Interpreter, slots: Array[Long]): Unit =
     JitGlobals.withInterp(interp) {
       JitGlobals.withRefs(resolveWhileRefs(entry, interp), entry.refFns, entry.refObjFns) {
-        entry.method.invoke(null, slots.asInstanceOf[AnyRef])
+        entry.runFn.run(slots)
       }
     }
 
@@ -121,7 +121,7 @@ class SscVmTest extends AnyFunSuite with Matchers:
       case other => other.asInstanceOf[AnyRef]
     JitGlobals.withInterp(interp) {
       JitGlobals.withRefs(Array(receiver), entry.refFns, Array.empty[ObjToObject], entry.refDoubleFns) {
-        entry.method.invoke(null, slots.asInstanceOf[AnyRef])
+        entry.runFn.run(slots)
       }
     }
 
