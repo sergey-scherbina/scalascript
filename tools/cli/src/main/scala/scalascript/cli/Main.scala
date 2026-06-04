@@ -6833,8 +6833,8 @@ final class BenchCmd extends CliCommand:
     var requireTarget  = false
     var warmupExplicit   = false
     var repsExplicit     = false
-    // Default: 1 s time-based warmup. --warmup N clears this (count-based).
-    var warmupTimeMs: Option[Long] = Some(1000L)
+    // Default: 3 s time-based warmup. --warmup N clears this (count-based).
+    var warmupTimeMs: Option[Long] = Some(3000L)
     var fileArg: Option[String] = None
 
     def parseTarget(raw: String): Long = raw.toLongOption.getOrElse {
