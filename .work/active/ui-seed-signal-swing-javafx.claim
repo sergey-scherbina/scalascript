@@ -1,4 +1,0 @@
-feature/ui-seed-signal-swing-javafx 2026-06-04T05:50:03Z
-status: in-progress
-done-so-far: Found SeedSignal parity gap in Swing/JavaFX generated emitters; runtime path partially works via SeedSignal object semantics
-next: add seed-aware generated state/lowering for Swing and JavaFX plus focused tests
