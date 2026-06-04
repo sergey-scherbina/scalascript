@@ -1479,17 +1479,21 @@ object AsmJitBackend extends JitBackend:
     if !fnVal.isInstanceOf[Value.FunV] then
       whileMixedCache.put(foreachApply, WhileMixedMiss)
       return null
-    val jitR = tryCompile(fnVal.asInstanceOf[Value.FunV], interp)
-    if jitR == null || jitR.direct == null then
-      whileMixedCache.put(foreachApply, WhileMixedMiss)
-      return null
-    val fnObjToLong: ObjToLong | Null =
-      if !accIsDouble && jitR.direct.isInstanceOf[ObjToLong] then jitR.direct.asInstanceOf[ObjToLong] else null
-    val fnObjToDouble: ObjToDouble | Null =
-      if accIsDouble && jitR.direct.isInstanceOf[ObjToDouble] then jitR.direct.asInstanceOf[ObjToDouble] else null
-    if (!accIsDouble && fnObjToLong == null) || (accIsDouble && fnObjToDouble == null) then
-      whileMixedCache.put(foreachApply, WhileMixedMiss)
-      return null
+    val funVTyped = fnVal.asInstanceOf[Value.FunV]
+    val doInline  = canInlineMatchAccum(funVTyped, interp)
+    val (fnObjToLong, fnObjToDouble) =
+      if doInline then (null, null)
+      else
+        val jitR = tryCompile(funVTyped, interp)
+        if jitR == null || jitR.direct == null then
+          whileMixedCache.put(foreachApply, WhileMixedMiss)
+          return null
+        val otl = if !accIsDouble && jitR.direct.isInstanceOf[ObjToLong]  then jitR.direct.asInstanceOf[ObjToLong]  else null
+        val otd = if  accIsDouble && jitR.direct.isInstanceOf[ObjToDouble] then jitR.direct.asInstanceOf[ObjToDouble] else null
+        if (!accIsDouble && otl == null) || (accIsDouble && otd == null) then
+          whileMixedCache.put(foreachApply, WhileMixedMiss)
+          return null
+        (otl, otd)
 
     val n = classCounter.incrementAndGet()
     val cname = s"scalascript/interpreter/vm/jit/asm/AsmWhileMixed$$$n"
@@ -1522,21 +1526,25 @@ object AsmJitBackend extends JitBackend:
       nextObjLocal += 1
       s
 
-    val fnSlot = allocObjLocal()
-    mv.visitFieldInsn(GETSTATIC, globalsInt, "MODULE$", s"L$globalsInt;")
-    if accIsDouble then
-      mv.visitMethodInsn(INVOKEVIRTUAL, globalsInt, "getRefDoubleFns",
-        "()[Lscalascript/interpreter/vm/jit/ObjToDouble;", false)
-      emitIconst(mv, 0)
-      mv.visitInsn(AALOAD)
-      mv.visitTypeInsn(CHECKCAST, "scalascript/interpreter/vm/jit/ObjToDouble")
-    else
-      mv.visitMethodInsn(INVOKEVIRTUAL, globalsInt, "getRefFns",
-        "()[Lscalascript/interpreter/vm/jit/ObjToLong;", false)
-      emitIconst(mv, 0)
-      mv.visitInsn(AALOAD)
-      mv.visitTypeInsn(CHECKCAST, "scalascript/interpreter/vm/jit/ObjToLong")
-    mv.visitVarInsn(ASTORE, fnSlot)
+    val fnSlot: Int =
+      if doInline then -1
+      else
+        val s = allocObjLocal()
+        mv.visitFieldInsn(GETSTATIC, globalsInt, "MODULE$", s"L$globalsInt;")
+        if accIsDouble then
+          mv.visitMethodInsn(INVOKEVIRTUAL, globalsInt, "getRefDoubleFns",
+            "()[Lscalascript/interpreter/vm/jit/ObjToDouble;", false)
+          emitIconst(mv, 0)
+          mv.visitInsn(AALOAD)
+          mv.visitTypeInsn(CHECKCAST, "scalascript/interpreter/vm/jit/ObjToDouble")
+        else
+          mv.visitMethodInsn(INVOKEVIRTUAL, globalsInt, "getRefFns",
+            "()[Lscalascript/interpreter/vm/jit/ObjToLong;", false)
+          emitIconst(mv, 0)
+          mv.visitInsn(AALOAD)
+          mv.visitTypeInsn(CHECKCAST, "scalascript/interpreter/vm/jit/ObjToLong")
+        mv.visitVarInsn(ASTORE, s)
+        s
 
     val receiverSlot = allocObjLocal()
     mv.visitFieldInsn(GETSTATIC, globalsInt, "MODULE$", s"L$globalsInt;")
@@ -1568,7 +1576,17 @@ object AsmJitBackend extends JitBackend:
     mv.visitLabel(outerHead)
     condEmit(mv, outerEnd)
     val foreachScratchSlot = allocObjLocal()
-    if receiverIsSet then emitSetForeachAccum(mv, receiverSlot, fnSlot, foreachScratchSlot, accLocal, accIsDouble)
+    if doInline then
+      val elemSlot = allocObjLocal()
+      var nextInlineLocal = nextObjLocal
+      def allocInlineSlot(): Int = { val s2 = nextInlineLocal; nextInlineLocal += 2; s2 }
+      val ok =
+        if receiverIsSet then
+          emitSetForeachAccumInline(mv, funVTyped, accIsDouble, receiverSlot, foreachScratchSlot, elemSlot, accLocal, allocInlineSlot, interp, cname)
+        else
+          emitListForeachAccumInline(mv, funVTyped, accIsDouble, receiverSlot, foreachScratchSlot, elemSlot, accLocal, allocInlineSlot, interp, cname)
+      if !ok then { whileMixedCache.put(foreachApply, WhileMixedMiss); return null }
+    else if receiverIsSet then emitSetForeachAccum(mv, receiverSlot, fnSlot, foreachScratchSlot, accLocal, accIsDouble)
     else emitListForeachAccum(mv, receiverSlot, fnSlot, foreachScratchSlot, accLocal, accIsDouble)
 
     k = 0
@@ -1594,13 +1612,14 @@ object AsmJitBackend extends JitBackend:
     else mv.visitVarInsn(LLOAD, accLocal)
     mv.visitInsn(LASTORE)
     mv.visitInsn(RETURN)
-    mv.visitMaxs(0, 0)
-    mv.visitEnd()
+    val bytes =
+      try
+        mv.visitMaxs(0, 0); mv.visitEnd()
+        for (_, pf) <- pureFns do pf.emit(cw)
+        cw.visitEnd(); cw.toByteArray
+      catch case _: Throwable => null
+    if bytes == null then { whileMixedCache.put(foreachApply, WhileMixedMiss); return null }
 
-    for (_, pf) <- pureFns do pf.emit(cw)
-    cw.visitEnd()
-
-    val bytes = cw.toByteArray
     val loader = new InMemoryClassLoader(getClass.getClassLoader)
     val cls = try loader.define(cname.replace('/', '.'), bytes)
               catch case _: Throwable => { whileMixedCache.put(foreachApply, WhileMixedMiss); return null }
@@ -1890,6 +1909,140 @@ object AsmJitBackend extends JitBackend:
       mv.visitVarInsn(LSTORE, accLocal)
     mv.visitJumpInsn(GOTO, head)
     mv.visitLabel(done)
+
+  // ── Inline match-body accumulation for tryCompileWhileMixed ─────────────
+
+  /** True when `funV` has a 1-param match body where all arms are tagged and
+   *  carry no guards.  Used as a pre-emission eligibility check so that callers
+   *  can choose the inline path before starting to write bytecode. */
+  private def canInlineMatchAccum(funV: Value.FunV, interp: Interpreter): Boolean =
+    if funV.params.length != 1 then return false
+    val paramName = funV.params.head
+    val tm = funV.body match { case m: Term.Match => m; case _ => return false }
+    val scrutName = tm.expr match { case n: Term.Name => n.value; case _ => return false }
+    if scrutName != paramName then return false
+    val casesArr = tm.casesBlock.cases.toArray
+    if casesArr.isEmpty || casesArr.exists(_.cond.nonEmpty) then return false
+    val wildcardIdx = casesArr.indexWhere(c => isCatchAllPat(c.pat))
+    if wildcardIdx >= 0 && wildcardIdx != casesArr.length - 1 then return false
+    val tags = resolveArmTags(casesArr, interp)
+    (wildcardIdx >= 0 || tags.forall(_ != 0)) &&
+      casesArr.forall { c => c.pat match
+        case _: scala.meta.Pat.Extract | _: Pat.Wildcard | _: Pat.Var => true
+        case _                                                          => false
+      }
+
+  /** Emit an inlined match-body accumulation step inside a foreach loop body.
+   *  `elemSlot` holds the current element (Object, cast to InstanceV inside).
+   *  `walkMatchExpr` computes the arm body (Double or Long) and leaves the
+   *  result on the stack; we then add it to `accLocal` and jump to `listHead`
+   *  (the inner list/set iteration loop head).
+   *  `allocSlot` uses 2-unit increments for every local (mirrors GenCtx). */
+  private def tryEmitInlineMatchAccum(
+    funV:        Value.FunV,
+    accIsDouble: Boolean,
+    mv:          MethodVisitor,
+    elemSlot:    Int,
+    accLocal:    Int,
+    listHead:    Label,
+    allocSlot:   () => Int,
+    interp:      Interpreter,
+    cname:       String
+  ): Boolean =
+    val paramName = funV.params.head
+    val tm        = funV.body.asInstanceOf[Term.Match]
+    val coEmit    = new CoEmitState
+    val inlineCtx = GenCtx(
+      funName          = funV.name,
+      staticMethodName = funV.name + "$$inline",
+      params           = Set(paramName),
+      paramNames       = Array(paramName),
+      paramSlots       = Array(elemSlot),
+      paramIsRef       = Array(true),
+      isDouble         = accIsDouble,
+      bindings         = Map.empty,
+      interp           = interp,
+      coEmit           = coEmit,
+      selfClass        = cname,
+      allocSlot        = allocSlot
+    )
+    if !walkMatchExpr(tm, inlineCtx, mv) then return false
+    if coEmit.extraMethods.nonEmpty then return false
+    if accIsDouble then
+      mv.visitVarInsn(DLOAD, accLocal); mv.visitInsn(DADD); mv.visitVarInsn(DSTORE, accLocal)
+    else
+      mv.visitVarInsn(LLOAD, accLocal); mv.visitInsn(LADD); mv.visitVarInsn(LSTORE, accLocal)
+    mv.visitJumpInsn(GOTO, listHead)
+    true
+
+  /** List-foreach with inlined match dispatch — avoids ObjToDouble interface call. */
+  private def emitListForeachAccumInline(
+    mv:           MethodVisitor,
+    funV:         Value.FunV,
+    accIsDouble:  Boolean,
+    receiverSlot: Int,
+    itemsSlot:    Int,
+    elemSlot:     Int,
+    accLocal:     Int,
+    allocSlot:    () => Int,
+    interp:       Interpreter,
+    cname:        String
+  ): Boolean =
+    val head = new Label
+    val done = new Label
+    mv.visitVarInsn(ALOAD, receiverSlot)
+    mv.visitMethodInsn(INVOKEVIRTUAL, "scalascript/interpreter/Value$ListV", "items",
+      "()Lscala/collection/immutable/List;", false)
+    mv.visitVarInsn(ASTORE, itemsSlot)
+    mv.visitLabel(head)
+    mv.visitVarInsn(ALOAD, itemsSlot)
+    mv.visitMethodInsn(INVOKEVIRTUAL, "scala/collection/immutable/List", "isEmpty", "()Z", false)
+    mv.visitJumpInsn(IFNE, done)
+    mv.visitVarInsn(ALOAD, itemsSlot)
+    mv.visitMethodInsn(INVOKEVIRTUAL, "scala/collection/immutable/List", "head", "()Ljava/lang/Object;", false)
+    mv.visitVarInsn(ASTORE, elemSlot)
+    mv.visitVarInsn(ALOAD, itemsSlot)
+    mv.visitMethodInsn(INVOKEVIRTUAL, "scala/collection/immutable/List", "tail",
+      "()Lscala/collection/LinearSeq;", false)
+    mv.visitTypeInsn(CHECKCAST, "scala/collection/immutable/List")
+    mv.visitVarInsn(ASTORE, itemsSlot)
+    if !tryEmitInlineMatchAccum(funV, accIsDouble, mv, elemSlot, accLocal, head, allocSlot, interp, cname) then
+      return false
+    mv.visitLabel(done)
+    true
+
+  /** Set-foreach with inlined match dispatch — avoids ObjToDouble interface call. */
+  private def emitSetForeachAccumInline(
+    mv:           MethodVisitor,
+    funV:         Value.FunV,
+    accIsDouble:  Boolean,
+    receiverSlot: Int,
+    iterSlot:     Int,
+    elemSlot:     Int,
+    accLocal:     Int,
+    allocSlot:    () => Int,
+    interp:       Interpreter,
+    cname:        String
+  ): Boolean =
+    val head = new Label
+    val done = new Label
+    mv.visitVarInsn(ALOAD, receiverSlot)
+    mv.visitMethodInsn(INVOKEVIRTUAL, "scalascript/interpreter/Value$SetV", "items",
+      "()Lscala/collection/immutable/Set;", false)
+    mv.visitMethodInsn(INVOKEINTERFACE, "scala/collection/IterableOnce", "iterator",
+      "()Lscala/collection/Iterator;", true)
+    mv.visitVarInsn(ASTORE, iterSlot)
+    mv.visitLabel(head)
+    mv.visitVarInsn(ALOAD, iterSlot)
+    mv.visitMethodInsn(INVOKEINTERFACE, "scala/collection/Iterator", "hasNext", "()Z", true)
+    mv.visitJumpInsn(IFEQ, done)
+    mv.visitVarInsn(ALOAD, iterSlot)
+    mv.visitMethodInsn(INVOKEINTERFACE, "scala/collection/Iterator", "next", "()Ljava/lang/Object;", true)
+    mv.visitVarInsn(ASTORE, elemSlot)
+    if !tryEmitInlineMatchAccum(funV, accIsDouble, mv, elemSlot, accLocal, head, allocSlot, interp, cname) then
+      return false
+    mv.visitLabel(done)
+    true
 
   // ── While-loop walker context and types ──────────────────────────────────
 
