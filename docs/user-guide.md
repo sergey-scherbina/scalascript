@@ -319,10 +319,12 @@ java -Dscalascript.server.port=9090 -jar target/build/jvm/myapp.jar
 ### Markdown Content Introspection (planned)
 
 ScalaScript already treats Markdown headings, links, YAML front-matter, and
-fenced blocks as language syntax. A planned `std/content` layer will expose the
-Markdown-hosted document as typed data so code can inspect prose-defined
-metadata, fenced YAML/JSON/TOML data, and other embedded language blocks.
-Frontend helpers can then render document content without hand-written markup.
+fenced blocks as language syntax. The first planned user-facing slice is
+frontend from Markdown: a Markdown-hosted document lowers to `std/ui` so pages
+and screens can be authored without hand-written markup generation. The same
+content snapshot later supports the broader `std/content` metadata API for
+prose-defined metadata, fenced YAML/JSON/TOML data, and other embedded language
+blocks.
 
 ````markdown
 # Pricing {#pricing route=/pricing layout=marketing}
@@ -344,7 +346,16 @@ plans:
 ```
 ````
 
-Planned code-block API:
+Planned frontend API:
+
+```scalascript
+[contentDocument](std/content.ssc)
+[contentView](std/ui/content.ssc)
+
+val page = contentView(contentDocument())
+```
+
+Planned lower-level introspection API:
 
 ```scalascript
 [contentDocument, contentCurrentSection, contentSection, contentData](std/content.ssc)
@@ -353,14 +364,6 @@ val doc = contentDocument()
 println(doc.title.getOrElse(""))
 println(contentSection("plans").get.title)
 println(contentData("plans-data").isDefined)
-```
-
-Planned frontend API:
-
-```scalascript
-[contentView](std/ui/content.ssc)
-
-val page = contentView(contentDocument())
 ```
 
 This feature is not implemented yet. The target contract, phase plan, and

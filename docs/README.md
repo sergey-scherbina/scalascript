@@ -24,7 +24,7 @@ document by topic.
 ## Language & semantics
 
 - [markdown-as-syntax.md](markdown-as-syntax.md) — Markdown as Syntax
-- [../specs/markdown-content-introspection.md](../specs/markdown-content-introspection.md) — Markdown content introspection
+- [../specs/markdown-content-introspection.md](../specs/markdown-content-introspection.md) — Markdown-to-frontend content layer and metadata introspection
 - [dsl.md](dsl.md) — Defining domain-specific languages
 - [algebraic-effects.md](algebraic-effects.md) — Algebraic Effects
 - [coroutines.md](coroutines.md) — Coroutines

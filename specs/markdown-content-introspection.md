@@ -1,22 +1,26 @@
 # Markdown Content Introspection
 
-Status: planned. This document is the implementation contract for exposing
-Markdown-hosted content as typed metadata and renderable frontend input. The
-current parser already treats Markdown as syntax; this spec defines the next
-layer: code blocks can inspect the document that surrounds them, including
-Markdown prose, YAML/front-matter, and any legitimate embedded language block.
-Frontend code can then render or adapt that document without hand-writing
-markup generation.
+Status: planned. This document is the implementation contract for the first
+content milestone: building frontend UI from Markdown-hosted content. The same
+`DocumentContent` snapshot also supports typed metadata and introspection, but
+Phase 1 is judged by whether a page or screen authored mostly as Markdown can
+lower to the existing frontend toolkit without hand-written markup generation.
 
 ## Overview
 
 ScalaScript source should be useful as both executable code and structured
-content. Today front-matter is available as module metadata and headings create
-scopes, but ordinary prose, lists, links, embedded YAML blocks, and other
-Markdown-hosted language blocks are not exposed through a stable public API.
-This feature introduces a Document Content IR and a `std/content` API so code
-can read the parsed document as data. The frontend layer then lowers the same
-content IR to `std/ui` nodes or backend agnostic `View` trees.
+content. The immediate goal is frontend from Markdown: authors describe a page,
+screen, product offer, docs view, or app shell in Markdown/YAML, then use code
+only for behavior, data fetching, validation, and custom components.
+
+Today front-matter is available as module metadata and headings create scopes,
+but ordinary prose, lists, links, embedded YAML blocks, and other
+Markdown-hosted language blocks are not exposed through a stable renderer input.
+This feature introduces a Document Content IR so frontend helpers can lower the
+parsed document to `std/ui` nodes or backend agnostic `View` trees. The
+lower-level `std/content` introspection API is the same foundation exposed for
+CLI, compiler, server, and metadata use cases after the frontend MVP is in
+place.
 
 The intended authoring model is:
 
@@ -26,8 +30,9 @@ The intended authoring model is:
 3. Attach lightweight metadata where plain Markdown is ambiguous.
 4. Use executable code blocks only for behavior, data fetching, validation, and
    custom renderers.
-5. Let `std/content` expose the surrounding document to code and frontend
-   helpers.
+5. Let `std/ui/content.ssc` render the surrounding document to frontend views.
+6. Expose the same content snapshot through `std/content` for metadata and
+   non-frontend use cases once the frontend path is proven.
 
 ## Interface
 
@@ -108,9 +113,12 @@ depending on raw YAML maps.
 
 ### `std/content.ssc`
 
-The planned public API is deliberately data-first. Names are prefixed with
-`content` to avoid collisions with existing `doc(...)` and `render(...)`
-helpers.
+The shared model is deliberately data-first because frontend rendering,
+metadata, CLI, compiler, and server use cases must all read the same source of
+truth. The full public introspection API may land after the first frontend
+slice, but the types below are the stable contract that the renderer consumes.
+Names are prefixed with `content` to avoid collisions with existing `doc(...)`
+and `render(...)` helpers.
 
 ```scalascript
 case class DocumentContent(
@@ -190,9 +198,10 @@ for structured blocks that failed to parse.
 
 ### Frontend helper API
 
-Frontend lowering lives outside `std/content` so introspection can be used by
-CLI, compiler, server, and data use cases without pulling in UI dependencies.
-The planned `runtime/std/ui/content.ssc` surface is:
+Frontend lowering is the first user-facing target for this feature. It lives
+outside `std/content` so the shared content model can later be used by CLI,
+compiler, server, and data use cases without pulling in UI dependencies. The
+planned `runtime/std/ui/content.ssc` surface is:
 
 ```scalascript
 case class ContentRenderOptions(
@@ -226,6 +235,9 @@ a compile error by itself.
 
 ## Behavior
 
+- [ ] The first implementation slice renders a Markdown-authored page or screen
+      through the existing frontend toolkit without user-written HTML or manual
+      UI tree construction.
 - [ ] The parser preserves Markdown-hosted content as a stable
       `DocumentContent` snapshot without changing existing section scoping or
       code block execution.
@@ -247,8 +259,8 @@ a compile error by itself.
 - [ ] Inline `${expr}` in prose is represented as `ContentInline.Expr(source)`
       until an explicit renderer evaluates it. Content introspection itself does
       not execute inline expressions.
-- [ ] `contentView(...)` can render a document or section to the existing
-      frontend toolkit without user-written HTML generation.
+- [ ] `contentView(...)` renders a document or section to the existing frontend
+      toolkit and is the primary Phase 1 success criterion.
 - [ ] Interpreter, JS, and JVM backends expose byte-identical textual results
       for the non-frontend `std/content` API.
 - [ ] `.sscc` / `.scir` artifacts preserve enough content metadata for linked
@@ -282,8 +294,8 @@ a compile error by itself.
   -> source-language classification for fenced blocks
   -> existing Module/Section/Content AST
   -> DocumentContent snapshot
-  -> std/content runtime value
-  -> optional std/ui content lowering
+  -> std/ui content lowering (first public MVP)
+  -> optional std/content runtime value for introspection
   -> backend-specific UI or textual output
 ```
 
@@ -368,10 +380,13 @@ concatenates classes in source order.
 
 ## Decisions
 
-- **Expose content as data before UI** - chosen because metadata, CLI, server,
-  compiler, and frontend use cases all need the same source of truth. Rejected:
-  direct Markdown-to-View lowering as the only API, because it would make
-  non-frontend introspection depend on the UI toolkit.
+- **Frontend from Markdown is the first public milestone** - chosen because the
+  immediate product value is eliminating hand-written markup generation for
+  pages and screens. `DocumentContent` remains the supporting shared IR so the
+  renderer, metadata API, CLI, compiler, and server use cases do not fork their
+  own parsers. Rejected: direct Markdown-to-HTML as the only API, because it
+  would bypass the existing frontend toolkit and lose backend-agnostic UI
+  semantics.
 - **Markdown is the host; embedded languages keep their own dialects** - chosen
   because YAML, JSON, SQL, GraphQL, ScalaScript, and future plugin languages
   each have existing syntax and semantics. Rejected: translating every fenced
@@ -401,25 +416,23 @@ concatenates classes in source order.
   entries, one example, and a pending conformance fixture.
 - No compiler/runtime behavior change in this phase.
 
-### Phase 1 - Core content snapshot
+### Phase 1 - Markdown-to-frontend MVP
 
-- Add AST data classes for `DocumentContentDecl`, `SectionContentDecl`,
-  block/inline content, and `ContentValue`.
+- Add the rendering-grade `DocumentContentDecl` / `SectionContentDecl` /
+  `ContentBlock` / `ContentInline` / `ContentValue` snapshot needed by the UI
+  renderer.
 - Convert CommonMark body nodes into the snapshot while preserving source order,
   section hierarchy, ids, attributes, spans, and embedded-language metadata.
-- Parse YAML/front-matter and fenced YAML/JSON/TOML into `ContentValue` while
-  preserving the original source text.
-- Add parser tests for headings, duplicate ids, metadata comments, lists,
-  links, inline code, inline expression capture, and embedded data blocks.
+- Parse YAML/front-matter and fenced YAML/JSON/TOML into `ContentValue` so the
+  renderer and component hooks can consume structured authoring data.
+- Add `runtime/std/ui/content.ssc` helpers that lower `DocumentContent` /
+  `SectionContent` to the existing `std/ui` toolkit nodes.
+- Cover headings, paragraphs, lists, links, images, and default handling for
+  embedded executable/string/opaque blocks behind `includeCode`.
+- Add one end-to-end frontend smoke where a Markdown-authored page emits through
+  an existing frontend backend with no hand-written UI construction code.
 
-### Phase 2 - IR and artifact round-trip
-
-- Thread the snapshot through `Normalize`, `Denormalize`, `.scir`, and `.sscc`
-  formats with backward-compatible default handling.
-- Add round-trip tests for old artifacts without content metadata and new
-  artifacts with content metadata.
-
-### Phase 3 - `std/content` runtime API
+### Phase 2 - Full `std/content` introspection API
 
 - Create `runtime/std/content.ssc` and `runtime/std/content-plugin`.
 - Populate native context state for interpreter, JS, and JVM backends.
@@ -428,13 +441,20 @@ concatenates classes in source order.
   `contentToMarkdown`.
 - Enable the pending conformance test across INT, JS, and JVM.
 
-### Phase 4 - Frontend lowering
+### Phase 3 - IR and artifact round-trip
 
-- Add `runtime/std/ui/content.ssc` helpers that lower `DocumentContent` /
-  `SectionContent` to the existing `std/ui` toolkit nodes.
-- Add generic renderer coverage for headings, paragraphs, lists, links, images,
-  and embedded executable/string/opaque blocks behind `includeCode`.
+- Thread the snapshot through `Normalize`, `Denormalize`, `.scir`, and `.sscc`
+  formats with backward-compatible default handling.
+- Add round-trip tests for old artifacts without content metadata and new
+  artifacts with content metadata.
+
+### Phase 4 - Custom component registry
+
 - Add custom component registry hooks for `component=<name>` metadata.
+- Support structured `ContentValue` props from YAML/front-matter and fenced data
+  blocks.
+- Document the stable boundary between declarative Markdown content and explicit
+  custom ScalaScript components.
 
 ### Phase 5 - Tables and richer authoring
 
@@ -446,20 +466,26 @@ concatenates classes in source order.
 
 ## Testing
 
-- Parser unit tests for content snapshot construction and metadata syntax.
+- Frontend tests for `contentView(...)` generic lowering are the Phase 1 test
+  priority, plus one e2e smoke for
+  `serve(lower(contentView(contentDocument()), theme), port)`.
+- Parser unit tests for the subset required by frontend lowering: headings,
+  generated/explicit ids, metadata comments, paragraphs, lists, links, images,
+  inline code, inline expression capture as source, and embedded data blocks.
 - Parser/unit tests for front-matter and fenced YAML/JSON/TOML data conversion
   to `ContentValue`, including parse failure preserving source.
+- Later parser/runtime tests for the full non-frontend introspection API.
 - Normalize / Denormalize / artifact compatibility tests.
 - Interpreter plugin tests for the `std/content` externs.
 - JS and JVM code-shape tests proving the snapshot is embedded once and exposed
   through the same API.
-- Conformance test `tests/conformance/content-introspection.ssc` to verify
-  identical text output across INT, JS, and JVM after Phase 3.
-- Frontend tests for `contentView(...)` generic lowering, plus one e2e smoke
-  for `serve(lower(contentView(contentDocument()), theme), port)`.
+- Conformance test `tests/conformance/content-introspection.ssc` verifies
+  identical text output across INT, JS, and JVM after the full `std/content`
+  API lands.
 
 ## Results
 
 Phase 0 landed the planned public contract, docs, example, and pending
-conformance fixture. No runtime/compiler tests are expected to pass for the new
-API until Phase 1+ implementation starts.
+conformance fixture. The next implementation slice is the Markdown-to-frontend
+MVP; no runtime/compiler tests are expected to pass for the new API until that
+Phase 1 work starts.

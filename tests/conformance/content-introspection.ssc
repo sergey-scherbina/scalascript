@@ -1,7 +1,7 @@
 ---
 name: conformance-content-introspection
 version: 1.0.0
-pending: needs std/content Phase 3 implementation
+pending: needs std/content implementation after Markdown frontend MVP
 ---
 
 # Pricing {#pricing route=/pricing layout=marketing}

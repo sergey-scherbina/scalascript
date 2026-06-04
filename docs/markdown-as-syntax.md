@@ -16,12 +16,14 @@ This unification provides:
 
 ### Markdown Host -> Document Content IR (planned)
 
-The next planned layer keeps the existing scope/import/code behavior and also
-exposes the Markdown-hosted document as typed content. This includes prose,
+The next planned layer keeps the existing scope/import/code behavior and uses
+the Markdown-hosted document as the first frontend authoring surface. Prose,
 lists, links, images, YAML/front-matter, fenced YAML/JSON/TOML data blocks, and
-other embedded languages that appear as legitimate Markdown blocks. Code blocks
-can read document content as metadata, and frontend helpers can render prose,
-lists, links, images, and future tables without user-written HTML generation.
+other embedded languages that appear as legitimate Markdown blocks lower into a
+shared content IR. Frontend helpers are the first target: they render the
+document to toolkit nodes without user-written HTML or manual UI tree
+construction. Code-block introspection over the same IR follows as a supporting
+metadata API.
 
 ````markdown
 # Pricing {#pricing route=/pricing layout=marketing}
@@ -63,19 +65,22 @@ DocumentContent(
 )
 ```
 
-The public API is planned under `std/content.ssc`:
+The first planned public path is frontend lowering:
+
+```scalascript
+[contentDocument](std/content.ssc)
+[contentView](std/ui/content.ssc)
+
+val page = contentView(contentDocument())
+```
+
+The lower-level metadata API is planned under `std/content.ssc`:
 
 ```scalascript
 val doc = contentDocument()
 val pricing = contentSection("pricing")
 val current = contentCurrentSection()
 val plansData = contentData("plans-data")
-```
-
-Frontend lowering is planned separately under `std/ui/content.ssc`:
-
-```scalascript
-val page = contentView(contentDocument())
 ```
 
 The full contract and implementation phases are in

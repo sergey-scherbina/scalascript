@@ -319,10 +319,12 @@ for the React/Solid/Vue app to consume.
 ### 3.4 Markdown Content Introspection (planned)
 
 ScalaScript treats Markdown-hosted content as source syntax, not as comments.
-The planned content-introspection layer exposes that parsed document as a typed,
-immutable snapshot available to code blocks and frontend helpers. The snapshot
-includes Markdown prose and structure, YAML/front-matter, and fenced embedded
-language blocks.
+The first planned content milestone is frontend from Markdown: the parsed
+document lowers to frontend toolkit nodes so authors can define pages and
+screens without hand-writing markup generation. The same typed, immutable
+snapshot is also available to code blocks and metadata helpers. It includes
+Markdown prose and structure, YAML/front-matter, and fenced embedded language
+blocks.
 
 Target API:
 
@@ -357,9 +359,10 @@ The content snapshot is parse-time data. Inline `${expr}` inside prose is stored
 as expression source until an explicit renderer evaluates it, so reading
 `contentDocument()` does not execute user code or cause side effects.
 
-Frontend lowering is separate from introspection. `std/ui/content.ssc` will
-provide `contentView(documentOrSection)` helpers that render the same content
-tree through the existing backend-agnostic UI model. See
+Frontend lowering is the first public target. `std/ui/content.ssc` will provide
+`contentView(documentOrSection)` helpers that render the same content tree
+through the existing backend-agnostic UI model. The lower-level `std/content`
+metadata API follows from the same snapshot instead of being the first goal. See
 [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md)
 for the full planned contract and implementation phases.
 

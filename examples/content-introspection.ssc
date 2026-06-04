@@ -1,6 +1,7 @@
 ---
 name: content-introspection
 version: 0.1.0
+frontend: react
 content:
   defaultRenderer: std-ui
 ---
@@ -23,27 +24,28 @@ plans:
     price: 49
 ```
 
-## Planned API
+## Planned Frontend API
 
-The `std/content` runtime API is planned. This example is intentionally kept
-runnable today by showing the future code as text until the implementation
-lands. The YAML block above is intentionally part of the planned content tree:
-it should become a structured `ContentValue`, not just a literal code string.
+The first planned goal is frontend from Markdown. This example is intentionally
+kept runnable today by showing the future code as text until the implementation
+lands. The Markdown body above should lower to frontend toolkit nodes, while the
+YAML block becomes structured `ContentValue` data for the renderer or custom
+components.
 
 ```text
-[contentDocument, contentCurrentSection, contentSection, contentData](std/content.ssc)
+[contentDocument](std/content.ssc)
 [contentView](std/ui/content.ssc)
 
 val doc = contentDocument()
-println(doc.title.getOrElse(""))
-println(contentSection("plans").get.title)
-println(contentData("plans-data").isDefined)
-
 val page = contentView(doc)
 serve(lower(page, defaultTheme), 8080)
+
+// Lower-level metadata APIs follow the frontend MVP:
+// contentSection("plans")
+// contentData("plans-data")
 ```
 
 ```scalascript
-println("content-introspection: planned std/content API")
+println("content-introspection: planned Markdown-to-frontend API")
 println("spec: specs/markdown-content-introspection.md")
 ```
