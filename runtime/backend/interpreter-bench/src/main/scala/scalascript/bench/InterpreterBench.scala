@@ -180,9 +180,9 @@ class InterpreterBench:
       |last""".stripMargin
   )
 
-  // Regression guard: `last = last` is NOT hoistable (var RHS) so it falls
-  // through to the value-space loop. Verifies the non-hoist path still works
-  // correctly and shows the baseline cost for comparison (≈65 ms for 1M iters).
+  // `last = last` is a self-assignment no-op. `tryHoistedPureWhile` now recognises
+  // this pattern and hoists it out, leaving only `i = i + 1` for the fast unboxed
+  // path — bringing this down from ~65 ms to ~0.25 ms for 1M iters (arithLoop parity).
   private val modCounterWithTupleVar: Module = src(
     """var i = 0
       |var last = (0, 0, 0, 0)

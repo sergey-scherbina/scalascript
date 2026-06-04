@@ -568,6 +568,36 @@ class SscVmTest extends AnyFunSuite with Matchers:
     Interpreter(ps).run(Parser.parse(s"# T\n\n```scala\n$code\n```\n"))
     ps.flush(); buf.toString.trim
 
+  test("tryHoistedPureWhile: var self-assignment is treated as no-op, counter still advances") {
+    // `last = last` is a self-assignment (var RHS == LHS name) — hoisted out of the
+    // loop as a no-op so `i = i + 1` can run via tryLongWhileAssign. Result: `last`
+    // keeps its initial value and `i` reaches the iteration count.
+    val out = captured(
+      """var i = 0
+        |var last = (0, 0, 0, 0)
+        |while i < 100 do
+        |  last = last
+        |  i = i + 1
+        |println(last)
+        |println(i)""".stripMargin)
+    out shouldBe "(0, 0, 0, 0)\n100"
+  }
+
+  test("tryHoistedPureWhile: self-assignment with multiple non-int vars all hoisted") {
+    val out = captured(
+      """var i = 0
+        |var a = (1, 2)
+        |var b = (3, 4)
+        |while i < 50 do
+        |  a = a
+        |  b = b
+        |  i = i + 1
+        |println(a)
+        |println(b)
+        |println(i)""".stripMargin)
+    out shouldBe "(1, 2)\n(3, 4)\n50"
+  }
+
   test("end-to-end: recursive ADT eval is JIT-compiled and stays correct") {
     // eval(tree) is called 1000× → crosses the warm-up threshold → compiles to
     // the ref-value VM, recursing internally. total must equal 1000 * 14.

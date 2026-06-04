@@ -1297,12 +1297,13 @@ private[interpreter] object EvalRuntime:
     var anyNonInt = false
     var k = 0
     while k < body.names.length do
-      val v = frameView.getOrElse(body.names(k), null)
+      val lhsName = body.names(k)
+      val v = frameView.getOrElse(lhsName, null)
       if !v.isInstanceOf[Value.IntV] then
         anyNonInt = true
         val rhs = body.rhs(k)
         val hoistable = rhs match
-          case n: Term.Name => interp.valNames.contains(n.value)
+          case n: Term.Name => interp.valNames.contains(n.value) || n.value == lhsName
           case _            => isPureConstExpr(rhs)
         if !hoistable then return null
       k += 1
