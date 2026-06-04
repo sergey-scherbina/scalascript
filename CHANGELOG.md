@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — feat(types): route evidence inventory (P4a)
+
+- **type-evidence-schema-p4a** — Added `RouteEvidenceCounts` and
+  `RouteEvidenceInventory.count(ir.Manifest)` to `TypeEvidence.scala`.
+  Reads `ApiEndpointTypeEvidenceWire` from each endpoint and handler; both
+  request and response must be `Declared` for the route to count as declared;
+  missing `typeEvidence` (legacy artifacts) counts as Unknown. `allDeclared`
+  convenience predicate for CI gating.
+  **Tests:** 7 `RouteEvidenceInventoryTest`.
+
+---
+
 ## 2026-06-04 — feat(types): route metadata type evidence
 
 - **type-evidence-routes-p3** — Added optional `ApiEndpointTypeEvidenceWire`

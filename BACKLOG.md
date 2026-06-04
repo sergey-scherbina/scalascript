@@ -232,9 +232,8 @@ the contracts are explicit.
       defaulted fields, and `InterfaceScope` resolution still uses legacy `tpe`
       for this slice.
       **Spec:** [`docs/type-evidence-inventory.md §P2`](docs/type-evidence-inventory.md#p2---interface-evidence-serialization)
-- [ ] **type-evidence-schema-p4a** - Route evidence inventory helper: `RouteEvidenceCounts`
-      + `RouteEvidenceInventory.count(manifest)` in `lang/core/typer`. Counts
-      declared/unknown endpoints and handlers from `ApiEndpointTypeEvidenceWire`.
+- [x] **type-evidence-schema-p4a** - ✓ Landed 2026-06-04 commit `2aecb9cd`.
+      `RouteEvidenceCounts` + `RouteEvidenceInventory.count(ir.Manifest)`; 7 tests.
       **Spec:** [`docs/type-evidence-inventory.md §P4a`](docs/type-evidence-inventory.md#p4a--route-evidence-inventory-helper)
 - [ ] **type-evidence-openapi-p4b** - Evidence-aware OpenAPI diagnostics: warnings for
       Unknown-evidence endpoints + `ssc emit-openapi --require-declared` gate.

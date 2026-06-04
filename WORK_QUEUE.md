@@ -1171,14 +1171,9 @@ Spec: [`docs/crypto.md`](docs/crypto.md). Work in order: p1 → p2.
   Verification: `core / Test / testOnly scalascript.artifact.InterfaceExtractorTest`
   (37 tests), `core / Test / testOnly scalascript.artifact.ArtifactIOTest`
   (15 tests), `core / Test / compile`.
-- [ ] **type-evidence-schema-p4a** — Route evidence inventory helper in `lang/core`.
-  Add `RouteEvidenceCounts` + `RouteEvidenceInventory.count(manifest)` that reads
-  `ApiEndpointTypeEvidenceWire` from `ApiEndpointDecl.typeEvidence` and
-  `RemoteHandlerDecl.typeEvidence`, counting declared/unknown per category.
-  Missing `typeEvidence` → unknown (backward-compat). Sibling to `AnyEvidenceInventory`
-  from P1. Spec: [`docs/type-evidence-inventory.md §P4a`](docs/type-evidence-inventory.md#p4a--route-evidence-inventory-helper).
-  Verification: `core / Test / testOnly scalascript.typer.RouteEvidenceInventoryTest`,
-  `core / Test / compile`.
+- [x] **type-evidence-schema-p4a** — ✓ Landed 2026-06-04 commit `2aecb9cd`.
+  `RouteEvidenceCounts` + `RouteEvidenceInventory.count(ir.Manifest)` added to
+  `TypeEvidence.scala`; 7 `RouteEvidenceInventoryTest` green; `core/Test/compile` clean.
 - [ ] **type-evidence-openapi-p4b** — Evidence-aware OpenAPI diagnostics.
   Add `openApiEvidenceDiagnostics(module)` to `EmitCommands` (returns warnings for
   Unknown-evidence endpoints); add `--require-declared` flag to `ssc emit-openapi`
