@@ -151,15 +151,8 @@ for database primary keys and event IDs. Spec: [`docs/uuid.md`](docs/uuid.md).
 - [x] **uuid-p1** — Core JVM: done 2026-06-04.
 - [x] **uuid-p2** — Parse + validate: done 2026-06-04.
 - [x] **uuid-p3** — JS backend: done 2026-06-04.
-- [ ] **uuid-p4** — Opaque boundary hardening + effect system integration:
-      `Uuid.unsafeFromString(s: String): Uuid` (named coercion for known-valid strings);
-      `.version`, `.isNil`, `.isMax`, `.variant` extension methods; `SideEffect` algebraic
-      effect label + `runSideEffect` handler; `ContainsEffectPrimitive` / `DepEffectfulnessFixpoint`
-      registration for `Uuid.v4` and `Uuid.v7`; `withFixedUuid(fixed)(body)` for deterministic
-      testing.
-- [ ] **uuid-p5** — Direct/raw tier: `Uuid.v4Direct()` / `Uuid.v7Direct()` (inline `runSideEffect`
-      wrappers for script-top-level use); `rawUuidV4()` / `rawUuidV7()` low-level primitives
-      with no effect annotation (for library authors + interop).
+- [x] **uuid-p4** — Opaque boundary hardening + effect system integration: done 2026-06-04.
+- [x] **uuid-p5** — Direct/raw tier: done 2026-06-04 (bundled with p4).
 - [ ] **uuid-p6** (optional) — JVM monotonic v7 counter (`rand_a` counter within same
       millisecond, `Uuid.v7Monotonic(): Uuid ! SideEffect` explicit opt-in).
 

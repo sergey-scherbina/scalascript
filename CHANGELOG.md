@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — feat(uuid): uuid-p4 + uuid-p5 — raw tier, unsafeFromString, withFixedUuid, effect wiring
+
+- **uuid-p4/p5** — Completed the UUID stdlib across all three backends (interpreter, JVM, JS).
+  New surface: `Uuid.unsafeFromString` (named coercion, throws on bad input), `.version / .isNil / .isMax / .variant` extension methods, `rawV4/rawV7` (no effect annotation, library-author escape hatch), `runSideEffect` (identity handler), `withFixedUuid(fixed)(body)` (thread-local override for deterministic tests).
+  Effect wiring: `Uuid.v4/v7` registered in `containsEffectPrimitive` and `DepEffectfulnessFixpoint`; `rawV4/rawV7` intentionally excluded.
+  `withFixedUuid` implemented as an AST-pattern-matched handler in `EvalRuntime` (same approach as `runRandomSeeded`) so the body term is evaluated after the thread-local is set.
+  **Tests:** 15 `UuidPluginTest` cases (all pass), 4 `ContainsEffectPrimitiveTest`, 4 `DepEffectfulnessFixpointTest`.
+
+---
+
 ## 2026-06-04 — fix(js): effect-stream JS while-loop — side-channel Stream.emit
 
 - **js-effect-stream-while** — `effect-stream` JS now produces valid output.

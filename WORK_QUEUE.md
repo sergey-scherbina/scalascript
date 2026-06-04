@@ -1114,19 +1114,9 @@ Spec: [`docs/crypto.md`](docs/crypto.md). Work in order: p1 → p2.
   - Wire into `JsIntrinsics` via `JsCapabilities.scala`
   - `examples/crypto-demo.ssc`: smoke demo
 
-- [ ] **uuid-p4** — Opaque boundary hardening + effect system integration
-  _Context: design decisions from 2026-06-04 spec session. Spec: `docs/uuid.md §3.3–3.4`._
-  - `Uuid.unsafeFromString(s: String): Uuid` intrinsic — throws `InterpretError` on malformed; use for `nil`/`max` in `uuid.ssc` body
-  - Extension methods: `.version: Int`, `.isNil: Boolean`, `.isMax: Boolean`, `.variant: Int`
-  - `SideEffect` effect row label in the effect system (new category, not `Random`)
-  - Wire `Uuid.v4` + `Uuid.v7` into `ContainsEffectPrimitive` + `DepEffectfulnessFixpoint`
-  - `runSideEffect[A](body: A ! SideEffect): A` — trivial identity handler intrinsic
-  - `withFixedUuid[A](fixed: Uuid)(body: A ! SideEffect): A` — thread-local override for tests
+- [x] **uuid-p4** — Opaque boundary hardening + effect system integration ✓ Landed 2026-06-04: `unsafeFromString`, `.version/.isNil/.isMax/.variant` extensions, `runSideEffect`/`withFixedUuid` handlers in EvalRuntime, `Uuid.v4/v7` wired into `containsEffectPrimitive` + `DepEffectfulnessFixpoint`. 15 plugin tests + 8 effectfulness tests.
 
-- [ ] **uuid-p5** — Direct/raw tier
-  _Context: pseudo-pure and library-author escape hatches. Spec: `docs/uuid.md §3.4.1`._
-  - `Uuid.v4Direct(): Uuid` + `Uuid.v7Direct(): Uuid` — inline `runSideEffect` wrappers in `uuid.ssc`
-  - `rawUuidV4(): Uuid` + `rawUuidV7(): Uuid` — intrinsics without `! SideEffect` annotation (for interop)
+- [x] **uuid-p5** — Direct/raw tier ✓ Landed 2026-06-04 (bundled with p4): `rawUuidV4/V7` intrinsics (no SideEffect annotation); `uuidUnsafeFromString` JS runtime function; JS + JVM + interpreter all consistent.
 
 ## Tooling
 

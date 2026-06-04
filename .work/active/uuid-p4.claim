@@ -1,4 +1,0 @@
-feature+uuid-p4-p5 2026-06-04T07:21:19Z
-status: not-started
-done-so-far:
-next: implement SideEffect label, unsafeFromString, extension methods, runSideEffect, withFixedUuid, direct/raw tier
