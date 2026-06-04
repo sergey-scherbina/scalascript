@@ -218,8 +218,15 @@ enum Content derives ReadWriter:
    *  Carries the parsed/normalised body once Stage 3 lowering lands. */
   case CodeBlock(source: String, body: List[IrExpr] = Nil, span: Option[Span] = None)
   /** A foreign-language fence (`html`, `css`, `scala`, future `wat`, …).
-   *  Compiled by a SourceLanguage plugin (Stage 9). */
-  case EmbeddedBlock(language: String, source: String, span: Option[Span] = None)
+   *  Compiled by a SourceLanguage plugin (Stage 9).
+   *  `evidence` carries optional structured type metadata produced by the
+   *  plugin at compile time; consumers that only need the raw source ignore it. */
+  case EmbeddedBlock(
+    language: String,
+    source:   String,
+    span:     Option[Span]                    = None,
+    evidence: Option[GraphQLBlockEvidenceWire] = None
+  )
   /** A `sql` fence with the bind-parameter rewriter already applied
    *  (SPEC § 3.3.1, v1.26).  `source` is the original SQL with `${expr}`
    *  / `$$` markers preserved verbatim — this is the round-trip surface
@@ -408,6 +415,30 @@ case class TypeEvidenceWire(
   tpe: String,
   kind: String,
   reason: Option[String] = None
+) derives ReadWriter
+
+/** Additive wire form for GraphQL field-level type evidence.
+ *  `kind` is `"Declared"` when the field's type name is a known SDL scalar
+ *  or defined elsewhere in the same block, `"Unknown"` otherwise. */
+case class GraphQLFieldEvidenceWire(
+  name:     String,
+  typeName: String,
+  kind:     String
+) derives ReadWriter
+
+/** Type-level summary: object / interface / input / union / enum / scalar.
+ *  `kind` is one of those six literal strings. */
+case class GraphQLTypeEvidenceWire(
+  name:   String,
+  kind:   String,
+  fields: List[GraphQLFieldEvidenceWire] = Nil
+) derives ReadWriter
+
+/** Block-level evidence for a single `graphql` fenced block.
+ *  Attached as `Content.EmbeddedBlock.evidence` when the SDL parses
+ *  successfully.  Absent (`None`) for invalid SDL or legacy artifacts. */
+case class GraphQLBlockEvidenceWire(
+  types: List[GraphQLTypeEvidenceWire] = Nil
 ) derives ReadWriter
 
 /** Exported symbol entry in a `.scim` interface.

@@ -21,7 +21,7 @@ class SourceLanguageDispatchTest extends AnyFunSuite:
     val module = Normalize(Parser.parse(src))
     val firstContent = module.sections.head.content.head
     firstContent match
-      case ir.Content.EmbeddedBlock("mock-rewritten", body, _) =>
+      case ir.Content.EmbeddedBlock("mock-rewritten", body, _, _) =>
         // Distinctive [mock]- prefix proves the plugin ran (the fallback
         // would have produced EmbeddedBlock("mock", "hello world\n")).
         assert(body.contains("[mock]") && body.contains("hello world"))
@@ -43,7 +43,7 @@ class SourceLanguageDispatchTest extends AnyFunSuite:
         |""".stripMargin
     val module = Normalize(Parser.parse(src))
     module.sections.head.content.head match
-      case ir.Content.EmbeddedBlock("scala", body, _) =>
+      case ir.Content.EmbeddedBlock("scala", body, _, _) =>
         assert(body.contains("val x = 1"))
       case other =>
         fail(s"expected EmbeddedBlock(scala), got $other")
@@ -95,10 +95,10 @@ class SourceLanguageDispatchTest extends AnyFunSuite:
         |""".stripMargin
     val content = Normalize(Parser.parse(src)).sections.head.content
     assert(content.exists {
-      case ir.Content.EmbeddedBlock("javascript", body, _) => body.contains("console.log")
+      case ir.Content.EmbeddedBlock("javascript", body, _, _) => body.contains("console.log")
       case _                                               => false
     })
     assert(content.exists {
-      case ir.Content.EmbeddedBlock("xml", body, _) => body.contains("<root/>")
+      case ir.Content.EmbeddedBlock("xml", body, _, _) => body.contains("<root/>")
       case _                                        => false
     })

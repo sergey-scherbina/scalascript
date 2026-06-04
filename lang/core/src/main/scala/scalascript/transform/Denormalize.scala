@@ -123,7 +123,7 @@ object Denormalize:
     case ir.Content.CodeBlock(source, _, sp) =>
       val tree = Parser.parseScalaSource(source)
       ast.Content.CodeBlock(ast.Lang.ScalaScript, source, tree, sp.map(span))
-    case ir.Content.EmbeddedBlock(language, source, sp) =>
+    case ir.Content.EmbeddedBlock(language, source, sp, _) =>
       ast.Content.CodeBlock(language, source, None, sp.map(span))
     case ir.Content.SqlBlock(source, _, dbName, sp, side) =>
       val attrs0 = dbName.fold(Map.empty[String, String])(n => Map("db" -> n))

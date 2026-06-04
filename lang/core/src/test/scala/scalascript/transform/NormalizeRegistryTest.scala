@@ -27,7 +27,7 @@ class NormalizeRegistryTest extends AnyFunSuite:
     val module = Normalize(Parser.parse(src))
     val firstContent = module.sections.head.content.head
     firstContent match
-      case ir.Content.EmbeddedBlock("toml", body, _) =>
+      case ir.Content.EmbeddedBlock("toml", body, _, _) =>
         assert(body.contains("key = \"value\""))
       case other =>
         fail(s"expected EmbeddedBlock(toml), got $other")

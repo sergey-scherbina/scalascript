@@ -165,7 +165,7 @@ class NodeBackend extends Backend:
     val sb = StringBuilder()
 
     def walkContent(c: ir.Content): Unit = c match
-      case ir.Content.EmbeddedBlock(language, source, _) if ast.Lang.isNode(language) =>
+      case ir.Content.EmbeddedBlock(language, source, _, _) if ast.Lang.isNode(language) =>
         if sb.nonEmpty then sb.append("\n")
         sb.append(source.stripTrailing())
       case _ => ()

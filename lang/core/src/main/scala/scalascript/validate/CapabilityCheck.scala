@@ -72,10 +72,10 @@ object CapabilityCheck:
 
     def scanContent(c: ir.Content): Unit = c match
       case ir.Content.CodeBlock(source, _, _) => scanSource(source)
-      case ir.Content.EmbeddedBlock(lang, _, _) if Lang.isXml(lang) =>
+      case ir.Content.EmbeddedBlock(lang, _, _, _) if Lang.isXml(lang) =>
         // Fenced ```xml ... ``` blocks require Feature.Markup
         detected += Feature.Markup
-      case ir.Content.EmbeddedBlock(_, source, _) =>
+      case ir.Content.EmbeddedBlock(_, source, _, _) =>
         // Other foreign-language fences imply the StringInterpolators feature is
         // *consumed* (host blocks reference them) — too coarse to detect
         // perfectly here; leave it to Stage 9's SourceLanguage plugins.
@@ -111,7 +111,7 @@ object CapabilityCheck:
     val seen = scala.collection.mutable.LinkedHashSet.empty[String]
 
     def scanContent(c: ir.Content): Unit = c match
-      case ir.Content.EmbeddedBlock(language, _, _)
+      case ir.Content.EmbeddedBlock(language, _, _, _)
           if Lang.isOpaqueExec(language) && !cap.blockLanguages.contains(language) =>
         seen += language
       case _: ir.Content.SqlBlock if !cap.blockLanguages.contains(Lang.Sql) =>
