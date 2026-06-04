@@ -306,9 +306,9 @@ then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 | `matchBodyBaseline` | 0.044 | 0.044 | parity ✓ |
 | `nestedMatchExpr` | 0.043 | 0.045 | parity ✓ |
 | `patternGuard` | 0.045 | 0.048 | parity ✓ |
-| `patternMatchHeavy` | 0.403 | — | ✓ improved (was 0.438); ASM parity needs re-run |
-| `patternMatchSet` | 0.256 | — | ASM parity needs re-run |
-| `patternMatchWide` | **0.636** | — | ASM column stale (pre-fix 1.685 ms); re-run `scripts/bench asm` to measure current gap |
+| `patternMatchHeavy` | 0.349 | — | updated 2026-06-04 evening; ASM parity needs re-run |
+| `patternMatchSet` | 0.208 | — | updated 2026-06-04 evening |
+| `patternMatchWide` | **0.647** | — | updated 2026-06-04 evening; **target: interp-opt-pattern-match-wide** (INVOKESTATIC floor 1.1 ns/call; List.forEach fuse needed) |
 | `pureCallSum` | 0.256 | — | ✓ ASM bug fixed (was 11.2 ms) |
 | `pureCallSum2` | 0.292 | — | ✓ ASM bug fixed |
 | `pureCallSumBlock` | 0.276 | — | ✓ ASM bug fixed (was 2676 ms) |
@@ -318,8 +318,8 @@ then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 | `recursionFibMul` | 1.315 | 1.341 | parity ✓ |
 | `recursionFibMulD` | 1.610 | 1.643 | parity ✓ |
 | `recursionTco` | 0.034 | 0.035 | parity ✓ (RuntimeBench: interp 31µs vs jvm 24µs = 1.29×; bench.sh 1.7× is wall-clock noise) |
-| `recursiveEval` | 3.383 | 3.706 | **target: interp-opt-recursive-eval** (3.5 ns/node; Direction C to break floor) |
-| `recursiveEvalMixed` | 3.665 | 3.697 | **target: interp-opt-recursive-eval** (same floor; need direct-style eval) |
+| `recursiveEval` | 1.898 | — | updated 2026-06-04 evening; **target: interp-opt-recursive-eval** (3.5 ns/node floor; Direction C needed) |
+| `recursiveEvalMixed` | 3.641 | — | updated 2026-06-04 evening; **target: interp-opt-recursive-eval** (1.92× overhead vs 1-arg; same INVOKESTATIC floor) |
 | `refChainArg` | **0.046** | 0.047 | parity ✓ (javac-while-inline-objfn) |
 | `refFieldArg` | 0.047 | 0.047 | parity ✓ |
 | `tupleMonoid` | **0.012** | **0.000016** | ✓ at interp floor; tryFoldCounterLoop collapses 100K loop to O(1) — JVM gap is HotSpot DCE on a long-lived server |
@@ -1064,6 +1064,36 @@ highest-impact item.
       `isEmpty/head/tail` (3 virtual calls/element) instead of the pre-extracted
       Object[] used by Javac. Fix: `emitArrayForeachAccumInline` + `listPreExtract=true`.
       1283 tests pass. Commit e0c9e3d5.
+
+- [ ] **interp-opt-pattern-match-wide** — `patternMatchWide` 0.647 ms (12-arm
+      match, 50K × 12 = 600K `eval(o)` calls via JIT `ObjToLong`).
+      **Root cause:** 600K × ~1.08 ns/call = 0.65 ms is the INVOKESTATIC floor.
+      Per-call cost is essentially the same as `patternMatchHeavy` (1.16 ns) —
+      the higher absolute total is purely from 2× more work.
+      **Approach:** JFR-profile first to confirm INVOKESTATIC dominates and there
+      is no hidden allocation or dispatch overhead. If the profile shows overhead
+      beyond raw INVOKESTATIC (e.g., per-element slot-sync for `total`), investigate
+      fusing `coll.foreach(item => acc = acc + f(item))` for List into a JIT-compiled
+      inner for-loop (same strategy as `while-jit-map-foreach`). This would batch
+      all 12 INVOKESTATIC calls into a single JIT-generated Java loop, eliminating
+      per-element interp dispatch overhead.
+      **Target:** ~15–25% (0.647 → ≤0.52 ms). No win if profile confirms pure
+      INVOKESTATIC floor — close as "at floor" in that case.
+      **Spec:** [`docs/interp-opt-pattern-match-wide.md`](docs/interp-opt-pattern-match-wide.md) (to be created)
+
+- [ ] **interp-opt-recursive-eval** — `recursiveEvalMixed` 3.641 ms (2-param
+      recursive tree eval — 2× overhead vs 1-param `recursiveEval` 1.898 ms).
+      **Root cause:** Each of 511K `gEval(scale, node)` calls is INVOKESTATIC
+      `LongObjToLong`; the 1.92× overhead vs `ObjToLong` is inherent to 2-arg
+      dispatch. `recursiveEval` at 1.898 ms also represents the same
+      INVOKESTATIC floor at 3.7 ns/node.
+      **Approach (Direction C):** Direct-style eval — bypass the `Expr` ADT tree
+      entirely; compile the SSC expression into a JVM stack machine using the
+      BytecodeJIT / LExpr pipeline. Spec: `docs/direct-style-eval-spec.md`.
+      **Target:** ≥2× (`recursiveEvalMixed` 3.641 → ≤1.8 ms). Breaking below
+      ~1 ms requires eliminating the ADT tree representation.
+      **Prerequisite:** `docs/direct-style-eval-spec.md` (already landed 2026-06-04).
+      **Spec:** [`docs/interp-opt-recursive-eval.md`](docs/interp-opt-recursive-eval.md) (to be created)
 
 - [x] **bench-effect-stream-corpus** — ✓ Landed 2026-06-04.
       Root cause: headless bench (BenchCmd headless=true) runs without the dstreams

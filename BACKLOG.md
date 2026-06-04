@@ -42,19 +42,41 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       confirm `TupleV` dominates allocation; then implement.
       **Spec:** [`docs/interp-opt-tuple-var.md`](docs/interp-opt-tuple-var.md)
 
-- [ ] **interp-opt-recursive-eval** — `recursiveEvalMixed` 3.6 ms (recursive tree eval,
-      ~3.5 ns/node INVOKESTATIC).
-      **Root cause:** Each node dispatch goes through one `INVOKESTATIC` JIT call
-      (already optimized by `jit-match-recursive-descent` 2026-06-04). The current floor
-      is set by the JVM INVOKESTATIC dispatch overhead times the 1021-node tree; sub-3 ns/node
-      requires either fewer dispatches per node or eliminating the tree representation.
-      **Approach (Direction C):** Direct-style eval — instead of `eval(Expr, Env)` producing
-      a `Computation` tree that is then walked, compile the SSC expression into a chain of
-      JVM stack operations using the BytecodeJIT / LExpr dual-bank pipeline, bypassing the
-      `Expr` ADT entirely. Spec: `docs/direct-style-eval-spec.md`.
-      **Target:** ≥2× (3.6 ms → ≤1.8 ms). Getting below ~1 ms requires Direction C.
-      **Prerequisite:** Direction C Phase 1 (dual-bank LExpr for recursive patterns).
+- [ ] **interp-opt-recursive-eval** — `recursiveEvalMixed` 3.641 ms / `recursiveEval`
+      1.898 ms (recursive ADT tree eval, ~3.7 ns/node INVOKESTATIC).
+      **Root cause:** Each node dispatch is one `INVOKESTATIC` on the JIT-compiled
+      `ObjToLong` / `LongObjToLong` function (verified 2026-06-04 via
+      `jit-match-recursive-descent`). The 1.92× gap between 2-param `gEval` and
+      1-param `eval` is inherent to 2-arg dispatch; both are at the JVM
+      INVOKESTATIC floor (~3.7 ns/node). Sub-3 ns/node requires fewer dispatches
+      per node or eliminating the ADT tree representation entirely.
+      **Approach (Direction C):** Direct-style eval — compile the SSC expression
+      into a chain of JVM stack operations using the BytecodeJIT / LExpr
+      dual-bank pipeline, bypassing the `Expr` ADT altogether.
+      Spec: `docs/direct-style-eval-spec.md` (landed 2026-06-04).
+      **Target:** ≥2× (`recursiveEvalMixed` 3.641 → ≤1.8 ms). Getting below
+      ~1 ms requires eliminating the ADT tree.
+      **Prerequisite:** `docs/direct-style-eval-spec.md` (done).
       **Spec:** [`docs/interp-opt-recursive-eval.md`](docs/interp-opt-recursive-eval.md)
+
+- [ ] **interp-opt-pattern-match-wide** — `patternMatchWide` 0.647 ms
+      (12-arm sealed-trait match, 50K outer iters × 12 items = 600K `eval(o)`
+      calls; ~1.08 ns/call — INVOKESTATIC floor).
+      **Root cause:** Per-call cost (1.08 ns) is at parity with `patternMatchHeavy`
+      (1.16 ns, 3-arm match). The higher absolute total is purely 2× more work.
+      `tryMixedLongWhile` already handles the outer while + `i` slot. The 12
+      INVOKESTATIC calls per outer iteration come from `foreachReusing` dispatching
+      per list element with no batching.
+      **Approach:** JFR-profile first. If slot-sync or per-element interp overhead
+      appears beyond raw INVOKESTATIC, implement a fused `List.foreach`-accumulator
+      JIT (analogous to `while-jit-map-foreach`): detect
+      `coll.foreach(item => acc = acc + f(item))` where `coll` is a val-bound
+      `ListV` and `f` is JIT-compiled to `ObjToLong`, then emit a native Java
+      for-loop in the generated while-class body so all 12 INVOKESTATIC calls
+      happen without returning through ScalaScript dispatch.
+      **Target:** ~15–25% (0.647 → ≤0.52 ms) if overhead exists; close as
+      "at floor" if JFR shows pure INVOKESTATIC dominance.
+      **Spec:** [`docs/interp-opt-pattern-match-wide.md`](docs/interp-opt-pattern-match-wide.md) (to be created)
 
 - [x] **interp-opt-effect-stream** — ✓ Landed 2026-06-04.
       Two slices: (1) defer buf.toList into runToList NativeFnV lambda (36902ad1);
