@@ -969,19 +969,15 @@ highest-impact item.
       **Bench target:** `tupleMonoid` 0.212 → ~0.14 ms (JVM parity, ~1.5×).
       Spec: [`docs/bench-analysis-2026-06-04.md`](docs/bench-analysis-2026-06-04.md).
 
-- [ ] **effect-stream-jfr** — `effect-stream` runs at 30.1 ms (interp only; JVM/JS
-      not implemented).  This is 1880× slower than `effect-pure` (0.016 ms) for what
-      looks like a similar inner loop with a stream-mode effect.  Before proposing any
-      optimization, run `scripts/bench profile effectStream` to identify whether the
-      cost is in:
-      - Continuation tree construction / allocation (stream effects need multi-shot conts)
-      - Per-step dispatch in `EffectsRuntime.runStream`
-      - GC pressure from `Computation.FlatMap` chains
-      - `effect-stream` bench parameters (iterations × inner loop size)
-
-      This is a JFR + investigation task only — no code changes until root cause
-      confirmed and a concrete intervention identified.
-      Spec: [`docs/bench-analysis-2026-06-04.md`](docs/bench-analysis-2026-06-04.md).
+- [x] **effect-stream-jfr** — ✓ Landed 2026-06-04.
+      JFR + GC profiler investigation: root cause confirmed.
+      effectStream: 28.5 ms/op, 3.45 MB/op, 5.8 ms GC per iter (20% overhead).
+      Root cause: ~8 JVM allocations per `Stream.emit` from Free Monad trampoline
+      — `FlatMap` re-association (42%), lambda closures (24%), `List` cons for
+      `Perform` args (15%), `Perform` + `Pure` nodes (19%).
+      `effectStream` JMH bench wired; lazy `installStreamGlobal` fix applied.
+      Findings and optimisation candidates: `docs/effect-stream-jfr-findings.md`.
+      Next: OPT-1 `Perform1` specialisation + OPT-2 FastTier while-emit detection.
 
 - [x] **phase-d-patternmatch-fused-foreach** — ✓ Landed 2026-06-04.
       Inline match body into `while-jit-mixed` foreach loop.
