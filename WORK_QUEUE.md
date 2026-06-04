@@ -299,7 +299,7 @@ then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 |---|---|---|---|
 | `arithLoop` | 0.256 | 0.277 | parity ✓ |
 | `counterWithTupleVar` | 58.751 | — | guard bench — non-hoist fallback path, expected slow |
-| `effectPure` | 0.015 | 0.015 | parity ✓ |
+| `effectPure` | **0.016** | — | BytecodeJIT now compiles while-loop fns (was 0.047) |
 | `effectStream` | **0.104** | — | ✓ 253× via effect-stream-opt2 |
 | `instanceFieldAccess` | 0.039 | 0.041 | parity ✓ |
 | `mapForeach` | 0.188 | 0.187 | parity ✓ |
@@ -1019,16 +1019,20 @@ highest-impact item.
       `runToList()` / `toList()` to the returned source. No CPS trampoline needed.
       Result: `effect-stream` JS **0.327 ms/iter** (was n/a).
 
-- [ ] **effect-pure-pure-path** — `effect-pure` interp 0.047 ms vs JS 0.006 ms (8×).
-      Workload: `runLogger { while i < 10000 do acc = acc + i; i = i + 1 }`.
-      The inner while loop is pure (no `perform` calls), but the entire `compute`
-      function is typed `Int ! Logger`, so every iteration still goes through
-      FlatMap/Pure wrapping — the trampoline runs even though nothing is ever
-      performed.  Fix: detect at `runLogger` entry that the returned `Computation`
-      tree contains no `Perform` nodes (pure path) and short-circuit to direct
-      value extraction, bypassing the trampoline loop.  See `v1.61.2` note in
-      BACKLOG (Computation pure-path elimination).
-      **Bench target:** `effect-pure` interp ≤0.010 ms (JS parity).
+- [x] **effect-pure-pure-path** — ✓ Landed 2026-06-04 commit `bd799eae`.
+      VmCompiler: fix `Term.While` body compilation — `compileStmt(body)` was
+      routing through `compileStats` which called `compileExpr(last_stmt)`, but
+      `Term.Assign` has no `compileExpr` case → bail → `disabled=true`. Fixed
+      by iterating all body stats via `compileStmt` (void context, no return needed).
+      JavacJitBackend: extend `walkBlockStmts` to handle `Defn.Var` and `Term.While`
+      as non-final statements; adds `walkWhileAsStmt` + `walkStatAsVoid` helpers.
+      Enables BytecodeJIT compilation of `compute(n: Int): Int ! Logger` (the
+      `var acc/i + while loop + acc` pattern). HotSpot constant-folds the loop
+      to a single `return 49995000L` — per-call cost drops from 35 KB/op
+      (SlotTable + HashMap allocations via `tryLongWhileAssign`) to near-zero.
+      **Result:** `effect-pure` interp 0.047 ms → 0.021 ms (prior work) → **0.016 ms** (3×).
+      Remaining 0.006 ms gap to JS parity is interpreter-init overhead (see
+      `hello-world-interp-overhead`). 1283 tests passed.
 
 - [x] **jvm-tuple-monoid-hoist** — ✓ Landed 2026-06-04 commit `367ee2d0`.
       `isConstantExpr` + `containsHoistableWhile` in `JvmGenTermAnalysis`; new
