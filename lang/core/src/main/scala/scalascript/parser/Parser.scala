@@ -8,12 +8,20 @@ import org.commonmark.node.{
   Heading         as CmHeading,
   Paragraph       as CmParagraph,
   FencedCodeBlock as CmFenced,
+  IndentedCodeBlock as CmIndentedCode,
   BulletList      as CmBulletList,
   OrderedList     as CmOrderedList,
   ListItem        as CmListItem,
   Link            as CmLink,
+  Image           as CmImage,
   Text            as CmText,
   Code            as CmCode,
+  Emphasis        as CmEmphasis,
+  StrongEmphasis  as CmStrongEmphasis,
+  SoftLineBreak   as CmSoftLineBreak,
+  HardLineBreak   as CmHardLineBreak,
+  HtmlBlock       as CmHtmlBlock,
+  HtmlInline      as CmHtmlInline,
 }
 import org.commonmark.parser.{Parser as CmParser, IncludeSourceSpans}
 import scala.collection.mutable.{ListBuffer, Stack}
@@ -71,7 +79,8 @@ object Parser:
     val finalSections = if pkg.isEmpty then sections else sections.map(wrapSectionInPackage(_, pkg))
     val manifest1 = mergeSourceRemoteHandlers(manifest0, finalSections)
     val manifest  = mergeSourceModels(manifest1, finalSections)
-    val raw       = Module(manifest, finalSections, sourceText = Some(source))
+    val document  = buildDocumentContent(doc, manifest)
+    val raw       = Module(manifest, finalSections, sourceText = Some(source), document = Some(document))
     validateRemoteRegistries(raw)
     MarkupLiteralLower.lower(RouteDeriver.derive(RemoteClientDeriver.derive(raw)))
 
@@ -313,6 +322,9 @@ object Parser:
         val value = Option(m.group(2)).getOrElse(m.group(3))
         key -> value
       }.toMap
+
+  private def parseFenceContentAttrs(tail: String): Map[String, ContentValue] =
+    parseFenceAttrs(tail).view.mapValues(ContentValue.Str.apply).toMap
 
   private def parseRawMap(raw: Map[String, Any], key: String): Map[String, Any] =
     raw.get(key).collect { case m: java.util.Map[?, ?] =>
@@ -735,6 +747,321 @@ object Parser:
     case n: java.lang.Double => SchemaDefault.DoubleValue(n.doubleValue)
     case n: java.math.BigDecimal => SchemaDefault.DoubleValue(n.doubleValue)
     case other => SchemaDefault.StringValue(other.toString)
+
+  // ─── Markdown-hosted content snapshot ───────────────────────────
+
+  private case class ParsedHeadingText(title: String, explicitId: Option[String], attrs: Map[String, ContentValue])
+
+  private val HeadingAttrSuffix = """^(.*?)(?:\s*\{([^}]*)\})\s*$""".r
+  private val MetaDirective = """(?s)<!--\s*@meta\s+(.+?)\s*-->""".r
+
+  private def buildDocumentContent(doc: CmDocument, manifest: Option[Manifest]): DocumentContent =
+    val usedIds = collection.mutable.Map.empty[String, Int]
+    val explicitIds = collection.mutable.Set.empty[String]
+
+    def nextId(title: String, explicit: Option[String]): String =
+      explicit match
+        case Some(id) =>
+          if explicitIds.contains(id) then
+            throw new RuntimeException(s"Duplicate explicit content id '$id'")
+          explicitIds += id
+          usedIds(id) = math.max(1, usedIds.getOrElse(id, 0))
+          id
+        case None =>
+          val base0 = slugify(title)
+          val base  = if base0.nonEmpty then base0 else "section"
+          val count = usedIds.getOrElse(base, 0) + 1
+          usedIds(base) = count
+          if count == 1 then base else s"$base-$count"
+
+    case class Frame(
+      level: Int,
+      section: SectionContent,
+      children: ListBuffer[SectionContent]
+    )
+
+    val roots = ListBuffer.empty[SectionContent]
+    val blocks = ListBuffer.empty[ContentBlock]
+    val stack = Stack.empty[Frame]
+    var pendingAttrs = Map.empty[String, ContentValue]
+
+    def flush(toLevel: Int): Unit =
+      while stack.nonEmpty && stack.top.level >= toLevel do
+        val f = stack.pop()
+        val complete = f.section.copy(children = f.children.toList)
+        if stack.nonEmpty then stack.top.children += complete else roots += complete
+
+    def addBlocks(bs: List[ContentBlock]): Unit =
+      if bs.nonEmpty then
+        val merged = if pendingAttrs.isEmpty then bs else bs.head match
+          case ContentBlock.Paragraph(inlines, attrs) =>
+            ContentBlock.Paragraph(inlines, mergeAttrs(attrs, pendingAttrs)) :: bs.tail
+          case ContentBlock.BulletList(items, attrs) =>
+            ContentBlock.BulletList(items, mergeAttrs(attrs, pendingAttrs)) :: bs.tail
+          case ContentBlock.OrderedList(items, start, attrs) =>
+            ContentBlock.OrderedList(items, start, mergeAttrs(attrs, pendingAttrs)) :: bs.tail
+          case ContentBlock.Image(src, alt, title, attrs) =>
+            ContentBlock.Image(src, alt, title, mergeAttrs(attrs, pendingAttrs)) :: bs.tail
+          case ContentBlock.Embedded(lang, source, kind, data, attrs) =>
+            ContentBlock.Embedded(lang, source, kind, data, mergeAttrs(attrs, pendingAttrs)) :: bs.tail
+        pendingAttrs = Map.empty
+        if stack.nonEmpty then
+          val top = stack.top
+          stack.update(0, top.copy(section = top.section.copy(blocks = top.section.blocks ++ merged)))
+        else blocks ++= merged
+
+    var node = doc.getFirstChild
+    while node != null do
+      node match
+        case h: CmHeading =>
+          flush(h.getLevel)
+          val parsed = parseHeadingText(textOf(h))
+          val id = nextId(parsed.title, parsed.explicitId)
+          val attrs = mergeAttrs(parsed.attrs, pendingAttrs)
+          pendingAttrs = Map.empty
+          stack.push(Frame(
+            level = h.getLevel,
+            section = SectionContent(id, h.getLevel, parsed.title, attrs, Nil, Nil),
+            children = ListBuffer.empty
+          ))
+        case html: CmHtmlBlock =>
+          parseMetaDirective(html.getLiteral) match
+            case Some(attrs) => pendingAttrs = mergeAttrs(pendingAttrs, attrs)
+            case None        => ()
+        case other =>
+          addBlocks(contentBlocks(other))
+      node = node.getNext
+
+    flush(0)
+    val manifestValue = manifest
+      .map(m => contentValueFromAny(m.raw))
+      .getOrElse(ContentValue.MapV(Map.empty))
+    val topTitle = roots.headOption.map(_.title)
+    DocumentContent(
+      manifest = manifestValue,
+      title = topTitle,
+      description = manifest.flatMap(_.description),
+      attrs = Map.empty,
+      sections = roots.toList,
+      blocks = blocks.toList
+    )
+
+  private def parseHeadingText(text: String): ParsedHeadingText =
+    text match
+      case HeadingAttrSuffix(rawTitle, rawAttrs) if rawAttrs != null && rawAttrs.trim.nonEmpty =>
+        val attrs0 = parseContentAttrs(rawAttrs)
+        val explicit = attrs0.get("id").collect { case ContentValue.Str(s) => s }
+        ParsedHeadingText(rawTitle.trim, explicit, attrs0 - "id")
+      case _ => ParsedHeadingText(text.trim, None, Map.empty)
+
+  private def parseContentAttrs(raw: String): Map[String, ContentValue] =
+    raw.split("\\s+").iterator.filter(_.nonEmpty).foldLeft(Map.empty[String, ContentValue]) { (acc, token) =>
+      if token.startsWith("#") && token.length > 1 then acc.updated("id", ContentValue.Str(token.drop(1)))
+      else if token.startsWith(".") && token.length > 1 then
+        val cls = token.drop(1)
+        val old = acc.get("class").collect { case ContentValue.Str(s) => s }.filter(_.nonEmpty)
+        acc.updated("class", ContentValue.Str((old.toList :+ cls).mkString(" ")))
+      else
+        token.indexOf('=') match
+          case idx if idx > 0 =>
+            val key = token.substring(0, idx)
+            val value = token.substring(idx + 1).stripPrefix("\"").stripSuffix("\"")
+            acc.updated(key, parseScalarContentValue(value))
+          case _ => acc.updated(token, ContentValue.Bool(true))
+    }
+
+  private def parseMetaDirective(source: String): Option[Map[String, ContentValue]] =
+    source.trim match
+      case MetaDirective(raw) => Some(parseContentAttrs(raw))
+      case _                  => None
+
+  private def parseScalarContentValue(value: String): ContentValue =
+    value match
+      case "true"  => ContentValue.Bool(true)
+      case "false" => ContentValue.Bool(false)
+      case "null"  => ContentValue.NullV
+      case other   => other.toDoubleOption.map(ContentValue.Num.apply).getOrElse(ContentValue.Str(other))
+
+  private def mergeAttrs(base: Map[String, ContentValue], next: Map[String, ContentValue]): Map[String, ContentValue] =
+    next.foldLeft(base) {
+      case (acc, ("class", ContentValue.Str(cls))) =>
+        val old = acc.get("class").collect { case ContentValue.Str(s) => s }.filter(_.nonEmpty)
+        acc.updated("class", ContentValue.Str((old.toList :+ cls).mkString(" ")))
+      case (acc, (k, v)) => acc.updated(k, v)
+    }
+
+  private def slugify(text: String): String =
+    text.toLowerCase
+      .replaceAll("[^a-z0-9]+", "-")
+      .stripPrefix("-")
+      .stripSuffix("-")
+
+  private def contentBlocks(node: CmNode): List[ContentBlock] = node match
+    case p: CmParagraph =>
+      if asImport(p).isDefined then Nil
+      else
+        paragraphImage(p).map(List(_)).getOrElse {
+          val inlines = contentInlines(p)
+          if inlines.nonEmpty then List(ContentBlock.Paragraph(inlines)) else Nil
+        }
+    case l: CmBulletList =>
+      List(ContentBlock.BulletList(listItemBlocks(l)))
+    case l: CmOrderedList =>
+      List(ContentBlock.OrderedList(listItemBlocks(l), 1))
+    case f: CmFenced =>
+      val info = Option(f.getInfo).getOrElse("").trim
+      val lang = info.takeWhile(!_.isWhitespace).toLowerCase
+      val tailAttrs = info.drop(lang.length).trim
+      val source = Option(f.getLiteral).getOrElse("")
+      List(embeddedContentBlock(lang, source, parseFenceContentAttrs(tailAttrs)))
+    case i: CmIndentedCode =>
+      List(embeddedContentBlock("", Option(i.getLiteral).getOrElse(""), Map.empty))
+    case html: CmHtmlBlock =>
+      if parseMetaDirective(html.getLiteral).isDefined then Nil else Nil
+    case _ => Nil
+
+  private def paragraphImage(p: CmParagraph): Option[ContentBlock.Image] =
+    val child = p.getFirstChild
+    child match
+      case img: CmImage if child.getNext == null =>
+        Some(ContentBlock.Image(
+          src = Option(img.getDestination).getOrElse(""),
+          alt = inlinePlainText(contentInlines(img)),
+          title = Option(img.getTitle).filter(_.nonEmpty)
+        ))
+      case _ => None
+
+  private def listItemBlocks(list: CmNode): List[List[ContentBlock]] =
+    val out = ListBuffer.empty[List[ContentBlock]]
+    var item = list.getFirstChild
+    while item != null do
+      item match
+        case li: CmListItem =>
+          val blocks = ListBuffer.empty[ContentBlock]
+          var child = li.getFirstChild
+          while child != null do
+            blocks ++= contentBlocks(child)
+            child = child.getNext
+          out += blocks.toList
+        case _ => ()
+      item = item.getNext
+    out.toList
+
+  private def embeddedContentBlock(lang: String, source: String, attrs: Map[String, ContentValue]): ContentBlock =
+    val kind =
+      if Set("yaml", "yml", "json", "toml").contains(lang) then EmbeddedKind.StructuredData
+      else if Lang.isParseable(lang) || Lang.isOpaqueExec(lang) || Lang.isSql(lang) then EmbeddedKind.Executable
+      else if Lang.isStringBlock(lang) then EmbeddedKind.StringBlock
+      else EmbeddedKind.Opaque
+    val data =
+      if kind == EmbeddedKind.StructuredData then parseStructuredContentValue(lang, source) else None
+    ContentBlock.Embedded(lang, source, kind, data, attrs)
+
+  private def parseStructuredContentValue(lang: String, source: String): Option[ContentValue] =
+    try
+      lang match
+        case "yaml" | "yml" =>
+          Some(contentValueFromAny(SimpleYaml.load[Any](source)))
+        case "json" =>
+          Some(contentValueFromUjson(ujson.read(source)))
+        case _ => None
+    catch case _: Throwable => None
+
+  private def contentValueFromAny(value: Any): ContentValue = value match
+    case null => ContentValue.NullV
+    case s: String => ContentValue.Str(s)
+    case b: java.lang.Boolean => ContentValue.Bool(b.booleanValue)
+    case b: Boolean => ContentValue.Bool(b)
+    case n: java.lang.Integer => ContentValue.Num(n.doubleValue)
+    case n: java.lang.Long => ContentValue.Num(n.doubleValue)
+    case n: java.lang.Short => ContentValue.Num(n.doubleValue)
+    case n: java.lang.Byte => ContentValue.Num(n.doubleValue)
+    case n: java.lang.Float => ContentValue.Num(n.doubleValue)
+    case n: java.lang.Double => ContentValue.Num(n.doubleValue)
+    case n: java.math.BigInteger => ContentValue.Num(n.doubleValue)
+    case n: java.math.BigDecimal => ContentValue.Num(n.doubleValue)
+    case m: java.util.Map[?, ?] =>
+      ContentValue.MapV(m.asScala.iterator.map { case (k, v) => k.toString -> contentValueFromAny(v) }.toMap)
+    case xs: java.util.List[?] =>
+      ContentValue.ListV(xs.asScala.toList.map(contentValueFromAny))
+    case m: Map[?, ?] =>
+      ContentValue.MapV(m.iterator.map { case (k, v) => k.toString -> contentValueFromAny(v) }.toMap)
+    case xs: Iterable[?] =>
+      ContentValue.ListV(xs.toList.map(contentValueFromAny))
+    case other => ContentValue.Str(other.toString)
+
+  private def contentValueFromUjson(value: ujson.Value): ContentValue = value match
+    case ujson.Str(s) => ContentValue.Str(s)
+    case ujson.Num(n) => ContentValue.Num(n)
+    case ujson.Bool(b) => ContentValue.Bool(b)
+    case ujson.Null => ContentValue.NullV
+    case arr: ujson.Arr => ContentValue.ListV(arr.value.toList.map(contentValueFromUjson))
+    case obj: ujson.Obj => ContentValue.MapV(obj.value.iterator.map { case (k, v) => k -> contentValueFromUjson(v) }.toMap)
+
+  private def contentInlines(node: CmNode): List[ContentInline] =
+    val out = ListBuffer.empty[ContentInline]
+    def walk(n: CmNode): Unit =
+      n match
+        case t: CmText =>
+          out ++= splitExprInlines(t.getLiteral)
+        case c: CmCode =>
+          out += ContentInline.Code(c.getLiteral)
+        case e: CmEmphasis =>
+          out += ContentInline.Emphasis(contentInlines(e))
+        case s: CmStrongEmphasis =>
+          out += ContentInline.Strong(contentInlines(s))
+        case l: CmLink =>
+          out += ContentInline.Link(contentInlines(l), Option(l.getDestination).getOrElse(""), Option(l.getTitle).filter(_.nonEmpty))
+        case img: CmImage =>
+          out += ContentInline.Text(inlinePlainText(contentInlines(img)))
+        case _: CmSoftLineBreak =>
+          out += ContentInline.Text(" ")
+        case _: CmHardLineBreak =>
+          out += ContentInline.Text("\n")
+        case html: CmHtmlInline =>
+          out += ContentInline.Text(html.getLiteral)
+        case _ =>
+          var child = n.getFirstChild
+          while child != null do
+            walk(child)
+            child = child.getNext
+    var child = node.getFirstChild
+    while child != null do
+      walk(child)
+      child = child.getNext
+    out.toList
+
+  private def splitExprInlines(text: String): List[ContentInline] =
+    val out = ListBuffer.empty[ContentInline]
+    var i = 0
+    while i < text.length do
+      val start = text.indexOf("${", i)
+      if start < 0 then
+        if i < text.length then out += ContentInline.Text(text.substring(i))
+        i = text.length
+      else
+        if start > i then out += ContentInline.Text(text.substring(i, start))
+        val end = text.indexOf('}', start + 2)
+        if end < 0 then
+          out += ContentInline.Text(text.substring(start))
+          i = text.length
+        else
+          out += ContentInline.Expr(text.substring(start + 2, end).trim)
+          i = end + 1
+    out.toList.filter {
+      case ContentInline.Text("") => false
+      case _ => true
+    }
+
+  private def inlinePlainText(inlines: List[ContentInline]): String =
+    inlines.map {
+      case ContentInline.Text(value) => value
+      case ContentInline.Emphasis(children) => inlinePlainText(children)
+      case ContentInline.Strong(children) => inlinePlainText(children)
+      case ContentInline.Code(value) => value
+      case ContentInline.Link(label, _, _) => inlinePlainText(label)
+      case ContentInline.Expr(source) => s"$${$source}"
+    }.mkString
 
   // ─── Section extraction from the flat CommonMark tree ────────────
   //

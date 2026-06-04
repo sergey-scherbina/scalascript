@@ -696,7 +696,7 @@ lazy val compilerBench = project
 // compile as a separate module behind InterpreterServerSupport.
 lazy val backendInterpreterServer = project
   .in(file("runtime/backend/interpreter-server"))
-  .dependsOn(backendInterpreter, httpPlugin % Test, wsPlugin % Test, frontendPlugin % Test, sqlPlugin % Test, frontendReact % Test, fetchPlugin % Test)
+  .dependsOn(backendInterpreter, httpPlugin % Test, wsPlugin % Test, frontendPlugin % Test, contentPlugin % Test, sqlPlugin % Test, frontendReact % Test, fetchPlugin % Test)
   .settings(
     name := "scalascript-backend-interpreter-server",
     libraryDependencies ++= Seq(scalatestTest),
@@ -1036,6 +1036,7 @@ lazy val cli = project
       // is explicit.  It must stay in sync with allPlugins (arch-build-registry-p1).
       val pluginPkgs = Seq(
         (jsonPlugin            / packagePlugin).value,
+        (contentPlugin         / packagePlugin).value,
         (frontendPlugin        / packagePlugin).value,
         (requestPlugin         / packagePlugin).value,
         (authPlugin            / packagePlugin).value,
@@ -2401,6 +2402,17 @@ lazy val jsonPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.json"))
 
+lazy val contentPlugin = project
+  .in(file("runtime/std/content-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-content-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.content"))
+
 lazy val frontendPlugin = project
   .in(file("runtime/std/frontend-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, frontendCore, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, frontendSwing % Test, frontendSwiftUI % Test, testUtils % Test)
@@ -2719,6 +2731,7 @@ lazy val paymentsPlugin = project
 // root aggregate, and cli test deps) all follow automatically.
 lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("json",            jsonPlugin,            "scalascript-json-plugin"),
+  PluginSpec("content",         contentPlugin,         "scalascript-content-plugin"),
   PluginSpec("frontend",        frontendPlugin,        "scalascript-frontend-plugin"),
   PluginSpec("swing",           swingPlugin,           "scalascript-swing-plugin"),
   PluginSpec("request",         requestPlugin,         "scalascript-request-plugin"),

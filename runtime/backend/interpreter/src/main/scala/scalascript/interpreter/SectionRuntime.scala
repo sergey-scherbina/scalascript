@@ -246,15 +246,16 @@ private[interpreter] object SectionRuntime:
     val childPkg    = child.exportedPkg
     // Snapshot all child globals so exported FunVs can reference sibling imports
     // (e.g. VStackNode, element) when called from a parent interpreter that lacks them.
-    val childCtx: Map[String, Value] = exported
+    val childCtx: Map[String, Value] = exported ++ packageMembers(exported, childPkg)
     for binding <- imp.bindings do
       val sourceName = binding.name
       val targetName = binding.alias.getOrElse(binding.name)
       lookupExport(exported, childPkg, sourceName) match
         case Some(v) =>
           val enriched = enrichFnClosures(v, childCtx)
-          interp.globals(targetName) = enriched
-          enriched match
+          val imported = rebindPluginNative(sourceName, targetName, enriched, interp)
+          interp.globals(targetName) = imported
+          imported match
             case inst: Value.InstanceV if inst.typeName.contains('[') =>
               if !interp.globals.contains(inst.typeName) then interp.globals(inst.typeName) = inst
             case _ => ()
@@ -277,6 +278,22 @@ private[interpreter] object SectionRuntime:
     for (name, value) <- childCtx do
       if !interp.globals.contains(name) then
         interp.globals(name) = value
+
+  private def rebindPluginNative(
+      sourceName: String,
+      targetName: String,
+      value:      Value,
+      interp:     Interpreter
+  ): Value =
+    value match
+      case _: Value.NativeFnV =>
+        if !interp._pluginsLoaded then interp.ensurePluginsLoaded()
+        if interp.pluginNativeNames.contains(sourceName) then
+          interp.globals.get(sourceName).collect {
+            case fn: Value.NativeFnV => fn.copy(name = targetName)
+          }.getOrElse(value)
+        else value
+      case _ => value
 
   /** Enrich `FunV` closures with `ctx` so that exported functions can reference
    *  sibling-module bindings (case-class constructors, helpers) when called
@@ -301,6 +318,16 @@ private[interpreter] object SectionRuntime:
         case Value.InstanceV(_, fields) => fields.get(name)
       }.flatten
         .orElse(exported.get(name))
+
+  private def packageMembers(exported: Map[String, Value], pkg: List[String]): Map[String, Value] =
+    if pkg.isEmpty then Map.empty
+    else
+      val root = exported.get(pkg.head)
+      val pkgObj = pkg.tail.foldLeft(root) {
+        case (Some(Value.InstanceV(_, fields)), seg) => fields.get(seg)
+        case (acc, _)                                => acc
+      }
+      pkgObj.collect { case Value.InstanceV(_, fields) => fields }.getOrElse(Map.empty)
 
   def execBlockStats(stats: List[Stat], interp: Interpreter): Unit =
     var rest = stats

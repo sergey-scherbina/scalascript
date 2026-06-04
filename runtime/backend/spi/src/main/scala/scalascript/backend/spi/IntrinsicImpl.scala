@@ -53,6 +53,7 @@ object NativeContextFeatureKeys:
   val OpenApiSecuritySchemes = "scalascript.openapi.securitySchemes"
   val OpenApiSchemaComponents = "scalascript.openapi.schemaComponents"
   val UuidFixed              = "scalascript.uuid.fixed"
+  val ContentDocument        = "scalascript.content.document"
 
 object OpenApiDryRun:
   case object Sentinel extends RuntimeException("OpenAPI dry-run stopped at serve()") with NoStackTrace

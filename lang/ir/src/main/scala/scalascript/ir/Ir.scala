@@ -188,7 +188,8 @@ case class Manifest(
 case class NormalizedModule(
   manifest: Option[Manifest],
   sections: List[Section],
-  span:     Option[Span] = None
+  span:     Option[Span] = None,
+  document: Option[DocumentContent] = None
 ) derives ReadWriter
 
 case class Section(
@@ -199,6 +200,61 @@ case class Section(
 ) derives ReadWriter
 
 case class Heading(level: Int, text: String, span: Option[Span] = None) derives ReadWriter
+
+// ─── Markdown-hosted content snapshot ───────────────────────────────────
+
+case class DocumentContent(
+  manifest:    ContentValue,
+  title:       Option[String],
+  description: Option[String],
+  attrs:       Map[String, ContentValue],
+  sections:    List[SectionContent],
+  blocks:      List[ContentBlock]
+) derives ReadWriter
+
+case class SectionContent(
+  id:       String,
+  level:    Int,
+  title:    String,
+  attrs:    Map[String, ContentValue],
+  blocks:   List[ContentBlock],
+  children: List[SectionContent]
+) derives ReadWriter
+
+enum ContentBlock derives ReadWriter:
+  case Paragraph(inlines: List[ContentInline], attrs: Map[String, ContentValue] = Map.empty)
+  case BulletList(items: List[List[ContentBlock]], attrs: Map[String, ContentValue] = Map.empty)
+  case OrderedList(items: List[List[ContentBlock]], start: Int, attrs: Map[String, ContentValue] = Map.empty)
+  case Image(src: String, alt: String, title: Option[String] = None, attrs: Map[String, ContentValue] = Map.empty)
+  case Embedded(
+    lang:   String,
+    source: String,
+    kind:   EmbeddedKind,
+    data:   Option[ContentValue] = None,
+    attrs:  Map[String, ContentValue] = Map.empty
+  )
+
+enum EmbeddedKind derives ReadWriter:
+  case StructuredData
+  case Executable
+  case StringBlock
+  case Opaque
+
+enum ContentInline derives ReadWriter:
+  case Text(value: String)
+  case Emphasis(children: List[ContentInline])
+  case Strong(children: List[ContentInline])
+  case Code(value: String)
+  case Link(label: List[ContentInline], href: String, title: Option[String] = None)
+  case Expr(source: String)
+
+enum ContentValue derives ReadWriter:
+  case Str(value: String)
+  case Bool(value: Boolean)
+  case Num(value: Double)
+  case ListV(values: List[ContentValue])
+  case MapV(values: Map[String, ContentValue])
+  case NullV
 
 // ─── SQL execution side (v1.30) ──────────────────────────────────────────────
 

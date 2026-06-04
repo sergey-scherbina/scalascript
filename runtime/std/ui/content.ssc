@@ -1,0 +1,96 @@
+---
+name: ui-content
+version: 0.1.0
+description: Markdown-hosted DocumentContent to low-level frontend View lowering.
+package: std.ui.content
+exports:
+  - ContentRenderOptions
+  - contentView
+  - contentViewSection
+  - contentViewBlock
+---
+
+# `std.ui.content` — Markdown content lowering
+
+[DocumentContent, SectionContent, ContentBlock, ContentInline](../content.ssc)
+[View, element, textNode, fragment](primitives.ssc)
+
+```scalascript
+case class ContentRenderOptions(
+  includeCode: Boolean = false,
+  evaluateInlineExpr: Boolean = true,
+  sectionIdsAsAnchors: Boolean = true
+)
+
+def contentView(doc: DocumentContent,
+                options: ContentRenderOptions = ContentRenderOptions()): View =
+  fragment(doc.blocks.map(contentViewBlock(_, options)) ++
+           doc.sections.map(contentViewSection(_, options)))
+
+def contentViewSection(section: SectionContent,
+                       options: ContentRenderOptions = ContentRenderOptions()): View =
+  val tag = if section.level >= 1 && section.level <= 6 then s"h${section.level}" else "h2"
+  val headingAttrs =
+    if options.sectionIdsAsAnchors then Map("id" -> section.id) else Map()
+  val heading = element(tag, headingAttrs, Map(), [textNode(section.title)])
+  val body = section.blocks.map(contentViewBlock(_, options))
+  val children = section.children.map(contentViewSection(_, options))
+  fragment([heading] ++ body ++ children)
+
+def contentViewBlock(block: ContentBlock,
+                     options: ContentRenderOptions = ContentRenderOptions()): View =
+  block match
+    case Paragraph(inlines, _) =>
+      element("p", Map(), Map(), inlines.map(contentInlineView(_, options)))
+
+    case BulletList(items, _) =>
+      val children = items.map { item =>
+        element("li", Map(), Map(), item.map(contentViewBlock(_, options)))
+      }
+      element("ul", Map(), Map(), children)
+
+    case OrderedList(items, start, _) =>
+      val attrs = if start == 1 then Map() else Map("start" -> start)
+      val children = items.map { item =>
+        element("li", Map(), Map(), item.map(contentViewBlock(_, options)))
+      }
+      element("ol", attrs, Map(), children)
+
+    case Image(src, alt, title, _) =>
+      val attrs = title match
+        case Some(t) => Map("src" -> src, "alt" -> alt, "title" -> t)
+        case None    => Map("src" -> src, "alt" -> alt)
+      element("img", attrs, Map(), [])
+
+    case Embedded(lang, source, _, _, _) =>
+      if options.includeCode then
+        val label = if lang == "" then "" else s"${lang}\n"
+        element("pre", Map(), Map(), [
+          element("code", Map(), Map(), [textNode(label + source)])
+        ])
+      else fragment([])
+
+def contentInlineView(inline: ContentInline,
+                      options: ContentRenderOptions): View =
+  inline match
+    case Text(value) =>
+      textNode(value)
+
+    case Emphasis(children) =>
+      element("em", Map(), Map(), children.map(contentInlineView(_, options)))
+
+    case Strong(children) =>
+      element("strong", Map(), Map(), children.map(contentInlineView(_, options)))
+
+    case Code(value) =>
+      element("code", Map(), Map(), [textNode(value)])
+
+    case Link(label, href, title) =>
+      val attrs = title match
+        case Some(t) => Map("href" -> href, "title" -> t)
+        case None    => Map("href" -> href)
+      element("a", attrs, Map(), label.map(contentInlineView(_, options)))
+
+    case Expr(source) =>
+      textNode("${" + source + "}")
+```

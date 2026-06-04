@@ -170,6 +170,7 @@ class Interpreter(
     ))
   // Phase 2 lazy loading: set to true after ensurePluginsLoaded() has run.
   private[interpreter] var _pluginsLoaded = false
+  private[interpreter] val pluginNativeNames = mutable.Set.empty[String]
   // Effect object names detected as multi-shot by EffectAnalysis (populated in runInit).
   private[interpreter] var multiShotEffects: Set[String] = Set.empty
   private[interpreter] var sqlBlockRunner: Option[scalascript.backend.spi.SqlBlockRunner] = None
@@ -803,6 +804,9 @@ class Interpreter(
       if m.models.nonEmpty then
         nativeFeatureSet("scalascript.frontend.models", m.models)
     }
+    module.document.foreach { doc =>
+      nativeFeatureSet(scalascript.backend.spi.NativeContextFeatureKeys.ContentDocument, doc)
+    }
     // Populate multiShotEffects for one-shot violation checks in evalHandle.
     val allTrees: List[scala.meta.Tree] = module.sections.flatMap { s =>
       s.content.collect {
@@ -1284,6 +1288,7 @@ class Interpreter(
           source = source, mountCtx = ctx)
     intrinsics.foreach {
       case (qn, scalascript.backend.spi.NativeImpl(eval)) =>
+        pluginNativeNames += qn.value
         registerNative(qn.value, args =>
           val raw = args.map(unwrapValueAsAny)
           val ret = eval(ctx, raw)

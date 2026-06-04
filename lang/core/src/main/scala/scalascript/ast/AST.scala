@@ -13,7 +13,12 @@ case class Module(
   manifest:   Option[Manifest],
   sections:   List[Section],
   span:       Option[Span]   = None,
-  sourceText: Option[String] = None
+  sourceText: Option[String] = None,
+  /** Parsed Markdown-hosted content snapshot used by the planned
+   *  Markdown-to-frontend lowering.  Kept beside the execution-oriented
+   *  `sections` tree so existing code-block execution and import semantics do
+   *  not change while frontend renderers get a stable document model. */
+  document:   Option[DocumentContent] = None
 )
 
 case class Manifest(
@@ -227,6 +232,61 @@ case class Section(
 )
 
 case class Heading(level: Int, text: String, span: Option[Span] = None)
+
+// ─── Markdown-hosted content snapshot ───────────────────────────────────
+
+case class DocumentContent(
+  manifest:    ContentValue,
+  title:       Option[String],
+  description: Option[String],
+  attrs:       Map[String, ContentValue],
+  sections:    List[SectionContent],
+  blocks:      List[ContentBlock]
+)
+
+case class SectionContent(
+  id:       String,
+  level:    Int,
+  title:    String,
+  attrs:    Map[String, ContentValue],
+  blocks:   List[ContentBlock],
+  children: List[SectionContent]
+)
+
+enum ContentBlock:
+  case Paragraph(inlines: List[ContentInline], attrs: Map[String, ContentValue] = Map.empty)
+  case BulletList(items: List[List[ContentBlock]], attrs: Map[String, ContentValue] = Map.empty)
+  case OrderedList(items: List[List[ContentBlock]], start: Int, attrs: Map[String, ContentValue] = Map.empty)
+  case Image(src: String, alt: String, title: Option[String] = None, attrs: Map[String, ContentValue] = Map.empty)
+  case Embedded(
+    lang:   String,
+    source: String,
+    kind:   EmbeddedKind,
+    data:   Option[ContentValue] = None,
+    attrs:  Map[String, ContentValue] = Map.empty
+  )
+
+enum EmbeddedKind:
+  case StructuredData
+  case Executable
+  case StringBlock
+  case Opaque
+
+enum ContentInline:
+  case Text(value: String)
+  case Emphasis(children: List[ContentInline])
+  case Strong(children: List[ContentInline])
+  case Code(value: String)
+  case Link(label: List[ContentInline], href: String, title: Option[String] = None)
+  case Expr(source: String)
+
+enum ContentValue:
+  case Str(value: String)
+  case Bool(value: Boolean)
+  case Num(value: Double)
+  case ListV(values: List[ContentValue])
+  case MapV(values: Map[String, ContentValue])
+  case NullV
 
 // ─── Content ─────────────────────────────────────────────────────
 

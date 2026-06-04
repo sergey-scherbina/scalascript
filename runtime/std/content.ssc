@@ -1,0 +1,73 @@
+---
+name: content
+version: 0.1.0
+description: Markdown-hosted content snapshot API.
+package: std.content
+exports:
+  - DocumentContent
+  - SectionContent
+  - ContentBlock
+  - EmbeddedKind
+  - ContentInline
+  - ContentValue
+  - contentDocument
+---
+
+# `std.content` — Markdown-hosted content
+
+Types and the first runtime accessor for the parsed `.ssc` document.
+
+```scalascript
+case class DocumentContent(
+  manifest: ContentValue,
+  title: Option[String],
+  description: Option[String],
+  attrs: Map[String, ContentValue],
+  sections: List[SectionContent],
+  blocks: List[ContentBlock]
+)
+
+case class SectionContent(
+  id: String,
+  level: Int,
+  title: String,
+  attrs: Map[String, ContentValue],
+  blocks: List[ContentBlock],
+  children: List[SectionContent]
+)
+
+enum ContentBlock:
+  case Paragraph(inlines: List[ContentInline], attrs: Map[String, ContentValue])
+  case BulletList(items: List[List[ContentBlock]], attrs: Map[String, ContentValue])
+  case OrderedList(items: List[List[ContentBlock]], start: Int, attrs: Map[String, ContentValue])
+  case Image(src: String, alt: String, title: Option[String], attrs: Map[String, ContentValue])
+  case Embedded(lang: String,
+                source: String,
+                kind: EmbeddedKind,
+                data: Option[ContentValue],
+                attrs: Map[String, ContentValue])
+
+enum EmbeddedKind:
+  case StructuredData
+  case Executable
+  case StringBlock
+  case Opaque
+
+enum ContentInline:
+  case Text(value: String)
+  case Emphasis(children: List[ContentInline])
+  case Strong(children: List[ContentInline])
+  case Code(value: String)
+  case Link(label: List[ContentInline], href: String, title: Option[String])
+  case Expr(source: String)
+
+enum ContentValue:
+  case Str(value: String)
+  case Bool(value: Boolean)
+  case Num(value: Double)
+  case ListV(values: List[ContentValue])
+  case MapV(values: Map[String, ContentValue])
+  case NullV
+
+extern def contentDocument(): DocumentContent
+```

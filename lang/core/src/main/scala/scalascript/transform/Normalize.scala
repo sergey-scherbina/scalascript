@@ -38,7 +38,8 @@ object Normalize:
     ir.NormalizedModule(
       manifest = m.manifest.map(manifest),
       sections = m.sections.map(section),
-      span     = m.span.map(span)
+      span     = m.span.map(span),
+      document = m.document.map(documentContent)
     )
 
   private def manifest(m: ast.Manifest): ir.Manifest =
@@ -67,6 +68,61 @@ object Normalize:
 
   private def routeDecl(r: ast.RouteDecl): ir.RouteDecl =
     ir.RouteDecl(r.method, r.path, r.handler, r.span.map(span))
+
+  private def documentContent(d: ast.DocumentContent): ir.DocumentContent =
+    ir.DocumentContent(
+      manifest    = contentValue(d.manifest),
+      title       = d.title,
+      description = d.description,
+      attrs       = d.attrs.view.mapValues(contentValue).toMap,
+      sections    = d.sections.map(sectionContent),
+      blocks      = d.blocks.map(contentBlock)
+    )
+
+  private def sectionContent(s: ast.SectionContent): ir.SectionContent =
+    ir.SectionContent(
+      id       = s.id,
+      level    = s.level,
+      title    = s.title,
+      attrs    = s.attrs.view.mapValues(contentValue).toMap,
+      blocks   = s.blocks.map(contentBlock),
+      children = s.children.map(sectionContent)
+    )
+
+  private def contentBlock(b: ast.ContentBlock): ir.ContentBlock = b match
+    case ast.ContentBlock.Paragraph(inlines, attrs) =>
+      ir.ContentBlock.Paragraph(inlines.map(contentInline), attrs.view.mapValues(contentValue).toMap)
+    case ast.ContentBlock.BulletList(items, attrs) =>
+      ir.ContentBlock.BulletList(items.map(_.map(contentBlock)), attrs.view.mapValues(contentValue).toMap)
+    case ast.ContentBlock.OrderedList(items, start, attrs) =>
+      ir.ContentBlock.OrderedList(items.map(_.map(contentBlock)), start, attrs.view.mapValues(contentValue).toMap)
+    case ast.ContentBlock.Image(src, alt, title, attrs) =>
+      ir.ContentBlock.Image(src, alt, title, attrs.view.mapValues(contentValue).toMap)
+    case ast.ContentBlock.Embedded(lang, source, kind, data, attrs) =>
+      ir.ContentBlock.Embedded(lang, source, embeddedKind(kind), data.map(contentValue), attrs.view.mapValues(contentValue).toMap)
+
+  private def embeddedKind(k: ast.EmbeddedKind): ir.EmbeddedKind = k match
+    case ast.EmbeddedKind.StructuredData => ir.EmbeddedKind.StructuredData
+    case ast.EmbeddedKind.Executable     => ir.EmbeddedKind.Executable
+    case ast.EmbeddedKind.StringBlock    => ir.EmbeddedKind.StringBlock
+    case ast.EmbeddedKind.Opaque         => ir.EmbeddedKind.Opaque
+
+  private def contentInline(i: ast.ContentInline): ir.ContentInline = i match
+    case ast.ContentInline.Text(value)       => ir.ContentInline.Text(value)
+    case ast.ContentInline.Emphasis(kids)    => ir.ContentInline.Emphasis(kids.map(contentInline))
+    case ast.ContentInline.Strong(kids)      => ir.ContentInline.Strong(kids.map(contentInline))
+    case ast.ContentInline.Code(value)       => ir.ContentInline.Code(value)
+    case ast.ContentInline.Link(label, href, title) =>
+      ir.ContentInline.Link(label.map(contentInline), href, title)
+    case ast.ContentInline.Expr(source)      => ir.ContentInline.Expr(source)
+
+  private def contentValue(v: ast.ContentValue): ir.ContentValue = v match
+    case ast.ContentValue.Str(value)     => ir.ContentValue.Str(value)
+    case ast.ContentValue.Bool(value)    => ir.ContentValue.Bool(value)
+    case ast.ContentValue.Num(value)     => ir.ContentValue.Num(value)
+    case ast.ContentValue.ListV(values)  => ir.ContentValue.ListV(values.map(contentValue))
+    case ast.ContentValue.MapV(values)   => ir.ContentValue.MapV(values.view.mapValues(contentValue).toMap)
+    case ast.ContentValue.NullV          => ir.ContentValue.NullV
 
   private def apiClientDecl(c: ast.ApiClientDecl): ir.ApiClientDecl =
     ir.ApiClientDecl(c.name, c.endpoints.map(apiEndpointDecl), c.span.map(span))
