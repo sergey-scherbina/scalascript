@@ -66,17 +66,15 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       actor/cluster/interpreter/effects tests, `scripts/bench interp effectPure`,
       and `scripts/bench profile effectPure`. Commit d42cc6b2.
 
-- [x] **interp-opt-pattern-match-wide** — ✓ Landed 2026-06-04. **16×** win.
-      LICM hoist for pure `foreach`-accumulator in `tryCompileWhileMixed`:
-      when `inlineMatchSwitch != null && !receiverIsSet` (List receiver with pure
-      match body proven by `tryBuildInlineMatchAccum`), compute invariant sum
-      once before the outer while, then emit `_acc += _invSum` in the tight loop.
-      `tryBuildInlineMatchAccum` parameterized with `targetVar` (default `"_acc"`).
-      `patternMatchWide`: **0.690 → 0.043 ms** (16×).
-      `patternMatchHeavy` also benefits: 0.349 → 0.135 ms (2.6×).
-      Purity is proven structurally — `walkLong`/`walkDouble` reject any
-      `Term.Assign` and impure calls, so `tryBuildInlineMatchAccum` succeeding
-      implies the foreach body is loop-invariant. No purity analysis needed.
+- [x] **interp-opt-pattern-match-wide** — ✓ Landed 2026-06-04. **16×** win + generalization.
+      Phase 1: LICM hoist for List+match receiver in `JavacJitBackend.tryCompileWhileMixed`.
+      `patternMatchWide`: **0.690 → 0.043 ms** (16×). `patternMatchHeavy`: 0.349 → 0.135 ms.
+      Phase 2 (same session): generalized to all receiver types (SetV, MapV) + non-match
+      pure-fn bodies + AsmJitBackend parity. LICM always fires when compilation succeeds
+      (outer while body can only modify local slots, not globals the fn might read).
+      Additional wins: `mapForeach` **0.188 → 0.026 ms** (7.2×), `patternMatchSet`
+      **0.208 → 0.080 ms** (2.6×), `patternMatchHeavy` further **0.135 → 0.074 ms** (1.8×).
+      5 new tests. Total: 1300 tests pass.
 
 - [x] **interp-opt-effect-stream** — ✓ Landed 2026-06-04.
       Two slices: (1) defer buf.toList into runToList NativeFnV lambda (36902ad1);

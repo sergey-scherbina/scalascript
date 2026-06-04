@@ -320,12 +320,12 @@ then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 | `effectPure` | **0.010** | — | ✓ evalHandle Pure fast-path (interp-opt-effect-pure); bench floor = Interpreter init (~260 NativeFnV/call); gap to JS 1.67× is init-dominated |
 | `effectStream` | **0.083** | — | ✓ SrcList O(1) length (interp-opt-effect-stream); 0.117 → 0.083 ms (1.4×, 2026-06-04); JVM gap 1.3×; LExpr dispatch floor |
 | `instanceFieldAccess` | 0.039 | 0.041 | parity ✓ |
-| `mapForeach` | 0.188 | 0.187 | parity ✓ |
+| `mapForeach` | **0.026** | — | 2026-06-04: LICM hoist Map foreach (was 0.188 ms, 7.2×) |
 | `matchBodyBaseline` | 0.044 | 0.044 | parity ✓ |
 | `nestedMatchExpr` | 0.043 | 0.045 | parity ✓ |
 | `patternGuard` | 0.045 | 0.048 | parity ✓ |
-| `patternMatchHeavy` | **0.135** | — | 2026-06-04: LICM hoist (was 0.349 ms, 2.6×) |
-| `patternMatchSet` | 0.208 | — | updated 2026-06-04 evening |
+| `patternMatchHeavy` | **0.074** | — | 2026-06-04: LICM hoist Asm (was 0.135 ms, 1.8×; was 0.349 ms, 4.7×) |
+| `patternMatchSet` | **0.080** | — | 2026-06-04: LICM hoist Set (was 0.208 ms, 2.6×) |
 | `patternMatchWide` | **0.043** | — | 2026-06-04: LICM hoist (was 0.690 ms, 16×) |
 | `pureCallSum` | 0.256 | — | ✓ ASM bug fixed (was 11.2 ms) |
 | `pureCallSum2` | 0.292 | — | ✓ ASM bug fixed |
@@ -1083,12 +1083,13 @@ highest-impact item.
       Object[] used by Javac. Fix: `emitArrayForeachAccumInline` + `listPreExtract=true`.
       1283 tests pass. Commit e0c9e3d5.
 
-- [x] **interp-opt-pattern-match-wide** — ✓ Landed 2026-06-04. **16×** win.
-      LICM hoist for pure foreach-accumulator in `tryCompileWhileMixed`: when
-      `inlineMatchSwitch != null && !receiverIsSet`, compute `_invSum` once before
-      the outer while, emit `_acc += _invSum` in the tight loop. Parameterized
-      `tryBuildInlineMatchAccum` with `targetVar`. 0.690 → 0.043 ms (16×).
-      `patternMatchHeavy` also benefits: 0.349 → 0.135 ms (2.6×).
+- [x] **interp-opt-pattern-match-wide** — ✓ Landed 2026-06-04. **16×** win + generalization.
+      LICM hoist for pure foreach-accumulator. Phase 1 (Javac, List+match): `_invSum` computed
+      once before the outer while, `_acc += _invSum` in tight loop. 0.690 → 0.043 ms (16×).
+      Phase 2 (same session): generalized to all receiver types (Set, Map) + non-match pure-fn
+      bodies + Asm backend parity. 5 new tests. Additional wins: `mapForeach` 0.188 → 0.026 ms
+      (7.2×), `patternMatchSet` 0.208 → 0.080 ms (2.6×), `patternMatchHeavy` 0.135 → 0.074 ms
+      (1.8× from Asm LICM).
 
 - [x] **interp-opt-lapply-effect** — ✓ Landed 2026-06-04.
       **Part A**: `LApplyEffect` + `LApplyEffectNative` nodes in `tryMixedLongWhile`
