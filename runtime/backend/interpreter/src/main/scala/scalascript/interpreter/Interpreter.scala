@@ -490,7 +490,7 @@ class Interpreter(
     bodyThread: java.util.concurrent.atomic.AtomicReference[Thread]
   )
   private[interpreter] val _coHandleTL = new ThreadLocal[CoHandle]()
-  private[interpreter] val coHandles    = new java.util.concurrent.ConcurrentHashMap[Long, CoHandle]()
+  private[interpreter] lazy val coHandles = new java.util.concurrent.ConcurrentHashMap[Long, CoHandle]()
   private[interpreter] val nextCoId     = new java.util.concurrent.atomic.AtomicLong(0L)
 
   // ─── Generator combinator view — see CoroutineRuntime.scala ────────────
@@ -507,8 +507,8 @@ class Interpreter(
     val HttpMaxRetries   = scalascript.backend.spi.NativeContextFeatureKeys.HttpMaxRetries
     val HttpRetryDelayMs = scalascript.backend.spi.NativeContextFeatureKeys.HttpRetryDelayMs
 
-  private val nativeFeatureState = new java.util.concurrent.ConcurrentHashMap[String, Any]()
-  private val nativeFeatureLocalState = new java.util.concurrent.ConcurrentHashMap[String, ThreadLocal[Any]]()
+  private lazy val nativeFeatureState = new java.util.concurrent.ConcurrentHashMap[String, Any]()
+  private lazy val nativeFeatureLocalState = new java.util.concurrent.ConcurrentHashMap[String, ThreadLocal[Any]]()
 
   private[interpreter] def nativeFeatureGet(key: String): Option[Any] =
     Option(nativeFeatureState.get(key))
@@ -539,11 +539,11 @@ class Interpreter(
     nativeFeatureLocalGet(NativeFeatureKeys.HttpRetryDelayMs).collect { case n: Long => n }.getOrElse(1_000L)
 
   // ── v1.4 Cache effect — process-local memoization store + bypass flag ──
-  private[interpreter] val _cacheStore  = new java.util.concurrent.ConcurrentHashMap[String, (Long, Value)]()
+  private[interpreter] lazy val _cacheStore = new java.util.concurrent.ConcurrentHashMap[String, (Long, Value)]()
   private[interpreter] val _cacheBypass = ThreadLocal.withInitial[Boolean](() => false)
 
   // ── Async parallel driver — future table (see AsyncRuntime.scala) ─────
-  private[interpreter] val parallelFutures =
+  private[interpreter] lazy val parallelFutures =
     new java.util.concurrent.ConcurrentHashMap[Long, java.util.concurrent.Future[Value]]()
   private val parallelFutureSeq = new java.util.concurrent.atomic.AtomicLong(0L)
   private[interpreter] def freshFutureId(): Long = parallelFutureSeq.incrementAndGet()
@@ -684,7 +684,7 @@ class Interpreter(
     scalascript.sql.ConnectionRegistry.empty
   private[interpreter] var sqlBlockCounter: Int = 0
   private case class RemoteHandlerEntry(info: scalascript.backend.spi.RemoteHandlerInfo)
-  private val remoteHandlerRegistry =
+  private lazy val remoteHandlerRegistry =
     new java.util.concurrent.ConcurrentHashMap[String, RemoteHandlerEntry]()
 
   def run(module: Module): Unit =

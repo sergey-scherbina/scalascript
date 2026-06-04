@@ -60,56 +60,56 @@ private[interpreter] trait ActorInterp:
   // for multi-node integration tests and field debugging.
   private val clusterDebug: Boolean =
     sys.props.get("ssc.cluster.debug").exists(_.nonEmpty) ||
-    sys.env.get("SSC_CLUSTER_DEBUG").exists(_.nonEmpty)
+    Option(java.lang.System.getenv("SSC_CLUSTER_DEBUG")).exists(_.nonEmpty)
   // nodeId → URL we dialled (for gossip in peers_resp)
-  private val peerUrls =
+  private lazy val peerUrls =
     new java.util.concurrent.ConcurrentHashMap[String, String]()
   // nodeId → send-function (delivers serialized JSON envelope to peer)
-  private[interpreter] val peerChannels =
+  private[interpreter] lazy val peerChannels =
     new java.util.concurrent.ConcurrentHashMap[String, String => Unit]()
   // Thread-safe queue for messages arriving from remote nodes on WS threads.
-  private val remoteInbox  =
+  private lazy val remoteInbox =
     new java.util.concurrent.ConcurrentLinkedQueue[(Long, Value)]()
   // Reference to the scheduler thread so WS threads can interrupt it.
   @volatile private var schedulerThread: Thread = null
   // Per-node name → localId registry (ConcurrentHashMap default 0 means absent).
-  private val nodeRegistry =
+  private lazy val nodeRegistry =
     new java.util.concurrent.ConcurrentHashMap[String, Long]()
   // Cluster-wide name → Pid registry, populated by globalRegister broadcasts.
-  private val globalRegistry =
+  private lazy val globalRegistry =
     new java.util.concurrent.ConcurrentHashMap[String, Value]()
   // v1.63.2 — named behavior registry for remote actor spawn. Values are
   // ScalaScript functions of shape `Any => Unit`; remote spawn never ships
   // arbitrary closures, it invokes one of these names on the target node.
-  private val behaviorRegistry =
+  private lazy val behaviorRegistry =
     new java.util.concurrent.ConcurrentHashMap[String, Value]()
-  private val remoteSpawnAcks =
+  private lazy val remoteSpawnAcks =
     new java.util.concurrent.ConcurrentHashMap[String, java.util.concurrent.CompletableFuture[Either[String, Value]]]()
   // Heartbeat: last pong timestamp per peer (epoch ms); initialised to connect time.
-  private val peerLastPong =
+  private lazy val peerLastPong =
     new java.util.concurrent.ConcurrentHashMap[String, Long]()
   // WS threads post dead nodeIds here; scheduler drains and fires EXIT/Down.
-  private val nodeDownQueue =
+  private lazy val nodeDownQueue =
     new java.util.concurrent.ConcurrentLinkedQueue[String]()
   // v1.23 — cluster visibility: actor localIds subscribed to NodeJoined/NodeLeft events.
-  private val clusterEventSubs =
+  private lazy val clusterEventSubs =
     new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
   // WS threads post NodeJoined/NodeLeft Values; scheduler drains and delivers to subs.
-  private val clusterEventQueue =
+  private lazy val clusterEventQueue =
     new java.util.concurrent.ConcurrentLinkedQueue[Value]()
   // v1.23 — Phi-accrual failure detector: sliding window of inter-pong intervals
   // (epoch ms deltas) per peer.  Bounded to PhiHistMax samples per peer; older
   // samples are discarded once the window is full.  Cleared on disconnect.
   private val PhiHistMax = 100
-  private val peerPongHist =
+  private lazy val peerPongHist =
     new java.util.concurrent.ConcurrentHashMap[String, java.util.concurrent.ConcurrentLinkedDeque[java.lang.Long]]()
   // v1.23 — cluster-wide FD: per-peer view of every other peer's phi.
   //   peerPhiViews(fromNodeId)(targetNodeId) = phi at the time `fromNodeId`
   //   last broadcast its health vector.  Cleared on disconnect.
-  private val peerPhiViews =
+  private lazy val peerPhiViews =
     new java.util.concurrent.ConcurrentHashMap[String, java.util.concurrent.ConcurrentHashMap[String, java.lang.Double]]()
   // v1.23 — leader election (Bully) state.
-  private[interpreter] val currentLeader =
+  private[interpreter] lazy val currentLeader =
     new java.util.concurrent.atomic.AtomicReference[String]("")
   @volatile private var electionInProgress: Boolean = false
   @volatile private var electionStartedAt:  Long    = 0L
@@ -127,22 +127,22 @@ private[interpreter] trait ActorInterp:
   // override via the `setClusterAuthToken` intrinsic.  Empty string ⇒
   // endpoints are open (backwards compatible).
   @volatile private[interpreter] var clusterAuthToken: String =
-    sys.env.getOrElse("SSC_CLUSTER_TOKEN", "")
+    Option(java.lang.System.getenv("SSC_CLUSTER_TOKEN")).getOrElse("")
   // v1.63.7 — token rotation: during the overlap window, both old and new tokens are accepted.
   @volatile private[interpreter] var pendingNewToken: String = ""
   @volatile private[interpreter] var tokenValidFromMs: Long  = 0L
   // v1.63.8 — per-workerId loaded bundle tracking for ship/unload/rollback ops
-  private[interpreter] val loadedBundles =
+  private[interpreter] lazy val loadedBundles =
     new java.util.concurrent.ConcurrentHashMap[String, LoadedBundleEntry]()
   // Simple ring-buffer audit log for bundle events (ts, event, detail, actor)
-  private[interpreter] val bundleAuditLog =
+  private[interpreter] lazy val bundleAuditLog =
     new java.util.concurrent.ConcurrentLinkedDeque[(Long, String, String, String)]()
   private val bundleAuditCapacity = 1000
   private def bundleAuditRecord(event: String, detail: String, actor: String): Unit =
     bundleAuditLog.addFirst((System.currentTimeMillis(), event, detail, actor))
     while bundleAuditLog.size() > bundleAuditCapacity do bundleAuditLog.removeLast()
   // Per-workerId zip bytes for rollback (keyed by "workerId#prev" for previous version)
-  private val bundleByteStore =
+  private lazy val bundleByteStore =
     new java.util.concurrent.ConcurrentHashMap[String, Array[Byte]]()
   private def sha256Hex(bytes: Array[Byte]): String =
     java.security.MessageDigest.getInstance("SHA-256")
@@ -160,11 +160,11 @@ private[interpreter] trait ActorInterp:
   @volatile private var peerHeartbeatIntervalMs: Long = 30_000L
   @volatile private var peerHeartbeatDeadAfterMs: Long = 40_000L
   // v1.23 — cluster configuration distribution.  LWW per key by (ts, origin).
-  private val clusterConfig =
+  private lazy val clusterConfig =
     new java.util.concurrent.ConcurrentHashMap[String, (String, Long, String)]()
-  private val configEventSubs =
+  private lazy val configEventSubs =
     new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
-  private val configEventQueue =
+  private lazy val configEventQueue =
     new java.util.concurrent.ConcurrentLinkedQueue[Value]()
   private def enqueueConfigEvent(key: String, value: String): Unit =
     val ts = System.currentTimeMillis()
@@ -274,7 +274,7 @@ private[interpreter] trait ActorInterp:
   // ACROSS NODES it's eventually consistent — concurrent updates on
   // different nodes resolve via (ts, origin) tie-break.  For strict
   // cluster-wide CAS use an external coordinator (Etcd / Consul).
-  private val clusterAtomics =
+  private lazy val clusterAtomics =
     new java.util.concurrent.ConcurrentHashMap[String,
       (java.util.concurrent.atomic.AtomicLong, java.util.concurrent.atomic.AtomicLong, String)]()
   /** LWW receiver — accept iff incoming `ts` is strictly newer than
@@ -311,14 +311,14 @@ private[interpreter] trait ActorInterp:
         s""""ts":${tuple._2.get()},"origin":${jsonStr(tuple._3)}}"""
       try targetSend(payload) catch case _: Throwable => ()
     }
-  private val leaderEventSubs =
+  private lazy val leaderEventSubs =
     new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
-  private val leaderEventQueue =
+  private lazy val leaderEventQueue =
     new java.util.concurrent.ConcurrentLinkedQueue[Value]()
   @volatile private var autoReelect: Boolean = false
   // v1.23 — protocol dispatch (cluster-raft.md §6).  "bully" today;
   //   Phase 3a flips to "raft", Phase 3b flips to "coord".
-  private[interpreter] val leaderProtocolRef =
+  private[interpreter] lazy val leaderProtocolRef =
     new java.util.concurrent.atomic.AtomicReference[String]("bully")
   @scala.annotation.unused
   @volatile private var leaderCoordinator: Value = Value.UnitV
@@ -330,7 +330,7 @@ private[interpreter] trait ActorInterp:
   @volatile private var coordReleaseFn: Value = Value.UnitV
   @volatile private var coordHolderFn:  Value = Value.UnitV
   @volatile private[interpreter] var coordIsLeader:  Boolean = false
-  private val coordTickThread =
+  private lazy val coordTickThread =
     new java.util.concurrent.atomic.AtomicReference[Thread](null)
   private val CoordLeaseTimeoutMs  = 5000L
   private val CoordRenewIntervalMs = 1000L
@@ -397,9 +397,9 @@ private[interpreter] trait ActorInterp:
           enqueueLeaderEvent("LeaderLost", localNodeId)
   // v1.23 — bounded leader-claim history.
   private val LeaderHistMax = 100
-  private val leaderHistTermSeq =
+  private lazy val leaderHistTermSeq =
     new java.util.concurrent.atomic.AtomicLong(0L)
-  private val leaderHist =
+  private lazy val leaderHist =
     new java.util.concurrent.ConcurrentLinkedDeque[(Long, String, Long)]()
   private def recordLeaderHist(leaderId: String): Unit =
     val term = leaderHistTermSeq.incrementAndGet()
@@ -415,7 +415,7 @@ private[interpreter] trait ActorInterp:
   private val RaftElectionLo  = 150L
   private val RaftElectionHi  = 300L
   private val RaftHeartbeatMs = 50L
-  private val raftTickThread =
+  private lazy val raftTickThread =
     new java.util.concurrent.atomic.AtomicReference[Thread](null)
   private val raftRand = new scala.util.Random()
   private def raftRandTimeout: Long =
@@ -507,19 +507,19 @@ private[interpreter] trait ActorInterp:
           if qe > qi then raftVotedFor = s.substring(qi + 1, qe)
     catch case _: Throwable => ()
   // v1.23 — drain / rolling-restart state.
-  private[interpreter] val isDrainingSelf =
+  private[interpreter] lazy val isDrainingSelf =
     new java.util.concurrent.atomic.AtomicBoolean(false)
-  private[interpreter] val drainingPeers =
+  private[interpreter] lazy val drainingPeers =
     new java.util.concurrent.ConcurrentHashMap[String, java.lang.Boolean]()
-  private val drainEventSubs =
+  private lazy val drainEventSubs =
     new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
   // v1.23 — cluster-wide pub/sub.  Subscribers are local (per-node);
   // a `publish(topic, msg)` broadcasts to all peers, each of which
   // dispatches to its own local subscribers.  Topic → list-of-actor-ids.
-  private val publishSubs =
+  private lazy val publishSubs =
     new java.util.concurrent.ConcurrentHashMap[String,
       java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]]()
-  private val publishQueue =
+  private lazy val publishQueue =
     new java.util.concurrent.ConcurrentLinkedQueue[(Long, Value)]()
   private def localPublish(topic: String, msg: Value): Unit =
     val subs = publishSubs.get(topic)
@@ -528,7 +528,7 @@ private[interpreter] trait ActorInterp:
       while it.hasNext do
         publishQueue.offer((it.next().toLong, msg))
       val t = schedulerThread; if t != null then t.interrupt()
-  private val drainEventQueue =
+  private lazy val drainEventQueue =
     new java.util.concurrent.ConcurrentLinkedQueue[Value]()
   private[interpreter] def enqueueDrainEvent(nodeId: String, draining: Boolean): Unit =
     val ts = System.currentTimeMillis()
@@ -543,12 +543,12 @@ private[interpreter] trait ActorInterp:
       val payload = s"""{"t":"drain","from":${jsonStr(localNodeId)},"draining":true}"""
       try target(payload) catch case _: Throwable => ()
   // v1.23 — cluster metrics aggregation: per-node gauges.
-  private[interpreter] val clusterMetrics =
+  private[interpreter] lazy val clusterMetrics =
     new java.util.concurrent.ConcurrentHashMap[String,
       java.util.concurrent.ConcurrentHashMap[String, java.lang.Double]]()
-  private val metricEventSubs =
+  private lazy val metricEventSubs =
     new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
-  private val metricEventQueue =
+  private lazy val metricEventQueue =
     new java.util.concurrent.ConcurrentLinkedQueue[Value]()
   private def enqueueMetricEvent(name: String, nodeId: String, value: Double): Unit =
     val ts = System.currentTimeMillis()
@@ -633,7 +633,7 @@ private[interpreter] trait ActorInterp:
   // v1.23 — URL-keyed dedupe so concurrent peer-loss events (e.g.
   // heartbeat-timeout + recv-loop exit fighting over the same link)
   // don't each spin up an independent exponential-backoff loop.
-  private val reconnectActive =
+  private lazy val reconnectActive =
     java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
 
   private def scheduleReconnect(rurl: String, rtok: String): Unit =
@@ -667,11 +667,11 @@ private[interpreter] trait ActorInterp:
       finally reconnectActive.remove(rurl)
     }
   // Cross-node monitors: nodeId → [(localActorId, monRef, remotePid.localId)]
-  private val remoteMonitors =
+  private lazy val remoteMonitors =
     new java.util.concurrent.ConcurrentHashMap[String,
       java.util.concurrent.CopyOnWriteArrayList[(Long, Long, Long)]]()
   // Cross-node links: nodeId → [(localActorId, remotePid.localId)]
-  private val remoteLinks =
+  private lazy val remoteLinks =
     new java.util.concurrent.ConcurrentHashMap[String,
       java.util.concurrent.CopyOnWriteArrayList[(Long, Long)]]()
 
@@ -724,7 +724,7 @@ private[interpreter] trait ActorInterp:
    *  `GET /_ssc-cluster/events` endpoint always has data for ops
    *  tooling.  Cap 200 entries — older lines drop oldest-first. */
   private val ClusterEventLogMax = 200
-  private[interpreter] val clusterEventLog =
+  private[interpreter] lazy val clusterEventLog =
     new java.util.concurrent.ConcurrentLinkedDeque[String]()
 
   private def recordEventLog(jsonObj: String): Unit =
