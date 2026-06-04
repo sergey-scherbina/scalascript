@@ -1,4 +1,0 @@
-feature/effect-stream-jfr 2026-06-04T01:57:22Z
-status: not-started
-done-so-far:
-next: run JFR profile on effectStream to identify bottleneck
