@@ -8611,29 +8611,30 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |// Stream.request(n)    — advisory demand hint (no-op)
        |// runStream(bodyThunk) — discharges Stream effect; returns (_Source, Any)
        |//   where _Source.runToList() returns the emitted values.
-       |//   Uses a ThreadLocal buffer so Stream.emit is a direct side effect;
+       |//   Uses a module-level var buffer so Stream.emit is a direct side effect;
        |//   no CPS trampoline is needed, so while/var loops work inside the body.
+       |//   Array repr for O(1) length; toList deferred to avoid 10K cons-cell alloc.
        |
-       |class _Source(val _data: List[Any]):
-       |  def runToList(): List[Any] = _data
-       |  def toList: List[Any]      = _data
+       |class _Source(val _data: Array[Any]):
+       |  def runToList(): Array[Any] = _data
+       |  def toList: List[Any]       = _data.toList
        |
-       |private val _streamBuf = new java.lang.ThreadLocal[scala.collection.mutable.ArrayBuffer[Any]]
+       |private var _streamBuf: scala.collection.mutable.ArrayBuffer[Any] = null
        |
        |object Stream:
-       |  def emit(x: Any): Any    = { val b = _streamBuf.get; if b != null then b += x; () }
+       |  def emit(x: Any): Any    = { if _streamBuf != null then _streamBuf += x; () }
        |  def complete(): Any      = ()
        |  def error(msg: Any): Any = throw new RuntimeException(String.valueOf(msg))
        |  def request(n: Any): Any = ()
        |
        |def runStream(bodyThunk: () => Any): Any =
        |  val emitted = scala.collection.mutable.ArrayBuffer.empty[Any]
-       |  _streamBuf.set(emitted)
+       |  _streamBuf = emitted
        |  try
        |    val result = bodyThunk()
-       |    (new _Source(emitted.toList), result)
+       |    (new _Source(emitted.toArray), result)
        |  finally
-       |    _streamBuf.set(null)
+       |    _streamBuf = null
        |
        |""".stripMargin
 
