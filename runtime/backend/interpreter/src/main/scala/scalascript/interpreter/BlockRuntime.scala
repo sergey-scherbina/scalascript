@@ -121,8 +121,10 @@ private[interpreter] object BlockRuntime:
               })
           case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
             interp.eval(rhs, localView) match
-              case Pure(v) => local(n.value) = v; step(rest, Value.UnitV)
-              case rhsC    => FlatMap(rhsC, { v => local(n.value) = v; step(rest, Value.UnitV) })
+              case Pure(v) =>
+                local(n.value) = v; interp.globals(n.value) = v; step(rest, Value.UnitV)
+              case rhsC =>
+                FlatMap(rhsC, { v => local(n.value) = v; interp.globals(n.value) = v; step(rest, Value.UnitV) })
           // Variable assignment: write to local AND globals so that both the
           // current evalBlock and any enclosing while loop (via freshEnv) see it.
           // This also keeps local in sync, avoiding a stale-read on the next statement

@@ -131,3 +131,36 @@ println(ys.length)"""
 println(n.asInstanceOf[Int])"""
     ) shouldBe "42"
   }
+
+  // ── var declared inside a function, mutated inside a while-loop closure ───
+
+  test("var total accumulated via foreach closure in while loop") {
+    captured(
+"""sealed trait Shape
+case class Circle(r: Double) extends Shape
+case class Rect(w: Double, h: Double) extends Shape
+def area(s: Shape): Double = s match
+  case Circle(r) => r * r
+  case Rect(w, h) => w * h
+val shapes = List(Circle(2.0), Rect(3.0, 4.0))
+def workload(): Double =
+  var total = 0.0
+  var i = 0
+  while i < 10 do
+    shapes.foreach(s => { total = total + area(s) })
+    i = i + 1
+  total
+val result = workload()
+println(result)""") shouldBe "160"
+    // 10 * (2*2 + 3*4) = 10 * (4 + 12) = 10 * 16 = 160.0
+  }
+
+  test("var counter returned after while loop") {
+    captured(
+"""def countUp(n: Int): Int =
+  var i = 0
+  while i < n do
+    i = i + 1
+  i
+println(countUp(7))""") shouldBe "7"
+  }

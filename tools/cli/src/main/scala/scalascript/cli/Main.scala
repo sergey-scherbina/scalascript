@@ -7044,7 +7044,10 @@ final class BenchCmd extends CliCommand:
         .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
       if emit.exitCode != 0 then return None
       os.write.over(tmpSc, emit.out.bytes)
-      val run = os.proc("scala-cli", tmpSc.toString)
+      val run = os.proc("scala-cli",
+                        "--java-opt", "-XX:CompileThreshold=100",
+                        "--java-opt", "-XX:-BackgroundCompilation",
+                        tmpSc.toString)
         .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
       if run.exitCode != 0 then None
       else parseBenchMs(run.out.text())

@@ -346,9 +346,11 @@ private[interpreter] object EvalRuntime:
     val slots = entry.cachedSlots
     var k = 0
     while k < n do
-      frameView.getOrElse(body.names(k), null) match
-        case Value.IntV(v) => slots(k) = v
-        case _             => return null
+      (frameView.getOrElse(body.names(k), null) match
+        case null => interp.globals.getOrElse(body.names(k), null)
+        case v    => v) match
+      case Value.IntV(v) => slots(k) = v
+      case _             => return null
       k += 1
     val accSlotIdx = n
     slots(accSlotIdx) =
@@ -1819,13 +1821,17 @@ private[interpreter] object EvalRuntime:
   private def tryLongWhileAssign(t: Term.While, body: FastAssignBody, frameView: MutableEnvView, interp: Interpreter): Computation | Null =
     val slotOfName = new SlotTable()
     // Slot index for an int-valued name, or -1 (bail). Registers on first use.
+    // Falls back to interp.globals when frameView is empty (Defn.Var initialises
+    // both local and globals identically, so the var lands in neither frame).
     def slotOf(name: String): Int =
       val existing = slotOfName.slotIndex(name)
       if existing >= 0 then existing
       else
-        frameView.getOrElse(name, null) match
-          case Value.IntV(_) => slotOfName.register(name)
-          case _             => -1
+        (frameView.getOrElse(name, null) match
+          case null => interp.globals.getOrElse(name, null)
+          case v    => v) match
+        case Value.IntV(_) => slotOfName.register(name)
+        case _             => -1
     // Compile a ref-typed term into an LRefExpr or null on bail. Phase 1
     // Commit 2: handles only `Term.Name` resolving to a val-bound `InstanceV`
     // (LRefConst snapshot). Commit 3 extends to ref field access
@@ -2081,9 +2087,11 @@ private[interpreter] object EvalRuntime:
     val slots = new Array[Long](slotOfName.size)
     var idx = 0
     while idx < slotOfName.size do
-      frameView.getOrElse(slotOfName.nameAt(idx), null) match
-        case Value.IntV(v) => slots(idx) = v
-        case _             => return null
+      (frameView.getOrElse(slotOfName.nameAt(idx), null) match
+        case null => interp.globals.getOrElse(slotOfName.nameAt(idx), null)
+        case v    => v) match
+      case Value.IntV(v) => slots(idx) = v
+      case _             => return null
       idx += 1
     val assignSlot = new Array[Int](body.names.length)
     var a = 0
@@ -2150,9 +2158,11 @@ private[interpreter] object EvalRuntime:
       val existing = slotOfName.slotIndex(name)
       if existing >= 0 then existing
       else
-        frameView.getOrElse(name, null) match
-          case Value.IntV(_) => slotOfName.register(name)
-          case _             => -1
+        (frameView.getOrElse(name, null) match
+          case null => interp.globals.getOrElse(name, null)
+          case v    => v) match
+        case Value.IntV(_) => slotOfName.register(name)
+        case _             => -1
     // Compile a ref-typed term into an LRefExpr or null on bail. Phase 1
     // Commit 2: handles only `Term.Name` resolving to a val-bound `InstanceV`
     // (LRefConst snapshot). Commit 3 extends to ref field access
@@ -2443,9 +2453,11 @@ private[interpreter] object EvalRuntime:
     val slots = new Array[Long](slotOfName.size)
     var idx = 0
     while idx < slotOfName.size do
-      frameView.getOrElse(slotOfName.nameAt(idx), null) match
-        case Value.IntV(v) => slots(idx) = v
-        case _             => return null
+      (frameView.getOrElse(slotOfName.nameAt(idx), null) match
+        case null => interp.globals.getOrElse(slotOfName.nameAt(idx), null)
+        case v    => v) match
+      case Value.IntV(v) => slots(idx) = v
+      case _             => return null
       idx += 1
     val assignSlot = new Array[Int](body.names.length)
     var a = 0
@@ -3707,9 +3719,36 @@ private[interpreter] object EvalRuntime:
         if !useGlobalsFrame then frame.foreachEntry { (k, _) => s(k) = interp.globals.getOrElse(k, null) }
         s
       }
+      // Snapshot globals for every key in the caller's mutable env (BlockRuntime's
+      // local map) so we can push updates back after the loop.  Needed because
+      // Defn.Var (after the dual-write fix) initialises both local AND globals to
+      // the same value — so the var never enters `frame` — but Term.Assign inside
+      // the loop only updates globals, leaving local stale.
+      // We skip keys that ARE in frame (those are params/closure captures handled by
+      // refreshFn) to avoid clobbering a shadowed parameter with a same-named global.
+      val callerEnvSnap: scala.collection.mutable.HashMap[String, Value] | Null =
+        if useGlobalsFrame then null
+        else env match
+          case mev: MutableEnvView =>
+            val s = new scala.collection.mutable.HashMap[String, Value]
+            mev.underlying.foreachEntry { (k, _) =>
+              if !frame.contains(k) then s(k) = interp.globals.getOrElse(k, null)
+            }
+            s
+          case _ => null
+      def syncCallerEnv(): Unit =
+        if callerEnvSnap != null then
+          val mev = env.asInstanceOf[MutableEnvView]
+          callerEnvSnap.foreachEntry { (k, snap) =>
+            val gv = interp.globals.getOrElse(k, null)
+            if (snap.asInstanceOf[AnyRef] ne gv.asInstanceOf[AnyRef]) && gv != null then
+              mev.underlying(k) = gv
+          }
       val frameView = new MutableEnvView(if useGlobalsFrame then interp.globals else frame)
       val fastLoop = tryFastWhileAssign(t, frameView, interp)
-      if fastLoop != null then fastLoop
+      if fastLoop != null then
+        syncCallerEnv()
+        fastLoop
       else
         // Hoist per-iteration closures: allocated once per while-entry, reused across all iterations.
         val refreshFn: (String, Value) => Unit = (k, _) => {
@@ -3719,7 +3758,9 @@ private[interpreter] object EvalRuntime:
         lazy val loopCont: Value => Computation = _ => loop
         lazy val condCont: Value => Computation = {
           case Value.BoolV(true) => FlatMap(eval(t.body, frameView, interp), loopCont)
-          case _                 => Computation.PureUnit
+          case _ =>
+            syncCallerEnv()
+            Computation.PureUnit
         }
         def loop: Computation =
           // Refresh mutable frame: only overwrite a key if globals changed since entry.
@@ -3742,9 +3783,12 @@ private[interpreter] object EvalRuntime:
                           case bodyComp => return FlatMap(bodyComp, loopCont)
                       case Pure(_) => running = false
                       case condComp => return FlatMap(condComp, condCont)
+                  syncCallerEnv()
                   Computation.PureUnit
                 case bodyComp => FlatMap(bodyComp, loopCont)
-            case Pure(_)   => Computation.PureUnit
+            case Pure(_) =>
+              syncCallerEnv()
+              Computation.PureUnit
             case condComp  => FlatMap(condComp, condCont)
         loop
 
