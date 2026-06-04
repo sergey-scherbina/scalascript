@@ -85,20 +85,15 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       effectStream interp: 0.117 → 0.083 ms; JVM gap 1.8× → 1.3×.
       Remaining 15% gap is LExpr dispatch + while-JIT overhead (floor).
 
-- [ ] **interp-opt-effect-pure** — `effectPure` interp 0.010 ms vs JS 0.006 ms / JVM 0.004 ms
-      (2.5× / 3.75× gap for effectful-typed functions with zero `perform` calls).
-      **Root cause:** JS/JVM codegen erases the `! E` effect type at compile time — a function
-      with no `perform` in its body compiles to a plain function. The interpreter cannot do
-      this erasure at parse/normalize time; `runLogger { compute(10000) }` still enters
-      `EffectsRuntime.evalHandle`, creates the `handledOps` Set, starts the trampoline, and
-      unwraps one `Pure(_)` — even though `compute` never performs.
-      **Approach:** Add a static `noperform` flag to `NormalizedDef` (set by a one-pass body
-      scan during `Normalize.apply`). In `EffectsRuntime.evalHandle`, if the body thunk
-      calls only `noperform`-flagged functions, bypass the trampoline and evaluate directly,
-      returning the `Value` unwrapped. This mirrors what JS/JVM already do at codegen time.
-      **Target:** interp ≤ 0.005 ms (matching JVM). Estimated 2–3× gain.
-      **Complexity:** Medium — one IR annotation field + one interpreter fast-path branch.
-      **Spec:** [`docs/interp-opt-effect-pure.md`](docs/interp-opt-effect-pure.md)
+- [x] **interp-opt-effect-pure** — ✓ Landed 2026-06-04.
+      Fast-path Pure exit in `evalHandle`: evaluate body first; if `Pure`, skip
+      handledOps Set construction and trampoline entirely. Helps user-defined
+      `handle { … }` expressions where the body performs no effects.
+      Bench floor: `runLogger` bypasses `evalHandle` (goes to `EffectHandlers.loggerRun`
+      which already has a Pure fast-exit). Remaining 1.67× gap to JS is Interpreter
+      init cost (~5 µs, dominated by ~260 NativeFnV globals created per call).
+      JFR confirms: Interpreter + ConcurrentHashMap allocations are the hot path.
+      Closing the gap requires shared/static builtins (multi-week refactor, deferred).
 
 ## Conformance Fixes — cross-backend gaps (2026-06-02)
 

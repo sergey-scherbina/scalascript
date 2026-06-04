@@ -299,7 +299,7 @@ then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 |---|---|---|---|
 | `arithLoop` | 0.256 | 0.277 | parity ✓ |
 | `counterWithTupleVar` | **0.009** | — | ✓ tryFoldCounterLoop (interp-opt-while-jit-wrapper+idempotent-loop); 69 ms → 0.009 ms (7667×, 2026-06-04); self-assign hoist + O(1) counter fold |
-| `effectPure` | **0.010** | — | ✓ improved via hello-world-interp-overhead+effect-pure-pure-path; gap to JS (0.006) = 1.67×; noperform IR flag remains for further closure |
+| `effectPure` | **0.010** | — | ✓ evalHandle Pure fast-path (interp-opt-effect-pure); bench floor = Interpreter init (~260 NativeFnV/call); gap to JS 1.67× is init-dominated |
 | `effectStream` | **0.083** | — | ✓ SrcList O(1) length (interp-opt-effect-stream); 0.117 → 0.083 ms (1.4×, 2026-06-04); JVM gap 1.3×; LExpr dispatch floor |
 | `instanceFieldAccess` | 0.039 | 0.041 | parity ✓ |
 | `mapForeach` | 0.188 | 0.187 | parity ✓ |
