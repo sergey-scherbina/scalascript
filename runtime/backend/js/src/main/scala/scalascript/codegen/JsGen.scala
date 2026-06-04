@@ -383,6 +383,8 @@ class JsGen(
   // Zero-explicit-param defs (def f: T = body). In JS these compile to function f() { return body; }.
   // When called as f(x), we must generate _call(f(), x) so the returned function gets applied.
   private val zeroParamFns = scala.collection.mutable.Set.empty[String]
+  // One-empty-param-clause defs (def f(): T). Direct call f() is safe — emit without _call wrapper.
+  private val emptyParamFns = scala.collection.mutable.Set.empty[String]
   // User-defined functions with :Int or :Long return type — their call sites can use isIntExpr.
   private val intFunctions = scala.collection.mutable.Set.empty[String]
   // User-defined functions with :Double or :Float return type — their call sites can use isNumericExpr.
@@ -460,6 +462,7 @@ class JsGen(
     funcParamOrder.clear()
     multiParamGroupFns.clear()
     zeroParamFns.clear()
+    emptyParamFns.clear()
     intFunctions.clear()
     numericFunctions.clear()
     def collectDefs(stats: List[Stat]): Unit = stats.foreach {
@@ -470,6 +473,8 @@ class JsGen(
         val explicitGroups = d.paramClauseGroups.flatMap(_.paramClauses).filterNot(_.mod.nonEmpty)
         if explicitGroups.size > 1 then multiParamGroupFns += d.name.value
         if explicitGroups.isEmpty then zeroParamFns += d.name.value
+        // def f(): T — one explicit empty param clause, no actual parameters
+        if explicitGroups.size == 1 && params.isEmpty then emptyParamFns += d.name.value
         // Track Int/Long/Double/Float return type for isIntExpr/isNumericExpr at call sites.
         d.decltpe match
           case Some(Type.Name("Int" | "Long"))     => intFunctions     += d.name.value
@@ -2508,14 +2513,32 @@ class JsGen(
       if lastWasWildcard then line("}")
       else line(s"} else { throw new Error('Match failure: ' + _show($scrutVar)); }")
 
+  // Inlines xs.foreach(p => body) as a flat for-loop when the callback is a
+  // literal function — avoids closure allocation in hot loops.
+  // Called from genWhileBodyInline so the result lands inline, never in an IIFE.
+  private def inlineForeachOrGenStat(t: Term): String = t match
+    case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("foreach")), argClause)
+         if argClause.values.length == 1 =>
+      argClause.values.head match
+        case Term.Function.After_4_6_0(paramClause, fnBody)
+             if paramClause.values.length == 1 =>
+          val param   = paramClause.values.head.name.value
+          val qualJs  = genExpr(qual)
+          val bodyStr = genWhileBodyInline(fnBody) // call once; reuse string in both branches
+          val xsVar   = freshTmp()
+          val idxVar  = freshTmp()
+          s"const $xsVar = $qualJs; if (Array.isArray($xsVar)) { for (let $idxVar = 0; $idxVar < $xsVar.length; $idxVar++) { const $param = $xsVar[$idxVar]; $bodyStr; } } else { _forEach($xsVar, ($param) => { $bodyStr; }); }"
+        case _ => genExpr(t)
+    case _ => genExpr(t)
+
   // Emits while-body stats as a flat semicolon-separated string — no IIFE wrapper.
   private def genWhileBodyInline(body: Term): String = body match
     case Term.Block(stats) =>
       stats.map {
-        case t: Term => genExpr(t)
+        case t: Term => inlineForeachOrGenStat(t)
         case stat    => genStatInline(stat)
       }.mkString("; ")
-    case t => genExpr(t)
+    case t => inlineForeachOrGenStat(t)
 
   private def genBlockAsIife(stats: List[Stat]): String =
     if stats.isEmpty then "undefined"
@@ -3771,6 +3794,11 @@ class JsGen(
       // Array/Map values are vals, never in funcParamOrder.
       case Term.Name(n) if funcParamOrder.contains(n) =>
         s"$n(${argVals.mkString(", ")})"
+
+      // Known zero-param user-defined function — direct call, no _call wrapper.
+      // Covers both def f(): T (one empty param clause) and def f: T (no clause).
+      case Term.Name(n) if (emptyParamFns(n) || zeroParamFns(n)) && argVals.isEmpty =>
+        s"$n()"
 
       // Regular function call or constructor — wrap in `_call` so a
       // bare Array / Map reference (`xs(i)` / `m(k)`) is dispatched as
