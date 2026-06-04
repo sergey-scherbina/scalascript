@@ -403,3 +403,63 @@ def createUser(userName: String, userEmail: String): User =
     assert(m1.sections.length == m2.sections.length)
     assert(m1.sections.head.heading.text == m2.sections.head.heading.text)
   }
+
+  // ─── Lazy tree tests ─────────────────────────────────────────────────────────
+
+  test("populateLazyTrees: tree is not forced until accessed") {
+    val ssc =
+      """|# Lazy test
+         |
+         |```scalascript
+         |val x = 1 + 2
+         |```
+         |""".stripMargin
+    val bytes  = SsccFormat.write(parseModule(ssc))
+    val module = SsccFormat.read(bytes).toOption.get
+    // Collect ScalaNode instances without forcing .tree
+    var nodeCount = 0
+    module.sections.foreach(_.content.foreach {
+      case cb: Content.CodeBlock => cb.tree.foreach(_ => nodeCount += 1)
+      case _                     => ()
+    })
+    assert(nodeCount == 1, "should have one code block with a tree thunk")
+    // Force now — must succeed and produce a real tree
+    module.sections.foreach(_.content.foreach {
+      case cb: Content.CodeBlock =>
+        cb.tree.foreach { node =>
+          val t = node.tree
+          assert(t != null)
+          assert(t.isInstanceOf[scala.meta.Tree])
+        }
+      case _ => ()
+    })
+  }
+
+  test("forceAllTrees: idempotent and produces correct trees") {
+    val ssc =
+      """|# Force test
+         |
+         |```scalascript
+         |def add(a: Int, b: Int): Int = a + b
+         |add(1, 2)
+         |```
+         |
+         |```scalascript
+         |val y = 42
+         |```
+         |""".stripMargin
+    val bytes   = SsccFormat.write(parseModule(ssc))
+    val module  = SsccFormat.read(bytes).toOption.get
+    // First force — should parse both blocks
+    val m1 = SsccFormat.forceAllTrees(module)
+    assert(m1 eq module, "forceAllTrees must return the same Module instance")
+    // Second force — idempotent (no exception, no re-parse)
+    val m2 = SsccFormat.forceAllTrees(module)
+    assert(m2 eq module)
+    // Verify trees are accessible
+    val trees = m1.sections.flatMap(_.content.collect {
+      case cb: Content.CodeBlock => cb.tree
+    }).flatten
+    assert(trees.length == 2)
+    trees.foreach(n => assert(n.tree.isInstanceOf[scala.meta.Tree]))
+  }

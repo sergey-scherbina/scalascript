@@ -5070,7 +5070,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       case _ => ()
     }
     blocks.foreach { block =>
-      block.node match
+      block.node.tree match
         case Source(stats)     => fromStats(stats)
         case Term.Block(stats) => fromStats(stats)
         case _                 => ()
