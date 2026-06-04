@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — fix(cli): Markdown frontend CLI run + LAN serve URLs
+
+- **markdown-frontend-cli-serve-fix** — `ssc examples/content-introspection.ssc`
+  now loads the `content` std plugin in the CLI path, keeps the frontend
+  `emit(tree, outDir)` intrinsic from being shadowed by streams `emit(value)`,
+  and `ssc serve [port] [dir]` prints detected LAN URLs for phone/tablet demos.
+
 ## 2026-06-04 — feat(language): Markdown frontend from content
 
 - **markdown-frontend-mvp** — Added parser-side `DocumentContent`, interpreter
