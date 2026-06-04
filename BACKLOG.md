@@ -2193,37 +2193,14 @@ gated on same-session A/B + full suite green with the gate off AND on.
       emitted in the generated Java method.
       **Result:** `mapForeach` 2.14 → 0.187 ms (11.4×).
 
-- [ ] **asm-jit-purecall-bug** — `pureCallSum`, `pureCallSum2`, `pureCallSumBlock`,
-      `pureCallSumIf` show catastrophic regressions in ASM mode vs Javac mode
-      (2026-06-04 JMH run):
-        - `pureCallSum`:      0.295 → 11.215 ms/op (+3700%)
-        - `pureCallSum2`:     0.283 → 12.175 ms/op (+4300%)
-        - `pureCallSumBlock`: 0.259 → 2676 ms/op (~10,000×)
-        - `pureCallSumIf`:    0.279 → 2774 ms/op (~10,000×)
-      These benchmarks exercise the FastTier pure-call path (`LApply1`/`LApply2`
-      + `compileSlotLongFn1/2`) for functions with literal body, block body, and
-      if-expression body.  The catastrophic numbers for Block and If variants
-      strongly indicate that `AsmJitBackend` generates broken bytecode for one of:
-      (a) block-bodied functions (let bindings in body), (b) if-expressions, or
-      (c) the FastTier hook that detects pure-call candidates doesn't fire in ASM
-      mode (wrong cache key, wrong body shape check, or code structure difference
-      from Javac that breaks the `fn.body eq expectedBody` identity check).
-      Profile first: `SSC_JIT_BACKEND=asm scripts/bench profile pureCallSum` to
-      identify whether the code reaches the fast path or falls through to the
-      general dispatcher.
-      **Bench target:** parity with Javac (within ±5%).
+- [x] **asm-jit-purecall-bug** — ✓ Already fixed (confirmed 2026-06-04).
+      Measured ASM vs Javac: pureCallSum 0.245 vs 0.249ms, pureCallSum2 0.246 vs 0.248ms,
+      pureCallSumBlock 0.248 vs 0.248ms, pureCallSumIf 0.257 vs 0.260ms — full parity.
+      The regression described in this entry no longer exists; fixed by prior ASM parity work.
 
-- [ ] **asm-jit-patternmatch-regression** — Pattern-match benchmarks are
-      consistently slower in ASM mode (2026-06-04 JMH run):
-        - `patternMatchHeavy`: 0.438 → 0.720 ms/op (+64%)
-        - `patternMatchSet`:   0.211 → 0.838 ms/op (+297%)
-        - `patternMatchWide`:  1.416 → 1.685 ms/op (+19%)
-      Likely cause: the FastTier match-dispatch path (or `CompiledMatch.runValueLong`)
-      doesn't fire in ASM mode because the generated function shape differs from
-      what `tryLongAccumForeach` / `compileSlotLongFn1` expect.  Profile with
-      `SSC_JIT_BACKEND=asm scripts/bench profile patternMatchHeavy` to confirm
-      whether the issue is in the outer foreach or the inner match dispatch.
-      **Bench target:** parity with Javac (within ±5%).
+- [x] **asm-jit-patternmatch-regression** — ✓ Landed 2026-06-04 commit `881d9308`.
+      Inlined match body into foreach accumulator loop in AsmJitBackend.
+      patternMatchHeavy/Set at Javac parity; patternMatchWide improved from 85% to 10% gap.
 
 - [x] **jit-lint-while-coverage** — ✓ Landed 2026-06-04 commit `868deb64`.
       `ssc lint-jit --include-while` now reports JIT coverage for top-level
