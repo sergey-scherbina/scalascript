@@ -30,17 +30,10 @@ class ParserBench:
 
   // Read actors.ssc once at JVM start; benchmark only the parse+type phase.
   private val actorsSsc: String =
-    val path = os.pwd / "runtime" / "std" / "actors.ssc"
-    if os.exists(path) then os.read(path)
-    else
-      // Inline a minimal fallback so the benchmark compiles everywhere.
-      """# Actors bench fallback
-        |
-        |```scalascript
-        |def greet(name: String): String = s"Hello, $name"
-        |greet("world")
-        |```
-        |""".stripMargin
+    val relative = os.RelPath("runtime") / "std" / "actors.ssc"
+    Iterator.iterate(os.pwd)(p => p / os.up).take(6).find(p => os.exists(p / relative))
+      .map(p => os.read(p / relative))
+      .getOrElse("""# Actors bench fallback\n\n```scalascript\ndef greet(name: String): String = s"Hello, $name"\ngreet("world")\n```\n""")
 
   @Benchmark
   def parseActors(): Module =
@@ -58,16 +51,10 @@ class ParserBench:
 class TyperBench:
 
   private val actorsSsc: String =
-    val path = os.pwd / "runtime" / "std" / "actors.ssc"
-    if os.exists(path) then os.read(path)
-    else
-      """# Typer bench fallback
-        |
-        |```scalascript
-        |def fib(n: Int): Int = if n <= 1 then n else fib(n - 1) + fib(n - 2)
-        |fib(10)
-        |```
-        |""".stripMargin
+    val relative = os.RelPath("runtime") / "std" / "actors.ssc"
+    Iterator.iterate(os.pwd)(p => p / os.up).take(6).find(p => os.exists(p / relative))
+      .map(p => os.read(p / relative))
+      .getOrElse("""# Typer bench fallback\n\n```scalascript\ndef fib(n: Int): Int = if n <= 1 then n else fib(n - 1) + fib(n - 2)\nfib(10)\n```\n""")
 
   private val parsedModule: Module = Parser.parse(actorsSsc)
 
@@ -124,9 +111,13 @@ class UnifyBench:
 class SsccFormatCompilerBench:
 
   private val actorsSsc: String =
-    val path = os.pwd / "runtime" / "std" / "actors.ssc"
-    if os.exists(path) then os.read(path)
-    else
+    // JMH forks from the bench project dir, not the repo root. Walk up to find it.
+    val relative = os.RelPath("runtime") / "std" / "actors.ssc"
+    val found = Iterator.iterate(os.pwd)(p => p / os.up)
+      .take(6)
+      .find(p => os.exists(p / relative))
+      .map(p => os.read(p / relative))
+    found.getOrElse {
       """# SsccFormat bench fallback
         |
         |```scalascript
@@ -134,14 +125,23 @@ class SsccFormatCompilerBench:
         |fib(10)
         |```
         |""".stripMargin
+    }
 
-  private val module: Module       = Parser.parse(actorsSsc)
-  private val v2Bytes: Array[Byte] = SsccFormat.write(module)
-  private val v3Bytes: Array[Byte] = SsccFormat.writeV3(module)
+  private val module: Module        = Parser.parse(actorsSsc)
+  private val ssccBytes: Array[Byte] = SsccFormat.write(module)   // v3 token stream
+  private val ssccGzip: Array[Byte]  = SsccFormat.writeV3(module, gzip = true)
 
   @Setup(Level.Trial)
   def printSizes(): Unit =
-    System.err.println(f"[SsccFormatBench] actors.ssc src=${actorsSsc.length}%d chars, v2=${v2Bytes.length}%d B, v3=${v3Bytes.length}%d B, ratio=${v3Bytes.length.toDouble/v2Bytes.length*100}%.1f%%")
+    System.err.println(f"[SsccFormatBench] actors.ssc src=${actorsSsc.length}%d chars, " +
+      f"sscc=${ssccBytes.length}%d B, sscc+gzip=${ssccGzip.length}%d B, " +
+      f"gzip-ratio=${ssccGzip.length.toDouble/ssccBytes.length*100}%.1f%%")
 
-  @Benchmark def readV2(): Module = SsccFormat.read(v2Bytes).getOrElse(throw new RuntimeException("v2 read failed"))
-  @Benchmark def readV3(): Module = SsccFormat.read(v3Bytes).getOrElse(throw new RuntimeException("v3 read failed"))
+  /** Load from pre-compiled .sscc (v3 token stream). */
+  @Benchmark def readSscc(): Module = SsccFormat.read(ssccBytes).getOrElse(throw new RuntimeException("sscc read failed"))
+
+  /** Load from pre-compiled .sscc with outer gzip compression. */
+  @Benchmark def readSsccGzip(): Module = SsccFormat.read(ssccGzip).getOrElse(throw new RuntimeException("sscc gzip read failed"))
+
+  /** Baseline: parse from .ssc source text (includes CommonMark + scalameta). */
+  @Benchmark def parseSource(): Module = Parser.parse(actorsSsc)
