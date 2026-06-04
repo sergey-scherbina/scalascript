@@ -1,5 +1,0 @@
-agent: codex-gpt-5
-branch: feature/markdown-frontend-mvp
-worktree: .worktrees/feature/markdown-frontend-mvp
-goal: Phase 1 Markdown-to-frontend MVP — DocumentContent snapshot + contentView lowering
-started: 2026-06-04

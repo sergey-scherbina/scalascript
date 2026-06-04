@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — feat(language): Markdown frontend from content
+
+- **markdown-frontend-mvp** — Added parser-side `DocumentContent`, interpreter
+  `contentDocument()`, `std/ui/content.ssc` lowering, a runnable
+  `examples/content-introspection.ssc`, and React emit smoke coverage for a
+  Markdown-authored page with no manual UI tree construction. Broader
+  `std/content` lookup helpers and cross-backend conformance remain in
+  `markdown-content-introspection-api`.
+
 ## 2026-06-04 — docs(language): prioritize Markdown frontend MVP
 
 - **markdown-frontend-mvp** — Updated the planned Markdown content milestone so

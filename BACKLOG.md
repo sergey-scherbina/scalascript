@@ -6,34 +6,18 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Language Surface — Markdown Frontend from Content
 
-- [ ] **markdown-frontend-mvp** — First implementation target: render a page or
-      screen authored in Markdown-hosted content through the existing `std/ui`
-      / frontend backends without hand-written markup-generation code.
-      `DocumentContent` is the supporting IR, not the end goal of Phase 1.
-      Phase 0 landed 2026-06-04: spec, global `SPEC.md` planned section, user
-      docs, `examples/content-introspection.ssc`, and pending conformance
-      fixture. Phase 1 scope:
-      - Parser-side rendering-grade `DocumentContent` snapshot with
-        deterministic ids, heading attributes, `<!-- @meta ... -->`, prose,
-        lists/links/images, embedded language blocks, YAML/front-matter and
-        fenced YAML/JSON/TOML as `ContentValue`, and inline `${expr}` capture as
-        source.
-      - `runtime/std/ui/content.ssc` generic `contentView(...)` lowering for
-        headings, paragraphs, lists, links, images, and default handling for
-        embedded executable/string/opaque blocks behind `includeCode`.
-      - One frontend smoke where a Markdown-authored page emits through an
-        existing frontend backend with no manual UI tree construction.
-
 - [ ] **markdown-content-introspection-api** — After `markdown-frontend-mvp`,
       expose the shared content snapshot as the broader `std/content` metadata
       API from
       [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md):
-      `runtime/std/content.ssc` + `runtime/std/content-plugin`, interpreter/JS/
-      JVM native context wiring, `contentDocument`, `contentCurrentSection`,
+      Phase 1 landed 2026-06-04 with parser `DocumentContent`, interpreter
+      `contentDocument()`, and `std/ui/content.ssc` frontend lowering. The
+      follow-up work is JS/JVM native context wiring, `contentCurrentSection`,
       `contentSection`, `contentBlock`, `contentData`, `contentMetadata`,
       `contentPlainText`, `contentToMarkdown`, then un-pend
       `tests/conformance/content-introspection.ssc`. `.scir` / `.sscc`
-      round-trip and custom component registry support follow as later slices.
+      round-trip, multi-link import paragraphs, and custom component registry
+      support follow as later slices.
 
 ## JS Codegen Performance
 
