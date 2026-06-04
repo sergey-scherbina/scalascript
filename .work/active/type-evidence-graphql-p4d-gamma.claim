@@ -1,0 +1,4 @@
+feature/type-evidence-graphql-p4d-gamma 2026-06-04T11:17:02Z
+status: not-started
+done-so-far:
+next: extend CheckTypesCmd with GraphQL evidence third section
