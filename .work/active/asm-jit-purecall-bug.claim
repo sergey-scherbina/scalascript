@@ -1,4 +1,0 @@
-feature/asm-jit-purecall-bug 2026-06-04T01:23:30Z
-status: not-started
-done-so-far:
-next: profile pureCallSum in ASM mode to find if fast-path fires
