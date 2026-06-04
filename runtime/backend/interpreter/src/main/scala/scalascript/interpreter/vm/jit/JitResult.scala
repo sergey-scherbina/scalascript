@@ -8,7 +8,8 @@ import java.lang.invoke.MethodHandle
  *  `InstanceV`); otherwise the param is `long` (Int case) when
  *  `resultIsDouble=false`, or `double` (all-double case) when
  *  `resultIsDouble=true`. `resultIsDouble` drives the caller's
- *  IntV-vs-DoubleV result wrapping in `JitRuntime`.
+ *  IntV-vs-DoubleV result wrapping in `JitRuntime`; `resultIsRef`
+ *  marks methods returning a `Value` object directly.
  *
  *  `direct`, when non-null, is an instance of one of the `JitInterfaces`
  *  traits (LongFn1 / DoubleFn1 / ObjToLong / ObjToDouble / LongFn2 /
@@ -21,5 +22,6 @@ final class JitResult(
   val mh:             MethodHandle,
   val paramIsRef:     Array[Boolean],
   val resultIsDouble: Boolean = false,
-  val direct:         AnyRef | Null = null
+  val direct:         AnyRef | Null = null,
+  val resultIsRef:    Boolean = false
 )

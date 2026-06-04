@@ -184,7 +184,7 @@ class JitLintTest extends AnyFunSuite with Matchers:
     val interp = Interpreter(devNull)
     interp.runSections(module)
     import scalascript.interpreter.Value
-    import scalascript.interpreter.vm.jit.{JitBackend, JitGlobals, ObjToLong}
+    import scalascript.interpreter.vm.jit.{JitBackend, JitGlobals, LongToObject, ObjToLong}
     val evalFun = interp.exportedGlobals("eval")
     val jitR = JitBackend.default.tryCompile(evalFun.asInstanceOf[Value.FunV], interp)
     assert(jitR != null, "eval should JIT-compile")
@@ -197,6 +197,19 @@ class JitLintTest extends AnyFunSuite with Matchers:
     }
     // build(3) = Add(build(2), Mul(build(2), Num(2))); eval(build(2))=9 → 9 + 9*2 = 27
     assert(result == 27L, s"eval(build(3)) via JIT should be 27, got $result")
+    val buildFun = interp.exportedGlobals("build")
+    val buildJit = JitBackend.default.tryCompile(buildFun.asInstanceOf[Value.FunV], interp)
+    assert(buildJit != null, "build should JIT-compile")
+    assert(buildJit.direct != null, "build JitResult should have a direct interface")
+    assert(buildJit.direct.isInstanceOf[LongToObject], s"direct should be LongToObject, got ${buildJit.direct.getClass.getName}")
+    val built = JitGlobals.withInterp(interp) {
+      buildJit.direct.asInstanceOf[LongToObject].apply(3L)
+    }
+    assert(built.isInstanceOf[Value.InstanceV], "build(3) via JIT should return an InstanceV")
+    val builtResult = JitGlobals.withInterp(interp) {
+      jitR.direct.asInstanceOf[ObjToLong].apply(built)
+    }
+    assert(builtResult == 27L, s"eval(build(3) via LongToObject) should be 27, got $builtResult")
 
   // ── 2-param recursive ADT eval (gEval) ───────────────────────────
 

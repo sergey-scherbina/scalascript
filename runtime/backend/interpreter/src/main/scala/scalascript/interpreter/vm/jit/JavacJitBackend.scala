@@ -94,10 +94,12 @@ object JavacJitBackend extends JitBackend:
    *  mixed ref+long 2-param). The generated class `implements` this interface
    *  and exposes a primitive `apply` method so JitRuntime can dispatch without
    *  boxing. */
-  private def determineInterface(n: Int, paramIsRef: Array[Boolean], isDouble: Boolean): String | Null =
+  private def determineInterface(n: Int, paramIsRef: Array[Boolean], isDouble: Boolean, resultIsRef: Boolean = false): String | Null =
     val pkg = "scalascript.interpreter.vm.jit"
     if n == 1 then
-      if paramIsRef(0) then if isDouble then s"$pkg.ObjToDouble" else s"$pkg.ObjToLong"
+      if resultIsRef then
+        if paramIsRef(0) then s"$pkg.ObjToObject" else s"$pkg.LongToObject"
+      else if paramIsRef(0) then if isDouble then s"$pkg.ObjToDouble" else s"$pkg.ObjToLong"
       else if isDouble then s"$pkg.DoubleFn1" else s"$pkg.LongFn1"
     else if n == 2 then
       (paramIsRef(0), paramIsRef(1)) match
@@ -145,9 +147,38 @@ object JavacJitBackend extends JitBackend:
                  |  public Object apply(Object n) { return ${sanitize(f.name)}(n); }
                  |}
                  |""".stripMargin
-            val r = compileAndLink(className, sanitize(f.name), source, paramIsRef, classOf[Object], isDouble = false)
+            val r = compileAndLink(className, sanitize(f.name), source, paramIsRef, classOf[Object], isDouble = false, resultIsRef = true)
             if r != null then return r
         case _ =>
+    if f.params.length == 1 && !paramIsRef(0) && !isDouble then
+      val statics = scala.collection.mutable.LinkedHashMap.empty[String, String]
+      val objectExpr = walkObject(f.body.asInstanceOf[Term], ctx, statics)
+      if objectExpr != null then
+        val className = s"GenJit_${sanitize(f.name)}_${System.identityHashCode(f.body)}"
+        val params = s"long ${sanitize(f.params.head)}"
+        val ifaceName = determineInterface(f.params.length, paramIsRef, isDouble = false, resultIsRef = true)
+        val source =
+          s"""public class $className implements $ifaceName {
+             |${statics.valuesIterator.mkString}
+             |  @SuppressWarnings("unchecked")
+             |  private static scalascript.interpreter.Value.InstanceV __inst(String typeName, int tag, scalascript.interpreter.Value[] fields, String[] names) {
+             |    scalascript.interpreter.Value.InstanceV inst = new scalascript.interpreter.Value.InstanceV(
+             |      typeName.intern(),
+             |      (scala.collection.immutable.Map<String, scalascript.interpreter.Value>) (scala.collection.immutable.Map<?, ?>) scala.collection.immutable.Map$$.MODULE$$.empty()
+             |    );
+             |    inst.fieldsArr_$$eq(fields);
+             |    inst.fieldNames_$$eq(names);
+             |    inst.typeTag_$$eq(tag);
+             |    return inst;
+             |  }
+             |  public static Object ${sanitize(f.name)}($params) {
+             |    return $objectExpr;
+             |  }
+             |  public Object apply(long n) { return ${sanitize(f.name)}(n); }
+             |}
+             |""".stripMargin
+        val r = compileAndLink(className, sanitize(f.name), source, paramIsRef, classOf[Object], isDouble = false, resultIsRef = true)
+        if r != null then return r
     val bodyStmts = walkFunctionBody(f, ctx, interp)
     if bodyStmts == null then return null
 
@@ -184,7 +215,8 @@ object JavacJitBackend extends JitBackend:
     source:     String,
     paramIsRef: Array[Boolean],
     rtype:      Class[?],
-    isDouble:   Boolean
+    isDouble:   Boolean,
+    resultIsRef: Boolean = false
   ): JitResult | Null =
     val compiler = ToolProvider.getSystemJavaCompiler
     if compiler == null then return null
@@ -227,7 +259,7 @@ object JavacJitBackend extends JitBackend:
     val direct: AnyRef | Null =
       try cls.getConstructor().newInstance().asInstanceOf[AnyRef]
       catch case _: Throwable => null
-    new JitResult(mh, paramIsRef, isDouble, direct)
+    new JitResult(mh, paramIsRef, isDouble, direct, resultIsRef)
 
   // ── AST → Java source walker ──────────────────────────────────────────────
 
@@ -472,6 +504,110 @@ object JavacJitBackend extends JitBackend:
         case inner: Term => walkRef(inner, ctx)
         case _           => null
     case _                                        => null
+
+  /** Emit a Java `Object` expression for pure ADT-building functions.
+   *
+   *  This intentionally narrow slice targets builder shapes such as:
+   *
+   *  `def build(d: Int): Expr =
+   *     if d <= 0 then Num(1)
+   *     else Add(build(d - 1), Mul(build(d - 1), Num(2)))`
+   *
+   *  It does not compile arbitrary object-valued ScalaScript. Supported forms
+   *  are one-statement blocks, `if` expressions, self-recursive calls over
+   *  long arguments, and registered case-class/enum constructors whose fields
+   *  can be emitted as either primitive `Value` wrappers or nested object
+   *  constructor expressions.
+   */
+  private def walkObject(
+    t:       Term,
+    ctx:     GenCtx,
+    statics: scala.collection.mutable.LinkedHashMap[String, String]
+  ): String | Null = t match
+    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+      b.stats.head match
+        case inner: Term => walkObject(inner, ctx, statics)
+        case _           => null
+    case ti: Term.If =>
+      val c = walkBool(ti.cond, ctx); if c == null then return null
+      val a = walkObject(ti.thenp, ctx, statics); if a == null then return null
+      val b = walkObject(ti.elsep, ctx, statics); if b == null then return null
+      s"(($c) ? ($a) : ($b))"
+    case ap: Term.Apply =>
+      ap.fun match
+        case fn: Term.Name if fn.value == ctx.funName =>
+          if ap.argClause.values.length != ctx.paramNames.length then return null
+          val args = new Array[String](ap.argClause.values.length)
+          var i = 0
+          var rem = ap.argClause.values
+          while rem.nonEmpty do
+            val e = walkLong(rem.head, ctx)
+            if e == null then return null
+            args(i) = e
+            i += 1
+            rem = rem.tail
+          s"${sanitize(ctx.funName)}(${args.mkString(", ")})"
+        case ctor: Term.Name if ctx.interp.typeFieldOrder.contains(ctor.value) =>
+          emitConstructorObject(ctor.value, ap.argClause.values, ctx, statics)
+        case _ => null
+    case _ => null
+
+  private def emitConstructorObject(
+    typeName: String,
+    args:     List[Term],
+    ctx:      GenCtx,
+    statics:  scala.collection.mutable.LinkedHashMap[String, String]
+  ): String | Null =
+    val fieldNames = ctx.interp.typeFieldOrder.getOrElse(typeName, Nil)
+    if fieldNames.length != args.length then return null
+    val fieldTypes = ctx.interp.typeFieldTypes.getOrElse(typeName, Nil)
+    val values = new Array[String](args.length)
+    var i = 0
+    var rest = args
+    while rest.nonEmpty do
+      val ft = if i < fieldTypes.length then fieldTypes(i) else ""
+      val v =
+        if isPrimitiveFieldType(ft) then emitPrimitiveValue(rest.head, ft, ctx)
+        else
+          val obj = walkObject(rest.head, ctx, statics)
+          if obj == null then null else s"(scalascript.interpreter.Value) ($obj)"
+      if v == null then return null
+      values(i) = v
+      i += 1
+      rest = rest.tail
+    val namesField = constructorNamesField(typeName, fieldNames, statics)
+    val tag = ctx.interp.typeTagMap.getOrElse(typeName, 0)
+    val arr =
+      if values.isEmpty then "new scalascript.interpreter.Value[0]"
+      else values.mkString("new scalascript.interpreter.Value[] { ", ", ", " }")
+    s"""__inst("${escape(typeName)}", $tag, $arr, $namesField)"""
+
+  private def isPrimitiveFieldType(t: String): Boolean =
+    t == "Int" || t == "Long" || t == "Double" || t == "Boolean"
+
+  private def emitPrimitiveValue(t: Term, fieldType: String, ctx: GenCtx): String | Null =
+    fieldType match
+      case "Int" | "Long" =>
+        val e = walkLong(t, ctx); if e == null then null
+        else s"scalascript.interpreter.Value$$.MODULE$$.intV($e)"
+      case "Double" =>
+        val e = walkDouble(t, ctx); if e == null then null
+        else s"scalascript.interpreter.Value$$.MODULE$$.doubleV($e)"
+      case "Boolean" =>
+        val e = walkBool(t, ctx); if e == null then null
+        else s"scalascript.interpreter.Value$$.MODULE$$.boolV($e)"
+      case _ => null
+
+  private def constructorNamesField(
+    typeName:    String,
+    fieldNames:  List[String],
+    statics:     scala.collection.mutable.LinkedHashMap[String, String]
+  ): String =
+    val key = "__names_" + sanitize(typeName)
+    if !statics.contains(key) then
+      val elems = fieldNames.map(n => "\"" + escape(n) + "\"").mkString(", ")
+      statics(key) = s"  private static final String[] $key = new String[] { $elems };\n"
+    key
 
   private def walkBool(t: Term, ctx: GenCtx): String | Null = t match
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
@@ -2383,6 +2519,16 @@ object JavacJitBackend extends JitBackend:
   /** Java identifier sanitization. ScalaScript identifiers can contain `$` and
    *  unicode; the generated method/class name keeps only `[A-Za-z0-9_]`, with
    *  other chars replaced by `_`. */
+  private val javaKeywords: Set[String] = Set(
+    "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char",
+    "class", "const", "continue", "default", "do", "double", "else", "enum",
+    "extends", "final", "finally", "float", "for", "goto", "if", "implements",
+    "import", "instanceof", "int", "interface", "long", "native", "new",
+    "package", "private", "protected", "public", "return", "short", "static",
+    "strictfp", "super", "switch", "synchronized", "this", "throw", "throws",
+    "transient", "try", "void", "volatile", "while", "_"
+  )
+
   private def sanitize(name: String): String =
     val sb = new StringBuilder(name.length)
     var i = 0
@@ -2392,4 +2538,6 @@ object JavacJitBackend extends JitBackend:
          (c >= '0' && c <= '9') || c == '_' then sb.append(c)
       else sb.append('_')
       i += 1
-    sb.toString
+    if sb.isEmpty || (sb.charAt(0) >= '0' && sb.charAt(0) <= '9') then sb.insert(0, "fn_")
+    val s = sb.toString
+    if javaKeywords.contains(s) then s + "_" else s

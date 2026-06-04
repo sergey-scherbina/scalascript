@@ -1,7 +1,7 @@
 package scalascript.interpreter.vm
 
 import scalascript.interpreter.{Value, Computation, Interpreter}
-import scalascript.interpreter.vm.jit.{JitBackend, JitResult, JitGlobals, LongFn1, DoubleFn1, ObjToLong, ObjToDouble, LongFn2, DoubleFn2, LongObjToLong, LongObjToDouble, ObjLongToLong, ObjLongToDouble}
+import scalascript.interpreter.vm.jit.{JitBackend, JitResult, JitGlobals, LongFn1, DoubleFn1, ObjToLong, ObjToDouble, ObjToObject, LongToObject, LongFn2, DoubleFn2, LongObjToLong, LongObjToDouble, ObjLongToLong, ObjLongToDouble}
 import java.lang as jl
 
 /** Run-time JIT bridge between the tree-walking interpreter and [[SscVm]].
@@ -199,7 +199,8 @@ object JitRuntime:
         case _             => null
 
   private def wrapBytecodeResult(r: JitResult, out: AnyRef): Computation =
-    if r.resultIsDouble then Computation.Pure(Value.doubleV(out.asInstanceOf[jl.Double].doubleValue))
+    if r.resultIsRef then Computation.Pure(out.asInstanceOf[Value])
+    else if r.resultIsDouble then Computation.Pure(Value.doubleV(out.asInstanceOf[jl.Double].doubleValue))
     else Computation.pureIntV(out.asInstanceOf[jl.Long].longValue)
 
   private def invokeBytecode1(r: JitResult, arg: Value, interp: Interpreter): Computation | Null =
@@ -207,7 +208,13 @@ object JitRuntime:
     if d != null then
       try
         if !r.paramIsRef(0) then
-          if r.resultIsDouble then
+          if r.resultIsRef || d.isInstanceOf[LongToObject] then
+            val n = arg match
+              case Value.IntV(x) => x
+              case _             => return null
+            val result = JitGlobals.withInterp(interp) { d.asInstanceOf[LongToObject].apply(n) }
+            Computation.Pure(result.asInstanceOf[Value])
+          else if r.resultIsDouble then
             val n = arg match
               case Value.IntV(x)    => x.toDouble
               case Value.DoubleV(x) => x
@@ -223,7 +230,10 @@ object JitRuntime:
         else
           arg match
             case _: Value.InstanceV =>
-              if r.resultIsDouble then
+              if r.resultIsRef || d.isInstanceOf[ObjToObject] then
+                val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjToObject].apply(arg.asInstanceOf[AnyRef]) }
+                Computation.Pure(result.asInstanceOf[Value])
+              else if r.resultIsDouble then
                 val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjToDouble].apply(arg.asInstanceOf[AnyRef]) }
                 Computation.Pure(Value.doubleV(result))
               else
@@ -242,6 +252,7 @@ object JitRuntime:
   private def invokeBytecode2(r: JitResult, a: Value, b: Value, interp: Interpreter): Computation | Null =
     val d = r.direct
     if d != null then
+      if r.resultIsRef then return null
       // Unboxed dispatch for every (paramIsRef, paramIsRef) × resultIsDouble
       // combination JavacJitBackend.determineInterface emits. The mixed
       // Long+Ref interfaces (added 2026-06-03) unblock the
