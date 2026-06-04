@@ -29,7 +29,8 @@ import scala.util.Try
 object SsccFormat:
 
   val Magic: Array[Byte]   = Array(0x73.toByte, 0x73.toByte, 0x63.toByte, 0x63.toByte)
-  val CurrentVersion: Byte = 2
+  val CurrentVersion: Byte = 2   // v2 = default until Phase E flips to 3
+  val V3Version: Byte      = 3   // v3 enabled via SSC_FORMAT_V3=1
 
   // ─── Compression ─────────────────────────────────────────────────────────
 
@@ -520,13 +521,32 @@ object SsccFormat:
   private def fromPickle(pk: ListItemPickle): ListItem =
     ListItem(decompress(pk.content), pk.nested.map(fromPickle), pk.span)
 
+  // ─── Manifest pickle helpers (package-private for v3 writer/reader) ────────
+
+  private[ast] def manifestToBytes(m: Manifest): Array[Byte] =
+    Cbor.encode(toPickle(m)).toByteArray
+
+  private[ast] def manifestFromBytes(bytes: Array[Byte]): Manifest =
+    fromPickle(Try(Cbor.decode(bytes).to[ManifestPickle].value).get)
+
   // ─── Public API ───────────────────────────────────────────────────────────
 
   /** Serialize a [[Module]] to `.sscc` bytes.
-   *  Header: magic(4) + version(1) + crc32(4) + CBOR payload. */
+   *
+   *  Uses v3 (token stream) when `SSC_FORMAT_V3=1` env var is set; v2 otherwise.
+   *  Phase E will flip the default to v3. */
   def write(module: Module): Array[Byte] =
-    val payload = Cbor.encode(toPickle(module)).toByteArray
-    Magic ++ Array(CurrentVersion) ++ putBE32(crc32of(payload)) ++ payload
+    if sys.env.get("SSC_FORMAT_V3").exists(_ != "0") then
+      writeV3(module)
+    else
+      val payload = Cbor.encode(toPickle(module)).toByteArray
+      Magic ++ Array(CurrentVersion) ++ putBE32(crc32of(payload)) ++ payload
+
+  private def writeV3(module: Module): Array[Byte] =
+    val mBytes  = module.manifest.map(manifestToBytes).getOrElse(Array.empty[Byte])
+    val payload = SsccFormatV3.write(module, mBytes)
+    val crc     = crc32of(payload)
+    Magic ++ Array(V3Version) ++ Array(0x00.toByte) ++ putBE32(crc) ++ payload
 
   /** Deserialize a [[Module]] from `.sscc` bytes.
    *  Returns [[Left]] with a human-readable message on any error. */
@@ -539,6 +559,8 @@ object SsccFormat:
       val version = bytes(4)
       if version == 1 then
         Left("obsolete .sscc format (v1/msgpack) — please rebuild with current ssc")
+      else if version == V3Version then
+        readV3(bytes)
       else if version > CurrentVersion then
         Left(
           s"unsupported .sscc version $version " +
@@ -554,3 +576,16 @@ object SsccFormat:
           Try(Cbor.decode(payload).to[ModulePickle].value)
             .toEither.left.map(_.getMessage)
             .map(fromPickle)
+
+  private def readV3(bytes: Array[Byte]): Either[String, Module] =
+    // v3 header: magic(4) + version(1) + compressionFlag(1) + crc32(4) = 10 bytes
+    if bytes.length < 10 then return Left("truncated .sscc v3 header")
+    val compressionFlag = bytes(5) & 0xff
+    if compressionFlag != 0x00 then return Left(s"unsupported .sscc v3 compression flag 0x${compressionFlag.toHexString}")
+    val storedCrc = getBE32(bytes, 6)
+    val payload   = bytes.drop(10)
+    val actualCrc = crc32of(payload)
+    if storedCrc != actualCrc then
+      Left(f"corrupt .sscc v3 file — CRC32 mismatch (stored 0x$storedCrc%08x, computed 0x$actualCrc%08x)")
+    else
+      SsccFormatV3.read(payload, bytes => manifestFromBytes(bytes))
