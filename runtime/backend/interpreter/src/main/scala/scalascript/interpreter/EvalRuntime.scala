@@ -1078,7 +1078,11 @@ private[interpreter] object EvalRuntime:
       val v = frameView.getOrElse(body.names(k), null)
       if !v.isInstanceOf[Value.IntV] then
         anyNonInt = true
-        if !isPureConstExpr(body.rhs(k)) then return null
+        val rhs = body.rhs(k)
+        val hoistable = rhs match
+          case n: Term.Name => interp.valNames.contains(n.value)
+          case _            => isPureConstExpr(rhs)
+        if !hoistable then return null
       k += 1
     if !anyNonInt then return null
     // Split the body. Pure-cached entries are pre-evaluated now (this also

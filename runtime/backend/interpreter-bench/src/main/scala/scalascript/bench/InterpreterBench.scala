@@ -164,6 +164,33 @@ class InterpreterBench:
       |last""".stripMargin
   )
 
+  // val-bound constant tuple: `last = k` where k is a val.
+  // Without the Term.Name hoist, tryHoistedPureWhile bails and falls through
+  // to the value-space loop (~65 ms for 1M iters, similar to counterWithTupleVar).
+  // With the fix, `k` is recognised as pure, hoisted once, and the loop runs
+  // through tryLongWhileAssign (~2 ms for 1M iters — 33× speedup).
+  private val modTupleMonoidVal: Module = src(
+    """val k = (1, 2, 3, 4)
+      |var i = 0
+      |var last = (0, 0, 0, 0)
+      |while i < 1000000 do
+      |  last = k
+      |  i = i + 1
+      |last""".stripMargin
+  )
+
+  // Regression guard: `last = last` is NOT hoistable (var RHS) so it falls
+  // through to the value-space loop. Verifies the non-hoist path still works
+  // correctly and shows the baseline cost for comparison (≈65 ms for 1M iters).
+  private val modCounterWithTupleVar: Module = src(
+    """var i = 0
+      |var last = (0, 0, 0, 0)
+      |while i < 1000000 do
+      |  last = last
+      |  i = i + 1
+      |last""".stripMargin
+  )
+
   // Pure non-match-bodied 1-param function called in a tight loop with an Int
   // accumulator — exercises the A4 (Tier-2b pure-call) target. `pureCallValue`
   // historically only direct-style-ran match-bodied funcs; A4 generalizes that
@@ -453,6 +480,14 @@ class InterpreterBench:
   @Benchmark
   def tupleMonoid(): Unit =
     Interpreter(devNull).runSections(modTupleMonoid)
+
+  @Benchmark
+  def tupleMonoidVal(): Unit =
+    Interpreter(devNull).runSections(modTupleMonoidVal)
+
+  @Benchmark
+  def counterWithTupleVar(): Unit =
+    Interpreter(devNull).runSections(modCounterWithTupleVar)
 
   @Benchmark
   def pureCallSum(): Unit =
