@@ -234,7 +234,9 @@ function _ssc_ui_renderBody(view) {
         const dtUrl    = fg ? _esc(fg.url) : '';
         const dtTick   = (fg && fg.tick && fg.tick.id != null) ? String(fg.tick.id) : '';
         const dtHdr    = (fg && fg.headers && fg.headers.id != null) ? String(fg.headers.id) : '';
-        const dtCols   = _esc(JSON.stringify((v.columns || []).map(function(c) { return {title: c.title, fieldPath: c.fieldPath}; })));
+        const dtCols   = _esc(JSON.stringify((v.columns || []).map(function(c) {
+          return { title: c.title, fieldPath: c.fieldPath, align: c.align || '', kind: c.kind || { type: 'text' } };
+        })));
         const dtActs   = _esc(JSON.stringify((v.actions || []).map(function(a) { return a; })));
         let dtAttrs = `data-ssc-datatable="${dtSigId}" data-ssc-datatable-url="${dtUrl}" data-ssc-datatable-cols="${dtCols}" data-ssc-datatable-acts="${dtActs}"`;
         if (dtTick) dtAttrs += ` data-ssc-datatable-tick="${dtTick}"`;
@@ -358,6 +360,68 @@ function _ssc_ui_mount(sigs) {
       if (!hs) return undefined;
       try { return JSON.parse(hs); } catch(_e) { return undefined; }
     }
+    function getKind(col) {
+      var kind = (col && col.kind) || {};
+      return String(kind.type || kind.kind || kind._type || 'text');
+    }
+    function fmtDate(value, format) {
+      var v = String(value == null ? '' : value);
+      if (!v) return '';
+      try {
+        var d = new Date(v);
+        if (Number.isNaN(d.getTime())) return v;
+        if (format === 'short' || format === 'medium' || format === 'long' || format === 'full') {
+          return d.toLocaleDateString(undefined, { dateStyle: format });
+        }
+        return d.toLocaleDateString(format || undefined);
+      } catch(_e) { return v; }
+    }
+    function fmtMoney(value, currency, locale) {
+      var v = String(value == null ? '' : value);
+      if (!v) return '';
+      try {
+        return new Intl.NumberFormat(locale || undefined, { style: 'currency', currency: currency || 'USD' }).format(Number(v));
+      } catch(_e) { return v; }
+    }
+    function renderCellValue(row, col) {
+      var raw = getField(row, col.fieldPath);
+      var value = raw != null ? raw : '';
+      var kind = (col && col.kind) || {};
+      switch (getKind(col)) {
+        case 'date':
+          return fmtDate(value, kind.format || '');
+        case 'money':
+          return fmtMoney(value, kind.currency || 'USD', kind.locale || '');
+        case 'status': {
+          var text = String(value);
+          var colors = kind.colorMap || {};
+          var color = colors[text] || '';
+          var span = document.createElement('span');
+          span.textContent = text;
+          if (color) {
+            span.style.background = color;
+            span.style.padding = '2px 8px';
+            span.style.borderRadius = '9999px';
+            span.style.fontSize = '0.85em';
+          }
+          return span;
+        }
+        case 'link': {
+          var href = kind.urlTemplate ? String(kind.urlTemplate).replace(':value', encodeURIComponent(String(value))) : '#';
+          var a = document.createElement('a');
+          a.href = href;
+          a.textContent = String(value);
+          return a;
+        }
+        default:
+          return String(value);
+      }
+    }
+    function appendCellValue(td, row, col) {
+      var rendered = renderCellValue(row, col);
+      if (rendered && rendered.nodeType) td.appendChild(rendered);
+      else td.textContent = String(rendered == null ? '' : rendered);
+    }
     function renderTable(rows) {
       container.innerHTML = '';
       var tbl = document.createElement('table');
@@ -365,7 +429,7 @@ function _ssc_ui_mount(sigs) {
       var thead = document.createElement('thead'); thead.setAttribute('style', 'background:#f9fafb');
       var trH = document.createElement('tr');
       cols.forEach(function(col) {
-        var th = document.createElement('th'); th.setAttribute('style', thStyle); th.textContent = col.title; trH.appendChild(th);
+        var th = document.createElement('th'); th.setAttribute('style', thStyle + (col.align ? ';text-align:' + col.align : '')); th.textContent = col.title; trH.appendChild(th);
       });
       if (acts.length > 0) { var thA = document.createElement('th'); thA.setAttribute('style', thStyle); trH.appendChild(thA); }
       thead.appendChild(trH); tbl.appendChild(thead);
@@ -373,8 +437,8 @@ function _ssc_ui_mount(sigs) {
       (rows || []).forEach(function(row) {
         var tr = document.createElement('tr');
         cols.forEach(function(col) {
-          var td = document.createElement('td'); td.setAttribute('style', tdStyle);
-          td.textContent = String(getField(row, col.fieldPath) != null ? getField(row, col.fieldPath) : '');
+          var td = document.createElement('td'); td.setAttribute('style', tdStyle + (col.align ? ';text-align:' + col.align : ''));
+          appendCellValue(td, row, col);
           tr.appendChild(td);
         });
         if (acts.length > 0) {
@@ -496,7 +560,31 @@ function _ssc_ui_fetchUrlSignal(name, url, tick, headers) {
 function _ssc_ui_fetchAction(method, url, body, tick, headers) { return { _type: '_FetchAction', method, url, body, tick, headers: headers || null }; }
 function _ssc_ui_incSignal(s) { return { _type: '_IncSignal', s }; }
 function _ssc_ui_fetchActionClear(method, url, body, tick, headers) { return { _type: '_FetchActionClear', method, url, body, tick, headers: headers || null }; }
-function _ssc_ui_fieldColumn(title, fieldPath, align, editAction) { return { title, fieldPath, align: align || '', editAction: editAction || null }; }
+function _ssc_ui_colorMapObject(colorMap) {
+  if (!colorMap) return {};
+  if (typeof globalThis !== 'undefined' && typeof globalThis.Map === 'function' && colorMap instanceof globalThis.Map) {
+    return Object.fromEntries(colorMap.entries());
+  }
+  return (typeof colorMap === 'object') ? colorMap : {};
+}
+function _ssc_ui_makeColumn(title, fieldPath, align, kind, editAction) {
+  return { title, fieldPath, align: align || '', editAction: editAction || null, kind: kind || { type: 'text' } };
+}
+function _ssc_ui_fieldColumn(title, fieldPath, align, editAction) {
+  return _ssc_ui_makeColumn(title, fieldPath, align, { type: 'text' }, editAction);
+}
+function _ssc_ui_dateColumn(title, fieldPath, align, format) {
+  return _ssc_ui_makeColumn(title, fieldPath, align, { type: 'date', format: format || '' }, null);
+}
+function _ssc_ui_moneyColumn(title, fieldPath, align, currency, locale) {
+  return _ssc_ui_makeColumn(title, fieldPath, align, { type: 'money', currency: currency || 'USD', locale: locale || '' }, null);
+}
+function _ssc_ui_statusColumn(title, fieldPath, align, colorMap) {
+  return _ssc_ui_makeColumn(title, fieldPath, align, { type: 'status', colorMap: _ssc_ui_colorMapObject(colorMap) }, null);
+}
+function _ssc_ui_linkColumn(title, fieldPath, align, urlTemplate) {
+  return _ssc_ui_makeColumn(title, fieldPath, align, { type: 'link', urlTemplate: urlTemplate || '' }, null);
+}
 function _ssc_ui_rowDeleteAction(url, idField, tick, headers) { return { _type: '_RowDelete', url, idField, tick, headers: headers || null }; }
 function _ssc_ui_rowPostAction(label, method, url, bodyField, tick, headers) { return { _type: '_RowPost', label, method, url, bodyField, tick, headers: headers || null }; }
 function _ssc_ui_rowLinkAction(label, signal, fieldPath) { return { _type: '_RowLink', label, signal, fieldPath }; }

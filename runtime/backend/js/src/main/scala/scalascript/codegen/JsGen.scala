@@ -873,9 +873,21 @@ class JsGen(
                     allText.contains("Focus[") || allText.contains("_makeLens") ||
                     allText.contains("indexAt")
     if hasOptics then caps += Optics
-    // Signals — reactive signals
+    // Signals — reactive signals and the lightweight browser UI helpers.
+    // UI/DataTable constructors are emitted as `_ssc_ui_*` extern shims from
+    // std/ui modules, so they need the Signals runtime even without an explicit
+    // user-level `signal(...)` call.
+    val hasUiHelpers = List(
+      "fetchUrlSignal", "fetchAction", "fetchActionClear", "emptyHeaders",
+      "dataTable", "dataTableView", "staticDataTable", "signalDataTable",
+      "fieldColumn", "dateColumn", "moneyColumn", "statusColumn", "linkColumn",
+      "fcol", "dcol", "mcol", "scol", "lcol",
+      "rowDelete", "rowPost", "rowLink", "rowEdit",
+      "textNode", "signalText", "showSignal", "fragment("
+    ).exists(allText.contains)
     val hasSignals = allText.contains("signal(") || allText.contains("Signal(") ||
-                    allText.contains("computed(") || allText.contains("Computed(")
+                    allText.contains("computed(") || allText.contains("Computed(") ||
+                    hasUiHelpers
     if hasSignals then caps += Signals
     // IndexedDb — client-side IndexedDB storage
     val hasIndexedDb = allText.contains("IndexedDb.")

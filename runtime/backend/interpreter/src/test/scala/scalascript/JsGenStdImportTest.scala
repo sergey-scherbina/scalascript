@@ -59,3 +59,33 @@ class JsGenStdImportTest extends AnyFunSuite:
     val runtime = JsGen.generateRuntime(Set(JsGen.Capability.Core))
     assert(runtime.contains("typeof require === 'function'"))
     assert(!runtime.contains("let _uploadDir = require('os').tmpdir();"))
+
+  test("JS signal runtime defines std/ui typed DataTable column helpers"):
+    val runtime = JsGen.generateRuntime(Set(JsGen.Capability.Signals))
+    List(
+      "_ssc_ui_dateColumn",
+      "_ssc_ui_moneyColumn",
+      "_ssc_ui_statusColumn",
+      "_ssc_ui_linkColumn"
+    ).foreach { helper =>
+      assert(runtime.contains(s"function $helper("), s"missing browser UI helper: $helper")
+    }
+    assert(runtime.contains("kind: c.kind || { type: 'text' }"),
+      "DataTable column serialization must preserve kind metadata")
+
+  test("typed DataTable helpers trigger the JS Signals runtime capability"):
+    val source =
+      """# App
+        |
+        |[staticDataTable, dcol, mcol, scol](std/ui/data.ssc)
+        |
+        |```scalascript
+        |val table = staticDataTable(
+        |  [],
+        |  [dcol("Created", "createdAt"), mcol("Salary", "salary"), scol("Status", "status")]
+        |)
+        |```
+        |""".stripMargin
+
+    val caps = JsGen.detectCapabilities(Parser.parse(source))
+    assert(caps.contains(JsGen.Capability.Signals), s"expected Signals capability, got $caps")
