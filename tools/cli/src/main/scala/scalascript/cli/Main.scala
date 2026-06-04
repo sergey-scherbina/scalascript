@@ -6796,12 +6796,12 @@ private[cli] def timed[A](name: String)(body: => A): (A, PhaseResult) =
  *  one backend.  Warmup + timing are embedded inside a generated wrapper
  *  script so compilation and process-startup costs are excluded.
  *
- *  The backend is selected with the global `--backend <interp|jvm|js>` flag
- *  (default: interp), shared with other ssc commands.
+ *  The backend is selected with the global `--backend <ssc|jvm|js>` flag
+ *  (default: ssc), shared with other ssc commands.
  *
  *  Options:
  *  {{{
- *    --backend <interp|jvm|js>   (global flag) backend to use (default: interp)
+ *    --backend <ssc|jvm|js>      (global flag) backend to use (default: ssc)
  *    --warmup N                  warmup iterations (default 5)
  *    --warmup-time N             warmup for N milliseconds (time-based; overrides --warmup)
  *    --reps N                    measured iterations (default 20)
@@ -6818,12 +6818,12 @@ final class BenchCmd extends CliCommand:
   override def category = "Run & develop"
   def run(args: List[String]): Unit =
     if args.isEmpty then
-      System.err.println("Usage: ssc bench [--backend <interp|jvm|js>] [--warmup N] [--warmup-time N] [--reps N] [--smoke] [--target-ms N] [--require-target] [--baseline] [--machine] <file.ssc>")
+      System.err.println("Usage: ssc bench [--backend <ssc|jvm|js>] [--warmup N] [--warmup-time N] [--reps N] [--smoke] [--target-ms N] [--require-target] [--baseline] [--machine] <file.ssc>")
       System.exit(1)
 
     // --backend is a global flag (GlobalFlags), consumed before we see args.
-    // Read it from ActiveFlags; default to "interp".
-    var backend    = ActiveFlags.current.backend.getOrElse("interp")
+    // Read it from ActiveFlags; default to "ssc".
+    var backend    = ActiveFlags.current.backend.getOrElse("ssc")
     var warmup     = 5
     var reps       = 20
     var smoke      = false
@@ -6843,7 +6843,9 @@ final class BenchCmd extends CliCommand:
       0L
     }
 
-    val validBackends = Set("interp", "jvm", "js")
+    // "interp" accepted as a backward-compatible alias for "ssc".
+    if backend == "interp" then backend = "ssc"
+    val validBackends = Set("ssc", "jvm", "js")
     if !validBackends(backend) then
       System.err.println(s"bench: unknown backend '$backend', valid: ${validBackends.mkString(", ")}")
       System.exit(1)
@@ -6877,7 +6879,7 @@ final class BenchCmd extends CliCommand:
       warmupTimeMs = None
       if !warmupExplicit then warmup = 0
       if !repsExplicit then reps = 1
-      backend = "interp"
+      backend = "ssc"
 
     if warmupTimeMs.isEmpty && warmup < 0 || reps <= 0 then
       System.err.println("bench: --warmup must be >= 0 and --reps must be positive")

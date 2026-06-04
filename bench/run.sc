@@ -6,11 +6,11 @@
  * ScalaScript benchmark harness.
  *
  * Usage (from repo root):
- *   ./bench.sh                              # compare all backends (interp, jvm, js)
- *   ./bench.sh --asm                        # add interp-asm column (AsmJitBackend)
+ *   ./bench.sh                              # compare all backends (ssc, jvm, js)
+ *   ./bench.sh --asm                        # add ssc-asm column (AsmJitBackend)
  *   ./bench.sh arith-loop recursion-fib    # filter by workload name
- *   ./bench.sh --backend interp            # single backend only
- *   ./bench.sh --backend interp-asm        # ASM JIT backend only
+ *   ./bench.sh --backend ssc               # single backend only
+ *   ./bench.sh --backend ssc-asm           # ASM JIT backend only
  *   ./bench.sh --warmup 10 --reps 50       # custom warmup / measured iterations
  *   ./bench.sh --baseline                  # write bench/BASELINE.md
  *
@@ -46,7 +46,7 @@ val backendFlag: Option[String] =
 
 val backends: Seq[String] = backendFlag match
   case Some(b) => Seq(b)
-  case None    => Seq("interp", "jvm", "js") ++ (if includeAsm then Seq("interp-asm") else Nil)
+  case None    => Seq("ssc", "jvm", "js") ++ (if includeAsm then Seq("ssc-asm") else Nil)
 
 // --warmup N / --reps N / --warmup-time N: pass-through to ssc bench (defaults mirror BenchCmd)
 def parseInt2(flag: String, default: Int): Int =
@@ -80,10 +80,7 @@ val filterNames: Set[String] =
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-def displayName(b: String): String = b match
-  case "interp"     => "ssc"
-  case "interp-asm" => "ssc-asm"
-  case other        => other
+def displayName(b: String): String = b
 
 def fmtMs(ms: Double): String =
   if ms < 1.0 then f"$ms%.3f" else if ms < 10.0 then f"$ms%.2f" else f"$ms%.1f"
@@ -99,10 +96,11 @@ def runSscBenchBackend(sscPath: String, file: java.io.File, b: String): Option[D
   val errLog: String => Unit = line =>
     if !line.startsWith("NOTE: Picked up") && !line.contains("skipping backend plugin") then
       System.err.println(line)
-  // "interp-asm" is a synthetic backend: run ssc --backend interp with SSC_JIT_BACKEND=asm.
+  // "ssc-asm" is a synthetic backend: run ssc --backend ssc with SSC_JIT_BACKEND=asm.
+  // "interp-asm" accepted as a backward-compatible alias.
   val (actualBackend, extraEnv) = b match
-    case "interp-asm" => ("interp", Seq("SSC_JIT_BACKEND" -> "asm"))
-    case other        => (other,    Nil)
+    case "ssc-asm" | "interp-asm" => ("ssc", Seq("SSC_JIT_BACKEND" -> "asm"))
+    case other                    => (other, Nil)
   // --backend is a global flag; must come before the subcommand name.
   // --warmup-time overrides --warmup when present.
   val warmupArgs = warmupTimeMs match
