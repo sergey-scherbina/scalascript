@@ -479,7 +479,12 @@ private[interpreter] object EffectHandlers:
         if fromFn != null then
           try interp.invoke(fromFn, emitted :: Nil)
           catch case _: Throwable => emitted
-        else emitted
+        else
+          val nElems = emitted.asInstanceOf[Value.ListV].items.length
+          Value.InstanceV("Source", Map(
+            "runToList" -> Value.NativeFnV("Source.runToList", Computation.pureFn { _ => emitted }),
+            "length"    -> Value.IntV(nElems)
+          ))
 
     def finish(bodyResult: Value): Computation =
       Pure(Value.TupleV(makeSource() :: bodyResult :: Nil))
