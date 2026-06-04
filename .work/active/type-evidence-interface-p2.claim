@@ -1,4 +1,0 @@
-feature+type-evidence-interface-p2 2026-06-04T08:20:24Z
-status: in-progress
-done-so-far: TypeEvidenceWire added to IR, ExportedSymbol.evidence populated from DefSummary, artifact round-trip and legacy no-evidence tests pass
-next: rebase, commit docs/status updates, release claim and mark queue/backlog done

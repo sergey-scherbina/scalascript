@@ -199,11 +199,12 @@ the contracts are explicit.
       helper that counts direct or structural exported `Any` by evidence kind
       without changing artifact formats or codegen behavior.
       **Spec:** [`docs/type-evidence-inventory.md`](docs/type-evidence-inventory.md)
-- [ ] **type-evidence-interface-p2** - Add structured type-evidence metadata to
-      `.scim` exported symbols beside the existing rendered `tpe` string.
-      Populate it from `DefSummary.evidence` in `InterfaceExtractor`, keep old
-      artifacts readable via defaulted fields, and leave `InterfaceScope`
-      resolution on legacy `tpe` for this slice.
+- [x] **type-evidence-interface-p2** - ✓ Landed 2026-06-04 commit `24c0803d`.
+      Added structured type-evidence metadata to `.scim` exported symbols
+      beside the existing rendered `tpe` string. `InterfaceExtractor` populates
+      it from `DefSummary.evidence`; old artifacts remain readable via
+      defaulted fields, and `InterfaceScope` resolution still uses legacy `tpe`
+      for this slice.
       **Spec:** [`docs/type-evidence-inventory.md §P2`](docs/type-evidence-inventory.md#p2---interface-evidence-serialization)
 - [x] **perf-regression-guard** - Add a lightweight performance regression
       workflow: benchmark manifest, baseline policy, ignored/generated artifact
