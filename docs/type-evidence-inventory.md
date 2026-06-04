@@ -259,8 +259,99 @@ Verification:
 
 ### P4 - Schema Consumers
 
-Feed OpenAPI, GraphQL, and contract validation from the shared evidence and
-shape model.
+P4 has three independent sub-slices (a, b, c) that can be claimed and landed
+separately. GraphQL evidence integration is deferred to a later roadmap because
+GraphQL uses SDL blocks with its own type model rather than frontmatter route strings.
+
+#### P4a — Route Evidence Inventory Helper
+
+Queue slug: `type-evidence-schema-p4a`.
+
+Add a `RouteEvidenceCounts` + `RouteEvidenceInventory` helper in `lang/core` that
+counts declared/unknown evidence across route and handler metadata in a compiled
+`ir.Manifest`. This is the route analogue to the `AnyEvidenceInventory` added in P1
+for exported symbols.
+
+Target shape in `lang/core/src/main/scala/scalascript/typer/TypeEvidence.scala`
+(or a new `RouteEvidence.scala` nearby):
+
+```scala
+case class RouteEvidenceCounts(
+  endpointsDeclared: Int = 0,
+  endpointsUnknown:  Int = 0,
+  handlersDeclared:  Int = 0,
+  handlersUnknown:   Int = 0
+):
+  def allDeclared: Boolean =
+    endpointsUnknown == 0 && handlersUnknown == 0
+
+object RouteEvidenceInventory:
+  def count(manifest: ir.Manifest): RouteEvidenceCounts
+```
+
+Rules:
+- Count each `ApiEndpointDecl` as declared if **both** `request.kind` and
+  `response.kind` are `"Declared"` in `typeEvidence`; otherwise unknown.
+- Count each `RemoteHandlerDecl` the same way.
+- Missing `typeEvidence` → unknown (backward-compatible with legacy artifacts).
+
+Verification:
+- `core / Test / testOnly scalascript.typer.RouteEvidenceInventoryTest`
+- `core / Test / compile`
+
+#### P4b — OpenAPI Evidence Diagnostics
+
+Queue slug: `type-evidence-openapi-p4b`.
+
+Add evidence-aware warnings and a `--require-declared` gate to `ssc emit-openapi`.
+
+Changes:
+- `EmitCommands.openApiEvidenceDiagnostics(module)` — returns a `List[String]`
+  of human-readable warnings for each endpoint whose request or response evidence
+  is `Unknown`. Uses `ApiEndpointTypeEvidenceWire` from `ApiEndpointDecl.typeEvidence`.
+- `ssc emit-openapi --require-declared` flag: after generating the spec, check
+  evidence diagnostics; if any, print them to stderr and exit 1.
+- Without `--require-declared`, warnings are suppressed (backward-compatible).
+- Diagnostics read `typeEvidence` only; the OpenAPI document itself continues to
+  use the existing `responseType` string path — no schema generation change.
+
+Verification:
+- `cli / Test / testOnly scalascript.cli.EmitOpenapiCliTest` (add 2 cases: one
+  that passes --require-declared with Declared types and one that fails with Unknown)
+- `cli / Test / compile`
+
+#### P4c — `ssc check-types` CLI Command
+
+Queue slug: `type-evidence-check-cmd-p4c`.
+
+New CLI command `ssc check-types <file.ssc>` that compiles a module (or reads a
+cached `.scir`) and prints a two-section evidence inventory table:
+
+```
+Route evidence:
+  api endpoints:    3 declared, 0 unknown
+  remote handlers:  1 declared, 1 unknown
+
+Symbol evidence (Any-typed exports):
+  declared:  0
+  inferred:  2
+  unknown:   5
+```
+
+Exit code: `0` when `allDeclared` for routes, `1` otherwise
+(allows `ssc check-types` to gate CI on route type coverage).
+
+The command should:
+- Parse and normalize the `.ssc` file using the standard compiler pipeline
+- Read `ir.Manifest.apiClients` + `remoteHandlers` for route evidence via `RouteEvidenceInventory`
+- Read `ir.NormalizedModule` exported symbols via the existing `AnyEvidenceInventory`
+  (requires an `InterfaceExtractor` pass — can use the existing `extractInterface` path)
+- Print the table to stdout
+- Print "All routes have declared types." / "N routes have unknown types." as a summary line
+
+Verification:
+- `cli / Test / testOnly scalascript.cli.CheckTypesCliTest`
+- `cli / Test / compile`
 
 ## Testing Strategy
 
@@ -284,9 +375,14 @@ shape model.
 
 | File | Role |
 |---|---|
-| `lang/core/src/main/scala/scalascript/typer/Types.scala` | `SType`, likely evidence model home |
-| `lang/core/src/main/scala/scalascript/typer/Typer.scala` | `DefSummary` creation and fallback classification |
-| `lang/core/src/test/scala/scalascript/typer/` | Evidence and typer regression tests |
+| `lang/core/src/main/scala/scalascript/typer/TypeEvidence.scala` | Evidence model, `AnyEvidenceInventory`, `RouteEvidenceInventory` (P4a) |
+| `lang/core/src/main/scala/scalascript/typer/Types.scala` | `SType` |
+| `lang/core/src/main/scala/scalascript/typer/Typer.scala` | `DefSummary` creation |
+| `lang/ir/src/main/scala/scalascript/ir/Ir.scala` | `ApiEndpointTypeEvidenceWire`, `ApiEndpointDecl`, `RemoteHandlerDecl` |
+| `lang/core/src/main/scala/scalascript/transform/Normalize.scala` | Evidence population from AST |
+| `tools/cli/src/main/scala/scalascript/cli/EmitCommands.scala` | OpenAPI emission (P4b) |
+| `tools/cli/src/main/scala/scalascript/cli/CheckTypesCmd.scala` | New check-types command (P4c) |
+| `lang/core/src/test/scala/scalascript/typer/` | Evidence tests |
 | `docs/typer-real-types-roadmap.md` | Parent roadmap |
 | `WORK_QUEUE.md` | Implementation queue |
 | `BACKLOG.md` | Durable milestone plan |

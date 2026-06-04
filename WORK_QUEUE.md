@@ -1171,6 +1171,28 @@ Spec: [`docs/crypto.md`](docs/crypto.md). Work in order: p1 → p2.
   Verification: `core / Test / testOnly scalascript.artifact.InterfaceExtractorTest`
   (37 tests), `core / Test / testOnly scalascript.artifact.ArtifactIOTest`
   (15 tests), `core / Test / compile`.
+- [ ] **type-evidence-schema-p4a** — Route evidence inventory helper in `lang/core`.
+  Add `RouteEvidenceCounts` + `RouteEvidenceInventory.count(manifest)` that reads
+  `ApiEndpointTypeEvidenceWire` from `ApiEndpointDecl.typeEvidence` and
+  `RemoteHandlerDecl.typeEvidence`, counting declared/unknown per category.
+  Missing `typeEvidence` → unknown (backward-compat). Sibling to `AnyEvidenceInventory`
+  from P1. Spec: [`docs/type-evidence-inventory.md §P4a`](docs/type-evidence-inventory.md#p4a--route-evidence-inventory-helper).
+  Verification: `core / Test / testOnly scalascript.typer.RouteEvidenceInventoryTest`,
+  `core / Test / compile`.
+- [ ] **type-evidence-openapi-p4b** — Evidence-aware OpenAPI diagnostics.
+  Add `openApiEvidenceDiagnostics(module)` to `EmitCommands` (returns warnings for
+  Unknown-evidence endpoints); add `--require-declared` flag to `ssc emit-openapi`
+  that exits 1 if any endpoint has Unknown evidence. No schema generation change;
+  warnings go to stderr. Depends on P4a (`RouteEvidenceInventory`).
+  Spec: [`docs/type-evidence-inventory.md §P4b`](docs/type-evidence-inventory.md#p4b--openapi-evidence-diagnostics).
+  Verification: 2 new `EmitOpenapiCliTest` cases, `cli / Test / compile`.
+- [ ] **type-evidence-check-cmd-p4c** — New `ssc check-types <file.ssc>` CLI command.
+  Compiles module, prints evidence inventory table (route endpoints/handlers declared/unknown
+  + symbol Any-evidence counts), exits 1 if any route has Unknown evidence.
+  Depends on P4a. Spec:
+  [`docs/type-evidence-inventory.md §P4c`](docs/type-evidence-inventory.md#p4c--ssc-check-types-cli-command).
+  Verification: `cli / Test / testOnly scalascript.cli.CheckTypesCliTest`,
+  `cli / Test / compile`.
 - [x] **type-evidence-routes-p3** — ✓ Landed 2026-06-04 commit `347fe6f3`.
   Added optional structured request/response evidence to normalized IR
   route/client metadata while keeping legacy `requestType` / `responseType`

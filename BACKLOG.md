@@ -244,6 +244,16 @@ the contracts are explicit.
       defaulted fields, and `InterfaceScope` resolution still uses legacy `tpe`
       for this slice.
       **Spec:** [`docs/type-evidence-inventory.md §P2`](docs/type-evidence-inventory.md#p2---interface-evidence-serialization)
+- [ ] **type-evidence-schema-p4a** - Route evidence inventory helper: `RouteEvidenceCounts`
+      + `RouteEvidenceInventory.count(manifest)` in `lang/core/typer`. Counts
+      declared/unknown endpoints and handlers from `ApiEndpointTypeEvidenceWire`.
+      **Spec:** [`docs/type-evidence-inventory.md §P4a`](docs/type-evidence-inventory.md#p4a--route-evidence-inventory-helper)
+- [ ] **type-evidence-openapi-p4b** - Evidence-aware OpenAPI diagnostics: warnings for
+      Unknown-evidence endpoints + `ssc emit-openapi --require-declared` gate.
+      **Spec:** [`docs/type-evidence-inventory.md §P4b`](docs/type-evidence-inventory.md#p4b--openapi-evidence-diagnostics)
+- [ ] **type-evidence-check-cmd-p4c** - New `ssc check-types <file.ssc>` CLI command:
+      evidence inventory table + exit code gate on unknown route types.
+      **Spec:** [`docs/type-evidence-inventory.md §P4c`](docs/type-evidence-inventory.md#p4c--ssc-check-types-cli-command)
 - [x] **type-evidence-routes-p3** - ✓ Landed 2026-06-04 commit `347fe6f3`.
       Added optional structured request/response evidence to normalized IR
       route/client metadata while keeping legacy `requestType` / `responseType`
