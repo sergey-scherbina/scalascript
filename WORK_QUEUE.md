@@ -298,7 +298,7 @@ then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 | Bench | Javac | ASM | Notes |
 |---|---|---|---|
 | `arithLoop` | 0.256 | 0.277 | parity ✓ |
-| `counterWithTupleVar` | 58.751 | — | **target: interp-opt-tuple-var** (non-hoist TupleV alloc loop; 230× vs arithLoop) |
+| `counterWithTupleVar` | **0.009** | — | ✓ self-assignment hoist (interp-opt-tuple-var); 58.751 → 0.009 ms (6500×, 2026-06-04) |
 | `effectPure` | **0.016** | — | **target: interp-opt-effect-pure** (2.5× gap vs JS 0.006; needs noperform IR flag) |
 | `effectStream` | **0.104** | — | **target: interp-opt-effect-stream** (1.8× JVM gap remains; opt2 got while-emit, runToList not covered) |
 | `instanceFieldAccess` | 0.039 | 0.041 | parity ✓ |
