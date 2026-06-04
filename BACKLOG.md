@@ -2202,54 +2202,25 @@ gated on same-session A/B + full suite green with the gate off AND on.
       Inlined match body into foreach accumulator loop in AsmJitBackend.
       patternMatchHeavy/Set at Javac parity; patternMatchWide improved from 85% to 10% gap.
 
-- [ ] **jvm-effect-types** — JVM backend n/a for all `! Effect` typed workloads.
-      Root cause (confirmed via `ssc compile-jvm`):
-        (1) `[effect-verifier] 'compute' declares effect(s) Logger but reachability found none`
-            — verifier rejects effect-typed defs whose body has no `perform` calls.
-        (2) `Type mismatch: expected () => Any ! Logger, found Int`
-            — JVM codegen wraps `runLogger { body }` expecting a thunk but the
-            CPS-translated body is already a flat value.
-      Fix: relax verifier (pure bodies in effect-typed defs are valid), fix
-      `runLogger`/`runStream` CPS call-site in JVM codegen.
-      **Affected benches:** `effect-pure` JVM (n/a), `effect-stream` JVM (n/a).
+- [x] **jvm-effect-types** — ✓ Landed 2026-06-04.
+      Relaxed effect verifier (pure bodies valid), fixed runLogger/runStream CPS thunk in JVM codegen.
+      effect-pure JVM: 0.005 ms/op; effect-stream JVM: 0.067 ms/op.
 
-- [ ] **js-effect-stream-while** — `effect-stream` JS silent n/a.
-      JS codegen emits a plain while loop for `while … Stream.emit(i)` inside
-      `runStream`, discarding the Computation returned by each emit:
-        `runStream(() => _bind(0, i => (() => { while (...) { _dispatch(Stream,'emit',[i]); i=...; } })()))`
-      The `runStream` handler never intercepts the discarded emits → empty stream.
-      Fix: JS codegen must detect `Stream.emit` inside a `runStream` body and either
-      (a) generate `_bind`-chained emit calls, or (b) use a synchronous side-channel
-      buffer that `_perform` pushes to and `runStream` drains (simpler, consistent
-      with the synchronous `_handle` mechanism already in the JS runtime).
+- [x] **js-effect-stream-while** — ✓ Landed 2026-06-04.
+      Synchronous side-channel buffer (ThreadLocal) drains into runStream result.
+      effect-stream JS: 0.327 ms/iter.
 
-- [ ] **effect-pure-pure-path** — `effect-pure` interp 0.047 ms vs JS 0.006 ms (8×).
-      Workload: `runLogger { while i < 10000 do acc = acc + i; i = i + 1 }`.
-      Body is entirely pure (no `perform` calls), but `compute` is typed `Int ! Logger`
-      so the trampoline runs through FlatMap/Pure on every step regardless.
-      Fix: at the `runLogger` (or any `run*`) entry point, check whether the
-      `Computation` tree returned is free of `Perform` nodes and, if so, extract
-      the result directly via `Pure` unwrapping — bypassing `go()` loop entirely.
-      The purity check can be conservative: a single `Perform` anywhere disables
-      the fast path.  See roadmap entry `v1.61.2`.
-      **Bench target:** `effect-pure` interp ≤0.010 ms.
+- [x] **effect-pure-pure-path** — ✓ Landed 2026-06-04.
+      JIT compilation of while-loop functions for pure effect bodies.
+      effect-pure interp: 0.010 ms/op (from 0.047).
 
-- [ ] **jvm-tuple-monoid-hoist** — `tuple-monoid` JVM 0.137 ms vs interp 0.013 ms (10×
-      slower!).  Workload: `while i < 100000 do last = (1,2)++(3,4)`.  JVM codegen
-      emits three `TupleV`-equivalent allocations per iteration; the interpreter's
-      `jit-tuple-concat-hoist` folds the constant RHS before the loop.  Fix: in
-      JVM code generator's while-loop pass, detect assignments where the RHS is a
-      closed constant expression (no references to loop-bound variables) and lift
-      it to a `val` before the `while`.  Generalises to any pure constant assignment
-      inside a while body, not just tuples.
-      **Bench target:** `tuple-monoid` JVM ≤0.020 ms.
+- [x] **jvm-tuple-monoid-hoist** — ✓ Landed 2026-06-04.
+      Constant-expr hoisting in JvmGen while-loop bodies. 0.137 ms → 0.016 µs (8500×).
+      HotSpot folds 100k-iteration loop when RHS is a closed constant.
 
-- [ ] **hello-world-interp-overhead** — `hello-world` interp 0.014 ms vs JVM 0.002 ms
-      (7×).  Workload: single `println("hello")` call.  Cost is interp dispatch:
-      globals lookup + FunV application + env allocation + NativeFnV call.
-      Profile to confirm; likely fix is a fast path for zero-param unit-result
-      functions that avoids full environment allocation.
-      **Bench target:** `hello-world` interp ≤0.004 ms.
+- [x] **hello-world-interp-overhead** — ✓ Landed 2026-06-04.
+      Fast path for zero-param unit-result NativeFnV avoids full env allocation.
+      hello-world interp: 0.001 ms (target ≤0.004 ms achieved).
 
 - [ ] **js-pattern-match-dispatch** — `pattern-match-heavy` JS 35.9 ms vs interp
       0.647 ms (55×).  Workload: 5-case sealed ADT matched 500k times.
@@ -2259,19 +2230,17 @@ gated on same-session A/B + full suite green with the gate off AND on.
       Investigation first: inspect emitted JS for `area` to confirm the dispatch form.
       **Bench target:** `pattern-match-heavy` JS ≤3 ms (12× improvement).
 
-- [ ] **asm-jit-patternmatch-wide-gap** — Remaining 25% ASM gap on `patternMatchWide`
-      (0.795 vs 0.636 ms Javac, 2026-06-04).  `patternMatchHeavy`/`Set` are at parity
-      or faster in ASM; the wide variant (more ADT arms) still lags.  Likely
-      `tryBuildInlineMatchAccum` misses an arm-count threshold or arm-type condition
-      specific to wide dispatch.
-      Profile: `SSC_JIT_BACKEND=asm scripts/bench profile patternMatchWide`.
-      **Bench target:** ≤0.67 ms (Javac parity ±5%).
+- [x] **asm-jit-patternmatch-wide-gap** — ✓ Landed 2026-06-04.
+      Root cause: emitListForeachAccumInline used isEmpty/head/tail (3 virtual calls/elem).
+      Fix: pre-extract ListV.items to Object[] (listPreExtract=true), use indexed
+      ARRAYLENGTH+ILOAD/AALOAD/IINC loop (emitArrayForeachAccumInline). ASM parity
+      with Javac achieved: patternMatchWide 0.795 → 0.672 ms vs Javac 0.706 ms.
 
-- [ ] **bench-effect-stream-corpus** — `bench.sh` shows `n/a` for `effect-stream`
-      after opt2 (sub-ms workload).  The corpus timing harness likely can't resolve
-      a result that completes in under its measurement window.  Fix: lower the timing
-      floor or increase rep count for fast workloads in `bench/run.sc`.
-      **Target:** `effect-stream` displays ~0.1 ms in `bench.sh`.
+- [x] **bench-effect-stream-corpus** — ✓ Landed 2026-06-04 commit `5d32b341`.
+      Root cause: headless bench has Source.from=null; tryStreamEmitWhileFast returned
+      raw ListV; corpus src.runToList() failed → silent catch → no BENCH_MS → n/a.
+      Fix: return minimal Source.InstanceV(runToList, length) stub when plugin absent.
+      Results: interp 0.124 ms, jvm 0.066 ms, js 0.331 ms.
 
 - [x] **jit-lint-while-coverage** — ✓ Landed 2026-06-04 commit `868deb64`.
       `ssc lint-jit --include-while` now reports JIT coverage for top-level
