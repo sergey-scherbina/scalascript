@@ -378,8 +378,10 @@ controls:
 [contentToolkitNode](std/ui/content.ssc)
 [lower](std/ui/lower.ssc)
 [defaultTheme](std/ui/theme.ssc)
+[serve](std/ui/primitives.ssc)
 
 val page = lower(contentToolkitNode(), defaultTheme)
+serve(page, 8099)
 ```
 
 `contentToolkitNode()` is the toolkit bridge. It reads the current parsed
@@ -390,6 +392,8 @@ of being omitted as generic data. The fence accepts `signals:` (scalar defaults)
 and `controls:` / `control:`. Supported control `type` values are `vstack`,
 `hstack`, `fragment`, `divider`, `heading`, `text`, `rawText`, `signalText`,
 `show`, `textField`, `checkbox`, `button`, `badge`, and `card`.
+Use `serve(page, port)` for direct browser or phone preview; use
+`emit(page, outDir)` when you need static `index.html` + `app.js` artifacts.
 
 The lower-level `View` renderer remains available when exact HTML-like Markdown
 shape is more important than toolkit composition:

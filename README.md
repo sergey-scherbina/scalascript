@@ -393,7 +393,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | [graph-rdf4j-storage.ssc](examples/graph-rdf4j-storage.ssc) | JVM `graphs:` front matter plus generated `Graph.*` and `Sparql.select` facades over RDF4J memory RDF storage |
 | [graph-storage-interpreter.ssc](examples/graph-storage-interpreter.ssc) | Interpreter `Graph.*` facade over in-memory property graph storage |
 | [content.ssc](examples/content.ssc) | `md` interpolator, auto-output, `doc`/`render` |
-| [content-introspection.ssc](examples/content-introspection.ssc) | Markdown-to-frontend authoring: Markdown body content, YAML data, section ids, and real `std/ui` controls declared directly in `yaml @ui=toolkit` |
+| [content-introspection.ssc](examples/content-introspection.ssc) | Markdown-to-frontend authoring: Markdown body content, YAML data, section ids, and real `std/ui` controls declared directly in `yaml @ui=toolkit`; runs as a live `serve(page, 8099)` phone preview |
 | [recursion.ssc](examples/recursion.ssc) | Self-TCO, mutual TCO, Collatz — deep recursion without overflow |
 | [effects.ssc](examples/effects.ssc) | Algebraic effects — Console routing, nondeterminism, early return |
 | [std-effects-demo.ssc](examples/std-effects-demo.ssc) | Logger, Random, Clock, State, Env standard effects |
