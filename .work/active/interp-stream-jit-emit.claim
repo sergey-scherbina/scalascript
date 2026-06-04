@@ -1,5 +1,0 @@
-agent: claude-sonnet-4-6
-branch: feature/interp-stream-jit-emit
-worktree: .worktrees/feature/interp-stream-jit-emit
-goal: interp Stream JIT — WhileLongEmitRunFn (3× effectStream) + JVM no-box (1.5×)
-started: 2026-06-04
