@@ -1,4 +1,0 @@
-feature+type-evidence-inventory-p1 2026-06-04T08:10:50Z
-status: in-progress
-done-so-far: TypeEvidence model, DefSummary evidence population, AnyEvidenceInventory, TypeEvidenceTest; focused core tests pass
-next: rebase on origin/main, resolve conflicts if any, then release claim and mark queue/backlog done
