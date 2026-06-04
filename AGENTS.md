@@ -158,6 +158,21 @@ between sessions. Treat them as load-bearing.
 
 ---
 
+## Workspace and repositories
+
+`REPOS.md` in this repo lists all submodules (agent-plugins).
+Use the `/multi-repo` skill to manage them:
+
+- `/multi-repo status` — state of all submodules
+- `/multi-repo sync` — fetch + pull + `git submodule update --remote --recursive`
+- `/multi-repo clone` — init missing submodules from scratch
+
+Skill location (read in this order):
+1. `.agents/plugins/multi-repo/commands/multi-repo.md` — submodule, always in sync
+2. `~/.claude/commands/multi-repo.md` — globally installed fallback
+
+---
+
 ## What this project is
 
 ScalaScript is a meta-programming / specification language with extension `.ssc` that:
