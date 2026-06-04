@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — feat(types): GraphQL SDL type evidence — P4d-α
+
+- **type-evidence-graphql-p4d-alpha** — GraphQL SDL type evidence in IR.
+  New `GraphQL{Field,Type,Block}EvidenceWire` types in `Ir.scala`; additive
+  `evidence: Option[GraphQLBlockEvidenceWire]` field on `Content.EmbeddedBlock`.
+  `GraphQLSourceLanguage.compileBlock` now retains the `TypeDefinitionRegistry`
+  instead of discarding it and builds evidence: field types classified as
+  `Declared` (SDL built-in scalars + same-block types + `ScopeContext.resolve`)
+  or `Unknown` (unresolved). Invalid SDL → `evidence = None`. 8 new tests in
+  `GraphQLEvidenceTest`. Backward-compatible: legacy `.scir` without `evidence`
+  field still reads. P4d-β (inventory) and P4d-γ (check-types) pending.
+
 ## 2026-06-04 — feat(types): ssc check-types command (P4c)
 
 - **type-evidence-check-cmd-p4c** — New `ssc check-types <file.ssc>` command.

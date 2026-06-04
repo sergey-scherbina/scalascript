@@ -1182,6 +1182,18 @@ Spec: [`docs/crypto.md`](docs/crypto.md). Work in order: p1 → p2.
 - [x] **type-evidence-check-cmd-p4c** — ✓ Landed 2026-06-04 commit `9ea59bef`.
   `ssc check-types <file.ssc>` prints route evidence + Any-symbol inventory table;
   exits 0 if all routes declared, 1 otherwise. 6 `CheckTypesCliTest` + `CommandRegistryTest`.
+- [x] **type-evidence-graphql-p4d-alpha** — ✓ Landed 2026-06-04 commit `1b23a2e9`.
+  `GraphQL{Field,Type,Block}EvidenceWire` in `Ir.scala`; additive `evidence: Option[...]`
+  on `Content.EmbeddedBlock`; `GraphQLSourceLanguage.compileBlock` builds evidence from
+  SDL `TypeDefinitionRegistry` (Declared = SDL scalars + same-block + ScopeContext;
+  Unknown = unresolved). 8 `GraphQLEvidenceTest` + 17 `ArtifactIOTest` green.
+  Spec: [`docs/type-evidence-inventory.md §P4d-α`](docs/type-evidence-inventory.md).
+- [ ] **type-evidence-graphql-p4d-beta** — `GraphQLEvidenceInventory.count(manifest)` in
+  `TypeEvidence.scala`. Tallies types/fields across `graphql` blocks in module sections.
+  Spec: [`docs/type-evidence-inventory.md §P4d-β`](docs/type-evidence-inventory.md).
+- [ ] **type-evidence-graphql-p4d-gamma** — `ssc check-types` GraphQL third section.
+  Exit-code gates on `routeCounts.allDeclared && graphqlCounts.allDeclared`.
+  Spec: [`docs/type-evidence-inventory.md §P4d-γ`](docs/type-evidence-inventory.md).
 - [x] **type-evidence-routes-p3** — ✓ Landed 2026-06-04 commit `347fe6f3`.
   Added optional structured request/response evidence to normalized IR
   route/client metadata while keeping legacy `requestType` / `responseType`

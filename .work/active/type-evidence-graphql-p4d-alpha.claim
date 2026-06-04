@@ -1,4 +1,0 @@
-feature/type-evidence-graphql-p4d-alpha 2026-06-04T11:02:18Z
-status: not-started
-done-so-far:
-next: add GraphQL{Field,Type,Block}EvidenceWire to Ir.scala + evidence field on EmbeddedBlock
