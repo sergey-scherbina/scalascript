@@ -1072,6 +1072,24 @@ highest-impact item.
       `tryBuildInlineMatchAccum` with `targetVar`. 0.690 → 0.043 ms (16×).
       `patternMatchHeavy` also benefits: 0.349 → 0.135 ms (2.6×).
 
+- [x] **interp-opt-lapply-effect** — ✓ Landed 2026-06-04.
+      **Part A**: `LApplyEffect` + `LApplyEffectNative` nodes in `tryMixedLongWhile`
+      (EvalRuntime.scala). Pre-compile 0-arg leading applies once per loop entry,
+      eliminating per-iter HashMap probe + FunV dispatch + callValue0Slow predicate
+      + Computation boxing. `compileLeadingEffect` matches `f()` applies where `f`
+      is a known FunV or NativeFnV not reassigned in the loop body.
+      **Part B**: Two-phase warmup in `BenchCmd.generateWrapper` (Main.scala).
+      After the existing nanoTime-based warmup, emit a shape-correct nested counter
+      loop (`while _ssc_iw < 50 do { workload(); _ssc_iw += 1 }`) bounded by 1/6
+      of total warmup budget. Gives JVM C2 enough back-edges (165K for cheap workloads)
+      to method-compile `tryMixedLongWhile` before the timed loop runs. Also fixed
+      `bench/run.sc` default warmup from 1000ms to 3000ms (completing commit 6849e34b).
+      **Results** (--reps 20, 3s warmup):
+        hello-world interp: 0.009 → 0.006–0.007 ms (~30% improvement)
+        recursionTco:       0.042 → 0.029–0.034 ms
+        No regressions on other benchmarks.
+      Commits: `4c78f080` (Part A), `d75d5f21` (Part B).
+
 - [x] **interp-opt-init-builtins-cache** — ✓ Landed 2026-06-04.
       Cold interpreter startup/allocation floor reduced by lazily initializing
       unused interpreter/actor/cluster state and replacing `scala.sys.env` in

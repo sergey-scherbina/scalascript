@@ -1,4 +1,0 @@
-feature+interp-opt-lapply-effect 2026-06-04T11:02:10Z
-status: not-started
-done-so-far:
-next: Add LApplyEffect node in tryMixedLongWhile + bench warmup shape parity
