@@ -74,12 +74,6 @@ object JitBailReason:
       "and the result would be misrepresented as Int 0/1 rather than BoolV"
     val suggestedFix = Some("wrap the comparison in an explicit `if`: " +
       "`def pred(x: Int): Boolean = x > 0` → `def pred(x: Int): Int = if x > 0 then 1 else 0`")
-  /** No parameters — the JIT requires at least one typed parameter to build
-   *  a fixed-arity static method signature. */
-  case object ZeroParams extends JitBailReason:
-    val description = "function has zero parameters; the JIT requires at least " +
-      "one Int/Long/Double/ADT parameter to generate a fixed-arity static method"
-    val suggestedFix = None
   /** More than two parameters — the JIT supports 1- and 2-parameter functions
    *  (covering both the single-param and mixed Long+ref/Long+Long pairs).
    *  3+ param functions always fall back to SscVm.exec. */
@@ -268,8 +262,7 @@ private[jit] object JitPredicates:
    *  Returns Nil when no obvious cliff is found — caller reports UnknownShape. */
   def classifyBailReasons(fn: Value.FunV): List[JitBailReason] =
     val buf = scala.collection.mutable.ListBuffer.empty[JitBailReason]
-    if fn.params.isEmpty then buf += JitBailReason.ZeroParams
-    else if fn.params.length > 2 then buf += JitBailReason.TooManyParams(fn.params.length)
+    if fn.params.length > 2 then buf += JitBailReason.TooManyParams(fn.params.length)
     if fn.usingParams.nonEmpty then buf += JitBailReason.UsingParams
     if fn.paramTypes.exists(_.endsWith("*")) then buf += JitBailReason.VarargParam
     if fn.returnsThrows then buf += JitBailReason.EffectReturn

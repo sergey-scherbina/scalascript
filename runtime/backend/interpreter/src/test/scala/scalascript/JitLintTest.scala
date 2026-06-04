@@ -106,13 +106,13 @@ class JitLintTest extends AnyFunSuite with Matchers:
     r.willJit shouldBe false
     r.bailReasons should contain (JitBailReason.BoolBody)
 
-  test("zero-param function reports ZeroParams"):
+  test("zero-param function with a constant body now JITs"):
     val r = lintFor(
       """def f(): Int = 42
         |f()""".stripMargin
     ).forDef("f")
-    r.willJit shouldBe false
-    r.bailReasons should contain (JitBailReason.ZeroParams)
+    r.willJit shouldBe true
+    r.bailReasons shouldBe empty
 
   test("three-param function reports TooManyParams"):
     val r = lintFor(
@@ -144,7 +144,7 @@ class JitLintTest extends AnyFunSuite with Matchers:
     r.forDef("withTry").bailReasons should contain (JitBailReason.TryCatch)
     r.forDef("withVararg").bailReasons should contain (JitBailReason.VarargParam)
     r.forDef("withBool").bailReasons should contain (JitBailReason.BoolBody)
-    r.forDef("withZero").bailReasons should contain (JitBailReason.ZeroParams)
+    r.forDef("withZero").willJit shouldBe true
     r.forDef("withThree").bailReasons should contain (JitBailReason.TooManyParams(3))
 
   // ── recursive ADT eval ─────────────────────────────────────────────
@@ -335,10 +335,10 @@ class JitLintTest extends AnyFunSuite with Matchers:
     r.willJit shouldBe true
     r.bailReasons shouldBe empty
 
-  test("lintFun with AsmJitBackend — ZeroParams still reported"):
+  test("lintFun with AsmJitBackend — zero-param constant body JITs"):
     val r = lintForAsm("def f(): Int = 42\nf()").forDef("f")
-    r.willJit shouldBe false
-    r.bailReasons should contain (JitBailReason.ZeroParams)
+    r.willJit shouldBe true
+    r.bailReasons shouldBe empty
 
   test("lintFun with AsmJitBackend — TryCatch still reported"):
     val r = lintForAsm(
@@ -372,11 +372,11 @@ class JitLintTest extends AnyFunSuite with Matchers:
     r.asmOnlyFails shouldBe false
     r.javacOnlyFails shouldBe false
 
-  test("lintInterpreterCompare — ZeroParams shows BOTH FAIL with same reason"):
+  test("lintInterpreterCompare — zero-param constant body shows BOTH OK"):
     val r = lintCompareFor("def f(): Int = 42\nf()").forDef("f")
-    r.bothFail shouldBe true
-    r.javac.bailReasons should contain (JitBailReason.ZeroParams)
-    r.asm.bailReasons   should contain (JitBailReason.ZeroParams)
+    r.bothJit shouldBe true
+    r.asmOnlyFails shouldBe false
+    r.javacOnlyFails shouldBe false
 
   test("lintInterpreterCompare — TooManyParams shows BOTH FAIL"):
     val r = lintCompareFor("def f(a: Int, b: Int, c: Int): Int = a+b+c\nf(1,2,3)").forDef("f")
