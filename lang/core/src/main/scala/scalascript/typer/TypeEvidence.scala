@@ -142,3 +142,49 @@ object RouteEvidenceInventory:
       case None => false
       case Some(ev) =>
         ev.request.exists(wireIsDeclared) && ev.response.exists(wireIsDeclared)
+
+/** Counts declared / unknown evidence for GraphQL types and fields across all
+ *  `graphql` fenced blocks in a compiled module's sections.  A block with
+ *  missing `evidence` (legacy artifact) counts as 1 unknown type (backward-compat). */
+case class GraphQLEvidenceCounts(
+    typesDeclared:  Int = 0,
+    typesUnknown:   Int = 0,
+    fieldsDeclared: Int = 0,
+    fieldsUnknown:  Int = 0
+):
+  def allDeclared: Boolean = typesUnknown == 0 && fieldsUnknown == 0
+  def totalTypes:  Int     = typesDeclared + typesUnknown
+  def totalFields: Int     = fieldsDeclared + fieldsUnknown
+
+object GraphQLEvidenceInventory:
+  def count(module: ir.NormalizedModule): GraphQLEvidenceCounts =
+    val objectKinds = Set("Object", "Interface", "Input")
+    module.sections.foldLeft(GraphQLEvidenceCounts()) { (acc, section) =>
+      sectionCounts(section, objectKinds, acc)
+    }
+
+  private def sectionCounts(
+    section: ir.Section,
+    objectKinds: Set[String],
+    acc: GraphQLEvidenceCounts
+  ): GraphQLEvidenceCounts =
+    val afterContent = section.content.foldLeft(acc) { (c, block) =>
+      block match
+        case ir.Content.EmbeddedBlock("graphql", _, _, Some(ev)) =>
+          ev.types.foldLeft(c) { (cc, t) =>
+            if objectKinds.contains(t.kind) then
+              val fd = t.fields.count(_.kind == "Declared")
+              val fu = t.fields.count(_.kind != "Declared")
+              cc.copy(
+                typesDeclared  = cc.typesDeclared  + (if t.fields.isEmpty || fd == t.fields.size then 1 else 0),
+                typesUnknown   = cc.typesUnknown   + (if t.fields.nonEmpty && fd < t.fields.size  then 1 else 0),
+                fieldsDeclared = cc.fieldsDeclared + fd,
+                fieldsUnknown  = cc.fieldsUnknown  + fu
+              )
+            else cc  // Union/Enum/Scalar — not counted as evidence-bearing types
+          }
+        case ir.Content.EmbeddedBlock("graphql", _, _, None) =>
+          c.copy(typesUnknown = c.typesUnknown + 1)
+        case _ => c
+    }
+    section.subsections.foldLeft(afterContent) { (c, sub) => sectionCounts(sub, objectKinds, c) }
