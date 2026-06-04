@@ -59,6 +59,30 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       **Prerequisite:** `docs/direct-style-eval-spec.md` (done).
       **Spec:** [`docs/interp-opt-recursive-eval.md`](docs/interp-opt-recursive-eval.md)
 
+- [ ] **interp-opt-init-builtins-cache** — `effectPure` interp floor at 0.010 ms vs JS 0.006 ms.
+      **Root cause:** Every `new Interpreter()` re-creates ~260 `NativeFnV` globals
+      via `BuiltinsRuntime.initBuiltins` + `installNativeIntrinsics`. JFR shows
+      Interpreter + ConcurrentHashMap dominate the alloc profile: 32 KB/op, gc.time
+      = 5% of measurement time. The ~5 µs init cost sets the floor regardless of how
+      fast the computation inside runs.
+      **Approach** (three layers):
+        1. **Lazy CHMs** — convert 6 `ConcurrentHashMap` `val` fields to `lazy val`
+           (coHandles, nativeFeatureState, nativeFeatureLocalState, _cacheStore,
+           parallelFutures, remoteHandlerRegistry). Programs that don't use coroutines/
+           HTTP/Cache/parallel pay zero cost. ~0.3–0.5 µs saving.
+        2. **Shared immutable builtins layer** — classify all 260 globals as pure (no
+           Interpreter capture) vs interp-specific. Move ~60–80 pure entries (math,
+           type constructors, pure collection ops, effect Perform wrappers) to a static
+           `baseGlobals: Map[String, Value]` in the `BuiltinsRuntime` companion, built
+           once at JVM startup. Introduce a `TwoLayerGlobals` wrapper in `Interpreter`
+           that checks the per-Interpreter mutable map first, then falls back to
+           `baseGlobals`. ~1–2 µs saving.
+        3. **Shared NativeContext lambdas** (optional) — pass `NativeContext` via thread-
+           local instead of capturing per lambda; makes CoreIntrinsics wrappers static.
+      **Target:** effectPure interp ≤ 0.008 ms (L1+L2), ≤ 0.007 ms (L1+L2+L3).
+      **Complexity:** Medium–High. TwoLayerGlobals must cover all globals access patterns.
+      **Spec:** [`docs/interp-opt-init-builtins-cache.md`](docs/interp-opt-init-builtins-cache.md)
+
 - [ ] **interp-opt-pattern-match-wide** — `patternMatchWide` 0.647 ms
       (12-arm sealed-trait match, 50K outer iters × 12 items = 600K `eval(o)`
       calls; ~1.08 ns/call — INVOKESTATIC floor).
