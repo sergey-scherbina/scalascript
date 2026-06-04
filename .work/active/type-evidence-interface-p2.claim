@@ -1,0 +1,4 @@
+feature+type-evidence-interface-p2 2026-06-04T08:20:24Z
+status: not-started
+done-so-far:
+next: inspect ModuleInterface/ExportedSymbol wire model and add additive evidence field + tests
