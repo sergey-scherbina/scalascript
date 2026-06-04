@@ -84,6 +84,21 @@ implementation notes.
       `lang/core-bench/scalascript.bench.*/`) so local benchmark runs do not
       leave shared `main` visibly dirty. ✓ Landed 2026-05-30.
 
+## UUID Library — v1.65
+
+UUID generation and parsing for all backends. Primary goal: UUID v7 (time-ordered)
+for database primary keys and event IDs. Spec: [`docs/uuid.md`](docs/uuid.md).
+
+- [ ] **uuid-p1** — Core JVM: `uuid.ssc` module (`Uuid` type, `v4()`, `v7()`, `nil`, `max`,
+      `.asString`), `uuid-plugin` with JVM intrinsics, `build.sbt` wiring, `UuidPluginTest`
+      (format + ordering), `examples/uuid-v7.ssc`.
+- [ ] **uuid-p2** — Parse + validate: `Uuid.fromString(s): Option[Uuid]` and
+      `Uuid.isValid(s): Boolean` + intrinsics + tests.
+- [ ] **uuid-p3** — JS backend: `uuidV4` → `crypto.randomUUID()`, `uuidV7` custom
+      + `uuidFromString`/`uuidIsValid`; cross-backend conformance test.
+- [ ] **uuid-p4** (optional) — JVM monotonic v7 counter (`rand_a` counter within same
+      millisecond, `Uuid.v7Monotonic()` explicit opt-in).
+
 ## Quality / Contracts / Type System
 
 These items come from the 2026-05-30 project-state review. They are intentionally
@@ -6925,41 +6940,16 @@ Effort: ~3 days (notarize flow + DMG + fastlane Mac lanes + toolchain setup-sign
 
 ## v1.66 — SwiftUI typed JSON models (`@model` + `FetchJsonSignal`)
 
-**Status:** Pending.
+**Status:** ✓ Complete (2026-06-04).
 **Spec:** [`docs/swiftui-typed-models.md`](docs/swiftui-typed-models.md)
 **Depends on:** v1.65 ✓
 
-`FetchUrlSignal` stores raw JSON as `String`.  For structured accounting data
-(nested sections, line arrays, money formatting) this is not renderable.  The
-`busi` accounting app (Phase 20) had to hand-write all SwiftUI views in Swift.
-
-This milestone adds `@model case class` → `Decodable` structs, a
-`FetchJsonSignal[T]` that decodes into `T?` via `JSONDecoder`, and three new
-View IR nodes (`ModelView` / `ForModel` / `ModelText`) for typed template
-rendering — all without changing the interpreter or any non-SwiftUI backend.
-
 ### Phases
 
-- [ ] **v1.66.1-swiftui-model-structs** — Parse `@model case class` into
-  `Module.models: List[ModelDef]`; emit `struct X: Decodable` (+ `Identifiable`
-  when `id`/`code`/`seq`/`docId` field present); add `FetchJsonSignal[T]` that
-  emits `@State var name: T? = nil` + `JSONDecoder` load func + companion
-  `_loading`/`_loaded`/`_error` vars; `balance.isLoaded` / `balance.isLoading`
-  `ShowSignal` guards.  **10 unit tests** in `SwiftUIEmitterTest`.
-  _Effort: ~2 days._
-
-- [ ] **v1.66.2-swiftui-model-view-nodes** — Add `View.ModelView` /
-  `View.ForModel` / `View.ModelText` to `Primitives.scala`; emit
-  `if let binding = signal { ... }`, `ForEach(binding.path) { item in ... }`,
-  `Text(var.path)` respectively; `inferIdentifiableKey` from model registry;
-  style modifier support on `ModelText`.  **12 unit tests** in
-  `SwiftUIEmitterTest`.  _Effort: ~2 days._
-
-- [ ] **v1.66.3-swiftui-busi-dashboard** — Add
-  `examples/frontend/busi-dashboard/busi-dashboard.ssc` with BalanceSheet +
-  TrialBalance + AuditLog models, three-tab layout, all new nodes;
-  `ssc build --target mobile-ios` exits 0; `SwiftUIModelSmokeTest`
-  (`swiftc -parse` gate, 8 tests).  _Effort: ~1 day._
+- [x] **v1.66.1-swiftui-model-structs** — ✓ Done. `@model case class` → `Decodable` structs + `FetchJsonSignal[T]`.
+- [x] **v1.66.2-swiftui-model-view-nodes** — ✓ Done. `ModelView`/`ForModel`/`ModelText` IR nodes + SwiftUI emission.
+- [x] **v1.66.3-swiftui-busi-dashboard** — ✓ Done. `busi-dashboard.ssc` + `SwiftUIModelSmokeTest`.
+- [x] **v1.66.4–v1.66.9** — ✓ Done. Solid/Electron/Custom/Swing/JavaFX/Busi typed models; 117 tests pass.
 
 ### Out of scope
 
