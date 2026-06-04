@@ -93,6 +93,9 @@ object AsmJitBackend extends JitBackend:
       mutable.HashSet.empty
     val emitted:      mutable.HashSet[String] =
       mutable.HashSet.empty
+    // Siblings co-emitted as `static String f(...)` (String-returning).
+    val stringReturning: mutable.HashSet[String] =
+      mutable.HashSet.empty
 
   private def classifyParamRefs(f: Value.FunV): Array[Boolean] =
     val paramIsRef = new Array[Boolean](f.params.length)
@@ -650,6 +653,14 @@ object AsmJitBackend extends JitBackend:
 
     def isParam(n: String): Boolean = params.contains(n) || bindings.contains(n)
 
+    /** True iff `n` is a `String`-typed param (used by `walkString`). Pattern
+     *  bindings are never String-typed in the current lane. */
+    def isStringName(n: String): Boolean =
+      !bindings.contains(n) && {
+        val i = paramNames.indexOf(n)
+        i >= 0 && i < paramTypes.length && paramTypes(i) == "String"
+      }
+
     def withBindings(more: Map[String, (Int, Boolean)]): GenCtx = copy(bindings = bindings ++ more)
 
   // ── walkLong ─────────────────────────────────────────────────────────────
@@ -700,6 +711,13 @@ object AsmJitBackend extends JitBackend:
       }
     case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
       emitRefFieldNumeric(objName, field, ctx, mv, wantDouble = false)
+    // `<stringExpr>.length` → push the String, INVOKEVIRTUAL length()I, widen to long.
+    case Term.Select(recv, Term.Name("length")) =>
+      if !walkString(recv, ctx, mv) then false
+      else
+        mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "length", "()I", false)
+        mv.visitInsn(I2L)
+        true
     case ap: Term.Apply =>
       ap.fun match
         case fn: Term.Name =>
@@ -903,6 +921,172 @@ object AsmJitBackend extends JitBackend:
     mv.visitMethodInsn(INVOKESTATIC, ctx.selfClass, sig.methodName,
       buildStaticDesc(sig.paramIsRef, sig.isDouble), false)
     true
+
+  // ── walkString ────────────────────────────────────────────────────────────
+
+  /** String-typed parallel of walkLong: leaves a `java/lang/String` ref on the
+   *  stack. Supports literals, `+` concat (numeric operands coerced), String
+   *  params, and calls to String-returning siblings. Returns false (caller
+   *  bails) for any other shape. */
+  private def walkString(t: Term, ctx: GenCtx, mv: MethodVisitor): Boolean = t match
+    case Lit.String(v) => mv.visitLdcInsn(v); true
+    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+      b.stats.head match
+        case inner: Term => walkString(inner, ctx, mv)
+        case _           => false
+    case tn: Term.Name if ctx.isStringName(tn.value) =>
+      val s = ctx.slotOf(tn.value); if s < 0 then false else { mv.visitVarInsn(ALOAD, s); true }
+    case ApplyInfixPlus(lhs, rhs) if isStringExpr(lhs, ctx) || isStringExpr(rhs, ctx) =>
+      mv.visitTypeInsn(NEW, "java/lang/StringBuilder")
+      mv.visitInsn(DUP)
+      mv.visitMethodInsn(INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false)
+      if !emitStringAppend(t, ctx, mv) then false
+      else
+        mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "toString", "()Ljava/lang/String;", false)
+        true
+    case ap: Term.Apply =>
+      ap.fun match
+        case fn: Term.Name => emitStringCall(fn.value, ap.argClause.values, ctx, mv)
+        case _             => false
+    case _ => false
+
+  /** Pure predicate: does `t` denote a String expression? Used to pick the
+   *  StringBuilder.append overload. For calls this may co-emit the sibling
+   *  (idempotent) to learn its return type. */
+  private def isStringExpr(t: Term, ctx: GenCtx): Boolean = t match
+    case _: Lit.String => true
+    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+      b.stats.head match { case inner: Term => isStringExpr(inner, ctx); case _ => false }
+    case ApplyInfixPlus(lhs, rhs) => isStringExpr(lhs, ctx) || isStringExpr(rhs, ctx)
+    case tn: Term.Name => ctx.isStringName(tn.value)
+    case ap: Term.Apply =>
+      ap.fun match
+        case fn: Term.Name => ensureCoEmittedString(fn.value, ctx) != null
+        case _             => false
+    case _ => false
+
+  /** Append `t` to the StringBuilder already on the stack, leaving the
+   *  StringBuilder. A `+` chain is flattened into successive appends; leaves
+   *  are appended via the String or long overload per `isStringExpr`. */
+  private def emitStringAppend(t: Term, ctx: GenCtx, mv: MethodVisitor): Boolean = t match
+    case ApplyInfixPlus(lhs, rhs) if isStringExpr(lhs, ctx) || isStringExpr(rhs, ctx) =>
+      emitStringAppend(lhs, ctx, mv) && emitStringAppend(rhs, ctx, mv)
+    case _ =>
+      if isStringExpr(t, ctx) then
+        if !walkString(t, ctx, mv) then false
+        else
+          mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append",
+            "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false)
+          true
+      else
+        if !walkLong(t, ctx, mv) then false
+        else
+          mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append",
+            "(J)Ljava/lang/StringBuilder;", false)
+          true
+
+  /** Descriptor for a String-returning static method (params are long/ref). */
+  private def buildStringDesc(paramIsRef: Array[Boolean]): String =
+    val sb = new StringBuilder("(")
+    for r <- paramIsRef do
+      if r then sb.append("Ljava/lang/Object;") else sb.append("J")
+    sb.append(")Ljava/lang/String;")
+    sb.toString
+
+  private def emitStaticStringFunction(
+    cw:        ClassWriter,
+    cname:     String,
+    f:         Value.FunV,
+    sig:       MethodSig,
+    parentCtx: GenCtx
+  ): Boolean =
+    val paramSlots = new Array[Int](sig.paramNames.length)
+    var nextSlot0  = 0
+    var i = 0
+    while i < sig.paramNames.length do
+      paramSlots(i) = nextSlot0; nextSlot0 += 2; i += 1
+    var nextLocal = nextSlot0
+    val fnCtx = GenCtx(
+      funName          = f.name,
+      staticMethodName = sig.methodName,
+      params           = f.params.toSet,
+      paramNames       = sig.paramNames,
+      paramSlots       = paramSlots,
+      paramIsRef       = sig.paramIsRef,
+      isDouble         = false,
+      bindings         = Map.empty,
+      interp           = parentCtx.interp,
+      coEmit           = parentCtx.coEmit,
+      selfClass        = cname,
+      allocSlot        = () => { val s = nextLocal; nextLocal += 2; s },
+      paramTypes       = f.paramTypes.toArray
+    )
+    val mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, sig.methodName,
+      buildStringDesc(sig.paramIsRef), null, null)
+    mv.visitCode()
+    if !walkString(f.body.asInstanceOf[Term], fnCtx, mv) then return false
+    mv.visitInsn(ARETURN)
+    try mv.visitMaxs(0, 0) catch case _: Throwable => return false
+    mv.visitEnd()
+    true
+
+  private def ensureCoEmittedString(fnName: String, ctx: GenCtx): MethodSig | Null =
+    if ctx.coEmit.stringReturning.contains(fnName) then
+      return ctx.coEmit.signatures.getOrElse(fnName, null)
+    if ctx.coEmit.emitted.contains(fnName) || ctx.coEmit.emitting.contains(fnName) then
+      return null
+    val fnV = ctx.interp.globals.getOrElse(fnName, null)
+    if !fnV.isInstanceOf[Value.FunV] then return null
+    val fn = fnV.asInstanceOf[Value.FunV]
+    if !jitCompatibleSibling(fn) then return null
+    if bodyHasDoubleLit(fn.body) then return null
+    val sig = MethodSig(staticMethodName(fn.name), fn.params.toArray, classifyParamRefs(fn), isDouble = false)
+    ctx.coEmit.signatures.put(fnName, sig)
+    ctx.coEmit.emitting.add(fnName)
+    val scratch = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
+      override def getCommonSuperClass(t1: String, t2: String): String = "java/lang/Object"
+    }
+    scratch.visit(V21, ACC_PUBLIC | ACC_FINAL,
+      s"scalascript/interpreter/vm/jit/asm/AsmJitScratch$$${classCounter.incrementAndGet()}",
+      null, "java/lang/Object", Array.empty)
+    val ok =
+      try
+        val bodyOk = emitStaticStringFunction(scratch, ctx.selfClass, fn, sig, ctx)
+        scratch.visitEnd()
+        if bodyOk then scratch.toByteArray; bodyOk
+      catch case _: Throwable => false
+    ctx.coEmit.emitting.remove(fnName)
+    if !ok then
+      ctx.coEmit.signatures.remove(fnName)
+      return null
+    ctx.coEmit.extraMethods.put(fnName, (cw: ClassWriter) => emitStaticStringFunction(cw, ctx.selfClass, fn, sig, ctx))
+    ctx.coEmit.emitted.add(fnName)
+    ctx.coEmit.stringReturning.add(fnName)
+    sig
+
+  private def emitStringCall(fnName: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
+    val sig = ensureCoEmittedString(fnName, ctx)
+    if sig == null || args.length != sig.paramNames.length then return false
+    var i = 0
+    var rem = args
+    while rem.nonEmpty do
+      val ok = if sig.paramIsRef(i) then walkRef(rem.head, ctx, mv)
+               else walkLong(rem.head, ctx, mv)
+      if !ok then return false
+      i += 1
+      rem = rem.tail
+    mv.visitMethodInsn(INVOKESTATIC, ctx.selfClass, sig.methodName,
+      buildStringDesc(sig.paramIsRef), false)
+    true
+
+  /** Extractor for a binary `+` ApplyInfix (single arg), shared by walkString /
+   *  isStringExpr / emitStringAppend. */
+  private object ApplyInfixPlus:
+    def unapply(t: Term): Option[(Term, Term)] = t match
+      case Term.ApplyInfix.After_4_6_0(lhs, op, _, ac)
+          if op.value == "+" && ac.values.lengthCompare(1) == 0 =>
+        Some((lhs, ac.values.head))
+      case _ => None
 
   private def callParamIsRef(fnName: String, argIdx: Int, ctx: GenCtx): Boolean =
     val sig =

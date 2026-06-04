@@ -276,6 +276,11 @@ object JavacJitBackend extends JitBackend:
       scala.collection.mutable.HashSet.empty
     val emitted:      scala.collection.mutable.HashSet[String] =
       scala.collection.mutable.HashSet.empty
+    // Siblings co-emitted as `static String f(...)` (String-returning). Kept
+    // separate from `emitted` so the call-arg typing knows to route through
+    // `walkString`, not `walkLong`.
+    val stringReturning: scala.collection.mutable.HashSet[String] =
+      scala.collection.mutable.HashSet.empty
 
   // Per-param ref/int classification. A param is ref when it is the scrutinee
   // of a `Term.Match` body (top-level or nested expression form). A param read
@@ -394,6 +399,90 @@ object JavacJitBackend extends JitBackend:
       rem = rem.tail
     sb.append(')').toString
 
+  /** Emit a Java `String`-typed expression. Supports string literals, `+`
+   *  concatenation (with a numeric operand auto-coerced via `walkLong`),
+   *  `String`-typed param reads, and calls to String-returning siblings.
+   *  Returns null (caller bails) for any other shape. */
+  private def walkString(t: Term, ctx: GenCtx): String | Null = t match
+    case Lit.String(v) => "\"" + escape(v) + "\""
+    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+      b.stats.head match
+        case inner: Term => walkString(inner, ctx)
+        case _           => null
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+        if op.value == "+" && argClause.values.lengthCompare(1) == 0 =>
+      val rhsT = argClause.values.head
+      val lS = walkString(lhs, ctx)
+      val rS = walkString(rhsT, ctx)
+      // Java `+` is String concat only if at least one operand is a String.
+      if lS == null && rS == null then return null
+      val lStr = if lS != null then lS else walkLong(lhs, ctx)
+      val rStr = if rS != null then rS else walkLong(rhsT, ctx)
+      if lStr == null || rStr == null then return null
+      s"($lStr + $rStr)"
+    case tn: Term.Name =>
+      if ctx.isStringName(tn.value) then ctx.resolveLocal(tn.value) else null
+    case ap: Term.Apply =>
+      ap.fun match
+        case fn: Term.Name => emitStringCall(fn.value, ap.argClause.values, ctx)
+        case _             => null
+    case _ => null
+
+  /** Co-emit a String-returning sibling `f` as a `static String f(...)` helper.
+   *  Mirrors `ensureCoEmittedLong` but walks the body via `walkString`. Returns
+   *  the sibling's `MethodSig` on success (params still long/ref), or null. */
+  private def ensureCoEmittedString(fnName: String, ctx: GenCtx): MethodSig | Null =
+    if ctx.coEmit.stringReturning.contains(fnName) then
+      return ctx.coEmit.signatures.getOrElse(fnName, null)
+    if ctx.coEmit.emitted.contains(fnName) || ctx.coEmit.emitting.contains(fnName) then
+      return null
+    val fnV = ctx.interp.globals.getOrElse(fnName, null)
+    if !fnV.isInstanceOf[Value.FunV] then return null
+    val fn = fnV.asInstanceOf[Value.FunV]
+    if !jitCompatibleSibling(fn) then return null
+    val paramIsRef = classifyParamRefs(fn)
+    if bodyHasDoubleLit(fn.body) then return null
+    val sig = MethodSig(fn.params.toArray, paramIsRef, isDouble = false)
+    ctx.coEmit.signatures.put(fnName, sig)
+    ctx.coEmit.emitting.add(fnName)
+    val fnCtx = new GenCtx(fn.name, fn.params.toSet, sig.paramNames, sig.paramIsRef,
+      isDouble = false, Map.empty, ctx.interp, ctx.coEmit, fn.paramTypes.toArray)
+    val bodyStr = walkString(fn.body.asInstanceOf[Term], fnCtx)
+    ctx.coEmit.emitting.remove(fnName)
+    if bodyStr == null then
+      ctx.coEmit.signatures.remove(fnName)
+      return null
+    val params = fn.params.zipWithIndex.map { case (p, i) =>
+      if sig.paramIsRef(i) then s"Object ${sanitize(p)}" else s"long ${sanitize(p)}"
+    }.mkString(", ")
+    val methodSrc =
+      s"""  public static String ${sanitize(fn.name)}($params) {
+         |    return $bodyStr;
+         |  }
+         |""".stripMargin
+    ctx.coEmit.extraMethods.put(fnName, methodSrc)
+    ctx.coEmit.emitted.add(fnName)
+    ctx.coEmit.stringReturning.add(fnName)
+    sig
+
+  private def emitStringCall(fnName: String, args: List[Term], ctx: GenCtx): String | Null =
+    val sig = ensureCoEmittedString(fnName, ctx)
+    if sig == null || args.length != sig.paramNames.length then return null
+    val sb = new StringBuilder
+    sb.append(sanitize(fnName)).append('(')
+    var i = 0
+    var rem = args
+    while rem.nonEmpty do
+      if i > 0 then sb.append(", ")
+      val argStr =
+        if sig.paramIsRef(i) then walkRef(rem.head, ctx)
+        else walkLong(rem.head, ctx)
+      if argStr == null then return null
+      sb.append(argStr)
+      i += 1
+      rem = rem.tail
+    sb.append(')').toString
+
   private def callParamIsRef(fnName: String, argIdx: Int, ctx: GenCtx): Boolean =
     val sig =
       if fnName == ctx.funName then MethodSig(ctx.paramNames, ctx.paramIsRef, ctx.isDouble)
@@ -428,6 +517,13 @@ object JavacJitBackend extends JitBackend:
         case None =>
           val idx = paramNames.indexOf(n)
           idx >= 0 && paramIsRef(idx)
+    /** True iff `n` is a `String`-typed param (used by `walkString`). Pattern
+     *  bindings are never String-typed in the current lane. */
+    def isStringName(n: String): Boolean =
+      !bindings.contains(n) && {
+        val idx = paramNames.indexOf(n)
+        idx >= 0 && idx < paramTypes.length && paramTypes(idx) == "String"
+      }
     def resolveLocal(n: String): String | Null =
       bindings.get(n) match
         case Some((jvar, _)) => jvar
@@ -498,6 +594,11 @@ object JavacJitBackend extends JitBackend:
         case _ => null
     case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
       emitRefFieldNumeric(objName, field, ctx, wantDouble = false)
+    // `<stringExpr>.length` → Java `(long)(<str>).length()`. Lets a numeric body
+    // consume the length of a JIT-compiled String expression (e.g. `label(i).length`).
+    case Term.Select(recv, Term.Name("length")) =>
+      val s = walkString(recv, ctx)
+      if s == null then null else s"((long)($s).length())"
     case ap: Term.Apply =>
       ap.fun match
         case fn: Term.Name => emitLongCall(fn.value, ap.argClause.values, ctx)
