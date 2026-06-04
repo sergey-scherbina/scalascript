@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — docs(example): Markdown toolkit demo controls
+
+- **markdown-toolkit-demo-controls** — Updated
+  `examples/content-introspection.ssc` so the phone/demo page visibly includes
+  real `std/ui` toolkit controls: card, text field, checkbox, button, badge,
+  and reactive preview next to the Markdown-derived `contentToolkitNode()`
+  subtree.
+
 ## 2026-06-04 — feat(language): Markdown content toolkit bridge
 
 - **markdown-content-toolkit-view** — Added `contentToolkitNode()` for turning
