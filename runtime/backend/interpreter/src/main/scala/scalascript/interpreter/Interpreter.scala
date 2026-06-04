@@ -184,12 +184,12 @@ class Interpreter(
     _pluginsLoaded = true
     import scalascript.backend.spi.NativeImpl
     val plugins = scalascript.compiler.plugin.BackendRegistry.inProcess.toList
-    val pluginImpls: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] =
+    val pluginImpls: List[(scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl)] =
       plugins.iterator
         .flatMap(_.intrinsics)
         .collect { case entry @ (_, _: NativeImpl) => entry }
-        .toMap
-    installNativeIntrinsics(pluginImpls)
+        .toList
+    installNativeIntrinsicEntries(pluginImpls)
     installSqlBlockRunners(plugins)
     installGraphqlBlockRunners(plugins)
     BuiltinsRuntime.setupPluginCompanions(this)
@@ -201,12 +201,12 @@ class Interpreter(
    *  every plugin on the classpath. */
   def installPlugins(plugins: Iterable[scalascript.backend.spi.Backend]): Unit =
     import scalascript.backend.spi.NativeImpl
-    val pluginImpls: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] =
+    val pluginImpls: List[(scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl)] =
       plugins.iterator
         .flatMap(_.intrinsics)
         .collect { case entry @ (_, _: NativeImpl) => entry }
-        .toMap
-    installNativeIntrinsics(pluginImpls)
+        .toList
+    installNativeIntrinsicEntries(pluginImpls)
     installSqlBlockRunners(plugins)
     installGraphqlBlockRunners(plugins)
     BuiltinsRuntime.setupPluginCompanions(this)
@@ -1150,6 +1150,11 @@ class Interpreter(
   def installNativeIntrinsics(
       intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl]
   ): Unit =
+    installNativeIntrinsicEntries(intrinsics)
+
+  private def installNativeIntrinsicEntries(
+      intrinsics: Iterable[(scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl)]
+  ): Unit =
     val ctx = new scalascript.backend.spi.NativeContext:
       def out = Interpreter.this.out
       def err = System.err
@@ -1286,16 +1291,47 @@ class Interpreter(
         Interpreter.this.routeRegistry.register(
           method, path, handler.asInstanceOf[Value], Interpreter.this,
           source = source, mountCtx = ctx)
-    intrinsics.foreach {
-      case (qn, scalascript.backend.spi.NativeImpl(eval)) =>
-        pluginNativeNames += qn.value
-        registerNative(qn.value, args =>
+    val nativeEntries =
+      intrinsics.iterator.collect {
+        case (qn, scalascript.backend.spi.NativeImpl(eval)) => qn -> eval
+      }.toList
+    nativeEntries.groupBy(_._1.value).foreach {
+      case (name, List((_, eval))) =>
+        pluginNativeNames += name
+        registerNative(name, args =>
           val raw = args.map(unwrapValueAsAny)
           val ret = eval(ctx, raw)
           wrapAnyAsValue(ret)
         )
-      case _ => ()
+      case (name, overloads) =>
+        pluginNativeNames += name
+        globals(name) = Value.NativeFnV(name, args =>
+          Computation.Pure(dispatchNativeOverload(name, overloads.map(_._2), ctx, args))
+        )
     }
+
+  private def dispatchNativeOverload(
+      name:      String,
+      overloads: List[(scalascript.backend.spi.NativeContext, List[Any]) => Any],
+      ctx:       scalascript.backend.spi.NativeContext,
+      args:      List[Value]
+  ): Value =
+    val raw = args.map(unwrapValueAsAny)
+    val usageErrors = scala.collection.mutable.ListBuffer.empty[InterpretError]
+    var matched: Option[Value] = None
+    val it = overloads.iterator
+    while matched.isEmpty && it.hasNext do
+      val eval = it.next()
+      try matched = Some(wrapAnyAsValue(eval(ctx, raw)))
+      catch
+        case e: InterpretError if isNativeUsageError(name, e) =>
+          usageErrors += e
+    matched.getOrElse:
+      throw usageErrors.headOption.getOrElse(InterpretError(s"$name: no matching native overload"))
+
+  private def isNativeUsageError(name: String, e: InterpretError): Boolean =
+    val msg = Option(e.getMessage).getOrElse("")
+    msg == name || msg.startsWith(name + "(") || msg.startsWith(name + ": expected ")
 
   private def unwrapValueAsAny(v: Value): Any = v match
     case Value.IntV(n)    => n

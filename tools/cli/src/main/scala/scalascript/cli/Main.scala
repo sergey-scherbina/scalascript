@@ -520,6 +520,7 @@ final class ServeCmd extends CliCommand:
       case _ =>
         val port = args.headOption.flatMap(_.toIntOption).getOrElse(8080)
         val dir  = args.drop(1).headOption.getOrElse(".")
+        printComponentUrls("static server", "0.0.0.0", port, backendUrl = None)
         scalascript.server.WebServer.start(port, dir, System.out)
 
 /** `ssc render <file> [path]` — runs the .ssc file in headless mode
