@@ -1065,14 +1065,15 @@ highest-impact item.
       Object[] used by Javac. Fix: `emitArrayForeachAccumInline` + `listPreExtract=true`.
       1283 tests pass. Commit e0c9e3d5.
 
-- [ ] **bench-effect-stream-corpus** — `bench.sh` reports `n/a` for `effect-stream`
-      after `effect-stream-opt2` landed.  Root cause unknown: either the corpus
-      script (`bench/corpus/effect-stream.ssc` or `bench/run.sc`) times out on the
-      new fast path (sub-millisecond output), or the result-parsing logic fails to
-      extract a number when the workload completes in under its measurement window.
-      Fix: update the corpus harness to handle sub-ms workloads (lower floor,
-      higher rep count, or switched timing unit).
-      **Target:** `effect-stream` shows a valid number in `bench.sh` (expected ~0.1 ms).
+- [x] **bench-effect-stream-corpus** — ✓ Landed 2026-06-04.
+      Root cause: headless bench (BenchCmd headless=true) runs without the dstreams
+      plugin, so Source.from is null.  After effect-stream-opt2, tryStreamEmitWhileFast
+      returned raw ListV; corpus called src.runToList() on it → NoSuchMethod → silent
+      catch → no BENCH_MS output → n/a.
+      Fix: EvalRuntime.tryStreamEmitWhileFast + EffectHandlers.makeSource now return
+      Value.InstanceV("Source", Map(runToList → identity, length → size)) when
+      Source.from is null.  1283 tests pass.  Commit 5d32b341.
+      Results: effect-stream interp **0.124 ms**, jvm **0.066 ms**, js **0.331 ms**.
 
 - [ ] **direct-style-eval-spec** (Direction C blocking task) — write
       `docs/direct-style-eval-spec.md` covering: migration strategy
