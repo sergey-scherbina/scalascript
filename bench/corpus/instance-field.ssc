@@ -1,0 +1,20 @@
+# instance-field
+
+InstanceV field access + monomorphic method dispatch in a hot loop.
+10k calls to a 2-field accessor — deliberately stresses the slow
+InstanceV path (interp is far behind the codegen backends here).
+
+```scalascript
+case class Vec(x: Int, y: Int)
+
+def normSq(v: Vec): Int = v.x * v.x + v.y * v.y
+
+def workload(): Long =
+  val v = Vec(3, 4)
+  var sum = 0L
+  var i = 0
+  while i < 10000 do
+    sum = sum + normSq(v)
+    i = i + 1
+  sum
+```

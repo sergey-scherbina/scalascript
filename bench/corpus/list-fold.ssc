@@ -1,0 +1,16 @@
+# list-fold
+
+List traversal via `foreach` accumulation — collection iteration cost
+(cons-cell walk, closure dispatch) over a 10-element list, 10k times.
+
+```scalascript
+val xs: List[Int] = List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+def workload(): Long =
+  var sum = 0L
+  var i = 0
+  while i < 10000 do
+    xs.foreach(x => { sum = sum + x })
+    i = i + 1
+  sum
+```

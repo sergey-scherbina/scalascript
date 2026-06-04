@@ -1,0 +1,16 @@
+# string-concat
+
+Non-numeric hot path — string concatenation + `.length`, exercising the
+String intrinsics rather than the long/double JIT lanes.
+
+```scalascript
+def label(n: Int): String = "item-" + n
+
+def workload(): Long =
+  var total = 0L
+  var i = 0
+  while i < 20000 do
+    total = total + label(i).length
+    i = i + 1
+  total
+```
