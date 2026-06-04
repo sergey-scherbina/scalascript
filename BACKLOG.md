@@ -2226,28 +2226,17 @@ gated on same-session A/B + full suite green with the gate off AND on.
       Perform args (15%) + Perform+Pure nodes (19%). Full report: `docs/effect-stream-jfr-findings.md`.
       Next: OPT-1 `Perform1` specialisation + OPT-2 FastTier while-emit detection.
 
-- [ ] **effect-stream-opt1** — `Perform1(effect, op, arg: AnyRef)` specialisation.
-      Eliminates the 1-element `List` wrapper for `Stream.emit(v)` — ~14% fewer
-      B/op (345 → 300 B/op).  Change `Computation` sealed trait to add `Perform1`;
-      `NativeFnV` for `Stream.emit` emits `Perform1` instead of `Perform(_, _, List(v))`.
-      All handlers in `EffectHandlers` switch on the new case.
-      **Bench target:** effectStream ≤ 22 ms/op.
+- [x] **effect-stream-opt2** — ✓ Landed 2026-06-04 commit `0e5dffc2`.
+      LExpr-compiled `runStream { while … Stream.emit(expr); i = i+1 }` fast path.
+      `tryStreamEmitWhileFast` in `EvalRuntime` detects the pattern, evaluates
+      Defn.Var init stats into a local frame, compiles emit args / counter RHSes /
+      condition to LExpr (unboxed Long slots), runs a tight loop with zero FlatMap/Perform
+      allocations AND zero eval dispatch overhead per iteration.
+      `effectStream`: 25.8 ms → 0.102 ms/op (253×). 1279 interp + 88 stream tests pass.
 
-- [ ] **effect-stream-opt2** — FastTier `while … Stream.emit(expr)` detection.
-      In `EvalRuntime`, detect `runStream { while i < N do Stream.emit(expr); i = i+1 }`
-      and compile the body to a tight buffer-fill loop bypassing the Free Monad trampoline.
-      `OPT-1` landing first is not a prerequisite but is a good cleanup.
-      **Bench target:** effectStream ≤ 1 ms/op (100× improvement).
+- [x] **effect-stream-opt1** — Superseded by OPT-2 (Perform1 moot after trampoline eliminated).
 
-- [ ] **effect-stream-opt3** — Reuse while-continuation closure across iterations.
-      The `FlatMap` re-association step in `EffectHandlers.streamRun.go` creates one new
-      lambda per iteration for the `_ => loopAgain` continuation.  If the closure is
-      "stable" (captured vars do not change identity between iterations), pre-allocate
-      once before the loop.  Only useful as intermediate improvement before OPT-2 lands
-      (OPT-2 eliminates the trampoline, making this moot).  Pair with OPT-1 if OPT-2 is
-      not yet ready.  Predicate: body captures only loop counter `i`, mutated only at
-      counter-update site.  **Savings:** ~23% fewer B/op vs OPT-1 baseline.
-      **Bench target:** effectStream B/op 3,000,000 → ≤ 2,200,000.
+- [x] **effect-stream-opt3** — Superseded by OPT-2 (closure reuse moot after trampoline eliminated).
 
 - [ ] **direct-style-eval** (deferred multi-week, post Directions A+B) —
       Migrate `eval(term, env, interp): Computation` to direct-style

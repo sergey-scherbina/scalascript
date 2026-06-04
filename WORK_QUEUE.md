@@ -263,10 +263,12 @@ non-win.
 > Major improvements since the 2026-06-03 table:
 > - `mapForeach`      2.142 → **0.189** ms (11.4×, while-jit-map-foreach)
 > - `tupleMonoid` JS  2.52  → **0.027** ms (93×, js-codegen-opt-p2)
+> - `tupleMonoid` interp 0.207 → **0.013** ms (15×, jit-tuple-concat-hoist)
+> - `effectStream` interp 25.8 → **0.102** ms (253×, effect-stream-opt2 LExpr loop)
 > - AsmJitBackend Phase 1+2 at full Javac parity (asm-jit-parity-optimizations)
 > Physical floors confirmed:
 > - `recursiveEval` / `recursiveEvalMixed` at ~3.7 ms — 3.5 ns/node INVOKESTATIC, unreducible
-> Open targets: `tupleMonoid` interp 0.212 ms vs JVM 0.137 ms (jit-tuple-concat-hoist).
+> - `tupleMonoid` interp 0.013 ms — faster than JVM (0.137 ms); closed
 > - `patternMatchWide` 1.414 → **0.670** ms (2.1×, phase-d-patternmatch-fused-foreach)
 > Full analysis: [`docs/bench-analysis-2026-06-04.md`](docs/bench-analysis-2026-06-04.md).
 
@@ -307,7 +309,8 @@ then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 | `recursiveEvalMixed` | 3.622 | 3.697 | physical floor |
 | `refChainArg` | 0.395 | 0.047 | ASM faster ✓ |
 | `refFieldArg` | 0.049 | 0.047 | parity ✓ |
-| `tupleMonoid` | 0.207 | 0.202 | parity ✓; **OPEN** — 51% slower than JVM (0.137); jit-tuple-concat-hoist |
+| `tupleMonoid` | **0.013** | - | ✓ 15× via jit-tuple-concat-hoist; faster than JVM (0.137 ms) |
+| `effectStream` | **0.102** | - | ✓ 253× via effect-stream-opt2 LExpr loop |
 
 `RuntimeBench` cross-backend (µs/op, default flags):
 
