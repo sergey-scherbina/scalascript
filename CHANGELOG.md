@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-04 — feat(ui): seedSignal editable browser draft primitive
+
+- **ui-seed-signal** — Added `seedSignal(name, source: Signal[String])` for
+  browser JS forms that need a writable text draft seeded from another signal.
+  The draft mirrors the source while pristine; `inputChange` / `setSignal`
+  marks it dirty, so later fetch refreshes do not overwrite user edits.
+  Includes interpreter/JVM/JS shims, browser runtime pristine-source wiring,
+  docs, and `examples/seed-signal.ssc`.
+
+---
+
 ## 2026-06-04 — perf(js): js-codegen-opt-p3 — emit-js field/arith fix + _forEach bypass
 
 - **js-codegen-opt-p3** — Fixed `genModuleSegmented` (used by `emit-js`/`run-js`/bench)
