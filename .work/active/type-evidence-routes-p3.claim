@@ -1,0 +1,4 @@
+feature+type-evidence-routes-p3 2026-06-04T08:50:49Z
+status: not-started
+done-so-far:
+next: inspect ApiEndpointDecl/RemoteHandlerDecl model and add optional evidence wire fields + tests
