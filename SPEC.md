@@ -372,6 +372,9 @@ Sections or blocks annotated with `component=<name>` may opt into an explicit
 `ContentToolkitOptions.components` registry; registered callbacks receive the
 selected content metadata and return replacement toolkit nodes, while
 unregistered component names fall back to the default Markdown lowering.
+Metadata `data=<id>` on a selected section or block binds the component context
+to the parsed structured data from a fenced YAML/JSON/TOML block with matching
+`@id`; the same lookup is exposed to code as `contentData(id)`.
 The lower-level `std/content` metadata API follows from the same snapshot
 instead of being the first goal. See
 [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md)

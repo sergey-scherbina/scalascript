@@ -8,6 +8,13 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Language Surface — Markdown Content
+
+- [ ] **markdown-content-data-binding** — Add `contentData(id)` and
+      `data=<id>` component binding so registered Markdown toolkit components
+      can consume fenced YAML/JSON/TOML data from the same `.ssc` document.
+      Spec: [`specs/markdown-content-data-binding.md`](specs/markdown-content-data-binding.md).
+
 ## VmCompiler completeness (focus)
 
 Make `VmCompiler.compile` succeed for as many real functions as possible so
