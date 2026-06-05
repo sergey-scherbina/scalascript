@@ -1,30 +1,36 @@
 package scalascript.interpreter.vm
 
+import scalascript.interpreter.vm.jit.JitBailReason
+
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.LongAdder
 import scala.jdk.CollectionConverters.*
 
-/** Compile-time JIT miss counters. Each call to [[VmCompiler.compile]] that
- *  returns `None` increments the counter for its bail reason.
+/** Compile-time JIT miss counters for all three engines (vm, javac, asm).
  *
  *  Enable with `SSC_JIT_STATS=1` (or any value other than `0`/`off`).
- *  Stats are printed to stderr at JVM shutdown.
- *
- *  Use to answer "what should I add JIT support for next?" — the highest
- *  count is the construct blocking the most functions from being compiled.
+ *  Stats are printed to stderr at JVM shutdown, grouped by engine.
  */
 object JitMissStats:
 
   val enabled: Boolean =
     sys.env.get("SSC_JIT_STATS").exists(v => v != "0" && v != "off" && v.nonEmpty)
 
-  private val counts   = new ConcurrentHashMap[String, LongAdder]()
-  private val total    = new LongAdder()
+  private val counts = new ConcurrentHashMap[String, LongAdder]()
+  private val total  = new LongAdder()
 
-  def record(reason: String): Unit =
+  /** Record a miss for `engine` (`"vm"`, `"javac"`, or `"asm"`) with a
+   *  typed [[JitBailReason]]. */
+  def record(engine: String, reason: JitBailReason): Unit =
     if enabled then
-      counts.computeIfAbsent(reason, _ => new LongAdder()).increment()
+      val key = s"[$engine] ${reason.tag}"
+      counts.computeIfAbsent(key, _ => new LongAdder()).increment()
       total.increment()
+
+  /** Backwards-compatible overload: raw string reason mapped to
+   *  [[JitBailReason.Other]] under the `"vm"` engine. */
+  def record(reason: String): Unit =
+    record("vm", JitBailReason.Other(reason))
 
   def report(): String =
     val n = total.sum()

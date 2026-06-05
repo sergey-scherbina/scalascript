@@ -6,6 +6,7 @@ import org.objectweb.asm.Opcodes.*
 import scala.meta.{Term, Lit, Pat, Stat, Defn}
 import scala.collection.mutable
 import scalascript.interpreter.{Interpreter, Value}
+import scalascript.interpreter.vm.JitMissStats
 
 /** Phase C bytecode JIT — ASM backend.
  *
@@ -46,6 +47,12 @@ object AsmJitBackend extends JitBackend:
     cache.synchronized {
       cache.put(body, if result == null then BailSentinel else result.asInstanceOf[AnyRef])
     }
+    if result == null then
+      val reasons = classifyBailReasons(f)
+      val reason  = if reasons.nonEmpty then
+        if reasons.lengthCompare(1) == 0 then reasons.head else JitBailReason.Compound(reasons)
+      else JitBailReason.UnknownShape
+      JitMissStats.record("asm", reason)
     result
 
   // ── Shared guards (mirrors JavacJitBackend) ───────────────────────────────

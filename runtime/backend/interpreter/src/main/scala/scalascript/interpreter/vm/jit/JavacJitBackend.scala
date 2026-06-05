@@ -7,6 +7,7 @@ import java.net.URI
 
 import scala.meta.{Term, Lit, Pat, Stat, Defn}
 import scalascript.interpreter.Value
+import scalascript.interpreter.vm.JitMissStats
 
 /** Phase C: bytecode JIT for pure-int self-recursive functions.
  *
@@ -69,6 +70,12 @@ object JavacJitBackend extends JitBackend:
     cache.synchronized {
       cache.put(body, if result == null then BailSentinel else result.asInstanceOf[AnyRef])
     }
+    if result == null then
+      val reasons = classifyBailReasons(f)
+      val reason  = if reasons.nonEmpty then
+        if reasons.lengthCompare(1) == 0 then reasons.head else JitBailReason.Compound(reasons)
+      else JitBailReason.UnknownShape
+      JitMissStats.record("javac", reason)
     result
 
   /** True iff `t` contains a `Lit.Double` anywhere — heuristic for typing
