@@ -1,6 +1,6 @@
-feature/jit-completeness-p6-lit-string 2026-06-05T05:54:29Z
+feature/jit-completeness-p6-lit-string 2026-06-05T06:30:16Z
 agent: claude-code
-heartbeat: 2026-06-05T05:54:29Z
-status: in-progress
-done-so-far: worktree created
-next: add LOADS opcode + string equality to VmCompiler + SscVm
+heartbeat: 2026-06-05T06:30:16Z
+status: done
+done-so-far: LOADS/EQREF/NEREF opcodes; 5 p6 tests; 1329/1329 pass
+next: n/a
