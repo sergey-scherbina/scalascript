@@ -120,16 +120,17 @@ The title part is omitted when absent.
 Embedded blocks render as fenced Markdown:
 
 ````markdown
-```lang @id=block-id key=value
+```lang @id=block-id @key=value
 source
 ```
 ````
 
 Fence metadata comes from `Embedded.attrs`, sorted by key except that `id`
 renders first as `@id=value` for compatibility with existing fenced content
-metadata. Other scalar attributes render as `key=value` or boolean flags. The
-renderer may choose a longer fence delimiter if the source itself contains a
-triple-backtick line.
+metadata. Other scalar attributes render as `@key=value`. Boolean values render
+as `@key=true` / `@key=false`; the current fence parser does not support
+standalone boolean flags. The renderer may choose a longer fence delimiter if
+the source itself contains a triple-backtick line.
 
 ### Inlines
 
