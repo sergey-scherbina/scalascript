@@ -118,7 +118,9 @@ object JavacJitBackend extends JitBackend:
           if isDouble then s"$pkg.LongObjToDouble" else s"$pkg.LongObjToLong"
         case (true,  false) =>
           if isDouble then s"$pkg.ObjLongToDouble" else s"$pkg.ObjLongToLong"
-        case (true,  true)  => null  // both-ref not yet wired; rare shape
+        case (true,  true)  =>
+          if resultIsRef then s"$pkg.ObjObjToObject"
+          else if isDouble then s"$pkg.ObjObjToDouble" else s"$pkg.ObjObjToLong"
     else null
 
   private def doCompile(f: Value.FunV, interp: scalascript.interpreter.Interpreter): JitResult | Null =

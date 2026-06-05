@@ -81,7 +81,8 @@ object AsmJitBackend extends JitBackend:
           if isDouble then s"$jitPkg.LongObjToDouble" else s"$jitPkg.LongObjToLong"
         case (true,  false) =>
           if isDouble then s"$jitPkg.ObjLongToDouble" else s"$jitPkg.ObjLongToLong"
-        case (true,  true)  => null
+        case (true,  true)  =>
+          if isDouble then s"$jitPkg.ObjObjToDouble" else s"$jitPkg.ObjObjToLong"
     else null
 
   private final case class MethodSig(
@@ -146,12 +147,11 @@ object AsmJitBackend extends JitBackend:
     val ifaceName  = determineInterface(f.params.length, paramIsRef, isDouble)
     val coEmit     = new CoEmitState
 
-    // Assign JVM local-variable slots. Always allocate 2 per variable (safe for
-    // longs/doubles; wastes one slot for Object refs but is correct with COMPUTE_FRAMES).
+    // Assign JVM local-variable slots. Object refs use 1 slot; Long/Double use 2.
     val paramSlots = new Array[Int](f.params.length)
     var nextSlot0  = 0
     for i <- 0 until f.params.length do
-      paramSlots(i) = nextSlot0; nextSlot0 += 2
+      paramSlots(i) = nextSlot0; nextSlot0 += (if paramIsRef(i) then 1 else 2)
     val firstLocal = nextSlot0
     var nextLocal  = firstLocal
 
@@ -865,7 +865,7 @@ object AsmJitBackend extends JitBackend:
     var i = 0
     while i < sig.paramNames.length do
       paramSlots(i) = nextSlot0
-      nextSlot0 += 2
+      nextSlot0 += (if sig.paramIsRef(i) then 1 else 2)
       i += 1
     var nextLocal = nextSlot0
     val fnCtx = GenCtx(
@@ -1045,7 +1045,7 @@ object AsmJitBackend extends JitBackend:
     var nextSlot0  = 0
     var i = 0
     while i < sig.paramNames.length do
-      paramSlots(i) = nextSlot0; nextSlot0 += 2; i += 1
+      paramSlots(i) = nextSlot0; nextSlot0 += (if sig.paramIsRef(i) then 1 else 2); i += 1
     var nextLocal = nextSlot0
     val fnCtx = GenCtx(
       funName          = f.name,
