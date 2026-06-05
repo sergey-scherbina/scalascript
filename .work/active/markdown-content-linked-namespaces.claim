@@ -1,6 +1,6 @@
 feature/markdown-content-linked-namespaces 2026-06-05T11:40:12Z
 agent: codex
-heartbeat: 2026-06-05T11:40:12Z
-status: not-started
-done-so-far:
+heartbeat: 2026-06-05T11:40:50Z
+status: in-progress
+done-so-far: worktree created
 next: write focused spec for imported-module content namespaces before implementation
