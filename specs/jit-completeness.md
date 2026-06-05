@@ -244,13 +244,34 @@ Next targets: `ret: ref-typed return` (18) via p7 RETREF/CALLREF, or
 - [x] Functions returning `String` still bail (unifyRet(TRef) unchanged)
 - [x] No `SscVmTest` regression (1329/1329 pass)
 
-### p7 — `Lit.String` ref returns + `RETREF`/`CALLREF` (deferred)
+### p7 — `String.length` meta (39 misses)
+
+**Status:** ✓ Landed (2026-06-05).
+
+**Diagnostic:** 37 × `String.length` (runParser + _hash), 2 × `String.scale`
+(Money field confused as String — skip), 5 × `List[*].isEmpty` (List meta,
+out of scope this slice).
+
+**Changes:**
+- `JitRuntime.metaFor` — add `"String"` before `typeFieldOrder` lookup:
+  `("length", "isEmpty", "nonEmpty") → ("Int", "Boolean", "Boolean")`
+- `SscVm GETFI` — `Value.StringV` branch: `"length" → v.length`, `"isEmpty" → isEmpty`, `"nonEmpty" → nonEmpty`
+- `VmCompiler Lit.String` case — add `setRefType(dst, "String")` so that
+  `.length` on a string literal also compiles.
+
+**Behavior:**
+- [ ] `def hashLen(s: String): Int = s.length` compiles and runs
+- [ ] `def isBlank(s: String): Boolean = s.isEmpty` compiles and runs
+- [ ] `"hello".length` as expression compiles
+- [ ] No `SscVmTest` regression
+
+### p8 — `Lit.String` ref returns + `RETREF`/`CALLREF` (deferred)
 
 Add `RETREF` opcode and `CALLREF` dispatch so functions that return strings
 (or other ref values) can compile. Requires callee return-type detection at
 instruction-build time (two-phase compileFn or syntactic pre-scan).
 
-### p8 — `Term.Function` (3 misses)
+### p9 — `Term.Function` (3 misses)
 
 Anonymous lambdas used as values (not immediately applied). These are
 closures, so they overlap with the "no compilable target" category. Likely
