@@ -41,7 +41,7 @@ If a table contains inline `${name}` placeholders, callers may first apply the
 bound table keeps the same `ContentBlock.Table` shape, with matching expression
 nodes replaced by text before plain-text, Markdown, low-level view, or toolkit
 rendering. For direct toolkit selectors, authors can pass the same bindings
-through `ContentToolkitOptions(bindings = data)`.
+through `contentToolkitOptionsWithBindings(data)`.
 
 ## Behavior
 

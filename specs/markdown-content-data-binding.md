@@ -59,10 +59,19 @@ case class ContentToolkitOptions(
   ...
   bindings: ContentValue = ContentValue.MapV(Map())
 )
+
+def contentToolkitOptionsWithBindings(
+  bindings: ContentValue,
+  components: List[ContentToolkitComponent] = [],
+  ...
+): ContentToolkitOptions
 ```
 
-`contentToolkitNode(options)`, `contentToolkitBlock(id, options)`, and
-`contentToolkitSection(id, options)` apply `options.bindings` before default
+`contentToolkitOptionsWithBindings(data)` is the ergonomic constructor for the
+common case where an author only wants Markdown placeholders resolved. It also
+accepts a component registry for pages that combine bound Markdown with custom
+components. `contentToolkitNode(options)`, `contentToolkitBlock(id, options)`,
+and `contentToolkitSection(id, options)` apply `options.bindings` before default
 toolkit lowering and before a registered component receives `ctx.block` or
 `ctx.section`. The default empty map preserves existing behavior.
 
