@@ -191,10 +191,10 @@ Each item: one commit + bench A/B. Run `SSC_JIT_STATS=1 sbt "backendInterpreter/
       misses have complex guard conditions (`walkBool` can't compile them) — see
       `jit-uc-stage6-bool-body-ext`.
 
-- [ ] **jit-uc-stage6-bool-body-ext** — Extend `walkBool` for `BoolBody` (7 misses):
-      add `Term.Block(single-expr)`, `Term.Match` (bool-returning arms),
-      `Term.Apply` to known-bool-returning sibling. Diagnose first via
-      `SSC_JIT_DEBUG=BoolBody`.
+- [x] **jit-uc-stage6-bool-body-ext** — Added `walkLong` fallback to `walkBool`
+      in both backends. Enables bool-returning match expressions and complex guards
+      where `walkBool` fails but `walkLong` succeeds (Long != 0 = true).
+      New test: `isZero(n): Boolean = n match { 0 => false; _ => true }` compiles.
 
 - [ ] **jit-uc-stage6-nonextract-tuple** — Tuple destructure match arms: `case (a, b) =>`
       (`Pat.Tuple`) in both backends. Requires `TupleN` meta in `JitRuntime.metaFor`

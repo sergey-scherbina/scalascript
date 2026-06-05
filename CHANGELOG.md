@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(jit): walkBool Long-fallback for bool-returning matches
+
+- **jit-uc-stage6-bool-body-ext** — `walkBool` fallback to `walkLong` in both
+  backends. Bool-returning literal match (`isZero(n) = n match`) now compiles.
+  Complex guards where `walkBool` fails but `walkLong` succeeds also enabled.
+
+---
+
 ## 2026-06-05 — feat(jit): pattern guard support in match sub-expressions
 
 - **jit-uc-stage6-pattern-guard** — Guards in match used as sub-expressions
