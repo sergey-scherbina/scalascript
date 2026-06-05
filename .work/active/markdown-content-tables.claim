@@ -1,6 +1,6 @@
 feature/markdown-content-tables 2026-06-05T12:14:16Z
 agent: codex
-heartbeat: 2026-06-05T12:27:57Z
+heartbeat: 2026-06-05T12:43:45Z
 status: in-progress
-done-so-far: ContentBlock.Table implementation moved into feature worktree; parser/plugin/JS/JVM/UI patches and initial tests drafted
-next: run focused tests, fix failures, then update docs/spec verification and bookkeeping
+done-so-far: parser/plugin tests pass; JS/JVM table-specific backend tests pass after scalascript fence fix
+next: update docs/spec verification, run full focused verify, commit feature/docs/bookkeeping
