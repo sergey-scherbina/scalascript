@@ -935,3 +935,57 @@ class SscVmTest extends AnyFunSuite with Matchers:
         |println(sum)""".stripMargin)
     out shouldBe "70"
   }
+
+  // ── Completeness p5: Lit.Null ────────────────────────────────────────────────
+
+  test("p5: Lit.Null in val declaration no longer bails — function compiles") {
+    // Before p5: compileInto bailed on Lit.Null() with "unsupported: Lit.Null".
+    // After p5: emits CONST 0 / TRef. Returning null still bails at unifyRet (by
+    // design: RET is Long-typed), but using null as a sentinel val compiles fine.
+    val f = funOf("withNullSentinel",
+      """def withNullSentinel(x: Int): Int =
+        |  val sentinel = null
+        |  x + 1""".stripMargin)
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    SscVm.run(cfn.get, Array(4L)) shouldBe 5L
+  }
+
+  // ── Completeness p4 + p3: inner def ─────────────────────────────────────────
+
+  test("p4+p3: non-capturing inner def compiles and is callable") {
+    val f = funOf("outerAdd",
+      """def outerAdd(n: Int): Int =
+        |  def double(x: Int): Int = x * 2
+        |  double(n) + 1""".stripMargin)
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    SscVm.run(cfn.get, Array(5L)) shouldBe 11L   // 5*2 + 1 = 11
+    SscVm.run(cfn.get, Array(0L)) shouldBe 1L
+  }
+
+  test("p4+p3: inner def called multiple times in loop") {
+    val out = captured(
+      """def outer(n: Int): Int =
+        |  def square(x: Int): Int = x * x
+        |  square(n) + square(n + 1)
+        |var sum = 0
+        |var i = 0
+        |while i < 5 do
+        |  sum = sum + outer(i)
+        |  i = i + 1
+        |println(sum)""".stripMargin)
+    // outer(0)=0+1=1, outer(1)=1+4=5, outer(2)=4+9=13, outer(3)=9+16=25, outer(4)=16+25=41
+    out shouldBe "85"
+  }
+
+  test("p4+p3: capturing inner def bails gracefully (outer falls back to interpreter)") {
+    // `inner` captures `n` from outer — VmCompiler bails, interpreter fallback gives
+    // correct result. This test verifies no exception is thrown on capture.
+    val out = captured(
+      """def outerCapture(n: Int): Int =
+        |  def inner(x: Int): Int = x + n
+        |  inner(1)
+        |println(outerCapture(10))""".stripMargin)
+    out shouldBe "11"   // interpreter fallback gives correct result
+  }

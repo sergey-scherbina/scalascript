@@ -143,6 +143,10 @@ object VmCompiler:
     private val refTypeName = mutable.HashMap.empty[Int, String]
     private def setRefType(r: Int, name: String): Unit = if name.nonEmpty then refTypeName(r) = name
 
+    // Inner `def` names compiled during `compileStmt(Defn.Def(...))`.
+    // Checked in `callTarget` so calls to local defs resolve to compiled callees.
+    private val innerDefs = mutable.HashMap.empty[String, Value.FunV]
+
     /** Map a declared field/param type string to a register domain. Anything
      *  that is not numeric is a ref (an InstanceV, threaded through the ref bank). */
     private def fieldVmType(tpe: String): VmType =
@@ -283,9 +287,11 @@ object VmCompiler:
           val nm = n.value
           if locals.contains(nm) then None
           else if fn.name.nonEmpty && nm == fn.name then Some(fn)
-          else ctx.resolveName(fn, nm) match
-            case f: Value.FunV => Some(f)
-            case null          => None
+          else innerDefs.get(nm).orElse(
+            ctx.resolveName(fn, nm) match
+              case f: Value.FunV => Some(f)
+              case null          => None
+          )
         case _ => None
 
     // Compile an expression, returning the register holding its Long result.
@@ -436,6 +442,9 @@ object VmCompiler:
         else
           emit(GETFI, dst, or, strSlot(field.value)); setType(dst, ft); ft
 
+      case Lit.Null() =>
+        emit(CONST, dst, constSlot(0L), 0); setType(dst, TRef); TRef
+
       case other =>
         bail(s"unsupported: ${termName(other)}")
 
@@ -506,6 +515,23 @@ object VmCompiler:
         val old = typeOf(dst)
         val nt  = compileInto(rhs, dst)
         if nt != old then bail("types: var domain change (Int↔Double)")
+      // Inner def: compile to a standalone callee that shares the Ctx call pool.
+      // Only non-capturing inner defs compile; a body that references outer locals
+      // will bail with "undefined: name '...'" when the inner Builder runs — that
+      // bail propagates out and disables the outer function too (correct).
+      case d: Defn.Def =>
+        val regularParams = d.paramClauseGroups.flatMap(_.paramClauses)
+          .filter(_.mod.isEmpty).flatMap(_.values).toList
+        val params     = regularParams.map(_.name.value)
+        val paramTypes = regularParams.map(p => p.decltpe match
+          case Some(t: Type.Name) => t.value
+          case Some(t) => t.syntax
+          case None    => ""
+        )
+        val defaults = regularParams.map(_.default)
+        val innerFunV = Value.FunV(params, d.body, Map.empty, d.name.value, defaults, paramTypes)
+        ctx.compileFn(innerFunV)    // bails if body captures outer locals
+        innerDefs(d.name.value) = innerFunV
       case Term.Block(stats) => compileStats(stats); ()
       case e: Term            => compileExpr(e); ()
       case other              => bail(s"unsupported: stmt ${termName(other)}")

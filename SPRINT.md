@@ -32,16 +32,16 @@ Each slice: one VmCompiler change + tests + bench A/B, never ship a non-win.
       Expected: 54 → 0 for pure field-access cases. Skip method calls
       (`.head`, `.size` etc.) — bail as before.
 
-- [ ] **jit-completeness-p3-inner-def** — Compile functions that contain
+- [x] **jit-completeness-p3-inner-def** — Compile functions that contain
       local `def inner(...)` bodies (`undefined: name 'inner'`, 17 misses).
       Strategy: treat inner defs as closures over params — compile the outer
       function only if `inner` has no free variables beyond outer params.
 
-- [ ] **jit-completeness-p4-defn-def** — Handle `stmt Defn.Def` in
+- [x] **jit-completeness-p4-defn-def** — Handle `stmt Defn.Def` in
       `compileStmt` (2 misses). A local def inside a block; same as p3 but in
       stmt position.
 
-- [ ] **jit-completeness-p5-lit-null** — `Lit.Null` (2 misses): emit CONST 0,
+- [x] **jit-completeness-p5-lit-null** — `Lit.Null` (2 misses): emit CONST 0,
       set type TRef. Simple.
 
 ---

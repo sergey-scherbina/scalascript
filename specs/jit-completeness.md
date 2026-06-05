@@ -127,38 +127,47 @@ reach the new case.
 - [x] Method calls and String-field selects still bail gracefully
 - [x] No SscVmTest regression (50 tests pass)
 
-### p3 — Inner `def` as non-capturing local (17 misses)
+### p3+p4 — Inner `def` as non-capturing local ✓ Landed (2026-06-05)
 
-**Shape:** a `def` appearing inside a function body where the inner function
-only references outer params and other locals (no heap closure):
+**Shape:** a `def` appearing inside a function body (statement position):
 
 ```scala
 def outer(n: Int): Int =
-  def inner(x: Int): Int = x * 2 + n
-  inner(n + 1)
+  def double(x: Int): Int = x * 2
+  double(n) + 1
 ```
 
-**Strategy:** treat `inner` as a callee with a fixed slot in the call pool.
-At `Defn.Def` in `compileStmt`, recursively compile `inner` into a `Builder`
-using the same `Ctx`; wire it as a call pool entry. The outer `locals` map
-gets a synthetic entry so `callTarget` can find it.
+**Implemented:** new `case d: Defn.Def` in `compileStmt`. Extracts params and
+param-types from `d.paramClauseGroups`, creates a `Value.FunV(params, d.body,
+Map.empty, d.name.value, defaults, paramTypes)` (empty closure — non-capturing
+only), and calls `ctx.compileFn(innerFunV)`. If the inner body references outer
+locals (captures), the inner Builder bails with "undefined: name '...'" which
+propagates and disables the outer function too (correct). On success, stores
+`innerFunV` in a new `innerDefs` map. The `callTarget` method checks `innerDefs`
+before `ctx.resolveName` so calls to inner defs resolve correctly.
 
-**Constraint:** inner def must have no free variables beyond `outer`'s params
-and other already-compiled locals. If it captures a `var`, bail — `var` writes
-are not tracked across call frames.
+**Note on the 17 "undefined: name 'inner'" misses:** those come from functions
+in the test suite that close over a *module-level* `val inner = ...` variable
+(e.g. `direct-syntax.ssc`, `async.ssc`). They are closure captures of a
+free variable, not inner defs — not fixable by this slice. They remain 17
+after this landing.
 
-**Expected impact:** 17 → 0 for the simple inner-def pattern.
+**Behavior:**
+- [x] `def double(x: Int): Int = x * 2` inside outer — compiles and callable
+- [x] Capturing inner def (`inner(x: Int) = x + n`) bails gracefully; interpreter
+      fallback gives correct result
+- [x] 4 new SscVmTest tests; 93/93 pass; no bench regression
 
-### p4 — `stmt Defn.Def` in block (2 misses)
-
-Same as p3 but the `Defn.Def` appears in `compileStmt` position (non-tail,
-non-result stmt inside a block). Currently hits `bail("unsupported: stmt
-Defn.Def")`. Fix: inline the p3 logic into `compileStmt`.
-
-### p5 — `Lit.Null` (2 misses)
+### p5 — `Lit.Null` ✓ Landed (2026-06-05)
 
 Emit `CONST dst, constSlot(0L), 0`, `setType(dst, TRef)`. Null is a valid
-TRef value (the VM represents it as 0 in the ref bank). One-liner.
+TRef value (the VM represents it as 0 in the ref bank). Returns TRef, so using
+null as a sentinel `val` inside a function body now compiles. Returning null
+still bails at `unifyRet(TRef)` (RET is Long-typed — correct).
+
+**Behavior:**
+- [x] `val sentinel = null` inside a function body compiles; function runs correctly
+- [x] Returning null from a function still bails (RET is Long-typed, by design)
 
 ### p6 — `Term.Function` (3 misses)
 

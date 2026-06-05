@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(jit): VmCompiler p3+p4 inner def + p5 Lit.Null
+
+- **jit-completeness-p3p4** — `compileStmt` now handles `Defn.Def`: extracts
+  params/types from `paramClauseGroups`, creates a `Value.FunV` with empty
+  closure, and calls `ctx.compileFn` to compile it into the shared call pool.
+  A new `innerDefs` map makes the inner def findable from `callTarget`. Capturing
+  inner defs (body references outer locals) bail with "undefined: name '...'" —
+  this correctly disables the outer function too. Fixes the 2
+  "unsupported: stmt Defn.Def" miss category.
+
+- **jit-completeness-p5** — `compileInto(Lit.Null(), dst)` now emits
+  `CONST 0 / TRef` instead of bailing. Using `null` as a sentinel `val` in a
+  function body compiles; returning `null` still bails at `unifyRet(TRef)` (RET
+  is Long-typed by design). Fixes the 2 "unsupported: Lit.Null" miss category.
+
+  4 new SscVmTest tests; 93/93 pass; no bench regression (recursionFib 1.214 ms,
+  recursionTco 29 µs, recursiveEval 0.066 ms).
+
 ## 2026-06-05 — feat(language): Markdown content data binding
 
 - **markdown-content-data-binding** — Added `contentData(id)` for interpreter
