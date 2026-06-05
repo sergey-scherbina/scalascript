@@ -1,6 +1,6 @@
-feature/markdown-content-to-markdown 2026-06-05T10:10:14Z
+feature/markdown-content-to-markdown 2026-06-05T10:13:51Z
 agent: codex
-heartbeat: 2026-06-05T10:10:14Z
+heartbeat: 2026-06-05T10:13:51Z
 status: in-progress
-done-so-far: worktree created
-next: write specs/markdown-content-to-markdown.md and commit spec before implementation
+done-so-far: focused spec committed and pushed
+next: implement contentToMarkdown interpreter plus JS/JVM generated runtime exposure
