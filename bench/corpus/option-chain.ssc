@@ -1,0 +1,18 @@
+# option-chain
+
+Monadic `Option` pipeline: `flatMap().map().getOrElse()`, 300 times. Stresses
+`OptionV` allocation and flatMap/map closure dispatch — the only
+Option/Either-shaped workload in the corpus and adjacent to the effect runtime.
+
+```scalascript
+def lookup(k: Int): Option[Int] = if k % 2 == 0 then Some(k * 2) else None
+
+def workload(): Long =
+  var sum = 0L
+  var i = 0
+  while i < 300 do
+    val r = Some(i).flatMap(x => lookup(x)).map(x => x + 1).getOrElse(0)
+    sum = sum + r.toLong
+    i = i + 1
+  sum
+```

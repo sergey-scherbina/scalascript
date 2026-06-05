@@ -1,0 +1,17 @@
+# map-ops
+
+Associative-collection churn: `Map.updated` + `getOrElse` in a 500-iter loop
+over a 100-key keyspace. Stresses the immutable `Map` data structure (hashing,
+copy-on-update) — a path no List/Array workload covers.
+
+```scalascript
+def workload(): Long =
+  var m: Map[Int, Int] = Map[Int, Int]()
+  var sum = 0L
+  var i = 0
+  while i < 500 do
+    m = m.updated(i % 100, i)
+    sum = sum + m.getOrElse(i % 100, 0).toLong
+    i = i + 1
+  sum
+```

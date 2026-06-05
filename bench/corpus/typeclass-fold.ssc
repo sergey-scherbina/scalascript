@@ -1,0 +1,31 @@
+# typeclass-fold
+
+Monoid `combineAll` over a 10-element list, 300 times. Exercises `given`
+resolution + `summon[Monoid[A]]` on every fold — the context-bound evidence
+path. Guards against regressions in `GivenRuntime.resolveUsing` (element-type
+binding from the `List[A]` param template).
+
+```scalascript
+trait Semigroup[A]:
+  def combine(a: A, b: A): A
+
+trait Monoid[A] extends Semigroup[A]:
+  def empty: A
+
+given intSum: Monoid[Int] with
+  def empty: Int = 0
+  def combine(a: Int, b: Int): Int = a + b
+
+def combineAll[A: Monoid](xs: List[A]): A =
+  xs.foldLeft(summon[Monoid[A]].empty)(summon[Monoid[A]].combine)
+
+val xs: List[Int] = List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+def workload(): Long =
+  var sum = 0L
+  var i = 0
+  while i < 300 do
+    sum = sum + combineAll(xs).toLong
+    i = i + 1
+  sum
+```
