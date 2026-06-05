@@ -32,8 +32,11 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       and `contentToMarkdown(value)` reverse rendering for `DocumentContent`,
       `SectionContent`, and `ContentBlock` landed 2026-06-05 (specified in
       [`specs/markdown-content-to-markdown.md`](specs/markdown-content-to-markdown.md)).
-      `.scir` / `.sscc` round-trip and multi-link import paragraphs follow as
-      later slices.
+      Current-module `.scir` / `.sscc` artifact round-trip landed 2026-06-05
+      (specified in
+      [`specs/markdown-content-artifact-roundtrip.md`](specs/markdown-content-artifact-roundtrip.md)).
+      Linked-module content namespace support and multi-link import paragraphs
+      follow as later slices.
 
 ## JS Codegen Performance
 

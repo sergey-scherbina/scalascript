@@ -1,6 +1,0 @@
-feature/markdown-content-artifact-roundtrip 2026-06-05T10:59:17Z
-agent: codex
-heartbeat: 2026-06-05T10:59:17Z
-status: in-progress
-done-so-far: focused spec committed and pushed to origin/main
-next: implement .sscc trailing DocumentContent payload and .scir/.sscc tests

@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(language): Markdown content artifact round-trip
+
+- **markdown-content-artifact-roundtrip** — Preserved current-module
+  `DocumentContent` snapshots through `.scir` and `.sscc` artifacts.
+  `.scir` now has regression coverage for JSON and MessagePack body
+  round-trips, while `.sscc` v3 writes an optional trailing content blob after
+  `ModuleEnd` so plain/gzip artifact-backed runs can still execute
+  `contentDocument()` / `contentToMarkdown(...)` without reparsing source.
+
 ## 2026-06-05 — feat(language): Markdown content to Markdown
 
 - **markdown-content-to-markdown** — Added `contentToMarkdown(value)` for
