@@ -144,7 +144,7 @@ Verified empirically via `./bench.sh`. New regression-guard corpus cases added:
 - [x] **jit-uc-stage3-4** — IC hit-rate validation (`SSC_JIT_IC_STATS=1`).
 - [x] **jit-uc-stage3-5** — Bytecode JIT HOF emission (Javac + ASM `INVOKEINTERFACE` to `RefCallable`).
 
-- [ ] **jit-uc-stage4** — Arity 3–4 ceiling lift (code-generated dispatch interfaces).
+- [x] **jit-uc-stage4** — Arity 3–4 ceiling lift (code-generated dispatch interfaces).
 
 - [ ] **jit-uc-stage5-1** — Mixed Long+Double arms auto-promotion.
 - [ ] **jit-uc-stage5-2** — `var` in pure bodies (extend `walkLocalSlotCtx`).

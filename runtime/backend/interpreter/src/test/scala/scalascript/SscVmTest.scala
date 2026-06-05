@@ -1566,3 +1566,43 @@ class SscVmTest extends AnyFunSuite with Matchers:
         |println(applyN((x: Int) => x * 3, 14))""".stripMargin)
     out.trim shouldBe "42"
   }
+
+  // ── Stage 4: Arity-3 ceiling lift ─────────────────────────────────────────
+
+  test("stage4: Javac — 3-param all-Long function compiles to LongFn3") {
+    import scalascript.interpreter.vm.jit.LongFn3
+    val interp = interpOf("def sum3(a: Int, b: Int, c: Int): Int = a + b + c")
+    val fn = interp.globalsView("sum3").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.paramIsRef.forall(!_) shouldBe true
+    r.direct should not be null
+    r.direct.asInstanceOf[LongFn3].apply(1L, 2L, 39L) shouldBe 42L
+  }
+
+  test("stage4: ASM — 3-param all-Long function compiles to LongFn3") {
+    import scalascript.interpreter.vm.jit.LongFn3
+    val interp = interpOf("def mul3(a: Int, b: Int, c: Int): Int = a * b * c")
+    val fn = interp.globalsView("mul3").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    r.direct.asInstanceOf[LongFn3].apply(2L, 3L, 7L) shouldBe 42L
+  }
+
+  test("stage4: end-to-end — 3-param function runs via bytecode JIT") {
+    val out = captured(
+      """def clamp(lo: Int, hi: Int, x: Int): Int = if x < lo then lo else if x > hi then hi else x
+        |println(clamp(0, 10, 15))
+        |println(clamp(0, 10, -5))
+        |println(clamp(0, 10, 7))""".stripMargin)
+    out.trim shouldBe "10\n0\n7"
+  }
+
+  test("stage4: end-to-end — 3-param recursive gcd via co-emit (self-call)") {
+    // gcd(0,48,18) unrolls: gcd(48,18,12) → gcd(18,12,6) → gcd(12,6,0) → returns a=12
+    val out = captured(
+      """def gcd(a: Int, b: Int, c: Int): Int = if c == 0 then a else gcd(b, c, b % c)
+        |println(gcd(0, 48, 18))""".stripMargin)
+    out.trim shouldBe "12"
+  }

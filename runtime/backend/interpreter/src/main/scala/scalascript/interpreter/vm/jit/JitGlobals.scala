@@ -129,3 +129,13 @@ object JitGlobals:
           case Value.IntV(v) => v
           case other         => throw new RuntimeException(s"JitGlobals.callGlobalLong2: '$name' returned ${other.getClass.getSimpleName}")
       case _ => throw new RuntimeException(s"JitGlobals.callGlobalLong2: '$name' is not a FunV")
+
+  def callGlobalLong3(name: String, a1: Long, a2: Long, a3: Long): Long =
+    val interp = interpTls.get()
+    if interp == null then throw new RuntimeException("JitGlobals.callGlobalLong3: no interp in TLS")
+    interp.globals.getOrElse(name, null) match
+      case fn: Value.FunV =>
+        interp.invoke(fn, List(Value.intV(a1), Value.intV(a2), Value.intV(a3))) match
+          case Value.IntV(v) => v
+          case other         => throw new RuntimeException(s"JitGlobals.callGlobalLong3: '$name' returned ${other.getClass.getSimpleName}")
+      case _ => throw new RuntimeException(s"JitGlobals.callGlobalLong3: '$name' is not a FunV")

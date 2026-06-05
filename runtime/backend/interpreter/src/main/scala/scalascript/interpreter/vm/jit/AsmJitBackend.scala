@@ -36,7 +36,7 @@ object AsmJitBackend extends JitBackend:
 
   override def tryCompile(f: Value.FunV, interp: Interpreter): JitResult | Null =
     if !enabled || f.name.isEmpty then return null
-    if f.params.length > 2 then return null
+    if f.params.length > 3 then return null
     val body = f.body
     cache.synchronized {
       val hit = cache.get(body)
@@ -83,6 +83,16 @@ object AsmJitBackend extends JitBackend:
           if isDouble then s"$jitPkg.ObjLongToDouble" else s"$jitPkg.ObjLongToLong"
         case (true,  true)  =>
           if isDouble then s"$jitPkg.ObjObjToDouble" else s"$jitPkg.ObjObjToLong"
+    else if n == 3 then
+      (paramIsRef(0), paramIsRef(1), paramIsRef(2)) match
+        case (false, false, false) => if isDouble then s"$jitPkg.DoubleFn3"           else s"$jitPkg.LongFn3"
+        case (true,  false, false) => if isDouble then s"$jitPkg.ObjLongLongToDouble" else s"$jitPkg.ObjLongLongToLong"
+        case (false, true,  false) => if isDouble then s"$jitPkg.LongObjLongToDouble" else s"$jitPkg.LongObjLongToLong"
+        case (false, false, true)  => if isDouble then s"$jitPkg.LongLongObjToDouble" else s"$jitPkg.LongLongObjToLong"
+        case (true,  true,  false) => if isDouble then s"$jitPkg.ObjObjLongToDouble"  else s"$jitPkg.ObjObjLongToLong"
+        case (true,  false, true)  => if isDouble then s"$jitPkg.ObjLongObjToDouble"  else s"$jitPkg.ObjLongObjToLong"
+        case (false, true,  true)  => if isDouble then s"$jitPkg.LongObjObjToDouble"  else s"$jitPkg.LongObjObjToLong"
+        case (true,  true,  true)  => if isDouble then s"$jitPkg.ObjObjObjToDouble"   else s"$jitPkg.ObjObjObjToLong"
     else null
 
   private final case class MethodSig(
@@ -131,7 +141,7 @@ object AsmJitBackend extends JitBackend:
 
   private def jitCompatibleSibling(f: Value.FunV): Boolean =
     f.name.nonEmpty &&
-      (f.params.length == 1 || f.params.length == 2) &&
+      (f.params.length >= 1 && f.params.length <= 3) &&
       f.usingParams.isEmpty &&
       !f.returnsThrows &&
       (f.defaults.isEmpty || f.defaults.forall(_.isEmpty)) &&
@@ -974,11 +984,11 @@ object AsmJitBackend extends JitBackend:
       mv.visitMethodInsn(INVOKESTATIC, ctx.selfClass, sig.methodName,
         buildStaticDesc(sig.paramIsRef, sig.isDouble), false)
       return true
-    // Co-emit failed. Fall back to JitGlobals.callGlobalLong1/2 if the callee
+    // Co-emit failed. Fall back to JitGlobals.callGlobalLong1/2/3 if the callee
     // is a global FunV with all-Long params (non-HOF case).
     if fnName == ctx.funName then return false
     val n = args.length
-    if n < 1 || n > 2 then return false
+    if n < 1 || n > 3 then return false
     ctx.interp.globals.getOrElse(fnName, null) match
       case fn: Value.FunV if fn.params.length == n && fn.usingParams.isEmpty =>
         val paramIsRef = classifyParamRefs(fn)
@@ -990,13 +1000,15 @@ object AsmJitBackend extends JitBackend:
         while rem.nonEmpty do
           if !walkLong(rem.head, ctx, mv) then return false
           rem = rem.tail
-        val desc = if n == 1 then "(Ljava/lang/String;J)J" else "(Ljava/lang/String;JJ)J"
-        val mname = if n == 1 then "callGlobalLong1" else "callGlobalLong2"
+        val (desc, mname) =
+          if n == 1 then ("(Ljava/lang/String;J)J", "callGlobalLong1")
+          else if n == 2 then ("(Ljava/lang/String;JJ)J", "callGlobalLong2")
+          else ("(Ljava/lang/String;JJJ)J", "callGlobalLong3")
         mv.visitMethodInsn(INVOKEVIRTUAL, jkgOwner, mname, desc, false)
         true
       case _ =>
         // HOF param call: `f(arg)` where `f` is a function-typed parameter.
-        // Stack protocol: ALOAD slot, CHECKCAST LongFn1/2, emit arg(s), INVOKEINTERFACE.
+        // Stack protocol: ALOAD slot, CHECKCAST LongFnN, emit arg(s), INVOKEINTERFACE.
         val paramIdx = ctx.paramNames.indexOf(fnName)
         if paramIdx < 0 || paramIdx >= ctx.paramTypes.length || !ctx.paramTypes(paramIdx).contains("=>") then
           return false
@@ -1016,6 +1028,15 @@ object AsmJitBackend extends JitBackend:
           if !walkLong(args(1), ctx, mv) then return false
           mv.visitMethodInsn(INVOKEINTERFACE, "scalascript/interpreter/vm/jit/LongFn2",
             "apply", "(JJ)J", true)
+          true
+        else if n == 3 then
+          mv.visitVarInsn(ALOAD, slot)
+          mv.visitTypeInsn(CHECKCAST, "scalascript/interpreter/vm/jit/LongFn3")
+          if !walkLong(args.head, ctx, mv) then return false
+          if !walkLong(args(1), ctx, mv) then return false
+          if !walkLong(args(2), ctx, mv) then return false
+          mv.visitMethodInsn(INVOKEINTERFACE, "scalascript/interpreter/vm/jit/LongFn3",
+            "apply", "(JJJ)J", true)
           true
         else false
 

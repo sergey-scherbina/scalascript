@@ -1,7 +1,7 @@
 package scalascript.interpreter.vm
 
 import scalascript.interpreter.{Value, Computation, Interpreter}
-import scalascript.interpreter.vm.jit.{JitBackend, JitResult, JitGlobals, LongFn0, DoubleFn0, LongFn1, DoubleFn1, ObjToLong, ObjToDouble, ObjToObject, LongToObject, LongFn2, DoubleFn2, LongObjToLong, LongObjToDouble, ObjLongToLong, ObjLongToDouble, ObjObjToLong, ObjObjToDouble}
+import scalascript.interpreter.vm.jit.{JitBackend, JitResult, JitGlobals, LongFn0, DoubleFn0, LongFn1, DoubleFn1, ObjToLong, ObjToDouble, ObjToObject, LongToObject, LongFn2, DoubleFn2, LongObjToLong, LongObjToDouble, ObjLongToLong, ObjLongToDouble, ObjObjToLong, ObjObjToDouble, LongFn3, DoubleFn3, ObjLongLongToLong, LongObjLongToLong, LongLongObjToLong, ObjObjLongToLong, ObjLongObjToLong, LongObjObjToLong, ObjObjObjToLong, ObjLongLongToDouble, LongObjLongToDouble, LongLongObjToDouble, ObjObjLongToDouble, ObjLongObjToDouble, LongObjObjToDouble, ObjObjObjToDouble}
 import java.lang as jl
 
 /** Run-time JIT bridge between the tree-walking interpreter and [[SscVm]].
@@ -382,6 +382,79 @@ object JitRuntime:
         catch case _: Throwable => return null
       wrapBytecodeResult(r, out)
 
+  private def invokeBytecode3(r: JitResult, a: Value, b: Value, c: Value, interp: Interpreter): Computation | Null =
+    val d = r.direct
+    if d != null then
+      if r.resultIsRef then return null
+      try
+        val isDbl = r.resultIsDouble
+        val pr0 = r.paramIsRef(0); val pr1 = r.paramIsRef(1); val pr2 = r.paramIsRef(2)
+        def refOf(v: Value): AnyRef | Null = v match
+          case _: Value.InstanceV | _: Value.StringV | _: Value.MapV => v.asInstanceOf[AnyRef]
+          case fn: Value.FunV => wrapFunVAsLong(fn, interp)
+          case _ => null
+        (pr0, pr1, pr2) match
+          case (false, false, false) =>
+            val x = a match { case Value.IntV(v) => v; case _ => return null }
+            val y = b match { case Value.IntV(v) => v; case _ => return null }
+            val z = c match { case Value.IntV(v) => v; case _ => return null }
+            if isDbl then Computation.Pure(Value.doubleV(JitGlobals.withInterp(interp){ d.asInstanceOf[DoubleFn3].apply(x.toDouble, y.toDouble, z.toDouble) }))
+            else wrapLong(r, JitGlobals.withInterp(interp){ d.asInstanceOf[LongFn3].apply(x, y, z) })
+          case (true, false, false) =>
+            val ax = refOf(a); if ax == null then return null
+            val y = b match { case Value.IntV(v) => v; case _ => return null }
+            val z = c match { case Value.IntV(v) => v; case _ => return null }
+            if isDbl then Computation.Pure(Value.doubleV(JitGlobals.withInterp(interp){ d.asInstanceOf[ObjLongLongToDouble].apply(ax, y, z) }))
+            else wrapLong(r, JitGlobals.withInterp(interp){ d.asInstanceOf[ObjLongLongToLong].apply(ax, y, z) })
+          case (false, true, false) =>
+            val x = a match { case Value.IntV(v) => v; case _ => return null }
+            val bx = refOf(b); if bx == null then return null
+            val z = c match { case Value.IntV(v) => v; case _ => return null }
+            if isDbl then Computation.Pure(Value.doubleV(JitGlobals.withInterp(interp){ d.asInstanceOf[LongObjLongToDouble].apply(x, bx, z) }))
+            else wrapLong(r, JitGlobals.withInterp(interp){ d.asInstanceOf[LongObjLongToLong].apply(x, bx, z) })
+          case (false, false, true) =>
+            val x = a match { case Value.IntV(v) => v; case _ => return null }
+            val y = b match { case Value.IntV(v) => v; case _ => return null }
+            val cx = refOf(c); if cx == null then return null
+            if isDbl then Computation.Pure(Value.doubleV(JitGlobals.withInterp(interp){ d.asInstanceOf[LongLongObjToDouble].apply(x, y, cx) }))
+            else wrapLong(r, JitGlobals.withInterp(interp){ d.asInstanceOf[LongLongObjToLong].apply(x, y, cx) })
+          case (true, true, false) =>
+            val ax = refOf(a); if ax == null then return null
+            val bx = refOf(b); if bx == null then return null
+            val z = c match { case Value.IntV(v) => v; case _ => return null }
+            if isDbl then Computation.Pure(Value.doubleV(JitGlobals.withInterp(interp){ d.asInstanceOf[ObjObjLongToDouble].apply(ax, bx, z) }))
+            else wrapLong(r, JitGlobals.withInterp(interp){ d.asInstanceOf[ObjObjLongToLong].apply(ax, bx, z) })
+          case (true, false, true) =>
+            val ax = refOf(a); if ax == null then return null
+            val y = b match { case Value.IntV(v) => v; case _ => return null }
+            val cx = refOf(c); if cx == null then return null
+            if isDbl then Computation.Pure(Value.doubleV(JitGlobals.withInterp(interp){ d.asInstanceOf[ObjLongObjToDouble].apply(ax, y, cx) }))
+            else wrapLong(r, JitGlobals.withInterp(interp){ d.asInstanceOf[ObjLongObjToLong].apply(ax, y, cx) })
+          case (false, true, true) =>
+            val x = a match { case Value.IntV(v) => v; case _ => return null }
+            val bx = refOf(b); if bx == null then return null
+            val cx = refOf(c); if cx == null then return null
+            if isDbl then Computation.Pure(Value.doubleV(JitGlobals.withInterp(interp){ d.asInstanceOf[LongObjObjToDouble].apply(x, bx, cx) }))
+            else wrapLong(r, JitGlobals.withInterp(interp){ d.asInstanceOf[LongObjObjToLong].apply(x, bx, cx) })
+          case (true, true, true) =>
+            val ax = refOf(a); if ax == null then return null
+            val bx = refOf(b); if bx == null then return null
+            val cx = refOf(c); if cx == null then return null
+            if isDbl then Computation.Pure(Value.doubleV(JitGlobals.withInterp(interp){ d.asInstanceOf[ObjObjObjToDouble].apply(ax, bx, cx) }))
+            else wrapLong(r, JitGlobals.withInterp(interp){ d.asInstanceOf[ObjObjObjToLong].apply(ax, bx, cx) })
+      catch case _: Throwable => null
+    else
+      val a0 = marshalBytecode(a, r.paramIsRef(0), r.resultIsDouble, interp)
+      if a0 == null then return null
+      val b0 = marshalBytecode(b, r.paramIsRef(1), r.resultIsDouble, interp)
+      if b0 == null then return null
+      val c0 = marshalBytecode(c, r.paramIsRef(2), r.resultIsDouble, interp)
+      if c0 == null then return null
+      val out =
+        try JitGlobals.withInterp(interp) { r.mh.invoke(a0, b0, c0).asInstanceOf[AnyRef] }
+        catch case _: Throwable => return null
+      wrapBytecodeResult(r, out)
+
   /** For FastTier: try to get an `ObjToDouble` direct interface for a
    *  1-param ref → double JIT-compiled function. Returns null when JIT is
    *  disabled, compilation fails, or the shape doesn't match. No `withInterp`
@@ -418,11 +491,12 @@ object JitRuntime:
   def tryBytecodeList(f: Value.FunV, args: List[Value], interp: Interpreter): Computation | Null =
     if !JitBackend.default.enabled || f.name.isEmpty then return null
     val n = f.params.length
-    if n < 1 || n > 2 || args.length != n then return null
+    if n < 1 || n > 3 || args.length != n then return null
     val bc = bytecodeFor(f, interp)
     if bc == null then return null
     if n == 1 then invokeBytecode1(bc, args.head, interp)
-    else invokeBytecode2(bc, args.head, args(1), interp)
+    else if n == 2 then invokeBytecode2(bc, args.head, args(1), interp)
+    else invokeBytecode3(bc, args.head, args(1), args(2), interp)
 
   /** 0-arg entry. Returns a Pure(IntV/DoubleV) computation if the 0-param thunk
    *  `f` is bytecode-JIT compilable, else null. Only the bytecode-JIT path
@@ -488,14 +562,16 @@ object JitRuntime:
       val n = args.length
       if n < 1 || n > VmCompiler.MaxArity || f.params.length != n then null
       else
-        // Phase C bytecode JIT for 1- or 2-param funcs; bypasses the
+        // Bytecode JIT for 1-, 2-, and 3-param funcs; bypasses the
         // SscVm.exec dispatch loop when the body fits its subset
         // (incl. the TCO `while`-loop pattern from `tryTcoBody`).
-        if (n == 1 || n == 2) && JitBackend.default.enabled then
+        if (n >= 1 && n <= 3) && JitBackend.default.enabled then
           val bc = bytecodeFor(f, interp)
           if bc != null then
-            val r = if n == 1 then invokeBytecode1(bc, args.head, interp)
-                    else            invokeBytecode2(bc, args.head, args(1), interp)
+            val r =
+              if n == 1 then invokeBytecode1(bc, args.head, interp)
+              else if n == 2 then invokeBytecode2(bc, args.head, args(1), interp)
+              else invokeBytecode3(bc, args.head, args(1), args(2), interp)
             if r != null then return r
         val cf = hotCompiled(f, interp, eager)
         if cf == null then null else marshalAndRun(cf, args)

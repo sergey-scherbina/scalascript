@@ -59,7 +59,7 @@ object JavacJitBackend extends JitBackend:
 
   override def tryCompile(f: Value.FunV, interp: scalascript.interpreter.Interpreter): JitResult | Null =
     if !enabled || f.name.isEmpty then return null
-    if f.params.length > 2 then return null
+    if f.params.length > 3 then return null
     val body = f.body
     cache.synchronized {
       val cached = cache.get(body)
@@ -121,6 +121,16 @@ object JavacJitBackend extends JitBackend:
         case (true,  true)  =>
           if resultIsRef then s"$pkg.ObjObjToObject"
           else if isDouble then s"$pkg.ObjObjToDouble" else s"$pkg.ObjObjToLong"
+    else if n == 3 then
+      (paramIsRef(0), paramIsRef(1), paramIsRef(2)) match
+        case (false, false, false) => if isDouble then s"$pkg.DoubleFn3"           else s"$pkg.LongFn3"
+        case (true,  false, false) => if isDouble then s"$pkg.ObjLongLongToDouble" else s"$pkg.ObjLongLongToLong"
+        case (false, true,  false) => if isDouble then s"$pkg.LongObjLongToDouble" else s"$pkg.LongObjLongToLong"
+        case (false, false, true)  => if isDouble then s"$pkg.LongLongObjToDouble" else s"$pkg.LongLongObjToLong"
+        case (true,  true,  false) => if isDouble then s"$pkg.ObjObjLongToDouble"  else s"$pkg.ObjObjLongToLong"
+        case (true,  false, true)  => if isDouble then s"$pkg.ObjLongObjToDouble"  else s"$pkg.ObjLongObjToLong"
+        case (false, true,  true)  => if isDouble then s"$pkg.LongObjObjToDouble"  else s"$pkg.LongObjObjToLong"
+        case (true,  true,  true)  => if isDouble then s"$pkg.ObjObjObjToDouble"   else s"$pkg.ObjObjObjToLong"
     else null
 
   private def doCompile(f: Value.FunV, interp: scalascript.interpreter.Interpreter): JitResult | Null =
@@ -325,7 +335,7 @@ object JavacJitBackend extends JitBackend:
 
   private def jitCompatibleSibling(f: Value.FunV): Boolean =
     f.name.nonEmpty &&
-      (f.params.length == 1 || f.params.length == 2) &&
+      (f.params.length >= 1 && f.params.length <= 3) &&
       f.usingParams.isEmpty &&
       !f.returnsThrows &&
       (f.defaults.isEmpty || f.defaults.forall(_.isEmpty)) &&
@@ -424,10 +434,10 @@ object JavacJitBackend extends JitBackend:
         rem = rem.tail
       return sb.append(')').toString
     // Co-emit failed. If the callee is a global FunV with all-Long params,
-    // fall back to JitGlobals.callGlobalLong1/2 so the CALLER can still JIT.
+    // fall back to JitGlobals.callGlobalLong1/2/3 so the CALLER can still JIT.
     if fnName == ctx.funName then return null  // self-recursion must co-emit
     val n = args.length
-    if n < 1 || n > 2 then return null
+    if n < 1 || n > 3 then return null
     ctx.interp.globals.getOrElse(fnName, null) match
       case fn: Value.FunV if fn.params.length == n && fn.usingParams.isEmpty =>
         val paramIsRef = classifyParamRefs(fn)
@@ -439,11 +449,12 @@ object JavacJitBackend extends JitBackend:
           argExprs(i) = e; i += 1; rem = rem.tail
         val jkg = "scalascript.interpreter.vm.jit.JitGlobals$.MODULE$"
         if n == 1 then s"""$jkg.callGlobalLong1("${escape(fnName)}", ${argExprs(0)})"""
-        else            s"""$jkg.callGlobalLong2("${escape(fnName)}", ${argExprs(0)}, ${argExprs(1)})"""
+        else if n == 2 then s"""$jkg.callGlobalLong2("${escape(fnName)}", ${argExprs(0)}, ${argExprs(1)})"""
+        else                 s"""$jkg.callGlobalLong3("${escape(fnName)}", ${argExprs(0)}, ${argExprs(1)}, ${argExprs(2)})"""
       case _ =>
         // HOF param call: `f(arg)` where `f` is a function-typed parameter.
-        // Emit `((LongFn1) f).apply(arg)` so the caller can still JIT even when
-        // `f` is not a static global (the FunV is wrapped as LongFn1 at call time).
+        // Emit `((LongFnN) f).apply(args...)` so the caller can still JIT even when
+        // `f` is not a static global (the FunV is wrapped as LongFnN at call time).
         val paramIdx = ctx.paramNames.indexOf(fnName)
         if paramIdx >= 0 && paramIdx < ctx.paramTypes.length && ctx.paramTypes(paramIdx).contains("=>") then
           val ref = ctx.resolveLocal(fnName)
@@ -455,6 +466,11 @@ object JavacJitBackend extends JitBackend:
             val a1 = walkLong(args.head, ctx); if a1 == null then return null
             val a2 = walkLong(args(1), ctx);   if a2 == null then return null
             s"((scalascript.interpreter.vm.jit.LongFn2) $ref).apply($a1, $a2)"
+          else if n == 3 then
+            val a1 = walkLong(args.head, ctx); if a1 == null then return null
+            val a2 = walkLong(args(1), ctx);   if a2 == null then return null
+            val a3 = walkLong(args(2), ctx);   if a3 == null then return null
+            s"((scalascript.interpreter.vm.jit.LongFn3) $ref).apply($a1, $a2, $a3)"
           else null
         else null
 

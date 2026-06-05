@@ -114,13 +114,20 @@ class JitLintTest extends AnyFunSuite with Matchers:
     r.willJit shouldBe true
     r.bailReasons shouldBe empty
 
-  test("three-param function reports TooManyParams"):
+  test("three-param function compiles (Stage 4 ceiling lifted to 3)"):
     val r = lintFor(
       """def f(a: Int, b: Int, c: Int): Int = a + b + c
         |f(1, 2, 3)""".stripMargin
     ).forDef("f")
+    r.willJit shouldBe true
+
+  test("four-param function reports TooManyParams"):
+    val r = lintFor(
+      """def g(a: Int, b: Int, c: Int, d: Int): Int = a + b + c + d
+        |g(1, 2, 3, 4)""".stripMargin
+    ).forDef("g")
     r.willJit shouldBe false
-    r.bailReasons should contain (JitBailReason.TooManyParams(3))
+    r.bailReasons should contain (JitBailReason.TooManyParams(4))
 
   // ── multi-def module ──────────────────────────────────────────────
 
@@ -145,7 +152,7 @@ class JitLintTest extends AnyFunSuite with Matchers:
     r.forDef("withVararg").bailReasons should contain (JitBailReason.VarargParam)
     r.forDef("withBool").willJit shouldBe true   // bool bodies now compile (0/1 encoded)
     r.forDef("withZero").willJit shouldBe true
-    r.forDef("withThree").bailReasons should contain (JitBailReason.TooManyParams(3))
+    r.forDef("withThree").willJit shouldBe true   // arity 3 now supported (Stage 4)
 
   // ── recursive ADT eval ─────────────────────────────────────────────
 
@@ -378,11 +385,15 @@ class JitLintTest extends AnyFunSuite with Matchers:
     r.asmOnlyFails shouldBe false
     r.javacOnlyFails shouldBe false
 
-  test("lintInterpreterCompare — TooManyParams shows BOTH FAIL"):
+  test("lintInterpreterCompare — 3-param now shows BOTH OK (Stage 4)"):
     val r = lintCompareFor("def f(a: Int, b: Int, c: Int): Int = a+b+c\nf(1,2,3)").forDef("f")
+    r.bothFail shouldBe false
+
+  test("lintInterpreterCompare — 4-param TooManyParams shows BOTH FAIL"):
+    val r = lintCompareFor("def f(a: Int, b: Int, c: Int, d: Int): Int = a+b+c+d\nf(1,2,3,4)").forDef("f")
     r.bothFail shouldBe true
-    r.javac.bailReasons should contain (JitBailReason.TooManyParams(3))
-    r.asm.bailReasons   should contain (JitBailReason.TooManyParams(3))
+    r.javac.bailReasons should contain (JitBailReason.TooManyParams(4))
+    r.asm.bailReasons   should contain (JitBailReason.TooManyParams(4))
 
   test("lintInterpreterCompare — ADT eval JITs on both backends"):
     val r = lintCompareFor(

@@ -48,3 +48,21 @@ trait WhileLongEmitRunFn { def run(slots: Array[Long], buf: Array[Long], bufLen:
 // callable function value.  Stage 3.1 infrastructure; the monomorphic inline cache
 // (Stage 3.4) replaces the boxed `Array[AnyRef]` call with a direct MH dispatch.
 trait RefCallable { def call(args: Array[AnyRef]): AnyRef }
+// Arity-3 dispatch interfaces — Stage 4.  8 Long-ref masks × 2 return kinds = 16.
+// Naming: O = Object (ref param), L = long; left-to-right param order, then return type.
+trait LongFn3         { def apply(a: Long,   b: Long,   c: Long):   Long   }
+trait DoubleFn3       { def apply(a: Double, b: Double, c: Double): Double }
+trait ObjLongLongToLong   { def apply(a: AnyRef, b: Long,   c: Long):   Long   }
+trait LongObjLongToLong   { def apply(a: Long,   b: AnyRef, c: Long):   Long   }
+trait LongLongObjToLong   { def apply(a: Long,   b: Long,   c: AnyRef): Long   }
+trait ObjObjLongToLong    { def apply(a: AnyRef, b: AnyRef, c: Long):   Long   }
+trait ObjLongObjToLong    { def apply(a: AnyRef, b: Long,   c: AnyRef): Long   }
+trait LongObjObjToLong    { def apply(a: Long,   b: AnyRef, c: AnyRef): Long   }
+trait ObjObjObjToLong     { def apply(a: AnyRef, b: AnyRef, c: AnyRef): Long   }
+trait ObjLongLongToDouble { def apply(a: AnyRef, b: Long,   c: Long):   Double }
+trait LongObjLongToDouble { def apply(a: Long,   b: AnyRef, c: Long):   Double }
+trait LongLongObjToDouble { def apply(a: Long,   b: Long,   c: AnyRef): Double }
+trait ObjObjLongToDouble  { def apply(a: AnyRef, b: AnyRef, c: Long):   Double }
+trait ObjLongObjToDouble  { def apply(a: AnyRef, b: Long,   c: AnyRef): Double }
+trait LongObjObjToDouble  { def apply(a: Long,   b: AnyRef, c: AnyRef): Double }
+trait ObjObjObjToDouble   { def apply(a: AnyRef, b: AnyRef, c: AnyRef): Double }

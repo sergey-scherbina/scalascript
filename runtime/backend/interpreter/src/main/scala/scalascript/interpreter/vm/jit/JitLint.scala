@@ -162,7 +162,7 @@ object JitPredicates:
    *  Returns Nil when no obvious cliff is found — caller reports UnknownShape. */
   def classifyBailReasons(fn: Value.FunV): List[JitBailReason] =
     val buf = scala.collection.mutable.ListBuffer.empty[JitBailReason]
-    if fn.params.length > 2 then buf += JitBailReason.TooManyParams(fn.params.length)
+    if fn.params.length > 3 then buf += JitBailReason.TooManyParams(fn.params.length)
     if fn.usingParams.nonEmpty then buf += JitBailReason.UsingParams
     if fn.paramTypes.exists(_.endsWith("*")) then buf += JitBailReason.VarargParam
     if fn.returnsThrows then buf += JitBailReason.EffectReturn
