@@ -392,6 +392,11 @@ code that needs renderer/content defaults without unpacking the whole manifest.
 `SectionContent` when the block runs inside a real Markdown heading section;
 outside such a section it reports an interpreter error rather than fabricating
 synthetic content.
+Direct imported modules expose their Markdown snapshots through
+`contentModules()`, `contentModule(namespace)`, and namespace-scoped lookup
+helpers. The namespace is the imported module's `name:` front-matter value, or
+the imported path stem when `name:` is absent. Imported content namespaces are
+kept outside `DocumentContent` so the current-module content ABI remains stable.
 `contentToMarkdown(value)` accepts `DocumentContent`, `SectionContent`, or any
 current `ContentBlock` variant and returns deterministic semantic Markdown. It
 preserves embedded fenced source text and metadata, but does not promise

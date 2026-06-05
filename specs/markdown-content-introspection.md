@@ -123,7 +123,8 @@ interpreter; follow-up interpreter slices added `contentData(id)`,
 helper set now runs on generated JS and JVM backends, `contentToMarkdown`
 reverse rendering landed as the Markdown conversion helper, and current-module
 `.scir` / `.sscc` artifact round-trip preserves the content snapshot. Current
-remaining Phase 2 work is linked-module content namespace support.
+remaining Phase 2 work is linked-module content namespace support, specified in
+[`specs/markdown-content-linked-namespaces.md`](markdown-content-linked-namespaces.md).
 Names are prefixed with `content` to avoid collisions with existing `doc(...)`
 and `render(...)` helpers.
 
@@ -183,6 +184,12 @@ extern def contentData(id: String): Option[ContentValue]
 extern def contentMetadata(path: String): Option[ContentValue]
 extern def contentPlainText(value: Any): String
 extern def contentToMarkdown(value: Any): String
+extern def contentModules(): Map[String, DocumentContent]
+extern def contentModule(namespace: String): Option[DocumentContent]
+extern def contentModuleSection(namespace: String, id: String): Option[SectionContent]
+extern def contentModuleBlock(namespace: String, id: String): Option[ContentBlock]
+extern def contentModuleData(namespace: String, id: String): Option[ContentValue]
+extern def contentModuleMetadata(namespace: String, path: String): Option[ContentValue]
 ```
 
 `contentDocument()` returns a parse-time snapshot of the whole module. It is
@@ -209,6 +216,11 @@ previews. Unsupported values report an interpreter error.
 current `ContentBlock` variant and returns deterministic semantic Markdown.
 It preserves section/block metadata and embedded fenced source text, but does
 not promise byte-for-byte source whitespace preservation.
+
+`contentModules()` and `contentModule(namespace)` expose direct imported module
+snapshots by stable namespace. The namespace is the imported module's `name:`
+front-matter value or its path stem when `name:` is absent. The namespace-scoped
+lookup helpers mirror current-module section, block, data, and metadata lookup.
 
 ### Frontend helper API
 
@@ -682,8 +694,8 @@ concatenates classes in source order.
 
 - Thread the snapshot through `Normalize`, `Denormalize`, `.scir`, and `.sscc`
   formats with backward-compatible default handling. Current-module artifact
-  round-trip landed on 2026-06-05; linked-module content namespace support
-  remains separate.
+  round-trip landed on 2026-06-05; linked-module content namespace support is
+  separate and keeps imported snapshots outside the `DocumentContent` payload.
 - Add round-trip tests for old artifacts without content metadata and new
   artifacts with content metadata. Covered by
   [`specs/markdown-content-artifact-roundtrip.md`](markdown-content-artifact-roundtrip.md).
