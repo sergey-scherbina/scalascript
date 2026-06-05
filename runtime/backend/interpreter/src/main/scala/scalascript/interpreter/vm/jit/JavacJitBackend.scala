@@ -639,8 +639,9 @@ object JavacJitBackend extends JitBackend:
       new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings ++ more, interp, coEmit, paramTypes)
 
   private def walkLong(t: Term, ctx: GenCtx): String | Null = t match
-    case Lit.Int(v)  => s"${v}L"
-    case Lit.Long(v) => s"${v}L"
+    case Lit.Int(v)     => s"${v}L"
+    case Lit.Long(v)    => s"${v}L"
+    case Lit.Boolean(b) => if b then "1L" else "0L"
     // Direction A.1/A.5: single-stmt block unwraps; multi-stmt blocks use IIFE.
     case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
       b.stats.head match
