@@ -1,6 +1,6 @@
 feature/markdown-content-backend-exposure 2026-06-05T06:25:54Z
 agent: codex
-heartbeat: 2026-06-05T06:25:54Z
-status: not-started
-done-so-far:
-next: create worktree and inspect JS/JVM content codegen path
+heartbeat: 2026-06-05T06:26:23Z
+status: in-progress
+done-so-far: worktree created at .worktrees/feature/markdown-content-backend-exposure
+next: inspect JS/JVM content codegen path and choose first shippable implementation slice
