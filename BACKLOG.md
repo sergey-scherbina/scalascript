@@ -26,8 +26,9 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       [`specs/markdown-content-backend-exposure.md`](specs/markdown-content-backend-exposure.md),
       and verified by un-pending `tests/conformance/content-introspection.ssc`),
       and `contentView(...)` low-level frontend lowering. The follow-up work is
-      `contentToMarkdown`. `.scir` / `.sscc` round-trip and multi-link import
-      paragraphs follow as later slices.
+      native-client parity for Markdown-authored controls and metadata on
+      Swing, JavaFX, and SwiftUI, then `contentToMarkdown`. `.scir` / `.sscc`
+      round-trip and multi-link import paragraphs follow as later slices.
 
 ## JS Codegen Performance
 
