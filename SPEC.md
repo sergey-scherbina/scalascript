@@ -346,7 +346,8 @@ val page = contentView(doc)
 ```
 
 Markdown headings, prose, lists, links, images, code fences, YAML/JSON/TOML data
-blocks, and future table nodes lower into a `DocumentContent` tree.
+blocks, and GitHub-Flavored Markdown pipe tables lower into a `DocumentContent`
+tree.
 Front-matter remains the module manifest, and the same YAML is exposed as typed
 `ContentValue` data under `DocumentContent.manifest`; `content:` inside
 front-matter carries content-rendering defaults. Lightweight metadata can be
@@ -363,6 +364,9 @@ Every fenced block enters the content tree as an embedded language node.
 Structured languages such as `yaml`, `json`, and `toml` may also expose parsed
 `ContentValue` data; executable or plugin-defined languages preserve their
 exact source and language tag for backend/plugin handling.
+Pipe tables enter the content tree as `ContentBlock.Table` with inline headers,
+inline cell content, column alignments, and attrs from preceding metadata
+directives.
 
 The content snapshot is parse-time data. Inline `${expr}` inside prose is stored
 as expression source until an explicit renderer evaluates it, so reading

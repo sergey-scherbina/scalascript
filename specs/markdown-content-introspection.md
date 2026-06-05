@@ -713,9 +713,10 @@ concatenates classes in source order.
 
 ### Phase 5 - Tables and richer authoring
 
-- Enable a table-capable Markdown extension or implement a narrow table parser.
-- Lower `ContentBlock.Table` into the toolkit table node and document the
-  capability.
+- Enable the CommonMark GFM tables extension and translate pipe tables to
+  `ContentBlock.Table` with inline header/cell content and column alignments.
+- Lower `ContentBlock.Table` into the toolkit table node and low-level
+  `contentView(...)` table markup, then document the capability.
 - Evaluate whether paragraph/list block attributes need a lighter syntax than
   the `<!-- @meta ... -->` directive.
 

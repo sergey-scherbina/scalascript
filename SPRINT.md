@@ -33,6 +33,12 @@ and
 [`specs/markdown-content-linked-namespaces.md`](specs/markdown-content-linked-namespaces.md).
 For the next slices, write and commit the focused spec first, then implement.
 
+- [ ] **markdown-content-tables** — Add GFM pipe tables to `DocumentContent` as
+      `ContentBlock.Table`, preserve inline cell content, and lower through
+      `contentPlainText`, `contentToMarkdown`, `contentView`, and
+      `contentToolkitNode()`. Spec:
+      [`specs/markdown-content-tables.md`](specs/markdown-content-tables.md).
+
 ## VmCompiler completeness (focus)
 
 Make `VmCompiler.compile` succeed for as many real functions as possible so
