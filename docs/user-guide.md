@@ -511,6 +511,30 @@ promise byte-for-byte source whitespace preservation. `contentCurrentSection()`
 returns the currently executing code block's enclosing Markdown section;
 headingless code reports an error.
 
+Direct imports can also expose their Markdown snapshots as named content
+modules. The namespace is the imported module's `name:` front-matter value, or
+the imported path stem when `name:` is absent. Helper imports of
+`std/content.ssc` and `std/ui/content.ssc` are filtered out of this namespace
+table:
+
+```scalascript
+[money](std/money.ssc)
+[contentModuleSection, contentModuleData, contentModuleMetadata](std/content.ssc)
+
+val section = contentModuleSection(
+  "std-money",
+  "minor-units-integer-count-of-the-smallest-unit-e-g-cents"
+).get
+
+println(section.title)
+println(contentModuleMetadata("std-money", "theme.density").isDefined)
+```
+
+Use `contentModules()` when you need the full direct-import table, or
+`contentModule(namespace)` when you need the imported `DocumentContent` itself.
+Duplicate direct import namespaces are runtime errors on lookup; transitive
+imports are not exposed unless the parent imports them directly.
+
 When a module is consumed through artifacts, the same snapshot is preserved for
 the current module: `.scir` carries `NormalizedModule.document`, and `.sscc` v3
 stores an optional trailing `DocumentContent` payload after the executable token

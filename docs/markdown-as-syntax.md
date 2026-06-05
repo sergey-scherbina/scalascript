@@ -118,12 +118,24 @@ val plansData = contentData("plans-data")
 val renderer = contentMetadata("defaultRenderer")
 val text = contentPlainText(here)
 val markdown = contentToMarkdown(here)
+val imported = contentModule("std-money")
+val importedSection = contentModuleSection("std-money", "minor-units-integer-count-of-the-smallest-unit-e-g-cents")
 ```
 
 `contentCurrentSection()` is execution-scoped: a function called from a later
 code block sees the caller's current Markdown section, and headingless code
 reports an interpreter/runtime error. The low-level `std/content` helpers above
 run on interpreter, generated JS, and generated JVM paths.
+
+Pure Markdown import links also create a direct imported content namespace when
+the imported module has a `DocumentContent` snapshot. `contentModules()` returns
+the duplicate-aware namespace table, `contentModule(namespace)` selects the
+imported `DocumentContent`, and `contentModuleSection`,
+`contentModuleBlock`, `contentModuleData`, and `contentModuleMetadata` apply
+the same lookup semantics to that imported document. Namespaces come from the
+imported module's `name:` front-matter value, falling back to the path stem.
+The helper imports `std/content.ssc` and `std/ui/content.ssc` are not exposed
+as content modules.
 
 The full contract and implementation phases are in
 [`../specs/markdown-content-introspection.md`](../specs/markdown-content-introspection.md).
