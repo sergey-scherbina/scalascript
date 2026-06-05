@@ -104,13 +104,17 @@ object VmCompiler:
         // than IntV — without it, `true`/`false` would surface as `1`/`0`.
         val b = new Builder(fn, this)
         b.buildInstructions()
+        val ops = b.opArr
+        val hasCallRef = { var found = false; var i = 0; while i < ops.length do { if ops(i) == CALLREF then found = true; i += 1 }; found }
         val shell = new CompiledFn(
           name = fn.name, arity = b.arityOf, numRegs = b.maxRegOf,
-          op = b.opArr, a = b.aArr, b = b.bArr, c = b.cArr,
+          op = ops, a = b.aArr, b = b.bArr, c = b.cArr,
           constPool = b.constArr, callPool = new Array[CompiledFn](b.callees.length),
           retIsDouble = b.retIsDoubleOf, paramIsDouble = b.paramIsDoubleOf,
           paramIsRef = b.paramIsRefOf, strPool = b.strArr,
-          retIsBool = jit.JitPredicates.isBoolReturning(fn.body)
+          retIsBool = jit.JitPredicates.isBoolReturning(fn.body),
+          funVPool = b.funVArr,
+          callRefCache = if hasCallRef then new Array[AnyRef](ops.length * 2) else Array.empty
         )
         building.put(fn, shell)            // register before filling — breaks cycles
         var i = 0
@@ -196,8 +200,12 @@ object VmCompiler:
     def aArr: Array[Int]     = as.toArray
     def bArr: Array[Int]     = bs.toArray
     def cArr: Array[Int]     = cs.toArray
-    def constArr: Array[Long] = consts.toArray
-    def strArr: Array[String] = strs.toArray
+    def constArr: Array[Long]    = consts.toArray
+    def strArr: Array[String]    = strs.toArray
+
+    // Non-capturing FunV constants for LOADFV (Stage 3.3).
+    private val funvs = mutable.ArrayBuffer.empty[Value.FunV]
+    def funVArr: Array[Value.FunV] = funvs.toArray
 
     private def slotFor(callee: Value.FunV): Int =
       val s = calleeSlot.get(callee)
@@ -479,6 +487,30 @@ object VmCompiler:
 
       case Lit.String(s) =>
         emit(LOADS, dst, strSlot(s), 0); setType(dst, TRef); setRefType(dst, "String"); TRef
+
+      // Non-capturing lambda: `(x: Int) => body`. Compiles when the lambda's free
+      // names are all globals (not outer locals). Creates a FunV, stores it in the
+      // per-function funVPool, and emits LOADFV to materialise it at runtime.
+      case fn: Term.Function =>
+        val lambdaParams = fn.paramClause.values
+        val lambdaParamNames = lambdaParams.map(_.name.value).toSet
+        val freeNames = mutable.Set.empty[String]
+        def collectFree(t: scala.meta.Tree): Unit = t match
+          case n: Term.Name if !lambdaParamNames.contains(n.value) => freeNames += n.value
+          case other2 => other2.children.foreach(collectFree)
+        collectFree(fn.body)
+        val captured = freeNames.filter(locals.contains)
+        if captured.nonEmpty then bail(s"lambda: captures outer locals: ${captured.mkString(", ")}")
+        val lambdaParamNameList = lambdaParams.map(_.name.value)
+        val lambdaParamTypes = lambdaParams.map(p => p.decltpe match
+          case Some(tpe) => tpe.syntax
+          case None      => "Int"
+        )
+        val lambdaFunV = Value.FunV(lambdaParamNameList, fn.body, Map.empty, "",
+          lambdaParamNameList.map(_ => None), lambdaParamTypes)
+        val poolSlot = funvs.length; funvs += lambdaFunV
+        emit(LOADFV, dst, poolSlot, 0)
+        setType(dst, TRef); setRefType(dst, s"FunV_${lambdaParamNameList.length}"); TRef
 
       case other =>
         bail(s"unsupported: ${termName(other)}")

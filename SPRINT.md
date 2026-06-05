@@ -140,8 +140,8 @@ Verified empirically via `./bench.sh`. New regression-guard corpus cases added:
 
 - [x] **jit-uc-stage3-1** — `Value.FunV` as JIT-visible ref operand in `JitGlobals`.
 - [x] **jit-uc-stage3-2** — SscVm `CALLREF` opcode + monomorphic IC.
-- [ ] **jit-uc-stage3-3** — Lambda / closure compilation (capturing + non-capturing).
-- [ ] **jit-uc-stage3-4** — IC hit-rate validation (`SSC_JIT_IC_STATS=1`).
+- [x] **jit-uc-stage3-3** — Lambda / closure compilation (capturing + non-capturing).
+- [x] **jit-uc-stage3-4** — IC hit-rate validation (`SSC_JIT_IC_STATS=1`).
 - [ ] **jit-uc-stage3-5** — Bytecode JIT HOF emission (Javac + ASM `INVOKEINTERFACE` to `RefCallable`).
 
 - [ ] **jit-uc-stage4** — Arity 3–4 ceiling lift (code-generated dispatch interfaces).

@@ -1453,3 +1453,49 @@ class SscVmTest extends AnyFunSuite with Matchers:
         |println(applyTwice(inc, 5))""".stripMargin)
     out.trim shouldBe "7"
   }
+
+  test("stage3.3: LOADFV — non-capturing lambda literal passed to HOF (VmCompiler emits LOADFV + CALLREF)") {
+    // `applyN((x: Int) => x * 2, 5)` — the lambda is non-capturing; VmCompiler
+    // should emit LOADFV to materialise a FunV into the ref bank, then CALLREF
+    // to invoke it. The CALLREF dispatches via JitGlobals.getInterp().invoke.
+    val out = captured(
+      """def applyN(f: Int => Int, n: Int): Int = f(n)
+        |println(applyN((x: Int) => x * 2, 5))""".stripMargin)
+    out.trim shouldBe "10"
+  }
+
+  test("stage3.3: LOADFV — lambda with 2 params, non-capturing") {
+    val out = captured(
+      """def applyBin(f: (Int, Int) => Int, a: Int, b: Int): Int = f(a, b)
+        |println(applyBin((x: Int, y: Int) => x + y, 17, 25))""".stripMargin)
+    out.trim shouldBe "42"
+  }
+
+  test("stage3.4: CALLREF IC — same FunV repeated calls produce correct results (cache correctness gate)") {
+    // Call applyN with the same callback 3 times. The IC populates on the first miss
+    // and uses exec directly on subsequent hits. If IC corrupts results, equality fails.
+    val interp  = interpOf(
+      """def double(x: Int): Int = x * 2
+        |def applyN(f: Int => Int, n: Int): Int = f(n)""".stripMargin)
+    val resolve = globalsResolve(interp)
+    val cfn = VmCompiler.compile(
+      interp.globalsView("applyN").asInstanceOf[Value.FunV], resolve)
+    cfn shouldBe defined
+    val cf       = cfn.get
+    val doubleFv = interp.globalsView("double").asInstanceOf[Value.FunV]
+    // IC cache must be allocated (CALLREF instruction present)
+    cf.callRefCache.length should be > 0
+    // Three invocations with same callee — verify correctness after IC population
+    val stack = new Array[Long](cf.numRegs * 4)
+    val refs  = new Array[AnyRef](cf.numRegs * 4)
+    refs(0) = doubleFv  // param 0 = f (FunV ref)
+    stack(1) = 21L
+    val r1 = JitGlobals.withInterp(interp) { SscVm.exec(cf, stack, refs, 0) }
+    r1 shouldBe 42L
+    stack(1) = 10L
+    val r2 = JitGlobals.withInterp(interp) { SscVm.exec(cf, stack, refs, 0) }
+    r2 shouldBe 20L
+    stack(1) = 3L
+    val r3 = JitGlobals.withInterp(interp) { SscVm.exec(cf, stack, refs, 0) }
+    r3 shouldBe 6L
+  }

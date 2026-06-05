@@ -11,6 +11,14 @@ import scalascript.interpreter.Value
  */
 object SscVm:
 
+  // ── CALLREF IC stats (SSC_JIT_IC_STATS=1) ────────────────────────
+  val icStatsEnabled: Boolean = sys.env.getOrElse("SSC_JIT_IC_STATS", "") == "1"
+  private val _icHits   = new java.util.concurrent.atomic.LongAdder
+  private val _icMisses = new java.util.concurrent.atomic.LongAdder
+  def icHits():   Long   = _icHits.sum()
+  def icMisses(): Long   = _icMisses.sum()
+  def icReport(): String = s"CALLREF IC: ${_icHits.sum()} hits, ${_icMisses.sum()} misses"
+
   // ── opcodes ──────────────────────────────────────────────────────
   final val CONST = 0
   final val MOVE  = 1
@@ -94,6 +102,10 @@ object SscVm:
   //   refStack(dst) (AnyRef). Slow path: invokes via JitGlobals.getInterp().invoke —
   //   the monomorphic IC (Stage 3.4) replaces this with a cached CompiledFn dispatch.
   final val CALLREF = 47
+  // LOADFV dst, poolSlot, 0: load a compile-time FunV constant from funVPool(poolSlot)
+  //   into refStack(dst). Used to represent non-capturing lambda literals passed as
+  //   HOF arguments — the FunV is created at VmCompiler time and stored in funVPool.
+  final val LOADFV = 48
 
   /** A compiled function: parallel instruction arrays + pools.
    *  `op(i)` is the opcode; `a/b/c(i)` its operands (meaning per §4 of spec).
@@ -122,7 +134,13 @@ object SscVm:
     val strPool: Array[String] = Array.empty,
     // True when the function returns Boolean: the raw 0/1 Long result must be
     // wrapped in BoolV (not IntV) by the JIT bridge.
-    val retIsBool: Boolean = false
+    val retIsBool: Boolean = false,
+    // Pool of non-capturing FunV constants for LOADFV opcode (Stage 3.3).
+    val funVPool: Array[Value.FunV] = Array.empty,
+    // Monomorphic inline cache for CALLREF (Stage 3.4). Sized to op.length*2;
+    // pairs (callRefCache[pc*2] = FunV, callRefCache[pc*2+1] = CompiledFn|null).
+    // A non-null FunV slot with a null CompiledFn means "seen but not compilable".
+    val callRefCache: Array[AnyRef] = Array.empty
   )
 
   /** Execute `fn` with a frame window based at `base` in shared `stack`.
@@ -234,32 +252,59 @@ object SscVm:
             i += 1
           ensureCapacity(stack, newBase + callee.numRegs)
           stack(base + a(pc)) = exec(callee, stack, refStack, newBase)
+        case LOADFV  => refStack(base + a(pc)) = fn.funVPool(b(pc))
         case CALLREF =>
           val funV    = refStack(base + b(pc)).asInstanceOf[Value.FunV]
           val argBase = base + c(pc)
-          val nargs   = funV.params.length
-          val interp  = jit.JitGlobals.getInterp()
-          if interp == null then throw new RuntimeException("CALLREF: no interpreter in TLS")
-          var argIdx  = 0
-          val argList = new scala.collection.mutable.ListBuffer[Value]
-          while argIdx < nargs do
-            val r  = argBase + argIdx
-            val pType = if argIdx < funV.paramTypes.length then funV.paramTypes(argIdx).trim else "Int"
-            val v =
-              if refStack(r) != null && refStack(r).isInstanceOf[Value] then
-                refStack(r).asInstanceOf[Value]
-              else if pType == "Double" || pType == "Float" then
-                Value.doubleV(jl.Double.longBitsToDouble(stack(r)))
-              else
-                Value.intV(stack(r))
-            argList += v
-            argIdx += 1
-          val result = interp.invoke(funV, argList.toList)
-          result match
-            case Value.IntV(x)    => stack(base + a(pc))    = x
-            case Value.BoolV(v)   => stack(base + a(pc))    = if v then 1L else 0L
-            case Value.DoubleV(d) => stack(base + a(pc))    = jl.Double.doubleToRawLongBits(d)
-            case other: Value     => refStack(base + a(pc)) = other
+          val cache   = fn.callRefCache
+          // Monomorphic IC: if the FunV at this call site was seen before and
+          // successfully compiled, call exec directly — no Value boxing.
+          val cacheIdx = pc * 2
+          if cache.length > cacheIdx + 1 && (cache(cacheIdx) eq funV) && cache(cacheIdx + 1) != null then
+            if icStatsEnabled then _icHits.increment()
+            val cachedCf = cache(cacheIdx + 1).asInstanceOf[CompiledFn]
+            val newBase  = base + fn.numRegs
+            var i = 0
+            while i < cachedCf.arity do
+              stack(newBase + i)    = stack(argBase + i)
+              refStack(newBase + i) = refStack(argBase + i)
+              i += 1
+            ensureCapacity(stack, newBase + cachedCf.numRegs)
+            stack(base + a(pc)) = exec(cachedCf, stack, refStack, newBase)
+          else
+            // Slow path: dispatch through interp.invoke.
+            if icStatsEnabled then _icMisses.increment()
+            val nargs   = funV.params.length
+            val interp  = jit.JitGlobals.getInterp()
+            if interp == null then throw new RuntimeException("CALLREF: no interpreter in TLS")
+            var argIdx  = 0
+            val argList = new scala.collection.mutable.ListBuffer[Value]
+            while argIdx < nargs do
+              val r     = argBase + argIdx
+              val pType = if argIdx < funV.paramTypes.length then funV.paramTypes(argIdx).trim else "Int"
+              val v =
+                if refStack(r) != null && refStack(r).isInstanceOf[Value] then
+                  refStack(r).asInstanceOf[Value]
+                else if pType == "Double" || pType == "Float" then
+                  Value.doubleV(jl.Double.longBitsToDouble(stack(r)))
+                else
+                  Value.intV(stack(r))
+              argList += v
+              argIdx += 1
+            val result = interp.invoke(funV, argList.toList)
+            result match
+              case Value.IntV(x)    => stack(base + a(pc))    = x
+              case Value.BoolV(v)   => stack(base + a(pc))    = if v then 1L else 0L
+              case Value.DoubleV(d) => stack(base + a(pc))    = jl.Double.doubleToRawLongBits(d)
+              case other: Value     => refStack(base + a(pc)) = other
+            // Populate IC on first/new FunV — try to compile it.
+            // "seen but not compilable" is represented as (funV, null) to avoid
+            // retrying VmCompiler.compile on every subsequent miss for the same callee.
+            if cache.length > cacheIdx + 1 && (cache(cacheIdx) == null || !(cache(cacheIdx) eq funV)) then
+              cache(cacheIdx) = funV
+              VmCompiler.compile(funV) match
+                case Some(cf) => cache(cacheIdx + 1) = cf
+                case None     => ()  // leave null = "not compilable"
         case RET   => return stack(base + a(pc))
       pc += 1
     0L // unreachable
