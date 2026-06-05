@@ -1,6 +1,6 @@
-feature/markdown-content-artifact-roundtrip 2026-06-05T10:55:01Z
+feature/markdown-content-artifact-roundtrip 2026-06-05T10:55:16Z
 agent: codex
-heartbeat: 2026-06-05T10:55:01Z
-status: not-started
-done-so-far:
-next: write and commit focused spec before implementation
+heartbeat: 2026-06-05T10:55:16Z
+status: in-progress
+done-so-far: worktree created
+next: write specs/markdown-content-artifact-roundtrip.md and commit spec before implementation
