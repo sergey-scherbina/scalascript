@@ -510,6 +510,13 @@ semantic Markdown for export, previews, or later editing flows; it does not
 promise byte-for-byte source whitespace preservation. `contentCurrentSection()`
 returns the currently executing code block's enclosing Markdown section;
 headingless code reports an error.
+
+When a module is consumed through artifacts, the same snapshot is preserved for
+the current module: `.scir` carries `NormalizedModule.document`, and `.sscc` v3
+stores an optional trailing `DocumentContent` payload after the executable token
+stream. Older artifacts can still have no snapshot; in that case content
+helpers use the normal missing-content diagnostic instead of reconstructing a
+partial document from execution sections.
 Imports for these helpers must be normal Markdown import links outside fenced
 code blocks. `contentToolkitNode()`, `contentToolkitBlock(id)`, and
 `contentToolkitSection(id)` remain
@@ -2415,6 +2422,7 @@ install paths.
 
 ```bash
 ssc emit-interface lib.ssc             # .scim — interface for consumers
+ssc emit-ir lib.ssc                    # .scir — normalized IR, including DocumentContent when present
 ssc compile-jvm lib.ssc               # .scjvm — compiled JVM artifact
 ssc compile-js lib.ssc                # .scjs — compiled JS artifact
 ssc link --backend jvm artifacts/     # link into executable
@@ -2422,6 +2430,10 @@ ssc build --incremental src/          # build whole project
 ssc deps app.ssc                      # show import closure
 ssc info lib.scjvm                    # inspect artifact
 ```
+
+Markdown content snapshots are preserved by `.scir` and `.sscc` artifacts when
+the source module has one, so `std/content` helpers keep working for
+artifact-backed current-module execution.
 
 ### sbt Integration
 

@@ -19,10 +19,11 @@ bytes 10+    payload      (decompressed before parsing if compression != 0)
 ### Payload
 
 ```
-payload = trieSection streamSection
+payload = trieSection streamSection extension*
 
 trieSection  = trieLenBE32(4 bytes)  trieBytes[trieLen]
 streamSection= token*   (self-delimited by ModuleEnd sentinel)
+extension    = DocumentBlob
 ```
 
 All integers inside the stream and trie are unsigned LEB128 varints unless noted
@@ -58,8 +59,9 @@ Nodes are numbered in DFS pre-order; root = index 0.  The decoder reconstructs a
 
 ## Stream token kinds
 
-Token `kind` values 0–14 cover module structure.  Kind values 15+ are reserved for
-future sections (YAML events, Phase C).
+Token `kind` values 0-15 cover module structure and the optional content
+extension. Kind values 16+ are reserved for future sections (YAML events, Phase
+C).
 
 | Kind | Name           | Payload |
 |------|----------------|---------|
@@ -78,6 +80,7 @@ future sections (YAML events, Phase C).
 | 12   | ListItemEnd    | — |
 | 13   | ListEnd        | — |
 | 14   | CodeSmTokens   | tokenCount:varint, smToken*tokenCount  (scalameta token stream) |
+| 15   | DocumentBlob   | len:BE32, bytes[len]  (CBOR-pickled `DocumentContent`, after `ModuleEnd`) |
 
 **Import binding** = nameRef:varint, hasAlias:byte, [aliasRef if hasAlias=1],
                      hasFrom:byte, [fromRef if hasFrom=1], spanOpt
@@ -87,7 +90,7 @@ future sections (YAML events, Phase C).
 ### Structural grammar
 
 ```
-stream   = ModuleStart spanOpt ManifestBlob? section* ModuleEnd
+stream   = ModuleStart spanOpt ManifestBlob? section* ModuleEnd extension*
 section  = SectionStart level headRef hSpan sSpan
            content*
            section*
@@ -96,7 +99,13 @@ content  = Prose textRef spanOpt
          | CodeStart … (CodeBlob | CodeSmTokens) CodeEnd hasError …
          | Import …
          | ListStart … ListItemStart* ListEnd
+extension = DocumentBlob len bytes
 ```
+
+`DocumentBlob` is optional and appears only after `ModuleEnd`. It carries the
+semantic Markdown-hosted `DocumentContent` snapshot used by `std/content` and
+frontend toolkit lowering. Because the executable stream is self-delimited,
+older v3 readers stop at `ModuleEnd` and ignore the trailing blob.
 
 ---
 
@@ -215,14 +224,21 @@ subtypes.  Six `private[meta]` classes (`T.Invalid`, `T.Unquote`, `T.MacroSplice
 v3 reader still handles `CodeBlob` (kind 7) for non-parseable blocks and as a
 fallback when scalameta tokenisation fails.
 
+The optional trailing `DocumentBlob` is backward-compatible at the executable
+module level: old v3 readers ignore it, and new readers accept old files where
+the blob is absent. A file without the blob loads with `Module.document = None`.
+
 ---
 
 ## Versioning policy
 
-Any new structural kind, sm-token kind, or YAML-event kind (Phase C) is a breaking
-change to the v3 format.  Such additions bump the minor byte planned for the header
-(reserved; not yet emitted).  Readers encountering an unknown minor version return an
-error rather than silently misinterpreting the stream.
+Any new structural kind inside the executable stream, sm-token kind, or
+YAML-event kind (Phase C) is a breaking change to the v3 format. Such additions
+bump the minor byte planned for the header (reserved; not yet emitted). Optional
+trailing extensions after `ModuleEnd` are backward-compatible only when old
+readers can ignore them without parsing the extension. Readers encountering an
+unknown minor version return an error rather than silently misinterpreting the
+stream.
 
 ---
 

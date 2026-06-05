@@ -120,9 +120,10 @@ truth. Phase 1 shipped the stable model plus `contentDocument()` for the
 interpreter; follow-up interpreter slices added `contentData(id)`,
 `contentSection(id)`, `contentBlock(id)`, `contentMetadata(path)`, and
 `contentPlainText(value)`, and `contentCurrentSection()`. The same low-level
-helper set now runs on generated JS and JVM backends, and `contentToMarkdown`
-reverse rendering landed as the Markdown conversion helper. Current remaining
-Phase 2 work is linked artifact metadata.
+helper set now runs on generated JS and JVM backends, `contentToMarkdown`
+reverse rendering landed as the Markdown conversion helper, and current-module
+`.scir` / `.sscc` artifact round-trip preserves the content snapshot. Current
+remaining Phase 2 work is linked-module content namespace support.
 Names are prefixed with `content` to avoid collisions with existing `doc(...)`
 and `render(...)` helpers.
 
@@ -496,9 +497,9 @@ val page = lower(
       remains available for static artifact generation.
 - [x] Interpreter, JS, and JVM backends expose byte-identical textual results
       for the non-frontend `std/content` API.
-- [ ] `.sscc` / `.scir` artifacts preserve enough content metadata for linked
-      modules and downstream tooling to inspect the document without reparsing
-      the original source when source text is unavailable.
+- [x] `.sscc` / `.scir` artifacts preserve current-module content metadata so
+      artifact-backed runs and downstream tooling can inspect the document
+      without reparsing the original source when source text is unavailable.
 
 ## Out of Scope
 
@@ -680,9 +681,12 @@ concatenates classes in source order.
 ### Phase 3 - IR and artifact round-trip
 
 - Thread the snapshot through `Normalize`, `Denormalize`, `.scir`, and `.sscc`
-  formats with backward-compatible default handling.
+  formats with backward-compatible default handling. Current-module artifact
+  round-trip landed on 2026-06-05; linked-module content namespace support
+  remains separate.
 - Add round-trip tests for old artifacts without content metadata and new
-  artifacts with content metadata.
+  artifacts with content metadata. Covered by
+  [`specs/markdown-content-artifact-roundtrip.md`](markdown-content-artifact-roundtrip.md).
 
 ### Phase 4 - Custom component registry (started 2026-06-05)
 
@@ -724,8 +728,10 @@ concatenates classes in source order.
 
 Phase 1 landed the Markdown-to-frontend MVP on 2026-06-04:
 parser-side `DocumentContent`, interpreter `contentDocument()`,
-`std/ui/content.ssc` lowering, and a React emit smoke. The remaining work is the
-full metadata lookup API, JS/JVM exposure, artifact round-trip, tables, and
+`std/ui/content.ssc` lowering, and a React emit smoke. Later slices landed the
+metadata lookup API, JS/JVM exposure, native-client parity, reverse Markdown
+rendering, and current-module `.scir` / `.sscc` artifact round-trip. Remaining
+work is linked-module content namespace support, tables, and broader
 cross-backend conformance.
 
 The selector slice landed on 2026-06-05: `contentToolkitBlock(id)` renders one
