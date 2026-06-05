@@ -1,6 +1,6 @@
 # Markdown Content Lookup and Plain Text
 
-Status: Planned for the `markdown-content-lookup-plaintext` slice.
+Status: Landed 2026-06-05 for the interpreter `std/content` API.
 
 This slice extends the already-landed Markdown content snapshot with three
 low-level `std/content` helpers for interpreter code:
@@ -159,32 +159,42 @@ println(contentData("plans-data").isDefined.toString)
 
 ## Behavior Checklist
 
-- [ ] `contentSection(id)` returns `Some(SectionContent)` for generated and
+- [x] `contentSection(id)` returns `Some(SectionContent)` for generated and
       explicit section ids.
-- [ ] `contentSection(id)` returns `None` when absent.
-- [ ] `contentSection(id)` reports a duplicate-id interpreter error when the
+- [x] `contentSection(id)` returns `None` when absent.
+- [x] `contentSection(id)` reports a duplicate-id interpreter error when the
       snapshot contains duplicate section ids.
-- [ ] `contentBlock(id)` returns `Some(ContentBlock)` for explicitly identified
+- [x] `contentBlock(id)` returns `Some(ContentBlock)` for explicitly identified
       paragraphs, lists, images, and fenced embedded blocks.
-- [ ] `contentBlock(id)` returns `None` when absent.
-- [ ] `contentBlock(id)` reports a duplicate-id interpreter error when the
+- [x] `contentBlock(id)` returns `None` when absent.
+- [x] `contentBlock(id)` reports a duplicate-id interpreter error when the
       snapshot contains duplicate block ids.
-- [ ] `contentPlainText(section)` includes section title, direct blocks, and
+- [x] `contentPlainText(section)` includes section title, direct blocks, and
       child sections in source order.
-- [ ] `contentPlainText(block)` extracts readable text for paragraph, list,
+- [x] `contentPlainText(block)` extracts readable text for paragraph, list,
       image, and embedded block values.
-- [ ] `contentPlainText(value)` reports an interpreter error for unsupported
+- [x] `contentPlainText(value)` reports an interpreter error for unsupported
       values.
 
-## Verification Plan
+## Results
 
-- Add focused interpreter plugin tests in
+Landed on 2026-06-05 with focused interpreter plugin coverage. Verified with:
+
+```bash
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/content-lookup-plaintext && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest"
+```
+
+Result: 6 content-plugin tests passed.
+
+## Verification
+
+- Added focused interpreter plugin tests in
   `runtime/std/content-plugin/src/test/scala/scalascript/compiler/plugin/content/ContentPluginInterpreterTest.scala`.
-- Update the public `runtime/std/content.ssc` exports.
-- Update user-facing docs and the Markdown content spec to show the new helpers
+- Updated the public `runtime/std/content.ssc` exports.
+- Updated user-facing docs and the Markdown content spec to show the new helpers
   as landed interpreter API while keeping JS/JVM and `contentCurrentSection()`
   marked as future work.
-- Run:
+- Verified with:
 
 ```bash
 cd <worktree> && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest"

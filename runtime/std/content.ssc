@@ -19,7 +19,7 @@ exports:
 
 # `std.content` — Markdown-hosted content
 
-Types and the first runtime accessor for the parsed `.ssc` document.
+Types and runtime accessors for the parsed `.ssc` document.
 
 ```scalascript
 case class DocumentContent(

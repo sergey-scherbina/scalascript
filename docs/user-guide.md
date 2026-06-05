@@ -464,16 +464,28 @@ frontend `View` values. Imports must be written as separate Markdown paragraphs
 (blank line between import links), matching the existing ScalaScript import
 syntax.
 
-Lower-level lookup helpers are planned after the frontend MVP:
+Lower-level interpreter lookup helpers read the same Markdown snapshot without
+lowering it to UI nodes:
 
 ```scalascript
-[contentDocument, contentCurrentSection, contentSection, contentData](std/content.ssc)
+[contentDocument, contentSection, contentBlock, contentData, contentPlainText](std/content.ssc)
 
 val doc = contentDocument()
+val plans = contentSection("plans").get
+val controls = contentBlock("team-controls").get
+
 println(doc.title.getOrElse(""))
-println(contentSection("plans").get.title)
+println(contentPlainText(plans))
+println(contentPlainText(controls))
 println(contentData("plans-data").isDefined)
 ```
+
+`contentSection(id)` finds generated or explicit section ids,
+`contentBlock(id)` finds explicitly identified blocks, and missing lookups
+return `None`. `contentPlainText(value)` accepts a `SectionContent` or
+`ContentBlock` and extracts readable text for logging, indexing, search, or
+component previews. `contentCurrentSection()`, `contentMetadata(path)`,
+`contentToMarkdown(...)`, and JS/JVM native-context exposure remain planned.
 
 The target contract, phase plan, and remaining metadata helpers are tracked in
 [`specs/markdown-content-introspection.md`](../specs/markdown-content-introspection.md).

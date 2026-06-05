@@ -94,7 +94,7 @@ controls:
         variant: warning
 ```
 
-[contentData](std/content.ssc)
+[contentData, contentSection, contentBlock, contentPlainText](std/content.ssc)
 
 [contentComponent, contentToolkitBlock, contentToolkitSection, contentToolkitOptionsWithComponents](std/ui/content.ssc)
 
@@ -128,13 +128,15 @@ val page = lower(
   ),
   defaultTheme
 )
-serve(page, 8099)
 
 println("content-introspection:ok")
 println("plans-data=" + contentData("plans-data").isDefined.toString)
+println("plans-text=" + contentPlainText(contentSection("plans").get))
+println("team-controls-text=" + contentPlainText(contentBlock("team-controls").get))
 println("serving: http://127.0.0.1:8099/")
 
-// Lower-level metadata APIs remain the follow-up slice:
-// contentSection("plans")
+// Remaining lower-level metadata follow-ups:
 // contentCurrentSection()
+// contentMetadata("defaultRenderer")
+serve(page, 8099)
 ```

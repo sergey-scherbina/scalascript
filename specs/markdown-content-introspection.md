@@ -116,8 +116,12 @@ depending on raw YAML maps.
 
 The shared model is deliberately data-first because frontend rendering,
 metadata, CLI, compiler, and server use cases must all read the same source of
-truth. Phase 1 ships the stable model plus `contentDocument()` for the
-interpreter; the remaining lookup and markdown-conversion helpers are Phase 2.
+truth. Phase 1 shipped the stable model plus `contentDocument()` for the
+interpreter; follow-up interpreter slices added `contentData(id)`,
+`contentSection(id)`, `contentBlock(id)`, and `contentPlainText(value)`.
+Current remaining Phase 2 work is JS/JVM native-context exposure plus
+`contentCurrentSection()`, `contentMetadata(path)`, and Markdown conversion
+helpers.
 Names are prefixed with `content` to avoid collisions with existing `doc(...)`
 and `render(...)` helpers.
 
@@ -175,8 +179,7 @@ extern def contentSection(id: String): Option[SectionContent]
 extern def contentBlock(id: String): Option[ContentBlock]
 extern def contentData(id: String): Option[ContentValue]
 extern def contentMetadata(path: String): Option[ContentValue]
-extern def contentPlainText(block: ContentBlock): String
-extern def contentPlainText(section: SectionContent): String
+extern def contentPlainText(value: Any): String
 extern def contentToMarkdown(doc: DocumentContent): String
 extern def contentToMarkdown(section: SectionContent): String
 ```
@@ -190,10 +193,15 @@ section for the code block that called it.
 `contentMetadata("defaultRenderer")`. It does not read arbitrary front-matter
 keys; callers that need the whole manifest use `contentDocument().manifest`.
 
-`contentBlock(id)` looks up any content node with an explicit `@id=...` fence
-attribute or `{#id}` metadata. `contentData(id)` is a convenience for embedded
-structured data blocks; it returns `None` for executable/string/opaque blocks or
-for structured blocks that failed to parse.
+`contentSection(id)` looks up generated or explicit heading ids.
+`contentBlock(id)` looks up content blocks with an explicit `@id=...` fence
+attribute or `<!-- @meta id=... -->` block metadata. `contentData(id)` is a
+convenience for embedded structured data blocks; it returns `None` for
+executable/string/opaque blocks or for structured blocks that failed to parse.
+
+`contentPlainText(value)` accepts a `SectionContent` or any `ContentBlock`
+variant and returns readable text for logging, indexing, search, and component
+previews. Unsupported values report an interpreter error.
 
 ### Frontend helper API
 
@@ -463,6 +471,10 @@ val page = lower(
       module execution.
 - [x] `contentData(id)` is available from interpreter code and returns parsed
       fenced YAML/JSON/TOML `ContentValue` data by explicit block id.
+- [x] `contentSection(id)` and `contentBlock(id)` are available from
+      interpreter code and return `None` for missing metadata lookups.
+- [x] `contentPlainText(value)` is available from interpreter code for
+      `SectionContent` and `ContentBlock` values.
 - [ ] `contentCurrentSection()` returns the code block's enclosing section,
       including metadata and sibling prose/list blocks in that section.
 - [ ] Inline `${expr}` in prose is represented as `ContentInline.Expr(source)`
@@ -650,10 +662,10 @@ concatenates classes in source order.
 - Extend `runtime/std/content.ssc` and `runtime/std/content-plugin` beyond the
   Phase 1 `contentDocument()` interpreter API.
 - Populate native context state for JS and JVM backends.
-- Implement `contentCurrentSection`, `contentSection`, `contentBlock`,
-  `contentMetadata`, `contentPlainText`, and `contentToMarkdown`; extend the
-  already-landed interpreter `contentData(id)` helper to JS and JVM native
-  context exposure.
+- Implement `contentCurrentSection`, `contentMetadata`, and
+  `contentToMarkdown`; extend the already-landed interpreter
+  `contentData(id)`, `contentSection(id)`, `contentBlock(id)`, and
+  `contentPlainText(value)` helpers to JS and JVM native context exposure.
 - Enable the pending conformance test across INT, JS, and JVM.
 
 ### Phase 3 - IR and artifact round-trip
@@ -732,3 +744,12 @@ produce `None`; duplicate structured data ids report an interpreter error.
 Verified with:
 `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/content-data-binding && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest" "backendInterpreterServer/testOnly scalascript.MarkdownContentFrontendSmokeTest" "cli/testOnly scalascript.cli.MarkdownContentFrontendCliTest"`
 (3 content-plugin tests + 5 interpreter-server frontend tests + 2 CLI tests passed).
+
+The lookup/plain-text slice landed on 2026-06-05:
+`contentSection(id)` and `contentBlock(id)` expose interpreter `Option`
+lookups for Markdown-authored regions, while `contentPlainText(value)` extracts
+readable text from returned `SectionContent` and `ContentBlock` values. Missing
+lookups return `None`; duplicate block ids and unsupported plain-text inputs
+report interpreter errors. Verified with:
+`cd /Users/sergiy/work/my/scalascript/.worktrees/feature/content-lookup-plaintext && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest"`
+(6 content-plugin tests passed).

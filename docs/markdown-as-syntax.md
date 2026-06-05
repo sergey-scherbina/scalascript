@@ -99,18 +99,23 @@ Metadata such as `component=PlanList` is resolved only through an explicit
 such as `data=plans-data` binds the component context to the parsed
 YAML/JSON/TOML data block with that id, and code can read the same value through
 `contentData("plans-data")`; missing registry entries use the default Markdown
-lowering. The low-level
-`contentView(contentDocument())` renderer remains available when callers need
-direct `View` nodes.
+lowering. Code can also query regions directly with `contentSection(id)` and
+`contentBlock(id)`, then extract readable text through `contentPlainText(value)`.
+The low-level `contentView(contentDocument())` renderer remains available when
+callers need direct `View` nodes.
 
-The broader metadata API remains planned under `std/content.ssc`:
+The current interpreter `std/content.ssc` lookup surface is:
 
 ```scalascript
 val doc = contentDocument()
 val pricing = contentSection("pricing")
-val current = contentCurrentSection()
+val controls = contentBlock("filters")
 val plansData = contentData("plans-data")
+val text = contentPlainText(pricing.get)
 ```
+
+`contentCurrentSection()`, `contentMetadata(path)`, `contentToMarkdown(...)`,
+and JS/JVM native-context exposure remain planned.
 
 The full contract and implementation phases are in
 [`../specs/markdown-content-introspection.md`](../specs/markdown-content-introspection.md).
