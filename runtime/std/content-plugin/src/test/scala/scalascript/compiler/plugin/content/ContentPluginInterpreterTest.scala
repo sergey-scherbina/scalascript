@@ -538,6 +538,19 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
       interp.run(Parser.parse(source))
     assert(err.getMessage.contains("contentPlainText: expected SectionContent or ContentBlock"))
 
+  test("contentToMarkdown renders selected Markdown content"):
+    val source = os.read(repoRoot / "tests" / "conformance" / "content-to-markdown.ssc")
+    val expected = os.read(repoRoot / "tests" / "conformance" / "expected" / "content-to-markdown.txt").stripTrailing
+    val buf = java.io.ByteArrayOutputStream()
+    val interp = Interpreter(
+      out = java.io.PrintStream(buf, true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    interp.run(Parser.parse(source))
+
+    assert(buf.toString(java.nio.charset.StandardCharsets.UTF_8).stripTrailing == expected)
+
   private def contentString(value: Value): Option[String] =
     value match
       case Value.OptionV(Value.InstanceV("Str", fields)) =>

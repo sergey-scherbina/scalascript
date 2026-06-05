@@ -1,0 +1,37 @@
+---
+name: content-markdown-test
+---
+
+# Pricing {#pricing route=/pricing}
+
+Intro with *emphasis*, **strong**, `code`, [docs](/docs "Docs"), and ${visitorName}.
+
+![Hero image](/hero.png "Hero")
+
+<!-- @meta id=tagline kind=hero -->
+Reusable tagline.
+
+<!-- @meta component=PlanList source=plans -->
+## Plans
+
+- Starter
+- Pro
+
+```yaml @id=plans-data
+plans:
+  - id: starter
+    price: 19
+```
+
+# Runner
+
+[contentDocument, contentSection, contentBlock, contentToMarkdown](std/content.ssc)
+
+```scalascript
+val docMarkdown = contentToMarkdown(contentDocument())
+println("doc-has-frontmatter=" + docMarkdown.contains("---\nname: content-markdown-test\n---").toString)
+println("pricing=")
+println(contentToMarkdown(contentSection("pricing").get))
+println("data=")
+println(contentToMarkdown(contentBlock("plans-data").get))
+```

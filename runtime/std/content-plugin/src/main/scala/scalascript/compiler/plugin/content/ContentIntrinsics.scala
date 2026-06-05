@@ -58,6 +58,11 @@ object ContentIntrinsics:
         case value :: Nil => contentPlainTextAny(value)
         case _            => throw InterpretError("contentPlainText(value)")
     },
+    QualifiedName("contentToMarkdown") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case value :: Nil => contentToMarkdownAny(value)
+        case _            => throw InterpretError("contentToMarkdown(value)")
+    },
     QualifiedName("contentToolkitNode") -> PluginNative.evalLegacy { (ctx, args) =>
       val options = args match
         case Nil      => ToolkitOptions()
@@ -733,6 +738,363 @@ object ContentIntrinsics:
         throw InterpretError(s"contentPlainText: $context expected List, got ${Value.show(other)}")
       case None =>
         throw InterpretError(s"contentPlainText: missing $context")
+
+  private def contentToMarkdownAny(value: Any): String =
+    value match
+      case v: Value => contentMarkdownValue(v)
+      case other =>
+        throw InterpretError(
+          s"contentToMarkdown: expected DocumentContent, SectionContent, or ContentBlock, got ${String.valueOf(other)}"
+        )
+
+  private def contentMarkdownValue(value: Value): String =
+    value match
+      case doc: Value.InstanceV if doc.typeName == "DocumentContent" =>
+        documentMarkdown(doc)
+      case section: Value.InstanceV if section.typeName == "SectionContent" =>
+        sectionMarkdown(section)
+      case block: Value.InstanceV if contentBlockValueTypeNames.contains(block.typeName) =>
+        blockMarkdown(block)
+      case other =>
+        throw InterpretError(
+          s"contentToMarkdown: expected DocumentContent, SectionContent, or ContentBlock, got ${Value.show(other)}"
+        )
+
+  private def documentMarkdown(doc: Value.InstanceV): String =
+    val fields = doc.effectiveFields
+    val frontMatter = fields.get("manifest").flatMap(manifestMarkdown).toList
+    val blocks = mdListField(fields, "blocks", "DocumentContent.blocks").map(blockMarkdown)
+    val sections = mdListField(fields, "sections", "DocumentContent.sections").map { value =>
+      sectionMarkdown(mdInstance(value, "SectionContent", "DocumentContent.sections"))
+    }
+    (frontMatter ++ blocks ++ sections).filter(_.nonEmpty).mkString("\n\n")
+
+  private def manifestMarkdown(value: Value): Option[String] =
+    value match
+      case inst: Value.InstanceV if inst.typeName == "MapV" =>
+        val values = mdContentMapInstance(inst, "DocumentContent.manifest")
+        if values.isEmpty then None
+        else Some("---\n" + yamlMapLines(values, 0).mkString("\n") + "\n---")
+      case inst: Value.InstanceV if inst.typeName == "NullV" =>
+        None
+      case other =>
+        Some("---\nvalue: " + yamlScalar(other) + "\n---")
+
+  private def sectionMarkdown(section: Value.InstanceV): String =
+    val fields = section.effectiveFields
+    val level = clampHeadingLevel(mdIntField(fields, "level", "SectionContent.level"))
+    val id = mdStringField(fields, "id", "SectionContent.id")
+    val title = inlineTextMarkdown(List(Value.InstanceV("Text", Map("value" -> Value.StringV(mdStringField(fields, "title", "SectionContent.title"))))))
+    val attrs = mdContentValueMap(mdField(fields, "attrs", "SectionContent.attrs"), "SectionContent.attrs")
+    val headingAttrs = headingAttrGroup(id, attrs)
+    val heading = ("#" * level) + " " + title + headingAttrs
+    val blocks = mdListField(fields, "blocks", "SectionContent.blocks").map(blockMarkdown)
+    val children = mdListField(fields, "children", "SectionContent.children").map { value =>
+      sectionMarkdown(mdInstance(value, "SectionContent", "SectionContent.children"))
+    }
+    (heading :: (blocks ++ children)).filter(_.nonEmpty).mkString("\n\n")
+
+  private def blockMarkdown(value: Value): String =
+    val body = value match
+      case block: Value.InstanceV if block.typeName == "Paragraph" =>
+        inlineTextMarkdown(mdListField(block.effectiveFields, "inlines", "Paragraph.inlines"))
+      case block: Value.InstanceV if block.typeName == "BulletList" =>
+        val items = mdListField(block.effectiveFields, "items", "BulletList.items")
+        items.map(item => listItemMarkdown("- ", item, "BulletList.items")).mkString("\n")
+      case block: Value.InstanceV if block.typeName == "OrderedList" =>
+        val fields = block.effectiveFields
+        val start = mdIntField(fields, "start", "OrderedList.start")
+        mdListField(fields, "items", "OrderedList.items").zipWithIndex.map { case (item, idx) =>
+          listItemMarkdown(s"${start + idx}. ", item, "OrderedList.items")
+        }.mkString("\n")
+      case block: Value.InstanceV if block.typeName == "Image" =>
+        val fields = block.effectiveFields
+        val alt = inlineTextMarkdown(List(Value.InstanceV("Text", Map("value" -> Value.StringV(mdStringField(fields, "alt", "Image.alt"))))))
+        val src = mdStringField(fields, "src", "Image.src")
+        val title = mdOptionString(mdField(fields, "title", "Image.title"), "Image.title")
+          .map(t => " " + quoteMarkdownAttr(t))
+          .getOrElse("")
+        s"![${alt}](${src}${title})"
+      case block: Value.InstanceV if block.typeName == "Embedded" =>
+        embeddedMarkdown(block)
+      case other =>
+        throw InterpretError(s"contentToMarkdown: expected ContentBlock, got ${Value.show(other)}")
+
+    value match
+      case block: Value.InstanceV if block.typeName != "Embedded" =>
+        val attrs = mdContentValueMap(mdField(block.effectiveFields, "attrs", s"${block.typeName}.attrs"), s"${block.typeName}.attrs")
+        metadataDirective(attrs).fold(body)(_ + "\n" + body)
+      case _ =>
+        body
+
+  private def listItemMarkdown(prefix: String, item: Value, context: String): String =
+    val blocks = item match
+      case Value.ListV(values) => values
+      case other =>
+        throw InterpretError(s"contentToMarkdown: $context expected List[ContentBlock], got ${Value.show(other)}")
+    val body = blocks.map(blockMarkdown).filter(_.nonEmpty).mkString("\n\n")
+    val lines = body.split("\n", -1).toList
+    if body.isEmpty then prefix.trim
+    else (prefix + lines.head) + lines.tail.map(line => "\n  " + line).mkString
+
+  private def embeddedMarkdown(block: Value.InstanceV): String =
+    val fields = block.effectiveFields
+    val lang = mdStringField(fields, "lang", "Embedded.lang")
+    val source = mdStringField(fields, "source", "Embedded.source")
+    val attrs = mdContentValueMap(mdField(fields, "attrs", "Embedded.attrs"), "Embedded.attrs")
+    val info = (lang :: fenceAttrTokens(attrs)).filter(_.nonEmpty).mkString(" ")
+    val fence = fenceDelimiter(source)
+    val body = if source.endsWith("\n") then source else source + "\n"
+    if info.isEmpty then s"$fence\n$body$fence" else s"$fence$info\n$body$fence"
+
+  private def inlineTextMarkdown(values: List[Value]): String =
+    values.map(inlineMarkdown).mkString
+
+  private def inlineMarkdown(value: Value): String =
+    value match
+      case inline: Value.InstanceV if inline.typeName == "Text" =>
+        escapeMarkdownText(mdStringField(inline.effectiveFields, "value", "Text.value"))
+      case inline: Value.InstanceV if inline.typeName == "Emphasis" =>
+        "*" + inlineTextMarkdown(mdListField(inline.effectiveFields, "children", "Emphasis.children")) + "*"
+      case inline: Value.InstanceV if inline.typeName == "Strong" =>
+        "**" + inlineTextMarkdown(mdListField(inline.effectiveFields, "children", "Strong.children")) + "**"
+      case inline: Value.InstanceV if inline.typeName == "Code" =>
+        inlineCodeMarkdown(mdStringField(inline.effectiveFields, "value", "Code.value"))
+      case inline: Value.InstanceV if inline.typeName == "Link" =>
+        val fields = inline.effectiveFields
+        val label = inlineTextMarkdown(mdListField(fields, "label", "Link.label"))
+        val href = mdStringField(fields, "href", "Link.href")
+        val title = mdOptionString(mdField(fields, "title", "Link.title"), "Link.title")
+          .map(t => " " + quoteMarkdownAttr(t))
+          .getOrElse("")
+        s"[$label]($href$title)"
+      case inline: Value.InstanceV if inline.typeName == "Expr" =>
+        "${" + mdStringField(inline.effectiveFields, "source", "Expr.source") + "}"
+      case other =>
+        throw InterpretError(s"contentToMarkdown: expected ContentInline, got ${Value.show(other)}")
+
+  private def headingAttrGroup(id: String, attrs: Map[String, Value]): String =
+    val tokens =
+      (if id.nonEmpty then List("#" + id) else Nil) ++
+        classTokens(attrs) ++
+        attrs.toList.filterNot { case (key, _) => key == "class" }.sortBy(_._1).flatMap { case (key, value) =>
+          attrToken(key, value, prefix = "")
+        }
+    if tokens.isEmpty then "" else tokens.mkString(" {", " ", "}")
+
+  private def metadataDirective(attrs: Map[String, Value]): Option[String] =
+    val tokens =
+      attrs.toList.sortBy(_._1).flatMap { case (key, value) => attrToken(key, value, prefix = "") }
+    if tokens.isEmpty then None else Some(tokens.mkString("<!-- @meta ", " ", " -->"))
+
+  private def fenceAttrTokens(attrs: Map[String, Value]): List[String] =
+    val id = attrs.get("id").flatMap(value => attrToken("id", value, prefix = "@"))
+    val rest =
+      attrs.toList.filterNot(_._1 == "id").sortBy(_._1).flatMap { case (key, value) =>
+        attrToken(key, value, prefix = "@")
+      }
+    id.toList ++ rest
+
+  private def classTokens(attrs: Map[String, Value]): List[String] =
+    attrs.get("class").collect {
+      case inst: Value.InstanceV if inst.typeName == "Str" =>
+        mdStringField(inst.effectiveFields, "value", "ContentValue.Str.value")
+          .split("\\s+")
+          .toList
+          .filter(_.nonEmpty)
+          .map("." + _)
+    }.getOrElse(Nil)
+
+  private def attrToken(key: String, value: Value, prefix: String): Option[String] =
+    value match
+      case inst: Value.InstanceV if inst.typeName == "Bool" =>
+        val bool = mdBoolField(inst.effectiveFields, "value", "ContentValue.Bool.value")
+        if prefix.isEmpty && bool then Some(key) else Some(s"$prefix$key=${bool.toString}")
+      case inst: Value.InstanceV if inst.typeName == "Str" =>
+        Some(s"$prefix$key=${attrScalar(mdStringField(inst.effectiveFields, "value", "ContentValue.Str.value"))}")
+      case inst: Value.InstanceV if inst.typeName == "Num" =>
+        Some(s"$prefix$key=${numberString(mdDoubleField(inst.effectiveFields, "value", "ContentValue.Num.value"))}")
+      case inst: Value.InstanceV if inst.typeName == "NullV" =>
+        Some(s"$prefix$key=null")
+      case _ =>
+        Some(s"$prefix$key=${attrScalar(yamlScalar(value))}")
+
+  private def yamlMapLines(values: Map[String, Value], indent: Int): List[String] =
+    values.toList.sortBy(_._1).flatMap { case (key, value) =>
+      yamlKeyValueLines(key, value, indent)
+    }
+
+  private def yamlKeyValueLines(key: String, value: Value, indent: Int): List[String] =
+    val pad = " " * indent
+    value match
+      case inst: Value.InstanceV if inst.typeName == "MapV" =>
+        val values = mdContentMapInstance(inst, "ContentValue.MapV.values")
+        if values.isEmpty then List(s"$pad${yamlKey(key)}: {}")
+        else s"$pad${yamlKey(key)}:" :: yamlMapLines(values, indent + 2)
+      case inst: Value.InstanceV if inst.typeName == "ListV" =>
+        val values = mdListField(inst.effectiveFields, "values", "ContentValue.ListV.values")
+        if values.isEmpty then List(s"$pad${yamlKey(key)}: []")
+        else s"$pad${yamlKey(key)}:" :: yamlListLines(values, indent + 2)
+      case _ =>
+        List(s"$pad${yamlKey(key)}: ${yamlScalar(value)}")
+
+  private def yamlListLines(values: List[Value], indent: Int): List[String] =
+    val pad = " " * indent
+    values.flatMap {
+      case inst: Value.InstanceV if inst.typeName == "MapV" =>
+        val values = mdContentMapInstance(inst, "ContentValue.MapV.values")
+        if values.isEmpty then List(s"$pad- {}")
+        else s"$pad-" :: yamlMapLines(values, indent + 2)
+      case inst: Value.InstanceV if inst.typeName == "ListV" =>
+        val values = mdListField(inst.effectiveFields, "values", "ContentValue.ListV.values")
+        if values.isEmpty then List(s"$pad- []")
+        else s"$pad-" :: yamlListLines(values, indent + 2)
+      case value =>
+        List(s"$pad- ${yamlScalar(value)}")
+    }
+
+  private def yamlScalar(value: Value): String =
+    value match
+      case inst: Value.InstanceV if inst.typeName == "Str" =>
+        yamlString(mdStringField(inst.effectiveFields, "value", "ContentValue.Str.value"))
+      case inst: Value.InstanceV if inst.typeName == "Bool" =>
+        mdBoolField(inst.effectiveFields, "value", "ContentValue.Bool.value").toString
+      case inst: Value.InstanceV if inst.typeName == "Num" =>
+        numberString(mdDoubleField(inst.effectiveFields, "value", "ContentValue.Num.value"))
+      case inst: Value.InstanceV if inst.typeName == "NullV" =>
+        "null"
+      case inst: Value.InstanceV if inst.typeName == "MapV" =>
+        val values = mdContentMapInstance(inst, "ContentValue.MapV.values")
+        if values.isEmpty then "{}" else quoteMarkdownAttr(Value.show(value))
+      case inst: Value.InstanceV if inst.typeName == "ListV" =>
+        val values = mdListField(inst.effectiveFields, "values", "ContentValue.ListV.values")
+        if values.isEmpty then "[]" else quoteMarkdownAttr(Value.show(value))
+      case Value.StringV(value) =>
+        yamlString(value)
+      case Value.BoolV(value) =>
+        value.toString
+      case Value.IntV(value) =>
+        value.toString
+      case Value.DoubleV(value) =>
+        numberString(value)
+      case Value.NullV =>
+        "null"
+      case _ =>
+        quoteMarkdownAttr(Value.show(value))
+
+  private def mdField(fields: Map[String, Value], name: String, context: String): Value =
+    fields.getOrElse(name, throw InterpretError(s"contentToMarkdown: missing $context"))
+
+  private def mdStringField(fields: Map[String, Value], name: String, context: String): String =
+    mdField(fields, name, context) match
+      case Value.StringV(value) => value
+      case other => throw InterpretError(s"contentToMarkdown: $context expected String, got ${Value.show(other)}")
+
+  private def mdIntField(fields: Map[String, Value], name: String, context: String): Int =
+    mdField(fields, name, context) match
+      case Value.IntV(value) => value.toInt
+      case other => throw InterpretError(s"contentToMarkdown: $context expected Int, got ${Value.show(other)}")
+
+  private def mdDoubleField(fields: Map[String, Value], name: String, context: String): Double =
+    mdField(fields, name, context) match
+      case Value.DoubleV(value) => value
+      case Value.IntV(value) => value.toDouble
+      case other => throw InterpretError(s"contentToMarkdown: $context expected Number, got ${Value.show(other)}")
+
+  private def mdBoolField(fields: Map[String, Value], name: String, context: String): Boolean =
+    mdField(fields, name, context) match
+      case Value.BoolV(value) => value
+      case other => throw InterpretError(s"contentToMarkdown: $context expected Boolean, got ${Value.show(other)}")
+
+  private def mdListField(fields: Map[String, Value], name: String, context: String): List[Value] =
+    mdField(fields, name, context) match
+      case Value.ListV(values) => values
+      case other => throw InterpretError(s"contentToMarkdown: $context expected List, got ${Value.show(other)}")
+
+  private def mdContentValueMap(value: Value, context: String): Map[String, Value] =
+    value match
+      case Value.MapV(values) =>
+        values.map {
+          case (Value.StringV(key), value) => key -> value
+          case (key, _) =>
+            throw InterpretError(s"contentToMarkdown: $context expected String keys, got ${Value.show(key)}")
+        }
+      case other =>
+        throw InterpretError(s"contentToMarkdown: $context expected Map, got ${Value.show(other)}")
+
+  private def mdContentMapInstance(value: Value.InstanceV, context: String): Map[String, Value] =
+    mdContentValueMap(mdField(value.effectiveFields, "values", context), context)
+
+  private def mdOptionString(value: Value, context: String): Option[String] =
+    value match
+      case Value.OptionV(null) => None
+      case Value.OptionV(Value.StringV(v)) => Some(v)
+      case Value.OptionV(other) =>
+        throw InterpretError(s"contentToMarkdown: $context expected Option[String], got Some(${Value.show(other)})")
+      case other =>
+        throw InterpretError(s"contentToMarkdown: $context expected Option[String], got ${Value.show(other)}")
+
+  private def mdInstance(value: Value, typeName: String, context: String): Value.InstanceV =
+    value match
+      case inst: Value.InstanceV if inst.typeName == typeName => inst
+      case other =>
+        throw InterpretError(s"contentToMarkdown: $context expected $typeName, got ${Value.show(other)}")
+
+  private def clampHeadingLevel(level: Int): Int =
+    math.max(1, math.min(6, level))
+
+  private def numberString(value: Double): String =
+    if value.isWhole && value >= Long.MinValue.toDouble && value <= Long.MaxValue.toDouble then value.toLong.toString
+    else value.toString
+
+  private def yamlKey(value: String): String =
+    if isSafeBareScalar(value) then value else quoteMarkdownAttr(value)
+
+  private def yamlString(value: String): String =
+    if isSafeBareScalar(value) then value else quoteMarkdownAttr(value)
+
+  private def attrScalar(value: String): String =
+    if isSafeAttrScalar(value) then value else quoteMarkdownAttr(value)
+
+  private def quoteMarkdownAttr(value: String): String =
+    "\"" + value.flatMap {
+      case '\\' => "\\\\"
+      case '"' => "\\\""
+      case '\n' => "\\n"
+      case '\r' => "\\r"
+      case '\t' => "\\t"
+      case ch => ch.toString
+    } + "\""
+
+  private def isSafeBareScalar(value: String): Boolean =
+    value.nonEmpty &&
+      !Set("true", "false", "null").contains(value.toLowerCase(java.util.Locale.ROOT)) &&
+      value.forall(ch => ch.isLetterOrDigit || ch == '-' || ch == '_' || ch == '.' || ch == '/' || ch == ':' || ch == '@')
+
+  private def isSafeAttrScalar(value: String): Boolean =
+    value.nonEmpty && value.forall(ch => ch.isLetterOrDigit || ch == '-' || ch == '_' || ch == '.' || ch == '/' || ch == ':' || ch == '@')
+
+  private def escapeMarkdownText(value: String): String =
+    value
+
+  private def inlineCodeMarkdown(value: String): String =
+    val ticks = maxBacktickRun(value) + 1
+    val delimiter = "`" * math.max(1, ticks)
+    s"$delimiter$value$delimiter"
+
+  private def fenceDelimiter(source: String): String =
+    "`" * math.max(3, maxBacktickRun(source) + 1)
+
+  private def maxBacktickRun(value: String): Int =
+    var best = 0
+    var current = 0
+    value.foreach { ch =>
+      if ch == '`' then
+        current += 1
+        if current > best then best = current
+      else current = 0
+    }
+    best
 
   private def vstackNode(gap: Int, children: List[Value]): Value =
     instanceValue("VStackNode",

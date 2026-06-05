@@ -186,7 +186,7 @@ class JvmGen(
   // Phase C.2 convention).
   private var sqlBlockCounter: Int = 0
   private val sqlPerSection = mutable.Map.empty[String, Int]
-  private val contentIntrinsicNames: Set[String] = Set(
+  private val lowLevelContentIntrinsicNames: Set[String] = Set(
     "contentDocument",
     "contentCurrentSection",
     "contentSection",
@@ -194,11 +194,16 @@ class JvmGen(
     "contentData",
     "contentMetadata",
     "contentPlainText",
+    "contentToMarkdown"
+  )
+  private val contentToolkitIntrinsicNames: Set[String] = Set(
     "contentToolkitNode",
     "contentToolkitBlock",
     "contentToolkitSection"
   )
+  private val contentIntrinsicNames: Set[String] = lowLevelContentIntrinsicNames ++ contentToolkitIntrinsicNames
   private var contentRuntimeEnabled: Boolean = false
+  private var contentToolkitRuntimeEnabled: Boolean = false
   private var contentSectionIndex: Int = 0
   // v1.30 Phase 4 — @side=client sql blocks collected during collectBlocks;
   // injected into the browser JS bundle for frontend (SPA) modules only.
@@ -277,24 +282,35 @@ class JvmGen(
   private def isContentStdImport(path: String): Boolean =
     path == "std/content.ssc" || path.endsWith("std/content.ssc")
 
-  private def moduleUsesContentIntrinsics(module: Module): Boolean =
+  private def isContentToolkitStdImport(path: String): Boolean =
+    path == "std/ui/content.ssc" || path.endsWith("std/ui/content.ssc")
+
+  private def moduleUsesContentNames(module: Module, names: Set[String], includeStdContentImport: Boolean, includeToolkitImport: Boolean): Boolean =
     def treeUsesContent(node: ScalaNode): Boolean =
       ScalaNode.fold(node) { tree =>
         tree.collect {
-          case Term.Apply.After_4_6_0(Term.Name(name), _) if contentIntrinsicNames(name) => ()
+          case Term.Apply.After_4_6_0(Term.Name(name), _) if names(name) => ()
         }.nonEmpty
       }
 
     def sectionUsesContent(section: Section): Boolean =
       section.content.exists {
         case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
-          cb.tree.exists(treeUsesContent) || contentIntrinsicNames.exists(cb.source.contains)
+          cb.tree.exists(treeUsesContent) || names.exists(cb.source.contains)
         case imp: Content.Import =>
-          isContentStdImport(imp.path) || imp.bindings.exists(binding => contentIntrinsicNames(binding.name))
+          (includeStdContentImport && isContentStdImport(imp.path)) ||
+            (includeToolkitImport && isContentToolkitStdImport(imp.path)) ||
+            imp.bindings.exists(binding => names(binding.name))
         case _ => false
       } || section.subsections.exists(sectionUsesContent)
 
     module.sections.exists(sectionUsesContent)
+
+  private def moduleUsesContentIntrinsics(module: Module): Boolean =
+    moduleUsesContentNames(module, contentIntrinsicNames, includeStdContentImport = true, includeToolkitImport = true)
+
+  private def moduleUsesContentToolkitIntrinsics(module: Module): Boolean =
+    moduleUsesContentNames(module, contentToolkitIntrinsicNames, includeStdContentImport = false, includeToolkitImport = true)
 
   private def scalaOptionStringExpr(value: Option[String]): String =
     value.map(v => s"Some(${scalaStringLiteral(v)})").getOrElse("None")
@@ -377,7 +393,7 @@ class JvmGen(
   private def scalaDocumentExpr(doc: DocumentContent): String =
     s"std.content.DocumentContent(${scalaContentValueExpr(doc.manifest)}, ${scalaOptionStringExpr(doc.title)}, ${scalaOptionStringExpr(doc.description)}, ${scalaContentValueMapExpr(doc.attrs)}, ${scalaSectionListExpr(doc.sections)}, ${scalaBlockListExpr(doc.blocks)})"
 
-  private def emitContentRuntime(document: Option[DocumentContent]): String =
+  private def emitContentRuntime(document: Option[DocumentContent], includeToolkit: Boolean): String =
     val docExpr = document
       .map(scalaDocumentExpr)
       .getOrElse("""throw RuntimeException("contentDocument() is only available while running a parsed .ssc module")""")
@@ -518,6 +534,193 @@ class JvmGen(
        |      label.map(_ssc_content_inline_plain_text).mkString + s" ($$href)"
        |    case std.content.ContentInline.Expr(source) => "$${" + source + "}"
        |
+       |def contentToMarkdown(value: Any): String =
+       |  value match
+       |    case doc: std.content.DocumentContent => _ssc_content_document_markdown(doc)
+       |    case section: std.content.SectionContent => _ssc_content_section_markdown(section)
+       |    case block: std.content.ContentBlock => _ssc_content_block_markdown(block)
+       |    case other => throw RuntimeException("contentToMarkdown: expected DocumentContent, SectionContent, or ContentBlock, got " + String.valueOf(other))
+       |
+       |def _ssc_content_document_markdown(doc: std.content.DocumentContent): String =
+       |  val frontMatter = _ssc_content_manifest_markdown(doc.manifest).toList
+       |  (frontMatter ++ doc.blocks.map(_ssc_content_block_markdown) ++ doc.sections.map(_ssc_content_section_markdown))
+       |    .filter(_.nonEmpty)
+       |    .mkString("\\n\\n")
+       |
+       |def _ssc_content_manifest_markdown(value: std.content.ContentValue): Option[String] =
+       |  value match
+       |    case std.content.ContentValue.MapV(values) if values.nonEmpty =>
+       |      Some("---\\n" + _ssc_content_yaml_map_lines(values, 0).mkString("\\n") + "\\n---")
+       |    case _ => None
+       |
+       |def _ssc_content_section_markdown(section: std.content.SectionContent): String =
+       |  val title = _ssc_content_markdown_text(section.title)
+       |  val heading = ("#" * _ssc_content_heading_level(section.level)) + " " + title + _ssc_content_heading_attrs(section.id, section.attrs)
+       |  (heading :: (section.blocks.map(_ssc_content_block_markdown) ++ section.children.map(_ssc_content_section_markdown)))
+       |    .filter(_.nonEmpty)
+       |    .mkString("\\n\\n")
+       |
+       |def _ssc_content_block_markdown(block: std.content.ContentBlock): String =
+       |  val body = block match
+       |    case std.content.ContentBlock.Paragraph(inlines, _) =>
+       |      inlines.map(_ssc_content_inline_markdown).mkString
+       |    case std.content.ContentBlock.BulletList(items, _) =>
+       |      items.map(item => _ssc_content_list_item_markdown("- ", item)).mkString("\\n")
+       |    case std.content.ContentBlock.OrderedList(items, start, _) =>
+       |      items.zipWithIndex.map { case (item, idx) => _ssc_content_list_item_markdown((start + idx).toString + ". ", item) }.mkString("\\n")
+       |    case std.content.ContentBlock.Image(src, alt, title, _) =>
+       |      val titlePart = title.map(t => " " + _ssc_content_quote_markdown_attr(t)).getOrElse("")
+       |      "![" + _ssc_content_markdown_text(alt) + "](" + src + titlePart + ")"
+       |    case block @ std.content.ContentBlock.Embedded(_, _, _, _, _) =>
+       |      _ssc_content_embedded_markdown(block)
+       |  block match
+       |    case std.content.ContentBlock.Embedded(_, _, _, _, _) => body
+       |    case _ => _ssc_content_metadata_directive(_ssc_content_block_attrs(block)).map(_ + "\\n" + body).getOrElse(body)
+       |
+       |def _ssc_content_list_item_markdown(prefix: String, blocks: List[std.content.ContentBlock]): String =
+       |  val body = blocks.map(_ssc_content_block_markdown).filter(_.nonEmpty).mkString("\\n\\n")
+       |  val lines = body.split("\\n", -1).toList
+       |  if body.isEmpty then prefix.trim
+       |  else prefix + lines.head + lines.tail.map(line => "\\n  " + line).mkString
+       |
+       |def _ssc_content_embedded_markdown(block: std.content.ContentBlock.Embedded): String =
+       |  val info = (block.lang :: _ssc_content_fence_attr_tokens(block.attrs)).filter(_.nonEmpty).mkString(" ")
+       |  val fence = _ssc_content_fence_delimiter(block.source)
+       |  val body = if block.source.endsWith("\\n") then block.source else block.source + "\\n"
+       |  if info.isEmpty then fence + "\\n" + body + fence else fence + info + "\\n" + body + fence
+       |
+       |def _ssc_content_inline_markdown(inline: std.content.ContentInline): String =
+       |  inline match
+       |    case std.content.ContentInline.Text(value) => _ssc_content_markdown_text(value)
+       |    case std.content.ContentInline.Emphasis(children) => "*" + children.map(_ssc_content_inline_markdown).mkString + "*"
+       |    case std.content.ContentInline.Strong(children) => "**" + children.map(_ssc_content_inline_markdown).mkString + "**"
+       |    case std.content.ContentInline.Code(value) => _ssc_content_inline_code_markdown(value)
+       |    case std.content.ContentInline.Link(label, href, title) =>
+       |      val titlePart = title.map(t => " " + _ssc_content_quote_markdown_attr(t)).getOrElse("")
+       |      "[" + label.map(_ssc_content_inline_markdown).mkString + "](" + href + titlePart + ")"
+       |    case std.content.ContentInline.Expr(source) => "$${" + source + "}"
+       |
+       |def _ssc_content_heading_attrs(id: String, attrs: Map[String, std.content.ContentValue]): String =
+       |  val idToken = if id.nonEmpty then List("#" + id) else Nil
+       |  val classTokens = attrs.get("class").collect { case std.content.ContentValue.Str(value) => value.split("\\\\s+").toList.filter(_.nonEmpty).map("." + _) }.getOrElse(Nil)
+       |  val rest = attrs.toList.filterNot(_._1 == "class").sortBy(_._1).flatMap { case (key, value) => _ssc_content_attr_token(key, value, "") }
+       |  val tokens = idToken ++ classTokens ++ rest
+       |  if tokens.isEmpty then "" else tokens.mkString(" {", " ", "}")
+       |
+       |def _ssc_content_metadata_directive(attrs: Map[String, std.content.ContentValue]): Option[String] =
+       |  val tokens = attrs.toList.sortBy(_._1).flatMap { case (key, value) => _ssc_content_attr_token(key, value, "") }
+       |  if tokens.isEmpty then None else Some(tokens.mkString("<!-- @meta ", " ", " -->"))
+       |
+       |def _ssc_content_fence_attr_tokens(attrs: Map[String, std.content.ContentValue]): List[String] =
+       |  val id = attrs.get("id").flatMap(value => _ssc_content_attr_token("id", value, "@"))
+       |  val rest = attrs.toList.filterNot(_._1 == "id").sortBy(_._1).flatMap { case (key, value) => _ssc_content_attr_token(key, value, "@") }
+       |  id.toList ++ rest
+       |
+       |def _ssc_content_attr_token(key: String, value: std.content.ContentValue, prefix: String): Option[String] =
+       |  value match
+       |    case std.content.ContentValue.Bool(v) =>
+       |      if prefix.isEmpty && v then Some(key) else Some(prefix + key + "=" + v.toString)
+       |    case std.content.ContentValue.Str(v) =>
+       |      Some(prefix + key + "=" + _ssc_content_attr_scalar(v))
+       |    case std.content.ContentValue.Num(v) =>
+       |      Some(prefix + key + "=" + _ssc_content_number_string(v))
+       |    case std.content.ContentValue.NullV =>
+       |      Some(prefix + key + "=null")
+       |    case other =>
+       |      Some(prefix + key + "=" + _ssc_content_attr_scalar(_ssc_content_yaml_scalar(other)))
+       |
+       |def _ssc_content_yaml_map_lines(values: Map[String, std.content.ContentValue], indent: Int): List[String] =
+       |  values.toList.sortBy(_._1).flatMap { case (key, value) => _ssc_content_yaml_key_value_lines(key, value, indent) }
+       |
+       |def _ssc_content_yaml_key_value_lines(key: String, value: std.content.ContentValue, indent: Int): List[String] =
+       |  val pad = " " * indent
+       |  value match
+       |    case std.content.ContentValue.MapV(values) =>
+       |      if values.isEmpty then List(pad + _ssc_content_yaml_key(key) + ": {}")
+       |      else (pad + _ssc_content_yaml_key(key) + ":") :: _ssc_content_yaml_map_lines(values, indent + 2)
+       |    case std.content.ContentValue.ListV(values) =>
+       |      if values.isEmpty then List(pad + _ssc_content_yaml_key(key) + ": []")
+       |      else (pad + _ssc_content_yaml_key(key) + ":") :: _ssc_content_yaml_list_lines(values, indent + 2)
+       |    case _ =>
+       |      List(pad + _ssc_content_yaml_key(key) + ": " + _ssc_content_yaml_scalar(value))
+       |
+       |def _ssc_content_yaml_list_lines(values: List[std.content.ContentValue], indent: Int): List[String] =
+       |  val pad = " " * indent
+       |  values.flatMap {
+       |    case std.content.ContentValue.MapV(values) =>
+       |      if values.isEmpty then List(pad + "- {}") else (pad + "-") :: _ssc_content_yaml_map_lines(values, indent + 2)
+       |    case std.content.ContentValue.ListV(values) =>
+       |      if values.isEmpty then List(pad + "- []") else (pad + "-") :: _ssc_content_yaml_list_lines(values, indent + 2)
+       |    case value =>
+       |      List(pad + "- " + _ssc_content_yaml_scalar(value))
+       |  }
+       |
+       |def _ssc_content_yaml_scalar(value: std.content.ContentValue): String =
+       |  value match
+       |    case std.content.ContentValue.Str(v) => _ssc_content_yaml_string(v)
+       |    case std.content.ContentValue.Bool(v) => v.toString
+       |    case std.content.ContentValue.Num(v) => _ssc_content_number_string(v)
+       |    case std.content.ContentValue.NullV => "null"
+       |    case std.content.ContentValue.MapV(values) => if values.isEmpty then "{}" else _ssc_content_quote_markdown_attr(value.toString)
+       |    case std.content.ContentValue.ListV(values) => if values.isEmpty then "[]" else _ssc_content_quote_markdown_attr(value.toString)
+       |
+       |def _ssc_content_heading_level(value: Int): Int =
+       |  math.max(1, math.min(6, value))
+       |
+       |def _ssc_content_number_string(value: Double): String =
+       |  if value.isWhole && value >= Long.MinValue.toDouble && value <= Long.MaxValue.toDouble then value.toLong.toString
+       |  else value.toString
+       |
+       |def _ssc_content_yaml_key(value: String): String =
+       |  if _ssc_content_safe_bare_scalar(value) then value else _ssc_content_quote_markdown_attr(value)
+       |
+       |def _ssc_content_yaml_string(value: String): String =
+       |  if _ssc_content_safe_bare_scalar(value) then value else _ssc_content_quote_markdown_attr(value)
+       |
+       |def _ssc_content_attr_scalar(value: String): String =
+       |  if _ssc_content_safe_attr_scalar(value) then value else _ssc_content_quote_markdown_attr(value)
+       |
+       |def _ssc_content_quote_markdown_attr(value: String): String =
+       |  val slash = 92.toChar.toString
+       |  val quote = 34.toChar.toString
+       |  val escaped = value
+       |    .replace(slash, slash + slash)
+       |    .replace(quote, slash + quote)
+       |    .replace(10.toChar.toString, slash + "n")
+       |    .replace(13.toChar.toString, slash + "r")
+       |    .replace(9.toChar.toString, slash + "t")
+       |  quote + escaped + quote
+       |
+       |def _ssc_content_safe_bare_scalar(value: String): Boolean =
+       |  value.nonEmpty &&
+       |    !Set("true", "false", "null").contains(value.toLowerCase(java.util.Locale.ROOT)) &&
+       |    value.forall(ch => ch.isLetterOrDigit || ch == '-' || ch == '_' || ch == '.' || ch == '/' || ch == ':' || ch == '@')
+       |
+       |def _ssc_content_safe_attr_scalar(value: String): Boolean =
+       |  value.nonEmpty && value.forall(ch => ch.isLetterOrDigit || ch == '-' || ch == '_' || ch == '.' || ch == '/' || ch == ':' || ch == '@')
+       |
+       |def _ssc_content_markdown_text(value: String): String = value
+       |
+       |def _ssc_content_inline_code_markdown(value: String): String =
+       |  val delimiter = "`" * math.max(1, _ssc_content_max_backtick_run(value) + 1)
+       |  delimiter + value + delimiter
+       |
+       |def _ssc_content_fence_delimiter(source: String): String =
+       |  "`" * math.max(3, _ssc_content_max_backtick_run(source) + 1)
+       |
+       |def _ssc_content_max_backtick_run(value: String): Int =
+       |  var best = 0
+       |  var current = 0
+       |  value.foreach { ch =>
+       |    if ch == '`' then
+       |      current += 1
+       |      if current > best then best = current
+       |    else current = 0
+       |  }
+       |  best
+       |""".stripMargin +
+    (if includeToolkit then
+      s"""
        |def _ssc_tk_error(msg: String): Nothing = throw RuntimeException(msg)
        |
        |def _ssc_tk_str(value: std.content.ContentValue, ctx: String): String =
@@ -670,10 +873,12 @@ class JvmGen(
        |  )
        |
        |""".stripMargin
+    else "")
 
   def genModule(module: Module): String =
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     contentRuntimeEnabled = moduleUsesContentIntrinsics(module)
+    contentToolkitRuntimeEnabled = moduleUsesContentToolkitIntrinsics(module)
     contentSectionIndex = 0
     // Collect blocks first — including those pulled in by `[..](./x.ssc)`
     // imports — so the effect / mutual-TCO analysis sees the full picture.
@@ -780,7 +985,7 @@ class JvmGen(
     else sb.append(stubServeRuntime)
     if blocksUseMcp(blocks)                                                          then sb.append(JvmRuntimeMcp)
     if blocksUseDataset(blocks)                                                      then sb.append(JvmRuntimeDataset)
-    if contentRuntimeEnabled                                                         then sb.append(emitContentRuntime(module.document))
+    if contentRuntimeEnabled                                                         then sb.append(emitContentRuntime(module.document, contentToolkitRuntimeEnabled))
 
     // Front-matter route declarations are emitted as `route(method, path)
     // { req => handler(req) }` calls.  We place them BEFORE the user blocks
@@ -1605,6 +1810,7 @@ class JvmGen(
   def genUserOnlyWithLineMap(module: Module): (String, Map[Int, Int]) =
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     contentRuntimeEnabled = moduleUsesContentIntrinsics(module)
+    contentToolkitRuntimeEnabled = moduleUsesContentToolkitIntrinsics(module)
     contentSectionIndex = 0
     val blocks = collectBlocks(module.sections, module.document.map(_.sections).getOrElse(Nil))
     analyzeDepEffectfulness()
@@ -1629,7 +1835,7 @@ class JvmGen(
     // any extension methods / typeclass instances the runtime exposes,
     // and `*` covers values / defs / classes / objects.
     sb.append("import _ssc_runtime.{given, *}\n\n")
-    if contentRuntimeEnabled then sb.append(emitContentRuntime(module.document))
+    if contentRuntimeEnabled then sb.append(emitContentRuntime(module.document, contentToolkitRuntimeEnabled))
 
     val frontmatterRoutes = module.manifest.toList.flatMap(_.routes)
     val apiClients = module.manifest.toList.flatMap(_.apiClients)

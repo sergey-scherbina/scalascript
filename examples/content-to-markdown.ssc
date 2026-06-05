@@ -1,0 +1,29 @@
+---
+name: content-to-markdown-demo
+---
+
+# Product Brief {#brief audience=builders}
+
+ScalaScript lets Markdown be both the document and the frontend/content source.
+
+<!-- @meta id=controls-note kind=summary -->
+Controls, data, and prose can be selected by id and serialized later.
+
+```yaml @id=hero-data
+title: Markdown-first frontend
+cta: Try the demo
+```
+
+# Export
+
+[contentSection, contentBlock, contentToMarkdown](std/content.ssc)
+
+```scalascript
+val brief = contentSection("brief").get
+val data = contentBlock("hero-data").get
+
+println("section:")
+println(contentToMarkdown(brief))
+println("block:")
+println(contentToMarkdown(data))
+```

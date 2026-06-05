@@ -17,6 +17,7 @@ exports:
   - contentData
   - contentMetadata
   - contentPlainText
+  - contentToMarkdown
 ---
 
 # `std.content` — Markdown-hosted content
@@ -82,4 +83,5 @@ extern def contentBlock(id: String): Option[ContentBlock]
 extern def contentData(id: String): Option[ContentValue]
 extern def contentMetadata(path: String): Option[ContentValue]
 extern def contentPlainText(value: Any): String
+extern def contentToMarkdown(value: Any): String
 ```

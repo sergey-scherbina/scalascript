@@ -1,0 +1,27 @@
+doc-has-frontmatter=true
+pricing=
+# Pricing {#pricing route=/pricing}
+
+Intro with *emphasis*, **strong**, `code`, [docs](/docs "Docs"), and ${visitorName}.
+
+![Hero image](/hero.png "Hero")
+
+<!-- @meta id=tagline kind=hero -->
+Reusable tagline.
+
+## Plans {#plans component=PlanList source=plans}
+
+- Starter
+- Pro
+
+```yaml @id=plans-data
+plans:
+  - id: starter
+    price: 19
+```
+data=
+```yaml @id=plans-data
+plans:
+  - id: starter
+    price: 19
+```
