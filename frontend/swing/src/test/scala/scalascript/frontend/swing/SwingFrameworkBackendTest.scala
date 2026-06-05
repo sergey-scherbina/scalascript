@@ -3,7 +3,7 @@ package scalascript.frontend.swing
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.frontend.*
 
-import javax.swing.{JButton, JLabel, JTable, SwingUtilities}
+import javax.swing.{JButton, JCheckBox, JLabel, JTable, JTextField, SwingUtilities}
 
 class SwingFrameworkBackendTest extends AnyFunSuite:
 
@@ -98,6 +98,31 @@ class SwingFrameworkBackendTest extends AnyFunSuite:
     assert(source.contains("panel.setOpaque(true)"))
     assert(source.contains("""panel.setBackground(Color.decode("#f8f8f8"))"""))
     assert(source.contains("panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10))"))
+  }
+
+  test("emitNative normalizes std/ui Element controls from Markdown toolkit lowering") {
+    val source = SwingFrameworkBackend().emitNative(
+      FrontendModule(List(ComponentDef("App", Nil, _ => markdownElementControls)), "App", "/"),
+      Platform.Desktop()
+    ).get.sources("src/main/scala/Main.scala")
+
+    assert(source.contains("""JTextField(signalString(signals, "teamName"), 32)"""))
+    assert(source.contains("""field.putClientProperty("JTextField.placeholderText", "Team name")"""))
+    assert(source.contains("""JCheckBox("Enable native renderer", signalBoolean(signals, "enabled"))"""))
+    assert(source.contains("""JButton("Apply native controls")"""))
+    assert(source.contains("""button.addActionListener(_ => setSignal(signals, bindings, "applied", true))"""))
+    assert(source.contains(""""teamName" -> "ScalaScript team""""))
+    assert(source.contains(""""enabled" -> false"""))
+    assert(source.contains(""""applied" -> false"""))
+    assert(source.contains(""""refreshCount" -> 2"""))
+    assert(source.contains(""""ratio" -> 1.5"""))
+  }
+
+  test("SwingRuntime normalizes std/ui Element controls from Markdown toolkit lowering") {
+    val panel = SwingRuntime.buildRoot(markdownElementControls)
+    assert(findFirst[JTextField](panel).exists(_.getText == "ScalaScript team"))
+    assert(findAll[JCheckBox](panel).exists(_.getText == "Enable native renderer"))
+    assert(findAll[JButton](panel).exists(_.getText == "Apply native controls"))
   }
 
   test("emitNative wires simple signal actions and refresh bindings") {
@@ -321,3 +346,60 @@ class SwingFrameworkBackendTest extends AnyFunSuite:
       case c: java.awt.Container => findAll[A](c)
       case _ => Nil
     }
+
+  private def markdownElementControls: View[?] =
+    val teamName = ReactiveSignal[String]("teamName", "ScalaScript team")
+    val enabled = ReactiveSignal[Boolean]("enabled", false)
+    val applied = ReactiveSignal[Boolean]("applied", false)
+    val refreshCount = ReactiveSignal[Int]("refreshCount", 2)
+    val ratio = ReactiveSignal[Double]("ratio", 1.5)
+    View.Element(
+      "div",
+      Map("style" -> AttrValue.Str("display:flex; flex-direction:column; gap:12px")),
+      Map.empty,
+      Seq(
+        View.Element(
+          "div",
+          Map("style" -> AttrValue.Str("display:flex; flex-direction:column; gap:4px")),
+          Map.empty,
+          Seq(
+            View.Element("label", Map.empty, Map.empty, Seq(View.TextNode(() => "Team name"))),
+            View.Element(
+              "input",
+              Map(
+                "type" -> AttrValue.Str("text"),
+                "placeholder" -> AttrValue.Str("Team name"),
+                "value" -> AttrValue.Reactive(teamName)
+              ),
+              Map("change" -> EventHandler.InputChange(teamName)),
+              Nil
+            )
+          )
+        ),
+        View.Element(
+          "label",
+          Map.empty,
+          Map.empty,
+          Seq(
+            View.Element(
+              "input",
+              Map(
+                "type" -> AttrValue.Str("checkbox"),
+                "checked" -> AttrValue.Reactive(enabled)
+              ),
+              Map("change" -> EventHandler.ToggleSignal(enabled)),
+              Nil
+            ),
+            View.TextNode(() => "Enable native renderer")
+          )
+        ),
+        View.Element(
+          "button",
+          Map.empty,
+          Map("click" -> EventHandler.SetSignalLiteral(applied, true)),
+          Seq(View.TextNode(() => "Apply native controls"))
+        ),
+        View.Element("span", Map.empty, Map.empty, Seq(View.SignalText(refreshCount))),
+        View.Element("span", Map.empty, Map.empty, Seq(View.SignalText(ratio)))
+      )
+    )

@@ -111,6 +111,24 @@ class JavaFxFrameworkBackendTest extends AnyFunSuite:
     assert(source.contains(""""accept" -> true"""))
   }
 
+  test("emitNative normalizes std/ui Element controls from Markdown toolkit lowering") {
+    val source = JavaFxFrameworkBackend().emitNative(
+      FrontendModule(List(ComponentDef("App", Nil, _ => markdownElementControls)), "App", "/"),
+      Platform.Desktop(DesktopOs.MacOS)
+    ).get.sources("src/main/scala/Main.scala")
+
+    assert(source.contains("""TextField(signalString(signals, "teamName"))"""))
+    assert(source.contains("""field.setPromptText("Team name")"""))
+    assert(source.contains("""CheckBox("Enable native renderer")"""))
+    assert(source.contains("""Button("Apply native controls")"""))
+    assert(source.contains("""button.setOnAction(_ => setSignal(signals, bindings, "applied", true))"""))
+    assert(source.contains(""""teamName" -> "ScalaScript team""""))
+    assert(source.contains(""""enabled" -> false"""))
+    assert(source.contains(""""applied" -> false"""))
+    assert(source.contains(""""refreshCount" -> 2"""))
+    assert(source.contains(""""ratio" -> 1.5"""))
+  }
+
   test("emitNative lowers SeedSignal with pristine source sync") {
     val backend = JavaFxFrameworkBackend()
     val sourceSignal = ReactiveSignal[String]("serverName", "Alice")
@@ -179,3 +197,60 @@ class JavaFxFrameworkBackendTest extends AnyFunSuite:
       sys.props.put("os.name", origName)
       sys.props.put("os.arch", origArch)
   }
+
+  private def markdownElementControls: View[?] =
+    val teamName = ReactiveSignal[String]("teamName", "ScalaScript team")
+    val enabled = ReactiveSignal[Boolean]("enabled", false)
+    val applied = ReactiveSignal[Boolean]("applied", false)
+    val refreshCount = ReactiveSignal[Int]("refreshCount", 2)
+    val ratio = ReactiveSignal[Double]("ratio", 1.5)
+    View.Element(
+      "div",
+      Map("style" -> AttrValue.Str("display:flex; flex-direction:column; gap:12px")),
+      Map.empty,
+      Seq(
+        View.Element(
+          "div",
+          Map("style" -> AttrValue.Str("display:flex; flex-direction:column; gap:4px")),
+          Map.empty,
+          Seq(
+            View.Element("label", Map.empty, Map.empty, Seq(View.TextNode(() => "Team name"))),
+            View.Element(
+              "input",
+              Map(
+                "type" -> AttrValue.Str("text"),
+                "placeholder" -> AttrValue.Str("Team name"),
+                "value" -> AttrValue.Reactive(teamName)
+              ),
+              Map("change" -> EventHandler.InputChange(teamName)),
+              Nil
+            )
+          )
+        ),
+        View.Element(
+          "label",
+          Map.empty,
+          Map.empty,
+          Seq(
+            View.Element(
+              "input",
+              Map(
+                "type" -> AttrValue.Str("checkbox"),
+                "checked" -> AttrValue.Reactive(enabled)
+              ),
+              Map("change" -> EventHandler.ToggleSignal(enabled)),
+              Nil
+            ),
+            View.TextNode(() => "Enable native renderer")
+          )
+        ),
+        View.Element(
+          "button",
+          Map.empty,
+          Map("click" -> EventHandler.SetSignalLiteral(applied, true)),
+          Seq(View.TextNode(() => "Apply native controls"))
+        ),
+        View.Element("span", Map.empty, Map.empty, Seq(View.SignalText(refreshCount))),
+        View.Element("span", Map.empty, Map.empty, Seq(View.SignalText(ratio)))
+      )
+    )

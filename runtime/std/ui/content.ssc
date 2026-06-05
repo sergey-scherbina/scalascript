@@ -49,29 +49,29 @@ def contentViewSection(section: SectionContent,
 def contentViewBlock(block: ContentBlock,
                      options: ContentRenderOptions = ContentRenderOptions()): View =
   block match
-    case Paragraph(inlines, _) =>
+    case ContentBlock.Paragraph(inlines, _) =>
       element("p", Map(), Map(), inlines.map(contentInlineView(_, options)))
 
-    case BulletList(items, _) =>
+    case ContentBlock.BulletList(items, _) =>
       val children = items.map { item =>
         element("li", Map(), Map(), item.map(contentViewBlock(_, options)))
       }
       element("ul", Map(), Map(), children)
 
-    case OrderedList(items, start, _) =>
+    case ContentBlock.OrderedList(items, start, _) =>
       val attrs = if start == 1 then Map() else Map("start" -> start)
       val children = items.map { item =>
         element("li", Map(), Map(), item.map(contentViewBlock(_, options)))
       }
       element("ol", attrs, Map(), children)
 
-    case Image(src, alt, title, _) =>
+    case ContentBlock.Image(src, alt, title, _) =>
       val attrs = title match
         case Some(t) => Map("src" -> src, "alt" -> alt, "title" -> t)
         case None    => Map("src" -> src, "alt" -> alt)
       element("img", attrs, Map(), [])
 
-    case Embedded(lang, source, _, _, _) =>
+    case ContentBlock.Embedded(lang, source, _, _, _) =>
       if options.includeCode then
         val label = if lang == "" then "" else s"${lang}\n"
         element("pre", Map(), Map(), [
@@ -82,25 +82,25 @@ def contentViewBlock(block: ContentBlock,
 def contentInlineView(inline: ContentInline,
                       options: ContentRenderOptions): View =
   inline match
-    case Text(value) =>
+    case ContentInline.Text(value) =>
       textNode(value)
 
-    case Emphasis(children) =>
+    case ContentInline.Emphasis(children) =>
       element("em", Map(), Map(), children.map(contentInlineView(_, options)))
 
-    case Strong(children) =>
+    case ContentInline.Strong(children) =>
       element("strong", Map(), Map(), children.map(contentInlineView(_, options)))
 
-    case Code(value) =>
+    case ContentInline.Code(value) =>
       element("code", Map(), Map(), [textNode(value)])
 
-    case Link(label, href, title) =>
+    case ContentInline.Link(label, href, title) =>
       val attrs = title match
         case Some(t) => Map("href" -> href, "title" -> t)
         case None    => Map("href" -> href)
       element("a", attrs, Map(), label.map(contentInlineView(_, options)))
 
-    case Expr(source) =>
+    case ContentInline.Expr(source) =>
       textNode("${" + source + "}")
 
 case class ContentToolkitOptions(

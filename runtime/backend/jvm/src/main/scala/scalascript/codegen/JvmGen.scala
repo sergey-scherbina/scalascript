@@ -193,7 +193,10 @@ class JvmGen(
     "contentBlock",
     "contentData",
     "contentMetadata",
-    "contentPlainText"
+    "contentPlainText",
+    "contentToolkitNode",
+    "contentToolkitBlock",
+    "contentToolkitSection"
   )
   private var contentRuntimeEnabled: Boolean = false
   private var contentSectionIndex: Int = 0
@@ -515,6 +518,157 @@ class JvmGen(
        |      label.map(_ssc_content_inline_plain_text).mkString + s" ($$href)"
        |    case std.content.ContentInline.Expr(source) => "$${" + source + "}"
        |
+       |def _ssc_tk_error(msg: String): Nothing = throw RuntimeException(msg)
+       |
+       |def _ssc_tk_str(value: std.content.ContentValue, ctx: String): String =
+       |  value match
+       |    case std.content.ContentValue.Str(v) => v
+       |    case other => _ssc_tk_error(s"contentToolkitNode: $$ctx expected String, got $$other")
+       |
+       |def _ssc_tk_bool(value: std.content.ContentValue, ctx: String): Boolean =
+       |  value match
+       |    case std.content.ContentValue.Bool(v) => v
+       |    case other => _ssc_tk_error(s"contentToolkitNode: $$ctx expected Boolean, got $$other")
+       |
+       |def _ssc_tk_int(value: std.content.ContentValue, ctx: String): Int =
+       |  value match
+       |    case std.content.ContentValue.Num(v) => v.toInt
+       |    case other => _ssc_tk_error(s"contentToolkitNode: $$ctx expected Number, got $$other")
+       |
+       |def _ssc_tk_scalar(value: std.content.ContentValue, ctx: String): Any =
+       |  value match
+       |    case std.content.ContentValue.Str(v) => v
+       |    case std.content.ContentValue.Bool(v) => v
+       |    case std.content.ContentValue.Num(v) => if v.isValidInt then v.toInt else v
+       |    case std.content.ContentValue.NullV => null
+       |    case other => _ssc_tk_error(s"contentToolkitNode: $$ctx expected scalar, got $$other")
+       |
+       |def _ssc_tk_map(value: std.content.ContentValue, ctx: String): Map[String, std.content.ContentValue] =
+       |  value match
+       |    case std.content.ContentValue.MapV(values) => values
+       |    case other => _ssc_tk_error(s"contentToolkitNode: $$ctx expected object, got $$other")
+       |
+       |def _ssc_tk_list(value: std.content.ContentValue, ctx: String): List[std.content.ContentValue] =
+       |  value match
+       |    case std.content.ContentValue.ListV(values) => values
+       |    case other => _ssc_tk_error(s"contentToolkitNode: $$ctx expected list, got $$other")
+       |
+       |def _ssc_tk_field(obj: Map[String, std.content.ContentValue], name: String, ctx: String): std.content.ContentValue =
+       |  obj.getOrElse(name, _ssc_tk_error(s"contentToolkitNode: $$ctx requires $$name"))
+       |
+       |def _ssc_tk_opt_str(obj: Map[String, std.content.ContentValue], name: String): Option[String] =
+       |  obj.get(name).map(_ssc_tk_str(_, name))
+       |
+       |def _ssc_tk_opt_bool(obj: Map[String, std.content.ContentValue], name: String, default: Boolean = false): Boolean =
+       |  obj.get(name).map(_ssc_tk_bool(_, name)).getOrElse(default)
+       |
+       |def _ssc_tk_opt_int(obj: Map[String, std.content.ContentValue], name: String, default: Int): Int =
+       |  obj.get(name).map(_ssc_tk_int(_, name)).getOrElse(default)
+       |
+       |def _ssc_tk_signals(root: Map[String, std.content.ContentValue]): Map[String, Any] =
+       |  root.get("signals") match
+       |    case Some(std.content.ContentValue.MapV(values)) =>
+       |      values.map { case (name, value) => name -> std.ui.primitives.signal(name, _ssc_tk_scalar(value, s"signal '$$name' default")) }
+       |    case Some(other) => _ssc_tk_error(s"contentToolkitNode: signals expected object, got $$other")
+       |    case None => Map.empty
+       |
+       |def _ssc_tk_signal(env: Map[String, Any], name: String, ctx: String): Any =
+       |  env.getOrElse(name, _ssc_tk_error(s"contentToolkitNode: $$ctx references unknown signal '$$name'"))
+       |
+       |def _ssc_tk_render_control(value: std.content.ContentValue, env: Map[String, Any]): std.ui.nodes.TkNode =
+       |  val obj = _ssc_tk_map(value, "control")
+       |  val kind = _ssc_tk_str(_ssc_tk_field(obj, "type", "control"), "control.type")
+       |  kind match
+       |    case "vstack" =>
+       |      std.ui.nodes.VStackNode(_ssc_tk_opt_int(obj, "gap", 8), _ssc_tk_children(obj, env))
+       |    case "hstack" =>
+       |      std.ui.nodes.HStackNode(_ssc_tk_opt_int(obj, "gap", 8), _ssc_tk_children(obj, env))
+       |    case "fragment" =>
+       |      std.ui.nodes.FragmentNode(_ssc_tk_children(obj, env))
+       |    case "divider" =>
+       |      std.ui.nodes.DividerNode()
+       |    case "heading" =>
+       |      std.ui.nodes.HeadingNode(obj.get("level").map(_ssc_tk_int(_, "heading.level")).getOrElse(2), _ssc_tk_str(_ssc_tk_field(obj, "text", "heading"), "heading.text"))
+       |    case "text" =>
+       |      std.ui.nodes.TextNode_(_ssc_tk_str(_ssc_tk_field(obj, "text", "text"), "text.text"))
+       |    case "rawText" =>
+       |      std.ui.nodes.RawTextNode(_ssc_tk_str(_ssc_tk_field(obj, "text", "rawText"), "rawText.text"))
+       |    case "signalText" =>
+       |      val name = _ssc_tk_str(_ssc_tk_field(obj, "signal", "signalText"), "signalText.signal")
+       |      std.ui.nodes.SignalTextNode(_ssc_tk_signal(env, name, "signalText"))
+       |    case "show" =>
+       |      val name = _ssc_tk_str(_ssc_tk_field(obj, "signal", "show"), "show.signal")
+       |      val whenTrue = _ssc_tk_render_control(_ssc_tk_field(obj, "then", "show"), env)
+       |      val whenFalse = obj.get("else").map(_ssc_tk_render_control(_, env)).getOrElse(std.ui.nodes.FragmentNode(Nil))
+       |      std.ui.nodes.ShowWhenNode(_ssc_tk_signal(env, name, "show"), whenTrue, whenFalse)
+       |    case "textField" =>
+       |      val name = _ssc_tk_str(_ssc_tk_field(obj, "signal", "textField"), "textField.signal")
+       |      std.ui.nodes.TextFieldNode(_ssc_tk_signal(env, name, "textField"), _ssc_tk_str(_ssc_tk_field(obj, "label", "textField"), "textField.label"), _ssc_tk_opt_bool(obj, "disabled"), _ssc_tk_opt_bool(obj, "required"))
+       |    case "checkbox" =>
+       |      val name = _ssc_tk_str(_ssc_tk_field(obj, "signal", "checkbox"), "checkbox.signal")
+       |      std.ui.nodes.CheckboxNode(_ssc_tk_signal(env, name, "checkbox"), _ssc_tk_str(_ssc_tk_field(obj, "label", "checkbox"), "checkbox.label"), _ssc_tk_opt_bool(obj, "disabled"))
+       |    case "button" =>
+       |      val name = _ssc_tk_str(_ssc_tk_field(obj, "signal", "button"), "button.signal")
+       |      val value = obj.get("value").map(_ssc_tk_scalar(_, "button.value")).getOrElse(true)
+       |      std.ui.nodes.SignalButtonNode(_ssc_tk_signal(env, name, "button"), value, _ssc_tk_str(_ssc_tk_field(obj, "label", "button"), "button.label"), _ssc_tk_opt_bool(obj, "disabled"))
+       |    case "badge" =>
+       |      std.ui.nodes.BadgeNode(_ssc_tk_str(_ssc_tk_field(obj, "text", "badge"), "badge.text"), _ssc_tk_opt_str(obj, "variant").getOrElse("default"))
+       |    case "card" =>
+       |      std.ui.nodes.CardNode(null, _ssc_tk_children(obj, env), null)
+       |    case other =>
+       |      _ssc_tk_error(s"contentToolkitNode: unsupported control type '$$other'")
+       |
+       |def _ssc_tk_children(obj: Map[String, std.content.ContentValue], env: Map[String, Any]): List[std.ui.nodes.TkNode] =
+       |  obj.get("children") match
+       |    case Some(value) => _ssc_tk_list(value, "children").map(_ssc_tk_render_control(_, env))
+       |    case None => Nil
+       |
+       |def _ssc_tk_yaml_block(block: std.content.ContentBlock): Option[std.ui.nodes.TkNode] =
+       |  block match
+       |    case std.content.ContentBlock.Embedded(_, _, std.content.EmbeddedKind.StructuredData, Some(data), attrs)
+       |        if _ssc_content_string_attr(attrs, "ui").contains("toolkit") =>
+       |      val root = _ssc_tk_map(data, "@ui=toolkit")
+       |      val env = _ssc_tk_signals(root)
+       |      Some(_ssc_tk_render_control(_ssc_tk_field(root, "controls", "@ui=toolkit"), env))
+       |    case _ => None
+       |
+       |def _ssc_tk_component_data(attrs: Map[String, std.content.ContentValue]): Option[std.content.ContentValue] =
+       |  _ssc_content_string_attr(attrs, "data").flatMap(contentData)
+       |
+       |def _ssc_tk_component_for(name: String, options: std.ui.content.ContentToolkitOptions): Option[std.ui.content.ContentToolkitComponent] =
+       |  options.components.find(_.name == name)
+       |
+       |def _ssc_tk_block(block: std.content.ContentBlock, options: std.ui.content.ContentToolkitOptions): std.ui.nodes.TkNode =
+       |  val attrs = _ssc_content_block_attrs(block)
+       |  _ssc_content_string_attr(attrs, "component")
+       |    .flatMap(name => _ssc_tk_component_for(name, options).map(_.render(std.ui.content.ContentComponentContext(name, "block", _ssc_content_string_attr(attrs, "id").getOrElse(""), None, attrs, None, Some(block), _ssc_tk_component_data(attrs)))))
+       |    .orElse(_ssc_tk_yaml_block(block))
+       |    .getOrElse(std.ui.nodes.TextNode_(_ssc_content_block_plain_text(block)))
+       |
+       |def _ssc_tk_section(section: std.content.SectionContent, options: std.ui.content.ContentToolkitOptions): std.ui.nodes.TkNode =
+       |  _ssc_content_string_attr(section.attrs, "component")
+       |    .flatMap(name => _ssc_tk_component_for(name, options).map(_.render(std.ui.content.ContentComponentContext(name, "section", section.id, Some(section.title), section.attrs, Some(section), None, _ssc_tk_component_data(section.attrs)))))
+       |    .getOrElse {
+       |      val children = std.ui.nodes.HeadingNode(section.level, section.title) ::
+       |        (section.blocks.map(_ssc_tk_block(_, options)) ++ section.children.map(_ssc_tk_section(_, options)))
+       |      std.ui.nodes.VStackNode(options.blockGap, children)
+       |    }
+       |
+       |def contentToolkitNode(options: std.ui.content.ContentToolkitOptions = std.ui.content.ContentToolkitOptions()): std.ui.nodes.TkNode =
+       |  std.ui.nodes.VStackNode(options.sectionGap,
+       |    _ssc_content_document.blocks.map(_ssc_tk_block(_, options)) ++
+       |      _ssc_content_document.sections.map(_ssc_tk_section(_, options)))
+       |
+       |def contentToolkitBlock(id: String, options: std.ui.content.ContentToolkitOptions = std.ui.content.ContentToolkitOptions()): std.ui.nodes.TkNode =
+       |  contentBlock(id).map(_ssc_tk_block(_, options)).getOrElse(
+       |    throw RuntimeException(s"contentToolkitBlock: no block with id '$$id'")
+       |  )
+       |
+       |def contentToolkitSection(id: String, options: std.ui.content.ContentToolkitOptions = std.ui.content.ContentToolkitOptions()): std.ui.nodes.TkNode =
+       |  contentSection(id).map(_ssc_tk_section(_, options)).getOrElse(
+       |    throw RuntimeException(s"contentToolkitSection: no section with id '$$id'")
+       |  )
+       |
        |""".stripMargin
 
   def genModule(module: Module): String =
@@ -577,10 +731,16 @@ class JvmGen(
         sb.append(sscJarDirective("scalascript-core"))
       if effectiveFrontend.contains("swing") then
         sb.append(sscJarDirective("scalascript-backend-spi"))
+        sb.append(sscJarDirective("scalascript-frontend-javafx"))
+        val jfxOs = javafxOs
+        sb.append(s"""//> using dep "org.openjfx:javafx-controls:$javafxEmitVersion:$jfxOs"\n""")
+        sb.append(s"""//> using dep "org.openjfx:javafx-base:$javafxEmitVersion:$jfxOs"\n""")
+        sb.append(s"""//> using dep "org.openjfx:javafx-graphics:$javafxEmitVersion:$jfxOs"\n""")
         if apiClients.nonEmpty then
           sb.append(sscJarDirective("scalascript-backend-typed-data-runtime"))
       if effectiveFrontend.contains("javafx") then
         sb.append(sscJarDirective("scalascript-backend-spi"))
+        sb.append(sscJarDirective("scalascript-frontend-swing"))
         if apiClients.nonEmpty then
           sb.append(sscJarDirective("scalascript-backend-typed-data-runtime"))
         val jfxOs = javafxOs
@@ -728,7 +888,7 @@ class JvmGen(
     val nativeVersion    = module.manifest.flatMap(_.version)
     val withUi =
       if effectiveFrontend.isDefined then
-        val webPrimitives = if effectiveFrontend.contains("swiftui") then "" else "\n" + JvmRuntimeUiPrimitives.source
+        val webPrimitives = "\n" + JvmRuntimeUiPrimitives.source
         uiHelperFunctions(
           effectiveFrontend.getOrElse("react"), appIcon,
           bundleId = nativeBundleId, displayName = nativeDisplayName, version = nativeVersion,
@@ -2355,7 +2515,9 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     }
     if pkg.nonEmpty then
       val pkgPath = pkg.mkString(".")
-      val importBindings = bindings.filterNot(b => pkgPath == "std.content" && contentIntrinsicNames(b.name))
+      val importBindings = bindings.filterNot { b =>
+        (pkgPath == "std.content" || pkgPath == "std.ui.content") && contentIntrinsicNames(b.name)
+      }
       val boundNames = importBindings.map(_.name).toSet
       val valueSpecs = importBindings.map { b => b.alias match
         case None    => b.name
@@ -9521,7 +9683,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
          |
          |def rowPostAction(label: String, method: String, url: String, bodyField: String,
          |                  tick: Any, headers: Any = null): Any =
-         |  scalascript.frontend.RowActionDef.RowPost(label, method, url, bodyField,
+         |  scalascript.frontend.RowActionDef.RowPost(label, method, url, scalascript.frontend.RowPayload.Field(bodyField),
          |    tick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]],
          |    Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]]))
          |
@@ -9531,7 +9693,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
          |
          |def dataTableView(signal: Any, columns: Any, actions: Any): scalascript.frontend.View[?] =
          |  scalascript.frontend.View.DataTable(
-         |    signal.asInstanceOf[scalascript.frontend.FetchUrlSignal],
+         |    scalascript.frontend.TableDataSource.Remote(signal.asInstanceOf[scalascript.frontend.FetchUrlSignal]),
          |    columns.asInstanceOf[List[scalascript.frontend.FieldColumnDef]],
          |    actions.asInstanceOf[List[scalascript.frontend.RowActionDef]])
          |

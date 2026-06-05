@@ -69,7 +69,7 @@ private object JavaFxEmitter:
         s"components [${module.components.map(_.name).mkString(", ")}]."
       )
     )
-    val root     = entry.body(())
+    val root     = NativeElementLowering.lower(entry.body(()))
     val signals  = collectSignals(root)
     val seedSignals = collectSeedSignals(root)
     val seedCtx = SeedCtx.from(seedSignals)

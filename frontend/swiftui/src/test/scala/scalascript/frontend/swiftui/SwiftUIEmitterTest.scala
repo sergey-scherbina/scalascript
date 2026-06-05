@@ -180,6 +180,19 @@ class SwiftUIEmitterTest extends AnyFunSuite:
     assert(cv.contains("""Toggle("Enable notifications", isOn: $enabled)"""))
   }
 
+  test("emitNative normalizes std/ui Element controls from Markdown toolkit lowering") {
+    val cv = backend.emitNative(makeModule(markdownElementControls), Platform.Mobile(MobileOs.iOS)).get
+                    .sources.find(_._1.endsWith("ContentView.swift")).get._2
+    assert(cv.contains("""TextField("Team name", text: $teamName)"""))
+    assert(cv.contains("""Toggle("Enable native renderer", isOn: $enabled)"""))
+    assert(cv.contains("""Button("Apply native controls")"""))
+    assert(cv.contains("""@State private var teamName: String = "ScalaScript team""""))
+    assert(cv.contains("""@State private var enabled: Bool = false"""))
+    assert(cv.contains("""@State private var applied: Bool = false"""))
+    assert(cv.contains("""@State private var refreshCount: Int = 2"""))
+    assert(cv.contains("""@State private var ratio: Double = 1.5"""))
+  }
+
   // ── Column / Row ─────────────────────────────────────────────────────────
 
   test("Column emits VStack") {
@@ -633,6 +646,63 @@ class SwiftUIEmitterTest extends AnyFunSuite:
   private def cvFor(dt: View.DataTable): String =
     backend.emitNative(makeModule(dt), Platform.Mobile(MobileOs.iOS)).get
       .sources.find(_._1.endsWith("ContentView.swift")).get._2
+
+  private def markdownElementControls: View[?] =
+    val teamName = ReactiveSignal[String]("teamName", "ScalaScript team")
+    val enabled = ReactiveSignal[Boolean]("enabled", false)
+    val applied = ReactiveSignal[Boolean]("applied", false)
+    val refreshCount = ReactiveSignal[Int]("refreshCount", 2)
+    val ratio = ReactiveSignal[Double]("ratio", 1.5)
+    View.Element(
+      "div",
+      Map("style" -> AttrValue.Str("display:flex; flex-direction:column; gap:12px")),
+      Map.empty,
+      Seq(
+        View.Element(
+          "div",
+          Map("style" -> AttrValue.Str("display:flex; flex-direction:column; gap:4px")),
+          Map.empty,
+          Seq(
+            View.Element("label", Map.empty, Map.empty, Seq(View.TextNode(() => "Team name"))),
+            View.Element(
+              "input",
+              Map(
+                "type" -> AttrValue.Str("text"),
+                "placeholder" -> AttrValue.Str("Team name"),
+                "value" -> AttrValue.Reactive(teamName)
+              ),
+              Map("change" -> EventHandler.InputChange(teamName)),
+              Nil
+            )
+          )
+        ),
+        View.Element(
+          "label",
+          Map.empty,
+          Map.empty,
+          Seq(
+            View.Element(
+              "input",
+              Map(
+                "type" -> AttrValue.Str("checkbox"),
+                "checked" -> AttrValue.Reactive(enabled)
+              ),
+              Map("change" -> EventHandler.ToggleSignal(enabled)),
+              Nil
+            ),
+            View.TextNode(() => "Enable native renderer")
+          )
+        ),
+        View.Element(
+          "button",
+          Map.empty,
+          Map("click" -> EventHandler.SetSignalLiteral(applied, true)),
+          Seq(View.TextNode(() => "Apply native controls"))
+        ),
+        View.Element("span", Map.empty, Map.empty, Seq(View.SignalText(refreshCount))),
+        View.Element("span", Map.empty, Map.empty, Seq(View.SignalText(ratio)))
+      )
+    )
 
   test("DataTable emits @State row array and List with ForEach") {
     val (sig, _, dt) = makeDataTableView()

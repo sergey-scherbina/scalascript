@@ -109,7 +109,7 @@ object JvmRuntimeUiPrimitives:
        |                        tick: Any, headers: Any = null): Any =
        |        val _hOpt = Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]])
        |          .filter(_.id != "__ssc_empty_headers")
-       |        scalascript.frontend.RowActionDef.RowPost(label, method, url, bodyField,
+       |        scalascript.frontend.RowActionDef.RowPost(label, method, url, scalascript.frontend.RowPayload.Field(bodyField),
        |          tick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]], _hOpt)
        |
        |      def rowLinkAction(label: String, signal: Any, fieldPath: String): Any =
@@ -127,7 +127,7 @@ object JvmRuntimeUiPrimitives:
        |        val _cols = columns.asInstanceOf[List[scalascript.frontend.FieldColumnDef]]
        |        val _acts = actions.asInstanceOf[List[scalascript.frontend.RowActionDef]]
        |        scalascript.frontend.View.DataTable(
-       |          signal.asInstanceOf[scalascript.frontend.FetchUrlSignal], _cols, _acts)
+       |          scalascript.frontend.TableDataSource.Remote(signal.asInstanceOf[scalascript.frontend.FetchUrlSignal]), _cols, _acts)
        |
        |      def emit(tree: View, outDir: String): Unit =
        |        _ssc_ui_emit_to_dir(tree.asInstanceOf[scalascript.frontend.View[?]], outDir)

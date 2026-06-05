@@ -10,7 +10,6 @@ import _root_.javafx.geometry.{Insets, Orientation}
 import _root_.javafx.scene.control.*
 import _root_.javafx.scene.layout.*
 import _root_.javafx.util.Callback
-import scala.annotation.nowarn
 import scala.collection.mutable
 
 /** Same-process JavaFX runner for JVM-hosted frontend modules.
@@ -110,7 +109,7 @@ object JavaFxRuntime:
 
   object RuntimeState:
     def from(view: View[?], fetchDispatcher: Option[FetchDispatcher] = None): RuntimeState =
-      val collected = collectSignals(view)
+      val collected = collectSignals(NativeElementLowering.lower(view))
       RuntimeState(
         mutable.Map.from(collected.map(s => s.id -> s.value)),
         collected.map(s => s.id -> s.signal.asInstanceOf[ReactiveSignal[Any]]).toMap,
@@ -124,9 +123,10 @@ object JavaFxRuntime:
     buildRoot(view, RuntimeState.from(view))
 
   def buildRoot(view: View[?], state: RuntimeState): VBox =
+    val nativeView = NativeElementLowering.lower(view)
     val root = VBox(16.0)
     root.setPadding(Insets(16, 16, 16, 16))
-    addTo(root, view, state)
+    addTo(root, nativeView, state)
     root
 
   private[javafx] def buildViewTest(parent: Pane, view: View[?], state: RuntimeState): Unit =
@@ -138,9 +138,8 @@ object JavaFxRuntime:
       case _ => null
     }
 
-  @nowarn("cat=deprecation")
   def addTo(parent: Pane, view: View[?], state: RuntimeState): Unit =
-    view match
+    NativeElementLowering.lower(view) match
       case View.Text(content, style) =>
         parent.getChildren.add(styledNode(Label(content()), style))
       case View.TextNode(value) =>
@@ -522,7 +521,6 @@ object JavaFxRuntime:
 
   private final case class SignalInitial(id: String, value: Any, signal: ReactiveSignal[?])
 
-  @nowarn("cat=deprecation")
   private def collectSignals(view: View[?]): List[SignalInitial] =
     def add(acc: Map[String, SignalInitial], sig: ReactiveSignal[?]): Map[String, SignalInitial] =
       sig match

@@ -82,7 +82,7 @@ object SwiftUIEmitter:
         s"FrontendModule.entryPoint='${module.entryPoint}' not found"
       )
     )
-    val signals  = collectSignals(entry.body(()))
+    val signals  = collectSignals(NativeElementLowering.lower(entry.body(())))
     val listSigs = signals.filter(_.isList)
     if listSigs.isEmpty then return None
     val props = listSigs.map { s =>
@@ -140,7 +140,7 @@ object SwiftUIEmitter:
         s"[${module.components.map(_.name).mkString(", ")}]."
       )
     )
-    val root          = entry.body(())
+    val root          = NativeElementLowering.lower(entry.body(()))
     val signals       = collectSignals(root)
     val seedSignals   = collectSeedSignals(root)
     val fetchSigs     = collectFetchSignals(root)

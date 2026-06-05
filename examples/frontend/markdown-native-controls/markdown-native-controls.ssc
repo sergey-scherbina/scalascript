@@ -1,0 +1,122 @@
+#!/usr/bin/env ssc
+---
+name: markdown-native-controls
+version: 0.1.0
+frontend: swing
+content:
+  defaultRenderer: toolkit
+---
+
+# Native Controls From Markdown {#native-controls-demo}
+
+This example builds a native UI from Markdown-authored content. The text field,
+checkbox, and button below are declared in a fenced YAML block, not in
+ScalaScript widget code.
+
+<!-- @meta component=TeamSummary data=team-data -->
+## Team Summary
+
+The component attached to this section receives metadata and structured data
+from the Markdown document.
+
+```yaml @id=team-data
+team:
+  name: "ScalaScript team"
+  members: 3
+```
+
+```yaml @id=native-controls @ui=toolkit
+signals:
+  teamName: "ScalaScript team"
+  enabled: false
+  applied: false
+  refreshCount: 0
+controls:
+  type: card
+  children:
+    - type: heading
+      level: 2
+      text: Native Markdown controls
+    - type: text
+      text: Swing, JavaFX, and SwiftUI render these controls from the same Markdown source.
+    - type: textField
+      signal: teamName
+      label: Team name
+      required: true
+    - type: checkbox
+      signal: enabled
+      label: Enable native renderer
+    - type: button
+      signal: applied
+      value: true
+      label: Apply native controls
+    - type: show
+      signal: applied
+      then:
+        type: hstack
+        gap: 8
+        children:
+          - type: badge
+            text: applied
+            variant: success
+          - type: rawText
+            text: "Preview for "
+          - type: signalText
+            signal: teamName
+```
+
+```yaml @id=sibling-controls @ui=toolkit
+signals:
+  hidden: false
+controls:
+  type: card
+  children:
+    - type: heading
+      level: 2
+      text: Sibling controls not selected
+    - type: checkbox
+      signal: hidden
+      label: Hidden sibling
+```
+
+[contentData](std/content.ssc)
+
+[contentComponent, contentToolkitBlock, contentToolkitSection, contentToolkitOptionsWithComponents](std/ui/content.ssc)
+
+[vstack](std/ui/layout.ssc)
+
+[heading](std/ui/typography.ssc)
+
+[rawText](std/ui/reactive.ssc)
+
+[lower](std/ui/lower.ssc)
+
+[defaultTheme](std/ui/theme.ssc)
+
+[serve](std/ui/primitives.ssc)
+
+```scalascript
+val summary = contentComponent("TeamSummary") { ctx =>
+  vstack(gap = 4)(
+    heading(2, "Team Summary"),
+    rawText("component=" + ctx.name),
+    rawText("kind=" + ctx.kind + " id=" + ctx.id),
+    rawText("data=" + ctx.data.isDefined.toString)
+  )
+}
+
+val options = contentToolkitOptionsWithComponents([summary])
+
+val page = lower(
+  vstack(gap = 16)(
+    contentToolkitSection("team-summary", options),
+    contentToolkitBlock("native-controls")
+  ),
+  defaultTheme
+)
+
+println("markdown-native-controls:ok")
+println("team-data=" + contentData("team-data").isDefined.toString)
+println("serving: native frontend on port 8099 when the selected frontend uses a browser preview")
+serve(page, 8099)
+```

@@ -9,7 +9,6 @@ import javax.swing.*
 import javax.swing.event.{DocumentEvent, DocumentListener}
 import javax.swing.table.DefaultTableModel
 import javax.swing.text.JTextComponent
-import scala.annotation.nowarn
 import scala.collection.mutable
 
 /** Same-process Swing runner for JVM-hosted frontend modules.
@@ -63,7 +62,7 @@ object SwingRuntime:
           s"components [${module.components.map(_.name).mkString(", ")}]."
       )
     )
-    val rootView = entry.body(())
+    val rootView = NativeElementLowering.lower(entry.body(()))
     val state = RuntimeState.from(rootView, options.fetchDispatcher)
     val frame = JFrame(manifest.displayName)
     options.iconPath.foreach { path =>
@@ -89,10 +88,11 @@ object SwingRuntime:
     buildRoot(view, RuntimeState.from(view))
 
   def buildRoot(view: View[?], state: RuntimeState): JPanel =
+    val nativeView = NativeElementLowering.lower(view)
     val root = JPanel()
     root.setLayout(BoxLayout(root, BoxLayout.Y_AXIS))
     root.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16))
-    addTo(root, view, state)
+    addTo(root, nativeView, state)
     root
 
   final class RuntimeState private[swing] (
@@ -155,7 +155,7 @@ object SwingRuntime:
 
   object RuntimeState:
     def from(view: View[?], fetchDispatcher: Option[FetchDispatcher] = None): RuntimeState =
-      val collected = collectSignals(view)
+      val collected = collectSignals(NativeElementLowering.lower(view))
       RuntimeState(
         mutable.Map.from(collected.map(s => s.id -> s.value)),
         collected.map(s => s.id -> s.signal.asInstanceOf[ReactiveSignal[Any]]).toMap,
@@ -166,9 +166,8 @@ object SwingRuntime:
   private[swing] def buildViewTest(parent: JPanel, view: View[?], state: RuntimeState): Unit =
     addTo(parent, view, state)
 
-  @nowarn("cat=deprecation")
   private def addTo(parent: JPanel, view: View[?], state: RuntimeState): Unit =
-    view match
+    NativeElementLowering.lower(view) match
       case View.Text(content, style) =>
         parent.add(styled(JLabel(content()), style))
       case View.TextNode(value) =>
@@ -543,7 +542,6 @@ object SwingRuntime:
 
   private final case class SignalInitial(id: String, value: Any, signal: ReactiveSignal[?])
 
-  @nowarn("cat=deprecation")
   private def collectSignals(view: View[?]): List[SignalInitial] =
     def add(acc: Map[String, SignalInitial], signal: ReactiveSignal[?]): Map[String, SignalInitial] =
       signal match
