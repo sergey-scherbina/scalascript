@@ -112,6 +112,27 @@ Root-cause analysis of the 345 UnknownShape:
 - [x] **jit-uc-stage2-4** — `Pat.Lit` arm in match (literal patterns).
 - [ ] **jit-uc-stage2-5** — Free-name → top-level `FunV` call (non-HOF case).
 
+### Bench findings (2026-06-05, from `asm-jit-parity` worktree, post-2.4 main build)
+
+Verified empirically via `./bench.sh`. New regression-guard corpus cases added:
+`bench/corpus/bool-predicate.ssc`, `bench/corpus/literal-match.ssc`,
+`bench/corpus/mutual-recursion.ssc`.
+
+- [ ] **jit-uc-finding-asm-bool-parity** — `mutual-recursion` (bool `isEven`/`isOdd`
+      pair) dropped 21.4 → **4.86 ms on `ssc` (Javac)** after stages 2.1/2.1b, now
+      ≈ jvm 3.80. But **`ssc-asm` stayed 20.6 ms** — the AsmJitBackend did NOT get
+      the bool-sibling co-emission win. Real Javac/ASM parity gap on the bool path.
+      Likely overlaps stage 2.3 (ASM walker parity). Repro:
+      `./bench.sh mutual-recursion`.
+
+- [ ] **jit-uc-finding-litmatch-not-firing** — Stage 2.4 is marked done and on main,
+      but a realistic `n % 5 match { case 0 => … }` in a hot loop still tree-walks:
+      `literal-match` is **3.6 ms on both `ssc` and `ssc-asm`** vs jvm ~0.001 ms
+      (flat across backends ⇒ no JIT). The `Pat.Lit` arms compile in the unit tests
+      but the `%`-scrutinee-call-in-loop shape does not accelerate. Re-check what
+      bails (scrutinee is `ApplyInfix`, not `Term.Name`; see stage 5-5).
+      Repro: `./bench.sh literal-match`.
+
 - [ ] **jit-uc-stage3-1** — `Value.FunV` as JIT-visible ref operand in `JitGlobals`.
 - [ ] **jit-uc-stage3-2** — SscVm `CALLREF` opcode + monomorphic IC.
 - [ ] **jit-uc-stage3-3** — Lambda / closure compilation (capturing + non-capturing).
