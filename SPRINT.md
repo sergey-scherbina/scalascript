@@ -13,20 +13,15 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 Broad spec exists:
 [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md).
 Focused slice specs already exist for landed lookup/plain-text, metadata,
-current-section, and backend exposure:
+current-section, backend exposure, and native-client parity:
 [`specs/markdown-content-lookup-plaintext.md`](specs/markdown-content-lookup-plaintext.md),
 [`specs/markdown-content-metadata.md`](specs/markdown-content-metadata.md),
 [`specs/markdown-content-current-section.md`](specs/markdown-content-current-section.md),
 and
-[`specs/markdown-content-backend-exposure.md`](specs/markdown-content-backend-exposure.md).
+[`specs/markdown-content-backend-exposure.md`](specs/markdown-content-backend-exposure.md),
+and
+[`specs/markdown-content-native-client-parity.md`](specs/markdown-content-native-client-parity.md).
 For the next slices, write and commit the focused spec first, then implement.
-
-- [ ] **markdown-content-native-client-parity-spec** - Write
-      `specs/markdown-content-native-client-parity.md` for Markdown-authored
-      controls and metadata on native clients: Swing, JavaFX, and SwiftUI.
-      Define which parts are already covered by JVM `std/content` exposure,
-      which parts require native frontend emitter tests, and what parity means
-      for `contentToolkitNode()` / selected sections / `yaml @ui=toolkit`.
 
 - [ ] **markdown-content-native-client-parity** - Implement native-client
       parity after the spec lands. Add examples/tests showing the same

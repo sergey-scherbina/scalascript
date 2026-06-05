@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — spec(language): Markdown content native client parity
+
+- **markdown-content-native-client-parity-spec** — Added the focused contract
+  for rendering Markdown-authored controls and metadata through Swing, JavaFX,
+  and SwiftUI. The spec keeps native clients on the shared
+  `DocumentContent -> TkNode/View -> native emitter` path, treats Swing/JavaFX
+  low-level `std/content` as covered by JVM exposure, and keeps SwiftUI as
+  frontend emission rather than a separate Swift content runtime.
+
 ## 2026-06-05 — feat(language): Markdown content backend exposure
 
 - **markdown-content-backend-exposure** — Exposed the low-level `std/content`

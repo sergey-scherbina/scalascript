@@ -27,8 +27,10 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       and verified by un-pending `tests/conformance/content-introspection.ssc`),
       and `contentView(...)` low-level frontend lowering. The follow-up work is
       native-client parity for Markdown-authored controls and metadata on
-      Swing, JavaFX, and SwiftUI, then `contentToMarkdown`. `.scir` / `.sscc`
-      round-trip and multi-link import paragraphs follow as later slices.
+      Swing, JavaFX, and SwiftUI (now specified in
+      [`specs/markdown-content-native-client-parity.md`](specs/markdown-content-native-client-parity.md)),
+      then `contentToMarkdown`. `.scir` / `.sscc` round-trip and multi-link
+      import paragraphs follow as later slices.
 
 ## JS Codegen Performance
 
