@@ -898,7 +898,7 @@ object Parser:
 
   private def contentBlocks(node: CmNode): List[ContentBlock] = node match
     case p: CmParagraph =>
-      if asImport(p).isDefined then Nil
+      if asImports(p).nonEmpty then Nil
       else
         paragraphImage(p).map(List(_)).getOrElse {
           val inlines = contentInlines(p)
@@ -1105,7 +1105,7 @@ object Parser:
             subsections = ListBuffer.empty
           ))
         case other =>
-          toContent(other, mdLineToFileLine, skipInitialParse).foreach { c =>
+          toContents(other, mdLineToFileLine, skipInitialParse).foreach { c =>
             if stack.nonEmpty then stack.top.content += c
             else preContent += c
           }
@@ -1120,7 +1120,7 @@ object Parser:
 
   // ─── Node → Content ──────────────────────────────────────────────
 
-  private def toContent(node: CmNode, mdLineToFileLine: Int => Int, skipInitialParse: Boolean): Option[Content] = node match
+  private def toContents(node: CmNode, mdLineToFileLine: Int => Int, skipInitialParse: Boolean): List[Content] = node match
     case f: CmFenced =>
       val info     = Option(f.getInfo).getOrElse("").trim
       val lang     = info.takeWhile(!_.isWhitespace).toLowerCase
@@ -1140,36 +1140,52 @@ object Parser:
         if spans != null && !spans.isEmpty then spans.get(0).getLineIndex
         else 0
       val lineOffset = mdLineToFileLine(fenceStart0 + 1)
-      Some(Content.CodeBlock(lang, src, tree, None, parseError, lineOffset, attrs))
+      List(Content.CodeBlock(lang, src, tree, None, parseError, lineOffset, attrs))
 
     case p: CmParagraph =>
-      asImport(p).orElse {
+      val imports = asImports(p)
+      if imports.nonEmpty then imports
+      else
         val text = textOf(p)
-        if text.nonEmpty then Some(Content.Prose(text)) else None
-      }
+        if text.nonEmpty then List(Content.Prose(text)) else Nil
 
-    case l: CmBulletList  => Some(Content.DataList(listItems(l), ordered = false))
-    case l: CmOrderedList => Some(Content.DataList(listItems(l), ordered = true))
-    case _                => None
+    case l: CmBulletList  => List(Content.DataList(listItems(l), ordered = false))
+    case l: CmOrderedList => List(Content.DataList(listItems(l), ordered = true))
+    case _                => Nil
 
-  private def asImport(para: CmParagraph): Option[Content.Import] =
-    val child = para.getFirstChild
-    if child == null || child.getNext != null then return None
-    child match
-      case link: CmLink =>
-        val path     = link.getDestination
-        // `Name` or `Name as Alias` or `Name from Module` — comma-separated.
-        // Whitespace around the keyword is required to avoid substring collisions.
-        val asPattern   = """^([A-Za-z_][\w]*)\s+as\s+([A-Za-z_][\w]*)$""".r
-        val fromPattern = """^([A-Za-z_][\w]*)\s+from\s+([A-Za-z_][\w]*)$""".r
-        val bindings = textOf(link).split(",").map(_.trim).filter(_.nonEmpty).map { s =>
-          s match
-            case asPattern(name, alias)     => ImportBinding(name, alias = Some(alias))
-            case fromPattern(name, srcMod)  => ImportBinding(name, fromModule = Some(srcMod))
-            case bare                       => ImportBinding(bare)
-        }.toList
-        if path.nonEmpty && bindings.nonEmpty then Some(Content.Import(path, bindings)) else None
-      case _ => None
+  private def asImports(para: CmParagraph): List[Content.Import] =
+    val imports = ListBuffer.empty[Content.Import]
+    var invalid = false
+    var child = para.getFirstChild
+    while child != null do
+      child match
+        case link: CmLink =>
+          parseImportLink(link) match
+            case Some(imp) => imports += imp
+            case None      => invalid = true
+        case text: CmText =>
+          if Option(text.getLiteral).exists(_.trim.nonEmpty) then invalid = true
+        case _: CmSoftLineBreak | _: CmHardLineBreak =>
+          ()
+        case other =>
+          if textOf(other).trim.nonEmpty then invalid = true
+      child = child.getNext
+    if invalid || imports.isEmpty then Nil else imports.toList
+
+  private def parseImportLink(link: CmLink): Option[Content.Import] =
+    val path = Option(link.getDestination).getOrElse("").trim
+    if path.isEmpty || path.startsWith("#") then return None
+    // `Name` or `Name as Alias` or `Name from Module` - comma-separated.
+    // Whitespace around the keyword is required to avoid substring collisions.
+    val asPattern   = """^([A-Za-z_][\w]*)\s+as\s+([A-Za-z_][\w]*)$""".r
+    val fromPattern = """^([A-Za-z_][\w]*)\s+from\s+([A-Za-z_][\w]*)$""".r
+    val bindings = textOf(link).split(",").map(_.trim).filter(_.nonEmpty).map { s =>
+      s match
+        case asPattern(name, alias)    => ImportBinding(name, alias = Some(alias))
+        case fromPattern(name, srcMod) => ImportBinding(name, fromModule = Some(srcMod))
+        case bare                      => ImportBinding(bare)
+    }.toList
+    if bindings.nonEmpty then Some(Content.Import(path, bindings)) else None
 
   private def listItems(list: CmNode): List[ListItem] =
     val buf = ListBuffer[ListItem]()
