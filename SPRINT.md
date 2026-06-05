@@ -8,6 +8,55 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Language Surface - Markdown Content (next)
+
+Broad spec exists:
+[`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md).
+Focused slice spec already exists only for the landed lookup/plain-text work:
+[`specs/markdown-content-lookup-plaintext.md`](specs/markdown-content-lookup-plaintext.md).
+For the next slices, write and commit the focused spec first, then implement.
+
+- [ ] **markdown-content-metadata-spec** - Write
+      `specs/markdown-content-metadata.md` for `contentMetadata(path)`.
+      Define dot-path scope (`content:` front-matter only), missing-path
+      `None`, scalar/list/map return shapes, malformed path behavior, and
+      interpreter-only scope for the first slice.
+
+- [ ] **markdown-content-metadata** - Implement interpreter
+      `contentMetadata(path): Option[ContentValue]` in `std/content`, with
+      focused content-plugin tests, docs, and an example using
+      `contentMetadata("defaultRenderer")`.
+
+- [ ] **markdown-content-current-section-spec** - Write
+      `specs/markdown-content-current-section.md`. Decide how parser/runtime
+      records the calling code block's enclosing section, what happens at
+      document top-level, and how sibling blocks are represented.
+
+- [ ] **markdown-content-current-section** - Implement interpreter
+      `contentCurrentSection(): SectionContent` using the committed spec.
+      Cover nested sections, top-level code blocks, and stable behavior when a
+      section contains both Markdown prose and executable code.
+
+- [ ] **markdown-content-backend-exposure-spec** - Write
+      `specs/markdown-content-backend-exposure.md` for JS/JVM native-context
+      exposure of the landed interpreter helpers: `contentDocument`,
+      `contentData`, `contentSection`, `contentBlock`, `contentPlainText`, and
+      eventually `contentMetadata` / `contentCurrentSection`.
+
+- [ ] **markdown-content-backend-exposure** - Implement JS/JVM exposure for the
+      landed `std/content` helper set, then un-pend or replace
+      `tests/conformance/content-introspection.ssc` so INT/JS/JVM agree on
+      observable output.
+
+- [ ] **markdown-content-to-markdown-spec** - Write
+      `specs/markdown-content-to-markdown.md` for `contentToMarkdown(...)`.
+      Define supported nodes, metadata round-trip rules, formatting stability,
+      and explicit non-goals for exact source preservation.
+
+- [ ] **markdown-content-to-markdown** - Implement `contentToMarkdown` after
+      backend exposure is stable; cover document, section, block, and embedded
+      data rendering with focused tests.
+
 ## VmCompiler completeness (focus)
 
 Make `VmCompiler.compile` succeed for as many real functions as possible so
