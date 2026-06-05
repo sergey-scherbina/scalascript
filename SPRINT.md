@@ -138,7 +138,7 @@ Verified empirically via `./bench.sh`. New regression-guard corpus cases added:
       `.toDouble` emits L2D. Both backends. `n % 5 match` with ApplyInfix
       scrutinee was already supported via `walkLong` for the scrutinee.
 
-- [ ] **jit-uc-stage3-1** — `Value.FunV` as JIT-visible ref operand in `JitGlobals`.
+- [x] **jit-uc-stage3-1** — `Value.FunV` as JIT-visible ref operand in `JitGlobals`.
 - [ ] **jit-uc-stage3-2** — SscVm `CALLREF` opcode + monomorphic IC.
 - [ ] **jit-uc-stage3-3** — Lambda / closure compilation (capturing + non-capturing).
 - [ ] **jit-uc-stage3-4** — IC hit-rate validation (`SSC_JIT_IC_STATS=1`).

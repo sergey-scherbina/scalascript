@@ -1424,3 +1424,24 @@ class SscVmTest extends AnyFunSuite with Matchers:
     // sum of even numbers 0..9: 0+2+4+6+8 = 20
     out.trim shouldBe "20"
   }
+
+  test("stage3.1: VmCompiler compiles FunV-param function (tags param as FunV_N); JitRuntime threads FunV through") {
+    // A function with a FunV param it does not call: VmCompiler should compile it
+    // successfully (param tagged TRef / "FunV_1") and JitRuntime should accept a
+    // FunV arg for the ref param slot — result is `n = 42`.
+    val out = captured(
+      """def identity(n: Int): Int = n
+        |def ignore(f: Int => Int, n: Int): Int = n
+        |println(ignore(identity, 42))""".stripMargin)
+    out.trim shouldBe "42"
+  }
+
+  test("stage3.1: VmCompiler bails on FunV param call site (HofCall bail, not generic)") {
+    // A function that calls a FunV param: VmCompiler must bail (Stage 3.2 adds CALLREF).
+    // The bail should be typed HofCall, not the generic "no compilable target" string,
+    // so the miss-stats correctly attribute it.
+    val interp = interpOf("""def applyN(f: Int => Int, n: Int): Int = f(n)""")
+    val fn = interp.globalsView("applyN").asInstanceOf[Value.FunV]
+    val cfn = VmCompiler.compile(fn, globalsResolve(interp))
+    cfn shouldBe None   // bails — FunV param calls need Stage 3.2
+  }

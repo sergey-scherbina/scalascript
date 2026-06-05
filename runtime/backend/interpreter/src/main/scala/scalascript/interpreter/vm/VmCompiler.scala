@@ -25,6 +25,9 @@ object VmCompiler:
   private final class Bail(val reason: String)
     extends RuntimeException(null, null, true, false) // no stack trace — control flow only
 
+  private final class BailTyped(val typed: jit.JitBailReason)
+    extends RuntimeException(null, null, true, false)
+
   /** Static type of a register's contents. The VM stack is `Long`-typed; for a
    *  `TDouble` register the bits are an IEEE-754 double (see SscVm F* opcodes).
    *  Booleans are represented as `TInt` (0/1), matching the int comparison ops. */
@@ -61,9 +64,20 @@ object VmCompiler:
    *  (for `match` field extraction) via `meta`. */
   def compile(fn: Value.FunV, resolve: Resolve, meta: Meta): Option[CompiledFn] =
     try Some(new Ctx(resolve, meta).compileFn(fn))
-    catch case b: Bail => { JitMissStats.record(b.reason); None }
+    catch
+      case b: BailTyped => { JitMissStats.record("vm", b.typed); None }
+      case b: Bail      => { JitMissStats.record(b.reason); None }
 
   private def bail(reason: String): Nothing = throw new Bail(reason)
+  private def bailHof(name: String): Nothing = throw new BailTyped(jit.JitBailReason.HofCall(name))
+
+  private def isFunType(tpe: String): Boolean = tpe.contains("=>")
+  private def funArity(tpe: String): Int =
+    val arrow = tpe.indexOf("=>")
+    if arrow <= 0 then 1
+    else
+      val before = tpe.substring(0, arrow).trim
+      if before.startsWith("(") then before.count(_ == ',') + 1 else 1
 
   /** Pretty class name for scala.meta AST nodes: strips `_After_*` version
    *  suffixes and `Impl` endings, inserts a dot after the first capitalised
@@ -385,7 +399,14 @@ object VmCompiler:
             emit(CALL, dst, argBase, slot)
             val rt = if calleeIsDouble(callee) then TDouble else TInt
             setType(dst, rt); rt
-          case None => bail("call: no compilable target (free name, closure, or non-function)")
+          case None =>
+            app.fun match
+              case n: Term.Name =>
+                val r = locals.getOrElse(n.value, -1)
+                if r >= 0 && typeOf(r) == TRef && refTypeName.getOrElse(r, "").startsWith("FunV") then
+                  bailHof(n.value)
+              case _ =>
+            bail("call: no compilable target (free name, closure, or non-function)")
 
       case Term.Block(stats) =>
         compileStatsInto(stats, dst)
@@ -657,7 +678,9 @@ object VmCompiler:
           val pt = fn.paramTypes(i).trim
           fieldVmType(pt) match
             case TInt    => ()
-            case TRef    => setType(i, TRef); setRefType(i, pt)
+            case TRef    =>
+              setType(i, TRef)
+              setRefType(i, if isFunType(pt) then s"FunV_${funArity(pt)}" else pt)
             case t       => setType(i, t)
         i += 1
       nextReg = arity; maxReg = arity

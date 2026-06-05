@@ -44,3 +44,7 @@ trait WhileLongRunFn  { def run(slots: Array[Long]): Unit }
 // values directly into `buf` starting at `bufLen` and returns the new length.
 // Caller pre-allocates buf with sufficient capacity; no bounds check inside.
 trait WhileLongEmitRunFn { def run(slots: Array[Long], buf: Array[Long], bufLen: Int): Int }
+// HOF dispatch marker — implemented by any JIT-generated class that represents a
+// callable function value.  Stage 3.1 infrastructure; the monomorphic inline cache
+// (Stage 3.4) replaces the boxed `Array[AnyRef]` call with a direct MH dispatch.
+trait RefCallable { def call(args: Array[AnyRef]): AnyRef }

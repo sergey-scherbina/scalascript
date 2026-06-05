@@ -414,6 +414,9 @@ object JitRuntime:
           case inst: Value.InstanceV =>
             try wrap(cf, runVm(cf, NoArgs, Array[AnyRef](inst)))
             catch case _: Throwable => null
+          case fn: Value.FunV =>
+            try wrap(cf, runVm(cf, NoArgs, Array[AnyRef](fn)))
+            catch case _: Throwable => null
           case _ => null
       else if !isNumeric(arg) then null
       else
@@ -473,6 +476,7 @@ object JitRuntime:
       if isRefParam(cf, i) then
         v match
           case inst: Value.InstanceV => rs(i) = inst; anyRef = true
+          case fn: Value.FunV        => rs(i) = fn;   anyRef = true
           case _                     => ok = false
       else
         val m = marshal(v, i < cf.paramIsDouble.length && cf.paramIsDouble(i))
