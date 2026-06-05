@@ -1,0 +1,6 @@
+feature/markdown-content-metadata 2026-06-05T05:55:44Z
+agent: codex
+heartbeat: 2026-06-05T05:55:44Z
+status: not-started
+done-so-far:
+next: write focused contentMetadata spec, then implement interpreter helper
