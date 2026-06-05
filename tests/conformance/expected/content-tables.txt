@@ -1,0 +1,10 @@
+plain=
+Plan | Price | Link
+Starter | $19 | buy (/buy)
+Pro | ${proPrice} | `code`
+markdown=
+<!-- @meta component=PlanTable id=plan-table -->
+| Plan | Price | Link |
+| :--- | ---: | :---: |
+| Starter | **$19** | [buy](/buy) |
+| Pro | ${proPrice} | `code` |

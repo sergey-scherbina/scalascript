@@ -96,6 +96,13 @@ object Denormalize:
       ast.ContentBlock.OrderedList(items.map(_.map(contentBlock)), start, attrs.view.mapValues(contentValue).toMap)
     case ir.ContentBlock.Image(src, alt, title, attrs) =>
       ast.ContentBlock.Image(src, alt, title, attrs.view.mapValues(contentValue).toMap)
+    case ir.ContentBlock.Table(headers, rows, alignments, attrs) =>
+      ast.ContentBlock.Table(
+        headers.map(_.map(contentInline)),
+        rows.map(_.map(_.map(contentInline))),
+        alignments,
+        attrs.view.mapValues(contentValue).toMap
+      )
     case ir.ContentBlock.Embedded(lang, source, kind, data, attrs) =>
       ast.ContentBlock.Embedded(lang, source, embeddedKind(kind), data.map(contentValue), attrs.view.mapValues(contentValue).toMap)
 

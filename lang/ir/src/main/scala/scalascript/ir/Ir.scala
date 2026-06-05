@@ -226,6 +226,12 @@ enum ContentBlock derives ReadWriter:
   case BulletList(items: List[List[ContentBlock]], attrs: Map[String, ContentValue] = Map.empty)
   case OrderedList(items: List[List[ContentBlock]], start: Int, attrs: Map[String, ContentValue] = Map.empty)
   case Image(src: String, alt: String, title: Option[String] = None, attrs: Map[String, ContentValue] = Map.empty)
+  case Table(
+    headers:    List[List[ContentInline]],
+    rows:       List[List[List[ContentInline]]],
+    alignments: List[String],
+    attrs:      Map[String, ContentValue] = Map.empty
+  )
   case Embedded(
     lang:   String,
     source: String,

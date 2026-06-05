@@ -23,12 +23,20 @@ import org.commonmark.node.{
   HtmlBlock       as CmHtmlBlock,
   HtmlInline      as CmHtmlInline,
 }
+import org.commonmark.Extension
+import org.commonmark.ext.gfm.tables.{
+  TablesExtension,
+  TableBlock as CmTableBlock,
+  TableCell  as CmTableCell,
+  TableRow   as CmTableRow
+}
 import org.commonmark.parser.{Parser as CmParser, IncludeSourceSpans}
 import scala.collection.mutable.{ListBuffer, Stack}
 import scala.jdk.CollectionConverters.*
 
 object Parser:
   private val mdParser = CmParser.builder()
+    .extensions(List[Extension](TablesExtension.create()).asJava)
     .includeSourceSpans(IncludeSourceSpans.BLOCKS)
     .build()
 
@@ -802,6 +810,8 @@ object Parser:
             ContentBlock.OrderedList(items, start, mergeAttrs(attrs, pendingAttrs)) :: bs.tail
           case ContentBlock.Image(src, alt, title, attrs) =>
             ContentBlock.Image(src, alt, title, mergeAttrs(attrs, pendingAttrs)) :: bs.tail
+          case ContentBlock.Table(headers, rows, alignments, attrs) =>
+            ContentBlock.Table(headers, rows, alignments, mergeAttrs(attrs, pendingAttrs)) :: bs.tail
           case ContentBlock.Embedded(lang, source, kind, data, attrs) =>
             ContentBlock.Embedded(lang, source, kind, data, mergeAttrs(attrs, pendingAttrs)) :: bs.tail
         pendingAttrs = Map.empty
@@ -908,6 +918,8 @@ object Parser:
       List(ContentBlock.BulletList(listItemBlocks(l)))
     case l: CmOrderedList =>
       List(ContentBlock.OrderedList(listItemBlocks(l), 1))
+    case t: CmTableBlock =>
+      List(tableBlock(t))
     case f: CmFenced =>
       val info = Option(f.getInfo).getOrElse("").trim
       val lang = info.takeWhile(!_.isWhitespace).toLowerCase
@@ -919,6 +931,43 @@ object Parser:
     case html: CmHtmlBlock =>
       if parseMetaDirective(html.getLiteral).isDefined then Nil else Nil
     case _ => Nil
+
+  private def tableBlock(table: CmTableBlock): ContentBlock.Table =
+    val rows = tableRows(table)
+    val headers = rows.headOption.getOrElse(Nil)
+    ContentBlock.Table(
+      headers    = headers.map(cell => contentInlines(cell)),
+      rows       = rows.drop(1).map(_.map(cell => contentInlines(cell))),
+      alignments = headers.map(tableAlignment),
+      attrs      = Map.empty
+    )
+
+  private def tableRows(table: CmTableBlock): List[List[CmTableCell]] =
+    val rows = ListBuffer.empty[List[CmTableCell]]
+    def walk(parent: CmNode): Unit =
+      var child = parent.getFirstChild
+      while child != null do
+        child match
+          case row: CmTableRow =>
+            val cells = ListBuffer.empty[CmTableCell]
+            var cell = row.getFirstChild
+            while cell != null do
+              cell match
+                case c: CmTableCell => cells += c
+                case _              => ()
+              cell = cell.getNext
+            rows += cells.toList
+          case other =>
+            walk(other)
+        child = child.getNext
+    walk(table)
+    rows.toList
+
+  private def tableAlignment(cell: CmTableCell): String =
+    val raw = Option(cell.getAlignment).map(_.name().toLowerCase(java.util.Locale.ROOT)).getOrElse("default")
+    raw match
+      case "left" | "center" | "right" => raw
+      case _                           => "default"
 
   private def paragraphImage(p: CmParagraph): Option[ContentBlock.Image] =
     val child = p.getFirstChild

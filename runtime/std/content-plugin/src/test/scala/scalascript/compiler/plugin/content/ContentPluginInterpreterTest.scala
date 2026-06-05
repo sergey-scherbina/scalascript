@@ -763,6 +763,63 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
       interp.run(Parser.parse(source))
     assert(err.getMessage.contains("contentPlainText: expected SectionContent or ContentBlock"))
 
+  test("content tables expose lookup plaintext markdown and toolkit table nodes"):
+    val source =
+      """---
+        |name: content-table-runtime-test
+        |---
+        |
+        |# Pricing
+        |
+        |<!-- @meta id=plan-table component=PlanTable -->
+        || Plan | Price | Link |
+        || :--- | ---: | :---: |
+        || Starter | **$19** | [buy](/buy) |
+        || Pro | ${proPrice} | `code` |
+        |
+        |[contentBlock, contentPlainText, contentToMarkdown](std/content.ssc)
+        |
+        |```scala
+        |extern def contentToolkitBlock(id: String): Any
+        |
+        |val block = contentBlock("plan-table").get
+        |List(
+        |  contentPlainText(block),
+        |  contentToMarkdown(block),
+        |  contentToolkitBlock("plan-table")
+        |)
+        |```
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    interp.run(Parser.parse(source))
+
+    interp.lastResult match
+      case Value.ListV(List(Value.StringV(plain), Value.StringV(markdown), tableNode @ Value.InstanceV("TableNode", fields))) =>
+        assert(plain ==
+          """Plan | Price | Link
+            |Starter | $19 | buy (/buy)
+            |Pro | ${proPrice} | `code`""".stripMargin)
+        assert(markdown ==
+          """<!-- @meta component=PlanTable id=plan-table -->
+            || Plan | Price | Link |
+            || :--- | ---: | :---: |
+            || Starter | **$19** | [buy](/buy) |
+            || Pro | ${proPrice} | `code` |""".stripMargin)
+        val columns = listField(fields, "columns", "TableNode.columns")
+        assert(columns.map(instanceFields(_, "TableColumn")("label")) ==
+          List(Value.StringV("Plan"), Value.StringV("Price"), Value.StringV("Link")))
+        val rows = listField(fields, "rows", "TableNode.rows")
+        assert(rows.length == 2)
+        assert(fields("sortCol") == Value.NullV)
+        assert(tableNode.fieldNames.toList == List("columns", "rows", "sortCol"))
+      case other =>
+        fail(s"expected table lookup result, got $other")
+
   test("contentToMarkdown renders selected Markdown content"):
     val source = os.read(repoRoot / "tests" / "conformance" / "content-to-markdown.ssc")
     val expected = os.read(repoRoot / "tests" / "conformance" / "expected" / "content-to-markdown.txt").stripTrailing

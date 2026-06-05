@@ -71,6 +71,25 @@ def contentViewBlock(block: ContentBlock,
         case None    => Map("src" -> src, "alt" -> alt)
       element("img", attrs, Map(), [])
 
+    case ContentBlock.Table(headers, rows, alignments, _) =>
+      val headerCells = headers.zipWithIndex.map { (cell, idx) =>
+        element("th", Map(), tableCellStyle(alignments, idx), cell.map(contentInlineView(_, options)))
+      }
+      val head =
+        if headerCells.isEmpty then []
+        else [element("thead", Map(), Map(), [
+          element("tr", Map(), Map(), headerCells)
+        ])]
+      val bodyRows = rows.map { row =>
+        element("tr", Map(), Map(), row.zipWithIndex.map { (cell, idx) =>
+          element("td", Map(), tableCellStyle(alignments, idx), cell.map(contentInlineView(_, options)))
+        })
+      }
+      val body =
+        if bodyRows.isEmpty then []
+        else [element("tbody", Map(), Map(), bodyRows)]
+      element("table", Map(), Map(), head ++ body)
+
     case ContentBlock.Embedded(lang, source, _, _, _) =>
       if options.includeCode then
         val label = if lang == "" then "" else s"${lang}\n"
@@ -78,6 +97,14 @@ def contentViewBlock(block: ContentBlock,
           element("code", Map(), Map(), [textNode(label + source)])
         ])
       else fragment([])
+
+def tableCellStyle(alignments: List[String], index: Int): Map[String, Any] =
+  val align = alignments.lift(index).getOrElse("default")
+  align match
+    case "left"   => Map("text-align" -> "left")
+    case "center" => Map("text-align" -> "center")
+    case "right"  => Map("text-align" -> "right")
+    case _        => Map()
 
 def contentInlineView(inline: ContentInline,
                       options: ContentRenderOptions): View =

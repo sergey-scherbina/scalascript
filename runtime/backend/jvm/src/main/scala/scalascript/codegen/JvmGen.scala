@@ -325,6 +325,10 @@ class JvmGen(
   private def scalaOptionStringExpr(value: Option[String]): String =
     value.map(v => s"Some(${scalaStringLiteral(v)})").getOrElse("None")
 
+  private def scalaStringListExpr(values: List[String]): String =
+    if values.isEmpty then "List.empty[String]"
+    else values.map(scalaStringLiteral).mkString("List(", ", ", ")")
+
   private def scalaContentValueMapExpr(values: Map[String, ContentValue]): String =
     if values.isEmpty then "Map.empty[String, std.content.ContentValue]"
     else
@@ -374,6 +378,14 @@ class JvmGen(
     if values.isEmpty then "List.empty[List[std.content.ContentBlock]]"
     else values.map(scalaBlockListExpr).mkString("List(", ", ", ")")
 
+  private def scalaTableHeaderExpr(values: List[List[ContentInline]]): String =
+    if values.isEmpty then "List.empty[List[std.content.ContentInline]]"
+    else values.map(scalaInlineListExpr).mkString("List(", ", ", ")")
+
+  private def scalaTableRowsExpr(values: List[List[List[ContentInline]]]): String =
+    if values.isEmpty then "List.empty[List[List[std.content.ContentInline]]]"
+    else values.map(row => scalaTableHeaderExpr(row)).mkString("List(", ", ", ")")
+
   private def scalaEmbeddedKindExpr(kind: EmbeddedKind): String = kind match
     case EmbeddedKind.StructuredData => "std.content.EmbeddedKind.StructuredData"
     case EmbeddedKind.Executable     => "std.content.EmbeddedKind.Executable"
@@ -389,6 +401,8 @@ class JvmGen(
       s"std.content.ContentBlock.OrderedList(${scalaNestedBlockListExpr(items)}, $start, ${scalaContentValueMapExpr(attrs)})"
     case ContentBlock.Image(src, alt, title, attrs) =>
       s"std.content.ContentBlock.Image(${scalaStringLiteral(src)}, ${scalaStringLiteral(alt)}, ${scalaOptionStringExpr(title)}, ${scalaContentValueMapExpr(attrs)})"
+    case ContentBlock.Table(headers, rows, alignments, attrs) =>
+      s"std.content.ContentBlock.Table(${scalaTableHeaderExpr(headers)}, ${scalaTableRowsExpr(rows)}, ${scalaStringListExpr(alignments)}, ${scalaContentValueMapExpr(attrs)})"
     case ContentBlock.Embedded(lang, source, kind, data, attrs) =>
       val dataExpr = data.map(v => s"Some(${scalaContentValueExpr(v)})").getOrElse("None")
       s"std.content.ContentBlock.Embedded(${scalaStringLiteral(lang)}, ${scalaStringLiteral(source)}, ${scalaEmbeddedKindExpr(kind)}, $dataExpr, ${scalaContentValueMapExpr(attrs)})"
@@ -517,6 +531,7 @@ class JvmGen(
        |    case std.content.ContentBlock.BulletList(_, attrs)       => attrs
        |    case std.content.ContentBlock.OrderedList(_, _, attrs)   => attrs
        |    case std.content.ContentBlock.Image(_, _, _, attrs)      => attrs
+       |    case std.content.ContentBlock.Table(_, _, _, attrs)      => attrs
        |    case std.content.ContentBlock.Embedded(_, _, _, _, attrs) => attrs
        |
        |def _ssc_content_string_attr(attrs: Map[String, std.content.ContentValue], name: String): Option[String] =
@@ -635,8 +650,19 @@ class JvmGen(
        |      }.filter(_.trim.nonEmpty).mkString("\\n")
        |    case std.content.ContentBlock.Image(src, alt, _, _) =>
        |      if alt.isEmpty then src else alt
+       |    case std.content.ContentBlock.Table(headers, rows, _, _) =>
+       |      _ssc_content_table_plain_text(headers, rows)
        |    case std.content.ContentBlock.Embedded(lang, source, _, _, _) =>
        |      if lang.isEmpty then source else s"$$lang: $$source"
+       |
+       |def _ssc_content_table_plain_text(headers: List[List[std.content.ContentInline]], rows: List[List[List[std.content.ContentInline]]]): String =
+       |  (headers.map(_ssc_content_table_cell_plain_text).mkString(" | ") ::
+       |    rows.map(row => row.map(_ssc_content_table_cell_plain_text).mkString(" | ")))
+       |    .filter(_.trim.nonEmpty)
+       |    .mkString("\\n")
+       |
+       |def _ssc_content_table_cell_plain_text(cell: List[std.content.ContentInline]): String =
+       |  cell.map(_ssc_content_inline_plain_text).mkString
        |
        |def _ssc_content_inline_plain_text(inline: std.content.ContentInline): String =
        |  inline match
@@ -685,6 +711,8 @@ class JvmGen(
        |    case std.content.ContentBlock.Image(src, alt, title, _) =>
        |      val titlePart = title.map(t => " " + _ssc_content_quote_markdown_attr(t)).getOrElse("")
        |      "![" + _ssc_content_markdown_text(alt) + "](" + src + titlePart + ")"
+       |    case std.content.ContentBlock.Table(headers, rows, alignments, _) =>
+       |      _ssc_content_table_markdown(headers, rows, alignments)
        |    case block @ std.content.ContentBlock.Embedded(_, _, _, _, _) =>
        |      _ssc_content_embedded_markdown(block)
        |  block match
@@ -696,6 +724,32 @@ class JvmGen(
        |  val lines = body.split("\\n", -1).toList
        |  if body.isEmpty then prefix.trim
        |  else prefix + lines.head + lines.tail.map(line => "\\n  " + line).mkString
+       |
+       |def _ssc_content_table_markdown(headers: List[List[std.content.ContentInline]], rows: List[List[List[std.content.ContentInline]]], alignments: List[String]): String =
+       |  val headerCells = headers.map(_ssc_content_table_cell_markdown)
+       |  val bodyRows = rows.map(row => row.map(_ssc_content_table_cell_markdown))
+       |  val colCount = (List(headerCells.length, alignments.length) ++ bodyRows.map(_.length)).max
+       |  val separator = (0 until colCount).toList.map(idx => _ssc_content_table_separator(alignments.lift(idx).getOrElse("default")))
+       |  val renderedRows = bodyRows.map(row => _ssc_content_markdown_table_row(_ssc_content_pad_table_cells(row, colCount)))
+       |  (_ssc_content_markdown_table_row(_ssc_content_pad_table_cells(headerCells, colCount)) ::
+       |    _ssc_content_markdown_table_row(separator) ::
+       |    renderedRows).mkString("\\n")
+       |
+       |def _ssc_content_table_cell_markdown(cell: List[std.content.ContentInline]): String =
+       |  cell.map(_ssc_content_inline_markdown).mkString.replace("\\n", " ").replace("|", "\\\\|")
+       |
+       |def _ssc_content_pad_table_cells(cells: List[String], size: Int): List[String] =
+       |  cells ++ List.fill(math.max(0, size - cells.length))("")
+       |
+       |def _ssc_content_markdown_table_row(cells: List[String]): String =
+       |  cells.mkString("| ", " | ", " |")
+       |
+       |def _ssc_content_table_separator(alignment: String): String =
+       |  alignment match
+       |    case "left" => ":---"
+       |    case "center" => ":---:"
+       |    case "right" => "---:"
+       |    case _ => "---"
        |
        |def _ssc_content_embedded_markdown(block: std.content.ContentBlock.Embedded): String =
        |  val info = (block.lang :: _ssc_content_fence_attr_tokens(block.attrs)).filter(_.nonEmpty).mkString(" ")
@@ -955,11 +1009,24 @@ class JvmGen(
        |def _ssc_tk_component_for(name: String, options: std.ui.content.ContentToolkitOptions): Option[std.ui.content.ContentToolkitComponent] =
        |  options.components.find(_.name == name)
        |
+       |def _ssc_tk_table_cell(cell: List[std.content.ContentInline]): std.ui.nodes.TkNode =
+       |  std.ui.nodes.TextNode_(cell.map(_ssc_content_inline_plain_text).mkString)
+       |
+       |def _ssc_tk_table(headers: List[List[std.content.ContentInline]], rows: List[List[List[std.content.ContentInline]]]): std.ui.nodes.TkNode =
+       |  val columns = headers.zipWithIndex.map { case (header, idx) =>
+       |    std.ui.nodes.TableColumn(header.map(_ssc_content_inline_plain_text).mkString, "col" + idx.toString)
+       |  }
+       |  std.ui.nodes.TableNode(columns, rows.map(row => row.map(_ssc_tk_table_cell)), null)
+       |
        |def _ssc_tk_block(block: std.content.ContentBlock, options: std.ui.content.ContentToolkitOptions): std.ui.nodes.TkNode =
        |  val attrs = _ssc_content_block_attrs(block)
        |  _ssc_content_string_attr(attrs, "component")
        |    .flatMap(name => _ssc_tk_component_for(name, options).map(_.render(std.ui.content.ContentComponentContext(name, "block", _ssc_content_string_attr(attrs, "id").getOrElse(""), None, attrs, None, Some(block), _ssc_tk_component_data(attrs)))))
        |    .orElse(_ssc_tk_yaml_block(block))
+       |    .orElse(block match
+       |      case std.content.ContentBlock.Table(headers, rows, _, _) => Some(_ssc_tk_table(headers, rows))
+       |      case _ => None
+       |    )
        |    .getOrElse(std.ui.nodes.TextNode_(_ssc_content_block_plain_text(block)))
        |
        |def _ssc_tk_section(section: std.content.SectionContent, options: std.ui.content.ContentToolkitOptions): std.ui.nodes.TkNode =

@@ -39,8 +39,11 @@ val sharedScalacOptionsStrict = sharedScalacOptions :+ "-Werror"
 // must move together — they share one release train.
 val upickleV   = "4.4.2"
 val scalatestV = "3.2.18"
+val commonmarkV = "0.28.0"
 
 val scalatestTest       = "org.scalatest" %% "scalatest" % scalatestV % Test
+val commonmarkCore      = "org.commonmark" %  "commonmark"       % commonmarkV
+val commonmarkGfmTables = "org.commonmark" %  "commonmark-ext-gfm-tables" % commonmarkV
 
 val javafxVersion: String = "21.0.5"
 val javafxClassifier: String = {
@@ -165,7 +168,8 @@ lazy val core = project
       "com.lihaoyi"    %% "os-lib"           % "0.11.4",
       "com.lihaoyi"    %% "upickle"          % upickleV,
       "org.scalameta"  %% "scalameta"        % "4.17.0",
-      "org.commonmark" %  "commonmark"       % "0.28.0",
+      commonmarkCore,
+      commonmarkGfmTables,
       "io.bullet"      %% "borer-core"       % "1.16.2",
       "io.bullet"      %% "borer-derivation" % "1.16.2",
       scalatestTest
@@ -638,6 +642,7 @@ lazy val backendInterpreter = project
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(
       scalatestTest,
+      commonmarkGfmTables,
       "org.ow2.asm" % "asm" % "9.7"
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -2407,7 +2412,7 @@ lazy val contentPlugin = project
   .dependsOn(backendSpi, pluginApi, ir, core, frontendCore, testUtils % Test)
   .settings(
     name := "scalascript-content-plugin",
-    libraryDependencies ++= Seq(scalatestTest),
+    libraryDependencies ++= Seq(scalatestTest, commonmarkGfmTables),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )

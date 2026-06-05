@@ -324,6 +324,7 @@ object SsccFormat:
   private lazy given Codec[ContentBlock.BulletList] = deriveCodec[ContentBlock.BulletList]
   private lazy given Codec[ContentBlock.OrderedList] = deriveCodec[ContentBlock.OrderedList]
   private given Codec[ContentBlock.Image]       = deriveCodec[ContentBlock.Image]
+  private lazy given Codec[ContentBlock.Table]  = deriveCodec[ContentBlock.Table]
   private lazy given Codec[ContentBlock.Embedded] = deriveCodec[ContentBlock.Embedded]
   private lazy given Codec[ContentBlock]        = deriveCodec[ContentBlock]
   private lazy given Codec[SectionContent]      = deriveCodec[SectionContent]

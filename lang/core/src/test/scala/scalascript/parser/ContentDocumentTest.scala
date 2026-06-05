@@ -27,6 +27,12 @@ class ContentDocumentTest extends AnyFunSuite:
       |- Starter
       |- Pro
       |
+      |<!-- @meta id=plan-table component=PlanTable -->
+      || Plan | Price | Link |
+      || :--- | ---: | :---: |
+      || Starter | **$19** | [buy](/buy) |
+      || Pro | ${proPrice} | `code` |
+      |
       |```yaml @id=plans-data
       |plans:
       |  - id: starter
@@ -88,6 +94,30 @@ class ContentDocumentTest extends AnyFunSuite:
     val list = plans.blocks.collectFirst { case l: ContentBlock.BulletList => l }
       .getOrElse(fail("expected bullet list"))
     assert(list.items.length == 2)
+
+    val table = plans.blocks.collectFirst { case t: ContentBlock.Table => t }
+      .getOrElse(fail("expected table"))
+    assert(table.attrs == Map(
+      "id" -> ContentValue.Str("plan-table"),
+      "component" -> ContentValue.Str("PlanTable")
+    ))
+    assert(table.alignments == List("left", "right", "center"))
+    assert(table.headers == List(
+      List(ContentInline.Text("Plan")),
+      List(ContentInline.Text("Price")),
+      List(ContentInline.Text("Link"))
+    ))
+    assert(table.rows.length == 2)
+    assert(table.rows.head == List(
+      List(ContentInline.Text("Starter")),
+      List(ContentInline.Strong(List(ContentInline.Text("$19")))),
+      List(ContentInline.Link(List(ContentInline.Text("buy")), "/buy", None))
+    ))
+    assert(table.rows(1) == List(
+      List(ContentInline.Text("Pro")),
+      List(ContentInline.Expr("proPrice")),
+      List(ContentInline.Code("code"))
+    ))
 
     val embedded = plans.blocks.collectFirst { case e: ContentBlock.Embedded => e }
       .getOrElse(fail("expected YAML embedded block"))

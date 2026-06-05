@@ -1,0 +1,28 @@
+---
+name: content-tables-example
+description: Markdown-authored tables as content and frontend toolkit nodes.
+frontend: react
+---
+
+# Pricing
+
+<!-- @meta id=plan-table component=PlanTable -->
+| Plan | Price | Link |
+| :--- | ---: | :---: |
+| Starter | **$19** | [buy](/buy) |
+| Pro | ${proPrice} | `code` |
+
+# Demo
+
+[contentBlock, contentPlainText, contentToMarkdown](std/content.ssc)
+[contentToolkitBlock](std/ui/content.ssc)
+
+```scalascript
+val table = contentBlock("plan-table").get
+
+println(contentPlainText(table))
+println("---")
+println(contentToMarkdown(table))
+println("---")
+println(contentToolkitBlock("plan-table"))
+```

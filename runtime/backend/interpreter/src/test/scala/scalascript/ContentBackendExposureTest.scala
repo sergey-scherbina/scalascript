@@ -32,6 +32,12 @@ class ContentBackendExposureTest extends AnyFunSuite with Matchers:
   private lazy val linkedNamespacesExpected: String =
     os.read(repoRoot / "tests" / "conformance" / "expected" / "content-linked-namespaces.txt").stripTrailing
 
+  private lazy val tablesSource: String =
+    os.read(repoRoot / "tests" / "conformance" / "content-tables.ssc")
+
+  private lazy val tablesExpected: String =
+    os.read(repoRoot / "tests" / "conformance" / "expected" / "content-tables.txt").stripTrailing
+
   test("JS codegen exposes std/content helpers from Markdown content"):
     assume(ProcTestUtil.commandOk("node"), "node not available")
     val module = Parser.parse(source)
@@ -88,3 +94,22 @@ class ContentBackendExposureTest extends AnyFunSuite with Matchers:
     val result = os.proc("scala-cli", "run", tmp.toString).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
     assert(result.exitCode == 0, s"scala-cli failed:\n${result.err.text()}")
     result.out.text().stripTrailing shouldBe linkedNamespacesExpected
+
+  test("JS codegen exposes Markdown content tables"):
+    assume(ProcTestUtil.commandOk("node"), "node not available")
+    val module = Parser.parse(tablesSource)
+    val runtime = JsGen.generateRuntime(JsGen.detectCapabilities(module, Some(repoRoot)))
+    val userCode = JsGen.generate(module, Some(repoRoot))
+    val tmp = os.temp(runtime + "\n" + userCode + "\n", suffix = ".cjs", deleteOnExit = true)
+    val result = os.proc("node", tmp.toString).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+    assert(result.exitCode == 0, s"node failed:\n${result.err.text()}")
+    result.out.text().stripTrailing shouldBe tablesExpected
+
+  test("JVM codegen exposes Markdown content tables"):
+    assume(ProcTestUtil.commandOk("scala-cli"), "scala-cli not available")
+    val module = Parser.parse(tablesSource)
+    val scala = "//> using scala 3.8.3\n" + JvmGen.generate(module, Some(repoRoot))
+    val tmp = os.temp(scala, suffix = ".sc", deleteOnExit = true)
+    val result = os.proc("scala-cli", "run", tmp.toString).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+    assert(result.exitCode == 0, s"scala-cli failed:\n${result.err.text()}")
+    result.out.text().stripTrailing shouldBe tablesExpected

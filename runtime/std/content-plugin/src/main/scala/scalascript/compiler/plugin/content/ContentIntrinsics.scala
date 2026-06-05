@@ -282,6 +282,7 @@ object ContentIntrinsics:
       case ast.ContentBlock.BulletList(_, attrs)            => attrs
       case ast.ContentBlock.OrderedList(_, _, attrs)        => attrs
       case ast.ContentBlock.Image(_, _, _, attrs)           => attrs
+      case ast.ContentBlock.Table(_, _, _, attrs)           => attrs
       case ast.ContentBlock.Embedded(_, _, _, _, attrs)     => attrs
 
   private def contentStringAttr(attrs: Map[String, ast.ContentValue], name: String): Option[String] =
@@ -427,6 +428,8 @@ object ContentIntrinsics:
             case Some(t) => s"$alt ($t)"
             case None    => alt
         rawTextNode(label)
+      case ast.ContentBlock.Table(headers, rows, _, _) =>
+        tableNode(headers, rows)
       case ast.ContentBlock.Embedded(lang, _, _, data, attrs) if isToolkitUiBlock(lang, attrs) =>
         data match
           case Some(value) => toolkitUiNode(value, options)
@@ -675,8 +678,15 @@ object ContentIntrinsics:
       }.mkString("; ")
     case ast.ContentBlock.Image(src, alt, _, _) =>
       if alt.isEmpty then src else alt
+    case ast.ContentBlock.Table(headers, rows, _, _) =>
+      tableText(headers, rows)
     case ast.ContentBlock.Embedded(lang, source, _, _, _) =>
       if lang.isEmpty then source else s"$lang: $source"
+
+  private def tableText(headers: List[List[ast.ContentInline]], rows: List[List[List[ast.ContentInline]]]): String =
+    val header = headers.map(inlineText).mkString(" | ")
+    val bodyRows = rows.map(row => row.map(inlineText).mkString(" | "))
+    (header :: bodyRows).filter(_.trim.nonEmpty).mkString("\n")
 
   private def inlineText(inlines: List[ast.ContentInline]): String =
     inlines.map(inlineText).mkString
@@ -690,7 +700,7 @@ object ContentIntrinsics:
     case ast.ContentInline.Expr(source)       => "${" + source + "}"
 
   private val contentBlockValueTypeNames: Set[String] =
-    Set("Paragraph", "BulletList", "OrderedList", "Image", "Embedded")
+    Set("Paragraph", "BulletList", "OrderedList", "Image", "Table", "Embedded")
 
   private def contentPlainTextAny(value: Any): String =
     value match
@@ -738,6 +748,11 @@ object ContentIntrinsics:
         val src = requiredStringField(fields, "src", "Image.src")
         val alt = requiredStringField(fields, "alt", "Image.alt")
         if alt.isEmpty then src else alt
+      case block: Value.InstanceV if block.typeName == "Table" =>
+        val fields = block.effectiveFields
+        val headers = requiredListField(fields, "headers", "Table.headers")
+        val rows = requiredListField(fields, "rows", "Table.rows")
+        tableValuePlainText(headers, rows)
       case block: Value.InstanceV if block.typeName == "Embedded" =>
         val fields = block.effectiveFields
         val lang = requiredStringField(fields, "lang", "Embedded.lang")
@@ -752,6 +767,15 @@ object ContentIntrinsics:
       case other =>
         throw InterpretError(s"contentPlainText: $context expected List[ContentBlock], got ${Value.show(other)}")
     blocks.map(blockPlainText).filter(_.nonEmpty).mkString(" ")
+
+  private def tableValuePlainText(headers: List[Value], rows: List[Value]): String =
+    val header = headers.map(cell => inlinePlainText(requiredValueList(cell, "Table.headers"))).mkString(" | ")
+    val bodyRows = rows.map(row =>
+      requiredValueList(row, "Table.rows")
+        .map(cell => inlinePlainText(requiredValueList(cell, "Table.rows.cell")))
+        .mkString(" | ")
+    )
+    (header :: bodyRows).filter(_.trim.nonEmpty).mkString("\n")
 
   private def inlinePlainText(values: List[Value]): String =
     values.map(inlinePlainText).mkString
@@ -804,6 +828,12 @@ object ContentIntrinsics:
         throw InterpretError(s"contentPlainText: $context expected List, got ${Value.show(other)}")
       case None =>
         throw InterpretError(s"contentPlainText: missing $context")
+
+  private def requiredValueList(value: Value, context: String): List[Value] =
+    value match
+      case Value.ListV(values) => values
+      case other =>
+        throw InterpretError(s"contentPlainText: $context expected List, got ${Value.show(other)}")
 
   private def contentToMarkdownAny(value: Any): String =
     value match
@@ -881,6 +911,13 @@ object ContentIntrinsics:
           .map(t => " " + quoteMarkdownAttr(t))
           .getOrElse("")
         s"![${alt}](${src}${title})"
+      case block: Value.InstanceV if block.typeName == "Table" =>
+        val fields = block.effectiveFields
+        tableMarkdown(
+          mdListField(fields, "headers", "Table.headers"),
+          mdListField(fields, "rows", "Table.rows"),
+          mdStringListField(fields, "alignments", "Table.alignments")
+        )
       case block: Value.InstanceV if block.typeName == "Embedded" =>
         embeddedMarkdown(block)
       case other =>
@@ -902,6 +939,34 @@ object ContentIntrinsics:
     val lines = body.split("\n", -1).toList
     if body.isEmpty then prefix.trim
     else (prefix + lines.head) + lines.tail.map(line => "\n  " + line).mkString
+
+  private def tableMarkdown(headers: List[Value], rows: List[Value], alignments: List[String]): String =
+    val headerCells = headers.map(cell => tableCellMarkdown(cell, "Table.headers"))
+    val bodyRows = rows.map(row =>
+      mdValueList(row, "Table.rows")
+        .map(cell => tableCellMarkdown(cell, "Table.rows.cell"))
+    )
+    val colCount = (headerCells.length :: alignments.length :: bodyRows.map(_.length)).max
+    val paddedHeaders = padStrings(headerCells, colCount)
+    val separator = (0 until colCount).toList.map(idx => tableSeparator(alignments.lift(idx).getOrElse("default")))
+    val renderedRows = bodyRows.map(row => markdownTableRow(padStrings(row, colCount)))
+    (markdownTableRow(paddedHeaders) :: markdownTableRow(separator) :: renderedRows).mkString("\n")
+
+  private def tableCellMarkdown(value: Value, context: String): String =
+    inlineTextMarkdown(mdValueList(value, context)).replace("\n", " ").replace("|", "\\|")
+
+  private def padStrings(values: List[String], size: Int): List[String] =
+    values ++ List.fill(math.max(0, size - values.length))("")
+
+  private def markdownTableRow(cells: List[String]): String =
+    cells.mkString("| ", " | ", " |")
+
+  private def tableSeparator(alignment: String): String =
+    alignment match
+      case "left"   => ":---"
+      case "center" => ":---:"
+      case "right"  => "---:"
+      case _        => "---"
 
   private def embeddedMarkdown(block: Value.InstanceV): String =
     val fields = block.effectiveFields
@@ -1077,6 +1142,17 @@ object ContentIntrinsics:
       case Value.ListV(values) => values
       case other => throw InterpretError(s"contentToMarkdown: $context expected List, got ${Value.show(other)}")
 
+  private def mdValueList(value: Value, context: String): List[Value] =
+    value match
+      case Value.ListV(values) => values
+      case other => throw InterpretError(s"contentToMarkdown: $context expected List, got ${Value.show(other)}")
+
+  private def mdStringListField(fields: Map[String, Value], name: String, context: String): List[String] =
+    mdListField(fields, name, context).map {
+      case Value.StringV(value) => value
+      case other => throw InterpretError(s"contentToMarkdown: $context expected String list, got ${Value.show(other)}")
+    }
+
   private def mdContentValueMap(value: Value, context: String): Map[String, Value] =
     value match
       case Value.MapV(values) =>
@@ -1193,6 +1269,23 @@ object ContentIntrinsics:
       "text" -> Value.StringV(text)
     )
 
+  private def tableColumn(label: String, key: String): Value =
+    instanceValue("TableColumn",
+      "label" -> Value.StringV(label),
+      "key"   -> Value.StringV(key)
+    )
+
+  private def tableNode(headers: List[List[ast.ContentInline]], rows: List[List[List[ast.ContentInline]]]): Value =
+    instanceValue("TableNode",
+      "columns" -> Value.ListV(headers.zipWithIndex.map { case (header, idx) =>
+        tableColumn(inlineText(header), s"col$idx")
+      }),
+      "rows" -> Value.ListV(rows.map(row =>
+        Value.ListV(row.map(cell => textNode_(inlineText(cell))))
+      )),
+      "sortCol" -> Value.NullV
+    )
+
   private def showWhenNode(signal: Value, whenTrue: Value, whenFalse: Value): Value =
     instanceValue("ShowWhenNode",
       "signal" -> signal,
@@ -1292,6 +1385,13 @@ object ContentIntrinsics:
         "alt"   -> Value.StringV(alt),
         "title" -> optionString(title),
         "attrs" -> attrsValue(attrs)
+      )
+    case ast.ContentBlock.Table(headers, rows, alignments, attrs) =>
+      instanceValue("Table",
+        "headers"    -> Value.ListV(headers.map(cell => Value.ListV(cell.map(inlineValue)))),
+        "rows"       -> Value.ListV(rows.map(row => Value.ListV(row.map(cell => Value.ListV(cell.map(inlineValue)))))),
+        "alignments" -> Value.ListV(alignments.map(value => Value.StringV(value))),
+        "attrs"      -> attrsValue(attrs)
       )
     case ast.ContentBlock.Embedded(lang, source, kind, data, attrs) =>
       instanceValue("Embedded",
