@@ -1,6 +1,0 @@
-feature/sprint-cleanup 2026-06-05T00:39:57Z
-agent: claude-code
-heartbeat: 2026-06-05T00:39:57Z
-status: in-progress
-done-so-far: verifying asm-parity task already done
-next: mark done, commit
