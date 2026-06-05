@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(language): Markdown content native client parity
+
+- **markdown-content-native-client-parity** — Added a native Markdown controls
+  example and shared native lowering so `yaml @ui=toolkit` controls from
+  Markdown render as Swing `JTextField` / `JCheckBox` / `JButton`, JavaFX
+  `TextField` / `CheckBox` / `Button`, and SwiftUI `TextField` / `Toggle` /
+  `Button`. JVM codegen now exposes the content toolkit helper set for native
+  frontends, and focused emitter/runtime tests cover scalar signal defaults.
+
 ## 2026-06-05 — spec(language): Markdown content native client parity
 
 - **markdown-content-native-client-parity-spec** — Added the focused contract

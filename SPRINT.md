@@ -23,11 +23,6 @@ and
 [`specs/markdown-content-native-client-parity.md`](specs/markdown-content-native-client-parity.md).
 For the next slices, write and commit the focused spec first, then implement.
 
-- [ ] **markdown-content-native-client-parity** - Implement native-client
-      parity after the spec lands. Add examples/tests showing the same
-      Markdown-defined controls rendered through Swing, JavaFX, and SwiftUI
-      frontend paths, with shared `contentData` / component metadata behavior.
-
 - [ ] **markdown-content-to-markdown-spec** - Write
       `specs/markdown-content-to-markdown.md` for `contentToMarkdown(...)`.
       Define supported nodes, metadata round-trip rules, formatting stability,
