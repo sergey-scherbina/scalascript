@@ -8,6 +8,14 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Language Surface - Markdown Content
+
+- [ ] **markdown-content-lookup-plaintext** - Add interpreter `std/content`
+      helpers for `contentSection(id)`, `contentBlock(id)`, and
+      `contentPlainText(value)` so code can reuse Markdown-authored regions
+      without rendering the whole document. Spec:
+      [`specs/markdown-content-lookup-plaintext.md`](specs/markdown-content-lookup-plaintext.md).
+
 ## VmCompiler completeness (focus)
 
 Make `VmCompiler.compile` succeed for as many real functions as possible so
