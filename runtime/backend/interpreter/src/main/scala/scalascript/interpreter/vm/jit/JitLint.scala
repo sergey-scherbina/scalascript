@@ -196,8 +196,9 @@ object JitPredicates:
         buf += JitBailReason.LambdaValue
       case tm: Term.Match =>
         tm.expr match
-          case _: Term.Name => ()
-          case _            => buf += JitBailReason.NonAdtScrutinee
+          case _: Term.Name   => ()
+          case _: Term.Select => ()  // Stage 5.5: hoisted to local at compile time
+          case _              => buf += JitBailReason.NonAdtScrutinee
         tm.casesBlock.cases.foreach { c =>
           if c.cond.nonEmpty then buf += JitBailReason.PatternGuard
           c.pat match

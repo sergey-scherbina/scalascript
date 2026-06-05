@@ -1656,3 +1656,51 @@ class SscVmTest extends AnyFunSuite with Matchers:
     lines(1) shouldBe "1"
     lines(2) shouldBe "2"
   }
+
+  // ── Stage 5.5: Non-Term.Name match scrutinee (auto-hoist to local) ──────────
+
+  test("stage5.5: end-to-end — field access scrutinee (Term.Select match) compiles and runs") {
+    val out = captured(
+      """sealed trait Expr
+        |case class Num(v: Int) extends Expr
+        |case class Neg(e: Expr) extends Expr
+        |case class Wrapper(inner: Expr)
+        |def evalInner(w: Wrapper): Int = w.inner match
+        |  case Num(v) => v
+        |  case Neg(e) => -1
+        |println(evalInner(Wrapper(Num(42))))
+        |println(evalInner(Wrapper(Neg(Num(7)))))""".stripMargin)
+    val lines = out.trim.split("\n")
+    lines(0) shouldBe "42"
+    lines(1) shouldBe "-1"
+  }
+
+  test("stage5.5: Javac — field access scrutinee compiles") {
+    import scalascript.interpreter.vm.jit.JavacJitBackend
+    val interp = interpOf(
+      """sealed trait Expr
+        |case class Num(v: Int) extends Expr
+        |case class Neg(e: Expr) extends Expr
+        |case class Wrapper(inner: Expr)
+        |def evalInner(w: Wrapper): Int = w.inner match
+        |  case Num(v) => v
+        |  case Neg(e) => -1""".stripMargin)
+    val fn = interp.globalsView("evalInner").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+  }
+
+  test("stage5.5: ASM — field access scrutinee compiles") {
+    import scalascript.interpreter.vm.jit.AsmJitBackend
+    val interp = interpOf(
+      """sealed trait Expr
+        |case class Num(v: Int) extends Expr
+        |case class Neg(e: Expr) extends Expr
+        |case class Wrapper(inner: Expr)
+        |def evalInner(w: Wrapper): Int = w.inner match
+        |  case Num(v) => v
+        |  case Neg(e) => -1""".stripMargin)
+    val fn = interp.globalsView("evalInner").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+  }

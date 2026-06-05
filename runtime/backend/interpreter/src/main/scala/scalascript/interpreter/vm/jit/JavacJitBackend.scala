@@ -717,8 +717,8 @@ object JavacJitBackend extends JitBackend:
     val raw     = s"($inst.fieldsArr() != null ? $arr : $mapVal)"
     s"((($wrapper) $raw).v())"
 
-  /** Emit a Java `Object`-typed expression. Only `Term.Name` (referencing a
-   *  ref-classified name in scope) is supported in the initial slice. */
+  /** Emit a Java `Object`-typed expression. Handles ref params, 1-stmt blocks,
+   *  and ref-typed ADT field access (`obj.field` where field is non-numeric). */
   private def walkRef(t: Term, ctx: GenCtx): String | Null = t match
     case tn: Term.Name if ctx.isRefName(tn.value) => ctx.resolveLocal(tn.value)
     // Direction A.1: 1-stmt block unwrap parallel to walkLong.
@@ -726,7 +726,23 @@ object JavacJitBackend extends JitBackend:
       b.stats.head match
         case inner: Term => walkRef(inner, ctx)
         case _           => null
-    case _                                        => null
+    // Stage 5.5: ref-typed field access `obj.field` where obj is a ref param.
+    case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
+      val tn = ctx.refTypeOf(objName)
+      if tn == null then return null
+      val fo = ctx.interp.typeFieldOrder.getOrElse(tn, Nil)
+      val idx = fo.indexOf(field)
+      if idx < 0 then return null
+      val ft = ctx.interp.typeFieldTypes.getOrElse(tn, Nil)
+      val ftype = if idx < ft.length then ft(idx) else ""
+      if ftype == "Int" || ftype == "Long" || ftype == "Double" then return null
+      val jvar = ctx.resolveLocal(objName)
+      if jvar == null then return null
+      val ivar = s"((scalascript.interpreter.Value.InstanceV) $jvar)"
+      val arr  = s"$ivar.fieldsArr()[$idx]"
+      val map  = s"""$ivar.fields().apply("${escape(field)}")"""
+      s"($ivar.fieldsArr() != null ? $arr : $map)"
+    case _ => null
 
   /** Emit a Java `Object` expression for pure ADT-building functions.
    *
@@ -1030,11 +1046,15 @@ object JavacJitBackend extends JitBackend:
     s"(($supplierIface)(() -> {\n      $body\n    })).$getter()"
 
   private def walkMatchBody(tm: Term.Match, ctx: GenCtx, interp: scalascript.interpreter.Interpreter): String | Null =
-    val scrutName = tm.expr match
-      case n: Term.Name => n.value
-      case _            => return null
-    if !ctx.params.contains(scrutName) then return null
-    val scrutJava = sanitize(scrutName)
+    // Stage 5.5: support non-Term.Name scrutinees by hoisting to a local.
+    val (scrutDecl, scrutJava) = tm.expr match
+      case n: Term.Name =>
+        if !ctx.params.contains(n.value) then return null
+        ("", sanitize(n.value))
+      case other =>
+        val refExpr = walkRef(other, ctx)
+        if refExpr == null then return null
+        (s"Object _scrutRef = $refExpr;\n    ", "_scrutRef")
     // Pre-resolve int tags for all arms so we can decide switch type upfront.
     val cases = tm.casesBlock.cases
     val armTags = new Array[Int](cases.length)
@@ -1055,6 +1075,7 @@ object JavacJitBackend extends JitBackend:
         case None => allTagged = false
       ai += 1
     val sb = new StringBuilder
+    sb.append(scrutDecl)
     sb.append(s"scalascript.interpreter.Value.InstanceV inst = (scalascript.interpreter.Value.InstanceV) $scrutJava;\n    ")
     // If any arm carries a guard, fall back to a sequential if-chain because a
     // Java switch can't re-dispatch on guard failure: when `case A(n) if n > 0`

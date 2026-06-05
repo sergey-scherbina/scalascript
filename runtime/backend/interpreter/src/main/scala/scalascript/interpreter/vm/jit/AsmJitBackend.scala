@@ -1228,6 +1228,28 @@ object AsmJitBackend extends JitBackend:
       b.stats.head match
         case inner: Term => walkRef(inner, ctx, mv)
         case _           => false
+    // Stage 5.5: ref-typed ADT field access `obj.field` on a ref param.
+    case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
+      val tn = ctx.refTypeOf(objName)
+      if tn == null then return false
+      val fo = ctx.interp.typeFieldOrder.getOrElse(tn, Nil)
+      val idx = fo.indexOf(field)
+      if idx < 0 then return false
+      val ft = ctx.interp.typeFieldTypes.getOrElse(tn, Nil)
+      val ftype = if idx < ft.length then ft(idx) else ""
+      if ftype == "Int" || ftype == "Long" || ftype == "Double" then return false
+      val slot = ctx.slotOf(objName)
+      if slot < 0 then return false
+      val iSlot = ctx.allocSlot()
+      mv.visitVarInsn(ALOAD, slot)
+      mv.visitTypeInsn(CHECKCAST, instVInt)
+      mv.visitVarInsn(ASTORE, iSlot)
+      val faSlot = ctx.allocSlot()
+      mv.visitVarInsn(ALOAD, iSlot)
+      mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "fieldsArr", s"()[L$valueInt;", false)
+      mv.visitVarInsn(ASTORE, faSlot)
+      emitLoadField(mv, iSlot, faSlot, idx, field, hasArr = true)
+      true
     case _ => false
 
   // ── walkBool: emit jump-to-ifFalse when condition is false ───────────────
@@ -1368,13 +1390,15 @@ object AsmJitBackend extends JitBackend:
 
   private def emitMatchBody(tm: Term.Match, ctx: GenCtx, interp: Interpreter,
                             mv: MethodVisitor): Boolean =
-    val scrutName = tm.expr match
-      case n: Term.Name => n.value; case _ => return false
-    if !ctx.params.contains(scrutName) then return false
-    val scrutSlot = ctx.slotOf(scrutName)
-    if scrutSlot < 0 then return false
-
-    mv.visitVarInsn(ALOAD, scrutSlot)
+    // Stage 5.5: support non-Term.Name scrutinees (e.g. field access) by hoisting.
+    tm.expr match
+      case n: Term.Name =>
+        if !ctx.params.contains(n.value) then return false
+        val s = ctx.slotOf(n.value)
+        if s < 0 then return false
+        mv.visitVarInsn(ALOAD, s)
+      case other =>
+        if !walkRef(other, ctx, mv) then return false
     mv.visitTypeInsn(CHECKCAST, instVInt)
     val instSlot = ctx.allocSlot()
     mv.visitVarInsn(ASTORE, instSlot)
