@@ -36,6 +36,12 @@ object ContentIntrinsics:
           Value.optionV(contentDataById(currentDocument(ctx, "contentData(id)"), id).map(contentValue))
         case _ => throw InterpretError("contentData(id)")
     },
+    QualifiedName("contentMetadata") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case (path: String) :: Nil =>
+          Value.optionV(contentMetadataPath(currentDocument(ctx, "contentMetadata(path)"), path).map(contentValue))
+        case _ => throw InterpretError("contentMetadata(path)")
+    },
     QualifiedName("contentPlainText") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case value :: Nil => contentPlainTextAny(value)
@@ -229,6 +235,31 @@ object ContentIntrinsics:
       case Nil          => None
       case value :: Nil => value
       case _            => throw InterpretError(s"contentData: duplicate structured data id '$id'")
+
+  private def contentMetadataPath(doc: ast.DocumentContent, path: String): Option[ast.ContentValue] =
+    val segments = contentMetadataSegments(path)
+    doc.manifest match
+      case ast.ContentValue.MapV(root) =>
+        root.get("content").flatMap(value => contentMetadataPath(value, segments))
+      case _ =>
+        None
+
+  private def contentMetadataPath(value: ast.ContentValue, segments: List[String]): Option[ast.ContentValue] =
+    segments match
+      case Nil =>
+        Some(value)
+      case segment :: rest =>
+        value match
+          case ast.ContentValue.MapV(values) =>
+            values.get(segment).flatMap(contentMetadataPath(_, rest))
+          case _ =>
+            None
+
+  private def contentMetadataSegments(path: String): List[String] =
+    val trimmed = path.trim
+    if trimmed.isEmpty || trimmed.startsWith(".") || trimmed.endsWith(".") || trimmed.contains("..") then
+      throw InterpretError("contentMetadata: path must be non-empty dot-separated segments")
+    trimmed.split("\\.").toList
 
   private def resolvedComponentData(
       doc: ast.DocumentContent,

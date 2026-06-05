@@ -189,6 +189,120 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
       case other =>
         fail(s"expected content lookup/plain-text strings, got $other")
 
+  test("contentMetadata reads content frontmatter by dot path"):
+    val source =
+      """---
+        |name: content-metadata-runtime-test
+        |content:
+        |  defaultRenderer: toolkit
+        |  theme:
+        |    density: compact
+        |  flags:
+        |    showBeta: true
+        |  limits:
+        |    retries: 3
+        |  tags:
+        |    - alpha
+        |    - beta
+        |  nullable: null
+        |---
+        |
+        |# Demo
+        |
+        |[contentMetadata](std/content.ssc)
+        |
+        |```scala
+        |List(
+        |  contentMetadata("defaultRenderer"),
+        |  contentMetadata("theme.density"),
+        |  contentMetadata("flags.showBeta"),
+        |  contentMetadata("limits.retries"),
+        |  contentMetadata("tags"),
+        |  contentMetadata("nullable"),
+        |  contentMetadata("missing"),
+        |  contentMetadata("theme.density.extra"),
+        |  contentMetadata("name")
+        |)
+        |```
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    interp.run(Parser.parse(source))
+
+    interp.lastResult match
+      case Value.ListV(values) =>
+        assert(values.size == 9)
+        assert(contentString(values(0)) == Some("toolkit"))
+        assert(contentString(values(1)) == Some("compact"))
+        assert(contentBool(values(2)) == Some(true))
+        assert(contentNum(values(3)) == Some(3.0))
+        values(4) match
+          case Value.OptionV(Value.InstanceV("ListV", fields)) =>
+            val tags = fields("values") match
+              case Value.ListV(items) => items.flatMap(value => contentString(Value.OptionV(value)))
+              case other              => fail(s"expected metadata tags list, got $other")
+            assert(tags == List("alpha", "beta"))
+          case other => fail(s"expected Some(ContentValue.ListV), got $other")
+        assert(values(5) == Value.OptionV(Value.InstanceV("NullV", Map.empty)))
+        assert(values(6) == Value.NoneV)
+        assert(values(7) == Value.NoneV)
+        assert(values(8) == Value.NoneV)
+      case other =>
+        fail(s"expected metadata lookup results, got $other")
+
+  test("contentMetadata returns None without content frontmatter"):
+    val source =
+      """---
+        |name: content-metadata-missing-root-test
+        |---
+        |
+        |# Demo
+        |
+        |[contentMetadata](std/content.ssc)
+        |
+        |```scala
+        |contentMetadata("defaultRenderer").isDefined.toString
+        |```
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    interp.run(Parser.parse(source))
+    assert(interp.lastResult == Value.StringV("false"))
+
+  test("contentMetadata reports malformed paths"):
+    val source =
+      """---
+        |name: content-metadata-malformed-path-test
+        |content:
+        |  defaultRenderer: toolkit
+        |---
+        |
+        |# Demo
+        |
+        |[contentMetadata](std/content.ssc)
+        |
+        |```scala
+        |contentMetadata("theme..density")
+        |```
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    val err = intercept[InterpretError]:
+      interp.run(Parser.parse(source))
+    assert(err.getMessage.contains("contentMetadata: path must be non-empty dot-separated segments"))
+
   test("contentData reports duplicate structured data ids"):
     val source =
       """---
@@ -274,3 +388,21 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
     val err = intercept[InterpretError]:
       interp.run(Parser.parse(source))
     assert(err.getMessage.contains("contentPlainText: expected SectionContent or ContentBlock"))
+
+  private def contentString(value: Value): Option[String] =
+    value match
+      case Value.OptionV(Value.InstanceV("Str", fields)) =>
+        fields.get("value").collect { case Value.StringV(v) => v }
+      case _ => None
+
+  private def contentBool(value: Value): Option[Boolean] =
+    value match
+      case Value.OptionV(Value.InstanceV("Bool", fields)) =>
+        fields.get("value").collect { case Value.BoolV(v) => v }
+      case _ => None
+
+  private def contentNum(value: Value): Option[Double] =
+    value match
+      case Value.OptionV(Value.InstanceV("Num", fields)) =>
+        fields.get("value").collect { case Value.DoubleV(v) => v }
+      case _ => None
