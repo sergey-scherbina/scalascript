@@ -1214,6 +1214,26 @@ class SscVmTest extends AnyFunSuite with Matchers:
     r should not be null
   }
 
+  test("stage2.4-expr: Javac+ASM — literal-int match with ApplyInfix scrutinee compiles and runs") {
+    // n % 5 match { ... }: scrutinee is ApplyInfix, not Term.Name.
+    // emitLiteralIntMatch uses walkLong on the scrutinee so this should work.
+    val out = captured(
+      """def classify(n: Int): Int =
+        |  n % 5 match
+        |    case 0 => 100
+        |    case 1 => 200
+        |    case 2 => 300
+        |    case 3 => 400
+        |    case _ => 500
+        |println(classify(0))
+        |println(classify(1))
+        |println(classify(9))""".stripMargin)
+    val lines = out.trim.split("\n")
+    lines(0) shouldBe "100"   // 0 % 5 = 0
+    lines(1) shouldBe "200"   // 1 % 5 = 1
+    lines(2) shouldBe "500"   // 9 % 5 = 4 → default
+  }
+
   test("stage2.4: ASM — literal-int match compiles") {
     import scalascript.interpreter.vm.jit.AsmJitBackend
     val interp = interpOf(
@@ -1363,4 +1383,44 @@ class SscVmTest extends AnyFunSuite with Matchers:
     lines(0) shouldBe "9"
     lines(1) shouldBe "16"
     lines(2) shouldBe "0"
+  }
+
+  test("jit-uc-finding-litmatch: .toLong/.toInt identity conversions compile (workload pattern)") {
+    // `classify(i).toLong` in a while body was blocking workload compilation.
+    // .toLong/.toInt are no-ops (Int = Long in ScalaScript) — emit as identity.
+    val out = captured(
+      """def classify(n: Int): Int =
+        |  n % 5 match
+        |    case 0 => 100
+        |    case 1 => 200
+        |    case 2 => 300
+        |    case 3 => 400
+        |    case _ => 500
+        |def workload(): Long =
+        |  var sum = 0L
+        |  var i = 0
+        |  while i < 5 do
+        |    sum = sum + classify(i).toLong
+        |    i = i + 1
+        |  sum
+        |println(workload())""".stripMargin)
+    // 100 + 200 + 300 + 400 + 500 = 1500
+    out.trim shouldBe "1500"
+  }
+
+  test("jit-uc-finding-litmatch: void Term.If in while body (conditional accumulation)") {
+    // `if isEven(i) then sum = sum + i` in a while body — both backends must handle
+    // void Term.If with no else branch in walkStatAsVoid / emitStatAsVoid.
+    val out = captured(
+      """def isEven(n: Int): Boolean = n % 2 == 0
+        |def workload(): Long =
+        |  var sum = 0L
+        |  var i = 0
+        |  while i < 10 do
+        |    if isEven(i) then sum = sum + i.toLong
+        |    i = i + 1
+        |  sum
+        |println(workload())""".stripMargin)
+    // sum of even numbers 0..9: 0+2+4+6+8 = 20
+    out.trim shouldBe "20"
   }

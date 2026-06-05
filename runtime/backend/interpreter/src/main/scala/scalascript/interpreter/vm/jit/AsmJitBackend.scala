@@ -530,6 +530,25 @@ object AsmJitBackend extends JitBackend:
     case w: Term.While =>
       if !emitWhileAsStmt(w, ctx, mv) then return null
       ctx
+    case ti: Term.If =>
+      // Void if-statement: `if cond then body` with Unit/empty else.
+      val isVoidElse = ti.elsep match
+        case _: Lit.Unit | Term.Block(Nil) => true; case _ => false
+      if !isVoidElse then return null
+      val Lend = new Label
+      if !walkBool(ti.cond, ctx, mv, Lend) then return null
+      val bodyStats: List[Stat] = ti.thenp match
+        case Term.Block(ss) => ss; case s: Stat => List(s)
+      var curCtx = ctx
+      var rem = bodyStats
+      var ok = true
+      while rem.nonEmpty && ok do
+        val nc = emitStatAsVoid(rem.head, curCtx, mv)
+        if nc == null then ok = false else curCtx = nc
+        rem = rem.tail
+      if !ok then return null
+      mv.visitLabel(Lend)
+      ctx
     case e: Term =>
       val ok = if ctx.isDouble then walkDouble(e, ctx, mv) else walkLong(e, ctx, mv)
       if !ok then return null
@@ -738,6 +757,12 @@ object AsmJitBackend extends JitBackend:
         mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "length", "()I", false)
         mv.visitInsn(I2L)
         true
+    // `.toLong` / `.toInt` are no-ops in ScalaScript (Int = Long = JVM long).
+    case Term.Select(inner: Term, Term.Name("toLong" | "toInt")) =>
+      walkLong(inner, ctx, mv)
+    // `.toDouble` on a Long expression — widen.
+    case Term.Select(inner: Term, Term.Name("toDouble")) =>
+      walkLong(inner, ctx, mv) && { mv.visitInsn(L2D); true }
     case ap: Term.Apply =>
       ap.fun match
         case fn: Term.Name =>
@@ -833,6 +858,10 @@ object AsmJitBackend extends JitBackend:
       }
     case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
       emitRefFieldNumeric(objName, field, ctx, mv, wantDouble = true)
+    case Term.Select(inner: Term, Term.Name("toDouble")) =>
+      walkLong(inner, ctx, mv) && { mv.visitInsn(L2D); true }
+    case Term.Select(inner: Term, Term.Name("toFloat")) =>
+      walkLong(inner, ctx, mv) && { mv.visitInsn(L2F); mv.visitInsn(F2D); true }
     case ap: Term.Apply =>
       ap.fun match
         case fn: Term.Name if fn.value == ctx.funName =>

@@ -638,6 +638,13 @@ object JavacJitBackend extends JitBackend:
     case Term.Select(recv, Term.Name("length")) =>
       val s = walkString(recv, ctx)
       if s == null then null else s"((long)($s).length())"
+    // `.toLong` / `.toInt` are no-ops in ScalaScript (Int = Long = JVM long).
+    case Term.Select(inner: Term, Term.Name("toLong" | "toInt")) =>
+      walkLong(inner, ctx)
+    // `.toDouble` on a Long expression — widen.
+    case Term.Select(inner: Term, Term.Name("toDouble")) =>
+      val e = walkLong(inner, ctx)
+      if e == null then null else s"(double)($e)"
     case ap: Term.Apply =>
       ap.fun match
         case fn: Term.Name => emitLongCall(fn.value, ap.argClause.values, ctx)
@@ -1656,6 +1663,29 @@ object JavacJitBackend extends JitBackend:
       val ws = walkWhileAsStmt(w, ctx)
       if ws == null then return null
       (s"$ws\n        ", ctx)
+    case ti: Term.If =>
+      val isVoidElse = ti.elsep match
+        case _: Lit.Unit | Term.Block(Nil) => true
+        case _                             => false
+      if !isVoidElse then return null
+      val condStr = walkBool(ti.cond, ctx)
+      if condStr == null then return null
+      val bodyStats: List[Stat] = ti.thenp match
+        case Term.Block(ss) => ss
+        case s: Stat        => List(s)
+      val sb = new StringBuilder
+      sb.append(s"if ($condStr) {\n        ")
+      var curCtx = ctx
+      var rem = bodyStats
+      var ok = true
+      while rem.nonEmpty && ok do
+        val res = walkStatAsVoid(rem.head, curCtx)
+        if res == null then ok = false
+        else { sb.append(res._1); curCtx = res._2 }
+        rem = rem.tail
+      if !ok then return null
+      sb.append("}\n        ")
+      (sb.toString, ctx)
     case e: Term =>
       val str = if ctx.isDouble then walkDouble(e, ctx) else walkLong(e, ctx)
       if str == null then null else (s"$str;\n        ", ctx)
@@ -1720,6 +1750,29 @@ object JavacJitBackend extends JitBackend:
             val ws = walkWhileAsStmt(w, curCtx)
             if ws == null then return null
             sb.append(ws).append("\n      ")
+          case ti: Term.If =>
+            val isVoidElse = ti.elsep match
+              case _: Lit.Unit | Term.Block(Nil) => true
+              case _                             => false
+            if !isVoidElse then return null
+            val condStr = walkBool(ti.cond, curCtx)
+            if condStr == null then return null
+            val bodyStats: List[Stat] = ti.thenp match
+              case Term.Block(ss) => ss
+              case s: Stat        => List(s)
+            val ifSb = new StringBuilder
+            ifSb.append(s"if ($condStr) {\n      ")
+            var innerCtx = curCtx
+            var ifRem = bodyStats
+            var ifOk = true
+            while ifRem.nonEmpty && ifOk do
+              val res = walkStatAsVoid(ifRem.head, innerCtx)
+              if res == null then ifOk = false
+              else { ifSb.append(res._1); innerCtx = res._2 }
+              ifRem = ifRem.tail
+            if !ifOk then return null
+            ifSb.append("}\n      ")
+            sb.append(ifSb.toString)
           case _ => return null
     sb.toString
 

@@ -125,20 +125,18 @@ Verified empirically via `./bench.sh`. New regression-guard corpus cases added:
 `bench/corpus/bool-predicate.ssc`, `bench/corpus/literal-match.ssc`,
 `bench/corpus/mutual-recursion.ssc`.
 
-- [ ] **jit-uc-finding-asm-bool-parity** — `mutual-recursion` (bool `isEven`/`isOdd`
-      pair) dropped 21.4 → **4.86 ms on `ssc` (Javac)** after stages 2.1/2.1b, now
-      ≈ jvm 3.80. But **`ssc-asm` stayed 20.6 ms** — the AsmJitBackend did NOT get
-      the bool-sibling co-emission win. Real Javac/ASM parity gap on the bool path.
-      Likely overlaps stage 2.3 (ASM walker parity). Repro:
-      `./bench.sh mutual-recursion`.
+- [x] **jit-uc-finding-asm-bool-parity** — Fixed by the combined effect of stage 2.3
+      (ASM guarded ref-match parity) + void `Term.If` in `emitStatAsVoid` /
+      `walkStatAsVoid` (this commit): `workload()` in `mutual-recursion.ssc` uses
+      `if isEven(i) then sum = sum + 1L` inside a while loop; that void Term.If was
+      not emitable on either backend, so `workload()` bailed. Now both Javac and ASM
+      compile `workload()`. Re-bench: `./bench.sh mutual-recursion`.
 
-- [ ] **jit-uc-finding-litmatch-not-firing** — Stage 2.4 is marked done and on main,
-      but a realistic `n % 5 match { case 0 => … }` in a hot loop still tree-walks:
-      `literal-match` is **3.6 ms on both `ssc` and `ssc-asm`** vs jvm ~0.001 ms
-      (flat across backends ⇒ no JIT). The `Pat.Lit` arms compile in the unit tests
-      but the `%`-scrutinee-call-in-loop shape does not accelerate. Re-check what
-      bails (scrutinee is `ApplyInfix`, not `Term.Name`; see stage 5-5).
-      Repro: `./bench.sh literal-match`.
+- [x] **jit-uc-finding-litmatch-not-firing** — Root cause was `.toLong` in
+      `sum = sum + classify(i).toLong` blocking `workload()` JIT compilation.
+      Fix: `.toLong`/`.toInt` emit as identity (Int=Long in ScalaScript);
+      `.toDouble` emits L2D. Both backends. `n % 5 match` with ApplyInfix
+      scrutinee was already supported via `walkLong` for the scrutinee.
 
 - [ ] **jit-uc-stage3-1** — `Value.FunV` as JIT-visible ref operand in `JitGlobals`.
 - [ ] **jit-uc-stage3-2** — SscVm `CALLREF` opcode + monomorphic IC.
