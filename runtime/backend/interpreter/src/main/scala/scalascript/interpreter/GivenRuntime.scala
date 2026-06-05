@@ -15,6 +15,69 @@ private[interpreter] object GivenRuntime:
   ): Option[Value] =
     resolveGivenInternal(typeKey, regularArgValues, callEnv, Set.empty, interp)
 
+  /** Resolve a `using` / context-bound parameter, first concretizing any free
+   *  type variables in `typeKey` by matching the regular parameter type
+   *  templates against the runtime types of the actual arguments.
+   *
+   *  This is needed when the evidence type abstracts over an *element* of a
+   *  container argument, e.g. `def combineAll[A: Monoid](xs: List[A])`: the
+   *  evidence is `Monoid[A]` while the argument is `List[A]`. Matching the
+   *  template `List[A]` against the runtime type `List[Int]` binds `A = Int`,
+   *  so we resolve `Monoid[Int]` rather than letting the value-type heuristic
+   *  mistakenly pick `Monoid[List[Int]]`.
+   */
+  def resolveUsing(
+    typeKey:           String,
+    regularParamTypes: List[String],
+    regularArgValues:  List[Value],
+    callEnv:           Env,
+    interp:            Interpreter
+  ): Option[Value] =
+    resolveGiven(
+      concretizeUsingKey(typeKey, regularParamTypes, regularArgValues),
+      regularArgValues,
+      callEnv,
+      interp
+    )
+
+  private def concretizeUsingKey(
+    typeKey:           String,
+    regularParamTypes: List[String],
+    regularArgValues:  List[Value]
+  ): String =
+    val tvSet = typeVarTokens(typeKey)
+    if tvSet.isEmpty then typeKey
+    else
+      var bindings = Map.empty[String, String]
+      regularParamTypes.iterator.zip(regularArgValues.iterator).foreach { (pt, av) =>
+        val concrete = runtimeValueType(av)
+        if concrete != "_" then
+          matchTypeParts(pt.trim, concrete, tvSet, bindings) match
+            case Some(b) => bindings = b
+            case None    =>
+      }
+      if bindings.isEmpty then typeKey
+      else applyTypeBindings(typeKey, bindings)
+
+  /** Free type-variable tokens (single/double uppercase-leading identifiers)
+   *  appearing inside the outermost bracket of a type-class key. */
+  private def typeVarTokens(typeKey: String): Set[String] =
+    val i = typeKey.indexOf('[')
+    if i < 0 then Set.empty
+    else
+      val inner = typeKey.substring(i + 1, typeKey.length - 1)
+      val toks  = mutable.Set.empty[String]
+      var j     = 0
+      while j < inner.length do
+        if inner(j).isLetter || inner(j) == '_' then
+          var k = j
+          while k < inner.length && (inner(k).isLetterOrDigit || inner(k) == '_') do k += 1
+          val tok = inner.substring(j, k)
+          if tok.length <= 2 && tok.headOption.exists(_.isUpper) then toks += tok
+          j = k
+        else j += 1
+      toks.toSet
+
   def resolveGivenInternal(
     typeKey:          String,
     regularArgValues: List[Value],

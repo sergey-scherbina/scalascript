@@ -91,10 +91,9 @@ object VmCompiler:
       if existing != null then existing
       else
         if !typeGateOk(fn) then bail("typeGate: using or default params")
-        // RET is Long-typed and the result is boxed as IntV/DoubleV (JitRuntime),
-        // never BoolV. A Boolean-returning body (`if c then true else …`) would
-        // come back as IntV(0/1) instead of BoolV. Bail like the bytecode backend.
-        if jit.JitPredicates.isBoolReturning(fn.body) then bail("ret: boolean-returning (RET is Long, would miswrap as IntV)")
+        // RET is Long-typed; a Boolean-returning body yields 0/1. The JIT bridge
+        // (JitRuntime.wrap) reads retIsBool to box that raw Long as BoolV rather
+        // than IntV — without it, `true`/`false` would surface as `1`/`0`.
         val b = new Builder(fn, this)
         b.buildInstructions()
         val shell = new CompiledFn(
@@ -102,7 +101,8 @@ object VmCompiler:
           op = b.opArr, a = b.aArr, b = b.bArr, c = b.cArr,
           constPool = b.constArr, callPool = new Array[CompiledFn](b.callees.length),
           retIsDouble = b.retIsDoubleOf, paramIsDouble = b.paramIsDoubleOf,
-          paramIsRef = b.paramIsRefOf, strPool = b.strArr
+          paramIsRef = b.paramIsRefOf, strPool = b.strArr,
+          retIsBool = jit.JitPredicates.isBoolReturning(fn.body)
         )
         building.put(fn, shell)            // register before filling — breaks cycles
         var i = 0

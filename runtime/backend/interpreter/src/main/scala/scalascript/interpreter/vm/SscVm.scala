@@ -103,7 +103,10 @@ object SscVm:
     // value (an InstanceV) marshalled into the ref bank rather than a numeric.
     val paramIsRef: Array[Boolean] = Array.empty,
     // String pool backing ISTAG (constructor tags) and GETFI/GETFR (field names).
-    val strPool: Array[String] = Array.empty
+    val strPool: Array[String] = Array.empty,
+    // True when the function returns Boolean: the raw 0/1 Long result must be
+    // wrapped in BoolV (not IntV) by the JIT bridge.
+    val retIsBool: Boolean = false
   )
 
   /** Execute `fn` with a frame window based at `base` in shared `stack`.

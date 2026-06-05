@@ -363,9 +363,10 @@ private[interpreter] object CallRuntime:
         val regularCount = f.params.length - f.usingParams.length
         val withUsing =
           if tupledArgs.length >= regularCount then
-            val regularArgVals = tupledArgs.take(regularCount)
+            val regularArgVals    = tupledArgs.take(regularCount)
+            val regularParamTypes = f.paramTypes.take(regularCount)
             val resolved = f.usingParams.map { (pname, typeKey) =>
-              GivenRuntime.resolveGiven(typeKey, regularArgVals, f.closure, interp)
+              GivenRuntime.resolveUsing(typeKey, regularParamTypes, regularArgVals, f.closure, interp)
                 .getOrElse(interp.located(s"No given instance found for '$typeKey' (using parameter '$pname')"))
             }
             tupledArgs ++ resolved
@@ -470,9 +471,10 @@ private[interpreter] object CallRuntime:
           val regularCount = fn.params.length - fn.usingParams.length
           val withUsing =
             if args.length >= regularCount then
-              val regularArgVals = args.take(regularCount)
+              val regularArgVals    = args.take(regularCount)
+              val regularParamTypes = fn.paramTypes.take(regularCount)
               val resolved = fn.usingParams.map { (pname, typeKey) =>
-                GivenRuntime.resolveGiven(typeKey, regularArgVals, base, interp)
+                GivenRuntime.resolveUsing(typeKey, regularParamTypes, regularArgVals, base, interp)
                   .getOrElse(interp.located(s"No given instance found for '$typeKey' (using parameter '$pname')"))
               }
               args ++ resolved

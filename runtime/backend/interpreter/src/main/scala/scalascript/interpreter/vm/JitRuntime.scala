@@ -156,6 +156,7 @@ object JitRuntime:
   /** Wrap a raw VM result in the right Value, per the compiled return domain. */
   private def wrap(cf: SscVm.CompiledFn, raw: Long): Computation =
     if cf.retIsDouble then Computation.Pure(Value.doubleV(jl.Double.longBitsToDouble(raw)))
+    else if cf.retIsBool then Computation.pureBool(raw != 0L)
     else Computation.pureIntV(raw)
 
   private def isRefParam(cf: SscVm.CompiledFn, i: Int): Boolean =
