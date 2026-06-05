@@ -1,6 +1,0 @@
-feature/jit-completeness-p6-lit-string 2026-06-05T06:30:16Z
-agent: claude-code
-heartbeat: 2026-06-05T06:30:16Z
-status: done
-done-so-far: LOADS/EQREF/NEREF opcodes; 5 p6 tests; 1329/1329 pass
-next: n/a
