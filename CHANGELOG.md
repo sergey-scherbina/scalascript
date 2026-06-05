@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(language): Markdown content tables
+
+- **markdown-content-tables** — Added CommonMark GFM pipe tables to
+  `DocumentContent` as `ContentBlock.Table` with inline header/cell content,
+  alignment metadata, and preceding `<!-- @meta ... -->` attrs. Tables now
+  round-trip through normalize/denormalize and content serialization, expose
+  through interpreter/generated JS/generated JVM `std/content` helpers, render
+  through stable plain text and deterministic `contentToMarkdown(...)`, lower
+  to semantic low-level `contentView(...)` table markup, and map to toolkit
+  `TableNode`. Added `examples/content-tables.ssc` and conformance coverage.
+
 ## 2026-06-05 — feat(language): Markdown linked content namespaces
 
 - **markdown-content-linked-namespaces** — Added `contentModules()`,
