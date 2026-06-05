@@ -1,6 +1,24 @@
 Pricing
 Plans
-Starter: $19
-Pro: $49
+Plans
+- Starter: $19
+- Pro: $49
+yaml: plans:
+  - id: starter
+    price: 19
+  - id: pro
+    price: 49
+
+scalascript: val documentContent = contentDocument()
+val plans = contentSection("plans").get
+val here = contentCurrentSection()
+val data = contentData("plans-data")
+
+println(documentContent.title.getOrElse(""))
+println(plans.title)
+println(contentPlainText(plans))
+println(data.isDefined.toString)
+println(here.id)
+
 true
 plans

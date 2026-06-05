@@ -1,1 +1,3 @@
 scalascript.compiler.plugin.content.ContentInterpreterPlugin
+scalascript.compiler.plugin.content.ContentJsCodegenPlugin
+scalascript.compiler.plugin.content.ContentJvmCodegenPlugin

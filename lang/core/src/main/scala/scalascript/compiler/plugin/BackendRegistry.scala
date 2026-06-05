@@ -4,12 +4,14 @@ import scalascript.backend.spi.{
   Backend,
   ClasspathPlugin,
   InteractiveBackend,
+  IntrinsicOverlayAwareBackend,
   PluginMeta,
   PluginRegistry,
   PluginSource,
   RemotePlugin,
   SscpkgPlugin,
-  SubprocessPlugin
+  SubprocessPlugin,
+  TargetedIntrinsicProvider
 }
 import scalascript.logging.Logger
 import scalascript.parser.PreprocessorRegistry
@@ -276,9 +278,45 @@ object BackendRegistry extends PluginRegistry:
   /** Look up a backend by its declared id.  For subprocess plugins,
    *  spawns the process on first lookup and caches the handle. */
   override def lookup(id: String): Option[Backend] =
+    lookupBase(id).map(applyTargetedIntrinsicOverlays)
+
+  private def lookupBase(id: String): Option[Backend] =
     inProcess.find(_.id == id).orElse(pluginCache.get(id)).orElse {
       manifests.find(_.id == id).flatMap(subprocessBackendFor)
     }
+
+  private def applyTargetedIntrinsicOverlays(backend: Backend): Backend =
+    val providers = inProcess.collect {
+      case p: TargetedIntrinsicProvider
+          if p.id != backend.id && p.targetBackendIds.contains(backend.id) =>
+        p
+    }
+    if providers.isEmpty then backend
+    else
+      new Backend:
+        def id: String = backend.id
+        def displayName: String = backend.displayName
+        def spiVersion: String = backend.spiVersion
+        def capabilities = backend.capabilities
+        def intrinsics =
+          providers.foldLeft(backend.intrinsics) { (acc, provider) => acc ++ provider.intrinsics }
+        def acceptedSources = backend.acceptedSources
+        override def sqlBlockRunner = backend.sqlBlockRunner
+        override def graphqlBlockRunner = backend.graphqlBlockRunner
+        override def markupCodec = backend.markupCodec
+        override def runtimePreamble: String =
+          (backend.runtimePreamble :: providers.map(_.runtimePreamble))
+            .filter(_.nonEmpty)
+            .mkString("\n")
+        override def interpolators = backend.interpolators
+        override def preprocessors = backend.preprocessors
+        override def interpolatorChecks = backend.interpolatorChecks
+        def compile(ir: scalascript.ir.NormalizedModule, opts: scalascript.backend.spi.BackendOptions) =
+          backend match
+            case aware: IntrinsicOverlayAwareBackend =>
+              aware.compileWithOverlay(ir, opts, intrinsics, runtimePreamble)
+            case _ =>
+              backend.compile(ir, opts)
 
   /** Backends that declare they can embed a given source language. */
   def acceptingSource(language: String): List[Backend] =

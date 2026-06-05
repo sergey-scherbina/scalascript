@@ -396,6 +396,17 @@ class JsGen(
   // alias.  Cleared at the start of every `genModule` call.
   private var sqlBlockCounter: Int = 0
   private val sqlPerSection = scala.collection.mutable.Map.empty[String, Int]
+  private val contentIntrinsicNames: Set[String] = Set(
+    "contentDocument",
+    "contentCurrentSection",
+    "contentSection",
+    "contentBlock",
+    "contentData",
+    "contentMetadata",
+    "contentPlainText"
+  )
+  private var contentRuntimeEnabled: Boolean = false
+  private var contentSectionIndex: Int = 0
 
   // Typeclass parent map: TC -> List[parentTC], accumulated from all trait declarations.
   // Used when registering `given` instances to also register under parent TC keys.
@@ -613,6 +624,267 @@ class JsGen(
   private val importedFiles: scala.collection.mutable.Set[String] =
     scala.collection.mutable.Set.empty
 
+  private def moduleUsesContentIntrinsics(module: Module): Boolean =
+    def treeUsesContent(node: ScalaNode): Boolean =
+      ScalaNode.fold(node) { tree =>
+        tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name(name), _) if contentIntrinsicNames(name) => ()
+        }.nonEmpty
+      }
+
+    def importUsesContent(imp: Content.Import): Boolean =
+      imp.path.endsWith("std/content.ssc") ||
+        imp.path == "std/content.ssc" ||
+        imp.bindings.exists(binding => contentIntrinsicNames(binding.name))
+
+    def sectionUsesContent(section: Section): Boolean =
+      section.content.exists {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          cb.tree.exists(treeUsesContent) || contentIntrinsicNames.exists(cb.source.contains)
+        case imp: Content.Import =>
+          importUsesContent(imp)
+        case _ => false
+      } || section.subsections.exists(sectionUsesContent)
+
+    module.sections.exists(sectionUsesContent)
+
+  private def jsRawOptionString(value: Option[String]): String =
+    value.map(jsStringLit).getOrElse("null")
+
+  private def jsRawContentMap(values: Map[String, ContentValue]): String =
+    values.map { (key, value) => s"${jsStringLit(key)}:${jsRawContentValue(value)}" }.mkString("{", ",", "}")
+
+  private def jsRawContentValue(value: ContentValue): String = value match
+    case ContentValue.Str(v) =>
+      s"""{t:"str",v:${jsStringLit(v)}}"""
+    case ContentValue.Bool(v) =>
+      s"""{t:"bool",v:$v}"""
+    case ContentValue.Num(v) =>
+      s"""{t:"num",v:${v.toString}}"""
+    case ContentValue.ListV(values) =>
+      s"""{t:"list",v:${values.map(jsRawContentValue).mkString("[", ",", "]")}}"""
+    case ContentValue.MapV(values) =>
+      s"""{t:"map",v:${jsRawContentMap(values)}}"""
+    case ContentValue.NullV =>
+      """{t:"null"}"""
+
+  private def jsRawInline(inline: ContentInline): String = inline match
+    case ContentInline.Text(value) =>
+      s"""{t:"Text",value:${jsStringLit(value)}}"""
+    case ContentInline.Emphasis(children) =>
+      s"""{t:"Emphasis",children:${children.map(jsRawInline).mkString("[", ",", "]")}}"""
+    case ContentInline.Strong(children) =>
+      s"""{t:"Strong",children:${children.map(jsRawInline).mkString("[", ",", "]")}}"""
+    case ContentInline.Code(value) =>
+      s"""{t:"Code",value:${jsStringLit(value)}}"""
+    case ContentInline.Link(label, href, title) =>
+      s"""{t:"Link",label:${label.map(jsRawInline).mkString("[", ",", "]")},href:${jsStringLit(href)},title:${jsRawOptionString(title)}}"""
+    case ContentInline.Expr(source) =>
+      s"""{t:"Expr",source:${jsStringLit(source)}}"""
+
+  private def jsRawEmbeddedKind(kind: EmbeddedKind): String = kind match
+    case EmbeddedKind.StructuredData => jsStringLit("StructuredData")
+    case EmbeddedKind.Executable     => jsStringLit("Executable")
+    case EmbeddedKind.StringBlock    => jsStringLit("StringBlock")
+    case EmbeddedKind.Opaque         => jsStringLit("Opaque")
+
+  private def jsRawContentBlock(block: ContentBlock): String = block match
+    case ContentBlock.Paragraph(inlines, attrs) =>
+      s"""{t:"Paragraph",inlines:${inlines.map(jsRawInline).mkString("[", ",", "]")},attrs:${jsRawContentMap(attrs)}}"""
+    case ContentBlock.BulletList(items, attrs) =>
+      val itemJs = items.map(_.map(jsRawContentBlock).mkString("[", ",", "]")).mkString("[", ",", "]")
+      s"""{t:"BulletList",items:$itemJs,attrs:${jsRawContentMap(attrs)}}"""
+    case ContentBlock.OrderedList(items, start, attrs) =>
+      val itemJs = items.map(_.map(jsRawContentBlock).mkString("[", ",", "]")).mkString("[", ",", "]")
+      s"""{t:"OrderedList",items:$itemJs,start:$start,attrs:${jsRawContentMap(attrs)}}"""
+    case ContentBlock.Image(src, alt, title, attrs) =>
+      s"""{t:"Image",src:${jsStringLit(src)},alt:${jsStringLit(alt)},title:${jsRawOptionString(title)},attrs:${jsRawContentMap(attrs)}}"""
+    case ContentBlock.Embedded(lang, source, kind, data, attrs) =>
+      val dataJs = data.map(jsRawContentValue).getOrElse("null")
+      s"""{t:"Embedded",lang:${jsStringLit(lang)},source:${jsStringLit(source)},kind:${jsRawEmbeddedKind(kind)},data:$dataJs,attrs:${jsRawContentMap(attrs)}}"""
+
+  private def jsRawSection(section: SectionContent): String =
+    s"""{id:${jsStringLit(section.id)},level:${section.level},title:${jsStringLit(section.title)},attrs:${jsRawContentMap(section.attrs)},blocks:${section.blocks.map(jsRawContentBlock).mkString("[", ",", "]")},children:${section.children.map(jsRawSection).mkString("[", ",", "]")}}"""
+
+  private def jsRawDocument(doc: DocumentContent): String =
+    s"""{manifest:${jsRawContentValue(doc.manifest)},title:${jsRawOptionString(doc.title)},description:${jsRawOptionString(doc.description)},attrs:${jsRawContentMap(doc.attrs)},sections:${doc.sections.map(jsRawSection).mkString("[", ",", "]")},blocks:${doc.blocks.map(jsRawContentBlock).mkString("[", ",", "]")}}"""
+
+  private def emitContentRuntime(document: Option[DocumentContent]): Unit =
+    val raw = document.map(jsRawDocument).getOrElse("null")
+    line(s"const __ssc_content_document_raw = $raw;")
+    line("let __ssc_content_document_cache = undefined;")
+    line("let __ssc_content_sections_cache = undefined;")
+    line("let __ssc_content_current_section_index = null;")
+    line("function __ssc_content_error(msg) { throw new Error(msg); }")
+    line("function __ssc_content_opt(v) { return v == null ? None : Some(v); }")
+    line("function __ssc_content_map(raw) { const m = new Map(); Object.keys(raw || {}).forEach(k => m.set(k, __ssc_content_value(raw[k]))); return m; }")
+    line("function __ssc_content_attrs(raw) { const m = new Map(); Object.keys(raw || {}).forEach(k => m.set(k, __ssc_content_value(raw[k]))); return m; }")
+    line("function __ssc_content_value(raw) {")
+    line("  if (!raw) return std.content.NullV;")
+    line("  switch (raw.t) {")
+    line("    case 'str': return std.content.Str(raw.v);")
+    line("    case 'bool': return std.content.Bool(raw.v);")
+    line("    case 'num': return std.content.Num(raw.v);")
+    line("    case 'list': return std.content.ListV((raw.v || []).map(__ssc_content_value));")
+    line("    case 'map': return std.content.MapV(__ssc_content_map(raw.v));")
+    line("    case 'null': return std.content.NullV;")
+    line("    default: return __ssc_content_error('contentDocument: unknown content value ' + raw.t);")
+    line("  }")
+    line("}")
+    line("function __ssc_content_inline(raw) {")
+    line("  switch (raw.t) {")
+    line("    case 'Text': return std.content.Text(raw.value);")
+    line("    case 'Emphasis': return std.content.Emphasis((raw.children || []).map(__ssc_content_inline));")
+    line("    case 'Strong': return std.content.Strong((raw.children || []).map(__ssc_content_inline));")
+    line("    case 'Code': return std.content.Code(raw.value);")
+    line("    case 'Link': return std.content.Link((raw.label || []).map(__ssc_content_inline), raw.href, __ssc_content_opt(raw.title));")
+    line("    case 'Expr': return std.content.Expr(raw.source);")
+    line("    default: return __ssc_content_error('contentDocument: unknown inline ' + raw.t);")
+    line("  }")
+    line("}")
+    line("function __ssc_content_embedded_kind(raw) {")
+    line("  switch (raw) {")
+    line("    case 'StructuredData': return std.content.StructuredData;")
+    line("    case 'Executable': return std.content.Executable;")
+    line("    case 'StringBlock': return std.content.StringBlock;")
+    line("    case 'Opaque': return std.content.Opaque;")
+    line("    default: return __ssc_content_error('contentDocument: unknown embedded kind ' + raw);")
+    line("  }")
+    line("}")
+    line("function __ssc_content_block(raw) {")
+    line("  switch (raw.t) {")
+    line("    case 'Paragraph': return std.content.Paragraph((raw.inlines || []).map(__ssc_content_inline), __ssc_content_attrs(raw.attrs));")
+    line("    case 'BulletList': return std.content.BulletList((raw.items || []).map(xs => xs.map(__ssc_content_block)), __ssc_content_attrs(raw.attrs));")
+    line("    case 'OrderedList': return std.content.OrderedList((raw.items || []).map(xs => xs.map(__ssc_content_block)), raw.start, __ssc_content_attrs(raw.attrs));")
+    line("    case 'Image': return std.content.Image(raw.src, raw.alt, __ssc_content_opt(raw.title), __ssc_content_attrs(raw.attrs));")
+    line("    case 'Embedded': return std.content.Embedded(raw.lang, raw.source, __ssc_content_embedded_kind(raw.kind), __ssc_content_opt(raw.data == null ? null : __ssc_content_value(raw.data)), __ssc_content_attrs(raw.attrs));")
+    line("    default: return __ssc_content_error('contentDocument: unknown block ' + raw.t);")
+    line("  }")
+    line("}")
+    line("function __ssc_content_section(raw) {")
+    line("  return std.content.SectionContent(raw.id, raw.level, raw.title, __ssc_content_attrs(raw.attrs), (raw.blocks || []).map(__ssc_content_block), (raw.children || []).map(__ssc_content_section));")
+    line("}")
+    line("function __ssc_content_deep_freeze(v) {")
+    line("  if (Array.isArray(v)) v.forEach(__ssc_content_deep_freeze);")
+    line("  else if (v instanceof Map) v.forEach(__ssc_content_deep_freeze);")
+    line("  else if (v && typeof v === 'object') Object.values(v).forEach(__ssc_content_deep_freeze);")
+    line("  if (v && typeof v === 'object') Object.freeze(v);")
+    line("  return v;")
+    line("}")
+    line("function contentDocument() {")
+    line("  if (__ssc_content_document_raw == null) return __ssc_content_error('contentDocument() is only available while running a parsed .ssc module');")
+    line("  if (__ssc_content_document_cache === undefined) {")
+    line("    __ssc_content_document_cache = __ssc_content_deep_freeze(std.content.DocumentContent(__ssc_content_value(__ssc_content_document_raw.manifest), __ssc_content_opt(__ssc_content_document_raw.title), __ssc_content_opt(__ssc_content_document_raw.description), __ssc_content_attrs(__ssc_content_document_raw.attrs), (__ssc_content_document_raw.sections || []).map(__ssc_content_section), (__ssc_content_document_raw.blocks || []).map(__ssc_content_block)));")
+    line("  }")
+    line("  return __ssc_content_document_cache;")
+    line("}")
+    line("function __ssc_content_all_sections() {")
+    line("  if (__ssc_content_sections_cache !== undefined) return __ssc_content_sections_cache;")
+    line("  const out = [];")
+    line("  function walk(section) { out.push(section); (section.children || []).forEach(walk); }")
+    line("  contentDocument().sections.forEach(walk);")
+    line("  __ssc_content_sections_cache = out;")
+    line("  return out;")
+    line("}")
+    line("function __ssc_content_section_by_index(index) {")
+    line("  const section = __ssc_content_all_sections()[index];")
+    line("  if (!section) return __ssc_content_error('contentCurrentSection: missing generated section context');")
+    line("  return section;")
+    line("}")
+    line("function contentCurrentSection() {")
+    line("  if (__ssc_content_current_section_index != null) return __ssc_content_section_by_index(__ssc_content_current_section_index);")
+    line("  return __ssc_content_error('contentCurrentSection() is only available while running a parsed .ssc code block inside a Markdown section');")
+    line("}")
+    line("function __ssc_content_blocks_deep_from_block(block) {")
+    line("  if (!block) return [];")
+    line("  if (block._type === 'BulletList') return [block].concat(...block.items.flat().map(__ssc_content_blocks_deep_from_block));")
+    line("  if (block._type === 'OrderedList') return [block].concat(...block.items.flat().map(__ssc_content_blocks_deep_from_block));")
+    line("  return [block];")
+    line("}")
+    line("function __ssc_content_blocks_deep_from_section(section) {")
+    line("  return section.blocks.flatMap(__ssc_content_blocks_deep_from_block).concat(section.children.flatMap(__ssc_content_blocks_deep_from_section));")
+    line("}")
+    line("function __ssc_content_blocks_deep(doc) {")
+    line("  return doc.blocks.flatMap(__ssc_content_blocks_deep_from_block).concat(doc.sections.flatMap(__ssc_content_blocks_deep_from_section));")
+    line("}")
+    line("function __ssc_content_block_attrs(block) { return block && block.attrs instanceof Map ? block.attrs : new Map(); }")
+    line("function __ssc_content_string_attr(attrs, name) { const v = attrs.get(name); return v && v._type === 'Str' ? v.value : null; }")
+    line("function contentSection(id) {")
+    line("  const matches = __ssc_content_all_sections().filter(section => section.id === id);")
+    line("  if (matches.length === 0) return None;")
+    line("  if (matches.length === 1) return Some(matches[0]);")
+    line("  return __ssc_content_error(\"contentSection: duplicate section id '\" + id + \"'\");")
+    line("}")
+    line("function contentBlock(id) {")
+    line("  const matches = __ssc_content_blocks_deep(contentDocument()).filter(block => __ssc_content_string_attr(__ssc_content_block_attrs(block), 'id') === id);")
+    line("  if (matches.length === 0) return None;")
+    line("  if (matches.length === 1) return Some(matches[0]);")
+    line("  return __ssc_content_error(\"contentBlock: duplicate block id '\" + id + \"'\");")
+    line("}")
+    line("function contentData(id) {")
+    line("  const matches = __ssc_content_blocks_deep(contentDocument()).filter(block => block._type === 'Embedded' && block.kind && block.kind._type === 'StructuredData' && __ssc_content_string_attr(__ssc_content_block_attrs(block), 'id') === id).map(block => block.data && block.data._type === '_Some' ? block.data.value : null).filter(v => v != null);")
+    line("  if (matches.length === 0) return None;")
+    line("  if (matches.length === 1) return Some(matches[0]);")
+    line("  return __ssc_content_error(\"contentData: duplicate structured data id '\" + id + \"'\");")
+    line("}")
+    line("function __ssc_content_metadata_segments(path) {")
+    line("  const trimmed = String(path).trim();")
+    line("  if (!trimmed || trimmed.startsWith('.') || trimmed.endsWith('.') || trimmed.includes('..')) return __ssc_content_error('contentMetadata: path must be non-empty dot-separated segments');")
+    line("  return trimmed.split('.');")
+    line("}")
+    line("function __ssc_content_metadata_path(value, segments) {")
+    line("  if (segments.length === 0) return value;")
+    line("  if (!value || value._type !== 'MapV') return null;")
+    line("  const next = value.values.get(segments[0]);")
+    line("  return next === undefined ? null : __ssc_content_metadata_path(next, segments.slice(1));")
+    line("}")
+    line("function contentMetadata(path) {")
+    line("  const manifest = contentDocument().manifest;")
+    line("  const root = manifest && manifest._type === 'MapV' ? manifest.values.get('content') : undefined;")
+    line("  if (root === undefined) return None;")
+    line("  const value = __ssc_content_metadata_path(root, __ssc_content_metadata_segments(path));")
+    line("  return value == null ? None : Some(value);")
+    line("}")
+    line("function contentPlainText(value) {")
+    line("  if (value && value._type === 'SectionContent') return __ssc_content_section_plain_text(value);")
+    line("  if (value && ['Paragraph','BulletList','OrderedList','Image','Embedded'].includes(value._type)) return __ssc_content_block_plain_text(value);")
+    line("  return __ssc_content_error('contentPlainText: expected SectionContent or ContentBlock, got ' + _show(value));")
+    line("}")
+    line("function __ssc_content_section_plain_text(section) {")
+    line("  return [section.title].concat(section.blocks.map(__ssc_content_block_plain_text), section.children.map(__ssc_content_section_plain_text)).filter(s => s.length > 0).join('\\n');")
+    line("}")
+    line("function __ssc_content_block_list_plain_text(blocks) { return blocks.map(__ssc_content_block_plain_text).filter(s => s.length > 0).join(' '); }")
+    line("function __ssc_content_block_plain_text(block) {")
+    line("  switch (block._type) {")
+    line("    case 'Paragraph': return block.inlines.map(__ssc_content_inline_plain_text).join('');")
+    line("    case 'BulletList': return block.items.map(item => '- ' + __ssc_content_block_list_plain_text(item)).filter(s => s.trim().length > 0).join('\\n');")
+    line("    case 'OrderedList': return block.items.map((item, idx) => String(block.start + idx) + '. ' + __ssc_content_block_list_plain_text(item)).filter(s => s.trim().length > 0).join('\\n');")
+    line("    case 'Image': return block.alt === '' ? block.src : block.alt;")
+    line("    case 'Embedded': return block.lang === '' ? block.source : block.lang + ': ' + block.source;")
+    line("    default: return __ssc_content_error('contentPlainText: expected ContentBlock, got ' + _show(block));")
+    line("  }")
+    line("}")
+    line("function __ssc_content_inline_plain_text(inline) {")
+    line("  switch (inline._type) {")
+    line("    case 'Text': return inline.value;")
+    line("    case 'Emphasis': return inline.children.map(__ssc_content_inline_plain_text).join('');")
+    line("    case 'Strong': return inline.children.map(__ssc_content_inline_plain_text).join('');")
+    line("    case 'Code': return '`' + inline.value + '`';")
+    line("    case 'Link': return inline.label.map(__ssc_content_inline_plain_text).join('') + ' (' + inline.href + ')';")
+    line("    case 'Expr': return '${' + inline.source + '}';")
+    line("    default: return __ssc_content_error('contentPlainText: expected ContentInline, got ' + _show(inline));")
+    line("  }")
+    line("}")
+
+  private def withContentCurrentSection(sectionIndex: Option[Int])(emit: => Unit): Unit =
+    if contentRuntimeEnabled then
+      sectionIndex match
+        case Some(index) => line(s"__ssc_content_current_section_index = $index;")
+        case None        => line("__ssc_content_current_section_index = null;")
+      emit
+      line("__ssc_content_current_section_index = null;")
+    else emit
+
   def genModule(module: Module): String =
     sb.clear()
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
@@ -626,6 +898,8 @@ class JsGen(
     scanForRunActors(module)
     scanForAwaitClient(module)
     scanForStreams(module)
+    contentRuntimeEnabled = moduleUsesContentIntrinsics(module)
+    contentSectionIndex = 0
     // v1.27 Phase 3 — sql state.  Reset every module to keep `genModule`
     // re-entrant; emit preamble once when at least one sql block is
     // present (URL-prefix providers + ConnectionRegistry init + resolver).
@@ -633,6 +907,7 @@ class JsGen(
     sqlPerSection.clear()
     val needSqlPreamble = hasSqlBlocks(module)
     if needSqlPreamble then emitSqlPreamble(module)
+    if contentRuntimeEnabled then emitContentRuntime(module.document)
     // Front-matter route declarations are emitted BEFORE the user blocks so
     // a typical user-side `serve(port)` (last statement of the script) sees
     // them already registered.  JS function declarations are hoisted, so
@@ -689,7 +964,7 @@ class JsGen(
       val dbNames = module.manifest.toList.flatMap(_.databases).map(_.name)
       for dbName <- dbNames do
         line(s"Db._conns[${jsQuote(dbName)}] = await _ssc_sql_resolve(${jsQuote(dbName)});")
-    module.sections.foreach(genSection)
+    genSections(module.sections, module.document.map(_.sections).getOrElse(Nil))
     // Auto-call main() if defined and not already called
     if hasMain && !mainCalled then
       line("if (typeof main === 'function') { main(); }")
@@ -1287,6 +1562,8 @@ class JsGen(
     scanForRunActors(module)
     scanForAwaitClient(module)
     scanForStreams(module)
+    contentRuntimeEnabled = moduleUsesContentIntrinsics(module)
+    contentSectionIndex = 0
     // Emit `route(...)` registrations from front-matter before user blocks,
     // so a typical user-side `serve(port)` (last statement of the script)
     // sees them already registered.  JS function declarations are hoisted,
@@ -1294,6 +1571,7 @@ class JsGen(
     emitFrontmatterRoutes(module)
     emitI18nTable(module)
     emitHttpTypedRouteClients(module.manifest.toList.flatMap(_.apiClients), module)
+    if contentRuntimeEnabled then emitContentRuntime(module.document)
     val result    = mutable.ListBuffer[JsGen.Segment]()
     val scalaBuf  = mutable.ListBuffer[String]()
     var ssStart   = 0
@@ -1308,13 +1586,20 @@ class JsGen(
         result += JsGen.Segment.ScalaSource(scalaBuf.mkString("\n\n"))
         scalaBuf.clear()
 
-    def walkSection(s: Section): Unit =
+    def walkSection(s: Section, contentSection: Option[SectionContent]): Unit =
+      val sectionIndex = contentSection.map { _ =>
+        val index = contentSectionIndex
+        contentSectionIndex += 1
+        index
+      }
       s.content.foreach {
         case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) && cb.attrs.get("side").contains("server") =>
           ()
         case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
           flushScala()
-          cb.tree.foreach(genScalaNode)
+          withContentCurrentSection(sectionIndex) {
+            cb.tree.foreach(genScalaNode)
+          }
         case Content.CodeBlock(lang, src, _, _, _, _, _) if Lang.isStandardScala(lang) =>
           flushSS()
           scalaBuf += src.stripTrailing()
@@ -1329,7 +1614,9 @@ class JsGen(
           genImport(imp)
         case _ => ()
       }
-      s.subsections.foreach(walkSection)
+      s.subsections.zipWithIndex.foreach { (child, index) =>
+        walkSection(child, contentSection.flatMap(_.children.lift(index)))
+      }
 
     val needsAsyncSeg = usesRunAsyncParallel || usesRunActors || usesAwaitClient
     if needsAsyncSeg then
@@ -1348,7 +1635,9 @@ class JsGen(
       sb.append("    Console.print   = _print;\n")
       sb.append("  }\n")
       sb.append("}\n")
-    module.sections.foreach(walkSection)
+    module.sections.zipWithIndex.foreach { (section, index) =>
+      walkSection(section, module.document.flatMap(_.sections.lift(index)))
+    }
     flushScala()
     if hasMain && !mainCalled then
       sb.append("if (typeof main === 'function') { main(); }\n")
@@ -1363,12 +1652,24 @@ class JsGen(
     if finalCode.trim.nonEmpty then result += JsGen.Segment.ScalaScriptJs(finalCode)
     result.toList
 
-  private[codegen] def genSection(section: Section): Unit =
+  private def genSections(sections: List[Section], contentSections: List[SectionContent]): Unit =
+    sections.zipWithIndex.foreach { (section, index) =>
+      genSection(section, contentSections.lift(index))
+    }
+
+  private[codegen] def genSection(section: Section, contentSection: Option[SectionContent] = None): Unit =
+    val sectionIndex = contentSection.map { _ =>
+      val index = contentSectionIndex
+      contentSectionIndex += 1
+      index
+    }
     section.content.foreach {
       case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) && cb.attrs.get("side").contains("server") =>
         ()
       case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
-        cb.tree.foreach(genScalaNode)
+        withContentCurrentSection(sectionIndex) {
+          cb.tree.foreach(genScalaNode)
+        }
       case cb: Content.CodeBlock if Lang.isStandardScala(cb.lang) =>
         line(s"/* scala: standard Scala 3 block — compile via Scala.js for JS execution */")
       case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
@@ -1381,7 +1682,9 @@ class JsGen(
         genImport(imp)
       case _ => ()
     }
-    section.subsections.foreach(genSection)
+    section.subsections.zipWithIndex.foreach { (child, index) =>
+      genSection(child, contentSection.flatMap(_.children.lift(index)))
+    }
 
   /** Emit a `graphql` fenced block as a `_registerGraphqlSdl(<sdl>)` call.
    *  The SDL string is stashed in the runtime so `graphqlMount` /
@@ -1510,7 +1813,7 @@ class JsGen(
             childGen.genImport(nestedImp)
           case _ => ()
         }
-        section.subsections.foreach(childGen.genSection)
+        section.subsections.foreach(section => childGen.genSection(section))
       }
       sb.append(childGen.sb)
       // Pull cycle-protection state back so siblings don't re-import
@@ -1525,14 +1828,21 @@ class JsGen(
     val pkgPrefix    = if childPkg.isEmpty then "" else childPkg.mkString("", ".", ".")
     val childExports = childModule.manifest.map(_.exports).getOrElse(Nil)
     imp.bindings.foreach { b =>
-      val fullName  = s"$pkgPrefix${b.name}"
-      val localName = b.alias.getOrElse(b.name)
-      // If the child module declares an exports list and this name is absent,
-      // skip — don't block a later import from the correct module.
-      val notExported = childExports.nonEmpty && !childExports.contains(b.name)
-      if fullName != localName && !notExported && !declaredBindings.contains(localName) then
-        declaredBindings += localName
-        line(s"const $localName = $fullName;")
+      if imp.path.endsWith("std/content.ssc") && contentIntrinsicNames(b.name) then
+        b.alias.foreach { localName =>
+          if !declaredBindings.contains(localName) then
+            declaredBindings += localName
+            line(s"const $localName = ${b.name};")
+        }
+      else
+        val fullName  = s"$pkgPrefix${b.name}"
+        val localName = b.alias.getOrElse(b.name)
+        // If the child module declares an exports list and this name is absent,
+        // skip — don't block a later import from the correct module.
+        val notExported = childExports.nonEmpty && !childExports.contains(b.name)
+        if fullName != localName && !notExported && !declaredBindings.contains(localName) then
+          declaredBindings += localName
+          line(s"const $localName = $fullName;")
     }
 
   private def resolveStdImportFromProjectTree(rawPath: String, base: os.Path): Option[os.Path] =

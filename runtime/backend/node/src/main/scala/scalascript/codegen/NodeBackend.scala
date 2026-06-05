@@ -23,7 +23,7 @@ import scalascript.transform.Denormalize
  *  `globalThis.<name>` so ScalaScript can call into JS-defined
  *  symbols; for Phase 3b the contract is purely "you can ship JS
  *  bytes alongside your ssc". */
-class NodeBackend extends Backend:
+class NodeBackend extends Backend with IntrinsicOverlayAwareBackend:
   def id:              String                               = "node"
   def displayName:     String                               = "Node.js"
   def spiVersion:      String                               = SpiVersion.Current
@@ -32,12 +32,20 @@ class NodeBackend extends Backend:
   def acceptedSources: Set[String]                          = Set.empty
 
   def compile(module: ir.NormalizedModule, opts: BackendOptions): CompileResult =
+    compileWithOverlay(module, opts, intrinsics, runtimePreamble)
+
+  def compileWithOverlay(
+      module: ir.NormalizedModule,
+      opts: BackendOptions,
+      effectiveIntrinsics: Map[ir.QualifiedName, IntrinsicImpl],
+      effectiveRuntimePreamble: String
+  ): CompileResult =
     val gluePrefix = collectNodeGlue(module)
     val astModule  = Denormalize(module)
     val baseDir    = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))
-    val caps       = JsGen.detectCapabilities(astModule, baseDir, intrinsics)
+    val caps       = JsGen.detectCapabilities(astModule, baseDir, effectiveIntrinsics)
     val jsRuntime  = JsGen.generateRuntime(caps)
-    val js         = JsGen.generate(astModule, baseDir, intrinsics)
+    val js         = JsGen.generate(astModule, baseDir, effectiveIntrinsics)
     // v1.27 Phase 4 — when the module has sql blocks, JsGen wraps the
     // user body in an async IIFE.  The original `NodeFlushEpilogue`
     // runs synchronously *after* the IIFE is scheduled (not awaited),
@@ -46,7 +54,7 @@ class NodeBackend extends Backend:
     // stdout.  Buffered semantics are preserved for any external reader
     // (push still happens).  Applied unconditionally — the post-runtime
     // flush is no longer needed since lines write through eagerly.
-    val parts      = List(jsRuntime, NodePrintlnWriteThrough, gluePrefix, js).filter(_.nonEmpty)
+    val parts      = List(jsRuntime, effectiveRuntimePreamble, NodePrintlnWriteThrough, gluePrefix, js).filter(_.nonEmpty)
     val code       = parts.mkString("\n")
     val usesGraphql = caps.contains(JsGen.Capability.Graphql)
     val sources    = emitPackageJson(module, usesGraphql) ++ emitNodeMain()

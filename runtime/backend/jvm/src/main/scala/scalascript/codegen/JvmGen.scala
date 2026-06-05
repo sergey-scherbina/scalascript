@@ -153,7 +153,12 @@ object JvmGen:
    *  immediately after the opening fence ```scalascript line).  When
    *  unknown (synthesised blocks, imports), `lineOffset` is 0 and the
    *  block contributes no entries to the line map. */
-  private[codegen] case class Block(node: ScalaNode, src: String, lineOffset: Int = 0)
+  private[codegen] case class Block(
+      node: ScalaNode,
+      src: String,
+      lineOffset: Int = 0,
+      contentSectionIndex: Option[Int] = None
+  )
   /** A heading-bound `html` / `css` code block: render to a string in the
    *  same source position as the surrounding parsed blocks, then bind to
    *  `<sectionId>.<lang>` (html or css) at the end of the module. */
@@ -181,6 +186,17 @@ class JvmGen(
   // Phase C.2 convention).
   private var sqlBlockCounter: Int = 0
   private val sqlPerSection = mutable.Map.empty[String, Int]
+  private val contentIntrinsicNames: Set[String] = Set(
+    "contentDocument",
+    "contentCurrentSection",
+    "contentSection",
+    "contentBlock",
+    "contentData",
+    "contentMetadata",
+    "contentPlainText"
+  )
+  private var contentRuntimeEnabled: Boolean = false
+  private var contentSectionIndex: Int = 0
   // v1.30 Phase 4 — @side=client sql blocks collected during collectBlocks;
   // injected into the browser JS bundle for frontend (SPA) modules only.
   // Each entry: (source, dbName, sectionAlias)
@@ -255,11 +271,259 @@ class JvmGen(
    *  resolver. */
   private var moduleDeps: Map[String, String] = Map.empty
 
+  private def isContentStdImport(path: String): Boolean =
+    path == "std/content.ssc" || path.endsWith("std/content.ssc")
+
+  private def moduleUsesContentIntrinsics(module: Module): Boolean =
+    def treeUsesContent(node: ScalaNode): Boolean =
+      ScalaNode.fold(node) { tree =>
+        tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name(name), _) if contentIntrinsicNames(name) => ()
+        }.nonEmpty
+      }
+
+    def sectionUsesContent(section: Section): Boolean =
+      section.content.exists {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          cb.tree.exists(treeUsesContent) || contentIntrinsicNames.exists(cb.source.contains)
+        case imp: Content.Import =>
+          isContentStdImport(imp.path) || imp.bindings.exists(binding => contentIntrinsicNames(binding.name))
+        case _ => false
+      } || section.subsections.exists(sectionUsesContent)
+
+    module.sections.exists(sectionUsesContent)
+
+  private def scalaOptionStringExpr(value: Option[String]): String =
+    value.map(v => s"Some(${scalaStringLiteral(v)})").getOrElse("None")
+
+  private def scalaContentValueMapExpr(values: Map[String, ContentValue]): String =
+    if values.isEmpty then "Map.empty[String, std.content.ContentValue]"
+    else
+      values.map { (key, value) => s"${scalaStringLiteral(key)} -> ${scalaContentValueExpr(value)}" }
+        .mkString("Map(", ", ", ")")
+
+  private def scalaContentValueExpr(value: ContentValue): String = value match
+    case ContentValue.Str(v) =>
+      s"std.content.ContentValue.Str(${scalaStringLiteral(v)})"
+    case ContentValue.Bool(v) =>
+      s"std.content.ContentValue.Bool($v)"
+    case ContentValue.Num(v) =>
+      s"std.content.ContentValue.Num(${v.toString})"
+    case ContentValue.ListV(values) =>
+      val items =
+        if values.isEmpty then "List.empty[std.content.ContentValue]"
+        else values.map(scalaContentValueExpr).mkString("List(", ", ", ")")
+      s"std.content.ContentValue.ListV($items)"
+    case ContentValue.MapV(values) =>
+      s"std.content.ContentValue.MapV(${scalaContentValueMapExpr(values)})"
+    case ContentValue.NullV =>
+      "std.content.ContentValue.NullV"
+
+  private def scalaInlineListExpr(values: List[ContentInline]): String =
+    if values.isEmpty then "List.empty[std.content.ContentInline]"
+    else values.map(scalaContentInlineExpr).mkString("List(", ", ", ")")
+
+  private def scalaContentInlineExpr(inline: ContentInline): String = inline match
+    case ContentInline.Text(value) =>
+      s"std.content.ContentInline.Text(${scalaStringLiteral(value)})"
+    case ContentInline.Emphasis(children) =>
+      s"std.content.ContentInline.Emphasis(${scalaInlineListExpr(children)})"
+    case ContentInline.Strong(children) =>
+      s"std.content.ContentInline.Strong(${scalaInlineListExpr(children)})"
+    case ContentInline.Code(value) =>
+      s"std.content.ContentInline.Code(${scalaStringLiteral(value)})"
+    case ContentInline.Link(label, href, title) =>
+      s"std.content.ContentInline.Link(${scalaInlineListExpr(label)}, ${scalaStringLiteral(href)}, ${scalaOptionStringExpr(title)})"
+    case ContentInline.Expr(source) =>
+      s"std.content.ContentInline.Expr(${scalaStringLiteral(source)})"
+
+  private def scalaBlockListExpr(values: List[ContentBlock]): String =
+    if values.isEmpty then "List.empty[std.content.ContentBlock]"
+    else values.map(scalaContentBlockExpr).mkString("List(", ", ", ")")
+
+  private def scalaNestedBlockListExpr(values: List[List[ContentBlock]]): String =
+    if values.isEmpty then "List.empty[List[std.content.ContentBlock]]"
+    else values.map(scalaBlockListExpr).mkString("List(", ", ", ")")
+
+  private def scalaEmbeddedKindExpr(kind: EmbeddedKind): String = kind match
+    case EmbeddedKind.StructuredData => "std.content.EmbeddedKind.StructuredData"
+    case EmbeddedKind.Executable     => "std.content.EmbeddedKind.Executable"
+    case EmbeddedKind.StringBlock    => "std.content.EmbeddedKind.StringBlock"
+    case EmbeddedKind.Opaque         => "std.content.EmbeddedKind.Opaque"
+
+  private def scalaContentBlockExpr(block: ContentBlock): String = block match
+    case ContentBlock.Paragraph(inlines, attrs) =>
+      s"std.content.ContentBlock.Paragraph(${scalaInlineListExpr(inlines)}, ${scalaContentValueMapExpr(attrs)})"
+    case ContentBlock.BulletList(items, attrs) =>
+      s"std.content.ContentBlock.BulletList(${scalaNestedBlockListExpr(items)}, ${scalaContentValueMapExpr(attrs)})"
+    case ContentBlock.OrderedList(items, start, attrs) =>
+      s"std.content.ContentBlock.OrderedList(${scalaNestedBlockListExpr(items)}, $start, ${scalaContentValueMapExpr(attrs)})"
+    case ContentBlock.Image(src, alt, title, attrs) =>
+      s"std.content.ContentBlock.Image(${scalaStringLiteral(src)}, ${scalaStringLiteral(alt)}, ${scalaOptionStringExpr(title)}, ${scalaContentValueMapExpr(attrs)})"
+    case ContentBlock.Embedded(lang, source, kind, data, attrs) =>
+      val dataExpr = data.map(v => s"Some(${scalaContentValueExpr(v)})").getOrElse("None")
+      s"std.content.ContentBlock.Embedded(${scalaStringLiteral(lang)}, ${scalaStringLiteral(source)}, ${scalaEmbeddedKindExpr(kind)}, $dataExpr, ${scalaContentValueMapExpr(attrs)})"
+
+  private def scalaSectionListExpr(values: List[SectionContent]): String =
+    if values.isEmpty then "List.empty[std.content.SectionContent]"
+    else values.map(scalaSectionExpr).mkString("List(", ", ", ")")
+
+  private def scalaSectionExpr(section: SectionContent): String =
+    s"std.content.SectionContent(${scalaStringLiteral(section.id)}, ${section.level}, ${scalaStringLiteral(section.title)}, ${scalaContentValueMapExpr(section.attrs)}, ${scalaBlockListExpr(section.blocks)}, ${scalaSectionListExpr(section.children)})"
+
+  private def scalaDocumentExpr(doc: DocumentContent): String =
+    s"std.content.DocumentContent(${scalaContentValueExpr(doc.manifest)}, ${scalaOptionStringExpr(doc.title)}, ${scalaOptionStringExpr(doc.description)}, ${scalaContentValueMapExpr(doc.attrs)}, ${scalaSectionListExpr(doc.sections)}, ${scalaBlockListExpr(doc.blocks)})"
+
+  private def emitContentRuntime(document: Option[DocumentContent]): String =
+    val docExpr = document
+      .map(scalaDocumentExpr)
+      .getOrElse("""throw RuntimeException("contentDocument() is only available while running a parsed .ssc module")""")
+    s"""
+       |var _ssc_content_current_section_index: Option[Int] = None
+       |lazy val _ssc_content_document: std.content.DocumentContent = $docExpr
+       |
+       |def _ssc_content_flatten_sections(sections: List[std.content.SectionContent]): List[std.content.SectionContent] =
+       |  sections.flatMap(section => section :: _ssc_content_flatten_sections(section.children))
+       |
+       |lazy val _ssc_content_sections: List[std.content.SectionContent] =
+       |  _ssc_content_flatten_sections(_ssc_content_document.sections)
+       |
+       |def _ssc_content_section_by_index(index: Int): std.content.SectionContent =
+       |  _ssc_content_sections.lift(index).getOrElse(
+       |    throw RuntimeException("contentCurrentSection: missing generated section context")
+       |  )
+       |
+       |def contentDocument(): std.content.DocumentContent = _ssc_content_document
+       |
+       |def contentCurrentSection(): std.content.SectionContent =
+       |  _ssc_content_current_section_index.map(_ssc_content_section_by_index).getOrElse(
+       |    throw RuntimeException("contentCurrentSection() is only available while running a parsed .ssc code block inside a Markdown section")
+       |  )
+       |
+       |def _ssc_content_sections_deep(section: std.content.SectionContent): List[std.content.SectionContent] =
+       |  section :: section.children.flatMap(_ssc_content_sections_deep)
+       |
+       |def _ssc_content_blocks_deep(block: std.content.ContentBlock): List[std.content.ContentBlock] =
+       |  block match
+       |    case std.content.ContentBlock.BulletList(items, _) =>
+       |      block :: items.flatten.flatMap(_ssc_content_blocks_deep)
+       |    case std.content.ContentBlock.OrderedList(items, _, _) =>
+       |      block :: items.flatten.flatMap(_ssc_content_blocks_deep)
+       |    case _ =>
+       |      block :: Nil
+       |
+       |def _ssc_content_blocks_deep(section: std.content.SectionContent): List[std.content.ContentBlock] =
+       |  section.blocks.flatMap(_ssc_content_blocks_deep) ++ section.children.flatMap(_ssc_content_blocks_deep)
+       |
+       |def _ssc_content_blocks_deep(doc: std.content.DocumentContent): List[std.content.ContentBlock] =
+       |  doc.blocks.flatMap(_ssc_content_blocks_deep) ++ doc.sections.flatMap(_ssc_content_blocks_deep)
+       |
+       |def _ssc_content_block_attrs(block: std.content.ContentBlock): Map[String, std.content.ContentValue] =
+       |  block match
+       |    case std.content.ContentBlock.Paragraph(_, attrs)        => attrs
+       |    case std.content.ContentBlock.BulletList(_, attrs)       => attrs
+       |    case std.content.ContentBlock.OrderedList(_, _, attrs)   => attrs
+       |    case std.content.ContentBlock.Image(_, _, _, attrs)      => attrs
+       |    case std.content.ContentBlock.Embedded(_, _, _, _, attrs) => attrs
+       |
+       |def _ssc_content_string_attr(attrs: Map[String, std.content.ContentValue], name: String): Option[String] =
+       |  attrs.get(name).collect { case std.content.ContentValue.Str(value) => value }
+       |
+       |def contentSection(id: String): Option[std.content.SectionContent] =
+       |  _ssc_content_sections.filter(_.id == id) match
+       |    case Nil => None
+       |    case section :: Nil => Some(section)
+       |    case _ => throw RuntimeException(s"contentSection: duplicate section id '$$id'")
+       |
+       |def contentBlock(id: String): Option[std.content.ContentBlock] =
+       |  _ssc_content_blocks_deep(_ssc_content_document)
+       |    .filter(block => _ssc_content_string_attr(_ssc_content_block_attrs(block), "id").contains(id)) match
+       |      case Nil => None
+       |      case block :: Nil => Some(block)
+       |      case _ => throw RuntimeException(s"contentBlock: duplicate block id '$$id'")
+       |
+       |def contentData(id: String): Option[std.content.ContentValue] =
+       |  val matches = _ssc_content_blocks_deep(_ssc_content_document).collect {
+       |    case block @ std.content.ContentBlock.Embedded(_, _, std.content.EmbeddedKind.StructuredData, Some(data), _)
+       |        if _ssc_content_string_attr(_ssc_content_block_attrs(block), "id").contains(id) =>
+       |      data
+       |  }
+       |  matches match
+       |    case Nil => None
+       |    case value :: Nil => Some(value)
+       |    case _ => throw RuntimeException(s"contentData: duplicate structured data id '$$id'")
+       |
+       |def _ssc_content_metadata_segments(path: String): List[String] =
+       |  val trimmed = path.trim
+       |  if trimmed.isEmpty || trimmed.startsWith(".") || trimmed.endsWith(".") || trimmed.contains("..") then
+       |    throw RuntimeException("contentMetadata: path must be non-empty dot-separated segments")
+       |  trimmed.split("\\\\.").toList
+       |
+       |def _ssc_content_metadata_path(value: std.content.ContentValue, segments: List[String]): Option[std.content.ContentValue] =
+       |  segments match
+       |    case Nil => Some(value)
+       |    case segment :: rest =>
+       |      value match
+       |        case std.content.ContentValue.MapV(values) =>
+       |          values.get(segment).flatMap(_ssc_content_metadata_path(_, rest))
+       |        case _ =>
+       |          None
+       |
+       |def contentMetadata(path: String): Option[std.content.ContentValue] =
+       |  _ssc_content_document.manifest match
+       |    case std.content.ContentValue.MapV(root) =>
+       |      root.get("content").flatMap(value => _ssc_content_metadata_path(value, _ssc_content_metadata_segments(path)))
+       |    case _ =>
+       |      None
+       |
+       |def contentPlainText(value: Any): String =
+       |  value match
+       |    case section: std.content.SectionContent => _ssc_content_section_plain_text(section)
+       |    case block: std.content.ContentBlock => _ssc_content_block_plain_text(block)
+       |    case other => throw RuntimeException(s"contentPlainText: expected SectionContent or ContentBlock, got $$other")
+       |
+       |def _ssc_content_section_plain_text(section: std.content.SectionContent): String =
+       |  (section.title :: (section.blocks.map(_ssc_content_block_plain_text) ++ section.children.map(_ssc_content_section_plain_text)))
+       |    .filter(_.nonEmpty)
+       |    .mkString("\\n")
+       |
+       |def _ssc_content_block_list_plain_text(blocks: List[std.content.ContentBlock]): String =
+       |  blocks.map(_ssc_content_block_plain_text).filter(_.nonEmpty).mkString(" ")
+       |
+       |def _ssc_content_block_plain_text(block: std.content.ContentBlock): String =
+       |  block match
+       |    case std.content.ContentBlock.Paragraph(inlines, _) =>
+       |      inlines.map(_ssc_content_inline_plain_text).mkString
+       |    case std.content.ContentBlock.BulletList(items, _) =>
+       |      items.map(item => "- " + _ssc_content_block_list_plain_text(item)).filter(_.trim.nonEmpty).mkString("\\n")
+       |    case std.content.ContentBlock.OrderedList(items, start, _) =>
+       |      items.zipWithIndex.map { case (item, idx) =>
+       |        s"$${start + idx}. " + _ssc_content_block_list_plain_text(item)
+       |      }.filter(_.trim.nonEmpty).mkString("\\n")
+       |    case std.content.ContentBlock.Image(src, alt, _, _) =>
+       |      if alt.isEmpty then src else alt
+       |    case std.content.ContentBlock.Embedded(lang, source, _, _, _) =>
+       |      if lang.isEmpty then source else s"$$lang: $$source"
+       |
+       |def _ssc_content_inline_plain_text(inline: std.content.ContentInline): String =
+       |  inline match
+       |    case std.content.ContentInline.Text(value) => value
+       |    case std.content.ContentInline.Emphasis(children) => children.map(_ssc_content_inline_plain_text).mkString
+       |    case std.content.ContentInline.Strong(children) => children.map(_ssc_content_inline_plain_text).mkString
+       |    case std.content.ContentInline.Code(value) => s"`$$value`"
+       |    case std.content.ContentInline.Link(label, href, _) =>
+       |      label.map(_ssc_content_inline_plain_text).mkString + s" ($$href)"
+       |    case std.content.ContentInline.Expr(source) => "$${" + source + "}"
+       |
+       |""".stripMargin
+
   def genModule(module: Module): String =
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
+    contentRuntimeEnabled = moduleUsesContentIntrinsics(module)
+    contentSectionIndex = 0
     // Collect blocks first — including those pulled in by `[..](./x.ssc)`
     // imports — so the effect / mutual-TCO analysis sees the full picture.
-    val blocks = collectBlocks(module.sections)
+    val blocks = collectBlocks(module.sections, module.document.map(_.sections).getOrElse(Nil))
     // Strategy D, Step 2 — fixpoint over the dep call graph runs AFTER
     // collectBlocks (all `inlineImport` calls have populated `depDefs`)
     // and BEFORE emit so Step 3 can consult `globalEffectfulDeps`.
@@ -356,6 +620,7 @@ class JvmGen(
     else sb.append(stubServeRuntime)
     if blocksUseMcp(blocks)                                                          then sb.append(JvmRuntimeMcp)
     if blocksUseDataset(blocks)                                                      then sb.append(JvmRuntimeDataset)
+    if contentRuntimeEnabled                                                         then sb.append(emitContentRuntime(module.document))
 
     // Front-matter route declarations are emitted as `route(method, path)
     // { req => handler(req) }` calls.  We place them BEFORE the user blocks
@@ -1179,7 +1444,9 @@ class JvmGen(
    *  See [[JvmGen.generateUserOnlyWithLineMap]] for semantics. */
   def genUserOnlyWithLineMap(module: Module): (String, Map[Int, Int]) =
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
-    val blocks = collectBlocks(module.sections)
+    contentRuntimeEnabled = moduleUsesContentIntrinsics(module)
+    contentSectionIndex = 0
+    val blocks = collectBlocks(module.sections, module.document.map(_.sections).getOrElse(Nil))
     analyzeDepEffectfulness()
     analyzeEffects(blocks)
     analyzeMutualRecursion(blocks)
@@ -1202,6 +1469,7 @@ class JvmGen(
     // any extension methods / typeclass instances the runtime exposes,
     // and `*` covers values / defs / classes / objects.
     sb.append("import _ssc_runtime.{given, *}\n\n")
+    if contentRuntimeEnabled then sb.append(emitContentRuntime(module.document))
 
     val frontmatterRoutes = module.manifest.toList.flatMap(_.routes)
     val apiClients = module.manifest.toList.flatMap(_.apiClients)
@@ -1378,8 +1646,17 @@ class JvmGen(
   private val stringBlocks = mutable.ArrayBuffer.empty[JvmGen.StringBlockEntry]
 
   private def collectBlocks(sections: List[Section]): List[JvmGen.Block] =
-    sections.flatMap { s =>
+    collectBlocks(sections, Nil)
+
+  private def collectBlocks(sections: List[Section], contentSections: List[SectionContent]): List[JvmGen.Block] =
+    sections.zipWithIndex.flatMap { (s, sectionPosition) =>
       val sectionId = sectionIdent(s.heading.text)
+      val contentSection = contentSections.lift(sectionPosition)
+      val currentContentSectionIndex = contentSection.map { _ =>
+        val index = contentSectionIndex
+        contentSectionIndex += 1
+        index
+      }
       val own = s.content.flatMap {
         case cb: Content.CodeBlock if Lang.isParseable(cb.lang) && cb.attrs.get("side").contains("client") =>
           Nil
@@ -1391,7 +1668,7 @@ class JvmGen(
           // virtual block), `lineOffset` defaults to 0 and the block
           // contributes nothing to the SMAP.
           val origStart = cb.lineOffset
-          cb.tree.map(t => JvmGen.Block(t, cb.source, origStart)).toList
+          cb.tree.map(t => JvmGen.Block(t, cb.source, origStart, currentContentSectionIndex)).toList
         case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
           // Reserve a position in the eventual emission order so the
           // String val lands between the surrounding parsed blocks.
@@ -1444,7 +1721,7 @@ class JvmGen(
           blocks ++ aliasBlock(imp.bindings, importedPkg).toList
         case _ => Nil
       }
-      own ++ collectBlocks(s.subsections)
+      own ++ collectBlocks(s.subsections, contentSection.map(_.children).getOrElse(Nil))
     }
 
   /** Emit the per-module SQL connection registry + the
@@ -2071,10 +2348,16 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
    *  When `pkg` is empty, only `as`-aliased bindings produce a `val`. */
   private def aliasBlock(bindings: List[ImportBinding], pkg: List[String]): Option[JvmGen.Block] =
     import scala.meta.{dialects, *}
+    val helperAliases = bindings.flatMap { b =>
+      if contentIntrinsicNames(b.name) then
+        b.alias.collect { case alias if alias != b.name => s"val $alias = ${b.name}" }
+      else None
+    }
     if pkg.nonEmpty then
       val pkgPath = pkg.mkString(".")
-      val boundNames = bindings.map(_.name).toSet
-      val valueSpecs = bindings.map { b => b.alias match
+      val importBindings = bindings.filterNot(b => pkgPath == "std.content" && contentIntrinsicNames(b.name))
+      val boundNames = importBindings.map(_.name).toSet
+      val valueSpecs = importBindings.map { b => b.alias match
         case None    => b.name
         case Some(a) => s"${b.name} as $a"
       }
@@ -2083,13 +2366,17 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       val typeSpecs = importedTypeExports.getOrElse(pkgPath, Nil)
         .filterNot(boundNames.contains)
       val specs = (valueSpecs ++ typeSpecs).mkString(", ")
-      val src   = s"import $pkgPath.{$specs}"
-      val input = Input.VirtualFile("<import-aliases>", src)
-      dialects.Scala3(input).parse[Source].toOption.map(s => JvmGen.Block(ScalaNode(s), src))
+      val lines =
+        (if specs.nonEmpty then List(s"import $pkgPath.{$specs}") else Nil) ++ helperAliases
+      if lines.isEmpty then None
+      else
+        val src   = lines.mkString("\n")
+        val input = Input.VirtualFile("<import-aliases>", src)
+        dialects.Scala3(input).parse[Source].toOption.map(s => JvmGen.Block(ScalaNode(s), src))
     else
       val aliases = bindings.flatMap { b =>
         b.alias.map { a => s"val $a = ${b.name}" }
-      }
+      } ++ helperAliases
       if aliases.isEmpty then None
       else
         val src   = aliases.mkString("\n")
@@ -2612,7 +2899,11 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
           case _                 => ()
         }
         out.toString
-    routeMkStringThroughShow(rewritten)
+    val routed = routeMkStringThroughShow(rewritten)
+    if contentRuntimeEnabled then
+      val current = block.contentSectionIndex.map(index => s"Some($index)").getOrElse("None")
+      s"_ssc_content_current_section_index = $current\n${routed.stripTrailing}\n_ssc_content_current_section_index = None"
+    else routed
 
   /** Wrap a top-level expression so its non-Unit, non-null result is
    *  printed — mirrors interpreter `autoOutput` and JsGen's `_auto` block.

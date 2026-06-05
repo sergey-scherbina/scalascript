@@ -11,7 +11,7 @@ import scalascript.transform.Denormalize
  *  modes is driven by `BackendOptions.extra("mode")` — defaults to
  *  one-shot.  Stage 5.4+ replaces the hardcoded SPA wiring with
  *  intrinsic-table dispatch. */
-class JsBackend extends Backend:
+class JsBackend extends Backend with IntrinsicOverlayAwareBackend:
   def id:              String                              = "js"
   def displayName:     String                              = "JavaScript (Node / SPA)"
   def spiVersion:      String                              = SpiVersion.Current
@@ -20,16 +20,24 @@ class JsBackend extends Backend:
   def acceptedSources: Set[String]                         = Set("html", "css")
 
   def compile(module: ir.NormalizedModule, opts: BackendOptions): CompileResult =
+    compileWithOverlay(module, opts, intrinsics, runtimePreamble)
+
+  def compileWithOverlay(
+      module: ir.NormalizedModule,
+      opts: BackendOptions,
+      effectiveIntrinsics: Map[ir.QualifiedName, IntrinsicImpl],
+      effectiveRuntimePreamble: String
+  ): CompileResult =
     val astModule = Denormalize(module)
     val baseDir   = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))
-    val preamble  = if runtimePreamble.isEmpty then "" else runtimePreamble + "\n"
+    val preamble  = if effectiveRuntimePreamble.isEmpty then "" else effectiveRuntimePreamble + "\n"
     // Stage 5+/A.5 — intrinsics flow through to JsGen for per-call-site
     // dispatch in `genExpr`.  Stage 5+/A.6 (Б-2) — intrinsic-shipped
     // runtime helpers via Backend.runtimePreamble prepend before
     // JsGen's output.
     opts.extra.getOrElse("mode", "oneshot") match
       case "segmented" =>
-        val segments = JsGen.generateSegmented(astModule, baseDir, intrinsics).map {
+        val segments = JsGen.generateSegmented(astModule, baseDir, effectiveIntrinsics).map {
           case JsGen.Segment.ScalaScriptJs(code) =>
             Segment.Code(language = "javascript", code = preamble + code)
           case JsGen.Segment.ScalaSource(src)    =>
@@ -37,7 +45,7 @@ class JsBackend extends Backend:
         }
         CompileResult.Segmented(segments)
       case _ =>
-        val code    = preamble + JsGen.generate(astModule, baseDir, intrinsics)
+        val code    = preamble + JsGen.generate(astModule, baseDir, effectiveIntrinsics)
         val sources = emitPackageJson(module)
         CompileResult.TextOutput(code = code, language = "javascript", sources = sources)
 

@@ -47,6 +47,25 @@ trait Backend:
   /** One-shot compilation. */
   def compile(ir: NormalizedModule, opts: BackendOptions): CompileResult
 
+/** Intrinsic-only backend provider whose entries are safe to overlay onto
+ *  concrete generated backends. This lets std plugins own extern
+ *  implementations without hardcoding their QualifiedNames into backend-core
+ *  intrinsic maps. */
+trait TargetedIntrinsicProvider extends Backend:
+  def targetBackendIds: Set[String]
+
+/** Backend that can compile with a registry-composed intrinsic/runtime overlay.
+ *  A plain delegating wrapper cannot change `this.intrinsics` inside an
+ *  existing backend instance, so generated backends that want plugin overlays
+ *  implement this hook. */
+trait IntrinsicOverlayAwareBackend extends Backend:
+  def compileWithOverlay(
+      ir: NormalizedModule,
+      opts: BackendOptions,
+      intrinsics: Map[QualifiedName, IntrinsicImpl],
+      runtimePreamble: String
+  ): CompileResult
+
 /** A backend that supports a stateful session — used by REPL / interpreter
  *  and by the serve runtime for incremental compilation across edits. */
 trait InteractiveBackend extends Backend:
