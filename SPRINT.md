@@ -15,7 +15,8 @@ Broad spec exists:
 Focused slice specs already exist for landed lookup/plain-text, metadata,
 current-section, backend exposure, native-client parity, reverse Markdown
 rendering, current-module artifact round-trip, multi-link import paragraphs,
-and linked imported content namespaces:
+linked imported content namespaces, GFM tables, and explicit inline content
+binding:
 [`specs/markdown-content-lookup-plaintext.md`](specs/markdown-content-lookup-plaintext.md),
 [`specs/markdown-content-metadata.md`](specs/markdown-content-metadata.md),
 [`specs/markdown-content-current-section.md`](specs/markdown-content-current-section.md),
@@ -30,7 +31,11 @@ and
 and
 [`specs/markdown-multi-link-imports.md`](specs/markdown-multi-link-imports.md),
 and
-[`specs/markdown-content-linked-namespaces.md`](specs/markdown-content-linked-namespaces.md).
+[`specs/markdown-content-linked-namespaces.md`](specs/markdown-content-linked-namespaces.md),
+and
+[`specs/markdown-content-tables.md`](specs/markdown-content-tables.md),
+and
+[`specs/markdown-content-data-binding.md`](specs/markdown-content-data-binding.md).
 For the next slices, write and commit the focused spec first, then implement.
 
 ## VmCompiler completeness (focus)

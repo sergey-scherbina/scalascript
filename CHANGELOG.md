@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(language): Markdown content inline binding
+
+- **markdown-content-inline-binding** — Added explicit `contentBind(value, bindings)`
+  for resolving Markdown `${name}` and `${nested.name}` placeholders from
+  `ContentValue.MapV` data without executing code. Toolkit selectors now accept
+  bound data through `ContentToolkitOptions.bindings` and
+  `contentToolkitOptionsWithBindings(data)`, so Markdown-authored tables and
+  sections lower to bound toolkit output. Updated `examples/content-tables.ssc`
+  to show both raw placeholders and the bound `$49` `TableNode` result.
+
 ## 2026-06-05 — feat(jit): JIT universal coverage — Stage 5 structural long tail
 
 - **jit-uc-stage5-2** — `var` reassignment in pure function bodies now compiles on

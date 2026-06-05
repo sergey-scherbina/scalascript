@@ -32,6 +32,16 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       and `contentToMarkdown(value)` reverse rendering for `DocumentContent`,
       `SectionContent`, and `ContentBlock` landed 2026-06-05 (specified in
       [`specs/markdown-content-to-markdown.md`](specs/markdown-content-to-markdown.md)).
+      GFM pipe tables as `ContentBlock.Table` landed 2026-06-05, including
+      stable plain-text/Markdown rendering and toolkit `TableNode` lowering
+      (specified in
+      [`specs/markdown-content-tables.md`](specs/markdown-content-tables.md)).
+      Explicit Markdown inline placeholder binding landed 2026-06-05:
+      `contentBind(value, bindings)` and
+      `contentToolkitOptionsWithBindings(data)` resolve simple `${name}` /
+      `${nested.name}` placeholders from structured content data before
+      rendering or toolkit lowering (specified in
+      [`specs/markdown-content-data-binding.md`](specs/markdown-content-data-binding.md)).
       Current-module `.scir` / `.sscc` artifact round-trip landed 2026-06-05
       (specified in
       [`specs/markdown-content-artifact-roundtrip.md`](specs/markdown-content-artifact-roundtrip.md)).
