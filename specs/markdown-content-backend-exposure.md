@@ -1,6 +1,6 @@
 # Markdown Content Backend Exposure
 
-Status: Planned. This spec defines JS/JVM exposure for the already-landed
+Status: Implemented. This spec defines JS/JVM exposure for the already-landed
 interpreter `std/content` helpers.
 
 ## Overview
@@ -47,37 +47,37 @@ low-level `std/content` metadata API.
 
 ## Behavior
 
-- [ ] JS and JVM embed one immutable per-module `DocumentContent` snapshot from
+- [x] JS and JVM embed one immutable per-module `DocumentContent` snapshot from
       `Module.document` / `NormalizedModule.document`.
-- [ ] `contentDocument()` returns the same manifest, title, sections, blocks,
+- [x] `contentDocument()` returns the same manifest, title, sections, blocks,
       attrs, embedded source text, and parsed structured data as the
       interpreter. Reading the snapshot must not evaluate inline `${expr}`
       content.
-- [ ] `contentSection(id)` and `contentBlock(id)` match interpreter lookup
+- [x] `contentSection(id)` and `contentBlock(id)` match interpreter lookup
       semantics: generated and explicit section ids are searchable, missing ids
       return `None`, and duplicate block ids report an error.
-- [ ] `contentData(id)` returns parsed fenced YAML/JSON/TOML data for
+- [x] `contentData(id)` returns parsed fenced YAML/JSON/TOML data for
       structured embedded blocks by explicit block id; missing, executable,
       string, opaque, or parse-failed blocks return `None`; duplicate
       structured ids report an error.
-- [ ] `contentMetadata(path)` reads only the `content:` front-matter subtree by
+- [x] `contentMetadata(path)` reads only the `content:` front-matter subtree by
       dot path; missing traversal returns `None`, and malformed paths report an
       error.
-- [ ] `contentPlainText(value)` matches interpreter text extraction for
+- [x] `contentPlainText(value)` matches interpreter text extraction for
       `SectionContent` and every current `ContentBlock` variant, and reports an
       error for unsupported values.
-- [ ] `contentCurrentSection()` returns the currently executing code block's
+- [x] `contentCurrentSection()` returns the currently executing code block's
       enclosing `SectionContent` for explicit ids, generated ids, and nested
       sections on JS and JVM.
-- [ ] `contentCurrentSection()` is execution-scoped, not lexical: a function
+- [x] `contentCurrentSection()` is execution-scoped, not lexical: a function
       defined in one section but called from another section observes the caller
       block's current section.
-- [ ] Headingless/top-level executable code reports an error for
+- [x] Headingless/top-level executable code reports an error for
       `contentCurrentSection()` instead of fabricating a synthetic section or
       reusing stale section state.
-- [ ] Generated JS/JVM code preserves existing top-level binding visibility
+- [x] Generated JS/JVM code preserves existing top-level binding visibility
       across code blocks while setting and clearing current-section state.
-- [ ] The conformance content fixture runs on INT, JS, and JVM with
+- [x] The conformance content fixture runs on INT, JS, and JVM with
       byte-identical text output for this helper set.
 
 ## Design
@@ -248,5 +248,19 @@ result must name the command in this spec's Results section.
 
 ## Results
 
-Spec-only slice completed on 2026-06-05. Implementation remains queued as
-`markdown-content-backend-exposure`.
+Implemented on 2026-06-05. Verification command:
+
+```bash
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-content-backend-exposure && sbt "backendSpi/compile" "core/compile" "backendJs/compile" "backendJvm/compile" "backendNode/compile" "contentPlugin/compile" "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest" "backendInterpreter/testOnly scalascript.ContentBackendExposureTest" "cli/runMain scalascript.cli.ssc run tests/conformance/content-introspection.ssc" "cli/runMain scalascript.cli.ssc run-js tests/conformance/content-introspection.ssc" "cli/runMain scalascript.cli.ssc run-jvm tests/conformance/content-introspection.ssc"
+```
+
+Observed results:
+
+- Content interpreter plugin suite: 12 tests passed.
+- Backend exposure suite: 2 tests passed, covering generated JS and generated
+  JVM execution of the shared conformance fixture.
+- `tests/conformance/content-introspection.ssc` now runs on INT, JS, and JVM
+  with identical text output for `contentDocument`, `contentSection`,
+  `contentData`, `contentPlainText`, and `contentCurrentSection`.
+- `contentToolkitNode`, `contentToolkitBlock`, and `contentToolkitSection`
+  remain frontend-toolkit helpers outside this backend exposure slice.

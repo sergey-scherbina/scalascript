@@ -464,8 +464,10 @@ frontend `View` values. Imports must be written as separate Markdown paragraphs
 (blank line between import links), matching the existing ScalaScript import
 syntax.
 
-Lower-level interpreter lookup helpers read the same Markdown snapshot without
-lowering it to UI nodes:
+Lower-level lookup helpers read the same Markdown snapshot without lowering it
+to UI nodes. These helpers run in the interpreter and in generated JS/JVM
+output, so Markdown-authored metadata can drive CLI output, browser codegen,
+and generated Scala programs with the same source:
 
 ```scalascript
 [contentDocument, contentCurrentSection, contentSection, contentBlock, contentData, contentMetadata, contentPlainText](std/content.ssc)
@@ -489,9 +491,12 @@ return `None`. `contentMetadata(path)` reads `content:` front-matter metadata
 by dot path. `contentPlainText(value)` accepts a `SectionContent` or
 `ContentBlock` and extracts readable text for logging, indexing, search, or
 component previews. `contentCurrentSection()` returns the currently executing
-code block's enclosing Markdown section in the interpreter; headingless code
-reports an interpreter error. `contentToMarkdown(...)` and JS/JVM
-native-context exposure remain planned.
+code block's enclosing Markdown section; headingless code reports an error.
+Imports for these helpers must be normal Markdown import links outside fenced
+code blocks. `contentToMarkdown(...)` remains planned. `contentToolkitNode()`,
+`contentToolkitBlock(id)`, and `contentToolkitSection(id)` remain
+frontend-toolkit helpers; use them with `lower(...)`/`serve(...)`, not as the
+low-level JS/JVM metadata API.
 
 The target contract, phase plan, and remaining metadata helpers are tracked in
 [`specs/markdown-content-introspection.md`](../specs/markdown-content-introspection.md).

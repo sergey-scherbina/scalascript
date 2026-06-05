@@ -119,9 +119,9 @@ metadata, CLI, compiler, and server use cases must all read the same source of
 truth. Phase 1 shipped the stable model plus `contentDocument()` for the
 interpreter; follow-up interpreter slices added `contentData(id)`,
 `contentSection(id)`, `contentBlock(id)`, `contentMetadata(path)`, and
-`contentPlainText(value)`, and `contentCurrentSection()`.
-Current remaining Phase 2 work is JS/JVM native-context exposure plus Markdown
-conversion helpers.
+`contentPlainText(value)`, and `contentCurrentSection()`. The same low-level
+helper set now runs on generated JS and JVM backends. Current remaining Phase 2
+work is Markdown conversion helpers plus linked artifact metadata.
 Names are prefixed with `content` to avoid collisions with existing `doc(...)`
 and `render(...)` helpers.
 
@@ -489,7 +489,7 @@ val page = lower(
 - [x] The runnable content-introspection demo can use `serve(page, port)` as
       the final bridge for direct LAN/mobile preview; `emit(page, outDir)`
       remains available for static artifact generation.
-- [ ] Interpreter, JS, and JVM backends expose byte-identical textual results
+- [x] Interpreter, JS, and JVM backends expose byte-identical textual results
       for the non-frontend `std/content` API.
 - [ ] `.sscc` / `.scir` artifacts preserve enough content metadata for linked
       modules and downstream tooling to inspect the document without reparsing
@@ -774,3 +774,14 @@ caller context for functions, and reports an interpreter error for
 headingless/top-level code rather than leaking a stale section. Verified with:
 `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-content-current-section && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest"`
 (12 content-plugin tests passed).
+
+The backend exposure slice landed on 2026-06-05: the low-level `std/content`
+helpers `contentDocument`, `contentCurrentSection`, `contentSection`,
+`contentBlock`, `contentData`, `contentMetadata`, and `contentPlainText` are
+available on interpreter, generated JS, and generated JVM paths. Generated
+backends embed the module `DocumentContent` snapshot, preserve current-section
+execution context without wrapping top-level declarations, and keep frontend
+toolkit helpers out of the low-level metadata API. Verified with:
+`cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-content-backend-exposure && sbt "backendSpi/compile" "core/compile" "backendJs/compile" "backendJvm/compile" "backendNode/compile" "contentPlugin/compile" "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest" "backendInterpreter/testOnly scalascript.ContentBackendExposureTest" "cli/runMain scalascript.cli.ssc run tests/conformance/content-introspection.ssc" "cli/runMain scalascript.cli.ssc run-js tests/conformance/content-introspection.ssc" "cli/runMain scalascript.cli.ssc run-jvm tests/conformance/content-introspection.ssc"`
+(12 content-plugin tests + 2 backend exposure tests passed; conformance fixture
+matched across INT, JS, and JVM).
