@@ -1,6 +1,6 @@
 feature/markdown-content-native-client-parity 2026-06-05T08:51:47Z
 agent: codex
-heartbeat: 2026-06-05T08:51:47Z
-status: not-started
-done-so-far:
+heartbeat: 2026-06-05T08:52:00Z
+status: in-progress
+done-so-far: worktree created
 next: inspect native frontend content lowering paths
