@@ -380,6 +380,10 @@ interpreter helpers also expose `contentSection(id)`, `contentBlock(id)`, and
 Markdown-authored regions without rendering the whole document.
 `contentMetadata(path)` reads `content:` front-matter metadata by dot path for
 code that needs renderer/content defaults without unpacking the whole manifest.
+`contentCurrentSection()` returns the currently executing code block's
+`SectionContent` when the block runs inside a real Markdown heading section;
+outside such a section it reports an interpreter error rather than fabricating
+synthetic content.
 The remaining `std/content` metadata API follows from the same snapshot instead
 of being the first goal. See
 [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md)
