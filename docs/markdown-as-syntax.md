@@ -108,6 +108,11 @@ back to deterministic semantic Markdown.
 from `ContentValue.MapV` data before these renderers consume the selected
 content; toolkit selectors use `contentToolkitOptionsWithBindings(data)` for
 the same pre-render step.
+Ordinary Markdown links with a `toolkit:` destination, such as
+`[Team name](toolkit:textField?signal=teamName&value=ScalaScript%20team)`, are
+kept as content rather than imports and lower to toolkit controls for simple
+forms. Structured `yaml @ui=toolkit` fences remain the better fit for nested
+layout trees.
 GFM pipe tables become `ContentBlock.Table` nodes with inline header/cell
 content, alignment metadata, and attrs from a preceding `<!-- @meta ... -->`
 directive. Toolkit lowering maps them to `TableNode`; low-level `contentView`

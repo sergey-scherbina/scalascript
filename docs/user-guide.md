@@ -408,6 +408,29 @@ ssc emit --frontend swiftui   examples/frontend/markdown-native-controls/markdow
 Native frontends do not reparse Markdown. They consume the shared toolkit/View
 pipeline and normalize the HTML-like `std/ui/lower` output into native controls.
 
+For small controls, YAML is optional. Ordinary Markdown links whose destination
+starts with `toolkit:` lower to toolkit nodes when the selected region is passed
+through `contentToolkitNode()`, `contentToolkitBlock(id)`, or
+`contentToolkitSection(id)`:
+
+```markdown
+## Controls {#controls}
+
+<!-- @meta id=markdown-controls -->
+- [Team name](toolkit:textField?signal=teamName&value=ScalaScript%20team)
+- [Enable live preview](toolkit:checkbox?signal=enabled&value=false)
+- [Apply Markdown controls](toolkit:button?signal=applied&value=true&enabledWhen=enabled)
+- [Team name](toolkit:signalText?signal=teamName)
+- [Applied](toolkit:signalText?signal=applied)
+- [Markdown controls](toolkit:badge?variant=success)
+```
+
+The link label becomes the control label/content unless the query supplies
+`label=` or `text=`. Links with the same `signal=` share one reactive signal in
+that selected document, section, or block. `toolkit:` links are content links,
+not imports, so pure link paragraphs and list items remain in `DocumentContent`.
+Use `examples/markdown-toolkit-links.ssc` for a live browser example.
+
 When one `.ssc` document contains multiple independent Markdown-authored UI
 regions, keep each region in Markdown and select it by stable id. If a region
 declares `component=<name>` metadata, register the matching renderer explicitly

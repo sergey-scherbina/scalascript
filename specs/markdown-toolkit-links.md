@@ -47,18 +47,18 @@ query keys and values.
 
 ## Behavior
 
-- [ ] A paragraph consisting of a single `toolkit:` link lowers to the matching
+- [x] A paragraph consisting of a single `toolkit:` link lowers to the matching
       toolkit node.
-- [ ] A bullet-list item consisting of a single `toolkit:` link lowers to the
+- [x] A bullet-list item consisting of a single `toolkit:` link lowers to the
       matching toolkit node, and the list lowers to a `VStackNode` of controls.
-- [ ] Multiple Markdown toolkit links that reference the same `signal` share one
+- [x] Multiple Markdown toolkit links that reference the same `signal` share one
       reactive signal within the selected document, section, or block lowering.
-- [ ] `enabledWhen=<signal>` on a button lowers to a `ShowWhenNode` that toggles
+- [x] `enabledWhen=<signal>` on a button lowers to a `ShowWhenNode` that toggles
       enabled/disabled button variants from the referenced signal.
-- [ ] Pure paragraphs or list items containing `toolkit:` links remain content;
+- [x] Pure paragraphs or list items containing `toolkit:` links remain content;
       they are not classified as Markdown imports.
-- [ ] Non-`toolkit:` links keep the existing Markdown lowering behavior.
-- [ ] The live example `examples/markdown-toolkit-links.ssc` serves a browser
+- [x] Non-`toolkit:` links keep the existing Markdown lowering behavior.
+- [x] The live example `examples/markdown-toolkit-links.ssc` serves a browser
       page where text field, checkbox, button, badge, and signal text are
       declared in Markdown links, not YAML.
 
@@ -81,4 +81,18 @@ content tree before lowering so references such as a text field and a
 
 ## Results
 
-Filled in after implementation.
+Implemented on 2026-06-05. Verified with:
+
+```bash
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-toolkit-markup-example && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest"
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-toolkit-markup-example && sbt "backendInterpreterServer/testOnly scalascript.MarkdownContentFrontendSmokeTest"
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-toolkit-markup-example && sbt "backendInterpreter/testOnly scalascript.ContentNativeClientParityTest"
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-toolkit-markup-example && sbt "backendJvm/Compile/compile"
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-toolkit-markup-example && sbt "cli/runMain scalascript.cli.ssc run examples/markdown-toolkit-links.ssc"
+```
+
+Results: 20 content-plugin tests passed, including Markdown toolkit link node
+lowering; 6 interpreter-server frontend smoke tests passed, including emitted
+React controls without YAML; 3 native parity tests passed; JVM backend compiled.
+The live example served on `http://127.0.0.1:8099/`, and `app.js` contained the
+expected `input`, `checkbox`, and `button` controls plus the Markdown labels.

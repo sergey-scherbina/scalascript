@@ -826,6 +826,19 @@ toolkit lowering. Verified with:
 (19 content-plugin tests + 2 JS/JVM table exposure tests passed; CLI example
 prints raw and bound table output).
 
+The Markdown toolkit links slice landed on 2026-06-05:
+ordinary Markdown links with `toolkit:` destinations now lower to simple
+toolkit controls (`textField`, `checkbox`, `button`, `signalText`, `badge`,
+`divider`) without a YAML control fence. The import classifier keeps these links
+as content, and `contentToolkitNode`, `contentToolkitBlock`, and
+`contentToolkitSection` allocate shared reactive signals for selected Markdown
+regions. Verified with:
+`cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-toolkit-markup-example && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest" "backendInterpreterServer/testOnly scalascript.MarkdownContentFrontendSmokeTest" "backendInterpreter/testOnly scalascript.ContentNativeClientParityTest" "backendJvm/Compile/compile"`
+(20 content-plugin tests + 6 frontend smoke tests + 3 native parity tests
+passed; JVM backend compiled). The live example
+`examples/markdown-toolkit-links.ssc` served on port 8099 and emitted real
+input/checkbox/button controls from Markdown links.
+
 The lookup/plain-text slice landed on 2026-06-05:
 `contentSection(id)` and `contentBlock(id)` expose interpreter `Option`
 lookups for Markdown-authored regions, while `contentPlainText(value)` extracts
