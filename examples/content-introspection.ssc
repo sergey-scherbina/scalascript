@@ -94,7 +94,7 @@ controls:
         variant: warning
 ```
 
-[contentData, contentSection, contentBlock, contentPlainText](std/content.ssc)
+[contentData, contentMetadata, contentSection, contentBlock, contentPlainText](std/content.ssc)
 
 [contentComponent, contentToolkitBlock, contentToolkitSection, contentToolkitOptionsWithComponents](std/ui/content.ssc)
 
@@ -131,12 +131,12 @@ val page = lower(
 
 println("content-introspection:ok")
 println("plans-data=" + contentData("plans-data").isDefined.toString)
+println("default-renderer=" + contentMetadata("defaultRenderer").isDefined.toString)
 println("plans-text=" + contentPlainText(contentSection("plans").get))
 println("team-controls-text=" + contentPlainText(contentBlock("team-controls").get))
 println("serving: http://127.0.0.1:8099/")
 
 // Remaining lower-level metadata follow-ups:
 // contentCurrentSection()
-// contentMetadata("defaultRenderer")
 serve(page, 8099)
 ```

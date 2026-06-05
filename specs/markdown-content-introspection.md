@@ -118,10 +118,10 @@ The shared model is deliberately data-first because frontend rendering,
 metadata, CLI, compiler, and server use cases must all read the same source of
 truth. Phase 1 shipped the stable model plus `contentDocument()` for the
 interpreter; follow-up interpreter slices added `contentData(id)`,
-`contentSection(id)`, `contentBlock(id)`, and `contentPlainText(value)`.
+`contentSection(id)`, `contentBlock(id)`, `contentMetadata(path)`, and
+`contentPlainText(value)`.
 Current remaining Phase 2 work is JS/JVM native-context exposure plus
-`contentCurrentSection()`, `contentMetadata(path)`, and Markdown conversion
-helpers.
+`contentCurrentSection()` and Markdown conversion helpers.
 Names are prefixed with `content` to avoid collisions with existing `doc(...)`
 and `render(...)` helpers.
 
@@ -473,6 +473,8 @@ val page = lower(
       fenced YAML/JSON/TOML `ContentValue` data by explicit block id.
 - [x] `contentSection(id)` and `contentBlock(id)` are available from
       interpreter code and return `None` for missing metadata lookups.
+- [x] `contentMetadata(path)` is available from interpreter code and reads
+      `content:` front-matter metadata by dot path.
 - [x] `contentPlainText(value)` is available from interpreter code for
       `SectionContent` and `ContentBlock` values.
 - [ ] `contentCurrentSection()` returns the code block's enclosing section,
@@ -662,10 +664,11 @@ concatenates classes in source order.
 - Extend `runtime/std/content.ssc` and `runtime/std/content-plugin` beyond the
   Phase 1 `contentDocument()` interpreter API.
 - Populate native context state for JS and JVM backends.
-- Implement `contentCurrentSection`, `contentMetadata`, and
-  `contentToMarkdown`; extend the already-landed interpreter
+- Implement `contentCurrentSection` and `contentToMarkdown`; extend the
+  already-landed interpreter
   `contentData(id)`, `contentSection(id)`, `contentBlock(id)`, and
-  `contentPlainText(value)` helpers to JS and JVM native context exposure.
+  `contentMetadata(path)`, and `contentPlainText(value)` helpers to JS and JVM
+  native context exposure.
 - Enable the pending conformance test across INT, JS, and JVM.
 
 ### Phase 3 - IR and artifact round-trip
@@ -753,3 +756,11 @@ lookups return `None`; duplicate block ids and unsupported plain-text inputs
 report interpreter errors. Verified with:
 `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/content-lookup-plaintext && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest"`
 (6 content-plugin tests passed).
+
+The metadata lookup slice landed on 2026-06-05:
+`contentMetadata(path)` exposes interpreter `Option` lookup for `content:`
+front-matter metadata by dot path. Missing `content:`, missing segments, and
+non-map traversal return `None`; malformed paths report an interpreter error.
+Verified with:
+`cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-content-metadata && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest"`
+(9 content-plugin tests passed).

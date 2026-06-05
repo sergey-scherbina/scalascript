@@ -101,6 +101,7 @@ YAML/JSON/TOML data block with that id, and code can read the same value through
 `contentData("plans-data")`; missing registry entries use the default Markdown
 lowering. Code can also query regions directly with `contentSection(id)` and
 `contentBlock(id)`, then extract readable text through `contentPlainText(value)`.
+`contentMetadata(path)` reads `content:` front-matter metadata by dot path.
 The low-level `contentView(contentDocument())` renderer remains available when
 callers need direct `View` nodes.
 
@@ -111,11 +112,12 @@ val doc = contentDocument()
 val pricing = contentSection("pricing")
 val controls = contentBlock("filters")
 val plansData = contentData("plans-data")
+val renderer = contentMetadata("defaultRenderer")
 val text = contentPlainText(pricing.get)
 ```
 
-`contentCurrentSection()`, `contentMetadata(path)`, `contentToMarkdown(...)`,
-and JS/JVM native-context exposure remain planned.
+`contentCurrentSection()`, `contentToMarkdown(...)`, and JS/JVM native-context
+exposure remain planned.
 
 The full contract and implementation phases are in
 [`../specs/markdown-content-introspection.md`](../specs/markdown-content-introspection.md).
