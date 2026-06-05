@@ -1,6 +1,6 @@
-feature/markdown-content-to-markdown 2026-06-05T10:09:57Z
+feature/markdown-content-to-markdown 2026-06-05T10:10:14Z
 agent: codex
-heartbeat: 2026-06-05T10:09:57Z
-status: not-started
-done-so-far:
-next: write and commit focused spec before implementation
+heartbeat: 2026-06-05T10:10:14Z
+status: in-progress
+done-so-far: worktree created
+next: write specs/markdown-content-to-markdown.md and commit spec before implementation
