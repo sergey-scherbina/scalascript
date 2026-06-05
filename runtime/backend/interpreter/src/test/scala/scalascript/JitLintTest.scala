@@ -98,13 +98,13 @@ class JitLintTest extends AnyFunSuite with Matchers:
     ).forDef("f")
     r.bailReasons should contain (JitBailReason.TryCatch)
 
-  test("bool-returning body reports BoolBody"):
+  test("bool-returning body now JITs (compiled as 0/1 long, unwrapped to BoolV at runtime)"):
     val r = lintFor(
       """def f(x: Int): Boolean = x > 0
         |f(3)""".stripMargin
     ).forDef("f")
-    r.willJit shouldBe false
-    r.bailReasons should contain (JitBailReason.BoolBody)
+    r.willJit shouldBe true
+    r.bailReasons shouldBe empty
 
   test("zero-param function with a constant body now JITs"):
     val r = lintFor(
@@ -143,7 +143,7 @@ class JitLintTest extends AnyFunSuite with Matchers:
     r.forDef("withGuard").bailReasons should contain (JitBailReason.PatternGuard)
     r.forDef("withTry").bailReasons should contain (JitBailReason.TryCatch)
     r.forDef("withVararg").bailReasons should contain (JitBailReason.VarargParam)
-    r.forDef("withBool").bailReasons should contain (JitBailReason.BoolBody)
+    r.forDef("withBool").willJit shouldBe true   // bool bodies now compile (0/1 encoded)
     r.forDef("withZero").willJit shouldBe true
     r.forDef("withThree").bailReasons should contain (JitBailReason.TooManyParams(3))
 

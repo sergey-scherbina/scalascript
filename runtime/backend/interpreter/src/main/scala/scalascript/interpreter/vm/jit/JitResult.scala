@@ -23,5 +23,6 @@ final class JitResult(
   val paramIsRef:     Array[Boolean],
   val resultIsDouble: Boolean = false,
   val direct:         AnyRef | Null = null,
-  val resultIsRef:    Boolean = false
+  val resultIsRef:    Boolean = false,
+  val resultIsBool:   Boolean = false
 )

@@ -1101,3 +1101,42 @@ class SscVmTest extends AnyFunSuite with Matchers:
         |println(sum)""".stripMargin)
     out shouldBe "100"
   }
+
+  // ── Stage 2.1: Bool body wrap — predicate fns compile on bytecode JIT ──────
+
+  test("stage2.1: Javac — bool top-level body (comparison) compiles and returns 0/1") {
+    val interp = interpOf("def isPositive(n: Int): Boolean = n > 0")
+    val fn = interp.globalsView("isPositive").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    // Returns 1L for n>0, 0L for n<=0
+    r.direct.asInstanceOf[LongFn1].apply(5L)  shouldBe 1L
+    r.direct.asInstanceOf[LongFn1].apply(-1L) shouldBe 0L
+  }
+
+  test("stage2.1: Javac — bool body with && compiles") {
+    val interp = interpOf("def inRange(n: Int): Boolean = n > 0 && n < 100")
+    val fn = interp.globalsView("inRange").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct.asInstanceOf[LongFn1].apply(50L) shouldBe 1L
+    r.direct.asInstanceOf[LongFn1].apply(0L)  shouldBe 0L
+  }
+
+  test("stage2.1: ASM — bool top-level body compiles and returns 0/1") {
+    val interp = interpOf("def isZero(n: Int): Boolean = n == 0")
+    val fn = interp.globalsView("isZero").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct.asInstanceOf[LongFn1].apply(0L) shouldBe 1L
+    r.direct.asInstanceOf[LongFn1].apply(7L) shouldBe 0L
+  }
+
+  test("stage2.1: end-to-end bool predicate runs via JIT") {
+    val out = captured(
+      """def isEven(n: Int): Boolean = n % 2 == 0
+        |println(isEven(4))
+        |println(isEven(7))""".stripMargin)
+    out shouldBe "true\nfalse"
+  }

@@ -138,7 +138,8 @@ object AsmJitBackend extends JitBackend:
 
   private def doCompile(f: Value.FunV, interp: Interpreter): JitResult | Null =
     if f.usingParams.nonEmpty || f.returnsThrows then return null
-    if isBoolReturning(f.body) then return null
+    // Bool-body functions compile with a 0/1 wrapper (see emitFnBody fallback).
+    // isBoolReturning is still checked in jitCompatibleSibling.
     val paramSet   = f.params.toSet
     val paramIsRef = classifyParamRefs(f)
     val isDouble   = bodyHasDoubleLit(f.body)
@@ -250,7 +251,7 @@ object AsmJitBackend extends JitBackend:
         try cls.getConstructor().newInstance().asInstanceOf[AnyRef]
         catch case _: Throwable => null
       else null
-    new JitResult(mh, paramIsRef, isDouble, direct)
+    new JitResult(mh, paramIsRef, isDouble, direct, resultIsBool = isBoolReturning(f.body))
 
   private def tryCompileObjToObject(
     tm:     Term.Match,
@@ -614,7 +615,17 @@ object AsmJitBackend extends JitBackend:
         else if isDouble then
           walkDouble(other.asInstanceOf[Term], ctx, mv) && { mv.visitInsn(DRETURN); true }
         else
-          walkLong(other.asInstanceOf[Term], ctx, mv) && { mv.visitInsn(LRETURN); true }
+          val t = other.asInstanceOf[Term]
+          if walkLong(t, ctx, mv) then { mv.visitInsn(LRETURN); true }
+          else
+            // Bool-body fallback: emit `if cond then 1L else 0L` for predicate fns.
+            val Lfalse = new Label; val Lend = new Label
+            if !walkBool(t, ctx, mv, Lfalse) then false
+            else
+              mv.visitLdcInsn(1L); mv.visitJumpInsn(GOTO, Lend)
+              mv.visitLabel(Lfalse); mv.visitLdcInsn(0L)
+              mv.visitLabel(Lend);   mv.visitInsn(LRETURN)
+              true
 
   // ── Descriptor builder ────────────────────────────────────────────────────
 

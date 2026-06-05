@@ -205,9 +205,14 @@ object JitRuntime:
         case Value.IntV(x) => jl.Long.valueOf(x)
         case _             => null
 
+  private def wrapLong(r: JitResult, raw: Long): Computation =
+    if r.resultIsBool then Computation.pureBool(raw != 0L)
+    else Computation.pureIntV(raw)
+
   private def wrapBytecodeResult(r: JitResult, out: AnyRef): Computation =
     if r.resultIsRef then Computation.Pure(out.asInstanceOf[Value])
     else if r.resultIsDouble then Computation.Pure(Value.doubleV(out.asInstanceOf[jl.Double].doubleValue))
+    else if r.resultIsBool then Computation.pureBool(out.asInstanceOf[jl.Long].longValue != 0L)
     else Computation.pureIntV(out.asInstanceOf[jl.Long].longValue)
 
   /** 0-arg bytecode dispatch — for compiled `def workload(): Long` thunks. */
@@ -221,7 +226,7 @@ object JitRuntime:
           Computation.Pure(Value.doubleV(result))
         else
           val result = JitGlobals.withInterp(interp) { d.asInstanceOf[LongFn0].apply() }
-          Computation.pureIntV(result)
+          wrapLong(r, result)
       catch case _: Throwable => null
     else
       val out =
@@ -252,7 +257,7 @@ object JitRuntime:
               case Value.IntV(x) => x
               case _             => return null
             val result = JitGlobals.withInterp(interp) { d.asInstanceOf[LongFn1].apply(n) }
-            Computation.pureIntV(result)
+            wrapLong(r, result)
         else
           arg match
             case _: Value.InstanceV =>
@@ -264,7 +269,7 @@ object JitRuntime:
                 Computation.Pure(Value.doubleV(result))
               else
                 val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjToLong].apply(arg.asInstanceOf[AnyRef]) }
-                Computation.pureIntV(result)
+                wrapLong(r, result)
             case _ => null
       catch case _: Throwable => null
     else
@@ -298,7 +303,7 @@ object JitRuntime:
               val x = a match { case Value.IntV(v) => v; case _ => return null }
               val y = b match { case Value.IntV(v) => v; case _ => return null }
               val result = JitGlobals.withInterp(interp) { d.asInstanceOf[LongFn2].apply(x, y) }
-              Computation.pureIntV(result)
+              wrapLong(r, result)
           case (false, true) =>
             val x = a match { case Value.IntV(v) => v; case _ => return null }
             val yRef = b match { case _: Value.InstanceV => b.asInstanceOf[AnyRef]; case _ => return null }
@@ -307,7 +312,7 @@ object JitRuntime:
               Computation.Pure(Value.doubleV(result))
             else
               val result = JitGlobals.withInterp(interp) { d.asInstanceOf[LongObjToLong].apply(x, yRef) }
-              Computation.pureIntV(result)
+              wrapLong(r, result)
           case (true, false) =>
             val xRef = a match { case _: Value.InstanceV => a.asInstanceOf[AnyRef]; case _ => return null }
             val y = b match { case Value.IntV(v) => v; case _ => return null }
@@ -316,7 +321,7 @@ object JitRuntime:
               Computation.Pure(Value.doubleV(result))
             else
               val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjLongToLong].apply(xRef, y) }
-              Computation.pureIntV(result)
+              wrapLong(r, result)
           case (true, true) => return null   // both-ref direct iface not wired; falls back to MH
       catch case _: Throwable => null
     else

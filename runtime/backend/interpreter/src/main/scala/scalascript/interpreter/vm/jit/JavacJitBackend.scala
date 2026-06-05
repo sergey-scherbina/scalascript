@@ -122,7 +122,10 @@ object JavacJitBackend extends JitBackend:
     else null
 
   private def doCompile(f: Value.FunV, interp: scalascript.interpreter.Interpreter): JitResult | Null =
-    if isBoolReturning(f.body) then return null
+    // Bool-body functions are compiled with a 0/1 wrapper instead of bailing.
+    // `isBoolReturning` is still used in `jitCompatibleSibling` to exclude
+    // bool-returning siblings from co-emission (where their return type
+    // would be incorrectly inferred as Long by sibling co-emitters).
     val paramSet = f.params.toSet
     val paramIsRef = classifyParamRefs(f)
     // For ref-param match functions (ADT match → result) also treat the body as
@@ -213,7 +216,8 @@ object JavacJitBackend extends JitBackend:
          |${ctx.coEmit.extraMethods.valuesIterator.mkString}$applyMethod
          |}
          |""".stripMargin
-    compileAndLink(className, sanitize(f.name), source, paramIsRef, if isDouble then classOf[Double] else classOf[Long], isDouble)
+    compileAndLink(className, sanitize(f.name), source, paramIsRef, if isDouble then classOf[Double] else classOf[Long], isDouble,
+      resultIsBool = isBoolReturning(f.body))
 
   /** Compile a Java source string in-memory, load the class, bind a MethodHandle
    *  to the static method, and instantiate the class as a typed direct interface.
@@ -225,7 +229,8 @@ object JavacJitBackend extends JitBackend:
     paramIsRef: Array[Boolean],
     rtype:      Class[?],
     isDouble:   Boolean,
-    resultIsRef: Boolean = false
+    resultIsRef: Boolean = false,
+    resultIsBool: Boolean = false
   ): JitResult | Null =
     val compiler = ToolProvider.getSystemJavaCompiler
     if compiler == null then return null
@@ -268,7 +273,7 @@ object JavacJitBackend extends JitBackend:
     val direct: AnyRef | Null =
       try cls.getConstructor().newInstance().asInstanceOf[AnyRef]
       catch case _: Throwable => null
-    new JitResult(mh, paramIsRef, isDouble, direct, resultIsRef)
+    new JitResult(mh, paramIsRef, isDouble, direct, resultIsRef, resultIsBool)
 
   // ── AST → Java source walker ──────────────────────────────────────────────
 
@@ -353,7 +358,12 @@ object JavacJitBackend extends JitBackend:
           if e == null then null else s"return $e;"
         else
           val e = walkLong(other.asInstanceOf[Term], ctx)
-          if e == null then null else s"return $e;"
+          if e != null then s"return $e;"
+          else
+            // Bool-body fallback: if walkLong fails but walkBool succeeds, wrap as
+            // `return (boolExpr) ? 1L : 0L` so predicate functions compile.
+            val b = walkBool(other.asInstanceOf[Term], ctx)
+            if b == null then null else s"return ($b) ? 1L : 0L;"
 
   private def ensureCoEmittedLong(fnName: String, ctx: GenCtx): MethodSig | Null =
     if ctx.coEmit.emitted.contains(fnName) || ctx.coEmit.emitting.contains(fnName) then
