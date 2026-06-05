@@ -1198,27 +1198,42 @@ object JavacJitBackend extends JitBackend:
     val getterMethod  = if ctx.isDouble then "getAsDouble"                       else "getAsLong"
     sb.append(s"(($supplierIface)(() -> {\n      ")
     sb.append(s"scalascript.interpreter.Value.InstanceV inst = (scalascript.interpreter.Value.InstanceV) $scrutJava;\n      ")
-    sb.append(s"return ")
-    if allTagged then
-      sb.append("switch (inst.typeTag()) {\n      ")
-    else
-      sb.append("switch (inst.typeName()) {\n      ")
+    val hasAnyGuard = casesArr.exists(_.cond.nonEmpty)
     val hasWildcardExpr = casesArr.exists(c => c.pat.isInstanceOf[Pat.Wildcard] || c.pat.isInstanceOf[Pat.Var])
-    var ci = 0
-    var restList = cases
-    while restList.nonEmpty do
-      val arm = walkArmExpr(restList.head, ctx, interp, if allTagged then armTags(ci) else 0)
-      if arm == null then return null
-      sb.append(arm)
-      restList = restList.tail
-      ci += 1
-    if !hasWildcardExpr then
-      if allTagged then
-        sb.append("  default -> { throw new RuntimeException(\"JavacJitBackend: no case matched, tag=\" + inst.typeTag()); }\n      };\n    }))")
-      else
-        sb.append("  default -> { throw new RuntimeException(\"JavacJitBackend: no case matched, typeName=\" + inst.typeName()); }\n      };\n    }))")
+    if hasAnyGuard then
+      // Guard path: emit an if-chain inside the IIFE.
+      // walkArmAsIfBranch emits `return body;` — inside the IIFE lambda this
+      // returns from the lambda, producing the expression value.
+      var ci = 0; var restList = cases
+      while restList.nonEmpty do
+        val arm = walkArmAsIfBranch(restList.head, ctx, interp,
+                                    if allTagged then armTags(ci) else 0, allTagged)
+        if arm == null then return null
+        sb.append(arm)
+        restList = restList.tail; ci += 1
+      if !hasWildcardExpr then
+        if allTagged then
+          sb.append("throw new RuntimeException(\"JavacJitBackend: no guarded case matched, tag=\" + inst.typeTag());\n    ")
+        else
+          sb.append("throw new RuntimeException(\"JavacJitBackend: no guarded case matched, typeName=\" + inst.typeName());\n    ")
+      sb.append("}))") // close lambda + IIFE cast
     else
-      sb.append("};\n    }))")
+      sb.append(s"return ")
+      if allTagged then sb.append("switch (inst.typeTag()) {\n      ")
+      else             sb.append("switch (inst.typeName()) {\n      ")
+      var ci = 0; var restList = cases
+      while restList.nonEmpty do
+        val arm = walkArmExpr(restList.head, ctx, interp, if allTagged then armTags(ci) else 0)
+        if arm == null then return null
+        sb.append(arm)
+        restList = restList.tail; ci += 1
+      if !hasWildcardExpr then
+        if allTagged then
+          sb.append("  default -> { throw new RuntimeException(\"JavacJitBackend: no case matched, tag=\" + inst.typeTag()); }\n      };\n    }))")
+        else
+          sb.append("  default -> { throw new RuntimeException(\"JavacJitBackend: no case matched, typeName=\" + inst.typeName()); }\n      };\n    }))")
+      else
+        sb.append("};\n    }))")
     sb.append(s".$getterMethod()")
     sb.toString
 

@@ -1520,32 +1520,46 @@ object AsmJitBackend extends JitBackend:
     val wildcardIdx = casesArr.indexWhere(c => isCatchAllPat(c.pat))
     // Wildcard/Pat.Var must be last arm (catch-all).
     if wildcardIdx >= 0 && wildcardIdx != casesArr.length - 1 then return false
-    val tags     = resolveArmTags(casesArr, ctx.interp)
+    val tags      = resolveArmTags(casesArr, ctx.interp)
     val allTagged = wildcardIdx < 0 && tags.forall(_ != 0)
-    val armLbls  = Array.fill(casesArr.length)(new Label)
-    val throwLbl = new Label
-    val defLbl   = if wildcardIdx >= 0 then armLbls(wildcardIdx) else throwLbl
-    val endLbl   = new Label
+    val hasAnyGuard = casesArr.exists(_.cond.nonEmpty)
+    val endLbl    = new Label
 
-    if allTagged then
-      mv.visitVarInsn(ALOAD, instSlot)
-      mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "typeTag", "()I", false)
-      emitSwitch(mv, tags, armLbls, defLbl)
+    if hasAnyGuard then
+      // Guard path: if-chain (same as emitMatchBody's guard path but in expr form:
+      // emitArmBodyGuarded uses GOTO endLbl instead of LRETURN when guard passes).
+      var ci = 0; var rem = cases
+      while rem.nonEmpty do
+        if !emitArmBodyGuarded(rem.head, ctx, ctx.interp, instSlot, mv,
+                               if allTagged then tags(ci) else 0, allTagged, endLbl) then return false
+        ci += 1; rem = rem.tail
+      if wildcardIdx < 0 then
+        emitThrow(mv, "AsmJitBackend: no guarded case matched")
+      mv.visitLabel(endLbl); true
     else
-      mv.visitVarInsn(ALOAD, instSlot)
-      mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "typeName", "()Ljava/lang/String;", false)
-      emitStringChain(mv, cases, armLbls, defLbl)
+      val armLbls  = Array.fill(casesArr.length)(new Label)
+      val throwLbl = new Label
+      val defLbl   = if wildcardIdx >= 0 then armLbls(wildcardIdx) else throwLbl
 
-    var ci = 0; var rem = cases
-    while rem.nonEmpty do
-      mv.visitLabel(armLbls(ci))
-      if !emitArmBody(rem.head, ctx, ctx.interp, instSlot, mv, exprForm = true, endLbl) then return false
-      ci += 1; rem = rem.tail
+      if allTagged then
+        mv.visitVarInsn(ALOAD, instSlot)
+        mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "typeTag", "()I", false)
+        emitSwitch(mv, tags, armLbls, defLbl)
+      else
+        mv.visitVarInsn(ALOAD, instSlot)
+        mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "typeName", "()Ljava/lang/String;", false)
+        emitStringChain(mv, cases, armLbls, defLbl)
 
-    if wildcardIdx < 0 then
-      mv.visitLabel(throwLbl)
-      emitThrow(mv, "AsmJitBackend: no case matched")
-    mv.visitLabel(endLbl); true
+      var ci = 0; var rem = cases
+      while rem.nonEmpty do
+        mv.visitLabel(armLbls(ci))
+        if !emitArmBody(rem.head, ctx, ctx.interp, instSlot, mv, exprForm = true, endLbl) then return false
+        ci += 1; rem = rem.tail
+
+      if wildcardIdx < 0 then
+        mv.visitLabel(throwLbl)
+        emitThrow(mv, "AsmJitBackend: no case matched")
+      mv.visitLabel(endLbl); true
 
   // ── Single arm emission ───────────────────────────────────────────────────
 
@@ -1644,9 +1658,17 @@ object AsmJitBackend extends JitBackend:
         true
       case _ => false
 
+  /** Expression-form variant of `emitArmAsIfBranch`: emits GOTO endLbl instead of
+   *  LRETURN/DRETURN so the arm value is left on the stack for use as a sub-expression. */
+  private def emitArmBodyGuarded(c: scala.meta.Case, ctx: GenCtx, interp: Interpreter,
+                                  instSlot: Int, mv: MethodVisitor,
+                                  intTag: Int, allTagged: Boolean, endLbl: Label): Boolean =
+    emitArmAsIfBranch(c, ctx, interp, instSlot, mv, intTag, allTagged, exprEndLbl = endLbl)
+
   private def emitArmAsIfBranch(c: scala.meta.Case, ctx: GenCtx, interp: Interpreter,
                                 instSlot: Int, mv: MethodVisitor,
-                                intTag: Int, allTagged: Boolean): Boolean =
+                                intTag: Int, allTagged: Boolean,
+                                exprEndLbl: Label | Null = null): Boolean =
     c.pat match
       case ext: scala.meta.Pat.Extract =>
         val ctorName = extractCtorName(ext.fun)
@@ -1735,7 +1757,8 @@ object AsmJitBackend extends JitBackend:
           if ctx.isDouble then walkDouble(c.body, newCtx, mv)
           else walkLong(c.body, newCtx, mv)
         if !bodyOk then return false
-        mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN)
+        if exprEndLbl != null then mv.visitJumpInsn(GOTO, exprEndLbl)
+        else mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN)
         mv.visitLabel(nextLbl)
         true
       case _: Pat.Wildcard =>
@@ -1748,7 +1771,8 @@ object AsmJitBackend extends JitBackend:
           if ctx.isDouble then walkDouble(c.body, ctx, mv)
           else walkLong(c.body, ctx, mv)
         if !bodyOk then return false
-        mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN)
+        if exprEndLbl != null then mv.visitJumpInsn(GOTO, exprEndLbl)
+        else mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN)
         if c.cond.nonEmpty then mv.visitLabel(nextLbl)
         true
       case pv: Pat.Var =>
@@ -1764,7 +1788,8 @@ object AsmJitBackend extends JitBackend:
           if ctx.isDouble then walkDouble(c.body, newCtx, mv)
           else walkLong(c.body, newCtx, mv)
         if !bodyOk then return false
-        mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN)
+        if exprEndLbl != null then mv.visitJumpInsn(GOTO, exprEndLbl)
+        else mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN)
         if c.cond.nonEmpty then mv.visitLabel(nextLbl)
         true
       case alt: Pat.Alternative =>

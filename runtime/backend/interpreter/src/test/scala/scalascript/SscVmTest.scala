@@ -1403,6 +1403,37 @@ class SscVmTest extends AnyFunSuite with Matchers:
     lines(2) shouldBe "0"
   }
 
+  test("stage6-pattern-guard: guarded match EXPRESSION (match as val RHS) compiles") {
+    // Guard in a match used as a sub-expression (val binding), not as the
+    // top-level function body return. This exercises walkMatchExpr guard path.
+    val interp = interpOf(
+      """sealed trait Shape
+        |case class Circle(r: Int) extends Shape
+        |case class Square(s: Int) extends Shape
+        |def classify(shape: Shape): Int =
+        |  val base = shape match
+        |    case Circle(r) if r > 5 => r * 2
+        |    case Circle(r) => r
+        |    case Square(n) if n > 3 => n + 10
+        |    case Square(n) => n
+        |  base + 1
+        |val big   = Circle(10)
+        |val small = Circle(3)
+        |val sq    = Square(5)""".stripMargin)
+    val fn = interp.globalsView("classify").asInstanceOf[Value.FunV]
+    val jitR = JavacJitBackend.tryCompile(fn, interp)
+    jitR should not be null
+    jitR.direct should not be null
+    jitR.direct.isInstanceOf[ObjToLong] shouldBe true
+    val direct = jitR.direct.asInstanceOf[ObjToLong]
+    val big   = interp.globalsView("big").asInstanceOf[AnyRef]
+    val small = interp.globalsView("small").asInstanceOf[AnyRef]
+    val sq    = interp.globalsView("sq").asInstanceOf[AnyRef]
+    JitGlobals.withInterp(interp) { direct.apply(big) }   shouldBe 21L  // r=10>5: 10*2=20+1=21
+    JitGlobals.withInterp(interp) { direct.apply(small) } shouldBe 4L   // r=3<=5: 3+1=4
+    JitGlobals.withInterp(interp) { direct.apply(sq) }    shouldBe 16L  // n=5>3: 5+10=15+1=16
+  }
+
   test("jit-uc-finding-litmatch: .toLong/.toInt identity conversions compile (workload pattern)") {
     // `classify(i).toLong` in a while body was blocking workload compilation.
     // .toLong/.toInt are no-ops (Int = Long in ScalaScript) — emit as identity.
