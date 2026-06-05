@@ -1,6 +1,6 @@
-feature/jit-completeness-p6-lit-string 2026-06-05T05:54:18Z
+feature/jit-completeness-p6-lit-string 2026-06-05T05:54:29Z
 agent: claude-code
-heartbeat: 2026-06-05T05:54:18Z
-status: not-started
-done-so-far:
-next: read diagnostic output, design LOADS opcode + string eq support
+heartbeat: 2026-06-05T05:54:29Z
+status: in-progress
+done-so-far: worktree created
+next: add LOADS opcode + string equality to VmCompiler + SscVm
