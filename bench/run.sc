@@ -6,8 +6,7 @@
  * ScalaScript benchmark harness.
  *
  * Usage (from repo root):
- *   ./bench.sh                              # compare all backends (ssc, jvm, js)
- *   ./bench.sh --asm                        # add ssc-asm column (AsmJitBackend)
+ *   ./bench.sh                              # compare all backends (ssc, ssc-asm, jvm, js)
  *   ./bench.sh arith-loop recursion-fib    # filter by workload name
  *   ./bench.sh --backend ssc               # single backend only
  *   ./bench.sh --backend ssc-asm           # ASM JIT backend only
@@ -35,7 +34,6 @@ val baselineOut = Paths.get(s"$root/bench/BASELINE.md")
 // ── arg parsing ───────────────────────────────────────────────────────────────
 
 val writeBaseline = args.contains("--baseline")
-val includeAsm    = args.contains("--asm")
 
 // --backend <b>: limit to a single backend; default is all three.
 // Synthetic backend "interp-asm" runs ssc --backend interp with SSC_JIT_BACKEND=asm.
@@ -46,7 +44,7 @@ val backendFlag: Option[String] =
 
 val backends: Seq[String] = backendFlag match
   case Some(b) => Seq(b)
-  case None    => Seq("ssc") ++ (if includeAsm then Seq("ssc-asm") else Nil) ++ Seq("jvm", "js")
+  case None    => Seq("ssc", "ssc-asm", "jvm", "js")
 
 // --warmup N / --reps N / --warmup-time N: pass-through to ssc bench (defaults mirror BenchCmd)
 def parseInt2(flag: String, default: Int): Int =
