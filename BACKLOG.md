@@ -28,9 +28,12 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       and `contentView(...)` low-level frontend lowering; native-client parity
       for Markdown-authored controls and metadata on Swing, JavaFX, and SwiftUI
       landed 2026-06-05 (specified in
-      [`specs/markdown-content-native-client-parity.md`](specs/markdown-content-native-client-parity.md)).
-      The follow-up work is `contentToMarkdown`. `.scir` / `.sscc` round-trip and multi-link
-      import paragraphs follow as later slices.
+      [`specs/markdown-content-native-client-parity.md`](specs/markdown-content-native-client-parity.md)),
+      and `contentToMarkdown(value)` reverse rendering for `DocumentContent`,
+      `SectionContent`, and `ContentBlock` landed 2026-06-05 (specified in
+      [`specs/markdown-content-to-markdown.md`](specs/markdown-content-to-markdown.md)).
+      `.scir` / `.sscc` round-trip and multi-link import paragraphs follow as
+      later slices.
 
 ## JS Codegen Performance
 

@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(language): Markdown content to Markdown
+
+- **markdown-content-to-markdown** — Added `contentToMarkdown(value)` for
+  `DocumentContent`, `SectionContent`, and `ContentBlock` values on the
+  interpreter, generated JS, and generated JVM paths. The renderer emits stable
+  semantic Markdown with front-matter, section/block metadata, inline markup,
+  lists, images, and fenced embedded source text; exact source whitespace
+  preservation remains out of scope.
+
 ## 2026-06-05 — feat(language): Markdown content native client parity
 
 - **markdown-content-native-client-parity** — Added a native Markdown controls

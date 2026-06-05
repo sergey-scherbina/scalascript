@@ -1,6 +1,0 @@
-feature/markdown-content-to-markdown 2026-06-05T10:13:51Z
-agent: codex
-heartbeat: 2026-06-05T10:13:51Z
-status: in-progress
-done-so-far: focused spec committed and pushed
-next: implement contentToMarkdown interpreter plus JS/JVM generated runtime exposure

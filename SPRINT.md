@@ -13,24 +13,18 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 Broad spec exists:
 [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md).
 Focused slice specs already exist for landed lookup/plain-text, metadata,
-current-section, backend exposure, and native-client parity:
+current-section, backend exposure, native-client parity, and reverse Markdown
+rendering:
 [`specs/markdown-content-lookup-plaintext.md`](specs/markdown-content-lookup-plaintext.md),
 [`specs/markdown-content-metadata.md`](specs/markdown-content-metadata.md),
 [`specs/markdown-content-current-section.md`](specs/markdown-content-current-section.md),
 and
 [`specs/markdown-content-backend-exposure.md`](specs/markdown-content-backend-exposure.md),
 and
-[`specs/markdown-content-native-client-parity.md`](specs/markdown-content-native-client-parity.md).
+[`specs/markdown-content-native-client-parity.md`](specs/markdown-content-native-client-parity.md),
+and
+[`specs/markdown-content-to-markdown.md`](specs/markdown-content-to-markdown.md).
 For the next slices, write and commit the focused spec first, then implement.
-
-- [ ] **markdown-content-to-markdown-spec** - Write
-      `specs/markdown-content-to-markdown.md` for `contentToMarkdown(...)`.
-      Define supported nodes, metadata round-trip rules, formatting stability,
-      and explicit non-goals for exact source preservation.
-
-- [ ] **markdown-content-to-markdown** - Implement `contentToMarkdown` after
-      backend exposure is stable; cover document, section, block, and embedded
-      data rendering with focused tests.
 
 ## VmCompiler completeness (focus)
 
