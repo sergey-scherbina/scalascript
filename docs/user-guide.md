@@ -415,7 +415,7 @@ and pass it through `contentToolkitOptionsWithComponents`:
 
 ```scalascript
 [contentData](std/content.ssc)
-[contentComponent, contentToolkitBlock, contentToolkitSection, contentToolkitOptionsWithComponents](std/ui/content.ssc)
+[contentComponent, contentToolkitBlock, contentToolkitSection, contentToolkitOptionsWithBindings, contentToolkitOptionsWithComponents](std/ui/content.ssc)
 [vstack](std/ui/layout.ssc)
 [heading](std/ui/typography.ssc)
 [rawText](std/ui/reactive.ssc)
@@ -462,6 +462,14 @@ code through `contentData("plans-data")`. Missing data references produce
 `None`, so components can render empty or fallback states while the document is
 being edited.
 
+Markdown inline placeholders are data-bound explicitly, not executed as code.
+Use `contentBind(value, contentData("id").get)` when you want a selected
+document, section, or block to replace `${name}` / `${nested.name}` with values
+from YAML/JSON/TOML data before plain-text or Markdown rendering. For toolkit
+selectors, pass the same data through `contentToolkitOptionsWithBindings(data)`;
+the selected content is bound before default `TableNode` lowering or before a
+registered component receives `ctx.block` / `ctx.section`.
+
 The lower-level `View` renderer remains available when exact HTML-like Markdown
 shape is more important than toolkit composition:
 
@@ -483,7 +491,7 @@ output, so Markdown-authored metadata can drive CLI output, browser codegen,
 and generated Scala programs with the same source:
 
 ```scalascript
-[contentDocument, contentCurrentSection, contentSection, contentBlock, contentData, contentMetadata, contentPlainText, contentToMarkdown](std/content.ssc)
+[contentDocument, contentCurrentSection, contentSection, contentBlock, contentData, contentMetadata, contentBind, contentPlainText, contentToMarkdown](std/content.ssc)
 
 val doc = contentDocument()
 val here = contentCurrentSection()
@@ -502,9 +510,12 @@ println(contentMetadata("defaultRenderer").isDefined)
 `contentSection(id)` finds generated or explicit section ids,
 `contentBlock(id)` finds explicitly identified blocks, and missing lookups
 return `None`. `contentMetadata(path)` reads `content:` front-matter metadata
-by dot path. `contentPlainText(value)` accepts a `SectionContent` or
-`ContentBlock` and extracts readable text for logging, indexing, search, or
-component previews. `contentToMarkdown(value)` accepts a `DocumentContent`,
+by dot path. `contentBind(value, bindings)` accepts a `DocumentContent`,
+`SectionContent`, or `ContentBlock` plus a `ContentValue.MapV`; it resolves
+simple `${name}` and `${nested.name}` inline placeholders and preserves missing
+or non-path expressions as source markers. `contentPlainText(value)` accepts a
+`SectionContent` or `ContentBlock` and extracts readable text for logging,
+indexing, search, or component previews. `contentToMarkdown(value)` accepts a `DocumentContent`,
 `SectionContent`, or `ContentBlock` and serializes it back to deterministic
 semantic Markdown for export, previews, or later editing flows; it does not
 promise byte-for-byte source whitespace preservation. `contentCurrentSection()`
@@ -519,7 +530,9 @@ can select the table by id. `contentPlainText(table)` emits a stable readable
 ` | `-separated form, `contentToMarkdown(table)` emits a deterministic pipe
 table, `contentView(table)` emits semantic table markup, and
 `contentToolkitBlock("plan-table")` lowers it to the existing toolkit
-`TableNode`.
+`TableNode`. When table cells contain `${name}` placeholders, bind a data map
+first with `contentBind(table, data)` or pass
+`contentToolkitOptionsWithBindings(data)` to the toolkit selector.
 
 Direct imports can also expose their Markdown snapshots as named content
 modules. The namespace is the imported module's `name:` front-matter value, or

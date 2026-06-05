@@ -243,7 +243,8 @@ case class ContentToolkitOptions(
   listGap: Int = 4,
   wrapDocumentInCard: Boolean = false,
   wrapTopLevelSectionsInCards: Boolean = false,
-  components: List[ContentToolkitComponent] = []
+  components: List[ContentToolkitComponent] = [],
+  bindings: ContentValue = ContentValue.MapV(Map())
 )
 
 case class ContentComponentContext(
@@ -264,6 +265,17 @@ case class ContentToolkitComponent(
 
 def contentComponent(name: String)(render: ContentComponentContext => TkNode): ContentToolkitComponent
 
+def contentToolkitOptionsWithBindings(
+  bindings: ContentValue,
+  components: List[ContentToolkitComponent] = [],
+  includeCode: Boolean = false,
+  sectionGap: Int = 16,
+  blockGap: Int = 8,
+  listGap: Int = 4,
+  wrapDocumentInCard: Boolean = false,
+  wrapTopLevelSectionsInCards: Boolean = false
+): ContentToolkitOptions
+
 def contentToolkitOptionsWithComponents(
   components: List[ContentToolkitComponent],
   includeCode: Boolean = false,
@@ -271,7 +283,8 @@ def contentToolkitOptionsWithComponents(
   blockGap: Int = 8,
   listGap: Int = 4,
   wrapDocumentInCard: Boolean = false,
-  wrapTopLevelSectionsInCards: Boolean = false
+  wrapTopLevelSectionsInCards: Boolean = false,
+  bindings: ContentValue = ContentValue.MapV(Map())
 ): ContentToolkitOptions
 
 extern def contentToolkitNode(options: ContentToolkitOptions = ContentToolkitOptions()): TkNode
@@ -504,7 +517,7 @@ val page = lower(
       `SectionContent` and `ContentBlock` values.
 - [x] `contentCurrentSection()` returns the code block's enclosing section,
       including metadata and sibling prose/list blocks in that section.
-- [ ] Inline `${expr}` in prose is represented as `ContentInline.Expr(source)`
+- [x] Inline `${expr}` in prose is represented as `ContentInline.Expr(source)`
       until explicit `contentBind(value, bindings)` data-path binding resolves
       it. Content introspection itself does not execute inline expressions.
 - [x] `contentToolkitNode()` renders the current Markdown document to a regular
@@ -781,6 +794,16 @@ produce `None`; duplicate structured data ids report an interpreter error.
 Verified with:
 `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/content-data-binding && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest" "backendInterpreterServer/testOnly scalascript.MarkdownContentFrontendSmokeTest" "cli/testOnly scalascript.cli.MarkdownContentFrontendCliTest"`
 (3 content-plugin tests + 5 interpreter-server frontend tests + 2 CLI tests passed).
+
+The inline content-binding extension landed on 2026-06-05:
+`contentBind(value, bindings)` resolves simple Markdown `${name}` and
+`${nested.name}` placeholders from `ContentValue.MapV` data without executing
+arbitrary ScalaScript expressions. `ContentToolkitOptions.bindings` and
+`contentToolkitOptionsWithBindings(data)` apply the same transform before
+toolkit lowering. Verified with:
+`cd /Users/sergiy/work/my/scalascript/.worktrees/feature/content-table-values && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest" "backendInterpreter/testOnly scalascript.ContentBackendExposureTest -- -z tables" "cli/runMain scalascript.cli.ssc run examples/content-tables.ssc"`
+(19 content-plugin tests + 2 JS/JVM table exposure tests passed; CLI example
+prints raw and bound table output).
 
 The lookup/plain-text slice landed on 2026-06-05:
 `contentSection(id)` and `contentBlock(id)` expose interpreter `Option`

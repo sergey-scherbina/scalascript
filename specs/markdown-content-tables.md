@@ -59,7 +59,7 @@ through `contentToolkitOptionsWithBindings(data)`.
 - [x] `contentView(...)` renders tables as semantic table markup.
 - [x] `contentToolkitNode()` / `contentToolkitBlock(id)` lower tables to the
       existing `TableNode` toolkit node.
-- [ ] A table passed through `contentBind(table, bindings)` renders bound cell
+- [x] A table passed through `contentBind(table, bindings)` renders bound cell
       values through `contentPlainText(table)`, `contentToMarkdown(table)`, and
       toolkit `TableNode` lowering.
 - [x] Existing paragraph/list/image/fenced-block behavior remains unchanged.
@@ -120,3 +120,10 @@ attempted after the JS fixture fence was corrected from `scala` to
 `scalascript`; all JS cases passed, but the JVM subprocess cases hit unrelated
 Scala CLI/Bloop socket timeouts (`Address already in use` / BSP socket timeout)
 while other long-running scala-cli jobs were active.
+
+The inline binding extension landed on 2026-06-05. `examples/content-tables.ssc`
+now declares `pricing-values` YAML data, prints the raw table preserving
+`${proPrice}`, then prints the bound table where `contentBind(table, data)` and
+`contentToolkitOptionsWithBindings(data)` both resolve the Pro price to `$49`.
+Verified with the focused content plugin test, JS/JVM table exposure test, and
+the CLI example command listed above.

@@ -68,7 +68,7 @@ DocumentContent(
 The first public path is frontend lowering:
 
 ```scalascript
-[contentComponent, contentToolkitNode, contentToolkitBlock, contentToolkitSection, contentToolkitOptionsWithComponents](std/ui/content.ssc)
+[contentComponent, contentToolkitNode, contentToolkitBlock, contentToolkitSection, contentToolkitOptionsWithBindings, contentToolkitOptionsWithComponents](std/ui/content.ssc)
 [vstack](std/ui/layout.ssc)
 [heading](std/ui/typography.ssc)
 [rawText](std/ui/reactive.ssc)
@@ -104,6 +104,10 @@ lowering. Code can also query regions directly with `contentSection(id)` and
 `contentMetadata(path)` reads `content:` front-matter metadata by dot path, and
 `contentToMarkdown(value)` serializes a selected document, section, or block
 back to deterministic semantic Markdown.
+`contentBind(value, bindings)` explicitly resolves Markdown `${name}` placeholders
+from `ContentValue.MapV` data before these renderers consume the selected
+content; toolkit selectors use `contentToolkitOptionsWithBindings(data)` for
+the same pre-render step.
 GFM pipe tables become `ContentBlock.Table` nodes with inline header/cell
 content, alignment metadata, and attrs from a preceding `<!-- @meta ... -->`
 directive. Toolkit lowering maps them to `TableNode`; low-level `contentView`

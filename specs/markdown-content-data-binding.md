@@ -125,17 +125,17 @@ contentToolkitSection("plans", options)
       keeps receiving that block's own parsed data.
 - [x] Missing `data=<id>` references produce `ctx.data = None`; they do not
       prevent component rendering.
-- [ ] `contentBind(block, bindings)` replaces scalar `${name}` and
+- [x] `contentBind(block, bindings)` replaces scalar `${name}` and
       `${nested.name}` inline placeholders with text before
       `contentPlainText(...)`, `contentToMarkdown(...)`, and content renderers
       consume the block.
-- [ ] `contentBind(sectionOrDocument, bindings)` applies the same replacement
+- [x] `contentBind(sectionOrDocument, bindings)` applies the same replacement
       recursively through paragraphs, lists, tables, and child sections.
-- [ ] Missing names and non-path expressions are preserved as `${source}` rather
+- [x] Missing names and non-path expressions are preserved as `${source}` rather
       than evaluated or silently erased.
-- [ ] Interpreter, JS, and JVM backends expose matching `contentBind(...)`
+- [x] Interpreter, JS, and JVM backends expose matching `contentBind(...)`
       behavior for the low-level `std/content` API.
-- [ ] `ContentToolkitOptions(bindings = data)` applies the same binding before
+- [x] `contentToolkitOptionsWithBindings(data)` applies the same binding before
       `contentToolkitNode()`, `contentToolkitBlock(id)`, and
       `contentToolkitSection(id)` produce toolkit nodes.
 
@@ -211,3 +211,15 @@ Markdown frontend tests passed. Coverage includes direct `contentData(id)`
 lookup, missing/non-structured ids, duplicate structured ids, section and block
 `data=<id>` component binding, embedded structured block fallback data, and
 missing data references.
+
+Inline placeholder binding was extended on 2026-06-05. Verified with:
+
+```bash
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/content-table-values && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest"
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/content-table-values && sbt "backendInterpreter/testOnly scalascript.ContentBackendExposureTest -- -z tables"
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/content-table-values && sbt "cli/runMain scalascript.cli.ssc run examples/content-tables.ssc"
+```
+
+Results: 19 content-plugin tests passed; JS and JVM content table exposure tests
+passed; the CLI example now prints both the raw `${proPrice}` table and the
+bound `$49` table, with toolkit `TableNode` rows containing `TextNode_($49)`.
