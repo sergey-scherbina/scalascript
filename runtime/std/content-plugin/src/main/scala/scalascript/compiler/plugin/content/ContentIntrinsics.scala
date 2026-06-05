@@ -18,11 +18,28 @@ object ContentIntrinsics:
             case _ => throw InterpretError("contentDocument() is only available while running a parsed .ssc module")
         case _ => throw InterpretError("contentDocument()")
     },
+    QualifiedName("contentSection") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case (id: String) :: Nil =>
+          Value.optionV(contentSectionById(currentDocument(ctx, "contentSection(id)"), id).map(sectionValue))
+        case _ => throw InterpretError("contentSection(id)")
+    },
+    QualifiedName("contentBlock") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case (id: String) :: Nil =>
+          Value.optionV(contentBlockById(currentDocument(ctx, "contentBlock(id)"), id).map(blockValue))
+        case _ => throw InterpretError("contentBlock(id)")
+    },
     QualifiedName("contentData") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case (id: String) :: Nil =>
           Value.optionV(contentDataById(currentDocument(ctx, "contentData(id)"), id).map(contentValue))
         case _ => throw InterpretError("contentData(id)")
+    },
+    QualifiedName("contentPlainText") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case value :: Nil => contentPlainTextAny(value)
+        case _            => throw InterpretError("contentPlainText(value)")
     },
     QualifiedName("contentToolkitNode") -> PluginNative.evalLegacy { (ctx, args) =>
       val options = args match
@@ -183,6 +200,18 @@ object ContentIntrinsics:
     attrs.get(name) match
       case Some(ast.ContentValue.Str(value)) => Some(value)
       case _                                => None
+
+  private def contentSectionById(doc: ast.DocumentContent, id: String): Option[ast.SectionContent] =
+    sectionsDeep(doc).filter(_.id == id) match
+      case Nil           => None
+      case section :: Nil => Some(section)
+      case _             => throw InterpretError(s"contentSection: duplicate section id '$id'")
+
+  private def contentBlockById(doc: ast.DocumentContent, id: String): Option[ast.ContentBlock] =
+    blocksDeep(doc).filter(block => blockId(block).contains(id)) match
+      case Nil          => None
+      case block :: Nil => Some(block)
+      case _            => throw InterpretError(s"contentBlock: duplicate block id '$id'")
 
   private def componentRenderer(
       attrs: Map[String, ast.ContentValue],
@@ -546,6 +575,122 @@ object ContentIntrinsics:
     case ast.ContentInline.Code(value)        => s"`$value`"
     case ast.ContentInline.Link(label, href, _) => inlineText(label) + s" ($href)"
     case ast.ContentInline.Expr(source)       => "${" + source + "}"
+
+  private val contentBlockValueTypeNames: Set[String] =
+    Set("Paragraph", "BulletList", "OrderedList", "Image", "Embedded")
+
+  private def contentPlainTextAny(value: Any): String =
+    value match
+      case v: Value => contentPlainTextValue(v)
+      case other =>
+        throw InterpretError(s"contentPlainText: expected SectionContent or ContentBlock, got ${String.valueOf(other)}")
+
+  private def contentPlainTextValue(value: Value): String =
+    value match
+      case section: Value.InstanceV if section.typeName == "SectionContent" =>
+        sectionPlainText(section)
+      case block: Value.InstanceV if contentBlockValueTypeNames.contains(block.typeName) =>
+        blockPlainText(block)
+      case other =>
+        throw InterpretError(s"contentPlainText: expected SectionContent or ContentBlock, got ${Value.show(other)}")
+
+  private def sectionPlainText(section: Value.InstanceV): String =
+    val fields = section.effectiveFields
+    val title = requiredStringField(fields, "title", "SectionContent.title")
+    val blocks = requiredListField(fields, "blocks", "SectionContent.blocks")
+    val children = requiredListField(fields, "children", "SectionContent.children")
+    val fragments =
+      title ::
+        blocks.map(blockPlainText) ++
+        children.map(child => sectionPlainText(requiredInstance(child, "SectionContent", "SectionContent.children")))
+    fragments.filter(_.nonEmpty).mkString("\n")
+
+  private def blockPlainText(value: Value): String =
+    value match
+      case block: Value.InstanceV if block.typeName == "Paragraph" =>
+        val inlines = requiredListField(block.effectiveFields, "inlines", "Paragraph.inlines")
+        inlinePlainText(inlines)
+      case block: Value.InstanceV if block.typeName == "BulletList" =>
+        val items = requiredListField(block.effectiveFields, "items", "BulletList.items")
+        items.map(item => "- " + blockListPlainText(item, "BulletList.items")).filter(_.trim.nonEmpty).mkString("\n")
+      case block: Value.InstanceV if block.typeName == "OrderedList" =>
+        val fields = block.effectiveFields
+        val start = requiredIntField(fields, "start", "OrderedList.start")
+        val items = requiredListField(fields, "items", "OrderedList.items")
+        items.zipWithIndex.map { case (item, idx) =>
+          s"${start + idx}. ${blockListPlainText(item, "OrderedList.items")}"
+        }.filter(_.trim.nonEmpty).mkString("\n")
+      case block: Value.InstanceV if block.typeName == "Image" =>
+        val fields = block.effectiveFields
+        val src = requiredStringField(fields, "src", "Image.src")
+        val alt = requiredStringField(fields, "alt", "Image.alt")
+        if alt.isEmpty then src else alt
+      case block: Value.InstanceV if block.typeName == "Embedded" =>
+        val fields = block.effectiveFields
+        val lang = requiredStringField(fields, "lang", "Embedded.lang")
+        val source = requiredStringField(fields, "source", "Embedded.source")
+        if lang.isEmpty then source else s"$lang: $source"
+      case other =>
+        throw InterpretError(s"contentPlainText: expected ContentBlock, got ${Value.show(other)}")
+
+  private def blockListPlainText(value: Value, context: String): String =
+    val blocks = value match
+      case Value.ListV(items) => items
+      case other =>
+        throw InterpretError(s"contentPlainText: $context expected List[ContentBlock], got ${Value.show(other)}")
+    blocks.map(blockPlainText).filter(_.nonEmpty).mkString(" ")
+
+  private def inlinePlainText(values: List[Value]): String =
+    values.map(inlinePlainText).mkString
+
+  private def inlinePlainText(value: Value): String =
+    value match
+      case inline: Value.InstanceV if inline.typeName == "Text" =>
+        requiredStringField(inline.effectiveFields, "value", "Text.value")
+      case inline: Value.InstanceV if inline.typeName == "Emphasis" =>
+        inlinePlainText(requiredListField(inline.effectiveFields, "children", "Emphasis.children"))
+      case inline: Value.InstanceV if inline.typeName == "Strong" =>
+        inlinePlainText(requiredListField(inline.effectiveFields, "children", "Strong.children"))
+      case inline: Value.InstanceV if inline.typeName == "Code" =>
+        s"`${requiredStringField(inline.effectiveFields, "value", "Code.value")}`"
+      case inline: Value.InstanceV if inline.typeName == "Link" =>
+        val fields = inline.effectiveFields
+        inlinePlainText(requiredListField(fields, "label", "Link.label")) +
+          s" (${requiredStringField(fields, "href", "Link.href")})"
+      case inline: Value.InstanceV if inline.typeName == "Expr" =>
+        "${" + requiredStringField(inline.effectiveFields, "source", "Expr.source") + "}"
+      case other =>
+        throw InterpretError(s"contentPlainText: expected ContentInline, got ${Value.show(other)}")
+
+  private def requiredInstance(value: Value, typeName: String, context: String): Value.InstanceV =
+    value match
+      case inst: Value.InstanceV if inst.typeName == typeName => inst
+      case other =>
+        throw InterpretError(s"contentPlainText: $context expected $typeName, got ${Value.show(other)}")
+
+  private def requiredStringField(fields: Map[String, Value], name: String, context: String): String =
+    fields.get(name) match
+      case Some(Value.StringV(value)) => value
+      case Some(other) =>
+        throw InterpretError(s"contentPlainText: $context expected String, got ${Value.show(other)}")
+      case None =>
+        throw InterpretError(s"contentPlainText: missing $context")
+
+  private def requiredIntField(fields: Map[String, Value], name: String, context: String): Int =
+    fields.get(name) match
+      case Some(Value.IntV(value)) => value.toInt
+      case Some(other) =>
+        throw InterpretError(s"contentPlainText: $context expected Int, got ${Value.show(other)}")
+      case None =>
+        throw InterpretError(s"contentPlainText: missing $context")
+
+  private def requiredListField(fields: Map[String, Value], name: String, context: String): List[Value] =
+    fields.get(name) match
+      case Some(Value.ListV(values)) => values
+      case Some(other) =>
+        throw InterpretError(s"contentPlainText: $context expected List, got ${Value.show(other)}")
+      case None =>
+        throw InterpretError(s"contentPlainText: missing $context")
 
   private def vstackNode(gap: Int, children: List[Value]): Value =
     instanceValue("VStackNode",

@@ -112,6 +112,83 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
       case other =>
         fail(s"expected contentData defined/missing booleans, got $other")
 
+  test("contentSection contentBlock and contentPlainText expose selected Markdown regions"):
+    val source =
+      """---
+        |name: content-lookup-runtime-test
+        |---
+        |
+        |# Pricing
+        |
+        |Intro paragraph.
+        |
+        |## Plans {#plans}
+        |
+        |<!-- @meta id=hero-copy -->
+        |Simple plans for **small teams** with `predictable` billing.
+        |
+        |<!-- @meta id=plan-list -->
+        |- Starter
+        |- Pro
+        |
+        |```yaml @id=plans-data
+        |plans:
+        |  - id: starter
+        |  - id: pro
+        |```
+        |
+        |## Feature Matrix
+        |
+        |Generated id section.
+        |
+        |[contentSection, contentBlock, contentPlainText, contentData](std/content.ssc)
+        |
+        |```scala
+        |val plans = contentSection("plans").get
+        |val generated = contentSection("feature-matrix").get
+        |val hero = contentBlock("hero-copy").get
+        |val planList = contentBlock("plan-list").get
+        |val dataBlock = contentBlock("plans-data").get
+        |
+        |List(
+        |  contentSection("feature-matrix").isDefined.toString,
+        |  contentSection("missing").isDefined.toString,
+        |  contentBlock("missing").isDefined.toString,
+        |  contentPlainText(plans),
+        |  contentPlainText(hero),
+        |  contentPlainText(planList),
+        |  contentPlainText(dataBlock),
+        |  contentPlainText(generated),
+        |  contentData("plans-data").isDefined.toString
+        |)
+        |```
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    interp.run(Parser.parse(source))
+
+    interp.lastResult match
+      case Value.ListV(values) =>
+        val strings = values.collect { case Value.StringV(value) => value }
+        assert(strings.size == 9)
+        assert(strings.take(3) == List("true", "false", "false"))
+        assert(strings(3).contains("Plans"))
+        assert(strings(3).contains("Simple plans for small teams with `predictable` billing."))
+        assert(strings(3).contains("- Starter\n- Pro"))
+        assert(strings(3).contains("yaml: plans:"))
+        assert(strings(4) == "Simple plans for small teams with `predictable` billing.")
+        assert(strings(5) == "- Starter\n- Pro")
+        assert(strings(6).startsWith("yaml: plans:"))
+        assert(strings(7).contains("Feature Matrix"))
+        assert(strings(7).contains("Generated id section."))
+        assert(strings(8) == "true")
+      case other =>
+        fail(s"expected content lookup/plain-text strings, got $other")
+
   test("contentData reports duplicate structured data ids"):
     val source =
       """---
@@ -143,3 +220,57 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
     val err = intercept[InterpretError]:
       interp.run(Parser.parse(source))
     assert(err.getMessage.contains("contentData: duplicate structured data id 'same'"))
+
+  test("contentBlock reports duplicate content block ids"):
+    val source =
+      """---
+        |name: content-block-duplicate-test
+        |---
+        |
+        |# Demo
+        |
+        |<!-- @meta id=same -->
+        |First copy.
+        |
+        |<!-- @meta id=same -->
+        |Second copy.
+        |
+        |[contentBlock](std/content.ssc)
+        |
+        |```scala
+        |contentBlock("same")
+        |```
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    val err = intercept[InterpretError]:
+      interp.run(Parser.parse(source))
+    assert(err.getMessage.contains("contentBlock: duplicate block id 'same'"))
+
+  test("contentPlainText reports unsupported values"):
+    val source =
+      """---
+        |name: content-plain-text-unsupported-test
+        |---
+        |
+        |# Demo
+        |
+        |[contentPlainText](std/content.ssc)
+        |
+        |```scala
+        |contentPlainText(123)
+        |```
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    val err = intercept[InterpretError]:
+      interp.run(Parser.parse(source))
+    assert(err.getMessage.contains("contentPlainText: expected SectionContent or ContentBlock"))

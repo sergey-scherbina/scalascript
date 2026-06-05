@@ -11,7 +11,10 @@ exports:
   - ContentInline
   - ContentValue
   - contentDocument
+  - contentSection
+  - contentBlock
   - contentData
+  - contentPlainText
 ---
 
 # `std.content` — Markdown-hosted content
@@ -71,5 +74,8 @@ enum ContentValue:
   case NullV
 
 extern def contentDocument(): DocumentContent
+extern def contentSection(id: String): Option[SectionContent]
+extern def contentBlock(id: String): Option[ContentBlock]
 extern def contentData(id: String): Option[ContentValue]
+extern def contentPlainText(value: Any): String
 ```
