@@ -1,6 +1,6 @@
-feature/markdown-multi-link-imports 2026-06-05T11:20:06Z
+feature/markdown-multi-link-imports 2026-06-05T11:20:21Z
 agent: codex
-heartbeat: 2026-06-05T11:20:06Z
-status: not-started
-done-so-far:
-next: write and commit focused spec before implementation
+heartbeat: 2026-06-05T11:20:21Z
+status: in-progress
+done-so-far: worktree created
+next: write specs/markdown-multi-link-imports.md and commit spec before implementation
