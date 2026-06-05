@@ -41,28 +41,28 @@ not a frontend toolkit helper and does not depend on `std/ui`.
 
 ## Behavior
 
-- [ ] `contentToMarkdown(contentDocument())` renders a complete Markdown
+- [x] `contentToMarkdown(contentDocument())` renders a complete Markdown
       document with optional front-matter, top-level blocks, and nested
       sections.
-- [ ] `contentToMarkdown(section)` renders the selected section heading,
+- [x] `contentToMarkdown(section)` renders the selected section heading,
       section metadata, blocks, and child sections without unrelated siblings.
-- [ ] `contentToMarkdown(block)` renders every current `ContentBlock` variant:
+- [x] `contentToMarkdown(block)` renders every current `ContentBlock` variant:
       paragraph, bullet list, ordered list, image, and embedded fenced block.
-- [ ] Inline rendering preserves text, emphasis, strong emphasis, inline code,
+- [x] Inline rendering preserves text, emphasis, strong emphasis, inline code,
       links with optional titles, and `${expr}` interpolation markers.
-- [ ] Structured embedded blocks preserve their original fenced source text and
+- [x] Structured embedded blocks preserve their original fenced source text and
       language tag. The parsed `data` value is used only when original source is
       unavailable in a future artifact format, not in this slice.
-- [ ] Metadata round-trip is explicit and stable: section metadata renders as a
+- [x] Metadata round-trip is explicit and stable: section metadata renders as a
       trailing heading attribute group, and block/fence metadata renders as
       CommonMark-compatible metadata where the current content IR can express
       it.
-- [ ] Formatting is deterministic across interpreter, JS, and JVM generated
+- [x] Formatting is deterministic across interpreter, JS, and JVM generated
       output for the same content tree.
-- [ ] Exact byte-for-byte source preservation is not required: spacing,
+- [x] Exact byte-for-byte source preservation is not required: spacing,
       wrapping, quote style, generated ids, and equivalent Markdown spellings
       may differ from the original source.
-- [ ] Unsupported input values fail clearly instead of returning an empty
+- [x] Unsupported input values fail clearly instead of returning an empty
       string or silently calling `show`.
 
 ## Formatting Rules
@@ -199,4 +199,22 @@ inline tree, embedded source text, and attrs.
 
 ## Results
 
-Fill in after implementation and verification.
+Landed on 2026-06-05. The implementation added
+`contentToMarkdown(value: Any)` to `runtime/std/content.ssc`,
+`ContentIntrinsics`, generated JS runtime, and generated JVM runtime. The JVM
+content runtime now keeps frontend-toolkit `_ssc_tk_*` helpers out of low-level
+`std/content` output unless `std/ui/content` / `contentToolkit*` is actually
+used, so plain JVM `contentToMarkdown` programs do not require `std.ui`.
+
+Verification command:
+
+```bash
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-content-to-markdown && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest" "backendInterpreter/testOnly scalascript.ContentBackendExposureTest" "contentPlugin/compile" "backendJs/compile" "backendJvm/compile"
+```
+
+Result: 13 content plugin tests passed, 4 backend exposure tests passed, and
+`contentPlugin/compile`, `backendJs/compile`, and `backendJvm/compile` passed.
+The exact cross-backend Markdown fixture is
+`tests/conformance/content-to-markdown.ssc` with expected output in
+`tests/conformance/expected/content-to-markdown.txt`. The user-facing example is
+`examples/content-to-markdown.ssc`.

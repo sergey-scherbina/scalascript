@@ -483,7 +483,7 @@ output, so Markdown-authored metadata can drive CLI output, browser codegen,
 and generated Scala programs with the same source:
 
 ```scalascript
-[contentDocument, contentCurrentSection, contentSection, contentBlock, contentData, contentMetadata, contentPlainText](std/content.ssc)
+[contentDocument, contentCurrentSection, contentSection, contentBlock, contentData, contentMetadata, contentPlainText, contentToMarkdown](std/content.ssc)
 
 val doc = contentDocument()
 val here = contentCurrentSection()
@@ -494,6 +494,7 @@ println(doc.title.getOrElse(""))
 println(here.id)
 println(contentPlainText(plans))
 println(contentPlainText(controls))
+println(contentToMarkdown(plans))
 println(contentData("plans-data").isDefined)
 println(contentMetadata("defaultRenderer").isDefined)
 ```
@@ -503,11 +504,15 @@ println(contentMetadata("defaultRenderer").isDefined)
 return `None`. `contentMetadata(path)` reads `content:` front-matter metadata
 by dot path. `contentPlainText(value)` accepts a `SectionContent` or
 `ContentBlock` and extracts readable text for logging, indexing, search, or
-component previews. `contentCurrentSection()` returns the currently executing
-code block's enclosing Markdown section; headingless code reports an error.
+component previews. `contentToMarkdown(value)` accepts a `DocumentContent`,
+`SectionContent`, or `ContentBlock` and serializes it back to deterministic
+semantic Markdown for export, previews, or later editing flows; it does not
+promise byte-for-byte source whitespace preservation. `contentCurrentSection()`
+returns the currently executing code block's enclosing Markdown section;
+headingless code reports an error.
 Imports for these helpers must be normal Markdown import links outside fenced
-code blocks. `contentToMarkdown(...)` remains planned. `contentToolkitNode()`,
-`contentToolkitBlock(id)`, and `contentToolkitSection(id)` remain
+code blocks. `contentToolkitNode()`, `contentToolkitBlock(id)`, and
+`contentToolkitSection(id)` remain
 frontend-toolkit helpers; use them with `lower(...)`/`serve(...)`, not as the
 low-level JS/JVM metadata API.
 

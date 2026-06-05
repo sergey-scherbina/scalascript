@@ -101,7 +101,9 @@ YAML/JSON/TOML data block with that id, and code can read the same value through
 `contentData("plans-data")`; missing registry entries use the default Markdown
 lowering. Code can also query regions directly with `contentSection(id)` and
 `contentBlock(id)`, then extract readable text through `contentPlainText(value)`.
-`contentMetadata(path)` reads `content:` front-matter metadata by dot path.
+`contentMetadata(path)` reads `content:` front-matter metadata by dot path, and
+`contentToMarkdown(value)` serializes a selected document, section, or block
+back to deterministic semantic Markdown.
 The low-level `contentView(contentDocument())` renderer remains available when
 callers need direct `View` nodes.
 
@@ -115,12 +117,13 @@ val controls = contentBlock("filters")
 val plansData = contentData("plans-data")
 val renderer = contentMetadata("defaultRenderer")
 val text = contentPlainText(here)
+val markdown = contentToMarkdown(here)
 ```
 
-`contentCurrentSection()` is interpreter-only in this slice. It is
-execution-scoped: a function called from a later code block sees the caller's
-current Markdown section, and headingless code reports an interpreter error.
-`contentToMarkdown(...)` and JS/JVM native-context exposure remain planned.
+`contentCurrentSection()` is execution-scoped: a function called from a later
+code block sees the caller's current Markdown section, and headingless code
+reports an interpreter/runtime error. The low-level `std/content` helpers above
+run on interpreter, generated JS, and generated JVM paths.
 
 The full contract and implementation phases are in
 [`../specs/markdown-content-introspection.md`](../specs/markdown-content-introspection.md).

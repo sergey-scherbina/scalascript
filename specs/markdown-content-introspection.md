@@ -120,8 +120,9 @@ truth. Phase 1 shipped the stable model plus `contentDocument()` for the
 interpreter; follow-up interpreter slices added `contentData(id)`,
 `contentSection(id)`, `contentBlock(id)`, `contentMetadata(path)`, and
 `contentPlainText(value)`, and `contentCurrentSection()`. The same low-level
-helper set now runs on generated JS and JVM backends. Current remaining Phase 2
-work is Markdown conversion helpers plus linked artifact metadata.
+helper set now runs on generated JS and JVM backends, and `contentToMarkdown`
+reverse rendering landed as the Markdown conversion helper. Current remaining
+Phase 2 work is linked artifact metadata.
 Names are prefixed with `content` to avoid collisions with existing `doc(...)`
 and `render(...)` helpers.
 
@@ -180,8 +181,7 @@ extern def contentBlock(id: String): Option[ContentBlock]
 extern def contentData(id: String): Option[ContentValue]
 extern def contentMetadata(path: String): Option[ContentValue]
 extern def contentPlainText(value: Any): String
-extern def contentToMarkdown(doc: DocumentContent): String
-extern def contentToMarkdown(section: SectionContent): String
+extern def contentToMarkdown(value: Any): String
 ```
 
 `contentDocument()` returns a parse-time snapshot of the whole module. It is
@@ -203,6 +203,11 @@ executable/string/opaque blocks or for structured blocks that failed to parse.
 `contentPlainText(value)` accepts a `SectionContent` or any `ContentBlock`
 variant and returns readable text for logging, indexing, search, and component
 previews. Unsupported values report an interpreter error.
+
+`contentToMarkdown(value)` accepts a `DocumentContent`, `SectionContent`, or any
+current `ContentBlock` variant and returns deterministic semantic Markdown.
+It preserves section/block metadata and embedded fenced source text, but does
+not promise byte-for-byte source whitespace preservation.
 
 ### Frontend helper API
 
@@ -666,10 +671,10 @@ concatenates classes in source order.
   Phase 1 `contentDocument()` interpreter API.
 - Populate native context state for JS and JVM backends. Focused plan:
   [`specs/markdown-content-backend-exposure.md`](markdown-content-backend-exposure.md).
-- Implement `contentToMarkdown`; extend the already-landed interpreter
-  `contentData(id)`, `contentSection(id)`, `contentBlock(id)`, and
-  `contentMetadata(path)`, `contentPlainText(value)`, and
-  `contentCurrentSection()` helpers to JS and JVM native context exposure.
+- Extend the already-landed interpreter `contentData(id)`,
+  `contentSection(id)`, `contentBlock(id)`, `contentMetadata(path)`,
+  `contentPlainText(value)`, `contentCurrentSection()`, and
+  `contentToMarkdown(value)` helpers to JS and JVM native context exposure.
 - Enable the pending conformance test across INT, JS, and JVM.
 
 ### Phase 3 - IR and artifact round-trip
@@ -785,3 +790,14 @@ toolkit helpers out of the low-level metadata API. Verified with:
 `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-content-backend-exposure && sbt "backendSpi/compile" "core/compile" "backendJs/compile" "backendJvm/compile" "backendNode/compile" "contentPlugin/compile" "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest" "backendInterpreter/testOnly scalascript.ContentBackendExposureTest" "cli/runMain scalascript.cli.ssc run tests/conformance/content-introspection.ssc" "cli/runMain scalascript.cli.ssc run-js tests/conformance/content-introspection.ssc" "cli/runMain scalascript.cli.ssc run-jvm tests/conformance/content-introspection.ssc"`
 (12 content-plugin tests + 2 backend exposure tests passed; conformance fixture
 matched across INT, JS, and JVM).
+
+The Markdown conversion slice landed on 2026-06-05:
+`contentToMarkdown(value)` renders `DocumentContent`, `SectionContent`, and
+`ContentBlock` values back to deterministic semantic Markdown on interpreter,
+generated JS, and generated JVM paths. It preserves embedded fenced source text
+and renders attrs through heading groups, metadata directives, or fenced
+`@key=value` attrs while explicitly avoiding byte-for-byte source preservation.
+Verified with:
+`cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-content-to-markdown && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest" "backendInterpreter/testOnly scalascript.ContentBackendExposureTest" "contentPlugin/compile" "backendJs/compile" "backendJvm/compile"`
+(13 content-plugin tests + 4 backend exposure tests passed, plus compile
+targets).
