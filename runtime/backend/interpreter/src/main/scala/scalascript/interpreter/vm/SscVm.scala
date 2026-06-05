@@ -88,6 +88,12 @@ object SscVm:
   final val EQREF = 45
   // NEREF dst, a, b: inverse of EQREF.
   final val NEREF = 46
+  // CALLREF dst, refSlot, argBase: invoke the FunV stored in refStack(refSlot) with
+  //   nargs args taken from the long+ref banks at argBase..argBase+nargs-1 (nargs
+  //   is derived at runtime from FunV.params.length). Result → stack(dst) (Long) or
+  //   refStack(dst) (AnyRef). Slow path: invokes via JitGlobals.getInterp().invoke —
+  //   the monomorphic IC (Stage 3.4) replaces this with a cached CompiledFn dispatch.
+  final val CALLREF = 47
 
   /** A compiled function: parallel instruction arrays + pools.
    *  `op(i)` is the opcode; `a/b/c(i)` its operands (meaning per §4 of spec).
@@ -228,6 +234,32 @@ object SscVm:
             i += 1
           ensureCapacity(stack, newBase + callee.numRegs)
           stack(base + a(pc)) = exec(callee, stack, refStack, newBase)
+        case CALLREF =>
+          val funV    = refStack(base + b(pc)).asInstanceOf[Value.FunV]
+          val argBase = base + c(pc)
+          val nargs   = funV.params.length
+          val interp  = jit.JitGlobals.getInterp()
+          if interp == null then throw new RuntimeException("CALLREF: no interpreter in TLS")
+          var argIdx  = 0
+          val argList = new scala.collection.mutable.ListBuffer[Value]
+          while argIdx < nargs do
+            val r  = argBase + argIdx
+            val pType = if argIdx < funV.paramTypes.length then funV.paramTypes(argIdx).trim else "Int"
+            val v =
+              if refStack(r) != null && refStack(r).isInstanceOf[Value] then
+                refStack(r).asInstanceOf[Value]
+              else if pType == "Double" || pType == "Float" then
+                Value.doubleV(jl.Double.longBitsToDouble(stack(r)))
+              else
+                Value.intV(stack(r))
+            argList += v
+            argIdx += 1
+          val result = interp.invoke(funV, argList.toList)
+          result match
+            case Value.IntV(x)    => stack(base + a(pc))    = x
+            case Value.BoolV(v)   => stack(base + a(pc))    = if v then 1L else 0L
+            case Value.DoubleV(d) => stack(base + a(pc))    = jl.Double.doubleToRawLongBits(d)
+            case other: Value     => refStack(base + a(pc)) = other
         case RET   => return stack(base + a(pc))
       pc += 1
     0L // unreachable

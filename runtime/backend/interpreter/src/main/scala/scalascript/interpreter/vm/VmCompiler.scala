@@ -25,9 +25,6 @@ object VmCompiler:
   private final class Bail(val reason: String)
     extends RuntimeException(null, null, true, false) // no stack trace — control flow only
 
-  private final class BailTyped(val typed: jit.JitBailReason)
-    extends RuntimeException(null, null, true, false)
-
   /** Static type of a register's contents. The VM stack is `Long`-typed; for a
    *  `TDouble` register the bits are an IEEE-754 double (see SscVm F* opcodes).
    *  Booleans are represented as `TInt` (0/1), matching the int comparison ops. */
@@ -64,12 +61,9 @@ object VmCompiler:
    *  (for `match` field extraction) via `meta`. */
   def compile(fn: Value.FunV, resolve: Resolve, meta: Meta): Option[CompiledFn] =
     try Some(new Ctx(resolve, meta).compileFn(fn))
-    catch
-      case b: BailTyped => { JitMissStats.record("vm", b.typed); None }
-      case b: Bail      => { JitMissStats.record(b.reason); None }
+    catch case b: Bail => { JitMissStats.record(b.reason); None }
 
   private def bail(reason: String): Nothing = throw new Bail(reason)
-  private def bailHof(name: String): Nothing = throw new BailTyped(jit.JitBailReason.HofCall(name))
 
   private def isFunType(tpe: String): Boolean = tpe.contains("=>")
   private def funArity(tpe: String): Int =
@@ -403,8 +397,20 @@ object VmCompiler:
             app.fun match
               case n: Term.Name =>
                 val r = locals.getOrElse(n.value, -1)
-                if r >= 0 && typeOf(r) == TRef && refTypeName.getOrElse(r, "").startsWith("FunV") then
-                  bailHof(n.value)
+                if r >= 0 && typeOf(r) == TRef then
+                  val tn = refTypeName.getOrElse(r, "")
+                  if tn.startsWith("FunV") then
+                    // HOF call: emit CALLREF; args at argBase, FunV at r, result → dst
+                    val args    = app.argClause.values
+                    val nargs   = args.length
+                    val argBase = freshRegs(nargs.max(1))
+                    var i = 0
+                    while i < nargs do
+                      compileInto(args(i), argBase + i)
+                      i += 1
+                    emit(CALLREF, dst, r, argBase)
+                    setType(dst, TInt)  // assume Long return (most HOF cases)
+                    return TInt         // explicit return from compileInto match
               case _ =>
             bail("call: no compilable target (free name, closure, or non-function)")
 

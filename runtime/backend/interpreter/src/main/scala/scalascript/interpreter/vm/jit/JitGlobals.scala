@@ -70,9 +70,10 @@ object JitGlobals:
       refObjFnsTls.set(prevOF)
       refDoubleFnsTls.set(prevDF)
 
-  def getRefs(): Array[AnyRef]           = refsTls.get()
-  def getRefFns(): Array[ObjToLong]      = refFnsTls.get()
-  def getRefObjFns(): Array[ObjToObject] = refObjFnsTls.get()
+  def getInterp(): Interpreter              = interpTls.get()
+  def getRefs(): Array[AnyRef]              = refsTls.get()
+  def getRefFns(): Array[ObjToLong]         = refFnsTls.get()
+  def getRefObjFns(): Array[ObjToObject]    = refObjFnsTls.get()
   def getRefDoubleFns(): Array[ObjToDouble] = refDoubleFnsTls.get()
 
   /** Called by generated Java code: read a top-level `Int` global by name and

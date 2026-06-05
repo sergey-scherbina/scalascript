@@ -1436,12 +1436,20 @@ class SscVmTest extends AnyFunSuite with Matchers:
     out.trim shouldBe "42"
   }
 
-  test("stage3.1: VmCompiler bails on FunV param call site (HofCall bail, not generic)") {
-    // A function that calls a FunV param: VmCompiler must bail (Stage 3.2 adds CALLREF).
-    // The bail should be typed HofCall, not the generic "no compilable target" string,
-    // so the miss-stats correctly attribute it.
-    val interp = interpOf("""def applyN(f: Int => Int, n: Int): Int = f(n)""")
-    val fn = interp.globalsView("applyN").asInstanceOf[Value.FunV]
-    val cfn = VmCompiler.compile(fn, globalsResolve(interp))
-    cfn shouldBe None   // bails — FunV param calls need Stage 3.2
+  test("stage3.2: CALLREF — VmCompiler compiles FunV param call, SscVm dispatches via interp") {
+    // `applyN(f, n) = f(n)` — the FunV param `f` is called via CALLREF opcode.
+    // VmCompiler emits CALLREF; SscVm.exec dispatches through JitGlobals.getInterp().invoke.
+    val out = captured(
+      """def double(x: Int): Int = x * 2
+        |def applyN(f: Int => Int, n: Int): Int = f(n)
+        |println(applyN(double, 21))""".stripMargin)
+    out.trim shouldBe "42"
+  }
+
+  test("stage3.2: CALLREF — chained HOF: applyTwice(f, n) = f(f(n))") {
+    val out = captured(
+      """def inc(x: Int): Int = x + 1
+        |def applyTwice(f: Int => Int, n: Int): Int = f(f(n))
+        |println(applyTwice(inc, 5))""".stripMargin)
+    out.trim shouldBe "7"
   }

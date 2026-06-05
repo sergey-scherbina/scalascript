@@ -139,7 +139,7 @@ Verified empirically via `./bench.sh`. New regression-guard corpus cases added:
       scrutinee was already supported via `walkLong` for the scrutinee.
 
 - [x] **jit-uc-stage3-1** — `Value.FunV` as JIT-visible ref operand in `JitGlobals`.
-- [ ] **jit-uc-stage3-2** — SscVm `CALLREF` opcode + monomorphic IC.
+- [x] **jit-uc-stage3-2** — SscVm `CALLREF` opcode + monomorphic IC.
 - [ ] **jit-uc-stage3-3** — Lambda / closure compilation (capturing + non-capturing).
 - [ ] **jit-uc-stage3-4** — IC hit-rate validation (`SSC_JIT_IC_STATS=1`).
 - [ ] **jit-uc-stage3-5** — Bytecode JIT HOF emission (Javac + ASM `INVOKEINTERFACE` to `RefCallable`).
