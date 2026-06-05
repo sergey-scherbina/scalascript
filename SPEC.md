@@ -379,6 +379,11 @@ UI model. The toolkit bridge can render the whole document with
 `contentToolkitNode()` or select explicit Markdown-authored regions with
 `contentToolkitBlock(id)` and `contentToolkitSection(id)`, so one `.ssc`
 document can hold multiple independent UI fragments defined in Markdown/YAML.
+Simple toolkit controls may also be declared as ordinary Markdown links with a
+`toolkit:` destination, for example
+`[Team name](toolkit:textField?signal=teamName&value=ScalaScript%20team)`;
+the toolkit renderer consumes those links as controls while non-toolkit
+Markdown renderers still see valid links.
 Sections or blocks annotated with `component=<name>` may opt into an explicit
 `ContentToolkitOptions.components` registry; registered callbacks receive the
 selected content metadata and return replacement toolkit nodes, while

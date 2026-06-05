@@ -396,6 +396,27 @@ serve(page, 8099)
 ```
 ````
 
+For simple controls, the same toolkit bridge also consumes ordinary Markdown
+links with a `toolkit:` destination. This keeps the source as plain Markdown
+instead of a structured YAML fence:
+
+````markdown
+<!-- @meta id=markdown-controls -->
+- [Team name](toolkit:textField?signal=teamName&value=ScalaScript%20team)
+- [Enable preview](toolkit:checkbox?signal=enabled&value=false)
+- [Apply](toolkit:button?signal=applied&value=true&enabledWhen=enabled)
+- [Team name](toolkit:signalText?signal=teamName)
+
+```scalascript
+val page = lower(contentToolkitBlock("markdown-controls"), defaultTheme)
+serve(page, 8099)
+```
+````
+
+Supported controls and behavior are specified in
+[`markdown-toolkit-links.md`](markdown-toolkit-links.md). YAML remains the
+preferred format for nested layout trees and larger forms.
+
 For live demos and phone/tablet previews, `serve(page, port)` is the preferred
 final bridge because the `.ssc` file is self-contained: it builds the View and
 starts the preview server in one run. `emit(page, outDir)` remains the static
