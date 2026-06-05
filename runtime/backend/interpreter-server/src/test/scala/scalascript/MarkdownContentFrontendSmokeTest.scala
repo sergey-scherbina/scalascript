@@ -340,3 +340,127 @@ class MarkdownContentFrontendSmokeTest extends AnyFunSuite:
     assert(js.contains("Fallback note"))
     assert(!js.contains("- Starter"))
     assert(!js.contains("- Pro"))
+
+  test("content toolkit components receive data references from Markdown metadata"):
+    val outDir = Files.createTempDirectory("ssc-markdown-content-data-binding")
+    val src =
+      s"""---
+         |name: markdown-content-data-binding
+         |frontend: react
+         |---
+         |
+         |# Pricing
+         |
+         |```yaml @id=plans-data
+         |plans:
+         |  - id: starter
+         |    title: Starter
+         |  - id: pro
+         |    title: Pro
+         |```
+         |
+         |<!-- @meta component=PlanList data=plans-data -->
+         |## Plans
+         |
+         |- Default starter
+         |- Default pro
+         |
+         |```yaml @id=inline-stats @component=StatsBox
+         |count: 2
+         |```
+         |
+         |<!-- @meta component=PlanSummary data=plans-data id=plan-summary -->
+         |Plan summary paragraph.
+         |
+         |<!-- @meta component=MissingData data=missing-data -->
+         |## Missing Data
+         |
+         |Fallback data state
+         |
+         |[ContentValue, contentData](std/content.ssc)
+         |
+         |[contentComponent, contentToolkitBlock, contentToolkitSection, contentToolkitOptionsWithComponents](std/ui/content.ssc)
+         |
+         |[vstack](std/ui/layout.ssc)
+         |
+         |[heading](std/ui/typography.ssc)
+         |
+         |[rawText](std/ui/reactive.ssc)
+         |
+         |[lower](std/ui/lower.ssc)
+         |
+         |[defaultTheme](std/ui/theme.ssc)
+         |
+         |[emit](std/ui/primitives.ssc)
+         |
+         |```scala
+         |val dataState = (value: Option[ContentValue]) =>
+         |  value match
+         |    case Some(_) => "has-data"
+         |    case None    => "no-data"
+         |
+         |val planList = contentComponent("PlanList") { ctx =>
+         |  vstack(gap = 4)(
+         |    heading(2, "Plan data"),
+         |    rawText(dataState(ctx.data))
+         |  )
+         |}
+         |
+         |val statsBox = contentComponent("StatsBox") { ctx =>
+         |  vstack(gap = 4)(
+         |    heading(3, "Inline stats"),
+         |    rawText(dataState(ctx.data))
+         |  )
+         |}
+         |
+         |val planSummary = contentComponent("PlanSummary") { ctx =>
+         |  vstack(gap = 4)(
+         |    heading(3, "Block data ref"),
+         |    rawText(dataState(ctx.data))
+         |  )
+         |}
+         |
+         |val missingData = contentComponent("MissingData") { ctx =>
+         |  vstack(gap = 4)(
+         |    heading(3, "Missing data"),
+         |    rawText(dataState(ctx.data))
+         |  )
+         |}
+         |
+         |val options = contentToolkitOptionsWithComponents([planList, statsBox, planSummary, missingData])
+         |println("contentData=" + contentData("plans-data").isDefined.toString)
+         |emit(
+         |  lower(
+         |    vstack(gap = 16)(
+         |      contentToolkitSection("plans", options),
+         |      contentToolkitBlock("inline-stats", options),
+         |      contentToolkitBlock("plan-summary", options),
+         |      contentToolkitSection("missing-data", options)
+         |    ),
+         |    defaultTheme
+         |  ),
+         |  "${outDir.toString}"
+         |)
+         |println("markdown-content-data-binding:ok")
+         |```
+         |""".stripMargin
+
+    val buf = java.io.ByteArrayOutputStream()
+    val ps  = java.io.PrintStream(buf, true)
+    val interp = Interpreter(out = ps, headless = true, baseDir = Some(TestPaths.repoRoot))
+    interp.injectGlobal("_ssc_frontend_name", Value.StringV("react"))
+    interp.run(Parser.parse(src))
+    ps.flush()
+
+    val stdout = buf.toString
+    assert(stdout.contains("contentData=true"))
+    assert(stdout.contains("markdown-content-data-binding:ok"))
+    assert(Files.exists(outDir.resolve("index.html")))
+    val js = Files.readString(outDir.resolve("app.js"))
+    assert(js.contains("Plan data"))
+    assert(js.contains("Inline stats"))
+    assert(js.contains("Block data ref"))
+    assert(js.contains("Missing data"))
+    assert(js.contains("has-data"))
+    assert(js.contains("no-data"))
+    assert(!js.contains("- Default starter"))

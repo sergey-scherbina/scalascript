@@ -1,7 +1,7 @@
 package scalascript.compiler.plugin.content
 
 import org.scalatest.funsuite.AnyFunSuite
-import scalascript.interpreter.{Interpreter, Value}
+import scalascript.interpreter.{InterpretError, Interpreter, Value}
 import scalascript.parser.Parser
 
 class ContentPluginInterpreterTest extends AnyFunSuite:
@@ -67,3 +67,79 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
             } == 1)
           case other => fail(s"expected SectionContent, got $other")
       case other => fail(s"expected DocumentContent, got $other")
+
+  test("contentData exposes structured fenced data by explicit id"):
+    val source =
+      """---
+        |name: content-data-runtime-test
+        |---
+        |
+        |# Pricing
+        |
+        |```yaml @id=plans-data
+        |plans:
+        |  - id: starter
+        |    price: 19
+        |  - id: pro
+        |    price: 49
+        |```
+        |
+        |```scala @id=not-data
+        |val ignored = 1
+        |```
+        |
+        |[contentData](std/content.ssc)
+        |
+        |```scala
+        |List(
+        |  contentData("plans-data").isDefined.toString,
+        |  contentData("not-data").isDefined.toString,
+        |  contentData("missing").isDefined.toString
+        |)
+        |```
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    interp.run(Parser.parse(source))
+
+    interp.lastResult match
+      case Value.ListV(List(Value.StringV("true"), Value.StringV("false"), Value.StringV("false"))) =>
+        succeed
+      case other =>
+        fail(s"expected contentData defined/missing booleans, got $other")
+
+  test("contentData reports duplicate structured data ids"):
+    val source =
+      """---
+        |name: content-data-duplicate-test
+        |---
+        |
+        |# Demo
+        |
+        |```yaml @id=same
+        |value: 1
+        |```
+        |
+        |```json @id=same
+        |{"value": 2}
+        |```
+        |
+        |[contentData](std/content.ssc)
+        |
+        |```scala
+        |contentData("same")
+        |```
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    val err = intercept[InterpretError]:
+      interp.run(Parser.parse(source))
+    assert(err.getMessage.contains("contentData: duplicate structured data id 'same'"))
