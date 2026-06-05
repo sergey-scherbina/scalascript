@@ -122,8 +122,8 @@ interpreter; follow-up interpreter slices added `contentData(id)`,
 `contentPlainText(value)`, and `contentCurrentSection()`. The same low-level
 helper set now runs on generated JS and JVM backends, `contentToMarkdown`
 reverse rendering landed as the Markdown conversion helper, and current-module
-`.scir` / `.sscc` artifact round-trip preserves the content snapshot. Current
-remaining Phase 2 work is linked-module content namespace support, specified in
+`.scir` / `.sscc` artifact round-trip preserves the content snapshot.
+Linked-module content namespace support landed 2026-06-05, specified in
 [`specs/markdown-content-linked-namespaces.md`](markdown-content-linked-namespaces.md).
 Names are prefixed with `content` to avoid collisions with existing `doc(...)`
 and `render(...)` helpers.
@@ -221,6 +221,8 @@ not promise byte-for-byte source whitespace preservation.
 snapshots by stable namespace. The namespace is the imported module's `name:`
 front-matter value or its path stem when `name:` is absent. The namespace-scoped
 lookup helpers mirror current-module section, block, data, and metadata lookup.
+Helper imports of `std/content.ssc` and `std/ui/content.ssc` are omitted from
+the namespace table.
 
 ### Frontend helper API
 

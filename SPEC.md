@@ -397,6 +397,8 @@ Direct imported modules expose their Markdown snapshots through
 helpers. The namespace is the imported module's `name:` front-matter value, or
 the imported path stem when `name:` is absent. Imported content namespaces are
 kept outside `DocumentContent` so the current-module content ABI remains stable.
+Imports used only to bring `std/content.ssc` or `std/ui/content.ssc` helpers
+into scope do not appear as content modules.
 `contentToMarkdown(value)` accepts `DocumentContent`, `SectionContent`, or any
 current `ContentBlock` variant and returns deterministic semantic Markdown. It
 preserves embedded fenced source text and metadata, but does not promise

@@ -52,26 +52,26 @@ call the API.
 
 ## Behavior
 
-- [ ] A module with no direct imports returns an empty `contentModules()` map
+- [x] A module with no direct imports returns an empty `contentModules()` map
       and `None` from `contentModule("missing")`.
-- [ ] A direct imported module with `name:` is visible under that exact name.
-- [ ] A direct imported module without `name:` is visible under its path stem.
-- [ ] `contentModule(namespace)` returns the imported module's full
+- [x] A direct imported module with `name:` is visible under that exact name.
+- [x] A direct imported module without `name:` is visible under its path stem.
+- [x] `contentModule(namespace)` returns the imported module's full
       `DocumentContent`, including manifest, top-level blocks, sections,
       structured data blocks, and metadata attrs.
-- [ ] `contentModuleSection`, `contentModuleBlock`, `contentModuleData`, and
+- [x] `contentModuleSection`, `contentModuleBlock`, `contentModuleData`, and
       `contentModuleMetadata` apply the existing current-document lookup
       semantics to the selected imported document.
-- [ ] Duplicate direct import namespaces produce a deterministic runtime error
+- [x] Duplicate direct import namespaces produce a deterministic runtime error
       for namespace lookup.
-- [ ] Transitive imports are not exposed to the parent module unless the parent
+- [x] Transitive imports are not exposed to the parent module unless the parent
       imports them directly.
-- [ ] Helper imports of `std/content.ssc` and `std/ui/content.ssc` do not appear
+- [x] Helper imports of `std/content.ssc` and `std/ui/content.ssc` do not appear
       in `contentModules()`.
-- [ ] Existing current-module helpers (`contentDocument`, `contentSection`,
+- [x] Existing current-module helpers (`contentDocument`, `contentSection`,
       `contentBlock`, `contentData`, `contentMetadata`, `contentCurrentSection`,
       `contentPlainText`, and `contentToMarkdown`) keep their current behavior.
-- [ ] Interpreter, JS codegen, and JVM codegen expose the same namespace API;
+- [x] Interpreter, JS codegen, and JVM codegen expose the same namespace API;
       native clients that run through generated JVM frontends see the same
       data.
 
@@ -129,4 +129,23 @@ namespace before applying the same lookup.
 
 ## Results
 
-Pending implementation and verification.
+Landed 2026-06-05.
+
+Implementation:
+- `std/content.ssc` exports `contentModules`, `contentModule`, and
+  namespace-scoped section/block/data/metadata lookups.
+- The interpreter records direct imported `DocumentContent` snapshots in
+  `NativeContextFeatureKeys.ContentImportedModules` after successful import
+  execution.
+- JS and JVM codegen collect the same direct imported snapshots at generation
+  time and embed duplicate-aware namespace tables next to the current-module
+  content runtime.
+- `std/content.ssc` and `std/ui/content.ssc` helper imports are filtered from
+  imported content namespace tables.
+
+Verification:
+- `sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest"
+  "backendInterpreter/testOnly scalascript.ContentBackendExposureTest"`:
+  18 content plugin tests and 6 JS/JVM backend exposure tests passed.
+- `sbt "cli/runMain scalascript.cli.ssc run examples/content-linked-namespaces.ssc"`:
+  example printed the imported `std-money` section title and `1234`.
