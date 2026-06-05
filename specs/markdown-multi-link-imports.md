@@ -36,18 +36,18 @@ remain internal Markdown cross-references and are not imports.
 
 ## Behavior
 
-- [ ] A single-link import paragraph keeps the existing `Content.Import`
+- [x] A single-link import paragraph keeps the existing `Content.Import`
       lowering.
-- [ ] A pure paragraph with two or more import links lowers to multiple
+- [x] A pure paragraph with two or more import links lowers to multiple
       `Content.Import` entries in source order.
-- [ ] Multiple bindings, aliases, and `from` qualifiers are preserved per link.
-- [ ] Whitespace, soft line breaks, and hard line breaks may separate import
+- [x] Multiple bindings, aliases, and `from` qualifiers are preserved per link.
+- [x] Whitespace, soft line breaks, and hard line breaks may separate import
       links in the same paragraph.
-- [ ] Paragraphs that mix prose text with links stay prose and do not import.
-- [ ] Internal `#...` links stay prose/cross-references and do not import.
-- [ ] Pure import paragraphs are omitted from `DocumentContent`, including
+- [x] Paragraphs that mix prose text with links stay prose and do not import.
+- [x] Internal `#...` links stay prose/cross-references and do not import.
+- [x] Pure import paragraphs are omitted from `DocumentContent`, including
       paragraphs with multiple import links.
-- [ ] The interpreter can resolve and execute symbols imported from two
+- [x] The interpreter can resolve and execute symbols imported from two
       different modules declared in one Markdown paragraph.
 
 ## Out of scope
@@ -88,4 +88,14 @@ sequence of `Content.Import` nodes.
 
 ## Results
 
-Pending implementation and verification.
+Implemented on 2026-06-05. Verification command:
+
+```bash
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-multi-link-imports && sbt "core/testOnly scalascript.parser.MarkdownMultiLinkImportTest" "backendInterpreter/testOnly scalascript.MarkdownMultiLinkImportInterpreterTest"
+```
+
+Results: 6 parser tests and 1 interpreter test passed. The parser test suite
+covers single-link compatibility, multi-link order, alias/from bindings,
+whitespace plus soft/hard line-break separators, prose/internal-link boundaries,
+and `DocumentContent` omission. The interpreter smoke verifies two local modules
+imported from one Markdown paragraph resolve and execute.
