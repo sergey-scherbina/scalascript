@@ -331,7 +331,7 @@ and other embedded language blocks.
 
 Simple plans for small teams.
 
-<!-- @meta component=PlanList source=plans -->
+<!-- @meta component=PlanList source=plans data=plans-data -->
 ## Plans
 
 - Starter: $19
@@ -401,6 +401,7 @@ declares `component=<name>` metadata, register the matching renderer explicitly
 and pass it through `contentToolkitOptionsWithComponents`:
 
 ```scalascript
+[contentData](std/content.ssc)
 [contentComponent, contentToolkitBlock, contentToolkitSection, contentToolkitOptionsWithComponents](std/ui/content.ssc)
 [vstack](std/ui/layout.ssc)
 [heading](std/ui/typography.ssc)
@@ -413,11 +414,13 @@ val planList = contentComponent("PlanList") { ctx =>
   vstack(gap = 4)(
     heading(2, "Plans from component"),
     rawText("component=" + ctx.name),
-    rawText("kind=" + ctx.kind + " id=" + ctx.id)
+    rawText("kind=" + ctx.kind + " id=" + ctx.id),
+    rawText("data=" + ctx.data.isDefined.toString)
   )
 }
 
 val markdownOptions = contentToolkitOptionsWithComponents([planList])
+println(contentData("plans-data").isDefined.toString)
 
 val page = lower(
   vstack(gap = 16)(
@@ -440,6 +443,11 @@ creates a typed renderer for Markdown metadata such as
 `ContentComponentContext` with `name`, `kind`, `id`, `attrs`, and the selected
 `section` or `block`. If metadata names a component that is not present in the
 registry, toolkit lowering falls back to the default Markdown renderer.
+Metadata `data=<id>` resolves a fenced YAML/JSON/TOML block such as
+`yaml @id=plans-data` into `ctx.data`; the same value is available from
+code through `contentData("plans-data")`. Missing data references produce
+`None`, so components can render empty or fallback states while the document is
+being edited.
 
 The lower-level `View` renderer remains available when exact HTML-like Markdown
 shape is more important than toolkit composition:

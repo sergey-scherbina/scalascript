@@ -30,7 +30,7 @@ metadata API.
 
 Simple plans for small teams.
 
-<!-- @meta component=PlanList source=plans -->
+<!-- @meta component=PlanList source=plans data=plans-data -->
 ## Plans
 
 - Starter: $19
@@ -57,7 +57,7 @@ DocumentContent(
       blocks = List(Paragraph(...)),
       children = List(SectionContent(
         id = "plans",
-        attrs = Map("component" -> "PlanList", ...),
+        attrs = Map("component" -> "PlanList", "data" -> "plans-data", ...),
         blocks = List(Embedded(lang = "yaml", kind = StructuredData, data = Some(...)))
       ))
     )
@@ -78,7 +78,8 @@ The first public path is frontend lowering:
 val planList = contentComponent("PlanList") { ctx =>
   vstack(gap = 4)(
     heading(2, "Plans from component"),
-    rawText("id=" + ctx.id)
+    rawText("id=" + ctx.id),
+    rawText("data=" + ctx.data.isDefined.toString)
   )
 }
 
@@ -94,8 +95,11 @@ regions, `contentToolkitBlock("id")` selects a block such as
 `@id=filters @ui=toolkit` on a fenced YAML block, and
 `contentToolkitSection("plans")` selects a heading section by stable id.
 Metadata such as `component=PlanList` is resolved only through an explicit
-`contentComponent("PlanList")` registry passed in toolkit options; missing
-registry entries use the default Markdown lowering. The low-level
+`contentComponent("PlanList")` registry passed in toolkit options. Metadata
+such as `data=plans-data` binds the component context to the parsed
+YAML/JSON/TOML data block with that id, and code can read the same value through
+`contentData("plans-data")`; missing registry entries use the default Markdown
+lowering. The low-level
 `contentView(contentDocument())` renderer remains available when callers need
 direct `View` nodes.
 

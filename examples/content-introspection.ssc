@@ -10,7 +10,7 @@ content:
 
 Simple plans for small teams.
 
-<!-- @meta component=PlanList source=plans -->
+<!-- @meta component=PlanList source=plans data=plans-data -->
 ## Plans
 
 - Starter: $19
@@ -94,6 +94,8 @@ controls:
         variant: warning
 ```
 
+[contentData](std/content.ssc)
+
 [contentComponent, contentToolkitBlock, contentToolkitSection, contentToolkitOptionsWithComponents](std/ui/content.ssc)
 
 [vstack](std/ui/layout.ssc)
@@ -113,7 +115,8 @@ val planList = contentComponent("PlanList") { ctx =>
   vstack(gap = 4)(
     heading(2, "Plans from component"),
     rawText("component=" + ctx.name),
-    rawText("kind=" + ctx.kind + " id=" + ctx.id)
+    rawText("kind=" + ctx.kind + " id=" + ctx.id),
+    rawText("data=" + ctx.data.isDefined.toString)
   )
 }
 
@@ -128,9 +131,10 @@ val page = lower(
 serve(page, 8099)
 
 println("content-introspection:ok")
+println("plans-data=" + contentData("plans-data").isDefined.toString)
 println("serving: http://127.0.0.1:8099/")
 
 // Lower-level metadata APIs remain the follow-up slice:
 // contentSection("plans")
-// contentData("plans-data")
+// contentCurrentSection()
 ```
