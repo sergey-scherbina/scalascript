@@ -1,6 +1,7 @@
 package scalascript.interpreter
 
 import scalascript.ast.*
+import scalascript.backend.spi.NativeContextFeatureKeys
 import scala.collection.mutable
 import scala.meta.*
 
@@ -32,20 +33,30 @@ private[interpreter] object SectionRuntime:
       }
     }
 
-  def runSection(section: Section, interp: Interpreter): Unit =
+  def runModuleSections(module: Module, interp: Interpreter): Unit =
+    runSectionList(module.sections, module.document.map(_.sections).getOrElse(Nil), interp)
+
+  def runSectionList(sections: List[Section], contentSections: List[SectionContent], interp: Interpreter): Unit =
+    sections.zipWithIndex.foreach { case (section, index) =>
+      runSection(section, interp, contentSections.lift(index))
+    }
+
+  def runSection(section: Section, interp: Interpreter, contentSection: Option[SectionContent] = None): Unit =
     section.content.foreach {
       case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
-        interp.currentSource = cb.source
-        interp.lineOffset = cb.tree match
-          case Some(t) => ScalaNode.fold(t) {
-            case _: Term.Block => 1
-            case _             => 0
-          }
-          case None => 0
-        // Phase 2 DAP: record document-level line where this code block starts.
-        interp.debugBlockDocLine = cb.lineOffset
-        runInlineImports(cb.source, interp)
-        cb.tree.foreach(t => execBlock(t, interp))
+        withCurrentContentSection(interp, contentSection) {
+          interp.currentSource = cb.source
+          interp.lineOffset = cb.tree match
+            case Some(t) => ScalaNode.fold(t) {
+              case _: Term.Block => 1
+              case _             => 0
+            }
+            case None => 0
+          // Phase 2 DAP: record document-level line where this code block starts.
+          interp.debugBlockDocLine = cb.lineOffset
+          runInlineImports(cb.source, interp)
+          cb.tree.foreach(t => execBlock(t, interp))
+        }
       case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
         runStringBlock(cb, section, interp)
       case cb: Content.CodeBlock if Lang.isSql(cb.lang) =>
@@ -63,7 +74,22 @@ private[interpreter] object SectionRuntime:
         runImport(imp, interp)
       case _ => ()
     }
-    section.subsections.foreach(s => runSection(s, interp))
+    section.subsections.zipWithIndex.foreach { case (child, index) =>
+      runSection(child, interp, contentSection.flatMap(_.children.lift(index)))
+    }
+
+  private def withCurrentContentSection[A](
+      interp:          Interpreter,
+      contentSection:  Option[SectionContent]
+  )(body: => A): A =
+    val key = NativeContextFeatureKeys.ContentCurrentSection
+    val previous = interp.nativeFeatureLocalRemove(key)
+    try
+      contentSection.foreach(section => interp.nativeFeatureLocalSet(key, section))
+      body
+    finally
+      interp.nativeFeatureLocalRemove(key)
+      previous.foreach(value => interp.nativeFeatureLocalSet(key, value))
 
   def runSqlBlock(cb: Content.CodeBlock, section: Section, interp: Interpreter): Unit =
     interp.ensurePluginsLoaded()

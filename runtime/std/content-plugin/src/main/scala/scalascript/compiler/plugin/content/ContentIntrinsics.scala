@@ -18,6 +18,17 @@ object ContentIntrinsics:
             case _ => throw InterpretError("contentDocument() is only available while running a parsed .ssc module")
         case _ => throw InterpretError("contentDocument()")
     },
+    QualifiedName("contentCurrentSection") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case Nil =>
+          ctx.featureLocalGet(NativeContextFeatureKeys.ContentCurrentSection) match
+            case Some(section: ast.SectionContent) => sectionValue(section)
+            case _ =>
+              throw InterpretError(
+                "contentCurrentSection() is only available while running a parsed .ssc code block inside a Markdown section"
+              )
+        case _ => throw InterpretError("contentCurrentSection()")
+    },
     QualifiedName("contentSection") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case (id: String) :: Nil =>

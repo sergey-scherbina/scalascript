@@ -2231,7 +2231,10 @@ final class WatchCmd extends CliCommand:
           val skipped = module.sections.length - (module.sections.length - firstChanged)
           val t0 = System.nanoTime()
           interpCheckpoints = theInterp.runSectionsIncremental(
-            module.sections, firstChanged, interpCheckpoints
+            module.sections,
+            firstChanged,
+            interpCheckpoints,
+            module.document.map(_.sections).getOrElse(Nil)
           )
           val ms = (System.nanoTime() - t0) / 1_000_000
           if skipped > 0 then
@@ -2401,7 +2404,12 @@ final class WatchBenchCmd extends CliCommand:
         val firstChanged = currHashes.zipWithIndex.collectFirst {
           case (h, idx) if prevHashes.lift(idx).forall(_ != h) => idx
         }.getOrElse(module.sections.length)
-        checkpoints = interp.runSectionsIncremental(module.sections, firstChanged, checkpoints)
+        checkpoints = interp.runSectionsIncremental(
+          module.sections,
+          firstChanged,
+          checkpoints,
+          module.document.map(_.sections).getOrElse(Nil)
+        )
       (System.nanoTime() - t0) / 1_000_000L
 
     val warmMs = reloadOnce(cold = true)

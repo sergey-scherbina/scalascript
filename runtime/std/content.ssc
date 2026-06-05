@@ -11,6 +11,7 @@ exports:
   - ContentInline
   - ContentValue
   - contentDocument
+  - contentCurrentSection
   - contentSection
   - contentBlock
   - contentData
@@ -75,6 +76,7 @@ enum ContentValue:
   case NullV
 
 extern def contentDocument(): DocumentContent
+extern def contentCurrentSection(): SectionContent
 extern def contentSection(id: String): Option[SectionContent]
 extern def contentBlock(id: String): Option[ContentBlock]
 extern def contentData(id: String): Option[ContentValue]

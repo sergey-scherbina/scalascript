@@ -690,7 +690,7 @@ class Interpreter(
 
   def run(module: Module): Unit =
     runInit(module)
-    module.sections.foreach(SectionRuntime.runSection(_, this))
+    SectionRuntime.runModuleSections(module, this)
     autoCallMain()
 
   /** Builtins + manifest/config setup without running sections.
@@ -894,8 +894,9 @@ class Interpreter(
     runInit(module)
     val cps = new mutable.ArrayBuffer[InterpCheckpoint](module.sections.length + 1)
     cps += takeCheckpoint()
-    module.sections.foreach { s =>
-      SectionRuntime.runSection(s, this)
+    val contentSections = module.document.map(_.sections).getOrElse(Nil)
+    module.sections.zipWithIndex.foreach { case (s, index) =>
+      SectionRuntime.runSection(s, this, contentSections.lift(index))
       cps += takeCheckpoint()
     }
     autoCallMain()
@@ -915,7 +916,8 @@ class Interpreter(
   def runSectionsIncremental(
       sections:        List[Section],
       firstChanged:    Int,
-      prevCheckpoints: Vector[InterpCheckpoint]
+      prevCheckpoints: Vector[InterpCheckpoint],
+      contentSections: List[SectionContent] = Nil
   ): Vector[InterpCheckpoint] =
     // Find the last valid restore point we have from the previous run.
     // prevCheckpoints(k) = state before section k.
@@ -924,8 +926,9 @@ class Interpreter(
     // Carry forward unchanged checkpoints (indices 0..restoreIdx inclusive).
     val reused = prevCheckpoints.take(restoreIdx + 1)
     // Re-run changed sections, collecting fresh checkpoints.
-    val newCps = sections.drop(restoreIdx).map { s =>
-      SectionRuntime.runSection(s, this)
+    val newCps = sections.drop(restoreIdx).zipWithIndex.map { case (s, offset) =>
+      val sectionIndex = restoreIdx + offset
+      SectionRuntime.runSection(s, this, contentSections.lift(sectionIndex))
       takeCheckpoint()
     }
     autoCallMain()
@@ -1534,7 +1537,7 @@ class Interpreter(
     import scalascript.parser.Parser
     val src    = s"# Snippet\n\n```scala\n$code\n```\n"
     val module = Parser.parse(src)
-    module.sections.foreach(SectionRuntime.runSection(_, this))
+    SectionRuntime.runModuleSections(module, this)
 
   /** Run all sections of a pre-parsed [[scalascript.ast.Module]] in this
    *  interpreter's current context (globals, plugins).  Unlike [[run]], this
@@ -1542,7 +1545,7 @@ class Interpreter(
    *  session.  Used by `:load file.ssc` to execute a `.ssc` file that was
    *  already parsed with [[scalascript.parser.Parser.parse]]. */
   def runSections(module: scalascript.ast.Module): Unit =
-    module.sections.foreach(SectionRuntime.runSection(_, this))
+    SectionRuntime.runModuleSections(module, this)
 
   /** Evaluate a single Scala 3 expression in the current globals + [[extraEnv]].
    *  Debug hooks are suppressed during evaluation so the REPL `:print` command
