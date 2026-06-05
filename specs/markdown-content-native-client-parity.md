@@ -52,30 +52,30 @@ The canonical example for this slice should contain at least:
 
 ## Behavior
 
-- [ ] Swing renders Markdown-authored toolkit controls as native Swing widgets:
+- [x] Swing renders Markdown-authored toolkit controls as native Swing widgets:
       `JTextField`, `JCheckBox`, `JButton`, and text/layout containers.
-- [ ] JavaFX renders the same Markdown-authored toolkit controls as native
+- [x] JavaFX renders the same Markdown-authored toolkit controls as native
       JavaFX widgets: `TextField`, `CheckBox`, `Button`, and text/layout nodes.
-- [ ] SwiftUI emits the same Markdown-authored toolkit controls as SwiftUI
+- [x] SwiftUI emits the same Markdown-authored toolkit controls as SwiftUI
       declarations: `TextField`, `Toggle`, `Button`, and stack/text views.
-- [ ] `contentToolkitNode()` renders the whole parsed Markdown document through
+- [x] `contentToolkitNode()` renders the whole parsed Markdown document through
       the shared toolkit/View model before native frontend emission.
-- [ ] `contentToolkitBlock(id)` and `contentToolkitSection(id)` preserve their
+- [x] `contentToolkitBlock(id)` and `contentToolkitSection(id)` preserve their
       selector semantics on native frontend paths: missing ids fail clearly and
       selected regions do not accidentally render sibling regions.
-- [ ] Fenced `yaml @ui=toolkit` control blocks initialize native signal state
+- [x] Fenced `yaml @ui=toolkit` control blocks initialize native signal state
       the same way as browser/custom frontend paths for scalar defaults:
       string, boolean, integer, and floating-point values.
-- [ ] `contentComponent(name)(render)` and `data=<id>` metadata remain explicit:
+- [x] `contentComponent(name)(render)` and `data=<id>` metadata remain explicit:
       registered components receive the same selected section/block metadata and
       structured data regardless of native frontend target.
-- [ ] Swing and JavaFX paths can use the generated JVM `std/content` helpers in
+- [x] Swing and JavaFX paths can use the generated JVM `std/content` helpers in
       ordinary ScalaScript code blocks when the source is compiled through
       `ssc run-jvm`.
-- [ ] SwiftUI parity does not require arbitrary ScalaScript code blocks to call
+- [x] SwiftUI parity does not require arbitrary ScalaScript code blocks to call
       `std/content` from generated Swift. Markdown content is consumed before
       SwiftUI emission through the existing frontend IR pipeline.
-- [ ] The same example source can be checked by native emitter tests without
+- [x] The same example source can be checked by native emitter tests without
       hand-writing per-client markup.
 
 ## Out of Scope
@@ -187,4 +187,37 @@ must record the actual commands and test counts in this spec's Results section.
 
 ## Results
 
-Spec-only slice pending implementation.
+Landed on 2026-06-05. The implementation added
+`examples/frontend/markdown-native-controls/markdown-native-controls.ssc`, JVM
+codegen exposure for the `std/ui/content` toolkit helpers on native JVM
+frontends, and `NativeElementLowering` in `frontend-core` so Swing, JavaFX, and
+SwiftUI normalize the HTML-like `View.Element` output produced by `std/ui/lower`
+into semantic native `TextInput` / `Toggle` / `Button` controls.
+
+Verification commands:
+
+```bash
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-content-native-client-parity && sbt "frontendCore/compile" "frontendSwing/testOnly scalascript.frontend.swing.SwingFrameworkBackendTest" "frontendJavaFx/testOnly scalascript.frontend.javafx.JavaFxFrameworkBackendTest" "frontendSwiftUI/testOnly scalascript.frontend.swiftui.SwiftUIEmitterTest" "backendInterpreter/testOnly scalascript.ContentNativeClientParityTest"
+```
+
+Result: 98 tests passed in the selected suites (Swing 16, JavaFX 10, SwiftUI
+69, content native parity codegen guard 3). The native widget assertions cover
+the raw `View.Element` shape produced by Markdown toolkit lowering and verify
+`JTextField` / `JCheckBox` / `JButton`, JavaFX `TextField` / `CheckBox` /
+`Button`, SwiftUI `TextField` / `Toggle` / `Button`, and scalar signal defaults
+for string, boolean, integer, and floating-point values.
+
+```bash
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-content-native-client-parity && sbt "backendInterpreterServer/testOnly scalascript.MarkdownContentFrontendSmokeTest" "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest" "backendJvm/compile" "contentPlugin/compile"
+```
+
+Result: 17 tests passed in the selected suites (Markdown frontend smoke 5,
+content plugin interpreter 12), plus `backendJvm/compile` and
+`contentPlugin/compile` passed.
+
+An attempted `scala-cli run` integration test for generated native source was
+not kept as the final automated check because `sscJarDirective(...)` resolves
+external/local ScalaScript JARs outside the sbt test classpath; during this
+change it picked up stale `frontend-core` artifacts and failed before exercising
+Markdown/native behavior. The stable coverage is therefore split into sbt-native
+emitter assertions plus JVM codegen guards.

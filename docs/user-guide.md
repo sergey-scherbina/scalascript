@@ -394,6 +394,19 @@ and `controls:` / `control:`. Supported control `type` values are `vstack`,
 `show`, `textField`, `checkbox`, `button`, `badge`, and `card`.
 Use `serve(page, port)` for direct browser or phone preview; use
 `emit(page, outDir)` when you need static `index.html` + `app.js` artifacts.
+The same Markdown-authored controls also lower through native clients. Swing
+and JavaFX run the generated JVM frontend with native `JTextField` / `TextField`,
+checkbox, and button widgets; SwiftUI emits `TextField`, `Toggle`, and `Button`
+declarations from the same `View` tree:
+
+```bash
+ssc run-jvm --frontend swing  examples/frontend/markdown-native-controls/markdown-native-controls.ssc
+ssc run-jvm --frontend javafx examples/frontend/markdown-native-controls/markdown-native-controls.ssc
+ssc emit --frontend swiftui   examples/frontend/markdown-native-controls/markdown-native-controls.ssc
+```
+
+Native frontends do not reparse Markdown. They consume the shared toolkit/View
+pipeline and normalize the HTML-like `std/ui/lower` output into native controls.
 
 When one `.ssc` document contains multiple independent Markdown-authored UI
 regions, keep each region in Markdown and select it by stable id. If a region
