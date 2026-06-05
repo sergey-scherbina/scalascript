@@ -52,6 +52,20 @@ in `bindings`. For example, `${proPrice}` resolves from a top-level
 Unresolved placeholders and non-path expressions remain as `Expr(source)` so
 plain introspection never executes arbitrary ScalaScript code.
 
+The `std/ui/content.ssc` toolkit options gain the same binding input:
+
+```scalascript
+case class ContentToolkitOptions(
+  ...
+  bindings: ContentValue = ContentValue.MapV(Map())
+)
+```
+
+`contentToolkitNode(options)`, `contentToolkitBlock(id, options)`, and
+`contentToolkitSection(id, options)` apply `options.bindings` before default
+toolkit lowering and before a registered component receives `ctx.block` or
+`ctx.section`. The default empty map preserves existing behavior.
+
 The `std/ui/content.ssc` component API keeps the existing
 `ContentComponentContext.data: Option[ContentValue]` field and defines its
 resolution rules:
@@ -112,6 +126,9 @@ contentToolkitSection("plans", options)
       than evaluated or silently erased.
 - [ ] Interpreter, JS, and JVM backends expose matching `contentBind(...)`
       behavior for the low-level `std/content` API.
+- [ ] `ContentToolkitOptions(bindings = data)` applies the same binding before
+      `contentToolkitNode()`, `contentToolkitBlock(id)`, and
+      `contentToolkitSection(id)` produce toolkit nodes.
 
 ## Out of Scope
 
@@ -141,6 +158,11 @@ and does not ask a renderer to special-case every placeholder. Renderers keep
 their existing behavior because they receive ordinary `Text` inline nodes after
 binding.
 
+Toolkit binding is modeled as an option, not as extra selector overloads, so
+component registries, spacing/card options, and binding data travel together.
+Native clients can inspect the same `ContentToolkitOptions` value and apply the
+same pre-render transform before lowering to their own widgets.
+
 ## Decisions
 
 - **Use `data=<id>` metadata rather than implicit nearest-data lookup** — chosen
@@ -162,6 +184,10 @@ binding.
   incomplete content in previews and existing introspection remains
   non-destructive. Rejected: replacing missing values with an empty string,
   because that hides broken content bindings.
+- **Put toolkit bindings on `ContentToolkitOptions`** — chosen because options
+  already carry renderer-level policy and component registries. Rejected:
+  `contentToolkitBlockBound(...)` helper names, because they would multiply the
+  selector API and make native-client parity noisier.
 
 ## Results
 

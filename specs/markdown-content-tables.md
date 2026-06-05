@@ -40,7 +40,8 @@ If a table contains inline `${name}` placeholders, callers may first apply the
 [`markdown-content-data-binding.md`](markdown-content-data-binding.md). The
 bound table keeps the same `ContentBlock.Table` shape, with matching expression
 nodes replaced by text before plain-text, Markdown, low-level view, or toolkit
-rendering.
+rendering. For direct toolkit selectors, authors can pass the same bindings
+through `ContentToolkitOptions(bindings = data)`.
 
 ## Behavior
 
