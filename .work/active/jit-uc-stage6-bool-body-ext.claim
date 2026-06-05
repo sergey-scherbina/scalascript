@@ -1,6 +1,0 @@
-feature/jit-uc-stage6-bool-body-ext 2026-06-05T21:28:03Z
-agent: claude-code
-heartbeat: 2026-06-05T21:28:03Z
-status: not-started
-done-so-far:
-next: analyze 8 PatternGuard+7 BoolBody misses, extend walkBool in both backends
