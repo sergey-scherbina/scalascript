@@ -169,7 +169,69 @@ still bails at `unifyRet(TRef)` (RET is Long-typed — correct).
 - [x] `val sentinel = null` inside a function body compiles; function runs correctly
 - [x] Returning null from a function still bails (RET is Long-typed, by design)
 
-### p6 — `Term.Function` (3 misses)
+### p6 — `Lit.String` in intermediate position (23 misses)
+
+**Status:** planned.
+
+**Shape:** string literals appear in a function body in a non-return position
+(passed as arguments, used in equality comparisons, stored in a local `val`),
+while the function itself returns an `Int` or `Boolean`.
+
+```scala
+def isUsd(s: String): Boolean = s == "USD"
+def classify(s: String): Int  = if s == "EUR" then 1 else if s == "USD" then 2 else 0
+```
+
+**Analysis of current 23 misses (2026-06-05):**
+
+Diagnostic (`[LitString bail]` log) shows 8 unique bodies:
+- `"n=" + x` — string concatenation (out of scope this slice)
+- `if (s == "42") Right(42) else Left("bad")` — string comparison + ref return
+- `minorUnits(money(s, "USD"))` — string as call arg; `money` returns TRef
+- `helper(s)` — cascaded bail from `money`
+- `renderDoc(doc, 0)` — callee returns String (TRef)
+- `renderDoc body: doc match { ... }` — match arms return String (TRef)
+- `prettyCalc body: e match { ... }` — match arms return Doc (TRef)
+
+All 23 are blocked by **ref returns** in the callee or the function itself
+(plus string concatenation in one case). LOADS + EQREF/NEREF alone do not
+free any of the current 23 misses. They are the correct foundation for a
+future p7 (RETREF + CALLREF) slice.
+
+**New opcodes added (SscVm):**
+
+| Opcode | Encoding | Semantics |
+|---|---|---|
+| `LOADS 44` | dst, strSlot, 0 | `refStack[base+dst] = StringV(strPool[strSlot])` |
+| `EQREF 45` | dst, a, b | `stack[base+dst] = (refStack[base+a] == refStack[base+b]) ? 1L : 0L` |
+| `NEREF 46` | dst, a, b | `stack[base+dst] = (refStack[base+a] != refStack[base+b]) ? 1L : 0L` |
+
+`EQREF`/`NEREF` use structural equality (`.equals()`), matching SSC semantics
+for string comparison.
+
+**VmCompiler changes:**
+
+- `compileInto`: `case Lit.String(s) =>` emits `LOADS dst, strSlot(s), 0`,
+  sets `TRef`, returns `TRef`.
+- `emitArith`: `TRef op TRef` for `==` → EQREF (result TInt), `!=` → NEREF.
+  Any other operator on TRef bails ("ref: unsupported operator on ref types").
+- `unifyRet(TRef)` still bails ("ret: ref-typed return") — returning a string
+  from a compiled function is deferred to p7.
+
+**Behavior:**
+- [ ] `def isUsd(s: String): Boolean = s == "USD"` compiles and returns true/false
+- [ ] `def classify(s: String): Int = if s == "EUR" then 1 else if s == "USD" then 2 else 0` compiles
+- [ ] String literal in a `val` inside the function body no longer bails
+- [ ] Functions returning `String` still bail (unifyRet(TRef) unchanged)
+- [ ] No `SscVmTest` regression
+
+### p7 — `Lit.String` ref returns + `RETREF`/`CALLREF` (deferred)
+
+Add `RETREF` opcode and `CALLREF` dispatch so functions that return strings
+(or other ref values) can compile. Requires callee return-type detection at
+instruction-build time (two-phase compileFn or syntactic pre-scan).
+
+### p8 — `Term.Function` (3 misses)
 
 Anonymous lambdas used as values (not immediately applied). These are
 closures, so they overlap with the "no compilable target" category. Likely
@@ -179,18 +241,19 @@ callee.
 
 ## 5. Out of scope
 
-- **`call: no compilable target` (201 misses):** free-name calls to
+- **`call: no compilable target` (198 misses):** free-name calls to
   `NativeFnV`, closures, HOF. Requires a ref-callable slot type in the VM
   and a new `CALLREF` opcode. Large scope; separate phase.
-- **`Lit.String` (26 misses):** string operations require heap. Excluded
-  from this phase; the VM is a numeric-domain compiler.
+- **String concatenation** (`"n=" + x`): needs `toString` + heap allocation.
+  Not supported in the numeric-domain VM; remains a permanent bail.
 - **`undefined: name '_VNODES_PER_NODE'` (4 misses):** global vals that are
   not `FunV` — compile-time constant folding. Small scope but needs a new
   resolver hook; deferred.
 
 ## 6. Success criterion
 
-After all p2–p5 slices: disabled count target ≤ 220 (down from 310), driven
-almost entirely by the irreducible 201 closure/HOF category. All new paths
+After all p2–p6 slices: disabled count same as after p5 (299) for actual
+miss reduction (p6 adds no wins on current tests), but the new opcodes
+enable future string-heavy functions to compile correctly. All new paths
 have unit tests; no `SscVmTest` regression; no benchmark regression on
 `recursionFib`, `recursionTco`, `recursiveEval`.
