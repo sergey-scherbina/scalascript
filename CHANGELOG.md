@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(language): Markdown content lookup and plain text
+
+- **markdown-content-lookup-plaintext** — Added interpreter `std/content`
+  helpers `contentSection(id)`, `contentBlock(id)`, and
+  `contentPlainText(value)`. Missing section/block lookups return `None`;
+  duplicate block ids and unsupported plain-text inputs report interpreter
+  errors. The live content-introspection example now prints section/block text
+  extracted from Markdown-authored regions.
+
 ## 2026-06-05 — feat(jit): VmCompiler p3+p4 inner def + p5 Lit.Null
 
 - **jit-completeness-p3p4** — `compileStmt` now handles `Defn.Def`: extracts

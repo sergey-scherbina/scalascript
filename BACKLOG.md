@@ -15,11 +15,12 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       `contentToolkitBlock(id)` / `contentToolkitSection(id)` selected toolkit
       regions (2026-06-05), explicit `contentComponent(...)` registries for
       `component=<name>` metadata (2026-06-05), interpreter `contentData(id)`
-      lookup plus toolkit `data=<id>` component binding (2026-06-05), and
+      lookup plus toolkit `data=<id>` component binding (2026-06-05),
+      interpreter `contentSection(id)` / `contentBlock(id)` /
+      `contentPlainText(value)` lookup and text extraction (2026-06-05), and
       `contentView(...)` low-level frontend lowering. The follow-up work is
-      JS/JVM native context wiring, `contentCurrentSection`, `contentSection`,
-      `contentBlock`, `contentMetadata`, `contentPlainText`, `contentToMarkdown`,
-      and JS/JVM exposure for `contentData`, then un-pend
+      JS/JVM native context wiring for the landed interpreter helpers,
+      `contentCurrentSection`, `contentMetadata`, `contentToMarkdown`, then un-pend
       `tests/conformance/content-introspection.ssc`. `.scir` / `.sscc`
       round-trip and multi-link import paragraphs follow as later slices.
 

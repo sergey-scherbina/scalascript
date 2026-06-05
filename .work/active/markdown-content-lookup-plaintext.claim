@@ -1,5 +1,0 @@
-agent: codex
-task: markdown-content-lookup-plaintext
-started: 2026-06-05T05:15:00Z
-branch: feature/content-lookup-plaintext
-scope: Add interpreter std/content section/block lookup and plain-text extraction.
