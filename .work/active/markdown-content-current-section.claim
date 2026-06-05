@@ -1,0 +1,6 @@
+feature/markdown-content-current-section 2026-06-05T06:02:49Z
+agent: codex
+heartbeat: 2026-06-05T06:02:49Z
+status: not-started
+done-so-far:
+next: write focused contentCurrentSection spec before implementation
