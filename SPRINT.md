@@ -172,9 +172,10 @@ Baseline (post-stage-5, 2026-06-05, 734 total disabled):
 ```
 Each item: one commit + bench A/B. Run `SSC_JIT_STATS=1 sbt "backendInterpreter/test"` to track.
 
-- [ ] **jit-uc-stage6-bench-baseline** — Run `bench.sh` + JIT stats from fresh main;
-      record updated numbers; identify which workloads still miss.
-      One observation commit (CHANGELOG entry + updated §9 in spec).
+- [x] **jit-uc-stage6-bench-baseline** — Bench 2026-06-05 post-merge: bool-predicate
+      4.37→0.004ms, literal-match 3.51→0.004ms, mutual-recursion ssc/asm at parity (~1.2ms).
+      Remaining HOF gaps: either-chain 3.46ms, hof-pipeline 2.79ms, option-chain 2.98ms,
+      range-sum 3.57ms, typeclass-fold 2.99ms (all ~0.001–0.020ms on jvm).
 
 - [x] **jit-uc-stage6-asm-mutual-recursion** — Fix ASM JIT regression on
       `mutual-recursion`: `ssc-asm` 20.8 ms → 1.22 ms (parity with Javac 1.20 ms).

@@ -1,0 +1,6 @@
+feature/jit-uc-stage6-pattern-guard 2026-06-05T20:46:29Z
+agent: claude-code
+heartbeat: 2026-06-05T20:46:29Z
+status: not-started
+done-so-far:
+next: read JitBailReason.PatternGuard, implement guard emission in both backends
