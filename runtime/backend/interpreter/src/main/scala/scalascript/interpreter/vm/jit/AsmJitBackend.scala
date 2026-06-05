@@ -1389,7 +1389,8 @@ object AsmJitBackend extends JitBackend:
     val throwLbl = new Label
     val defLbl   = if wildcardIdx >= 0 then armLbls(wildcardIdx) else throwLbl
 
-    if casesArr.exists(_.cond.nonEmpty) then
+    val hasAltPat = casesArr.exists(_.pat.isInstanceOf[Pat.Alternative])
+    if casesArr.exists(_.cond.nonEmpty) || hasAltPat then
       var ci = 0
       var rem = cases
       while rem.nonEmpty do
@@ -1690,6 +1691,57 @@ object AsmJitBackend extends JitBackend:
         if !bodyOk then return false
         mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN)
         if c.cond.nonEmpty then mv.visitLabel(nextLbl)
+        true
+      case alt: Pat.Alternative =>
+        def subPatTagInfo(p: Pat): (Int, String) | Null = p match
+          case ext: Pat.Extract =>
+            val cn = extractCtorName(ext.fun)
+            if cn == null then return null
+            if !ext.argClause.values.forall(_.isInstanceOf[Pat.Wildcard]) then return null
+            (interp.typeTagMap.getOrElse(cn, 0), cn)
+          case _: Pat.Wildcard => (0, "")
+          case _: Pat.Var      => (0, "")
+          case _ => null
+        val lInfo = subPatTagInfo(alt.lhs)
+        if lInfo == null then return false
+        val rInfo = subPatTagInfo(alt.rhs)
+        if rInfo == null then return false
+        val bodyLbl = new Label
+        val nextLbl = new Label
+        val (lTag, lName) = lInfo
+        if lName.isEmpty then mv.visitJumpInsn(GOTO, bodyLbl)
+        else if lTag > 0 then
+          mv.visitVarInsn(ALOAD, instSlot)
+          mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "typeTag", "()I", false)
+          emitIconst(mv, lTag)
+          mv.visitJumpInsn(IF_ICMPEQ, bodyLbl)
+        else
+          mv.visitVarInsn(ALOAD, instSlot)
+          mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "typeName", "()Ljava/lang/String;", false)
+          mv.visitLdcInsn(lName)
+          mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "equals", "(Ljava/lang/Object;)Z", false)
+          mv.visitJumpInsn(IFNE, bodyLbl)
+        val (rTag, rName) = rInfo
+        if rName.nonEmpty then
+          if rTag > 0 then
+            mv.visitVarInsn(ALOAD, instSlot)
+            mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "typeTag", "()I", false)
+            emitIconst(mv, rTag)
+            mv.visitJumpInsn(IF_ICMPNE, nextLbl)
+          else
+            mv.visitVarInsn(ALOAD, instSlot)
+            mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "typeName", "()Ljava/lang/String;", false)
+            mv.visitLdcInsn(rName)
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "equals", "(Ljava/lang/Object;)Z", false)
+            mv.visitJumpInsn(IFEQ, nextLbl)
+        mv.visitLabel(bodyLbl)
+        c.cond match
+          case Some(cond) => if !walkBool(cond, ctx, mv, nextLbl) then return false
+          case None =>
+        val bodyOk = if ctx.isDouble then walkDouble(c.body, ctx, mv) else walkLong(c.body, ctx, mv)
+        if !bodyOk then return false
+        mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN)
+        mv.visitLabel(nextLbl)
         true
       case _ => false
 

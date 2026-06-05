@@ -559,3 +559,44 @@ class JitLintTest extends AnyFunSuite with Matchers:
     val txt = reports.head.humanReadable
     txt should include ("[JAVAC OK]")
     txt should include ("[ASM OK]")
+
+  // ── Stage 5.4: Pat.Alternative (`case A | B =>`) ────────────────────────────
+
+  test("stage5.4: Pat.Alternative arm — Javac lints as willJit"):
+    val r = lintFor(
+      """sealed trait Tok
+        |case class TokA(v: Int) extends Tok
+        |case class TokB(v: Int) extends Tok
+        |case class TokC(v: Int) extends Tok
+        |def classify(t: Tok): Int = t match
+        |  case TokA(_) | TokB(_) => 1
+        |  case TokC(_) => 2""".stripMargin
+    ).forDef("classify")
+    r.willJit shouldBe true
+    r.bailReasons shouldBe empty
+
+  test("stage5.4: Pat.Alternative arm — ASM lints as willJit"):
+    val r = lintForAsm(
+      """sealed trait Tok
+        |case class TokA(v: Int) extends Tok
+        |case class TokB(v: Int) extends Tok
+        |case class TokC(v: Int) extends Tok
+        |def classify(t: Tok): Int = t match
+        |  case TokA(_) | TokB(_) => 1
+        |  case TokC(_) => 2""".stripMargin
+    ).forDef("classify")
+    r.willJit shouldBe true
+    r.bailReasons shouldBe empty
+
+  test("stage5.4: Pat.Alternative arm — lintInterpreterCompare shows BOTH OK"):
+    val r = lintCompareFor(
+      """sealed trait Tok
+        |case class TokA(v: Int) extends Tok
+        |case class TokB(v: Int) extends Tok
+        |case class TokC(v: Int) extends Tok
+        |def classify(t: Tok): Int = t match
+        |  case TokA(_) | TokB(_) => 1
+        |  case TokC(_) => 2""".stripMargin
+    ).forDef("classify")
+    r.javac.willJit shouldBe true
+    r.asm.willJit   shouldBe true

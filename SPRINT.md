@@ -149,7 +149,7 @@ Verified empirically via `./bench.sh`. New regression-guard corpus cases added:
 - [ ] **jit-uc-stage5-1** — Mixed Long+Double arms auto-promotion.
 - [ ] **jit-uc-stage5-2** — `var` in pure bodies (extend `walkLocalSlotCtx`).
 - [ ] **jit-uc-stage5-3** — `try/catch` in bodies (JVM try block + tree-walker fallback).
-- [ ] **jit-uc-stage5-4** — `Pat.Alternative` / `@`-binding pattern support.
+- [x] **jit-uc-stage5-4** — `Pat.Alternative` / `@`-binding pattern support.
 - [ ] **jit-uc-stage5-5** — Non-`Term.Name` match scrutinee (auto-hoist to local).
 
 ---

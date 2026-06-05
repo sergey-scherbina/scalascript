@@ -1606,3 +1606,53 @@ class SscVmTest extends AnyFunSuite with Matchers:
         |println(gcd(0, 48, 18))""".stripMargin)
     out.trim shouldBe "12"
   }
+
+  // ── Stage 5.4: Pat.Alternative (`case A | B =>`) ────────────────────────────
+
+  test("stage5.4: Javac — Pat.Alternative match arm compiles") {
+    import scalascript.interpreter.vm.jit.JavacJitBackend
+    val interp = interpOf(
+      """sealed trait Tok
+        |case class TokA(v: Int) extends Tok
+        |case class TokB(v: Int) extends Tok
+        |case class TokC(v: Int) extends Tok
+        |def classify(t: Tok): Int = t match
+        |  case TokA(_) | TokB(_) => 1
+        |  case TokC(_) => 2""".stripMargin)
+    val fn = interp.globalsView("classify").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+  }
+
+  test("stage5.4: ASM — Pat.Alternative match arm compiles") {
+    import scalascript.interpreter.vm.jit.AsmJitBackend
+    val interp = interpOf(
+      """sealed trait Tok
+        |case class TokA(v: Int) extends Tok
+        |case class TokB(v: Int) extends Tok
+        |case class TokC(v: Int) extends Tok
+        |def classify(t: Tok): Int = t match
+        |  case TokA(_) | TokB(_) => 1
+        |  case TokC(_) => 2""".stripMargin)
+    val fn = interp.globalsView("classify").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+  }
+
+  test("stage5.4: end-to-end — Pat.Alternative match runs correctly") {
+    val out = captured(
+      """sealed trait Tok
+        |case class TokA(v: Int) extends Tok
+        |case class TokB(v: Int) extends Tok
+        |case class TokC(v: Int) extends Tok
+        |def classify(t: Tok): Int = t match
+        |  case TokA(_) | TokB(_) => 1
+        |  case TokC(_) => 2
+        |println(classify(TokA(0)))
+        |println(classify(TokB(0)))
+        |println(classify(TokC(0)))""".stripMargin)
+    val lines = out.trim.split("\n")
+    lines(0) shouldBe "1"
+    lines(1) shouldBe "1"
+    lines(2) shouldBe "2"
+  }
