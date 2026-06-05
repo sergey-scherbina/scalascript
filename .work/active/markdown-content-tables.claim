@@ -1,6 +1,6 @@
-feature/markdown-content-tables 2026-06-05T12:12:11Z
+feature/markdown-content-tables 2026-06-05T12:12:28Z
 agent: codex
-heartbeat: 2026-06-05T12:12:11Z
-status: not-started
-done-so-far:
-next: write focused spec for Markdown content tables
+heartbeat: 2026-06-05T12:12:28Z
+status: in-progress
+done-so-far: worktree created
+next: write and commit focused spec for Markdown content tables
