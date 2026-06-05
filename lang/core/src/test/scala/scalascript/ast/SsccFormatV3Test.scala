@@ -2,6 +2,7 @@ package scalascript.ast
 
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.parser.Parser
+import scalascript.transform.Normalize
 
 class SsccFormatV3Test extends AnyFunSuite:
 
@@ -13,6 +14,11 @@ class SsccFormatV3Test extends AnyFunSuite:
     SsccFormatV3.read(bytes, SsccFormat.manifestFromBytes) match
       case Right(m2)  => m2
       case Left(err)  => sys.error(s"v3 read failed: $err")
+
+  private def readSscc(bytes: Array[Byte]): Module =
+    SsccFormat.read(bytes) match
+      case Right(m)  => m
+      case Left(err) => sys.error(s".sscc read failed: $err")
 
   // ─── Trie tests ───────────────────────────────────────────────────────────
 
@@ -122,6 +128,62 @@ Deep.
     assert(sub.heading.text == "Sub")
     assert(sub.subsections.nonEmpty)
     assert(sub.subsections.head.heading.text == "Sub-sub")
+  }
+
+  test("v3 write+read: preserves Markdown content snapshot in plain and gzip .sscc") {
+    val ssc =
+      """|---
+         |name: artifact-content-fixture
+         |description: artifact content fixture
+         |content:
+         |  defaultRenderer: toolkit
+         |---
+         |
+         |Welcome **team**.
+         |
+         |# Pricing {#pricing route=/pricing layout=marketing}
+         |
+         |Intro paragraph with [docs](https://example.com).
+         |
+         |<!-- @meta component=PlanList data=plans-data -->
+         |## Plans
+         |
+         |- Starter
+         |- Pro
+         |
+         |```yaml @id=plans-data
+         |plans:
+         |  - id: starter
+         |    price: 19
+         |```
+         |
+         |```scalascript
+         |val selected = "starter"
+         |```
+         |""".stripMargin
+    val module = parseModule(ssc)
+    val doc = module.document.getOrElse(fail("parser must build DocumentContent"))
+
+    val plain = readSscc(SsccFormat.writeV3(module, gzip = false))
+    val gzipped = readSscc(SsccFormat.writeV3(module, gzip = true))
+
+    assert(plain.document.contains(doc))
+    assert(gzipped.document.contains(doc))
+    assert(plain.document.get.sections.head.id == "pricing")
+    assert(plain.document.get.sections.head.children.head.attrs("component") == ContentValue.Str("PlanList"))
+    assert(plain.document.get.sections.head.children.head.blocks.collect {
+      case ContentBlock.Embedded(_, _, EmbeddedKind.StructuredData, data, attrs) =>
+        (data, attrs("id"))
+    }.head == (Some(ContentValue.MapV(Map(
+      "plans" -> ContentValue.ListV(List(ContentValue.MapV(Map(
+        "id" -> ContentValue.Str("starter"),
+        "price" -> ContentValue.Num(19.0)
+      ))))
+    ))), ContentValue.Str("plans-data")))
+
+    val normalized = Normalize(plain)
+    assert(normalized.document.nonEmpty)
+    assert(normalized.document.get.sections.head.children.head.id == "plans")
   }
 
   test("v3 write+read: scalascript code block survives parse round-trip") {

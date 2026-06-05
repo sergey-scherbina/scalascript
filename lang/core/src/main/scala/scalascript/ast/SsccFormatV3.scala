@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets.UTF_8
  *  payload structure:
  *    trieSection:   4-byte big-endian length, then patricia-trie bytes (SsccV3Trie)
  *    streamSection: raw token stream bytes (self-delimiting via ModuleEnd sentinel)
+ *                   followed by optional extension payloads
  *
  *  All string values in the stream are referenced as varint IDs into the trie dictionary.
  *
@@ -51,6 +52,7 @@ private[ast] object SsccFormatV3:
   private val KListItemEnd   = 12
   private val KListEnd       = 13
   private val KCodeSmTokens  = 14  // payload: tokenCount(varint), then sm token sub-stream
+  private val KDocumentBlob  = 15  // extension after ModuleEnd: 4-byte len + DocumentContent CBOR bytes
 
   // Span encoding: 0x00 = None, 0x01 startLine startCol startOffset endLine endCol endOffset (all varints)
 
@@ -471,6 +473,12 @@ private[ast] object SsccFormatV3:
     m.sections.foreach(emitSection(_, t, out))
 
     putVarint(out, KModuleEnd)
+    m.document.foreach { document =>
+      val bytes = SsccFormat.documentToBytes(document)
+      putVarint(out, KDocumentBlob)
+      putBE32(out, bytes.length)
+      out.write(bytes)
+    }
 
   private def emitSection(s: Section, t: TrieBuilder, out: ByteArrayOutputStream): Unit =
     putVarint(out, KSectionStart)
@@ -634,7 +642,14 @@ private[ast] object SsccFormatV3:
       sections += readSection(bytes, pos, dict)
 
     expectKind(bytes, pos, KModuleEnd)
-    Module(manifest, sections.toList, moduleSpan, sourceText = None)
+    val document =
+      if pos(0) < bytes.length && peekKind(bytes, pos) == KDocumentBlob then
+        Varint.read(bytes, pos) // consume kind
+        val len = getBE32(bytes, pos(0)); pos(0) += 4
+        val docBytes = bytes.slice(pos(0), pos(0) + len); pos(0) += len
+        Some(SsccFormat.documentFromBytes(docBytes))
+      else None
+    Module(manifest, sections.toList, moduleSpan, sourceText = None, document = document)
 
   private def readSection(bytes: Array[Byte], pos: Array[Int], dict: Array[String]): Section =
     expectKind(bytes, pos, KSectionStart)

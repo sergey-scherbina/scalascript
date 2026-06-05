@@ -1,6 +1,7 @@
 package scalascript.compiler.plugin.content
 
 import org.scalatest.funsuite.AnyFunSuite
+import scalascript.ast.SsccFormat
 import scalascript.interpreter.{InterpretError, Interpreter, Value}
 import scalascript.parser.Parser
 
@@ -550,6 +551,48 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
     interp.run(Parser.parse(source))
 
     assert(buf.toString(java.nio.charset.StandardCharsets.UTF_8).stripTrailing == expected)
+
+  test("contentToMarkdown runs from content snapshot restored out of .sscc"):
+    val source =
+      """|---
+         |name: sscc-content-runtime
+         |content:
+         |  defaultRenderer: toolkit
+         |---
+         |
+         |# Artifact {#artifact route=/artifact}
+         |
+         |Intro **copy**.
+         |
+         |```yaml @id=artifact-data
+         |value: 7
+         |```
+         |
+         |[contentDocument, contentToMarkdown](std/content.ssc)
+         |
+         |```scala
+         |println(contentToMarkdown(contentDocument()))
+         |```
+         |""".stripMargin
+
+    val restored =
+      SsccFormat.read(SsccFormat.write(Parser.parse(source))) match
+        case Right(module) => module
+        case Left(err)     => fail(s".sscc read failed: $err")
+    assert(restored.document.nonEmpty)
+
+    val buf = java.io.ByteArrayOutputStream()
+    val interp = Interpreter(
+      out = java.io.PrintStream(buf, true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    interp.run(restored)
+
+    val rendered = buf.toString(java.nio.charset.StandardCharsets.UTF_8)
+    assert(rendered.contains("# Artifact {#artifact route=/artifact}"))
+    assert(rendered.contains("Intro **copy**."))
+    assert(rendered.contains("```yaml @id=artifact-data"))
 
   private def contentString(value: Value): Option[String] =
     value match

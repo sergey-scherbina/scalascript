@@ -93,6 +93,69 @@ class ArtifactIOTest extends AnyFunSuite:
       ))
     )
 
+  private def sampleDocumentContent: DocumentContent =
+    val data = ContentValue.MapV(Map(
+      "plans" -> ContentValue.ListV(List(
+        ContentValue.MapV(Map(
+          "id"    -> ContentValue.Str("starter"),
+          "price" -> ContentValue.Num(19.0)
+        ))
+      ))
+    ))
+    DocumentContent(
+      manifest = ContentValue.MapV(Map(
+        "content" -> ContentValue.MapV(Map(
+          "defaultRenderer" -> ContentValue.Str("toolkit")
+        ))
+      )),
+      title = Some("Pricing"),
+      description = Some("artifact content fixture"),
+      attrs = Map("layout" -> ContentValue.Str("marketing")),
+      sections = List(
+        SectionContent(
+          id = "plans",
+          level = 2,
+          title = "Plans",
+          attrs = Map(
+            "route" -> ContentValue.Str("/plans"),
+            "component" -> ContentValue.Str("PlanList")
+          ),
+          blocks = List(
+            ContentBlock.Paragraph(
+              List(ContentInline.Text("Pick a plan.")),
+              attrs = Map("id" -> ContentValue.Str("intro"))
+            ),
+            ContentBlock.Embedded(
+              lang = "yaml",
+              source = "plans:\n  - id: starter\n    price: 19\n",
+              kind = EmbeddedKind.StructuredData,
+              data = Some(data),
+              attrs = Map("id" -> ContentValue.Str("plans-data"))
+            )
+          ),
+          children = List(
+            SectionContent(
+              id = "faq",
+              level = 3,
+              title = "FAQ",
+              attrs = Map.empty,
+              blocks = List(ContentBlock.BulletList(List(
+                List(ContentBlock.Paragraph(List(ContentInline.Text("No setup fee."))))
+              ))),
+              children = Nil
+            )
+          )
+        )
+      ),
+      blocks = List(
+        ContentBlock.Paragraph(List(
+          ContentInline.Text("Welcome to "),
+          ContentInline.Strong(List(ContentInline.Text("ScalaScript"))),
+          ContentInline.Text(".")
+        ))
+      )
+    )
+
   private def withTempDir[A](body: os.Path => A): A =
     val d = os.temp.dir(prefix = "ssc-v2-test-")
     try body(d) finally os.remove.all(d)
@@ -162,6 +225,33 @@ class ArtifactIOTest extends AnyFunSuite:
         assert(parsedName == name)
         assert(parsedHash == hash)
       case Left(err) => fail(s".scir round-trip failed: $err")
+
+  test(".scir round-trip preserves Markdown content snapshot"):
+    withTempDir { d =>
+      val doc  = sampleDocumentContent
+      val nm   = sampleIr.copy(document = Some(doc))
+      val pkg  = List("org", "example")
+      val name = Some("demo")
+      val hash = "facefeed" * 8
+      val json = ArtifactIO.writeIr(nm, pkg, name, hash)
+
+      ArtifactIO.readIr(json) match
+        case Right((parsed, _, _, _)) =>
+          assert(parsed.document.contains(doc))
+          assert(parsed.document.get.sections.head.children.head.id == "faq")
+          assert(parsed.document.get.sections.head.blocks.collect {
+            case e: ContentBlock.Embedded => e
+          }.head.data.nonEmpty)
+        case Left(err) => fail(s".scir JSON content round-trip failed: $err")
+
+      val path = d / "demo.scir"
+      ArtifactIO.writeIrFile(nm, pkg, name, hash, path)
+      ArtifactIO.readIrFile(path) match
+        case Right((parsed, _, _, _)) =>
+          assert(parsed.document.contains(doc))
+          assert(parsed.document.get.blocks.nonEmpty)
+        case Left(err) => fail(s".scir binary content round-trip failed: $err")
+    }
 
   test(".scir round-trip preserves route type evidence"):
     val nm   = sampleIrWithRouteEvidence

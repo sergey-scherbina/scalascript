@@ -303,6 +303,32 @@ object SsccFormat:
   private given Codec[ContentPickle.DataList]  = deriveCodec[ContentPickle.DataList]
   private given Codec[ContentPickle]           = deriveCodec[ContentPickle]
 
+  private given Codec[ContentValue.Str]         = deriveCodec[ContentValue.Str]
+  private given Codec[ContentValue.Bool]        = deriveCodec[ContentValue.Bool]
+  private given Codec[ContentValue.Num]         = deriveCodec[ContentValue.Num]
+  private lazy given Codec[ContentValue.ListV]  = deriveCodec[ContentValue.ListV]
+  private lazy given Codec[ContentValue.MapV]   = deriveCodec[ContentValue.MapV]
+  private lazy given Codec[ContentValue]        = deriveCodec[ContentValue]
+
+  private given Codec[ContentInline.Text]       = deriveCodec[ContentInline.Text]
+  private lazy given Codec[ContentInline.Emphasis] = deriveCodec[ContentInline.Emphasis]
+  private lazy given Codec[ContentInline.Strong] = deriveCodec[ContentInline.Strong]
+  private given Codec[ContentInline.Code]       = deriveCodec[ContentInline.Code]
+  private lazy given Codec[ContentInline.Link]  = deriveCodec[ContentInline.Link]
+  private given Codec[ContentInline.Expr]       = deriveCodec[ContentInline.Expr]
+  private lazy given Codec[ContentInline]       = deriveCodec[ContentInline]
+
+  private given Codec[EmbeddedKind]             = deriveCodec[EmbeddedKind]
+
+  private lazy given Codec[ContentBlock.Paragraph] = deriveCodec[ContentBlock.Paragraph]
+  private lazy given Codec[ContentBlock.BulletList] = deriveCodec[ContentBlock.BulletList]
+  private lazy given Codec[ContentBlock.OrderedList] = deriveCodec[ContentBlock.OrderedList]
+  private given Codec[ContentBlock.Image]       = deriveCodec[ContentBlock.Image]
+  private lazy given Codec[ContentBlock.Embedded] = deriveCodec[ContentBlock.Embedded]
+  private lazy given Codec[ContentBlock]        = deriveCodec[ContentBlock]
+  private lazy given Codec[SectionContent]      = deriveCodec[SectionContent]
+  private given Codec[DocumentContent]          = deriveCodec[DocumentContent]
+
   private given Codec[HeadingPickle]           = deriveCodec[HeadingPickle]
   private lazy given Codec[SectionPickle]      = deriveCodec[SectionPickle]
   private given Codec[ModulePickle]            = deriveCodec[ModulePickle]
@@ -523,6 +549,12 @@ object SsccFormat:
 
   private[ast] def manifestFromBytes(bytes: Array[Byte]): Manifest =
     fromPickle(Try(Cbor.decode(bytes).to[ManifestPickle].value).get)
+
+  private[ast] def documentToBytes(d: DocumentContent): Array[Byte] =
+    Cbor.encode(d).toByteArray
+
+  private[ast] def documentFromBytes(bytes: Array[Byte]): DocumentContent =
+    Try(Cbor.decode(bytes).to[DocumentContent].value).get
 
   // ─── Public API ───────────────────────────────────────────────────────────
 
