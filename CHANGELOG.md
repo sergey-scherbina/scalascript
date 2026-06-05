@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — spec(language): Markdown content backend exposure
+
+- **markdown-content-backend-exposure-spec** — Added the focused JS/JVM
+  exposure plan for the landed interpreter `std/content` helpers. The spec
+  defines snapshot embedding, lookup/plain-text parity, current-section
+  scoping, codegen-safe plugin intrinsic ownership, conformance expectations,
+  and the no-wrapper rule needed to preserve generated top-level bindings.
+
 ## 2026-06-05 — feat(language): Markdown content current section
 
 - **markdown-content-current-section** — Added interpreter

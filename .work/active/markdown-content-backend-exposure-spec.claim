@@ -1,6 +1,0 @@
-feature/markdown-content-backend-exposure-spec 2026-06-05T06:20:02Z
-agent: codex
-heartbeat: 2026-06-05T06:20:24Z
-status: in-progress
-done-so-far: worktree created at .worktrees/feature/markdown-content-backend-exposure-spec
-next: read content/runtime backend context, then commit focused spec

@@ -12,24 +12,20 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 Broad spec exists:
 [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md).
-Focused slice specs already exist for landed lookup/plain-text, metadata, and
-current-section work:
+Focused slice specs already exist for landed lookup/plain-text, metadata,
+current-section, and backend-exposure planning:
 [`specs/markdown-content-lookup-plaintext.md`](specs/markdown-content-lookup-plaintext.md),
 [`specs/markdown-content-metadata.md`](specs/markdown-content-metadata.md),
+[`specs/markdown-content-current-section.md`](specs/markdown-content-current-section.md),
 and
-[`specs/markdown-content-current-section.md`](specs/markdown-content-current-section.md).
+[`specs/markdown-content-backend-exposure.md`](specs/markdown-content-backend-exposure.md).
 For the next slices, write and commit the focused spec first, then implement.
 
-- [ ] **markdown-content-backend-exposure-spec** - Write
-      `specs/markdown-content-backend-exposure.md` for JS/JVM native-context
-      exposure of the landed interpreter helpers: `contentDocument`,
-      `contentData`, `contentSection`, `contentBlock`, `contentPlainText`, and
-      `contentMetadata`, and `contentCurrentSection`.
-
 - [ ] **markdown-content-backend-exposure** - Implement JS/JVM exposure for the
-      landed `std/content` helper set, then un-pend or replace
-      `tests/conformance/content-introspection.ssc` so INT/JS/JVM agree on
-      observable output.
+      landed `std/content` helper set using
+      [`specs/markdown-content-backend-exposure.md`](specs/markdown-content-backend-exposure.md),
+      then un-pend or replace `tests/conformance/content-introspection.ssc` so
+      INT/JS/JVM agree on observable output.
 
 - [ ] **markdown-content-to-markdown-spec** - Write
       `specs/markdown-content-to-markdown.md` for `contentToMarkdown(...)`.

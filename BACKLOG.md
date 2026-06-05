@@ -23,7 +23,9 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       the executing code block's enclosing Markdown section (2026-06-05), and
       `contentView(...)` low-level frontend lowering. The follow-up work is
       JS/JVM native context wiring for the landed interpreter helpers,
-      `contentToMarkdown`, then un-pend
+      now specified in
+      [`specs/markdown-content-backend-exposure.md`](specs/markdown-content-backend-exposure.md),
+      plus `contentToMarkdown`, then un-pend
       `tests/conformance/content-introspection.ssc`. `.scir` / `.sscc`
       round-trip and multi-link import paragraphs follow as later slices.
 
