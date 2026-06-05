@@ -377,9 +377,11 @@ to the parsed structured data from a fenced YAML/JSON/TOML block with matching
 `@id`; the same lookup is exposed to code as `contentData(id)`. Lower-level
 interpreter helpers also expose `contentSection(id)`, `contentBlock(id)`, and
 `contentPlainText(value)` for code that needs to inspect or reuse
-Markdown-authored regions without rendering the whole document. The remaining
-`std/content` metadata API follows from the same snapshot instead of being the
-first goal. See
+Markdown-authored regions without rendering the whole document.
+`contentMetadata(path)` reads `content:` front-matter metadata by dot path for
+code that needs renderer/content defaults without unpacking the whole manifest.
+The remaining `std/content` metadata API follows from the same snapshot instead
+of being the first goal. See
 [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md)
 for the full contract and remaining implementation phases.
 
