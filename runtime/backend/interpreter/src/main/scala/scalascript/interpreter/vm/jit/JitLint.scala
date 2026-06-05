@@ -183,8 +183,22 @@ object JitPredicates:
     buf:        scala.collection.mutable.ListBuffer[JitBailReason]
   ): Unit =
     t match
-      case _: Term.Try =>
-        buf += JitBailReason.TryCatch
+      case Term.Try.After_4_9_9(tryExpr, handlerOpt, finallyOpt) =>
+        // Stage 5.3: allow try/catch with no finally and simple catch patterns.
+        val cases = handlerOpt.toList.flatMap(_.cases)
+        val simpleArm = cases.nonEmpty && cases.forall { c =>
+          c.pat match
+            case _: Pat.Wildcard | _: Pat.Var => true
+            case _: Pat.Typed                 => true
+            case _                            => false
+        }
+        if finallyOpt.nonEmpty || !simpleArm then buf += JitBailReason.TryCatch
+        else
+          walkForBailCliffs(tryExpr, paramNames, buf)
+          var rem = cases
+          while rem.nonEmpty do
+            walkForBailCliffs(rem.head.body, paramNames, buf)
+            rem = rem.tail
       case ap: Term.Apply =>
         ap.fun match
           case tn: Term.Name if paramNames.contains(tn.value) =>

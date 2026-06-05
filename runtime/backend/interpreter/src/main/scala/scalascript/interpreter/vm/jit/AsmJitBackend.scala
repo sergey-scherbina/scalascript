@@ -644,6 +644,8 @@ object AsmJitBackend extends JitBackend:
             // bytecode, then `return <final expr>` (emitBlockStmts emits return).
             emitBlockStmts(b.stats, ctx, mv)
           case _ => false
+      case Term.Try.After_4_9_9(tryExpr: Term, Some(handler), None) if handler.cases.nonEmpty =>
+        emitTryCatchBody(tryExpr, handler.cases, ctx, mv, isDouble)
       case other =>
         val tco = tryTcoBody(other.asInstanceOf[Term], ctx, mv)
         if tco then true
@@ -661,6 +663,55 @@ object AsmJitBackend extends JitBackend:
               mv.visitLabel(Lfalse); mv.visitLdcInsn(0L)
               mv.visitLabel(Lend);   mv.visitInsn(LRETURN)
               true
+
+  private def emitTryCatchBody(tryExpr: Term, cases: List[scala.meta.Case], ctx: GenCtx,
+                               mv: MethodVisitor, isDouble: Boolean): Boolean =
+    val startLbl = new Label
+    val endLbl   = new Label
+    // Pre-validate all catch patterns and build (catchLbl, bindSlot, catchCtx, body) tuples.
+    val casesArr = cases.toArray
+    val catchLbls    = Array.fill(casesArr.length)(new Label)
+    val catchSlots   = new Array[Int](casesArr.length)
+    val catchCtxArr  = new Array[GenCtx](casesArr.length)
+    val catchBodies  = new Array[Term](casesArr.length)
+    var ci = 0
+    while ci < casesArr.length do
+      val c = casesArr(ci)
+      val (bindSlot, catchCtx) = c.pat match
+        case _: Pat.Wildcard => (-1, ctx)
+        case pv: Pat.Var =>
+          val s = ctx.allocSlot()
+          (s, ctx.withBindings(Map(pv.name.value -> (s, true))))
+        case Pat.Typed(_: Pat.Wildcard, _) => (-1, ctx)
+        case Pat.Typed(pv: Pat.Var, _) =>
+          val s = ctx.allocSlot()
+          (s, ctx.withBindings(Map(pv.name.value -> (s, true))))
+        case _ => return false
+      catchSlots(ci)  = bindSlot
+      catchCtxArr(ci) = catchCtx
+      catchBodies(ci) = c.body.asInstanceOf[Term]
+      ci += 1
+    // Register each catch handler for the try region.
+    ci = 0
+    while ci < casesArr.length do
+      mv.visitTryCatchBlock(startLbl, endLbl, catchLbls(ci), "java/lang/Exception")
+      ci += 1
+    mv.visitLabel(startLbl)
+    val tryOk = if isDouble then walkDouble(tryExpr, ctx, mv) && { mv.visitInsn(DRETURN); true }
+                else walkLong(tryExpr, ctx, mv) && { mv.visitInsn(LRETURN); true }
+    if !tryOk then return false
+    mv.visitLabel(endLbl)
+    ci = 0
+    while ci < casesArr.length do
+      mv.visitLabel(catchLbls(ci))
+      if catchSlots(ci) >= 0 then mv.visitVarInsn(ASTORE, catchSlots(ci))
+      else mv.visitInsn(POP)
+      val catchOk =
+        if isDouble then walkDouble(catchBodies(ci), catchCtxArr(ci), mv) && { mv.visitInsn(DRETURN); true }
+        else walkLong(catchBodies(ci), catchCtxArr(ci), mv) && { mv.visitInsn(LRETURN); true }
+      if !catchOk then return false
+      ci += 1
+    true
 
   // ── Descriptor builder ────────────────────────────────────────────────────
 

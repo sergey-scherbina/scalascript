@@ -89,11 +89,22 @@ class JitLintTest extends AnyFunSuite with Matchers:
     ).forDef("f")
     r.bailReasons should contain (JitBailReason.VarargParam)
 
-  test("try/catch body reports TryCatch"):
+  test("try/catch body now JITs (Stage 5.3 — simple wildcard/typed catch)"):
     val r = lintFor(
       """def f(x: Int): Int =
         |  try x + 1
         |  catch case _: Exception => 0
+        |f(3)""".stripMargin
+    ).forDef("f")
+    r.willJit shouldBe true
+    r.bailReasons shouldBe empty
+
+  test("try/catch with finally still reports TryCatch"):
+    val r = lintFor(
+      """def f(x: Int): Int =
+        |  try x + 1
+        |  catch case _: Exception => 0
+        |  finally {}
         |f(3)""".stripMargin
     ).forDef("f")
     r.bailReasons should contain (JitBailReason.TryCatch)
@@ -148,7 +159,7 @@ class JitLintTest extends AnyFunSuite with Matchers:
     )
     r.forDef("jitable").willJit shouldBe true
     r.forDef("withGuard").bailReasons should contain (JitBailReason.PatternGuard)
-    r.forDef("withTry").bailReasons should contain (JitBailReason.TryCatch)
+    r.forDef("withTry").willJit shouldBe true  // Stage 5.3: simple try/catch now compiles
     r.forDef("withVararg").bailReasons should contain (JitBailReason.VarargParam)
     r.forDef("withBool").willJit shouldBe true   // bool bodies now compile (0/1 encoded)
     r.forDef("withZero").willJit shouldBe true
@@ -347,13 +358,13 @@ class JitLintTest extends AnyFunSuite with Matchers:
     r.willJit shouldBe true
     r.bailReasons shouldBe empty
 
-  test("lintFun with AsmJitBackend — TryCatch still reported"):
+  test("lintFun with AsmJitBackend — simple try/catch now JITs (Stage 5.3)"):
     val r = lintForAsm(
       """def f(x: Int): Int = try x + 1 catch case _: Exception => 0
         |f(3)""".stripMargin
     ).forDef("f")
-    r.willJit shouldBe false
-    r.bailReasons should contain (JitBailReason.TryCatch)
+    r.willJit shouldBe true
+    r.bailReasons shouldBe empty
 
   test("lintFun with AsmJitBackend — block-body f(x) = { val y = x+1; y } JITs"):
     val r = lintForAsm(

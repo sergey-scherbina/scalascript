@@ -1704,3 +1704,39 @@ class SscVmTest extends AnyFunSuite with Matchers:
     val r = AsmJitBackend.tryCompile(fn, interp)
     r should not be null
   }
+
+  // ── Stage 5.3: try/catch in function bodies ─────────────────────────────────
+
+  test("stage5.3: end-to-end — try/catch with wildcard arm compiles and runs correctly") {
+    val out = captured(
+      """def safeDivide(x: Int, y: Int): Int =
+        |  try x / y
+        |  catch case _: Exception => -1
+        |println(safeDivide(10, 2))
+        |println(safeDivide(10, 0))""".stripMargin)
+    val lines = out.trim.split("\n")
+    lines(0) shouldBe "5"
+    lines(1) shouldBe "-1"
+  }
+
+  test("stage5.3: Javac — try/catch compiles") {
+    import scalascript.interpreter.vm.jit.JavacJitBackend
+    val interp = interpOf(
+      """def safeDivide(x: Int, y: Int): Int =
+        |  try x / y
+        |  catch case _: Exception => -1""".stripMargin)
+    val fn = interp.globalsView("safeDivide").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+  }
+
+  test("stage5.3: ASM — try/catch compiles") {
+    import scalascript.interpreter.vm.jit.AsmJitBackend
+    val interp = interpOf(
+      """def safeDivide(x: Int, y: Int): Int =
+        |  try x / y
+        |  catch case _: Exception => -1""".stripMargin)
+    val fn = interp.globalsView("safeDivide").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+  }

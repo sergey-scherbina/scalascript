@@ -368,6 +368,8 @@ object JavacJitBackend extends JitBackend:
                   if matchPart == null then null else prefix + matchPart
           case _ =>
             walkBlockStmts(b.stats, ctx)
+      case Term.Try.After_4_9_9(tryExpr: Term, Some(handler), None) if handler.cases.nonEmpty =>
+        walkTryCatchBody(tryExpr, handler.cases, ctx)
       case other =>
         val tco = tryTcoBody(other.asInstanceOf[Term], ctx)
         if tco != null then tco
@@ -382,6 +384,31 @@ object JavacJitBackend extends JitBackend:
             // `return (boolExpr) ? 1L : 0L` so predicate functions compile.
             val b = walkBool(other.asInstanceOf[Term], ctx)
             if b == null then null else s"return ($b) ? 1L : 0L;"
+
+  private def walkTryCatchBody(tryExpr: Term, cases: List[scala.meta.Case], ctx: GenCtx): String | Null =
+    val tryStr =
+      if ctx.isDouble then walkDouble(tryExpr, ctx)
+      else walkLong(tryExpr, ctx)
+    if tryStr == null then return null
+    val sb = new StringBuilder
+    sb.append(s"try { return $tryStr; }")
+    var rem = cases
+    while rem.nonEmpty do
+      val c = rem.head; rem = rem.tail
+      val (param, catchCtx) = c.pat match
+        case _: Pat.Wildcard => ("Exception _exCaught", ctx)
+        case pv: Pat.Var =>
+          ("Exception _exCaught", ctx.withBindings(Seq(pv.name.value -> ("(Object) _exCaught", true))))
+        case Pat.Typed(_: Pat.Wildcard, _) => ("Exception _exCaught", ctx)
+        case Pat.Typed(pv: Pat.Var, _) =>
+          ("Exception _exCaught", ctx.withBindings(Seq(pv.name.value -> ("(Object) _exCaught", true))))
+        case _ => return null
+      val catchStr =
+        if ctx.isDouble then walkDouble(c.body.asInstanceOf[Term], catchCtx)
+        else walkLong(c.body.asInstanceOf[Term], catchCtx)
+      if catchStr == null then return null
+      sb.append(s" catch ($param) { return $catchStr; }")
+    sb.toString
 
   private def ensureCoEmittedLong(fnName: String, ctx: GenCtx): MethodSig | Null =
     if ctx.coEmit.emitted.contains(fnName) || ctx.coEmit.emitting.contains(fnName) then
