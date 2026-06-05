@@ -1319,3 +1319,48 @@ class SscVmTest extends AnyFunSuite with Matchers:
         |println(dot(Vec(3, 4), Vec(1, 2)))""".stripMargin)
     out.trim shouldBe "11"
   }
+
+  test("stage2.3: ASM — ref-returning match with guarded arm compiles") {
+    // Body must use only params/pattern-bindings; 's' is the ref param.
+    // Guard 'r > 5' uses the numeric field from the Extract; body 's' is the param.
+    val interp = interpOf(
+      """sealed trait Shape
+        |case class Circle(r: Int) extends Shape
+        |case class Square(s: Int) extends Shape
+        |val bigC   = Circle(10)
+        |val smallC = Circle(3)
+        |def identity(s: Shape): Shape = s match
+        |  case Circle(r) if r > 5 => s
+        |  case _ => s""".stripMargin)
+    val fn = interp.globalsView("identity").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    r.direct.isInstanceOf[ObjToObject] shouldBe true
+    val bigC   = interp.globalsView("bigC").asInstanceOf[AnyRef]
+    val smallC = interp.globalsView("smallC").asInstanceOf[AnyRef]
+    // guard passes: Circle(10) → returns s (identity)
+    (r.direct.asInstanceOf[ObjToObject].apply(bigC) eq bigC) shouldBe true
+    // guard fails: Circle(3) → wildcard → returns s (identity)
+    (r.direct.asInstanceOf[ObjToObject].apply(smallC) eq smallC) shouldBe true
+  }
+
+  test("stage2.3: end-to-end — guarded ADT match in numeric JIT runs correctly") {
+    // A numeric-returning match with a guard: tests the already-existing
+    // emitMatchBody guard path and verifies end-to-end correctness.
+    val out = captured(
+      """sealed trait Shape
+        |case class Circle(r: Int) extends Shape
+        |case class Square(s: Int) extends Shape
+        |def area(s: Shape): Int = s match
+        |  case Circle(r) if r > 0 => r * r
+        |  case Square(s) if s > 0 => s * s
+        |  case _ => 0
+        |println(area(Circle(3)))
+        |println(area(Square(4)))
+        |println(area(Circle(-1)))""".stripMargin)
+    val lines = out.trim.split("\n")
+    lines(0) shouldBe "9"
+    lines(1) shouldBe "16"
+    lines(2) shouldBe "0"
+  }

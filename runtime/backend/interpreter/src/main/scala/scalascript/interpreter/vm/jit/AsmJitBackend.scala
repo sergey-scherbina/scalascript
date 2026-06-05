@@ -1628,7 +1628,7 @@ object AsmJitBackend extends JitBackend:
     if scrutSlot < 0 then return false
     val cases = tm.casesBlock.cases
     val casesArr = cases.toArray
-    if casesArr.isEmpty || casesArr.exists(_.cond.nonEmpty) then return false
+    if casesArr.isEmpty then return false
     val wildcardIdx = casesArr.indexWhere(_.pat.isInstanceOf[Pat.Var])
     if wildcardIdx >= 0 && wildcardIdx != casesArr.length - 1 then return false
 
@@ -1639,6 +1639,20 @@ object AsmJitBackend extends JitBackend:
 
     val tags = resolveArmTags(casesArr, interp)
     val allTagged = wildcardIdx < 0 && tags.forall(_ != 0)
+    val hasAnyGuard = casesArr.exists(_.cond.nonEmpty)
+
+    if hasAnyGuard then
+      var ci = 0
+      var rem = cases
+      while rem.nonEmpty do
+        if !emitRefArmAsIfBranch(rem.head, ctx, interp, instSlot, mv,
+                                  if allTagged then tags(ci) else 0, allTagged) then return false
+        ci += 1
+        rem = rem.tail
+      if wildcardIdx < 0 then
+        emitThrow(mv, "AsmJitBackend: no guarded ref case matched")
+      return true
+
     val armLbls = Array.fill(casesArr.length)(new Label)
     val throwLbl = new Label
     val defLbl = if wildcardIdx >= 0 then armLbls(wildcardIdx) else throwLbl
@@ -1664,6 +1678,105 @@ object AsmJitBackend extends JitBackend:
       mv.visitLabel(throwLbl)
       emitThrow(mv, "AsmJitBackend: no ref case matched")
     true
+
+  private def emitRefArmAsIfBranch(c: scala.meta.Case, ctx: GenCtx, interp: Interpreter,
+                                    instSlot: Int, mv: MethodVisitor,
+                                    intTag: Int, allTagged: Boolean): Boolean =
+    c.pat match
+      case ext: scala.meta.Pat.Extract =>
+        val ctorName = extractCtorName(ext.fun)
+        if ctorName == null then return false
+        val nextLbl = new Label
+        if allTagged && intTag > 0 then
+          mv.visitVarInsn(ALOAD, instSlot)
+          mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "typeTag", "()I", false)
+          emitIconst(mv, intTag)
+          mv.visitJumpInsn(IF_ICMPNE, nextLbl)
+        else
+          mv.visitVarInsn(ALOAD, instSlot)
+          mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "typeName", "()Ljava/lang/String;", false)
+          mv.visitLdcInsn(ctorName)
+          mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "equals", "(Ljava/lang/Object;)Z", false)
+          mv.visitJumpInsn(IFEQ, nextLbl)
+        val argPats = ext.argClause.values.toArray
+        val n = argPats.length
+        val bindNames = new Array[String](n)
+        var i = 0
+        while i < n do
+          argPats(i) match
+            case Pat.Var(Term.Name(bn)) => bindNames(i) = bn
+            case _: Pat.Wildcard        => bindNames(i) = s"_unused$$_$i"
+            case _                      => return false
+          i += 1
+        val fieldOrder = interp.typeFieldOrder.getOrElse(ctorName, Nil).toArray
+        if fieldOrder.length != n then return false
+        val fieldTypes = interp.typeFieldTypes.getOrElse(ctorName, Nil).toArray
+        def isPrimField(fi: Int): Boolean =
+          fi < fieldTypes.length && (fieldTypes(fi) match
+            case "Int" | "Long" | "Double" | "Boolean" => true
+            case _ => false)
+        def usesName(tree: scala.meta.Tree, name: String): Boolean =
+          var hit = false
+          def loop(t: scala.meta.Tree): Unit =
+            if !hit then t match
+              case Term.Name(n) if n == name => hit = true
+              case _ => t.children.foreach(loop)
+          loop(tree)
+          hit
+        val faSlot =
+          if n > 0 then
+            val s = ctx.allocSlot()
+            mv.visitVarInsn(ALOAD, instSlot)
+            mv.visitMethodInsn(INVOKEVIRTUAL, instVInt, "fieldsArr", s"()[L$valueInt;", false)
+            mv.visitVarInsn(ASTORE, s)
+            s
+          else -1
+        val newBindings = mutable.Map.empty[String, (Int, Boolean)]
+        i = 0
+        while i < n do
+          val needed = !bindNames(i).startsWith("_unused$") &&
+            (usesName(c.body, bindNames(i)) || c.cond.exists(g => usesName(g, bindNames(i))))
+          if needed then
+            val bSlot = ctx.allocSlot()
+            val isRef = !isPrimField(i)
+            emitLoadField(mv, instSlot, faSlot, i, fieldOrder(i), n > 0)
+            if isRef then mv.visitVarInsn(ASTORE, bSlot)
+            else
+              mv.visitTypeInsn(CHECKCAST, intVInt)
+              mv.visitMethodInsn(INVOKEVIRTUAL, intVInt, "v", "()J", false)
+              mv.visitVarInsn(LSTORE, bSlot)
+            newBindings(bindNames(i)) = (bSlot, isRef)
+          i += 1
+        val newCtx = ctx.withBindings(newBindings.toMap)
+        c.cond match
+          case Some(cond) => if !walkBool(cond, newCtx, mv, nextLbl) then return false
+          case None =>
+        if !walkRef(c.body, newCtx, mv) then return false
+        mv.visitInsn(ARETURN)
+        mv.visitLabel(nextLbl)
+        true
+      case _: Pat.Wildcard =>
+        val nextLbl = new Label
+        c.cond match
+          case Some(cond) => if !walkBool(cond, ctx, mv, nextLbl) then return false
+          case None =>
+        if !walkRef(c.body, ctx, mv) then return false
+        mv.visitInsn(ARETURN)
+        if c.cond.nonEmpty then mv.visitLabel(nextLbl)
+        true
+      case pv: Pat.Var =>
+        val xName = pv.name.value
+        if xName.isEmpty then return false
+        val newCtx = ctx.withBindings(Map(xName -> (instSlot, true)))
+        val nextLbl = new Label
+        c.cond match
+          case Some(cond) => if !walkBool(cond, newCtx, mv, nextLbl) then return false
+          case None =>
+        if !walkRef(c.body, newCtx, mv) then return false
+        mv.visitInsn(ARETURN)
+        if c.cond.nonEmpty then mv.visitLabel(nextLbl)
+        true
+      case _ => false
 
   private def emitRefArmBody(c: scala.meta.Case, ctx: GenCtx, interp: Interpreter,
                              instSlot: Int, mv: MethodVisitor): Boolean =
