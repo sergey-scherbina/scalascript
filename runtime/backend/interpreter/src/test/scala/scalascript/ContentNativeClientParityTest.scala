@@ -24,6 +24,8 @@ class ContentNativeClientParityTest extends AnyFunSuite with Matchers:
     code should include ("def contentToolkitBlock")
     code should include ("def contentToolkitSection")
     code should include ("def _ssc_tk_render_control")
+    code should include ("case class _SscTkLink")
+    code should include ("def _ssc_tk_markdown_block")
     code should include ("scalascript-frontend-swing")
     code should include ("scalascript-frontend-javafx")
     code should include ("object primitives")

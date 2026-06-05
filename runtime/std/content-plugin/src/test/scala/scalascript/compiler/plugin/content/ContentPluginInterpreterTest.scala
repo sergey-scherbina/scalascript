@@ -858,6 +858,56 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
       case other =>
         fail(s"expected table lookup result, got $other")
 
+  test("markdown toolkit links lower to shared toolkit control nodes"):
+    val source =
+      """---
+        |name: markdown-toolkit-links-runtime-test
+        |---
+        |
+        |# Demo
+        |
+        |## Controls {#controls}
+        |
+        |<!-- @meta id=markdown-controls -->
+        |- [Team name](toolkit:textField?signal=teamName&value=ScalaScript%20team)
+        |- [Enable preview](toolkit:checkbox?signal=enabled&value=false)
+        |- [Apply](toolkit:button?signal=applied&value=true&enabledWhen=enabled)
+        |- [Team name](toolkit:signalText?signal=teamName)
+        |- [Applied](toolkit:signalText?signal=applied)
+        |- [ready](toolkit:badge?variant=success)
+        |
+        |```scala
+        |extern def contentToolkitSection(id: String): Any
+        |contentToolkitSection("controls")
+        |```
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    interp.run(Parser.parse(source))
+
+    interp.lastResult match
+      case Value.InstanceV("VStackNode", sectionFields) =>
+        val sectionChildren = listField(sectionFields, "children", "section.children")
+        assert(instanceFields(sectionChildren.head, "HeadingNode")("text") == Value.StringV("Controls"))
+        val controls = instanceFields(sectionChildren(1), "VStackNode")
+        val nodes = listField(controls, "children", "controls.children")
+        assert(nodes.length == 6)
+        assert(instanceFields(nodes(0), "TextFieldNode")("label") == Value.StringV("Team name"))
+        assert(instanceFields(nodes(1), "CheckboxNode")("label") == Value.StringV("Enable preview"))
+        assert(nodes(2).isInstanceOf[Value.InstanceV])
+        assert(nodes(2).asInstanceOf[Value.InstanceV].typeName == "ShowWhenNode")
+        val showFields = instanceFields(nodes(2), "ShowWhenNode")
+        assert(instanceFields(showFields("whenTrue"), "SignalButtonNode")("label") == Value.StringV("Apply"))
+        assert(instanceFields(nodes(3), "SignalTextNode").contains("signal"))
+        assert(instanceFields(nodes(4), "SignalTextNode").contains("signal"))
+        assert(instanceFields(nodes(5), "BadgeNode")("content") == Value.StringV("ready"))
+      case other =>
+        fail(s"expected controls section node, got $other")
+
   test("contentToMarkdown renders selected Markdown content"):
     val source = os.read(repoRoot / "tests" / "conformance" / "content-to-markdown.ssc")
     val expected = os.read(repoRoot / "tests" / "conformance" / "expected" / "content-to-markdown.txt").stripTrailing

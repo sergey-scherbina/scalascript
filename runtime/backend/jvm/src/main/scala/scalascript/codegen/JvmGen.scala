@@ -1038,6 +1038,159 @@ class JvmGen(
        |def _ssc_tk_signal(env: Map[String, Any], name: String, ctx: String): Any =
        |  env.getOrElse(name, _ssc_tk_error(s"contentToolkitNode: $$ctx references unknown signal '$$name'"))
        |
+       |case class _SscTkLink(kind: String, query: Map[String, String], label: String)
+       |
+       |def _ssc_tk_decode(value: String): String =
+       |  java.net.URLDecoder.decode(value, java.nio.charset.StandardCharsets.UTF_8)
+       |
+       |def _ssc_tk_normalize_kind(value: String): String =
+       |  value.toLowerCase(java.util.Locale.ROOT).filter(ch => ch != '-' && ch != '_')
+       |
+       |def _ssc_tk_parse_link(href: String, label: String): _SscTkLink =
+       |  val raw = href.stripPrefix("toolkit:")
+       |  val question = raw.indexOf('?')
+       |  val kindPart = if question < 0 then raw else raw.take(question)
+       |  val queryPart = if question < 0 then "" else raw.drop(question + 1)
+       |  val kind = _ssc_tk_normalize_kind(_ssc_tk_decode(kindPart))
+       |  if kind.isEmpty then _ssc_tk_error("contentToolkitNode: toolkit link requires a control kind")
+       |  val query =
+       |    if queryPart.isEmpty then Map.empty[String, String]
+       |    else queryPart.split("&").toList.filter(_.nonEmpty).map { pair =>
+       |      val eq = pair.indexOf('=')
+       |      if eq < 0 then _ssc_tk_decode(pair) -> ""
+       |      else _ssc_tk_decode(pair.take(eq)) -> _ssc_tk_decode(pair.drop(eq + 1))
+       |    }.toMap
+       |  _SscTkLink(kind, query, label)
+       |
+       |def _ssc_tk_single_link(inlines: List[std.content.ContentInline]): Option[_SscTkLink] =
+       |  val significant = inlines.filter {
+       |    case std.content.ContentInline.Text(value) => value.trim.nonEmpty
+       |    case _ => true
+       |  }
+       |  significant match
+       |    case std.content.ContentInline.Link(label, href, _) :: Nil if href.startsWith("toolkit:") =>
+       |      Some(_ssc_tk_parse_link(href, label.map(_ssc_content_inline_plain_text).mkString))
+       |    case _ => None
+       |
+       |def _ssc_tk_link_bool_opt(link: _SscTkLink, name: String): Option[Boolean] =
+       |  link.query.get(name).map {
+       |    case "true" => true
+       |    case "false" => false
+       |    case other => _ssc_tk_error("contentToolkitNode: toolkit:" + link.kind + " " + name + " expected true or false, got '" + other + "'")
+       |  }
+       |
+       |def _ssc_tk_link_bool(link: _SscTkLink, name: String, default: Boolean): Boolean =
+       |  _ssc_tk_link_bool_opt(link, name).getOrElse(default)
+       |
+       |def _ssc_tk_link_label(link: _SscTkLink): String =
+       |  link.query.getOrElse("label", link.label)
+       |
+       |def _ssc_tk_required_query(link: _SscTkLink, name: String): String =
+       |  link.query.get(name).filter(_.nonEmpty).getOrElse(
+       |    _ssc_tk_error("contentToolkitNode: toolkit:" + link.kind + " requires " + name))
+       |
+       |def _ssc_tk_link_literal(value: String): Any =
+       |  value match
+       |    case "true" => true
+       |    case "false" => false
+       |    case other => other
+       |
+       |def _ssc_tk_link_signal_default(link: _SscTkLink): Option[(String, Any)] =
+       |  link.query.get("signal").map { name =>
+       |    val initial: Any = link.kind match
+       |      case "textfield" | "input" => link.query.getOrElse("value", "")
+       |      case "checkbox" => _ssc_tk_link_bool_opt(link, "checked").orElse(_ssc_tk_link_bool_opt(link, "value")).getOrElse(false)
+       |      case "button" | "signalbutton" => false
+       |      case "signaltext" => ""
+       |      case _ => ""
+       |    name -> initial
+       |  }
+       |
+       |def _ssc_tk_link_node(link: _SscTkLink, env: Map[String, Any]): std.ui.nodes.TkNode =
+       |  link.kind match
+       |    case "textfield" | "input" =>
+       |      std.ui.nodes.TextFieldNode(
+       |        _ssc_tk_signal(env, _ssc_tk_required_query(link, "signal"), "toolkit:textField"),
+       |        _ssc_tk_link_label(link),
+       |        _ssc_tk_link_bool(link, "disabled", false),
+       |        _ssc_tk_link_bool(link, "required", false))
+       |    case "checkbox" =>
+       |      std.ui.nodes.CheckboxNode(
+       |        _ssc_tk_signal(env, _ssc_tk_required_query(link, "signal"), "toolkit:checkbox"),
+       |        _ssc_tk_link_label(link),
+       |        _ssc_tk_link_bool(link, "disabled", false))
+       |    case "button" | "signalbutton" =>
+       |      val signal = _ssc_tk_signal(env, _ssc_tk_required_query(link, "signal"), "toolkit:button")
+       |      val value = _ssc_tk_link_literal(link.query.getOrElse("value", "true"))
+       |      val disabled = _ssc_tk_link_bool(link, "disabled", false)
+       |      link.query.get("enabledWhen") match
+       |        case Some(name) =>
+       |          std.ui.nodes.ShowWhenNode(
+       |            _ssc_tk_signal(env, name, "toolkit:button.enabledWhen"),
+       |            std.ui.nodes.SignalButtonNode(signal, value, _ssc_tk_link_label(link), disabled),
+       |            std.ui.nodes.SignalButtonNode(signal, value, _ssc_tk_link_label(link), true))
+       |        case None =>
+       |          std.ui.nodes.SignalButtonNode(signal, value, _ssc_tk_link_label(link), disabled)
+       |    case "signaltext" =>
+       |      std.ui.nodes.SignalTextNode(_ssc_tk_signal(env, _ssc_tk_required_query(link, "signal"), "toolkit:signalText"))
+       |    case "badge" =>
+       |      std.ui.nodes.BadgeNode(link.query.getOrElse("text", _ssc_tk_link_label(link)), link.query.getOrElse("variant", "default"))
+       |    case "divider" =>
+       |      std.ui.nodes.DividerNode()
+       |    case other =>
+       |      _ssc_tk_error("contentToolkitNode: unsupported toolkit link control '" + other + "'")
+       |
+       |def _ssc_tk_markdown_signal_defaults_block(block: std.content.ContentBlock): List[(String, Any)] =
+       |  block match
+       |    case std.content.ContentBlock.Paragraph(inlines, _) =>
+       |      _ssc_tk_single_link(inlines).flatMap(_ssc_tk_link_signal_default).toList
+       |    case std.content.ContentBlock.BulletList(items, _) =>
+       |      items.flatten.flatMap(_ssc_tk_markdown_signal_defaults_block)
+       |    case std.content.ContentBlock.OrderedList(items, _, _) =>
+       |      items.flatten.flatMap(_ssc_tk_markdown_signal_defaults_block)
+       |    case _ => Nil
+       |
+       |def _ssc_tk_markdown_signal_defaults_section(section: std.content.SectionContent): List[(String, Any)] =
+       |  section.blocks.flatMap(_ssc_tk_markdown_signal_defaults_block) ++
+       |    section.children.flatMap(_ssc_tk_markdown_signal_defaults_section)
+       |
+       |def _ssc_tk_markdown_signal_defaults_doc(doc: std.content.DocumentContent): List[(String, Any)] =
+       |  doc.blocks.flatMap(_ssc_tk_markdown_signal_defaults_block) ++
+       |    doc.sections.flatMap(_ssc_tk_markdown_signal_defaults_section)
+       |
+       |def _ssc_tk_markdown_env(defaults: List[(String, Any)]): Map[String, Any] =
+       |  defaults.foldLeft(Map.empty[String, Any]) { case (acc, (name, initial)) =>
+       |    if acc.contains(name) then acc else acc + (name -> std.ui.primitives.signal(name, initial))
+       |  }
+       |
+       |def _ssc_tk_list_item(item: List[std.content.ContentBlock], env: Map[String, Any]): Option[std.ui.nodes.TkNode] =
+       |  item match
+       |    case std.content.ContentBlock.Paragraph(inlines, _) :: Nil =>
+       |      _ssc_tk_single_link(inlines).map(_ssc_tk_link_node(_, env))
+       |    case _ => None
+       |
+       |def _ssc_tk_markdown_block(block: std.content.ContentBlock, options: std.ui.content.ContentToolkitOptions, env: Map[String, Any]): Option[std.ui.nodes.TkNode] =
+       |  block match
+       |    case std.content.ContentBlock.Paragraph(inlines, _) =>
+       |      _ssc_tk_single_link(inlines).map(_ssc_tk_link_node(_, env))
+       |    case std.content.ContentBlock.BulletList(items, _) =>
+       |      val rendered = items.map(item => _ssc_tk_list_item(item, env))
+       |      if rendered.exists(_.isDefined) then
+       |        Some(std.ui.nodes.VStackNode(options.listGap, items.zip(rendered).map {
+       |          case (_, Some(node)) => node
+       |          case (item, None) => std.ui.nodes.RawTextNode("- " + item.map(_ssc_content_block_plain_text).mkString(" "))
+       |        }))
+       |      else None
+       |    case std.content.ContentBlock.OrderedList(items, start, _) =>
+       |      val rendered = items.map(item => _ssc_tk_list_item(item, env))
+       |      if rendered.exists(_.isDefined) then
+       |        Some(std.ui.nodes.VStackNode(options.listGap, items.zip(rendered).zipWithIndex.map {
+       |          case ((_, Some(node)), _) => node
+       |          case ((item, None), idx) => std.ui.nodes.RawTextNode((start + idx).toString + ". " + item.map(_ssc_content_block_plain_text).mkString(" "))
+       |        }))
+       |      else None
+       |    case _ => None
+       |
        |def _ssc_tk_render_control(value: std.content.ContentValue, env: Map[String, Any]): std.ui.nodes.TkNode =
        |  val obj = _ssc_tk_map(value, "control")
        |  val kind = _ssc_tk_str(_ssc_tk_field(obj, "type", "control"), "control.type")
@@ -1086,12 +1239,12 @@ class JvmGen(
        |    case Some(value) => _ssc_tk_list(value, "children").map(_ssc_tk_render_control(_, env))
        |    case None => Nil
        |
-       |def _ssc_tk_yaml_block(block: std.content.ContentBlock): Option[std.ui.nodes.TkNode] =
+       |def _ssc_tk_yaml_block(block: std.content.ContentBlock, baseEnv: Map[String, Any]): Option[std.ui.nodes.TkNode] =
        |  block match
        |    case std.content.ContentBlock.Embedded(_, _, std.content.EmbeddedKind.StructuredData, Some(data), attrs)
        |        if _ssc_content_string_attr(attrs, "ui").contains("toolkit") =>
        |      val root = _ssc_tk_map(data, "@ui=toolkit")
-       |      val env = _ssc_tk_signals(root)
+       |      val env = baseEnv ++ _ssc_tk_signals(root)
        |      Some(_ssc_tk_render_control(_ssc_tk_field(root, "controls", "@ui=toolkit"), env))
        |    case _ => None
        |
@@ -1110,23 +1263,24 @@ class JvmGen(
        |  }
        |  std.ui.nodes.TableNode(columns, rows.map(row => row.map(_ssc_tk_table_cell)), null)
        |
-       |def _ssc_tk_block(block: std.content.ContentBlock, options: std.ui.content.ContentToolkitOptions): std.ui.nodes.TkNode =
+       |def _ssc_tk_block(block: std.content.ContentBlock, options: std.ui.content.ContentToolkitOptions, env: Map[String, Any]): std.ui.nodes.TkNode =
        |  val attrs = _ssc_content_block_attrs(block)
        |  _ssc_content_string_attr(attrs, "component")
        |    .flatMap(name => _ssc_tk_component_for(name, options).map(_.render(std.ui.content.ContentComponentContext(name, "block", _ssc_content_string_attr(attrs, "id").getOrElse(""), None, attrs, None, Some(block), _ssc_tk_component_data(attrs)))))
-       |    .orElse(_ssc_tk_yaml_block(block))
+       |    .orElse(_ssc_tk_yaml_block(block, env))
+       |    .orElse(_ssc_tk_markdown_block(block, options, env))
        |    .orElse(block match
        |      case std.content.ContentBlock.Table(headers, rows, _, _) => Some(_ssc_tk_table(headers, rows))
        |      case _ => None
        |    )
        |    .getOrElse(std.ui.nodes.TextNode_(_ssc_content_block_plain_text(block)))
        |
-       |def _ssc_tk_section(section: std.content.SectionContent, options: std.ui.content.ContentToolkitOptions): std.ui.nodes.TkNode =
+       |def _ssc_tk_section(section: std.content.SectionContent, options: std.ui.content.ContentToolkitOptions, env: Map[String, Any]): std.ui.nodes.TkNode =
        |  _ssc_content_string_attr(section.attrs, "component")
        |    .flatMap(name => _ssc_tk_component_for(name, options).map(_.render(std.ui.content.ContentComponentContext(name, "section", section.id, Some(section.title), section.attrs, Some(section), None, _ssc_tk_component_data(section.attrs)))))
        |    .getOrElse {
        |      val children = std.ui.nodes.HeadingNode(section.level, section.title) ::
-       |        (section.blocks.map(_ssc_tk_block(_, options)) ++ section.children.map(_ssc_tk_section(_, options)))
+       |        (section.blocks.map(_ssc_tk_block(_, options, env)) ++ section.children.map(_ssc_tk_section(_, options, env)))
        |      std.ui.nodes.VStackNode(options.blockGap, children)
        |    }
        |
@@ -1148,17 +1302,22 @@ class JvmGen(
        |
        |def contentToolkitNode(options: std.ui.content.ContentToolkitOptions = std.ui.content.ContentToolkitOptions()): std.ui.nodes.TkNode =
        |  val doc = _ssc_tk_document(options)
+       |  val env = _ssc_tk_markdown_env(_ssc_tk_markdown_signal_defaults_doc(doc))
        |  std.ui.nodes.VStackNode(options.sectionGap,
-       |    doc.blocks.map(_ssc_tk_block(_, options)) ++
-       |      doc.sections.map(_ssc_tk_section(_, options)))
+       |    doc.blocks.map(_ssc_tk_block(_, options, env)) ++
+       |      doc.sections.map(_ssc_tk_section(_, options, env)))
        |
        |def contentToolkitBlock(id: String, options: std.ui.content.ContentToolkitOptions = std.ui.content.ContentToolkitOptions()): std.ui.nodes.TkNode =
-       |  _ssc_tk_block_by_id(_ssc_tk_document(options), id).map(_ssc_tk_block(_, options)).getOrElse(
+       |  _ssc_tk_block_by_id(_ssc_tk_document(options), id).map { block =>
+       |    _ssc_tk_block(block, options, _ssc_tk_markdown_env(_ssc_tk_markdown_signal_defaults_block(block)))
+       |  }.getOrElse(
        |    throw RuntimeException(s"contentToolkitBlock: no block with id '$$id'")
        |  )
        |
        |def contentToolkitSection(id: String, options: std.ui.content.ContentToolkitOptions = std.ui.content.ContentToolkitOptions()): std.ui.nodes.TkNode =
-       |  _ssc_tk_section_by_id(_ssc_tk_document(options), id).map(_ssc_tk_section(_, options)).getOrElse(
+       |  _ssc_tk_section_by_id(_ssc_tk_document(options), id).map { section =>
+       |    _ssc_tk_section(section, options, _ssc_tk_markdown_env(_ssc_tk_markdown_signal_defaults_section(section)))
+       |  }.getOrElse(
        |    throw RuntimeException(s"contentToolkitSection: no section with id '$$id'")
        |  )
        |

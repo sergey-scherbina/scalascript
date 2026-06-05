@@ -1,0 +1,38 @@
+---
+name: markdown-toolkit-links-example
+description: Toolkit controls declared as ordinary Markdown links.
+frontend: react
+content:
+  defaultRenderer: toolkit
+---
+
+# Markdown Toolkit Links
+
+This page declares real toolkit controls in Markdown markup. The controls below
+are ordinary Markdown links with a `toolkit:` destination; there is no
+`yaml @ui=toolkit` control block.
+
+## Controls {#controls}
+
+<!-- @meta id=markdown-controls -->
+- [Team name](toolkit:textField?signal=teamName&value=ScalaScript%20team)
+- [Enable live preview](toolkit:checkbox?signal=enabled&value=false)
+- [Apply Markdown controls](toolkit:button?signal=applied&value=true&enabledWhen=enabled)
+- [Team name](toolkit:signalText?signal=teamName)
+- [Applied](toolkit:signalText?signal=applied)
+- [Markdown controls](toolkit:badge?variant=success)
+
+## Run
+
+[contentToolkitSection](std/ui/content.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[serve](std/ui/primitives.ssc)
+
+```scalascript
+val page = lower(contentToolkitSection("controls"), defaultTheme)
+
+println("markdown-toolkit-links:ok")
+println("serving: http://127.0.0.1:8099/")
+serve(page, 8099)
+```

@@ -1,5 +1,8 @@
 package scalascript.compiler.plugin.content
 
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
+
 import scalascript.ast
 import scalascript.backend.spi.{IntrinsicImpl, NativeContextFeatureKeys}
 import scalascript.frontend.ReactiveSignal
@@ -139,6 +142,7 @@ object ContentIntrinsics:
   )
 
   private case class ToolkitUiEnv(signals: Map[String, Value])
+  private case class ToolkitLink(kind: String, query: Map[String, String], label: String)
 
   private def currentDocument(ctx: PluginContext, fn: String): ast.DocumentContent =
     ctx.featureGet(NativeContextFeatureKeys.ContentDocument) match
@@ -272,16 +276,17 @@ object ContentIntrinsics:
     inst
 
   private def toolkitDocumentNode(ctx: PluginContext, doc: ast.DocumentContent, options: ToolkitOptions): Value =
+    val env = toolkitMarkdownEnv(doc)
     val children =
-      doc.blocks.map(toolkitBlockNode(ctx, doc, _, options)) ++
-        doc.sections.map(toolkitSectionNode(ctx, doc, _, options, topLevel = true))
+      doc.blocks.map(toolkitBlockNode(ctx, doc, _, options, env)) ++
+        doc.sections.map(toolkitSectionNode(ctx, doc, _, options, env, topLevel = true))
     val body = vstackNode(options.sectionGap, children)
     if options.wrapDocumentInCard then cardNode(List(body)) else body
 
   private def toolkitBlockById(ctx: PluginContext, doc: ast.DocumentContent, id: String, options: ToolkitOptions): Value =
     blocksDeep(doc).filter(block => blockId(block).contains(id)) match
       case block :: Nil =>
-        toolkitBlockNode(ctx, doc, block, options)
+        toolkitBlockNode(ctx, doc, block, options, toolkitMarkdownEnv(block))
       case Nil =>
         throw InterpretError(s"contentToolkitBlock: no block with id '$id'")
       case _ =>
@@ -290,7 +295,7 @@ object ContentIntrinsics:
   private def toolkitSectionById(ctx: PluginContext, doc: ast.DocumentContent, id: String, options: ToolkitOptions): Value =
     sectionsDeep(doc).filter(_.id == id) match
       case section :: Nil =>
-        toolkitSectionNode(ctx, doc, section, options, topLevel = true)
+        toolkitSectionNode(ctx, doc, section, options, toolkitMarkdownEnv(section), topLevel = true)
       case Nil =>
         throw InterpretError(s"contentToolkitSection: no section with id '$id'")
       case _ =>
@@ -440,6 +445,7 @@ object ContentIntrinsics:
       doc: ast.DocumentContent,
       section: ast.SectionContent,
       options: ToolkitOptions,
+      env: ToolkitUiEnv,
       topLevel: Boolean
   ): Value =
     componentRenderer(section.attrs, options) match
@@ -448,24 +454,34 @@ object ContentIntrinsics:
       case None => ()
     val children =
       headingNode(section.level, section.title) ::
-        (section.blocks.map(toolkitBlockNode(ctx, doc, _, options)) ++
-          section.children.map(toolkitSectionNode(ctx, doc, _, options, topLevel = false)))
+        (section.blocks.map(toolkitBlockNode(ctx, doc, _, options, env)) ++
+          section.children.map(toolkitSectionNode(ctx, doc, _, options, env, topLevel = false)))
     val stack = vstackNode(options.blockGap, children)
     if topLevel && options.wrapTopLevelSectionsInCards then cardNode(List(stack)) else stack
 
-  private def toolkitBlockNode(ctx: PluginContext, doc: ast.DocumentContent, block: ast.ContentBlock, options: ToolkitOptions): Value =
+  private def toolkitBlockNode(
+      ctx: PluginContext,
+      doc: ast.DocumentContent,
+      block: ast.ContentBlock,
+      options: ToolkitOptions,
+      env: ToolkitUiEnv
+  ): Value =
     componentRenderer(blockAttrs(block), options) match
       case Some((name, render)) =>
         return renderComponent(ctx, name, render, blockComponentContext(name, doc, block))
       case None => ()
     block match
       case ast.ContentBlock.Paragraph(inlines, _) =>
-        textNode_(inlineText(inlines))
+        singleToolkitLink(inlines)
+          .map(toolkitLinkNode(_, env))
+          .getOrElse(textNode_(inlineText(inlines)))
       case ast.ContentBlock.BulletList(items, _) =>
-        vstackNode(options.listGap, items.map(item => rawTextNode("- " + blocksText(item))))
+        vstackNode(options.listGap, items.map { item =>
+          toolkitListItemNode(item, env).getOrElse(rawTextNode("- " + blocksText(item)))
+        })
       case ast.ContentBlock.OrderedList(items, start, _) =>
         vstackNode(options.listGap, items.zipWithIndex.map { case (item, idx) =>
-          rawTextNode(s"${start + idx}. ${blocksText(item)}")
+          toolkitListItemNode(item, env).getOrElse(rawTextNode(s"${start + idx}. ${blocksText(item)}"))
         })
       case ast.ContentBlock.Image(src, alt, title, _) =>
         val label =
@@ -478,7 +494,7 @@ object ContentIntrinsics:
         tableNode(headers, rows)
       case ast.ContentBlock.Embedded(lang, _, _, data, attrs) if isToolkitUiBlock(lang, attrs) =>
         data match
-          case Some(value) => toolkitUiNode(value, options)
+          case Some(value) => toolkitUiNode(value, options, env)
           case None =>
             throw InterpretError("contentToolkitNode: @ui=toolkit requires a structured YAML/JSON/TOML block")
       case ast.ContentBlock.Embedded(lang, source, _, _, _) =>
@@ -491,14 +507,169 @@ object ContentIntrinsics:
     attrs.get("ui").contains(ast.ContentValue.Str("toolkit")) &&
       Set("yaml", "yml", "json", "toml").contains(lang)
 
-  private def toolkitUiNode(value: ast.ContentValue, options: ToolkitOptions): Value =
+  private def toolkitUiNode(value: ast.ContentValue, options: ToolkitOptions, baseEnv: ToolkitUiEnv): Value =
     val root = contentMap(value, "@ui=toolkit")
     val signals = root.get("signals").map(toolkitSignals).getOrElse(Map.empty)
-    val env = ToolkitUiEnv(signals)
+    val env = ToolkitUiEnv(baseEnv.signals ++ signals)
     root.get("controls")
       .orElse(root.get("control"))
       .map(toolkitControl(_, env, options))
       .getOrElse(throw InterpretError("contentToolkitNode: @ui=toolkit block requires controls"))
+
+  private def toolkitMarkdownEnv(doc: ast.DocumentContent): ToolkitUiEnv =
+    ToolkitUiEnv(markdownToolkitSignalDefaults(doc).foldLeft(Map.empty[String, Value]) {
+      case (acc, (name, initial)) =>
+        if acc.contains(name) then acc else acc.updated(name, reactiveSignal(name, initial))
+    })
+
+  private def toolkitMarkdownEnv(section: ast.SectionContent): ToolkitUiEnv =
+    ToolkitUiEnv(markdownToolkitSignalDefaults(section).foldLeft(Map.empty[String, Value]) {
+      case (acc, (name, initial)) =>
+        if acc.contains(name) then acc else acc.updated(name, reactiveSignal(name, initial))
+    })
+
+  private def toolkitMarkdownEnv(block: ast.ContentBlock): ToolkitUiEnv =
+    ToolkitUiEnv(markdownToolkitSignalDefaults(block).foldLeft(Map.empty[String, Value]) {
+      case (acc, (name, initial)) =>
+        if acc.contains(name) then acc else acc.updated(name, reactiveSignal(name, initial))
+    })
+
+  private def markdownToolkitSignalDefaults(doc: ast.DocumentContent): List[(String, ast.ContentValue)] =
+    doc.blocks.flatMap(markdownToolkitSignalDefaults) ++
+      doc.sections.flatMap(markdownToolkitSignalDefaults)
+
+  private def markdownToolkitSignalDefaults(section: ast.SectionContent): List[(String, ast.ContentValue)] =
+    section.blocks.flatMap(markdownToolkitSignalDefaults) ++
+      section.children.flatMap(markdownToolkitSignalDefaults)
+
+  private def markdownToolkitSignalDefaults(block: ast.ContentBlock): List[(String, ast.ContentValue)] =
+    block match
+      case ast.ContentBlock.Paragraph(inlines, _) =>
+        singleToolkitLink(inlines).flatMap(toolkitLinkSignalDefault).toList
+      case ast.ContentBlock.BulletList(items, _) =>
+        items.flatten.flatMap(markdownToolkitSignalDefaults)
+      case ast.ContentBlock.OrderedList(items, _, _) =>
+        items.flatten.flatMap(markdownToolkitSignalDefaults)
+      case _ =>
+        Nil
+
+  private def singleToolkitLink(inlines: List[ast.ContentInline]): Option[ToolkitLink] =
+    val significant = inlines.filter {
+      case ast.ContentInline.Text(value) => value.trim.nonEmpty
+      case _                             => true
+    }
+    significant match
+      case ast.ContentInline.Link(label, href, _) :: Nil if href.startsWith("toolkit:") =>
+        Some(parseToolkitLink(href, inlineText(label)))
+      case _ =>
+        None
+
+  private def toolkitListItemNode(item: List[ast.ContentBlock], env: ToolkitUiEnv): Option[Value] =
+    item match
+      case ast.ContentBlock.Paragraph(inlines, _) :: Nil =>
+        singleToolkitLink(inlines).map(toolkitLinkNode(_, env))
+      case _ =>
+        None
+
+  private def parseToolkitLink(href: String, label: String): ToolkitLink =
+    val raw = href.stripPrefix("toolkit:")
+    val question = raw.indexOf('?')
+    val (kindPart, queryPart) =
+      if question < 0 then (raw, "")
+      else (raw.take(question), raw.drop(question + 1))
+    val kind = normalizeControlKind(urlDecode(kindPart))
+    if kind.isEmpty then throw InterpretError("contentToolkitNode: toolkit link requires a control kind")
+    val query =
+      if queryPart.isEmpty then Map.empty[String, String]
+      else queryPart.split("&").toList.filter(_.nonEmpty).map { pair =>
+        val eq = pair.indexOf('=')
+        if eq < 0 then urlDecode(pair) -> ""
+        else urlDecode(pair.take(eq)) -> urlDecode(pair.drop(eq + 1))
+      }.toMap
+    ToolkitLink(kind, query, label)
+
+  private def urlDecode(value: String): String =
+    URLDecoder.decode(value, StandardCharsets.UTF_8)
+
+  private def toolkitLinkSignalDefault(link: ToolkitLink): Option[(String, ast.ContentValue)] =
+    link.query.get("signal").map { name =>
+      val initial = link.kind match
+        case "textfield" | "input" =>
+          ast.ContentValue.Str(link.query.getOrElse("value", ""))
+        case "checkbox" =>
+          ast.ContentValue.Bool(toolkitLinkBoolValue(link, "checked")
+            .orElse(toolkitLinkBoolValue(link, "value"))
+            .getOrElse(false))
+        case "button" | "signalbutton" =>
+          ast.ContentValue.Bool(false)
+        case "signaltext" =>
+          ast.ContentValue.Str("")
+        case _ =>
+          ast.ContentValue.Str("")
+      name -> initial
+    }
+
+  private def toolkitLinkNode(link: ToolkitLink, env: ToolkitUiEnv): Value =
+    link.kind match
+      case "textfield" | "input" =>
+        textFieldNode(
+          signalRef(requiredToolkitQuery(link, "signal"), env, "toolkit:textField"),
+          toolkitLinkLabel(link),
+          toolkitLinkBool(link, "disabled", default = false),
+          toolkitLinkBool(link, "required", default = false)
+        )
+      case "checkbox" =>
+        checkboxNode(
+          signalRef(requiredToolkitQuery(link, "signal"), env, "toolkit:checkbox"),
+          toolkitLinkLabel(link),
+          toolkitLinkBool(link, "disabled", default = false)
+        )
+      case "button" | "signalbutton" =>
+        val signal = signalRef(requiredToolkitQuery(link, "signal"), env, "toolkit:button")
+        val value = toolkitLinkLiteral(link.query.get("value").getOrElse("true"))
+        val label = toolkitLinkLabel(link)
+        val disabled = toolkitLinkBool(link, "disabled", default = false)
+        link.query.get("enabledWhen") match
+          case Some(name) =>
+            showWhenNode(
+              signalRef(name, env, "toolkit:button.enabledWhen"),
+              signalButtonNode(signal, value, label, disabled),
+              signalButtonNode(signal, value, label, disabled = true)
+            )
+          case None =>
+            signalButtonNode(signal, value, label, disabled)
+      case "signaltext" =>
+        signalTextNode(signalRef(requiredToolkitQuery(link, "signal"), env, "toolkit:signalText"))
+      case "badge" =>
+        badgeNode(link.query.getOrElse("text", toolkitLinkLabel(link)), link.query.getOrElse("variant", "default"))
+      case "divider" =>
+        dividerNode()
+      case other =>
+        throw InterpretError(s"contentToolkitNode: unsupported toolkit link control '$other'")
+
+  private def toolkitLinkLabel(link: ToolkitLink): String =
+    link.query.getOrElse("label", link.label)
+
+  private def requiredToolkitQuery(link: ToolkitLink, name: String): String =
+    link.query.get(name).filter(_.nonEmpty)
+      .getOrElse(throw InterpretError(s"contentToolkitNode: toolkit:${link.kind} requires $name"))
+
+  private def toolkitLinkBool(link: ToolkitLink, name: String, default: Boolean): Boolean =
+    toolkitLinkBoolValue(link, name).getOrElse(default)
+
+  private def toolkitLinkBoolValue(link: ToolkitLink, name: String): Option[Boolean] =
+    link.query.get(name).map {
+      case "true"  => true
+      case "false" => false
+      case other =>
+        throw InterpretError(s"contentToolkitNode: toolkit:${link.kind} $name expected true or false, got '$other'")
+    }
+
+  private def toolkitLinkLiteral(value: String): Value =
+    value match
+      case "true"  => Value.boolV(true)
+      case "false" => Value.boolV(false)
+      case other   => Value.StringV(other)
 
   private def toolkitSignals(value: ast.ContentValue): Map[String, Value] =
     contentMap(value, "signals").map { case (name, initial) =>

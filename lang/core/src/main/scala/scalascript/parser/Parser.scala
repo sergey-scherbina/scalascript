@@ -1223,7 +1223,7 @@ object Parser:
 
   private def parseImportLink(link: CmLink): Option[Content.Import] =
     val path = Option(link.getDestination).getOrElse("").trim
-    if path.isEmpty || path.startsWith("#") then return None
+    if path.isEmpty || path.startsWith("#") || path.startsWith("toolkit:") then return None
     // `Name` or `Name as Alias` or `Name from Module` - comma-separated.
     // Whitespace around the keyword is required to avoid substring collisions.
     val asPattern   = """^([A-Za-z_][\w]*)\s+as\s+([A-Za-z_][\w]*)$""".r

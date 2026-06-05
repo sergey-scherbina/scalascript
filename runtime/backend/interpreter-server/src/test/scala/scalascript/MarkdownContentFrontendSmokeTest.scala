@@ -197,6 +197,59 @@ class MarkdownContentFrontendSmokeTest extends AnyFunSuite:
     assert(js.contains("flexDirection: 'column'"))
     assert(js.contains("fontSize: '24px'"))
 
+  test("markdown toolkit links emit real frontend controls without YAML"):
+    val outDir = Files.createTempDirectory("ssc-markdown-toolkit-links")
+    val src =
+      s"""---
+         |name: markdown-toolkit-links-smoke
+         |frontend: react
+         |---
+         |
+         |# Markdown Toolkit Links
+         |
+         |## Controls {#controls}
+         |
+         |<!-- @meta id=markdown-controls -->
+         |- [Team name](toolkit:textField?signal=teamName&value=ScalaScript%20team)
+         |- [Enable preview](toolkit:checkbox?signal=enabled&value=false)
+         |- [Apply](toolkit:button?signal=applied&value=true&enabledWhen=enabled)
+         |- [Team name](toolkit:signalText?signal=teamName)
+         |- [Applied](toolkit:signalText?signal=applied)
+         |- [ready](toolkit:badge?variant=success)
+         |
+         |[contentToolkitSection](std/ui/content.ssc)
+         |
+         |[lower](std/ui/lower.ssc)
+         |
+         |[defaultTheme](std/ui/theme.ssc)
+         |
+         |[emit](std/ui/primitives.ssc)
+         |
+         |```scala
+         |emit(lower(contentToolkitSection("controls"), defaultTheme), "${outDir.toString}")
+         |println("markdown-toolkit-links:ok")
+         |```
+         |""".stripMargin
+
+    val buf = java.io.ByteArrayOutputStream()
+    val ps  = java.io.PrintStream(buf, true)
+    val interp = Interpreter(out = ps, headless = true, baseDir = Some(TestPaths.repoRoot))
+    interp.injectGlobal("_ssc_frontend_name", Value.StringV("react"))
+    interp.run(Parser.parse(src))
+    ps.flush()
+
+    assert(buf.toString.contains("markdown-toolkit-links:ok"))
+    assert(Files.exists(outDir.resolve("index.html")))
+    val js = Files.readString(outDir.resolve("app.js"))
+    assert(js.contains("Controls"))
+    assert(js.contains("Team name"))
+    assert(js.contains("Enable preview"))
+    assert(js.contains("Apply"))
+    assert(js.contains("ready"))
+    assert(js.contains("h('input'"))
+    assert(js.contains("h('button'"))
+    assert(js.contains("checkbox"))
+
   test("contentToolkitBlock reports missing and duplicate selected block ids"):
     val missingSrc =
       """---
