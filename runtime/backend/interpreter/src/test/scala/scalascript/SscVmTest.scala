@@ -1499,3 +1499,70 @@ class SscVmTest extends AnyFunSuite with Matchers:
     val r3 = JitGlobals.withInterp(interp) { SscVm.exec(cf, stack, refs, 0) }
     r3 shouldBe 6L
   }
+
+  // ── Stage 3.5: Bytecode JIT HOF emission — INVOKEINTERFACE to LongFn1/LongFn2 ──
+
+  test("stage3.5: Javac — HOF param (f: Int => Int) compiles; direct dispatch via ObjLongToLong") {
+    import scalascript.interpreter.vm.jit.{ObjLongToLong, LongFn1 as LF1}
+    val interp = interpOf(
+      """def applyN(f: Int => Int, n: Int): Int = f(n)""".stripMargin)
+    val fn = interp.globalsView("applyN").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.paramIsRef(0) shouldBe true    // f: Int => Int classified as ref
+    r.paramIsRef(1) shouldBe false   // n: Int is long
+    r.direct should not be null
+    // Invoke with a manually-constructed LongFn1 adapter (double: n => n*2)
+    val doubler: LF1 = (n: Long) => n * 2L
+    val result = r.direct.asInstanceOf[ObjLongToLong].apply(doubler, 5L)
+    result shouldBe 10L
+  }
+
+  test("stage3.5: ASM — HOF param (f: Int => Int) compiles; direct dispatch via ObjLongToLong") {
+    import scalascript.interpreter.vm.jit.{ObjLongToLong, LongFn1 as LF1}
+    val interp = interpOf(
+      """def applyN(f: Int => Int, n: Int): Int = f(n)""".stripMargin)
+    val fn = interp.globalsView("applyN").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.paramIsRef(0) shouldBe true
+    r.paramIsRef(1) shouldBe false
+    r.direct should not be null
+    val doubler: LF1 = (n: Long) => n * 2L
+    val result = r.direct.asInstanceOf[ObjLongToLong].apply(doubler, 5L)
+    result shouldBe 10L
+  }
+
+  test("stage3.5: Javac — 2-param HOF with LongFn2 callback (f: (Int,Int)=>Int, n: Int) compiles; ObjLongToLong") {
+    import scalascript.interpreter.vm.jit.{ObjLongToLong, LongFn2 as LF2}
+    val interp = interpOf(
+      // 2 params total: ref (LongFn2 adapter) + long n; body calls f(n,n)
+      """def applyPair(f: (Int, Int) => Int, n: Int): Int = f(n, n)""".stripMargin)
+    val fn = interp.globalsView("applyPair").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.paramIsRef(0) shouldBe true    // f: (Int,Int) => Int classified as ref
+    r.paramIsRef(1) shouldBe false   // n: Int is long
+    r.direct should not be null
+    // Invoke with an adder LongFn2 (adds its two args); f(21,21) = 42
+    val adder: LF2 = (x: Long, y: Long) => x + y
+    val result = r.direct.asInstanceOf[ObjLongToLong].apply(adder, 21L)
+    result shouldBe 42L
+  }
+
+  test("stage3.5: end-to-end — bytecode JIT HOF: applyN(f: Int => Int, n: Int)") {
+    // This exercises the full JIT stack: JitRuntime wraps the FunV as LongFn1,
+    // the compiled method calls ((LongFn1) f).apply(n) via INVOKEINTERFACE.
+    val out = captured(
+      """def double(x: Int): Int = x * 2
+        |def applyN(f: Int => Int, n: Int): Int = f(n)
+        |println(applyN(double, 21))""".stripMargin)
+    out.trim shouldBe "42"
+  }
+
+  test("stage3.5: end-to-end — bytecode JIT HOF with lambda arg") {
+    val out = captured(
+      """def applyN(f: Int => Int, n: Int): Int = f(n)
+        |println(applyN((x: Int) => x * 3, 14))""".stripMargin)
+    out.trim shouldBe "42"
+  }

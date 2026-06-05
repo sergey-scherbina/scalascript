@@ -301,6 +301,10 @@ object JavacJitBackend extends JitBackend:
   // only in arithmetic remains primitive long/double.
   private def classifyParamRefs(f: Value.FunV): Array[Boolean] =
     val paramIsRef = new Array[Boolean](f.params.length)
+    // Function-typed params (FunV HOF callbacks) are always refs.
+    f.paramTypes.zipWithIndex.foreach { case (pt, i) =>
+      if pt.contains("=>") then paramIsRef(i) = true
+    }
     def markRefScrutinees(t: scala.meta.Tree): Unit = t match
       case tm: Term.Match =>
         tm.expr match
@@ -436,7 +440,23 @@ object JavacJitBackend extends JitBackend:
         val jkg = "scalascript.interpreter.vm.jit.JitGlobals$.MODULE$"
         if n == 1 then s"""$jkg.callGlobalLong1("${escape(fnName)}", ${argExprs(0)})"""
         else            s"""$jkg.callGlobalLong2("${escape(fnName)}", ${argExprs(0)}, ${argExprs(1)})"""
-      case _ => null
+      case _ =>
+        // HOF param call: `f(arg)` where `f` is a function-typed parameter.
+        // Emit `((LongFn1) f).apply(arg)` so the caller can still JIT even when
+        // `f` is not a static global (the FunV is wrapped as LongFn1 at call time).
+        val paramIdx = ctx.paramNames.indexOf(fnName)
+        if paramIdx >= 0 && paramIdx < ctx.paramTypes.length && ctx.paramTypes(paramIdx).contains("=>") then
+          val ref = ctx.resolveLocal(fnName)
+          if ref == null then return null
+          if n == 1 then
+            val a = walkLong(args.head, ctx); if a == null then return null
+            s"((scalascript.interpreter.vm.jit.LongFn1) $ref).apply($a)"
+          else if n == 2 then
+            val a1 = walkLong(args.head, ctx); if a1 == null then return null
+            val a2 = walkLong(args(1), ctx);   if a2 == null then return null
+            s"((scalascript.interpreter.vm.jit.LongFn2) $ref).apply($a1, $a2)"
+          else null
+        else null
 
   /** Emit a Java `String`-typed expression. Supports string literals, `+`
    *  concatenation (with a numeric operand auto-coerced via `walkLong`),
@@ -820,8 +840,7 @@ object JavacJitBackend extends JitBackend:
           // Call to a bool-returning sibling co-emitted as `static long`; unwrap
           // by checking `!= 0L`.
           val sig = ensureCoEmittedLong(fn.value, ctx)
-          if sig == null || sig.isDouble || ap.argClause.values.length != sig.paramNames.length then null
-          else
+          if sig != null && !sig.isDouble && ap.argClause.values.length == sig.paramNames.length then
             val sb = new StringBuilder
             sb.append(sanitize(fn.value)).append('(')
             var i = 0; var rem = ap.argClause.values
@@ -832,6 +851,10 @@ object JavacJitBackend extends JitBackend:
               sb.append(argStr); i += 1; rem = rem.tail
             sb.append(')')
             s"(${sb.toString()} != 0L)"
+          else
+            // HOF param call in boolean context: `f(n) != 0L`
+            val e = emitLongCall(fn.value, ap.argClause.values, ctx)
+            if e != null then s"($e != 0L)" else null
         case _ => null
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
         if argClause.values.lengthCompare(1) == 0 =>

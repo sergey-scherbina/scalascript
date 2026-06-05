@@ -107,6 +107,10 @@ object AsmJitBackend extends JitBackend:
 
   private def classifyParamRefs(f: Value.FunV): Array[Boolean] =
     val paramIsRef = new Array[Boolean](f.params.length)
+    // Function-typed params (FunV HOF callbacks) are always refs.
+    f.paramTypes.zipWithIndex.foreach { case (pt, i) =>
+      if pt.contains("=>") then paramIsRef(i) = true
+    }
     def markRef(t: scala.meta.Tree): Unit = t match
       case tm: Term.Match =>
         tm.expr match
@@ -990,7 +994,30 @@ object AsmJitBackend extends JitBackend:
         val mname = if n == 1 then "callGlobalLong1" else "callGlobalLong2"
         mv.visitMethodInsn(INVOKEVIRTUAL, jkgOwner, mname, desc, false)
         true
-      case _ => false
+      case _ =>
+        // HOF param call: `f(arg)` where `f` is a function-typed parameter.
+        // Stack protocol: ALOAD slot, CHECKCAST LongFn1/2, emit arg(s), INVOKEINTERFACE.
+        val paramIdx = ctx.paramNames.indexOf(fnName)
+        if paramIdx < 0 || paramIdx >= ctx.paramTypes.length || !ctx.paramTypes(paramIdx).contains("=>") then
+          return false
+        val slot = ctx.slotOf(fnName)
+        if slot < 0 then return false
+        if n == 1 then
+          mv.visitVarInsn(ALOAD, slot)
+          mv.visitTypeInsn(CHECKCAST, "scalascript/interpreter/vm/jit/LongFn1")
+          if !walkLong(args.head, ctx, mv) then return false
+          mv.visitMethodInsn(INVOKEINTERFACE, "scalascript/interpreter/vm/jit/LongFn1",
+            "apply", "(J)J", true)
+          true
+        else if n == 2 then
+          mv.visitVarInsn(ALOAD, slot)
+          mv.visitTypeInsn(CHECKCAST, "scalascript/interpreter/vm/jit/LongFn2")
+          if !walkLong(args.head, ctx, mv) then return false
+          if !walkLong(args(1), ctx, mv) then return false
+          mv.visitMethodInsn(INVOKEINTERFACE, "scalascript/interpreter/vm/jit/LongFn2",
+            "apply", "(JJ)J", true)
+          true
+        else false
 
   // ── walkString ────────────────────────────────────────────────────────────
 
@@ -1217,8 +1244,6 @@ object AsmJitBackend extends JitBackend:
       case ap: Term.Apply =>
         ap.fun match
           case fn: Term.Name =>
-            val sig = ensureCoEmittedLong(fn.value, ctx)
-            if sig == null || sig.isDouble || ap.argClause.values.length != sig.paramNames.length then return false
             if !emitLongCall(fn.value, ap.argClause.values, ctx, mv) then return false
             mv.visitInsn(LCONST_0); mv.visitInsn(LCMP)
             mv.visitJumpInsn(IFEQ, ifFalse)

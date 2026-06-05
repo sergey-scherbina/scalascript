@@ -185,15 +185,37 @@ object JitRuntime:
         e.bytecodeTried = true
     e.bytecode
 
+  /** Wrap a FunV as a `LongFn1` or `LongFn2` adapter for HOF params.
+   *  The adapter calls `interp.invoke` (which tries JIT first), so a
+   *  compilable HOF callback gets the fast path on subsequent calls. */
+  private def wrapFunVAsLong(fn: Value.FunV, interp: Interpreter): AnyRef | Null =
+    fn.params.length match
+      case 1 =>
+        new LongFn1:
+          def apply(n: Long): Long =
+            interp.invoke(fn, List(Value.intV(n))) match
+              case Value.IntV(x)  => x
+              case Value.BoolV(b) => if b then 1L else 0L
+              case _ => throw new RuntimeException("HOF returned non-Int (expected LongFn1)")
+      case 2 =>
+        new LongFn2:
+          def apply(a: Long, b: Long): Long =
+            interp.invoke(fn, List(Value.intV(a), Value.intV(b))) match
+              case Value.IntV(x)  => x
+              case Value.BoolV(b2) => if b2 then 1L else 0L
+              case _ => throw new RuntimeException("HOF returned non-Int (expected LongFn2)")
+      case _ => null  // arity 0 or 3+ not yet supported in HOF dispatch
+
   /** Marshal one Value into the Java arg the bytecode method expects.
-   *  Ref param → the value as `Object` (must be `InstanceV`; bails
+   *  Ref param → the value as `Object` (must be `InstanceV` or `FunV`; bails
    *  otherwise). Numeric param: when `resultIsDouble` is true the slots are
    *  `double` and accept `IntV` (widened) or `DoubleV`; when false they
    *  accept only `IntV`. */
-  private def marshalBytecode(v: Value, isRef: Boolean, isDouble: Boolean): AnyRef | Null =
+  private def marshalBytecode(v: Value, isRef: Boolean, isDouble: Boolean, interp: Interpreter): AnyRef | Null =
     if isRef then
       v match
-        case _: Value.InstanceV => v.asInstanceOf[AnyRef]
+        case _: Value.InstanceV | _: Value.StringV | _: Value.MapV => v.asInstanceOf[AnyRef]
+        case fn: Value.FunV if interp != null => wrapFunVAsLong(fn, interp)
         case _                  => null
     else if isDouble then
       v match
@@ -259,21 +281,23 @@ object JitRuntime:
             val result = JitGlobals.withInterp(interp) { d.asInstanceOf[LongFn1].apply(n) }
             wrapLong(r, result)
         else
-          arg match
-            case _: Value.InstanceV =>
-              if r.resultIsRef || d.isInstanceOf[ObjToObject] then
-                val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjToObject].apply(arg.asInstanceOf[AnyRef]) }
-                Computation.Pure(result.asInstanceOf[Value])
-              else if r.resultIsDouble then
-                val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjToDouble].apply(arg.asInstanceOf[AnyRef]) }
-                Computation.Pure(Value.doubleV(result))
-              else
-                val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjToLong].apply(arg.asInstanceOf[AnyRef]) }
-                wrapLong(r, result)
-            case _ => null
+          val argRef: AnyRef | Null = arg match
+            case _: Value.InstanceV | _: Value.StringV | _: Value.MapV => arg.asInstanceOf[AnyRef]
+            case fn: Value.FunV => wrapFunVAsLong(fn, interp)
+            case _              => null
+          if argRef == null then null
+          else if r.resultIsRef || d.isInstanceOf[ObjToObject] then
+            val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjToObject].apply(argRef) }
+            Computation.Pure(result.asInstanceOf[Value])
+          else if r.resultIsDouble then
+            val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjToDouble].apply(argRef) }
+            Computation.Pure(Value.doubleV(result))
+          else
+            val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjToLong].apply(argRef) }
+            wrapLong(r, result)
       catch case _: Throwable => null
     else
-      val a0 = marshalBytecode(arg, r.paramIsRef(0), r.resultIsDouble)
+      val a0 = marshalBytecode(arg, r.paramIsRef(0), r.resultIsDouble, interp)
       if a0 == null then return null
       val out =
         try JitGlobals.withInterp(interp) { r.mh.invoke(a0).asInstanceOf[AnyRef] }
@@ -306,7 +330,11 @@ object JitRuntime:
               wrapLong(r, result)
           case (false, true) =>
             val x = a match { case Value.IntV(v) => v; case _ => return null }
-            val yRef = b match { case _: Value.InstanceV => b.asInstanceOf[AnyRef]; case _ => return null }
+            val yRef: AnyRef | Null = b match
+              case _: Value.InstanceV | _: Value.StringV | _: Value.MapV => b.asInstanceOf[AnyRef]
+              case fn: Value.FunV => wrapFunVAsLong(fn, interp)
+              case _              => null
+            if yRef == null then return null
             if isDoubleResult then
               val result = JitGlobals.withInterp(interp) { d.asInstanceOf[LongObjToDouble].apply(x, yRef) }
               Computation.Pure(Value.doubleV(result))
@@ -314,7 +342,11 @@ object JitRuntime:
               val result = JitGlobals.withInterp(interp) { d.asInstanceOf[LongObjToLong].apply(x, yRef) }
               wrapLong(r, result)
           case (true, false) =>
-            val xRef = a match { case _: Value.InstanceV => a.asInstanceOf[AnyRef]; case _ => return null }
+            val xRef: AnyRef | Null = a match
+              case _: Value.InstanceV | _: Value.StringV | _: Value.MapV => a.asInstanceOf[AnyRef]
+              case fn: Value.FunV => wrapFunVAsLong(fn, interp)
+              case _              => null
+            if xRef == null then return null
             val y = b match { case Value.IntV(v) => v; case _ => return null }
             if isDoubleResult then
               val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjLongToDouble].apply(xRef, y) }
@@ -323,8 +355,16 @@ object JitRuntime:
               val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjLongToLong].apply(xRef, y) }
               wrapLong(r, result)
           case (true, true) =>
-            val xRef = a match { case _: Value.InstanceV => a.asInstanceOf[AnyRef]; case _ => return null }
-            val yRef = b match { case _: Value.InstanceV => b.asInstanceOf[AnyRef]; case _ => return null }
+            val xRef: AnyRef | Null = a match
+              case _: Value.InstanceV | _: Value.StringV | _: Value.MapV => a.asInstanceOf[AnyRef]
+              case fn: Value.FunV => wrapFunVAsLong(fn, interp)
+              case _              => null
+            if xRef == null then return null
+            val yRef: AnyRef | Null = b match
+              case _: Value.InstanceV | _: Value.StringV | _: Value.MapV => b.asInstanceOf[AnyRef]
+              case fn: Value.FunV => wrapFunVAsLong(fn, interp)
+              case _              => null
+            if yRef == null then return null
             if isDoubleResult then
               val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjObjToDouble].apply(xRef, yRef) }
               Computation.Pure(Value.doubleV(result))
@@ -333,9 +373,9 @@ object JitRuntime:
               wrapLong(r, result)
       catch case _: Throwable => null
     else
-      val a0 = marshalBytecode(a, r.paramIsRef(0), r.resultIsDouble)
+      val a0 = marshalBytecode(a, r.paramIsRef(0), r.resultIsDouble, interp)
       if a0 == null then return null
-      val b0 = marshalBytecode(b, r.paramIsRef(1), r.resultIsDouble)
+      val b0 = marshalBytecode(b, r.paramIsRef(1), r.resultIsDouble, interp)
       if b0 == null then return null
       val out =
         try JitGlobals.withInterp(interp) { r.mh.invoke(a0, b0).asInstanceOf[AnyRef] }
