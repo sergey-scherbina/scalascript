@@ -1361,7 +1361,13 @@ object AsmJitBackend extends JitBackend:
             if !walkBool(ac.values.head, ctx, mv, ifFalse) then return false
             mv.visitLabel(Lskip); true
           case _ => false
-      case _ => false
+      case other =>
+        // General fallback: any Long-compilable expression where non-zero = true.
+        // Handles bool-returning match expressions, Lit.Boolean (via walkLong),
+        // and other Long-valued sub-expressions used in boolean position.
+        if !walkLong(other, ctx, mv) then return false
+        mv.visitInsn(LCONST_0); mv.visitInsn(LCMP)
+        mv.visitJumpInsn(IFEQ, ifFalse); true
 
   private def invertCmp(op: String): Int = op match
     case "<"  => IFGE; case "<=" => IFGT; case ">"  => IFLE

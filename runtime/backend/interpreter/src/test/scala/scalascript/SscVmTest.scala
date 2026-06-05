@@ -1403,6 +1403,24 @@ class SscVmTest extends AnyFunSuite with Matchers:
     lines(2) shouldBe "0"
   }
 
+  test("stage6-bool-body: bool-returning literal match compiles via walkBool→walkLong fallback") {
+    // walkBool fallback: tries walkLong(expr). A literal-int match with Bool arms
+    // now compiles because walkLong(Lit.Boolean) returns 0/1, and walkMatchExpr
+    // handles the literal match.
+    val interp = interpOf(
+      """def isZero(n: Int): Boolean = n match
+        |  case 0 => true
+        |  case _ => false""".stripMargin)
+    val fn = interp.globalsView("isZero").asInstanceOf[Value.FunV]
+    val jitR = JavacJitBackend.tryCompile(fn, interp)
+    jitR should not be null
+    jitR.direct should not be null
+    jitR.direct.isInstanceOf[LongFn1] shouldBe true
+    val direct = jitR.direct.asInstanceOf[LongFn1]
+    JitGlobals.withInterp(interp) { direct.apply(0L) } shouldBe 1L  // true
+    JitGlobals.withInterp(interp) { direct.apply(5L) } shouldBe 0L  // false
+  }
+
   test("stage6-pattern-guard: guarded match EXPRESSION (match as val RHS) compiles") {
     // Guard in a match used as a sub-expression (val binding), not as the
     // top-level function body return. This exercises walkMatchExpr guard path.

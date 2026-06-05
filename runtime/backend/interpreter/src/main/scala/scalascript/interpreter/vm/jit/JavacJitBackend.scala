@@ -931,7 +931,12 @@ object JavacJitBackend extends JitBackend:
           val r = walkBool(argClause.values.head, ctx); if r == null then return null
           s"($l $opStr $r)"
         case _ => null
-    case _ => null
+    case other =>
+      // General fallback: any Long-compilable expression where non-zero means true.
+      // This handles bool-returning match expressions, Lit.Boolean (via walkLong),
+      // and other Long-valued sub-expressions used in boolean position.
+      val e = walkLong(other, ctx)
+      if e != null then s"($e != 0L)" else null
 
   /** Double-typed parallel of `walkLong`. Used when `ctx.isDouble` is true
    *  (the fn body contains a `Lit.Double` somewhere → Scala promotes all
