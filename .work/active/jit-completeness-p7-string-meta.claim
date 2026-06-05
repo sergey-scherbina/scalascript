@@ -1,0 +1,6 @@
+feature/jit-completeness-p7-string-meta 2026-06-05T06:38:55Z
+agent: claude-code
+heartbeat: 2026-06-05T06:38:55Z
+status: not-started
+done-so-far:
+next: add String meta (length/isEmpty) + extend GETFI for StringV
