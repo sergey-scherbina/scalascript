@@ -45,6 +45,11 @@ no direct imported module has that namespace. Namespace lookup reports an error
 if more than one direct import resolves to the same namespace; the runtime must
 not silently pick one.
 
+Imports used only to bring `std/content.ssc` or `std/ui/content.ssc` helpers
+into scope are not exposed as content modules. This keeps the namespace table
+focused on application/library content instead of the helper modules needed to
+call the API.
+
 ## Behavior
 
 - [ ] A module with no direct imports returns an empty `contentModules()` map
@@ -61,6 +66,8 @@ not silently pick one.
       for namespace lookup.
 - [ ] Transitive imports are not exposed to the parent module unless the parent
       imports them directly.
+- [ ] Helper imports of `std/content.ssc` and `std/ui/content.ssc` do not appear
+      in `contentModules()`.
 - [ ] Existing current-module helpers (`contentDocument`, `contentSection`,
       `contentBlock`, `contentData`, `contentMetadata`, `contentCurrentSection`,
       `contentPlainText`, and `contentToMarkdown`) keep their current behavior.
@@ -94,7 +101,9 @@ import that otherwise resolves and runs.
 Generated JS and JVM backends already parse imported modules while inlining code
 for `Content.Import`. They can collect the same direct imported module
 `DocumentContent` snapshots during import generation and embed a namespace map
-next to the current-module content runtime.
+next to the current-module content runtime. All backends skip `std/content.ssc`
+and `std/ui/content.ssc` helper imports during collection, while keeping their
+runtime functions available in scope.
 
 Lookup helper implementation reuses the existing section/block/data/metadata
 functions; the only new operation is selecting an imported `DocumentContent` by
@@ -113,6 +122,10 @@ namespace before applying the same lookup.
 - **Separate namespace map** - chosen to preserve the stable `DocumentContent`
   ABI and artifact formats. Rejected: adding `imports` to `DocumentContent`,
   which would require broader round-trip and compatibility updates.
+- **Skip helper modules** - chosen because importing the content API should not
+  pollute application content namespaces. Rejected: exposing `std/content.ssc`
+  as a normal content module, which makes every content-aware program look like
+  it imported a user document.
 
 ## Results
 
