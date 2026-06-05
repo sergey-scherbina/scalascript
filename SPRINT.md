@@ -157,6 +157,52 @@ Verified empirically via `./bench.sh`. New regression-guard corpus cases added:
 - [x] **jit-uc-stage5-4** — `Pat.Alternative` / `@`-binding pattern support.
 - [x] **jit-uc-stage5-5** — Non-`Term.Name` match scrutinee (auto-hoist to local).
 
+### Stage 6 — Post-merge long tail (new queue)
+
+Baseline (post-stage-5, 2026-06-05, 734 total disabled):
+```
+ 300  [vm] Other            — VmCompiler: HOF/ref-return/complex (unmigrated vocab)
+ 294  [javac] UnknownShape  — remaining HOF + complex closure shapes
+  48  [javac] LambdaValue   — non-trivial Term.Function captures
+  37  [javac] Compound      — multiple simultaneous bail reasons
+  27  [javac] NonExtractPattern — tuple / typed patterns in match arms
+   8  [javac] PatternGuard  — `if` guards in match arms
+   7  [javac] NonAdtScrutinee — complex scrutinee remaining after 5.5
+   7  [javac] BoolBody      — bool bodies too complex for walkBool
+```
+Each item: one commit + bench A/B. Run `SSC_JIT_STATS=1 sbt "backendInterpreter/test"` to track.
+
+- [ ] **jit-uc-stage6-bench-baseline** — Run `bench.sh` + JIT stats from fresh main;
+      record updated numbers; identify which workloads still miss.
+      One observation commit (CHANGELOG entry + updated §9 in spec).
+
+- [ ] **jit-uc-stage6-asm-mutual-recursion** — Fix ASM JIT regression on
+      `mutual-recursion`: `ssc-asm` 20.8 ms vs `ssc` 4.86 ms vs `jvm` 3.76 ms.
+      Root cause: likely `workload()` compiles on Javac but bails on ASM due to
+      `isEven()` call shape or void-`Term.If` path not yet ported to ASM.
+      Diagnose via `SSC_JIT_BACKEND=asm SSC_JIT_STATS=1`, fix, A/B verify.
+
+- [ ] **jit-uc-stage6-pattern-guard** — Emit `PatternGuard` (8 misses): guard
+      expression as a conditional jump after pattern extraction. Both bytecode
+      backends. `walkForBailCliffs` already classifies these — just implement emission.
+
+- [ ] **jit-uc-stage6-bool-body-ext** — Extend `walkBool` for `BoolBody` (7 misses):
+      add `Term.Block(single-expr)`, `Term.Match` (bool-returning arms),
+      `Term.Apply` to known-bool-returning sibling. Diagnose first via
+      `SSC_JIT_DEBUG=BoolBody`.
+
+- [ ] **jit-uc-stage6-nonextract-tuple** — Tuple destructure match arms: `case (a, b) =>`
+      (`Pat.Tuple`) in both backends. Requires `TupleN` meta in `JitRuntime.metaFor`
+      + GETFI index-access. Targets `NonExtractPattern` (27 misses).
+
+- [ ] **jit-uc-stage6-vm-retref** — Add `RETREF` opcode to `SscVm` + `VmCompiler`
+      `unifyRet(TRef)` path. Functions returning `String`/`InstanceV` compile.
+      Eliminates 18 `ret: ref-typed return` vm misses.
+
+- [ ] **jit-uc-stage6-unknownshape-hof-analysis** — Profile which bench workloads
+      hit `UnknownShape` after stage6.a–d; tag root causes in `walkForBailCliffs`.
+      Produces a prioritized stage-7 plan (spec §9 update), not implementation code.
+
 ---
 
 ## Interpreter perf — Phase C + D continuation (open)
