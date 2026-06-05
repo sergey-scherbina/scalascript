@@ -35,8 +35,9 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       Current-module `.scir` / `.sscc` artifact round-trip landed 2026-06-05
       (specified in
       [`specs/markdown-content-artifact-roundtrip.md`](specs/markdown-content-artifact-roundtrip.md)).
-      Linked-module content namespace support and multi-link import paragraphs
-      follow as later slices.
+      Multi-link import paragraphs landed 2026-06-05 (specified in
+      [`specs/markdown-multi-link-imports.md`](specs/markdown-multi-link-imports.md)).
+      Linked-module content namespace support remains the next later slice.
 
 ## JS Codegen Performance
 

@@ -1,6 +1,0 @@
-feature/markdown-multi-link-imports 2026-06-05T11:20:21Z
-agent: codex
-heartbeat: 2026-06-05T11:25:58Z
-status: in-progress
-done-so-far: spec committed and pushed to origin/main
-next: implement parser multi-link import lowering and focused tests

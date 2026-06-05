@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(language): Markdown multi-link import paragraphs
+
+- **markdown-multi-link-imports** — A pure Markdown import paragraph can now
+  contain multiple links separated by spaces or line breaks. The parser lowers
+  each link to a `Content.Import` in source order, keeps prose/internal links as
+  content, omits pure import paragraphs from `DocumentContent`, and the
+  interpreter resolves modules imported from one paragraph. Added
+  `examples/multi-link-imports.ssc`.
+
 ## 2026-06-05 — feat(language): Markdown content artifact round-trip
 
 - **markdown-content-artifact-roundtrip** — Preserved current-module
