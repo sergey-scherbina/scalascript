@@ -42,6 +42,10 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       `${nested.name}` placeholders from structured content data before
       rendering or toolkit lowering (specified in
       [`specs/markdown-content-data-binding.md`](specs/markdown-content-data-binding.md)).
+      Markdown `toolkit:` links for simple controls landed 2026-06-05:
+      ordinary Markdown links now declare `textField`, `checkbox`, `button`,
+      `signalText`, `badge`, and `divider` controls without a YAML control fence
+      (specified in [`specs/markdown-toolkit-links.md`](specs/markdown-toolkit-links.md)).
       Current-module `.scir` / `.sscc` artifact round-trip landed 2026-06-05
       (specified in
       [`specs/markdown-content-artifact-roundtrip.md`](specs/markdown-content-artifact-roundtrip.md)).

@@ -16,7 +16,7 @@ Focused slice specs already exist for landed lookup/plain-text, metadata,
 current-section, backend exposure, native-client parity, reverse Markdown
 rendering, current-module artifact round-trip, multi-link import paragraphs,
 linked imported content namespaces, GFM tables, and explicit inline content
-binding:
+binding, and Markdown toolkit links:
 [`specs/markdown-content-lookup-plaintext.md`](specs/markdown-content-lookup-plaintext.md),
 [`specs/markdown-content-metadata.md`](specs/markdown-content-metadata.md),
 [`specs/markdown-content-current-section.md`](specs/markdown-content-current-section.md),
@@ -35,7 +35,9 @@ and
 and
 [`specs/markdown-content-tables.md`](specs/markdown-content-tables.md),
 and
-[`specs/markdown-content-data-binding.md`](specs/markdown-content-data-binding.md).
+[`specs/markdown-content-data-binding.md`](specs/markdown-content-data-binding.md),
+and
+[`specs/markdown-toolkit-links.md`](specs/markdown-toolkit-links.md).
 For the next slices, write and commit the focused spec first, then implement.
 
 ## VmCompiler completeness (focus)

@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(language): Markdown toolkit links
+
+- **markdown-toolkit-links** — Added ordinary Markdown `toolkit:` links for
+  simple frontend controls, so authors can declare `textField`, `checkbox`,
+  `button`, `signalText`, `badge`, and `divider` controls in Markdown markup
+  instead of a YAML control fence. `toolkit:` links stay in `DocumentContent`
+  rather than being classified as imports; selected toolkit regions allocate
+  shared reactive signals for repeated `signal=` references. Added
+  `examples/markdown-toolkit-links.ssc` as a live `serve(page, 8099)` example.
+
 ## 2026-06-05 — fix(jit): ASM bool-returning co-emit + walkBool dead-label fix
 
 - **jit-uc-stage6-asm-mutual-recursion** — Fixed ASM JIT 14x regression on
