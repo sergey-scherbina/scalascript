@@ -16,17 +16,6 @@ Focused slice spec already exists only for the landed lookup/plain-text work:
 [`specs/markdown-content-lookup-plaintext.md`](specs/markdown-content-lookup-plaintext.md).
 For the next slices, write and commit the focused spec first, then implement.
 
-- [ ] **markdown-content-metadata-spec** - Write
-      `specs/markdown-content-metadata.md` for `contentMetadata(path)`.
-      Define dot-path scope (`content:` front-matter only), missing-path
-      `None`, scalar/list/map return shapes, malformed path behavior, and
-      interpreter-only scope for the first slice.
-
-- [ ] **markdown-content-metadata** - Implement interpreter
-      `contentMetadata(path): Option[ContentValue]` in `std/content`, with
-      focused content-plugin tests, docs, and an example using
-      `contentMetadata("defaultRenderer")`.
-
 - [ ] **markdown-content-current-section-spec** - Write
       `specs/markdown-content-current-section.md`. Decide how parser/runtime
       records the calling code block's enclosing section, what happens at
@@ -41,7 +30,7 @@ For the next slices, write and commit the focused spec first, then implement.
       `specs/markdown-content-backend-exposure.md` for JS/JVM native-context
       exposure of the landed interpreter helpers: `contentDocument`,
       `contentData`, `contentSection`, `contentBlock`, `contentPlainText`, and
-      eventually `contentMetadata` / `contentCurrentSection`.
+      `contentMetadata`, and eventually `contentCurrentSection`.
 
 - [ ] **markdown-content-backend-exposure** - Implement JS/JVM exposure for the
       landed `std/content` helper set, then un-pend or replace

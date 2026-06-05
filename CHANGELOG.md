@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(language): Markdown content metadata lookup
+
+- **markdown-content-metadata** — Added interpreter
+  `contentMetadata(path): Option[ContentValue]` for `content:` front-matter
+  metadata. Dot paths traverse nested maps; missing `content:`, missing
+  segments, and non-map traversal return `None`; malformed paths report an
+  interpreter error. The content-introspection example now checks the
+  `defaultRenderer` metadata.
+
 ## 2026-06-05 — feat(language): Markdown content lookup and plain text
 
 - **markdown-content-lookup-plaintext** — Added interpreter `std/content`

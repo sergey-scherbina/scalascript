@@ -1,6 +1,0 @@
-feature/markdown-content-metadata 2026-06-05T05:55:44Z
-agent: codex
-heartbeat: 2026-06-05T05:56:10Z
-status: in-progress
-done-so-far: worktree created at .worktrees/feature/markdown-content-metadata
-next: write and commit specs/markdown-content-metadata.md before implementation
