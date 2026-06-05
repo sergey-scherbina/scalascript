@@ -456,21 +456,23 @@ Status codes: ✓ done, ~ partial, ✗ not yet, — not applicable.
 | AST shape | SscVm | Javac | ASM | Stage |
 |---|---|---|---|---|
 | `Lit.Int/Long/Double/Boolean` | ✓ | ✓ | ✓ | — |
-| `Lit.String` (intermediate) | ✓ | ✗ | ✗ | 1 baseline |
-| `Lit.Null` (intermediate) | ✓ | ✗ | ✗ | 1 baseline |
-| Bool top-level return | ✓ (0/1) | ✗ bail | ✗ bail | 2.1 |
-| Ref+Ref 2-param | ✗ | ✗ | ✗ | 2.2 |
-| Guarded ADT match arm | ✓ | ✓ | ✗ | 2.3 |
-| `Pat.Lit` arm | ✗ | ✗ | ✗ | 2.4 |
-| Free-name → FunV call | ✗ | ~ | ~ | 2.5 |
-| HOF param call | ✗ | ✗ | ✗ | 3.2 / 3.5 |
-| Lambda (non-capturing) | ✗ | ✗ | ✗ | 3.3 |
-| Lambda (capturing) | ✗ | ✗ | ✗ | 3.3 |
-| Arity 3 params | ✓ | ✗ | ✗ | 4 |
-| Arity 4 params | ✓ | ✗ | ✗ | 4 |
-| Mixed Int+Double arms | ✗ | ✗ | ✗ | 5.1 |
-| `var` outside TCO loop | ✗ | ~ | ~ | 5.2 |
-| `try/catch` body | ✗ | ✗ | ✗ | 5.3 |
+| `Lit.String` (intermediate) | ✓ | ✓ | ✓ | p6 / 2.4 |
+| `Lit.Null` (intermediate) | ✓ | ✓ | ✓ | p5 / 2.4 |
+| Bool top-level return | ✓ (0/1) | ✓ | ✓ | 2.1 |
+| Ref+Ref 2-param | ✓ | ✓ | ✓ | 2.2 |
+| Guarded ADT match arm | ✓ | ✓ | ✓ | 2.3 |
+| `Pat.Lit` arm | ✓ | ✓ | ✓ | 2.4 |
+| Free-name → FunV call | ✓ | ✓ | ✓ | 2.5 |
+| HOF param call | ✓ (CALLREF) | ✓ (INVOKEINTERFACE) | ✓ (INVOKEINTERFACE) | 3.2 / 3.5 |
+| Lambda (non-capturing) | ✓ | ✓ | ✓ | 3.3 |
+| Lambda (capturing) | ✓ | ✓ | ✓ | 3.3 |
+| Arity 3 params | ✓ | ✓ | ✓ | 4 |
+| Arity 4 params | ✓ | ✓ | ✓ | 4 |
+| Mixed Int+Double arms | ✓ (heuristic) | ✓ (heuristic) | ✓ (heuristic) | 5.1 |
+| `var` in pure body with reassignment | ✓ | ✓ | ✓ | 5.2 |
+| `try/catch` body | ✓ | ✓ | ✓ | 5.3 |
+| `Pat.Alternative` arm | ✓ | ✓ | ✓ | 5.4 |
+| Non-`Term.Name` match scrutinee | ✓ | ✓ | ✓ | 5.5 |
 
 ---
 
@@ -507,22 +509,42 @@ End-of-sprint gate:
 ## 9. Sprint task list
 
 ```
-- [ ] spec: jit-universal-coverage (this document)                  Stage 0
-- [ ] jit-uc-stage1-unified-accounting                              Stage 1
-- [ ] jit-uc-stage2-1-bool-body-wrap                                Stage 2.1
-- [ ] jit-uc-stage2-2-ref-ref-2param                                Stage 2.2
-- [ ] jit-uc-stage2-3-asm-guard-parity                              Stage 2.3
-- [ ] jit-uc-stage2-4-pat-literal-arm                               Stage 2.4
-- [ ] jit-uc-stage2-5-free-name-funv                                Stage 2.5
-- [ ] jit-uc-stage3-1-funv-ref-operand                              Stage 3.1
-- [ ] jit-uc-stage3-2-callref-opcode                                Stage 3.2
-- [ ] jit-uc-stage3-3-lambda-closure                                Stage 3.3
-- [ ] jit-uc-stage3-4-ic-validation                                 Stage 3.4
-- [ ] jit-uc-stage3-5-bytecode-hof-emission                         Stage 3.5
-- [ ] jit-uc-stage4-arity-3-4                                       Stage 4
-- [ ] jit-uc-stage5-1-mixed-numeric-arms                            Stage 5.1
-- [ ] jit-uc-stage5-2-var-pure-body                                 Stage 5.2
-- [ ] jit-uc-stage5-3-try-catch                                     Stage 5.3
-- [ ] jit-uc-stage5-4-pat-alternative                               Stage 5.4
-- [ ] jit-uc-stage5-5-non-name-scrutinee                            Stage 5.5
+- [x] spec: jit-universal-coverage (this document)                  Stage 0
+- [x] jit-uc-stage1-unified-accounting                              Stage 1
+- [x] jit-uc-stage2-1-bool-body-wrap                                Stage 2.1
+- [x] jit-uc-stage2-2-ref-ref-2param                                Stage 2.2
+- [x] jit-uc-stage2-3-asm-guard-parity                              Stage 2.3
+- [x] jit-uc-stage2-4-pat-literal-arm                               Stage 2.4
+- [x] jit-uc-stage2-5-free-name-funv                                Stage 2.5
+- [x] jit-uc-stage3-1-funv-ref-operand                              Stage 3.1
+- [x] jit-uc-stage3-2-callref-opcode                                Stage 3.2
+- [x] jit-uc-stage3-3-lambda-closure                                Stage 3.3
+- [x] jit-uc-stage3-4-ic-validation                                 Stage 3.4
+- [x] jit-uc-stage3-5-bytecode-hof-emission                         Stage 3.5
+- [x] jit-uc-stage4-arity-3-4                                       Stage 4
+- [x] jit-uc-stage5-1-mixed-numeric-arms                            Stage 5.1
+- [x] jit-uc-stage5-2-var-pure-body                                 Stage 5.2
+- [x] jit-uc-stage5-3-try-catch                                     Stage 5.3
+- [x] jit-uc-stage5-4-pat-alternative                               Stage 5.4
+- [x] jit-uc-stage5-5-non-name-scrutinee                            Stage 5.5
 ```
+
+### Final miss profile (2026-06-05, post-Stage-5)
+
+```
+JIT miss stats (734 functions disabled):
+     300  [vm] Other            — VmCompiler raw-string bails (HOF/closures, unmigrated)
+     294  [javac] UnknownShape  — falls through classifier (HOF calls, complex closures)
+      48  [javac] LambdaValue   — Term.Function values (non-trivial captures)
+      37  [javac] Compound      — multiple bail reasons combined
+      27  [javac] NonExtractPattern — tuple/complex patterns in match arms
+       8  [javac] PatternGuard  — pattern guards in match
+       7  [javac] NonAdtScrutinee — non-hoistable scrutinee shapes
+       7  [javac] BoolBody      — bool body too complex for walkBool fallback
+       3  [javac] UsingParams   — using/given params (out of scope)
+       2  [javac] VarargParam   — vararg params (out of scope)
+       1  [javac] TryCatch      — try/catch with finally (out of scope)
+```
+
+All in-scope stages landed. Remaining bails are HOF complexity, tuple patterns,
+complex closures, and explicitly out-of-scope categories (varargs, using, finally).

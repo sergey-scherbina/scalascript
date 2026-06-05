@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(jit): JIT universal coverage — Stage 5 structural long tail
+
+- **jit-uc-stage5-2** — `var` reassignment in pure function bodies now compiles on
+  both Javac and ASM backends. `walkBlockStmts` (Javac) gains a `Term.Assign` case;
+  `emitBlockStmts` (ASM) delegates non-final statements to the existing
+  `emitStatAsVoid`, picking up `Term.Assign`, `Term.If` (void), and any future
+  statement types for free.
+- **jit-uc-stage5-1** — Mixed Long+Double match arms confirmed handled by the
+  existing `bodyHasDoubleLit` heuristic: any function with a `Lit.Double` anywhere
+  in its body compiles as `double`, and `walkDouble` auto-widens `Lit.Int`/`Lit.Long`
+  arms. No corpus `MixedReturnType` misses observed.
+- All 19 JIT universal coverage stages now done.  Spec §7 matrix and §9 task list
+  updated. Final miss profile: 734 total disabled; dominant remaining categories are
+  HOF complexity, tuple patterns, and explicitly out-of-scope features (varargs,
+  using clauses, try/finally). See `specs/jit-universal-coverage.md`.
+
+---
+
 ## 2026-06-05 — feat(language): Markdown content tables
 
 - **markdown-content-tables** — Added CommonMark GFM pipe tables to
