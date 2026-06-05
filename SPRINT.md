@@ -114,8 +114,8 @@ Root-cause analysis of the 345 UnknownShape:
       `Term.Apply` target is a param name (not a global fn), turning most UnknownShape
       into a named category.  Target: UnknownShape < 100.
 
-- [ ] **jit-uc-stage2-2** — Ref+Ref 2-param dispatch (`ObjObjToLong/Double/Object` interfaces).
-- [ ] **jit-uc-stage2-3** — ASM ref-match guard parity (port `walkArmAsIfBranch`).
+- [x] **jit-uc-stage2-2** — Ref+Ref 2-param dispatch (`ObjObjToLong/Double/Object` interfaces).
+- [x] **jit-uc-stage2-3** — ASM ref-match guard parity (port `walkArmAsIfBranch`).
 - [x] **jit-uc-stage2-4** — `Pat.Lit` arm in match (literal patterns).
 - [x] **jit-uc-stage2-5** — Free-name → top-level `FunV` call (non-HOF case).
 
