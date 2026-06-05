@@ -73,6 +73,39 @@ Each slice: one VmCompiler change + tests + bench A/B, never ship a non-win.
 - [x] **jit-completeness-p5-lit-null** — `Lit.Null` (2 misses): emit CONST 0,
       set type TRef. Simple.
 
+- [x] **jit-completeness-p6-lit-string** — `Lit.String` intermediate + LOADS/EQREF/NEREF opcodes.
+- [x] **jit-completeness-p7-string-meta** — `String.length/isEmpty/nonEmpty` via JitRuntime meta + GETFI StringV.
+
+## JIT universal coverage (new focus)
+
+Spec: [`specs/jit-universal-coverage.md`](specs/jit-universal-coverage.md).
+Goal: make JIT work for **all** real programs, not just benchmarks.
+All three engines (SscVm, Javac bytecode, ASM bytecode) reach a unified
+compilable subset.  Stages worked sequentially:
+
+- [ ] **jit-uc-stage1** — Unified bail accounting: per-engine `JitMissStats`,
+      `JitBailReason` typed vocab, `ssc check-jit-coverage` CLI command.
+
+- [ ] **jit-uc-stage2-1** — Bool body wrap (`isBoolReturning` → emit `if … then 1L else 0L`).
+- [ ] **jit-uc-stage2-2** — Ref+Ref 2-param dispatch (`ObjObjToLong/Double/Object` interfaces).
+- [ ] **jit-uc-stage2-3** — ASM ref-match guard parity (port `walkArmAsIfBranch`).
+- [ ] **jit-uc-stage2-4** — `Pat.Lit` arm in match (literal patterns).
+- [ ] **jit-uc-stage2-5** — Free-name → top-level `FunV` call (non-HOF case).
+
+- [ ] **jit-uc-stage3-1** — `Value.FunV` as JIT-visible ref operand in `JitGlobals`.
+- [ ] **jit-uc-stage3-2** — SscVm `CALLREF` opcode + monomorphic IC.
+- [ ] **jit-uc-stage3-3** — Lambda / closure compilation (capturing + non-capturing).
+- [ ] **jit-uc-stage3-4** — IC hit-rate validation (`SSC_JIT_IC_STATS=1`).
+- [ ] **jit-uc-stage3-5** — Bytecode JIT HOF emission (Javac + ASM `INVOKEINTERFACE` to `RefCallable`).
+
+- [ ] **jit-uc-stage4** — Arity 3–4 ceiling lift (code-generated dispatch interfaces).
+
+- [ ] **jit-uc-stage5-1** — Mixed Long+Double arms auto-promotion.
+- [ ] **jit-uc-stage5-2** — `var` in pure bodies (extend `walkLocalSlotCtx`).
+- [ ] **jit-uc-stage5-3** — `try/catch` in bodies (JVM try block + tree-walker fallback).
+- [ ] **jit-uc-stage5-4** — `Pat.Alternative` / `@`-binding pattern support.
+- [ ] **jit-uc-stage5-5** — Non-`Term.Name` match scrutinee (auto-hoist to local).
+
 ---
 
 ## Interpreter perf — Phase C + D continuation (open)
