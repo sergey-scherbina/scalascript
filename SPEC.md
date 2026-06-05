@@ -692,6 +692,13 @@ ssc info artifact.scjvm        # inspect artifact metadata
 
 Artifact formats: `.scim` (interface), `.scir` (IR), `.scjvm` (JVM), `.scjs` (JS).
 
+Markdown-hosted content is part of the artifact contract when a module carries
+a content snapshot. `.scir` preserves `NormalizedModule.document`, and `.sscc`
+v3 preserves `Module.document` through an optional trailing content payload
+after the executable token stream. Older or manually constructed artifacts may
+still have no snapshot; content helpers then use the existing missing-content
+diagnostic rather than reconstructing partial content from execution sections.
+
 ## 7. Semantics
 
 ### 7.1 Evaluation Order
