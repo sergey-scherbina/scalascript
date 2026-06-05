@@ -461,6 +461,8 @@ val page = lower(
 - [x] `contentDocument()` is available from every ScalaScript block in the
       interpreter and returns the same immutable parse-time snapshot during one
       module execution.
+- [x] `contentData(id)` is available from interpreter code and returns parsed
+      fenced YAML/JSON/TOML `ContentValue` data by explicit block id.
 - [ ] `contentCurrentSection()` returns the code block's enclosing section,
       including metadata and sibling prose/list blocks in that section.
 - [ ] Inline `${expr}` in prose is represented as `ContentInline.Expr(source)`
@@ -648,9 +650,10 @@ concatenates classes in source order.
 - Extend `runtime/std/content.ssc` and `runtime/std/content-plugin` beyond the
   Phase 1 `contentDocument()` interpreter API.
 - Populate native context state for JS and JVM backends.
-- Implement `contentCurrentSection`, `contentSection`,
-  `contentBlock`, `contentData`, `contentMetadata`, `contentPlainText`, and
-  `contentToMarkdown`.
+- Implement `contentCurrentSection`, `contentSection`, `contentBlock`,
+  `contentMetadata`, `contentPlainText`, and `contentToMarkdown`; extend the
+  already-landed interpreter `contentData(id)` helper to JS and JVM native
+  context exposure.
 - Enable the pending conformance test across INT, JS, and JVM.
 
 ### Phase 3 - IR and artifact round-trip
@@ -664,7 +667,8 @@ concatenates classes in source order.
 
 - Add custom component registry hooks for `component=<name>` metadata.
 - Support structured `ContentValue` props from YAML/front-matter and fenced data
-  blocks.
+  blocks. `data=<id>` bindings from sections/blocks to fenced structured data
+  landed for interpreter toolkit components on 2026-06-05.
 - Document the stable boundary between declarative Markdown content and explicit
   custom ScalaScript components.
 
@@ -719,3 +723,12 @@ Registered renderers replace default lowering for matching blocks or sections;
 missing registry entries fall back to default Markdown lowering. Verified with:
 `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/content-component-registry && sbt "backendInterpreterServer/testOnly scalascript.MarkdownContentFrontendSmokeTest" "cli/testOnly scalascript.cli.MarkdownContentFrontendCliTest"`
 (4 interpreter-server tests + 2 CLI tests passed).
+
+The data-binding slice landed on 2026-06-05: `contentData(id)` exposes parsed
+structured fenced data by explicit id in interpreter code, and `data=<id>`
+metadata on registered toolkit component sections/blocks resolves
+`ContentComponentContext.data` from the same snapshot. Missing references
+produce `None`; duplicate structured data ids report an interpreter error.
+Verified with:
+`cd /Users/sergiy/work/my/scalascript/.worktrees/feature/content-data-binding && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest" "backendInterpreterServer/testOnly scalascript.MarkdownContentFrontendSmokeTest" "cli/testOnly scalascript.cli.MarkdownContentFrontendCliTest"`
+(3 content-plugin tests + 5 interpreter-server frontend tests + 2 CLI tests passed).

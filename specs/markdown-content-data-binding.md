@@ -77,19 +77,19 @@ contentToolkitSection("plans", options)
 
 ## Behavior
 
-- [ ] `contentData(id)` returns `Some(ContentValue)` for a parsed YAML/JSON/TOML
+- [x] `contentData(id)` returns `Some(ContentValue)` for a parsed YAML/JSON/TOML
       structured data block with matching explicit id.
-- [ ] `contentData(id)` returns `None` when the id is absent, points at a
+- [x] `contentData(id)` returns `None` when the id is absent, points at a
       non-structured block, or the structured block has no parsed data.
-- [ ] Duplicate structured data ids report an interpreter error instead of
+- [x] Duplicate structured data ids report an interpreter error instead of
       choosing an arbitrary block.
-- [ ] A registered section component with `data=<id>` receives the referenced
+- [x] A registered section component with `data=<id>` receives the referenced
       structured value in `ContentComponentContext.data`.
-- [ ] A registered block component with `data=<id>` receives the referenced
+- [x] A registered block component with `data=<id>` receives the referenced
       structured value in `ContentComponentContext.data`.
-- [ ] A registered embedded structured block component without `data=<id>`
+- [x] A registered embedded structured block component without `data=<id>`
       keeps receiving that block's own parsed data.
-- [ ] Missing `data=<id>` references produce `ctx.data = None`; they do not
+- [x] Missing `data=<id>` references produce `ctx.data = None`; they do not
       prevent component rendering.
 
 ## Out of Scope
@@ -129,4 +129,14 @@ data block.
 
 ## Results
 
-Filled in during spec verification after implementation.
+Implemented on 2026-06-05 in the interpreter content plugin. Verified with:
+
+```bash
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/content-data-binding && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest" "backendInterpreterServer/testOnly scalascript.MarkdownContentFrontendSmokeTest" "cli/testOnly scalascript.cli.MarkdownContentFrontendCliTest"
+```
+
+Results: 3 content-plugin tests, 5 Markdown frontend smoke tests, and 2 CLI
+Markdown frontend tests passed. Coverage includes direct `contentData(id)`
+lookup, missing/non-structured ids, duplicate structured ids, section and block
+`data=<id>` component binding, embedded structured block fallback data, and
+missing data references.
