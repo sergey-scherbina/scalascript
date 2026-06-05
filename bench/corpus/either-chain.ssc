@@ -1,0 +1,19 @@
+# either-chain
+
+Monadic `Either` pipeline: `map().flatMap().fold()`, 300 times. Exercises
+Right/Left construction + dispatch — the error-handling monad complementing
+`option-chain`, adjacent to the throwsAutoWrap Right-wrapping path.
+
+```scalascript
+def parse(n: Int): Either[String, Int] =
+  if n > 0 then Right(n) else Left("neg")
+
+def workload(): Long =
+  var sum = 0L
+  var i = 0
+  while i < 300 do
+    val r = parse(i + 1).map(x => x + 1).flatMap(x => parse(x)).fold(_ => 0, x => x)
+    sum = sum + r.toLong
+    i = i + 1
+  sum
+```

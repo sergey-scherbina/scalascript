@@ -1,0 +1,18 @@
+# string-split
+
+Parse-and-sum: `split(",")` a 20-field CSV string, `toInt` each field, sum,
+300 times. Exercises string *parsing* (split allocation, toInt coercion) —
+distinct from `string-concat`'s concatenation-only path.
+
+```scalascript
+val csv: String = "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20"
+
+def workload(): Long =
+  var sum = 0L
+  var i = 0
+  while i < 300 do
+    val r = csv.split(",").map(s => s.trim.toInt).foldLeft(0)((a, b) => a + b)
+    sum = sum + r.toLong
+    i = i + 1
+  sum
+```

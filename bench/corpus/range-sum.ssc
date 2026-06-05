@@ -1,0 +1,16 @@
+# range-sum
+
+`Range.map(square).foldLeft(+)` over `0 until 50`, 60 times. Exercises the
+`Range` construction + `map` allocation + `foldLeft` reduction path on a
+numeric sequence — the only `Range`-driven workload in the corpus.
+
+```scalascript
+def workload(): Long =
+  var total = 0L
+  var k = 0
+  while k < 60 do
+    val s = (0 until 50).map(i => i * i).foldLeft(0)((a, b) => a + b)
+    total = total + s.toLong
+    k = k + 1
+  total
+```
