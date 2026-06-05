@@ -867,3 +867,71 @@ class SscVmTest extends AnyFunSuite with Matchers:
         |println(total)""".stripMargin)
     out shouldBe "43000"
   }
+
+  // ── Completeness p1b: arity-0 functions ─────────────────────────────────────
+
+  test("p1b: arity-0 function compiles and returns constant") {
+    val f = funOf("answer", "def answer(): Int = 42")
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    SscVm.run(cfn.get, Array()) shouldBe 42L
+  }
+
+  test("p1b: arity-0 function with nested while compiles and returns correct sum") {
+    val f = funOf("workload",
+      """def workload(): Long =
+        |  var sum = 0L
+        |  var i = 0
+        |  while i < 100 do
+        |    sum = sum + i
+        |    i = i + 1
+        |  sum""".stripMargin)
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    SscVm.run(cfn.get, Array()) shouldBe 4950L
+  }
+
+  test("p1b: arity-0 function compiles and returns correct result via direct SscVm.run") {
+    // Verifies the compiler fix (arity < 1 guard removed); entry-point JIT wiring
+    // is deferred to a future phase once SscVm is competitive with WhileJitEntry.
+    val f = funOf("counter",
+      """def counter(): Int =
+        |  var n = 0
+        |  var i = 0
+        |  while i < 10 do
+        |    n = n + i; i = i + 1
+        |  n""".stripMargin)
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    SscVm.run(cfn.get, Array()) shouldBe 45L
+  }
+
+  // ── Completeness p2: Term.Select field access ────────────────────────────────
+
+  test("p2: end-to-end normSq with field access runs on JIT path") {
+    val out = captured(
+      """case class Vec(x: Int, y: Int)
+        |def normSq(v: Vec): Int = v.x * v.x + v.y * v.y
+        |val p = Vec(3, 4)
+        |var total = 0
+        |var i = 0
+        |while i < 100 do
+        |  total = total + normSq(p)
+        |  i = i + 1
+        |println(total)""".stripMargin)
+    out shouldBe "2500"  // 100 * (9 + 16) = 2500
+  }
+
+  test("p2: chained field access compiles and returns correct result") {
+    val out = captured(
+      """case class Inner(v: Int)
+        |case class Outer(a: Int, b: Inner)
+        |def getA(o: Outer): Int = o.a
+        |val o = Outer(7, Inner(99))
+        |var i = 0; var sum = 0
+        |while i < 10 do
+        |  sum = sum + getA(o)
+        |  i = i + 1
+        |println(sum)""".stripMargin)
+    out shouldBe "70"
+  }

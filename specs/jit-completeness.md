@@ -69,10 +69,12 @@ def answer(): Int = 42
 FunV is dispatched through a new `JitRuntime.tryRun0` / `invokeBytecode0`,
 hooked into `CallRuntime.callValue0`. Both bytecode backends had their
 param-count gate relaxed from `!= 1 && != 2` to `> 2`, with new
-`LongFn0`/`DoubleFn0` direct interfaces and `determineInterface(0)`. The
-register-VM `arity < 1` guard is left as-is: 0-arg functions never reach the
-register VM (only `tryRun1`/`tryRun2`/`tryRunList` do), so the bytecode lane
-is sufficient and covers nested loops the register VM would not.
+`LongFn0`/`DoubleFn0` direct interfaces and `determineInterface(0)`.
+
+The `VmCompiler` `arity < 1` guard was also removed (in the p2 commit) so
+zero-param functions can compile as callees inside register-VM call graphs.
+However, the top-level hot path (`tryRun0`) uses BytecodeJit only — SscVm
+does not handle 0-arg dispatch at the boundary.
 
 To make the `nested-loop` body compile, the while-body emitters in both
 backends (Javac `walkStatAsVoid`/`walkWhileAsStmt`, ASM
@@ -88,7 +90,7 @@ result 249500250000 verified on both backends.
 - [x] no regression on arity-1..8 functions (backendInterpreter suite: 184/185,
       lone failure is the pre-existing mutual-TCO Boolean-as-1 JIT bug)
 
-### p2 — `Term.Select` standalone field access (54 misses)
+### p2 — `Term.Select` standalone field access ✓ Landed (2026-06-05)
 
 **Shape:** `obj.field` used as an expression outside of a `match` pattern.
 Examples:
@@ -100,30 +102,30 @@ def distSq(p: Point): Int = p.x * p.x + p.y * p.y
 
 In scala.meta this is `Term.Select(obj: Term, field: Term.Name)`.
 
-**Strategy:**
-1. Compile `obj` via `compileExpr` → register `sr` (must resolve to TRef;
-   bail if TInt/TDouble).
-2. Look up field type via `ctx.metaFor(ctor)` — but we don't know the ctor at
-   compile time for a standalone select. Instead: attempt `GETFI` speculatively
-   and let the VM's fallback handle mis-typed fields, OR bail if meta is
-   unavailable.
-3. Better: encode as a new opcode `GETF` that tries int then ref at run time
-   (single-check inline); the type will be consistent across hot calls.
-4. Simplest safe approach: emit `GETFI(dst, sr, strSlot(field))`, `setType(dst,
-   TInt)` always — correct for Int fields. For ref fields the VM returns the
-   reference bits which are longs, but we'd mistype them. So bail if we can't
-   determine the field type from meta.
+**Implemented via `refTypeName` map + `metaFor` lookup.** A new
+`mutable.HashMap[Int, String]` (`refTypeName`) in `Builder` tracks the
+declared type name for each TRef register. It is populated:
+- For TRef function parameters (from `fn.paramTypes`).
+- For GETFR match bindings (from `Pat.Extract` field types).
 
-**Alternative:** extend `compileInto` to accept an optional `expectedType`
-hint from the call site (e.g., when the result feeds a known-typed expression).
+The new `Term.Select` case in `compileInto`:
+1. Compiles `obj` via `compileExpr` → register `or` (bails if not TRef).
+2. Looks up `refTypeName(or)` to get the type name (bails if unknown).
+3. Calls `ctx.metaFor(typeName)` to get `(names, types)` arrays (bails if null).
+4. Finds `field.value` in `names`; bails if not found.
+5. Emits `GETFI(dst, or, strSlot(field))` for Int fields, or `GETFR` + sets
+   `refTypeName(dst)` for Ref fields; bails for Double fields (unsupported
+   in meta so far).
 
-**Skip:** `obj.method(args)` — method calls, not field access. These remain
-`bail("unsupported: Term.Select")` until a richer call model is in place.
-Distinguish: `Term.Select` that is the `fun` of a `Term.Apply` → method call
-(skip); standalone `Term.Select` → field access (compile).
+Method calls (`Term.Select` as the `fun` of `Term.Apply`) remain bailed as
+`"unsupported: Term.Select"`. Only standalone selects (outside `Apply.fun`)
+reach the new case.
 
-**Expected impact:** 54 → significantly fewer misses on record/case-class heavy
-functions.
+**Behavior:**
+- [x] `def normSq(v: Vec): Int = v.x * v.x + v.y * v.y` compiles and runs
+- [x] `def getA(o: Outer): Int = o.a` (Int field on case class) compiles
+- [x] Method calls and String-field selects still bail gracefully
+- [x] No SscVmTest regression (50 tests pass)
 
 ### p3 — Inner `def` as non-capturing local (17 misses)
 

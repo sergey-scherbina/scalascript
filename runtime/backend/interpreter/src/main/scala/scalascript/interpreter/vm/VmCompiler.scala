@@ -133,6 +133,12 @@ object VmCompiler:
     private def setType(r: Int, t: VmType): Unit =
       if t == TInt then regType.remove(r) else regType(r) = t
 
+    // Declared ADT type name for TRef registers (e.g. "Vec", "Node").
+    // Populated for params and match-bound fields; used by Term.Select to
+    // look up field types via ctx.metaFor without knowing the ctor at compile time.
+    private val refTypeName = mutable.HashMap.empty[Int, String]
+    private def setRefType(r: Int, name: String): Unit = if name.nonEmpty then refTypeName(r) = name
+
     /** Map a declared field/param type string to a register domain. Anything
      *  that is not numeric is a ref (an InstanceV, threaded through the ref bank). */
     private def fieldVmType(tpe: String): VmType =
@@ -405,6 +411,27 @@ object VmCompiler:
             emit(EQI, dst, ar, constSlot(0L)); setType(dst, TInt); TInt  // !x == (x == 0)
           case other => bail(s"unsupported: unary operator '$other'")
 
+      // `obj.field` — standalone field access (outside a match pattern).
+      // Only compiles when: (a) obj is a TRef register, (b) its declared type
+      // name is known (params + match bindings populate refTypeName), and
+      // (c) the field name resolves via meta. Method calls are `Term.Select`
+      // inside a `Term.Apply.fun` — those reach callTarget, not here.
+      case Term.Select(obj, field: Term.Name) =>
+        val or = compileExpr(obj)
+        if typeOf(or) != TRef then bail(s"field: non-ref base for .${field.value}")
+        val typeName = refTypeName.getOrElse(or, bail(s"field: unknown ref type for .${field.value}"))
+        val info = ctx.metaFor(typeName)
+        if info == null then bail(s"field: no meta for type '$typeName'")
+        val (names, types) = info
+        val idx = names.indexOf(field.value)
+        if idx < 0 then bail(s"field: '${field.value}' not found in '$typeName'")
+        val ft = fieldVmType(types(idx))
+        if ft == TRef then
+          emit(GETFR, dst, or, strSlot(field.value)); setType(dst, TRef)
+          setRefType(dst, types(idx).trim); TRef
+        else
+          emit(GETFI, dst, or, strSlot(field.value)); setType(dst, ft); ft
+
       case other =>
         bail(s"unsupported: ${termName(other)}")
 
@@ -525,7 +552,9 @@ object VmCompiler:
               case Pat.Var(nm: Term.Name) =>
                 val home = freshReg()
                 val ft   = fieldVmType(types(i))
-                if ft == TRef then { emit(GETFR, home, scrutReg, strSlot(names(i))); setType(home, TRef) }
+                if ft == TRef then
+                  emit(GETFR, home, scrutReg, strSlot(names(i))); setType(home, TRef)
+                  setRefType(home, types(i).trim)
                 else { emit(GETFI, home, scrutReg, strSlot(names(i))); setType(home, ft) }
                 locals(nm.value) = home
               case _: Pat.Wildcard => ()              // matched but unbound
@@ -582,14 +611,16 @@ object VmCompiler:
     /** Emit the instruction stream; callee shells are resolved later by [[Ctx]]. */
     def buildInstructions(): Unit =
       val arity = fn.params.length
-      if arity < 1 || arity > MaxArity then bail(s"arity: $arity out of range [1..$MaxArity]")
+      if arity > MaxArity then bail(s"arity: $arity out of range [0..$MaxArity]")
       var i = 0
       while i < arity do
         locals(fn.params(i)) = i                         // params occupy r0..r(arity-1)
         if i < fn.paramTypes.length then
-          fieldVmType(fn.paramTypes(i)) match
+          val pt = fn.paramTypes(i).trim
+          fieldVmType(pt) match
             case TInt    => ()
-            case t       => setType(i, t)                // TDouble or TRef param
+            case TRef    => setType(i, TRef); setRefType(i, pt)
+            case t       => setType(i, t)
         i += 1
       nextReg = arity; maxReg = arity
       compileTail(fn.body)           // emits RET / loop on every path

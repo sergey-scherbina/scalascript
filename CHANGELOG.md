@@ -40,6 +40,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   `serve(page, 8099)`, so the Markdown-authored toolkit page is a direct
   browser/phone preview without a separate static-server step.
 
+## 2026-06-05 — feat(jit): VmCompiler p1b arity-0 + p2 Term.Select field access
+
+- **jit-completeness-p1b-vmcompiler** — Removed the `arity < 1` guard in
+  `VmCompiler.buildInstructions` so zero-param functions can now be compiled
+  by the register VM as callees within compiled call graphs. Added TRef param
+  type tracking (`setRefType`) for use by p2 field access.
+
+- **jit-completeness-p2-term-select** — New `Term.Select` case in
+  `VmCompiler.compileInto`: compiles standalone `obj.field` expressions using a
+  `refTypeName` map to track declared type names for TRef registers and
+  `ctx.metaFor` to look up field types. Emits `GETFI` for Int fields, `GETFR`
+  for Ref fields (with chained type tracking). Method calls (`.head`, `.method()`
+  etc.) still bail as before. 5 new SscVmTest unit tests.
+
 ## 2026-06-05 — perf(interp): JIT arity-0 thunks + nested while/var
 
 - **jit-completeness-p1b-arity-zero** — Added a zero-arg FunV bytecode-JIT lane

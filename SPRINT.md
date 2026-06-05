@@ -26,7 +26,7 @@ Make `VmCompiler.compile` succeed for as many real functions as possible so
 Run `SSC_JIT_STATS=1 sbt "backendInterpreter/test"` to track progress.
 Each slice: one VmCompiler change + tests + bench A/B, never ship a non-win.
 
-- [ ] **jit-completeness-p2-term-select** — Compile `obj.field` access
+- [x] **jit-completeness-p2-term-select** — Compile `obj.field` access
       (`Term.Select` outside match). Requires meta lookup for field type; emit
       `GETFI` (int) or `GETFR` (ref) using existing field-info infrastructure.
       Expected: 54 → 0 for pure field-access cases. Skip method calls
