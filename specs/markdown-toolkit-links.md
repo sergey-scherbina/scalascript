@@ -55,6 +55,8 @@ query keys and values.
       reactive signal within the selected document, section, or block lowering.
 - [ ] `enabledWhen=<signal>` on a button lowers to a `ShowWhenNode` that toggles
       enabled/disabled button variants from the referenced signal.
+- [ ] Pure paragraphs or list items containing `toolkit:` links remain content;
+      they are not classified as Markdown imports.
 - [ ] Non-`toolkit:` links keep the existing Markdown lowering behavior.
 - [ ] The live example `examples/markdown-toolkit-links.ssc` serves a browser
       page where text field, checkbox, button, badge, and signal text are
