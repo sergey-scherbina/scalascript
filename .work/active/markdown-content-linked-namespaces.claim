@@ -1,0 +1,6 @@
+feature/markdown-content-linked-namespaces 2026-06-05T11:40:12Z
+agent: codex
+heartbeat: 2026-06-05T11:40:12Z
+status: not-started
+done-so-far:
+next: write focused spec for imported-module content namespaces before implementation
