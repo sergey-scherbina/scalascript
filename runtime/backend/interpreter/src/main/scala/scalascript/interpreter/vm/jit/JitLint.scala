@@ -201,11 +201,18 @@ object JitPredicates:
         tm.casesBlock.cases.foreach { c =>
           if c.cond.nonEmpty then buf += JitBailReason.PatternGuard
           c.pat match
-            case _: Pat.Extract                    => ()
-            case _: Pat.Var                        => ()
-            case _: Pat.Wildcard                   => ()
-            case _: Lit.Int | _: Lit.Long                   => ()  // literal-int arms now compile
-            case _                                 => buf += JitBailReason.NonExtractPattern
+            case _: Pat.Extract  => ()
+            case _: Pat.Var      => ()
+            case _: Pat.Wildcard => ()
+            case _: Lit.Int | _: Lit.Long => ()  // literal-int arms now compile
+            case alt: Pat.Alternative =>
+              // Only no-binding alternatives are compilable (Stage 5.4).
+              def hasBindings(p: scala.meta.Pat): Boolean = p match
+                case e: Pat.Extract => e.argClause.values.exists(!_.isInstanceOf[Pat.Wildcard])
+                case _: Pat.Var => true
+                case _ => false
+              if hasBindings(alt.lhs) || hasBindings(alt.rhs) then buf += JitBailReason.NonExtractPattern
+            case _ => buf += JitBailReason.NonExtractPattern
           walkForBailCliffs(c.body, paramNames, buf)
         }
       case _ => t.children.foreach(walkForBailCliffs(_, paramNames, buf))

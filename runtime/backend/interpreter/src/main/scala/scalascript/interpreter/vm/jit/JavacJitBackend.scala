@@ -1060,9 +1060,10 @@ object JavacJitBackend extends JitBackend:
     // Java switch can't re-dispatch on guard failure: when `case A(n) if n > 0`
     // fails its guard, execution must continue to the next arm rather than
     // falling through to the next switch case (which may have a different tag).
-    val hasAnyGuard = casesArr.exists(_.cond.nonEmpty)
-    val hasWildcard = casesArr.exists(c => c.pat.isInstanceOf[Pat.Wildcard] || c.pat.isInstanceOf[Pat.Var])
-    if hasAnyGuard then
+    val hasAnyGuard  = casesArr.exists(_.cond.nonEmpty)
+    val hasAltPat    = casesArr.exists(_.pat.isInstanceOf[Pat.Alternative])
+    val hasWildcard  = casesArr.exists(c => c.pat.isInstanceOf[Pat.Wildcard] || c.pat.isInstanceOf[Pat.Var])
+    if hasAnyGuard || hasAltPat then
       var ci = 0
       var restList = cases
       while restList.nonEmpty do
@@ -1328,6 +1329,30 @@ object JavacJitBackend extends JitBackend:
         val armBodyJava = if ctx.isDouble then walkDouble(c.body, newCtx) else walkLong(c.body, newCtx)
         if armBodyJava == null then return null
         s"Object $xBind = inst;\n    return $armBodyJava;\n    "
+      case alt: Pat.Alternative =>
+        // Pat.Alternative: emit `if (cond1 || cond2) { return body; }`.
+        // Only supported when sub-patterns have no extracted field bindings used in the body.
+        def altCond(p: scala.meta.Pat): String | Null = p match
+          case ext: scala.meta.Pat.Extract =>
+            val cn = ext.fun match { case Term.Name(n) => n; case _ => return null }
+            if !ext.argClause.values.forall(_.isInstanceOf[Pat.Wildcard]) then return null
+            val tag = interp.typeTagMap.getOrElse(cn, 0)
+            if tag > 0 then s"inst.typeTag() == $tag"
+            else s"""inst.typeName().equals("${escape(cn)}")"""
+          case _: Pat.Wildcard => "true"
+          case _: Pat.Var      => "true"
+          case _ => null
+        val lCond = altCond(alt.lhs); if lCond == null then return null
+        val rCond = altCond(alt.rhs); if rCond == null then return null
+        val cond = if rCond == "true" then lCond else if lCond == "true" then rCond else s"($lCond || $rCond)"
+        val guardStr: String = c.cond match
+          case None => ""
+          case Some(g) => val gs = walkBool(g, ctx); if gs == null then return null; s" && $gs"
+        val armBodyJava = if ctx.isDouble then walkDouble(c.body.asInstanceOf[Term], ctx)
+                          else walkLong(c.body.asInstanceOf[Term], ctx)
+        if armBodyJava == null then return null
+        if c.cond.isEmpty then s"if ($cond) { return $armBodyJava; }\n    "
+        else                     s"if ($cond$guardStr) { return $armBodyJava; }\n    "
       case _ => null
 
   /** `intTag > 0` means emit `case $intTag:` (int switch); `intTag == 0` means
