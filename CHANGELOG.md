@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — fix(jit): ASM bool-returning co-emit + walkBool dead-label fix
+
+- **jit-uc-stage6-asm-mutual-recursion** — Fixed ASM JIT 14x regression on
+  `mutual-recursion`: `ssc-asm` 20.8 ms → 1.22 ms (Javac parity at 1.20 ms).
+  Root causes: (1) `Lit.Boolean` missing from `walkLong` forced bool-returning
+  `isEven`/`isOdd` into `walkBool` fallback generating COMPUTE_FRAMES-incompatible
+  dead code; (2) dead `GOTO Lend` in `walkBool(Term.If)` when thenp = `Lit.Boolean(false)`.
+  Fixes: `walkLong` handles `Lit.Boolean`; `boolAlwaysJumps()` predicate skips
+  dead GOTO/label. 117 SscVmTest pass incl. new bool-returning mutual-recursion test.
+
+---
+
 ## 2026-06-05 — feat(language): Markdown content inline binding
 
 - **markdown-content-inline-binding** — Added explicit `contentBind(value, bindings)`

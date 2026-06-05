@@ -176,11 +176,11 @@ Each item: one commit + bench A/B. Run `SSC_JIT_STATS=1 sbt "backendInterpreter/
       record updated numbers; identify which workloads still miss.
       One observation commit (CHANGELOG entry + updated §9 in spec).
 
-- [ ] **jit-uc-stage6-asm-mutual-recursion** — Fix ASM JIT regression on
-      `mutual-recursion`: `ssc-asm` 20.8 ms vs `ssc` 4.86 ms vs `jvm` 3.76 ms.
-      Root cause: likely `workload()` compiles on Javac but bails on ASM due to
-      `isEven()` call shape or void-`Term.If` path not yet ported to ASM.
-      Diagnose via `SSC_JIT_BACKEND=asm SSC_JIT_STATS=1`, fix, A/B verify.
+- [x] **jit-uc-stage6-asm-mutual-recursion** — Fix ASM JIT regression on
+      `mutual-recursion`: `ssc-asm` 20.8 ms → 1.22 ms (parity with Javac 1.20 ms).
+      Root cause: `Lit.Boolean` missing from `walkLong` caused bool-returning functions
+      to fall into `walkBool` fallback which generated COMPUTE_FRAMES-incompatible dead
+      labels. Also fixed dead `GOTO Lend` in `walkBool(Term.If)` when thenp always jumps.
 
 - [ ] **jit-uc-stage6-pattern-guard** — Emit `PatternGuard` (8 misses): guard
       expression as a conditional jump after pattern extraction. Both bytecode
