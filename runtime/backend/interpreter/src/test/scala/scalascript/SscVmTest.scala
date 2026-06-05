@@ -1277,3 +1277,45 @@ class SscVmTest extends AnyFunSuite with Matchers:
         |println(outer(10))""".stripMargin)
     out.trim shouldBe "21\n111"
   }
+
+  // ── Stage 2.2 — Ref+Ref 2-param dispatch (ObjObjToLong) ─────────────────────
+
+  // Both params are ref when BOTH appear in Term.Select (field access).
+  // `a.x` and `b.x` both trigger paramIsRef → classifies both as Object in JIT.
+  test("stage2.2: Javac — 2-param both-ref function compiles to ObjObjToLong interface") {
+    import scalascript.interpreter.vm.jit.JavacJitBackend
+    val interp = interpOf(
+      """case class Vec(x: Int, y: Int)
+        |def dot(a: Vec, b: Vec): Int = a.x * b.x + a.y * b.y""".stripMargin)
+    val fn = interp.globalsView("dot").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    r.paramIsRef.length shouldBe 2
+    r.paramIsRef(0) shouldBe true
+    r.paramIsRef(1) shouldBe true
+    r.direct.getClass.getInterfaces.exists(_.getSimpleName == "ObjObjToLong") shouldBe true
+  }
+
+  test("stage2.2: ASM — 2-param both-ref function compiles to ObjObjToLong interface") {
+    import scalascript.interpreter.vm.jit.AsmJitBackend
+    val interp = interpOf(
+      """case class Vec(x: Int, y: Int)
+        |def dot(a: Vec, b: Vec): Int = a.x * b.x + a.y * b.y""".stripMargin)
+    val fn = interp.globalsView("dot").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    r.paramIsRef.length shouldBe 2
+    r.paramIsRef(0) shouldBe true
+    r.paramIsRef(1) shouldBe true
+    r.direct.getClass.getInterfaces.exists(_.getSimpleName == "ObjObjToLong") shouldBe true
+  }
+
+  test("stage2.2: end-to-end 2-param both-ref dispatch runs correctly") {
+    val out = captured(
+      """case class Vec(x: Int, y: Int)
+        |def dot(a: Vec, b: Vec): Int = a.x * b.x + a.y * b.y
+        |println(dot(Vec(3, 4), Vec(1, 2)))""".stripMargin)
+    out.trim shouldBe "11"
+  }

@@ -27,6 +27,10 @@ trait ObjLongToDouble { def apply(a: AnyRef, b: Long):   Double }
 // (e.g. `def getLeft(t: Tree): Tree = t match { case Node(l, _) => l }`).
 // Used by LApplyR1ToRef in EvalRuntime to build f(g(item)) ref-arg chains.
 trait ObjToObject     { def apply(n: AnyRef): AnyRef }
+// Both-ref 2-param dispatch interfaces — for functions where both parameters
+// are InstanceV/StringV/MapV refs (e.g. `def eval(env: Map, expr: Expr): Int`).
+trait ObjObjToLong   { def apply(a: AnyRef, b: AnyRef): Long   }
+trait ObjObjToDouble { def apply(a: AnyRef, b: AnyRef): Double  }
 // Primitive-param / ref-returning interface for pure ADT builders such as
 // `def build(d: Int): Expr = if d <= 0 then Num(1) else Add(build(...), ...)`.
 trait LongToObject    { def apply(n: Long): AnyRef }

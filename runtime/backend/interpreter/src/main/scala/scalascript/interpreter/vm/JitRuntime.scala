@@ -1,7 +1,7 @@
 package scalascript.interpreter.vm
 
 import scalascript.interpreter.{Value, Computation, Interpreter}
-import scalascript.interpreter.vm.jit.{JitBackend, JitResult, JitGlobals, LongFn0, DoubleFn0, LongFn1, DoubleFn1, ObjToLong, ObjToDouble, ObjToObject, LongToObject, LongFn2, DoubleFn2, LongObjToLong, LongObjToDouble, ObjLongToLong, ObjLongToDouble}
+import scalascript.interpreter.vm.jit.{JitBackend, JitResult, JitGlobals, LongFn0, DoubleFn0, LongFn1, DoubleFn1, ObjToLong, ObjToDouble, ObjToObject, LongToObject, LongFn2, DoubleFn2, LongObjToLong, LongObjToDouble, ObjLongToLong, ObjLongToDouble, ObjObjToLong, ObjObjToDouble}
 import java.lang as jl
 
 /** Run-time JIT bridge between the tree-walking interpreter and [[SscVm]].
@@ -322,7 +322,15 @@ object JitRuntime:
             else
               val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjLongToLong].apply(xRef, y) }
               wrapLong(r, result)
-          case (true, true) => return null   // both-ref direct iface not wired; falls back to MH
+          case (true, true) =>
+            val xRef = a match { case _: Value.InstanceV => a.asInstanceOf[AnyRef]; case _ => return null }
+            val yRef = b match { case _: Value.InstanceV => b.asInstanceOf[AnyRef]; case _ => return null }
+            if isDoubleResult then
+              val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjObjToDouble].apply(xRef, yRef) }
+              Computation.Pure(Value.doubleV(result))
+            else
+              val result = JitGlobals.withInterp(interp) { d.asInstanceOf[ObjObjToLong].apply(xRef, yRef) }
+              wrapLong(r, result)
       catch case _: Throwable => null
     else
       val a0 = marshalBytecode(a, r.paramIsRef(0), r.resultIsDouble)
