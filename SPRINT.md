@@ -13,19 +13,13 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 Broad spec exists:
 [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md).
 Focused slice specs already exist for landed lookup/plain-text, metadata,
-current-section, and backend-exposure planning:
+current-section, and backend exposure:
 [`specs/markdown-content-lookup-plaintext.md`](specs/markdown-content-lookup-plaintext.md),
 [`specs/markdown-content-metadata.md`](specs/markdown-content-metadata.md),
 [`specs/markdown-content-current-section.md`](specs/markdown-content-current-section.md),
 and
 [`specs/markdown-content-backend-exposure.md`](specs/markdown-content-backend-exposure.md).
 For the next slices, write and commit the focused spec first, then implement.
-
-- [ ] **markdown-content-backend-exposure** - Implement JS/JVM exposure for the
-      landed `std/content` helper set using
-      [`specs/markdown-content-backend-exposure.md`](specs/markdown-content-backend-exposure.md),
-      then un-pend or replace `tests/conformance/content-introspection.ssc` so
-      INT/JS/JVM agree on observable output.
 
 - [ ] **markdown-content-to-markdown-spec** - Write
       `specs/markdown-content-to-markdown.md` for `contentToMarkdown(...)`.

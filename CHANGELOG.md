@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(language): Markdown content backend exposure
+
+- **markdown-content-backend-exposure** — Exposed the low-level `std/content`
+  helper set on generated JS and JVM backends: `contentDocument`,
+  `contentCurrentSection`, `contentSection`, `contentBlock`, `contentData`,
+  `contentMetadata`, and `contentPlainText`. Generated backends embed the
+  module `DocumentContent` snapshot, preserve current-section execution scope,
+  and the conformance fixture now matches across interpreter, JS, and JVM.
+
 ## 2026-06-05 — spec(language): Markdown content backend exposure
 
 - **markdown-content-backend-exposure-spec** — Added the focused JS/JVM

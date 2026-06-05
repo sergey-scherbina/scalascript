@@ -20,14 +20,14 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       `contentPlainText(value)` lookup and text extraction (2026-06-05),
       interpreter `contentMetadata(path)` lookup for `content:` front-matter
       defaults (2026-06-05), interpreter `contentCurrentSection()` lookup for
-      the executing code block's enclosing Markdown section (2026-06-05), and
-      `contentView(...)` low-level frontend lowering. The follow-up work is
-      JS/JVM native context wiring for the landed interpreter helpers,
-      now specified in
+      the executing code block's enclosing Markdown section (2026-06-05),
+      JS/JVM backend exposure for the low-level `std/content` helper set
+      (2026-06-05, specified in
       [`specs/markdown-content-backend-exposure.md`](specs/markdown-content-backend-exposure.md),
-      plus `contentToMarkdown`, then un-pend
-      `tests/conformance/content-introspection.ssc`. `.scir` / `.sscc`
-      round-trip and multi-link import paragraphs follow as later slices.
+      and verified by un-pending `tests/conformance/content-introspection.ssc`),
+      and `contentView(...)` low-level frontend lowering. The follow-up work is
+      `contentToMarkdown`. `.scir` / `.sscc` round-trip and multi-link import
+      paragraphs follow as later slices.
 
 ## JS Codegen Performance
 
