@@ -35,6 +35,13 @@ content embedding all carry the new table node.
 - low-level `View` tables through ordinary `element("table", ...)` markup, and
 - toolkit `TableNode` in `contentToolkitNode()` / selected toolkit regions.
 
+If a table contains inline `${name}` placeholders, callers may first apply the
+`std/content.ssc` `contentBind(table, bindings)` helper from
+[`markdown-content-data-binding.md`](markdown-content-data-binding.md). The
+bound table keeps the same `ContentBlock.Table` shape, with matching expression
+nodes replaced by text before plain-text, Markdown, low-level view, or toolkit
+rendering.
+
 ## Behavior
 
 - [x] Parser recognizes GFM pipe tables with a header row, separator row, and
@@ -51,6 +58,9 @@ content embedding all carry the new table node.
 - [x] `contentView(...)` renders tables as semantic table markup.
 - [x] `contentToolkitNode()` / `contentToolkitBlock(id)` lower tables to the
       existing `TableNode` toolkit node.
+- [ ] A table passed through `contentBind(table, bindings)` renders bound cell
+      values through `contentPlainText(table)`, `contentToMarkdown(table)`, and
+      toolkit `TableNode` lowering.
 - [x] Existing paragraph/list/image/fenced-block behavior remains unchanged.
 
 ## Out of scope
@@ -58,8 +68,6 @@ content embedding all carry the new table node.
 - Full Markdown table dialect compatibility beyond the GFM pipe-table extension.
 - Rowspan/colspan, captions, footers, sortable dynamic tables, or typed data
   table actions.
-- Evaluating inline `${expr}` while rendering table cells. Expression nodes stay
-  source-only until a separate explicit renderer evaluates them.
 - Inferring table schemas or typed row models from Markdown tables.
 
 ## Design

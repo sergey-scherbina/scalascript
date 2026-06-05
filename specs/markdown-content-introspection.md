@@ -505,8 +505,8 @@ val page = lower(
 - [x] `contentCurrentSection()` returns the code block's enclosing section,
       including metadata and sibling prose/list blocks in that section.
 - [ ] Inline `${expr}` in prose is represented as `ContentInline.Expr(source)`
-      until an explicit renderer evaluates it. Content introspection itself does
-      not execute inline expressions.
+      until explicit `contentBind(value, bindings)` data-path binding resolves
+      it. Content introspection itself does not execute inline expressions.
 - [x] `contentToolkitNode()` renders the current Markdown document to a regular
       toolkit `TkNode`, and `contentView(...)` remains available for direct
       low-level `View` lowering.

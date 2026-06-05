@@ -5,9 +5,10 @@
 Markdown-authored frontend components need a direct way to consume structured
 data that is already present in the same `.ssc` document. This slice connects
 metadata such as `data=plans-data` to fenced YAML/JSON/TOML blocks with matching
-`@id`, exposes the lookup as `contentData(id)`, and feeds the resolved
+`@id`, exposes the lookup as `contentData(id)`, feeds the resolved
 `ContentValue` into `ContentComponentContext.data` for registered toolkit
-components.
+components, and adds an explicit `contentBind(value, bindings)` render step for
+Markdown inline `${name}` placeholders.
 
 ## Interface
 
@@ -30,16 +31,26 @@ plans:
 ````
 
 The `std/content.ssc` surface gains the first lookup helper from the broader
-metadata API:
+metadata API and the explicit binding helper:
 
 ```scalascript
 extern def contentData(id: String): Option[ContentValue]
+extern def contentBind(value: Any, bindings: ContentValue): Any
 ```
 
 `contentData(id)` searches the current `DocumentContent` snapshot for an
 embedded structured data block whose explicit `@id` or block metadata id equals
 `id`. It returns the parsed `ContentValue` when the block is structured and
 parsed successfully; otherwise it returns `None`.
+
+`contentBind(value, bindings)` accepts a `DocumentContent`, `SectionContent`, or
+`ContentBlock` plus a `ContentValue.MapV` binding object. It returns the same
+kind of content value with inline `ContentInline.Expr(source)` placeholders
+resolved to `ContentInline.Text(...)` when `source` is a simple dot path present
+in `bindings`. For example, `${proPrice}` resolves from a top-level
+`proPrice:` key, and `${plan.price}` resolves through nested `MapV` values.
+Unresolved placeholders and non-path expressions remain as `Expr(source)` so
+plain introspection never executes arbitrary ScalaScript code.
 
 The `std/ui/content.ssc` component API keeps the existing
 `ContentComponentContext.data: Option[ContentValue]` field and defines its
@@ -91,14 +102,25 @@ contentToolkitSection("plans", options)
       keeps receiving that block's own parsed data.
 - [x] Missing `data=<id>` references produce `ctx.data = None`; they do not
       prevent component rendering.
+- [ ] `contentBind(block, bindings)` replaces scalar `${name}` and
+      `${nested.name}` inline placeholders with text before
+      `contentPlainText(...)`, `contentToMarkdown(...)`, and content renderers
+      consume the block.
+- [ ] `contentBind(sectionOrDocument, bindings)` applies the same replacement
+      recursively through paragraphs, lists, tables, and child sections.
+- [ ] Missing names and non-path expressions are preserved as `${source}` rather
+      than evaluated or silently erased.
+- [ ] Interpreter, JS, and JVM backends expose matching `contentBind(...)`
+      behavior for the low-level `std/content` API.
 
 ## Out of Scope
 
 - Typed decoding helpers such as `contentDataAs[T](id)`.
 - Path queries inside `ContentValue`.
-- Cross-backend JS/JVM exposure for the `std/content` metadata API.
 - Automatically rendering referenced data in the default Markdown renderer.
 - Dynamic component or data lookup by Scala symbol name.
+- Evaluating arbitrary ScalaScript expressions embedded in Markdown
+  placeholders. `contentBind` resolves data paths only.
 
 ## Design
 
@@ -113,6 +135,12 @@ Resolution is deliberately by explicit metadata id, not by heading title or
 source order. This keeps binding stable when authors rearrange prose around the
 data block.
 
+`contentBind` is a pure structural transform over the public content model. It
+does not mutate the document snapshot, does not call the interpreter evaluator,
+and does not ask a renderer to special-case every placeholder. Renderers keep
+their existing behavior because they receive ordinary `Text` inline nodes after
+binding.
+
 ## Decisions
 
 - **Use `data=<id>` metadata rather than implicit nearest-data lookup** — chosen
@@ -126,6 +154,14 @@ data block.
 - **Error on duplicate structured data ids** — chosen because duplicate ids make
   a data binding ambiguous. Rejected: first match wins, because it hides author
   mistakes.
+- **Bind only simple data paths** — chosen because it is deterministic across
+  interpreter, JS, JVM, and native clients. Rejected: evaluating arbitrary
+  `${expr}` source from Markdown, because that would make frontend content
+  rendering depend on backend-specific code execution.
+- **Preserve unresolved placeholders** — chosen because authors can still see
+  incomplete content in previews and existing introspection remains
+  non-destructive. Rejected: replacing missing values with an empty string,
+  because that hides broken content bindings.
 
 ## Results
 
