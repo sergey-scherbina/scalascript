@@ -119,9 +119,9 @@ metadata, CLI, compiler, and server use cases must all read the same source of
 truth. Phase 1 shipped the stable model plus `contentDocument()` for the
 interpreter; follow-up interpreter slices added `contentData(id)`,
 `contentSection(id)`, `contentBlock(id)`, `contentMetadata(path)`, and
-`contentPlainText(value)`.
-Current remaining Phase 2 work is JS/JVM native-context exposure plus
-`contentCurrentSection()` and Markdown conversion helpers.
+`contentPlainText(value)`, and `contentCurrentSection()`.
+Current remaining Phase 2 work is JS/JVM native-context exposure plus Markdown
+conversion helpers.
 Names are prefixed with `content` to avoid collisions with existing `doc(...)`
 and `render(...)` helpers.
 
@@ -185,9 +185,10 @@ extern def contentToMarkdown(section: SectionContent): String
 ```
 
 `contentDocument()` returns a parse-time snapshot of the whole module. It is
-available from every `scalascript` / `ssc` block in the interpreter. Phase 2
-adds JS/JVM exposure plus `contentCurrentSection()`, which returns the enclosing
-section for the code block that called it.
+available from every `scalascript` / `ssc` block in the interpreter.
+`contentCurrentSection()` returns the enclosing section for the currently
+executing code block when it runs inside a real Markdown heading section.
+JS/JVM exposure for the same helpers is a later Phase 2 slice.
 
 `contentMetadata(path)` reads `content:` front-matter by dot path, for example
 `contentMetadata("defaultRenderer")`. It does not read arbitrary front-matter
@@ -477,7 +478,7 @@ val page = lower(
       `content:` front-matter metadata by dot path.
 - [x] `contentPlainText(value)` is available from interpreter code for
       `SectionContent` and `ContentBlock` values.
-- [ ] `contentCurrentSection()` returns the code block's enclosing section,
+- [x] `contentCurrentSection()` returns the code block's enclosing section,
       including metadata and sibling prose/list blocks in that section.
 - [ ] Inline `${expr}` in prose is represented as `ContentInline.Expr(source)`
       until an explicit renderer evaluates it. Content introspection itself does
@@ -664,11 +665,10 @@ concatenates classes in source order.
 - Extend `runtime/std/content.ssc` and `runtime/std/content-plugin` beyond the
   Phase 1 `contentDocument()` interpreter API.
 - Populate native context state for JS and JVM backends.
-- Implement `contentCurrentSection` and `contentToMarkdown`; extend the
-  already-landed interpreter
+- Implement `contentToMarkdown`; extend the already-landed interpreter
   `contentData(id)`, `contentSection(id)`, `contentBlock(id)`, and
-  `contentMetadata(path)`, and `contentPlainText(value)` helpers to JS and JVM
-  native context exposure.
+  `contentMetadata(path)`, `contentPlainText(value)`, and
+  `contentCurrentSection()` helpers to JS and JVM native context exposure.
 - Enable the pending conformance test across INT, JS, and JVM.
 
 ### Phase 3 - IR and artifact round-trip
@@ -764,3 +764,12 @@ non-map traversal return `None`; malformed paths report an interpreter error.
 Verified with:
 `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-content-metadata && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest"`
 (9 content-plugin tests passed).
+
+The current-section slice landed on 2026-06-05:
+`contentCurrentSection()` exposes the currently executing code block's
+`SectionContent` in the interpreter. It returns explicit or generated section
+ids, includes heading attrs and sibling prose/list blocks, uses execution-time
+caller context for functions, and reports an interpreter error for
+headingless/top-level code rather than leaking a stale section. Verified with:
+`cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-content-current-section && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest"`
+(12 content-plugin tests passed).

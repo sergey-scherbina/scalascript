@@ -1,7 +1,6 @@
 # Markdown Content Current Section
 
-Status: Planned. This spec is the implementation contract for the interpreter
-`std/content` slice that adds `contentCurrentSection()`.
+Status: Landed 2026-06-05 for the interpreter `std/content` API.
 
 ## Overview
 
@@ -44,22 +43,22 @@ content snapshot. Since the public return type is `SectionContent` rather than
 
 ## Behavior
 
-- [ ] A code block inside `# Heading {#explicit-id}` returns a section whose
+- [x] A code block inside `# Heading {#explicit-id}` returns a section whose
       `id` is `explicit-id`, `title` is `Heading`, and `attrs` contain the
       parsed heading attributes.
-- [ ] A code block inside a nested heading returns the nearest nested
+- [x] A code block inside a nested heading returns the nearest nested
       `SectionContent`, including generated ids when no explicit id is present.
-- [ ] The returned section includes sibling Markdown prose and list blocks from
+- [x] The returned section includes sibling Markdown prose and list blocks from
       the same section, so `contentPlainText(contentCurrentSection())` can
       summarize the authored region.
-- [ ] Multiple executable code blocks in the same section return the same
+- [x] Multiple executable code blocks in the same section return the same
       immutable `SectionContent` snapshot and section id.
-- [ ] Headingless/top-level executable code reports an interpreter error
+- [x] Headingless/top-level executable code reports an interpreter error
       instead of fabricating a synthetic content section.
-- [ ] The current-section feature-local value is cleared or restored after each
+- [x] The current-section feature-local value is cleared or restored after each
       executable code block, so a later no-section execution cannot reuse a
       stale section.
-- [ ] A function defined in one section but called from another section returns
+- [x] A function defined in one section but called from another section returns
       the caller execution section, not the definition section.
 
 ## Design
@@ -123,7 +122,7 @@ by `contentSection(id)`. Missing state is reported as an interpreter error.
 
 ## Verification
 
-Implementation verification must add focused interpreter plugin tests for:
+Implementation verification added focused interpreter plugin tests for:
 
 - explicit ids and heading attrs,
 - nested generated ids,
@@ -141,4 +140,10 @@ cd <worktree> && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content
 
 ## Results
 
-Fill this in after implementation verification.
+Landed on 2026-06-05 with interpreter plugin coverage. Verified with:
+
+```bash
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-content-current-section && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest"
+```
+
+Result: 12 content-plugin tests passed.

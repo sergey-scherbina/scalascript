@@ -468,13 +468,15 @@ Lower-level interpreter lookup helpers read the same Markdown snapshot without
 lowering it to UI nodes:
 
 ```scalascript
-[contentDocument, contentSection, contentBlock, contentData, contentMetadata, contentPlainText](std/content.ssc)
+[contentDocument, contentCurrentSection, contentSection, contentBlock, contentData, contentMetadata, contentPlainText](std/content.ssc)
 
 val doc = contentDocument()
+val here = contentCurrentSection()
 val plans = contentSection("plans").get
 val controls = contentBlock("team-controls").get
 
 println(doc.title.getOrElse(""))
+println(here.id)
 println(contentPlainText(plans))
 println(contentPlainText(controls))
 println(contentData("plans-data").isDefined)
@@ -486,8 +488,10 @@ println(contentMetadata("defaultRenderer").isDefined)
 return `None`. `contentMetadata(path)` reads `content:` front-matter metadata
 by dot path. `contentPlainText(value)` accepts a `SectionContent` or
 `ContentBlock` and extracts readable text for logging, indexing, search, or
-component previews. `contentCurrentSection()`, `contentToMarkdown(...)`, and
-JS/JVM native-context exposure remain planned.
+component previews. `contentCurrentSection()` returns the currently executing
+code block's enclosing Markdown section in the interpreter; headingless code
+reports an interpreter error. `contentToMarkdown(...)` and JS/JVM
+native-context exposure remain planned.
 
 The target contract, phase plan, and remaining metadata helpers are tracked in
 [`specs/markdown-content-introspection.md`](../specs/markdown-content-introspection.md).

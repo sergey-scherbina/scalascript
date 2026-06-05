@@ -109,15 +109,18 @@ The current interpreter `std/content.ssc` lookup surface is:
 
 ```scalascript
 val doc = contentDocument()
+val here = contentCurrentSection()
 val pricing = contentSection("pricing")
 val controls = contentBlock("filters")
 val plansData = contentData("plans-data")
 val renderer = contentMetadata("defaultRenderer")
-val text = contentPlainText(pricing.get)
+val text = contentPlainText(here)
 ```
 
-`contentCurrentSection()`, `contentToMarkdown(...)`, and JS/JVM native-context
-exposure remain planned.
+`contentCurrentSection()` is interpreter-only in this slice. It is
+execution-scoped: a function called from a later code block sees the caller's
+current Markdown section, and headingless code reports an interpreter error.
+`contentToMarkdown(...)` and JS/JVM native-context exposure remain planned.
 
 The full contract and implementation phases are in
 [`../specs/markdown-content-introspection.md`](../specs/markdown-content-introspection.md).
