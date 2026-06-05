@@ -37,21 +37,21 @@ content embedding all carry the new table node.
 
 ## Behavior
 
-- [ ] Parser recognizes GFM pipe tables with a header row, separator row, and
+- [x] Parser recognizes GFM pipe tables with a header row, separator row, and
       zero or more body rows.
-- [ ] Table headers and cells preserve inline Markdown content, including
+- [x] Table headers and cells preserve inline Markdown content, including
       emphasis, strong text, inline code, links, and `${expr}` source nodes.
-- [ ] `<!-- @meta ... -->` before a table attaches attrs to the table node.
-- [ ] `contentDocument()`, `contentSection(id)`, `contentBlock(id)`, and linked
+- [x] `<!-- @meta ... -->` before a table attaches attrs to the table node.
+- [x] `contentDocument()`, `contentSection(id)`, `contentBlock(id)`, and linked
       namespace helpers expose table nodes on interpreter, JS, and JVM paths.
-- [ ] `contentPlainText(table)` and enclosing section plain text include table
+- [x] `contentPlainText(table)` and enclosing section plain text include table
       headers and rows in a stable readable form.
-- [ ] `contentToMarkdown(table)` and enclosing document/section rendering emit a
+- [x] `contentToMarkdown(table)` and enclosing document/section rendering emit a
       deterministic pipe table.
-- [ ] `contentView(...)` renders tables as semantic table markup.
-- [ ] `contentToolkitNode()` / `contentToolkitBlock(id)` lower tables to the
+- [x] `contentView(...)` renders tables as semantic table markup.
+- [x] `contentToolkitNode()` / `contentToolkitBlock(id)` lower tables to the
       existing `TableNode` toolkit node.
-- [ ] Existing paragraph/list/image/fenced-block behavior remains unchanged.
+- [x] Existing paragraph/list/image/fenced-block behavior remains unchanged.
 
 ## Out of scope
 
@@ -96,5 +96,18 @@ and are not implied by Markdown table syntax.
 
 ## Results
 
-Pending implementation and verification.
+Implemented on 2026-06-05. Verification:
 
+- `sbt "core/testOnly scalascript.parser.ContentDocumentTest"`
+- `sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest"`
+- `sbt "backendInterpreter/testOnly scalascript.ContentBackendExposureTest -- -z tables"`
+- `sbt "cli/runMain scalascript.cli.ssc run examples/content-tables.ssc"`
+
+Observed coverage: parser table shape and normalize/denormalize round-trip,
+interpreter lookup/plain-text/Markdown/toolkit `TableNode`, and generated JS/JVM
+table content exposure all pass. A full
+`backendInterpreter/testOnly scalascript.ContentBackendExposureTest` run was
+attempted after the JS fixture fence was corrected from `scala` to
+`scalascript`; all JS cases passed, but the JVM subprocess cases hit unrelated
+Scala CLI/Bloop socket timeouts (`Address already in use` / BSP socket timeout)
+while other long-running scala-cli jobs were active.

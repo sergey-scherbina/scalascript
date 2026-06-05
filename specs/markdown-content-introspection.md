@@ -152,6 +152,10 @@ enum ContentBlock:
   case BulletList(items: List[List[ContentBlock]], attrs: Map[String, ContentValue])
   case OrderedList(items: List[List[ContentBlock]], start: Int, attrs: Map[String, ContentValue])
   case Image(src: String, alt: String, title: Option[String], attrs: Map[String, ContentValue])
+  case Table(headers: List[List[ContentInline]],
+             rows: List[List[List[ContentInline]]],
+             alignments: List[String],
+             attrs: Map[String, ContentValue])
   case Embedded(lang: String, source: String, kind: EmbeddedKind, data: Option[ContentValue], attrs: Map[String, ContentValue])
 
 enum EmbeddedKind:
@@ -713,10 +717,13 @@ concatenates classes in source order.
 
 ### Phase 5 - Tables and richer authoring
 
-- Enable the CommonMark GFM tables extension and translate pipe tables to
-  `ContentBlock.Table` with inline header/cell content and column alignments.
-- Lower `ContentBlock.Table` into the toolkit table node and low-level
-  `contentView(...)` table markup, then document the capability.
+- CommonMark GFM pipe tables landed on 2026-06-05 as `ContentBlock.Table`
+  with inline header/cell content, column alignments, and preceding metadata
+  directive attrs.
+- `ContentBlock.Table` lowers to toolkit `TableNode`, low-level
+  `contentView(...)` semantic table markup, stable plain text, and
+  deterministic `contentToMarkdown(...)` pipe tables across interpreter, JS,
+  and JVM paths.
 - Evaluate whether paragraph/list block attributes need a lighter syntax than
   the `<!-- @meta ... -->` directive.
 

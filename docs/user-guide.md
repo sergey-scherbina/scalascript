@@ -511,6 +511,16 @@ promise byte-for-byte source whitespace preservation. `contentCurrentSection()`
 returns the currently executing code block's enclosing Markdown section;
 headingless code reports an error.
 
+GitHub-Flavored Markdown pipe tables are included in the same content snapshot
+as `ContentBlock.Table`. Header and cell text preserve inline emphasis, strong
+text, links, inline code, and `${expr}` source nodes. `<!-- @meta ... -->`
+immediately before a table attaches block attrs, so `contentBlock("plan-table")`
+can select the table by id. `contentPlainText(table)` emits a stable readable
+` | `-separated form, `contentToMarkdown(table)` emits a deterministic pipe
+table, `contentView(table)` emits semantic table markup, and
+`contentToolkitBlock("plan-table")` lowers it to the existing toolkit
+`TableNode`.
+
 Direct imports can also expose their Markdown snapshots as named content
 modules. The namespace is the imported module's `name:` front-matter value, or
 the imported path stem when `name:` is absent. Helper imports of

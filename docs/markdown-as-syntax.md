@@ -104,6 +104,10 @@ lowering. Code can also query regions directly with `contentSection(id)` and
 `contentMetadata(path)` reads `content:` front-matter metadata by dot path, and
 `contentToMarkdown(value)` serializes a selected document, section, or block
 back to deterministic semantic Markdown.
+GFM pipe tables become `ContentBlock.Table` nodes with inline header/cell
+content, alignment metadata, and attrs from a preceding `<!-- @meta ... -->`
+directive. Toolkit lowering maps them to `TableNode`; low-level `contentView`
+maps them to semantic `table` markup.
 The low-level `contentView(contentDocument())` renderer remains available when
 callers need direct `View` nodes.
 
