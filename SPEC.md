@@ -375,15 +375,21 @@ unregistered component names fall back to the default Markdown lowering.
 Metadata `data=<id>` on a selected section or block binds the component context
 to the parsed structured data from a fenced YAML/JSON/TOML block with matching
 `@id`; the same lookup is exposed to code as `contentData(id)`. Lower-level
-interpreter helpers also expose `contentSection(id)`, `contentBlock(id)`, and
-`contentPlainText(value)` for code that needs to inspect or reuse
-Markdown-authored regions without rendering the whole document.
+interpreter helpers also expose `contentSection(id)`, `contentBlock(id)`,
+`contentPlainText(value)`, and `contentToMarkdown(value)` for code that needs
+to inspect, reuse, or serialize Markdown-authored regions without rendering the
+whole document.
 `contentMetadata(path)` reads `content:` front-matter metadata by dot path for
 code that needs renderer/content defaults without unpacking the whole manifest.
 `contentCurrentSection()` returns the currently executing code block's
 `SectionContent` when the block runs inside a real Markdown heading section;
 outside such a section it reports an interpreter error rather than fabricating
 synthetic content.
+`contentToMarkdown(value)` accepts `DocumentContent`, `SectionContent`, or any
+current `ContentBlock` variant and returns deterministic semantic Markdown. It
+preserves embedded fenced source text and metadata, but does not promise
+byte-for-byte source preservation of whitespace, quote style, or equivalent
+Markdown spellings.
 The remaining `std/content` metadata API follows from the same snapshot instead
 of being the first goal. See
 [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md)
