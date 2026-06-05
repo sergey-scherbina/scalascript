@@ -1039,3 +1039,65 @@ class SscVmTest extends AnyFunSuite with Matchers:
     val cfn = VmCompiler.compile(f)
     cfn shouldBe empty
   }
+
+  // ── p7: String.length / isEmpty / nonEmpty via GETFI + String meta ─────────
+
+  private val stringMeta: VmCompiler.Meta = (t: String) =>
+    if t == "String" then (List("length", "isEmpty", "nonEmpty"), List("Int", "Boolean", "Boolean"))
+    else null
+
+  test("p7: String.length compiles and returns correct value") {
+    val f = funOf("hashLen",
+      """def hashLen(s: String): Int = s.length""")
+    val cfn = VmCompiler.compile(f, VmCompiler.noResolve, stringMeta)
+    cfn shouldBe defined
+    SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("hello"))) shouldBe 5L
+    SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("")))      shouldBe 0L
+  }
+
+  test("p7: String.isEmpty compiles and returns correct Boolean") {
+    val f = funOf("isBlank",
+      """def isBlank(s: String): Boolean = s.isEmpty""")
+    val cfn = VmCompiler.compile(f, VmCompiler.noResolve, stringMeta)
+    cfn shouldBe defined
+    SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("")))      shouldBe 1L
+    SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("hi")))    shouldBe 0L
+  }
+
+  test("p7: String.nonEmpty compiles and returns correct Boolean") {
+    val f = funOf("hasContent",
+      """def hasContent(s: String): Boolean = s.nonEmpty""")
+    val cfn = VmCompiler.compile(f, VmCompiler.noResolve, stringMeta)
+    cfn shouldBe defined
+    SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("ok")))    shouldBe 1L
+    SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("")))      shouldBe 0L
+  }
+
+  test("p7: String.length in expression (addition) compiles") {
+    val f = funOf("lenPlus",
+      """def lenPlus(s: String, n: Int): Int = s.length + n""")
+    val cfn = VmCompiler.compile(f, VmCompiler.noResolve, stringMeta)
+    cfn shouldBe defined
+    // reg0=s (TRef, dummy 0L in Long bank), reg1=n (TInt)
+    SscVm.runRef(cfn.get, Array(0L, 3L), Array(Value.StringV("hi"))) shouldBe 5L
+  }
+
+  test("p7: string literal .length compiles (setRefType on LOADS)") {
+    val f = funOf("constLen",
+      """def constLen(x: Int): Int = "hello".length + x""")
+    val cfn = VmCompiler.compile(f, VmCompiler.noResolve, stringMeta)
+    cfn shouldBe defined
+    SscVm.run(cfn.get, Array(1L)) shouldBe 6L
+  }
+
+  test("p7: end-to-end String.length via JIT path") {
+    val out = captured(
+      """def hashLen(s: String): Int = s.length
+        |var i = 0
+        |var sum = 0
+        |while i < 20 do
+        |  sum = sum + hashLen("hello")
+        |  i = i + 1
+        |println(sum)""".stripMargin)
+    out shouldBe "100"
+  }

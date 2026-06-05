@@ -259,11 +259,36 @@ out of scope this slice).
 - `VmCompiler Lit.String` case — add `setRefType(dst, "String")` so that
   `.length` on a string literal also compiles.
 
+**Results (2026-06-05):**
+
+Post-p7 miss profile (300 total — unchanged from post-p6):
+
+```
+ 234  call: no compilable target          ← was 199; +35 from unblocked String fns
+  18  ret: ref-typed return
+  17  undefined: name 'inner'
+   6  undefined: name 'ring'
+   4  undefined: name '_VNODES_PER_NODE'
+   4  field: no meta for type 'List[SupEntry]'
+   3  unsupported: Term.Function
+   3  call: ref/numeric arg type mismatch
+   2  field: 'scale' not found in 'String'  ← Money.scale confused as String
+   2  field: non-ref base for .toInt
+   7  (misc 1-count categories)
+```
+
+`field: no meta for type 'String'` is fully eliminated. The 37 `String.length`
+hits were all inside `runParser` and `_hash` — two large functions that also
+have HOF/closure calls, so they still bail but now for `call: no compilable
+target` instead. The mechanism is correct and tested; it enables self-contained
+string-length functions to compile (verified in SscVmTest). No net reduction
+in disabled count because all affected functions had cascading bail reasons.
+
 **Behavior:**
-- [ ] `def hashLen(s: String): Int = s.length` compiles and runs
-- [ ] `def isBlank(s: String): Boolean = s.isEmpty` compiles and runs
-- [ ] `"hello".length` as expression compiles
-- [ ] No `SscVmTest` regression
+- [x] `def hashLen(s: String): Int = s.length` compiles and runs
+- [x] `def isBlank(s: String): Boolean = s.isEmpty` compiles and runs
+- [x] `"hello".length` as expression compiles
+- [x] No `SscVmTest` regression (1335/1335 pass)
 
 ### p8 — `Lit.String` ref returns + `RETREF`/`CALLREF` (deferred)
 
@@ -292,8 +317,9 @@ callee.
 
 ## 6. Success criterion
 
-After all p2–p6 slices: disabled count same as after p5 (299) for actual
-miss reduction (p6 adds no wins on current tests), but the new opcodes
-enable future string-heavy functions to compile correctly. All new paths
-have unit tests; no `SscVmTest` regression; no benchmark regression on
-`recursionFib`, `recursionTco`, `recursiveEval`.
+After all p2–p7 slices: `field: no meta for type 'String'` eliminated (was 39
+post-p6). Total disabled 300 (unchanged) — the affected functions had cascading
+bail reasons; fixing String meta unblocks the mechanism but doesn't reduce count
+since those functions also call HOFs/closures. All new paths have unit tests
+(1335/1335); no benchmark regression on `recursionFib`, `recursionTco`,
+`recursiveEval`.

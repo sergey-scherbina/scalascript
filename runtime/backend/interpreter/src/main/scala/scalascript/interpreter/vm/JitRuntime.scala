@@ -98,11 +98,17 @@ object JitRuntime:
             case Some(fv: Value.FunV) => fv
             case _                    => null
 
+  // Built-in type meta for String: length/isEmpty/nonEmpty → Int/Boolean/Boolean.
+  // These are zero-arg Scala val-like accessors; the VM emits GETFI for them.
+  private val StringMeta: (List[String], List[String]) =
+    (List("length", "isEmpty", "nonEmpty"), List("Int", "Boolean", "Boolean"))
+
   /** Build an ADT-constructor metadata lookup from the interpreter's recorded
    *  field order + field types, for `match` field extraction in [[VmCompiler]]. */
   private def metaFor(interp: Interpreter): VmCompiler.Meta =
     (ctor: String) =>
-      interp.typeFieldOrder.get(ctor) match
+      if ctor == "String" then StringMeta
+      else interp.typeFieldOrder.get(ctor) match
         case Some(names) =>
           val types = interp.typeFieldTypes.getOrElse(ctor, names.map(_ => "String"))
           (names, types)

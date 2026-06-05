@@ -42,7 +42,7 @@ object VmCompiler:
    *  this resolver, so it is only consulted for calls to *other* functions. */
   type Resolve = (Value.FunV, String) => Value.FunV | Null
 
-  private val noResolve: Resolve = (_, _) => null
+  val noResolve: Resolve = (_, _) => null
 
   /** ADT constructor metadata: given a constructor name, return its field
    *  names + declared field type strings (parallel lists), or null if the name
@@ -451,7 +451,7 @@ object VmCompiler:
         emit(CONST, dst, constSlot(0L), 0); setType(dst, TRef); TRef
 
       case Lit.String(s) =>
-        emit(LOADS, dst, strSlot(s), 0); setType(dst, TRef); TRef
+        emit(LOADS, dst, strSlot(s), 0); setType(dst, TRef); setRefType(dst, "String"); TRef
 
       case other =>
         bail(s"unsupported: ${termName(other)}")
