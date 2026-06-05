@@ -989,3 +989,53 @@ class SscVmTest extends AnyFunSuite with Matchers:
         |println(outerCapture(10))""".stripMargin)
     out shouldBe "11"   // interpreter fallback gives correct result
   }
+
+  // ── p6: Lit.String + string equality (LOADS / EQREF / NEREF) ──────────────
+
+  test("p6: Lit.String in val position compiles — function body uses string as TRef sentinel") {
+    val f = funOf("withStringVal",
+      """def withStringVal(x: Int): Int =
+        |  val tag = "label"
+        |  x + 1""".stripMargin)
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    SscVm.run(cfn.get, Array(7L)) shouldBe 8L
+  }
+
+  test("p6: String == String compiles and returns correct Boolean (EQREF)") {
+    val f = funOf("isUsd",
+      """def isUsd(s: String): Boolean = s == "USD"""")
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("USD")))  shouldBe 1L
+    SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("EUR")))  shouldBe 0L
+  }
+
+  test("p6: String != String compiles and returns correct Boolean (NEREF)") {
+    val f = funOf("notUsd",
+      """def notUsd(s: String): Boolean = s != "USD"""")
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("USD")))  shouldBe 0L
+    SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("GBP")))  shouldBe 1L
+  }
+
+  test("p6: multi-branch string classify compiles and returns correct Int") {
+    val f = funOf("classify",
+      """def classify(s: String): Int =
+        |  if s == "EUR" then 1
+        |  else if s == "USD" then 2
+        |  else 0""".stripMargin)
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("EUR"))) shouldBe 1L
+    SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("USD"))) shouldBe 2L
+    SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("GBP"))) shouldBe 0L
+  }
+
+  test("p6: function returning String still bails (unifyRet(TRef) unchanged)") {
+    val f = funOf("tag",
+      """def tag(x: Int): String = if x > 0 then "pos" else "neg"""")
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe empty
+  }

@@ -254,8 +254,13 @@ object VmCompiler:
      *  type and promoting the int side on a mixed pair. Returns the result type
      *  (TInt for any comparison or all-int arithmetic; TDouble otherwise). */
     private def emitArith(op: String, dst: Int, lr: Int, rr: Int): VmType =
-      if typeOf(lr) == TRef || typeOf(rr) == TRef then bail("ref: arithmetic/compare on TRef")
-      if typeOf(lr) == TDouble || typeOf(rr) == TDouble then
+      if typeOf(lr) == TRef || typeOf(rr) == TRef then
+        if typeOf(lr) != TRef || typeOf(rr) != TRef then bail("ref: cannot mix ref and numeric")
+        op match
+          case "==" => emit(EQREF, dst, lr, rr); setType(dst, TInt); TInt
+          case "!=" => emit(NEREF, dst, lr, rr); setType(dst, TInt); TInt
+          case _    => bail(s"ref: unsupported operator '$op' on ref types")
+      else if typeOf(lr) == TDouble || typeOf(rr) == TDouble then
         emit(fopcodeFor(op), dst, asDouble(lr), asDouble(rr))
         val rt = if isCmp(op) then TInt else TDouble
         setType(dst, rt); rt
@@ -444,6 +449,9 @@ object VmCompiler:
 
       case Lit.Null() =>
         emit(CONST, dst, constSlot(0L), 0); setType(dst, TRef); TRef
+
+      case Lit.String(s) =>
+        emit(LOADS, dst, strSlot(s), 0); setType(dst, TRef); TRef
 
       case other =>
         bail(s"unsupported: ${termName(other)}")

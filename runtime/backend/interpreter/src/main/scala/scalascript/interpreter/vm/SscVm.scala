@@ -1,6 +1,7 @@
 package scalascript.interpreter.vm
 
 import java.lang as jl
+import java.util.Objects
 import scalascript.interpreter.Value
 
 /** Proof-of-concept register-based bytecode VM for hot integer functions.
@@ -78,6 +79,15 @@ object SscVm:
   //   back to the tree-walker, which recomputes (pure subset) and raises the
   //   same MatchError. Never reached for an exhaustive sealed match.
   final val MFAIL = 43
+  // ── string / ref-equality opcodes (VM 2b) ────────────────────────────────
+  // LOADS dst, b, 0: refStack(dst) = Value.StringV(strPool(b)).
+  //   Loads a string literal from strPool into the ref bank. Type: TRef.
+  final val LOADS = 44
+  // EQREF dst, a, b: stack(dst) = Objects.equals(refStack(a), refStack(b)) ? 1 : 0
+  //   Structural equality on ref-bank values (String, InstanceV, null).
+  final val EQREF = 45
+  // NEREF dst, a, b: inverse of EQREF.
+  final val NEREF = 46
 
   /** A compiled function: parallel instruction arrays + pools.
    *  `op(i)` is the opcode; `a/b/c(i)` its operands (meaning per §4 of spec).
@@ -189,7 +199,10 @@ object SscVm:
             refStack(base + a(pc)) = arr(idx).asInstanceOf[AnyRef]
           else
             refStack(base + a(pc)) = inst.fields(sp(c(pc))).asInstanceOf[AnyRef]
-        case MFAIL => throw new RuntimeException("VM match: no case matched")
+        case MFAIL  => throw new RuntimeException("VM match: no case matched")
+        case LOADS  => refStack(base + a(pc)) = Value.StringV(sp(b(pc)))
+        case EQREF  => stack(base + a(pc)) = if Objects.equals(refStack(base + b(pc)), refStack(base + c(pc))) then 1L else 0L
+        case NEREF  => stack(base + a(pc)) = if !Objects.equals(refStack(base + b(pc)), refStack(base + c(pc))) then 1L else 0L
         case JMP   => pc = a(pc); pc -= 1  // -1 cancels the trailing pc += 1
         case JF    =>
           if stack(base + a(pc)) == 0L then { pc = b(pc); pc -= 1 }

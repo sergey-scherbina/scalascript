@@ -171,7 +171,7 @@ still bails at `unifyRet(TRef)` (RET is Long-typed — correct).
 
 ### p6 — `Lit.String` in intermediate position (23 misses)
 
-**Status:** planned.
+**Status:** ✓ Landed (2026-06-05).
 
 **Shape:** string literals appear in a function body in a non-return position
 (passed as arguments, used in equality comparisons, stored in a local `val`),
@@ -218,12 +218,31 @@ for string comparison.
 - `unifyRet(TRef)` still bails ("ret: ref-typed return") — returning a string
   from a compiled function is deferred to p7.
 
+**Results (2026-06-05):**
+
+`unsupported: Lit.String` bail eliminated. Post-p6 miss profile (300 total):
+
+```
+199  call: no compilable target
+ 39  field: no meta for type 'String'   ← new: String.method() calls
+ 18  ret: ref-typed return              ← former Lit.String misses unblocked, now hit ref-return wall
+ 17  undefined: name 'inner'
+  6  undefined: name 'ring'
+  4  undefined: name '_VNODES_PER_NODE'
+  4  field: no meta for type 'List[...]'
+  3  unsupported: Term.Function
+  3  call: ref/numeric arg type mismatch
+```
+
+Next targets: `ret: ref-typed return` (18) via p7 RETREF/CALLREF, or
+`field: no meta for type 'String'` (39) via a String-meta resolver.
+
 **Behavior:**
-- [ ] `def isUsd(s: String): Boolean = s == "USD"` compiles and returns true/false
-- [ ] `def classify(s: String): Int = if s == "EUR" then 1 else if s == "USD" then 2 else 0` compiles
-- [ ] String literal in a `val` inside the function body no longer bails
-- [ ] Functions returning `String` still bail (unifyRet(TRef) unchanged)
-- [ ] No `SscVmTest` regression
+- [x] `def isUsd(s: String): Boolean = s == "USD"` compiles and returns true/false
+- [x] `def classify(s: String): Int = if s == "EUR" then 1 else if s == "USD" then 2 else 0` compiles
+- [x] String literal in a `val` inside the function body no longer bails
+- [x] Functions returning `String` still bail (unifyRet(TRef) unchanged)
+- [x] No `SscVmTest` regression (1329/1329 pass)
 
 ### p7 — `Lit.String` ref returns + `RETREF`/`CALLREF` (deferred)
 
