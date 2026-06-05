@@ -1,0 +1,6 @@
+feature/jit-completeness-p6-lit-string 2026-06-05T05:54:18Z
+agent: claude-code
+heartbeat: 2026-06-05T05:54:18Z
+status: not-started
+done-so-far:
+next: read diagnostic output, design LOADS opcode + string eq support
