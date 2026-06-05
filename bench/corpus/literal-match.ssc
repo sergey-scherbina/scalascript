@@ -1,0 +1,24 @@
+# literal-match
+
+Integer-literal `match` dispatch (`n % 5 match { case 0 => … case _ => … }`)
+in a hot loop. Tracks the `Pat.Lit` integer-arm JIT coverage
+(jit-universal-coverage stage 2.4) on both bytecode backends — the only
+literal-pattern match in the corpus.
+
+```scalascript
+def classify(n: Int): Int =
+  n % 5 match
+    case 0 => 100
+    case 1 => 200
+    case 2 => 300
+    case 3 => 400
+    case _ => 500
+
+def workload(): Long =
+  var sum = 0L
+  var i = 0
+  while i < 1000 do
+    sum = sum + classify(i).toLong
+    i = i + 1
+  sum
+```

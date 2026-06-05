@@ -1,0 +1,21 @@
+# bool-predicate
+
+Direct (non-recursive) chain of `Boolean`-returning siblings: `inRange` calls
+`isPositive` and `isSmall` via `&&`, in a hot loop. Tracks the bool-body +
+bool-sibling JIT coverage (jit-universal-coverage stages 2.1 / 2.1b) and is a
+regression guard for Javac/ASM parity on the bool path — distinct from
+`mutual-recursion`'s trampoline.
+
+```scalascript
+def isPositive(n: Int): Boolean = n > 0
+def isSmall(n: Int): Boolean = n < 1000
+def inRange(n: Int): Boolean = isPositive(n) && isSmall(n)
+
+def workload(): Long =
+  var count = 0L
+  var i = 0
+  while i < 1000 do
+    if inRange(i % 2000) then count = count + 1L
+    i = i + 1
+  count
+```
