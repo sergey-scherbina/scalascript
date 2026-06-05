@@ -664,7 +664,8 @@ concatenates classes in source order.
 
 - Extend `runtime/std/content.ssc` and `runtime/std/content-plugin` beyond the
   Phase 1 `contentDocument()` interpreter API.
-- Populate native context state for JS and JVM backends.
+- Populate native context state for JS and JVM backends. Focused plan:
+  [`specs/markdown-content-backend-exposure.md`](markdown-content-backend-exposure.md).
 - Implement `contentToMarkdown`; extend the already-landed interpreter
   `contentData(id)`, `contentSection(id)`, `contentBlock(id)`, and
   `contentMetadata(path)`, `contentPlainText(value)`, and
