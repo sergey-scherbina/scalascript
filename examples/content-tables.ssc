@@ -6,23 +6,36 @@ frontend: react
 
 # Pricing
 
+```yaml @id=pricing-values
+proPrice: "$49"
+```
+
 <!-- @meta id=plan-table component=PlanTable -->
 | Plan | Price | Link |
 | :--- | ---: | :---: |
 | Starter | **$19** | [buy](/buy) |
-| Pro | ${proPrice} | `code` |
+| Pro | ${proPrice} | [upgrade](/upgrade) |
 
 # Demo
 
-[contentBlock, contentPlainText, contentToMarkdown](std/content.ssc)
-[contentToolkitBlock](std/ui/content.ssc)
+[contentBlock, contentData, contentBind, contentPlainText, contentToMarkdown](std/content.ssc)
+[contentToolkitBlock, contentToolkitOptionsWithBindings](std/ui/content.ssc)
 
 ```scalascript
 val table = contentBlock("plan-table").get
+val pricing = contentData("pricing-values").get
+val boundTable = contentBind(table, pricing)
+val boundToolkit = contentToolkitBlock("plan-table", contentToolkitOptionsWithBindings(pricing))
 
+println("raw=")
 println(contentPlainText(table))
 println("---")
 println(contentToMarkdown(table))
 println("---")
-println(contentToolkitBlock("plan-table"))
+println("bound=")
+println(contentPlainText(boundTable))
+println("---")
+println(contentToMarkdown(boundTable))
+println("---")
+println(boundToolkit)
 ```

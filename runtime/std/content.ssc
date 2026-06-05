@@ -16,6 +16,7 @@ exports:
   - contentBlock
   - contentData
   - contentMetadata
+  - contentBind
   - contentPlainText
   - contentToMarkdown
   - contentModules
@@ -92,6 +93,7 @@ extern def contentSection(id: String): Option[SectionContent]
 extern def contentBlock(id: String): Option[ContentBlock]
 extern def contentData(id: String): Option[ContentValue]
 extern def contentMetadata(path: String): Option[ContentValue]
+extern def contentBind(value: Any, bindings: ContentValue): Any
 extern def contentPlainText(value: Any): String
 extern def contentToMarkdown(value: Any): String
 extern def contentModules(): Map[String, DocumentContent]

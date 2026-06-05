@@ -9,6 +9,7 @@ exports:
   - ContentComponentContext
   - ContentToolkitComponent
   - contentComponent
+  - contentToolkitOptionsWithBindings
   - contentToolkitOptionsWithComponents
   - contentView
   - contentViewSection
@@ -20,7 +21,7 @@ exports:
 
 # `std.ui.content` — Markdown content lowering
 
-[DocumentContent, SectionContent, ContentBlock, ContentInline](../content.ssc)
+[DocumentContent, SectionContent, ContentBlock, ContentInline, ContentValue](../content.ssc)
 [View, element, textNode, fragment](primitives.ssc)
 [TkNode](nodes.ssc)
 
@@ -137,7 +138,8 @@ case class ContentToolkitOptions(
   listGap: Int = 4,
   wrapDocumentInCard: Boolean = false,
   wrapTopLevelSectionsInCards: Boolean = false,
-  components: List[ContentToolkitComponent] = []
+  components: List[ContentToolkitComponent] = [],
+  bindings: ContentValue = ContentValue.MapV(Map())
 )
 
 case class ContentComponentContext(
@@ -159,8 +161,9 @@ case class ContentToolkitComponent(
 def contentComponent(name: String)(render: ContentComponentContext => TkNode): ContentToolkitComponent =
   ContentToolkitComponent(name, render)
 
-def contentToolkitOptionsWithComponents(
-  components: List[ContentToolkitComponent],
+def contentToolkitOptionsWithBindings(
+  bindings: ContentValue,
+  components: List[ContentToolkitComponent] = [],
   includeCode: Boolean = false,
   sectionGap: Int = 16,
   blockGap: Int = 8,
@@ -175,7 +178,29 @@ def contentToolkitOptionsWithComponents(
     listGap,
     wrapDocumentInCard,
     wrapTopLevelSectionsInCards,
-    components
+    components,
+    bindings
+  )
+
+def contentToolkitOptionsWithComponents(
+  components: List[ContentToolkitComponent],
+  includeCode: Boolean = false,
+  sectionGap: Int = 16,
+  blockGap: Int = 8,
+  listGap: Int = 4,
+  wrapDocumentInCard: Boolean = false,
+  wrapTopLevelSectionsInCards: Boolean = false,
+  bindings: ContentValue = ContentValue.MapV(Map())
+): ContentToolkitOptions =
+  ContentToolkitOptions(
+    includeCode,
+    sectionGap,
+    blockGap,
+    listGap,
+    wrapDocumentInCard,
+    wrapTopLevelSectionsInCards,
+    components,
+    bindings
   )
 
 extern def contentToolkitNode(options: ContentToolkitOptions = ContentToolkitOptions()): TkNode

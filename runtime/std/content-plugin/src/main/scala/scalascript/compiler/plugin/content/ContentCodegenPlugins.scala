@@ -11,6 +11,7 @@ private object ContentCodegenIntrinsics:
     "contentBlock",
     "contentData",
     "contentMetadata",
+    "contentBind",
     "contentPlainText",
     "contentToMarkdown",
     "contentModules",

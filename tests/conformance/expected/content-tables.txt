@@ -1,10 +1,20 @@
 plain=
 Plan | Price | Link
 Starter | $19 | buy (/buy)
-Pro | ${proPrice} | `code`
+Pro | ${proPrice} | upgrade (/upgrade)
 markdown=
 <!-- @meta component=PlanTable id=plan-table -->
 | Plan | Price | Link |
 | :--- | ---: | :---: |
 | Starter | **$19** | [buy](/buy) |
-| Pro | ${proPrice} | `code` |
+| Pro | ${proPrice} | [upgrade](/upgrade) |
+bound-plain=
+Plan | Price | Link
+Starter | $19 | buy (/buy)
+Pro | $49 | upgrade (/upgrade)
+bound-markdown=
+<!-- @meta component=PlanTable id=plan-table -->
+| Plan | Price | Link |
+| :--- | ---: | :---: |
+| Starter | **$19** | [buy](/buy) |
+| Pro | $49 | [upgrade](/upgrade) |

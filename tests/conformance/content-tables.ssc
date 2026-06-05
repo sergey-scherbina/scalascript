@@ -4,20 +4,30 @@ name: conformance-content-tables
 
 # Pricing
 
+```yaml @id=pricing-values
+proPrice: "$49"
+```
+
 <!-- @meta id=plan-table component=PlanTable -->
 | Plan | Price | Link |
 | :--- | ---: | :---: |
 | Starter | **$19** | [buy](/buy) |
-| Pro | ${proPrice} | `code` |
+| Pro | ${proPrice} | [upgrade](/upgrade) |
 
 # Runner
 
-[contentBlock, contentPlainText, contentToMarkdown](std/content.ssc)
+[contentBlock, contentData, contentBind, contentPlainText, contentToMarkdown](std/content.ssc)
 
 ```scalascript
 val table = contentBlock("plan-table").get
+val pricing = contentData("pricing-values").get
+val boundTable = contentBind(table, pricing)
 println("plain=")
 println(contentPlainText(table))
 println("markdown=")
 println(contentToMarkdown(table))
+println("bound-plain=")
+println(contentPlainText(boundTable))
+println("bound-markdown=")
+println(contentToMarkdown(boundTable))
 ```

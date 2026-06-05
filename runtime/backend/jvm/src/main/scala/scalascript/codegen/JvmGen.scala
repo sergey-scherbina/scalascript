@@ -194,6 +194,7 @@ class JvmGen(
     "contentBlock",
     "contentData",
     "contentMetadata",
+    "contentBind",
     "contentPlainText",
     "contentToMarkdown",
     "contentModules",
@@ -624,6 +625,97 @@ class JvmGen(
        |        None
        |  }
        |
+       |def contentBind(value: Any, bindings: std.content.ContentValue): Any =
+       |  bindings match
+       |    case root @ std.content.ContentValue.MapV(_) =>
+       |      value match
+       |        case doc: std.content.DocumentContent => _ssc_content_bind_document(doc, root)
+       |        case section: std.content.SectionContent => _ssc_content_bind_section(section, root)
+       |        case block: std.content.ContentBlock => _ssc_content_bind_block(block, root)
+       |        case other => throw RuntimeException("contentBind: expected DocumentContent, SectionContent, or ContentBlock, got " + String.valueOf(other))
+       |    case other =>
+       |      throw RuntimeException("contentBind: bindings expected ContentValue.MapV, got " + String.valueOf(other))
+       |
+       |def _ssc_content_bind_document(doc: std.content.DocumentContent, bindings: std.content.ContentValue.MapV): std.content.DocumentContent =
+       |  std.content.DocumentContent(
+       |    doc.manifest,
+       |    doc.title,
+       |    doc.description,
+       |    doc.attrs,
+       |    doc.sections.map(_ssc_content_bind_section(_, bindings)),
+       |    doc.blocks.map(_ssc_content_bind_block(_, bindings))
+       |  )
+       |
+       |def _ssc_content_bind_section(section: std.content.SectionContent, bindings: std.content.ContentValue.MapV): std.content.SectionContent =
+       |  std.content.SectionContent(
+       |    section.id,
+       |    section.level,
+       |    section.title,
+       |    section.attrs,
+       |    section.blocks.map(_ssc_content_bind_block(_, bindings)),
+       |    section.children.map(_ssc_content_bind_section(_, bindings))
+       |  )
+       |
+       |def _ssc_content_bind_block(block: std.content.ContentBlock, bindings: std.content.ContentValue.MapV): std.content.ContentBlock =
+       |  block match
+       |    case std.content.ContentBlock.Paragraph(inlines, attrs) =>
+       |      std.content.ContentBlock.Paragraph(inlines.map(_ssc_content_bind_inline(_, bindings)), attrs)
+       |    case std.content.ContentBlock.BulletList(items, attrs) =>
+       |      std.content.ContentBlock.BulletList(items.map(_.map(_ssc_content_bind_block(_, bindings))), attrs)
+       |    case std.content.ContentBlock.OrderedList(items, start, attrs) =>
+       |      std.content.ContentBlock.OrderedList(items.map(_.map(_ssc_content_bind_block(_, bindings))), start, attrs)
+       |    case image @ std.content.ContentBlock.Image(_, _, _, _) =>
+       |      image
+       |    case std.content.ContentBlock.Table(headers, rows, alignments, attrs) =>
+       |      std.content.ContentBlock.Table(
+       |        headers.map(_.map(_ssc_content_bind_inline(_, bindings))),
+       |        rows.map(_.map(_.map(_ssc_content_bind_inline(_, bindings)))),
+       |        alignments,
+       |        attrs
+       |      )
+       |    case embedded @ std.content.ContentBlock.Embedded(_, _, _, _, _) =>
+       |      embedded
+       |
+       |def _ssc_content_bind_inline(inline: std.content.ContentInline, bindings: std.content.ContentValue.MapV): std.content.ContentInline =
+       |  inline match
+       |    case text @ std.content.ContentInline.Text(_) => text
+       |    case std.content.ContentInline.Emphasis(children) =>
+       |      std.content.ContentInline.Emphasis(children.map(_ssc_content_bind_inline(_, bindings)))
+       |    case std.content.ContentInline.Strong(children) =>
+       |      std.content.ContentInline.Strong(children.map(_ssc_content_bind_inline(_, bindings)))
+       |    case code @ std.content.ContentInline.Code(_) => code
+       |    case std.content.ContentInline.Link(label, href, title) =>
+       |      std.content.ContentInline.Link(label.map(_ssc_content_bind_inline(_, bindings)), href, title)
+       |    case expr @ std.content.ContentInline.Expr(source) =>
+       |      _ssc_content_bind_lookup(bindings, source)
+       |        .map(value => std.content.ContentInline.Text(_ssc_content_value_text(value)))
+       |        .getOrElse(expr)
+       |
+       |def _ssc_content_bind_lookup(bindings: std.content.ContentValue.MapV, source: String): Option[std.content.ContentValue] =
+       |  if !source.matches("^[A-Za-z_][A-Za-z0-9_]*(\\\\.[A-Za-z_][A-Za-z0-9_]*)*$$") then None
+       |  else
+       |    source.split("\\\\.").toList match
+       |      case head :: tail => bindings.values.get(head).flatMap(_ssc_content_bind_lookup(_, tail))
+       |      case Nil => None
+       |
+       |def _ssc_content_bind_lookup(value: std.content.ContentValue, segments: List[String]): Option[std.content.ContentValue] =
+       |  segments match
+       |    case Nil => Some(value)
+       |    case head :: tail =>
+       |      value match
+       |        case std.content.ContentValue.MapV(values) => values.get(head).flatMap(_ssc_content_bind_lookup(_, tail))
+       |        case _ => None
+       |
+       |def _ssc_content_value_text(value: std.content.ContentValue): String =
+       |  value match
+       |    case std.content.ContentValue.Str(v) => v
+       |    case std.content.ContentValue.Bool(v) => v.toString
+       |    case std.content.ContentValue.Num(v) => _ssc_content_number_string(v)
+       |    case std.content.ContentValue.NullV => ""
+       |    case std.content.ContentValue.ListV(values) => values.map(_ssc_content_value_text).mkString(", ")
+       |    case std.content.ContentValue.MapV(values) =>
+       |      values.toList.sortBy(_._1).map { case (key, v) => key + ": " + _ssc_content_value_text(v) }.mkString("{", ", ", "}")
+       |
        |def contentPlainText(value: Any): String =
        |  value match
        |    case section: std.content.SectionContent => _ssc_content_section_plain_text(section)
@@ -1038,18 +1130,35 @@ class JvmGen(
        |      std.ui.nodes.VStackNode(options.blockGap, children)
        |    }
        |
+       |def _ssc_tk_document(options: std.ui.content.ContentToolkitOptions): std.content.DocumentContent =
+       |  contentBind(_ssc_content_document, options.bindings).asInstanceOf[std.content.DocumentContent]
+       |
+       |def _ssc_tk_block_by_id(doc: std.content.DocumentContent, id: String): Option[std.content.ContentBlock] =
+       |  _ssc_content_blocks_deep(doc)
+       |    .filter(block => _ssc_content_string_attr(_ssc_content_block_attrs(block), "id").contains(id)) match
+       |      case Nil => None
+       |      case block :: Nil => Some(block)
+       |      case _ => throw RuntimeException(s"contentToolkitBlock: duplicate block id '$$id'")
+       |
+       |def _ssc_tk_section_by_id(doc: std.content.DocumentContent, id: String): Option[std.content.SectionContent] =
+       |  _ssc_content_sections_deep(doc).filter(_.id == id) match
+       |    case Nil => None
+       |    case section :: Nil => Some(section)
+       |    case _ => throw RuntimeException(s"contentToolkitSection: duplicate section id '$$id'")
+       |
        |def contentToolkitNode(options: std.ui.content.ContentToolkitOptions = std.ui.content.ContentToolkitOptions()): std.ui.nodes.TkNode =
+       |  val doc = _ssc_tk_document(options)
        |  std.ui.nodes.VStackNode(options.sectionGap,
-       |    _ssc_content_document.blocks.map(_ssc_tk_block(_, options)) ++
-       |      _ssc_content_document.sections.map(_ssc_tk_section(_, options)))
+       |    doc.blocks.map(_ssc_tk_block(_, options)) ++
+       |      doc.sections.map(_ssc_tk_section(_, options)))
        |
        |def contentToolkitBlock(id: String, options: std.ui.content.ContentToolkitOptions = std.ui.content.ContentToolkitOptions()): std.ui.nodes.TkNode =
-       |  contentBlock(id).map(_ssc_tk_block(_, options)).getOrElse(
+       |  _ssc_tk_block_by_id(_ssc_tk_document(options), id).map(_ssc_tk_block(_, options)).getOrElse(
        |    throw RuntimeException(s"contentToolkitBlock: no block with id '$$id'")
        |  )
        |
        |def contentToolkitSection(id: String, options: std.ui.content.ContentToolkitOptions = std.ui.content.ContentToolkitOptions()): std.ui.nodes.TkNode =
-       |  contentSection(id).map(_ssc_tk_section(_, options)).getOrElse(
+       |  _ssc_tk_section_by_id(_ssc_tk_document(options), id).map(_ssc_tk_section(_, options)).getOrElse(
        |    throw RuntimeException(s"contentToolkitSection: no section with id '$$id'")
        |  )
        |

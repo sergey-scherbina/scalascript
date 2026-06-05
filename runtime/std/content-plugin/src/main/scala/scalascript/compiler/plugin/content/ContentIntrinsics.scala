@@ -53,6 +53,11 @@ object ContentIntrinsics:
           Value.optionV(contentMetadataPath(currentDocument(ctx, "contentMetadata(path)"), path).map(contentValue))
         case _ => throw InterpretError("contentMetadata(path)")
     },
+    QualifiedName("contentBind") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case (value: Value) :: (bindings: Value) :: Nil => contentBindValue(value, contentBindRoot(bindings))
+        case _ => throw InterpretError("contentBind(value, bindings)")
+    },
     QualifiedName("contentPlainText") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case value :: Nil => contentPlainTextAny(value)
@@ -110,15 +115,15 @@ object ContentIntrinsics:
         case Nil      => ToolkitOptions()
         case (one: Value) :: Nil => toolkitOptions(one)
         case _        => throw InterpretError("contentToolkitNode([options])")
-      toolkitDocumentNode(ctx, currentDocument(ctx, "contentToolkitNode()"), options)
+      toolkitDocumentNode(ctx, contentBindDocument(currentDocument(ctx, "contentToolkitNode()"), options.bindings), options)
     },
     QualifiedName("contentToolkitBlock") -> PluginNative.evalLegacy { (ctx, args) =>
       val (id, options) = toolkitSelectorArgs("contentToolkitBlock", args)
-      toolkitBlockById(ctx, currentDocument(ctx, "contentToolkitBlock(id)"), id, options)
+      toolkitBlockById(ctx, contentBindDocument(currentDocument(ctx, "contentToolkitBlock(id)"), options.bindings), id, options)
     },
     QualifiedName("contentToolkitSection") -> PluginNative.evalLegacy { (ctx, args) =>
       val (id, options) = toolkitSelectorArgs("contentToolkitSection", args)
-      toolkitSectionById(ctx, currentDocument(ctx, "contentToolkitSection(id)"), id, options)
+      toolkitSectionById(ctx, contentBindDocument(currentDocument(ctx, "contentToolkitSection(id)"), options.bindings), id, options)
     }
   )
 
@@ -129,7 +134,8 @@ object ContentIntrinsics:
     listGap: Int = 4,
     wrapDocumentInCard: Boolean = false,
     wrapTopLevelSectionsInCards: Boolean = false,
-    components: Map[String, Value] = Map.empty
+    components: Map[String, Value] = Map.empty,
+    bindings: Map[String, ast.ContentValue] = Map.empty
   )
 
   private case class ToolkitUiEnv(signals: Map[String, Value])
@@ -183,7 +189,8 @@ object ContentIntrinsics:
       listGap = intField(fields, "listGap", default = 4),
       wrapDocumentInCard = boolField(fields, "wrapDocumentInCard", default = false),
       wrapTopLevelSectionsInCards = boolField(fields, "wrapTopLevelSectionsInCards", default = false),
-      components = componentRegistry(fields.get("components"))
+      components = componentRegistry(fields.get("components")),
+      bindings = contentValueMapField(fields.get("bindings"))
     )
 
   private def componentRegistry(value: Option[Value]): Map[String, Value] =
@@ -218,6 +225,45 @@ object ContentIntrinsics:
       case Some(Value.IntV(v)) => v.toInt
       case None                => default
       case Some(other)         => throw InterpretError(s"ContentToolkitOptions.$name: expected Int, got ${Value.show(other)}")
+
+  private def contentValueMapField(value: Option[Value]): Map[String, ast.ContentValue] =
+    value match
+      case None => Map.empty
+      case Some(inst: Value.InstanceV) if inst.typeName == "MapV" =>
+        astContentValueMapEntries(inst, "ContentToolkitOptions.bindings")
+      case Some(other) =>
+        throw InterpretError(s"ContentToolkitOptions.bindings: expected ContentValue.MapV, got ${Value.show(other)}")
+
+  private def astContentValueMapEntries(value: Value, context: String): Map[String, ast.ContentValue] =
+    value match
+      case inst: Value.InstanceV if inst.typeName == "MapV" =>
+        bindField(inst.effectiveFields, "values", s"$context.values") match
+          case Value.MapV(entries) =>
+            entries.map {
+              case (Value.StringV(key), value) => key -> astContentValue(value, s"$context.$key")
+              case (key, _) => throw InterpretError(s"$context expected string keys, got ${Value.show(key)}")
+            }
+          case other =>
+            throw InterpretError(s"$context.values expected Map, got ${Value.show(other)}")
+      case other =>
+        throw InterpretError(s"$context expected ContentValue.MapV, got ${Value.show(other)}")
+
+  private def astContentValue(value: Value, context: String): ast.ContentValue =
+    value match
+      case inst: Value.InstanceV if inst.typeName == "Str" =>
+        ast.ContentValue.Str(bindString(bindField(inst.effectiveFields, "value", s"$context.value"), s"$context.value"))
+      case inst: Value.InstanceV if inst.typeName == "Bool" =>
+        ast.ContentValue.Bool(bindBool(bindField(inst.effectiveFields, "value", s"$context.value"), s"$context.value"))
+      case inst: Value.InstanceV if inst.typeName == "Num" =>
+        ast.ContentValue.Num(bindDouble(bindField(inst.effectiveFields, "value", s"$context.value"), s"$context.value"))
+      case inst: Value.InstanceV if inst.typeName == "NullV" =>
+        ast.ContentValue.NullV
+      case inst: Value.InstanceV if inst.typeName == "ListV" =>
+        ast.ContentValue.ListV(bindList(bindField(inst.effectiveFields, "values", s"$context.values"), s"$context.values").map(astContentValue(_, context)))
+      case inst: Value.InstanceV if inst.typeName == "MapV" =>
+        ast.ContentValue.MapV(astContentValueMapEntries(inst, context))
+      case other =>
+        throw InterpretError(s"$context expected ContentValue, got ${Value.show(other)}")
 
   private def instanceValue(typeName: String, fields: (String, Value)*): Value.InstanceV =
     val inst = Value.InstanceV(typeName, fields.toMap)
@@ -698,6 +744,284 @@ object ContentIntrinsics:
     case ast.ContentInline.Code(value)        => s"`$value`"
     case ast.ContentInline.Link(label, href, _) => inlineText(label) + s" ($href)"
     case ast.ContentInline.Expr(source)       => "${" + source + "}"
+
+  private val contentBindPathPattern =
+    "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$".r
+
+  private def contentBindRoot(value: Value): Map[String, Value] =
+    contentValueMapEntries(value, "contentBind: bindings expected ContentValue.MapV")
+
+  private def contentBindValue(value: Value, bindings: Map[String, Value]): Value =
+    value match
+      case doc: Value.InstanceV if doc.typeName == "DocumentContent" =>
+        val fields = doc.effectiveFields
+        instanceValue("DocumentContent",
+          "manifest"    -> bindField(fields, "manifest", "DocumentContent.manifest"),
+          "title"       -> bindField(fields, "title", "DocumentContent.title"),
+          "description" -> bindField(fields, "description", "DocumentContent.description"),
+          "attrs"       -> bindField(fields, "attrs", "DocumentContent.attrs"),
+          "sections"    -> Value.ListV(bindList(bindField(fields, "sections", "DocumentContent.sections"), "DocumentContent.sections").map(contentBindSection(_, bindings))),
+          "blocks"      -> Value.ListV(bindList(bindField(fields, "blocks", "DocumentContent.blocks"), "DocumentContent.blocks").map(contentBindBlock(_, bindings)))
+        )
+      case section: Value.InstanceV if section.typeName == "SectionContent" =>
+        contentBindSection(section, bindings)
+      case block: Value.InstanceV if contentBlockValueTypeNames.contains(block.typeName) =>
+        contentBindBlock(block, bindings)
+      case other =>
+        throw InterpretError(s"contentBind: expected DocumentContent, SectionContent, or ContentBlock, got ${Value.show(other)}")
+
+  private def contentBindSection(value: Value, bindings: Map[String, Value]): Value =
+    val section = value match
+      case inst: Value.InstanceV if inst.typeName == "SectionContent" => inst
+      case other => throw InterpretError(s"contentBind: expected SectionContent, got ${Value.show(other)}")
+    val fields = section.effectiveFields
+    instanceValue("SectionContent",
+      "id"       -> bindField(fields, "id", "SectionContent.id"),
+      "level"    -> bindField(fields, "level", "SectionContent.level"),
+      "title"    -> bindField(fields, "title", "SectionContent.title"),
+      "attrs"    -> bindField(fields, "attrs", "SectionContent.attrs"),
+      "blocks"   -> Value.ListV(bindList(bindField(fields, "blocks", "SectionContent.blocks"), "SectionContent.blocks").map(contentBindBlock(_, bindings))),
+      "children" -> Value.ListV(bindList(bindField(fields, "children", "SectionContent.children"), "SectionContent.children").map(contentBindSection(_, bindings)))
+    )
+
+  private def contentBindBlock(value: Value, bindings: Map[String, Value]): Value =
+    val block = value match
+      case inst: Value.InstanceV if contentBlockValueTypeNames.contains(inst.typeName) => inst
+      case other => throw InterpretError(s"contentBind: expected ContentBlock, got ${Value.show(other)}")
+    val fields = block.effectiveFields
+    block.typeName match
+      case "Paragraph" =>
+        instanceValue("Paragraph",
+          "inlines" -> Value.ListV(bindList(bindField(fields, "inlines", "Paragraph.inlines"), "Paragraph.inlines").map(contentBindInline(_, bindings))),
+          "attrs"   -> bindField(fields, "attrs", "Paragraph.attrs")
+        )
+      case "BulletList" =>
+        instanceValue("BulletList",
+          "items" -> Value.ListV(bindList(bindField(fields, "items", "BulletList.items"), "BulletList.items").map(item =>
+            Value.ListV(bindList(item, "BulletList.items.item").map(contentBindBlock(_, bindings)))
+          )),
+          "attrs" -> bindField(fields, "attrs", "BulletList.attrs")
+        )
+      case "OrderedList" =>
+        instanceValue("OrderedList",
+          "items" -> Value.ListV(bindList(bindField(fields, "items", "OrderedList.items"), "OrderedList.items").map(item =>
+            Value.ListV(bindList(item, "OrderedList.items.item").map(contentBindBlock(_, bindings)))
+          )),
+          "start" -> bindField(fields, "start", "OrderedList.start"),
+          "attrs" -> bindField(fields, "attrs", "OrderedList.attrs")
+        )
+      case "Image" =>
+        instanceValue("Image",
+          "src"   -> bindField(fields, "src", "Image.src"),
+          "alt"   -> bindField(fields, "alt", "Image.alt"),
+          "title" -> bindField(fields, "title", "Image.title"),
+          "attrs" -> bindField(fields, "attrs", "Image.attrs")
+        )
+      case "Table" =>
+        instanceValue("Table",
+          "headers"    -> Value.ListV(bindList(bindField(fields, "headers", "Table.headers"), "Table.headers").map(cell =>
+            Value.ListV(bindList(cell, "Table.headers.cell").map(contentBindInline(_, bindings)))
+          )),
+          "rows"       -> Value.ListV(bindList(bindField(fields, "rows", "Table.rows"), "Table.rows").map(row =>
+            Value.ListV(bindList(row, "Table.rows.row").map(cell =>
+              Value.ListV(bindList(cell, "Table.rows.cell").map(contentBindInline(_, bindings)))
+            ))
+          )),
+          "alignments" -> bindField(fields, "alignments", "Table.alignments"),
+          "attrs"      -> bindField(fields, "attrs", "Table.attrs")
+        )
+      case "Embedded" =>
+        instanceValue("Embedded",
+          "lang"   -> bindField(fields, "lang", "Embedded.lang"),
+          "source" -> bindField(fields, "source", "Embedded.source"),
+          "kind"   -> bindField(fields, "kind", "Embedded.kind"),
+          "data"   -> bindField(fields, "data", "Embedded.data"),
+          "attrs"  -> bindField(fields, "attrs", "Embedded.attrs")
+        )
+      case other =>
+        throw InterpretError(s"contentBind: expected ContentBlock, got $other")
+
+  private def contentBindInline(value: Value, bindings: Map[String, Value]): Value =
+    val inline = value match
+      case inst: Value.InstanceV => inst
+      case other => throw InterpretError(s"contentBind: expected ContentInline, got ${Value.show(other)}")
+    val fields = inline.effectiveFields
+    inline.typeName match
+      case "Text" =>
+        value
+      case "Emphasis" =>
+        instanceValue("Emphasis",
+          "children" -> Value.ListV(bindList(bindField(fields, "children", "Emphasis.children"), "Emphasis.children").map(contentBindInline(_, bindings)))
+        )
+      case "Strong" =>
+        instanceValue("Strong",
+          "children" -> Value.ListV(bindList(bindField(fields, "children", "Strong.children"), "Strong.children").map(contentBindInline(_, bindings)))
+        )
+      case "Code" =>
+        value
+      case "Link" =>
+        instanceValue("Link",
+          "label" -> Value.ListV(bindList(bindField(fields, "label", "Link.label"), "Link.label").map(contentBindInline(_, bindings))),
+          "href"  -> bindField(fields, "href", "Link.href"),
+          "title" -> bindField(fields, "title", "Link.title")
+        )
+      case "Expr" =>
+        val source = bindString(bindField(fields, "source", "Expr.source"), "Expr.source")
+        contentBindLookup(bindings, source)
+          .map(value => instanceValue("Text", "value" -> Value.StringV(contentValueText(value))))
+          .getOrElse(value)
+      case other =>
+        throw InterpretError(s"contentBind: expected ContentInline, got $other")
+
+  private def contentBindLookup(bindings: Map[String, Value], source: String): Option[Value] =
+    if contentBindPathPattern.pattern.matcher(source).matches then
+      val segments = source.split("\\.").toList
+      segments match
+        case head :: tail => bindings.get(head).flatMap(contentBindLookup(_, tail))
+        case Nil          => None
+    else None
+
+  private def contentBindLookup(value: Value, segments: List[String]): Option[Value] =
+    segments match
+      case Nil => Some(value)
+      case head :: tail =>
+        value match
+          case inst: Value.InstanceV if inst.typeName == "MapV" =>
+            contentValueMapEntries(inst, "contentBind: nested binding expected ContentValue.MapV").get(head).flatMap(contentBindLookup(_, tail))
+          case _ =>
+            None
+
+  private def contentBindDocument(doc: ast.DocumentContent, bindings: Map[String, ast.ContentValue]): ast.DocumentContent =
+    if bindings.isEmpty then doc
+    else doc.copy(
+      sections = doc.sections.map(contentBindAstSection(_, bindings)),
+      blocks = doc.blocks.map(contentBindAstBlock(_, bindings))
+    )
+
+  private def contentBindAstSection(section: ast.SectionContent, bindings: Map[String, ast.ContentValue]): ast.SectionContent =
+    section.copy(
+      blocks = section.blocks.map(contentBindAstBlock(_, bindings)),
+      children = section.children.map(contentBindAstSection(_, bindings))
+    )
+
+  private def contentBindAstBlock(block: ast.ContentBlock, bindings: Map[String, ast.ContentValue]): ast.ContentBlock =
+    block match
+      case ast.ContentBlock.Paragraph(inlines, attrs) =>
+        ast.ContentBlock.Paragraph(inlines.map(contentBindAstInline(_, bindings)), attrs)
+      case ast.ContentBlock.BulletList(items, attrs) =>
+        ast.ContentBlock.BulletList(items.map(_.map(contentBindAstBlock(_, bindings))), attrs)
+      case ast.ContentBlock.OrderedList(items, start, attrs) =>
+        ast.ContentBlock.OrderedList(items.map(_.map(contentBindAstBlock(_, bindings))), start, attrs)
+      case image @ ast.ContentBlock.Image(_, _, _, _) =>
+        image
+      case ast.ContentBlock.Table(headers, rows, alignments, attrs) =>
+        ast.ContentBlock.Table(
+          headers.map(_.map(contentBindAstInline(_, bindings))),
+          rows.map(_.map(_.map(contentBindAstInline(_, bindings)))),
+          alignments,
+          attrs
+        )
+      case embedded @ ast.ContentBlock.Embedded(_, _, _, _, _) =>
+        embedded
+
+  private def contentBindAstInline(inline: ast.ContentInline, bindings: Map[String, ast.ContentValue]): ast.ContentInline =
+    inline match
+      case text @ ast.ContentInline.Text(_) => text
+      case ast.ContentInline.Emphasis(children) =>
+        ast.ContentInline.Emphasis(children.map(contentBindAstInline(_, bindings)))
+      case ast.ContentInline.Strong(children) =>
+        ast.ContentInline.Strong(children.map(contentBindAstInline(_, bindings)))
+      case code @ ast.ContentInline.Code(_) => code
+      case ast.ContentInline.Link(label, href, title) =>
+        ast.ContentInline.Link(label.map(contentBindAstInline(_, bindings)), href, title)
+      case expr @ ast.ContentInline.Expr(source) =>
+        contentBindAstLookup(bindings, source)
+          .map(value => ast.ContentInline.Text(astContentValueText(value)))
+          .getOrElse(expr)
+
+  private def contentBindAstLookup(bindings: Map[String, ast.ContentValue], source: String): Option[ast.ContentValue] =
+    if contentBindPathPattern.pattern.matcher(source).matches then
+      source.split("\\.").toList match
+        case head :: tail => bindings.get(head).flatMap(contentBindAstLookup(_, tail))
+        case Nil          => None
+    else None
+
+  private def contentBindAstLookup(value: ast.ContentValue, segments: List[String]): Option[ast.ContentValue] =
+    segments match
+      case Nil => Some(value)
+      case head :: tail =>
+        value match
+          case ast.ContentValue.MapV(values) => values.get(head).flatMap(contentBindAstLookup(_, tail))
+          case _                             => None
+
+  private def astContentValueText(value: ast.ContentValue): String =
+    value match
+      case ast.ContentValue.Str(v)    => v
+      case ast.ContentValue.Bool(v)   => v.toString
+      case ast.ContentValue.Num(v)    => numberString(v)
+      case ast.ContentValue.NullV     => ""
+      case ast.ContentValue.ListV(vs) => vs.map(astContentValueText).mkString(", ")
+      case ast.ContentValue.MapV(vs)  =>
+        vs.toList.sortBy(_._1).map { case (key, v) => s"$key: ${astContentValueText(v)}" }.mkString("{", ", ", "}")
+
+  private def contentValueText(value: Value): String =
+    value match
+      case inst: Value.InstanceV if inst.typeName == "Str" =>
+        bindString(bindField(inst.effectiveFields, "value", "ContentValue.Str.value"), "ContentValue.Str.value")
+      case inst: Value.InstanceV if inst.typeName == "Bool" =>
+        bindBool(bindField(inst.effectiveFields, "value", "ContentValue.Bool.value"), "ContentValue.Bool.value").toString
+      case inst: Value.InstanceV if inst.typeName == "Num" =>
+        numberString(bindDouble(bindField(inst.effectiveFields, "value", "ContentValue.Num.value"), "ContentValue.Num.value"))
+      case inst: Value.InstanceV if inst.typeName == "NullV" =>
+        ""
+      case inst: Value.InstanceV if inst.typeName == "ListV" =>
+        bindList(bindField(inst.effectiveFields, "values", "ContentValue.ListV.values"), "ContentValue.ListV.values")
+          .map(contentValueText)
+          .mkString(", ")
+      case inst: Value.InstanceV if inst.typeName == "MapV" =>
+        contentValueMapEntries(inst, "ContentValue.MapV.values").toList.sortBy(_._1)
+          .map { case (key, v) => s"$key: ${contentValueText(v)}" }
+          .mkString("{", ", ", "}")
+      case other =>
+        Value.show(other)
+
+  private def contentValueMapEntries(value: Value, context: String): Map[String, Value] =
+    value match
+      case inst: Value.InstanceV if inst.typeName == "MapV" =>
+        bindField(inst.effectiveFields, "values", "ContentValue.MapV.values") match
+          case Value.MapV(entries) =>
+            entries.map {
+              case (Value.StringV(key), value) => key -> value
+              case (key, _) => throw InterpretError(s"$context expected string keys, got ${Value.show(key)}")
+            }
+          case other =>
+            throw InterpretError(s"$context expected Map, got ${Value.show(other)}")
+      case other =>
+        throw InterpretError(s"$context, got ${Value.show(other)}")
+
+  private def bindField(fields: Map[String, Value], name: String, context: String): Value =
+    fields.getOrElse(name, throw InterpretError(s"contentBind: missing $context"))
+
+  private def bindList(value: Value, context: String): List[Value] =
+    value match
+      case Value.ListV(items) => items
+      case other             => throw InterpretError(s"contentBind: $context expected List, got ${Value.show(other)}")
+
+  private def bindString(value: Value, context: String): String =
+    value match
+      case Value.StringV(v) => v
+      case other           => throw InterpretError(s"contentBind: $context expected String, got ${Value.show(other)}")
+
+  private def bindBool(value: Value, context: String): Boolean =
+    value match
+      case Value.BoolV(v) => v
+      case other          => throw InterpretError(s"contentBind: $context expected Boolean, got ${Value.show(other)}")
+
+  private def bindDouble(value: Value, context: String): Double =
+    value match
+      case Value.DoubleV(v) => v
+      case Value.IntV(v)    => v.toDouble
+      case other            => throw InterpretError(s"contentBind: $context expected Number, got ${Value.show(other)}")
 
   private val contentBlockValueTypeNames: Set[String] =
     Set("Paragraph", "BulletList", "OrderedList", "Image", "Table", "Embedded")

@@ -771,22 +771,40 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
         |
         |# Pricing
         |
+        |```yaml @id=pricing-values
+        |proPrice: "$49"
+        |```
+        |
         |<!-- @meta id=plan-table component=PlanTable -->
         || Plan | Price | Link |
         || :--- | ---: | :---: |
         || Starter | **$19** | [buy](/buy) |
-        || Pro | ${proPrice} | `code` |
+        || Pro | ${proPrice} | [upgrade](/upgrade) |
         |
-        |[contentBlock, contentPlainText, contentToMarkdown](std/content.ssc)
+        |[ContentValue, contentBlock, contentData, contentBind, contentPlainText, contentToMarkdown](std/content.ssc)
         |
         |```scala
-        |extern def contentToolkitBlock(id: String): Any
+        |case class ContentToolkitOptions(
+        |  includeCode: Boolean = false,
+        |  sectionGap: Int = 16,
+        |  blockGap: Int = 8,
+        |  listGap: Int = 4,
+        |  wrapDocumentInCard: Boolean = false,
+        |  wrapTopLevelSectionsInCards: Boolean = false,
+        |  components: List[Any] = [],
+        |  bindings: ContentValue = ContentValue.MapV(Map())
+        |)
+        |extern def contentToolkitBlock(id: String, options: ContentToolkitOptions): Any
         |
         |val block = contentBlock("plan-table").get
+        |val pricing = contentData("pricing-values").get
+        |val bound = contentBind(block, pricing)
         |List(
         |  contentPlainText(block),
         |  contentToMarkdown(block),
-        |  contentToolkitBlock("plan-table")
+        |  contentPlainText(bound),
+        |  contentToMarkdown(bound),
+        |  contentToolkitBlock("plan-table", ContentToolkitOptions(false, 16, 8, 4, false, false, [], pricing))
         |)
         |```
         |""".stripMargin
@@ -799,22 +817,42 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
     interp.run(Parser.parse(source))
 
     interp.lastResult match
-      case Value.ListV(List(Value.StringV(plain), Value.StringV(markdown), tableNode @ Value.InstanceV("TableNode", fields))) =>
+      case Value.ListV(List(
+            Value.StringV(plain),
+            Value.StringV(markdown),
+            Value.StringV(boundPlain),
+            Value.StringV(boundMarkdown),
+            tableNode @ Value.InstanceV("TableNode", fields)
+          )) =>
         assert(plain ==
           """Plan | Price | Link
             |Starter | $19 | buy (/buy)
-            |Pro | ${proPrice} | `code`""".stripMargin)
+            |Pro | ${proPrice} | upgrade (/upgrade)""".stripMargin)
         assert(markdown ==
           """<!-- @meta component=PlanTable id=plan-table -->
             || Plan | Price | Link |
             || :--- | ---: | :---: |
             || Starter | **$19** | [buy](/buy) |
-            || Pro | ${proPrice} | `code` |""".stripMargin)
+            || Pro | ${proPrice} | [upgrade](/upgrade) |""".stripMargin)
+        assert(boundPlain ==
+          """Plan | Price | Link
+            |Starter | $19 | buy (/buy)
+            |Pro | $49 | upgrade (/upgrade)""".stripMargin)
+        assert(boundMarkdown ==
+          """<!-- @meta component=PlanTable id=plan-table -->
+            || Plan | Price | Link |
+            || :--- | ---: | :---: |
+            || Starter | **$19** | [buy](/buy) |
+            || Pro | $49 | [upgrade](/upgrade) |""".stripMargin)
         val columns = listField(fields, "columns", "TableNode.columns")
         assert(columns.map(instanceFields(_, "TableColumn")("label")) ==
           List(Value.StringV("Plan"), Value.StringV("Price"), Value.StringV("Link")))
         val rows = listField(fields, "rows", "TableNode.rows")
         assert(rows.length == 2)
+        val proCells = rows(1) match
+          case Value.ListV(values) => values
+          case other => fail(s"expected TableNode row list, got $other")
+        assert(instanceFields(proCells(1), "TextNode_")("text") == Value.StringV("$49"))
         assert(fields("sortCol") == Value.NullV)
         assert(tableNode.fieldNames.toList == List("columns", "rows", "sortCol"))
       case other =>
