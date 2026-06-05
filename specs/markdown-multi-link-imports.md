@@ -99,3 +99,5 @@ covers single-link compatibility, multi-link order, alias/from bindings,
 whitespace plus soft/hard line-break separators, prose/internal-link boundaries,
 and `DocumentContent` omission. The interpreter smoke verifies two local modules
 imported from one Markdown paragraph resolve and execute.
+
+Runnable example: [`examples/multi-link-imports.ssc`](../examples/multi-link-imports.ssc).

@@ -162,7 +162,12 @@ Markdown links serve as the import system:
 
 ```markdown
 [std/collections](std/collections)
+[contentDocument](std/content.ssc) [contentToolkitNode](std/ui/content.ssc)
 ```
+
+A paragraph is an import declaration when every non-whitespace inline child is
+an import link. Several import links may share one pure Markdown paragraph,
+separated by spaces or line breaks; the parser lowers them in source order.
 
 **Import Patterns:**
 
@@ -401,12 +406,12 @@ val x = 1
 Links that look like imports but aren't:
 
 ```markdown
-[Click here](https://example.com)  <!-- External URL, not import -->
-[See docs](./docs/readme.md)       <!-- Relative file, not module -->
-[List](#List)                      <!-- Internal ref, not import -->
+Read [the docs](https://example.com) before continuing.  <!-- prose, not import -->
+[List](#List)                                         <!-- internal ref, not import -->
 ```
 
 Import detection rules:
-1. No protocol prefix (`http://`, `https://`)
-2. No file extension
-3. Doesn't start with `#`
+1. The whole paragraph is pure imports: only links plus Markdown whitespace.
+2. Each import link destination is non-empty and does not start with `#`.
+3. URL, dependency, registry, and local paths are all valid when used in a pure
+   import paragraph.

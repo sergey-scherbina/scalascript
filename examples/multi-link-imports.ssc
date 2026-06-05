@@ -1,0 +1,23 @@
+#!/usr/bin/env ssc
+---
+name: multi-link-imports-example
+version: 1.0.0
+description: Imports two std modules from one Markdown paragraph
+---
+
+# Multi-Link Imports
+
+This example groups related module imports in one pure Markdown paragraph.
+
+[money, minorUnits](std/money.ssc) [Right, foldEither](std/either.ssc)
+
+```scalascript
+val cents = minorUnits(money("12.34", "USD"))
+val rendered = foldEither(
+  Right[String, BigInt](cents),
+  (err: String) => "error: " + err,
+  (value: BigInt) => s"minor units: $value"
+)
+
+println(rendered)
+```

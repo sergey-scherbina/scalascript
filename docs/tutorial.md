@@ -1378,6 +1378,9 @@ val todoRows    = fetchUrlSignal("todos", "/api/todos", refreshTick)
 ```
 ````
 
+The import lines above are one pure Markdown import paragraph split across
+lines; ScalaScript lowers each link in source order.
+
 `dataTable` renders the todo list from a `fetchUrlSignal`, fetching from `/api/todos` and
 re-fetching whenever `refreshTick` increments.  `fetchActionClear` posts
 to `/api/todos`, then clears `newItem` and bumps `refreshTick`:

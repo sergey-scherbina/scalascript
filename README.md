@@ -317,7 +317,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | Feature | Syntax |
 |---------|--------|
 | Package system | `package: org.example.ui` in frontmatter, namespaced exports, collision-safe imports |
-| Module imports | `[name](./lib.ssc)` markdown links bring definitions into scope |
+| Module imports | `[name](./lib.ssc)` Markdown links bring definitions into scope; one pure Markdown paragraph may contain multiple import links |
 | URL imports | `[X](https://...)` URL fetch, cached at `~/.cache/ssc/` |
 | Dependency imports | `[X](dep:org/lib:1.2)` legacy source resolver, `[X](dep:org:name:version)` Coursier resolver, `[X](jitpack:com.github.owner:repo:tag)`, `[X](github:owner/repo@tag[#asset])`, `sha256:` pins, `ssc.lock` |
 | Project scaffolding | `ssc new my-app`, `--template lib|plugin|dsl|web-app|wasm-app`, bundled templates,`releases/install.sh`, Homebrew formula source |
@@ -387,6 +387,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | [enums.ssc](examples/enums.ssc) | Simple and parameterised enums, recursive ADTs |
 | [extensions.ssc](examples/extensions.ssc) | Extension methods, for comprehensions, while, recursion |
 | [imports.ssc](examples/imports.ssc) | Math, geometry, statistics |
+| [multi-link-imports.ssc](examples/multi-link-imports.ssc) | Two std modules imported from one pure Markdown paragraph |
 | [typeclass.ssc](examples/typeclass.ssc) | Show, Eq, Ord, Monoid, Functor via `given`/`summon` |
 | [quoted-macro-interpreter.ssc](examples/quoted-macro-interpreter.ssc) | Restricted quoted macros on the interpreter run path with `Expr.asValue` / `Expr.asTerm` |
 | [custom-derives-mirror.ssc](examples/custom-derives-mirror.ssc) | User-defined typeclass `derives` through runtime `Mirror` metadata |

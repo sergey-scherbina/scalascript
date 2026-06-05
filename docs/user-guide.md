@@ -473,9 +473,9 @@ val page = contentView(contentDocument())
 
 `contentDocument()` returns the current parsed module snapshot. `contentView`,
 `contentViewSection`, and `contentViewBlock` lower that snapshot to low-level
-frontend `View` values. Imports must be written as separate Markdown paragraphs
-(blank line between import links), matching the existing ScalaScript import
-syntax.
+frontend `View` values. Imports may be written as separate Markdown paragraphs
+or grouped in one pure import paragraph, for example
+`[contentDocument](std/content.ssc) [contentView](std/ui/content.ssc)`.
 
 Lower-level lookup helpers read the same Markdown snapshot without lowering it
 to UI nodes. These helpers run in the interpreter and in generated JS/JVM
@@ -2318,7 +2318,14 @@ object Printer extends Visitor[Ast]:
 <!-- Aliased import -->
 [Card as UICard](./ui/card.ssc)
 [Card as ChartCard](./charts/card.ssc)
+
+<!-- Multiple import links in one pure Markdown paragraph -->
+[money, minorUnits](std/money.ssc) [Right, foldEither](std/either.ssc)
 ```
+
+A Markdown paragraph is treated as imports when it contains only import links
+and Markdown whitespace. Links embedded in prose stay prose, and `#...` links
+remain internal cross-references.
 
 ### Package Namespaces
 
