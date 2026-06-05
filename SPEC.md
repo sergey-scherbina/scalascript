@@ -124,7 +124,14 @@ Markdown links serve as imports and cross-references:
 [Card as UICard](./ui/card.ssc)         → aliased import
 [X](https://raw.github.com/.../x.ssc)   → URL import (cached)
 [X](dep:org/lib:1.2)                    → dependency import
+[A](./a.ssc) [B](./b.ssc)               → two imports in one pure paragraph
 ```
+
+A Markdown paragraph is an import declaration when every non-whitespace inline
+node is an import link. Multiple import links in that pure paragraph lower in
+source order. A paragraph that mixes prose text with links stays prose, and
+links whose destination starts with `#` are internal cross-references rather
+than imports.
 
 ### 3.3 Fenced Code Blocks → Typed Expressions
 
@@ -620,7 +627,14 @@ Selective and aliased:
 [List, Map](./std/collections.ssc)
 [Card as UICard](./ui/card.ssc)
 [Card as ChartCard](./chart/card.ssc)
+[contentDocument](std/content.ssc) [contentToolkitNode](std/ui/content.ssc)
 ```
+
+Several import links may appear in one pure Markdown paragraph, separated only
+by whitespace or Markdown line breaks. The parser lowers each link to one
+`Content.Import` in source order. Links embedded in prose sentences are normal
+Markdown links, and `#...` destinations are internal references, not module
+imports.
 
 ### 6.4 Package Prefix
 
