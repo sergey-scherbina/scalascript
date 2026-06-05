@@ -76,12 +76,43 @@ Each slice: one VmCompiler change + tests + bench A/B, never ship a non-win.
 Spec: [`specs/jit-universal-coverage.md`](specs/jit-universal-coverage.md).
 Goal: make JIT work for **all** real programs, not just benchmarks.
 All three engines (SscVm, Javac bytecode, ASM bytecode) reach a unified
-compilable subset.  Stages worked sequentially:
+compilable subset.  Stages worked sequentially.
 
-- [ ] **jit-uc-stage1** — Unified bail accounting: per-engine `JitMissStats`,
-      `JitBailReason` typed vocab, `ssc check-jit-coverage` CLI command.
+**Miss profile after Stage 2.1 (2026-06-05, 718 total disabled):**
+```
+345  [javac] UnknownShape       — falls through classifier; mostly HOF calls + bool-sibling gap
+300  [vm] Other                 — VmCompiler raw-string bails (not yet migrated to typed reasons)
+ 32  [javac] NonExtractPattern
+ 14  [javac] Compound
+  9  [javac] BoolBody           — bool body too complex even for walkBool fallback
+  7  [javac] PatternGuard
+  6  [javac] TryCatch
+  2  [javac] VarargParam
+  2  [javac] UsingParams
+  1  [asm] TryCatch
+```
+Root-cause analysis of the 345 UnknownShape:
+- `jitCompatibleSibling` still excludes bool-returning fns → callers of bool fns bail
+- `walkBool` only handles `ApplyInfix`; misses `Lit.Boolean`, `Term.Name` (bool local),
+  `Term.If`, `Term.Apply` on a bool-returning sibling, `!` unary
+- HOF calls (passing/receiving fn values) — Stage 3 territory
+- `walkForBailCliffs` doesn't detect HOF patterns → they all land in UnknownShape
 
-- [ ] **jit-uc-stage2-1** — Bool body wrap (`isBoolReturning` → emit `if … then 1L else 0L`).
+- [x] **jit-uc-stage1-partial** — Unified per-engine `JitMissStats` with `JitBailReason`
+      typed vocab; `JitBailReason.scala` extracted; Javac + ASM record misses.
+      (CLI `ssc check-jit-coverage` deferred to after HOF slice.)
+
+- [x] **jit-uc-stage2-1** — Bool body wrap: both backends emit `return (boolExpr)?1L:0L`
+      instead of bailing; `JitResult.resultIsBool` unwraps to `BoolV` at call site.
+
+- [ ] **jit-uc-stage2-1b** — Bool sibling gap: remove `!isBoolReturning` gate from
+      `jitCompatibleSibling` so bool-returning fns can be co-emitted; extend
+      `walkBool` in both backends to handle `Lit.Boolean`, `!`, `Term.Name` (bool
+      local/param → `!= 0L`), `Term.If`, `Term.Apply` (bool-returning sibling call →
+      `call() != 0L`).  Extend `walkForBailCliffs` to report `HofCall` when
+      `Term.Apply` target is a param name (not a global fn), turning most UnknownShape
+      into a named category.  Target: UnknownShape < 100.
+
 - [ ] **jit-uc-stage2-2** — Ref+Ref 2-param dispatch (`ObjObjToLong/Double/Object` interfaces).
 - [ ] **jit-uc-stage2-3** — ASM ref-match guard parity (port `walkArmAsIfBranch`).
 - [ ] **jit-uc-stage2-4** — `Pat.Lit` arm in match (literal patterns).

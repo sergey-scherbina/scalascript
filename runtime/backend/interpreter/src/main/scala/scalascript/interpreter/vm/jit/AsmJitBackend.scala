@@ -129,8 +129,7 @@ object AsmJitBackend extends JitBackend:
       f.usingParams.isEmpty &&
       !f.returnsThrows &&
       (f.defaults.isEmpty || f.defaults.forall(_.isEmpty)) &&
-      (f.paramTypes.isEmpty || !f.paramTypes.exists(_.endsWith("*"))) &&
-      !isBoolReturning(f.body)
+      (f.paramTypes.isEmpty || !f.paramTypes.exists(_.endsWith("*")))
 
   private def staticMethodName(name: String): String = sanitize(name)
 
@@ -1134,6 +1133,44 @@ object AsmJitBackend extends JitBackend:
 
   private def walkBool(t: Term, ctx: GenCtx, mv: MethodVisitor, ifFalse: Label): Boolean =
     t match
+      case Lit.Boolean(b) =>
+        if !b then mv.visitJumpInsn(GOTO, ifFalse)
+        true
+      case Term.ApplyUnary(op, arg) if op.value == "!" =>
+        val Ltrue = new Label
+        if !walkBool(arg, ctx, mv, Ltrue) then return false
+        mv.visitJumpInsn(GOTO, ifFalse)
+        mv.visitLabel(Ltrue)
+        true
+      case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+        b.stats.head match
+          case inner: Term => walkBool(inner, ctx, mv, ifFalse)
+          case _           => false
+      case ti: Term.If =>
+        val Lelse = new Label; val Lend = new Label
+        if !walkBool(ti.cond, ctx, mv, Lelse) then return false
+        if !walkBool(ti.thenp, ctx, mv, ifFalse) then return false
+        mv.visitJumpInsn(GOTO, Lend)
+        mv.visitLabel(Lelse)
+        if !walkBool(ti.elsep, ctx, mv, ifFalse) then return false
+        mv.visitLabel(Lend)
+        true
+      case tn: Term.Name if !ctx.isRefName(tn.value) && ctx.isParam(tn.value) =>
+        // Bool-typed local/param encoded as long 0/1: non-zero = true.
+        if !walkLong(tn, ctx, mv) then return false
+        mv.visitInsn(LCONST_0); mv.visitInsn(LCMP)
+        mv.visitJumpInsn(IFEQ, ifFalse)
+        true
+      case ap: Term.Apply =>
+        ap.fun match
+          case fn: Term.Name =>
+            val sig = ensureCoEmittedLong(fn.value, ctx)
+            if sig == null || sig.isDouble || ap.argClause.values.length != sig.paramNames.length then return false
+            if !emitLongCall(fn.value, ap.argClause.values, ctx, mv) then return false
+            mv.visitInsn(LCONST_0); mv.visitInsn(LCMP)
+            mv.visitJumpInsn(IFEQ, ifFalse)
+            true
+          case _ => false
       case Term.ApplyInfix.After_4_6_0(lhs, op, _, ac) if ac.values.lengthCompare(1) == 0 =>
         op.value match
           case "<" | "<=" | ">" | ">=" | "==" | "!=" =>

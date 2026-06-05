@@ -322,8 +322,7 @@ object JavacJitBackend extends JitBackend:
       f.usingParams.isEmpty &&
       !f.returnsThrows &&
       (f.defaults.isEmpty || f.defaults.forall(_.isEmpty)) &&
-      (f.paramTypes.isEmpty || !f.paramTypes.exists(_.endsWith("*"))) &&
-      !isBoolReturning(f.body)
+      (f.paramTypes.isEmpty || !f.paramTypes.exists(_.endsWith("*")))
 
   private def walkFunctionBody(
     f:      Value.FunV,
@@ -768,6 +767,42 @@ object JavacJitBackend extends JitBackend:
     key
 
   private def walkBool(t: Term, ctx: GenCtx): String | Null = t match
+    case Lit.Boolean(b) => if b then "true" else "false"
+    case Term.ApplyUnary(op, arg) if op.value == "!" =>
+      val a = walkBool(arg, ctx)
+      if a == null then null else s"(!$a)"
+    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+      b.stats.head match
+        case inner: Term => walkBool(inner, ctx)
+        case _           => null
+    case ti: Term.If =>
+      val c = walkBool(ti.cond, ctx);  if c == null then return null
+      val a = walkBool(ti.thenp, ctx); if a == null then return null
+      val bv = walkBool(ti.elsep, ctx); if bv == null then return null
+      s"(($c) ? ($a) : ($bv))"
+    case tn: Term.Name if !ctx.isRefName(tn.value) =>
+      // Bool-typed local or param: encoded as 0L/1L — treat `!= 0L` as the bool.
+      val local = ctx.resolveLocal(tn.value)
+      if local != null then s"($local != 0L)" else null
+    case ap: Term.Apply =>
+      ap.fun match
+        case fn: Term.Name =>
+          // Call to a bool-returning sibling co-emitted as `static long`; unwrap
+          // by checking `!= 0L`.
+          val sig = ensureCoEmittedLong(fn.value, ctx)
+          if sig == null || sig.isDouble || ap.argClause.values.length != sig.paramNames.length then null
+          else
+            val sb = new StringBuilder
+            sb.append(sanitize(fn.value)).append('(')
+            var i = 0; var rem = ap.argClause.values
+            while rem.nonEmpty do
+              if i > 0 then sb.append(", ")
+              val argStr = if sig.paramIsRef(i) then walkRef(rem.head, ctx) else walkLong(rem.head, ctx)
+              if argStr == null then return null
+              sb.append(argStr); i += 1; rem = rem.tail
+            sb.append(')')
+            s"(${sb.toString()} != 0L)"
+        case _ => null
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
         if argClause.values.lengthCompare(1) == 0 =>
       val opStr = op.value

@@ -1140,3 +1140,61 @@ class SscVmTest extends AnyFunSuite with Matchers:
         |println(isEven(7))""".stripMargin)
     out shouldBe "true\nfalse"
   }
+
+  // ── Stage 2.1b: Bool sibling gap + walkBool extension ───────────────────────
+
+  test("stage2.1b: function calling bool-returning sibling compiles (Javac)") {
+    val interp = interpOf(
+      """def isPos(n: Int): Boolean = n > 0
+        |def abs(n: Int): Int = if isPos(n) then n else -n""".stripMargin)
+    val fn = interp.globalsView("abs").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct.asInstanceOf[LongFn1].apply(-5L) shouldBe 5L
+    r.direct.asInstanceOf[LongFn1].apply(3L)  shouldBe 3L
+  }
+
+  test("stage2.1b: function calling bool-returning sibling compiles (ASM)") {
+    val interp = interpOf(
+      """def isPos(n: Int): Boolean = n > 0
+        |def abs(n: Int): Int = if isPos(n) then n else -n""".stripMargin)
+    val fn = interp.globalsView("abs").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct.asInstanceOf[LongFn1].apply(-5L) shouldBe 5L
+    r.direct.asInstanceOf[LongFn1].apply(3L)  shouldBe 3L
+  }
+
+  test("stage2.1b: Lit.Boolean literal in bool expression (Javac)") {
+    val interp = interpOf("def always(n: Int): Boolean = true")
+    val fn = interp.globalsView("always").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct.asInstanceOf[LongFn1].apply(0L) shouldBe 1L
+  }
+
+  test("stage2.1b: ! negation compiles (Javac)") {
+    val interp = interpOf("def isNeg(n: Int): Boolean = !(n > 0)")
+    val fn = interp.globalsView("isNeg").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct.asInstanceOf[LongFn1].apply(-3L) shouldBe 1L
+    r.direct.asInstanceOf[LongFn1].apply(3L)  shouldBe 0L
+  }
+
+  test("stage2.1b: end-to-end: caller of bool sibling returns correct value") {
+    val out = captured(
+      """def isEven(n: Int): Boolean = n % 2 == 0
+        |def abs(n: Int): Int = if isEven(n) then n else n + 1
+        |println(abs(4))
+        |println(abs(3))""".stripMargin)
+    out shouldBe "4\n4"
+  }
+
+  test("stage2.1b: HofCall detected when param is called as function") {
+    import scalascript.interpreter.vm.jit.{JitPredicates, JitBailReason}
+    val interp = interpOf("def apply(f: Int => Int, x: Int): Int = f(x)")
+    val fn = interp.globalsView("apply").asInstanceOf[Value.FunV]
+    val reasons = JitPredicates.classifyBailReasons(fn)
+    reasons should contain (JitBailReason.HofCall("f"))
+  }

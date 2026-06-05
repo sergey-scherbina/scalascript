@@ -166,17 +166,34 @@ object JitPredicates:
     if fn.usingParams.nonEmpty then buf += JitBailReason.UsingParams
     if fn.paramTypes.exists(_.endsWith("*")) then buf += JitBailReason.VarargParam
     if fn.returnsThrows then buf += JitBailReason.EffectReturn
+    // BoolBody: only report when the body is bool-returning AND compilation still
+    // failed (i.e. walkBool/walkFunctionBody could not handle the expression).
+    // Most bool bodies now compile via the 0/1 fallback — this catches the rest.
     if isBoolReturning(fn.body) then buf += JitBailReason.BoolBody
-    walkForBailCliffs(fn.body, buf)
+    walkForBailCliffs(fn.body, fn.params.toSet, buf)
     buf.toList.distinct
 
   /** Recursive AST traversal: pushes a `JitBailReason` for each visible
-   *  structural cliff.  Falls back to `Tree.children.foreach(…)` so every
-   *  node is visited exactly once. */
-  def walkForBailCliffs(t: Tree, buf: scala.collection.mutable.ListBuffer[JitBailReason]): Unit =
+   *  structural cliff.  `paramNames` is the owning function's parameter set,
+   *  used to detect HOF calls (callee is a function-valued parameter).
+   *  Falls back to `Tree.children.foreach(…)` so every node is visited once. */
+  def walkForBailCliffs(
+    t:          Tree,
+    paramNames: Set[String],
+    buf:        scala.collection.mutable.ListBuffer[JitBailReason]
+  ): Unit =
     t match
       case _: Term.Try =>
         buf += JitBailReason.TryCatch
+      case ap: Term.Apply =>
+        ap.fun match
+          case tn: Term.Name if paramNames.contains(tn.value) =>
+            // Calling a parameter as a function: HOF pattern not yet supported.
+            buf += JitBailReason.HofCall(tn.value)
+          case _ =>
+            t.children.foreach(walkForBailCliffs(_, paramNames, buf))
+      case _: Term.Function =>
+        buf += JitBailReason.LambdaValue
       case tm: Term.Match =>
         tm.expr match
           case _: Term.Name => ()
@@ -188,9 +205,13 @@ object JitPredicates:
             case _: Pat.Var      => ()
             case _: Pat.Wildcard => ()
             case _               => buf += JitBailReason.NonExtractPattern
-          walkForBailCliffs(c.body, buf)
+          walkForBailCliffs(c.body, paramNames, buf)
         }
-      case _ => t.children.foreach(walkForBailCliffs(_, buf))
+      case _ => t.children.foreach(walkForBailCliffs(_, paramNames, buf))
+
+  /** Backwards-compat overload: no param-name set (HOF detection disabled). */
+  def walkForBailCliffs(t: Tree, buf: scala.collection.mutable.ListBuffer[JitBailReason]): Unit =
+    walkForBailCliffs(t, Set.empty, buf)
 
   /** Classify why `tryCompileWhileLong` would fail for the given condition and
    *  body terms.  Returns Nil when no structural reason is detectable (the
