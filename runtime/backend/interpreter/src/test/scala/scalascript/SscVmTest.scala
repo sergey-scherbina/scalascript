@@ -5,7 +5,7 @@ import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.Interpreter
 import scalascript.interpreter.Value
 import scalascript.interpreter.vm.{SscVm, VmCompiler}
-import scalascript.interpreter.vm.jit.{AsmJitBackend, JavacJitBackend, JitGlobals, LongFn1, ObjToLong, ObjToObject, WhileJitEntry}
+import scalascript.interpreter.vm.jit.{AsmJitBackend, JavacJitBackend, JitGlobals, LongFn0, LongFn1, ObjToLong, ObjToObject, WhileJitEntry}
 import scalascript.ast.{Content, ScalaNode}
 import scalascript.parser.Parser
 import scala.meta.{Source, Term}
@@ -282,6 +282,24 @@ class SscVmTest extends AnyFunSuite with Matchers:
     direct.apply(10L) shouldBe 1L
     direct.apply(7L) shouldBe 0L
     direct.apply(0L) shouldBe 1L
+  }
+
+  test("ASM bytecode JIT co-emits mutually recursive bool-returning functions (stage6 fix)") {
+    val interp = interpOf(
+      """def isEven(n: Int): Boolean = if n == 0 then true else isOdd(n - 1)
+        |def isOdd(n: Int): Boolean  = if n == 0 then false else isEven(n - 1)
+        |def workload(): Long =
+        |  var sum = 0L; var i = 0
+        |  while i < 10 do
+        |    if isEven(10) then sum = sum + 1L
+        |    i = i + 1
+        |  sum""".stripMargin)
+    val workload = interp.globalsView("workload").asInstanceOf[Value.FunV]
+    val jitR = AsmJitBackend.tryCompile(workload, interp)
+    jitR should not be null
+    jitR.direct.isInstanceOf[LongFn0] shouldBe true
+    val result = JitGlobals.withInterp(interp) { jitR.direct.asInstanceOf[LongFn0].apply() }
+    result shouldBe 10L
   }
 
   test("ASM bytecode JIT co-emits mutually recursive ref-param match functions") {

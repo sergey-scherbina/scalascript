@@ -757,8 +757,9 @@ object AsmJitBackend extends JitBackend:
   // ── walkLong ─────────────────────────────────────────────────────────────
 
   private def walkLong(t: Term, ctx: GenCtx, mv: MethodVisitor): Boolean = t match
-    case Lit.Int(v)  => mv.visitLdcInsn(v.toLong); true
-    case Lit.Long(v) => mv.visitLdcInsn(v);        true
+    case Lit.Int(v)     => mv.visitLdcInsn(v.toLong); true
+    case Lit.Long(v)    => mv.visitLdcInsn(v);        true
+    case Lit.Boolean(b) => mv.visitLdcInsn(if b then 1L else 0L); true
     case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
       b.stats.head match
         case inner: Term => walkLong(inner, ctx, mv)
@@ -986,9 +987,10 @@ object AsmJitBackend extends JitBackend:
     val sig = MethodSig(staticMethodName(fn.name), fn.params.toArray, paramIsRef, isDouble = false)
     ctx.coEmit.signatures.put(fnName, sig)
     ctx.coEmit.emitting.add(fnName)
-    val scratch = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
-      override def getCommonSuperClass(t1: String, t2: String): String = "java/lang/Object"
-    }
+    // Use COMPUTE_MAXS (not COMPUTE_FRAMES) for the scratch validation to avoid
+    // NPE from ASM's frame analysis on complex mutual-recursion bytecode patterns.
+    // The main ClassWriter uses COMPUTE_FRAMES for full validation.
+    val scratch = new ClassWriter(ClassWriter.COMPUTE_MAXS)
     scratch.visit(V21, ACC_PUBLIC | ACC_FINAL,
       s"scalascript/interpreter/vm/jit/asm/AsmJitScratch$$${classCounter.incrementAndGet()}",
       null, "java/lang/Object", Array.empty)
@@ -996,7 +998,7 @@ object AsmJitBackend extends JitBackend:
       try
         val bodyOk = emitStaticFunction(scratch, ctx.selfClass, fn, sig, ctx)
         scratch.visitEnd()
-        if bodyOk then scratch.toByteArray; bodyOk
+        bodyOk
       catch case _: Throwable => false
     ctx.coEmit.emitting.remove(fnName)
     if !ok then
@@ -1292,6 +1294,13 @@ object AsmJitBackend extends JitBackend:
 
   // ── walkBool: emit jump-to-ifFalse when condition is false ───────────────
 
+  /** True when walkBool(t, ...) always emits an unconditional jump and never falls through.
+   *  Used to suppress dead-code GOTO instructions that cause ASM visitMaxs NPE. */
+  private def boolAlwaysJumps(t: Term): Boolean = t match
+    case Lit.Boolean(false) => true   // emits GOTO ifFalse, no fall-through
+    case Term.Block(List(inner: Term)) => boolAlwaysJumps(inner)
+    case _ => false
+
   private def walkBool(t: Term, ctx: GenCtx, mv: MethodVisitor, ifFalse: Label): Boolean =
     t match
       case Lit.Boolean(b) =>
@@ -1308,13 +1317,17 @@ object AsmJitBackend extends JitBackend:
           case inner: Term => walkBool(inner, ctx, mv, ifFalse)
           case _           => false
       case ti: Term.If =>
-        val Lelse = new Label; val Lend = new Label
+        val Lelse = new Label
         if !walkBool(ti.cond, ctx, mv, Lelse) then return false
         if !walkBool(ti.thenp, ctx, mv, ifFalse) then return false
-        mv.visitJumpInsn(GOTO, Lend)
+        // Skip GOTO Lend when thenp always jumps unconditionally (e.g. Lit.Boolean(false)
+        // emits an unconditional GOTO, so the following GOTO Lend would be dead code and
+        // cause visitMaxs / COMPUTE_FRAMES to throw NPE on the unreachable branch target).
+        val thenAlwaysJumps = boolAlwaysJumps(ti.thenp)
+        val Lend = if !thenAlwaysJumps then { val l = new Label; mv.visitJumpInsn(GOTO, l); l } else null
         mv.visitLabel(Lelse)
         if !walkBool(ti.elsep, ctx, mv, ifFalse) then return false
-        mv.visitLabel(Lend)
+        if Lend != null then mv.visitLabel(Lend)
         true
       case tn: Term.Name if !ctx.isRefName(tn.value) && ctx.isParam(tn.value) =>
         // Bool-typed local/param encoded as long 0/1: non-zero = true.
