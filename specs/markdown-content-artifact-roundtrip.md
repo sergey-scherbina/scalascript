@@ -40,21 +40,21 @@ the executable module while silently ignoring the extra content payload.
 
 ## Behavior
 
-- [ ] `.scir` JSON and binary file round-trips preserve
+- [x] `.scir` JSON and binary file round-trips preserve
       `NormalizedModule.document`, including manifest data, heading attrs,
       selected blocks, inlines, embedded fenced source, parsed structured data,
       and nested sections.
-- [ ] `.sscc` v3 round-trips preserve `Module.document` without reparsing the
+- [x] `.sscc` v3 round-trips preserve `Module.document` without reparsing the
       original `.ssc` source text.
-- [ ] `.sscc` v3 gzip round-trips preserve the same `Module.document` snapshot
+- [x] `.sscc` v3 gzip round-trips preserve the same `Module.document` snapshot
       as the plain v3 form.
-- [ ] Old or manually constructed modules/artifacts without a content snapshot
+- [x] Old or manually constructed modules/artifacts without a content snapshot
       remain valid and expose `document = None`.
-- [ ] `.sscc` readers still populate lazy scalameta trees for executable code
+- [x] `.sscc` readers still populate lazy scalameta trees for executable code
       blocks after adding the content payload.
-- [ ] `Normalize` after `.sscc` read carries the restored AST snapshot into
+- [x] `Normalize` after `.sscc` read carries the restored AST snapshot into
       `NormalizedModule.document`.
-- [ ] `contentToMarkdown(contentDocument())` can run from a `.sscc` input file
+- [x] `contentToMarkdown(contentDocument())` can run from a `.sscc` input file
       and render the restored semantic Markdown snapshot.
 
 ## Out of Scope
@@ -117,4 +117,22 @@ looks authoritative but lost Markdown metadata.
 
 ## Results
 
-To be filled after implementation and verification.
+Implemented on 2026-06-05. The `.scir` path needed no wire-shape change because
+`ArtifactIO` already serializes the whole `NormalizedModule`; the implementation
+added regression coverage for JSON and MessagePack file round-trips. The `.sscc`
+v3 writer now appends an optional `DocumentBlob` extension after `ModuleEnd`,
+using CBOR-encoded `DocumentContent`; the reader accepts both old files without
+the blob and new plain/gzip files with the blob. `Normalize` receives the
+restored AST snapshot and carries it to IR.
+
+Verification command:
+
+```bash
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-content-artifact-roundtrip && sbt "core/testOnly scalascript.artifact.ArtifactIOTest scalascript.ast.SsccFormatV3Test" "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest"
+```
+
+Result: 40 core artifact/`.sscc` tests passed, including the new `.scir`
+content snapshot test and plain/gzip `.sscc` snapshot test; 14
+`ContentPluginInterpreterTest` tests passed, including the new runtime path that
+executes `contentToMarkdown(contentDocument())` from a module restored through
+`SsccFormat.read(SsccFormat.write(...))`.
