@@ -368,7 +368,7 @@ object JitRuntime:
    *  `f` is bytecode-JIT compilable, else null. Only the bytecode-JIT path
    *  (Javac/ASM) is wired for 0-arg; the register VM is not used here. */
   def tryRun0(f: Value.FunV, interp: Interpreter): Computation | Null =
-    if !enabled || f.name.isEmpty || f.params.nonEmpty || !JitBackend.default.enabled then null
+    if !enabled || f.name.isEmpty || f.params.nonEmpty || f.returnsThrows || !JitBackend.default.enabled then null
     else
       val bc = bytecodeFor(f, interp)
       if bc == null then null
@@ -378,7 +378,7 @@ object JitRuntime:
    *  Accepts either a numeric arg (numeric param) or an InstanceV (ref param,
    *  VM 2a) — the param domain is decided by the compiled function. */
   def tryRun1(f: Value.FunV, arg: Value, interp: Interpreter, eager: Boolean = false): Computation | Null =
-    if !enabled || f.name.isEmpty || f.params.length != 1 then null
+    if !enabled || f.name.isEmpty || f.params.length != 1 || f.returnsThrows then null
     else
       // Phase C: try the bytecode-jit MH before the register-VM path. Skips
       // `SscVm.exec`'s opcode dispatch loop entirely when the body is in the
@@ -405,7 +405,7 @@ object JitRuntime:
 
   /** 2-arg entry. Returns a Pure(IntV/DoubleV) computation if JITted, else null. */
   def tryRun2(f: Value.FunV, a: Value, b: Value, interp: Interpreter, eager: Boolean = false): Computation | Null =
-    if !enabled || f.name.isEmpty || f.params.length != 2 then null
+    if !enabled || f.name.isEmpty || f.params.length != 2 || f.returnsThrows then null
     else
       val bcMh = bytecodeFor(f, interp)
       if bcMh != null then
@@ -420,7 +420,7 @@ object JitRuntime:
    *  per the compiled param domain: numeric → Long bank, InstanceV → ref bank.
    *  `eager` is set for self-tail-recursive callers (see [[hotCompiled]]). */
   def tryRunList(f: Value.FunV, args: List[Value], interp: Interpreter, eager: Boolean = false): Computation | Null =
-    if !enabled || f.name.isEmpty then null
+    if !enabled || f.name.isEmpty || f.returnsThrows then null
     else
       val n = args.length
       if n < 1 || n > VmCompiler.MaxArity || f.params.length != n then null
