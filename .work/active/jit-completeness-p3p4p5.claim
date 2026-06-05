@@ -1,0 +1,6 @@
+feature/jit-completeness-p3p4p5 2026-06-05T00:13:16Z
+agent: claude-code
+heartbeat: 2026-06-05T00:13:16Z
+status: not-started
+done-so-far:
+next: read VmCompiler + spec, implement p3 inner-def + p4 stmt Defn.Def + p5 Lit.Null
