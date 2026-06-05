@@ -91,6 +91,10 @@ object VmCompiler:
       if existing != null then existing
       else
         if !typeGateOk(fn) then bail("typeGate: using or default params")
+        // RET is Long-typed and the result is boxed as IntV/DoubleV (JitRuntime),
+        // never BoolV. A Boolean-returning body (`if c then true else …`) would
+        // come back as IntV(0/1) instead of BoolV. Bail like the bytecode backend.
+        if jit.JitPredicates.isBoolReturning(fn.body) then bail("ret: boolean-returning (RET is Long, would miswrap as IntV)")
         val b = new Builder(fn, this)
         b.buildInstructions()
         val shell = new CompiledFn(

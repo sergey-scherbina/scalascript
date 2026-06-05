@@ -244,16 +244,21 @@ final case class JitLintCompareReport(
  *
  *  All functions are pure (no interpreter access, no side effects) and
  *  operate on scala.meta AST nodes only. */
-private[jit] object JitPredicates:
+private[vm] object JitPredicates:
   /** True iff the top-level result type of `t` is Boolean (comparison or
    *  short-circuit logical). `JavacJitBackend` always emits `long`-returning
    *  static methods; a bool-typed body would be misrepresented as Int 0/1. */
   def isBoolReturning(t: Term): Boolean = t match
+    case _: Lit.Boolean => true
     case Term.ApplyInfix.After_4_6_0(_, op, _, _) =>
       val s = op.value
       s == "<" || s == "<=" || s == ">" || s == ">=" || s == "==" || s == "!=" || s == "&&" || s == "||"
     case ti: Term.If =>
       isBoolReturning(ti.thenp) || isBoolReturning(ti.elsep)
+    case tb: Term.Block =>
+      tb.stats.lastOption match
+        case Some(last: Term) => isBoolReturning(last)
+        case _                => false
     case _ => false
 
   /** Walk `fn.body` and the param/return metadata and collect every visible
