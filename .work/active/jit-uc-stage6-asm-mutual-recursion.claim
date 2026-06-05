@@ -1,6 +1,0 @@
-feature/jit-uc-stage6-asm-mutual-recursion 2026-06-05T18:43:53Z
-agent: claude-code
-heartbeat: 2026-06-05T18:43:53Z
-status: not-started
-done-so-far:
-next: diagnose ASM mutual-recursion bail via SSC_JIT_BACKEND=asm SSC_JIT_STATS=1
