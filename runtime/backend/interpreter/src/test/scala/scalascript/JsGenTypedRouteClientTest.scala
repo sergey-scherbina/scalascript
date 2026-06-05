@@ -315,7 +315,9 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
     val code = JsGen.generate(Parser.parse(src))
 
     assert(code.contains("async function loadAll()"))
-    assert(code.contains("const rows = await _call(loadAll,"))
+    // loadAll is a known zero-param def, so JsGen emits a direct call (no _call
+    // wrapper) — see JsGen zeroParamFns/emptyParamFns lane.
+    assert(code.contains("const rows = await loadAll();"))
 
   test("for-yield with multiple awaitClient generators lowers to async IIFE"):
     val src =
