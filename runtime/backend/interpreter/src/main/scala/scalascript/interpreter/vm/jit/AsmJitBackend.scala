@@ -111,7 +111,8 @@ object AsmJitBackend extends JitBackend:
         tm.expr match
           case n: Term.Name =>
             val idx = f.params.indexOf(n.value)
-            if idx >= 0 then paramIsRef(idx) = true
+            // Literal-int matches keep the scrutinee as Long; only ADT matches need ref.
+            if idx >= 0 && !isLiteralIntMatch(tm) then paramIsRef(idx) = true
           case _ =>
         markRef(tm.expr)
         tm.casesBlock.cases.foreach(c => markRef(c.body))
@@ -597,6 +598,8 @@ object AsmJitBackend extends JitBackend:
     f.body match
       case tm: Term.Match if ctx.paramIsRef.exists(identity) =>
         emitMatchBody(tm, ctx, interp, mv)
+      case tm: Term.Match if isLiteralIntMatch(tm) =>
+        emitLiteralIntMatch(tm, ctx, mv, returnForm = true, endLbl = null)
       case b: Term.Block if b.stats.lengthCompare(1) > 0 =>
         // Direction A.5: multi-stat block — emit val-bindings then the final expr.
         b.stats.last match
@@ -1210,6 +1213,61 @@ object AsmJitBackend extends JitBackend:
   private def isCatchAllPat(p: scala.meta.Pat): Boolean =
     p.isInstanceOf[Pat.Wildcard] || p.isInstanceOf[Pat.Var]
 
+  /** True when every arm is a `Pat.Lit(Int/Long)`, `Pat.Var`, or `Pat.Wildcard`
+   *  with no guards — the match compiles as a long-compare if-chain. */
+  private def isLiteralIntMatch(tm: Term.Match): Boolean =
+    tm.casesBlock.cases.forall { c =>
+      c.cond.isEmpty && (c.pat match
+        case _: Pat.Wildcard | _: Pat.Var      => true
+        case _: Lit.Int | _: Lit.Long => true
+        case _                                  => false
+      )
+    }
+
+  /** Emit a literal-integer match as a compare-and-jump chain.
+   *  `returnForm = true` → each arm emits LRETURN; `false` → arm value left on
+   *  stack and execution falls through to `endLbl` (expression context). */
+  private def emitLiteralIntMatch(
+    tm:         Term.Match,
+    ctx:        GenCtx,
+    mv:         MethodVisitor,
+    returnForm: Boolean,
+    endLbl:     Label | Null
+  ): Boolean =
+    // Evaluate scrutinee and store in a fresh long slot.
+    if !walkLong(tm.expr.asInstanceOf[Term], ctx, mv) then return false
+    val scrSlot = ctx.allocSlot()
+    mv.visitVarInsn(LSTORE, scrSlot)
+    val cases  = tm.casesBlock.cases.toList
+    val Lend   = if returnForm then null else endLbl
+    var armRem = cases
+    while armRem.nonEmpty do
+      val arm = armRem.head; armRem = armRem.tail
+      arm.pat match
+        case _: Pat.Wildcard | _: Pat.Var =>
+          if !walkLong(arm.body.asInstanceOf[Term], ctx, mv) then return false
+          if returnForm then mv.visitInsn(LRETURN)
+          else if Lend != null then mv.visitJumpInsn(GOTO, Lend)
+        case li: Lit =>
+          val litVal: Long = li match
+            case Lit.Int(v)  => v.toLong
+            case Lit.Long(v) => v
+            case _           => return false
+          val Lnext = new Label
+          mv.visitVarInsn(LLOAD, scrSlot)
+          mv.visitLdcInsn(litVal)
+          mv.visitInsn(LCMP)
+          mv.visitJumpInsn(IFNE, Lnext)
+          if !walkLong(arm.body.asInstanceOf[Term], ctx, mv) then return false
+          if returnForm then mv.visitInsn(LRETURN)
+          else if Lend != null then mv.visitJumpInsn(GOTO, Lend)
+          mv.visitLabel(Lnext)
+        case _ => return false
+    val lastPat = cases.last.pat
+    if !isCatchAllPat(lastPat) then
+      emitThrow(mv, "AsmJitBackend: literal match: no arm matched")
+    true
+
   // ── Match body (top-level: emits RETURN inside each arm) ─────────────────
 
   private def emitMatchBody(tm: Term.Match, ctx: GenCtx, interp: Interpreter,
@@ -1269,6 +1327,11 @@ object AsmJitBackend extends JitBackend:
   // ── Match expression (nested match: leaves value on stack) ───────────────
 
   private def walkMatchExpr(tm: Term.Match, ctx: GenCtx, mv: MethodVisitor): Boolean =
+    if isLiteralIntMatch(tm) then
+      val endLbl = new Label
+      val ok = emitLiteralIntMatch(tm, ctx, mv, returnForm = false, endLbl = endLbl)
+      if ok then mv.visitLabel(endLbl)
+      return ok
     val scrutName = tm.expr match
       case n: Term.Name => n.value; case _ => return false
     if !ctx.params.contains(scrutName) then return false

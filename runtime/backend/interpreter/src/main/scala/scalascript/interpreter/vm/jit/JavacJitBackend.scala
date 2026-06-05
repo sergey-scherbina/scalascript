@@ -304,7 +304,8 @@ object JavacJitBackend extends JitBackend:
         tm.expr match
           case n: Term.Name =>
             val idx = f.params.indexOf(n.value)
-            if idx >= 0 then paramIsRef(idx) = true
+            // Literal-int matches keep the scrutinee as Long; only ADT matches need ref.
+            if idx >= 0 && !isLiteralIntMatch(tm) then paramIsRef(idx) = true
           case _ =>
         markRefScrutinees(tm.expr)
         tm.casesBlock.cases.foreach(c => markRefScrutinees(c.body))
@@ -332,6 +333,8 @@ object JavacJitBackend extends JitBackend:
     f.body match
       case tm: Term.Match if ctx.paramIsRef.exists(identity) =>
         walkMatchBody(tm, ctx, interp)
+      case tm: Term.Match if isLiteralIntMatch(tm) =>
+        walkLiteralMatchBody(tm, ctx)
       case b: Term.Block if b.stats.lengthCompare(1) > 0 =>
         // Direction A.5: multi-stat block — emit val-bindings as Java locals,
         // then return the final expression. Special case: when the final stat
@@ -904,12 +907,62 @@ object JavacJitBackend extends JitBackend:
       s"(${op.value}$a)"
     case _ => null
 
-  /** Emit the body of a `Term.Match` over an `InstanceV` scrutinee.
-   *
-   *  When all constructor arms have a registered int tag in `interp.typeTagMap`,
-   *  emits `switch(inst.typeTag())` — javac lowers `switch(int)` to a JVM
-   *  `tableswitch` (O(1), no string ops). Falls back to `switch(inst.typeName())`
-   *  (String hash+equals lookupswitch) when any arm's tag is unknown (0). */
+  /** True when every arm is a literal-int pattern, Pat.Var, or Pat.Wildcard with
+   *  no guards — the match compiles as a long-comparison if-else chain. */
+  private def isLiteralIntMatch(tm: Term.Match): Boolean =
+    tm.casesBlock.cases.forall { c =>
+      c.cond.isEmpty && (c.pat match
+        case _: Pat.Wildcard | _: Pat.Var        => true
+        case _: Lit.Int | _: Lit.Long => true
+        case _                                    => false
+      )
+    }
+
+  /** Emit a literal-integer match body as an if-else chain returning long/double.
+   *  Scrutinee may be any `walkLong`-able expression, not just a `Term.Name`. */
+  private def walkLiteralMatchBody(tm: Term.Match, ctx: GenCtx): String | Null =
+    val scrutExpr = walkLong(tm.expr.asInstanceOf[Term], ctx)
+    if scrutExpr == null then return null
+    val scrVar = s"_scr${java.lang.Integer.toHexString(System.identityHashCode(tm))}"
+    val sb  = new StringBuilder
+    sb.append(s"long $scrVar = $scrutExpr;\n    ")
+    var first = true
+    val cases = tm.casesBlock.cases.toList
+    var armRem = cases
+    while armRem.nonEmpty do
+      val arm = armRem.head; armRem = armRem.tail
+      arm.pat match
+        case _: Pat.Wildcard | _: Pat.Var =>
+          val e = if ctx.isDouble then walkDouble(arm.body.asInstanceOf[Term], ctx)
+                  else walkLong(arm.body.asInstanceOf[Term], ctx)
+          if e == null then return null
+          sb.append(s"else { return $e; }\n    ")
+        case li: Lit =>
+          val litStr = li match
+            case Lit.Int(v)  => s"${v}L"
+            case Lit.Long(v) => s"${v}L"
+            case _           => return null
+          val e = if ctx.isDouble then walkDouble(arm.body.asInstanceOf[Term], ctx)
+                  else walkLong(arm.body.asInstanceOf[Term], ctx)
+          if e == null then return null
+          val kw = if first then "if" else "else if"
+          sb.append(s"$kw ($scrVar == $litStr) { return $e; }\n    ")
+          first = false
+        case _ => return null
+    val lastPat = cases.last.pat
+    if !lastPat.isInstanceOf[Pat.Wildcard] && !lastPat.isInstanceOf[Pat.Var] then
+      sb.append(s"""throw new RuntimeException("literal match: no arm matched");""")
+    sb.toString
+
+  /** Expression-context literal-int match: wraps the if-else chain in a
+   *  `LongSupplier` IIFE to produce an expression value. */
+  private def walkLiteralMatchExpr(tm: Term.Match, ctx: GenCtx): String | Null =
+    val body = walkLiteralMatchBody(tm, ctx)
+    if body == null then return null
+    val supplierIface = if ctx.isDouble then "java.util.function.DoubleSupplier" else "java.util.function.LongSupplier"
+    val getter        = if ctx.isDouble then "getAsDouble" else "getAsLong"
+    s"(($supplierIface)(() -> {\n      $body\n    })).$getter()"
+
   private def walkMatchBody(tm: Term.Match, ctx: GenCtx, interp: scalascript.interpreter.Interpreter): String | Null =
     val scrutName = tm.expr match
       case n: Term.Name => n.value
@@ -994,6 +1047,7 @@ object JavacJitBackend extends JitBackend:
    *    - any arm shape is unsupported (guards, non-Pat.Extract)
    *    - any arm body fails to compile via walkLong/walkDouble */
   private def walkMatchExpr(tm: Term.Match, ctx: GenCtx, interp: scalascript.interpreter.Interpreter): String | Null =
+    if isLiteralIntMatch(tm) then return walkLiteralMatchExpr(tm, ctx)
     val scrutName = tm.expr match
       case n: Term.Name => n.value
       case _            => return null

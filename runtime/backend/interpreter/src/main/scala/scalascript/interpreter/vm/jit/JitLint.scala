@@ -201,10 +201,11 @@ object JitPredicates:
         tm.casesBlock.cases.foreach { c =>
           if c.cond.nonEmpty then buf += JitBailReason.PatternGuard
           c.pat match
-            case _: Pat.Extract  => ()
-            case _: Pat.Var      => ()
-            case _: Pat.Wildcard => ()
-            case _               => buf += JitBailReason.NonExtractPattern
+            case _: Pat.Extract                    => ()
+            case _: Pat.Var                        => ()
+            case _: Pat.Wildcard                   => ()
+            case _: Lit.Int | _: Lit.Long                   => ()  // literal-int arms now compile
+            case _                                 => buf += JitBailReason.NonExtractPattern
           walkForBailCliffs(c.body, paramNames, buf)
         }
       case _ => t.children.foreach(walkForBailCliffs(_, paramNames, buf))

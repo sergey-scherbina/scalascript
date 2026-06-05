@@ -99,7 +99,7 @@ Root-cause analysis of the 345 UnknownShape:
 - [x] **jit-uc-stage2-1** — Bool body wrap: both backends emit `return (boolExpr)?1L:0L`
       instead of bailing; `JitResult.resultIsBool` unwraps to `BoolV` at call site.
 
-- [ ] **jit-uc-stage2-1b** — Bool sibling gap: remove `!isBoolReturning` gate from
+- [x] **jit-uc-stage2-1b** — Bool sibling gap: remove `!isBoolReturning` gate from
       `jitCompatibleSibling` so bool-returning fns can be co-emitted; extend
       `walkBool` in both backends to handle `Lit.Boolean`, `!`, `Term.Name` (bool
       local/param → `!= 0L`), `Term.If`, `Term.Apply` (bool-returning sibling call →
@@ -109,7 +109,7 @@ Root-cause analysis of the 345 UnknownShape:
 
 - [ ] **jit-uc-stage2-2** — Ref+Ref 2-param dispatch (`ObjObjToLong/Double/Object` interfaces).
 - [ ] **jit-uc-stage2-3** — ASM ref-match guard parity (port `walkArmAsIfBranch`).
-- [ ] **jit-uc-stage2-4** — `Pat.Lit` arm in match (literal patterns).
+- [x] **jit-uc-stage2-4** — `Pat.Lit` arm in match (literal patterns).
 - [ ] **jit-uc-stage2-5** — Free-name → top-level `FunV` call (non-HOF case).
 
 - [ ] **jit-uc-stage3-1** — `Value.FunV` as JIT-visible ref operand in `JitGlobals`.

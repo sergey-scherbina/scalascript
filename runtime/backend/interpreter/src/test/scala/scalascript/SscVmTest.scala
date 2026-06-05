@@ -1198,3 +1198,57 @@ class SscVmTest extends AnyFunSuite with Matchers:
     val reasons = JitPredicates.classifyBailReasons(fn)
     reasons should contain (JitBailReason.HofCall("f"))
   }
+
+  // ── Stage 2.4: Pat.Lit integer match arms ───────────────────────────────────
+
+  test("stage2.4: Javac — literal-int match compiles") {
+    import scalascript.interpreter.vm.jit.JavacJitBackend
+    val interp = interpOf(
+      """def describe(n: Int): Int = n match {
+        |  case 0 => 10
+        |  case 1 => 20
+        |  case _ => 99
+        |}""".stripMargin)
+    val fn = interp.globalsView("describe").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+  }
+
+  test("stage2.4: ASM — literal-int match compiles") {
+    import scalascript.interpreter.vm.jit.AsmJitBackend
+    val interp = interpOf(
+      """def describe(n: Int): Int = n match {
+        |  case 0 => 10
+        |  case 1 => 20
+        |  case _ => 99
+        |}""".stripMargin)
+    val fn = interp.globalsView("describe").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+  }
+
+  test("stage2.4: end-to-end literal-int match runs correctly") {
+    val out = captured(
+      """def describe(n: Int): Int = n match {
+        |  case 0 => 10
+        |  case 1 => 20
+        |  case _ => 99
+        |}
+        |println(describe(0))
+        |println(describe(1))
+        |println(describe(2))""".stripMargin)
+    out.trim shouldBe "10\n20\n99"
+  }
+
+  test("stage2.4: JitLint does not report NonExtractPattern for Lit.Int arms") {
+    import scalascript.interpreter.vm.jit.{JitPredicates, JitBailReason}
+    val interp = interpOf(
+      """def describe(n: Int): Int = n match {
+        |  case 0 => 10
+        |  case 1 => 20
+        |  case _ => 99
+        |}""".stripMargin)
+    val fn = interp.globalsView("describe").asInstanceOf[Value.FunV]
+    val reasons = JitPredicates.classifyBailReasons(fn)
+    reasons should not contain JitBailReason.NonExtractPattern
+  }
