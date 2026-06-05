@@ -146,8 +146,8 @@ Verified empirically via `./bench.sh`. New regression-guard corpus cases added:
 
 - [x] **jit-uc-stage4** — Arity 3–4 ceiling lift (code-generated dispatch interfaces).
 
-- [ ] **jit-uc-stage5-1** — Mixed Long+Double arms auto-promotion.
-- [ ] **jit-uc-stage5-2** — `var` in pure bodies (extend `walkLocalSlotCtx`).
+- [x] **jit-uc-stage5-1** — Mixed Long+Double arms auto-promotion (already handled: `bodyHasDoubleLit` classifies any fn with a Double literal as Double; `walkDouble` auto-widens Int/Long literals; no corpus `MixedReturnType` misses).
+- [x] **jit-uc-stage5-2** — `var` in pure bodies: add `Term.Assign` to `walkBlockStmts` (Javac) and delegate non-final stats to `emitStatAsVoid` in `emitBlockStmts` (ASM).
 - [x] **jit-uc-stage5-3** — `try/catch` in bodies (JVM try block + tree-walker fallback).
 - [x] **jit-uc-stage5-4** — `Pat.Alternative` / `@`-binding pattern support.
 - [x] **jit-uc-stage5-5** — Non-`Term.Name` match scrutinee (auto-hoist to local).

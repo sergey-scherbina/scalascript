@@ -1858,6 +1858,12 @@ object JavacJitBackend extends JitBackend:
             val jType = if curCtx.isDouble then "double" else "long"
             sb.append(s"$jType $jn = $e;\n      ")
             curCtx = curCtx.withBindings(Seq(n.value -> (jn, false)))
+          case Term.Assign(nm: Term.Name, rhs: Term) =>
+            val jn = curCtx.resolveLocal(nm.value)
+            if jn == null then return null
+            val e = if curCtx.isDouble then walkDouble(rhs, curCtx) else walkLong(rhs, curCtx)
+            if e == null then return null
+            sb.append(s"$jn = $e;\n      ")
           case w: Term.While =>
             val ws = walkWhileAsStmt(w, curCtx)
             if ws == null then return null

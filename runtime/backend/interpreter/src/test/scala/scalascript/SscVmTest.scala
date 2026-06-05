@@ -1740,3 +1740,40 @@ class SscVmTest extends AnyFunSuite with Matchers:
     val r = AsmJitBackend.tryCompile(fn, interp)
     r should not be null
   }
+
+  // ── Stage 5.2: var in pure bodies (Term.Assign outside while) ───────────────
+
+  test("stage5.2: end-to-end — var reassignment in pure body compiles and runs correctly") {
+    val out = captured(
+      """def addWithVar(a: Long, b: Long): Long =
+        |  var result = a
+        |  result = result + b
+        |  result
+        |println(addWithVar(3, 4))
+        |println(addWithVar(10, -1))""".stripMargin)
+    val lines = out.trim.split("\n")
+    lines(0) shouldBe "7"
+    lines(1) shouldBe "9"
+  }
+
+  test("stage5.2: Javac — var reassignment in pure body compiles") {
+    val interp = interpOf(
+      """def addWithVar(a: Long, b: Long): Long =
+        |  var result = a
+        |  result = result + b
+        |  result""".stripMargin)
+    val fn = interp.globalsView("addWithVar").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+  }
+
+  test("stage5.2: ASM — var reassignment in pure body compiles") {
+    val interp = interpOf(
+      """def addWithVar(a: Long, b: Long): Long =
+        |  var result = a
+        |  result = result + b
+        |  result""".stripMargin)
+    val fn = interp.globalsView("addWithVar").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+  }

@@ -608,22 +608,9 @@ object AsmJitBackend extends JitBackend:
             mv.visitInsn(if curCtx.isDouble then DRETURN else LRETURN)
           case _ => return false
       else
-        stat match
-          case Defn.Val(_, List(Pat.Var(n)), _, rhs: Term) =>
-            val slot = curCtx.allocSlot()
-            val ok = if curCtx.isDouble then walkDouble(rhs, curCtx, mv) else walkLong(rhs, curCtx, mv)
-            if !ok then return false
-            mv.visitVarInsn(if curCtx.isDouble then DSTORE else LSTORE, slot)
-            curCtx = curCtx.withBindings(Map(n.value -> (slot, false)))
-          case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs: Term) =>
-            val slot = curCtx.allocSlot()
-            val ok = if curCtx.isDouble then walkDouble(rhs, curCtx, mv) else walkLong(rhs, curCtx, mv)
-            if !ok then return false
-            mv.visitVarInsn(if curCtx.isDouble then DSTORE else LSTORE, slot)
-            curCtx = curCtx.withBindings(Map(n.value -> (slot, false)))
-          case w: Term.While =>
-            if !emitWhileAsStmt(w, curCtx, mv) then return false
-          case _ => return false
+        val newCtx = emitStatAsVoid(stat, curCtx, mv)
+        if newCtx == null then return false
+        curCtx = newCtx
     true
 
   private def emitFnBody(f: Value.FunV, ctx: GenCtx, interp: Interpreter,
