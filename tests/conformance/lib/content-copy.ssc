@@ -1,0 +1,25 @@
+---
+name: marketing-copy
+exports:
+  - copyVersion
+content:
+  theme:
+    density: compact
+---
+
+# Linked Content Library
+
+## Hero {#hero route=/hero}
+
+<!-- @meta id=hero-copy -->
+Launch copy for teams that want Markdown-authored frontends.
+
+```yaml @id=hero-data
+cta: Start building
+priority: 1
+```
+
+```scalascript
+def copyVersion(): Int = 7
+```
+

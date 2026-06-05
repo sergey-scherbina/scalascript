@@ -18,6 +18,12 @@ exports:
   - contentMetadata
   - contentPlainText
   - contentToMarkdown
+  - contentModules
+  - contentModule
+  - contentModuleSection
+  - contentModuleBlock
+  - contentModuleData
+  - contentModuleMetadata
 ---
 
 # `std.content` — Markdown-hosted content
@@ -84,4 +90,10 @@ extern def contentData(id: String): Option[ContentValue]
 extern def contentMetadata(path: String): Option[ContentValue]
 extern def contentPlainText(value: Any): String
 extern def contentToMarkdown(value: Any): String
+extern def contentModules(): Map[String, DocumentContent]
+extern def contentModule(namespace: String): Option[DocumentContent]
+extern def contentModuleSection(namespace: String, id: String): Option[SectionContent]
+extern def contentModuleBlock(namespace: String, id: String): Option[ContentBlock]
+extern def contentModuleData(namespace: String, id: String): Option[ContentValue]
+extern def contentModuleMetadata(namespace: String, path: String): Option[ContentValue]
 ```

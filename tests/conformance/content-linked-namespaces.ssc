@@ -1,0 +1,28 @@
+---
+name: conformance-content-linked-namespaces
+version: 1.0.0
+---
+
+# Linked Content Namespaces
+
+[copyVersion](tests/conformance/lib/content-copy.ssc)
+[fallbackVersion](tests/conformance/lib/fallback-copy.ssc)
+[ContentValue, contentModules, contentModule, contentModuleSection, contentModuleBlock, contentModuleData, contentModuleMetadata, contentPlainText](std/content.ssc)
+
+```scalascript
+val density = contentModuleMetadata("marketing-copy", "theme.density").get match
+  case ContentValue.Str(value) => value
+  case _ => "bad"
+
+println((copyVersion() + fallbackVersion()).toString)
+println(contentModules().keys.toList.sorted.mkString(", "))
+println(contentModule("marketing-copy").get.title.getOrElse(""))
+println(contentModule("fallback-copy").get.title.getOrElse(""))
+println(contentModule("content").isDefined.toString)
+println(contentModuleSection("marketing-copy", "hero").get.title)
+println(contentPlainText(contentModuleBlock("marketing-copy", "hero-copy").get))
+println(contentModuleData("marketing-copy", "hero-data").isDefined.toString)
+println(density)
+println(contentModule("missing").isDefined.toString)
+```
+

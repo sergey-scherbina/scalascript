@@ -404,7 +404,13 @@ class JsGen(
     "contentData",
     "contentMetadata",
     "contentPlainText",
-    "contentToMarkdown"
+    "contentToMarkdown",
+    "contentModules",
+    "contentModule",
+    "contentModuleSection",
+    "contentModuleBlock",
+    "contentModuleData",
+    "contentModuleMetadata"
   )
   private var contentRuntimeEnabled: Boolean = false
   private var contentSectionIndex: Int = 0
@@ -624,6 +630,17 @@ class JsGen(
    *  the second time around. */
   private val importedFiles: scala.collection.mutable.Set[String] =
     scala.collection.mutable.Set.empty
+  private val importedContentDocuments: scala.collection.mutable.Map[String, List[DocumentContent]] =
+    scala.collection.mutable.Map.empty
+
+  private def isContentStdImport(path: String): Boolean =
+    path == "std/content.ssc" || path.endsWith("std/content.ssc")
+
+  private def isContentToolkitStdImport(path: String): Boolean =
+    path == "std/ui/content.ssc" || path.endsWith("std/ui/content.ssc")
+
+  private def isContentHelperImport(path: String): Boolean =
+    isContentStdImport(path) || isContentToolkitStdImport(path)
 
   private def moduleUsesContentIntrinsics(module: Module): Boolean =
     def treeUsesContent(node: ScalaNode): Boolean =
@@ -634,8 +651,8 @@ class JsGen(
       }
 
     def importUsesContent(imp: Content.Import): Boolean =
-      imp.path.endsWith("std/content.ssc") ||
-        imp.path == "std/content.ssc" ||
+      isContentStdImport(imp.path) ||
+        isContentToolkitStdImport(imp.path) ||
         imp.bindings.exists(binding => contentIntrinsicNames(binding.name))
 
     def sectionUsesContent(section: Section): Boolean =
@@ -710,10 +727,50 @@ class JsGen(
   private def jsRawDocument(doc: DocumentContent): String =
     s"""{manifest:${jsRawContentValue(doc.manifest)},title:${jsRawOptionString(doc.title)},description:${jsRawOptionString(doc.description)},attrs:${jsRawContentMap(doc.attrs)},sections:${doc.sections.map(jsRawSection).mkString("[", ",", "]")},blocks:${doc.blocks.map(jsRawContentBlock).mkString("[", ",", "]")}}"""
 
+  private def jsRawImportedDocuments: String =
+    importedContentDocuments.toSeq.sortBy(_._1).map { (namespace, docs) =>
+      s"${jsStringLit(namespace)}:${docs.map(jsRawDocument).mkString("[", ",", "]")}"
+    }.mkString("{", ",", "}")
+
+  private def collectDirectImportedContent(module: Module): Unit =
+    importedContentDocuments.clear()
+    def loop(section: Section): Unit =
+      section.content.foreach {
+        case imp: Content.Import if !isContentHelperImport(imp.path) =>
+          resolveImportForContent(imp.path).foreach { resolved =>
+            val childModule = scalascript.parser.Parser.parse(os.read(resolved))
+            childModule.document.foreach { doc =>
+              val namespace = importedContentNamespace(resolved, childModule)
+              importedContentDocuments.update(namespace, importedContentDocuments.getOrElse(namespace, Nil) :+ doc)
+            }
+          }
+        case _ => ()
+      }
+      section.subsections.foreach(loop)
+    module.sections.foreach(loop)
+
+  private def resolveImportForContent(path: String): Option[os.Path] =
+    val base = baseDir.getOrElse(os.pwd)
+    val initiallyResolved =
+      try scalascript.imports.ImportResolver.resolve(path, base, moduleDeps, lockPath)
+      catch case _: Throwable => base / os.RelPath(path)
+    val resolved =
+      if os.exists(initiallyResolved) then initiallyResolved
+      else resolveStdImportFromProjectTree(path, base).getOrElse(initiallyResolved)
+    Option.when(os.exists(resolved))(resolved)
+
+  private def importedContentNamespace(resolvedPath: os.Path, module: Module): String =
+    module.manifest.flatMap(_.name).map(_.trim).filter(_.nonEmpty).getOrElse {
+      val last = resolvedPath.last
+      if last.endsWith(".ssc") then last.stripSuffix(".ssc") else last
+    }
+
   private def emitContentRuntime(document: Option[DocumentContent]): Unit =
     val raw = document.map(jsRawDocument).getOrElse("null")
     line(s"const __ssc_content_document_raw = $raw;")
+    line(s"const __ssc_content_imported_raw = ${jsRawImportedDocuments};")
     line("let __ssc_content_document_cache = undefined;")
+    line("let __ssc_content_imported_cache = undefined;")
     line("let __ssc_content_sections_cache = undefined;")
     line("let __ssc_content_current_section_index = null;")
     line("function __ssc_content_error(msg) { throw new Error(msg); }")
@@ -772,13 +829,40 @@ class JsGen(
     line("  if (v && typeof v === 'object') Object.freeze(v);")
     line("  return v;")
     line("}")
+    line("function __ssc_content_document_from_raw(raw) {")
+    line("  return __ssc_content_deep_freeze(std.content.DocumentContent(__ssc_content_value(raw.manifest), __ssc_content_opt(raw.title), __ssc_content_opt(raw.description), __ssc_content_attrs(raw.attrs), (raw.sections || []).map(__ssc_content_section), (raw.blocks || []).map(__ssc_content_block)));")
+    line("}")
     line("function contentDocument() {")
     line("  if (__ssc_content_document_raw == null) return __ssc_content_error('contentDocument() is only available while running a parsed .ssc module');")
     line("  if (__ssc_content_document_cache === undefined) {")
-    line("    __ssc_content_document_cache = __ssc_content_deep_freeze(std.content.DocumentContent(__ssc_content_value(__ssc_content_document_raw.manifest), __ssc_content_opt(__ssc_content_document_raw.title), __ssc_content_opt(__ssc_content_document_raw.description), __ssc_content_attrs(__ssc_content_document_raw.attrs), (__ssc_content_document_raw.sections || []).map(__ssc_content_section), (__ssc_content_document_raw.blocks || []).map(__ssc_content_block)));")
+    line("    __ssc_content_document_cache = __ssc_content_document_from_raw(__ssc_content_document_raw);")
     line("  }")
     line("  return __ssc_content_document_cache;")
     line("}")
+    line("function __ssc_content_imported_documents() {")
+    line("  if (__ssc_content_imported_cache !== undefined) return __ssc_content_imported_cache;")
+    line("  const m = new Map();")
+    line("  Object.keys(__ssc_content_imported_raw || {}).forEach(ns => m.set(ns, (__ssc_content_imported_raw[ns] || []).map(__ssc_content_document_from_raw)));")
+    line("  __ssc_content_imported_cache = m;")
+    line("  return m;")
+    line("}")
+    line("function __ssc_content_imported_unique(fn) {")
+    line("  const out = new Map();")
+    line("  __ssc_content_imported_documents().forEach((docs, ns) => {")
+    line("    if (docs.length === 0) __ssc_content_error(fn + \": empty imported content namespace '\" + ns + \"'\");")
+    line("    if (docs.length > 1) __ssc_content_error(fn + \": duplicate imported content namespace '\" + ns + \"'\");")
+    line("    out.set(ns, docs[0]);")
+    line("  });")
+    line("  return out;")
+    line("}")
+    line("function contentModules() { return __ssc_content_imported_unique('contentModules()'); }")
+    line("function __ssc_content_imported_document(namespace, fn) {")
+    line("  const docs = __ssc_content_imported_documents().get(namespace) || [];")
+    line("  if (docs.length === 0) return null;")
+    line("  if (docs.length === 1) return docs[0];")
+    line("  return __ssc_content_error(fn + \": duplicate imported content namespace '\" + namespace + \"'\");")
+    line("}")
+    line("function contentModule(namespace) { return __ssc_content_opt(__ssc_content_imported_document(namespace, 'contentModule(namespace)')); }")
     line("function __ssc_content_all_sections() {")
     line("  if (__ssc_content_sections_cache !== undefined) return __ssc_content_sections_cache;")
     line("  const out = [];")
@@ -791,6 +875,12 @@ class JsGen(
     line("  const section = __ssc_content_all_sections()[index];")
     line("  if (!section) return __ssc_content_error('contentCurrentSection: missing generated section context');")
     line("  return section;")
+    line("}")
+    line("function __ssc_content_sections_deep_doc(doc) {")
+    line("  const out = [];")
+    line("  function walk(section) { out.push(section); (section.children || []).forEach(walk); }")
+    line("  doc.sections.forEach(walk);")
+    line("  return out;")
     line("}")
     line("function contentCurrentSection() {")
     line("  if (__ssc_content_current_section_index != null) return __ssc_content_section_by_index(__ssc_content_current_section_index);")
@@ -816,14 +906,38 @@ class JsGen(
     line("  if (matches.length === 1) return Some(matches[0]);")
     line("  return __ssc_content_error(\"contentSection: duplicate section id '\" + id + \"'\");")
     line("}")
+    line("function contentModuleSection(namespace, id) {")
+    line("  const doc = __ssc_content_imported_document(namespace, 'contentModuleSection(namespace, id)');")
+    line("  if (doc == null) return None;")
+    line("  const matches = __ssc_content_sections_deep_doc(doc).filter(section => section.id === id);")
+    line("  if (matches.length === 0) return None;")
+    line("  if (matches.length === 1) return Some(matches[0]);")
+    line("  return __ssc_content_error(\"contentSection: duplicate section id '\" + id + \"'\");")
+    line("}")
     line("function contentBlock(id) {")
     line("  const matches = __ssc_content_blocks_deep(contentDocument()).filter(block => __ssc_content_string_attr(__ssc_content_block_attrs(block), 'id') === id);")
     line("  if (matches.length === 0) return None;")
     line("  if (matches.length === 1) return Some(matches[0]);")
     line("  return __ssc_content_error(\"contentBlock: duplicate block id '\" + id + \"'\");")
     line("}")
+    line("function contentModuleBlock(namespace, id) {")
+    line("  const doc = __ssc_content_imported_document(namespace, 'contentModuleBlock(namespace, id)');")
+    line("  if (doc == null) return None;")
+    line("  const matches = __ssc_content_blocks_deep(doc).filter(block => __ssc_content_string_attr(__ssc_content_block_attrs(block), 'id') === id);")
+    line("  if (matches.length === 0) return None;")
+    line("  if (matches.length === 1) return Some(matches[0]);")
+    line("  return __ssc_content_error(\"contentBlock: duplicate block id '\" + id + \"'\");")
+    line("}")
     line("function contentData(id) {")
     line("  const matches = __ssc_content_blocks_deep(contentDocument()).filter(block => block._type === 'Embedded' && block.kind && block.kind._type === 'StructuredData' && __ssc_content_string_attr(__ssc_content_block_attrs(block), 'id') === id).map(block => block.data && block.data._type === '_Some' ? block.data.value : null).filter(v => v != null);")
+    line("  if (matches.length === 0) return None;")
+    line("  if (matches.length === 1) return Some(matches[0]);")
+    line("  return __ssc_content_error(\"contentData: duplicate structured data id '\" + id + \"'\");")
+    line("}")
+    line("function contentModuleData(namespace, id) {")
+    line("  const doc = __ssc_content_imported_document(namespace, 'contentModuleData(namespace, id)');")
+    line("  if (doc == null) return None;")
+    line("  const matches = __ssc_content_blocks_deep(doc).filter(block => block._type === 'Embedded' && block.kind && block.kind._type === 'StructuredData' && __ssc_content_string_attr(__ssc_content_block_attrs(block), 'id') === id).map(block => block.data && block.data._type === '_Some' ? block.data.value : null).filter(v => v != null);")
     line("  if (matches.length === 0) return None;")
     line("  if (matches.length === 1) return Some(matches[0]);")
     line("  return __ssc_content_error(\"contentData: duplicate structured data id '\" + id + \"'\");")
@@ -841,6 +955,15 @@ class JsGen(
     line("}")
     line("function contentMetadata(path) {")
     line("  const manifest = contentDocument().manifest;")
+    line("  const root = manifest && manifest._type === 'MapV' ? manifest.values.get('content') : undefined;")
+    line("  if (root === undefined) return None;")
+    line("  const value = __ssc_content_metadata_path(root, __ssc_content_metadata_segments(path));")
+    line("  return value == null ? None : Some(value);")
+    line("}")
+    line("function contentModuleMetadata(namespace, path) {")
+    line("  const doc = __ssc_content_imported_document(namespace, 'contentModuleMetadata(namespace, path)');")
+    line("  if (doc == null) return None;")
+    line("  const manifest = doc.manifest;")
     line("  const root = manifest && manifest._type === 'MapV' ? manifest.values.get('content') : undefined;")
     line("  if (root === undefined) return None;")
     line("  const value = __ssc_content_metadata_path(root, __ssc_content_metadata_segments(path));")
@@ -1025,6 +1148,7 @@ class JsGen(
     scanForAwaitClient(module)
     scanForStreams(module)
     contentRuntimeEnabled = moduleUsesContentIntrinsics(module)
+    if contentRuntimeEnabled then collectDirectImportedContent(module) else importedContentDocuments.clear()
     contentSectionIndex = 0
     // v1.27 Phase 3 — sql state.  Reset every module to keep `genModule`
     // re-entrant; emit preamble once when at least one sql block is
@@ -1689,6 +1813,7 @@ class JsGen(
     scanForAwaitClient(module)
     scanForStreams(module)
     contentRuntimeEnabled = moduleUsesContentIntrinsics(module)
+    if contentRuntimeEnabled then collectDirectImportedContent(module) else importedContentDocuments.clear()
     contentSectionIndex = 0
     // Emit `route(...)` registrations from front-matter before user blocks,
     // so a typical user-side `serve(port)` (last statement of the script)

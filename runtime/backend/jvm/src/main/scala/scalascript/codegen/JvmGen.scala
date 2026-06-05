@@ -180,6 +180,7 @@ class JvmGen(
   // Resolved paths of files already inlined via Content.Import, so a diamond
   // import doesn't emit the same definitions twice.
   private val importedFiles = mutable.Set.empty[String]
+  private val importedContentDocuments = mutable.Map.empty[String, List[DocumentContent]]
   // v1.26 — sequential counter driving emitted `_sqlBlock_<N>` value names,
   // and per-section book-keeping so only the first sql block in each section
   // gets the friendly `<sectionId>.sql` alias (Phase 6.C, mirrors Spark
@@ -194,7 +195,13 @@ class JvmGen(
     "contentData",
     "contentMetadata",
     "contentPlainText",
-    "contentToMarkdown"
+    "contentToMarkdown",
+    "contentModules",
+    "contentModule",
+    "contentModuleSection",
+    "contentModuleBlock",
+    "contentModuleData",
+    "contentModuleMetadata"
   )
   private val contentToolkitIntrinsicNames: Set[String] = Set(
     "contentToolkitNode",
@@ -284,6 +291,9 @@ class JvmGen(
 
   private def isContentToolkitStdImport(path: String): Boolean =
     path == "std/ui/content.ssc" || path.endsWith("std/ui/content.ssc")
+
+  private def isContentHelperImport(path: String): Boolean =
+    isContentStdImport(path) || isContentToolkitStdImport(path)
 
   private def moduleUsesContentNames(module: Module, names: Set[String], includeStdContentImport: Boolean, includeToolkitImport: Boolean): Boolean =
     def treeUsesContent(node: ScalaNode): Boolean =
@@ -393,13 +403,55 @@ class JvmGen(
   private def scalaDocumentExpr(doc: DocumentContent): String =
     s"std.content.DocumentContent(${scalaContentValueExpr(doc.manifest)}, ${scalaOptionStringExpr(doc.title)}, ${scalaOptionStringExpr(doc.description)}, ${scalaContentValueMapExpr(doc.attrs)}, ${scalaSectionListExpr(doc.sections)}, ${scalaBlockListExpr(doc.blocks)})"
 
+  private def scalaImportedDocumentsExpr: String =
+    if importedContentDocuments.isEmpty then "Map.empty[String, List[std.content.DocumentContent]]"
+    else
+      importedContentDocuments.toSeq.sortBy(_._1).map { (namespace, docs) =>
+        val docsExpr =
+          if docs.isEmpty then "List.empty[std.content.DocumentContent]"
+          else docs.map(scalaDocumentExpr).mkString("List(", ", ", ")")
+        s"${scalaStringLiteral(namespace)} -> $docsExpr"
+      }.mkString("Map(", ", ", ")")
+
+  private def collectDirectImportedContent(module: Module): Unit =
+    importedContentDocuments.clear()
+    def loop(section: Section): Unit =
+      section.content.foreach {
+        case imp: Content.Import if !isContentHelperImport(imp.path) =>
+          resolveImportForContent(imp.path).foreach { resolved =>
+            val childModule = scalascript.parser.Parser.parse(os.read(resolved))
+            childModule.document.foreach { doc =>
+              val namespace = importedContentNamespace(resolved, childModule)
+              importedContentDocuments.update(namespace, importedContentDocuments.getOrElse(namespace, Nil) :+ doc)
+            }
+          }
+        case _ => ()
+      }
+      section.subsections.foreach(loop)
+    module.sections.foreach(loop)
+
+  private def resolveImportForContent(path: String): Option[os.Path] =
+    val base = baseDir.getOrElse(os.pwd)
+    val resolved =
+      try scalascript.imports.ImportResolver.resolve(path, base, moduleDeps, lockPath)
+      catch case _: Throwable => base / os.RelPath(path)
+    Option.when(os.exists(resolved))(resolved)
+
+  private def importedContentNamespace(resolvedPath: os.Path, module: Module): String =
+    module.manifest.flatMap(_.name).map(_.trim).filter(_.nonEmpty).getOrElse {
+      val last = resolvedPath.last
+      if last.endsWith(".ssc") then last.stripSuffix(".ssc") else last
+    }
+
   private def emitContentRuntime(document: Option[DocumentContent], includeToolkit: Boolean): String =
     val docExpr = document
       .map(scalaDocumentExpr)
       .getOrElse("""throw RuntimeException("contentDocument() is only available while running a parsed .ssc module")""")
+    val importedDocsExpr = scalaImportedDocumentsExpr
     s"""
        |var _ssc_content_current_section_index: Option[Int] = None
        |lazy val _ssc_content_document: std.content.DocumentContent = $docExpr
+       |lazy val _ssc_content_imported_documents: Map[String, List[std.content.DocumentContent]] = $importedDocsExpr
        |
        |def _ssc_content_flatten_sections(sections: List[std.content.SectionContent]): List[std.content.SectionContent] =
        |  sections.flatMap(section => section :: _ssc_content_flatten_sections(section.children))
@@ -414,6 +466,25 @@ class JvmGen(
        |
        |def contentDocument(): std.content.DocumentContent = _ssc_content_document
        |
+       |def _ssc_content_imported_unique(fn: String): Map[String, std.content.DocumentContent] =
+       |  _ssc_content_imported_documents.map {
+       |    case (namespace, doc :: Nil) => namespace -> doc
+       |    case (namespace, Nil) => throw RuntimeException(s"$$fn: empty imported content namespace '$$namespace'")
+       |    case (namespace, _) => throw RuntimeException(s"$$fn: duplicate imported content namespace '$$namespace'")
+       |  }
+       |
+       |def contentModules(): Map[String, std.content.DocumentContent] =
+       |  _ssc_content_imported_unique("contentModules()")
+       |
+       |def _ssc_content_imported_document(namespace: String, fn: String): Option[std.content.DocumentContent] =
+       |  _ssc_content_imported_documents.get(namespace) match
+       |    case None | Some(Nil) => None
+       |    case Some(doc :: Nil) => Some(doc)
+       |    case Some(_) => throw RuntimeException(s"$$fn: duplicate imported content namespace '$$namespace'")
+       |
+       |def contentModule(namespace: String): Option[std.content.DocumentContent] =
+       |  _ssc_content_imported_document(namespace, "contentModule(namespace)")
+       |
        |def contentCurrentSection(): std.content.SectionContent =
        |  _ssc_content_current_section_index.map(_ssc_content_section_by_index).getOrElse(
        |    throw RuntimeException("contentCurrentSection() is only available while running a parsed .ssc code block inside a Markdown section")
@@ -421,6 +492,9 @@ class JvmGen(
        |
        |def _ssc_content_sections_deep(section: std.content.SectionContent): List[std.content.SectionContent] =
        |  section :: section.children.flatMap(_ssc_content_sections_deep)
+       |
+       |def _ssc_content_sections_deep(doc: std.content.DocumentContent): List[std.content.SectionContent] =
+       |  doc.sections.flatMap(_ssc_content_sections_deep)
        |
        |def _ssc_content_blocks_deep(block: std.content.ContentBlock): List[std.content.ContentBlock] =
        |  block match
@@ -454,12 +528,29 @@ class JvmGen(
        |    case section :: Nil => Some(section)
        |    case _ => throw RuntimeException(s"contentSection: duplicate section id '$$id'")
        |
+       |def contentModuleSection(namespace: String, id: String): Option[std.content.SectionContent] =
+       |  _ssc_content_imported_document(namespace, "contentModuleSection(namespace, id)").flatMap { doc =>
+       |    _ssc_content_sections_deep(doc).filter(_.id == id) match
+       |      case Nil => None
+       |      case section :: Nil => Some(section)
+       |      case _ => throw RuntimeException(s"contentSection: duplicate section id '$$id'")
+       |  }
+       |
        |def contentBlock(id: String): Option[std.content.ContentBlock] =
        |  _ssc_content_blocks_deep(_ssc_content_document)
        |    .filter(block => _ssc_content_string_attr(_ssc_content_block_attrs(block), "id").contains(id)) match
        |      case Nil => None
        |      case block :: Nil => Some(block)
        |      case _ => throw RuntimeException(s"contentBlock: duplicate block id '$$id'")
+       |
+       |def contentModuleBlock(namespace: String, id: String): Option[std.content.ContentBlock] =
+       |  _ssc_content_imported_document(namespace, "contentModuleBlock(namespace, id)").flatMap { doc =>
+       |    _ssc_content_blocks_deep(doc)
+       |      .filter(block => _ssc_content_string_attr(_ssc_content_block_attrs(block), "id").contains(id)) match
+       |        case Nil => None
+       |        case block :: Nil => Some(block)
+       |        case _ => throw RuntimeException(s"contentBlock: duplicate block id '$$id'")
+       |  }
        |
        |def contentData(id: String): Option[std.content.ContentValue] =
        |  val matches = _ssc_content_blocks_deep(_ssc_content_document).collect {
@@ -471,6 +562,20 @@ class JvmGen(
        |    case Nil => None
        |    case value :: Nil => Some(value)
        |    case _ => throw RuntimeException(s"contentData: duplicate structured data id '$$id'")
+       |
+       |def contentModuleData(namespace: String, id: String): Option[std.content.ContentValue] =
+       |  val doc = _ssc_content_imported_document(namespace, "contentModuleData(namespace, id)")
+       |  doc.flatMap { selected =>
+       |    val matches = _ssc_content_blocks_deep(selected).collect {
+       |      case block @ std.content.ContentBlock.Embedded(_, _, std.content.EmbeddedKind.StructuredData, Some(data), _)
+       |          if _ssc_content_string_attr(_ssc_content_block_attrs(block), "id").contains(id) =>
+       |        data
+       |    }
+       |    matches match
+       |      case Nil => None
+       |      case value :: Nil => Some(value)
+       |      case _ => throw RuntimeException(s"contentData: duplicate structured data id '$$id'")
+       |  }
        |
        |def _ssc_content_metadata_segments(path: String): List[String] =
        |  val trimmed = path.trim
@@ -494,6 +599,15 @@ class JvmGen(
        |      root.get("content").flatMap(value => _ssc_content_metadata_path(value, _ssc_content_metadata_segments(path)))
        |    case _ =>
        |      None
+       |
+       |def contentModuleMetadata(namespace: String, path: String): Option[std.content.ContentValue] =
+       |  _ssc_content_imported_document(namespace, "contentModuleMetadata(namespace, path)").flatMap { doc =>
+       |    doc.manifest match
+       |      case std.content.ContentValue.MapV(root) =>
+       |        root.get("content").flatMap(value => _ssc_content_metadata_path(value, _ssc_content_metadata_segments(path)))
+       |      case _ =>
+       |        None
+       |  }
        |
        |def contentPlainText(value: Any): String =
        |  value match
@@ -879,6 +993,7 @@ class JvmGen(
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     contentRuntimeEnabled = moduleUsesContentIntrinsics(module)
     contentToolkitRuntimeEnabled = moduleUsesContentToolkitIntrinsics(module)
+    if contentRuntimeEnabled then collectDirectImportedContent(module) else importedContentDocuments.clear()
     contentSectionIndex = 0
     // Collect blocks first — including those pulled in by `[..](./x.ssc)`
     // imports — so the effect / mutual-TCO analysis sees the full picture.
@@ -1811,6 +1926,7 @@ class JvmGen(
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     contentRuntimeEnabled = moduleUsesContentIntrinsics(module)
     contentToolkitRuntimeEnabled = moduleUsesContentToolkitIntrinsics(module)
+    if contentRuntimeEnabled then collectDirectImportedContent(module) else importedContentDocuments.clear()
     contentSectionIndex = 0
     val blocks = collectBlocks(module.sections, module.document.map(_.sections).getOrElse(Nil))
     analyzeDepEffectfulness()

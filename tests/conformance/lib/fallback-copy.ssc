@@ -1,0 +1,11 @@
+---
+exports:
+  - fallbackVersion
+---
+
+# Fallback Copy
+
+```scalascript
+def fallbackVersion(): Int = 5
+```
+

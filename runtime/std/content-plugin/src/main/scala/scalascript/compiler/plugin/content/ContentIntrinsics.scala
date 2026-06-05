@@ -63,6 +63,48 @@ object ContentIntrinsics:
         case value :: Nil => contentToMarkdownAny(value)
         case _            => throw InterpretError("contentToMarkdown(value)")
     },
+    QualifiedName("contentModules") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case Nil =>
+          Value.MapV(uniqueImportedDocuments(ctx, "contentModules()").map {
+            case (namespace, doc) => Value.StringV(namespace) -> documentValue(doc)
+          })
+        case _ => throw InterpretError("contentModules()")
+    },
+    QualifiedName("contentModule") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case (namespace: String) :: Nil =>
+          Value.optionV(importedDocument(ctx, namespace, "contentModule(namespace)").map(documentValue))
+        case _ => throw InterpretError("contentModule(namespace)")
+    },
+    QualifiedName("contentModuleSection") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case (namespace: String) :: (id: String) :: Nil =>
+          Value.optionV(importedDocument(ctx, namespace, "contentModuleSection(namespace, id)").flatMap(doc =>
+            contentSectionById(doc, id).map(sectionValue)))
+        case _ => throw InterpretError("contentModuleSection(namespace, id)")
+    },
+    QualifiedName("contentModuleBlock") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case (namespace: String) :: (id: String) :: Nil =>
+          Value.optionV(importedDocument(ctx, namespace, "contentModuleBlock(namespace, id)").flatMap(doc =>
+            contentBlockById(doc, id).map(blockValue)))
+        case _ => throw InterpretError("contentModuleBlock(namespace, id)")
+    },
+    QualifiedName("contentModuleData") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case (namespace: String) :: (id: String) :: Nil =>
+          Value.optionV(importedDocument(ctx, namespace, "contentModuleData(namespace, id)").flatMap(doc =>
+            contentDataById(doc, id).map(contentValue)))
+        case _ => throw InterpretError("contentModuleData(namespace, id)")
+    },
+    QualifiedName("contentModuleMetadata") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case (namespace: String) :: (path: String) :: Nil =>
+          Value.optionV(importedDocument(ctx, namespace, "contentModuleMetadata(namespace, path)").flatMap(doc =>
+            contentMetadataPath(doc, path).map(contentValue)))
+        case _ => throw InterpretError("contentModuleMetadata(namespace, path)")
+    },
     QualifiedName("contentToolkitNode") -> PluginNative.evalLegacy { (ctx, args) =>
       val options = args match
         case Nil      => ToolkitOptions()
@@ -96,6 +138,30 @@ object ContentIntrinsics:
     ctx.featureGet(NativeContextFeatureKeys.ContentDocument) match
       case Some(doc: ast.DocumentContent) => doc
       case _ => throw InterpretError(s"$fn is only available while running a parsed .ssc module")
+
+  private def importedDocumentTable(ctx: PluginContext): Map[String, List[ast.DocumentContent]] =
+    ctx.featureGet(NativeContextFeatureKeys.ContentImportedModules) match
+      case Some(table: Map[?, ?]) =>
+        table.toList.collect {
+          case (namespace: String, docs: List[?]) =>
+            namespace -> docs.collect { case doc: ast.DocumentContent => doc }
+        }.toMap
+      case _ => Map.empty
+
+  private def uniqueImportedDocuments(ctx: PluginContext, fn: String): Map[String, ast.DocumentContent] =
+    importedDocumentTable(ctx).map {
+      case (namespace, doc :: Nil) => namespace -> doc
+      case (namespace, Nil) =>
+        throw InterpretError(s"$fn: empty imported content namespace '$namespace'")
+      case (namespace, _) =>
+        throw InterpretError(s"$fn: duplicate imported content namespace '$namespace'")
+    }
+
+  private def importedDocument(ctx: PluginContext, namespace: String, fn: String): Option[ast.DocumentContent] =
+    importedDocumentTable(ctx).get(namespace) match
+      case None | Some(Nil) => None
+      case Some(doc :: Nil) => Some(doc)
+      case Some(_)          => throw InterpretError(s"$fn: duplicate imported content namespace '$namespace'")
 
   private def toolkitSelectorArgs(fn: String, args: List[Any]): (String, ToolkitOptions) =
     args match

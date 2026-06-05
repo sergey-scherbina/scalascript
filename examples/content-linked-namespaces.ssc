@@ -1,0 +1,20 @@
+---
+name: content-linked-namespaces-example
+---
+
+# Imported Markdown Content
+
+[money, minorUnits](std/money.ssc)
+[contentModuleSection](std/content.ssc)
+
+```scalascript
+val section =
+  contentModuleSection(
+    "std-money",
+    "minor-units-integer-count-of-the-smallest-unit-e-g-cents"
+  ).get
+
+println(section.title)
+println(minorUnits(money("12.34", "USD")).toString)
+```
+

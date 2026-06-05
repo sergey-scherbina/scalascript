@@ -54,6 +54,7 @@ object NativeContextFeatureKeys:
   val OpenApiSchemaComponents = "scalascript.openapi.schemaComponents"
   val UuidFixed              = "scalascript.uuid.fixed"
   val ContentDocument        = "scalascript.content.document"
+  val ContentImportedModules = "scalascript.content.importedModules"
   val ContentCurrentSection  = "scalascript.content.currentSection"
 
 object OpenApiDryRun:

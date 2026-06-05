@@ -266,8 +266,11 @@ private[interpreter] object SectionRuntime:
     if !os.exists(resolvedPath) then
       throw InterpretError(s"Import not found: ${imp.path}")
     val childDir = resolvedPath / os.up
+    val childModule = Parser.parse(os.read(resolvedPath))
     val child    = Interpreter(interp.out, Some(childDir), lockPath = interp.lockPath)
-    child.run(Parser.parse(os.read(resolvedPath)))
+    child.run(childModule)
+    if !isContentHelperImport(imp.path) then
+      registerImportedContent(interp, resolvedPath, childModule)
     val exported    = child.exportedGlobals
     val childPkg    = child.exportedPkg
     // Snapshot all child globals so exported FunVs can reference sibling imports
@@ -304,6 +307,30 @@ private[interpreter] object SectionRuntime:
     for (name, value) <- childCtx do
       if !interp.globals.contains(name) then
         interp.globals(name) = value
+
+  private def registerImportedContent(interp: Interpreter, resolvedPath: os.Path, childModule: Module): Unit =
+    childModule.document.foreach { doc =>
+      val namespace = importedContentNamespace(resolvedPath, childModule)
+      val key = NativeContextFeatureKeys.ContentImportedModules
+      val current = interp.nativeFeatureGet(key).collect {
+        case table: Map[?, ?] =>
+          table.toList.collect {
+            case (ns: String, docs: List[?]) =>
+              ns -> docs.collect { case d: DocumentContent => d }
+          }.toMap
+      }.getOrElse(Map.empty[String, List[DocumentContent]])
+      interp.nativeFeatureSet(key, current.updated(namespace, current.getOrElse(namespace, Nil) :+ doc))
+    }
+
+  private def importedContentNamespace(resolvedPath: os.Path, childModule: Module): String =
+    childModule.manifest.flatMap(_.name).map(_.trim).filter(_.nonEmpty).getOrElse {
+      val last = resolvedPath.last
+      if last.endsWith(".ssc") then last.stripSuffix(".ssc") else last
+    }
+
+  private def isContentHelperImport(path: String): Boolean =
+    path == "std/content.ssc" || path.endsWith("std/content.ssc") ||
+      path == "std/ui/content.ssc" || path.endsWith("std/ui/content.ssc")
 
   private def rebindPluginNative(
       sourceName: String,

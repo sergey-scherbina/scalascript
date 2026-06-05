@@ -12,7 +12,13 @@ private object ContentCodegenIntrinsics:
     "contentData",
     "contentMetadata",
     "contentPlainText",
-    "contentToMarkdown"
+    "contentToMarkdown",
+    "contentModules",
+    "contentModule",
+    "contentModuleSection",
+    "contentModuleBlock",
+    "contentModuleData",
+    "contentModuleMetadata"
   )
 
   private val toolkitHelperNames = List(

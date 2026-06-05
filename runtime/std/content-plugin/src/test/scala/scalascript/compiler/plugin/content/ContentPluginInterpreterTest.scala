@@ -453,6 +453,230 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
       interp.run(Parser.parse(source))
     assert(err.getMessage.contains("contentMetadata: path must be non-empty dot-separated segments"))
 
+  test("contentModules ignores std content helper imports"):
+    val source =
+      """# Demo
+        |
+        |[contentModules, contentModule](std/content.ssc)
+        |```scala
+        |val modules = contentModules()
+        |List(
+        |  modules.size.toString,
+        |  contentModule("missing").isDefined.toString,
+        |  contentModule("content").isDefined.toString
+        |)
+        |```
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    interp.run(Parser.parse(source))
+
+    interp.lastResult match
+      case Value.ListV(List(Value.StringV("0"), Value.StringV("false"), Value.StringV("false"))) =>
+        succeed
+      case other =>
+        fail(s"expected empty helper-filtered imported content modules, got $other")
+
+  test("contentModule exposes named and path-stem direct imports"):
+    val dir = os.temp.dir(prefix = "ssc-linked-content-")
+    os.write(dir / "named.ssc",
+      """---
+        |name: marketing-copy
+        |exports:
+        |  - copyVersion
+        |content:
+        |  theme:
+        |    density: compact
+        |---
+        |
+        |# Linked Content Library
+        |
+        |## Hero {#hero}
+        |
+        |<!-- @meta id=hero-copy -->
+        |Launch copy from a direct import.
+        |
+        |```yaml @id=hero-data
+        |cta: Start
+        |```
+        |
+        |```scalascript
+        |def copyVersion(): Int = 7
+        |```
+        |""".stripMargin)
+    os.write(dir / "fallback.ssc",
+      """---
+        |exports:
+        |  - fallbackVersion
+        |---
+        |
+        |# Fallback Copy
+        |
+        |```scalascript
+        |def fallbackVersion(): Int = 5
+        |```
+        |""".stripMargin)
+    val source =
+      """# Main
+        |
+        |[copyVersion](named.ssc)
+        |[fallbackVersion](fallback.ssc)
+        |[ContentValue, contentModules, contentModule, contentModuleSection, contentModuleBlock, contentModuleData, contentModuleMetadata, contentPlainText](std/content.ssc)
+        |
+        |```scala
+        |val density = contentModuleMetadata("marketing-copy", "theme.density").get match
+        |  case ContentValue.Str(value) => value
+        |  case _ => "bad"
+        |
+        |List(
+        |  (copyVersion() + fallbackVersion()).toString,
+        |  contentModules().keys.toList.sorted.mkString(", "),
+        |  contentModule("marketing-copy").get.title.getOrElse(""),
+        |  contentModule("fallback").get.title.getOrElse(""),
+        |  contentModuleSection("marketing-copy", "hero").get.title,
+        |  contentPlainText(contentModuleBlock("marketing-copy", "hero-copy").get),
+        |  contentModuleData("marketing-copy", "hero-data").isDefined.toString,
+        |  density,
+        |  contentModule("missing").isDefined.toString
+        |)
+        |```
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(dir)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    interp.run(Parser.parse(source))
+
+    interp.lastResult match
+      case Value.ListV(values) =>
+        val strings = values.collect { case Value.StringV(value) => value }
+        assert(strings == List(
+          "12",
+          "fallback, marketing-copy",
+          "Linked Content Library",
+          "Fallback Copy",
+          "Hero",
+          "Launch copy from a direct import.",
+          "true",
+          "compact",
+          "false"
+        ))
+      case other =>
+        fail(s"expected linked content namespace results, got $other")
+
+  test("contentModule reports duplicate direct import namespaces deterministically"):
+    val dir = os.temp.dir(prefix = "ssc-linked-content-duplicates-")
+    os.write(dir / "first.ssc",
+      """---
+        |name: same-copy
+        |exports:
+        |  - first
+        |---
+        |
+        |# First
+        |
+        |```scalascript
+        |def first(): Int = 1
+        |```
+        |""".stripMargin)
+    os.write(dir / "second.ssc",
+      """---
+        |name: same-copy
+        |exports:
+        |  - second
+        |---
+        |
+        |# Second
+        |
+        |```scalascript
+        |def second(): Int = 2
+        |```
+        |""".stripMargin)
+    val source =
+      """# Main
+        |
+        |[first](first.ssc)
+        |[second](second.ssc)
+        |[contentModule](std/content.ssc)
+        |
+        |```scala
+        |contentModule("same-copy")
+        |```
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(dir)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    val err = intercept[InterpretError]:
+      interp.run(Parser.parse(source))
+    assert(err.getMessage.contains("contentModule(namespace): duplicate imported content namespace 'same-copy'"))
+
+  test("contentModule exposes direct imports only, not transitive imports"):
+    val dir = os.temp.dir(prefix = "ssc-linked-content-transitive-")
+    os.write(dir / "grand.ssc",
+      """---
+        |name: grand-copy
+        |exports:
+        |  - grand
+        |---
+        |
+        |# Grand
+        |
+        |```scalascript
+        |def grand(): Int = 3
+        |```
+        |""".stripMargin)
+    os.write(dir / "child.ssc",
+      """---
+        |name: child-copy
+        |exports:
+        |  - child
+        |---
+        |
+        |# Child
+        |
+        |[grand](grand.ssc)
+        |
+        |```scalascript
+        |def child(): Int = grand()
+        |```
+        |""".stripMargin)
+    val source =
+      """# Main
+        |
+        |[child](child.ssc)
+        |[contentModule](std/content.ssc)
+        |
+        |```scala
+        |List(
+        |  child().toString,
+        |  contentModule("child-copy").isDefined.toString,
+        |  contentModule("grand-copy").isDefined.toString
+        |)
+        |```
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(dir)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    interp.run(Parser.parse(source))
+
+    interp.lastResult match
+      case Value.ListV(List(Value.StringV("3"), Value.StringV("true"), Value.StringV("false"))) =>
+        succeed
+      case other =>
+        fail(s"expected direct-only linked content namespace results, got $other")
+
   test("contentData reports duplicate structured data ids"):
     val source =
       """---

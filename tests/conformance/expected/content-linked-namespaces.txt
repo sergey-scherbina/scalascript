@@ -1,0 +1,10 @@
+12
+fallback-copy, marketing-copy
+Linked Content Library
+Fallback Copy
+false
+Hero
+Launch copy for teams that want Markdown-authored frontends.
+true
+compact
+false
