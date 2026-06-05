@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(language): Markdown content data binding
+
+- **markdown-content-data-binding** — Added `contentData(id)` for interpreter
+  lookup of fenced YAML/JSON/TOML data by explicit `@id`, and connected
+  `data=<id>` metadata to `ContentComponentContext.data` for registered
+  `std/ui` toolkit components. Missing data references yield `None`; duplicate
+  structured data ids report an interpreter error.
+
 ## 2026-06-05 — feat(language): Markdown content component registry
 
 - **markdown-content-component-registry** — Added explicit
