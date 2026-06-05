@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(jit): pattern guard support in match sub-expressions
+
+- **jit-uc-stage6-pattern-guard** — Guards in match used as sub-expressions
+  (val binding, if-condition etc.) now compile on both Javac and ASM backends.
+  `walkMatchExpr` adds `hasAnyGuard` if-chain path mirroring existing guard path
+  in `walkMatchBody`. 118 SscVmTest pass + new stage6-pattern-guard test.
+
+---
+
 ## 2026-06-05 — feat(language): Markdown toolkit links
 
 - **markdown-toolkit-links** — Added ordinary Markdown `toolkit:` links for

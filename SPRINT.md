@@ -185,9 +185,11 @@ Each item: one commit + bench A/B. Run `SSC_JIT_STATS=1 sbt "backendInterpreter/
       to fall into `walkBool` fallback which generated COMPUTE_FRAMES-incompatible dead
       labels. Also fixed dead `GOTO Lend` in `walkBool(Term.If)` when thenp always jumps.
 
-- [ ] **jit-uc-stage6-pattern-guard** — Emit `PatternGuard` (8 misses): guard
-      expression as a conditional jump after pattern extraction. Both bytecode
-      backends. `walkForBailCliffs` already classifies these — just implement emission.
+- [x] **jit-uc-stage6-pattern-guard** — Guards in match sub-expressions (val RHS,
+      if-branch etc.) now compile. `walkMatchExpr` in both backends adds `hasAnyGuard`
+      if-chain path via `walkArmAsIfBranch`/`emitArmBodyGuarded`. Remaining 8 PatternGuard
+      misses have complex guard conditions (`walkBool` can't compile them) — see
+      `jit-uc-stage6-bool-body-ext`.
 
 - [ ] **jit-uc-stage6-bool-body-ext** — Extend `walkBool` for `BoolBody` (7 misses):
       add `Term.Block(single-expr)`, `Term.Match` (bool-returning arms),
