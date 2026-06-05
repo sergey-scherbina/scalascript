@@ -19,10 +19,11 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       interpreter `contentSection(id)` / `contentBlock(id)` /
       `contentPlainText(value)` lookup and text extraction (2026-06-05),
       interpreter `contentMetadata(path)` lookup for `content:` front-matter
-      defaults (2026-06-05), and
+      defaults (2026-06-05), interpreter `contentCurrentSection()` lookup for
+      the executing code block's enclosing Markdown section (2026-06-05), and
       `contentView(...)` low-level frontend lowering. The follow-up work is
       JS/JVM native context wiring for the landed interpreter helpers,
-      `contentCurrentSection`, `contentToMarkdown`, then un-pend
+      `contentToMarkdown`, then un-pend
       `tests/conformance/content-introspection.ssc`. `.scir` / `.sscc`
       round-trip and multi-link import paragraphs follow as later slices.
 

@@ -1,6 +1,0 @@
-feature/markdown-content-current-section 2026-06-05T06:02:49Z
-agent: codex
-heartbeat: 2026-06-05T06:08:39Z
-status: in-progress
-done-so-far: focused spec committed on feature branch (82b3d34d)
-next: implement current-section context and content plugin intrinsic

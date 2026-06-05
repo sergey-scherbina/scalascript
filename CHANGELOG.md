@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(language): Markdown content current section
+
+- **markdown-content-current-section** — Added interpreter
+  `contentCurrentSection(): SectionContent` for the currently executing code
+  block's enclosing Markdown section. The helper returns explicit/generated
+  ids, heading attrs, sibling prose/list blocks, and execution-time caller
+  context for functions; headingless code reports an interpreter error rather
+  than reusing stale section state.
+
 ## 2026-06-05 — feat(language): Markdown content metadata lookup
 
 - **markdown-content-metadata** — Added interpreter

@@ -12,25 +12,19 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 Broad spec exists:
 [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md).
-Focused slice spec already exists only for the landed lookup/plain-text work:
-[`specs/markdown-content-lookup-plaintext.md`](specs/markdown-content-lookup-plaintext.md).
+Focused slice specs already exist for landed lookup/plain-text, metadata, and
+current-section work:
+[`specs/markdown-content-lookup-plaintext.md`](specs/markdown-content-lookup-plaintext.md),
+[`specs/markdown-content-metadata.md`](specs/markdown-content-metadata.md),
+and
+[`specs/markdown-content-current-section.md`](specs/markdown-content-current-section.md).
 For the next slices, write and commit the focused spec first, then implement.
-
-- [ ] **markdown-content-current-section-spec** - Write
-      `specs/markdown-content-current-section.md`. Decide how parser/runtime
-      records the calling code block's enclosing section, what happens at
-      document top-level, and how sibling blocks are represented.
-
-- [ ] **markdown-content-current-section** - Implement interpreter
-      `contentCurrentSection(): SectionContent` using the committed spec.
-      Cover nested sections, top-level code blocks, and stable behavior when a
-      section contains both Markdown prose and executable code.
 
 - [ ] **markdown-content-backend-exposure-spec** - Write
       `specs/markdown-content-backend-exposure.md` for JS/JVM native-context
       exposure of the landed interpreter helpers: `contentDocument`,
       `contentData`, `contentSection`, `contentBlock`, `contentPlainText`, and
-      `contentMetadata`, and eventually `contentCurrentSection`.
+      `contentMetadata`, and `contentCurrentSection`.
 
 - [ ] **markdown-content-backend-exposure** - Implement JS/JVM exposure for the
       landed `std/content` helper set, then un-pend or replace
