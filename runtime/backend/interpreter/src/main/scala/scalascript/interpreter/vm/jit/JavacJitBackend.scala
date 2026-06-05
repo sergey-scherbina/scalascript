@@ -402,21 +402,39 @@ object JavacJitBackend extends JitBackend:
     val sig =
       if fnName == ctx.funName then MethodSig(ctx.paramNames, ctx.paramIsRef, ctx.isDouble)
       else ensureCoEmittedLong(fnName, ctx)
-    if sig == null || sig.isDouble || args.length != sig.paramNames.length then return null
-    val sb = new StringBuilder
-    sb.append(sanitize(fnName)).append('(')
-    var i = 0
-    var rem = args
-    while rem.nonEmpty do
-      if i > 0 then sb.append(", ")
-      val argStr =
-        if sig.paramIsRef(i) then walkRef(rem.head, ctx)
-        else walkLong(rem.head, ctx)
-      if argStr == null then return null
-      sb.append(argStr)
-      i += 1
-      rem = rem.tail
-    sb.append(')').toString
+    if sig != null && !sig.isDouble && args.length == sig.paramNames.length then
+      val sb = new StringBuilder
+      sb.append(sanitize(fnName)).append('(')
+      var i = 0
+      var rem = args
+      while rem.nonEmpty do
+        if i > 0 then sb.append(", ")
+        val argStr =
+          if sig.paramIsRef(i) then walkRef(rem.head, ctx)
+          else walkLong(rem.head, ctx)
+        if argStr == null then return null
+        sb.append(argStr)
+        i += 1
+        rem = rem.tail
+      return sb.append(')').toString
+    // Co-emit failed. If the callee is a global FunV with all-Long params,
+    // fall back to JitGlobals.callGlobalLong1/2 so the CALLER can still JIT.
+    if fnName == ctx.funName then return null  // self-recursion must co-emit
+    val n = args.length
+    if n < 1 || n > 2 then return null
+    ctx.interp.globals.getOrElse(fnName, null) match
+      case fn: Value.FunV if fn.params.length == n && fn.usingParams.isEmpty =>
+        val paramIsRef = classifyParamRefs(fn)
+        if paramIsRef.exists(identity) then return null  // ref params → different dispatch
+        val argExprs = new Array[String](n)
+        var i = 0; var rem = args
+        while rem.nonEmpty do
+          val e = walkLong(rem.head, ctx); if e == null then return null
+          argExprs(i) = e; i += 1; rem = rem.tail
+        val jkg = "scalascript.interpreter.vm.jit.JitGlobals$.MODULE$"
+        if n == 1 then s"""$jkg.callGlobalLong1("${escape(fnName)}", ${argExprs(0)})"""
+        else            s"""$jkg.callGlobalLong2("${escape(fnName)}", ${argExprs(0)}, ${argExprs(1)})"""
+      case _ => null
 
   /** Emit a Java `String`-typed expression. Supports string literals, `+`
    *  concatenation (with a numeric operand auto-coerced via `walkLong`),

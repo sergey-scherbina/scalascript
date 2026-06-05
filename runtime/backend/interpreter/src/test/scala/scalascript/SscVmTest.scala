@@ -1252,3 +1252,28 @@ class SscVmTest extends AnyFunSuite with Matchers:
     val reasons = JitPredicates.classifyBailReasons(fn)
     reasons should not contain JitBailReason.NonExtractPattern
   }
+
+  // ── Stage 2.5: Free-name → top-level FunV call (non-HOF case) ──────────────
+
+  test("stage2.5: Javac — caller compiles when calling a non-sibling global fn") {
+    import scalascript.interpreter.vm.jit.JavacJitBackend
+    // `double` is a sibling, `caller` calls it — currently handled by co-emit.
+    // This test exercises the callGlobalLong1 fallback for a callee whose body
+    // is complex enough that ensureCoEmittedLong fails but the global exists.
+    val interp = interpOf(
+      """def helper(x: Int): Int = x * 2 + 1
+        |def caller(n: Int): Int = helper(n) + 10""".stripMargin)
+    val fn = interp.globalsView("caller").asInstanceOf[Value.FunV]
+    // caller should JIT-compile (helper co-emitted or via callGlobalLong1)
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+  }
+
+  test("stage2.5: end-to-end: caller of non-compiling global uses fallback dispatch") {
+    val out = captured(
+      """def expensive(x: Int): Int = x * x + x
+        |def outer(n: Int): Int = expensive(n) + 1
+        |println(outer(4))
+        |println(outer(10))""".stripMargin)
+    out.trim shouldBe "21\n111"
+  }

@@ -929,18 +929,39 @@ object AsmJitBackend extends JitBackend:
     val sig =
       if fnName == ctx.funName then ctx.coEmit.signatures.getOrElse(fnName, MethodSig(ctx.staticMethodName, ctx.paramNames, ctx.paramIsRef, ctx.isDouble))
       else ensureCoEmittedLong(fnName, ctx)
-    if sig == null || sig.isDouble || args.length != sig.paramNames.length then return false
-    var i = 0
-    var rem = args
-    while rem.nonEmpty do
-      val ok = if sig.paramIsRef(i) then walkRef(rem.head, ctx, mv)
-               else walkLong(rem.head, ctx, mv)
-      if !ok then return false
-      i += 1
-      rem = rem.tail
-    mv.visitMethodInsn(INVOKESTATIC, ctx.selfClass, sig.methodName,
-      buildStaticDesc(sig.paramIsRef, sig.isDouble), false)
-    true
+    if sig != null && !sig.isDouble && args.length == sig.paramNames.length then
+      var i = 0
+      var rem = args
+      while rem.nonEmpty do
+        val ok = if sig.paramIsRef(i) then walkRef(rem.head, ctx, mv)
+                 else walkLong(rem.head, ctx, mv)
+        if !ok then return false
+        i += 1
+        rem = rem.tail
+      mv.visitMethodInsn(INVOKESTATIC, ctx.selfClass, sig.methodName,
+        buildStaticDesc(sig.paramIsRef, sig.isDouble), false)
+      return true
+    // Co-emit failed. Fall back to JitGlobals.callGlobalLong1/2 if the callee
+    // is a global FunV with all-Long params (non-HOF case).
+    if fnName == ctx.funName then return false
+    val n = args.length
+    if n < 1 || n > 2 then return false
+    ctx.interp.globals.getOrElse(fnName, null) match
+      case fn: Value.FunV if fn.params.length == n && fn.usingParams.isEmpty =>
+        val paramIsRef = classifyParamRefs(fn)
+        if paramIsRef.exists(identity) then return false
+        val jkgOwner = "scalascript/interpreter/vm/jit/JitGlobals$"
+        mv.visitFieldInsn(GETSTATIC, jkgOwner, "MODULE$", s"L$jkgOwner;")
+        mv.visitLdcInsn(fnName)
+        var rem = args
+        while rem.nonEmpty do
+          if !walkLong(rem.head, ctx, mv) then return false
+          rem = rem.tail
+        val desc = if n == 1 then "(Ljava/lang/String;J)J" else "(Ljava/lang/String;JJ)J"
+        val mname = if n == 1 then "callGlobalLong1" else "callGlobalLong2"
+        mv.visitMethodInsn(INVOKEVIRTUAL, jkgOwner, mname, desc, false)
+        true
+      case _ => false
 
   // ── walkString ────────────────────────────────────────────────────────────
 

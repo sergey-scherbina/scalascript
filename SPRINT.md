@@ -112,7 +112,7 @@ Root-cause analysis of the 345 UnknownShape:
 - [ ] **jit-uc-stage2-2** — Ref+Ref 2-param dispatch (`ObjObjToLong/Double/Object` interfaces).
 - [ ] **jit-uc-stage2-3** — ASM ref-match guard parity (port `walkArmAsIfBranch`).
 - [x] **jit-uc-stage2-4** — `Pat.Lit` arm in match (literal patterns).
-- [ ] **jit-uc-stage2-5** — Free-name → top-level `FunV` call (non-HOF case).
+- [x] **jit-uc-stage2-5** — Free-name → top-level `FunV` call (non-HOF case).
 
 ### Bench findings (2026-06-05, from `asm-jit-parity` worktree, post-2.4 main build)
 
