@@ -37,7 +37,13 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       [`specs/markdown-content-artifact-roundtrip.md`](specs/markdown-content-artifact-roundtrip.md)).
       Multi-link import paragraphs landed 2026-06-05 (specified in
       [`specs/markdown-multi-link-imports.md`](specs/markdown-multi-link-imports.md)).
-      Linked-module content namespace support remains the next later slice.
+      Linked-module content namespace support landed 2026-06-05 (specified in
+      [`specs/markdown-content-linked-namespaces.md`](specs/markdown-content-linked-namespaces.md)):
+      `contentModules()` / `contentModule(namespace)` and namespace-scoped
+      section/block/data/metadata lookup now work in the interpreter and
+      generated JS/JVM paths, with duplicate namespace errors, direct-only
+      visibility, helper import filtering, conformance fixtures, and
+      `examples/content-linked-namespaces.ssc`.
 
 ## JS Codegen Performance
 

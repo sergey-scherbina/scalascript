@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-05 — feat(language): Markdown linked content namespaces
+
+- **markdown-content-linked-namespaces** — Added `contentModules()`,
+  `contentModule(namespace)`, and namespace-scoped section/block/data/metadata
+  lookup for direct imported `.ssc` modules. Namespaces come from imported
+  `name:` front-matter or the imported path stem; duplicate direct namespaces
+  report deterministic runtime errors; transitive imports stay hidden unless
+  imported directly. Interpreter, generated JS, and generated JVM paths share
+  the API. Added conformance fixtures and `examples/content-linked-namespaces.ssc`.
+
 ## 2026-06-05 — feat(language): Markdown multi-link import paragraphs
 
 - **markdown-multi-link-imports** — A pure Markdown import paragraph can now

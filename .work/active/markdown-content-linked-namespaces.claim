@@ -1,6 +1,0 @@
-feature/markdown-content-linked-namespaces 2026-06-05T11:40:12Z
-agent: codex
-heartbeat: 2026-06-05T11:46:29Z
-status: in-progress
-done-so-far: focused spec committed and pushed to origin/main
-next: implement std/content imported namespace API across interpreter, JS, and JVM codegen
