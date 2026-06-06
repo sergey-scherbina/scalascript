@@ -638,3 +638,64 @@ Stage 7 = two tracks in parallel:
 
 The RefChainCall track is lower-risk and has the higher hit rate (55 clean misses).
 Start there before tackling the full HOF pipeline.
+
+### Stage 7.1 result — ref-local numeric reads (2026-06-06)
+
+Implemented the low-risk numeric subset:
+
+- Javac + ASM can co-emit ref-returning sibling calls as `Object` helpers.
+- `walkRef` handles `None`, `Some(x)`, ref-returning sibling calls, and immutable
+  local `val` bindings whose RHS is ref-shaped.
+- Non-final `val` binding paths in both backends bind ref RHS values as `Object`
+  locals before trying primitive emission, avoiding accidental
+  `callGlobalLong*` fallback for ref-returning callees.
+- `JitRefDispatch` provides narrow numeric reads:
+  `getOrElseLong`, `sizeLong`, and `headLong`. Unsupported receiver/result
+  shapes throw and fall back through the existing JIT runtime safety path.
+
+Focused regression:
+
+```scala
+def parse(n: Int): Option[Int] =
+  if n > 0 then Some(n + 1) else None
+def f(n: Int): Int =
+  val r = parse(n)
+  r.getOrElse(7)
+```
+
+`f` now JITs on both Javac and ASM and returns correct direct `LongFn1` results.
+
+Verification:
+
+```
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-refchain && sbt "backendInterpreter/testOnly scalascript.JitLintTest -- -z stage7-refchain"
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-refchain && sbt "backendInterpreter/testOnly scalascript.SscVmTest -- -z stage7-refchain"
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-refchain && SSC_JIT_STATS=1 sbt "backendInterpreter/test"
+```
+
+Profile after the full run:
+
+```
+JIT miss stats (731 functions disabled):
+     298  [vm] Other
+     238  [javac] UnknownShape
+      70  [javac] Compound
+      55  [javac] RefChainCall
+      27  [javac] NonExtractPattern
+      16  [javac] LambdaValue
+       8  [javac] PatternGuard
+       7  [javac] NonAdtScrutinee
+       6  [javac] BoolBody
+       3  [javac] UsingParams
+       2  [javac] VarargParam
+       1  [javac] TryCatch
+```
+
+The total disabled count dropped 734 → 731, but the aggregate `RefChainCall`
+bucket stayed at 55. A temporary detail trace showed the remaining bucket is
+broader than the Stage 7.1 numeric-local-ref subset: examples include
+`Parser.string(s)`, `Free.Pure(a)`, `BigInt(10).pow(n)`, `xs.map(...).mkString`,
+effect calls such as `Console.writeLine("a")`, and object-returning
+`Map.getOrElse`. Those require either object/String/generic ref-returning
+interfaces or a classifier split; they are intentionally not folded into this
+slice.
