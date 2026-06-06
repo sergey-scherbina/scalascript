@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — fix(language): Markdown toolkit Apply status
+
+- **markdown-toolkit-apply-effect** — `toolkit:signalText` links now accept an
+  optional `value=` seed so Markdown-authored status text can start with a
+  readable value before a button updates it. The live
+  `examples/markdown-toolkit-links.ssc` page now shows `Not applied yet` and
+  changes it to `Applied from Markdown` when `Apply Markdown controls` is
+  clicked after enabling the checkbox. Verified with 20 content-plugin tests,
+  6 frontend smoke tests, and `backendJvm/Compile/compile`.
+
+---
+
 ## 2026-06-06 — feat(jit): RETREF opcode — ref-typed VM return (vm-retref -18)
 
 - **jit-uc-stage6-vm-retref** — RETREF=49 opcode added to SscVm with TLS slot;
