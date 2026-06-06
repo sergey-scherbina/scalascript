@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(jit): VmCompiler typed-bail migration (vm Other 290 → 32)
+
+- **jit-uc-stage8-vm-bail-migration** — All 46 VmCompiler `bail(...)` sites
+  migrated to typed `JitBailReason`; 6 new VM-specific cases added; reuses 9
+  generic ones; observability win, no behaviour change. 1443 tests green.
+
 ## 2026-06-06 — feat(jit): Stage 7 numeric object dispatch
 
 - **jit-uc-stage7-numeric-object-dispatch** — Javac and ASM now compile

@@ -399,13 +399,12 @@ After comparing the post-stage-7.7 miss profile against SPRINT, these
 categories have no implementation task yet. Each item: one commit + miss-profile
 A/B (or test A/B); never ship a non-win.
 
-- [ ] **jit-uc-stage8-vm-bail-migration** — Migrate the 290 `[vm] Other` raw-string
-      bails in `VmCompiler` to typed `JitBailReason` cases (mirrors the
-      `stage1-partial` work already done for Javac+ASM). Each `bail(...)` call in
-      `VmCompiler.scala` gets mapped to an existing or new typed reason. No
-      compilation behaviour change — pure observability. Target:
-      `[vm] Other` 290 → < 30. Baseline:
-      `SSC_JIT_STATS=1 sbt "backendInterpreter/test"`.
+- [x] **jit-uc-stage8-vm-bail-migration** — Migrated 46 `bail(...)` sites in
+      `VmCompiler` to typed `JitBailReason`; added 6 VM-specific cases
+      (VmCallShape/VmFieldShape/VmUnsupportedTerm/VmEmptyBlock/VmNonBoolCond/
+      VmUndefinedName) + reused 9 generic ones. Result: `[vm] Other` 290 → 32,
+      new readable buckets dominated by `[vm] FreeNameUnresolvable=225`
+      (HOF/closure call targets). 1443 tests green.
 
 - [ ] **jit-uc-stage8-qualified-ref-call** — Compile `Module.fn(x)`,
       `Math.max(a, b)`, `Foo.bar(...)` — currently 15 `QualifiedRefCall` misses.
