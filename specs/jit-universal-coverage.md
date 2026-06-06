@@ -1031,3 +1031,64 @@ target is met: `UnknownShape` narrowed from 238 to 20. Most newly classified
 direct-call cases are not low-risk bytecode targets; future implementation
 work should start from explicit helper buckets rather than treating them as
 generic JIT-compatible sibling calls.
+
+### Stage 7.7 result — numeric object dispatch (2026-06-06)
+
+Implemented the dedicated BigInt/Decimal numeric-object helper path that was
+split out in Stage 7.5. Javac and ASM now compile constructor-result numeric
+object methods as `LongToObject` direct functions without routing them through
+generic `RefChainObjectCall` handling.
+
+Covered shapes:
+
+- `BigInt(value)` and `Decimal(value)` / `Decimal(unscaled, scale)` object
+  construction through `JitRefDispatch.bigIntRef` / `decimalRef`.
+- `BigInt(...).abs`, `.negate`, `.pow(exp)`, `.gcd(other)`, and `.toDecimal`.
+- `Decimal(...).abs`, `.negate`, `.pow(exp)`, `.setScale(scale)`, and
+  `.toBigInt`.
+
+Implementation notes:
+
+- The helper path lives in `JitRefDispatch` and accepts/returns `Value`, so the
+  bytecode backends keep using the existing `LongToObject` direct interface.
+- Numeric receivers are recognized by a narrow pure shape guard
+  (`BigInt(...)` / `Decimal(...)`) before the object walkers dispatch numeric
+  methods. Non-numeric calls such as `mkString` and `Map.getOrElse` therefore
+  still reach the generic object ref-chain fallback.
+- ASM `emitValueObject` only enters the numeric constructor path after the same
+  pure shape check, avoiding a guard that could write partial bytecode and then
+  fall through to another object-value strategy.
+
+Verification:
+
+```
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-numeric-object-dispatch && sbt "backendInterpreter/testOnly scalascript.SscVmTest -- -z stage7-numeric-object-dispatch" "backendInterpreter/testOnly scalascript.SscVmTest -- -z stage7-refchain-object-dispatch" "backendInterpreter/testOnly scalascript.JitLintTest -- -z stage7-refchain-object-dispatch"
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-numeric-object-dispatch && SSC_JIT_STATS=1 sbt "backendInterpreter/test"
+```
+
+Profile after the full run:
+
+```
+JIT miss stats (717 functions disabled):
+     290  [vm] Other
+     170  [javac] Compound
+     148  [javac] DirectGlobalOrCtorCall
+      20  [javac] UnknownShape
+      19  [javac] NonExtractPattern
+      19  [javac] ApplyInfixRefOp
+      15  [javac] QualifiedRefCall
+      14  [javac] InterpolatedString
+       6  [javac] PatternGuard
+       5  [javac] LambdaValue
+       4  [javac] RefChainObjectCall
+       2  [javac] VarargParam
+       2  [javac] TypeclassUsingDispatch
+       1  [javac] ForComprehension
+       1  [javac] TryCatch
+       1  [asm] Compound
+```
+
+Result: full `backendInterpreter/test` is green at 1443 tests. The
+numeric-object implementation removes the dedicated `NumericObjectMethodCall`
+misses from the runtime profile while preserving the Stage 7.5 object
+ref-chain wins for `mkString` and `Map.getOrElse`.
