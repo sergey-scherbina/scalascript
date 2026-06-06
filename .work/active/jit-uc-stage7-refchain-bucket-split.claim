@@ -1,6 +1,6 @@
 feature/jit-uc-stage7-refchain-bucket-split 2026-06-06T11:08:58Z
 agent: codex
-heartbeat: 2026-06-06T11:08:58Z
-status: not-started
-done-so-far:
+heartbeat: 2026-06-06T11:09:32Z
+status: in-progress
+done-so-far: worktree created
 next: read stage 7 spec and classify remaining RefChainCall shapes
