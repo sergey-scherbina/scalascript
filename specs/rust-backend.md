@@ -450,12 +450,28 @@ Flags:
       --verbose           Stream cargo's stdout/stderr through; default is quiet
 ```
 
-`build-rust` requires `cargo` on `PATH`. If absent, fails with a
-diagnostic pointing the user at `rustup.rs` and the alternative
-`ssc emit-rust` + manual `cargo build` flow — never silently degrades.
-The `rust-toolchain.toml` written by `emit-rust` (§9) is honoured by
-the spawned cargo, so the binary is reproducible across hosts with
-`rustup` installed.
+`build-rust` requires `cargo` on `PATH`. If absent, both `build-rust`
+and `run-rust` print one short, plain-language message and exit 1.
+**They do nothing else** — no fallback advice, no partial emit, no
+"try this other command" suggestion. The exact wording is fixed so the
+output is predictable to script and to read:
+
+```
+ssc build-rust: cargo not found on PATH.
+
+Rust is not installed on this machine. Install it and re-run the
+command. Two ways to install:
+
+  • Homebrew (macOS):   brew install rust
+  • Official installer: https://www.rust-lang.org/tools/install
+```
+
+(The first line uses the command name actually invoked, so `run-rust`
+shows `ssc run-rust: cargo not found on PATH.` instead.) No trailing
+hints, no environment dump, no link to `emit-rust`. The
+`rust-toolchain.toml` written by `emit-rust` (§9) is honoured by the
+spawned cargo when it *is* present, so the binary is reproducible
+across hosts with `rustup` installed.
 
 ```
 ssc run-rust [flags] <file.ssc> [-- <program args>…]
