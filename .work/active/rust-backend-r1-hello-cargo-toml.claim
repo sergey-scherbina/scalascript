@@ -1,6 +1,6 @@
-feature/rust-backend-r1-hello-cargo-toml 2026-06-06T20:37:57Z
+feature/rust-backend-r1-hello-cargo-toml 2026-06-06T20:35:00Z
 agent: claude-opus-4-7
-heartbeat: 2026-06-06T20:37:57Z
-status: not-started
-done-so-far:
-next: emit Segment.Asset(Cargo.toml) + scan for @main
+heartbeat: 2026-06-06T20:38:04Z
+status: in-progress
+done-so-far: worktree created
+next: implement RustGen.generate Cargo.toml emit + golden + test
