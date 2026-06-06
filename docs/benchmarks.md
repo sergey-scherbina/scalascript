@@ -83,6 +83,7 @@ method name).
 | `effectPure` | `runLogger { compute(10000) }` — algebraic-effects baseline. |
 | `instanceFieldAccess` | Inline `while: total += p match { case Pair(a,b) => a+b }`. Post-LMatch (2026-06-02): whole loop in Long-slot array, ~16.6 ms/op (1M iters, 162× vs baseline 2690 ms). Remaining cost: HashMap reads inside `CompiledMatch.runValueLong`. |
 | `mapForeach` | `Map(...).foreach((k, v) => …)` — 2-arg callEntry path; not yet FastTier-covered. |
+| `option-chain` / `either-chain` / `hof-pipeline` / `range-sum` | Warmed HOF method-chain call targets. Kebab names are `scripts/bench` aliases for JMH methods `optionChain`, `eitherChain`, `hofPipeline`, and `rangeSum`. |
 
 ## JIT backend selector
 

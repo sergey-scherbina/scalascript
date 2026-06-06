@@ -752,3 +752,95 @@ split into `QualifiedRefCall=33` and `RefChainObjectCall=22`; `RefChainCall`
 falls to 0 for the real corpus. Next implementation choices are clearer:
 qualified/module/native dispatch belongs to a different path than
 object/String/generic computed ref-chain dispatch.
+
+### Stage 7.3 result — numeric HOF method chains (2026-06-06)
+
+Implemented the monomorphic numeric HOF-method subset for Javac and ASM:
+
+- Added `JitHofShape` to recognize compact lambda descriptors for
+  `x => x`, `x => const`, `x +/-/*//% const`, `x => x * x`,
+  `x => global(x)`, `x => x % m == k`, and `(a, b) => a + b`.
+- Added `JitHofDispatch` runtime helpers for `Option`, `Either`, `List`,
+  and `Range.until` chains:
+  `mapLong`, `flatMapGlobalLong`, `filterLong`, `foldLong`,
+  `foldLeftLong`, and `rangeUntil`.
+- Javac + ASM now emit ref-valued HOF chains before falling back to
+  `JitRefDispatch`, including top-level ref globals through
+  `JitGlobals.readGlobalRef`.
+- Builtin `Right` / `Left` construction is supported in object/ref co-emit
+  through `JitHofDispatch.eitherValue`; string fields in ADT constructors
+  can be boxed as `Value.StringV`.
+- Added warmed HOF JMH targets and kebab-name aliases:
+  `option-chain`, `either-chain`, `hof-pipeline`, `range-sum`.
+
+Out of scope for this slice: generic/typeclass-driven folds such as
+`typeclass-fold`. Those need generic/given dispatch rather than monomorphic
+method dispatch on standard `Option` / `Either` / `List` / `Range` receivers.
+
+Focused regression:
+
+```scala
+def lookup(k: Int): Option[Int] =
+  if k % 2 == 0 then Some(k * 2) else None
+def option(n: Int): Int =
+  Some(n).flatMap(x => lookup(x)).map(x => x + 1).getOrElse(0)
+
+def parse(n: Int): Either[String, Int] =
+  if n > 0 then Right(n) else Left("neg")
+def either(n: Int): Int =
+  parse(n).map(x => x + 1).flatMap(x => parse(x)).fold(e => 0, x => x)
+
+val xs: List[Int] = List(1, 2, 3, 4, 5, 6)
+def list(): Int =
+  xs.map(x => x * 2).filter(x => x % 3 == 0).foldLeft(0)((a, b) => a + b)
+
+def range(n: Int): Int =
+  (0 until n).map(x => x + 1).foldLeft(0)((a, b) => a + b)
+```
+
+All four shapes now JIT on both Javac and ASM and return correct direct
+`LongFn0` / `LongFn1` results.
+
+Verification:
+
+```
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-hof-method && sbt "backendInterpreter/testOnly scalascript.JitLintTest -- -z stage7-hof-method" "backendInterpreter/testOnly scalascript.SscVmTest -- -z stage7-hof-method"
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-hof-method && BENCH_WI=1 BENCH_MI=3 BENCH_F=1 scripts/bench interp option-chain
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-hof-method && BENCH_WI=1 BENCH_MI=3 BENCH_F=1 scripts/bench interp either-chain
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-hof-method && BENCH_WI=1 BENCH_MI=3 BENCH_F=1 scripts/bench interp hof-pipeline
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-hof-method && BENCH_WI=1 BENCH_MI=3 BENCH_F=1 scripts/bench interp range-sum
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-hof-method && SSC_JIT_STATS=1 sbt "backendInterpreter/test"
+```
+
+Bench results with the quick 1/3/1 JMH configuration:
+
+```
+option-chain   0.002 ms/op
+either-chain   0.002 ms/op
+hof-pipeline   ≈ 10^-3 ms/op
+range-sum      ≈ 10^-3 ms/op
+```
+
+Profile after the full run:
+
+```
+JIT miss stats (731 functions disabled):
+     298  [vm] Other
+     238  [javac] UnknownShape
+      70  [javac] Compound
+      33  [javac] QualifiedRefCall
+      27  [javac] NonExtractPattern
+      22  [javac] RefChainObjectCall
+      16  [javac] LambdaValue
+       8  [javac] PatternGuard
+       7  [javac] NonAdtScrutinee
+       6  [javac] BoolBody
+       3  [javac] UsingParams
+       2  [javac] VarargParam
+       1  [javac] TryCatch
+```
+
+Result: the focused HOF workload targets are below 0.1 ms/op in warmed
+steady-state JMH runs. The full-corpus miss profile is unchanged because this
+slice adds positive coverage for new method-chain fixtures rather than
+retagging the remaining `Compound` / `UnknownShape` corpus misses.
