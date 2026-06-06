@@ -1,0 +1,6 @@
+feature/jit-uc-stage8-apply-infix-ref 2026-06-06T16:06:34Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-06T16:06:34Z
+status: not-started
+done-so-far:
+next: investigate ApplyInfixRefOp shapes
