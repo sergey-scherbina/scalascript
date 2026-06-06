@@ -1,6 +1,0 @@
-feature/jit-uc-stage8-ref-equality-asm 2026-06-06T19:39:29Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-06T19:39:29Z
-status: not-started
-done-so-far:
-next: ASM port ref-equality via looksLongValue pre-check
