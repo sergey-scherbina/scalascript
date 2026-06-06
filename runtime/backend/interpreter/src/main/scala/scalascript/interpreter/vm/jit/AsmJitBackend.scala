@@ -2480,6 +2480,25 @@ object AsmJitBackend extends JitBackend:
                           exprForm: Boolean, endLbl: Label | Null): Boolean =
     if c.cond.nonEmpty then return false
     c.pat match
+      // Stage 8: `case _: T =>` / `case x: T =>` — type-test pattern. The outer
+      // dispatch already verified the typeName tag; here we just optionally
+      // bind `x` to the instance and emit the body.
+      case Pat.Typed(inner, scala.meta.Type.Name(_)) =>
+        val newCtx = inner match
+          case _: Pat.Wildcard => ctx
+          case Pat.Var(Term.Name(bn)) =>
+            val s = ctx.allocSlot()
+            mv.visitVarInsn(ALOAD, instSlot)
+            mv.visitVarInsn(ASTORE, s)
+            ctx.withBindings(Map(bn -> (s, true)))
+          case _ => return false
+        val bodyOk =
+          if ctx.isDouble then walkDouble(c.body, newCtx, mv)
+          else walkLong(c.body, newCtx, mv)
+        if !bodyOk then return false
+        if exprForm then mv.visitJumpInsn(GOTO, endLbl.asInstanceOf[Label])
+        else mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN)
+        true
       case ext: scala.meta.Pat.Extract =>
         val ctorName = extractCtorName(ext.fun)
         if ctorName == null then return false
@@ -3102,6 +3121,8 @@ object AsmJitBackend extends JitBackend:
         case ext: scala.meta.Pat.Extract =>
           val name = extractCtorName(ext.fun)
           if name == null then 0 else interp.typeTagMap.getOrElse(name, 0)
+        case Pat.Typed(_, scala.meta.Type.Name(n)) =>  // Stage 8: typed pattern
+          interp.typeTagMap.getOrElse(n, 0)
         case _ => 0
     }
 
@@ -3126,6 +3147,7 @@ object AsmJitBackend extends JitBackend:
         case ext: scala.meta.Pat.Extract =>
           val n = extractCtorName(ext.fun)
           if n == null then "" else n
+        case Pat.Typed(_, scala.meta.Type.Name(n)) => n  // Stage 8: typed pattern
         case _ => ""
       if name.nonEmpty then
         val next = new Label
