@@ -8,6 +8,119 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## busi feedback — parser/resolver/runtime fixes (high priority)
+
+Source: `busi/docs/scalascript-issues.md` (212 lines, by phase). Reported
+2026-06-06 by the busi agent after phases 0–15 of the business-management
+app. Every item has a workaround on the busi side — none are blockers —
+but each "eats" 1–2 hours per new busi phase. Ordered by how much they
+slow down ongoing work, P0 first.
+
+Recommended first batch (per busi): **P0 #1, #2, #3 + P1 #5**. All four
+are isolated in lexer / parser / resolver, give the biggest time-back per
+fix, and don't require a runtime refactor.
+
+### P0 — parser/resolver, hit on every new phase
+
+- [ ] **busi-p0-trailing-underscore-ident** — Identifiers with a trailing
+      `_` (`type_`, `at_`, `seq_`, `payload_` — val, param, or type name)
+      silently break the *whole module's* export registration: the first
+      exported function reports "not found". Standalone code with the
+      same name compiles fine, which is the trap. Fix: either accept
+      trailing underscore in the lexer (preferred — it's a valid Scala
+      identifier), or emit an explicit parse error so the user knows.
+
+- [ ] **busi-p0-foldleft-brace-lambda** — `foldLeft { (a, b) => ... }`
+      with a brace-block argument silently breaks module export — same
+      category as #1: standalone works, module-level doesn't. Support
+      the curried trailing-block form everywhere, or emit an explicit
+      parser error.
+
+- [ ] **busi-p0-statusval-eventcase-collision** — `val PeerLinkInvited =
+      PeerLinkStatus("invited")` + `case PeerLinkInvited(...)` in the
+      same scope: compiles OK, `POST 201`, `GET 500` with no honest
+      stack trace. Resolver must reject the conflict between a
+      value-binding and a case-constructor in the same import scope.
+      Found in busi phase 86a.
+
+- [ ] **busi-p0-try-catch-handler** — `try / catch _ => ...`
+      (`Term.TryWithHandler`) is not supported — only `try / catch case
+      _ => ...`. Either support both forms or emit a parser message
+      suggesting `case`.
+
+### P1 — frequent small splinters
+
+- [ ] **busi-p1-string-comparison-ops** — `String <`, `<=`, `>`, `>=`
+      on `StringV` throw. Needed for UUID v7 ordering and sort keys.
+      Add `compareTo` or the comparison operators directly.
+
+- [ ] **busi-p1-map-direct-apply** — `map(key)` direct access throws
+      "Instance is not callable". Add `apply` on `Map`.
+
+- [ ] **busi-p1-string-split-2arg-and-map** — `String.split(sep, limit)`
+      (2-arg form) does not exist; `.map` on the raw split result (Java
+      Array) crashes — forcing `.toList` everywhere. Add the 2-arg form
+      and make `.map` work on the split result directly.
+
+- [ ] **busi-p1-map-getorelse-null-semantics** — `Map.getOrElse(key,
+      default)` returns `null` when the present value is null (SQLite
+      `NULL`). Semantics "absent vs. null" should be resolved in
+      favour of `default`.
+
+- [ ] **busi-p1-list-zipwithindex** — `.zipWithIndex` on `List` is
+      missing. Add to `dispatchList`.
+
+- [ ] **busi-p1-while-typed-empty-list-bug** — `while` + `var i += 1` +
+      typed `List[(Int,T)]()` — body iterates, list stays empty.
+      Probably shares root cause with `Set[Int].contains` in `while`.
+
+- [ ] **busi-p1-multiline-fn-returns-unit** — Multi-line function
+      returns `()` — user is forced to bind the final expression via
+      `val result = ...; result`. Block-trailing expression should
+      become the function result.
+
+### P2 — `emit-js` / browser
+
+- [ ] **busi-p2-emit-js-process-stdout** — `emit-js` always appends
+      `process.stdout.write(...)` → `ReferenceError: process is not
+      defined` in the browser on every load. Fix: guard with `typeof
+      process !== 'undefined'` or use `console.log`. busi worked around
+      via `emit-spa`, but `emit-js` is effectively unusable in the
+      browser today.
+
+- [ ] **busi-p2-emit-js-transitive-imports** — `emit-js` does not
+      propagate transitive imports into sub-module IIFEs. With `A → B →
+      C`, the bundle of `A` does not close `B`'s IIFE over `C`. Linker
+      must hoist transitives.
+
+### P3 — name shadowing from plugin intrinsics
+
+- [ ] **busi-p3-ratelimit-intrinsic-shadow** — `rateLimit` plugin
+      intrinsic shadows a user-defined `rateLimit(req: Any)` without
+      warning. Need a policy: user wins / qualified resolution /
+      compile-time error on collision.
+
+- [ ] **busi-p3-module-fn-name-conflict** — Function-name conflicts
+      across imported modules (`htmlEsc` defined in two modules)
+      surface as a runtime `No key 'toString' in map` in unrelated
+      code. Module-scoped resolution with an explicit conflict error.
+
+### P4 — future externs (not blocking today)
+
+- [ ] **busi-p4-ed25519-rsa-verify** — Ed25519 / RSA `verify` externs
+      for upcoming busi phase 87g (signature verification). Phase spec
+      already plans HMAC fallback with `TODO(scalascript-signatures)`,
+      so not a blocker, but once phase 87g lands without it there will
+      be a `signature.unsupported` flag in prod. Nice to have before
+      87g enters the active queue.
+
+- [ ] **busi-p4-smtp-send-extern** — Native `smtpSend` extern. Today
+      live email goes through an HTTP relay (`BUSI_EMAIL_HTTP_URL`).
+      Standalone installations without a relay will need a JavaMail
+      extern, or an explicit "relay-only forever" decision.
+
+---
+
 ## Language Surface - Markdown Content (next)
 
 Broad spec exists:
