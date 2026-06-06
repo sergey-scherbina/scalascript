@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(jit): UnknownShape tail observability
+
+- **jit-uc-stage8-unknownshape-tail** — 5 new bail reasons + classifier
+  wiring for Term.Throw / Tuple / Eta / Return / NewAnonymous. Corpus UnknownShape
+  stays 20 (not in tests), but real-world debugging now sees the right bucket.
+  3 focused classifier tests; 1452 tests green.
+
 ## 2026-06-06 — feat(jit): s"..." interpolation lowering (Javac)
 
 - **jit-uc-stage8-string-interp** — Javac walkRef now compiles `s"prefix${e}suffix"`

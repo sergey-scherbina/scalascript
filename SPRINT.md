@@ -350,11 +350,11 @@ Each item: one commit + bench A/B (or test A/B), never ship a non-win.
       f-, md-, html-, css- prefixes still go through tree-walker. 1449 tests
       green; +2 focused JIT tests.
 
-- [ ] **jit-uc-stage8-unknownshape-tail** — Investigate and tag the residual
-      20 UnknownShape misses (down from 295 at stage-7.6). Classifier-only task:
-      walk each remaining miss, attribute it to either a new bail-reason category
-      or to an out-of-scope decision. Target: UnknownShape = 0 or all remaining
-      cases documented as out-of-scope. No implementation code.
+- [x] **jit-uc-stage8-unknownshape-tail** — Added 5 new bail reasons
+      (ThrowExpression, TupleConstruction, EtaExpansion, ExplicitReturn,
+      NewAnonymousClass) + classifier wiring; corpus 20 UnknownShape unchanged
+      (those shapes don't appear in tests); next agent debugging real code sees
+      the right bucket. 3 focused tests; 1452 tests green.
 
 ### Stage-8 bench regressions (carryover from stage-6)
 
