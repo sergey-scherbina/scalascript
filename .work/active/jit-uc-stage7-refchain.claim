@@ -1,0 +1,6 @@
+feature/jit-uc-stage7-refchain 2026-06-06T10:32:08Z
+agent: codex
+heartbeat: 2026-06-06T10:32:08Z
+status: not-started
+done-so-far:
+next: create worktree and inspect ref-chain JIT walkers
