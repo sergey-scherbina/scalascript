@@ -1,0 +1,6 @@
+feature/rust-backend-r1-cli-build-rust 2026-06-06T21:39:09Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-06T21:39:09Z
+status: not-started
+done-so-far:
+next: RustToolchain helper + BuildRustCmd (emit + cargo build + copy binary)
