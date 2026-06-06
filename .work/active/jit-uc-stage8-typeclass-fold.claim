@@ -1,0 +1,6 @@
+feature/jit-uc-stage8-typeclass-fold 2026-06-06T21:39:24Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-06T21:39:24Z
+status: not-started
+done-so-far:
+next: callGlobalLong1Ref helper + emitLongCall relax for using params
