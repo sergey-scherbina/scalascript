@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(jit): Stage 7 RefChainCall bucket split
+
+- **jit-uc-stage7-refchain-bucket-split** — `RefChainCall` now only tracks the
+  narrow primitive local/direct ref-read subset. The former 55-case bucket is
+  split into `QualifiedRefCall=33` and `RefChainObjectCall=22`, with
+  `RefChainCall=0` on the real corpus. Full `backendInterpreter/test` is green
+  at 1419 tests; total disabled remains 731.
+
 ## 2026-06-06 — feat(jit): Stage 7 ref-local numeric dispatch
 
 - **jit-uc-stage7-refchain** — Javac and ASM now co-emit ref-returning sibling

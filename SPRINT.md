@@ -209,6 +209,8 @@ Each item: one commit + bench A/B. Run `SSC_JIT_STATS=1 sbt "backendInterpreter/
 
 Spec: [`specs/jit-universal-coverage.md §9`](specs/jit-universal-coverage.md).
 Baseline (2026-06-06): 734 disabled, 240 UnknownShape, 55 RefChainCall, 70 Compound.
+Current after bucket split (2026-06-06): 731 disabled, 238 UnknownShape,
+70 Compound, 33 QualifiedRefCall, 22 RefChainObjectCall, 0 RefChainCall.
 Each item: one commit + bench A/B (or test A/B), never ship a non-win.
 
 - [x] **jit-uc-stage7-refchain** — Ref-val propagation low-risk subset landed:
@@ -223,11 +225,16 @@ Each item: one commit + bench A/B (or test A/B), never ship a non-win.
       (`Parser.string`, `Free.Pure`, `BigInt.pow`, `map(...).mkString`, effect
       calls, object-returning `Map.getOrElse`). See spec §9 Stage 7.1.
 
-- [ ] **jit-uc-stage7-refchain-bucket-split** — Split or implement the remaining
-      broad `RefChainCall` bucket. Decide whether to add object/String/generic
-      ref-returning interfaces for object-producing chains, or introduce more
-      precise bail reasons so `RefChainCall` only tracks numeric local/computed
-      ref reads. Baseline after stage7-refchain: 731 disabled, 55 RefChainCall.
+- [x] **jit-uc-stage7-refchain-bucket-split** — Split the remaining broad
+      `RefChainCall` bucket before adding object/String/generic ref-returning
+      dispatch interfaces. Added `QualifiedRefCall` for module/companion/native
+      simple receivers and `RefChainObjectCall` for computed object/String/generic
+      chains; `JitPredicates` now tracks immutable local `val` names so
+      numeric local/direct ref reads stay in `RefChainCall`. Verified by
+      `JitLintTest -z stage7-refchain-bucket-split`, full `JitLintTest`, and
+      `SSC_JIT_STATS=1 sbt "backendInterpreter/test"` (1419 tests green).
+      Result: total disabled stayed 731, `RefChainCall` 55→0,
+      `QualifiedRefCall=33`, `RefChainObjectCall=22`. See spec §9 Stage 7.2.
 
 - [ ] **jit-uc-stage7-hof-method** — Monomorphic IC for HOF method dispatch:
       `.map(x => …)`, `.flatMap(x => …)`, `.filter(x => …)`, `.foldLeft(z)((a,b) => …)`.
@@ -236,8 +243,15 @@ Each item: one commit + bench A/B (or test A/B), never ship a non-win.
       option-chain 2.98ms, range-sum 3.57ms, typeclass-fold 2.99ms) toward <0.1ms.
       Baseline bench: `scripts/bench interp either-chain`.
 
+- [ ] **jit-uc-stage7-refchain-object-dispatch** — Implement or further narrow the
+      22 `RefChainObjectCall` misses from Stage 7.2. Scope is object/String/generic
+      computed ref chains such as `BigInt(10).pow(n)`, `xs.map(...).mkString`,
+      and object-returning `Map.getOrElse`; do not fold qualified module/native
+      calls (`QualifiedRefCall=33`) into this implementation path without a
+      separate dispatch design.
+
 - [ ] **jit-uc-stage7-unknownshape-tagging** — Further `walkForBailCliffs` tagging to
-      reduce UnknownShape 240→<100. Candidates: `Term.ApplyInfix` on ref operands
+      reduce UnknownShape 238→<100. Candidates: `Term.ApplyInfix` on ref operands
       (`ApplyInfixRefOp`), string interpolation (`InterpolatedString`), non-FunV callee
       chains. Not implementation code — produces an updated miss profile and extended
       bail-reason vocabulary. Run `SSC_JIT_STATS=1` before and after.
