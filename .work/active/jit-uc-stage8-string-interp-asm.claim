@@ -1,6 +1,0 @@
-feature/jit-uc-stage8-string-interp-asm 2026-06-06T15:59:49Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-06T15:59:49Z
-status: not-started
-done-so-far:
-next: port Javac Term.Interpolate to AsmJitBackend walkRef
