@@ -1,0 +1,6 @@
+feature/jit-uc-stage7-unknownshape-tagging 2026-06-06T12:32:51Z
+agent: codex
+heartbeat: 2026-06-06T12:32:51Z
+status: not-started
+done-so-far:
+next: create worktree and inspect UnknownShape classifier gaps
