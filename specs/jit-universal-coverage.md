@@ -975,3 +975,59 @@ dispatch slice adds positive Javac/ASM coverage for `mkString` and
 `RefChainObjectCall=14` plus `NumericObjectMethodCall=8`. Future BigInt/Decimal
 JIT work should start from the numeric-object helper path, not from the generic
 object ref-chain dispatch.
+
+### Stage 7.6 result — UnknownShape tagging (2026-06-06)
+
+Implemented classifier-only tagging for the main remaining `UnknownShape`
+forms. No bytecode emission path changed in this slice.
+
+New bail reasons:
+
+- `ApplyInfixRefOp` for unsupported infix operators on ref-like operands,
+  including collection/tuple/string operators such as `++`.
+- `InterpolatedString` for `Term.Interpolate` / `s"...$x..."`-style strings.
+- `TypeApplicationCall` for type-applied calls such as `identity[Int](n)`.
+- `ForComprehension` for `Term.For` / `Term.ForYield` syntax.
+- `ObjectConstruction` for `new ...` allocations.
+- `HigherOrderApplyShape` for calls whose callee is itself an expression,
+  such as `foo(n)(n)`.
+- `DirectGlobalOrCtorCall` for direct non-parameter calls that are neither
+  known JIT builtins (`Some`, `Right`, `Left`) nor local values. The corpus
+  samples were constructor/global forms such as `PRegex(pattern)`,
+  `PChar(c)`, `Money(...)`, `currentStackTrace()`, and restricted macro
+  expansion helpers.
+
+Verification:
+
+```
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-unknownshape-tagging && sbt "backendInterpreter/testOnly scalascript.JitLintTest -- -z stage7-unknownshape-tagging" "backendInterpreter/testOnly scalascript.JitLintTest -- -z stage7-refchain" "backendInterpreter/testOnly scalascript.JitLintTest -- -z stage7-refchain-object-dispatch"
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-unknownshape-tagging && SSC_JIT_STATS=1 sbt "backendInterpreter/test"
+```
+
+Profile after the full run:
+
+```
+JIT miss stats (733 functions disabled):
+     298  [vm] Other
+     178  [javac] Compound
+     148  [javac] DirectGlobalOrCtorCall
+      20  [javac] UnknownShape
+      19  [javac] NonExtractPattern
+      19  [javac] ApplyInfixRefOp
+      15  [javac] QualifiedRefCall
+      14  [javac] InterpolatedString
+       6  [javac] PatternGuard
+       5  [javac] LambdaValue
+       4  [javac] RefChainObjectCall
+       2  [javac] VarargParam
+       2  [javac] TypeclassUsingDispatch
+       1  [javac] ForComprehension
+       1  [javac] TryCatch
+       1  [asm] Compound
+```
+
+Result: full `backendInterpreter/test` is green at 1441 tests and the P3
+target is met: `UnknownShape` narrowed from 238 to 20. Most newly classified
+direct-call cases are not low-risk bytecode targets; future implementation
+work should start from explicit helper buckets rather than treating them as
+generic JIT-compatible sibling calls.
