@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(rust): ssc run-rust — build + execute one-shot
+
+- **rust-backend-r1-cli-run-rust** — `ssc run-rust hello.ssc` emits
+  the Cargo crate to a temp dir, runs `cargo build`, executes the
+  produced binary forwarding argv after `--`, propagates the binary's
+  exit code, then deletes the temp dir. Shares RustToolchain with
+  build-rust so the missing-cargo message is byte-identical. Smoke-
+  tested end-to-end: `Hello from Rust via run-rust` printed in one
+  command. Rust target is now fully wired through the CLI:
+  emit-rust (artefact), build-rust (binary), run-rust (run).
+
 ## 2026-06-06 — test(parser): regression guard for foldLeft brace-lambda module export
 
 - **busi-p0-foldleft-brace-lambda** — Closed by P0 #1.  busi-72 saw the

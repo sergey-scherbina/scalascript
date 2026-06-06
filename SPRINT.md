@@ -590,32 +590,6 @@ slice has a verified base to extend. The cumulative result equals the
 original `rust-backend-r1-hello-emit` description (Cargo.toml + main.rs
 + runtime/mod.rs + value.rs + generated/<module>.rs).
 
-- [ ] **rust-backend-r1-cli-run-rust** — One-shot build-and-run, mirror
-      of `run-jvm`. Add `RunRustCmd extends CliCommand`. Pipeline:
-      reuse `BuildRustCmd`'s emit + `cargo build` path, but target a
-      temp dir; then spawn the produced binary with the argv after `--`
-      via `os.proc(<bin>, userArgs*).spawn(stdout = Inherit, stderr =
-      Inherit)`; forward its exit code through `System.exit`. Delete the
-      temp dir after the binary exits (no `-o` flag — the user wanted a
-      run, not an artefact). Flags: `--debug`, `--target <triple>`,
-      `--offline`, `--verbose`, plus the `--` separator for argv. Same
-      shutdown-hook process-tree kill as `run-jvm` so Ctrl-C tears down
-      cargo + the running binary cleanly. Refactor the cargo-presence
-      check + the emit-into-tempdir code into a `RustToolchain` helper
-      object so it does not duplicate between `build-rust` and
-      `run-rust`; the helper owns the single
-      `RustToolchain.cargoMissingMessage` constant shared by both
-      commands. The missing-cargo path is identical to `build-rust`'s —
-      print the spec-fixed message (with command name `ssc run-rust:`)
-      and exit 1; do nothing else. Update `CommandRegistryTest` expected
-      set to include `"run-rust"`. Acceptance: `ssc run-rust hello.ssc`
-      prints the expected lines and exits 0; `ssc run-rust greeter.ssc
-      -- Sergiy` forwards `Sergiy` as `argv[1]` to the built binary;
-      missing-cargo case asserted against `cargo-missing.run.expected.txt`
-      fixture; Ctrl-C during a long-running build or run leaves no
-      orphan cargo or binary processes (asserted via `ps` in the
-      integration test).
-
 - [ ] **rust-backend-r1-build-smoke** — Add `tests/rust-build-smoke.sh`
       that, when `which cargo` succeeds, runs `cargo build --offline` (or
       `--locked` if no offline cache) on every crate emitted by
