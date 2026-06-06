@@ -109,6 +109,7 @@ class RustGenMainAssemblyTest extends AnyFunSuite:
         |//!
         |//! One `pub fn` per ScalaScript top-level `def`.  Calls to console
         |//! intrinsics (`println`, `print`) route to `crate::runtime::_*`.
+        |//! `rust` fence blocks from the source are appended verbatim.
         |
         |pub fn run() {
         |    crate::runtime::_println("Hello from Rust");

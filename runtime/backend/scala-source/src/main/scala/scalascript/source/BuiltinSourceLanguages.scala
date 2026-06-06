@@ -21,6 +21,25 @@ class JavaScriptSourceLanguage extends SourceLanguage:
   def compileBlock(source: String, scope: ScopeContext, opts: BackendOptions): BlockArtifact =
     BlockArtifact(ir.Content.EmbeddedBlock(language = canonicalName, source = source))
 
+/** SourceLanguage plugin for `rust` fence blocks.
+ *
+ *  Phase R.1 of the rust target — passthrough.  Blocks are emitted into
+ *  `src/generated/<crate>.rs` verbatim by RustGen.  Backends that don't
+ *  accept rust source (jvm / js / interpreter) surface a
+ *  `Diagnostic.Generic` at CapabilityCheck time, never a silent
+ *  miscompile.  Real cross-block typing (Stage 10) lands when a future
+ *  follow-up extracts `pub fn` / `pub struct` signatures here. */
+class RustSourceLanguage extends SourceLanguage:
+  def id:            String = "rust-source"
+  def displayName:   String = "Rust (passthrough)"
+  def spiVersion:    String = SpiVersion.Current
+  def canonicalName: String = "rust"
+
+  def signatures(source: String, scope: ScopeContext): List[SymbolExport] = Nil
+
+  def compileBlock(source: String, scope: ScopeContext, opts: BackendOptions): BlockArtifact =
+    BlockArtifact(ir.Content.EmbeddedBlock(language = canonicalName, source = source))
+
 /** SourceLanguage plugin for XML fence blocks.
  *
  *  Runtime XML parsing/validation still happens in the interpreter/JVM path;

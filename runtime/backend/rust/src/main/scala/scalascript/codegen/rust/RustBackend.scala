@@ -16,7 +16,7 @@ class RustBackend extends Backend with IntrinsicOverlayAwareBackend:
   def spiVersion:      String                              = SpiVersion.Current
   def capabilities:    Capabilities                        = RustCapabilities
   def intrinsics:      Map[ir.QualifiedName, IntrinsicImpl] = RustIntrinsics
-  def acceptedSources: Set[String]                         = Set("scala", "scalascript", "ssc")
+  def acceptedSources: Set[String]                         = Set("scala", "scalascript", "ssc", "rust")
 
   def compile(module: ir.NormalizedModule, opts: BackendOptions): CompileResult =
     compileWithOverlay(module, opts, intrinsics, runtimePreamble)

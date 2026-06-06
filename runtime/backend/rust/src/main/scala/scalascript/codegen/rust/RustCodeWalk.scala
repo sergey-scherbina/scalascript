@@ -39,14 +39,23 @@ object RustCodeWalk:
       module:     ast.Module,
       intrinsics: Map[QualifiedName, IntrinsicImpl]
   ): Either[List[Diagnostic], WalkResult] =
-    val defs    = collectDefs(module)
-    val results = defs.map(renderDef(_, intrinsics))
+    val defs       = collectDefs(module)
+    val rustBlocks = collectRustBlocks(module)
+    val results    = defs.map(renderDef(_, intrinsics))
     val (errors, ok) = results.partitionMap(identity)
     if errors.nonEmpty then Left(errors.flatten)
     else
+      val rustVerbatim = rustBlocks.zipWithIndex.map { case (src, i) =>
+        s"""// ── rust block ${i + 1} ──
+           |$src
+           |""".stripMargin
+      }.mkString
+      val body =
+        (if ok.isEmpty then "" else ok.map(_.render).mkString("\n")) +
+        (if rustBlocks.isEmpty then "" else "\n" + rustVerbatim)
       val text =
-        if ok.isEmpty then headerComment
-        else headerComment + "\n" + ok.map(_.render).mkString("\n")
+        if body.isEmpty then headerComment
+        else headerComment + "\n" + body
       Right(WalkResult(
         generated = text,
         defNames  = ok.map(_.name),
@@ -59,6 +68,7 @@ object RustCodeWalk:
       |//!
       |//! One `pub fn` per ScalaScript top-level `def`.  Calls to console
       |//! intrinsics (`println`, `print`) route to `crate::runtime::_*`.
+      |//! `rust` fence blocks from the source are appended verbatim.
       |""".stripMargin
 
   // ── Defn.Def collection ──────────────────────────────────────────────
@@ -79,6 +89,25 @@ object RustCodeWalk:
   private def isScalaLang(lang: String): Boolean =
     val n = lang.toLowerCase
     n == "scalascript" || n == "ssc" || n == "scala"
+
+  // ── rust block collection (verbatim passthrough) ─────────────────────
+
+  /** Raw Rust source from `rust` fence blocks — concatenated into the
+   *  emitted `src/generated/<crate>.rs` after the ScalaScript-derived
+   *  defs.  Cross-block typing (Rust → SS) is a future slice; today
+   *  the rust source just contributes top-level items that any SS
+   *  emit can reach via `pub fn` / `pub struct` lookups. */
+  private def collectRustBlocks(module: ast.Module): List[String] =
+    module.sections.flatMap(sectionRustBlocks)
+
+  private def sectionRustBlocks(s: ast.Section): List[String] =
+    s.content.flatMap(contentRustBlocks) ++ s.subsections.flatMap(sectionRustBlocks)
+
+  private def contentRustBlocks(c: ast.Content): List[String] = c match
+    case ast.Content.CodeBlock(lang, source, _, _, _, _, _)
+        if lang.equalsIgnoreCase("rust") =>
+      List(source)
+    case _ => Nil
 
   // ── Per-def rendering ────────────────────────────────────────────────
 
