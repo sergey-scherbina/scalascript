@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-07 — feat(rust): `rust` fence blocks pass through verbatim
+
+- **rust-backend-r1-rust-source-blocks** — Markdown sources targeting
+  the rust backend can now mix `scalascript` and `rust` fence blocks.
+  `RustSourceLanguage` registered via META-INF/services;
+  `RustBackend.acceptedSources` adds "rust"; `RustCodeWalk` appends
+  every `rust` block verbatim under `// ── rust block <N> ──` after
+  the SS-derived `pub fn`s. End-to-end smoke verified: mixed .ssc →
+  `ssc build-rust` → `cargo build` → runs both the SS `println` path
+  and ships the rust block's `util()` for cross-call. 5 new tests;
+  29/29 green in backendRust.
+
 ## 2026-06-06 — feat(rust): ssc run-rust — build + execute one-shot
 
 - **rust-backend-r1-cli-run-rust** — `ssc run-rust hello.ssc` emits

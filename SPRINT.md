@@ -601,35 +601,6 @@ original `rust-backend-r1-hello-emit` description (Cargo.toml + main.rs
       the produced `target/debug/<bin>` prints "Hello from Rust" matching
       the interpreter row.
 
-- [ ] **rust-backend-r1-rust-source-blocks** — Recognise ```` ```rust ````
-      fenced blocks in Markdown sources, by analogy with the existing
-      `scala` and `javascript` blocks. New module
-      `runtime/backend/rust-source/` mirroring
-      `runtime/backend/scala-source/`: `RustSourceLanguage extends
-      SourceLanguage` with `canonicalName = "rust"`, plus a
-      `META-INF/services/scalascript.backend.spi.SourceLanguage`
-      registration so `SourceLanguageRegistry.lookup("rust")` resolves.
-      `RustBackend.acceptedSources` grows to include `"rust"`.
-      Behaviour for R.1: `rust` blocks are emitted **verbatim** into
-      `src/generated/<crate>.rs` (no scalameta walk — they are already
-      Rust). The `Content.CodeBlock(lang="rust", source)` body bypasses
-      RustCodeWalk's scalameta path and is concatenated under a
-      `// ── rust block ── ` header into the generated module. Mixing
-      a `rust` block with a `scalascript` block in the same .ssc is
-      allowed; the rust block's top-level fns become callable from the
-      scalascript block's emit through the same `pub fn` surface. For
-      non-rust targets (jvm / js / interpreter) the block surfaces as
-      `Diagnostic.Generic` ("rust blocks require backend=rust") rather
-      than a silent miscompile. Acceptance:
-        • new snapshot `tests/cross/rust/mixed/`
-          contains a .ssc with a `rust` block defining
-          `fn util() -> i64 { 7 }` and a `scalascript` block that calls
-          it; golden checks the generated/<crate>.rs;
-        • `BackendRegistryTest` asserts
-          `BackendRegistry.lookup("rust").get.acceptedSources.contains("rust")`;
-        • non-rust backend on the same file produces the expected
-          diagnostic.
-
 - [ ] **rust-backend-r1-docs** — Update existing docs + add a rust-target
       guide. Concretely:
         • `docs/targets.md` — promote the "Native Backend (Future)"
