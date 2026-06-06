@@ -1748,6 +1748,28 @@ object AsmJitBackend extends JitBackend:
       mv.visitFieldInsn(GETSTATIC, valueModuleInt, "MODULE$", s"L$valueModuleInt;")
       mv.visitMethodInsn(INVOKEVIRTUAL, valueModuleInt, "NoneV", s"()L$optionVInt;", false)
       true
+    // Stage 8: BigInt/Decimal infix arithmetic via JitRefDispatch (mirrors Javac).
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+        if isNumericObjectReceiver(lhs) && argClause.values.lengthCompare(1) == 0 =>
+      val helper = (lhs, op.value) match
+        case (Term.Apply.After_4_6_0(Term.Name("BigInt"), _), "+")  => "bigIntPlus"
+        case (Term.Apply.After_4_6_0(Term.Name("BigInt"), _), "-")  => "bigIntMinus"
+        case (Term.Apply.After_4_6_0(Term.Name("BigInt"), _), "*")  => "bigIntTimes"
+        case (Term.Apply.After_4_6_0(Term.Name("BigInt"), _), "/")  => "bigIntDiv"
+        case (Term.Apply.After_4_6_0(Term.Name("BigInt"), _), "%")  => "bigIntMod"
+        case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "+") => "decimalPlus"
+        case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "-") => "decimalMinus"
+        case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "*") => "decimalTimes"
+        case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "/") => "decimalDiv"
+        case _ => null
+      if helper == null then false
+      else
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !emitNumericObjectValue(lhs, ctx, mv) then return false
+        if !emitValueObject(argClause.values.head, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, helper,
+          s"(L$valueInt;L$valueInt;)L$valueInt;", false)
+        true
     // Stage 8: s"prefix${arg1}mid${arg2}suffix" — emit via StringBuilder, wrap in StringV.
     // Numeric args use append(J); ref args go through Value.show then append(String).
     // Stage 8: `ref + x` String concat — mirror Javac apply-infix-ref subset.
