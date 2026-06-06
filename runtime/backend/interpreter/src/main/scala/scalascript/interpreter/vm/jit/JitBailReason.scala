@@ -95,6 +95,31 @@ object JitBailReason:
       "literal patterns are not yet supported in the JIT match emitter"
     val suggestedFix = Some("rewrite as `case x if x == 0 =>` or restructure as an `if`-chain")
 
+  /** Type-test pattern: `case x: T =>` or `case _: T =>`. The JIT needs an
+   *  INSTANCEOF + typeName check + optional ref bind. Not yet supported. */
+  case object TypedPattern extends JitBailReason:
+    val tag         = "TypedPattern"
+    val description = "match arm uses a type-test pattern (`case x: T =>`); " +
+      "the JIT does not yet emit INSTANCEOF-based type-test dispatch"
+    val suggestedFix = Some("rewrite as `case ctor: T => ctor match { … }` " +
+      "(use the constructor in the outer match)")
+
+  /** Nested tuple destructure: `case (a, (b, c)) =>`. Outer tuple destructure
+   *  works as of stage 6; the inner tuple needs recursive descent. */
+  case object NestedTuplePattern extends JitBailReason:
+    val tag         = "NestedTuplePattern"
+    val description = "match arm uses a nested tuple destructure " +
+      "(`case (a, (b, c)) =>`); the JIT tuple matcher does not recurse yet"
+    val suggestedFix = Some("flatten the binding: `case (a, p) => p match { case (b, c) => … }`")
+
+  /** Alternative pattern with bindings: `case (Some(x) | None) =>` where
+   *  one branch binds. Stage 5.4 only supports binding-free alternatives. */
+  case object AlternativeWithBindings extends JitBailReason:
+    val tag         = "AlternativeWithBindings"
+    val description = "match arm uses `Pat.Alternative` with at least one " +
+      "binding branch; the JIT alternative emitter handles no-binding cases only"
+    val suggestedFix = None
+
   // ── Return type ──────────────────────────────────────────────────────────
 
   /** The function body's top-level expression is a comparison or logical

@@ -163,6 +163,25 @@ class JitLintTest extends AnyFunSuite with Matchers:
     val reasons = classifyBody("identity[Int](n)", List("n"), List("Int"))
     reasons should contain (JitBailReason.TypeApplicationCall)
 
+  // ── Stage 8: NonExtractPattern residual split ─────────────────────────
+
+  test("stage8-nonextract-residual: nested tuple destructure classified as NestedTuplePattern"):
+    val reasons = classifyBody("t match { case (a, (b, c)) => a + b + c }",
+      List("t"), List("(Int, (Int, Int))"))
+    reasons should contain (JitBailReason.NestedTuplePattern)
+    reasons should not contain JitBailReason.NonExtractPattern
+
+  test("stage8-nonextract-residual: typed pattern classified as TypedPattern"):
+    val reasons = classifyBody("s match { case x: String => 1; case _ => 0 }",
+      List("s"), List("Any"))
+    reasons should contain (JitBailReason.TypedPattern)
+    reasons should not contain JitBailReason.NonExtractPattern
+
+  test("stage8-nonextract-residual: alternative with bindings classified as AlternativeWithBindings"):
+    val reasons = classifyBody("o match { case Some(x) | None => 0 }",
+      List("o"), List("Option[Int]"))
+    reasons should contain (JitBailReason.AlternativeWithBindings)
+
   test("stage7-unknownshape-tagging: for-comprehensions and new objects are classified"):
     val forReasons = classifyBody("for x <- xs yield x", List("xs"), List("List[Int]"))
     val newReasons = classifyBody("""new RuntimeException("x")""", Nil, Nil)

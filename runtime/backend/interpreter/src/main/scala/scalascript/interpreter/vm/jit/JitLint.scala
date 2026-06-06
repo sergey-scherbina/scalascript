@@ -271,8 +271,10 @@ object JitPredicates:
             case _: Pat.Wildcard => ()
             case _: Lit.Int | _: Lit.Long => ()  // literal-int arms now compile
             case t: Pat.Tuple =>
+              // Stage 8: separate nested-tuple from generic non-extract.
               t.args.foreach {
                 case _: Pat.Var | _: Pat.Wildcard => ()
+                case _: Pat.Tuple                 => buf += JitBailReason.NestedTuplePattern
                 case _                            => buf += JitBailReason.NonExtractPattern
               }
             case alt: Pat.Alternative =>
@@ -281,7 +283,8 @@ object JitPredicates:
                 case e: Pat.Extract => e.argClause.values.exists(!_.isInstanceOf[Pat.Wildcard])
                 case _: Pat.Var => true
                 case _ => false
-              if hasBindings(alt.lhs) || hasBindings(alt.rhs) then buf += JitBailReason.NonExtractPattern
+              if hasBindings(alt.lhs) || hasBindings(alt.rhs) then buf += JitBailReason.AlternativeWithBindings
+            case _: Pat.Typed => buf += JitBailReason.TypedPattern
             case _ => buf += JitBailReason.NonExtractPattern
           walkForBailCliffs(c.body, paramNames, localNames, buf)
         }
