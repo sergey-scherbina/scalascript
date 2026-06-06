@@ -1,6 +1,0 @@
-feature/jit-uc-stage7-refchain 2026-06-06T10:32:08Z
-agent: codex
-heartbeat: 2026-06-06T11:01:25Z
-status: in-progress
-done-so-far: local/computed ref numeric getOrElse support implemented; focused and full tests green; remaining RefChainCall bucket traced as broader object/generic/effect shapes
-next: update spec and sprint with verified Stage 7.1 result, rerun final verification, then push
