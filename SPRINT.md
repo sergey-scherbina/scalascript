@@ -211,13 +211,23 @@ Spec: [`specs/jit-universal-coverage.md §9`](specs/jit-universal-coverage.md).
 Baseline (2026-06-06): 734 disabled, 240 UnknownShape, 55 RefChainCall, 70 Compound.
 Each item: one commit + bench A/B (or test A/B), never ship a non-win.
 
-- [ ] **jit-uc-stage7-refchain** — Ref-val propagation: extend `walkRef` in both
-      backends to recognise local `val` bindings whose RHS is a ref-returning call.
-      Emit inline method dispatch for `Term.Apply(Term.Select(localRef, method), args)`
-      where `method` is a known numeric-returning dispatch (e.g. `.getOrElse(n)`,
-      `.fold(z)(f)`, `.size`, `.head.toLong`). Targets `RefChainCall` (55 misses).
-      Baseline: run `SSC_JIT_STATS=1 sbt "backendInterpreter/test"` and record
-      RefChainCall count before and after.
+- [x] **jit-uc-stage7-refchain** — Ref-val propagation low-risk subset landed:
+      Javac + ASM co-emit ref-returning sibling calls, bind immutable ref locals
+      as `Object`, and inline numeric reads through `JitRefDispatch`
+      (`getOrElseLong`, `sizeLong`, `headLong`). Regression:
+      `val r = parse(n); r.getOrElse(7)` JITs on both backends. Verified by
+      `JitLintTest -z stage7-refchain`, `SscVmTest -z stage7-refchain`, and
+      `SSC_JIT_STATS=1 sbt "backendInterpreter/test"` (1416 tests green).
+      Result: total disabled 734→731; aggregate `RefChainCall` stayed 55.
+      Detail trace showed the remaining bucket is broader than this subset
+      (`Parser.string`, `Free.Pure`, `BigInt.pow`, `map(...).mkString`, effect
+      calls, object-returning `Map.getOrElse`). See spec §9 Stage 7.1.
+
+- [ ] **jit-uc-stage7-refchain-bucket-split** — Split or implement the remaining
+      broad `RefChainCall` bucket. Decide whether to add object/String/generic
+      ref-returning interfaces for object-producing chains, or introduce more
+      precise bail reasons so `RefChainCall` only tracks numeric local/computed
+      ref reads. Baseline after stage7-refchain: 731 disabled, 55 RefChainCall.
 
 - [ ] **jit-uc-stage7-hof-method** — Monomorphic IC for HOF method dispatch:
       `.map(x => …)`, `.flatMap(x => …)`, `.filter(x => …)`, `.foldLeft(z)((a,b) => …)`.

@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(jit): Stage 7 ref-local numeric dispatch
+
+- **jit-uc-stage7-refchain** — Javac and ASM now co-emit ref-returning sibling
+  calls, bind immutable ref locals as `Object`, and inline narrow numeric ref
+  reads through `JitRefDispatch` (`getOrElseLong`, `sizeLong`, `headLong`).
+  `val r = parse(n); r.getOrElse(7)` JITs on both backends. Full
+  `backendInterpreter/test` is green at 1416 tests; total disabled 734→731.
+  The aggregate `RefChainCall` bucket remains 55 because it also contains
+  broader object/generic/effect method chains; follow-up recorded in `SPRINT.md`.
+
 ## 2026-06-06 — fix(language): Markdown toolkit Apply status
 
 - **markdown-toolkit-apply-effect** — `toolkit:signalText` links now accept an
