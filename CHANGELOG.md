@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-07 — docs(rust): full rust-backend coverage across docs/ + README
+
+- **rust-backend-r1-docs** — Added `docs/rust-backend.md` (full user
+  guide: cargo prerequisites, three-CLI surface, output crate shape,
+  mixed `scalascript`/`rust` blocks, R.1 capability matrix, R.2–R.6
+  roadmap pointer). Updated `docs/targets.md` (replaced "Native Backend
+  (Future)" with a real Rust Backend section + target-matrix row),
+  `docs/README.md` (architecture index), `docs/user-guide.md`
+  (runtime/build matrix + a worked "Compiling to a native binary
+  via Rust" subsection), and the root `README.md` (fence-tag matrix,
+  CLI cheatsheet, doc index). No code changes; grep over docs/ +
+  README.md confirms full coverage across all five files.
+
 ## 2026-06-07 — feat(interpreter): String lexicographic comparison operators
 
 - **busi-p1-string-comparison-ops** — `String <`, `<=`, `>`, `>=` and

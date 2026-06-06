@@ -597,41 +597,6 @@ original `rust-backend-r1-hello-emit` description (Cargo.toml + main.rs
       the produced `target/debug/<bin>` prints "Hello from Rust" matching
       the interpreter row.
 
-- [ ] **rust-backend-r1-docs** — Update existing docs + add a rust-target
-      guide. Concretely:
-        • `docs/targets.md` — promote the "Native Backend (Future)"
-          section into a real "Rust Backend" section after the
-          JavaScript / WASM ones. Document the Cargo-crate output
-          shape, the `emit-rust` / `build-rust` / `run-rust` CLI
-          surface, the missing-cargo error contract, and the R.1
-          capability surface (ConsoleIO, StringInterpolators,
-          ModuleImports — everything else rejected by
-          `CapabilityCheck`). Add ```` ```rust ```` to the per-target
-          examples table so it is clear `rust` blocks are
-          backend-routed.
-        • `docs/README.md` — add the new target to the per-target
-          index alongside JVM / JS / WASM.
-        • `docs/user-guide.md` — add a short "Compiling to a native
-          binary via Rust" subsection with the three-line worked
-          example (hello.ssc → `ssc build-rust hello.ssc` → `./hello`).
-        • `README.md` (repo root) — one bullet under "Targets" naming
-          the rust backend so casual visitors see it.
-        • new file `docs/rust-backend.md` — full-page guide:
-          installation prerequisite (cargo via rustup or brew),
-          worked hello-world, mixed .ssc with `rust` blocks
-          (depends on `rust-backend-r1-rust-source-blocks`), CLI
-          flag reference (-o / --debug / --keep-crate / --target / …),
-          the capability matrix (what works in R.1 vs what is
-          rejected), and forward pointers to R.2–R.6 of
-          `specs/rust-backend.md`.
-        • cross-link: every existing doc that lists backends gets
-          the rust entry; grep `grep -rn 'JVM Backend\|JS Backend\|JavaScript Backend' docs/`
-          to find the spots that need touching.
-      Acceptance: `grep -lr 'rust backend\|emit-rust\|build-rust\|run-rust' docs/ README.md`
-      lists every documentation file mentioned above; existing
-      cross-reference tests (if any) still pass; the new
-      `docs/rust-backend.md` is referenced from at least one of
-      `docs/README.md` or `docs/targets.md`.
 
 ### Phase R.2 — Core IR coverage
 
