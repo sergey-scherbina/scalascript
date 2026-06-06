@@ -1,6 +1,0 @@
-feature/jit-uc-stage7-hof-method 2026-06-06T11:22:36Z
-agent: codex
-heartbeat: 2026-06-06T11:42:42Z
-status: in-progress
-done-so-far: focused HOF dispatch compiles and stage7-hof-method tests pass on Javac+ASM
-next: run bench samples and full backendInterpreter/test with JIT stats
