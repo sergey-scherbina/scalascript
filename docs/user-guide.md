@@ -419,9 +419,9 @@ through `contentToolkitNode()`, `contentToolkitBlock(id)`, or
 <!-- @meta id=markdown-controls -->
 - [Team name](toolkit:textField?signal=teamName&value=ScalaScript%20team)
 - [Enable live preview](toolkit:checkbox?signal=enabled&value=false)
-- [Apply Markdown controls](toolkit:button?signal=applied&value=true&enabledWhen=enabled)
-- [Team name](toolkit:signalText?signal=teamName)
-- [Applied](toolkit:signalText?signal=applied)
+- [Status](toolkit:badge?text=Status&variant=default)
+- [Current status](toolkit:signalText?signal=applyStatus&value=Not%20applied%20yet)
+- [Apply Markdown controls](toolkit:button?signal=applyStatus&value=Applied%20from%20Markdown&enabledWhen=enabled)
 - [Markdown controls](toolkit:badge?variant=success)
 ```
 

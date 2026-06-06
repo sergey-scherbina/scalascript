@@ -17,7 +17,7 @@ Toolkit links use ordinary Markdown link syntax:
 [Team name](toolkit:textField?signal=teamName&value=ScalaScript%20team)
 [Enable preview](toolkit:checkbox?signal=enabled&value=false)
 [Apply](toolkit:button?signal=applied&value=true&enabledWhen=enabled)
-[Team name](toolkit:signalText?signal=teamName)
+[Current status](toolkit:signalText?signal=applyStatus&value=Not%20applied%20yet)
 [ready](toolkit:badge?variant=success)
 [divider](toolkit:divider)
 ```
@@ -32,7 +32,7 @@ Supported query keys:
 | `toolkit:textField` | `signal` | `label`, `value`, `disabled`, `required` |
 | `toolkit:checkbox` | `signal` | `label`, `value`, `checked`, `disabled` |
 | `toolkit:button` | `signal` | `label`, `value`, `enabledWhen`, `disabled` |
-| `toolkit:signalText` | `signal` | |
+| `toolkit:signalText` | `signal` | `value` |
 | `toolkit:badge` | | `text`, `variant` |
 | `toolkit:divider` | | |
 
@@ -41,6 +41,7 @@ Supported query keys:
 - `textField`: empty string
 - `checkbox`: `false`
 - `button`: `true`
+- `signalText`: empty string, or the `value` query when present
 
 Boolean query values are `true` or `false`. URL percent-decoding applies to
 query keys and values.
@@ -60,7 +61,8 @@ query keys and values.
 - [x] Non-`toolkit:` links keep the existing Markdown lowering behavior.
 - [x] The live example `examples/markdown-toolkit-links.ssc` serves a browser
       page where text field, checkbox, button, badge, and signal text are
-      declared in Markdown links, not YAML.
+      declared in Markdown links, not YAML. The button visibly updates a
+      Markdown-declared status signal.
 
 ## Out of scope
 
@@ -96,3 +98,16 @@ lowering; 6 interpreter-server frontend smoke tests passed, including emitted
 React controls without YAML; 3 native parity tests passed; JVM backend compiled.
 The live example served on `http://127.0.0.1:8099/`, and `app.js` contained the
 expected `input`, `checkbox`, and `button` controls plus the Markdown labels.
+
+Updated on 2026-06-06 to make the live `Apply` interaction visibly change a
+Markdown-declared status signal. Verified with:
+
+```bash
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-toolkit-apply-effect && sbt "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest"
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-toolkit-apply-effect && sbt "backendInterpreterServer/testOnly scalascript.MarkdownContentFrontendSmokeTest"
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/markdown-toolkit-apply-effect && sbt "backendJvm/Compile/compile"
+```
+
+Results: 20 content-plugin tests passed, 6 interpreter-server frontend smoke
+tests passed, and JVM backend compile passed. The emitted React JS contains
+`Not applied yet` and the button-set `Applied from Markdown` value.
