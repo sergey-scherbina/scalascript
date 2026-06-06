@@ -485,16 +485,60 @@ independent of each other once R.5 is in.
 
 ### Phase R.1 — Skeleton
 
-- [ ] **rust-backend-r1-hello-emit** — Implement `RustGen.generate` for the
-      4-line hello-world: `println`, `Int` literals, top-level `def`, `@main`.
-      Emits `Cargo.toml`, `src/main.rs`, `src/runtime/mod.rs` with
-      `_println`/`_print`/`_show`, `src/value.rs` with the `Value` enum
-      (Unit/Bool/Int/Double/Str + Tuple/List), `src/generated/<module>.rs`.
-      `RustIntrinsics` map: `println`/`print` →
-      `RuntimeCall("crate::runtime::_println")` etc. Per-module dependency
-      walk (placeholder — empty deps for R.1). Acceptance: write golden
-      under `tests/cross/rust/hello/` (`expected.toml` + `expected.main.rs`);
-      snapshot test diffs against the golden.
+R.1.3 hello-emit is split into four sequential sub-slices below.
+Each one is a single commit with its own golden fixture so the next
+slice has a verified base to extend. The cumulative result equals the
+original `rust-backend-r1-hello-emit` description (Cargo.toml + main.rs
++ runtime/mod.rs + value.rs + generated/<module>.rs).
+
+- [ ] **rust-backend-r1-hello-cargo-toml** — `RustGen.generate` emits a
+      single `Segment.Asset("Cargo.toml", bytes)` with a minimal
+      `[package]` table (name = derived from `module.manifest` title or
+      stem; edition = "2021"; version = "0.1.0") and an empty
+      `[dependencies]` table. The `[[bin]]` entry is wired only when an
+      `@main` annotation is detected in the module; otherwise `[lib]`.
+      No code walking yet — just module-level metadata. Acceptance:
+      golden `tests/cross/rust/hello/expected.Cargo.toml`; one snapshot
+      test compares emitted bytes to the golden.
+
+- [ ] **rust-backend-r1-hello-runtime-files** — Add two more fixed-template
+      assets: `src/value.rs` (closed `Value` enum: Unit, Bool, Int(i64),
+      Double(f64), Str(String), Tuple(Vec<Value>), List(Vec<Value>)) and
+      `src/runtime/mod.rs` (`pub fn _show(&Value) -> String`,
+      `pub fn _println(s: impl AsRef<str>)`, `pub fn _print(...)`).
+      Both files are byte-for-byte identical across all programs at R.1
+      (they are infrastructure, not generated). Wire
+      `RustIntrinsics`: `println` / `print` /
+      `Console.println` / `Console.print` → `RuntimeCall("crate::runtime::_println"
+      / "..._print")`. Acceptance: golden `expected.value.rs` and
+      `expected.runtime.mod.rs` byte-match the emitted assets.
+
+- [ ] **rust-backend-r1-hello-code-walk** — First real codegen step:
+      `RustGen.generate` runs `Denormalize(module)` (same path as
+      JvmBackend) and walks scalameta `Defn.Def` + `Term.Apply` +
+      `Lit.{Int, Long, Double, String, Boolean, Unit}` to emit
+      `src/generated/<module>.rs` with one `pub fn name(args…) ->
+      ReturnType { body }` per top-level def. Anything outside this
+      subset emits a `Diagnostic.Unsupported` via
+      `CompileResult.Failed(...)` rather than silently miscompiling.
+      `Apply` against a `RustIntrinsics` entry routes through the
+      `RuntimeCall` target (so `println("hi")` becomes
+      `crate::runtime::_println("hi")`). Acceptance: golden
+      `expected.generated.rs` for the hello body.
+
+- [ ] **rust-backend-r1-hello-main-assembly** — Detect `@main` and emit
+      `src/main.rs` containing `mod runtime; mod value; mod generated;`
+      + a `fn main() { generated::run(); }` shim. Without `@main`,
+      `src/lib.rs` is emitted instead and the `[[bin]]` entry is
+      removed from Cargo.toml (the previous slice's emit already
+      respects this — assert via cross-check). All four sub-slices'
+      goldens now live next to each other under
+      `tests/cross/rust/hello/`; the new test runs the full
+      `RustBackend.compile` and asserts every emitted `Segment.Asset`
+      matches the corresponding golden. Acceptance: full golden
+      suite green; on a host with `cargo`, manually invoking
+      `cargo run` inside the emitted crate prints "Hello from Rust"
+      (smoke test deferred to `rust-backend-r1-build-smoke`).
 
 - [ ] **rust-backend-r1-cli-emit-rust** — Add `EmitRustCmd extends CliCommand`
       in `tools/cli/src/main/scala/scalascript/cli/EmitCommands.scala`,
