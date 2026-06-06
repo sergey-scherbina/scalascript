@@ -603,7 +603,7 @@ object ContentIntrinsics:
         case "button" | "signalbutton" =>
           ast.ContentValue.Bool(false)
         case "signaltext" =>
-          ast.ContentValue.Str("")
+          ast.ContentValue.Str(link.query.getOrElse("value", ""))
         case _ =>
           ast.ContentValue.Str("")
       name -> initial

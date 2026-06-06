@@ -2,6 +2,7 @@ package scalascript.compiler.plugin.content
 
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.ast.SsccFormat
+import scalascript.frontend.ReactiveSignal
 import scalascript.interpreter.{InterpretError, Interpreter, Value}
 import scalascript.parser.Parser
 
@@ -871,9 +872,9 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
         |<!-- @meta id=markdown-controls -->
         |- [Team name](toolkit:textField?signal=teamName&value=ScalaScript%20team)
         |- [Enable preview](toolkit:checkbox?signal=enabled&value=false)
-        |- [Apply](toolkit:button?signal=applied&value=true&enabledWhen=enabled)
-        |- [Team name](toolkit:signalText?signal=teamName)
-        |- [Applied](toolkit:signalText?signal=applied)
+        |- [Status](toolkit:badge?text=Status&variant=default)
+        |- [Current status](toolkit:signalText?signal=applyStatus&value=Not%20applied%20yet)
+        |- [Apply](toolkit:button?signal=applyStatus&value=Applied%20from%20Markdown&enabledWhen=enabled)
         |- [ready](toolkit:badge?variant=success)
         |
         |```scala
@@ -898,12 +899,16 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
         assert(nodes.length == 6)
         assert(instanceFields(nodes(0), "TextFieldNode")("label") == Value.StringV("Team name"))
         assert(instanceFields(nodes(1), "CheckboxNode")("label") == Value.StringV("Enable preview"))
-        assert(nodes(2).isInstanceOf[Value.InstanceV])
-        assert(nodes(2).asInstanceOf[Value.InstanceV].typeName == "ShowWhenNode")
-        val showFields = instanceFields(nodes(2), "ShowWhenNode")
+        assert(instanceFields(nodes(2), "BadgeNode")("content") == Value.StringV("Status"))
+        val statusSignal = instanceFields(nodes(3), "SignalTextNode")("signal")
+        statusSignal match
+          case Value.Foreign("ReactiveSignal", signal: ReactiveSignal[?]) =>
+            assert(signal() == "Not applied yet")
+          case other => fail(s"expected status signal, got $other")
+        assert(nodes(4).isInstanceOf[Value.InstanceV])
+        assert(nodes(4).asInstanceOf[Value.InstanceV].typeName == "ShowWhenNode")
+        val showFields = instanceFields(nodes(4), "ShowWhenNode")
         assert(instanceFields(showFields("whenTrue"), "SignalButtonNode")("label") == Value.StringV("Apply"))
-        assert(instanceFields(nodes(3), "SignalTextNode").contains("signal"))
-        assert(instanceFields(nodes(4), "SignalTextNode").contains("signal"))
         assert(instanceFields(nodes(5), "BadgeNode")("content") == Value.StringV("ready"))
       case other =>
         fail(s"expected controls section node, got $other")

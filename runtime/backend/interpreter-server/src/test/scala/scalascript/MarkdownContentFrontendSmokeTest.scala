@@ -212,9 +212,9 @@ class MarkdownContentFrontendSmokeTest extends AnyFunSuite:
          |<!-- @meta id=markdown-controls -->
          |- [Team name](toolkit:textField?signal=teamName&value=ScalaScript%20team)
          |- [Enable preview](toolkit:checkbox?signal=enabled&value=false)
-         |- [Apply](toolkit:button?signal=applied&value=true&enabledWhen=enabled)
-         |- [Team name](toolkit:signalText?signal=teamName)
-         |- [Applied](toolkit:signalText?signal=applied)
+         |- [Status](toolkit:badge?text=Status&variant=default)
+         |- [Current status](toolkit:signalText?signal=applyStatus&value=Not%20applied%20yet)
+         |- [Apply](toolkit:button?signal=applyStatus&value=Applied%20from%20Markdown&enabledWhen=enabled)
          |- [ready](toolkit:badge?variant=success)
          |
          |[contentToolkitSection](std/ui/content.ssc)
@@ -245,6 +245,8 @@ class MarkdownContentFrontendSmokeTest extends AnyFunSuite:
     assert(js.contains("Team name"))
     assert(js.contains("Enable preview"))
     assert(js.contains("Apply"))
+    assert(js.contains("Not applied yet"))
+    assert(js.contains("Applied from Markdown"))
     assert(js.contains("ready"))
     assert(js.contains("h('input'"))
     assert(js.contains("h('button'"))

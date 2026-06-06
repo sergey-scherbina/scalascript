@@ -1101,7 +1101,7 @@ class JvmGen(
        |      case "textfield" | "input" => link.query.getOrElse("value", "")
        |      case "checkbox" => _ssc_tk_link_bool_opt(link, "checked").orElse(_ssc_tk_link_bool_opt(link, "value")).getOrElse(false)
        |      case "button" | "signalbutton" => false
-       |      case "signaltext" => ""
+       |      case "signaltext" => link.query.getOrElse("value", "")
        |      case _ => ""
        |    name -> initial
        |  }
