@@ -17,6 +17,7 @@ scalascript.cli.NewCmd
 scalascript.cli.EmitScalaCmd
 scalascript.cli.EmitJsCmd
 scalascript.cli.EmitWasmCmd
+scalascript.cli.EmitRustCmd
 scalascript.cli.EmitSpaCmd
 scalascript.cli.EmitWcCmd
 scalascript.cli.EmitOpenapiCmd

@@ -96,6 +96,72 @@ final class EmitWasmCmd extends CliCommand:
           System.err.println(s"WASM generation error: ${e.getMessage}")
           System.exit(1)
 
+/** `ssc emit-rust <file.ssc>` — emit a Cargo crate via the rust backend.
+ *  See specs/rust-backend.md §10. */
+final class EmitRustCmd extends CliCommand:
+  def name = "emit-rust"
+  override def summary = "Compile scala/scalascript blocks to a Cargo crate (rust backend)"
+  override def category = "Emit & transpile"
+  override def details = List(
+    "Flags: -o <dir>, --print-only, --bin-name <name>",
+    "Default output dir: ./<stem>-rust/"
+  )
+  def run(args: List[String]): Unit =
+    var outputDir: Option[String] = None
+    var printOnly                 = false
+    var binName:   Option[String] = None
+    val files = scala.collection.mutable.ArrayBuffer.empty[String]
+    val it = args.iterator
+    while it.hasNext do
+      it.next() match
+        case "-o" | "--output" if it.hasNext => outputDir = Some(it.next())
+        case "--print-only"                  => printOnly = true
+        case "--bin-name" if it.hasNext      => binName   = Some(it.next())
+        case f                               => files += f
+    if files.isEmpty then
+      System.err.println(
+        "Usage: ssc emit-rust [-o <dir>] [--print-only] [--bin-name <name>] <file.ssc>"
+      )
+      System.exit(1)
+    for file <- files.toList do
+      val path = os.Path(file, os.pwd)
+      if !os.exists(path) then
+        System.err.println(s"emit-rust: file not found: $file"); System.exit(1)
+      val stem = path.last.stripSuffix(".ssc")
+      try
+        val extras  = binName.fold(Map.empty[String, String])(n => Map("binName" -> n))
+        compileViaBackend("rust", path, extras) match
+          case CompileResult.Segmented(segs) =>
+            val assets = segs.collect { case a: Segment.Asset => a }
+            if assets.isEmpty then
+              System.err.println(
+                "emit-rust: no rust output produced from source (no compilable blocks?)"
+              )
+              System.exit(1)
+            if printOnly then
+              for a <- assets do
+                println(s"// ── ${a.name} ──")
+                println(new String(a.bytes, "UTF-8"))
+            else
+              val outDir = outputDir.map(os.Path(_, os.pwd))
+                .getOrElse(os.pwd / s"$stem-rust")
+              os.makeDir.all(outDir)
+              for a <- assets do
+                val out = outDir / os.RelPath(a.name)
+                os.makeDir.all(out / os.up)
+                os.write.over(out, a.bytes)
+                System.err.println(s"Wrote $out (${a.bytes.length} bytes)")
+              System.err.println(s"Cargo crate written to $outDir")
+          case CompileResult.Failed(diags) =>
+            diags.foreach(d => System.err.println(s"[error] $d"))
+            System.exit(1)
+          case other =>
+            System.err.println(s"emit-rust: unexpected ${other.getClass.getSimpleName}")
+            System.exit(1)
+      catch case e: Exception =>
+        System.err.println(s"emit-rust: ${e.getMessage}")
+        System.exit(1)
+
 final class EmitOpenapiCmd extends CliCommand:
   def name = "emit-openapi"
   override def summary = "Export OpenAPI 3.1 JSON/YAML without starting a server"
