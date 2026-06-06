@@ -55,6 +55,14 @@ object PreprocessorRegistry:
 
   locally {
     register(new Preprocessor {
+      // Must run before every other preprocessor — those operate on tokenised
+      // identifiers, so an `name_:` that scalameta would read as one operator
+      // identifier must be split into `name_ :` first.
+      override val name     = "trailing-underscore-colon"
+      override val priority = 5
+      override def apply(s: String) = Parser.preprocessTrailingUnderscoreColon(s)
+    })
+    register(new Preprocessor {
       override val name     = "inline-imports"
       override val priority = 10
       override def apply(s: String) = Parser.preprocessInlineImports(s)

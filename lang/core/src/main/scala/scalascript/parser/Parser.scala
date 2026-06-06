@@ -1962,6 +1962,91 @@ object Parser:
   private def preprocessForScala(code: String): String =
     PreprocessorRegistry.applyAll(code)
 
+  /** busi-p0-trailing-underscore-ident — scalameta's Scala3 lexer reads
+   *  `name_:` as one operator identifier (since `:` is an operator
+   *  character and `_` allows operator continuation), so a perfectly
+   *  reasonable `def foo(type_: Int)` or `case class E(type_: String,
+   *  payload_: String)` fails with "identifier expected but `)` /
+   *  `,` found".  Users hit this when porting Scala code that uses
+   *  trailing-underscore identifiers (e.g. `type_` to dodge the `type`
+   *  keyword) into `.ssc`.
+   *
+   *  Insert one space between a trailing `_` of an identifier and a
+   *  following `:` when the `_` is preceded by a letter or digit (so
+   *  it really is the tail of an identifier, not a standalone `_`).
+   *  Skip string literals, char literals, and comments verbatim.
+   *
+   *  Safe because:
+   *  - The vararg splice is `: _*` (colon-first) — we only rewrite
+   *    `_:` (underscore-first), so it is untouched.
+   *  - Right-associative cons / colon-suffix operators (`+:`, `::`,
+   *    `::=`) start with a non-`_` character or are entirely operator
+   *    characters with no preceding letter / digit, so they are not
+   *    matched.
+   *  - Operator-suffix methods like `foo_:` are virtually nonexistent
+   *    in production Scala; if one ever appears, the user can request
+   *    a space in source.  We err on the side of "make natural code
+   *    just work". */
+  private[parser] def preprocessTrailingUnderscoreColon(code: String): String =
+    // Fast-path: nothing to do without both characters.
+    if !(code.contains('_') && code.contains(':')) then return code
+    val n  = code.length
+    val sb = new StringBuilder(n + 8)
+    var i  = 0
+    while i < n do
+      val c = code.charAt(i)
+      // ── skip block comment ──
+      if c == '/' && i + 1 < n && code.charAt(i + 1) == '*' then
+        val end = code.indexOf("*/", i + 2)
+        val to  = if end < 0 then n else end + 2
+        sb.append(code.substring(i, to)); i = to
+      // ── skip line comment ──
+      else if c == '/' && i + 1 < n && code.charAt(i + 1) == '/' then
+        var j = i + 2
+        while j < n && code.charAt(j) != '\n' do j += 1
+        sb.append(code.substring(i, j)); i = j
+      // ── skip triple-quoted string ──
+      else if c == '"' && i + 2 < n && code.charAt(i + 1) == '"' && code.charAt(i + 2) == '"' then
+        val end = code.indexOf("\"\"\"", i + 3)
+        val to  = if end < 0 then n else end + 3
+        sb.append(code.substring(i, to)); i = to
+      // ── skip single-line string ──
+      else if c == '"' then
+        sb.append(c); var j = i + 1
+        while j < n && code.charAt(j) != '"' do
+          if code.charAt(j) == '\\' && j + 1 < n then
+            sb.append(code.charAt(j)); sb.append(code.charAt(j + 1)); j += 2
+          else
+            sb.append(code.charAt(j)); j += 1
+        if j < n then sb.append('"')
+        i = j + 1
+      // ── skip char literal '_' / 'x' ──
+      else if c == '\'' && i + 2 < n && code.charAt(i + 2) == '\'' then
+        sb.append(code.substring(i, i + 3)); i += 3
+      // ── the rule: letter|digit `_` `:` not followed by `:` (so `::` and `:=` survive) ──
+      else if c == '_' && i + 1 < n && code.charAt(i + 1) == ':'
+           && i > 0 && isIdentBodyChar(code.charAt(i - 1)) then
+        // Insert a space only when the `:` is NOT followed by another `:`
+        // (`::` cons constructor) and NOT followed by `=` (`:=` actor-style
+        // assignment).  In both of those cases the `:` is part of an
+        // operator identifier sequence, not a type ascription colon.
+        val nextNext = if i + 2 < n then code.charAt(i + 2) else ' '
+        if nextNext == ':' || nextNext == '=' then
+          sb.append(c); i += 1
+        else
+          sb.append("_ "); i += 1   // emit `_` + space, leave `:` for next iter
+      else
+        sb.append(c); i += 1
+    sb.toString
+
+  /** Identifier body char: letter, digit, or `_`.  Note we test the
+   *  character BEFORE the trailing `_`, which means a one-character
+   *  identifier `_` followed by `:` (i.e. `_:Foo`) is NOT rewritten —
+   *  that form does not exist as a type ascription in legitimate
+   *  Scala anyway. */
+  private def isIdentBodyChar(c: Char): Boolean =
+    c.isLetterOrDigit || c == '_'
+
   private val _longMax = BigInt("9223372036854775807")
 
   private def isHexDigit(c: Char): Boolean =
