@@ -541,14 +541,20 @@ independent of each other once R.5 is in.
       (forwarded as `--target` to cargo), `--offline`, `--verbose`
       (drops the `--quiet` flag on the cargo invocation). Register
       shutdown-hook process-tree kill exactly like `run-jvm` does so
-      Ctrl-C tears down cargo cleanly. Fail loudly if `cargo` is not on
-      `PATH` with a one-liner pointing to `rustup.rs` and to the
-      `emit-rust` + manual `cargo build` fallback — never silently skip.
+      Ctrl-C tears down cargo cleanly. If `cargo` is not on `PATH`, print
+      exactly the fixed message from `specs/rust-backend.md §10`
+      ("cargo not found on PATH" + brew + rust-lang.org installer link)
+      and exit 1 — **nothing else**: no partial emit, no fallback advice,
+      no environment dump, no suggestion to use `emit-rust` instead.
+      Store the wording in a single `RustToolchain.cargoMissingMessage`
+      constant so `build-rust` and `run-rust` share it byte-for-byte.
       Update `CommandRegistryTest` expected set to include `"build-rust"`.
       Acceptance: on a host with `cargo`, `ssc build-rust hello.ssc`
       writes `./hello`; running it prints the expected lines. On a host
-      without `cargo`, exit code 1 + stderr names the missing tool and
-      the workaround.
+      without `cargo` (integration test runs the command with `PATH=`),
+      exit code 1 and stderr matches the spec wording byte-for-byte —
+      asserted via `diff` against a `cargo-missing.build.expected.txt`
+      fixture.
 
 - [ ] **rust-backend-r1-cli-run-rust** — One-shot build-and-run, mirror
       of `run-jvm`. Add `RunRustCmd extends CliCommand`. Pipeline:
@@ -563,12 +569,18 @@ independent of each other once R.5 is in.
       cargo + the running binary cleanly. Refactor the cargo-presence
       check + the emit-into-tempdir code into a `RustToolchain` helper
       object so it does not duplicate between `build-rust` and
-      `run-rust`. Update `CommandRegistryTest` expected set to include
-      `"run-rust"`. Acceptance: `ssc run-rust hello.ssc` prints the
-      expected lines and exits 0; `ssc run-rust greeter.ssc -- Sergiy`
-      forwards `Sergiy` as `argv[1]` to the built binary; Ctrl-C during
-      a long-running build or run leaves no orphan cargo or binary
-      processes (asserted via `ps` in the integration test).
+      `run-rust`; the helper owns the single
+      `RustToolchain.cargoMissingMessage` constant shared by both
+      commands. The missing-cargo path is identical to `build-rust`'s —
+      print the spec-fixed message (with command name `ssc run-rust:`)
+      and exit 1; do nothing else. Update `CommandRegistryTest` expected
+      set to include `"run-rust"`. Acceptance: `ssc run-rust hello.ssc`
+      prints the expected lines and exits 0; `ssc run-rust greeter.ssc
+      -- Sergiy` forwards `Sergiy` as `argv[1]` to the built binary;
+      missing-cargo case asserted against `cargo-missing.run.expected.txt`
+      fixture; Ctrl-C during a long-running build or run leaves no
+      orphan cargo or binary processes (asserted via `ps` in the
+      integration test).
 
 - [ ] **rust-backend-r1-build-smoke** — Add `tests/rust-build-smoke.sh`
       that, when `which cargo` succeeds, runs `cargo build --offline` (or
