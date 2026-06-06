@@ -893,6 +893,26 @@ object AsmJitBackend extends JitBackend:
         case "+" | "-" | "*" | "/" | "%" =>
           walkLong(lhs, ctx, mv) && walkLong(ac.values.head, ctx, mv) && {
             mv.visitInsn(longArith(op.value)); true }
+        // Stage 8: BigInt/Decimal comparison ops via JitRefDispatch helpers.
+        case "<" | "<=" | ">" | ">=" if isNumericObjectReceiver(lhs) =>
+          val helper = (lhs, op.value) match
+            case (Term.Apply.After_4_6_0(Term.Name("BigInt"), _), "<")  => "bigIntLt"
+            case (Term.Apply.After_4_6_0(Term.Name("BigInt"), _), "<=") => "bigIntLe"
+            case (Term.Apply.After_4_6_0(Term.Name("BigInt"), _), ">")  => "bigIntGt"
+            case (Term.Apply.After_4_6_0(Term.Name("BigInt"), _), ">=") => "bigIntGe"
+            case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "<")  => "decimalLt"
+            case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "<=") => "decimalLe"
+            case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), ">")  => "decimalGt"
+            case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), ">=") => "decimalGe"
+            case _ => null
+          if helper == null then false
+          else
+            mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+            if !emitNumericObjectValue(lhs, ctx, mv) then return false
+            if !emitValueObject(ac.values.head, ctx, mv) then return false
+            mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, helper,
+              s"(L$valueInt;L$valueInt;)J", false)
+            true
         case "<" | "<=" | ">" | ">=" | "==" | "!=" =>
           val Lt = new Label; val Le = new Label
           walkLong(lhs, ctx, mv) && walkLong(ac.values.head, ctx, mv) && {
