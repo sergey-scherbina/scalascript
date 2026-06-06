@@ -8,9 +8,10 @@ Scala 3 code blocks.
 
 | Annotation | Language | Backends |
 |------------|----------|----------|
-| ` ```scalascript` | ScalaScript dialect — effects, handlers, content helpers, TCO | interpreter · JS transpiler · JVM |
-| ` ```ssc` | Alias for `scalascript` | interpreter · JS transpiler · JVM |
-| ` ```scala` | Standard Scala 3 — no ScalaScript extensions | interpreter · **Scala.js** (JS) · JVM |
+| ` ```scalascript` | ScalaScript dialect — effects, handlers, content helpers, TCO | interpreter · JS transpiler · JVM · **Rust (R.1 hello-world subset)** |
+| ` ```ssc` | Alias for `scalascript` | interpreter · JS transpiler · JVM · Rust |
+| ` ```scala` | Standard Scala 3 — no ScalaScript extensions | interpreter · **Scala.js** (JS) · JVM · Rust (passthrough) |
+| ` ```rust` | Standard Rust — passthrough verbatim into the emitted Cargo crate | **Rust** |
 
 ````ssc
 ---
@@ -76,6 +77,11 @@ bin/jssc examples/hello.ssc
 # Compile to JVM bytecode and run via Scala 3 / scala-cli
 bin/sscc examples/hello.ssc
 
+# Compile to a native binary via Rust + Cargo (requires `cargo` on PATH;
+# see docs/rust-backend.md for the R.1 capability surface).
+bin/ssc build-rust examples/hello.ssc && ./hello
+bin/ssc run-rust   examples/hello.ssc
+
 # Run on Apache Spark (Spark 4.0.0 / Scala 3.7.1, local[*] by default)
 bin/ssc-spark examples/spark-encoder-demo.ssc
 
@@ -120,7 +126,8 @@ bin/http.ssc
 | | |
 |---|---|
 | [Architecture](docs/architecture.md) | Compiler pipeline, module structure, backend SPI |
-| [Target Backends](docs/targets.md) | Interpreter · JS transpiler · JVM — capabilities and tradeoffs |
+| [Target Backends](docs/targets.md) | Interpreter · JS transpiler · JVM · **Rust (Cargo crate → native binary)** — capabilities and tradeoffs |
+| [Rust backend guide](docs/rust-backend.md) | `ssc emit-rust` / `build-rust` / `run-rust` — compile `.ssc` to a native binary via Cargo, with mixed ` ```rust ` fence blocks |
 | [Actors & Distributed](specs/actors-dist.md) | Spawn, supervise, cluster over WebSocket |
 | [Distributed Wire Protocol](specs/distributed-wire-protocol.md) | Planned: opt-in JSON/MsgPack/CBOR internal wire layer for actors, Dataset/DStream, typed route clients/RPC, object sync, security, compression, and compatibility |
 | [Distributed Runtime](specs/distributed-runtime.md) | Planned: canonical local/remote/distributed runtime model for streams, actors, typed async calls, cluster lifecycle, cluster operations, code deployment, and worker bundles |

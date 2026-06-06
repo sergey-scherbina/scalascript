@@ -15,6 +15,7 @@ The compiler pipeline produces a **Typed IR** (intermediate representation) that
 | JVM (Scala-CLI) | **M1** | JVM 17+ | Server, CLI, scripting |
 | JavaScript | **M3** | Browser/Node | Web apps, universal |
 | WASM | Future | WASM runtime | Portable binary |
+| Rust | **R.1** | Native (Cargo crate → binary) | CLI, single-file native tools |
 | Native | Future | OS native | Performance-critical |
 
 ## JVM Backend (Primary)
@@ -175,17 +176,103 @@ Two possible strategies:
 
 Strategy TBD based on ecosystem maturity.
 
-## Native Backend (Future)
+## Rust Backend
 
-### Goals
+### Overview
 
-- Direct machine code generation
-- No runtime dependency
-- Maximum performance
+The Rust backend emits a self-contained **Cargo crate** that
+`cargo build` compiles to a native binary.  See the full guide in
+[`rust-backend.md`](rust-backend.md); the spec lives in
+[`../specs/rust-backend.md`](../specs/rust-backend.md).
 
-### Approach
+Goals:
+- AOT, no JVM, no JS runtime
+- One source file → one Cargo crate → one binary, in one command
+- Capability-honest: features the backend doesn't yet support are
+  rejected before `compile` runs, never silently miscompiled
 
-Likely via Scala Native or LLVM backend.
+### Translation Model
+
+```text
+.ssc source → Typed IR → ast.Module (Denormalize) → Cargo crate (RustGen)
+                                                     │
+                                                     └─ cargo build → native binary
+```
+
+### Output shape
+
+`ssc emit-rust hello.ssc -o /tmp/hello-rust` writes:
+
+```
+hello-rust/
+├─ Cargo.toml
+└─ src/
+   ├─ main.rs                  (or src/lib.rs when @main is absent)
+   ├─ value.rs                 (closed Value enum)
+   ├─ runtime/mod.rs           (_show / _print / _println helpers)
+   └─ generated/
+      ├─ mod.rs                (pub mod <crate>)
+      └─ <crate>.rs            (one `pub fn` per top-level def +
+                                 rust fence blocks appended verbatim)
+```
+
+### CLI commands
+
+| Command | Purpose |
+|---|---|
+| `ssc emit-rust <file>` | Write the Cargo crate to `-o <dir>` (default `./<stem>-rust/`). |
+| `ssc build-rust <file>` | Emit + `cargo build --release` + copy the binary to `-o <path>` (default `./<stem>`). |
+| `ssc run-rust <file> [-- args…]` | Emit + build + run the binary with argv after `--`. |
+
+All three require `cargo` on `PATH`.  When it is missing, the command
+prints exactly the wording from `specs/rust-backend.md §10` (with the
+Homebrew + rust-lang.org/tools/install hints) and exits 1 — nothing
+else.
+
+### `rust` fence blocks
+
+Markdown sources targeting the rust backend can mix `scalascript`
+and `rust` blocks in the same `.ssc`:
+
+````markdown
+```scalascript
+@main def run(): Unit = println("Hello via rust block")
+```
+
+```rust
+pub fn util() -> i64 { 7 }
+```
+````
+
+The rust source is appended into `src/generated/<crate>.rs` verbatim
+(under a `// ── rust block <N> ──` separator) so `cargo build` sees
+both ScalaScript-derived `pub fn`s and the user's hand-written Rust
+items as ordinary crate-level definitions.
+
+### R.1 capability surface
+
+Phase R.1 is intentionally narrow — the hello-world shape is what's
+accepted; anything outside it is rejected by `CapabilityCheck` before
+`compile` runs.
+
+Supported features:
+- `ConsoleIO` (`println`, `print`, `Console.println`, `Console.print`)
+- `StringInterpolators` (the `s"…"` form, required by every string
+  literal in the SS pipeline)
+- `ModuleImports`
+
+Rejected (with `Diagnostic.Unsupported` naming the feature + backend):
+- `MutableState`, `WhileLoops`, `PatternMatching`, `TypeClasses`,
+  `AlgebraicEffects`, `HttpServer`, `WebSockets`, … — see
+  `specs/rust-backend.md §8` for the roadmap (R.2–R.6).
+
+### Roadmap
+
+Phases R.2 through R.6 widen the capability set: core IR coverage
+(R.2), intrinsics MVP (R.3 — fs, sha256, json), algebraic effects
+(R.4), HTTP server parity (R.5), and a polish pass (R.6 —
+monomorphisation, WebSockets, Auth, MCP, Streams, type classes).
+Full spec: [`../specs/rust-backend.md`](../specs/rust-backend.md).
 
 ## Conformance
 

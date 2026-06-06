@@ -270,15 +270,20 @@ When to use each:
 | `ssc run --target jvm` | JVM via scala-cli | Production logic, JDBC, JVM libraries, benchmarking |
 | `ssc run-jvm` | JVM via scala-cli | Backward-compat alias for `ssc run --target jvm` |
 | `ssc run-js` | Node.js | Browser-API testing, npm interop, JS-target verification |
+| `ssc run-rust` | Native binary via Cargo | One-shot native build & execute (see [`rust-backend.md`](rust-backend.md)) |
+| `ssc build-rust` | Native binary via Cargo | Ship a `cargo build`ed binary to `-o <path>` |
 
 **Requirements:** `ssc run --target jvm` / `ssc run-jvm` require `scala-cli`
-on PATH; `ssc run-js` requires `node` on PATH.
+on PATH; `ssc run-js` requires `node` on PATH; `ssc run-rust` /
+`ssc build-rust` require `cargo` on PATH (install via `brew install rust`
+or <https://www.rust-lang.org/tools/install>).
 
 ```bash
-# Example: same file, three runtimes
+# Example: same file, four runtimes
 ssc run                    examples/recursion.ssc    # interpreter
 ssc run --target jvm       examples/recursion.ssc    # JVM bytecode
 ssc run-js                 examples/recursion.ssc    # Node.js
+ssc run-rust               examples/hello.ssc        # native binary via Cargo
 
 # HTTP server on JVM (real threads, JDBC available)
 ssc run --target jvm myapp.ssc
@@ -288,6 +293,32 @@ ssc run     examples/hello.ssc > out-int.txt
 ssc run-js  examples/hello.ssc > out-js.txt
 diff out-int.txt out-js.txt   # should be empty
 ```
+
+#### Compiling to a native binary via Rust
+
+`ssc build-rust myapp.ssc` emits a self-contained Cargo crate, runs
+`cargo build --release` inside it, and copies the produced binary to
+`-o <path>` (default `./<stem>`).  No JVM, no Node, no runtime
+dependency — the binary is fully native.
+
+```bash
+# Write hello.ssc:
+cat > hello.ssc <<'EOF'
+```scalascript
+@main def run(): Unit = println("Hello from Rust")
+```
+EOF
+
+ssc build-rust hello.ssc      # → ./hello
+./hello                       # Hello from Rust
+
+ssc run-rust hello.ssc        # build + execute in one step
+```
+
+The R.1 capability surface is intentionally narrow (hello-world shape
++ `rust` fence blocks for escape into hand-written Rust); see
+[`rust-backend.md`](rust-backend.md) for the full matrix and the
+R.2–R.6 roadmap.
 
 #### `ssc build --target jvm` output
 

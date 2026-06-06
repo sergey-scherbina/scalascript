@@ -41,7 +41,8 @@ document by topic.
 ## Architecture & roadmaps
 
 - [architecture.md](architecture.md) — Architecture overview
-- [targets.md](targets.md) — Target Backends
+- [targets.md](targets.md) — Target Backends (index)
+- [rust-backend.md](rust-backend.md) — Rust target user guide (emit-rust / build-rust / run-rust + rust fence blocks)
 - [typer-real-types-roadmap.md](typer-real-types-roadmap.md) — Typer real-type evidence roadmap
 - [modularity.md](modularity.md) — Modularity — three layers
 - [arch-library-modularity.md](arch-library-modularity.md) — Library Modularity spec
