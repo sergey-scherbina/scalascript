@@ -318,6 +318,45 @@ Each item: one commit + bench A/B (or test A/B), never ship a non-win.
       `NumericObjectMethodCall` misses in the runtime profile. See spec §9
       Stage 7.7.
 
+## JIT universal coverage — Stage 8
+
+Spec: [`specs/jit-universal-coverage.md §9`](specs/jit-universal-coverage.md).
+Baseline (2026-06-06, post-stage7): 717 disabled, 20 UnknownShape,
+170 Compound (`DirectGlobalOrCtorCall=148`, `ApplyInfixRefOp=19`,
+`InterpolatedString=14`). Bench wins from stage 7 verified — either-chain,
+hof-pipeline, option-chain, range-sum all <0.03 ms/op. Remaining buckets
+do not show on bench corpus but block real-program JIT coverage.
+Each item: one commit + bench A/B (or test A/B), never ship a non-win.
+
+- [ ] **jit-uc-stage8-direct-global-ctor** — Compile `Term.Apply` on a free name
+      that resolves to a top-level FunV or constructor, even when the callee is
+      not a sibling (currently bails as `DirectGlobalOrCtorCall`). 148 Compound
+      misses today. Strategy: extend `walkRef`/`walkLong` to look up the callee
+      in `JitGlobals`, emit a static dispatch (FunV → bytecode handle if
+      compilable, ctor → `InstanceV.create`-style path). Baseline:
+      `SSC_JIT_STATS=1 sbt "backendInterpreter/test"` → record
+      `DirectGlobalOrCtorCall` before and after.
+
+- [ ] **jit-uc-stage8-apply-infix-ref** — `Term.ApplyInfix` where one operand is
+      ref-typed (e.g. `BigInt + n`, `bigDec * x`, `path / "sub"`). 19 Compound
+      misses. Strategy: route ref-operand infixes through the stage-7.7 numeric
+      object dispatch path (`JitRefDispatch`) for arithmetic operators, and
+      `String + …` to the existing concat path. Baseline: record `ApplyInfixRefOp`
+      count before and after.
+
+- [ ] **jit-uc-stage8-string-interp** — `Term.Interpolate` (`s"hello, $name"`).
+      14 Compound misses. Strategy: lower interpolation to a sequence of
+      `StringBuilder.append` calls inline; bind each `${expr}` via `walkLong`/
+      `walkRef` then emit `toString`+`append`. Both backends. Baseline: record
+      `InterpolatedString` count before and after; add an end-to-end test that
+      forces interpolation in JIT-compilable position.
+
+- [ ] **jit-uc-stage8-unknownshape-tail** — Investigate and tag the residual
+      20 UnknownShape misses (down from 295 at stage-7.6). Classifier-only task:
+      walk each remaining miss, attribute it to either a new bail-reason category
+      or to an out-of-scope decision. Target: UnknownShape = 0 or all remaining
+      cases documented as out-of-scope. No implementation code.
+
 ---
 
 ## Interpreter perf — Phase C + D continuation (open)
