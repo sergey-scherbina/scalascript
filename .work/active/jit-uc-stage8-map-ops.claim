@@ -1,6 +1,0 @@
-feature/jit-uc-stage8-map-ops 2026-06-06T20:12:15Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-06T20:12:15Z
-status: not-started
-done-so-far:
-next: profile map-ops bail reason, design fix
