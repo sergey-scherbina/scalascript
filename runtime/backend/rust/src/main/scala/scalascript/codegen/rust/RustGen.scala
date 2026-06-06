@@ -22,7 +22,7 @@ object RustGen:
       intrinsics:       Map[ir.QualifiedName, IntrinsicImpl],
       runtimePreamble:  String
   ): CompileResult =
-    val _ = (opts, intrinsics, runtimePreamble) // unused in the Cargo.toml-only slice
+    val _ = (opts, intrinsics, runtimePreamble) // wired but not consumed before the code-walk slice
     val crateName = sanitizeCrateName(module.manifest.flatMap(_.name).getOrElse(DefaultCrateName))
     val version   = module.manifest.flatMap(_.version).getOrElse(DefaultVersion)
     val descr     = module.manifest.flatMap(_.description).filter(_.nonEmpty)
@@ -33,6 +33,16 @@ object RustGen:
         name  = "Cargo.toml",
         bytes = cargoToml.getBytes("UTF-8"),
         mime  = "application/toml"
+      ),
+      Segment.Asset(
+        name  = "src/value.rs",
+        bytes = RustRuntimeTemplates.ValueRs.getBytes("UTF-8"),
+        mime  = "text/x-rust"
+      ),
+      Segment.Asset(
+        name  = "src/runtime/mod.rs",
+        bytes = RustRuntimeTemplates.RuntimeModRs.getBytes("UTF-8"),
+        mime  = "text/x-rust"
       )
     ))
 

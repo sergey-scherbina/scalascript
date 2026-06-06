@@ -3,7 +3,16 @@ package scalascript.codegen.rust
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 
-/** Intrinsic table for the rust target.  Phase R.1 skeleton — empty;
- *  the hello-world emit slice (rust-backend-r1-hello-emit) wires
- *  `println`/`print` to `RuntimeCall("crate::runtime::_println")`. */
-val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map.empty
+/** Intrinsic table for the rust target.
+ *
+ *  Phase R.1.3b — wires the console-I/O intrinsics to the runtime
+ *  helpers shipped in `src/runtime/mod.rs`.  The actual call-site
+ *  emission lands in `rust-backend-r1-hello-code-walk`; until then the
+ *  table is reachable by `CapabilityCheck` and by code reading the
+ *  registry, but no `Apply` reaches a `RuntimeCall` rewrite yet. */
+val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
+  QualifiedName("println")          -> RuntimeCall("crate::runtime::_println"),
+  QualifiedName("print")            -> RuntimeCall("crate::runtime::_print"),
+  QualifiedName("Console.println")  -> RuntimeCall("crate::runtime::_println"),
+  QualifiedName("Console.print")    -> RuntimeCall("crate::runtime::_print")
+)
