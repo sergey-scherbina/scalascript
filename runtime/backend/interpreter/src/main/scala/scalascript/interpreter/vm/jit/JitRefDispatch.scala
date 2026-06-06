@@ -205,3 +205,45 @@ object JitRefDispatch:
 
   def nonEmptyLong(recv: AnyRef): Long =
     if isEmptyLong(recv) == 0L then 1L else 0L
+
+  // Stage 8: Option / Map / collection-contains helpers.
+  def isDefinedLong(recv: AnyRef): Long = recv match
+    case opt: Value.OptionV => if opt.inner != null then 1L else 0L
+    case _ =>
+      throw new ClassCastException(s"isDefinedLong unsupported receiver: ${recv.getClass.getName}")
+
+  def optionGetRef(recv: AnyRef): Object = recv match
+    case opt: Value.OptionV if opt.inner != null => opt.inner.asInstanceOf[Object]
+    case _: Value.OptionV =>
+      throw new NoSuchElementException("Option.get on None")
+    case _ =>
+      throw new ClassCastException(s"optionGetRef unsupported receiver: ${recv.getClass.getName}")
+
+  def optionGetLong(recv: AnyRef): Long = recv match
+    case opt: Value.OptionV if opt.inner != null => longValue(opt.inner)
+    case _: Value.OptionV =>
+      throw new NoSuchElementException("Option.get on None")
+    case _ =>
+      throw new ClassCastException(s"optionGetLong unsupported receiver: ${recv.getClass.getName}")
+
+  /** Map.contains(key) / List.contains(x) / Set.contains(x) / String.contains(substr). */
+  def containsLong(recv: AnyRef, key: Value): Long = recv match
+    case Value.MapV(entries)  => if entries.contains(key) then 1L else 0L
+    case Value.SetV(items)    => if items.contains(key) then 1L else 0L
+    case Value.ListV(items)   => if items.contains(key) then 1L else 0L
+    case Value.StringV(value) =>
+      key match
+        case Value.StringV(s) => if value.contains(s) then 1L else 0L
+        case _ => throw new ClassCastException(s"containsLong String receiver expects StringV key, got ${key.getClass.getName}")
+    case _ =>
+      throw new ClassCastException(s"containsLong unsupported receiver: ${recv.getClass.getName}")
+
+  def mapKeysRef(recv: AnyRef): Object = recv match
+    case Value.MapV(entries) => Value.ListV(entries.keys.toList).asInstanceOf[Object]
+    case _ =>
+      throw new ClassCastException(s"mapKeysRef unsupported receiver: ${recv.getClass.getName}")
+
+  def mapValuesRef(recv: AnyRef): Object = recv match
+    case Value.MapV(entries) => Value.ListV(entries.values.toList).asInstanceOf[Object]
+    case _ =>
+      throw new ClassCastException(s"mapValuesRef unsupported receiver: ${recv.getClass.getName}")

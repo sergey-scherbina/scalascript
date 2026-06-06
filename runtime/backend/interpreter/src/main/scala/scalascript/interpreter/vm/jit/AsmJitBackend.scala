@@ -971,6 +971,24 @@ object AsmJitBackend extends JitBackend:
         if !walkRef(recv, ctx, mv) then return false
         mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "nonEmptyLong", "(Ljava/lang/Object;)J", false)
         true
+      // Stage 8: Option / collection-contains.
+      case "isDefined" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "isDefinedLong", "(Ljava/lang/Object;)J", false)
+        true
+      case "get" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "optionGetLong", "(Ljava/lang/Object;)J", false)
+        true
+      case "contains" if args.lengthCompare(1) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        if !emitValueObject(args.head, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "containsLong",
+          s"(Ljava/lang/Object;L$valueInt;)J", false)
+        true
       case _ => false
 
   private def emitRefChainObject(recv: Term, method: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
@@ -1023,6 +1041,22 @@ object AsmJitBackend extends JitBackend:
         mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
         if !walkRef(recv, ctx, mv) then return false
         mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "headOptionRef", "(Ljava/lang/Object;)Ljava/lang/Object;", false)
+        true
+      // Stage 8: Map.keys / Map.values / Option.get (ref-typed).
+      case "keys" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "mapKeysRef", "(Ljava/lang/Object;)Ljava/lang/Object;", false)
+        true
+      case "values" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "mapValuesRef", "(Ljava/lang/Object;)Ljava/lang/Object;", false)
+        true
+      case "get" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "optionGetRef", "(Ljava/lang/Object;)Ljava/lang/Object;", false)
         true
       case _ => false
 

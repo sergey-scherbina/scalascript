@@ -853,6 +853,14 @@ object JavacJitBackend extends JitBackend:
         s"$jrd.isEmptyLong((Object) ($refExpr))"
       case "nonEmpty" if args.isEmpty =>
         s"$jrd.nonEmptyLong((Object) ($refExpr))"
+      // Stage 8: Option / collection-contains methods returning Long.
+      case "isDefined" if args.isEmpty =>
+        s"$jrd.isDefinedLong((Object) ($refExpr))"
+      case "get" if args.isEmpty =>
+        s"$jrd.optionGetLong((Object) ($refExpr))"
+      case "contains" if args.lengthCompare(1) == 0 =>
+        val k = emitValueObject(args.head, ctx)
+        if k == null then null else s"$jrd.containsLong((Object) ($refExpr), $k)"
       case _ => null
 
   private def emitRefChainObject(recv: Term, method: String, args: List[Term], ctx: GenCtx): String | Null =
@@ -889,6 +897,13 @@ object JavacJitBackend extends JitBackend:
         s"$jrd.initRef((Object) ($refExpr))"
       case "headOption" if args.isEmpty =>
         s"$jrd.headOptionRef((Object) ($refExpr))"
+      // Stage 8: Map.keys / Map.values / Option.get (ref-typed).
+      case "keys" if args.isEmpty =>
+        s"$jrd.mapKeysRef((Object) ($refExpr))"
+      case "values" if args.isEmpty =>
+        s"$jrd.mapValuesRef((Object) ($refExpr))"
+      case "get" if args.isEmpty =>
+        s"$jrd.optionGetRef((Object) ($refExpr))"
       case _ => null
 
   private def isNumericObjectReceiver(recv: Term): Boolean =

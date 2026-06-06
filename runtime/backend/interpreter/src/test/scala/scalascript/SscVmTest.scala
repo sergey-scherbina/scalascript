@@ -1794,6 +1794,20 @@ class SscVmTest extends AnyFunSuite with Matchers:
     JitGlobals.withInterp(interp) { direct.apply(sq) }    shouldBe 16L  // n=5>3: 5+10=15+1=16
   }
 
+  test("stage8-option-map-methods: Option.isDefined / List.contains JIT through JitRefDispatch") {
+    val out = captured(
+      """def hasIt(o: Option[Int]): Int = if o.isDefined then 1 else 0
+        |def has(xs: List[Int], k: Int): Int = if xs.contains(k) then 1 else 0
+        |val some: Option[Int] = Some(7)
+        |val none: Option[Int] = None
+        |val xs: List[Int] = List(10, 20, 30)
+        |println(hasIt(some))
+        |println(hasIt(none))
+        |println(has(xs, 20))
+        |println(has(xs, 99))""".stripMargin)
+    out.trim shouldBe "1\n0\n1\n0"
+  }
+
   test("stage8-list-extra-methods: .last / .isEmpty JIT through JitRefDispatch") {
     val out = captured(
       """def lastEl(xs: List[Int]): Int = xs.last
