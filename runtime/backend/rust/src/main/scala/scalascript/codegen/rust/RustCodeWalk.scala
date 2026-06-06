@@ -22,13 +22,18 @@ import scalascript.ir.QualifiedName
 object RustCodeWalk:
 
   /** A single rendered `pub fn` extracted from a `Defn.Def`. */
-  final case class GeneratedDef(name: String, render: String)
+  final case class GeneratedDef(name: String, render: String, isMain: Boolean)
 
   /** Outcome of walking a module — either a list of diagnostics or
    *  the assembled `src/generated/<crate>.rs` text plus the names of
-   *  the defs it contains (so the main-assembly slice can stitch a
-   *  `fn main() { generated::<name>(); }` shim). */
-  final case class WalkResult(generated: String, defNames: List[String])
+   *  the defs it contains and the `@main`-annotated entry point, so
+   *  the main-assembly slice can stitch a
+   *  `fn main() { generated::<crate>::<entry>(); }` shim. */
+  final case class WalkResult(
+      generated: String,
+      defNames:  List[String],
+      mainEntry: Option[String]
+  )
 
   def walk(
       module:     ast.Module,
@@ -42,7 +47,11 @@ object RustCodeWalk:
       val text =
         if ok.isEmpty then headerComment
         else headerComment + "\n" + ok.map(_.render).mkString("\n")
-      Right(WalkResult(generated = text, defNames = ok.map(_.name)))
+      Right(WalkResult(
+        generated = text,
+        defNames  = ok.map(_.name),
+        mainEntry = ok.find(_.isMain).map(_.name)
+      ))
 
   /** Header for the generated file.  Stable so goldens diff cleanly. */
   private val headerComment: String =
@@ -88,7 +97,14 @@ object RustCodeWalk:
            |${indent(bodyRs)}
            |}
            |""".stripMargin
-      GeneratedDef(name = name, render = src)
+      GeneratedDef(name = name, render = src, isMain = hasMainAnnotation(d))
+
+  /** A def is the entry point when it carries an `@main` annotation. */
+  private def hasMainAnnotation(d: m.Defn.Def): Boolean =
+    d.mods.exists {
+      case m.Mod.Annot(m.Init.After_4_6_0(m.Type.Name("main"), _, _)) => true
+      case _                                                          => false
+    }
 
   private def ensureZeroParamGroups(
       d: m.Defn.Def, name: String

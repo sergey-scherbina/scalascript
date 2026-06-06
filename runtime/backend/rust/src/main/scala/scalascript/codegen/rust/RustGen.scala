@@ -41,28 +41,57 @@ object RustGen:
       case Left(diags) =>
         CompileResult.Failed(diags)
       case Right(walked) =>
+        val entry        = walked.mainEntry
+        val effectiveBin = entry.isDefined
+        // Re-render Cargo.toml against the AST-resolved entry check —
+        // the textual `@main` scan is a hint; if the walker found no
+        // annotated def, fall back to [lib].
+        val cargoTomlFinal =
+          if effectiveBin == hasMain then cargoToml
+          else renderCargoToml(crateName, version, descr, effectiveBin)
+        val generatedMod = renderGeneratedMod(crateName)
+        val rootFile     =
+          if effectiveBin then renderMainRs(crateName, entry.get)
+          else                 renderLibRs()
+        val rootName     = if effectiveBin then "src/main.rs" else "src/lib.rs"
         CompileResult.Segmented(List(
-          Segment.Asset(
-            name  = "Cargo.toml",
-            bytes = cargoToml.getBytes("UTF-8"),
-            mime  = "application/toml"
-          ),
-          Segment.Asset(
-            name  = "src/value.rs",
-            bytes = RustRuntimeTemplates.ValueRs.getBytes("UTF-8"),
-            mime  = "text/x-rust"
-          ),
-          Segment.Asset(
-            name  = "src/runtime/mod.rs",
-            bytes = RustRuntimeTemplates.RuntimeModRs.getBytes("UTF-8"),
-            mime  = "text/x-rust"
-          ),
-          Segment.Asset(
-            name  = s"src/generated/$crateName.rs",
-            bytes = walked.generated.getBytes("UTF-8"),
-            mime  = "text/x-rust"
-          )
+          Segment.Asset("Cargo.toml",                   cargoTomlFinal.getBytes("UTF-8"),                    "application/toml"),
+          Segment.Asset("src/value.rs",                 RustRuntimeTemplates.ValueRs.getBytes("UTF-8"),      "text/x-rust"),
+          Segment.Asset("src/runtime/mod.rs",           RustRuntimeTemplates.RuntimeModRs.getBytes("UTF-8"), "text/x-rust"),
+          Segment.Asset("src/generated/mod.rs",         generatedMod.getBytes("UTF-8"),                      "text/x-rust"),
+          Segment.Asset(s"src/generated/$crateName.rs", walked.generated.getBytes("UTF-8"),                  "text/x-rust"),
+          Segment.Asset(rootName,                       rootFile.getBytes("UTF-8"),                          "text/x-rust")
         ))
+
+  /** `src/generated/mod.rs` — one-line re-export for the crate module. */
+  private[rust] def renderGeneratedMod(crateName: String): String =
+    s"""//! Generated module index — re-exports per-source modules.
+       |
+       |pub mod $crateName;
+       |""".stripMargin
+
+  /** `src/main.rs` shim for a binary crate.  Wires the three top-level
+   *  modules and calls the `@main`-annotated entry point. */
+  private[rust] def renderMainRs(crateName: String, entry: String): String =
+    s"""//! Crate entry point.  Emitted by RustGen; do not edit by hand.
+       |
+       |mod runtime;
+       |mod value;
+       |mod generated;
+       |
+       |fn main() {
+       |    generated::$crateName::$entry();
+       |}
+       |""".stripMargin
+
+  /** `src/lib.rs` for a library crate (no `@main` in the source). */
+  private[rust] def renderLibRs(): String =
+    """//! Crate library root.  Emitted by RustGen; do not edit by hand.
+      |
+      |pub mod runtime;
+      |pub mod value;
+      |pub mod generated;
+      |""".stripMargin
 
   /** Render the `Cargo.toml` text for a crate with no dependencies and
    *  a single `[[bin]]` entry when `hasMain` is true, or a `[lib]` entry
