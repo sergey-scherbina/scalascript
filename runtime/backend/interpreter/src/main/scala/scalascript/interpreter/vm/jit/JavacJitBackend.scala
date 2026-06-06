@@ -846,6 +846,13 @@ object JavacJitBackend extends JitBackend:
         s"$jrd.sizeLong((Object) ($refExpr))"
       case "head" if args.isEmpty =>
         s"$jrd.headLong((Object) ($refExpr))"
+      // Stage 8: more List-on-Long methods.
+      case "last" if args.isEmpty =>
+        s"$jrd.lastLong((Object) ($refExpr))"
+      case "isEmpty" if args.isEmpty =>
+        s"$jrd.isEmptyLong((Object) ($refExpr))"
+      case "nonEmpty" if args.isEmpty =>
+        s"$jrd.nonEmptyLong((Object) ($refExpr))"
       case _ => null
 
   private def emitRefChainObject(recv: Term, method: String, args: List[Term], ctx: GenCtx): String | Null =
@@ -875,6 +882,13 @@ object JavacJitBackend extends JitBackend:
         val end   = walkString(args(2), ctx)
         if start == null || sep == null || end == null then null
         else s"$jrd.mkStringRef((Object) ($refExpr), $start, $sep, $end)"
+      // Stage 8: more List-returning methods.
+      case "tail" if args.isEmpty =>
+        s"$jrd.tailRef((Object) ($refExpr))"
+      case "init" if args.isEmpty =>
+        s"$jrd.initRef((Object) ($refExpr))"
+      case "headOption" if args.isEmpty =>
+        s"$jrd.headOptionRef((Object) ($refExpr))"
       case _ => null
 
   private def isNumericObjectReceiver(recv: Term): Boolean =

@@ -1794,6 +1794,19 @@ class SscVmTest extends AnyFunSuite with Matchers:
     JitGlobals.withInterp(interp) { direct.apply(sq) }    shouldBe 16L  // n=5>3: 5+10=15+1=16
   }
 
+  test("stage8-list-extra-methods: .last / .isEmpty JIT through JitRefDispatch") {
+    val out = captured(
+      """def lastEl(xs: List[Int]): Int = xs.last
+        |def lenOrZero(xs: List[Int]): Int = if xs.isEmpty then 0 else xs.last
+        |val a: List[Int] = List(1, 2, 3)
+        |val b: List[Int] = List(99)
+        |val c: List[Int] = List()
+        |println(lastEl(a))
+        |println(lastEl(b))
+        |println(lenOrZero(c))""".stripMargin)
+    out.trim shouldBe "3\n99\n0"
+  }
+
   test("stage8-typed-pattern: case _: T => and case x: T => JIT via Pat.Typed in walkArm") {
     val out = captured(
       """sealed trait Shape

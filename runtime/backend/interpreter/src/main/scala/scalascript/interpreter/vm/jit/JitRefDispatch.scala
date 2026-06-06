@@ -168,3 +168,40 @@ object JitRefDispatch:
     case _: Value.MapV  => mapConcat(recv, other)
     case _ =>
       throw new ClassCastException(s"collectionConcat unsupported receiver: ${recv.getClass.getName}")
+
+  // Stage 8: extra collection methods — tail/init/headOption/last/isEmpty/nonEmpty.
+  def tailRef(recv: AnyRef): Object = recv match
+    case Value.ListV(_ :: rest) => Value.ListV(rest).asInstanceOf[Object]
+    case Value.ListV(Nil)       => throw new NoSuchElementException("tail of empty List")
+    case _ =>
+      throw new ClassCastException(s"tailRef unsupported receiver: ${recv.getClass.getName}")
+
+  def initRef(recv: AnyRef): Object = recv match
+    case Value.ListV(items) =>
+      if items.isEmpty then throw new NoSuchElementException("init of empty List")
+      else Value.ListV(items.init).asInstanceOf[Object]
+    case _ =>
+      throw new ClassCastException(s"initRef unsupported receiver: ${recv.getClass.getName}")
+
+  def headOptionRef(recv: AnyRef): Object = recv match
+    case Value.ListV(head :: _) => Value.OptionV(head).asInstanceOf[Object]
+    case Value.ListV(Nil)       => Value.NoneV.asInstanceOf[Object]
+    case _ =>
+      throw new ClassCastException(s"headOptionRef unsupported receiver: ${recv.getClass.getName}")
+
+  def lastLong(recv: AnyRef): Long = recv match
+    case Value.ListV(items) if items.nonEmpty => longValue(items.last)
+    case Value.ListV(Nil)                     => throw new NoSuchElementException("last of empty List")
+    case _ =>
+      throw new ClassCastException(s"lastLong unsupported receiver: ${recv.getClass.getName}")
+
+  def isEmptyLong(recv: AnyRef): Long = recv match
+    case Value.ListV(items)    => if items.isEmpty then 1L else 0L
+    case Value.MapV(entries)   => if entries.isEmpty then 1L else 0L
+    case Value.SetV(items)     => if items.isEmpty then 1L else 0L
+    case Value.StringV(value)  => if value.isEmpty then 1L else 0L
+    case _ =>
+      throw new ClassCastException(s"isEmptyLong unsupported receiver: ${recv.getClass.getName}")
+
+  def nonEmptyLong(recv: AnyRef): Long =
+    if isEmptyLong(recv) == 0L then 1L else 0L
