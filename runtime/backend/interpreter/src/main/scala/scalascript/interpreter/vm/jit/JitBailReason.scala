@@ -40,6 +40,14 @@ object JitBailReason:
     val suggestedFix = Some("pass the resolved instance explicitly as a " +
       "regular parameter — `def f(x: Int)(using ord: Ord[Int])` → `def f(x: Int, ord: Ord[Int])`")
 
+  case object TypeclassUsingDispatch extends JitBailReason:
+    val tag         = "TypeclassUsingDispatch"
+    val description = "function body dispatches through a `using` / context-bound " +
+      "typeclass instance (`summon[...]`, `m.empty`, `m.combine`, etc.); the JIT " +
+      "does not yet specialize resolved typeclass dictionaries"
+    val suggestedFix = Some("specialize the hot helper for the concrete instance, " +
+      "or pass primitive operations as regular non-using parameters")
+
   case object VarargParam extends JitBailReason:
     val tag         = "VarargParam"
     val description = "function has a vararg parameter (last paramType ends " +

@@ -76,6 +76,7 @@ case "$pat" in
   either-chain) pat="eitherChain" ;;
   hof-pipeline) pat="hofPipeline" ;;
   range-sum)    pat="rangeSum" ;;
+  typeclass-fold) pat="typeclassFold" ;;
 esac
 
 # Class-scoped JMH pattern. `.*Class.*pat.*` is permissive on both ends so

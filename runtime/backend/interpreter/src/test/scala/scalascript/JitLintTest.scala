@@ -106,6 +106,25 @@ class JitLintTest extends AnyFunSuite with Matchers:
       list.javac.bailReasons shouldBe empty
       list.asm.bailReasons shouldBe empty
 
+  test("stage7-typeclass-fold: context-bound fold is classified as typeclass dispatch"):
+    val r = lintCompareFor(
+      """trait Monoid[A]:
+        |  def empty: A
+        |  def combine(a: A, b: A): A
+        |given intMonoid: Monoid[Int] with
+        |  def empty: Int = 0
+        |  def combine(a: Int, b: Int): Int = a + b
+        |def combineAll[A: Monoid](xs: List[A]): A =
+        |  xs.foldLeft(summon[Monoid[A]].empty)(summon[Monoid[A]].combine)
+        |combineAll(List(1, 2, 3, 4))""".stripMargin
+    ).forDef("combineAll")
+    withClue(r.humanReadable):
+      r.bothJit shouldBe false
+      r.javac.bailReasons should contain (JitBailReason.TypeclassUsingDispatch)
+      r.asm.bailReasons should contain (JitBailReason.TypeclassUsingDispatch)
+      r.javac.bailReasons should not contain JitBailReason.UsingParams
+      r.asm.bailReasons should not contain JitBailReason.UsingParams
+
   test("stage7-refchain-bucket-split: primitive local/direct reads stay RefChainCall"):
     val local = classifyBody("{ val r = parse(n); r.getOrElse(7) }", List("n"), List("Int"))
     val direct = classifyBody("parse(n).getOrElse(7)", List("n"), List("Int"))

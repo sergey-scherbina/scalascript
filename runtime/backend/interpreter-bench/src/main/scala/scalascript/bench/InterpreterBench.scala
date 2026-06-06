@@ -650,6 +650,19 @@ class InterpreterBench:
   private val rangeSumTerm: Term =
     dialects.Scala3("step(20)").parse[Term].get
 
+  private val typeclassFoldInterp: Interpreter = warmInterp(
+    """trait Monoid[A]:
+      |  def empty: A
+      |  def combine(a: A, b: A): A
+      |given intMonoid: Monoid[Int] with
+      |  def empty: Int = 0
+      |  def combine(a: Int, b: Int): Int = a + b
+      |def combineAll[A: Monoid](xs: List[A]): A =
+      |  xs.foldLeft(summon[Monoid[A]].empty)(summon[Monoid[A]].combine)""".stripMargin
+  )
+  private val typeclassFoldTerm: Term =
+    dialects.Scala3("combineAll(List(1, 2, 3, 4))").parse[Term].get
+
   @Benchmark
   def refChainArg(): Unit =
     Interpreter(devNull).runSections(modRefChainArg)
@@ -669,6 +682,10 @@ class InterpreterBench:
   @Benchmark
   def rangeSum(): Unit =
     rangeSumInterp.evalTerm(rangeSumTerm)
+
+  @Benchmark
+  def typeclassFold(): Unit =
+    typeclassFoldInterp.evalTerm(typeclassFoldTerm)
 
   @Benchmark
   def helloWorld(): Unit =

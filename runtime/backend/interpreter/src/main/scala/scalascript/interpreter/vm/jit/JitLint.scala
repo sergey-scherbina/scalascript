@@ -163,7 +163,11 @@ object JitPredicates:
   def classifyBailReasons(fn: Value.FunV): List[JitBailReason] =
     val buf = scala.collection.mutable.ListBuffer.empty[JitBailReason]
     if fn.params.length > 3 then buf += JitBailReason.TooManyParams(fn.params.length)
-    if fn.usingParams.nonEmpty then buf += JitBailReason.UsingParams
+    if fn.usingParams.nonEmpty then
+      if hasTypeclassUsingDispatch(fn.body, fn.usingParams.map(_._1).toSet) then
+        buf += JitBailReason.TypeclassUsingDispatch
+      else
+        buf += JitBailReason.UsingParams
     if fn.paramTypes.exists(_.endsWith("*")) then buf += JitBailReason.VarargParam
     if fn.returnsThrows then buf += JitBailReason.EffectReturn
     // BoolBody: only report when the body is bool-returning AND compilation still
@@ -263,6 +267,12 @@ object JitPredicates:
   /** Backwards-compat overload: no param-name set (HOF detection disabled). */
   def walkForBailCliffs(t: Tree, buf: scala.collection.mutable.ListBuffer[JitBailReason]): Unit =
     walkForBailCliffs(t, Set.empty, Set.empty, buf)
+
+  private def hasTypeclassUsingDispatch(t: Tree, usingNames: Set[String]): Boolean =
+    t match
+      case Term.ApplyType.After_4_6_0(Term.Name("summon"), _) => true
+      case Term.Select(Term.Name(n), _) if usingNames.contains(n) => true
+      case _ => t.children.exists(hasTypeclassUsingDispatch(_, usingNames))
 
   private def classifyRefSelectCall(
     recv:       Term,
