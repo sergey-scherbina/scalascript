@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(rust): ssc emit-rust CLI command
+
+- **rust-backend-r1-cli-emit-rust** — `EmitRustCmd` registered via
+  ServiceLoader. Calls `compileViaBackend("rust", path)` and writes
+  every emitted asset under `./<stem>-rust/` (or `-o <dir>`). `--print-only`
+  streams asset bodies to stdout with `// ── name ──` separators.
+  `Diagnostic.Generic` results surface as `[error] ...` on stderr
+  with exit code 1. CommandRegistryTest expects "emit-rust".
+
 ## 2026-06-06 — feat(rust): main.rs/lib.rs assembly + end-to-end golden
 
 - **rust-backend-r1-hello-main-assembly** — last slice of R.1.3 hello-emit.

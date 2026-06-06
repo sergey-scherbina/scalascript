@@ -604,15 +604,6 @@ slice has a verified base to extend. The cumulative result equals the
 original `rust-backend-r1-hello-emit` description (Cargo.toml + main.rs
 + runtime/mod.rs + value.rs + generated/<module>.rs).
 
-- [ ] **rust-backend-r1-cli-emit-rust** — Add `EmitRustCmd extends CliCommand`
-      in `tools/cli/src/main/scala/scalascript/cli/EmitCommands.scala`,
-      flags `-o <dir>`, `--print-only`, `--bin-name <name>`, `--release`.
-      Register in `CommandRegistry`. Update `CommandRegistryTest` expected
-      set to include `"emit-rust"`. Help text lists it under "Emit &
-      transpile" alongside `emit-js`/`emit-wasm`. Acceptance:
-      `ssc emit-rust examples/rust/hello.ssc -o /tmp/hello-rust` writes the
-      crate; `--print-only` prints `main.rs` to stdout.
-
 - [ ] **rust-backend-r1-cli-build-rust** — One-shot UX, mirroring how
       `run-jvm` wraps `compile-jvm` + `scala-cli run`. Add
       `BuildRustCmd extends CliCommand` in `EmitCommands.scala` (or a new
