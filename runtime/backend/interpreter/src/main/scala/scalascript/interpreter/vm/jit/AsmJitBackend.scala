@@ -425,7 +425,9 @@ object AsmJitBackend extends JitBackend:
           true
         case ctor: Term.Name if ctx.interp.typeFieldOrder.contains(ctor.value) =>
           emitConstructorObject(ctor.value, ap.argClause.values, ctx, mv)
+        case _ if objectRefFallbackAllowed(ap, ctx) => walkRef(ap, ctx, mv)
         case _ => false
+    case _ if objectRefFallbackAllowed(t, ctx) => walkRef(t, ctx, mv)
     case _ => false
 
   /** Build an InstanceV for `typeName(args…)` and leave it on the stack.
@@ -940,6 +942,82 @@ object AsmJitBackend extends JitBackend:
         mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "headLong", "(Ljava/lang/Object;)J", false)
         true
       case _ => false
+
+  private def emitRefChainObject(recv: Term, method: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
+    method match
+      case "getOrElse" if args.lengthCompare(1) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        if !emitValueObject(args.head, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "getOrElseRef", s"(Ljava/lang/Object;L$valueInt;)Ljava/lang/Object;", false)
+        true
+      case "getOrElse" if args.lengthCompare(2) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        if !emitValueObject(args.head, ctx, mv) then return false
+        if !emitValueObject(args(1), ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "mapGetOrElseRef", s"(Ljava/lang/Object;L$valueInt;L$valueInt;)Ljava/lang/Object;", false)
+        true
+      case "mkString" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "mkStringRef", "(Ljava/lang/Object;)Ljava/lang/Object;", false)
+        true
+      case "mkString" if args.lengthCompare(1) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        if !walkString(args.head, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "mkStringRef", "(Ljava/lang/Object;Ljava/lang/String;)Ljava/lang/Object;", false)
+        true
+      case "mkString" if args.lengthCompare(3) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        if !walkString(args.head, ctx, mv) then return false
+        if !walkString(args(1), ctx, mv) then return false
+        if !walkString(args(2), ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "mkStringRef", "(Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;", false)
+        true
+      case _ => false
+
+  private def objectRefFallbackAllowed(t: Term, ctx: GenCtx): Boolean = t match
+    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("mkString")), argClause) =>
+      val args = argClause.values
+      args.isEmpty || args.lengthCompare(1) == 0 || args.lengthCompare(3) == 0
+    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)
+        if argClause.values.lengthCompare(2) == 0 =>
+      true
+    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)
+        if argClause.values.lengthCompare(1) == 0 =>
+      !looksLongValue(argClause.values.head, ctx)
+    case _ => false
+
+  private def looksLongValue(t: Term, ctx: GenCtx): Boolean = t match
+    case Lit.Int(_) | Lit.Long(_) | Lit.Boolean(_) => true
+    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+      b.stats.head match
+        case inner: Term => looksLongValue(inner, ctx)
+        case _           => false
+    case ti: Term.If =>
+      looksLongValue(ti.thenp, ctx) && looksLongValue(ti.elsep, ctx)
+    case tn: Term.Name =>
+      !ctx.isRefName(tn.value) && !ctx.isStringName(tn.value) &&
+        (ctx.slotOf(tn.value) >= 0 ||
+          ctx.interp.globals.get(tn.value).exists(_.isInstanceOf[Value.IntV]))
+    case Term.ApplyUnary(op, arg) if op.value == "-" || op.value == "+" =>
+      looksLongValue(arg, ctx)
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) if argClause.values.lengthCompare(1) == 0 =>
+      op.value match
+        case "+" | "-" | "*" | "/" | "%" | "<" | "<=" | ">" | ">=" | "==" | "!=" =>
+          looksLongValue(lhs, ctx) && looksLongValue(argClause.values.head, ctx)
+        case _ => false
+    case Term.Select(_: Term, Term.Name("size" | "head" | "length")) =>
+      true
+    case Term.Select(inner: Term, Term.Name("toLong" | "toInt")) =>
+      looksLongValue(inner, ctx)
+    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)
+        if argClause.values.lengthCompare(1) == 0 =>
+      looksLongValue(argClause.values.head, ctx)
+    case _ => false
 
   private def emitHofRefChain(recv: Term, method: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
     method match
@@ -1584,7 +1662,8 @@ object AsmJitBackend extends JitBackend:
         case fn: Term.Name =>
           emitRefCall(fn.value, ap.argClause.values, ctx, mv)
         case Term.Select(recv: Term, Term.Name(method)) =>
-          emitHofRefChain(recv, method, ap.argClause.values, ctx, mv)
+          emitHofRefChain(recv, method, ap.argClause.values, ctx, mv) ||
+            emitRefChainObject(recv, method, ap.argClause.values, ctx, mv)
         case _ => false
     // Stage 5.5: ref-typed ADT field access `obj.field` on a ref param.
     case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>

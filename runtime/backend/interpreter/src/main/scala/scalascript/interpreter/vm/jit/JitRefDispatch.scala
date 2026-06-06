@@ -42,3 +42,38 @@ object JitRefDispatch:
     case Value.TupleV(head :: _) => longValue(head)
     case other =>
       throw new ClassCastException(s"headLong unsupported receiver: ${other.getClass.getName}")
+
+  def getOrElseRef(recv: AnyRef, defaultValue: Value): Object = recv match
+    case opt: Value.OptionV =>
+      val inner = opt.inner
+      if inner == null then defaultValue.asInstanceOf[Object] else inner.asInstanceOf[Object]
+    case inst: Value.InstanceV if inst.typeName == "Right" =>
+      instanceValue(inst).asInstanceOf[Object]
+    case inst: Value.InstanceV if inst.typeName == "Left" =>
+      defaultValue.asInstanceOf[Object]
+    case other =>
+      throw new ClassCastException(s"getOrElseRef unsupported receiver: ${other.getClass.getName}")
+
+  def mapGetOrElseRef(recv: AnyRef, key: Value, defaultValue: Value): Object = recv match
+    case Value.MapV(entries) =>
+      entries.getOrElse(key, defaultValue).asInstanceOf[Object]
+    case other =>
+      throw new ClassCastException(s"mapGetOrElseRef unsupported receiver: ${other.getClass.getName}")
+
+  def mkStringRef(recv: AnyRef): Object = recv match
+    case Value.ListV(items) =>
+      Value.StringV(items.iterator.map(Value.show).mkString).asInstanceOf[Object]
+    case other =>
+      throw new ClassCastException(s"mkStringRef unsupported receiver: ${other.getClass.getName}")
+
+  def mkStringRef(recv: AnyRef, sep: String): Object = recv match
+    case Value.ListV(items) =>
+      Value.StringV(items.iterator.map(Value.show).mkString(sep)).asInstanceOf[Object]
+    case other =>
+      throw new ClassCastException(s"mkStringRef unsupported receiver: ${other.getClass.getName}")
+
+  def mkStringRef(recv: AnyRef, start: String, sep: String, end: String): Object = recv match
+    case Value.ListV(items) =>
+      Value.StringV(items.iterator.map(Value.show).mkString(start, sep, end)).asInstanceOf[Object]
+    case other =>
+      throw new ClassCastException(s"mkStringRef unsupported receiver: ${other.getClass.getName}")

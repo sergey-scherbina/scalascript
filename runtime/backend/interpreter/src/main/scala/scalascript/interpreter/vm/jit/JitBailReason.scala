@@ -199,6 +199,16 @@ object JitBailReason:
     val suggestedFix = Some("split the expression into primitive numeric reads, " +
       "or add object/String/generic ref-returning JIT dispatch support")
 
+  /** Method called on a computed numeric object produced by a known value
+   *  constructor. Example: `BigInt(10).pow(n)`, `Decimal(\"1.2\").abs`. */
+  case object NumericObjectMethodCall extends JitBailReason:
+    val tag         = "NumericObjectMethodCall"
+    val description = "method called on a computed BigInt/Decimal value; this " +
+      "needs a numeric-object dispatch path rather than the primitive long/double " +
+      "or generic object ref-chain paths"
+    val suggestedFix = Some("add a dedicated BigInt/Decimal JIT helper for the " +
+      "hot method, or hoist the operation out of the JIT-compiled helper")
+
   case class FreeNameUnresolvable(name: String) extends JitBailReason:
     val tag         = "FreeNameUnresolvable"
     val description = s"name `$name` is not a parameter, local val, sibling def, or " +

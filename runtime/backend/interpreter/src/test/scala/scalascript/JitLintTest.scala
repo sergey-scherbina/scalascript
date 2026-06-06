@@ -141,8 +141,14 @@ class JitLintTest extends AnyFunSuite with Matchers:
     reasons should not contain JitBailReason.RefChainCall
 
   test("stage7-refchain-bucket-split: object-producing computed chains are split"):
-    val reasons = classifyBody("BigInt(10).pow(n)", List("n"), List("Int"))
+    val reasons = classifyBody("""Some(n).getOrElse("miss")""", List("n"), List("Int"))
     reasons should contain (JitBailReason.RefChainObjectCall)
+    reasons should not contain JitBailReason.RefChainCall
+
+  test("stage7-refchain-object-dispatch: numeric object method calls are split"):
+    val reasons = classifyBody("BigInt(10).pow(n)", List("n"), List("Int"))
+    reasons should contain (JitBailReason.NumericObjectMethodCall)
+    reasons should not contain JitBailReason.RefChainObjectCall
     reasons should not contain JitBailReason.RefChainCall
 
   test("ADT match with guard — should JIT (walkArmAsIfBranch path)"):

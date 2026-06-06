@@ -848,6 +848,72 @@ object JavacJitBackend extends JitBackend:
         s"$jrd.headLong((Object) ($refExpr))"
       case _ => null
 
+  private def emitRefChainObject(recv: Term, method: String, args: List[Term], ctx: GenCtx): String | Null =
+    val refExpr = walkRef(recv, ctx)
+    if refExpr == null then return null
+    val jrd = "scalascript.interpreter.vm.jit.JitRefDispatch$.MODULE$"
+    method match
+      case "getOrElse" if args.lengthCompare(1) == 0 =>
+        val d = emitValueObject(args.head, ctx)
+        if d == null then null else s"$jrd.getOrElseRef((Object) ($refExpr), $d)"
+      case "getOrElse" if args.lengthCompare(2) == 0 =>
+        val key = emitValueObject(args.head, ctx)
+        val d   = emitValueObject(args(1), ctx)
+        if key == null || d == null then null
+        else s"$jrd.mapGetOrElseRef((Object) ($refExpr), $key, $d)"
+      case "mkString" if args.isEmpty =>
+        s"$jrd.mkStringRef((Object) ($refExpr))"
+      case "mkString" if args.lengthCompare(1) == 0 =>
+        val sep = walkString(args.head, ctx)
+        if sep == null then null else s"$jrd.mkStringRef((Object) ($refExpr), $sep)"
+      case "mkString" if args.lengthCompare(3) == 0 =>
+        val start = walkString(args.head, ctx)
+        val sep   = walkString(args(1), ctx)
+        val end   = walkString(args(2), ctx)
+        if start == null || sep == null || end == null then null
+        else s"$jrd.mkStringRef((Object) ($refExpr), $start, $sep, $end)"
+      case _ => null
+
+  private def objectRefFallbackAllowed(t: Term, ctx: GenCtx): Boolean = t match
+    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("mkString")), argClause) =>
+      val args = argClause.values
+      args.isEmpty || args.lengthCompare(1) == 0 || args.lengthCompare(3) == 0
+    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)
+        if argClause.values.lengthCompare(2) == 0 =>
+      true
+    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)
+        if argClause.values.lengthCompare(1) == 0 =>
+      !looksLongValue(argClause.values.head, ctx)
+    case _ => false
+
+  private def looksLongValue(t: Term, ctx: GenCtx): Boolean = t match
+    case Lit.Int(_) | Lit.Long(_) | Lit.Boolean(_) => true
+    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+      b.stats.head match
+        case inner: Term => looksLongValue(inner, ctx)
+        case _           => false
+    case ti: Term.If =>
+      looksLongValue(ti.thenp, ctx) && looksLongValue(ti.elsep, ctx)
+    case tn: Term.Name =>
+      !ctx.isRefName(tn.value) && !ctx.isStringName(tn.value) &&
+        (ctx.resolveLocal(tn.value) != null ||
+          ctx.interp.globals.get(tn.value).exists(_.isInstanceOf[Value.IntV]))
+    case Term.ApplyUnary(op, arg) if op.value == "-" || op.value == "+" =>
+      looksLongValue(arg, ctx)
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) if argClause.values.lengthCompare(1) == 0 =>
+      op.value match
+        case "+" | "-" | "*" | "/" | "%" | "<" | "<=" | ">" | ">=" | "==" | "!=" =>
+          looksLongValue(lhs, ctx) && looksLongValue(argClause.values.head, ctx)
+        case _ => false
+    case Term.Select(_: Term, Term.Name("size" | "head" | "length")) =>
+      true
+    case Term.Select(inner: Term, Term.Name("toLong" | "toInt")) =>
+      looksLongValue(inner, ctx)
+    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)
+        if argClause.values.lengthCompare(1) == 0 =>
+      looksLongValue(argClause.values.head, ctx)
+    case _ => false
+
   private def emitHofRefChain(recv: Term, method: String, args: List[Term], ctx: GenCtx): String | Null =
     val refExpr = walkRef(recv, ctx)
     if refExpr == null then return null
@@ -965,7 +1031,8 @@ object JavacJitBackend extends JitBackend:
         case fn: Term.Name =>
           emitRefCall(fn.value, ap.argClause.values, ctx)
         case Term.Select(recv: Term, Term.Name(method)) =>
-          emitHofRefChain(recv, method, ap.argClause.values, ctx)
+          val hof = emitHofRefChain(recv, method, ap.argClause.values, ctx)
+          if hof != null then hof else emitRefChainObject(recv, method, ap.argClause.values, ctx)
         case _ => null
     // Stage 5.5: ref-typed field access `obj.field` where obj is a ref param.
     case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
@@ -1037,7 +1104,13 @@ object JavacJitBackend extends JitBackend:
           s"${sanitize(ctx.funName)}(${args.mkString(", ")})"
         case ctor: Term.Name if ctx.interp.typeFieldOrder.contains(ctor.value) =>
           emitConstructorObject(ctor.value, ap.argClause.values, ctx, statics)
+        case _ if objectRefFallbackAllowed(ap, ctx) =>
+          val r = walkRef(ap, ctx)
+          if r == null then null else s"(Object) ($r)"
         case _ => null
+    case _ if objectRefFallbackAllowed(t, ctx) =>
+      val r = walkRef(t, ctx)
+      if r == null then null else s"(Object) ($r)"
     case _ => null
 
   private def emitValueObject(

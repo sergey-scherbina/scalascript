@@ -286,12 +286,17 @@ object JitPredicates:
         else JitBailReason.RefChainObjectCall
       case Term.Name(_) =>
         JitBailReason.QualifiedRefCall
+      case Term.Apply.After_4_6_0(Term.Name(ctor), _) if isNumericObjectConstructor(ctor) =>
+        JitBailReason.NumericObjectMethodCall
       case a: Term.Apply if a.fun.isInstanceOf[Term.Name] =>
         if isPrimitiveRefRead(method, args) then JitBailReason.RefChainCall
         else JitBailReason.RefChainObjectCall
       case _ =>
         if isPrimitiveRefRead(method, args) then JitBailReason.RefChainCall
         else JitBailReason.RefChainObjectCall
+
+  private def isNumericObjectConstructor(name: String): Boolean =
+    name == "BigInt" || name == "Decimal"
 
   private def isPrimitiveRefRead(method: String, args: List[Term]): Boolean =
     method match

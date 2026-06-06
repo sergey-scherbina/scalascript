@@ -5,7 +5,7 @@ import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.Interpreter
 import scalascript.interpreter.Value
 import scalascript.interpreter.vm.{SscVm, VmCompiler}
-import scalascript.interpreter.vm.jit.{AsmJitBackend, JavacJitBackend, JitGlobals, LongFn0, LongFn1, ObjToLong, ObjToObject, WhileJitEntry}
+import scalascript.interpreter.vm.jit.{AsmJitBackend, JavacJitBackend, JitGlobals, LongFn0, LongFn1, LongToObject, ObjToLong, ObjToObject, WhileJitEntry}
 import scalascript.ast.{Content, ScalaNode}
 import scalascript.parser.Parser
 import scala.meta.{Source, Term}
@@ -1360,6 +1360,64 @@ class SscVmTest extends AnyFunSuite with Matchers:
     val direct = r.direct.asInstanceOf[LongFn1]
     JitGlobals.withInterp(interp) { direct.apply(4L) } shouldBe 10L
     JitGlobals.withInterp(interp) { direct.apply(0L) } shouldBe 0L
+  }
+
+  test("stage7-refchain-object-dispatch: Javac List map/mkString compiles and runs") {
+    val interp = interpOf(
+      """def f(n: Int): String =
+        |  (0 until n).map(x => x + 1).mkString(",")""".stripMargin)
+    val fn = interp.globalsView("f").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    r.direct.isInstanceOf[LongToObject] shouldBe true
+    val direct = r.direct.asInstanceOf[LongToObject]
+    JitGlobals.withInterp(interp) { direct.apply(4L) }.shouldBe(Value.StringV("1,2,3,4"))
+    JitGlobals.withInterp(interp) { direct.apply(0L) }.shouldBe(Value.StringV(""))
+  }
+
+  test("stage7-refchain-object-dispatch: ASM List map/mkString compiles and runs") {
+    val interp = interpOf(
+      """def f(n: Int): String =
+        |  (0 until n).map(x => x + 1).mkString(",")""".stripMargin)
+    val fn = interp.globalsView("f").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    r.direct.isInstanceOf[LongToObject] shouldBe true
+    val direct = r.direct.asInstanceOf[LongToObject]
+    JitGlobals.withInterp(interp) { direct.apply(4L) }.shouldBe(Value.StringV("1,2,3,4"))
+    JitGlobals.withInterp(interp) { direct.apply(0L) }.shouldBe(Value.StringV(""))
+  }
+
+  test("stage7-refchain-object-dispatch: Javac Map getOrElse compiles and runs") {
+    val interp = interpOf(
+      """val m: Map[String, String] = Map("a" -> "ok")
+        |def f(n: Int): String =
+        |  if n > 0 then m.getOrElse("a", "miss") else m.getOrElse("b", "miss")""".stripMargin)
+    val fn = interp.globalsView("f").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    r.direct.isInstanceOf[LongToObject] shouldBe true
+    val direct = r.direct.asInstanceOf[LongToObject]
+    JitGlobals.withInterp(interp) { direct.apply(1L) }.shouldBe(Value.StringV("ok"))
+    JitGlobals.withInterp(interp) { direct.apply(0L) }.shouldBe(Value.StringV("miss"))
+  }
+
+  test("stage7-refchain-object-dispatch: ASM Map getOrElse compiles and runs") {
+    val interp = interpOf(
+      """val m: Map[String, String] = Map("a" -> "ok")
+        |def f(n: Int): String =
+        |  if n > 0 then m.getOrElse("a", "miss") else m.getOrElse("b", "miss")""".stripMargin)
+    val fn = interp.globalsView("f").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    r.direct.isInstanceOf[LongToObject] shouldBe true
+    val direct = r.direct.asInstanceOf[LongToObject]
+    JitGlobals.withInterp(interp) { direct.apply(1L) }.shouldBe(Value.StringV("ok"))
+    JitGlobals.withInterp(interp) { direct.apply(0L) }.shouldBe(Value.StringV("miss"))
   }
 
   test("stage2.1b: HofCall detected when param is called as function") {
