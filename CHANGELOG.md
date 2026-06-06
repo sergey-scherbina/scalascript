@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(spi): OutputKind.RustSource + SpiVersion 0.2.0
+
+- **rust-backend-r1-spi-output-kind** — first slice of the Rust target
+  roadmap (specs/rust-backend.md §12). Added `OutputKind.RustSource`
+  enum case for the Cargo-crate output shape; bumped `SpiVersion.Current`
+  from "0.1.0" to "0.2.0" (minor bump, additive — no pattern matches
+  on `OutputKind` exist anywhere in the tree). Migrated the two
+  hardcoded "0.1.0" comparison sites in PluginCommands and
+  BackendRegistryTest to `SpiVersion.Current`. No behaviour change.
+  All test suites unchanged vs baseline.
+
 ## 2026-06-06 — feat(jit): ASM s"..." port + String concat (apply-infix-ref subset)
 
 - **jit-uc-stage8-string-interp-asm** — ported Javac `s"..."` lowering to ASM

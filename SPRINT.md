@@ -485,14 +485,6 @@ independent of each other once R.5 is in.
 
 ### Phase R.1 — Skeleton
 
-- [ ] **rust-backend-r1-spi-output-kind** — Add `OutputKind.RustSource` to
-      `runtime/backend/spi/src/main/scala/scalascript/backend/spi/OutputKind.scala`
-      and bump `SpiVersion`. Verify all existing pattern matches on
-      `OutputKind` compile (search for `case OutputKind.` — must have a
-      `case _ =>` or the new case explicitly). One commit; no behaviour
-      change. Acceptance: `sbt compile` green; `sbt "+test"` unchanged
-      count vs baseline. This is the only SPI surface change R.1 requires.
-
 - [ ] **rust-backend-r1-module-skeleton** — Create `runtime/backend/rust/`
       sbt module mirroring `backendWasm` (deps: `backendSpi`, `core`).
       Layout: `src/main/scala/scalascript/codegen/rust/{RustBackend,
