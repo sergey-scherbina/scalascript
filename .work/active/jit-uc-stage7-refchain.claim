@@ -1,6 +1,6 @@
 feature/jit-uc-stage7-refchain 2026-06-06T10:32:08Z
 agent: codex
-heartbeat: 2026-06-06T10:32:34Z
+heartbeat: 2026-06-06T10:49:30Z
 status: in-progress
-done-so-far: worktree created
-next: inspect ref-chain JIT walkers and baseline miss profile
+done-so-far: ref-returning sibling calls, Some/None object emission, and ASM ref local binding drafted
+next: compile backendInterpreter and add focused ref-chain tests
