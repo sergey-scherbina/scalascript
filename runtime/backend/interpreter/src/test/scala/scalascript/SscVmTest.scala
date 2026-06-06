@@ -1794,6 +1794,38 @@ class SscVmTest extends AnyFunSuite with Matchers:
     JitGlobals.withInterp(interp) { direct.apply(sq) }    shouldBe 16L  // n=5>3: 5+10=15+1=16
   }
 
+  test("stage8-pattern-guard-complex: guard with Long expression compiles via walkLong-fallback") {
+    // Guard condition is `(r % 2)` — a Long expression, not a Boolean comparison
+    // that walkBool natively handles. Stage 8 wraps walkLong via `!= 0` so this
+    // arm now JITs instead of bailing as PatternGuard.
+    val interp = interpOf(
+      """sealed trait Shape
+        |case class Circle(r: Int) extends Shape
+        |case class Square(s: Int) extends Shape
+        |def classify(shape: Shape): Int = shape match
+        |  case Circle(r) if (r % 2) => r * 10
+        |  case Circle(r) => r
+        |  case Square(n) if (n - 2) => n + 100
+        |  case Square(n) => n
+        |val odd  = Circle(7)
+        |val even = Circle(8)
+        |val sqHi = Square(5)
+        |val sqLo = Square(2)""".stripMargin)
+    val fn = interp.globalsView("classify").asInstanceOf[Value.FunV]
+    val jitR = JavacJitBackend.tryCompile(fn, interp)
+    jitR should not be null
+    jitR.direct should not be null
+    val direct = jitR.direct.asInstanceOf[ObjToLong]
+    val odd  = interp.globalsView("odd").asInstanceOf[AnyRef]
+    val even = interp.globalsView("even").asInstanceOf[AnyRef]
+    val sqHi = interp.globalsView("sqHi").asInstanceOf[AnyRef]
+    val sqLo = interp.globalsView("sqLo").asInstanceOf[AnyRef]
+    JitGlobals.withInterp(interp) { direct.apply(odd) }  shouldBe 70L  // r%2=1!=0 → r*10
+    JitGlobals.withInterp(interp) { direct.apply(even) } shouldBe 8L   // r%2=0=false → r
+    JitGlobals.withInterp(interp) { direct.apply(sqHi) } shouldBe 105L // n-2=3!=0 → n+100
+    JitGlobals.withInterp(interp) { direct.apply(sqLo) } shouldBe 2L   // n-2=0=false → n
+  }
+
   test("jit-uc-finding-litmatch: .toLong/.toInt identity conversions compile (workload pattern)") {
     // `classify(i).toLong` in a while body was blocking workload compilation.
     // .toLong/.toInt are no-ops (Int = Long in ScalaScript) — emit as identity.

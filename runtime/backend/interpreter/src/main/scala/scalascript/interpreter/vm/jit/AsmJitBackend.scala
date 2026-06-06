@@ -1812,6 +1812,20 @@ object AsmJitBackend extends JitBackend:
     case Term.Block(List(inner: Term)) => boolAlwaysJumps(inner)
     case _ => false
 
+  /** Stage 8: guard expression emission with Long-fallback (mirrors stage-6
+   *  bool-body-ext for guards). Tries `walkBool` first; on failure, emits
+   *  `walkLong` and `IFEQ ifFalse` (Long == 0 → false → jump). Returns true
+   *  if some path emitted a Boolean test. */
+  private def emitGuardBool(t: Term, ctx: GenCtx, mv: MethodVisitor, ifFalse: Label): Boolean =
+    if walkBool(t, ctx, mv, ifFalse) then true
+    else if walkLong(t, ctx, mv) then
+      // walkLong leaves a long on the stack; compare to 0L and jump if equal (false).
+      mv.visitInsn(LCONST_0)
+      mv.visitInsn(LCMP)
+      mv.visitJumpInsn(IFEQ, ifFalse)
+      true
+    else false
+
   private def walkBool(t: Term, ctx: GenCtx, mv: MethodVisitor, ifFalse: Label): Boolean =
     t match
       case Lit.Boolean(b) =>
@@ -2071,7 +2085,7 @@ object AsmJitBackend extends JitBackend:
 
           if c.cond.nonEmpty then
             val skipBody = new Label
-            if !walkBool(c.cond.get, newCtx, mv, skipBody) then return false
+            if !emitGuardBool(c.cond.get, newCtx, mv, skipBody) then return false
             val ok2 = if isDouble then walkDouble(c.body, newCtx, mv) && { mv.visitInsn(DRETURN); true }
                       else walkLong(c.body, newCtx, mv) && { mv.visitInsn(LRETURN); true }
             if !ok2 then return false

@@ -1270,6 +1270,17 @@ object JavacJitBackend extends JitBackend:
       statics(key) = s"  private static final String[] $key = new String[] { $elems };\n"
     key
 
+  /** Stage 8: match-guard expression compilation with Long-fallback (mirrors
+   *  stage-6 bool-body-ext for guards). Tries `walkBool` first; on failure
+   *  falls back to `walkLong` wrapped as `(longExpr) != 0L`. Returns a Java
+   *  expression of type `boolean` or `null` if both walkers bail. */
+  private def guardBoolExpr(t: Term, ctx: GenCtx): String | Null =
+    val asBool = walkBool(t, ctx)
+    if asBool != null then asBool
+    else
+      val asLong = walkLong(t, ctx)
+      if asLong != null then s"(($asLong) != 0L)" else null
+
   private def walkBool(t: Term, ctx: GenCtx): String | Null = t match
     case Lit.Boolean(b) => if b then "true" else "false"
     case Term.ApplyUnary(op, arg) if op.value == "!" =>
@@ -1491,7 +1502,7 @@ object JavacJitBackend extends JitBackend:
                 sb.append(s"long $jvar = ((scalascript.interpreter.Value.IntV) ($elem)).v();\n    ")
             k += 1
           if c.cond.nonEmpty then
-            val guardJava = walkBool(c.cond.get, newCtx)
+            val guardJava = guardBoolExpr(c.cond.get, newCtx)
             if guardJava == null then return null
             sb.append(s"if ($guardJava) {\n    ")
           val bodyJava = if ctx.isDouble then walkDouble(c.body, newCtx) else walkLong(c.body, newCtx)
@@ -1881,7 +1892,7 @@ object JavacJitBackend extends JitBackend:
           else              walkLong(c.body, newCtx)
         if armBodyJava == null then return null
         if c.cond.nonEmpty then
-          val guardJava = walkBool(c.cond.get, newCtx)
+          val guardJava = guardBoolExpr(c.cond.get, newCtx)
           if guardJava == null then return null
           sb.append(s"if ($guardJava) { return $armBodyJava; }\n    ")
         else
