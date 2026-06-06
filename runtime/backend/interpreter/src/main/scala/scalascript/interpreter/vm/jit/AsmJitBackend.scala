@@ -925,10 +925,37 @@ object AsmJitBackend extends JitBackend:
     // `.toDouble` on a Long expression — widen.
     case Term.Select(inner: Term, Term.Name("toDouble")) =>
       walkLong(inner, ctx, mv) && { mv.visitInsn(L2D); true }
+    // Stage 8: `.abs` on a Long expression → java.lang.Math.abs(J)J.
+    case Term.Select(inner: Term, Term.Name("abs")) =>
+      walkLong(inner, ctx, mv) && {
+        mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "abs", "(J)J", false)
+        true }
     case ap: Term.Apply =>
       ap.fun match
         case inner: Term.Apply =>
           emitHofFoldLeftLong(inner, ap.argClause.values, ctx, mv)
+        // Stage 8: top-level Math.max(a, b) / Math.min(a, b) / Math.abs(a).
+        case Term.Select(Term.Name("Math"), Term.Name(method))
+            if (method == "max" || method == "min")
+              && ap.argClause.values.lengthCompare(2) == 0 =>
+          walkLong(ap.argClause.values.head, ctx, mv) &&
+            walkLong(ap.argClause.values(1), ctx, mv) && {
+              mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", method, "(JJ)J", false)
+              true }
+        case Term.Select(Term.Name("Math"), Term.Name("abs"))
+            if ap.argClause.values.lengthCompare(1) == 0 =>
+          walkLong(ap.argClause.values.head, ctx, mv) && {
+            mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "abs", "(J)J", false)
+            true }
+        // Stage 8: `a.max(b)` / `a.min(b)` on Long expressions.
+        case Term.Select(recv: Term, Term.Name(method))
+            if (method == "max" || method == "min")
+              && ap.argClause.values.lengthCompare(1) == 0
+              && looksLongValue(recv, ctx)
+              && looksLongValue(ap.argClause.values.head, ctx) =>
+          walkLong(recv, ctx, mv) && walkLong(ap.argClause.values.head, ctx, mv) && {
+            mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", method, "(JJ)J", false)
+            true }
         case Term.Select(recv: Term, Term.Name(method)) =>
           emitHofFoldLong(recv, method, ap.argClause.values, ctx, mv) ||
             emitRefChainLong(recv, method, ap.argClause.values, ctx, mv)

@@ -838,10 +838,37 @@ object JavacJitBackend extends JitBackend:
     case Term.Select(inner: Term, Term.Name("toDouble")) =>
       val e = walkLong(inner, ctx)
       if e == null then null else s"(double)($e)"
+    // Stage 8: `.abs` on a Long expression → java.lang.Math.abs(...).
+    case Term.Select(inner: Term, Term.Name("abs")) =>
+      val e = walkLong(inner, ctx)
+      if e == null then null else s"java.lang.Math.abs($e)"
     case ap: Term.Apply =>
       ap.fun match
         case inner: Term.Apply =>
           emitHofFoldLeftLong(inner, ap.argClause.values, ctx)
+        // Stage 8: top-level Math.max(a, b) / Math.min(a, b) / Math.abs(a).
+        case Term.Select(Term.Name("Math"), Term.Name(method))
+            if (method == "max" || method == "min")
+              && ap.argClause.values.lengthCompare(2) == 0 =>
+          val a = walkLong(ap.argClause.values.head, ctx)
+          val b = walkLong(ap.argClause.values(1), ctx)
+          if a == null || b == null then null
+          else s"java.lang.Math.$method($a, $b)"
+        case Term.Select(Term.Name("Math"), Term.Name("abs"))
+            if ap.argClause.values.lengthCompare(1) == 0 =>
+          val a = walkLong(ap.argClause.values.head, ctx)
+          if a == null then null else s"java.lang.Math.abs($a)"
+        // Stage 8: `a.max(b)` / `a.min(b)` on Long expressions.
+        case Term.Select(recv: Term, Term.Name(method))
+            if (method == "max" || method == "min")
+              && ap.argClause.values.lengthCompare(1) == 0 =>
+          val l = walkLong(recv, ctx)
+          if l == null then
+            val hof = emitHofFoldLong(recv, method, ap.argClause.values, ctx)
+            if hof != null then hof else emitRefChainLong(recv, method, ap.argClause.values, ctx)
+          else
+            val r = walkLong(ap.argClause.values.head, ctx)
+            if r == null then null else s"java.lang.Math.$method($l, $r)"
         case Term.Select(recv: Term, Term.Name(method)) =>
           val hof = emitHofFoldLong(recv, method, ap.argClause.values, ctx)
           if hof != null then hof else emitRefChainLong(recv, method, ap.argClause.values, ctx)

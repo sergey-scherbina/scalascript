@@ -1876,6 +1876,17 @@ class SscVmTest extends AnyFunSuite with Matchers:
     out.trim shouldBe "List(1, 2, 3, 4, 5)"
   }
 
+  test("stage8-math-intrinsics: Math.max / Math.min / Math.abs inline to java.lang.Math") {
+    val out = captured(
+      """def biggest(a: Int, b: Int): Int = Math.max(a, b)
+        |def absVal(n: Int): Int = Math.abs(n)
+        |println(biggest(5, 7))
+        |println(biggest(10, 3))
+        |println(absVal(-42))
+        |println(absVal(42))""".stripMargin)
+    out.trim shouldBe "7\n10\n42\n42"
+  }
+
   test("stage8-bigint-cmp: BigInt(n) < BigInt(m) and Decimal cmp JIT through JitRefDispatch") {
     val out = captured(
       """def smaller(a: Int, b: Int): Int = if BigInt(a) < BigInt(b) then 1 else 0
