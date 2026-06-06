@@ -22,14 +22,6 @@ fix, and don't require a runtime refactor.
 
 ### P0 — parser/resolver, hit on every new phase
 
-- [ ] **busi-p0-trailing-underscore-ident** — Identifiers with a trailing
-      `_` (`type_`, `at_`, `seq_`, `payload_` — val, param, or type name)
-      silently break the *whole module's* export registration: the first
-      exported function reports "not found". Standalone code with the
-      same name compiles fine, which is the trap. Fix: either accept
-      trailing underscore in the lexer (preferred — it's a valid Scala
-      identifier), or emit an explicit parse error so the user knows.
-
 - [ ] **busi-p0-foldleft-brace-lambda** — `foldLeft { (a, b) => ... }`
       with a brace-block argument silently breaks module export — same
       category as #1: standalone works, module-level doesn't. Support

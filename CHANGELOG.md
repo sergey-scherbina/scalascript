@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — fix(parser): trailing-underscore identifier before `:` parses
+
+- **busi-p0-trailing-underscore-ident** — `def foo(type_: Int)`,
+  `case class E(type_: String, payload_: String)`, `val type_: Int = 1`,
+  and lambdas with trailing-underscore parameters now parse correctly.
+  scalameta's Scala3 lexer reads `name_:` as one operator identifier
+  (since `:` is an operator character and `_` allows operator
+  continuation), so the natural ascription form used to throw
+  `identifier expected but ')' found`.  The whole code block then
+  silently dropped its parse tree, and importing modules saw zero
+  exports — appearing as "save not found in mod.ssc".  Fix: new
+  `preprocessTrailingUnderscoreColon` preprocessor (priority 5) that
+  inserts a space between a trailing `_` of an identifier and a
+  following `:`, skipping strings, char literals, and comments
+  verbatim.  `::` (cons) and `:=` (actor assign) are not touched.
+  10 regression tests; full `core/test` + `backendInterpreter/test`
+  green.
+
 ## 2026-06-06 — feat(rust): ssc emit-rust CLI command
 
 - **rust-backend-r1-cli-emit-rust** — `EmitRustCmd` registered via
