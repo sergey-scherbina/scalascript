@@ -1406,9 +1406,20 @@ object JavacJitBackend extends JitBackend:
           // Use walkDouble for double-typed funcs, walkLong otherwise. Comparison
           // operands are typed-by-context the same as the rest of the body.
           val w: (Term, GenCtx) => String | Null = if ctx.isDouble then walkDouble else walkLong
-          val l = w(lhs, ctx); if l == null then return null
-          val r = w(argClause.values.head, ctx); if r == null then return null
-          s"($l $opStr $r)"
+          val l = w(lhs, ctx)
+          if l != null then
+            val r = w(argClause.values.head, ctx); if r == null then return null
+            s"($l $opStr $r)"
+          else if opStr == "==" || opStr == "!=" then
+            // Stage 8: ref ==/!= ref — Objects.equals fallback (case-class structural
+            // equality on Value subtypes: StringV, InstanceV, ListV, OptionV, ...).
+            val lr = walkRef(lhs, ctx)
+            if lr == null then return null
+            val rr = walkRef(argClause.values.head, ctx)
+            if rr == null then return null
+            val eq = s"java.util.Objects.equals((Object) ($lr), (Object) ($rr))"
+            if opStr == "==" then s"($eq)" else s"(!$eq)"
+          else null
         case "&&" | "||" =>
           val l = walkBool(lhs, ctx); if l == null then return null
           val r = walkBool(argClause.values.head, ctx); if r == null then return null

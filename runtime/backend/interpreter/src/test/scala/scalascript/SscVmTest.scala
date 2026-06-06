@@ -1794,6 +1794,14 @@ class SscVmTest extends AnyFunSuite with Matchers:
     JitGlobals.withInterp(interp) { direct.apply(sq) }    shouldBe 16L  // n=5>3: 5+10=15+1=16
   }
 
+  test("stage8-ref-equality: String == String JITs via Objects.equals fallback") {
+    val out = captured(
+      """def isMatch(a: String, b: String): Int = if a == b then 1 else 0
+        |println(isMatch("foo", "foo"))
+        |println(isMatch("foo", "bar"))""".stripMargin)
+    out.trim shouldBe "1\n0"
+  }
+
   test("stage8-list-concat-infix: List ++ List JITs through JitRefDispatch.collectionConcat") {
     val out = captured(
       """def both(xs: List[Int], ys: List[Int]): List[Int] = xs ++ ys
