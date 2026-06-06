@@ -1,0 +1,6 @@
+feature/rust-backend-r1-spi-output-kind 2026-06-06T20:17:56Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-06T20:17:56Z
+status: not-started
+done-so-far:
+next: add OutputKind.RustSource enum case + bump SpiVersion
