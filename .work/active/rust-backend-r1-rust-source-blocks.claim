@@ -1,0 +1,6 @@
+feature/rust-backend-r1-rust-source-blocks 2026-06-06T22:01:25Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-06T22:01:25Z
+status: not-started
+done-so-far:
+next: scaffold runtime/backend/rust-source + verbatim block emit in RustGen
