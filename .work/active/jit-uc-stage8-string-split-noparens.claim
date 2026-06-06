@@ -1,0 +1,6 @@
+feature/jit-uc-stage8-string-split-noparens 2026-06-06T21:16:59Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-06T21:16:59Z
+status: not-started
+done-so-far:
+next: Term.Select(.trim) in walkRef + Term.Select(.toInt) ref fallback in walkLong
