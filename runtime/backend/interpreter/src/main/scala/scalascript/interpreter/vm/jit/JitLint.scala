@@ -1,6 +1,6 @@
 package scalascript.interpreter.vm.jit
 
-import scala.meta.{Lit, Pat, Term, Tree}
+import scala.meta.{Defn, Lit, Pat, Term, Tree}
 import scalascript.interpreter.{Interpreter, Value}
 
 // JitBailReason ADT lives in JitBailReason.scala (promoted to public type).
@@ -170,19 +170,31 @@ object JitPredicates:
     // failed (i.e. walkBool/walkFunctionBody could not handle the expression).
     // Most bool bodies now compile via the 0/1 fallback — this catches the rest.
     if isBoolReturning(fn.body) then buf += JitBailReason.BoolBody
-    walkForBailCliffs(fn.body, fn.params.toSet, buf)
+    walkForBailCliffs(fn.body, fn.params.toSet, Set.empty, buf)
     buf.toList.distinct
 
   /** Recursive AST traversal: pushes a `JitBailReason` for each visible
    *  structural cliff.  `paramNames` is the owning function's parameter set,
    *  used to detect HOF calls (callee is a function-valued parameter).
+   *  `localNames` tracks immutable local val names so direct local ref reads
+   *  stay distinct from qualified module/global calls.
    *  Falls back to `Tree.children.foreach(…)` so every node is visited once. */
   def walkForBailCliffs(
     t:          Tree,
     paramNames: Set[String],
+    localNames: Set[String],
     buf:        scala.collection.mutable.ListBuffer[JitBailReason]
   ): Unit =
     t match
+      case b: Term.Block =>
+        var locals = localNames
+        b.stats.foreach {
+          case v: Defn.Val =>
+            walkForBailCliffs(v.rhs, paramNames, locals, buf)
+            locals = locals ++ patNames(v.pats)
+          case stat =>
+            walkForBailCliffs(stat, paramNames, locals, buf)
+        }
       case Term.Try.After_4_9_9(tryExpr, handlerOpt, finallyOpt) =>
         // Stage 5.3: allow try/catch with no finally and simple catch patterns.
         val cases = handlerOpt.toList.flatMap(_.cases)
@@ -194,10 +206,10 @@ object JitPredicates:
         }
         if finallyOpt.nonEmpty || !simpleArm then buf += JitBailReason.TryCatch
         else
-          walkForBailCliffs(tryExpr, paramNames, buf)
+          walkForBailCliffs(tryExpr, paramNames, localNames, buf)
           var rem = cases
           while rem.nonEmpty do
-            walkForBailCliffs(rem.head.body, paramNames, buf)
+            walkForBailCliffs(rem.head.body, paramNames, localNames, buf)
             rem = rem.tail
       case ap: Term.Apply =>
         ap.fun match
@@ -206,15 +218,17 @@ object JitPredicates:
             buf += JitBailReason.HofCall(tn.value)
           case Term.Select(Term.Name(n), _) if paramNames.contains(n) =>
             // Method call directly on a param (e.g. `s.length`): handled by GETFI.
-            t.children.foreach(walkForBailCliffs(_, paramNames, buf))
-          case Term.Select(_, _) =>
-            // Method call on a non-param expression (ref chain or HOF method).
+            t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))
+          case Term.Select(recv, method) =>
+            // Method call on a non-param expression (ref chain, qualified call,
+            // or HOF method). Keep the low-risk primitive ref-read bucket
+            // separate from object/string/generic chains.
             val hasLambda = ap.argClause.values.exists(_.isInstanceOf[Term.Function])
             buf += (if hasLambda then JitBailReason.HofMethodCall
-                    else JitBailReason.RefChainCall)
-            t.children.foreach(walkForBailCliffs(_, paramNames, buf))
+                    else classifyRefSelectCall(recv, method.value, ap.argClause.values, localNames))
+            t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))
           case _ =>
-            t.children.foreach(walkForBailCliffs(_, paramNames, buf))
+            t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))
       case _: Term.Function =>
         buf += JitBailReason.LambdaValue
       case tm: Term.Match =>
@@ -242,13 +256,63 @@ object JitPredicates:
                 case _ => false
               if hasBindings(alt.lhs) || hasBindings(alt.rhs) then buf += JitBailReason.NonExtractPattern
             case _ => buf += JitBailReason.NonExtractPattern
-          walkForBailCliffs(c.body, paramNames, buf)
+          walkForBailCliffs(c.body, paramNames, localNames, buf)
         }
-      case _ => t.children.foreach(walkForBailCliffs(_, paramNames, buf))
+      case _ => t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))
 
   /** Backwards-compat overload: no param-name set (HOF detection disabled). */
   def walkForBailCliffs(t: Tree, buf: scala.collection.mutable.ListBuffer[JitBailReason]): Unit =
-    walkForBailCliffs(t, Set.empty, buf)
+    walkForBailCliffs(t, Set.empty, Set.empty, buf)
+
+  private def classifyRefSelectCall(
+    recv:       Term,
+    method:     String,
+    args:       List[Term],
+    localNames: Set[String]
+  ): JitBailReason =
+    recv match
+      case Term.Name(n) if localNames.contains(n) =>
+        if isPrimitiveRefRead(method, args) then JitBailReason.RefChainCall
+        else JitBailReason.RefChainObjectCall
+      case Term.Name(_) =>
+        JitBailReason.QualifiedRefCall
+      case a: Term.Apply if a.fun.isInstanceOf[Term.Name] =>
+        if isPrimitiveRefRead(method, args) then JitBailReason.RefChainCall
+        else JitBailReason.RefChainObjectCall
+      case _ =>
+        if isPrimitiveRefRead(method, args) then JitBailReason.RefChainCall
+        else JitBailReason.RefChainObjectCall
+
+  private def isPrimitiveRefRead(method: String, args: List[Term]): Boolean =
+    method match
+      case "size" | "head" => args.isEmpty
+      case "getOrElse" =>
+        args.lengthCompare(1) == 0 && isLongishExpr(args.head)
+      case _ => false
+
+  private def isLongishExpr(t: Term): Boolean =
+    t match
+      case _: Lit.Int | _: Lit.Long => true
+      case _: Term.Name             => true
+      case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+          if argClause.values.lengthCompare(1) == 0 =>
+        op.value match
+          case "+" | "-" | "*" | "/" | "%" =>
+            isLongishExpr(lhs) && isLongishExpr(argClause.values.head)
+          case _ => false
+      case _ => false
+
+  private def patNames(pats: List[Pat]): Set[String] =
+    pats.flatMap(patNames).toSet
+
+  private def patNames(p: Pat): Set[String] =
+    p match
+      case Pat.Var(name)      => Set(name.value)
+      case Pat.Tuple(args)    => args.flatMap(patNames).toSet
+      case Pat.Typed(lhs, _)  => patNames(lhs)
+      case e: Pat.Extract =>
+        e.argClause.values.flatMap(patNames).toSet
+      case _ => Set.empty
 
   /** Classify why `tryCompileWhileLong` would fail for the given condition and
    *  body terms.  Returns Nil when no structural reason is detectable (the

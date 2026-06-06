@@ -2,8 +2,9 @@ package scalascript
 
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
-import scalascript.interpreter.Interpreter
-import scalascript.interpreter.vm.jit.{AsmJitBackend, JitLint, JitBailReason, JavacJitBackend}
+import scala.meta.*
+import scalascript.interpreter.{Interpreter, Value}
+import scalascript.interpreter.vm.jit.{AsmJitBackend, JitLint, JitBailReason, JitPredicates, JavacJitBackend}
 import scalascript.parser.Parser
 
 /** Lint fixtures. Each test exercises exactly one category of `JitBailReason`
@@ -39,6 +40,15 @@ class JitLintTest extends AnyFunSuite with Matchers:
     interp.runSections(module)
     new JitLintCompareLookup(JitLint.lintInterpreterCompare(interp))
 
+  private def classifyBody(
+    body:       String,
+    params:     List[String],
+    paramTypes: List[String]
+  ): List[JitBailReason] =
+    val term = body.parse[Term].get
+    JitPredicates.classifyBailReasons(
+      Value.FunV(params, term, Map.empty, "f", paramTypes = paramTypes))
+
   private final class JitLintReportLookup(reports: List[scalascript.interpreter.vm.jit.JitLintReport]):
     def forDef(name: String): scalascript.interpreter.vm.jit.JitLintReport =
       reports.find(_.defName == name).getOrElse(
@@ -71,6 +81,26 @@ class JitLintTest extends AnyFunSuite with Matchers:
       r.bothJit shouldBe true
       r.javac.bailReasons shouldBe empty
       r.asm.bailReasons shouldBe empty
+
+  test("stage7-refchain-bucket-split: primitive local/direct reads stay RefChainCall"):
+    val local = classifyBody("{ val r = parse(n); r.getOrElse(7) }", List("n"), List("Int"))
+    val direct = classifyBody("parse(n).getOrElse(7)", List("n"), List("Int"))
+    local should contain (JitBailReason.RefChainCall)
+    local should not contain JitBailReason.QualifiedRefCall
+    local should not contain JitBailReason.RefChainObjectCall
+    direct should contain (JitBailReason.RefChainCall)
+    direct should not contain JitBailReason.QualifiedRefCall
+    direct should not contain JitBailReason.RefChainObjectCall
+
+  test("stage7-refchain-bucket-split: qualified helper calls are not RefChainCall"):
+    val reasons = classifyBody("Parser.string(s)", List("s"), List("String"))
+    reasons should contain (JitBailReason.QualifiedRefCall)
+    reasons should not contain JitBailReason.RefChainCall
+
+  test("stage7-refchain-bucket-split: object-producing computed chains are split"):
+    val reasons = classifyBody("BigInt(10).pow(n)", List("n"), List("Int"))
+    reasons should contain (JitBailReason.RefChainObjectCall)
+    reasons should not contain JitBailReason.RefChainCall
 
   test("ADT match with guard — should JIT (walkArmAsIfBranch path)"):
     val r = lintFor(

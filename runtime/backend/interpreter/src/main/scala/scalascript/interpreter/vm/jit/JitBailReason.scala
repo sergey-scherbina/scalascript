@@ -166,6 +166,31 @@ object JitBailReason:
       "a ref register, which requires ref-val propagation not yet implemented"
     val suggestedFix = Some("hoist the ref computation to a val binding with explicit type")
 
+  /** Qualified method/constructor-like call on a non-param, non-local simple
+   *  receiver. Examples: `Parser.string(s)`, `Free.Pure(a)`,
+   *  `Console.writeLine(\"a\")`. These are not local ref-chain reads; they need
+   *  global/module/native dispatch classification before code emission. */
+  case object QualifiedRefCall extends JitBailReason:
+    val tag         = "QualifiedRefCall"
+    val description = "method or constructor-like call through a non-param, " +
+      "non-local simple receiver (for example a module, companion, or native " +
+      "helper); this is not a local ref-chain read"
+    val suggestedFix = Some("bind the receiver/result to a local value only if " +
+      "the method is a supported primitive ref read; otherwise add a dedicated " +
+      "JIT dispatch path")
+
+  /** Method called on a computed ref where the call is not part of the narrow
+   *  primitive numeric-read subset (`getOrElse` with one primitive default,
+   *  `size`, `head`). Examples: `BigInt(10).pow(n)`,
+   *  `xs.map(...).mkString`, object-returning `Map.getOrElse`. */
+  case object RefChainObjectCall extends JitBailReason:
+    val tag         = "RefChainObjectCall"
+    val description = "method called on a computed ref, but the selected method " +
+      "does not look like a primitive numeric ref read; object/String/generic " +
+      "returning chains need their own dispatch interface"
+    val suggestedFix = Some("split the expression into primitive numeric reads, " +
+      "or add object/String/generic ref-returning JIT dispatch support")
+
   case class FreeNameUnresolvable(name: String) extends JitBailReason:
     val tag         = "FreeNameUnresolvable"
     val description = s"name `$name` is not a parameter, local val, sibling def, or " +
