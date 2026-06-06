@@ -604,19 +604,6 @@ slice has a verified base to extend. The cumulative result equals the
 original `rust-backend-r1-hello-emit` description (Cargo.toml + main.rs
 + runtime/mod.rs + value.rs + generated/<module>.rs).
 
-- [ ] **rust-backend-r1-hello-code-walk** — First real codegen step:
-      `RustGen.generate` runs `Denormalize(module)` (same path as
-      JvmBackend) and walks scalameta `Defn.Def` + `Term.Apply` +
-      `Lit.{Int, Long, Double, String, Boolean, Unit}` to emit
-      `src/generated/<module>.rs` with one `pub fn name(args…) ->
-      ReturnType { body }` per top-level def. Anything outside this
-      subset emits a `Diagnostic.Unsupported` via
-      `CompileResult.Failed(...)` rather than silently miscompiling.
-      `Apply` against a `RustIntrinsics` entry routes through the
-      `RuntimeCall` target (so `println("hi")` becomes
-      `crate::runtime::_println("hi")`). Acceptance: golden
-      `expected.generated.rs` for the hello body.
-
 - [ ] **rust-backend-r1-hello-main-assembly** — Detect `@main` and emit
       `src/main.rs` containing `mod runtime; mod value; mod generated;`
       + a `fn main() { generated::run(); }` shim. Without `@main`,

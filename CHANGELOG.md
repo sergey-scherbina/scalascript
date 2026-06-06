@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(rust): scalameta walk for hello-world emit
+
+- **rust-backend-r1-hello-code-walk** — third slice of R.1.3 hello-emit.
+  RustGen now runs Denormalize and RustCodeWalk walks scalameta
+  `Defn.Def` + `Term.Apply` + literals. Emits
+  `src/generated/<crate>.rs` with one `pub fn name()` per top-level
+  def; calls to `println` / `print` / `Console.*` route through the
+  RustIntrinsics RuntimeCall entries (`crate::runtime::_*`). Anything
+  outside the narrow R.1 subset returns CompileResult.Failed with a
+  Diagnostic.Generic naming the offending shape — never a silent
+  miscompile. 6 new tests; main.rs shim is the next slice.
+
 ## 2026-06-06 — feat(rust): runtime templates + console intrinsics
 
 - **rust-backend-r1-hello-runtime-files** — second slice of R.1.3
