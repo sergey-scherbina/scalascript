@@ -1099,6 +1099,26 @@ object JavacJitBackend extends JitBackend:
         idx += 1
       sb.append(")")
       sb.toString
+    // Stage 8: BigInt/Decimal infix arithmetic — route to JitRefDispatch numeric helpers.
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+        if isNumericObjectReceiver(lhs) && argClause.values.lengthCompare(1) == 0 =>
+      val helper = (lhs, op.value) match
+        case (Term.Apply.After_4_6_0(Term.Name("BigInt"), _), "+")  => "bigIntPlus"
+        case (Term.Apply.After_4_6_0(Term.Name("BigInt"), _), "-")  => "bigIntMinus"
+        case (Term.Apply.After_4_6_0(Term.Name("BigInt"), _), "*")  => "bigIntTimes"
+        case (Term.Apply.After_4_6_0(Term.Name("BigInt"), _), "/")  => "bigIntDiv"
+        case (Term.Apply.After_4_6_0(Term.Name("BigInt"), _), "%")  => "bigIntMod"
+        case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "+") => "decimalPlus"
+        case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "-") => "decimalMinus"
+        case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "*") => "decimalTimes"
+        case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "/") => "decimalDiv"
+        case _ => null
+      if helper == null then null
+      else
+        val recv = emitNumericObjectValue(lhs, ctx)
+        val other = emitValueObject(argClause.values.head, ctx)
+        if recv == null || other == null then null
+        else s"scalascript.interpreter.vm.jit.JitRefDispatch$$.MODULE$$.$helper((scalascript.interpreter.Value) ($recv), $other)"
     // Stage 8: `ref + x` where lhs is a ref expression (String/etc.) — emit
     // `new StringV(Value.show(lhs) + (Long-or-show(rhs)))`. Result is StringV.
     // Routes ApplyInfixRefOp `+` calls (string concat shape) through walkRef.

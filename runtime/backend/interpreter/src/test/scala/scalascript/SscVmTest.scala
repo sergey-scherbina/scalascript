@@ -1794,6 +1794,15 @@ class SscVmTest extends AnyFunSuite with Matchers:
     JitGlobals.withInterp(interp) { direct.apply(sq) }    shouldBe 16L  // n=5>3: 5+10=15+1=16
   }
 
+  test("stage8-bigint-infix: BigInt(n) + n / * / - JITs through JitRefDispatch") {
+    val out = captured(
+      """def big(n: Int): BigInt = BigInt(n) + BigInt(n) * BigInt(2) - BigInt(1)
+        |println(big(5))
+        |println(big(10))""".stripMargin)
+    // 5 + 5*2 - 1 = 14;   10 + 10*2 - 1 = 29
+    out.trim shouldBe "14\n29"
+  }
+
   test("stage8-string-interp: s\"prefix${n}suffix\" compiles via walkRef Interpolate path") {
     val out = captured(
       """def greet(n: Int): String = s"value=$n"

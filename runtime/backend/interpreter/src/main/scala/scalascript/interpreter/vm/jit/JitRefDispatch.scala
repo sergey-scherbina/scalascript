@@ -129,3 +129,24 @@ object JitRefDispatch:
 
   def decimalToBigInt(recv: Value): Value =
     Value.BigIntV(decimalValue(recv).toBigInt)
+
+  // Stage 8: BigInt + Decimal infix arithmetic helpers.
+  def bigIntPlus(recv: Value, other: Value): Value =
+    Value.BigIntV(bigIntValue(recv) + bigIntValue(other))
+  def bigIntMinus(recv: Value, other: Value): Value =
+    Value.BigIntV(bigIntValue(recv) - bigIntValue(other))
+  def bigIntTimes(recv: Value, other: Value): Value =
+    Value.BigIntV(bigIntValue(recv) * bigIntValue(other))
+  def bigIntDiv(recv: Value, other: Value): Value =
+    Value.BigIntV(bigIntValue(recv) / bigIntValue(other))
+  def bigIntMod(recv: Value, other: Value): Value =
+    Value.BigIntV(bigIntValue(recv) % bigIntValue(other))
+
+  def decimalPlus(recv: Value, other: Value): Value =
+    Value.DecimalV(decimalValue(recv) + decimalValue(other))
+  def decimalMinus(recv: Value, other: Value): Value =
+    Value.DecimalV(decimalValue(recv) - decimalValue(other))
+  def decimalTimes(recv: Value, other: Value): Value =
+    Value.DecimalV(decimalValue(recv) * decimalValue(other))
+  def decimalDiv(recv: Value, other: Value): Value =
+    Value.DecimalV(decimalValue(recv) / decimalValue(other))
