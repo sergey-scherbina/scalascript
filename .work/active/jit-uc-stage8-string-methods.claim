@@ -1,0 +1,6 @@
+feature/jit-uc-stage8-string-methods 2026-06-06T18:21:14Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-06T18:21:14Z
+status: not-started
+done-so-far:
+next: trim/toUpper/toLower/toInt/indexOf
