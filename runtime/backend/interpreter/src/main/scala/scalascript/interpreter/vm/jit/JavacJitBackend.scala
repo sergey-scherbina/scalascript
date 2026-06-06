@@ -1012,6 +1012,10 @@ object JavacJitBackend extends JitBackend:
         val n = walkRef(args(1), ctx)
         if o == null || n == null then null
         else s"$jrd.stringReplaceRef((Object) ($refExpr), (Object) ($o), (Object) ($n))"
+      // Stage 8: String.split(sep) → ListV[StringV].
+      case "split" if args.lengthCompare(1) == 0 =>
+        val sep = walkRef(args.head, ctx)
+        if sep == null then null else s"$jrd.stringSplitRef((Object) ($refExpr), (Object) ($sep))"
       case _ => null
 
   private def isNumericObjectReceiver(recv: Term): Boolean =
@@ -1208,6 +1212,8 @@ object JavacJitBackend extends JitBackend:
    *  and ref-typed ADT field access (`obj.field` where field is non-numeric). */
   private def walkRef(t: Term, ctx: GenCtx): String | Null = t match
     case Term.Name("None") => "scalascript.interpreter.Value$.MODULE$.NoneV()"
+    // Stage 8: String literal as ref-typed value.
+    case Lit.String(v) => s"""new scalascript.interpreter.Value.StringV("${escape(v)}")"""
     // Stage 8: builtin empty collections.
     case Term.Name("Nil") =>
       "scalascript.interpreter.vm.jit.JitRefDispatch$.MODULE$.NilRef()"

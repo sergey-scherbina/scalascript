@@ -382,3 +382,14 @@ object JitRefDispatch:
     case Value.StringV(s) => s.charAt(idx.toInt).toLong
     case _ =>
       throw new ClassCastException(s"stringCharAtLong unsupported: ${recv.getClass.getName}")
+
+  // Stage 8: String.split(sep) → ListV[StringV].
+  def stringSplitRef(recv: AnyRef, sep: AnyRef): Object = (recv, sep) match
+    case (Value.StringV(s), Value.StringV(t)) =>
+      val parts = s.split(java.util.regex.Pattern.quote(t), -1)
+      var list: List[Value] = Nil
+      var i = parts.length - 1
+      while i >= 0 do { list = Value.StringV(parts(i)) :: list; i -= 1 }
+      Value.ListV(list).asInstanceOf[Object]
+    case _ =>
+      throw new ClassCastException(s"stringSplitRef unsupported: ${recv.getClass.getName}, ${sep.getClass.getName}")
