@@ -1,6 +1,0 @@
-feature/jit-uc-stage8-bigint-infix-asm 2026-06-06T17:22:01Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-06T17:22:01Z
-status: not-started
-done-so-far:
-next: port BigInt/Decimal infix to ASM walkRef
