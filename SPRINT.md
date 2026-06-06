@@ -220,6 +220,10 @@ Current after typeclass classification (2026-06-06): 733 disabled,
 238 UnknownShape, 70 Compound, `TypeclassUsingDispatch` split out as
 `javac=4` / `asm=1`; `typeclass-fold=0.010 +/- 0.008ms/op`
 (`BENCH_WI=1 BENCH_MI=3 BENCH_F=1 scripts/bench interp typeclass-fold`).
+Current after object ref-chain dispatch (2026-06-06): 733 disabled,
+238 UnknownShape, 70 Compound, 33 QualifiedRefCall, `RefChainObjectCall=14`,
+`NumericObjectMethodCall=8`; object `mkString` / `Map.getOrElse` fixtures
+now JIT on Javac+ASM as `LongToObject`.
 Each item: one commit + bench A/B (or test A/B), never ship a non-win.
 
 - [x] **jit-uc-stage7-refchain** — Ref-val propagation low-risk subset landed:
@@ -273,18 +277,30 @@ Each item: one commit + bench A/B (or test A/B), never ship a non-win.
       into the monomorphic Option/Either/List/Range path. See spec §9
       Stage 7.4.
 
-- [ ] **jit-uc-stage7-refchain-object-dispatch** — Implement or further narrow the
-      22 `RefChainObjectCall` misses from Stage 7.2. Scope is object/String/generic
-      computed ref chains such as `BigInt(10).pow(n)`, `xs.map(...).mkString`,
-      and object-returning `Map.getOrElse`; do not fold qualified module/native
-      calls (`QualifiedRefCall=33`) into this implementation path without a
-      separate dispatch design.
+- [x] **jit-uc-stage7-refchain-object-dispatch** — Implemented the low-risk
+      object/String-returning ref-chain dispatch slice and narrowed the rest.
+      Javac + ASM now compile `(0 until n).map(...).mkString(...)` and
+      object-returning `Map.getOrElse` as `LongToObject`, using
+      `JitRefDispatch.getOrElseRef` / `mapGetOrElseRef` / `mkStringRef`.
+      Added a guard so numeric `Option(...).getOrElse(0)` stays on the
+      existing `LongFn1` path. Added `NumericObjectMethodCall` for
+      `BigInt`/`Decimal` constructor-result method calls. Verified by focused
+      `JitLintTest` / `SscVmTest` filters and full
+      `SSC_JIT_STATS=1 sbt "backendInterpreter/test"` (1434 tests green).
+      Result: `RefChainObjectCall` narrowed `22 -> 14`, with
+      `NumericObjectMethodCall=8`. See spec §9 Stage 7.5.
 
 - [ ] **jit-uc-stage7-unknownshape-tagging** — Further `walkForBailCliffs` tagging to
       reduce UnknownShape 238→<100. Candidates: `Term.ApplyInfix` on ref operands
       (`ApplyInfixRefOp`), string interpolation (`InterpolatedString`), non-FunV callee
       chains. Not implementation code — produces an updated miss profile and extended
       bail-reason vocabulary. Run `SSC_JIT_STATS=1` before and after.
+
+- [ ] **jit-uc-stage7-numeric-object-dispatch** — Implement or further split
+      the 8 `NumericObjectMethodCall` cases (`BigInt` / `Decimal`
+      constructor-result methods such as `.pow`, `.abs`, scale/precision
+      helpers). Start from a dedicated numeric-object helper path; do not fold
+      these back into generic `RefChainObjectCall`.
 
 ---
 

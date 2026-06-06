@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(jit): Stage 7 object ref-chain dispatch
+
+- **jit-uc-stage7-refchain-object-dispatch** — Javac and ASM now compile the
+  low-risk object/String ref-chain slice: `(0 until n).map(...).mkString(...)`
+  and object-returning `Map.getOrElse` as `LongToObject`. Added
+  `NumericObjectMethodCall` for BigInt/Decimal constructor-result method
+  calls, narrowing `RefChainObjectCall` from 22 to 14 and splitting out 8
+  numeric-object cases. Full `backendInterpreter/test` is green at 1434 tests.
+
 ## 2026-06-06 — feat(jit): Stage 7 typeclass fold classification
 
 - **jit-uc-stage7-typeclass-fold** — `typeclass-fold` is now classified as
