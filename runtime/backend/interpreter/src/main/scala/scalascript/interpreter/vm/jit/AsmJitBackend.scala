@@ -30,8 +30,12 @@ object AsmJitBackend extends JitBackend:
   private val scalaList  = "scala/collection/immutable/List"
   private val intVInt    = "scalascript/interpreter/Value$IntV"
   private val dblVInt    = "scalascript/interpreter/Value$DoubleV"
+  private val boolVInt   = "scalascript/interpreter/Value$BoolV"
+  private val stringVInt = "scalascript/interpreter/Value$StringV"
+  private val optionVInt = "scalascript/interpreter/Value$OptionV"
   private val valueInt   = "scalascript/interpreter/Value"
   private val globalsInt = "scalascript/interpreter/vm/jit/JitGlobals$"
+  private val refDispatchInt = "scalascript/interpreter/vm/jit/JitRefDispatch$"
   private val jitPkg     = "scalascript.interpreter.vm.jit"
 
   // ── SPI surface ───────────────────────────────────────────────────────────
@@ -115,6 +119,9 @@ object AsmJitBackend extends JitBackend:
       mutable.HashSet.empty
     // Siblings co-emitted as `static String f(...)` (String-returning).
     val stringReturning: mutable.HashSet[String] =
+      mutable.HashSet.empty
+    // Siblings co-emitted as `static Object f(...)` (ref-returning).
+    val refReturning: mutable.HashSet[String] =
       mutable.HashSet.empty
 
   private def classifyParamRefs(f: Value.FunV): Array[Boolean] =
@@ -379,6 +386,10 @@ object AsmJitBackend extends JitBackend:
    *  on the stack. Mirrors javac `walkObject`. Returns false on unsupported
    *  shapes so the caller can fall through to the Long path. */
   private def emitObject(t: Term, ctx: GenCtx, mv: MethodVisitor): Boolean = t match
+    case Term.Name("None") =>
+      mv.visitFieldInsn(GETSTATIC, valueModuleInt, "MODULE$", s"L$valueModuleInt;")
+      mv.visitMethodInsn(INVOKEVIRTUAL, valueModuleInt, "NoneV", s"()L$optionVInt;", false)
+      true
     case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
       b.stats.head match
         case inner: Term => emitObject(inner, ctx, mv)
@@ -394,6 +405,12 @@ object AsmJitBackend extends JitBackend:
       true
     case ap: Term.Apply =>
       ap.fun match
+        case fn: Term.Name if fn.value == "Some" && ap.argClause.values.lengthCompare(1) == 0 =>
+          mv.visitTypeInsn(NEW, optionVInt)
+          mv.visitInsn(DUP)
+          if !emitValueObject(ap.argClause.values.head, ctx, mv) then return false
+          mv.visitMethodInsn(INVOKESPECIAL, optionVInt, "<init>", s"(L$valueInt;)V", false)
+          true
         case fn: Term.Name if fn.value == ctx.funName =>
           if ap.argClause.values.length != ctx.paramNames.length then return false
           var rem = ap.argClause.values
@@ -473,6 +490,24 @@ object AsmJitBackend extends JitBackend:
   private def isPrimitiveFieldType(t: String): Boolean =
     t == "Int" || t == "Long" || t == "Double" || t == "Boolean"
 
+  private def emitValueObject(t: Term, ctx: GenCtx, mv: MethodVisitor): Boolean = t match
+    case Lit.String(v) =>
+      mv.visitTypeInsn(NEW, stringVInt)
+      mv.visitInsn(DUP)
+      mv.visitLdcInsn(v)
+      mv.visitMethodInsn(INVOKESPECIAL, stringVInt, "<init>", "(Ljava/lang/String;)V", false)
+      true
+    case Lit.Boolean(b) =>
+      mv.visitFieldInsn(GETSTATIC, valueModuleInt, "MODULE$", s"L$valueModuleInt;")
+      mv.visitInsn(if b then ICONST_1 else ICONST_0)
+      mv.visitMethodInsn(INVOKEVIRTUAL, valueModuleInt, "boolV", s"(Z)L$boolVInt;", false)
+      true
+    case _ =>
+      mv.visitFieldInsn(GETSTATIC, valueModuleInt, "MODULE$", s"L$valueModuleInt;")
+      if !walkLong(t, ctx, mv) then return false
+      mv.visitMethodInsn(INVOKEVIRTUAL, valueModuleInt, "intV", s"(J)L$intVInt;", false)
+      true
+
   /** Emit a boxed `Value` for a primitive ADT field (Int/Long/Double).
    *  Boolean is intentionally unsupported (no value-producing bool walker);
    *  callers fall through to the interpreter for such constructors. */
@@ -490,9 +525,37 @@ object AsmJitBackend extends JitBackend:
         true
       case _ => false
 
+  private def isRefValRhs(t: Term, ctx: GenCtx): Boolean = t match
+    case Term.Name("None") => true
+    case tn: Term.Name     => ctx.isRefName(tn.value)
+    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+      b.stats.head match
+        case inner: Term => isRefValRhs(inner, ctx)
+        case _           => false
+    case ap: Term.Apply =>
+      ap.fun match
+        case fn: Term.Name if fn.value == "Some" =>
+          ap.argClause.values.lengthCompare(1) == 0
+        case fn: Term.Name =>
+          ensureCoEmittedRef(fn.value, ctx) != null
+        case _ => false
+    case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
+      val tn = ctx.refTypeOf(objName)
+      if tn == null then false
+      else
+        val fo = ctx.interp.typeFieldOrder.getOrElse(tn, Nil)
+        val idx = fo.indexOf(field)
+        if idx < 0 then false
+        else
+          val ft = ctx.interp.typeFieldTypes.getOrElse(tn, Nil)
+          val ftype = if idx < ft.length then ft(idx) else ""
+          ftype != "Int" && ftype != "Long" && ftype != "Double"
+    case _ => false
+
   /** Direction A.5: process non-final `Defn.Val` stats, emitting LSTORE/DSTORE
-   *  bytecode for each. Returns the updated GenCtx with the new bindings on
-   *  success, or null if any stat is not a compilable val-binding. */
+   *  for primitive locals and ASTORE for ref-valued immutable locals. Returns
+   *  the updated GenCtx with the new bindings on success, or null if any stat is
+   *  not a compilable val-binding. */
   private def emitValBindings(stats: List[Stat], ctx: GenCtx, mv: MethodVisitor): GenCtx | Null =
     var curCtx = ctx
     var rem = stats
@@ -500,10 +563,15 @@ object AsmJitBackend extends JitBackend:
       rem.head match
         case Defn.Val(_, List(Pat.Var(n)), _, rhs: Term) =>
           val slot = curCtx.allocSlot()
-          val ok = if curCtx.isDouble then walkDouble(rhs, curCtx, mv) else walkLong(rhs, curCtx, mv)
-          if !ok then return null
-          mv.visitVarInsn(if curCtx.isDouble then DSTORE else LSTORE, slot)
-          curCtx = curCtx.withBindings(Map(n.value -> (slot, false)))
+          if isRefValRhs(rhs, curCtx) then
+            if !walkRef(rhs, curCtx, mv) then return null
+            mv.visitVarInsn(ASTORE, slot)
+            curCtx = curCtx.withBindings(Map(n.value -> (slot, true)))
+          else
+            val ok = if curCtx.isDouble then walkDouble(rhs, curCtx, mv) else walkLong(rhs, curCtx, mv)
+            if !ok then return null
+            mv.visitVarInsn(if curCtx.isDouble then DSTORE else LSTORE, slot)
+            curCtx = curCtx.withBindings(Map(n.value -> (slot, false)))
         case _ => return null
       rem = rem.tail
     curCtx
@@ -539,10 +607,15 @@ object AsmJitBackend extends JitBackend:
       ctx.withBindings(Map(n.value -> (slot, false)))
     case Defn.Val(_, List(Pat.Var(n)), _, rhs: Term) =>
       val slot = ctx.allocSlot()
-      val ok = if ctx.isDouble then walkDouble(rhs, ctx, mv) else walkLong(rhs, ctx, mv)
-      if !ok then return null
-      mv.visitVarInsn(if ctx.isDouble then DSTORE else LSTORE, slot)
-      ctx.withBindings(Map(n.value -> (slot, false)))
+      if isRefValRhs(rhs, ctx) then
+        if !walkRef(rhs, ctx, mv) then return null
+        mv.visitVarInsn(ASTORE, slot)
+        ctx.withBindings(Map(n.value -> (slot, true)))
+      else
+        val ok = if ctx.isDouble then walkDouble(rhs, ctx, mv) else walkLong(rhs, ctx, mv)
+        if !ok then return null
+        mv.visitVarInsn(if ctx.isDouble then DSTORE else LSTORE, slot)
+        ctx.withBindings(Map(n.value -> (slot, false)))
     case w: Term.While =>
       if !emitWhileAsStmt(w, ctx, mv) then return null
       ctx
@@ -714,6 +787,13 @@ object AsmJitBackend extends JitBackend:
     sb.append(if isDouble then ")D" else ")J")
     sb.toString
 
+  private def buildRefDesc(paramIsRef: Array[Boolean]): String =
+    val sb = new StringBuilder("(")
+    for r <- paramIsRef do
+      if r then sb.append("Ljava/lang/Object;") else sb.append("J")
+    sb.append(")Ljava/lang/Object;")
+    sb.toString
+
   // ── Walker context ────────────────────────────────────────────────────────
 
   private case class GenCtx(
@@ -807,6 +887,10 @@ object AsmJitBackend extends JitBackend:
       }
     case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
       emitRefFieldNumeric(objName, field, ctx, mv, wantDouble = false)
+    case Term.Select(recv: Term, Term.Name("size")) =>
+      emitRefChainLong(recv, "size", Nil, ctx, mv)
+    case Term.Select(recv: Term, Term.Name("head")) =>
+      emitRefChainLong(recv, "head", Nil, ctx, mv)
     // `<stringExpr>.length` → push the String, INVOKEVIRTUAL length()I, widen to long.
     case Term.Select(recv, Term.Name("length")) =>
       if !walkString(recv, ctx, mv) then false
@@ -822,10 +906,32 @@ object AsmJitBackend extends JitBackend:
       walkLong(inner, ctx, mv) && { mv.visitInsn(L2D); true }
     case ap: Term.Apply =>
       ap.fun match
+        case Term.Select(recv: Term, Term.Name(method)) =>
+          emitRefChainLong(recv, method, ap.argClause.values, ctx, mv)
         case fn: Term.Name =>
           emitLongCall(fn.value, ap.argClause.values, ctx, mv)
         case _ => false
     case _ => false
+
+  private def emitRefChainLong(recv: Term, method: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
+    method match
+      case "getOrElse" if args.lengthCompare(1) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        if !walkLong(args.head, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "getOrElseLong", "(Ljava/lang/Object;J)J", false)
+        true
+      case "size" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "sizeLong", "(Ljava/lang/Object;)J", false)
+        true
+      case "head" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "headLong", "(Ljava/lang/Object;)J", false)
+        true
+      case _ => false
 
   /** Emit InstanceV field access `obj.field` on a ref param, leaving a primitive
    *  (long if !wantDouble, double if wantDouble) on the stack.  Resolves the
@@ -979,6 +1085,7 @@ object AsmJitBackend extends JitBackend:
     true
 
   private def ensureCoEmittedLong(fnName: String, ctx: GenCtx): MethodSig | Null =
+    if ctx.coEmit.refReturning.contains(fnName) then return null
     if ctx.coEmit.emitted.contains(fnName) || ctx.coEmit.emitting.contains(fnName) then
       return ctx.coEmit.signatures.getOrElse(fnName, null)
     val fnV = ctx.interp.globals.getOrElse(fnName, null)
@@ -1083,6 +1190,94 @@ object AsmJitBackend extends JitBackend:
             "apply", "(JJJ)J", true)
           true
         else false
+
+  private def emitStaticRefFunction(
+    cw:        ClassWriter,
+    cname:     String,
+    f:         Value.FunV,
+    sig:       MethodSig,
+    parentCtx: GenCtx
+  ): Boolean =
+    val paramSlots = new Array[Int](sig.paramNames.length)
+    var nextSlot0 = 0
+    var i = 0
+    while i < sig.paramNames.length do
+      paramSlots(i) = nextSlot0
+      nextSlot0 += (if sig.paramIsRef(i) then 1 else 2)
+      i += 1
+    var nextLocal = nextSlot0
+    val fnCtx = GenCtx(
+      funName          = f.name,
+      staticMethodName = sig.methodName,
+      params           = f.params.toSet,
+      paramNames       = sig.paramNames,
+      paramSlots       = paramSlots,
+      paramIsRef       = sig.paramIsRef,
+      isDouble         = false,
+      bindings         = Map.empty,
+      interp           = parentCtx.interp,
+      coEmit           = parentCtx.coEmit,
+      selfClass        = cname,
+      allocSlot        = () => { val s = nextLocal; nextLocal += 2; s },
+      paramTypes       = f.paramTypes.toArray
+    )
+    val mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, sig.methodName, buildRefDesc(sig.paramIsRef), null, null)
+    mv.visitCode()
+    val ok =
+      if f.params.length == 1 && sig.paramIsRef(0) then
+        f.body match
+          case tm: Term.Match => emitRefMatchBody(tm, fnCtx, parentCtx.interp, mv)
+          case _              => false
+      else emitObject(f.body.asInstanceOf[Term], fnCtx, mv) && { mv.visitInsn(ARETURN); true }
+    if !ok then return false
+    try mv.visitMaxs(0, 0) catch case _: Throwable => return false
+    mv.visitEnd()
+    true
+
+  private def ensureCoEmittedRef(fnName: String, ctx: GenCtx): MethodSig | Null =
+    if ctx.coEmit.refReturning.contains(fnName) then
+      return ctx.coEmit.signatures.getOrElse(fnName, null)
+    if ctx.coEmit.emitted.contains(fnName) || ctx.coEmit.emitting.contains(fnName) then
+      return null
+    val fnV = ctx.interp.globals.getOrElse(fnName, null)
+    if !fnV.isInstanceOf[Value.FunV] then return null
+    val fn = fnV.asInstanceOf[Value.FunV]
+    if !jitCompatibleSibling(fn) || bodyHasDoubleLit(fn.body) then return null
+    val sig = MethodSig(staticMethodName(fn.name), fn.params.toArray, classifyParamRefs(fn), isDouble = false)
+    ctx.coEmit.signatures.put(fnName, sig)
+    ctx.coEmit.emitting.add(fnName)
+    val scratch = new ClassWriter(ClassWriter.COMPUTE_MAXS)
+    scratch.visit(V21, ACC_PUBLIC | ACC_FINAL,
+      s"scalascript/interpreter/vm/jit/asm/AsmJitRefScratch$$${classCounter.incrementAndGet()}",
+      null, "java/lang/Object", Array.empty)
+    val ok =
+      try
+        val bodyOk = emitStaticRefFunction(scratch, ctx.selfClass, fn, sig, ctx)
+        scratch.visitEnd()
+        bodyOk
+      catch case _: Throwable => false
+    ctx.coEmit.emitting.remove(fnName)
+    if !ok then
+      ctx.coEmit.signatures.remove(fnName)
+      return null
+    ctx.coEmit.extraMethods.put(fnName, (cw: ClassWriter) => emitStaticRefFunction(cw, ctx.selfClass, fn, sig, ctx))
+    ctx.coEmit.emitted.add(fnName)
+    ctx.coEmit.refReturning.add(fnName)
+    sig
+
+  private def emitRefCall(fnName: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
+    if fnName == ctx.funName then return false
+    val sig = ensureCoEmittedRef(fnName, ctx)
+    if sig == null || args.length != sig.paramNames.length then return false
+    var i = 0
+    var rem = args
+    while rem.nonEmpty do
+      val ok = if sig.paramIsRef(i) then walkRef(rem.head, ctx, mv) else walkLong(rem.head, ctx, mv)
+      if !ok then return false
+      i += 1
+      rem = rem.tail
+    mv.visitMethodInsn(INVOKESTATIC, ctx.selfClass, sig.methodName, buildRefDesc(sig.paramIsRef), false)
+    true
 
   // ── walkString ────────────────────────────────────────────────────────────
 
@@ -1266,12 +1461,27 @@ object AsmJitBackend extends JitBackend:
   // ── walkRef ───────────────────────────────────────────────────────────────
 
   private def walkRef(t: Term, ctx: GenCtx, mv: MethodVisitor): Boolean = t match
+    case Term.Name("None") =>
+      mv.visitFieldInsn(GETSTATIC, valueModuleInt, "MODULE$", s"L$valueModuleInt;")
+      mv.visitMethodInsn(INVOKEVIRTUAL, valueModuleInt, "NoneV", s"()L$optionVInt;", false)
+      true
     case tn: Term.Name if ctx.isRefName(tn.value) =>
       val s = ctx.slotOf(tn.value); if s < 0 then false else { mv.visitVarInsn(ALOAD, s); true }
     case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
       b.stats.head match
         case inner: Term => walkRef(inner, ctx, mv)
         case _           => false
+    case ap: Term.Apply =>
+      ap.fun match
+        case fn: Term.Name if fn.value == "Some" && ap.argClause.values.lengthCompare(1) == 0 =>
+          mv.visitTypeInsn(NEW, optionVInt)
+          mv.visitInsn(DUP)
+          if !emitValueObject(ap.argClause.values.head, ctx, mv) then return false
+          mv.visitMethodInsn(INVOKESPECIAL, optionVInt, "<init>", s"(L$valueInt;)V", false)
+          true
+        case fn: Term.Name =>
+          emitRefCall(fn.value, ap.argClause.values, ctx, mv)
+        case _ => false
     // Stage 5.5: ref-typed ADT field access `obj.field` on a ref param.
     case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
       val tn = ctx.refTypeOf(objName)

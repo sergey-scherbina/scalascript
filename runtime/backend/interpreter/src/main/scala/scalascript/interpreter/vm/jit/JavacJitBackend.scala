@@ -305,6 +305,10 @@ object JavacJitBackend extends JitBackend:
     // `walkString`, not `walkLong`.
     val stringReturning: scala.collection.mutable.HashSet[String] =
       scala.collection.mutable.HashSet.empty
+    // Siblings co-emitted as `static Object f(...)` (ref-returning). Kept
+    // separate so a numeric call never reuses an Object-returning method.
+    val refReturning: scala.collection.mutable.HashSet[String] =
+      scala.collection.mutable.HashSet.empty
 
   // Per-param ref/int classification. A param is ref when it is the scrutinee
   // of a `Term.Match` body (top-level or nested expression form). A param read
@@ -422,6 +426,7 @@ object JavacJitBackend extends JitBackend:
     sb.toString
 
   private def ensureCoEmittedLong(fnName: String, ctx: GenCtx): MethodSig | Null =
+    if ctx.coEmit.refReturning.contains(fnName) then return null
     if ctx.coEmit.emitted.contains(fnName) || ctx.coEmit.emitting.contains(fnName) then
       return ctx.coEmit.signatures.getOrElse(fnName, null)
     val fnV = ctx.interp.globals.getOrElse(fnName, null)
@@ -511,6 +516,97 @@ object JavacJitBackend extends JitBackend:
             s"((scalascript.interpreter.vm.jit.LongFn3) $ref).apply($a1, $a2, $a3)"
           else null
         else null
+
+  private def ensureCoEmittedRef(fnName: String, ctx: GenCtx): MethodSig | Null =
+    if ctx.coEmit.refReturning.contains(fnName) then
+      return ctx.coEmit.signatures.getOrElse(fnName, null)
+    if ctx.coEmit.emitted.contains(fnName) || ctx.coEmit.emitting.contains(fnName) then
+      return null
+    val fnV = ctx.interp.globals.getOrElse(fnName, null)
+    if !fnV.isInstanceOf[Value.FunV] then return null
+    val fn = fnV.asInstanceOf[Value.FunV]
+    if !jitCompatibleSibling(fn) || bodyHasDoubleLit(fn.body) then return null
+    val sig = MethodSig(fn.params.toArray, classifyParamRefs(fn), isDouble = false)
+    ctx.coEmit.signatures.put(fnName, sig)
+    ctx.coEmit.emitting.add(fnName)
+    val fnCtx = new GenCtx(fn.name, fn.params.toSet, sig.paramNames, sig.paramIsRef,
+      isDouble = false, Map.empty, ctx.interp, ctx.coEmit, fn.paramTypes.toArray)
+    var extraStatics = ""
+    val methodBody =
+      if fn.params.length == 1 && sig.paramIsRef(0) then
+        fn.body match
+          case tm: Term.Match => walkRefMatchBody(tm, fnCtx, ctx.interp)
+          case _              => null
+      else
+        val statics = scala.collection.mutable.LinkedHashMap.empty[String, String]
+        val expr = walkObject(fn.body.asInstanceOf[Term], fnCtx, statics)
+        if expr == null then null
+        else
+          extraStatics = statics.valuesIterator.mkString
+          s"return $expr;"
+    ctx.coEmit.emitting.remove(fnName)
+    if methodBody == null then
+      ctx.coEmit.signatures.remove(fnName)
+      return null
+    val methodSrc =
+      s"""$extraStatics  public static Object ${sanitize(fn.name)}(${emitParamDecls(fn, sig)}) {
+         |    $methodBody
+         |  }
+         |""".stripMargin
+    ctx.coEmit.extraMethods.put(fnName, methodSrc)
+    ctx.coEmit.emitted.add(fnName)
+    ctx.coEmit.refReturning.add(fnName)
+    sig
+
+  private def emitParamDecls(fn: Value.FunV, sig: MethodSig): String =
+    fn.params.zipWithIndex.map { case (p, i) =>
+      if sig.paramIsRef(i) then s"Object ${sanitize(p)}" else s"long ${sanitize(p)}"
+    }.mkString(", ")
+
+  private def emitRefCall(fnName: String, args: List[Term], ctx: GenCtx): String | Null =
+    val sig =
+      if fnName == ctx.funName then null
+      else ensureCoEmittedRef(fnName, ctx)
+    if sig == null || args.length != sig.paramNames.length then return null
+    val sb = new StringBuilder
+    sb.append(sanitize(fnName)).append('(')
+    var i = 0
+    var rem = args
+    while rem.nonEmpty do
+      if i > 0 then sb.append(", ")
+      val argStr = if sig.paramIsRef(i) then walkRef(rem.head, ctx) else walkLong(rem.head, ctx)
+      if argStr == null then return null
+      sb.append(argStr)
+      i += 1
+      rem = rem.tail
+    sb.append(')').toString
+
+  private def isRefValRhs(t: Term, ctx: GenCtx): Boolean = t match
+    case Term.Name("None") => true
+    case tn: Term.Name     => ctx.isRefName(tn.value)
+    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+      b.stats.head match
+        case inner: Term => isRefValRhs(inner, ctx)
+        case _           => false
+    case ap: Term.Apply =>
+      ap.fun match
+        case fn: Term.Name if fn.value == "Some" =>
+          ap.argClause.values.lengthCompare(1) == 0
+        case fn: Term.Name =>
+          ensureCoEmittedRef(fn.value, ctx) != null
+        case _ => false
+    case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
+      val tn = ctx.refTypeOf(objName)
+      if tn == null then false
+      else
+        val fo = ctx.interp.typeFieldOrder.getOrElse(tn, Nil)
+        val idx = fo.indexOf(field)
+        if idx < 0 then false
+        else
+          val ft = ctx.interp.typeFieldTypes.getOrElse(tn, Nil)
+          val ftype = if idx < ft.length then ft(idx) else ""
+          ftype != "Int" && ftype != "Long" && ftype != "Double"
+    case _ => false
 
   /** Emit a Java `String`-typed expression. Supports string literals, `+`
    *  concatenation (with a numeric operand auto-coerced via `walkLong`),
@@ -708,6 +804,10 @@ object JavacJitBackend extends JitBackend:
         case _ => null
     case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
       emitRefFieldNumeric(objName, field, ctx, wantDouble = false)
+    case Term.Select(recv: Term, Term.Name("size")) =>
+      emitRefChainLong(recv, "size", Nil, ctx)
+    case Term.Select(recv: Term, Term.Name("head")) =>
+      emitRefChainLong(recv, "head", Nil, ctx)
     // `<stringExpr>.length` → Java `(long)(<str>).length()`. Lets a numeric body
     // consume the length of a JIT-compiled String expression (e.g. `label(i).length`).
     case Term.Select(recv, Term.Name("length")) =>
@@ -722,12 +822,28 @@ object JavacJitBackend extends JitBackend:
       if e == null then null else s"(double)($e)"
     case ap: Term.Apply =>
       ap.fun match
+        case Term.Select(recv: Term, Term.Name(method)) =>
+          emitRefChainLong(recv, method, ap.argClause.values, ctx)
         case fn: Term.Name => emitLongCall(fn.value, ap.argClause.values, ctx)
         case _ => null
     case Term.ApplyUnary(op, arg) if op.value == "-" || op.value == "+" =>
       val a = walkLong(arg, ctx); if a == null then return null
       s"(${op.value}$a)"
     case _ => null
+
+  private def emitRefChainLong(recv: Term, method: String, args: List[Term], ctx: GenCtx): String | Null =
+    val refExpr = walkRef(recv, ctx)
+    if refExpr == null then return null
+    val jrd = "scalascript.interpreter.vm.jit.JitRefDispatch$.MODULE$"
+    method match
+      case "getOrElse" if args.lengthCompare(1) == 0 =>
+        val d = walkLong(args.head, ctx)
+        if d == null then null else s"$jrd.getOrElseLong((Object) ($refExpr), $d)"
+      case "size" if args.isEmpty =>
+        s"$jrd.sizeLong((Object) ($refExpr))"
+      case "head" if args.isEmpty =>
+        s"$jrd.headLong((Object) ($refExpr))"
+      case _ => null
 
   /** Emit a Java expression reading InstanceV field `obj.field` off a ref param,
    *  yielding a primitive (`long` if !wantDouble, `double` if wantDouble).
@@ -759,12 +875,21 @@ object JavacJitBackend extends JitBackend:
   /** Emit a Java `Object`-typed expression. Handles ref params, 1-stmt blocks,
    *  and ref-typed ADT field access (`obj.field` where field is non-numeric). */
   private def walkRef(t: Term, ctx: GenCtx): String | Null = t match
+    case Term.Name("None") => "scalascript.interpreter.Value$.MODULE$.NoneV()"
     case tn: Term.Name if ctx.isRefName(tn.value) => ctx.resolveLocal(tn.value)
     // Direction A.1: 1-stmt block unwrap parallel to walkLong.
     case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
       b.stats.head match
         case inner: Term => walkRef(inner, ctx)
         case _           => null
+    case ap: Term.Apply =>
+      ap.fun match
+        case fn: Term.Name if fn.value == "Some" && ap.argClause.values.lengthCompare(1) == 0 =>
+          val inner = emitValueObject(ap.argClause.values.head, ctx)
+          if inner == null then null else s"new scalascript.interpreter.Value.OptionV($inner)"
+        case fn: Term.Name =>
+          emitRefCall(fn.value, ap.argClause.values, ctx)
+        case _ => null
     // Stage 5.5: ref-typed field access `obj.field` where obj is a ref param.
     case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
       val tn = ctx.refTypeOf(objName)
@@ -802,6 +927,8 @@ object JavacJitBackend extends JitBackend:
     ctx:     GenCtx,
     statics: scala.collection.mutable.LinkedHashMap[String, String]
   ): String | Null = t match
+    case Term.Name("None") =>
+      "scalascript.interpreter.Value$.MODULE$.NoneV()"
     case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
       b.stats.head match
         case inner: Term => walkObject(inner, ctx, statics)
@@ -813,6 +940,10 @@ object JavacJitBackend extends JitBackend:
       s"(($c) ? ($a) : ($b))"
     case ap: Term.Apply =>
       ap.fun match
+        case fn: Term.Name if fn.value == "Some" && ap.argClause.values.lengthCompare(1) == 0 =>
+          val inner = emitValueObject(ap.argClause.values.head, ctx)
+          if inner == null then null
+          else s"new scalascript.interpreter.Value.OptionV($inner)"
         case fn: Term.Name if fn.value == ctx.funName =>
           if ap.argClause.values.length != ctx.paramNames.length then return null
           val args = new Array[String](ap.argClause.values.length)
@@ -829,6 +960,25 @@ object JavacJitBackend extends JitBackend:
           emitConstructorObject(ctor.value, ap.argClause.values, ctx, statics)
         case _ => null
     case _ => null
+
+  private def emitValueObject(
+    t:       Term,
+    ctx:     GenCtx
+  ): String | Null =
+    t match
+      case Lit.Boolean(_) =>
+        val b = walkBool(t, ctx); if b == null then null
+        else s"scalascript.interpreter.Value$$.MODULE$$.boolV($b)"
+      case _ =>
+        val l = walkLong(t, ctx)
+        if l != null then s"scalascript.interpreter.Value$$.MODULE$$.intV($l)"
+        else
+          val s = walkString(t, ctx)
+          if s != null then s"new scalascript.interpreter.Value.StringV($s)"
+          else
+            val r = walkRef(t, ctx)
+            if r != null then s"(scalascript.interpreter.Value) ($r)"
+            else null
 
   private def emitConstructorObject(
     typeName: String,
@@ -1882,11 +2032,9 @@ object JavacJitBackend extends JitBackend:
    *  Args are evaluated through temp locals BEFORE param-slot updates so the
    *  new-arg computation reads the OLD param values (mirrors how the
    *  trampoline copies args via `TailCall.args` snapshot). */
-  /** Direction A.5: Emit Java `long`/`double` local declarations for `Defn.Val`
-   *  stats, followed by `return <expr>;` for the last `Term`.
-   *  Returns null if any stat is not a simple `val n = <long-or-double-expr>`
-   *  or the final term can't compile via walkLong/walkDouble.
-   *  Only non-ref (Long/Double) val bindings supported in the initial slice. */
+  /** Direction A.5: Emit Java local declarations for `Defn.Val` stats,
+   *  followed by `return <expr>;` for the last `Term`. Ref-valued immutable
+   *  locals use `Object`; primitive locals use `long`/`double`. */
   /** Compile one void statement inside a while body: assignment, local `var`/`val`
    *  declaration, nested `while`, or discarded expr. Returns the emitted Java plus
    *  the (possibly extended) context to thread into subsequent body statements — a
@@ -1906,10 +2054,15 @@ object JavacJitBackend extends JitBackend:
       (s"$jType $jn = $e;\n        ", ctx.withBindings(Seq(n.value -> (jn, false))))
     case Defn.Val(_, List(Pat.Var(n)), _, rhs: Term) =>
       val jn = sanitize(n.value)
-      val e = if ctx.isDouble then walkDouble(rhs, ctx) else walkLong(rhs, ctx)
-      if e == null then return null
-      val jType = if ctx.isDouble then "double" else "long"
-      (s"$jType $jn = $e;\n        ", ctx.withBindings(Seq(n.value -> (jn, false))))
+      if isRefValRhs(rhs, ctx) then
+        val r = walkRef(rhs, ctx)
+        if r == null then return null
+        (s"Object $jn = $r;\n        ", ctx.withBindings(Seq(n.value -> (jn, true))))
+      else
+        val e = if ctx.isDouble then walkDouble(rhs, ctx) else walkLong(rhs, ctx)
+        if e == null then return null
+        val jType = if ctx.isDouble then "double" else "long"
+        (s"$jType $jn = $e;\n        ", ctx.withBindings(Seq(n.value -> (jn, false))))
     case w: Term.While =>
       val ws = walkWhileAsStmt(w, ctx)
       if ws == null then return null
@@ -1983,12 +2136,18 @@ object JavacJitBackend extends JitBackend:
         stat match
           case Defn.Val(_, List(Pat.Var(n)), _, rhs: Term) =>
             val jn = sanitize(n.value)
-            val e = if curCtx.isDouble then walkDouble(rhs, curCtx)
-                    else walkLong(rhs, curCtx)
-            if e == null then return null
-            val jType = if curCtx.isDouble then "double" else "long"
-            sb.append(s"$jType $jn = $e;\n      ")
-            curCtx = curCtx.withBindings(Seq(n.value -> (jn, false)))
+            if isRefValRhs(rhs, curCtx) then
+              val r = walkRef(rhs, curCtx)
+              if r == null then return null
+              sb.append(s"Object $jn = $r;\n      ")
+              curCtx = curCtx.withBindings(Seq(n.value -> (jn, true)))
+            else
+              val e = if curCtx.isDouble then walkDouble(rhs, curCtx)
+                      else walkLong(rhs, curCtx)
+              if e == null then return null
+              val jType = if curCtx.isDouble then "double" else "long"
+              sb.append(s"$jType $jn = $e;\n      ")
+              curCtx = curCtx.withBindings(Seq(n.value -> (jn, false)))
           case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs: Term) =>
             val jn = sanitize(n.value)
             val e = if curCtx.isDouble then walkDouble(rhs, curCtx)
@@ -2042,10 +2201,15 @@ object JavacJitBackend extends JitBackend:
       rem.head match
         case Defn.Val(_, List(Pat.Var(n)), _, rhs: Term) =>
           val jn = sanitize(n.value)
-          val e = if curCtx.isDouble then walkDouble(rhs, curCtx)
-                  else walkLong(rhs, curCtx)
-          if e == null then return null
-          curCtx = curCtx.withBindings(Seq(n.value -> (jn, false)))
+          if isRefValRhs(rhs, curCtx) then
+            val r = walkRef(rhs, curCtx)
+            if r == null then return null
+            curCtx = curCtx.withBindings(Seq(n.value -> (jn, true)))
+          else
+            val e = if curCtx.isDouble then walkDouble(rhs, curCtx)
+                    else walkLong(rhs, curCtx)
+            if e == null then return null
+            curCtx = curCtx.withBindings(Seq(n.value -> (jn, false)))
         case _ => return null
       rem = rem.tail
     curCtx

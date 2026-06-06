@@ -58,6 +58,20 @@ class JitLintTest extends AnyFunSuite with Matchers:
     r.willJit shouldBe true
     r.bailReasons shouldBe empty
 
+  test("stage7-refchain: local ref val getOrElse JITs on both backends"):
+    val r = lintCompareFor(
+      """def parse(n: Int): Option[Int] =
+        |  if n > 0 then Some(n + 1) else None
+        |def f(n: Int): Int =
+        |  val r = parse(n)
+        |  r.getOrElse(7)
+        |f(1)""".stripMargin
+    ).forDef("f")
+    withClue(r.humanReadable):
+      r.bothJit shouldBe true
+      r.javac.bailReasons shouldBe empty
+      r.asm.bailReasons shouldBe empty
+
   test("ADT match with guard — should JIT (walkArmAsIfBranch path)"):
     val r = lintFor(
       """sealed trait E

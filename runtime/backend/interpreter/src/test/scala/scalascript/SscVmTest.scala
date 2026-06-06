@@ -1210,6 +1210,40 @@ class SscVmTest extends AnyFunSuite with Matchers:
     out shouldBe "4\n4"
   }
 
+  test("stage7-refchain: Javac ref-local getOrElse compiles and runs") {
+    val interp = interpOf(
+      """def parse(n: Int): Option[Int] =
+        |  if n > 0 then Some(n + 1) else None
+        |def f(n: Int): Int =
+        |  val r = parse(n)
+        |  r.getOrElse(7)""".stripMargin)
+    val fn = interp.globalsView("f").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    r.direct.isInstanceOf[LongFn1] shouldBe true
+    val direct = r.direct.asInstanceOf[LongFn1]
+    JitGlobals.withInterp(interp) { direct.apply(4L) } shouldBe 5L
+    JitGlobals.withInterp(interp) { direct.apply(-1L) } shouldBe 7L
+  }
+
+  test("stage7-refchain: ASM ref-local getOrElse compiles and runs") {
+    val interp = interpOf(
+      """def parse(n: Int): Option[Int] =
+        |  if n > 0 then Some(n + 1) else None
+        |def f(n: Int): Int =
+        |  val r = parse(n)
+        |  r.getOrElse(7)""".stripMargin)
+    val fn = interp.globalsView("f").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    r.direct.isInstanceOf[LongFn1] shouldBe true
+    val direct = r.direct.asInstanceOf[LongFn1]
+    JitGlobals.withInterp(interp) { direct.apply(4L) } shouldBe 5L
+    JitGlobals.withInterp(interp) { direct.apply(-1L) } shouldBe 7L
+  }
+
   test("stage2.1b: HofCall detected when param is called as function") {
     import scalascript.interpreter.vm.jit.{JitPredicates, JitBailReason}
     val interp = interpOf("def apply(f: Int => Int, x: Int): Int = f(x)")
