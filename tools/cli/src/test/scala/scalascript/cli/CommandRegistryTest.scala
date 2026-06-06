@@ -8,7 +8,8 @@ class CommandRegistryTest extends AnyFunSuite with Matchers:
   // Every subcommand token the legacy match dispatched must resolve to a provider.
   private val expectedTokens = List(
     "parse", "check", "run", "watch", "watch-bench", "repl",
-    "emit-js", "emit-wasm", "emit-rust", "emit-openapi", "emit-spa", "emit-scala", "emit-spark",
+    "emit-js", "emit-wasm", "emit-rust", "build-rust",
+    "emit-openapi", "emit-spa", "emit-scala", "emit-spark",
     "submit", "emit-wc", "emit-interface", "emit-ir",
     "run-jvm", "run-js", "compile-jvm", "compile-js", "compile-runtime",
     "check-with-iface", "link", "generate-facade", "info", "clean", "verify",

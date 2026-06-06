@@ -29,8 +29,15 @@ object RustGen:
       intrinsics:       Map[ir.QualifiedName, IntrinsicImpl],
       runtimePreamble:  String
   ): CompileResult =
-    val _ = (opts, runtimePreamble) // not used in R.1
-    val crateName = sanitizeCrateName(module.manifest.flatMap(_.name).getOrElse(DefaultCrateName))
+    val _ = runtimePreamble // not used in R.1
+    // BackendOptions.extra("binName") overrides the manifest name so a
+    // CLI caller (`ssc build-rust hello.ssc`) can pin the produced
+    // binary to the source file stem regardless of front-matter.
+    val crateName = sanitizeCrateName(
+      opts.extra.get("binName")
+        .orElse(module.manifest.flatMap(_.name))
+        .getOrElse(DefaultCrateName)
+    )
     val version   = module.manifest.flatMap(_.version).getOrElse(DefaultVersion)
     val descr     = module.manifest.flatMap(_.description).filter(_.nonEmpty)
     val hasMain   = moduleDeclaresMain(module)

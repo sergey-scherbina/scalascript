@@ -10,7 +10,13 @@ import scalascript.backend.spi.*
  *  later R.x slice grows this set per `specs/rust-backend.md §8`. */
 val RustCapabilities: Capabilities = Capabilities(
   features = Set(
-    Feature.ConsoleIO
+    Feature.ConsoleIO,
+    // Hello-world surface — the SS pipeline records StringInterpolators
+    // on every module that contains any string literal (via the implicit
+    // `s"…"` form).  Without the flag CapabilityCheck refuses to invoke
+    // the backend for `println("Hello")`.
+    Feature.StringInterpolators,
+    Feature.ModuleImports
   ),
   outputs        = Set(OutputKind.RustSource),
   options        = Set("optimizationLevel", "emitAssertions", "cargoEdition"),
