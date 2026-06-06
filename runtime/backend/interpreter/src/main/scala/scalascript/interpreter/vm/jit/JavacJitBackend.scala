@@ -920,6 +920,10 @@ object JavacJitBackend extends JitBackend:
       case "endsWith" if args.lengthCompare(1) == 0 =>
         val r = walkRef(args.head, ctx)
         if r == null then null else s"$jrd.stringEndsWithLong((Object) ($refExpr), (Object) ($r))"
+      // Stage 8: String.charAt(i) → Long (char as Long).
+      case "charAt" if args.lengthCompare(1) == 0 =>
+        val i = walkLong(args.head, ctx)
+        if i == null then null else s"$jrd.stringCharAtLong((Object) ($refExpr), $i)"
       case _ => null
 
   private def emitRefChainObject(recv: Term, method: String, args: List[Term], ctx: GenCtx): String | Null =
@@ -970,6 +974,23 @@ object JavacJitBackend extends JitBackend:
         s"$jrd.stringUpperRef((Object) ($refExpr))"
       case "toLowerCase" if args.isEmpty =>
         s"$jrd.stringLowerRef((Object) ($refExpr))"
+      // Stage 8: Map.get(key) → Option; String.substring(i)/(i,j); String.replace(o, n).
+      case "get" if args.lengthCompare(1) == 0 =>
+        val k = emitValueObject(args.head, ctx)
+        if k == null then null else s"$jrd.mapGetRef((Object) ($refExpr), $k)"
+      case "substring" if args.lengthCompare(1) == 0 =>
+        val i = walkLong(args.head, ctx)
+        if i == null then null else s"$jrd.stringSubstringRef((Object) ($refExpr), $i)"
+      case "substring" if args.lengthCompare(2) == 0 =>
+        val i = walkLong(args.head, ctx)
+        val j = walkLong(args(1), ctx)
+        if i == null || j == null then null
+        else s"$jrd.stringSubstring2Ref((Object) ($refExpr), $i, $j)"
+      case "replace" if args.lengthCompare(2) == 0 =>
+        val o = walkRef(args.head, ctx)
+        val n = walkRef(args(1), ctx)
+        if o == null || n == null then null
+        else s"$jrd.stringReplaceRef((Object) ($refExpr), (Object) ($o), (Object) ($n))"
       case _ => null
 
   private def isNumericObjectReceiver(recv: Term): Boolean =

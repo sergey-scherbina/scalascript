@@ -335,3 +335,34 @@ object JitRefDispatch:
   // Stage 8: Decimal modulo (completing the Decimal infix arith set).
   def decimalMod(recv: Value, other: Value): Value =
     Value.DecimalV(decimalValue(recv) % decimalValue(other))
+
+  // Stage 8: Map.get(key) → Option[Value]; None if absent.
+  def mapGetRef(recv: AnyRef, key: Value): Object = recv match
+    case Value.MapV(entries) =>
+      entries.get(key) match
+        case Some(v) => Value.OptionV(v).asInstanceOf[Object]
+        case None    => Value.NoneV.asInstanceOf[Object]
+    case _ =>
+      throw new ClassCastException(s"mapGetRef unsupported receiver: ${recv.getClass.getName}")
+
+  // Stage 8: String methods — replace, substring, charAt.
+  def stringReplaceRef(recv: AnyRef, oldPat: AnyRef, newPat: AnyRef): Object = (recv, oldPat, newPat) match
+    case (Value.StringV(s), Value.StringV(o), Value.StringV(n)) =>
+      Value.StringV(s.replace(o, n)).asInstanceOf[Object]
+    case _ =>
+      throw new ClassCastException(s"stringReplaceRef unsupported: ${recv.getClass.getName}")
+
+  def stringSubstringRef(recv: AnyRef, from: Long): Object = recv match
+    case Value.StringV(s) => Value.StringV(s.substring(from.toInt)).asInstanceOf[Object]
+    case _ =>
+      throw new ClassCastException(s"stringSubstringRef unsupported: ${recv.getClass.getName}")
+
+  def stringSubstring2Ref(recv: AnyRef, from: Long, to: Long): Object = recv match
+    case Value.StringV(s) => Value.StringV(s.substring(from.toInt, to.toInt)).asInstanceOf[Object]
+    case _ =>
+      throw new ClassCastException(s"stringSubstring2Ref unsupported: ${recv.getClass.getName}")
+
+  def stringCharAtLong(recv: AnyRef, idx: Long): Long = recv match
+    case Value.StringV(s) => s.charAt(idx.toInt).toLong
+    case _ =>
+      throw new ClassCastException(s"stringCharAtLong unsupported: ${recv.getClass.getName}")

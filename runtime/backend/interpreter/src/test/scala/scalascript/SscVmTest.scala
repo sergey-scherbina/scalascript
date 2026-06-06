@@ -1876,6 +1876,17 @@ class SscVmTest extends AnyFunSuite with Matchers:
     out.trim shouldBe "List(1, 2, 3, 4, 5)"
   }
 
+  test("stage8-map-get-string-substr: Map.get / String.substring / replace JIT through JitRefDispatch") {
+    val out = captured(
+      """def prefix(s: String, n: Int): String = s.substring(0, n)
+        |def shout(s: String): String = s.replace(".", "!")
+        |def charCode(s: String): Int = s.charAt(0).toInt
+        |println(prefix("hello world", 5))
+        |println(shout("a.b.c"))
+        |println(charCode("A"))""".stripMargin)
+    out.trim shouldBe "hello\na!b!c\n65"
+  }
+
   test("stage8-math-intrinsics: Math.max / Math.min / Math.abs inline to java.lang.Math") {
     val out = captured(
       """def biggest(a: Int, b: Int): Int = Math.max(a, b)

@@ -1050,6 +1050,14 @@ object AsmJitBackend extends JitBackend:
         mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "stringEndsWithLong",
           "(Ljava/lang/Object;Ljava/lang/Object;)J", false)
         true
+      // Stage 8: String.charAt(i) → Long.
+      case "charAt" if args.lengthCompare(1) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        if !walkLong(args.head, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "stringCharAtLong",
+          "(Ljava/lang/Object;J)J", false)
+        true
       case _ => false
 
   private def emitRefChainObject(recv: Term, method: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
@@ -1137,6 +1145,37 @@ object AsmJitBackend extends JitBackend:
         if !walkRef(recv, ctx, mv) then return false
         mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "stringLowerRef",
           "(Ljava/lang/Object;)Ljava/lang/Object;", false)
+        true
+      // Stage 8: Map.get(key) → Option; String.substring(i)/(i,j); String.replace(o, n).
+      case "get" if args.lengthCompare(1) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        if !emitValueObject(args.head, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "mapGetRef",
+          s"(Ljava/lang/Object;L$valueInt;)Ljava/lang/Object;", false)
+        true
+      case "substring" if args.lengthCompare(1) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        if !walkLong(args.head, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "stringSubstringRef",
+          "(Ljava/lang/Object;J)Ljava/lang/Object;", false)
+        true
+      case "substring" if args.lengthCompare(2) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        if !walkLong(args.head, ctx, mv) then return false
+        if !walkLong(args(1), ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "stringSubstring2Ref",
+          "(Ljava/lang/Object;JJ)Ljava/lang/Object;", false)
+        true
+      case "replace" if args.lengthCompare(2) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        if !walkRef(args.head, ctx, mv) then return false
+        if !walkRef(args(1), ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "stringReplaceRef",
+          "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", false)
         true
       case _ => false
 
