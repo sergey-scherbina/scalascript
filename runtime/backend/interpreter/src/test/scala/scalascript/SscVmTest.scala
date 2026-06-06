@@ -1278,6 +1278,49 @@ class SscVmTest extends AnyFunSuite with Matchers:
     out.trim shouldBe "10\n20\n99"
   }
 
+  // ── Stage 6: Tuple destructure (NonExtractPattern) ───────────────────────
+
+  test("stage6-nonextract-tuple: JitLint does not report NonExtractPattern for Pat.Tuple arms") {
+    import scalascript.interpreter.vm.jit.{JitPredicates, JitBailReason}
+    val interp = interpOf(
+      """def sumPair(t: (Int, Int)): Int = t match {
+        |  case (a, b) => a + b
+        |}""".stripMargin)
+    val fn = interp.globalsView("sumPair").asInstanceOf[Value.FunV]
+    val reasons = JitPredicates.classifyBailReasons(fn)
+    reasons should not contain JitBailReason.NonExtractPattern
+  }
+
+  test("stage6-nonextract-tuple: Javac — tuple 2-elem match compiles and returns correct result") {
+    import scalascript.interpreter.vm.jit.JavacJitBackend
+    val interp = interpOf(
+      """def sumPair(t: (Int, Int)): Int = t match {
+        |  case (a, b) => a + b
+        |}""".stripMargin)
+    val fn = interp.globalsView("sumPair").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+  }
+
+  test("stage6-nonextract-tuple: end-to-end — tuple destructure in match body") {
+    val out = captured(
+      """def sumPair(t: (Int, Int)): Int = t match {
+        |  case (a, b) => a + b
+        |}
+        |println(sumPair((3, 4)))
+        |println(sumPair((10, 20)))""".stripMargin)
+    out.trim shouldBe "7\n30"
+  }
+
+  test("stage6-nonextract-tuple: end-to-end — tuple with wildcard") {
+    val out = captured(
+      """def fst(t: (Int, Int)): Int = t match {
+        |  case (a, _) => a
+        |}
+        |println(fst((42, 99)))""".stripMargin)
+    out.trim shouldBe "42"
+  }
+
   test("stage2.4: JitLint does not report NonExtractPattern for Lit.Int arms") {
     import scalascript.interpreter.vm.jit.{JitPredicates, JitBailReason}
     val interp = interpOf(

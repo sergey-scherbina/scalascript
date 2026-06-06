@@ -347,6 +347,8 @@ object JavacJitBackend extends JitBackend:
     interp: scalascript.interpreter.Interpreter
   ): String | Null =
     f.body match
+      case tm: Term.Match if isTupleMatch(tm) =>
+        walkTupleMatchBody(tm, ctx, interp)
       case tm: Term.Match if ctx.paramIsRef.exists(identity) =>
         walkMatchBody(tm, ctx, interp)
       case tm: Term.Match if isLiteralIntMatch(tm) =>
@@ -357,6 +359,15 @@ object JavacJitBackend extends JitBackend:
         // is a param-ref match, use walkMatchBody for it (preserves the
         // switch-statement form instead of wrapping in an IIFE).
         b.stats.last match
+          case tm: Term.Match if isTupleMatch(tm) =>
+            walkBlockStmts(b.stats.init, ctx) match
+              case null   => null
+              case prefix =>
+                val tailCtx = blockStmtsCtx(b.stats.init, ctx)
+                if tailCtx == null then null
+                else
+                  val matchPart = walkTupleMatchBody(tm, tailCtx, interp)
+                  if matchPart == null then null else prefix + matchPart
           case tm: Term.Match if ctx.paramIsRef.exists(identity) =>
             walkBlockStmts(b.stats.init, ctx) match
               case null  => null
@@ -1022,6 +1033,109 @@ object JavacJitBackend extends JitBackend:
       s"(${op.value}$a)"
     case _ => null
 
+  /** True iff every arm is Pat.Tuple/Var/Wildcard and at least one is Pat.Tuple. */
+  private def isTupleMatch(tm: Term.Match): Boolean =
+    val cases = tm.casesBlock.cases
+    cases.nonEmpty &&
+    cases.exists(_.pat.isInstanceOf[Pat.Tuple]) &&
+    cases.forall { c =>
+      c.pat match
+        case _: Pat.Tuple    => true
+        case _: Pat.Wildcard => true
+        case _: Pat.Var      => true
+        case _               => false
+    }
+
+  /** Emit body-statement form for a match where all arms are Pat.Tuple/Wildcard/Var.
+   *  Casts the scrutinee to TupleV, accesses elems() list, extracts by index. */
+  private def walkTupleMatchBody(
+    tm: Term.Match, ctx: GenCtx, @annotation.unused _interp: scalascript.interpreter.Interpreter
+  ): String | Null =
+    val (scrutDecl, scrutJava) = tm.expr match
+      case n: Term.Name =>
+        if !ctx.params.contains(n.value) then return null
+        ("", sanitize(n.value))
+      case other =>
+        val refExpr = walkRef(other, ctx)
+        if refExpr == null then return null
+        (s"Object _scrutRef = $refExpr;\n    ", "_scrutRef")
+    val cases     = tm.casesBlock.cases
+    val tupleCnt  = cases.count(_.pat.isInstanceOf[Pat.Tuple])
+    val multiTuple = tupleCnt > 1
+    val sb = new StringBuilder
+    sb.append(scrutDecl)
+    sb.append(s"scala.collection.immutable.List _telems = (scala.collection.immutable.List) ((scalascript.interpreter.Value.TupleV) $scrutJava).elems();\n    ")
+    var restList = cases
+    var hasDefault = false
+    while restList.nonEmpty do
+      val c = restList.head
+      restList = restList.tail
+      c.pat match
+        case pt: Pat.Tuple =>
+          val patsArr = pt.args.toArray
+          val n = patsArr.length
+          if multiTuple then sb.append(s"if (_telems.length() == $n) {\n    ")
+          val bindNames = new Array[String](n)
+          var i = 0; var ok = true
+          while i < n && ok do
+            patsArr(i) match
+              case Pat.Var(Term.Name(bn)) => bindNames(i) = bn
+              case _: Pat.Wildcard        => bindNames(i) = s"_unused$$_$i"
+              case _                      => ok = false
+            i += 1
+          if !ok then return null
+          val bindingMap = scala.collection.mutable.LinkedHashMap.empty[String, (String, Boolean)]
+          var k = 0
+          while k < n do
+            if !bindNames(k).startsWith("_unused$") then
+              val jvar  = sanitize(bindNames(k)) + "_a"
+              val isRef = bindingIsRef(c.body, bindNames(k), ctx)
+              bindingMap += (bindNames(k) -> (jvar, isRef))
+            k += 1
+          val newCtx = ctx.withBindings(bindingMap.toMap)
+          k = 0
+          while k < n do
+            if !bindNames(k).startsWith("_unused$") then
+              val (jvar, isRef) = bindingMap(bindNames(k))
+              val elem = s"_telems.apply($k)"
+              if isRef then
+                sb.append(s"Object $jvar = $elem;\n    ")
+              else if ctx.isDouble then
+                val raw = s"_rft${k}_"
+                sb.append(s"Object $raw = $elem;\n    ")
+                sb.append(s"double $jvar = $raw instanceof scalascript.interpreter.Value.DoubleV ? ((scalascript.interpreter.Value.DoubleV) $raw).v() : (double) ((scalascript.interpreter.Value.IntV) $raw).v();\n    ")
+              else
+                sb.append(s"long $jvar = ((scalascript.interpreter.Value.IntV) ($elem)).v();\n    ")
+            k += 1
+          if c.cond.nonEmpty then
+            val guardJava = walkBool(c.cond.get, newCtx)
+            if guardJava == null then return null
+            sb.append(s"if ($guardJava) {\n    ")
+          val bodyJava = if ctx.isDouble then walkDouble(c.body, newCtx) else walkLong(c.body, newCtx)
+          if bodyJava == null then return null
+          if c.cond.nonEmpty then sb.append(s"return $bodyJava;\n    }\n    ")
+          else                     sb.append(s"return $bodyJava;\n    ")
+          if multiTuple then sb.append("}\n    ")
+        case _: Pat.Wildcard =>
+          hasDefault = true
+          val bodyJava = if ctx.isDouble then walkDouble(c.body, ctx) else walkLong(c.body, ctx)
+          if bodyJava == null then return null
+          sb.append(s"return $bodyJava;\n    ")
+        case pv: Pat.Var =>
+          hasDefault = true
+          val xName = pv.name.value
+          val xBind = sanitize(xName) + "_a"
+          val newCtx = ctx.withBindings(Map(xName -> (xBind, true)))
+          val bodyJava = if ctx.isDouble then walkDouble(c.body, newCtx) else walkLong(c.body, newCtx)
+          if bodyJava == null then return null
+          sb.append(s"Object $xBind = $scrutJava;\n    return $bodyJava;\n    ")
+        case _ => return null
+    // Only need a throw when there are multiple length-guarded tuple arms and no
+    // default catch-all: a length-mismatch falls through to here.
+    if multiTuple && !hasDefault then
+      sb.append("throw new RuntimeException(\"JavacJitBackend: tuple match no case matched\");\n    ")
+    sb.toString
+
   /** True when every arm is a literal-int pattern, Pat.Var, or Pat.Wildcard with
    *  no guards — the match compiles as a long-comparison if-else chain. */
   private def isLiteralIntMatch(tm: Term.Match): Boolean =
@@ -1169,6 +1283,10 @@ object JavacJitBackend extends JitBackend:
    *    - any arm body fails to compile via walkLong/walkDouble */
   private def walkMatchExpr(tm: Term.Match, ctx: GenCtx, interp: scalascript.interpreter.Interpreter): String | Null =
     if isLiteralIntMatch(tm) then return walkLiteralMatchExpr(tm, ctx)
+    if isTupleMatch(tm) then
+      val inner = walkTupleMatchBody(tm, ctx, interp)
+      return if inner == null then null
+             else s"((java.util.function.LongSupplier)(() -> { $inner})).getAsLong()"
     val scrutName = tm.expr match
       case n: Term.Name => n.value
       case _            => return null

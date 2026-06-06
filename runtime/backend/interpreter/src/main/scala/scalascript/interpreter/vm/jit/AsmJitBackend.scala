@@ -25,12 +25,14 @@ object AsmJitBackend extends JitBackend:
   private val classCounter = new java.util.concurrent.atomic.AtomicInteger(0)
 
   // JVM internal names for interpreter types.
-  private val instVInt  = "scalascript/interpreter/Value$InstanceV"
-  private val intVInt   = "scalascript/interpreter/Value$IntV"
-  private val dblVInt   = "scalascript/interpreter/Value$DoubleV"
-  private val valueInt  = "scalascript/interpreter/Value"
+  private val instVInt   = "scalascript/interpreter/Value$InstanceV"
+  private val tupleVInt  = "scalascript/interpreter/Value$TupleV"
+  private val scalaList  = "scala/collection/immutable/List"
+  private val intVInt    = "scalascript/interpreter/Value$IntV"
+  private val dblVInt    = "scalascript/interpreter/Value$DoubleV"
+  private val valueInt   = "scalascript/interpreter/Value"
   private val globalsInt = "scalascript/interpreter/vm/jit/JitGlobals$"
-  private val jitPkg    = "scalascript.interpreter.vm.jit"
+  private val jitPkg     = "scalascript.interpreter.vm.jit"
 
   // ── SPI surface ───────────────────────────────────────────────────────────
 
@@ -616,6 +618,8 @@ object AsmJitBackend extends JitBackend:
   private def emitFnBody(f: Value.FunV, ctx: GenCtx, interp: Interpreter,
                          mv: MethodVisitor, isDouble: Boolean): Boolean =
     f.body match
+      case tm: Term.Match if isTupleMatch(tm) =>
+        emitTupleMatchBody(tm, ctx, interp, mv, isDouble)
       case tm: Term.Match if ctx.paramIsRef.exists(identity) =>
         emitMatchBody(tm, ctx, interp, mv)
       case tm: Term.Match if isLiteralIntMatch(tm) =>
@@ -1443,6 +1447,158 @@ object AsmJitBackend extends JitBackend:
       emitThrow(mv, "AsmJitBackend: literal match: no arm matched")
     true
 
+  // ── Tuple match body ─────────────────────────────────────────────────────
+
+  private def isTupleMatch(tm: Term.Match): Boolean =
+    val cases = tm.casesBlock.cases
+    cases.nonEmpty &&
+    cases.exists(_.pat.isInstanceOf[Pat.Tuple]) &&
+    cases.forall { c =>
+      c.pat match
+        case _: Pat.Tuple    => true
+        case _: Pat.Wildcard => true
+        case _: Pat.Var      => true
+        case _               => false
+    }
+
+  /** Push the i-th element of a scala.collection.immutable.List stored in `elemsSlot`.
+   *  Result is an Object on the stack. */
+  private def emitListApply(elemsSlot: Int, i: Int, mv: MethodVisitor): Unit =
+    mv.visitVarInsn(ALOAD, elemsSlot)
+    if i <= 5 then mv.visitInsn(ICONST_0 + i)
+    else if i <= 127 then mv.visitIntInsn(BIPUSH, i)
+    else mv.visitIntInsn(SIPUSH, i)
+    mv.visitMethodInsn(INVOKEVIRTUAL, scalaList, "apply", "(I)Ljava/lang/Object;", false)
+
+  /** Emit body-return form for a match where all arms are Pat.Tuple/Wildcard/Var. */
+  private def emitTupleMatchBody(tm: Term.Match, ctx: GenCtx, interp: Interpreter,
+                                 mv: MethodVisitor, isDouble: Boolean): Boolean =
+    tm.expr match
+      case n: Term.Name =>
+        if !ctx.params.contains(n.value) then return false
+        val s = ctx.slotOf(n.value)
+        if s < 0 then return false
+        mv.visitVarInsn(ALOAD, s)
+      case other =>
+        if !walkRef(other, ctx, mv) then return false
+    mv.visitTypeInsn(CHECKCAST, tupleVInt)
+    mv.visitMethodInsn(INVOKEVIRTUAL, tupleVInt, "elems", "()Lscala/collection/immutable/List;", false)
+    val elemsSlot = ctx.allocSlot()
+    mv.visitVarInsn(ASTORE, elemsSlot)
+
+    val cases      = tm.casesBlock.cases
+    val casesArr   = cases.toArray
+    val multiTuple = casesArr.count(_.pat.isInstanceOf[Pat.Tuple]) > 1
+
+    var rem = cases
+    while rem.nonEmpty do
+      val c = rem.head; rem = rem.tail
+      c.pat match
+        case pt: Pat.Tuple =>
+          val patsArr = pt.args.toArray
+          val n = patsArr.length
+          val skipLbl = if multiTuple then
+            mv.visitVarInsn(ALOAD, elemsSlot)
+            mv.visitMethodInsn(INVOKEVIRTUAL, scalaList, "length", "()I", false)
+            if n <= 5 then mv.visitInsn(ICONST_0 + n)
+            else if n <= 127 then mv.visitIntInsn(BIPUSH, n)
+            else mv.visitIntInsn(SIPUSH, n)
+            val lbl = new Label
+            mv.visitJumpInsn(IF_ICMPNE, lbl)
+            lbl
+          else null
+
+          val bindNames = new Array[String](n)
+          var i = 0; var ok = true
+          while i < n && ok do
+            patsArr(i) match
+              case Pat.Var(Term.Name(bn)) => bindNames(i) = bn
+              case _: Pat.Wildcard        => bindNames(i) = s"_unused$$_$i"
+              case _                      => ok = false
+            i += 1
+          if !ok then return false
+
+          val bindSlots = new Array[Int](n)
+          val bindIsRef = new Array[Boolean](n)
+          val newBindings = scala.collection.mutable.Map.empty[String, (Int, Boolean)]
+          i = 0
+          while i < n do
+            if !bindNames(i).startsWith("_unused$") then
+              val isRef = bindingIsRef(c.body, bindNames(i), ctx)
+              val s = ctx.allocSlot()
+              bindSlots(i) = s
+              bindIsRef(i) = isRef
+              newBindings += (bindNames(i) -> (s, isRef))
+            i += 1
+          val newCtx = ctx.withBindings(newBindings.toMap)
+
+          i = 0
+          while i < n do
+            if !bindNames(i).startsWith("_unused$") then
+              emitListApply(elemsSlot, i, mv)
+              if bindIsRef(i) then
+                mv.visitVarInsn(ASTORE, bindSlots(i))
+              else if isDouble then
+                val raw = ctx.allocSlot()
+                mv.visitVarInsn(ASTORE, raw)
+                val isDoubleLabel = new Label; val endLbl2 = new Label
+                mv.visitVarInsn(ALOAD, raw)
+                mv.visitTypeInsn(INSTANCEOF, dblVInt)
+                mv.visitJumpInsn(IFEQ, isDoubleLabel)
+                mv.visitVarInsn(ALOAD, raw)
+                mv.visitTypeInsn(CHECKCAST, dblVInt)
+                mv.visitMethodInsn(INVOKEVIRTUAL, dblVInt, "v", "()D", false)
+                mv.visitJumpInsn(GOTO, endLbl2)
+                mv.visitLabel(isDoubleLabel)
+                mv.visitVarInsn(ALOAD, raw)
+                mv.visitTypeInsn(CHECKCAST, intVInt)
+                mv.visitMethodInsn(INVOKEVIRTUAL, intVInt, "v", "()J", false)
+                mv.visitInsn(L2D)
+                mv.visitLabel(endLbl2)
+                mv.visitVarInsn(DSTORE, bindSlots(i))
+              else
+                mv.visitTypeInsn(CHECKCAST, intVInt)
+                mv.visitMethodInsn(INVOKEVIRTUAL, intVInt, "v", "()J", false)
+                mv.visitVarInsn(LSTORE, bindSlots(i))
+            i += 1
+
+          if c.cond.nonEmpty then
+            val skipBody = new Label
+            if !walkBool(c.cond.get, newCtx, mv, skipBody) then return false
+            val ok2 = if isDouble then walkDouble(c.body, newCtx, mv) && { mv.visitInsn(DRETURN); true }
+                      else walkLong(c.body, newCtx, mv) && { mv.visitInsn(LRETURN); true }
+            if !ok2 then return false
+            mv.visitLabel(skipBody)
+          else
+            val ok2 = if isDouble then walkDouble(c.body, newCtx, mv) && { mv.visitInsn(DRETURN); true }
+                      else walkLong(c.body, newCtx, mv) && { mv.visitInsn(LRETURN); true }
+            if !ok2 then return false
+
+          if multiTuple then mv.visitLabel(skipLbl)
+
+        case _: Pat.Wildcard =>
+          val ok2 = if isDouble then walkDouble(c.body, ctx, mv) && { mv.visitInsn(DRETURN); true }
+                    else walkLong(c.body, ctx, mv) && { mv.visitInsn(LRETURN); true }
+          if !ok2 then return false
+        case pv: Pat.Var =>
+          val xSlot = ctx.allocSlot()
+          tm.expr match
+            case n: Term.Name =>
+              val s = ctx.slotOf(n.value)
+              if s < 0 then return false
+              mv.visitVarInsn(ALOAD, s)
+            case _ => return false
+          mv.visitVarInsn(ASTORE, xSlot)
+          val newCtx = ctx.withBindings(Map(pv.name.value -> (xSlot, true)))
+          val ok2 = if isDouble then walkDouble(c.body, newCtx, mv) && { mv.visitInsn(DRETURN); true }
+                    else walkLong(c.body, newCtx, mv) && { mv.visitInsn(LRETURN); true }
+          if !ok2 then return false
+        case _ => return false
+
+    if !cases.exists(c => c.pat.isInstanceOf[Pat.Wildcard] || c.pat.isInstanceOf[Pat.Var]) then
+      emitThrow(mv, "AsmJitBackend: tuple match no case matched")
+    true
+
   // ── Match body (top-level: emits RETURN inside each arm) ─────────────────
 
   private def emitMatchBody(tm: Term.Match, ctx: GenCtx, interp: Interpreter,
@@ -1505,6 +1661,13 @@ object AsmJitBackend extends JitBackend:
   // ── Match expression (nested match: leaves value on stack) ───────────────
 
   private def walkMatchExpr(tm: Term.Match, ctx: GenCtx, mv: MethodVisitor): Boolean =
+    if isTupleMatch(tm) then
+      // Wrap in a lambda IIFE: LongSupplier / DoubleSupplier.
+      // Reuse emitTupleMatchBody by emitting an inner method via a lambda capture.
+      // Simpler: emit as a LongSupplier inline lambda same as JavacJitBackend does.
+      // We can't easily do this in ASM without full lambda mechanics, so bail here
+      // and let JavacJitBackend handle the expression-position tuple match.
+      return false
     if isLiteralIntMatch(tm) then
       val endLbl = new Label
       val ok = emitLiteralIntMatch(tm, ctx, mv, returnForm = false, endLbl = endLbl)

@@ -220,6 +220,11 @@ object JitPredicates:
             case _: Pat.Var      => ()
             case _: Pat.Wildcard => ()
             case _: Lit.Int | _: Lit.Long => ()  // literal-int arms now compile
+            case t: Pat.Tuple =>
+              t.args.foreach {
+                case _: Pat.Var | _: Pat.Wildcard => ()
+                case _                            => buf += JitBailReason.NonExtractPattern
+              }
             case alt: Pat.Alternative =>
               // Only no-binding alternatives are compilable (Stage 5.4).
               def hasBindings(p: scala.meta.Pat): Boolean = p match
