@@ -1071,6 +1071,34 @@ object JavacJitBackend extends JitBackend:
    *  and ref-typed ADT field access (`obj.field` where field is non-numeric). */
   private def walkRef(t: Term, ctx: GenCtx): String | Null = t match
     case Term.Name("None") => "scalascript.interpreter.Value$.MODULE$.NoneV()"
+    // Stage 8: s"prefix${arg1}mid${arg2}suffix" — emit as StringV(string-concat).
+    // Each arg compiled via walkLong (numeric → direct String concat) or walkRef
+    // (ref → wrapped in Value.show). Only the `s` interpolator is supported here;
+    // f/md/html/css are deferred to the tree-walker.
+    case Term.Interpolate(Term.Name("s"), parts, args) if parts.lengthCompare(args.length + 1) == 0 =>
+      val sb = new StringBuilder
+      sb.append("new scalascript.interpreter.Value.StringV(")
+      var idx = 0
+      var first = true
+      while idx < parts.length do
+        val part = parts(idx) match
+          case ls: Lit.String => ls.value
+          case _              => return null
+        if !first then sb.append(" + ")
+        sb.append("\"").append(escape(part)).append("\"")
+        first = false
+        if idx < args.length then
+          val arg = args(idx).asInstanceOf[Term]
+          val asLong = walkLong(arg, ctx)
+          if asLong != null then
+            sb.append(" + ").append(asLong)
+          else
+            val asRef = walkRef(arg, ctx)
+            if asRef == null then return null
+            sb.append(" + scalascript.interpreter.Value$.MODULE$.show((scalascript.interpreter.Value) ($asRef))")
+        idx += 1
+      sb.append(")")
+      sb.toString
     case tn: Term.Name if ctx.isRefName(tn.value) => ctx.resolveLocal(tn.value)
     case tn: Term.Name =>
       ctx.interp.globals.getOrElse(tn.value, null) match

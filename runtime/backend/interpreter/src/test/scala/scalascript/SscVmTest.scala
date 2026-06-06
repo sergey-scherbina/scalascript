@@ -1794,6 +1794,21 @@ class SscVmTest extends AnyFunSuite with Matchers:
     JitGlobals.withInterp(interp) { direct.apply(sq) }    shouldBe 16L  // n=5>3: 5+10=15+1=16
   }
 
+  test("stage8-string-interp: s\"prefix${n}suffix\" compiles via walkRef Interpolate path") {
+    val out = captured(
+      """def greet(n: Int): String = s"value=$n"
+        |println(greet(42))
+        |println(greet(0))""".stripMargin)
+    out.trim shouldBe "value=42\nvalue=0"
+  }
+
+  test("stage8-string-interp: multi-arg s-interpolation compiles") {
+    val out = captured(
+      """def label(a: Int, b: Int): String = s"[$a,$b]"
+        |println(label(7, 9))""".stripMargin)
+    out.trim shouldBe "[7,9]"
+  }
+
   test("stage8-pattern-guard-complex: guard with Long expression compiles via walkLong-fallback") {
     // Guard condition is `(r % 2)` — a Long expression, not a Boolean comparison
     // that walkBool natively handles. Stage 8 wraps walkLong via `!= 0` so this
