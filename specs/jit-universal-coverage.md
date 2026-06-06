@@ -912,3 +912,66 @@ Result: `typeclass-fold` is now a named, reproducible generic/given-dispatch
 follow-up instead of being hidden inside `UsingParams` or a generic HOF bucket.
 Future implementation should start with concrete dictionary specialization,
 not with the monomorphic standard-library HOF receiver path.
+
+### Stage 7.5 result — object ref-chain dispatch + numeric-object split (2026-06-06)
+
+Decision: implement the low-risk object/String-returning ref-chain subset and
+split constructor-result numeric objects out of the remaining generic object
+bucket. The runtime implementation covers:
+
+- `(0 until n).map(...).mkString(...)` via `JitHofDispatch.rangeUntil/mapLong`
+  followed by `JitRefDispatch.mkStringRef`.
+- `Map.getOrElse(key, default)` returning `Value` objects via
+  `JitRefDispatch.mapGetOrElseRef`.
+- One-arg `Option` / `Either` `getOrElse` returning objects via
+  `JitRefDispatch.getOrElseRef`.
+
+Both Javac and ASM route supported object chains through `walkRef` /
+`emitRefChainObject` and produce `LongToObject` direct interfaces for the
+covered one-long-param fixtures. `walkObject` uses an explicit
+`objectRefFallbackAllowed` guard so numeric reads such as
+`Some(n).flatMap(...).map(...).getOrElse(0)` stay on the existing `LongFn1`
+path instead of being widened to `LongToObject`.
+
+Classifier changes:
+
+- Added `JitBailReason.NumericObjectMethodCall` for constructor-result numeric
+  object calls such as `BigInt(10).pow(n)` and `Decimal("1.2").abs`.
+- Left `RefChainObjectCall` for generic object/String ref chains after the
+  covered implementation slice, rather than grouping BigInt/Decimal method
+  dispatch into the same bucket.
+
+Verification:
+
+```
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-refchain-object-dispatch && sbt "backendInterpreter/testOnly scalascript.JitLintTest -- -z stage7-refchain" "backendInterpreter/testOnly scalascript.JitLintTest -- -z stage7-refchain-object-dispatch" "backendInterpreter/testOnly scalascript.SscVmTest -- -z stage7-hof-method" "backendInterpreter/testOnly scalascript.SscVmTest -- -z stage7-refchain-object-dispatch"
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-refchain-object-dispatch && SSC_JIT_STATS=1 sbt "backendInterpreter/test"
+```
+
+Profile after the full run:
+
+```
+JIT miss stats (733 functions disabled):
+     298  [vm] Other
+     238  [javac] UnknownShape
+      70  [javac] Compound
+      33  [javac] QualifiedRefCall
+      27  [javac] NonExtractPattern
+      16  [javac] LambdaValue
+      14  [javac] RefChainObjectCall
+       8  [javac] PatternGuard
+       8  [javac] NumericObjectMethodCall
+       7  [javac] NonAdtScrutinee
+       6  [javac] BoolBody
+       4  [javac] TypeclassUsingDispatch
+       2  [javac] VarargParam
+       1  [asm] TypeclassUsingDispatch
+       1  [javac] TryCatch
+```
+
+Result: full `backendInterpreter/test` is green at 1434 tests. The object
+dispatch slice adds positive Javac/ASM coverage for `mkString` and
+`Map.getOrElse`; the previous `RefChainObjectCall=22` bucket is narrowed to
+`RefChainObjectCall=14` plus `NumericObjectMethodCall=8`. Future BigInt/Decimal
+JIT work should start from the numeric-object helper path, not from the generic
+object ref-chain dispatch.
