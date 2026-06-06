@@ -1,0 +1,6 @@
+feature/jit-uc-stage8-map-get-string-substr 2026-06-06T20:02:51Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-06T20:02:51Z
+status: not-started
+done-so-far:
+next: Map.get + String.replace/substring/charAt
