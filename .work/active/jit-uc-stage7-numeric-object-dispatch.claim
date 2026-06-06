@@ -1,6 +1,0 @@
-feature/jit-uc-stage7-numeric-object-dispatch 2026-06-06T12:50:21Z
-agent: codex
-heartbeat: 2026-06-06T13:03:51Z
-status: in-progress
-done-so-far: numeric-object helpers and focused tests added; object-dispatch regression found
-next: guard numeric method handling so generic object-ref fallback still handles List/Map methods
