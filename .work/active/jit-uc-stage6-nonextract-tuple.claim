@@ -1,0 +1,6 @@
+feature/jit-uc-stage6-nonextract-tuple 2026-06-06T09:20:05Z
+agent: claude-sonnet-4-6
+heartbeat: 2026-06-06T09:20:05Z
+status: not-started
+done-so-far:
+next: read spec + JitRuntime/VmCompiler sources
