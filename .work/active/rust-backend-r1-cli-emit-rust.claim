@@ -1,0 +1,6 @@
+feature/rust-backend-r1-cli-emit-rust 2026-06-06T21:35:08Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-06T21:35:08Z
+status: not-started
+done-so-far:
+next: add EmitRustCmd to EmitCommands.scala + CommandRegistry
