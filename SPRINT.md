@@ -491,16 +491,6 @@ slice has a verified base to extend. The cumulative result equals the
 original `rust-backend-r1-hello-emit` description (Cargo.toml + main.rs
 + runtime/mod.rs + value.rs + generated/<module>.rs).
 
-- [ ] **rust-backend-r1-hello-cargo-toml** — `RustGen.generate` emits a
-      single `Segment.Asset("Cargo.toml", bytes)` with a minimal
-      `[package]` table (name = derived from `module.manifest` title or
-      stem; edition = "2021"; version = "0.1.0") and an empty
-      `[dependencies]` table. The `[[bin]]` entry is wired only when an
-      `@main` annotation is detected in the module; otherwise `[lib]`.
-      No code walking yet — just module-level metadata. Acceptance:
-      golden `tests/cross/rust/hello/expected.Cargo.toml`; one snapshot
-      test compares emitted bytes to the golden.
-
 - [ ] **rust-backend-r1-hello-runtime-files** — Add two more fixed-template
       assets: `src/value.rs` (closed `Value` enum: Unit, Bool, Int(i64),
       Double(f64), Str(String), Tuple(Vec<Value>), List(Vec<Value>)) and

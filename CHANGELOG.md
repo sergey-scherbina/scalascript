@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(rust): emit Cargo.toml with target detection
+
+- **rust-backend-r1-hello-cargo-toml** — first slice of R.1.3 hello-emit.
+  `RustGen.generate` now emits a single `Segment.Asset("Cargo.toml")`
+  derived from the module: crate name (sanitized to Cargo's alphabet),
+  version, edition pinned to "2021", optional description with TOML
+  basic-string escaping, and `[[bin]]` / `[lib]` chosen by scanning
+  code blocks for an `@main` annotation. 7 unit tests + a hello-world
+  golden. The next slice adds value.rs and runtime/mod.rs as fixed-
+  template runtime assets.
+
 ## 2026-06-06 — feat(rust): backend-rust sbt module + SPI registration
 
 - **rust-backend-r1-module-skeleton** — second slice of the Rust target
