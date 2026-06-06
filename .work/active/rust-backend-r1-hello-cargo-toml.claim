@@ -1,0 +1,6 @@
+feature/rust-backend-r1-hello-cargo-toml 2026-06-06T20:37:57Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-06T20:37:57Z
+status: not-started
+done-so-far:
+next: emit Segment.Asset(Cargo.toml) + scan for @main
