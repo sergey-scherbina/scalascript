@@ -1802,6 +1802,17 @@ class SscVmTest extends AnyFunSuite with Matchers:
     out.trim shouldBe "value=42\nvalue=0"
   }
 
+  test("stage8-string-interp-asm: ASM single-arg s-interp compiles via AsmJitBackend") {
+    import scalascript.interpreter.vm.jit.AsmJitBackend
+    val interp = interpOf("""def greet(n: Int): String = s"value=$n"""")
+    val fn = interp.globalsView("greet").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+    val direct = r.direct.asInstanceOf[scalascript.interpreter.vm.jit.LongToObject]
+    val res = JitGlobals.withInterp(interp) { direct.apply(42L) }
+    res shouldBe Value.StringV("value=42")
+  }
+
   test("stage8-string-interp: multi-arg s-interpolation compiles") {
     val out = captured(
       """def label(a: Int, b: Int): String = s"[$a,$b]"

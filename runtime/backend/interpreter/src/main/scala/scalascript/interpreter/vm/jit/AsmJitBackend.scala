@@ -391,6 +391,8 @@ object AsmJitBackend extends JitBackend:
       mv.visitFieldInsn(GETSTATIC, valueModuleInt, "MODULE$", s"L$valueModuleInt;")
       mv.visitMethodInsn(INVOKEVIRTUAL, valueModuleInt, "NoneV", s"()L$optionVInt;", false)
       true
+    // Stage 8: s"..." interpolation in LongToObject body position — delegate to walkRef.
+    case _: Term.Interpolate => walkRef(t, ctx, mv)
     case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
       b.stats.head match
         case inner: Term => emitObject(inner, ctx, mv)
@@ -1743,6 +1745,41 @@ object AsmJitBackend extends JitBackend:
     case Term.Name("None") =>
       mv.visitFieldInsn(GETSTATIC, valueModuleInt, "MODULE$", s"L$valueModuleInt;")
       mv.visitMethodInsn(INVOKEVIRTUAL, valueModuleInt, "NoneV", s"()L$optionVInt;", false)
+      true
+    // Stage 8: s"prefix${arg1}mid${arg2}suffix" — emit via StringBuilder, wrap in StringV.
+    // Numeric args use append(J); ref args go through Value.show then append(String).
+    case Term.Interpolate(Term.Name("s"), parts, args)
+        if parts.lengthCompare(args.length + 1) == 0
+        && parts.forall(_.isInstanceOf[Lit.String]) =>
+      val partStrs = parts.map(_.asInstanceOf[Lit.String].value)
+      mv.visitTypeInsn(NEW, stringVInt)
+      mv.visitInsn(DUP)
+      mv.visitTypeInsn(NEW, "java/lang/StringBuilder")
+      mv.visitInsn(DUP)
+      mv.visitMethodInsn(INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false)
+      var idx = 0
+      while idx < partStrs.length do
+        if partStrs(idx).nonEmpty then
+          mv.visitLdcInsn(partStrs(idx))
+          mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append",
+            "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false)
+        if idx < args.length then
+          val arg = args(idx).asInstanceOf[Term]
+          if walkLong(arg, ctx, mv) then
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append",
+              "(J)Ljava/lang/StringBuilder;", false)
+          else
+            if !walkRef(arg, ctx, mv) then return false
+            mv.visitFieldInsn(GETSTATIC, valueModuleInt, "MODULE$", s"L$valueModuleInt;")
+            mv.visitInsn(SWAP)
+            mv.visitMethodInsn(INVOKEVIRTUAL, valueModuleInt, "show",
+              s"(L$valueInt;)Ljava/lang/String;", false)
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append",
+              "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false)
+        idx += 1
+      mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "toString",
+        "()Ljava/lang/String;", false)
+      mv.visitMethodInsn(INVOKESPECIAL, stringVInt, "<init>", "(Ljava/lang/String;)V", false)
       true
     case tn: Term.Name if ctx.isRefName(tn.value) =>
       val s = ctx.slotOf(tn.value); if s < 0 then false else { mv.visitVarInsn(ALOAD, s); true }
