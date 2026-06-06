@@ -15,6 +15,9 @@ object JitHofShape:
       case Lit.Long(v) => UnaryLong(JitHofDispatch.OpConst, v)
       case Term.Name(`p`) =>
         UnaryLong(JitHofDispatch.OpId, 0L)
+      // Stage 8: `s => s.trim.toInt` and equivalents — specialized String op.
+      case Term.Select(Term.Select(Term.Name(`p`), Term.Name("trim")), Term.Name("toInt" | "toLong")) =>
+        UnaryLong(JitHofDispatch.OpStringTrimToInt, 0L)
       case Term.ApplyInfix.After_4_6_0(Term.Name(`p`), op, _, ac)
           if ac.values.lengthCompare(1) == 0 =>
         ac.values.head match

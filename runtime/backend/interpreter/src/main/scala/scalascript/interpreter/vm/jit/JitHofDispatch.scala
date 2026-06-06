@@ -19,6 +19,8 @@ object JitHofDispatch:
   final val OpDiv    = 5
   final val OpMod    = 6
   final val OpSquare = 7
+  // Stage 8: specialized String-receiver ops for `s => s.trim.toInt`-like lambdas.
+  final val OpStringTrimToInt = 8
 
   final val PredModEq = 1
 
@@ -132,17 +134,24 @@ object JitHofDispatch:
       case _              => throw new RuntimeException("JitHofDispatch: expected Int/Bool value")
 
   private def applyUnary(v: Value, op: Int, c: Long): Long =
-    val x = asLong(v)
+    // Stage 8: string-receiver ops handled before asLong (which would fail for StringV).
     op match
-      case OpId     => x
-      case OpConst  => c
-      case OpAdd    => x + c
-      case OpSub    => x - c
-      case OpMul    => x * c
-      case OpDiv    => x / c
-      case OpMod    => x % c
-      case OpSquare => x * x
-      case _        => throw new RuntimeException("JitHofDispatch: unsupported unary op")
+      case OpStringTrimToInt =>
+        v match
+          case Value.StringV(s) => s.trim.toInt.toLong
+          case _ => throw new ClassCastException(s"OpStringTrimToInt expected StringV, got ${v.getClass.getName}")
+      case _ =>
+        val x = asLong(v)
+        op match
+          case OpId     => x
+          case OpConst  => c
+          case OpAdd    => x + c
+          case OpSub    => x - c
+          case OpMul    => x * c
+          case OpDiv    => x / c
+          case OpMod    => x % c
+          case OpSquare => x * x
+          case _        => throw new RuntimeException("JitHofDispatch: unsupported unary op")
 
   private def applyPredicate(v: Value, pred: Int, c1: Long, c2: Long): Boolean =
     val x = asLong(v)

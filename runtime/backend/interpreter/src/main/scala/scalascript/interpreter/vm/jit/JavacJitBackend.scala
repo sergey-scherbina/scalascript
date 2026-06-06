@@ -840,9 +840,12 @@ object JavacJitBackend extends JitBackend:
     case Term.Select(recv, Term.Name("length")) =>
       val s = walkString(recv, ctx)
       if s == null then null else s"((long)($s).length())"
-    // `.toLong` / `.toInt` are no-ops in ScalaScript (Int = Long = JVM long).
+    // `.toLong` / `.toInt` are no-ops in ScalaScript when inner is Long-typed.
+    // Stage 8: when inner walks as ref (e.g. String), route to stringToIntLong.
     case Term.Select(inner: Term, Term.Name("toLong" | "toInt")) =>
-      walkLong(inner, ctx)
+      val asLong = walkLong(inner, ctx)
+      if asLong != null then asLong
+      else emitRefChainLong(inner, "toInt", Nil, ctx)
     // `.toDouble` on a Long expression — widen.
     case Term.Select(inner: Term, Term.Name("toDouble")) =>
       val e = walkLong(inner, ctx)
@@ -1361,6 +1364,12 @@ object JavacJitBackend extends JitBackend:
           val hof = emitHofRefChain(recv, method, ap.argClause.values, ctx)
           if hof != null then hof else emitRefChainObject(recv, method, ap.argClause.values, ctx)
         case _ => null
+    // Stage 8: no-paren method calls on ref expressions (e.g. `s.trim`,
+    // `s.toUpperCase`) — common in `s.trim.toInt` chains. Route through
+    // emitRefChainObject which already handles the named methods.
+    case Term.Select(recv: Term, Term.Name(method))
+        if method == "trim" || method == "toUpperCase" || method == "toLowerCase" =>
+      emitRefChainObject(recv, method, Nil, ctx)
     // Stage 5.5: ref-typed field access `obj.field` where obj is a ref param.
     case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
       val tn = ctx.refTypeOf(objName)
