@@ -1,6 +1,0 @@
-feature/jit-uc-stage8-typed-pattern 2026-06-06T17:48:48Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-06T17:48:48Z
-status: not-started
-done-so-far:
-next: support case _: T => and case x: T => in walkArm/emitArmBody
