@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(jit): s"..." interpolation lowering (Javac)
+
+- **jit-uc-stage8-string-interp** — Javac walkRef now compiles `s"prefix${e}suffix"`
+  as `new StringV(part0 + arg0 + …)`; numeric args via direct concat, ref args
+  via Value.show. ASM deferred. 1449 tests green.
+
 ## 2026-06-06 — feat(jit): NonExtractPattern split (observability)
 
 - **jit-uc-stage8-nonextract-pattern-residual** — Classifier-only split of

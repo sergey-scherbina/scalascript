@@ -344,12 +344,11 @@ Each item: one commit + bench A/B (or test A/B), never ship a non-win.
       `String + …` to the existing concat path. Baseline: record `ApplyInfixRefOp`
       count before and after.
 
-- [ ] **jit-uc-stage8-string-interp** — `Term.Interpolate` (`s"hello, $name"`).
-      14 Compound misses. Strategy: lower interpolation to a sequence of
-      `StringBuilder.append` calls inline; bind each `${expr}` via `walkLong`/
-      `walkRef` then emit `toString`+`append`. Both backends. Baseline: record
-      `InterpolatedString` count before and after; add an end-to-end test that
-      forces interpolation in JIT-compilable position.
+- [x] **jit-uc-stage8-string-interp** — Javac `walkRef` lowers `s"..."`
+      (Term.Interpolate prefix "s") to `new Value.StringV(part + arg + ...)`;
+      each arg via walkLong (numeric) or walkRef + Value.show. ASM deferred.
+      f-, md-, html-, css- prefixes still go through tree-walker. 1449 tests
+      green; +2 focused JIT tests.
 
 - [ ] **jit-uc-stage8-unknownshape-tail** — Investigate and tag the residual
       20 UnknownShape misses (down from 295 at stage-7.6). Classifier-only task:
