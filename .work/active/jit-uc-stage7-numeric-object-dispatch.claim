@@ -1,0 +1,6 @@
+feature/jit-uc-stage7-numeric-object-dispatch 2026-06-06T12:50:21Z
+agent: codex
+heartbeat: 2026-06-06T12:50:21Z
+status: not-started
+done-so-far:
+next: inspect numeric-object method samples and choose dispatch/split scope
