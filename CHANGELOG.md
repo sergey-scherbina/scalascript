@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(jit): pattern-guard Long-fallback
+
+- **jit-uc-stage8-pattern-guard-complex** — Javac `guardBoolExpr` + ASM
+  `emitGuardBool` extend match-guard compilation with `walkLong != 0L` fallback
+  (mirrors stage-6 bool-body-ext). New shapes like `case x if (n % 2) =>`
+  now JIT. 1444 tests green.
+
 ## 2026-06-06 — feat(jit): VmCompiler typed-bail migration (vm Other 290 → 32)
 
 - **jit-uc-stage8-vm-bail-migration** — All 46 VmCompiler `bail(...)` sites

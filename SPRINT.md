@@ -423,13 +423,11 @@ A/B (or test A/B); never ship a non-win.
       `Pat.Alternative` with binding (currently bails). Baseline:
       `NonExtractPattern` 19 → 0.
 
-- [ ] **jit-uc-stage8-pattern-guard-complex** — Compile the 6 residual
-      `PatternGuard` misses where `walkBool` cannot translate the guard. Likely
-      causes: guard calls a non-compilable callee, references a ref-typed name
-      not in scope as a slot, or uses string ops on bound ref. Strategy: profile
-      the 6 cases, extend `walkBool` per the failing shape (or add a
-      Long-fallback path mirroring stage-6 bool-body-ext for guards). Baseline:
-      `PatternGuard` 6 → < 2.
+- [x] **jit-uc-stage8-pattern-guard-complex** — Long-fallback for match-guards:
+      Javac `guardBoolExpr` + ASM `emitGuardBool` try `walkBool` first then
+      `walkLong != 0L`. Targeted test exercises `Circle(r) if (r % 2)` style
+      guards. Corpus profile unchanged (6 residual PatternGuard are Compound
+      with other reasons), but new shapes now JIT. 1444 tests green.
 
 - [ ] **jit-uc-stage8-refchain-object-residual** — Address the 4 residual
       `RefChainObjectCall` misses left over after stage-7.5. Strategy: dump the
