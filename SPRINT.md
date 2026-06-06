@@ -491,18 +491,6 @@ slice has a verified base to extend. The cumulative result equals the
 original `rust-backend-r1-hello-emit` description (Cargo.toml + main.rs
 + runtime/mod.rs + value.rs + generated/<module>.rs).
 
-- [ ] **rust-backend-r1-hello-runtime-files** — Add two more fixed-template
-      assets: `src/value.rs` (closed `Value` enum: Unit, Bool, Int(i64),
-      Double(f64), Str(String), Tuple(Vec<Value>), List(Vec<Value>)) and
-      `src/runtime/mod.rs` (`pub fn _show(&Value) -> String`,
-      `pub fn _println(s: impl AsRef<str>)`, `pub fn _print(...)`).
-      Both files are byte-for-byte identical across all programs at R.1
-      (they are infrastructure, not generated). Wire
-      `RustIntrinsics`: `println` / `print` /
-      `Console.println` / `Console.print` → `RuntimeCall("crate::runtime::_println"
-      / "..._print")`. Acceptance: golden `expected.value.rs` and
-      `expected.runtime.mod.rs` byte-match the emitted assets.
-
 - [ ] **rust-backend-r1-hello-code-walk** — First real codegen step:
       `RustGen.generate` runs `Denormalize(module)` (same path as
       JvmBackend) and walks scalameta `Defn.Def` + `Term.Apply` +

@@ -1,6 +1,0 @@
-feature/rust-backend-r1-hello-runtime-files 2026-06-06T20:42:15Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-06T20:42:15Z
-status: not-started
-done-so-far:
-next: ship value.rs + runtime/mod.rs templates + wire println intrinsic

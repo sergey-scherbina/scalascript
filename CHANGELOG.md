@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(rust): runtime templates + console intrinsics
+
+- **rust-backend-r1-hello-runtime-files** — second slice of R.1.3
+  hello-emit. `RustGen.generate` now writes three Cargo assets in a
+  fixed order: Cargo.toml, src/value.rs (closed Value enum),
+  src/runtime/mod.rs (_show/_print/_println over Value). Both runtime
+  files are byte-identical across crates (infrastructure templates).
+  `RustIntrinsics` wires println/print/Console.println/Console.print
+  to `RuntimeCall("crate::runtime::_*")`. 7 new tests; intrinsics
+  table is reachable by CapabilityCheck but the actual call-site
+  rewrite lands in the code-walk slice (next).
+
 ## 2026-06-06 — feat(rust): emit Cargo.toml with target detection
 
 - **rust-backend-r1-hello-cargo-toml** — first slice of R.1.3 hello-emit.
