@@ -1,0 +1,6 @@
+feature/rust-backend-r1-module-skeleton 2026-06-06T20:27:00Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-06T20:27:00Z
+status: not-started
+done-so-far:
+next: scaffold runtime/backend/rust + build.sbt entry
