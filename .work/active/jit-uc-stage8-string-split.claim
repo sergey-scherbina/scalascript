@@ -1,0 +1,6 @@
+feature/jit-uc-stage8-string-split 2026-06-06T20:32:06Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-06T20:32:06Z
+status: not-started
+done-so-far:
+next: trace string.split + HOF chain
