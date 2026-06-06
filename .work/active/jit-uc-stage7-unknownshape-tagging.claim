@@ -1,6 +1,6 @@
 feature/jit-uc-stage7-unknownshape-tagging 2026-06-06T12:32:51Z
 agent: codex
-heartbeat: 2026-06-06T12:33:15Z
+heartbeat: 2026-06-06T12:47:26Z
 status: in-progress
-done-so-far: worktree created
-next: inspect UnknownShape examples and choose classifier-only bail reasons
+done-so-far: classifier/test commit made; full stats green with UnknownShape=20
+next: record spec/sprint/changelog results and push
