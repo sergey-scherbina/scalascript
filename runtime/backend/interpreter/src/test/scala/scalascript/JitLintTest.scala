@@ -82,6 +82,30 @@ class JitLintTest extends AnyFunSuite with Matchers:
       r.javac.bailReasons shouldBe empty
       r.asm.bailReasons shouldBe empty
 
+  test("stage7-hof-method: numeric HOF chains JIT on both backends"):
+    val option = lintCompareFor(
+      """def lookup(k: Int): Option[Int] =
+        |  if k % 2 == 0 then Some(k * 2) else None
+        |def f(n: Int): Int =
+        |  Some(n).flatMap(x => lookup(x)).map(x => x + 1).getOrElse(0)
+        |f(2)""".stripMargin
+    ).forDef("f")
+    withClue(option.humanReadable):
+      option.bothJit shouldBe true
+      option.javac.bailReasons shouldBe empty
+      option.asm.bailReasons shouldBe empty
+
+    val list = lintCompareFor(
+      """val xs: List[Int] = List(1, 2, 3, 4, 5, 6)
+        |def f(): Int =
+        |  xs.map(x => x * 2).filter(x => x % 3 == 0).foldLeft(0)((a, b) => a + b)
+        |f()""".stripMargin
+    ).forDef("f")
+    withClue(list.humanReadable):
+      list.bothJit shouldBe true
+      list.javac.bailReasons shouldBe empty
+      list.asm.bailReasons shouldBe empty
+
   test("stage7-refchain-bucket-split: primitive local/direct reads stay RefChainCall"):
     val local = classifyBody("{ val r = parse(n); r.getOrElse(7) }", List("n"), List("Int"))
     val direct = classifyBody("parse(n).getOrElse(7)", List("n"), List("Int"))

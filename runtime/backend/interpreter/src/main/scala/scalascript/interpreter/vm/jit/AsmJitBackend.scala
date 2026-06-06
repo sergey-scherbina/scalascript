@@ -36,6 +36,7 @@ object AsmJitBackend extends JitBackend:
   private val valueInt   = "scalascript/interpreter/Value"
   private val globalsInt = "scalascript/interpreter/vm/jit/JitGlobals$"
   private val refDispatchInt = "scalascript/interpreter/vm/jit/JitRefDispatch$"
+  private val hofDispatchInt = "scalascript/interpreter/vm/jit/JitHofDispatch$"
   private val jitPkg     = "scalascript.interpreter.vm.jit"
 
   // ── SPI surface ───────────────────────────────────────────────────────────
@@ -411,6 +412,8 @@ object AsmJitBackend extends JitBackend:
           if !emitValueObject(ap.argClause.values.head, ctx, mv) then return false
           mv.visitMethodInsn(INVOKESPECIAL, optionVInt, "<init>", s"(L$valueInt;)V", false)
           true
+        case fn: Term.Name if (fn.value == "Right" || fn.value == "Left") && ap.argClause.values.lengthCompare(1) == 0 =>
+          emitBuiltinEitherObject(fn.value, ap.argClause.values.head, ctx, mv)
         case fn: Term.Name if fn.value == ctx.funName =>
           if ap.argClause.values.length != ctx.paramNames.length then return false
           var rem = ap.argClause.values
@@ -488,7 +491,7 @@ object AsmJitBackend extends JitBackend:
     true
 
   private def isPrimitiveFieldType(t: String): Boolean =
-    t == "Int" || t == "Long" || t == "Double" || t == "Boolean"
+    t == "Int" || t == "Long" || t == "Double" || t == "Boolean" || t == "String"
 
   private def emitValueObject(t: Term, ctx: GenCtx, mv: MethodVisitor): Boolean = t match
     case Lit.String(v) =>
@@ -523,6 +526,8 @@ object AsmJitBackend extends JitBackend:
         if !walkDouble(t, ctx, mv) then return false
         mv.visitMethodInsn(INVOKEVIRTUAL, valueModuleInt, "doubleV", s"(D)L$dblVInt;", false)
         true
+      case "String" =>
+        emitValueObject(t, ctx, mv)
       case _ => false
 
   private def isRefValRhs(t: Term, ctx: GenCtx): Boolean = t match
@@ -906,8 +911,11 @@ object AsmJitBackend extends JitBackend:
       walkLong(inner, ctx, mv) && { mv.visitInsn(L2D); true }
     case ap: Term.Apply =>
       ap.fun match
+        case inner: Term.Apply =>
+          emitHofFoldLeftLong(inner, ap.argClause.values, ctx, mv)
         case Term.Select(recv: Term, Term.Name(method)) =>
-          emitRefChainLong(recv, method, ap.argClause.values, ctx, mv)
+          emitHofFoldLong(recv, method, ap.argClause.values, ctx, mv) ||
+            emitRefChainLong(recv, method, ap.argClause.values, ctx, mv)
         case fn: Term.Name =>
           emitLongCall(fn.value, ap.argClause.values, ctx, mv)
         case _ => false
@@ -932,6 +940,85 @@ object AsmJitBackend extends JitBackend:
         mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "headLong", "(Ljava/lang/Object;)J", false)
         true
       case _ => false
+
+  private def emitHofRefChain(recv: Term, method: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
+    method match
+      case "map" if args.lengthCompare(1) == 0 =>
+        args.head match
+          case fn: Term.Function =>
+            val op = JitHofShape.unaryLong(fn)
+            if op == null then return false
+            mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
+            if !walkRef(recv, ctx, mv) then return false
+            emitIconst(mv, op.op)
+            mv.visitLdcInsn(op.c)
+            mv.visitMethodInsn(INVOKEVIRTUAL, hofDispatchInt, "mapLong", "(Ljava/lang/Object;IJ)Ljava/lang/Object;", false)
+            true
+          case _ => false
+      case "flatMap" if args.lengthCompare(1) == 0 =>
+        args.head match
+          case fn: Term.Function =>
+            val name = JitHofShape.globalLong(fn)
+            if name == null then return false
+            mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
+            if !walkRef(recv, ctx, mv) then return false
+            mv.visitLdcInsn(name)
+            mv.visitMethodInsn(INVOKEVIRTUAL, hofDispatchInt, "flatMapGlobalLong", "(Ljava/lang/Object;Ljava/lang/String;)Ljava/lang/Object;", false)
+            true
+          case _ => false
+      case "filter" if args.lengthCompare(1) == 0 =>
+        args.head match
+          case fn: Term.Function =>
+            val pred = JitHofShape.predicateLong(fn)
+            if pred == null then return false
+            mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
+            if !walkRef(recv, ctx, mv) then return false
+            emitIconst(mv, pred.pred)
+            mv.visitLdcInsn(pred.c1)
+            mv.visitLdcInsn(pred.c2)
+            mv.visitMethodInsn(INVOKEVIRTUAL, hofDispatchInt, "filterLong", "(Ljava/lang/Object;IJJ)Ljava/lang/Object;", false)
+            true
+          case _ => false
+      case _ => false
+
+  private def emitHofFoldLong(recv: Term, method: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
+    if method != "fold" || args.lengthCompare(2) != 0 then return false
+    (args.head, args(1)) match
+      case (left: Term.Function, right: Term.Function) =>
+        val leftConst = JitHofShape.constantLong(left)
+        val rightOp   = JitHofShape.unaryLong(right)
+        if leftConst == null || rightOp == null then return false
+        mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitLdcInsn(leftConst.longValue)
+        emitIconst(mv, rightOp.op)
+        mv.visitLdcInsn(rightOp.c)
+        mv.visitMethodInsn(INVOKEVIRTUAL, hofDispatchInt, "foldLong", "(Ljava/lang/Object;JIJ)J", false)
+        true
+      case _ => false
+
+  private def emitHofFoldLeftLong(inner: Term.Apply, outerArgs: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
+    if outerArgs.lengthCompare(1) != 0 then return false
+    inner.fun match
+      case Term.Select(recv: Term, Term.Name("foldLeft")) if inner.argClause.values.lengthCompare(1) == 0 =>
+        outerArgs.head match
+          case fn: Term.Function if JitHofShape.foldAdd(fn) =>
+            mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
+            if !walkRef(recv, ctx, mv) then return false
+            if !walkLong(inner.argClause.values.head, ctx, mv) then return false
+            emitIconst(mv, JitHofDispatch.FoldAdd)
+            mv.visitMethodInsn(INVOKEVIRTUAL, hofDispatchInt, "foldLeftLong", "(Ljava/lang/Object;JI)J", false)
+            true
+          case _ => false
+      case _ => false
+
+  private def emitBuiltinEitherObject(typeName: String, arg: Term, ctx: GenCtx, mv: MethodVisitor): Boolean =
+    if typeName != "Right" && typeName != "Left" then return false
+    mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
+    mv.visitLdcInsn(typeName)
+    if !emitValueObject(arg, ctx, mv) then return false
+    mv.visitMethodInsn(INVOKEVIRTUAL, hofDispatchInt, "eitherValue", s"(Ljava/lang/String;L$valueInt;)Ljava/lang/Object;", false)
+    true
 
   /** Emit InstanceV field access `obj.field` on a ref param, leaving a primitive
    *  (long if !wantDouble, double if wantDouble) on the stack.  Resolves the
@@ -1467,10 +1554,23 @@ object AsmJitBackend extends JitBackend:
       true
     case tn: Term.Name if ctx.isRefName(tn.value) =>
       val s = ctx.slotOf(tn.value); if s < 0 then false else { mv.visitVarInsn(ALOAD, s); true }
+    case tn: Term.Name =>
+      ctx.interp.globals.getOrElse(tn.value, null) match
+        case _: Value.ListV | _: Value.OptionV | _: Value.InstanceV | _: Value.MapV | _: Value.StringV =>
+          emitGlobalRef(tn.value, mv)
+          true
+        case _ => false
     case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
       b.stats.head match
         case inner: Term => walkRef(inner, ctx, mv)
         case _           => false
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+        if op.value == "until" && argClause.values.lengthCompare(1) == 0 =>
+      mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
+      if !walkLong(lhs, ctx, mv) then return false
+      if !walkLong(argClause.values.head, ctx, mv) then return false
+      mv.visitMethodInsn(INVOKEVIRTUAL, hofDispatchInt, "rangeUntil", "(JJ)Ljava/lang/Object;", false)
+      true
     case ap: Term.Apply =>
       ap.fun match
         case fn: Term.Name if fn.value == "Some" && ap.argClause.values.lengthCompare(1) == 0 =>
@@ -1479,8 +1579,12 @@ object AsmJitBackend extends JitBackend:
           if !emitValueObject(ap.argClause.values.head, ctx, mv) then return false
           mv.visitMethodInsn(INVOKESPECIAL, optionVInt, "<init>", s"(L$valueInt;)V", false)
           true
+        case fn: Term.Name if (fn.value == "Right" || fn.value == "Left") && ap.argClause.values.lengthCompare(1) == 0 =>
+          emitBuiltinEitherObject(fn.value, ap.argClause.values.head, ctx, mv)
         case fn: Term.Name =>
           emitRefCall(fn.value, ap.argClause.values, ctx, mv)
+        case Term.Select(recv: Term, Term.Name(method)) =>
+          emitHofRefChain(recv, method, ap.argClause.values, ctx, mv)
         case _ => false
     // Stage 5.5: ref-typed ADT field access `obj.field` on a ref param.
     case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
@@ -2618,6 +2722,11 @@ object AsmJitBackend extends JitBackend:
     mv.visitFieldInsn(GETSTATIC, globalsInt, "MODULE$", s"L$globalsInt;")
     mv.visitLdcInsn(name)
     mv.visitMethodInsn(INVOKEVIRTUAL, globalsInt, "readGlobalDouble", "(Ljava/lang/String;)D", false)
+
+  private def emitGlobalRef(name: String, mv: MethodVisitor): Unit =
+    mv.visitFieldInsn(GETSTATIC, globalsInt, "MODULE$", s"L$globalsInt;")
+    mv.visitLdcInsn(name)
+    mv.visitMethodInsn(INVOKEVIRTUAL, globalsInt, "readGlobalRef", "(Ljava/lang/String;)Ljava/lang/Object;", false)
 
   // ── Misc bytecode helpers ─────────────────────────────────────────────────
 

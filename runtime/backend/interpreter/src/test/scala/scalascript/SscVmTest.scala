@@ -1244,6 +1244,124 @@ class SscVmTest extends AnyFunSuite with Matchers:
     JitGlobals.withInterp(interp) { direct.apply(-1L) } shouldBe 7L
   }
 
+  test("stage7-hof-method: Javac Option flatMap/map/getOrElse compiles and runs") {
+    val interp = interpOf(
+      """def lookup(k: Int): Option[Int] =
+        |  if k % 2 == 0 then Some(k * 2) else None
+        |def f(n: Int): Int =
+        |  Some(n).flatMap(x => lookup(x)).map(x => x + 1).getOrElse(0)""".stripMargin)
+    val fn = interp.globalsView("f").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    r.direct.isInstanceOf[LongFn1] shouldBe true
+    val direct = r.direct.asInstanceOf[LongFn1]
+    JitGlobals.withInterp(interp) { direct.apply(2L) } shouldBe 5L
+    JitGlobals.withInterp(interp) { direct.apply(3L) } shouldBe 0L
+  }
+
+  test("stage7-hof-method: ASM Option flatMap/map/getOrElse compiles and runs") {
+    val interp = interpOf(
+      """def lookup(k: Int): Option[Int] =
+        |  if k % 2 == 0 then Some(k * 2) else None
+        |def f(n: Int): Int =
+        |  Some(n).flatMap(x => lookup(x)).map(x => x + 1).getOrElse(0)""".stripMargin)
+    val fn = interp.globalsView("f").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    r.direct.isInstanceOf[LongFn1] shouldBe true
+    val direct = r.direct.asInstanceOf[LongFn1]
+    JitGlobals.withInterp(interp) { direct.apply(2L) } shouldBe 5L
+    JitGlobals.withInterp(interp) { direct.apply(3L) } shouldBe 0L
+  }
+
+  test("stage7-hof-method: Javac Either map/flatMap/fold compiles and runs") {
+    val interp = interpOf(
+      """def parse(n: Int): Either[String, Int] =
+        |  if n > 0 then Right(n) else Left("neg")
+        |def f(n: Int): Int =
+        |  parse(n).map(x => x + 1).flatMap(x => parse(x)).fold(e => 0, x => x)""".stripMargin)
+    val fn = interp.globalsView("f").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    r.direct.isInstanceOf[LongFn1] shouldBe true
+    val direct = r.direct.asInstanceOf[LongFn1]
+    JitGlobals.withInterp(interp) { direct.apply(2L) } shouldBe 3L
+    JitGlobals.withInterp(interp) { direct.apply(-1L) } shouldBe 0L
+  }
+
+  test("stage7-hof-method: ASM Either map/flatMap/fold compiles and runs") {
+    val interp = interpOf(
+      """def parse(n: Int): Either[String, Int] =
+        |  if n > 0 then Right(n) else Left("neg")
+        |def f(n: Int): Int =
+        |  parse(n).map(x => x + 1).flatMap(x => parse(x)).fold(e => 0, x => x)""".stripMargin)
+    val fn = interp.globalsView("f").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    r.direct.isInstanceOf[LongFn1] shouldBe true
+    val direct = r.direct.asInstanceOf[LongFn1]
+    JitGlobals.withInterp(interp) { direct.apply(2L) } shouldBe 3L
+    JitGlobals.withInterp(interp) { direct.apply(-1L) } shouldBe 0L
+  }
+
+  test("stage7-hof-method: Javac List map/filter/foldLeft compiles and runs") {
+    val interp = interpOf(
+      """val xs: List[Int] = List(1, 2, 3, 4, 5, 6)
+        |def f(): Int =
+        |  xs.map(x => x * 2).filter(x => x % 3 == 0).foldLeft(0)((a, b) => a + b)""".stripMargin)
+    val fn = interp.globalsView("f").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    r.direct.isInstanceOf[LongFn0] shouldBe true
+    JitGlobals.withInterp(interp) { r.direct.asInstanceOf[LongFn0].apply() } shouldBe 18L
+  }
+
+  test("stage7-hof-method: ASM List map/filter/foldLeft compiles and runs") {
+    val interp = interpOf(
+      """val xs: List[Int] = List(1, 2, 3, 4, 5, 6)
+        |def f(): Int =
+        |  xs.map(x => x * 2).filter(x => x % 3 == 0).foldLeft(0)((a, b) => a + b)""".stripMargin)
+    val fn = interp.globalsView("f").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    r.direct.isInstanceOf[LongFn0] shouldBe true
+    JitGlobals.withInterp(interp) { r.direct.asInstanceOf[LongFn0].apply() } shouldBe 18L
+  }
+
+  test("stage7-hof-method: Javac Range until map/foldLeft compiles and runs") {
+    val interp = interpOf(
+      """def f(n: Int): Int =
+        |  (0 until n).map(x => x + 1).foldLeft(0)((a, b) => a + b)""".stripMargin)
+    val fn = interp.globalsView("f").asInstanceOf[Value.FunV]
+    val r = JavacJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    r.direct.isInstanceOf[LongFn1] shouldBe true
+    val direct = r.direct.asInstanceOf[LongFn1]
+    JitGlobals.withInterp(interp) { direct.apply(4L) } shouldBe 10L
+    JitGlobals.withInterp(interp) { direct.apply(0L) } shouldBe 0L
+  }
+
+  test("stage7-hof-method: ASM Range until map/foldLeft compiles and runs") {
+    val interp = interpOf(
+      """def f(n: Int): Int =
+        |  (0 until n).map(x => x + 1).foldLeft(0)((a, b) => a + b)""".stripMargin)
+    val fn = interp.globalsView("f").asInstanceOf[Value.FunV]
+    val r = AsmJitBackend.tryCompile(fn, interp)
+    r should not be null
+    r.direct should not be null
+    r.direct.isInstanceOf[LongFn1] shouldBe true
+    val direct = r.direct.asInstanceOf[LongFn1]
+    JitGlobals.withInterp(interp) { direct.apply(4L) } shouldBe 10L
+    JitGlobals.withInterp(interp) { direct.apply(0L) } shouldBe 0L
+  }
+
   test("stage2.1b: HofCall detected when param is called as function") {
     import scalascript.interpreter.vm.jit.{JitPredicates, JitBailReason}
     val interp = interpOf("def apply(f: Int => Int, x: Int): Int = f(x)")

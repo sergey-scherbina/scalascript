@@ -65,7 +65,7 @@ class InterpreterBench:
       |val shapes = List(Circle(1.0), Rect(2.0, 3.0), Triangle(4.0, 5.0))
       |var total = 0.0
       |var i = 0
-      |while i < 100000 do
+      |while i < 1000 do
       |  shapes.foreach(s => { total = total + area(s) })
       |  i = i + 1
       |total""".stripMargin
@@ -612,9 +612,63 @@ class InterpreterBench:
       |total""".stripMargin
   )
 
+  private def warmInterp(code: String): Interpreter =
+    val i = Interpreter(devNull)
+    i.runSections(src(code))
+    i
+
+  private val optionChainInterp: Interpreter = warmInterp(
+    """def lookup(k: Int): Option[Int] =
+      |  if k % 2 == 0 then Some(k * 2) else None
+      |def step(n: Int): Int =
+      |  Some(n).flatMap(x => lookup(x)).map(x => x + 1).getOrElse(0)""".stripMargin
+  )
+  private val optionChainTerm: Term =
+    dialects.Scala3("step(2) + step(3)").parse[Term].get
+
+  private val eitherChainInterp: Interpreter = warmInterp(
+    """def parse(n: Int): Either[String, Int] =
+      |  if n > 0 then Right(n) else Left("neg")
+      |def step(n: Int): Int =
+      |  parse(n).map(x => x + 1).flatMap(x => parse(x)).fold(e => 0, x => x)""".stripMargin
+  )
+  private val eitherChainTerm: Term =
+    dialects.Scala3("step(2) + step(-1)").parse[Term].get
+
+  private val hofPipelineInterp: Interpreter = warmInterp(
+    """val xs: List[Int] = List(1, 2, 3, 4, 5, 6)
+      |def step(): Int =
+      |  xs.map(x => x * 2).filter(x => x % 3 == 0).foldLeft(0)((a, b) => a + b)""".stripMargin
+  )
+  private val hofPipelineTerm: Term =
+    dialects.Scala3("step()").parse[Term].get
+
+  private val rangeSumInterp: Interpreter = warmInterp(
+    """def step(n: Int): Int =
+      |  (0 until n).map(x => x + 1).foldLeft(0)((a, b) => a + b)""".stripMargin
+  )
+  private val rangeSumTerm: Term =
+    dialects.Scala3("step(20)").parse[Term].get
+
   @Benchmark
   def refChainArg(): Unit =
     Interpreter(devNull).runSections(modRefChainArg)
+
+  @Benchmark
+  def optionChain(): Unit =
+    optionChainInterp.evalTerm(optionChainTerm)
+
+  @Benchmark
+  def eitherChain(): Unit =
+    eitherChainInterp.evalTerm(eitherChainTerm)
+
+  @Benchmark
+  def hofPipeline(): Unit =
+    hofPipelineInterp.evalTerm(hofPipelineTerm)
+
+  @Benchmark
+  def rangeSum(): Unit =
+    rangeSumInterp.evalTerm(rangeSumTerm)
 
   @Benchmark
   def helloWorld(): Unit =

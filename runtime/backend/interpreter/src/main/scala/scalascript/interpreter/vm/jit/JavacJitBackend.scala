@@ -822,8 +822,11 @@ object JavacJitBackend extends JitBackend:
       if e == null then null else s"(double)($e)"
     case ap: Term.Apply =>
       ap.fun match
+        case inner: Term.Apply =>
+          emitHofFoldLeftLong(inner, ap.argClause.values, ctx)
         case Term.Select(recv: Term, Term.Name(method)) =>
-          emitRefChainLong(recv, method, ap.argClause.values, ctx)
+          val hof = emitHofFoldLong(recv, method, ap.argClause.values, ctx)
+          if hof != null then hof else emitRefChainLong(recv, method, ap.argClause.values, ctx)
         case fn: Term.Name => emitLongCall(fn.value, ap.argClause.values, ctx)
         case _ => null
     case Term.ApplyUnary(op, arg) if op.value == "-" || op.value == "+" =>
@@ -844,6 +847,64 @@ object JavacJitBackend extends JitBackend:
       case "head" if args.isEmpty =>
         s"$jrd.headLong((Object) ($refExpr))"
       case _ => null
+
+  private def emitHofRefChain(recv: Term, method: String, args: List[Term], ctx: GenCtx): String | Null =
+    val refExpr = walkRef(recv, ctx)
+    if refExpr == null then return null
+    val jhd = "scalascript.interpreter.vm.jit.JitHofDispatch$.MODULE$"
+    method match
+      case "map" if args.lengthCompare(1) == 0 =>
+        args.head match
+          case fn: Term.Function =>
+            val op = JitHofShape.unaryLong(fn)
+            if op == null then null else s"$jhd.mapLong((Object) ($refExpr), ${op.op}, ${op.c}L)"
+          case _ => null
+      case "flatMap" if args.lengthCompare(1) == 0 =>
+        args.head match
+          case fn: Term.Function =>
+            val name = JitHofShape.globalLong(fn)
+            if name == null then null else s"""$jhd.flatMapGlobalLong((Object) ($refExpr), "${escape(name)}")"""
+          case _ => null
+      case "filter" if args.lengthCompare(1) == 0 =>
+        args.head match
+          case fn: Term.Function =>
+            val pred = JitHofShape.predicateLong(fn)
+            if pred == null then null
+            else s"$jhd.filterLong((Object) ($refExpr), ${pred.pred}, ${pred.c1}L, ${pred.c2}L)"
+          case _ => null
+      case _ => null
+
+  private def emitHofFoldLong(recv: Term, method: String, args: List[Term], ctx: GenCtx): String | Null =
+    if method != "fold" || args.lengthCompare(2) != 0 then return null
+    (args.head, args(1)) match
+      case (left: Term.Function, right: Term.Function) =>
+        val leftConst = JitHofShape.constantLong(left)
+        val rightOp   = JitHofShape.unaryLong(right)
+        if leftConst == null || rightOp == null then return null
+        val refExpr = walkRef(recv, ctx)
+        if refExpr == null then return null
+        s"scalascript.interpreter.vm.jit.JitHofDispatch$$.MODULE$$.foldLong((Object) ($refExpr), ${leftConst.longValue}L, ${rightOp.op}, ${rightOp.c}L)"
+      case _ => null
+
+  private def emitHofFoldLeftLong(inner: Term.Apply, outerArgs: List[Term], ctx: GenCtx): String | Null =
+    if outerArgs.lengthCompare(1) != 0 then return null
+    inner.fun match
+      case Term.Select(recv: Term, Term.Name("foldLeft")) if inner.argClause.values.lengthCompare(1) == 0 =>
+        outerArgs.head match
+          case fn: Term.Function if JitHofShape.foldAdd(fn) =>
+            val refExpr = walkRef(recv, ctx)
+            if refExpr == null then return null
+            val init = walkLong(inner.argClause.values.head, ctx)
+            if init == null then return null
+            s"scalascript.interpreter.vm.jit.JitHofDispatch$$.MODULE$$.foldLeftLong((Object) ($refExpr), $init, ${JitHofDispatch.FoldAdd})"
+          case _ => null
+      case _ => null
+
+  private def emitBuiltinEitherObject(typeName: String, arg: Term, ctx: GenCtx): String | Null =
+    if typeName != "Right" && typeName != "Left" then return null
+    val value = emitValueObject(arg, ctx)
+    if value == null then null
+    else s"""scalascript.interpreter.vm.jit.JitHofDispatch$$.MODULE$$.eitherValue("$typeName", $value)"""
 
   /** Emit a Java expression reading InstanceV field `obj.field` off a ref param,
    *  yielding a primitive (`long` if !wantDouble, `double` if wantDouble).
@@ -877,18 +938,34 @@ object JavacJitBackend extends JitBackend:
   private def walkRef(t: Term, ctx: GenCtx): String | Null = t match
     case Term.Name("None") => "scalascript.interpreter.Value$.MODULE$.NoneV()"
     case tn: Term.Name if ctx.isRefName(tn.value) => ctx.resolveLocal(tn.value)
+    case tn: Term.Name =>
+      ctx.interp.globals.getOrElse(tn.value, null) match
+        case _: Value.ListV | _: Value.OptionV | _: Value.InstanceV | _: Value.MapV | _: Value.StringV =>
+          s"""scalascript.interpreter.vm.jit.JitGlobals$$.MODULE$$.readGlobalRef("${escape(tn.value)}")"""
+        case _ => null
     // Direction A.1: 1-stmt block unwrap parallel to walkLong.
     case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
       b.stats.head match
         case inner: Term => walkRef(inner, ctx)
         case _           => null
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+        if op.value == "until" && argClause.values.lengthCompare(1) == 0 =>
+      val from = walkLong(lhs, ctx)
+      if from == null then return null
+      val until = walkLong(argClause.values.head, ctx)
+      if until == null then return null
+      s"scalascript.interpreter.vm.jit.JitHofDispatch$$.MODULE$$.rangeUntil($from, $until)"
     case ap: Term.Apply =>
       ap.fun match
         case fn: Term.Name if fn.value == "Some" && ap.argClause.values.lengthCompare(1) == 0 =>
           val inner = emitValueObject(ap.argClause.values.head, ctx)
           if inner == null then null else s"new scalascript.interpreter.Value.OptionV($inner)"
+        case fn: Term.Name if (fn.value == "Right" || fn.value == "Left") && ap.argClause.values.lengthCompare(1) == 0 =>
+          emitBuiltinEitherObject(fn.value, ap.argClause.values.head, ctx)
         case fn: Term.Name =>
           emitRefCall(fn.value, ap.argClause.values, ctx)
+        case Term.Select(recv: Term, Term.Name(method)) =>
+          emitHofRefChain(recv, method, ap.argClause.values, ctx)
         case _ => null
     // Stage 5.5: ref-typed field access `obj.field` where obj is a ref param.
     case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
@@ -944,6 +1021,8 @@ object JavacJitBackend extends JitBackend:
           val inner = emitValueObject(ap.argClause.values.head, ctx)
           if inner == null then null
           else s"new scalascript.interpreter.Value.OptionV($inner)"
+        case fn: Term.Name if (fn.value == "Right" || fn.value == "Left") && ap.argClause.values.lengthCompare(1) == 0 =>
+          emitBuiltinEitherObject(fn.value, ap.argClause.values.head, ctx)
         case fn: Term.Name if fn.value == ctx.funName =>
           if ap.argClause.values.length != ctx.paramNames.length then return null
           val args = new Array[String](ap.argClause.values.length)
@@ -1011,7 +1090,7 @@ object JavacJitBackend extends JitBackend:
     s"""__inst("${escape(typeName)}", $tag, $arr, $namesField)"""
 
   private def isPrimitiveFieldType(t: String): Boolean =
-    t == "Int" || t == "Long" || t == "Double" || t == "Boolean"
+    t == "Int" || t == "Long" || t == "Double" || t == "Boolean" || t == "String"
 
   private def emitPrimitiveValue(t: Term, fieldType: String, ctx: GenCtx): String | Null =
     fieldType match
@@ -1024,6 +1103,9 @@ object JavacJitBackend extends JitBackend:
       case "Boolean" =>
         val e = walkBool(t, ctx); if e == null then null
         else s"scalascript.interpreter.Value$$.MODULE$$.boolV($e)"
+      case "String" =>
+        val e = walkString(t, ctx); if e == null then null
+        else s"new scalascript.interpreter.Value.StringV($e)"
       case _ => null
 
   private def constructorNamesField(

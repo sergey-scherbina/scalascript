@@ -70,6 +70,14 @@ esac
 shift
 pat="${1:-.*}"
 
+# Sprint notes use CLI-friendly kebab names. JMH method names stay JVM-safe.
+case "$pat" in
+  option-chain) pat="optionChain" ;;
+  either-chain) pat="eitherChain" ;;
+  hof-pipeline) pat="hofPipeline" ;;
+  range-sum)    pat="rangeSum" ;;
+esac
+
 # Class-scoped JMH pattern. `.*Class.*pat.*` is permissive on both ends so
 # `interp_X` / `jvmGen_X` prefixes inside the class match a bare workload
 # name like `arithLoop`.
