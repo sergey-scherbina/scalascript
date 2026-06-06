@@ -357,6 +357,42 @@ Each item: one commit + bench A/B (or test A/B), never ship a non-win.
       or to an out-of-scope decision. Target: UnknownShape = 0 or all remaining
       cases documented as out-of-scope. No implementation code.
 
+### Stage-8 bench regressions (carryover from stage-6)
+
+Three bench workloads remained slow through stages 6–7 because each needs a
+distinct codegen path, not a classifier extension. Baseline (2026-06-06,
+`./bench.sh`): `typeclass-fold` ssc 2.97 / ssc-asm 3.01 / jvm 0.004 ms/op;
+`map-ops` ssc 3.16 / ssc-asm 3.91 / jvm 0.020 ms/op; `string-split` ssc 14.5 /
+jvm 0.088 ms/op. Each item: one commit + bench A/B.
+
+- [ ] **jit-uc-stage8-typeclass-fold** — Compile the resolved typeclass
+      dispatch path: `xs.foldLeft(summon[M[A]].empty)(summon[M[A]].combine)`.
+      Strategy: detect `summon[T]` at JIT time and inline the resolved given
+      instance as a ref constant; route `.combine(a, b)` through a monomorphic
+      method handle on the resolved instance (no GivenRuntime dispatch on each
+      call). Replaces the current `TypeclassUsingDispatch` bail. Bench target:
+      `typeclass-fold` <0.05 ms/op (≈100× win). Baseline:
+      `scripts/bench interp typeclass-fold`.
+
+- [ ] **jit-uc-stage8-map-ops** — Compile the immutable-`Map` mutation pattern:
+      `var m: Map[K,V] = …; m = m.updated(k, v); m.getOrElse(k, d)`. Strategy:
+      hoist the Map to a ref slot (already supported as ref-typed var?); route
+      `.updated` and `.getOrElse` through `JitRefDispatch` `mapUpdatedRef` /
+      `mapGetOrElseLong`. The hot pattern is identical to a List loop but on a
+      different ref shape. Bench target: `map-ops` <0.5 ms/op (≈6× win,
+      Map churn floor is structural — allocation-dominated). Baseline:
+      `scripts/bench interp map-ops`.
+
+- [ ] **jit-uc-stage8-string-split** — Compile the
+      `s.split(d).map(f).foldLeft(z)(g)` pipeline on `String → Array[String]`.
+      Strategy: emit `String.split` as a native call returning `Array[String]`
+      (existing intrinsic), then route the array `.map(...).foldLeft(...)` chain
+      through the stage-7.3 HOF dispatch with an `Array`-receiver shape.
+      Per-element `s.trim.toInt` should compile via existing String/Int paths
+      once the ref-chain receiver is the array element. Bench target:
+      `string-split` <0.5 ms/op (≈30× win). Baseline:
+      `scripts/bench interp string-split`.
+
 ---
 
 ## Interpreter perf — Phase C + D continuation (open)
