@@ -319,6 +319,50 @@ object JitBailReason:
     val suggestedFix = Some("ensure every loop variable update is an arithmetic " +
       "expression over the same loop variables: `i = i + 1`, `acc = acc + x`")
 
+  // ── Stage 8: UnknownShape tail buckets (observability) ───────────────────
+
+  /** Explicit `throw …` expression in a hot function body. Out of scope for
+   *  pure-numeric JIT — the exception flow goes through the tree-walker. */
+  case object ThrowExpression extends JitBailReason:
+    val tag         = "ThrowExpression"
+    val description = "function body contains `throw e`; the JIT emits no " +
+      "exception-throwing opcodes for user-controlled flow"
+    val suggestedFix = Some("move the throw into a sealed helper called by " +
+      "the JIT-compiled hot path")
+
+  /** Tuple-construction expression `(a, b)` in a hot body. Creates a `TupleV`
+   *  and requires ref-bank infrastructure for the result. */
+  case object TupleConstruction extends JitBailReason:
+    val tag         = "TupleConstruction"
+    val description = "tuple literal `(a, b)` used as a value; the JIT does " +
+      "not yet emit TupleV construction in expression position"
+    val suggestedFix = Some("destructure at the call site or pass the elements " +
+      "as separate parameters")
+
+  /** Eta-expansion `f _` — converts a method into a function value. Same
+   *  family as LambdaValue but with a different surface syntax. */
+  case object EtaExpansion extends JitBailReason:
+    val tag         = "EtaExpansion"
+    val description = "eta-expansion `f _` converts a method to a function " +
+      "value; the JIT does not yet materialise FunV from a method reference"
+    val suggestedFix = Some("replace `f _` with `(x) => f(x)` or a named def")
+
+  /** Explicit `return` in a non-tail position. Tail returns are inferred by
+   *  the JIT; explicit return mid-body is currently unsupported. */
+  case object ExplicitReturn extends JitBailReason:
+    val tag         = "ExplicitReturn"
+    val description = "explicit `return expr` in a non-tail position; the JIT " +
+      "emits structured control flow only"
+    val suggestedFix = Some("rewrite without `return`: thread the result " +
+      "through `if`/`match` branches")
+
+  /** Anonymous class construction `new {...}`. Out of scope. */
+  case object NewAnonymousClass extends JitBailReason:
+    val tag         = "NewAnonymousClass"
+    val description = "anonymous class construction `new { … }` in a hot " +
+      "function; the JIT does not synthesise anonymous class instances"
+    val suggestedFix = Some("use a named case class or trait instance")
+
   // ── Misc ─────────────────────────────────────────────────────────────────
 
   case object UnknownShape extends JitBailReason:

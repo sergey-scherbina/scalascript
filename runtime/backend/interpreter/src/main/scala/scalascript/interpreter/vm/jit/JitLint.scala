@@ -229,6 +229,20 @@ object JitPredicates:
       case _: Term.New =>
         buf += JitBailReason.ObjectConstruction
         t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))
+      case _: Term.NewAnonymous =>
+        buf += JitBailReason.NewAnonymousClass
+        t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))
+      case _: Term.Throw =>
+        buf += JitBailReason.ThrowExpression
+        t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))
+      case _: Term.Return =>
+        buf += JitBailReason.ExplicitReturn
+        t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))
+      case _: Term.Tuple =>
+        buf += JitBailReason.TupleConstruction
+        t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))
+      case _: Term.Eta =>
+        buf += JitBailReason.EtaExpansion
       case _: Term.ApplyType =>
         buf += JitBailReason.TypeApplicationCall
         t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))

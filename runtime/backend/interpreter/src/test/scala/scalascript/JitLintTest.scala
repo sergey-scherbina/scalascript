@@ -163,6 +163,20 @@ class JitLintTest extends AnyFunSuite with Matchers:
     val reasons = classifyBody("identity[Int](n)", List("n"), List("Int"))
     reasons should contain (JitBailReason.TypeApplicationCall)
 
+  // ── Stage 8: UnknownShape tail buckets ────────────────────────────────
+
+  test("stage8-unknownshape-tail: throw expression classified as ThrowExpression"):
+    val reasons = classifyBody("throw new RuntimeException(\"boom\")", List("n"), List("Int"))
+    reasons should contain (JitBailReason.ThrowExpression)
+
+  test("stage8-unknownshape-tail: tuple construction classified as TupleConstruction"):
+    val reasons = classifyBody("(n, n + 1)", List("n"), List("Int"))
+    reasons should contain (JitBailReason.TupleConstruction)
+
+  test("stage8-unknownshape-tail: explicit return classified as ExplicitReturn"):
+    val reasons = classifyBody("return n", List("n"), List("Int"))
+    reasons should contain (JitBailReason.ExplicitReturn)
+
   // ── Stage 8: NonExtractPattern residual split ─────────────────────────
 
   test("stage8-nonextract-residual: nested tuple destructure classified as NestedTuplePattern"):
