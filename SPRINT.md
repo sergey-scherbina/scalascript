@@ -205,6 +205,33 @@ Each item: one commit + bench A/B. Run `SSC_JIT_STATS=1 sbt "backendInterpreter/
 - [x] **jit-uc-stage6-unknownshape-hof-analysis** — HofMethodCall + RefChainCall bail
       reasons added; UnknownShape 295→240; stage-7 plan in specs/jit-universal-coverage.md §9.
 
+## JIT universal coverage — Stage 7
+
+Spec: [`specs/jit-universal-coverage.md §9`](specs/jit-universal-coverage.md).
+Baseline (2026-06-06): 734 disabled, 240 UnknownShape, 55 RefChainCall, 70 Compound.
+Each item: one commit + bench A/B (or test A/B), never ship a non-win.
+
+- [ ] **jit-uc-stage7-refchain** — Ref-val propagation: extend `walkRef` in both
+      backends to recognise local `val` bindings whose RHS is a ref-returning call.
+      Emit inline method dispatch for `Term.Apply(Term.Select(localRef, method), args)`
+      where `method` is a known numeric-returning dispatch (e.g. `.getOrElse(n)`,
+      `.fold(z)(f)`, `.size`, `.head.toLong`). Targets `RefChainCall` (55 misses).
+      Baseline: run `SSC_JIT_STATS=1 sbt "backendInterpreter/test"` and record
+      RefChainCall count before and after.
+
+- [ ] **jit-uc-stage7-hof-method** — Monomorphic IC for HOF method dispatch:
+      `.map(x => …)`, `.flatMap(x => …)`, `.filter(x => …)`, `.foldLeft(z)((a,b) => …)`.
+      Requires ref-val propagation (stage7-refchain) + existing CALLREF for the lambda.
+      Target: bench HOF workloads (either-chain 3.46ms, hof-pipeline 2.79ms,
+      option-chain 2.98ms, range-sum 3.57ms, typeclass-fold 2.99ms) toward <0.1ms.
+      Baseline bench: `scripts/bench interp either-chain`.
+
+- [ ] **jit-uc-stage7-unknownshape-tagging** — Further `walkForBailCliffs` tagging to
+      reduce UnknownShape 240→<100. Candidates: `Term.ApplyInfix` on ref operands
+      (`ApplyInfixRefOp`), string interpolation (`InterpolatedString`), non-FunV callee
+      chains. Not implementation code — produces an updated miss profile and extended
+      bail-reason vocabulary. Run `SSC_JIT_STATS=1` before and after.
+
 ---
 
 ## Interpreter perf — Phase C + D continuation (open)
