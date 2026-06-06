@@ -202,9 +202,8 @@ Each item: one commit + bench A/B. Run `SSC_JIT_STATS=1 sbt "backendInterpreter/
 - [x] **jit-uc-stage6-vm-retref** — RETREF=49 opcode; SscVm TLS slot; VmCompiler
       unifyRet(TRef) allowed; JitRuntime wrapRef(); 18 vm-retref misses eliminated.
 
-- [ ] **jit-uc-stage6-unknownshape-hof-analysis** — Profile which bench workloads
-      hit `UnknownShape` after stage6.a–d; tag root causes in `walkForBailCliffs`.
-      Produces a prioritized stage-7 plan (spec §9 update), not implementation code.
+- [x] **jit-uc-stage6-unknownshape-hof-analysis** — HofMethodCall + RefChainCall bail
+      reasons added; UnknownShape 295→240; stage-7 plan in specs/jit-universal-coverage.md §9.
 
 ---
 

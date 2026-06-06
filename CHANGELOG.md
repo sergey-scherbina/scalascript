@@ -16,6 +16,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(jit): UnknownShape analysis + stage-7 plan
+
+- **jit-uc-stage6-unknownshape-hof-analysis** — HofMethodCall + RefChainCall bail
+  reasons added to JitBailReason+JitLint; UnknownShape 295→240; 55 RefChainCall
+  hits; stage-7 plan in §9 of specs/jit-universal-coverage.md. 1413 tests green.
+
 ## 2026-06-06 — feat(jit): RETREF opcode — ref-typed VM return (vm-retref -18)
 
 - **jit-uc-stage6-vm-retref** — RETREF=49 opcode added to SscVm with TLS slot;
