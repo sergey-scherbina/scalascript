@@ -211,6 +211,11 @@ Spec: [`specs/jit-universal-coverage.md §9`](specs/jit-universal-coverage.md).
 Baseline (2026-06-06): 734 disabled, 240 UnknownShape, 55 RefChainCall, 70 Compound.
 Current after bucket split (2026-06-06): 731 disabled, 238 UnknownShape,
 70 Compound, 33 QualifiedRefCall, 22 RefChainObjectCall, 0 RefChainCall.
+Current after HOF method slice (2026-06-06): 731 disabled, 238 UnknownShape,
+70 Compound, 33 QualifiedRefCall, 22 RefChainObjectCall; warmed HOF benches
+are now `option-chain=0.002ms`, `either-chain=0.002ms`,
+`hof-pipeline≈0.001ms`, `range-sum≈0.001ms`
+(`BENCH_WI=1 BENCH_MI=3 BENCH_F=1 scripts/bench interp <name>`).
 Each item: one commit + bench A/B (or test A/B), never ship a non-win.
 
 - [x] **jit-uc-stage7-refchain** — Ref-val propagation low-risk subset landed:
@@ -236,12 +241,26 @@ Each item: one commit + bench A/B (or test A/B), never ship a non-win.
       Result: total disabled stayed 731, `RefChainCall` 55→0,
       `QualifiedRefCall=33`, `RefChainObjectCall=22`. See spec §9 Stage 7.2.
 
-- [ ] **jit-uc-stage7-hof-method** — Monomorphic IC for HOF method dispatch:
+- [x] **jit-uc-stage7-hof-method** — Monomorphic IC for HOF method dispatch:
       `.map(x => …)`, `.flatMap(x => …)`, `.filter(x => …)`, `.foldLeft(z)((a,b) => …)`.
-      Requires ref-val propagation (stage7-refchain) + existing CALLREF for the lambda.
-      Target: bench HOF workloads (either-chain 3.46ms, hof-pipeline 2.79ms,
-      option-chain 2.98ms, range-sum 3.57ms, typeclass-fold 2.99ms) toward <0.1ms.
-      Baseline bench: `scripts/bench interp either-chain`.
+      Landed a narrow numeric receiver subset for Option/Either/List/Range:
+      compact lambda descriptors (`JitHofShape`), shared dispatch helpers
+      (`JitHofDispatch`), top-level ref globals via `JitGlobals.readGlobalRef`,
+      and builtin `Right`/`Left` object co-emit. Verified by
+      `JitLintTest -z stage7-hof-method`, `SscVmTest -z stage7-hof-method`,
+      four warmed JMH commands (`scripts/bench interp option-chain`,
+      `either-chain`, `hof-pipeline`, `range-sum` with
+      `BENCH_WI=1 BENCH_MI=3 BENCH_F=1`), and full
+      `SSC_JIT_STATS=1 sbt "backendInterpreter/test"` (1428 tests green).
+      Result: focused benches are all <0.1ms/op; corpus miss profile unchanged
+      at 731 disabled / 238 UnknownShape / 70 Compound. `typeclass-fold`
+      remains a separate generic/given-dispatch follow-up. See spec §9
+      Stage 7.3.
+
+- [ ] **jit-uc-stage7-typeclass-fold** — Implement or classify the remaining
+      `typeclass-fold` HOF workload. This is not the same as standard receiver
+      method dispatch: it needs generic/given/typeclass object invocation, so
+      keep it separate from the monomorphic Option/Either/List/Range path.
 
 - [ ] **jit-uc-stage7-refchain-object-dispatch** — Implement or further narrow the
       22 `RefChainObjectCall` misses from Stage 7.2. Scope is object/String/generic

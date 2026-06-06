@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(jit): Stage 7 HOF method dispatch
+
+- **jit-uc-stage7-hof-method** — Javac and ASM now compile numeric
+  Option/Either/List/Range HOF method chains through compact lambda descriptors
+  and `JitHofDispatch` helpers. `option-chain` and `either-chain` measure
+  0.002ms/op, while `hof-pipeline` and `range-sum` are approximately
+  0.001ms/op with the quick 1/3/1 JMH config. Full `backendInterpreter/test`
+  is green at 1428 tests; corpus miss stats remain 731 disabled /
+  238 UnknownShape / 70 Compound.
+
 ## 2026-06-06 — feat(jit): Stage 7 RefChainCall bucket split
 
 - **jit-uc-stage7-refchain-bucket-split** — `RefChainCall` now only tracks the
