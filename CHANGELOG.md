@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — test(parser): regression guard for foldLeft brace-lambda module export
+
+- **busi-p0-foldleft-brace-lambda** — Closed by P0 #1.  busi-72 saw the
+  brace-block form `xs.foldLeft(0) { (a, b) => a + b }` "silently break"
+  module exports.  Root cause was the `type_:` trailing-underscore
+  identifier in the same module dropping the whole code block's parse
+  tree — once that was fixed (P0 #1), brace-lambda exports work.  Added
+  `FoldLeftBraceLambdaModuleTest` (5 tests) as a regression guard
+  covering no-package, with-package, the busi-72 combo
+  (`type_:` + brace-lambda), and nested brace-lambdas.
+
 ## 2026-06-06 — feat(rust): ssc build-rust — one-shot native binary
 
 - **rust-backend-r1-cli-build-rust** — `ssc build-rust hello.ssc`

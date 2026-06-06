@@ -22,12 +22,6 @@ fix, and don't require a runtime refactor.
 
 ### P0 — parser/resolver, hit on every new phase
 
-- [ ] **busi-p0-foldleft-brace-lambda** — `foldLeft { (a, b) => ... }`
-      with a brace-block argument silently breaks module export — same
-      category as #1: standalone works, module-level doesn't. Support
-      the curried trailing-block form everywhere, or emit an explicit
-      parser error.
-
 - [ ] **busi-p0-statusval-eventcase-collision** — `val PeerLinkInvited =
       PeerLinkStatus("invited")` + `case PeerLinkInvited(...)` in the
       same scope: compiles OK, `POST 201`, `GET 500` with no honest
