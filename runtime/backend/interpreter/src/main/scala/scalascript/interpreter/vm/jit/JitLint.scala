@@ -298,6 +298,12 @@ object JitPredicates:
                 case _: Pat.Var => true
                 case _ => false
               if hasBindings(alt.lhs) || hasBindings(alt.rhs) then buf += JitBailReason.AlternativeWithBindings
+            case Pat.Typed(inner, scala.meta.Type.Name(_)) =>
+              // Stage 8: `case _: T =>` / `case x: T =>` compile via walkArm.
+              // Only flag if the inner pattern is more complex than Var/Wildcard.
+              inner match
+                case _: Pat.Var | _: Pat.Wildcard => ()
+                case _                            => buf += JitBailReason.TypedPattern
             case _: Pat.Typed => buf += JitBailReason.TypedPattern
             case _ => buf += JitBailReason.NonExtractPattern
           walkForBailCliffs(c.body, paramNames, localNames, buf)

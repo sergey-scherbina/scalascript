@@ -185,11 +185,14 @@ class JitLintTest extends AnyFunSuite with Matchers:
     reasons should contain (JitBailReason.NestedTuplePattern)
     reasons should not contain JitBailReason.NonExtractPattern
 
-  test("stage8-nonextract-residual: typed pattern classified as TypedPattern"):
+  test("stage8-nonextract-residual: simple typed pattern compiles (no flag)"):
+    // Stage 8 typed-pattern slice: `case x: T =>` over a Type.Name compiles via
+    // walkArm Pat.Typed path, so the classifier should NOT flag TypedPattern.
     val reasons = classifyBody("s match { case x: String => 1; case _ => 0 }",
       List("s"), List("Any"))
-    reasons should contain (JitBailReason.TypedPattern)
+    reasons should not contain JitBailReason.TypedPattern
     reasons should not contain JitBailReason.NonExtractPattern
+
 
   test("stage8-nonextract-residual: alternative with bindings classified as AlternativeWithBindings"):
     val reasons = classifyBody("o match { case Some(x) | None => 0 }",

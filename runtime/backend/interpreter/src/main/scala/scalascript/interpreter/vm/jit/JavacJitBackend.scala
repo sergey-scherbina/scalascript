@@ -1695,6 +1695,7 @@ object JavacJitBackend extends JitBackend:
         case ext: scala.meta.Pat.Extract => ext.fun match
           case Term.Name(n) => Some(n)
           case _            => None
+        case Pat.Typed(_, scala.meta.Type.Name(n)) => Some(n)  // Stage 8: typed pattern
         case _ => None
       ctorNameOpt match
         case Some(cn) =>
@@ -1785,6 +1786,7 @@ object JavacJitBackend extends JitBackend:
         case ext: scala.meta.Pat.Extract => ext.fun match
           case Term.Name(n) => Some(n)
           case _            => None
+        case Pat.Typed(_, scala.meta.Type.Name(n)) => Some(n)  // Stage 8: typed pattern
         case _ => None
       ctorNameOpt match
         case Some(cn) =>
@@ -2029,6 +2031,29 @@ object JavacJitBackend extends JitBackend:
   private def walkArm(c: scala.meta.Case, ctx: GenCtx, interp: scalascript.interpreter.Interpreter, intTag: Int): String | Null =
     if c.cond.nonEmpty then return null   // guards not supported in initial slice
     c.pat match
+      // Stage 8: `case _: T =>` and `case x: T =>` — type-test pattern over an
+      // ADT constructor T. Equivalent to switch-case on T with no field bindings;
+      // x (if present) binds the scrutinee as a ref-typed local.
+      case Pat.Typed(inner, scala.meta.Type.Name(typeName)) =>
+        val bindName: String | Null = inner match
+          case Pat.Var(Term.Name(bn)) => bn
+          case _: Pat.Wildcard        => null
+          case _                      => return null
+        val sb = new StringBuilder
+        if intTag > 0 then sb.append(s"""  case $intTag: {\n      """)
+        else               sb.append(s"""  case "${escape(typeName)}": {\n      """)
+        val newCtx =
+          if bindName == null then ctx
+          else
+            val bind = sanitize(bindName) + "_a"
+            sb.append(s"Object $bind = inst;\n      ")
+            ctx.withBindings(Map(bindName -> (bind, true)))
+        val armBodyJava =
+          if ctx.isDouble then walkDouble(c.body, newCtx)
+          else              walkLong(c.body, newCtx)
+        if armBodyJava == null then return null
+        sb.append(s"return $armBodyJava;\n      }\n    ")
+        sb.toString
       case ext: scala.meta.Pat.Extract =>
         val ctorName = ext.fun match
           case Term.Name(n) => n

@@ -1794,6 +1794,21 @@ class SscVmTest extends AnyFunSuite with Matchers:
     JitGlobals.withInterp(interp) { direct.apply(sq) }    shouldBe 16L  // n=5>3: 5+10=15+1=16
   }
 
+  test("stage8-typed-pattern: case _: T => and case x: T => JIT via Pat.Typed in walkArm") {
+    val out = captured(
+      """sealed trait Shape
+        |case class Circle(r: Int) extends Shape
+        |case class Square(s: Int) extends Shape
+        |def classify(shape: Shape): Int = shape match
+        |  case _: Circle => 1
+        |  case x: Square => x.s + 100
+        |val c = Circle(5)
+        |val s = Square(7)
+        |println(classify(c))
+        |println(classify(s))""".stripMargin)
+    out.trim shouldBe "1\n107"
+  }
+
   test("stage8-ref-equality: String == String JITs via Objects.equals fallback") {
     val out = captured(
       """def isMatch(a: String, b: String): Int = if a == b then 1 else 0
