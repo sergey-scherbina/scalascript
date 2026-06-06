@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(jit): NonExtractPattern split (observability)
+
+- **jit-uc-stage8-nonextract-pattern-residual** — Classifier-only split of
+  NonExtractPattern into TypedPattern (`case x: T =>`), NestedTuplePattern
+  (`case (a, (b, c)) =>`), AlternativeWithBindings; 3 focused tests; corpus
+  19 NonExtractPattern unchanged (sub-Pat.Extract in tuples — separate slice).
+
 ## 2026-06-06 — feat(jit): pattern-guard Long-fallback
 
 - **jit-uc-stage8-pattern-guard-complex** — Javac `guardBoolExpr` + ASM

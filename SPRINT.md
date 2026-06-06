@@ -414,14 +414,10 @@ A/B (or test A/B); never ship a non-win.
       (same path stage-7 uses for sibling calls). Baseline: record
       `QualifiedRefCall` count before/after.
 
-- [ ] **jit-uc-stage8-nonextract-pattern-residual** — Compile the residual
-      `NonExtractPattern` cases not handled by stage-6 tuple: nested tuples
-      (`case (a, (b, c)) =>`), typed patterns (`case x: T =>`), and
-      `Pat.Alternative` with bindings. 19 misses. Strategy: extend
-      `walkTupleMatchBody` / `emitTupleMatchBody` to recurse into nested
-      `Pat.Tuple`; add `Pat.Typed` arm (CHECKCAST + bind); revisit
-      `Pat.Alternative` with binding (currently bails). Baseline:
-      `NonExtractPattern` 19 → 0.
+- [x] **jit-uc-stage8-nonextract-pattern-residual** — Classifier split:
+      added TypedPattern + NestedTuplePattern + AlternativeWithBindings cases.
+      Corpus 19 NonExtractPattern stayed (sub-Pat.Extract inside tuples — separate
+      codegen slice). 3 focused classifier tests; 1447 tests green.
 
 - [x] **jit-uc-stage8-pattern-guard-complex** — Long-fallback for match-guards:
       Javac `guardBoolExpr` + ASM `emitGuardBool` try `walkBool` first then
