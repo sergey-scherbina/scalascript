@@ -216,6 +216,10 @@ Current after HOF method slice (2026-06-06): 731 disabled, 238 UnknownShape,
 are now `option-chain=0.002ms`, `either-chain=0.002ms`,
 `hof-pipeline≈0.001ms`, `range-sum≈0.001ms`
 (`BENCH_WI=1 BENCH_MI=3 BENCH_F=1 scripts/bench interp <name>`).
+Current after typeclass classification (2026-06-06): 733 disabled,
+238 UnknownShape, 70 Compound, `TypeclassUsingDispatch` split out as
+`javac=4` / `asm=1`; `typeclass-fold=0.010 +/- 0.008ms/op`
+(`BENCH_WI=1 BENCH_MI=3 BENCH_F=1 scripts/bench interp typeclass-fold`).
 Each item: one commit + bench A/B (or test A/B), never ship a non-win.
 
 - [x] **jit-uc-stage7-refchain** — Ref-val propagation low-risk subset landed:
@@ -257,10 +261,17 @@ Each item: one commit + bench A/B (or test A/B), never ship a non-win.
       remains a separate generic/given-dispatch follow-up. See spec §9
       Stage 7.3.
 
-- [ ] **jit-uc-stage7-typeclass-fold** — Implement or classify the remaining
-      `typeclass-fold` HOF workload. This is not the same as standard receiver
-      method dispatch: it needs generic/given/typeclass object invocation, so
-      keep it separate from the monomorphic Option/Either/List/Range path.
+- [x] **jit-uc-stage7-typeclass-fold** — Classified the remaining
+      `typeclass-fold` HOF workload as active context-bound typeclass dispatch
+      instead of standard receiver method dispatch. Added
+      `TypeclassUsingDispatch` for `summon[...]` and method selection on
+      `using` params, plus a warmed `typeclass-fold` JMH target. Verified by
+      `JitLintTest -z stage7-typeclass-fold`, `interpreterBench/compile`,
+      quick JMH (`0.010 +/- 0.008ms/op`), and full
+      `SSC_JIT_STATS=1 sbt "backendInterpreter/test"` (1429 tests green).
+      Result: generic/given dispatch is now a named follow-up; do not fold it
+      into the monomorphic Option/Either/List/Range path. See spec §9
+      Stage 7.4.
 
 - [ ] **jit-uc-stage7-refchain-object-dispatch** — Implement or further narrow the
       22 `RefChainObjectCall` misses from Stage 7.2. Scope is object/String/generic

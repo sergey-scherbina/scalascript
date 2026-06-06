@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(jit): Stage 7 typeclass fold classification
+
+- **jit-uc-stage7-typeclass-fold** — `typeclass-fold` is now classified as
+  active context-bound typeclass dispatch via `TypeclassUsingDispatch`, rather
+  than being grouped with ordinary `UsingParams` or monomorphic HOF receiver
+  chains. Added a focused JitLint regression and a warmed
+  `typeclass-fold` JMH alias. Quick 1/3/1 JMH reports
+  `0.010 +/- 0.008ms/op`; full `backendInterpreter/test` is green at
+  1429 tests with `TypeclassUsingDispatch` split out in JIT stats
+  (`javac=4`, `asm=1`).
+
 ## 2026-06-06 — feat(jit): Stage 7 HOF method dispatch
 
 - **jit-uc-stage7-hof-method** — Javac and ASM now compile numeric
