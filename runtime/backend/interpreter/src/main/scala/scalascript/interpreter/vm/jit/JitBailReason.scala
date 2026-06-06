@@ -311,6 +311,53 @@ object JitBailReason:
     val description = reasons.map(_.description).mkString("; ")
     val suggestedFix = None
 
+  // ── VmCompiler-specific (Stage 8) ────────────────────────────────────────
+
+  /** VmCompiler: call-site shape unsupported (arity mismatch, ref/numeric arg
+   *  type mismatch, self-tail count mismatch). Aggregates the family of
+   *  `bail("call: …")` sites that don't fit `FreeNameUnresolvable`. */
+  case object VmCallShape extends JitBailReason:
+    val tag         = "VmCallShape"
+    val description = "VmCompiler: call site shape unsupported (arity mismatch, " +
+      "ref/numeric arg type mismatch, or non-compilable callee)"
+    val suggestedFix = None
+
+  /** VmCompiler: field access bail (non-ref base, unknown ref type, no meta,
+   *  field not found). All `bail("field: …")` sites. */
+  case object VmFieldShape extends JitBailReason:
+    val tag         = "VmFieldShape"
+    val description = "VmCompiler: field access shape unsupported (non-ref base, " +
+      "unknown ref type, no meta, or field not found in the receiver type)"
+    val suggestedFix = None
+
+  /** VmCompiler: unsupported term / stmt / unary operator. */
+  case object VmUnsupportedTerm extends JitBailReason:
+    val tag         = "VmUnsupportedTerm"
+    val description = "VmCompiler: term, statement, or unary operator not handled " +
+      "by the register-VM compiler walker"
+    val suggestedFix = None
+
+  /** VmCompiler: empty block in expression or tail position. */
+  case object VmEmptyBlock extends JitBailReason:
+    val tag         = "VmEmptyBlock"
+    val description = "VmCompiler: empty block (no statements) in expression or " +
+      "tail position; the register VM has nothing to compile"
+    val suggestedFix = None
+
+  /** VmCompiler: non-boolean if- or while-condition. */
+  case object VmNonBoolCond extends JitBailReason:
+    val tag         = "VmNonBoolCond"
+    val description = "VmCompiler: if/while condition does not type-check as " +
+      "Boolean in the register-VM type system"
+    val suggestedFix = None
+
+  /** VmCompiler: assignment to an undefined variable name. */
+  case object VmUndefinedName extends JitBailReason:
+    val tag         = "VmUndefinedName"
+    val description = "VmCompiler: assignment to a name that is not a registered " +
+      "local var (likely an outer/captured binding not in scope for compilation)"
+    val suggestedFix = None
+
   /** Backwards-compatibility wrapper for legacy free-form string bail reasons
    *  (used by VmCompiler bail sites not yet migrated to typed cases). */
   case class Other(reason: String) extends JitBailReason:
