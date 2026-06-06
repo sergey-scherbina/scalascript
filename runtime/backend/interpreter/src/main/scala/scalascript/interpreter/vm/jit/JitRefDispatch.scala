@@ -247,3 +247,45 @@ object JitRefDispatch:
     case Value.MapV(entries) => Value.ListV(entries.values.toList).asInstanceOf[Object]
     case _ =>
       throw new ClassCastException(s"mapValuesRef unsupported receiver: ${recv.getClass.getName}")
+
+  // Stage 8: String methods — trim/toUpperCase/toLowerCase return StringV;
+  // toInt/toLong return Long; indexOf returns Long.
+  def stringTrimRef(recv: AnyRef): Object = recv match
+    case Value.StringV(s) => Value.StringV(s.trim).asInstanceOf[Object]
+    case _ =>
+      throw new ClassCastException(s"stringTrimRef unsupported receiver: ${recv.getClass.getName}")
+
+  def stringUpperRef(recv: AnyRef): Object = recv match
+    case Value.StringV(s) => Value.StringV(s.toUpperCase).asInstanceOf[Object]
+    case _ =>
+      throw new ClassCastException(s"stringUpperRef unsupported receiver: ${recv.getClass.getName}")
+
+  def stringLowerRef(recv: AnyRef): Object = recv match
+    case Value.StringV(s) => Value.StringV(s.toLowerCase).asInstanceOf[Object]
+    case _ =>
+      throw new ClassCastException(s"stringLowerRef unsupported receiver: ${recv.getClass.getName}")
+
+  def stringToIntLong(recv: AnyRef): Long = recv match
+    case Value.StringV(s) => s.trim.toInt.toLong
+    case _ =>
+      throw new ClassCastException(s"stringToIntLong unsupported receiver: ${recv.getClass.getName}")
+
+  def stringToLongLong(recv: AnyRef): Long = recv match
+    case Value.StringV(s) => s.trim.toLong
+    case _ =>
+      throw new ClassCastException(s"stringToLongLong unsupported receiver: ${recv.getClass.getName}")
+
+  def stringIndexOfLong(recv: AnyRef, needle: AnyRef): Long = (recv, needle) match
+    case (Value.StringV(s), Value.StringV(t)) => s.indexOf(t).toLong
+    case _ =>
+      throw new ClassCastException(s"stringIndexOfLong unsupported: ${recv.getClass.getName}, ${needle.getClass.getName}")
+
+  def stringStartsWithLong(recv: AnyRef, prefix: AnyRef): Long = (recv, prefix) match
+    case (Value.StringV(s), Value.StringV(p)) => if s.startsWith(p) then 1L else 0L
+    case _ =>
+      throw new ClassCastException(s"stringStartsWithLong unsupported: ${recv.getClass.getName}, ${prefix.getClass.getName}")
+
+  def stringEndsWithLong(recv: AnyRef, suffix: AnyRef): Long = (recv, suffix) match
+    case (Value.StringV(s), Value.StringV(suf)) => if s.endsWith(suf) then 1L else 0L
+    case _ =>
+      throw new ClassCastException(s"stringEndsWithLong unsupported: ${recv.getClass.getName}, ${suffix.getClass.getName}")

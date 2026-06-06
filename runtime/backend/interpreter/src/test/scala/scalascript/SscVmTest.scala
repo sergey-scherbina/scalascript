@@ -1794,6 +1794,18 @@ class SscVmTest extends AnyFunSuite with Matchers:
     JitGlobals.withInterp(interp) { direct.apply(sq) }    shouldBe 16L  // n=5>3: 5+10=15+1=16
   }
 
+  test("stage8-string-methods: .trim / .toInt / .startsWith / .toUpperCase JIT through JitRefDispatch") {
+    val out = captured(
+      """def parse(s: String): Int = s.trim.toInt
+        |def shout(s: String): String = s.trim.toUpperCase
+        |def begins(s: String, p: String): Int = if s.startsWith(p) then 1 else 0
+        |println(parse("  42  "))
+        |println(shout("hello"))
+        |println(begins("hello world", "hello"))
+        |println(begins("foo", "bar"))""".stripMargin)
+    out.trim shouldBe "42\nHELLO\n1\n0"
+  }
+
   test("stage8-option-map-methods: Option.isDefined / List.contains JIT through JitRefDispatch") {
     val out = captured(
       """def hasIt(o: Option[Int]): Int = if o.isDefined then 1 else 0

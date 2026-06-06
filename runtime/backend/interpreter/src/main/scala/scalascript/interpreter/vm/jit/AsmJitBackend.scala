@@ -989,6 +989,40 @@ object AsmJitBackend extends JitBackend:
         mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "containsLong",
           s"(Ljava/lang/Object;L$valueInt;)J", false)
         true
+      // Stage 8: String → Long methods.
+      case "toInt" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "stringToIntLong",
+          "(Ljava/lang/Object;)J", false)
+        true
+      case "toLong" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "stringToLongLong",
+          "(Ljava/lang/Object;)J", false)
+        true
+      case "indexOf" if args.lengthCompare(1) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        if !walkRef(args.head, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "stringIndexOfLong",
+          "(Ljava/lang/Object;Ljava/lang/Object;)J", false)
+        true
+      case "startsWith" if args.lengthCompare(1) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        if !walkRef(args.head, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "stringStartsWithLong",
+          "(Ljava/lang/Object;Ljava/lang/Object;)J", false)
+        true
+      case "endsWith" if args.lengthCompare(1) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        if !walkRef(args.head, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "stringEndsWithLong",
+          "(Ljava/lang/Object;Ljava/lang/Object;)J", false)
+        true
       case _ => false
 
   private def emitRefChainObject(recv: Term, method: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
@@ -1057,6 +1091,25 @@ object AsmJitBackend extends JitBackend:
         mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
         if !walkRef(recv, ctx, mv) then return false
         mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "optionGetRef", "(Ljava/lang/Object;)Ljava/lang/Object;", false)
+        true
+      // Stage 8: String → String methods.
+      case "trim" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "stringTrimRef",
+          "(Ljava/lang/Object;)Ljava/lang/Object;", false)
+        true
+      case "toUpperCase" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "stringUpperRef",
+          "(Ljava/lang/Object;)Ljava/lang/Object;", false)
+        true
+      case "toLowerCase" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "stringLowerRef",
+          "(Ljava/lang/Object;)Ljava/lang/Object;", false)
         true
       case _ => false
 

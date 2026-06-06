@@ -861,6 +861,20 @@ object JavacJitBackend extends JitBackend:
       case "contains" if args.lengthCompare(1) == 0 =>
         val k = emitValueObject(args.head, ctx)
         if k == null then null else s"$jrd.containsLong((Object) ($refExpr), $k)"
+      // Stage 8: String → Long methods.
+      case "toInt" if args.isEmpty =>
+        s"$jrd.stringToIntLong((Object) ($refExpr))"
+      case "toLong" if args.isEmpty =>
+        s"$jrd.stringToLongLong((Object) ($refExpr))"
+      case "indexOf" if args.lengthCompare(1) == 0 =>
+        val r = walkRef(args.head, ctx)
+        if r == null then null else s"$jrd.stringIndexOfLong((Object) ($refExpr), (Object) ($r))"
+      case "startsWith" if args.lengthCompare(1) == 0 =>
+        val r = walkRef(args.head, ctx)
+        if r == null then null else s"$jrd.stringStartsWithLong((Object) ($refExpr), (Object) ($r))"
+      case "endsWith" if args.lengthCompare(1) == 0 =>
+        val r = walkRef(args.head, ctx)
+        if r == null then null else s"$jrd.stringEndsWithLong((Object) ($refExpr), (Object) ($r))"
       case _ => null
 
   private def emitRefChainObject(recv: Term, method: String, args: List[Term], ctx: GenCtx): String | Null =
@@ -904,6 +918,13 @@ object JavacJitBackend extends JitBackend:
         s"$jrd.mapValuesRef((Object) ($refExpr))"
       case "get" if args.isEmpty =>
         s"$jrd.optionGetRef((Object) ($refExpr))"
+      // Stage 8: String → String methods.
+      case "trim" if args.isEmpty =>
+        s"$jrd.stringTrimRef((Object) ($refExpr))"
+      case "toUpperCase" if args.isEmpty =>
+        s"$jrd.stringUpperRef((Object) ($refExpr))"
+      case "toLowerCase" if args.isEmpty =>
+        s"$jrd.stringLowerRef((Object) ($refExpr))"
       case _ => null
 
   private def isNumericObjectReceiver(recv: Term): Boolean =
