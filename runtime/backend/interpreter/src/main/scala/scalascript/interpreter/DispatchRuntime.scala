@@ -1063,6 +1063,24 @@ private[interpreter] object DispatchRuntime:
       case "replace"     => args match
         case List(Value.StringV(a), Value.StringV(b)) => Pure(Value.StringV(s.replace(a, b)))
         case _                                        => dispatchFallback(recv, name, args, env, interp)
+      // ── Lexicographic ordering ─────────────────────────────────────────────
+      // Needed for sort keys (UUID v7 time-ordering, dictionary keys etc.).
+      // Java's `String.compareTo` is the canonical Unicode codepoint ordering.
+      case "<"           => args match
+        case List(Value.StringV(t)) => Computation.pureBool(s.compareTo(t) < 0)
+        case _                      => dispatchFallback(recv, name, args, env, interp)
+      case ">"           => args match
+        case List(Value.StringV(t)) => Computation.pureBool(s.compareTo(t) > 0)
+        case _                      => dispatchFallback(recv, name, args, env, interp)
+      case "<="          => args match
+        case List(Value.StringV(t)) => Computation.pureBool(s.compareTo(t) <= 0)
+        case _                      => dispatchFallback(recv, name, args, env, interp)
+      case ">="          => args match
+        case List(Value.StringV(t)) => Computation.pureBool(s.compareTo(t) >= 0)
+        case _                      => dispatchFallback(recv, name, args, env, interp)
+      case "compareTo"   => args match
+        case List(Value.StringV(t)) => Computation.pureIntV(s.compareTo(t).toLong)
+        case _                      => dispatchFallback(recv, name, args, env, interp)
       case "charAt" | "apply" => args match
         case List(Value.IntV(i)) =>
           if i < 0 || i >= s.length then interp.located(s"index $i out of bounds for string of length ${s.length}")
