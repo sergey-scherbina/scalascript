@@ -465,3 +465,247 @@ Each item below is one focused commit; same-session A/B, never ship a non-win.
       of `asm-jit-parity` (2026-06-04). Verified 2026-06-05: ASM `recursiveEval`
       0.070 ms/op, `recursiveEvalMixed` 0.071 ms/op (vs Javac 0.066 ms/op).
       Spec: [`docs/interp-opt-recursive-eval.md`](docs/interp-opt-recursive-eval.md).
+
+---
+
+## Rust backend (new target)
+
+Spec: [`specs/rust-backend.md`](specs/rust-backend.md). New AOT target —
+emits a Cargo crate (`Cargo.toml` + `src/runtime/` + `src/generated/`) that
+`cargo build` compiles to a self-contained binary. Phases R.1–R.6
+(skeleton → core IR → intrinsics MVP → effects → http parity → polish).
+Each task: one commit, baseline + acceptance recorded, never ship a
+half-implemented phase under a flag. New backend module under
+`runtime/backend/rust/`, plugin loaded via `META-INF/services` like every
+other backend; no privileged hook in core.
+
+**Coordination.** R.1 is the foundation — every later task `dependsOn` it.
+Until R.1 lands, do not claim R.2+ from the queue. R.6 sub-tasks are
+independent of each other once R.5 is in.
+
+### Phase R.1 — Skeleton
+
+- [ ] **rust-backend-r1-spi-output-kind** — Add `OutputKind.RustSource` to
+      `runtime/backend/spi/src/main/scala/scalascript/backend/spi/OutputKind.scala`
+      and bump `SpiVersion`. Verify all existing pattern matches on
+      `OutputKind` compile (search for `case OutputKind.` — must have a
+      `case _ =>` or the new case explicitly). One commit; no behaviour
+      change. Acceptance: `sbt compile` green; `sbt "+test"` unchanged
+      count vs baseline. This is the only SPI surface change R.1 requires.
+
+- [ ] **rust-backend-r1-module-skeleton** — Create `runtime/backend/rust/`
+      sbt module mirroring `backendWasm` (deps: `backendSpi`, `core`).
+      Layout: `src/main/scala/scalascript/codegen/rust/{RustBackend,
+      RustCapabilities,RustIntrinsics,RustGen}.scala` and
+      `src/main/resources/META-INF/services/scalascript.backend.spi.Backend`
+      naming `scalascript.codegen.rust.RustBackend`. `RustCapabilities`
+      declares only `Feature.ConsoleIO` and `OutputKind.RustSource`.
+      `RustGen.generate` returns `CompileResult.Segmented(Nil)` (placeholder).
+      Aggregate into root, `cli.dependsOn(backendRust)`, `installBin`
+      carries the JAR. Acceptance: `sbt backendRust/compile` green;
+      `ServiceLoader[Backend]` enumeration includes id `"rust"`.
+
+- [ ] **rust-backend-r1-hello-emit** — Implement `RustGen.generate` for the
+      4-line hello-world: `println`, `Int` literals, top-level `def`, `@main`.
+      Emits `Cargo.toml`, `src/main.rs`, `src/runtime/mod.rs` with
+      `_println`/`_print`/`_show`, `src/value.rs` with the `Value` enum
+      (Unit/Bool/Int/Double/Str + Tuple/List), `src/generated/<module>.rs`.
+      `RustIntrinsics` map: `println`/`print` →
+      `RuntimeCall("crate::runtime::_println")` etc. Per-module dependency
+      walk (placeholder — empty deps for R.1). Acceptance: write golden
+      under `tests/cross/rust/hello/` (`expected.toml` + `expected.main.rs`);
+      snapshot test diffs against the golden.
+
+- [ ] **rust-backend-r1-cli-emit-rust** — Add `EmitRustCmd extends CliCommand`
+      in `tools/cli/src/main/scala/scalascript/cli/EmitCommands.scala`,
+      flags `-o <dir>`, `--print-only`, `--bin-name <name>`, `--release`.
+      Register in `CommandRegistry`. Update `CommandRegistryTest` expected
+      set to include `"emit-rust"`. Help text lists it under "Emit &
+      transpile" alongside `emit-js`/`emit-wasm`. Acceptance:
+      `ssc emit-rust examples/rust/hello.ssc -o /tmp/hello-rust` writes the
+      crate; `--print-only` prints `main.rs` to stdout.
+
+- [ ] **rust-backend-r1-build-smoke** — Add `tests/rust-build-smoke.sh`
+      that, when `which cargo` succeeds, runs `cargo build --offline` (or
+      `--locked` if no offline cache) on every crate emitted by
+      `tests/cross/rust/*/`. Skipped with exit 0 otherwise — does not block
+      CI on machines without Rust. CI lane definition (a new
+      `cross-rust-build` job) is documented but not added to the matrix
+      until the host image actually has `rustup`. Acceptance: locally on a
+      machine with `cargo`, `bash tests/rust-build-smoke.sh` returns 0 and
+      the produced `target/debug/<bin>` prints "Hello from Rust" matching
+      the interpreter row.
+
+### Phase R.2 — Core IR coverage
+
+Depends on R.1 complete. Each item: one commit, golden snapshots updated,
+A/B vs the interpreter row.
+
+- [ ] **rust-backend-r2-literals-blocks** — Lower `Lit.{Int,Long,Double,
+      Bool,String,Unit}`, `Block`, `Let`, `If`, `Apply` (free name → top-level
+      `fn`). Capability adds `StringInterpolators` (only `s"…"` for now —
+      lowered to `format!`). Acceptance: snapshot tests `fib.ssc`,
+      `string-interp.ssc` build with `cargo run` and stdout matches the
+      interpreter row exactly.
+
+- [ ] **rust-backend-r2-pattern-match** — Map IR `MatchTree` decision tree
+      to nested Rust `match`. Lower case classes to tagged enums
+      (`enum Shape { Circle(f64), Square(f64) }`). Capability adds
+      `PatternMatching`. Acceptance: `case-class-match.ssc` snapshot —
+      `cargo build` passes Rust's own exhaustiveness check; output equals
+      interpreter.
+
+- [ ] **rust-backend-r2-mutable-while** — Lower `Var := rhs` to `let mut`
+      + reassign; lower `While(c, b)` to Rust `while`. Capability adds
+      `MutableState`, `WhileLoops`. Acceptance: `mutable-counter.ssc`,
+      `while-fib.ssc` snapshots.
+
+- [ ] **rust-backend-r2-closures** — Lower `Term.Function` and captured
+      closures to `move |…| …` boxed as `Box<dyn Fn(…) -> _>` when stored
+      in a value slot. Decide `Rc` vs `Arc` based on whether the closure
+      escapes into an async/tokio boundary (R.5 onward; R.2 defaults to
+      `Rc`). Acceptance: `higher-order.ssc` (map/filter/fold over `Vec`)
+      snapshot.
+
+- [ ] **rust-backend-r2-for-comprehensions** — Desugar `for ... yield` to
+      `iter().map(...).collect()` / `flat_map` chains. Capability adds
+      `ForComprehensions`, `ExtensionMethods` (for the prelude's list
+      operations), `DefaultParameters`. Acceptance: `for-yield.ssc`
+      snapshot + capability rejection test for unsupported features
+      (`Feature.AlgebraicEffects` use against R.2 → diagnostic).
+
+### Phase R.3 — Intrinsics MVP
+
+Depends on R.2. Capability additions: `FileSystem`, `Crypto`, `Markup`
+(string-string xml only). Per-module Cargo dependency walk now becomes
+load-bearing: the emitted `Cargo.toml` lists exactly the crates the
+program reaches.
+
+- [ ] **rust-backend-r3-time-fs** — Wire `nowMillis` →
+      `RuntimeCall("crate::runtime::intrinsics::_now_millis")`,
+      `std.io.readFile`/`writeFile` → `_read_file`/`_write_file` (using
+      `std::fs::read_to_string` / `std::fs::write`). No new crate deps.
+      Acceptance: `fs-roundtrip.ssc` (write → read → assert equality)
+      snapshot.
+
+- [ ] **rust-backend-r3-crypto-base64** — Add `sha256` /
+      `base64Encode` / `base64Decode` intrinsics; per-module walk pulls
+      `sha2 = "0.10"` and `base64 = "0.22"` into `Cargo.toml` only when
+      reached. Acceptance: `crypto-sha256.ssc` snapshot — hex digest of
+      a known string equals `openssl dgst -sha256`.
+
+- [ ] **rust-backend-r3-json** — `std.json.parse` / `stringify` →
+      `serde_json` crate (pulled only when reached). The boxed `Value`
+      enum gains a serde-derived `Serialize`/`Deserialize` impl in
+      `value.rs`. Acceptance: `json-roundtrip.ssc` snapshot — round-trips
+      a nested object byte-for-byte.
+
+### Phase R.4 — Effects (algebraic effects + handlers)
+
+Depends on R.2 closures and R.3 (for the runtime preamble layout). Free
+monad in `Value::Computation(Box<Computation<Value>>)`. Capability adds
+`AlgebraicEffects`. Multi-shot continuations panic with a clearly-labelled
+runtime error; tracked as R.6 follow-up.
+
+- [ ] **rust-backend-r4-effect-runtime** — Add `src/runtime/effect.rs`:
+      `pub enum Computation<A> { Pure(A), Effect(Op, Box<dyn FnOnce(Value)
+      -> Computation<A>>) }` + `run_with(handlers: &HandlerStack) -> A`
+      driver + `HandlerStack`. Extend `value.rs` with the
+      `Computation(Box<Computation<Value>>)` variant. Acceptance:
+      hand-written Rust unit test driving a `Pure` + simple `Effect` —
+      verifies the runtime independently of codegen.
+
+- [ ] **rust-backend-r4-perform-handle-resume-lowering** — Lower IR
+      `Perform(op, args)` to `Computation::Effect(op, Box::new(|k| k(v)))`;
+      `Handle(body, cases, return)` to a new handler frame pushed on the
+      stack; `Resume(k, v)` to a call into the captured continuation.
+      Acceptance: `effects/state.ssc`, `effects/reader.ssc`,
+      `effects/nondet.ssc` snapshots — `cargo run` output equals the
+      interpreter row. Negative test: multi-shot `nondet-choice.ssc`
+      panics with "multi-shot continuation not yet supported by rust
+      backend".
+
+### Phase R.5 — Runtime parity (std.http server)
+
+Depends on R.4 (handler bodies are effectful). Capability adds
+`HttpServer`. Per-module walk pulls `tokio` + `hyper` + `http-body-util` +
+`bytes` only when an `std.http.*` intrinsic is reached; programs without
+HTTP stay dep-free.
+
+- [ ] **rust-backend-r5-tokio-runtime-bootstrap** — When the per-module
+      walk hits any HTTP/WS intrinsic, `main.rs` constructs a
+      `tokio::runtime::Runtime` and blocks on a service driver so
+      `serve(port)` + `route(...)` wire onto the same executor. Programs
+      without HTTP intrinsics emit the existing direct `main()`.
+      Acceptance: `hello.ssc` (no HTTP) still emits the dep-free crate;
+      `http-stub.ssc` (calls `serve(0)` then exits) emits the tokio
+      bootstrap and `cargo build` succeeds.
+
+- [ ] **rust-backend-r5-http-serve-route** — Map `std.http.serve(port)`
+      and `std.http.route(method, path, handler)` to
+      `hyper::server::conn::http1::Builder` + `service_fn`. Closure
+      capture switches from `Rc<dyn Fn>` to `Arc<dyn Fn + Send + Sync>`
+      on the handler path. Acceptance: `examples/rust/http-hello.ssc`
+      (one GET route returning JSON) — integration test starts on
+      `127.0.0.1:0`, issues `curl http://127.0.0.1:$port/`, asserts body
+      matches the interpreter row.
+
+### Phase R.6 — Parity polish (independent tasks)
+
+Each item is independent and stays parked until a real conformance test
+or example demands it. Order below is priority for triage when claiming.
+
+- [ ] **rust-backend-r6-monomorphisation-pass** — Core post-normalisation
+      optimiser replaces `Value` boxing with the inferred Rust primitive
+      on hot paths (e.g. `Int → i64`, `Bool → bool`). Lives in `core`,
+      not in `backendRust` — any future native target benefits. Baseline:
+      pick one snapshot from R.2 (e.g. `fib.ssc`); record `cargo build
+      --release` binary size + `hyperfine` runtime before/after. Win:
+      ≥2× speedup on the chosen workload, no regression elsewhere.
+
+- [ ] **rust-backend-r6-websockets** — `Feature.WebSockets`, intrinsics
+      `wsRoute`/`wsConnectSync` via `tokio-tungstenite`. Mirrors
+      `JvmWsIntrinsics` shape. Acceptance: `ws-echo.ssc` snapshot —
+      integration test opens a WS client, server echoes a frame.
+
+- [ ] **rust-backend-r6-auth** — `Feature.Auth`, intrinsics
+      `hashPassword`/`verifyPassword`/`jwtSign`/`jwtVerify` via `argon2`
+      + `jsonwebtoken` crates. Acceptance: `auth-roundtrip.ssc`
+      snapshot — hash → verify roundtrip and JWT sign → verify
+      roundtrip.
+
+- [ ] **rust-backend-r6-mcp** — `Feature.McpServer` + `McpClient` via
+      the rmcp crate (or hand-rolled JSON-RPC over stdio if rmcp's API
+      is not stable enough). Acceptance: `mcp-echo.ssc` snapshot —
+      client calls a tool, server replies.
+
+- [ ] **rust-backend-r6-streams** — `Feature.Streams`, lower the
+      ScalaScript backpressured Source/Sink/Flow onto
+      `futures::stream::Stream` + `tokio::sync::mpsc`. Acceptance:
+      `streams-pipeline.ssc` snapshot.
+
+- [ ] **rust-backend-r6-markup-xslt** — `Feature.Xslt` decision point:
+      either implement an XSLT 1.0 subset via `quick-xml` (significant
+      work) or skip XSLT and document the gap. Decide based on whether
+      any conformance test reaches it. Acceptance: `markup-xml.ssc`
+      snapshot for the codec path; XSLT either lands with its own
+      snapshot or is explicitly rejected via capability check.
+
+- [ ] **rust-backend-r6-typeclasses** — `Feature.TypeClasses`. When the
+      IR has enough type information, map typeclass dispatch onto Rust
+      traits; fall back to vtable dispatch via the boxed `Value` for
+      higher-rank cases (Stage 9 `jit-uc-stage8-typeclass-fold` solves
+      the same problem at the JIT layer — design notes apply).
+      Acceptance: `typeclass-monoid.ssc` snapshot.
+
+- [ ] **rust-backend-r6-multi-shot-continuations** — Lift R.4's
+      one-shot-only restriction. `Computation<A>` becomes `Clone` for
+      `A: Clone`; `Resume` clones the captured continuation when the
+      effect handler resumes more than once. Acceptance: re-run R.4's
+      multi-shot negative test (`nondet-choice.ssc`); now it produces
+      the same multi-result output as the interpreter row.
+
+- [ ] **rust-backend-r6-tco** — `Feature.TailCallOptimization` via the
+      tramp/`while`-rewrite the JVM target uses, since `rustc` does not
+      guarantee TCO. Acceptance: `tco-fib.ssc` — runs to 10M iterations
+      without stack overflow; matches interpreter row.
