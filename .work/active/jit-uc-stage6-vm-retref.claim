@@ -1,0 +1,6 @@
+feature/jit-uc-stage6-vm-retref 2026-06-06T09:37:52Z
+agent: claude-sonnet-4-6
+heartbeat: 2026-06-06T09:37:52Z
+status: not-started
+done-so-far:
+next: read VmCompiler + SscVm for RETREF design
