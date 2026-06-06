@@ -992,6 +992,15 @@ object AsmJitBackend extends JitBackend:
         if !walkLong(args.head, ctx, mv) then return false
         mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "getOrElseLong", "(Ljava/lang/Object;J)J", false)
         true
+      // Stage 8: Map.getOrElse(key, default) → Long.
+      case "getOrElse" if args.lengthCompare(2) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        if !emitValueObject(args.head, ctx, mv) then return false
+        if !walkLong(args(1), ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "mapGetOrElseLong",
+          s"(Ljava/lang/Object;L$valueInt;J)J", false)
+        true
       case "size" if args.isEmpty =>
         mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
         if !walkRef(recv, ctx, mv) then return false
@@ -1095,6 +1104,15 @@ object AsmJitBackend extends JitBackend:
         if !emitValueObject(args.head, ctx, mv) then return false
         if !emitValueObject(args(1), ctx, mv) then return false
         mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "mapGetOrElseRef", s"(Ljava/lang/Object;L$valueInt;L$valueInt;)Ljava/lang/Object;", false)
+        true
+      // Stage 8: Map.updated(k, v) → new Map.
+      case "updated" if args.lengthCompare(2) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        if !emitValueObject(args.head, ctx, mv) then return false
+        if !emitValueObject(args(1), ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "mapUpdatedRef",
+          s"(Ljava/lang/Object;L$valueInt;L$valueInt;)Ljava/lang/Object;", false)
         true
       case "mkString" if args.isEmpty =>
         mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")

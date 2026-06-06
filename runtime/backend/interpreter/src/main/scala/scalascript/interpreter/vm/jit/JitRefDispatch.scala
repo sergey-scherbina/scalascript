@@ -345,6 +345,22 @@ object JitRefDispatch:
     case _ =>
       throw new ClassCastException(s"mapGetRef unsupported receiver: ${recv.getClass.getName}")
 
+  // Stage 8: Map.updated(k, v) → new Map (immutable update).
+  def mapUpdatedRef(recv: AnyRef, key: Value, value: Value): Object = recv match
+    case Value.MapV(entries) => Value.MapV(entries.updated(key, value)).asInstanceOf[Object]
+    case _ =>
+      throw new ClassCastException(s"mapUpdatedRef unsupported receiver: ${recv.getClass.getName}")
+
+  // Stage 8: Map.getOrElse(key, default) returning Long for numeric value maps.
+  def mapGetOrElseLong(recv: AnyRef, key: Value, default: Long): Long = recv match
+    case Value.MapV(entries) =>
+      entries.get(key) match
+        case Some(Value.IntV(n))    => n
+        case Some(Value.DoubleV(d)) => d.toLong
+        case _                      => default
+    case _ =>
+      throw new ClassCastException(s"mapGetOrElseLong unsupported receiver: ${recv.getClass.getName}")
+
   // Stage 8: String methods — replace, substring, charAt.
   def stringReplaceRef(recv: AnyRef, oldPat: AnyRef, newPat: AnyRef): Object = (recv, oldPat, newPat) match
     case (Value.StringV(s), Value.StringV(o), Value.StringV(n)) =>

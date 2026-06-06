@@ -592,6 +592,15 @@ object JavacJitBackend extends JitBackend:
       ap.fun match
         case fn: Term.Name if fn.value == "Some" =>
           ap.argClause.values.lengthCompare(1) == 0
+        case fn: Term.Name if fn.value == "List" || fn.value == "Set" || fn.value == "Map" =>
+          // Stage 8: builtin collection ctors compile via walkRef.
+          true
+        case Term.ApplyType.After_4_6_0(Term.Name(n), _)
+            if n == "List" || n == "Set" || n == "Map" =>
+          true
+        case Term.Select(Term.Name(recvName), Term.Name("updated"))
+            if ctx.isRefName(recvName) =>
+          true  // Stage 8: Map.updated on a ref var returns Map (ref).
         case fn: Term.Name =>
           ensureCoEmittedRef(fn.value, ctx) != null
         case _ => false
@@ -887,6 +896,12 @@ object JavacJitBackend extends JitBackend:
       case "getOrElse" if args.lengthCompare(1) == 0 =>
         val d = walkLong(args.head, ctx)
         if d == null then null else s"$jrd.getOrElseLong((Object) ($refExpr), $d)"
+      // Stage 8: Map.getOrElse(key, default) → Long.
+      case "getOrElse" if args.lengthCompare(2) == 0 =>
+        val k = emitValueObject(args.head, ctx)
+        val d = walkLong(args(1), ctx)
+        if k == null || d == null then null
+        else s"$jrd.mapGetOrElseLong((Object) ($refExpr), $k, $d)"
       case "size" if args.isEmpty =>
         s"$jrd.sizeLong((Object) ($refExpr))"
       case "head" if args.isEmpty =>
@@ -974,6 +989,12 @@ object JavacJitBackend extends JitBackend:
         s"$jrd.stringUpperRef((Object) ($refExpr))"
       case "toLowerCase" if args.isEmpty =>
         s"$jrd.stringLowerRef((Object) ($refExpr))"
+      // Stage 8: Map.updated(k, v) → new Map.
+      case "updated" if args.lengthCompare(2) == 0 =>
+        val k = emitValueObject(args.head, ctx)
+        val v = emitValueObject(args(1), ctx)
+        if k == null || v == null then null
+        else s"$jrd.mapUpdatedRef((Object) ($refExpr), $k, $v)"
       // Stage 8: Map.get(key) → Option; String.substring(i)/(i,j); String.replace(o, n).
       case "get" if args.lengthCompare(1) == 0 =>
         val k = emitValueObject(args.head, ctx)
@@ -1191,8 +1212,19 @@ object JavacJitBackend extends JitBackend:
     case Term.Name("Nil") =>
       "scalascript.interpreter.vm.jit.JitRefDispatch$.MODULE$.NilRef()"
     // Stage 8: List(...) / Set(...) / Map(...) builtin constructors.
-    case Term.Apply.After_4_6_0(Term.Name(ctorName), argClause)
-        if ctorName == "List" || ctorName == "Set" || ctorName == "Map" =>
+    // Accept both `Map(...)` and `Map[K, V](...)` (type application wrapped).
+    case Term.Apply.After_4_6_0(funExpr, argClause)
+        if {
+          val name = funExpr match
+            case Term.Name(n) => n
+            case Term.ApplyType.After_4_6_0(Term.Name(n), _) => n
+            case _ => ""
+          name == "List" || name == "Set" || name == "Map"
+        } =>
+      val ctorName = funExpr match
+        case Term.Name(n) => n
+        case Term.ApplyType.After_4_6_0(Term.Name(n), _) => n
+        case _ => ""
       val helper = ctorName match
         case "List" => "buildListRef"
         case "Set"  => "buildSetRef"
@@ -2544,15 +2576,27 @@ object JavacJitBackend extends JitBackend:
     case Term.Assign(nm: Term.Name, rhs: Term) =>
       val jn = ctx.resolveLocal(nm.value)
       if jn == null then return null
-      val e = if ctx.isDouble then walkDouble(rhs, ctx) else walkLong(rhs, ctx)
-      if e == null then return null
-      (s"$jn = $e;\n        ", ctx)
+      // Stage 8: ref-typed assignment.
+      if ctx.isRefName(nm.value) then
+        val r = walkRef(rhs, ctx)
+        if r == null then return null
+        (s"$jn = $r;\n        ", ctx)
+      else
+        val e = if ctx.isDouble then walkDouble(rhs, ctx) else walkLong(rhs, ctx)
+        if e == null then return null
+        (s"$jn = $e;\n        ", ctx)
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs: Term) =>
       val jn = sanitize(n.value)
-      val e = if ctx.isDouble then walkDouble(rhs, ctx) else walkLong(rhs, ctx)
-      if e == null then return null
-      val jType = if ctx.isDouble then "double" else "long"
-      (s"$jType $jn = $e;\n        ", ctx.withBindings(Seq(n.value -> (jn, false))))
+      // Stage 8: ref-typed var.
+      if isRefValRhs(rhs, ctx) then
+        val r = walkRef(rhs, ctx)
+        if r == null then return null
+        (s"Object $jn = $r;\n        ", ctx.withBindings(Seq(n.value -> (jn, true))))
+      else
+        val e = if ctx.isDouble then walkDouble(rhs, ctx) else walkLong(rhs, ctx)
+        if e == null then return null
+        val jType = if ctx.isDouble then "double" else "long"
+        (s"$jType $jn = $e;\n        ", ctx.withBindings(Seq(n.value -> (jn, false))))
     case Defn.Val(_, List(Pat.Var(n)), _, rhs: Term) =>
       val jn = sanitize(n.value)
       if isRefValRhs(rhs, ctx) then
@@ -2651,18 +2695,31 @@ object JavacJitBackend extends JitBackend:
               curCtx = curCtx.withBindings(Seq(n.value -> (jn, false)))
           case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs: Term) =>
             val jn = sanitize(n.value)
-            val e = if curCtx.isDouble then walkDouble(rhs, curCtx)
-                    else walkLong(rhs, curCtx)
-            if e == null then return null
-            val jType = if curCtx.isDouble then "double" else "long"
-            sb.append(s"$jType $jn = $e;\n      ")
-            curCtx = curCtx.withBindings(Seq(n.value -> (jn, false)))
+            // Stage 8: ref-typed var (e.g. `var m: Map = Map[Int, Int]()`).
+            if isRefValRhs(rhs, curCtx) then
+              val r = walkRef(rhs, curCtx)
+              if r == null then return null
+              sb.append(s"Object $jn = $r;\n      ")
+              curCtx = curCtx.withBindings(Seq(n.value -> (jn, true)))
+            else
+              val e = if curCtx.isDouble then walkDouble(rhs, curCtx)
+                      else walkLong(rhs, curCtx)
+              if e == null then return null
+              val jType = if curCtx.isDouble then "double" else "long"
+              sb.append(s"$jType $jn = $e;\n      ")
+              curCtx = curCtx.withBindings(Seq(n.value -> (jn, false)))
           case Term.Assign(nm: Term.Name, rhs: Term) =>
             val jn = curCtx.resolveLocal(nm.value)
             if jn == null then return null
-            val e = if curCtx.isDouble then walkDouble(rhs, curCtx) else walkLong(rhs, curCtx)
-            if e == null then return null
-            sb.append(s"$jn = $e;\n      ")
+            // Stage 8: ref-typed assignment (e.g. `m = m.updated(k, v)`).
+            if curCtx.isRefName(nm.value) then
+              val r = walkRef(rhs, curCtx)
+              if r == null then return null
+              sb.append(s"$jn = $r;\n      ")
+            else
+              val e = if curCtx.isDouble then walkDouble(rhs, curCtx) else walkLong(rhs, curCtx)
+              if e == null then return null
+              sb.append(s"$jn = $e;\n      ")
           case w: Term.While =>
             val ws = walkWhileAsStmt(w, curCtx)
             if ws == null then return null

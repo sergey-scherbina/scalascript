@@ -1876,6 +1876,21 @@ class SscVmTest extends AnyFunSuite with Matchers:
     out.trim shouldBe "List(1, 2, 3, 4, 5)"
   }
 
+  test("stage8-map-ops: ref-typed var + Map.updated + Map.getOrElse JIT-compiles") {
+    val out = captured(
+      """def workload(): Long =
+        |  var m: Map[Int, Int] = Map[Int, Int]()
+        |  var sum = 0L
+        |  var i = 0
+        |  while i < 10 do
+        |    m = m.updated(i % 3, i)
+        |    sum = sum + m.getOrElse(i % 3, 0).toLong
+        |    i = i + 1
+        |  sum
+        |println(workload())""".stripMargin)
+    out.trim shouldBe "45"
+  }
+
   test("stage8-map-get-string-substr: Map.get / String.substring / replace JIT through JitRefDispatch") {
     val out = captured(
       """def prefix(s: String, n: Int): String = s.substring(0, n)
