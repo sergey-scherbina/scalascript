@@ -1,0 +1,16 @@
+# Hello from Rust
+
+The simplest possible program for the rust backend.
+
+```scalascript
+@main def run(): Unit = println("Hello from Rust")
+```
+
+Build and run:
+
+```bash
+ssc build-rust hello.ssc       # produces ./hello
+./hello                        # → Hello from Rust
+
+ssc run-rust hello.ssc         # build + run in one step
+```

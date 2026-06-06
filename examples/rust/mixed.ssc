@@ -1,0 +1,22 @@
+# Mixed scalascript + rust blocks
+
+The rust backend accepts both `scalascript` and `rust` fence blocks
+in the same `.ssc` source.  Rust blocks pass through verbatim into
+`src/generated/<crate>.rs`; ScalaScript defs are walked by
+RustCodeWalk and emitted as `pub fn`s alongside them.
+
+```scalascript
+@main def run(): Unit = println("Hello via rust block")
+```
+
+```rust
+#[allow(dead_code)]
+pub fn util() -> i64 { 7 }
+```
+
+Build and run:
+
+```bash
+ssc build-rust mixed.ssc       # → ./mixed
+./mixed                        # → Hello via rust block
+```
