@@ -1794,6 +1794,17 @@ class SscVmTest extends AnyFunSuite with Matchers:
     JitGlobals.withInterp(interp) { direct.apply(sq) }    shouldBe 16L  // n=5>3: 5+10=15+1=16
   }
 
+  test("stage8-builtin-ctors: Nil / List(...) / Set(...) JIT through JitRefDispatch") {
+    val out = captured(
+      """def empty(): List[Int] = Nil
+        |def trio(a: Int, b: Int, c: Int): List[Int] = List(a, b, c)
+        |def hasIt(a: Int, b: Int): Int = if Set(a, b).contains(a) then 1 else 0
+        |println(empty())
+        |println(trio(1, 2, 3))
+        |println(hasIt(7, 9))""".stripMargin)
+    out.trim shouldBe "List()\nList(1, 2, 3)\n1"
+  }
+
   test("stage8-string-methods: .trim / .toInt / .startsWith / .toUpperCase JIT through JitRefDispatch") {
     val out = captured(
       """def parse(s: String): Int = s.trim.toInt

@@ -1121,6 +1121,33 @@ object JavacJitBackend extends JitBackend:
    *  and ref-typed ADT field access (`obj.field` where field is non-numeric). */
   private def walkRef(t: Term, ctx: GenCtx): String | Null = t match
     case Term.Name("None") => "scalascript.interpreter.Value$.MODULE$.NoneV()"
+    // Stage 8: builtin empty collections.
+    case Term.Name("Nil") =>
+      "scalascript.interpreter.vm.jit.JitRefDispatch$.MODULE$.NilRef()"
+    // Stage 8: List(...) / Set(...) / Map(...) builtin constructors.
+    case Term.Apply.After_4_6_0(Term.Name(ctorName), argClause)
+        if ctorName == "List" || ctorName == "Set" || ctorName == "Map" =>
+      val helper = ctorName match
+        case "List" => "buildListRef"
+        case "Set"  => "buildSetRef"
+        case "Map"  => "buildMapRef"
+      val args = argClause.values
+      val sb = new StringBuilder
+      sb.append("scalascript.interpreter.vm.jit.JitRefDispatch$.MODULE$.")
+      sb.append(helper)
+      sb.append("(new Object[] { ")
+      var i = 0
+      var ok = true
+      while i < args.length && ok do
+        if i > 0 then sb.append(", ")
+        val v = emitValueObject(args(i), ctx)
+        if v == null then ok = false
+        else sb.append(s"(Object) ($v)")
+        i += 1
+      if !ok then null
+      else
+        sb.append(" })")
+        sb.toString
     // Stage 8: s"prefix${arg1}mid${arg2}suffix" — emit as StringV(string-concat).
     // Each arg compiled via walkLong (numeric → direct String concat) or walkRef
     // (ref → wrapped in Value.show). Only the `s` interpolator is supported here;

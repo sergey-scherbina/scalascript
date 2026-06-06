@@ -289,3 +289,26 @@ object JitRefDispatch:
     case (Value.StringV(s), Value.StringV(suf)) => if s.endsWith(suf) then 1L else 0L
     case _ =>
       throw new ClassCastException(s"stringEndsWithLong unsupported: ${recv.getClass.getName}, ${suffix.getClass.getName}")
+
+  // Stage 8: builtin collection constructors — Nil, List(...), Set(...), Map(...).
+  // Each takes a varargs of Values; JIT emits a fresh Object[] and passes it in.
+  def buildListRef(items: Array[Object]): Object =
+    Value.ListV(items.iterator.map(_.asInstanceOf[Value]).toList).asInstanceOf[Object]
+
+  def buildSetRef(items: Array[Object]): Object =
+    Value.SetV(items.iterator.map(_.asInstanceOf[Value]).toSet).asInstanceOf[Object]
+
+  /** Map(...) expects a list of (key, value) Value.TupleV pairs. */
+  def buildMapRef(items: Array[Object]): Object =
+    val builder = scala.collection.immutable.Map.newBuilder[Value, Value]
+    var i = 0
+    while i < items.length do
+      items(i).asInstanceOf[Value] match
+        case Value.TupleV(k :: v :: Nil) => builder += (k -> v)
+        case other => throw new ClassCastException(s"buildMapRef: not a (k, v) tuple — $other")
+      i += 1
+    Value.MapV(builder.result()).asInstanceOf[Object]
+
+  val NilRef: Object = Value.EmptyList.asInstanceOf[Object]
+  val EmptySetRef: Object = Value.SetV(Set.empty).asInstanceOf[Object]
+  val EmptyMapRef: Object = Value.EmptyMap.asInstanceOf[Object]

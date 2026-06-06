@@ -345,7 +345,9 @@ object JitPredicates:
     name == "BigInt" || name == "Decimal"
 
   private def isKnownDirectJitCallee(name: String): Boolean =
-    name == "Some" || name == "Right" || name == "Left"
+    name == "Some" || name == "Right" || name == "Left" ||
+    name == "List" || name == "Set" || name == "Map" ||  // Stage 8: builtin ctors
+    name == "BigInt" || name == "Decimal"  // numeric ctors (stage-7.7)
 
   private def isRefLikeInfix(op: String, lhs: Term, rhs: Term): Boolean =
     op match
