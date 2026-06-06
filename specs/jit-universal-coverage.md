@@ -699,3 +699,56 @@ effect calls such as `Console.writeLine("a")`, and object-returning
 `Map.getOrElse`. Those require either object/String/generic ref-returning
 interfaces or a classifier split; they are intentionally not folded into this
 slice.
+
+### Stage 7.2 result — RefChainCall bucket split (2026-06-06)
+
+Decision: split the bucket first instead of adding object/String/generic
+ref-returning dispatch interfaces immediately. The Stage 7.1 implementation
+already handles the narrow primitive numeric ref-read subset; the remaining
+55 cases were not one homogeneous implementation target.
+
+Classifier changes:
+
+- `RefChainCall` now remains reserved for primitive local/direct ref reads that
+  look like `getOrElse` with one primitive default, `size`, or `head`.
+- `QualifiedRefCall` covers non-param, non-local simple receivers such as
+  module/companion/native-helper calls (`Parser.string(s)`, `Free.Pure(a)`,
+  `Console.writeLine("a")`).
+- `RefChainObjectCall` covers computed ref chains outside the primitive-read
+  subset, such as `BigInt(10).pow(n)`, `xs.map(...).mkString`, or
+  object-returning `Map.getOrElse`.
+- `JitPredicates.walkForBailCliffs` now tracks immutable local `val` names
+  within block scope, so local ref reads stay distinct from qualified calls.
+
+Verification:
+
+```
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-refchain-bucket-split && sbt "backendInterpreter/testOnly scalascript.JitLintTest -- -z stage7-refchain-bucket-split"
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-refchain-bucket-split && sbt "backendInterpreter/testOnly scalascript.JitLintTest"
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-refchain-bucket-split && SSC_JIT_STATS=1 sbt "backendInterpreter/test"
+```
+
+Profile after the full run:
+
+```
+JIT miss stats (731 functions disabled):
+     298  [vm] Other
+     238  [javac] UnknownShape
+      70  [javac] Compound
+      33  [javac] QualifiedRefCall
+      27  [javac] NonExtractPattern
+      22  [javac] RefChainObjectCall
+      16  [javac] LambdaValue
+       8  [javac] PatternGuard
+       7  [javac] NonAdtScrutinee
+       6  [javac] BoolBody
+       3  [javac] UsingParams
+       2  [javac] VarargParam
+       1  [javac] TryCatch
+```
+
+Result: total disabled stayed 731, but the old `RefChainCall=55` bucket is now
+split into `QualifiedRefCall=33` and `RefChainObjectCall=22`; `RefChainCall`
+falls to 0 for the real corpus. Next implementation choices are clearer:
+qualified/module/native dispatch belongs to a different path than
+object/String/generic computed ref-chain dispatch.
