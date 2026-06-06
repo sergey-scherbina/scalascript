@@ -1,0 +1,6 @@
+feature/rust-backend-r1-docs 2026-06-06T22:08:33Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-06T22:08:33Z
+status: not-started
+done-so-far:
+next: write docs/rust-backend.md + update targets/README/user-guide
