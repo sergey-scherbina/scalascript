@@ -77,3 +77,55 @@ object JitRefDispatch:
       Value.StringV(items.iterator.map(Value.show).mkString(start, sep, end)).asInstanceOf[Object]
     case other =>
       throw new ClassCastException(s"mkStringRef unsupported receiver: ${other.getClass.getName}")
+
+  private def bigIntValue(v: Value): BigInt = v match
+    case Value.IntV(n)     => BigInt(n)
+    case Value.BigIntV(n)  => n
+    case Value.StringV(s)  => BigInt(s.trim)
+    case other             => throw new ClassCastException(s"expected BigInt-compatible value, got ${other.getClass.getName}")
+
+  private def decimalValue(v: Value): BigDecimal = v match
+    case Value.IntV(n)      => BigDecimal(n)
+    case Value.BigIntV(n)   => BigDecimal(n)
+    case Value.DecimalV(n)  => n
+    case Value.StringV(s)   => BigDecimal(s.trim)
+    case other              => throw new ClassCastException(s"expected Decimal-compatible value, got ${other.getClass.getName}")
+
+  def bigIntRef(value: Value): Value =
+    Value.BigIntV(bigIntValue(value))
+
+  def decimalRef(value: Value): Value =
+    Value.DecimalV(decimalValue(value))
+
+  def decimalRef(value: Value, scale: Long): Value =
+    Value.DecimalV(BigDecimal(bigIntValue(value), scale.toInt))
+
+  def bigIntAbs(recv: Value): Value =
+    Value.BigIntV(bigIntValue(recv).abs)
+
+  def bigIntNegate(recv: Value): Value =
+    Value.BigIntV(-bigIntValue(recv))
+
+  def bigIntPow(recv: Value, exponent: Long): Value =
+    Value.BigIntV(bigIntValue(recv).pow(exponent.toInt))
+
+  def bigIntGcd(recv: Value, other: Value): Value =
+    Value.BigIntV(bigIntValue(recv).gcd(bigIntValue(other)))
+
+  def bigIntToDecimal(recv: Value): Value =
+    Value.DecimalV(BigDecimal(bigIntValue(recv)))
+
+  def decimalAbs(recv: Value): Value =
+    Value.DecimalV(decimalValue(recv).abs)
+
+  def decimalNegate(recv: Value): Value =
+    Value.DecimalV(-decimalValue(recv))
+
+  def decimalPow(recv: Value, exponent: Long): Value =
+    Value.DecimalV(decimalValue(recv).pow(exponent.toInt))
+
+  def decimalSetScale(recv: Value, scale: Long): Value =
+    Value.DecimalV(BigDecimal(decimalValue(recv).bigDecimal.setScale(scale.toInt, java.math.RoundingMode.HALF_UP)))
+
+  def decimalToBigInt(recv: Value): Value =
+    Value.BigIntV(decimalValue(recv).toBigInt)

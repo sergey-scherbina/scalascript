@@ -1420,6 +1420,72 @@ class SscVmTest extends AnyFunSuite with Matchers:
     JitGlobals.withInterp(interp) { direct.apply(0L) }.shouldBe(Value.StringV("miss"))
   }
 
+  test("stage7-numeric-object-dispatch: Javac BigInt/Decimal methods compile and run") {
+    val interp = interpOf(
+      """def bigPow(n: Int): BigInt = BigInt(n).pow(2)
+        |def bigAbs(n: Int): BigInt = BigInt(0 - n).abs
+        |def bigGcd(n: Int): BigInt = BigInt(n).gcd(BigInt(6))
+        |def bigToDec(n: Int): Decimal = BigInt(n).toDecimal
+        |def decAbs(n: Int): Decimal = Decimal(0 - n, 1).abs
+        |def decNeg(n: Int): Decimal = Decimal(n, 1).negate
+        |def decPow(n: Int): Decimal = Decimal(n, 1).pow(2)
+        |def decScale(n: Int): Decimal = Decimal(n, 2).setScale(1)
+        |def decToBig(n: Int): BigInt = Decimal(n, 1).toBigInt""".stripMargin)
+    val cases: List[(String, Long, Value)] = List(
+      ("bigPow", 5L, Value.BigIntV(BigInt(25))),
+      ("bigAbs", 5L, Value.BigIntV(BigInt(5))),
+      ("bigGcd", 9L, Value.BigIntV(BigInt(3))),
+      ("bigToDec", 5L, Value.DecimalV(BigDecimal("5"))),
+      ("decAbs", 12L, Value.DecimalV(BigDecimal("1.2"))),
+      ("decNeg", 12L, Value.DecimalV(BigDecimal("-1.2"))),
+      ("decPow", 12L, Value.DecimalV(BigDecimal("1.44"))),
+      ("decScale", 123L, Value.DecimalV(BigDecimal("1.2"))),
+      ("decToBig", 123L, Value.BigIntV(BigInt(12)))
+    )
+    cases.foreach { case (name, arg, expected) =>
+      val fn = interp.globalsView(name).asInstanceOf[Value.FunV]
+      val r = JavacJitBackend.tryCompile(fn, interp)
+      r should not be null
+      r.direct should not be null
+      r.direct.isInstanceOf[LongToObject] shouldBe true
+      val direct = r.direct.asInstanceOf[LongToObject]
+      JitGlobals.withInterp(interp) { direct.apply(arg) }.shouldBe(expected)
+    }
+  }
+
+  test("stage7-numeric-object-dispatch: ASM BigInt/Decimal methods compile and run") {
+    val interp = interpOf(
+      """def bigPow(n: Int): BigInt = BigInt(n).pow(2)
+        |def bigAbs(n: Int): BigInt = BigInt(0 - n).abs
+        |def bigGcd(n: Int): BigInt = BigInt(n).gcd(BigInt(6))
+        |def bigToDec(n: Int): Decimal = BigInt(n).toDecimal
+        |def decAbs(n: Int): Decimal = Decimal(0 - n, 1).abs
+        |def decNeg(n: Int): Decimal = Decimal(n, 1).negate
+        |def decPow(n: Int): Decimal = Decimal(n, 1).pow(2)
+        |def decScale(n: Int): Decimal = Decimal(n, 2).setScale(1)
+        |def decToBig(n: Int): BigInt = Decimal(n, 1).toBigInt""".stripMargin)
+    val cases: List[(String, Long, Value)] = List(
+      ("bigPow", 5L, Value.BigIntV(BigInt(25))),
+      ("bigAbs", 5L, Value.BigIntV(BigInt(5))),
+      ("bigGcd", 9L, Value.BigIntV(BigInt(3))),
+      ("bigToDec", 5L, Value.DecimalV(BigDecimal("5"))),
+      ("decAbs", 12L, Value.DecimalV(BigDecimal("1.2"))),
+      ("decNeg", 12L, Value.DecimalV(BigDecimal("-1.2"))),
+      ("decPow", 12L, Value.DecimalV(BigDecimal("1.44"))),
+      ("decScale", 123L, Value.DecimalV(BigDecimal("1.2"))),
+      ("decToBig", 123L, Value.BigIntV(BigInt(12)))
+    )
+    cases.foreach { case (name, arg, expected) =>
+      val fn = interp.globalsView(name).asInstanceOf[Value.FunV]
+      val r = AsmJitBackend.tryCompile(fn, interp)
+      r should not be null
+      r.direct should not be null
+      r.direct.isInstanceOf[LongToObject] shouldBe true
+      val direct = r.direct.asInstanceOf[LongToObject]
+      JitGlobals.withInterp(interp) { direct.apply(arg) }.shouldBe(expected)
+    }
+  }
+
   test("stage2.1b: HofCall detected when param is called as function") {
     import scalascript.interpreter.vm.jit.{JitPredicates, JitBailReason}
     val interp = interpOf("def apply(f: Int => Int, x: Int): Int = f(x)")

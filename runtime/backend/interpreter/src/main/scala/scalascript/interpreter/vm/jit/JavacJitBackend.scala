@@ -849,6 +849,9 @@ object JavacJitBackend extends JitBackend:
       case _ => null
 
   private def emitRefChainObject(recv: Term, method: String, args: List[Term], ctx: GenCtx): String | Null =
+    if isNumericObjectReceiver(recv) then
+      val numeric = emitNumericObjectMethod(recv, method, args, ctx)
+      if numeric != null then return numeric
     val refExpr = walkRef(recv, ctx)
     if refExpr == null then return null
     val jrd = "scalascript.interpreter.vm.jit.JitRefDispatch$.MODULE$"
@@ -872,6 +875,71 @@ object JavacJitBackend extends JitBackend:
         val end   = walkString(args(2), ctx)
         if start == null || sep == null || end == null then null
         else s"$jrd.mkStringRef((Object) ($refExpr), $start, $sep, $end)"
+      case _ => null
+
+  private def isNumericObjectReceiver(recv: Term): Boolean =
+    isNumericObjectValueShape(recv)
+
+  private def isNumericObjectValueShape(t: Term): Boolean = t match
+    case Term.Apply.After_4_6_0(Term.Name("BigInt"), argClause) =>
+      argClause.values.lengthCompare(1) == 0
+    case Term.Apply.After_4_6_0(Term.Name("Decimal"), argClause) =>
+      argClause.values.lengthCompare(1) == 0 || argClause.values.lengthCompare(2) == 0
+    case _ => false
+
+  private def emitNumericObjectValue(t: Term, ctx: GenCtx): String | Null =
+    val jrd = "scalascript.interpreter.vm.jit.JitRefDispatch$.MODULE$"
+    t match
+      case Term.Apply.After_4_6_0(Term.Name("BigInt"), argClause)
+          if argClause.values.lengthCompare(1) == 0 =>
+        val v = emitValueObject(argClause.values.head, ctx)
+        if v == null then null else s"$jrd.bigIntRef($v)"
+      case Term.Apply.After_4_6_0(Term.Name("Decimal"), argClause)
+          if argClause.values.lengthCompare(1) == 0 =>
+        val v = emitValueObject(argClause.values.head, ctx)
+        if v == null then null else s"$jrd.decimalRef($v)"
+      case Term.Apply.After_4_6_0(Term.Name("Decimal"), argClause)
+          if argClause.values.lengthCompare(2) == 0 =>
+        val value = emitValueObject(argClause.values.head, ctx)
+        val scale = walkLong(argClause.values(1), ctx)
+        if value == null || scale == null then null else s"$jrd.decimalRef($value, $scale)"
+      case _ => null
+
+  private def emitNumericObjectMethod(recv: Term, method: String, args: List[Term], ctx: GenCtx): String | Null =
+    val recvValue = emitNumericObjectValue(recv, ctx)
+    if recvValue == null then return null
+    val jrd = "scalascript.interpreter.vm.jit.JitRefDispatch$.MODULE$"
+    recv match
+      case Term.Apply.After_4_6_0(Term.Name("BigInt"), _) =>
+        method match
+          case "abs" if args.isEmpty =>
+            s"$jrd.bigIntAbs((scalascript.interpreter.Value) ($recvValue))"
+          case "negate" if args.isEmpty =>
+            s"$jrd.bigIntNegate((scalascript.interpreter.Value) ($recvValue))"
+          case "pow" if args.lengthCompare(1) == 0 =>
+            val e = walkLong(args.head, ctx)
+            if e == null then null else s"$jrd.bigIntPow((scalascript.interpreter.Value) ($recvValue), $e)"
+          case "gcd" if args.lengthCompare(1) == 0 =>
+            val other = emitValueObject(args.head, ctx)
+            if other == null then null else s"$jrd.bigIntGcd((scalascript.interpreter.Value) ($recvValue), $other)"
+          case "toDecimal" if args.isEmpty =>
+            s"$jrd.bigIntToDecimal((scalascript.interpreter.Value) ($recvValue))"
+          case _ => null
+      case Term.Apply.After_4_6_0(Term.Name("Decimal"), _) =>
+        method match
+          case "abs" if args.isEmpty =>
+            s"$jrd.decimalAbs((scalascript.interpreter.Value) ($recvValue))"
+          case "negate" if args.isEmpty =>
+            s"$jrd.decimalNegate((scalascript.interpreter.Value) ($recvValue))"
+          case "pow" if args.lengthCompare(1) == 0 =>
+            val e = walkLong(args.head, ctx)
+            if e == null then null else s"$jrd.decimalPow((scalascript.interpreter.Value) ($recvValue), $e)"
+          case "setScale" if args.lengthCompare(1) == 0 =>
+            val scale = walkLong(args.head, ctx)
+            if scale == null then null else s"$jrd.decimalSetScale((scalascript.interpreter.Value) ($recvValue), $scale)"
+          case "toBigInt" if args.isEmpty =>
+            s"$jrd.decimalToBigInt((scalascript.interpreter.Value) ($recvValue))"
+          case _ => null
       case _ => null
 
   private def objectRefFallbackAllowed(t: Term, ctx: GenCtx): Boolean = t match
@@ -1082,6 +1150,8 @@ object JavacJitBackend extends JitBackend:
       val a = walkObject(ti.thenp, ctx, statics); if a == null then return null
       val b = walkObject(ti.elsep, ctx, statics); if b == null then return null
       s"(($c) ? ($a) : ($b))"
+    case Term.Select(recv: Term, Term.Name(method)) if isNumericObjectReceiver(recv) =>
+      emitNumericObjectMethod(recv, method, Nil, ctx)
     case ap: Term.Apply =>
       ap.fun match
         case fn: Term.Name if fn.value == "Some" && ap.argClause.values.lengthCompare(1) == 0 =>
@@ -1104,6 +1174,10 @@ object JavacJitBackend extends JitBackend:
           s"${sanitize(ctx.funName)}(${args.mkString(", ")})"
         case ctor: Term.Name if ctx.interp.typeFieldOrder.contains(ctor.value) =>
           emitConstructorObject(ctor.value, ap.argClause.values, ctx, statics)
+        case ctor: Term.Name if ctor.value == "BigInt" || ctor.value == "Decimal" =>
+          emitNumericObjectValue(ap, ctx)
+        case Term.Select(recv: Term, Term.Name(method)) if isNumericObjectReceiver(recv) =>
+          emitNumericObjectMethod(recv, method, ap.argClause.values, ctx)
         case _ if objectRefFallbackAllowed(ap, ctx) =>
           val r = walkRef(ap, ctx)
           if r == null then null else s"(Object) ($r)"
@@ -1117,6 +1191,10 @@ object JavacJitBackend extends JitBackend:
     t:       Term,
     ctx:     GenCtx
   ): String | Null =
+    if isNumericObjectValueShape(t) then
+      val numeric = emitNumericObjectValue(t, ctx)
+      if numeric == null then return null
+      return s"(scalascript.interpreter.Value) ($numeric)"
     t match
       case Lit.Boolean(_) =>
         val b = walkBool(t, ctx); if b == null then null

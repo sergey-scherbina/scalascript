@@ -404,6 +404,8 @@ object AsmJitBackend extends JitBackend:
       if !emitObject(ti.elsep, ctx, mv) then return false
       mv.visitLabel(Lend)
       true
+    case Term.Select(recv: Term, Term.Name(method)) if isNumericObjectReceiver(recv) =>
+      emitNumericObjectMethod(recv, method, Nil, ctx, mv)
     case ap: Term.Apply =>
       ap.fun match
         case fn: Term.Name if fn.value == "Some" && ap.argClause.values.lengthCompare(1) == 0 =>
@@ -425,6 +427,10 @@ object AsmJitBackend extends JitBackend:
           true
         case ctor: Term.Name if ctx.interp.typeFieldOrder.contains(ctor.value) =>
           emitConstructorObject(ctor.value, ap.argClause.values, ctx, mv)
+        case ctor: Term.Name if ctor.value == "BigInt" || ctor.value == "Decimal" =>
+          emitNumericObjectValue(ap, ctx, mv)
+        case Term.Select(recv: Term, Term.Name(method)) if isNumericObjectReceiver(recv) =>
+          emitNumericObjectMethod(recv, method, ap.argClause.values, ctx, mv)
         case _ if objectRefFallbackAllowed(ap, ctx) => walkRef(ap, ctx, mv)
         case _ => false
     case _ if objectRefFallbackAllowed(t, ctx) => walkRef(t, ctx, mv)
@@ -495,23 +501,27 @@ object AsmJitBackend extends JitBackend:
   private def isPrimitiveFieldType(t: String): Boolean =
     t == "Int" || t == "Long" || t == "Double" || t == "Boolean" || t == "String"
 
-  private def emitValueObject(t: Term, ctx: GenCtx, mv: MethodVisitor): Boolean = t match
-    case Lit.String(v) =>
-      mv.visitTypeInsn(NEW, stringVInt)
-      mv.visitInsn(DUP)
-      mv.visitLdcInsn(v)
-      mv.visitMethodInsn(INVOKESPECIAL, stringVInt, "<init>", "(Ljava/lang/String;)V", false)
-      true
-    case Lit.Boolean(b) =>
-      mv.visitFieldInsn(GETSTATIC, valueModuleInt, "MODULE$", s"L$valueModuleInt;")
-      mv.visitInsn(if b then ICONST_1 else ICONST_0)
-      mv.visitMethodInsn(INVOKEVIRTUAL, valueModuleInt, "boolV", s"(Z)L$boolVInt;", false)
-      true
-    case _ =>
-      mv.visitFieldInsn(GETSTATIC, valueModuleInt, "MODULE$", s"L$valueModuleInt;")
-      if !walkLong(t, ctx, mv) then return false
-      mv.visitMethodInsn(INVOKEVIRTUAL, valueModuleInt, "intV", s"(J)L$intVInt;", false)
-      true
+  private def emitValueObject(t: Term, ctx: GenCtx, mv: MethodVisitor): Boolean =
+    if isNumericObjectValueShape(t) then
+      emitNumericObjectValue(t, ctx, mv)
+    else
+      t match
+        case Lit.String(v) =>
+          mv.visitTypeInsn(NEW, stringVInt)
+          mv.visitInsn(DUP)
+          mv.visitLdcInsn(v)
+          mv.visitMethodInsn(INVOKESPECIAL, stringVInt, "<init>", "(Ljava/lang/String;)V", false)
+          true
+        case Lit.Boolean(b) =>
+          mv.visitFieldInsn(GETSTATIC, valueModuleInt, "MODULE$", s"L$valueModuleInt;")
+          mv.visitInsn(if b then ICONST_1 else ICONST_0)
+          mv.visitMethodInsn(INVOKEVIRTUAL, valueModuleInt, "boolV", s"(Z)L$boolVInt;", false)
+          true
+        case _ =>
+          mv.visitFieldInsn(GETSTATIC, valueModuleInt, "MODULE$", s"L$valueModuleInt;")
+          if !walkLong(t, ctx, mv) then return false
+          mv.visitMethodInsn(INVOKEVIRTUAL, valueModuleInt, "intV", s"(J)L$intVInt;", false)
+          true
 
   /** Emit a boxed `Value` for a primitive ADT field (Int/Long/Double).
    *  Boolean is intentionally unsupported (no value-producing bool walker);
@@ -944,6 +954,7 @@ object AsmJitBackend extends JitBackend:
       case _ => false
 
   private def emitRefChainObject(recv: Term, method: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
+    if isNumericObjectReceiver(recv) then return emitNumericObjectMethod(recv, method, args, ctx, mv)
     method match
       case "getOrElse" if args.lengthCompare(1) == 0 =>
         mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
@@ -977,6 +988,109 @@ object AsmJitBackend extends JitBackend:
         if !walkString(args(2), ctx, mv) then return false
         mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "mkStringRef", "(Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;", false)
         true
+      case _ => false
+
+  private def isNumericObjectReceiver(recv: Term): Boolean =
+    isNumericObjectValueShape(recv)
+
+  private def isNumericObjectValueShape(t: Term): Boolean = t match
+    case Term.Apply.After_4_6_0(Term.Name("BigInt"), argClause) =>
+      argClause.values.lengthCompare(1) == 0
+    case Term.Apply.After_4_6_0(Term.Name("Decimal"), argClause) =>
+      argClause.values.lengthCompare(1) == 0 || argClause.values.lengthCompare(2) == 0
+    case _ => false
+
+  private def emitNumericObjectValue(t: Term, ctx: GenCtx, mv: MethodVisitor): Boolean =
+    t match
+      case Term.Apply.After_4_6_0(Term.Name("BigInt"), argClause)
+          if argClause.values.lengthCompare(1) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !emitValueObject(argClause.values.head, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "bigIntRef", s"(L$valueInt;)L$valueInt;", false)
+        true
+      case Term.Apply.After_4_6_0(Term.Name("Decimal"), argClause)
+          if argClause.values.lengthCompare(1) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !emitValueObject(argClause.values.head, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "decimalRef", s"(L$valueInt;)L$valueInt;", false)
+        true
+      case Term.Apply.After_4_6_0(Term.Name("Decimal"), argClause)
+          if argClause.values.lengthCompare(2) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !emitValueObject(argClause.values.head, ctx, mv) then return false
+        if !walkLong(argClause.values(1), ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "decimalRef", s"(L$valueInt;J)L$valueInt;", false)
+        true
+      case _ => false
+
+  private def emitNumericObjectMethod(
+    recv:   Term,
+    method: String,
+    args:   List[Term],
+    ctx:    GenCtx,
+    mv:     MethodVisitor
+  ): Boolean =
+    recv match
+      case Term.Apply.After_4_6_0(Term.Name("BigInt"), _) =>
+        method match
+          case "abs" if args.isEmpty =>
+            mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+            if !emitNumericObjectValue(recv, ctx, mv) then return false
+            mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "bigIntAbs", s"(L$valueInt;)L$valueInt;", false)
+            true
+          case "negate" if args.isEmpty =>
+            mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+            if !emitNumericObjectValue(recv, ctx, mv) then return false
+            mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "bigIntNegate", s"(L$valueInt;)L$valueInt;", false)
+            true
+          case "pow" if args.lengthCompare(1) == 0 =>
+            mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+            if !emitNumericObjectValue(recv, ctx, mv) then return false
+            if !walkLong(args.head, ctx, mv) then return false
+            mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "bigIntPow", s"(L$valueInt;J)L$valueInt;", false)
+            true
+          case "gcd" if args.lengthCompare(1) == 0 =>
+            mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+            if !emitNumericObjectValue(recv, ctx, mv) then return false
+            if !emitValueObject(args.head, ctx, mv) then return false
+            mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "bigIntGcd", s"(L$valueInt;L$valueInt;)L$valueInt;", false)
+            true
+          case "toDecimal" if args.isEmpty =>
+            mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+            if !emitNumericObjectValue(recv, ctx, mv) then return false
+            mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "bigIntToDecimal", s"(L$valueInt;)L$valueInt;", false)
+            true
+          case _ => false
+      case Term.Apply.After_4_6_0(Term.Name("Decimal"), _) =>
+        method match
+          case "abs" if args.isEmpty =>
+            mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+            if !emitNumericObjectValue(recv, ctx, mv) then return false
+            mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "decimalAbs", s"(L$valueInt;)L$valueInt;", false)
+            true
+          case "negate" if args.isEmpty =>
+            mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+            if !emitNumericObjectValue(recv, ctx, mv) then return false
+            mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "decimalNegate", s"(L$valueInt;)L$valueInt;", false)
+            true
+          case "pow" if args.lengthCompare(1) == 0 =>
+            mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+            if !emitNumericObjectValue(recv, ctx, mv) then return false
+            if !walkLong(args.head, ctx, mv) then return false
+            mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "decimalPow", s"(L$valueInt;J)L$valueInt;", false)
+            true
+          case "setScale" if args.lengthCompare(1) == 0 =>
+            mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+            if !emitNumericObjectValue(recv, ctx, mv) then return false
+            if !walkLong(args.head, ctx, mv) then return false
+            mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "decimalSetScale", s"(L$valueInt;J)L$valueInt;", false)
+            true
+          case "toBigInt" if args.isEmpty =>
+            mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+            if !emitNumericObjectValue(recv, ctx, mv) then return false
+            mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "decimalToBigInt", s"(L$valueInt;)L$valueInt;", false)
+            true
+          case _ => false
       case _ => false
 
   private def objectRefFallbackAllowed(t: Term, ctx: GenCtx): Boolean = t match
