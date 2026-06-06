@@ -1,6 +1,0 @@
-feature/jit-uc-stage8-apply-infix-ref-asm 2026-06-06T16:12:12Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-06T16:12:12Z
-status: not-started
-done-so-far:
-next: port String + concat to ASM walkRef
