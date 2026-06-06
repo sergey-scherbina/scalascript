@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(jit): ASM s"..." port + String concat (apply-infix-ref subset)
+
+- **jit-uc-stage8-string-interp-asm** — ported Javac `s"..."` lowering to ASM
+  (StringBuilder + StringV wrap; numeric append(J), ref via Value.show);
+  emitObject delegates to walkRef for LongToObject path.
+- **jit-uc-stage8-apply-infix-ref (partial)** — Javac walkRef now compiles
+  `String + Long` / `String + ref` concat. BigInt/Decimal/List/Map infix still
+  defers (each needs JitRefDispatch helper). 1454 tests green.
+
 ## 2026-06-06 — feat(jit): UnknownShape tail observability
 
 - **jit-uc-stage8-unknownshape-tail** — 5 new bail reasons + classifier

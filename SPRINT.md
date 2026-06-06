@@ -337,12 +337,11 @@ Each item: one commit + bench A/B (or test A/B), never ship a non-win.
       `SSC_JIT_STATS=1 sbt "backendInterpreter/test"` → record
       `DirectGlobalOrCtorCall` before and after.
 
-- [ ] **jit-uc-stage8-apply-infix-ref** — `Term.ApplyInfix` where one operand is
-      ref-typed (e.g. `BigInt + n`, `bigDec * x`, `path / "sub"`). 19 Compound
-      misses. Strategy: route ref-operand infixes through the stage-7.7 numeric
-      object dispatch path (`JitRefDispatch`) for arithmetic operators, and
-      `String + …` to the existing concat path. Baseline: record `ApplyInfixRefOp`
-      count before and after.
+- [~] **jit-uc-stage8-apply-infix-ref** — Partial: Javac walkRef now compiles
+      `String + Long`/`String + ref` concat via `Value.show + rhs` wrapping.
+      Remaining: BigInt/Decimal infix arithmetic (need JitRefDispatch helpers
+      for +/-/*/etc), List `++`, Map `++`. 1454 tests green; targeted concat
+      test passes.
 
 - [x] **jit-uc-stage8-string-interp** — Javac `walkRef` lowers `s"..."`
       (Term.Interpolate prefix "s") to `new Value.StringV(part + arg + ...)`;
