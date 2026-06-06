@@ -2091,10 +2091,20 @@ object AsmJitBackend extends JitBackend:
             true
           case _ => false
       case Term.ApplyInfix.After_4_6_0(lhs, op, _, ac) if ac.values.lengthCompare(1) == 0 =>
+        val rhs = ac.values.head
         op.value match
+          // Stage 8: ref-equality via Objects.equals when operands aren't Long-typed.
+          case "==" | "!=" if !looksLongValue(lhs, ctx) && !looksLongValue(rhs, ctx) =>
+            if !walkRef(lhs, ctx, mv) then return false
+            if !walkRef(rhs, ctx, mv) then return false
+            mv.visitMethodInsn(INVOKESTATIC, "java/util/Objects", "equals",
+              "(Ljava/lang/Object;Ljava/lang/Object;)Z", false)
+            // For ==: IFEQ ifFalse (false → jump). For !=: IFNE ifFalse (true → jump).
+            mv.visitJumpInsn(if op.value == "==" then IFEQ else IFNE, ifFalse)
+            true
           case "<" | "<=" | ">" | ">=" | "==" | "!=" =>
             val w = if ctx.isDouble then walkDouble else walkLong
-            w(lhs, ctx, mv) && w(ac.values.head, ctx, mv) && {
+            w(lhs, ctx, mv) && w(rhs, ctx, mv) && {
               if ctx.isDouble then mv.visitInsn(DCMPG)
               else mv.visitInsn(LCMP)
               mv.visitJumpInsn(invertCmp(op.value), ifFalse); true }
