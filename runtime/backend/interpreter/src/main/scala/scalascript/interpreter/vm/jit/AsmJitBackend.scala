@@ -557,6 +557,14 @@ object AsmJitBackend extends JitBackend:
       ap.fun match
         case fn: Term.Name if fn.value == "Some" =>
           ap.argClause.values.lengthCompare(1) == 0
+        case fn: Term.Name if fn.value == "List" || fn.value == "Set" || fn.value == "Map" =>
+          true  // Stage 8: builtin collection ctors compile via walkRef.
+        case Term.ApplyType.After_4_6_0(Term.Name(n), _)
+            if n == "List" || n == "Set" || n == "Map" =>
+          true  // Stage 8: Map[K,V](...)
+        case Term.Select(Term.Name(recvName), Term.Name("updated"))
+            if ctx.isRefName(recvName) =>
+          true  // Stage 8: Map.updated returns Map.
         case fn: Term.Name =>
           ensureCoEmittedRef(fn.value, ctx) != null
         case _ => false
@@ -615,17 +623,29 @@ object AsmJitBackend extends JitBackend:
   private def emitStatAsVoid(stat: Stat, ctx: GenCtx, mv: MethodVisitor): GenCtx | Null = stat match
     case Term.Assign(nm: Term.Name, rhs: Term) =>
       val slot = ctx.slotOf(nm.value)
-      if slot < 0 || ctx.isRefName(nm.value) then return null
-      val ok = if ctx.isDouble then walkDouble(rhs, ctx, mv) else walkLong(rhs, ctx, mv)
-      if !ok then return null
-      mv.visitVarInsn(if ctx.isDouble then DSTORE else LSTORE, slot)
-      ctx
+      if slot < 0 then return null
+      // Stage 8: ref-typed assignment (e.g. `m = m.updated(k, v)`).
+      if ctx.isRefName(nm.value) then
+        if !walkRef(rhs, ctx, mv) then return null
+        mv.visitVarInsn(ASTORE, slot)
+        ctx
+      else
+        val ok = if ctx.isDouble then walkDouble(rhs, ctx, mv) else walkLong(rhs, ctx, mv)
+        if !ok then return null
+        mv.visitVarInsn(if ctx.isDouble then DSTORE else LSTORE, slot)
+        ctx
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs: Term) =>
       val slot = ctx.allocSlot()
-      val ok = if ctx.isDouble then walkDouble(rhs, ctx, mv) else walkLong(rhs, ctx, mv)
-      if !ok then return null
-      mv.visitVarInsn(if ctx.isDouble then DSTORE else LSTORE, slot)
-      ctx.withBindings(Map(n.value -> (slot, false)))
+      // Stage 8: ref-typed var.
+      if isRefValRhs(rhs, ctx) then
+        if !walkRef(rhs, ctx, mv) then return null
+        mv.visitVarInsn(ASTORE, slot)
+        ctx.withBindings(Map(n.value -> (slot, true)))
+      else
+        val ok = if ctx.isDouble then walkDouble(rhs, ctx, mv) else walkLong(rhs, ctx, mv)
+        if !ok then return null
+        mv.visitVarInsn(if ctx.isDouble then DSTORE else LSTORE, slot)
+        ctx.withBindings(Map(n.value -> (slot, false)))
     case Defn.Val(_, List(Pat.Var(n)), _, rhs: Term) =>
       val slot = ctx.allocSlot()
       if isRefValRhs(rhs, ctx) then
@@ -1970,6 +1990,53 @@ object AsmJitBackend extends JitBackend:
     case Term.Name("None") =>
       mv.visitFieldInsn(GETSTATIC, valueModuleInt, "MODULE$", s"L$valueModuleInt;")
       mv.visitMethodInsn(INVOKEVIRTUAL, valueModuleInt, "NoneV", s"()L$optionVInt;", false)
+      true
+    // Stage 8: Lit.String → new StringV("...").
+    case Lit.String(v) =>
+      mv.visitTypeInsn(NEW, stringVInt)
+      mv.visitInsn(DUP)
+      mv.visitLdcInsn(v)
+      mv.visitMethodInsn(INVOKESPECIAL, stringVInt, "<init>", "(Ljava/lang/String;)V", false)
+      true
+    // Stage 8: `Nil` and builtin collection constructors.
+    case Term.Name("Nil") =>
+      mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+      mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "NilRef", "()Ljava/lang/Object;", false)
+      true
+    // List(...) / Set(...) / Map(...) and their Term.ApplyType-wrapped form.
+    case Term.Apply.After_4_6_0(funExpr, argClause)
+        if {
+          val name = funExpr match
+            case Term.Name(n) => n
+            case Term.ApplyType.After_4_6_0(Term.Name(n), _) => n
+            case _ => ""
+          name == "List" || name == "Set" || name == "Map"
+        } =>
+      val ctorName = funExpr match
+        case Term.Name(n) => n
+        case Term.ApplyType.After_4_6_0(Term.Name(n), _) => n
+        case _ => ""
+      val helper = ctorName match
+        case "List" => "buildListRef"
+        case "Set"  => "buildSetRef"
+        case "Map"  => "buildMapRef"
+      val args = argClause.values
+      mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+      // Build Object[] of args
+      val n = args.length
+      if n <= 5 then mv.visitInsn(ICONST_0 + n)
+      else mv.visitIntInsn(BIPUSH, n)
+      mv.visitTypeInsn(ANEWARRAY, "java/lang/Object")
+      var i = 0
+      while i < args.length do
+        mv.visitInsn(DUP)
+        if i <= 5 then mv.visitInsn(ICONST_0 + i)
+        else mv.visitIntInsn(BIPUSH, i)
+        if !emitValueObject(args(i), ctx, mv) then return false
+        mv.visitInsn(AASTORE)
+        i += 1
+      mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, helper,
+        "([Ljava/lang/Object;)Ljava/lang/Object;", false)
       true
     // Stage 8: `xs ++ ys` — List/Map concat via collectionConcat (mirrors Javac).
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
