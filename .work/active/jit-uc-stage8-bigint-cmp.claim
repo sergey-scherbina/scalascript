@@ -1,0 +1,6 @@
+feature/jit-uc-stage8-bigint-cmp 2026-06-06T19:42:49Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-06T19:42:49Z
+status: not-started
+done-so-far:
+next: BigInt/Decimal cmp ops
