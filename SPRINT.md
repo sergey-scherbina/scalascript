@@ -196,13 +196,11 @@ Each item: one commit + bench A/B. Run `SSC_JIT_STATS=1 sbt "backendInterpreter/
       where `walkBool` fails but `walkLong` succeeds (Long != 0 = true).
       New test: `isZero(n): Boolean = n match { 0 => false; _ => true }` compiles.
 
-- [ ] **jit-uc-stage6-nonextract-tuple** — Tuple destructure match arms: `case (a, b) =>`
-      (`Pat.Tuple`) in both backends. Requires `TupleN` meta in `JitRuntime.metaFor`
-      + GETFI index-access. Targets `NonExtractPattern` (27 misses).
+- [x] **jit-uc-stage6-nonextract-tuple** — `Pat.Tuple` in Javac + ASM backends;
+      JitLint accepts Var/Wildcard sub-patterns; 27 NonExtractPattern misses eliminated.
 
-- [ ] **jit-uc-stage6-vm-retref** — Add `RETREF` opcode to `SscVm` + `VmCompiler`
-      `unifyRet(TRef)` path. Functions returning `String`/`InstanceV` compile.
-      Eliminates 18 `ret: ref-typed return` vm misses.
+- [x] **jit-uc-stage6-vm-retref** — RETREF=49 opcode; SscVm TLS slot; VmCompiler
+      unifyRet(TRef) allowed; JitRuntime wrapRef(); 18 vm-retref misses eliminated.
 
 - [ ] **jit-uc-stage6-unknownshape-hof-analysis** — Profile which bench workloads
       hit `UnknownShape` after stage6.a–d; tag root causes in `walkForBailCliffs`.

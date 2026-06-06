@@ -1,6 +1,0 @@
-feature/jit-uc-stage6-vm-retref 2026-06-06T09:37:52Z
-agent: claude-sonnet-4-6
-heartbeat: 2026-06-06T09:46:45Z
-status: in-progress
-done-so-far: impl done, 1413 tests green
-next: read VmCompiler + SscVm for RETREF design

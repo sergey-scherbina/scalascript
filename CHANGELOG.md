@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(jit): RETREF opcode — ref-typed VM return (vm-retref -18)
+
+- **jit-uc-stage6-vm-retref** — RETREF=49 opcode added to SscVm with TLS slot;
+  VmCompiler unifyRet(TRef) allowed + emits RETREF; JitRuntime wrapRef() reads
+  lastRefResult(); 18 vm ret:ref-typed-return misses eliminated. 1413 tests green.
+
+## 2026-06-06 — feat(jit): Pat.Tuple match support (NonExtractPattern -27)
+
+- **jit-uc-stage6-nonextract-tuple** — `Pat.Tuple` patterns in Javac + ASM backends:
+  casts scrutinee to TupleV, accesses elems() by index; JitLint no longer reports
+  NonExtractPattern for simple Var/Wildcard sub-patterns. 4 new tests, 1411 total green.
+
 ## 2026-06-05 — feat(jit): walkBool Long-fallback for bool-returning matches
 
 - **jit-uc-stage6-bool-body-ext** — `walkBool` fallback to `walkLong` in both
