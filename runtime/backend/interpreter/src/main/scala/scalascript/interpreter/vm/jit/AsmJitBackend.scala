@@ -1748,6 +1748,15 @@ object AsmJitBackend extends JitBackend:
       mv.visitFieldInsn(GETSTATIC, valueModuleInt, "MODULE$", s"L$valueModuleInt;")
       mv.visitMethodInsn(INVOKEVIRTUAL, valueModuleInt, "NoneV", s"()L$optionVInt;", false)
       true
+    // Stage 8: `xs ++ ys` — List/Map concat via collectionConcat (mirrors Javac).
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+        if op.value == "++" && argClause.values.lengthCompare(1) == 0 =>
+      mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+      if !walkRef(lhs, ctx, mv) then return false
+      if !walkRef(argClause.values.head, ctx, mv) then return false
+      mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "collectionConcat",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", false)
+      true
     // Stage 8: BigInt/Decimal infix arithmetic via JitRefDispatch (mirrors Javac).
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
         if isNumericObjectReceiver(lhs) && argClause.values.lengthCompare(1) == 0 =>

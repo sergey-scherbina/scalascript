@@ -150,3 +150,21 @@ object JitRefDispatch:
     Value.DecimalV(decimalValue(recv) * decimalValue(other))
   def decimalDiv(recv: Value, other: Value): Value =
     Value.DecimalV(decimalValue(recv) / decimalValue(other))
+
+  // Stage 8: collection concat helpers — `xs ++ ys` and `m ++ n`.
+  def listConcat(recv: AnyRef, other: AnyRef): Object = (recv, other) match
+    case (Value.ListV(a), Value.ListV(b)) => Value.ListV(a ++ b).asInstanceOf[Object]
+    case _ =>
+      throw new ClassCastException(s"listConcat unsupported: ${recv.getClass.getName}, ${other.getClass.getName}")
+
+  def mapConcat(recv: AnyRef, other: AnyRef): Object = (recv, other) match
+    case (Value.MapV(a), Value.MapV(b)) => Value.MapV(a ++ b).asInstanceOf[Object]
+    case _ =>
+      throw new ClassCastException(s"mapConcat unsupported: ${recv.getClass.getName}, ${other.getClass.getName}")
+
+  /** Generic ++ dispatch — picks List vs Map at runtime by receiver shape. */
+  def collectionConcat(recv: AnyRef, other: AnyRef): Object = recv match
+    case _: Value.ListV => listConcat(recv, other)
+    case _: Value.MapV  => mapConcat(recv, other)
+    case _ =>
+      throw new ClassCastException(s"collectionConcat unsupported receiver: ${recv.getClass.getName}")

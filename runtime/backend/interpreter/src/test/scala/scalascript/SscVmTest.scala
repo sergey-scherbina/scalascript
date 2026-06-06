@@ -1794,6 +1794,15 @@ class SscVmTest extends AnyFunSuite with Matchers:
     JitGlobals.withInterp(interp) { direct.apply(sq) }    shouldBe 16L  // n=5>3: 5+10=15+1=16
   }
 
+  test("stage8-list-concat-infix: List ++ List JITs through JitRefDispatch.collectionConcat") {
+    val out = captured(
+      """def both(xs: List[Int], ys: List[Int]): List[Int] = xs ++ ys
+        |val a: List[Int] = List(1, 2, 3)
+        |val b: List[Int] = List(4, 5)
+        |println(both(a, b))""".stripMargin)
+    out.trim shouldBe "List(1, 2, 3, 4, 5)"
+  }
+
   test("stage8-bigint-infix: BigInt(n) + n / * / - JITs through JitRefDispatch") {
     val out = captured(
       """def big(n: Int): BigInt = BigInt(n) + BigInt(n) * BigInt(2) - BigInt(1)

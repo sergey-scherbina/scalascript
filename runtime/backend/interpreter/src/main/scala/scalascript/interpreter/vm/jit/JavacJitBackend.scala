@@ -1099,6 +1099,17 @@ object JavacJitBackend extends JitBackend:
         idx += 1
       sb.append(")")
       sb.toString
+    // Stage 8: `xs ++ ys` — List or Map concat via JitRefDispatch.collectionConcat.
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+        if op.value == "++" && argClause.values.lengthCompare(1) == 0 =>
+      val lhsRef = walkRef(lhs, ctx)
+      if lhsRef == null then null
+      else
+        val rhsRef = walkRef(argClause.values.head, ctx)
+        if rhsRef == null then null
+        else
+          s"scalascript.interpreter.vm.jit.JitRefDispatch$$.MODULE$$.collectionConcat(" +
+            s"(Object) ($lhsRef), (Object) ($rhsRef))"
     // Stage 8: BigInt/Decimal infix arithmetic — route to JitRefDispatch numeric helpers.
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
         if isNumericObjectReceiver(lhs) && argClause.values.lengthCompare(1) == 0 =>
