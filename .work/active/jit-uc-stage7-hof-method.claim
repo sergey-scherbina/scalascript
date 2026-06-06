@@ -1,6 +1,6 @@
 feature/jit-uc-stage7-hof-method 2026-06-06T11:22:36Z
 agent: codex
-heartbeat: 2026-06-06T11:23:06Z
+heartbeat: 2026-06-06T11:28:20Z
 status: in-progress
-done-so-far: worktree created
-next: read stage 7 HOF plan and benchmark corpus
+done-so-far: narrowed HOF slice to numeric Option/Either/List/Range chains via compact op descriptors
+next: implement JitHofDispatch helpers and backend emission
