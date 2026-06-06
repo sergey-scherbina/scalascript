@@ -39,12 +39,19 @@ class RustGenRuntimeFilesTest extends AnyFunSuite:
     assert(m.contains("Cargo.toml"))
     assert(m("Cargo.toml").contains("[package]"))
 
-  test("the asset list is exactly three entries in a fixed order"):
+  test("the asset list emits Cargo.toml + runtime + generated/<crate>.rs in a fixed order"):
     new RustBackend().compile(emptyModule, emptyOpts) match
       case CompileResult.Segmented(segs) =>
         val names = segs.collect { case Segment.Asset(n, _, _) => n }
-        assert(names == List("Cargo.toml", "src/value.rs", "src/runtime/mod.rs"),
-          s"got order: $names")
+        assert(
+          names == List(
+            "Cargo.toml",
+            "src/value.rs",
+            "src/runtime/mod.rs",
+            "src/generated/ssc_program.rs"
+          ),
+          s"got order: $names"
+        )
       case other => fail(s"expected Segmented, got $other")
 
   test("ValueRs template defines the closed Value enum surface (R.1)"):

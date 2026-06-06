@@ -2,11 +2,18 @@ package scalascript.codegen.rust
 
 import scalascript.backend.spi.*
 import scalascript.ir
+import scalascript.transform.Denormalize
 
-/** Emits Cargo crate assets for a `NormalizedModule`.  Phase R.1
- *  (hello-cargo-toml slice): only `Cargo.toml` is emitted; subsequent
- *  slices add `src/value.rs`, `src/runtime/mod.rs`, `src/generated/`,
- *  and `src/main.rs`.  See specs/rust-backend.md. */
+/** Emits Cargo crate assets for a `NormalizedModule`.
+ *
+ *  Phase R.1.3c — runs `Denormalize` to obtain the scalameta-backed
+ *  AST and walks top-level `Defn.Def` nodes via `RustCodeWalk`.  Emits
+ *  Cargo.toml + value.rs + runtime/mod.rs + `src/generated/<crate>.rs`.
+ *  Anything outside the narrow R.1 subset (parameters, non-Unit return
+ *  types, expressions beyond `Apply(println, Lit.String)` + literals)
+ *  flows through as a `Diagnostic.Generic` and surfaces as
+ *  `CompileResult.Failed`.  The main-assembly slice (`src/main.rs`
+ *  shim) is the next slice. */
 object RustGen:
 
   /** Default crate name when the module manifest carries none. */
@@ -22,29 +29,40 @@ object RustGen:
       intrinsics:       Map[ir.QualifiedName, IntrinsicImpl],
       runtimePreamble:  String
   ): CompileResult =
-    val _ = (opts, intrinsics, runtimePreamble) // wired but not consumed before the code-walk slice
+    val _ = (opts, runtimePreamble) // not used in R.1
     val crateName = sanitizeCrateName(module.manifest.flatMap(_.name).getOrElse(DefaultCrateName))
     val version   = module.manifest.flatMap(_.version).getOrElse(DefaultVersion)
     val descr     = module.manifest.flatMap(_.description).filter(_.nonEmpty)
     val hasMain   = moduleDeclaresMain(module)
     val cargoToml = renderCargoToml(crateName, version, descr, hasMain)
-    CompileResult.Segmented(List(
-      Segment.Asset(
-        name  = "Cargo.toml",
-        bytes = cargoToml.getBytes("UTF-8"),
-        mime  = "application/toml"
-      ),
-      Segment.Asset(
-        name  = "src/value.rs",
-        bytes = RustRuntimeTemplates.ValueRs.getBytes("UTF-8"),
-        mime  = "text/x-rust"
-      ),
-      Segment.Asset(
-        name  = "src/runtime/mod.rs",
-        bytes = RustRuntimeTemplates.RuntimeModRs.getBytes("UTF-8"),
-        mime  = "text/x-rust"
-      )
-    ))
+    val astModule = Denormalize(module)
+
+    RustCodeWalk.walk(astModule, intrinsics) match
+      case Left(diags) =>
+        CompileResult.Failed(diags)
+      case Right(walked) =>
+        CompileResult.Segmented(List(
+          Segment.Asset(
+            name  = "Cargo.toml",
+            bytes = cargoToml.getBytes("UTF-8"),
+            mime  = "application/toml"
+          ),
+          Segment.Asset(
+            name  = "src/value.rs",
+            bytes = RustRuntimeTemplates.ValueRs.getBytes("UTF-8"),
+            mime  = "text/x-rust"
+          ),
+          Segment.Asset(
+            name  = "src/runtime/mod.rs",
+            bytes = RustRuntimeTemplates.RuntimeModRs.getBytes("UTF-8"),
+            mime  = "text/x-rust"
+          ),
+          Segment.Asset(
+            name  = s"src/generated/$crateName.rs",
+            bytes = walked.generated.getBytes("UTF-8"),
+            mime  = "text/x-rust"
+          )
+        ))
 
   /** Render the `Cargo.toml` text for a crate with no dependencies and
    *  a single `[[bin]]` entry when `hasMain` is true, or a `[lib]` entry
