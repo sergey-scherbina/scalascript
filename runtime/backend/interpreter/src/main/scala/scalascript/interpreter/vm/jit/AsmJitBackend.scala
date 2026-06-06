@@ -959,9 +959,11 @@ object AsmJitBackend extends JitBackend:
         mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "length", "()I", false)
         mv.visitInsn(I2L)
         true
-    // `.toLong` / `.toInt` are no-ops in ScalaScript (Int = Long = JVM long).
+    // `.toLong` / `.toInt` are no-ops in ScalaScript when inner is Long-typed.
+    // Stage 8: when inner walks as ref (e.g. String.trim), route through emitRefChainLong("toInt").
     case Term.Select(inner: Term, Term.Name("toLong" | "toInt")) =>
-      walkLong(inner, ctx, mv)
+      if looksLongValue(inner, ctx) then walkLong(inner, ctx, mv)
+      else emitRefChainLong(inner, "toInt", Nil, ctx, mv)
     // `.toDouble` on a Long expression — widen.
     case Term.Select(inner: Term, Term.Name("toDouble")) =>
       walkLong(inner, ctx, mv) && { mv.visitInsn(L2D); true }
@@ -1234,6 +1236,14 @@ object AsmJitBackend extends JitBackend:
         if !walkRef(args(1), ctx, mv) then return false
         mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "stringReplaceRef",
           "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", false)
+        true
+      // Stage 8: String.split(sep) → ListV[StringV].
+      case "split" if args.lengthCompare(1) == 0 =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        if !walkRef(args.head, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "stringSplitRef",
+          "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", false)
         true
       case _ => false
 
@@ -2173,6 +2183,10 @@ object AsmJitBackend extends JitBackend:
           emitHofRefChain(recv, method, ap.argClause.values, ctx, mv) ||
             emitRefChainObject(recv, method, ap.argClause.values, ctx, mv)
         case _ => false
+    // Stage 8: no-paren method calls on ref expressions — common in `s.trim.toInt` chains.
+    case Term.Select(recv: Term, Term.Name(method))
+        if method == "trim" || method == "toUpperCase" || method == "toLowerCase" =>
+      emitRefChainObject(recv, method, Nil, ctx, mv)
     // Stage 5.5: ref-typed ADT field access `obj.field` on a ref param.
     case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
       val tn = ctx.refTypeOf(objName)
