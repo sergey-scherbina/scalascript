@@ -1813,6 +1813,13 @@ class SscVmTest extends AnyFunSuite with Matchers:
     res shouldBe Value.StringV("value=42")
   }
 
+  test("stage8-apply-infix-ref: String + Long concat JITs via walkRef Term.ApplyInfix") {
+    val out = captured(
+      """def greet(name: String, n: Int): String = name + " is " + n
+        |println(greet("Alice", 42))""".stripMargin)
+    out.trim shouldBe "Alice is 42"
+  }
+
   test("stage8-string-interp: multi-arg s-interpolation compiles") {
     val out = captured(
       """def label(a: Int, b: Int): String = s"[$a,$b]"

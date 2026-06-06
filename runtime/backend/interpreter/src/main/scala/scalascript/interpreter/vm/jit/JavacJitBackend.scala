@@ -1099,6 +1099,24 @@ object JavacJitBackend extends JitBackend:
         idx += 1
       sb.append(")")
       sb.toString
+    // Stage 8: `ref + x` where lhs is a ref expression (String/etc.) — emit
+    // `new StringV(Value.show(lhs) + (Long-or-show(rhs)))`. Result is StringV.
+    // Routes ApplyInfixRefOp `+` calls (string concat shape) through walkRef.
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+        if op.value == "+" && argClause.values.lengthCompare(1) == 0 =>
+      val lhsRef = walkRef(lhs, ctx)
+      if lhsRef == null then return null
+      val rhs = argClause.values.head
+      val rhsExpr =
+        val asLong = walkLong(rhs, ctx)
+        if asLong != null then asLong
+        else
+          val asRef = walkRef(rhs, ctx)
+          if asRef == null then return null
+          s"scalascript.interpreter.Value$$.MODULE$$.show((scalascript.interpreter.Value) ($asRef))"
+      s"new scalascript.interpreter.Value.StringV(" +
+        s"scalascript.interpreter.Value$$.MODULE$$.show((scalascript.interpreter.Value) ($lhsRef)) " +
+        s"+ $rhsExpr)"
     case tn: Term.Name if ctx.isRefName(tn.value) => ctx.resolveLocal(tn.value)
     case tn: Term.Name =>
       ctx.interp.globals.getOrElse(tn.value, null) match
