@@ -1876,6 +1876,14 @@ class SscVmTest extends AnyFunSuite with Matchers:
     out.trim shouldBe "List(1, 2, 3, 4, 5)"
   }
 
+  test("stage8-bigint-cmp: BigInt(n) < BigInt(m) and Decimal cmp JIT through JitRefDispatch") {
+    val out = captured(
+      """def smaller(a: Int, b: Int): Int = if BigInt(a) < BigInt(b) then 1 else 0
+        |println(smaller(3, 7))
+        |println(smaller(10, 1))""".stripMargin)
+    out.trim shouldBe "1\n0"
+  }
+
   test("stage8-bigint-infix: BigInt(n) + n / * / - JITs through JitRefDispatch") {
     val out = captured(
       """def big(n: Int): BigInt = BigInt(n) + BigInt(n) * BigInt(2) - BigInt(1)

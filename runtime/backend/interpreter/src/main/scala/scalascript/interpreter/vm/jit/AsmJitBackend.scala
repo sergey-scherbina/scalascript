@@ -1889,6 +1889,7 @@ object AsmJitBackend extends JitBackend:
         case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "-") => "decimalMinus"
         case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "*") => "decimalTimes"
         case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "/") => "decimalDiv"
+        case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "%") => "decimalMod"
         case _ => null
       if helper == null then false
       else

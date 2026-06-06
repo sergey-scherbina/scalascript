@@ -312,3 +312,26 @@ object JitRefDispatch:
   val NilRef: Object = Value.EmptyList.asInstanceOf[Object]
   val EmptySetRef: Object = Value.SetV(Set.empty).asInstanceOf[Object]
   val EmptyMapRef: Object = Value.EmptyMap.asInstanceOf[Object]
+
+  // Stage 8: BigInt/Decimal comparison ops → Long (0/1).
+  def bigIntLt(recv: Value, other: Value): Long =
+    if bigIntValue(recv) < bigIntValue(other) then 1L else 0L
+  def bigIntLe(recv: Value, other: Value): Long =
+    if bigIntValue(recv) <= bigIntValue(other) then 1L else 0L
+  def bigIntGt(recv: Value, other: Value): Long =
+    if bigIntValue(recv) > bigIntValue(other) then 1L else 0L
+  def bigIntGe(recv: Value, other: Value): Long =
+    if bigIntValue(recv) >= bigIntValue(other) then 1L else 0L
+
+  def decimalLt(recv: Value, other: Value): Long =
+    if decimalValue(recv) < decimalValue(other) then 1L else 0L
+  def decimalLe(recv: Value, other: Value): Long =
+    if decimalValue(recv) <= decimalValue(other) then 1L else 0L
+  def decimalGt(recv: Value, other: Value): Long =
+    if decimalValue(recv) > decimalValue(other) then 1L else 0L
+  def decimalGe(recv: Value, other: Value): Long =
+    if decimalValue(recv) >= decimalValue(other) then 1L else 0L
+
+  // Stage 8: Decimal modulo (completing the Decimal infix arith set).
+  def decimalMod(recv: Value, other: Value): Value =
+    Value.DecimalV(decimalValue(recv) % decimalValue(other))

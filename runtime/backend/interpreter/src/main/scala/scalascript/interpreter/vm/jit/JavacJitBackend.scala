@@ -793,6 +793,24 @@ object JavacJitBackend extends JitBackend:
         if argClause.values.lengthCompare(1) == 0 =>
       val opStr = op.value
       opStr match
+        // Stage 8: BigInt/Decimal comparison ops — route to JitRefDispatch helpers.
+        case "<" | "<=" | ">" | ">=" if isNumericObjectReceiver(lhs) =>
+          val helper = (lhs, opStr) match
+            case (Term.Apply.After_4_6_0(Term.Name("BigInt"), _), "<")  => "bigIntLt"
+            case (Term.Apply.After_4_6_0(Term.Name("BigInt"), _), "<=") => "bigIntLe"
+            case (Term.Apply.After_4_6_0(Term.Name("BigInt"), _), ">")  => "bigIntGt"
+            case (Term.Apply.After_4_6_0(Term.Name("BigInt"), _), ">=") => "bigIntGe"
+            case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "<")  => "decimalLt"
+            case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "<=") => "decimalLe"
+            case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), ">")  => "decimalGt"
+            case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), ">=") => "decimalGe"
+            case _ => null
+          if helper == null then null
+          else
+            val recv = emitNumericObjectValue(lhs, ctx)
+            val other = emitValueObject(argClause.values.head, ctx)
+            if recv == null || other == null then null
+            else s"scalascript.interpreter.vm.jit.JitRefDispatch$$.MODULE$$.$helper((scalascript.interpreter.Value) ($recv), $other)"
         case "+" | "-" | "*" | "/" | "%" =>
           val l = walkLong(lhs, ctx); if l == null then return null
           val r = walkLong(argClause.values.head, ctx); if r == null then return null
@@ -1200,6 +1218,7 @@ object JavacJitBackend extends JitBackend:
         case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "-") => "decimalMinus"
         case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "*") => "decimalTimes"
         case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "/") => "decimalDiv"
+        case (Term.Apply.After_4_6_0(Term.Name("Decimal"), _), "%") => "decimalMod"
         case _ => null
       if helper == null then null
       else
