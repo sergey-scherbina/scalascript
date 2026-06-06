@@ -1,6 +1,0 @@
-feature/jit-uc-stage7-typeclass-fold 2026-06-06T11:55:02Z
-agent: codex
-heartbeat: 2026-06-06T11:55:36Z
-status: in-progress
-done-so-far: worktree created
-next: inspect typeclass-fold workload shape and decide implement-vs-classify
