@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(rust): main.rs/lib.rs assembly + end-to-end golden
+
+- **rust-backend-r1-hello-main-assembly** — last slice of R.1.3 hello-emit.
+  Full Cargo crate skeleton (`Cargo.toml`, `src/value.rs`, `src/runtime/
+  mod.rs`, `src/generated/mod.rs`, `src/generated/<crate>.rs`, `src/main.rs`
+  or `src/lib.rs`) ready for `cargo build`. RustCodeWalk now identifies
+  the `@main`-annotated def and reports it as `mainEntry`; the shim
+  emits `fn main() { generated::<crate>::<entry>(); }`. End-to-end
+  golden test asserts every file byte-for-byte. 4 new tests, 24 green.
+
 ## 2026-06-06 — feat(rust): scalameta walk for hello-world emit
 
 - **rust-backend-r1-hello-code-walk** — third slice of R.1.3 hello-emit.

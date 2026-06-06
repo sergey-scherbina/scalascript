@@ -604,20 +604,6 @@ slice has a verified base to extend. The cumulative result equals the
 original `rust-backend-r1-hello-emit` description (Cargo.toml + main.rs
 + runtime/mod.rs + value.rs + generated/<module>.rs).
 
-- [ ] **rust-backend-r1-hello-main-assembly** — Detect `@main` and emit
-      `src/main.rs` containing `mod runtime; mod value; mod generated;`
-      + a `fn main() { generated::run(); }` shim. Without `@main`,
-      `src/lib.rs` is emitted instead and the `[[bin]]` entry is
-      removed from Cargo.toml (the previous slice's emit already
-      respects this — assert via cross-check). All four sub-slices'
-      goldens now live next to each other under
-      `tests/cross/rust/hello/`; the new test runs the full
-      `RustBackend.compile` and asserts every emitted `Segment.Asset`
-      matches the corresponding golden. Acceptance: full golden
-      suite green; on a host with `cargo`, manually invoking
-      `cargo run` inside the emitted crate prints "Hello from Rust"
-      (smoke test deferred to `rust-backend-r1-build-smoke`).
-
 - [ ] **rust-backend-r1-cli-emit-rust** — Add `EmitRustCmd extends CliCommand`
       in `tools/cli/src/main/scala/scalascript/cli/EmitCommands.scala`,
       flags `-o <dir>`, `--print-only`, `--bin-name <name>`, `--release`.

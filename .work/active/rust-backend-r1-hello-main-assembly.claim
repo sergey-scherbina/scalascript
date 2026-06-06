@@ -1,6 +1,0 @@
-feature/rust-backend-r1-hello-main-assembly 2026-06-06T21:30:30Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-06T21:30:30Z
-status: not-started
-done-so-far:
-next: emit src/main.rs shim with mod declarations + fn main
