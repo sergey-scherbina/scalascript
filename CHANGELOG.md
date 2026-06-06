@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(jit): Stage 7 UnknownShape tagging
+
+- **jit-uc-stage7-unknownshape-tagging** — Added classifier-only
+  `JitBailReason` buckets for ref-like infix ops, string interpolation,
+  type applications, for-comprehensions, `new` allocations, expression-callee
+  HOF apply shapes, and direct non-param global/constructor calls. Full
+  `backendInterpreter/test` is green at 1441 tests; `UnknownShape` narrowed
+  from 238 to 20, meeting the Stage 7 P3 `<100` target.
+
 ## 2026-06-06 — feat(jit): Stage 7 object ref-chain dispatch
 
 - **jit-uc-stage7-refchain-object-dispatch** — Javac and ASM now compile the

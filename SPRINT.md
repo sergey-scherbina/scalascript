@@ -224,6 +224,9 @@ Current after object ref-chain dispatch (2026-06-06): 733 disabled,
 238 UnknownShape, 70 Compound, 33 QualifiedRefCall, `RefChainObjectCall=14`,
 `NumericObjectMethodCall=8`; object `mkString` / `Map.getOrElse` fixtures
 now JIT on Javac+ASM as `LongToObject`.
+Current after UnknownShape tagging (2026-06-06): 733 disabled,
+20 UnknownShape, 178 Compound, `DirectGlobalOrCtorCall=148`,
+`ApplyInfixRefOp=19`, `InterpolatedString=14`; classifier-only P3 target met.
 Each item: one commit + bench A/B (or test A/B), never ship a non-win.
 
 - [x] **jit-uc-stage7-refchain** — Ref-val propagation low-risk subset landed:
@@ -290,11 +293,14 @@ Each item: one commit + bench A/B (or test A/B), never ship a non-win.
       Result: `RefChainObjectCall` narrowed `22 -> 14`, with
       `NumericObjectMethodCall=8`. See spec §9 Stage 7.5.
 
-- [ ] **jit-uc-stage7-unknownshape-tagging** — Further `walkForBailCliffs` tagging to
-      reduce UnknownShape 238→<100. Candidates: `Term.ApplyInfix` on ref operands
-      (`ApplyInfixRefOp`), string interpolation (`InterpolatedString`), non-FunV callee
-      chains. Not implementation code — produces an updated miss profile and extended
-      bail-reason vocabulary. Run `SSC_JIT_STATS=1` before and after.
+- [x] **jit-uc-stage7-unknownshape-tagging** — Added classifier-only
+      `walkForBailCliffs` buckets for ref-like infix ops, string interpolation,
+      type applications, for-comprehensions, `new` object construction,
+      expression-callee HOF apply shapes, and direct non-param global/constructor
+      calls. Verified by focused `JitLintTest` filters and full
+      `SSC_JIT_STATS=1 sbt "backendInterpreter/test"` (1441 tests green).
+      Result: `UnknownShape` narrowed `238 -> 20`, meeting the `<100` target.
+      See spec §9 Stage 7.6.
 
 - [ ] **jit-uc-stage7-numeric-object-dispatch** — Implement or further split
       the 8 `NumericObjectMethodCall` cases (`BigInt` / `Decimal`
