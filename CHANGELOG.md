@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-07 — feat(interpreter): String lexicographic comparison operators
+
+- **busi-p1-string-comparison-ops** — `String <`, `<=`, `>`, `>=` and
+  `compareTo` now work on `StringV` via Java's `String.compareTo` as the
+  canonical Unicode codepoint ordering.  Needed by busi for UUID v7
+  time-ordering and sort-key comparisons.  Previously threw
+  `[ERROR] No method '<=' on StringV(...)`.  8 regression tests cover
+  every operator + UUID v7 ordering use case + `List.sortWith` on
+  Strings.
+
 ## 2026-06-07 — feat(rust): `rust` fence blocks pass through verbatim
 
 - **rust-backend-r1-rust-source-blocks** — Markdown sources targeting

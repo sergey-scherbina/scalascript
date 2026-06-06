@@ -36,10 +36,6 @@ fix, and don't require a runtime refactor.
 
 ### P1 — frequent small splinters
 
-- [ ] **busi-p1-string-comparison-ops** — `String <`, `<=`, `>`, `>=`
-      on `StringV` throw. Needed for UUID v7 ordering and sort keys.
-      Add `compareTo` or the comparison operators directly.
-
 - [ ] **busi-p1-map-direct-apply** — `map(key)` direct access throws
       "Instance is not callable". Add `apply` on `Map`.
 
