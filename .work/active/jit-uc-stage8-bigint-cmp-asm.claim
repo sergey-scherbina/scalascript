@@ -1,0 +1,6 @@
+feature/jit-uc-stage8-bigint-cmp-asm 2026-06-06T20:07:59Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-06T20:07:59Z
+status: not-started
+done-so-far:
+next: port BigInt/Decimal cmp to ASM walkLong
