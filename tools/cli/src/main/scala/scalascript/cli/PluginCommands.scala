@@ -93,7 +93,7 @@ def pluginCheck(args: List[String]): Unit =
     System.err.println(s"plugin check: '$id' not installed"); System.exit(1)
   pkgs.foreach { p =>
     val m = scalascript.compiler.plugin.SscpkgLoader.load(p).manifest
-    val supported = "0.1.0"
+    val supported = scalascript.backend.spi.SpiVersion.Current
     if m.spiVersion == supported then
       println(s"${m.id} ${m.version}: OK  (spiVersion=${m.spiVersion})")
     else

@@ -24,7 +24,8 @@ class PluginCliTest extends AnyFunSuite with Matchers with BeforeAndAfterEach:
     val tmp = os.temp(suffix = ".sscpkg")
     val zos = new ZipOutputStream(new java.io.FileOutputStream(tmp.toIO))
     try
-      val manifest = s"id: $id\nversion: $version\nspiVersion: \"0.1.0\"\nkind: [library]\n"
+      val spi      = scalascript.backend.spi.SpiVersion.Current
+      val manifest = s"id: $id\nversion: $version\nspiVersion: \"$spi\"\nkind: [library]\n"
       zos.putNextEntry(new ZipEntry("manifest.yaml"))
       zos.write(manifest.getBytes("UTF-8"))
       zos.closeEntry()
@@ -91,7 +92,7 @@ class PluginCliTest extends AnyFunSuite with Matchers with BeforeAndAfterEach:
   test("check passes for matching spiVersion"):
     val pkg = makePackage("org.example.compat", "1.0.0")
     val m   = SscpkgLoader.load(pkg).manifest
-    m.spiVersion shouldBe "0.1.0"   // matches compiler supported version
+    m.spiVersion shouldBe scalascript.backend.spi.SpiVersion.Current
 
   test("check detects incompatible spiVersion"):
     val tmp = os.temp(suffix = ".sscpkg")
@@ -104,7 +105,7 @@ class PluginCliTest extends AnyFunSuite with Matchers with BeforeAndAfterEach:
     finally zos.close()
     val m = SscpkgLoader.load(tmp).manifest
     m.spiVersion shouldBe "9.9.9"
-    (m.spiVersion == "0.1.0") shouldBe false
+    (m.spiVersion == scalascript.backend.spi.SpiVersion.Current) shouldBe false
 
   // ── pack ─────────────────────────────────────────────────────────────
 

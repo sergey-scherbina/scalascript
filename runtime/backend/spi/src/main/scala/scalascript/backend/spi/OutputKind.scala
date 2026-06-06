@@ -12,4 +12,5 @@ enum OutputKind:
   case WasmBytecode
   case NativeBinary
   case DotNetIL
+  case RustSource             // Cargo crate emitted by backend-rust (specs/rust-backend.md)
   case ExecutionResult        // for interpreter / one-shot eval

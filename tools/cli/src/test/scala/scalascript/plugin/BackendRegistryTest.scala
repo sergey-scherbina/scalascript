@@ -38,9 +38,10 @@ class BackendRegistryTest extends AnyFunSuite:
     // go through scalajs-spa via segmented mode (Stage 9 split).
     assert(!ids.contains("js"))
 
-  test("every bundled backend declares spiVersion 0.1.0"):
+  test("every bundled backend declares the current spiVersion"):
     val versions = BackendRegistry.all.map(_.spiVersion).distinct
-    assert(versions == List("0.1.0"), s"expected one 0.1.0, got $versions")
+    assert(versions == List(SpiVersion.Current),
+      s"expected one ${SpiVersion.Current}, got $versions")
 
   test("describe produces a human-readable line per backend"):
     val lines = BackendRegistry.describe.linesIterator.toList

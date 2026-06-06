@@ -1,5 +1,5 @@
 id: com.example.${name}
 version: "${version}"
-spiVersion: "0.1.0"
+spiVersion: "0.2.0"
 kind:
   - plugin
