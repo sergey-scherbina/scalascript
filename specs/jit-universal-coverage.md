@@ -844,3 +844,71 @@ Result: the focused HOF workload targets are below 0.1 ms/op in warmed
 steady-state JMH runs. The full-corpus miss profile is unchanged because this
 slice adds positive coverage for new method-chain fixtures rather than
 retagging the remaining `Compound` / `UnknownShape` corpus misses.
+
+### Stage 7.4 result — typeclass fold classification (2026-06-06)
+
+Decision: classify `typeclass-fold` as out of scope for the current
+monomorphic HOF-method compiler instead of folding it into the
+Option/Either/List/Range receiver path. The workload dispatches through
+context-bound typeclass dictionaries:
+
+```scala
+trait Monoid[A]:
+  def empty: A
+  def combine(a: A, b: A): A
+
+def combineAll[A: Monoid](xs: List[A]): A =
+  xs.foldLeft(summon[Monoid[A]].empty)(summon[Monoid[A]].combine)
+```
+
+That shape needs resolved `using`/given dictionary specialization before the
+bytecode backends can emit primitive operations safely. Treating it as a
+standard receiver method chain would hide the real implementation requirement.
+
+Classifier changes:
+
+- Added `JitBailReason.TypeclassUsingDispatch`.
+- `JitPredicates.classifyBailReasons` now distinguishes ordinary unused/simple
+  `using` params from active typeclass dispatch via `summon[...]` or method
+  selection on a `using` param name.
+- Added a warmed JMH target and `scripts/bench` alias:
+  `typeclass-fold` -> `InterpreterBench.typeclassFold`.
+
+Verification:
+
+```
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-typeclass-fold && sbt "backendInterpreter/testOnly scalascript.JitLintTest -- -z stage7-typeclass-fold" "interpreterBench/compile"
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-typeclass-fold && BENCH_WI=1 BENCH_MI=3 BENCH_F=1 scripts/bench interp typeclass-fold
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/jit-uc-stage7-typeclass-fold && SSC_JIT_STATS=1 sbt "backendInterpreter/test"
+```
+
+Bench result with the quick 1/3/1 JMH configuration:
+
+```
+typeclass-fold  0.010 +/- 0.008 ms/op
+```
+
+Profile after the full run:
+
+```
+JIT miss stats (733 functions disabled):
+     298  [vm] Other
+     238  [javac] UnknownShape
+      70  [javac] Compound
+      33  [javac] QualifiedRefCall
+      27  [javac] NonExtractPattern
+      22  [javac] RefChainObjectCall
+      16  [javac] LambdaValue
+       8  [javac] PatternGuard
+       7  [javac] NonAdtScrutinee
+       6  [javac] BoolBody
+       4  [javac] TypeclassUsingDispatch
+       2  [javac] VarargParam
+       1  [asm] TypeclassUsingDispatch
+       1  [javac] TryCatch
+```
+
+Result: `typeclass-fold` is now a named, reproducible generic/given-dispatch
+follow-up instead of being hidden inside `UsingParams` or a generic HOF bucket.
+Future implementation should start with concrete dictionary specialization,
+not with the monomorphic standard-library HOF receiver path.
