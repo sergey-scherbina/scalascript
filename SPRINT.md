@@ -227,6 +227,10 @@ now JIT on Javac+ASM as `LongToObject`.
 Current after UnknownShape tagging (2026-06-06): 733 disabled,
 20 UnknownShape, 178 Compound, `DirectGlobalOrCtorCall=148`,
 `ApplyInfixRefOp=19`, `InterpolatedString=14`; classifier-only P3 target met.
+Current after numeric-object dispatch (2026-06-06): 717 disabled,
+20 UnknownShape, 170 Compound, no `NumericObjectMethodCall` misses in the
+runtime profile; BigInt/Decimal constructor-result methods now compile on
+Javac+ASM as `LongToObject`.
 Each item: one commit + bench A/B (or test A/B), never ship a non-win.
 
 - [x] **jit-uc-stage7-refchain** — Ref-val propagation low-risk subset landed:
@@ -302,11 +306,17 @@ Each item: one commit + bench A/B (or test A/B), never ship a non-win.
       Result: `UnknownShape` narrowed `238 -> 20`, meeting the `<100` target.
       See spec §9 Stage 7.6.
 
-- [ ] **jit-uc-stage7-numeric-object-dispatch** — Implement or further split
-      the 8 `NumericObjectMethodCall` cases (`BigInt` / `Decimal`
-      constructor-result methods such as `.pow`, `.abs`, scale/precision
-      helpers). Start from a dedicated numeric-object helper path; do not fold
-      these back into generic `RefChainObjectCall`.
+- [x] **jit-uc-stage7-numeric-object-dispatch** — Implemented the dedicated
+      BigInt/Decimal numeric-object helper path. Javac + ASM now compile
+      `BigInt(...)` / `Decimal(...)` constructor-result object methods
+      (`abs`, `negate`, `pow`, `gcd`, `toDecimal`, `setScale`, `toBigInt`) as
+      `LongToObject` through `JitRefDispatch`, with receiver guards preserving
+      the generic `mkString` / `Map.getOrElse` ref-chain object fallback.
+      Verified by focused numeric/object-dispatch tests and full
+      `SSC_JIT_STATS=1 sbt "backendInterpreter/test"` (1443 tests green).
+      Result: total disabled `733 -> 717`, `Compound 178 -> 170`, no
+      `NumericObjectMethodCall` misses in the runtime profile. See spec §9
+      Stage 7.7.
 
 ---
 

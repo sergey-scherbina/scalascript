@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(jit): Stage 7 numeric object dispatch
+
+- **jit-uc-stage7-numeric-object-dispatch** — Javac and ASM now compile
+  BigInt/Decimal constructor-result object methods through the dedicated
+  numeric-object helper path (`LongToObject` + `JitRefDispatch`) instead of
+  generic ref-chain dispatch. Covered `abs`, `negate`, `pow`, `gcd`,
+  `toDecimal`, `setScale`, and `toBigInt`; generic `mkString` and
+  `Map.getOrElse` object ref-chain dispatch stays intact. Full
+  `backendInterpreter/test` is green at 1443 tests; total JIT-disabled count
+  narrowed from 733 to 717 with no `NumericObjectMethodCall` misses left in
+  the runtime profile.
+
 ## 2026-06-06 — feat(jit): Stage 7 UnknownShape tagging
 
 - **jit-uc-stage7-unknownshape-tagging** — Added classifier-only
