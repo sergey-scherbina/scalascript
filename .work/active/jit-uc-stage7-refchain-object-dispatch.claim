@@ -1,6 +1,6 @@
 feature/jit-uc-stage7-refchain-object-dispatch 2026-06-06T12:05:33Z
 agent: codex
-heartbeat: 2026-06-06T12:06:09Z
+heartbeat: 2026-06-06T12:24:13Z
 status: in-progress
-done-so-far: worktree created
-next: inspect RefChainObjectCall examples and choose a narrow dispatch slice
+done-so-far: focused HOF/object-dispatch tests and refchain classifier regression pass
+next: run full backendInterpreter/test with SSC_JIT_STATS=1
