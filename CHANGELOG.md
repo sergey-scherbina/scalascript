@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(rust): ssc build-rust — one-shot native binary
+
+- **rust-backend-r1-cli-build-rust** — `ssc build-rust hello.ssc`
+  emits a Cargo crate to a temp dir, runs `cargo build --release`,
+  copies the produced binary to `-o <path>` (default `./<stem>`),
+  cleans up. `RustToolchain` helper centralises cargo presence
+  check + fixed missing-cargo message (brew + rust-lang.org link,
+  exit 1, nothing else). Shutdown-hook process-tree kill keeps cargo
+  from leaking on Ctrl-C, same shape as `run-jvm`. RustGen now reads
+  `BackendOptions.extra("binName")` so the CLI can pin the binary to
+  the file stem. RustCapabilities adds StringInterpolators +
+  ModuleImports so a hello-world passes CapabilityCheck. Smoke-tested
+  end-to-end with a real cargo on this host: `./hello` →
+  `Hello from Rust`. Smoke-tested missing-cargo with PATH stripped of
+  ~/.cargo/bin — exact spec wording printed, exit 1.
+
 ## 2026-06-06 — fix(parser): trailing-underscore identifier before `:` parses
 
 - **busi-p0-trailing-underscore-ident** — `def foo(type_: Int)`,

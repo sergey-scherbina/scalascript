@@ -596,37 +596,6 @@ slice has a verified base to extend. The cumulative result equals the
 original `rust-backend-r1-hello-emit` description (Cargo.toml + main.rs
 + runtime/mod.rs + value.rs + generated/<module>.rs).
 
-- [ ] **rust-backend-r1-cli-build-rust** — One-shot UX, mirroring how
-      `run-jvm` wraps `compile-jvm` + `scala-cli run`. Add
-      `BuildRustCmd extends CliCommand` in `EmitCommands.scala` (or a new
-      `BuildCommands.scala`). Pipeline: (1) call `RustBackend.compile` to
-      emit the Cargo crate into a temp dir (`os.temp.dir(prefix =
-      "ssc-rust-")`), (2) spawn `cargo build --release` inside it via
-      `os.proc("cargo", "build", "--release", "--quiet").spawn(stdout =
-      Inherit, stderr = Inherit)`, (3) copy the produced binary
-      (`target/release/<bin-name>` or `target/<triple>/release/<bin-name>`)
-      to the user's `-o <path>` (default `./<stem>`), (4) delete the temp
-      dir unless `--keep-crate <dir>` is set (in which case rename it to
-      that path). Flags: `-o <path>`, `--debug` (uses `cargo build`
-      without `--release`), `--keep-crate <dir>`, `--target <triple>`
-      (forwarded as `--target` to cargo), `--offline`, `--verbose`
-      (drops the `--quiet` flag on the cargo invocation). Register
-      shutdown-hook process-tree kill exactly like `run-jvm` does so
-      Ctrl-C tears down cargo cleanly. If `cargo` is not on `PATH`, print
-      exactly the fixed message from `specs/rust-backend.md §10`
-      ("cargo not found on PATH" + brew + rust-lang.org installer link)
-      and exit 1 — **nothing else**: no partial emit, no fallback advice,
-      no environment dump, no suggestion to use `emit-rust` instead.
-      Store the wording in a single `RustToolchain.cargoMissingMessage`
-      constant so `build-rust` and `run-rust` share it byte-for-byte.
-      Update `CommandRegistryTest` expected set to include `"build-rust"`.
-      Acceptance: on a host with `cargo`, `ssc build-rust hello.ssc`
-      writes `./hello`; running it prints the expected lines. On a host
-      without `cargo` (integration test runs the command with `PATH=`),
-      exit code 1 and stderr matches the spec wording byte-for-byte —
-      asserted via `diff` against a `cargo-missing.build.expected.txt`
-      fixture.
-
 - [ ] **rust-backend-r1-cli-run-rust** — One-shot build-and-run, mirror
       of `run-jvm`. Add `RunRustCmd extends CliCommand`. Pipeline:
       reuse `BuildRustCmd`'s emit + `cargo build` path, but target a
