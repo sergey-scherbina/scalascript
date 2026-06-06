@@ -525,6 +525,51 @@ independent of each other once R.5 is in.
       `ssc emit-rust examples/rust/hello.ssc -o /tmp/hello-rust` writes the
       crate; `--print-only` prints `main.rs` to stdout.
 
+- [ ] **rust-backend-r1-cli-build-rust** — One-shot UX, mirroring how
+      `run-jvm` wraps `compile-jvm` + `scala-cli run`. Add
+      `BuildRustCmd extends CliCommand` in `EmitCommands.scala` (or a new
+      `BuildCommands.scala`). Pipeline: (1) call `RustBackend.compile` to
+      emit the Cargo crate into a temp dir (`os.temp.dir(prefix =
+      "ssc-rust-")`), (2) spawn `cargo build --release` inside it via
+      `os.proc("cargo", "build", "--release", "--quiet").spawn(stdout =
+      Inherit, stderr = Inherit)`, (3) copy the produced binary
+      (`target/release/<bin-name>` or `target/<triple>/release/<bin-name>`)
+      to the user's `-o <path>` (default `./<stem>`), (4) delete the temp
+      dir unless `--keep-crate <dir>` is set (in which case rename it to
+      that path). Flags: `-o <path>`, `--debug` (uses `cargo build`
+      without `--release`), `--keep-crate <dir>`, `--target <triple>`
+      (forwarded as `--target` to cargo), `--offline`, `--verbose`
+      (drops the `--quiet` flag on the cargo invocation). Register
+      shutdown-hook process-tree kill exactly like `run-jvm` does so
+      Ctrl-C tears down cargo cleanly. Fail loudly if `cargo` is not on
+      `PATH` with a one-liner pointing to `rustup.rs` and to the
+      `emit-rust` + manual `cargo build` fallback — never silently skip.
+      Update `CommandRegistryTest` expected set to include `"build-rust"`.
+      Acceptance: on a host with `cargo`, `ssc build-rust hello.ssc`
+      writes `./hello`; running it prints the expected lines. On a host
+      without `cargo`, exit code 1 + stderr names the missing tool and
+      the workaround.
+
+- [ ] **rust-backend-r1-cli-run-rust** — One-shot build-and-run, mirror
+      of `run-jvm`. Add `RunRustCmd extends CliCommand`. Pipeline:
+      reuse `BuildRustCmd`'s emit + `cargo build` path, but target a
+      temp dir; then spawn the produced binary with the argv after `--`
+      via `os.proc(<bin>, userArgs*).spawn(stdout = Inherit, stderr =
+      Inherit)`; forward its exit code through `System.exit`. Delete the
+      temp dir after the binary exits (no `-o` flag — the user wanted a
+      run, not an artefact). Flags: `--debug`, `--target <triple>`,
+      `--offline`, `--verbose`, plus the `--` separator for argv. Same
+      shutdown-hook process-tree kill as `run-jvm` so Ctrl-C tears down
+      cargo + the running binary cleanly. Refactor the cargo-presence
+      check + the emit-into-tempdir code into a `RustToolchain` helper
+      object so it does not duplicate between `build-rust` and
+      `run-rust`. Update `CommandRegistryTest` expected set to include
+      `"run-rust"`. Acceptance: `ssc run-rust hello.ssc` prints the
+      expected lines and exits 0; `ssc run-rust greeter.ssc -- Sergiy`
+      forwards `Sergiy` as `argv[1]` to the built binary; Ctrl-C during
+      a long-running build or run leaves no orphan cargo or binary
+      processes (asserted via `ps` in the integration test).
+
 - [ ] **rust-backend-r1-build-smoke** — Add `tests/rust-build-smoke.sh`
       that, when `which cargo` succeeds, runs `cargo build --offline` (or
       `--locked` if no offline cache) on every crate emitted by

@@ -415,6 +415,11 @@ present.
 
 ## 10. CLI surface
 
+Three commands, mirroring the JVM target's `compile-jvm` / `run-jvm`
+split. `emit-rust` is the low-level "write the crate" primitive;
+`build-rust` is the one-shot UX for users who just want a binary;
+`run-rust` builds and executes the binary in one step.
+
 ```
 ssc emit-rust [flags] <file.ssc> [<file.ssc> …]
 
@@ -427,10 +432,76 @@ Flags:
       --bin-name <name>   Override the binary name in Cargo.toml
 ```
 
+```
+ssc build-rust [flags] <file.ssc>
+
+Build a single .ssc to a native binary in one step. Implemented as:
+  1. emit Cargo crate to a temp dir (same path as `ssc emit-rust`),
+  2. spawn `cargo build` (release by default) inside it,
+  3. copy the produced binary to <output> (or print path if --keep-crate).
+
+Flags:
+  -o, --output <path>     Output binary path (default ./<stem>)
+      --debug             Use `cargo build` (debug profile); default is --release
+      --keep-crate <dir>  Keep the emitted Cargo crate at <dir> (does not delete
+                            the temp dir). Useful for inspecting generated code.
+      --target <triple>   Forwarded to cargo as `--target <triple>` for cross-compile
+      --offline           Forwarded to cargo as `--offline`
+      --verbose           Stream cargo's stdout/stderr through; default is quiet
+```
+
+`build-rust` requires `cargo` on `PATH`. If absent, fails with a
+diagnostic pointing the user at `rustup.rs` and the alternative
+`ssc emit-rust` + manual `cargo build` flow — never silently degrades.
+The `rust-toolchain.toml` written by `emit-rust` (§9) is honoured by
+the spawned cargo, so the binary is reproducible across hosts with
+`rustup` installed.
+
+```
+ssc run-rust [flags] <file.ssc> [-- <program args>…]
+
+Build a single .ssc to a native binary and execute it immediately.
+Equivalent to `cargo run` for an emitted crate; the analogue of
+`run-jvm` (which compiles via JvmGen and runs via scala-cli). Pipeline:
+emit crate → `cargo build` (release by default) → spawn the produced
+binary with the user's arguments → forward its exit code.
+
+Flags:
+      --debug             Use `cargo build` (debug profile); default is --release
+      --target <triple>   Forwarded to cargo as `--target <triple>`
+      --offline           Forwarded to cargo as `--offline`
+      --verbose           Stream cargo's stdout/stderr through; default is quiet
+                            for the build step; the binary's stdout/stderr are
+                            always inherited
+  --                      Everything after `--` is passed as argv to the
+                            built binary (same convention as `cargo run --`)
+```
+
+`run-rust` shares the cargo-presence check and the shutdown-hook
+process-tree kill with `build-rust` (Ctrl-C tears down both the cargo
+process and the running binary cleanly). Unlike `build-rust`, the
+emitted crate and binary live in a temp dir that is deleted after the
+binary exits — there is no `-o` flag.
+
+Example — the question that prompted this section:
+
+```bash
+$ ssc build-rust hello.ssc            # produces ./hello
+$ ./hello
+Hello from Rust
+
+$ ssc run-rust hello.ssc              # equivalent end-to-end run
+Hello from Rust
+$ ssc run-rust greeter.ssc -- Sergiy  # forwarded argv after `--`
+Hello, Sergiy
+```
+
 Help text registered through `EmitRustCmd.summary` /
-`EmitRustCmd.details`. Listed under category "Emit & transpile" with
-the other `emit-*` commands. `CommandRegistryTest.scala` updated to
-include `"emit-rust"` in the expected set.
+`BuildRustCmd.summary` / `RunRustCmd.summary` (and the corresponding
+`details`). All three listed under category "Emit & transpile"
+alongside `emit-js` / `emit-wasm` / `run-jvm`.
+`CommandRegistryTest.scala` updated to include `"emit-rust"`,
+`"build-rust"`, and `"run-rust"` in the expected set.
 
 ## 11. Tests
 
