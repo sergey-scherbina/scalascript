@@ -151,6 +151,39 @@ class JitLintTest extends AnyFunSuite with Matchers:
     reasons should not contain JitBailReason.RefChainObjectCall
     reasons should not contain JitBailReason.RefChainCall
 
+  test("stage7-unknownshape-tagging: interpolated strings are classified"):
+    val reasons = classifyBody("""s"n=$n"""", List("n"), List("Int"))
+    reasons should contain (JitBailReason.InterpolatedString)
+
+  test("stage7-unknownshape-tagging: ref-like infix operators are classified"):
+    val reasons = classifyBody("xs ++ ys", List("xs", "ys"), List("List[Int]", "List[Int]"))
+    reasons should contain (JitBailReason.ApplyInfixRefOp)
+
+  test("stage7-unknownshape-tagging: type applications are classified"):
+    val reasons = classifyBody("identity[Int](n)", List("n"), List("Int"))
+    reasons should contain (JitBailReason.TypeApplicationCall)
+
+  test("stage7-unknownshape-tagging: for-comprehensions and new objects are classified"):
+    val forReasons = classifyBody("for x <- xs yield x", List("xs"), List("List[Int]"))
+    val newReasons = classifyBody("""new RuntimeException("x")""", Nil, Nil)
+    forReasons should contain (JitBailReason.ForComprehension)
+    newReasons should contain (JitBailReason.ObjectConstruction)
+
+  test("stage7-unknownshape-tagging: higher-order apply expressions are classified"):
+    val reasons = classifyBody("foo(n)(n)", List("n"), List("Int"))
+    reasons should contain (JitBailReason.HigherOrderApplyShape)
+
+  test("stage7-unknownshape-tagging: direct global or constructor calls are classified"):
+    val ctorReasons = classifyBody("PRegex(pattern)", List("pattern"), List("String"))
+    val macroReasons = classifyBody("""__ssc_macro__(plusOneImpl(__ssc_quote__("x", x)))""", List("x"), List("Int"))
+    ctorReasons should contain (JitBailReason.DirectGlobalOrCtorCall)
+    macroReasons should contain (JitBailReason.DirectGlobalOrCtorCall)
+
+  test("stage7-unknownshape-tagging: known direct JIT constructors stay out of global-call bucket"):
+    classifyBody("Some(n)", List("n"), List("Int")) should not contain JitBailReason.DirectGlobalOrCtorCall
+    classifyBody("Right(n)", List("n"), List("Int")) should not contain JitBailReason.DirectGlobalOrCtorCall
+    classifyBody("Left(n)", List("n"), List("Int")) should not contain JitBailReason.DirectGlobalOrCtorCall
+
   test("ADT match with guard — should JIT (walkArmAsIfBranch path)"):
     val r = lintFor(
       """sealed trait E

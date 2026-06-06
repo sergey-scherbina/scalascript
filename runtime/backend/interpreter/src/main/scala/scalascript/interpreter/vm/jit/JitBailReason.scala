@@ -216,6 +216,55 @@ object JitBailReason:
     val suggestedFix = Some(s"ensure `$name` is either a top-level `def` with " +
       "a JIT-compatible body, or pass it explicitly as a parameter")
 
+  case object ApplyInfixRefOp extends JitBailReason:
+    val tag         = "ApplyInfixRefOp"
+    val description = "infix operator on a non-primitive/ref-like operand; the " +
+      "bytecode JIT only emits primitive arithmetic/comparison infix forms"
+    val suggestedFix = Some("move the collection/string/ref operation outside " +
+      "the hot helper, or add a dedicated JIT helper for that operator")
+
+  case object InterpolatedString extends JitBailReason:
+    val tag         = "InterpolatedString"
+    val description = "string interpolation expression; the bytecode JIT does " +
+      "not lower `s\"...$x...\"` / custom interpolators in hot functions"
+    val suggestedFix = Some("build the string outside the JIT-compiled helper, " +
+      "or rewrite to a supported String-returning helper")
+
+  case object TypeApplicationCall extends JitBailReason:
+    val tag         = "TypeApplicationCall"
+    val description = "generic/type-application call (`f[A](...)`); the JIT " +
+      "does not specialize type-applied calls in the bytecode backends"
+    val suggestedFix = Some("route through a monomorphic helper with concrete " +
+      "argument and result types")
+
+  case object ForComprehension extends JitBailReason:
+    val tag         = "ForComprehension"
+    val description = "for-comprehension syntax in a hot function; the JIT " +
+      "expects already-lowered primitive/HOF shapes"
+    val suggestedFix = Some("rewrite the hot path to explicit supported method " +
+      "calls or move the comprehension outside the JIT helper")
+
+  case object ObjectConstruction extends JitBailReason:
+    val tag         = "ObjectConstruction"
+    val description = "`new` object construction in a hot function; the bytecode " +
+      "JIT only supports a narrow set of ScalaScript value constructors"
+    val suggestedFix = Some("construct the object outside the hot helper, or add " +
+      "a dedicated constructor emission path")
+
+  case object HigherOrderApplyShape extends JitBailReason:
+    val tag         = "HigherOrderApplyShape"
+    val description = "function application whose callee is itself an expression " +
+      "rather than a direct name or method select"
+    val suggestedFix = Some("bind the callee to a supported function parameter " +
+      "or rewrite to a direct monomorphic helper call")
+
+  case object DirectGlobalOrCtorCall extends JitBailReason:
+    val tag         = "DirectGlobalOrCtorCall"
+    val description = "direct call to a non-parameter name that the bytecode JIT " +
+      "cannot prove is a supported sibling helper or builtin constructor"
+    val suggestedFix = Some("move the call outside the hot helper, or add a " +
+      "dedicated JIT path for that global/constructor call")
+
   // ── Dispatch / parameter combo ───────────────────────────────────────────
 
   /** Both parameters are ref-typed (InstanceV / StringV / etc.); the JIT

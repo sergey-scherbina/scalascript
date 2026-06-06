@@ -215,11 +215,32 @@ object JitPredicates:
           while rem.nonEmpty do
             walkForBailCliffs(rem.head.body, paramNames, localNames, buf)
             rem = rem.tail
+      case Term.Interpolate(_, _, _) =>
+        buf += JitBailReason.InterpolatedString
+        t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))
+      case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+          if argClause.values.lengthCompare(1) == 0 =>
+        if isRefLikeInfix(op.value, lhs, argClause.values.head) then
+          buf += JitBailReason.ApplyInfixRefOp
+        t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))
+      case _: Term.For | _: Term.ForYield =>
+        buf += JitBailReason.ForComprehension
+        t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))
+      case _: Term.New =>
+        buf += JitBailReason.ObjectConstruction
+        t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))
+      case _: Term.ApplyType =>
+        buf += JitBailReason.TypeApplicationCall
+        t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))
       case ap: Term.Apply =>
         ap.fun match
           case tn: Term.Name if paramNames.contains(tn.value) =>
             // Calling a parameter as a function: HOF pattern not yet supported.
             buf += JitBailReason.HofCall(tn.value)
+          case tn: Term.Name
+              if !localNames.contains(tn.value) && !isKnownDirectJitCallee(tn.value) =>
+            buf += JitBailReason.DirectGlobalOrCtorCall
+            t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))
           case Term.Select(Term.Name(n), _) if paramNames.contains(n) =>
             // Method call directly on a param (e.g. `s.length`): handled by GETFI.
             t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))
@@ -232,6 +253,8 @@ object JitPredicates:
                     else classifyRefSelectCall(recv, method.value, ap.argClause.values, localNames))
             t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))
           case _ =>
+            if !ap.fun.isInstanceOf[Term.Name] && !ap.fun.isInstanceOf[Term.Select] then
+              buf += JitBailReason.HigherOrderApplyShape
             t.children.foreach(walkForBailCliffs(_, paramNames, localNames, buf))
       case _: Term.Function =>
         buf += JitBailReason.LambdaValue
@@ -297,6 +320,15 @@ object JitPredicates:
 
   private def isNumericObjectConstructor(name: String): Boolean =
     name == "BigInt" || name == "Decimal"
+
+  private def isKnownDirectJitCallee(name: String): Boolean =
+    name == "Some" || name == "Right" || name == "Left"
+
+  private def isRefLikeInfix(op: String, lhs: Term, rhs: Term): Boolean =
+    op match
+      case "+" | "-" | "*" | "/" | "%" | "<" | "<=" | ">" | ">=" | "==" | "!=" | "&&" | "||" =>
+        !isLongishExpr(lhs) || !isLongishExpr(rhs)
+      case _ => true
 
   private def isPrimitiveRefRead(method: String, args: List[Term]): Boolean =
     method match
