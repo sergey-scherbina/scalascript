@@ -393,6 +393,75 @@ jvm 0.088 ms/op. Each item: one commit + bench A/B.
       `string-split` <0.5 ms/op (≈30× win). Baseline:
       `scripts/bench interp string-split`.
 
+### Stage-8 residual bail buckets (gap analysis 2026-06-06)
+
+After comparing the post-stage-7.7 miss profile against SPRINT, these
+categories have no implementation task yet. Each item: one commit + miss-profile
+A/B (or test A/B); never ship a non-win.
+
+- [ ] **jit-uc-stage8-vm-bail-migration** — Migrate the 290 `[vm] Other` raw-string
+      bails in `VmCompiler` to typed `JitBailReason` cases (mirrors the
+      `stage1-partial` work already done for Javac+ASM). Each `bail(...)` call in
+      `VmCompiler.scala` gets mapped to an existing or new typed reason. No
+      compilation behaviour change — pure observability. Target:
+      `[vm] Other` 290 → < 30. Baseline:
+      `SSC_JIT_STATS=1 sbt "backendInterpreter/test"`.
+
+- [ ] **jit-uc-stage8-qualified-ref-call** — Compile `Module.fn(x)`,
+      `Math.max(a, b)`, `Foo.bar(...)` — currently 15 `QualifiedRefCall` misses.
+      Strategy: in `walkLong` / `walkRef`, when callee is `Term.Select(modName,
+      methodName)` and `modName` resolves to a module/companion in
+      `interp.globals`, look up the resolved `FunV` and emit a direct dispatch
+      (same path stage-7 uses for sibling calls). Baseline: record
+      `QualifiedRefCall` count before/after.
+
+- [ ] **jit-uc-stage8-nonextract-pattern-residual** — Compile the residual
+      `NonExtractPattern` cases not handled by stage-6 tuple: nested tuples
+      (`case (a, (b, c)) =>`), typed patterns (`case x: T =>`), and
+      `Pat.Alternative` with bindings. 19 misses. Strategy: extend
+      `walkTupleMatchBody` / `emitTupleMatchBody` to recurse into nested
+      `Pat.Tuple`; add `Pat.Typed` arm (CHECKCAST + bind); revisit
+      `Pat.Alternative` with binding (currently bails). Baseline:
+      `NonExtractPattern` 19 → 0.
+
+- [ ] **jit-uc-stage8-pattern-guard-complex** — Compile the 6 residual
+      `PatternGuard` misses where `walkBool` cannot translate the guard. Likely
+      causes: guard calls a non-compilable callee, references a ref-typed name
+      not in scope as a slot, or uses string ops on bound ref. Strategy: profile
+      the 6 cases, extend `walkBool` per the failing shape (or add a
+      Long-fallback path mirroring stage-6 bool-body-ext for guards). Baseline:
+      `PatternGuard` 6 → < 2.
+
+- [ ] **jit-uc-stage8-refchain-object-residual** — Address the 4 residual
+      `RefChainObjectCall` misses left over after stage-7.5. Strategy: dump the
+      4 specific call shapes; extend `JitRefDispatch` with whichever
+      method-on-ref helpers they need (likely `.toString` on InstanceV,
+      `.headOption`, or similar). Each helper is one method + one test.
+      Baseline: `RefChainObjectCall` 4 → 0.
+
+## JIT universal coverage — Stage 9 (post-monomorphic follow-ups)
+
+Stage 9 reopens two items previously parked as spec non-goals "for this sprint."
+They become tractable after stage-7's monomorphic IC infrastructure landed.
+
+- [ ] **jit-uc-stage9-poly-ic** — Polymorphic inline cache for HOF dispatch
+      (multiple receiver shapes at one call site). Stage-7.3 implemented a
+      monomorphic IC; this extends it to a small N-way IC (typical N=2..4) for
+      sites that see more than one shape during warm-up. Strategy: extend
+      `JitGlobals.callRefCache` entries from `(FunV, CompiledFn|null)` pairs to
+      small arrays, with linear scan + LRU eviction; instrument hit-rate via
+      `SSC_JIT_IC_STATS=1`. Bench target: workloads with megamorphic call sites
+      regress less than today. Baseline: design a polyIC microbench
+      (e.g. fold over a `List[Shape]` with 3 shapes) before implementing.
+
+- [ ] **jit-uc-stage9-lambda-value-solo** — Compile standalone `Term.Function`
+      lambdas not adjacent to a HOF method call (5 solo `LambdaValue` misses).
+      Strategy: when a `Term.Function` is bound to a local val or passed to a
+      non-stage-7-known method, emit a `FunV` constant via the existing
+      `LOADFV` opcode and let CALLREF dispatch handle invocation. Same
+      mechanism as stage-3.3 closure compilation but at the use site.
+      Baseline: `LambdaValue` solo 5 → < 2.
+
 ---
 
 ## Interpreter perf — Phase C + D continuation (open)
