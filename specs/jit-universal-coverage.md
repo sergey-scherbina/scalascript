@@ -548,3 +548,93 @@ JIT miss stats (734 functions disabled):
 
 All in-scope stages landed. Remaining bails are HOF complexity, tuple patterns,
 complex closures, and explicitly out-of-scope categories (varargs, using, finally).
+
+---
+
+## 9. Stage 7 — UnknownShape root-cause analysis + plan (2026-06-06)
+
+### Post-stage-6 miss profile
+
+Run after stage 6 (nonextract-tuple + vm-retref + bool-body-ext + pattern-guard landed):
+
+```
+JIT miss stats (734 functions disabled):
+     299  [vm] Other            — VmCompiler bail strings (HOF/closures, unmigrated)
+     240  [javac] UnknownShape  — still unclassified (down from 295 after RefChainCall tagging)
+      70  [javac] Compound      — multiple bail reasons (many: HofMethodCall + LambdaValue)
+      55  [javac] RefChainCall  — NEW: method on computed ref, no lambda (e.g. parse(n).getOrElse(0))
+      27  [javac] NonExtractPattern — complex Pat.Tuple sub-patterns or other unsupported pats
+      16  [javac] LambdaValue   — solo lambda (no companion ref call)
+       8  [javac] PatternGuard  — complex guards
+       7  [javac] NonAdtScrutinee
+       6  [javac] BoolBody
+       3  [javac] UsingParams   (out of scope)
+       2  [javac] VarargParam   (out of scope)
+       1  [javac] TryCatch      (out of scope)
+```
+
+Two new bail reasons added to `JitBailReason.scala` and `walkForBailCliffs`:
+- **`HofMethodCall`**: lambda arg to a method on a non-param receiver (`list.map(x => ...)`)
+  — appears only in `Compound(HofMethodCall, LambdaValue)` pairs (hence 0 solo count)
+- **`RefChainCall`**: non-lambda method on a computed ref expr (`parse(n).getOrElse(0)`)
+  — 55 solo hits, a key new category
+
+### Root-cause breakdown
+
+| Category | Count | Root cause | Stage-7 priority |
+|---|---|---|---|
+| UnknownShape | 240 | Undetected cliffs (ApplyInfix on refs, non-compilable callee chains, etc.) | Medium — needs deeper walkForBailCliffs tagging |
+| Compound (HOF+Lambda) | ~50 | `.map(x => ...)`, `.filter(x => ...)`, `.fold(...)` — closure on HOF method | High — blocks bench workloads |
+| RefChainCall | 55 | Method on computed ref without lambda — monadic `.getOrElse`, `.size`, `.head` | High — blocks many pure-ref programs |
+| NonExtractPattern | 27 | Complex Pat.Tuple sub-patterns (nested tuples, typed patterns) | Medium |
+| LambdaValue (solo) | 16 | Standalone lambda not adjacent to a ref method call | Low (stage-3 CALLREF territory) |
+| vm Other | 299 | VmCompiler raw-string bails — mostly HOF/closures | Low (vm-side CALLREF / RETREF expansion) |
+
+### Stage-7 implementation priorities
+
+**P1 — RefChainCall: ref-val propagation (55 misses)**
+
+Functions like `def f(n: Int): Int = parse(n).getOrElse(0)` fail because the JIT has no
+way to hold the intermediate `Either` result in a typed ref register and then dispatch on it.
+
+Required: extend the Javac+ASM backends to handle `val r: Ctor = expr; r.method()` chains
+where `expr` is a known constructor call. `walkRef` already handles param ref access;
+extend it to handle local `val` bindings whose RHS is a ref-returning function call.
+
+Work items:
+- `walkRef` extension: recognize `Term.Name(n)` when `n` is a local `val` bound to a ref
+- `walkLong`: for `Term.Apply(Term.Select(refExpr, method), longArgs)`, emit inline method dispatch
+- One new `walkRefChain` helper: evaluates `refExpr`, stores to a temp, calls method
+
+**P2 — HofMethodCall: monomorphic IC for method dispatch (70 Compound with Lambda)**
+
+Functions with `.map(x => ...)`, `.flatMap(x => ...)`, `.fold(...)` require:
+1. The lambda to compile (via existing CALLREF + LambdaValue fix)
+2. The receiver (List, Either, Option) to dispatch to the right runtime method
+
+Required: `WalkRef` for the receiver + `CALLREF` for the lambda argument.
+
+This is the main blocker for the HOF bench workloads (either-chain 3.46ms, hof-pipeline 2.79ms,
+option-chain 2.98ms, range-sum 3.57ms, typeclass-fold 2.99ms vs JVM <0.02ms).
+
+**P3 — UnknownShape reduction (240 misses)**
+
+Needs further `walkForBailCliffs` tagging to surface the hidden cliffs. Candidates:
+- `Term.ApplyInfix` on ref-typed operands
+- Calls to non-FunV globals (e.g. `valNames` entries)
+- `Term.Interpolate` (string interpolation)
+- Nested non-tail-recursive calls that chain ref results
+
+Work items:
+- Add `ApplyInfixRefOp` bail reason for infix on ref operands
+- Add `InterpolatedString` bail reason for string interpolation
+- Re-run profile — target: UnknownShape < 100
+
+### Summary
+
+Stage 7 = two tracks in parallel:
+1. **RefChainCall track** (P1): extend `walkRef` + emit ref-chain dispatch; no new opcodes needed
+2. **HOF track** (P2): depends on CALLREF being reliable for closures captured from workload functions
+
+The RefChainCall track is lower-risk and has the higher hit rate (55 clean misses).
+Start there before tackling the full HOF pipeline.

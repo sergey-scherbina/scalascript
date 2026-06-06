@@ -204,6 +204,15 @@ object JitPredicates:
           case tn: Term.Name if paramNames.contains(tn.value) =>
             // Calling a parameter as a function: HOF pattern not yet supported.
             buf += JitBailReason.HofCall(tn.value)
+          case Term.Select(Term.Name(n), _) if paramNames.contains(n) =>
+            // Method call directly on a param (e.g. `s.length`): handled by GETFI.
+            t.children.foreach(walkForBailCliffs(_, paramNames, buf))
+          case Term.Select(_, _) =>
+            // Method call on a non-param expression (ref chain or HOF method).
+            val hasLambda = ap.argClause.values.exists(_.isInstanceOf[Term.Function])
+            buf += (if hasLambda then JitBailReason.HofMethodCall
+                    else JitBailReason.RefChainCall)
+            t.children.foreach(walkForBailCliffs(_, paramNames, buf))
           case _ =>
             t.children.foreach(walkForBailCliffs(_, paramNames, buf))
       case _: Term.Function =>

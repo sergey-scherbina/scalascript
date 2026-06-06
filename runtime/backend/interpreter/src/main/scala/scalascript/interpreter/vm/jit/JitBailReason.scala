@@ -148,6 +148,24 @@ object JitBailReason:
       "CALLREF machinery"
     val suggestedFix = Some("convert to a named top-level def and pass the def name")
 
+  /** Method called on a computed ref (non-param receiver) with a lambda argument.
+   *  Example: `list.map(x => x + 1)`, `parse(n).flatMap(f)`. */
+  case object HofMethodCall extends JitBailReason:
+    val tag         = "HofMethodCall"
+    val description = "lambda/closure passed as argument to a method on a ref-typed " +
+      "receiver (e.g. `list.map(x => x + 1)`); requires inline-cache dispatch for " +
+      "both the HOF receiver and the lambda — stage-7 territory"
+    val suggestedFix = Some("replace the closure with a named top-level def")
+
+  /** Method called on a non-param ref-typed expression (no lambda args).
+   *  Example: `parse(n).getOrElse(0)`, `opt.fold(0)(identity)`. */
+  case object RefChainCall extends JitBailReason:
+    val tag         = "RefChainCall"
+    val description = "method called on a ref-typed intermediate expression " +
+      "(computed value, not a parameter directly); the JIT needs the receiver in " +
+      "a ref register, which requires ref-val propagation not yet implemented"
+    val suggestedFix = Some("hoist the ref computation to a val binding with explicit type")
+
   case class FreeNameUnresolvable(name: String) extends JitBailReason:
     val tag         = "FreeNameUnresolvable"
     val description = s"name `$name` is not a parameter, local val, sibling def, or " +
