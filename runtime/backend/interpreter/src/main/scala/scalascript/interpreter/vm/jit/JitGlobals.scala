@@ -150,3 +150,16 @@ object JitGlobals:
           case Value.IntV(v) => v
           case other         => throw new RuntimeException(s"JitGlobals.callGlobalLong3: '$name' returned ${other.getClass.getSimpleName}")
       case _ => throw new RuntimeException(s"JitGlobals.callGlobalLong3: '$name' is not a FunV")
+
+  /** Stage 8: ref-typed arg, Long return — used for callees with `using` params
+   *  (typeclass dispatch) or any ref param shape. `interp.invoke` handles given
+   *  resolution and other tree-walker semantics automatically. */
+  def callGlobalLong1Ref(name: String, a1: Object): Long =
+    val interp = interpTls.get()
+    if interp == null then throw new RuntimeException("JitGlobals.callGlobalLong1Ref: no interp in TLS")
+    interp.globals.getOrElse(name, null) match
+      case fn: Value.FunV =>
+        interp.invoke(fn, List(a1.asInstanceOf[Value])) match
+          case Value.IntV(v) => v
+          case other         => throw new RuntimeException(s"JitGlobals.callGlobalLong1Ref: '$name' returned ${other.getClass.getSimpleName}")
+      case _ => throw new RuntimeException(s"JitGlobals.callGlobalLong1Ref: '$name' is not a FunV")

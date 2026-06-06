@@ -482,7 +482,20 @@ object JavacJitBackend extends JitBackend:
     val n = args.length
     if n < 1 || n > 3 then return null
     ctx.interp.globals.getOrElse(fnName, null) match
-      case fn: Value.FunV if fn.params.length == n && fn.usingParams.isEmpty =>
+      // Stage 8: callee may have `using` params in addition to regular params.
+      // The interpreter's `invoke` resolves givens at runtime; the JIT just
+      // passes the n regular args. Compare against (params.length - usingParams.length).
+      case fn: Value.FunV if fn.params.length - fn.usingParams.length == n =>
+        // 1-arg ref calls (incl. with using params) route through callGlobalLong1Ref.
+        if n == 1 then
+          val isRef = classifyParamRefs(fn)(0)
+          if isRef then
+            val e = walkRef(args.head, ctx)
+            if e == null then return null
+            val jkg = "scalascript.interpreter.vm.jit.JitGlobals$.MODULE$"
+            return s"""$jkg.callGlobalLong1Ref("${escape(fnName)}", (Object) ($e))"""
+        // Existing all-Long path requires no using params and no ref params.
+        if fn.usingParams.nonEmpty then return null
         val paramIsRef = classifyParamRefs(fn)
         if paramIsRef.exists(identity) then return null  // ref params → different dispatch
         val argExprs = new Array[String](n)
