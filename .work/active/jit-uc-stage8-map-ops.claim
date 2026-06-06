@@ -1,6 +1,0 @@
-feature/jit-uc-stage8-map-ops 2026-06-06T13:51:54Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-06T13:51:54Z
-status: not-started
-done-so-far:
-next: read JitRefDispatch + stage-7.5 entry; design Map.updated dispatch
