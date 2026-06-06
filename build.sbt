@@ -588,6 +588,20 @@ lazy val backendWasm = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+// Phase R.1 skeleton — rust target.  Emits a Cargo crate that
+// `cargo build` compiles to a native binary; see specs/rust-backend.md.
+// Skeleton has only `Feature.ConsoleIO` in its capabilities; `compile`
+// returns Segmented(Nil) until the hello-emit slice lands.
+lazy val backendRust = project
+  .in(file("runtime/backend/rust"))
+  .dependsOn(backendSpi, core)
+  .settings(
+    name := "scalascript-backend-rust",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 // SourceLanguage plugin for `scala` fence blocks (specs/backend-spi.md §9 / Phase 9).
 // Stage 9 skeleton: SourceLanguage impl + ServiceLoader entry; the
 // existing in-core `scala`-block handling stays in place until the
@@ -850,7 +864,7 @@ def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
 lazy val cli = project
   .in(file("tools/cli"))
   .enablePlugins(SbtProguard, GraalVMNativeImagePlugin)
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin)
   // Frontend backends — derived from allFrontends registry (arch-build-registry Phase 4)
   .dependsOn(allFrontends.map(f => ClasspathDependency(f.project, None)): _*)
   .settings(
@@ -3303,7 +3317,7 @@ lazy val root = project
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
-    backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterServer, backendInterpreterPluginTests,
+    backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, backendInterpreterPluginTests,
     backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap,
     cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,  backendSqlRuntime, backendSqlRuntimeJs, sqlAws, sqlGcp, sqlAzure, backendTypedDataRuntime, backendGraphRuntime, backendConfigRuntime,
     clientBlockfrost,

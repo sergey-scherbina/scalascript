@@ -11,9 +11,9 @@ import scala.concurrent.duration.DurationInt
  *  classpath includes every Backend implementation. */
 class BackendRegistryTest extends AnyFunSuite:
 
-  test("ServiceLoader discovers all 4 bundled backends"):
+  test("ServiceLoader discovers the bundled backends"):
     val ids = BackendRegistry.all.map(_.id).toSet
-    val expected = Set("jvm", "js", "scalajs-spa", "int")
+    val expected = Set("jvm", "js", "scalajs-spa", "int", "rust")
     assert(expected.subsetOf(ids), s"expected $expected, got $ids")
 
   test("lookup by id returns the right backend"):
@@ -21,6 +21,7 @@ class BackendRegistryTest extends AnyFunSuite:
     assert(BackendRegistry.lookup("js").exists(_.displayName.contains("JavaScript")))
     assert(BackendRegistry.lookup("int").exists(_.displayName.contains("Interpreter")))
     assert(BackendRegistry.lookup("scalajs-spa").exists(_.displayName.contains("Scala.js")))
+    assert(BackendRegistry.lookup("rust").exists(_.displayName.contains("Rust")))
 
   test("lookup of unknown id returns None"):
     assert(BackendRegistry.lookup("does-not-exist").isEmpty)
