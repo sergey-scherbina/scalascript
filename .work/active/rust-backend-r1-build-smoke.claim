@@ -1,6 +1,0 @@
-feature/rust-backend-r1-build-smoke 2026-06-06T22:13:51Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-06T22:13:51Z
-status: not-started
-done-so-far:
-next: tests/rust-build-smoke.sh that cargo-builds emitted crates when cargo present

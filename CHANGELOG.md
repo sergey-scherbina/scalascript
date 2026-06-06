@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-07 — test(rust): end-to-end build-and-run smoke script
+
+- **rust-backend-r1-build-smoke** — Added `tests/rust-build-smoke.sh`
+  that exercises `ssc build-rust` against `examples/rust/*.ssc`
+  fixtures (hello.ssc + mixed.ssc), runs each produced binary, and
+  diffs the first stdout line against a script-registered expected
+  string. Cargo-missing path is a clean skip + exit 0; cargo-present
+  failures are exit 1 with the build log on stderr. Smoke-verified
+  locally green + cargo-missing skip. Phase R.1 of the rust target
+  is now feature-complete: full crate emit, three CLI commands,
+  mixed `rust` blocks, end-to-end smoke, and full docs.
+
 ## 2026-06-07 — docs(rust): full rust-backend coverage across docs/ + README
 
 - **rust-backend-r1-docs** — Added `docs/rust-backend.md` (full user

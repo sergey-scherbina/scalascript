@@ -586,16 +586,6 @@ slice has a verified base to extend. The cumulative result equals the
 original `rust-backend-r1-hello-emit` description (Cargo.toml + main.rs
 + runtime/mod.rs + value.rs + generated/<module>.rs).
 
-- [ ] **rust-backend-r1-build-smoke** — Add `tests/rust-build-smoke.sh`
-      that, when `which cargo` succeeds, runs `cargo build --offline` (or
-      `--locked` if no offline cache) on every crate emitted by
-      `tests/cross/rust/*/`. Skipped with exit 0 otherwise — does not block
-      CI on machines without Rust. CI lane definition (a new
-      `cross-rust-build` job) is documented but not added to the matrix
-      until the host image actually has `rustup`. Acceptance: locally on a
-      machine with `cargo`, `bash tests/rust-build-smoke.sh` returns 0 and
-      the produced `target/debug/<bin>` prints "Hello from Rust" matching
-      the interpreter row.
 
 
 ### Phase R.2 — Core IR coverage
