@@ -1,6 +1,6 @@
 feature/jit-uc-stage6-unknownshape-hof-analysis 2026-06-06T09:47:29Z
 agent: claude-sonnet-4-6
-heartbeat: 2026-06-06T09:47:29Z
-status: not-started
-done-so-far:
+heartbeat: 2026-06-06T10:00:00Z
+status: in-progress
+done-so-far: analysis done, stage-7 plan in spec
 next: run SSC_JIT_STATS + analyse UnknownShape roots
