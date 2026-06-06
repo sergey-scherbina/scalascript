@@ -955,6 +955,22 @@ object AsmJitBackend extends JitBackend:
         if !walkRef(recv, ctx, mv) then return false
         mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "headLong", "(Ljava/lang/Object;)J", false)
         true
+      // Stage 8: more List-on-Long methods (mirror Javac).
+      case "last" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "lastLong", "(Ljava/lang/Object;)J", false)
+        true
+      case "isEmpty" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "isEmptyLong", "(Ljava/lang/Object;)J", false)
+        true
+      case "nonEmpty" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "nonEmptyLong", "(Ljava/lang/Object;)J", false)
+        true
       case _ => false
 
   private def emitRefChainObject(recv: Term, method: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
@@ -991,6 +1007,22 @@ object AsmJitBackend extends JitBackend:
         if !walkString(args(1), ctx, mv) then return false
         if !walkString(args(2), ctx, mv) then return false
         mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "mkStringRef", "(Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;", false)
+        true
+      // Stage 8: more List-returning methods (mirror Javac).
+      case "tail" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "tailRef", "(Ljava/lang/Object;)Ljava/lang/Object;", false)
+        true
+      case "init" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "initRef", "(Ljava/lang/Object;)Ljava/lang/Object;", false)
+        true
+      case "headOption" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "headOptionRef", "(Ljava/lang/Object;)Ljava/lang/Object;", false)
         true
       case _ => false
 
