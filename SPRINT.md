@@ -485,18 +485,6 @@ independent of each other once R.5 is in.
 
 ### Phase R.1 — Skeleton
 
-- [ ] **rust-backend-r1-module-skeleton** — Create `runtime/backend/rust/`
-      sbt module mirroring `backendWasm` (deps: `backendSpi`, `core`).
-      Layout: `src/main/scala/scalascript/codegen/rust/{RustBackend,
-      RustCapabilities,RustIntrinsics,RustGen}.scala` and
-      `src/main/resources/META-INF/services/scalascript.backend.spi.Backend`
-      naming `scalascript.codegen.rust.RustBackend`. `RustCapabilities`
-      declares only `Feature.ConsoleIO` and `OutputKind.RustSource`.
-      `RustGen.generate` returns `CompileResult.Segmented(Nil)` (placeholder).
-      Aggregate into root, `cli.dependsOn(backendRust)`, `installBin`
-      carries the JAR. Acceptance: `sbt backendRust/compile` green;
-      `ServiceLoader[Backend]` enumeration includes id `"rust"`.
-
 - [ ] **rust-backend-r1-hello-emit** — Implement `RustGen.generate` for the
       4-line hello-world: `println`, `Int` literals, top-level `def`, `@main`.
       Emits `Cargo.toml`, `src/main.rs`, `src/runtime/mod.rs` with

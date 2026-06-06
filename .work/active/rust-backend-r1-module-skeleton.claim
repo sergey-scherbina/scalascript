@@ -1,6 +1,0 @@
-feature/rust-backend-r1-module-skeleton 2026-06-06T20:30:00Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-06T20:27:08Z
-status: in-progress
-done-so-far: worktree created
-next: write RustBackend.scala + RustCapabilities + RustGen placeholder + sbt entry

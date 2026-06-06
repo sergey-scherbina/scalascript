@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-06 — feat(rust): backend-rust sbt module + SPI registration
+
+- **rust-backend-r1-module-skeleton** — second slice of the Rust target
+  roadmap. Created `runtime/backend/rust/` sbt module (mirrors
+  backendWasm) with RustBackend (id="rust"), RustCapabilities
+  (Feature.ConsoleIO only), RustIntrinsics (empty), RustGen
+  (Segmented(Nil) placeholder), and META-INF/services entry so
+  ServiceLoader[Backend] discovers it. BackendRegistryTest now
+  asserts `lookup("rust")` returns a backend named "Rust". No emit
+  yet — that lands in the hello-emit slice.
+
 ## 2026-06-06 — feat(spi): OutputKind.RustSource + SpiVersion 0.2.0
 
 - **rust-backend-r1-spi-output-kind** — first slice of the Rust target
