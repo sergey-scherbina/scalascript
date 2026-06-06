@@ -113,6 +113,7 @@ object VmCompiler:
           retIsDouble = b.retIsDoubleOf, paramIsDouble = b.paramIsDoubleOf,
           paramIsRef = b.paramIsRefOf, strPool = b.strArr,
           retIsBool = jit.JitPredicates.isBoolReturning(fn.body),
+          retIsRef = b.retIsRefOf,
           funVPool = b.funVArr,
           callRefCache = if hasCallRef then new Array[AnyRef](ops.length * 2) else Array.empty
         )
@@ -178,15 +179,17 @@ object VmCompiler:
         case _: Lit.Double => ()
       }.nonEmpty
 
-    // Unified type of every value reaching a RET. None until the first leaf.
+    // Unified type of every value reaching a RET/RETREF. None until first leaf.
     private var retType: Option[VmType] = None
     private def unifyRet(t: VmType): Unit =
-      if t == TRef then bail("ret: ref-typed return (RET is Long-typed)")
       retType match
         case None             => retType = Some(t)
         case Some(prev) if prev == t => ()
+        case Some(TRef)       => bail("ret: mixed ref/numeric returns")
+        case Some(_) if t == TRef => bail("ret: mixed ref/numeric returns")
         case _                => bail("ret: mixed Int/Double returns")
     def retIsDoubleOf: Boolean = retType.contains(TDouble)
+    def retIsRefOf:    Boolean = retType.contains(TRef)
 
     // Callees referenced by CALL, in slot order; deduped by identity.
     val callees = mutable.ArrayBuffer.empty[Value.FunV]
@@ -562,7 +565,8 @@ object VmCompiler:
         compileTail(rest.head.asInstanceOf[Term])
 
       case other =>
-        val r = compileExpr(other); unifyRet(typeOf(r)); emit(RET, r, 0, 0)
+        val r = compileExpr(other); unifyRet(typeOf(r))
+        if typeOf(r) == TRef then emit(RETREF, r, 0, 0) else emit(RET, r, 0, 0)
 
     private def isSelfTailCall(app: Term.Apply): Boolean =
       fn.name.nonEmpty && (app.fun match

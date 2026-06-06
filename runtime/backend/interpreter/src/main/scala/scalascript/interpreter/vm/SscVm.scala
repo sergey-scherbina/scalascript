@@ -106,6 +106,11 @@ object SscVm:
   //   into refStack(dst). Used to represent non-capturing lambda literals passed as
   //   HOF arguments — the FunV is created at VmCompiler time and stored in funVPool.
   final val LOADFV = 48
+  // RETREF r, 0, 0: return refStack(r) from the function (ref-typed return).
+  //   Stores the ref in the TLS slot `lastRefResult` and returns 0L from `exec` so
+  //   the caller (JitRuntime.runVm) can read it. Used when the function's declared
+  //   return type is String, an ADT, or any other ref-typed value.
+  final val RETREF = 49
 
   /** A compiled function: parallel instruction arrays + pools.
    *  `op(i)` is the opcode; `a/b/c(i)` its operands (meaning per §4 of spec).
@@ -135,6 +140,9 @@ object SscVm:
     // True when the function returns Boolean: the raw 0/1 Long result must be
     // wrapped in BoolV (not IntV) by the JIT bridge.
     val retIsBool: Boolean = false,
+    // True when the function uses RETREF (ref-typed return: String, InstanceV, etc.).
+    // The JIT bridge reads the actual AnyRef return from SscVm.lastRefResult after exec.
+    val retIsRef: Boolean = false,
     // Pool of non-capturing FunV constants for LOADFV opcode (Stage 3.3).
     val funVPool: Array[Value.FunV] = Array.empty,
     // Monomorphic inline cache for CALLREF (Stage 3.4). Sized to op.length*2;
@@ -142,6 +150,14 @@ object SscVm:
     // A non-null FunV slot with a null CompiledFn means "seen but not compilable".
     val callRefCache: Array[AnyRef] = Array.empty
   )
+
+  // Thread-local slot for RETREF: exec stores the AnyRef return here so the
+  // caller (JitRuntime.runVm) can read it without changing exec's return type.
+  private val tlRefReturn = new ThreadLocal[Array[AnyRef]]:
+    override def initialValue(): Array[AnyRef] = new Array[AnyRef](1)
+
+  /** After exec returns from a RETREF function, returns the stored ref result. */
+  def lastRefResult: AnyRef = tlRefReturn.get()(0)
 
   /** Execute `fn` with a frame window based at `base` in shared `stack`.
    *  Arguments must already sit at stack(base .. base+arity-1).
@@ -305,7 +321,8 @@ object SscVm:
               VmCompiler.compile(funV) match
                 case Some(cf) => cache(cacheIdx + 1) = cf
                 case None     => ()  // leave null = "not compilable"
-        case RET   => return stack(base + a(pc))
+        case RET    => return stack(base + a(pc))
+        case RETREF => tlRefReturn.get()(0) = refStack(base + a(pc)); return 0L
       pc += 1
     0L // unreachable
 

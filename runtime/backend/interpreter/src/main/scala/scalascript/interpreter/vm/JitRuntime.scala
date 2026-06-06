@@ -165,6 +165,15 @@ object JitRuntime:
     else if cf.retIsBool then Computation.pureBool(raw != 0L)
     else Computation.pureIntV(raw)
 
+  /** Wrap a RETREF result stored in SscVm.lastRefResult. */
+  private def wrapRef(): Computation =
+    Computation.Pure(SscVm.lastRefResult.asInstanceOf[Value])
+
+  /** Run the VM and wrap the result, dispatching on retIsRef/retIsDouble/retIsBool. */
+  private def runAndWrap(cf: SscVm.CompiledFn, args: Array[Long], refs: Array[AnyRef]): Computation =
+    val raw = runVm(cf, args, refs)
+    if cf.retIsRef then wrapRef() else wrap(cf, raw)
+
   private def isRefParam(cf: SscVm.CompiledFn, i: Int): Boolean =
     i < cf.paramIsRef.length && cf.paramIsRef(i)
 
@@ -526,10 +535,10 @@ object JitRuntime:
       else if isRefParam(cf, 0) then
         arg match
           case inst: Value.InstanceV =>
-            try wrap(cf, runVm(cf, NoArgs, Array[AnyRef](inst)))
+            try runAndWrap(cf, NoArgs, Array[AnyRef](inst))
             catch case _: Throwable => null
           case fn: Value.FunV =>
-            try wrap(cf, runVm(cf, NoArgs, Array[AnyRef](fn)))
+            try runAndWrap(cf, NoArgs, Array[AnyRef](fn))
             catch case _: Throwable => null
           case _ => null
       else if !isNumeric(arg) then null
@@ -537,7 +546,7 @@ object JitRuntime:
         val a0 = marshal(arg, cf.paramIsDouble.length > 0 && cf.paramIsDouble(0))
         if a0 == null then null
         else
-          try wrap(cf, runVm(cf, Array(a0.longValue), NoRefs))
+          try runAndWrap(cf, Array(a0.longValue), NoRefs)
           catch case _: Throwable => null
 
   /** 2-arg entry. Returns a Pure(IntV/DoubleV) computation if JITted, else null. */
@@ -600,5 +609,5 @@ object JitRuntime:
       i += 1; rest = rest.tail
     if !ok then null
     else
-      try wrap(cf, runVm(cf, xs, if anyRef then rs else NoRefs))
+      try runAndWrap(cf, xs, if anyRef then rs else NoRefs)
       catch case _: Throwable => null

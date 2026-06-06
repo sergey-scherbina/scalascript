@@ -1051,11 +1051,12 @@ class SscVmTest extends AnyFunSuite with Matchers:
     SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("GBP"))) shouldBe 0L
   }
 
-  test("p6: function returning String still bails (unifyRet(TRef) unchanged)") {
+  test("p6: function returning String compiles with RETREF (retIsRef=true)") {
     val f = funOf("tag",
       """def tag(x: Int): String = if x > 0 then "pos" else "neg"""")
     val cfn = VmCompiler.compile(f)
-    cfn shouldBe empty
+    cfn shouldBe defined
+    cfn.get.retIsRef shouldBe true
   }
 
   // ── p7: String.length / isEmpty / nonEmpty via GETFI + String meta ─────────
@@ -1276,6 +1277,28 @@ class SscVmTest extends AnyFunSuite with Matchers:
         |println(describe(1))
         |println(describe(2))""".stripMargin)
     out.trim shouldBe "10\n20\n99"
+  }
+
+  // ── Stage 6: RETREF — ref-typed VM return ────────────────────────────────
+
+  test("stage6-vm-retref: SscVm RETREF — String-returning function compiles and runs") {
+    val out = captured(
+      """def greet(n: Int): String = if (n > 0) "positive" else "non-positive"
+        |println(greet(5))
+        |println(greet(-1))""".stripMargin)
+    out.trim shouldBe "positive\nnon-positive"
+  }
+
+  test("stage6-vm-retref: VmCompiler emits RETREF for ref-returning function") {
+    import scalascript.interpreter.vm.{VmCompiler, SscVm}
+    val interp = interpOf(
+      """def greet(n: Int): String = if (n > 0) "hello" else "bye"""")
+    val fn = interp.globalsView("greet").asInstanceOf[Value.FunV]
+    val cf = VmCompiler.compile(fn)
+    cf should not be empty
+    cf.get.retIsRef shouldBe true
+    val hasRetref = cf.get.op.contains(SscVm.RETREF)
+    hasRetref shouldBe true
   }
 
   // ── Stage 6: Tuple destructure (NonExtractPattern) ───────────────────────
