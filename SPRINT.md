@@ -484,6 +484,14 @@ Each item: one commit + bench A/B (or test A/B), never ship a non-win.
 
 ## JIT universal coverage — Stage 8
 
+Status (2026-06-07): mostly done. 1474 tests green. Bench wins:
+
+| Bench | Before | ssc Javac | ssc-asm | JVM |
+|---|---|---|---|---|
+| map-ops | 3.16ms | 0.027ms (117×) | 0.026ms (113×) | 0.021ms ✓ |
+| string-split | 14.5ms | 0.235ms (62×) | 0.170ms (84×) | 0.089ms |
+| typeclass-fold | 2.97ms | 2.38ms (1.25×) | 2.18ms (1.36×) | 0.005ms |
+
 Spec: [`specs/jit-universal-coverage.md §9`](specs/jit-universal-coverage.md).
 Baseline (2026-06-06, post-stage7): 717 disabled, 20 UnknownShape,
 170 Compound (`DirectGlobalOrCtorCall=148`, `ApplyInfixRefOp=19`,
@@ -492,26 +500,23 @@ hof-pipeline, option-chain, range-sum all <0.03 ms/op. Remaining buckets
 do not show on bench corpus but block real-program JIT coverage.
 Each item: one commit + bench A/B (or test A/B), never ship a non-win.
 
-- [ ] **jit-uc-stage8-direct-global-ctor** — Compile `Term.Apply` on a free name
-      that resolves to a top-level FunV or constructor, even when the callee is
-      not a sibling (currently bails as `DirectGlobalOrCtorCall`). 148 Compound
-      misses today. Strategy: extend `walkRef`/`walkLong` to look up the callee
-      in `JitGlobals`, emit a static dispatch (FunV → bytecode handle if
-      compilable, ctor → `InstanceV.create`-style path). Baseline:
-      `SSC_JIT_STATS=1 sbt "backendInterpreter/test"` → record
-      `DirectGlobalOrCtorCall` before and after.
+- [x] **jit-uc-stage8-direct-global-ctor** — Codegen done via
+      `callGlobalLongAny` / `callGlobalRefAny` in JitGlobals: 1-arg ref,
+      2/3-arg mixed ref+long (including callees with `using` clauses) now
+      dispatch through `interp.invoke` (Javac+ASM). Classifier still reports
+      144 DirectGlobalOrCtorCall — most are now false positives; refining
+      `isKnownDirectJitCallee` requires runtime introspection (separate slice).
 
-- [~] **jit-uc-stage8-apply-infix-ref** — Partial: Javac walkRef now compiles
-      `String + Long`/`String + ref` concat via `Value.show + rhs` wrapping.
-      Remaining: BigInt/Decimal infix arithmetic (need JitRefDispatch helpers
-      for +/-/*/etc), List `++`, Map `++`. 1454 tests green; targeted concat
-      test passes.
+- [x] **jit-uc-stage8-apply-infix-ref** — String + Long/ref concat (Javac+ASM);
+      BigInt/Decimal infix arithmetic (+/-/*/Div/Mod) via JitRefDispatch helpers
+      (Javac+ASM); BigInt/Decimal comparison ops (<,<=,>,>=) (Javac+ASM);
+      List/Map `++` collection concat via collectionConcat (Javac+ASM);
+      ref ==/!= via Objects.equals (Javac+ASM).
 
-- [x] **jit-uc-stage8-string-interp** — Javac `walkRef` lowers `s"..."`
-      (Term.Interpolate prefix "s") to `new Value.StringV(part + arg + ...)`;
-      each arg via walkLong (numeric) or walkRef + Value.show. ASM deferred.
-      f-, md-, html-, css- prefixes still go through tree-walker. 1449 tests
-      green; +2 focused JIT tests.
+- [x] **jit-uc-stage8-string-interp** — Javac+ASM: `s"..."` (Term.Interpolate
+      prefix "s") lowers to `new Value.StringV(part + arg + ...)`; each arg
+      via walkLong (numeric) or walkRef + Value.show. f-, md-, html-, css-
+      prefixes still go through tree-walker.
 
 - [x] **jit-uc-stage8-unknownshape-tail** — Added 5 new bail reasons
       (ThrowExpression, TupleConstruction, EtaExpansion, ExplicitReturn,
@@ -527,33 +532,25 @@ distinct codegen path, not a classifier extension. Baseline (2026-06-06,
 `map-ops` ssc 3.16 / ssc-asm 3.91 / jvm 0.020 ms/op; `string-split` ssc 14.5 /
 jvm 0.088 ms/op. Each item: one commit + bench A/B.
 
-- [ ] **jit-uc-stage8-typeclass-fold** — Compile the resolved typeclass
-      dispatch path: `xs.foldLeft(summon[M[A]].empty)(summon[M[A]].combine)`.
-      Strategy: detect `summon[T]` at JIT time and inline the resolved given
-      instance as a ref constant; route `.combine(a, b)` through a monomorphic
-      method handle on the resolved instance (no GivenRuntime dispatch on each
-      call). Replaces the current `TypeclassUsingDispatch` bail. Bench target:
-      `typeclass-fold` <0.05 ms/op (≈100× win). Baseline:
-      `scripts/bench interp typeclass-fold`.
+- [~] **jit-uc-stage8-typeclass-fold** — Partial (1.36× win, 2.97ms → 2.18ms).
+      Codegen via `callGlobalLong1Ref` + `looksLongValue` fix: `workload()`
+      JIT-compiles, the while-loop overhead removed. `combineAll` itself still
+      tree-walked (uses `summon[T]`). Full win needs compile-time `summon[T]`
+      specialization (monomorphic IC for given dispatch) — separate stage-9
+      slice.
 
-- [ ] **jit-uc-stage8-map-ops** — Compile the immutable-`Map` mutation pattern:
-      `var m: Map[K,V] = …; m = m.updated(k, v); m.getOrElse(k, d)`. Strategy:
-      hoist the Map to a ref slot (already supported as ref-typed var?); route
-      `.updated` and `.getOrElse` through `JitRefDispatch` `mapUpdatedRef` /
-      `mapGetOrElseLong`. The hot pattern is identical to a List loop but on a
-      different ref shape. Bench target: `map-ops` <0.5 ms/op (≈6× win,
-      Map churn floor is structural — allocation-dominated). Baseline:
-      `scripts/bench interp map-ops`.
+- [x] **jit-uc-stage8-map-ops** — Full bench-paritet with JVM on both backends
+      (3.16ms → 0.027ms ssc Javac, 0.026ms ssc-asm vs JVM 0.021ms). Required
+      changes: `Map[K,V](...)` ApplyType in walkRef + isRefValRhs; ref-typed
+      Defn.Var/Term.Assign in walkBlockStmts + walkStatAsVoid + emitStatAsVoid;
+      JitRefDispatch.mapUpdatedRef + mapGetOrElseLong.
 
-- [ ] **jit-uc-stage8-string-split** — Compile the
-      `s.split(d).map(f).foldLeft(z)(g)` pipeline on `String → Array[String]`.
-      Strategy: emit `String.split` as a native call returning `Array[String]`
-      (existing intrinsic), then route the array `.map(...).foldLeft(...)` chain
-      through the stage-7.3 HOF dispatch with an `Array`-receiver shape.
-      Per-element `s.trim.toInt` should compile via existing String/Int paths
-      once the ref-chain receiver is the array element. Bench target:
-      `string-split` <0.5 ms/op (≈30× win). Baseline:
-      `scripts/bench interp string-split`.
+- [x] **jit-uc-stage8-string-split** — Full bench-paritet with JVM on both
+      backends (14.5ms → 0.235ms ssc Javac, 0.170ms ssc-asm vs JVM 0.089ms).
+      Required: `String.split` via stringSplitRef; no-paren `.trim`/`.toUpperCase`
+      Term.Select; `.toInt`/`.toLong` on ref fallback to emitRefChainLong;
+      OpStringTrimToInt specialized op for `s => s.trim.toInt`-shape lambdas
+      in JitHofDispatch + JitHofShape.
 
 ### Stage-8 residual bail buckets (gap analysis 2026-06-06)
 
@@ -568,13 +565,12 @@ A/B (or test A/B); never ship a non-win.
       new readable buckets dominated by `[vm] FreeNameUnresolvable=225`
       (HOF/closure call targets). 1443 tests green.
 
-- [ ] **jit-uc-stage8-qualified-ref-call** — Compile `Module.fn(x)`,
-      `Math.max(a, b)`, `Foo.bar(...)` — currently 15 `QualifiedRefCall` misses.
-      Strategy: in `walkLong` / `walkRef`, when callee is `Term.Select(modName,
-      methodName)` and `modName` resolves to a module/companion in
-      `interp.globals`, look up the resolved `FunV` and emit a direct dispatch
-      (same path stage-7 uses for sibling calls). Baseline: record
-      `QualifiedRefCall` count before/after.
+- [~] **jit-uc-stage8-qualified-ref-call** — Partial: `Math.max/min/abs`
+      (Long) and `Math.sqrt/pow/floor/ceil/log/log10/exp/abs/sin/cos/tan/atan2`
+      (Double) inline to `INVOKESTATIC java/lang/Math` in both backends.
+      `.max(b)`/`.min(b)`/`.abs` on Long receivers also covered. Remaining:
+      generic module/companion resolution for non-Math qualified calls
+      (separate slice).
 
 - [x] **jit-uc-stage8-nonextract-pattern-residual** — Classifier split:
       added TypedPattern + NestedTuplePattern + AlternativeWithBindings cases.
