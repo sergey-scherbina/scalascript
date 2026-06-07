@@ -1,6 +1,0 @@
-feature/jit-uc-stage8-call-global-generic 2026-06-07T06:23:43Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-07T06:23:43Z
-status: not-started
-done-so-far:
-next: callGlobalLongGeneric + ASM port + extend to 2/3 arg variants
