@@ -1388,6 +1388,21 @@ object AsmJitBackend extends JitBackend:
     case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)
         if argClause.values.lengthCompare(1) == 0 =>
       looksLongValue(argClause.values.head, ctx)
+    // Stage 8: 2-arg getOrElse (Map) returns Long when default is Long-ish.
+    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)
+        if argClause.values.lengthCompare(2) == 0 =>
+      looksLongValue(argClause.values(1), ctx)
+    // Stage 8: other ref-receiver methods that return Long.
+    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name(m)), _)
+        if (m == "size" || m == "head" || m == "last" || m == "isEmpty" ||
+            m == "nonEmpty" || m == "isDefined" || m == "get" || m == "contains" ||
+            m == "toInt" || m == "toLong" || m == "indexOf" ||
+            m == "startsWith" || m == "endsWith" || m == "charAt") =>
+      true
+    // Stage 8: Math intrinsics return Long.
+    case Term.Apply.After_4_6_0(Term.Select(Term.Name("Math"), Term.Name(m)), _)
+        if m == "max" || m == "min" || m == "abs" =>
+      true
     case _ => false
 
   private def emitHofRefChain(recv: Term, method: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
