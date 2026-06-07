@@ -1,0 +1,6 @@
+feature/jit-uc-stage9-lambda-value-solo-asm 2026-06-07T11:53:09Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-07T11:53:09Z
+status: not-started
+done-so-far:
+next: ASM port lambda inline
