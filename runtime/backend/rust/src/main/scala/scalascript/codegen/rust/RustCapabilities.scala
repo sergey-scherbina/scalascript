@@ -28,7 +28,10 @@ val RustCapabilities: Capabilities = Capabilities(
     // surface as later slices grow.
     Feature.ForComprehensions,
     Feature.ExtensionMethods,
-    Feature.DefaultParameters
+    Feature.DefaultParameters,
+    // R.3.1 — readFile / writeFile via std::fs; nowMillis via
+    // std::time::SystemTime.  No extra crate dependencies.
+    Feature.FileSystem
   ),
   outputs        = Set(OutputKind.RustSource),
   options        = Set("optimizationLevel", "emitAssertions", "cargoEdition"),

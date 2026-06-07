@@ -83,4 +83,35 @@ object RustRuntimeTemplates:
       |pub fn _println<T: Display>(s: T) {
       |    println!("{}", s);
       |}
+      |
+      |// ── R.3.1 — time + filesystem intrinsics (no extra crate deps) ──
+      |
+      |/// `nowMillis` — current Unix time in milliseconds, signed i64.
+      |/// Mirrors the JVM target's `java.lang.System.currentTimeMillis`.
+      |#[allow(dead_code)]
+      |pub fn _now_millis() -> i64 {
+      |    use std::time::{SystemTime, UNIX_EPOCH};
+      |    SystemTime::now()
+      |        .duration_since(UNIX_EPOCH)
+      |        .map(|d| d.as_millis() as i64)
+      |        .unwrap_or(0)
+      |}
+      |
+      |/// `readFile(path)` — read a UTF-8 file to a String.  Panics on
+      |/// I/O error to match the interpreter's fail-fast contract.
+      |/// Takes the path by reference so the caller keeps ownership.
+      |#[allow(dead_code)]
+      |pub fn _read_file(path: &str) -> String {
+      |    std::fs::read_to_string(path)
+      |        .unwrap_or_else(|e| panic!("readFile({}): {}", path, e))
+      |}
+      |
+      |/// `writeFile(path, contents)` — overwrite a file's bytes with
+      |/// the given UTF-8 string.  Takes both args by reference so the
+      |/// caller keeps ownership of its variables.
+      |#[allow(dead_code)]
+      |pub fn _write_file(path: &str, contents: &str) {
+      |    std::fs::write(path, contents)
+      |        .unwrap_or_else(|e| panic!("writeFile({}): {}", path, e))
+      |}
       |""".stripMargin

@@ -14,5 +14,9 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("println")          -> RuntimeCall("crate::runtime::_println"),
   QualifiedName("print")            -> RuntimeCall("crate::runtime::_print"),
   QualifiedName("Console.println")  -> RuntimeCall("crate::runtime::_println"),
-  QualifiedName("Console.print")    -> RuntimeCall("crate::runtime::_print")
+  QualifiedName("Console.print")    -> RuntimeCall("crate::runtime::_print"),
+  // R.3.1 — time + filesystem (no extra crate deps; uses std::time / std::fs).
+  QualifiedName("nowMillis")        -> RuntimeCall("crate::runtime::_now_millis"),
+  QualifiedName("readFile")         -> RuntimeCall("crate::runtime::_read_file"),
+  QualifiedName("writeFile")        -> RuntimeCall("crate::runtime::_write_file")
 )

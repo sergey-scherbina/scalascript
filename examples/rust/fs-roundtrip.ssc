@@ -1,0 +1,21 @@
+# Filesystem round-trip
+
+R.3.1 wires `writeFile(path, contents)` + `readFile(path)` to
+`std::fs::write` / `std::fs::read_to_string`, and `nowMillis` to
+`std::time::SystemTime::now()`.  No new Cargo dependencies.
+
+```scalascript
+@main def run(): Unit =
+  val path: String = "/tmp/ssc-rust-fs-roundtrip.txt"
+  val msg: String  = "hello from rust"
+  writeFile(path, msg)
+  val back: String = readFile(path)
+  println(back == msg)
+```
+
+Build and run:
+
+```bash
+ssc build-rust fs-roundtrip.ssc
+./fs-roundtrip               # → true
+```

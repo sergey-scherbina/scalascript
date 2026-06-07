@@ -68,6 +68,7 @@ expected["mutable-counter.ssc"]="5"
 expected["shape-match.ssc"]="28.259999999999998"
 expected["higher-order.ssc"]="42"
 expected["for-yield.ssc"]="4"
+expected["fs-roundtrip.ssc"]="true"
 
 workdir="$(mktemp -d -t ssc-rust-smoke-XXXXXX)"
 trap 'rm -rf "$workdir"' EXIT

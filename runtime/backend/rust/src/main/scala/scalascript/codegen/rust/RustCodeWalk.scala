@@ -488,6 +488,14 @@ object RustCodeWalk:
         s"def `${ctx.defName}` contains an unsupported expression: ${other.productPrefix} (${other.syntax})"
       )))
 
+  /** RuntimeCall targets whose Rust signature takes args by reference.
+   *  Codegen wraps every emitted arg with `&` so callers keep ownership
+   *  (and can re-use the same `String` across multiple calls). */
+  private val BorrowedArgIntrinsics: Set[String] = Set(
+    "crate::runtime::_read_file",
+    "crate::runtime::_write_file"
+  )
+
   /** Resolve a non-List/Vec `Term.Apply` callee against intrinsics,
    *  enum constructors, in-scope user defs, and finally a passthrough
    *  fallback (see R.2.4). */
@@ -501,7 +509,14 @@ object RustCodeWalk:
     val intr = callee.flatMap(qn => ctx.intrinsics.get(qn).map(qn -> _))
     intr match
       case Some((_, RuntimeCall(target))) =>
-        Right(s"$target($joined)")
+        // A small set of intrinsics take their args by reference so the
+        // caller can re-use a `String` after the call (e.g. fs round-trip
+        // `writeFile(p, c); readFile(p)`).  Borrow every arg for those.
+        if BorrowedArgIntrinsics.contains(target) then
+          val borrowed = renderedArgs.map(a => s"&$a").mkString(", ")
+          Right(s"$target($borrowed)")
+        else
+          Right(s"$target($joined)")
       case Some((qn, other)) =>
         Left(List(unsupported(
           s"intrinsic `${qn.value}` uses ${other.getClass.getSimpleName}; rust target accepts only RuntimeCall"
