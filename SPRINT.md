@@ -666,12 +666,6 @@ load-bearing: the emitted `Cargo.toml` lists exactly the crates the
 program reaches.
 
 
-- [ ] **rust-backend-r3-crypto-base64** — Add `sha256` /
-      `base64Encode` / `base64Decode` intrinsics; per-module walk pulls
-      `sha2 = "0.10"` and `base64 = "0.22"` into `Cargo.toml` only when
-      reached. Acceptance: `crypto-sha256.ssc` snapshot — hex digest of
-      a known string equals `openssl dgst -sha256`.
-
 - [ ] **rust-backend-r3-json** — `std.json.parse` / `stringify` →
       `serde_json` crate (pulled only when reached). The boxed `Value`
       enum gains a serde-derived `Serialize`/`Deserialize` impl in

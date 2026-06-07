@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-07 — feat(rust): R.3.2 — sha256 + base64 with per-module dep walk
+
+- **rust-backend-r3-crypto-base64** — Second slice of R.3. Three
+  intrinsics: `sha256` (sha2 crate), `base64Encode`/`base64Decode`
+  (base64 crate). `RustGen.scanCryptoUsage` walks the AST for
+  intrinsic-name references and drives both Cargo.toml deps and the
+  runtime-template emit — a hello-world stays dep-free, a sha-only
+  program pulls just `sha2`, a base64-only just `base64`. Two new
+  fixtures (`crypto-sha256.ssc` → known hex; `base64-roundtrip.ssc`
+  → "true"). Smoke at 12 fixtures, 67/67 unit tests (7 new).
+  RustCapabilities declares `Crypto`.
+
 ## 2026-06-07 — feat(rust): R.3.1 — nowMillis + readFile + writeFile
 
 - **rust-backend-r3-time-fs** — First slice of R.3. Three intrinsics
