@@ -44,7 +44,7 @@ val backendFlag: Option[String] =
 
 val backends: Seq[String] = backendFlag match
   case Some(b) => Seq(b)
-  case None    => Seq("ssc", "ssc-asm", "jvm", "js")
+  case None    => Seq("ssc", "ssc-asm", "jvm", "js", "rust")
 
 // --warmup N / --reps N / --warmup-time N: pass-through to ssc bench (defaults mirror BenchCmd)
 def parseInt2(flag: String, default: Int): Int =
@@ -81,7 +81,11 @@ val filterNames: Set[String] =
 def displayName(b: String): String = b
 
 def fmtMs(ms: Double): String =
-  if ms < 1.0 then f"$ms%.3f" else if ms < 10.0 then f"$ms%.2f" else f"$ms%.1f"
+  if ms < 0.001 then f"$ms%.6f"
+  else if ms < 0.01 then f"$ms%.4f"
+  else if ms < 1.0 then f"$ms%.3f"
+  else if ms < 10.0 then f"$ms%.2f"
+  else f"$ms%.1f"
 
 def parseBenchLine(output: String): Option[Double] =
   output.linesIterator.collectFirst {
@@ -90,7 +94,140 @@ def parseBenchLine(output: String): Option[Double] =
       if parts.length == 3 then parts(2).toDoubleOption else None
   }.flatten
 
+// Build a Rust binary that benchmarks `workload()`.
+// Strategy:
+//   1. emit-rust the corpus file (library crate, exports `workload()`).
+//   2. Inject a custom `src/main.rs` that uses `std::time::Instant` for
+//      nanosecond timing and prints `BENCH_MS: <f64>`.
+//   3. cargo build --release --quiet, run the binary, parse BENCH_MS.
+def runRustBench(sscPath: String, file: java.io.File): Option[Double] =
+  val errLog: String => Unit = line =>
+    if !line.startsWith("NOTE: Picked up") && !line.contains("skipping backend plugin") &&
+       !line.startsWith("warning:") && !line.startsWith("    Compiling") &&
+       !line.startsWith("    Finished") && !line.startsWith("    Blocking") &&
+       !line.startsWith("   ") && !line.trim.startsWith("|") &&
+       !line.trim.startsWith("=") && !line.trim.startsWith("-->") &&
+       !line.trim.startsWith("help:") && !line.contains("[warn]")
+    then System.err.println(line)
+
+  val stem      = file.getName.replaceAll("\\.ssc$", "")
+  val stemSafe  = stem.replace('-', '_').replace(' ', '_')
+  val warmupN   = warmupTimeMs.map(_ => 200).getOrElse(warmup.max(1))
+  val warmupMs  = warmupTimeMs.getOrElse(0L)
+
+  val crateDir  = java.nio.file.Files.createTempDirectory(s"ssc-rust-bench-crate-$stem-").toFile
+  def rm(f: java.io.File): Unit = { if f.isDirectory then Option(f.listFiles).foreach(_.foreach(rm)); f.delete() }
+  def cleanup() = try rm(crateDir) catch case _ => ()
+
+  // Custom main.rs: wraps the generated lib with Instant timing.
+  // The Rust backend always emits generated code as `generated::ssc_program`.
+  // Problem: workload() is a pure zero-arg fn; LLVM constant-folds the
+  // entire body away in --release, giving 0 ns timing.  Fix: the wrapper
+  // reads a volatile global (AtomicI64) that it never writes back, so the
+  // optimizer cannot prove the value is constant and keeps the call live.
+  // We call this indirection function _run_workload() which is #[inline(never)]
+  // to prevent inlining and further hoisting.
+  val rustReps = reps  // keep user reps; ns timer gives enough precision
+  val mainRs = s"""mod runtime;
+mod value;
+mod generated;
+
+// Opaque seed prevents LLVM from hoisting/constant-folding workload().
+static _SSC_BENCH_SEED: std::sync::atomic::AtomicI64 =
+    std::sync::atomic::AtomicI64::new(1);
+
+#[inline(never)]
+fn _run_workload() -> i64 {
+    // Load seed so optimizer sees a data dependency; value is always 1.
+    let _s = _SSC_BENCH_SEED.load(std::sync::atomic::Ordering::Relaxed);
+    let r = generated::ssc_program::workload();
+    // Also prevent DCE of the return value
+    std::hint::black_box(r)
+}
+
+fn main() {
+    // count-based warmup
+    for _ in 0..$warmupN { _run_workload(); }
+    // time-based warmup (ms)
+    if $warmupMs > 0 {
+        let wt = std::time::Duration::from_millis($warmupMs as u64);
+        let wend = std::time::Instant::now() + wt;
+        while std::time::Instant::now() < wend { _run_workload(); }
+    }
+    // timed loop
+    let t0 = std::time::Instant::now();
+    for _ in 0..$rustReps { _run_workload(); }
+    let elapsed_ns = t0.elapsed().as_nanos() as f64;
+    let ms_per_iter = elapsed_ns / (${rustReps}.0 * 1_000_000.0);
+    println!("BENCH_MS: {:.6}", ms_per_iter);
+}
+"""
+
+  try
+    // 1. emit-rust → crateDir (library crate)
+    val emitErrBuf = new java.io.ByteArrayOutputStream
+    val emitCode = Process(
+      Seq(sscPath, "emit-rust", "-o", crateDir.getAbsolutePath, file.getAbsolutePath),
+      None
+    ).!(ProcessLogger(
+      _ => (),
+      line => emitErrBuf.write((line + "\n").getBytes)
+    ))
+    if emitCode != 0 then
+      emitErrBuf.toString.linesIterator.foreach(errLog)
+      cleanup(); return None
+
+    // 2. Check the generated crate exports workload()
+    val genFile = new java.io.File(crateDir, "src/generated/ssc_program.rs")
+    if !genFile.exists then { cleanup(); return None }
+    val genContent = scala.io.Source.fromFile(genFile).mkString
+    if !genContent.contains("workload") then { cleanup(); return None }
+
+    // 3. Patch Cargo.toml: switch from [[bin]] / [lib] to [[bin]] with our main.rs
+    val cargoTomlFile = new java.io.File(crateDir, "Cargo.toml")
+    val cargoToml = scala.io.Source.fromFile(cargoTomlFile).mkString
+    val patched = if cargoToml.contains("[[bin]]") then cargoToml
+      else cargoToml
+        .replaceAll("""\[lib\][^\[]*""", "")  // remove [lib] section
+        .trim + s"\n\n[[bin]]\nname = \"bench_ssc_program\"\npath = \"src/main.rs\"\n"
+    val cw = new java.io.PrintWriter(cargoTomlFile)
+    cw.print(patched); cw.close()
+
+    // 4. Write our custom main.rs
+    val mainFile = new java.io.File(crateDir, "src/main.rs")
+    val mw = new java.io.PrintWriter(mainFile)
+    mw.print(mainRs); mw.close()
+
+    // 5. cargo build --release --quiet
+    val cargoBuf = new java.io.ByteArrayOutputStream
+    val cargo = sys.env.getOrElse("CARGO", "cargo")
+    val buildCode = Process(
+      Seq(cargo, "build", "--release", "--quiet"),
+      Some(crateDir)
+    ).!(ProcessLogger(_ => (), line => cargoBuf.write((line + "\n").getBytes)))
+    if buildCode != 0 then
+      cargoBuf.toString.linesIterator.foreach(errLog)
+      cleanup(); return None
+
+    // 6. Locate and run the binary
+    val binExt = if scala.util.Properties.isWin then ".exe" else ""
+    val binFile = new java.io.File(crateDir, s"target/release/bench_ssc_program$binExt")
+    if !binFile.exists then { cleanup(); return None }
+
+    val runBuf = new java.io.ByteArrayOutputStream
+    val runPs  = new java.io.PrintStream(runBuf, true)
+    Process(Seq(binFile.getAbsolutePath), None).!(ProcessLogger(runPs.println, errLog))
+
+    val result = runBuf.toString.trim.linesIterator.collectFirst {
+      case l if l.startsWith("BENCH_MS:") => l.stripPrefix("BENCH_MS:").trim.toDoubleOption
+    }.flatten
+    cleanup()
+    result
+  catch
+    case e: Throwable => cleanup(); None
+
 def runSscBenchBackend(sscPath: String, file: java.io.File, b: String): Option[Double] =
+  if b == "rust" then return runRustBench(sscPath, file)
   val errLog: String => Unit = line =>
     if !line.startsWith("NOTE: Picked up") && !line.contains("skipping backend plugin") then
       System.err.println(line)
