@@ -1206,6 +1206,13 @@ object AsmJitBackend extends JitBackend:
         mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "stringLowerRef",
           "(Ljava/lang/Object;)Ljava/lang/Object;", false)
         true
+      // Stage 8: .toString on any ref Value via Value.show.
+      case "toString" if args.isEmpty =>
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        if !walkRef(recv, ctx, mv) then return false
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "toStringRef",
+          "(Ljava/lang/Object;)Ljava/lang/Object;", false)
+        true
       // Stage 8: Map.get(key) → Option; String.substring(i)/(i,j); String.replace(o, n).
       case "get" if args.lengthCompare(1) == 0 =>
         mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
@@ -2254,7 +2261,8 @@ object AsmJitBackend extends JitBackend:
         case _ => false
     // Stage 8: no-paren method calls on ref expressions — common in `s.trim.toInt` chains.
     case Term.Select(recv: Term, Term.Name(method))
-        if method == "trim" || method == "toUpperCase" || method == "toLowerCase" =>
+        if method == "trim" || method == "toUpperCase" || method == "toLowerCase" ||
+           method == "toString" =>
       emitRefChainObject(recv, method, Nil, ctx, mv)
     // Stage 5.5: ref-typed ADT field access `obj.field` on a ref param.
     case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>

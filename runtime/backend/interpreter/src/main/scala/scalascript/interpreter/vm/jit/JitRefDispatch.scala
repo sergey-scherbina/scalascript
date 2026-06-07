@@ -393,3 +393,8 @@ object JitRefDispatch:
       Value.ListV(list).asInstanceOf[Object]
     case _ =>
       throw new ClassCastException(s"stringSplitRef unsupported: ${recv.getClass.getName}, ${sep.getClass.getName}")
+
+  // Stage 8: `.toString` on any ref Value — returns StringV via Value.show.
+  def toStringRef(recv: AnyRef): Object = recv match
+    case v: Value => Value.StringV(Value.show(v)).asInstanceOf[Object]
+    case _        => Value.StringV(recv.toString).asInstanceOf[Object]

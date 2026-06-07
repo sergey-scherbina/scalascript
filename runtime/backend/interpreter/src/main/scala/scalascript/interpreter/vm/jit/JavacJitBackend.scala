@@ -1023,6 +1023,9 @@ object JavacJitBackend extends JitBackend:
         s"$jrd.stringUpperRef((Object) ($refExpr))"
       case "toLowerCase" if args.isEmpty =>
         s"$jrd.stringLowerRef((Object) ($refExpr))"
+      // Stage 8: .toString on any ref Value via Value.show.
+      case "toString" if args.isEmpty =>
+        s"$jrd.toStringRef((Object) ($refExpr))"
       // Stage 8: Map.updated(k, v) → new Map.
       case "updated" if args.lengthCompare(2) == 0 =>
         val k = emitValueObject(args.head, ctx)
@@ -1399,7 +1402,8 @@ object JavacJitBackend extends JitBackend:
     // `s.toUpperCase`) — common in `s.trim.toInt` chains. Route through
     // emitRefChainObject which already handles the named methods.
     case Term.Select(recv: Term, Term.Name(method))
-        if method == "trim" || method == "toUpperCase" || method == "toLowerCase" =>
+        if method == "trim" || method == "toUpperCase" || method == "toLowerCase" ||
+           method == "toString" =>
       emitRefChainObject(recv, method, Nil, ctx)
     // Stage 5.5: ref-typed field access `obj.field` where obj is a ref param.
     case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
