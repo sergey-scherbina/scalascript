@@ -63,23 +63,21 @@ fix, and don't require a runtime refactor.
       _ => ...`. Either support both forms or emit a parser message
       suggesting `case`.
 
-### P0 — regression introduced by P0 #1/#2/P1 #5 wave (2026-06-07)
+### P1 — pre-existing bug surfaced during busi phase 89d testing
 
-- [ ] **busi-p0-phase90-rule-regression** — busi reports
-      `make test-phase90-rule` fails with `Cannot apply unary ! to 1`
-      at `tests/phase90-rule/rule-pack.ssc:118`, on the
-      `Activity(org, "act-immigration", actor, Immigration, ..., Active,
-      Map(), 1)` call site (busi seq 18, 2026-06-07).  Reproduces on
-      `origin/main` after the P0 #1+#2+P1 #5 fixes landed.  Source file
-      is `/Users/sergiy/work/my/busi/tests/phase90-rule/rule-pack.ssc`
-      (181 lines).  Hypothesis: pattern-resolution corner case in the
-      new `preprocessTrailingUnderscoreColon` (priority 5), but the
-      `Cannot apply unary ! to 1` shape suggests it might also be one
-      of the other two fixes interacting with a typeclass / Bool
-      coercion path.  Needs: (a) reproduce locally with the busi file,
-      (b) bisect across the three fixes, (c) write a focused regression
-      test, (d) fix-or-revert the offending change.  Blocker for
-      starting P0 #3 work — must land first.
+- [ ] **busi-p1-phase90-rule-bool-coercion** — `make test-phase90-rule`
+      and `test-phase90i` fail with `Cannot apply unary ! to 1` at
+      `tests/phase90-rule/rule-pack.ssc:118`, on the `Activity(org,
+      "act-immigration", actor, Immigration, ..., Active, Map(), 1)`
+      call site.  Recorded by busi under "Phase 89d finding" in
+      `busi/docs/scalascript-issues.md`.  **Pre-existing — confirmed
+      not caused by the P0 #1+#2+P1 #5 wave** (sergiy 2026-06-07).
+      Source file: `/Users/sergiy/work/my/busi/tests/phase90-rule/
+      rule-pack.ssc` (181 lines).  Shape of the error suggests an
+      Int-to-Bool coercion path where a `1` literal is being treated
+      as a Boolean operand to unary `!`; root cause likely in pattern
+      matching / typeclass dispatch.  Not a blocker for P0 #3 — fix
+      when convenient.
 
 ### P1 — frequent small splinters
 
