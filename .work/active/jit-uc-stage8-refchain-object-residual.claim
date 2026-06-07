@@ -1,0 +1,6 @@
+feature/jit-uc-stage8-refchain-object-residual 2026-06-07T17:26:10Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-07T17:26:10Z
+status: not-started
+done-so-far:
+next: identify 4 RefChainObjectCall misses
