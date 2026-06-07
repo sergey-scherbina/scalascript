@@ -600,11 +600,6 @@ A/B vs the interpreter row.
       `cargo build` passes Rust's own exhaustiveness check; output equals
       interpreter.
 
-- [ ] **rust-backend-r2-mutable-while** — Lower `Var := rhs` to `let mut`
-      + reassign; lower `While(c, b)` to Rust `while`. Capability adds
-      `MutableState`, `WhileLoops`. Acceptance: `mutable-counter.ssc`,
-      `while-fib.ssc` snapshots.
-
 - [ ] **rust-backend-r2-closures** — Lower `Term.Function` and captured
       closures to `move |…| …` boxed as `Box<dyn Fn(…) -> _>` when stored
       in a value slot. Decide `Rc` vs `Arc` based on whether the closure

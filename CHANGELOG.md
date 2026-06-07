@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-07 — feat(rust): R.2.2 — var/val/while/reassignment
+
+- **rust-backend-r2-mutable-while** — Second slice of R.2. RustCodeWalk
+  lowers `Defn.Val` → `let`, `Defn.Var` → `let mut`, `Term.While` →
+  Rust `while`, and `Term.Assign` → reassignment. RustCapabilities
+  declares `MutableState` + `WhileLoops`. New fixtures `while-fib.ssc`
+  (iterative fib via mut/while) and `mutable-counter.ssc`. Smoke
+  script now exercises 6 fixtures, all green. 42/42 unit tests in
+  backendRust (3 new).
+
 ## 2026-06-07 — feat(rust): R.2.1 — typed params, If, infix, user calls, s"..."
 
 - **rust-backend-r2-literals-blocks** — First slice of Phase R.2.
