@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-07 — feat(rust): R.2.5 — for-comprehensions + List/Vec — R.2 complete
+
+- **rust-backend-r2-for-comprehensions** — Fifth and final slice of
+  R.2. RustCodeWalk lowers `List[T]`/`Vec[T]` → `Vec<T>`, `List(args)`
+  / `Vec(args)` ctor → `vec![…]`, `for x <- xs yield expr` →
+  `into_iter().map(move |x| { expr }).collect::<Vec<_>>()`, and
+  `.size`/`.length`/`.len` → `.len() as i64`. RustCapabilities
+  declares `ForComprehensions` + `ExtensionMethods` +
+  `DefaultParameters`. New fixture `for-yield.ssc`. Smoke at 9
+  fixtures, all green. 55/55 unit tests. **Phase R.2 complete.**
+
 ## 2026-06-07 — feat(rust): R.2.4 — closures + function types at params
 
 - **rust-backend-r2-closures** — Fourth slice of R.2. RustCodeWalk

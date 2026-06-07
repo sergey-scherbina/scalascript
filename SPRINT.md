@@ -659,12 +659,6 @@ Depends on R.1 complete. Each item: one commit, golden snapshots updated,
 A/B vs the interpreter row.
 
 
-- [ ] **rust-backend-r2-for-comprehensions** — Desugar `for ... yield` to
-      `iter().map(...).collect()` / `flat_map` chains. Capability adds
-      `ForComprehensions`, `ExtensionMethods` (for the prelude's list
-      operations), `DefaultParameters`. Acceptance: `for-yield.ssc`
-      snapshot + capability rejection test for unsupported features
-      (`Feature.AlgebraicEffects` use against R.2 → diagnostic).
 
 ### Phase R.3 — Intrinsics MVP
 
