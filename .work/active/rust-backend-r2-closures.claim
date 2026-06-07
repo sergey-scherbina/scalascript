@@ -1,0 +1,6 @@
+feature/rust-backend-r2-closures 2026-06-07T07:42:54Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-07T07:42:54Z
+status: not-started
+done-so-far:
+next: Term.Function emit + Type.Function mapping + Apply fallback
