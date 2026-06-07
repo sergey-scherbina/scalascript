@@ -545,35 +545,11 @@ A/B (or test A/B); never ship a non-win.
       guards. Corpus profile unchanged (6 residual PatternGuard are Compound
       with other reasons), but new shapes now JIT. 1444 tests green.
 
-- [ ] **jit-uc-stage8-refchain-object-residual** — Address the 4 residual
-      `RefChainObjectCall` misses left over after stage-7.5. Strategy: dump the
-      4 specific call shapes; extend `JitRefDispatch` with whichever
-      method-on-ref helpers they need (likely `.toString` on InstanceV,
-      `.headOption`, or similar). Each helper is one method + one test.
-      Baseline: `RefChainObjectCall` 4 → 0.
-
 ## JIT universal coverage — Stage 9 (post-monomorphic follow-ups)
 
-Stage 9 reopens two items previously parked as spec non-goals "for this sprint."
-They become tractable after stage-7's monomorphic IC infrastructure landed.
-
-- [ ] **jit-uc-stage9-poly-ic** — Polymorphic inline cache for HOF dispatch
-      (multiple receiver shapes at one call site). Stage-7.3 implemented a
-      monomorphic IC; this extends it to a small N-way IC (typical N=2..4) for
-      sites that see more than one shape during warm-up. Strategy: extend
-      `JitGlobals.callRefCache` entries from `(FunV, CompiledFn|null)` pairs to
-      small arrays, with linear scan + LRU eviction; instrument hit-rate via
-      `SSC_JIT_IC_STATS=1`. Bench target: workloads with megamorphic call sites
-      regress less than today. Baseline: design a polyIC microbench
-      (e.g. fold over a `List[Shape]` with 3 shapes) before implementing.
-
-- [ ] **jit-uc-stage9-lambda-value-solo** — Compile standalone `Term.Function`
-      lambdas not adjacent to a HOF method call (5 solo `LambdaValue` misses).
-      Strategy: when a `Term.Function` is bound to a local val or passed to a
-      non-stage-7-known method, emit a `FunV` constant via the existing
-      `LOADFV` opcode and let CALLREF dispatch handle invocation. Same
-      mechanism as stage-3.3 closure compilation but at the use site.
-      Baseline: `LambdaValue` solo 5 → < 2.
+Stage 9 reopened two items previously parked as spec non-goals "for this sprint."
+All current slices landed; remaining open items move to BACKLOG/CHANGELOG when
+specific follow-ups are scoped.
 
 ---
 

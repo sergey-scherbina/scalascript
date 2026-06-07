@@ -4,6 +4,35 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-07 — feat(jit): stage-9 lambda-value-solo ASM port + poly-IC + refchain residual
+
+- **jit-uc-stage9-lambda-value-solo-asm** — ASM port of val-bound lambda
+  inlining (mirror of the Javac slice from earlier in the day). `GenCtx`
+  tracks the lambda body; `walkLong` inlines call sites via param
+  substitution into fresh long slots. `WhileCtx` + `substituteParams`
+  surface FunV locals through `EvalRuntime` so while-body call sites
+  inline at AST level. Lambda bench `hot(n: Int)` with a captured
+  `(x: Int) => x*2+1` now JITs end-to-end on ASM (was `[asm] Compound`
+  fallback to tree-walker): 43.66 s → 0.69 s (63×).
+- **jit-uc-stage9-poly-ic** — Replaced the monomorphic CALLREF inline
+  cache (Stage 3.4) with a 4-way poly-IC. Per-pc layout = `icWays = 4`
+  (FunV, CompiledFn) pairs; linear scan on the hot path, round-robin
+  eviction on miss via per-pc `icHead` byte. "Seen but not compilable"
+  stays cached as `(FunV, null)` to suppress repeat `VmCompiler.compile`
+  attempts. `SSC_JIT_IC_STATS=1` reports hits broken down by way.
+- **jit-uc-stage8-refchain-object-residual** — Narrowed `JitLint`'s
+  `isPrimitiveRefRead` to recognise the methods `JitRefDispatch` already
+  handles (`contains`, `mkString` 0/1/3-arg, `isDefined`/`isEmpty`/
+  `nonEmpty`, `head`/`last`/`length`, `toString`, etc.). The 4 residual
+  `RefChainObjectCall` misses (`hasIt`, `wrap×2`, `show`, `str`) drop
+  to 0 across the full test suite; `JitLintTest` locks in the new
+  classification.
+
+Test impact: full `backendInterpreter/test` 1482/1482 green; `JitLintTest`
+66/66.
+
+---
+
 ## 2026-06-07 — fix(interpreter): typed-val ascription disambiguates same-name collision
 
 - **busi-p0-statusval-eventcase-collision** — A `val Foo = SomeStatus(...)`
