@@ -594,13 +594,6 @@ Depends on R.1 complete. Each item: one commit, golden snapshots updated,
 A/B vs the interpreter row.
 
 
-- [ ] **rust-backend-r2-closures** — Lower `Term.Function` and captured
-      closures to `move |…| …` boxed as `Box<dyn Fn(…) -> _>` when stored
-      in a value slot. Decide `Rc` vs `Arc` based on whether the closure
-      escapes into an async/tokio boundary (R.5 onward; R.2 defaults to
-      `Rc`). Acceptance: `higher-order.ssc` (map/filter/fold over `Vec`)
-      snapshot.
-
 - [ ] **rust-backend-r2-for-comprehensions** — Desugar `for ... yield` to
       `iter().map(...).collect()` / `flat_map` chains. Capability adds
       `ForComprehensions`, `ExtensionMethods` (for the prelude's list

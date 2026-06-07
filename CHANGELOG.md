@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-07 — feat(rust): R.2.4 — closures + function types at params
+
+- **rust-backend-r2-closures** — Fourth slice of R.2. RustCodeWalk
+  lowers `Type.Function` (`A => B`) at param positions to Rust
+  `impl Fn(A) -> B`, and `Term.Function` (`(x: T) => body`) to
+  `move |x: T| { body }`. Apply now falls back to direct `name(args)`
+  for unknown free names so closure-parameter calls (`f(x)` inside
+  HOF body) work; legitimate typos surface as cargo errors at build
+  time, not silently. Stored closures (`Box<dyn Fn>` for values)
+  deferred to a follow-up. New fixture `higher-order.ssc` —
+  `apply(x => x*2, 21)` → "42". 50/50 unit tests; smoke up to 8
+  fixtures, all green.
+
 ## 2026-06-07 — feat(rust): R.2.3 — Scala 3 enum + pattern match
 
 - **rust-backend-r2-pattern-match** — Third slice of R.2. RustCodeWalk
