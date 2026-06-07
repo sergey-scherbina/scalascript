@@ -1,0 +1,6 @@
+feature/rust-backend-r2-mutable-while 2026-06-07T06:48:01Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-07T06:48:01Z
+status: not-started
+done-so-far:
+next: lower Defn.Var + Term.Assign + Term.While to Rust let mut + while
