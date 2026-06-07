@@ -758,7 +758,11 @@ object JavacJitBackend extends JitBackend:
     val bindings:    Map[String, (String, Boolean)],
     val interp:      scalascript.interpreter.Interpreter,
     val coEmit:      CoEmitState,
-    val paramTypes:  Array[String] = Array.empty
+    val paramTypes:  Array[String] = Array.empty,
+    // Stage 9: val-bound lambdas — name → (paramNames, body). Used to inline
+    // a lambda body at the call site when the lambda escapes only via direct
+    // call (no HOF arg, no return). Avoids needing a runtime FunV constant.
+    val lambdas:     Map[String, (Array[String], Term)] = Map.empty
   ):
     def isRefName(n: String): Boolean =
       bindings.get(n) match
@@ -783,7 +787,30 @@ object JavacJitBackend extends JitBackend:
       val idx = paramNames.indexOf(n)
       if idx >= 0 && idx < paramTypes.length then paramTypes(idx) else null
     def withBindings(more: Iterable[(String, (String, Boolean))]): GenCtx =
-      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings ++ more, interp, coEmit, paramTypes)
+      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings ++ more, interp, coEmit, paramTypes, lambdas)
+    def withLambda(name: String, paramNamesL: Array[String], body: Term): GenCtx =
+      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings, interp, coEmit, paramTypes, lambdas + (name -> (paramNamesL, body)))
+
+  /** Stage 9: inline a val-bound lambda's body at the call site by binding
+   *  each lambda param to the arg's *Java expression* directly (no local var,
+   *  no IIFE — avoids Java's effectively-final capture rule). The arg
+   *  expression is wrapped in parens to preserve precedence. Returns null on
+   *  any walk failure. */
+  private def inlineLambdaLong(name: String, args: List[Term], ctx: GenCtx): String | Null =
+    val (pNames, body) = ctx.lambdas(name)
+    if args.length != pNames.length then return null
+    var newCtx = ctx
+    var i      = 0
+    var rem    = args
+    while rem.nonEmpty do
+      val pn  = pNames(i)
+      val arg = walkLong(rem.head, newCtx)
+      if arg == null then return null
+      // Bind param to the parenthesised Java expression directly. Safe because
+      // walkLong's "Term.Name" path returns the bound string verbatim.
+      newCtx = newCtx.withBindings(Seq(pn -> (s"($arg)", false)))
+      i += 1; rem = rem.tail
+    walkLong(body, newCtx)
 
   private def walkLong(t: Term, ctx: GenCtx): String | Null = t match
     case Lit.Int(v)     => s"${v}L"
@@ -915,6 +942,9 @@ object JavacJitBackend extends JitBackend:
         case Term.Select(recv: Term, Term.Name(method)) =>
           val hof = emitHofFoldLong(recv, method, ap.argClause.values, ctx)
           if hof != null then hof else emitRefChainLong(recv, method, ap.argClause.values, ctx)
+        // Stage 9: inline a val-bound lambda call site (no FunV runtime alloc).
+        case fn: Term.Name if ctx.lambdas.contains(fn.value) =>
+          inlineLambdaLong(fn.value, ap.argClause.values, ctx)
         case fn: Term.Name => emitLongCall(fn.value, ap.argClause.values, ctx)
         case _ => null
     case Term.ApplyUnary(op, arg) if op.value == "-" || op.value == "+" =>
@@ -2743,6 +2773,11 @@ object JavacJitBackend extends JitBackend:
           case _ => return null
       else
         stat match
+          // Stage 9: `val f = (x: T) => body` — track the lambda for inline at call site.
+          case Defn.Val(_, List(Pat.Var(n)), _, rhs: Term.Function) =>
+            val ps = rhs.paramClause.values
+            val pNames = ps.iterator.map(_.name.value).toArray
+            curCtx = curCtx.withLambda(n.value, pNames, rhs.body)
           case Defn.Val(_, List(Pat.Var(n)), _, rhs: Term) =>
             val jn = sanitize(n.value)
             if isRefValRhs(rhs, curCtx) then
