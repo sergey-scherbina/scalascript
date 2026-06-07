@@ -22,17 +22,64 @@ fix, and don't require a runtime refactor.
 
 ### P0 — parser/resolver, hit on every new phase
 
-- [ ] **busi-p0-statusval-eventcase-collision** — `val PeerLinkInvited =
-      PeerLinkStatus("invited")` + `case PeerLinkInvited(...)` in the
-      same scope: compiles OK, `POST 201`, `GET 500` with no honest
-      stack trace. Resolver must reject the conflict between a
-      value-binding and a case-constructor in the same import scope.
-      Found in busi phase 86a.
+- [ ] **busi-p0-statusval-eventcase-collision** — A `val` of one type
+      and a `case`-constructor of an ADT with the **same name**, both
+      imported into the same scope, silently lets the case-constructor
+      win for every bare reference: the `val` binding is shadowed,
+      `status.code` then throws `No method 'code' on
+      NativeFnV(<native:PeerLinkInvited>)`.  Repro saved at
+      `/tmp/p0-3-collision/{mod_status,mod_events,user}.ssc`.
+      Originally found in busi phase 86a (peer-link handshake).
+      busi-side workaround: rename the status-val to
+      `PeerLinkStatusInvited` (etc.) — confirmed working in
+      `make test-phase86c`.
+
+      **Direction (chosen by sergiy 2026-06-07):** hybrid B-then-A.
+      Pattern-position resolves to case-constructor (already works
+      via `unapply`); expression-call with args resolves to
+      case-constructor (already works via `apply`); only the
+      **bare-reference in expression-position** changes:
+
+      1. With an expected type from context (type ascription, function
+         arg with known param type, declared val/def return type) —
+         resolve to the binding whose type matches:
+         * matches val's type → val.
+         * matches case-constructor return type → case-constructor
+           (eta-expanded to `NativeFnV`/closure as today).
+         * neither/both match → compile-time error `name 'X' is bound
+           to both a stable value at <pos> and a case constructor at
+           <pos>; add an explicit type ascription or rename`.
+      2. Without an expected type (`val x = X` or bare argument with
+         no known param type) — compile-time error with the same
+         message.
+
+      Change site: `TyperResolveTerm.resolveName` in expression-context.
+      Regression test set lives at `/tmp/p0-3-collision/` — copy into
+      `runtime/backend/interpreter/src/test/scala/scalascript/StatusValEventCaseCollisionTest.scala`
+      plus an "expected-type unknown → error" negative case.
 
 - [ ] **busi-p0-try-catch-handler** — `try / catch _ => ...`
       (`Term.TryWithHandler`) is not supported — only `try / catch case
       _ => ...`. Either support both forms or emit a parser message
       suggesting `case`.
+
+### P0 — regression introduced by P0 #1/#2/P1 #5 wave (2026-06-07)
+
+- [ ] **busi-p0-phase90-rule-regression** — busi reports
+      `make test-phase90-rule` fails with `Cannot apply unary ! to 1`
+      at `tests/phase90-rule/rule-pack.ssc:118`, on the
+      `Activity(org, "act-immigration", actor, Immigration, ..., Active,
+      Map(), 1)` call site (busi seq 18, 2026-06-07).  Reproduces on
+      `origin/main` after the P0 #1+#2+P1 #5 fixes landed.  Source file
+      is `/Users/sergiy/work/my/busi/tests/phase90-rule/rule-pack.ssc`
+      (181 lines).  Hypothesis: pattern-resolution corner case in the
+      new `preprocessTrailingUnderscoreColon` (priority 5), but the
+      `Cannot apply unary ! to 1` shape suggests it might also be one
+      of the other two fixes interacting with a typeclass / Bool
+      coercion path.  Needs: (a) reproduce locally with the busi file,
+      (b) bisect across the three fixes, (c) write a focused regression
+      test, (d) fix-or-revert the offending change.  Blocker for
+      starting P0 #3 work — must land first.
 
 ### P1 — frequent small splinters
 
@@ -60,6 +107,28 @@ fix, and don't require a runtime refactor.
       returns `()` — user is forced to bind the final expression via
       `val result = ...; result`. Block-trailing expression should
       become the function result.
+
+- [ ] **busi-p1-map-concat-returns-tuplev** — `Map(...) ++ otherMap`
+      returns `TupleV((Map(...), Map(...)))` instead of a merged map.
+      Subsequent `.get(key)` then crashes with `No method 'get' on
+      TupleV(...)`.  Found by busi in phase 89a (`seedRitualsForActivityKind`).
+      Repro: `val a = Map("x" -> "1"); val b = Map("z" -> "3"); val c =
+      a ++ b; println(c.get("x"))`.  Workaround on busi side: inline
+      pairs into a single literal.  Fix: route `Map ++ Map` through
+      `dispatchMap` instead of falling into the tuple-wrap path in
+      `DispatchRuntime.infix`.
+
+- [ ] **busi-p1-arrow-vs-plus-precedence** — `Map("k" -> "Prefix " +
+      value)` parses as `Map("k" -> ("Prefix ", value))` — the `->`
+      arrow associates tighter than `+`, so the second tuple element
+      becomes `value` instead of being concatenated.  Runtime then
+      crashes when the consumer tries to use the value as a String.
+      Found by busi in phase 89f.  Workaround: bind to a local val or
+      add explicit parens `Map("k" -> ("Prefix " + value))`.  Fix
+      direction: either tighten `+` precedence relative to `->` for
+      strings, OR emit a parse-time warning when `->` RHS is a binary
+      `+` with the LHS being a string literal (likely user intent
+      mismatch).
 
 ### P2 — `emit-js` / browser
 
