@@ -1,6 +1,0 @@
-feature/jit-uc-stage9-lambda-value-solo 2026-06-07T11:40:45Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-07T11:40:45Z
-status: not-started
-done-so-far:
-next: track val-bound lambdas in GenCtx + inline at call sites
