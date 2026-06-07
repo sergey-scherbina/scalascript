@@ -1,6 +1,0 @@
-feature/rust-backend-r4-effect-runtime 2026-06-07T19:31:21Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-07T19:31:21Z
-status: not-started
-done-so-far:
-next: ship effect.rs runtime template + AlgebraicEffects capability; lowering deferred to R.4.2

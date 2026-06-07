@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-07 — feat(rust): R.4.1 — algebraic-effects runtime infrastructure
+
+- **rust-backend-r4-effect-runtime** — First slice of Phase R.4.
+  Ships the Free-monad runtime (Computation<A> = Pure | Effect,
+  HandlerStack, run_with driver, pure/perform ctors) as
+  `src/runtime/effect.rs` emitted on demand. `RustGen.scanEffectUsage`
+  does a conservative textual scan (perform(, handle{, resume(,
+  effect E:) over scalascript/ssc/scala/rust blocks; emit fires iff
+  non-empty. Three embedded `#[cfg(test)]` smoke tests inside the
+  runtime file validate the Free-monad semantics independently of
+  codegen. RustCapabilities declares `AlgebraicEffects` so programs
+  that exercise the runtime via hand-written `rust` blocks pass
+  CapabilityCheck while R.4.2 lowering catches up. Smoke at 14
+  fixtures, 79/79 unit tests (7 new). New fixture
+  `effect-runtime.ssc` returns `8` (perform("ask") + handler → +1).
+
 ## 2026-06-07 — feat(jit): stage-9 lambda-value-solo ASM port + poly-IC + refchain residual
 
 - **jit-uc-stage9-lambda-value-solo-asm** — ASM port of val-bound lambda

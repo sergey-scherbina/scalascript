@@ -614,13 +614,6 @@ monad in `Value::Computation(Box<Computation<Value>>)`. Capability adds
 `AlgebraicEffects`. Multi-shot continuations panic with a clearly-labelled
 runtime error; tracked as R.6 follow-up.
 
-- [ ] **rust-backend-r4-effect-runtime** — Add `src/runtime/effect.rs`:
-      `pub enum Computation<A> { Pure(A), Effect(Op, Box<dyn FnOnce(Value)
-      -> Computation<A>>) }` + `run_with(handlers: &HandlerStack) -> A`
-      driver + `HandlerStack`. Extend `value.rs` with the
-      `Computation(Box<Computation<Value>>)` variant. Acceptance:
-      hand-written Rust unit test driving a `Pure` + simple `Effect` —
-      verifies the runtime independently of codegen.
 
 - [ ] **rust-backend-r4-perform-handle-resume-lowering** — Lower IR
       `Perform(op, args)` to `Computation::Effect(op, Box::new(|k| k(v)))`;
