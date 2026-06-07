@@ -1,6 +1,0 @@
-feature/jit-uc-stage8-direct-global-classifier 2026-06-07T07:02:26Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-07T07:02:26Z
-status: not-started
-done-so-far:
-next: relax classifier DirectGlobalOrCtorCall for compilable globals
