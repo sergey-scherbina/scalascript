@@ -15,9 +15,20 @@ object SscVm:
   val icStatsEnabled: Boolean = sys.env.getOrElse("SSC_JIT_IC_STATS", "") == "1"
   private val _icHits   = new java.util.concurrent.atomic.LongAdder
   private val _icMisses = new java.util.concurrent.atomic.LongAdder
+  // Stage 9 polyIC: hits broken down by which way (0..icWays-1) matched.
+  private val _icHitsByWay = Array.fill(8)(new java.util.concurrent.atomic.LongAdder)
   def icHits():   Long   = _icHits.sum()
   def icMisses(): Long   = _icMisses.sum()
-  def icReport(): String = s"CALLREF IC: ${_icHits.sum()} hits, ${_icMisses.sum()} misses"
+  def icReport(): String =
+    val byWay = (0 until icWays).map(i => s"way$i=${_icHitsByWay(i).sum()}").mkString(" ")
+    s"CALLREF IC: ${_icHits.sum()} hits, ${_icMisses.sum()} misses ($byWay)"
+
+  // Stage 9 polyIC: number of FunV slots per call site. 4 covers ~all megamorphic
+  // sites observed (List[Shape] with 2-3 ADT cases plus an outlier). One slot per
+  // way holds the FunV identity; the next holds its compiled CompiledFn (or null
+  // if VmCompiler.compile failed for it).
+  val icWays: Int    = 4
+  val icStride: Int  = icWays * 2
 
   // ── opcodes ──────────────────────────────────────────────────────
   final val CONST = 0
@@ -145,10 +156,15 @@ object SscVm:
     val retIsRef: Boolean = false,
     // Pool of non-capturing FunV constants for LOADFV opcode (Stage 3.3).
     val funVPool: Array[Value.FunV] = Array.empty,
-    // Monomorphic inline cache for CALLREF (Stage 3.4). Sized to op.length*2;
-    // pairs (callRefCache[pc*2] = FunV, callRefCache[pc*2+1] = CompiledFn|null).
-    // A non-null FunV slot with a null CompiledFn means "seen but not compilable".
-    val callRefCache: Array[AnyRef] = Array.empty
+    // Polymorphic inline cache for CALLREF (Stage 9, was monomorphic in 3.4).
+    // Sized to `op.length * icStride`; for each pc we keep `icWays` (FunV,
+    // CompiledFn) pairs. A non-null FunV slot with a null CompiledFn means
+    // "seen but not compilable" — never retried via VmCompiler at that way.
+    val callRefCache: Array[AnyRef] = Array.empty,
+    // Stage 9 polyIC: per-call-site round-robin victim index (0..icWays-1).
+    // On miss with all ways occupied, the entry at icHead(pc) is overwritten
+    // and the head advances. One byte per pc keeps memory overhead low.
+    val icHead: Array[Byte] = Array.empty
   )
 
   // Thread-local slot for RETREF: exec stores the AnyRef return here so the
@@ -273,12 +289,24 @@ object SscVm:
           val funV    = refStack(base + b(pc)).asInstanceOf[Value.FunV]
           val argBase = base + c(pc)
           val cache   = fn.callRefCache
-          // Monomorphic IC: if the FunV at this call site was seen before and
-          // successfully compiled, call exec directly — no Value boxing.
-          val cacheIdx = pc * 2
-          if cache.length > cacheIdx + 1 && (cache(cacheIdx) eq funV) && cache(cacheIdx + 1) != null then
-            if icStatsEnabled then _icHits.increment()
-            val cachedCf = cache(cacheIdx + 1).asInstanceOf[CompiledFn]
+          val baseIdx = pc * icStride
+          // Stage 9 polyIC: linear scan over icWays for a matching FunV. The
+          // typical site is mono- or bi-morphic, so the loop bails on the first
+          // hit; the cost on miss is at most `icWays` ref compares.
+          var hitWay  = -1
+          var cachedCf: CompiledFn = null
+          if cache.length >= baseIdx + icStride then
+            var w = 0
+            while w < icWays && hitWay < 0 do
+              val slot = baseIdx + w * 2
+              if (cache(slot) eq funV) && cache(slot + 1) != null then
+                hitWay  = w
+                cachedCf = cache(slot + 1).asInstanceOf[CompiledFn]
+              w += 1
+          if hitWay >= 0 then
+            if icStatsEnabled then
+              _icHits.increment()
+              _icHitsByWay(hitWay).increment()
             val newBase  = base + fn.numRegs
             var i = 0
             while i < cachedCf.arity do
@@ -313,14 +341,33 @@ object SscVm:
               case Value.BoolV(v)   => stack(base + a(pc))    = if v then 1L else 0L
               case Value.DoubleV(d) => stack(base + a(pc))    = jl.Double.doubleToRawLongBits(d)
               case other: Value     => refStack(base + a(pc)) = other
-            // Populate IC on first/new FunV — try to compile it.
-            // "seen but not compilable" is represented as (funV, null) to avoid
-            // retrying VmCompiler.compile on every subsequent miss for the same callee.
-            if cache.length > cacheIdx + 1 && (cache(cacheIdx) == null || !(cache(cacheIdx) eq funV)) then
-              cache(cacheIdx) = funV
-              VmCompiler.compile(funV) match
-                case Some(cf) => cache(cacheIdx + 1) = cf
-                case None     => ()  // leave null = "not compilable"
+            // Stage 9 polyIC populate path: prefer an empty way; if all `icWays`
+            // slots are filled with other FunVs, round-robin replace via icHead.
+            // "seen but not compilable" is recorded as (funV, null) and only
+            // re-tried on round-robin eviction — not on every subsequent miss.
+            if cache.length >= baseIdx + icStride then
+              var sameFunV = -1
+              var emptyWay = -1
+              var w        = 0
+              while w < icWays && sameFunV < 0 do
+                val slot = baseIdx + w * 2
+                if cache(slot) eq funV then sameFunV = w
+                else if emptyWay < 0 && cache(slot) == null then emptyWay = w
+                w += 1
+              if sameFunV < 0 then
+                val victim =
+                  if emptyWay >= 0 then emptyWay
+                  else
+                    // All ways occupied: evict the round-robin head.
+                    val v = (fn.icHead(pc) & 0xff) % icWays
+                    fn.icHead(pc) = ((v + 1) % icWays).toByte
+                    v
+                val slot = baseIdx + victim * 2
+                cache(slot)     = funV
+                cache(slot + 1) = null
+                VmCompiler.compile(funV) match
+                  case Some(cf) => cache(slot + 1) = cf
+                  case None     => ()
         case RET    => return stack(base + a(pc))
         case RETREF => tlRefReturn.get()(0) = refStack(base + a(pc)); return 0L
       pc += 1

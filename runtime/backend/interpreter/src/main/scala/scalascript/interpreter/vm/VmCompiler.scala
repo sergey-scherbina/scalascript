@@ -123,7 +123,8 @@ object VmCompiler:
           retIsBool = jit.JitPredicates.isBoolReturning(fn.body),
           retIsRef = b.retIsRefOf,
           funVPool = b.funVArr,
-          callRefCache = if hasCallRef then new Array[AnyRef](ops.length * 2) else Array.empty
+          callRefCache = if hasCallRef then new Array[AnyRef](ops.length * SscVm.icStride) else Array.empty,
+          icHead       = if hasCallRef then new Array[Byte](ops.length) else Array.empty
         )
         building.put(fn, shell)            // register before filling — breaks cycles
         var i = 0
