@@ -236,6 +236,13 @@ object RustCodeWalk:
   private def renderStmt(
       stat: m.Stat, ctx: Ctx
   ): Either[List[Diagnostic], String] = stat match
+    // `var name: T = init` → `let mut name: T = init;`.  R.2.2 covers
+    // single-pat bindings only (no pattern destructuring).
+    case v: m.Defn.Var =>
+      renderLetBinding(v.pats, v.decltpe, v.body, mutable = true, ctx)
+    // `val name: T = init` → `let name: T = init;`.
+    case v: m.Defn.Val =>
+      renderLetBinding(v.pats, v.decltpe, v.rhs, mutable = false, ctx)
     case t: m.Term => renderTerm(t, ctx).map(_ + ";")
     case other     => Left(List(unsupported(
       s"def `${ctx.defName}` body contains an unsupported statement: ${other.productPrefix}"
@@ -256,6 +263,24 @@ object RustCodeWalk:
         e1 <- renderTerm(ifExpr.elsep, ctx)
       yield
         s"if $c { $t1 } else { $e1 }"
+
+    // `while (cond) body` — Rust while loop.  Body always wrapped in
+    // a `{ … }` block so multi-stmt bodies stay statement-oriented.
+    case w: m.Term.While =>
+      for
+        c <- renderTerm(w.expr, ctx)
+        // Body is Unit-typed by construction.
+        b <- renderBody(w.body, ctx, isUnit = true)
+      yield
+        s"while $c {\n${indent(b)}\n}"
+
+    // `lhs = rhs` — Rust reassignment of a previously declared `var`.
+    case a: m.Term.Assign =>
+      for
+        l <- renderTerm(a.lhs, ctx)
+        r <- renderTerm(a.rhs, ctx)
+      yield
+        s"$l = $r"
 
     // s"…" interpolation → `format!("…", args)`.
     case m.Term.Interpolate(m.Term.Name("s"), parts, args) =>
@@ -322,6 +347,34 @@ object RustCodeWalk:
       Left(List(unsupported(
         s"def `${ctx.defName}` contains an unsupported expression: ${other.productPrefix} (${other.syntax})"
       )))
+
+  /** Render a `val`/`var` binding to a Rust `let` (optionally `mut`)
+   *  statement.  Only single-name patterns are supported; destructuring
+   *  binders lower to a structured diagnostic. */
+  private def renderLetBinding(
+      pats:    List[m.Pat],
+      decltpe: Option[m.Type],
+      rhs:     m.Term,
+      mutable: Boolean,
+      ctx:     Ctx
+  ): Either[List[Diagnostic], String] =
+    pats match
+      case List(m.Pat.Var(m.Term.Name(name))) =>
+        val kw = if mutable then "let mut" else "let"
+        val annotated: Either[List[Diagnostic], String] = decltpe match
+          case None    => Right("")
+          case Some(t) => mapType(t, ctx.defName).map { r =>
+            if r.isEmpty then "" else s": $r"
+          }
+        for
+          tyAnn <- annotated
+          rhsRs <- renderTerm(rhs, ctx)
+        yield
+          s"$kw $name$tyAnn = $rhsRs;"
+      case _ =>
+        Left(List(unsupported(
+          s"def `${ctx.defName}` has a non-single-name binding; R.2 accepts only `${if mutable then "var" else "val"} name: T = expr`"
+        )))
 
   /** Lower a Scala infix operator to its Rust equivalent.  R.2 covers
    *  arithmetic + comparison + boolean — enough for fib + a basic

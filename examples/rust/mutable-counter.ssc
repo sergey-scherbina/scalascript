@@ -1,0 +1,19 @@
+# Mutable counter
+
+R.2.2 demo: a single `var` + reassignment + while loop.
+
+```scalascript
+@main def run(): Unit =
+  var count: Long = 0
+  while (count < 5) {
+    count = count + 1
+  }
+  println(count)
+```
+
+Build and run:
+
+```bash
+ssc build-rust mutable-counter.ssc
+./mutable-counter            # → 5
+```

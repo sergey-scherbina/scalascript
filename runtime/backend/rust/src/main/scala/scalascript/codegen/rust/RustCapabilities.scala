@@ -16,7 +16,10 @@ val RustCapabilities: Capabilities = Capabilities(
     // `s"…"` form).  Without the flag CapabilityCheck refuses to invoke
     // the backend for `println("Hello")`.
     Feature.StringInterpolators,
-    Feature.ModuleImports
+    Feature.ModuleImports,
+    // R.2.2 — `var` / reassignment / `while`.
+    Feature.MutableState,
+    Feature.WhileLoops
   ),
   outputs        = Set(OutputKind.RustSource),
   options        = Set("optimizationLevel", "emitAssertions", "cargoEdition"),

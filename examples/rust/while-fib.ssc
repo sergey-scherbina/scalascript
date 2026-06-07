@@ -1,0 +1,27 @@
+# Iterative Fibonacci via `var` + `while`
+
+R.2.2 lowers `var x: T = init` to `let mut x: T = init`,
+reassignments via `x = e`, and `while (cond) body` to Rust `while`.
+
+```scalascript
+def fibIter(n: Long): Long =
+  var a: Long = 0
+  var b: Long = 1
+  var i: Long = 0
+  while (i < n) {
+    val t: Long = a + b
+    a = b
+    b = t
+    i = i + 1
+  }
+  a
+
+@main def run(): Unit = println(fibIter(10))
+```
+
+Build and run:
+
+```bash
+ssc build-rust while-fib.ssc
+./while-fib                  # → 55
+```
