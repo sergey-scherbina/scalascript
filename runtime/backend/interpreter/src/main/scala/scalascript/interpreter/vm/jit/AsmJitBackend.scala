@@ -1403,6 +1403,11 @@ object AsmJitBackend extends JitBackend:
     case Term.Apply.After_4_6_0(Term.Select(Term.Name("Math"), Term.Name(m)), _)
         if m == "max" || m == "min" || m == "abs" =>
       true
+    // Stage 8: global function call (Term.Apply on Term.Name) that resolves to
+    // a Long-returning FunV. Used so `.toInt`/`.toLong` on `combineAll(xs)` stays
+    // on the walkLong path rather than dropping into ref-chain fallback.
+    case Term.Apply.After_4_6_0(Term.Name(name), _) =>
+      ctx.interp.globals.get(name).exists(_.isInstanceOf[Value.FunV])
     case _ => false
 
   private def emitHofRefChain(recv: Term, method: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
