@@ -1,6 +1,0 @@
-feature/jit-uc-stage9-poly-ic 2026-06-07T12:32:19Z
-agent: claude-sonnet-4-6
-heartbeat: 2026-06-07T12:32:19Z
-status: not-started
-done-so-far:
-next: explore current monomorphic IC and extend
