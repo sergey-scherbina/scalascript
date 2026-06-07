@@ -486,18 +486,36 @@ object JavacJitBackend extends JitBackend:
       // The interpreter's `invoke` resolves givens at runtime; the JIT just
       // passes the n regular args. Compare against (params.length - usingParams.length).
       case fn: Value.FunV if fn.params.length - fn.usingParams.length == n =>
+        val paramIsRefAll = classifyParamRefs(fn)
         // 1-arg ref calls (incl. with using params) route through callGlobalLong1Ref.
         if n == 1 then
-          val isRef = classifyParamRefs(fn)(0)
-          if isRef then
+          if paramIsRefAll(0) then
             val e = walkRef(args.head, ctx)
             if e == null then return null
             val jkg = "scalascript.interpreter.vm.jit.JitGlobals$.MODULE$"
             return s"""$jkg.callGlobalLong1Ref("${escape(fnName)}", (Object) ($e))"""
+        // Stage 8: 2/3-arg mixed ref/long calls (incl. with using params) route
+        // through callGlobalLongAny — accepts Object[] of args, interp.invoke
+        // handles given resolution and arg dispatch.
+        if (n == 2 || n == 3) && (paramIsRefAll.exists(identity) || fn.usingParams.nonEmpty) then
+          val argExprs = new Array[String](n)
+          var i = 0
+          while i < n do
+            val isRef = i < paramIsRefAll.length && paramIsRefAll(i)
+            val e =
+              if isRef then walkRef(args(i), ctx)
+              else
+                val l = walkLong(args(i), ctx)
+                if l == null then null else s"java.lang.Long.valueOf($l)"
+            if e == null then return null
+            argExprs(i) = e
+            i += 1
+          val jkg = "scalascript.interpreter.vm.jit.JitGlobals$.MODULE$"
+          val argArr = s"new Object[] { ${argExprs.mkString(", ")} }"
+          return s"""$jkg.callGlobalLongAny("${escape(fnName)}", $argArr)"""
         // Existing all-Long path requires no using params and no ref params.
         if fn.usingParams.nonEmpty then return null
-        val paramIsRef = classifyParamRefs(fn)
-        if paramIsRef.exists(identity) then return null  // ref params → different dispatch
+        if paramIsRefAll.exists(identity) then return null  // ref params → different dispatch
         val argExprs = new Array[String](n)
         var i = 0; var rem = args
         while rem.nonEmpty do

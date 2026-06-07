@@ -163,3 +163,46 @@ object JitGlobals:
           case Value.IntV(v) => v
           case other         => throw new RuntimeException(s"JitGlobals.callGlobalLong1Ref: '$name' returned ${other.getClass.getSimpleName}")
       case _ => throw new RuntimeException(s"JitGlobals.callGlobalLong1Ref: '$name' is not a FunV")
+
+  /** Stage 8: 1-ref-arg, ref-returning global call. */
+  def callGlobalRef1Ref(name: String, a1: Object): Object =
+    val interp = interpTls.get()
+    if interp == null then throw new RuntimeException("JitGlobals.callGlobalRef1Ref: no interp in TLS")
+    interp.globals.getOrElse(name, null) match
+      case fn: Value.FunV => interp.invoke(fn, List(a1.asInstanceOf[Value])).asInstanceOf[Object]
+      case _ => throw new RuntimeException(s"JitGlobals.callGlobalRef1Ref: '$name' is not a FunV")
+
+  /** Stage 8: generic global call — accepts an Object[] of args (each wrapped
+   *  Value for ref params, or boxed Long for numeric). Returns Long (unwrapped
+   *  from IntV). Used for arity 2/3 with mixed ref/long params or with
+   *  `using` clauses. */
+  def callGlobalLongAny(name: String, args: Array[Object]): Long =
+    val interp = interpTls.get()
+    if interp == null then throw new RuntimeException("JitGlobals.callGlobalLongAny: no interp in TLS")
+    interp.globals.getOrElse(name, null) match
+      case fn: Value.FunV =>
+        val argList = args.iterator.map { o =>
+          o match
+            case v: Value => v
+            case l: java.lang.Long => Value.intV(l.longValue)
+            case _ => o.asInstanceOf[Value]
+        }.toList
+        interp.invoke(fn, argList) match
+          case Value.IntV(v) => v
+          case other         => throw new RuntimeException(s"JitGlobals.callGlobalLongAny: '$name' returned ${other.getClass.getSimpleName}")
+      case _ => throw new RuntimeException(s"JitGlobals.callGlobalLongAny: '$name' is not a FunV")
+
+  /** Stage 8: generic global call returning ref. */
+  def callGlobalRefAny(name: String, args: Array[Object]): Object =
+    val interp = interpTls.get()
+    if interp == null then throw new RuntimeException("JitGlobals.callGlobalRefAny: no interp in TLS")
+    interp.globals.getOrElse(name, null) match
+      case fn: Value.FunV =>
+        val argList = args.iterator.map { o =>
+          o match
+            case v: Value => v
+            case l: java.lang.Long => Value.intV(l.longValue)
+            case _ => o.asInstanceOf[Value]
+        }.toList
+        interp.invoke(fn, argList).asInstanceOf[Object]
+      case _ => throw new RuntimeException(s"JitGlobals.callGlobalRefAny: '$name' is not a FunV")
