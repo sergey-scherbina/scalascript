@@ -1,0 +1,6 @@
+feature/jit-uc-stage8-looks-long-global 2026-06-07T07:04:54Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-07T07:04:54Z
+status: not-started
+done-so-far:
+next: ASM looksLongValue add global FunV call detection
