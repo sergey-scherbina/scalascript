@@ -498,7 +498,10 @@ object RustCodeWalk:
     // re-use the input across encode/decode round-trips.
     "crate::runtime::_sha256",
     "crate::runtime::_base64_encode",
-    "crate::runtime::_base64_decode"
+    "crate::runtime::_base64_decode",
+    // R.3.3 — JSON helpers also take `&str`.
+    "crate::runtime::_json_parse",
+    "crate::runtime::_json_stringify"
   )
 
   /** Resolve a non-List/Vec `Term.Apply` callee against intrinsics,

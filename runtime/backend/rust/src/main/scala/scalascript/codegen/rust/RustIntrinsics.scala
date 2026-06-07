@@ -23,5 +23,8 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   // only adds the `sha2` / `base64` crates to Cargo.toml when reached.
   QualifiedName("sha256")           -> RuntimeCall("crate::runtime::_sha256"),
   QualifiedName("base64Encode")     -> RuntimeCall("crate::runtime::_base64_encode"),
-  QualifiedName("base64Decode")     -> RuntimeCall("crate::runtime::_base64_decode")
+  QualifiedName("base64Decode")     -> RuntimeCall("crate::runtime::_base64_decode"),
+  // R.3.3 — JSON.  Pulls `serde_json` into Cargo.toml only when reached.
+  QualifiedName("jsonParse")        -> RuntimeCall("crate::runtime::_json_parse"),
+  QualifiedName("jsonStringify")    -> RuntimeCall("crate::runtime::_json_stringify")
 )

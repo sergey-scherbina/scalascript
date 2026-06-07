@@ -70,6 +70,8 @@ object RustGen:
           if cryptoUsage.contains("sha256") then sb.append(RustRuntimeTemplates.Sha256Rs)
           if cryptoUsage.exists(n => n == "base64Encode" || n == "base64Decode") then
             sb.append(RustRuntimeTemplates.Base64Rs)
+          if cryptoUsage.exists(n => n == "jsonParse" || n == "jsonStringify") then
+            sb.append(RustRuntimeTemplates.JsonRs)
           sb.toString
         CompileResult.Segmented(List(
           Segment.Asset("Cargo.toml",                   cargoTomlFinal.getBytes("UTF-8"),       "application/toml"),
@@ -85,7 +87,9 @@ object RustGen:
    *  crates to add to `Cargo.toml` and whether to append the crypto
    *  runtime helpers. */
   private[rust] def scanCryptoUsage(astModule: scalascript.ast.Module): Set[String] =
-    val names = Set("sha256", "base64Encode", "base64Decode")
+    // R.3.2 + R.3.3 — scan covers both crypto/base64 and JSON intrinsics
+    // so RustGen can drive Cargo deps + runtime-template emit on demand.
+    val names = Set("sha256", "base64Encode", "base64Decode", "jsonParse", "jsonStringify")
     val found = scala.collection.mutable.Set.empty[String]
     astModule.sections.foreach(s => scanSectionForNames(s, names, found))
     found.toSet
@@ -156,6 +160,9 @@ object RustGen:
     if cryptoUsage.contains("sha256") then depLines += "sha2 = \"0.10\""
     if cryptoUsage.exists(n => n == "base64Encode" || n == "base64Decode") then
       depLines += "base64 = \"0.22\""
+    // R.3.3 — serde_json gates on either JSON intrinsic.
+    if cryptoUsage.exists(n => n == "jsonParse" || n == "jsonStringify") then
+      depLines += "serde_json = \"1.0\""
     val deps = if depLines.isEmpty then "" else depLines.mkString("\n") + "\n"
     val target =
       if hasMain then

@@ -1,0 +1,25 @@
+# JSON round-trip
+
+R.3.3 wires `jsonParse(s)` and `jsonStringify(s)` to the `serde_json`
+crate (pulled into `Cargo.toml` only when at least one of the two
+intrinsics is reached).
+
+`jsonParse` normalises a JSON string to compact form (e.g. drops
+whitespace, sorts no keys); `jsonStringify` pretty-prints it
+(2-space indent).  Both round-trip through `serde_json::Value`,
+which validates the input.
+
+```scalascript
+@main def run(): Unit =
+  val src: String = """{ "x": 1, "y": [true, null, "hi"] }"""
+  val canon: String = jsonParse(src)
+  println(canon)
+```
+
+Build and run:
+
+```bash
+ssc build-rust json-roundtrip.ssc
+./json-roundtrip
+# → {"x":1,"y":[true,null,"hi"]}
+```

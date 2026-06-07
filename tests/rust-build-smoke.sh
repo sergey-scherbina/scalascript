@@ -71,6 +71,7 @@ expected["for-yield.ssc"]="4"
 expected["fs-roundtrip.ssc"]="true"
 expected["crypto-sha256.ssc"]="2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
 expected["base64-roundtrip.ssc"]="true"
+expected["json-roundtrip.ssc"]="{\"x\":1,\"y\":[true,null,\"hi\"]}"
 
 workdir="$(mktemp -d -t ssc-rust-smoke-XXXXXX)"
 trap 'rm -rf "$workdir"' EXIT

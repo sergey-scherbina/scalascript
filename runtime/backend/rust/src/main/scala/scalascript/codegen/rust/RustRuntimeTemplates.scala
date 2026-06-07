@@ -155,3 +155,32 @@ object RustRuntimeTemplates:
       |        .unwrap_or_else(|e| panic!("base64Decode utf8: {}", e))
       |}
       |""".stripMargin
+
+  /** R.3.3 — JSON helpers, appended only when at least one of
+   *  `jsonParse` / `jsonStringify` is reached.  Pulls in `serde_json`. */
+  val JsonRs: String =
+    """
+      |// ── R.3.3 — JSON (uses `serde_json` crate; emitted on demand) ──
+      |
+      |/// `jsonParse(s)` — parse a JSON string and re-emit it in the
+      |/// canonical compact form.  Panics on parse error to match the
+      |/// interpreter's fail-fast contract.
+      |#[allow(dead_code)]
+      |pub fn _json_parse(input: &str) -> String {
+      |    let v: serde_json::Value = serde_json::from_str(input)
+      |        .unwrap_or_else(|e| panic!("jsonParse: {}", e));
+      |    serde_json::to_string(&v)
+      |        .unwrap_or_else(|e| panic!("jsonParse re-emit: {}", e))
+      |}
+      |
+      |/// `jsonStringify(s)` — pretty-print a JSON string (`{ ... }` with
+      |/// 2-space indent).  Input must already be valid JSON; the round-
+      |/// trip through `serde_json::Value` validates it.
+      |#[allow(dead_code)]
+      |pub fn _json_stringify(input: &str) -> String {
+      |    let v: serde_json::Value = serde_json::from_str(input)
+      |        .unwrap_or_else(|e| panic!("jsonStringify: {}", e));
+      |    serde_json::to_string_pretty(&v)
+      |        .unwrap_or_else(|e| panic!("jsonStringify re-emit: {}", e))
+      |}
+      |""".stripMargin
