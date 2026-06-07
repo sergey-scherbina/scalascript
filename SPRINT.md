@@ -666,11 +666,6 @@ load-bearing: the emitted `Cargo.toml` lists exactly the crates the
 program reaches.
 
 
-- [ ] **rust-backend-r3-json** — `std.json.parse` / `stringify` →
-      `serde_json` crate (pulled only when reached). The boxed `Value`
-      enum gains a serde-derived `Serialize`/`Deserialize` impl in
-      `value.rs`. Acceptance: `json-roundtrip.ssc` snapshot — round-trips
-      a nested object byte-for-byte.
 
 ### Phase R.4 — Effects (algebraic effects + handlers)
 

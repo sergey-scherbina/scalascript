@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-07 — feat(rust): R.3.3 — jsonParse + jsonStringify — R.3 complete
+
+- **rust-backend-r3-json** — Third and final slice of R.3. Two
+  intrinsics gated on `serde_json`: `jsonParse` (compact canonical
+  form), `jsonStringify` (pretty-printed). Both validate input via
+  `serde_json::Value` round-trip. `scanCryptoUsage` extended to also
+  cover JSON; `serde_json = "1.0"` added to Cargo.toml only when
+  reached; runtime template `JsonRs` appended on the same gate.
+  Helpers take `&str` (added to BorrowedArgIntrinsics). New fixture
+  `json-roundtrip.ssc` → `{"x":1,"y":[true,null,"hi"]}`. Smoke at
+  13 fixtures, 72/72 unit tests. **Phase R.3 complete.**
+
 ## 2026-06-07 — feat(rust): R.3.2 — sha256 + base64 with per-module dep walk
 
 - **rust-backend-r3-crypto-base64** — Second slice of R.3. Three
