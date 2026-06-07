@@ -1677,10 +1677,42 @@ object AsmJitBackend extends JitBackend:
     val n = args.length
     if n < 1 || n > 3 then return false
     ctx.interp.globals.getOrElse(fnName, null) match
-      case fn: Value.FunV if fn.params.length == n && fn.usingParams.isEmpty =>
-        val paramIsRef = classifyParamRefs(fn)
-        if paramIsRef.exists(identity) then return false
+      case fn: Value.FunV if fn.params.length - fn.usingParams.length == n =>
+        val paramIsRefAll = classifyParamRefs(fn)
         val jkgOwner = "scalascript/interpreter/vm/jit/JitGlobals$"
+        // Stage 8: 1-arg ref → callGlobalLong1Ref (handles using params).
+        if n == 1 && paramIsRefAll(0) then
+          mv.visitFieldInsn(GETSTATIC, jkgOwner, "MODULE$", s"L$jkgOwner;")
+          mv.visitLdcInsn(fnName)
+          if !walkRef(args.head, ctx, mv) then return false
+          mv.visitMethodInsn(INVOKEVIRTUAL, jkgOwner, "callGlobalLong1Ref",
+            "(Ljava/lang/String;Ljava/lang/Object;)J", false)
+          return true
+        // Stage 8: 2/3-arg mixed ref+long (incl. using) → callGlobalLongAny.
+        if (n == 2 || n == 3) && (paramIsRefAll.exists(identity) || fn.usingParams.nonEmpty) then
+          mv.visitFieldInsn(GETSTATIC, jkgOwner, "MODULE$", s"L$jkgOwner;")
+          mv.visitLdcInsn(fnName)
+          mv.visitIntInsn(BIPUSH, n)
+          mv.visitTypeInsn(ANEWARRAY, "java/lang/Object")
+          var i = 0
+          while i < n do
+            mv.visitInsn(DUP)
+            mv.visitIntInsn(BIPUSH, i)
+            val isRef = i < paramIsRefAll.length && paramIsRefAll(i)
+            if isRef then
+              if !walkRef(args(i), ctx, mv) then return false
+            else
+              if !walkLong(args(i), ctx, mv) then return false
+              mv.visitMethodInsn(INVOKESTATIC, "java/lang/Long", "valueOf",
+                "(J)Ljava/lang/Long;", false)
+            mv.visitInsn(AASTORE)
+            i += 1
+          mv.visitMethodInsn(INVOKEVIRTUAL, jkgOwner, "callGlobalLongAny",
+            "(Ljava/lang/String;[Ljava/lang/Object;)J", false)
+          return true
+        // Existing all-Long path requires no using params and no ref params.
+        if fn.usingParams.nonEmpty then return false
+        if paramIsRefAll.exists(identity) then return false
         mv.visitFieldInsn(GETSTATIC, jkgOwner, "MODULE$", s"L$jkgOwner;")
         mv.visitLdcInsn(fnName)
         var rem = args
