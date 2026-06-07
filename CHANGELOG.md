@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-07 — feat(rust): R.3.1 — nowMillis + readFile + writeFile
+
+- **rust-backend-r3-time-fs** — First slice of R.3. Three intrinsics
+  with no extra crate deps: `nowMillis` (std::time::SystemTime),
+  `readFile`/`writeFile` (std::fs). FS helpers take `&str` so the
+  caller keeps ownership of the String; RustCodeWalk gains a
+  `BorrowedArgIntrinsics` set + `&arg` wrapping for that case.
+  RustCapabilities declares `FileSystem`. New fixture
+  `fs-roundtrip.ssc` — write+read → "true". Smoke at 10 fixtures,
+  60/60 unit tests.
+
 ## 2026-06-07 — feat(rust): R.2.5 — for-comprehensions + List/Vec — R.2 complete
 
 - **rust-backend-r2-for-comprehensions** — Fifth and final slice of

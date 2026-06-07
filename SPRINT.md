@@ -665,12 +665,6 @@ Depends on R.2. Capability additions: `FileSystem`, `Crypto`, `Markup`
 load-bearing: the emitted `Cargo.toml` lists exactly the crates the
 program reaches.
 
-- [ ] **rust-backend-r3-time-fs** — Wire `nowMillis` →
-      `RuntimeCall("crate::runtime::intrinsics::_now_millis")`,
-      `std.io.readFile`/`writeFile` → `_read_file`/`_write_file` (using
-      `std::fs::read_to_string` / `std::fs::write`). No new crate deps.
-      Acceptance: `fs-roundtrip.ssc` (write → read → assert equality)
-      snapshot.
 
 - [ ] **rust-backend-r3-crypto-base64** — Add `sha256` /
       `base64Encode` / `base64Decode` intrinsics; per-module walk pulls
