@@ -260,10 +260,29 @@ object RustCodeWalk:
     case m.Type.Name("Float")   => Right("f64")
     case m.Type.Name("String")  => Right("String")
     case m.Type.Name(n) if enumNames.contains(n) => Right(n)
+    // Scala 3 `A => B` and `(A1, A2, …) => B` lower to `impl Fn(…) -> …`.
+    // R.2.4 only renders function types at parameter positions; stored
+    // closure values (`Box<dyn Fn>` boxing) land in a later slice.
+    case ft: m.Type.Function =>
+      val params = ft.paramClause.values.toList
+      for
+        pRs <- traverseTypes(params, defName, enumNames)
+        rRs <- mapType(ft.res, defName, enumNames)
+      yield
+        if rRs.isEmpty then s"impl Fn(${pRs.mkString(", ")})"
+        else                s"impl Fn(${pRs.mkString(", ")}) -> $rRs"
     case other =>
       Left(List(unsupported(
-        s"def `$defName` uses type `${other.syntax}`; R.2 accepts only primitive types and user-defined enum names"
+        s"def `$defName` uses type `${other.syntax}`; R.2 accepts only primitive types, user-defined enum names, and function types"
       )))
+
+  /** Map a list of types, accumulating diagnostics. */
+  private def traverseTypes(
+      ts: List[m.Type], defName: String, enumNames: Set[String]
+  ): Either[List[Diagnostic], List[String]] =
+    val rendered = ts.map(t => mapType(t, defName, enumNames))
+    val (errs, ok) = rendered.partitionMap(identity)
+    if errs.nonEmpty then Left(errs.flatten) else Right(ok)
 
   private def renderParams(
       d: m.Defn.Def, ctx: Ctx
@@ -386,6 +405,17 @@ object RustCodeWalk:
     case mt: m.Term.Match =>
       renderMatch(mt.expr, mt.casesBlock.cases.toList, ctx)
 
+    // `(params) => body` — Rust closure `move |params| body`.  Optional
+    // param types are honoured; missing types defer to Rust's inference.
+    case fn: m.Term.Function =>
+      renderClosure(fn.paramClause.values.toList, fn.body, ctx)
+    // Some scalameta versions parse `x => body` as `Term.AnonymousFunction`
+    // with a placeholder; cover the same shape conservatively.
+    case _: m.Term.AnonymousFunction =>
+      Left(List(unsupported(
+        s"def `${ctx.defName}` uses an anonymous-function placeholder; R.2.4 accepts only explicit `(params) => body`"
+      )))
+
     // s"…" interpolation → `format!("…", args)`.
     case m.Term.Interpolate(m.Term.Name("s"), parts, args) =>
       renderStringInterpolation(parts, args, ctx)
@@ -426,9 +456,17 @@ object RustCodeWalk:
               case None     =>
                 plainName.filter(ctx.userDefs.contains) match
                   case Some(n) => Right(s"$n($joined)")
-                  case None    => Left(List(unsupported(
-                    s"def `${ctx.defName}` calls `${fn.syntax}` which is neither a rust-target intrinsic, an in-scope user def, nor an enum constructor"
-                  )))
+                  case None    =>
+                    // Fallback: plain `name(args)` — assume the callee is
+                    // a closure parameter or a local binding in scope.
+                    // Cargo will reject if it isn't.  R.2.4 needs this so
+                    // higher-order def parameters (`f: Long => Long`) can
+                    // be called as `f(x)`.
+                    plainName match
+                      case Some(n) => Right(s"$n($joined)")
+                      case None    => Left(List(unsupported(
+                        s"def `${ctx.defName}` calls `${fn.syntax}` which has no resolvable name"
+                      )))
 
     // Infix operators: arithmetic, comparison, boolean.
     case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name(op), _, args) =>
@@ -464,6 +502,25 @@ object RustCodeWalk:
       Left(List(unsupported(
         s"def `${ctx.defName}` contains an unsupported expression: ${other.productPrefix} (${other.syntax})"
       )))
+
+  /** Lower `(params) => body` to a Rust `move |params| body` closure.
+   *  Parameter type annotations are honoured when present; otherwise
+   *  Rust's inference picks them up from the call site. */
+  private def renderClosure(
+      params: List[m.Term.Param], body: m.Term, ctx: Ctx
+  ): Either[List[Diagnostic], String] =
+    val rendered = params.map { p =>
+      p.decltpe match
+        case None    => Right(p.name.value)
+        case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map(r =>
+          if r.isEmpty then p.name.value else s"${p.name.value}: $r"
+        )
+    }
+    val (errs, ok) = rendered.partitionMap(identity)
+    if errs.nonEmpty then Left(errs.flatten)
+    else
+      for b <- renderTerm(body, ctx)
+      yield s"move |${ok.mkString(", ")}| { $b }"
 
   /** Lower a `Term.Match(subject, cases)` to a Rust `match` expression.
    *  Each case's pattern is lowered via `renderPattern`; the body is

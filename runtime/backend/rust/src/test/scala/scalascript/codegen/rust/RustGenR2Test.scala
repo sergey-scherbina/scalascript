@@ -99,17 +99,26 @@ class RustGenR2Test extends AnyFunSuite:
     assert(g.contains("(inc(n) + 2i64)"),
       s"user-fn call not found in:\n$g")
 
-  test("call to an unknown free name yields a structured diagnostic"):
+  test("call to an unknown free name passes through to Rust (cargo rejects)"):
+    // R.2.4 widened the apply path so closure-parameter calls (`f(x)`)
+    // succeed even when `f` is neither a known fn nor a known ctor.
+    // The flip side: unresolved free names like `mystery` are now
+    // emitted as-is and rejected by `cargo build`, not by RustCodeWalk.
     val src =
       """```scalascript
         |def use(n: Long): Long = mystery(n) + 1
         |```
         |""".stripMargin
-    val ds = diagnostics(src)
-    assert(ds.exists {
-      case Diagnostic.Generic(m, _) => m.contains("mystery")
-      case _                        => false
-    }, s"diags: $ds")
+    new RustBackend().compile(Normalize(Parser.parse(src)), emptyOpts) match
+      case CompileResult.Segmented(segs) =>
+        val g = segs.collectFirst {
+          case Segment.Asset("src/generated/ssc_program.rs", b, _) => new String(b, "UTF-8")
+        }.getOrElse(fail("generated module missing"))
+        assert(g.contains("(mystery(n) + 1i64)"),
+          s"expected pass-through mystery call:\n$g")
+      case CompileResult.Failed(ds) =>
+        fail(s"expected Segmented, got Failed: $ds")
+      case other => fail(s"expected Segmented, got $other")
 
   // ── s"…" interpolation ─────────────────────────────────────────────
 

@@ -1,0 +1,23 @@
+# Higher-order functions via closures
+
+R.2.4 lowers `Term.Function((params) => body)` to a Rust closure
+`move |params| body`, and `Type.Function (A => B)` to
+`impl Fn(A) -> B` at parameter positions.
+
+```scalascript
+def apply(f: Long => Long, x: Long): Long = f(x)
+
+def twice(f: Long => Long, x: Long): Long = f(f(x))
+
+@main def run(): Unit =
+  println(apply((x: Long) => x * 2, 21))
+  println(twice((x: Long) => x + 1, 5))
+```
+
+Build and run:
+
+```bash
+ssc build-rust higher-order.ssc
+./higher-order               # → 42
+                             #   7
+```
