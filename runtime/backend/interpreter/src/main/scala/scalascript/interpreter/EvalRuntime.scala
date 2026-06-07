@@ -244,6 +244,9 @@ private[interpreter] object EvalRuntime:
         val localRefs: Map[String, Value] =
           frameView.underlying.iterator.collect {
             case (k, v: Value.InstanceV) => (k, v: Value)
+            // Stage 9 lambda-value-solo: surface FunV locals so the JIT
+            // backend can inline val-bound lambda call sites in while bodies.
+            case (k, v: Value.FunV)      => (k, v: Value)
           }.toMap
         val e = scalascript.interpreter.vm.jit.JitBackend.default.tryCompileWhileLong(
           t.expr, body.names, body.rhs, interp, localRefs

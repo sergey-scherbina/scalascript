@@ -646,6 +646,13 @@ object AsmJitBackend extends JitBackend:
         if !ok then return null
         mv.visitVarInsn(if ctx.isDouble then DSTORE else LSTORE, slot)
         ctx.withBindings(Map(n.value -> (slot, false)))
+    // Stage 9 lambda-value-solo: `val f = (x: T) => body` — track the lambda
+    // shape on the GenCtx so walkLong can inline the body at every call site
+    // (`f(arg)`), substituting params with parenthesized arg expressions.
+    case Defn.Val(_, List(Pat.Var(n)), _, rhs: Term.Function) =>
+      val ps     = rhs.paramClause.values
+      val pNames = ps.iterator.map(_.name.value).toArray
+      ctx.withLambda(n.value, pNames, rhs.body)
     case Defn.Val(_, List(Pat.Var(n)), _, rhs: Term) =>
       val slot = ctx.allocSlot()
       if isRefValRhs(rhs, ctx) then
@@ -850,7 +857,10 @@ object AsmJitBackend extends JitBackend:
     coEmit:           CoEmitState,
     selfClass:        String,
     allocSlot:        () => Int,
-    paramTypes:       Array[String] = Array.empty
+    paramTypes:       Array[String] = Array.empty,
+    // Stage 9: val-bound lambdas — name → (param names, body). Used to inline
+    // a lambda call site as `eval each arg into a slot, bind, emit body`.
+    lambdas:          Map[String, (Array[String], Term)] = Map.empty
   ):
     def isRefName(n: String): Boolean =
       bindings.get(n) match
@@ -878,6 +888,8 @@ object AsmJitBackend extends JitBackend:
       }
 
     def withBindings(more: Map[String, (Int, Boolean)]): GenCtx = copy(bindings = bindings ++ more)
+    def withLambda(name: String, pNames: Array[String], body: Term): GenCtx =
+      copy(lambdas = lambdas + (name -> (pNames, body)))
 
   // ── walkLong ─────────────────────────────────────────────────────────────
 
@@ -1001,10 +1013,32 @@ object AsmJitBackend extends JitBackend:
         case Term.Select(recv: Term, Term.Name(method)) =>
           emitHofFoldLong(recv, method, ap.argClause.values, ctx, mv) ||
             emitRefChainLong(recv, method, ap.argClause.values, ctx, mv)
+        // Stage 9 lambda-value-solo: inline a val-bound lambda call site.
+        case fn: Term.Name if ctx.lambdas.contains(fn.value) =>
+          inlineLambdaLong(fn.value, ap.argClause.values, ctx, mv)
         case fn: Term.Name =>
           emitLongCall(fn.value, ap.argClause.values, ctx, mv)
         case _ => false
     case _ => false
+
+  /** Stage 9: inline a val-bound lambda's body at the call site. Each arg is
+   *  evaluated into a fresh local slot; the lambda param is bound to that
+   *  slot; then the body is walked. Returns true on success, false on any
+   *  walk failure. */
+  private def inlineLambdaLong(name: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
+    val (pNames, body) = ctx.lambdas(name)
+    if args.length != pNames.length then return false
+    var newCtx = ctx
+    var i      = 0
+    var rem    = args
+    while rem.nonEmpty do
+      val arg = rem.head
+      if !walkLong(arg, newCtx, mv) then return false
+      val slot = newCtx.allocSlot()
+      mv.visitVarInsn(LSTORE, slot)
+      newCtx = newCtx.withBindings(Map(pNames(i) -> (slot, false)))
+      i += 1; rem = rem.tail
+    walkLong(body, newCtx, mv)
 
   private def emitRefChainLong(recv: Term, method: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
     method match
@@ -1409,6 +1443,10 @@ object AsmJitBackend extends JitBackend:
     // Stage 8: Math intrinsics return Long.
     case Term.Apply.After_4_6_0(Term.Select(Term.Name("Math"), Term.Name(m)), _)
         if m == "max" || m == "min" || m == "abs" =>
+      true
+    // Stage 9 lambda-value-solo: local val-bound lambda call is Long-shaped
+    // when the lambda body itself is Long-shaped under the param mapping.
+    case Term.Apply.After_4_6_0(Term.Name(name), _) if ctx.lambdas.contains(name) =>
       true
     // Stage 8: global function call (Term.Apply on Term.Name) that resolves to
     // a Long-returning FunV. Used so `.toInt`/`.toLong` on `combineAll(xs)` stays
@@ -3492,7 +3530,19 @@ object AsmJitBackend extends JitBackend:
     // benched fn) so walkWhileRefArg can route them through the ref-call lane;
     // EvalRuntime re-resolves the actual value from the frame at run time.
     val localRefs = locals.iterator.collect { case (k, _: Value.InstanceV) => k }.toSet
-    val ctx   = WhileCtx(names, interp, pureFns, cname, localRefs = localRefs)
+    // Stage 9: surface val-bound local lambdas so walkWhileSlot can inline calls.
+    // Restrict to single-param Long-returning candidates with no `using`/defaults
+    // and no captures beyond params (we verify capture-freeness lazily at substitution).
+    val lambdaMap: Map[String, (Array[String], Term)] =
+      locals.iterator.collect {
+        case (k, fv: Value.FunV)
+            if fv.params.nonEmpty
+              && fv.usingParams.isEmpty
+              && (fv.defaults.isEmpty || fv.defaults.forall(_.isEmpty))
+              && !fv.returnsThrows =>
+          k -> (fv.params.toArray, fv.body)
+      }.toMap
+    val ctx   = WhileCtx(names, interp, pureFns, cname, localRefs = localRefs, lambdas = lambdaMap)
 
     val condEmit = walkWhileBool(cond, ctx)
     if condEmit == null then { whileCache.put(cond, WhileMiss); return null }
@@ -4482,7 +4532,10 @@ object AsmJitBackend extends JitBackend:
     pureFns:    mutable.LinkedHashMap[String, WhilePureFn],
     selfClass:  String,
     isCallee:   Boolean = false,
-    localRefs:  Set[String] = Set.empty
+    localRefs:  Set[String] = Set.empty,
+    // Stage 9 lambda-value-solo: local val-bound lambdas with body recoverable
+    // from FunV in `locals`. Key = lambda name; value = (paramNames, body).
+    lambdas:    Map[String, (Array[String], Term)] = Map.empty
   ):
     val refNames:      mutable.ArrayBuffer[String] = mutable.ArrayBuffer.empty
     val refFnNames:    mutable.ArrayBuffer[String] = mutable.ArrayBuffer.empty
@@ -4571,6 +4624,38 @@ object AsmJitBackend extends JitBackend:
         mv.visitVarInsn(ASTORE, slot)
         i += 1
 
+  // Stage 9 lambda-value-solo helper: substitute lambda params with arg
+  // expressions in a body Term. Args restricted to Term.Name / Lit so we
+  // don't duplicate side effects when the param appears multiple times.
+  // Manual recursive transform — covers the term shapes walkWhileSlot accepts.
+  private def substituteParams(body: Term, pNames: Array[String], args: Array[Term]): Term | Null =
+    var i = 0
+    while i < args.length do
+      args(i) match
+        case _: Term.Name | _: Lit => ()
+        case _ => return null
+      i += 1
+    val mapping: Map[String, Term] = pNames.iterator.zip(args.iterator).toMap
+    def go(t: Term): Term = t match
+      case n: Term.Name => mapping.getOrElse(n.value, n)
+      case _: Lit       => t
+      case Term.ApplyInfix.After_4_6_0(lhs, op, targs, ac) =>
+        val newAc = scala.meta.Term.ArgClause(ac.values.map(go), ac.mod)
+        Term.ApplyInfix.After_4_6_0(go(lhs), op, targs, newAc)
+      case Term.ApplyUnary(op, arg) =>
+        Term.ApplyUnary(op, go(arg))
+      case Term.Apply.After_4_6_0(fn, ac) =>
+        val newAc = scala.meta.Term.ArgClause(ac.values.map(go), ac.mod)
+        Term.Apply.After_4_6_0(go(fn), newAc)
+      case Term.Select(qual, sel) =>
+        Term.Select(go(qual), sel)
+      case ti: Term.If =>
+        Term.If(go(ti.cond), go(ti.thenp), go(ti.elsep), ti.mods)
+      case b: Term.Block =>
+        Term.Block(b.stats.map { case te: Term => go(te); case other => other })
+      case other => other
+    go(body)
+
   private def walkWhileBool(t: Term, ctx: WhileCtx): CondEmitter | Null = t match
     case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
       b.stats.head match
@@ -4649,6 +4734,15 @@ object AsmJitBackend extends JitBackend:
         mv.visitMethodInsn(INVOKESTATIC, sc, methodName, "(Ljava/lang/Object;)J", false)
     case ap: Term.Apply =>
       ap.fun match
+        // Stage 9 lambda-value-solo: inline val-bound lambda call via AST substitution.
+        case fnName: Term.Name if ctx.lambdas.contains(fnName.value) =>
+          val (pNames, body) = ctx.lambdas(fnName.value)
+          val args = ap.argClause.values
+          if args.lengthCompare(pNames.length) != 0 then return null
+          // Substitute lambda params with arg ASTs, then re-walk the result.
+          val sub = substituteParams(body, pNames, args.toArray)
+          if sub == null then return null
+          walkWhileSlot(sub, ctx)
         case fnName: Term.Name if ctx.interp != null =>
           val nargs = ap.argClause.values.length
           if nargs != 1 && nargs != 2 then return null
