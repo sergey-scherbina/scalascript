@@ -271,9 +271,16 @@ object RustCodeWalk:
       yield
         if rRs.isEmpty then s"impl Fn(${pRs.mkString(", ")})"
         else                s"impl Fn(${pRs.mkString(", ")}) -> $rRs"
+    // R.2.5 — `List[T]` / `Vec[T]` lower to `Vec<T>`.
+    case m.Type.Apply.After_4_6_0(m.Type.Name("List" | "Vec"), argClause) =>
+      argClause.values.toList match
+        case List(elem) => mapType(elem, defName, enumNames).map(r => s"Vec<$r>")
+        case other      => Left(List(unsupported(
+          s"def `$defName` has `List`/`Vec` with ${other.size} type args; expected exactly one"
+        )))
     case other =>
       Left(List(unsupported(
-        s"def `$defName` uses type `${other.syntax}`; R.2 accepts only primitive types, user-defined enum names, and function types"
+        s"def `$defName` uses type `${other.syntax}`; R.2 accepts primitives, enums, function types, and List/Vec"
       )))
 
   /** Map a list of types, accumulating diagnostics. */
@@ -409,6 +416,17 @@ object RustCodeWalk:
     // param types are honoured; missing types defer to Rust's inference.
     case fn: m.Term.Function =>
       renderClosure(fn.paramClause.values.toList, fn.body, ctx)
+
+    // `for x <- xs yield expr` with a single generator → Rust
+    // `xs.into_iter().map(|x| expr).collect::<Vec<_>>()`.  Multi-
+    // generator / guarded / val-enumerator shapes land later.
+    case fy: m.Term.ForYield =>
+      renderForYield(fy.enumsBlock.enums.toList, fy.body, ctx)
+
+    // `xs.size` / `xs.length` / `xs.len` — every shape reads as
+    // `xs.len() as i64` (Vec::len returns `usize`).
+    case m.Term.Select(qual, m.Term.Name("size" | "length" | "len")) =>
+      renderTerm(qual, ctx).map(q => s"($q.len() as i64)")
     // Some scalameta versions parse `x => body` as `Term.AnonymousFunction`
     // with a placeholder; cover the same shape conservatively.
     case _: m.Term.AnonymousFunction =>
@@ -428,45 +446,12 @@ object RustCodeWalk:
       if errs.nonEmpty then Left(errs.flatten)
       else
         val joined = renderedArgs.mkString(", ")
-        val intr   = callee.flatMap(qn => ctx.intrinsics.get(qn).map(qn -> _))
-        intr match
-          case Some((_, RuntimeCall(target))) =>
-            Right(s"$target($joined)")
-          case Some((qn, other)) =>
-            Left(List(unsupported(
-              s"intrinsic `${qn.value}` uses ${other.getClass.getSimpleName}; rust target accepts only RuntimeCall"
-            )))
-          case None =>
-            // User-defined fn in the same module?  R.2 allows direct calls.
-            val plainName = fn match
-              case m.Term.Name(n) => Some(n)
-              case _              => None
-            // User-defined fn / enum constructor.
-            plainName.flatMap { n =>
-              ctx.ctorMap.get(n).map(ec =>
-                // Build `EnumName::Ctor { field0: arg0, field1: arg1, … }`.
-                val fields = ec.fieldNames.zip(renderedArgs)
-                val body   =
-                  if fields.isEmpty then ""
-                  else " { " + fields.map((fn, a) => s"$fn: $a").mkString(", ") + " }"
-                s"${ec.enumName}::$n$body"
-              )
-            } match
-              case Some(rs) => Right(rs)
-              case None     =>
-                plainName.filter(ctx.userDefs.contains) match
-                  case Some(n) => Right(s"$n($joined)")
-                  case None    =>
-                    // Fallback: plain `name(args)` — assume the callee is
-                    // a closure parameter or a local binding in scope.
-                    // Cargo will reject if it isn't.  R.2.4 needs this so
-                    // higher-order def parameters (`f: Long => Long`) can
-                    // be called as `f(x)`.
-                    plainName match
-                      case Some(n) => Right(s"$n($joined)")
-                      case None    => Left(List(unsupported(
-                        s"def `${ctx.defName}` calls `${fn.syntax}` which has no resolvable name"
-                      )))
+        // `List(1, 2, 3)` / `Vec(1, 2, 3)` → Rust `vec![1, 2, 3]`.
+        val isListCtor = fn match
+          case m.Term.Name("List" | "Vec") => true
+          case _                            => false
+        if isListCtor then Right(s"vec![$joined]")
+        else applyNonListCtor(fn, callee, renderedArgs, joined, ctx)
 
     // Infix operators: arithmetic, comparison, boolean.
     case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name(op), _, args) =>
@@ -502,6 +487,74 @@ object RustCodeWalk:
       Left(List(unsupported(
         s"def `${ctx.defName}` contains an unsupported expression: ${other.productPrefix} (${other.syntax})"
       )))
+
+  /** Resolve a non-List/Vec `Term.Apply` callee against intrinsics,
+   *  enum constructors, in-scope user defs, and finally a passthrough
+   *  fallback (see R.2.4). */
+  private def applyNonListCtor(
+      fn:           m.Term,
+      callee:       Option[QualifiedName],
+      renderedArgs: List[String],
+      joined:       String,
+      ctx:          Ctx
+  ): Either[List[Diagnostic], String] =
+    val intr = callee.flatMap(qn => ctx.intrinsics.get(qn).map(qn -> _))
+    intr match
+      case Some((_, RuntimeCall(target))) =>
+        Right(s"$target($joined)")
+      case Some((qn, other)) =>
+        Left(List(unsupported(
+          s"intrinsic `${qn.value}` uses ${other.getClass.getSimpleName}; rust target accepts only RuntimeCall"
+        )))
+      case None =>
+        val plainName = fn match
+          case m.Term.Name(n) => Some(n)
+          case _              => None
+        plainName.flatMap { n =>
+          ctx.ctorMap.get(n).map { ec =>
+            val fields = ec.fieldNames.zip(renderedArgs)
+            val body   =
+              if fields.isEmpty then ""
+              else " { " + fields.map((fn, a) => s"$fn: $a").mkString(", ") + " }"
+            s"${ec.enumName}::$n$body"
+          }
+        } match
+          case Some(rs) => Right(rs)
+          case None     =>
+            plainName.filter(ctx.userDefs.contains) match
+              case Some(n) => Right(s"$n($joined)")
+              case None    =>
+                // Fallback: assume closure parameter or local binding;
+                // Cargo will reject if not.  See R.2.4.
+                plainName match
+                  case Some(n) => Right(s"$n($joined)")
+                  case None    => Left(List(unsupported(
+                    s"def `${ctx.defName}` calls `${fn.syntax}` which has no resolvable name"
+                  )))
+
+  /** Lower a `for x <- xs yield body` (single-generator) to
+   *  `xs.into_iter().map(|x| body).collect::<Vec<_>>()`.  Multi-generator
+   *  / guarded / val-enumerator shapes are out of scope for R.2.5. */
+  private def renderForYield(
+      enums: List[m.Enumerator], body: m.Term, ctx: Ctx
+  ): Either[List[Diagnostic], String] =
+    enums match
+      case List(g: m.Enumerator.Generator) =>
+        g.pat match
+          case m.Pat.Var(m.Term.Name(name)) =>
+            for
+              xs <- renderTerm(g.rhs, ctx)
+              b  <- renderTerm(body, ctx)
+            yield
+              s"$xs.into_iter().map(move |$name| { $b }).collect::<Vec<_>>()"
+          case other =>
+            Left(List(unsupported(
+              s"def `${ctx.defName}` for-yield generator pattern `${other.syntax}` is not a plain name"
+            )))
+      case _ =>
+        Left(List(unsupported(
+          s"def `${ctx.defName}` for-yield has ${enums.size} enumerators; R.2.5 accepts only a single generator"
+        )))
 
   /** Lower `(params) => body` to a Rust `move |params| body` closure.
    *  Parameter type annotations are honoured when present; otherwise

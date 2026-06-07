@@ -21,7 +21,14 @@ val RustCapabilities: Capabilities = Capabilities(
     Feature.MutableState,
     Feature.WhileLoops,
     // R.2.3 — Scala 3 `enum` + `match`.
-    Feature.PatternMatching
+    Feature.PatternMatching,
+    // R.2.5 — `for x <- xs yield expr` + extension-method calls on
+    // List/Vec; default parameters parsed but not yet used by the
+    // backend, so declaring the flag now keeps it on the supported
+    // surface as later slices grow.
+    Feature.ForComprehensions,
+    Feature.ExtensionMethods,
+    Feature.DefaultParameters
   ),
   outputs        = Set(OutputKind.RustSource),
   options        = Set("optimizationLevel", "emitAssertions", "cargoEdition"),

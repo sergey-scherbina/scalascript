@@ -1,0 +1,21 @@
+# for-comprehensions on `List`
+
+R.2.5 lowers `for x <- xs yield expr` (single-generator) to
+Rust `xs.into_iter().map(|x| expr).collect::<Vec<_>>()`, plus
+`List(...)` ctor to `vec![...]` and `List[T]` type to `Vec<T>`.
+
+```scalascript
+def doubled(xs: List[Long]): List[Long] =
+  for x <- xs yield x * 2
+
+@main def run(): Unit =
+  val ys: List[Long] = doubled(List(1, 2, 3, 4))
+  println(ys.size)
+```
+
+Build and run:
+
+```bash
+ssc build-rust for-yield.ssc
+./for-yield                  # → 4
+```

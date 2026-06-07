@@ -84,16 +84,16 @@ class RustGenCodeWalkTest extends AnyFunSuite:
   // ── R.1 capability surface — anything outside hello-world fails ─────
 
   test("Failed: param with a non-primitive type yields a structured diagnostic"):
-    // R.2 accepts primitive parameter types (Int / Long / Double / String /
-    // Boolean); custom or collection types remain out of scope for R.2.1.
+    // R.2 accepts primitives, enums, function types, and List/Vec (with
+    // type args).  A truly-out-of-scope type still surfaces a diagnostic.
     val src =
       """```scalascript
-        |def greet(items: List): Unit = println("len")
+        |def greet(items: Set[Long]): Unit = println("len")
         |```
         |""".stripMargin
     val ds = diagnostics(src)
     assert(ds.exists {
-      case Diagnostic.Generic(m, _) => m.contains("greet") && m.contains("primitive types")
+      case Diagnostic.Generic(m, _) => m.contains("greet") && m.contains("Set")
       case _                        => false
     }, s"diags: $ds")
 
