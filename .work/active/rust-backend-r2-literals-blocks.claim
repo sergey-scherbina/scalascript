@@ -1,6 +1,0 @@
-feature/rust-backend-r2-literals-blocks 2026-06-07T06:31:09Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-07T06:31:09Z
-status: not-started
-done-so-far:
-next: extend RustCodeWalk: params, If, ApplyInfix, recursive calls, s"..."

@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-07 — feat(rust): R.2.1 — typed params, If, infix, user calls, s"..."
+
+- **rust-backend-r2-literals-blocks** — First slice of Phase R.2.
+  RustCodeWalk grows: typed primitive parameters (Int/Long/Double/
+  Boolean/String/Unit), non-Unit return types, `if`/`else` lowering,
+  arithmetic + comparison + boolean infix operators, calls to in-scope
+  user-defined fns, and `s"…"` → `format!(...)`. `_println`/`_print`
+  runtime helpers widened to take `impl Display` so non-string args
+  print. `String` literals emit as owned `.to_string()` for safe pass
+  to `String`-typed parameters. Crate-name sanitizer drops hyphens
+  (Rust module names reject them). build-rust/run-rust now lookup the
+  binary by sanitized stem. New fixtures `examples/rust/fib.ssc` and
+  `string-interp.ssc`; smoke script up to 4 fixtures, all green.
+  39/39 backendRust tests (10 new R.2 tests).
+
 ## 2026-06-07 — test(rust): end-to-end build-and-run smoke script
 
 - **rust-backend-r1-build-smoke** — Added `tests/rust-build-smoke.sh`

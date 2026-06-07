@@ -593,13 +593,6 @@ original `rust-backend-r1-hello-emit` description (Cargo.toml + main.rs
 Depends on R.1 complete. Each item: one commit, golden snapshots updated,
 A/B vs the interpreter row.
 
-- [ ] **rust-backend-r2-literals-blocks** — Lower `Lit.{Int,Long,Double,
-      Bool,String,Unit}`, `Block`, `Let`, `If`, `Apply` (free name → top-level
-      `fn`). Capability adds `StringInterpolators` (only `s"…"` for now —
-      lowered to `format!`). Acceptance: snapshot tests `fib.ssc`,
-      `string-interp.ssc` build with `cargo run` and stdout matches the
-      interpreter row exactly.
-
 - [ ] **rust-backend-r2-pattern-match** — Map IR `MatchTree` decision tree
       to nested Rust `match`. Lower case classes to tagged enums
       (`enum Shape { Circle(f64), Square(f64) }`). Capability adds
