@@ -593,12 +593,6 @@ original `rust-backend-r1-hello-emit` description (Cargo.toml + main.rs
 Depends on R.1 complete. Each item: one commit, golden snapshots updated,
 A/B vs the interpreter row.
 
-- [ ] **rust-backend-r2-pattern-match** — Map IR `MatchTree` decision tree
-      to nested Rust `match`. Lower case classes to tagged enums
-      (`enum Shape { Circle(f64), Square(f64) }`). Capability adds
-      `PatternMatching`. Acceptance: `case-class-match.ssc` snapshot —
-      `cargo build` passes Rust's own exhaustiveness check; output equals
-      interpreter.
 
 - [ ] **rust-backend-r2-closures** — Lower `Term.Function` and captured
       closures to `move |…| …` boxed as `Box<dyn Fn(…) -> _>` when stored

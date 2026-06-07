@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-07 — feat(rust): R.2.3 — Scala 3 enum + pattern match
+
+- **rust-backend-r2-pattern-match** — Third slice of R.2. RustCodeWalk
+  lowers Scala 3 `enum` → Rust `pub enum E { Ctor { field: T, … }, … }`,
+  constructor application → `E::Ctor { field: arg, … }`, `Term.Match`
+  → Rust `match`, and the pattern shapes the case-class fixture
+  needs (`Pat.Extract`, `Pat.Var`, `Pat.Wildcard`, primitive `Lit.*`).
+  `mapType` accepts enum names as types. RustCapabilities declares
+  `PatternMatching`. New fixture `shape-match.ssc` — Shape enum +
+  area function; `area(Circle(3.0))` → `28.259999999999998`. Smoke
+  script up to 7 fixtures, all green. 46/46 unit tests (4 new).
+
 ## 2026-06-07 — feat(rust): R.2.2 — var/val/while/reassignment
 
 - **rust-backend-r2-mutable-while** — Second slice of R.2. RustCodeWalk
