@@ -40,18 +40,26 @@ object RustCodeWalk:
       intrinsics: Map[QualifiedName, IntrinsicImpl]
   ): Either[List[Diagnostic], WalkResult] =
     val defs       = collectDefs(module)
+    val enums      = collectEnums(module)
     val rustBlocks = collectRustBlocks(module)
     val userDefs   = defs.map(_.name.value).toSet
-    val results    = defs.map(renderDef(_, intrinsics, userDefs))
+    val enumRendered = enums.map(renderEnum)
+    val (enumErrs, enumOk) = enumRendered.partitionMap(identity)
+    val ctorMap = enumOk.flatMap(_.ctors).toMap
+    val results = defs.map(renderDef(_, intrinsics, userDefs, ctorMap))
     val (errors, ok) = results.partitionMap(identity)
-    if errors.nonEmpty then Left(errors.flatten)
+    val allErrs = enumErrs.flatten ++ errors.flatten
+    if allErrs.nonEmpty then Left(allErrs)
     else
+      val enumBlock = enumOk.map(_.render).mkString
       val rustVerbatim = rustBlocks.zipWithIndex.map { case (src, i) =>
         s"""// ── rust block ${i + 1} ──
            |$src
            |""".stripMargin
       }.mkString
       val body =
+        enumBlock +
+        (if enumBlock.nonEmpty && ok.nonEmpty then "\n" else "") +
         (if ok.isEmpty then "" else ok.map(_.render).mkString("\n")) +
         (if rustBlocks.isEmpty then "" else "\n" + rustVerbatim)
       val text =
@@ -110,24 +118,113 @@ object RustCodeWalk:
       List(source)
     case _ => Nil
 
+  // ── Enum collection + rendering ──────────────────────────────────────
+
+  /** Collect every `Defn.Enum` reachable from a `scalascript` / `ssc` /
+   *  `scala` code block.  Order is source order. */
+  private def collectEnums(module: ast.Module): List[m.Defn.Enum] =
+    module.sections.flatMap(sectionEnums)
+
+  private def sectionEnums(s: ast.Section): List[m.Defn.Enum] =
+    s.content.flatMap(contentEnums) ++ s.subsections.flatMap(sectionEnums)
+
+  private def contentEnums(c: ast.Content): List[m.Defn.Enum] = c match
+    case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _)
+        if isScalaLang(lang) =>
+      node.tree.collect { case d: m.Defn.Enum => d }.toList
+    case _ => Nil
+
+  /** Lower a Scala 3 `enum E { case A(x: T); … }` to a Rust enum:
+   *
+   *  ```rust
+   *  pub enum E {
+   *      A { x: T },
+   *      B { y: U },
+   *      …
+   *  }
+   *  ```
+   *
+   *  Struct-style variants (named fields) keep the field names so the
+   *  pattern-match emit can destructure by name. */
+  private def renderEnum(e: m.Defn.Enum): Either[List[Diagnostic], GeneratedEnum] =
+    val enumName = e.name.value
+    val cases    = e.templ.body.stats.collect { case c: m.Defn.EnumCase => c }
+    if cases.isEmpty then
+      Left(List(unsupported(s"enum `$enumName` has no `case` variants")))
+    else
+      val rendered = cases.map(c => renderEnumCase(enumName, c))
+      val (errs, ok) = rendered.partitionMap(identity)
+      if errs.nonEmpty then Left(errs.flatten)
+      else
+        val variantText = ok.map(_._1).mkString(",\n")
+        val src =
+          s"""#[allow(dead_code)]
+             |#[derive(Debug, Clone)]
+             |pub enum $enumName {
+             |${indent(variantText)},
+             |}
+             |""".stripMargin
+        val ctors = ok.map(_._2)
+        Right(GeneratedEnum(render = src, ctors = ctors))
+
+  /** Render one `case Ctor(field1: T1, …)` into a Rust struct-style
+   *  enum variant.  Returns the variant text + the ctor metadata. */
+  private def renderEnumCase(
+      enumName: String, c: m.Defn.EnumCase
+  ): Either[List[Diagnostic], (String, (String, EnumCtor))] =
+    val ctor   = c.name.value
+    val params = c.ctor.paramClauses.flatMap(_.values).toList
+    val fieldRendered = params.map { p =>
+      p.decltpe match
+        case Some(t) => mapType(t, s"enum $enumName.$ctor").map(r => (p.name.value, r))
+        case None    => Left(List(unsupported(
+          s"enum `$enumName.$ctor` parameter `${p.name.value}` has no type annotation"
+        )))
+    }
+    val (errs, ok) = fieldRendered.partitionMap(identity)
+    if errs.nonEmpty then Left(errs.flatten)
+    else
+      val fields = ok
+      val body   =
+        if fields.isEmpty then ""
+        else " { " + fields.map((n, t) => s"$n: $t").mkString(", ") + " }"
+      val variant = s"$ctor$body"
+      Right((variant, (ctor, EnumCtor(enumName, fields.map(_._1)))))
+
   // ── Per-def rendering ────────────────────────────────────────────────
 
-  /** Rendering context: the set of user-defined fn names in scope.
-   *  R.2 lets call sites against any in-scope user def emit as direct
-   *  Rust calls (`other_fn(args…)`), in addition to intrinsics. */
+  /** Rendering context: the set of user-defined fn names in scope, plus
+   *  the constructor-name → enum-name map collected from `Defn.Enum`. */
   private case class Ctx(
       intrinsics: Map[QualifiedName, IntrinsicImpl],
       userDefs:   Set[String],
+      ctorMap:    Map[String, EnumCtor],
       defName:    String
+  ):
+    def enumNames: Set[String] = ctorMap.values.map(_.enumName).toSet
+
+  /** Per-ctor record carrying the enum it belongs to and its field
+   *  names (in order).  R.2.3 lowers ctor application as
+   *  `EnumName::Ctor { field0: arg0, field1: arg1, … }`. */
+  private case class EnumCtor(
+      enumName:   String,
+      fieldNames: List[String]
+  )
+
+  /** A rendered Rust `enum` block + its ctor table. */
+  private case class GeneratedEnum(
+      render: String,
+      ctors:  List[(String, EnumCtor)]
   )
 
   private def renderDef(
       d: m.Defn.Def,
       intrinsics: Map[QualifiedName, IntrinsicImpl],
-      userDefs:   Set[String]
+      userDefs:   Set[String],
+      ctorMap:    Map[String, EnumCtor]
   ): Either[List[Diagnostic], GeneratedDef] =
     val name = d.name.value
-    val ctx  = Ctx(intrinsics, userDefs, name)
+    val ctx  = Ctx(intrinsics, userDefs, ctorMap, name)
     for
       params  <- renderParams(d, ctx)
       ret     <- renderReturnType(d, ctx)
@@ -149,10 +246,12 @@ object RustCodeWalk:
       case _                                                          => false
     }
 
-  /** Map a Scala type name to its Rust equivalent.  R.2 supports the
-   *  primitive surface needed for the fib / string-interp fixtures;
-   *  anything else returns a diagnostic. */
-  private def mapType(t: m.Type, defName: String): Either[List[Diagnostic], String] = t match
+  /** Map a Scala type name to its Rust equivalent.  R.2 supports
+   *  primitive types and (when `enumNames` is non-empty) any
+   *  user-defined enum name passed through verbatim. */
+  private def mapType(
+      t: m.Type, defName: String, enumNames: Set[String] = Set.empty
+  ): Either[List[Diagnostic], String] = t match
     case m.Type.Name("Unit")    => Right("")          // empty → no `-> T` clause
     case m.Type.Name("Boolean") => Right("bool")
     case m.Type.Name("Int")     => Right("i64")       // ScalaScript `Int` widens to 64-bit
@@ -160,9 +259,10 @@ object RustCodeWalk:
     case m.Type.Name("Double")  => Right("f64")
     case m.Type.Name("Float")   => Right("f64")
     case m.Type.Name("String")  => Right("String")
+    case m.Type.Name(n) if enumNames.contains(n) => Right(n)
     case other =>
       Left(List(unsupported(
-        s"def `$defName` uses type `${other.syntax}`; R.2 accepts only primitive types"
+        s"def `$defName` uses type `${other.syntax}`; R.2 accepts only primitive types and user-defined enum names"
       )))
 
   private def renderParams(
@@ -177,7 +277,7 @@ object RustCodeWalk:
       val params = groups.flatMap(_.values)
       val rendered = params.map { p =>
         p.decltpe match
-          case Some(t) => mapType(t, ctx.defName).map(r => s"${p.name.value}: $r")
+          case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map(r => s"${p.name.value}: $r")
           case None    => Left(List(unsupported(
             s"def `${ctx.defName}` parameter `${p.name.value}` has no type annotation; R.2 requires explicit param types"
           )))
@@ -192,7 +292,7 @@ object RustCodeWalk:
     d.decltpe match
       case None                       => Right("")    // inferred — treat as Unit
       case Some(m.Type.Name("Unit"))  => Right("")
-      case Some(other)                => mapType(other, ctx.defName)
+      case Some(other)                => mapType(other, ctx.defName, ctx.enumNames)
 
   private def renderBody(
       body:   m.Term,
@@ -282,6 +382,10 @@ object RustCodeWalk:
       yield
         s"$l = $r"
 
+    // `subject match { case … => …; … }` — Rust `match` expression.
+    case mt: m.Term.Match =>
+      renderMatch(mt.expr, mt.casesBlock.cases.toList, ctx)
+
     // s"…" interpolation → `format!("…", args)`.
     case m.Term.Interpolate(m.Term.Name("s"), parts, args) =>
       renderStringInterpolation(parts, args, ctx)
@@ -307,11 +411,24 @@ object RustCodeWalk:
             val plainName = fn match
               case m.Term.Name(n) => Some(n)
               case _              => None
-            plainName.filter(ctx.userDefs.contains) match
-              case Some(n) => Right(s"$n($joined)")
-              case None    => Left(List(unsupported(
-                s"def `${ctx.defName}` calls `${fn.syntax}` which is neither a rust-target intrinsic nor an in-scope user def"
-              )))
+            // User-defined fn / enum constructor.
+            plainName.flatMap { n =>
+              ctx.ctorMap.get(n).map(ec =>
+                // Build `EnumName::Ctor { field0: arg0, field1: arg1, … }`.
+                val fields = ec.fieldNames.zip(renderedArgs)
+                val body   =
+                  if fields.isEmpty then ""
+                  else " { " + fields.map((fn, a) => s"$fn: $a").mkString(", ") + " }"
+                s"${ec.enumName}::$n$body"
+              )
+            } match
+              case Some(rs) => Right(rs)
+              case None     =>
+                plainName.filter(ctx.userDefs.contains) match
+                  case Some(n) => Right(s"$n($joined)")
+                  case None    => Left(List(unsupported(
+                    s"def `${ctx.defName}` calls `${fn.syntax}` which is neither a rust-target intrinsic, an in-scope user def, nor an enum constructor"
+                  )))
 
     // Infix operators: arithmetic, comparison, boolean.
     case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name(op), _, args) =>
@@ -348,6 +465,72 @@ object RustCodeWalk:
         s"def `${ctx.defName}` contains an unsupported expression: ${other.productPrefix} (${other.syntax})"
       )))
 
+  /** Lower a `Term.Match(subject, cases)` to a Rust `match` expression.
+   *  Each case's pattern is lowered via `renderPattern`; the body is
+   *  rendered as a non-Unit expression (the match itself is an
+   *  expression). */
+  private def renderMatch(
+      subject: m.Term, cases: List[m.Case], ctx: Ctx
+  ): Either[List[Diagnostic], String] =
+    val subjRendered = renderTerm(subject, ctx)
+    val caseRendered = cases.map { c =>
+      if c.cond.nonEmpty then
+        Left(List(unsupported(
+          s"def `${ctx.defName}` has a match-case guard (`if …`); R.2.3 accepts only plain patterns"
+        )))
+      else
+        for
+          pat <- renderPattern(c.pat, ctx)
+          bod <- renderTerm(c.body, ctx)
+        yield s"$pat => $bod,"
+    }
+    val (errs, ok) = caseRendered.partitionMap(identity)
+    subjRendered.flatMap { s =>
+      if errs.nonEmpty then Left(errs.flatten)
+      else
+        val arms = ok.mkString("\n")
+        Right(s"match $s {\n${indent(arms)}\n}")
+    }
+
+  /** Lower a scalameta `Pat` to a Rust pattern.  R.2.3 covers the
+   *  shapes the case-class fixture needs: extractor (`Pat.Extract`)
+   *  against an enum constructor, var-bind, wildcard, literals. */
+  private def renderPattern(p: m.Pat, ctx: Ctx): Either[List[Diagnostic], String] = p match
+    case m.Pat.Wildcard()           => Right("_")
+    case m.Pat.Var(m.Term.Name(n))  => Right(n)
+    case m.Lit.Int(n)               => Right(s"${n}i64")
+    case m.Lit.Long(n)              => Right(s"${n}i64")
+    case m.Lit.Double(d)            => Right(s"${d}f64")
+    case m.Lit.Boolean(b)           => Right(b.toString)
+    case m.Lit.String(s)            => Right("\"" + escapeRustString(s) + "\"")
+    case m.Pat.Extract.After_4_6_0(m.Term.Name(ctor), argClause) =>
+      val args = argClause.values
+      ctx.ctorMap.get(ctor) match
+        case None =>
+          Left(List(unsupported(
+            s"def `${ctx.defName}` extracts `$ctor` which is not a known enum constructor"
+          )))
+        case Some(ec) =>
+          val argPats = args.map(renderPattern(_, ctx))
+          val (errs, ok) = argPats.partitionMap(identity)
+          if errs.nonEmpty then Left(errs.flatten)
+          else
+            if ec.fieldNames.size != ok.size then
+              Left(List(unsupported(
+                s"def `${ctx.defName}` extracts `$ctor` with ${ok.size} args, expected ${ec.fieldNames.size}"
+              )))
+            else
+              val fieldBinds = ec.fieldNames.zip(ok)
+              val body = if fieldBinds.isEmpty then ""
+                         else " { " + fieldBinds.map { case (f, p) =>
+                           if f == p then f else s"$f: $p"
+                         }.mkString(", ") + " }"
+              Right(s"${ec.enumName}::$ctor$body")
+    case other =>
+      Left(List(unsupported(
+        s"def `${ctx.defName}` has unsupported pattern: ${other.productPrefix} (${other.syntax})"
+      )))
+
   /** Render a `val`/`var` binding to a Rust `let` (optionally `mut`)
    *  statement.  Only single-name patterns are supported; destructuring
    *  binders lower to a structured diagnostic. */
@@ -363,7 +546,7 @@ object RustCodeWalk:
         val kw = if mutable then "let mut" else "let"
         val annotated: Either[List[Diagnostic], String] = decltpe match
           case None    => Right("")
-          case Some(t) => mapType(t, ctx.defName).map { r =>
+          case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map { r =>
             if r.isEmpty then "" else s": $r"
           }
         for

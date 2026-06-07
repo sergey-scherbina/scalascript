@@ -65,6 +65,7 @@ expected["fib.ssc"]="55"
 expected["string-interp.ssc"]="Hello, Sergiy — age 42"
 expected["while-fib.ssc"]="55"
 expected["mutable-counter.ssc"]="5"
+expected["shape-match.ssc"]="28.259999999999998"
 
 workdir="$(mktemp -d -t ssc-rust-smoke-XXXXXX)"
 trap 'rm -rf "$workdir"' EXIT

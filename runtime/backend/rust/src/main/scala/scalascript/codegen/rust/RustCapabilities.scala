@@ -19,7 +19,9 @@ val RustCapabilities: Capabilities = Capabilities(
     Feature.ModuleImports,
     // R.2.2 — `var` / reassignment / `while`.
     Feature.MutableState,
-    Feature.WhileLoops
+    Feature.WhileLoops,
+    // R.2.3 — Scala 3 `enum` + `match`.
+    Feature.PatternMatching
   ),
   outputs        = Set(OutputKind.RustSource),
   options        = Set("optimizationLevel", "emitAssertions", "cargoEdition"),

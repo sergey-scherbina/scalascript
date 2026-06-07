@@ -1,0 +1,23 @@
+# Pattern matching on a Scala 3 `enum`
+
+R.2.3 lowers Scala 3 `enum` to Rust `enum` with struct-like variants,
+and `match` to Rust `match`.
+
+```scalascript
+enum Shape:
+  case Circle(r: Double)
+  case Square(s: Double)
+
+def area(sh: Shape): Double = sh match
+  case Circle(r) => 3.14 * r * r
+  case Square(s) => s * s
+
+@main def run(): Unit = println(area(Circle(3.0)))
+```
+
+Build and run:
+
+```bash
+ssc build-rust shape-match.ssc
+./shape-match              # → 28.26
+```
