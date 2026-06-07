@@ -99,13 +99,17 @@ final class BuildRustCmd extends CliCommand:
         System.err.println(s"build-rust: cargo build failed (exit $code)")
         cleanup(); System.exit(code)
 
-      // 3) locate + copy the binary.
+      // 3) locate + copy the binary.  The crate name (which becomes the
+      // binary's filename) is the sanitised stem — same alphabet RustGen
+      // uses (lower-case `[a-z0-9_]`).  We replicate the sanitisation
+      // here rather than reading it back from the emitted Cargo.toml.
       val profile = if debug then "debug" else "release"
       val targetSubdir = target match
         case Some(t) => crateDir / "target" / t / profile
         case None    => crateDir / "target" / profile
       val binExt = if scala.util.Properties.isWin then ".exe" else ""
-      val producedBin = targetSubdir / s"$stem$binExt"
+      val cargoBinName = RustToolchain.sanitizeBinName(stem)
+      val producedBin  = targetSubdir / s"$cargoBinName$binExt"
       if !os.exists(producedBin) then
         System.err.println(s"build-rust: expected binary not found at $producedBin")
         cleanup(); System.exit(1)

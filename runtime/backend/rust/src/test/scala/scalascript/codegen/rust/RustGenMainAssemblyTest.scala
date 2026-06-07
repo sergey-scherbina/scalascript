@@ -112,7 +112,7 @@ class RustGenMainAssemblyTest extends AnyFunSuite:
         |//! `rust` fence blocks from the source are appended verbatim.
         |
         |pub fn run() {
-        |    crate::runtime::_println("Hello from Rust");
+        |    crate::runtime::_println("Hello from Rust".to_string());
         |}
         |""".stripMargin
     assert(a("src/generated/ssc_program.rs") == expectedGen,

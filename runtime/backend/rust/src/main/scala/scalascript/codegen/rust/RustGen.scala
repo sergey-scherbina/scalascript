@@ -159,8 +159,12 @@ object RustGen:
    *  manifest names (which may contain dots, spaces, …) to that
    *  alphabet; collapse anything else into `_`. */
   private[rust] def sanitizeCrateName(raw: String): String =
+    // The same name doubles as a Rust module name (`pub mod <name>;`),
+    // which forbids hyphens.  Collapse anything outside `[a-z0-9_]` to
+    // `_` even though Cargo itself would accept hyphens in package
+    // names.
     val cleaned = raw.trim.toLowerCase.map { c =>
-      if c.isLetterOrDigit || c == '_' || c == '-' then c else '_'
+      if c.isLetterOrDigit || c == '_' then c else '_'
     }
     val nonEmpty = if cleaned.isEmpty then DefaultCrateName else cleaned
     if nonEmpty.head.isDigit then "_" + nonEmpty else nonEmpty

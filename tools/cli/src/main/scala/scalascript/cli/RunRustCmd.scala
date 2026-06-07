@@ -99,7 +99,7 @@ final class RunRustCmd extends CliCommand:
         case Some(t) => crateDir / "target" / t / profile
         case None    => crateDir / "target" / profile
       val binExt = if scala.util.Properties.isWin then ".exe" else ""
-      val binary = targetSubdir / s"$stem$binExt"
+      val binary = targetSubdir / s"${RustToolchain.sanitizeBinName(stem)}$binExt"
       if !os.exists(binary) then
         System.err.println(s"run-rust: expected binary not found at $binary")
         cleanup(); System.exit(1)

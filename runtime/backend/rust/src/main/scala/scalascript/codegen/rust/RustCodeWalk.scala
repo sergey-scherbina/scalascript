@@ -41,7 +41,8 @@ object RustCodeWalk:
   ): Either[List[Diagnostic], WalkResult] =
     val defs       = collectDefs(module)
     val rustBlocks = collectRustBlocks(module)
-    val results    = defs.map(renderDef(_, intrinsics))
+    val userDefs   = defs.map(_.name.value).toSet
+    val results    = defs.map(renderDef(_, intrinsics, userDefs))
     val (errors, ok) = results.partitionMap(identity)
     if errors.nonEmpty then Left(errors.flatten)
     else
@@ -111,18 +112,31 @@ object RustCodeWalk:
 
   // ── Per-def rendering ────────────────────────────────────────────────
 
+  /** Rendering context: the set of user-defined fn names in scope.
+   *  R.2 lets call sites against any in-scope user def emit as direct
+   *  Rust calls (`other_fn(args…)`), in addition to intrinsics. */
+  private case class Ctx(
+      intrinsics: Map[QualifiedName, IntrinsicImpl],
+      userDefs:   Set[String],
+      defName:    String
+  )
+
   private def renderDef(
       d: m.Defn.Def,
-      intrinsics: Map[QualifiedName, IntrinsicImpl]
+      intrinsics: Map[QualifiedName, IntrinsicImpl],
+      userDefs:   Set[String]
   ): Either[List[Diagnostic], GeneratedDef] =
     val name = d.name.value
+    val ctx  = Ctx(intrinsics, userDefs, name)
     for
-      _      <- ensureZeroParamGroups(d, name)
-      _      <- ensureUnitOrInferredReturn(d, name)
-      bodyRs <- renderBody(d.body, intrinsics, name)
+      params  <- renderParams(d, ctx)
+      ret     <- renderReturnType(d, ctx)
+      bodyRs  <- renderBody(d.body, ctx, isUnit = ret.isEmpty)
     yield
+      val signature = if ret.isEmpty then s"pub fn $name($params)"
+                      else                s"pub fn $name($params) -> $ret"
       val src =
-        s"""pub fn $name() {
+        s"""$signature {
            |${indent(bodyRs)}
            |}
            |""".stripMargin
@@ -135,88 +149,231 @@ object RustCodeWalk:
       case _                                                          => false
     }
 
-  private def ensureZeroParamGroups(
-      d: m.Defn.Def, name: String
-  ): Either[List[Diagnostic], Unit] =
-    if d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).isEmpty
-    then Right(())
-    else Left(List(unsupported(
-      s"def `$name` has parameters; R.1 hello-emit accepts only zero-parameter defs"
-    )))
-
-  private def ensureUnitOrInferredReturn(
-      d: m.Defn.Def, name: String
-  ): Either[List[Diagnostic], Unit] =
-    d.decltpe match
-      case None                          => Right(())
-      case Some(m.Type.Name("Unit"))     => Right(())
-      case Some(other)                   => Left(List(unsupported(
-        s"def `$name` declares return type `${other.syntax}`; R.1 hello-emit accepts only `Unit` or no annotation"
+  /** Map a Scala type name to its Rust equivalent.  R.2 supports the
+   *  primitive surface needed for the fib / string-interp fixtures;
+   *  anything else returns a diagnostic. */
+  private def mapType(t: m.Type, defName: String): Either[List[Diagnostic], String] = t match
+    case m.Type.Name("Unit")    => Right("")          // empty → no `-> T` clause
+    case m.Type.Name("Boolean") => Right("bool")
+    case m.Type.Name("Int")     => Right("i64")       // ScalaScript `Int` widens to 64-bit
+    case m.Type.Name("Long")    => Right("i64")
+    case m.Type.Name("Double")  => Right("f64")
+    case m.Type.Name("Float")   => Right("f64")
+    case m.Type.Name("String")  => Right("String")
+    case other =>
+      Left(List(unsupported(
+        s"def `$defName` uses type `${other.syntax}`; R.2 accepts only primitive types"
       )))
 
-  private def renderBody(
-      body: m.Term,
-      intrinsics: Map[QualifiedName, IntrinsicImpl],
-      defName: String
-  ): Either[List[Diagnostic], String] = body match
-    // Simple block — emit as Rust block, one stmt per line.
-    case b: m.Term.Block =>
-      val rendered = b.stats.map(renderStmt(_, intrinsics, defName))
+  private def renderParams(
+      d: m.Defn.Def, ctx: Ctx
+  ): Either[List[Diagnostic], String] =
+    val groups = d.paramClauseGroups.flatMap(_.paramClauses)
+    if groups.size > 1 then
+      Left(List(unsupported(
+        s"def `${ctx.defName}` has multiple parameter groups; R.2 accepts a single `(…)` group"
+      )))
+    else
+      val params = groups.flatMap(_.values)
+      val rendered = params.map { p =>
+        p.decltpe match
+          case Some(t) => mapType(t, ctx.defName).map(r => s"${p.name.value}: $r")
+          case None    => Left(List(unsupported(
+            s"def `${ctx.defName}` parameter `${p.name.value}` has no type annotation; R.2 requires explicit param types"
+          )))
+      }
       val (errs, ok) = rendered.partitionMap(identity)
       if errs.nonEmpty then Left(errs.flatten)
-      else Right(ok.mkString("\n"))
-    // Single-expression body — render that single statement.
+      else Right(ok.mkString(", "))
+
+  private def renderReturnType(
+      d: m.Defn.Def, ctx: Ctx
+  ): Either[List[Diagnostic], String] =
+    d.decltpe match
+      case None                       => Right("")    // inferred — treat as Unit
+      case Some(m.Type.Name("Unit"))  => Right("")
+      case Some(other)                => mapType(other, ctx.defName)
+
+  private def renderBody(
+      body:   m.Term,
+      ctx:    Ctx,
+      isUnit: Boolean
+  ): Either[List[Diagnostic], String] = body match
+    case b: m.Term.Block =>
+      // For non-Unit returns the tail term must NOT terminate with `;` —
+      // Rust uses block-trailing-expression as the result.
+      // For Unit returns we terminate every statement with `;` so the
+      // emitted block is purely statement-oriented (matches the R.1
+      // golden shape).
+      if isUnit then
+        val rendered = b.stats.map(renderStmt(_, ctx))
+        val (errs, ok) = rendered.partitionMap(identity)
+        if errs.nonEmpty then Left(errs.flatten)
+        else Right(ok.mkString("\n"))
+      else
+        val (initStats, tail) = b.stats.splitAt(b.stats.length - 1)
+        val initRendered = initStats.map(renderStmt(_, ctx))
+        val tailRendered: Either[List[Diagnostic], String] = tail.headOption match
+          case Some(t: m.Term) => renderTerm(t, ctx)
+          case Some(other)     => Left(List(unsupported(
+            s"def `${ctx.defName}` body tail is a non-expression: ${other.productPrefix}"
+          )))
+          case None            => Right("")
+        val (errs1, initOk) = initRendered.partitionMap(identity)
+        tailRendered match
+          case Left(errs2)   => Left(errs1.flatten ++ errs2)
+          case Right(tailRs) =>
+            if errs1.nonEmpty then Left(errs1.flatten)
+            else
+              val parts = (initOk :+ tailRs).filter(_.nonEmpty)
+              Right(parts.mkString("\n"))
     case t: m.Term =>
-      renderStmt(t, intrinsics, defName)
+      // Single-expression body — for Unit returns add the trailing `;`
+      // so the emitted block matches the statement-oriented R.1 golden.
+      // For non-Unit returns the expression IS the return value.
+      renderTerm(t, ctx).map(r => if isUnit then s"$r;" else r)
 
   private def renderStmt(
-      stat: m.Stat,
-      intrinsics: Map[QualifiedName, IntrinsicImpl],
-      defName: String
+      stat: m.Stat, ctx: Ctx
   ): Either[List[Diagnostic], String] = stat match
-    case t: m.Term => renderTerm(t, intrinsics, defName).map(_ + ";")
+    case t: m.Term => renderTerm(t, ctx).map(_ + ";")
     case other     => Left(List(unsupported(
-      s"def `$defName` body contains an unsupported statement: ${other.productPrefix}"
+      s"def `${ctx.defName}` body contains an unsupported statement: ${other.productPrefix}"
     )))
 
   private def renderTerm(
-      t: m.Term,
-      intrinsics: Map[QualifiedName, IntrinsicImpl],
-      defName: String
+      t: m.Term, ctx: Ctx
   ): Either[List[Diagnostic], String] = t match
+    // Plain identifier — parameter reference or in-scope fn name.
+    case m.Term.Name(n) =>
+      Right(n)
+
+    // `if (cond) thenp else elsep` — Rust if expression.
+    case ifExpr: m.Term.If =>
+      for
+        c <- renderTerm(ifExpr.cond, ctx)
+        t1 <- renderTerm(ifExpr.thenp, ctx)
+        e1 <- renderTerm(ifExpr.elsep, ctx)
+      yield
+        s"if $c { $t1 } else { $e1 }"
+
+    // s"…" interpolation → `format!("…", args)`.
+    case m.Term.Interpolate(m.Term.Name("s"), parts, args) =>
+      renderStringInterpolation(parts, args, ctx)
+
+    // Application — intrinsic, user-defined fn, or unsupported.
     case m.Term.Apply.After_4_6_0(fn, args) =>
-      val callee = qualifiedName(fn)
-      val intr   = callee.flatMap(qn => intrinsics.get(qn).map(qn -> _))
-      intr match
-        case Some((_, RuntimeCall(target))) =>
-          val renderedArgs = args.values.map(renderTerm(_, intrinsics, defName))
-          val (errs, ok)   = renderedArgs.partitionMap(identity)
-          if errs.nonEmpty then Left(errs.flatten)
-          else Right(s"$target(${ok.mkString(", ")})")
-        case Some((qn, other)) =>
-          Left(List(unsupported(
-            s"intrinsic `${qn.value}` uses ${other.getClass.getSimpleName}; R.1 accepts only RuntimeCall"
+      val callee  = qualifiedName(fn)
+      val argList = args.values.map(renderTerm(_, ctx))
+      val (errs, renderedArgs) = argList.partitionMap(identity)
+      if errs.nonEmpty then Left(errs.flatten)
+      else
+        val joined = renderedArgs.mkString(", ")
+        val intr   = callee.flatMap(qn => ctx.intrinsics.get(qn).map(qn -> _))
+        intr match
+          case Some((_, RuntimeCall(target))) =>
+            Right(s"$target($joined)")
+          case Some((qn, other)) =>
+            Left(List(unsupported(
+              s"intrinsic `${qn.value}` uses ${other.getClass.getSimpleName}; rust target accepts only RuntimeCall"
+            )))
+          case None =>
+            // User-defined fn in the same module?  R.2 allows direct calls.
+            val plainName = fn match
+              case m.Term.Name(n) => Some(n)
+              case _              => None
+            plainName.filter(ctx.userDefs.contains) match
+              case Some(n) => Right(s"$n($joined)")
+              case None    => Left(List(unsupported(
+                s"def `${ctx.defName}` calls `${fn.syntax}` which is neither a rust-target intrinsic nor an in-scope user def"
+              )))
+
+    // Infix operators: arithmetic, comparison, boolean.
+    case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name(op), _, args) =>
+      val rhsTerms = args.values
+      val rendered =
+        for
+          l <- renderTerm(lhs, ctx)
+          rs <- rhsTerms.foldLeft[Either[List[Diagnostic], List[String]]](Right(Nil)) {
+            (acc, t) => acc.flatMap(xs => renderTerm(t, ctx).map(xs :+ _))
+          }
+        yield (l, rs)
+      rendered.flatMap { case (l, rs) =>
+        mapInfixOp(op, ctx.defName) match
+          case Right(rustOp) if rs.size == 1 => Right(s"($l $rustOp ${rs.head})")
+          case Right(_)                      => Left(List(unsupported(
+            s"def `${ctx.defName}`: infix `$op` with ${rs.size} rhs args"
           )))
-        case None =>
-          Left(List(unsupported(
-            s"def `$defName` calls `${fn.syntax}`, which has no rust-target intrinsic and direct calls land in R.2"
-          )))
-    case m.Lit.String(s) =>
-      Right("\"" + escapeRustString(s) + "\"")
-    case m.Lit.Int(n) =>
-      Right(s"${n}i64")
-    case m.Lit.Long(n) =>
-      Right(s"${n}i64")
-    case m.Lit.Double(d) =>
-      Right(s"${d}f64")
-    case m.Lit.Boolean(b) =>
-      Right(b.toString)
-    case m.Lit.Unit() =>
-      Right("()")
+          case Left(diags)                   => Left(diags)
+      }
+
+    // Always emit owned `String`s — every user-typed `String` parameter
+    // expects an owned value, and the `_println` runtime helper is
+    // Display-generic so the extra allocation is harmless.  A future
+    // optimisation pass may infer when a borrowed `&str` is enough.
+    case m.Lit.String(s)  => Right("\"" + escapeRustString(s) + "\".to_string()")
+    case m.Lit.Int(n)     => Right(s"${n}i64")
+    case m.Lit.Long(n)    => Right(s"${n}i64")
+    case m.Lit.Double(d)  => Right(s"${d}f64")
+    case m.Lit.Boolean(b) => Right(b.toString)
+    case m.Lit.Unit()     => Right("()")
+
     case other =>
       Left(List(unsupported(
-        s"def `$defName` contains an unsupported expression: ${other.productPrefix} (${other.syntax})"
+        s"def `${ctx.defName}` contains an unsupported expression: ${other.productPrefix} (${other.syntax})"
       )))
+
+  /** Lower a Scala infix operator to its Rust equivalent.  R.2 covers
+   *  arithmetic + comparison + boolean — enough for fib + a basic
+   *  string-interp example. */
+  private def mapInfixOp(op: String, defName: String): Either[List[Diagnostic], String] = op match
+    case "+" | "-" | "*" | "/" | "%" => Right(op)
+    case "<" | "<=" | ">" | ">=" | "==" | "!=" => Right(op)
+    case "&&" | "||" => Right(op)
+    case other => Left(List(unsupported(
+      s"def `$defName` uses unsupported infix operator `$other`"
+    )))
+
+  /** Lower `s"prefix ${expr} suffix"` to `format!("prefix {} suffix", expr)`. */
+  private def renderStringInterpolation(
+      parts: List[m.Lit],
+      args:  List[m.Term],
+      ctx:   Ctx
+  ): Either[List[Diagnostic], String] =
+    val partsStr = parts.collect { case m.Lit.String(s) => s }
+    if partsStr.size != parts.size then
+      Left(List(unsupported(
+        s"def `${ctx.defName}` has a non-string interpolation part"
+      )))
+    else
+      val argRendered = args.map(renderTerm(_, ctx))
+      val (errs, ok)  = argRendered.partitionMap(identity)
+      if errs.nonEmpty then Left(errs.flatten)
+      else
+        val formatStr = partsStr.zipWithIndex.foldLeft(new StringBuilder) { (sb, p) =>
+          val (text, i) = p
+          sb.append(escapeForFormat(text))
+          if i < args.size then sb.append("{}")
+          sb
+        }.toString
+        val tail = if ok.isEmpty then "" else ", " + ok.mkString(", ")
+        Right(s"""format!("$formatStr"$tail)""")
+
+  /** Escape a string for `format!("…")` — same rules as the Rust lexer
+   *  plus `{` / `}` are doubled to avoid being read as format markers. */
+  private[rust] def escapeForFormat(s: String): String =
+    val sb = new StringBuilder(s.length)
+    s.foreach {
+      case '\\' => sb.append("\\\\")
+      case '"'  => sb.append("\\\"")
+      case '\n' => sb.append("\\n")
+      case '\r' => sb.append("\\r")
+      case '\t' => sb.append("\\t")
+      case '{'  => sb.append("{{")
+      case '}'  => sb.append("}}")
+      case c    => sb.append(c)
+    }
+    sb.toString
 
   /** Resolve a callee tree to its lookup key in the intrinsic table.
    *  Supports plain names (`println`) and one-level qualified

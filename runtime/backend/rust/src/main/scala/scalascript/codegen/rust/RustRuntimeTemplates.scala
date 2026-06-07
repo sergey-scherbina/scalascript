@@ -65,6 +65,7 @@ object RustRuntimeTemplates:
       |//! Emitted verbatim by RustGen; do not edit by hand.
       |
       |use crate::value::Value;
+      |use std::fmt::Display;
       |
       |#[allow(dead_code)]
       |pub fn _show(v: &Value) -> String {
@@ -72,14 +73,14 @@ object RustRuntimeTemplates:
       |}
       |
       |#[allow(dead_code)]
-      |pub fn _print(s: impl AsRef<str>) {
+      |pub fn _print<T: Display>(s: T) {
       |    use std::io::Write;
-      |    print!("{}", s.as_ref());
+      |    print!("{}", s);
       |    let _ = std::io::stdout().flush();
       |}
       |
       |#[allow(dead_code)]
-      |pub fn _println(s: impl AsRef<str>) {
-      |    println!("{}", s.as_ref());
+      |pub fn _println<T: Display>(s: T) {
+      |    println!("{}", s);
       |}
       |""".stripMargin

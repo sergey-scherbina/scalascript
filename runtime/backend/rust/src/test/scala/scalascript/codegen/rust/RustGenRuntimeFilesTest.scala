@@ -70,8 +70,9 @@ class RustGenRuntimeFilesTest extends AnyFunSuite:
     val r = RustRuntimeTemplates.RuntimeModRs
     assert(r.contains("use crate::value::Value;"))
     assert(r.contains("pub fn _show(v: &Value) -> String"))
-    assert(r.contains("pub fn _print(s: impl AsRef<str>)"))
-    assert(r.contains("pub fn _println(s: impl AsRef<str>)"))
+    // R.2 widened _print/_println to take any Display so numeric / bool args work.
+    assert(r.contains("pub fn _print<T: Display>(s: T)"))
+    assert(r.contains("pub fn _println<T: Display>(s: T)"))
 
   test("RustIntrinsics wires the four console-I/O entries to runtime helpers"):
     val ic = new RustBackend().intrinsics

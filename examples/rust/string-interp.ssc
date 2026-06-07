@@ -1,0 +1,18 @@
+# String interpolation
+
+R.2 lowers `s"prefix ${expr} suffix"` to Rust's `format!("prefix {} suffix", expr)`.
+
+```scalascript
+def greeting(name: String, age: Long): String =
+  s"Hello, $name — age $age"
+
+@main def run(): Unit =
+  println(greeting("Sergiy", 42))
+```
+
+Build and run:
+
+```bash
+ssc build-rust string-interp.ssc
+./string-interp                # → Hello, Sergiy — age 42
+```

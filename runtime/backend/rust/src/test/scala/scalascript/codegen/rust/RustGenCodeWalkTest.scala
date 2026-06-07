@@ -47,7 +47,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val gen = assets(src).get("src/generated/ssc_program.rs")
       .getOrElse(fail("generated file missing"))
     assert(gen.contains("pub fn run() {"))
-    assert(gen.contains("""crate::runtime::_println("Hello from Rust");"""))
+    assert(gen.contains("""crate::runtime::_println("Hello from Rust".to_string());"""))
 
   test("hello-world: print → crate::runtime::_print, Console.println → _println"):
     val src =
@@ -57,8 +57,8 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val gen = assets(src)("src/generated/ssc_program.rs")
-    assert(gen.contains("""crate::runtime::_print("a");"""))
-    assert(gen.contains("""crate::runtime::_println("b");"""))
+    assert(gen.contains("""crate::runtime::_print("a".to_string());"""))
+    assert(gen.contains("""crate::runtime::_println("b".to_string());"""))
 
   test("hello-world: escapes string-literal metacharacters in the emit"):
     val src =
@@ -67,7 +67,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val gen = assets(src)("src/generated/ssc_program.rs")
-    assert(gen.contains("""crate::runtime::_println("hi \"world\"\n");"""))
+    assert(gen.contains("""crate::runtime::_println("hi \"world\"\n".to_string());"""))
 
   test("empty module: generated file still emitted (header only, no defs)"):
     val src =
@@ -83,22 +83,25 @@ class RustGenCodeWalkTest extends AnyFunSuite:
 
   // ── R.1 capability surface — anything outside hello-world fails ─────
 
-  test("Failed: def with parameters yields a structured diagnostic"):
+  test("Failed: param with a non-primitive type yields a structured diagnostic"):
+    // R.2 accepts primitive parameter types (Int / Long / Double / String /
+    // Boolean); custom or collection types remain out of scope for R.2.1.
     val src =
       """```scalascript
-        |def greet(name: String): Unit = println(name)
+        |def greet(items: List): Unit = println("len")
         |```
         |""".stripMargin
     val ds = diagnostics(src)
     assert(ds.exists {
-      case Diagnostic.Generic(m, _) => m.contains("greet") && m.contains("parameters")
+      case Diagnostic.Generic(m, _) => m.contains("greet") && m.contains("primitive types")
       case _                        => false
     }, s"diags: $ds")
 
   test("Failed: unsupported expression in the body yields a structured diagnostic"):
+    // R.2 lowers infix arithmetic, so use something genuinely out of scope.
     val src =
       """```scalascript
-        |def run(): Unit = 1 + 2
+        |def run(): Unit = throw new RuntimeException("nope")
         |```
         |""".stripMargin
     val ds = diagnostics(src)

@@ -1,0 +1,19 @@
+# Fibonacci
+
+Recursion + parameters + If + comparison + arithmetic + user-defined fn call.
+
+```scalascript
+def fib(n: Long): Long =
+  if (n < 2) n
+  else fib(n - 1) + fib(n - 2)
+
+@main def run(): Unit =
+  println(fib(10))
+```
+
+Build and run:
+
+```bash
+ssc build-rust fib.ssc
+./fib                          # → 55
+```

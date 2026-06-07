@@ -41,3 +41,14 @@ object RustToolchain:
   def failMissingCargo(cmd: String): Nothing =
     System.err.println(s"ssc $cmd: $cargoMissingMessage")
     sys.exit(1)
+
+  /** Sanitise a `.ssc` file stem the same way RustGen sanitises the
+   *  crate name — so callers (`build-rust` / `run-rust`) can predict
+   *  the binary's filename inside `target/<profile>/`.  Mirror of
+   *  `scalascript.codegen.rust.RustGen.sanitizeCrateName`. */
+  def sanitizeBinName(raw: String): String =
+    val cleaned = raw.trim.toLowerCase.map { c =>
+      if c.isLetterOrDigit || c == '_' then c else '_'
+    }
+    val nonEmpty = if cleaned.isEmpty then "ssc_program" else cleaned
+    if nonEmpty.head.isDigit then "_" + nonEmpty else nonEmpty

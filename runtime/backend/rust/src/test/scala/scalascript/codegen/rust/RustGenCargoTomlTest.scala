@@ -74,13 +74,15 @@ class RustGenCargoTomlTest extends AnyFunSuite:
     assert(toml.contains("""version = "0.2.5""""))
     assert(toml.contains("""description = "Greeting program""""))
 
-  test("sanitizes manifest name to Cargo's [A-Za-z0-9_-] alphabet"):
+  test("sanitizes manifest name to [a-z0-9_] (Rust module-name alphabet)"):
+    // Hyphens collapse to `_` because the same name doubles as a Rust
+    // module name (`pub mod <name>;` rejects hyphens).
     val toml = cargoToml(compile(moduleWith(name = Some("My.App Name"))))
     assert(toml.contains("""name = "my_app_name""""))
 
   test("prefixes a leading digit so the crate name is a valid Rust identifier"):
     val toml = cargoToml(compile(moduleWith(name = Some("42-game"))))
-    assert(toml.contains("""name = "_42-game""""))
+    assert(toml.contains("""name = "_42_game""""))
 
   test("escapes TOML basic-string metacharacters in the description"):
     val toml = cargoToml(compile(moduleWith(description = Some("with \"quotes\" and \\ slash"))))

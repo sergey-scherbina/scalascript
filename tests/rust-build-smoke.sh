@@ -61,6 +61,8 @@ fi
 declare -A expected
 expected["hello.ssc"]="Hello from Rust"
 expected["mixed.ssc"]="Hello via rust block"
+expected["fib.ssc"]="55"
+expected["string-interp.ssc"]="Hello, Sergiy — age 42"
 
 workdir="$(mktemp -d -t ssc-rust-smoke-XXXXXX)"
 trap 'rm -rf "$workdir"' EXIT
