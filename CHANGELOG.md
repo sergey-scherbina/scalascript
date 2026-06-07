@@ -4,6 +4,32 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-07 — fix(interpreter): typed-val ascription disambiguates same-name collision
+
+- **busi-p0-statusval-eventcase-collision** — A `val Foo = SomeStatus(...)`
+  and a `case Foo(...)` enum case with the same name no longer collide
+  silently.  Before: the second registration overwrote the first in
+  `interp.globals`, so any later bare `Foo` reference returned the
+  case-constructor `NativeFnV`, and a typed ascription like
+  `val s: SomeStatus = Foo` followed by `s.code` threw
+  `No method 'code' on NativeFnV(<native:Foo>)`.  Now the displaced
+  side is recorded in `interp.shadowedAlternatives`, and at
+  `Defn.Val(_, _, Some(Type.Name(T)), Term.Name(n))` execution the
+  interpreter picks whichever binding's `typeName` matches `T`.
+  Pattern-position and `Foo(args)` expression-call paths stay
+  unchanged (case-constructor still wins).  Covered for both
+  same-file definitions and cross-module imports.  7 regression
+  tests; `core/test` (896) + `backendInterpreter/test` (1481) green.
+
+  Surfaced by the busi agent in phase 86a (peer-link handshake).
+  The pre-fix busi workaround was to rename the status-val to
+  `PeerLinkStatusInvited`; that workaround continues to work without
+  change.  Direction chosen by sergiy in the 2026-06-07 rozum
+  meeting: hybrid B-then-A — semantic split via expected type, with
+  an A-style compile-time error reserved for genuinely ambiguous
+  cases (not yet implemented; the current fix handles the common
+  `val s: SomeStatus = Foo` shape that surfaces in production).
+
 ## 2026-06-07 — feat(rust): R.3.3 — jsonParse + jsonStringify — R.3 complete
 
 - **rust-backend-r3-json** — Third and final slice of R.3. Two

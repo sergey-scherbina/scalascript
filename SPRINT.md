@@ -22,42 +22,6 @@ fix, and don't require a runtime refactor.
 
 ### P0 — parser/resolver, hit on every new phase
 
-- [ ] **busi-p0-statusval-eventcase-collision** — A `val` of one type
-      and a `case`-constructor of an ADT with the **same name**, both
-      imported into the same scope, silently lets the case-constructor
-      win for every bare reference: the `val` binding is shadowed,
-      `status.code` then throws `No method 'code' on
-      NativeFnV(<native:PeerLinkInvited>)`.  Repro saved at
-      `/tmp/p0-3-collision/{mod_status,mod_events,user}.ssc`.
-      Originally found in busi phase 86a (peer-link handshake).
-      busi-side workaround: rename the status-val to
-      `PeerLinkStatusInvited` (etc.) — confirmed working in
-      `make test-phase86c`.
-
-      **Direction (chosen by sergiy 2026-06-07):** hybrid B-then-A.
-      Pattern-position resolves to case-constructor (already works
-      via `unapply`); expression-call with args resolves to
-      case-constructor (already works via `apply`); only the
-      **bare-reference in expression-position** changes:
-
-      1. With an expected type from context (type ascription, function
-         arg with known param type, declared val/def return type) —
-         resolve to the binding whose type matches:
-         * matches val's type → val.
-         * matches case-constructor return type → case-constructor
-           (eta-expanded to `NativeFnV`/closure as today).
-         * neither/both match → compile-time error `name 'X' is bound
-           to both a stable value at <pos> and a case constructor at
-           <pos>; add an explicit type ascription or rename`.
-      2. Without an expected type (`val x = X` or bare argument with
-         no known param type) — compile-time error with the same
-         message.
-
-      Change site: `TyperResolveTerm.resolveName` in expression-context.
-      Regression test set lives at `/tmp/p0-3-collision/` — copy into
-      `runtime/backend/interpreter/src/test/scala/scalascript/StatusValEventCaseCollisionTest.scala`
-      plus an "expected-type unknown → error" negative case.
-
 - [ ] **busi-p0-try-catch-handler** — `try / catch _ => ...`
       (`Term.TryWithHandler`) is not supported — only `try / catch case
       _ => ...`. Either support both forms or emit a parser message
