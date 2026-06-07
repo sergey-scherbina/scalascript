@@ -1,0 +1,6 @@
+feature/rust-backend-r3-json 2026-06-07T12:14:38Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-07T12:14:38Z
+status: not-started
+done-so-far:
+next: jsonParse/jsonStringify via serde_json crate with per-module dep walk
