@@ -1,0 +1,42 @@
+# Algebraic-effects runtime smoke
+
+R.4.1 ships the runtime infrastructure (`src/runtime/effect.rs`)
+when the source contains any of `perform` / `handle` / `resume` /
+`effect E:`.  Lowering of those IR nodes (R.4.2) is the next
+slice — until then, exercise the runtime directly from a `rust`
+block.
+
+```scalascript
+@main def run(): Unit =
+  println(callRuntime())
+
+def callRuntime(): Long =
+  // The `perform` reference below triggers RustGen.scanEffectUsage
+  // → emits effect.rs + `pub mod effect;`; the actual call is
+  // routed through the `rust` block under it.
+  performFromRust()
+```
+
+```rust
+pub fn performFromRust() -> i64 {
+    use crate::runtime::effect::*;
+    let c: Computation<i64> = perform("ask", vec![], |reply| {
+        match reply {
+            EffArg::Int(n) => pure(n + 1),
+            _ => pure(-1),
+        }
+    });
+    let h = HandlerStack::new().with("ask", Box::new(|_args| EffArg::Int(7)));
+    run_with(c, &h)
+}
+```
+
+Build and run:
+
+```bash
+ssc build-rust effect-runtime.ssc
+./effect-runtime               # → 8
+```
+
+The Rust block proves the runtime is reachable and behaves
+identically to the embedded `#[test]` inside `effect.rs`.

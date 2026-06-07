@@ -46,6 +46,7 @@ object RustGen:
     // Drives both the conditional Cargo deps and the conditional
     // runtime-helper emit so a hello-world stays dep-free.
     val cryptoUsage = scanCryptoUsage(astModule)
+    val effectUsage = scanEffectUsage(astModule)
     val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage)
 
     RustCodeWalk.walk(astModule, intrinsics) match
@@ -72,15 +73,28 @@ object RustGen:
             sb.append(RustRuntimeTemplates.Base64Rs)
           if cryptoUsage.exists(n => n == "jsonParse" || n == "jsonStringify") then
             sb.append(RustRuntimeTemplates.JsonRs)
+          // R.4.1 — when effect keywords are present, re-export the
+          // standalone `effect` submodule from runtime/mod.rs.
+          if effectUsage.nonEmpty then
+            sb.append("\n// ── R.4.1 — algebraic-effects runtime ──\n")
+            sb.append("pub mod effect;\n")
           sb.toString
-        CompileResult.Segmented(List(
+        val baseAssets = List(
           Segment.Asset("Cargo.toml",                   cargoTomlFinal.getBytes("UTF-8"),       "application/toml"),
           Segment.Asset("src/value.rs",                 RustRuntimeTemplates.ValueRs.getBytes("UTF-8"), "text/x-rust"),
           Segment.Asset("src/runtime/mod.rs",           runtimeMod.getBytes("UTF-8"),           "text/x-rust"),
           Segment.Asset("src/generated/mod.rs",         generatedMod.getBytes("UTF-8"),         "text/x-rust"),
           Segment.Asset(s"src/generated/$crateName.rs", walked.generated.getBytes("UTF-8"),     "text/x-rust"),
           Segment.Asset(rootName,                       rootFile.getBytes("UTF-8"),             "text/x-rust")
-        ))
+        )
+        val effectAsset =
+          if effectUsage.isEmpty then Nil
+          else List(Segment.Asset(
+            "src/runtime/effect.rs",
+            RustRuntimeTemplates.EffectRs.getBytes("UTF-8"),
+            "text/x-rust"
+          ))
+        CompileResult.Segmented(baseAssets ++ effectAsset)
 
   /** R.3.2 — IR walk for crypto-intrinsic usage.  Returns the set of
    *  intrinsic names actually reached so RustGen can decide which
@@ -93,6 +107,55 @@ object RustGen:
     val found = scala.collection.mutable.Set.empty[String]
     astModule.sections.foreach(s => scanSectionForNames(s, names, found))
     found.toSet
+
+  /** R.4.1 — textual scan of code-block sources for effect-related
+   *  keywords (`perform`, `handle`, `resume`, top-level `effect E:`).
+   *  Drives whether RustGen emits `src/runtime/effect.rs` and adds a
+   *  `pub mod effect;` line to `src/runtime/mod.rs`.  Returns the set
+   *  of keywords actually seen; emit fires iff non-empty. */
+  private[rust] def scanEffectUsage(astModule: scalascript.ast.Module): Set[String] =
+    val found = scala.collection.mutable.Set.empty[String]
+    astModule.sections.foreach(s => scanSectionForEffects(s, found))
+    found.toSet
+
+  private def scanSectionForEffects(
+      s: scalascript.ast.Section, found: scala.collection.mutable.Set[String]
+  ): Unit =
+    s.content.foreach(c => scanContentForEffects(c, found))
+    s.subsections.foreach(sub => scanSectionForEffects(sub, found))
+
+  /** Effect detection is textual to keep the dependency surface tiny —
+   *  the scalameta tree for `effect E: case op(...)` requires a fully
+   *  parsed Scala 3 enum-like shape, and the keywords `perform` /
+   *  `handle` / `resume` may surface in macro-rewritten forms.  A
+   *  conservative text scan catches every shape the lowering slice
+   *  (R.4.2) will actually consume. */
+  private def scanContentForEffects(
+      c: scalascript.ast.Content, found: scala.collection.mutable.Set[String]
+  ): Unit = c match
+    // Scan every code block we accept (scalascript/ssc/scala + rust)
+    // so a `rust` block that pokes the runtime directly still triggers
+    // the conditional `effect.rs` emit.
+    case scalascript.ast.Content.CodeBlock(lang, source, _, _, _, _, _)
+        if lang.equalsIgnoreCase("scalascript") || lang.equalsIgnoreCase("ssc") ||
+           lang.equalsIgnoreCase("scala")        || lang.equalsIgnoreCase("rust") =>
+      val text = source.linesIterator
+        .map(_.replaceFirst("//.*", ""))
+        .mkString("\n")
+      if EffectKeywordRegexes("perform").findFirstIn(text).isDefined then found += "perform"
+      if EffectKeywordRegexes("handle") .findFirstIn(text).isDefined then found += "handle"
+      if EffectKeywordRegexes("resume") .findFirstIn(text).isDefined then found += "resume"
+      if EffectKeywordRegexes("effect") .findFirstIn(text).isDefined then found += "effect"
+    case _ => ()
+
+  /** Keyword regexes — bounded by word edges so `superformula` doesn't
+   *  match `perform`, and `effective` doesn't match `effect`. */
+  private val EffectKeywordRegexes: Map[String, scala.util.matching.Regex] = Map(
+    "perform" -> raw"\bperform\s*\(".r,
+    "handle"  -> raw"\bhandle\s*[({]".r,
+    "resume"  -> raw"\bresume\s*\(".r,
+    "effect"  -> raw"\beffect\s+[A-Z]\w*\s*[:({]".r
+  )
 
   private def scanSectionForNames(
       s: scalascript.ast.Section, names: Set[String], found: scala.collection.mutable.Set[String]

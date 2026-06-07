@@ -34,7 +34,15 @@ val RustCapabilities: Capabilities = Capabilities(
     Feature.FileSystem,
     // R.3.2 — sha256 + base64Encode/Decode.  Each intrinsic gates a
     // crate dependency in Cargo.toml; see RustGen.scanCryptoUsage.
-    Feature.Crypto
+    Feature.Crypto,
+    // R.4.1 — algebraic-effects runtime infrastructure (Free monad
+    // over `Computation<A>`) ships in `src/runtime/effect.rs` when
+    // `RustGen.scanEffectUsage` detects any of `perform` / `handle` /
+    // `resume` / `effect E:`.  IR-node lowering (Perform / Handle /
+    // Resume → `Computation` ops) lands in R.4.2 — declaring the
+    // capability now keeps CapabilityCheck from blocking programs
+    // that exercise the runtime via hand-written `rust` blocks.
+    Feature.AlgebraicEffects
   ),
   outputs        = Set(OutputKind.RustSource),
   options        = Set("optimizationLevel", "emitAssertions", "cargoEdition"),
