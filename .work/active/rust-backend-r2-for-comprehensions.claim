@@ -1,0 +1,6 @@
+feature/rust-backend-r2-for-comprehensions 2026-06-07T09:44:29Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-07T09:44:29Z
+status: not-started
+done-so-far:
+next: for-yield + List(...) literal + List[T] -> Vec<T>
