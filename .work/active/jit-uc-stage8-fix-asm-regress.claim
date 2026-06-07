@@ -1,6 +1,0 @@
-feature/jit-uc-stage8-fix-asm-regress 2026-06-07T06:47:14Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-07T06:47:14Z
-status: not-started
-done-so-far:
-next: looksLongValue 2-arg getOrElse + safer toInt fallback
