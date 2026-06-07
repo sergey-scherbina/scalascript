@@ -145,6 +145,15 @@ class JitLintTest extends AnyFunSuite with Matchers:
     reasons should contain (JitBailReason.RefChainObjectCall)
     reasons should not contain JitBailReason.RefChainCall
 
+  test("stage8-refchain-residual: known dispatchable methods classify as RefChainCall"):
+    // Stage 8 residual fix — these shapes all dispatch through JitRefDispatch
+    // helpers and should not be bucketed as RefChainObjectCall.
+    val containsR  = classifyBody("Set(a, b).contains(a)", List("a", "b"), List("Int", "Int"))
+    containsR should not contain JitBailReason.RefChainObjectCall
+    val mkString3R = classifyBody("""xs.map(x => x + 1).mkString("[", ",", "]")""",
+      List("xs"), List("List[Int]"))
+    mkString3R should not contain JitBailReason.RefChainObjectCall
+
   test("stage7-refchain-object-dispatch: numeric object method calls are split"):
     val reasons = classifyBody("BigInt(10).pow(n)", List("n"), List("Int"))
     reasons should contain (JitBailReason.NumericObjectMethodCall)

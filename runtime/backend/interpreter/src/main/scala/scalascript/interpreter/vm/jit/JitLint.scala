@@ -357,9 +357,32 @@ object JitPredicates:
 
   private def isPrimitiveRefRead(method: String, args: List[Term]): Boolean =
     method match
-      case "size" | "head" => args.isEmpty
+      // Stage 8 refchain-residual: 0-arg primitive-read accessors compile via
+      // JitRefDispatch; classify these as RefChainCall, not RefChainObjectCall.
+      case "size" | "head" | "last" | "length"
+         | "isEmpty" | "nonEmpty" | "isDefined" =>
+        args.isEmpty
+      // 1-arg primitive predicates / lookups also dispatch through JitRefDispatch.
+      case "contains" | "startsWith" | "endsWith" | "indexOf" =>
+        args.lengthCompare(1) == 0
+      case "charAt" =>
+        args.lengthCompare(1) == 0
+      // String/Option/List producing chains that already have JitRefDispatch
+      // helpers — staying RefChainCall lets the residual bucket reflect only
+      // genuinely unsupported shapes.
+      case "tail" | "init" | "headOption" | "lastOption"
+         | "toString" | "toLowerCase" | "toUpperCase" | "trim" =>
+        args.isEmpty
+      // mkString has three overloads (`()`, `(sep)`, `(start, sep, end)`),
+      // all dispatched via JitRefDispatch.mkStringRef.
+      case "mkString" =>
+        args.isEmpty || args.lengthCompare(1) == 0 || args.lengthCompare(3) == 0
+      case "split" | "replace" | "substring" =>
+        args.lengthCompare(1) == 0 || args.lengthCompare(2) == 0
       case "getOrElse" =>
-        args.lengthCompare(1) == 0 && isLongishExpr(args.head)
+        // 1-arg getOrElse with Long default (Option) and 2-arg Map.getOrElse.
+        (args.lengthCompare(1) == 0 && isLongishExpr(args.head)) ||
+          args.lengthCompare(2) == 0
       case _ => false
 
   private def isLongishExpr(t: Term): Boolean =
