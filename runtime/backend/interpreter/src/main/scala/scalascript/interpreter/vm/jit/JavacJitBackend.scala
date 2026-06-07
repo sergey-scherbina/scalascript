@@ -1731,6 +1731,20 @@ object JavacJitBackend extends JitBackend:
             i += 1
             rem = rem.tail
           sb.append(')').toString
+        // Stage 8: Math.sqrt/floor/ceil/log/exp/abs (1-arg) and Math.pow/max/min (2-arg).
+        case Term.Select(Term.Name("Math"), Term.Name(method))
+            if (method == "sqrt" || method == "floor" || method == "ceil" ||
+                method == "log" || method == "log10" || method == "exp" ||
+                method == "abs" || method == "sin" || method == "cos" || method == "tan")
+              && ap.argClause.values.lengthCompare(1) == 0 =>
+          val a = walkDouble(ap.argClause.values.head, ctx)
+          if a == null then null else s"java.lang.Math.$method($a)"
+        case Term.Select(Term.Name("Math"), Term.Name(method))
+            if (method == "pow" || method == "max" || method == "min" || method == "atan2")
+              && ap.argClause.values.lengthCompare(2) == 0 =>
+          val a = walkDouble(ap.argClause.values.head, ctx)
+          val b = walkDouble(ap.argClause.values(1), ctx)
+          if a == null || b == null then null else s"java.lang.Math.$method($a, $b)"
         case _ => null
     case Term.ApplyUnary(op, arg) if op.value == "-" || op.value == "+" =>
       val a = walkDouble(arg, ctx); if a == null then return null

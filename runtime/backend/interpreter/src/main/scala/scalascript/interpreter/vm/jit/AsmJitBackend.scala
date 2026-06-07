@@ -1585,6 +1585,23 @@ object AsmJitBackend extends JitBackend:
       ap.fun match
         case fn: Term.Name if fn.value == ctx.funName =>
           emitSelfCall(ap.argClause.values, ctx, mv)
+        // Stage 8: Math.sqrt/floor/ceil/log/exp/abs/sin/cos/tan (1-arg).
+        case Term.Select(Term.Name("Math"), Term.Name(method))
+            if (method == "sqrt" || method == "floor" || method == "ceil" ||
+                method == "log" || method == "log10" || method == "exp" ||
+                method == "abs" || method == "sin" || method == "cos" || method == "tan")
+              && ap.argClause.values.lengthCompare(1) == 0 =>
+          walkDouble(ap.argClause.values.head, ctx, mv) && {
+            mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", method, "(D)D", false)
+            true }
+        // Stage 8: Math.pow/max/min/atan2 (2-arg).
+        case Term.Select(Term.Name("Math"), Term.Name(method))
+            if (method == "pow" || method == "max" || method == "min" || method == "atan2")
+              && ap.argClause.values.lengthCompare(2) == 0 =>
+          walkDouble(ap.argClause.values.head, ctx, mv) &&
+            walkDouble(ap.argClause.values(1), ctx, mv) && {
+              mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", method, "(DD)D", false)
+              true }
         case _ => false
     case _ => false
 
