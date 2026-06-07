@@ -45,14 +45,111 @@ private[interpreter] object StatRuntime:
       case _ =>
         fallback(args)
 
+  /** busi-p0-statusval-eventcase-collision — record a binding that is about
+   *  to be displaced by a same-named registration in `env`.  The recorded
+   *  alternative lets `Defn.Val` with an explicit type ascription
+   *  disambiguate back to the displaced binding when the active binding's
+   *  type does not match the ascription.
+   *
+   *  Only records when:
+   *  - `env(name)` already holds something (otherwise nothing to displace);
+   *  - the existing binding and the new value are *kind-different* — one is
+   *    an `InstanceV` (likely a status-wrapper val) and the other a
+   *    callable (`NativeFnV` / `FunV`).  Same-kind overwrites (val replaces
+   *    val, ctor replaces ctor) preserve standard last-binding-wins. */
+  private def rememberShadowedAlternative(
+      env: mutable.Map[String, Value],
+      name: String,
+      incoming: Value,
+      interp: Interpreter
+  ): Unit =
+    env.get(name) match
+      case Some(existing) if isShadowableKindMismatch(existing, incoming) =>
+        // Track whichever of the two is the InstanceV (the val-shaped one)
+        // so a typed ascription can find it later.
+        val instSide: Value | Null = existing match
+          case _: Value.InstanceV => existing
+          case _                  => incoming match
+            case _: Value.InstanceV => incoming
+            case _                  => null
+        if instSide != null then
+          interp.shadowedAlternatives(name) = instSide
+      case _ => ()
+
+  /** Same as `rememberShadowedAlternative` but for the cross-module
+   *  import path, where the displaced binding lives in
+   *  `interp.globals` directly rather than in a `Defn.*` env handed to
+   *  StatRuntime.  Exposed `private[interpreter]` so SectionRuntime can
+   *  call it before overwriting `interp.globals(name)`. */
+  private[interpreter] def rememberShadowedAlternativeForImport(
+      interp: Interpreter,
+      name: String,
+      incoming: Value
+  ): Unit =
+    interp.globals.get(name) match
+      case Some(existing) if isShadowableKindMismatch(existing, incoming) =>
+        val instSide: Value | Null = existing match
+          case _: Value.InstanceV => existing
+          case _                  => incoming match
+            case _: Value.InstanceV => incoming
+            case _                  => null
+        if instSide != null then
+          interp.shadowedAlternatives(name) = instSide
+      case _ => ()
+
+  /** A kind-mismatch overwrite is one where one side is a value-shaped
+   *  `InstanceV` and the other is a callable (`NativeFnV` / `FunV`).
+   *  Other combinations (val replaces val, ctor replaces ctor) are
+   *  last-binding-wins as before. */
+  private def isShadowableKindMismatch(a: Value, b: Value): Boolean =
+    val aIsInst = a.isInstanceOf[Value.InstanceV]
+    val bIsInst = b.isInstanceOf[Value.InstanceV]
+    val aIsCallable = a.isInstanceOf[Value.NativeFnV] || a.isInstanceOf[Value.FunV]
+    val bIsCallable = b.isInstanceOf[Value.NativeFnV] || b.isInstanceOf[Value.FunV]
+    (aIsInst && bIsCallable) || (aIsCallable && bIsInst)
+
+  /** busi-p0-statusval-eventcase-collision — if the rhs of a typed `val`
+   *  resolves to a binding whose type does not match `decltpe`, but a
+   *  `shadowedAlternatives` entry for the same name DOES match, prefer
+   *  the shadowed binding.  Otherwise return `direct` unchanged.
+   *
+   *  The check is intentionally narrow: only triggers on
+   *  `val x: <SimpleType> = <bareName>` shape, where both the declared
+   *  type and the rhs are bare identifiers.  Higher-arity shapes
+   *  (`Type.Apply`, `Type.Function`, `Term.Apply`, etc.) keep the current
+   *  behaviour. */
+  private def disambiguateValBinding(
+      decltpe: Option[Type],
+      rhs: Term,
+      direct: Value,
+      interp: Interpreter
+  ): Value =
+    val expectedTypeName: String | Null = decltpe match
+      case Some(Type.Name(tn)) => tn
+      case _                   => null
+    val rhsName: String | Null = rhs match
+      case Term.Name(n) => n
+      case _            => null
+    if expectedTypeName == null || rhsName == null then return direct
+    val directMatches = direct match
+      case Value.InstanceV(tn, _) => tn == expectedTypeName
+      case _                       => false
+    if directMatches then return direct
+    val alt = interp.shadowedAlternatives.getOrElse(rhsName, null)
+    alt match
+      case Value.InstanceV(tn, _) if tn == expectedTypeName => alt
+      case _                                                => direct
+
   def execStat(stat: Stat, env: mutable.Map[String, Value], printResult: Boolean = false, interp: Interpreter): Unit =
     interp.trackPos(stat)
     val envView = new MutableEnvView(env)
     stat match
-    case Defn.Val(_, pats, _, rhs) =>
-      val rhsVal = Computation.run(interp.eval(rhs, envView))
+    case Defn.Val(_, pats, decltpe, rhs) =>
+      val rhsValRaw = Computation.run(interp.eval(rhs, envView))
+      val rhsVal = disambiguateValBinding(decltpe, rhs, rhsValRaw, interp)
       pats match
         case List(Pat.Var(n)) =>
+          rememberShadowedAlternative(env, n.value, rhsVal, interp)
           env(n.value) = rhsVal
           // Register as immutable so BytecodeJit can inline reads as Java
           // literals instead of emitting `readGlobalLong("name")` HashMap
@@ -225,6 +322,7 @@ private[interpreter] object StatRuntime:
       def bindNullaryCase(caseName: String): Unit =
         interp.parentTypes(caseName) = enumName
         val v = Value.InstanceV(caseName, Map.empty)
+        rememberShadowedAlternative(env, caseName, v, interp)
         env(caseName) = v
         caseFields(caseName) = v
         enumValues += v
@@ -257,6 +355,7 @@ private[interpreter] object StatRuntime:
                 Value.NativeFnV(caseName, args =>
                   constructNoDefaultInstanceOrFallback(caseName, paramNames, args, enumTag, enumFallbackCtor))
               else Value.NativeFnV(caseName, enumFallbackCtor)
+            rememberShadowedAlternative(env, caseName, v, interp)
             env(caseName) = v
             caseFields(caseName) = v
         // `case A, B, C` (comma-separated parameterless cases) parses as a

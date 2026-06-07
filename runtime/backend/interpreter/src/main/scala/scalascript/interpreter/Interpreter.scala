@@ -150,6 +150,16 @@ class Interpreter(
   private[interpreter] val typeFieldTypes = mutable.Map.empty[String, List[String]]
   private[interpreter] val typeFieldSchemas = mutable.Map.empty[String, List[TypeFieldSchema]]
   private[interpreter] val rejectUnknownTypes = mutable.Set.empty[String]
+  // busi-p0-statusval-eventcase-collision — when two bindings with the same
+  // name end up in the same scope (canonical case: a `val PeerLinkInvited =
+  // PeerLinkStatus("invited")` and a `case PeerLinkInvited(...)` enum case),
+  // record the one that gets displaced from `globals(name)` here so a typed
+  // `val x: PeerLinkStatus = PeerLinkInvited` ascription can disambiguate
+  // back to the val binding by matching `decltpe` against the stored
+  // alternative's typeName.  Pattern-position and expression-call(args)
+  // continue to use whatever sits in globals(name) — they're not affected
+  // by the disambiguation logic.
+  private[interpreter] val shadowedAlternatives = mutable.Map.empty[String, Value]
   // Parametric given factories — givens with type parameters and/or using clauses.
   // Stored separately because they can't be stored as plain Values until their type
   // variables are resolved at the call site.

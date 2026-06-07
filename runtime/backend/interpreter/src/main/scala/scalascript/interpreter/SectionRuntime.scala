@@ -283,6 +283,13 @@ private[interpreter] object SectionRuntime:
         case Some(v) =>
           val enriched = enrichFnClosures(v, childCtx)
           val imported = rebindPluginNative(sourceName, targetName, enriched, interp)
+          // busi-p0-statusval-eventcase-collision — if an imported binding
+          // would overwrite an existing same-name binding of a different
+          // kind (e.g. a status-wrapper InstanceV val being shadowed by a
+          // newly-imported case-constructor NativeFnV from a sibling
+          // module), record the displaced side so a typed `val` ascription
+          // can disambiguate back to it later via `shadowedAlternatives`.
+          StatRuntime.rememberShadowedAlternativeForImport(interp, targetName, imported)
           interp.globals(targetName) = imported
           imported match
             case inst: Value.InstanceV if inst.typeName.contains('[') =>
