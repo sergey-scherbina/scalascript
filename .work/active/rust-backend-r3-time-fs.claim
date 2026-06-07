@@ -1,0 +1,6 @@
+feature/rust-backend-r3-time-fs 2026-06-07T11:43:27Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-07T11:43:27Z
+status: not-started
+done-so-far:
+next: wire nowMillis + readFile + writeFile intrinsics with std::time/std::fs runtime helpers
