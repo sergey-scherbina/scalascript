@@ -115,3 +115,43 @@ object RustRuntimeTemplates:
       |        .unwrap_or_else(|e| panic!("writeFile({}): {}", path, e))
       |}
       |""".stripMargin
+
+  /** R.3.2 — sha256 helper, appended only when `sha256` is reached.
+   *  The `sha2` crate dep is added to Cargo.toml in lockstep. */
+  val Sha256Rs: String =
+    """
+      |// ── R.3.2 — sha256 (uses `sha2` crate; emitted on demand) ──
+      |
+      |/// `sha256(s)` — lowercase hex digest of the input bytes,
+      |/// matching the interpreter's and JVM target's contract.
+      |#[allow(dead_code)]
+      |pub fn _sha256(input: &str) -> String {
+      |    use sha2::{Sha256, Digest};
+      |    format!("{:x}", Sha256::digest(input.as_bytes()))
+      |}
+      |""".stripMargin
+
+  /** R.3.2 — base64 helpers, appended only when at least one of
+   *  `base64Encode` / `base64Decode` is reached. */
+  val Base64Rs: String =
+    """
+      |// ── R.3.2 — base64 (uses `base64` crate; emitted on demand) ──
+      |
+      |/// `base64Encode(s)` — standard base64 of the input bytes.
+      |#[allow(dead_code)]
+      |pub fn _base64_encode(input: &str) -> String {
+      |    use base64::{Engine, engine::general_purpose};
+      |    general_purpose::STANDARD.encode(input.as_bytes())
+      |}
+      |
+      |/// `base64Decode(s)` — inverse of `base64Encode`.  Panics if the
+      |/// input is not valid base64 or not valid UTF-8 after decoding.
+      |#[allow(dead_code)]
+      |pub fn _base64_decode(input: &str) -> String {
+      |    use base64::{Engine, engine::general_purpose};
+      |    let bytes = general_purpose::STANDARD.decode(input.as_bytes())
+      |        .unwrap_or_else(|e| panic!("base64Decode: {}", e));
+      |    String::from_utf8(bytes)
+      |        .unwrap_or_else(|e| panic!("base64Decode utf8: {}", e))
+      |}
+      |""".stripMargin

@@ -41,8 +41,12 @@ object RustGen:
     val version   = module.manifest.flatMap(_.version).getOrElse(DefaultVersion)
     val descr     = module.manifest.flatMap(_.description).filter(_.nonEmpty)
     val hasMain   = moduleDeclaresMain(module)
-    val cargoToml = renderCargoToml(crateName, version, descr, hasMain)
     val astModule = Denormalize(module)
+    // R.3.2 — IR walk: which crypto intrinsics does the program reach?
+    // Drives both the conditional Cargo deps and the conditional
+    // runtime-helper emit so a hello-world stays dep-free.
+    val cryptoUsage = scanCryptoUsage(astModule)
+    val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage)
 
     RustCodeWalk.walk(astModule, intrinsics) match
       case Left(diags) =>
@@ -55,20 +59,53 @@ object RustGen:
         // annotated def, fall back to [lib].
         val cargoTomlFinal =
           if effectiveBin == hasMain then cargoToml
-          else renderCargoToml(crateName, version, descr, effectiveBin)
+          else renderCargoToml(crateName, version, descr, effectiveBin, cryptoUsage)
         val generatedMod = renderGeneratedMod(crateName)
         val rootFile     =
           if effectiveBin then renderMainRs(crateName, entry.get)
           else                 renderLibRs()
         val rootName     = if effectiveBin then "src/main.rs" else "src/lib.rs"
+        val runtimeMod =
+          val sb = new StringBuilder(RustRuntimeTemplates.RuntimeModRs)
+          if cryptoUsage.contains("sha256") then sb.append(RustRuntimeTemplates.Sha256Rs)
+          if cryptoUsage.exists(n => n == "base64Encode" || n == "base64Decode") then
+            sb.append(RustRuntimeTemplates.Base64Rs)
+          sb.toString
         CompileResult.Segmented(List(
-          Segment.Asset("Cargo.toml",                   cargoTomlFinal.getBytes("UTF-8"),                    "application/toml"),
-          Segment.Asset("src/value.rs",                 RustRuntimeTemplates.ValueRs.getBytes("UTF-8"),      "text/x-rust"),
-          Segment.Asset("src/runtime/mod.rs",           RustRuntimeTemplates.RuntimeModRs.getBytes("UTF-8"), "text/x-rust"),
-          Segment.Asset("src/generated/mod.rs",         generatedMod.getBytes("UTF-8"),                      "text/x-rust"),
-          Segment.Asset(s"src/generated/$crateName.rs", walked.generated.getBytes("UTF-8"),                  "text/x-rust"),
-          Segment.Asset(rootName,                       rootFile.getBytes("UTF-8"),                          "text/x-rust")
+          Segment.Asset("Cargo.toml",                   cargoTomlFinal.getBytes("UTF-8"),       "application/toml"),
+          Segment.Asset("src/value.rs",                 RustRuntimeTemplates.ValueRs.getBytes("UTF-8"), "text/x-rust"),
+          Segment.Asset("src/runtime/mod.rs",           runtimeMod.getBytes("UTF-8"),           "text/x-rust"),
+          Segment.Asset("src/generated/mod.rs",         generatedMod.getBytes("UTF-8"),         "text/x-rust"),
+          Segment.Asset(s"src/generated/$crateName.rs", walked.generated.getBytes("UTF-8"),     "text/x-rust"),
+          Segment.Asset(rootName,                       rootFile.getBytes("UTF-8"),             "text/x-rust")
         ))
+
+  /** R.3.2 — IR walk for crypto-intrinsic usage.  Returns the set of
+   *  intrinsic names actually reached so RustGen can decide which
+   *  crates to add to `Cargo.toml` and whether to append the crypto
+   *  runtime helpers. */
+  private[rust] def scanCryptoUsage(astModule: scalascript.ast.Module): Set[String] =
+    val names = Set("sha256", "base64Encode", "base64Decode")
+    val found = scala.collection.mutable.Set.empty[String]
+    astModule.sections.foreach(s => scanSectionForNames(s, names, found))
+    found.toSet
+
+  private def scanSectionForNames(
+      s: scalascript.ast.Section, names: Set[String], found: scala.collection.mutable.Set[String]
+  ): Unit =
+    s.content.foreach(c => scanContentForNames(c, names, found))
+    s.subsections.foreach(sub => scanSectionForNames(sub, names, found))
+
+  private def scanContentForNames(
+      c: scalascript.ast.Content, names: Set[String], found: scala.collection.mutable.Set[String]
+  ): Unit =
+    import scala.meta.transversers.XtensionCollectionLikeUI
+    c match
+      case scalascript.ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _)
+          if lang.equalsIgnoreCase("scalascript") || lang.equalsIgnoreCase("ssc") ||
+             lang.equalsIgnoreCase("scala") =>
+        node.tree.collect { case scala.meta.Term.Name(n) if names.contains(n) => found += n }
+      case _ => ()
 
   /** `src/generated/mod.rs` — one-line re-export for the crate module. */
   private[rust] def renderGeneratedMod(crateName: String): String =
@@ -104,15 +141,22 @@ object RustGen:
    *  a single `[[bin]]` entry when `hasMain` is true, or a `[lib]` entry
    *  otherwise.  Format is fixed so goldens stay stable across builds. */
   private[rust] def renderCargoToml(
-      crateName: String,
-      version:   String,
-      descr:     Option[String],
-      hasMain:   Boolean
+      crateName:   String,
+      version:     String,
+      descr:       Option[String],
+      hasMain:     Boolean,
+      cryptoUsage: Set[String] = Set.empty
   ): String =
     val descrLine = descr match
       case Some(d) => s"""description = "${escapeTomlString(d)}"
 """ // ↵ trailing newline so the block stays uniform
       case None    => ""
+    // R.3.2 — only emit crate deps the program actually reaches.
+    val depLines = scala.collection.mutable.ArrayBuffer.empty[String]
+    if cryptoUsage.contains("sha256") then depLines += "sha2 = \"0.10\""
+    if cryptoUsage.exists(n => n == "base64Encode" || n == "base64Decode") then
+      depLines += "base64 = \"0.22\""
+    val deps = if depLines.isEmpty then "" else depLines.mkString("\n") + "\n"
     val target =
       if hasMain then
         s"""
@@ -132,7 +176,7 @@ object RustGen:
        |edition = "$CargoEdition"
        |${descrLine}
        |[dependencies]
-       |$target""".stripMargin
+       |$deps$target""".stripMargin
 
   /** Detect an `@main` annotation by scanning the module's `scalascript`
    *  / `ssc` fenced blocks textually.  A real AST walk lands in the

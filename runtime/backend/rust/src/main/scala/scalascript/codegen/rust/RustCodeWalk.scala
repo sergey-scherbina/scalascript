@@ -493,7 +493,12 @@ object RustCodeWalk:
    *  (and can re-use the same `String` across multiple calls). */
   private val BorrowedArgIntrinsics: Set[String] = Set(
     "crate::runtime::_read_file",
-    "crate::runtime::_write_file"
+    "crate::runtime::_write_file",
+    // R.3.2 — crypto/base64 helpers also take `&str` so callers can
+    // re-use the input across encode/decode round-trips.
+    "crate::runtime::_sha256",
+    "crate::runtime::_base64_encode",
+    "crate::runtime::_base64_decode"
   )
 
   /** Resolve a non-List/Vec `Term.Apply` callee against intrinsics,

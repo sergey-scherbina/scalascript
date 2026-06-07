@@ -18,5 +18,10 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   // R.3.1 — time + filesystem (no extra crate deps; uses std::time / std::fs).
   QualifiedName("nowMillis")        -> RuntimeCall("crate::runtime::_now_millis"),
   QualifiedName("readFile")         -> RuntimeCall("crate::runtime::_read_file"),
-  QualifiedName("writeFile")        -> RuntimeCall("crate::runtime::_write_file")
+  QualifiedName("writeFile")        -> RuntimeCall("crate::runtime::_write_file"),
+  // R.3.2 — crypto + base64.  RustGen scans the IR for these names and
+  // only adds the `sha2` / `base64` crates to Cargo.toml when reached.
+  QualifiedName("sha256")           -> RuntimeCall("crate::runtime::_sha256"),
+  QualifiedName("base64Encode")     -> RuntimeCall("crate::runtime::_base64_encode"),
+  QualifiedName("base64Decode")     -> RuntimeCall("crate::runtime::_base64_decode")
 )

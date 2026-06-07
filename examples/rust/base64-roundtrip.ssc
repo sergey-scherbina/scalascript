@@ -1,0 +1,20 @@
+# base64 round-trip
+
+R.3.2 wires `base64Encode(s)` and `base64Decode(s)` to the
+`base64 = "0.22"` crate (pulled into `Cargo.toml` only when at
+least one of the two intrinsics is reached).
+
+```scalascript
+@main def run(): Unit =
+  val msg: String = "hello rust"
+  val enc: String = base64Encode(msg)
+  val dec: String = base64Decode(enc)
+  println(dec == msg)
+```
+
+Build and run:
+
+```bash
+ssc build-rust base64-roundtrip.ssc
+./base64-roundtrip            # → true
+```

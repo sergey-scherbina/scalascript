@@ -31,7 +31,10 @@ val RustCapabilities: Capabilities = Capabilities(
     Feature.DefaultParameters,
     // R.3.1 — readFile / writeFile via std::fs; nowMillis via
     // std::time::SystemTime.  No extra crate dependencies.
-    Feature.FileSystem
+    Feature.FileSystem,
+    // R.3.2 — sha256 + base64Encode/Decode.  Each intrinsic gates a
+    // crate dependency in Cargo.toml; see RustGen.scanCryptoUsage.
+    Feature.Crypto
   ),
   outputs        = Set(OutputKind.RustSource),
   options        = Set("optimizationLevel", "emitAssertions", "cargoEdition"),

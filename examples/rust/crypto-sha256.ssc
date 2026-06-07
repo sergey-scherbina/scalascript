@@ -1,0 +1,20 @@
+# sha256 hex digest
+
+R.3.2 wires `sha256(s)` → `crate::runtime::_sha256` using the
+`sha2 = "0.10"` crate (pulled into `Cargo.toml` only when the
+program reaches `sha256`).
+
+```scalascript
+@main def run(): Unit =
+  println(sha256("hello"))
+```
+
+Build and run:
+
+```bash
+ssc build-rust crypto-sha256.ssc
+./crypto-sha256
+# → 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+```
+
+This matches `printf 'hello' | openssl dgst -sha256`.
