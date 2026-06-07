@@ -1,6 +1,0 @@
-feature/jit-uc-stage8-tostring-method 2026-06-07T09:50:35Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-07T09:50:35Z
-status: not-started
-done-so-far:
-next: toString method via Value.show
