@@ -39,25 +39,29 @@ object RustCodeWalk:
       module:     ast.Module,
       intrinsics: Map[QualifiedName, IntrinsicImpl]
   ): Either[List[Diagnostic], WalkResult] =
-    val defs       = collectDefs(module)
-    val enums      = collectEnums(module)
-    val traitEnums = collectSealedTraitEnums(module)
-    val rustBlocks = collectRustBlocks(module)
-    val userDefs   = defs.map(_.name.value).toSet
+    val defs              = collectDefs(module)
+    val enums             = collectEnums(module)
+    val traitEnums        = collectSealedTraitEnums(module)
+    val standaloneCases   = collectStandaloneCaseClasses(module, traitEnums)
+    val rustBlocks        = collectRustBlocks(module)
+    val userDefs          = defs.map(_.name.value).toSet
     val enumRendered =
       (if needsEitherType(module) then List(renderBuiltinEitherEnum()) else Nil) ++
       enums.map(renderEnum) ++
       traitEnums.map { case SealedTraitEnum(t, caseClasses) => renderTraitEnum(t, caseClasses) }
-    val (enumErrs, enumOk) = enumRendered.partitionMap(identity)
-    val ctorMap = enumOk.flatMap(_.ctors).toMap
+    val structRendered    = standaloneCases.map(renderStruct)
+    val (enumErrs, enumOk)     = enumRendered.partitionMap(identity)
+    val (structErrs, structOk) = structRendered.partitionMap(identity)
+    val ctorMap = enumOk.flatMap(_.ctors).toMap ++
+      structOk.map(s => s.structName -> EnumCtor(s.structName, s.fieldNames)).toMap
     // topVals must be collected after ctorMap so enum ctors are resolved correctly.
     val topVals    = collectTopVals(module, ctorMap)
     val results = defs.map(renderDef(_, intrinsics, userDefs, ctorMap, topVals))
     val (errors, ok) = results.partitionMap(identity)
-    val allErrs = enumErrs.flatten ++ errors.flatten
+    val allErrs = enumErrs.flatten ++ structErrs.flatten ++ errors.flatten
     if allErrs.nonEmpty then Left(allErrs)
     else
-      val enumBlock = enumOk.map(_.render).mkString
+      val enumBlock = structOk.map(_.render).mkString + enumOk.map(_.render).mkString
       val rustVerbatim = rustBlocks.zipWithIndex.map { case (src, i) =>
         s"""// ── rust block ${i + 1} ──
            |$src
@@ -183,6 +187,38 @@ object RustCodeWalk:
       traitDef:    m.Defn.Trait,
       caseClasses: List[m.Defn.Class]
   )
+
+  /** Standalone `case class`es (not extending any sealed trait) render as Rust `pub struct`. */
+  private def collectStandaloneCaseClasses(
+      module: ast.Module,
+      traitEnums: List[SealedTraitEnum]
+  ): List[m.Defn.Class] =
+    val traitCaseNames = traitEnums.flatMap(_.caseClasses.map(_.name.value)).toSet
+    module.sections.flatMap(sectionClasses)
+      .filter(c => isCaseClass(c) && !traitCaseNames.contains(c.name.value))
+
+  private def renderStruct(c: m.Defn.Class): Either[List[Diagnostic], GeneratedStruct] =
+    val name   = c.name.value
+    val params = c.ctor.paramClauses.flatMap(_.values).toList
+    val fieldRendered = params.map { p =>
+      p.decltpe match
+        case Some(t) => mapType(t, s"struct $name").map(r => (p.name.value, r))
+        case None    => Left(List(unsupported(
+          s"struct `$name` field `${p.name.value}` has no type annotation"
+        )))
+    }
+    val (errs, ok) = fieldRendered.partitionMap(identity)
+    if errs.nonEmpty then Left(errs.flatten)
+    else
+      val fields = ok.map((n, t) => s"    pub $n: $t").mkString(",\n")
+      val render =
+        s"""#[allow(dead_code)]
+           |#[derive(Debug, Clone)]
+           |pub struct $name {
+           |$fields,
+           |}
+           |""".stripMargin
+      Right(GeneratedStruct(render, name, ok.map(_._1)))
 
   /** Collect each `sealed trait` and all `case class` extending it in source order. */
   private def collectSealedTraitEnums(module: ast.Module): List[SealedTraitEnum] =
@@ -413,6 +449,13 @@ object RustCodeWalk:
   private case class GeneratedEnum(
       render: String,
       ctors:  List[(String, EnumCtor)]
+  )
+
+  /** A rendered Rust `struct` for a standalone ScalaScript `case class`. */
+  private case class GeneratedStruct(
+      render:     String,
+      structName: String,
+      fieldNames: List[String]
   )
 
   private def renderDef(
@@ -705,6 +748,9 @@ object RustCodeWalk:
       renderTerm(qual, ctx).map(q => s"format!(\"{}\", $q)")
     case m.Term.Select(qual, m.Term.Name("trim")) =>
       renderTerm(qual, ctx).map(q => s"$q.trim().to_string()")
+    // Struct / case-class field access: `v.x` → `v.x` in Rust.
+    case m.Term.Select(qual, m.Term.Name(field)) =>
+      renderTerm(qual, ctx).map(q => s"$q.$field")
     // Either constructors and combinators.
     case m.Term.Apply.After_4_6_0(m.Term.Name("Left"), args)
         if args.values.size == 1 =>
@@ -959,10 +1005,14 @@ object RustCodeWalk:
       if errs.nonEmpty then Left(errs.flatten)
       else
         val joined = renderedArgs.mkString(", ")
-        // `List(1, 2, 3)` / `Vec(1, 2, 3)` → Rust `vec![1, 2, 3]`.
-        val isListCtor = fn match
+        // User-defined struct/enum ctors take priority over stdlib names (e.g. user Vec vs List[Vec]).
+        val userCtorName = fn match
+          case m.Term.Name(n) if ctx.ctorMap.contains(n) => Some(n)
+          case _                                          => None
+        // `List(1, 2, 3)` / `Vec(1, 2, 3)` → Rust `vec![1, 2, 3]` unless Vec is a user struct.
+        val isListCtor = userCtorName.isEmpty && (fn match
           case m.Term.Name("List" | "Vec") => true
-          case _                            => false
+          case _                            => false)
         val isMapCtor = fn match
           case m.Term.Name("Map") => true
           case m.Term.ApplyType.After_4_6_0(m.Term.Name("Map"), _) => true
@@ -1225,7 +1275,10 @@ object RustCodeWalk:
             val body   =
               if fields.isEmpty then ""
               else " { " + fields.map((fn, a) => s"$fn: $a").mkString(", ") + " }"
-            s"${ec.enumName}::$n$body"
+            // Struct: enumName == n (standalone case class) → `StructName { fields }`
+            // Enum variant: enumName != n → `EnumName::Variant { fields }`
+            if ec.enumName == n then s"$n$body"
+            else s"${ec.enumName}::$n$body"
           }
         } match
           case Some(rs) => Right(rs)

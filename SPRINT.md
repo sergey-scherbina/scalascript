@@ -74,9 +74,15 @@ Ordered simplest-first.
       Generated Rust uses nested `match` expressions — verbose but correct.
       Fixed 2026-06-08.
 
-- [ ] **rust-fix-instance-field-vec-type** — `instance-field` bench: `Vec[Double]`
-      not yet in `mapType`; reports "uses type Vec; R.2 accepts primitives…".
-      Fix: add `Vec[T]` → `Vec<T>` mapping (same as `List[T]`).
+- [x] **rust-fix-instance-field-vec-type** — `instance-field` bench: `Vec` was a
+      user-defined `case class Vec(x: Int, y: Int)`, not a stdlib List.
+      Root cause: `mapType` didn't recognize user-defined types; `collectStandaloneCaseClasses`
+      didn't exist; `Vec(3,4)` was treated as a list ctor.
+      Fix: (1) `collectStandaloneCaseClasses` collects case classes not extending any sealed trait;
+      (2) `renderStruct` emits `pub struct T { pub field: Type, }`;
+      (3) struct ctors added to ctorMap; (4) user ctors take priority over stdlib names in Apply.
+      Also added generic `Term.Select(qual, field)` → `qual.field` for struct field access.
+      Fixed 2026-06-08.
 
 - [ ] **rust-fix-effect-pure** — `effect-pure` bench: `Int ! Logger` effect type
       unsupported.  Effects are not on the Rust backend roadmap.
