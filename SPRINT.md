@@ -67,11 +67,12 @@ Ordered simplest-first.
       every generated function.  Fixed: replaced `.collect` with top-level-only
       `stats` from `m.Source`/`m.Term.Block` direct children.  Fixed 2026-06-08.
 
-- [ ] **rust-fix-either-chain-select-chain** — `either-chain` bench: method chain
-      `parse(i+1).map(...).flatMap(...).fold(...)` — the `fold` call on the
-      result of `flatMap` isn't resolved because `isEitherExpr(qual)` fails to
-      see through the chain.
-      Fix: make `isEitherExpr` aware of `.map`/`.flatMap` results as Either exprs.
+- [x] **rust-fix-either-chain-select-chain** — `either-chain` bench: `parse(i+1).map(...).flatMap(...).fold(...)` failed
+      because `isEitherExpr(parse(i+1))` returned false (user function calls not recognized).
+      Fix: added a heuristic case to `isEitherExpr`: any `Term.Apply` that is NOT
+      a known Option/List/Map constructor is treated as potentially Either-shaped.
+      Generated Rust uses nested `match` expressions — verbose but correct.
+      Fixed 2026-06-08.
 
 - [ ] **rust-fix-instance-field-vec-type** — `instance-field` bench: `Vec[Double]`
       not yet in `mapType`; reports "uses type Vec; R.2 accepts primitives…".

@@ -1120,6 +1120,14 @@ object RustCodeWalk:
       m.Term.Select(inner, m.Term.Name("map" | "flatMap" | "fold")),
       _
     ) if isEitherExpr(inner) => true
+    // User function calls may return Either — heuristic: treat any Apply
+    // (except known Option/List/Map ctors) as possibly Either-shaped so that
+    // method chains like `parse(x).map(f).flatMap(g).fold(l, r)` render correctly.
+    case m.Term.Apply.After_4_6_0(fn, _) =>
+      fn match
+        case m.Term.Name("Some" | "List" | "Vec" | "Map") => false
+        case m.Type.Apply.After_4_6_0(m.Type.Name("Map" | "List" | "Vec"), _) => false
+        case _ => !isOptionExpr(term)
     case _ => false
 
   /** Best-effort check that a term is an Option-shaped expression so we can
