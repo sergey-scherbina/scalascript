@@ -146,7 +146,7 @@ fix, and don't require a runtime refactor.
 
 ### P0 — parser/resolver, hit on every new phase
 
-- [ ] **busi-p0-try-catch-handler** — `try / catch _ => ...`
+- [x] **busi-p0-try-catch-handler** — `try / catch _ => ...`
       (`Term.TryWithHandler`) is not supported — only `try / catch case
       _ => ...`. Either support both forms or emit a parser message
       suggesting `case`.
@@ -164,7 +164,7 @@ fix, and don't require a runtime refactor.
 
 ### P1 — pre-existing bug surfaced during busi phase 89d testing
 
-- [ ] **busi-p1-phase90-rule-bool-coercion** — `make test-phase90-rule`
+- [x] **busi-p1-phase90-rule-bool-coercion** — `make test-phase90-rule`
       and `test-phase90i` fail with `Cannot apply unary ! to 1` at
       `tests/phase90-rule/rule-pack.ssc:118`, on the `Activity(org,
       "act-immigration", actor, Immigration, ..., Active, Map(), 1)`
@@ -188,7 +188,7 @@ fix, and don't require a runtime refactor.
       Array) crashes — forcing `.toList` everywhere. Add the 2-arg form
       and make `.map` work on the split result directly.
 
-- [ ] **busi-p1-map-getorelse-null-semantics** — `Map.getOrElse(key,
+- [x] **busi-p1-map-getorelse-null-semantics** — `Map.getOrElse(key,
       default)` returns `null` when the present value is null (SQLite
       `NULL`). Semantics "absent vs. null" should be resolved in
       favour of `default`.
@@ -208,7 +208,7 @@ fix, and don't require a runtime refactor.
       in a separate scan function returning a primitive.  Found in busi
       phase 44 `applyRetirement`.
 
-- [ ] **busi-p1-map-concat-returns-tuplev** — `Map(...) ++ otherMap`
+- [x] **busi-p1-map-concat-returns-tuplev** — `Map(...) ++ otherMap`
       returns `TupleV((Map(...), Map(...)))` instead of a merged map.
       Subsequent `.get(key)` then crashes with `No method 'get' on
       TupleV(...)`.  Found by busi in phase 89a (`seedRitualsForActivityKind`).

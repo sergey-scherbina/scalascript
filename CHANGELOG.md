@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — fix(interp): busi wave-2 — 4 interpreter fixes
+
+- **busi-p0-try-catch-handler** — `Term.TryWithHandler` now supported; eval `catchp` as a fn, call with caught exception.
+- **busi-p1-map-concat-returns-tuplev** — `Map ++ Map` in `infix2` correctly merges instead of wrapping in TupleV.
+- **busi-p1-map-getorelse-null-semantics** — `getOrElse` returns default when stored value is `NullV` (SQLite NULL).
+- **busi-p1-phase90-rule-bool-coercion** — Unary `!` on `IntV` coerces to Bool (`!0 = true`, `!nonzero = false`).
+
 ## 2026-06-09 — feat(typer): platform-type ban Phase 2 + feat(parser): backend blocks Phase 1
 
 - **backend-blocks-p1-parse** — Lang.Java/Rust/Wasm + isNativeBackendBlock + isOpaqueExec; 17 tests.
