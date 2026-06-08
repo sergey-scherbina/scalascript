@@ -793,3 +793,91 @@ or example demands it. Order below is priority for triage when claiming.
       tramp/`while`-rewrite the JVM target uses, since `rustc` does not
       guarantee TCO. Acceptance: `tco-fib.ssc` — runs to 10M iterations
       without stack overflow; matches interpreter row.
+
+---
+
+## std.fs / std.os / std.process — filesystem, OS & process abstraction (new)
+
+**Motivation:** `.sc` tool scripts (`bench/run.sc`, `tests/e2e/spa-smoke.sc`)
+use `java.io`/`java.nio` directly. `.ssc` user code must never reach for JVM
+APIs. `runtime/std/fs.ssc` exists but is only 4 stubs with no backend plugin.
+Goal: full cross-backend `fs-plugin` + `os-plugin` so `.ssc` code has zero
+reason to touch platform APIs.
+
+Three `.ssc` stdlib modules:
+- `std.fs` — file-system operations (read/write/list/copy/move/delete/temp)
+- `std.os` — OS environment (env vars, CLI args, cwd, paths, exit, platform info)
+- `std.process` — process management (spawn, exec, stdin/stdout/stderr, wait, kill)
+
+Spec to write first: `specs/std-fs-os.md`
+
+### Phase 1 — spec + design
+
+- [ ] **std-fs-os-p1-spec** — Write `specs/std-fs-os.md`. Cover:
+
+      **`std.fs`**: readFile, writeFile, appendFile, deleteFile, exists,
+      isDir, isFile, mkdir, mkdirs, listDir, copyFile, moveFile,
+      readBytes, writeBytes; `FsError` sealed trait (NotFound,
+      PermissionDenied, NotSupported, IoError); `Feature.FileSystem` gate.
+
+      **`std.os`**: env(key), envOrElse(key, default), args: List[String],
+      exit(code), cwd, sep, pathJoin(parts*), pathDirname, pathBasename,
+      pathExtname, pathResolve, pathIsAbsolute, tempDir, tempFile,
+      platform: Platform (Jvm | NodeJs | Browser | Native),
+      homedir, hostname.
+
+      **`std.process`**: exec(cmd, args, opts) → ProcessResult
+      (stdout, stderr, exitCode); spawn(cmd, args, opts) → Process
+      (write to stdin, read stdout/stderr as streams, wait, kill);
+      ProcessOptions (cwd, env, timeout); ProcessError sealed trait.
+      Note: Browser target throws ProcessError.NotSupported for all ops.
+
+      JS-Node vs JVM vs Rust vs browser-sandbox policy for each module.
+      Commit: `spec: std-fs-os`.
+
+### Phase 2 — JVM backend (fs-plugin + os-plugin)
+
+- [ ] **std-fs-os-p2-jvm** — Create `runtime/std/fs-plugin/` with
+      `FsPlugin.scala` + `FsIntrinsics.scala` (std.fs + std.os).
+      Create `runtime/std/os-plugin/` with `OsPlugin.scala` +
+      `OsIntrinsics.scala` (std.process via `ProcessBuilder`).
+      JVM impl: `java.nio.file`, `System.getenv`, `ProcessBuilder`.
+      Register both in `build.sbt`. Conformance tests:
+      `tests/conformance/fs-*.ssc`, `tests/conformance/os-*.ssc`,
+      `tests/conformance/process-*.ssc`. Commit: `feat(fs-plugin): JVM backend`.
+
+### Phase 3 — JS/Node backend
+
+- [ ] **std-fs-os-p3-js** — Node.js preamble wiring `std.fs` → `node:fs`,
+      `std.os` → `node:os` + `node:path`, `std.process` → `node:child_process`.
+      Browser: `FsError.NotSupported` / `ProcessError.NotSupported` for
+      fs/process ops; env returns `{}`, args returns `[]`, platform = Browser.
+      Same conformance tests pass on Node target.
+      Commit: `feat(fs-plugin): JS/Node backend`.
+
+### Phase 4 — Rust backend
+
+- [ ] **std-fs-os-p4-rust** — `RustGen` lowering: `std.fs` → `std::fs`,
+      `std.os` → `std::env` + `std::path`, `std.process` → `std::process::Command`.
+      Conformance snapshot for Rust target.
+      Commit: `feat(fs-plugin): Rust backend`.
+
+### Phase 5 — stdlib .ssc files + examples
+
+- [ ] **std-fs-os-p5-stdlib** — Add `runtime/std/os.ssc` and
+      `runtime/std/process.ssc` alongside existing `fs.ssc`. Expand
+      `fs.ssc` with new extern signatures. Add runnable examples:
+      `examples/fs-roundtrip.ssc`, `examples/os-env.ssc`,
+      `examples/process-exec.ssc`. Update `README.md` capabilities table.
+      Commit: `feat(std): fs/os/process stdlib modules`.
+
+### Phase 6 — audit & boundary documentation
+
+- [ ] **std-fs-os-p6-cleanup** — Audit all `.ssc` files for `java.*`
+      imports; migrate any found to `std.fs`/`std.os`/`std.process`.
+      Note in `specs/std-fs-os.md` §"Scope": `.sc` Scala-CLI host
+      scripts (bench/run.sc etc.) may use JVM APIs — that is intentional.
+      Add one-liner to `AGENTS.md` §"Codebase architecture rules":
+      "`.ssc` user code must never import `java.*` — use `std.fs`,
+      `std.os`, `std.process` instead."
+      Commit: `docs(std-fs-os): boundary rule in AGENTS.md + spec`.

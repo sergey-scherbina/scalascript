@@ -7173,3 +7173,54 @@ Effort: ~3 days (notarize flow + DMG + fastlane Mac lanes + toolchain setup-sign
 - Compile-time path validation against model schema
 - Lambda-template syntax `ModelView(s) { bs => ... }` (deferred; needs proxy
   evaluation in interpreter — see §10.A of spec)
+
+---
+
+## std.fs / std.os / std.process — filesystem, OS & process abstraction
+
+**Status:** open — spec not yet written (added 2026-06-08)
+
+**Motivation:**
+`runtime/std/fs.ssc` has 4 extern stubs but no backend plugin. Tool scripts
+(`bench/run.sc`, `tests/e2e/spa-smoke.sc`) use `java.io`/`java.nio` directly.
+`.ssc` user code must never reach for platform APIs. This milestone creates:
+- `fs-plugin` — full filesystem ops (JVM + JS/Node + Rust)
+- `os-plugin` — OS environment + process management (JVM + JS/Node + Rust)
+- `std.os.ssc` + `std.process.ssc` stdlib modules alongside expanded `fs.ssc`
+
+Note: `.sc` Scala-CLI scripts (bench/run.sc etc.) are host tooling and may
+use JVM APIs — they are not `.ssc` user code. The boundary to enforce: any
+`.ssc` file importing `java.*` is a bug.
+
+**Three stdlib modules:**
+
+`std.fs` — readFile, writeFile, appendFile, deleteFile, exists, isDir,
+isFile, mkdir, mkdirs, listDir, copyFile, moveFile, readBytes, writeBytes;
+`FsError` sealed trait (NotFound, PermissionDenied, NotSupported, IoError).
+
+`std.os` — env(key), envOrElse, args, exit, cwd, sep, pathJoin, pathDirname,
+pathBasename, pathExtname, pathResolve, pathIsAbsolute, tempDir, tempFile,
+platform: Platform (Jvm|NodeJs|Browser|Native), homedir, hostname.
+
+`std.process` — exec(cmd, args, opts) → ProcessResult (stdout, stderr,
+exitCode); spawn(cmd, args, opts) → Process (stdin write, stdout/stderr
+streams, wait, kill); ProcessOptions (cwd, env, timeout);
+ProcessError.NotSupported on Browser target.
+
+**Phases:**
+
+- [ ] **std-fs-os-p1-spec** — `specs/std-fs-os.md`: all three modules,
+      error models, backend policy table (JVM/Node/Browser/Rust).
+- [ ] **std-fs-os-p2-jvm** — `fs-plugin/` + `os-plugin/`; JVM impls via
+      `java.nio.file` + `ProcessBuilder`; conformance tests.
+- [ ] **std-fs-os-p3-js** — Node preamble (`node:fs`, `node:os`,
+      `node:path`, `node:child_process`); browser NotSupported stubs.
+- [ ] **std-fs-os-p4-rust** — `RustGen` lowering (`std::fs`, `std::env`,
+      `std::process::Command`); conformance snapshot.
+- [ ] **std-fs-os-p5-stdlib** — `os.ssc` + `process.ssc` stdlib files;
+      examples (`fs-roundtrip.ssc`, `os-env.ssc`, `process-exec.ssc`).
+- [ ] **std-fs-os-p6-cleanup** — Audit `.ssc` for java imports; boundary
+      rule in `AGENTS.md` + `specs/std-fs-os.md`.
+
+**Acceptance:** `ssc run examples/fs-roundtrip.ssc` + `examples/process-exec.ssc`
+green on interpreter + JS/Node + Rust. No `.ssc` file imports `java.*`.
