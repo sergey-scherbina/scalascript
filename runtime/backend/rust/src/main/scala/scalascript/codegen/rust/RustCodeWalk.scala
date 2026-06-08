@@ -901,6 +901,16 @@ object RustCodeWalk:
     ) if args.values.isEmpty =>
       renderTerm(qual, ctx).map(q => s"$q.trim().to_string()")
 
+    // `(s: String).split(sep, limit)` emits `Vec<String>` with `splitn`.
+    // Cast `limit` to `usize` to match Rust API.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("split")), args)
+        if args.values.size == 2 =>
+      for
+        q <- renderTerm(qual, ctx)
+        sep <- renderTerm(args.values(0), ctx)
+        lim <- renderTerm(args.values(1), ctx)
+      yield s"$q.splitn($lim as usize, $sep).map(|p| p.to_string()).collect::<Vec<String>>()"
+
     // `(s: String).split(sep)` emits `Vec<String>`, matching bench expectations.
     // Use `to_string` on each slice because Rust split yields `&str`.
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("split")), args)

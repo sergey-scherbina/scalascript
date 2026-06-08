@@ -120,6 +120,16 @@ class RustGenR23Test extends AnyFunSuite:
     assert(g.contains(".trim().to_string()"))
     assert(g.contains(".parse::<i32>().unwrap_or(0)"))
 
+  test("String.split(sep, limit) supports Vec-like chaining"):
+    val src =
+      """```scalascript
+        |def pick(): List[String] = "a,b,c".split(",", 2).map(s => s.trim)
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains(".splitn(2i64 as usize, \",\")"))
+    assert(g.contains("map(|p| p.to_string()).collect::<Vec<String>>()"))
+
   test("String.toInt uses numeric parse on string literals"):
     val src =
       """```scalascript

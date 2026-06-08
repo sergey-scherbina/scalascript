@@ -59,7 +59,7 @@ fix, and don't require a runtime refactor.
 - [ ] **busi-p1-map-direct-apply** — `map(key)` direct access throws
       "Instance is not callable". Add `apply` on `Map`.
 
-- [ ] **busi-p1-string-split-2arg-and-map** — `String.split(sep, limit)`
+- [x] **busi-p1-string-split-2arg-and-map** — `String.split(sep, limit)`
       (2-arg form) does not exist; `.map` on the raw split result (Java
       Array) crashes — forcing `.toList` everywhere. Add the 2-arg form
       and make `.map` work on the split result directly.
