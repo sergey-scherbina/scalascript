@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — feat(parser): backend-specific fenced blocks Phase 1
+
+- **backend-blocks-p1-parse** — Lang.Java/Rust/Wasm constants + isNativeBackendBlock
+  + isOpaqueExec wiring; java/rust/wasm blocks classified as EmbeddedKind.Opaque
+  (verbatim source, not parsed by scalameta). 17 new tests (906 total pass).
+
 ## 2026-06-08 — fix(rust): 3 bench rustc errors + CallRuntime MapV type fix
 
 - **rust-fix-bench-non-i64-return** — `bench/run.sc` `_run_workload()` now

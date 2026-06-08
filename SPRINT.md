@@ -932,11 +932,13 @@ Spec: [`specs/backend-specific-blocks.md`](specs/backend-specific-blocks.md)
 
 ### Phase 1 — parser
 
-- [ ] **backend-blocks-p1-parse** — Extend parser to recognise
+- [x] **backend-blocks-p1-parse** — Extend parser to recognise
       `scala`, `java`, `javascript`, `rust`, `wasm` fenced blocks as
       `BackendBlock(tag, source)` AST nodes. Existing `scalascript`
       blocks unchanged. Tests: mixed-block file parses correctly.
       Commit: `feat(parser): backend-specific fenced blocks`.
+      ✓ Landed 2026-06-09 (745c963a): Lang.Java/Rust/Wasm + isNativeBackendBlock
+      + isOpaqueExec wiring; 17 new tests, 906 core tests pass.
 
 ### Phase 2 — type-checker enforcement
 
