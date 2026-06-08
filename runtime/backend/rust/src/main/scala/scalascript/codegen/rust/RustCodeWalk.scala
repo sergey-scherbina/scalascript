@@ -446,6 +446,19 @@ object RustCodeWalk:
           Left(List(unsupported(
             s"def `$defName` uses invalid `Option` application; expected one type arg"
           )))
+    // Map[K, V] lowers to `std::collections::HashMap<K, V>`.
+    case m.Type.Apply.After_4_6_0(m.Type.Name("Map"), argClause)
+        if argClause.values.size == 2 =>
+      argClause.values.toList match
+        case List(k, v) =>
+          for
+            keyRs <- mapType(k, defName, enumNames)
+            valRs <- mapType(v, defName, enumNames)
+          yield s"std::collections::HashMap<$keyRs, $valRs>"
+        case _ =>
+          Left(List(unsupported(
+            s"def `$defName` has `Map` with ${argClause.values.size} type args; expected two"
+          )))
     case m.Type.Tuple(elems) =>
       val rendered = elems.toList.map(mapType(_, defName, enumNames))
       val (errs, ok) = rendered.partitionMap(identity)
@@ -650,6 +663,25 @@ object RustCodeWalk:
       renderTerm(qual, ctx).map(q => s"format!(\"{}\", $q)")
     case m.Term.Select(qual, m.Term.Name("trim")) =>
       renderTerm(qual, ctx).map(q => s"$q.trim().to_string()")
+    case m.Term.Apply.After_4_6_0(
+      m.Term.Select(qual, m.Term.Name("updated")),
+      args
+    ) if args.values.size == 2 =>
+      for
+        q <- renderTerm(qual, ctx)
+        k <- renderTerm(args.values(0), ctx)
+        v <- renderTerm(args.values(1), ctx)
+      yield s"{\n    let mut m2 = $q.clone();\n    m2.insert($k, $v);\n    m2\n  }"
+    case m.Term.Apply.After_4_6_0(
+      m.Term.Select(qual, m.Term.Name("getOrElse")),
+      args
+    ) if args.values.size == 2 && !isOptionExpr(qual) =>
+      for
+        q <- renderTerm(qual, ctx)
+        k <- renderTerm(args.values(0), ctx)
+        d <- renderTerm(args.values(1), ctx)
+      yield s"$q.get(&$k).copied().unwrap_or($d)"
+
     // Option constructors and methods.
     case m.Term.Name("None") => Right("None")
     // Some scalameta versions parse `x => body` as `Term.AnonymousFunction`
@@ -816,7 +848,14 @@ object RustCodeWalk:
         val isListCtor = fn match
           case m.Term.Name("List" | "Vec") => true
           case _                            => false
+        val isMapCtor = fn match
+          case m.Term.Name("Map") => true
+          case m.Term.ApplyType.After_4_6_0(m.Term.Name("Map"), _) => true
+          case _                    => false
         if isListCtor then Right(s"vec![$joined]")
+        else if isMapCtor then
+          if args.values.isEmpty then Right("std::collections::HashMap::new()")
+          else Left(List(unsupported(s"def `${ctx.defName}` uses `Map` with ${args.values.size} args; only empty `Map()` is supported")))
         else applyNonListCtor(fn, callee, renderedArgs, joined, ctx)
 
     // `String + any` / `any + String` — lower to `format!("{}{}", lhs, rhs)`.

@@ -683,7 +683,7 @@ by quick-win impact; P0 alone unlocks 7 benchmarks with tiny changes.
 
 ### P3 — additional types (M–L)
 
-- [ ] **rust-bench-p3-hashmap-type** — Map `Map[K, V]` to
+- [x] **rust-bench-p3-hashmap-type** — Map `Map[K, V]` to
       `std::collections::HashMap<K, V>` (dep-free); add `.updated(k, v)`
       → `{ let mut m2 = m.clone(); m2.insert(k, v); m2 }`, `.getOrElse`
       → `.get(&k).copied().unwrap_or(default)`.  Acceptance:

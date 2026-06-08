@@ -144,6 +144,19 @@ class RustGenR23Test extends AnyFunSuite:
     assert(g.contains("(i as f64)"))
     assert(g.contains("format!(\"{}{}\", \"item-\".to_string(), i)"))
 
+  test("Map[K, V] lowers to HashMap and supports updated/getOrElse"):
+    val src =
+      """```scalascript
+        |def makeMap(): Map[Int, Int] = Map[Int, Int]().updated(1, 10)
+        |def readMap(k: Int): Int = makeMap().getOrElse(k, 0)
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("pub fn makeMap() -> std::collections::HashMap<i64, i64>"))
+    assert(g.contains("HashMap::new()"))
+    assert(g.contains("let mut m2 ="))
+    assert(g.contains(".insert(1i64, 10i64);"))
+    assert(g.contains(".get(&k).copied().unwrap_or(0i64)"))
+
   test("Option type maps to Rust Option and constructors"):
     val src =
       """```scalascript
