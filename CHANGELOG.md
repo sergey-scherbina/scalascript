@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — feat(rust): R.6.5 — TCO via while-loop rewrite (rust-backend-r6-tco)
+
+- **rust-backend-r6-tco** — Self-tail-recursive defs rewritten to `loop { ... }`;
+  tail calls become param reassignments. Binary-recursive fns unchanged. 7 new tests.
+
+---
+
+---
+
 ## 2026-06-09 — fix(interp/cli): busi wave-3 — arrow-vs-plus, emit-js process.stdout
 
 - **busi-p1-arrow-vs-plus-precedence** — `dispatchTuple` absorbs `+` into 2-tuple string tail (runtime fix for `Map("k" -> prefix + val)` precedence).

@@ -882,10 +882,11 @@ or example demands it. Order below is priority for triage when claiming.
       multi-shot negative test (`nondet-choice.ssc`); now it produces
       the same multi-result output as the interpreter row.
 
-- [ ] **rust-backend-r6-tco** — `Feature.TailCallOptimization` via the
-      tramp/`while`-rewrite the JVM target uses, since `rustc` does not
-      guarantee TCO. Acceptance: `tco-fib.ssc` — runs to 10M iterations
-      without stack overflow; matches interpreter row.
+- [x] **rust-backend-r6-tco** — `Feature.TailCallOptimization` via while-loop
+      rewrite: `hasTailCallPath` detects self-calls in if/else + block tails;
+      params get `mut`; tail calls → temp bindings + param reassignments; branches
+      get `return`. Binary-recursive fns (e.g. fib) are NOT rewritten (safe).
+      7 tests (147 total). Landed 2026-06-09.
 
 - [ ] **rust-backend-r6-websockets** — `Feature.WebSockets`, intrinsics
       `wsRoute`/`wsConnectSync` via `tokio-tungstenite`. Mirrors
