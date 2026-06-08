@@ -1,0 +1,1 @@
+rust-backend-r6-mcp: Feature.McpServer via hand-rolled JSON-RPC 2.0 over stdio
