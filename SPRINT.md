@@ -60,11 +60,12 @@ Ordered simplest-first.
 
 ### Rust codegen gaps (from bench.sh 2026-06-08, `rustc` or codegen errors; ordered by difficulty)
 
-- [ ] **rust-fix-option-chain-var-scope** — `option-chain` bench: `rustc` reports
-      `cannot find value 'i' in this scope`.  A variable reference inside a
-      while-body is lost when rendered inside a nested option-chain closure.
-      Likely free-var capture issue in `renderClosure` / `renderBody`.
-      Bench: `bench/corpus/option-chain.ssc`.
+- [x] **rust-fix-option-chain-var-scope** — `option-chain` bench: `cannot find value 'i'`.
+      Root cause: `contentTopVals` used `node.tree.collect { case v: Defn.Val }` which
+      recursively found ALL `val` bindings in the tree (including those inside
+      `while` bodies of `def`s), injecting them as top-level `let` bindings into
+      every generated function.  Fixed: replaced `.collect` with top-level-only
+      `stats` from `m.Source`/`m.Term.Block` direct children.  Fixed 2026-06-08.
 
 - [ ] **rust-fix-either-chain-select-chain** — `either-chain` bench: method chain
       `parse(i+1).map(...).flatMap(...).fold(...)` — the `fold` call on the

@@ -128,7 +128,14 @@ object RustCodeWalk:
   ): Unit = c match
     case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _)
         if isScalaLang(lang) =>
-      node.tree.collect { case v: m.Defn.Val => v }.foreach { v =>
+      // Only look at TOP-LEVEL statements — not nested inside Defn.Def bodies.
+      // tree.collect traverses the whole tree and would pick up val bindings
+      // inside function bodies (e.g. `val r = ...` in a while loop).
+      val topStats: List[m.Tree] = node.tree match
+        case m.Source(stats)     => stats.toList
+        case m.Term.Block(stats) => stats.toList
+        case single              => List(single)
+      topStats.collect { case v: m.Defn.Val => v }.foreach { v =>
         v.pats match
           case List(m.Pat.Var(m.Term.Name(name))) =>
             renderTerm(v.rhs, ctx).foreach(init => found += ((name, init)))
