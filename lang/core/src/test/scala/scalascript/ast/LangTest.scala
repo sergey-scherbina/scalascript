@@ -84,4 +84,25 @@ class LangTest extends AnyFunSuite:
     assert(Lang.label("node")        == "Node.js")
     assert(Lang.label("sql")         == "SQL")
     assert(Lang.label("python")      == "python") // unknown tags echo verbatim
+    assert(Lang.label("java")        == "Java")
+    assert(Lang.label("rust")        == "Rust")
+    assert(Lang.label("wasm")        == "WASM")
+  }
+
+  test("java / rust / wasm are native backend blocks and opaque exec") {
+    for tag <- List("java", "rust", "wasm") do
+      assert(Lang.isNativeBackendBlock(tag), s"$tag must be native backend block")
+      assert(Lang.isOpaqueExec(tag),         s"$tag must be opaque exec")
+      assert(!Lang.isParseable(tag),         s"$tag must not be parseable")
+      assert(!Lang.isStringBlock(tag),       s"$tag must not be string block")
+      assert(!Lang.isScalaScript(tag),       s"$tag must not be scalascript")
+      assert(!Lang.isStandardScala(tag),     s"$tag must not be standard scala")
+  }
+
+  test("java is not confused with javascript or node") {
+    assert(!Lang.isJavaScript("java"))
+    assert(!Lang.isNode("java"))
+    assert(!Lang.isNativeBackendBlock("javascript"))
+    assert(!Lang.isNativeBackendBlock("node.js"))
+    assert(!Lang.isNativeBackendBlock("scala"))
   }

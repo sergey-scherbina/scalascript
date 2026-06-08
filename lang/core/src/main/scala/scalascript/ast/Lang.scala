@@ -37,6 +37,17 @@ package scalascript.ast
  *  parsed by `PureMarkupCodec`, producing a `Value.MarkupV(doc)`.
  *  Bound as `<sectionIdent>.xml` in the interpreter's global scope.
  *  See `isXml` and BACKLOG.md §v1.55.2.
+ *
+ *  `java` — Java source for the JVM backend.  Emitted as a separate
+ *  `.java` source file via `//> using sources` by JvmGen.  Other backends
+ *  reject via `UnknownBlockLanguage`.  See `isNativeBackendBlock`.
+ *
+ *  `rust` — Rust source for the Rust backend.  Emitted verbatim into
+ *  `mod inline_native` in the generated crate.  Other backends reject.
+ *  See `isNativeBackendBlock`.
+ *
+ *  `wasm` — WAT or Rust-WASM source for the WASM backend.  Backend
+ *  decides the exact mechanism.  See `isNativeBackendBlock`.
  */
 object Lang:
   val Scala       = "scala"
@@ -52,6 +63,9 @@ object Lang:
   val Transaction = "transaction"
   val Xml         = "xml"
   val Graphql     = "graphql"
+  val Java        = "java"
+  val Rust        = "rust"
+  val Wasm        = "wasm"
 
   def isScalaScript(lang: String): Boolean =
     lang == ScalaScript || lang == Ssc
@@ -86,20 +100,35 @@ object Lang:
   def isParseable(lang: String): Boolean =
     isScalaScript(lang) || isStandardScala(lang)
 
+  def isJava(lang: String): Boolean =
+    lang == Java
+
+  def isRust(lang: String): Boolean =
+    lang == Rust
+
+  def isWasm(lang: String): Boolean =
+    lang == Wasm
+
+  /** True for backend-specific fenced blocks: `java`, `rust`, `wasm`.
+   *  These are opaque native-code blocks passed verbatim to the matching
+   *  backend (`java`/`scala` → JvmGen, `rust` → RustGen, `wasm` → WasmGen).
+   *  Other backends reject them via `Diagnostic.UnknownBlockLanguage`.
+   *  See `specs/backend-specific-blocks.md`. */
+  def isNativeBackendBlock(lang: String): Boolean =
+    isJava(lang) || isRust(lang) || isWasm(lang)
+
   /** True for blocks that are opaque executable code passed verbatim
    *  to a target-specific runtime.  Neither parsed nor a String value
    *  at the AST level.  Only backends that declare the lang tag in
    *  `Capabilities.blockLanguages` recognise these; all others emit
    *  `Diagnostic.UnknownBlockLanguage`.
    *
-   *  Today: `node.js` (consumed by the Node backend), `sql`
-   *  (consumed by the JVM target via `backend-sql-runtime`), and
-   *  `transaction` (multi-statement JDBC transaction, JVM only).
-   *  `xml` fenced blocks (v1.55.2+) are also opaque-exec — the
-   *  backend that declares `Lang.Xml` in `blockLanguages` handles
-   *  them; others emit `UnknownBlockLanguage`. */
+   *  Includes: `node.js` (Node backend), `sql`/`transaction` (JVM JDBC),
+   *  `xml` (v1.55.2+), `graphql`, and native backend blocks
+   *  (`java`, `rust`, `wasm` — see `isNativeBackendBlock`). */
   def isOpaqueExec(lang: String): Boolean =
-    isNode(lang) || isSql(lang) || isTransaction(lang) || isXml(lang) || isGraphql(lang)
+    isNode(lang) || isSql(lang) || isTransaction(lang) || isXml(lang) || isGraphql(lang) ||
+    isNativeBackendBlock(lang)
 
   /** True for opaque-exec blocks whose source is rewritten by the
    *  front-end into a `(template, binds)` pair before the backend
@@ -122,4 +151,7 @@ object Lang:
     case Transaction               => "SQL Transaction"
     case Xml                       => "XML"
     case Graphql                   => "GraphQL"
+    case Java                      => "Java"
+    case Rust                      => "Rust"
+    case Wasm                      => "WASM"
     case other                     => other
