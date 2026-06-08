@@ -49,6 +49,66 @@ class RustGenR23Test extends AnyFunSuite:
     val g = gen(src)
     assert(g.contains("Shape::Circle { r: 1.5f64 }"))
 
+  test("sealed trait + case class ADT emits Rust enum variants"):
+    val src =
+      """```scalascript
+        |sealed trait Shape
+        |case class Circle(r: Double) extends Shape
+        |case class Square(s: Double) extends Shape
+        |
+        |def area(s: Shape): Double = s match
+        |  case Circle(r) => 3.14 * r * r
+        |  case Square(s) => s * s
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("pub enum Shape {"))
+    assert(g.contains("Circle { r: f64 }"))
+    assert(g.contains("Square { s: f64 }"))
+    assert(g.contains("Shape::Circle { r: "))
+
+  test("sealed trait case-class constructors call as enum variants"):
+    val src =
+      """```scalascript
+        |sealed trait Shape
+        |case class Circle(r: Double) extends Shape
+        |
+        |def mk(): Shape = Circle(1.5)
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("Shape::Circle { r: 1.5f64 }"))
+
+  test("tuple type maps to Rust tuple syntax"):
+    val src =
+      """```scalascript
+        |def make(): (Int, Double, String) = (1, 2.0, "ok")
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("pub fn make() -> (i64, f64, String)"))
+    assert(g.contains("(1i64, 2f64, \"ok\".to_string())"))
+
+  test("tuple ++ tuple-literal flattening emits one wider tuple"):
+    val src =
+      """```scalascript
+        |def concat(): (Int, Int, Int, Int) = (1, 2) ++ (3, 4)
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("pub fn concat() -> (i64, i64, i64, i64)"))
+    assert(g.contains("(1i64, 2i64, 3i64, 4i64)"))
+
+  test("tuple ++ nested-literal chain flattens recursively"):
+    val src =
+      """```scalascript
+        |def concat(): (Int, Int, Int, Int, Int, Int) = (1, 2) ++ (3, 4) ++ (5, 6)
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("pub fn concat() -> (i64, i64, i64, i64, i64, i64)"))
+    assert(g.contains("(1i64, 2i64, 3i64, 4i64, 5i64, 6i64)"))
+
   test("Term.Match lowers to Rust match with pattern destructuring"):
     val src =
       """```scalascript

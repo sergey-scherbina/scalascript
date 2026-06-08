@@ -663,14 +663,14 @@ by quick-win impact; P0 alone unlocks 7 benchmarks with tiny changes.
 
 ### P2 — types + patterns (M)
 
-- [ ] **rust-bench-p2-sealed-trait-adt** — Recognise `sealed trait T`
+- [x] **rust-bench-p2-sealed-trait-adt** — Recognise `sealed trait T`
       + `case class C extends T` pattern: collect both forms in a single
       ADT scan and lower to a Rust `pub enum T { C { … }, … }` just as
       the existing Scala 3 `enum` lowering does.  Acceptance:
       `pattern-match-heavy.ssc` green (requires `foreach` from P1 too).
       Spec: §Gap F.
 
-- [ ] **rust-bench-p2-tuple-types** — Map `Type.Tuple(elems)` to Rust
+- [x] **rust-bench-p2-tuple-types** — Map `Type.Tuple(elems)` to Rust
       tuple `(T1, T2, …)` in `mapType`; add `Lit.Tuple(elems)` / 
       `Term.Tuple(elems)` emit in `renderTerm`.  Lower the `++`
       concat operator on two tuple literals to a flat tuple.  Acceptance:

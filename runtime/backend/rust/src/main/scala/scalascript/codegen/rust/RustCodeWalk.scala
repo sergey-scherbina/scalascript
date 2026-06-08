@@ -41,10 +41,13 @@ object RustCodeWalk:
   ): Either[List[Diagnostic], WalkResult] =
     val defs       = collectDefs(module)
     val enums      = collectEnums(module)
+    val traitEnums = collectSealedTraitEnums(module)
     val topVals    = collectTopVals(module)
     val rustBlocks = collectRustBlocks(module)
     val userDefs   = defs.map(_.name.value).toSet
-    val enumRendered = enums.map(renderEnum)
+    val enumRendered =
+      enums.map(renderEnum) ++
+      traitEnums.map { case SealedTraitEnum(t, caseClasses) => renderTraitEnum(t, caseClasses) }
     val (enumErrs, enumOk) = enumRendered.partitionMap(identity)
     val ctorMap = enumOk.flatMap(_.ctors).toMap
     val results = defs.map(renderDef(_, intrinsics, userDefs, ctorMap, topVals))
@@ -166,6 +169,68 @@ object RustCodeWalk:
       node.tree.collect { case d: m.Defn.Enum => d }.toList
     case _ => Nil
 
+  /** A `sealed trait` + its associated case classes. */
+  private case class SealedTraitEnum(
+      traitDef:    m.Defn.Trait,
+      caseClasses: List[m.Defn.Class]
+  )
+
+  /** Collect each `sealed trait` and all `case class` extending it in source order. */
+  private def collectSealedTraitEnums(module: ast.Module): List[SealedTraitEnum] =
+    val traits  = module.sections.flatMap(sectionTraits)
+    val classes = module.sections.flatMap(sectionClasses)
+    traits
+      .map { t =>
+        SealedTraitEnum(
+          t,
+          classes.filter(c => isCaseClass(c) && caseClassExtendsTrait(c, t.name.value))
+        )
+      }
+      .filter(_.caseClasses.nonEmpty)
+
+  private def sectionTraits(s: ast.Section): List[m.Defn.Trait] =
+    s.content.flatMap(contentTraits) ++ s.subsections.flatMap(sectionTraits)
+
+  private def contentTraits(c: ast.Content): List[m.Defn.Trait] = c match
+    case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _)
+        if isScalaLang(lang) =>
+      node.tree.collect {
+        case d: m.Defn.Trait if isSealedTrait(d) => d
+      }.toList
+    case _ => Nil
+
+  private def sectionClasses(s: ast.Section): List[m.Defn.Class] =
+    s.content.flatMap(contentClasses) ++ s.subsections.flatMap(sectionClasses)
+
+  private def contentClasses(c: ast.Content): List[m.Defn.Class] = c match
+    case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _)
+        if isScalaLang(lang) =>
+      node.tree.collect { case d: m.Defn.Class => d }.toList
+    case _ => Nil
+
+  private def isSealedTrait(t: m.Defn.Trait): Boolean =
+    t.mods.exists {
+      case m.Mod.Sealed() => true
+      case _              => false
+    }
+
+  private def isCaseClass(c: m.Defn.Class): Boolean =
+    c.mods.exists {
+      case m.Mod.Case() => true
+      case _            => false
+    }
+
+  private def caseClassExtendsTrait(c: m.Defn.Class, traitName: String): Boolean =
+    c.templ.inits.exists(init => parentTypeName(init).contains(traitName))
+
+  private def parentTypeName(init: m.Init): Option[String] = init.tpe match
+    case m.Type.Name(n) => Some(n)
+    case t: m.Type.Apply =>
+      t.tpe match
+        case m.Type.Name(n) => Some(n)
+        case _              => None
+    case _ => None
+
   /** Lower a Scala 3 `enum E { case A(x: T); … }` to a Rust enum:
    *
    *  ```rust
@@ -199,6 +264,73 @@ object RustCodeWalk:
         val ctors = ok.map(_._2)
         Right(GeneratedEnum(render = src, ctors = ctors))
 
+  /** Lower a `sealed trait` + case-class ADT shape to the same Rust enum
+   *  representation as a Scala `enum`.
+   *
+   *  For example:
+   *
+   *  ```scala
+   *  sealed trait Shape
+   *  case class Circle(r: Double) extends Shape
+   *  case class Square(s: Double) extends Shape
+   *  ```
+   *
+   *  becomes:
+   *
+   *  ```rust
+   *  pub enum Shape {
+   *      Circle { r: f64 },
+   *      Square { s: f64 },
+   *  }
+   *  ```
+   */
+  private def renderTraitEnum(
+      t: m.Defn.Trait,
+      caseClasses: List[m.Defn.Class]
+  ): Either[List[Diagnostic], GeneratedEnum] =
+    val enumName = t.name.value
+    val rendered = caseClasses.map(c => renderClassCtor(enumName, c))
+    val (errs, ok) = rendered.partitionMap(identity)
+    if errs.nonEmpty then Left(errs.flatten)
+    else
+      if ok.isEmpty then
+        Left(List(unsupported(s"sealed trait `$enumName` has no `case class` extensions")))
+      else
+        val variantText = ok.map(_._1).mkString(",\n")
+        val src =
+          s"""#[allow(dead_code)]
+             |#[derive(Debug, Clone)]
+             |pub enum $enumName {
+             |${indent(variantText)},
+             |}
+             |""".stripMargin
+        val ctors = ok.map(_._2)
+        Right(GeneratedEnum(render = src, ctors = ctors))
+
+  /** Render one `case class` constructor into a Rust struct-style enum
+   *  variant. Returns variant text + ctor metadata for `ctorMap`. */
+  private def renderClassCtor(
+      enumName: String, c: m.Defn.Class
+  ): Either[List[Diagnostic], (String, (String, EnumCtor))] =
+    val ctor   = c.name.value
+    val params = c.ctor.paramClauses.flatMap(_.values).toList
+    val fieldRendered = params.map { p =>
+      p.decltpe match
+        case Some(t) => mapType(t, s"enum $enumName.$ctor").map(r => (p.name.value, r))
+        case None    => Left(List(unsupported(
+          s"enum `$enumName.$ctor` parameter `${p.name.value}` has no type annotation"
+        )))
+    }
+    val (errs, ok) = fieldRendered.partitionMap(identity)
+    if errs.nonEmpty then Left(errs.flatten)
+    else
+      val fields = ok
+      val body   =
+        if fields.isEmpty then ""
+        else " { " + fields.map((n, t) => s"$n: $t").mkString(", ") + " }"
+      val variant = s"$ctor$body"
+      Right((variant, (ctor, EnumCtor(enumName, fields.map(_._1))))
+
   /** Render one `case Ctor(field1: T1, …)` into a Rust struct-style
    *  enum variant.  Returns the variant text + the ctor metadata. */
   private def renderEnumCase(
@@ -226,7 +358,8 @@ object RustCodeWalk:
   // ── Per-def rendering ────────────────────────────────────────────────
 
   /** Rendering context: the set of user-defined fn names in scope, plus
-   *  the constructor-name → enum-name map collected from `Defn.Enum`. */
+   *  the constructor-name → enum-name map collected from `Defn.Enum` and
+   *  `sealed trait` + case-class ADTs. */
   /** Top-level val binding: (name, rendered Rust init expression).
    *  Injected as `let name = init;` at the top of every Defn.Def body. */
   private type TopVal = (String, String)
@@ -303,6 +436,11 @@ object RustCodeWalk:
     case m.Type.Name("Float")   => Right("f64")
     case m.Type.Name("String")  => Right("String")
     case m.Type.Name(n) if enumNames.contains(n) => Right(n)
+    case m.Type.Tuple(elems) =>
+      val rendered = elems.toList.map(mapType(_, defName, enumNames))
+      val (errs, ok) = rendered.partitionMap(identity)
+      if errs.nonEmpty then Left(errs.flatten)
+      else Right(renderTuple(ok))
     // Scala 3 `A => B` and `(A1, A2, …) => B` lower to `impl Fn(…) -> …`.
     // R.2.4 only renders function types at parameter positions; stored
     // closure values (`Box<dyn Fn>` boxing) land in a later slice.
@@ -323,7 +461,7 @@ object RustCodeWalk:
         )))
     case other =>
       Left(List(unsupported(
-        s"def `$defName` uses type `${other.syntax}`; R.2 accepts primitives, enums, function types, and List/Vec"
+        s"def `$defName` uses type `${other.syntax}`; R.2 accepts primitives, enums, function types, tuple, and List/Vec"
       )))
 
   /** Map a list of types, accumulating diagnostics. */
@@ -502,6 +640,11 @@ object RustCodeWalk:
         s"def `${ctx.defName}` uses an anonymous-function placeholder; R.2.4 accepts only explicit `(params) => body`"
       )))
 
+    // `(a, b, ...)` — native Rust tuple literal.  Rust requires a
+    // trailing comma in `(..., )`, so a 1-tuple emits `(x,)`.
+    case m.Term.Tuple(values) =>
+      renderTupleElems(values.toList, ctx).map(renderTuple)
+
     // s"…" interpolation → `format!("…", args)`.
     case m.Term.Interpolate(m.Term.Name("s"), parts, args) =>
       renderStringInterpolation(parts, args, ctx)
@@ -584,24 +727,16 @@ object RustCodeWalk:
         r <- renderTerm(args.values.head, ctx)
       yield s"format!(\"{}{}\", $l, $r)"
 
+    // Infix `++` for tuple literals: flatten tuple-literal concat chains.
+    // `(a, b) ++ (c, d) == (a, b, c, d)`, also right-recursive.
+    case infix @ m.Term.ApplyInfix.After_4_6_0(_, m.Term.Name("++"), _, _) =>
+      collectTupleConcat(infix) match
+        case Some(terms) => renderTupleElems(terms, ctx).map(renderTuple)
+        case None        => renderInfix(infix, ctx)
+
     // Infix operators: arithmetic, comparison, boolean.
-    case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name(op), _, args) =>
-      val rhsTerms = args.values
-      val rendered =
-        for
-          l <- renderTerm(lhs, ctx)
-          rs <- rhsTerms.foldLeft[Either[List[Diagnostic], List[String]]](Right(Nil)) {
-            (acc, t) => acc.flatMap(xs => renderTerm(t, ctx).map(xs :+ _))
-          }
-        yield (l, rs)
-      rendered.flatMap { case (l, rs) =>
-        mapInfixOp(op, ctx.defName) match
-          case Right(rustOp) if rs.size == 1 => Right(s"($l $rustOp ${rs.head})")
-          case Right(_)                      => Left(List(unsupported(
-            s"def `${ctx.defName}`: infix `$op` with ${rs.size} rhs args"
-          )))
-          case Left(diags)                   => Left(diags)
-      }
+    case infix @ m.Term.ApplyInfix.After_4_6_0(_, _, _, _) =>
+      renderInfix(infix, ctx)
 
     // Always emit owned `String`s — every user-typed `String` parameter
     // expects an owned value, and the `_println` runtime helper is
@@ -618,6 +753,56 @@ object RustCodeWalk:
       Left(List(unsupported(
         s"def `${ctx.defName}` contains an unsupported expression: ${other.productPrefix} (${other.syntax})"
       )))
+
+  private def renderInfix(
+      infix: m.Term.ApplyInfix,
+      ctx:   Ctx
+  ): Either[List[Diagnostic], String] =
+    infix match
+      case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name(op), _, args) =>
+        val rhsTerms = args.values
+        val rendered =
+          for
+            l <- renderTerm(lhs, ctx)
+            rs <- rhsTerms.foldLeft[Either[List[Diagnostic], List[String]]](Right(Nil)) {
+              (acc, t) => acc.flatMap(xs => renderTerm(t, ctx).map(xs :+ _))
+            }
+          yield (l, rs)
+        rendered.flatMap { case (l, rs) =>
+          mapInfixOp(op, ctx.defName) match
+            case Right(rustOp) if rs.size == 1 => Right(s"($l $rustOp ${rs.head})")
+            case Right(_)                      => Left(List(unsupported(
+              s"def `${ctx.defName}`: infix `$op` with ${rs.size} rhs args"
+            )))
+            case Left(diags)                   => Left(diags)
+        }
+      case _ =>
+        Left(List(unsupported(
+          s"def `${ctx.defName}` contains an unsupported infix expression: ${infix.productPrefix}"
+        )))
+
+  private def collectTupleConcat(t: m.Term): Option[List[m.Term]] = t match
+    case m.Term.Tuple(values) =>
+      Some(values.toList)
+    case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("++"), _, args)
+        if args.values.size == 1 =>
+      for
+        l <- collectTupleConcat(lhs)
+        r <- collectTupleConcat(args.values.head)
+      yield l ++ r
+    case _ => None
+
+  private def renderTupleElems(
+      terms: List[m.Term], ctx: Ctx
+  ): Either[List[Diagnostic], List[String]] =
+    val rendered = terms.map(renderTerm(_, ctx))
+    val (errs, ok) = rendered.partitionMap(identity)
+    if errs.nonEmpty then Left(errs.flatten) else Right(ok)
+
+  private def renderTuple(parts: List[String]): String = parts match
+    case Nil       => "()"
+    case List(one) => s"($one,)"
+    case more      => s"(${more.mkString(", ")})"
 
   /** RuntimeCall targets whose Rust signature takes args by reference.
    *  Codegen wraps every emitted arg with `&` so callers keep ownership
