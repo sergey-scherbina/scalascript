@@ -461,6 +461,8 @@ class Typer(
    *  and return a summary of what was found. */
   private def typeCheckBlock(cb: Content.CodeBlock, scope: Scope): List[DefSummary] =
     val summaries = ListBuffer[DefSummary]()
+    if Lang.isScalaScript(cb.lang) then
+      cb.tree.foreach(checkPlatformTypeBan)
     cb.tree.foreach { node =>
       ScalaNode.fold(node) {
         case Source(stats)     => stats.foreach(s => checkStat(s, scope, summaries))
@@ -490,6 +492,34 @@ class Typer(
       }
     }
     summaries.toList
+
+  /** Banned top-level package prefixes in `scalascript` blocks.
+   *  Any import that resolves to one of these roots is a platform-type
+   *  violation (E_PlatformType).  The ban does not apply to `scala` blocks
+   *  or to `@jvm("...")` annotation strings.
+   *  See specs/backend-specific-blocks.md §5.1. */
+  private val platformTypeBannedPrefixes: Set[String] =
+    Set("java", "javax", "sun", "com.sun")
+
+  private def checkPlatformTypeBan(node: ScalaNode): Unit =
+    val stats: List[scala.meta.Tree] = node.tree match
+      case Source(ss)     => ss.toList
+      case Term.Block(ss) => ss.toList
+      case single         => List(single)
+    stats.foreach {
+      case Import(importers) =>
+        importers.foreach { importer =>
+          val path = showTermPath(importer.ref)
+          if platformTypeBannedPrefixes.exists(p => path == p || path.startsWith(p + ".")) then
+            errors += TypeError(
+              s"E_PlatformType: `$path` is a JVM-only package and cannot appear in ScalaScript code. " +
+              s"Use `std.*` from the standard library, or isolate this code in a `scala` fenced block " +
+              s"(see specs/backend-specific-blocks.md §1).",
+              None
+            )
+        }
+      case _ => ()
+    }
 
   private def checkStat(
       stat: scala.meta.Tree,
