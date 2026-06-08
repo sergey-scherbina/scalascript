@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-08 — feat(rust): R.5 — HTTP server via hyper + tokio
+
+- **rust-backend-r5-tokio-runtime-bootstrap** — HTTP server shipped.
+  `route(method, path, handler)` and `serve(port)` intrinsics wired
+  to hyper 1 + tokio. `scanHttpUsage` drives conditional Cargo deps
+  (tokio, hyper, hyper-util, http-body-util, bytes) and
+  `src/runtime/http.rs` emit. Handler takes `impl Fn(String) ->
+  String` at call site; internally adapted to `Fn(&str)` in
+  _http_route. RustCapabilities declares `HttpServer`. End-to-end
+  smoke: `http-hello.ssc` builds 1.2 MB binary, `curl /hello` →
+  "Hello from /hello". 90/90 unit tests (6 new).
+
 ## 2026-06-07 — feat(rust): R.4.1 — algebraic-effects runtime infrastructure
 
 - **rust-backend-r4-effect-runtime** — First slice of Phase R.4.

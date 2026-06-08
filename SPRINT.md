@@ -646,14 +646,6 @@ Depends on R.4 (handler bodies are effectful). Capability adds
 `bytes` only when an `std.http.*` intrinsic is reached; programs without
 HTTP stay dep-free.
 
-- [ ] **rust-backend-r5-tokio-runtime-bootstrap** — When the per-module
-      walk hits any HTTP/WS intrinsic, `main.rs` constructs a
-      `tokio::runtime::Runtime` and blocks on a service driver so
-      `serve(port)` + `route(...)` wire onto the same executor. Programs
-      without HTTP intrinsics emit the existing direct `main()`.
-      Acceptance: `hello.ssc` (no HTTP) still emits the dep-free crate;
-      `http-stub.ssc` (calls `serve(0)` then exits) emits the tokio
-      bootstrap and `cargo build` succeeds.
 
 - [ ] **rust-backend-r5-http-serve-route** — Map `std.http.serve(port)`
       and `std.http.route(method, path, handler)` to

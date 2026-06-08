@@ -1,6 +1,0 @@
-feature/rust-backend-r5-tokio-runtime-bootstrap 2026-06-08T07:41:19Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-08T07:41:19Z
-status: not-started
-done-so-far:
-next: tokio bootstrap only when HTTP intrinsics reached; programs without HTTP stay dep-free
