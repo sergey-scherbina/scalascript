@@ -1,6 +1,0 @@
-feature/rust-bench-p0-to-numeric 2026-06-08T08:13:34Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-08T08:13:34Z
-status: not-started
-done-so-far:
-next: Term.Select toLong/toInt/toDouble + String+numeric infix → format!
