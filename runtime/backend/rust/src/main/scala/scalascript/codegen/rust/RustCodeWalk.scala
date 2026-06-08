@@ -41,12 +41,13 @@ object RustCodeWalk:
   ): Either[List[Diagnostic], WalkResult] =
     val defs       = collectDefs(module)
     val enums      = collectEnums(module)
+    val topVals    = collectTopVals(module)
     val rustBlocks = collectRustBlocks(module)
     val userDefs   = defs.map(_.name.value).toSet
     val enumRendered = enums.map(renderEnum)
     val (enumErrs, enumOk) = enumRendered.partitionMap(identity)
     val ctorMap = enumOk.flatMap(_.ctors).toMap
-    val results = defs.map(renderDef(_, intrinsics, userDefs, ctorMap))
+    val results = defs.map(renderDef(_, intrinsics, userDefs, ctorMap, topVals))
     val (errors, ok) = results.partitionMap(identity)
     val allErrs = enumErrs.flatten ++ errors.flatten
     if allErrs.nonEmpty then Left(allErrs)
@@ -98,6 +99,37 @@ object RustCodeWalk:
   private def isScalaLang(lang: String): Boolean =
     val n = lang.toLowerCase
     n == "scalascript" || n == "ssc" || n == "scala"
+
+  // ── Top-level val collection ─────────────────────────────────────────
+
+  /** Collect top-level `val name: T = expr` declarations from scalascript
+   *  blocks.  These are emitted as `let name = init;` preamble in every
+   *  `Defn.Def` body so that HOF bench fixtures like `val xs: List[Int] =
+   *  List(1, 2, 3, …)` are accessible inside `workload()`. */
+  private def collectTopVals(module: ast.Module): List[TopVal] =
+    val ctx0 = Ctx(Map.empty, Set.empty, Map.empty, Nil, "<topval>")
+    val found = scala.collection.mutable.ListBuffer.empty[TopVal]
+    module.sections.foreach(s => sectionTopVals(s, ctx0, found))
+    found.toList
+
+  private def sectionTopVals(
+      s: ast.Section, ctx: Ctx, found: scala.collection.mutable.ListBuffer[TopVal]
+  ): Unit =
+    s.content.foreach(c => contentTopVals(c, ctx, found))
+    s.subsections.foreach(sub => sectionTopVals(sub, ctx, found))
+
+  private def contentTopVals(
+      c: ast.Content, ctx: Ctx, found: scala.collection.mutable.ListBuffer[TopVal]
+  ): Unit = c match
+    case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _)
+        if isScalaLang(lang) =>
+      node.tree.collect { case v: m.Defn.Val => v }.foreach { v =>
+        v.pats match
+          case List(m.Pat.Var(m.Term.Name(name))) =>
+            renderTerm(v.rhs, ctx).foreach(init => found += ((name, init)))
+          case _ => ()
+      }
+    case _ => ()
 
   // ── rust block collection (verbatim passthrough) ─────────────────────
 
@@ -195,13 +227,19 @@ object RustCodeWalk:
 
   /** Rendering context: the set of user-defined fn names in scope, plus
    *  the constructor-name → enum-name map collected from `Defn.Enum`. */
+  /** Top-level val binding: (name, rendered Rust init expression).
+   *  Injected as `let name = init;` at the top of every Defn.Def body. */
+  private type TopVal = (String, String)
+
   private case class Ctx(
       intrinsics: Map[QualifiedName, IntrinsicImpl],
       userDefs:   Set[String],
       ctorMap:    Map[String, EnumCtor],
+      topVals:    List[TopVal],
       defName:    String
   ):
     def enumNames: Set[String] = ctorMap.values.map(_.enumName).toSet
+    @annotation.unused def topValNames: Set[String] = topVals.map(_._1).toSet
 
   /** Per-ctor record carrying the enum it belongs to and its field
    *  names (in order).  R.2.3 lowers ctor application as
@@ -221,10 +259,11 @@ object RustCodeWalk:
       d: m.Defn.Def,
       intrinsics: Map[QualifiedName, IntrinsicImpl],
       userDefs:   Set[String],
-      ctorMap:    Map[String, EnumCtor]
+      ctorMap:    Map[String, EnumCtor],
+      topVals:    List[TopVal]
   ): Either[List[Diagnostic], GeneratedDef] =
     val name = d.name.value
-    val ctx  = Ctx(intrinsics, userDefs, ctorMap, name)
+    val ctx  = Ctx(intrinsics, userDefs, ctorMap, topVals, name)
     for
       params  <- renderParams(d, ctx)
       ret     <- renderReturnType(d, ctx)
@@ -232,9 +271,13 @@ object RustCodeWalk:
     yield
       val signature = if ret.isEmpty then s"pub fn $name($params)"
                       else                s"pub fn $name($params) -> $ret"
+      // Inject top-level val bindings that are referenced by this def.
+      val topValPreamble =
+        if ctx.topVals.isEmpty then ""
+        else ctx.topVals.map { case (n, init) => s"let $n = $init;" }.mkString("\n") + "\n"
       val src =
         s"""$signature {
-           |${indent(bodyRs)}
+           |${indent(topValPreamble + bodyRs)}
            |}
            |""".stripMargin
       GeneratedDef(name = name, render = src, isMain = hasMainAnnotation(d))
@@ -428,6 +471,21 @@ object RustCodeWalk:
     case m.Term.Select(qual, m.Term.Name("size" | "length" | "len")) =>
       renderTerm(qual, ctx).map(q => s"($q.len() as i64)")
 
+    // ── P1 Vec method chaining (specs/rust-backend-bench-coverage.md §Gap D+G) ──
+    //
+    // `xs.foreach(f)` — Rust `for x in xs.iter() { f_body }`
+    // `xs.map(f)`     — Rust `xs.iter().map(|p| body).collect::<Vec<_>>()`
+    // `xs.filter(f)`  — Rust `xs.iter().cloned().filter(|p| body).collect::<Vec<_>>()`
+    // `xs.foldLeft(z)(f)` — two curried applies:
+    //       Apply(Select(Apply(Select(xs, "foldLeft"), z), _), f)
+    //   → `xs.iter().copied().fold(z, |a, b| body)` for numerics
+    //   → `xs.iter().cloned().fold(z, |a, b| body)` for non-numeric
+    //
+    // All three are pattern-matched as `Term.Apply(Term.Select(...), ...)`.
+    //
+    // NOTE: these cases sit BEFORE the general Apply catch-all so they fire
+    // even when the method name is not in the intrinsic table.
+
     // Numeric coercions — P0 bench fix (specs/rust-backend-bench-coverage.md §Gap A).
     case m.Term.Select(qual, m.Term.Name("toLong")) =>
       renderTerm(qual, ctx).map(q => s"($q as i64)")
@@ -447,6 +505,52 @@ object RustCodeWalk:
     // s"…" interpolation → `format!("…", args)`.
     case m.Term.Interpolate(m.Term.Name("s"), parts, args) =>
       renderStringInterpolation(parts, args, ctx)
+
+    // ── Vec method chaining via Term.Apply ─────────────────────────────────
+    // Matches: xs.foreach(f), xs.map(f), xs.filter(f), xs.foldLeft(z)(f).
+    // These bind before the generic Apply so the method name is visible.
+
+    // xs.foreach(f)  → for __x in xs.iter() { f(__x) }
+    // The body of the closure is written as a for-loop statement.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("foreach")), args
+    ) if args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        body <- renderVecIterBody(args.values.head, q, ctx, method = "foreach")
+      yield body
+
+    // xs.map(f) → xs.iter().cloned().map(move |p| body).collect::<Vec<_>>()
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("map")), args
+    ) if args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        body <- renderVecIterBody(args.values.head, q, ctx, method = "map")
+      yield body
+
+    // xs.filter(f) → xs.iter().cloned().filter(move |p| body).collect::<Vec<_>>()
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("filter")), args
+    ) if args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        body <- renderVecIterBody(args.values.head, q, ctx, method = "filter")
+      yield body
+
+    // xs.foldLeft(z)(f) — outer Apply gives f, inner Apply(Select(xs,foldLeft), [z]) gives z.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Apply.After_4_6_0(
+          m.Term.Select(qual, m.Term.Name("foldLeft")),
+          zArgs
+        ),
+        fArgs
+    ) if zArgs.values.size == 1 && fArgs.values.size == 1 =>
+      for
+        q  <- renderTerm(qual, ctx)
+        z  <- renderTerm(zArgs.values.head, ctx)
+        fb <- renderVecIterBody(fArgs.values.head, q, ctx, method = "foldLeft", zero = Some(z))
+      yield fb
 
     // Application — intrinsic, user-defined fn, or unsupported.
     case m.Term.Apply.After_4_6_0(fn, args) =>
@@ -607,6 +711,52 @@ object RustCodeWalk:
         Left(List(unsupported(
           s"def `${ctx.defName}` for-yield has ${enums.size} enumerators; R.2.5 accepts only a single generator"
         )))
+
+  /** Lower a Vec HOF call — `foreach`, `map`, `filter`, `foldLeft`.
+   *  `fn` is the lambda argument; `q` is the already-rendered receiver.
+   *
+   *  foreach  → for __elem in q.iter() { body; }
+   *  map      → q.iter().cloned().map(move |param| body).collect::<Vec<_>>()
+   *  filter   → q.iter().cloned().filter(move |param| body).collect::<Vec<_>>()
+   *  foldLeft → q.iter().copied().fold(zero, move |a, b| body)
+   *             (or .cloned() when element type is String/non-Copy)
+   */
+  private def renderVecIterBody(
+      fn:     m.Term,
+      q:      String,
+      ctx:    Ctx,
+      method: String,
+      zero:   Option[String] = None
+  ): Either[List[Diagnostic], String] = fn match
+    // Single or two-param closure `(p: T) => body` or `(a, b) => body`.
+    case fn2: m.Term.Function =>
+      val params = fn2.paramClause.values.toList
+      val p0 = params.lift(0).map(_.name.value).getOrElse("__x")
+      val p1 = params.lift(1).map(_.name.value).getOrElse("__b")
+      // Block bodies (multi-stmt) use renderBody with isUnit=true for foreach/foldLeft.
+      val isUnitCtx = method == "foreach"
+      val bodyResult = fn2.body match
+        case blk: m.Term.Block => renderBody(blk, ctx, isUnit = isUnitCtx)
+        case t                 => renderTerm(t, ctx)
+      bodyResult.map { b =>
+        method match
+          case "foreach"  =>
+            val stmtBody = if b.endsWith(";") then b else b + ";"
+            s"for $p0 in $q.iter().cloned() {\n${indent(stmtBody)}\n}"
+          case "map"      => s"$q.iter().cloned().map(move |$p0| { $b }).collect::<Vec<_>>()"
+          case "filter"   => s"$q.iter().cloned().filter(move |$p0| { $b }).collect::<Vec<_>>()"
+          case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, move |$p0, $p1| { $b })"
+          case other      => s"$q.$other(move |$p0| { $b })"
+      }
+    // Fallback — inline the fn as-is and hope Rust accepts it
+    case other =>
+      renderTerm(other, ctx).map(f => method match
+        case "foreach"  => s"$q.iter().cloned().for_each($f);"
+        case "map"      => s"$q.iter().cloned().map($f).collect::<Vec<_>>()"
+        case "filter"   => s"$q.iter().cloned().filter($f).collect::<Vec<_>>()"
+        case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, $f)"
+        case other2     => s"$q.$other2($f)"
+      )
 
   /** Lower `(params) => body` to a Rust `move |params| body` closure.
    *  Parameter type annotations are honoured when present; otherwise
