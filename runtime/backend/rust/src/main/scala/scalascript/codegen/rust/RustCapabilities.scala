@@ -51,7 +51,9 @@ val RustCapabilities: Capabilities = Capabilities(
     // jwtSign / jwtVerify is reached; programs without auth stay dep-free.
     Feature.Auth,
     // R.6 — guaranteed TCO via while-loop rewrite for self-tail-recursive defs.
-    Feature.TailCallOptimization
+    Feature.TailCallOptimization,
+    // R.6 — WebSocket server (`wsRoute`/`wsServe`) + client (`wsConnectSync`).
+    Feature.WebSockets
   ),
   outputs        = Set(OutputKind.RustSource),
   options        = Set("optimizationLevel", "emitAssertions", "cargoEdition"),

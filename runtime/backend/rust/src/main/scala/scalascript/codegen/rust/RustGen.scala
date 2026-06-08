@@ -49,7 +49,8 @@ object RustGen:
     val effectUsage = scanEffectUsage(astModule)
     val httpUsage   = scanHttpUsage(astModule)
     val authUsage   = scanAuthUsage(astModule)
-    val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage, authUsage)
+    val wsUsage     = scanWsUsage(astModule)
+    val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage, authUsage, wsUsage)
 
     RustCodeWalk.walk(astModule, intrinsics) match
       case Left(diags) =>
@@ -62,7 +63,7 @@ object RustGen:
         // annotated def, fall back to [lib].
         val cargoTomlFinal =
           if effectiveBin == hasMain then cargoToml
-          else renderCargoToml(crateName, version, descr, effectiveBin, cryptoUsage, httpUsage, authUsage)
+          else renderCargoToml(crateName, version, descr, effectiveBin, cryptoUsage, httpUsage, authUsage, wsUsage)
         val generatedMod = renderGeneratedMod(crateName)
         val rootFile     =
           if effectiveBin then renderMainRs(crateName, entry.get)
@@ -90,6 +91,9 @@ object RustGen:
           if authUsage.nonEmpty then
             sb.append("\n// ── R.6 — auth runtime ──\n")
             sb.append("pub mod auth;\n")
+          if wsUsage.nonEmpty then
+            sb.append("\n// ── R.6 — WebSocket runtime ──\n")
+            sb.append("pub mod ws;\n")
           sb.toString
         val baseAssets = List(
           Segment.Asset("Cargo.toml",                   cargoTomlFinal.getBytes("UTF-8"),       "application/toml"),
@@ -127,7 +131,14 @@ object RustGen:
             RustRuntimeTemplates.AuthRs.getBytes("UTF-8"),
             "text/x-rust"
           ))
-        CompileResult.Segmented(baseAssets ++ effectAsset ++ taglessEffectAsset ++ httpAsset ++ authAsset)
+        val wsAsset =
+          if wsUsage.isEmpty then Nil
+          else List(Segment.Asset(
+            "src/runtime/ws.rs",
+            RustRuntimeTemplates.WsRs.getBytes("UTF-8"),
+            "text/x-rust"
+          ))
+        CompileResult.Segmented(baseAssets ++ effectAsset ++ taglessEffectAsset ++ httpAsset ++ authAsset ++ wsAsset)
 
   /** R.3.2 — IR walk for crypto-intrinsic usage.  Returns the set of
    *  intrinsic names actually reached so RustGen can decide which
@@ -153,6 +164,14 @@ object RustGen:
    *  Returns the set of names actually reached; non-empty triggers argon2 + jsonwebtoken deps. */
   private[rust] def scanAuthUsage(astModule: scalascript.ast.Module): Set[String] =
     val names = Set("hashPassword", "verifyPassword", "jwtSign", "jwtVerify")
+    val found = scala.collection.mutable.Set.empty[String]
+    astModule.sections.foreach(s => scanSectionForNames(s, names, found))
+    found.toSet
+
+  /** R.6 — scan for WebSocket intrinsic calls (wsRoute, wsServe, wsConnectSync).
+   *  Returns the set of names actually reached; non-empty triggers tokio-tungstenite deps. */
+  private[rust] def scanWsUsage(astModule: scalascript.ast.Module): Set[String] =
+    val names = Set("wsRoute", "wsServe", "wsConnectSync")
     val found = scala.collection.mutable.Set.empty[String]
     astModule.sections.foreach(s => scanSectionForNames(s, names, found))
     found.toSet
@@ -263,7 +282,8 @@ object RustGen:
       hasMain:     Boolean,
       cryptoUsage: Set[String] = Set.empty,
       httpUsage:   Boolean     = false,
-      authUsage:   Set[String] = Set.empty
+      authUsage:   Set[String] = Set.empty,
+      wsUsage:     Set[String] = Set.empty
   ): String =
     val descrLine = descr match
       case Some(d) => s"""description = "${escapeTomlString(d)}"
@@ -289,6 +309,13 @@ object RustGen:
       depLines += "argon2 = \"0.5\""
       depLines += "jsonwebtoken = \"9\""
       depLines += "serde = { version = \"1\", features = [\"derive\"] }"
+    // R.6 — WebSocket deps (tokio-tungstenite + futures-util).
+    // Tokio is only added when HTTP is not also present (HTTP already adds it).
+    if wsUsage.nonEmpty then
+      depLines += "tokio-tungstenite = \"0.21\""
+      depLines += "futures-util = \"0.3\""
+      if !httpUsage then
+        depLines += "tokio = { version = \"1\", features = [\"rt-multi-thread\", \"net\", \"macros\"] }"
     val deps = if depLines.isEmpty then "" else depLines.mkString("\n") + "\n"
     val target =
       if hasMain then

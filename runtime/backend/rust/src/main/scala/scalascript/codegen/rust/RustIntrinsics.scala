@@ -40,5 +40,10 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("hashPassword")     -> RuntimeCall("crate::runtime::auth::_hash_password"),
   QualifiedName("verifyPassword")   -> RuntimeCall("crate::runtime::auth::_verify_password"),
   QualifiedName("jwtSign")          -> RuntimeCall("crate::runtime::auth::_jwt_sign"),
-  QualifiedName("jwtVerify")        -> RuntimeCall("crate::runtime::auth::_jwt_verify")
+  QualifiedName("jwtVerify")        -> RuntimeCall("crate::runtime::auth::_jwt_verify"),
+  // R.6 — WebSocket server + client.  Pulls tokio-tungstenite + futures-util
+  // (+ tokio when HTTP is not also used) into Cargo.toml only when reached.
+  QualifiedName("wsRoute")          -> RuntimeCall("crate::runtime::ws::_ws_route"),
+  QualifiedName("wsServe")          -> RuntimeCall("crate::runtime::ws::_ws_serve"),
+  QualifiedName("wsConnectSync")    -> RuntimeCall("crate::runtime::ws::_ws_connect_sync")
 )

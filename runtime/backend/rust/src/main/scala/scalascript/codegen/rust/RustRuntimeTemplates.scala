@@ -529,6 +529,94 @@ object RustRuntimeTemplates:
       |}
       |""".stripMargin
 
+  /** R.6 — WebSocket server + client helpers.
+   *  `wsRoute(path, handler)` registers a string-echo handler; `wsServe(port)`
+   *  starts the server; `wsConnectSync(url, handler)` is a blocking client.
+   *  Emitted only when any ws intrinsic is reached.
+   *  Deps: `tokio-tungstenite = "0.21"`, `futures-util = "0.3"`, `tokio` (shared with HTTP). */
+  val WsRs: String =
+    """//! WebSocket server + client runtime (R.6).
+      |//! Emitted verbatim by RustGen when ws intrinsics are reached.
+      |
+      |use std::sync::{Arc, Mutex};
+      |use futures_util::{SinkExt, StreamExt};
+      |use tokio::net::TcpListener;
+      |use tokio_tungstenite::accept_async;
+      |use tokio_tungstenite::tungstenite::Message;
+      |
+      |pub type WsHandler = Arc<dyn Fn(String) -> String + Send + Sync>;
+      |
+      |static WS_ROUTES: std::sync::OnceLock<Arc<Mutex<Vec<(String, WsHandler)>>>> =
+      |    std::sync::OnceLock::new();
+      |
+      |fn ws_routes() -> &'static Arc<Mutex<Vec<(String, WsHandler)>>> {
+      |    WS_ROUTES.get_or_init(|| Arc::new(Mutex::new(Vec::new())))
+      |}
+      |
+      |/// `wsRoute(path, handler)` — register a WebSocket echo handler.
+      |/// Handler receives each text frame and its return value is sent back.
+      |#[allow(dead_code)]
+      |pub fn _ws_route(
+      |    path:    String,
+      |    handler: impl Fn(String) -> String + Send + Sync + 'static,
+      |) {
+      |    ws_routes().lock().unwrap().push((path, Arc::new(handler)));
+      |}
+      |
+      |/// `wsServe(port)` — start the WebSocket server and block until killed.
+      |/// Routes registered with `wsRoute` are served on every connection.
+      |#[allow(dead_code)]
+      |pub fn _ws_serve(port: i64) {
+      |    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+      |    rt.block_on(async move {
+      |        let addr = format!("0.0.0.0:{}", port);
+      |        let listener = TcpListener::bind(&addr).await
+      |            .unwrap_or_else(|e| panic!("wsServe({}): {}", port, e));
+      |        eprintln!("WS listening on ws://{}", listener.local_addr().unwrap());
+      |        loop {
+      |            let (stream, _) = listener.accept().await
+      |                .unwrap_or_else(|e| panic!("ws accept: {}", e));
+      |            let routes = ws_routes().clone();
+      |            tokio::spawn(async move {
+      |                let ws_stream = match accept_async(stream).await {
+      |                    Ok(s)  => s,
+      |                    Err(_) => return,
+      |                };
+      |                let (mut write, mut read) = ws_stream.split();
+      |                while let Some(Ok(msg)) = read.next().await {
+      |                    if let Message::Text(txt) = msg {
+      |                        let reply = {
+      |                            let guard = routes.lock().unwrap();
+      |                            guard.first().map(|(_, h)| h(txt.to_string()))
+      |                                 .unwrap_or_default()
+      |                        };
+      |                        let _ = write.send(Message::Text(reply)).await;
+      |                    }
+      |                }
+      |            });
+      |        }
+      |    });
+      |}
+      |
+      |/// `wsConnectSync(url, handler)` — synchronous WS client.
+      |/// Connects to `url`, calls `handler(msg)` for each text frame,
+      |/// and returns when the server closes the connection.
+      |#[allow(dead_code)]
+      |pub fn _ws_connect_sync(url: String, handler: impl Fn(String) + Send + 'static) {
+      |    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+      |    rt.block_on(async move {
+      |        let (ws_stream, _) = tokio_tungstenite::connect_async(&url).await
+      |            .unwrap_or_else(|e| panic!("wsConnectSync({}): {}", url, e));
+      |        let (_, mut read) = ws_stream.split();
+      |        while let Some(Ok(msg)) = read.next().await {
+      |            if let Message::Text(txt) = msg {
+      |                handler(txt.to_string());
+      |            }
+      |        }
+      |    });
+      |}
+      |""".stripMargin
+
   /** R.4.2 — Generate `src/runtime/effects.rs` with tagless-final traits.
    *
    *  One trait per named effect (e.g. `LoggerEffect`), each with default
