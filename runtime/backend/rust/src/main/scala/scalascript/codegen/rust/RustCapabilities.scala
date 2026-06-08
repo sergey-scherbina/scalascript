@@ -53,7 +53,9 @@ val RustCapabilities: Capabilities = Capabilities(
     // R.6 — guaranteed TCO via while-loop rewrite for self-tail-recursive defs.
     Feature.TailCallOptimization,
     // R.6 — WebSocket server (`wsRoute`/`wsServe`) + client (`wsConnectSync`).
-    Feature.WebSockets
+    Feature.WebSockets,
+    // R.6 — MCP server over stdio (JSON-RPC 2.0, hand-rolled; only serde_json dep).
+    Feature.McpServer
   ),
   outputs        = Set(OutputKind.RustSource),
   options        = Set("optimizationLevel", "emitAssertions", "cargoEdition"),

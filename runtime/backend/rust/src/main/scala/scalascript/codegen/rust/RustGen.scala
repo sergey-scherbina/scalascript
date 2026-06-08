@@ -50,7 +50,8 @@ object RustGen:
     val httpUsage   = scanHttpUsage(astModule)
     val authUsage   = scanAuthUsage(astModule)
     val wsUsage     = scanWsUsage(astModule)
-    val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage, authUsage, wsUsage)
+    val mcpUsage    = scanMcpUsage(astModule)
+    val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage)
 
     RustCodeWalk.walk(astModule, intrinsics) match
       case Left(diags) =>
@@ -63,7 +64,7 @@ object RustGen:
         // annotated def, fall back to [lib].
         val cargoTomlFinal =
           if effectiveBin == hasMain then cargoToml
-          else renderCargoToml(crateName, version, descr, effectiveBin, cryptoUsage, httpUsage, authUsage, wsUsage)
+          else renderCargoToml(crateName, version, descr, effectiveBin, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage)
         val generatedMod = renderGeneratedMod(crateName)
         val rootFile     =
           if effectiveBin then renderMainRs(crateName, entry.get)
@@ -94,6 +95,9 @@ object RustGen:
           if wsUsage.nonEmpty then
             sb.append("\n// ── R.6 — WebSocket runtime ──\n")
             sb.append("pub mod ws;\n")
+          if mcpUsage.nonEmpty then
+            sb.append("\n// ── R.6 — MCP server runtime ──\n")
+            sb.append("pub mod mcp;\n")
           sb.toString
         val baseAssets = List(
           Segment.Asset("Cargo.toml",                   cargoTomlFinal.getBytes("UTF-8"),       "application/toml"),
@@ -138,7 +142,14 @@ object RustGen:
             RustRuntimeTemplates.WsRs.getBytes("UTF-8"),
             "text/x-rust"
           ))
-        CompileResult.Segmented(baseAssets ++ effectAsset ++ taglessEffectAsset ++ httpAsset ++ authAsset ++ wsAsset)
+        val mcpAsset =
+          if mcpUsage.isEmpty then Nil
+          else List(Segment.Asset(
+            "src/runtime/mcp.rs",
+            RustRuntimeTemplates.McpRs.getBytes("UTF-8"),
+            "text/x-rust"
+          ))
+        CompileResult.Segmented(baseAssets ++ effectAsset ++ taglessEffectAsset ++ httpAsset ++ authAsset ++ wsAsset ++ mcpAsset)
 
   /** R.3.2 — IR walk for crypto-intrinsic usage.  Returns the set of
    *  intrinsic names actually reached so RustGen can decide which
@@ -172,6 +183,14 @@ object RustGen:
    *  Returns the set of names actually reached; non-empty triggers tokio-tungstenite deps. */
   private[rust] def scanWsUsage(astModule: scalascript.ast.Module): Set[String] =
     val names = Set("wsRoute", "wsServe", "wsConnectSync")
+    val found = scala.collection.mutable.Set.empty[String]
+    astModule.sections.foreach(s => scanSectionForNames(s, names, found))
+    found.toSet
+
+  /** R.6 — scan for MCP intrinsic calls (mcpRegisterTool, mcpServe).
+   *  Returns the set of names actually reached; non-empty triggers serde_json dep. */
+  private[rust] def scanMcpUsage(astModule: scalascript.ast.Module): Set[String] =
+    val names = Set("mcpRegisterTool", "mcpServe")
     val found = scala.collection.mutable.Set.empty[String]
     astModule.sections.foreach(s => scanSectionForNames(s, names, found))
     found.toSet
@@ -283,7 +302,8 @@ object RustGen:
       cryptoUsage: Set[String] = Set.empty,
       httpUsage:   Boolean     = false,
       authUsage:   Set[String] = Set.empty,
-      wsUsage:     Set[String] = Set.empty
+      wsUsage:     Set[String] = Set.empty,
+      mcpUsage:    Set[String] = Set.empty
   ): String =
     val descrLine = descr match
       case Some(d) => s"""description = "${escapeTomlString(d)}"
@@ -316,6 +336,11 @@ object RustGen:
       depLines += "futures-util = \"0.3\""
       if !httpUsage then
         depLines += "tokio = { version = \"1\", features = [\"rt-multi-thread\", \"net\", \"macros\"] }"
+    // R.6 — MCP deps: only serde_json (already present when JSON intrinsics used).
+    // Do not add a duplicate serde_json when JSON crypto is also used.
+    val needsSerdeJson = cryptoUsage.exists(n => n == "jsonParse" || n == "jsonStringify")
+    if mcpUsage.nonEmpty && !needsSerdeJson then
+      depLines += "serde_json = \"1.0\""
     val deps = if depLines.isEmpty then "" else depLines.mkString("\n") + "\n"
     val target =
       if hasMain then

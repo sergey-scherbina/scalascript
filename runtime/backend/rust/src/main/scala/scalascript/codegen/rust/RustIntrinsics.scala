@@ -45,5 +45,9 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   // (+ tokio when HTTP is not also used) into Cargo.toml only when reached.
   QualifiedName("wsRoute")          -> RuntimeCall("crate::runtime::ws::_ws_route"),
   QualifiedName("wsServe")          -> RuntimeCall("crate::runtime::ws::_ws_serve"),
-  QualifiedName("wsConnectSync")    -> RuntimeCall("crate::runtime::ws::_ws_connect_sync")
+  QualifiedName("wsConnectSync")    -> RuntimeCall("crate::runtime::ws::_ws_connect_sync"),
+  // R.6 — MCP server over stdio (JSON-RPC 2.0).
+  // Only serde_json dep added (already present when JSON intrinsics are used).
+  QualifiedName("mcpRegisterTool")  -> RuntimeCall("crate::runtime::mcp::_mcp_register_tool"),
+  QualifiedName("mcpServe")         -> RuntimeCall("crate::runtime::mcp::_mcp_serve")
 )
