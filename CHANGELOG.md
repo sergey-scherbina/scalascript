@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — feat(rust): R.6.8 — MCP server (rust-backend-r6-mcp) + xslt decision
+
+- **rust-backend-r6-mcp** — JSON-RPC 2.0 over stdio; `mcpRegisterTool`/`mcpServe`;
+  serde_json dep only. 7 new tests (162 total).
+- **rust-backend-r6-markup-xslt** — Decision: XSLT excluded; capability check rejects
+  programs requiring it. No code change (already implicit via missing feature flag).
+
+---
+
 ## 2026-06-09 — feat(rust): R.6.6 — WebSocket server + client (rust-backend-r6-websockets)
 
 - **rust-backend-r6-websockets** — `wsRoute`/`wsServe`/`wsConnectSync` via tokio-tungstenite 0.21.

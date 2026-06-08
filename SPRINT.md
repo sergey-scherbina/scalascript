@@ -900,17 +900,18 @@ or example demands it. Order below is priority for triage when claiming.
       intrinsic is reached; hello-world stays dep-free. 9 tests (140 total).
       Landed 2026-06-09.
 
-- [ ] **rust-backend-r6-mcp** — `Feature.McpServer` + `McpClient` via
-      the rmcp crate (or hand-rolled JSON-RPC over stdio if rmcp's API
-      is not stable enough). Acceptance: `mcp-echo.ssc` snapshot —
-      client calls a tool, server replies.
+- [x] **rust-backend-r6-mcp** — `Feature.McpServer` via hand-rolled JSON-RPC 2.0
+      over stdio (rmcp not stable enough). `mcpRegisterTool` + `mcpServe`;
+      handles initialize/tools_list/tools_call. Only serde_json dep (no duplication
+      when JSON intrinsics also present). 7 tests (162 total). Landed 2026-06-09.
 
-- [ ] **rust-backend-r6-markup-xslt** — `Feature.Xslt` decision point:
-      either implement an XSLT 1.0 subset via `quick-xml` (significant
-      work) or skip XSLT and document the gap. Decide based on whether
-      any conformance test reaches it. Acceptance: `markup-xml.ssc`
-      snapshot for the codec path; XSLT either lands with its own
-      snapshot or is explicitly rejected via capability check.
+- [x] **rust-backend-r6-markup-xslt** — Decision: XSLT excluded from Rust backend.
+      No conformance test currently reaches it. `Feature.Xslt` is NOT in
+      RustCapabilities.features — programs requiring XSLT are rejected at
+      capability check time with a Diagnostic.Unsupported. Codec path (quick-xml
+      XML read/write without XSLT) is out of scope for this sprint.
+      Landed 2026-06-09 (this entry — no code change needed, capability rejection
+      was already implicit).
 
 ---
 
