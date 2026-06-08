@@ -30,9 +30,10 @@ object RustCodeWalk:
    *  the main-assembly slice can stitch a
    *  `fn main() { generated::<crate>::<entry>(); }` shim. */
   final case class WalkResult(
-      generated: String,
-      defNames:  List[String],
-      mainEntry: Option[String]
+      generated:    String,
+      defNames:     List[String],
+      mainEntry:    Option[String],
+      effectNames:  Set[String]   // effect names used (e.g. "Logger") → drives effects.rs emit
   )
 
   def walk(
@@ -45,6 +46,9 @@ object RustCodeWalk:
     val standaloneCases   = collectStandaloneCaseClasses(module, traitEnums)
     val rustBlocks        = collectRustBlocks(module)
     val userDefs          = defs.map(_.name.value).toSet
+    // Collect names of defs that carry a `T ! EffectName` return type so
+    // call sites can thread the `_eff` parameter automatically.
+    val effectfulDefs: Set[String] = defs.flatMap(d => defEffectName(d).map(_ => d.name.value)).toSet
     val enumRendered =
       (if needsEitherType(module) then List(renderBuiltinEitherEnum()) else Nil) ++
       enums.map(renderEnum) ++
@@ -56,7 +60,7 @@ object RustCodeWalk:
       structOk.map(s => s.structName -> EnumCtor(s.structName, s.fieldNames)).toMap
     // topVals must be collected after ctorMap so enum ctors are resolved correctly.
     val topVals    = collectTopVals(module, ctorMap)
-    val results = defs.map(renderDef(_, intrinsics, userDefs, ctorMap, topVals))
+    val results = defs.map(renderDef(_, intrinsics, userDefs, ctorMap, topVals, effectfulDefs))
     val (errors, ok) = results.partitionMap(identity)
     val allErrs = enumErrs.flatten ++ structErrs.flatten ++ errors.flatten
     if allErrs.nonEmpty then Left(allErrs)
@@ -72,13 +76,18 @@ object RustCodeWalk:
         (if enumBlock.nonEmpty && ok.nonEmpty then "\n" else "") +
         (if ok.isEmpty then "" else ok.map(_.render).mkString("\n")) +
         (if rustBlocks.isEmpty then "" else "\n" + rustVerbatim)
-      val text =
+      val effectNames = defs.flatMap(defEffectName).toSet
+      val effectsImport =
+        if effectNames.isEmpty then ""
+        else "use crate::runtime::effects::*;\n\n"
+      val generatedText =
         if body.isEmpty then headerComment
-        else headerComment + "\n" + body
+        else headerComment + "\n" + effectsImport + body.dropWhile(_ == '\n')
       Right(WalkResult(
-        generated = text,
-        defNames  = ok.map(_.name),
-        mainEntry = ok.find(_.isMain).map(_.name)
+        generated   = generatedText,
+        defNames    = ok.map(_.name),
+        mainEntry   = ok.find(_.isMain).map(_.name),
+        effectNames = effectNames
       ))
 
   /** Header for the generated file.  Stable so goldens diff cleanly. */
@@ -430,11 +439,12 @@ object RustCodeWalk:
   private type TopVal = (String, String)
 
   private case class Ctx(
-      intrinsics: Map[QualifiedName, IntrinsicImpl],
-      userDefs:   Set[String],
-      ctorMap:    Map[String, EnumCtor],
-      topVals:    List[TopVal],
-      defName:    String
+      intrinsics:   Map[QualifiedName, IntrinsicImpl],
+      userDefs:     Set[String],
+      ctorMap:      Map[String, EnumCtor],
+      topVals:      List[TopVal],
+      defName:      String,
+      effectfulDefs: Set[String] = Set.empty  // defs that carry `T ! E` return type
   ):
     def enumNames: Set[String] = ctorMap.values.map(_.enumName).toSet
     @annotation.unused def topValNames: Set[String] = topVals.map(_._1).toSet
@@ -462,15 +472,17 @@ object RustCodeWalk:
 
   private def renderDef(
       d: m.Defn.Def,
-      intrinsics: Map[QualifiedName, IntrinsicImpl],
-      userDefs:   Set[String],
-      ctorMap:    Map[String, EnumCtor],
-      topVals:    List[TopVal]
+      intrinsics:    Map[QualifiedName, IntrinsicImpl],
+      userDefs:      Set[String],
+      ctorMap:       Map[String, EnumCtor],
+      topVals:       List[TopVal],
+      effectfulDefs: Set[String]
   ): Either[List[Diagnostic], GeneratedDef] =
     val name = d.name.value
-    val ctx  = Ctx(intrinsics, userDefs, ctorMap, topVals, name)
+    val ctx  = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs)
+    val effName = defEffectName(d)
     for
-      params  <- renderParams(d, ctx)
+      params  <- renderParams(d, ctx, effName)
       ret     <- renderReturnType(d, ctx)
       bodyRs  <- renderBody(d.body, ctx, isUnit = ret.isEmpty)
     yield
@@ -567,6 +579,10 @@ object RustCodeWalk:
         case other      => Left(List(unsupported(
           s"def `$defName` has `List`/`Vec` with ${other.size} type args; expected exactly one"
         )))
+    // `T ! EffectName` — strip the effect, return the base type.
+    // The effect parameter is threaded separately via `_eff` (see renderDef).
+    case m.Type.ApplyInfix(baseType, m.Type.Name("!"), _) =>
+      mapType(baseType, defName, enumNames)
     case other =>
       Left(List(unsupported(
         s"def `$defName` uses type `${other.syntax}`; R.2 accepts primitives, enums, function types, tuple, and List/Vec"
@@ -581,7 +597,7 @@ object RustCodeWalk:
     if errs.nonEmpty then Left(errs.flatten) else Right(ok)
 
   private def renderParams(
-      d: m.Defn.Def, ctx: Ctx
+      d: m.Defn.Def, ctx: Ctx, effName: Option[String]
   ): Either[List[Diagnostic], String] =
     val groups = d.paramClauseGroups.flatMap(_.paramClauses)
     if groups.size > 1 then
@@ -599,7 +615,16 @@ object RustCodeWalk:
       }
       val (errs, ok) = rendered.partitionMap(identity)
       if errs.nonEmpty then Left(errs.flatten)
-      else Right(ok.mkString(", "))
+      else
+        val effParam = effName.map(n => s"_eff: &mut impl ${n}Effect").toList
+        Right((ok ++ effParam).mkString(", "))
+
+  /** Extract the effect name from a def's return type if it has `T ! E` form.
+   *  Returns `Some("Logger")` for `Int ! Logger`, `None` for plain types. */
+  private def defEffectName(d: m.Defn.Def): Option[String] =
+    d.decltpe match
+      case Some(m.Type.ApplyInfix(_, m.Type.Name("!"), m.Type.Name(effName))) => Some(effName)
+      case _ => None
 
   private def renderReturnType(
       d: m.Defn.Def, ctx: Ctx
@@ -999,6 +1024,23 @@ object RustCodeWalk:
         r <- renderTerm(rhs.values.head, ctx)
       yield s"($l..=$r)"
 
+    // `runLogger { body }` / `runLoggerJson { body }` / `runLoggerToList { body }` —
+    // tagless-final lowering: introduce a NoOpLogger and run body with it.
+    // Other runXxx handlers (runRandom, runClock, …) are future phases.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Name(runner),
+        args
+    ) if runner.startsWith("runLogger") && args.values.size == 1 =>
+      // The block arg may be a Term.Block (multi-stat) or a bare expression.
+      val bodyResult: Either[List[Diagnostic], String] = args.values.head match
+        case blk: m.Term.Block =>
+          renderBody(blk, ctx, isUnit = false)
+        case expr =>
+          renderTerm(expr, ctx)
+      bodyResult.map { body =>
+        s"{\n    let mut _eff = NoOpLogger;\n    $body\n}"
+      }
+
     // Application — intrinsic, user-defined fn, or unsupported.
     case m.Term.Apply.After_4_6_0(fn, args) =>
       val callee  = qualifiedName(fn)
@@ -1282,13 +1324,19 @@ object RustCodeWalk:
         } match
           case Some(rs) => Right(rs)
           case None     =>
+            // Thread `_eff` when calling an effectful user-defined function.
+            def withEff(n: String, args: String): String =
+              if ctx.effectfulDefs.contains(n) then
+                if args.isEmpty then s"$n(&mut _eff)"
+                else s"$n($args, &mut _eff)"
+              else s"$n($args)"
             plainName.filter(ctx.userDefs.contains) match
-              case Some(n) => Right(s"$n($joined)")
+              case Some(n) => Right(withEff(n, joined))
               case None    =>
                 // Fallback: assume closure parameter or local binding;
                 // Cargo will reject if not.  See R.2.4.
                 plainName match
-                  case Some(n) => Right(s"$n($joined)")
+                  case Some(n) => Right(withEff(n, joined))
                   case None    => Left(List(unsupported(
                     s"def `${ctx.defName}` calls `${fn.syntax}` which has no resolvable name"
                   )))

@@ -108,13 +108,15 @@ Ordered simplest-first.
       Also added generic `Term.Select(qual, field)` → `qual.field` for struct field access.
       Fixed 2026-06-08.
 
-- [ ] **rust-fix-effect-pure** — `effect-pure` bench: `Int ! Logger` effect type
-      unsupported.  Effects are not on the Rust backend roadmap.
-      Short-term: skip or mark n/a in bench output.
+- [x] **rust-fix-effect-pure** — `effect-pure` bench: `Int ! Logger` effect type.
+      Fix: tagless-final (R.4.2) — `T ! E` strips to `T` in return type; effectful defs
+      gain `_eff: &mut impl LoggerEffect` param; call sites thread `&mut _eff`; 
+      `runLogger { body }` injects `NoOpLogger`; `runtime/effects.rs` emitted with
+      `LoggerEffect` trait + `NoOpLogger`.  7 new tests (107 total).  Fixed 2026-06-08.
 
 - [ ] **rust-fix-effect-stream** — `effect-stream` bench: `runToList` call on
       effect stream, and destructuring `val` binding unsupported.
-      Short-term: skip or mark n/a.
+      Spec: `specs/rust-effects.md §6` (Stream via VecStream collector).
 
 ### Unimplemented feature (tuple ++ concat in Rust backend)
 

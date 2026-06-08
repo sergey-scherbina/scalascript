@@ -79,6 +79,10 @@ object RustGen:
           if effectUsage.nonEmpty then
             sb.append("\n// ── R.4.1 — algebraic-effects runtime ──\n")
             sb.append("pub mod effect;\n")
+          // R.4.2 — tagless-final effect traits (Logger etc.)
+          if walked.effectNames.nonEmpty then
+            sb.append("\n// ── R.4.2 — tagless-final effect traits ──\n")
+            sb.append("pub mod effects;\n")
           if httpUsage then
             sb.append("\n// ── R.5 — HTTP server runtime ──\n")
             sb.append("pub mod http;\n")
@@ -98,6 +102,13 @@ object RustGen:
             RustRuntimeTemplates.EffectRs.getBytes("UTF-8"),
             "text/x-rust"
           ))
+        val taglessEffectAsset =
+          if walked.effectNames.isEmpty then Nil
+          else List(Segment.Asset(
+            "src/runtime/effects.rs",
+            RustRuntimeTemplates.renderTaglessEffectsRs(walked.effectNames).getBytes("UTF-8"),
+            "text/x-rust"
+          ))
         val httpAsset =
           if !httpUsage then Nil
           else List(Segment.Asset(
@@ -105,7 +116,7 @@ object RustGen:
             RustRuntimeTemplates.HttpRs.getBytes("UTF-8"),
             "text/x-rust"
           ))
-        CompileResult.Segmented(baseAssets ++ effectAsset ++ httpAsset)
+        CompileResult.Segmented(baseAssets ++ effectAsset ++ taglessEffectAsset ++ httpAsset)
 
   /** R.3.2 — IR walk for crypto-intrinsic usage.  Returns the set of
    *  intrinsic names actually reached so RustGen can decide which
