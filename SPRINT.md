@@ -56,7 +56,7 @@ fix, and don't require a runtime refactor.
 
 ### P1 — frequent small splinters
 
-- [ ] **busi-p1-map-direct-apply** — `map(key)` direct access throws
+- [x] **busi-p1-map-direct-apply** — `map(key)` direct access throws
       "Instance is not callable". Add `apply` on `Map`.
 
 - [x] **busi-p1-string-split-2arg-and-map** — `String.split(sep, limit)`

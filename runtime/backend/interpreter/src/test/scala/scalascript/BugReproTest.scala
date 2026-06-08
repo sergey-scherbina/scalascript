@@ -107,6 +107,13 @@ println(result(0)._1)"""
     ) shouldBe "1\n42"
   }
 
+  test("InstanceV(Map, ...) is callable via direct apply") {
+    val interp = Interpreter()
+    val mapInstance = Value.InstanceV("Map", Map(Value.StringV("a") -> Value.IntV(1)))
+    val value = Computation.run(interp.callValue(mapInstance, List(Value.StringV("a")), Map.empty))
+    value shouldBe Value.IntV(1)
+  }
+
   // ── asInstanceOf is a no-op for all Value subtypes ────────────────────────
 
   test("asInstanceOf no-op on Map") {
