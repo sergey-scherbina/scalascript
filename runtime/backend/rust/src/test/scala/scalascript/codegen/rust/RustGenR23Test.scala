@@ -157,6 +157,25 @@ class RustGenR23Test extends AnyFunSuite:
     assert(g.contains(".insert(1i64, 10i64);"))
     assert(g.contains(".get(&k).copied().unwrap_or(0i64)"))
 
+  test("Either[L, R] lowers to pub enum and supports map/flatMap/fold"):
+    val src =
+      """```scalascript
+        |def chain(v: Int): Either[String, Int] =
+        |  if v < 0 then Left("neg")
+        |  else Right(v).map(x => x + 1).flatMap(x => Right(x + 10))
+        |
+        |def folded(v: Int): String =
+        |  if v < 0 then Left("bad") else Right("ok")
+        |  .fold(_ => "neg", _ => "ok")
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("pub enum Either<L, R>"))
+    assert(g.contains("Either::Left(\"neg\".to_string())"))
+    assert(g.contains("Either::Right(v) => Either::Right("))
+    assert(g.contains("Either::Left(v) =>"))
+    assert(g.contains("Either::Right(v) =>"))
+
   test("Option type maps to Rust Option and constructors"):
     val src =
       """```scalascript

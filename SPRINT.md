@@ -689,7 +689,7 @@ by quick-win impact; P0 alone unlocks 7 benchmarks with tiny changes.
       → `.get(&k).copied().unwrap_or(default)`.  Acceptance:
       `map-ops.ssc` green.  Spec: §Gap E.
 
-- [ ] **rust-bench-p3-either-type** — Map `Either[L, R]` to a generated
+- [x] **rust-bench-p3-either-type** — Map `Either[L, R]` to a generated
       `pub enum Either<L, R> { Left(L), Right(R) }` emitted once per
       crate when reached; add `.map`, `.flatMap`, `.fold` methods.
       Acceptance: `either-chain.ssc` green.  Spec: §Gap E.

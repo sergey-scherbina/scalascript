@@ -46,6 +46,7 @@ object RustCodeWalk:
     val rustBlocks = collectRustBlocks(module)
     val userDefs   = defs.map(_.name.value).toSet
     val enumRendered =
+      (if needsEitherType(module) then List(renderBuiltinEitherEnum()) else Nil) ++
       enums.map(renderEnum) ++
       traitEnums.map { case SealedTraitEnum(t, caseClasses) => renderTraitEnum(t, caseClasses) }
     val (enumErrs, enumOk) = enumRendered.partitionMap(identity)
@@ -307,6 +308,24 @@ object RustCodeWalk:
         val ctors = ok.map(_._2)
         Right(GeneratedEnum(render = src, ctors = ctors))
 
+  /** Fallback `Either` algebraic data type used for `Either[L, R]` lowering.
+   *  Added once per crate only when a source term/type references Either. */
+  private def renderBuiltinEitherEnum(): Either[List[Diagnostic], GeneratedEnum] =
+    Right(GeneratedEnum(
+      render =
+        """#[allow(dead_code)]
+          |#[derive(Debug, Clone)]
+          |pub enum Either<L, R> {
+          |    Left(L),
+          |    Right(R),
+          |}
+          |""".stripMargin,
+      ctors = List(
+        ("Left", EnumCtor("Either", Nil)),
+        ("Right", EnumCtor("Either", Nil))
+      )
+    ))
+
   /** Render one `case class` constructor into a Rust struct-style enum
    *  variant. Returns variant text + ctor metadata for `ctorMap`. */
   private def renderClassCtor(
@@ -445,6 +464,19 @@ object RustCodeWalk:
         case _ =>
           Left(List(unsupported(
             s"def `$defName` uses invalid `Option` application; expected one type arg"
+          )))
+    // Either[L, R] lowers to `Either<L, R>`.
+    case m.Type.Apply.After_4_6_0(m.Type.Name("Either"), argClause)
+        if argClause.values.size == 2 =>
+      argClause.values.toList match
+        case List(l, r) =>
+          for
+            leftRs <- mapType(l, defName, enumNames)
+            rightRs <- mapType(r, defName, enumNames)
+          yield s"Either<$leftRs, $rightRs>"
+        case _ =>
+          Left(List(unsupported(
+            s"def `$defName` has `Either` with ${argClause.values.size} type args; expected two"
           )))
     // Map[K, V] lowers to `std::collections::HashMap<K, V>`.
     case m.Type.Apply.After_4_6_0(m.Type.Name("Map"), argClause)
@@ -663,6 +695,63 @@ object RustCodeWalk:
       renderTerm(qual, ctx).map(q => s"format!(\"{}\", $q)")
     case m.Term.Select(qual, m.Term.Name("trim")) =>
       renderTerm(qual, ctx).map(q => s"$q.trim().to_string()")
+    // Either constructors and combinators.
+    case m.Term.Apply.After_4_6_0(m.Term.Name("Left"), args)
+        if args.values.size == 1 =>
+      args.values.headOption match
+        case Some(a) => renderTerm(a, ctx).map(v => s"Either::Left($v)")
+        case None    => Left(List(unsupported(
+          s"def `${ctx.defName}` has invalid `Left` constructor application"
+        )))
+    case m.Term.Apply.After_4_6_0(m.Term.Name("Right"), args)
+        if args.values.size == 1 =>
+      args.values.headOption match
+        case Some(a) => renderTerm(a, ctx).map(v => s"Either::Right($v)")
+        case None    => Left(List(unsupported(
+          s"def `${ctx.defName}` has invalid `Right` constructor application"
+        )))
+
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("map")),
+        args
+    ) if isEitherExpr(qual) && args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        f <- renderTerm(args.values.head, ctx)
+      yield s"match $q { Either::Left(v) => Either::Left(v), Either::Right(v) => Either::Right($f(v)) }"
+
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("flatMap")),
+        args
+    ) if isEitherExpr(qual) && args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        f <- renderTerm(args.values.head, ctx)
+      yield s"match $q { Either::Left(v) => Either::Left(v), Either::Right(v) => $f(v) }"
+
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Apply.After_4_6_0(
+          m.Term.Select(qual, m.Term.Name("fold")),
+          lArgs
+        ),
+        rArgs
+    ) if isEitherExpr(qual) && lArgs.values.size == 1 && rArgs.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        l <- renderTerm(lArgs.values.head, ctx)
+        r <- renderTerm(rArgs.values.head, ctx)
+      yield s"match $q { Either::Left(v) => $l(v), Either::Right(v) => $r(v) }"
+
+    case m.Term.Apply.After_4_6_0(
+      m.Term.Select(qual, m.Term.Name("fold")),
+      args
+    ) if isEitherExpr(qual) && args.values.size == 2 =>
+      for
+        q <- renderTerm(qual, ctx)
+        l <- renderTerm(args.values.head, ctx)
+        r <- renderTerm(args.values(1), ctx)
+      yield s"match $q { Either::Left(v) => $l(v), Either::Right(v) => $r(v) }"
+
     case m.Term.Apply.After_4_6_0(
       m.Term.Select(qual, m.Term.Name("updated")),
       args
@@ -969,6 +1058,19 @@ object RustCodeWalk:
     ) if args.values.isEmpty => true
     case _ => false
 
+  /** Best-effort check that a term is an `Either`-shaped expression so we can
+   *  route `.map/.flatMap/.fold` to Rust `Either`.
+   */
+  private def isEitherExpr(term: m.Term): Boolean = term match
+    case m.Term.Paren(inner) => isEitherExpr(inner)
+    case m.Term.Apply.After_4_6_0(m.Term.Name("Left" | "Right"), args)
+        if args.values.size == 1 => true
+    case m.Term.Apply.After_4_6_0(
+      m.Term.Select(inner, m.Term.Name("map" | "flatMap" | "fold")),
+      _
+    ) if isEitherExpr(inner) => true
+    case _ => false
+
   /** Best-effort check that a term is an Option-shaped expression so we can
    *  route `.map/.flatMap/.getOrElse` to Rust `Option`.
    */
@@ -993,6 +1095,23 @@ object RustCodeWalk:
       m.Term.Select(inner, m.Term.Name("map" | "filter" | "foldLeft")),
       _
     ) if isRangeExpr(inner) => true
+    case _ => false
+
+  private def needsEitherType(module: ast.Module): Boolean =
+    module.sections.exists(sectionNeedsEither)
+
+  private def sectionNeedsEither(s: ast.Section): Boolean =
+    s.content.exists(contentNeedsEither) || s.subsections.exists(sectionNeedsEither)
+
+  private def contentNeedsEither(c: ast.Content): Boolean = c match
+    case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _)
+        if isScalaLang(lang) =>
+      node.tree.collect {
+        case t: m.Type.Apply.After_4_6_0(m.Type.Name("Either"), targs)
+            if targs.values.size == 2 => t
+        case t: m.Term.Apply.After_4_6_0(m.Term.Name("Left" | "Right"), args)
+            if args.values.size == 1 => t
+      }.nonEmpty
     case _ => false
 
   /** RuntimeCall targets whose Rust signature takes args by reference.
