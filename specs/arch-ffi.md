@@ -1,8 +1,11 @@
-# Lightweight FFI — @jvm / @js Inline Annotations + glue.jar in .ssclib
+# Lightweight FFI — @jvm / @js / @rust / @wasm Inline Annotations + glue.jar in .ssclib
 
 Status: **planned**.  Tracked as `arch-ffi` milestone in `BACKLOG.md`.
 Companion: [`specs/arch-library-modularity.md`](arch-library-modularity.md),
-[`specs/arch-stable-spi.md`](arch-stable-spi.md).
+[`specs/arch-stable-spi.md`](arch-stable-spi.md),
+[`specs/backend-specific-blocks.md`](backend-specific-blocks.md)
+(full backend-block + FFI-annotation layering, including `@rust`, `@wasm`,
+`@wasmExport`, `@wasmImport`).
 
 ---
 
@@ -24,7 +27,9 @@ Companion: [`specs/arch-library-modularity.md`](arch-library-modularity.md),
 ## 2. Non-goals
 
 - Calling arbitrary C / native code (WASM / JNI) — out of scope for v1.x.
-- `@wasm("...")` annotation — deferred; WASM FFI is its own topic.
+- `@wasm("...")` / `@wasmExport` / `@wasmImport` — defined in
+  `specs/backend-specific-blocks.md §4`; WASM backend wiring deferred until
+  a WASM compilation target exists.
 - Reflection-based Java interop (`Class.forName`, dynamic proxies).
 - Replacing the existing `.sscpkg` / `BackendRegistry` path for first-party
   std plugins — they keep using their current architecture.

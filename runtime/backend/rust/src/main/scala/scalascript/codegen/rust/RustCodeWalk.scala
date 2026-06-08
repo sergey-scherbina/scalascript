@@ -474,6 +474,21 @@ object RustCodeWalk:
       fieldNames: List[String]
   )
 
+  /** Extract a single string argument from `@annotName("...")` in a list of mods.
+   *  Returns None when the annotation is absent or has no string arg. */
+  private def extractRustAnnotArg(mods: List[m.Mod], annotName: String): Option[String] =
+    mods.collectFirst {
+      case m.Mod.Annot(init) if (init.tpe match
+        case m.Type.Name(n)                 => n == annotName
+        case m.Type.Select(_, m.Type.Name(n)) => n == annotName
+        case _                              => false) =>
+        init.argClauses.headOption.flatMap(_.values.collectFirst { case m.Lit.String(s) => s })
+    }.flatten
+
+  private def isExternBody(body: m.Term): Boolean = body match
+    case m.Term.Name("__extern__") => true
+    case _ => false
+
   private def renderDef(
       d: m.Defn.Def,
       intrinsics:    Map[QualifiedName, IntrinsicImpl],
@@ -483,29 +498,46 @@ object RustCodeWalk:
       effectfulDefs: Set[String]
   ): Either[List[Diagnostic], GeneratedDef] =
     val name    = d.name.value
-    val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs)
-    val effName = defEffectName(d)
-    val pNames  = extractParamNames(d)
-    val useTCO  = pNames.nonEmpty && hasTailCallPath(name, pNames.size, d.body)
-    for
-      params  <- if useTCO then renderMutParams(d, ctx, effName)
-                 else            renderParams(d, ctx, effName)
-      ret     <- renderReturnType(d, ctx)
-      bodyRs  <- if useTCO then renderTCOBody(name, pNames, d.body, ctx, isUnit = ret.isEmpty)
-                 else            renderBody(d.body, ctx, isUnit = ret.isEmpty)
-    yield
-      val signature = if ret.isEmpty then s"pub fn $name($params)"
-                      else                s"pub fn $name($params) -> $ret"
-      // Inject top-level val bindings that are referenced by this def.
-      val topValPreamble =
-        if ctx.topVals.isEmpty then ""
-        else ctx.topVals.map { case (n, init) => s"let $n = $init;" }.mkString("\n") + "\n"
-      val src =
-        s"""$signature {
-           |${indent(topValPreamble + bodyRs)}
-           |}
-           |""".stripMargin
-      GeneratedDef(name = name, render = src, isMain = hasMainAnnotation(d))
+    // backend-blocks-p6: @rust("expr") on an extern def emits the expression inline.
+    // extern defs without @rust are skipped (no Rust-side implementation needed).
+    if isExternBody(d.body) then
+      extractRustAnnotArg(d.mods, "rust") match
+        case Some(expr) =>
+          val pNames  = extractParamNames(d)
+          val body    = pNames.zipWithIndex.foldLeft(expr) { case (e, (n, i)) => e.replace(s"$$$i", n) }
+          val ctx0    = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs)
+          for
+            params <- renderParams(d, ctx0, None)
+            ret    <- renderReturnType(d, ctx0)
+          yield
+            val sig = if ret.isEmpty then s"pub fn $name($params)"
+                      else               s"pub fn $name($params) -> $ret"
+            GeneratedDef(name = name, render = s"$sig { $body }\n", isMain = false)
+        case None =>
+          Right(GeneratedDef(name = name, render = "", isMain = false))
+    else
+      val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs)
+      val effName = defEffectName(d)
+      val pNames  = extractParamNames(d)
+      val useTCO  = pNames.nonEmpty && hasTailCallPath(name, pNames.size, d.body)
+      for
+        params  <- if useTCO then renderMutParams(d, ctx, effName)
+                   else            renderParams(d, ctx, effName)
+        ret     <- renderReturnType(d, ctx)
+        bodyRs  <- if useTCO then renderTCOBody(name, pNames, d.body, ctx, isUnit = ret.isEmpty)
+                   else            renderBody(d.body, ctx, isUnit = ret.isEmpty)
+      yield
+        val signature = if ret.isEmpty then s"pub fn $name($params)"
+                        else                s"pub fn $name($params) -> $ret"
+        val topValPreamble =
+          if ctx.topVals.isEmpty then ""
+          else ctx.topVals.map { case (n, init) => s"let $n = $init;" }.mkString("\n") + "\n"
+        val src =
+          s"""$signature {
+             |${indent(topValPreamble + bodyRs)}
+             |}
+             |""".stripMargin
+        GeneratedDef(name = name, render = src, isMain = hasMainAnnotation(d))
 
   /** Extract just the parameter names from a def (single parameter group). */
   private def extractParamNames(d: m.Defn.Def): List[String] =
