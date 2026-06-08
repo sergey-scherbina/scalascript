@@ -42,7 +42,10 @@ val RustCapabilities: Capabilities = Capabilities(
     // Resume → `Computation` ops) lands in R.4.2 — declaring the
     // capability now keeps CapabilityCheck from blocking programs
     // that exercise the runtime via hand-written `rust` blocks.
-    Feature.AlgebraicEffects
+    Feature.AlgebraicEffects,
+    // R.5 — HTTP server via hyper + tokio.  Pulled in only when the
+    // program uses `serve` / `route`; programs without HTTP stay dep-free.
+    Feature.HttpServer
   ),
   outputs        = Set(OutputKind.RustSource),
   options        = Set("optimizationLevel", "emitAssertions", "cargoEdition"),

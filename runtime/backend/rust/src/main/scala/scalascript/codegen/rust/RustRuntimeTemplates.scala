@@ -363,3 +363,96 @@ object RustRuntimeTemplates:
       |    }
       |}
       |""".stripMargin
+
+  /** R.5 — HTTP server runtime helpers.  Emitted as `src/runtime/http.rs`
+   *  only when `serve` / `route` are reached in the program source.  No
+   *  Scala-side changes to `route` intrinsic are needed because the
+   *  function takes `impl Fn` (not `Box<dyn Fn>`) so closures pass directly
+   *  from codegen without boxing at the call site. */
+  val HttpRs: String =
+    """//! HTTP server runtime (R.5).
+      |//! Emitted verbatim by RustGen when `serve` / `route` are reached.
+      |//! Handler model: sync `fn(path: &str) -> String` → 200 OK / text/plain.
+      |
+      |use std::collections::HashMap;
+      |use std::sync::{Arc, Mutex};
+      |use std::net::SocketAddr;
+      |use bytes::Bytes;
+      |use http_body_util::Full;
+      |use hyper::{Request, Response, StatusCode};
+      |use hyper::body::Incoming;
+      |use hyper::server::conn::http1;
+      |use hyper::service::service_fn;
+      |use tokio::net::TcpListener;
+      |
+      |pub type RouteHandler = Box<dyn Fn(&str) -> String + Send + Sync>;
+      |
+      |static ROUTES: std::sync::OnceLock<
+      |    Arc<Mutex<Vec<(String, String, Arc<RouteHandler>)>>>
+      |> = std::sync::OnceLock::new();
+      |
+      |fn routes() -> &'static Arc<Mutex<Vec<(String, String, Arc<RouteHandler>)>>> {
+      |    ROUTES.get_or_init(|| Arc::new(Mutex::new(Vec::new())))
+      |}
+      |
+      |/// `route(method, path, handler)` — register a route.
+      |/// Takes `impl Fn` so closures from codegen pass directly.
+      |#[allow(dead_code)]
+      |pub fn _http_route(
+      |    method:  String,
+      |    path:    String,
+      |    handler: impl Fn(String) -> String + Send + Sync + 'static,
+      |) {
+      |    let h: RouteHandler = Box::new(move |s: &str| handler(s.to_string()));
+      |    routes().lock().unwrap().push((
+      |        method.to_uppercase(),
+      |        path,
+      |        Arc::new(h),
+      |    ));
+      |}
+      |
+      |/// `serve(port)` — start the HTTP server and block until killed.
+      |#[allow(dead_code)]
+      |pub fn _http_serve(port: i64) {
+      |    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+      |    rt.block_on(async move {
+      |        let addr = SocketAddr::from(([0, 0, 0, 0], port as u16));
+      |        let listener = TcpListener::bind(addr).await
+      |            .unwrap_or_else(|e| panic!("serve({}): {}", port, e));
+      |        eprintln!("Listening on http://{}", listener.local_addr().unwrap());
+      |        loop {
+      |            let (stream, _) = listener.accept().await
+      |                .unwrap_or_else(|e| panic!("accept: {}", e));
+      |            let io = hyper_util::rt::TokioIo::new(stream);
+      |            tokio::task::spawn(async move {
+      |                let _ = http1::Builder::new()
+      |                    .serve_connection(io, service_fn(handle_request))
+      |                    .await;
+      |            });
+      |        }
+      |    });
+      |}
+      |
+      |async fn handle_request(
+      |    req: Request<Incoming>,
+      |) -> Result<Response<Full<Bytes>>, hyper::Error> {
+      |    let method = req.method().to_string();
+      |    let path   = req.uri().path().to_owned();
+      |    let guard  = routes().lock().unwrap();
+      |    for (m, p, h) in guard.iter() {
+      |        if m == &method && p == &path {
+      |            let body = h(&path);
+      |            return Ok(Response::builder()
+      |                .status(StatusCode::OK)
+      |                .header("Content-Type", "text/plain; charset=utf-8")
+      |                .body(Full::new(Bytes::from(body)))
+      |                .unwrap());
+      |        }
+      |    }
+      |    Ok(Response::builder()
+      |        .status(StatusCode::NOT_FOUND)
+      |        .body(Full::new(Bytes::from("Not Found")))
+      |        .unwrap())
+      |}
+      |""".stripMargin
+

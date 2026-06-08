@@ -30,5 +30,9 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   // R.3.4 — process & env (pure std, no extra crate deps).
   QualifiedName("args")             -> RuntimeCall("crate::runtime::_args"),
   QualifiedName("env")              -> RuntimeCall("crate::runtime::_env"),
-  QualifiedName("exit")             -> RuntimeCall("crate::runtime::_exit")
+  QualifiedName("exit")             -> RuntimeCall("crate::runtime::_exit"),
+  // R.5 — HTTP server.  Pulls tokio + hyper + http-body-util + bytes +
+  // hyper-util into Cargo.toml only when reached.
+  QualifiedName("serve")            -> RuntimeCall("crate::runtime::http::_http_serve"),
+  QualifiedName("route")            -> RuntimeCall("crate::runtime::http::_http_route")
 )

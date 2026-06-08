@@ -47,7 +47,8 @@ object RustGen:
     // runtime-helper emit so a hello-world stays dep-free.
     val cryptoUsage = scanCryptoUsage(astModule)
     val effectUsage = scanEffectUsage(astModule)
-    val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage)
+    val httpUsage   = scanHttpUsage(astModule)
+    val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage)
 
     RustCodeWalk.walk(astModule, intrinsics) match
       case Left(diags) =>
@@ -60,7 +61,7 @@ object RustGen:
         // annotated def, fall back to [lib].
         val cargoTomlFinal =
           if effectiveBin == hasMain then cargoToml
-          else renderCargoToml(crateName, version, descr, effectiveBin, cryptoUsage)
+          else renderCargoToml(crateName, version, descr, effectiveBin, cryptoUsage, httpUsage)
         val generatedMod = renderGeneratedMod(crateName)
         val rootFile     =
           if effectiveBin then renderMainRs(crateName, entry.get)
@@ -78,6 +79,9 @@ object RustGen:
           if effectUsage.nonEmpty then
             sb.append("\n// ── R.4.1 — algebraic-effects runtime ──\n")
             sb.append("pub mod effect;\n")
+          if httpUsage then
+            sb.append("\n// ── R.5 — HTTP server runtime ──\n")
+            sb.append("pub mod http;\n")
           sb.toString
         val baseAssets = List(
           Segment.Asset("Cargo.toml",                   cargoTomlFinal.getBytes("UTF-8"),       "application/toml"),
@@ -94,12 +98,27 @@ object RustGen:
             RustRuntimeTemplates.EffectRs.getBytes("UTF-8"),
             "text/x-rust"
           ))
-        CompileResult.Segmented(baseAssets ++ effectAsset)
+        val httpAsset =
+          if !httpUsage then Nil
+          else List(Segment.Asset(
+            "src/runtime/http.rs",
+            RustRuntimeTemplates.HttpRs.getBytes("UTF-8"),
+            "text/x-rust"
+          ))
+        CompileResult.Segmented(baseAssets ++ effectAsset ++ httpAsset)
 
   /** R.3.2 — IR walk for crypto-intrinsic usage.  Returns the set of
    *  intrinsic names actually reached so RustGen can decide which
    *  crates to add to `Cargo.toml` and whether to append the crypto
    *  runtime helpers. */
+  /** R.5 — detect `serve` / `route` calls anywhere in the module source.
+   *  Triggers the hyper + tokio dep emit and the `src/runtime/http.rs`
+   *  asset. */
+  private[rust] def scanHttpUsage(astModule: scalascript.ast.Module): Boolean =
+    val found = scala.collection.mutable.Set.empty[String]
+    astModule.sections.foreach(s => scanSectionForNames(s, Set("serve", "route"), found))
+    found.nonEmpty
+
   private[rust] def scanCryptoUsage(astModule: scalascript.ast.Module): Set[String] =
     // R.3.2 + R.3.3 — scan covers both crypto/base64 and JSON intrinsics
     // so RustGen can drive Cargo deps + runtime-template emit on demand.
@@ -212,7 +231,8 @@ object RustGen:
       version:     String,
       descr:       Option[String],
       hasMain:     Boolean,
-      cryptoUsage: Set[String] = Set.empty
+      cryptoUsage: Set[String] = Set.empty,
+      httpUsage:   Boolean     = false
   ): String =
     val descrLine = descr match
       case Some(d) => s"""description = "${escapeTomlString(d)}"
@@ -226,6 +246,13 @@ object RustGen:
     // R.3.3 — serde_json gates on either JSON intrinsic.
     if cryptoUsage.exists(n => n == "jsonParse" || n == "jsonStringify") then
       depLines += "serde_json = \"1.0\""
+    // R.5 — HTTP server deps, only when serve/route are used.
+    if httpUsage then
+      depLines += "tokio = { version = \"1\", features = [\"rt-multi-thread\", \"net\", \"macros\"] }"
+      depLines += "hyper = { version = \"1\", features = [\"server\", \"http1\"] }"
+      depLines += "hyper-util = { version = \"0.1\", features = [\"tokio\"] }"
+      depLines += "http-body-util = \"0.1\""
+      depLines += "bytes = \"1\""
     val deps = if depLines.isEmpty then "" else depLines.mkString("\n") + "\n"
     val target =
       if hasMain then

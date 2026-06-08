@@ -1,0 +1,24 @@
+# HTTP hello server
+
+R.5 wires `serve(port)` and `route(method, path, handler)` to a
+hyper + tokio HTTP server.  The crates are pulled into `Cargo.toml`
+only when these intrinsics are reached; programs without HTTP stay
+dep-free.
+
+Handler model (R.5): synchronous `fn(path: &str) -> String`
+response body, returned as `200 OK / text/plain`.
+
+```scalascript
+@main def run(): Unit =
+  route("GET", "/hello", (p: String) => s"Hello from $p")
+  serve(8080)
+```
+
+Build and run:
+
+```bash
+ssc build-rust http-hello.ssc
+./http-hello &
+curl -s http://localhost:8080/hello   # → Hello from /hello
+kill %1
+```
