@@ -628,7 +628,7 @@ by quick-win impact; P0 alone unlocks 7 benchmarks with tiny changes.
 
 ### P0 — quick wins (XS, each ≤ 100 lines)
 
-- [ ] **rust-bench-p0-to-numeric** — Add `.toLong` / `.toInt` /
+- [x] **rust-bench-p0-to-numeric** — Add `.toLong` / `.toInt` /
       `.toDouble` / `.toFloat` conversions.  In `renderTerm`,
       recognise `Term.Select(expr, Term.Name("toLong"|"toInt"|...))` and
       lower to `(expr) as i64` / `as i32` / `as f64`.  Also lower

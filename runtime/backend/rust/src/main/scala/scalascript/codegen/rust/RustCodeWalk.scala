@@ -640,9 +640,11 @@ object RustCodeWalk:
     case m.Term.Select(qual, m.Term.Name("toInt")) =>
       renderTerm(qual, ctx).flatMap { q =>
         if isStringToIntExpr(qual) then Right(s"($q.parse::<i32>().unwrap_or(0))")
-        else Right(s"($q as i64)")   // widen to i64 for bench workload
+        else Right(s"($q as i32)")
       }
-    case m.Term.Select(qual, m.Term.Name("toDouble" | "toFloat")) =>
+    case m.Term.Select(qual, m.Term.Name("toDouble")) =>
+      renderTerm(qual, ctx).map(q => s"($q as f64)")
+    case m.Term.Select(qual, m.Term.Name("toFloat")) =>
       renderTerm(qual, ctx).map(q => s"($q as f64)")
     case m.Term.Select(qual, m.Term.Name("toString")) =>
       renderTerm(qual, ctx).map(q => s"format!(\"{}\", $q)")
@@ -817,18 +819,14 @@ object RustCodeWalk:
         if isListCtor then Right(s"vec![$joined]")
         else applyNonListCtor(fn, callee, renderedArgs, joined, ctx)
 
-    // `String + any` — lower to `format!("{}{}", lhs, rhs)` so mixed-type
-    // concatenation like `"item-" + n` (where n: i64) compiles.
-    // The Lit.String pattern fires BEFORE the generic infix branch so we
-    // must handle it here where we still have type context.
-    case m.Term.ApplyInfix.After_4_6_0(lhs: m.Lit.String, m.Term.Name("+"), _, args)
-        if args.values.nonEmpty =>
-      for
-        l <- renderTerm(lhs, ctx)
-        r <- renderTerm(args.values.head, ctx)
-      yield s"""format!("{{}}{{}}", $l, $r)""".replace("{{", "{").replace("}}", "}")
-    case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("+"), _, args)
-        if args.values.headOption.exists(_.isInstanceOf[m.Lit.String]) =>
+    // `String + any` / `any + String` — lower to `format!("{}{}", lhs, rhs)`.
+    // Triggered when either side is a best-effort string expression.
+    case m.Term.ApplyInfix.After_4_6_0(
+      lhs,
+      m.Term.Name("+"),
+      _,
+      args
+    ) if args.values.size == 1 && (isStringExpr(lhs) || isStringExpr(args.values.head)) =>
       for
         l <- renderTerm(lhs, ctx)
         r <- renderTerm(args.values.head, ctx)
@@ -919,6 +917,17 @@ object RustCodeWalk:
         m.Term.Select(_, m.Term.Name("toString" | "trim")),
         args
       ) if args.values.isEmpty => true
+    case _ => false
+
+  private def isStringExpr(term: m.Term): Boolean = term match
+    case m.Term.Paren(inner) => isStringExpr(inner)
+    case m.Lit.String(_) => true
+    case m.Term.Interpolate(m.Term.Name("s"), _, _) => true
+    case m.Term.Select(_, m.Term.Name("toString" | "trim")) => true
+    case m.Term.Apply.After_4_6_0(
+      m.Term.Select(_, m.Term.Name("toString" | "trim")),
+      args
+    ) if args.values.isEmpty => true
     case _ => false
 
   /** Best-effort check that a term is an Option-shaped expression so we can

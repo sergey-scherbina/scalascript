@@ -129,6 +129,21 @@ class RustGenR23Test extends AnyFunSuite:
     val g = gen(src)
     assert(g.contains("42".to_string().parse::<i32>().unwrap_or(0)"))
 
+  test("Numeric conversions and String+number concat lower to expected Rust casts"):
+    val src =
+      """```scalascript
+        |def asLong(i: Int): Long = i.toLong
+        |def asInt(l: Long): Int = l.toInt
+        |def asDouble(i: Int): Double = i.toDouble
+        |def asFloat(i: Int): Float = i.toFloat
+        |def label(i: Int): String = "item-" + i
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("(i as i64)"))
+    assert(g.contains("(l as i32)"))
+    assert(g.contains("(i as f64)"))
+    assert(g.contains("format!(\"{}{}\", \"item-\".to_string(), i)"))
+
   test("Option type maps to Rust Option and constructors"):
     val src =
       """```scalascript
