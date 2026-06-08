@@ -47,6 +47,27 @@ Ordered simplest-first.
       `2f64`→`2.0f64`, missing `.to_string()` on string args, etc.).
       Fixed 2026-06-08. Result: 104 pass, 2 ignored.
 
+### Rust runtime errors (from bench.sh 2026-06-08, `rustc` fails)
+
+- [ ] **rust-fix-split-string-pattern** — `RustCodeWalk.scala`: string
+      arguments to `.split(sep)` / `.splitn(n, sep)` are emitted as
+      `",".to_string()` (`String`) but Rust's `str::split` requires a
+      `Pattern` — `&str` or `char`, not owned `String`.
+      Fix: in the `renderTerm` cases for `split` / `splitn`, emit the
+      separator as a borrowed string reference. E.g. render string-literal
+      args without `.to_string()` when the call target is `split`/`splitn`.
+      Affects bench: `string-split`.
+
+- [ ] **rust-fix-enum-ctor-call** — `RustCodeWalk.scala`: enum constructors
+      in *expression* position (e.g. `vec![Circle(1.0), Rect(2.0, 3.0)]`) are
+      emitted as `Circle(1.0f64)` (tuple-ctor syntax) instead of
+      `Shape::Circle { r: 1.0f64 }` (struct-variant syntax required by Rust).
+      Rust reports: "cannot find function, tuple struct or tuple variant `Circle`".
+      Fix: `renderTerm` for `m.Term.Apply.After_4_6_0(m.Term.Name(ctor), args)` —
+      look up `ctor` in `ctx.ctorMap`; if found, emit `EnumName::Ctor { field: arg, ... }`
+      rather than `Ctor(arg, ...)`.
+      Affects bench: `pattern-match-heavy`.
+
 ### Unimplemented feature (tuple ++ concat in Rust backend)
 
 - [ ] **rust-fix-tuple-concat** — `RustCodeWalk.scala`: `++` infix on two tuple
