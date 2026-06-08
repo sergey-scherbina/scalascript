@@ -58,6 +58,32 @@ Ordered simplest-first.
       fell through to `Circle(args)` call syntax.  Fixed by computing `ctorMap`
       before calling `collectTopVals` and passing it in.  Fixed 2026-06-08.
 
+### Rust codegen gaps (from bench.sh 2026-06-08, `rustc` or codegen errors; ordered by difficulty)
+
+- [ ] **rust-fix-option-chain-var-scope** — `option-chain` bench: `rustc` reports
+      `cannot find value 'i' in this scope`.  A variable reference inside a
+      while-body is lost when rendered inside a nested option-chain closure.
+      Likely free-var capture issue in `renderClosure` / `renderBody`.
+      Bench: `bench/corpus/option-chain.ssc`.
+
+- [ ] **rust-fix-either-chain-select-chain** — `either-chain` bench: method chain
+      `parse(i+1).map(...).flatMap(...).fold(...)` — the `fold` call on the
+      result of `flatMap` isn't resolved because `isEitherExpr(qual)` fails to
+      see through the chain.
+      Fix: make `isEitherExpr` aware of `.map`/`.flatMap` results as Either exprs.
+
+- [ ] **rust-fix-instance-field-vec-type** — `instance-field` bench: `Vec[Double]`
+      not yet in `mapType`; reports "uses type Vec; R.2 accepts primitives…".
+      Fix: add `Vec[T]` → `Vec<T>` mapping (same as `List[T]`).
+
+- [ ] **rust-fix-effect-pure** — `effect-pure` bench: `Int ! Logger` effect type
+      unsupported.  Effects are not on the Rust backend roadmap.
+      Short-term: skip or mark n/a in bench output.
+
+- [ ] **rust-fix-effect-stream** — `effect-stream` bench: `runToList` call on
+      effect stream, and destructuring `val` binding unsupported.
+      Short-term: skip or mark n/a.
+
 ### Unimplemented feature (tuple ++ concat in Rust backend)
 
 - [x] **rust-fix-tuple-concat** — `RustCodeWalk.scala`: `++` on tuples now
