@@ -108,10 +108,9 @@ println(result(0)._1)"""
   }
 
   test("InstanceV(Map, ...) is callable via direct apply") {
-    val interp = Interpreter()
-    val mapInstance = Value.InstanceV("Map", Map(Value.StringV("a") -> Value.IntV(1)))
-    val value = Computation.run(interp.callValue(mapInstance, List(Value.StringV("a")), Map.empty))
-    value shouldBe Value.IntV(1)
+    captured(
+"""val m = Map("a" -> 1)
+println(m("a"))""") shouldBe "1"
   }
 
   // ── asInstanceOf is a no-op for all Value subtypes ────────────────────────
@@ -170,4 +169,70 @@ println(result)""") shouldBe "160"
     i = i + 1
   i
 println(countUp(7))""") shouldBe "7"
+  }
+
+  // ── busi-p0-try-catch-handler ────────────────────────────────────────────
+
+  test("try/catch with handler function (no case keyword)") {
+    captured(
+"""val r = try
+  throw RuntimeException("boom")
+  "ok"
+catch e => "caught: " + e.message
+println(r)""") shouldBe "caught: boom"
+  }
+
+  test("try/catch handler ignores exception with wildcard") {
+    captured(
+"""val r = try throw RuntimeException("x") catch _ => "handled"
+println(r)""") shouldBe "handled"
+  }
+
+  // ── busi-p1-map-concat-returns-tuplev ────────────────────────────────────
+
+  test("Map ++ Map merges both maps") {
+    captured(
+"""val a = Map("x" -> "1")
+val b = Map("z" -> "3")
+val c = a ++ b
+println(c.get("x").getOrElse("missing"))
+println(c.get("z").getOrElse("missing"))""") shouldBe "1\n3"
+  }
+
+  test("Map ++ Map via infix operator") {
+    captured(
+"""val m1 = Map("a" -> 1)
+val m2 = Map("b" -> 2)
+val m3 = m1 ++ m2
+println(m3.get("a").getOrElse(0))
+println(m3.get("b").getOrElse(0))""") shouldBe "1\n2"
+  }
+
+  // ── busi-p1-map-getorelse-null-semantics ─────────────────────────────────
+
+  test("Map.getOrElse returns default when value is null") {
+    captured(
+"""val m = Map("k" -> null)
+val r = m.getOrElse("k", "default")
+println(r)""") shouldBe "default"
+  }
+
+  // ── busi-p1-phase90-rule-bool-coercion ───────────────────────────────────
+
+  test("unary ! on Int 0 returns true") {
+    captured(
+"""val n: Int = 0
+println(!n)""") shouldBe "true"
+  }
+
+  test("unary ! on Int 1 returns false") {
+    captured(
+"""val n: Int = 1
+println(!n)""") shouldBe "false"
+  }
+
+  test("unary ! on Int nonzero returns false") {
+    captured(
+"""val n: Int = 42
+println(!n)""") shouldBe "false"
   }

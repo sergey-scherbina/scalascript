@@ -3914,6 +3914,7 @@ private[interpreter] object EvalRuntime:
       val op = t.op.value
       @inline def applyUnary(v: Value): Computation = (op, v) match
         case ("!", Value.BoolV(b))   => Computation.pureBool(!b)
+        case ("!", Value.IntV(n))    => Computation.pureBool(n == 0)
         case ("-", Value.IntV(n))    => Computation.pureIntV(-n)
         case ("-", Value.DoubleV(d)) => Pure(Value.doubleV(-d))
         case ("+", n: Value.IntV)    => Pure(n)
@@ -3948,6 +3949,25 @@ private[interpreter] object EvalRuntime:
             if isNoTrace then throw ScriptExceptionNoTrace(v)
             else throw ScriptException(v)
       }
+
+    case t: Term.TryWithHandler =>
+      def handleException(thrownVal: Value): Value =
+        val handler = Computation.run(eval(t.catchp, env, interp))
+        Computation.run(interp.callValue1(handler, thrownVal, env))
+      val tryResult: Value =
+        try Computation.run(eval(t.expr, env, interp))
+        catch
+          case rr: RestartableRethrow => throw rr
+          case se: ScriptException =>
+            handleException(se.value)
+          case th: Throwable =>
+            val exTypeName = th.getClass.getSimpleName
+            val msg = Option(th.getMessage).getOrElse(exTypeName)
+            handleException(Value.InstanceV(exTypeName, new IMap.Map1("message", Value.StringV(msg))))
+      t.finallyp match
+        case Some(f) => Computation.run(eval(f, env, interp))
+        case None    =>
+      Pure(tryResult)
 
     case t: Term.Try =>
       @annotation.nowarn("msg=deprecated")

@@ -111,7 +111,9 @@ private[interpreter] object DispatchRuntime:
           if fn != null then return interp.callValuePrepend(fn, recv, arg1 :: arg2 :: Nil, env)
     recv match
       case Value.MapV(m) => name match
-        case "getOrElse" | "getOrDefault" => Pure(m.getOrElse(arg1, arg2))
+        case "getOrElse" | "getOrDefault" =>
+          val v = m.getOrElse(arg1, null)
+          Pure(if v == null || (v eq Value.NullV) then arg2 else v)
         case "updated"   => Pure(Value.MapV(m.updated(arg1, arg2)))
         case _           => dispatchMap(m, name, arg1 :: arg2 :: Nil, env, interp)
       case Value.StringV(s) => name match
@@ -2038,7 +2040,9 @@ private[interpreter] object DispatchRuntime:
         case List(k)       => Pure(m.getOrElse(k, interp.located(s"Key not found: ${Value.show(k)}")))
         case _             => dispatchFallback(recv, name, args, env, interp)
       case "getOrElse" => args match
-        case List(k, d)    => Pure(m.getOrElse(k, d))
+        case List(k, d)    =>
+          val v = m.getOrElse(k, null)
+          Pure(if v == null || (v eq Value.NullV) then d else v)
         case _             => dispatchFallback(recv, name, args, env, interp)
       case "updated"  => args match
         case List(k, v)    => Pure(Value.MapV(m.updated(k, v)))
@@ -3251,6 +3255,7 @@ private[interpreter] object DispatchRuntime:
           else Pure(Value.ListV(a ++ b))
         case (Value.SetV(a), Value.SetV(b))       => Pure(Value.SetV(a ++ b))
         case (Value.SetV(a), Value.ListV(b))      => Pure(Value.SetV(a ++ b.toSet))
+        case (Value.MapV(a),    Value.MapV(b))    => Pure(Value.MapV(a ++ b))
         case (Value.TupleV(as), Value.TupleV(bs)) => Pure(Value.TupleV(as ++ bs))
         case (Value.TupleV(_),  Value.UnitV)      => Pure(lhs)
         case (Value.TupleV(as), _)                => Pure(Value.TupleV(as :+ rhs))
