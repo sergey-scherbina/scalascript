@@ -683,7 +683,7 @@ object RustCodeWalk:
     // xs.map(f) → xs.iter().cloned().map(move |p| body).collect::<Vec<_>>()
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("map")), args
-    ) if args.values.size == 1 && !isOptionExpr(qual) =>
+    ) if args.values.size == 1 && !isOptionExpr(qual) && !isRangeExpr(qual) =>
       for
         q <- renderTerm(qual, ctx)
         body <- renderVecIterBody(args.values.head, q, ctx, method = "map")
@@ -697,6 +697,16 @@ object RustCodeWalk:
         q <- renderTerm(qual, ctx)
         body <- renderVecIterBody(args.values.head, q, ctx, method = "filter")
       yield body
+
+    // Range chains.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("map")),
+        args
+    ) if isRangeExpr(qual) && args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        f <- renderTerm(args.values.head, ctx)
+      yield s"$q.map($f)"
 
     // Option-aware method lowering.
     case m.Term.Apply.After_4_6_0(m.Term.Name("Some"), args) if args.values.size == 1 =>
@@ -740,6 +750,20 @@ object RustCodeWalk:
           zArgs
         ),
         fArgs
+    ) if zArgs.values.size == 1 && fArgs.values.size == 1 && isRangeExpr(qual) =>
+      for
+        q  <- renderTerm(qual, ctx)
+        z  <- renderTerm(zArgs.values.head, ctx)
+        f  <- renderTerm(fArgs.values.head, ctx)
+      yield s"$q.fold($z, $f)"
+
+    // xs.foldLeft(z)(f) — outer Apply gives f, inner Apply(Select(xs,foldLeft), [z]) gives z.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Apply.After_4_6_0(
+          m.Term.Select(qual, m.Term.Name("foldLeft")),
+          zArgs
+        ),
+        fArgs
     ) if zArgs.values.size == 1 && fArgs.values.size == 1 =>
       for
         q  <- renderTerm(qual, ctx)
@@ -762,6 +786,21 @@ object RustCodeWalk:
         q <- renderTerm(qual, ctx)
         sep <- renderTerm(args.values.head, ctx)
       yield s"""$q.split($sep).map(|p| p.to_string()).collect::<Vec<String>>()"""
+
+    // Range methods: `(a until b)` -> Rust range `a..b`, `(a to b)` -> `a..=b`.
+    case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("until"), _, rhs)
+        if rhs.values.size == 1 =>
+      for
+        l <- renderTerm(lhs, ctx)
+        r <- renderTerm(rhs.values.head, ctx)
+      yield s"($l..$r)"
+
+    case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("to"), _, rhs)
+        if rhs.values.size == 1 =>
+      for
+        l <- renderTerm(lhs, ctx)
+        r <- renderTerm(rhs.values.head, ctx)
+      yield s"($l..=$r)"
 
     // Application — intrinsic, user-defined fn, or unsupported.
     case m.Term.Apply.After_4_6_0(fn, args) =>
@@ -893,6 +932,19 @@ object RustCodeWalk:
         if isOptionExpr(inner) =>
       // recursive chain case: `Some(x).map(...).getOrElse(...)`
       args.values.size == 1
+    case _ => false
+
+  /** Best-effort check that a term is a range expression (`lo until hi` / `lo to hi`)
+   *  and common iterator-chain extensions used by the bench.
+   */
+  private def isRangeExpr(term: m.Term): Boolean = term match
+    case m.Term.Paren(inner) => isRangeExpr(inner)
+    case m.Term.ApplyInfix.After_4_6_0(_, m.Term.Name("until" | "to"), _, rhs)
+        if rhs.values.size == 1 => true
+    case m.Term.Apply.After_4_6_0(
+      m.Term.Select(inner, m.Term.Name("map" | "filter" | "foldLeft")),
+      _
+    ) if isRangeExpr(inner) => true
     case _ => false
 
   /** RuntimeCall targets whose Rust signature takes args by reference.

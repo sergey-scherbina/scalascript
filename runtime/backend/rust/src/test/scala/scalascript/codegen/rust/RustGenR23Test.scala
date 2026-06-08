@@ -158,6 +158,19 @@ class RustGenR23Test extends AnyFunSuite:
     assert(g.contains(".map("))
     assert(g.contains(".unwrap_or(0)"))
 
+  test("Range until/to lower to Rust range syntax and support map/foldLeft"):
+    val src =
+      """```scalascript
+        |def sum(): Int = (0 until 5).map(i => i * i).foldLeft(0)((a, b) => a + b)
+        |def bounded(v: Int): Int = (0 to v).foldLeft(0)((a, b) => a + b)
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("(0..5)"))
+    assert(g.contains("(0..=v)"))
+    assert(g.contains(".map("))
+    assert(g.contains(".fold(0,"))
+
   test("Term.Match lowers to Rust match with pattern destructuring"):
     val src =
       """```scalascript

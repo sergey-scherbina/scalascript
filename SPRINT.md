@@ -694,7 +694,7 @@ by quick-win impact; P0 alone unlocks 7 benchmarks with tiny changes.
       crate when reached; add `.map`, `.flatMap`, `.fold` methods.
       Acceptance: `either-chain.ssc` green.  Spec: §Gap E.
 
-- [ ] **rust-bench-p3-range-until** — Lower `(lo until hi)` and
+- [x] **rust-bench-p3-range-until** — Lower `(lo until hi)` and
       `(lo to hi)` to a `(lo..hi)` / `(lo..=hi)` Rust range; chain
       `.map` / `.foldLeft` via iterator adapters.  Acceptance:
       `range-sum.ssc` green.  Spec: §Gap E + D.
