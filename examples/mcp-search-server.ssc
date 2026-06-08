@@ -16,9 +16,9 @@ files ranked by match count.
 > shell out to `ripgrep`. This example exists to show MCP wiring, not
 > search-engine engineering.
 
-```scalascript
-[mcpServer, serveMcp, Tool, requireString, Transport](std/mcp/server.ssc)
-
+```scala
+// JVM-specific: use `ssc run --target jvm` (java.nio, scala.io require JVM)
+import scalascript.mcp.*
 import scala.io.Source
 import java.nio.file.{Files, Path, Paths}
 import scala.jdk.CollectionConverters._

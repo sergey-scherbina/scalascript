@@ -973,21 +973,27 @@ Spec: [`specs/backend-specific-blocks.md`](specs/backend-specific-blocks.md)
 
 ### Phase 6 — extend FFI annotations to `@rust` / `@wasm` + WASM boundary
 
-- [ ] **backend-blocks-p6-ffi-extend** — Add `RustInline`, `WasmInline`,
+- [x] **backend-blocks-p6-ffi-extend** — Add `RustInline`, `WasmInline`,
       `WasmExport`, `WasmImport` annotation AST nodes (alongside existing
       `JvmInline`, `JsInline`). Wire `@rust("...")` into `RustGen`.
       Wire `@wasmExport` / `@wasmImport` into WASM backend boundary emission
       (export/import table entries). Update `arch-ffi.md` to reference
       `backend-specific-blocks.md` for the full picture.
       Commit: `feat(ffi): @rust/@wasm annotations + WASM boundary annotations`.
+      ✓ Landed 2026-06-09 (339cdff): @rust("expr") wired in RustCodeWalk.renderDef;
+      extern defs without @rust skipped; arch-ffi.md updated; 4 tests, 151 Rust total.
+      Note: @wasmExport/@wasmImport deferred (no WASM backend to wire into).
 
 ### Phase 7 — audit + flip ban to error
 
-- [ ] **backend-blocks-p7-audit** — Enable ban as warning, surface all
+- [x] **backend-blocks-p7-audit** — Enable ban as warning, surface all
       violations in `runtime/std/`, `examples/`, `tests/conformance/`.
       Migrate violating `.ssc` files to `std.*` or backend blocks.
       Flip warning to error. Update `AGENTS.md` link (already added).
       Commit: `fix(typer): enable platform-type ban as hard error`.
+      ✓ Landed 2026-06-09: audit found 1 violation (mcp-search-server.ssc had
+      java.nio + scala.io in scalascript block); migrated to scala block.
+      Ban already hard error from Phase 2. runtime/std/, conformance/ clean.
 
 ---
 

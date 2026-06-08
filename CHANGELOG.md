@@ -13,6 +13,11 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — feat: backend-specific blocks Phases 6+7
+
+- **backend-blocks-p6-ffi-extend** — @rust("expr") wired in RustCodeWalk; 4 tests.
+- **backend-blocks-p7-audit** — 1 violation fixed (mcp-search-server.ssc → scala block).
+
 ## 2026-06-09 — feat(rust): R.6.6 — WebSocket server + client (rust-backend-r6-websockets)
 
 - **rust-backend-r6-websockets** — `wsRoute`/`wsServe`/`wsConnectSync` via tokio-tungstenite 0.21.
