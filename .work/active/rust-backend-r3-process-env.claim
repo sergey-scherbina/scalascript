@@ -1,6 +1,0 @@
-feature/rust-backend-r3-process-env 2026-06-07T20:17:26Z
-agent: claude-opus-4-7
-heartbeat: 2026-06-07T20:17:26Z
-status: not-started
-done-so-far:
-next: args/env/exit intrinsics with std-only runtime helpers
