@@ -76,9 +76,11 @@ object RustCodeWalk:
         (if enumBlock.nonEmpty && ok.nonEmpty then "\n" else "") +
         (if ok.isEmpty then "" else ok.map(_.render).mkString("\n")) +
         (if rustBlocks.isEmpty then "" else "\n" + rustVerbatim)
-      // Collect effect names from `T ! E` return types AND from `runStream` usage.
-      val streamEffect = if usesRunStream(module) then Set("Stream") else Set.empty[String]
-      val effectNames = defs.flatMap(defEffectName).toSet ++ streamEffect
+      // Collect effect names from `T ! E` return types AND from runXxx usage.
+      val streamEffect  = if usesRunStream(module)  then Set("Stream")  else Set.empty[String]
+      val stateEffect   = if usesRunState(module)   then Set("State")   else Set.empty[String]
+      val randomEffect  = if usesRunRandom(module)  then Set("Random")  else Set.empty[String]
+      val effectNames = defs.flatMap(defEffectName).toSet ++ streamEffect ++ stateEffect ++ randomEffect
       val effectsImport =
         if effectNames.isEmpty then ""
         else "use crate::runtime::effects::*;\n\n"
@@ -1056,20 +1058,69 @@ object RustCodeWalk:
 
     // `runLogger { body }` / `runLoggerJson { body }` / `runLoggerToList { body }` —
     // tagless-final lowering: introduce a NoOpLogger and run body with it.
-    // Other runXxx handlers (runRandom, runClock, …) are future phases.
     case m.Term.Apply.After_4_6_0(
         m.Term.Name(runner),
         args
     ) if runner.startsWith("runLogger") && args.values.size == 1 =>
-      // The block arg may be a Term.Block (multi-stat) or a bare expression.
       val bodyResult: Either[List[Diagnostic], String] = args.values.head match
-        case blk: m.Term.Block =>
-          renderBody(blk, ctx, isUnit = false)
-        case expr =>
-          renderTerm(expr, ctx)
+        case blk: m.Term.Block => renderBody(blk, ctx, isUnit = false)
+        case expr              => renderTerm(expr, ctx)
       bodyResult.map { body =>
         s"{\n    let mut _eff = NoOpLogger;\n    $body\n}"
       }
+
+    // `runState(init) { body }` — tagless-final: inject StateHandler with given init value.
+    // Returns the body result; final state is discarded (like Haskell evalState).
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Apply.After_4_6_0(m.Term.Name("runState"), initArgs),
+        bodyArgs
+    ) if initArgs.values.size == 1 && bodyArgs.values.size == 1 =>
+      for
+        init <- renderTerm(initArgs.values.head, ctx)
+        body <- bodyArgs.values.head match
+          case blk: m.Term.Block => renderBody(blk, ctx, isUnit = false)
+          case expr              => renderTerm(expr, ctx)
+      yield s"{\n    let mut _eff = StateHandler { state: $init };\n    $body\n}"
+
+    // `runRandom(seed) { body }` — tagless-final: inject RandomHandler with given seed.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Apply.After_4_6_0(m.Term.Name("runRandom"), seedArgs),
+        bodyArgs
+    ) if seedArgs.values.size == 1 && bodyArgs.values.size == 1 =>
+      for
+        seed <- renderTerm(seedArgs.values.head, ctx)
+        body <- bodyArgs.values.head match
+          case blk: m.Term.Block => renderBody(blk, ctx, isUnit = false)
+          case expr              => renderTerm(expr, ctx)
+      yield s"{\n    let mut _eff = RandomHandler { seed: $seed as u64 };\n    $body\n}"
+
+    // `State.get()` → `_eff.get_state()`
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(m.Term.Name("State"), m.Term.Name("get")),
+        args
+    ) if args.values.isEmpty =>
+      Right("_eff.get_state()")
+
+    // `State.put(s)` → `_eff.put_state(s)`
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(m.Term.Name("State"), m.Term.Name("put")),
+        args
+    ) if args.values.size == 1 =>
+      renderTerm(args.values.head, ctx).map(s => s"_eff.put_state($s)")
+
+    // `Random.nextInt(bound)` → `_eff.next_int(bound)`
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(m.Term.Name("Random"), m.Term.Name("nextInt")),
+        args
+    ) if args.values.size == 1 =>
+      renderTerm(args.values.head, ctx).map(b => s"_eff.next_int($b)")
+
+    // `Random.nextFloat()` → `_eff.next_float()`
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(m.Term.Name("Random"), m.Term.Name("nextFloat")),
+        args
+    ) if args.values.isEmpty =>
+      Right("_eff.next_float()")
 
     // Application — intrinsic, user-defined fn, or unsupported.
     case m.Term.Apply.After_4_6_0(fn, args) =>
@@ -1632,17 +1683,30 @@ object RustCodeWalk:
 
   /** Returns true if any code block in the module calls `runStream`. */
   private def usesRunStream(module: ast.Module): Boolean =
-    module.sections.exists(sectionUsesRunStream)
+    usesKeyword(module, "runStream")
 
-  private def sectionUsesRunStream(s: ast.Section): Boolean =
-    s.content.exists(contentUsesRunStream) || s.subsections.exists(sectionUsesRunStream)
+  /** Returns true if any code block in the module calls `runState`. */
+  private def usesRunState(module: ast.Module): Boolean =
+    usesKeyword(module, "runState")
 
-  private def contentUsesRunStream(c: ast.Content): Boolean = c match
+  /** Returns true if any code block in the module calls `runRandom`. */
+  private def usesRunRandom(module: ast.Module): Boolean =
+    usesKeyword(module, "runRandom")
+
+  private def usesKeyword(module: ast.Module, keyword: String): Boolean =
+    module.sections.exists(s => sectionUsesKeyword(s, keyword))
+
+  private def sectionUsesKeyword(s: ast.Section, keyword: String): Boolean =
+    s.content.exists(c => contentUsesKeyword(c, keyword)) ||
+    s.subsections.exists(sub => sectionUsesKeyword(sub, keyword))
+
+  private def contentUsesKeyword(c: ast.Content, keyword: String): Boolean = c match
     case ast.Content.CodeBlock(lang, source, _, _, _, _, _)
         if lang.equalsIgnoreCase("scalascript") || lang.equalsIgnoreCase("ssc") ||
            lang.equalsIgnoreCase("scala") =>
-      source.contains("runStream")
+      source.contains(keyword)
     case _ => false
+
 
   // ── Helpers ──────────────────────────────────────────────────────────
 

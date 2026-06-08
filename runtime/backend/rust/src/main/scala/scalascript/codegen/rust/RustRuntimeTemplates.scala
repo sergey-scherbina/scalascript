@@ -471,6 +471,10 @@ object RustRuntimeTemplates:
     for effName <- effectNames.toList.sorted do
       if effName == "Stream" then
         sb.append(StreamEffectRs)
+      else if effName == "State" then
+        sb.append(StateEffectRs)
+      else if effName == "Random" then
+        sb.append(RandomHandlerRs)
       else
         val traitName = s"${effName}Effect"
         val noopName  = s"NoOp${effName}"
@@ -487,6 +491,52 @@ object RustRuntimeTemplates:
              |""".stripMargin
         )
     sb.toString
+
+  /** State effect — concrete `i64` state, `StateHandler` carries the mutable state cell.
+   *  `runState(init) { body }` injects `StateHandler { state: init }`. */
+  private val StateEffectRs: String =
+    """pub trait StateEffect {
+      |    fn get_state(&mut self) -> i64;
+      |    fn put_state(&mut self, s: i64);
+      |}
+      |
+      |pub struct StateHandler {
+      |    pub state: i64,
+      |}
+      |
+      |impl StateEffect for StateHandler {
+      |    fn get_state(&mut self) -> i64 { self.state }
+      |    fn put_state(&mut self, s: i64) { self.state = s; }
+      |}
+      |
+      |""".stripMargin
+
+  /** Random effect — LCG `RandomHandler` for bench-friendly deterministic values.
+   *  `runRandom(seed) { body }` injects `RandomHandler { seed: seed as u64 }`. */
+  private val RandomHandlerRs: String =
+    """pub trait RandomEffect {
+      |    fn next_int(&mut self, bound: i64) -> i64;
+      |    fn next_float(&mut self) -> f64;
+      |}
+      |
+      |pub struct RandomHandler {
+      |    pub seed: u64,
+      |}
+      |
+      |impl RandomEffect for RandomHandler {
+      |    fn next_int(&mut self, bound: i64) -> i64 {
+      |        self.seed = self.seed.wrapping_mul(6364136223846793005)
+      |                              .wrapping_add(1442695040888963407);
+      |        (self.seed % bound.max(1) as u64) as i64
+      |    }
+      |    fn next_float(&mut self) -> f64 {
+      |        self.seed = self.seed.wrapping_mul(6364136223846793005)
+      |                              .wrapping_add(1442695040888963407);
+      |        (self.seed >> 11) as f64 / 9007199254740992.0
+      |    }
+      |}
+      |
+      |""".stripMargin
 
   /** Verbatim Stream effect block — generic `VecStream<T>` + `StreamEffect<T>` trait.
    *  `runStream { body }` injects `VecStream::new()` and collects every `stream_emit` call. */
@@ -509,17 +559,14 @@ object RustRuntimeTemplates:
       |
       |""".stripMargin
 
-  /** Known effect → list of method signatures (no-op default body assumed). */
+  /** Known effect → list of method signatures (no-op default body assumed).
+   *  State and Random are special-cased in renderTaglessEffectsRs (concrete handlers). */
   private val knownEffectOps: Map[String, List[String]] = Map(
     "Logger" -> List(
       "fn log_info (&mut self, _msg: &str)",
       "fn log_warn (&mut self, _msg: &str)",
       "fn log_error(&mut self, _msg: &str)",
       "fn log_debug(&mut self, _msg: &str)"
-    ),
-    "Random" -> List(
-      "fn next_int  (&mut self, _bound: i64) -> i64 { 0 }",
-      "fn next_float(&mut self) -> f64 { 0.0 }"
     ),
     "Clock" -> List(
       "fn now_ms(&mut self) -> i64 { 0 }"
