@@ -48,7 +48,8 @@ object RustGen:
     val cryptoUsage = scanCryptoUsage(astModule)
     val effectUsage = scanEffectUsage(astModule)
     val httpUsage   = scanHttpUsage(astModule)
-    val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage)
+    val authUsage   = scanAuthUsage(astModule)
+    val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage, authUsage)
 
     RustCodeWalk.walk(astModule, intrinsics) match
       case Left(diags) =>
@@ -61,7 +62,7 @@ object RustGen:
         // annotated def, fall back to [lib].
         val cargoTomlFinal =
           if effectiveBin == hasMain then cargoToml
-          else renderCargoToml(crateName, version, descr, effectiveBin, cryptoUsage, httpUsage)
+          else renderCargoToml(crateName, version, descr, effectiveBin, cryptoUsage, httpUsage, authUsage)
         val generatedMod = renderGeneratedMod(crateName)
         val rootFile     =
           if effectiveBin then renderMainRs(crateName, entry.get)
@@ -86,6 +87,9 @@ object RustGen:
           if httpUsage then
             sb.append("\n// ── R.5 — HTTP server runtime ──\n")
             sb.append("pub mod http;\n")
+          if authUsage.nonEmpty then
+            sb.append("\n// ── R.6 — auth runtime ──\n")
+            sb.append("pub mod auth;\n")
           sb.toString
         val baseAssets = List(
           Segment.Asset("Cargo.toml",                   cargoTomlFinal.getBytes("UTF-8"),       "application/toml"),
@@ -116,7 +120,14 @@ object RustGen:
             RustRuntimeTemplates.HttpRs.getBytes("UTF-8"),
             "text/x-rust"
           ))
-        CompileResult.Segmented(baseAssets ++ effectAsset ++ taglessEffectAsset ++ httpAsset)
+        val authAsset =
+          if authUsage.isEmpty then Nil
+          else List(Segment.Asset(
+            "src/runtime/auth.rs",
+            RustRuntimeTemplates.AuthRs.getBytes("UTF-8"),
+            "text/x-rust"
+          ))
+        CompileResult.Segmented(baseAssets ++ effectAsset ++ taglessEffectAsset ++ httpAsset ++ authAsset)
 
   /** R.3.2 — IR walk for crypto-intrinsic usage.  Returns the set of
    *  intrinsic names actually reached so RustGen can decide which
@@ -134,6 +145,14 @@ object RustGen:
     // R.3.2 + R.3.3 — scan covers both crypto/base64 and JSON intrinsics
     // so RustGen can drive Cargo deps + runtime-template emit on demand.
     val names = Set("sha256", "base64Encode", "base64Decode", "jsonParse", "jsonStringify")
+    val found = scala.collection.mutable.Set.empty[String]
+    astModule.sections.foreach(s => scanSectionForNames(s, names, found))
+    found.toSet
+
+  /** R.6 — scan for auth intrinsic calls (hashPassword, verifyPassword, jwtSign, jwtVerify).
+   *  Returns the set of names actually reached; non-empty triggers argon2 + jsonwebtoken deps. */
+  private[rust] def scanAuthUsage(astModule: scalascript.ast.Module): Set[String] =
+    val names = Set("hashPassword", "verifyPassword", "jwtSign", "jwtVerify")
     val found = scala.collection.mutable.Set.empty[String]
     astModule.sections.foreach(s => scanSectionForNames(s, names, found))
     found.toSet
@@ -243,7 +262,8 @@ object RustGen:
       descr:       Option[String],
       hasMain:     Boolean,
       cryptoUsage: Set[String] = Set.empty,
-      httpUsage:   Boolean     = false
+      httpUsage:   Boolean     = false,
+      authUsage:   Set[String] = Set.empty
   ): String =
     val descrLine = descr match
       case Some(d) => s"""description = "${escapeTomlString(d)}"
@@ -264,6 +284,11 @@ object RustGen:
       depLines += "hyper-util = { version = \"0.1\", features = [\"tokio\"] }"
       depLines += "http-body-util = \"0.1\""
       depLines += "bytes = \"1\""
+    // R.6 — auth deps, only when at least one auth intrinsic is reached.
+    if authUsage.nonEmpty then
+      depLines += "argon2 = \"0.5\""
+      depLines += "jsonwebtoken = \"9\""
+      depLines += "serde = { version = \"1\", features = [\"derive\"] }"
     val deps = if depLines.isEmpty then "" else depLines.mkString("\n") + "\n"
     val target =
       if hasMain then

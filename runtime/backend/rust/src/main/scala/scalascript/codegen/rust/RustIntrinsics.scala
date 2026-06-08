@@ -34,5 +34,11 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   // R.5 — HTTP server.  Pulls tokio + hyper + http-body-util + bytes +
   // hyper-util into Cargo.toml only when reached.
   QualifiedName("serve")            -> RuntimeCall("crate::runtime::http::_http_serve"),
-  QualifiedName("route")            -> RuntimeCall("crate::runtime::http::_http_route")
+  QualifiedName("route")            -> RuntimeCall("crate::runtime::http::_http_route"),
+  // R.6 — auth.  Pulls argon2 + jsonwebtoken + serde into Cargo.toml
+  // only when at least one auth intrinsic is reached.
+  QualifiedName("hashPassword")     -> RuntimeCall("crate::runtime::auth::_hash_password"),
+  QualifiedName("verifyPassword")   -> RuntimeCall("crate::runtime::auth::_verify_password"),
+  QualifiedName("jwtSign")          -> RuntimeCall("crate::runtime::auth::_jwt_sign"),
+  QualifiedName("jwtVerify")        -> RuntimeCall("crate::runtime::auth::_jwt_verify")
 )

@@ -45,7 +45,11 @@ val RustCapabilities: Capabilities = Capabilities(
     Feature.AlgebraicEffects,
     // R.5 — HTTP server via hyper + tokio.  Pulled in only when the
     // program uses `serve` / `route`; programs without HTTP stay dep-free.
-    Feature.HttpServer
+    Feature.HttpServer,
+    // R.6 — password hashing (argon2) + JWT (jsonwebtoken + serde).
+    // Pulled in only when at least one of hashPassword / verifyPassword /
+    // jwtSign / jwtVerify is reached; programs without auth stay dep-free.
+    Feature.Auth
   ),
   outputs        = Set(OutputKind.RustSource),
   options        = Set("optimizationLevel", "emitAssertions", "cargoEdition"),
