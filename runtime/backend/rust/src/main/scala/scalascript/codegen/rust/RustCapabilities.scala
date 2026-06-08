@@ -49,7 +49,9 @@ val RustCapabilities: Capabilities = Capabilities(
     // R.6 — password hashing (argon2) + JWT (jsonwebtoken + serde).
     // Pulled in only when at least one of hashPassword / verifyPassword /
     // jwtSign / jwtVerify is reached; programs without auth stay dep-free.
-    Feature.Auth
+    Feature.Auth,
+    // R.6 — guaranteed TCO via while-loop rewrite for self-tail-recursive defs.
+    Feature.TailCallOptimization
   ),
   outputs        = Set(OutputKind.RustSource),
   options        = Set("optimizationLevel", "emitAssertions", "cargoEdition"),

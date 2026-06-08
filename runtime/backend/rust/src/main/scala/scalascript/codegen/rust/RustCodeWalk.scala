@@ -482,13 +482,17 @@ object RustCodeWalk:
       topVals:       List[TopVal],
       effectfulDefs: Set[String]
   ): Either[List[Diagnostic], GeneratedDef] =
-    val name = d.name.value
-    val ctx  = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs)
+    val name    = d.name.value
+    val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs)
     val effName = defEffectName(d)
+    val pNames  = extractParamNames(d)
+    val useTCO  = pNames.nonEmpty && hasTailCallPath(name, pNames.size, d.body)
     for
-      params  <- renderParams(d, ctx, effName)
+      params  <- if useTCO then renderMutParams(d, ctx, effName)
+                 else            renderParams(d, ctx, effName)
       ret     <- renderReturnType(d, ctx)
-      bodyRs  <- renderBody(d.body, ctx, isUnit = ret.isEmpty)
+      bodyRs  <- if useTCO then renderTCOBody(name, pNames, d.body, ctx, isUnit = ret.isEmpty)
+                 else            renderBody(d.body, ctx, isUnit = ret.isEmpty)
     yield
       val signature = if ret.isEmpty then s"pub fn $name($params)"
                       else                s"pub fn $name($params) -> $ret"
@@ -502,6 +506,126 @@ object RustCodeWalk:
            |}
            |""".stripMargin
       GeneratedDef(name = name, render = src, isMain = hasMainAnnotation(d))
+
+  /** Extract just the parameter names from a def (single parameter group). */
+  private def extractParamNames(d: m.Defn.Def): List[String] =
+    d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
+
+  /** Check if a term in tail-position is a direct self-call to `defName` with `paramCount` args.
+   *  Returns `Some(args)` on match, `None` otherwise. */
+  private def isSelfTailCall(defName: String, paramCount: Int, term: m.Term): Option[List[m.Term]] = term match
+    case m.Term.Apply.After_4_6_0(m.Term.Name(n), args)
+        if n == defName && args.values.size == paramCount =>
+      Some(args.values.toList)
+    case m.Term.Block(stats) => stats.lastOption.flatMap {
+      case t: m.Term => isSelfTailCall(defName, paramCount, t)
+      case _         => None
+    }
+    case _ => None
+
+  /** Check if the def body contains any direct self-tail-call (for deciding whether to use TCO). */
+  private def hasTailCallPath(defName: String, paramCount: Int, body: m.Term): Boolean = body match
+    case ifExpr: m.Term.If =>
+      isSelfTailCall(defName, paramCount, ifExpr.thenp).isDefined ||
+      isSelfTailCall(defName, paramCount, ifExpr.elsep).isDefined ||
+      hasTailCallPath(defName, paramCount, ifExpr.thenp) ||
+      hasTailCallPath(defName, paramCount, ifExpr.elsep)
+    case m.Term.Block(stats) => stats.lastOption.exists {
+      case t: m.Term =>
+        isSelfTailCall(defName, paramCount, t).isDefined ||
+        hasTailCallPath(defName, paramCount, t)
+      case _ => false
+    }
+    case _ => isSelfTailCall(defName, paramCount, body).isDefined
+
+  /** Render params with `mut` prefix for TCO defs (loop reassigns them). */
+  private def renderMutParams(
+      d: m.Defn.Def, ctx: Ctx, effName: Option[String]
+  ): Either[List[Diagnostic], String] =
+    val groups = d.paramClauseGroups.flatMap(_.paramClauses)
+    if groups.size > 1 then
+      Left(List(unsupported(
+        s"def `${ctx.defName}` has multiple parameter groups; R.2 accepts a single `(…)` group"
+      )))
+    else
+      val params = groups.flatMap(_.values)
+      val rendered = params.map { p =>
+        p.decltpe match
+          case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map(r => s"mut ${p.name.value}: $r")
+          case None    => Left(List(unsupported(
+            s"def `${ctx.defName}` parameter `${p.name.value}` has no type annotation"
+          )))
+      }
+      val (errs, ok) = rendered.partitionMap(identity)
+      if errs.nonEmpty then Left(errs.flatten)
+      else
+        val effParam = effName.map(n => s"_eff: &mut impl ${n}Effect").toList
+        Right((ok ++ effParam).mkString(", "))
+
+  /** Render a tail-recursive function body as a Rust `loop { ... }`.
+   *  Self-tail-calls become param reassignments (using temps for ordering safety).
+   *  All other returns get an explicit `return`. */
+  private def renderTCOBody(
+      defName:   String,
+      paramNames: List[String],
+      body:      m.Term,
+      ctx:       Ctx,
+      isUnit:    Boolean
+  ): Either[List[Diagnostic], String] =
+    renderTCOTerm(defName, paramNames, body, ctx, isUnit = isUnit)
+      .map(inner => s"loop {\n${indent(inner)}\n}")
+
+  /** Recursively render a term for use inside a TCO loop.
+   *  - Self-tail-calls → param assignments (no `return`).
+   *  - Non-recursive leaves → `return expr;` (for non-unit), or `expr;` (unit).
+   *  - `if/else` branches are rendered recursively so each branch does the right thing. */
+  private def renderTCOTerm(
+      defName:    String,
+      paramNames: List[String],
+      term:       m.Term,
+      ctx:        Ctx,
+      isUnit:     Boolean
+  ): Either[List[Diagnostic], String] =
+    isSelfTailCall(defName, paramNames.size, term) match
+      case Some(newArgs) =>
+        // Emit temp bindings then param assignments to avoid update-order issues.
+        val argResults = newArgs.zipWithIndex.map { case (a, i) =>
+          renderTerm(a, ctx).map(r => (s"_tco_$i", r))
+        }
+        val (errs, rendered) = argResults.partitionMap(identity)
+        if errs.nonEmpty then Left(errs.flatten)
+        else
+          val lets   = rendered.map { case (tmp, rhs) => s"let $tmp = $rhs;" }.mkString("\n")
+          val assigns = paramNames.zipWithIndex.map { case (p, i) => s"$p = _tco_$i;" }.mkString("\n")
+          Right(if lets.isEmpty then assigns else s"$lets\n$assigns")
+      case None =>
+        term match
+          case ifExpr: m.Term.If =>
+            for
+              condRs  <- renderTerm(ifExpr.cond, ctx)
+              thenRs  <- renderTCOTerm(defName, paramNames, ifExpr.thenp, ctx, isUnit)
+              elseRs  <- renderTCOTerm(defName, paramNames, ifExpr.elsep, ctx, isUnit)
+            yield s"if $condRs {\n${indent(thenRs)}\n} else {\n${indent(elseRs)}\n}"
+          case m.Term.Block(stats) if stats.nonEmpty =>
+            val (initStats, lastStat) = (stats.init, stats.last)
+            val initResults = initStats.map(renderStmt(_, ctx))
+            val (initErrs, initOk) = initResults.partitionMap(identity)
+            if initErrs.nonEmpty then Left(initErrs.flatten)
+            else
+              lastStat match
+                case t: m.Term =>
+                  renderTCOTerm(defName, paramNames, t, ctx, isUnit).map { lastRs =>
+                    (initOk :+ lastRs).filter(_.nonEmpty).mkString("\n")
+                  }
+                case other =>
+                  renderStmt(other, ctx).map { lastRs =>
+                    (initOk :+ lastRs).filter(_.nonEmpty).mkString("\n")
+                  }
+          case leaf =>
+            // Non-recursive leaf — for non-unit returns, emit `return expr`.
+            renderTerm(leaf, ctx).map(r =>
+              if isUnit then s"$r;" else s"return $r;"
+            )
 
   /** A def is the entry point when it carries an `@main` annotation. */
   private def hasMainAnnotation(d: m.Defn.Def): Boolean =
