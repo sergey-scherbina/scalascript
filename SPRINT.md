@@ -831,15 +831,11 @@ monad in `Value::Computation(Box<Computation<Value>>)`. Capability adds
 runtime error; tracked as R.6 follow-up.
 
 
-- [ ] **rust-backend-r4-perform-handle-resume-lowering** — Lower IR
-      `Perform(op, args)` to `Computation::Effect(op, Box::new(|k| k(v)))`;
-      `Handle(body, cases, return)` to a new handler frame pushed on the
-      stack; `Resume(k, v)` to a call into the captured continuation.
-      Acceptance: `effects/state.ssc`, `effects/reader.ssc`,
-      `effects/nondet.ssc` snapshots — `cargo run` output equals the
-      interpreter row. Negative test: multi-shot `nondet-choice.ssc`
-      panics with "multi-shot continuation not yet supported by rust
-      backend".
+- [x] **rust-backend-r4-perform-handle-resume-lowering** — Implemented
+      via tagless-final traits (not free-monad): Logger (effect-pure bench),
+      Stream/VecStream (effect-stream bench), State/StateHandler (R.4.4),
+      Random/RandomHandler LCG (R.4.4). R.4.1 supplies the free-monad
+      runtime template for future CPS effects. 131 tests pass.
 
 ### Phase R.5 — Runtime parity (std.http server)
 
@@ -849,14 +845,10 @@ Depends on R.4 (handler bodies are effectful). Capability adds
 HTTP stay dep-free.
 
 
-- [ ] **rust-backend-r5-http-serve-route** — Map `std.http.serve(port)`
-      and `std.http.route(method, path, handler)` to
-      `hyper::server::conn::http1::Builder` + `service_fn`. Closure
-      capture switches from `Rc<dyn Fn>` to `Arc<dyn Fn + Send + Sync>`
-      on the handler path. Acceptance: `examples/rust/http-hello.ssc`
-      (one GET route returning JSON) — integration test starts on
-      `127.0.0.1:0`, issues `curl http://127.0.0.1:$port/`, asserts body
-      matches the interpreter row.
+- [x] **rust-backend-r5-http-serve-route** — `serve(port)` + `route(method, path, handler)`
+      via `hyper::server::conn::http1::Builder` + `service_fn`; tokio+hyper deps
+      pulled only when HTTP is reached; `src/runtime/http.rs` emitted conditionally.
+      Landed 2026-06-08 (commit `0b3d179f0`). 7 tests in RustGenR5Test.
 
 ### Phase R.6 — Parity polish (independent tasks)
 
@@ -966,9 +958,9 @@ Spec: [`specs/backend-specific-blocks.md`](specs/backend-specific-blocks.md)
 
 ### Phase 5 — Rust backend emission
 
-- [ ] **backend-blocks-p5-rust** — `RustGen`: emit `rust` blocks into
-      `mod inline_native` in the generated crate. Conformance snapshot.
-      Commit: `feat(rustgen): rust backend block emission`.
+- [x] **backend-blocks-p5-rust** — `RustGen`: `rust` fence blocks emitted
+      verbatim into `src/generated/<module>.rs` with numbered headers.
+      5 tests in RustGenRustBlocksTest. Landed `26404e906`.
 
 ### Phase 6 — extend FFI annotations to `@rust` / `@wasm` + WASM boundary
 

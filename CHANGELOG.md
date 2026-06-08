@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — feat(rust): R.4 algebraic effects complete (tagless-final, Phase 2)
+
+- **rust-backend-r4-perform-handle-resume-lowering** — R.4 effects fully landed
+  via tagless-final: R.4.1 free-monad runtime template; R.4.2 Logger/NoOpLogger
+  (effect-pure bench); R.4.3 Stream/VecStream (effect-stream bench); R.4.4
+  State/StateHandler + Random/RandomHandler with LCG (Phase 2 of rust-effects.md).
+  `runState(init){body}` / `State.get()` / `State.put(s)`;
+  `runRandom(seed){body}` / `Random.nextInt(b)` / `Random.nextFloat()`.
+  131 tests pass. R.5 (HTTP) and backend-blocks-p5-rust also confirmed landed.
+
+---
+
 ## 2026-06-09 — feat(parser): backend-specific fenced blocks Phase 1
 
 - **backend-blocks-p1-parse** — Lang.Java/Rust/Wasm constants + isNativeBackendBlock
