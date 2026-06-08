@@ -1,0 +1,19 @@
+# Process & environment intrinsics
+
+R.3.4 wires `args()`, `env(name)`, and `exit(code)` to std-only
+Rust helpers — no extra crate deps.
+
+```scalascript
+@main def run(): Unit =
+  val greet: String = env("GREET_NAME")
+  val name: String  = if (greet == "") "World" else greet
+  println(s"Hello, $name")
+```
+
+Build and run:
+
+```bash
+ssc build-rust process-env.ssc
+./process-env                # → Hello, World
+GREET_NAME=Rust ./process-env  # → Hello, Rust
+```

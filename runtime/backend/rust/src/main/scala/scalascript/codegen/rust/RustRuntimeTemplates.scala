@@ -114,6 +114,31 @@ object RustRuntimeTemplates:
       |    std::fs::write(path, contents)
       |        .unwrap_or_else(|e| panic!("writeFile({}): {}", path, e))
       |}
+      |
+      |// ── R.3.4 — process & env intrinsics (no extra crate deps) ──
+      |
+      |/// `args()` — command-line arguments after the binary name.
+      |/// Returns an empty Vec when invoked with no args.
+      |#[allow(dead_code)]
+      |pub fn _args() -> Vec<String> {
+      |    std::env::args().skip(1).collect()
+      |}
+      |
+      |/// `env(name)` — value of an environment variable, or empty string
+      |/// when unset.  Returns an owned `String`; SS code can compare it
+      |/// to `""` to detect unset.
+      |#[allow(dead_code)]
+      |pub fn _env(name: &str) -> String {
+      |    std::env::var(name).unwrap_or_default()
+      |}
+      |
+      |/// `exit(code)` — terminate the process immediately with the
+      |/// given exit code.  Wraps `i64` from the SS surface to `i32`
+      |/// for `std::process::exit`.
+      |#[allow(dead_code)]
+      |pub fn _exit(code: i64) -> ! {
+      |    std::process::exit(code as i32)
+      |}
       |""".stripMargin
 
   /** R.3.2 — sha256 helper, appended only when `sha256` is reached.

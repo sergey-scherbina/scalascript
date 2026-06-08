@@ -26,5 +26,9 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("base64Decode")     -> RuntimeCall("crate::runtime::_base64_decode"),
   // R.3.3 — JSON.  Pulls `serde_json` into Cargo.toml only when reached.
   QualifiedName("jsonParse")        -> RuntimeCall("crate::runtime::_json_parse"),
-  QualifiedName("jsonStringify")    -> RuntimeCall("crate::runtime::_json_stringify")
+  QualifiedName("jsonStringify")    -> RuntimeCall("crate::runtime::_json_stringify"),
+  // R.3.4 — process & env (pure std, no extra crate deps).
+  QualifiedName("args")             -> RuntimeCall("crate::runtime::_args"),
+  QualifiedName("env")              -> RuntimeCall("crate::runtime::_env"),
+  QualifiedName("exit")             -> RuntimeCall("crate::runtime::_exit")
 )

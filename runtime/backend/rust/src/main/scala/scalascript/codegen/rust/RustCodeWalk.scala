@@ -501,7 +501,9 @@ object RustCodeWalk:
     "crate::runtime::_base64_decode",
     // R.3.3 — JSON helpers also take `&str`.
     "crate::runtime::_json_parse",
-    "crate::runtime::_json_stringify"
+    "crate::runtime::_json_stringify",
+    // R.3.4 — env() takes its arg by reference.
+    "crate::runtime::_env"
   )
 
   /** Resolve a non-List/Vec `Term.Apply` callee against intrinsics,

@@ -73,6 +73,7 @@ expected["crypto-sha256.ssc"]="2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e7
 expected["base64-roundtrip.ssc"]="true"
 expected["json-roundtrip.ssc"]="{\"x\":1,\"y\":[true,null,\"hi\"]}"
 expected["effect-runtime.ssc"]="8"
+expected["process-env.ssc"]="Hello, World"
 
 workdir="$(mktemp -d -t ssc-rust-smoke-XXXXXX)"
 trap 'rm -rf "$workdir"' EXIT
