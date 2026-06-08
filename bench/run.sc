@@ -135,8 +135,8 @@ def runRustBench(sscPath: String, file: java.io.File): Option[Double] =
   // as a function called at step 4.
   def buildMainRs(isUnit: Boolean): String =
     val workloadCall =
-      if isUnit then "generated::ssc_program::workload(); let r = 0i64;"
-      else            "let r = generated::ssc_program::workload();"
+      if isUnit then "generated::ssc_program::workload(); std::hint::black_box(0i64);"
+      else            "let r = generated::ssc_program::workload(); std::hint::black_box(r);"
     s"""mod runtime;
 mod value;
 mod generated;
@@ -146,12 +146,10 @@ static _SSC_BENCH_SEED: std::sync::atomic::AtomicI64 =
     std::sync::atomic::AtomicI64::new(1);
 
 #[inline(never)]
-fn _run_workload() -> i64 {
+fn _run_workload() {
     // Load seed so optimizer sees a data dependency; value is always 1.
     let _s = _SSC_BENCH_SEED.load(std::sync::atomic::Ordering::Relaxed);
     $workloadCall
-    // Also prevent DCE of the return value
-    std::hint::black_box(r)
 }"""
 
   val mainRsSuffix = s"""

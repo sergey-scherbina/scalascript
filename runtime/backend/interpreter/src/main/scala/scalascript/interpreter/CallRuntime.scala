@@ -32,7 +32,7 @@ private[interpreter] object CallRuntime:
     case f: Value.FunV      => callFun(f, args, interp)
     case f: Value.NativeFnV => f.f(args)
     case Value.InstanceV("Map", fields) =>
-      DispatchRuntime.dispatch(Value.MapV(fields), "apply", args, env, interp)
+      DispatchRuntime.dispatch(Value.MapV(fields.map { case (k, v) => (Value.StringV(k), v) }), "apply", args, env, interp)
     case Value.InstanceV(_, fields) =>
       val applyFn = fields.getOrElse("apply", null)
       if applyFn != null then callValue(applyFn, args, env, interp)

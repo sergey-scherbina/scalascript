@@ -211,9 +211,11 @@ object RustCodeWalk:
     if errs.nonEmpty then Left(errs.flatten)
     else
       val fields = ok.map((n, t) => s"    pub $n: $t").mkString(",\n")
+      val allCopy = ok.forall((_, t) => Set("i64", "f64", "bool").contains(t))
+      val derives = if allCopy then "Debug, Clone, Copy" else "Debug, Clone"
       val render =
         s"""#[allow(dead_code)]
-           |#[derive(Debug, Clone)]
+           |#[derive($derives)]
            |pub struct $name {
            |$fields,
            |}
@@ -774,7 +776,7 @@ object RustCodeWalk:
       for
         q <- renderTerm(qual, ctx)
         f <- renderTerm(args.values.head, ctx)
-      yield s"match $q { Either::Left(v) => Either::Left(v), Either::Right(v) => Either::Right($f(v)) }"
+      yield s"match $q { Either::Left(v) => Either::Left(v), Either::Right(v) => Either::Right(($f)(v)) }"
 
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("flatMap")),
@@ -783,7 +785,7 @@ object RustCodeWalk:
       for
         q <- renderTerm(qual, ctx)
         f <- renderTerm(args.values.head, ctx)
-      yield s"match $q { Either::Left(v) => Either::Left(v), Either::Right(v) => $f(v) }"
+      yield s"match $q { Either::Left(v) => Either::Left(v), Either::Right(v) => ($f)(v) }"
 
     case m.Term.Apply.After_4_6_0(
         m.Term.Apply.After_4_6_0(
@@ -796,7 +798,7 @@ object RustCodeWalk:
         q <- renderTerm(qual, ctx)
         l <- renderTerm(lArgs.values.head, ctx)
         r <- renderTerm(rArgs.values.head, ctx)
-      yield s"match $q { Either::Left(v) => $l(v), Either::Right(v) => $r(v) }"
+      yield s"match $q { Either::Left(v) => ($l)(v), Either::Right(v) => ($r)(v) }"
 
     case m.Term.Apply.After_4_6_0(
       m.Term.Select(qual, m.Term.Name("fold")),
@@ -806,7 +808,7 @@ object RustCodeWalk:
         q <- renderTerm(qual, ctx)
         l <- renderTerm(args.values.head, ctx)
         r <- renderTerm(args.values(1), ctx)
-      yield s"match $q { Either::Left(v) => $l(v), Either::Right(v) => $r(v) }"
+      yield s"match $q { Either::Left(v) => ($l)(v), Either::Right(v) => ($r)(v) }"
 
     case m.Term.Apply.After_4_6_0(
       m.Term.Select(qual, m.Term.Name("updated")),

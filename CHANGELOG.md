@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-08 — fix(rust): 3 bench rustc errors + CallRuntime MapV type fix
+
+- **rust-fix-bench-non-i64-return** — `bench/run.sc` `_run_workload()` now
+  returns `()`, fixing `E0308` for `tuple-monoid` (tuple return) and
+  `pattern-match-heavy` (f64 return).
+- **rust-fix-iife-parens** — Either map/flatMap/fold emitters wrap closures in
+  parens `(move |x| { body })(arg)` fixing `E0618` for `either-chain`.
+- **rust-fix-struct-copy** — `renderStruct` derives `Copy` for structs with
+  all-primitive fields, fixing `E0382` for `instance-field`.
+- **fix(interp)** — `CallRuntime.scala`: `MapV(fields)` → `MapV(fields.map
+  { case (k,v) => (StringV(k), v) })` to match updated `MapV` signature.
+  All 4 bench workloads now produce Rust results; 106 Rust tests pass.
+
+---
+
 ## 2026-06-08 — feat(rust): R.5 — HTTP server via hyper + tokio
 
 - **rust-backend-r5-tokio-runtime-bootstrap** — HTTP server shipped.
