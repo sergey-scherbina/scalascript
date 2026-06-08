@@ -27,6 +27,17 @@ fix, and don't require a runtime refactor.
       _ => ...`. Either support both forms or emit a parser message
       suggesting `case`.
 
+- [ ] **busi-p0-statusval-collision-a-half** — Follow-up to landed
+      `9a3bea18e`.  `val x = Foo` without an explicit type ascription
+      still silently resolves to the case-constructor when `Foo` is
+      also an enum case name (the B-half fix only triggers on
+      `val x: SomeType = Foo` with a `Type.Name` ascription).  The
+      A-half should emit a compile-time error:
+      `name 'X' is bound to both a stable value and a case constructor;
+      add a type ascription or rename one`.  Practical busi-86a path is
+      already fully covered by the B-half (all production use sites use
+      `val s: PeerLinkStatus = PeerLinkInvited`).  Low priority.
+
 ### P1 — pre-existing bug surfaced during busi phase 89d testing
 
 - [ ] **busi-p1-phase90-rule-bool-coercion** — `make test-phase90-rule`
@@ -58,17 +69,20 @@ fix, and don't require a runtime refactor.
       `NULL`). Semantics "absent vs. null" should be resolved in
       favour of `default`.
 
-- [ ] **busi-p1-list-zipwithindex** — `.zipWithIndex` on `List` is
-      missing. Add to `dispatchList`.
-
 - [ ] **busi-p1-while-typed-empty-list-bug** — `while` + `var i += 1` +
       typed `List[(Int,T)]()` — body iterates, list stays empty.
       Probably shares root cause with `Set[Int].contains` in `while`.
 
-- [ ] **busi-p1-multiline-fn-returns-unit** — Multi-line function
-      returns `()` — user is forced to bind the final expression via
-      `val result = ...; result`. Block-trailing expression should
-      become the function result.
+- [ ] **busi-p1-map-update-foldleft-unreliable** — When a `foldLeft`
+      accumulates a `Map[String, CaseClass]` and one branch re-constructs
+      the case class (10+ fields) to store an updated copy, subsequent
+      `.values.toList.sortBy(...)` or keyed-access calls produce
+      `"Instance is not callable"`.  Root cause unknown; likely how
+      ScalaScript tracks case-class values mutated inside nested
+      lambdas/matches.  Workaround on busi side: keep projections
+      immutable (inserts only, no updates), compute derived mutable state
+      in a separate scan function returning a primitive.  Found in busi
+      phase 44 `applyRetirement`.
 
 - [ ] **busi-p1-map-concat-returns-tuplev** — `Map(...) ++ otherMap`
       returns `TupleV((Map(...), Map(...)))` instead of a merged map.
