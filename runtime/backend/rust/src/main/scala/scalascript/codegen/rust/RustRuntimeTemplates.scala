@@ -365,16 +365,12 @@ object RustRuntimeTemplates:
       |""".stripMargin
 
   /** R.5 — HTTP server runtime helpers.  Emitted as `src/runtime/http.rs`
-   *  only when `serve` / `route` are reached in the program source.  No
-   *  Scala-side changes to `route` intrinsic are needed because the
-   *  function takes `impl Fn` (not `Box<dyn Fn>`) so closures pass directly
-   *  from codegen without boxing at the call site. */
+   *  only when `serve` / `route` are reached in the program source.
+   *  Handler takes `String` (matches SS `String => String` surface). */
   val HttpRs: String =
     """//! HTTP server runtime (R.5).
-      |//! Emitted verbatim by RustGen when `serve` / `route` are reached.
-      |//! Handler model: sync `fn(path: &str) -> String` → 200 OK / text/plain.
+      |//! Emitted verbatim by RustGen when serve/route are reached.
       |
-      |use std::collections::HashMap;
       |use std::sync::{Arc, Mutex};
       |use std::net::SocketAddr;
       |use bytes::Bytes;
@@ -396,7 +392,7 @@ object RustRuntimeTemplates:
       |}
       |
       |/// `route(method, path, handler)` — register a route.
-      |/// Takes `impl Fn` so closures from codegen pass directly.
+      |/// Handler takes `String` (matching ScalaScript String surface).
       |#[allow(dead_code)]
       |pub fn _http_route(
       |    method:  String,
@@ -455,4 +451,3 @@ object RustRuntimeTemplates:
       |        .unwrap())
       |}
       |""".stripMargin
-

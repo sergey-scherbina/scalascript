@@ -619,7 +619,85 @@ Depends on R.2. Capability additions: `FileSystem`, `Crypto`, `Markup`
 load-bearing: the emitted `Cargo.toml` lists exactly the crates the
 program reaches.
 
+---
 
+## Rust backend — benchmark coverage (spec: specs/rust-backend-bench-coverage.md)
+
+16 of 22 bench corpus workloads return `n/a`.  Tasks below are ordered
+by quick-win impact; P0 alone unlocks 7 benchmarks with tiny changes.
+
+### P0 — quick wins (XS, each ≤ 100 lines)
+
+- [ ] **rust-bench-p0-to-numeric** — Add `.toLong` / `.toInt` /
+      `.toDouble` / `.toFloat` conversions.  In `renderTerm`,
+      recognise `Term.Select(expr, Term.Name("toLong"|"toInt"|...))` and
+      lower to `(expr) as i64` / `as i32` / `as f64`.  Also lower
+      `Term.ApplyInfix(lhs, "+", rhs)` where one operand is a `String`
+      and the other is numeric to `format!("{}{}", lhs, rhs)` (fixes
+      `string-concat`).  Acceptance: `string-concat.ssc`,
+      `literal-match.ssc` green on `scripts/bench wall rust`.
+      Spec: `specs/rust-backend-bench-coverage.md` §Gap A + C.
+
+- [ ] **rust-bench-p0-hello-bench** — Fix `hello-world` bench harness.
+      In `bench/run.sc`'s injected `main.rs`, when `workload()` returns
+      `Unit`, emit `generated::ssc_program::workload(); let r = 0i64;`
+      instead of `let r = generated::ssc_program::workload();` so
+      `std::hint::black_box(r)` receives an `i64`.  Acceptance:
+      `hello-world.ssc` green on `scripts/bench wall rust`.
+      Spec: §Gap B.
+
+### P1 — collection method chaining (S–M)
+
+- [ ] **rust-bench-p1-vec-methods** — Add `.map(f)`, `.filter(f)`,
+      `.foldLeft(z)(f)`, `.foreach(f)`, `.collect()` (as
+      `.collect::<Vec<_>>()`) on Vec types in `renderTerm`.  Pattern:
+      `Term.Select(qual, Term.Name("map"|"filter"|...))` + following
+      `Term.Apply` with the lambda arg.  Acceptance: `list-fold.ssc`,
+      `hof-pipeline.ssc` green.  Spec: §Gap D + G.
+
+- [ ] **rust-bench-p1-string-methods** — Add `String.split(sep)` →
+      `s.split(sep).map(|p| p.to_string()).collect::<Vec<String>>()`,
+      `.trim()` → `.trim().to_string()`, `.toInt` on String → 
+      `.parse::<i32>().unwrap_or(0)`.  Acceptance: `string-split.ssc`
+      green.  Spec: §Gap D.
+
+### P2 — types + patterns (M)
+
+- [ ] **rust-bench-p2-sealed-trait-adt** — Recognise `sealed trait T`
+      + `case class C extends T` pattern: collect both forms in a single
+      ADT scan and lower to a Rust `pub enum T { C { … }, … }` just as
+      the existing Scala 3 `enum` lowering does.  Acceptance:
+      `pattern-match-heavy.ssc` green (requires `foreach` from P1 too).
+      Spec: §Gap F.
+
+- [ ] **rust-bench-p2-tuple-types** — Map `Type.Tuple(elems)` to Rust
+      tuple `(T1, T2, …)` in `mapType`; add `Lit.Tuple(elems)` / 
+      `Term.Tuple(elems)` emit in `renderTerm`.  Lower the `++`
+      concat operator on two tuple literals to a flat tuple.  Acceptance:
+      `tuple-monoid.ssc` green.  Spec: §Gap H.
+
+- [ ] **rust-bench-p2-option-type** — Map `Option[T]` to `Option<T>`;
+      add `.flatMap`, `.map`, `.getOrElse` methods on Option; `Some(x)`
+      constructor → `Some(x)`, `None` → `None`.  Acceptance:
+      `option-chain.ssc` green.  Spec: §Gap E.
+
+### P3 — additional types (M–L)
+
+- [ ] **rust-bench-p3-hashmap-type** — Map `Map[K, V]` to
+      `std::collections::HashMap<K, V>` (dep-free); add `.updated(k, v)`
+      → `{ let mut m2 = m.clone(); m2.insert(k, v); m2 }`, `.getOrElse`
+      → `.get(&k).copied().unwrap_or(default)`.  Acceptance:
+      `map-ops.ssc` green.  Spec: §Gap E.
+
+- [ ] **rust-bench-p3-either-type** — Map `Either[L, R]` to a generated
+      `pub enum Either<L, R> { Left(L), Right(R) }` emitted once per
+      crate when reached; add `.map`, `.flatMap`, `.fold` methods.
+      Acceptance: `either-chain.ssc` green.  Spec: §Gap E.
+
+- [ ] **rust-bench-p3-range-until** — Lower `(lo until hi)` and
+      `(lo to hi)` to a `(lo..hi)` / `(lo..=hi)` Rust range; chain
+      `.map` / `.foldLeft` via iterator adapters.  Acceptance:
+      `range-sum.ssc` green.  Spec: §Gap E + D.
 
 ### Phase R.4 — Effects (algebraic effects + handlers)
 
