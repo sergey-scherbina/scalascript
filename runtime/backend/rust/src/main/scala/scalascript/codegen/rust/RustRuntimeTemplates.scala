@@ -456,7 +456,10 @@ object RustRuntimeTemplates:
    *
    *  One trait per named effect (e.g. `LoggerEffect`), each with default
    *  no-op method bodies.  A `NoOpLogger` (etc.) struct is emitted as the
-   *  default handler injected by `runLogger { … }`. */
+   *  default handler injected by `runLogger { … }`.
+   *
+   *  `Stream` is special: it uses a generic `VecStream<T>` collector rather
+   *  than a simple no-op struct. */
   def renderTaglessEffectsRs(effectNames: Set[String]): String =
     val sb = new StringBuilder
     sb.append(
@@ -466,21 +469,45 @@ object RustRuntimeTemplates:
         |""".stripMargin
     )
     for effName <- effectNames.toList.sorted do
-      val traitName = s"${effName}Effect"
-      val noopName  = s"NoOp${effName}"
-      val ops: List[String] = knownEffectOps.getOrElse(effName, Nil)
-      val opLines = ops.map(op => s"    $op {}\n").mkString
-      sb.append(
-        s"""#[allow(unused_variables)]
-           |pub trait $traitName {
-           |$opLines}
-           |
-           |pub struct $noopName;
-           |impl $traitName for $noopName {}
-           |
-           |""".stripMargin
-      )
+      if effName == "Stream" then
+        sb.append(StreamEffectRs)
+      else
+        val traitName = s"${effName}Effect"
+        val noopName  = s"NoOp${effName}"
+        val ops: List[String] = knownEffectOps.getOrElse(effName, Nil)
+        val opLines = ops.map(op => s"    $op {}\n").mkString
+        sb.append(
+          s"""#[allow(unused_variables)]
+             |pub trait $traitName {
+             |$opLines}
+             |
+             |pub struct $noopName;
+             |impl $traitName for $noopName {}
+             |
+             |""".stripMargin
+        )
     sb.toString
+
+  /** Verbatim Stream effect block — generic `VecStream<T>` + `StreamEffect<T>` trait.
+   *  `runStream { body }` injects `VecStream::new()` and collects every `stream_emit` call. */
+  private val StreamEffectRs: String =
+    """pub trait StreamEffect<T> {
+      |    fn stream_emit(&mut self, value: T);
+      |}
+      |
+      |pub struct VecStream<T> {
+      |    pub items: Vec<T>,
+      |}
+      |
+      |impl<T> VecStream<T> {
+      |    pub fn new() -> Self { VecStream { items: Vec::new() } }
+      |}
+      |
+      |impl<T> StreamEffect<T> for VecStream<T> {
+      |    fn stream_emit(&mut self, value: T) { self.items.push(value); }
+      |}
+      |
+      |""".stripMargin
 
   /** Known effect → list of method signatures (no-op default body assumed). */
   private val knownEffectOps: Map[String, List[String]] = Map(

@@ -76,7 +76,9 @@ object RustCodeWalk:
         (if enumBlock.nonEmpty && ok.nonEmpty then "\n" else "") +
         (if ok.isEmpty then "" else ok.map(_.render).mkString("\n")) +
         (if rustBlocks.isEmpty then "" else "\n" + rustVerbatim)
-      val effectNames = defs.flatMap(defEffectName).toSet
+      // Collect effect names from `T ! E` return types AND from `runStream` usage.
+      val streamEffect = if usesRunStream(module) then Set("Stream") else Set.empty[String]
+      val effectNames = defs.flatMap(defEffectName).toSet ++ streamEffect
       val effectsImport =
         if effectNames.isEmpty then ""
         else "use crate::runtime::effects::*;\n\n"
@@ -1024,6 +1026,34 @@ object RustCodeWalk:
         r <- renderTerm(rhs.values.head, ctx)
       yield s"($l..=$r)"
 
+    // `Stream.emit(x)` → `_eff.stream_emit(x)` (inside a runStream block).
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(m.Term.Name("Stream"), m.Term.Name("emit")),
+        args
+    ) if args.values.size == 1 =>
+      renderTerm(args.values.head, ctx).map(v => s"_eff.stream_emit($v)")
+
+    // `src.runToList()` → `src.items.clone()` (VecStream field access).
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("runToList")),
+        args
+    ) if args.values.isEmpty =>
+      renderTerm(qual, ctx).map(q => s"$q.items.clone()")
+
+    // `runStream { body }` — tagless-final lowering.
+    // Introduces a VecStream collector, runs body with it threading _eff,
+    // returns a tuple `(stream, ())` matching the `(Source[A], R)` shape.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Name("runStream"),
+        args
+    ) if args.values.size == 1 =>
+      val bodyResult: Either[List[Diagnostic], String] = args.values.head match
+        case blk: m.Term.Block => renderBody(blk, ctx, isUnit = true)
+        case expr              => renderTerm(expr, ctx).map(_ + ";")
+      bodyResult.map { body =>
+        s"{\n    let mut _eff = VecStream::new();\n    $body\n    (_eff, ())\n}"
+      }
+
     // `runLogger { body }` / `runLoggerJson { body }` / `runLoggerToList { body }` —
     // tagless-final lowering: introduce a NoOpLogger and run body with it.
     // Other runXxx handlers (runRandom, runClock, …) are future phases.
@@ -1519,6 +1549,22 @@ object RustCodeWalk:
           rhsRs <- renderTerm(rhs, ctx)
         yield
           s"$kw $name$tyAnn = $rhsRs;"
+      // `val (a, b) = expr` / `val (a, _) = expr` — tuple destructuring.
+      case List(m.Pat.Tuple(elems)) =>
+        val kw = if mutable then "let mut" else "let"
+        val patParts = elems.map {
+          case m.Pat.Var(m.Term.Name(n)) => Right(n)
+          case m.Pat.Wildcard()          => Right("_")
+          case other => Left(List(unsupported(
+            s"def `${ctx.defName}` has an unsupported tuple-pattern element: ${other.productPrefix}"
+          )))
+        }
+        val (patErrs, patOk) = patParts.partitionMap(identity)
+        if patErrs.nonEmpty then Left(patErrs.flatten)
+        else
+          renderTerm(rhs, ctx).map { rhsRs =>
+            s"$kw (${patOk.mkString(", ")}) = $rhsRs;"
+          }
       case _ =>
         Left(List(unsupported(
           s"def `${ctx.defName}` has a non-single-name binding; R.2 accepts only `${if mutable then "var" else "val"} name: T = expr`"
@@ -1584,6 +1630,20 @@ object RustCodeWalk:
     case m.Term.Select(m.Term.Name(qual), m.Term.Name(n))  => Some(QualifiedName(s"$qual.$n"))
     case _                                                 => None
 
+  /** Returns true if any code block in the module calls `runStream`. */
+  private def usesRunStream(module: ast.Module): Boolean =
+    module.sections.exists(sectionUsesRunStream)
+
+  private def sectionUsesRunStream(s: ast.Section): Boolean =
+    s.content.exists(contentUsesRunStream) || s.subsections.exists(sectionUsesRunStream)
+
+  private def contentUsesRunStream(c: ast.Content): Boolean = c match
+    case ast.Content.CodeBlock(lang, source, _, _, _, _, _)
+        if lang.equalsIgnoreCase("scalascript") || lang.equalsIgnoreCase("ssc") ||
+           lang.equalsIgnoreCase("scala") =>
+      source.contains("runStream")
+    case _ => false
+
   // ── Helpers ──────────────────────────────────────────────────────────
 
   private def unsupported(message: String): Diagnostic =
@@ -1603,3 +1663,4 @@ object RustCodeWalk:
       case c    => sb.append(c)
     }
     sb.toString
+
