@@ -42,7 +42,6 @@ object RustCodeWalk:
     val defs       = collectDefs(module)
     val enums      = collectEnums(module)
     val traitEnums = collectSealedTraitEnums(module)
-    val topVals    = collectTopVals(module)
     val rustBlocks = collectRustBlocks(module)
     val userDefs   = defs.map(_.name.value).toSet
     val enumRendered =
@@ -51,6 +50,8 @@ object RustCodeWalk:
       traitEnums.map { case SealedTraitEnum(t, caseClasses) => renderTraitEnum(t, caseClasses) }
     val (enumErrs, enumOk) = enumRendered.partitionMap(identity)
     val ctorMap = enumOk.flatMap(_.ctors).toMap
+    // topVals must be collected after ctorMap so enum ctors are resolved correctly.
+    val topVals    = collectTopVals(module, ctorMap)
     val results = defs.map(renderDef(_, intrinsics, userDefs, ctorMap, topVals))
     val (errors, ok) = results.partitionMap(identity)
     val allErrs = enumErrs.flatten ++ errors.flatten
@@ -110,8 +111,8 @@ object RustCodeWalk:
    *  blocks.  These are emitted as `let name = init;` preamble in every
    *  `Defn.Def` body so that HOF bench fixtures like `val xs: List[Int] =
    *  List(1, 2, 3, …)` are accessible inside `workload()`. */
-  private def collectTopVals(module: ast.Module): List[TopVal] =
-    val ctx0 = Ctx(Map.empty, Set.empty, Map.empty, Nil, "<topval>")
+  private def collectTopVals(module: ast.Module, ctorMap: Map[String, EnumCtor] = Map.empty): List[TopVal] =
+    val ctx0 = Ctx(Map.empty, Set.empty, ctorMap, Nil, "<topval>")
     val found = scala.collection.mutable.ListBuffer.empty[TopVal]
     module.sections.foreach(s => sectionTopVals(s, ctx0, found))
     found.toList
@@ -772,15 +773,6 @@ object RustCodeWalk:
         k <- renderTerm(args.values(0), ctx)
         d <- renderTerm(args.values(1), ctx)
       yield s"$q.get(&$k).copied().unwrap_or($d)"
-    // `(s: String).split(sep)` emits `Vec<String>`, matching bench expectations.
-    // Use `to_string` on each slice because Rust split yields `&str`.
-    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("split")), args)
-        if args.values.size == 1 =>
-      for
-        q <- renderTerm(qual, ctx)
-        sep <- renderTerm(args.values.head, ctx)
-      yield s"""$q.split($sep).map(|p| p.to_string()).collect::<Vec<String>>()"""
-
     // Some scalameta versions parse `x => body` as `Term.AnonymousFunction`
     // with a placeholder; cover the same shape conservatively.
     case _: m.Term.AnonymousFunction =>
@@ -909,22 +901,22 @@ object RustCodeWalk:
       renderTerm(qual, ctx).map(q => s"$q.trim().to_string()")
 
     // `(s: String).split(sep, limit)` emits `Vec<String>` with `splitn`.
-    // Cast `limit` to `usize` to match Rust API.
+    // sep must be a &str pattern (not owned String) — render bare literal.
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("split")), args)
         if args.values.size == 2 =>
       for
         q <- renderTerm(qual, ctx)
-        sep <- renderTerm(args.values(0), ctx)
+        sep <- renderStrPatternArg(args.values(0))
         lim <- renderTerm(args.values(1), ctx)
       yield s"$q.splitn($lim as usize, $sep).map(|p| p.to_string()).collect::<Vec<String>>()"
 
     // `(s: String).split(sep)` emits `Vec<String>`, matching bench expectations.
-    // Use `to_string` on each slice because Rust split yields `&str`.
+    // sep must be a &str pattern (not owned String) — render bare literal.
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("split")), args)
         if args.values.size == 1 =>
       for
         q <- renderTerm(qual, ctx)
-        sep <- renderTerm(args.values.head, ctx)
+        sep <- renderStrPatternArg(args.values.head)
       yield s"""$q.split($sep).map(|p| p.to_string()).collect::<Vec<String>>()"""
 
     // Range methods: `(a until b)` -> Rust range `a..b`, `(a to b)` -> `a..=b`.
@@ -1026,6 +1018,14 @@ object RustCodeWalk:
         Left(List(unsupported(
           s"def `${ctx.defName}` contains an unsupported infix expression: ${infix.productPrefix}"
         )))
+
+  // Render a separator/pattern argument for str::split/splitn as a &str literal.
+  // str::split requires Pattern (&str or char), not owned String.
+  private def renderStrPatternArg(t: m.Term): Either[List[Diagnostic], String] = t match
+    case m.Lit.String(s) => Right("\"" + escapeRustString(s) + "\"")
+    case other           => Left(List(unsupported(
+      s"split separator must be a string literal, got: ${other.productPrefix}"
+    )))
 
   private def collectTupleConcat(t: m.Term): Option[List[m.Term]] = t match
     case m.Term.Tuple(values) =>

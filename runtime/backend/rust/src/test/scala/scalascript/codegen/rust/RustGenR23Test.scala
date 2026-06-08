@@ -118,7 +118,7 @@ class RustGenR23Test extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = gen(src)
-    assert(g.contains(""".split(",".to_string()).map(|p| p.to_string()).collect::<Vec<String>>()"""))
+    assert(g.contains(""".split(",").map(|p| p.to_string()).collect::<Vec<String>>()"""))
     assert(g.contains(".trim().to_string()"))
     assert(g.contains(".parse::<i64>().unwrap_or(0)"))
 
@@ -129,7 +129,7 @@ class RustGenR23Test extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = gen(src)
-    assert(g.contains(".splitn(2i64 as usize, \",\".to_string())"))
+    assert(g.contains(".splitn(2i64 as usize, \",\")"))
     assert(g.contains("map(|p| p.to_string()).collect::<Vec<String>>()"))
 
   test("String.toInt uses numeric parse on string literals"):
