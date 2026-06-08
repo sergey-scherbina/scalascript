@@ -7176,6 +7176,48 @@ Effort: ~3 days (notarize flow + DMG + fastlane Mac lanes + toolchain setup-sign
 
 ---
 
+## Backend-specific fenced blocks + platform-type ban
+
+**Status:** open — spec written 2026-06-08 (`specs/backend-specific-blocks.md`)
+
+**Rule:** platform-specific types (`java.*`, `javax.*`, `scala.*`, etc.) are a
+**compile error** in regular `scalascript` fenced blocks. The escape hatch for
+ad-hoc native code: backend-tagged fenced blocks (`scala`, `java`, `javascript`,
+`rust`, `wasm`). Each block is routed to its matching backend only and invisible
+to all others. This makes platform coupling **explicit and syntactically
+conspicuous** rather than hidden.
+
+New in this milestone: `java` fenced block tag (previously only `scala` existed
+for JVM).
+
+**Three design questions resolved in the spec (§3):**
+- `std.os.env` / `std.os.platform` / `std.process.exec` work everywhere via
+  per-backend native impls; browser returns stubs/NotSupported, never crashes.
+- WASM: two models — standalone (no JS) vs WASM+JS glue (wasm-bindgen);
+  `@wasmExport`/`@wasmImport` annotations declare the JS↔WASM boundary;
+  only WASM value types cross it.
+- `@jvm`/`@js` extended to `@rust`/`@wasm`; precedence: fenced block >
+  annotation > plugin; annotations are opaque strings so `java.*` ban
+  does not apply inside them; `@interpreterUnsupported` for interp gap.
+
+**Phases:**
+- [ ] **backend-blocks-p1-parse** — `BackendBlock(tag, src)` AST node; parser
+      recognises `scala`/`java`/`javascript`/`rust`/`wasm` block tags.
+- [ ] **backend-blocks-p2-typecheck** — `E_PlatformType` + `E_NoBackendImpl`
+      + `E_BackendSymbolLeak` compile errors.
+- [ ] **backend-blocks-p3-jvm** — `JvmGen` emits `scala` + `java` blocks.
+- [ ] **backend-blocks-p4-js** — `JsGen` emits `javascript` blocks.
+- [ ] **backend-blocks-p5-rust** — `RustGen` emits `rust` blocks.
+- [ ] **backend-blocks-p6-ffi-extend** — `@rust`/`@wasm`/`@wasmExport`/
+      `@wasmImport` annotations; WASM boundary emission.
+- [ ] **backend-blocks-p7-audit** — migrate codebase; flip ban to hard error.
+
+**Acceptance:** `ssc compile` on a `.ssc` file containing `import java.io.File`
+in a `scalascript` block emits `E_PlatformType` and exits non-zero. Same file
+with the code moved into a `scala` block compiles cleanly on JVM target.
+
+---
+
 ## std.fs / std.os / std.process — filesystem, OS & process abstraction
 
 **Status:** open — spec not yet written (added 2026-06-08)

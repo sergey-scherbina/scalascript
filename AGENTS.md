@@ -298,6 +298,27 @@ Bridge hooks that the interpreter exposes *to* plugins (e.g. `NativeContext.dbCo
 **Examples of correct plugin layout:** `runtime/std/json-plugin`, `runtime/std/auth-plugin`,
 `runtime/std/oauth-plugin`, `runtime/std/sql-plugin`, `runtime/std/ui-fetch-plugin`.
 
+### Platform types are forbidden in `.ssc` — compile error
+
+`.ssc` user code must **never** import or reference platform-specific types
+(`java.*`, `javax.*`, `scala.*`, `process.env`, etc.) in a regular
+`scalascript` fenced block.  This is a **compile-time error**, not a warning.
+
+Decision order for any platform-specific operation:
+1. **`std.*`** — `std.fs`, `std.os`, `std.process`, `std.crypto`, etc.
+2. **Plugin intrinsic** — `extern def` implemented in `runtime/std/<feature>-plugin/`.
+3. **`@jvm("...")` / `@js("...")` annotation** — lightweight one-liner FFI.
+4. **Backend-specific fenced block** — `scala`, `java`, `javascript`, `rust`
+   tags for ad-hoc multi-line native code that stays isolated to one target.
+
+Never add a suppression annotation.  Never use `java.*` in `.ssc` directly.
+
+Note: `.sc` Scala-CLI host scripts (`bench/run.sc`, etc.) are JVM tooling,
+not `.ssc` user code — they may use `java.*` freely.
+
+Full spec: [`specs/backend-specific-blocks.md`](specs/backend-specific-blocks.md).
+Companion: [`specs/std-fs-os.md`](specs/std-fs-os.md), [`specs/arch-ffi.md`](specs/arch-ffi.md).
+
 ---
 
 ## Spec-driven development

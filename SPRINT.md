@@ -747,6 +747,30 @@ or example demands it. Order below is priority for triage when claiming.
       --release` binary size + `hyperfine` runtime before/after. Win:
       ≥2× speedup on the chosen workload, no regression elsewhere.
 
+- [ ] **rust-backend-r6-typeclasses** — `Feature.TypeClasses`. When the
+      IR has enough type information, map typeclass dispatch onto Rust
+      traits; fall back to vtable dispatch via the boxed `Value` for
+      higher-rank cases (Stage 9 `jit-uc-stage8-typeclass-fold` solves
+      the same problem at the JIT layer — design notes apply).
+      Acceptance: `typeclass-monoid.ssc` snapshot.
+
+- [ ] **rust-backend-r6-streams** — `Feature.Streams`, lower the
+      ScalaScript backpressured Source/Sink/Flow onto
+      `futures::stream::Stream` + `tokio::sync::mpsc`. Acceptance:
+      `streams-pipeline.ssc` snapshot.
+
+- [ ] **rust-backend-r6-multi-shot-continuations** — Lift R.4's
+      one-shot-only restriction. `Computation<A>` becomes `Clone` for
+      `A: Clone`; `Resume` clones the captured continuation when the
+      effect handler resumes more than once. Acceptance: re-run R.4's
+      multi-shot negative test (`nondet-choice.ssc`); now it produces
+      the same multi-result output as the interpreter row.
+
+- [ ] **rust-backend-r6-tco** — `Feature.TailCallOptimization` via the
+      tramp/`while`-rewrite the JVM target uses, since `rustc` does not
+      guarantee TCO. Acceptance: `tco-fib.ssc` — runs to 10M iterations
+      without stack overflow; matches interpreter row.
+
 - [ ] **rust-backend-r6-websockets** — `Feature.WebSockets`, intrinsics
       `wsRoute`/`wsConnectSync` via `tokio-tungstenite`. Mirrors
       `JvmWsIntrinsics` shape. Acceptance: `ws-echo.ssc` snapshot —
@@ -763,36 +787,12 @@ or example demands it. Order below is priority for triage when claiming.
       is not stable enough). Acceptance: `mcp-echo.ssc` snapshot —
       client calls a tool, server replies.
 
-- [ ] **rust-backend-r6-streams** — `Feature.Streams`, lower the
-      ScalaScript backpressured Source/Sink/Flow onto
-      `futures::stream::Stream` + `tokio::sync::mpsc`. Acceptance:
-      `streams-pipeline.ssc` snapshot.
-
 - [ ] **rust-backend-r6-markup-xslt** — `Feature.Xslt` decision point:
       either implement an XSLT 1.0 subset via `quick-xml` (significant
       work) or skip XSLT and document the gap. Decide based on whether
       any conformance test reaches it. Acceptance: `markup-xml.ssc`
       snapshot for the codec path; XSLT either lands with its own
       snapshot or is explicitly rejected via capability check.
-
-- [ ] **rust-backend-r6-typeclasses** — `Feature.TypeClasses`. When the
-      IR has enough type information, map typeclass dispatch onto Rust
-      traits; fall back to vtable dispatch via the boxed `Value` for
-      higher-rank cases (Stage 9 `jit-uc-stage8-typeclass-fold` solves
-      the same problem at the JIT layer — design notes apply).
-      Acceptance: `typeclass-monoid.ssc` snapshot.
-
-- [ ] **rust-backend-r6-multi-shot-continuations** — Lift R.4's
-      one-shot-only restriction. `Computation<A>` becomes `Clone` for
-      `A: Clone`; `Resume` clones the captured continuation when the
-      effect handler resumes more than once. Acceptance: re-run R.4's
-      multi-shot negative test (`nondet-choice.ssc`); now it produces
-      the same multi-result output as the interpreter row.
-
-- [ ] **rust-backend-r6-tco** — `Feature.TailCallOptimization` via the
-      tramp/`while`-rewrite the JVM target uses, since `rustc` does not
-      guarantee TCO. Acceptance: `tco-fib.ssc` — runs to 10M iterations
-      without stack overflow; matches interpreter row.
 
 ---
 
