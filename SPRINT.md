@@ -60,16 +60,12 @@ Ordered simplest-first.
 
 ### Unimplemented feature (tuple ++ concat in Rust backend)
 
-- [ ] **rust-fix-tuple-concat** — `RustCodeWalk.scala`: `++` infix on two tuple
-      literals should flatten into a wider tuple.  Currently emits
-      "unsupported infix operator `++`".  Two tests are `ignore`d in
-      `RustGenR23Test.scala` pending this fix.
-      Expected output for `(1,2) ++ (3,4)`: `(1i64, 2i64, 3i64, 4i64)`.
-      Route: add a case in `renderTerm` that matches
-      `m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("++"), _, rhs)`
-      where both sides are `m.Term.Tuple`, concatenate the element lists,
-      and emit the merged tuple.  Return unsupported error if either side
-      is not a literal tuple.
+- [x] **rust-fix-tuple-concat** — `RustCodeWalk.scala`: `++` on tuples now
+      flattens via `collectTupleConcat`.  Root cause: scalameta parses
+      `(a,b) ++ (c,d)` with the RHS as **two** separate infix args, not one
+      `Term.Tuple` — added a second branch handling `args.values.size > 1`.
+      Also added `_tupleConcat` call handler for completeness.
+      106 tests pass, 0 ignored.  Fixed 2026-06-08.
 
 ---
 
