@@ -1,1 +1,0 @@
-rust-backend-r6-auth: hashPassword/verifyPassword/jwtSign/jwtVerify via argon2 + jsonwebtoken
