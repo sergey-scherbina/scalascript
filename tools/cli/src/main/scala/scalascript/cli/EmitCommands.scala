@@ -50,7 +50,7 @@ final class EmitJsCmd extends CliCommand:
             case Segment.Code("javascript", code) =>
               println(code)
               // Flush the ScalaScript output buffer before the next Scala.js segment runs
-              println("""process.stdout.write(_output.join('\n') + (_output.length ? '\n' : '')); _output = [];""")
+              println("""if (typeof process !== 'undefined' && process.stdout) { process.stdout.write(_output.join('\n') + (_output.length ? '\n' : '')); } else if (_output.length) { console.log(_output.join('\n')); } _output = [];""")
             case Segment.Source("scala", src) =>
               val bundle = ScalaJsBackend.compileSourceToJs(src, baseDir)
               if bundle.nonEmpty then println(bundle)

@@ -236,3 +236,20 @@ println(!n)""") shouldBe "false"
 """val n: Int = 42
 println(!n)""") shouldBe "false"
   }
+
+  // ── busi-p1-arrow-vs-plus-precedence ─────────────────────────────────────
+
+  test("Map key -> string + value: string concat absorbed into tuple") {
+    captured(
+"""val value = "World"
+val m = Map("k" -> "Hello " + value)
+println(m.get("k").getOrElse("missing"))""") shouldBe "Hello World"
+  }
+
+  test("Map multi-entry with -> string + val") {
+    captured(
+"""val prefix = "Org: "
+val name = "Acme"
+val m = Map("name" -> prefix + name, "code" -> "A")
+println(m.get("name").getOrElse("missing"))""") shouldBe "Org: Acme"
+  }

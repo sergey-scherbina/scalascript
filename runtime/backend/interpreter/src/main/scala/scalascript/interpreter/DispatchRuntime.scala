@@ -2635,6 +2635,13 @@ private[interpreter] object DispatchRuntime:
         case List(Value.UnitV)      => Pure(recv)
         case List(v)                => Pure(Value.TupleV(es :+ v))
         case _                      => dispatchFallback(recv, name, args, env, interp)
+      // Arrow-vs-plus precedence fix: `Map("k" -> "prefix " + val)` parses as
+      // `("k" -> "prefix ") + val` due to equal precedence of `->` and `+`.
+      // When a 2-tuple's second element is a String, absorb `+` into that element.
+      case "+"   => es match
+        case List(k, Value.StringV(s)) if args.length == 1 =>
+          Pure(Value.TupleV(k :: Value.StringV(s + Value.show(args.head)) :: Nil))
+        case _ => dispatchFallback(recv, name, args, env, interp)
       case "_1"     => if es.length > 0 then Pure(es(0)) else interp.located("_1 on empty tuple")
       case "_2"     => if es.length > 1 then Pure(es(1)) else interp.located("_2 on tuple with <2 elements")
       case "_3"     => if es.length > 2 then Pure(es(2)) else interp.located("_3 on tuple with <3 elements")
