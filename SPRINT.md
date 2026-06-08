@@ -655,7 +655,7 @@ by quick-win impact; P0 alone unlocks 7 benchmarks with tiny changes.
       `Term.Apply` with the lambda arg.  Acceptance: `list-fold.ssc`,
       `hof-pipeline.ssc` green.  Spec: §Gap D + G.
 
-- [ ] **rust-bench-p1-string-methods** — Add `String.split(sep)` →
+- [x] **rust-bench-p1-string-methods** — Add `String.split(sep)` →
       `s.split(sep).map(|p| p.to_string()).collect::<Vec<String>>()`,
       `.trim()` → `.trim().to_string()`, `.toInt` on String → 
       `.parse::<i32>().unwrap_or(0)`.  Acceptance: `string-split.ssc`

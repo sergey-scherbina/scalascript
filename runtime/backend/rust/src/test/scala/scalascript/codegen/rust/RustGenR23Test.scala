@@ -109,6 +109,26 @@ class RustGenR23Test extends AnyFunSuite:
     assert(g.contains("pub fn concat() -> (i64, i64, i64, i64, i64, i64)"))
     assert(g.contains("(1i64, 2i64, 3i64, 4i64, 5i64, 6i64)"))
 
+  test("String.split + trim + toInt lowers to String helpers and parse"):
+    val src =
+      """```scalascript
+        |def sum(): Int = "1,2,3".split(",").map(s => s.trim.toInt).foldLeft(0)((a, b) => a + b)
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains(""".split(",").map(|p| p.to_string()).collect::<Vec<String>>()"""))
+    assert(g.contains(".trim().to_string()"))
+    assert(g.contains(".parse::<i32>().unwrap_or(0)"))
+
+  test("String.toInt uses numeric parse on string literals"):
+    val src =
+      """```scalascript
+        |def value(): Int = "42".toInt
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("42".to_string().parse::<i32>().unwrap_or(0)"))
+
   test("Term.Match lowers to Rust match with pattern destructuring"):
     val src =
       """```scalascript

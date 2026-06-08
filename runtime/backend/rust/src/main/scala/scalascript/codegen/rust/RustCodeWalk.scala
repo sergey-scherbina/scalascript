@@ -628,11 +628,16 @@ object RustCodeWalk:
     case m.Term.Select(qual, m.Term.Name("toLong")) =>
       renderTerm(qual, ctx).map(q => s"($q as i64)")
     case m.Term.Select(qual, m.Term.Name("toInt")) =>
-      renderTerm(qual, ctx).map(q => s"($q as i64)")   // widen to i64 for bench workload
+      renderTerm(qual, ctx).flatMap { q =>
+        if isStringToIntExpr(qual) then Right(s"($q.parse::<i32>().unwrap_or(0))")
+        else Right(s"($q as i64)")   // widen to i64 for bench workload
+      }
     case m.Term.Select(qual, m.Term.Name("toDouble" | "toFloat")) =>
       renderTerm(qual, ctx).map(q => s"($q as f64)")
     case m.Term.Select(qual, m.Term.Name("toString")) =>
       renderTerm(qual, ctx).map(q => s"format!(\"{}\", $q)")
+    case m.Term.Select(qual, m.Term.Name("trim")) =>
+      renderTerm(qual, ctx).map(q => s"$q.trim().to_string()")
     // Some scalameta versions parse `x => body` as `Term.AnonymousFunction`
     // with a placeholder; cover the same shape conservatively.
     case _: m.Term.AnonymousFunction =>
@@ -694,6 +699,22 @@ object RustCodeWalk:
         z  <- renderTerm(zArgs.values.head, ctx)
         fb <- renderVecIterBody(fArgs.values.head, q, ctx, method = "foldLeft", zero = Some(z))
       yield fb
+
+    // `trim` can appear as zero-arg apply too: `s.trim()`.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("trim")),
+        args
+    ) if args.values.isEmpty =>
+      renderTerm(qual, ctx).map(q => s"$q.trim().to_string()")
+
+    // `(s: String).split(sep)` emits `Vec<String>`, matching bench expectations.
+    // Use `to_string` on each slice because Rust split yields `&str`.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("split")), args)
+        if args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        sep <- renderTerm(args.values.head, ctx)
+      yield s"""$q.split($sep).map(|p| p.to_string()).collect::<Vec<String>>()"""
 
     // Application — intrinsic, user-defined fn, or unsupported.
     case m.Term.Apply.After_4_6_0(fn, args) =>
@@ -803,6 +824,16 @@ object RustCodeWalk:
     case Nil       => "()"
     case List(one) => s"($one,)"
     case more      => s"(${more.mkString(", ")})"
+
+  private def isStringToIntExpr(term: m.Term): Boolean = term match
+    case m.Lit.String(_) => true
+    case m.Term.Interpolate(m.Term.Name("s"), _, _) => true
+    case m.Term.Select(_, m.Term.Name("toString" | "trim")) => true
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(_, m.Term.Name("toString" | "trim")),
+        args
+      ) if args.values.isEmpty => true
+    case _ => false
 
   /** RuntimeCall targets whose Rust signature takes args by reference.
    *  Codegen wraps every emitted arg with `&` so callers keep ownership
