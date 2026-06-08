@@ -676,7 +676,7 @@ by quick-win impact; P0 alone unlocks 7 benchmarks with tiny changes.
       concat operator on two tuple literals to a flat tuple.  Acceptance:
       `tuple-monoid.ssc` green.  Spec: §Gap H.
 
-- [ ] **rust-bench-p2-option-type** — Map `Option[T]` to `Option<T>`;
+- [x] **rust-bench-p2-option-type** — Map `Option[T]` to `Option<T>`;
       add `.flatMap`, `.map`, `.getOrElse` methods on Option; `Some(x)`
       constructor → `Some(x)`, `None` → `None`.  Acceptance:
       `option-chain.ssc` green.  Spec: §Gap E.

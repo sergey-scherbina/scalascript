@@ -436,6 +436,16 @@ object RustCodeWalk:
     case m.Type.Name("Float")   => Right("f64")
     case m.Type.Name("String")  => Right("String")
     case m.Type.Name(n) if enumNames.contains(n) => Right(n)
+    // Option[T] lowers to Rust `Option<T>` for bench-friendly semantics.
+    case m.Type.Apply.After_4_6_0(m.Type.Name("Option"), argClause)
+        if argClause.values.size == 1 =>
+      argClause.values.toList match
+        case List(inner) =>
+          mapType(inner, defName, enumNames).map(innerType => s"Option<$innerType>")
+        case _ =>
+          Left(List(unsupported(
+            s"def `$defName` uses invalid `Option` application; expected one type arg"
+          )))
     case m.Type.Tuple(elems) =>
       val rendered = elems.toList.map(mapType(_, defName, enumNames))
       val (errs, ok) = rendered.partitionMap(identity)
@@ -638,6 +648,8 @@ object RustCodeWalk:
       renderTerm(qual, ctx).map(q => s"format!(\"{}\", $q)")
     case m.Term.Select(qual, m.Term.Name("trim")) =>
       renderTerm(qual, ctx).map(q => s"$q.trim().to_string()")
+    // Option constructors and methods.
+    case m.Term.Name("None") => Right("None")
     // Some scalameta versions parse `x => body` as `Term.AnonymousFunction`
     // with a placeholder; cover the same shape conservatively.
     case _: m.Term.AnonymousFunction =>
@@ -671,7 +683,7 @@ object RustCodeWalk:
     // xs.map(f) → xs.iter().cloned().map(move |p| body).collect::<Vec<_>>()
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("map")), args
-    ) if args.values.size == 1 =>
+    ) if args.values.size == 1 && !isOptionExpr(qual) =>
       for
         q <- renderTerm(qual, ctx)
         body <- renderVecIterBody(args.values.head, q, ctx, method = "map")
@@ -680,11 +692,46 @@ object RustCodeWalk:
     // xs.filter(f) → xs.iter().cloned().filter(move |p| body).collect::<Vec<_>>()
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("filter")), args
-    ) if args.values.size == 1 =>
+    ) if args.values.size == 1 && !isOptionExpr(qual) =>
       for
         q <- renderTerm(qual, ctx)
         body <- renderVecIterBody(args.values.head, q, ctx, method = "filter")
       yield body
+
+    // Option-aware method lowering.
+    case m.Term.Apply.After_4_6_0(m.Term.Name("Some"), args) if args.values.size == 1 =>
+      args.values.headOption match
+        case Some(a) => renderTerm(a, ctx).map(v => s"Some($v)")
+        case None    => Left(List(unsupported(
+          s"def `${ctx.defName}` has invalid `Some` constructor application"
+        )))
+
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("map")),
+        args
+    ) if isOptionExpr(qual) && args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        f <- renderTerm(args.values.head, ctx)
+      yield s"$q.map($f)"
+
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("flatMap")),
+        args
+    ) if isOptionExpr(qual) && args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        f <- renderTerm(args.values.head, ctx)
+      yield s"$q.and_then($f)"
+
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("getOrElse")),
+        args
+    ) if isOptionExpr(qual) && args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        d <- renderTerm(args.values.head, ctx)
+      yield s"$q.unwrap_or($d)"
 
     // xs.foldLeft(z)(f) — outer Apply gives f, inner Apply(Select(xs,foldLeft), [z]) gives z.
     case m.Term.Apply.After_4_6_0(
@@ -833,6 +880,19 @@ object RustCodeWalk:
         m.Term.Select(_, m.Term.Name("toString" | "trim")),
         args
       ) if args.values.isEmpty => true
+    case _ => false
+
+  /** Best-effort check that a term is an Option-shaped expression so we can
+   *  route `.map/.flatMap/.getOrElse` to Rust `Option`.
+   */
+  private def isOptionExpr(term: m.Term): Boolean = term match
+    case m.Term.Name("None") => true
+    case m.Term.Apply.After_4_6_0(m.Term.Name("Some"), args) if args.values.size == 1 =>
+      true
+    case m.Term.Apply.After_4_6_0(m.Term.Select(inner, m.Term.Name("map" | "flatMap" | "getOrElse")), args)
+        if isOptionExpr(inner) =>
+      // recursive chain case: `Some(x).map(...).getOrElse(...)`
+      args.values.size == 1
     case _ => false
 
   /** RuntimeCall targets whose Rust signature takes args by reference.

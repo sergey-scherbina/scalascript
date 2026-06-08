@@ -129,6 +129,35 @@ class RustGenR23Test extends AnyFunSuite:
     val g = gen(src)
     assert(g.contains("42".to_string().parse::<i32>().unwrap_or(0)"))
 
+  test("Option type maps to Rust Option and constructors"):
+    val src =
+      """```scalascript
+        |def mk(v: Int): Option[Int] =
+        |  if v % 2 == 0 then Some(v) else None
+        |
+        |def empty(): Option[Int] = None
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("pub fn mk(v: i64) -> Option<i64>"))
+    assert(g.contains("if v % 2 == 0 {")
+    assert(g.contains("Some(v)"))
+    assert(g.contains("empty() -> Option<i64>"))
+    assert(g.contains("None"))
+
+  test("Option monadic methods map/flatMap/getOrElse"):
+    val src =
+      """```scalascript
+        |def lookup(i: Int): Option[Int] = if i % 2 == 0 then Some(i * 2) else None
+        |def work(i: Int): Int = Some(i).flatMap(x => lookup(x)).map(x => x + 1).getOrElse(0)
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("Some(i)"))
+    assert(g.contains(".and_then("))
+    assert(g.contains(".map("))
+    assert(g.contains(".unwrap_or(0)"))
+
   test("Term.Match lowers to Rust match with pattern destructuring"):
     val src =
       """```scalascript
