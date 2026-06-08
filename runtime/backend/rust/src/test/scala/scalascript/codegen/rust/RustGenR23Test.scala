@@ -89,8 +89,7 @@ class RustGenR23Test extends AnyFunSuite:
     assert(g.contains("pub fn make() -> (i64, f64, String)"))
     assert(g.contains("(1i64, 2.0f64, \"ok\".to_string())"))
 
-  ignore("tuple ++ tuple-literal flattening emits one wider tuple"):
-    // rust-fix-tuple-concat: ++ infix not yet implemented in RustCodeWalk
+  test("tuple ++ tuple-literal flattening emits one wider tuple"):
     val src =
       """```scalascript
         |def concat(): (Int, Int, Int, Int) = (1, 2) ++ (3, 4)
@@ -100,8 +99,7 @@ class RustGenR23Test extends AnyFunSuite:
     assert(g.contains("pub fn concat() -> (i64, i64, i64, i64)"))
     assert(g.contains("(1i64, 2i64, 3i64, 4i64)"))
 
-  ignore("tuple ++ nested-literal chain flattens recursively"):
-    // rust-fix-tuple-concat: ++ infix not yet implemented in RustCodeWalk
+  test("tuple ++ nested-literal chain flattens recursively"):
     val src =
       """```scalascript
         |def concat(): (Int, Int, Int, Int, Int, Int) = (1, 2) ++ (3, 4) ++ (5, 6)

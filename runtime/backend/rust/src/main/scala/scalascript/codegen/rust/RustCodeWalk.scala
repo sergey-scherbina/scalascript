@@ -111,7 +111,7 @@ object RustCodeWalk:
    *  blocks.  These are emitted as `let name = init;` preamble in every
    *  `Defn.Def` body so that HOF bench fixtures like `val xs: List[Int] =
    *  List(1, 2, 3, …)` are accessible inside `workload()`. */
-  private def collectTopVals(module: ast.Module, ctorMap: Map[String, EnumCtor] = Map.empty): List[TopVal] =
+  private def collectTopVals(module: ast.Module, ctorMap: Map[String, EnumCtor]): List[TopVal] =
     val ctx0 = Ctx(Map.empty, Set.empty, ctorMap, Nil, "<topval>")
     val found = scala.collection.mutable.ListBuffer.empty[TopVal]
     module.sections.foreach(s => sectionTopVals(s, ctx0, found))
@@ -831,6 +831,16 @@ object RustCodeWalk:
         f <- renderTerm(args.values.head, ctx)
       yield s"$q.map($f)"
 
+    // `_tupleConcat(a, b)` — emitted by Normalize from `(a) ++ (b)`.
+    // For Rust: flatten both args into a single wider tuple literal.
+    case m.Term.Apply.After_4_6_0(m.Term.Name("_tupleConcat"), args) if args.values.size == 2 =>
+      val terms = collectTupleConcatFromArgs(args.values(0), args.values(1))
+      terms match
+        case Some(elems) => renderTupleElems(elems, ctx).map(renderTuple)
+        case None => Left(List(unsupported(
+          s"def `${ctx.defName}`: _tupleConcat args must be tuple literals for Rust backend"
+        )))
+
     // Option-aware method lowering.
     case m.Term.Apply.After_4_6_0(m.Term.Name("Some"), args) if args.values.size == 1 =>
       args.values.headOption match
@@ -1019,6 +1029,21 @@ object RustCodeWalk:
           s"def `${ctx.defName}` contains an unsupported infix expression: ${infix.productPrefix}"
         )))
 
+  // Flatten two tuple terms (possibly nested _tupleConcat chains) into a flat list of elements.
+  private def collectTupleConcatFromArgs(lhs: m.Term, rhs: m.Term): Option[List[m.Term]] =
+    def flattenTupleArg(t: m.Term): Option[List[m.Term]] = t match
+      case m.Term.Tuple(values) => Some(values.toList)
+      case m.Term.Apply.After_4_6_0(m.Term.Name("_tupleConcat"), args) if args.values.size == 2 =>
+        for
+          l <- flattenTupleArg(args.values(0))
+          r <- flattenTupleArg(args.values(1))
+        yield l ++ r
+      case _ => None
+    for
+      l <- flattenTupleArg(lhs)
+      r <- flattenTupleArg(rhs)
+    yield l ++ r
+
   // Render a separator/pattern argument for str::split/splitn as a &str literal.
   // str::split requires Pattern (&str or char), not owned String.
   private def renderStrPatternArg(t: m.Term): Either[List[Diagnostic], String] = t match
@@ -1030,12 +1055,20 @@ object RustCodeWalk:
   private def collectTupleConcat(t: m.Term): Option[List[m.Term]] = t match
     case m.Term.Tuple(values) =>
       Some(values.toList)
+    // Infix `++` with a single-tuple RHS: `(a, b) ++ tupleTerm`.
     case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("++"), _, args)
         if args.values.size == 1 =>
       for
         l <- collectTupleConcat(lhs)
         r <- collectTupleConcat(args.values.head)
       yield l ++ r
+    // Infix `++` where the RHS is multiple literal args (scalameta parses
+    // `(1,2) ++ (3,4)` with two separate rhs args in infix position).
+    case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("++"), _, args)
+        if args.values.size > 1 =>
+      for
+        l <- collectTupleConcat(lhs)
+      yield l ++ args.values.toList
     case _ => None
 
   private def renderTupleElems(
