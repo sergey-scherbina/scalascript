@@ -8,6 +8,33 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Rust bench fixes — new rustc errors (bench.sh 2026-06-08, ordered simplest-first)
+
+Found by re-running `bench.sh` after the previous fix wave.  All items below
+are new and not yet implemented.
+
+- [ ] **rust-fix-bench-non-i64-return** — `bench/run.sc`: `_run_workload() -> i64`
+      fails when `workload()` returns a non-`i64` type.  Affected: `tuple-monoid`
+      (`workload() -> (i64,i64,i64,i64)`, `E0308`) and `pattern-match-heavy`
+      (`workload() -> f64`, `E0308`).
+      Fix: change `_run_workload()` to return `()`, emit `std::hint::black_box(r);`
+      as a statement (not as the return value), drop `-> i64` from the signature.
+      One-file change in `bench/run.sc`.
+
+- [ ] **rust-fix-iife-parens** — `RustCodeWalk.scala`: IIFE closures emitted as
+      `move |x| { body }(arg)` are rejected by `rustc` with `E0618`.
+      Rust requires parens around the closure: `(move |x| { body })(arg)`.
+      Affected: `either-chain`.
+      Fix: wrap emitted closure literals in parens in the Either chain emitter.
+
+- [ ] **rust-fix-struct-copy** — `RustCodeWalk.scala`: user structs from `case class`
+      are not `Copy`, so passing them by value inside a loop gives `E0382`.
+      Affected: `instance-field` (`Vec` passed to `normSq` in a loop).
+      Fix: `renderStruct` should emit `#[derive(Debug, Clone, Copy)]` when all
+      fields are primitive (`i64`, `f64`, `bool`; not `String`).
+
+---
+
 ## Rust backend — compilation fixes (from bench.sh 2026-06-08)
 
 `backendRust/compile` and `backendRust/Test/compile` are currently broken.
