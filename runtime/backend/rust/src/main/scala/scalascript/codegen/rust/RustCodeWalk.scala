@@ -684,7 +684,7 @@ object RustCodeWalk:
       renderTerm(qual, ctx).map(q => s"($q as i64)")
     case m.Term.Select(qual, m.Term.Name("toInt")) =>
       renderTerm(qual, ctx).flatMap { q =>
-        if isStringToIntExpr(qual) then Right(s"($q.parse::<i32>().unwrap_or(0))")
+        if isStringToIntExpr(qual) then Right(s"($q.parse::<i64>().unwrap_or(0))")
         else Right(s"($q as i32)")
       }
     case m.Term.Select(qual, m.Term.Name("toDouble")) =>
@@ -770,6 +770,14 @@ object RustCodeWalk:
         k <- renderTerm(args.values(0), ctx)
         d <- renderTerm(args.values(1), ctx)
       yield s"$q.get(&$k).copied().unwrap_or($d)"
+    // `(s: String).split(sep)` emits `Vec<String>`, matching bench expectations.
+    // Use `to_string` on each slice because Rust split yields `&str`.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("split")), args)
+        if args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        sep <- renderTerm(args.values.head, ctx)
+      yield s"""$q.split($sep).map(|p| p.to_string()).collect::<Vec<String>>()"""
 
     // Option constructors and methods.
     case m.Term.Name("None") => Right("None")
@@ -887,13 +895,12 @@ object RustCodeWalk:
           zArgs
         ),
         fArgs
-    ) if zArgs.values.size == 1 && fArgs.values.size == 1 =>
+      ) if zArgs.values.size == 1 && fArgs.values.size == 1 =>
       for
         q  <- renderTerm(qual, ctx)
         z  <- renderTerm(zArgs.values.head, ctx)
         fb <- renderVecIterBody(fArgs.values.head, q, ctx, method = "foldLeft", zero = Some(z))
       yield fb
-
     // `trim` can appear as zero-arg apply too: `s.trim()`.
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("trim")),
@@ -959,12 +966,8 @@ object RustCodeWalk:
 
     // `String + any` / `any + String` — lower to `format!("{}{}", lhs, rhs)`.
     // Triggered when either side is a best-effort string expression.
-    case m.Term.ApplyInfix.After_4_6_0(
-      lhs,
-      m.Term.Name("+"),
-      _,
-      args
-    ) if args.values.size == 1 && (isStringExpr(lhs) || isStringExpr(args.values.head)) =>
+    case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("+"), _, args)
+        if args.values.size == 1 && (isStringExpr(lhs) || isStringExpr(args.values.head)) =>
       for
         l <- renderTerm(lhs, ctx)
         r <- renderTerm(args.values.head, ctx)

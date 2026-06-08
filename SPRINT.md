@@ -796,6 +796,74 @@ or example demands it. Order below is priority for triage when claiming.
 
 ---
 
+## Backend-specific fenced blocks + platform-type ban (new)
+
+**Motivation:** `.ssc` code must never reference `java.*`, `scala.*`, or any
+other platform-specific type in a regular `scalascript` block — this should be
+a compile error, not convention. The escape hatch for legitimate ad-hoc native
+code is explicit backend-tagged fenced blocks: `scala`, `java`, `javascript`,
+`rust`. The `java` fenced block tag is new (previously only `scala` existed for JVM).
+
+Spec: [`specs/backend-specific-blocks.md`](specs/backend-specific-blocks.md)
+
+### Phase 1 — parser
+
+- [ ] **backend-blocks-p1-parse** — Extend parser to recognise
+      `scala`, `java`, `javascript`, `rust`, `wasm` fenced blocks as
+      `BackendBlock(tag, source)` AST nodes. Existing `scalascript`
+      blocks unchanged. Tests: mixed-block file parses correctly.
+      Commit: `feat(parser): backend-specific fenced blocks`.
+
+### Phase 2 — type-checker enforcement
+
+- [ ] **backend-blocks-p2-typecheck** — Banned-prefix check in
+      type-checker: `java.*`, `javax.*`, `scala.*`, `sun.*`, `com.sun.*`
+      in `scalascript` blocks → `E_PlatformType` compile error.
+      Capability gate: `extern def` with no backend impl → `E_NoBackendImpl`.
+      Test: `tests/conformance/backend-blocks-platform-type-ban.ssc`.
+      Commit: `feat(typer): platform-type ban + capability gate`.
+
+### Phase 3 — JVM backend emission
+
+- [ ] **backend-blocks-p3-jvm** — `JvmGen`: emit `scala` blocks verbatim
+      after main module object; emit `java` blocks as separate `.java`
+      source files via `//> using sources`. Test: `currentPid()` via
+      `scala` block; `ssc run --target jvm` returns PID > 0.
+      Commit: `feat(jvmgen): scala/java backend block emission`.
+
+### Phase 4 — JS backend emission
+
+- [ ] **backend-blocks-p4-js** — `JsGen`: emit `javascript` blocks
+      verbatim into the JS bundle after preamble. Test: `currentPid()`
+      via `javascript` block; Node.js target returns `process.pid`.
+      Commit: `feat(jsgen): javascript backend block emission`.
+
+### Phase 5 — Rust backend emission
+
+- [ ] **backend-blocks-p5-rust** — `RustGen`: emit `rust` blocks into
+      `mod inline_native` in the generated crate. Conformance snapshot.
+      Commit: `feat(rustgen): rust backend block emission`.
+
+### Phase 6 — extend FFI annotations to `@rust` / `@wasm` + WASM boundary
+
+- [ ] **backend-blocks-p6-ffi-extend** — Add `RustInline`, `WasmInline`,
+      `WasmExport`, `WasmImport` annotation AST nodes (alongside existing
+      `JvmInline`, `JsInline`). Wire `@rust("...")` into `RustGen`.
+      Wire `@wasmExport` / `@wasmImport` into WASM backend boundary emission
+      (export/import table entries). Update `arch-ffi.md` to reference
+      `backend-specific-blocks.md` for the full picture.
+      Commit: `feat(ffi): @rust/@wasm annotations + WASM boundary annotations`.
+
+### Phase 7 — audit + flip ban to error
+
+- [ ] **backend-blocks-p7-audit** — Enable ban as warning, surface all
+      violations in `runtime/std/`, `examples/`, `tests/conformance/`.
+      Migrate violating `.ssc` files to `std.*` or backend blocks.
+      Flip warning to error. Update `AGENTS.md` link (already added).
+      Commit: `fix(typer): enable platform-type ban as hard error`.
+
+---
+
 ## std.fs / std.os / std.process — filesystem, OS & process abstraction (new)
 
 **Motivation:** `.sc` tool scripts (`bench/run.sc`, `tests/e2e/spa-smoke.sc`)

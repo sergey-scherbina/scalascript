@@ -101,12 +101,39 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     // R.2 lowers infix arithmetic, so use something genuinely out of scope.
     val src =
       """```scalascript
-        |def run(): Unit = throw new RuntimeException("nope")
-        |```
-        |""".stripMargin
+      |def run(): Unit = throw new RuntimeException("nope")
+      |```
+      |""".stripMargin
     val ds = diagnostics(src)
     assert(ds.nonEmpty, "expected at least one diagnostic")
     assert(ds.forall {
       case Diagnostic.Generic(_, src) => src.contains("rust")
       case _                          => false
     }, s"diags: $ds")
+
+  // ── P0 benchmark gaps — numeric conversion + string concat ───────────
+
+  test("toLong / toInt / toDouble / toFloat are rendered to Rust casts"):
+    val src =
+      """```scalascript
+      |def toLongFn(n: Int): Long = n.toLong
+      |def toIntFn(s: String): Int = s.trim.toInt
+      |def toDoubleFn(n: Int): Double = n.toDouble
+      |def toFloatFn(n: Int): Float = n.toFloat
+      |```
+      |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("(n as i64)"))
+    assert(g.contains("parse::<i64>().unwrap_or(0)"), s"toInt parse path missing in:\n$g")
+    assert(g.contains("(n as f64)"), s"toDouble missing in $g")
+    assert(g.contains("(n as f64)"), s"toFloat missing in $g")
+
+  test("String + Long emits Rust format! for mixed-type concatenation"):
+    val src =
+      """```scalascript
+      |def label(n: Long): String = "item-" + n
+      |```
+      |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("""format!("{}{}","""), s"format concat missing in:\n$g")
+    assert(g.contains("\"item-\".to_string()"), s"string literal shape missing in:\n$g")
