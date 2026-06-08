@@ -348,7 +348,7 @@ object RustCodeWalk:
         if fields.isEmpty then ""
         else " { " + fields.map((n, t) => s"$n: $t").mkString(", ") + " }"
       val variant = s"$ctor$body"
-      Right((variant, (ctor, EnumCtor(enumName, fields.map(_._1))))
+      Right((variant, (ctor, EnumCtor(enumName, fields.map(_._1)))))
 
   /** Render one `case Ctor(field1: T1, …)` into a Rust struct-style
    *  enum variant.  Returns the variant text + the ctor metadata. */
@@ -613,6 +613,8 @@ object RustCodeWalk:
   private def renderTerm(
       t: m.Term, ctx: Ctx
   ): Either[List[Diagnostic], String] = t match
+    // Option None constructor — must come before the catch-all Term.Name.
+    case m.Term.Name("None") => Right("None")
     // Plain identifier — parameter reference or in-scope fn name.
     case m.Term.Name(n) =>
       Right(n)
@@ -779,8 +781,6 @@ object RustCodeWalk:
         sep <- renderTerm(args.values.head, ctx)
       yield s"""$q.split($sep).map(|p| p.to_string()).collect::<Vec<String>>()"""
 
-    // Option constructors and methods.
-    case m.Term.Name("None") => Right("None")
     // Some scalameta versions parse `x => body` as `Term.AnonymousFunction`
     // with a placeholder; cover the same shape conservatively.
     case _: m.Term.AnonymousFunction =>
@@ -1061,7 +1061,6 @@ object RustCodeWalk:
     case _ => false
 
   private def isStringExpr(term: m.Term): Boolean = term match
-    case m.Term.Paren(inner) => isStringExpr(inner)
     case m.Lit.String(_) => true
     case m.Term.Interpolate(m.Term.Name("s"), _, _) => true
     case m.Term.Select(_, m.Term.Name("toString" | "trim")) => true
@@ -1075,7 +1074,6 @@ object RustCodeWalk:
    *  route `.map/.flatMap/.fold` to Rust `Either`.
    */
   private def isEitherExpr(term: m.Term): Boolean = term match
-    case m.Term.Paren(inner) => isEitherExpr(inner)
     case m.Term.Apply.After_4_6_0(m.Term.Name("Left" | "Right"), args)
         if args.values.size == 1 => true
     case m.Term.Apply.After_4_6_0(
@@ -1101,7 +1099,6 @@ object RustCodeWalk:
    *  and common iterator-chain extensions used by the bench.
    */
   private def isRangeExpr(term: m.Term): Boolean = term match
-    case m.Term.Paren(inner) => isRangeExpr(inner)
     case m.Term.ApplyInfix.After_4_6_0(_, m.Term.Name("until" | "to"), _, rhs)
         if rhs.values.size == 1 => true
     case m.Term.Apply.After_4_6_0(
@@ -1120,9 +1117,9 @@ object RustCodeWalk:
     case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _)
         if isScalaLang(lang) =>
       node.tree.collect {
-        case t: m.Type.Apply.After_4_6_0(m.Type.Name("Either"), targs)
+        case t @ m.Type.Apply.After_4_6_0(m.Type.Name("Either"), targs)
             if targs.values.size == 2 => t
-        case t: m.Term.Apply.After_4_6_0(m.Term.Name("Left" | "Right"), args)
+        case t @ m.Term.Apply.After_4_6_0(m.Term.Name("Left" | "Right"), args)
             if args.values.size == 1 => t
       }.nonEmpty
     case _ => false
