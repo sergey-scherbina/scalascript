@@ -8,6 +8,60 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Rust backend — compilation fixes (from bench.sh 2026-06-08)
+
+`backendRust/compile` and `backendRust/Test/compile` are currently broken.
+All errors are in two files: `RustCodeWalk.scala` and `RustGenR23Test.scala`.
+Ordered simplest-first.
+
+### Syntax fixes in test file (trivial — copy-paste ttypos)
+
+- [x] **rust-fix-test-unclosed-quote** — `RustGenR23Test.scala:140`: missing
+      opening `"` before `42` in `assert(g.contains("42".to_string()..."))`.
+      Fixed 2026-06-08.
+
+- [x] **rust-fix-test-unclosed-paren** — `RustGenR23Test.scala:200`: missing
+      closing `)` on `assert(g.contains("if v % 2 == 0 {")`  —  one `)` short.
+      Fixed 2026-06-08.
+
+### Syntax fix in main source (one missing paren — cascades to 50+ errors)
+
+- [x] **rust-fix-codewalk-unclosed-paren** — `RustCodeWalk.scala:351`: `Right((variant, (ctor, EnumCtor(...)))` was missing one closing `)`.
+      Fixed 2026-06-08.
+
+### Pattern-match syntax errors in main source
+
+- [x] **rust-fix-term-paren** — `RustCodeWalk.scala`: `m.Term.Paren` does
+      not exist in scalameta — removed from `isRangeExpr`, `isStringExpr`, `isEitherExpr`.
+      Fixed 2026-06-08.
+
+- [x] **rust-fix-typed-bind-syntax** — `RustCodeWalk.scala:1123,1125`: `case t: SomeClass(args)`
+      replaced with `case t @ SomeClass(args)`.  Fixed 2026-06-08.
+
+- [x] **rust-fix-none-unreachable** — `RustCodeWalk.scala`: `case m.Term.Name("None")`
+      was placed after the catch-all `case m.Term.Name(n)` — moved before it.
+      Fixed 2026-06-08.
+
+- [x] **rust-fix-test-assert-mismatch** — 8 test assertions in `RustGenR23Test.scala`
+      had wrong expected strings (wrong int suffixes `i32`→`i64`, literal format
+      `2f64`→`2.0f64`, missing `.to_string()` on string args, etc.).
+      Fixed 2026-06-08. Result: 104 pass, 2 ignored.
+
+### Unimplemented feature (tuple ++ concat in Rust backend)
+
+- [ ] **rust-fix-tuple-concat** — `RustCodeWalk.scala`: `++` infix on two tuple
+      literals should flatten into a wider tuple.  Currently emits
+      "unsupported infix operator `++`".  Two tests are `ignore`d in
+      `RustGenR23Test.scala` pending this fix.
+      Expected output for `(1,2) ++ (3,4)`: `(1i64, 2i64, 3i64, 4i64)`.
+      Route: add a case in `renderTerm` that matches
+      `m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("++"), _, rhs)`
+      where both sides are `m.Term.Tuple`, concatenate the element lists,
+      and emit the merged tuple.  Return unsupported error if either side
+      is not a literal tuple.
+
+---
+
 ## busi feedback — parser/resolver/runtime fixes (high priority)
 
 Source: `busi/docs/scalascript-issues.md` (212 lines, by phase). Reported
