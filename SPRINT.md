@@ -114,9 +114,12 @@ Ordered simplest-first.
       `runLogger { body }` injects `NoOpLogger`; `runtime/effects.rs` emitted with
       `LoggerEffect` trait + `NoOpLogger`.  7 new tests (107 total).  Fixed 2026-06-08.
 
-- [ ] **rust-fix-effect-stream** — `effect-stream` bench: `runToList` call on
-      effect stream, and destructuring `val` binding unsupported.
-      Spec: `specs/rust-effects.md §6` (Stream via VecStream collector).
+- [x] **rust-fix-effect-stream** — `effect-stream` bench: `runToList` + tuple val binding.
+      Fix: (1) `renderLetBinding` handles `val (a, _) = expr` tuple pattern;
+      (2) `Stream.emit(x)` → `_eff.stream_emit(x)`; (3) `src.runToList()` →
+      `src.items.clone()`; (4) `runStream { body }` injects `VecStream::new()`,
+      returns `(_eff, ())`; (5) `VecStream<T>` + `StreamEffect<T>` in effects.rs.
+      6 new tests (120 total). Fixed 2026-06-08.
 
 ### Unimplemented feature (tuple ++ concat in Rust backend)
 
