@@ -638,7 +638,7 @@ by quick-win impact; P0 alone unlocks 7 benchmarks with tiny changes.
       `literal-match.ssc` green on `scripts/bench wall rust`.
       Spec: `specs/rust-backend-bench-coverage.md` §Gap A + C.
 
-- [ ] **rust-bench-p0-hello-bench** — Fix `hello-world` bench harness.
+- [x] **rust-bench-p0-hello-bench** — Fix `hello-world` bench harness.
       In `bench/run.sc`'s injected `main.rs`, when `workload()` returns
       `Unit`, emit `generated::ssc_program::workload(); let r = 0i64;`
       instead of `let r = generated::ssc_program::workload();` so
@@ -648,7 +648,7 @@ by quick-win impact; P0 alone unlocks 7 benchmarks with tiny changes.
 
 ### P1 — collection method chaining (S–M)
 
-- [ ] **rust-bench-p1-vec-methods** — Add `.map(f)`, `.filter(f)`,
+- [x] **rust-bench-p1-vec-methods** — Add `.map(f)`, `.filter(f)`,
       `.foldLeft(z)(f)`, `.foreach(f)`, `.collect()` (as
       `.collect::<Vec<_>>()`) on Vec types in `renderTerm`.  Pattern:
       `Term.Select(qual, Term.Name("map"|"filter"|...))` + following
