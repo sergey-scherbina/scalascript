@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — feat(typer): platform-type ban Phase 2 + feat(parser): backend blocks Phase 1
+
+- **backend-blocks-p1-parse** — Lang.Java/Rust/Wasm + isNativeBackendBlock + isOpaqueExec; 17 tests.
+- **backend-blocks-p2-typecheck** — E_PlatformType for java/javax/sun/com.sun imports in
+  scalascript blocks; scala blocks exempt; 10 new tests (916 total).
+
 ## 2026-06-09 — feat(rust): R.4 algebraic effects complete (tagless-final, Phase 2)
 
 - **rust-backend-r4-perform-handle-resume-lowering** — R.4 effects fully landed

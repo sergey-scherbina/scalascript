@@ -934,12 +934,14 @@ Spec: [`specs/backend-specific-blocks.md`](specs/backend-specific-blocks.md)
 
 ### Phase 2 — type-checker enforcement
 
-- [ ] **backend-blocks-p2-typecheck** — Banned-prefix check in
+- [x] **backend-blocks-p2-typecheck** — Banned-prefix check in
       type-checker: `java.*`, `javax.*`, `scala.*`, `sun.*`, `com.sun.*`
       in `scalascript` blocks → `E_PlatformType` compile error.
       Capability gate: `extern def` with no backend impl → `E_NoBackendImpl`.
       Test: `tests/conformance/backend-blocks-platform-type-ban.ssc`.
       Commit: `feat(typer): platform-type ban + capability gate`.
+      ✓ Landed 2026-06-09 (33ca975): java/javax/sun/com.sun import ban in
+      scalascript blocks; scala blocks exempt; 10 new tests, 916 total.
 
 ### Phase 3 — JVM backend emission
 
