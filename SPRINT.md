@@ -218,7 +218,7 @@ fix, and don't require a runtime refactor.
       `dispatchMap` instead of falling into the tuple-wrap path in
       `DispatchRuntime.infix`.
 
-- [ ] **busi-p1-arrow-vs-plus-precedence** — `Map("k" -> "Prefix " +
+- [x] **busi-p1-arrow-vs-plus-precedence** — `Map("k" -> "Prefix " +
       value)` parses as `Map("k" -> ("Prefix ", value))` — the `->`
       arrow associates tighter than `+`, so the second tuple element
       becomes `value` instead of being concatenated.  Runtime then
@@ -232,7 +232,7 @@ fix, and don't require a runtime refactor.
 
 ### P2 — `emit-js` / browser
 
-- [ ] **busi-p2-emit-js-process-stdout** — `emit-js` always appends
+- [x] **busi-p2-emit-js-process-stdout** — `emit-js` always appends
       `process.stdout.write(...)` → `ReferenceError: process is not
       defined` in the browser on every load. Fix: guard with `typeof
       process !== 'undefined'` or use `console.log`. busi worked around
