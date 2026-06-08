@@ -1935,6 +1935,14 @@ class JsGen(
         case Content.CodeBlock(lang, src, _, _, _, _, _) if Lang.isStandardScala(lang) =>
           flushSS()
           scalaBuf += src.stripTrailing()
+        // `javascript` blocks: backend-specific native JS (backend-blocks-p4).
+        // Emit verbatim into the bundle so function definitions are callable.
+        // html/css StringBlocks keep the template-value genStringBlock path.
+        case cb: Content.CodeBlock if Lang.isJavaScript(cb.lang) =>
+          flushScala()
+          sb.append("// ── javascript block ─────────────────────────────────────────────────\n")
+          sb.append(cb.source.stripTrailing())
+          sb.append("\n")
         case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
           flushScala()
           genStringBlock(cb, s)
@@ -2004,6 +2012,10 @@ class JsGen(
         }
       case cb: Content.CodeBlock if Lang.isStandardScala(cb.lang) =>
         line(s"/* scala: standard Scala 3 block — compile via Scala.js for JS execution */")
+      case cb: Content.CodeBlock if Lang.isJavaScript(cb.lang) =>
+        sb.append("// ── javascript block ─────────────────────────────────────────────────\n")
+        sb.append(cb.source.stripTrailing())
+        sb.append("\n")
       case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
         genStringBlock(cb, section)
       case cb: Content.CodeBlock if Lang.isSql(cb.lang) =>
