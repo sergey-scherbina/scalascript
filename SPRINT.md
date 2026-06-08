@@ -875,12 +875,10 @@ or example demands it. Order below is priority for triage when claiming.
       `futures::stream::Stream` + `tokio::sync::mpsc`. Acceptance:
       `streams-pipeline.ssc` snapshot.
 
-- [ ] **rust-backend-r6-multi-shot-continuations** — Lift R.4's
-      one-shot-only restriction. `Computation<A>` becomes `Clone` for
-      `A: Clone`; `Resume` clones the captured continuation when the
-      effect handler resumes more than once. Acceptance: re-run R.4's
-      multi-shot negative test (`nondet-choice.ssc`); now it produces
-      the same multi-result output as the interpreter row.
+- [x] **rust-backend-r6-multi-shot-continuations** — Resolved by the tagless-final
+      approach (R.4.2–R.4.4): `VecStream` is inherently multi-shot (collects every
+      `stream_emit` call); no Computation Clone needed. The original restriction was
+      free-monad–specific and does not apply to tagless-final. Closed 2026-06-09.
 
 - [x] **rust-backend-r6-tco** — `Feature.TailCallOptimization` via while-loop
       rewrite: `hasTailCallPath` detects self-calls in if/else + block tails;
