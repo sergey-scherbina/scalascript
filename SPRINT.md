@@ -892,11 +892,12 @@ or example demands it. Order below is priority for triage when claiming.
       `JvmWsIntrinsics` shape. Acceptance: `ws-echo.ssc` snapshot —
       integration test opens a WS client, server echoes a frame.
 
-- [ ] **rust-backend-r6-auth** — `Feature.Auth`, intrinsics
-      `hashPassword`/`verifyPassword`/`jwtSign`/`jwtVerify` via `argon2`
-      + `jsonwebtoken` crates. Acceptance: `auth-roundtrip.ssc`
-      snapshot — hash → verify roundtrip and JWT sign → verify
-      roundtrip.
+- [x] **rust-backend-r6-auth** — `Feature.Auth`, intrinsics
+      `hashPassword` (argon2id + random salt), `verifyPassword` (bool),
+      `jwtSign` (HS256, payload as `sub` claim), `jwtVerify` (returns payload).
+      argon2 0.5 + jsonwebtoken 9 + serde deps pulled only when any auth
+      intrinsic is reached; hello-world stays dep-free. 9 tests (140 total).
+      Landed 2026-06-09.
 
 - [ ] **rust-backend-r6-mcp** — `Feature.McpServer` + `McpClient` via
       the rmcp crate (or hand-rolled JSON-RPC over stdio if rmcp's API

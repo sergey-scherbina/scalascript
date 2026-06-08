@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — feat(rust): R.6.7 — auth: argon2 + JWT (rust-backend-r6-auth)
+
+- **rust-backend-r6-auth** — `hashPassword`/`verifyPassword` via argon2 0.5;
+  `jwtSign`/`jwtVerify` via jsonwebtoken 9 (HS256). scanAuthUsage drives
+  conditional deps; programs without auth stay dep-free. 9 new tests.
+
+---
+
 ## 2026-06-09 — fix(interp): busi wave-2 — 4 interpreter fixes
 
 - **busi-p0-try-catch-handler** — `Term.TryWithHandler` now supported; eval `catchp` as a fn, call with caught exception.
