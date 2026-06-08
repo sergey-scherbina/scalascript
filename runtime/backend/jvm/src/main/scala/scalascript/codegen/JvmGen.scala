@@ -1352,6 +1352,15 @@ class JvmGen(
       }
     }
 
+    // backend-blocks-p3: emit `java` fenced blocks as separate .java source files.
+    // Each block is written to `_ssc_java_<n>.java` next to the .ssc source (when
+    // baseDir is set) and referenced via `//> using sources` so scala-cli compiles it.
+    javaBlocks.zipWithIndex.foreach { (src, i) =>
+      val fname = s"_ssc_java_$i.java"
+      sb.append(s"""//> using sources "$fname"\n""")
+      baseDir.foreach { dir => os.write.over(dir / fname, src) }
+    }
+
     val frontmatterRoutes = module.manifest.toList.flatMap(_.routes)
     val apiClients = module.manifest.toList.flatMap(_.apiClients)
     val objectStores = module.manifest.toList.flatMap(_.objectStores).filter(s => s.sync == "client-server" && s.valueType.nonEmpty)
@@ -2462,6 +2471,11 @@ class JvmGen(
   // see preceding definitions), then wrapped in companion objects at the end.
   private val stringBlocks = mutable.ArrayBuffer.empty[JvmGen.StringBlockEntry]
 
+  // `java` fenced blocks collected during `collectBlocks` (backend-blocks-p3).
+  // Each entry is the raw Java source.  Emitted as `//> using sources` directives
+  // + written to files alongside the .ssc source when `baseDir` is set.
+  private val javaBlocks = mutable.ArrayBuffer.empty[String]
+
   private def collectBlocks(sections: List[Section]): List[JvmGen.Block] =
     collectBlocks(sections, Nil)
 
@@ -2533,6 +2547,10 @@ class JvmGen(
           val tree = dialects.Scala3(Input.VirtualFile(s"<tx-block-$n>", txSrc))
             .parse[Source].toOption.map(scalascript.ast.ScalaNode(_))
           tree.map(t => JvmGen.Block(t, txSrc)).toList
+        // `java` fenced blocks: collect source for `//> using sources` emission.
+        case cb: Content.CodeBlock if Lang.isJava(cb.lang) =>
+          javaBlocks += cb.source
+          Nil
         case imp: Content.Import =>
           val (blocks, importedPkg) = inlineImport(imp.path)
           blocks ++ aliasBlock(imp.bindings, importedPkg).toList
