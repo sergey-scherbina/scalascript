@@ -427,6 +427,16 @@ object RustCodeWalk:
     // `xs.len() as i64` (Vec::len returns `usize`).
     case m.Term.Select(qual, m.Term.Name("size" | "length" | "len")) =>
       renderTerm(qual, ctx).map(q => s"($q.len() as i64)")
+
+    // Numeric coercions — P0 bench fix (specs/rust-backend-bench-coverage.md §Gap A).
+    case m.Term.Select(qual, m.Term.Name("toLong")) =>
+      renderTerm(qual, ctx).map(q => s"($q as i64)")
+    case m.Term.Select(qual, m.Term.Name("toInt")) =>
+      renderTerm(qual, ctx).map(q => s"($q as i64)")   // widen to i64 for bench workload
+    case m.Term.Select(qual, m.Term.Name("toDouble" | "toFloat")) =>
+      renderTerm(qual, ctx).map(q => s"($q as f64)")
+    case m.Term.Select(qual, m.Term.Name("toString")) =>
+      renderTerm(qual, ctx).map(q => s"format!(\"{}\", $q)")
     // Some scalameta versions parse `x => body` as `Term.AnonymousFunction`
     // with a placeholder; cover the same shape conservatively.
     case _: m.Term.AnonymousFunction =>
@@ -452,6 +462,23 @@ object RustCodeWalk:
           case _                            => false
         if isListCtor then Right(s"vec![$joined]")
         else applyNonListCtor(fn, callee, renderedArgs, joined, ctx)
+
+    // `String + any` — lower to `format!("{}{}", lhs, rhs)` so mixed-type
+    // concatenation like `"item-" + n` (where n: i64) compiles.
+    // The Lit.String pattern fires BEFORE the generic infix branch so we
+    // must handle it here where we still have type context.
+    case m.Term.ApplyInfix.After_4_6_0(lhs: m.Lit.String, m.Term.Name("+"), _, args)
+        if args.values.nonEmpty =>
+      for
+        l <- renderTerm(lhs, ctx)
+        r <- renderTerm(args.values.head, ctx)
+      yield s"""format!("{{}}{{}}", $l, $r)""".replace("{{", "{").replace("}}", "}")
+    case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("+"), _, args)
+        if args.values.headOption.exists(_.isInstanceOf[m.Lit.String]) =>
+      for
+        l <- renderTerm(lhs, ctx)
+        r <- renderTerm(args.values.head, ctx)
+      yield s"format!(\"{}{}\", $l, $r)"
 
     // Infix operators: arithmetic, comparison, boolean.
     case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name(op), _, args) =>
