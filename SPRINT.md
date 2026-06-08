@@ -947,18 +947,22 @@ Spec: [`specs/backend-specific-blocks.md`](specs/backend-specific-blocks.md)
 
 ### Phase 3 — JVM backend emission
 
-- [ ] **backend-blocks-p3-jvm** — `JvmGen`: emit `scala` blocks verbatim
+- [x] **backend-blocks-p3-jvm** — `JvmGen`: emit `scala` blocks verbatim
       after main module object; emit `java` blocks as separate `.java`
       source files via `//> using sources`. Test: `currentPid()` via
       `scala` block; `ssc run --target jvm` returns PID > 0.
       Commit: `feat(jvmgen): scala/java backend block emission`.
+      ✓ Landed 2026-06-09 (5f8b969): scala blocks via isParseable, java blocks
+      via javaBlocks buffer + //> using sources; 7 tests, 1490 backendInterpreter pass.
 
 ### Phase 4 — JS backend emission
 
-- [ ] **backend-blocks-p4-js** — `JsGen`: emit `javascript` blocks
+- [x] **backend-blocks-p4-js** — `JsGen`: emit `javascript` blocks
       verbatim into the JS bundle after preamble. Test: `currentPid()`
       via `javascript` block; Node.js target returns `process.pid`.
       Commit: `feat(jsgen): javascript backend block emission`.
+      ✓ Landed 2026-06-09 (462cb30): javascript verbatim in walkSection +
+      genSection; html/css keep template path; 6 tests, 1504 total.
 
 ### Phase 5 — Rust backend emission
 

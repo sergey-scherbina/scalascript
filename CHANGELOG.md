@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — feat: backend-specific blocks Phases 3+4
+
+- **backend-blocks-p3-jvm** — scala blocks via isParseable; java blocks emit
+  `//> using sources _ssc_java_N.java` + write files when baseDir set. 7 tests.
+- **backend-blocks-p4-js** — javascript blocks emitted verbatim in JsGen;
+  html/css keep template-value path. 6 tests (1504 total).
+
 ## 2026-06-09 — feat(rust): R.6.5 — TCO via while-loop rewrite (rust-backend-r6-tco)
 
 - **rust-backend-r6-tco** — Self-tail-recursive defs rewritten to `loop { ... }`;
