@@ -1,0 +1,6 @@
+feature/rust-bench-p1-vec-methods 2026-06-08T08:21:23Z
+agent: claude-opus-4-7
+heartbeat: 2026-06-08T08:21:23Z
+status: not-started
+done-so-far:
+next: Term.Select .map/.filter/.foldLeft/.foreach on Vec + multi-stmt closure body
