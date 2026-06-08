@@ -128,7 +128,16 @@ def runRustBench(sscPath: String, file: java.io.File): Option[Double] =
   // We call this indirection function _run_workload() which is #[inline(never)]
   // to prevent inlining and further hoisting.
   val rustReps = reps  // keep user reps; ns timer gives enough precision
-  val mainRs = s"""mod runtime;
+
+  // Build the injected main.rs.  When workload() returns Unit we must NOT
+  // pass () to black_box<T>(T) — emit a 0i64 sentinel instead.
+  // `isUnit` is set after genContent is read (step 2) so we define this
+  // as a function called at step 4.
+  def buildMainRs(isUnit: Boolean): String =
+    val workloadCall =
+      if isUnit then "generated::ssc_program::workload(); let r = 0i64;"
+      else            "let r = generated::ssc_program::workload();"
+    s"""mod runtime;
 mod value;
 mod generated;
 
@@ -140,10 +149,12 @@ static _SSC_BENCH_SEED: std::sync::atomic::AtomicI64 =
 fn _run_workload() -> i64 {
     // Load seed so optimizer sees a data dependency; value is always 1.
     let _s = _SSC_BENCH_SEED.load(std::sync::atomic::Ordering::Relaxed);
-    let r = generated::ssc_program::workload();
+    $workloadCall
     // Also prevent DCE of the return value
     std::hint::black_box(r)
-}
+}"""
+
+  val mainRsSuffix = s"""
 
 fn main() {
     // count-based warmup
@@ -182,6 +193,9 @@ fn main() {
     if !genFile.exists then { cleanup(); return None }
     val genContent = scala.io.Source.fromFile(genFile).mkString
     if !genContent.contains("workload") then { cleanup(); return None }
+    // Detect Unit-returning workload: `pub fn workload() {` has no `-> T` in the signature.
+    // When Unit, black_box must receive an i64 sentinel rather than the () result.
+    val workloadIsUnit = genContent.contains("pub fn workload() {") || genContent.contains("pub fn workload() {\n")
 
     // 3. Patch Cargo.toml: switch from [[bin]] / [lib] to [[bin]] with our main.rs
     val cargoTomlFile = new java.io.File(crateDir, "Cargo.toml")
@@ -193,10 +207,10 @@ fn main() {
     val cw = new java.io.PrintWriter(cargoTomlFile)
     cw.print(patched); cw.close()
 
-    // 4. Write our custom main.rs
+    // 4. Write our custom main.rs (Unit-aware: sentinel for black_box)
     val mainFile = new java.io.File(crateDir, "src/main.rs")
     val mw = new java.io.PrintWriter(mainFile)
-    mw.print(mainRs); mw.close()
+    mw.print(buildMainRs(workloadIsUnit) + mainRsSuffix); mw.close()
 
     // 5. cargo build --release --quiet
     val cargoBuf = new java.io.ByteArrayOutputStream
