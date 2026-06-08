@@ -888,10 +888,10 @@ or example demands it. Order below is priority for triage when claiming.
       get `return`. Binary-recursive fns (e.g. fib) are NOT rewritten (safe).
       7 tests (147 total). Landed 2026-06-09.
 
-- [ ] **rust-backend-r6-websockets** — `Feature.WebSockets`, intrinsics
-      `wsRoute`/`wsConnectSync` via `tokio-tungstenite`. Mirrors
-      `JvmWsIntrinsics` shape. Acceptance: `ws-echo.ssc` snapshot —
-      integration test opens a WS client, server echoes a frame.
+- [x] **rust-backend-r6-websockets** — `Feature.WebSockets`: `wsRoute(path, handler:String->String)`,
+      `wsServe(port)`, `wsConnectSync(url, handler:String->Unit)` via tokio-tungstenite 0.21.
+      Conditional dep injection (tokio dedup when HTTP also present).
+      src/runtime/ws.rs emitted on demand. 8 tests (155 total). Landed 2026-06-09.
 
 - [x] **rust-backend-r6-auth** — `Feature.Auth`, intrinsics
       `hashPassword` (argon2id + random salt), `verifyPassword` (bool),

@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — feat(rust): R.6.6 — WebSocket server + client (rust-backend-r6-websockets)
+
+- **rust-backend-r6-websockets** — `wsRoute`/`wsServe`/`wsConnectSync` via tokio-tungstenite 0.21.
+  Conditional dep injection; no tokio duplication when HTTP also present. 8 new tests.
+
+---
+
+---
+
 ## 2026-06-09 — feat: backend-specific blocks Phases 3+4
 
 - **backend-blocks-p3-jvm** — scala blocks via isParseable; java blocks emit
