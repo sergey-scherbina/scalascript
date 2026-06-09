@@ -141,11 +141,16 @@ JIT optimisation can close the resulting honest gap.
       - optionChain 116 → 100 B/op (-14%)
       - eitherChain 708 → 564 B/op (-20%; ASM 528)
       Suite green (1572) both backends; disabled count unchanged (736).
-      **Still open:** the dominant allocations are the wrappers constructed
-      *inside* the callees (`lookup`/`parse`) — eliminating those needs
-      cross-function inlining of small pure constructors (or a lighter
-      value-class Option/Either representation). Bigger, invasive; own session.
-      pattern-match-heavy not yet addressed.
+      **Follow-up `instancev-either-option-fieldsarr` (landed 2026-06-09):** the
+      `parse`/`lookup` `Right`/`Left` wrappers were `InstanceV` + per-instance
+      `IMap.Map1`, and each dispatch/JIT read re-materialised that Map. Migrated to
+      the positional `fieldsArr` repr via `Value.singleValue` + `typeFieldOrder`
+      registration of Right/Left/Some + arr-aware `JitHofDispatch.valueField`.
+      **eitherChain 488 → 224 B/op (-54%)**, optionChain flat (Some is `OptionV`).
+      1572 green. The remaining Either cost is the wrapper *existing at all*.
+      **Still open (bigger, own session):** eliminating the wrapper entirely needs
+      cross-function inlining of small pure constructors (or a value-class
+      Option/Either representation). pattern-match-heavy not yet addressed.
 
 ---
 

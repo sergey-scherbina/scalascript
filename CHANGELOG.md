@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — perf(interp): positional fieldsArr for builtin Right/Left/Some
+
+- **instancev-either-option-fieldsarr** — Single-field Either/Some wrappers were
+  built as `InstanceV` with a per-instance `IMap.Map1("value", v)`, and each method
+  dispatch / JIT-fused read re-materialised that Map. New `Value.singleValue` builds
+  them in the positional `fieldsArr` representation (`Array(v)` + shared
+  `SingleValueFieldNames`, `fields = Map.empty`) — the same shape user case classes
+  use post flag-flip. `Right`/`Left`/`Some` registered in `typeFieldOrder` at
+  `initBuiltins` so PatternRuntime / dispatch / JIT read them by index;
+  `JitHofDispatch.valueField` made arr-aware. Hot Either sites migrated (Core ctors,
+  DispatchRuntime map/flatMap/fold, JIT fusion). Same-session A/B (gc.alloc.rate.norm):
+  **eitherChain 488 → 224 B/op (-54%)**; optionChain flat at 96 (Some is already
+  `OptionV`). Wall-clock unchanged. 1572/1572 green. Follows up the residual left by
+  `ssc-jit-escape-analysis`.
+
+---
+
 ## 2026-06-09 — perf(jit): map-into-sink fusion for Option/Either (escape-analysis slice)
 
 - **ssc-jit-escape-analysis** (partial) — A `.map(unary)` feeding `.flatMap(global)`
