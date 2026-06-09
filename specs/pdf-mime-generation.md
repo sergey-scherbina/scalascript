@@ -39,6 +39,35 @@ extern def buildMimeMessage(
 ): String  // full RFC 5322 message text, ready for SMTP DATA
 ```
 
+### 2.1  Drop-in for busi's existing relay contract
+
+`htmlToPdfBase64(html) -> base64 PDF` deliberately mirrors busi's current PDF
+relay contract (`POST {"html":...} -> {"pdf_base64":...}`). busi already produces
+the complete HTML; matching this signature means zero busi rewiring — just swap
+the relay call for the extern. **The PDF half is the priority**;
+`buildMimeMessage` / `smtpSend` can be a later slice.
+
+### 2.2  Required HTML/CSS subset (busi invoice template — the whole need)
+
+This is the exact surface the busi invoice uses. Covering it covers 100% of the
+case; nothing beyond it is required for the first slice.
+
+**Required:**
+- Single-page **A4** with page margins; graceful overflow to a 2nd page (no
+  pagination *control* needed — `@page` / `page-break-*` are nice-to-have, not required).
+- Elements: `html, head, meta, title, style, body, div, p, h1–h3, strong, br`.
+- **Tables are the layout**: `table, thead, tbody, tr, th, td` (invoice line items).
+- CSS: `font-family / font-size / font-weight`, `margin`, `padding`, `border`
+  (incl. table cell borders), `background-color`, `width`, one `@media print` block.
+
+**Not required (now):**
+- JavaScript, images / SVG / data-URI, web fonts, CSS grid, float, multi-column,
+  any interactivity.
+- Flexbox: the template has two `flex` uses for header alignment only; busi can
+  convert those to a table if flexbox support is hard. **Do not block on flexbox.**
+
+JVM / interpreter only — no JS backend lowering needed.
+
 ## 3  Implementation plan
 
 - PDF (JVM): use a bundled HTML→PDF engine (OpenHTMLtoPDF / flying-saucer over
