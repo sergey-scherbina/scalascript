@@ -35,23 +35,37 @@ The goal "JVM parity with Rust" is therefore reframed: prevent the JVM
 fold (so JVM measures the real workload), THEN see if a universal ssc
 JIT optimisation can close the resulting honest gap.
 
-- [ ] **bench-honest-jvm-blackbox** — Replace the JVM wrapper's
-      `_ssc_sink += workload().toLong` accumulator with the JMH-style
-      `Blackhole`-equivalent:
-      ```scala
-      val _ssc_bh = new java.util.concurrent.atomic.AtomicLong(0L)
-      while _ssc_r < _ssc_reps do
-        _ssc_bh.lazySet(workload().toLong)  // volatile write — uncfoldable
-        _ssc_r += 1
-      ```
-      `lazySet` is a relaxed volatile write — HotSpot can't hoist it out
-      of the loop because volatile semantics must observe each write.
-      This is the canonical anti-fold pattern; it's how JMH measures
-      sub-microsecond workloads honestly.
-      Acceptance: bench numbers on streams-pipeline / typeclass-monoid /
-      bool-predicate drop to legitimate values (10-100ns range) on JVM,
-      matching the workload they emulate.  Then revisit JVM↔Rust gap
-      with HONEST numbers.
+- [x] **bench-honest-jvm-blackbox** [investigated 2026-06-09; sink change
+      doesn't solve fold — needs source-side workload-seed; see follow-up
+      below] — Tried JMH-style `@volatile var t1, t2 + branch` Blackhole
+      pattern as a drop-in replacement for `AtomicLong.getAndAdd`.  Result:
+      streams-pipeline floor dropped from 2 ns → 1 ns (worse, not better),
+      because the XOR sink + volatile-comparison is cheaper than `lock
+      xaddq`, and HotSpot can elide the volatile loads via single-threaded
+      escape analysis on script-local fields.  Kept AtomicLong (proven
+      ~1.8 ns floor on M1).
+      Root cause of the residual 1-50 ns floor: workload() itself folds to
+      a compile-time constant inside C2 (e.g. `(1 to 10).map.filter
+      .foldLeft` after fuseStreamChain collapses to literal 36), so no
+      sink-side barrier can recover the lost cost.  Defeating workload-
+      internal fold requires source-side anti-fold (Rust patches achieve
+      this via `std::hint::black_box` on literal range bounds inside
+      workload bodies).
+      Auxiliary land: `Bench.opaque` in JvmRuntimePreamble is now a real
+      volatile-gated identity barrier (was `inline def x: A = x` → useless).
+      Ready for follow-up `bench-honest-workload-seed` to use it explicitly.
+
+- [ ] **bench-honest-workload-seed** — Change `def workload(): T` to
+      `def workload(seed: Long): T` in corpus files where the result is a
+      compile-time constant; pass `Bench.opaque(_ssc_reps)` (or the loop
+      counter) as the seed; reference the seed in the workload's first
+      computation (e.g. `(seed.toInt + 1 to 10).map...` instead of
+      `(1 to 10).map...`).  This is the "option C" path from the earlier
+      Rust audit: makes the workload's output depend on a runtime-varying
+      input that no compiler can precompute.
+      Acceptance: streams-pipeline / typeclass-monoid / bool-predicate JVM
+      numbers in the 10-100 ns range matching the workload they emulate
+      (i.e. the original `bench-honest-jvm-blackbox` acceptance).
 
 - [ ] **bench-honest-rust-verify** — Disassemble each of the six gap
       workloads' release binaries (`objdump`/`otool`) to confirm the

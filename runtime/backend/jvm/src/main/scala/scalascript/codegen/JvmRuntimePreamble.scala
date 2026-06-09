@@ -67,11 +67,21 @@ object JvmRuntimePreamble:
        |  def println(v: Any): Unit = scala.Predef.println(_show(v))
        |  def print(v: Any): Unit   = scala.Predef.print(_show(v))
        |
-       |// std.bench — Bench.opaque identity (anti-folding helper for Rust target;
-       |// here it's a no-op identity, JIT may inline it but HotSpot doesn't fold
-       |// pure-arith loops the way LLVM does).
+       |// std.bench — Bench.opaque: an anti-folding identity barrier.  Returns
+       |// `x` unchanged, but the volatile-field comparison forces HotSpot to
+       |// materialise `x` at each call site and prevents C2 from precomputing
+       |// pure-arith expressions whose inputs flow through `opaque`.  The
+       |// implementation mirrors `std::hint::black_box` (Rust) and
+       |// `org.openjdk.jmh.infra.Blackhole.consume` (JMH).
+       |//
+       |// Cost: ~1-3 ns/call on M1 — comparable to a volatile read.  Used by
+       |// benchmark wrappers; user code that doesn't import Bench.opaque pays
+       |// nothing.
        |object Bench:
-       |  @scala.annotation.nowarn inline def opaque[A](x: A): A = x
+       |  @volatile private var _ssc_opaque_t1: Long = 0L
+       |  @volatile private var _ssc_opaque_t2: Long = java.lang.Long.MIN_VALUE
+       |  @scala.annotation.nowarn def opaque[A](x: A): A =
+       |    if _ssc_opaque_t1 == _ssc_opaque_t2 then null.asInstanceOf[A] else x
        |
        |// `sx` is like `s` but routes each interpolated value through `_show`,
        |// so a whole-number Double interpolated into a string drops its ".0".

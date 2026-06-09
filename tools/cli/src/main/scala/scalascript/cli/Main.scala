@@ -7010,17 +7010,22 @@ final class BenchCmd extends CliCommand:
       val returnTy = workloadReturnType(code)
       val (sinkDecl, sinkUpdate, sinkRead) =
         if targetBackend == "jvm" then
-          // JMH-style anti-fold for JVM: AtomicLong + lazySet stops HotSpot
-          // from rewriting `while r<N do sink+=workload()` into
-          // `sink += workload()*N` via scalar-evolution.  See SPRINT
-          // bench-honest-jvm-blackbox for the disassembly evidence.
-          // `getAndAdd` is an atomic CAS-loop on the underlying field —
-          // HotSpot is forbidden from collapsing repeated `getAndAdd(c)`
-          // calls into `addAndGet(c*N)` because the intermediate values
-          // are observable (other threads could read the field).  This
-          // genuinely defeats the scalar-evolution outer-loop fold.
-          // Cost: ~5-15 ns/iter on M1 for an atomic add — the floor for
-          // sub-microsecond benches.  Honest measurement.
+          // JVM anti-fold: AtomicLong.getAndAdd is `lock xaddq` on x86 / `ldadd`
+          // on ARMv8.1+ — a single atomic that HotSpot must materialise on each
+          // iteration (intermediate values are thread-observable).  This defeats
+          // the outer-loop scalar-evolution fold (`while r<N do sink+=workload()`
+          // → `sink+=workload()*N` on pure-constant workloads).  Honest floor:
+          // ~1.8 ns/iter on M1, ~5-10 ns/iter on x86.
+          //
+          // What this DOES NOT defeat: C2 inlining workload() and seeing its
+          // result is a compile-time constant (e.g. streams-pipeline's
+          // `(1 to 10).map(*2).filter(%3==0).foldLeft(0)(+)` after fuseStreamChain
+          // collapses to `lock xaddq $36`).  To prevent C2 from precomputing
+          // workload itself we'd need Bench.opaque around the input literals
+          // INSIDE the workload body (cf. the Rust bench/run.sc patcher which
+          // injects `std::hint::black_box` around literal range bounds).  Tracked
+          // as a separate sprint slice (bench-honest-workload-opaque-jvm) — does
+          // not block this sink work.
           returnTy match
             case "Int" | "Long" | "Boolean" =>
               ("val _ssc_sink = new java.util.concurrent.atomic.AtomicLong(0L)",
@@ -7034,10 +7039,9 @@ final class BenchCmd extends CliCommand:
                "_ssc_sink.getAndAdd(java.lang.Double.doubleToRawLongBits(workload()))",
                "java.lang.Double.longBitsToDouble(_ssc_sink.get())")
             case _ =>
-              // The Any branch covers Unit (println workloads), tuples,
-              // case classes etc.  `Option[Any]` lets the null-check work
-              // for both reference and Unit returns; toString uses Scala's
-              // _show under the hood so we don't crash on tuple/case-class.
+              // Any branch — covers Unit (println workloads), tuples, case
+              // classes etc.  hashCode().toLong gives a Long-shaped reduction;
+              // a null guard handles both Unit and null returns.
               ("val _ssc_sink = new java.util.concurrent.atomic.AtomicLong(0L)",
                "_ssc_sink.getAndAdd({ val __r: Any = workload(); if __r == null then 0L else __r.hashCode().toLong })",
                "_ssc_sink.get()")
@@ -7129,6 +7133,14 @@ final class BenchCmd extends CliCommand:
     // Per-backend wrapper — JVM gets the JMH-style AtomicLong sink (so HotSpot
     // can't fold the outer timing loop via scalar evolution); interp/JS get
     // the plain primitive sink (they don't fold the outer loop anyway).
+    //
+    // NOTE on workload-internal fold: corpus workloads with no input parameters
+    // (`def workload(): T = ...`) are subject to compile-time precomputation
+    // by C2 / TurboFan / LLVM — the workload's result is a compile-time
+    // constant.  Wrapping with `Bench.opaque(...)` at the .ssc level breaks
+    // interp's unboxed-Long fast-path (the local becomes a boxed `Value`),
+    // so it must be done by source signature change (`workload(seed: Long): T`
+    // with a runtime-varying seed) — tracked as `bench-honest-workload-seed`.
     val wrapper      = generateWrapper(userCode, warmup, reps, warmupTimeMs, backend)
 
     // Run interpreter in-process: parse wrapper, capture stdout, parse BENCH_MS.
