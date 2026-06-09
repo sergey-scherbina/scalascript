@@ -344,3 +344,32 @@ println(parts(1))""") shouldBe "2\nb:c:d"
 """val parts = "a|b|c".split("\\|")
 println(parts.length)""") shouldBe "3"
   }
+
+  // ── foldLeft into Map[String, wide case class] with per-key reconstruction ──
+  // busi `applyRetirement` shape. The "Instance is not callable" failure came
+  // from wide (10+ field) case classes whose pre-fieldsArr HashMap fields
+  // representation was mishandled; the Direction B flag-flip unified all field
+  // counts onto fieldsArr, so keyed-access / values.toList.sortBy now work.
+
+  test("foldLeft updating Map of 11-field case class then values.toList.sortBy") {
+    captured(
+"""case class Acc(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int, g: Int, h: Int, i: Int, j: Int, k: Int)
+val items = List("x", "x", "x", "y")
+val m = items.foldLeft(Map[String, Acc]())((acc, key) =>
+  val cur = acc.getOrElse(key, Acc(0,0,0,0,0,0,0,0,0,0,0))
+  acc + (key -> Acc(cur.a + 1, cur.b, cur.c, cur.d, cur.e, cur.f, cur.g, cur.h, cur.i, cur.j, cur.k)))
+println(m.values.toList.sortBy(p => p.a).map(p => p.a).mkString(","))""") shouldBe "1,3"
+  }
+
+  test("foldLeft with match branch reconstructing wide case class then keyed access") {
+    captured(
+"""case class P(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int, g: Int, h: Int, i: Int, j: Int)
+val events = List(("x", 1), ("y", 2), ("x", 3))
+val m = events.foldLeft(Map[String, P]())((acc, ev) =>
+  ev match
+    case (key, n) =>
+      val cur = acc.getOrElse(key, P(0,0,0,0,0,0,0,0,0,0))
+      acc + (key -> P(cur.a + n, cur.b, cur.c, cur.d, cur.e, cur.f, cur.g, cur.h, cur.i, cur.j)))
+println(m("x").a)
+println(m.values.toList.sortBy(p => p.a).map(p => p.a).mkString(","))""") shouldBe "4\n2,4"
+  }
