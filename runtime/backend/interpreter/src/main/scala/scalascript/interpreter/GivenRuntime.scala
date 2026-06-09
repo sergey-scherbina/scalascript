@@ -7,6 +7,15 @@ import scala.collection.mutable
  */
 private[interpreter] object GivenRuntime:
 
+  // String-keyed cache of `typeVarTokens` results.  The function is a pure
+  // syntactic scan of a typeKey string; the result is a Set[String] of
+  // single/double uppercase tokens.  Recurring `resolveUsing` calls on the
+  // same `using` param (e.g. combineAll[A: Monoid] called 300×) hit the
+  // same key on every call.  Bounded set: at most a few hundred distinct
+  // typeKeys across a whole program.
+  private val typeVarTokensCache: java.util.concurrent.ConcurrentHashMap[String, Set[String]] =
+    new java.util.concurrent.ConcurrentHashMap()
+
   def resolveGiven(
     typeKey:          String,
     regularArgValues: List[Value],
@@ -60,8 +69,16 @@ private[interpreter] object GivenRuntime:
       else applyTypeBindings(typeKey, bindings)
 
   /** Free type-variable tokens (single/double uppercase-leading identifiers)
-   *  appearing inside the outermost bracket of a type-class key. */
+   *  appearing inside the outermost bracket of a type-class key.  Memoised
+   *  by typeKey string — pure syntactic function. */
   private def typeVarTokens(typeKey: String): Set[String] =
+    val cached = typeVarTokensCache.get(typeKey)
+    if cached != null then return cached
+    val computed = typeVarTokensCompute(typeKey)
+    typeVarTokensCache.put(typeKey, computed)
+    computed
+
+  private def typeVarTokensCompute(typeKey: String): Set[String] =
     val i = typeKey.indexOf('[')
     if i < 0 then Set.empty
     else
