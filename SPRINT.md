@@ -1607,22 +1607,31 @@ Start after P1.
 
 - [x] **ui-styled-p1-spec** — `specs/std-ui-styled-tknode.md`. ✓ Landed 2026-06-09.
 
+- [ ] **ui-styled-p0-theme** — Extend `theme.ssc` (additive, named-arg construction keeps
+      the 3 built-in themes safe): `SpacingScale` gains `smd` (default 12, mobile ~24, dark
+      12) + `SpaceToken.Smd`; `TypographyScale` gains `caption: TypographyItem` (default
+      ~12px) + `FontToken.Caption`. Rationale (busi audit): 12 is the most frequent gap/pad,
+      missing between Sm=8 and Md=16 — without the token every screen falls to `px(12)` and
+      loses mobile density rescaling. Commit: `feat(ui): theme Smd + Caption tokens`.
+
 - [ ] **ui-styled-p2-nodes** — In `nodes.ssc`: `Style` descriptor — colors token-only
-      (bg/fg/border/font), **per-axis `paddingX/paddingY` + per-side margin**, each a
-      `Space` (token `sp(..)` OR raw `px(n)` escape for off-scale lengths). `StyledNode`,
-      `TagNode`, `PillNode`, `KpiCardNode`, `TabBarNode`(+`Tab`). Sizing is **layout**:
-      add `box(maxWidth/width/height)` + `BoxNode` in `layout.ssc` (NOT in Style).
+      (bg/fg/border), `font` token-only (`FontToken`, never px), **per-axis
+      `paddingX/paddingY` + per-side margin**, each a `Space` (token `sp(..)` preferred;
+      raw `px(n)` ONLY for one-offs/breakpoints — spacing is token-first so it rescales
+      under mobileTheme). `StyledNode`, `TagNode`, `PillNode`, `KpiCardNode`,
+      `TabBarNode`(+`Tab`). Sizing is **layout**: add `box(maxWidth/width/height)` +
+      `BoxNode` in `layout.ssc` (NOT in Style; breakpoints 768/1280 can't tokenize).
       Constructors in `display.ssc`: `styled`, `tag`, `pill`, `kpiCard`, `tabBar`; extend
       `badge` variant default to status set. Variant is a **runtime** value.
       Commit: `feat(ui): styled TkNode + status/composite primitives + box`.
 
 - [ ] **ui-styled-p3-lower** — `lower.ssc`: resolve `Style` (token→theme value, `px(n)`
       passthrough; per-axis padding, per-side margin), badge/tag/pill variant→`ColorToken`
-      table (unknown→neutral), kpiCard/tabBar/box lowering; bake `text-decoration:none`+
-      `cursor:pointer` into tabBar/link/button (not Style). Tests: token resolves to
-      `defaultTheme`/`darkTheme`, asymmetric `padding:2px 8px`, zero hex literals, runtime
-      variant color across re-renders, `box(maxWidth=960)`→`max-width:960px`.
-      Commit: `feat(ui): lower token-aware Style + status primitives`.
+      table (unknown→neutral), caption-sized badge/tag text via `TypographyScale.caption`,
+      kpiCard/tabBar/box lowering; bake `text-decoration:none`+`cursor:pointer` into
+      tabBar/link/button (not Style). Tests: `sp(Smd)`→12 default / mobile value, asymmetric
+      `padding:2px 8px`, zero hex literals, runtime variant color across re-renders,
+      `box(maxWidth=960)`→`max-width:960px`. Commit: `feat(ui): lower token-aware Style + status primitives`.
 
 - [ ] **ui-styled-p4-example** — `examples/ui-styled-primitives.ssc`, README row,
       `docs/user-guide.md` subsection, busi-facing migration note (replace `web/ui.ssc`
@@ -1641,3 +1650,38 @@ Start after P1.
       Make the parser fail loudly with a located message. P1 removes the need to
       hand-build these, but the parser must not hang. Test: malformed nested call →
       diagnostic, not NPE/hang. Commit: `fix(parser): loud error on unbalanced call parens`.
+
+---
+
+## PDF generation + MIME (busi invoice/email — spec: `specs/pdf-mime-generation.md`)
+
+busi clarified in rozum (2026-06-09): the real need is **one drop-in function**
+`htmlToPdfBase64(html): String` → base64 PDF, matching their existing relay contract
+(`POST {html} → {pdf_base64}`) so zero busi rewiring. HTML/CSS subset is pinned to the
+invoice template (table layout, A4, basic typography/borders/background, `@media print`;
+**no** JS/images/webfonts/grid/float; flexbox optional). **JVM/interpreter only — no JS
+backend.** PDF half is the priority; MIME/SMTP are a later slice. Spec already pinned
+(commit 342cf5162). Start order: **pdf-p1 → pdf-p2 → (mime-p3, smtp later)**.
+
+- [ ] **pdfgen-p1-engine** — Add `htmlToPdfBase64(html): String` as a JVM intrinsic in a
+      new `pdf-plugin` (opt-in `.sscpkg`, parallels `crypto-plugin`; NOT core). Engine:
+      OpenHTMLtoPDF (flying-saucer over PDFBox), confined to the invoice template's CSS
+      subset. Convert rendered bytes → base64. Register in `build.sbt` + PluginSpec.
+      Test (`PdfGenTest`): busi invoice HTML → bytes start with `%PDF-`, page count ≥ 1,
+      unsupported CSS degrades (no throw). Commit: `feat(pdf-plugin): htmlToPdfBase64 (OpenHTMLtoPDF)`.
+
+- [ ] **pdfgen-p2-stdlib** — `runtime/std/pdf-gen.ssc` surface (`extern def htmlToPdfBase64`),
+      `examples/invoice-pdf.ssc` (build invoice HTML → PDF → write bytes via std.fs).
+      Document the supported HTML/CSS subset in the spec + README. **JVM-only** noted.
+      Commit: `feat(std): std.pdf-gen htmlToPdfBase64 module + example`.
+
+- [ ] **mime-p3-build** — `buildMimeMessage(from,to,subject,htmlBody,attachments)` →
+      RFC 5322 text, in a `mime-plugin` (or fold into pdf-plugin). Prefer hand-rolled
+      multipart/mixed builder over a jakarta.mail dep (smaller surface). Test
+      (`MimeAssemblyTest`): 0 attachments → valid HTML email; 1+ → valid multipart, each
+      part base64 with correct headers, round-trips through a reference MIME parser.
+      Commit: `feat(mime-plugin): buildMimeMessage RFC 5322 assembly`.
+
+> `busi-p4-smtp-send-extern` (above) is the relay-free SMTP DATA sender — the final slice
+> that pairs with `mime-p3` + `pdfgen-p1` for a fully relay-free invoice-email path
+> (`specs/smtp-send.md`). Sequence it after mime-p3.

@@ -49,17 +49,21 @@ scope** (see §5) — it belongs to the layout combinators.
 // Token references — symbolic, resolved against the active Theme in lower.ssc.
 enum ColorToken  { case Primary, OnPrimary, Secondary, Surface, OnSurface,
                    case Background, Muted, Danger, Success, Warning }
-enum SpaceToken  { case Xs, Sm, Md, Lg, Xl, Xxl }
+// SpacingScale gains an intermediate step Smd = 12 (busi's most frequent gap/pad,
+// missing in the default scale between Sm=8 and Md=16). Additive — Md stays 16 so no
+// existing user shifts. Default theme: Xs=4, Sm=8, Smd=12, Md=16, Lg=24, Xl=32, Xxl=48.
+enum SpaceToken  { case Xs, Sm, Smd, Md, Lg, Xl, Xxl }
 enum RadiusToken { case Sm, Md, Lg, Full }
-enum FontToken   { case Body, Heading }
+enum FontToken   { case Body, Heading, Caption }   // Caption = small text (badges/tags)
 
-// Length value — a token OR a raw px. COLORS are token-only (theming/dark mode is
-// the whole point); LENGTHS may be raw px because a length is portable: it lowers to
-// px on web, points on SwiftUI, px on Swing. The raw escape exists because real
-// screens use off-scale values (2px, 12px) the SpacingScale doesn't name — see §2.1.
+// Length value — a token OR a raw px. COLORS are token-only; LENGTHS may be raw px.
+// Policy: SPACING is **token-first** — most padding/margin must be sp(token) so it
+// rescales under mobileTheme's denser SpacingScale (mobile Sm=18 vs default Sm=8); raw
+// px does NOT rescale. px(n) is the escape only for genuine one-offs (the 2px badge
+// inset) and for sizing breakpoints (see §5 box) that cannot be tokenized. See §2.1.
 enum Space { case Tok(t: SpaceToken); case Px(n: Int) }
-def sp(t: SpaceToken): Space = Space.Tok(t)   // sugar: sp(SpaceToken.Sm)
-def px(n: Int): Space        = Space.Px(n)     // escape: px(12)
+def sp(t: SpaceToken): Space = Space.Tok(t)   // preferred: sp(SpaceToken.Smd)  // = 12
+def px(n: Int): Space        = Space.Px(n)     // escape: px(2) one-offs only
 
 case class BorderStyle(width: Int, color: ColorToken)   // color token-only
 
@@ -95,15 +99,41 @@ A native lowering resolves the same `Style` to native attributes.
 This is the **only** sanctioned escape hatch for custom-styled chrome; screens should
 not author raw `element(... style:"...")`.
 
-### 2.1 Why `Space` allows raw px (audit finding)
+### 2.1 Spacing policy: token-first, `px` for one-offs (audit finding)
 
 busi's inline-CSS audit shows asymmetric, off-scale spacing everywhere:
 `padding:12px 16px`, `padding:8px 12px`, `padding:2px 8px` (badge), and directional
-`margin-bottom:8px` / `margin-right:8px`. Two consequences, both folded into the model
-above: (1) padding/margin must be **per-axis / per-side**, not one uniform token; (2) the
-values `2`, `12` are not named `SpaceToken`s, so `Space` admits a raw `px(n)` escape.
-Colors keep no such escape — they must stay tokens so `Theme.dark` works. Prefer `sp(token)`;
-use `px(n)` only for genuinely off-scale lengths.
+`margin-bottom:8px` / `margin-right:8px`. Three consequences, all folded into the model
+above:
+
+1. **Per-axis / per-side**, not one uniform token (`padding:12px 16px` ≠ symmetric).
+2. **Spacing is token-first, not px-first.** Tokens rescale under `mobileTheme`'s denser
+   `SpacingScale` (mobile `Sm`=18 vs default `Sm`=8); a raw `px` does **not** rescale, so
+   px-spacing breaks compact/mobile density. The bulk of padding/margin must stay
+   `sp(token)`. `px(n)` is reserved for genuine one-offs (the `2px` badge inset) and for
+   sizing breakpoints (§5 `box`), which cannot be tokenized at all (`768`/`1280` caps).
+3. **The scale gains `Smd`=12** — busi's single most frequent value (gap ×17, padding ×6)
+   was missing between `Sm`=8 and `Md`=16, which would have forced `px(12)` on every
+   screen and defeated rescaling. Additive (`Md` stays 16, no user shifts). Now busi's
+   real gap set 4/8/12/16/24 = `Xs/Sm/Smd/Md/Lg` is fully tokenized.
+
+Colors keep no `px`/hex escape — they must stay tokens so `Theme.dark` works.
+
+### 2.2 Typography is token, never `px`
+
+Font sizing in `Style` is `font: Option[FontToken]` only — never a px length. Screen text
+uses `Body`/`Heading`; small primitive text (badge/tag captions at 11–12px) resolves
+through the new `FontToken.Caption` / `TypographyScale.caption` item, **baked into the
+badge/tag/pill lowering** (not author-set). So `11/12/14px` font literals disappear into
+themed typography, and `mobileTheme` can scale them like any other token.
+
+### 2.3 Theme additions required
+
+This milestone extends `theme.ssc` (additive, named-arg construction keeps the 3 built-in
+themes safe):
+- `SpacingScale` gains field `smd` (default 12; mobile ~24; dark 12). `SpaceToken.Smd`.
+- `TypographyScale` gains `caption: TypographyItem` (default ~12px; mobile larger).
+  `FontToken.Caption`.
 
 ---
 
