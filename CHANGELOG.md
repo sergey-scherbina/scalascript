@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — feat(std): std.fs / std.os / std.process stdlib + JVM plugins
+
+- **std-fs-os-p1-spec** — specs/std-fs-os.md: full 3-module spec (fs/os/process).
+- **std-fs-os-p2-jvm** — fs-plugin (13 ops) + os-plugin (18 ops incl. exec); 27 tests.
+- **std-fs-os-p5-stdlib** — fs.ssc expanded; os.ssc + process.ssc new; 2 examples.
+- **std-fs-os-p6-audit** — audit complete; AGENTS.md already references spec.
+
 ## 2026-06-09 — feat(rust): R.6.8 — MCP server (rust-backend-r6-mcp) + xslt decision
 
 - **rust-backend-r6-mcp** — JSON-RPC 2.0 over stdio; `mcpRegisterTool`/`mcpServe`;

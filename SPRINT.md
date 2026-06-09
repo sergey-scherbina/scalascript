@@ -1066,16 +1066,18 @@ Spec to write first: `specs/std-fs-os.md`
 
 ### Phase 5 — stdlib .ssc files + examples
 
-- [ ] **std-fs-os-p5-stdlib** — Add `runtime/std/os.ssc` and
+- [x] **std-fs-os-p5-stdlib** — Add `runtime/std/os.ssc` and
       `runtime/std/process.ssc` alongside existing `fs.ssc`. Expand
       `fs.ssc` with new extern signatures. Add runnable examples:
       `examples/fs-roundtrip.ssc`, `examples/os-env.ssc`,
       `examples/process-exec.ssc`. Update `README.md` capabilities table.
       Commit: `feat(std): fs/os/process stdlib modules`.
+      ✓ Landed 2026-06-09 (ee673a5): fs.ssc expanded (16 defs), os.ssc new,
+      process.ssc new; 2 examples; README updated.
 
 ### Phase 6 — audit & boundary documentation
 
-- [ ] **std-fs-os-p6-cleanup** — Audit all `.ssc` files for `java.*`
+- [x] **std-fs-os-p6-cleanup** — Audit all `.ssc` files for `java.*`
       imports; migrate any found to `std.fs`/`std.os`/`std.process`.
       Note in `specs/std-fs-os.md` §"Scope": `.sc` Scala-CLI host
       scripts (bench/run.sc etc.) may use JVM APIs — that is intentional.
@@ -1083,3 +1085,5 @@ Spec to write first: `specs/std-fs-os.md`
       "`.ssc` user code must never import `java.*` — use `std.fs`,
       `std.os`, `std.process` instead."
       Commit: `docs(std-fs-os): boundary rule in AGENTS.md + spec`.
+      ✓ Landed 2026-06-09: audit done (covered by backend-blocks-p7);
+      AGENTS.md already references specs/std-fs-os.md; specs/std-fs-os.md §6 scope note added.
