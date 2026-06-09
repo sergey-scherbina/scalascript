@@ -86,10 +86,28 @@ through to the existing `foldLeftLong` path.
   Javac and ASM backends.
 - No corpus miss-profile regression.
 
-## Non-goals (this slice)
+## Range-native fusion (landed 2026-06-09, `ssc-jit-range-fusion`)
 
-- Fusing the **base** range allocation itself (`(0 until n)` still
-  materialises a `ListV`). A range-native fused loop is a follow-up.
+Follow-up that removed the base range allocation. When the fold base is an
+integer range (`lo until hi` / `lo to hi`), `JitHofShape.rangeBounds`
+recognises it and the backends emit `JitHofDispatch.fusedRangeFoldLong`,
+which iterates a primitive counter `from until until` (the caller passes
+`hi + 1` for an inclusive `to`) applying the same optional map/filter and the
+`+` fold — **no `ListV` for the range at all**. Covers a bare
+`range.foldLeft(0)(+)` (no map/filter) as well. `walkRef` also learned to
+compile `to` (inclusive) ranges (was `until`-only), emitting
+`rangeUntil(lo, hi + 1)`.
+
+Result: `InterpreterBench.rangeSum` 506 → 25.6 B/op (range base list gone;
+1016 → 25.6 B/op vs the pre-fusion baseline). Tests: 4 SscVmTest cases
+(Javac+ASM × {`to` map+filter, bare range Gauss sum}) + 3 JitLintTest
+`rangeBounds` cases.
+
+## Non-goals
+
 - Fold ops other than `+`, non-numeric elements, `flatMap` stages.
 - The SscVm engine (`VmCompiler`) — Javac + ASM only, mirroring how
   `jit-uc-stage7-hof-method` shipped.
+- The aggressive `(1 to 10)…foldLeft < 100ns` literal-bound const-fold (the
+  range loop now runs the iterations honestly; folding the closed form when
+  both bounds are literals tracks with `ssc-jit-const-propagation` Stage 3).
