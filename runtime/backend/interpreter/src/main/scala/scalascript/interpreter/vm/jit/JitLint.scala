@@ -148,12 +148,22 @@ object JitPredicates:
     case Term.ApplyInfix.After_4_6_0(_, op, _, _) =>
       val s = op.value
       s == "<" || s == "<=" || s == ">" || s == ">=" || s == "==" || s == "!=" || s == "&&" || s == "||"
+    case Term.ApplyUnary(op, _) if op.value == "!" => true
     case ti: Term.If =>
       isBoolReturning(ti.thenp) || isBoolReturning(ti.elsep)
     case tb: Term.Block =>
       tb.stats.lastOption match
         case Some(last: Term) => isBoolReturning(last)
         case _                => false
+    case tm: Term.Match =>
+      // A match expression is bool-returning when *all* of its arms produce a
+      // Boolean.  Required so that `def isDebit(p): Boolean = p.side match
+      // { case Debit => true; case Credit => false }` is tagged
+      // resultIsBool=true — otherwise the JIT-compiled fn returns IntV(1/0)
+      // and callers comparing `== true` always see false.  (Repro: 6 calls
+      // to `isDebit` in busi's accountBalance, all returning 0.)
+      val cs = tm.casesBlock.cases
+      cs.nonEmpty && cs.forall(c => isBoolReturning(c.body))
     case _ => false
 
   /** Walk `fn.body` and the param/return metadata and collect every visible

@@ -1763,6 +1763,49 @@ class SscVmTest extends AnyFunSuite with Matchers:
     JitGlobals.withInterp(interp) { direct.apply(5L) } shouldBe 0L  // false
   }
 
+  test("jit-bool-match: enum-match-returning-Bool detected by isBoolReturning (regression)") {
+    // Regression for busi accountBalance bug: a `def : Boolean = expr match { ... }`
+    // body with all bool-literal arms must be recognised by isBoolReturning so the
+    // JIT result is tagged resultIsBool=true and callers unwrap Long(1/0) back to
+    // BoolV.  Without this, `filter(p => isDebit(p) == true)` always returns empty
+    // because IntV(1) != BoolV(true), which made busi's accountBalance return 0
+    // for every account after the first call.
+    import scalascript.interpreter.vm.jit.JitPredicates
+    val interp = interpOf(
+      """enum Side:
+        |  case Debit, Credit
+        |
+        |case class Item(name: String, side: Side)
+        |
+        |def isDebit(p: Item): Boolean = p.side match
+        |  case Debit  => true
+        |  case Credit => false""".stripMargin)
+    val fn = interp.globalsView("isDebit").asInstanceOf[Value.FunV]
+    JitPredicates.isBoolReturning(fn.body) shouldBe true
+  }
+
+  test("jit-bool-match: nested if + match all bool-returning (regression edge)") {
+    import scalascript.interpreter.vm.jit.JitPredicates
+    val interp = interpOf(
+      """def kind(n: Int): Boolean =
+        |  if n > 0 then n match
+        |    case 1 => true
+        |    case _ => false
+        |  else false""".stripMargin)
+    val fn = interp.globalsView("kind").asInstanceOf[Value.FunV]
+    JitPredicates.isBoolReturning(fn.body) shouldBe true
+  }
+
+  test("jit-bool-match: match returning Int is NOT bool-returning") {
+    import scalascript.interpreter.vm.jit.JitPredicates
+    val interp = interpOf(
+      """def grade(n: Int): Int = n match
+        |  case 0 => 0
+        |  case _ => 1""".stripMargin)
+    val fn = interp.globalsView("grade").asInstanceOf[Value.FunV]
+    JitPredicates.isBoolReturning(fn.body) shouldBe false
+  }
+
   test("stage6-pattern-guard: guarded match EXPRESSION (match as val RHS) compiles") {
     // Guard in a match used as a sub-expression (val binding), not as the
     // top-level function body return. This exercises walkMatchExpr guard path.
