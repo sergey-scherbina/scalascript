@@ -1,10 +1,12 @@
 # streams-pipeline
 
-Source.range pipeline — map, filter, foldLeft via synchronous iterator.
+Synchronous iterator pipeline — `Range.map.filter.foldLeft` chain.
+Cross-backend: lowers to `Iterable`/`Range` HOFs on every backend
+(JVM scala-cli, JS Array, ssc interp/JIT, rust iterator chain).
 
 ```scalascript
 def workload(): Int =
-  Source.range(1, 10)
+  (1 to 10)
     .map(x => x * 2)
     .filter(x => x % 3 == 0)
     .foldLeft(0)((sum, x) => sum + x)
