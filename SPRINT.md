@@ -8,6 +8,44 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Bench correctness — defeat LLVM constant-folding via opaque seed (2026-06-09)
+
+LLVM `-O3` performs scalar-evolution analysis on pure loops, deriving
+closed-form solutions for arithmetic progressions. `for i in 0..N { sum += i }`
+becomes the literal `499_999_500_000` (Gauss' formula) at compile time — the
+loop body is never executed in the release binary. This corrupts every
+pure-arithmetic bench on the Rust target (12 of 24 corpus workloads).
+
+Diagnosis confirmed via objdump: arith-loop's emitted `workload()` is just
+`mov x8, #0x746a4ae6e0; ret` (= `499_999_500_000`). Existing AtomicI64 seed
+in `bench/run.sc` doesn't help because the seed is never threaded into
+`workload()`.
+
+Fix: change the workload signature cross-backend to
+`def workload(seed: Long): Long`. Bench wrappers (all 5) pass an opaque
+zero (loaded from an AtomicI64-style source LLVM can't prove constant). Each
+workload mixes `seed` into its computation **nonlinearly** (e.g. `i ^ seed`)
+so LLVM cannot derive a closed-form. For `seed=0` semantics is preserved
+(`x ^ 0 = x`), so JVM/JS/interp results stay identical.
+
+- [ ] **bench-opaque-seed-infra** — Change `workload` signature to
+      `workload(seed: Long): Long` in `bench/run.sc` Rust wrapper +
+      `tools/cli/src/main/scala/scalascript/cli/Main.scala` interp/JVM/JS
+      bench wrappers. Each passes an opaque-zero seed. Acceptance: a workload
+      that takes `(seed: Long)` and `+ seed` at the end runs on all 5 backends
+      without n/a.
+
+- [ ] **bench-opaque-seed-anti-fold** — Update each of the 24 corpus
+      workloads to take `(seed: Long)` and mix `seed` into the hot path
+      nonlinearly (`^ seed` inside the loop body, etc.) so LLVM cannot derive
+      a closed-form. Recipe: pure-arith workloads xor `i ^ seed` inside the
+      inner loop (semantics preserved for seed=0); real-work workloads add
+      `+ seed` at the sink. Acceptance: `./bench.sh` reports Rust numbers
+      ≥1µs on workloads previously reporting <100ns, and JVM/JS/interp
+      numbers unchanged (within noise).
+
+---
+
 ## Bench n/a — close the gaps (2026-06-09, from `bench.sh` after rust-bench-fixes)
 
 After all 24 corpus workloads run cleanly on rust, four `n/a` cells remain
