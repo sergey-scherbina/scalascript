@@ -310,6 +310,23 @@ object VmCompiler:
       case Lit.Long(v) => Some(v)
       case _           => None
 
+    /** Const-prop Stage 1: evaluate a pure int-op on two literal Longs at compile time.
+     *  Returns None for ops whose result isn't a Long (none today) or undefined cases
+     *  (div/mod by zero — keep runtime semantics: bail to interp). */
+    private def foldIntInt(op: String, a: Long, b: Long): Option[Long] = op match
+      case "+"  => Some(a + b)
+      case "-"  => Some(a - b)
+      case "*"  => Some(a * b)
+      case "/"  => if b == 0L then None else Some(a / b)
+      case "%"  => if b == 0L then None else Some(a % b)
+      case "<"  => Some(if a <  b then 1L else 0L)
+      case "<=" => Some(if a <= b then 1L else 0L)
+      case ">"  => Some(if a >  b then 1L else 0L)
+      case ">=" => Some(if a >= b then 1L else 0L)
+      case "==" => Some(if a == b then 1L else 0L)
+      case "!=" => Some(if a != b then 1L else 0L)
+      case _    => None
+
     /** Resolve `app.fun` to a compilable callee, or None.
      *  Order mirrors the interpreter: a local/param of that name shadows any
      *  function (and a local holds a Long, not something callable → bail);
@@ -364,21 +381,38 @@ object VmCompiler:
       case app: Term.ApplyInfix if app.argClause.values.lengthCompare(1) == 0 =>
         val rhs = app.argClause.values.head
         val op  = app.op.value
-        intLiteral(rhs) match
-          case Some(v) =>
-            val lr = compileExpr(app.lhs)
-            if typeOf(lr) == TInt then                 // fold literal RHS into an immediate op
-              emit(opcodeImmFor(op), dst, lr, constSlot(v))
-              setType(dst, TInt); TInt
-            else                                        // double lhs: promote the int literal
-              val rr = freshReg()
-              emit(CONST, rr, constSlot(jl.Double.doubleToRawLongBits(v.toDouble)), 0)
-              setType(rr, TDouble)
-              emitArith(op, dst, lr, rr)
+        // Const-prop Stage 1: both sides literal Int/Long → fold at compile time.
+        intLiteral(app.lhs) match
+          case Some(lv) =>
+            intLiteral(rhs) match
+              case Some(rv) =>
+                foldIntInt(op, lv, rv) match
+                  case Some(folded) =>
+                    emit(CONST, dst, constSlot(folded), 0); setType(dst, TInt); TInt
+                  case None =>
+                    val lr = compileExpr(app.lhs)
+                    val rr = compileExpr(rhs)
+                    emitArith(op, dst, lr, rr)
+              case None =>
+                val lr = compileExpr(app.lhs)
+                val rr = compileExpr(rhs)
+                emitArith(op, dst, lr, rr)
           case None =>
-            val lr = compileExpr(app.lhs)
-            val rr = compileExpr(rhs)
-            emitArith(op, dst, lr, rr)
+            intLiteral(rhs) match
+              case Some(v) =>
+                val lr = compileExpr(app.lhs)
+                if typeOf(lr) == TInt then                 // fold literal RHS into an immediate op
+                  emit(opcodeImmFor(op), dst, lr, constSlot(v))
+                  setType(dst, TInt); TInt
+                else                                        // double lhs: promote the int literal
+                  val rr = freshReg()
+                  emit(CONST, rr, constSlot(jl.Double.doubleToRawLongBits(v.toDouble)), 0)
+                  setType(rr, TDouble)
+                  emitArith(op, dst, lr, rr)
+              case None =>
+                val lr = compileExpr(app.lhs)
+                val rr = compileExpr(rhs)
+                emitArith(op, dst, lr, rr)
 
       case t: Term.If =>
         val cr  = compileExpr(t.cond)
