@@ -130,3 +130,19 @@ class ParseErrorPositionTest extends AnyFunSuite:
     assert(cb.tree.isEmpty)
     assert(cb.parseError.isEmpty,
       s"non-parseable lang must not carry a parseError; got ${cb.parseError}")
+
+  // ui-bug-jobj-failloud: scalameta throws a raw NullPointerException (from its
+  // `termParam` token handling) on certain truncated inputs like `def f(` /
+  // `def f(using ` — previously this escaped parseScalaWithDiagnostic and
+  // crashed/hung the whole pipeline. The parser must now fail loudly: a
+  // populated `parseError`, never a thrown exception.
+  for frag <- List("def f(", "def f(using ", "val g = (a: Int,", "class C(a: ") do
+    test(s"truncated input '$frag' yields a diagnostic, not a crash"):
+      val src = s"# Bad\n\n```scalascript\n$frag\n```\n"
+      // The key assertion is simply that this does not throw.
+      val cb = firstCodeBlock(src)
+      assert(cb.tree.isEmpty, s"expected scalameta to reject '$frag'")
+      assert(cb.parseError.isDefined,
+        s"expected a populated parseError for '$frag'; got cb=$cb")
+      assert(cb.parseError.get.message.nonEmpty,
+        s"diagnostic message must be non-empty for '$frag'")

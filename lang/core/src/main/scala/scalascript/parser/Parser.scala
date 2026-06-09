@@ -2162,14 +2162,14 @@ object Parser:
     import scala.meta.*
     given Dialect = dialects.Scala3
     val processed = preprocessForScala(code)
-    processed.parse[Source] match
+    safeParse(processed.parse[Source]) match
       case Parsed.Success(tree) => (Some(ScalaNode(tree)), None)
       case sourceErr: Parsed.Error =>
         // Script mode: code may contain top-level expressions.
         // Wrap in a block so scalameta accepts arbitrary statement sequences.
         // Note: the wrap prepends a synthetic `{\n` line so positions in the
         // wrapped parse are offset by +1 line.  We undo that mapping below.
-        s"{\n$processed\n}".parse[Term] match
+        safeParse(s"{\n$processed\n}".parse[Term]) match
           case Parsed.Success(tree) => (Some(ScalaNode(tree)), None)
           case _: Parsed.Error      =>
             // Try 3: "mixed" mode — declarations (Source) followed by a trailing
@@ -2213,12 +2213,28 @@ object Parser:
       val suffix = lines.drop(k).mkString("\n").trim
       if prefix.isEmpty || suffix.isEmpty then None
       else
-        prefix.parse[Source].toOption.flatMap { src =>
-          suffix.parse[Term].toOption.map { term =>
+        safeParse(prefix.parse[Source]).toOption.flatMap { src =>
+          safeParse(suffix.parse[Term]).toOption.map { term =>
             Source(src.stats :+ term)
           }
         }
     }.headOption
+
+  /** Run a scalameta parse, converting a *thrown* exception into a
+   *  `Parsed.Error` instead of letting it escape.  Scalameta can throw a raw
+   *  `NullPointerException` from its `termParam` token handling on certain
+   *  truncated inputs (e.g. `def f(` / `def f(using `), and a deeply
+   *  unbalanced nesting can overflow the stack.  Without this the malformed
+   *  code block crashed/hung the whole pipeline (ui-bug-jobj-failloud); now it
+   *  flows into the normal located-diagnostic path. */
+  private def safeParse[T <: scala.meta.Tree](thunk: => scala.meta.parsers.Parsed[T]): scala.meta.parsers.Parsed[T] =
+    import scala.meta.*
+    try thunk
+    catch
+      case scala.util.control.NonFatal(e) =>
+        Parsed.Error(Position.None, "incomplete or malformed code block", new Exception(e))
+      case e: StackOverflowError =>
+        Parsed.Error(Position.None, "code block is too deeply nested to parse", new Exception(e))
 
   /** Build a `CodeBlockParseError` from scalameta's `Parsed.Error` against the
    *  ORIGINAL block source `code`.  Scalameta's `pos.startLine` / `startColumn`
