@@ -1,1 +1,0 @@
-ssc-some-intern-small: intern Some(IntV) for small ints to cut option-chain alloc
