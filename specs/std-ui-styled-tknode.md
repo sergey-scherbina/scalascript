@@ -45,6 +45,22 @@ A pure-data descriptor of the visual properties that screens actually inline tod
 Every field is a `Theme`-token reference resolved at lower time. **Layout is out of
 scope** (see §5) — it belongs to the layout combinators.
 
+> **As built (deviates from the enum/case-class sketch below).** Two interpreter
+> limitations forced a simpler shape, landed 2026-06-09:
+> 1. The interpreter matches **case classes** across module boundaries but **not enum
+>    cases** — so tokens are **strings** (`"surface"`, `"md"`, `"smd"`), not enums.
+>    `lower.ssc` resolves them against the Theme exactly the same way.
+> 2. Partial named-arg construction of a case class with defaults **mis-binds
+>    positionally**, so `Style` is a **`Map[String, String]`** prop bag, not a defaulted
+>    case class. `styled(["bg" -> "surface", "radius" -> "md", "paddingX" -> "16",
+>    "paddingY" -> "smd"])(child)`.
+>
+> Keys: `bg fg border` (colour token), `radius` (sm/md/lg/full), `paddingX paddingY
+> marginTop marginRight marginBottom marginLeft` (space token OR a bare px number),
+> `font` (body/heading/caption). Colours stay token-only (so `Theme.dark` works);
+> spacing is token-first with a bare-number px escape. The enum sketch below records the
+> original intent; the string keys are the 1:1 runtime equivalent.
+
 ```scalascript
 // Token references — symbolic, resolved against the active Theme in lower.ssc.
 enum ColorToken  { case Primary, OnPrimary, Secondary, Surface, OnSurface,

@@ -1639,28 +1639,22 @@ Start after P1.
       green. (The `SpaceToken.Smd` / `FontToken.Caption` *enums* are added with the `Style`
       descriptor in `ui-styled-p2-nodes`; this slice is the theme-data half.)
 
-- [ ] **ui-styled-p2-nodes** — In `nodes.ssc`: `Style` descriptor — colors token-only
-      (bg/fg/border), `font` token-only (`FontToken`, never px), **per-axis
-      `paddingX/paddingY` + per-side margin**, each a `Space` (token `sp(..)` preferred;
-      raw `px(n)` ONLY for one-offs/breakpoints — spacing is token-first so it rescales
-      under mobileTheme). `StyledNode`, `TagNode`, `PillNode`, `KpiCardNode`,
-      `TabBarNode`(+`Tab`). Sizing is **layout**: add `box(maxWidth/width/height)` +
-      `BoxNode` in `layout.ssc` (NOT in Style; breakpoints 768/1280 can't tokenize).
-      Constructors in `display.ssc`: `styled`, `tag`, `pill`, `kpiCard`, `tabBar`; extend
-      `badge` variant default to status set. Variant is a **runtime** value.
-      Commit: `feat(ui): styled TkNode + status/composite primitives + box`.
+- [x] **ui-styled-p2-nodes + p3-lower** — ✓ Landed 2026-06-09 (done together — nodes
+      need lowering to render). `nodes.ssc`: `TagNode/PillNode/KpiCardNode/TabBarNode`(+`Tab`)
+      `/BoxNode` + `StyledNode(props: Map[String,String])`. `display.ssc`: `tag/pill/kpiCard/
+      tabBar/styled` + `badge` default → status set. `layout.ssc`: `box(maxWidth/width/height)`.
+      `lower.ssc`: token resolution (`_colorOf/_spaceTokOf/_radiusOf/_fontOf/_lenOf/_styleCss`),
+      caption font for badge/tag/pill, text-decoration/cursor baked into tabBar, dark
+      re-resolution. `examples/frontend/std-ui/styled-primitives.ssc` + StyledPrimitivesTest
+      (emits default+dark, asserts token-resolved styles + no baked hex). Smoke+theme green.
+      **API deviation (interpreter limits):** tokens are **strings** (cross-module enum
+      matching is broken) and `Style` is a **`Map[String,String]`** (partial named-arg
+      case-class defaults mis-bind). See spec §2 note.
 
-- [ ] **ui-styled-p3-lower** — `lower.ssc`: resolve `Style` (token→theme value, `px(n)`
-      passthrough; per-axis padding, per-side margin), badge/tag/pill variant→`ColorToken`
-      table (unknown→neutral), caption-sized badge/tag text via `TypographyScale.caption`,
-      kpiCard/tabBar/box lowering; bake `text-decoration:none`+`cursor:pointer` into
-      tabBar/link/button (not Style). Tests: `sp(Smd)`→12 default / mobile value, asymmetric
-      `padding:2px 8px`, zero hex literals, runtime variant color across re-renders,
-      `box(maxWidth=960)`→`max-width:960px`. Commit: `feat(ui): lower token-aware Style + status primitives`.
-
-- [ ] **ui-styled-p4-example** — `examples/ui-styled-primitives.ssc`, README row,
-      `docs/user-guide.md` subsection, busi-facing migration note (replace `web/ui.ssc`
-      helpers + inline-CSS). Commit: `feat(std): std.ui styled primitives example`.
+- [x] **ui-styled-p4-example** — ✓ Landed 2026-06-09 with the above:
+      `examples/frontend/std-ui/styled-primitives.ssc` + README row. busi migration: replace
+      `web/ui.ssc` helpers + inline-CSS cards/badges with `badge/tag/pill/kpiCard/tabBar` and
+      `styled([...])` for custom chrome.
 
 ### P4 — UI runtime bugs (bug fixes — no spec)
 
