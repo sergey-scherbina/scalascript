@@ -38,6 +38,14 @@ private[interpreter] object CallRuntime:
       if applyFn != null then callValue(applyFn, args, env, interp)
       else interp.located(s"Instance is not callable")
     case _: Value.ListV | _: Value.MapV => DispatchRuntime.dispatch(fn, "apply", args, env, interp)
+    // `s(i)` — String index-apply returns the i-th char (Scala `s.apply(i): Char`),
+    // matching ListV/MapV/SetV apply.  Without this, `s(i)` fails the callable check
+    // with a misleading "Not callable" (specs/string-index-apply.md).
+    case Value.StringV(s) => args match
+      case List(Value.IntV(i)) =>
+        if i >= 0 && i < s.length then Pure(Value.CharV(s.charAt(i.toInt)))
+        else interp.located(s"String index out of range: $i (length ${s.length})")
+      case _ => interp.located(s"Not callable: ${Value.show(fn)}")
     case _ => interp.located(s"Not callable: ${Value.show(fn)}")
 
   /** Zero-argument fast path: skips List()/env allocation for 0-param FunV calls.
