@@ -1578,15 +1578,15 @@ Pure stdlib, helps web + native. Builds on existing `json-plugin`
 
 - [x] **ui-typed-json-p1-spec** — `specs/std-ui-typed-json.md`. ✓ Landed 2026-06-09.
 
-- [ ] **ui-typed-json-p2-core** — Navigable `JsonValue` opaque type + total accessors
-      (`get`/`at`/`asString`/`asInt`/`asDouble`/`asBool`/`asList`/`opt*`/`getOrElse` +
-      **`asDecimal`/`optDecimal`** lossless for money) and structured builders
-      (`jStr`/`jNum`/`jBool`/`jArr`/`jField`/`jObj`/**`jDecimal`**/`jsonStringify`).
-      Money rule (spec §3.1): amounts travel as JSON string, read via `asString`→`Decimal`
-      or `asDecimal`; never `asDouble`. Wrap interp `JsonParser` + `lookupKey`; tolerant
-      parse → `Null`, `jsonParseStrict` throws. JVM intrinsics in `json-plugin` (extend) +
-      JS preamble. Tests: round-trip escaping, totality, number coercion, money lossless.
-      Commit: `feat(json): navigable JsonValue + structured builders`.
+- [~] **ui-typed-json-p2-core** — Navigable `JsonValue` + total accessors (get/at/
+      asString/asInt/asDouble/asBool/asList/isNull/opt*/getOrElse + **asDecimal/optDecimal**
+      lossless money) + structured builders (jStr/jNum/jBool/jDecimal/jField/jObj/jArr).
+      **✓ JVM landed 2026-06-09**: `navJson` InstanceV in json-plugin (additive — existing
+      jsonParse/jsonRead/lookup untouched), `runtime/std/json.ssc`, `examples/ui-typed-json.ssc`,
+      7 plugin tests + JsonTypedExampleTest end-to-end. Builders are pure `.ssc` → work
+      JVM+JS now (busi can kill the 13 `*Q` escapers immediately).
+      **⏳ Pending: JS preamble for `jsonValue` decode** (browser navigable parse) — busi's
+      web decode (onbStr/extractStr) needs this; next slice. Then fold into p3-fetch.
 
 - [ ] **ui-typed-json-p3-fetch** — `fetchJsonSignal(name,url,tick,headers): Signal[JsonValue]`
       and `fetchJsonAction(method,url,()=>JsonValue,tick,headers): EventHandler` in
@@ -1639,11 +1639,11 @@ Start after P1.
 
 ### P4 — UI runtime bugs (bug fixes — no spec)
 
-- [ ] **ui-bug-browser-columns** — `_ssc_ui_moneyColumn` / `_ssc_ui_statusColumn` /
-      `_ssc_ui_dateColumn` are referenced by `mcol`/`scol`/`dcol` as free vars but not
-      defined in the browser JS runtime → `ReferenceError`. Add the stubs to the
-      browser-patch section alongside `_ssc_ui_fieldColumn`. Test: emit-spa output
-      defines all three. Commit: `fix(jsgen): define browser column stubs (mcol/scol/dcol)`.
+- [x] **ui-bug-browser-columns** — ✓ Already fixed on main by `250e9c75e` (2026-06-04,
+      "fix(js): define browser ui typed column helpers"): `_ssc_ui_fieldColumn/dateColumn/
+      moneyColumn/statusColumn/linkColumn` all defined in `JsRuntimeSignals.scala` +
+      registered in the browser stub list (`JsGen.scala`). busi's proposal P4 predates the
+      fix. No action needed — busi updates to current ScalaScript.
 
 - [ ] **ui-bug-jobj-failloud** — Nested `jObj(List(jField(... jObj(...))))` with a paren
       mismatch triggers a silent ScalaMeta `termParam` NPE / interpreter hang (no error).
