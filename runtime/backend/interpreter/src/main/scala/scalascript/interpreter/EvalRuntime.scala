@@ -3873,18 +3873,25 @@ private[interpreter] object EvalRuntime:
           val found: Value | Null =
             if direct != null then direct
             else
-              // 2. For generic keys like "Show[A]" try:
-              //    a) resolveGiven (infers concrete type from regular args if any)
-              //    b) scan env for a synthetic context-bound param "A$TC"
-              GivenRuntime.resolveGiven(key, Nil, env, interp) match
-                case Some(v) => v
-                case None =>
-                  val tcEnd = key.indexOf('[')
-                  if tcEnd > 0 then
-                    val tc         = key.substring(0, tcEnd)
-                    val typeArgStr = key.substring(tcEnd + 1, key.length - 1).trim
-                    env.getOrElse(s"${typeArgStr}$$${tc}", null)
-                  else null
+              // 2. For generic keys like "Monoid[A]" with a context-bound A,
+              //    `A$Monoid` is in env as a synthetic using param.  Try this
+              //    single hash lookup BEFORE the more expensive resolveGiven
+              //    (which scans the given table and tries to concretize type
+              //    vars).  Hot path for `[A: TC]` workloads: typeclass-fold
+              //    fires summon[Monoid[A]] twice per foldLeft step.
+              val tcEnd = key.indexOf('[')
+              val viaTcSyntheticParam: Value | Null =
+                if tcEnd > 0 then
+                  val tc         = key.substring(0, tcEnd)
+                  val typeArgStr = key.substring(tcEnd + 1, key.length - 1).trim
+                  env.getOrElse(s"${typeArgStr}$$${tc}", null)
+                else null
+              if viaTcSyntheticParam != null then viaTcSyntheticParam
+              else
+                // 3. Fallback: resolveGiven (handles cases where the key has
+                //    type vars that need concretization from regular arg types,
+                //    or anonymous given instances with no synthetic param).
+                GivenRuntime.resolveGiven(key, Nil, env, interp).orNull
           if found != null then Pure(found)
           else Pure(interp.located(s"No given instance for '$key'"))
 
