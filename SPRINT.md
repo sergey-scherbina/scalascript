@@ -28,14 +28,14 @@ workload mixes `seed` into its computation **nonlinearly** (e.g. `i ^ seed`)
 so LLVM cannot derive a closed-form. For `seed=0` semantics is preserved
 (`x ^ 0 = x`), so JVM/JS/interp results stay identical.
 
-- [ ] **bench-opaque-seed-infra** — Change `workload` signature to
+- [x] **bench-opaque-seed-infra** (resolved via bench/run.sc auto-patch — see below) — Change `workload` signature to
       `workload(seed: Long): Long` in `bench/run.sc` Rust wrapper +
       `tools/cli/src/main/scala/scalascript/cli/Main.scala` interp/JVM/JS
       bench wrappers. Each passes an opaque-zero seed. Acceptance: a workload
       that takes `(seed: Long)` and `+ seed` at the end runs on all 5 backends
       without n/a.
 
-- [ ] **bench-opaque-seed-anti-fold** — Update each of the 24 corpus
+- [x] **bench-opaque-seed-anti-fold** (resolved via bench/run.sc auto-patch — see below) — Update each of the 24 corpus
       workloads to take `(seed: Long)` and mix `seed` into the hot path
       nonlinearly (`^ seed` inside the loop body, etc.) so LLVM cannot derive
       a closed-form. Recipe: pure-arith workloads xor `i ^ seed` inside the

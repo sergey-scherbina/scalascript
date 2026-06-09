@@ -4,6 +4,33 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — fix(bench): defeat LLVM scalar-evolution constant-folding on Rust target
+
+LLVM -O3 was replacing entire pure-arith bench loops with closed-form
+constants (e.g. `for i in 0..1M { sum += i }` → mov+ret = 1 ns/iter). This
+made 12 of 24 Rust bench results meaningless — measuring `mov reg, const`
+instead of the actual workload.
+
+Two-part fix:
+- **bench-opaque-seed-infra**: `Bench.opaque[A](x: A): A` cross-backend
+  identity — Rust → `std::hint::black_box`; JVM/JS preamble inline def;
+  interp via bench-plugin + AST fast-path in `evalApplyGeneral`. Reusable
+  for future bench / FFI work.
+- **bench-opaque-seed-anti-fold**: `bench/run.sc` Rust path auto-patches
+  the generated `pub fn workload()` body — wraps every `let mut x = ...;`
+  and `x = ...;` with `std::hint::black_box(...)`. Closure-containing rhs
+  (`{...}`) are skipped to avoid breaking syntax. No corpus changes
+  needed — JVM/JS/interp/ssc-asm results unchanged.
+
+Rust bench results now reflect actual loop costs: 11 of 12 previously
+folded workloads jumped 33×-605,000× to realistic numbers (arith-loop:
+0.000002→1.21ms; nested-loop: 0.000001→0.456ms; list-fold: 0.000003→0.099ms).
+Remaining four (effect-pure, recursion-tco, streams-pipeline,
+typeclass-monoid) have closure-only or direct-call bodies not on the
+patched assignment path.
+
+---
+
 ## 2026-06-09 — fix(bench): close all 4 cross-backend n/a (jvm typeclass-monoid, js either-chain, js map-ops, streams-pipeline)
 
 - **bench-na-jvm-typeclass-monoid** — Added `trait IntMonoid` declaration so JVM Scala 3 backend type-checks the given target.
