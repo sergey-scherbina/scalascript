@@ -518,16 +518,19 @@ fix, and don't require a runtime refactor.
       Two regression guards added to `BugReproTest` (typed-empty-tuple-list +
       hot-function while-JIT path).
 
-- [ ] **busi-p1-map-update-foldleft-unreliable** — When a `foldLeft`
-      accumulates a `Map[String, CaseClass]` and one branch re-constructs
-      the case class (10+ fields) to store an updated copy, subsequent
-      `.values.toList.sortBy(...)` or keyed-access calls produce
-      `"Instance is not callable"`.  Root cause unknown; likely how
-      ScalaScript tracks case-class values mutated inside nested
-      lambdas/matches.  Workaround on busi side: keep projections
-      immutable (inserts only, no updates), compute derived mutable state
-      in a separate scan function returning a primitive.  Found in busi
-      phase 44 `applyRetirement`.
+- [x] **busi-p1-map-update-foldleft-unreliable** [no longer reproduces 2026-06-10
+      — fixed by Direction B fieldsArr flag-flip; locked with regression tests] —
+      When a `foldLeft` accumulates a `Map[String, CaseClass]` and one branch
+      re-constructs the case class (10+ fields) to store an updated copy,
+      subsequent `.values.toList.sortBy(...)` or keyed-access calls produced
+      `"Instance is not callable"` (`CallRuntime` applies a case-class `InstanceV`
+      with no `apply` field). Root cause: pre-flag-flip, a 10+-field case class
+      stored its fields in a `HashMap` (Scala Map → HashMap at ≥5 entries) and
+      some path mishandled HashMap-backed instances; the 2026-06-03 fieldsArr
+      flag-flip unified all field counts onto the positional array. Could not
+      reproduce across 7 variants (foldLeft over List/Map, match-branch
+      reconstruction, 10–11 fields, `_` sortBy, keyed access, case-class methods).
+      Two `BugReproTest` guards added mirroring the busi `applyRetirement` shape.
 
 - [x] **busi-p1-map-concat-returns-tuplev** — `Map(...) ++ otherMap`
       returns `TupleV((Map(...), Map(...)))` instead of a merged map.

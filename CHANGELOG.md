@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-10 — test: busi-p1-map-update-foldleft-unreliable verified fixed + regression guards
+
+- **busi-p1-map-update-foldleft-unreliable** — Reported "Instance is not callable"
+  on `foldLeft` into `Map[String, wide-case-class]` with per-key reconstruction no
+  longer reproduces. Root cause was the pre-flag-flip `HashMap` field representation
+  for 10+-field case classes; the 2026-06-03 Direction B `fieldsArr` flag-flip
+  unified all field counts. Verified non-reproducing across 7 variants; locked with
+  two `BugReproTest` guards mirroring the busi `applyRetirement` shape.
+
+---
+
 ## 2026-06-10 — test: busi-p1-while-typed-empty-list-bug verified fixed + regression guards
 
 - **busi-p1-while-typed-empty-list-bug** — Reported bug (a `while` loop appending
