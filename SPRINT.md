@@ -14,7 +14,7 @@ After all 24 corpus workloads run cleanly on rust, four `n/a` cells remain
 on other backends. Each is a genuine API/codegen gap, not a benchmark bug.
 Fix them properly (no ad-hoc bench rewrites). Ordered simplest-first.
 
-- [ ] **bench-na-jvm-typeclass-monoid** — `typeclass-monoid.ssc` n/a on jvm.
+- [x] **bench-na-jvm-typeclass-monoid** — `typeclass-monoid.ssc` n/a on jvm.
       Source uses `given intMonoid: IntMonoid with { def empty; def combine }`
       but `IntMonoid` is not declared as a trait. JVM codegen rejects the
       anonymous given target. Fix: prepend a `trait IntMonoid { def empty: Int;
@@ -23,7 +23,7 @@ Fix them properly (no ad-hoc bench rewrites). Ordered simplest-first.
       with multiple defs. Acceptance: `./bench.sh --backend jvm typeclass-monoid`
       reports a numeric ms/iter result.
 
-- [ ] **bench-na-js-either-chain** — `either-chain.ssc` n/a on js.
+- [x] **bench-na-js-either-chain** — `either-chain.ssc` n/a on js.
       JS backend has no `Either[L, R]` runtime — `Right(x).map(...).flatMap(...).fold(...)`
       chain falls off a cliff somewhere. Fix: extend `JsRuntimePart*` with an
       `Either` runtime (Right/Left tagged variants + .map/.flatMap/.fold lowering)
@@ -31,13 +31,13 @@ Fix them properly (no ad-hoc bench rewrites). Ordered simplest-first.
       in `runtime/std/either.ssc` if present. Acceptance:
       `./bench.sh --backend js either-chain` reports a numeric result.
 
-- [ ] **bench-na-js-map-ops** — `map-ops.ssc` n/a on js. Already covered by
+- [x] **bench-na-js-map-ops** — `map-ops.ssc` n/a on js. Already covered by
       the in-flight `js-map-ops-bench` claim/branch — see `.work/active/`.
       Verify the claim is current; if abandoned (>20 min stale heartbeat),
       release via `/multi-agent triage js-map-ops-bench`. Acceptance:
       `./bench.sh --backend js map-ops` reports a numeric result.
 
-- [ ] **bench-na-streams-pipeline-all** — `streams-pipeline.ssc` n/a on
+- [x] **bench-na-streams-pipeline-all** — `streams-pipeline.ssc` n/a on
       ssc/ssc-asm/jvm/js. The bench uses `Source.range(1, 10).map(...).filter(...)
       .foldLeft(...)` — this surface only exists in the rust backend (added by
       `rust-backend-r6-streams`). To make it portable, add a synchronous

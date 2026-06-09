@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — fix(bench): close all 4 cross-backend n/a (jvm typeclass-monoid, js either-chain, js map-ops, streams-pipeline)
+
+- **bench-na-jvm-typeclass-monoid** — Added `trait IntMonoid` declaration so JVM Scala 3 backend type-checks the given target.
+- **bench-na-js-either-chain** — Added `Either[L,R]` dispatch (Right/Left .map/.flatMap/.fold/.getOrElse/etc.) to JsRuntimePart2b.
+- **bench-na-js-map-ops** — Fixed `Map[K,V]()` and `List[T]()` with explicit type args in JsGen (both sync genApply and async CPS paths).
+- **bench-na-streams-pipeline-all** — Replaced Rust-specific `Source.range` with portable `(lo to hi).map.filter.foldLeft` chain.
+
+All 24 corpus workloads now report numeric ms/iter on all 5 backends.
+
+---
+
 ## 2026-06-09 — fix(interp): String.indexOf full support + String.split regex semantics
 
 - **busi-p1-string-indexof** — `indexOf`/`lastIndexOf`: added `IntV` char-code arg, 2-arg `(str, fromIndex)` form in `dispatch2` + `dispatchString`.
