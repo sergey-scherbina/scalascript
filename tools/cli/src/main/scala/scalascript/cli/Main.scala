@@ -6941,6 +6941,21 @@ final class BenchCmd extends CliCommand:
         if endFence < 0 then content.substring(codeStart)
         else content.substring(codeStart, endFence)
 
+    // Detect workload()'s return type — we use a primitive-typed sink for
+    // Int/Long/Double/Boolean workloads to avoid per-iter autoboxing into
+    // `Any`.  Boxing was dominating measurements: 3-op `workload()` reading
+    // ~1 µs/iter where the actual work is ~3 ns; the ~1 µs was the Integer
+    // alloc & GC pressure on each `_ssc_sink = workload()`.
+    //
+    // Returns the (sinkType, sinkInit, sinkUpdate(workloadCall), sinkPrint)
+    // tuple.  `_ssc_sink ^= workload().toLong` keeps the JIT honest (XOR
+    // makes the result reachable so DCE can't drop the call) without the
+    // heap allocation an `Any` sink would force.  Non-numeric workloads
+    // fall back to the historical `Any` sink.
+    def workloadReturnType(code: String): String =
+      val re = raw"def\s+workload\s*\(\s*\)\s*:\s*([A-Za-z]+)".r
+      re.findFirstMatchIn(code).map(_.group(1)).getOrElse("Any")
+
     // Wrap user code with a self-contained timing harness that prints BENCH_MS.
     // Uses markdown format so emit-scala/emit-js process it correctly.
     def generateWrapper(code: String, warmupN: Int, repsN: Int,
@@ -6973,21 +6988,34 @@ final class BenchCmd extends CliCommand:
       //   expensive workloads (~1 ms), phase 2 runs only ~8 invocations (irrelevant;
       //   workload cost dwarfs any JIT overhead).  Use --reps 500 for accurate floor
       //   values on any workload.
+      // Pick a sink shape per return type — primitive sinks avoid autoboxing
+      // (Integer/Long/Boolean alloc per iter is ~1 µs of pure noise).
+      val returnTy = workloadReturnType(code)
+      // `+=` keeps the result reachable (no DCE) without the Integer/Long
+      // autoboxing an `Any` sink would force.  Interp/JS don't support `^`
+      // on Long so we use `+=` (overflow wraps, fine — we only care the JIT
+      // can't drop the call).
+      val (sinkDecl, sinkUpdate, sinkRead) = returnTy match
+        case "Int"     => ("var _ssc_sink: Long = 0L",   "_ssc_sink = _ssc_sink + workload().toLong", "_ssc_sink")
+        case "Long"    => ("var _ssc_sink: Long = 0L",   "_ssc_sink = _ssc_sink + workload()",        "_ssc_sink")
+        case "Double"  => ("var _ssc_sink: Double = 0d", "_ssc_sink = _ssc_sink + workload()",        "_ssc_sink")
+        case "Boolean" => ("var _ssc_sink: Long = 0L",   "_ssc_sink = _ssc_sink + (if workload() then 1L else 0L)", "_ssc_sink")
+        case _         => ("var _ssc_sink: Any = null",  "_ssc_sink = workload()",                     "_ssc_sink")
       val warmupBlock = warmupTimeMs match
         case Some(ms) =>
           val ns       = ms * 1000000L
           val phase2Ns = (ms / 6) * 1000000L
           s"""val _ssc_wt_end = System.nanoTime() + ${ns}L
              |while System.nanoTime() < _ssc_wt_end do
-             |  _ssc_sink = workload()
+             |  $sinkUpdate
              |val _ssc_sw_end = System.nanoTime() + ${phase2Ns}L
              |while System.nanoTime() < _ssc_sw_end do
              |  var _ssc_iw = 0
              |  while _ssc_iw < 50 do
-             |    _ssc_sink = workload()
+             |    $sinkUpdate
              |    _ssc_iw += 1""".stripMargin
         case None =>
-          s"var _ssc_w = 0\nwhile _ssc_w < $warmupN do\n  _ssc_sink = workload()\n  _ssc_w += 1"
+          s"var _ssc_w = 0\nwhile _ssc_w < $warmupN do\n  $sinkUpdate\n  _ssc_w += 1"
       s"""# bench-wrapper
          |
          |```scalascript
@@ -7009,16 +7037,26 @@ final class BenchCmd extends CliCommand:
          |while _ssc_pk < 30000 do
          |  _ssc_pwm(5)
          |  _ssc_pk += 1
-         |var _ssc_sink: Any = null
+         |$sinkDecl
          |$warmupBlock
-         |val _ssc_t0 = System.nanoTime()
-         |var _ssc_r = 0
-         |while _ssc_r < $repsN do
-         |  _ssc_sink = workload()
-         |  _ssc_r += 1
-         |val _ssc_ns = System.nanoTime() - _ssc_t0
-         |println(s"BENCH_MS: $${_ssc_ns.toDouble / ($repsN * 1000000.0)}")
-         |println(s"BENCH_SINK: $${_ssc_sink}")
+         |// Adaptive timed loop: double reps until the measured window is
+         |// at least 100ms.  This guarantees enough samples for nanoTime
+         |// resolution (~25-100ns granularity) and lets HotSpot reach its
+         |// steady-state JIT level even for very-fast workloads (e.g.
+         |// 3-add-op typeclass-monoid that compiles to ~1ns/iter).  Capped
+         |// at 2^28 reps (268M) to avoid runaway on infinitely-fast paths.
+         |var _ssc_reps = $repsN
+         |var _ssc_ns: Long = 0L
+         |while _ssc_ns < 100_000_000L && _ssc_reps <= 268_435_456 do
+         |  val _ssc_t0 = System.nanoTime()
+         |  var _ssc_r = 0
+         |  while _ssc_r < _ssc_reps do
+         |    $sinkUpdate
+         |    _ssc_r += 1
+         |  _ssc_ns = System.nanoTime() - _ssc_t0
+         |  if _ssc_ns < 100_000_000L then _ssc_reps = _ssc_reps * 2
+         |println(s"BENCH_MS: $${_ssc_ns.toDouble / (_ssc_reps * 1000000.0)}")
+         |println(s"BENCH_SINK: $${$sinkRead}")
          |```
          |""".stripMargin
 
@@ -7029,7 +7067,12 @@ final class BenchCmd extends CliCommand:
         .toSeq.lastOption
 
     def fmtMs(ms: Double): String =
-      if ms < 1.0 then f"$ms%.3f" else if ms < 10.0 then f"$ms%.2f" else f"$ms%.1f"
+      // Sub-microsecond results need 6+ decimals to compare across backends;
+      // a 3-decimal format buried JVM's ~1ns-per-iter inside "0.001".
+      if      ms < 1.0e-3 then f"$ms%.6f"
+      else if ms < 1.0    then f"$ms%.4f"
+      else if ms < 10.0   then f"$ms%.2f"
+      else                     f"$ms%.1f"
 
     val name     = path.last.stripSuffix(".ssc")
     val userCode = extractCode(os.read(path))
