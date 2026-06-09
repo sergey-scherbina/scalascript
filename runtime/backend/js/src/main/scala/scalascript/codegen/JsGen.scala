@@ -226,6 +226,9 @@ object JsGen:
     // browser stubs throw FsNotSupported / ProcessNotSupported (std-fs-os-p3-js).
     sb.append(JsRuntimeFs.source)
     if !JsRuntimeFs.source.endsWith("\n") then sb.append('\n')
+    // std.yaml — parseYaml / toYaml / accessor helpers (std-yaml-p3-js).
+    sb.append(JsRuntimeYaml.source)
+    if !JsRuntimeYaml.source.endsWith("\n") then sb.append('\n')
     if caps.contains(Capability.Signals) then
       sb.append(JsRuntimeSignals)
       if !JsRuntimeSignals.endsWith("\n") then sb.append('\n')
