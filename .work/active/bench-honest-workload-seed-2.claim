@@ -1,0 +1,1 @@
+bench-honest-workload-seed-2: extend Bench.opaque to typeclass-fold + others
