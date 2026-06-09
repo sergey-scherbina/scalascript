@@ -429,6 +429,20 @@ object Value:
       else OptionV(iv)
     case _ => OptionV(v)
 
+  /** Field-name array shared by every single-field wrapper (`Right`/`Left`/`Some`/…).
+   *  Read-only — instances point `fieldNames` at this singleton; never mutate it. */
+  val SingleValueFieldNames: Array[String] = Array("value")
+
+  /** Build a one-field `InstanceV` in the positional `fieldsArr` representation
+   *  instead of allocating a single-entry `Map`. The field is named "value".
+   *  Used by `Right`/`Left`/`Some` construction sites so readers take the
+   *  `fieldsArr` fast path (`effectiveFields` reconstructs the Map on demand). */
+  def singleValue(typeName: String, v: Value): InstanceV =
+    val inst = InstanceV(typeName, Map.empty)
+    inst.fieldsArr  = Array[Value](v)
+    inst.fieldNames = SingleValueFieldNames
+    inst
+
   /** Smart constructor for Option[Value]: avoids allocating OptionV(null)
    *  on cache-miss map lookups — returns the NoneV singleton instead.
    *  Routes Some(IntV) through `someV` for the small-int pool. */

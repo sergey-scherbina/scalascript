@@ -787,11 +787,11 @@ private[interpreter] object DispatchRuntime:
           case _ => throw InterpretError("Option.fold expects one function argument")
         }))
       case "toRight"   => opt match
-        case None    => Pure(Value.InstanceV("Left",  new IMap.Map1("value", arg)))
-        case Some(v) => Pure(Value.InstanceV("Right", new IMap.Map1("value", v)))
+        case None    => Pure(Value.singleValue("Left", arg))
+        case Some(v) => Pure(Value.singleValue("Right", v))
       case "toLeft"    => opt match
-        case None    => Pure(Value.InstanceV("Right", new IMap.Map1("value", arg)))
-        case Some(v) => Pure(Value.InstanceV("Left",  new IMap.Map1("value", v)))
+        case None    => Pure(Value.singleValue("Right", arg))
+        case Some(v) => Pure(Value.singleValue("Left", v))
       case _           => dispatchOption(recv, opt, name, arg :: Nil, env, interp)
 
   /** 1-arg fast path for String single-arg operations. */
@@ -1003,8 +1003,8 @@ private[interpreter] object DispatchRuntime:
         case "map"     =>
           val inner = fields.getOrElse("value", Value.UnitV)
           interp.callValue1(arg, inner, env) match
-            case Pure(v) => Pure(Value.InstanceV("Right", new IMap.Map1("value", v)))
-            case c       => FlatMap(c, v => Pure(Value.InstanceV("Right", new IMap.Map1("value", v))))
+            case Pure(v) => Pure(Value.singleValue("Right", v))
+            case c       => FlatMap(c, v => Pure(Value.singleValue("Right", v)))
         case "flatMap" => interp.callValue1(arg, fields.getOrElse("value", Value.UnitV), env)
         case _         => dispatchInstance(recv, typeName, fields, name, arg :: Nil, env, interp)
       case "Left" => name match
@@ -2385,13 +2385,13 @@ private[interpreter] object DispatchRuntime:
           case _                => Pure(recv)
       case "toRight"   => args match
         case List(left) => opt match
-          case None    => Pure(Value.InstanceV("Left",  new IMap.Map1("value", left)))
-          case Some(v) => Pure(Value.InstanceV("Right", new IMap.Map1("value", v)))
+          case None    => Pure(Value.singleValue("Left", left))
+          case Some(v) => Pure(Value.singleValue("Right", v))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "toLeft"    => args match
         case List(right) => opt match
-          case None    => Pure(Value.InstanceV("Right", new IMap.Map1("value", right)))
-          case Some(v) => Pure(Value.InstanceV("Left",  new IMap.Map1("value", v)))
+          case None    => Pure(Value.singleValue("Right", right))
+          case Some(v) => Pure(Value.singleValue("Left", v))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "exists"    => args match
         case List(f) => opt match
@@ -2777,7 +2777,7 @@ private[interpreter] object DispatchRuntime:
         case "map"       => args match
           case List(f) =>
             interp.callValue1(f, fields.getOrElse("value", Value.UnitV), env).map(v =>
-              Value.InstanceV("Right", new IMap.Map1("value", v)))
+              Value.singleValue("Right", v))
           case _       => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
         case "flatMap"   => args match
           case List(f) => interp.callValue1(f, fields.getOrElse("value", Value.UnitV), env)

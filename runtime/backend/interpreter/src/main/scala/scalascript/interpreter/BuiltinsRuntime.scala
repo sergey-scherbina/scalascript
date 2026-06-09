@@ -114,6 +114,13 @@ private[interpreter] object BuiltinsRuntime:
     interp.globals("None") = Value.NoneV
     interp.globals("Some") = Value.NativeFnV("Some", { case List(v) => Pure(Value.someV(v)); case _ => throw InterpretError("Some requires exactly one argument") })
     interp.globals("Nil")  = Value.EmptyList
+    // Builtin Either / Some carry a single `value` field. Registering their field
+    // order lets the positional `fieldsArr` representation (Value.singleValue) be
+    // read uniformly by PatternRuntime / dispatch / JIT — exactly like a user
+    // `case class Right(value)`. Idempotent if std/either.ssc later re-registers them.
+    if !interp.typeFieldOrder.contains("Right") then interp.typeFieldOrder("Right") = List("value")
+    if !interp.typeFieldOrder.contains("Left")  then interp.typeFieldOrder("Left")  = List("value")
+    if !interp.typeFieldOrder.contains("Some")  then interp.typeFieldOrder("Some")  = List("value")
 
     // ── Primitive type constructors ────────────────────────────────────────
     // `Int("42")` → 42, `Long("9999")` → 9999, `Double("3.14")` → 3.14.

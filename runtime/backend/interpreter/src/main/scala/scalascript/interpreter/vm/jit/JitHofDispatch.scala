@@ -37,7 +37,7 @@ object JitHofDispatch:
   def eitherValue(typeName: String, value: Value): Object =
     if typeName != "Right" && typeName != "Left" then
       throw new RuntimeException("JitHofDispatch.eitherValue: unsupported constructor")
-    Value.InstanceV(typeName, Map("value" -> value)).asInstanceOf[Object]
+    Value.singleValue(typeName, value).asInstanceOf[Object]
 
   def mapLong(recv: Object, op: Int, c: Long): Object =
     recv match
@@ -45,7 +45,7 @@ object JitHofDispatch:
         if opt.inner == null then Value.NoneV.asInstanceOf[Object]
         else Value.OptionV(Value.intV(applyUnary(opt.inner, op, c))).asInstanceOf[Object]
       case inst: Value.InstanceV if inst.typeName == "Right" =>
-        Value.InstanceV("Right", Map("value" -> Value.intV(applyUnary(valueField(inst), op, c)))).asInstanceOf[Object]
+        Value.singleValue("Right", Value.intV(applyUnary(valueField(inst), op, c))).asInstanceOf[Object]
       case inst: Value.InstanceV if inst.typeName == "Left" =>
         inst.asInstanceOf[Object]
       case Value.ListV(items) =>
@@ -213,7 +213,9 @@ object JitHofDispatch:
       case _              => throw new RuntimeException(s"JitHofDispatch.callGlobalValue1: '$name' is not a FunV")
 
   private def valueField(inst: Value.InstanceV): Value =
-    inst.fields.getOrElse("value", Value.UnitV)
+    val arr = inst.fieldsArr
+    if arr != null && arr.nonEmpty then arr(0)
+    else inst.fields.getOrElse("value", Value.UnitV)
 
   private def asLong(v: Value): Long =
     v match
