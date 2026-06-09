@@ -94,54 +94,106 @@ def parseBenchLine(output: String): Option[Double] =
       if parts.length == 3 then parts(2).toDoubleOption else None
   }.flatten
 
-// LLVM -O3 anti-folding: wrap each assignment inside `pub fn workload(...)`'s
-// body with `std::hint::black_box(...)`.  This stops scalar-evolution from
-// deriving closed-form (Gauss-like) solutions that replace the entire loop
-// with a single constant load.  Without this, pure-arith bench workloads
-// report ~1ns/iter on Rust — measuring only `mov reg, const; ret`.
+// LLVM -O3 anti-folding: wrap each assignment inside *every* `pub fn` body
+// with `std::hint::black_box(...)`.  This stops scalar-evolution from
+// deriving closed-form (Gauss-like) solutions that replace whole loops with
+// single constant loads.  Without this, pure-arith bench workloads report
+// ~1ns/iter on Rust — measuring only `mov reg, const; ret`.
 //
-// We only patch the `workload` function body.  Helper functions defined
-// before `workload` keep their original code so inlining still works.
+// All helpers + `workload` itself get the same treatment so recursive /
+// helper-driven workloads (e.g. `sumTco`, `compute`) also resist folding.
+// For functions with no assignment (pure expression bodies like
+// `intMonoid.combine(...)` or `(1..=10).map.filter.fold(...)`), the
+// trailing expression is also wrapped if it's the function's return value.
 def patchGenWorkloadForAntiFold(src: String): String =
-  val workloadIdx = src.indexOf("pub fn workload(")
-  if workloadIdx < 0 then return src
-  // Find the matching `}` for the workload function by brace-counting from
-  // its opening `{`.  We deliberately stop at the function-closing brace so
-  // helpers AFTER workload (if any) are left untouched.
-  val openBrace = src.indexOf('{', workloadIdx)
-  if openBrace < 0 then return src
-  var depth = 1
-  var i = openBrace + 1
-  while i < src.length && depth > 0 do
-    src.charAt(i) match
-      case '{' => depth += 1
-      case '}' => depth -= 1
-      case _   => ()
-    i += 1
-  if depth != 0 then return src
-  val bodyStart = openBrace + 1
-  val bodyEnd   = i - 1
-  val before    = src.substring(0, bodyStart)
-  val body      = src.substring(bodyStart, bodyEnd)
-  val after     = src.substring(bodyEnd)
+  // Locate every `pub fn …(…) -> … {` (or `pub fn …(…) {`) header and
+  // brace-count its body so we can patch each independently.
+  val pubFnRe = """pub fn [A-Za-z_]\w*""".r
+  val starts  = pubFnRe.findAllMatchIn(src).map(_.start).toList
+  if starts.isEmpty then return src
 
-  // Patch every `<name> = <expr>;` assignment to `<name> = std::hint::black_box(<expr>);`.
-  // This includes both `let mut x = init;` (initial values) and `x = …;`
-  // reassignments inside the loop.  The negated lookahead avoids re-wrapping
-  // an already-black-boxed expression on repeated patches.
-  //
-  // The rhs match excludes `{`, `}`, and `;` to avoid spanning across closure
-  // bodies (e.g. `let s = .map(move |i| { ... }).fold(0, move |a,b| { ... });`
-  // would otherwise be miscaptured).  This means closure-containing rhs are
-  // skipped — acceptable since their inner closure bodies are not on the
-  // critical anti-folding path; LLVM still gets the surrounding wrapper.
-  val assignRe = """(?m)(let mut [A-Za-z_]\w*(?:: [A-Za-z_:<>0-9, ]+)? = |[A-Za-z_]\w* = )(?!std::hint::black_box\()([^{};]+);""".r
-  val patchedBody = assignRe.replaceAllIn(body, m =>
-    val lhs = scala.util.matching.Regex.quoteReplacement(m.group(1))
-    val rhs = scala.util.matching.Regex.quoteReplacement(m.group(2))
-    s"${lhs}std::hint::black_box($rhs);"
-  )
-  before + patchedBody + after
+  // For each start, find the body's open-brace, then walk to the matching close.
+  // Returns (bodyStart, bodyEnd) inclusive of the inner content.
+  def bodyOf(fnStart: Int): Option[(Int, Int)] =
+    val ob = src.indexOf('{', fnStart)
+    if ob < 0 then None
+    else
+      var depth = 1; var k = ob + 1
+      while k < src.length && depth > 0 do
+        src.charAt(k) match
+          case '{' => depth += 1
+          case '}' => depth -= 1
+          case _   => ()
+        k += 1
+      if depth == 0 then Some((ob + 1, k - 1)) else None
+
+  // Patch a single function body.  Two passes:
+  //   pass 1: assignments — `let mut x = …;`, `let x = …;`, `x = …;` →
+  //           wrap rhs in `std::hint::black_box(…)`.  Rhs excludes `{}/;` so
+  //           closure-containing rhs are skipped (regex-safe).
+  //   pass 2: if the body has NO assignments (pure expression body), wrap
+  //           the entire trailing expression with `std::hint::black_box(...)`.
+  //           That catches direct call chains like `intMonoid.combine(...)`
+  //           and `(1..=10).map(...).filter(...).fold(...)`.
+  val assignRe =
+    """(?m)(let (?:mut )?[A-Za-z_]\w*(?:: [A-Za-z_:<>0-9, ]+)? = |[A-Za-z_]\w* = )(?!std::hint::black_box\()([^{};]+);""".r
+
+  // Wraps the first integer/float literal in a body with `black_box(...)`.
+  // This makes a literal opaque so LLVM can't derive closed-form solutions
+  // for pure-call chains and iterator pipelines (e.g. `combine(empty, 1)`
+  // chains, `(1..=10).map.fold` ranges).  Idempotent — skipped if the body
+  // already contains a black_box.
+  val firstLitRe = """\b(\d+(?:\.\d+)?i(?:8|16|32|64)?|\d+(?:\.\d+)?f(?:32|64))\b""".r
+  def wrapFirstLit(body: String): String =
+    if body.contains("std::hint::black_box(") then body
+    else firstLitRe.findFirstMatchIn(body) match
+      case Some(m) =>
+        body.substring(0, m.start) + "std::hint::black_box(" + m.matched + ")" + body.substring(m.end)
+      case None => body
+
+  // Wraps every closure body `move |...| { EXPR }` with black_box.  This
+  // catches iterator-chain workloads where LLVM would otherwise derive a
+  // closed-form across the entire `.map.filter.fold` pipeline.
+  // Captures: outer prefix `move |x| { `, inner expression up to `}`.
+  val closureBodyRe = """(move\s*\|[^|]*\|\s*\{\s*)(?!std::hint::black_box)([^{}]+?)(\s*\})""".r
+  def wrapClosureBodies(body: String): String =
+    closureBodyRe.replaceAllIn(body, m =>
+      val pre   = scala.util.matching.Regex.quoteReplacement(m.group(1))
+      val expr  = scala.util.matching.Regex.quoteReplacement(m.group(2))
+      val post  = scala.util.matching.Regex.quoteReplacement(m.group(3))
+      s"${pre}std::hint::black_box($expr)$post"
+    )
+
+  def patchBody(body: String): String =
+    val withAssign = assignRe.replaceAllIn(body, m =>
+      val lhs = scala.util.matching.Regex.quoteReplacement(m.group(1))
+      val rhs = scala.util.matching.Regex.quoteReplacement(m.group(2))
+      s"${lhs}std::hint::black_box($rhs);"
+    )
+    // Pass 2 (post-assignment): also wrap closure bodies inside the same
+    // body — catches iterator chains that survive past the assignment pass
+    // (e.g. `.map(move |x| { x * 2 })`).
+    val afterAssign = wrapClosureBodies(if withAssign != body then withAssign else body)
+    if afterAssign != body then afterAssign
+    else
+      // For bodies WITHOUT assignments/closures, wrap the FIRST integer
+      // literal in black_box.  This makes a literal opaque on the INPUT
+      // side so LLVM can't derive a closed-form for the chain.
+      // (`black_box(WholeExpr)` doesn't work — LLVM still computes WholeExpr
+      // statically if all inputs are known, then makes the result opaque.)
+      wrapFirstLit(body)
+
+  // Walk the function starts in REVERSE so we don't invalidate earlier offsets.
+  var out = src
+  for fnStart <- starts.sortBy(-_) do
+    bodyOf(fnStart) match
+      case Some((bs, be)) =>
+        val before = out.substring(0, bs)
+        val body   = out.substring(bs, be)
+        val after  = out.substring(be)
+        out = before + patchBody(body) + after
+      case None => ()
+  out
 
 // Build a Rust binary that benchmarks `workload()`.
 // Strategy:
