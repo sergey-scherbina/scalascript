@@ -91,8 +91,9 @@ class RustGenR6TypeclassTest extends AnyFunSuite:
         |def workload(): Int = intMonoid.combine(intMonoid.empty, 5)
         |```
         |""".stripMargin)
-    assert(g.contains("pub fn empty(&self)"),
-      s"zero-arg empty method missing in:\n$g")
+    // Zero-arg defs become struct fields (not methods) so `intMonoid.empty` works in Rust.
+    assert(g.contains("pub empty:") || g.contains("pub fn empty(&self)"),
+      s"zero-arg empty field/method missing in:\n$g")
 
   test("typeclass-monoid bench corpus compiles without error"):
     val src =

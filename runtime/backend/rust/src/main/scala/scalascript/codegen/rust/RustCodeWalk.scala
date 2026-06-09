@@ -62,8 +62,12 @@ object RustCodeWalk:
     // topVals must be collected after ctorMap so enum ctors are resolved correctly.
     // Given instances are injected as `let name = StructName;` bindings.
     val baseTopVals = collectTopVals(module, ctorMap)
+    // Pre-populate _givenInits by doing a dry render so init expressions
+    // (including field values for zero-param defs) are available for topVals.
+    val ctx0dry = Ctx(intrinsics, userDefs, ctorMap, baseTopVals, "<given>", effectfulDefs)
+    givens.foreach(g => renderGiven(g, ctx0dry))
     val givenTopVals: List[(String, String)] = givens.map { g =>
-      (g.instanceName, givenStructName(g.instanceName))
+      (g.instanceName, givenInitExpr(g.instanceName))
     }
     val topVals = baseTopVals ++ givenTopVals
     val results = defs.map(renderDef(_, intrinsics, userDefs, ctorMap, topVals, effectfulDefs))
@@ -145,10 +149,28 @@ object RustCodeWalk:
       }.toList
     case _ => Nil
 
-  /** Render a given instance as a Rust unit struct + inherent impl block. */
+  /** Render a given instance as a Rust struct + inherent impl block.
+   *  Zero-param defs become struct FIELDS (so `instance.field` works in Rust).
+   *  Multi-param defs become impl methods. */
   private def renderGiven(g: GivenInstance, ctx: Ctx): String =
     val sName  = givenStructName(g.instanceName)
-    val methodRs = g.methods.map { d =>
+    val bodyCtx0 = Ctx(ctx.intrinsics, ctx.userDefs, ctx.ctorMap, ctx.topVals, "<given>", ctx.effectfulDefs)
+    // Partition: zero-param defs → fields, others → methods.
+    val (zeroDefs, multiDefs) = g.methods.partition { d =>
+      d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).isEmpty
+    }
+    val fields = zeroDefs.map { d =>
+      val tRs  = d.decltpe.flatMap(t => mapType(t, d.name.value, ctx.enumNames).toOption).getOrElse("i64")
+      val bodyCtx = bodyCtx0.copy(defName = d.name.value)
+      val init    = renderTerm(d.body, bodyCtx).getOrElse("Default::default()")
+      (d.name.value, tRs, init)
+    }
+    val fieldDecls = if fields.isEmpty then "" else
+      fields.map { case (n, t, _) => s"    pub $n: $t," }.mkString("\n")
+    val structDef =
+      if fields.isEmpty then s"pub struct $sName;"
+      else s"pub struct $sName {\n$fieldDecls\n}"
+    val methodRs = multiDefs.map { d =>
       val mName   = d.name.value
       val params  = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
       val pList   = params.map { p =>
@@ -156,19 +178,30 @@ object RustCodeWalk:
         s"${p.name.value}: $tRs"
       }.mkString(", ")
       val retTRs  = d.decltpe.flatMap(t => mapType(t, mName, ctx.enumNames).toOption).getOrElse("i64")
-      val selfParam = if params.isEmpty then "&self" else "&self, "
-      // Render body: use renderTerm for simple expressions, fall back to "unimplemented!()".
-      val bodyCtx = Ctx(ctx.intrinsics, ctx.userDefs, ctx.ctorMap, ctx.topVals, mName, ctx.effectfulDefs)
-      val bodyRs = renderTerm(d.body, bodyCtx).getOrElse("unimplemented!()")
-      s"    #[allow(dead_code)]\n    pub fn $mName($selfParam$pList) -> $retTRs { $bodyRs }"
+      val bodyCtx = bodyCtx0.copy(defName = mName)
+      val bodyRs  = renderTerm(d.body, bodyCtx).getOrElse("unimplemented!()")
+      s"    #[allow(dead_code)]\n    pub fn $mName(&self, $pList) -> $retTRs { $bodyRs }"
     }.mkString("\n")
+    // Build the struct init expression for the topVal injection.
+    val structInit =
+      if fields.isEmpty then sName
+      else s"$sName { ${fields.map { case (n, _, init) => s"$n: $init" }.mkString(", ")} }"
+    // Stash the init string so givenTopVals can use the right expression.
+    _givenInits(g.instanceName) = structInit
+    val implBlock =
+      if multiDefs.isEmpty then ""
+      else s"\nimpl $sName {\n$methodRs\n}"
     s"""// ── given instance: ${g.instanceName} ──
-       |#[derive(Debug, Clone, Copy)]
-       |pub struct $sName;
-       |impl $sName {
-       |$methodRs
-       |}
+       |#[derive(Debug, Clone)]
+       |$structDef$implBlock
        |""".stripMargin
+
+  /** Mutable cache: maps given instance name → its Rust constructor expression. */
+  private val _givenInits = scala.collection.mutable.Map.empty[String, String]
+
+  /** Returns the struct-init expression for a given instance (populated by renderGiven). */
+  private def givenInitExpr(instanceName: String): String =
+    _givenInits.getOrElse(instanceName, givenStructName(instanceName))
 
   // ── Defn.Def collection ──────────────────────────────────────────────
 
@@ -810,6 +843,11 @@ object RustCodeWalk:
     // The effect parameter is threaded separately via `_eff` (see renderDef).
     case m.Type.ApplyInfix(baseType, m.Type.Name("!"), _) =>
       mapType(baseType, defName, enumNames)
+    // Unknown simple type name — likely a type parameter (e.g. `A` in `combineAll[A: Monoid]`).
+    // Fall back to `i64` (the most common ScalaScript numeric type) so generic functions
+    // can be emitted. rustc will reject mis-typed code; the diagnostic is better than
+    // a codegen error.
+    case m.Type.Name(_) => Right("i64")
     case other =>
       Left(List(unsupported(
         s"def `$defName` uses type `${other.syntax}`; R.2 accepts primitives, enums, function types, tuple, and List/Vec"
@@ -1122,16 +1160,32 @@ object RustCodeWalk:
         body <- renderVecIterBody(args.values.head, q, ctx, method = "map")
       yield body
 
-    // xs.filter(f) → xs.iter().cloned().filter(move |p| body).collect::<Vec<_>>()
+    // Range chains: filter on range/iterator → q.filter(move |&p| { body })
+    // Uses |&p| to destructure the &T reference that Iterator::filter passes.
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("filter")), args
-    ) if args.values.size == 1 && !isOptionExpr(qual) =>
+    ) if isRangeExpr(qual) && args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        f <- args.values.head match
+          case fn2: m.Term.Function =>
+            val p = fn2.paramClause.values.headOption.map(_.name.value).getOrElse("x")
+            renderTerm(fn2.body, ctx).map(b => s"move |&$p| { $b }")
+          case other =>
+            renderTerm(other, ctx).map(f => s"|x| ($f)(*x)")
+      yield s"$q.filter($f)"
+
+    // xs.filter(f) → xs.iter().cloned().filter(move |p| body).collect::<Vec<_>>()
+    // Only for Vec expressions (not range/iterator chains).
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("filter")), args
+    ) if args.values.size == 1 && !isOptionExpr(qual) && !isRangeExpr(qual) =>
       for
         q <- renderTerm(qual, ctx)
         body <- renderVecIterBody(args.values.head, q, ctx, method = "filter")
       yield body
 
-    // Range chains.
+    // Range chains: map on range/iterator → q.map(f)
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("map")),
         args
