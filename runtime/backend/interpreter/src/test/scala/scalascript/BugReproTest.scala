@@ -55,6 +55,38 @@ println(result.map(p => p._1.toString + p._2).mkString(","))"""
     ) shouldBe "0r0,1r1,2r2"
   }
 
+  test("while-loop accumulates into a typed empty tuple list") {
+    captured(
+"""var i = 0
+var result: List[(Int, String)] = List[(Int, String)]()
+while i < 3 do
+  result = result :+ (i, "r" + i)
+  i += 1
+println(result.length)
+println(i)"""
+    ) shouldBe "3\n3"
+  }
+
+  // Same shape, but the loop is hot enough to tier up to the while-JIT — guards
+  // against the JIT treating the typed-list accumulator var as a dead/counter slot.
+  test("hot function with typed-list while loop keeps appends (while-JIT path)") {
+    captured(
+"""def build(n: Int): Int =
+  var i = 0
+  var result: List[(Int, Int)] = List[(Int, Int)]()
+  while i < n do
+    result = result :+ (i, i * 2)
+    i += 1
+  result.length
+var total = 0
+var k = 0
+while k < 200000 do
+  total = build(3)
+  k += 1
+println(total)"""
+    ) shouldBe "3"
+  }
+
   // ── multi-line function body: last expression must be returned ────────────
 
   test("multi-line function: binary expression as last statement") {
