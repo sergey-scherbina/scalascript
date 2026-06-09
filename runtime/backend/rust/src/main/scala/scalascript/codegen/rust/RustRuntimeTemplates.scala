@@ -124,12 +124,17 @@ object RustRuntimeTemplates:
       |    std::env::args().skip(1).collect()
       |}
       |
-      |/// `env(name)` — value of an environment variable, or empty string
-      |/// when unset.  Returns an owned `String`; SS code can compare it
-      |/// to `""` to detect unset.
+      |/// `env(key)` — value of an environment variable as `Option[String]`.
+      |/// Returns `None` when the variable is unset or contains invalid UTF-8.
       |#[allow(dead_code)]
-      |pub fn _env(name: &str) -> String {
-      |    std::env::var(name).unwrap_or_default()
+      |pub fn _env(name: &str) -> Option<String> {
+      |    std::env::var(name).ok()
+      |}
+      |
+      |/// `envOrElse(key, default)` — env var value or a fallback string.
+      |#[allow(dead_code)]
+      |pub fn _env_or_else(name: &str, default: &str) -> String {
+      |    std::env::var(name).unwrap_or_else(|_| default.to_string())
       |}
       |
       |/// `exit(code)` — terminate the process immediately with the
@@ -138,6 +143,185 @@ object RustRuntimeTemplates:
       |#[allow(dead_code)]
       |pub fn _exit(code: i64) -> ! {
       |    std::process::exit(code as i32)
+      |}
+      |
+      |// ── std.fs — full filesystem API (pure std::fs, no extra crates) ──
+      |
+      |#[allow(dead_code)]
+      |pub fn _append_file(path: &str, contents: &str) {
+      |    use std::io::Write;
+      |    let mut f = std::fs::OpenOptions::new().create(true).append(true)
+      |        .open(path)
+      |        .unwrap_or_else(|e| panic!("appendFile({}): {}", path, e));
+      |    f.write_all(contents.as_bytes())
+      |        .unwrap_or_else(|e| panic!("appendFile({}): {}", path, e));
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _read_bytes(path: &str) -> Vec<i64> {
+      |    std::fs::read(path)
+      |        .unwrap_or_else(|e| panic!("readBytes({}): {}", path, e))
+      |        .into_iter().map(|b| b as i64).collect()
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _write_bytes(path: &str, bytes: Vec<i64>) {
+      |    let data: Vec<u8> = bytes.into_iter().map(|b| b as u8).collect();
+      |    std::fs::write(path, data)
+      |        .unwrap_or_else(|e| panic!("writeBytes({}): {}", path, e));
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _exists(path: &str) -> bool { std::path::Path::new(path).exists() }
+      |
+      |#[allow(dead_code)]
+      |pub fn _is_file(path: &str) -> bool { std::path::Path::new(path).is_file() }
+      |
+      |#[allow(dead_code)]
+      |pub fn _is_dir(path: &str) -> bool { std::path::Path::new(path).is_dir() }
+      |
+      |#[allow(dead_code)]
+      |pub fn _mkdir(path: &str) {
+      |    let p = std::path::Path::new(path);
+      |    if !p.exists() { std::fs::create_dir(p)
+      |        .unwrap_or_else(|e| panic!("mkdir({}): {}", path, e)); }
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _mkdirs(path: &str) {
+      |    std::fs::create_dir_all(path)
+      |        .unwrap_or_else(|e| panic!("mkdirs({}): {}", path, e));
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _list_dir(path: &str) -> Vec<String> {
+      |    std::fs::read_dir(path)
+      |        .unwrap_or_else(|e| panic!("listDir({}): {}", path, e))
+      |        .filter_map(|e| e.ok())
+      |        .map(|e| e.file_name().to_string_lossy().into_owned())
+      |        .collect()
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _delete_file(path: &str) {
+      |    let p = std::path::Path::new(path);
+      |    if p.is_dir() { std::fs::remove_dir_all(p) } else { std::fs::remove_file(p) }
+      |        .unwrap_or_else(|e| panic!("deleteFile({}): {}", path, e));
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _copy_file(src: &str, dst: &str) {
+      |    std::fs::copy(src, dst)
+      |        .unwrap_or_else(|e| panic!("copyFile({}, {}): {}", src, dst, e));
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _move_file(src: &str, dst: &str) {
+      |    std::fs::rename(src, dst)
+      |        .unwrap_or_else(|e| panic!("moveFile({}, {}): {}", src, dst, e));
+      |}
+      |
+      |// ── std.os — OS environment (pure std::env, std::path) ──
+      |
+      |#[allow(dead_code)]
+      |pub fn _cwd() -> String {
+      |    std::env::current_dir()
+      |        .unwrap_or_else(|e| panic!("cwd: {}", e))
+      |        .to_string_lossy().into_owned()
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _sep() -> String { std::path::MAIN_SEPARATOR.to_string() }
+      |
+      |#[allow(dead_code)]
+      |pub fn _path_join(parts: Vec<String>) -> String {
+      |    parts.iter().fold(std::path::PathBuf::new(), |mut p, s| { p.push(s); p })
+      |        .to_string_lossy().into_owned()
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _path_dirname(path: &str) -> String {
+      |    std::path::Path::new(path).parent()
+      |        .map(|p| p.to_string_lossy().into_owned())
+      |        .unwrap_or_default()
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _path_basename(path: &str) -> String {
+      |    std::path::Path::new(path).file_name()
+      |        .map(|n| n.to_string_lossy().into_owned())
+      |        .unwrap_or_default()
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _path_extname(path: &str) -> String {
+      |    std::path::Path::new(path).extension()
+      |        .map(|e| format!(".{}", e.to_string_lossy()))
+      |        .unwrap_or_default()
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _path_resolve(path: &str) -> String {
+      |    std::fs::canonicalize(path)
+      |        .unwrap_or_else(|_| std::path::PathBuf::from(path))
+      |        .to_string_lossy().into_owned()
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _path_is_absolute(path: &str) -> bool {
+      |    std::path::Path::new(path).is_absolute()
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _temp_dir() -> String {
+      |    std::env::temp_dir().to_string_lossy().into_owned()
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _temp_file(prefix: &str, suffix: &str) -> String {
+      |    let dir = std::env::temp_dir();
+      |    let name = format!("{}{}{}", prefix, std::process::id(), suffix);
+      |    dir.join(name).to_string_lossy().into_owned()
+      |}
+      |
+      |/// `platform` — always "Native" on the Rust target.
+      |#[allow(dead_code)]
+      |pub fn _platform() -> String { "Native".to_string() }
+      |
+      |#[allow(dead_code)]
+      |pub fn _homedir() -> String {
+      |    std::env::var("HOME")
+      |        .or_else(|_| std::env::var("USERPROFILE"))
+      |        .unwrap_or_else(|_| ".".to_string())
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _hostname() -> String {
+      |    std::env::var("HOSTNAME")
+      |        .or_else(|_| std::env::var("COMPUTERNAME"))
+      |        .unwrap_or_else(|_| "localhost".to_string())
+      |}
+      |
+      |// ── std.process — exec via std::process::Command ──
+      |
+      |#[derive(Debug, Clone)]
+      |pub struct ProcessResult {
+      |    pub stdout:   String,
+      |    pub stderr:   String,
+      |    pub exitCode: i64,
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _exec(cmd: &str, args: Vec<String>) -> ProcessResult {
+      |    let out = std::process::Command::new(cmd)
+      |        .args(&args)
+      |        .output()
+      |        .unwrap_or_else(|e| panic!("exec({}): {}", cmd, e));
+      |    ProcessResult {
+      |        stdout:   String::from_utf8_lossy(&out.stdout).into_owned(),
+      |        stderr:   String::from_utf8_lossy(&out.stderr).into_owned(),
+      |        exitCode: out.status.code().unwrap_or(-1) as i64,
+      |    }
       |}
       |""".stripMargin
 

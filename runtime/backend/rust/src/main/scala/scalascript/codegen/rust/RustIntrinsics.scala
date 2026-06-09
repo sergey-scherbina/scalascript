@@ -19,6 +19,19 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("nowMillis")        -> RuntimeCall("crate::runtime::_now_millis"),
   QualifiedName("readFile")         -> RuntimeCall("crate::runtime::_read_file"),
   QualifiedName("writeFile")        -> RuntimeCall("crate::runtime::_write_file"),
+  // std.fs — full filesystem API (pure std::fs).
+  QualifiedName("appendFile")       -> RuntimeCall("crate::runtime::_append_file"),
+  QualifiedName("readBytes")        -> RuntimeCall("crate::runtime::_read_bytes"),
+  QualifiedName("writeBytes")       -> RuntimeCall("crate::runtime::_write_bytes"),
+  QualifiedName("exists")           -> RuntimeCall("crate::runtime::_exists"),
+  QualifiedName("isFile")           -> RuntimeCall("crate::runtime::_is_file"),
+  QualifiedName("isDir")            -> RuntimeCall("crate::runtime::_is_dir"),
+  QualifiedName("mkdir")            -> RuntimeCall("crate::runtime::_mkdir"),
+  QualifiedName("mkdirs")           -> RuntimeCall("crate::runtime::_mkdirs"),
+  QualifiedName("listDir")          -> RuntimeCall("crate::runtime::_list_dir"),
+  QualifiedName("deleteFile")       -> RuntimeCall("crate::runtime::_delete_file"),
+  QualifiedName("copyFile")         -> RuntimeCall("crate::runtime::_copy_file"),
+  QualifiedName("moveFile")         -> RuntimeCall("crate::runtime::_move_file"),
   // R.3.2 — crypto + base64.  RustGen scans the IR for these names and
   // only adds the `sha2` / `base64` crates to Cargo.toml when reached.
   QualifiedName("sha256")           -> RuntimeCall("crate::runtime::_sha256"),
@@ -27,10 +40,27 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   // R.3.3 — JSON.  Pulls `serde_json` into Cargo.toml only when reached.
   QualifiedName("jsonParse")        -> RuntimeCall("crate::runtime::_json_parse"),
   QualifiedName("jsonStringify")    -> RuntimeCall("crate::runtime::_json_stringify"),
-  // R.3.4 — process & env (pure std, no extra crate deps).
+  // R.3.4 / std.os — process & env (pure std, no extra crate deps).
   QualifiedName("args")             -> RuntimeCall("crate::runtime::_args"),
   QualifiedName("env")              -> RuntimeCall("crate::runtime::_env"),
+  QualifiedName("envOrElse")        -> RuntimeCall("crate::runtime::_env_or_else"),
   QualifiedName("exit")             -> RuntimeCall("crate::runtime::_exit"),
+  // std.os — path + platform intrinsics (pure std::env / std::path).
+  QualifiedName("cwd")              -> RuntimeCall("crate::runtime::_cwd"),
+  QualifiedName("sep")              -> RuntimeCall("crate::runtime::_sep"),
+  QualifiedName("pathJoin")         -> RuntimeCall("crate::runtime::_path_join"),
+  QualifiedName("pathDirname")      -> RuntimeCall("crate::runtime::_path_dirname"),
+  QualifiedName("pathBasename")     -> RuntimeCall("crate::runtime::_path_basename"),
+  QualifiedName("pathExtname")      -> RuntimeCall("crate::runtime::_path_extname"),
+  QualifiedName("pathResolve")      -> RuntimeCall("crate::runtime::_path_resolve"),
+  QualifiedName("pathIsAbsolute")   -> RuntimeCall("crate::runtime::_path_is_absolute"),
+  QualifiedName("tempDir")          -> RuntimeCall("crate::runtime::_temp_dir"),
+  QualifiedName("tempFile")         -> RuntimeCall("crate::runtime::_temp_file"),
+  QualifiedName("platform")         -> RuntimeCall("crate::runtime::_platform"),
+  QualifiedName("homedir")          -> RuntimeCall("crate::runtime::_homedir"),
+  QualifiedName("hostname")         -> RuntimeCall("crate::runtime::_hostname"),
+  // std.process — exec via std::process::Command (no extra crate deps).
+  QualifiedName("exec")             -> RuntimeCall("crate::runtime::_exec"),
   // R.5 — HTTP server.  Pulls tokio + hyper + http-body-util + bytes +
   // hyper-util into Cargo.toml only when reached.
   QualifiedName("serve")            -> RuntimeCall("crate::runtime::http::_http_serve"),

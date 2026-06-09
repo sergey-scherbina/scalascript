@@ -43,7 +43,7 @@ class RustGenR34Test extends AnyFunSuite:
         |```
         |""".stripMargin)
     assert(r.contains("pub fn _args() -> Vec<String>"))
-    assert(r.contains("pub fn _env(name: &str) -> String"))
+    assert(r.contains("pub fn _env(name: &str) -> Option<String>"))
     assert(r.contains("pub fn _exit(code: i64) ->"))
 
   test("env() call site borrows its arg"):
