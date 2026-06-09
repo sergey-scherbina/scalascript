@@ -4014,6 +4014,14 @@ private[interpreter] object EvalRuntime:
    *  the hoisted `Term.Select`-head fast path above. */
   private def evalApplyGeneral(app: Term.Apply, env: Env, interp: Interpreter): Computation =
       app.fun match
+        // ── Bench.opaque(x) — fast-path identity, avoids native-dispatch
+        // cost (~2.5µs per call → 2.5s on 1M-iter benches). Just evaluate
+        // the argument; the Rust target maps Bench.opaque to std::hint::
+        // black_box at codegen time, so the anti-folding effect still
+        // applies on AOT. On interp, Bench.opaque is a transparent no-op.
+        case Term.Select(Term.Name("Bench"), Term.Name("opaque"))
+            if app.argClause.values.size == 1 =>
+          eval(app.argClause.values.head, env, interp)
         // ── .copy(field = value, ...) on an InstanceV ────────────────
         // Named args arrive as Term.Assign(Term.Name(field), rhs); we have
         // to intercept BEFORE the generic eval path, otherwise Term.Assign

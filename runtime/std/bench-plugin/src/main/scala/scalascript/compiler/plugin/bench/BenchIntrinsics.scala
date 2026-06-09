@@ -27,16 +27,9 @@ object BenchIntrinsics:
 
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
-    QualifiedName("Bench.opaque") -> native {
-      case List(x) => PluginValue.wrap(x).unwrap match
-        case s: String     => Value.StringV(s)
-        case b: Boolean    => Value.boolV(b)
-        case l: Long       => Value.IntV(l)
-        case i: Int        => Value.IntV(i.toLong)
-        case d: Double     => Value.DoubleV(d)
-        case f: Float      => Value.DoubleV(f.toDouble)
-        case v: Value      => v
-        case other         => Value.StringV(other.toString)
-      case _ => Value.UnitV
-    }
+    // Fastest identity: bypass PluginValue.wrap/unwrap, just return the
+    // argument the interpreter passed in. Argument is already a Value (the
+    // interpreter wraps before calling NativeImpl.eval).
+    QualifiedName("Bench.opaque") -> NativeImpl((_, args) =>
+      if args.isEmpty then Value.UnitV else args.head)
   )
