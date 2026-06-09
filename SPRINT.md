@@ -1557,3 +1557,78 @@ Spec to write first: `specs/std-pdf.md`
 - [ ] **pdf-p5-rust** — Rust codegen for `pdfToMarkdown` / `pdfPageCount` via the
       `pdf-extract` (or `lopdf`) crate. Defer until JVM+JS are green; gate behind the
       Rust intrinsics MVP. Commit: `feat(rust): std.pdf intrinsics`.
+
+---
+
+## std.ui — busi UI feedback (2026-06-09)
+
+From busi's `docs/scalascript-ui-proposals.md` (e9cfa34), grounded in 17 real web
+screens; refined with busi in rozum (`scalascript` room). busi frontends are web React
+**and** macOS/iOS SwiftUI, so all surface stays backend-agnostic (`TkNode` level), never
+web-CSS-coupled. Start order: **P1 + P4 parallel → P2 → P3 (deferred, in BACKLOG)**.
+
+### P1 — typed JSON in `fetch*` (spec: `specs/std-ui-typed-json.md`)
+
+Highest ROI; removes 13 duplicated `*Q` escapers + substring decoders across screens.
+Pure stdlib, helps web + native. Builds on existing `json-plugin`
+(`jsonParse`/`jsonStringify`/`lookup`) — no second parser.
+
+- [x] **ui-typed-json-p1-spec** — `specs/std-ui-typed-json.md`. ✓ Landed 2026-06-09.
+
+- [ ] **ui-typed-json-p2-core** — Navigable `JsonValue` opaque type + total accessors
+      (`get`/`at`/`asString`/`asInt`/`asDouble`/`asBool`/`asList`/`opt*`/`getOrElse`) and
+      structured builders (`jStr`/`jNum`/`jBool`/`jArr`/`jField`/`jObj`/`jsonStringify`).
+      Wrap interp `JsonParser` + `lookupKey`; tolerant parse → `Null`, `jsonParseStrict`
+      throws. JVM intrinsics in `json-plugin` (extend) + JS preamble (`JSON.parse/stringify`
+      w/ runtime escape). Tests: round-trip escaping, totality, number coercion.
+      Commit: `feat(json): navigable JsonValue + structured builders`.
+
+- [ ] **ui-typed-json-p3-fetch** — `fetchJsonSignal(name,url,tick,headers): Signal[JsonValue]`
+      and `fetchJsonAction(method,url,()=>JsonValue,tick,headers): EventHandler` in
+      `primitives.ssc` + ui-fetch-plugin. JVM + JS lowering mirrors `fetchUrlSignal`,
+      additionally JSON-decodes body / stringifies request. Tests: stub endpoint yields
+      navigable value; `computedSignal` re-renders on tick.
+      Commit: `feat(ui): fetchJsonSignal + fetchJsonAction`.
+
+- [ ] **ui-typed-json-p4-stdlib** — `runtime/std/ui/json.ssc` surface (re-export from ui
+      barrel), `examples/ui-typed-json.ssc`, README capabilities row + `docs/user-guide.md`.
+      Commit: `feat(std): std.ui typed-json module + example`.
+
+### P2 — token-aware styled `TkNode` + status primitives (spec: `specs/std-ui-styled-tknode.md`)
+
+Kills inline-CSS soup; makes dark/mobile + native theming work. **No CSS-string builder**
+— `Style` fields are `Theme`-token refs resolved by `lower` per target (agreed with busi).
+Start after P1.
+
+- [x] **ui-styled-p1-spec** — `specs/std-ui-styled-tknode.md`. ✓ Landed 2026-06-09.
+
+- [ ] **ui-styled-p2-nodes** — In `nodes.ssc`: `Style` descriptor (bg/fg/border/radius/
+      padding/margin/font as token enums; **no layout**), `StyledNode`, `TagNode`,
+      `PillNode`, `KpiCardNode`, `TabBarNode`(+`Tab`). Constructors in `display.ssc`:
+      `styled`, `tag`, `pill`, `kpiCard`, `tabBar`; extend `badge` variant default to
+      status set. Variant is a **runtime** value (no compile-time-only enum).
+      Commit: `feat(ui): styled TkNode + status/composite primitives`.
+
+- [ ] **ui-styled-p3-lower** — `lower.ssc`: resolve `Style` token refs → themed CSS
+      (web), badge/tag/pill variant→`ColorToken` table (unknown→neutral), kpiCard/tabBar
+      lowering. Tests: token resolves to `defaultTheme`/`darkTheme` value, zero hex
+      literals emitted, runtime variant renders correct color across re-renders.
+      Commit: `feat(ui): lower token-aware Style + status primitives`.
+
+- [ ] **ui-styled-p4-example** — `examples/ui-styled-primitives.ssc`, README row,
+      `docs/user-guide.md` subsection, busi-facing migration note (replace `web/ui.ssc`
+      helpers + inline-CSS). Commit: `feat(std): std.ui styled primitives example`.
+
+### P4 — UI runtime bugs (bug fixes — no spec)
+
+- [ ] **ui-bug-browser-columns** — `_ssc_ui_moneyColumn` / `_ssc_ui_statusColumn` /
+      `_ssc_ui_dateColumn` are referenced by `mcol`/`scol`/`dcol` as free vars but not
+      defined in the browser JS runtime → `ReferenceError`. Add the stubs to the
+      browser-patch section alongside `_ssc_ui_fieldColumn`. Test: emit-spa output
+      defines all three. Commit: `fix(jsgen): define browser column stubs (mcol/scol/dcol)`.
+
+- [ ] **ui-bug-jobj-failloud** — Nested `jObj(List(jField(... jObj(...))))` with a paren
+      mismatch triggers a silent ScalaMeta `termParam` NPE / interpreter hang (no error).
+      Make the parser fail loudly with a located message. P1 removes the need to
+      hand-build these, but the parser must not hang. Test: malformed nested call →
+      diagnostic, not NPE/hang. Commit: `fix(parser): loud error on unbalanced call parens`.
