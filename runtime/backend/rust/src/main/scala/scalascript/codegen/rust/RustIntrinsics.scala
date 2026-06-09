@@ -79,5 +79,9 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   // R.6 — MCP server over stdio (JSON-RPC 2.0).
   // Only serde_json dep added (already present when JSON intrinsics are used).
   QualifiedName("mcpRegisterTool")  -> RuntimeCall("crate::runtime::mcp::_mcp_register_tool"),
-  QualifiedName("mcpServe")         -> RuntimeCall("crate::runtime::mcp::_mcp_serve")
+  QualifiedName("mcpServe")         -> RuntimeCall("crate::runtime::mcp::_mcp_serve"),
+  // Bench.opaque(x) — identity that prevents LLVM constant-folding the
+  // surrounding expression.  Maps to std::hint::black_box; same shape per
+  // arg type.  On other backends this is identity (no fold to defeat).
+  QualifiedName("Bench.opaque")     -> RuntimeCall("std::hint::black_box")
 )

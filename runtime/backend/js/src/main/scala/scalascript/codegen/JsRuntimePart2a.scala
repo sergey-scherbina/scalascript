@@ -190,6 +190,10 @@ function _Some(v) { return {_type: '_Some', value: v}; }
 function Left(v) { return {_type: 'Left', value: v}; }
 function Right(v) { return {_type: 'Right', value: v}; }
 
+// std.bench — Bench.opaque identity (anti-folding helper for Rust target;
+// V8 doesn't constant-fold pure-arith loops the way LLVM does, so identity is fine).
+const Bench = { opaque: (x) => x };
+
 const math = {
   sqrt: x => Math.sqrt(x), abs: x => Math.abs(x),
   pow: (x,y) => Math.pow(x,y), floor: x => Math.floor(x),

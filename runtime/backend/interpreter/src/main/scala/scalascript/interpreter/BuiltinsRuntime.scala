@@ -789,6 +789,12 @@ private[interpreter] object BuiltinsRuntime:
         "triples"        -> interp.globals("Graph.triples")
       ))
     }
+    // std.bench — Bench.opaque identity (anti-folding barrier on Rust target).
+    interp.globals.get("Bench.opaque").foreach { opaqueFn =>
+      interp.globals("Bench") = Value.InstanceV("Bench", Map(
+        "opaque" -> opaqueFn
+      ))
+    }
     // v1.51 Streams — assemble Source companion from individual Source.* intrinsics
     interp.globals.get("Source.from").foreach { fromFn =>
       interp.globals("Source") = Value.InstanceV("Source", Map(

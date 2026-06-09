@@ -1077,6 +1077,7 @@ lazy val cli = project
         (paymentsPlugin        / packagePlugin).value,
         (uuidPlugin            / packagePlugin).value,
         (cryptoPlugin          / packagePlugin).value,
+        (benchPlugin           / packagePlugin).value,
       )
       pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
       log.info(s"bin/lib/compiler/plugins/  (${pluginPkgs.size} .sscpkg files)")
@@ -2655,6 +2656,18 @@ lazy val cryptoPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.crypto"))
 
+// ── Bench — bench-harness helpers (Bench.opaque identity / anti-folding) ──
+lazy val benchPlugin = project
+  .in(file("runtime/std/bench-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-bench-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.bench"))
+
 // ── UUID — v4/v7 generation, parsing, validation ──────────────────────────
 lazy val uuidPlugin = project
   .in(file("runtime/std/uuid-plugin"))
@@ -2798,6 +2811,7 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("crypto",          cryptoPlugin,          "scalascript-crypto-plugin"),
   PluginSpec("fs",              fsPlugin,              "scalascript-fs-plugin"),
   PluginSpec("os",              osPlugin,              "scalascript-os-plugin"),
+  PluginSpec("bench",           benchPlugin,           "scalascript-bench-plugin"),
 )
 
 // ── Frontend backend registry (arch-build-registry Phase 4) ─────────────

@@ -1,0 +1,27 @@
+---
+name: std-bench
+version: 1.0.0
+description: Bench helpers — opaque (anti-folding) intrinsic
+package: std.bench
+exports:
+  - Bench
+---
+
+# std.bench — bench-harness helpers
+
+Helpers used by the bench corpus to defeat ahead-of-time compiler folding.
+
+`Bench.opaque(x)` is the identity function — it returns its argument
+unchanged. Its job is to prevent the compiler (especially LLVM on the Rust
+backend) from proving the surrounding expression is a compile-time constant.
+
+On JVM / JS / interp this is a regular function call. On Rust it lowers to
+`std::hint::black_box`, the canonical anti-folding barrier.
+
+Use sparingly — only in bench corpus loops where LLVM would otherwise replace
+the loop body with a single closed-form constant (e.g. `for i in 0..N { sum
++= i }` → Gauss' formula).
+
+```scalascript
+extern def Bench.opaque[A](x: A): A
+```

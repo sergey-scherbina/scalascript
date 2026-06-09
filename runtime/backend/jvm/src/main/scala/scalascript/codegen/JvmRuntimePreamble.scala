@@ -67,6 +67,12 @@ object JvmRuntimePreamble:
        |  def println(v: Any): Unit = scala.Predef.println(_show(v))
        |  def print(v: Any): Unit   = scala.Predef.print(_show(v))
        |
+       |// std.bench — Bench.opaque identity (anti-folding helper for Rust target;
+       |// here it's a no-op identity, JIT may inline it but HotSpot doesn't fold
+       |// pure-arith loops the way LLVM does).
+       |object Bench:
+       |  @scala.annotation.nowarn inline def opaque[A](x: A): A = x
+       |
        |// `sx` is like `s` but routes each interpolated value through `_show`,
        |// so a whole-number Double interpolated into a string drops its ".0".
        |// Code-block emission rewrites `s"..."` to `sx"..."` for the same reason.
