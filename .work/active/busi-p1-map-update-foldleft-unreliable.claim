@@ -1,3 +1,0 @@
-busi-p1-map-update-foldleft-unreliable: foldLeft accumulating Map[String,CaseClass]; re-constructing a 10+field case class for an updated copy then .values.toList.sortBy / keyed-access yields "Instance is not callable". Root cause unknown.
-agent: opus-autonomous
-started: 2026-06-10
