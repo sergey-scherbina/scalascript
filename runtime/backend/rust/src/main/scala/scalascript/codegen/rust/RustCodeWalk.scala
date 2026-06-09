@@ -45,6 +45,7 @@ object RustCodeWalk:
     val traitEnums        = collectSealedTraitEnums(module)
     val standaloneCases   = collectStandaloneCaseClasses(module, traitEnums)
     val rustBlocks        = collectRustBlocks(module)
+    val givens            = collectGivens(module)
     val userDefs          = defs.map(_.name.value).toSet
     // Collect names of defs that carry a `T ! EffectName` return type so
     // call sites can thread the `_eff` parameter automatically.
@@ -59,13 +60,21 @@ object RustCodeWalk:
     val ctorMap = enumOk.flatMap(_.ctors).toMap ++
       structOk.map(s => s.structName -> EnumCtor(s.structName, s.fieldNames)).toMap
     // topVals must be collected after ctorMap so enum ctors are resolved correctly.
-    val topVals    = collectTopVals(module, ctorMap)
+    // Given instances are injected as `let name = StructName;` bindings.
+    val baseTopVals = collectTopVals(module, ctorMap)
+    val givenTopVals: List[(String, String)] = givens.map { g =>
+      (g.instanceName, givenStructName(g.instanceName))
+    }
+    val topVals = baseTopVals ++ givenTopVals
     val results = defs.map(renderDef(_, intrinsics, userDefs, ctorMap, topVals, effectfulDefs))
     val (errors, ok) = results.partitionMap(identity)
     val allErrs = enumErrs.flatten ++ structErrs.flatten ++ errors.flatten
     if allErrs.nonEmpty then Left(allErrs)
     else
       val enumBlock = structOk.map(_.render).mkString + enumOk.map(_.render).mkString
+      // Render given instances as Rust structs + impls, emitted before the defs.
+      val ctx0 = Ctx(intrinsics, userDefs, ctorMap, topVals, "<given>", effectfulDefs)
+      val givenBlock = givens.map(g => renderGiven(g, ctx0)).mkString
       val rustVerbatim = rustBlocks.zipWithIndex.map { case (src, i) =>
         s"""// ── rust block ${i + 1} ──
            |$src
@@ -73,7 +82,9 @@ object RustCodeWalk:
       }.mkString
       val body =
         enumBlock +
-        (if enumBlock.nonEmpty && ok.nonEmpty then "\n" else "") +
+        (if enumBlock.nonEmpty || givenBlock.nonEmpty then "\n" else "") +
+        givenBlock +
+        (if givenBlock.nonEmpty && ok.nonEmpty then "\n" else "") +
         (if ok.isEmpty then "" else ok.map(_.render).mkString("\n")) +
         (if rustBlocks.isEmpty then "" else "\n" + rustVerbatim)
       // Collect effect names from `T ! E` return types AND from runXxx usage.
@@ -102,6 +113,62 @@ object RustCodeWalk:
       |//! intrinsics (`println`, `print`) route to `crate::runtime::_*`.
       |//! `rust` fence blocks from the source are appended verbatim.
       |""".stripMargin
+
+  // ── Defn.Given collection (R.6 typeclasses) ──────────────────────────
+
+  private case class GivenInstance(
+      instanceName: String,   // e.g. "intSum"
+      methods:      List[m.Defn.Def]
+  )
+
+  /** Derive the Rust struct name for a given instance: capitalize first char + "Given". */
+  private def givenStructName(name: String): String =
+    if name.isEmpty then "UnknownGiven"
+    else s"${name.head.toUpper}${name.tail}Given"
+
+  /** Collect top-level `given X: T with { defs }` from all code blocks. */
+  private def collectGivens(module: ast.Module): List[GivenInstance] =
+    module.sections.flatMap(sectionGivens)
+
+  private def sectionGivens(s: ast.Section): List[GivenInstance] =
+    s.content.flatMap(contentGivens) ++ s.subsections.flatMap(sectionGivens)
+
+  private def contentGivens(c: ast.Content): List[GivenInstance] = c match
+    case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _)
+        if isScalaLang(lang) =>
+      node.tree.collect {
+        case g: m.Defn.Given if g.templ.body.stats.nonEmpty =>
+          GivenInstance(
+            instanceName = g.name.value,
+            methods      = g.templ.body.stats.collect { case d: m.Defn.Def => d }
+          )
+      }.toList
+    case _ => Nil
+
+  /** Render a given instance as a Rust unit struct + inherent impl block. */
+  private def renderGiven(g: GivenInstance, ctx: Ctx): String =
+    val sName  = givenStructName(g.instanceName)
+    val methodRs = g.methods.map { d =>
+      val mName   = d.name.value
+      val params  = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+      val pList   = params.map { p =>
+        val tRs = p.decltpe.flatMap(t => mapType(t, mName, ctx.enumNames).toOption).getOrElse("i64")
+        s"${p.name.value}: $tRs"
+      }.mkString(", ")
+      val retTRs  = d.decltpe.flatMap(t => mapType(t, mName, ctx.enumNames).toOption).getOrElse("i64")
+      val selfParam = if params.isEmpty then "&self" else "&self, "
+      // Render body: use renderTerm for simple expressions, fall back to "unimplemented!()".
+      val bodyCtx = Ctx(ctx.intrinsics, ctx.userDefs, ctx.ctorMap, ctx.topVals, mName, ctx.effectfulDefs)
+      val bodyRs = renderTerm(d.body, bodyCtx).getOrElse("unimplemented!()")
+      s"    #[allow(dead_code)]\n    pub fn $mName($selfParam$pList) -> $retTRs { $bodyRs }"
+    }.mkString("\n")
+    s"""// ── given instance: ${g.instanceName} ──
+       |#[derive(Debug, Clone, Copy)]
+       |pub struct $sName;
+       |impl $sName {
+       |$methodRs
+       |}
+       |""".stripMargin
 
   // ── Defn.Def collection ──────────────────────────────────────────────
 
@@ -1580,39 +1647,46 @@ object RustCodeWalk:
           s"intrinsic `${qn.value}` uses ${other.getClass.getSimpleName}; rust target accepts only RuntimeCall"
         )))
       case None =>
-        val plainName = fn match
-          case m.Term.Name(n) => Some(n)
-          case _              => None
-        plainName.flatMap { n =>
-          ctx.ctorMap.get(n).map { ec =>
-            val fields = ec.fieldNames.zip(renderedArgs)
-            val body   =
-              if fields.isEmpty then ""
-              else " { " + fields.map((fn, a) => s"$fn: $a").mkString(", ") + " }"
-            // Struct: enumName == n (standalone case class) → `StructName { fields }`
-            // Enum variant: enumName != n → `EnumName::Variant { fields }`
-            if ec.enumName == n then s"$n$body"
-            else s"${ec.enumName}::$n$body"
-          }
-        } match
-          case Some(rs) => Right(rs)
-          case None     =>
-            // Thread `_eff` when calling an effectful user-defined function.
-            def withEff(n: String, args: String): String =
-              if ctx.effectfulDefs.contains(n) then
-                if args.isEmpty then s"$n(&mut _eff)"
-                else s"$n($args, &mut _eff)"
-              else s"$n($args)"
-            plainName.filter(ctx.userDefs.contains) match
-              case Some(n) => Right(withEff(n, joined))
-              case None    =>
-                // Fallback: assume closure parameter or local binding;
-                // Cargo will reject if not.  See R.2.4.
-                plainName match
+        // `obj.method(args)` — generic method dispatch via Term.Select callee.
+        // Covers given-instance dispatch and arbitrary method calls not matched above.
+        fn match
+          case m.Term.Select(qual, m.Term.Name(meth)) =>
+            renderTerm(qual, ctx).map(q =>
+              if joined.isEmpty then s"$q.$meth()" else s"$q.$meth($joined)")
+          case _ =>
+            val plainName = fn match
+              case m.Term.Name(n) => Some(n)
+              case _              => None
+            plainName.flatMap { n =>
+              ctx.ctorMap.get(n).map { ec =>
+                val fields = ec.fieldNames.zip(renderedArgs)
+                val body   =
+                  if fields.isEmpty then ""
+                  else " { " + fields.map((fn, a) => s"$fn: $a").mkString(", ") + " }"
+                // Struct: enumName == n (standalone case class) → `StructName { fields }`
+                // Enum variant: enumName != n → `EnumName::Variant { fields }`
+                if ec.enumName == n then s"$n$body"
+                else s"${ec.enumName}::$n$body"
+              }
+            } match
+              case Some(rs) => Right(rs)
+              case None     =>
+                // Thread `_eff` when calling an effectful user-defined function.
+                def withEff(n: String, args: String): String =
+                  if ctx.effectfulDefs.contains(n) then
+                    if args.isEmpty then s"$n(&mut _eff)"
+                    else s"$n($args, &mut _eff)"
+                  else s"$n($args)"
+                plainName.filter(ctx.userDefs.contains) match
                   case Some(n) => Right(withEff(n, joined))
-                  case None    => Left(List(unsupported(
-                    s"def `${ctx.defName}` calls `${fn.syntax}` which has no resolvable name"
-                  )))
+                  case None    =>
+                    // Fallback: assume closure parameter or local binding;
+                    // Cargo will reject if not.  See R.2.4.
+                    plainName match
+                      case Some(n) => Right(withEff(n, joined))
+                      case None    => Left(List(unsupported(
+                        s"def `${ctx.defName}` calls `${fn.syntax}` which has no resolvable name"
+                      )))
 
   /** Lower a `for x <- xs yield body` (single-generator) to
    *  `xs.into_iter().map(|x| body).collect::<Vec<_>>()`.  Multi-generator

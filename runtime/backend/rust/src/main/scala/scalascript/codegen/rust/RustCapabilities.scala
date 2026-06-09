@@ -58,7 +58,10 @@ val RustCapabilities: Capabilities = Capabilities(
     Feature.McpServer,
     // R.6 — synchronous stream pipeline: Source.range/fromList + .map/.filter/.foldLeft/.toList.
     // Lowers to Rust iterator chains; no async/tokio needed for these patterns.
-    Feature.Streams
+    Feature.Streams,
+    // R.6 — typeclass support: `given X: T with { defs }` → Rust unit struct + inherent impl.
+    // Simple dispatch via named instance (no summon or context-bound resolution).
+    Feature.TypeClasses
   ),
   outputs        = Set(OutputKind.RustSource),
   options        = Set("optimizationLevel", "emitAssertions", "cargoEdition"),

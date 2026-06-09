@@ -1,0 +1,12 @@
+# typeclass-monoid
+
+`given` instance dispatch — Monoid combine via named instance.
+
+```scalascript
+given intMonoid: IntMonoid with
+  def empty: Int = 0
+  def combine(a: Int, b: Int): Int = a + b
+
+def workload(): Int =
+  intMonoid.combine(intMonoid.combine(intMonoid.combine(intMonoid.empty, 1), 2), 3)
+```
