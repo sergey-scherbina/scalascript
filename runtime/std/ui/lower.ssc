@@ -14,13 +14,84 @@ Pure function, no DOM, no async — safe for SSR.
 Import this + a Theme, build your tree with widget constructors,
 then call `serve(lower(tree, defaultTheme), 8080)`.
 
-[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, ShowWhenNode, SignalTextNode, FragmentNode, RawTextNode, TextFieldNode, CheckboxNode, SignalButtonNode, ActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode, DataTableNode](nodes.ssc)
+[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, ShowWhenNode, SignalTextNode, FragmentNode, RawTextNode, TextFieldNode, CheckboxNode, SignalButtonNode, ActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode, DataTableNode, StyledNode, TagNode, PillNode, KpiCardNode, Tab, TabBarNode, BoxNode](nodes.ssc)
 
-[Theme](theme.ssc)
+[Theme, TypographyItem](theme.ssc)
 
 [element, textNode, signalText, showSignal, fragment, setSignal, inputChange, toggleSignal, eqSignal, dataTableView](primitives.ssc)
 
 ```scalascript
+// ── Token resolution (styled-TkNode, P2) ─────────────────────────────────
+// Tokens are strings (see nodes.ssc).  Unknown colour → muted (safe default);
+// unknown space/radius/font → a sensible fallback.
+def _colorOf(c: String, theme: Theme): String = c match
+  case "primary"    => theme.colors.primary
+  case "onPrimary"  => theme.colors.onPrimary
+  case "secondary"  => theme.colors.secondary
+  case "surface"    => theme.colors.surface
+  case "onSurface"  => theme.colors.onSurface
+  case "background" => theme.colors.background
+  case "muted"      => theme.colors.muted
+  case "danger"     => theme.colors.danger
+  case "success"    => theme.colors.success
+  case "warning"    => theme.colors.warning
+  case _            => theme.colors.muted
+
+def _spaceTokOf(t: String, theme: Theme): Int = t match
+  case "xs"  => theme.spacing.xs
+  case "sm"  => theme.spacing.sm
+  case "smd" => theme.spacing.smd
+  case "md"  => theme.spacing.md
+  case "lg"  => theme.spacing.lg
+  case "xl"  => theme.spacing.xl
+  case "xxl" => theme.spacing.xxl
+  case _     => theme.spacing.md
+
+// A length is a space token (rescales under mobileTheme) or a bare px number.
+def _lenOf(v: String, theme: Theme): Int =
+  try v.toInt
+  catch case _ => _spaceTokOf(v, theme)
+
+def _radiusOf(r: String, theme: Theme): Int = r match
+  case "sm"   => theme.radii.sm
+  case "md"   => theme.radii.md
+  case "lg"   => theme.radii.lg
+  case "full" => theme.radii.full
+  case _      => theme.radii.md
+
+def _fontOf(f: String, theme: Theme): TypographyItem = f match
+  case "body"    => theme.typography.body
+  case "heading" => theme.typography.heading
+  case "caption" => theme.typography.caption
+  case _         => theme.typography.body
+
+// status variant (runtime String) → themed colour.  Unknown → neutral/muted.
+def _statusColor(variant: String, theme: Theme): String = variant match
+  case "success" => theme.colors.success
+  case "danger"  => theme.colors.danger
+  case "warning" => theme.colors.warning
+  case "info"    => theme.colors.primary
+  case _         => theme.colors.muted
+
+// One style prop → CSS.  Token-resolved against the active Theme; unknown keys
+// drop out.  Nothing is hardcoded, so Theme.dark / Theme.mobile re-resolve.
+def _propCss(k: String, v: String, theme: Theme): String = k match
+  case "bg"           => s"background:${_colorOf(v, theme)};"
+  case "fg"           => s"color:${_colorOf(v, theme)};"
+  case "border"       => s"border:1px solid ${_colorOf(v, theme)};"
+  case "radius"       => s"border-radius:${_radiusOf(v, theme)}px;"
+  case "paddingX"     => val n = _lenOf(v, theme); s"padding-left:${n}px;padding-right:${n}px;"
+  case "paddingY"     => val n = _lenOf(v, theme); s"padding-top:${n}px;padding-bottom:${n}px;"
+  case "marginTop"    => s"margin-top:${_lenOf(v, theme)}px;"
+  case "marginRight"  => s"margin-right:${_lenOf(v, theme)}px;"
+  case "marginBottom" => s"margin-bottom:${_lenOf(v, theme)}px;"
+  case "marginLeft"   => s"margin-left:${_lenOf(v, theme)}px;"
+  case "font"         => val ft = _fontOf(v, theme); s"font-size:${ft.fontSize}px;font-family:${ft.fontFamily};"
+  case _              => ""
+
+def _styleCss(props: Map[String, String], theme: Theme): String =
+  props.toList.map { case (k, v) => _propCss(k, v, theme) }.mkString("")
+
 def lower(n: TkNode, theme: Theme): View = n match
 
   // ── Layout ───────────────────────────────────────────────────────────
@@ -170,18 +241,62 @@ def lower(n: TkNode, theme: Theme): View = n match
   // ── Display ──────────────────────────────────────────────────────────
   case BadgeNode(content, variant) =>
     val bg = variant match
-      case "success"      => theme.colors.success
-      case "warning"      => theme.colors.warning
-      case "danger"       => theme.colors.danger
       case "notification" => theme.colors.danger
-      case _              => theme.colors.secondary
+      case other          => _statusColor(other, theme)
     val sp = theme.spacing
-    val fs = theme.typography.body.fontSize
+    val fs = theme.typography.caption.fontSize
     val badgeStyle = s"background:${bg}; color:#ffffff; font-size:${fs}px; font-weight:600; padding:2px ${sp.xs}px; border-radius:${theme.radii.full}px; white-space:nowrap"
     element("span",
       ["style" -> badgeStyle],
       Map(),
       [textNode(content)])
+
+  case TagNode(content, variant) =>
+    val bg = _statusColor(variant, theme)
+    val ft = theme.typography.caption
+    val style = s"background:${bg}; color:#ffffff; font-size:${ft.fontSize}px; font-weight:600; padding:2px ${theme.spacing.sm}px; border-radius:${theme.radii.sm}px; white-space:nowrap"
+    element("span", ["style" -> style], Map(), [textNode(content)])
+
+  case PillNode(content, variant) =>
+    val bg = _statusColor(variant, theme)
+    val ft = theme.typography.caption
+    val style = s"background:${bg}; color:#ffffff; font-size:${ft.fontSize}px; font-weight:600; padding:2px ${theme.spacing.smd}px; border-radius:${theme.radii.full}px; white-space:nowrap"
+    element("span", ["style" -> style], Map(), [textNode(content)])
+
+  case KpiCardNode(label, value) =>
+    val sp = theme.spacing
+    val cardStyle = s"background:${theme.colors.surface}; border:1px solid ${theme.colors.muted}; border-radius:${theme.radii.md}px; padding:${sp.md}px; display:flex; flex-direction:column; gap:${sp.xs}px"
+    val labelEl = element("div",
+      ["style" -> s"font-size:${theme.typography.caption.fontSize}px; font-family:${theme.typography.caption.fontFamily}; color:${theme.colors.muted}"],
+      Map(), [textNode(label)])
+    val valueEl = element("div",
+      ["style" -> s"font-size:${theme.typography.heading.fontSize}px; font-weight:700; color:${theme.colors.onSurface}"],
+      Map(), [lower(value, theme)])
+    element("div", ["style" -> cardStyle], Map(), [labelEl, valueEl])
+
+  case TabBarNode(active, tabs) =>
+    val sp = theme.spacing
+    val t  = theme.typography.body
+    val tabEls = tabs.map { tb =>
+      val base   = s"padding:${sp.sm}px ${sp.md}px; font-size:${t.fontSize}px; font-family:${t.fontFamily}; text-decoration:none; cursor:pointer; border-radius:${theme.radii.md}px ${theme.radii.md}px 0 0; "
+      val onSty  = base + s"background:${theme.colors.surface}; color:${theme.colors.primary}; font-weight:600; border-bottom:2px solid ${theme.colors.primary}"
+      val offSty = base + s"background:transparent; color:${theme.colors.muted}; font-weight:500"
+      val onEl   = element("a", ["href" -> tb.href, "style" -> onSty],  ["click" -> setSignal(active, tb.key)], [textNode(tb.label)])
+      val offEl  = element("a", ["href" -> tb.href, "style" -> offSty], ["click" -> setSignal(active, tb.key)], [textNode(tb.label)])
+      showSignal(eqSignal(active, tb.key), onEl, offEl)
+    }
+    element("div",
+      ["style" -> s"display:flex; flex-direction:row; gap:${sp.xs}px; border-bottom:1px solid ${theme.colors.muted}"],
+      Map(), tabEls)
+
+  case StyledNode(st, kids) =>
+    element("div", ["style" -> _styleCss(st, theme)], Map(), kids.map(lower(_, theme)))
+
+  case BoxNode(maxWidth, width, height, kids) =>
+    val mw = if maxWidth > 0 then s"max-width:${maxWidth}px; " else ""
+    val w  = if width    > 0 then s"width:${width}px; "        else ""
+    val h  = if height   > 0 then s"height:${height}px; "      else ""
+    element("div", ["style" -> (mw + w + h + "box-sizing:border-box")], Map(), kids.map(lower(_, theme)))
 
   case SpinnerNode() =>
     val sz = theme.typography.body.fontSize

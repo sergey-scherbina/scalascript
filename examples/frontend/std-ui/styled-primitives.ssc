@@ -1,0 +1,35 @@
+---
+name: styled-primitives
+description: P2 styled-TkNode — status primitives (badge/tag/pill/kpiCard/tabBar), token-aware styled(), and box sizing. Lowered under default + dark themes to prove token re-resolution.
+---
+
+# Styled primitives
+
+[lower](std/ui/lower.ssc)
+[defaultTheme, darkTheme](std/ui/theme.ssc)
+[badge, tag, pill, kpiCard, tabBar, styled](std/ui/display.ssc)
+[box, vstack](std/ui/layout.ssc)
+[text](std/ui/typography.ssc)
+[Tab](std/ui/nodes.ssc)
+[signal, emit](std/ui/primitives.ssc)
+
+```scalascript
+val active = signal("tab", "home")
+
+val tree = box(maxWidth = 960)(
+  vstack(8)(
+    badge("Paid", "success"),
+    tag("VAT", "warning"),
+    pill("Overdue", "danger"),
+    kpiCard("Revenue", text("$1,000")),
+    tabBar(active, [Tab("#home", "Home", "home"), Tab("#tx", "Tx", "tx")]),
+    styled(["bg" -> "surface", "radius" -> "md", "paddingY" -> "smd", "paddingX" -> "16"])(
+      text("custom chrome")
+    )
+  )
+)
+
+emit(lower(tree, defaultTheme), "/tmp/ssc-styled-default")
+emit(lower(tree, darkTheme), "/tmp/ssc-styled-dark")
+println("styled:ok")
+```

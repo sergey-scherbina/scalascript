@@ -8,11 +8,12 @@ exports:
   - hstack
   - divider
   - spacer
+  - box
 ---
 
 # `std.ui.layout` — layout constructors
 
-[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode](nodes.ssc)
+[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, BoxNode](nodes.ssc)
 
 ```scalascript
 def vstack(gap: Int = 0)(children: TkNode*): TkNode =
@@ -24,4 +25,9 @@ def hstack(gap: Int = 0)(children: TkNode*): TkNode =
 def divider(): TkNode = DividerNode()
 
 def spacer(grow: Boolean = false): TkNode = SpacerNode(grow)
+
+// box — sizing wrapper (content-width cap / fixed height).  Sizes are raw px
+// (breakpoints like 768/1280 can't be tokenized); 0 leaves a dimension unset.
+def box(maxWidth: Int = 0, width: Int = 0, height: Int = 0)(children: TkNode*): TkNode =
+  BoxNode(maxWidth, width, height, children.toList)
 ```

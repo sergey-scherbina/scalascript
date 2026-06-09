@@ -1,21 +1,50 @@
 ---
 name: ui-display
 version: 1.0.0
-description: Display widget constructors — badge, spinner, signalPre. Return TkNode; lower with lower.ssc.
+description: Display widget constructors — badge, tag, pill, kpiCard, tabBar, styled, spinner, signalPre. Return TkNode; lower with lower.ssc.
 package: std.ui.display
 exports:
   - badge
+  - tag
+  - pill
+  - kpiCard
+  - tabBar
+  - styled
   - spinner
   - signalPre
 ---
 
 # `std.ui.display` — display constructors
 
-[TkNode, BadgeNode, SpinnerNode, SignalPreNode](nodes.ssc)
+[TkNode, BadgeNode, SpinnerNode, SignalPreNode, TagNode, PillNode, KpiCardNode, Tab, TabBarNode, StyledNode](nodes.ssc)
 
 ```scalascript
-def badge(content: String, variant: String = "default"): TkNode =
+// badge / tag / pill — status chips.  `variant` is a runtime value
+// (success | danger | warning | info | neutral), resolved on each re-render:
+//   badge(label, if status() == "overdue" then "danger" else "success")
+def badge(content: String, variant: String = "neutral"): TkNode =
   BadgeNode(content, variant)
+
+def tag(content: String, variant: String = "neutral"): TkNode =
+  TagNode(content, variant)
+
+def pill(content: String, variant: String = "neutral"): TkNode =
+  PillNode(content, variant)
+
+// kpiCard — a labelled metric card (label above a value node).
+def kpiCard(label: String, value: TkNode): TkNode =
+  KpiCardNode(label, value)
+
+// tabBar — pill tab bar; the tab whose key == active() is highlighted.
+def tabBar(active: Any, tabs: List[Tab]): TkNode =
+  TabBarNode(active, tabs)
+
+// styled — the sanctioned escape hatch for custom chrome: a container with a
+// token map (see nodes.ssc for keys), resolved against the Theme in lower.
+// Prefer this over a raw element(... style:"...") so output stays themed/portable:
+//   styled(["bg" -> "surface", "radius" -> "md", "paddingY" -> "smd", "paddingX" -> "16"])(child)
+def styled(props: Map[String, String])(children: TkNode*): TkNode =
+  StyledNode(props, children.toList)
 
 def spinner(): TkNode = SpinnerNode()
 

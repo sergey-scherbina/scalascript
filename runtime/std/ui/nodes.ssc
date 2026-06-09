@@ -30,6 +30,13 @@ exports:
   - RouterNode
   - LinkNode
   - DataTableNode
+  - StyledNode
+  - TagNode
+  - PillNode
+  - KpiCardNode
+  - Tab
+  - TabBarNode
+  - BoxNode
 ---
 
 # `std.ui.nodes` — widget ADT
@@ -120,4 +127,39 @@ case class LinkNode(to: String,
 case class DataTableNode(signal:  Any,
                          columns: List[Any],
                          actions: List[Any])             extends TkNode
+
+// ── Styled primitives + token-aware Style (busi UI proposals P2) ───────────
+// A styled container carries a token map (key -> token string), resolved against
+// the active Theme in lower.ssc so Theme.dark / Theme.mobile re-theme it.  A map
+// (not a case class with defaults) because the interpreter mis-binds partial
+// named-arg construction of case-class defaults.  Recognised keys:
+//   "bg" "fg"      -> colour token: primary onPrimary secondary surface onSurface
+//                     background muted danger success warning
+//   "border"       -> colour token (1px solid <colour>)
+//   "radius"       -> sm md lg full
+//   "paddingX" "paddingY"                          -> space token OR raw px number
+//   "marginTop" "marginRight" "marginBottom" "marginLeft"  (same)
+//   "font"         -> body heading caption
+// Space tokens: xs sm smd md lg xl xxl (rescale under mobileTheme — preferred);
+// a bare number ("16") is a raw px escape for one-off off-scale values.
+case class StyledNode(props: Map[String, String], children: List[TkNode]) extends TkNode
+
+// Status chips — variant is a RUNTIME string (success|danger|warning|info|neutral),
+// resolved per re-render; maps to a ColorToken in lower.ssc.
+case class TagNode(content: String, variant: String)     extends TkNode
+case class PillNode(content: String, variant: String)    extends TkNode
+
+// KPI card — label + value node (the 5-up header busi rebuilds).
+case class KpiCardNode(label: String, value: TkNode)     extends TkNode
+
+// Tab bar — pill tabs; active is a Signal[String] matched against each Tab.key.
+case class Tab(href: String, label: String, key: String)
+case class TabBarNode(active: Any, tabs: List[Tab])      extends TkNode
+
+// Sizing wrapper (layout concern, not Style).  0 = unset.  Caps content width /
+// fixes height in px (breakpoints can't be tokenized).
+case class BoxNode(maxWidth: Int,
+                   width:    Int,
+                   height:   Int,
+                   children: List[TkNode])               extends TkNode
 ```
