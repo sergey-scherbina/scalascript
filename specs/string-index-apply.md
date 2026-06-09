@@ -1,6 +1,6 @@
 # `String` index-apply `s(i)` — return the i-th char
 
-**Status**: spec — feature/bug. Reported by busi (real testbed), 2026-06-09.
+**Status**: ✓ Landed 2026-06-09 (interpreter `CallRuntime`). Reported by busi, 2026-06-09.
 **Priority**: medium. Workaround exists (`s.drop(i).head`), but `s(i)` is standard
 Scala and its absence silently breaks code that looks correct.
 
@@ -37,11 +37,15 @@ index-apply handling for `ListV`.
 
 ## 4  Behavior checklist
 
-- [ ] `"abc"(1)` returns `'b'`.
-- [ ] `s(i)` inside an `if`/`&&` expression evaluates lazily as today (no change
+- [x] `"abc"(1)` returns `'b'`.
+- [x] `s(i)` inside an `if`/`&&` expression evaluates lazily as today (no change
       to short-circuit semantics).
-- [ ] Negative / out-of-range index raises a clear index error, not "Not callable".
-- [ ] Existing `List`/`Map`/`Set` apply unaffected (regression guard).
+- [x] Negative / out-of-range index raises a clear index error, not "Not callable".
+- [x] Existing `List`/`Map`/`Set` apply unaffected (regression guard).
+
+Done in `StringIndexApplyTest` (interpreter). **JS/Node + JvmGen + Rust** still treat
+`s(i)` per their own apply paths — if a backend other than the interpreter needs
+`s(i)`, extend there as a follow-up (busi's `parseMt940Tx` runs on the interpreter).
 
 ## 5  Verification
 
