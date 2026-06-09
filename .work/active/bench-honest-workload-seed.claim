@@ -1,0 +1,1 @@
+bench-honest-workload-seed: inject Bench.opaque around workload literals to defeat C2/LLVM fold
