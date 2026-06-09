@@ -118,26 +118,36 @@ extern def jsonStringify(v: JsonValue): String
 
 ### 2.3 Fetch signals that speak JSON
 
-```scalascript
-// Decode: GET url on mount + whenever refreshTick increments; the signal yields a
-// navigable JsonValue (tolerant parse of the response body), not a String.
-extern def fetchJsonSignal(name: String, url: String, refreshTick: Signal[Int],
-                           headers: Signal[String] = emptyHeaders): Signal[JsonValue]
+**As built** (`runtime/std/ui/fetch-json.ssc`) — thin `.ssc` sugar composed over the
+existing reactive fetch primitives, **not** new per-backend primitives (reactivity flows
+through the underlying string signal, so it works on every backend the primitives do):
 
-// Encode: fetchAction already takes body: Signal[String]. Add a JSON overload that
-// takes a JsonValue-producing thunk; the runtime stringifies + escapes at click time.
-extern def fetchJsonAction(method: String, url: String, body: () => JsonValue,
-                           onSuccessTick: Signal[Int],
-                           headers: Signal[String] = emptyHeaders): EventHandler
+```scalascript
+// Decode: GET url on mount + whenever tick increments; reads back already-decoded.
+// Returns a thunk `() => JsonValue` — call it (`sum()`) to read the navigable value;
+// the read stays reactive because it reads the underlying fetchUrlSignal.
+def fetchJsonValue(name: String, url: String, tick: Signal[Int],
+                   headers: Signal[String]): () => JsonValue
+
+// Encode: POST/PUT a structured JSON body built from the §2.2 builders (which return
+// the JSON *string*).  `body` is a thunk evaluated with current signal values.
+def fetchJsonAction(method: String, url: String, body: () => String,
+                    tick: Signal[Int], headers: Signal[String]): EventHandler
 ```
 
-`computedSignal` continues to work for deriving display strings from a
-`Signal[JsonValue]`:
+> Naming: the built-in `fetchJsonSignal(name, url, tick, modelTypeName)` already exists
+> and decodes into a **named model type** (typed codegen).  The schema-less navigable
+> path is therefore `fetchJsonValue` (above).  `headers` is required — an `.ssc`
+> default-param referencing the `emptyHeaders` extern does not evaluate to the runtime
+> signal, so the sugar takes it explicitly (busi always passes an auth header anyway).
+
+Usage:
 
 ```scalascript
-val sumSig  = fetchJsonSignal("onbSummary", url, tick, authHdr)
-val name    = computedSignal(() => sumSig().get("businessName").asString)
-val missing = computedSignal(() => sumSig().get("missingCount").asInt.toString)
+val sum     = fetchJsonValue("onbSummary", url, tick, authHdr)
+val name    = computedSignal(() => sum().get("businessName").asString)
+val missing = computedSignal(() => sum().get("missingCount").asInt.toString)
+val due     = computedSignal(() => sum().get("amountDue").asDecimal.toString)  // exact money
 ```
 
 ---

@@ -1601,16 +1601,17 @@ Pure stdlib, helps web + native. Builds on existing `json-plugin`
       JsonValueNodeTest (real Node parity). busi can migrate 13 `*Q` (encode) AND
       onbStr/extractStr (decode) now — both backends.
 
-- [ ] **ui-typed-json-p3-fetch** — `fetchJsonSignal(name,url,tick,headers): Signal[JsonValue]`
-      and `fetchJsonAction(method,url,()=>JsonValue,tick,headers): EventHandler` in
-      `primitives.ssc` + ui-fetch-plugin. JVM + JS lowering mirrors `fetchUrlSignal`,
-      additionally JSON-decodes body / stringifies request. Tests: stub endpoint yields
-      navigable value; `computedSignal` re-renders on tick.
-      Commit: `feat(ui): fetchJsonSignal + fetchJsonAction`.
+- [x] **ui-typed-json-p3-fetch** — ✓ Landed 2026-06-09. Shipped as thin `.ssc` sugar
+      (`runtime/std/ui/fetch-json.ssc`), not new per-backend primitives: `fetchJsonValue`
+      (GET → navigable `() => JsonValue` over fetchUrlSignal+jsonValue, reactive through the
+      string signal) + `fetchJsonAction` (POST structured body over fetchAction+computedSignal).
+      Note: built-in `fetchJsonSignal(modelType)` already exists (typed-model decode) — the
+      navigable path is named `fetchJsonValue`. `headers` required (`.ssc` default-param /
+      emptyHeaders eval gotcha). `examples/ui-fetch-json.ssc` + JsonFetchSugarTest (e2e).
 
-- [ ] **ui-typed-json-p4-stdlib** — `runtime/std/ui/json.ssc` surface (re-export from ui
-      barrel), `examples/ui-typed-json.ssc`, README capabilities row + `docs/user-guide.md`.
-      Commit: `feat(std): std.ui typed-json module + example`.
+- [x] **ui-typed-json-p4-stdlib** — ✓ Landed 2026-06-09 (with p2-core): `runtime/std/json.ssc`
+      surface, `examples/ui-typed-json.ssc`, README capabilities row. (No fenced-block wiring
+      needed — JSON is consumed as a value, not a block language.)
 
 ### P2 — token-aware styled `TkNode` + status primitives (spec: `specs/std-ui-styled-tknode.md`)
 

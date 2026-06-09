@@ -392,6 +392,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | [os-env.ssc](examples/os-env.ssc) | `std.os` env vars, path helpers, platform detection |
 | [yaml-parse.ssc](examples/yaml-parse.ssc) | `std.yaml` parse YAML + accessors + fenced block wiring |
 | [ui-typed-json.ssc](examples/ui-typed-json.ssc) | `std.json` navigable JsonValue (total accessors, exact `asDecimal`) + structured builders |
+| [ui-fetch-json.ssc](examples/ui-fetch-json.ssc) | `fetchJsonValue` (GET → navigable JsonValue) + `fetchJsonAction` (POST structured body) |
 | [index.ssc](examples/index.ssc) | Landing page for the `serve` examples browser |
 | [script.ssc](examples/script.ssc) | Functions, loops, Fibonacci |
 | [data-types.ssc](examples/data-types.ssc) | Case classes, sealed traits, enums, pattern matching |
