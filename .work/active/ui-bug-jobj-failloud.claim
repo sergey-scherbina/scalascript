@@ -1,0 +1,3 @@
+ui-bug-jobj-failloud: nested jObj(List(jField(... jObj(...)))) with paren mismatch triggers silent ScalaMeta termParam NPE / interpreter hang; make parser fail loudly with a located message.
+agent: opus-autonomous
+started: 2026-06-10
