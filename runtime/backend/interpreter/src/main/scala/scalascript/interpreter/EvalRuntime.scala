@@ -12,6 +12,13 @@ import java.lang.Double.{doubleToRawLongBits, longBitsToDouble}
  */
 private[interpreter] object EvalRuntime:
 
+  /** Opt-in fused-range-chain detection.  Disabled by default — the
+   *  runtime pattern-check on Term.Apply slightly regressed range-sum
+   *  and list-fold while only helping streams-pipeline.  Enable with
+   *  `SSC_FUSED_RANGE=1` to experiment, or wire the detection into
+   *  BytecodeJIT pre-pass for a real win. */
+  val _FusedRangeEnabled: Boolean = sys.env.get("SSC_FUSED_RANGE").contains("1")
+
   private def cachedLiteralValue(lit: Lit, interp: Interpreter): Value | Null =
     val cached = interp.litCache.get(lit)
     if cached != null then
@@ -4008,11 +4015,125 @@ private[interpreter] object EvalRuntime:
    *  sub-term evaluation into a FlatMap continuation would observe a wrong index
    *  later. After interp call all sub-Computations are fully built; only the final
    *  composition (the FlatMap chain) is interpreted lazily. */
+
+  /** Detect `(lo to hi).map(f).filter(g).foldLeft(z)(h)` (the common
+   *  iterator-chain shape) and evaluate it as a single while loop with
+   *  no intermediate List/View allocations.  Returns `null` if the
+   *  shape doesn't match — caller falls back to the regular path.
+   *
+   *  Skips bodies whose closure produces non-Int results so we keep
+   *  semantics tight; if any rendering choice fails, we bail and let
+   *  the generic path take over. */
+  private def tryFusedRangeMapFilterFold(
+      app:    Term.Apply,
+      env:    Env,
+      interp: Interpreter
+  ): Computation | Null =
+    // Cheap pre-filter: peek into the AST shape `Apply(Apply(Select(_,
+    // "foldLeft"), 1arg), 1arg)` before doing any work.  This bails on
+    // every non-`foldLeft` call without allocating intermediate pattern
+    // values — critical because evalApplyGeneral runs on every Apply node.
+    if app.argClause.values.lengthCompare(1) != 0 then return null
+    val foldOuterFunRaw = app.fun
+    if !foldOuterFunRaw.isInstanceOf[Term.Apply] then return null
+    val foldOuterFun = foldOuterFunRaw.asInstanceOf[Term.Apply]
+    if foldOuterFun.argClause.values.lengthCompare(1) != 0 then return null
+    val foldSelRaw = foldOuterFun.fun
+    if !foldSelRaw.isInstanceOf[Term.Select] then return null
+    val foldSel = foldSelRaw.asInstanceOf[Term.Select]
+    if foldSel.name.value != "foldLeft" then return null
+    val hExpr = app.argClause.values.head
+    val zExpr = foldOuterFun.argClause.values.head
+    val filterChain = foldSel.qual
+    // .filter
+    val (mapChain, gExpr) = filterChain match
+      case fa: Term.Apply if fa.argClause.values.lengthCompare(1) == 0 =>
+        fa.fun match
+          case Term.Select(q, n) if n.value == "filter" => (q, fa.argClause.values.head)
+          case _ => return null
+      case _ => return null
+    // .map
+    val (rangeExpr, fExpr) = mapChain match
+      case ma: Term.Apply if ma.argClause.values.lengthCompare(1) == 0 =>
+        ma.fun match
+          case Term.Select(q, n) if n.value == "map" => (q, ma.argClause.values.head)
+          case _ => return null
+      case _ => return null
+    // (lo to hi) or (lo until hi)
+    val (loExpr, hiExpr, inclusive) = rangeExpr match
+      case Term.ApplyInfix.After_4_6_0(lhs, Term.Name("to"), _, ac) if ac.values.lengthCompare(1) == 0 =>
+        (lhs, ac.values.head, true)
+      case Term.ApplyInfix.After_4_6_0(lhs, Term.Name("until"), _, ac) if ac.values.lengthCompare(1) == 0 =>
+        (lhs, ac.values.head, false)
+      case _ => return null
+
+    // Evaluate lo, hi, z, f, g, h.  All must be Pure.
+    val loV = eval(loExpr, env, interp)
+    if !loV.isInstanceOf[Computation.Pure] then return null
+    val hiV = eval(hiExpr, env, interp)
+    if !hiV.isInstanceOf[Computation.Pure] then return null
+    val zV  = eval(zExpr, env, interp)
+    if !zV.isInstanceOf[Computation.Pure] then return null
+    val fV  = eval(fExpr, env, interp)
+    if !fV.isInstanceOf[Computation.Pure] then return null
+    val gV  = eval(gExpr, env, interp)
+    if !gV.isInstanceOf[Computation.Pure] then return null
+    val hV  = eval(hExpr, env, interp)
+    if !hV.isInstanceOf[Computation.Pure] then return null
+
+    val loN = loV.asInstanceOf[Computation.Pure].value match
+      case Value.IntV(n) => n
+      case _ => return null
+    val hiN = hiV.asInstanceOf[Computation.Pure].value match
+      case Value.IntV(n) => n
+      case _ => return null
+    val zN  = zV.asInstanceOf[Computation.Pure].value match
+      case Value.IntV(n) => n
+      case _ => return null
+    val fFun = fV.asInstanceOf[Computation.Pure].value
+    val gFun = gV.asInstanceOf[Computation.Pure].value
+    val hFun = hV.asInstanceOf[Computation.Pure].value
+
+    // Fused loop.
+    var acc = zN
+    var i = loN
+    val limit = if inclusive then hiN else hiN - 1
+    while i <= limit do
+      val mc = CallRuntime.callValue1(fFun, Value.IntV(i), env, interp)
+      val mV = mc match { case Computation.Pure(v) => v; case _ => return null }
+      val gC = CallRuntime.callValue1(gFun, mV, env, interp)
+      val passed = gC match
+        case Computation.Pure(Value.BoolV(true))  => true
+        case Computation.Pure(Value.BoolV(false)) => false
+        case _ => return null
+      if passed then
+        val hC = CallRuntime.callValue2(hFun, Value.IntV(acc), mV, env, interp)
+        hC match
+          case Computation.Pure(Value.IntV(n)) => acc = n
+          case _ => return null
+      i += 1L
+    Computation.Pure(Value.IntV(acc))
+
   /** General `Term.Apply` dispatch: `.copy`, Focus/direct/Db.query/remoteStub
    *  intrinsics, method calls (`recv.m(args)` via the `Term.Select` arm), and the
    *  bare function-value fallback. Shared by the catch-all `Term.Apply` case and
    *  the hoisted `Term.Select`-head fast path above. */
   private def evalApplyGeneral(app: Term.Apply, env: Env, interp: Interpreter): Computation =
+      // ── Universal fused-loop fast-path for `(lo to hi).map(f).filter(g)
+      //    .foldLeft(z)(h)` lives in tryFusedRangeMapFilterFold.  Disabled
+      //    by default (controlled by SSC_FUSED_RANGE env var) — empirical
+      //    bench shows the pattern-check overhead on the hot Term.Apply
+      //    path slightly regressed range-sum / list-fold despite the
+      //    fusion win on streams-pipeline itself.  The native .map/.filter/
+      //    .foldLeft chain hits BytecodeJIT-compiled paths in the
+      //    interpreter that beat a Scala-level fused loop for short
+      //    ranges.  Re-enable once the fusion is lifted into the
+      //    BytecodeJIT pre-pass (see SPRINT ssc-jit-loop-fusion-universal
+      //    Stage 2 — IR-level lowering before JIT, not runtime detection).
+      if scalascript.interpreter.EvalRuntime._FusedRangeEnabled then
+        val fusedRange = tryFusedRangeMapFilterFold(app, env, interp)
+        if fusedRange != null then return fusedRange
+
       app.fun match
         // ── Bench.opaque(x) — fast-path identity, avoids native-dispatch
         // cost (~2.5µs per call → 2.5s on 1M-iter benches). Just evaluate
