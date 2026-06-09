@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — perf(jit): map-into-sink fusion for Option/Either (escape-analysis slice)
+
+- **ssc-jit-escape-analysis** (partial) — A `.map(unary)` feeding `.flatMap(global)`
+  or `.getOrElse(default)` on an Option/Either allocated an intermediate wrapper
+  only to be consumed one step later. `peelMapUnary` detects it and the backends
+  emit `JitHofDispatch.mapFlatMapGlobalLong` / `mapGetOrElseLong`, applying the
+  map inline with no wrapper allocation. Both Javac + ASM. Tight A/B
+  (`scripts/bench profile`): optionChain 116 → 100 B/op (−14%), eitherChain
+  708 → 564 B/op (−20%; ASM 528). 4 SscVmTest cases; full suite green (1572)
+  both backends; JIT disabled count unchanged (736). Remaining: cross-function
+  inlining of the wrappers built inside `lookup`/`parse` (the dominant cost) —
+  own session.
+
+---
+
 ## 2026-06-09 — perf(jit): range-native fold fusion + `to`-inclusive ranges
 
 - **ssc-jit-range-fusion** — Follow-up to map/filter/foldLeft fusion: when the

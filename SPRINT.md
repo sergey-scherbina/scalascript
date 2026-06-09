@@ -127,12 +127,25 @@ JIT optimisation can close the resulting honest gap.
       Each stage shipped independently with bench A/B.  Goal: ssc/asm at
       within 100× of Rust on pure-arith workloads (currently 1000-10000×).
 
-- [ ] **ssc-jit-escape-analysis** — Stack-allocate Option/Either/case
-      class instances whose lifetime is provably bounded to the current
-      method.  Avoids heap allocation on `Some(x).map(f).getOrElse(0)`
-      chains — the same shape that HotSpot escape-analyses today and
-      where ssc/JS currently allocate.  Win expected on option-chain,
-      either-chain, pattern-match-heavy.
+- [x] **ssc-jit-escape-analysis** [partial — map-into-sink fusion landed
+      2026-06-09; full cross-function inlining still open] — Stack-allocate
+      Option/Either/case class instances whose lifetime is bounded to the
+      current method.
+      **Landed (map-into-sink slice):** a `.map(unary)` feeding `.flatMap(global)`
+      or `.getOrElse(default)` allocated an intermediate Option/Either wrapper
+      purely to be consumed one step later. `peelMapUnary` detects it; the
+      backends emit `JitHofDispatch.mapFlatMapGlobalLong` / `mapGetOrElseLong`
+      which apply the map inline — no intermediate wrapper. Both Javac + ASM;
+      falls back to per-stage on a miss.
+      A/B (tight, `scripts/bench profile`):
+      - optionChain 116 → 100 B/op (-14%)
+      - eitherChain 708 → 564 B/op (-20%; ASM 528)
+      Suite green (1572) both backends; disabled count unchanged (736).
+      **Still open:** the dominant allocations are the wrappers constructed
+      *inside* the callees (`lookup`/`parse`) — eliminating those needs
+      cross-function inlining of small pure constructors (or a lighter
+      value-class Option/Either representation). Bigger, invasive; own session.
+      pattern-match-heavy not yet addressed.
 
 ---
 
