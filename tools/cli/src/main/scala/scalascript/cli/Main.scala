@@ -6965,7 +6965,7 @@ final class BenchCmd extends CliCommand:
     // Wrap user code with a self-contained timing harness that prints BENCH_MS.
     // Uses markdown format so emit-scala/emit-js process it correctly.
     def generateWrapper(code: String, warmupN: Int, repsN: Int,
-                        warmupTimeMs: Option[Long]): String =
+                        warmupTimeMs: Option[Long], targetBackend: String): String =
       // JVM pre-warm: BytecodeJIT reduces eval calls to ~10 per workload() iteration
       // for TCO workloads — far below JVM C2 threshold (~10 K invocations).
       // Three stages:
@@ -6994,19 +6994,63 @@ final class BenchCmd extends CliCommand:
       //   expensive workloads (~1 ms), phase 2 runs only ~8 invocations (irrelevant;
       //   workload cost dwarfs any JIT overhead).  Use --reps 500 for accurate floor
       //   values on any workload.
-      // Pick a sink shape per return type — primitive sinks avoid autoboxing
-      // (Integer/Long/Boolean alloc per iter is ~1 µs of pure noise).
+      // Pick a sink shape per return type.
+      //
+      // JMH-style anti-fold: an AtomicLong with `.lazySet(...)` per iter
+      // prevents HotSpot from hoisting the loop out via scalar-evolution
+      // (`while r<N do sink+=workload()` was being rewritten to
+      // `sink += workload()*N` on pure workloads, giving ~8ps/iter — far
+      // below 1 CPU cycle).  `lazySet` is a relaxed volatile write: HotSpot
+      // must materialise each write, but doesn't need a memory barrier per
+      // iter, so overhead is ~1-2 ns/iter (acceptable noise for benches).
+      //
+      // The fix lives in the JVM sink only.  Interp/JS don't have an AtomicLong
+      // surface in our subset, AND they aren't sophisticated enough to fold
+      // the outer loop, so they keep the plain primitive sink.
       val returnTy = workloadReturnType(code)
-      // `+=` keeps the result reachable (no DCE) without the Integer/Long
-      // autoboxing an `Any` sink would force.  Interp/JS don't support `^`
-      // on Long so we use `+=` (overflow wraps, fine — we only care the JIT
-      // can't drop the call).
-      val (sinkDecl, sinkUpdate, sinkRead) = returnTy match
-        case "Int"     => ("var _ssc_sink: Long = 0L",   "_ssc_sink = _ssc_sink + workload().toLong", "_ssc_sink")
-        case "Long"    => ("var _ssc_sink: Long = 0L",   "_ssc_sink = _ssc_sink + workload()",        "_ssc_sink")
-        case "Double"  => ("var _ssc_sink: Double = 0d", "_ssc_sink = _ssc_sink + workload()",        "_ssc_sink")
-        case "Boolean" => ("var _ssc_sink: Long = 0L",   "_ssc_sink = _ssc_sink + (if workload() then 1L else 0L)", "_ssc_sink")
-        case _         => ("var _ssc_sink: Any = null",  "_ssc_sink = workload()",                     "_ssc_sink")
+      val (sinkDecl, sinkUpdate, sinkRead) =
+        if targetBackend == "jvm" then
+          // JMH-style anti-fold for JVM: AtomicLong + lazySet stops HotSpot
+          // from rewriting `while r<N do sink+=workload()` into
+          // `sink += workload()*N` via scalar-evolution.  See SPRINT
+          // bench-honest-jvm-blackbox for the disassembly evidence.
+          // `getAndAdd` is an atomic CAS-loop on the underlying field —
+          // HotSpot is forbidden from collapsing repeated `getAndAdd(c)`
+          // calls into `addAndGet(c*N)` because the intermediate values
+          // are observable (other threads could read the field).  This
+          // genuinely defeats the scalar-evolution outer-loop fold.
+          // Cost: ~5-15 ns/iter on M1 for an atomic add — the floor for
+          // sub-microsecond benches.  Honest measurement.
+          returnTy match
+            case "Int" | "Long" | "Boolean" =>
+              ("val _ssc_sink = new java.util.concurrent.atomic.AtomicLong(0L)",
+               returnTy match
+                 case "Int"     => "_ssc_sink.getAndAdd(workload().toLong)"
+                 case "Long"    => "_ssc_sink.getAndAdd(workload())"
+                 case "Boolean" => "_ssc_sink.getAndAdd(if workload() then 1L else 0L)",
+               "_ssc_sink.get()")
+            case "Double" =>
+              ("val _ssc_sink = new java.util.concurrent.atomic.AtomicLong(0L)",
+               "_ssc_sink.getAndAdd(java.lang.Double.doubleToRawLongBits(workload()))",
+               "java.lang.Double.longBitsToDouble(_ssc_sink.get())")
+            case _ =>
+              // The Any branch covers Unit (println workloads), tuples,
+              // case classes etc.  `Option[Any]` lets the null-check work
+              // for both reference and Unit returns; toString uses Scala's
+              // _show under the hood so we don't crash on tuple/case-class.
+              ("val _ssc_sink = new java.util.concurrent.atomic.AtomicLong(0L)",
+               "_ssc_sink.getAndAdd({ val __r: Any = workload(); if __r == null then 0L else __r.hashCode().toLong })",
+               "_ssc_sink.get()")
+        else
+          // Interp/JS: no AtomicLong in our subset.  Use plain primitive sink;
+          // the tree-walking interpreter and V8 don't apply scalar-evolution
+          // outer-loop fold anyway, so this is honest already.
+          returnTy match
+            case "Int"     => ("var _ssc_sink: Long = 0L",   "_ssc_sink = _ssc_sink + workload().toLong", "_ssc_sink")
+            case "Long"    => ("var _ssc_sink: Long = 0L",   "_ssc_sink = _ssc_sink + workload()",        "_ssc_sink")
+            case "Double"  => ("var _ssc_sink: Double = 0d", "_ssc_sink = _ssc_sink + workload()",        "_ssc_sink")
+            case "Boolean" => ("var _ssc_sink: Long = 0L",   "_ssc_sink = _ssc_sink + (if workload() then 1L else 0L)", "_ssc_sink")
+            case _         => ("var _ssc_sink: Any = null",  "_ssc_sink = workload()",                     "_ssc_sink")
       val warmupBlock = warmupTimeMs match
         case Some(ms) =>
           val ns       = ms * 1000000L
@@ -7082,7 +7126,10 @@ final class BenchCmd extends CliCommand:
 
     val name     = path.last.stripSuffix(".ssc")
     val userCode = extractCode(os.read(path))
-    val wrapper  = generateWrapper(userCode, warmup, reps, warmupTimeMs)
+    // Per-backend wrapper — JVM gets the JMH-style AtomicLong sink (so HotSpot
+    // can't fold the outer timing loop via scalar evolution); interp/JS get
+    // the plain primitive sink (they don't fold the outer loop anyway).
+    val wrapper      = generateWrapper(userCode, warmup, reps, warmupTimeMs, backend)
 
     // Run interpreter in-process: parse wrapper, capture stdout, parse BENCH_MS.
     def timeInterp(): Option[Double] =
