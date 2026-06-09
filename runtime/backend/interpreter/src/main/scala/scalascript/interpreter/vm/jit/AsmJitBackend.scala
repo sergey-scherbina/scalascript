@@ -1040,14 +1040,40 @@ object AsmJitBackend extends JitBackend:
       i += 1; rem = rem.tail
     walkLong(body, newCtx, mv)
 
+  /** If `t` is `inner.map(unary)`, return the inner receiver and map op so the
+   *  caller can fuse the map into the next stage and skip the wrapper allocation. */
+  private def peelMapUnary(t: Term): (Term, JitHofShape.UnaryLong) | Null =
+    t match
+      case ap: Term.Apply =>
+        ap.fun match
+          case Term.Select(inner: Term, Term.Name("map")) if ap.argClause.values.lengthCompare(1) == 0 =>
+            ap.argClause.values.head match
+              case fn: Term.Function =>
+                val u = JitHofShape.unaryLong(fn)
+                if u == null then null else (inner, u)
+              case _ => null
+          case _ => null
+      case _ => null
+
   private def emitRefChainLong(recv: Term, method: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
     method match
       case "getOrElse" if args.lengthCompare(1) == 0 =>
-        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
-        if !walkRef(recv, ctx, mv) then return false
-        if !walkLong(args.head, ctx, mv) then return false
-        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "getOrElseLong", "(Ljava/lang/Object;J)J", false)
-        true
+        peelMapUnary(recv) match
+          case (inner, op) =>
+            // Fuse a preceding `.map(unary)` into the getOrElse sink (no wrapper alloc).
+            mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
+            if !walkRef(inner, ctx, mv) then return false
+            emitIconst(mv, op.op)
+            mv.visitLdcInsn(op.c)
+            if !walkLong(args.head, ctx, mv) then return false
+            mv.visitMethodInsn(INVOKEVIRTUAL, hofDispatchInt, "mapGetOrElseLong", "(Ljava/lang/Object;IJJ)J", false)
+            true
+          case null =>
+            mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+            if !walkRef(recv, ctx, mv) then return false
+            if !walkLong(args.head, ctx, mv) then return false
+            mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "getOrElseLong", "(Ljava/lang/Object;J)J", false)
+            true
       // Stage 8: Map.getOrElse(key, default) → Long.
       case "getOrElse" if args.lengthCompare(2) == 0 =>
         mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
@@ -1474,11 +1500,23 @@ object AsmJitBackend extends JitBackend:
           case fn: Term.Function =>
             val name = JitHofShape.globalLong(fn)
             if name == null then return false
-            mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
-            if !walkRef(recv, ctx, mv) then return false
-            mv.visitLdcInsn(name)
-            mv.visitMethodInsn(INVOKEVIRTUAL, hofDispatchInt, "flatMapGlobalLong", "(Ljava/lang/Object;Ljava/lang/String;)Ljava/lang/Object;", false)
-            true
+            // Fuse a preceding `.map(unary)` so its Option/Either wrapper is not allocated.
+            peelMapUnary(recv) match
+              case (inner, op) =>
+                mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
+                if !walkRef(inner, ctx, mv) then return false
+                emitIconst(mv, op.op)
+                mv.visitLdcInsn(op.c)
+                mv.visitLdcInsn(name)
+                mv.visitMethodInsn(INVOKEVIRTUAL, hofDispatchInt, "mapFlatMapGlobalLong",
+                  "(Ljava/lang/Object;IJLjava/lang/String;)Ljava/lang/Object;", false)
+                true
+              case null =>
+                mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
+                if !walkRef(recv, ctx, mv) then return false
+                mv.visitLdcInsn(name)
+                mv.visitMethodInsn(INVOKEVIRTUAL, hofDispatchInt, "flatMapGlobalLong", "(Ljava/lang/Object;Ljava/lang/String;)Ljava/lang/Object;", false)
+                true
           case _ => false
       case "filter" if args.lengthCompare(1) == 0 =>
         args.head match

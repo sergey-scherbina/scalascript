@@ -959,7 +959,16 @@ object JavacJitBackend extends JitBackend:
     method match
       case "getOrElse" if args.lengthCompare(1) == 0 =>
         val d = walkLong(args.head, ctx)
-        if d == null then null else s"$jrd.getOrElseLong((Object) ($refExpr), $d)"
+        if d == null then null
+        else
+          // Fuse a preceding `.map(unary)` into the getOrElse sink (no wrapper alloc).
+          peelMapUnary(recv) match
+            case (inner, op) =>
+              val innerRef = walkRef(inner, ctx)
+              if innerRef == null then s"$jrd.getOrElseLong((Object) ($refExpr), $d)"
+              else s"scalascript.interpreter.vm.jit.JitHofDispatch$$.MODULE$$.mapGetOrElseLong((Object) ($innerRef), ${op.op}, ${op.c}L, $d)"
+            case null =>
+              s"$jrd.getOrElseLong((Object) ($refExpr), $d)"
       // Stage 8: Map.getOrElse(key, default) → Long.
       case "getOrElse" if args.lengthCompare(2) == 0 =>
         val k = emitValueObject(args.head, ctx)
@@ -1190,6 +1199,22 @@ object JavacJitBackend extends JitBackend:
       looksLongValue(argClause.values.head, ctx)
     case _ => false
 
+  /** If `t` is `inner.map(unary)` with a recognised arithmetic lambda, return the
+   *  inner receiver and the map op so the caller can fuse the map into the next
+   *  stage (flatMap / getOrElse) and skip the intermediate wrapper allocation. */
+  private def peelMapUnary(t: Term): (Term, JitHofShape.UnaryLong) | Null =
+    t match
+      case ap: Term.Apply =>
+        ap.fun match
+          case Term.Select(inner: Term, Term.Name("map")) if ap.argClause.values.lengthCompare(1) == 0 =>
+            ap.argClause.values.head match
+              case fn: Term.Function =>
+                val u = JitHofShape.unaryLong(fn)
+                if u == null then null else (inner, u)
+              case _ => null
+          case _ => null
+      case _ => null
+
   private def emitHofRefChain(recv: Term, method: String, args: List[Term], ctx: GenCtx): String | Null =
     val refExpr = walkRef(recv, ctx)
     if refExpr == null then return null
@@ -1205,7 +1230,16 @@ object JavacJitBackend extends JitBackend:
         args.head match
           case fn: Term.Function =>
             val name = JitHofShape.globalLong(fn)
-            if name == null then null else s"""$jhd.flatMapGlobalLong((Object) ($refExpr), "${escape(name)}")"""
+            if name == null then null
+            else
+              // Fuse a preceding `.map(unary)` so its Option/Either wrapper is not allocated.
+              peelMapUnary(recv) match
+                case (inner, op) =>
+                  val innerRef = walkRef(inner, ctx)
+                  if innerRef == null then s"""$jhd.flatMapGlobalLong((Object) ($refExpr), "${escape(name)}")"""
+                  else s"""$jhd.mapFlatMapGlobalLong((Object) ($innerRef), ${op.op}, ${op.c}L, "${escape(name)}")"""
+                case null =>
+                  s"""$jhd.flatMapGlobalLong((Object) ($refExpr), "${escape(name)}")"""
           case _ => null
       case "filter" if args.lengthCompare(1) == 0 =>
         args.head match

@@ -1308,6 +1308,44 @@ class SscVmTest extends AnyFunSuite with Matchers:
     JitGlobals.withInterp(interp) { direct.apply(-1L) } shouldBe 0L
   }
 
+  // ── map-into-sink fusion (jit-escape-analysis) ───────────────────────
+  // `.map(unary)` feeding flatMap / getOrElse is fused so the intermediate
+  // Option/Either wrapper is never allocated. Same shapes as the
+  // optionChain / eitherChain benches; verify results are unchanged.
+
+  for backend <- List(JavacJitBackend, AsmJitBackend) do
+    val nm = backend.getClass.getSimpleName.stripSuffix("$")
+
+    test(s"jit-escape-analysis: $nm map+getOrElse over Option fuses and runs") {
+      val interp = interpOf(
+        """def lookup(k: Int): Option[Int] =
+          |  if k % 2 == 0 then Some(k * 2) else None
+          |def f(n: Int): Int =
+          |  lookup(n).map(x => x + 1).getOrElse(0)""".stripMargin)
+      val fn = interp.globalsView("f").asInstanceOf[Value.FunV]
+      val r = backend.tryCompile(fn, interp)
+      r should not be null
+      r.direct.isInstanceOf[LongFn1] shouldBe true
+      val direct = r.direct.asInstanceOf[LongFn1]
+      JitGlobals.withInterp(interp) { direct.apply(2L) } shouldBe 5L  // Some(4)->5
+      JitGlobals.withInterp(interp) { direct.apply(3L) } shouldBe 0L  // None->0
+    }
+
+    test(s"jit-escape-analysis: $nm map+flatMap over Either fuses and runs") {
+      val interp = interpOf(
+        """def parse(n: Int): Either[String, Int] =
+          |  if n > 0 then Right(n) else Left("neg")
+          |def f(n: Int): Int =
+          |  parse(n).map(x => x + 1).flatMap(x => parse(x)).fold(e => 0, x => x)""".stripMargin)
+      val fn = interp.globalsView("f").asInstanceOf[Value.FunV]
+      val r = backend.tryCompile(fn, interp)
+      r should not be null
+      r.direct.isInstanceOf[LongFn1] shouldBe true
+      val direct = r.direct.asInstanceOf[LongFn1]
+      JitGlobals.withInterp(interp) { direct.apply(2L) } shouldBe 3L   // Right(2)->map3->parse(3)=Right(3)->3
+      JitGlobals.withInterp(interp) { direct.apply(-1L) } shouldBe 0L  // Left->fold->0
+    }
+
   test("stage7-hof-method: Javac List map/filter/foldLeft compiles and runs") {
     val interp = interpOf(
       """val xs: List[Int] = List(1, 2, 3, 4, 5, 6)

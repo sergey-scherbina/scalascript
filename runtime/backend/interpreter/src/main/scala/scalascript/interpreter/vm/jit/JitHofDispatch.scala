@@ -70,6 +70,35 @@ object JitHofDispatch:
       case _ =>
         throw new RuntimeException("JitHofDispatch.flatMapGlobalLong: unsupported receiver")
 
+  /** Fused `recv.map(unary).flatMap(global)` — applies the map to the present
+   *  value before invoking the flatMap target, so the intermediate Option/Either
+   *  wrapper from `.map` is never allocated. */
+  def mapFlatMapGlobalLong(recv: Object, mapOp: Int, mapC: Long, fnName: String): Object =
+    recv match
+      case opt: Value.OptionV =>
+        if opt.inner == null then Value.NoneV.asInstanceOf[Object]
+        else normalizeOption(callGlobalValue1(fnName, applyUnary(opt.inner, mapOp, mapC))).asInstanceOf[Object]
+      case inst: Value.InstanceV if inst.typeName == "Right" =>
+        callGlobalValue1(fnName, applyUnary(valueField(inst), mapOp, mapC)).asInstanceOf[Object]
+      case inst: Value.InstanceV if inst.typeName == "Left" =>
+        inst.asInstanceOf[Object]
+      case _ =>
+        throw new RuntimeException("JitHofDispatch.mapFlatMapGlobalLong: unsupported receiver")
+
+  /** Fused `recv.map(unary).getOrElse(default)` — applies the map to the present
+   *  value and returns it (or `default` when empty/Left) without allocating the
+   *  intermediate Option/Either wrapper from `.map`. */
+  def mapGetOrElseLong(recv: Object, mapOp: Int, mapC: Long, default: Long): Long =
+    recv match
+      case opt: Value.OptionV =>
+        if opt.inner == null then default else applyUnary(opt.inner, mapOp, mapC)
+      case inst: Value.InstanceV if inst.typeName == "Right" =>
+        applyUnary(valueField(inst), mapOp, mapC)
+      case inst: Value.InstanceV if inst.typeName == "Left" =>
+        default
+      case _ =>
+        throw new RuntimeException("JitHofDispatch.mapGetOrElseLong: unsupported receiver")
+
   def filterLong(recv: Object, pred: Int, c1: Long, c2: Long): Object =
     recv match
       case opt: Value.OptionV =>
