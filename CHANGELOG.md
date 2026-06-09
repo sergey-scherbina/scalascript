@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-10 — test: busi-p1-while-typed-empty-list-bug verified fixed + regression guards
+
+- **busi-p1-while-typed-empty-list-bug** — Reported bug (a `while` loop appending
+  to a typed empty `List[(Int,T)]()` left the list empty) no longer reproduces;
+  fixed by intervening while-JIT work. Verified non-reproducing across non-JIT,
+  JIT-hot (200k-call function), case-class tuple elements, `Set.contains` in the
+  body, and N=50k. Locked with two `BugReproTest` regression guards.
+
+---
+
 ## 2026-06-09 — perf(interp): positional fieldsArr for builtin Right/Left/Some
 
 - **instancev-either-option-fieldsarr** — Single-field Either/Some wrappers were

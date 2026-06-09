@@ -510,9 +510,13 @@ fix, and don't require a runtime refactor.
       `NULL`). Semantics "absent vs. null" should be resolved in
       favour of `default`.
 
-- [ ] **busi-p1-while-typed-empty-list-bug** — `while` + `var i += 1` +
-      typed `List[(Int,T)]()` — body iterates, list stays empty.
-      Probably shares root cause with `Set[Int].contains` in `while`.
+- [x] **busi-p1-while-typed-empty-list-bug** [no longer reproduces 2026-06-10 —
+      fixed by intervening while-JIT work; locked with regression tests] — `while`
+      + `var i += 1` + typed `List[(Int,T)]()` — body iterates, list stays empty.
+      Could not reproduce in any form: non-JIT, JIT-hot (200k-call function),
+      case-class tuple elements, `Set.contains` in body, N=50k. All correct.
+      Two regression guards added to `BugReproTest` (typed-empty-tuple-list +
+      hot-function while-JIT path).
 
 - [ ] **busi-p1-map-update-foldleft-unreliable** — When a `foldLeft`
       accumulates a `Map[String, CaseClass]` and one branch re-constructs
