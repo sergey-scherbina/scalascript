@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-10 — fix(parser): fail loudly on truncated code blocks (ui-bug-jobj-failloud)
+
+- **ui-bug-jobj-failloud** — scalameta throws a raw `NullPointerException` from its
+  `termParam` token handling on truncated inputs (`def f(`, `def f(using `), and deep
+  unbalanced nesting can `StackOverflowError`. `parseScalaWithDiagnostic` only matched
+  `Parsed.Success`/`Parsed.Error`, so a thrown exception escaped and crashed/hung the
+  pipeline. New `safeParse` wraps each parse attempt and converts a thrown
+  `NonFatal`/`StackOverflowError` into a synthesized located `Parsed.Error` — the parser
+  now emits a diagnostic, never a crash. 4 `ParseErrorPositionTest` regression tests;
+  core 920/920 green.
+
+---
+
 ## 2026-06-10 — test: busi-p1-map-update-foldleft-unreliable verified fixed + regression guards
 
 - **busi-p1-map-update-foldleft-unreliable** — Reported "Instance is not callable"

@@ -1664,11 +1664,15 @@ Start after P1.
       registered in the browser stub list (`JsGen.scala`). busi's proposal P4 predates the
       fix. No action needed — busi updates to current ScalaScript.
 
-- [ ] **ui-bug-jobj-failloud** — Nested `jObj(List(jField(... jObj(...))))` with a paren
-      mismatch triggers a silent ScalaMeta `termParam` NPE / interpreter hang (no error).
-      Make the parser fail loudly with a located message. P1 removes the need to
-      hand-build these, but the parser must not hang. Test: malformed nested call →
-      diagnostic, not NPE/hang. Commit: `fix(parser): loud error on unbalanced call parens`.
+- [x] **ui-bug-jobj-failloud** [landed 2026-06-10] — Nested `jObj(List(jField(... jObj(...))))`
+      with a paren mismatch triggered a silent ScalaMeta `termParam` NPE / interpreter
+      hang. Root cause: `parseScalaWithDiagnostic` matched only `Parsed.Success`/`Parsed.Error`
+      but scalameta *throws* a raw `NullPointerException` on truncated inputs like `def f(` /
+      `def f(using ` (and deep nesting can `StackOverflowError`). New `safeParse` wraps every
+      scalameta parse attempt (Source / block-Term / `trySplitParse`), converting a thrown
+      `NonFatal`/`StackOverflowError` into a synthesized located `Parsed.Error`. Parser now
+      fails loudly with a diagnostic, never a crash/hang. 4 regression tests in
+      `ParseErrorPositionTest`; core 920/920 green.
 
 ---
 
