@@ -1626,12 +1626,11 @@ Start after P1.
 
 - [x] **ui-styled-p1-spec** — `specs/std-ui-styled-tknode.md`. ✓ Landed 2026-06-09.
 
-- [ ] **ui-styled-p0-theme** — Extend `theme.ssc` (additive, named-arg construction keeps
-      the 3 built-in themes safe): `SpacingScale` gains `smd` (default 12, mobile ~24, dark
-      12) + `SpaceToken.Smd`; `TypographyScale` gains `caption: TypographyItem` (default
-      ~12px) + `FontToken.Caption`. Rationale (busi audit): 12 is the most frequent gap/pad,
-      missing between Sm=8 and Md=16 — without the token every screen falls to `px(12)` and
-      loses mobile density rescaling. Commit: `feat(ui): theme Smd + Caption tokens`.
+- [x] **ui-styled-p0-theme** — ✓ Landed 2026-06-09. Additive `theme.ssc`: `SpacingScale`
+      gains `smd` (default 12, mobile 24, dark 12); `TypographyScale` gains `caption`
+      (default 12px, mobile 14px). md/body/heading unchanged. ThemeTokensTest + StdUiSmokeTest
+      green. (The `SpaceToken.Smd` / `FontToken.Caption` *enums* are added with the `Style`
+      descriptor in `ui-styled-p2-nodes`; this slice is the theme-data half.)
 
 - [ ] **ui-styled-p2-nodes** — In `nodes.ssc`: `Style` descriptor — colors token-only
       (bg/fg/border), `font` token-only (`FontToken`, never px), **per-axis
