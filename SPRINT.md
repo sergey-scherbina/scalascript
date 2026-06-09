@@ -1591,15 +1591,15 @@ Pure stdlib, helps web + native. Builds on existing `json-plugin`
 
 - [x] **ui-typed-json-p1-spec** — `specs/std-ui-typed-json.md`. ✓ Landed 2026-06-09.
 
-- [~] **ui-typed-json-p2-core** — Navigable `JsonValue` + total accessors (get/at/
-      asString/asInt/asDouble/asBool/asList/isNull/opt*/getOrElse + **asDecimal/optDecimal**
-      lossless money) + structured builders (jStr/jNum/jBool/jDecimal/jField/jObj/jArr).
-      **✓ JVM landed 2026-06-09**: `navJson` InstanceV in json-plugin (additive — existing
-      jsonParse/jsonRead/lookup untouched), `runtime/std/json.ssc`, `examples/ui-typed-json.ssc`,
-      7 plugin tests + JsonTypedExampleTest end-to-end. Builders are pure `.ssc` → work
-      JVM+JS now (busi can kill the 13 `*Q` escapers immediately).
-      **⏳ Pending: JS preamble for `jsonValue` decode** (browser navigable parse) — busi's
-      web decode (onbStr/extractStr) needs this; next slice. Then fold into p3-fetch.
+- [x] **ui-typed-json-p2-core** — ✓ Landed 2026-06-09 (JVM + JS). Navigable `JsonValue` +
+      total accessors (get/at/asString/asInt/asDouble/asBool/asList/isNull/opt*/getOrElse +
+      **asDecimal/optDecimal** lossless money) + structured builders (jStr/jNum/jBool/jDecimal/
+      jField/jObj/jArr). JVM: `navJson` InstanceV in json-plugin (additive — existing
+      jsonParse/jsonRead/lookup untouched). JS: `_jsonValueTotal`+`jsonValue` in JsRuntimePart2b
+      + `jsonValue`→RuntimeCall (decode works in emit-spa/browser). `runtime/std/json.ssc`,
+      `examples/ui-typed-json.ssc`. Tests: 7 plugin + JsonTypedExampleTest (e2e JVM) +
+      JsonValueNodeTest (real Node parity). busi can migrate 13 `*Q` (encode) AND
+      onbStr/extractStr (decode) now — both backends.
 
 - [ ] **ui-typed-json-p3-fetch** — `fetchJsonSignal(name,url,tick,headers): Signal[JsonValue]`
       and `fetchJsonAction(method,url,()=>JsonValue,tick,headers): EventHandler` in
