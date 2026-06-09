@@ -1,0 +1,52 @@
+---
+name: ui-fetch-json
+version: 1.0.0
+description: Typed-JSON fetch sugar — fetchJsonValue (GET + decode to a navigable JsonValue) and fetchJsonAction (POST/PUT a structured JSON body). Pure composition over fetchUrlSignal / fetchAction + std.json.
+package: std.ui.fetch_json
+exports:
+  - fetchJsonValue
+  - fetchJsonAction
+---
+
+# `std.ui` — typed-JSON fetch
+
+The ergonomic seam between the reactive fetch primitives and `std.json`: read a
+fetch result **already decoded** into a navigable `JsonValue`, and POST a body
+**built from structured builders** instead of a hand-concatenated string. Both are
+thin composition over the existing `fetchUrlSignal` / `fetchAction` primitives —
+reactivity flows through the underlying string signal unchanged.
+
+> Distinct from the built-in `fetchJsonSignal(name, url, tick, modelTypeName)`,
+> which decodes into a **named model type** (typed codegen). Use that when the
+> response has a declared case-class shape; use `fetchJsonValue` below for
+> ad-hoc, schema-less navigation with `std.json`'s total accessors.
+
+```scalascript
+[Signal, EventHandler, fetchUrlSignal, fetchAction, computedSignal](primitives.ssc)
+[jsonValue, JsonValue](std/json.ssc)
+
+/** GET `url` on mount + whenever `tick` increments; the result reads back as a
+ *  navigable JsonValue (total accessors — see std.json), not a raw String:
+ *
+ *    val sum  = fetchJsonValue("onbSummary", url, tick, authHdr)
+ *    val name = computedSignal(() => sum().get("businessName").asString)
+ *    val due  = computedSignal(() => sum().get("amountDue").asDecimal.toString)  // exact money
+ *
+ *  `sum()` reads the underlying fetch signal, so it stays reactive: any
+ *  `computedSignal` that calls `sum()` re-runs when the fetch refreshes. */
+def fetchJsonValue(name: String, url: String, tick: Signal[Int],
+                   headers: Signal[String]): () => JsonValue =
+  val s = fetchUrlSignal(name, url, tick, headers)
+  () => jsonValue(s())
+
+/** On click: POST/PUT/DELETE `url` with a JSON body built from std.json builders,
+ *  then bump `tick` so consumers re-fetch.  `body` is a thunk returning the JSON
+ *  text (escaping handled by the builders), evaluated with current signal values:
+ *
+ *    fetchJsonAction("PUT", url,
+ *      () => jObj([jField("yaml", jStr(yamlSig())), jField("name", jStr(nameSig()))]),
+ *      tick, authHdr) */
+def fetchJsonAction(method: String, url: String, body: () => String, tick: Signal[Int],
+                    headers: Signal[String]): EventHandler =
+  fetchAction(method, url, computedSignal(body), tick, headers)
+```

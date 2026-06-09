@@ -1,0 +1,31 @@
+---
+name: ui-fetch-json
+description: Typed-JSON fetch sugar — fetchJsonSignal / fetchJsonAction over std.json (busi UI proposals P1).
+---
+
+# Typed-JSON fetch
+
+`fetchJsonSignal` reads a GET result already decoded into a navigable `JsonValue`;
+`fetchJsonAction` POSTs a structured JSON body built with the `std.json` builders.
+Both compose over the existing reactive fetch primitives.
+
+[fetchJsonValue, fetchJsonAction](std/ui/fetch-json.ssc)
+[signal](std/ui/primitives.ssc)
+[jStr, jNum, jField, jObj](std/json.ssc)
+
+```scalascript
+val tick = signal("tick", 0)
+val authHdr = signal("authHdr", "")
+
+// fetchJsonValue — construct a GET-decoding signal (no network here; reads back
+// as a navigable JsonValue via `sum()` at render time).
+val sum = fetchJsonValue("summary", "/api/summary", tick, authHdr)
+
+// fetchJsonAction — the body is a thunk that builds JSON from the std.json
+// builders (runtime-escaped); evaluated with current signal values at click time.
+val body = () => jObj([jField("name", jStr("Acme \"HQ\"")), jField("n", jNum("5"))])
+println("body:" + body())
+
+val save = fetchJsonAction("PUT", "/api/save", body, tick, authHdr)
+println("fetch-json:ok")
+```
