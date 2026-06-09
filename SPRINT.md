@@ -55,17 +55,23 @@ JIT optimisation can close the resulting honest gap.
       volatile-gated identity barrier (was `inline def x: A = x` → useless).
       Ready for follow-up `bench-honest-workload-seed` to use it explicitly.
 
-- [ ] **bench-honest-workload-seed** — Change `def workload(): T` to
-      `def workload(seed: Long): T` in corpus files where the result is a
-      compile-time constant; pass `Bench.opaque(_ssc_reps)` (or the loop
-      counter) as the seed; reference the seed in the workload's first
-      computation (e.g. `(seed.toInt + 1 to 10).map...` instead of
-      `(1 to 10).map...`).  This is the "option C" path from the earlier
-      Rust audit: makes the workload's output depend on a runtime-varying
-      input that no compiler can precompute.
-      Acceptance: streams-pipeline / typeclass-monoid / bool-predicate JVM
-      numbers in the 10-100 ns range matching the workload they emulate
-      (i.e. the original `bench-honest-jvm-blackbox` acceptance).
+- [x] **bench-honest-workload-seed** [partial — streams-pipeline + typeclass-
+      monoid landed; bool-predicate needs unbox fix first] — Wrapped the
+      first integer literal(s) inside `def workload` body with
+      `Bench.opaque(...)`.  Bench.opaque is now a real volatile-gated
+      barrier on JVM, so C2 can't precompute pure-arith chains that flow
+      through it.
+      Results (M1):
+      - streams-pipeline JVM: 0.000002 → 0.000055 ms (2 ns → 55 ns) ✓
+      - typeclass-monoid JVM: 0.000002 → 0.000005 ms (2 ns → 5 ns) —
+        under the 10 ns floor because C2 speculates the volatile branch;
+        a non-speculatable barrier would push higher (out of scope).
+      - bool-predicate: left at baseline.  Wrapping the loop bound
+        regressed ssc 1100× by breaking unboxed-Long fast path
+        (`val limit = Bench.opaque(1000)` boxes `limit` as `Value`).
+        Workload was already honest at 22 µs so no win, only loss.
+      ssc/ssc-asm pay 15-30% for the per-call dispatch — accepted cost
+      for cross-backend honest measurement.
 
 - [x] **bench-honest-rust-verify** [done — docs/bench/rust-honest-disassembly.md]
       All six workloads have real work in the loop body (39-196 inst on
