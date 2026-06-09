@@ -1,0 +1,34 @@
+---
+name: ui-typed-json
+description: Typed JSON decode + structured encode with std.json (busi UI proposals P1).
+---
+
+# Typed JSON in/out
+
+`std.json` replaces hand-rolled substring decoders and duplicated escape helpers:
+decode a response into a navigable `JsonValue` (total accessors), build request
+bodies from structured builders (runtime-escaped). Money stays exact via `asDecimal`.
+
+[jsonValue, jStr, jField, jObj](std/json.ssc)
+
+```scalascript
+// ── Decode: navigate a server response totally (no substring parsing) ──
+val resp = jsonValue(
+  "{\"businessName\":\"Acme\",\"missingCount\":2,\"amountDue\":\"1000.01\"," +
+  "\"steps\":[{\"label\":\"KYC\"},{\"label\":\"Bank\"}]}")
+
+println(s"name    : ${resp.get("businessName").asString}")
+println(s"missing : ${resp.get("missingCount").asInt}")
+println(s"due     : ${resp.get("amountDue").asDecimal}")
+println(s"absent  : '${resp.get("nope").asString}'")
+val labels = resp.get("steps").asList.map(s => s.get("label").asString)
+println(s"steps   : ${labels.mkString(", ")}")
+
+// ── Encode: build a request body as values, runtime-escaped ──
+val body = jObj([
+  jField("name", jStr("Acme \"HQ\"")),
+  jField("note", jStr("line1\nline2"))
+])
+println(s"body    : $body")
+println("typed-json:ok")
+```

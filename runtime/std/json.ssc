@@ -1,0 +1,67 @@
+---
+name: std-json
+version: 1.0.0
+description: Typed JSON for .ssc — navigable JsonValue with total accessors (incl. exact Decimal for money) and structured string builders for request bodies.
+package: std.json
+exports:
+  - JsonValue
+  - jsonValue
+  - jsonStringify
+  - jStr
+  - jNum
+  - jBool
+  - jDecimal
+  - jField
+  - jObj
+  - jArr
+  - jsonEscape
+---
+
+# `std.json` — typed JSON in/out
+
+Client-side JSON for `.ssc` UI code: decode a fetch result into a **navigable
+`JsonValue`** and build request bodies from **structured builders** — no more
+hand-rolled substring decoders or duplicated escape helpers.
+
+Navigation is **total**: a missing key, wrong shape, or parse failure funnels to a
+Null `JsonValue` / zero-default, never a crash. Use `opt*` / `jsonParseStrict` when
+absence must be distinguished. Money is exact: read amounts with `asDecimal`
+(lossless), never `asDouble`. See [`specs/std-ui-typed-json.md`](../../specs/std-ui-typed-json.md).
+
+```scalascript
+opaque type JsonValue = Any
+
+// ── Parse → navigable JsonValue ─────────────────────────────────────────────
+/** Tolerant parse — malformed input yields a Null JsonValue (never throws).
+ *  The result navigates totally:
+ *    jsonValue(body).get("amount").asDecimal       // exact money, lossless
+ *    jsonValue(body).get("steps").asList.map(...)  // [] if absent
+ *    jsonValue(body).getOrElse("country", "??")    // default on miss
+ *  Accessors on the result (members of the JsonValue value):
+ *    get(key) / at(idx) / isNull
+ *    asString / asInt / asDouble / asBool / asList / asDecimal
+ *    optString / optInt / optDecimal / getOrElse(key, fallback) / raw */
+extern def jsonValue(s: String): JsonValue
+/** Serialize a JsonValue (or any value) to a compact JSON string. */
+extern def jsonStringify(v: Any): String
+
+// ── Structured builders for request bodies ──────────────────────────────────
+// Runtime-escaped; build bodies as values, never by string concatenation. Each
+// builder yields the JSON text of its node, joined by jObj/jArr.
+
+def jsonEscape(s: String): String =
+  s.replace("\\", "\\\\").replace("\"", "\\\"")
+   .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+
+/** Encode a string scalar (quoted + escaped). */
+def jStr(s: String): String   = "\"" + jsonEscape(s) + "\""
+/** Encode a pre-rendered numeric token verbatim (caller passes textual form). */
+def jNum(s: String): String   = s
+def jBool(b: Boolean): String = if b then "true" else "false"
+/** Lossless exact-decimal token — emits the Decimal's plain text (no Double). */
+def jDecimal(d: Decimal): String = d.toString
+/** Pair a key with an already-encoded value (jStr/jNum/jObj/jArr/...). */
+def jField(key: String, value: String): String = jStr(key) + ":" + value
+def jObj(fields: List[String]): String = "{" + fields.mkString(",") + "}"
+def jArr(items: List[String]): String  = "[" + items.mkString(",") + "]"
+```
