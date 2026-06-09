@@ -1518,20 +1518,21 @@ object AsmJitBackend extends JitBackend:
         outerArgs.head match
           case fn: Term.Function if JitHofShape.foldAdd(fn) =>
             val initTerm = inner.argClause.values.head
-            // Loop fusion: collapse recv = base.map(f).filter(g) into one pass.
+            // Loop fusion: collapse recv = base.map(f).filter(g) (optionally over a
+            // range base) into one pass.
             val chain = JitHofShape.fuseFoldChain(recv)
-            if chain != null then
-              val mp = chain.map
-              val ft = chain.filter
-              val hasMap    = mp != null
-              val mapOp     = if hasMap then mp.op else 0
-              val mapC      = if hasMap then mp.c  else 0L
-              val hasFilter = ft != null
-              val pred      = if hasFilter then ft.pred else 0
-              val fc1       = if hasFilter then ft.c1   else 0L
-              val fc2       = if hasFilter then ft.c2   else 0L
-              mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
-              if !walkRef(chain.base, ctx, mv) then return false
+            val base = if chain != null then chain.base else recv
+            val mp   = if chain != null then chain.map else null
+            val ft   = if chain != null then chain.filter else null
+            val hasMap    = mp != null
+            val mapOp     = if hasMap then mp.op else 0
+            val mapC      = if hasMap then mp.c  else 0L
+            val hasFilter = ft != null
+            val pred      = if hasFilter then ft.pred else 0
+            val fc1       = if hasFilter then ft.c1   else 0L
+            val fc2       = if hasFilter then ft.c2   else 0L
+            // Shared tail: hasMap, mapOp, mapC, hasFilter, pred, fc1, fc2, init, foldOp.
+            def emitOpsTail(): Boolean =
               emitIconst(mv, if hasMap then 1 else 0)
               emitIconst(mv, mapOp)
               mv.visitLdcInsn(mapC)
@@ -1541,6 +1542,22 @@ object AsmJitBackend extends JitBackend:
               mv.visitLdcInsn(fc2)
               if !walkLong(initTerm, ctx, mv) then return false
               emitIconst(mv, JitHofDispatch.FoldAdd)
+              true
+            val rb = JitHofShape.rangeBounds(base)
+            if rb != null then
+              // Range-native: iterate from..until with a primitive counter (no base list).
+              mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
+              if !walkLong(rb.lo, ctx, mv) then return false
+              if !walkLong(rb.hi, ctx, mv) then return false
+              if rb.inclusive then { mv.visitLdcInsn(1L); mv.visitInsn(LADD) }
+              if !emitOpsTail() then return false
+              mv.visitMethodInsn(INVOKEVIRTUAL, hofDispatchInt, "fusedRangeFoldLong",
+                "(JJZIJZIJJJI)J", false)
+              true
+            else if chain != null then
+              mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
+              if !walkRef(base, ctx, mv) then return false
+              if !emitOpsTail() then return false
               mv.visitMethodInsn(INVOKEVIRTUAL, hofDispatchInt, "fusedFoldLong",
                 "(Ljava/lang/Object;ZIJZIJJJI)J", false)
               true
@@ -2303,10 +2320,12 @@ object AsmJitBackend extends JitBackend:
         case inner: Term => walkRef(inner, ctx, mv)
         case _           => false
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
-        if op.value == "until" && argClause.values.lengthCompare(1) == 0 =>
+        if (op.value == "until" || op.value == "to") && argClause.values.lengthCompare(1) == 0 =>
       mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
       if !walkLong(lhs, ctx, mv) then return false
       if !walkLong(argClause.values.head, ctx, mv) then return false
+      // `to` is inclusive: rangeUntil's upper bound is exclusive, so add 1.
+      if op.value == "to" then { mv.visitLdcInsn(1L); mv.visitInsn(LADD) }
       mv.visitMethodInsn(INVOKEVIRTUAL, hofDispatchInt, "rangeUntil", "(JJ)Ljava/lang/Object;", false)
       true
     case ap: Term.Apply =>

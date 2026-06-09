@@ -12,6 +12,23 @@ object JitHofShape:
    *  `map` / `filter` are null when that stage is absent. */
   final case class FoldChain(base: Term, map: UnaryLong | Null, filter: PredicateLong | Null)
 
+  /** Integer range bounds: `lo until hi` (inclusive=false) or `lo to hi`
+   *  (inclusive=true). `lo` / `hi` are the bound terms (compiled to longs). */
+  final case class RangeBounds(lo: Term, hi: Term, inclusive: Boolean)
+
+  /** Recognise `lo until hi` / `lo to hi` (optionally wrapped in a 1-stmt
+   *  block) so a fused fold can iterate the range with no materialised list. */
+  def rangeBounds(t: Term): RangeBounds | Null =
+    t match
+      case Term.ApplyInfix.After_4_6_0(lo, op, _, ac)
+          if (op.value == "until" || op.value == "to") && ac.values.lengthCompare(1) == 0 =>
+        RangeBounds(lo, ac.values.head, op.value == "to")
+      case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+        b.stats.head match
+          case inner: Term => rangeBounds(inner)
+          case _           => null
+      case _ => null
+
   /** Decompose a `foldLeft` receiver `recv` into a fusable [[FoldChain]] by
    *  peeling an optional outer `.filter(pred)` then an optional `.map(unary)`.
    *  Returns null when neither stage is present or any stage's lambda is not a

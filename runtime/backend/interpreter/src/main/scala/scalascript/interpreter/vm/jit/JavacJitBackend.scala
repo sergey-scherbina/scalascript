@@ -1245,16 +1245,16 @@ object JavacJitBackend extends JitBackend:
           case _ => null
       case _ => null
 
-  /** Emit a single fused `fusedFoldLong` call for `base.map(f).filter(g)` (either
-   *  stage optional) as the receiver of a `foldLeft(init)(+)`. Returns null when
+  /** Emit a single fused fold call for `base.map(f).filter(g)` (either stage
+   *  optional) as the receiver of a `foldLeft(init)(+)`. When `base` is an integer
+   *  range, iterates it with a primitive counter (`fusedRangeFoldLong`, no base
+   *  list); otherwise walks a list receiver (`fusedFoldLong`). Returns null when
    *  the chain is not fusable (caller falls back to the per-stage path). */
   private def emitFusedFoldChain(recv: Term, init: String, ctx: GenCtx): String | Null =
     val chain = JitHofShape.fuseFoldChain(recv)
-    if chain == null then return null
-    val refExpr = walkRef(chain.base, ctx)
-    if refExpr == null then return null
-    val mp = chain.map
-    val ft = chain.filter
+    val base = if chain != null then chain.base else recv
+    val mp   = if chain != null then chain.map else null
+    val ft   = if chain != null then chain.filter else null
     val hasMap    = mp != null
     val mapOp     = if hasMap then mp.op else 0
     val mapC      = if hasMap then mp.c  else 0L
@@ -1262,8 +1262,22 @@ object JavacJitBackend extends JitBackend:
     val pred      = if hasFilter then ft.pred else 0
     val fc1       = if hasFilter then ft.c1   else 0L
     val fc2       = if hasFilter then ft.c2   else 0L
-    s"scalascript.interpreter.vm.jit.JitHofDispatch$$.MODULE$$.fusedFoldLong((Object) ($refExpr), " +
-      s"$hasMap, $mapOp, ${mapC}L, $hasFilter, $pred, ${fc1}L, ${fc2}L, $init, ${JitHofDispatch.FoldAdd})"
+    val ops = s"$hasMap, $mapOp, ${mapC}L, $hasFilter, $pred, ${fc1}L, ${fc2}L, $init, ${JitHofDispatch.FoldAdd}"
+    val jhd = "scalascript.interpreter.vm.jit.JitHofDispatch$.MODULE$"
+    // Range-native fusion: no materialised base list (covers a bare range fold too).
+    val rb = JitHofShape.rangeBounds(base)
+    if rb != null then
+      val lo = walkLong(rb.lo, ctx)
+      val hi = walkLong(rb.hi, ctx)
+      if lo == null || hi == null then return null
+      val until = if rb.inclusive then s"(($hi) + 1L)" else s"($hi)"
+      return s"$jhd.fusedRangeFoldLong((long)($lo), (long)($until), $ops)"
+    // List receiver fusion only pays off when there is a map/filter stage to
+    // collapse; a bare `list.foldLeft` is already materialised — leave it.
+    if chain == null then return null
+    val refExpr = walkRef(base, ctx)
+    if refExpr == null then return null
+    s"$jhd.fusedFoldLong((Object) ($refExpr), $ops)"
 
   private def emitBuiltinEitherObject(typeName: String, arg: Term, ctx: GenCtx): String | Null =
     if typeName != "Right" && typeName != "Left" then return null
@@ -1432,11 +1446,13 @@ object JavacJitBackend extends JitBackend:
         case inner: Term => walkRef(inner, ctx)
         case _           => null
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
-        if op.value == "until" && argClause.values.lengthCompare(1) == 0 =>
+        if (op.value == "until" || op.value == "to") && argClause.values.lengthCompare(1) == 0 =>
       val from = walkLong(lhs, ctx)
       if from == null then return null
-      val until = walkLong(argClause.values.head, ctx)
-      if until == null then return null
+      val hi = walkLong(argClause.values.head, ctx)
+      if hi == null then return null
+      // `to` is inclusive: rangeUntil's upper bound is exclusive, so pass hi + 1.
+      val until = if op.value == "to" then s"(($hi) + 1L)" else hi
       s"scalascript.interpreter.vm.jit.JitHofDispatch$$.MODULE$$.rangeUntil($from, $until)"
     case ap: Term.Apply =>
       ap.fun match

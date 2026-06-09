@@ -1362,6 +1362,40 @@ class SscVmTest extends AnyFunSuite with Matchers:
     JitGlobals.withInterp(interp) { direct.apply(0L) } shouldBe 0L
   }
 
+  // ── range-native fusion (jit-range-fusion) ───────────────────────────
+
+  for backend <- List(JavacJitBackend, AsmJitBackend) do
+    val nm = backend.getClass.getSimpleName.stripSuffix("$")
+
+    test(s"jit-range-fusion: $nm inclusive `to` range with map+filter fuses and runs") {
+      // (1 to n).map(*2).filter(%3==0).foldLeft(0)(+) — same shape as streams-pipeline.
+      // n=6 -> [2,4,6,8,10,12] -> filter %3==0 -> [6,12] -> 18.
+      val interp = interpOf(
+        """def f(n: Int): Int =
+          |  (1 to n).map(x => x * 2).filter(x => x % 3 == 0).foldLeft(0)((a, b) => a + b)""".stripMargin)
+      val fn = interp.globalsView("f").asInstanceOf[Value.FunV]
+      val r = backend.tryCompile(fn, interp)
+      r should not be null
+      r.direct.isInstanceOf[LongFn1] shouldBe true
+      val direct = r.direct.asInstanceOf[LongFn1]
+      JitGlobals.withInterp(interp) { direct.apply(6L) } shouldBe 18L
+      JitGlobals.withInterp(interp) { direct.apply(0L) } shouldBe 0L
+    }
+
+    test(s"jit-range-fusion: $nm bare range foldLeft fuses with no map/filter") {
+      // (1 to n).foldLeft(0)(+) — Gauss sum; no list materialised.
+      val interp = interpOf(
+        """def f(n: Int): Int =
+          |  (1 to n).foldLeft(0)((a, b) => a + b)""".stripMargin)
+      val fn = interp.globalsView("f").asInstanceOf[Value.FunV]
+      val r = backend.tryCompile(fn, interp)
+      r should not be null
+      r.direct.isInstanceOf[LongFn1] shouldBe true
+      val direct = r.direct.asInstanceOf[LongFn1]
+      JitGlobals.withInterp(interp) { direct.apply(10L) } shouldBe 55L
+      JitGlobals.withInterp(interp) { direct.apply(1L) } shouldBe 1L
+    }
+
   test("stage7-refchain-object-dispatch: Javac List map/mkString compiles and runs") {
     val interp = interpOf(
       """def f(n: Int): String =

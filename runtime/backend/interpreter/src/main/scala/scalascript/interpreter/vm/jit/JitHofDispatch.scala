@@ -136,6 +136,24 @@ object JitHofDispatch:
       case _ =>
         throw new RuntimeException("JitHofDispatch.fusedFoldLong: unsupported receiver")
 
+  /** Range-native variant of [[fusedFoldLong]]: iterates `from until until`
+   *  (half-open; the caller passes `hi + 1` for an inclusive `to` range) with
+   *  a primitive counter — no `ListV` materialised for the range at all. */
+  def fusedRangeFoldLong(from: Long, until: Long,
+                         hasMap: Boolean, mapOp: Int, mapC: Long,
+                         hasFilter: Boolean, pred: Int, fc1: Long, fc2: Long,
+                         init: Long, foldOp: Int): Long =
+    if foldOp != FoldAdd then
+      throw new RuntimeException("JitHofDispatch.fusedRangeFoldLong: unsupported fold op")
+    var acc = init
+    var i = from
+    while i < until do
+      var x = i
+      if hasMap then x = applyUnaryLong(x, mapOp, mapC)
+      if !hasFilter || applyPredicateLong(x, pred, fc1, fc2) then acc += x
+      i += 1L
+    acc
+
   private def applyUnaryLong(x: Long, op: Int, c: Long): Long =
     op match
       case OpId     => x

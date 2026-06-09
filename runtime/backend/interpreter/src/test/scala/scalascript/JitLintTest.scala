@@ -144,6 +144,22 @@ class JitLintTest extends AnyFunSuite with Matchers:
     // closure over a free variable, not a constant arith op
     JitHofShape.fuseFoldChain("xs.map(x => x + y)".parse[Term].get) shouldBe null
 
+  test("jit-range-fusion: `until` range bounds are exclusive"):
+    val rb = JitHofShape.rangeBounds("0 until n".parse[Term].get)
+    rb should not be null
+    rb.lo.syntax shouldBe "0"
+    rb.hi.syntax shouldBe "n"
+    rb.inclusive shouldBe false
+
+  test("jit-range-fusion: `to` range bounds are inclusive"):
+    val rb = JitHofShape.rangeBounds("1 to 10".parse[Term].get)
+    rb should not be null
+    rb.inclusive shouldBe true
+
+  test("jit-range-fusion: non-range receiver has no bounds"):
+    JitHofShape.rangeBounds("xs".parse[Term].get) shouldBe null
+    JitHofShape.rangeBounds("xs.map(x => x + 1)".parse[Term].get) shouldBe null
+
   test("stage7-typeclass-fold: context-bound fold is classified as typeclass dispatch"):
     val r = lintCompareFor(
       """trait Monoid[A]:
