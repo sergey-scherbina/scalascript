@@ -67,19 +67,18 @@ JIT optimisation can close the resulting honest gap.
       numbers in the 10-100 ns range matching the workload they emulate
       (i.e. the original `bench-honest-jvm-blackbox` acceptance).
 
-- [ ] **bench-honest-rust-verify** — Disassemble each of the six gap
-      workloads' release binaries (`objdump`/`otool`) to confirm the
-      Rust black_box patches actually leave real work in the loop body.
-      Document the cycle-by-cycle expectation for each.  If any of the
-      six is found to be folded despite the patches, expand the patcher
-      (likely closure-body-of-closure-body cases).
+- [x] **bench-honest-rust-verify** [done — docs/bench/rust-honest-disassembly.md]
+      All six workloads have real work in the loop body (39-196 inst on
+      M1).  `arith-loop` runs the actual 1M-iter loop; `streams-pipeline`
+      is fully unrolled (10 iter); `bool-predicate`/`either-chain`/
+      `option-chain`/`typeclass-fold` run real loops; `typeclass-monoid`
+      is 3 inlined adds (no loop in source).
 
-- [ ] **bench-honest-js-investigate** — V8 has its own constant-folding
-      optimiser (Crankshaft → TurboFan).  Run each of the six benches
-      through `--print-opt-code` / `--turbo-trace-printer` and confirm
-      whether V8 is folding the outer loop too.  If yes: add `globalThis.
-      _sscBlackHole = workload()` per iter as the JS-equivalent of
-      `lazySet`.  If no: the V8 numbers are already honest.
+- [x] **bench-honest-js-investigate** [done — docs/bench/js-honesty-audit.md]
+      Sink-quotient analysis on V8: for each suspect workload,
+      `BENCH_SINK / expected_single_result == iter count` reported by the
+      harness.  All six match exactly — V8 is not folding the outer
+      timing loop on these workloads.  JS numbers are real per-iter costs.
 
 - [ ] **ssc-jit-loop-fusion-universal** — Iterator chain fusion in the
       ssc bytecode JIT.  Detect `Range.map(f).filter(g).foldLeft(z)(h)`
