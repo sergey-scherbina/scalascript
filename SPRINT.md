@@ -1012,7 +1012,7 @@ Spec to write first: `specs/std-fs-os.md`
 
 ### Phase 1 — spec + design
 
-- [ ] **std-fs-os-p1-spec** — Write `specs/std-fs-os.md`. Cover:
+- [x] **std-fs-os-p1-spec** — Write `specs/std-fs-os.md`. Cover:
 
       **`std.fs`**: readFile, writeFile, appendFile, deleteFile, exists,
       isDir, isFile, mkdir, mkdirs, listDir, copyFile, moveFile,
@@ -1033,10 +1033,11 @@ Spec to write first: `specs/std-fs-os.md`
 
       JS-Node vs JVM vs Rust vs browser-sandbox policy for each module.
       Commit: `spec: std-fs-os`.
+      ✓ Landed 2026-06-09 (0757d27): 271-line spec, all 3 modules + 6 phases.
 
 ### Phase 2 — JVM backend (fs-plugin + os-plugin)
 
-- [ ] **std-fs-os-p2-jvm** — Create `runtime/std/fs-plugin/` with
+- [x] **std-fs-os-p2-jvm** — Create `runtime/std/fs-plugin/` with
       `FsPlugin.scala` + `FsIntrinsics.scala` (std.fs + std.os).
       Create `runtime/std/os-plugin/` with `OsPlugin.scala` +
       `OsIntrinsics.scala` (std.process via `ProcessBuilder`).
@@ -1044,6 +1045,8 @@ Spec to write first: `specs/std-fs-os.md`
       Register both in `build.sbt`. Conformance tests:
       `tests/conformance/fs-*.ssc`, `tests/conformance/os-*.ssc`,
       `tests/conformance/process-*.ssc`. Commit: `feat(fs-plugin): JVM backend`.
+      ✓ Landed 2026-06-09 (30134b8): fs-plugin (13 ops, 13 tests) + os-plugin
+      (18 ops incl. exec, 14 tests). allPlugins registered.
 
 ### Phase 3 — JS/Node backend
 

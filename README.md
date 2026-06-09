@@ -388,6 +388,8 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | File | Description |
 |------|-------------|
 | [hello.ssc](examples/hello.ssc) | Minimal "Hello, World!" |
+| [fs-roundtrip.ssc](examples/fs-roundtrip.ssc) | `std.fs` write / read / append / list / delete round-trip |
+| [os-env.ssc](examples/os-env.ssc) | `std.os` env vars, path helpers, platform detection |
 | [index.ssc](examples/index.ssc) | Landing page for the `serve` examples browser |
 | [script.ssc](examples/script.ssc) | Functions, loops, Fibonacci |
 | [data-types.ssc](examples/data-types.ssc) | Case classes, sealed traits, enums, pattern matching |

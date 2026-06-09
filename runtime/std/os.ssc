@@ -1,0 +1,68 @@
+---
+name: std-os
+version: 1.0.0
+description: OS environment — env vars, CLI args, paths, platform info
+package: std.os
+exports:
+  - env
+  - envOrElse
+  - args
+  - exit
+  - cwd
+  - sep
+  - pathJoin
+  - pathDirname
+  - pathBasename
+  - pathExtname
+  - pathResolve
+  - pathIsAbsolute
+  - tempDir
+  - tempFile
+  - platform
+  - homedir
+  - hostname
+  - Platform
+---
+
+# std.os — OS environment
+
+Cross-backend OS environment intrinsics.
+JVM: `System`, `java.nio.file.Paths`; Node: `process`, `node:path`, `node:os`;
+Browser: stubs (no env, no args, platform = Browser).
+
+See `specs/std-fs-os.md` for the full API table and backend policy.
+
+```scalascript
+// ── Environment variables ─────────────────────────────────────────────────────
+extern def env(key: String): Option[String]
+extern def envOrElse(key: String, default: String): String
+
+// ── CLI arguments ─────────────────────────────────────────────────────────────
+extern def args: List[String]
+
+// ── Process control ───────────────────────────────────────────────────────────
+extern def exit(code: Int): Nothing
+
+// ── Paths ─────────────────────────────────────────────────────────────────────
+extern def cwd: String
+extern def sep: String
+extern def pathJoin(parts: String*): String
+extern def pathDirname(path: String): String
+extern def pathBasename(path: String): String
+extern def pathExtname(path: String): String
+extern def pathResolve(path: String): String
+extern def pathIsAbsolute(path: String): Boolean
+extern def tempDir: String
+extern def tempFile(prefix: String, suffix: String): String
+
+// ── Platform detection ────────────────────────────────────────────────────────
+sealed trait Platform
+case object Jvm     extends Platform
+case object NodeJs  extends Platform
+case object Browser extends Platform
+case object Native  extends Platform
+
+extern def platform: Platform
+extern def homedir: String
+extern def hostname: String
+```

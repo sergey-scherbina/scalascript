@@ -1,0 +1,32 @@
+#!/usr/bin/env ssc
+---
+name: fs-roundtrip
+version: 1.0.0
+description: Round-trip writeFile / readFile / listDir via std.fs
+---
+
+# fs-roundtrip — std.fs round-trip demo
+
+Demonstrates `std.fs` write → read → append → list → delete.
+Run with: `ssc run examples/fs-roundtrip.ssc`
+
+```scalascript
+[writeFile, readFile, appendFile, exists, listDir, deleteFile, mkdir, mkdirs](std/fs.ssc)
+
+val dir  = "/tmp/ssc-fs-demo"
+val path = dir + "/hello.txt"
+
+mkdirs(dir)
+writeFile(path, "Hello from ScalaScript!\n")
+appendFile(path, "Second line.\n")
+
+val content = readFile(path)
+println("File content:")
+println(content)
+
+val files = listDir(dir)
+println("Files in " + dir + ": " + files.mkString(", "))
+
+deleteFile(path)
+println("Deleted: " + !exists(path))
+```

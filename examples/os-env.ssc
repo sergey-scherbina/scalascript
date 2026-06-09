@@ -1,0 +1,30 @@
+#!/usr/bin/env ssc
+---
+name: os-env
+version: 1.0.0
+description: OS environment — env vars, paths, platform info via std.os
+---
+
+# os-env — std.os demo
+
+Demonstrates `std.os` environment vars, path helpers, and platform detection.
+Run with: `ssc run examples/os-env.ssc`
+
+```scalascript
+[env, envOrElse, cwd, sep, pathJoin, pathBasename, pathExtname, platform](std/os.ssc)
+
+println("Platform:  " + platform)
+println("CWD:       " + cwd)
+println("Path sep:  '" + sep + "'")
+
+val port = envOrElse("PORT", "8080")
+println("PORT:      " + port)
+
+val home = env("HOME")
+println("HOME:      " + home.getOrElse("(not set)"))
+
+val joined = pathJoin("/usr", "local", "bin", "ssc")
+println("Joined:    " + joined)
+println("Basename:  " + pathBasename(joined))
+println("Extname:   " + pathExtname("/docs/readme.md"))
+```

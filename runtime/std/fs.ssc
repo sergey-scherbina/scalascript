@@ -1,24 +1,52 @@
 ---
 name: std-fs
 version: 1.0.0
-description: File-system primitives — writeFile, readFile, deleteFile, exists
+description: File-system primitives — read, write, list, copy, move, delete
 package: std.fs
 exports:
-  - writeFile
   - readFile
-  - deleteFile
+  - writeFile
+  - appendFile
+  - readBytes
+  - writeBytes
   - exists
+  - isFile
+  - isDir
+  - mkdir
+  - mkdirs
+  - listDir
+  - deleteFile
+  - copyFile
+  - moveFile
 ---
 
 # std.fs — File-system primitives
 
-Synchronous file-system operations gated by `Feature.FileSystem`.
-All three backends (interpreter, JS via Node `fs`, JVM via `java.nio.file`)
-implement the same blocking contract.
+Cross-backend synchronous file-system operations.
+JVM: `java.nio.file`; Node: `node:fs` sync APIs; Browser: throws `FsNotSupported`.
+
+See `specs/std-fs-os.md` for the full API table and backend policy.
 
 ```scalascript
-extern def writeFile(path: String, contents: String): Unit
+// ── Basic I/O ────────────────────────────────────────────────────────────────
 extern def readFile(path: String): String
-extern def deleteFile(path: String): Unit
+extern def writeFile(path: String, contents: String): Unit
+extern def appendFile(path: String, contents: String): Unit
+extern def readBytes(path: String): List[Int]
+extern def writeBytes(path: String, bytes: List[Int]): Unit
+
+// ── Predicates ───────────────────────────────────────────────────────────────
 extern def exists(path: String): Boolean
+extern def isFile(path: String): Boolean
+extern def isDir(path: String): Boolean
+
+// ── Directory ops ────────────────────────────────────────────────────────────
+extern def mkdir(path: String): Unit
+extern def mkdirs(path: String): Unit
+extern def listDir(path: String): List[String]
+
+// ── File management ──────────────────────────────────────────────────────────
+extern def deleteFile(path: String): Unit
+extern def copyFile(src: String, dst: String): Unit
+extern def moveFile(src: String, dst: String): Unit
 ```
