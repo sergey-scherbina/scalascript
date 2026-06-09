@@ -80,12 +80,16 @@ JIT optimisation can close the resulting honest gap.
 
 - [ ] **ssc-jit-const-propagation** — Generalisation of the above: when
       the JIT sees a pure expression whose operands are all literals or
-      provably-pure pure functions, fold it at JIT time.  Stage 1:
-      literal arithmetic.  Stage 2: pure-function calls with literal
-      args (memoise once).  Stage 3: scalar-evolution-style range
-      folding (`sum(0..N)` → closed form).  Each stage shipped
-      independently with bench A/B.  Goal: ssc/asm at within 100× of
-      Rust on pure-arith workloads (currently 1000-10000×).
+      provably-pure pure functions, fold it at JIT time.
+      - [x] Stage 1 (literal arithmetic) — landed in VmCompiler
+        compileInto: `Lit op Lit` folded to single CONST. No bench
+        movement (corpus has no lit+lit at runtime); infra for the
+        later stages.
+      - [ ] Stage 2: pure-function calls with literal args (memoise once).
+      - [ ] Stage 3: scalar-evolution-style range folding
+            (`sum(0..N)` → closed form).
+      Each stage shipped independently with bench A/B.  Goal: ssc/asm at
+      within 100× of Rust on pure-arith workloads (currently 1000-10000×).
 
 - [ ] **ssc-jit-escape-analysis** — Stack-allocate Option/Either/case
       class instances whose lifetime is provably bounded to the current
