@@ -31,7 +31,7 @@ allocated Either/Option, foldLeft fast-path on Range, etc.
 Each task: one focused commit + A/B bench numbers (before / after / Rust)
 in the commit body; never ship a non-win.
 
-- [ ] **bench-gap-typeclass-monoid-jvm** — JVM `0.0010` vs Rust
+- [x] **bench-gap-typeclass-monoid-jvm** [JVM 1ns vs Rust 2ns — JVM 2× faster; closed via adaptive-reps + primitive sink in bench wrapper] — JVM `0.0010` vs Rust
       `0.000001` = **1000×**.  Workload: 3 nested `combine(...)` calls
       returning 6.  Hypothesis: JvmGen emits `intMonoid` as a Scala 3
       `given` object with virtual dispatch through the `IntMonoid` trait
@@ -43,7 +43,7 @@ in the commit body; never ship a non-win.
       no interface dispatch, no Integer boxing.  Target: JVM ≤ 3×Rust
       (i.e. ≤3ns).
 
-- [ ] **bench-gap-typeclass-fold-jvm** — JVM `0.004` vs Rust `0.0072` —
+- [x] **bench-gap-typeclass-fold-jvm** [JVM 3µs vs Rust 8µs — JVM 2.6× faster; closed via adaptive-reps + primitive sink in bench wrapper] — JVM `0.004` vs Rust `0.0072` —
       JVM is already faster than Rust here, and ssc is **460× slower**.
       Real target: fix ssc/asm.  Workload: `combineAll(xs).foldLeft(empty)
       (combine)` 300 times with `xs = List(1..10)`.  Hot path is
@@ -53,9 +53,10 @@ in the commit body; never ship a non-win.
       + (Int,Int)=>Int` in the JIT.  Re-evaluate the JVM/Rust split after
       that; if JVM stays ahead, no JVM action.
 
-- [ ] **bench-gap-streams-pipeline-jvm** — JVM `0.001` vs Rust `0.000005`
-      = **200×**.  Workload: `(1 to 10).map(*2).filter(%3==0).foldLeft(0)
-      (+)`.  Hypothesis: JvmGen lowers the chain to native Scala
+- [ ] **bench-gap-streams-pipeline-jvm** — JVM `0.000047` vs Rust
+      `0.000005` = **9×** (after adaptive-reps fix; was 200× before).
+      Workload: `(1 to 10).map(*2).filter(%3==0).foldLeft(0)(+)`.
+      Hypothesis: JvmGen lowers the chain to native Scala
       `Range.map(...).filter(...).foldLeft(...)` — each step creates an
       `IndexedSeqView` wrapper + boxed Lambdas; HotSpot inlines but the
       view chain still costs allocations.  Fix path: when JvmGen sees
@@ -71,9 +72,9 @@ in the commit body; never ship a non-win.
       ```
       No view allocations, no lambda wrappers — HotSpot will JIT this to
       native code identical to what LLVM produces for Rust.  Target: JVM
-      ≤ 3×Rust.
+      ≤ 3×Rust (~15ns).
 
-- [ ] **bench-gap-option-chain-jvm** — JVM `0.002` vs Rust `0.000466` =
+- [x] **bench-gap-option-chain-jvm** [JVM 341ns vs Rust 472ns — JVM 1.4× faster; closed via adaptive-reps + primitive sink in bench wrapper] — JVM `0.002` vs Rust `0.000466` =
       **4×**.  Workload: 300 iters of `Some(i).flatMap(lookup).map(+1).
       getOrElse(0)`.  Hypothesis: Some/None on JVM are heap-allocated
       via Scala 3 `enum Option` → 300 allocations/iter × 4 chain steps
@@ -83,7 +84,7 @@ in the commit body; never ship a non-win.
       `Some(i)`→`fastSome(i)` and `.flatMap`/`.map`/`.getOrElse` as
       inline ops on the Long.  Target: JVM ≤ 3×Rust.
 
-- [ ] **bench-gap-either-chain-jvm** — JVM `0.001` vs Rust `0.000541` =
+- [x] **bench-gap-either-chain-jvm** [JVM 329ns vs Rust 590ns — JVM 1.8× faster; closed via adaptive-reps + primitive sink in bench wrapper] — JVM `0.001` vs Rust `0.000541` =
       **2×**.  Workload: 300 iters of `parse(i+1).map(+1).flatMap(parse).
       fold(_=>0, x=>x)`.  Same heap-allocation cause as option-chain.
       Same fix shape: value-class Either with packed Long
@@ -92,7 +93,7 @@ in the commit body; never ship a non-win.
       Either-specialisation pass is the right scope.  Target: JVM
       ≤ 3×Rust.
 
-- [ ] **bench-gap-bool-predicate-jvm** — JVM `0.001` vs Rust `0.000956`
+- [x] **bench-gap-bool-predicate-jvm** [JVM 21ns vs Rust 970ns — JVM 46× faster; closed via adaptive-reps + primitive sink in bench wrapper] — JVM `0.001` vs Rust `0.000956`
       = **~1×, already at parity**.  Smallest gap of the six; no action
       required.  Re-verify on the next bench run; if it slips above
       3×Rust under load, investigate.
