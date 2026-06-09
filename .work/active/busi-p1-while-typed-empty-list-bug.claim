@@ -1,3 +1,0 @@
-busi-p1-while-typed-empty-list-bug: while + var i += 1 + typed List[(Int,T)]() body iterates but list stays empty; likely shared root cause with Set[Int].contains in while.
-agent: opus-autonomous
-started: 2026-06-10
