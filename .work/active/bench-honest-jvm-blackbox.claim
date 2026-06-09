@@ -1,1 +1,0 @@
-bench-honest-jvm-blackbox: AtomicLong.lazySet sink so HotSpot can't fold outer loop
