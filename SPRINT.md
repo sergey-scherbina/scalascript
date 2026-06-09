@@ -8,6 +8,47 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Bench n/a — close the gaps (2026-06-09, from `bench.sh` after rust-bench-fixes)
+
+After all 24 corpus workloads run cleanly on rust, four `n/a` cells remain
+on other backends. Each is a genuine API/codegen gap, not a benchmark bug.
+Fix them properly (no ad-hoc bench rewrites). Ordered simplest-first.
+
+- [ ] **bench-na-jvm-typeclass-monoid** — `typeclass-monoid.ssc` n/a on jvm.
+      Source uses `given intMonoid: IntMonoid with { def empty; def combine }`
+      but `IntMonoid` is not declared as a trait. JVM codegen rejects the
+      anonymous given target. Fix: prepend a `trait IntMonoid { def empty: Int;
+      def combine(a: Int, b: Int): Int }` declaration in the bench corpus AND
+      verify the JVM backend `Defn.Given` lowering handles a named-trait given
+      with multiple defs. Acceptance: `./bench.sh --backend jvm typeclass-monoid`
+      reports a numeric ms/iter result.
+
+- [ ] **bench-na-js-either-chain** — `either-chain.ssc` n/a on js.
+      JS backend has no `Either[L, R]` runtime — `Right(x).map(...).flatMap(...).fold(...)`
+      chain falls off a cliff somewhere. Fix: extend `JsRuntimePart*` with an
+      `Either` runtime (Right/Left tagged variants + .map/.flatMap/.fold lowering)
+      mirroring the existing `Option` runtime. Cross-check with the Either path
+      in `runtime/std/either.ssc` if present. Acceptance:
+      `./bench.sh --backend js either-chain` reports a numeric result.
+
+- [ ] **bench-na-js-map-ops** — `map-ops.ssc` n/a on js. Already covered by
+      the in-flight `js-map-ops-bench` claim/branch — see `.work/active/`.
+      Verify the claim is current; if abandoned (>20 min stale heartbeat),
+      release via `/multi-agent triage js-map-ops-bench`. Acceptance:
+      `./bench.sh --backend js map-ops` reports a numeric result.
+
+- [ ] **bench-na-streams-pipeline-all** — `streams-pipeline.ssc` n/a on
+      ssc/ssc-asm/jvm/js. The bench uses `Source.range(1, 10).map(...).filter(...)
+      .foldLeft(...)` — this surface only exists in the rust backend (added by
+      `rust-backend-r6-streams`). To make it portable, add a synchronous
+      `Source` API to `runtime/std/streams.ssc` (or wherever the streams stdlib
+      lives) that the JVM/JS/interp backends can lower the same way they lower
+      `List` HOFs. `Source.range/fromList/.map/.filter/.foldLeft/.toList` must
+      produce equivalent results across all five backends. Acceptance:
+      `./bench.sh streams-pipeline` reports numeric results on every backend.
+
+---
+
 ## Rust bench fixes — new rustc errors (bench.sh 2026-06-08, ordered simplest-first)
 
 Found by re-running `bench.sh` after the previous fix wave.  All items fixed 2026-06-08.
