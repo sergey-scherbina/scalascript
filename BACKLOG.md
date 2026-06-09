@@ -7275,3 +7275,32 @@ ProcessError.NotSupported on Browser target.
 
 **Acceptance:** `ssc run examples/fs-roundtrip.ssc` + `examples/process-exec.ssc`
 green on interpreter + JS/Node + Rust. No `.ssc` file imports `java.*`.
+
+## Requested by busi (real testbed) — 2026-06-09
+
+busi (the primary real-world testbed) hit these while building the Polish JDG
+real-use path. Specs written by the busi session; each is independently
+claimable. Bug-fix items have minimal repros in their specs.
+
+- [ ] **foreach-var-mutation** (bug) — `xs.foreach(x => outerVar = ...)` does not
+      propagate the mutation; `outerVar` stays at its pre-loop value (silent wrong
+      result, no error). Confirmed on `2300fdc61`. Spec + repro:
+      [`specs/foreach-var-mutation.md`](specs/foreach-var-mutation.md).
+      Workaround in busi: `foldLeft` with explicit accumulator.
+- [ ] **parser-robustness-npe** (bug) — bare `\"` outside a string literal, and
+      unbalanced parens in deep `jObj(List(jField(...)))` nesting, both trigger a
+      swallowed ScalaMeta NPE: the interpreter **hangs with no output**. Must
+      become a `ParseError` with file + position. Spec + two repros:
+      [`specs/parser-robustness-npe.md`](specs/parser-robustness-npe.md).
+- [ ] **crypto-pubkey-verify** (feature) — Ed25519 / RSA-SHA256 public-key
+      signature verification externs, extending `std.crypto`. Unblocks busi
+      Phase 87 federation/market signature verification (currently quarantined as
+      `signature.unsupported`). Spec:
+      [`specs/crypto-pubkey-verify.md`](specs/crypto-pubkey-verify.md).
+- [ ] **pdf-mime-generation** (feature) — `htmlToPdfBase64` + `buildMimeMessage`
+      externs (opt-in `pdf-plugin.sscpkg`) so invoice PDF + email MIME do not
+      require an external HTTP relay. Spec:
+      [`specs/pdf-mime-generation.md`](specs/pdf-mime-generation.md).
+- [ ] **smtp-send** (feature) — `smtpSend` extern (opt-in `smtp-plugin.sscpkg`)
+      for direct SMTP submission without an HTTP email relay. Pairs with
+      pdf-mime-generation. Spec: [`specs/smtp-send.md`](specs/smtp-send.md).
