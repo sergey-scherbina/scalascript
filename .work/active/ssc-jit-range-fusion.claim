@@ -1,6 +1,0 @@
-feature/ssc-jit-range-fusion 2026-06-09T19:49:21Z
-agent: claude-code
-heartbeat: 2026-06-09T19:49:21Z
-status: in-progress
-done-so-far: follow-up to ssc-jit-loop-fusion-universal
-next: range-native fused fold (no base ListV) + to-inclusive ranges
