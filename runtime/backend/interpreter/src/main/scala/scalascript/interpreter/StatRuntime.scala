@@ -130,6 +130,18 @@ private[interpreter] object StatRuntime:
     val rhsName: String | Null = rhs match
       case Term.Name(n) => n
       case _            => null
+    // A-half (busi-p0-statusval-collision-a-half): a bare `val x = Foo` with NO
+    // type ascription, where `Foo` is bound to both a stable value and a case
+    // constructor (a kind-mismatch collision recorded in `shadowedAlternatives`),
+    // is ambiguous — the interpreter would silently pick one side. Require the
+    // user to disambiguate. Any ascription (`val x: T = Foo`, including function
+    // types like `A => B`) opts out: a `Type.Name` ascription is handled by the
+    // B-half below; other ascriptions keep `direct` (the case-constructor).
+    if decltpe.isEmpty && rhsName != null
+       && interp.shadowedAlternatives.contains(rhsName) then
+      interp.located(
+        s"name '$rhsName' is bound to both a stable value and a case constructor; " +
+        "add a type ascription or rename one")
     if expectedTypeName == null || rhsName == null then return direct
     val directMatches = direct match
       case Value.InstanceV(tn, _) => tn == expectedTypeName

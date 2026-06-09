@@ -221,3 +221,31 @@ class StatusValEventCaseCollisionTest extends AnyFunSuite:
         |read-side: invited link L1
         |status code: invited""".stripMargin,
       s"unexpected output:\n$out")
+
+  // ── A-half: un-ascribed bare-ref on a collision is a compile-time error ───
+
+  test("A-half: bare `val x = Foo` with no ascription on a collision is an error"):
+    val body =
+      """case class PeerLinkStatus(code: String)
+        |val PeerLinkInvited = PeerLinkStatus("invited")
+        |
+        |case class PeerLink(linkId: String, remote: String)
+        |enum PeerLinkEvent:
+        |  case PeerLinkInvited(link: PeerLink)
+        |  case PeerLinkAccepted(linkId: String, at: String)
+        |
+        |val status = PeerLinkInvited
+        |println(status.code)""".stripMargin
+    val ex = intercept[RuntimeException](runProgram(body))
+    assert(ex.getMessage.contains("bound to both a stable value and a case constructor"),
+      s"expected the A-half ambiguity error; got: ${ex.getMessage}")
+    assert(ex.getMessage.contains("add a type ascription or rename one"),
+      s"error must guide the user to a fix; got: ${ex.getMessage}")
+
+  test("A-half: a non-colliding bare `val x = Foo` is unaffected"):
+    val body =
+      """case class PeerLinkStatus(code: String)
+        |val PeerLinkInvited = PeerLinkStatus("invited")
+        |val status = PeerLinkInvited
+        |println(status.code)""".stripMargin
+    assert(runProgram(body) == "invited")
