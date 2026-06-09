@@ -1,1 +1,0 @@
-ssc-jit-loop-fusion-stage2: VmCompiler-time fusion of (lo to hi).map.filter.foldLeft
