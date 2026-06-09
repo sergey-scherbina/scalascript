@@ -2744,6 +2744,30 @@ lazy val paymentsPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.payments"))
 
+// ── std.fs — filesystem operations ──────────────────────────────────────
+lazy val fsPlugin = project
+  .in(file("runtime/std/fs-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-fs-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.fs"))
+
+// ── std.os / std.process — OS environment + process management ───────────
+lazy val osPlugin = project
+  .in(file("runtime/std/os-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-os-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.os"))
+
 // ── Plugin registry — all standard-library plugins ───────────────────────
 // Add an entry here when introducing a new std plugin; the five derived
 // lists (pluginJarPrefixes, pluginPkgs comment, backendInterpreterPluginTests,
@@ -2772,6 +2796,8 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("payments",        paymentsPlugin,        "scalascript-payments-plugin"),
   PluginSpec("uuid",            uuidPlugin,            "scalascript-uuid-plugin"),
   PluginSpec("crypto",          cryptoPlugin,          "scalascript-crypto-plugin"),
+  PluginSpec("fs",              fsPlugin,              "scalascript-fs-plugin"),
+  PluginSpec("os",              osPlugin,              "scalascript-os-plugin"),
 )
 
 // ── Frontend backend registry (arch-build-registry Phase 4) ─────────────
