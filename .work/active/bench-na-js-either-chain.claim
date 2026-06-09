@@ -1,0 +1,1 @@
+bench-na-js-either-chain: extend JsRuntime with Either<L,R> + .map/.flatMap/.fold
