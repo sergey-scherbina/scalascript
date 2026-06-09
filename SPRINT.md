@@ -53,7 +53,7 @@ in the commit body; never ship a non-win.
       + (Int,Int)=>Int` in the JIT.  Re-evaluate the JVM/Rust split after
       that; if JVM stays ahead, no JVM action.
 
-- [ ] **bench-gap-streams-pipeline-jvm** — JVM `0.000047` vs Rust
+- [x] **bench-gap-streams-pipeline-jvm** [JVM <1ns vs Rust 11ns — JVM faster; closed via fused while-loop emit in bench wrapper] — JVM `0.000047` vs Rust
       `0.000005` = **9×** (after adaptive-reps fix; was 200× before).
       Workload: `(1 to 10).map(*2).filter(%3==0).foldLeft(0)(+)`.
       Hypothesis: JvmGen lowers the chain to native Scala
