@@ -270,6 +270,18 @@ fix, and don't require a runtime refactor.
       Standalone installations without a relay will need a JavaMail
       extern, or an explicit "relay-only forever" decision.
 
+### P1 — new busi-side bugs (2026-06-09)
+
+- [x] **busi-p1-string-indexof** — `String.indexOf` not found for certain
+      arg types (IntV char code); 2-arg form `indexOf(str, fromIndex)` missing.
+      Fix: add `IntV` branch in `dispatchString1`; add 2-arg forms in
+      `dispatch2` and `dispatchString`. Same for `lastIndexOf`.
+
+- [x] **busi-p1-string-split-regex** — `String.split` wrapped separator in
+      `Pattern.quote` — regex escapes like `\\.` and `\\s+` did not work.
+      Fix: remove `Pattern.quote`; use separator as raw regex (Java semantics).
+      Also added 2-arg `split(sep, limit)` form.
+
 ---
 
 ## Language Surface - Markdown Content (next)

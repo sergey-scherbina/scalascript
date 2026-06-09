@@ -136,6 +136,23 @@ private[interpreter] object DispatchRuntime:
           case (Value.IntV(n), Value.CharV(c)) =>
             if n <= s.length then Pure(recv) else Pure(Value.StringV(s.padTo(n.toInt, c)))
           case _ => dispatchString(recv, s, name, arg1 :: arg2 :: Nil, env, interp)
+        case "indexOf"    => (arg1, arg2) match
+          case (Value.StringV(t), Value.IntV(from)) => Computation.pureIntV(s.indexOf(t, from.toInt).toLong)
+          case (Value.CharV(c),   Value.IntV(from)) => Computation.pureIntV(s.indexOf(c.toInt, from.toInt).toLong)
+          case (Value.IntV(c),    Value.IntV(from)) => Computation.pureIntV(s.indexOf(c.toInt, from.toInt).toLong)
+          case _ => dispatchString(recv, s, name, arg1 :: arg2 :: Nil, env, interp)
+        case "lastIndexOf" => (arg1, arg2) match
+          case (Value.StringV(t), Value.IntV(from)) => Computation.pureIntV(s.lastIndexOf(t, from.toInt).toLong)
+          case (Value.CharV(c),   Value.IntV(from)) => Computation.pureIntV(s.lastIndexOf(c.toInt, from.toInt).toLong)
+          case (Value.IntV(c),    Value.IntV(from)) => Computation.pureIntV(s.lastIndexOf(c.toInt, from.toInt).toLong)
+          case _ => dispatchString(recv, s, name, arg1 :: arg2 :: Nil, env, interp)
+        case "split"      => (arg1, arg2) match
+          case (Value.StringV(sep), Value.IntV(limit)) =>
+            val parts = s.split(sep, limit.toInt)
+            var list: List[Value] = Nil; var i = parts.length - 1
+            while i >= 0 do { list = Value.StringV(parts(i)) :: list; i -= 1 }
+            Pure(Value.ListV(list))
+          case _ => dispatchString(recv, s, name, arg1 :: arg2 :: Nil, env, interp)
         case _            => dispatchString(recv, s, name, arg1 :: arg2 :: Nil, env, interp)
       case Value.IntV(n) => name match
         case "clamp" => (arg1, arg2) match
@@ -791,7 +808,7 @@ private[interpreter] object DispatchRuntime:
         case _                => dispatchString(recv, s, name, arg :: Nil, env, interp)
       case "split"       => arg match
         case Value.StringV(sep) =>
-          val parts = s.split(java.util.regex.Pattern.quote(sep), -1)
+          val parts = s.split(sep, -1)
           var list: List[Value] = Nil; var i = parts.length - 1
           while i >= 0 do { list = Value.StringV(parts(i)) :: list; i -= 1 }
           Pure(Value.ListV(list))
@@ -811,10 +828,12 @@ private[interpreter] object DispatchRuntime:
       case "indexOf"    => arg match
         case Value.StringV(t) => Computation.pureIntV(s.indexOf(t).toLong)
         case Value.CharV(c)   => Computation.pureIntV(s.indexOf(c.toInt).toLong)
+        case Value.IntV(n)    => Computation.pureIntV(s.indexOf(n.toInt).toLong)
         case _                => dispatchString(recv, s, name, arg :: Nil, env, interp)
       case "lastIndexOf" => arg match
         case Value.StringV(t) => Computation.pureIntV(s.lastIndexOf(t).toLong)
         case Value.CharV(c)   => Computation.pureIntV(s.lastIndexOf(c.toInt).toLong)
+        case Value.IntV(n)    => Computation.pureIntV(s.lastIndexOf(n.toInt).toLong)
         case _                => dispatchString(recv, s, name, arg :: Nil, env, interp)
       case "codePointAt" => arg match
         case Value.IntV(i) =>
@@ -1037,7 +1056,12 @@ private[interpreter] object DispatchRuntime:
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "split"       => args match
         case List(Value.StringV(sep)) =>
-          val parts = s.split(java.util.regex.Pattern.quote(sep))
+          val parts = s.split(sep, -1)
+          var list: List[Value] = Nil; var i = parts.length - 1
+          while i >= 0 do { list = Value.StringV(parts(i)) :: list; i -= 1 }
+          Pure(Value.ListV(list))
+        case List(Value.StringV(sep), Value.IntV(limit)) =>
+          val parts = s.split(sep, limit.toInt)
           var list: List[Value] = Nil; var i = parts.length - 1
           while i >= 0 do { list = Value.StringV(parts(i)) :: list; i -= 1 }
           Pure(Value.ListV(list))
@@ -1093,9 +1117,21 @@ private[interpreter] object DispatchRuntime:
       case "last"        =>
         if s.isEmpty then interp.located("last on empty String") else Pure(Value.charV(s.last))
       case "indexOf"     => args match
-        case List(Value.StringV(t)) => Computation.pureIntV(s.indexOf(t).toLong)
-        case List(Value.CharV(c))   => Computation.pureIntV(s.indexOf(c.toInt).toLong)
-        case _                      => dispatchFallback(recv, name, args, env, interp)
+        case List(Value.StringV(t))                       => Computation.pureIntV(s.indexOf(t).toLong)
+        case List(Value.CharV(c))                         => Computation.pureIntV(s.indexOf(c.toInt).toLong)
+        case List(Value.IntV(n))                          => Computation.pureIntV(s.indexOf(n.toInt).toLong)
+        case List(Value.StringV(t), Value.IntV(from))     => Computation.pureIntV(s.indexOf(t, from.toInt).toLong)
+        case List(Value.CharV(c),   Value.IntV(from))     => Computation.pureIntV(s.indexOf(c.toInt, from.toInt).toLong)
+        case List(Value.IntV(c),    Value.IntV(from))     => Computation.pureIntV(s.indexOf(c.toInt, from.toInt).toLong)
+        case _                                            => dispatchFallback(recv, name, args, env, interp)
+      case "lastIndexOf" => args match
+        case List(Value.StringV(t))                       => Computation.pureIntV(s.lastIndexOf(t).toLong)
+        case List(Value.CharV(c))                         => Computation.pureIntV(s.lastIndexOf(c.toInt).toLong)
+        case List(Value.IntV(n))                          => Computation.pureIntV(s.lastIndexOf(n.toInt).toLong)
+        case List(Value.StringV(t), Value.IntV(from))     => Computation.pureIntV(s.lastIndexOf(t, from.toInt).toLong)
+        case List(Value.CharV(c),   Value.IntV(from))     => Computation.pureIntV(s.lastIndexOf(c.toInt, from.toInt).toLong)
+        case List(Value.IntV(c),    Value.IntV(from))     => Computation.pureIntV(s.lastIndexOf(c.toInt, from.toInt).toLong)
+        case _                                            => dispatchFallback(recv, name, args, env, interp)
       case "codePointAt" => args match
         case List(Value.IntV(i)) =>
           if i < 0 || i >= s.length then interp.located(s"index $i out of bounds for string of length ${s.length}")

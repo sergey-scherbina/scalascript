@@ -4,6 +4,11 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — fix(interp): String.indexOf full support + String.split regex semantics
+
+- **busi-p1-string-indexof** — `indexOf`/`lastIndexOf`: added `IntV` char-code arg, 2-arg `(str, fromIndex)` form in `dispatch2` + `dispatchString`.
+- **busi-p1-string-split-regex** — `split` now uses separator as raw regex (Java semantics); added `split(sep, limit)` 2-arg form.
+
 ## 2026-06-09 — feat(rust): R.6.2 — typeclass support: given instances as Rust structs
 
 - `given X: T with { defs }` → Rust unit struct XGiven + impl; topVal injection. 7 new tests.

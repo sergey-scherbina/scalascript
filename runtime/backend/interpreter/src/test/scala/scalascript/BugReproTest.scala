@@ -253,3 +253,62 @@ val name = "Acme"
 val m = Map("name" -> prefix + name, "code" -> "A")
 println(m.get("name").getOrElse("missing"))""") shouldBe "Org: Acme"
   }
+
+  // ── busi-string-indexOf ───────────────────────────────────────────────────
+
+  test("String.indexOf(str) returns position") {
+    captured("""println("hello world".indexOf("world"))""") shouldBe "6"
+  }
+
+  test("String.indexOf(str) returns -1 when not found") {
+    captured("""println("hello".indexOf("xyz"))""") shouldBe "-1"
+  }
+
+  test("String.indexOf(str, from) skips before fromIndex") {
+    captured("""println("abcabc".indexOf("a", 1))""") shouldBe "3"
+  }
+
+  test("String.indexOf(char code as Int) finds char") {
+    captured(
+"""val s = "hello"
+val idx = s.indexOf(101)
+println(idx)""") shouldBe "1"
+  }
+
+  test("String.lastIndexOf(str) returns last position") {
+    captured("""println("abcabc".lastIndexOf("a"))""") shouldBe "3"
+  }
+
+  test("String.lastIndexOf(str, from) stops at fromIndex") {
+    captured("""println("abcabc".lastIndexOf("a", 2))""") shouldBe "0"
+  }
+
+  // ── busi-string-split-regex ───────────────────────────────────────────────
+
+  test("String.split with regex literal dot (\\\\.)") {
+    captured(
+"""val parts = "a.b.c".split("\\.")
+println(parts.length)
+println(parts(0))
+println(parts(2))""") shouldBe "3\na\nc"
+  }
+
+  test("String.split with regex whitespace (\\\\s+)") {
+    captured(
+"""val parts = "hello   world".split("\\s+")
+println(parts.length)
+println(parts(1))""") shouldBe "2\nworld"
+  }
+
+  test("String.split(sep, limit) limits result count") {
+    captured(
+"""val parts = "a:b:c:d".split(":", 2)
+println(parts.length)
+println(parts(1))""") shouldBe "2\nb:c:d"
+  }
+
+  test("String.split with pipe char (no escape needed for literal)") {
+    captured(
+"""val parts = "a|b|c".split("\\|")
+println(parts.length)""") shouldBe "3"
+  }
