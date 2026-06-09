@@ -8,6 +8,97 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## JVM perf parity with Rust — close the gap (2026-06-09)
+
+After defeating LLVM fold (`bench-opaque-seed`), Rust reports much smaller
+numbers than JVM on 6 workloads even though both produce identical correct
+results (verified by building each crate with a println main):
+
+| Workload | Result | Verified |
+|---|---|---|
+| typeclass-monoid | 6 (= 0+1+2+3) | ✓ |
+| typeclass-fold | 16500 (= 300·55) | ✓ |
+| streams-pipeline | 36 (= 6+12+18) | ✓ |
+| option-chain | 44850 | ✓ |
+| either-chain | 45450 | ✓ |
+| bool-predicate | 999 | ✓ |
+
+**Goal**: make JVM bench numbers comparable to Rust (within ~3×).  Where
+the gap is structural (e.g. interface dispatch, heap-allocated ADTs), close
+it via JvmGen codegen — direct-call dispatch, value-class ADTs, stack-
+allocated Either/Option, foldLeft fast-path on Range, etc.
+
+Each task: one focused commit + A/B bench numbers (before / after / Rust)
+in the commit body; never ship a non-win.
+
+- [ ] **bench-gap-typeclass-monoid-jvm** — JVM `0.0010` vs Rust
+      `0.000001` = **1000×**.  Workload: 3 nested `combine(...)` calls
+      returning 6.  Hypothesis: JvmGen emits `intMonoid` as a Scala 3
+      `given` object with virtual dispatch through the `IntMonoid` trait
+      every call, plus `Int`→`Integer` boxing on each `(a, b)` argument.
+      Fix path: when JvmGen sees a `given X: T with { def f }` whose `f`
+      body is a single arithmetic expression and `X` is referenced only
+      by direct name (not through `summon`/upcast), emit `f` as a static
+      method on a Scala `object X` and call sites as direct invocation —
+      no interface dispatch, no Integer boxing.  Target: JVM ≤ 3×Rust
+      (i.e. ≤3ns).
+
+- [ ] **bench-gap-typeclass-fold-jvm** — JVM `0.004` vs Rust `0.0072` —
+      JVM is already faster than Rust here, and ssc is **460× slower**.
+      Real target: fix ssc/asm.  Workload: `combineAll(xs).foldLeft(empty)
+      (combine)` 300 times with `xs = List(1..10)`.  Hot path is
+      `summon[Monoid[A]]` resolution inside the lambda.  Fix on the
+      interpreter side: cache the resolved `summon` for `Monoid[Int]` at
+      the call site; emit a specialized fast-path `foldLeft` for `List[Int]
+      + (Int,Int)=>Int` in the JIT.  Re-evaluate the JVM/Rust split after
+      that; if JVM stays ahead, no JVM action.
+
+- [ ] **bench-gap-streams-pipeline-jvm** — JVM `0.001` vs Rust `0.000005`
+      = **200×**.  Workload: `(1 to 10).map(*2).filter(%3==0).foldLeft(0)
+      (+)`.  Hypothesis: JvmGen lowers the chain to native Scala
+      `Range.map(...).filter(...).foldLeft(...)` — each step creates an
+      `IndexedSeqView` wrapper + boxed Lambdas; HotSpot inlines but the
+      view chain still costs allocations.  Fix path: when JvmGen sees
+      `(lo to hi).map(f).filter(g).foldLeft(z)(h)` as a single chained
+      expression, lower it directly to a Rust-style fused loop:
+      ```scala
+      var __acc = z; var __i = lo
+      while __i <= hi do
+        val __m = f(__i)
+        if g(__m) then __acc = h(__acc, __m)
+        __i += 1
+      __acc
+      ```
+      No view allocations, no lambda wrappers — HotSpot will JIT this to
+      native code identical to what LLVM produces for Rust.  Target: JVM
+      ≤ 3×Rust.
+
+- [ ] **bench-gap-option-chain-jvm** — JVM `0.002` vs Rust `0.000466` =
+      **4×**.  Workload: 300 iters of `Some(i).flatMap(lookup).map(+1).
+      getOrElse(0)`.  Hypothesis: Some/None on JVM are heap-allocated
+      via Scala 3 `enum Option` → 300 allocations/iter × 4 chain steps
+      = 1200/iter.  Fix path: introduce a value-class Option carrier in
+      JvmGen — `opaque type FastOption = Long` where the high bit is the
+      None tag and the low 32 bits are the Int payload.  Emit
+      `Some(i)`→`fastSome(i)` and `.flatMap`/`.map`/`.getOrElse` as
+      inline ops on the Long.  Target: JVM ≤ 3×Rust.
+
+- [ ] **bench-gap-either-chain-jvm** — JVM `0.001` vs Rust `0.000541` =
+      **2×**.  Workload: 300 iters of `parse(i+1).map(+1).flatMap(parse).
+      fold(_=>0, x=>x)`.  Same heap-allocation cause as option-chain.
+      Same fix shape: value-class Either with packed Long
+      (`(tag<<63) | (left ? string-handle : int-payload)`) for
+      `Either[String, Int]` specifically.  Generalised JvmGen
+      Either-specialisation pass is the right scope.  Target: JVM
+      ≤ 3×Rust.
+
+- [ ] **bench-gap-bool-predicate-jvm** — JVM `0.001` vs Rust `0.000956`
+      = **~1×, already at parity**.  Smallest gap of the six; no action
+      required.  Re-verify on the next bench run; if it slips above
+      3×Rust under load, investigate.
+
+---
+
 ## Bench correctness — defeat LLVM constant-folding via opaque seed (2026-06-09)
 
 LLVM `-O3` performs scalar-evolution analysis on pure loops, deriving
