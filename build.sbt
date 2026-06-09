@@ -2781,6 +2781,18 @@ lazy val osPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.os"))
 
+// ── std.yaml — YAML parse + stringify ────────────────────────────────────
+lazy val yamlPlugin = project
+  .in(file("runtime/std/yaml-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, yaml, testUtils % Test)
+  .settings(
+    name := "scalascript-yaml-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.yaml"))
+
 // ── Plugin registry — all standard-library plugins ───────────────────────
 // Add an entry here when introducing a new std plugin; the five derived
 // lists (pluginJarPrefixes, pluginPkgs comment, backendInterpreterPluginTests,
@@ -2811,6 +2823,7 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("crypto",          cryptoPlugin,          "scalascript-crypto-plugin"),
   PluginSpec("fs",              fsPlugin,              "scalascript-fs-plugin"),
   PluginSpec("os",              osPlugin,              "scalascript-os-plugin"),
+  PluginSpec("yaml",            yamlPlugin,            "scalascript-yaml-plugin"),
   PluginSpec("bench",           benchPlugin,           "scalascript-bench-plugin"),
 )
 
