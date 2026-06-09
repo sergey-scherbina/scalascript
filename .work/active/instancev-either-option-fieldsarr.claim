@@ -1,0 +1,3 @@
+instancev-either-option-fieldsarr: migrate builtin Some/Right/Left construction to positional fieldsArr (drop per-instance IMap.Map1); register Right/Left/Some in typeFieldOrder; arr-aware JitHofDispatch.valueField. Targets eitherChain/optionChain B/op.
+agent: opus-direction-b-followup
+started: 2026-06-09
