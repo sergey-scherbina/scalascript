@@ -7,6 +7,46 @@ object JitHofShape:
   final case class UnaryLong(op: Int, c: Long)
   final case class PredicateLong(pred: Int, c1: Long, c2: Long)
 
+  /** A `foldLeft` receiver chain decomposed for fusion: walk `base` once,
+   *  applying an optional `map` then an optional `filter` per element.
+   *  `map` / `filter` are null when that stage is absent. */
+  final case class FoldChain(base: Term, map: UnaryLong | Null, filter: PredicateLong | Null)
+
+  /** Decompose a `foldLeft` receiver `recv` into a fusable [[FoldChain]] by
+   *  peeling an optional outer `.filter(pred)` then an optional `.map(unary)`.
+   *  Returns null when neither stage is present or any stage's lambda is not a
+   *  recognised shape — the caller then falls back to the per-stage emit path. */
+  def fuseFoldChain(recv: Term): FoldChain | Null =
+    var cur: Term = recv
+    var filt: PredicateLong | Null = null
+    cur match
+      case ap: Term.Apply =>
+        ap.fun match
+          case Term.Select(inner: Term, Term.Name("filter")) if ap.argClause.values.lengthCompare(1) == 0 =>
+            ap.argClause.values.head match
+              case fn: Term.Function =>
+                val p = predicateLong(fn)
+                if p == null then return null
+                filt = p; cur = inner
+              case _ => return null
+          case _ => ()
+      case _ => ()
+    var mp: UnaryLong | Null = null
+    cur match
+      case ap: Term.Apply =>
+        ap.fun match
+          case Term.Select(inner: Term, Term.Name("map")) if ap.argClause.values.lengthCompare(1) == 0 =>
+            ap.argClause.values.head match
+              case fn: Term.Function =>
+                val u = unaryLong(fn)
+                if u == null then return null
+                mp = u; cur = inner
+              case _ => return null
+          case _ => ()
+      case _ => ()
+    if (mp == null) && (filt == null) then null
+    else FoldChain(cur, mp, filt)
+
   def unaryLong(fn: Term.Function): UnaryLong | Null =
     val p = oneParamName(fn)
     if p == null then return null

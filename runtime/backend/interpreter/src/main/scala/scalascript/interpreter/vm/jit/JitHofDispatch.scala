@@ -112,6 +112,47 @@ object JitHofDispatch:
       case _ =>
         throw new RuntimeException("JitHofDispatch.foldLeftLong: unsupported receiver")
 
+  /** Fused `map(unary).filter(pred).foldLeft(init)(+)` over a list receiver.
+   *  Walks `recv` once with a primitive accumulator — no intermediate ListV,
+   *  no per-stage element re-boxing. `map` applies before `filter` (matching
+   *  `.map(f).filter(g)` left-to-right semantics). `hasMap`/`hasFilter` gate
+   *  the optional stages. Currently only `FoldAdd` is supported. */
+  def fusedFoldLong(recv: Object,
+                    hasMap: Boolean, mapOp: Int, mapC: Long,
+                    hasFilter: Boolean, pred: Int, fc1: Long, fc2: Long,
+                    init: Long, foldOp: Int): Long =
+    if foldOp != FoldAdd then
+      throw new RuntimeException("JitHofDispatch.fusedFoldLong: unsupported fold op")
+    recv match
+      case Value.ListV(items) =>
+        var acc = init
+        var rem = items
+        while rem.nonEmpty do
+          var x = asLong(rem.head)
+          if hasMap then x = applyUnaryLong(x, mapOp, mapC)
+          if !hasFilter || applyPredicateLong(x, pred, fc1, fc2) then acc += x
+          rem = rem.tail
+        acc
+      case _ =>
+        throw new RuntimeException("JitHofDispatch.fusedFoldLong: unsupported receiver")
+
+  private def applyUnaryLong(x: Long, op: Int, c: Long): Long =
+    op match
+      case OpId     => x
+      case OpConst  => c
+      case OpAdd    => x + c
+      case OpSub    => x - c
+      case OpMul    => x * c
+      case OpDiv    => x / c
+      case OpMod    => x % c
+      case OpSquare => x * x
+      case _        => throw new RuntimeException("JitHofDispatch.fusedFoldLong: unsupported unary op")
+
+  private def applyPredicateLong(x: Long, pred: Int, c1: Long, c2: Long): Boolean =
+    pred match
+      case PredModEq => (x % c1) == c2
+      case _         => throw new RuntimeException("JitHofDispatch.fusedFoldLong: unsupported predicate op")
+
   private def normalizeOption(v: Value): Value.OptionV =
     v match
       case opt: Value.OptionV => opt

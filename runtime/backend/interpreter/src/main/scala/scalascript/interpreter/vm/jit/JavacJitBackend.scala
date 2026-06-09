@@ -1234,13 +1234,36 @@ object JavacJitBackend extends JitBackend:
       case Term.Select(recv: Term, Term.Name("foldLeft")) if inner.argClause.values.lengthCompare(1) == 0 =>
         outerArgs.head match
           case fn: Term.Function if JitHofShape.foldAdd(fn) =>
-            val refExpr = walkRef(recv, ctx)
-            if refExpr == null then return null
             val init = walkLong(inner.argClause.values.head, ctx)
             if init == null then return null
+            // Loop fusion: collapse recv = base.map(f).filter(g) into one pass.
+            val fused = emitFusedFoldChain(recv, init, ctx)
+            if fused != null then return fused
+            val refExpr = walkRef(recv, ctx)
+            if refExpr == null then return null
             s"scalascript.interpreter.vm.jit.JitHofDispatch$$.MODULE$$.foldLeftLong((Object) ($refExpr), $init, ${JitHofDispatch.FoldAdd})"
           case _ => null
       case _ => null
+
+  /** Emit a single fused `fusedFoldLong` call for `base.map(f).filter(g)` (either
+   *  stage optional) as the receiver of a `foldLeft(init)(+)`. Returns null when
+   *  the chain is not fusable (caller falls back to the per-stage path). */
+  private def emitFusedFoldChain(recv: Term, init: String, ctx: GenCtx): String | Null =
+    val chain = JitHofShape.fuseFoldChain(recv)
+    if chain == null then return null
+    val refExpr = walkRef(chain.base, ctx)
+    if refExpr == null then return null
+    val mp = chain.map
+    val ft = chain.filter
+    val hasMap    = mp != null
+    val mapOp     = if hasMap then mp.op else 0
+    val mapC      = if hasMap then mp.c  else 0L
+    val hasFilter = ft != null
+    val pred      = if hasFilter then ft.pred else 0
+    val fc1       = if hasFilter then ft.c1   else 0L
+    val fc2       = if hasFilter then ft.c2   else 0L
+    s"scalascript.interpreter.vm.jit.JitHofDispatch$$.MODULE$$.fusedFoldLong((Object) ($refExpr), " +
+      s"$hasMap, $mapOp, ${mapC}L, $hasFilter, $pred, ${fc1}L, ${fc2}L, $init, ${JitHofDispatch.FoldAdd})"
 
   private def emitBuiltinEitherObject(typeName: String, arg: Term, ctx: GenCtx): String | Null =
     if typeName != "Right" && typeName != "Left" then return null

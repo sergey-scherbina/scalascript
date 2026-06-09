@@ -4,7 +4,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scala.meta.*
 import scalascript.interpreter.{Interpreter, Value}
-import scalascript.interpreter.vm.jit.{AsmJitBackend, JitLint, JitBailReason, JitPredicates, JavacJitBackend}
+import scalascript.interpreter.vm.jit.{AsmJitBackend, JitLint, JitBailReason, JitPredicates, JavacJitBackend, JitHofShape, JitHofDispatch}
 import scalascript.parser.Parser
 
 /** Lint fixtures. Each test exercises exactly one category of `JitBailReason`
@@ -105,6 +105,44 @@ class JitLintTest extends AnyFunSuite with Matchers:
       list.bothJit shouldBe true
       list.javac.bailReasons shouldBe empty
       list.asm.bailReasons shouldBe empty
+
+  // ── loop fusion (jit-loop-fusion) ─────────────────────────────────
+
+  test("jit-loop-fusion: map+filter foldLeft receiver decomposes to a FoldChain"):
+    val recv = "xs.map(x => x * 2).filter(x => x % 3 == 0)".parse[Term].get
+    val chain = JitHofShape.fuseFoldChain(recv)
+    chain should not be null
+    chain.map should not be null
+    chain.map.op shouldBe JitHofDispatch.OpMul
+    chain.map.c shouldBe 2L
+    chain.filter should not be null
+    chain.filter.pred shouldBe JitHofDispatch.PredModEq
+    chain.filter.c1 shouldBe 3L
+    chain.filter.c2 shouldBe 0L
+    chain.base.syntax shouldBe "xs"
+
+  test("jit-loop-fusion: map-only receiver fuses with no filter stage"):
+    val recv = "(0 until n).map(x => x + 1)".parse[Term].get
+    val chain = JitHofShape.fuseFoldChain(recv)
+    chain should not be null
+    chain.map should not be null
+    chain.map.op shouldBe JitHofDispatch.OpAdd
+    chain.filter shouldBe null
+
+  test("jit-loop-fusion: filter-only receiver fuses with no map stage"):
+    val recv = "xs.filter(x => x % 2 == 0)".parse[Term].get
+    val chain = JitHofShape.fuseFoldChain(recv)
+    chain should not be null
+    chain.map shouldBe null
+    chain.filter should not be null
+    chain.filter.c1 shouldBe 2L
+
+  test("jit-loop-fusion: bare receiver does not fuse"):
+    JitHofShape.fuseFoldChain("xs".parse[Term].get) shouldBe null
+
+  test("jit-loop-fusion: unrecognised lambda shape does not fuse"):
+    // closure over a free variable, not a constant arith op
+    JitHofShape.fuseFoldChain("xs.map(x => x + y)".parse[Term].get) shouldBe null
 
   test("stage7-typeclass-fold: context-bound fold is classified as typeclass dispatch"):
     val r = lintCompareFor(

@@ -1517,12 +1517,40 @@ object AsmJitBackend extends JitBackend:
       case Term.Select(recv: Term, Term.Name("foldLeft")) if inner.argClause.values.lengthCompare(1) == 0 =>
         outerArgs.head match
           case fn: Term.Function if JitHofShape.foldAdd(fn) =>
-            mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
-            if !walkRef(recv, ctx, mv) then return false
-            if !walkLong(inner.argClause.values.head, ctx, mv) then return false
-            emitIconst(mv, JitHofDispatch.FoldAdd)
-            mv.visitMethodInsn(INVOKEVIRTUAL, hofDispatchInt, "foldLeftLong", "(Ljava/lang/Object;JI)J", false)
-            true
+            val initTerm = inner.argClause.values.head
+            // Loop fusion: collapse recv = base.map(f).filter(g) into one pass.
+            val chain = JitHofShape.fuseFoldChain(recv)
+            if chain != null then
+              val mp = chain.map
+              val ft = chain.filter
+              val hasMap    = mp != null
+              val mapOp     = if hasMap then mp.op else 0
+              val mapC      = if hasMap then mp.c  else 0L
+              val hasFilter = ft != null
+              val pred      = if hasFilter then ft.pred else 0
+              val fc1       = if hasFilter then ft.c1   else 0L
+              val fc2       = if hasFilter then ft.c2   else 0L
+              mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
+              if !walkRef(chain.base, ctx, mv) then return false
+              emitIconst(mv, if hasMap then 1 else 0)
+              emitIconst(mv, mapOp)
+              mv.visitLdcInsn(mapC)
+              emitIconst(mv, if hasFilter then 1 else 0)
+              emitIconst(mv, pred)
+              mv.visitLdcInsn(fc1)
+              mv.visitLdcInsn(fc2)
+              if !walkLong(initTerm, ctx, mv) then return false
+              emitIconst(mv, JitHofDispatch.FoldAdd)
+              mv.visitMethodInsn(INVOKEVIRTUAL, hofDispatchInt, "fusedFoldLong",
+                "(Ljava/lang/Object;ZIJZIJJJI)J", false)
+              true
+            else
+              mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
+              if !walkRef(recv, ctx, mv) then return false
+              if !walkLong(initTerm, ctx, mv) then return false
+              emitIconst(mv, JitHofDispatch.FoldAdd)
+              mv.visitMethodInsn(INVOKEVIRTUAL, hofDispatchInt, "foldLeftLong", "(Ljava/lang/Object;JI)J", false)
+              true
           case _ => false
       case _ => false
 
