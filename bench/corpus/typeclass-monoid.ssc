@@ -12,5 +12,5 @@ given intMonoid: IntMonoid with
   def combine(a: Int, b: Int): Int = a + b
 
 def workload(): Int =
-  intMonoid.combine(intMonoid.combine(intMonoid.combine(intMonoid.empty, 1), 2), 3)
+  intMonoid.combine(intMonoid.combine(intMonoid.combine(intMonoid.empty, Bench.opaque(1)), Bench.opaque(2)), Bench.opaque(3))
 ```

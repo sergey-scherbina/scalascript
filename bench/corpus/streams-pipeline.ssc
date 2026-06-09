@@ -6,7 +6,7 @@ Cross-backend: lowers to `Iterable`/`Range` HOFs on every backend
 
 ```scalascript
 def workload(): Int =
-  (1 to 10)
+  (Bench.opaque(1) to 10)
     .map(x => x * 2)
     .filter(x => x % 3 == 0)
     .foldLeft(0)((sum, x) => sum + x)
