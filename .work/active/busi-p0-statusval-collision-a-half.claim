@@ -1,0 +1,3 @@
+busi-p0-statusval-collision-a-half: val x = Foo (no ascription) silently resolves to case-constructor when Foo is also an enum case name; A-half should emit compile-time error. B-half (9a3bea18e) handles ascribed val.
+agent: opus-autonomous
+started: 2026-06-10
