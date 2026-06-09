@@ -618,6 +618,15 @@ class Interpreter(
   private[interpreter] val emptyClosureFunCache: java.util.IdentityHashMap[scala.meta.Term.Function, Computation] =
     java.util.IdentityHashMap()
 
+  /** Cache of `typeToString` results by AST identity.  Type AST nodes (the
+   *  argument of `summon[…]` and friends) are immutable — recursing across
+   *  `Type.Apply`/`Type.Name` and string-building takes O(n) on each visit,
+   *  but the result is invariant for a given AST node.  Caching by identity
+   *  turns the per-iter `summon[Monoid[A]]` cost from O(n_typeTokens) string
+   *  concat into a single hash lookup. */
+  private[interpreter] val typeStringCache: java.util.IdentityHashMap[scala.meta.Type, String] =
+    java.util.IdentityHashMap()
+
   /** Cache of JIT-compiled while-loop runners, keyed by `Term.While` AST identity.
    *  Value is a `WhileJitEntry` (success) or `EvalRuntime.WhileJitMiss`
    *  (compilation failed — don't retry). Absent key = not yet attempted. */
@@ -1485,7 +1494,12 @@ class Interpreter(
   // ─── Given / using helpers — see CallRuntime.scala ───────────────────────
 
   private[interpreter] def typeToString(t: scala.meta.Type): String =
-    CallRuntime.typeToString(t)
+    val cached = typeStringCache.get(t)
+    if cached != null then cached
+    else
+      val s = CallRuntime.typeToString(t)
+      typeStringCache.put(t, s)
+      s
 
   private[interpreter] def isThrowsType(t: scala.meta.Type): Boolean =
     CallRuntime.isThrowsType(t)
