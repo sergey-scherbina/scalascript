@@ -1050,12 +1050,14 @@ Spec to write first: `specs/std-fs-os.md`
 
 ### Phase 3 — JS/Node backend
 
-- [ ] **std-fs-os-p3-js** — Node.js preamble wiring `std.fs` → `node:fs`,
+- [x] **std-fs-os-p3-js** — Node.js preamble wiring `std.fs` → `node:fs`,
       `std.os` → `node:os` + `node:path`, `std.process` → `node:child_process`.
       Browser: `FsError.NotSupported` / `ProcessError.NotSupported` for
       fs/process ops; env returns `{}`, args returns `[]`, platform = Browser.
       Same conformance tests pass on Node target.
       Commit: `feat(fs-plugin): JS/Node backend`.
+      ✓ Landed 2026-06-09 (d32bf9a): JsRuntimeFs.scala; 16 fs + 15 os + exec();
+      lazy require; browser stubs; 21 tests.
 
 ### Phase 4 — Rust backend
 

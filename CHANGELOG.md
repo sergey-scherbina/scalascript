@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — feat(jsgen): std.fs/std.os/std.process JS/Node preamble (p3-js)
+
+- **std-fs-os-p3-js** — JsRuntimeFs.scala: 16 fs + 15 os + exec(); Node.js
+  lazy-require('fs'/'path'/'os'/'child_process'); browser FsNotSupported stubs.
+  21 tests. JsGen.generateRuntime always includes it.
+
 ## 2026-06-09 — feat(std): std.fs / std.os / std.process stdlib + JVM plugins
 
 - **std-fs-os-p1-spec** — specs/std-fs-os.md: full 3-module spec (fs/os/process).
