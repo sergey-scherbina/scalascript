@@ -63,10 +63,16 @@ extension (v: JsonValue)
 
   // Typed extraction with sensible zero-defaults (never throws).
   def asString: String                     // "" if not a string
-  def asInt: Int                           // 0 if not an int-shaped number
-  def asDouble: Double                     // 0.0 if not a number
+  def asInt: Int                           // 0 if not an int-shaped number; truncates toward 0
+  def asDouble: Double                     // 0.0 if not a number — LOSSY, never for money
   def asBool: Boolean                      // false if not a bool
   def asList: List[JsonValue]              // [] if not an array
+
+  // Exact-decimal extraction — lossless. Parses the raw numeric token (or a numeric
+  // string) into the language's exact Decimal. The only safe accessor for money.
+  // See §3.1. Decimal comes from std.money (exact-numerics v1.64).
+  def asDecimal: Decimal                   // Decimal("0") if not a number/numeric-string
+  def optDecimal: Option[Decimal]          // None if missing/non-numeric
 
   // Optional extraction — None on missing/wrong-shape, for explicit handling.
   def opt: Option[JsonValue]               // None if Null, else Some(this)
@@ -100,6 +106,11 @@ def jNull: JsonValue
 extern def jArr(items: List[JsonValue]): JsonValue
 extern def jField(key: String, value: JsonValue): JsonField
 extern def jObj(fields: List[JsonField]): JsonValue
+
+// Exact-decimal encode — emits a lossless numeric token from a Decimal. Prefer
+// jStr(formatMoney(m)) for money on the wire (see §3.1); jDecimal is for the case
+// where a bare numeric amount must be sent without Double round-tripping.
+extern def jDecimal(d: Decimal): JsonValue
 
 // Serialize a JsonValue to a compact JSON string (runtime-escaped).
 extern def jsonStringify(v: JsonValue): String
@@ -139,8 +150,29 @@ val missing = computedSignal(() => sumSig().get("missingCount").asInt.toString)
   `opt*` accessors and `jsonParseStrict` are the escape hatch when a caller wants to
   branch on absence explicitly.
 - **Number model.** JSON has one number type. `asInt` truncates toward zero on a
-  fractional value; `asDouble` is the lossless accessor. `optInt` returns `None` for a
-  non-integer-shaped number.
+  fractional value; `asDouble` is a **lossy** accessor (IEEE-754) suitable for display
+  ratios and counters, **never for money**. `optInt` returns `None` for a
+  non-integer-shaped number. `asDecimal` is the **lossless** accessor: it reads the raw
+  numeric token (string-of-digits) directly into the exact `Decimal` without going
+  through `Double`, and also accepts a numeric *string* (`"1000.00"`).
+
+### 3.1 Money (binding constraint)
+
+The project's locked decision is **exact `Decimal`, never `Double`** for monetary values
+(see `AGENTS.md` / `specs/exact-numerics`, `std.money`). The JSON layer honours it:
+
+- **On the wire, money travels as a JSON *string*** (`"1000.00"`), not a JSON number —
+  this is how busi already serializes amounts, and `moneyColumn`/`mcol` read the field as
+  a string and format client-side. Decode it with `get("amount").asString` →
+  `Decimal(_)` → `Money`, or directly `get("amount").asDecimal`.
+- **Never reach for `asDouble` on money.** If an amount arrives as a bare JSON *number*
+  (not under busi's control — third-party payloads), `asDecimal` is the lossless path;
+  `asDouble` would corrupt the value and is documented as forbidden for money.
+- **Encode** money with `jStr(formatMoney(m))` (string form, preferred). `jDecimal(d)`
+  exists for the rare case a lossless numeric token must be emitted.
+
+`Decimal` and `Money` come from `std.money` (exact-numerics v1.64); `Decimal(s: String)`
+is the parse constructor the accessors build on.
 - **Encoding ownership.** `jStr`/`jObj`/`jArr` escape `"`, `\`, control chars, and
   newlines in the runtime. Screens never hand-build JSON strings, which removes the
   13 `*Q` escapers and the paren-NPE foot-gun by construction.
@@ -188,6 +220,9 @@ duplicated and fragile frontend pattern. Independent of P2/P3.
   `JsonValue` whose `get("k").asString == "a\"b"` (escaping correct).
 - Totality: `jsonValue("not json").get("x").asString == ""`; `.opt == None`.
 - Number coercion: `jsonValue("{\"n\":3.7}").get("n").asInt == 3` and `.asDouble == 3.7`.
+- Money lossless: `jsonValue("{\"amt\":\"1000.01\"}").get("amt").asDecimal == Decimal("1000.01")`
+  (string form); and a bare number `{"amt":1000.01}` → `.asDecimal == Decimal("1000.01")` with
+  no `Double` round-trip. `jDecimal(Decimal("1000.01"))` serializes to token `1000.01`.
 - `fetchJsonSignal` over a stub endpoint yields a navigable value; `computedSignal`
   derived from it re-renders on `refreshTick`.
 - Example `examples/ui-typed-json.ssc` runs under `ssc run`.

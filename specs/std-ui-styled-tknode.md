@@ -53,17 +53,30 @@ enum SpaceToken  { case Xs, Sm, Md, Lg, Xl, Xxl }
 enum RadiusToken { case Sm, Md, Lg, Full }
 enum FontToken   { case Body, Heading }
 
-case class BorderStyle(width: Int, color: ColorToken)
+// Length value — a token OR a raw px. COLORS are token-only (theming/dark mode is
+// the whole point); LENGTHS may be raw px because a length is portable: it lowers to
+// px on web, points on SwiftUI, px on Swing. The raw escape exists because real
+// screens use off-scale values (2px, 12px) the SpacingScale doesn't name — see §2.1.
+enum Space { case Tok(t: SpaceToken); case Px(n: Int) }
+def sp(t: SpaceToken): Space = Space.Tok(t)   // sugar: sp(SpaceToken.Sm)
+def px(n: Int): Space        = Space.Px(n)     // escape: px(12)
 
-// All fields optional (Option) — only set what the screen overrides.
+case class BorderStyle(width: Int, color: ColorToken)   // color token-only
+
+// Per-axis padding, per-side margin — real CSS is asymmetric (padding:12px 16px,
+// margin-bottom:8px). A single uniform field cannot express it. All optional.
 case class Style(
-  bg:      Option[ColorToken]  = None,
-  fg:      Option[ColorToken]  = None,
-  border:  Option[BorderStyle] = None,
-  radius:  Option[RadiusToken] = None,
-  padding: Option[SpaceToken]  = None,
-  margin:  Option[SpaceToken]  = None,
-  font:    Option[FontToken]   = None
+  bg:       Option[ColorToken]  = None,
+  fg:       Option[ColorToken]  = None,
+  border:   Option[BorderStyle] = None,
+  radius:   Option[RadiusToken] = None,
+  paddingX: Option[Space]       = None,   // left+right
+  paddingY: Option[Space]       = None,   // top+bottom
+  marginTop:    Option[Space]   = None,
+  marginRight:  Option[Space]   = None,
+  marginBottom: Option[Space]   = None,
+  marginLeft:   Option[Space]   = None,
+  font:     Option[FontToken]   = None
 )
 
 // Styled container node — wraps children with a token-resolved Style.
@@ -73,13 +86,24 @@ case class StyledNode(style: Style, children: List[TkNode]) extends TkNode
 def styled(style: Style, children: TkNode*): TkNode = StyledNode(style, children.toList)
 ```
 
-`lower.ssc` resolves a `Style` into the web representation:
-`bg = Some(Surface)` → `background:${theme.colors.surface}`, `radius = Some(Md)` →
-`border-radius:${theme.radii.md}px`, `padding = Some(Sm)` → `padding:${theme.spacing.sm}px`,
-etc. A native lowering resolves the same tokens to native attributes.
+`lower.ssc` resolves a `Style` into the web representation: `bg = Some(Surface)` →
+`background:${theme.colors.surface}`, `radius = Some(Md)` → `border-radius:${theme.radii.md}px`,
+`paddingY = Some(sp(Sm))` → `padding-top/bottom:${theme.spacing.sm}px`, `paddingX = Some(px(16))`
+→ `padding-left/right:16px`, `marginBottom = Some(sp(Sm))` → `margin-bottom:${theme.spacing.sm}px`.
+A native lowering resolves the same `Style` to native attributes.
 
 This is the **only** sanctioned escape hatch for custom-styled chrome; screens should
 not author raw `element(... style:"...")`.
+
+### 2.1 Why `Space` allows raw px (audit finding)
+
+busi's inline-CSS audit shows asymmetric, off-scale spacing everywhere:
+`padding:12px 16px`, `padding:8px 12px`, `padding:2px 8px` (badge), and directional
+`margin-bottom:8px` / `margin-right:8px`. Two consequences, both folded into the model
+above: (1) padding/margin must be **per-axis / per-side**, not one uniform token; (2) the
+values `2`, `12` are not named `SpaceToken`s, so `Space` admits a raw `px(n)` escape.
+Colors keep no such escape — they must stay tokens so `Theme.dark` works. Prefer `sp(token)`;
+use `px(n)` only for genuinely off-scale lengths.
 
 ---
 
@@ -131,21 +155,43 @@ failing.
 
 ---
 
-## 5. Out of scope (layout stays in combinators)
+## 5. Sizing — a layout combinator, not `Style`
 
-`Style` deliberately omits layout: `display`, `flex`/`flex:1`/grow, `gap`,
+busi's audit found `max-width` (×2, content-width cap) and `height` (×3) with no home:
+not in `Style`, not in the layout combinators. Sizing is a box concern, so it lives in
+layout (`layout.ssc`), keeping `Style` to chrome only:
+
+```scalascript
+// box — a sizing wrapper around children. All optional; px lengths (portable).
+case class BoxNode(maxWidth: Option[Int], width: Option[Int],
+                   height: Option[Int], children: List[TkNode]) extends TkNode
+def box(maxWidth: Int = 0, width: Int = 0, height: Int = 0)(children: TkNode*): TkNode
+```
+
+`maxWidth` caps content width (the common page-centering case); `height` fixes a panel.
+Lowers to `max-width`/`width`/`height` px on web, native size constraints elsewhere.
+This is what lets screens stop dropping to raw `element()` for width caps.
+
+## 6. Out of scope (layout stays in combinators)
+
+`Style` deliberately omits flow-layout: `display`, `flex`/`flex:1`/grow, `gap`,
 `align-items`, `justify-content`, `flex-direction`. These are the job of the layout
 combinators (`hstack`/`vstack` already carry `gap`; add `grow` where needed), not the
 style descriptor. Mixing layout into `Style` would re-introduce the CSS-soup coupling
-this spec removes. (Scope confirmed with busi from their inline-CSS audit: only
-`bg, fg, border, radius, padding, margin, font` belong in `Style`.)
+this spec removes.
+
+**Baked into primitives, not `Style` (audit minor findings):** `text-decoration:none`
+is baked into `tabBar`/link/button lowerings (links should not show default underlines);
+`cursor:pointer` is baked into interactive primitives. These are not author-facing knobs.
+`box-shadow` (×1 occurrence) is deferred — if elevation becomes common, add an
+`elevation: Option[ElevationToken]` to `Style` later rather than a raw shadow string.
 
 Also out of scope: arbitrary CSS pass-through, pseudo-selectors (`:hover`),
 animations, media queries.
 
 ---
 
-## 6. Backend policy
+## 7. Backend policy
 
 | Backend | Style resolution | Primitives |
 |---|---|---|
@@ -158,7 +204,7 @@ gets themed output without touching any screen.
 
 ---
 
-## 7. Non-goals (v1)
+## 8. Non-goals (v1)
 
 - A full native lowering of `Style` — this spec makes screens *portable*; the actual
   swiftui/swing `Style` resolver is separate, sequenced after the web lowering lands.
@@ -167,7 +213,7 @@ gets themed output without touching any screen.
 
 ---
 
-## 8. busi adoption
+## 9. busi adoption
 
 Replace `web/ui.ssc` local helpers and inline-CSS cards/badges with `std/ui`
 primitives; move `tabBar` upstream; use `styled(...)` for the few genuinely custom
@@ -176,12 +222,15 @@ dark/mobile actually work on busi screens.
 
 ---
 
-## 9. Verify
+## 10. Verify
 
 - `badge("Paid", "success")` lowers to a span whose background resolves to
   `defaultTheme.colors.success`, and to `darkTheme.colors.success` under `darkTheme`.
 - `styled(Style(bg = Some(ColorToken.Surface), radius = Some(RadiusToken.Md)), …)`
   emits no hex literal — only theme-resolved values; re-themes under `darkTheme`.
+- Asymmetric spacing: `styled(Style(paddingY = Some(px(2)), paddingX = Some(sp(SpaceToken.Sm))), …)`
+  lowers to `padding:2px 8px` (badge case); `marginBottom = Some(sp(Sm))` → `margin-bottom:8px`.
+- `box(maxWidth = 960)(…)` caps content width; emits `max-width:960px`, no raw `element()`.
 - Runtime variant: `badge(l, if s() == "x" then "danger" else "neutral")` renders the
   correct color per `s()` value across re-renders.
 - `tabBar(activeSig, tabs)` highlights the tab whose `key == activeSig()`.

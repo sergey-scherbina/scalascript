@@ -1579,11 +1579,13 @@ Pure stdlib, helps web + native. Builds on existing `json-plugin`
 - [x] **ui-typed-json-p1-spec** — `specs/std-ui-typed-json.md`. ✓ Landed 2026-06-09.
 
 - [ ] **ui-typed-json-p2-core** — Navigable `JsonValue` opaque type + total accessors
-      (`get`/`at`/`asString`/`asInt`/`asDouble`/`asBool`/`asList`/`opt*`/`getOrElse`) and
-      structured builders (`jStr`/`jNum`/`jBool`/`jArr`/`jField`/`jObj`/`jsonStringify`).
-      Wrap interp `JsonParser` + `lookupKey`; tolerant parse → `Null`, `jsonParseStrict`
-      throws. JVM intrinsics in `json-plugin` (extend) + JS preamble (`JSON.parse/stringify`
-      w/ runtime escape). Tests: round-trip escaping, totality, number coercion.
+      (`get`/`at`/`asString`/`asInt`/`asDouble`/`asBool`/`asList`/`opt*`/`getOrElse` +
+      **`asDecimal`/`optDecimal`** lossless for money) and structured builders
+      (`jStr`/`jNum`/`jBool`/`jArr`/`jField`/`jObj`/**`jDecimal`**/`jsonStringify`).
+      Money rule (spec §3.1): amounts travel as JSON string, read via `asString`→`Decimal`
+      or `asDecimal`; never `asDouble`. Wrap interp `JsonParser` + `lookupKey`; tolerant
+      parse → `Null`, `jsonParseStrict` throws. JVM intrinsics in `json-plugin` (extend) +
+      JS preamble. Tests: round-trip escaping, totality, number coercion, money lossless.
       Commit: `feat(json): navigable JsonValue + structured builders`.
 
 - [ ] **ui-typed-json-p3-fetch** — `fetchJsonSignal(name,url,tick,headers): Signal[JsonValue]`
@@ -1605,17 +1607,21 @@ Start after P1.
 
 - [x] **ui-styled-p1-spec** — `specs/std-ui-styled-tknode.md`. ✓ Landed 2026-06-09.
 
-- [ ] **ui-styled-p2-nodes** — In `nodes.ssc`: `Style` descriptor (bg/fg/border/radius/
-      padding/margin/font as token enums; **no layout**), `StyledNode`, `TagNode`,
-      `PillNode`, `KpiCardNode`, `TabBarNode`(+`Tab`). Constructors in `display.ssc`:
-      `styled`, `tag`, `pill`, `kpiCard`, `tabBar`; extend `badge` variant default to
-      status set. Variant is a **runtime** value (no compile-time-only enum).
-      Commit: `feat(ui): styled TkNode + status/composite primitives`.
+- [ ] **ui-styled-p2-nodes** — In `nodes.ssc`: `Style` descriptor — colors token-only
+      (bg/fg/border/font), **per-axis `paddingX/paddingY` + per-side margin**, each a
+      `Space` (token `sp(..)` OR raw `px(n)` escape for off-scale lengths). `StyledNode`,
+      `TagNode`, `PillNode`, `KpiCardNode`, `TabBarNode`(+`Tab`). Sizing is **layout**:
+      add `box(maxWidth/width/height)` + `BoxNode` in `layout.ssc` (NOT in Style).
+      Constructors in `display.ssc`: `styled`, `tag`, `pill`, `kpiCard`, `tabBar`; extend
+      `badge` variant default to status set. Variant is a **runtime** value.
+      Commit: `feat(ui): styled TkNode + status/composite primitives + box`.
 
-- [ ] **ui-styled-p3-lower** — `lower.ssc`: resolve `Style` token refs → themed CSS
-      (web), badge/tag/pill variant→`ColorToken` table (unknown→neutral), kpiCard/tabBar
-      lowering. Tests: token resolves to `defaultTheme`/`darkTheme` value, zero hex
-      literals emitted, runtime variant renders correct color across re-renders.
+- [ ] **ui-styled-p3-lower** — `lower.ssc`: resolve `Style` (token→theme value, `px(n)`
+      passthrough; per-axis padding, per-side margin), badge/tag/pill variant→`ColorToken`
+      table (unknown→neutral), kpiCard/tabBar/box lowering; bake `text-decoration:none`+
+      `cursor:pointer` into tabBar/link/button (not Style). Tests: token resolves to
+      `defaultTheme`/`darkTheme`, asymmetric `padding:2px 8px`, zero hex literals, runtime
+      variant color across re-renders, `box(maxWidth=960)`→`max-width:960px`.
       Commit: `feat(ui): lower token-aware Style + status primitives`.
 
 - [ ] **ui-styled-p4-example** — `examples/ui-styled-primitives.ssc`, README row,
