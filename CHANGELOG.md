@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — feat(std): std.yaml — YAML parse/stringify stdlib
+
+- **yaml-p1-spec** — specs/std-yaml.md: API, subset, backend table, 4-phase plan.
+- **yaml-p2-jvm** — yaml-plugin: SimpleYaml → YamlValue InstanceV + block serializer;
+  accessors (yamlType/yamlStr/yamlNum/yamlBool/yamlArr/yamlGet). 28 tests.
+- **yaml-p3-js** — JsRuntimeYaml.scala: pure-JS parser + serializer in preamble. 13 tests.
+- **yaml-p4-stdlib** — yaml.ssc; yaml/yml fenced blocks → section.yaml binding;
+  yaml-parse.ssc example. 1550 backendInterpreter tests pass.
+
+---
+
 ## 2026-06-09 — fix(bench): defeat LLVM scalar-evolution constant-folding on Rust target
 
 LLVM -O3 was replacing entire pure-arith bench loops with closed-form

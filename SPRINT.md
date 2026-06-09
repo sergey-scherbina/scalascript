@@ -1288,7 +1288,7 @@ Spec to write first: `specs/std-yaml.md`
 
 ### Phase 1 — spec
 
-- [ ] **yaml-p1-spec** — Write `specs/std-yaml.md`. Cover:
+- [x] **yaml-p1-spec** — Write `specs/std-yaml.md`. Cover:
 
       **`std.yaml`**: `parseYaml(s: String): YamlValue`;
       `toYaml(v: YamlValue): String`;
@@ -1302,10 +1302,11 @@ Spec to write first: `specs/std-yaml.md`
 
       Backend policy table (JVM / JS-Node / Browser / Rust).
       Commit: `spec: std-yaml`.
+      ✓ Landed 2026-06-09 (ebb2a6e): specs/std-yaml.md, 146 lines.
 
 ### Phase 2 — JVM plugin
 
-- [ ] **yaml-p2-jvm** — Create `runtime/std/yaml-plugin/` with
+- [x] **yaml-p2-jvm** — Create `runtime/std/yaml-plugin/` with
       `YamlInterpreterPlugin.scala` + `YamlIntrinsics.scala`.
 
       `parseYaml(s)`: `SimpleYaml.load[Any](s)` → recursive converter returning
@@ -1318,10 +1319,11 @@ Spec to write first: `specs/std-yaml.md`
       Register in `build.sbt`. Tests: round-trip `parseYaml(toYaml(v)) == v` for
       Map, List, nested, scalars, edge cases (empty string, null, bool).
       Commit: `feat(yaml-plugin): JVM backend`.
+      ✓ Landed 2026-06-09 (67985dd): yaml-plugin, 28 tests, allPlugins registered.
 
 ### Phase 3 — JS/Node preamble
 
-- [ ] **yaml-p3-js** — Add `JsRuntimeYaml.scala` to `runtime/backend/js/`.
+- [x] **yaml-p3-js** — Add `JsRuntimeYaml.scala` to `runtime/backend/js/`.
 
       `parseYaml(s)`: port `SimpleYaml` subset to JS (or inline a ~200-line
       pure-JS block/flow parser matching the JVM subset exactly).
@@ -1332,10 +1334,11 @@ Spec to write first: `specs/std-yaml.md`
       Tests: text-shape assertions that `parseYaml` and `toYaml` appear in preamble;
       round-trip conformance test against Node.js runner.
       Commit: `feat(jsgen): std.yaml JS/Node preamble`.
+      ✓ Landed 2026-06-09 (2c169d7): JsRuntimeYaml.scala, 13 preamble tests.
 
 ### Phase 4 — stdlib `.ssc` + examples + fenced-block wiring
 
-- [ ] **yaml-p4-stdlib** — Add `runtime/std/yaml.ssc` with `YamlValue` sealed trait
+- [x] **yaml-p4-stdlib** — Add `runtime/std/yaml.ssc` with `YamlValue` sealed trait
       declarations and `parseYaml`/`toYaml` extern defs.
 
       Wire `yaml`/`yml` fenced blocks: bind block content as a `YamlValue` variable
@@ -1345,3 +1348,4 @@ Spec to write first: `specs/std-yaml.md`
       Add example: `examples/yaml-parse.ssc` — parse a YAML string, navigate it,
       round-trip through `toYaml`.  Update `README.md` capabilities table.
       Commit: `feat(std): std.yaml stdlib module + fenced-block wiring`.
+      ✓ Landed 2026-06-09 (7ac9857): yaml.ssc, fenced-block binding, 6 plugin tests, example.
