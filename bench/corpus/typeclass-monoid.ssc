@@ -3,6 +3,10 @@
 `given` instance dispatch — Monoid combine via named instance.
 
 ```scalascript
+trait IntMonoid:
+  def empty: Int
+  def combine(a: Int, b: Int): Int
+
 given intMonoid: IntMonoid with
   def empty: Int = 0
   def combine(a: Int, b: Int): Int = a + b
