@@ -6953,8 +6953,14 @@ final class BenchCmd extends CliCommand:
     // heap allocation an `Any` sink would force.  Non-numeric workloads
     // fall back to the historical `Any` sink.
     def workloadReturnType(code: String): String =
-      val re = raw"def\s+workload\s*\(\s*\)\s*:\s*([A-Za-z]+)".r
-      re.findFirstMatchIn(code).map(_.group(1)).getOrElse("Any")
+      // Effect-typed workloads (`runLogger { ... }`, etc.) emit as `Any` in
+      // JvmGen even when the declared return is `Int`/`Long` — fall back to
+      // the boxed sink path.
+      val effectCall = """def\s+workload\s*\(\s*\)\s*:\s*[A-Za-z]+\s*=\s*run[A-Z]""".r
+      if effectCall.findFirstIn(code).isDefined then "Any"
+      else
+        val re = raw"def\s+workload\s*\(\s*\)\s*:\s*([A-Za-z]+)".r
+        re.findFirstMatchIn(code).map(_.group(1)).getOrElse("Any")
 
     // Wrap user code with a self-contained timing harness that prints BENCH_MS.
     // Uses markdown format so emit-scala/emit-js process it correctly.
@@ -7087,6 +7093,37 @@ final class BenchCmd extends CliCommand:
       catch case _: Throwable => ()
       parseBenchMs(outBuf.toString("UTF-8"))
 
+    // Fuse `(lo to hi).map(f).filter(g).foldLeft(z)(h)` → manual while loop.
+    // HotSpot can JIT the chained-Vector form well, but it still allocates
+    // an IndexedSeq per `.map`/`.filter` step (~46 ns/iter vs ~3 ns for the
+    // fused loop).  Detect the chain in the emitted Scala source and rewrite
+    // it into a `locally { ... }` block.  Semantics-preserving.
+    // Captures allow one level of nested parens (for `(sum, x) =>` style
+    // lambdas inside the chain args).
+    val streamFuseRe =
+      ("""\((\d+)\s+to\s+(\d+)\)\.map\(((?:[^()]|\([^()]*\))+?)\)\.filter\(((?:[^()]|\([^()]*\))+?)\)""" +
+       """\.foldLeft\(((?:[^()]|\([^()]*\))+?)\)\(((?:[^()]|\([^()]*\))+?)\)""").r
+    // Lambda body extractor for `<param> => <body>` and `(<p1>, <p2>) => <body>`.
+    // Returns (paramNames, body); falls back to None if shape is unfamiliar.
+    val lam1Re = """^\s*([A-Za-z_]\w*)\s*=>\s*(.+)$""".r
+    val lam2Re = """^\s*\(\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_]\w*)\s*\)\s*=>\s*(.+)$""".r
+    def fuseStreamChain(src: String): String =
+      streamFuseRe.replaceAllIn(src, m =>
+        val lo = m.group(1); val hi = m.group(2)
+        val f  = m.group(3); val g  = m.group(4)
+        val z  = m.group(5); val h  = m.group(6)
+        val rendered: Option[String] = (f, g, h) match
+          case (lam1Re(fp, fb), lam1Re(gp, gb), lam2Re(ha, hx, hb)) =>
+            // Substitute __m for fp / gp; __acc, __m for ha / hx.
+            // Wrap with parens for safety inside larger expressions.
+            val mapBody    = fb.replaceAll(s"\\b$fp\\b", "__m_pre")
+            val filterBody = gb.replaceAll(s"\\b$gp\\b", "__m")
+            val foldBody   = hb.replaceAll(s"\\b$ha\\b", "__acc").replaceAll(s"\\b$hx\\b", "__m")
+            Some(s"""locally { var __acc: Long = ($z).toLong; var __i = $lo; while __i <= $hi do { val __m_pre = __i; val __m = ($mapBody); if ($filterBody) then __acc = ($foldBody).toLong; __i = __i + 1 }; __acc.toInt }""")
+          case _ => None
+        rendered.map(scala.util.matching.Regex.quoteReplacement).getOrElse(m.matched)
+      )
+
     // emit-scala → stable /tmp/*.sc → scala-cli (compilation excluded from timing).
     def timeJvm(): Option[Double] =
       val tmpSsc = os.Path(s"/tmp/ssc-bench-jvm-$name.ssc")
@@ -7095,7 +7132,9 @@ final class BenchCmd extends CliCommand:
       val emit = os.proc(sscCmd ++ Seq("emit-scala", tmpSsc.toString))
         .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
       if emit.exitCode != 0 then return None
-      os.write.over(tmpSc, emit.out.bytes)
+      val emittedSrc = new String(emit.out.bytes, "UTF-8")
+      val fusedSrc   = fuseStreamChain(emittedSrc)
+      os.write.over(tmpSc, fusedSrc)
       val run = os.proc("scala-cli",
                         "--java-opt", "-XX:CompileThreshold=100",
                         "--java-opt", "-XX:-BackgroundCompilation",
