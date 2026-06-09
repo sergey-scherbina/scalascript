@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — feat(rust): R.6.3 — stream pipeline via iterator chains (rust-backend-r6-streams)
+
+- Source.range/fromList/.toList via Rust iterator chains; no tokio/futures needed. 7 new tests.
+
+---
+
 ## 2026-06-09 — feat(rust): std-fs-os-p4-rust — std.fs / std.os / std.process Rust backend
 
 - 12 std.fs helpers (appendFile, readBytes, writeBytes, exists, isFile, isDir, mkdir, mkdirs, listDir, deleteFile, copyFile, moveFile)

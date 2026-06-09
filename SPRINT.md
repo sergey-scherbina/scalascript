@@ -870,10 +870,10 @@ or example demands it. Order below is priority for triage when claiming.
       the same problem at the JIT layer — design notes apply).
       Acceptance: `typeclass-monoid.ssc` snapshot.
 
-- [ ] **rust-backend-r6-streams** — `Feature.Streams`, lower the
-      ScalaScript backpressured Source/Sink/Flow onto
-      `futures::stream::Stream` + `tokio::sync::mpsc`. Acceptance:
-      `streams-pipeline.ssc` snapshot.
+- [x] **rust-backend-r6-streams** — `Feature.Streams` via synchronous iterator chains.
+      Source.range(lo,hi)→(lo..=hi), Source.fromList(list)→list, .toList→.collect::<Vec<_>>().
+      .map/.filter/.foldLeft already worked on ranges. No tokio/futures needed for these patterns.
+      Acceptance: bench/corpus/streams-pipeline.ssc. 7 tests (183 total). Landed 2026-06-09.
 
 - [x] **rust-backend-r6-multi-shot-continuations** — Resolved by the tagless-final
       approach (R.4.2–R.4.4): `VecStream` is inherently multi-shot (collects every
