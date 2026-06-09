@@ -1,0 +1,11 @@
+# streams-pipeline
+
+Source.range pipeline — map, filter, foldLeft via synchronous iterator.
+
+```scalascript
+def workload(): Int =
+  Source.range(1, 10)
+    .map(x => x * 2)
+    .filter(x => x % 3 == 0)
+    .foldLeft(0)((sum, x) => sum + x)
+```

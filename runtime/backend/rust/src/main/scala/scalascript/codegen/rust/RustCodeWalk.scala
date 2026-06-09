@@ -935,6 +935,9 @@ object RustCodeWalk:
       renderTerm(qual, ctx).map(q => s"format!(\"{}\", $q)")
     case m.Term.Select(qual, m.Term.Name("trim")) =>
       renderTerm(qual, ctx).map(q => s"$q.trim().to_string()")
+    // `.toList` on a Source/range (property access form) — collect to Vec.
+    case m.Term.Select(qual, m.Term.Name("toList")) if isRangeExpr(qual) =>
+      renderTerm(qual, ctx).map(q => s"$q.collect::<Vec<_>>()")
     // Struct / case-class field access: `v.x` → `v.x` in Rust.
     case m.Term.Select(qual, m.Term.Name(field)) =>
       renderTerm(qual, ctx).map(q => s"$q.$field")
@@ -1183,6 +1186,31 @@ object RustCodeWalk:
         l <- renderTerm(lhs, ctx)
         r <- renderTerm(rhs.values.head, ctx)
       yield s"($l..=$r)"
+
+    // `Source.range(lo, hi)` — inclusive range source (R.6 streams). Lowers to `(lo..=hi)`.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(m.Term.Name("Source"), m.Term.Name("range")),
+        args
+    ) if args.values.size == 2 =>
+      for
+        lo <- renderTerm(args.values.head, ctx)
+        hi <- renderTerm(args.values(1), ctx)
+      yield s"($lo..=$hi)"
+
+    // `Source.fromList(list)` — source backed by a Vec. Lowers to the list itself
+    // so downstream `.map/.filter/.foldLeft` chain naturally.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(m.Term.Name("Source"), m.Term.Name("fromList")),
+        args
+    ) if args.values.size == 1 =>
+      renderTerm(args.values.head, ctx)
+
+    // `.toList()` (method call form) on a Source/range — collect the iterator into a Vec.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("toList")),
+        args
+    ) if args.values.isEmpty && isRangeExpr(qual) =>
+      renderTerm(qual, ctx).map(q => s"$q.collect::<Vec<_>>()")
 
     // `Stream.emit(x)` → `_eff.stream_emit(x)` (inside a runStream block).
     case m.Term.Apply.After_4_6_0(
@@ -1471,14 +1499,22 @@ object RustCodeWalk:
       args.values.size == 1
     case _ => false
 
-  /** Best-effort check that a term is a range expression (`lo until hi` / `lo to hi`)
-   *  and common iterator-chain extensions used by the bench.
-   */
+  /** Best-effort check that a term is a range or Source expression.
+   *  Covers `lo until hi`, `lo to hi`, `Source.range(lo,hi)`,
+   *  `Source.fromList(list)`, and common iterator-chain extensions. */
   private def isRangeExpr(term: m.Term): Boolean = term match
     case m.Term.ApplyInfix.After_4_6_0(_, m.Term.Name("until" | "to"), _, rhs)
         if rhs.values.size == 1 => true
+    // Source.range(lo, hi) — backpressured range source (R.6 streams)
     case m.Term.Apply.After_4_6_0(
-      m.Term.Select(inner, m.Term.Name("map" | "filter" | "foldLeft")),
+        m.Term.Select(m.Term.Name("Source"), m.Term.Name("range")), args)
+        if args.values.size == 2 => true
+    // Source.fromList(list) — source backed by an existing list
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(m.Term.Name("Source"), m.Term.Name("fromList")), args)
+        if args.values.size == 1 => true
+    case m.Term.Apply.After_4_6_0(
+      m.Term.Select(inner, m.Term.Name("map" | "filter" | "foldLeft" | "toList" | "collect")),
       _
     ) if isRangeExpr(inner) => true
     case _ => false

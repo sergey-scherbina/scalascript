@@ -55,7 +55,10 @@ val RustCapabilities: Capabilities = Capabilities(
     // R.6 — WebSocket server (`wsRoute`/`wsServe`) + client (`wsConnectSync`).
     Feature.WebSockets,
     // R.6 — MCP server over stdio (JSON-RPC 2.0, hand-rolled; only serde_json dep).
-    Feature.McpServer
+    Feature.McpServer,
+    // R.6 — synchronous stream pipeline: Source.range/fromList + .map/.filter/.foldLeft/.toList.
+    // Lowers to Rust iterator chains; no async/tokio needed for these patterns.
+    Feature.Streams
   ),
   outputs        = Set(OutputKind.RustSource),
   options        = Set("optimizationLevel", "emitAssertions", "cargoEdition"),
