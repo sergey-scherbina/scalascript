@@ -1,0 +1,60 @@
+#!/usr/bin/env ssc
+---
+name: yaml-parse
+version: 1.0.0
+description: Parse YAML strings and navigate the result with std.yaml
+---
+
+# yaml-parse — std.yaml demo
+
+Demonstrates `std.yaml`: parse a YAML string, navigate it with accessor
+helpers, and round-trip through `toYaml`.
+
+Run with: `ssc run examples/yaml-parse.ssc`
+
+```scalascript
+[parseYaml, toYaml, yamlType, yamlStr, yamlNum, yamlBool, yamlArr, yamlGet](std/yaml.ssc)
+
+val configYaml = """
+server:
+  host: localhost
+  port: 8080
+  debug: true
+tags:
+  - web
+  - api
+"""
+
+val config = parseYaml(configYaml)
+val server = yamlGet(config, "server")
+val host   = yamlStr(yamlGet(server, "host"))
+val port   = yamlNum(yamlGet(server, "port")).toInt
+val debug  = yamlBool(yamlGet(server, "debug"))
+val tags   = yamlArr(yamlGet(config, "tags"))
+
+println("Type:   " + yamlType(config))
+println("Host:   " + host)
+println("Port:   " + port)
+println("Debug:  " + debug)
+println("Tags:   " + tags.map(t => yamlStr(t)).mkString(", "))
+println()
+println("Round-trip:")
+println(toYaml(server).trim)
+```
+
+# Config block (inline YAML)
+
+This shows that `yaml` fenced blocks are automatically bound to `<SectionId>.yaml`:
+
+```yaml
+appName: MyApp
+version: 2.0.0
+features:
+  - auth
+  - payments
+```
+
+```scalascript
+println("\nFrom fenced block:")
+println("App: " + yamlStr(yamlGet(Config_block_inline_YAML.yaml, "appName")))
+```

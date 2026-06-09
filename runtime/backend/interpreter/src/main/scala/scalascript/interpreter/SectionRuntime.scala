@@ -70,6 +70,9 @@ private[interpreter] object SectionRuntime:
         interp.graphqlBlockRunner.getOrElse(
           throw InterpretError("No GraphQL block runner installed — add graphql-plugin to the interpreter classpath")
         ).registerSdl(cb.source)
+      // std-yaml-p4: yaml/yml fenced blocks → parse + bind to section.yaml in globals
+      case cb: Content.CodeBlock if cb.lang == "yaml" || cb.lang == "yml" =>
+        runYamlBlock(cb, section, interp)
       case imp: Content.Import =>
         runImport(imp, interp)
       case _ => ()
@@ -178,6 +181,41 @@ private[interpreter] object SectionRuntime:
         case _                                => Map.empty[String, Value]
       interp.globals(id) = Value.InstanceV(id, existing + (Lang.Xml -> result))
     }
+
+  // std-yaml-p4: parse yaml/yml fenced block + bind result to section.yaml
+  def runYamlBlock(cb: Content.CodeBlock, section: Section, interp: Interpreter): Unit =
+    import scalascript.parser.SimpleYaml
+    val parsed =
+      try
+        val raw = SimpleYaml.load[Any](cb.source)
+        yamlAnyToValue(raw)
+      catch case _: Throwable => Value.InstanceV("YNull", Map.empty)
+    sectionIdent(section.heading.text).foreach { id =>
+      val existing = interp.globals.get(id) match
+        case Some(Value.InstanceV(_, fields)) => fields
+        case _                                => Map.empty[String, Value]
+      interp.globals(id) = Value.InstanceV(id, existing + ("yaml" -> parsed))
+    }
+
+  private def yamlAnyToValue(raw: Any): Value =
+    import scala.jdk.CollectionConverters.*
+    raw match
+      case null                  => Value.InstanceV("YNull", Map.empty)
+      case b: java.lang.Boolean  => Value.InstanceV("YBool", Map("value" -> Value.boolV(b)))
+      case i: java.lang.Integer  => Value.InstanceV("YNum",  Map("value" -> Value.DoubleV(i.toDouble)))
+      case l: java.lang.Long     => Value.InstanceV("YNum",  Map("value" -> Value.DoubleV(l.toDouble)))
+      case d: java.lang.Double   => Value.InstanceV("YNum",  Map("value" -> Value.DoubleV(d)))
+      case f: java.lang.Float    => Value.InstanceV("YNum",  Map("value" -> Value.DoubleV(f.toDouble)))
+      case s: String             => Value.InstanceV("YStr",  Map("value" -> Value.StringV(s)))
+      case m: java.util.Map[?,?] =>
+        val fields = m.asScala.map { case (k, v) =>
+          Value.StringV(k.toString).asInstanceOf[Value] -> yamlAnyToValue(v)
+        }.toMap
+        Value.InstanceV("YObj", Map("fields" -> Value.MapV(fields)))
+      case lst: java.util.List[?] =>
+        Value.InstanceV("YArr", Map("items" -> Value.ListV(lst.asScala.map(yamlAnyToValue).toList)))
+      case other =>
+        Value.InstanceV("YStr", Map("value" -> Value.StringV(other.toString)))
 
   def sectionIdent(text: String): Option[String] =
     val parts = text.split("[^A-Za-z0-9]+").filter(_.nonEmpty)

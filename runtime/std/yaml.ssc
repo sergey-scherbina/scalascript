@@ -1,0 +1,60 @@
+---
+name: std-yaml
+version: 1.0.0
+description: YAML parse and stringify — parseYaml, toYaml, YamlValue ADT
+package: std.yaml
+exports:
+  - parseYaml
+  - toYaml
+  - yamlType
+  - yamlStr
+  - yamlNum
+  - yamlBool
+  - yamlArr
+  - yamlGet
+  - YamlValue
+  - YStr
+  - YNum
+  - YBool
+  - YNull
+  - YArr
+  - YObj
+---
+
+# std.yaml — YAML parse / stringify
+
+Cross-backend YAML parse and stringify.
+JVM: `SimpleYaml` → `YamlValue`; JS/Node/Browser: inline pure-JS parser/serializer.
+
+Supported subset: block/flow mappings, block/flow sequences, scalars
+(null, bool, int, double, string), quoted strings, comments, literal blocks.
+Not supported: anchors, aliases, multi-document, YAML 1.2 tags.
+
+See `specs/std-yaml.md` for the full API and backend policy.
+
+```scalascript
+// ── Parse and stringify ───────────────────────────────────────────────────────
+extern def parseYaml(s: String): YamlValue
+extern def toYaml(v: YamlValue): String
+
+// ── Type introspection ────────────────────────────────────────────────────────
+extern def yamlType(v: YamlValue): String   // "YStr" | "YNum" | "YBool" | "YNull" | "YArr" | "YObj"
+
+// ── Scalar extractors ─────────────────────────────────────────────────────────
+extern def yamlStr(v: YamlValue): String    // null if not YStr
+extern def yamlNum(v: YamlValue): Double
+extern def yamlBool(v: YamlValue): Boolean
+
+// ── Collection extractors ─────────────────────────────────────────────────────
+extern def yamlArr(v: YamlValue): List[YamlValue]
+extern def yamlGet(v: YamlValue, key: String): YamlValue   // YNull if missing
+
+// ── YamlValue ADT ─────────────────────────────────────────────────────────────
+sealed trait YamlValue
+case class YStr(value: String)                  extends YamlValue
+case class YNum(value: Double)                  extends YamlValue
+case class YBool(value: Boolean)                extends YamlValue
+case object YNull                               extends YamlValue
+case class YArr(items: List[YamlValue])         extends YamlValue
+case class YObj(fields: Map[String, YamlValue]) extends YamlValue
+```
