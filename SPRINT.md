@@ -1061,10 +1061,9 @@ Spec to write first: `specs/std-fs-os.md`
 
 ### Phase 4 — Rust backend
 
-- [ ] **std-fs-os-p4-rust** — `RustGen` lowering: `std.fs` → `std::fs`,
-      `std.os` → `std::env` + `std::path`, `std.process` → `std::process::Command`.
-      Conformance snapshot for Rust target.
-      Commit: `feat(fs-plugin): Rust backend`.
+- [x] **std-fs-os-p4-rust** — Full std.fs/std.os/std.process Rust lowering:
+      12 fs helpers, 15 os helpers (env→Option, path*, platform=Native), ProcessResult+exec.
+      All use pure std (no extra crates). 14 new tests (176 total). Landed 2026-06-09.
 
 ### Phase 5 — stdlib .ssc files + examples
 

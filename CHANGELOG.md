@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — feat(rust): std-fs-os-p4-rust — std.fs / std.os / std.process Rust backend
+
+- 12 std.fs helpers (appendFile, readBytes, writeBytes, exists, isFile, isDir, mkdir, mkdirs, listDir, deleteFile, copyFile, moveFile)
+- 15 std.os helpers (env→Option<String>, envOrElse, cwd, sep, pathJoin, pathDirname, pathBasename, pathExtname, pathResolve, pathIsAbsolute, tempDir, tempFile, platform=Native, homedir, hostname)
+- ProcessResult struct + exec(cmd, args) via std::process::Command. All pure std, no extra crates.
+
+---
+
+---
+
 ## 2026-06-09 — feat(jsgen): std.fs/std.os/std.process JS/Node preamble (p3-js)
 
 - **std-fs-os-p3-js** — JsRuntimeFs.scala: 16 fs + 15 os + exec(); Node.js
