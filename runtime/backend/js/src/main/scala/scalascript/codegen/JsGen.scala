@@ -4452,12 +4452,16 @@ class JsGen(
               case other               => genExpr(other)
             }
     app.fun match
-      // Map constructor - args are tuple pairs
+      // Map constructor - args are tuple pairs (Map(...) or Map[K,V](...))
       case Term.Name("Map") =>
         s"_Map(${argVals.mkString(", ")})"
+      case Term.ApplyType.After_4_6_0(Term.Name("Map"), _) =>
+        s"_Map(${argVals.mkString(", ")})"
 
-      // List constructor
+      // List constructor (List(...) or List[T](...))
       case Term.Name("List") =>
+        s"[${argVals.mkString(", ")}]"
+      case Term.ApplyType.After_4_6_0(Term.Name("List"), _) =>
         s"[${argVals.mkString(", ")}]"
 
       // Some / None
@@ -5088,10 +5092,10 @@ class JsGen(
           s"_perform('$eff', '$op', [${vs.mkString(", ")}])"
         }
 
-      // Builtin constructors
-      case Term.Name("Map") =>
+      // Builtin constructors (with or without explicit type args)
+      case Term.Name("Map") | Term.ApplyType.After_4_6_0(Term.Name("Map"), _) =>
         bindArgsCps(args) { vs => s"_Map(${vs.mkString(", ")})" }
-      case Term.Name("List") =>
+      case Term.Name("List") | Term.ApplyType.After_4_6_0(Term.Name("List"), _) =>
         bindArgsCps(args) { vs => s"[${vs.mkString(", ")}]" }
       case Term.Name("Some") | Term.Name("_Some") =>
         bindArgsCps(args) { vs => s"_Some(${vs.mkString(", ")})" }
