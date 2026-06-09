@@ -73,8 +73,18 @@ private[interpreter] object ActorGlobals:
     })
     g("stop") = Value.NativeFnV("stop", {
       case Nil =>
-        FlatMap(Perform("Actor", "self", Nil), pid =>
-          Perform("Actor", "exit", pid :: Value.StringV("normal") :: Nil))
+        // Inside an actor body: perform self + exit("normal").
+        // Outside `runActors { ... }`: no-op (UnitV).  The global namespace
+        // pollution means top-level scripts that call `stop()` (intending the
+        // http-plugin intrinsic, when imports don't shadow this entry) would
+        // otherwise crash with "Unhandled effect: Actor.self".  Returning
+        // UnitV when no ActorRuntime is installed keeps such scripts working
+        // without breaking the in-actor behaviour.
+        if interp.isActorRuntimeActive then
+          FlatMap(Perform("Actor", "self", Nil), pid =>
+            Perform("Actor", "exit", pid :: Value.StringV("normal") :: Nil))
+        else
+          Computation.Pure(Value.UnitV)
       case _ => throw InterpretError("stop() takes no arguments")
     })
 

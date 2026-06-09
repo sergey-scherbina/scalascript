@@ -48,6 +48,13 @@ private[interpreter] trait ActorInterp:
     val blockedSends = mutable.LongMap.empty[mutable.Queue[(Long, Value, Value => Computation)]]
   private var actorRt: ActorRuntime = null
 
+  /** True when `runActors { ... }` is active (an `ActorRuntime` is installed).
+   *  Used by `ActorGlobals.install` to make `stop()` a no-op outside actor
+   *  scope — otherwise `stop()` performs `Actor.self + exit`, which crashes
+   *  with "Unhandled effect: Actor.self" when invoked from a top-level
+   *  script that didn't wrap its body in `runActors { ... }`. */
+  private[interpreter] def isActorRuntimeActive: Boolean = actorRt != null
+
   // ── Phase 3 — distributed node state ────────────────────────────────
   // "" means this process has not called startNode and is local-only.
   @volatile private[interpreter] var localNodeId: String = ""
