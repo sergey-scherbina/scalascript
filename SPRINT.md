@@ -8,6 +8,94 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Bench honesty + ssc/JS perf (2026-06-09)
+
+After closing the JVM↔Rust gap on six workloads, deeper inspection shows
+the parity was achieved partly by HotSpot **constant-folding the entire
+outer timing loop**, not just the workload:
+
+  streams-pipeline: BENCH_SINK = 81_021_000_528 over ~18ms → 2.25 BILLION
+  iterations consumed in 18ms = 8 picoseconds/iter, which is < 1 CPU
+  cycle.  HotSpot's scalar-evolution rewrote
+      while r < N do sink += workload()
+  as
+      sink += workload() * N
+
+  with `workload() = 36` proven at JIT time.  This is the same kind of
+  cheat we patched on Rust via `std::hint::black_box`.  Rust disassembly
+  confirms it does NOT do this — Rust unrolled the chain into 10 explicit
+  `mov w12, #N` instructions for the 10 iterator values (genuine 11ns/iter).
+
+So:
+  - Rust:  honest; loop unrolled to 10 ops.  ~11ns is the true cost.
+  - JVM:   cheating; outer loop folded to one mul-add.  ~0.008ns is bogus.
+  - ssc/JS: tree-walk / V8 — honest, no fold.  Their numbers ARE the cost.
+
+The goal "JVM parity with Rust" is therefore reframed: prevent the JVM
+fold (so JVM measures the real workload), THEN see if a universal ssc
+JIT optimisation can close the resulting honest gap.
+
+- [ ] **bench-honest-jvm-blackbox** — Replace the JVM wrapper's
+      `_ssc_sink += workload().toLong` accumulator with the JMH-style
+      `Blackhole`-equivalent:
+      ```scala
+      val _ssc_bh = new java.util.concurrent.atomic.AtomicLong(0L)
+      while _ssc_r < _ssc_reps do
+        _ssc_bh.lazySet(workload().toLong)  // volatile write — uncfoldable
+        _ssc_r += 1
+      ```
+      `lazySet` is a relaxed volatile write — HotSpot can't hoist it out
+      of the loop because volatile semantics must observe each write.
+      This is the canonical anti-fold pattern; it's how JMH measures
+      sub-microsecond workloads honestly.
+      Acceptance: bench numbers on streams-pipeline / typeclass-monoid /
+      bool-predicate drop to legitimate values (10-100ns range) on JVM,
+      matching the workload they emulate.  Then revisit JVM↔Rust gap
+      with HONEST numbers.
+
+- [ ] **bench-honest-rust-verify** — Disassemble each of the six gap
+      workloads' release binaries (`objdump`/`otool`) to confirm the
+      Rust black_box patches actually leave real work in the loop body.
+      Document the cycle-by-cycle expectation for each.  If any of the
+      six is found to be folded despite the patches, expand the patcher
+      (likely closure-body-of-closure-body cases).
+
+- [ ] **bench-honest-js-investigate** — V8 has its own constant-folding
+      optimiser (Crankshaft → TurboFan).  Run each of the six benches
+      through `--print-opt-code` / `--turbo-trace-printer` and confirm
+      whether V8 is folding the outer loop too.  If yes: add `globalThis.
+      _sscBlackHole = workload()` per iter as the JS-equivalent of
+      `lazySet`.  If no: the V8 numbers are already honest.
+
+- [ ] **ssc-jit-loop-fusion-universal** — Iterator chain fusion in the
+      ssc bytecode JIT.  Detect `Range.map(f).filter(g).foldLeft(z)(h)`
+      and similar patterns at IR / bytecode level (not in bench wrapper)
+      and lower to a fused while-loop **for all programs** (not just
+      benchmarks).  This is the "real" version of the bench-time hack:
+      moves the optimisation into the JIT so any user program that uses
+      iterator chains benefits.  Cross-references the existing JvmGen
+      streams emitter — the same shape detection applies.  Acceptance:
+      a hand-written `(1 to 10).map(*2).filter(%3==0).foldLeft(0)(+)`
+      runs through ssc/asm in < 100ns (current ~32ms × ~300_000 better).
+
+- [ ] **ssc-jit-const-propagation** — Generalisation of the above: when
+      the JIT sees a pure expression whose operands are all literals or
+      provably-pure pure functions, fold it at JIT time.  Stage 1:
+      literal arithmetic.  Stage 2: pure-function calls with literal
+      args (memoise once).  Stage 3: scalar-evolution-style range
+      folding (`sum(0..N)` → closed form).  Each stage shipped
+      independently with bench A/B.  Goal: ssc/asm at within 100× of
+      Rust on pure-arith workloads (currently 1000-10000×).
+
+- [ ] **ssc-jit-escape-analysis** — Stack-allocate Option/Either/case
+      class instances whose lifetime is provably bounded to the current
+      method.  Avoids heap allocation on `Some(x).map(f).getOrElse(0)`
+      chains — the same shape that HotSpot escape-analyses today and
+      where ssc/JS currently allocate.  Win expected on option-chain,
+      either-chain, pattern-match-heavy.
+
+---
+
 ## JVM perf parity with Rust — close the gap (2026-06-09)
 
 After defeating LLVM fold (`bench-opaque-seed`), Rust reports much smaller
