@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-10 — fix(interp): error on ambiguous un-ascribed val/case-constructor collision (A-half)
+
+- **busi-p0-statusval-collision-a-half** — Completes the statusval/eventcase
+  collision handling. A bare `val x = Foo` with no type ascription, where `Foo` is
+  bound to both a stable value and a case constructor, previously resolved silently
+  to one side; it now raises a located error `name 'Foo' is bound to both a stable
+  value and a case constructor; add a type ascription or rename one`. The ascribed
+  shapes keep the B-half behaviour (`Type.Name` disambiguates; other ascriptions —
+  e.g. function types — keep the case-constructor). `StatRuntime.disambiguateValBinding`
+  gates on `decltpe.isEmpty` + a `shadowedAlternatives` entry. 2 regression tests;
+  backendInterpreter 1583/1583 green.
+
+---
+
 ## 2026-06-10 — fix(parser): fail loudly on truncated code blocks (ui-bug-jobj-failloud)
 
 - **ui-bug-jobj-failloud** — scalameta throws a raw `NullPointerException` from its

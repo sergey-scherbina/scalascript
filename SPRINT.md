@@ -468,16 +468,15 @@ fix, and don't require a runtime refactor.
       _ => ...`. Either support both forms or emit a parser message
       suggesting `case`.
 
-- [ ] **busi-p0-statusval-collision-a-half** — Follow-up to landed
-      `9a3bea18e`.  `val x = Foo` without an explicit type ascription
-      still silently resolves to the case-constructor when `Foo` is
-      also an enum case name (the B-half fix only triggers on
-      `val x: SomeType = Foo` with a `Type.Name` ascription).  The
-      A-half should emit a compile-time error:
-      `name 'X' is bound to both a stable value and a case constructor;
-      add a type ascription or rename one`.  Practical busi-86a path is
-      already fully covered by the B-half (all production use sites use
-      `val s: PeerLinkStatus = PeerLinkInvited`).  Low priority.
+- [x] **busi-p0-statusval-collision-a-half** [landed 2026-06-10] — Follow-up to
+      `9a3bea18e`. A bare `val x = Foo` with no ascription, where `Foo` is bound
+      to both a stable value and a case constructor, now raises a located error
+      `name 'Foo' is bound to both a stable value and a case constructor; add a
+      type ascription or rename one`. Implemented in `StatRuntime.disambiguateValBinding`:
+      when `decltpe.isEmpty` and the bare RHS name is in `shadowedAlternatives`,
+      `interp.located(...)`. Any ascription opts out (`Type.Name` → B-half;
+      function/other types keep the case-constructor `direct`). 2 regression tests
+      in `StatusValEventCaseCollisionTest`; backendInterpreter 1583/1583 green.
 
 ### P1 — pre-existing bug surfaced during busi phase 89d testing
 
