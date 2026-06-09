@@ -94,6 +94,55 @@ def parseBenchLine(output: String): Option[Double] =
       if parts.length == 3 then parts(2).toDoubleOption else None
   }.flatten
 
+// LLVM -O3 anti-folding: wrap each assignment inside `pub fn workload(...)`'s
+// body with `std::hint::black_box(...)`.  This stops scalar-evolution from
+// deriving closed-form (Gauss-like) solutions that replace the entire loop
+// with a single constant load.  Without this, pure-arith bench workloads
+// report ~1ns/iter on Rust — measuring only `mov reg, const; ret`.
+//
+// We only patch the `workload` function body.  Helper functions defined
+// before `workload` keep their original code so inlining still works.
+def patchGenWorkloadForAntiFold(src: String): String =
+  val workloadIdx = src.indexOf("pub fn workload(")
+  if workloadIdx < 0 then return src
+  // Find the matching `}` for the workload function by brace-counting from
+  // its opening `{`.  We deliberately stop at the function-closing brace so
+  // helpers AFTER workload (if any) are left untouched.
+  val openBrace = src.indexOf('{', workloadIdx)
+  if openBrace < 0 then return src
+  var depth = 1
+  var i = openBrace + 1
+  while i < src.length && depth > 0 do
+    src.charAt(i) match
+      case '{' => depth += 1
+      case '}' => depth -= 1
+      case _   => ()
+    i += 1
+  if depth != 0 then return src
+  val bodyStart = openBrace + 1
+  val bodyEnd   = i - 1
+  val before    = src.substring(0, bodyStart)
+  val body      = src.substring(bodyStart, bodyEnd)
+  val after     = src.substring(bodyEnd)
+
+  // Patch every `<name> = <expr>;` assignment to `<name> = std::hint::black_box(<expr>);`.
+  // This includes both `let mut x = init;` (initial values) and `x = …;`
+  // reassignments inside the loop.  The negated lookahead avoids re-wrapping
+  // an already-black-boxed expression on repeated patches.
+  //
+  // The rhs match excludes `{`, `}`, and `;` to avoid spanning across closure
+  // bodies (e.g. `let s = .map(move |i| { ... }).fold(0, move |a,b| { ... });`
+  // would otherwise be miscaptured).  This means closure-containing rhs are
+  // skipped — acceptable since their inner closure bodies are not on the
+  // critical anti-folding path; LLVM still gets the surrounding wrapper.
+  val assignRe = """(?m)(let mut [A-Za-z_]\w*(?:: [A-Za-z_:<>0-9, ]+)? = |[A-Za-z_]\w* = )(?!std::hint::black_box\()([^{};]+);""".r
+  val patchedBody = assignRe.replaceAllIn(body, m =>
+    val lhs = scala.util.matching.Regex.quoteReplacement(m.group(1))
+    val rhs = scala.util.matching.Regex.quoteReplacement(m.group(2))
+    s"${lhs}std::hint::black_box($rhs);"
+  )
+  before + patchedBody + after
+
 // Build a Rust binary that benchmarks `workload()`.
 // Strategy:
 //   1. emit-rust the corpus file (library crate, exports `workload()`).
@@ -189,8 +238,20 @@ fn main() {
     // 2. Check the generated crate exports workload()
     val genFile = new java.io.File(crateDir, "src/generated/ssc_program.rs")
     if !genFile.exists then { cleanup(); return None }
-    val genContent = scala.io.Source.fromFile(genFile).mkString
-    if !genContent.contains("workload") then { cleanup(); return None }
+    val rawGenContent = scala.io.Source.fromFile(genFile).mkString
+    if !rawGenContent.contains("workload") then { cleanup(); return None }
+
+    // 2.5 Anti-folding patch: wrap every `let mut <var> = <init>;` and every
+    // assignment inside a while body with `std::hint::black_box(...)`.  Without
+    // this LLVM -O3 derives closed-form solutions for pure-arithmetic loops
+    // (e.g. `for i in 0..N { sum += i }` → Gauss formula = a single constant),
+    // making the bench measure ~1ns of `mov reg, const; ret`.  The patch only
+    // touches the body of `pub fn workload(...)`; helpers (defined above
+    // workload) keep their original code so they can be inlined normally.
+    val genContent = patchGenWorkloadForAntiFold(rawGenContent)
+    val patchedGen = new java.io.PrintWriter(genFile)
+    patchedGen.print(genContent); patchedGen.close()
+
     // Detect Unit-returning workload: `pub fn workload() {` has no `-> T` in the signature.
     // When Unit, black_box must receive an i64 sentinel rather than the () result.
     val workloadIsUnit = genContent.contains("pub fn workload() {") || genContent.contains("pub fn workload() {\n")
