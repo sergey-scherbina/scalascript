@@ -1,1 +1,0 @@
-bench-na-jvm-typeclass-monoid: add IntMonoid trait + verify JVM Defn.Given works
