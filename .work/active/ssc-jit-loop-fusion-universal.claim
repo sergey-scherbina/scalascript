@@ -1,6 +1,6 @@
-feature/ssc-jit-loop-fusion-universal 2026-06-09T19:12:32Z
+feature/ssc-jit-loop-fusion-universal 2026-06-09
 agent: claude-code
-heartbeat: 2026-06-09T19:12:32Z
-status: not-started
-done-so-far:
-next: (plan first step)
+heartbeat: 2026-06-09T19:12:47Z
+status: in-progress
+done-so-far: worktree created; establishing baseline
+next: bench hof-pipeline + streams-pipeline; add fused loop helper to JitHofDispatch
