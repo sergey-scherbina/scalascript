@@ -1460,3 +1460,86 @@ Spec to write first: `specs/std-yaml.md`
       round-trip through `toYaml`.  Update `README.md` capabilities table.
       Commit: `feat(std): std.yaml stdlib module + fenced-block wiring`.
       ✓ Landed 2026-06-09 (7ac9857): yaml.ssc, fenced-block binding, 6 plugin tests, example.
+
+---
+
+## std.pdf — PDF → Markdown reader (new)
+
+**Motivation:** `.ssc` user code has no way to read a PDF today. There is no
+cross-backend PDF parser, so this must be a per-backend `pdf-plugin` (intrinsics
+go to `runtime/std/`, never core — AGENTS.md). v1 reads a PDF **as Markdown** so
+it plugs straight into the existing `std.content` / markup pipeline (matches the
+project's "Markdown as first-class syntax" principle).
+
+**Scope (v1):**
+- Input is `List[Int]` bytes (same byte representation as `std.fs.readBytes`), so
+  it composes: `pdfToMarkdown(fs.readBytes(path))`.
+- `pdfToMarkdown(bytes): String` — extract text as Markdown. Heuristic structure:
+  page breaks → `## Page N`, paragraphs separated by blank lines. Font-size-based
+  heading detection is a **follow-up**, not v1.
+- `pdfPageCount(bytes): Int`.
+- Out of scope: rendering, images, forms, tables, encrypted PDFs, OCR of scanned
+  (image-only) PDFs.
+- Backend rollout: **JVM → JS → Rust**, phased, one push per green phase.
+
+Spec to write first: `specs/std-pdf.md`
+
+### Phase 1 — spec
+
+- [ ] **pdf-p1-spec** — Write `specs/std-pdf.md`. Cover:
+
+      **`std.pdf`**: `pdfToMarkdown(bytes: List[Int]): String`;
+      `pdfPageCount(bytes: List[Int]): Int`.
+      Markdown mapping rules: `## Page N` per page, paragraphs split on blank
+      lines, page-internal text joined with single newlines collapsed to spaces
+      where PDFBox over-segments. Define behaviour on: empty PDF, 0 pages,
+      encrypted PDF (return error/empty + documented), non-PDF bytes (error).
+      Backend policy table (JVM PDFBox / JS pdf.js-or-Node / Browser / Rust pdf-extract).
+      Note the heading-detection follow-up explicitly as out of scope.
+      Commit: `spec: std-pdf`.
+
+### Phase 2 — JVM plugin
+
+- [ ] **pdf-p2-jvm** — Create `runtime/std/pdf-plugin/` with
+      `PdfInterpreterPlugin.scala` + `PdfIntrinsics.scala` (mirror `crypto-plugin`).
+
+      Add **Apache PDFBox** (`org.apache.pdfbox:pdfbox`, Apache-2.0) as the plugin's
+      only new dependency. `pdfToMarkdown`: load bytes via `PDDocument.load`, run
+      `PDFTextStripper` page-by-page (`setStartPage`/`setEndPage`), prefix each with
+      `## Page N`, normalise whitespace into Markdown paragraphs. `pdfPageCount`:
+      `doc.getNumberOfPages`. Convert `List[Int]` arg → `Array[Byte]`.
+
+      Register in `build.sbt`: `lazy val pdfPlugin`, `PluginSpec("pdf", …)`, root
+      aggregate, CLI plugin list, `% Test` on `backendInterpreter`. SPI service file.
+      Tests: small fixture PDF in `src/test/resources` → assert page count + that
+      extracted Markdown contains expected words and `## Page 1`.
+      Commit: `feat(pdf-plugin): JVM backend (PDFBox)`.
+
+### Phase 3 — JS/Node preamble
+
+- [ ] **pdf-p3-js** — Add `JsRuntimePdf.scala` to `runtime/backend/js/` (mirror the
+      crypto `_sha256` preamble pattern in `JsRuntimePart2b.scala`).
+
+      Node path: lazy-`require('pdf-parse')` (or `pdfjs-dist`) to extract text +
+      page count; emit the same `## Page N` Markdown shape as JVM. Browser path:
+      `pdfjs-dist` via the documented async boundary (note: PDF.js is async — decide
+      in the spec whether the browser variant is supported in v1 or deferred).
+      Wire into `JsGen.generateRuntime`. Tests: preamble text-shape assertions +
+      Node round-trip on the same fixture PDF as JVM.
+      Commit: `feat(jsgen): std.pdf JS/Node preamble`.
+
+### Phase 4 — stdlib `.ssc` + example
+
+- [ ] **pdf-p4-stdlib** — Add `runtime/std/pdf.ssc` (manifest `package: std.pdf`,
+      exports `pdfToMarkdown`, `pdfPageCount`) with the two `extern def`s.
+
+      Add example `examples/pdf-read.ssc`: `fs.readBytes` a sample PDF →
+      `pdfToMarkdown` → print, and parse the result through `std.content` to show the
+      Markdown round-trips. Update `README.md` capabilities table + `docs/user-guide.md`.
+      Commit: `feat(std): std.pdf stdlib module + example`.
+
+### Phase 5 — Rust backend (follow-up)
+
+- [ ] **pdf-p5-rust** — Rust codegen for `pdfToMarkdown` / `pdfPageCount` via the
+      `pdf-extract` (or `lopdf`) crate. Defer until JVM+JS are green; gate behind the
+      Rust intrinsics MVP. Commit: `feat(rust): std.pdf intrinsics`.
