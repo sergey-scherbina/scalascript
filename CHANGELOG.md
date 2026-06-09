@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — perf(jit): range-native fold fusion + `to`-inclusive ranges
+
+- **ssc-jit-range-fusion** — Follow-up to map/filter/foldLeft fusion: when the
+  fold base is an integer range (`lo until/to hi`), the JIT iterates it with a
+  primitive counter (`JitHofShape.rangeBounds` + `JitHofDispatch.fusedRangeFoldLong`)
+  instead of materialising a base `ListV` — covers a bare `range.foldLeft(0)(+)`
+  too. `walkRef` also now compiles `to` (inclusive) ranges. Both Javac + ASM.
+  `InterpreterBench.rangeSum` 506 → 25.6 B/op (1016 → 25.6 vs pre-fusion baseline).
+  4 SscVmTest + 3 JitLintTest cases; full suite green (1568) both backends; JIT
+  disabled count unchanged (736). Remaining: literal-bound const-fold (tracks
+  with `ssc-jit-const-propagation` Stage 3).
+
+---
+
 ## 2026-06-09 — perf(jit): loop fusion for map/filter/foldLeft chains
 
 - **ssc-jit-loop-fusion-universal** (partial) — The bytecode JIT now fuses

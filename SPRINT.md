@@ -104,12 +104,15 @@ JIT optimisation can close the resulting honest gap.
       which scales with input length).  Spec: `specs/jit-loop-fusion.md`.
       Full backendInterpreter suite green on Javac + ASM; JIT disabled
       count unchanged (736).
-      **Follow-up (not done):** the aggressive `(1 to 10).map(*2).filter
-      (%3==0).foldLeft(0)(+)` < 100ns target still needs (a) `to` (inclusive)
-      ranges compiled in `walkRef` — only `until` is today, and (b) a
-      range-native fused loop that does not materialise the base `ListV`
-      (`rangeSum` still pays 506 B/op for it), plus const-folding when the
-      bounds are literals.  Tracks with `ssc-jit-const-propagation` Stage 3.
+      **Follow-up `ssc-jit-range-fusion` (landed 2026-06-09):** range-native
+      fusion done — `JitHofShape.rangeBounds` + `JitHofDispatch.fusedRangeFoldLong`
+      iterate `lo until/to hi` with a primitive counter (no base `ListV`), and
+      `walkRef` now compiles `to` (inclusive) ranges (`rangeUntil(lo, hi+1)`).
+      rangeSum 506 → 25.6 B/op (1016 → 25.6 vs pre-fusion). Both backends; suite
+      green (1568); disabled count unchanged (736).
+      **Still not done:** the `(1 to 10)…foldLeft < 100ns` literal-bound
+      const-fold (the loop runs honestly now) — tracks with
+      `ssc-jit-const-propagation` Stage 3.
 
 - [ ] **ssc-jit-const-propagation** — Generalisation of the above: when
       the JIT sees a pure expression whose operands are all literals or
