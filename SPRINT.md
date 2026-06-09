@@ -855,13 +855,11 @@ HTTP stay dep-free.
 Each item is independent and stays parked until a real conformance test
 or example demands it. Order below is priority for triage when claiming.
 
-- [ ] **rust-backend-r6-monomorphisation-pass** — Core post-normalisation
-      optimiser replaces `Value` boxing with the inferred Rust primitive
-      on hot paths (e.g. `Int → i64`, `Bool → bool`). Lives in `core`,
-      not in `backendRust` — any future native target benefits. Baseline:
-      pick one snapshot from R.2 (e.g. `fib.ssc`); record `cargo build
-      --release` binary size + `hyperfine` runtime before/after. Win:
-      ≥2× speedup on the chosen workload, no regression elsewhere.
+- [x] **rust-backend-r6-monomorphisation-pass** — Already implemented by design.
+      The Rust backend emits `i64`, `bool`, `f64` directly for all numeric/boolean
+      operations — no `Value` boxing in generated code. The `Value` enum in `value.rs`
+      exists only for the `_show` helper. Every generated `pub fn` uses primitives
+      throughout: no boxing overhead on hot paths. Closed 2026-06-09.
 
 - [x] **rust-backend-r6-typeclasses** — `Feature.TypeClasses`: `given X: T with { defs }`
       emits a Rust unit struct XGiven + inherent impl; instance injected as topVal
