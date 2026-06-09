@@ -1267,3 +1267,81 @@ Spec to write first: `specs/std-fs-os.md`
       Commit: `docs(std-fs-os): boundary rule in AGENTS.md + spec`.
       ✓ Landed 2026-06-09: audit done (covered by backend-blocks-p7);
       AGENTS.md already references specs/std-fs-os.md; specs/std-fs-os.md §6 scope note added.
+
+---
+
+## std.yaml — YAML parse / stringify (new)
+
+**Motivation:** `.ssc` user code has no way to call `parseYaml(s)` or `toYaml(v)` today.
+`SimpleYaml` already covers ~90% of real YAML (block/flow mappings+sequences, scalars,
+quoted strings, comments, literal blocks) but only returns internal Java types — not
+ScalaScript `Value`s.  A `yaml-plugin` + `std/yaml.ssc` closes this gap.
+
+**Scope:**
+- JVM: `SimpleYaml.load` → `Value` converter + plain-Scala YAML serializer (no snakeyaml needed).
+- JS/Node: inline mini-parser + serializer in JsRuntimeYaml (subset matching SimpleYaml).
+- Anchors/aliases, multi-document, YAML 1.2 tags: **out of scope** for this sprint.
+- `yaml`/`yml` fenced blocks already produce `ContentValue` (content API) — Phase 4 wires
+  them to ScalaScript-visible variables too.
+
+Spec to write first: `specs/std-yaml.md`
+
+### Phase 1 — spec
+
+- [ ] **yaml-p1-spec** — Write `specs/std-yaml.md`. Cover:
+
+      **`std.yaml`**: `parseYaml(s: String): YamlValue`;
+      `toYaml(v: YamlValue): String`;
+      `YamlValue` sealed trait (`YStr`, `YNum`, `YBool`, `YNull`, `YArr`, `YObj`);
+      helper `.str`, `.num`, `.bool`, `.arr`, `.obj` accessors returning `Option[...]`;
+      `YamlValue.from(v: Any)` bridge for dynamic values.
+
+      Supported YAML subset: block/flow mappings+sequences, single+double-quoted strings,
+      null/bool/int/double scalars, comments, literal/folded block scalars.
+      Out of scope: anchors, aliases, merge keys, multi-document, YAML 1.2 tags.
+
+      Backend policy table (JVM / JS-Node / Browser / Rust).
+      Commit: `spec: std-yaml`.
+
+### Phase 2 — JVM plugin
+
+- [ ] **yaml-p2-jvm** — Create `runtime/std/yaml-plugin/` with
+      `YamlInterpreterPlugin.scala` + `YamlIntrinsics.scala`.
+
+      `parseYaml(s)`: `SimpleYaml.load[Any](s)` → recursive converter returning
+      `Value.MapV` / `Value.ListV` / `Value.StringV` / `Value.IntV` / `Value.DoubleV` /
+      `Value.BoolV` / `Value.NullV` (tag names matching `YamlValue` sealed trait).
+
+      `toYaml(v)`: pure-Scala serializer — walks `Value` tree, emits block-style YAML
+      (mappings indented 2, sequences with `- ` prefix, strings quoted when needed).
+
+      Register in `build.sbt`. Tests: round-trip `parseYaml(toYaml(v)) == v` for
+      Map, List, nested, scalars, edge cases (empty string, null, bool).
+      Commit: `feat(yaml-plugin): JVM backend`.
+
+### Phase 3 — JS/Node preamble
+
+- [ ] **yaml-p3-js** — Add `JsRuntimeYaml.scala` to `runtime/backend/js/`.
+
+      `parseYaml(s)`: port `SimpleYaml` subset to JS (or inline a ~200-line
+      pure-JS block/flow parser matching the JVM subset exactly).
+
+      `toYaml(v)`: JS serializer — same block-style output as JVM.
+
+      Wire into `JsGen.generateRuntime` unconditionally.
+      Tests: text-shape assertions that `parseYaml` and `toYaml` appear in preamble;
+      round-trip conformance test against Node.js runner.
+      Commit: `feat(jsgen): std.yaml JS/Node preamble`.
+
+### Phase 4 — stdlib `.ssc` + examples + fenced-block wiring
+
+- [ ] **yaml-p4-stdlib** — Add `runtime/std/yaml.ssc` with `YamlValue` sealed trait
+      declarations and `parseYaml`/`toYaml` extern defs.
+
+      Wire `yaml`/`yml` fenced blocks: bind block content as a `YamlValue` variable
+      named `<sectionId>_yaml` (or `<sectionId>.yaml`) in the surrounding ScalaScript
+      scope — same pattern as `html`/`css` string blocks bind `<sectionId>.html`.
+
+      Add example: `examples/yaml-parse.ssc` — parse a YAML string, navigate it,
+      round-trip through `toYaml`.  Update `README.md` capabilities table.
+      Commit: `feat(std): std.yaml stdlib module + fenced-block wiring`.
