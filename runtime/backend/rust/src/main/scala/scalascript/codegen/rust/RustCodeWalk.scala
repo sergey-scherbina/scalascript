@@ -62,6 +62,13 @@ object RustCodeWalk:
     // topVals must be collected after ctorMap so enum ctors are resolved correctly.
     // Given instances are injected as `let name = StructName;` bindings.
     val baseTopVals = collectTopVals(module, ctorMap)
+    // Populate trait→instance resolver for summon[Trait[A]] (first given wins).
+    _summonResolve.clear()
+    givens.foreach { g =>
+      g.traitName.foreach { tn =>
+        if !_summonResolve.contains(tn) then _summonResolve(tn) = g.instanceName
+      }
+    }
     // Pre-populate _givenInits by doing a dry render so init expressions
     // (including field values for zero-param defs) are available for topVals.
     val ctx0dry = Ctx(intrinsics, userDefs, ctorMap, baseTopVals, "<given>", effectfulDefs)
@@ -121,7 +128,8 @@ object RustCodeWalk:
   // ── Defn.Given collection (R.6 typeclasses) ──────────────────────────
 
   private case class GivenInstance(
-      instanceName: String,   // e.g. "intSum"
+      instanceName: String,            // e.g. "intSum"
+      traitName:    Option[String],    // e.g. Some("Monoid") from `given intSum: Monoid[Int]`
       methods:      List[m.Defn.Def]
   )
 
@@ -142,8 +150,16 @@ object RustCodeWalk:
         if isScalaLang(lang) =>
       node.tree.collect {
         case g: m.Defn.Given if g.templ.body.stats.nonEmpty =>
+          // Extract trait name from the first init (e.g. `Monoid[Int]` → "Monoid").
+          val traitName: Option[String] = g.templ.inits.headOption.flatMap { init =>
+            init.tpe match
+              case m.Type.Name(n)                                => Some(n)
+              case m.Type.Apply.After_4_6_0(m.Type.Name(n), _)   => Some(n)
+              case _                                              => None
+          }
           GivenInstance(
             instanceName = g.name.value,
+            traitName    = traitName,
             methods      = g.templ.body.stats.collect { case d: m.Defn.Def => d }
           )
       }.toList
@@ -202,6 +218,13 @@ object RustCodeWalk:
   /** Returns the struct-init expression for a given instance (populated by renderGiven). */
   private def givenInitExpr(instanceName: String): String =
     _givenInits.getOrElse(instanceName, givenStructName(instanceName))
+
+  /** Mutable cache: trait name → instance name (first wins). Populated during walk(). */
+  private val _summonResolve = scala.collection.mutable.Map.empty[String, String]
+
+  /** Resolve `summon[Trait[A]]` → instance name. Returns instance name or None. */
+  private def resolveSummon(traitName: String): Option[String] =
+    _summonResolve.get(traitName)
 
   // ── Defn.Def collection ──────────────────────────────────────────────
 
@@ -1203,6 +1226,22 @@ object RustCodeWalk:
         case Some(elems) => renderTupleElems(elems, ctx).map(renderTuple)
         case None => Left(List(unsupported(
           s"def `${ctx.defName}`: _tupleConcat args must be tuple literals for Rust backend"
+        )))
+
+    // `summon[Trait[A]]` → resolve to the matching given-instance binding.
+    // We resolve by the OUTER trait name (e.g. `Monoid` from `Monoid[Int]`).
+    // The instance binding is injected as a topVal `let intSum = IntSumGiven { ... };`,
+    // so just emit its name.
+    case m.Term.ApplyType.After_4_6_0(m.Term.Name("summon"), argClause) =>
+      val traitOpt: Option[String] = argClause.values.toList.headOption.flatMap {
+        case m.Type.Name(n)                              => Some(n)
+        case m.Type.Apply.After_4_6_0(m.Type.Name(n), _) => Some(n)
+        case _                                            => None
+      }
+      traitOpt.flatMap(resolveSummon) match
+        case Some(inst) => Right(inst)
+        case None       => Left(List(unsupported(
+          s"def `${ctx.defName}`: cannot resolve summon[${argClause.values.headOption.map(_.syntax).getOrElse("?")}] — no matching given instance"
         )))
 
     // Option-aware method lowering.
