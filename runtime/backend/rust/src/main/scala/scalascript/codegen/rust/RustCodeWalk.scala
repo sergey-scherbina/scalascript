@@ -1470,9 +1470,20 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(fn, args) =>
       val callee  = qualifiedName(fn)
       val argList = args.values.map(renderTerm(_, ctx))
-      val (errs, renderedArgs) = argList.partitionMap(identity)
+      val (errs, renderedArgs0) = argList.partitionMap(identity)
       if errs.nonEmpty then Left(errs.flatten)
       else
+        // Clone bare-name args that refer to a topVal — Rust would move them
+        // otherwise, breaking calls inside loops.  Skip when callee is a known
+        // intrinsic that borrows its args (Borrowed list).  Skip primitives —
+        // .clone() on i64 is a no-op but emits a cleaner diff to keep it off.
+        val topValNames = ctx.topVals.map(_._1).toSet
+        val isPrimLit = renderedArgs0.map(_.matches(raw"-?\d+i64|-?\d+\.\d+f64|true|false"))
+        val renderedArgs = args.values.toList.zip(renderedArgs0).zip(isPrimLit).map {
+          case ((m.Term.Name(n), rendered), false) if topValNames.contains(n) =>
+            s"$rendered.clone()"
+          case ((_, rendered), _) => rendered
+        }
         val joined = renderedArgs.mkString(", ")
         // User-defined struct/enum ctors take priority over stdlib names (e.g. user Vec vs List[Vec]).
         val userCtorName = fn match
@@ -1840,6 +1851,20 @@ object RustCodeWalk:
           case "filter"   => s"$q.iter().cloned().filter(move |$p0| { $b }).collect::<Vec<_>>()"
           case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, move |$p0, $p1| { $b })"
           case other      => s"$q.$other(move |$p0| { $b })"
+      }
+    // Method reference `obj.method` → wrap in a closure so it's a callable value.
+    // (Rust can't take a method as a fn pointer without a turbofish bound trait.)
+    case m.Term.Select(qual, m.Term.Name(meth)) =>
+      renderTerm(qual, ctx).map { q2 =>
+        val closure = method match
+          case "foldLeft" | "fold" => s"move |__a, __b| $q2.$meth(__a, __b)"
+          case _                   => s"move |__x| $q2.$meth(__x)"
+        method match
+          case "foreach"  => s"$q.iter().cloned().for_each($closure);"
+          case "map"      => s"$q.iter().cloned().map($closure).collect::<Vec<_>>()"
+          case "filter"   => s"$q.iter().cloned().filter($closure).collect::<Vec<_>>()"
+          case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, $closure)"
+          case other2     => s"$q.$other2($closure)"
       }
     // Fallback — inline the fn as-is and hope Rust accepts it
     case other =>
