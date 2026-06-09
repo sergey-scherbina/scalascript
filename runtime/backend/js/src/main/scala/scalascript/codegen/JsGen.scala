@@ -222,6 +222,10 @@ object JsGen:
       if !JsRuntimeOptics.endsWith("\n") then sb.append('\n')
     sb.append(JsRuntimePart2b)
     if !JsRuntimePart2b.endsWith("\n") then sb.append('\n')
+    // std.fs / std.os / std.process — always included; Node.js uses node:fs/os/path,
+    // browser stubs throw FsNotSupported / ProcessNotSupported (std-fs-os-p3-js).
+    sb.append(JsRuntimeFs.source)
+    if !JsRuntimeFs.source.endsWith("\n") then sb.append('\n')
     if caps.contains(Capability.Signals) then
       sb.append(JsRuntimeSignals)
       if !JsRuntimeSignals.endsWith("\n") then sb.append('\n')
