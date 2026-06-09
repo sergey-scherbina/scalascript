@@ -219,6 +219,47 @@ function _dispatch(obj, method, args) {
       case 'contains': return false;
     }
   }
+  // Either[L, R] dispatch — Right(v) is the success channel; Left(v) is the
+  // error channel. Methods are mapped 1:1 from the Scala Either surface.
+  if (obj && obj._type === 'Right') {
+    switch(method) {
+      case 'map':       return { _type: 'Right', value: args[0](obj.value) };
+      case 'flatMap':   return args[0](obj.value);
+      case 'fold':      return args[1](obj.value);   // fold(left, right) → right path
+      case 'getOrElse': return obj.value;
+      case 'isLeft':    return false;
+      case 'isRight':   return true;
+      case 'left':      return _None;
+      case 'right':     return _Some(obj.value);
+      case 'toOption':  return _Some(obj.value);
+      case 'swap':      return { _type: 'Left', value: obj.value };
+      case 'forEach':
+      case 'foreach':   args[0](obj.value); return undefined;
+      case 'contains':  return obj.value === args[0];
+      case 'exists':    return args[0](obj.value);
+      case 'filterOrElse':
+                        return args[0](obj.value) ? obj : { _type: 'Left', value: args[1] };
+    }
+  }
+  if (obj && obj._type === 'Left') {
+    switch(method) {
+      case 'map':       return obj;
+      case 'flatMap':   return obj;
+      case 'fold':      return args[0](obj.value);   // fold(left, right) → left path
+      case 'getOrElse': return args[0];
+      case 'isLeft':    return true;
+      case 'isRight':   return false;
+      case 'left':      return _Some(obj.value);
+      case 'right':     return _None;
+      case 'toOption':  return _None;
+      case 'swap':      return { _type: 'Right', value: obj.value };
+      case 'forEach':
+      case 'foreach':   return undefined;
+      case 'contains':  return false;
+      case 'exists':    return false;
+      case 'filterOrElse': return obj;
+    }
+  }
   if (typeof obj === 'string') {
     switch(method) {
       case 'length': case 'size': return obj.length;
