@@ -86,16 +86,30 @@ JIT optimisation can close the resulting honest gap.
       harness.  All six match exactly — V8 is not folding the outer
       timing loop on these workloads.  JS numbers are real per-iter costs.
 
-- [ ] **ssc-jit-loop-fusion-universal** — Iterator chain fusion in the
-      ssc bytecode JIT.  Detect `Range.map(f).filter(g).foldLeft(z)(h)`
-      and similar patterns at IR / bytecode level (not in bench wrapper)
-      and lower to a fused while-loop **for all programs** (not just
-      benchmarks).  This is the "real" version of the bench-time hack:
-      moves the optimisation into the JIT so any user program that uses
-      iterator chains benefits.  Cross-references the existing JvmGen
-      streams emitter — the same shape detection applies.  Acceptance:
-      a hand-written `(1 to 10).map(*2).filter(%3==0).foldLeft(0)(+)`
-      runs through ssc/asm in < 100ns (current ~32ms × ~300_000 better).
+- [x] **ssc-jit-loop-fusion-universal** [partial — core fusion landed
+      2026-06-09; base-range fusion + <100ns const-fold is the follow-up
+      below] — Iterator chain fusion in the ssc bytecode JIT.  Detect
+      `recv.map(f).filter(g).foldLeft(z)(+)` (either stage optional) at
+      emit time via `JitHofShape.fuseFoldChain` (shared by Javac + ASM)
+      and lower the whole receiver to a single `JitHofDispatch.fusedFoldLong`
+      that walks `recv` once with primitive `long` accumulators — no
+      intermediate `ListV`, no per-stage re-boxing.  This is the "real"
+      version of the bench-time hack: the optimisation now fires for any
+      program, not just benchmarks.  On an unrecognised shape `fuseFoldChain`
+      returns null and the existing per-stage path runs unchanged.
+      A/B (Javac, `scripts/bench profile`):
+      - hofPipeline gc.alloc.rate.norm 240 → 1.7 B/op (-99%), 506 → 3 MB/s
+      - rangeSum    gc.alloc.rate.norm 1016 → 506 B/op (map list removed)
+      Wall-clock unchanged at 6/20-elem inputs (the win is GC pressure,
+      which scales with input length).  Spec: `specs/jit-loop-fusion.md`.
+      Full backendInterpreter suite green on Javac + ASM; JIT disabled
+      count unchanged (736).
+      **Follow-up (not done):** the aggressive `(1 to 10).map(*2).filter
+      (%3==0).foldLeft(0)(+)` < 100ns target still needs (a) `to` (inclusive)
+      ranges compiled in `walkRef` — only `until` is today, and (b) a
+      range-native fused loop that does not materialise the base `ListV`
+      (`rangeSum` still pays 506 B/op for it), plus const-folding when the
+      bounds are literals.  Tracks with `ssc-jit-const-propagation` Stage 3.
 
 - [ ] **ssc-jit-const-propagation** — Generalisation of the above: when
       the JIT sees a pure expression whose operands are all literals or

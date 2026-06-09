@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-09 — perf(jit): loop fusion for map/filter/foldLeft chains
+
+- **ssc-jit-loop-fusion-universal** (partial) — The bytecode JIT now fuses
+  `recv.map(f).filter(g).foldLeft(z)(+)` (either stage optional) into a
+  single allocation-free pass. `JitHofShape.fuseFoldChain` decomposes the
+  fold receiver at emit time (shared Javac + ASM); `JitHofDispatch.fusedFoldLong`
+  walks the receiver once with primitive `long` accumulators — no intermediate
+  `ListV`, no per-stage re-boxing. Falls back to the per-stage path on any
+  unrecognised shape. A/B (Javac, `scripts/bench profile`):
+  `hofPipeline` 240 → 1.7 B/op (-99%), `rangeSum` 1016 → 506 B/op. Wall-clock
+  unchanged at 6/20-elem inputs (GC-pressure win scales with length). Spec:
+  `specs/jit-loop-fusion.md`. 5 new fuseFoldChain tests; full backendInterpreter
+  suite green (1556) on both backends; JIT disabled count unchanged (736).
+  Follow-up: base-range (non-`until`) fusion + literal-bound const-fold for the
+  `<100ns` top-level-chain target.
+
+---
+
 ## 2026-06-09 — feat(std): std.yaml — YAML parse/stringify stdlib
 
 - **yaml-p1-spec** — specs/std-yaml.md: API, subset, backend table, 4-phase plan.
