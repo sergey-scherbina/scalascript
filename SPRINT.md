@@ -863,12 +863,10 @@ or example demands it. Order below is priority for triage when claiming.
       --release` binary size + `hyperfine` runtime before/after. Win:
       ≥2× speedup on the chosen workload, no regression elsewhere.
 
-- [ ] **rust-backend-r6-typeclasses** — `Feature.TypeClasses`. When the
-      IR has enough type information, map typeclass dispatch onto Rust
-      traits; fall back to vtable dispatch via the boxed `Value` for
-      higher-rank cases (Stage 9 `jit-uc-stage8-typeclass-fold` solves
-      the same problem at the JIT layer — design notes apply).
-      Acceptance: `typeclass-monoid.ssc` snapshot.
+- [x] **rust-backend-r6-typeclasses** — `Feature.TypeClasses`: `given X: T with { defs }`
+      emits a Rust unit struct XGiven + inherent impl; instance injected as topVal
+      `let x = XGiven;`. `obj.method(args)` dispatch added to applyNonListCtor.
+      Acceptance: bench/corpus/typeclass-monoid.ssc. 7 tests (190 total). Landed 2026-06-09.
 
 - [x] **rust-backend-r6-streams** — `Feature.Streams` via synchronous iterator chains.
       Source.range(lo,hi)→(lo..=hi), Source.fromList(list)→list, .toList→.collect::<Vec<_>>().
