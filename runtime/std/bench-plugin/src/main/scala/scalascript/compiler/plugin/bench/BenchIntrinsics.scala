@@ -3,7 +3,6 @@ package scalascript.compiler.plugin.bench
 import scalascript.backend.spi.*
 import scalascript.interpreter.Value
 import scalascript.ir.QualifiedName
-import scalascript.plugin.api.{PluginComputation, PluginNative, PluginValue}
 
 /** Bench intrinsics — identity helpers used by the bench harness to defeat
  *  ahead-of-time constant folding on AOT backends.
@@ -19,11 +18,6 @@ import scalascript.plugin.api.{PluginComputation, PluginNative, PluginValue}
  *  constant (e.g. `for i in 0..N { sum += i }` → Gauss' formula).
  */
 object BenchIntrinsics:
-
-  private def native(f: List[Any] => Value): NativeImpl =
-    PluginNative.eval { (_, args) =>
-      PluginComputation.pure(PluginValue.wrap(f(args.map(_.unwrap))))
-    }
 
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
