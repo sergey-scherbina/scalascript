@@ -7287,6 +7287,12 @@ claimable. Bug-fix items have minimal repros in their specs.
       result, no error). Confirmed on `2300fdc61`. Spec + repro:
       [`specs/foreach-var-mutation.md`](specs/foreach-var-mutation.md).
       Workaround in busi: `foldLeft` with explicit accumulator.
+- [ ] **string-index-apply** (bug/feature) — `s(i)` on a `String` throws
+      `Not callable` instead of returning the i-th char (`s.head` / `s.drop`
+      work; `String` is the outlier vs `List`/`Map`/`Set` apply). Caught a latent
+      busi bug (`parseMt940Tx` crashed on MT940 with a booking date). Spec + repro:
+      [`specs/string-index-apply.md`](specs/string-index-apply.md). busi workaround:
+      `s.drop(i).head`.
 - [ ] **parser-robustness-npe** (bug) — bare `\"` outside a string literal, and
       unbalanced parens in deep `jObj(List(jField(...)))` nesting, both trigger a
       swallowed ScalaMeta NPE: the interpreter **hangs with no output**. Must
