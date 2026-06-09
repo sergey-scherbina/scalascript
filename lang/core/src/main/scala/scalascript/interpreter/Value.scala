@@ -414,11 +414,27 @@ object Value:
 
   def boolV(b: Boolean): BoolV = if b then True else False
 
+  // Pre-allocated `Some(IntV(n))` for small `n`, matching the IntV pool range.
+  // Slashes Option-monad allocation on counter-driven Some(i).flatMap(...) chains
+  // (option-chain bench: 3 OptionV allocs/iter × 300 iter × outer reps).
+  private val _someIntVPool: Array[OptionV] =
+    Array.tabulate((_poolMax - _poolMin + 1).toInt)(i => OptionV(_intVPool(i)))
+
+  /** Smart constructor for `Some(v)` — returns an interned `OptionV` instance
+   *  when `v` is a pooled `IntV`, else allocates a fresh `OptionV`. */
+  def someV(v: Value): OptionV = v match
+    case iv: IntV =>
+      val n = iv.v
+      if n >= _poolMin && n <= _poolMax then _someIntVPool((n - _poolMin).toInt)
+      else OptionV(iv)
+    case _ => OptionV(v)
+
   /** Smart constructor for Option[Value]: avoids allocating OptionV(null)
-   *  on cache-miss map lookups — returns the NoneV singleton instead. */
+   *  on cache-miss map lookups — returns the NoneV singleton instead.
+   *  Routes Some(IntV) through `someV` for the small-int pool. */
   def optionV(opt: Option[Value]): OptionV = opt match
     case None    => NoneV
-    case Some(v) => OptionV(v)
+    case Some(v) => someV(v)
 
   def show(v: Value): String = v match
     case IntV(n)              => n.toString
@@ -574,16 +590,16 @@ object Computation:
 
   /** Cached continuation: wrap a value in OptionV(v). Used by Option.map.
    *  Avoids one lambda allocation per Option.map call site. */
-  val wrapSome: Value => Value = v => Value.OptionV(v)
+  val wrapSome: Value => Value = v => Value.someV(v)
 
   /** Cached Computation continuation: wrap result in OptionV(v) and lift to Pure.
    *  Using flatMap(wrapSomeC) instead of map(wrapSome) saves the `v => Pure(f(v))` lambda. */
-  val wrapSomeC: Value => Computation = v => Pure(Value.OptionV(v))
+  val wrapSomeC: Value => Computation = v => Pure(Value.someV(v))
 
   /** Cached Computation continuation for Option.flatMap: normalise any Value to OptionV. */
   val wrapOptionC: Value => Computation = {
     case o: Value.OptionV => Pure(o)
-    case other            => Pure(Value.OptionV(other))
+    case other            => Pure(Value.someV(other))
   }
 
   /** Run computation c and discard its result (return Unit).  Avoids one lambda allocation

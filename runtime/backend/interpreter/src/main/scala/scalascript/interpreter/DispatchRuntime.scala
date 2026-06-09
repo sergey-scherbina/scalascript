@@ -745,13 +745,13 @@ private[interpreter] object DispatchRuntime:
       case "map"       => opt match
         case None    => Computation.PureNone
         case Some(v) => interp.callValue1(arg, v, env) match
-          case Pure(rv) => Pure(Value.OptionV(rv))
+          case Pure(rv) => Pure(Value.someV(rv))
           case c        => FlatMap(c, Computation.wrapSomeC)
       case "flatMap"   => opt match
         case None    => Computation.PureNone
         case Some(v) => interp.callValue1(arg, v, env) match
           case Pure(o: Value.OptionV) => Pure(o)
-          case Pure(other)            => Pure(Value.OptionV(other))
+          case Pure(other)            => Pure(Value.someV(other))
           case c                      => FlatMap(c, Computation.wrapOptionC)
       case "filter"    => opt match
         case None    => Computation.PureNone

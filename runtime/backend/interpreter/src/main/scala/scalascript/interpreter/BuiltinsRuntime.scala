@@ -112,7 +112,7 @@ private[interpreter] object BuiltinsRuntime:
     ))
     // Map / math.sqrt-round now live in CoreIntrinsics (Stage 5+/E).
     interp.globals("None") = Value.NoneV
-    interp.globals("Some") = Value.NativeFnV("Some", { case List(v) => Pure(Value.OptionV(v)); case _ => throw InterpretError("Some requires exactly one argument") })
+    interp.globals("Some") = Value.NativeFnV("Some", { case List(v) => Pure(Value.someV(v)); case _ => throw InterpretError("Some requires exactly one argument") })
     interp.globals("Nil")  = Value.EmptyList
 
     // ── Primitive type constructors ────────────────────────────────────────
