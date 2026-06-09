@@ -8,6 +8,7 @@ val JsJsonIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("jsonStringify") -> RuntimeCall("jsonStringify"),
   QualifiedName("jsonParse")     -> RuntimeCall("jsonParse"),
   QualifiedName("jsonRead")      -> RuntimeCall("jsonRead"),
+  QualifiedName("jsonValue")     -> RuntimeCall("jsonValue"),
   QualifiedName("lookup")        -> RuntimeCall("lookup"),
   QualifiedName("lookupOpt")     -> RuntimeCall("lookupOpt"),
 )

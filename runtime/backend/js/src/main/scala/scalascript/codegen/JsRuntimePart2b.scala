@@ -525,6 +525,71 @@ function jsonRead(s) {
   return _jsonValueWrap(s);
 }
 
+// std.json — navigable, TOTAL JsonValue (mirrors the JVM `navJson` intrinsic).
+// Unlike _jsonValueWrap (jsonRead), accessors never throw: missing key / wrong
+// shape / malformed input → Null JsonValue / zero-default.  `get`/`at` return a
+// wrapped (Null-on-miss) JsonValue (not an Option); `asDecimal` is exact money.
+function _jsonValueTotal(inner) {
+  const self = { _type: 'JsonValue', _inner: inner };
+  self.get = function(k) {
+    return _jsonValueTotal((inner instanceof Map && inner.has(k)) ? inner.get(k) : null);
+  };
+  self.at = function(i) {
+    return _jsonValueTotal((Array.isArray(inner) && i >= 0 && i < inner.length) ? inner[i] : null);
+  };
+  self.isNull   = function() { return inner === null || inner === undefined; };
+  self.asString = function() { return (typeof inner === 'string') ? inner : ''; };
+  self.asInt    = function() {
+    if (typeof inner === 'number') return Math.trunc(inner);
+    if (typeof inner === 'bigint') return Number(inner);
+    if (typeof inner === 'string') { const n = parseFloat(inner); return Number.isFinite(n) ? Math.trunc(n) : 0; }
+    if (inner && inner._type === '_Decimal') return Number(inner.u / (10n ** BigInt(inner.s)));
+    return 0;
+  };
+  self.asDouble = function() {
+    if (typeof inner === 'number') return inner;
+    if (typeof inner === 'string') { const n = parseFloat(inner); return Number.isFinite(n) ? n : 0; }
+    return 0;
+  };
+  self.asBool   = function() { return inner === true; };
+  self.asList   = function() { return Array.isArray(inner) ? inner.map(_jsonValueTotal) : []; };
+  // Exact-decimal — lossless.  A JSON string ("1000.01") keeps its text; a bare
+  // number is coerced via its textual form (already lossy at parse, spec §3.1).
+  self.asDecimal = function() {
+    try { return Decimal(typeof inner === 'number' ? String(inner) : inner); }
+    catch (e) { return Decimal('0'); }
+  };
+  self.optString = function() { return (typeof inner === 'string') ? _Some(inner) : _None; };
+  self.optInt    = function() {
+    if (typeof inner === 'number' && Number.isInteger(inner)) return _Some(inner);
+    return _None;
+  };
+  self.optDecimal = function() {
+    if (typeof inner === 'string' || typeof inner === 'number' || typeof inner === 'bigint') {
+      try { return _Some(Decimal(typeof inner === 'number' ? String(inner) : inner)); }
+      catch (e) { return _None; }
+    }
+    return _None;
+  };
+  self.getOrElse = function(k, fb) {
+    if (inner instanceof Map && inner.has(k)) {
+      const v = inner.get(k);
+      return (typeof v === 'string') ? v : _show(v);
+    }
+    return fb;
+  };
+  self.raw = function() { return inner; };
+  return self;
+}
+function jsonValue(s) {
+  if (typeof s === 'string') {
+    let parsed = null;
+    try { parsed = _jsonConvert(JSON.parse(s)); } catch (e) { parsed = null; }
+    return _jsonValueTotal(parsed);
+  }
+  return _jsonValueTotal(s);
+}
+
 // Tier 5 #20 — typed request validation primitives.  Each `requireX`
 // throws a tagged Error which the serve() dispatch catches and turns
 // into a 400 Bad Request.  Lookup walks form → query (JSON body lives
