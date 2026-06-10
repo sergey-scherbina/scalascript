@@ -82,16 +82,24 @@ access is O(n) → O(n²)).
       win (~2×, 1.7ms) than the JS outliers below; the macro bench stays for the
       next attempt.
 
-- [ ] **js-instance-field-shape** — JS `instance-field` **1.41 ms** vs jvm
-      0.00033 (**4270×**) and even interp 0.0073 (193×) — the single worst JS
-      outlier.  case-class field access + monomorphic dispatch in a hot loop is
-      megamorphic on the JS backend.  Investigate `JsRuntime*` object-shape /
-      field-access lowering (stable hidden class? per-iter object rebuild?).
-      Acceptance: `bench.sh --backend js instance-field` within ~10× of jvm.
+- [x] **js-instance-field-shape** — DONE 2026-06-10. Root cause was NOT
+      object-shape — it was codegen: `v.x` (a known case-class field) lowered to
+      the megamorphic `_dispatch(v, 'x', [])` (full type-switch + `[]` alloc, ×4
+      per `normSq`), and `x*x` to `_arith('*', …)` with a `typeof==='string'`
+      repeat-guard. Fix (`JsGen`): track `instanceVars` (param `varName →
+      caseClassType`); `Term.Select(v, f)` with a known field → direct `v.f`;
+      `isIntExpr`/`isNumericExpr` recognise numeric case-class fields so `v.x*v.x`
+      emits native `(v.x * v.x)`. Result: **`function normSq(v){ return ((v.x *
+      v.x) + (v.y * v.y)); }`** — JS instance-field **1.42 → 0.0025 ms (568×)**,
+      now ~8× jvm (was 4270×). 231 JS/cross-backend + 58 node tests green.
 
-- [ ] **js-nested-loop** — JS `nested-loop` **5.48 ms** vs ~0.25 elsewhere
-      (22×).  Doubly-nested `while` gets no inner-loop optimisation on the JS
-      backend.  Lower-priority than instance-field; same investigation lane.
+- [x] **js-nested-loop** — DONE 2026-06-10. A nested `while` inside a while body
+      lowered through `genExpr` → wrapped in an IIFE `(() => { … })()`
+      created+invoked every outer iteration (1000×), capturing the accumulator by
+      closure (V8 deopt). Fix (`JsGen.genWhileBodyInline` + new
+      `genNestedWhileInline`): emit the inner `while` as a plain JS statement, no
+      IIFE. JS nested-loop **5.59 → 0.59 ms (9.5×)**, ~2× jvm; output verified
+      (249500250000). Same suites green.
 
 - [ ] **bench-consistency-jmh-vs-corpus** [honesty/clarity] — `InterpreterBench`
       JMH and the `bench.sh` corpus use *different* workloads under the same

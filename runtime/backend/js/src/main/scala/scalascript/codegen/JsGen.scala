@@ -437,6 +437,10 @@ class JsGen(
   private var caseClassTagMap: Map[String, Int] = Map.empty
   // Variables statically known to hold Double/Float values — arithmetic on them uses direct JS operators.
   private val numericVars = scala.collection.mutable.Set[String]()
+  // Variables statically known to hold a case-class instance (varName → typeName).
+  // Lets `v.field` lower to a direct property read `v.field` (and `isIntExpr` see
+  // an Int field) instead of the megamorphic `_dispatch(v, 'field', [])` call.
+  private val instanceVars = scala.collection.mutable.Map[String, String]()
   // js-codegen-opt-p2: loop-invariant constant tuple hoisting.
   // While-loop codegen sets this buffer; constant-tuple exprs append (name, frozenExpr)
   // and return the name instead of re-allocating on every iteration.
@@ -526,6 +530,10 @@ class JsGen(
           pv.decltpe match
             case Some(Type.Name("Int" | "Long"))         => intVars += pv.name.value
             case Some(Type.Name("Double" | "Float"))     => numericVars += pv.name.value
+            // Any other simple named type: remember varName → typeName. The
+            // direct-field decision is gated later on caseClassFieldsByType so a
+            // non-case-class type harmlessly falls back to _dispatch.
+            case Some(Type.Name(tn))                     => instanceVars(pv.name.value) = tn
             case _ => ()
         }
       case _ => ()
@@ -3251,10 +3259,29 @@ class JsGen(
   private def genWhileBodyInline(body: Term): String = body match
     case Term.Block(stats) =>
       stats.map {
-        case t: Term => inlineForeachOrGenStat(t)
-        case stat    => genStatInline(stat)
+        // A nested `while` must stay a JS *statement* (`while (c) { … }`); routing
+        // it through genExpr would wrap it in an IIFE created+invoked on every
+        // outer iteration (capturing the accumulator by closure → V8 deopt).
+        case tw: Term.While => genNestedWhileInline(tw)
+        case t: Term        => inlineForeachOrGenStat(t)
+        case stat           => genStatInline(stat)
       }.mkString("; ")
+    case tw: Term.While => genNestedWhileInline(tw)
     case t => inlineForeachOrGenStat(t)
+
+  /** A nested `while` as an inline JS statement (no IIFE). Mirrors the statement
+   *  form in `genFunctionBody`/`genBlockAsIife`: inner loop-invariant hoists go to
+   *  a fresh buffer emitted as `const` decls right before the loop. */
+  private def genNestedWhileInline(tw: Term.While): String =
+    val savedBuf = loopHoistBuf
+    val newBuf   = mutable.Buffer.empty[(String, String)]
+    loopHoistBuf = newBuf
+    val twBody = genWhileBodyInline(tw.body)
+    val twCond = genExpr(tw.expr)
+    loopHoistBuf = savedBuf
+    val hoists = newBuf.map { (k, v) => s"const $k = $v;" }.mkString(" ")
+    val prefix = if hoists.nonEmpty then hoists + " " else ""
+    s"$prefix while ($twCond) { $twBody; }"
 
   private def genBlockAsIife(stats: List[Stat]): String =
     if stats.isEmpty then "undefined"
@@ -3692,9 +3719,17 @@ class JsGen(
              "_1" | "_2" | "_3" | "_4" =>
           s"_dispatch($qualJs, '${name.value}', [])"
         case other =>
-          // Direct property access for regular objects (case classes, typeclasses, etc.)
-          // Use _dispatch for extension methods, but try direct property first
-          s"_dispatch($qualJs, '$other', [])"
+          // Direct property read when the receiver is a statically-known
+          // case-class instance and `other` is one of its declared fields:
+          // `v.x` → `v.x` instead of the megamorphic `_dispatch(v, 'x', [])`.
+          val directField = qual match
+            case Term.Name(v) =>
+              instanceVars.get(v)
+                .flatMap(caseClassFieldsByType.get)
+                .filter(_.contains(other))
+                .map(_ => s"$qualJs.$other")
+            case _ => None
+          directField.getOrElse(s"_dispatch($qualJs, '$other', [])")
 
     // Special form: handle(body) { case Eff.op(args, resume) => ... }
     case Term.Apply.After_4_6_0(
@@ -5571,6 +5606,9 @@ class JsGen(
     // (`xs.indexOf(x)`) forms.
     case Term.Select(_, Term.Name("length" | "size")) => true
     case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("length" | "size" | "indexOf" | "lastIndexOf" | "count")), _) => true
+    // Case-class field of declared Int/Long type: `v.x` where `case class Vec(x: Int)`.
+    case Term.Select(Term.Name(v), Term.Name(f)) =>
+      instanceVars.get(v).flatMap(caseClassFieldTypeMap.get).flatMap(_.get(f)).exists(t => t == "Int" || t == "Long")
     // `xs.foldLeft(init)(_ + _)` returns whatever `init` is — Int when the
     // seed literal is Int.
     case Term.Apply.After_4_6_0(
@@ -5587,6 +5625,10 @@ class JsGen(
     case Term.Name(n)                 => numericVars.contains(n)
     case Term.Apply.After_4_6_0(Term.Name(n), _)  => numericFunctions.contains(n)
     case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("toDouble" | "toFloat")), _) => true
+    // Case-class field of declared numeric type: `v.x` where `x: Int|Long|Double|Float`.
+    case Term.Select(Term.Name(v), Term.Name(f)) =>
+      instanceVars.get(v).flatMap(caseClassFieldTypeMap.get).flatMap(_.get(f))
+        .exists(t => t == "Int" || t == "Long" || t == "Double" || t == "Float")
     case Term.ApplyInfix.After_4_6_0(l, Term.Name(op), _, argClause)
         if Set("+", "-", "*", "/", "%").contains(op) =>
       argClause.values.headOption.exists(r => isNumericExpr(l) && isNumericExpr(r))
