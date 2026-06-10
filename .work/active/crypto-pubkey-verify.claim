@@ -1,3 +1,0 @@
-crypto-pubkey-verify: verifyEd25519 / verifyRsaSha256 (PKCS1+PSS) / verifyEd25519Url externs in std.crypto; total (malformed→false, never throws). Spec specs/crypto-pubkey-verify.md.
-agent: opus-autonomous
-started: 2026-06-10
