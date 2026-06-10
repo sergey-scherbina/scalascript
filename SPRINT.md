@@ -40,11 +40,18 @@ Progress:
 - [ ] **(2) honesty pass** — BLOCKED on `Bench.opaque` defeating interp JIT (see
       trap above). Needs opaque JIT-transparency across all interp matchers OR
       per-workload varying-data redesign. Real project.
-- [ ] **(3) JS persistent map** — biggest single gap (map-ops 1.05ms 40×, verified
-      = O(n) `new Map(obj)` copy). Needs a HAMT/persistent structure; core-type
-      change, regression risk → do with dedicated verification.
-- [ ] **(4) AOT codegen passes** — jvm/rust invariant-hoist / range-fusion /
-      mutual-TCO to match the interp JIT. Per-case.
+- [~] **(3) JS persistent map** — DEFERRED, too large/risky for a safe contained
+      change. Verified root cause = O(n) `new Map(obj)` copy. A persistent (HAMT)
+      structure would either (a) require a new type but **70 `instanceof Map`
+      sites** across the JS runtime couple to native Map (completeness risk), or
+      (b) an in-place/CoW mutation hack (silent-corruption risk via aliasing).
+      Neither is a safe quick landing — real dedicated sub-project.
+- [~] **(4) AOT codegen passes** — PARTIAL. DONE: invariant-accumulation hoist
+      generalised Double→Long/Int in `JvmGen` (`aot-hoist`, list-fold jvm
+      0.075→0.0003, 215×; was slower than interp). DEFERRED (larger): range
+      map-fold fusion (`range-sum` jvm 0.0125), mutual-tail-call trampolining
+      (`mutual-recursion` jvm 3.89 — Scala has no mutual TCO; needs trampoline
+      generation in emitted Scala, risky).
 
 ---
 

@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-10 — perf(jvm): invariant-accumulation hoist for Long/Int accumulators (aot-hoist)
+
+- **aot-hoist** — `JvmGen`'s loop-invariant `stable.foreach(p => acc = acc + f(p))`
+  hoist (compute the inner sum once, before the outer loop) was gated on a
+  **Double** accumulator; generalised to **Long/Int** too. Fixes the case where
+  the JVM backend was *slower than the interpreter*: jvm `list-fold` (`sum: Long`)
+  **0.075 → 0.000348 ms** (215×) — now matches the strength-reduction the interp
+  JIT already applies. Output verified (550000); 111 JvmGen + cross-backend tests
+  green; no jvm corpus regression. (Remaining AOT gaps — range map-fold fusion,
+  mutual-tail-call trampolining — are larger codegen passes, deferred.)
+
 ## 2026-06-10 — perf(js): numeric type inference for HOF closures (js-numeric-inference)
 
 - **js-numeric-inference** — arithmetic on numeric-collection elements no longer

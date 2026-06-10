@@ -3786,12 +3786,18 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
           case Defn.Var.After_4_7_2(_, pats, _, _) =>
             pats.collect { case Pat.Var(n) => n.value }
         }.flatten.toSet
-        // Vars initialised with a Double literal — accumulator type check so we
-        // only hoist-and-sum when the temp var type matches (avoids Scala type errors).
-        val outerVarDoubleInits: Set[String] = stats.collect {
-          case Defn.Var.After_4_7_2(_, pats, _, _: Lit.Double) =>
-            pats.collect { case Pat.Var(n) => n.value }
-        }.flatten.toSet
+        // Vars initialised with a numeric literal → accumulator type, so the
+        // hoisted temp matches (avoids Scala type errors). Covers Double / Long /
+        // Int accumulators (e.g. `var total = 0.0`, `var sum = 0L`, `var n = 0`).
+        val outerVarNumInit: Map[String, String] = stats.collect {
+          case Defn.Var.After_4_7_2(_, pats, _, rhs) =>
+            val ty = rhs match
+              case _: Lit.Double => "Double"
+              case _: Lit.Long   => "Long"
+              case _: Lit.Int    => "Int"
+              case _             => null
+            if ty != null then pats.collect { case Pat.Var(n) => (n.value, ty) } else Nil
+        }.flatten.toMap
         var idx = 0
         val parts = collection.mutable.ListBuffer.empty[String]
         for stat <- stats do
@@ -3824,13 +3830,15 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
                               Term.ApplyInfix.After_4_6_0(Term.Name(acc2), Term.Name("+"), _,
                                 ac)))) if ac.values.lengthCompare(1) == 0
                                   && accName == acc2
-                                  && outerVarDoubleInits.contains(accName)
+                                  && outerVarNumInit.contains(accName)
                                   && !referencesAny(ac.values.head, outerVarNames) =>
                           val addend   = ac.values.head
+                          val accTy    = outerVarNumInit(accName)
+                          val zero     = accTy match { case "Double" => "0.0"; case "Long" => "0L"; case _ => "0" }
                           val sumName  = s"_sum_$idx"
                           val iterName = s"_iter_$idx"
                           idx += 1
-                          hoistLines += s"val $sumName = { var _tmp: Double = 0.0; var $iterName = $stableName; while $iterName.nonEmpty do { val $paramName = $iterName.head; _tmp = _tmp + ${addend.syntax}; $iterName = $iterName.tail }; _tmp }"
+                          hoistLines += s"val $sumName = { var _tmp: $accTy = $zero; var $iterName = $stableName; while $iterName.nonEmpty do { val $paramName = $iterName.head; _tmp = _tmp + ${addend.syntax}; $iterName = $iterName.tail }; _tmp }"
                           s"$accName = $accName + $sumName"
                         case _ => null
                     case _ => null
