@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-10 — perf(jvm): allocation-free mutual-TCO for uniform-signature cliques (aot-mutual-tco)
+
+- **aot-mutual-tco** — the JVM backend's mutual-tail-call trampoline allocated a
+  `_TailCall` closure + boxed `Any` *per step* (Scala has no mutual `@tailrec`), so
+  `mutual-recursion` (`isEven`/`isOdd`, 1M steps) was **slower than the
+  interpreter** at 3.89 ms. For a clique whose members all share the same
+  parameter-type list and return type, `JvmGen` now emits **one allocation-free
+  dispatch loop** — a `_tag` selects the active member, tail calls to any member
+  reassign shared `var` slots (+ `_tag`) and iterate; each member's case aliases
+  the slots to its own param names. Non-uniform cliques keep the (correct) closure
+  trampoline. jvm `mutual-recursion` **3.89 → 0.51 ms (7.6×)**. Verified identical
+  to the interpreter for Boolean / String / 2-param-Int cliques at depth 100k
+  (new `MutualTcoCrossBackendTest`); 111 JvmGen + cross-backend tests green, no
+  jvm corpus regression.
+
 ## 2026-06-10 — perf(jvm): invariant-accumulation hoist for Long/Int accumulators (aot-hoist)
 
 - **aot-hoist** — `JvmGen`'s loop-invariant `stable.foreach(p => acc = acc + f(p))`
