@@ -222,12 +222,14 @@ function _ssc_ui_renderBody(view) {
           else if (h._type === '_InputChange' && h.s) { collectSig(h.s); aStr += ` data-ssc-change="${h.s.id}"`; }
           else if ((h._type === '_FetchAction' || h._type === '_FetchActionClear') && h.url) {
             if (h.body) collectSig(h.body); if (h.tick) collectSig(h.tick);
-            if (h.headers) collectSig(h.headers);
+            if (h.headers) collectSig(h.headers); if (h.into) collectSig(h.into);
             const bId = (h.body && h.body.id) ? h.body.id : '';
             const tId = (h.tick && h.tick.id) ? h.tick.id : '';
             const hId = (h.headers && h.headers.id != null) ? String(h.headers.id) : '';
+            const iId = (h.into && h.into.id != null) ? String(h.into.id) : '';
             aStr += ` data-ssc-fetch-method="${_esc(h.method||'POST')}" data-ssc-fetch-url="${_esc(h.url)}" data-ssc-fetch-body="${_esc(bId)}" data-ssc-fetch-tick="${_esc(tId)}"`;
             if (hId) aStr += ` data-ssc-fetch-headers="${_esc(hId)}"`;
+            if (iId) aStr += ` data-ssc-fetch-into="${_esc(iId)}"`;
             if (h._type === '_FetchActionClear') aStr += ` data-ssc-fetch-clear="1"`;
           }
         }
@@ -408,6 +410,7 @@ function _ssc_ui_mount(sigs) {
     var tickId    = el.getAttribute('data-ssc-fetch-tick');
     var headersId = el.getAttribute('data-ssc-fetch-headers');
     var clear     = el.getAttribute('data-ssc-fetch-clear');
+    var intoId    = el.getAttribute('data-ssc-fetch-into');
     el.addEventListener('click', function() {
       var body = bodyId ? String(_sv[bodyId] == null ? '' : _sv[bodyId]) : '';
       var opts = {method: method, body: body};
@@ -415,9 +418,17 @@ function _ssc_ui_mount(sigs) {
         var hs = _sv[headersId];
         if (hs) { try { opts.headers = JSON.parse(hs); } catch(_e) {} }
       }
+      var ok = true;
       fetch(url, opts)
-        .then(function(r) { return r.text(); })
-        .then(function() {
+        .then(function(r) { ok = !!(r && r.ok); return r.text(); })
+        .then(function(text) {
+          // Capture variant: on a 2xx, stash the response body into `into`,
+          // then proceed (tick/clear).  A non-2xx leaves `into` and the tick
+          // untouched so a failed POST does not look like a success.
+          if (intoId) {
+            if (!ok) return;
+            _set(intoId, text == null ? '' : String(text));
+          }
           if (tickId) _set(tickId, ((_sv[tickId] || 0) | 0) + 1);
           if (clear && bodyId) _set(bodyId, '');
         });
@@ -642,6 +653,7 @@ function _ssc_ui_fetchUrlSignal(name, url, tick, headers) {
 function _ssc_ui_fetchAction(method, url, body, tick, headers) { return { _type: '_FetchAction', method, url, body, tick, headers: headers || null }; }
 function _ssc_ui_incSignal(s) { return { _type: '_IncSignal', s }; }
 function _ssc_ui_fetchActionClear(method, url, body, tick, headers) { return { _type: '_FetchActionClear', method, url, body, tick, headers: headers || null }; }
+function _ssc_ui_fetchCaptureAction(method, url, body, into, tick, headers) { return { _type: '_FetchAction', method, url, body, tick, into: into || null, headers: headers || null }; }
 function _ssc_ui_colorMapObject(colorMap) {
   if (!colorMap) return {};
   if (typeof globalThis !== 'undefined' && typeof globalThis.Map === 'function' && colorMap instanceof globalThis.Map) {

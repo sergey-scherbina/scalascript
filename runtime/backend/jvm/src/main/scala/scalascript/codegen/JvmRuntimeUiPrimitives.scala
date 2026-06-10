@@ -93,6 +93,17 @@ object JvmRuntimeUiPrimitives:
        |          clearBody = true,
        |          headers = _hOpt)
        |
+       |      // Capture is realized by the emit-spa/browser runtime; on the JVM IR
+       |      // path it degrades to a plain fetch (the `into` signal is ignored).
+       |      def fetchCaptureAction(method: String, url: String, body: Any, into: Any,
+       |                             onSuccessTick: Any, headers: Any = null): EventHandler =
+       |        val _hOpt = Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]])
+       |          .filter(_.id != "__ssc_empty_headers")
+       |        scalascript.frontend.EventHandler.FetchAction(method, url,
+       |          body.asInstanceOf[scalascript.frontend.ReactiveSignal[String]],
+       |          onSuccessTick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]],
+       |          headers = _hOpt)
+       |
        |      def fieldColumn(title: String, fieldPath: String, align: String = "",
        |                      editAction: Any = null): Any =
        |        val _ea = Option(editAction).collect {

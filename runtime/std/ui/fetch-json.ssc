@@ -6,6 +6,8 @@ package: std.ui.fetch_json
 exports:
   - fetchJsonValue
   - fetchJsonAction
+  - fetchJsonCaptureAction
+  - jsonOf
 ---
 
 # `std.ui` — typed-JSON fetch
@@ -22,7 +24,7 @@ reactivity flows through the underlying string signal unchanged.
 > ad-hoc, schema-less navigation with `std.json`'s total accessors.
 
 ```scalascript
-[Signal, EventHandler, fetchUrlSignal, fetchAction, computedSignal](primitives.ssc)
+[Signal, EventHandler, fetchUrlSignal, fetchAction, fetchCaptureAction, computedSignal](primitives.ssc)
 [jsonValue, JsonValue](std/json.ssc)
 
 /** GET `url` on mount + whenever `tick` increments; the result reads back as a
@@ -49,4 +51,24 @@ def fetchJsonValue(name: String, url: String, tick: Signal[Int],
 def fetchJsonAction(method: String, url: String, body: () => String, tick: Signal[Int],
                     headers: Signal[String]): EventHandler =
   fetchAction(method, url, computedSignal(body), tick, headers)
+
+/** On click: POST/PUT `url` with a JSON body from std.json builders, and on a 2xx
+ *  capture the response body into `into` (raw text), then bump `tick`.  Mirrors
+ *  `fetchJsonAction` but keeps the reply — read it back with `jsonOf(into)`:
+ *
+ *    val resp = signal("loginResp", "")
+ *    val onLogin = fetchJsonCaptureAction("POST", "/login",
+ *      () => jObj([jField("user", jStr(userSig())), jField("pass", jStr(passSig()))]),
+ *      resp, tick, emptyHeaders)
+ *    val token = computedSignal(() => jsonOf(resp)().get("token").asString) */
+def fetchJsonCaptureAction(method: String, url: String, body: () => String,
+                           into: Signal[String], tick: Signal[Int],
+                           headers: Signal[String]): EventHandler =
+  fetchCaptureAction(method, url, computedSignal(body), into, tick, headers)
+
+/** Read a captured response signal as a navigable JsonValue (total accessors).
+ *  `jsonOf(resp)` returns a thunk so it stays reactive inside `computedSignal`:
+ *    val token = computedSignal(() => jsonOf(resp)().get("token").asString) */
+def jsonOf(into: Signal[String]): () => JsonValue =
+  () => jsonValue(into())
 ```
