@@ -59,6 +59,25 @@ are we from native?" checkpoints.
 Use the wall-clock benches when you need cold-JVM, fresh-process numbers
 (JMH only measures the warmed-up steady state).
 
+### ⚠️ JMH and the corpus measure different *scales* under the same name
+
+Several JMH methods in `InterpreterBench` share a name with a
+`bench/corpus/*.ssc` workload but run a **different amount of work**, so
+their absolute numbers are not directly comparable:
+
+| Name | JMH `InterpreterBench` | `bench/corpus/*.ssc` |
+| --- | --- | --- |
+| `typeclassFold` | `combineAll(List(1,2,3,4))` **once** (a micro-call) | `300 × combineAll(List(1..10))` (a macro loop) |
+| `stringSplit` | the full 300-iteration parse-and-sum loop | same 300-iteration loop |
+
+So a reader comparing JMH `typeclassFold` ≈ 0.009 ms to the cross-backend
+table's `typeclass-fold` ≈ 1.8 ms is comparing one call to three thousand —
+both are honest, they just measure different scales. When a JMH method is a
+deliberate micro-call, prefer a `…Macro` sibling that mirrors the corpus loop
+for A/B work (e.g. `typeclassFoldMacro` was added for exactly this reason). If
+you add a JMH method that diverges from its corpus namesake, either give it a
+`Macro`/`Micro` suffix or note the divergence in its source comment.
+
 ## What each interpreter bench is for
 
 Listed in `InterpreterBench.scala` order. The `name pattern` is what you

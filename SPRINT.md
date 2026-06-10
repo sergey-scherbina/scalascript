@@ -101,23 +101,22 @@ access is O(n) → O(n²)).
       IIFE. JS nested-loop **5.59 → 0.59 ms (9.5×)**, ~2× jvm; output verified
       (249500250000). Same suites green.
 
-- [ ] **bench-consistency-jmh-vs-corpus** [honesty/clarity] — `InterpreterBench`
-      JMH and the `bench.sh` corpus use *different* workloads under the same
-      name (e.g. JMH `typeclassFold` = `combineAll(List(1,2,3,4))` once;
-      corpus = `300 × combineAll(List(1..10))`).  Both legitimate (micro vs
-      macro), but a reader comparing 0.009 ms (JMH) to 2.81 ms (table) is
-      misled.  Add a one-paragraph note to `docs/benchmarks.md` clarifying the
-      two harnesses measure different scales, and (optionally) rename JMH
-      methods that diverge from the corpus to `<name>Micro`.
+- [x] **bench-consistency-jmh-vs-corpus** [honesty/clarity] — DONE 2026-06-10.
+      Added a "JMH and the corpus measure different scales under the same name"
+      subsection to `docs/benchmarks.md` with the `typeclassFold` (micro) vs
+      corpus (macro) example and the `…Macro`/`…Micro` naming guidance.
+      `typeclassFoldMacro` already added (interp-typeclass-fold-devirt).
 
-- [ ] **bench-fairness-rust-antifold-audit** [verify, not a perf bug] —
-      `arith-loop` rust **1.27 ms** vs jvm 0.27 (4.7×) and `string-concat`
-      rust 1.03.  Prior work concluded rust is honest (real loop, no fold).
-      Confirm the `i ^ seed` source-side anti-fold (which defeats LLVM
-      autovectorisation) isn't unfairly heavier than the JVM's lighter
-      `Bench.opaque` volatile barrier — i.e. that the 4.7× is real codegen
-      cost, not an asymmetric anti-fold tax.  If asymmetric, equalise the
-      barrier; else document the gap as genuine in `docs/bench/`.
+- [x] **bench-fairness-rust-antifold-audit** [verify, not a perf bug] — DONE
+      2026-06-10. Verdict: **genuine but asymmetric — not equalisable**. Rust
+      `black_box`es the RHS of *every* assignment (2×/iter for arith-loop)
+      because LLVM -O3 would fold `sum+=i` to closed form; the JVM applies *no*
+      per-iteration barrier (the corpus uses no `Bench.opaque`) because HotSpot
+      doesn't fold this loop (jvm 0.24 ns/iter = real loop). So rust carries the
+      minimum LLVM anti-fold barrier — which also blocks pipelining — while the
+      JVM needs none. Equalising either way (drop rust black_box → fake ≈0 ms;
+      add jvm per-assignment opaque → artificial) would be dishonest. Documented
+      as genuine in `docs/bench/rust-jvm-antifold-fairness.md`.
 
 ---
 
