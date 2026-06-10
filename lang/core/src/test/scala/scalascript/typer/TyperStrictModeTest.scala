@@ -416,3 +416,16 @@ class TyperStrictModeTest extends AnyFunSuite:
     val msgs = typedBad.errors.map(_.msg).mkString(" | ")
     assert(msgs.contains("pkg.sub") && msgs.contains("unknown"),
       s"expected diagnostic naming `pkg.sub` and `unknown`; got: $msgs")
+
+  // ── toWire / fromWire builtins resolve in strict mode (busi `ssc check`) ──
+
+  test("strict mode — toWire / fromWire builtins resolve without a diagnostic"):
+    val typed = Typer.typeCheckStrict(moduleOf(
+      """case class Bundle(name: String, items: List[Int])
+        |val b = Bundle("x", [1, 2, 3])
+        |val wire: String = toWire(b)
+        |val back = fromWire(wire)""".stripMargin
+    ))
+    assert(!typed.hasErrors,
+      s"toWire/fromWire are builtin interpreter globals and must resolve in a " +
+      s"standalone strict check; got:\n" + typed.errors.map(_.show).mkString("\n"))
