@@ -1240,6 +1240,10 @@ class Interpreter(
         if !Interpreter.this.headless then
           InterpreterServerSupport.current.startServer(
             Interpreter.this, port, dir, Interpreter.this.out, "", "", async = true)
+      override def startTlsServerAsync(port: Int, dir: String, cert: String, key: String): Unit =
+        if !Interpreter.this.headless then
+          InterpreterServerSupport.current.startServer(
+            Interpreter.this, port, dir, Interpreter.this.out, cert, key, async = true)
       override def stopServer(): Unit =
         if !Interpreter.this.headless then InterpreterServerSupport.current.stopServer()
       override def setMaxWsConnections(n: Int): Unit =

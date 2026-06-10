@@ -26,9 +26,17 @@ fails fast).
   `serveAsync(<port>) failed to bind: …`; a 15s readiness timeout guards against
   a server that never binds, so the call can never hang forever.
 
-The synchronous `serve(...)` path is unchanged.  The TLS `serveAsync(port,
-tls(...))` form (which spawns its own thread in `HttpIntrinsics`) is out of scope
-here; the plain-port form busi reported is fixed.
+The synchronous `serve(...)` path is unchanged.
+
+### TLS form (2026-06-10 follow-up)
+
+`serveAsync(port, tls(cert, key))` previously spawned its own detached virtual
+thread in `HttpIntrinsics` that **swallowed exceptions** — a bad cert silently
+never started and the caller returned as if it had. It now routes through the
+same readiness path: a new `startTlsServerAsync(port, dir, cert, key)` on the
+`NativeContext` / plugin cap delegates to `startServer(…, cert, key, async =
+true)`, so the call blocks until the TLS socket is bound and a cert/bind failure
+surfaces synchronously as `serveAsync(port) failed to bind: …` (never hangs).
 
 ## 3  Verify (`ServeAsyncReadyTest`)
 
@@ -36,3 +44,5 @@ here; the plain-port form busi reported is fixed.
   warmup/retry needed (the bind is complete on return).
 - [x] On a contended port the call returns within a bounded time (throws a
   `serveAsync(port)` error or returns), never hanging.
+- [x] Async TLS startup with a bad cert surfaces the failure fast as a
+  `serveAsync(port)` error instead of swallowing it on a detached thread.

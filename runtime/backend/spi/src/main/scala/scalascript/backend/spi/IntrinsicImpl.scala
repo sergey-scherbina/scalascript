@@ -123,6 +123,9 @@ trait NativeContext:
     featureLocalSet(NativeContextFeatureKeys.HttpRetryDelayMs, delayMs)
   // TLS server startup.
   def startTlsServer(port: Int, dir: String, cert: String, key: String): Unit = ()
+  // Non-blocking TLS startup — returns only once the socket is bound (mirrors
+  // startServerAsync, with TLS).
+  def startTlsServerAsync(port: Int, dir: String, cert: String, key: String): Unit = ()
   // Plain HTTP server startup (no TLS).
   def startServer(port: Int, dir: String): Unit = ()
   def startServerAsync(port: Int, dir: String): Unit = ()

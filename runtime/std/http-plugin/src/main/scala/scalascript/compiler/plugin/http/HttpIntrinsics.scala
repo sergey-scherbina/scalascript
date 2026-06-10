@@ -144,11 +144,11 @@ object HttpIntrinsics:
           if ctx.openApiDryRun then ctx.abortOpenApiDryRun()
           val cert = tlsFields.get("cert").collect { case Value.StringV(s) => s }.getOrElse("")
           val key  = tlsFields.get("key").collect  { case Value.StringV(s) => s }.getOrElse("")
-          if !ctx.headless then
-            Thread.ofVirtual().start { () =>
-              try ctx.startTlsServer(port.toInt, ".", cert, key)
-              catch case _: Throwable => ()
-            }
+          // Block until the TLS socket is bound (same readiness contract as the
+          // plain serveAsync(port) form) so a client connecting immediately
+          // afterwards does not race the bind.  Headless is guarded inside the
+          // startTlsServerAsync override, mirroring startServerAsync above.
+          ctx.startTlsServerAsync(port.toInt, ".", cert, key)
           ()
         case _ => throw InterpretError("serveAsync(port) or serveAsync(port, tls(cert, key))")
     },
