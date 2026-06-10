@@ -1,6 +1,6 @@
 # `std.crypto` — public-key signature verification (Ed25519 / RSA)
 
-**Status**: spec — feature. Requested by busi (Phase 87 federation/market), 2026-06-09.
+**Status**: ✓ Landed 2026-06-10 (JVM/interpreter via `crypto-plugin`; JS WebCrypto deferred). Requested by busi (Phase 87 federation/market), 2026-06-09.
 **Extends**: [`crypto.md`](crypto.md) (sha256 / hmac / base64).
 **Priority**: medium-high. Blocks busi from verifying public identity signatures;
 public signature-bearing traffic is currently quarantined as `signature.unsupported`.
@@ -55,12 +55,16 @@ predicate is boolean.
 
 ## 4  Behavior checklist
 
-- [ ] `verifyEd25519` returns true for a known-good RFC 8032 test vector.
-- [ ] Returns false for a tampered message / wrong key / truncated signature.
-- [ ] `verifyRsaSha256` true for a PKCS1 vector and a PSS vector.
-- [ ] Malformed base64 / wrong-length key returns false, does not throw.
-- [ ] base64url variant decodes `-_` alphabet correctly.
-- [ ] Interpreter and JVM backend agree on all vectors.
+- [x] `verifyEd25519` returns true for RFC 8032 test vectors #1 (empty) and #2.
+- [x] Returns false for a tampered message / wrong key / truncated signature.
+- [x] `verifyRsaSha256` true for a PKCS1 vector and a PSS vector (JCE keypair).
+- [x] Malformed base64 / wrong-length key returns false, does not throw.
+- [x] base64url variant decodes `-_` alphabet correctly.
+- [x] Interpreter (via `crypto-plugin`) agrees with the JCE-signed vectors.
+
+**Deviations:** implemented by extending the existing `crypto-plugin` (no new
+module — JDK `java.security`, JVM only); JS WebCrypto deferred (busi's federation
+path is server-side).
 
 ## 5  Verification
 

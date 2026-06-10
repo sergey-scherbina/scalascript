@@ -7297,11 +7297,11 @@ claimable. Bug-fix items have minimal repros in their specs.
       swallowed ScalaMeta NPE: the interpreter **hangs with no output**. Must
       become a `ParseError` with file + position. Spec + two repros:
       [`specs/parser-robustness-npe.md`](specs/parser-robustness-npe.md).
-- [ ] **crypto-pubkey-verify** (feature) — Ed25519 / RSA-SHA256 public-key
-      signature verification externs, extending `std.crypto`. Unblocks busi
-      Phase 87 federation/market signature verification (currently quarantined as
-      `signature.unsupported`). Spec:
-      [`specs/crypto-pubkey-verify.md`](specs/crypto-pubkey-verify.md).
+- [x] **crypto-pubkey-verify** (feature) ✓ Landed 2026-06-10 — `verifyEd25519`,
+      `verifyEd25519Url`, `verifyRsaSha256(scheme=PKCS1|PSS)` extend `std.crypto`,
+      all total (malformed→false). JDK `java.security`, JVM only; 6 tests (RFC 8032
+      + RSA PKCS1/PSS). Lifts busi Phase 87 `signature.unsupported` quarantine.
+      Spec: [`specs/crypto-pubkey-verify.md`](specs/crypto-pubkey-verify.md).
 - [x] **crypto-encrypt** (feature) ✓ Landed 2026-06-10 — AES-256-GCM + RSA-OAEP
       **encryption** externs (+ X.509 cert→public-key) extend `std.crypto`:
       `aesGenKey`/`aesGcmEncrypt`/`aesGcmDecrypt`(+`*Bytes`)/`rsaOaepEncrypt`/

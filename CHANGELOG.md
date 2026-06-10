@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-10 — feat(std.crypto): Ed25519 / RSA signature verification (crypto-pubkey-verify)
+
+- **crypto-pubkey-verify** — `std.crypto` gains public-key signature verifiers for
+  trustless federation: `verifyEd25519`, `verifyEd25519Url` (base64url), and
+  `verifyRsaSha256(..., scheme)` (`"PKCS1"` | `"PSS"`). All **total** — a malformed
+  key/signature/scheme returns `false` and never throws, so a hostile peer cannot
+  crash the verifier. Ed25519 accepts a raw 32-byte key or SPKI DER (raw is wrapped
+  with the RFC 8410 SPKI header). Implemented in `crypto-plugin` (JDK
+  `java.security.Signature`, JVM only). 6 tests: RFC 8032 vectors #1/#2, RSA
+  PKCS1+PSS against a JCE keypair, tamper/malformed negatives. 30/30 green.
+  Example `examples/crypto-verify-demo.ssc`. Lifts busi's `signature.unsupported`
+  quarantine for verifiable Phase 87 traffic.
+
+---
+
 ## 2026-06-10 — feat(std.mime): buildMimeMessage RFC 5322 assembly (mime-p3-build)
 
 - **mime-p3-build** — `std.mime.buildMimeMessage(from, to, subject, htmlBody, attachments)`
