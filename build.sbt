@@ -1079,6 +1079,7 @@ lazy val cli = project
         (cryptoPlugin          / packagePlugin).value,
         (pdfPlugin             / packagePlugin).value,
         (mimePlugin            / packagePlugin).value,
+        (smtpPlugin            / packagePlugin).value,
         (benchPlugin           / packagePlugin).value,
       )
       pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
@@ -2691,6 +2692,22 @@ lazy val mimePlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.mime"))
 
+lazy val smtpPlugin = project
+  .in(file("runtime/std/smtp-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-smtp-plugin",
+    // Zero runtime AND test deps: the RFC 5321 client is hand-rolled, and tests
+    // drive it against a fully in-process SMTP server (FakeSmtpServer) that we
+    // control — including the STARTTLS handshake — so no embedded-server library.
+    libraryDependencies ++= Seq(
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.smtp"))
+
 // ── Bench — bench-harness helpers (Bench.opaque identity / anti-folding) ──
 lazy val benchPlugin = project
   .in(file("runtime/std/bench-plugin"))
@@ -2858,6 +2875,7 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("crypto",          cryptoPlugin,          "scalascript-crypto-plugin"),
   PluginSpec("pdf",             pdfPlugin,             "scalascript-pdf-plugin"),
   PluginSpec("mime",            mimePlugin,            "scalascript-mime-plugin"),
+  PluginSpec("smtp",            smtpPlugin,            "scalascript-smtp-plugin"),
   PluginSpec("fs",              fsPlugin,              "scalascript-fs-plugin"),
   PluginSpec("os",              osPlugin,              "scalascript-os-plugin"),
   PluginSpec("yaml",            yamlPlugin,            "scalascript-yaml-plugin"),
