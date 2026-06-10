@@ -182,7 +182,9 @@ private[interpreter] object DispatchRuntime:
   /** 1-arg fast path for List — avoids `arg :: Nil` allocation for the most common ops. */
   private def dispatchList1(ls: List[Value], recv: Value, name: String, arg: Value, env: Env, interp: Interpreter): Computation =
     name match
-      case "map"        => Computation.mapSequence(ls, item => interp.callValue1(arg, item, env))
+      case "map"        => arg match
+        case f: Value.FunV => CallRuntime.mapReusing(ls, f, env, interp)
+        case _             => Computation.mapSequence(ls, item => interp.callValue1(arg, item, env))
       case "filter"     => Computation.filterSequence(ls, item => interp.callValue1(arg, item, env))
       case "filterNot"  => Computation.filterNotSequence(ls, item => interp.callValue1(arg, item, env))
       case "foreach"    => arg match
@@ -301,7 +303,8 @@ private[interpreter] object DispatchRuntime:
       // via the curried `list.foldLeft(init)(f)` path.
       case "foldLeft"   =>
         Pure(Value.NativeFnV("foldLeft", {
-          case List(f) => Computation.foldLeftSequence(ls, arg, (acc, h) => interp.callValue2(f, acc, h, env))
+          case List(f: Value.FunV) => CallRuntime.foldLeftReusing(ls, arg, f, env, interp)
+          case List(f)             => Computation.foldLeftSequence(ls, arg, (acc, h) => interp.callValue2(f, acc, h, env))
           case _       => throw InterpretError("foldLeft expects one function argument")
         }))
       case "foldRight"  =>

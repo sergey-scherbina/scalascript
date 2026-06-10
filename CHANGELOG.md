@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-10 — perf(interp): reused frame for List.map / List.foldLeft (interp-hof-frame-reuse)
+
+- **interp-hof-frame-reuse** — Extended the `foreachReusing` reused-frame fast path
+  to `List.map` (`CallRuntime.mapReusing`) and `List.foldLeft`
+  (`CallRuntime.foldLeftReusing` + new `ReusableFrame2`). For a simple 1-/2-param
+  closure, one mutable frame is reused across the whole sequence instead of
+  allocating a `FrameMap1`/`FrameMap2` per element; the first non-`Pure` body result
+  bails to the allocating path. JMH `stringSplit` (300×20-field CSV parse-and-sum):
+  **17.18 → 16.55 ms** wall (3.6%), **2.25 → 1.90 MB/op** allocation (15%, ~346 KB =
+  12k per-element frames eliminated). Wall-clock win is bounded by the body tree-walk
+  (String `.trim`/`.toInt` dispatch), which the follow-up `interp-jit-string-closure`
+  targets. Suite green (1588) on default bytecode JIT; pure tree-walk path change, no
+  JIT touch.
+
+---
+
 ## 2026-06-10 — feat(std.crypto): Ed25519 / RSA signature verification (crypto-pubkey-verify)
 
 - **crypto-pubkey-verify** — `std.crypto` gains public-key signature verifiers for

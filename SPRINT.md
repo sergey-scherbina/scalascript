@@ -29,15 +29,22 @@ of these workloads are JIT-accelerated.  Decomposition probe data:
 `+foldLeft 18.7ms`; manual `parts(j)` index loop is **47ms** (List random
 access is O(n) → O(n²)).
 
-- [ ] **interp-hof-frame-reuse** — Extend the foreach reused-frame fast path
-      (`CallRuntime.foreachReusing` / `ReusableFrame1`) to `List.map` and
-      `List.foldLeft` when the closure is `isSimple1ParamFun` / simple-2-param.
-      Avoids one `FrameMap.one` alloc + (optionally) callStack bookkeeping per
-      element.  Baseline: string-split interp **18.7 ms** (jvm 0.084 → 222×);
-      probe `map_id` **9.34 ms**.  Target: shave the per-element constant; A/B
-      with the new `stringSplit` JMH bench (added in this task) + `scripts/bench
-      profile`.  Land only on a measured win; suite must stay green both JIT
-      backends.
+- [x] **interp-hof-frame-reuse** — DONE 2026-06-10. Added `CallRuntime.mapReusing`
+      + `foldLeftReusing` + `ReusableFrame2` mirroring `foreachReusing` /
+      `ReusableFrame1`; wired into `dispatchList1` `map` (FunV arg) and `foldLeft`
+      (FunV curried arg). One reused frame mutated across the sequence instead of
+      a `FrameMap1`/`FrameMap2` per element; bails to the allocating path on the
+      first non-`Pure` body result.  A/B via JMH `stringSplit` (`scripts/bench
+      [profile] stringSplit`): wall-clock **17.18 → 16.55 ms** (3.6%);
+      allocation **2.25 → 1.90 MB/op** (15%, ~346 KB = the 12k per-element frames
+      across 300×20 map + 300×20 foldLeft).  Wall win is modest because the body
+      tree-walk (`s.trim.toInt` String dispatch) dominates — that is the next task
+      `interp-jit-string-closure`.  Suite green (1588) on default bytecode JIT;
+      change is purely in the interpreter tree-walk path (does not touch JIT
+      compilation, so asm backend unaffected).  NOTE: the 3 JIT-off failures
+      (`BugReproTest`/`JitLintTest`/`SscVmTest`, 114 cases) are **pre-existing** —
+      they assert JIT-on behaviour and fail identically on a clean tree with
+      `SSC_JIT_BYTECODE=off SSC_FASTTIER=off`.
 
 - [ ] **interp-jit-string-closure** — Teach the bytecode JIT `tryRun1` to
       compile simple String-returning/consuming closures (`s.length`,

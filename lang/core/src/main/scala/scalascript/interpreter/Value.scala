@@ -93,6 +93,41 @@ final class ReusableFrame1(n1: String, parent: Map[String, Value]) extends Frame
   override private[interpreter] def appendLocalTo(b: scala.collection.mutable.HashMap[String, Value], globals: scala.collection.mutable.HashMap[String, Value]): Unit =
     if globals.getOrElse(n1, null) != v1 then b(n1) = v1
 
+/** Mutable two-slot frame for hot fold callbacks (e.g. `xs.foldLeft(z)(f)`).
+ *  Two-slot analogue of `ReusableFrame1`: one instance is reused across every
+ *  element of a fold instead of allocating a `FrameMap2` per call. Same `Pure`-only
+ *  safety contract — a non-`Pure` body result must stop reuse and leave the slots
+ *  untouched (see `ReusableFrame1` for the full argument). */
+final class ReusableFrame2(n1: String, n2: String, parent: Map[String, Value]) extends FrameMap:
+  private[interpreter] var v1: Value = null
+  private[interpreter] var v2: Value = null
+  override protected def parentMap: Map[String, Value] = parent
+  override def get(key: String): Option[Value] =
+    if key == n1 then Some(v1)
+    else if key == n2 then Some(v2)
+    else parent.get(key)
+  override def getOrElse[V1 >: Value](key: String, default: => V1): V1 =
+    if key == n1 then v1
+    else if key == n2 then v2
+    else parent.getOrElse(key, default)
+  override def contains(key: String): Boolean =
+    key == n1 || key == n2 || parent.contains(key)
+  override def iterator: Iterator[(String, Value)] =
+    Iterator(n1 -> v1, n2 -> v2) ++ parent.iterator.filterNot { case (k, _) =>
+      k == n1 || k == n2
+    }
+  override protected def flat: Map[String, Value] =
+    parent.updated(n1, v1).updated(n2, v2)
+  override def foreachEntry[U](f2: (String, Value) => U): Unit =
+    parent.foreachEntry(f2)
+    f2(n1, v1); f2(n2, v2)
+  override private[interpreter] def appendLocalTo(b: scala.collection.mutable.Growable[(String, Value)], globals: scala.collection.mutable.Map[String, Value]): Unit =
+    if globals.getOrElse(n1, null) != v1 then b += (n1 -> v1)
+    if globals.getOrElse(n2, null) != v2 then b += (n2 -> v2)
+  override private[interpreter] def appendLocalTo(b: scala.collection.mutable.HashMap[String, Value], globals: scala.collection.mutable.HashMap[String, Value]): Unit =
+    if globals.getOrElse(n1, null) != v1 then b(n1) = v1
+    if globals.getOrElse(n2, null) != v2 then b(n2) = v2
+
 final class FrameMap2(
   n1: String, v1: Value,
   n2: String, v2: Value,

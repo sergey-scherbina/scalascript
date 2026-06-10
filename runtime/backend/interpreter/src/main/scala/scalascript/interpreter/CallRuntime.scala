@@ -167,6 +167,72 @@ private[interpreter] object CallRuntime:
           return FlatMap(comp, _ => Computation.foreachSequence(tail, it => callValue1(f, it, env, interp)))
     PureUnit
 
+  /** `xs.map(f)` with a single reused frame instead of a `FrameMap1` per element.
+   *  Map analogue of `foreachReusing`: collects each `Pure` result into a buffer
+   *  while mutating one `ReusableFrame1` across the whole sequence. The first
+   *  non-`Pure` result (a deferred effect that may close over the frame) bails to
+   *  the allocating `mapSequence`/`callValue1` path for the remaining elements. */
+  def mapReusing(ls: List[Value], f: Value.FunV, env: Env, interp: Interpreter): Computation =
+    if !isSimple1ParamFun(f, interp) then
+      return Computation.mapSequence(ls, item => callValue1(f, item, env, interp))
+    if ls.isEmpty then return Computation.PureEmptyList
+    val withSelf: Env = if f.name.nonEmpty then interp.closureWithSelfFor(f) else f.closure
+    val frame = new ReusableFrame1(f.params.head, withSelf)
+    val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+    var rem = ls
+    while rem.nonEmpty do
+      val item = rem.head
+      val jit = scalascript.interpreter.vm.JitRuntime.tryRun1(f, item, interp)
+      val r =
+        if jit != null then jit
+        else { frame.v1 = item; runBody1(f, frame, interp) }
+      r match
+        case Pure(v) => buf += v; rem = rem.tail
+        case comp =>
+          val tail = rem.tail
+          def loopRest(remaining: List[Value]): Computation = remaining match
+            case Nil    => Pure(Value.ListV(buf.toList))
+            case h :: t => FlatMap(callValue1(f, h, env, interp), { rv => buf += rv; loopRest(t) })
+          return FlatMap(comp, { rv => buf += rv; loopRest(tail) })
+    Pure(Value.ListV(buf.toList))
+
+  /** `xs.foldLeft(z)(f)` with a single reused two-slot frame instead of a
+   *  `FrameMap2` per element. Fold analogue of `foreachReusing`/`mapReusing`:
+   *  runs `f(acc, item)` against one mutated `ReusableFrame2` while every result
+   *  is `Pure`. A non-`Pure` body bails to the allocating `callValue2` path. */
+  def foldLeftReusing(ls: List[Value], init: Value, f: Value.FunV, env: Env, interp: Interpreter): Computation =
+    if !isSimple2ParamFun(f, interp) then
+      return Computation.foldLeftSequence(ls, init, (acc, h) => callValue2(f, acc, h, env, interp))
+    val withSelf: Env = if f.name.nonEmpty then interp.closureWithSelfFor(f) else f.closure
+    val frame = new ReusableFrame2(f.params.head, f.params(1), withSelf)
+    var rem = ls
+    var acc = init
+    while rem.nonEmpty do
+      val item = rem.head
+      val jit = scalascript.interpreter.vm.JitRuntime.tryRun2(f, acc, item, interp)
+      val r =
+        if jit != null then jit
+        else { frame.v1 = acc; frame.v2 = item; runBody1(f, frame, interp) }
+      r match
+        case Pure(v) => acc = v; rem = rem.tail
+        case comp =>
+          val tail = rem.tail
+          def loopRest(remaining: List[Value], curAcc: Value): Computation = remaining match
+            case Nil       => Pure(curAcc)
+            case h :: rest => FlatMap(callValue2(f, curAcc, h, env, interp), v => loopRest(rest, v))
+          return FlatMap(comp, v => loopRest(tail, v))
+    Pure(acc)
+
+  /** True when `f` is a simple 2-param FunV that `callValue2Slow` handles on its
+   *  non-allocating fast path — so its body can run against a `ReusableFrame2`. */
+  private[interpreter] def isSimple2ParamFun(f: Value.FunV, interp: Interpreter): Boolean =
+    f.params.length == 2 &&
+    f.usingParams.isEmpty &&
+    !f.returnsThrows &&
+    (f.defaults.isEmpty || f.defaults.head.isEmpty) &&
+    (f.paramTypes.lengthCompare(2) < 2 || !f.paramTypes(1).endsWith("*")) &&
+    (f.name.isEmpty || { val i = TcoRuntime.tcoInfoFor(f, interp); !i.isSelfTailRec && i.tailTargets.isEmpty })
+
   /** Two-argument fast path: avoids allocating List(a, b) on foldLeft/foldRight/reduceLeft calls.
    *  For simple 2-param FunV (no varargs, no using, no defaults, no TCO) builds the call env
    *  with FrameMap.two directly.  Falls back to callValue(fn, List(a, b), env, interp) otherwise. */

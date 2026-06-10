@@ -663,9 +663,32 @@ class InterpreterBench:
   private val typeclassFoldTerm: Term =
     dialects.Scala3("combineAll(List(1, 2, 3, 4))").parse[Term].get
 
+  // String parse-and-sum HOF chain: `split(",").map(s => s.trim.toInt).foldLeft`.
+  // Mirrors the `bench/corpus/string-split.ssc` macro workload (300 iters over a
+  // 20-field CSV) so the cross-backend outlier (interp ~18 ms vs jvm 0.08 ms)
+  // is A/B-able under JMH + `scripts/bench profile`. Exercises the generic
+  // List.map / foldLeft closure-application path (no JIT — String closures).
+  private val stringSplitInterp: Interpreter = warmInterp(
+    """val csv: String = "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20"
+      |def step(): Long =
+      |  var sum = 0L
+      |  var i = 0
+      |  while i < 300 do
+      |    val r = csv.split(",").map(s => s.trim.toInt).foldLeft(0)((a, b) => a + b)
+      |    sum = sum + r.toLong
+      |    i = i + 1
+      |  sum""".stripMargin
+  )
+  private val stringSplitTerm: Term =
+    dialects.Scala3("step()").parse[Term].get
+
   @Benchmark
   def refChainArg(): Unit =
     Interpreter(devNull).runSections(modRefChainArg)
+
+  @Benchmark
+  def stringSplit(): Unit =
+    stringSplitInterp.evalTerm(stringSplitTerm)
 
   @Benchmark
   def optionChain(): Unit =
