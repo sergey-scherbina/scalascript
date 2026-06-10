@@ -6,14 +6,15 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Language Surface — Markdown Frontend from Content
 
-- [ ] **ui-content-toolkit** (deferred — sequenced after std.ui P1/P2) — Content-toolkit
-      action-id registry + live-signal binding, so Markdown/YAML-authored screens can
-      express server writes (`toolkit:button?action=…` bound to a typed `EventHandler`)
-      and live data (bind a `Signal[JsonValue]` as a content table's row source). From
-      busi UI proposals P3. Spec: [`specs/std-ui-content-toolkit.md`](specs/std-ui-content-toolkit.md).
-      Depends on P1 (`fetchJsonSignal`/`JsonValue`); reconcile with parked
-      `ToolkitDsl.scala`. Start only if/when we commit to content-authored screens —
-      busi screens are write-heavy, so value is conditional; P1/P2 deliver regardless.
+- [~] **ui-content-toolkit** (busi UI proposals P3) — Spec:
+      [`specs/std-ui-content-toolkit.md`](specs/std-ui-content-toolkit.md).
+      **3a action registry ✓ Landed 2026-06-10:** `toolkit:button?action=<id>` Markdown
+      links bind to an EventHandler in `ContentToolkitOptions.actions` (id→handler, e.g.
+      `fetchJsonAction`) → `ActionButtonNode`; unregistered ids fail loudly. content-plugin
+      `ContentIntrinsics` + `.ssc` (`actions`/`contentAction`/`contentToolkitOptionsWithActions`);
+      22 content-plugin tests. Unlocks Markdown-authored *write* screens.
+      **3b live-signal binding** (bind a `Signal[JsonValue]` as a content table's rows) —
+      remaining follow-up; start when a concrete content-authored screen needs live data.
 
 - [ ] **markdown-content-introspection-api** — After `markdown-frontend-mvp`,
       expose the shared content snapshot as the broader `std/content` metadata

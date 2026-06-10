@@ -45,15 +45,15 @@ A pure-data descriptor of the visual properties that screens actually inline tod
 Every field is a `Theme`-token reference resolved at lower time. **Layout is out of
 scope** (see §5) — it belongs to the layout combinators.
 
-> **As built (deviates from the enum/case-class sketch below).** Two interpreter
-> limitations forced a simpler shape, landed 2026-06-09:
-> 1. The interpreter matches **case classes** across module boundaries but **not enum
->    cases** — so tokens are **strings** (`"surface"`, `"md"`, `"smd"`), not enums.
->    `lower.ssc` resolves them against the Theme exactly the same way.
-> 2. Partial named-arg construction of a case class with defaults **mis-binds
->    positionally**, so `Style` is a **`Map[String, String]`** prop bag, not a defaulted
->    case class. `styled(["bg" -> "surface", "radius" -> "md", "paddingX" -> "16",
->    "paddingY" -> "smd"])(child)`.
+> **As built (deviates from the enum/case-class sketch below).** Landed 2026-06-09 with
+> strings + a `Map`. Both interpreter limitations that motivated this were since resolved
+> (2026-06-10), but the string/Map shape is kept as-is (works; no reason to churn):
+> 1. Tokens are **strings** (`"surface"`, `"md"`, `"smd"`), not enums. The original
+>    "cross-module enum matching is broken" was a **misdiagnosis** — enums work
+>    cross-module (`EnumCrossModuleTest`); the real culprit was limitation 2.
+> 2. `Style` is a **`Map[String, String]`** prop bag — `styled(["bg" -> "surface",
+>    "radius" -> "md", "paddingX" -> "16", "paddingY" -> "smd"])(child)`. This sidestepped
+>    the partial-named-arg case-class-default mis-bind bug, **now fixed** (`NamedArgDefaultsTest`).
 >
 > Keys: `bg fg border` (colour token), `radius` (sm/md/lg/full), `paddingX paddingY
 > marginTop marginRight marginBottom marginLeft` (space token OR a bare px number),

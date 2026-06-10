@@ -1,7 +1,20 @@
 # `std.ui` — Content-toolkit: Action Registry + Live-signal Binding
 
-Status: **planned (deferred — sequenced after P1/P2)**. Tracked as `ui-content-toolkit`
-in BACKLOG.md. Origin: busi UI proposals (P3) — `busi/docs/scalascript-ui-proposals.md`.
+Status: **3a (action registry) ✓ landed 2026-06-10; 3b (live-signal binding) deferred.**
+Tracked as `ui-content-toolkit` in BACKLOG.md. Origin: busi UI proposals (P3).
+
+> **3a as built:** `toolkit:button?action=<id>` Markdown links bind to an EventHandler
+> registered in `ContentToolkitOptions.actions` (a `Map[String, EventHandler]`, e.g.
+> `["saveDraft" -> fetchJsonAction(...)]`). The toolkit resolves the id at lower time →
+> an `ActionButtonNode` wired to the handler; an unregistered id fails loudly. This builds
+> on the existing toolkit control machinery (signals/components/bindings) — it adds the
+> *write* half. `.ssc`: `ContentToolkitOptions.actions`, `contentAction(id, handler)`,
+> `contentToolkitOptionsWithActions`. Impl: `content-plugin` `ContentIntrinsics`.
+> **3b (bind a live `Signal[JsonValue]` as a content table's rows)** remains a follow-up.
+
+Original (deferred) sketch follows.
+
+Origin: busi UI proposals (P3) — `busi/docs/scalascript-ui-proposals.md`.
 Related: busi `specs/markdown-yaml-ui-authoring.md`, `runtime/std/ui/content.ssc`,
 `lower.ssc`, the parked `ToolkitDsl.scala`. Companion specs:
 [`std-ui-typed-json.md`](std-ui-typed-json.md), [`std-ui-styled-tknode.md`](std-ui-styled-tknode.md).
