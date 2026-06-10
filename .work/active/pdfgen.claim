@@ -1,3 +1,0 @@
-pdfgen: htmlToPdfBase64(html) JVM intrinsic via OpenHTMLtoPDF in new pdf-plugin + runtime/std/pdf-gen.ssc surface + example. busi invoice PDF (pdfgen-p1-engine + pdfgen-p2-stdlib). JVM only.
-agent: opus-autonomous
-started: 2026-06-10
