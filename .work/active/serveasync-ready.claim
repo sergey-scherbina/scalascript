@@ -1,3 +1,0 @@
-serveasync-ready: serveAsync(port) block-until-bound — eliminate bind race (httpGet right after serveAsync throws ConnectException). WebServer onBound callback + readiness latch in startServer(async).
-agent: opus-interactive
-started: 2026-06-10
