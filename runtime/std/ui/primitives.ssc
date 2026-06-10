@@ -26,6 +26,7 @@ exports:
   - fetchAction
   - incSignal
   - fetchActionClear
+  - fetchCaptureAction
   - emptyHeaders
   - fieldColumn
   - rowDeleteAction
@@ -128,6 +129,17 @@ extern def incSignal(s: Signal[Int]): EventHandler
 // fetchActionClear — like fetchAction but resets the body signal to "" on success.
 extern def fetchActionClear(method: String, url: String, body: Signal[String], onSuccessTick: Signal[Int],
                             headers: Signal[String] = emptyHeaders): EventHandler
+
+// fetchCaptureAction — like fetchAction, but on a 2xx writes the RESPONSE BODY
+// into the `into` signal (instead of discarding it), then increments
+// onSuccessTick.  The seam for POST flows whose reply you must read — e.g. a
+// `/login` that returns a minted bearer token:
+//   val resp = signal("loginResp", "")
+//   button("Log in", fetchCaptureAction("POST", "/login", creds, resp, tick, hdrs))
+//   // then: jsonValue(resp()).get("token").asString  (see fetchJsonCaptureAction)
+extern def fetchCaptureAction(method: String, url: String, body: Signal[String],
+                              into: Signal[String], onSuccessTick: Signal[Int],
+                              headers: Signal[String] = emptyHeaders): EventHandler
 
 // ── DataTable primitives ──────────────────────────────────────────────────
 // fieldColumn — descriptor for a data column: title shown in header + dot-path field.

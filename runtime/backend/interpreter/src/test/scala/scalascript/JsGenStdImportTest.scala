@@ -280,3 +280,48 @@ class JsGenStdImportTest extends AnyFunSuite:
     assert(moduleJs.contains("const jsonValue = std.json.jsonValue;"), "expected jsonValue import binding")
     // and the full bundle actually parses as JS (the bug was a parse error)
     checkNodeSyntax(js)
+
+  // fetchCaptureAction / fetchJsonCaptureAction (busi durable-auth login): a POST
+  // whose 2xx response body is captured into a signal (instead of discarded).
+  test("fetchCaptureAction wires response capture into a signal in the emit-spa bundle"):
+    val source =
+      """# Login
+        |
+        |[serve, element, signal, signalText, computedSignal, emptyHeaders](std/ui/primitives.ssc)
+        |[fetchJsonCaptureAction, jsonOf](std/ui/fetch-json.ssc)
+        |[jStr, jField, jObj](std/json.ssc)
+        |
+        |```scalascript
+        |val user = signal("user", "ada")
+        |val pass = signal("pass", "pw")
+        |val resp = signal("loginResp", "")
+        |val tick = signal("tick", 0)
+        |val onLogin = fetchJsonCaptureAction("POST", "/login",
+        |  () => jObj([jField("user", jStr(user())), jField("pass", jStr(pass()))]),
+        |  resp, tick, emptyHeaders)
+        |val token = computedSignal(() => jsonOf(resp)().get("token").asString)
+        |val v = element("div", Map(), ["click" -> onLogin], [signalText(token)])
+        |serve(v)
+        |```
+        |""".stripMargin
+
+    val module   = Parser.parse(source)
+    val baseDir  = TestPaths.repoRoot / "examples"
+    val caps     = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime  = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    val js       = runtime + "\n" + moduleJs
+
+    // the Signals runtime is pulled in and the capture builder + handler exist
+    assert(caps.contains(JsGen.Capability.Signals), s"expected Signals capability, got $caps")
+    assert(runtime.contains("function _ssc_ui_fetchCaptureAction("), "capture builder missing from runtime")
+    // render emits a data-ssc-fetch-into attribute carrying the target signal id
+    assert(runtime.contains("data-ssc-fetch-into"), "render must emit data-ssc-fetch-into")
+    // the click handler reads it and captures the body on a 2xx into that signal
+    assert(runtime.contains("var intoId    = el.getAttribute('data-ssc-fetch-into');"), "handler must read data-ssc-fetch-into")
+    assert(runtime.contains("_set(intoId, text == null ? '' : String(text));"), "handler must capture body into signal")
+    // the .ssc sugar lowers onto the capture extern shim
+    assert(moduleJs.contains("_ssc_ui_fetchCaptureAction") || moduleJs.contains("fetchCaptureAction"),
+      "fetchJsonCaptureAction must lower onto the capture extern")
+    // whole bundle parses as JS
+    checkNodeSyntax(js)

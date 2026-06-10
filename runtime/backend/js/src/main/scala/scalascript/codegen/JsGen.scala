@@ -1621,7 +1621,7 @@ class JsGen(
     // std/ui modules, so they need the Signals runtime even without an explicit
     // user-level `signal(...)` call.
     val hasUiHelpers = List(
-      "fetchUrlSignal", "fetchAction", "fetchActionClear", "emptyHeaders",
+      "fetchUrlSignal", "fetchAction", "fetchActionClear", "CaptureAction", "emptyHeaders",
       "dataTable", "dataTableView", "staticDataTable", "signalDataTable",
       "seedSignal",
       "fieldColumn", "dateColumn", "moneyColumn", "statusColumn", "linkColumn",

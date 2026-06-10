@@ -115,6 +115,37 @@ object FetchIntrinsics:
         case _ => throw InterpretError("fetchActionClear(method, url, body, onSuccessTick[, headers])")
     },
 
+    // fetchCaptureAction(method, url, body, into, onSuccessTick[, headers]): EventHandler
+    // On a 2xx, the response BODY is captured into `into` (read back with
+    // jsonOf), then onSuccessTick is bumped.  The capture is realized by the
+    // emit-spa / browser runtime (the data-ssc-fetch-into wiring); this
+    // interpreter binding resolves the symbol and degrades to a plain fetch
+    // button on non-browser render paths, where capturing into a client signal
+    // has no meaning.
+    QualifiedName("fetchCaptureAction") -> PluginNative.evalLegacy { (_, args) =>
+      def mk(method: String, url: String, body: ReactiveSignal[?], tick: ReactiveSignal[?],
+             headers: Option[ReactiveSignal[String]]) =
+        Value.Foreign("EventHandler",
+          EventHandler.FetchAction(method, url,
+            body.asInstanceOf[ReactiveSignal[String]],
+            tick.asInstanceOf[ReactiveSignal[Int]],
+            headers = headers))
+      args match
+        case List(method: String, url: String,
+                  Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
+                  Value.Foreign("ReactiveSignal", _: ReactiveSignal[?]),
+                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          mk(method, url, body, tick, None)
+        case List(method: String, url: String,
+                  Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
+                  Value.Foreign("ReactiveSignal", _: ReactiveSignal[?]),
+                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
+                  Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
+          val h = headers.asInstanceOf[ReactiveSignal[String]]
+          mk(method, url, body, tick, if h.id == "__ssc_empty_headers" then None else Some(h))
+        case _ => throw InterpretError("fetchCaptureAction(method, url, body, into, onSuccessTick[, headers])")
+    },
+
     // incSignal(s): EventHandler — increment an Int signal by 1 on click.
     QualifiedName("incSignal") -> PluginNative.evalLegacy { (_, args) =>
       args match
