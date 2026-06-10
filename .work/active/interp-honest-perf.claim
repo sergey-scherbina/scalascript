@@ -1,0 +1,3 @@
+interp-honest-perf: honest-bench interpreter perf — close real interp pathologies surfaced by cross-backend table (string-split 255x, typeclass-fold 937x vs JVM). New corpus benches + interp fast-paths. Bench-honesty audit of JS instance-field/nested-loop outliers (handoff, not impl unless free).
+agent: opus-autonomous
+started: 2026-06-10
