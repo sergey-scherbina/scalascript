@@ -1,0 +1,3 @@
+crypto-encrypt: AES-256-GCM (aesGcmEncrypt/Decrypt + bytes variants + aesGenKey) + RSA-OAEP (rsaOaepEncrypt) + x509PublicKey externs in std.crypto for KSeF 2.0. Spec specs/crypto-encrypt.md.
+agent: opus-autonomous
+started: 2026-06-10
