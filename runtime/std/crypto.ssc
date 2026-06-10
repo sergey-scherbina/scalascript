@@ -1,7 +1,7 @@
 ---
 name: std-crypto
 version: 1.0.0
-description: Cryptographic hash, encoding, and encryption primitives — sha256, hmacSha256, base64, AES-256-GCM, RSA-OAEP, X.509.
+description: Cryptographic hash, encoding, and encryption primitives — sha256, hmacSha256, base64, AES-256-GCM, AES-256-CBC, RSA-OAEP, X.509.
 package: std.crypto
 exports:
   - sha256
@@ -15,6 +15,9 @@ exports:
   - aesGcmDecrypt
   - aesGcmEncryptBytes
   - aesGcmDecryptBytes
+  - aesGenIv
+  - aesCbcEncrypt
+  - aesCbcDecrypt
   - rsaOaepEncrypt
   - x509PublicKey
   - verifyEd25519
@@ -60,9 +63,16 @@ extern def base64Decode(s: String): String
 AES-256-GCM and RSA-OAEP for hybrid encryption (e.g. KSeF 2.0 `EncryptionInfo`:
 generate a session key, RSA-encrypt it to the server cert, AES-encrypt payloads).
 
-**Framing:** `aesGcm*` returns/consumes `base64( iv[12] ++ ciphertext ++ tag[16] )`
-— a 12-byte random GCM IV prepended, 16-byte auth tag appended. RSA-OAEP uses
-SHA-256 for both the digest and MGF1.
+**GCM framing:** `aesGcm*` returns/consumes `base64( iv[12] ++ ciphertext ++ tag[16] )`
+— a 12-byte random GCM IV prepended, 16-byte auth tag appended.
+
+**CBC framing:** `aesCbc*` takes the 16-byte IV as a **separate** base64 argument
+and returns/consumes the ciphertext **alone** (PKCS#7 padding) — so the IV can be
+carried in its own protocol field (e.g. KSeF 2.0
+`EncryptionInfo.initializationVector`). CBC provides confidentiality but **no
+integrity**: pair it with a MAC or signature where tamper-detection matters.
+
+RSA-OAEP uses SHA-256 for both the digest and MGF1.
 
 ```scalascript
 /** Generate a random 256-bit AES key, returned base64. */
@@ -79,6 +89,23 @@ extern def aesGcmEncryptBytes(keyB64: String, plaintextB64: String): String
 
 /** Byte-oriented AES-256-GCM decrypt; returns base64 of the recovered bytes. */
 extern def aesGcmDecryptBytes(keyB64: String, payloadB64: String): String
+
+/** Generate a random 16-byte AES-CBC initialization vector, returned base64.
+ *  Use one fresh IV per encryption and store it alongside the ciphertext (e.g.
+ *  KSeF 2.0 `EncryptionInfo.initializationVector`). */
+extern def aesGenIv(): String
+
+/** AES-256-CBC encrypt with PKCS#7 padding and an EXTERNAL IV. `keyB64` is the
+ *  base64 256-bit key (`aesGenKey()`); `ivB64` is the base64 16-byte IV
+ *  (`aesGenIv()`); `plaintextB64` is base64 of the raw bytes. Returns base64 of
+ *  the ciphertext only — the IV is NOT framed in, keep it separately. CBC has no
+ *  built-in integrity; add a MAC/signature where tamper-detection matters.
+ *  (KSeF 2.0 invoice content: AES-256-CBC + PKCS#7.) */
+extern def aesCbcEncrypt(keyB64: String, ivB64: String, plaintextB64: String): String
+
+/** AES-256-CBC decrypt (PKCS#7, external IV); returns base64 of the recovered
+ *  bytes. Throws on a bad key/IV length or corrupt padding. */
+extern def aesCbcDecrypt(keyB64: String, ivB64: String, ciphertextB64: String): String
 
 /** RSA-OAEP (SHA-256) encrypt. `publicKeyB64` is base64 SPKI DER (X.509
  *  SubjectPublicKeyInfo); `plaintextB64` is base64 of the bytes to encrypt. */

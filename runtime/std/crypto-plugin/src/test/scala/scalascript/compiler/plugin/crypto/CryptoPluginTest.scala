@@ -120,6 +120,63 @@ class CryptoPluginTest extends AnyFunSuite:
          |aesGcmDecryptBytes(k, aesGcmEncryptBytes(k, "$ptB64"))""".stripMargin)
     assert(out == ptB64)
 
+  // ── AES-256-CBC (external IV, PKCS#7) ────────────────────────────────────
+
+  test("aesGenIv returns a fresh 16-byte IV each call"):
+    val a = evalStr("aesGenIv()")
+    val b = evalStr("aesGenIv()")
+    assert(a != b, "two generated IVs must differ")
+    assert(java.util.Base64.getDecoder.decode(a).length == 16, "IV must be 16 bytes")
+
+  test("aesCbcEncrypt / aesCbcDecrypt round-trips binary (base64) payloads"):
+    val ptB64 = java.util.Base64.getEncoder.encodeToString(Array[Byte](0, 1, 2, -1, -128, 127, 42))
+    val out = evalStr(
+      s"""val k  = aesGenKey()
+         |val iv = aesGenIv()
+         |aesCbcDecrypt(k, iv, aesCbcEncrypt(k, iv, "$ptB64"))""".stripMargin)
+    assert(out == ptB64)
+
+  test("aesCbcEncrypt is deterministic for a fixed key + IV (CBC has no nonce framing)"):
+    val key = evalStr("aesGenKey()")
+    val iv  = evalStr("aesGenIv()")
+    val pt  = java.util.Base64.getEncoder.encodeToString("invoice".getBytes("UTF-8"))
+    val a = evalStr(s"""aesCbcEncrypt("$key", "$iv", "$pt")""")
+    val b = evalStr(s"""aesCbcEncrypt("$key", "$iv", "$pt")""")
+    assert(a == b, "same key+IV+plaintext must yield identical ciphertext")
+
+  test("aesCbcEncrypt output decrypts with a direct JCE AES/CBC/PKCS5Padding cipher (interop)"):
+    val key = evalStr("aesGenKey()")
+    val iv  = evalStr("aesGenIv()")
+    val msg = "faktura — 1000.01 zł ąćęł"
+    val ptB64 = java.util.Base64.getEncoder.encodeToString(msg.getBytes("UTF-8"))
+    val ctB64 = evalStr(s"""aesCbcEncrypt("$key", "$iv", "$ptB64")""")
+    val cipher = javax.crypto.Cipher.getInstance("AES/CBC/PKCS5Padding")
+    cipher.init(javax.crypto.Cipher.DECRYPT_MODE,
+      new javax.crypto.spec.SecretKeySpec(java.util.Base64.getDecoder.decode(key), "AES"),
+      new javax.crypto.spec.IvParameterSpec(java.util.Base64.getDecoder.decode(iv)))
+    val recovered = new String(cipher.doFinal(java.util.Base64.getDecoder.decode(ctB64)), "UTF-8")
+    assert(recovered == msg, s"JCE interop mismatch: $recovered")
+
+  test("aesCbcEncrypt rejects an IV that is not 16 bytes"):
+    val key   = evalStr("aesGenKey()")
+    val badIv = java.util.Base64.getEncoder.encodeToString(new Array[Byte](12)) // GCM-sized
+    val pt    = java.util.Base64.getEncoder.encodeToString("x".getBytes("UTF-8"))
+    assertThrows[Throwable](evalStr(s"""aesCbcEncrypt("$key", "$badIv", "$pt")"""))
+
+  test("aesCbcDecrypt with the wrong key never returns the original plaintext"):
+    // Wrong-key decrypt usually throws (PKCS#7 padding fails); on the rare run
+    // where random bytes happen to carry valid padding it must still NOT recover
+    // the plaintext. Either outcome is correct; silent-correct is the bug.
+    val pt  = java.util.Base64.getEncoder.encodeToString("secret".getBytes("UTF-8"))
+    val k1  = evalStr("aesGenKey()")
+    val k2  = evalStr("aesGenKey()")
+    val iv  = evalStr("aesGenIv()")
+    val ct  = evalStr(s"""aesCbcEncrypt("$k1", "$iv", "$pt")""")
+    val recovered =
+      try Some(evalStr(s"""aesCbcDecrypt("$k2", "$iv", "$ct")"""))
+      catch case _: Throwable => None
+    assert(recovered.forall(_ != pt), "wrong key must not recover the plaintext")
+
   // ── RSA-OAEP (SHA-256) ───────────────────────────────────────────────────
 
   test("rsaOaepEncrypt output decrypts with the matching private key (JCE interop)"):

@@ -51,6 +51,31 @@ object CryptoIntrinsics:
       cipher.doFinal(ct)
     catch case e: Throwable => throw new RuntimeException(s"aesGcmDecrypt: ${e.getMessage}")
 
+  // AES-256-CBC with PKCS#7 padding and an EXTERNAL (caller-supplied) 16-byte IV.
+  // Unlike GCM, the IV is passed/returned separately (not framed into the
+  // ciphertext) so it can be placed verbatim into a protocol field such as KSeF
+  // 2.0 `EncryptionInfo.initializationVector`.  JCE's "PKCS5Padding" is PKCS#7
+  // for the 16-byte AES block.  CBC provides no integrity — pair with a separate
+  // MAC/signature where tamper-detection matters.
+  private val CbcIvLen = 16
+
+  private def aesCbcCipher(mode: Int, keyB64: String, ivB64: String): javax.crypto.Cipher =
+    val key = new javax.crypto.spec.SecretKeySpec(b64d(keyB64), "AES")
+    val iv  = b64d(ivB64)
+    if iv.length != CbcIvLen then
+      throw new RuntimeException(s"iv must be $CbcIvLen bytes, got ${iv.length}")
+    val cipher = javax.crypto.Cipher.getInstance("AES/CBC/PKCS5Padding")
+    cipher.init(mode, key, new javax.crypto.spec.IvParameterSpec(iv))
+    cipher
+
+  private def aesCbcEncryptRaw(keyB64: String, ivB64: String, plain: Array[Byte]): String =
+    try b64e(aesCbcCipher(javax.crypto.Cipher.ENCRYPT_MODE, keyB64, ivB64).doFinal(plain))
+    catch case e: Throwable => throw new RuntimeException(s"aesCbcEncrypt: ${e.getMessage}")
+
+  private def aesCbcDecryptRaw(keyB64: String, ivB64: String, ctB64: String): Array[Byte] =
+    try aesCbcCipher(javax.crypto.Cipher.DECRYPT_MODE, keyB64, ivB64).doFinal(b64d(ctB64))
+    catch case e: Throwable => throw new RuntimeException(s"aesCbcDecrypt: ${e.getMessage}")
+
   private def rsaOaepEncryptRaw(pubKeyB64: String, plain: Array[Byte]): String =
     try
       val spec   = new java.security.spec.X509EncodedKeySpec(b64d(pubKeyB64))
@@ -208,6 +233,28 @@ object CryptoIntrinsics:
       case List(keyB64: String, payloadB64: String) =>
         Value.StringV(b64e(aesGcmDecryptRaw(keyB64, payloadB64)))
       case _ => throw new RuntimeException("aesGcmDecryptBytes(keyB64, payloadB64)")
+    },
+
+    // ── AES-256-CBC symmetric encryption (external IV, PKCS#7) ──────────────
+
+    // 16 random bytes for an AES-CBC IV, Base64 — e.g. KSeF 2.0
+    // EncryptionInfo.initializationVector.
+    QualifiedName("aesGenIv") -> native { _ =>
+      val iv = new Array[Byte](CbcIvLen)
+      java.security.SecureRandom().nextBytes(iv)
+      Value.StringV(b64e(iv))
+    },
+
+    QualifiedName("aesCbcEncrypt") -> native {
+      case List(keyB64: String, ivB64: String, plaintextB64: String) =>
+        Value.StringV(aesCbcEncryptRaw(keyB64, ivB64, b64d(plaintextB64)))
+      case _ => throw new RuntimeException("aesCbcEncrypt(keyB64, ivB64, plaintextB64)")
+    },
+
+    QualifiedName("aesCbcDecrypt") -> native {
+      case List(keyB64: String, ivB64: String, ciphertextB64: String) =>
+        Value.StringV(b64e(aesCbcDecryptRaw(keyB64, ivB64, ciphertextB64)))
+      case _ => throw new RuntimeException("aesCbcDecrypt(keyB64, ivB64, ciphertextB64)")
     },
 
     // ── RSA-OAEP (SHA-256) public-key encryption ────────────────────────────
