@@ -1,0 +1,3 @@
+crypto-pbkdf2: pbkdf2(password,saltB64,iterations,dkLen) + secureRandomBytesB64(n) crypto-plugin externs — standards-grade password hashing for busi-auth (single global externs, marshal correctly cross-module).
+agent: opus-interactive
+started: 2026-06-10
