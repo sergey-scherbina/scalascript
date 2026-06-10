@@ -1782,7 +1782,8 @@ private[interpreter] object DispatchRuntime:
           Pure(Value.StringV(ls.iterator.map(Value.show).mkString(s, sep, e)))
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "map"          => args match
-        case List(f) => Computation.mapSequence(ls, item => interp.callValue1(f, item, env))
+        case List(f: Value.FunV) => CallRuntime.mapReusing(ls, f, env, interp)
+        case List(f)             => Computation.mapSequence(ls, item => interp.callValue1(f, item, env))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "flatMap"      => args match
         case List(f) =>
@@ -1953,6 +1954,7 @@ private[interpreter] object DispatchRuntime:
       case "foldLeft"     => args match
         case List(init) =>
           Pure(Value.NativeFnV("foldLeft", {
+            case List(f: Value.FunV) => CallRuntime.foldLeftReusing(ls, init, f, env, interp)
             case List(f) =>
               Computation.foldLeftSequence(ls, init, (acc, h) => interp.callValue2(f, acc, h, env))
             case _ => throw InterpretError("foldLeft expects one function argument")

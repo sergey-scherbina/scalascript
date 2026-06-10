@@ -1,0 +1,10 @@
+[package]
+name = "ssc_program"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[lib]
+name = "ssc_program"
+path = "src/lib.rs"
