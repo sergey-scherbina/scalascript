@@ -1,3 +1,0 @@
-smtp-send: native smtpSend extern (JVM-only SMTP client, STARTTLS+AUTH). Spec specs/smtp-send.md. Pairs with std.mime/std.pdf.
-agent: opus-interactive
-started: 2026-06-10
