@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-10 — perf(js): numeric type inference for HOF closures (js-numeric-inference)
+
+- **js-numeric-inference** — arithmetic on numeric-collection elements no longer
+  goes through `_arith(…)` + a `typeof==='string'` repeat-guard. `JsGen` now
+  tracks numeric-element collections (`xs: List[Int]`, integer ranges) and types
+  HOF closure params from the element type, propagating through `.map`/`.filter`
+  chains and into the `foldLeft` combiner. `xs.map(x => x*2).filter(x => x%3==0).foldLeft(0)((a,b)=>a+b)`
+  now emits native `[x => (x*2)]`, `[x => ((x%3)===0)]`, `(a,b) => (a+b)`.
+  JS **hof-pipeline 0.028 → 0.0085 ms (3.3×, ≈jvm)**, **range-sum 0.048 → 0.011 ms
+  (4.4×)**. Numeric output verified identical to the interpreter (6300 / 2425500);
+  231 JS/cross-backend + 58 node conformance tests green; no corpus regression.
+  Worst case if inference is wrong: falls back to `_arith` (correct, just slower).
+
 ## 2026-06-10 — perf(js): direct field access + nested-loop without IIFE (js-instance-field-shape, js-nested-loop)
 
 - **js-instance-field-shape** — case-class field reads no longer go through the
