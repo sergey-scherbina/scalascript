@@ -7310,6 +7310,13 @@ claimable. Bug-fix items have minimal repros in their specs.
       RSA-OAEP JCE-interop, X.509 openssl vector); 24/24 green. RSA-OAEP is
       SHA-256/MGF1-SHA-256 — busi to confirm vs `ksef-client-java` (one-line knob
       if MGF1-SHA-1 needed). JS WebCrypto deferred.
+- [x] **crypto-aes-cbc** (feature) ✓ Landed 2026-06-10 — AES-256-CBC + PKCS#7 with
+      an EXTERNAL IV for KSeF 2.0 invoice **content** (busi confirmed CBC, not GCM,
+      vs official KSeF OpenAPI §5222): `aesGenIv`/`aesCbcEncrypt`/`aesCbcDecrypt` in
+      `crypto-plugin`. IV is a separate arg, ciphertext returned alone → maps onto
+      `EncryptionInfo.initializationVector`. 6 tests (round-trip, JCE PKCS#7 interop,
+      IV-length + wrong-key negatives); 41/41 crypto-plugin green. JVM only.
+      Spec: [`specs/crypto-encrypt.md`](specs/crypto-encrypt.md).
 - [ ] **pdf-mime-generation** (feature) — `htmlToPdfBase64` + `buildMimeMessage`
       externs (opt-in `pdf-plugin.sscpkg`) so invoice PDF + email MIME do not
       require an external HTTP relay. Spec:

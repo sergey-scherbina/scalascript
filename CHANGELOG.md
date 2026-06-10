@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-10 — feat(std.crypto): AES-256-CBC + PKCS#7 with external IV (crypto-aes-cbc)
+
+- **crypto-aes-cbc** — busi confirmed (vs official KSeF 2.0 OpenAPI §5222) that
+  invoice **content** is encrypted with AES-256-**CBC** + PKCS#7 and a separate
+  16-byte IV, which the existing GCM `iv12||ct||tag16` framing cannot express.
+  Added three externs to `crypto-plugin` (`std.crypto`): `aesGenIv()` (16 random
+  bytes, base64), `aesCbcEncrypt(keyB64, ivB64, plaintextB64)` and
+  `aesCbcDecrypt(keyB64, ivB64, ciphertextB64)` — IV passed/returned separately so
+  it maps directly onto `EncryptionInfo.initializationVector`; ciphertext returned
+  alone (PKCS#7). CBC offers confidentiality but no integrity (pair with a
+  MAC/signature). 6 new tests (round-trip, direct-JCE `AES/CBC/PKCS5Padding`
+  interop, non-16-byte-IV rejection, wrong-key-never-recovers); 41/41 crypto-plugin
+  green. JVM/interpreter only. Spec: `specs/crypto-encrypt.md`.
+
 ## 2026-06-10 — perf(jvm): allocation-free mutual-TCO for uniform-signature cliques (aot-mutual-tco)
 
 - **aot-mutual-tco** — the JVM backend's mutual-tail-call trampoline allocated a

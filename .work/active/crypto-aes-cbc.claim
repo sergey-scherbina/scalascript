@@ -1,6 +1,0 @@
-feature/crypto-aes-cbc 2026-06-10T15:41:39Z
-agent: scalascript-claude-code
-heartbeat: 2026-06-10T15:41:39Z
-status: not-started
-done-so-far:
-next: add aesCbcEncrypt/aesCbcDecrypt/aesGenIv to crypto-plugin
