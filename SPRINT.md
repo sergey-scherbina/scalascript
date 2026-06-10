@@ -62,13 +62,25 @@ access is O(n) → O(n²)).
       `./install.sh` first — `bin/ssc` is otherwise stale (JMH `scripts/bench`
       uses fresh sbt classes and needs no install).
 
-- [ ] **interp-typeclass-fold-devirt** — typeclass-fold interp **1.85 ms**
-      (jvm 0.003 → ~600× here; table 937×).  JIT already helps 2.5× (off 4.65
-      → on 1.87).  `foldLeft(empty)(combine)` applies a trait-method-dispatch
-      closure 3000×.  Cache/devirtualise the resolved `given` `combine` for the
-      monomorphic `Monoid[Int]` call site so the fold runs a primitive
-      `(Int,Int)=>Int` fast path.  A/B via JMH `typeclassFold` (add a heavier
-      300×10 variant matching the corpus so the win is visible).
+- [~] **interp-typeclass-fold-devirt** — PARTIALLY ADDRESSED + RE-DIAGNOSED
+      2026-06-10. Added JMH `typeclassFoldMacro` (300×10, mirrors the corpus) —
+      the requested visible A/B harness. **Re-diagnosis flips the original
+      premise**: after `interp-jit-string-closure`, the `foldLeft` closure is no
+      longer the cost. Decomposition (`s + xs.foldLeft(0)((a,b)=>a+b)` in a 300×
+      loop = **0.007 ms** vs full `combineAll[A: Monoid](xs)` = **1.83 ms**, a
+      246× gap; a plain non-generic fn wrapping the same fold = 0.007 ms) shows
+      essentially ALL cost is the **context-bound generic call + per-call `summon`
+      machinery inside `combineAll`**, not the fold. TRIED + REVERTED (no
+      measured win, 1.665→1.682 JMH macro): a per-call-site `using`-evidence memo
+      in `GivenRuntime`/`CallRuntime` keyed by `(FunV, argTypeSig)` — so the
+      call-site `resolveUsing` is NOT the bottleneck. Remaining suspects (need a
+      clean JFR with symbol resolution — the JMH stack profiler is drowned by
+      `warmInterp` setup noise): the two `summon[Monoid[A]].empty/.combine`
+      ApplyType evals per call + the `.empty`/`.combine` InstanceV member-access
+      (possible fresh-FunV-per-call → JIT thrash), and that `combineAll` itself
+      can't JIT (using params → VmCompiler bails). Deferred — smaller, riskier
+      win (~2×, 1.7ms) than the JS outliers below; the macro bench stays for the
+      next attempt.
 
 - [ ] **js-instance-field-shape** — JS `instance-field` **1.41 ms** vs jvm
       0.00033 (**4270×**) and even interp 0.0073 (193×) — the single worst JS
