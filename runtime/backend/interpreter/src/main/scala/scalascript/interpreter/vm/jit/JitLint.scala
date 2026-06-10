@@ -143,12 +143,28 @@ object JitPredicates:
   /** True iff the top-level result type of `t` is Boolean (comparison or
    *  short-circuit logical). `JavacJitBackend` always emits `long`-returning
    *  static methods; a bool-typed body would be misrepresented as Int 0/1. */
+  // Receiver methods that always return Boolean AND that the JIT compiles to a
+  // 0/1 long (see AsmJitBackend / JavacJitBackend string/collection methods).
+  // A function whose body is one of these must be tagged resultIsBool so the
+  // 0/1 long is boxed back as BoolV, not IntV.
+  private val boolMethods        = Set("startsWith", "endsWith", "contains")
+  private val boolNullaryMethods = Set("isEmpty", "nonEmpty", "isDefined")
+
   def isBoolReturning(t: Term): Boolean = t match
     case _: Lit.Boolean => true
     case Term.ApplyInfix.After_4_6_0(_, op, _, _) =>
       val s = op.value
       s == "<" || s == "<=" || s == ">" || s == ">=" || s == "==" || s == "!=" || s == "&&" || s == "||"
     case Term.ApplyUnary(op, _) if op.value == "!" => true
+    // Boolean-returning method calls — `s.startsWith(p)`, `xs.contains(x)`, …
+    // Without this the JIT-compiled `def isHashed(s): Boolean = s.startsWith("…")`
+    // returned IntV(1) instead of true across (and within) module boundaries.
+    // (Repro: busi pwhash `isHashed`.)
+    case ap: Term.Apply =>
+      ap.fun match
+        case Term.Select(_, m) => boolMethods.contains(m.value)
+        case _                 => false
+    case Term.Select(_, m) => boolNullaryMethods.contains(m.value)
     case ti: Term.If =>
       isBoolReturning(ti.thenp) || isBoolReturning(ti.elsep)
     case tb: Term.Block =>

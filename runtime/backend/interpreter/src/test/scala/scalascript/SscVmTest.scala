@@ -2543,3 +2543,25 @@ class SscVmTest extends AnyFunSuite with Matchers:
     val r = AsmJitBackend.tryCompile(fn, interp)
     r should not be null
   }
+
+  test("JIT tags a startsWith-bodied Boolean fn resultIsBool (busi pwhash isHashed)") {
+    // Regression: `def isHashed(s): Boolean = s.startsWith("…")` JIT-compiled to a
+    // 0/1 long but resultIsBool was false (isBoolReturning ignored Boolean-returning
+    // method calls), so the result was boxed as IntV(1) instead of true — across
+    // and within module boundaries.  isHashed(<hashed>) printed "1", not "true".
+    val interp = interpOf(
+      """def isHashed(s: String): Boolean = s.startsWith("h:")""")
+    val fn = interp.globalsView("isHashed").asInstanceOf[Value.FunV]
+    for backendName <- List("javac", "asm") do
+      val jitR =
+        if backendName == "javac" then JavacJitBackend.tryCompile(fn, interp)
+        else AsmJitBackend.tryCompile(fn, interp)
+      jitR should not be null
+      withClue(s"[$backendName] ") {
+        jitR.resultIsBool shouldBe true
+        jitR.paramIsRef shouldBe Array(true)
+        val direct = jitR.direct.asInstanceOf[ObjToLong]
+        direct.apply(Value.StringV("h:x"))  shouldBe 1L
+        direct.apply(Value.StringV("nope")) shouldBe 0L
+      }
+  }
