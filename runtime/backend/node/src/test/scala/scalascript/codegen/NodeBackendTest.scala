@@ -586,3 +586,27 @@ class NodeBackendTest extends AnyFunSuite:
     assert(dur < 10_000,
       s"script did not terminate within 10s of stop() — duration=$dur ms, output:\n$out")
   }
+
+  // ── middleware runs for unrouted paths (parity with interpreter A.1) ──────
+
+  test("codegen: global middleware runs for unrouted paths (use{} can short-circuit a 404)") {
+    val src =
+      """|# Server
+         |
+         |```scalascript
+         |use((req, next) => if req.path == "/healthz" then Response.text("ok") else next())
+         |route("GET", "/ping")(req => Response.text("pong"))
+         |serveAsync(8080)
+         |```
+         |""".stripMargin
+    val code = compile(src)
+    // The Node HTTP server (_ssc_http_serve, Part1d) now runs the middleware
+    // chain on the no-route path, so a leading use{} can intercept an unrouted
+    // path instead of an early 404 (parity with the interpreter dispatch).
+    assert(code.contains("function _ssc_http_serve"),
+      "WsServer/HTTP runtime must be emitted for serveAsync")
+    assert(code.contains("_sscUnrouted"),
+      "runtime must run middleware on unrouted paths (parity with the interpreter)")
+    assert(code.contains("if (_middlewares.length > 0)"),
+      "the unrouted-middleware block must be guarded on registered middleware")
+  }

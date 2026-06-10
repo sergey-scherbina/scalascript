@@ -356,46 +356,54 @@ private object _CodegenHttpHandler extends HttpHandler:
       .filter(_.method == method)
       .flatMap(r => _matchPath(r.pattern, segs).map(p => (r, p)))
       .nextOption()
-    matched match
-      case None =>
-        // Fall through to static files (e.g. SPA emitted by serve(view, port))
-        // before 404'ing.  Only GET requests can serve static assets.
-        if method == "GET" then
-          StaticAssetServer.resolve(_ssc_static_root, req.path) match
-            case Some(file) =>
-              val bytes = java.nio.file.Files.readAllBytes(file.toPath)
-              val ct    = HttpHelpers.contentTypeFor(file.getName)
-              HttpResult.PlainResp(Response(200, Map("Content-Type" -> ct), new String(bytes, "UTF-8")))
-            case None =>
-              HttpResult.Reject(404, s"Not Found: ${req.path}")
-        else
-          HttpResult.Reject(404, s"Not Found: ${req.path}")
-      case Some((r, params)) =>
-        val reqWithParams = req.copy(params = params)
-        def baseHandler(): Any =
+    // Static fallback / 404 for an unrouted path, as a Response (so it can be the
+    // base of the middleware chain).  Only GET requests serve static assets.
+    def staticOr404(): Response =
+      if method == "GET" then
+        StaticAssetServer.resolve(_ssc_static_root, req.path) match
+          case Some(file) =>
+            val bytes = java.nio.file.Files.readAllBytes(file.toPath)
+            val ct    = HttpHelpers.contentTypeFor(file.getName)
+            Response(200, Map("Content-Type" -> ct), new String(bytes, "UTF-8"))
+          case None =>
+            Response(404, Map("Content-Type" -> "text/plain; charset=utf-8"), s"Not Found: ${req.path}")
+      else
+        Response(404, Map("Content-Type" -> "text/plain; charset=utf-8"), s"Not Found: ${req.path}")
+
+    // Fast path: no middleware AND no matching route → original static/404.
+    if matched.isEmpty && _middlewares.isEmpty then
+      val r = staticOr404()
+      if r.status == 404 then HttpResult.Reject(404, r.body) else HttpResult.PlainResp(r)
+    else
+      // Global middleware runs for EVERY request: the chain base is the matched
+      // route handler, or the static/404 fallback when no route matched — so a
+      // leading `use {}` can short-circuit an unrouted path (parity with the
+      // interpreter dispatch).
+      val reqWithParams = req.copy(params = matched.map(_._2).getOrElse(Map.empty))
+      def baseHandler(): Any = matched match
+        case Some((r, _)) =>
           try r.handler(reqWithParams)
           catch case ve: RestValidationError =>
-            Response(400,
-              Map("Content-Type" -> "text/plain; charset=utf-8"),
-              ve.getMessage)
-        var chain: () => Any = () => baseHandler()
-        _middlewares.reverseIterator.foreach { mw =>
-          val inner = chain
-          chain = () => mw(reqWithParams, inner)
-        }
-        try chain() match
-          case sr: StreamResponse =>
-            HttpResult.StreamResp(sr)
-          case r2: Response =>
-            HttpResult.PlainResp(r2)
-          case other =>
-            HttpResult.PlainResp(Response(200,
-              Map("Content-Type" -> "text/plain; charset=utf-8"),
-              _show(other)))
-        catch case e: Throwable =>
-          _proxyLog.error(s"route error: ${e.getMessage}", e)
-          _Metrics.http5xx.incrementAndGet()
-          HttpResult.Reject(500, "Internal Server Error")
+            Response(400, Map("Content-Type" -> "text/plain; charset=utf-8"), ve.getMessage)
+        case None => staticOr404()
+      var chain: () => Any = () => baseHandler()
+      _middlewares.reverseIterator.foreach { mw =>
+        val inner = chain
+        chain = () => mw(reqWithParams, inner)
+      }
+      try chain() match
+        case sr: StreamResponse =>
+          HttpResult.StreamResp(sr)
+        case r2: Response =>
+          HttpResult.PlainResp(r2)
+        case other =>
+          HttpResult.PlainResp(Response(200,
+            Map("Content-Type" -> "text/plain; charset=utf-8"),
+            _show(other)))
+      catch case e: Throwable =>
+        _proxyLog.error(s"route error: ${e.getMessage}", e)
+        _Metrics.http5xx.incrementAndGet()
+        HttpResult.Reject(500, "Internal Server Error")
 
   override def onWsUpgrade(req: Request): WsUpgradeResult =
     val segs = req.path.split('/').toList.filter(_.nonEmpty)

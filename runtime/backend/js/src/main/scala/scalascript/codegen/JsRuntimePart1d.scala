@@ -813,6 +813,30 @@ function _ssc_http_serve(port, _tlsCfg) {
             }
           }
         }
+        // No route matched: still run global middleware so a leading use{} can
+        // short-circuit an unrouted path (parity with the interpreter dispatch).
+        // A passthrough sentinel lets middleware that calls next() fall through
+        // to the normal static/404 path below; a middleware that returns a
+        // Response is written here.
+        if (_middlewares.length > 0) {
+          const _uReq = _mkRequest(req, {}, bodyBuf);
+          const _passthrough = { _sscUnrouted: true };
+          let _uChain = () => _passthrough;
+          for (let _i = _middlewares.length - 1; _i >= 0; _i--) {
+            const _mw = _middlewares[_i], _inner = _uChain;
+            _uChain = () => _mw(_uReq, _inner);
+          }
+          const _uResult = await _uChain();
+          if (_uResult && _uResult !== _passthrough && !_uResult._sscUnrouted) {
+            const _uh = _uResult.headers instanceof Map ? _uResult.headers : new Map();
+            if (!_uh.has('Content-Type')) _uh.set('Content-Type', 'text/plain; charset=utf-8');
+            const _uo = Object.fromEntries(_uh.entries());
+            _applyCors(req.headers, _uo);
+            res.writeHead(_uResult.status ?? 200, _uo);
+            res.end(_uResult.body ?? '');
+            return;
+          }
+        }
         // Fall through to a static file under the cwd before 404'ing.
         if (_serveStatic(res, u.pathname)) return;
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
