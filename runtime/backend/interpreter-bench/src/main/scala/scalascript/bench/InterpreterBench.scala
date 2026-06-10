@@ -663,6 +663,31 @@ class InterpreterBench:
   private val typeclassFoldTerm: Term =
     dialects.Scala3("combineAll(List(1, 2, 3, 4))").parse[Term].get
 
+  // Macro variant matching `bench/corpus/typeclass-fold.ssc`: 300 × combineAll
+  // over a 10-element list. Visible A/B for `interp-typeclass-fold-devirt`
+  // (the JMH micro above runs combineAll once, so the per-call summon-resolution
+  // cost it targets is invisible there). Reuses the same warmed interpreter.
+  private val typeclassFoldMacroInterp: Interpreter = warmInterp(
+    """trait Monoid[A]:
+      |  def empty: A
+      |  def combine(a: A, b: A): A
+      |given intMonoid: Monoid[Int] with
+      |  def empty: Int = 0
+      |  def combine(a: Int, b: Int): Int = a + b
+      |def combineAll[A: Monoid](xs: List[A]): A =
+      |  xs.foldLeft(summon[Monoid[A]].empty)(summon[Monoid[A]].combine)
+      |val xs: List[Int] = List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+      |def macroFold(): Long =
+      |  var sum = 0L
+      |  var i = 0
+      |  while i < 300 do
+      |    sum = sum + combineAll(xs).toLong
+      |    i = i + 1
+      |  sum""".stripMargin
+  )
+  private val typeclassFoldMacroTerm: Term =
+    dialects.Scala3("macroFold()").parse[Term].get
+
   // String parse-and-sum HOF chain: `split(",").map(s => s.trim.toInt).foldLeft`.
   // Mirrors the `bench/corpus/string-split.ssc` macro workload (300 iters over a
   // 20-field CSV) so the cross-backend outlier (interp ~18 ms vs jvm 0.08 ms)
@@ -709,6 +734,10 @@ class InterpreterBench:
   @Benchmark
   def typeclassFold(): Unit =
     typeclassFoldInterp.evalTerm(typeclassFoldTerm)
+
+  @Benchmark
+  def typeclassFoldMacro(): Unit =
+    typeclassFoldMacroInterp.evalTerm(typeclassFoldMacroTerm)
 
   @Benchmark
   def helloWorld(): Unit =

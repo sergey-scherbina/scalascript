@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-10 — perf(js): direct field access + nested-loop without IIFE (js-instance-field-shape, js-nested-loop)
+
+- **js-instance-field-shape** — case-class field reads no longer go through the
+  megamorphic `_dispatch(v, 'field', [])` runtime call. `JsGen` now tracks
+  instance-typed params (`varName → caseClassType`) and lowers `v.x` to a direct
+  property read when `x` is a declared field; `isIntExpr`/`isNumericExpr` also
+  recognise numeric case-class fields so `v.x * v.x` emits native arithmetic
+  instead of `_arith('*', …)` with a string-repeat guard. `normSq` went from a
+  4-`_dispatch` + 3-`_arith` expression to `((v.x * v.x) + (v.y * v.y))`. JS
+  `instance-field` **1.42 → 0.0025 ms (568×)** — from 4270× vs JVM to ~8×.
+- **js-nested-loop** — a `while` nested in a while body was lowered as an
+  expression and wrapped in an IIFE `(() => { … })()` created and invoked on
+  every outer iteration (capturing the accumulator by closure → V8 deopt). It now
+  emits a plain nested `while` statement (`genNestedWhileInline`). JS
+  `nested-loop` **5.59 → 0.59 ms (9.5×)**.
+- 231 JS/cross-backend + 58 node conformance tests green; full JS corpus sweep
+  shows no regressions.
+
 ## 2026-06-10 — perf(interp): JIT anonymous HOF closures + String methods (interp-jit-string-closure)
 
 - **interp-jit-string-closure** — `xs.map(s => s.trim.toInt)` / `xs.foldLeft(0)(_ + _)`

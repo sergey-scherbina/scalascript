@@ -62,24 +62,44 @@ access is O(n) → O(n²)).
       `./install.sh` first — `bin/ssc` is otherwise stale (JMH `scripts/bench`
       uses fresh sbt classes and needs no install).
 
-- [ ] **interp-typeclass-fold-devirt** — typeclass-fold interp **1.85 ms**
-      (jvm 0.003 → ~600× here; table 937×).  JIT already helps 2.5× (off 4.65
-      → on 1.87).  `foldLeft(empty)(combine)` applies a trait-method-dispatch
-      closure 3000×.  Cache/devirtualise the resolved `given` `combine` for the
-      monomorphic `Monoid[Int]` call site so the fold runs a primitive
-      `(Int,Int)=>Int` fast path.  A/B via JMH `typeclassFold` (add a heavier
-      300×10 variant matching the corpus so the win is visible).
+- [~] **interp-typeclass-fold-devirt** — PARTIALLY ADDRESSED + RE-DIAGNOSED
+      2026-06-10. Added JMH `typeclassFoldMacro` (300×10, mirrors the corpus) —
+      the requested visible A/B harness. **Re-diagnosis flips the original
+      premise**: after `interp-jit-string-closure`, the `foldLeft` closure is no
+      longer the cost. Decomposition (`s + xs.foldLeft(0)((a,b)=>a+b)` in a 300×
+      loop = **0.007 ms** vs full `combineAll[A: Monoid](xs)` = **1.83 ms**, a
+      246× gap; a plain non-generic fn wrapping the same fold = 0.007 ms) shows
+      essentially ALL cost is the **context-bound generic call + per-call `summon`
+      machinery inside `combineAll`**, not the fold. TRIED + REVERTED (no
+      measured win, 1.665→1.682 JMH macro): a per-call-site `using`-evidence memo
+      in `GivenRuntime`/`CallRuntime` keyed by `(FunV, argTypeSig)` — so the
+      call-site `resolveUsing` is NOT the bottleneck. Remaining suspects (need a
+      clean JFR with symbol resolution — the JMH stack profiler is drowned by
+      `warmInterp` setup noise): the two `summon[Monoid[A]].empty/.combine`
+      ApplyType evals per call + the `.empty`/`.combine` InstanceV member-access
+      (possible fresh-FunV-per-call → JIT thrash), and that `combineAll` itself
+      can't JIT (using params → VmCompiler bails). Deferred — smaller, riskier
+      win (~2×, 1.7ms) than the JS outliers below; the macro bench stays for the
+      next attempt.
 
-- [ ] **js-instance-field-shape** — JS `instance-field` **1.41 ms** vs jvm
-      0.00033 (**4270×**) and even interp 0.0073 (193×) — the single worst JS
-      outlier.  case-class field access + monomorphic dispatch in a hot loop is
-      megamorphic on the JS backend.  Investigate `JsRuntime*` object-shape /
-      field-access lowering (stable hidden class? per-iter object rebuild?).
-      Acceptance: `bench.sh --backend js instance-field` within ~10× of jvm.
+- [x] **js-instance-field-shape** — DONE 2026-06-10. Root cause was NOT
+      object-shape — it was codegen: `v.x` (a known case-class field) lowered to
+      the megamorphic `_dispatch(v, 'x', [])` (full type-switch + `[]` alloc, ×4
+      per `normSq`), and `x*x` to `_arith('*', …)` with a `typeof==='string'`
+      repeat-guard. Fix (`JsGen`): track `instanceVars` (param `varName →
+      caseClassType`); `Term.Select(v, f)` with a known field → direct `v.f`;
+      `isIntExpr`/`isNumericExpr` recognise numeric case-class fields so `v.x*v.x`
+      emits native `(v.x * v.x)`. Result: **`function normSq(v){ return ((v.x *
+      v.x) + (v.y * v.y)); }`** — JS instance-field **1.42 → 0.0025 ms (568×)**,
+      now ~8× jvm (was 4270×). 231 JS/cross-backend + 58 node tests green.
 
-- [ ] **js-nested-loop** — JS `nested-loop` **5.48 ms** vs ~0.25 elsewhere
-      (22×).  Doubly-nested `while` gets no inner-loop optimisation on the JS
-      backend.  Lower-priority than instance-field; same investigation lane.
+- [x] **js-nested-loop** — DONE 2026-06-10. A nested `while` inside a while body
+      lowered through `genExpr` → wrapped in an IIFE `(() => { … })()`
+      created+invoked every outer iteration (1000×), capturing the accumulator by
+      closure (V8 deopt). Fix (`JsGen.genWhileBodyInline` + new
+      `genNestedWhileInline`): emit the inner `while` as a plain JS statement, no
+      IIFE. JS nested-loop **5.59 → 0.59 ms (9.5×)**, ~2× jvm; output verified
+      (249500250000). Same suites green.
 
 - [ ] **bench-consistency-jmh-vs-corpus** [honesty/clarity] — `InterpreterBench`
       JMH and the `bench.sh` corpus use *different* workloads under the same
