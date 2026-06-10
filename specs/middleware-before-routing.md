@@ -26,11 +26,24 @@ chain overhead. Only apps that actually register middleware see the new
 (requested) semantics — and for those, middleware seeing unrouted paths is the
 point.
 
-This is the JVM interpreter dispatch (busi's runtime). The JS/Node and JvmGen
-runtimes keep their own ordering; bringing them to parity is a follow-up if a
-caller needs it.
+### Backend parity (2026-06-10 follow-up)
 
-## 3  Verify (`MiddlewareDispatchTest`)
+The same fix now applies to the other serving runtimes so behaviour is uniform:
+
+- **JS/Node** (`JsRuntimePart1d` `_ssc_http_serve`): on the no-route path, when
+  middleware is registered, the chain runs with a passthrough-sentinel base — a
+  `use {}` that returns a `Response` short-circuits the unrouted path; one that
+  calls `next()` falls through to the existing static/404. (The in-process
+  `_ssc_ui_backend_transport` stub is an internal call mechanism, not a serving
+  path, and is left as-is.)
+- **JvmGen real server** (`ProxyRuntime.onHttpRequest`): restructured exactly like
+  the interpreter — chain base is the matched route handler or the static/404
+  fallback; a fast path preserves the original `Reject(404)` when no middleware
+  is registered.
+
+## 3  Verify
+
+`MiddlewareDispatchTest` (interpreter):
 
 - [x] A global middleware returns its own `Response` for an unrouted path → that
   response is served (not a 404).
@@ -38,3 +51,7 @@ caller needs it.
 - [x] A matched route still runs through middleware unchanged.
 - [x] With no middleware registered, an unrouted path keeps the fast-path
   `Reject(404)`.
+
+`NodeBackendTest` (JS/Node): the emitted `_ssc_http_serve` runtime contains the
+unrouted-middleware block (`_sscUnrouted` passthrough, guarded on registered
+middleware). `runtimeServerJvm` suite stays green for the `ProxyRuntime` change.
