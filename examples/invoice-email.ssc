@@ -1,0 +1,28 @@
+import std.pdf.*
+import std.mime.*
+
+// The relay-free invoice email: render the invoice HTML to a PDF, then assemble
+// a multipart/mixed message with the PDF attached — ready for an SMTP DATA send.
+
+val invoiceHtml =
+  "<html><head><style>" +
+    "body{font-family:Helvetica;font-size:12px;margin:24px}" +
+    "table{width:100%;border:1px solid #333;border-collapse:collapse}" +
+    "th,td{padding:6px;border:1px solid #333}" +
+    "</style></head><body>" +
+    "<h1>Faktura FV/2026/1</h1>" +
+    "<table><thead><tr><th>Pozycja</th><th>Kwota</th></tr></thead>" +
+    "<tbody><tr><td>Usluga A</td><td>1000.01 zl</td></tr></tbody></table>" +
+    "</body></html>"
+
+val pdfBase64 = htmlToPdfBase64(invoiceHtml)
+
+val message = buildMimeMessage(
+  "billing@acme.example",
+  "klient@example.com",
+  "Faktura FV/2026/1",
+  "<html><body><p>W zalaczniku faktura.</p></body></html>",
+  List(("faktura-FV-2026-1.pdf", "application/pdf", pdfBase64))
+)
+
+println(s"MIME message assembled: ${message.length} bytes, PDF attached")

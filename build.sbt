@@ -1078,6 +1078,7 @@ lazy val cli = project
         (uuidPlugin            / packagePlugin).value,
         (cryptoPlugin          / packagePlugin).value,
         (pdfPlugin             / packagePlugin).value,
+        (mimePlugin            / packagePlugin).value,
         (benchPlugin           / packagePlugin).value,
       )
       pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
@@ -2673,6 +2674,23 @@ lazy val pdfPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.pdf"))
 
+// ── MIME assembly — buildMimeMessage RFC 5322 multipart/mixed (hand-rolled) ──
+lazy val mimePlugin = project
+  .in(file("runtime/std/mime-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-mime-plugin",
+    // Runtime needs no dependency (hand-rolled builder). angus-mail is a
+    // TEST-only reference MIME parser for parse-back round-trip assertions.
+    libraryDependencies ++= Seq(
+      "org.eclipse.angus" % "angus-mail" % "2.0.3" % Test,
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.mime"))
+
 // ── Bench — bench-harness helpers (Bench.opaque identity / anti-folding) ──
 lazy val benchPlugin = project
   .in(file("runtime/std/bench-plugin"))
@@ -2839,6 +2857,7 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("uuid",            uuidPlugin,            "scalascript-uuid-plugin"),
   PluginSpec("crypto",          cryptoPlugin,          "scalascript-crypto-plugin"),
   PluginSpec("pdf",             pdfPlugin,             "scalascript-pdf-plugin"),
+  PluginSpec("mime",            mimePlugin,            "scalascript-mime-plugin"),
   PluginSpec("fs",              fsPlugin,              "scalascript-fs-plugin"),
   PluginSpec("os",              osPlugin,              "scalascript-os-plugin"),
   PluginSpec("yaml",            yamlPlugin,            "scalascript-yaml-plugin"),

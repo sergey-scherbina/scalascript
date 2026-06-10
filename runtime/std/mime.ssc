@@ -1,0 +1,32 @@
+---
+name: std-mime
+version: 1.0.0
+description: MIME message assembly — buildMimeMessage (RFC 5322 multipart/mixed, JVM only).
+package: std.mime
+exports:
+  - buildMimeMessage
+---
+
+# mime
+
+Assemble an RFC 5322 email message with a `text/html` body and zero or more
+attachments, returned as ready-to-send message text (for an SMTP `DATA` command).
+The implementation is a dependency-free hand-rolled builder in the opt-in
+`mime-plugin`. **JVM / interpreter only.**
+
+With no attachments the result is a plain `text/html` email; with one or more it
+is `multipart/mixed` (the HTML part first, then each attachment). The HTML body
+is base64-encoded so any UTF-8 content survives; a non-ASCII `subject` is RFC 2047
+encoded. `attachments` is a list of `(filename, mimeType, contentBase64)`.
+
+```scalascript
+/** Build an RFC 5322 message: `text/html` body + N attachments.
+ *  `attachments` = list of (filename, mimeType, contentBase64). */
+extern def buildMimeMessage(
+  from: String,
+  to: String,
+  subject: String,
+  htmlBody: String,
+  attachments: List[(String, String, String)]
+): String
+```
