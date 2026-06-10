@@ -7,7 +7,7 @@ description: P2 styled-TkNode — status primitives (badge/tag/pill/kpiCard/tabB
 
 [lower](std/ui/lower.ssc)
 [defaultTheme, darkTheme](std/ui/theme.ssc)
-[badge, tag, pill, kpiCard, tabBar, styled](std/ui/display.ssc)
+[badge, tag, pill, kpiCard, tabBar, styled, link](std/ui/display.ssc)
 [box, vstack](std/ui/layout.ssc)
 [text](std/ui/typography.ssc)
 [Tab](std/ui/nodes.ssc)
@@ -25,7 +25,10 @@ val tree = box(maxWidth = 960)(
     tabBar(active, [Tab("#home", "Home", "home"), Tab("#tx", "Tx", "tx")]),
     styled(["bg" -> "surface", "radius" -> "md", "paddingY" -> "smd", "paddingX" -> "16"])(
       text("custom chrome")
-    )
+    ),
+    link("#/inbox", "Back to inbox"),
+    link("#/peer", "Peer", "muted"),
+    link("#/new", "New", "primary")
   )
 )
 

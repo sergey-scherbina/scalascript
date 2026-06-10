@@ -46,6 +46,12 @@ class StyledPrimitivesTest extends AnyFunSuite:
     assert(out.contains("maxWidth: '960px'"), "box maxWidth not applied")
     // tabBar renders both tabs
     assert(out.contains("Home") && out.contains("Tx"), "tabBar tabs missing")
+    // link: href passed through verbatim, label rendered, variants themed
+    assert(out.contains("'#/inbox'") && out.contains("Back to inbox"), "default link missing")
+    assert(out.contains("'#/peer'") && out.contains("'#/new'"), "muted/primary link hrefs missing")
+    // muted link → muted colour (#6b7280), default link → strong onSurface (#111827)
+    assert(out.contains("color: '#6b7280'"), "muted link colour not themed")
+    assert(out.contains("color: '#111827'"), "default link colour not onSurface")
 
   test("same tree re-themes under darkTheme (token re-resolution)"):
     runExample()

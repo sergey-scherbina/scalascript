@@ -10,13 +10,14 @@ exports:
   - kpiCard
   - tabBar
   - styled
+  - link
   - spinner
   - signalPre
 ---
 
 # `std.ui.display` — display constructors
 
-[TkNode, BadgeNode, SpinnerNode, SignalPreNode, TagNode, PillNode, KpiCardNode, Tab, TabBarNode, StyledNode](nodes.ssc)
+[TkNode, BadgeNode, SpinnerNode, SignalPreNode, TagNode, PillNode, KpiCardNode, Tab, TabBarNode, StyledNode, AnchorNode](nodes.ssc)
 
 ```scalascript
 // badge / tag / pill — status chips.  `variant` is a runtime value
@@ -45,6 +46,13 @@ def tabBar(active: Any, tabs: List[Tab]): TkNode =
 //   styled(["bg" -> "surface", "radius" -> "md", "paddingY" -> "smd", "paddingX" -> "16"])(child)
 def styled(props: Map[String, String])(children: TkNode*): TkNode =
   StyledNode(props, children.toList)
+
+// link — a themed plain anchor for back/cross navigation.  `href` is passed
+// through verbatim (hash routes like "#/inbox"); use this instead of a raw
+// element("a", ...) so the colour stays themed/portable.  `variant`:
+//   default → onSurface (strong), muted → muted, primary → primary.
+def link(href: String, label: String, variant: String = "default"): TkNode =
+  AnchorNode(href, label, variant)
 
 def spinner(): TkNode = SpinnerNode()
 

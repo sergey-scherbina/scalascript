@@ -37,6 +37,7 @@ exports:
   - Tab
   - TabBarNode
   - BoxNode
+  - AnchorNode
 ---
 
 # `std.ui.nodes` — widget ADT
@@ -162,4 +163,10 @@ case class BoxNode(maxWidth: Int,
                    width:    Int,
                    height:   Int,
                    children: List[TkNode])               extends TkNode
+
+// Anchor — a themed plain `<a href>` for back/cross navigation (hash routes).
+// Unlike LinkNode it does NOT set a signal: `href` is passed through verbatim
+// (e.g. "#/inbox").  `variant` is a RUNTIME string resolved to a ColorToken in
+// lower.ssc: default→onSurface (strong), muted→muted, primary→primary.
+case class AnchorNode(href: String, label: String, variant: String) extends TkNode
 ```

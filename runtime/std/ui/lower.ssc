@@ -14,7 +14,7 @@ Pure function, no DOM, no async — safe for SSR.
 Import this + a Theme, build your tree with widget constructors,
 then call `serve(lower(tree, defaultTheme), 8080)`.
 
-[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, ShowWhenNode, SignalTextNode, FragmentNode, RawTextNode, TextFieldNode, CheckboxNode, SignalButtonNode, ActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode, DataTableNode, StyledNode, TagNode, PillNode, KpiCardNode, Tab, TabBarNode, BoxNode](nodes.ssc)
+[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, ShowWhenNode, SignalTextNode, FragmentNode, RawTextNode, TextFieldNode, CheckboxNode, SignalButtonNode, ActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode, DataTableNode, StyledNode, TagNode, PillNode, KpiCardNode, Tab, TabBarNode, BoxNode, AnchorNode](nodes.ssc)
 
 [Theme, TypographyItem](theme.ssc)
 
@@ -72,6 +72,13 @@ def _statusColor(variant: String, theme: Theme): String = variant match
   case "warning" => theme.colors.warning
   case "info"    => theme.colors.primary
   case _         => theme.colors.muted
+
+// link variant (runtime String) → themed colour.  default = strong onSurface
+// (matches the busi-local linkText it replaces); unknown → onSurface.
+def _linkColor(variant: String, theme: Theme): String = variant match
+  case "muted"   => theme.colors.muted
+  case "primary" => theme.colors.primary
+  case _         => theme.colors.onSurface
 
 // One style prop → CSS.  Token-resolved against the active Theme; unknown keys
 // drop out.  Nothing is hardcoded, so Theme.dark / Theme.mobile re-resolve.
@@ -402,6 +409,16 @@ def lower(n: TkNode, theme: Theme): View = n match
     element("a",
       ["href" -> to, "style" -> style],
       ["click" -> setSignal(currentAny, to)],
+      [textNode(label)])
+
+  // Plain themed anchor — href passed through verbatim (hash routes), no signal.
+  case AnchorNode(href, label, variant) =>
+    val t     = theme.typography.body
+    val style = s"color:${_linkColor(variant, theme)}; text-decoration:none; font-weight:600; " +
+                s"cursor:pointer; font-size:${t.fontSize}px; font-family:${t.fontFamily}"
+    element("a",
+      ["href" -> href, "style" -> style],
+      Map(),
       [textNode(label)])
 
   case DataTableNode(signal, columns, actions) =>
