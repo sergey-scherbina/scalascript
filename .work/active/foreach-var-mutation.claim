@@ -1,3 +1,0 @@
-foreach-var-mutation: xs.foreach(x => outerVar = ...) does not propagate mutation; outerVar stays pre-loop value (silent wrong result). Spec specs/foreach-var-mutation.md.
-agent: opus-autonomous
-started: 2026-06-10
