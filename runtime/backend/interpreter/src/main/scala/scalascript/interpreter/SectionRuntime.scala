@@ -339,6 +339,7 @@ private[interpreter] object SectionRuntime:
     }
     interp.parentTypes    ++= child.exportedParentTypes
     interp.typeFieldOrder ++= child.exportedTypeFieldOrder
+    interp.typeFieldDefaults ++= child.exportedTypeFieldDefaults
     interp.typeFieldSchemas ++= child.exportedTypeFieldSchemas
     interp.rejectUnknownTypes ++= child.exportedRejectUnknownTypes
     // Transitive call-time resolution.  A dependency's exported function may

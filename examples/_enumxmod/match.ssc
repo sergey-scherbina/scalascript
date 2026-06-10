@@ -1,0 +1,14 @@
+---
+name: enumxmod-match
+exports:
+  - radName
+---
+# match
+[Rad, Sty](def.ssc)
+```scalascript
+def radName(s: Sty): String = s.radius match
+  case Some(Rad.Sm) => "sm"
+  case Some(Rad.Md) => "md"
+  case Some(Rad.Lg) => "lg"
+  case None         => "none"
+```

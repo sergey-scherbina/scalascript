@@ -1423,6 +1423,7 @@ class Interpreter(
     extensions.iterator.flatMap { case (t, mm) => mm.iterator.map { case (m, f) => (t, m) -> f } }.toMap
   def exportedParentTypes:   Map[String, String]               = parentTypes.toMap
   def exportedTypeFieldOrder: Map[String, List[String]]        = typeFieldOrder.toMap
+  def exportedTypeFieldDefaults: Map[String, (List[Option[scala.meta.Term]], Env)] = typeFieldDefaults.toMap
   def exportedTypeFieldTypes: Map[String, List[String]]        = typeFieldTypes.toMap
   def exportedTypeFieldSchemas: Map[String, List[TypeFieldSchema]] = typeFieldSchemas.toMap
   def exportedRejectUnknownTypes: Set[String]                  = rejectUnknownTypes.toSet

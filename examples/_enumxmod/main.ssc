@@ -1,0 +1,10 @@
+---
+name: enumxmod-main
+---
+# main
+[Rad, Sty](def.ssc)
+[radName](match.ssc)
+```scalascript
+val s = Sty(bg = Some("x"), radius = Some(Rad.Md))
+println("result:" + radName(s))
+```

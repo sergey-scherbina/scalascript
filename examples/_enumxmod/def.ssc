@@ -1,0 +1,15 @@
+---
+name: enumxmod-def
+exports:
+  - Rad
+  - Sty
+---
+# def
+```scalascript
+enum Rad:
+  case Sm
+  case Md
+  case Lg
+
+case class Sty(bg: Option[String] = None, radius: Option[Rad] = None, pad: Option[Int] = None)
+```
