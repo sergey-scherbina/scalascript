@@ -8,6 +8,82 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Honest-bench follow-ups + cross-backend outliers (2026-06-10)
+
+Re-audit of the 24-workload cross-backend table (`bench.sh`).  After the
+2026-06-09 honesty work (opaque-seed, JVM-parity, rust-fixes), the sub-µs
+JVM/rust cells are understood as documented DCE/anti-fold artifacts.  The
+*remaining* honest outliers are genuine per-backend pathologies.  Baselines
+below measured on M1 via `bin/ssc bench --machine --backend <b> bench/corpus/<w>.ssc`
+(2026-06-10, this machine — re-measure before A/B).
+
+Root-cause finding (interp): generic HOF closure application
+(`List.map` / `foldLeft`) costs **~1.25 µs/element**, independent of the
+closure body (`s.length`, `s.toInt`, `s.trim` all ~9.5 ms on the
+split-map probe).  `Computation.mapSequence` itself is already allocation-free
+on the all-`Pure` path; the cost is in `callValue1Slow` per element:
+`FrameMap.one` alloc + `callStackPush/Pop` + tree-walk of the body.  The
+bytecode JIT (`JitRuntime.tryRun1`) bails on String/trait closures so none
+of these workloads are JIT-accelerated.  Decomposition probe data:
+`split-only 1.78ms`, `+.map(any 1-op closure) ~9.5ms`, `+.map(.trim.toInt) 14.7ms`,
+`+foldLeft 18.7ms`; manual `parts(j)` index loop is **47ms** (List random
+access is O(n) → O(n²)).
+
+- [ ] **interp-hof-frame-reuse** — Extend the foreach reused-frame fast path
+      (`CallRuntime.foreachReusing` / `ReusableFrame1`) to `List.map` and
+      `List.foldLeft` when the closure is `isSimple1ParamFun` / simple-2-param.
+      Avoids one `FrameMap.one` alloc + (optionally) callStack bookkeeping per
+      element.  Baseline: string-split interp **18.7 ms** (jvm 0.084 → 222×);
+      probe `map_id` **9.34 ms**.  Target: shave the per-element constant; A/B
+      with the new `stringSplit` JMH bench (added in this task) + `scripts/bench
+      profile`.  Land only on a measured win; suite must stay green both JIT
+      backends.
+
+- [ ] **interp-jit-string-closure** — Teach the bytecode JIT `tryRun1` to
+      compile simple String-returning/consuming closures (`s.length`,
+      `s.trim`, `s.toInt`, `s + lit`) so `split(...).map(...)` chains hit the
+      JIT instead of tree-walk.  Bigger than frame-reuse; do after it.  Target:
+      string-split toward the rust/js band (0.3 ms) rather than 18 ms.
+
+- [ ] **interp-typeclass-fold-devirt** — typeclass-fold interp **1.85 ms**
+      (jvm 0.003 → ~600× here; table 937×).  JIT already helps 2.5× (off 4.65
+      → on 1.87).  `foldLeft(empty)(combine)` applies a trait-method-dispatch
+      closure 3000×.  Cache/devirtualise the resolved `given` `combine` for the
+      monomorphic `Monoid[Int]` call site so the fold runs a primitive
+      `(Int,Int)=>Int` fast path.  A/B via JMH `typeclassFold` (add a heavier
+      300×10 variant matching the corpus so the win is visible).
+
+- [ ] **js-instance-field-shape** — JS `instance-field` **1.41 ms** vs jvm
+      0.00033 (**4270×**) and even interp 0.0073 (193×) — the single worst JS
+      outlier.  case-class field access + monomorphic dispatch in a hot loop is
+      megamorphic on the JS backend.  Investigate `JsRuntime*` object-shape /
+      field-access lowering (stable hidden class? per-iter object rebuild?).
+      Acceptance: `bench.sh --backend js instance-field` within ~10× of jvm.
+
+- [ ] **js-nested-loop** — JS `nested-loop` **5.48 ms** vs ~0.25 elsewhere
+      (22×).  Doubly-nested `while` gets no inner-loop optimisation on the JS
+      backend.  Lower-priority than instance-field; same investigation lane.
+
+- [ ] **bench-consistency-jmh-vs-corpus** [honesty/clarity] — `InterpreterBench`
+      JMH and the `bench.sh` corpus use *different* workloads under the same
+      name (e.g. JMH `typeclassFold` = `combineAll(List(1,2,3,4))` once;
+      corpus = `300 × combineAll(List(1..10))`).  Both legitimate (micro vs
+      macro), but a reader comparing 0.009 ms (JMH) to 2.81 ms (table) is
+      misled.  Add a one-paragraph note to `docs/benchmarks.md` clarifying the
+      two harnesses measure different scales, and (optionally) rename JMH
+      methods that diverge from the corpus to `<name>Micro`.
+
+- [ ] **bench-fairness-rust-antifold-audit** [verify, not a perf bug] —
+      `arith-loop` rust **1.27 ms** vs jvm 0.27 (4.7×) and `string-concat`
+      rust 1.03.  Prior work concluded rust is honest (real loop, no fold).
+      Confirm the `i ^ seed` source-side anti-fold (which defeats LLVM
+      autovectorisation) isn't unfairly heavier than the JVM's lighter
+      `Bench.opaque` volatile barrier — i.e. that the 4.7× is real codegen
+      cost, not an asymmetric anti-fold tax.  If asymmetric, equalise the
+      barrier; else document the gap as genuine in `docs/bench/`.
+
+---
+
 ## Bench honesty + ssc/JS perf (2026-06-09)
 
 After closing the JVM↔Rust gap on six workloads, deeper inspection shows
