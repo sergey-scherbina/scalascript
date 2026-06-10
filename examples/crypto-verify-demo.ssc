@@ -1,0 +1,19 @@
+import std.crypto.*
+
+// Verify a public-key signature without any pre-shared secret.
+// Inputs here are the RFC 8032 Ed25519 test vector #2 (message = "r").
+
+val publicKey = "PUAXw+hDiVqStwqnTRt+vJyYLM8uxJaMwM1V8Sr0Zgw="
+val message   = "r"
+val signature = "kqAJqfDUyrhyDoILX2QlQKKye1QWUD+Ps3YiI+vbadoIWsHkPhWZbkWPNhPQ8R2MOHsurrQwKu6wDSkWErsMAA=="
+
+val ok = verifyEd25519(publicKey, message, signature)
+println(s"signature valid: $ok")           // true
+
+// Tampering with the message makes verification fail — totally, never throwing.
+val tampered = verifyEd25519(publicKey, "R", signature)
+println(s"tampered valid: $tampered")        // false
+
+// Malformed input is also just `false` (safe against hostile peers).
+val malformed = verifyEd25519("not-a-key", message, signature)
+println(s"malformed valid: $malformed")      // false

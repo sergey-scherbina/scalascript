@@ -77,6 +77,49 @@ object CryptoIntrinsics:
       b64e(cert.getPublicKey.getEncoded)
     catch case e: Throwable => throw new RuntimeException(s"x509PublicKey: ${e.getMessage}")
 
+  // ── public-key signature verification helpers ─────────────────────────────
+  // All verifiers are TOTAL: malformed key / signature / scheme → false, never
+  // throw, so a hostile peer cannot crash the verifier.
+
+  private def b64dUrl(s: String): Array[Byte] =
+    java.util.Base64.getUrlDecoder.decode(s)
+
+  /** Build an Ed25519 `PublicKey` from either a raw 32-byte key or SPKI DER. */
+  private def ed25519PublicKey(bytes: Array[Byte]): java.security.PublicKey =
+    val der =
+      if bytes.length == 32 then
+        // Prepend the fixed Ed25519 SPKI header (RFC 8410) to the raw key.
+        val prefix = Array(0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00).map(_.toByte)
+        prefix ++ bytes
+      else bytes
+    java.security.KeyFactory.getInstance("Ed25519")
+      .generatePublic(new java.security.spec.X509EncodedKeySpec(der))
+
+  private def verifyEd25519B64(pubB64: String, message: String, sigB64: String,
+                               dec: String => Array[Byte]): Boolean =
+    try
+      val v = java.security.Signature.getInstance("Ed25519")
+      v.initVerify(ed25519PublicKey(dec(pubB64)))
+      v.update(message.getBytes("UTF-8"))
+      v.verify(dec(sigB64))
+    catch case _: Throwable => false
+
+  private def verifyRsaSha256Raw(pubB64: String, message: String, sigB64: String, scheme: String): Boolean =
+    try
+      val pub = java.security.KeyFactory.getInstance("RSA")
+        .generatePublic(new java.security.spec.X509EncodedKeySpec(b64d(pubB64)))
+      val v =
+        if scheme == "PSS" then
+          val s = java.security.Signature.getInstance("RSASSA-PSS")
+          s.setParameter(new java.security.spec.PSSParameterSpec(
+            "SHA-256", "MGF1", java.security.spec.MGF1ParameterSpec.SHA256, 32, 1))
+          s
+        else java.security.Signature.getInstance("SHA256withRSA")
+      v.initVerify(pub)
+      v.update(message.getBytes("UTF-8"))
+      v.verify(b64d(sigB64))
+    catch case _: Throwable => false
+
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
     QualifiedName("sha256") -> native {
@@ -155,6 +198,26 @@ object CryptoIntrinsics:
       case List(certB64OrPem: String) =>
         Value.StringV(x509PublicKeyRaw(certB64OrPem))
       case _ => throw new RuntimeException("x509PublicKey(certB64OrPem)")
+    },
+
+    // ── public-key signature verification (total — malformed → false) ───────
+
+    QualifiedName("verifyEd25519") -> native {
+      case List(publicKey: String, message: String, signature: String) =>
+        Value.boolV(verifyEd25519B64(publicKey, message, signature, b64d))
+      case _ => Value.boolV(false)
+    },
+
+    QualifiedName("verifyEd25519Url") -> native {
+      case List(publicKey: String, message: String, signature: String) =>
+        Value.boolV(verifyEd25519B64(publicKey, message, signature, b64dUrl))
+      case _ => Value.boolV(false)
+    },
+
+    QualifiedName("verifyRsaSha256") -> native {
+      case List(publicKey: String, message: String, signature: String, scheme: String) =>
+        Value.boolV(verifyRsaSha256Raw(publicKey, message, signature, scheme))
+      case _ => Value.boolV(false)
     },
 
   )

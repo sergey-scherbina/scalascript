@@ -183,3 +183,60 @@ class CryptoPluginTest extends AnyFunSuite:
          |rsaOaepEncrypt(pk, "$msgB64")""".stripMargin)
     assert(ct.nonEmpty && java.util.Base64.getDecoder.decode(ct).length == 256,
       "RSA-2048 OAEP ciphertext must be 256 bytes")
+
+  // ── Ed25519 signature verification (RFC 8032 test vectors) ───────────────
+
+  private def evalBool(snippet: String): Boolean =
+    interp.eval(snippet).asInstanceOf[Boolean]
+  private def hex(s: String): Array[Byte] =
+    s.grouped(2).map(h => Integer.parseInt(h, 16).toByte).toArray
+  private def b64(b: Array[Byte]): String = java.util.Base64.getEncoder.encodeToString(b)
+
+  test("verifyEd25519 true for RFC 8032 test 1 (empty message)"):
+    val pub = b64(hex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"))
+    val sig = b64(hex("e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"))
+    assert(evalBool(s"""verifyEd25519("$pub", "", "$sig")"""))
+
+  test("verifyEd25519 true for RFC 8032 test 2 (1-byte message 'r')"):
+    val pub = b64(hex("3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"))
+    val sig = b64(hex("92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00"))
+    assert(evalBool(s"""verifyEd25519("$pub", "r", "$sig")"""))
+
+  test("verifyEd25519 false for tampered message / wrong sig / malformed input"):
+    val pub = b64(hex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"))
+    val sig = b64(hex("e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"))
+    assert(!evalBool(s"""verifyEd25519("$pub", "tampered", "$sig")"""), "tampered message must fail")
+    assert(!evalBool(s"""verifyEd25519("$pub", "", "QUJD")"""), "wrong signature must fail")
+    assert(!evalBool("""verifyEd25519("not-base64!!", "", "QUJD")"""), "malformed key must return false, not throw")
+
+  test("verifyEd25519Url decodes base64url key + signature"):
+    val pubRaw = hex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
+    val sigRaw = hex("e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b")
+    val pubUrl = java.util.Base64.getUrlEncoder.withoutPadding.encodeToString(pubRaw)
+    val sigUrl = java.util.Base64.getUrlEncoder.withoutPadding.encodeToString(sigRaw)
+    assert(evalBool(s"""verifyEd25519Url("$pubUrl", "", "$sigUrl")"""))
+
+  // ── RSA signature verification (JCE-generated keypair, PKCS1 + PSS) ───────
+
+  test("verifyRsaSha256 true for a PKCS1 signature, false when tampered"):
+    val kp = java.security.KeyPairGenerator.getInstance("RSA"); kp.initialize(2048)
+    val pair = kp.generateKeyPair()
+    val spki = b64(pair.getPublic.getEncoded)
+    val signer = java.security.Signature.getInstance("SHA256withRSA")
+    signer.initSign(pair.getPrivate); signer.update("hello".getBytes("UTF-8"))
+    val sig = b64(signer.sign())
+    assert(evalBool(s"""verifyRsaSha256("$spki", "hello", "$sig", "PKCS1")"""))
+    assert(!evalBool(s"""verifyRsaSha256("$spki", "HELLO", "$sig", "PKCS1")"""), "tampered must fail")
+
+  test("verifyRsaSha256 true for a PSS signature"):
+    val kp = java.security.KeyPairGenerator.getInstance("RSA"); kp.initialize(2048)
+    val pair = kp.generateKeyPair()
+    val spki = b64(pair.getPublic.getEncoded)
+    val signer = java.security.Signature.getInstance("RSASSA-PSS")
+    signer.setParameter(new java.security.spec.PSSParameterSpec(
+      "SHA-256", "MGF1", java.security.spec.MGF1ParameterSpec.SHA256, 32, 1))
+    signer.initSign(pair.getPrivate); signer.update("envelope".getBytes("UTF-8"))
+    val sig = b64(signer.sign())
+    assert(evalBool(s"""verifyRsaSha256("$spki", "envelope", "$sig", "PSS")"""))
+    // A PSS signature must NOT verify as PKCS1.
+    assert(!evalBool(s"""verifyRsaSha256("$spki", "envelope", "$sig", "PKCS1")"""))
