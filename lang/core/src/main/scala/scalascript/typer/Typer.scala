@@ -220,6 +220,11 @@ class Typer(
     s.define(Symbol("render",  SType.Function(List(SType.Any), SType.Unit), SymbolKind.Def))
     s.define(Symbol("serve",      SType.Function(List(SType.Any), SType.Unit), SymbolKind.Def))
     s.define(Symbol("serveAsync", SType.Function(List(SType.Any), SType.Unit), SymbolKind.Def))
+    // Value (de)serialization builtins — interpreter globals (BuiltinsRuntime),
+    // not plugin intrinsics, so a standalone `ssc check` of a single module that
+    // uses them (without a full-program run) would otherwise flag them undefined.
+    s.define(Symbol("toWire",   SType.Function(List(SType.Any),    SType.String), SymbolKind.Def))
+    s.define(Symbol("fromWire", SType.Function(List(SType.String), SType.Any),    SymbolKind.Def))
     // Effect / actor / runtime intrinsics — the interpreter recognises these
     // by name (see backend-interpreter/Interpreter.scala).  Seeding them here
     // prevents strict-mode false-positives for code that uses real ScalaScript
