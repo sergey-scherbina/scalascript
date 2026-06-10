@@ -1,3 +1,0 @@
-middleware-before-routing: global use{} middleware should run for unrouted paths too (currently 404s before middleware). Restructure InterpreterHttpHandler.onHttpRequest: always run middleware chain, base = route-handler-or-fallback-404.
-agent: opus-interactive
-started: 2026-06-10
