@@ -1,0 +1,45 @@
+---
+name: std-smtp
+version: 1.0.0
+description: Native SMTP submission — smtpSend (RFC 5321, STARTTLS + AUTH LOGIN, JVM only).
+package: std.smtp
+exports:
+  - smtpSend
+---
+
+# smtp
+
+Submit a pre-assembled RFC 5322 message (see `buildMimeMessage` in `std.mime`)
+over SMTP. Hand-rolled, dependency-free client in the opt-in `smtp-plugin`:
+greeting → `EHLO` → optional `STARTTLS` → optional `AUTH LOGIN` → `MAIL FROM` →
+`RCPT TO`(×N) → `DATA` → `QUIT`. **JVM / interpreter only** (no raw sockets in the
+browser).
+
+- `useTls = true` upgrades the plaintext connection with `STARTTLS` before AUTH
+  (the common transactional-provider setup on port 587: SendGrid, Mailgun,
+  Postmark, Gmail app-passwords). `useTls = false` sends in the clear.
+- `username = ""` skips authentication.
+- `envelopeTo` may carry several recipients; each gets its own `RCPT TO`.
+- Returns the server's final `DATA` reply line on success (e.g.
+  `250 2.0.0 Ok: queued`). On a permanent (`5xx`) or transient (`4xx`) protocol
+  failure it raises an error whose message is tagged `permanent` / `transient`
+  plus the SMTP reply, so a caller's send/retry audit can classify it. A bad
+  host/port surfaces as an error too — it never hangs the interpreter (connect
+  and read timeouts are bounded).
+- For an internal relay with a self-signed certificate, set the JVM system
+  property `ssc.smtp.insecureTrustAll=true` to skip STARTTLS cert validation.
+
+```scalascript
+/** Submit an RFC 5322 message over SMTP (STARTTLS + AUTH LOGIN). JVM only.
+ *  Returns the final server reply on success; raises a tagged error on failure. */
+extern def smtpSend(
+  host: String,
+  port: Int,
+  username: String,
+  password: String,
+  useTls: Boolean,
+  envelopeFrom: String,
+  envelopeTo: List[String],
+  message: String
+): String
+```

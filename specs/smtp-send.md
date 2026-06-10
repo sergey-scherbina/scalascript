@@ -1,6 +1,10 @@
 # Native `smtpSend` extern
 
-**Status**: spec — feature. Requested by busi (email delivery), 2026-06-09.
+**Status**: LANDED 2026-06-10. `smtpSend` ships in the opt-in `smtp-plugin`
+(`runtime/std/smtp.ssc` + `runtime/std/smtp-plugin/`), a hand-rolled, dependency-free
+RFC 5321 client; `SmtpPluginTest` drives it end-to-end against an in-process server
+(`FakeSmtpServer`) covering every checklist item including a real STARTTLS handshake.
+**Requested by**: busi (email delivery), 2026-06-09.
 **Priority**: medium. Workaround exists (HTTP relay), so this removes an external
 dependency rather than unblocking a hard requirement.
 **Pairs with**: [`pdf-mime-generation.md`](pdf-mime-generation.md) (MIME assembly).
@@ -45,11 +49,11 @@ future follow-up.
 
 ## 4  Behavior checklist
 
-- [ ] `smtpSend` to a local test SMTP sink (e.g. an in-test server) delivers the message.
-- [ ] STARTTLS path negotiates TLS before AUTH.
-- [ ] Auth failure returns a permanent-error descriptor, no hang.
-- [ ] Multiple RCPT TO recipients all receive the message.
-- [ ] Malformed host/port returns an error, does not crash the interpreter.
+- [x] `smtpSend` to a local test SMTP sink (e.g. an in-test server) delivers the message.
+- [x] STARTTLS path negotiates TLS before AUTH (real TLS handshake against a self-signed test cert).
+- [x] Auth failure returns a permanent-error descriptor (`535` → tagged `permanent`), no hang.
+- [x] Multiple RCPT TO recipients all receive the message.
+- [x] Malformed host/port returns an error, does not crash the interpreter (bounded connect timeout).
 
 ## 5  Verification
 
