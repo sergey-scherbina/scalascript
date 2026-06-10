@@ -1,3 +1,0 @@
-pdf-plugin-staging: htmlToPdfBase64 fails in staged binary (LogFactory) — pdf-plugin .sscpkg is missing commons-logging (filtered by packagePlugin providedByDeps). Fix so transitive runtime deps reach the staged binary.
-agent: opus-interactive
-started: 2026-06-10
