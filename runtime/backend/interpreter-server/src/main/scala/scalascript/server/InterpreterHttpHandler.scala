@@ -53,51 +53,69 @@ final class InterpreterHttpHandler(
   // shaped as POJO → POJO so the SPI impl writes the wire bytes. ──────
 
   override def onHttpRequest(req: Request): HttpResult =
-    routeRegistry.matchRequest(req.method, req.path) match
-      case None =>
-        fallbackRenderer(req) match
-          case Some(resp) => HttpResult.PlainResp(resp)
-          case None       => HttpResult.Reject(404, s"Not Found: ${req.path}")
-      case Some((entry, params)) =>
-        val request = liftRequest(req.copy(params = params))
-        val interp  = entry.interpreter
-        // Determine the argument list: 2-arg FunV (Request, Map) => Response gets
-        // the mountCtx map as a second argument; all other handlers get only request.
-        val handlerArgs: List[Value] = entry.handler match
-          case Value.FunV(ps, _, _, _, _, _, _, _) if ps.length >= 2 =>
-            val ctxMap = Value.MapV(entry.mountCtx.map { (k, v) =>
-              (Value.StringV(k): Value) -> v
-            })
-            List(request, ctxMap)
-          case _ =>
-            List(request)
-        val baseHandler: () => Any =
+    val matched = routeRegistry.matchRequest(req.method, req.path)
+
+    // Fast path: no global middleware AND no matching route → the original
+    // 404 / fallback behaviour, byte-for-byte unchanged.
+    if matched.isEmpty && routeRegistry.middlewares.isEmpty then
+      fallbackRenderer(req) match
+        case Some(resp) => HttpResult.PlainResp(resp)
+        case None       => HttpResult.Reject(404, s"Not Found: ${req.path}")
+    else
+      val request = liftRequest(req.copy(params = matched.map(_._2).getOrElse(Map.empty)))
+
+      // The base of the chain is the matched route handler, or — when no route
+      // matched — the fallback/404 renderer.  Wrapping the latter in the
+      // middleware chain is the fix: a global `use { (req, next) => … }` now runs
+      // for UNROUTED paths too, so it can short-circuit them (e.g. a health probe
+      // or a blanket auth gate) instead of being skipped by an early 404.
+      val baseHandler: () => Any = matched match
+        case Some((entry, _)) =>
+          // 2-arg FunV (Request, Map) => Response gets the mountCtx map as a
+          // second argument; all other handlers get only the request.
+          val handlerArgs: List[Value] = entry.handler match
+            case Value.FunV(ps, _, _, _, _, _, _, _) if ps.length >= 2 =>
+              val ctxMap = Value.MapV(entry.mountCtx.map { (k, v) =>
+                (Value.StringV(k): Value) -> v
+              })
+              List(request, ctxMap)
+            case _ =>
+              List(request)
           () =>
-            try unwrap(interp.invoke(entry.handler, handlerArgs))
+            try unwrap(entry.interpreter.invoke(entry.handler, handlerArgs))
             catch case ve: RestValidationError =>
               Response(400,
                 Map("Content-Type" -> "text/plain; charset=utf-8"),
                 ve.getMessage)
-        var chain: () => Any = baseHandler
-        routeRegistry.middlewares.reverseIterator.foreach { case (fn, mwInterp) =>
-          val inner = chain
-          val nextFn = Value.NativeFnV("next",
-            Computation.pureFn(_ => reliftAnyToValue(inner())))
-          val cur: () => Any = () =>
-            unwrap(mwInterp.invoke(fn, List(request, nextFn)))
-          chain = cur
-        }
-        try chain() match
-          case sr: StreamResponse => HttpResult.StreamResp(sr)
-          case r:  Response       => HttpResult.PlainResp(r)
-          case other              =>
-            HttpResult.PlainResp(Response(200,
-              Map("Content-Type" -> "text/plain; charset=utf-8"),
-              String.valueOf(other)))
-        catch case e: Throwable =>
-          log.println(s"Error: ${e.getMessage}")
-          Metrics.http5xx.incrementAndGet()
-          HttpResult.Reject(500, "Internal Server Error")
+        case None =>
+          () =>
+            fallbackRenderer(req) match
+              case Some(resp) => resp
+              case None       =>
+                Response(404,
+                  Map("Content-Type" -> "text/plain; charset=utf-8"),
+                  s"Not Found: ${req.path}")
+
+      var chain: () => Any = baseHandler
+      routeRegistry.middlewares.reverseIterator.foreach { case (fn, mwInterp) =>
+        val inner = chain
+        val nextFn = Value.NativeFnV("next",
+          Computation.pureFn(_ => reliftAnyToValue(inner())))
+        val cur: () => Any = () =>
+          unwrap(mwInterp.invoke(fn, List(request, nextFn)))
+        chain = cur
+      }
+      try chain() match
+        case sr: StreamResponse => HttpResult.StreamResp(sr)
+        case r:  Response       => HttpResult.PlainResp(r)
+        case other              =>
+          HttpResult.PlainResp(Response(200,
+            Map("Content-Type" -> "text/plain; charset=utf-8"),
+            String.valueOf(other)))
+      catch case e: Throwable =>
+        log.println(s"Error: ${e.getMessage}")
+        Metrics.http5xx.incrementAndGet()
+        HttpResult.Reject(500, "Internal Server Error")
 
   // ── WS upgrade decision — origin / auth / slot / subprotocol — and
   // build a per-connection listener that dispatches to the registered
