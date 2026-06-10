@@ -290,6 +290,13 @@ object JsGen:
     ("Logger", "log"), ("Logger", "warn"), ("Logger", "error"),
   )
 
+  /** Single-element-param list HOFs whose closure param can be typed to the
+   *  receiver's numeric element type (see `genClosureWithParamType`). */
+  val numericListHofs: Set[String] = Set(
+    "map", "filter", "filterNot", "foreach", "forall", "exists", "find",
+    "count", "takeWhile", "dropWhile",
+  )
+
 
 
 
@@ -441,6 +448,83 @@ class JsGen(
   // Lets `v.field` lower to a direct property read `v.field` (and `isIntExpr` see
   // an Int field) instead of the megamorphic `_dispatch(v, 'field', [])` call.
   private val instanceVars = scala.collection.mutable.Map[String, String]()
+  // Variables holding a numeric-element collection (varName → "Int"/"Long"/"Double"/"Float").
+  // Lets a HOF closure param over them be typed numeric, so `xs.map(x => x * 2)`
+  // emits native `(x * 2)` instead of `_arith('*', x, 2)` + a string-repeat guard.
+  private val listElemType = scala.collection.mutable.Map[String, String]()
+
+  /** Numeric element type of a `List[T]`/`Seq[T]`/`Vector[T]`/`Array[T]`-style
+   *  declared type, when `T` is a primitive numeric. */
+  private def numericListElem(tpe: Type): Option[String] = tpe match
+    case Type.Apply.After_4_6_0(Type.Name("List" | "Seq" | "Vector" | "IndexedSeq" | "Iterable" | "Array"), argClause) =>
+      argClause.values.headOption.collect {
+        case Type.Name(n) if n == "Int" || n == "Long" || n == "Double" || n == "Float" => n
+      }
+    case _ => None
+
+  /** Run `thunk` with name `p` typed as numeric `elem` in the tracking sets,
+   *  restoring afterwards (removing only what this call added, to respect an
+   *  outer binding of the same name). Used to type HOF closure params. */
+  private def withParamTyped[A](p: String, elem: String)(thunk: => A): A =
+    val isInt    = elem == "Int" || elem == "Long"
+    val addedInt = isInt && !intVars.contains(p)
+    val addedNum = !isInt && !numericVars.contains(p)
+    if isInt then intVars += p else numericVars += p
+    try thunk
+    finally { if addedInt then intVars -= p; if addedNum then numericVars -= p }
+
+  /** Statically-known numeric type of a scalar expression, or None. */
+  private def numericTypeOfExpr(t: Term): Option[String] =
+    if isIntExpr(t) then Some("Int")
+    else if isNumericExpr(t) then Some("Double")
+    else None
+
+  /** Numeric element type of a list/range-valued *expression*, propagated through
+   *  `.map` (→ the closure's result type) and element-preserving ops, plus integer
+   *  ranges (`a until b` / `a to b`). Enables typing closure params down a chain
+   *  like `xs.map(x => x*2).filter(x => x%3==0)`. */
+  private def numericElemOf(t: Term): Option[String] = t match
+    case Term.Name(n) => listElemType.get(n)
+    case Term.ApplyInfix.After_4_6_0(lo, Term.Name("until" | "to"), _, ac)
+        if ac.values.lengthCompare(1) == 0 && isIntExpr(lo) && ac.values.headOption.exists(isIntExpr) =>
+      Some("Int")
+    case Term.Apply.After_4_6_0(Term.Select(q, Term.Name("map")), ac) if ac.values.lengthCompare(1) == 0 =>
+      (numericElemOf(q), ac.values.head) match
+        case (Some(src), Term.Function.After_4_6_0(pc, body)) if pc.values.lengthCompare(1) == 0 =>
+          withParamTyped(pc.values.head.name.value, src)(numericTypeOfExpr(body))
+        case _ => None
+    case Term.Apply.After_4_6_0(Term.Select(q, Term.Name(
+        "filter" | "filterNot" | "take" | "drop" | "takeWhile" | "dropWhile" |
+        "reverse" | "sorted" | "distinct" | "tail" | "init")), _) =>
+      numericElemOf(q)
+    case _ => None
+
+  /** Generate a single-param closure with its parameter typed to `elem` so
+   *  arithmetic on it lowers to native JS ops. Falls back to genExpr otherwise. */
+  private def genClosureWithParamType(fn: Term, elem: String): String = fn match
+    case Term.Function.After_4_6_0(pc, body) if pc.values.lengthCompare(1) == 0 =>
+      val p = pc.values.head.name.value
+      val bodyJs = withParamTyped(p, elem) {
+        body match
+          case Term.Block(stats) => genBlockAsIife(stats)
+          case expr              => genExpr(expr)
+      }
+      s"$p => $bodyJs"
+    case other => genExpr(other)
+
+  /** Generate a two-param closure `(a, b) => …` with both params typed numeric
+   *  (`accElem` for the accumulator, `elem` for the element) — for `foldLeft`. */
+  private def genFold2ClosureTyped(fn: Term, accElem: String, elem: String): String = fn match
+    case Term.Function.After_4_6_0(pc, body) if pc.values.lengthCompare(2) == 0 =>
+      val a = pc.values.head.name.value
+      val b = pc.values(1).name.value
+      val bodyJs = withParamTyped(a, accElem) { withParamTyped(b, elem) {
+        body match
+          case Term.Block(stats) => genBlockAsIife(stats)
+          case expr              => genExpr(expr)
+      } }
+      s"($a, $b) => $bodyJs"
+    case other => genExpr(other)
   // js-codegen-opt-p2: loop-invariant constant tuple hoisting.
   // While-loop codegen sets this buffer; constant-tuple exprs append (name, frozenExpr)
   // and return the name instead of re-allocating on every iteration.
@@ -533,8 +617,15 @@ class JsGen(
             // Any other simple named type: remember varName → typeName. The
             // direct-field decision is gated later on caseClassFieldsByType so a
             // non-case-class type harmlessly falls back to _dispatch.
+            case Some(t) if numericListElem(t).isDefined => listElemType(pv.name.value) = numericListElem(t).get
             case Some(Type.Name(tn))                     => instanceVars(pv.name.value) = tn
             case _ => ()
+        }
+      // Top-level `val xs: List[Int] = …` — track numeric-element collections for
+      // HOF closure-param typing (e.g. bench `val xs: List[Int]`).
+      case dv: Defn.Val =>
+        dv.decltpe.flatMap(numericListElem).foreach { elem =>
+          dv.pats.foreach { case Pat.Var(n) => listElemType(n.value) = elem; case _ => () }
         }
       case _ => ()
     }
@@ -4514,7 +4605,12 @@ class JsGen(
       case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("foldLeft")), initArgClause) =>
         val qualJs = genExpr(qual)
         val initJs = initArgClause.values.map(genExpr).mkString(", ")
-        val fJs = argVals.mkString(", ")
+        // Type the `(acc, elem) => …` combiner when both the seed and the element
+        // are numeric, so `(a, b) => a + b` lowers to native `(a + b)`.
+        val fJs = (initArgClause.values.headOption.flatMap(numericTypeOfExpr), numericElemOf(qual)) match
+          case (Some(accElem), Some(elem)) if rawArgs.lengthCompare(1) == 0 =>
+            genFold2ClosureTyped(rawArgs.head, accElem, elem)
+          case _ => argVals.mkString(", ")
         s"_seqFoldLeft($qualJs, $initJs, $fJs)"
 
       // foldRight curried
@@ -4523,6 +4619,19 @@ class JsGen(
         val initJs = initArgClause.values.map(genExpr).mkString(", ")
         val fJs = argVals.mkString(", ")
         s"(($qualJs).reduceRight(($fJs === undefined ? (acc,x) => acc : (acc,x) => ($fJs)(x, acc)), $initJs))"
+
+      // Numeric-element-list HOFs: type the single closure param to the element
+      // type so `xs.map(x => x * 2)` emits native `(x * 2)` rather than
+      // `_arith('*', x, 2)` + a string-repeat guard. Same runtime shape as the
+      // generic path below — only the closure body changes.
+      case Term.Select(qual, Term.Name(hof))
+          if rawArgs.length == 1
+            && rawArgs.head.isInstanceOf[Term.Function]
+            && JsGen.numericListHofs.contains(hof)
+            && numericElemOf(qual).isDefined =>
+        val closureJs = genClosureWithParamType(rawArgs.head, numericElemOf(qual).get)
+        if hof == "foreach" then s"_forEach(${genExpr(qual)}, $closureJs)"
+        else s"_dispatch(${genExpr(qual)}, '$hof', [$closureJs])"
 
       // Method calls: obj.method(args) → _dispatch(obj, "method", [args])
       case Term.Select(qual, Term.Name(method)) =>
