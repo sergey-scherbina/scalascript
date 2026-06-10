@@ -24,9 +24,13 @@ class JsonValueNodeTest extends AnyFunSuite:
     Files.createDirectories(p)
     p
 
+  // Resolve `[jsonValue](std/json.ssc)` against the project tree (walk up from
+  // the test CWD to the repo root's runtime/std), exactly like emit-spa / the CLI.
+  private val repoBase = Path.of(sys.props.getOrElse("user.dir", "."))
+
   private def runNode(src: String): String =
     val ir = Normalize(Parser.parse(src))
-    val code = backend.compile(ir, BackendOptions()) match
+    val code = backend.compile(ir, BackendOptions(baseDir = Some(repoBase))) match
       case CompileResult.TextOutput(c, "javascript", _) => c
       case other => fail(s"expected javascript TextOutput, got: $other")
     val dir = workDir("decode")
@@ -42,6 +46,8 @@ class JsonValueNodeTest extends AnyFunSuite:
     assume(hasNode, "node not available")
     val src =
       """|# Decode
+         |
+         |[jsonValue](std/json.ssc)
          |
          |```scalascript
          |val j = jsonValue("{\"name\":\"Ada\",\"n\":3,\"amt\":\"1000.01\",\"xs\":[{\"k\":\"a\"},{\"k\":\"b\"}]}")

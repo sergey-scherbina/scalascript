@@ -408,7 +408,11 @@ function jsonParse(s) {
   catch (e) { throw new Error('jsonParse: ' + e.message); }
 }
 
-function jsonStringify(v) { return _toJsonStringify(v); }
+// Named with the `_ssc_ui_` extern convention (JsGen maps every `extern def`
+// to `_ssc_ui_<name>`).  A bare `function jsonStringify` collided at top level
+// with the `const jsonStringify = std.json.jsonStringify` import binding
+// ("Identifier already declared") and left the binding resolving to undefined.
+function _ssc_ui_jsonStringify(v) { return _toJsonStringify(v); }
 
 // v1.5 Tier 5 #22 — indexed access on `Any`-typed JSON values.
 // JS already lets users write `obj("name")` dynamically via `_dispatch`,
@@ -581,7 +585,9 @@ function _jsonValueTotal(inner) {
   self.raw = function() { return inner; };
   return self;
 }
-function jsonValue(s) {
+// `_ssc_ui_` extern convention — see _ssc_ui_jsonStringify above.  A bare
+// `function jsonValue` broke every emit-spa screen importing `jsonValue`.
+function _ssc_ui_jsonValue(s) {
   if (typeof s === 'string') {
     let parsed = null;
     try { parsed = _jsonConvert(JSON.parse(s)); } catch (e) { parsed = null; }
