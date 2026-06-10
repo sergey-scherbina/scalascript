@@ -39,6 +39,14 @@ extern def aesGcmDecrypt(keyB64: String, payloadB64: String): String
 extern def aesGcmEncryptBytes(keyB64: String, plaintextB64: String): String
 extern def aesGcmDecryptBytes(keyB64: String, payloadB64: String): String
 
+// --- Symmetric AES-256-CBC (external IV, PKCS#7) ---
+// KSeF 2.0 encrypts the invoice CONTENT with AES-256-CBC + PKCS#7 (NOT GCM), and
+// carries the 16-byte IV in its own EncryptionInfo.initializationVector field.
+// So the IV is a separate argument and the ciphertext is returned alone.
+extern def aesGenIv(): String                                              // 16 random bytes, base64
+extern def aesCbcEncrypt(keyB64: String, ivB64: String, plaintextB64: String): String
+extern def aesCbcDecrypt(keyB64: String, ivB64: String, ciphertextB64: String): String
+
 // --- RSA public-key encryption (RSA-OAEP, SHA-256) ---
 //   publicKey: base64 SPKI DER (X.509 SubjectPublicKeyInfo), e.g. from a cert.
 extern def rsaOaepEncrypt(publicKeyB64: String, plaintextB64: String): String
@@ -72,6 +80,12 @@ the primitive correctly.
 - [x] `aesGcmDecrypt(k, aesGcmEncrypt(k, m)) == m` round-trips for ASCII + UTF-8.
 - [x] A tampered ciphertext/tag fails decryption (GCM auth), not silent garbage.
 - [x] `aesGenKey()` returns a fresh 256-bit key each call.
+- [x] `aesGenIv()` returns a fresh 16-byte IV each call.
+- [x] `aesCbcDecrypt(k, iv, aesCbcEncrypt(k, iv, m)) == m` round-trips binary
+      payloads; ciphertext is deterministic for a fixed `(key, iv)`.
+- [x] `aesCbcEncrypt` output decrypts with a direct JCE `AES/CBC/PKCS5Padding`
+      cipher (PKCS#7 interop verified); a non-16-byte IV is rejected; a wrong-key
+      decrypt never recovers the plaintext (padding error, not silent garbage).
 - [x] `rsaOaepEncrypt` output decrypts with the matching private key (verified
       against a JCE-generated keypair in `CryptoEncryptTest`).
 - [x] `x509PublicKey` extracts the SPKI key from an X.509 cert (openssl-generated
@@ -86,11 +100,19 @@ already lives in `std.crypto`. (2) **JVM only** for this slice; JS WebCrypto
 (async) deferred — busi's KSeF flow is server-side. (3) RSA-OAEP uses SHA-256 for
 **both** the digest and MGF1; if KSeF mandates MGF1-SHA-1, that is a one-line
 `OAEPParameterSpec` change — busi to confirm against `ksef-client-java`.
+(4) **AES-256-CBC added 2026-06-10** (`aesGenIv`/`aesCbcEncrypt`/`aesCbcDecrypt`):
+busi confirmed (rozum seq 66, vs official KSeF OpenAPI §5222) that KSeF 2.0
+invoice **content** is AES-256-**CBC** + PKCS#7 with a separate 16-byte IV — the
+GCM `iv12||ct||tag16` framing does not fit. CBC takes the IV as its own argument
+and returns the ciphertext alone so it maps onto
+`EncryptionInfo.initializationVector`. GCM variants stay for general-purpose
+authenticated encryption.
 
 ## 5  Verification
 
-`CryptoEncryptTest`: AES-GCM round-trip + tamper, RSA-OAEP against a known
-keypair/vector, X.509 extraction, and negative cases. Interpreter + JVM agree.
+`CryptoPluginTest` (in `crypto-plugin`): AES-GCM round-trip + tamper, AES-CBC
+round-trip + JCE PKCS#7 interop + IV-length/wrong-key negatives, RSA-OAEP against
+a known keypair, X.509 extraction, and negative cases. 41 tests, JVM/interpreter.
 
 ## 6  busi context
 

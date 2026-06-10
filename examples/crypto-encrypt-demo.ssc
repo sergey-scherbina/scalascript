@@ -39,3 +39,13 @@ val serverPubKey  = x509PublicKey(serverCertPem)  // base64 SPKI DER
 // The session key is already base64 of its bytes, so it is the OAEP plaintext.
 val wrappedKey    = rsaOaepEncrypt(serverPubKey, sessionKey)
 println(s"RSA-OAEP wrapped session key (base64, ${wrappedKey.length} chars) produced")
+
+// --- KSeF 2.0 invoice content: AES-256-CBC + PKCS#7 with an EXTERNAL IV ---
+// KSeF encrypts the invoice payload with AES-256-CBC (not GCM); the 16-byte IV
+// travels in its own EncryptionInfo.initializationVector field, so it is passed
+// separately and the ciphertext is returned alone.
+val iv         = aesGenIv()                              // base64 of 16 random bytes
+val invoiceB64 = base64Encode(invoice)                   // CBC operates on bytes
+val cbcCipher  = aesCbcEncrypt(sessionKey, iv, invoiceB64)
+val cbcPlain   = base64Decode(aesCbcDecrypt(sessionKey, iv, cbcCipher))
+println(s"AES-256-CBC round-trip ok: ${cbcPlain == invoice}")
