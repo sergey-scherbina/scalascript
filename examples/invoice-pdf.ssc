@@ -1,0 +1,29 @@
+import std.pdf.*
+
+// Build an invoice as HTML (table layout + a <style> block), then render it to
+// PDF bytes (base64) with the bundled engine — no external relay needed.
+
+val invoiceHtml =
+  "<html><head><style>" +
+    "body{font-family:Helvetica;font-size:12px;margin:24px}" +
+    "h1{font-size:20px}" +
+    "table{width:100%;border:1px solid #333;border-collapse:collapse}" +
+    "th,td{padding:6px;border:1px solid #333}" +
+    "thead{background-color:#eee}" +
+    "@media print{body{margin:0}}" +
+    "</style></head><body>" +
+    "<h1>Faktura FV/2026/1</h1>" +
+    "<p>Sprzedawca: <strong>ACME sp. z o.o.</strong></p>" +
+    "<table><thead><tr><th>Pozycja</th><th>Ilosc</th><th>Kwota</th></tr></thead>" +
+    "<tbody>" +
+    "<tr><td>Usluga A</td><td>1</td><td>1000.01 zl</td></tr>" +
+    "<tr><td>Usluga B</td><td>2</td><td>500.00 zl</td></tr>" +
+    "</tbody></table>" +
+    "<p>Razem: <strong>1500.01 zl</strong></p>" +
+    "</body></html>"
+
+val pdfBase64 = htmlToPdfBase64(invoiceHtml)
+
+// `pdfBase64` is the same shape busi's PDF relay returns — attach it to an email
+// or base64-decode it to bytes and write a .pdf file.
+println(s"PDF generated: ${pdfBase64.length} base64 chars")

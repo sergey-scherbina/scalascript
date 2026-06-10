@@ -1077,6 +1077,7 @@ lazy val cli = project
         (paymentsPlugin        / packagePlugin).value,
         (uuidPlugin            / packagePlugin).value,
         (cryptoPlugin          / packagePlugin).value,
+        (pdfPlugin             / packagePlugin).value,
         (benchPlugin           / packagePlugin).value,
       )
       pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
@@ -2656,6 +2657,22 @@ lazy val cryptoPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.crypto"))
 
+// ── PDF generation — htmlToPdfBase64 via OpenHTMLtoPDF (opt-in, JVM only) ──
+lazy val pdfPlugin = project
+  .in(file("runtime/std/pdf-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-pdf-plugin",
+    libraryDependencies ++= Seq(
+      "com.openhtmltopdf" % "openhtmltopdf-pdfbox" % "1.0.10",
+      "org.jsoup"         % "jsoup"                % "1.17.2",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.pdf"))
+
 // ── Bench — bench-harness helpers (Bench.opaque identity / anti-folding) ──
 lazy val benchPlugin = project
   .in(file("runtime/std/bench-plugin"))
@@ -2821,6 +2838,7 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("payments",        paymentsPlugin,        "scalascript-payments-plugin"),
   PluginSpec("uuid",            uuidPlugin,            "scalascript-uuid-plugin"),
   PluginSpec("crypto",          cryptoPlugin,          "scalascript-crypto-plugin"),
+  PluginSpec("pdf",             pdfPlugin,             "scalascript-pdf-plugin"),
   PluginSpec("fs",              fsPlugin,              "scalascript-fs-plugin"),
   PluginSpec("os",              osPlugin,              "scalascript-os-plugin"),
   PluginSpec("yaml",            yamlPlugin,            "scalascript-yaml-plugin"),

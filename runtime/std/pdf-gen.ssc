@@ -1,0 +1,38 @@
+---
+name: std-pdf
+version: 1.0.0
+description: HTML→PDF generation — htmlToPdfBase64 (JVM only, OpenHTMLtoPDF engine).
+package: std.pdf
+exports:
+  - htmlToPdfBase64
+---
+
+# pdf
+
+Render a confined subset of HTML/CSS to PDF bytes, returned base64. The
+implementation is provided by the opt-in `pdf-plugin` intrinsic backend
+(OpenHTMLtoPDF / flying-saucer over PDFBox). **JVM / interpreter only.**
+
+`htmlToPdfBase64(html)` is a drop-in for an external HTML→PDF relay
+(`POST {html} → {pdf_base64}`): produce the full HTML, get back base64 PDF bytes.
+
+## Supported HTML/CSS subset
+
+Targeted at a static document (e.g. an invoice), not a web page:
+
+- Elements: `html, head, meta, title, style, body, div, p, h1–h3, strong, br`,
+  and the table family `table, thead, tbody, tr, th, td` (use a table for layout).
+- CSS: `font-family / font-size / font-weight`, `margin`, `padding`, `border`
+  (incl. table-cell borders), `background-color`, `width`, and one `@media print`
+  block. A4 single page with margins; content overflows to further pages.
+- **Not supported:** JavaScript, images / SVG / data-URIs, web fonts, CSS grid,
+  float, multi-column, flexbox, interactivity. Unsupported CSS is skipped (the
+  engine logs and continues) rather than throwing.
+
+HTML is parsed leniently (jsoup), so it need not be strict XHTML.
+
+```scalascript
+/** Render `html` (the supported subset) to PDF bytes, returned base64.
+ *  Throws a clear error only if the document cannot be parsed at all. */
+extern def htmlToPdfBase64(html: String): String
+```
