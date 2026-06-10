@@ -1695,12 +1695,14 @@ backend.** PDF half is the priority; MIME/SMTP are a later slice. Spec already p
       `extern def htmlToPdfBase64`) + `examples/invoice-pdf.ssc` + documented HTML/CSS subset
       in spec + README. JVM-only noted.
 
-- [ ] **mime-p3-build** — `buildMimeMessage(from,to,subject,htmlBody,attachments)` →
-      RFC 5322 text, in a `mime-plugin` (or fold into pdf-plugin). Prefer hand-rolled
-      multipart/mixed builder over a jakarta.mail dep (smaller surface). Test
-      (`MimeAssemblyTest`): 0 attachments → valid HTML email; 1+ → valid multipart, each
-      part base64 with correct headers, round-trips through a reference MIME parser.
-      Commit: `feat(mime-plugin): buildMimeMessage RFC 5322 assembly`.
+- [x] **mime-p3-build** [landed 2026-06-10] — `buildMimeMessage(from,to,subject,htmlBody,
+      attachments)` → RFC 5322 text in a new dependency-free `mime-plugin` (`std.mime`).
+      0 attachments → `text/html` email; 1+ → `multipart/mixed` (base64 HTML part + base64
+      attachments, RFC 2047 subject). `MimePluginTest` (4) round-trips through the Jakarta
+      Mail / Angus reference parser (test-scope dep): headers, multipart count, attachment
+      filenames + decoded content. Example `examples/invoice-email.ssc` (PDF → email).
+      4/4 green. **Note:** plugin-arg unwrapping is selective — scalars come as raw
+      `String`, collections stay as `Value.ListV` (matched accordingly).
 
 > `busi-p4-smtp-send-extern` (above) is the relay-free SMTP DATA sender — the final slice
 > that pairs with `mime-p3` + `pdfgen-p1` for a fully relay-free invoice-email path

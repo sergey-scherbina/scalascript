@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-10 — feat(std.mime): buildMimeMessage RFC 5322 assembly (mime-p3-build)
+
+- **mime-p3-build** — `std.mime.buildMimeMessage(from, to, subject, htmlBody, attachments)`
+  assembles a ready-to-send RFC 5322 email: 0 attachments → a `text/html` message,
+  1+ → `multipart/mixed` (base64 HTML body + base64 attachments, RFC 2047 subject).
+  New dependency-free hand-rolled `mime-plugin`; `attachments` is a
+  `List[(filename, mimeType, contentBase64)]`. 4 tests round-trip through the Jakarta
+  Mail / Angus reference parser (test-scope only). Example `examples/invoice-email.ssc`
+  pairs it with `std.pdf` for the relay-free invoice-email path. Completes the PDF+MIME
+  pair (`pdf-mime-generation.md`); `smtpSend` is the remaining slice.
+
+---
+
 ## 2026-06-10 — feat(std.pdf): htmlToPdfBase64 generation (pdfgen)
 
 - **pdfgen-p1-engine + pdfgen-p2-stdlib** — `std.pdf.htmlToPdfBase64(html)` renders a

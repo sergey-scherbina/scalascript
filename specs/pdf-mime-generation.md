@@ -1,6 +1,6 @@
 # Native PDF generation + MIME assembly externs
 
-**Status**: PDF half ✓ Landed 2026-06-10 (`std.pdf` / `pdf-plugin`, JVM); MIME (`buildMimeMessage`) + `smtpSend` are the remaining slices. Requested by busi (invoice PDF + email), 2026-06-09.
+**Status**: PDF (`std.pdf`) ✓ + MIME (`std.mime.buildMimeMessage`) ✓ Landed 2026-06-10 (JVM). `smtpSend` is the remaining slice. Requested by busi (invoice PDF + email), 2026-06-09.
 **Priority**: medium. Workaround exists (HTTP relay), so this is a
 self-containment / fewer-moving-parts improvement, not a hard blocker.
 **Related**: there is a separate `std.pdf` PDF→Markdown *reader* task in SPRINT.md;
@@ -84,10 +84,10 @@ JVM / interpreter only — no JS backend lowering needed.
 - [x] `htmlToPdfBase64` of the busi invoice template returns valid PDF bytes
       (magic header `%PDF-`), ≥1 page (PDFBox parse-back).
 - [x] Unsupported CSS (grid/float) degrades gracefully (no throw), documented subset honored.
-- [ ] `buildMimeMessage` with 0 attachments produces a valid HTML email.
-- [ ] With 1+ attachments produces valid multipart/mixed; each part base64-encoded
+- [x] `buildMimeMessage` with 0 attachments produces a valid HTML email.
+- [x] With 1+ attachments produces valid multipart/mixed; each part base64-encoded
       with correct headers.
-- [ ] Round-trips through a standard MIME parser.
+- [x] Round-trips through a standard MIME parser (Jakarta Mail / Angus, test scope).
 
 ## 5  Verification
 
