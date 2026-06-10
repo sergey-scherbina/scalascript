@@ -46,11 +46,21 @@ access is O(n) → O(n²)).
       they assert JIT-on behaviour and fail identically on a clean tree with
       `SSC_JIT_BYTECODE=off SSC_FASTTIER=off`.
 
-- [ ] **interp-jit-string-closure** — Teach the bytecode JIT `tryRun1` to
-      compile simple String-returning/consuming closures (`s.length`,
-      `s.trim`, `s.toInt`, `s + lit`) so `split(...).map(...)` chains hit the
-      JIT instead of tree-walk.  Bigger than frame-reuse; do after it.  Target:
-      string-split toward the rust/js band (0.3 ms) rather than 18 ms.
+- [x] **interp-jit-string-closure** — DONE 2026-06-10 (spec p10 in
+      `specs/jit-completeness.md`). Two walls removed: (1) anonymous HOF
+      closures never reached the JIT (`tryRun0/1/2/List` guarded
+      `f.name.isEmpty`); lifted to `jitNameEligible = name.nonEmpty ||
+      closure.isEmpty` (empty-closure lambdas have a stable identity via
+      `emptyClosureFunCache`, so no `cache` leak; capturing lambdas stay out).
+      (2) String methods: new `SSTR 50` opcode (trim/toLowerCase/toUpperCase),
+      `GETFI` String branch extended (toInt/toLong via `v.toLong`), `VmCompiler`
+      Term.Select String dispatch, untyped-param `String` inference from the
+      runtime arg (`withParamHints`), and `StringV`/`MapV` accepted as ref args.
+      **string-split JMH 17.18 → 2.74 ms (6.3×)**, corpus **18.7 → 3.26 (5.7×)**;
+      hof-pipeline/range-sum now ≈10⁻³. Suite green (1593) both backends. `s +
+      lit` concat still out of scope (heap alloc). NOTE: corpus A/B must
+      `./install.sh` first — `bin/ssc` is otherwise stale (JMH `scripts/bench`
+      uses fresh sbt classes and needs no install).
 
 - [ ] **interp-typeclass-fold-devirt** — typeclass-fold interp **1.85 ms**
       (jvm 0.003 → ~600× here; table 937×).  JIT already helps 2.5× (off 4.65

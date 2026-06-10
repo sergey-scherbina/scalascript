@@ -516,6 +516,18 @@ object VmCompiler:
         val or = compileExpr(obj)
         if typeOf(or) != TRef then bail(s"field: non-ref base for .${field.value}", Br.VmFieldShape)
         val typeName = refTypeName.getOrElse(or, bail(s"field: unknown ref type for .${field.value}", Br.VmFieldShape))
+        // No-arg String methods: `s.trim`/`s.toLowerCase`/`s.toUpperCase` return a
+        // String (SSTR); `s.length`/`isEmpty`/`nonEmpty`/`toInt`/`toLong` return an
+        // Int via GETFI (the runtime branch parses/measures the StringV in place).
+        // Matches the interpreter's DispatchRuntime string ops exactly.
+        if typeName == "String" then
+          field.value match
+            case "trim" | "toLowerCase" | "toUpperCase" =>
+              emit(SSTR, dst, or, strSlot(field.value)); setType(dst, TRef); setRefType(dst, "String"); return TRef
+            case "length" | "isEmpty" | "nonEmpty" | "toInt" | "toLong" =>
+              emit(GETFI, dst, or, strSlot(field.value)); setType(dst, TInt); return TInt
+            case _ =>
+              bail(s"field: unsupported String method '.${field.value}'", Br.VmFieldShape)
         val info = ctx.metaFor(typeName)
         if info == null then bail(s"field: no meta for type '$typeName'", Br.VmFieldShape)
         val (names, types) = info

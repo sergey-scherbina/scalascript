@@ -4,6 +4,26 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-10 — perf(interp): JIT anonymous HOF closures + String methods (interp-jit-string-closure)
+
+- **interp-jit-string-closure** — `xs.map(s => s.trim.toInt)` / `xs.foldLeft(0)(_ + _)`
+  and friends now JIT-compile instead of tree-walking. Two changes (spec p10 in
+  `specs/jit-completeness.md`):
+  1. **Anonymous HOF closures reach the JIT.** `JitRuntime.tryRun0/1/2/List`
+     guarded `f.name.isEmpty`, excluding every map/foreach/foldLeft/filter
+     callback. Lifted to `jitNameEligible = name.nonEmpty || closure.isEmpty` —
+     empty-closure lambdas have a stable identity (`emptyClosureFunCache`) so the
+     never-evicted `cache` isn't leaked; capturing lambdas stay excluded.
+  2. **No-arg String methods.** New `SSTR` opcode (`trim`/`toLowerCase`/
+     `toUpperCase`), `GETFI` String branch extended with `toInt`/`toLong`
+     (`v.toLong`, matching the interpreter incl. its `NumberFormatException`),
+     `VmCompiler` String-`Select` dispatch, untyped-param `String` inference from
+     the runtime arg, and `StringV`/`MapV` accepted as ref-param args.
+  - **string-split JMH 17.18 → 2.74 ms (6.3×)**, corpus **18.7 → 3.26 ms (5.7×)**;
+    `hof-pipeline`/`range-sum` now ≈10⁻³ ms. Full suite green (1593, +5 new VM
+    tests) on both JIT backends (javac + asm). `s + lit` concatenation remains
+    out of scope (heap alloc).
+
 ## 2026-06-10 — perf(interp): reused frame for List.map / List.foldLeft (interp-hof-frame-reuse)
 
 - **interp-hof-frame-reuse** — Extended the `foreachReusing` reused-frame fast path

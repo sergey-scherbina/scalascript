@@ -1121,6 +1121,47 @@ class SscVmTest extends AnyFunSuite with Matchers:
     out shouldBe "100"
   }
 
+  // ── String no-arg methods: trim/toLowerCase/toUpperCase (SSTR), toInt/toLong (GETFI) ──
+
+  test("string-method: s.toInt compiles (GETFI) and parses") {
+    val f = funOf("parse", """def parse(s: String): Int = s.toInt""")
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("42")))   shouldBe 42L
+    SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("-7")))   shouldBe -7L
+  }
+
+  test("string-method: s.trim.toInt chains SSTR then GETFI") {
+    val f = funOf("parse", """def parse(s: String): Int = s.trim.toInt""")
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("  42 ")))  shouldBe 42L
+    SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("100")))    shouldBe 100L
+  }
+
+  test("string-method: s.trim returns a String (SSTR + RETREF)") {
+    val f = funOf("clean", """def clean(s: String): String = s.trim""")
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    cfn.get.retIsRef shouldBe true
+    SscVm.runRef(cfn.get, Array.empty, Array(Value.StringV("  hi  ")))
+    SscVm.lastRefResult shouldBe Value.StringV("hi")
+  }
+
+  test("string-method: toLowerCase / toUpperCase compile (SSTR)") {
+    val lo = funOf("lo", """def lo(s: String): String = s.toLowerCase""")
+    val up = funOf("up", """def up(s: String): String = s.toUpperCase""")
+    val clo = VmCompiler.compile(lo); clo shouldBe defined
+    val cup = VmCompiler.compile(up); cup shouldBe defined
+    SscVm.runRef(clo.get, Array.empty, Array(Value.StringV("AbC"))); SscVm.lastRefResult shouldBe Value.StringV("abc")
+    SscVm.runRef(cup.get, Array.empty, Array(Value.StringV("AbC"))); SscVm.lastRefResult shouldBe Value.StringV("ABC")
+  }
+
+  test("string-method: unsupported method bails (→ tree-walk)") {
+    val f = funOf("weird", """def weird(s: String): Int = s.indexOf("x")""")
+    VmCompiler.compile(f) shouldBe None
+  }
+
   // ── Stage 2.1: Bool body wrap — predicate fns compile on bytecode JIT ──────
 
   test("stage2.1: Javac — bool top-level body (comparison) compiles and returns 0/1") {
