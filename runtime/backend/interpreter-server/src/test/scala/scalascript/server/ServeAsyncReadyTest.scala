@@ -51,3 +51,21 @@ class ServeAsyncReadyTest extends AnyFunSuite:
     finally
       support.stopServer()
       taken.close()
+
+  test("async TLS startup surfaces a bad-cert failure fast instead of swallowing it"):
+    // The TLS serveAsync(port, tls(...)) form routes through the same async
+    // readiness path now.  Previously it ran on a detached thread that swallowed
+    // exceptions — a bad cert silently never started and the caller returned as
+    // if successful.  Now the failure surfaces synchronously and does not hang.
+    val interp = Interpreter(out = sink)
+    val port   = freePort()
+    try
+      val started = System.nanoTime()
+      val ex = intercept[RuntimeException](
+        support.startServer(interp, port, ".", sink,
+          "/no/such/cert.pem", "/no/such/key.pem", async = true))
+      val elapsedMs = (System.nanoTime() - started) / 1000000
+      assert(ex.getMessage.contains(s"serveAsync($port)"), s"unexpected error: ${ex.getMessage}")
+      assert(elapsedMs < 16000, s"bad-cert TLS startup must not hang; took ${elapsedMs}ms")
+    finally
+      support.stopServer()

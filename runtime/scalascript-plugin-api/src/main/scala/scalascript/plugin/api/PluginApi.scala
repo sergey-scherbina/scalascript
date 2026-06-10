@@ -100,6 +100,8 @@ trait HttpCap extends NativeContextCap:
     nativeContext.setHttpRetry(maxAttempts, delayMs)
   def startTlsServer(port: Int, dir: String, cert: String, key: String): Unit =
     nativeContext.startTlsServer(port, dir, cert, key)
+  def startTlsServerAsync(port: Int, dir: String, cert: String, key: String): Unit =
+    nativeContext.startTlsServerAsync(port, dir, cert, key)
   def startServer(port: Int, dir: String): Unit = nativeContext.startServer(port, dir)
   def startServerAsync(port: Int, dir: String): Unit = nativeContext.startServerAsync(port, dir)
   def stopServer(): Unit = nativeContext.stopServer()
