@@ -237,3 +237,46 @@ class JsGenStdImportTest extends AnyFunSuite:
     assert(js.contains("_ssc_ui_seedSignal"), "std/ui seedSignal extern must bind to the browser helper")
     assert(js.contains("""_call(seedSignal, "draftName", sourceName)"""),
       "example should keep the explicit seedSignal draft construction")
+
+  // Regression: importing the std/json `jsonValue` extern used to emit a bare
+  // top-level `function jsonValue(...)` in the runtime AND a top-level
+  // `const jsonValue = std.json.jsonValue` import binding — a duplicate
+  // declaration that broke every emit-spa screen with
+  // "Identifier 'jsonValue' has already been declared".  The runtime impl is
+  // now named `_ssc_ui_jsonValue` (the extern convention), so the binding
+  // resolves and there is no top-level name clash.
+  test("std/json jsonValue extern binds without a duplicate top-level declaration"):
+    val source =
+      """# App
+        |
+        |[serve, element, textNode](std/ui/primitives.ssc)
+        |[jsonValue, jsonStringify](std/json.ssc)
+        |
+        |```scalascript
+        |val v = element("div", Map(), Map(), [
+        |  textNode(jsonValue("{\"a\":1}").get("a").asInt.toString),
+        |  textNode(jsonStringify("x"))
+        |])
+        |serve(v)
+        |```
+        |""".stripMargin
+
+    // Build the full bundle the way emit-spa does: runtime preamble + module JS.
+    // The bare-vs-binding clash only manifests when the two are concatenated.
+    val module  = Parser.parse(source)
+    val baseDir = TestPaths.repoRoot / "examples"
+    val caps    = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    val js = runtime + "\n" + moduleJs
+
+    // runtime impls follow the _ssc_ui_ extern convention
+    assert(runtime.contains("function _ssc_ui_jsonValue("), "jsonValue runtime impl must be _ssc_ui_jsonValue")
+    assert(runtime.contains("function _ssc_ui_jsonStringify("), "jsonStringify runtime impl must be _ssc_ui_jsonStringify")
+    // the old bare top-level names must be gone (would clash with the binding)
+    assert(!runtime.contains("\nfunction jsonValue("), "bare top-level function jsonValue must not be emitted")
+    assert(!runtime.contains("\nfunction jsonStringify("), "bare top-level function jsonStringify must not be emitted")
+    // the import binding is present and resolves to the defined impl
+    assert(moduleJs.contains("const jsonValue = std.json.jsonValue;"), "expected jsonValue import binding")
+    // and the full bundle actually parses as JS (the bug was a parse error)
+    checkNodeSyntax(js)
