@@ -1,8 +1,12 @@
 # `foreach` + outer-`var` mutation does not propagate
 
-**Status**: spec — bug fix. Reported by busi (real testbed), 2026-06-09.
+**Status**: RESOLVED 2026-06-10 — no longer reproduces on current `origin/main`.
+Reported by busi (real testbed), 2026-06-09; the closure-cell write-back was
+fixed by intervening interpreter work (the `var` cell is now mutated in its
+defining scope). Locked in by `ForeachVarMutationTest` covering every checklist
+item below, in both JIT-on and JIT-off eval modes. No code change required.
 **Priority**: medium. Workaround exists (`foldLeft`), but the pattern is idiomatic
-Scala and silently produces wrong results — no error, just an empty/stale `var`.
+Scala and silently produced wrong results — no error, just an empty/stale `var`.
 
 ## 1  Symptom
 
@@ -47,12 +51,12 @@ combinators that take a side-effecting lambda (`foreach`, and by extension
 
 ## 4  Behavior checklist
 
-- [ ] `List(...).foreach(x => outerVar = outerVar :+ x)` leaves `outerVar` with all elements.
-- [ ] `List(...).foreach(x => sum = sum + x)` accumulates into `sum`.
-- [ ] Nested `foreach` with mutation of the same outer `var` works.
-- [ ] `Set(...).foreach(...)` and `Map(...).foreach(...)` mutation also propagate.
-- [ ] Existing `foldLeft` accumulation behavior is unchanged (regression guard).
-- [ ] Assignment to a `var` declared *inside* the lambda still stays local (no leak upward).
+- [x] `List(...).foreach(x => outerVar = outerVar :+ x)` leaves `outerVar` with all elements.
+- [x] `List(...).foreach(x => sum = sum + x)` accumulates into `sum`.
+- [x] Nested `foreach` with mutation of the same outer `var` works.
+- [x] `Set(...).foreach(...)` and `Map(...).foreach(...)` mutation also propagate.
+- [x] Existing `foldLeft` accumulation behavior is unchanged (regression guard).
+- [x] Assignment to a `var` declared *inside* the lambda still stays local (no leak upward).
 
 ## 5  Verification
 
