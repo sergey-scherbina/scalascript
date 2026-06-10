@@ -1,19 +1,28 @@
 ---
 name: std-crypto
 version: 1.0.0
-description: Cryptographic hash and encoding primitives — sha256, hmacSha256, base64Encode, base64Decode.
+description: Cryptographic hash, encoding, and encryption primitives — sha256, hmacSha256, base64, AES-256-GCM, RSA-OAEP, X.509.
 package: std.crypto
 exports:
   - sha256
   - hmacSha256
   - base64Encode
   - base64Decode
+  - aesGenKey
+  - aesGcmEncrypt
+  - aesGcmDecrypt
+  - aesGcmEncryptBytes
+  - aesGcmDecryptBytes
+  - rsaOaepEncrypt
+  - x509PublicKey
 ---
 
 # crypto
 
-SHA-256 digest, HMAC-SHA-256, and standard Base64 encode/decode.
-Implementations are provided by the `crypto-plugin` intrinsic backend.
+SHA-256 digest, HMAC-SHA-256, standard Base64 encode/decode, AES-256-GCM
+symmetric encryption, RSA-OAEP public-key encryption, and X.509 public-key
+extraction. Implementations are provided by the `crypto-plugin` intrinsic
+backend. **Encryption primitives are JVM/interpreter only.**
 
 ```scalascript
 /** SHA-256 hex digest of the UTF-8 encoding of `input`. */
@@ -27,4 +36,37 @@ extern def base64Encode(s: String): String
 
 /** Standard Base64 decode — Base64 string → UTF-8 string. */
 extern def base64Decode(s: String): String
+```
+
+## Encryption (JVM only)
+
+AES-256-GCM and RSA-OAEP for hybrid encryption (e.g. KSeF 2.0 `EncryptionInfo`:
+generate a session key, RSA-encrypt it to the server cert, AES-encrypt payloads).
+
+**Framing:** `aesGcm*` returns/consumes `base64( iv[12] ++ ciphertext ++ tag[16] )`
+— a 12-byte random GCM IV prepended, 16-byte auth tag appended. RSA-OAEP uses
+SHA-256 for both the digest and MGF1.
+
+```scalascript
+/** Generate a random 256-bit AES key, returned base64. */
+extern def aesGenKey(): String
+
+/** AES-256-GCM encrypt a UTF-8 string. Returns base64(iv ++ ciphertext ++ tag). */
+extern def aesGcmEncrypt(keyB64: String, plaintext: String): String
+
+/** AES-256-GCM decrypt back to a UTF-8 string. Throws on auth failure / tamper. */
+extern def aesGcmDecrypt(keyB64: String, payloadB64: String): String
+
+/** Byte-oriented AES-256-GCM encrypt; `plaintextB64` is base64 of the raw bytes. */
+extern def aesGcmEncryptBytes(keyB64: String, plaintextB64: String): String
+
+/** Byte-oriented AES-256-GCM decrypt; returns base64 of the recovered bytes. */
+extern def aesGcmDecryptBytes(keyB64: String, payloadB64: String): String
+
+/** RSA-OAEP (SHA-256) encrypt. `publicKeyB64` is base64 SPKI DER (X.509
+ *  SubjectPublicKeyInfo); `plaintextB64` is base64 of the bytes to encrypt. */
+extern def rsaOaepEncrypt(publicKeyB64: String, plaintextB64: String): String
+
+/** Extract the SPKI public key (base64 DER) from a PEM or base64-DER X.509 cert. */
+extern def x509PublicKey(certB64OrPem: String): String
 ```

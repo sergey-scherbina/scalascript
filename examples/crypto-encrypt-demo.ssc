@@ -1,0 +1,41 @@
+import std.crypto.*
+
+// Hybrid encryption, the shape KSeF 2.0 `EncryptionInfo` uses:
+//   1. generate a per-session AES-256 key,
+//   2. AES-256-GCM encrypt the invoice payload with it,
+//   3. RSA-OAEP encrypt the session key to the server's public key
+//      (extracted from its X.509 certificate).
+
+// 1 + 2 — symmetric round-trip.
+val sessionKey = aesGenKey()                       // base64 of a fresh 256-bit key
+val invoice    = "<Faktura>kwota: 1000.01 zł</Faktura>"
+val encrypted  = aesGcmEncrypt(sessionKey, invoice) // base64(iv ++ ciphertext ++ tag)
+val decrypted  = aesGcmDecrypt(sessionKey, encrypted)
+println(s"AES-256-GCM round-trip ok: ${decrypted == invoice}")
+
+// 3 — wrap the session key to the server certificate's public key.
+val serverCertPem =
+  """-----BEGIN CERTIFICATE-----
+MIIDCTCCAfGgAwIBAgIUWMdEsF30cV1JhlPMJt4DgHfA30QwDQYJKoZIhvcNAQEL
+BQAwFDESMBAGA1UEAwwJa3NlZi10ZXN0MB4XDTI2MDYxMDAzMTY1NFoXDTM2MDYw
+NzAzMTY1NFowFDESMBAGA1UEAwwJa3NlZi10ZXN0MIIBIjANBgkqhkiG9w0BAQEF
+AAOCAQ8AMIIBCgKCAQEApQJZ1LKs2io8CtAKOPYV7fgeQ4/36twBEw7ty65Ps6hK
+MnPB1u8B+vP+JJH6ssjMp6Z2sfaqdmjTEnaeM/QBm7et53Jy7zh6y6wGlc3JJtgR
+jFa+7gLppy/28hJ5VgwXH+QxBLA9ubc9vSTrfU29DGlUvvN3ZbW0tKqwgLe+kEry
+wZCID0nweXDq1wiDxQW8y0HvbXTUt44oh4qTu9P1HmY6ny/XWgkA5Z0iu+k+B20L
+ICKkdfHYJ63ExbEjDqkptusxGsI3O0crqsCgIIplxVfYiWxpTGyNOydOnM8kDUA/
+GckFg38icuspVK1399BSwdGymfyj8jn6+GnUabIymwIDAQABo1MwUTAdBgNVHQ4E
+FgQUsGeqc9tBqASG3ke7Y47VkepwUZowHwYDVR0jBBgwFoAUsGeqc9tBqASG3ke7
+Y47VkepwUZowDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAWzS3
+VddXYtPlC9lY2gyPiqjwrKLqeF5RgYItlv2FYY9AynghawqtPu1xNhFJZBJIaNXR
+rXMP0TxXHFiYLnaJszFcCWAaPOgeMczjP3uLfnMKVVf7Agu8F9wMdZV1uNHuWfr1
+d3WypYK+JhxSrkXf7pqP/y85oCsogzMFmyxjroZefGfyWn7k+5a8PWxqb7duFH7W
+Btewqu6a8jfyZp0E48ehT6aZaxybBLtd1Uc10AdylGgXQTN1cSVaS3WvCgmvJBx1
+vcooVsBv6LeD1NZhDYZIVOFf35Jlm4Vu+eEV+RcKkoEFYxXa8SNvoL/o5FATmo1M
+CQ6295wKcs5MVODZuw==
+-----END CERTIFICATE-----"""
+
+val serverPubKey  = x509PublicKey(serverCertPem)  // base64 SPKI DER
+// The session key is already base64 of its bytes, so it is the OAEP plaintext.
+val wrappedKey    = rsaOaepEncrypt(serverPubKey, sessionKey)
+println(s"RSA-OAEP wrapped session key (base64, ${wrappedKey.length} chars) produced")

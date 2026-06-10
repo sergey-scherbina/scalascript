@@ -84,3 +84,102 @@ class CryptoPluginTest extends AnyFunSuite:
   test("base64Encode / base64Decode round-trip"):
     assert(evalStr("""base64Decode(base64Encode("The quick brown fox jumps over the lazy dog"))""") ==
       "The quick brown fox jumps over the lazy dog")
+
+  // ── AES-256-GCM ──────────────────────────────────────────────────────────
+
+  test("aesGenKey returns a fresh 256-bit (32-byte) key each call"):
+    val a = evalStr("aesGenKey()")
+    val b = evalStr("aesGenKey()")
+    assert(a != b, "two generated keys must differ")
+    assert(java.util.Base64.getDecoder.decode(a).length == 32, "key must be 32 bytes")
+
+  test("aesGcmEncrypt / aesGcmDecrypt round-trips ASCII + UTF-8"):
+    assert(evalStr(
+      """val k = aesGenKey()
+        |aesGcmDecrypt(k, aesGcmEncrypt(k, "faktura — 1000.01 zł ąćęł"))""".stripMargin) ==
+      "faktura — 1000.01 zł ąćęł")
+
+  test("aesGcmEncrypt is non-deterministic (random IV per call)"):
+    val out = evalStr(
+      """val k = aesGenKey()
+        |aesGcmEncrypt(k, "x") + "|" + aesGcmEncrypt(k, "x")""".stripMargin)
+    val parts = out.split('|')
+    assert(parts(0) != parts(1), "same plaintext+key must yield different ciphertext (IV)")
+
+  test("aesGcmDecrypt of a tampered payload throws (GCM auth), not silent garbage"):
+    val k   = evalStr("aesGenKey()")
+    val enc = evalStr(s"""aesGcmEncrypt("$k", "secret")""")
+    // Flip the last base64 char to corrupt the tag.
+    val flipped = enc.dropRight(1) + (if enc.last == 'A' then 'B' else 'A')
+    assertThrows[Throwable](evalStr(s"""aesGcmDecrypt("$k", "$flipped")"""))
+
+  test("aesGcmEncryptBytes / aesGcmDecryptBytes round-trips binary (base64) payloads"):
+    val ptB64 = java.util.Base64.getEncoder.encodeToString(Array[Byte](0, 1, 2, -1, -128, 127))
+    val out = evalStr(
+      s"""val k = aesGenKey()
+         |aesGcmDecryptBytes(k, aesGcmEncryptBytes(k, "$ptB64"))""".stripMargin)
+    assert(out == ptB64)
+
+  // ── RSA-OAEP (SHA-256) ───────────────────────────────────────────────────
+
+  test("rsaOaepEncrypt output decrypts with the matching private key (JCE interop)"):
+    val kp = java.security.KeyPairGenerator.getInstance("RSA")
+    kp.initialize(2048)
+    val pair  = kp.generateKeyPair()
+    val spki  = java.util.Base64.getEncoder.encodeToString(pair.getPublic.getEncoded)
+    val msg   = "session-key-material"
+    val msgB64 = java.util.Base64.getEncoder.encodeToString(msg.getBytes("UTF-8"))
+    val ctB64 = evalStr(s"""rsaOaepEncrypt("$spki", "$msgB64")""")
+    // Decrypt in Scala with the same OAEP-SHA256 parameters.
+    val cipher = javax.crypto.Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding")
+    val oaep   = new javax.crypto.spec.OAEPParameterSpec(
+      "SHA-256", "MGF1", java.security.spec.MGF1ParameterSpec.SHA256,
+      javax.crypto.spec.PSource.PSpecified.DEFAULT)
+    cipher.init(javax.crypto.Cipher.DECRYPT_MODE, pair.getPrivate, oaep)
+    val recovered = new String(cipher.doFinal(java.util.Base64.getDecoder.decode(ctB64)), "UTF-8")
+    assert(recovered == msg)
+
+  // ── X.509 → SPKI public key ──────────────────────────────────────────────
+
+  private val testCertPem =
+    """-----BEGIN CERTIFICATE-----
+      |MIIDCTCCAfGgAwIBAgIUWMdEsF30cV1JhlPMJt4DgHfA30QwDQYJKoZIhvcNAQEL
+      |BQAwFDESMBAGA1UEAwwJa3NlZi10ZXN0MB4XDTI2MDYxMDAzMTY1NFoXDTM2MDYw
+      |NzAzMTY1NFowFDESMBAGA1UEAwwJa3NlZi10ZXN0MIIBIjANBgkqhkiG9w0BAQEF
+      |AAOCAQ8AMIIBCgKCAQEApQJZ1LKs2io8CtAKOPYV7fgeQ4/36twBEw7ty65Ps6hK
+      |MnPB1u8B+vP+JJH6ssjMp6Z2sfaqdmjTEnaeM/QBm7et53Jy7zh6y6wGlc3JJtgR
+      |jFa+7gLppy/28hJ5VgwXH+QxBLA9ubc9vSTrfU29DGlUvvN3ZbW0tKqwgLe+kEry
+      |wZCID0nweXDq1wiDxQW8y0HvbXTUt44oh4qTu9P1HmY6ny/XWgkA5Z0iu+k+B20L
+      |ICKkdfHYJ63ExbEjDqkptusxGsI3O0crqsCgIIplxVfYiWxpTGyNOydOnM8kDUA/
+      |GckFg38icuspVK1399BSwdGymfyj8jn6+GnUabIymwIDAQABo1MwUTAdBgNVHQ4E
+      |FgQUsGeqc9tBqASG3ke7Y47VkepwUZowHwYDVR0jBBgwFoAUsGeqc9tBqASG3ke7
+      |Y47VkepwUZowDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAWzS3
+      |VddXYtPlC9lY2gyPiqjwrKLqeF5RgYItlv2FYY9AynghawqtPu1xNhFJZBJIaNXR
+      |rXMP0TxXHFiYLnaJszFcCWAaPOgeMczjP3uLfnMKVVf7Agu8F9wMdZV1uNHuWfr1
+      |d3WypYK+JhxSrkXf7pqP/y85oCsogzMFmyxjroZefGfyWn7k+5a8PWxqb7duFH7W
+      |Btewqu6a8jfyZp0E48ehT6aZaxybBLtd1Uc10AdylGgXQTN1cSVaS3WvCgmvJBx1
+      |vcooVsBv6LeD1NZhDYZIVOFf35Jlm4Vu+eEV+RcKkoEFYxXa8SNvoL/o5FATmo1M
+      |CQ6295wKcs5MVODZuw==
+      |-----END CERTIFICATE-----""".stripMargin
+
+  private val expectedSpki =
+    "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApQJZ1LKs2io8CtAKOPYV7fgeQ4/36twBEw7ty65Ps6hK" +
+    "MnPB1u8B+vP+JJH6ssjMp6Z2sfaqdmjTEnaeM/QBm7et53Jy7zh6y6wGlc3JJtgRjFa+7gLppy/28hJ5VgwXH+Qx" +
+    "BLA9ubc9vSTrfU29DGlUvvN3ZbW0tKqwgLe+kErywZCID0nweXDq1wiDxQW8y0HvbXTUt44oh4qTu9P1HmY6ny/X" +
+    "WgkA5Z0iu+k+B20LICKkdfHYJ63ExbEjDqkptusxGsI3O0crqsCgIIplxVfYiWxpTGyNOydOnM8kDUA/GckFg38i" +
+    "cuspVK1399BSwdGymfyj8jn6+GnUabIymwIDAQAB"
+
+  test("x509PublicKey extracts the SPKI public key from a PEM X.509 cert"):
+    // Pass the PEM via base64 so it survives the single-line snippet interpolation.
+    val pemB64 = java.util.Base64.getEncoder.encodeToString(testCertPem.getBytes("UTF-8"))
+    val spki = evalStr(s"""x509PublicKey(base64Decode("$pemB64"))""")
+    assert(spki == expectedSpki, s"unexpected SPKI:\n$spki")
+
+  test("x509PublicKey output is a usable RSA public key (rsaOaepEncrypt accepts it)"):
+    val pemB64 = java.util.Base64.getEncoder.encodeToString(testCertPem.getBytes("UTF-8"))
+    val msgB64 = java.util.Base64.getEncoder.encodeToString("hi".getBytes("UTF-8"))
+    val ct = evalStr(
+      s"""val pk = x509PublicKey(base64Decode("$pemB64"))
+         |rsaOaepEncrypt(pk, "$msgB64")""".stripMargin)
+    assert(ct.nonEmpty && java.util.Base64.getDecoder.decode(ct).length == 256,
+      "RSA-2048 OAEP ciphertext must be 256 bytes")
