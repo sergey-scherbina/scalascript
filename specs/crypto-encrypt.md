@@ -1,6 +1,6 @@
 # `std.crypto` — symmetric (AES) + public-key (RSA) encryption
 
-**Status**: spec — feature. Requested by busi (real testbed), 2026-06-09.
+**Status**: ✓ Landed 2026-06-10 (JVM/interpreter via `crypto-plugin`; JS WebCrypto deferred). Requested by busi (real testbed), 2026-06-09.
 **Extends**: [`crypto.md`](crypto.md) (sha256 / hmac / base64) and complements
 [`crypto-pubkey-verify.md`](crypto-pubkey-verify.md) (signature *verify*).
 **Priority**: medium — blocks **real** (live-credential) KSeF 2.0 e-invoicing for
@@ -69,13 +69,23 @@ the primitive correctly.
 
 ## 4  Behavior checklist
 
-- [ ] `aesGcmDecrypt(k, aesGcmEncrypt(k, m)) == m` round-trips for ASCII + UTF-8.
-- [ ] A tampered ciphertext/tag fails decryption (GCM auth), not silent garbage.
-- [ ] `aesGenKey()` returns a fresh 256-bit key each call.
-- [ ] `rsaOaepEncrypt` output decrypts with the matching private key (verified by
-      an external tool / test vector); wrong key fails.
-- [ ] `x509PublicKey` extracts the SPKI key from a real KSeF-style X.509 cert.
-- [ ] Malformed inputs return a clear error, do not crash the interpreter.
+- [x] `aesGcmDecrypt(k, aesGcmEncrypt(k, m)) == m` round-trips for ASCII + UTF-8.
+- [x] A tampered ciphertext/tag fails decryption (GCM auth), not silent garbage.
+- [x] `aesGenKey()` returns a fresh 256-bit key each call.
+- [x] `rsaOaepEncrypt` output decrypts with the matching private key (verified
+      against a JCE-generated keypair in `CryptoEncryptTest`).
+- [x] `x509PublicKey` extracts the SPKI key from an X.509 cert (openssl-generated
+      test vector; SPKI matches `openssl pkey -pubin -outform DER | base64`).
+- [x] Malformed inputs throw a clear error (`aesGcm*`/`rsaOaep*`/`x509*: <reason>`),
+      surfaced as an interpreter error, not a JVM crash.
+
+**Deviations from §2/§3:** (1) implemented by **extending the existing
+`crypto-plugin`** rather than a new `crypto-encrypt-plugin` — `javax.crypto` is
+JDK-builtin, so there is no external dependency to make opt-in, and the surface
+already lives in `std.crypto`. (2) **JVM only** for this slice; JS WebCrypto
+(async) deferred — busi's KSeF flow is server-side. (3) RSA-OAEP uses SHA-256 for
+**both** the digest and MGF1; if KSeF mandates MGF1-SHA-1, that is a one-line
+`OAEPParameterSpec` change — busi to confirm against `ksef-client-java`.
 
 ## 5  Verification
 

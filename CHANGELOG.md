@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-10 — feat(std.crypto): AES-256-GCM + RSA-OAEP + X.509 encryption (crypto-encrypt)
+
+- **crypto-encrypt** — `std.crypto` gains encryption (was hash/HMAC/base64 only),
+  for KSeF 2.0 hybrid e-invoicing and general "encrypt to a public key" use:
+  `aesGenKey`, `aesGcmEncrypt`/`aesGcmDecrypt` (+ `*Bytes` variants),
+  `rsaOaepEncrypt`, `x509PublicKey`. AES-256-GCM framing is
+  `base64(iv[12] ++ ciphertext ++ tag[16])`; RSA-OAEP uses SHA-256 for digest+MGF1.
+  Implemented by extending the existing `crypto-plugin` (JDK `javax.crypto`, no
+  external dep) — JVM/interpreter only (JS WebCrypto deferred). Crypto failures
+  throw a clear error, never a silent wrong result. 8 new tests (AES round-trip/
+  tamper/bytes, RSA-OAEP verified against a JCE keypair, X.509 SPKI against an
+  openssl vector); `cryptoPlugin` 24/24 green. Example `examples/crypto-encrypt-demo.ssc`.
+
+---
+
 ## 2026-06-10 — fix(interp): error on ambiguous un-ascribed val/case-constructor collision (A-half)
 
 - **busi-p0-statusval-collision-a-half** — Completes the statusval/eventcase

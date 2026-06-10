@@ -369,6 +369,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | ERC-4337 account abstraction | `EntryPoint v0.7 PackedUserOperation` — bundlerless and bundler-driven flows |
 | Cardano CIP-8 wallet | Ed25519 key-derived enterprise bech32 address, CIP-8 message signing, Scalus-source escrow validator with on-chain canonical CIP-8 proof verification, exact receiver-output check, claim/refund validity-window checks, Scalus script-context validator tests, stable `EscrowScript.address(network)` script address helper, Scalus-mode structured claim-message signing, server-side Scalus proof verification, bloxbean claim Tx draft with script data hash + relayer witness, typed Blockfrost protocol params, protocol min-fee draft balancing, static/bloxbean/Blockfrost/Ogmios Plutus ex-units, and env-gated Preprod integration coverage |
 | Cross-backend crypto | JVM: native `Ed25519`, secp256k1, BLS12-381; JS: `@noble/curves` Scala.js backend — uniform `CryptoBackend` SPI |
+| `std.crypto` encryption | AES-256-GCM (`aesGenKey`/`aesGcmEncrypt`/`aesGcmDecrypt` + byte variants), RSA-OAEP (`rsaOaepEncrypt`), X.509 SPKI extraction (`x509PublicKey`) — hybrid encryption for KSeF 2.0 etc. (JVM only) |
 | MCP × x402 | `mcpServer { srv => srv.tool(...).requirePayment(...) }` — paid LLM tools |
 
 ### Cluster, leader election, federation

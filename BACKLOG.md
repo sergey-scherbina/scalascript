@@ -7301,14 +7301,14 @@ claimable. Bug-fix items have minimal repros in their specs.
       Phase 87 federation/market signature verification (currently quarantined as
       `signature.unsupported`). Spec:
       [`specs/crypto-pubkey-verify.md`](specs/crypto-pubkey-verify.md).
-- [ ] **crypto-encrypt** (feature) — AES-256-GCM + RSA-OAEP **encryption** externs
-      (+ X.509 cert→public-key), extending `std.crypto` (which has only
-      hash/HMAC/base64). Unblocks busi's **real** KSeF 2.0 e-invoicing: the
-      `EncryptionInfo` flow needs a per-session AES key, RSA-encrypted with the
-      KSeF `PublicKeyCertificate`, plus AES-encrypted invoice payloads. Not needed
-      for busi's CI/simulator path (stubbed EncryptionInfo) — gates only
-      operator/live use. Spec: [`specs/crypto-encrypt.md`](specs/crypto-encrypt.md).
-      Ref: MF KSeF Java client `github.com/CIRFMF/ksef-client-java`.
+- [x] **crypto-encrypt** (feature) ✓ Landed 2026-06-10 — AES-256-GCM + RSA-OAEP
+      **encryption** externs (+ X.509 cert→public-key) extend `std.crypto`:
+      `aesGenKey`/`aesGcmEncrypt`/`aesGcmDecrypt`(+`*Bytes`)/`rsaOaepEncrypt`/
+      `x509PublicKey`, in `crypto-plugin` (JDK `javax.crypto`, JVM only). Unblocks
+      busi's real KSeF 2.0 `EncryptionInfo` flow. 8 tests (AES round-trip/tamper,
+      RSA-OAEP JCE-interop, X.509 openssl vector); 24/24 green. RSA-OAEP is
+      SHA-256/MGF1-SHA-256 — busi to confirm vs `ksef-client-java` (one-line knob
+      if MGF1-SHA-1 needed). JS WebCrypto deferred.
 - [ ] **pdf-mime-generation** (feature) — `htmlToPdfBase64` + `buildMimeMessage`
       externs (opt-in `pdf-plugin.sscpkg`) so invoice PDF + email MIME do not
       require an external HTTP relay. Spec:
