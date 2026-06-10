@@ -14,13 +14,26 @@ final class InterpreterServerSupportImpl extends InterpreterServerSupport:
       keyPath: String,
       async: Boolean
   ): Unit =
-    def run(): Unit = WebServer.start(port, dir, log, certPath, keyPath, wsRoutes = interp.wsRoutes, routeRegistry = interp.routeRegistry)
     if async then
+      // Block until the socket is actually bound (or binding fails) before
+      // returning, so a caller that issues an httpGet right after serveAsync(...)
+      // no longer races the bind (ConnectException / ClosedChannelException).
+      val ready = java.util.concurrent.CountDownLatch(1)
+      val error = java.util.concurrent.atomic.AtomicReference[Throwable](null)
       Thread.ofVirtual().start { () =>
-        try run()
-        catch case _: Throwable => ()
+        try WebServer.start(port, dir, log, certPath, keyPath,
+              wsRoutes = interp.wsRoutes, routeRegistry = interp.routeRegistry,
+              onBound = () => ready.countDown())
+        catch case t: Throwable => error.set(t); ready.countDown()
       }
-    else run()
+      if !ready.await(15, java.util.concurrent.TimeUnit.SECONDS) then
+        throw new RuntimeException(s"serveAsync($port): server did not bind within 15s")
+      val e = error.get()
+      if e != null then
+        throw new RuntimeException(s"serveAsync($port) failed to bind: ${e.getMessage}", e)
+    else
+      WebServer.start(port, dir, log, certPath, keyPath,
+        wsRoutes = interp.wsRoutes, routeRegistry = interp.routeRegistry)
 
   def stopServer(): Unit = WebServer.stop()
 
