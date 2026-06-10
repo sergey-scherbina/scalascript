@@ -913,6 +913,93 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
       case other =>
         fail(s"expected controls section node, got $other")
 
+  test("toolkit:button?action=<id> binds to a registered EventHandler (action registry)"):
+    val source =
+      """---
+        |name: toolkit-action-registry-test
+        |---
+        |
+        |# Demo
+        |
+        |## Controls {#controls}
+        |
+        |- [Save draft](toolkit:button?action=saveDraft)
+        |- [Delete](toolkit:button?action=delete&disabled=true)
+        |
+        |```scala
+        |case class ContentToolkitOptions(
+        |  includeCode: Boolean = false,
+        |  sectionGap: Int = 16,
+        |  blockGap: Int = 8,
+        |  listGap: Int = 4,
+        |  wrapDocumentInCard: Boolean = false,
+        |  wrapTopLevelSectionsInCards: Boolean = false,
+        |  components: List[Any] = [],
+        |  bindings: Any = null,
+        |  actions: Map[String, Any] = Map()
+        |)
+        |extern def contentToolkitSection(id: String, options: ContentToolkitOptions): Any
+        |contentToolkitSection("controls",
+        |  ContentToolkitOptions(false, 16, 8, 4, false, false, [], null,
+        |    ["saveDraft" -> "SAVE_H", "delete" -> "DEL_H"]))
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    interp.run(Parser.parse(source))
+
+    interp.lastResult match
+      case Value.InstanceV("VStackNode", sectionFields) =>
+        val controls = instanceFields(listField(sectionFields, "children", "section.children")(1), "VStackNode")
+        val nodes = listField(controls, "children", "controls.children")
+        assert(nodes.length == 2)
+        val save = instanceFields(nodes(0), "ActionButtonNode")
+        assert(save("label") == Value.StringV("Save draft"))
+        assert(save("handler") == Value.StringV("SAVE_H"))
+        assert(save("disabled") == Value.boolV(false))
+        val del = instanceFields(nodes(1), "ActionButtonNode")
+        assert(del("label") == Value.StringV("Delete"))
+        assert(del("handler") == Value.StringV("DEL_H"))
+        assert(del("disabled") == Value.boolV(true))
+      case other =>
+        fail(s"expected controls section node, got $other")
+
+  test("toolkit:button?action=<id> with an unregistered id fails loudly"):
+    val source =
+      """---
+        |name: toolkit-action-missing-test
+        |---
+        |
+        |# Demo
+        |
+        |## Controls {#controls}
+        |
+        |- [Save](toolkit:button?action=nope)
+        |
+        |```scala
+        |case class ContentToolkitOptions(
+        |  includeCode: Boolean = false, sectionGap: Int = 16, blockGap: Int = 8, listGap: Int = 4,
+        |  wrapDocumentInCard: Boolean = false, wrapTopLevelSectionsInCards: Boolean = false,
+        |  components: List[Any] = [], bindings: Any = null,
+        |  actions: Map[String, Any] = Map())
+        |extern def contentToolkitSection(id: String, options: ContentToolkitOptions): Any
+        |contentToolkitSection("controls",
+        |  ContentToolkitOptions(false, 16, 8, 4, false, false, [], null, ["save" -> "H"]))
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    val err = intercept[Throwable](interp.run(Parser.parse(source)))
+    assert(err.getMessage.contains("action 'nope' is not registered"),
+      s"expected a loud unregistered-action error, got: ${err.getMessage}")
+    assert(err.getMessage.contains("save"), "error should list available action ids")
+
   test("contentToMarkdown renders selected Markdown content"):
     val source = os.read(repoRoot / "tests" / "conformance" / "content-to-markdown.ssc")
     val expected = os.read(repoRoot / "tests" / "conformance" / "expected" / "content-to-markdown.txt").stripTrailing

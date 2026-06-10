@@ -9,8 +9,10 @@ exports:
   - ContentComponentContext
   - ContentToolkitComponent
   - contentComponent
+  - contentAction
   - contentToolkitOptionsWithBindings
   - contentToolkitOptionsWithComponents
+  - contentToolkitOptionsWithActions
   - contentView
   - contentViewSection
   - contentViewBlock
@@ -139,7 +141,11 @@ case class ContentToolkitOptions(
   wrapDocumentInCard: Boolean = false,
   wrapTopLevelSectionsInCards: Boolean = false,
   components: List[ContentToolkitComponent] = [],
-  bindings: ContentValue = ContentValue.MapV(Map())
+  bindings: ContentValue = ContentValue.MapV(Map()),
+  // Action registry: a `toolkit:button?action=<id>` Markdown link binds to the
+  // EventHandler registered under <id> here (e.g. a fetchAction / fetchJsonAction),
+  // turning a declarative Markdown link into a typed server write.
+  actions: Map[String, Any] = Map()
 )
 
 case class ContentComponentContext(
@@ -160,6 +166,18 @@ case class ContentToolkitComponent(
 
 def contentComponent(name: String)(render: ContentComponentContext => TkNode): ContentToolkitComponent =
   ContentToolkitComponent(name, render)
+
+// contentAction — register a server effect under an id for `toolkit:button?action=id`.
+// `handler` is an EventHandler (e.g. fetchAction / fetchJsonAction).  Build the
+// registry as `Map(contentAction("save", h), contentAction("delete", h2))`.
+def contentAction(id: String, handler: Any): (String, Any) = (id, handler)
+
+def contentToolkitOptionsWithActions(
+  actions: Map[String, Any],
+  components: List[ContentToolkitComponent] = [],
+  bindings: ContentValue = ContentValue.MapV(Map())
+): ContentToolkitOptions =
+  ContentToolkitOptions(components = components, bindings = bindings, actions = actions)
 
 def contentToolkitOptionsWithBindings(
   bindings: ContentValue,

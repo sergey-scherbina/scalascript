@@ -138,10 +138,11 @@ object ContentIntrinsics:
     wrapDocumentInCard: Boolean = false,
     wrapTopLevelSectionsInCards: Boolean = false,
     components: Map[String, Value] = Map.empty,
-    bindings: Map[String, ast.ContentValue] = Map.empty
+    bindings: Map[String, ast.ContentValue] = Map.empty,
+    actions: Map[String, Value] = Map.empty
   )
 
-  private case class ToolkitUiEnv(signals: Map[String, Value])
+  private case class ToolkitUiEnv(signals: Map[String, Value], actions: Map[String, Value] = Map.empty)
   private case class ToolkitLink(kind: String, query: Map[String, String], label: String)
 
   private def currentDocument(ctx: PluginContext, fn: String): ast.DocumentContent =
@@ -194,8 +195,18 @@ object ContentIntrinsics:
       wrapDocumentInCard = boolField(fields, "wrapDocumentInCard", default = false),
       wrapTopLevelSectionsInCards = boolField(fields, "wrapTopLevelSectionsInCards", default = false),
       components = componentRegistry(fields.get("components")),
-      bindings = contentValueMapField(fields.get("bindings"))
+      bindings = contentValueMapField(fields.get("bindings")),
+      actions = actionRegistry(fields.get("actions"))
     )
+
+  // actions: a Map[String, EventHandler] — id -> handler for toolkit:button?action=id.
+  private def actionRegistry(value: Option[Value]): Map[String, Value] =
+    value match
+      case None | Some(Value.NullV) => Map.empty
+      case Some(Value.MapV(m)) =>
+        m.collect { case (Value.StringV(k), v) => k -> v }
+      case Some(other) =>
+        throw InterpretError(s"ContentToolkitOptions.actions: expected Map[String, EventHandler], got ${Value.show(other)}")
 
   private def componentRegistry(value: Option[Value]): Map[String, Value] =
     value match
@@ -232,7 +243,7 @@ object ContentIntrinsics:
 
   private def contentValueMapField(value: Option[Value]): Map[String, ast.ContentValue] =
     value match
-      case None => Map.empty
+      case None | Some(Value.NullV) => Map.empty
       case Some(inst: Value.InstanceV) if inst.typeName == "MapV" =>
         astContentValueMapEntries(inst, "ContentToolkitOptions.bindings")
       case Some(other) =>
@@ -276,7 +287,7 @@ object ContentIntrinsics:
     inst
 
   private def toolkitDocumentNode(ctx: PluginContext, doc: ast.DocumentContent, options: ToolkitOptions): Value =
-    val env = toolkitMarkdownEnv(doc)
+    val env = toolkitMarkdownEnv(doc).copy(actions = options.actions)
     val children =
       doc.blocks.map(toolkitBlockNode(ctx, doc, _, options, env)) ++
         doc.sections.map(toolkitSectionNode(ctx, doc, _, options, env, topLevel = true))
@@ -286,7 +297,7 @@ object ContentIntrinsics:
   private def toolkitBlockById(ctx: PluginContext, doc: ast.DocumentContent, id: String, options: ToolkitOptions): Value =
     blocksDeep(doc).filter(block => blockId(block).contains(id)) match
       case block :: Nil =>
-        toolkitBlockNode(ctx, doc, block, options, toolkitMarkdownEnv(block))
+        toolkitBlockNode(ctx, doc, block, options, toolkitMarkdownEnv(block).copy(actions = options.actions))
       case Nil =>
         throw InterpretError(s"contentToolkitBlock: no block with id '$id'")
       case _ =>
@@ -295,7 +306,7 @@ object ContentIntrinsics:
   private def toolkitSectionById(ctx: PluginContext, doc: ast.DocumentContent, id: String, options: ToolkitOptions): Value =
     sectionsDeep(doc).filter(_.id == id) match
       case section :: Nil =>
-        toolkitSectionNode(ctx, doc, section, options, toolkitMarkdownEnv(section), topLevel = true)
+        toolkitSectionNode(ctx, doc, section, options, toolkitMarkdownEnv(section).copy(actions = options.actions), topLevel = true)
       case Nil =>
         throw InterpretError(s"contentToolkitSection: no section with id '$id'")
       case _ =>
@@ -510,7 +521,7 @@ object ContentIntrinsics:
   private def toolkitUiNode(value: ast.ContentValue, options: ToolkitOptions, baseEnv: ToolkitUiEnv): Value =
     val root = contentMap(value, "@ui=toolkit")
     val signals = root.get("signals").map(toolkitSignals).getOrElse(Map.empty)
-    val env = ToolkitUiEnv(baseEnv.signals ++ signals)
+    val env = ToolkitUiEnv(baseEnv.signals ++ signals, baseEnv.actions)
     root.get("controls")
       .orElse(root.get("control"))
       .map(toolkitControl(_, env, options))
@@ -625,19 +636,37 @@ object ContentIntrinsics:
           toolkitLinkBool(link, "disabled", default = false)
         )
       case "button" | "signalbutton" =>
-        val signal = signalRef(requiredToolkitQuery(link, "signal"), env, "toolkit:button")
-        val value = toolkitLinkLiteral(link.query.get("value").getOrElse("true"))
         val label = toolkitLinkLabel(link)
         val disabled = toolkitLinkBool(link, "disabled", default = false)
-        link.query.get("enabledWhen") match
-          case Some(name) =>
-            showWhenNode(
-              signalRef(name, env, "toolkit:button.enabledWhen"),
-              signalButtonNode(signal, value, label, disabled),
-              signalButtonNode(signal, value, label, disabled = true)
-            )
+        // `action=<id>` binds the button to a registered EventHandler (a server
+        // write), turning a declarative Markdown link into a typed effect.  Without
+        // it, the button sets a local signal (`signal=`) as before.
+        link.query.get("action") match
+          case Some(actionId) =>
+            val handler = env.actions.getOrElse(actionId, throw InterpretError(
+              s"contentToolkitNode: toolkit:button action '$actionId' is not registered " +
+              s"(available: ${if env.actions.isEmpty then "<none>" else env.actions.keys.toList.sorted.mkString(", ")})"))
+            link.query.get("enabledWhen") match
+              case Some(name) =>
+                showWhenNode(
+                  signalRef(name, env, "toolkit:button.enabledWhen"),
+                  actionButtonNode(handler, label, disabled),
+                  actionButtonNode(handler, label, disabled = true)
+                )
+              case None =>
+                actionButtonNode(handler, label, disabled)
           case None =>
-            signalButtonNode(signal, value, label, disabled)
+            val signal = signalRef(requiredToolkitQuery(link, "signal"), env, "toolkit:button")
+            val value = toolkitLinkLiteral(link.query.get("value").getOrElse("true"))
+            link.query.get("enabledWhen") match
+              case Some(name) =>
+                showWhenNode(
+                  signalRef(name, env, "toolkit:button.enabledWhen"),
+                  signalButtonNode(signal, value, label, disabled),
+                  signalButtonNode(signal, value, label, disabled = true)
+                )
+              case None =>
+                signalButtonNode(signal, value, label, disabled)
       case "signaltext" =>
         signalTextNode(signalRef(requiredToolkitQuery(link, "signal"), env, "toolkit:signalText"))
       case "badge" =>
@@ -1817,6 +1846,13 @@ object ContentIntrinsics:
     instanceValue("SignalButtonNode",
       "signal" -> signal,
       "value" -> value,
+      "label" -> Value.StringV(label),
+      "disabled" -> Value.boolV(disabled)
+    )
+
+  private def actionButtonNode(handler: Value, label: String, disabled: Boolean): Value =
+    instanceValue("ActionButtonNode",
+      "handler" -> handler,
       "label" -> Value.StringV(label),
       "disabled" -> Value.boolV(disabled)
     )
