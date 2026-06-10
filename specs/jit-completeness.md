@@ -304,6 +304,50 @@ not compilable without a heap model. Skip unless analysis shows they are
 always self-contained `Int → Int` lambdas immediately passed to a compiled
 callee.
 
+### p10 — anonymous HOF closures + no-arg String methods (2026-06-10)
+
+**Status:** ✓ Landed.
+
+**Motivation:** `xs.map(s => s.trim.toInt)` / `xs.foldLeft(0)(_ + _)` — the
+dominant cost of the `string-split` corpus (interp 18.7 ms vs jvm 0.08).
+Two independent walls blocked it:
+
+1. **Anonymous lambdas never reached the JIT.** `JitRuntime.tryRun0/1/2/List`
+   guarded `f.name.isEmpty` → every `map`/`foreach`/`foldLeft`/`filter`
+   callback (all anonymous) fell straight to tree-walk. The guard exists to
+   avoid leaking the never-evicted identity `cache`: a *capturing* lambda gets
+   a fresh `FunV` per eval. But an **empty-closure** lambda has a stable
+   identity (`emptyClosureFunCache` returns the same `FunV` for the same AST
+   node), so it can be cached once without leaking.
+   - **Fix:** `jitNameEligible(f) = f.name.nonEmpty || f.closure.isEmpty`.
+     Capturing lambdas stay excluded (and bail in `VmCompiler` on the captured
+     free name anyway). `bytecodeFor` keeps its `name.isEmpty` guard, so an
+     anonymous lambda skips the javac/asm backend (which needs a class name)
+     and compiles on the backend-independent register VM.
+
+2. **Untyped lambda params + missing String-method opcodes.** `s => …` carries
+   no param type, so the register stayed `TInt` and `s.trim` bailed.
+   - **Fix:** `tryRun1` infers `paramTypes(0) = "String"` from a `StringV`
+     runtime arg (`withParamHints`); a later non-String arg is rejected by the
+     ref-param marshalling guard (→ tree-walk), so a monomorphic inference can
+     never miscompile a polymorphic site.
+   - **New opcode `SSTR 50`** (dst, src, methodSlot): `refStack(dst) =
+     StringV(m(src.v))` for the no-arg String→String methods `trim` /
+     `toLowerCase` / `toUpperCase`. Int-returning `toInt` / `toLong` extend the
+     `GETFI` String branch (`str.v.toLong`, matching the interpreter's
+     `pureIntV(s.toLong)` exactly — including the `NumberFormatException` on a
+     malformed string). `VmCompiler` `Term.Select` dispatches String-typed
+     bases to these before the generic ADT-meta lookup.
+   - `StringV`/`MapV` are now accepted as ref-param args in `tryRun1` and
+     `marshalAndRun` (previously only `InstanceV`/`FunV`).
+
+**Results:** `string-split` JMH **17.18 → 2.74 ms (6.3×)**; corpus **18.7 →
+3.26 ms (5.7×)**. `hof-pipeline`/`range-sum` now ≈10⁻³ ms. No corpus
+regression; full interpreter suite green (1593) on **both** JIT backends
+(javac + asm). String concatenation (`s + lit`) remains out of scope (heap
+alloc); `typeclass-fold` is unaffected (its bottleneck is per-call `summon`
+resolution, not the closure — see `interp-typeclass-fold-devirt`).
+
 ## 5. Out of scope
 
 - **`call: no compilable target` (198 misses):** free-name calls to

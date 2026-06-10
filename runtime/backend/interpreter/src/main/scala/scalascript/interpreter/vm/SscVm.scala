@@ -123,6 +123,12 @@ object SscVm:
   //   return type is String, an ADT, or any other ref-typed value.
   final val RETREF = 49
 
+  // SSTR dst, src, methodSlot: refStack(dst) = StringV(m(refStack(src).v)) where
+  //   m is the no-arg String→String method named strPool(methodSlot)
+  //   (trim / toLowerCase / toUpperCase). The compiler only emits this for a
+  //   ref register already typed "String", so the cast is safe.
+  final val SSTR = 50
+
   /** A compiled function: parallel instruction arrays + pools.
    *  `op(i)` is the opcode; `a/b/c(i)` its operands (meaning per §4 of spec).
    *  `constPool` backs CONST; `callPool` backs CALL (callee by slot). */
@@ -232,9 +238,13 @@ object SscVm:
           refStack(base + b(pc)) match
             case str: Value.StringV =>
               stack(base + a(pc)) = sp(c(pc)) match
-                case "length"   => str.v.length.toLong
-                case "isEmpty"  => if str.v.isEmpty  then 1L else 0L
-                case "nonEmpty" => if str.v.nonEmpty then 1L else 0L
+                case "length"      => str.v.length.toLong
+                case "isEmpty"     => if str.v.isEmpty  then 1L else 0L
+                case "nonEmpty"    => if str.v.nonEmpty then 1L else 0L
+                // `s.toInt`/`s.toLong` mirror the interpreter, which parses via
+                // `s.toLong` and lets a malformed string throw NumberFormatException
+                // (DispatchRuntime `case "toInt" => pureIntV(s.toLong)`).
+                case "toInt" | "toLong" => str.v.toLong
                 case f          => throw new RuntimeException(s"GETFI: unknown String field '$f'")
             case ref =>
               val inst = ref.asInstanceOf[Value.InstanceV]
@@ -264,6 +274,13 @@ object SscVm:
           else
             refStack(base + a(pc)) = inst.fields(sp(c(pc))).asInstanceOf[AnyRef]
         case MFAIL  => throw new RuntimeException("VM match: no case matched")
+        case SSTR =>
+          val sv = refStack(base + b(pc)).asInstanceOf[Value.StringV]
+          refStack(base + a(pc)) = sp(c(pc)) match
+            case "trim"        => Value.StringV(sv.v.trim)
+            case "toLowerCase" => Value.StringV(sv.v.toLowerCase)
+            case "toUpperCase" => Value.StringV(sv.v.toUpperCase)
+            case m             => throw new RuntimeException(s"SSTR: unknown String method '$m'")
         case LOADS  => refStack(base + a(pc)) = Value.StringV(sp(b(pc)))
         case EQREF  => stack(base + a(pc)) = if Objects.equals(refStack(base + b(pc)), refStack(base + c(pc))) then 1L else 0L
         case NEREF  => stack(base + a(pc)) = if !Objects.equals(refStack(base + b(pc)), refStack(base + c(pc))) then 1L else 0L

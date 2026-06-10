@@ -68,7 +68,7 @@ object JitRuntime:
    *  warm-up threshold is reached. When `eager`, compile on the first call —
    *  used for self-tail-recursive functions, whose single `callFun` entry
    *  already represents the whole hot loop (the VM compiles TCO to a loop). */
-  private def hotCompiled(f: Value.FunV, interp: Interpreter, eager: Boolean): SscVm.CompiledFn | Null =
+  private def hotCompiled(f: Value.FunV, interp: Interpreter, eager: Boolean, paramHints: Array[String] | Null = null): SscVm.CompiledFn | Null =
     if interp.debugHooks.nonEmpty then return null
     val e = entryFor(f)
     val c = e.compiled
@@ -81,9 +81,46 @@ object JitRuntime:
         if e.compiled != null then e.compiled
         else if e.disabled then null
         else
-          VmCompiler.compile(f, resolverFor(interp), metaFor(interp)) match
+          VmCompiler.compile(withParamHints(f, paramHints), resolverFor(interp), metaFor(interp)) match
             case Some(cf) => e.compiled = cf; cf
             case None     => e.disabled = true; null
+
+  /** Fill in empty param types from runtime-arg hints (e.g. an untyped lambda
+   *  `s => s.trim` called with a `StringV` arg gets `paramTypes(0) = "String"`),
+   *  so [[VmCompiler]] can type the register and compile String-method calls.
+   *  The compiled function is cached and reused; a later call with a non-matching
+   *  arg type is rejected by the ref-param marshalling guard (→ tree-walk), so a
+   *  monomorphic inference can never miscompile a polymorphic call site. */
+  private def withParamHints(f: Value.FunV, hints: Array[String] | Null): Value.FunV =
+    if hints == null then f
+    else
+      val pts = f.paramTypes
+      var i = 0
+      var changed = false
+      val merged = Array.fill(f.params.length)("")
+      while i < merged.length do
+        val cur = if i < pts.length then pts(i) else ""
+        if cur.trim.isEmpty && i < hints.length && hints(i).nonEmpty then { merged(i) = hints(i); changed = true }
+        else merged(i) = cur
+        i += 1
+      if changed then f.copy(paramTypes = merged.toList) else f
+
+  /** Runtime-arg → param-type hint for the JIT compiler. Only `String` is
+   *  inferred today (numeric/ref params already carry usable declared types). */
+  private def argTypeHint(arg: Value): String = arg match
+    case _: Value.StringV => "String"
+    case _                => ""
+
+  /** A FunV is name-eligible for the register-VM JIT when it is either named
+   *  (top-level / local def — a stable identity) or an *anonymous lambda with an
+   *  empty closure*. The latter is the common `xs.map(s => …)` callback: its
+   *  identity is stabilised by `emptyClosureFunCache` (same AST node → same FunV),
+   *  so the per-closure `cache` entry is created once, not leaked per call.
+   *  Capturing lambdas (non-empty closure) are excluded — they get a fresh FunV
+   *  each eval (which would leak the IdentityHashMap) and bail in `VmCompiler`
+   *  on the captured free name anyway. */
+  private def jitNameEligible(f: Value.FunV): Boolean =
+    f.name.nonEmpty || f.closure.isEmpty
 
   /** Build a [[VmCompiler.Resolve]] that maps a free name in `owner`'s body to
    *  the [[Value.FunV]] it refers to: first the lexical closure, then the
@@ -521,7 +558,7 @@ object JitRuntime:
    *  Accepts either a numeric arg (numeric param) or an InstanceV (ref param,
    *  VM 2a) — the param domain is decided by the compiled function. */
   def tryRun1(f: Value.FunV, arg: Value, interp: Interpreter, eager: Boolean = false): Computation | Null =
-    if !enabled || f.name.isEmpty || f.params.length != 1 || f.returnsThrows then null
+    if !enabled || !jitNameEligible(f) || f.params.length != 1 || f.returnsThrows then null
     else
       // Phase C: try the bytecode-jit MH before the register-VM path. Skips
       // `SscVm.exec`'s opcode dispatch loop entirely when the body is in the
@@ -530,7 +567,7 @@ object JitRuntime:
       if bcMh != null then
         val r = invokeBytecode1(bcMh, arg, interp)
         if r != null then return r
-      val cf = hotCompiled(f, interp, eager)
+      val cf = hotCompiled(f, interp, eager, Array(argTypeHint(arg)))
       if cf == null then null
       else if isRefParam(cf, 0) then
         arg match
@@ -539,6 +576,9 @@ object JitRuntime:
             catch case _: Throwable => null
           case fn: Value.FunV =>
             try runAndWrap(cf, NoArgs, Array[AnyRef](fn))
+            catch case _: Throwable => null
+          case _: Value.StringV | _: Value.MapV =>
+            try runAndWrap(cf, NoArgs, Array[AnyRef](arg.asInstanceOf[AnyRef]))
             catch case _: Throwable => null
           case _ => null
       else if !isNumeric(arg) then null
@@ -551,7 +591,7 @@ object JitRuntime:
 
   /** 2-arg entry. Returns a Pure(IntV/DoubleV) computation if JITted, else null. */
   def tryRun2(f: Value.FunV, a: Value, b: Value, interp: Interpreter, eager: Boolean = false): Computation | Null =
-    if !enabled || f.name.isEmpty || f.params.length != 2 || f.returnsThrows then null
+    if !enabled || !jitNameEligible(f) || f.params.length != 2 || f.returnsThrows then null
     else
       val bcMh = bytecodeFor(f, interp)
       if bcMh != null then
@@ -566,7 +606,7 @@ object JitRuntime:
    *  per the compiled param domain: numeric → Long bank, InstanceV → ref bank.
    *  `eager` is set for self-tail-recursive callers (see [[hotCompiled]]). */
   def tryRunList(f: Value.FunV, args: List[Value], interp: Interpreter, eager: Boolean = false): Computation | Null =
-    if !enabled || f.name.isEmpty || f.returnsThrows then null
+    if !enabled || !jitNameEligible(f) || f.returnsThrows then null
     else
       val n = args.length
       if n < 1 || n > VmCompiler.MaxArity || f.params.length != n then null
@@ -602,6 +642,7 @@ object JitRuntime:
         v match
           case inst: Value.InstanceV => rs(i) = inst; anyRef = true
           case fn: Value.FunV        => rs(i) = fn;   anyRef = true
+          case _: Value.StringV | _: Value.MapV => rs(i) = v.asInstanceOf[AnyRef]; anyRef = true
           case _                     => ok = false
       else
         val m = marshal(v, i < cf.paramIsDouble.length && cf.paramIsDouble(i))
