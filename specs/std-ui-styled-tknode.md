@@ -250,6 +250,26 @@ gets themed output without touching any screen.
 
 ---
 
+## 7b. `link` — themed anchor (busi follow-up, 2026-06-10)
+
+`link(href, label, variant = "default"): TkNode` lowers to a plain themed `<a href>`
+for back/cross navigation. Unlike `LinkNode` (which sets a routing signal on click),
+`link` passes `href` through verbatim — hash routes like `"#/inbox"` — and binds no
+handler. It replaces busi's `web/ui.ssc` `linkText` helper (the last inline-CSS anchor).
+
+`variant` is a runtime string resolved to a `ColorToken`:
+
+| variant   | colour      | use                                  |
+|-----------|-------------|--------------------------------------|
+| `default` | `onSurface` | strong nav link (matches `linkText`) |
+| `muted`   | `muted`     | secondary / de-emphasised            |
+| `primary` | `primary`   | call-to-action link                  |
+
+Style: themed colour + `text-decoration:none`, `font-weight:600`, body font — so the
+swap from `linkText` is visually neutral and re-themes under `darkTheme` / mobile.
+
+---
+
 ## 8. Non-goals (v1)
 
 - A full native lowering of `Style` — this spec makes screens *portable*; the actual
