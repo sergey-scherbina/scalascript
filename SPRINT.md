@@ -31,6 +31,21 @@ Recommended order: (1) JS numeric type inference [medium, clean], (2) honesty
 (varying-data redesign or full opaque-transparency), (3) JS persistent map
 [big/risky], (4) AOT codegen passes [per-case].
 
+Progress:
+- [x] **(1) js-numeric-inference** — DONE 2026-06-10 (`c8e4651c1`). JsGen tracks
+      numeric-element collections + integer ranges, types HOF closure params from
+      the element type through .map/.filter chains + foldLeft. hof-pipeline 0.028→
+      0.0085 (3.3×, ≈jvm), range-sum 0.048→0.011 (4.4×). Verified identical output;
+      231+58 tests green. Remaining residual on hof-pipeline: outer `sum + r.toLong`.
+- [ ] **(2) honesty pass** — BLOCKED on `Bench.opaque` defeating interp JIT (see
+      trap above). Needs opaque JIT-transparency across all interp matchers OR
+      per-workload varying-data redesign. Real project.
+- [ ] **(3) JS persistent map** — biggest single gap (map-ops 1.05ms 40×, verified
+      = O(n) `new Map(obj)` copy). Needs a HAMT/persistent structure; core-type
+      change, regression risk → do with dedicated verification.
+- [ ] **(4) AOT codegen passes** — jvm/rust invariant-hoist / range-fusion /
+      mutual-TCO to match the interp JIT. Per-case.
+
 ---
 
 ## Honest-bench follow-ups + cross-backend outliers (2026-06-10)
