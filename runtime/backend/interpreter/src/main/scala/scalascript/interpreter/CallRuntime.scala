@@ -290,7 +290,42 @@ private[interpreter] object CallRuntime:
             then lastRegularIdx
             else f.params.length
           callFun(f, orderedArr.take(filledCount).toList, interp)
-      case f: Value.NativeFnV => f.f(namedArgs.map(_._2))
+      case f: Value.NativeFnV =>
+        // A NativeFnV drops argument names, so a case-class constructor called with
+        // partial named args (`S(a = .., c = ..)`) would bind values positionally and
+        // mis-place them.  When the target is a known type constructor, reorder named
+        // args into a full positional list by field order, filling omitted fields with
+        // their declared defaults, then hand the complete list to the ctor.
+        val fieldOrderOpt = if namedArgs.exists(_._1.isDefined) then interp.typeFieldOrder.get(f.name) else None
+        fieldOrderOpt match
+          case Some(fieldOrder) =>
+            val slots = Array.ofDim[Value](fieldOrder.length)   // null = unfilled
+            namedArgs.foreach {
+              case (Some(n), v) =>
+                val i = fieldOrder.indexOf(n)
+                if i >= 0 then slots(i) = v
+                else interp.located(s"Unknown argument name '$n' for '${f.name}' (fields: ${fieldOrder.mkString(", ")})")
+              case _ => ()
+            }
+            val posIter = namedArgs.collect { case (None, v) => v }.iterator
+            for i <- slots.indices do
+              if slots(i) == null && posIter.hasNext then slots(i) = posIter.next()
+            val (defaults, ctorEnv) = interp.typeFieldDefaults.getOrElse(f.name, (Nil, env))
+            var fillEnv = ctorEnv
+            for i <- slots.indices do
+              if slots(i) != null then
+                fillEnv = FrameMap.one(fieldOrder(i), slots(i), fillEnv)
+              else
+                val d = if i < defaults.length then defaults(i) else None
+                d match
+                  case Some(term) =>
+                    val v = Computation.run(interp.eval(term, fillEnv))
+                    slots(i) = v
+                    fillEnv = FrameMap.one(fieldOrder(i), v, fillEnv)
+                  case None =>
+                    interp.located(s"missing argument for field '${fieldOrder(i)}' of '${f.name}'")
+            f.f(slots.toList)
+          case None => f.f(namedArgs.map(_._2))
       case Value.InstanceV(_, fields) =>
         val applyFn = fields.getOrElse("apply", null)
         if applyFn != null then callValueNamed(applyFn, namedArgs, env, interp)

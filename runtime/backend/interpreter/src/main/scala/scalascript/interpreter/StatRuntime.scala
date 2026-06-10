@@ -299,6 +299,10 @@ private[interpreter] object StatRuntime:
         Value.NativeFnV(typeName, args =>
           constructNoDefaultInstanceOrFallback(typeName, paramNames, args, classTag, classFallbackCtor))
       else
+        // Record defaults so callValueNamed can fill omitted fields in named-arg
+        // construction (the ctor NativeFnV drops names, so a partial named call
+        // would otherwise mis-bind values positionally).
+        interp.typeFieldDefaults(typeName) = (paramDefaults, ctorEnv)
         Value.NativeFnV(typeName, classFallbackCtor)
       // Methods defined inside the class body are stored in a separate
       // type-keyed registry; dispatch on an InstanceV consults it and re-binds

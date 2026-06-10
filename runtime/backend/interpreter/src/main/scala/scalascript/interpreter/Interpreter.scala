@@ -149,6 +149,13 @@ class Interpreter(
   // TypedHandlerWrapper.deserializeCaseClass to coerce path/query/body values.
   private[interpreter] val typeFieldTypes = mutable.Map.empty[String, List[String]]
   private[interpreter] val typeFieldSchemas = mutable.Map.empty[String, List[TypeFieldSchema]]
+  // Per-case-class constructor default terms + the env they evaluate in.  Used by
+  // CallRuntime.callValueNamed to reorder named args into a full positional list
+  // (filling omitted fields with their defaults) before the ctor's NativeFnV is
+  // called — the ctor itself drops argument names.  Only populated when a class
+  // actually declares a default (the common no-default ctor stays untouched).
+  private[interpreter] val typeFieldDefaults =
+    mutable.Map.empty[String, (List[Option[scala.meta.Term]], Env)]
   private[interpreter] val rejectUnknownTypes = mutable.Set.empty[String]
   // busi-p0-statusval-eventcase-collision — when two bindings with the same
   // name end up in the same scope (canonical case: a `val PeerLinkInvited =
