@@ -1685,17 +1685,15 @@ invoice template (table layout, A4, basic typography/borders/background, `@media
 backend.** PDF half is the priority; MIME/SMTP are a later slice. Spec already pinned
 (commit 342cf5162). Start order: **pdf-p1 → pdf-p2 → (mime-p3, smtp later)**.
 
-- [ ] **pdfgen-p1-engine** — Add `htmlToPdfBase64(html): String` as a JVM intrinsic in a
-      new `pdf-plugin` (opt-in `.sscpkg`, parallels `crypto-plugin`; NOT core). Engine:
-      OpenHTMLtoPDF (flying-saucer over PDFBox), confined to the invoice template's CSS
-      subset. Convert rendered bytes → base64. Register in `build.sbt` + PluginSpec.
-      Test (`PdfGenTest`): busi invoice HTML → bytes start with `%PDF-`, page count ≥ 1,
-      unsupported CSS degrades (no throw). Commit: `feat(pdf-plugin): htmlToPdfBase64 (OpenHTMLtoPDF)`.
+- [x] **pdfgen-p1-engine** [landed 2026-06-10] — `htmlToPdfBase64(html): String` as a JVM
+      intrinsic in the new opt-in `pdf-plugin` (OpenHTMLtoPDF 1.0.10 + jsoup 1.17.2 for
+      lenient HTML parse → W3C DOM). Registered in `build.sbt` (module + packagePlugin list
+      + PluginSpec). `PdfPluginTest`: invoice HTML → `%PDF-` + ≥1 page (PDFBox parse-back) +
+      grid/float degrades (no throw). 4/4 green.
 
-- [ ] **pdfgen-p2-stdlib** — `runtime/std/pdf-gen.ssc` surface (`extern def htmlToPdfBase64`),
-      `examples/invoice-pdf.ssc` (build invoice HTML → PDF → write bytes via std.fs).
-      Document the supported HTML/CSS subset in the spec + README. **JVM-only** noted.
-      Commit: `feat(std): std.pdf-gen htmlToPdfBase64 module + example`.
+- [x] **pdfgen-p2-stdlib** [landed 2026-06-10] — `runtime/std/pdf-gen.ssc` (`package std.pdf`,
+      `extern def htmlToPdfBase64`) + `examples/invoice-pdf.ssc` + documented HTML/CSS subset
+      in spec + README. JVM-only noted.
 
 - [ ] **mime-p3-build** — `buildMimeMessage(from,to,subject,htmlBody,attachments)` →
       RFC 5322 text, in a `mime-plugin` (or fold into pdf-plugin). Prefer hand-rolled

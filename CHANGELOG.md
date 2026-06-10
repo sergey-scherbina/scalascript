@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-10 — feat(std.pdf): htmlToPdfBase64 generation (pdfgen)
+
+- **pdfgen-p1-engine + pdfgen-p2-stdlib** — `std.pdf.htmlToPdfBase64(html)` renders a
+  confined HTML/CSS subset (table layout, A4, typography/borders/background,
+  `@media print`) to base64 PDF bytes — a drop-in for an external HTML→PDF relay.
+  New opt-in `pdf-plugin` (OpenHTMLtoPDF 1.0.10 over PDFBox; jsoup 1.17.2 parses
+  real HTML leniently → W3C DOM). Unsupported CSS (grid/float/flex) is skipped, not
+  thrown; unparseable input throws a clear error. JVM/interpreter only. Surface
+  `runtime/std/pdf-gen.ssc`, example `examples/invoice-pdf.ssc`. `PdfPluginTest`
+  (4): `%PDF-` magic + ≥1 page via PDFBox + graceful degradation. Unblocks busi's
+  relay-free invoice PDF (`pdf-mime-generation.md`); MIME/SMTP are the next slices.
+
+---
+
 ## 2026-06-10 — feat(std.crypto): AES-256-GCM + RSA-OAEP + X.509 encryption (crypto-encrypt)
 
 - **crypto-encrypt** — `std.crypto` gains encryption (was hash/HMAC/base64 only),
