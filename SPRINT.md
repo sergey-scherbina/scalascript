@@ -8,6 +8,31 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Cross-backend gap re-audit (2026-06-10, post-HOF-JIT)
+
+Full evidence-backed diagnosis of the remaining table unevenness in
+[`docs/bench/cross-backend-gap-analysis.md`](docs/bench/cross-backend-gap-analysis.md).
+Three categories: (1) real codegen gaps — js `map-ops` 40× = no persistent map,
+js `hof-pipeline` = `_arith` on untyped list elements; (2) interp JIT cleverer
+than AOT (jvm list-fold/range-sum/mutual-recursion *slower than interp* because
+the interp JIT does invariant-hoist / range-fusion / mutual-TCO the AOT backends
+don't); (3) **measurement artifacts** — many compiled sub-µs cells are folds
+(verified: jvm instance-field 0.0003 → 0.0079 with a per-iter barrier).
+
+**KEY TRAP (verified, do not repeat):** a naïve "de-fold via `Bench.opaque`"
+honesty pass is counter-productive — `Bench.opaque` makes the interpreter's JIT
+bail to tree-walk (interp arith-loop 0.287 → **3043 ms**, instance-field 0.0068 →
+31.7 ms). A `VmCompiler.compileInto` identity case is NOT enough — the
+while-loop / FastTier / bytecode matchers bail first. A correct honesty pass
+needs opaque JIT-transparent across ALL interp matchers, OR redesign folded
+workloads to loop-varying data. Both are real projects.
+
+Recommended order: (1) JS numeric type inference [medium, clean], (2) honesty
+(varying-data redesign or full opaque-transparency), (3) JS persistent map
+[big/risky], (4) AOT codegen passes [per-case].
+
+---
+
 ## Honest-bench follow-ups + cross-backend outliers (2026-06-10)
 
 Re-audit of the 24-workload cross-backend table (`bench.sh`).  After the
