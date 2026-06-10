@@ -58,7 +58,8 @@ object WebServer:
   def start(port: Int, root: String, log: java.io.PrintStream,
             certPath: String = "", keyPath: String = "",
             wsRoutes: WsRoutes = new WsRoutes(),
-            routeRegistry: RouteRegistry = Routes): Unit =
+            routeRegistry: RouteRegistry = Routes,
+            onBound: () => Unit = () => ()): Unit =
     val useTls = certPath.nonEmpty && keyPath.nonEmpty
 
     val latch    = java.util.concurrent.CountDownLatch(1)
@@ -107,7 +108,12 @@ object WebServer:
     val tls: Option[TlsConfig] =
       if useTls then Some(TlsConfig(certPath, keyPath)) else None
 
+    // `backend.start` binds the listen socket synchronously and returns once it
+    // is accepting; `localPort` is valid from here on.  Signal readiness now so
+    // an async caller (serveAsync) only returns after the bind, closing the race
+    // where an immediate `httpGet` raced the socket bind and got ConnectException.
     backend.start(port, tls, handler)
+    onBound()
 
     val scheme = if useTls then "https" else "http"
     log.println(s"ScalaScript web · $scheme://localhost:${backend.localPort}/  (root: $root)")
