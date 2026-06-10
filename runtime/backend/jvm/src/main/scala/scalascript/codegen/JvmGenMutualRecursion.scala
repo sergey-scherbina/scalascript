@@ -22,6 +22,7 @@ private[codegen] trait JvmGenMutualRecursion:
 
   private[codegen] def analyzeMutualRecursion(blocks: List[JvmGen.Block]): Unit =
     mutualGroups.clear()
+    mutualDefs.clear()
     val callGraph = mutable.Map[String, Set[String]]()
 
     def collectFuncs(stats: List[Stat]): Unit = stats.foreach {
@@ -31,6 +32,7 @@ private[codegen] trait JvmGenMutualRecursion:
           && isSingleClauseDef(d) =>
         callGraph(d.name.value) =
           tailCallTargets(d.body, d.name.value, tailPos = true)
+        mutualDefs(d.name.value) = d
       case _ => ()
     }
 

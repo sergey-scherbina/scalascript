@@ -46,12 +46,14 @@ Progress:
       sites** across the JS runtime couple to native Map (completeness risk), or
       (b) an in-place/CoW mutation hack (silent-corruption risk via aliasing).
       Neither is a safe quick landing — real dedicated sub-project.
-- [~] **(4) AOT codegen passes** — PARTIAL. DONE: invariant-accumulation hoist
+- [~] **(4) AOT codegen passes** — mostly DONE. (a) invariant-accumulation hoist
       generalised Double→Long/Int in `JvmGen` (`aot-hoist`, list-fold jvm
-      0.075→0.0003, 215×; was slower than interp). DEFERRED (larger): range
-      map-fold fusion (`range-sum` jvm 0.0125), mutual-tail-call trampolining
-      (`mutual-recursion` jvm 3.89 — Scala has no mutual TCO; needs trampoline
-      generation in emitted Scala, risky).
+      0.075→0.0003, 215×). (b) **mutual-TCO** allocation-free merge for
+      uniform-signature cliques (`aot-mutual-tco`, mutual-recursion jvm
+      3.89→0.51, 7.6×; was slower than interp — closure trampoline allocated per
+      step). Verified across Boolean/String/2-param-Int shapes (new
+      `MutualTcoCrossBackendTest`). DEFERRED (low ROI): range map-fold fusion
+      (`range-sum` jvm 0.0125 — not egregious).
 
 ---
 
