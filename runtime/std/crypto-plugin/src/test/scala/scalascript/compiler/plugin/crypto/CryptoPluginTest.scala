@@ -240,3 +240,48 @@ class CryptoPluginTest extends AnyFunSuite:
     assert(evalBool(s"""verifyRsaSha256("$spki", "envelope", "$sig", "PSS")"""))
     // A PSS signature must NOT verify as PKCS1.
     assert(!evalBool(s"""verifyRsaSha256("$spki", "envelope", "$sig", "PKCS1")"""))
+
+  // ── pbkdf2 / secureRandomBytesB64 (busi-auth password hashing) ──────────
+
+  /** Independent reference: PBKDF2WithHmacSHA256 straight from the JCE. */
+  private def jcePbkdf2(password: String, salt: Array[Byte], iter: Int, dkLenBytes: Int): String =
+    val spec = new javax.crypto.spec.PBEKeySpec(password.toCharArray, salt, iter, dkLenBytes * 8)
+    val skf  = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+    b64(skf.generateSecret(spec).getEncoded)
+
+  test("pbkdf2 matches a direct PBKDF2WithHmacSHA256 reference (correct algo + dkLen in bytes)"):
+    val salt = "salt".getBytes("UTF-8")
+    val got  = evalStr(s"""pbkdf2("password", "${b64(salt)}", 4096, 32)""")
+    assert(got == jcePbkdf2("password", salt, 4096, 32), s"pbkdf2 mismatch: $got")
+    // dkLen is in bytes → 32 bytes decode
+    assert(java.util.Base64.getDecoder.decode(got).length == 32)
+
+  test("pbkdf2 is deterministic and honours dkLen"):
+    val salt = b64("s".getBytes("UTF-8"))
+    val a = evalStr(s"""pbkdf2("pw", "$salt", 1000, 16)""")
+    val b = evalStr(s"""pbkdf2("pw", "$salt", 1000, 16)""")
+    assert(a == b, "same inputs must derive the same key")
+    assert(java.util.Base64.getDecoder.decode(a).length == 16, "dkLen=16 → 16 bytes")
+
+  test("pbkdf2 is salt- and iteration-sensitive"):
+    val s1 = evalStr(s"""pbkdf2("pw", "${b64("salt1".getBytes)}", 1000, 32)""")
+    val s2 = evalStr(s"""pbkdf2("pw", "${b64("salt2".getBytes)}", 1000, 32)""")
+    assert(s1 != s2, "different salt must derive a different key")
+    val i1 = evalStr(s"""pbkdf2("pw", "${b64("salt".getBytes)}", 1000, 32)""")
+    val i2 = evalStr(s"""pbkdf2("pw", "${b64("salt".getBytes)}", 2000, 32)""")
+    assert(i1 != i2, "different iteration count must derive a different key")
+
+  test("pbkdf2 round-trips a verify: re-derive with stored salt+iters matches"):
+    val salt = evalStr("""secureRandomBytesB64(16)""")
+    val stored = evalStr(s"""pbkdf2("hunter2", "$salt", 50000, 32)""")
+    val rederived = evalStr(s"""pbkdf2("hunter2", "$salt", 50000, 32)""")
+    val wrong = evalStr(s"""pbkdf2("hunter3", "$salt", 50000, 32)""")
+    assert(stored == rederived, "correct password re-derives the stored key")
+    assert(stored != wrong, "wrong password derives a different key")
+
+  test("secureRandomBytesB64 returns n bytes and is non-repeating"):
+    val a = evalStr("""secureRandomBytesB64(16)""")
+    val b = evalStr("""secureRandomBytesB64(16)""")
+    assert(java.util.Base64.getDecoder.decode(a).length == 16, "must be 16 bytes")
+    assert(a != b, "two draws must differ (overwhelmingly)")
+    assert(evalStr("""secureRandomBytesB64(0)""") == "", "0 bytes → empty base64")

@@ -139,6 +139,32 @@ object CryptoIntrinsics:
       case _ => Value.StringV("")
     },
 
+    // ── PBKDF2-HMAC-SHA256 password derivation + secure random ──────────────
+
+    // pbkdf2(password, saltB64, iterations, dkLen) -> Base64 derived key.
+    // dkLen is in BYTES; PBEKeySpec wants the key length in bits.
+    QualifiedName("pbkdf2") -> native {
+      case List(password: String, saltB64: String, iterations: Long, dkLen: Long) =>
+        try
+          val spec = new javax.crypto.spec.PBEKeySpec(
+            password.toCharArray, b64d(saltB64), iterations.toInt, dkLen.toInt * 8)
+          val skf = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+          val dk  = skf.generateSecret(spec).getEncoded
+          spec.clearPassword()
+          Value.StringV(b64e(dk))
+        catch case e: Throwable => throw new RuntimeException(s"pbkdf2: ${e.getMessage}")
+      case _ => throw new RuntimeException("pbkdf2(password, saltB64, iterations, dkLen)")
+    },
+
+    QualifiedName("secureRandomBytesB64") -> native {
+      case List(n: Long) =>
+        if n < 0 then throw new RuntimeException("secureRandomBytesB64: n must be >= 0")
+        val bytes = new Array[Byte](n.toInt)
+        java.security.SecureRandom().nextBytes(bytes)
+        Value.StringV(b64e(bytes))
+      case _ => throw new RuntimeException("secureRandomBytesB64(n)")
+    },
+
     QualifiedName("base64Encode") -> native {
       case List(s: String) =>
         Value.StringV(java.util.Base64.getEncoder.encodeToString(s.getBytes("UTF-8")))

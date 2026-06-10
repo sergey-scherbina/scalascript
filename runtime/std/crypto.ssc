@@ -6,6 +6,8 @@ package: std.crypto
 exports:
   - sha256
   - hmacSha256
+  - pbkdf2
+  - secureRandomBytesB64
   - base64Encode
   - base64Decode
   - aesGenKey
@@ -33,6 +35,18 @@ extern def sha256(input: String): String
 
 /** HMAC-SHA-256 hex digest; `key` and `data` are UTF-8 strings. */
 extern def hmacSha256(key: String, data: String): String
+
+/** PBKDF2-HMAC-SHA256 password derivation (standards-grade, RFC 8018).
+ *  `saltB64` is the salt as Base64; `iterations` is the work factor (≥ 100_000
+ *  recommended); `dkLen` is the derived-key length in BYTES.  Returns the derived
+ *  key as Base64.  Deterministic for the same inputs — store (saltB64, iterations,
+ *  result) and re-derive to verify a password.  Prefer this over hand-rolled
+ *  iterated HMAC. */
+extern def pbkdf2(password: String, saltB64: String, iterations: Int, dkLen: Int): String
+
+/** `n` cryptographically secure random bytes (java.security.SecureRandom) as
+ *  Base64 — e.g. a per-password salt: `secureRandomBytesB64(16)`. */
+extern def secureRandomBytesB64(n: Int): String
 
 /** Standard Base64 (RFC 4648 §4) encode — UTF-8 → Base64 string with padding. */
 extern def base64Encode(s: String): String
