@@ -1050,6 +1050,35 @@ lazy val cli = project
       }
       runtimeJars.foreach(j => IO.copyFile(j, runtimeDir / j.getName))
       log.info(s"bin/lib/jars/           (${runtimeJars.size} JARs)")
+      // pdf-plugin pulls transitive third-party runtime deps (PDFBox, fontbox,
+      // openhtmltopdf, commons-logging, …).  packagePlugin bundles into the
+      // .sscpkg only the deps NOT already "provided" by a dependsOn project's
+      // managedClasspath — but a dep that a dependsOn project lists yet is
+      // EVICTED from the app's resolved runtime classpath (commons-logging,
+      // evicted by the cli slf4j stack) is then bundled by neither the .sscpkg
+      // nor lib/jars.  htmlToPdfBase64 then dies in the staged binary with
+      // NoClassDefFoundError org/apache/commons/logging/LogFactory.  Stage that
+      // gap = the plugin's external managed deps present in neither place.
+      val pdfPkgFile = (pdfPlugin / packagePlugin).value
+      val pdfBundledNames = {
+        val zf = new java.util.zip.ZipFile(pdfPkgFile)
+        try {
+          val acc = scala.collection.mutable.Set.empty[String]
+          val en  = zf.entries()
+          while (en.hasMoreElements) acc += new java.io.File(en.nextElement().getName).getName
+          acc.toSet
+        } finally zf.close()
+      }
+      val stagedNames = runtimeJars.map(_.getName).toSet
+      val pdfGap = (pdfPlugin / Compile / managedClasspath).value.files.filter { f =>
+        val n = f.getName
+        n.endsWith(".jar") && !n.startsWith("scalascript-") &&
+        !n.startsWith("scala3-") && !n.startsWith("scala-library") &&
+        !stagedNames.contains(n) && !pdfBundledNames.contains(n)
+      }
+      pdfGap.foreach(j => IO.copyFile(j, runtimeDir / j.getName))
+      if (pdfGap.nonEmpty)
+        log.info(s"bin/lib/jars/           +${pdfGap.size} pdf-plugin runtime dep(s): ${pdfGap.map(_.getName).mkString(", ")}")
       // Package and install standard-library plugins as .sscpkg archives.
       // NOTE: sbt task-macro prevents dynamic .value in a loop, so this list
       // is explicit.  It must stay in sync with allPlugins (arch-build-registry-p1).
