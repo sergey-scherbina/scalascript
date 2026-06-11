@@ -77,6 +77,12 @@ direction-(b) pattern as `tuple_monoid`.
 
 ### T2.2 — JS persistent map (HAMT) — `js-persistent-map-hamt`
 
+> **Design landed (2026-06-11):** full migration strategy + staged p1–p4 plan in
+> [`specs/js-persistent-map-hamt.md`](js-persistent-map-hamt.md). Key de-risk: a
+> duck-typed `_HAMT` (native-Map read interface) + an `_isMap()` helper replacing
+> the 71 `instanceof Map` sites, so internal native maps and the new persistent
+> user Map coexist. Implementation is the dedicated sub-project below.
+
 **Problem.** JS `map-ops` is ~40× slower than JVM because the runtime models
 immutable `Map` as a native `Map` copied on every update (O(n) `new Map(obj)`).
 
