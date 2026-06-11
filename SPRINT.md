@@ -2009,15 +2009,13 @@ org.postgresql 42.7.3 + HikariCP; `backend/sql` routes `postgres:` → `jdbc:pos
 via DriverManager). Two follow-ups on our side surfaced; busi is unblocked for
 single-node without them.
 
-- [ ] **pg-jar-installbin** (medium) — `ssc` bundles only H2 + SQLite jars in
-      `bin/lib/jars/` ("zero-config quickstarts"), so out of the box
-      `jdbc:postgresql:` throws **"No suitable driver"**. busi had to manually stage
-      `postgresql-42.7.3.jar` from the Coursier cache to run the PG backend. Add the
-      Postgres driver jar (+ HikariCP if not already bundled) to the `installBin` jar
-      staging so the first-class PG backend works without manual staging. **Same
-      pattern as the pdf-plugin jar staging** (watch for the commons-logging eviction
-      gotcha we hit there). Verify: fresh `sbt cli/installBin`, then a `.ssc` opening
-      `postgres://…` connects with no manual jar copy.
+- [x] **pg-jar-installbin** (medium) — DONE 2026-06-11. Added
+      `org.postgresql:postgresql:42.7.3` + `com.zaxxer:HikariCP:5.1.0` to
+      `backendSqlRuntime` (`backend/sql`) alongside H2/SQLite — those are the runtime
+      deps `installBin` stages into `bin/lib/jars/`. Verified: `installBin` stages
+      `postgresql-42.7.3.jar` + `HikariCP-5.1.0.jar`; `DriverManager` resolves
+      `jdbc:postgresql:` from the staged classpath (connection error, not "No suitable
+      driver"). sql suites green (91+26+4).
 
 - [ ] **pg-listen-notify-extern** (low-pri) — LISTEN/NOTIFY *receive* side. Publish
       already works (`SELECT pg_notify(?, ?)` through `Db.query`). Receiving needs a

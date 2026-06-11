@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — fix(sql): bundle the PostgreSQL driver (+ HikariCP) so `jdbc:postgresql:` works out of the box (pg-jar-installbin)
+
+- **pg-jar-installbin** (busi df-6, rozum seq-115) — `ssc` bundled only the H2 +
+  SQLite JDBC drivers in `bin/lib/jars/`, so a fresh binary threw **"No suitable
+  driver"** on `jdbc:postgresql:` even though `backend/postgres` is first-class;
+  busi had to manually stage `postgresql-42.7.3.jar`. Fix: added
+  `org.postgresql:postgresql:42.7.3` + `com.zaxxer:HikariCP:5.1.0` to
+  `backendSqlRuntime` (`backend/sql`), alongside the existing H2/SQLite — those are
+  the runtime deps `installBin` stages into `bin/lib/jars/`, so the Postgres driver
+  is now on the launcher classpath and JDBC4-auto-registers. Verified end-to-end:
+  `DriverManager.getConnection("jdbc:postgresql://…")` from the staged classpath now
+  fails with a *connection* error (refused), not "No suitable driver". `installBin`
+  stages `postgresql-42.7.3.jar` + `HikariCP-5.1.0.jar`; backendSqlRuntime (91) +
+  clientPostgres (26) + sqlPlugin (4) green.
+
 ## 2026-06-11 — verify+close: two stale perf items (ASM ADT-builder parity, bench honesty pass)
 
 - **interp-opt-recursive-build-floor-asm-parity** — closed by discovery +
