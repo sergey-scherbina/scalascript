@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — fix(js): transitive content-block registration + lookup (busi seq-102)
+
+- **js-content-toolkit-transitive-register** (busi seq-102, follow-up to
+  `js-content-toolkit-transitive`) — After the emission gate became transitive the
+  toolkit runtime emitted, but a block authored in a transitively-imported module
+  (`app.ssc → rulepack_studio.ssc`, `@id=studio-preview @ui=toolkit`) still threw
+  `contentToolkitBlock: no block with id`. Two gaps: (1) registration was
+  direct-only — `collectDirectImportedContent` → `collectImportedContent` now walks
+  the transitive import graph (cycle-protected, child-relative resolution) so every
+  module's content document is registered; (2) lookup was entry-document-only —
+  `contentToolkitBlock`/`Section` now search the entry document first, then fall
+  back across all imported documents (`_ssc_tk_find_block`/`_section`),
+  approximating the interpreter's per-calling-module resolution in the flattened JS
+  bundle. Fixture `examples/content-toolkit-transitive-register/` + regression test
+  in `JsGenStdImportTest` renders the child-owned block to the DOM. Known limit:
+  on a duplicate id across entry+import, the entry wins for all callers.
+
 ## 2026-06-11 — feat(crypto): sha256OfBase64 + byteLengthUtf8 (busi seq-100 KSeF)
 
 - **crypto-sha256-of-base64** (busi seq-100) — Two byte-oriented `std.crypto`

@@ -1,5 +1,0 @@
-slug: js-content-toolkit-transitive-register
-agent: opus-4-8-session
-started: 2026-06-11T12:56:12Z
-heartbeat: 2026-06-11T12:56:12Z
-desc: busi seq-102 — register content blocks of transitively-imported modules in JS registry (toolkit runtime emits but block not registered → contentToolkitBlock id not found)
