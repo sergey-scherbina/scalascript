@@ -30,9 +30,27 @@ enough — the while-loop / FastTier / bytecode matchers bail first.
 JIT-transparent opacity barrier; re-published table has no fold-artifact cells;
 interp JIT does not regress on the redesigned workloads (spot-check 3 cases).
 
-- [ ] Workloads audited; fold-artifact cells identified.
-- [ ] Each fixed via (a) or (b); rationale recorded per workload.
-- [ ] Interp JIT non-regression spot-checked.
+- [x] Workloads audited; fold-artifact cells identified. Complete across three
+      docs: `cross-backend-gap-analysis.md` §3 (compiled fold cells: instance-field,
+      tuple-monoid, bool-predicate, either-chain, option-chain, literal-match;
+      honest cells: arith-loop, nested-loop, pattern-match-heavy, list-fold,
+      typeclass-monoid), `js-honesty-audit.md` (JS column clean), and the new
+      `interp-honesty-audit.md` (interp column clean).
+- [x] **`off`-baseline honesty defect found + fixed (2026-06-11).** The algebraic
+      loop eliminators (`tryFoldInvariantAccumLoop` + `tryClosedFormPolyLoop`, the
+      T2.3 const-prop folds) ran *unconditionally* — `tryFastWhileAssign` was gated
+      only by `debugHooks`, so `scripts/bench off` silently kept folding
+      (`pureCallSum` 0.003 ms "on" **and** "off"). Gated them behind
+      `FastTier.enabled`; now `off` reports the honest un-folded 11.748 ms (~3900×
+      fold), default unchanged. This is direction (a) for the *interp* baseline:
+      the no-JIT switch now actually disables the fold, making the de-folded cost
+      measurable. 1605 tests green.
+- [x] Interp JIT non-regression spot-checked: `pureCallSum` 0.003 (unchanged),
+      `arithLoop` 0.248, `instanceFieldAccess` 0.035 — all default-on numbers held.
+- [ ] **REMAINING (open continuation):** fix the *compiled* (jvm/js/rust) fold
+      cells via direction (b) — redesign those workloads to consume loop-varying
+      data. Per-workload benchmark-design project that changes what each cell
+      measures; not landed here. The interp side + `off` baseline are now honest.
 
 ### T2.2 — JS persistent map (HAMT) — `js-persistent-map-hamt`
 
