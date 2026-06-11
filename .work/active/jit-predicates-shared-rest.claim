@@ -1,6 +1,6 @@
-feature/jit-predicates-shared-rest 2026-06-11T04:50:05Z
+feature/jit-predicates-shared-rest 2026-06-11T04:50:13Z
 agent: claude-opus-4-8
-heartbeat: 2026-06-11T04:50:05Z
-status: not-started
-done-so-far:
-next: write spec, verify+lift remaining shared pure predicates
+heartbeat: 2026-06-11T04:50:13Z
+status: in-progress
+done-so-far: worktree created
+next: verify semantic identity of 6 predicates, lift to JitPredicates
