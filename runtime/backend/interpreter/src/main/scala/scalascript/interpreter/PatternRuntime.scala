@@ -1421,13 +1421,17 @@ private[interpreter] object PatternRuntime:
   // evalForDo keeps loop vars separate so assignments to outer vars are visible.
   // `interp.eval` already checks interp.globals as fallback for Term.Name lookups,
   // so we do not need to merge globals into env here.
-  def evalForDo(enums: List[Enumerator], body: Term, outerEnv: Env, loopVars: Env, interp: Interpreter): Computation =
+  // `afterIter` runs after each loop-body iteration; the for-do eval in EvalRuntime
+  // uses it to push body-assigned enclosing vars (which land in interp.globals) back
+  // into the caller's mutable local view so subsequent reads see the update.
+  def evalForDo(enums: List[Enumerator], body: Term, outerEnv: Env, loopVars: Env, interp: Interpreter,
+                afterIter: () => Unit = () => ()): Computation =
     val env = if loopVars.isEmpty then outerEnv else outerEnv ++ loopVars
     enums match
       case Nil =>
         interp.eval(body, env) match
-          case Pure(_) => Computation.PureUnit
-          case c       => FlatMap(c, Computation.discardToUnit)
+          case Pure(_) => afterIter(); Computation.PureUnit
+          case c       => FlatMap(c, { v => afterIter(); Computation.discardToUnit(v) })
       // Fast path: `for x <- items do body` (single Pat.Var generator, no guards).
       // Avoids matchPat Option/Some, patVarNames Set, and loopVars Map per iteration.
       case Enumerator.Generator(scala.meta.Pat.Var(vn), rhs) :: Nil =>
@@ -1438,7 +1442,7 @@ private[interpreter] object PatternRuntime:
             case Nil => Computation.PureUnit
             case item :: tail =>
               FlatMap(interp.eval(body, FrameMap.one(varName, item, env)),
-                _ => forDoLoop(tail))
+                _ => { afterIter(); forDoLoop(tail) })
           forDoLoop(items)
         interp.eval(rhs, env) match
           case Pure(rhsV) => doLoop(rhsV)
@@ -1454,7 +1458,7 @@ private[interpreter] object PatternRuntime:
             case item :: tail =>
               val patEnv = matchPat(pat, item, env, interp)
               if patEnv == null then forDoLoop(tail)
-              else FlatMap(interp.eval(body, patEnv), _ => forDoLoop(tail))
+              else FlatMap(interp.eval(body, patEnv), _ => { afterIter(); forDoLoop(tail) })
           forDoLoop(items)
         interp.eval(rhs, env) match
           case Pure(rhsV) => patLoop(rhsV)
@@ -1469,17 +1473,17 @@ private[interpreter] object PatternRuntime:
               if patEnv == null then loop(tail)
               else
                 val newVars = patVarNames(pat).map(k => k -> patEnv(k)).toMap
-                FlatMap(evalForDo(rest, body, outerEnv, loopVars ++ newVars, interp), _ => loop(tail))
+                FlatMap(evalForDo(rest, body, outerEnv, loopVars ++ newVars, interp, afterIter), _ => loop(tail))
           loop(items)
         interp.eval(rhs, env) match
           case Pure(rhsV) => genLoop(rhsV)
           case rhsC       => FlatMap(rhsC, genLoop)
       case Enumerator.Guard(cond) :: rest =>
         interp.eval(cond, env) match
-          case Pure(Value.BoolV(true)) => evalForDo(rest, body, outerEnv, loopVars, interp)
+          case Pure(Value.BoolV(true)) => evalForDo(rest, body, outerEnv, loopVars, interp, afterIter)
           case Pure(_)                 => Computation.PureUnit
           case c => FlatMap(c, {
-            case Value.BoolV(true) => evalForDo(rest, body, outerEnv, loopVars, interp)
+            case Value.BoolV(true) => evalForDo(rest, body, outerEnv, loopVars, interp, afterIter)
             case _                 => Computation.PureUnit
           })
       case Enumerator.Val(pat, rhs) :: rest =>
@@ -1488,8 +1492,8 @@ private[interpreter] object PatternRuntime:
           if patEnv == null then Computation.PureUnit
           else
             val newVars = patVarNames(pat).map(k => k -> patEnv(k)).toMap
-            evalForDo(rest, body, outerEnv, loopVars ++ newVars, interp)
+            evalForDo(rest, body, outerEnv, loopVars ++ newVars, interp, afterIter)
         interp.eval(rhs, env) match
           case Pure(v) => valBind(v)
           case rhsC    => FlatMap(rhsC, valBind)
-      case _ :: rest => evalForDo(rest, body, outerEnv, loopVars, interp)
+      case _ :: rest => evalForDo(rest, body, outerEnv, loopVars, interp, afterIter)

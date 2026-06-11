@@ -62,3 +62,46 @@ class ForeachVarMutationTest extends AnyFunSuite:
     assert(captured(
       """val total = List(1, 2, 3, 4).foldLeft(0)((acc, x) => acc + x)
         |println(total)""".stripMargin) == "10")
+
+  // ---- for-do (imperative `for x <- xs do …`) outer-var mutation -----------
+  // The bug: inside a function, a `for-do` body assignment goes to interp.globals
+  // while the function's local frame stays stale, so the function returned the
+  // pre-loop value. These pin per-iteration sync-back of the enclosing `var`.
+
+  test("for-do over a range mutating an enclosing var inside a function"):
+    assert(captured(
+      """def sumTo(n: Int): Int = {
+        |  var sum = 0
+        |  for i <- 1 to n do sum = sum + i
+        |  sum
+        |}
+        |println(sumTo(5))""".stripMargin) == "15")
+
+  test("for-do over a list mutating an enclosing var inside a function"):
+    assert(captured(
+      """def total(xs: List[Int]): Int = {
+        |  var sum = 0
+        |  for x <- xs do sum = sum + x
+        |  sum
+        |}
+        |println(total(List(10, 20, 30)))""".stripMargin) == "60")
+
+  test("for-do with a guard mutating an enclosing var inside a function"):
+    assert(captured(
+      """def sumEven(n: Int): Int = {
+        |  var sum = 0
+        |  for i <- 1 to n if i % 2 == 0 do sum = sum + i
+        |  sum
+        |}
+        |println(sumEven(6))""".stripMargin) == "12")
+
+  test("nested for-do mutating the same enclosing var inside a function"):
+    assert(captured(
+      """def count(n: Int): Int = {
+        |  var c = 0
+        |  for i <- 1 to n do
+        |    for j <- 1 to n do
+        |      c = c + 1
+        |  c
+        |}
+        |println(count(3))""".stripMargin) == "9")

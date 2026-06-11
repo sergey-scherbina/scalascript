@@ -3753,9 +3753,47 @@ private[interpreter] object EvalRuntime:
     case t: Term.ForYield =>
       PatternRuntime.evalForYield(t.enumsBlock.enums, t.body, env, interp)
 
-    // for x <- xs do f(x)
+    // for x <- xs do body
+    //
+    // A loop-body `outerVar = …` assignment goes through `Term.Assign` →
+    // `interp.globals(outerVar)`, leaving the caller's local frame stale (the same
+    // quirk the `Term.While` case below compensates for). evalForDo never synced
+    // those globals back, so a for-do that mutates an enclosing `var` inside a
+    // function silently returned the pre-loop value. Mirror the while-loop's
+    // `syncCallerEnv`: snapshot the caller MutableEnvView's globals at entry, run
+    // the loop, then push any changed global back into the local frame.
     case t: Term.For =>
-      PatternRuntime.evalForDo(t.enumsBlock.enums, t.body, env, Map.empty, interp).flatMap(Computation.discardToUnit)
+      // `afterIter` reflects body assignments (which land in `interp.globals`) back
+      // into the caller's mutable local view AFTER EACH iteration, so the next
+      // iteration — and the code after the loop — reads the updated enclosing `var`.
+      // Only a global that CHANGED since loop entry is pulled in, so a pre-existing
+      // global is never allowed to clobber a same-named shadowing local.
+      //
+      // The mutable view is found by walking the FrameMap parent chain, not just by
+      // matching `env` directly: a *nested* for-do is evaluated with `env` =
+      // `FrameMap(loopVar, … → callerMev)`, so the enclosing function's mutable frame
+      // sits behind one or more FrameMap links. Without the walk, the inner loop's
+      // increments would all read the same stale local (e.g. nested `c = c+1` capped
+      // at the inner trip count instead of the product).
+      def findMev(e: Map[String, Value]): MutableEnvView | Null = e match
+        case mev: MutableEnvView => mev
+        case fm: FrameMap        => findMev(fm.parent)
+        case _                   => null
+      val afterIter: () => Unit = findMev(env) match
+        case null => () => ()
+        case mev =>
+          val keys   = mev.underlying.keysIterator.toArray
+          val entryG = keys.map(k => interp.globals.getOrElse(k, null))
+          () => {
+            var i = 0
+            while i < keys.length do
+              val gv = interp.globals.getOrElse(keys(i), null)
+              if gv != null && (gv.asInstanceOf[AnyRef] ne entryG(i).asInstanceOf[AnyRef]) then
+                mev.underlying(keys(i)) = gv
+              i += 1
+          }
+      PatternRuntime.evalForDo(t.enumsBlock.enums, t.body, env, Map.empty, interp, afterIter)
+        .flatMap(Computation.discardToUnit)
 
     // while cond do body  — refresh env from interp.globals each iteration so mutations are visible.
     // Snapshot interp.globals at loop entry: only update a key on subsequent iterations if its
