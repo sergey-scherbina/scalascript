@@ -4,6 +4,31 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — feat(declarative-ui): build-time id-existence lint for `@ui=toolkit` controls (Scope B.7 v1)
+
+- `ssc check` now warns when a `@ui=toolkit` control references an `action:` /
+  `source:` / `rows:` id that no `contentAction(...)` / `contentRows(...)`
+  registers. Until now a typo'd id (`action: refesh` for a registered `refresh`)
+  surfaced only at *render* time — caught fail-soft into an inline error node,
+  invisible in CI and a small red box on a live SPA. It is now caught at build
+  time (same spirit as the `examples` smoke-test: silently-broken things must be
+  caught by tooling).
+- New core pass `scalascript.transform.ContentToolkitLint` (mirrors
+  `MarkupInterpolatorCheck`): pure, AST-only — it harvests id *strings* from the
+  parsed module (references from `@ui=toolkit` blocks' YAML `source`; registrations
+  from `contentAction`/`contentRows` calls in scala trees), never re-rendering
+  controls, the interpreter, or the plugin YAML parser. The CLI unions
+  registrations across the entry module's transitively-imported `.ssc` modules.
+- **Conservative — warnings only, near-zero false positives:** a reference is
+  flagged only when its registry is non-empty somewhere in the reachable graph and
+  the id is absent (a dynamic/external registry that registers nothing statically
+  never warns); a *local* (non-std/library) import that fails to resolve suppresses
+  the lint for that file. Warnings carry the file-level YAML line and never change
+  the exit code (`OK (with warnings)`). An edit-distance "did you mean '…'?" hint is
+  added for a plausible typo. v1 scope is `action`/`source`/`rows`;
+  `signal:`/`showWhen:`/`enabledWhen:` and Markdown `toolkit:` links are deferred.
+- Tests: `ContentToolkitLintTest` (11, core) + 2 `CheckCommandTest` cases (CLI).
+
 ## 2026-06-11 — feat(declarative-ui): typed inline columns in `@ui=toolkit` YAML tables (Scope B.2)
 
 - A `{type: table, source: <id>}` control may now declare its columns inline via a
