@@ -1,0 +1,62 @@
+---
+name: content-toolkit-yaml-controls
+description: Declarative @ui=toolkit YAML controls bound to registered action / data-source ids (Scope B.1).
+frontend: react
+content:
+  defaultRenderer: toolkit
+---
+
+# Billing
+
+This screen's controls are authored declaratively as a `@ui=toolkit` YAML control
+tree. The button and table reference a registered **action** and **data source**
+by id only — the real fetch/effect (URL, method, body, capability) stays in
+ScalaScript, so Markdown never declares an arbitrary effect.
+
+## Panel {#panel}
+
+```yaml @ui=toolkit
+controls:
+  type: vstack
+  gap: 12
+  children:
+    - type: button
+      action: refresh        # → the registered `refresh` EventHandler
+      label: Refresh
+    - type: table
+      source: invoices       # → the registered `invoices` live-row source
+```
+
+## Run
+
+[contentToolkitSection, contentToolkitOptionsWithRows, contentAction, contentRows](std/ui/content.ssc)
+[fcol](std/ui/data.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[signal, fetchUrlSignal, fetchAction](std/ui/primitives.ssc)
+
+```scalascript
+// A reactive tick drives the GET; bumping it re-fetches the table.
+val tick = signal("tick", 0)
+val rows = fetchUrlSignal("invoices", "/api/invoices", tick, signal("authHdr", ""))
+
+val columns = [
+  fcol("No.",    "number"),
+  fcol("Client", "client.name"),
+  fcol("Amount", "total")
+]
+
+// `refresh` is a typed server effect; the Markdown only knows its id.
+val refresh = fetchAction("POST", "/api/invoices/refresh", signal("body", ""), tick, signal("authHdr", ""))
+
+// Register both registries: the data source for `source: invoices` and the
+// action for `action: refresh`.
+val opts = contentToolkitOptionsWithRows(
+  Map(contentRows("invoices", rows, columns)),
+  Map(contentAction("refresh", refresh)))
+
+// Lower the declaratively-authored panel to a low-level View (web <table> / native).
+val page = lower(contentToolkitSection("panel", opts), defaultTheme)
+
+println("content-toolkit-yaml-controls:ok")
+```

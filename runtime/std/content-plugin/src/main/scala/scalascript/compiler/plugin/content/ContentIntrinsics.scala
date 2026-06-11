@@ -535,7 +535,7 @@ object ContentIntrinsics:
   private def toolkitUiNode(value: ast.ContentValue, options: ToolkitOptions, baseEnv: ToolkitUiEnv): Value =
     val root = contentMap(value, "@ui=toolkit")
     val signals = root.get("signals").map(toolkitSignals).getOrElse(Map.empty)
-    val env = ToolkitUiEnv(baseEnv.signals ++ signals, baseEnv.actions)
+    val env = ToolkitUiEnv(baseEnv.signals ++ signals, baseEnv.actions, baseEnv.rowBindings)
     root.get("controls")
       .orElse(root.get("control"))
       .map(toolkitControl(_, env, options))
@@ -817,6 +817,16 @@ object ContentIntrinsics:
             )
           case "button" | "signalbutton" =>
             toolkitButton(fields, env)
+          case "table" =>
+            // {type: table, source: <id>} (alias rows:) binds a live DataTable to
+            // the ContentRowBinding registered under <id> — the YAML control-tree
+            // form of the `toolkit:table?rows=<id>` Markdown link (Scope B.1).
+            val regionId = firstContentString(fields, "source", "rows").getOrElse(
+              throw InterpretError("contentToolkitNode: table control requires source or rows"))
+            val binding = env.rowBindings.getOrElse(regionId, throw InterpretError(
+              s"contentToolkitNode: table source '$regionId' is not registered " +
+              s"(available: ${if env.rowBindings.isEmpty then "<none>" else env.rowBindings.keys.toList.sorted.mkString(", ")})"))
+            rowBindingDataTable(regionId, binding)
           case "badge" =>
             badgeNode(
               firstContentString(fields, "content", "text").getOrElse(""),
@@ -832,20 +842,45 @@ object ContentIntrinsics:
             throw InterpretError(s"contentToolkitNode: unsupported control type '$otherKind'")
 
   private def toolkitButton(fields: Map[String, ast.ContentValue], env: ToolkitUiEnv): Value =
-    val signal = signalField(fields, env, "button", "signal")
-    val value = fields.get("value").map(contentLiteral).getOrElse(Value.boolV(true))
-    val label = contentStringField(fields, "label", "")
-    fields.get("enabledWhen") match
-      case Some(ast.ContentValue.Str(name)) =>
-        showWhenNode(
-          signalRef(name, env, "button.enabledWhen"),
-          signalButtonNode(signal, value, label, disabled = false),
-          signalButtonNode(signal, value, label, disabled = true)
-        )
+    // {type: button, action: <id>} binds the button to a registered EventHandler
+    // (a typed server write) — the YAML control-tree form of the
+    // `toolkit:button?action=<id>` Markdown link (Scope B.1).  Without `action`,
+    // the existing `signal`-bound button path is used unchanged.
+    fields.get("action") match
+      case Some(ast.ContentValue.Str(actionId)) =>
+        val handler = env.actions.getOrElse(actionId, throw InterpretError(
+          s"contentToolkitNode: button action '$actionId' is not registered " +
+          s"(available: ${if env.actions.isEmpty then "<none>" else env.actions.keys.toList.sorted.mkString(", ")})"))
+        val label = contentStringField(fields, "label", "")
+        val disabled = contentBoolField(fields, "disabled", default = false)
+        fields.get("enabledWhen") match
+          case Some(ast.ContentValue.Str(name)) =>
+            showWhenNode(
+              signalRef(name, env, "button.enabledWhen"),
+              actionButtonNode(handler, label, disabled),
+              actionButtonNode(handler, label, disabled = true)
+            )
+          case Some(other) =>
+            throw InterpretError(s"contentToolkitNode: button.enabledWhen expected String, got ${contentValueKind(other)}")
+          case None =>
+            actionButtonNode(handler, label, disabled)
       case Some(other) =>
-        throw InterpretError(s"contentToolkitNode: button.enabledWhen expected String, got ${contentValueKind(other)}")
+        throw InterpretError(s"contentToolkitNode: button.action expected String, got ${contentValueKind(other)}")
       case None =>
-        signalButtonNode(signal, value, label, contentBoolField(fields, "disabled", default = false))
+        val signal = signalField(fields, env, "button", "signal")
+        val value = fields.get("value").map(contentLiteral).getOrElse(Value.boolV(true))
+        val label = contentStringField(fields, "label", "")
+        fields.get("enabledWhen") match
+          case Some(ast.ContentValue.Str(name)) =>
+            showWhenNode(
+              signalRef(name, env, "button.enabledWhen"),
+              signalButtonNode(signal, value, label, disabled = false),
+              signalButtonNode(signal, value, label, disabled = true)
+            )
+          case Some(other) =>
+            throw InterpretError(s"contentToolkitNode: button.enabledWhen expected String, got ${contentValueKind(other)}")
+          case None =>
+            signalButtonNode(signal, value, label, contentBoolField(fields, "disabled", default = false))
 
   private def toolkitChildren(
     fields: Map[String, ast.ContentValue],

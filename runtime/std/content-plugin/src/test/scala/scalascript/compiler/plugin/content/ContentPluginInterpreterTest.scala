@@ -1079,6 +1079,64 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
       s"expected a loud unregistered-rows error, got: ${err.getMessage}")
     assert(err.getMessage.contains("invoices"), "error should list available row-binding ids")
 
+  // Scope B.1: the YAML @ui=toolkit control tree resolves the same registries as
+  // the Markdown `toolkit:` links — {type: button, action: <id>} → ActionButtonNode
+  // and {type: table, source: <id>} → live DataTableNode.
+  test("@ui=toolkit YAML controls resolve button action= and table source= registries (Scope B.1)"):
+    val source =
+      """---
+        |name: toolkit-yaml-registry-test
+        |---
+        |
+        |# Demo
+        |
+        |## Panel {#panel}
+        |
+        |```yaml @ui=toolkit
+        |controls:
+        |  type: vstack
+        |  children:
+        |    - type: button
+        |      action: saveDraft
+        |      label: Save
+        |    - type: table
+        |      source: invoices
+        |```
+        |
+        |```scala
+        |case class ContentRowBinding(rows: Any, columns: List[Any], actions: List[Any] = [])
+        |case class ContentToolkitOptions(
+        |  includeCode: Boolean = false, sectionGap: Int = 16, blockGap: Int = 8, listGap: Int = 4,
+        |  wrapDocumentInCard: Boolean = false, wrapTopLevelSectionsInCards: Boolean = false,
+        |  components: List[Any] = [], bindings: Any = null,
+        |  actions: Map[String, Any] = Map(), rowBindings: Map[String, Any] = Map())
+        |extern def contentToolkitSection(id: String, options: ContentToolkitOptions): Any
+        |contentToolkitSection("panel",
+        |  ContentToolkitOptions(false, 16, 8, 4, false, false, [], null,
+        |    Map("saveDraft" -> "SAVE_H"),
+        |    Map("invoices" -> ContentRowBinding("SIG", ["COL_NO"]))))
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    interp.run(Parser.parse(source))
+
+    interp.lastResult match
+      case Value.InstanceV("VStackNode", sectionFields) =>
+        val controls = instanceFields(listField(sectionFields, "children", "section.children")(1), "VStackNode")
+        val nodes = listField(controls, "children", "controls.children")
+        assert(nodes.length == 2)
+        val btn = instanceFields(nodes(0), "ActionButtonNode")
+        assert(btn("label") == Value.StringV("Save"))
+        assert(btn("handler") == Value.StringV("SAVE_H"))
+        val table = instanceFields(nodes(1), "DataTableNode")
+        assert(table("signal") == Value.StringV("SIG"))
+      case other =>
+        fail(s"expected panel section node, got $other")
+
   test("contentToMarkdown renders selected Markdown content"):
     val source = os.read(repoRoot / "tests" / "conformance" / "content-to-markdown.ssc")
     val expected = os.read(repoRoot / "tests" / "conformance" / "expected" / "content-to-markdown.txt").stripTrailing

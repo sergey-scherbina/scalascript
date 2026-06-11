@@ -743,3 +743,44 @@ class JsGenStdImportTest extends AnyFunSuite:
       "if (j.indexOf('COL_NO') < 0) throw new Error('row binding columns missing: ' + j);\n" +
       "console.log('named-arg-import-ok');\n"
     assert(runNode(script) == "named-arg-import-ok")
+
+  // Scope B.1: the @ui=toolkit YAML control tree now resolves the same registries
+  // as the Markdown `toolkit:` links — {type: button, action: <id>} and
+  // {type: table, source: <id>} — at parity with the interpreter, in the browser.
+  test("@ui=toolkit YAML controls resolve button action= and table source= in JS"):
+    val source =
+      "# Panel\n\n" +
+      "## P {#p}\n\n" +
+      "```yaml @ui=toolkit\n" +
+      "controls:\n" +
+      "  type: vstack\n" +
+      "  children:\n" +
+      "    - type: button\n" +
+      "      action: saveDraft\n" +
+      "      label: Save\n" +
+      "    - type: table\n" +
+      "      source: invoices\n" +
+      "```\n\n" +
+      "[serve](std/ui/primitives.ssc)\n" +
+      "[contentToolkitNode, contentToolkitOptionsWithRows, contentAction, contentRows](std/ui/content.ssc)\n\n" +
+      "```scalascript\n" +
+      "serve(contentToolkitNode(contentToolkitOptionsWithRows(\n" +
+      "  Map(contentRows(\"invoices\", \"SIG\", [\"COL_NO\"])),\n" +
+      "  Map(contentAction(\"saveDraft\", \"SAVE_H\"))\n" +
+      ")))\n" +
+      "```\n"
+    val module   = Parser.parse(source)
+    val baseDir  = TestPaths.repoRoot / "examples"
+    val caps     = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime  = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    val script =
+      runtime + "\n_ssc_ui_serve = function(v){ globalThis.__captured = v; };\n" +
+      moduleJs +
+      "\nconst j = JSON.stringify(globalThis.__captured);\n" +
+      "if (j.indexOf('\"ActionButtonNode\"') < 0) throw new Error('YAML button action= did not produce ActionButtonNode: ' + j);\n" +
+      "if (j.indexOf('SAVE_H') < 0) throw new Error('registered handler not threaded into YAML button: ' + j);\n" +
+      "if (j.indexOf('\"DataTableNode\"') < 0) throw new Error('YAML table source= did not produce DataTableNode: ' + j);\n" +
+      "if (j.indexOf('SIG') < 0) throw new Error('registered row source not threaded into YAML table: ' + j);\n" +
+      "console.log('toolkit-yaml-registry-ok');\n"
+    assert(runNode(script) == "toolkit-yaml-registry-ok")

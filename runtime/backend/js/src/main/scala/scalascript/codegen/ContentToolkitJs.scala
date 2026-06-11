@@ -263,13 +263,13 @@ function _ssc_tk_markdown_block(block, options, env) {
   }
 }
 
-function _ssc_tk_render_control(value, env) {
+function _ssc_tk_render_control(value, env, options) {
   var obj = _ssc_tk_map(value, 'control');
   var kind = _ssc_tk_str(_ssc_tk_field(obj, 'type', 'control'), 'control.type');
   switch (kind) {
-    case 'vstack': return { _type: 'VStackNode', gap: _ssc_tk_opt_int(obj, 'gap', 8), children: _ssc_tk_children(obj, env) };
-    case 'hstack': return { _type: 'HStackNode', gap: _ssc_tk_opt_int(obj, 'gap', 8), children: _ssc_tk_children(obj, env) };
-    case 'fragment': return { _type: 'FragmentNode', children: _ssc_tk_children(obj, env) };
+    case 'vstack': return { _type: 'VStackNode', gap: _ssc_tk_opt_int(obj, 'gap', 8), children: _ssc_tk_children(obj, env, options) };
+    case 'hstack': return { _type: 'HStackNode', gap: _ssc_tk_opt_int(obj, 'gap', 8), children: _ssc_tk_children(obj, env, options) };
+    case 'fragment': return { _type: 'FragmentNode', children: _ssc_tk_children(obj, env, options) };
     case 'divider': return { _type: 'DividerNode' };
     case 'heading': return { _type: 'HeadingNode', level: obj.has('level') ? _ssc_tk_int(obj.get('level'), 'heading.level') : 2, text: _ssc_tk_str(_ssc_tk_field(obj, 'text', 'heading'), 'heading.text') };
     case 'text': return { _type: 'TextNode_', text: _ssc_tk_str(_ssc_tk_field(obj, 'text', 'text'), 'text.text') };
@@ -277,8 +277,8 @@ function _ssc_tk_render_control(value, env) {
     case 'signalText': return { _type: 'SignalTextNode', signal: _ssc_tk_signal(env, _ssc_tk_str(_ssc_tk_field(obj, 'signal', 'signalText'), 'signalText.signal'), 'signalText') };
     case 'show': {
       var name = _ssc_tk_str(_ssc_tk_field(obj, 'signal', 'show'), 'show.signal');
-      var whenTrue = _ssc_tk_render_control(_ssc_tk_field(obj, 'then', 'show'), env);
-      var whenFalse = obj.has('else') ? _ssc_tk_render_control(obj.get('else'), env) : { _type: 'FragmentNode', children: [] };
+      var whenTrue = _ssc_tk_render_control(_ssc_tk_field(obj, 'then', 'show'), env, options);
+      var whenFalse = obj.has('else') ? _ssc_tk_render_control(obj.get('else'), env, options) : { _type: 'FragmentNode', children: [] };
       return { _type: 'ShowWhenNode', signal: _ssc_tk_signal(env, name, 'show'), whenTrue: whenTrue, whenFalse: whenFalse };
     }
     case 'textField': {
@@ -290,27 +290,47 @@ function _ssc_tk_render_control(value, env) {
       return { _type: 'CheckboxNode', checked: _ssc_tk_signal(env, cname, 'checkbox'), label: _ssc_tk_str(_ssc_tk_field(obj, 'label', 'checkbox'), 'checkbox.label'), disabled: _ssc_tk_opt_bool(obj, 'disabled', false) };
     }
     case 'button': {
+      var label = _ssc_tk_str(_ssc_tk_field(obj, 'label', 'button'), 'button.label');
+      var disabled = _ssc_tk_opt_bool(obj, 'disabled', false);
+      // {type: button, action: <id>} binds to a registered EventHandler (a typed
+      // server write) — the YAML form of toolkit:button?action= (Scope B.1).
+      if (obj.has('action')) {
+        var handler = _ssc_tk_action(options, _ssc_tk_str(obj.get('action'), 'button.action'));
+        if (obj.has('enabledWhen'))
+          return { _type: 'ShowWhenNode', signal: _ssc_tk_signal(env, _ssc_tk_str(obj.get('enabledWhen'), 'button.enabledWhen'), 'button.enabledWhen'),
+                   whenTrue: { _type: 'ActionButtonNode', handler: handler, label: label, disabled: disabled },
+                   whenFalse: { _type: 'ActionButtonNode', handler: handler, label: label, disabled: true } };
+        return { _type: 'ActionButtonNode', handler: handler, label: label, disabled: disabled };
+      }
       var bname = _ssc_tk_str(_ssc_tk_field(obj, 'signal', 'button'), 'button.signal');
       var bvalue = obj.has('value') ? _ssc_tk_scalar(obj.get('value'), 'button.value') : true;
-      return { _type: 'SignalButtonNode', signal: _ssc_tk_signal(env, bname, 'button'), value: bvalue, label: _ssc_tk_str(_ssc_tk_field(obj, 'label', 'button'), 'button.label'), disabled: _ssc_tk_opt_bool(obj, 'disabled', false) };
+      return { _type: 'SignalButtonNode', signal: _ssc_tk_signal(env, bname, 'button'), value: bvalue, label: label, disabled: disabled };
+    }
+    case 'table': {
+      // {type: table, source: <id>} (alias rows:) binds a live DataTable to the
+      // ContentRowBinding registered under <id> — the YAML form of
+      // toolkit:table?rows= (Scope B.1).
+      var regionId = obj.has('source') ? _ssc_tk_str(obj.get('source'), 'table.source')
+                   : _ssc_tk_str(_ssc_tk_field(obj, 'rows', 'table'), 'table.rows');
+      return _ssc_tk_row_binding_datatable(regionId, _ssc_tk_row_binding(options, regionId));
     }
     case 'badge': { var variant = _ssc_tk_opt_str(obj, 'variant'); return { _type: 'BadgeNode', content: _ssc_tk_str(_ssc_tk_field(obj, 'text', 'badge'), 'badge.text'), variant: variant != null ? variant : 'default' }; }
-    case 'card': return { _type: 'CardNode', header: null, body: _ssc_tk_children(obj, env), footer: null };
+    case 'card': return { _type: 'CardNode', header: null, body: _ssc_tk_children(obj, env, options), footer: null };
     default: _ssc_tk_error("contentToolkitNode: unsupported control type '" + kind + "'");
   }
 }
-function _ssc_tk_children(obj, env) {
+function _ssc_tk_children(obj, env, options) {
   if (!obj.has('children')) return [];
-  return _ssc_tk_list(obj.get('children'), 'children').map(function(c) { return _ssc_tk_render_control(c, env); });
+  return _ssc_tk_list(obj.get('children'), 'children').map(function(c) { return _ssc_tk_render_control(c, env, options); });
 }
 
-function _ssc_tk_yaml_block(block, baseEnv) {
+function _ssc_tk_yaml_block(block, baseEnv, options) {
   if (block._type === 'Embedded' && block.kind && block.kind._type === 'StructuredData'
       && __ssc_content_string_attr(__ssc_content_block_attrs(block), 'ui') === 'toolkit'
       && block.data && block.data._type === '_Some') {
     var root = _ssc_tk_map(block.data.value, '@ui=toolkit');
     var env = Object.assign({}, baseEnv, _ssc_tk_signals(root));
-    return _ssc_tk_render_control(_ssc_tk_field(root, 'controls', '@ui=toolkit'), env);
+    return _ssc_tk_render_control(_ssc_tk_field(root, 'controls', '@ui=toolkit'), env, options);
   }
   return null;
 }
@@ -352,7 +372,7 @@ function _ssc_tk_block(block, options, env) {
     var comp = _ssc_tk_component_for(compName, options);
     if (comp) return _call(comp.render, _ssc_tk_ctx(compName, 'block', __ssc_content_string_attr(attrs, 'id') || '', None, attrs, None, __ssc_content_opt(block), _ssc_tk_component_data(attrs)));
   }
-  var y = _ssc_tk_yaml_block(block, env); if (y != null) return y;
+  var y = _ssc_tk_yaml_block(block, env, options); if (y != null) return y;
   var m = _ssc_tk_markdown_block(block, options, env); if (m != null) return m;
   if (block._type === 'Table') return _ssc_tk_table(block.headers, block.rows);
   return { _type: 'TextNode_', text: __ssc_content_block_plain_text(block) };
