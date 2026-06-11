@@ -1,6 +1,6 @@
 # Declarative dynamic UI — Scope B (richer authoring model)
 
-**Status:** in progress (B.1 implemented 2026-06-11).
+**Status:** in progress (B.1 + B.5 + B.2 implemented 2026-06-11; B.7 v1 lint in progress).
 **Upstream proposal:** busi `docs/declarative-ui-authoring.md` (rozum seq-113).
 **Predecessor:** Scope A (`specs/js-toolkit-action-rows-registry.md`) — browser
 parity for the existing `action` / `rowBindings` registries via the Markdown
@@ -54,8 +54,8 @@ render-time fail-soft (already shipped in A) + build-time (later).
   `signals:` block (scalar defaults only) these can be `computedSignal`s.
 - **B.6 — slot escape-hatch** (`{type: slot, id: …}` filled by ScalaScript) —
   proves §0 two-way coexistence. Deferred from v1 per §9.4.
-- **B.7 — build-time lint.** `ssc check` validates that referenced source/action/
-  computed ids exist and shapes match (a static pass like `scanContentUsage`).
+- **B.7 — build-time lint (v1 this slice).** `ssc check` validates that referenced
+  source/action ids exist (a static pass like `scanContentUsage`). See `B.7 detail`.
 
 ## B.1 detail
 
@@ -93,6 +93,60 @@ caught at block granularity → inline error node, never a blank SPA.
 - [x] unregistered id → loud error (caught fail-soft on JS).
 - [x] existing signal-button / static controls unchanged.
 - [x] interpreter + JS regression tests.
+
+## B.7 detail (v1 — id-existence lint)
+
+Until now a typo'd id in a `@ui=toolkit` control — `{type: button, action: refesh}`
+when the registry holds `refresh` — only surfaced at **render time**: the bad id
+throws inside the control render and is caught fail-soft into an inline error node
+(Scope A). On the browser SPA that is a small red box in an otherwise-live page; in
+CI it is invisible. B.7 lifts that to **build time**: `ssc check` warns about a
+referenced id that has no matching registration, so the typo is caught before the
+app is shipped (same spirit as the `examples` smoke-test — silently-broken things
+must be caught by tooling).
+
+**Pure analysis** lives in core (`scalascript.transform.ContentToolkitLint`,
+mirroring `MarkupInterpolatorCheck`), operating only on the parsed `ast.Module` —
+no interpreter, no content pipeline, no plugin YAML parser, no rendering. It only
+**harvests id strings**, never re-renders controls.
+
+- **References** are collected from `@ui=toolkit` blocks — a `Content.CodeBlock`
+  whose fence attrs carry `ui=toolkit` (`@ui=toolkit`). Its `source` (the raw YAML)
+  is line-scanned for the control keys `action:` (→ action registry) and `source:`/
+  `rows:` (→ source registry); the value token is the referenced id. File-level line
+  numbers come from the block's `lineOffset`.
+- **Registrations** are collected by traversing every scalascript `CodeBlock.tree`
+  (scala.meta) for `contentAction("id", …)` (→ action ids) and `contentRows("id", …)`
+  (→ source ids) with a string-literal first arg — regardless of how the call is
+  nested inside `Map(...)` / `contentToolkitOptionsWith*(...)`.
+- **Cross-check (conservative, warnings only):** a reference id is flagged *only if*
+  its registry has ≥1 registration somewhere in the reachable graph and the id is not
+  among them. If a registry is empty in the graph (registrations may be dynamic or
+  external) no warning fires — this keeps false positives near zero. Registrations
+  are unioned across the entry module **and its transitively-imported `.ssc`
+  modules** (CLI resolves + parses imports, like `scanContentUsage`); if any import
+  cannot be resolved/parsed the graph is *incomplete* and the lint is suppressed
+  entirely for that file (a hidden registration must never produce a false warning).
+
+**Scope of v1 (honest):** `action:` and `source:`/`rows:` only — these always bind
+to a code registration (`contentAction`/`contentRows`), so there is no ambiguity.
+`signal:`/`showWhen:`/`enabledWhen:` are deferred (they may reference either a
+`contentComputed` registration *or* a locally-declared YAML `signals:` default, so
+correct linting must also harvest local `signals:` ids). Markdown `toolkit:` *link*
+references (`toolkit:button?action=`, `toolkit:table?rows=`) and "shapes match"
+checking are likewise deferred. Warnings, never errors (exit code unchanged on a
+clean-but-warned file: `OK (with warnings)`).
+
+### Behavior checklist (B.7 v1)
+
+- [ ] `{type: button, action: <unknown>}` with a non-empty action registry → warning.
+- [ ] `{type: table, source: <unknown>}` / `rows: <unknown>` with a non-empty source
+      registry → warning.
+- [ ] a correct id (registered locally or in a transitively-imported module) → no warning.
+- [ ] an empty registry for that kind → no warning (conservative).
+- [ ] an unresolvable import → lint suppressed for that file (no false positive).
+- [ ] warnings carry the file-level line of the YAML reference; exit code unchanged.
+- [ ] core unit tests for collect/lint + a CLI check on the shipped example.
 
 ## Non-goals (later slices)
 
