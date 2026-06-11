@@ -19,7 +19,12 @@ private[codegen] trait JvmGenRuntimeSources:
        |private def route(method: String, path: String)(handler: Request => Any): Unit =
        |  _routes.append(_SscRouteEntry(method, path))
        |private trait _SscWs { def send(t: String): Unit; def recv(): Option[String] }
-       |private def onWebSocket(path: String)(handler: _SscWs => Unit): Unit = ()
+       |// Signature mirrors the real `onWebSocket` in WebSocketRuntime (incl. the
+       |// `protocols` list the cluster actor route passes) so the actor runtime
+       |// compiles identically with or without a real serve runtime.
+       |private def onWebSocket(path: String, origins: List[String] = Nil,
+       |    protocols: List[String] = Nil, maxConnections: Int = 0,
+       |    maxMessagesPerSec: Int = 0)(handler: _SscWs => Unit): Unit = ()
        |private def _httpDoRequest(method: String, url: String, body: String,
        |    headers: Map[String, String]): Any =
        |  sys.error("Http effect requires a serve runtime; call runHttp{} or add serve()")
@@ -2385,7 +2390,12 @@ private[codegen] trait JvmGenRuntimeSources:
        |      // monopolises the executor and subsequent handshakes stall
        |      // in the queue — fragmented clusters where every node only
        |      // sees the seed.
-       |      onWebSocket("/_ssc-actors") { ws =>
+       |      // protocols: echo the `ssc-actors-v1` subprotocol the peer clients
+       |      // dial with (both JS-codegen `connectNode` and JVM-codegen offer only
+       |      // v1). Without it the WS upgrade emits no `Sec-WebSocket-Protocol`
+       |      // header and a spec-compliant `ws` client (JS peer) rejects the
+       |      // connection ("Server sent no subprotocol") → no Bully convergence.
+       |      onWebSocket("/_ssc-actors", protocols = List("ssc-actors-v1")) { ws =>
        |        Thread.ofVirtual().start { () =>
        |          def wsSend(t: String): Unit = ws.send(t)
        |          def wsRecv(): String | Null  = ws.recv() match
