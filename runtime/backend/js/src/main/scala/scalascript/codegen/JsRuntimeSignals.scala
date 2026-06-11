@@ -145,7 +145,19 @@ function _ssc_ui_fragment(children) { return { _type: '_Fragment', children: chi
 function _ssc_ui_setSignal(s, v) { return { _type: '_SetSignal', s, v }; }
 function _ssc_ui_inputChange(s) { return { _type: '_InputChange', s }; }
 function _ssc_ui_toggleSignal(s) { return { _type: '_ToggleSignal', s }; }
-function _ssc_ui_eqSignal(s, value) { return computed(() => (s && s.get) ? s.get() === value : false); }
+// Hash-tolerant equality.  hashSignal() yields the location hash with its
+// leading '#' stripped ('/a' for '#/a'), but users routing by hand naturally
+// compare against the URL form ('#/a') they wrote in an <a href>.  Normalising a
+// leading '#' on both operands makes '#/a' and '/a' compare equal, so
+// `showSignal(eqSignal(hashSignal(), "#/a"), …)` shows its branch when the hash
+// matches.  This only ever turns a '#x'-vs-'x' mismatch into a match — it never
+// breaks an already-equal comparison (non-string / non-'#' values pass through),
+// so tab keys / plain route paths are unaffected.
+function _ssc_ui_hashEq(a, b) {
+  function _n(x) { return (typeof x === 'string' && x.charCodeAt(0) === 35) ? x.slice(1) : x; }
+  return _n(a) === _n(b);
+}
+function _ssc_ui_eqSignal(s, value) { return computed(() => (s && s.get) ? _ssc_ui_hashEq(s.get(), value) : false); }
 function _ssc_ui_currentHash() {
   if (typeof window === 'undefined' || !window.location) return '';
   const raw = String(window.location.hash || '');

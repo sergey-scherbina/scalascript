@@ -164,6 +164,42 @@ class JsGenStdImportTest extends AnyFunSuite:
 
     assert(runNode(js) == "ok")
 
+  // busi seq-94: hand-rolled routing `showSignal(eqSignal(hashSignal(), "#/a"), …)`
+  // kept the matched branch hidden because hashSignal() strips the '#' ("/a") while
+  // the user compares the URL form ("#/a").  eqSignal is now hash-tolerant, so the
+  // matched branch is shown on mount.
+  test("eqSignal matches the hash regardless of a leading '#'; showSignal reveals the matched branch"):
+    val runtime = JsGen.generateRuntime(Set(JsGen.Capability.Signals))
+    val js =
+      s"""
+         |globalThis.window = { location: { hash: '#/a' }, addEventListener: function(){} };
+         |globalThis.location = window.location;
+         |$runtime
+         |function assertRuntime(cond, msg) { if (!cond) throw new Error(msg); }
+         |const route = _ssc_ui_hashSignal();
+         |assertRuntime(route.get() === '/a', 'hashSignal strips the leading #');
+         |const condA = _ssc_ui_eqSignal(route, '#/a');   // URL form, with '#'
+         |const condB = _ssc_ui_eqSignal(route, '#/b');
+         |assertRuntime(condA.get() === true,  'eqSignal must match "#/a" against the stripped "/a" hash');
+         |assertRuntime(condB.get() === false, 'non-matching route must stay false');
+         |// plain (non-'#') comparisons are unaffected
+         |assertRuntime(_ssc_ui_eqSignal(Signal('bank'), 'bank').get() === true, 'plain key equality unchanged');
+         |assertRuntime(_ssc_ui_eqSignal(Signal('bank'), 'fx').get() === false, 'plain key inequality unchanged');
+         |// showSignal toggle: the matched branch (A) must be visible on mount
+         |const trueBranch = { style: {} };
+         |const falseBranch = { style: {} };
+         |const condEl = {
+         |  getAttribute: function(name) { return name === 'data-ssc-cond' ? String(condA.id) : null; },
+         |  querySelector: function(sel) { return sel.indexOf('true') >= 0 ? trueBranch : falseBranch; }
+         |};
+         |globalThis.document = { querySelectorAll: function(sel) { return sel === '[data-ssc-cond]' ? [condEl] : []; } };
+         |_ssc_ui_mount(new Map([[route.id, route.get()], [condA.id, condA.get()]]));
+         |assertRuntime(trueBranch.style.display === 'contents', 'matched "#/a" branch must be visible');
+         |assertRuntime(falseBranch.style.display === 'none', 'fallback branch must be hidden');
+         |console.log('ok');
+         |""".stripMargin
+    assert(runNode(js) == "ok")
+
   test("async browser module failures render a visible error"):
     val source =
       """# App
