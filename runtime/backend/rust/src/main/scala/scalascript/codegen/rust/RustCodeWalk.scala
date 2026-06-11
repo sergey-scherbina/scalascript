@@ -1029,6 +1029,30 @@ object RustCodeWalk:
     case fy: m.Term.ForYield =>
       renderForYield(fy.enumsBlock.enums.toList, fy.body, ctx)
 
+    // `for x <- xs do body` (statement form, no yield) → Rust `for x in xs { body }`.
+    case f: m.Term.For =>
+      f.enumsBlock.enums.toList match
+        case List(g: m.Enumerator.Generator) =>
+          g.pat match
+            case m.Pat.Var(m.Term.Name(name)) =>
+              for
+                xs <- renderTerm(g.rhs, ctx)
+                b  <- renderBody(f.body, ctx, isUnit = true)
+              yield s"for $name in $xs {\n${indent(b)}\n}"
+            case other =>
+              Left(List(unsupported(
+                s"def `${ctx.defName}` for-do generator pattern `${other.syntax}` is not a plain name"
+              )))
+        case _ =>
+          Left(List(unsupported(
+            s"def `${ctx.defName}` for-do has ${f.enumsBlock.enums.size} enumerators; only a single generator is supported"
+          )))
+
+    // `(expr: Type)` type ascription — Rust infers types, so emit just the inner
+    // expression (the annotation is for the front-end type-checker, not codegen).
+    case asc: m.Term.Ascribe =>
+      renderTerm(asc.expr, ctx)
+
     // `xs.size` / `xs.length` / `xs.len` — every shape reads as
     // `xs.len() as i64` (Vec::len returns `usize`).
     case m.Term.Select(qual, m.Term.Name("size" | "length" | "len")) =>
@@ -1924,15 +1948,14 @@ object RustCodeWalk:
   ): Either[List[Diagnostic], String] =
     val subjRendered = renderTerm(subject, ctx)
     val caseRendered = cases.map { c =>
-      if c.cond.nonEmpty then
-        Left(List(unsupported(
-          s"def `${ctx.defName}` has a match-case guard (`if …`); R.2.3 accepts only plain patterns"
-        )))
-      else
-        for
-          pat <- renderPattern(c.pat, ctx)
-          bod <- renderTerm(c.body, ctx)
-        yield s"$pat => $bod,"
+      // A case guard `case p if cond =>` maps onto a Rust match-arm guard.
+      for
+        pat   <- renderPattern(c.pat, ctx)
+        guard <- c.cond match
+                   case Some(g) => renderTerm(g, ctx).map(gr => s" if $gr")
+                   case None    => Right("")
+        bod   <- renderTerm(c.body, ctx)
+      yield s"$pat$guard => $bod,"
     }
     val (errs, ok) = caseRendered.partitionMap(identity)
     subjRendered.flatMap { s =>
