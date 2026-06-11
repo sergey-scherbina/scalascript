@@ -133,12 +133,38 @@ final case class JitLintCompareReport(
       r.suggestedFix.foreach(f => sb.append(s"\n      fix: $f"))
     }
 
+/** Backend-agnostic view of a JIT compile context, exposing just the name- and
+ *  global-resolution queries the shape predicates need.  Each backend's private
+ *  `GenCtx` implements this in terms of its own internals (slot indices for
+ *  `AsmJitBackend`, Java variable names for `JavacJitBackend`).  Sharing this
+ *  narrow interface — rather than `GenCtx` itself, whose two representations are
+ *  structurally unrelated — lets `looksLongValue`/`objectRefFallbackAllowed`
+ *  have a single definition that classifies identically on both backends. */
+trait JitShapeCtx:
+  /** `n` is a ref-typed param or binding (cannot be read as a Long). */
+  def isRefName(n: String): Boolean
+  /** `n` is a String-typed param. */
+  def isStringName(n: String): Boolean
+  /** `n` resolves to a local Long slot/variable in this compile unit.
+   *  Abstracts the sole per-backend difference (`slotOf(n) >= 0` for ASM,
+   *  `resolveLocal(n) != null` for Javac), keeping the predicate bodies
+   *  byte-identical so they cannot drift. */
+  def isLocalLong(n: String): Boolean
+  /** `n` is a registered val-bound lambda (inlined at its call site). */
+  def isLambda(n: String): Boolean
+  /** Top-level global `n` is bound to an `IntV`. */
+  def globalIsIntV(n: String): Boolean
+  /** Top-level global `n` is bound to a `FunV`. */
+  def globalIsFunV(n: String): Boolean
+
 /** Pure predicates shared between the structural bail classifier and each
  *  `JitBackend` implementation.  Keeping the logic in one place prevents the
  *  lint and the backends from silently diverging after a backend change.
  *
- *  All functions are pure (no interpreter access, no side effects) and
- *  operate on scala.meta AST nodes only. */
+ *  Most functions are pure (no interpreter access, no side effects) and operate
+ *  on scala.meta AST nodes only.  The shape predicates additionally consult a
+ *  `JitShapeCtx` for name/global resolution, but stay backend-agnostic through
+ *  that interface. */
 object JitPredicates:
   /** True iff the top-level result type of `t` is Boolean (comparison or
    *  short-circuit logical). `JavacJitBackend` always emits `long`-returning
@@ -180,6 +206,77 @@ object JitPredicates:
       // to `isDebit` in busi's accountBalance, all returning 0.)
       val cs = tm.casesBlock.cases
       cs.nonEmpty && cs.forall(c => isBoolReturning(c.body))
+    case _ => false
+
+  /** True iff `t` is a Long-shaped expression — one the numeric (`walkLong`)
+   *  codegen path can compile.  Shared by both JIT backends so the same program
+   *  classifies identically under `SSC_JIT_BACKEND=asm` and the default Javac
+   *  backend.  The only per-backend variation (local-name resolution) is folded
+   *  into `JitShapeCtx.isLocalLong`. */
+  def looksLongValue(t: Term, ctx: JitShapeCtx): Boolean = t match
+    case Lit.Int(_) | Lit.Long(_) | Lit.Boolean(_) => true
+    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+      b.stats.head match
+        case inner: Term => looksLongValue(inner, ctx)
+        case _           => false
+    case ti: Term.If =>
+      looksLongValue(ti.thenp, ctx) && looksLongValue(ti.elsep, ctx)
+    case tn: Term.Name =>
+      !ctx.isRefName(tn.value) && !ctx.isStringName(tn.value) &&
+        (ctx.isLocalLong(tn.value) || ctx.globalIsIntV(tn.value))
+    case Term.ApplyUnary(op, arg) if op.value == "-" || op.value == "+" =>
+      looksLongValue(arg, ctx)
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) if argClause.values.lengthCompare(1) == 0 =>
+      op.value match
+        case "+" | "-" | "*" | "/" | "%" | "<" | "<=" | ">" | ">=" | "==" | "!=" =>
+          looksLongValue(lhs, ctx) && looksLongValue(argClause.values.head, ctx)
+        case _ => false
+    case Term.Select(_: Term, Term.Name("size" | "head" | "length")) =>
+      true
+    case Term.Select(inner: Term, Term.Name("toLong" | "toInt")) =>
+      looksLongValue(inner, ctx)
+    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)
+        if argClause.values.lengthCompare(1) == 0 =>
+      looksLongValue(argClause.values.head, ctx)
+    // Stage 8: 2-arg getOrElse (Map) returns Long when default is Long-ish.
+    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)
+        if argClause.values.lengthCompare(2) == 0 =>
+      looksLongValue(argClause.values(1), ctx)
+    // Stage 8: other ref-receiver methods that return Long.
+    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name(m)), _)
+        if (m == "size" || m == "head" || m == "last" || m == "isEmpty" ||
+            m == "nonEmpty" || m == "isDefined" || m == "get" || m == "contains" ||
+            m == "toInt" || m == "toLong" || m == "indexOf" ||
+            m == "startsWith" || m == "endsWith" || m == "charAt") =>
+      true
+    // Stage 8: Math intrinsics return Long.
+    case Term.Apply.After_4_6_0(Term.Select(Term.Name("Math"), Term.Name(m)), _)
+        if m == "max" || m == "min" || m == "abs" =>
+      true
+    // Stage 9 lambda-value-solo: local val-bound lambda call is Long-shaped
+    // when the lambda is registered; walkLong inlines it at the call site.
+    case Term.Apply.After_4_6_0(Term.Name(name), _) if ctx.isLambda(name) =>
+      true
+    // Stage 8: global function call (Term.Apply on Term.Name) that resolves to
+    // a Long-returning FunV. Keeps `.toInt`/`.toLong` on `combineAll(xs)` on the
+    // walkLong path rather than dropping into ref-chain fallback.
+    case Term.Apply.After_4_6_0(Term.Name(name), _) =>
+      ctx.globalIsFunV(name)
+    case _ => false
+
+  /** True iff `t` may fall back to the object-ref codegen path.  Shared by both
+   *  backends; mirrors `looksLongValue` so a getOrElse whose default is
+   *  Long-shaped is *not* routed to the ref fallback (it stays numeric). */
+  def objectRefFallbackAllowed(t: Term, ctx: JitShapeCtx): Boolean = t match
+    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("mkString")), argClause) =>
+      val args = argClause.values
+      args.isEmpty || args.lengthCompare(1) == 0 || args.lengthCompare(3) == 0
+    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)
+        if argClause.values.lengthCompare(2) == 0 =>
+      true
+    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)
+        if argClause.values.lengthCompare(1) == 0 =>
+      !looksLongValue(argClause.values.head, ctx)
     case _ => false
 
   /** Walk `fn.body` and the param/return metadata and collect every visible

@@ -861,7 +861,14 @@ object AsmJitBackend extends JitBackend:
     // Stage 9: val-bound lambdas — name → (param names, body). Used to inline
     // a lambda call site as `eval each arg into a slot, bind, emit body`.
     lambdas:          Map[String, (Array[String], Term)] = Map.empty
-  ):
+  ) extends JitShapeCtx:
+    // JitShapeCtx: a local Long is one that resolves to a non-negative slot.
+    def isLocalLong(n: String): Boolean = slotOf(n) >= 0
+    def isLambda(n: String): Boolean    = lambdas.contains(n)
+    def globalIsIntV(n: String): Boolean =
+      interp.globals.get(n).exists(_.isInstanceOf[Value.IntV])
+    def globalIsFunV(n: String): Boolean =
+      interp.globals.get(n).exists(_.isInstanceOf[Value.FunV])
     def isRefName(n: String): Boolean =
       bindings.get(n) match
         case Some((_, r)) => r
@@ -1417,69 +1424,13 @@ object AsmJitBackend extends JitBackend:
           case _ => false
       case _ => false
 
-  private def objectRefFallbackAllowed(t: Term, ctx: GenCtx): Boolean = t match
-    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("mkString")), argClause) =>
-      val args = argClause.values
-      args.isEmpty || args.lengthCompare(1) == 0 || args.lengthCompare(3) == 0
-    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)
-        if argClause.values.lengthCompare(2) == 0 =>
-      true
-    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)
-        if argClause.values.lengthCompare(1) == 0 =>
-      !looksLongValue(argClause.values.head, ctx)
-    case _ => false
+  // Shared with JavacJitBackend via JitPredicates so both backends classify
+  // identically (see specs/jit-predicates-shared.md and specs/asm-jit-parity.md).
+  private def objectRefFallbackAllowed(t: Term, ctx: GenCtx): Boolean =
+    JitPredicates.objectRefFallbackAllowed(t, ctx)
 
-  private def looksLongValue(t: Term, ctx: GenCtx): Boolean = t match
-    case Lit.Int(_) | Lit.Long(_) | Lit.Boolean(_) => true
-    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
-      b.stats.head match
-        case inner: Term => looksLongValue(inner, ctx)
-        case _           => false
-    case ti: Term.If =>
-      looksLongValue(ti.thenp, ctx) && looksLongValue(ti.elsep, ctx)
-    case tn: Term.Name =>
-      !ctx.isRefName(tn.value) && !ctx.isStringName(tn.value) &&
-        (ctx.slotOf(tn.value) >= 0 ||
-          ctx.interp.globals.get(tn.value).exists(_.isInstanceOf[Value.IntV]))
-    case Term.ApplyUnary(op, arg) if op.value == "-" || op.value == "+" =>
-      looksLongValue(arg, ctx)
-    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) if argClause.values.lengthCompare(1) == 0 =>
-      op.value match
-        case "+" | "-" | "*" | "/" | "%" | "<" | "<=" | ">" | ">=" | "==" | "!=" =>
-          looksLongValue(lhs, ctx) && looksLongValue(argClause.values.head, ctx)
-        case _ => false
-    case Term.Select(_: Term, Term.Name("size" | "head" | "length")) =>
-      true
-    case Term.Select(inner: Term, Term.Name("toLong" | "toInt")) =>
-      looksLongValue(inner, ctx)
-    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)
-        if argClause.values.lengthCompare(1) == 0 =>
-      looksLongValue(argClause.values.head, ctx)
-    // Stage 8: 2-arg getOrElse (Map) returns Long when default is Long-ish.
-    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)
-        if argClause.values.lengthCompare(2) == 0 =>
-      looksLongValue(argClause.values(1), ctx)
-    // Stage 8: other ref-receiver methods that return Long.
-    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name(m)), _)
-        if (m == "size" || m == "head" || m == "last" || m == "isEmpty" ||
-            m == "nonEmpty" || m == "isDefined" || m == "get" || m == "contains" ||
-            m == "toInt" || m == "toLong" || m == "indexOf" ||
-            m == "startsWith" || m == "endsWith" || m == "charAt") =>
-      true
-    // Stage 8: Math intrinsics return Long.
-    case Term.Apply.After_4_6_0(Term.Select(Term.Name("Math"), Term.Name(m)), _)
-        if m == "max" || m == "min" || m == "abs" =>
-      true
-    // Stage 9 lambda-value-solo: local val-bound lambda call is Long-shaped
-    // when the lambda body itself is Long-shaped under the param mapping.
-    case Term.Apply.After_4_6_0(Term.Name(name), _) if ctx.lambdas.contains(name) =>
-      true
-    // Stage 8: global function call (Term.Apply on Term.Name) that resolves to
-    // a Long-returning FunV. Used so `.toInt`/`.toLong` on `combineAll(xs)` stays
-    // on the walkLong path rather than dropping into ref-chain fallback.
-    case Term.Apply.After_4_6_0(Term.Name(name), _) =>
-      ctx.interp.globals.get(name).exists(_.isInstanceOf[Value.FunV])
-    case _ => false
+  private def looksLongValue(t: Term, ctx: GenCtx): Boolean =
+    JitPredicates.looksLongValue(t, ctx)
 
   private def emitHofRefChain(recv: Term, method: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
     method match
