@@ -1525,40 +1525,11 @@ final class RunCmd extends CliCommand:
 
     // --target macos / desktop-macos: build Swift package + swift build + launch binary
     if targetSelection.exists(t => t == "macos" || t == "desktop-macos") then
-      val outDir = os.Path("target/build", os.pwd) / "macos"
-      for file <- fileArgs.toList do
-        val sscFile = os.Path(file, os.pwd)
-        val appName = swiftAppName(
-          scala.util.Try(Parser.parse(os.read(sscFile)).manifest.flatMap(_.name)).toOption.flatten
-        )
-        val binary = outDir / ".build" / "debug" / appName
-        val needsBuild = rebuildFlag || !os.exists(binary) ||
-          os.mtime(sscFile) > os.mtime(binary)
-        if needsBuild then
-          buildSwiftUIPackage(sscFile, outDir, "macos", runSwiftBuild = true)
-        else
-          println(s"  Skipping build (no .ssc changes). Use --rebuild to force.")
-        if !os.exists(binary) then
-          System.err.println(s"swift build did not produce ${displayPath(binary)}")
-          System.exit(1)
-        println(s"  Launching $appName...")
-        if consoleFlag then
-          os.proc(binary).call(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir, check = false)
-        else
-          os.proc(binary).spawn(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir)
-      return
+      runMacosTargets(fileArgs.toList, rebuildFlag, consoleFlag); return
 
     // --target ios / mobile-ios: Simulator (default) or real device (--device)
     if targetSelection.exists(t => t == "ios" || t == "mobile-ios") then
-      if deviceFlag then
-        val outDir = os.Path("target/build", os.pwd) / "ios-device"
-        for file <- fileArgs.toList do
-          runSwiftUIIosDevice(os.Path(file, os.pwd), outDir, consoleFlag, rebuildFlag, deviceIdFlag)
-      else
-        val outDir = os.Path("target/build", os.pwd) / "ios"
-        for file <- fileArgs.toList do
-          runSwiftUIIosSimulator(os.Path(file, os.pwd), outDir, consoleFlag, rebuildFlag)
-      return
+      runIosTargets(fileArgs.toList, deviceFlag, deviceIdFlag, consoleFlag, rebuildFlag); return
 
     val noExplicitRunMode =
       targetSelection.isEmpty && frontendFlag.isEmpty && ActiveFlags.current.backend.isEmpty
@@ -1692,6 +1663,44 @@ final class RunCmd extends CliCommand:
           System.err.println(s"Runtime error: ${e.getMessage}")
           System.exit(1)
         finally scalascript.config.ConfigRegistry.clearSidecar()
+
+/** `ssc run --target macos|desktop-macos`: build a SwiftUI package per file and
+ *  launch the binary (rebuilding only when the `.ssc` is newer or `--rebuild`).
+ *  Extracted from `RunCmd.run` for readability — behaviour unchanged. */
+private[cli] def runMacosTargets(files: List[String], rebuild: Boolean, console: Boolean): Unit =
+  val outDir = os.Path("target/build", os.pwd) / "macos"
+  for file <- files do
+    val sscFile = os.Path(file, os.pwd)
+    val appName = swiftAppName(
+      scala.util.Try(Parser.parse(os.read(sscFile)).manifest.flatMap(_.name)).toOption.flatten
+    )
+    val binary = outDir / ".build" / "debug" / appName
+    val needsBuild = rebuild || !os.exists(binary) || os.mtime(sscFile) > os.mtime(binary)
+    if needsBuild then
+      buildSwiftUIPackage(sscFile, outDir, "macos", runSwiftBuild = true)
+    else
+      println(s"  Skipping build (no .ssc changes). Use --rebuild to force.")
+    if !os.exists(binary) then
+      System.err.println(s"swift build did not produce ${displayPath(binary)}")
+      System.exit(1)
+    println(s"  Launching $appName...")
+    if console then
+      os.proc(binary).call(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir, check = false)
+    else
+      os.proc(binary).spawn(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir)
+
+/** `ssc run --target ios|mobile-ios`: simulator (default) or real device (`--device`).
+ *  Extracted from `RunCmd.run` for readability — behaviour unchanged. */
+private[cli] def runIosTargets(files: List[String], device: Boolean, deviceId: Option[String],
+                               console: Boolean, rebuild: Boolean): Unit =
+  if device then
+    val outDir = os.Path("target/build", os.pwd) / "ios-device"
+    for file <- files do
+      runSwiftUIIosDevice(os.Path(file, os.pwd), outDir, console, rebuild, deviceId)
+  else
+    val outDir = os.Path("target/build", os.pwd) / "ios"
+    for file <- files do
+      runSwiftUIIosSimulator(os.Path(file, os.pwd), outDir, console, rebuild)
 
 private[cli] def runJvmViaScalaCli(sscFile: os.Path, serverBackend: String, purpose: String): Unit =
   if !os.exists(sscFile) then
