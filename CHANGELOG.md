@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — feat(rust): type ascription, for-do loops, match-case guards
+
+- Three bounded Rust-backend control-flow gaps (found by probing), each lowering to
+  a native Rust construct: **type ascription** `expr: T` (emit the inner expr, drop
+  the annotation), **statement-form `for x <- a to b do body`** (→ `for x in range {
+  body }`; for-yield already worked, for-do did not — verified `sum += i` over 1..=5
+  gives 15 via cargo run), and **match-case guards** `case p if cond =>` (→ Rust
+  match-arm guard). backendRust 194 green + RustGenControlFlowTest (3). (Probing also
+  confirmed HOF/closures, Option/List methods, default params, tuple destructuring,
+  Either.map already work on Rust.)
+
 ## 2026-06-11 — feat(rust): curried / multi-parameter-group functions
 
 - The Rust backend rejected any `def f(a)(b)` with "multiple parameter groups; R.2
