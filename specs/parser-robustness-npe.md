@@ -57,11 +57,24 @@ not silently."
 
 ## 4  Behavior checklist
 
-- [ ] Case A source produces a `ParseError` with file + position, non-zero exit.
-- [ ] Case B source produces a `ParseError` with file + position, non-zero exit.
-- [ ] No input causes a silent hang / empty output on a parse failure.
-- [ ] Valid programs are unaffected (no false positives) — regression sweep green.
-- [ ] The error text names the file so multi-file module builds point at the culprit.
+✓ **Landed 2026-06-11.** Root cause turned out to be narrower than "swallowed
+NPE": ScalaMeta already returns a clean `Parsed.Error` for both shapes (no longer
+NPEs), and `parseScalaWithDiagnostic` already produces a structured
+`CodeBlockParseError` with file:line:col + a `^` caret. The gap was at the CLI:
+the `run`/`compile` dispatch (`compileViaBackend`) **never surfaced** the
+per-block parse error — it ran partial IR and produced no output, the "silent
+hang" symptom. Fix: `compileViaBackend` now calls `reportCodeBlockParseErrors`
+right after `loadModule` and returns `CompileResult.Failed(Nil)` (the structured
+diagnostic is already on stderr), so every `run`/`compile`/`emit` path exits
+non-zero. (`ssc check` already returned exit 2.) The Case-A/B targeted-message
+polish was unnecessary — ScalaMeta's own message points exactly at the `\"` / the
+missing `)`.
+
+- [x] Case A source produces a `ParseError` with file + position, non-zero exit.
+- [x] Case B source produces a `ParseError` with file + position, non-zero exit.
+- [x] No input causes a silent hang / empty output on a parse failure.
+- [x] Valid programs are unaffected (no false positives) — CLI suite 335 green.
+- [x] The error text names the file so multi-file module builds point at the culprit.
 
 ## 5  Verification
 

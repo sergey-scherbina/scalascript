@@ -7311,19 +7311,25 @@ busi (the primary real-world testbed) hit these while building the Polish JDG
 real-use path. Specs written by the busi session; each is independently
 claimable. Bug-fix items have minimal repros in their specs.
 
-- [ ] **foreach-var-mutation** (bug) — `xs.foreach(x => outerVar = ...)` does not
-      propagate the mutation; `outerVar` stays at its pre-loop value (silent wrong
-      result, no error). Confirmed on `2300fdc61`. Spec + repro:
-      [`specs/foreach-var-mutation.md`](specs/foreach-var-mutation.md).
-      Workaround in busi: `foldLeft` with explicit accumulator.
+- [x] **foreach-var-mutation** (bug) — ✓ DONE (verified 2026-06-11; resolved by an
+      earlier interpreter fix). `xs.foreach(x => outerVar = ...)` now propagates the
+      mutation on all three backends: `var sum = 0; List(1,2,3,4).foreach(x => sum =
+      sum + x)` → `sum=10` (interp, jvm-via-scala-cli, js-via-node all correct).
+      Stale entry — closed by verification, no new code.
 - [x] **string-index-apply** (bug/feature) — ✓ Landed 2026-06-09 (interpreter
       `CallRuntime`): `s(i)` returns `CharV(s.charAt(i))` like List/Map/Set apply,
       with a clear out-of-range error. Fixes the latent busi `parseMt940Tx` crash.
       `StringIndexApplyTest` (5 tests). [`specs/string-index-apply.md`](specs/string-index-apply.md).
-- [ ] **parser-robustness-npe** (bug) — bare `\"` outside a string literal, and
-      unbalanced parens in deep `jObj(List(jField(...)))` nesting, both trigger a
-      swallowed ScalaMeta NPE: the interpreter **hangs with no output**. Must
-      become a `ParseError` with file + position. Spec + two repros:
+- [x] **parser-robustness-npe** (bug) — ✓ Landed 2026-06-11. Root cause was at the
+      CLI, not the parser: ScalaMeta already returns a clean `Parsed.Error` for both
+      shapes and `parseScalaWithDiagnostic` builds a structured `file:line:col`
+      diagnostic — but the `run`/`compile` dispatch (`compileViaBackend`) silently
+      dropped the un-parsed block and ran partial IR (the "hang with no output").
+      `compileViaBackend` now calls `reportCodeBlockParseErrors` after `loadModule`
+      and returns `CompileResult.Failed`, so `ssc run`/`compile`/`emit` exit
+      non-zero with the diagnostic (`ssc check` already exited 2). Tests:
+      `ParserNpeDiagnosticTest` (CLI, 4) + 2 parser-level cases in
+      `ParseErrorPositionTest`; CLI suite 335 green. Spec:
       [`specs/parser-robustness-npe.md`](specs/parser-robustness-npe.md).
 - [x] **crypto-pubkey-verify** (feature) ✓ Landed 2026-06-10 — `verifyEd25519`,
       `verifyEd25519Url`, `verifyRsaSha256(scheme=PKCS1|PSS)` extend `std.crypto`,

@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — fix(cli): parse errors fail loudly on run/compile; close 2 stale bugs
+
+- **parser-robustness-npe** — a scalascript code block that fails to parse was
+  silently dropped by the `run`/`compile` dispatch (`compileViaBackend` ran partial
+  IR → no output), the busi-reported "interpreter hangs with no message". The parser
+  already produces a structured `file:line:col` diagnostic and scalameta no longer
+  NPEs on the two repro shapes (bare `\"` in arg position; unbalanced parens in deep
+  `jObj(jField(...))` nesting); the gap was that `compileViaBackend` never surfaced
+  it. It now calls `reportCodeBlockParseErrors` after `loadModule` and returns
+  `CompileResult.Failed`, so `ssc run`/`compile`/`emit` exit non-zero with the
+  diagnostic (`ssc check` already exited 2). `ParserNpeDiagnosticTest` + 2
+  parser-level cases; CLI suite 335 green.
+- **foreach-var-mutation** — closed as stale (verified): `xs.foreach(x => outerVar =
+  …)` now propagates on interp/jvm/js (`sum=10`), fixed by an earlier interpreter
+  change. No new code.
+
 ## 2026-06-11 — fix(sql): bundle the PostgreSQL driver (+ HikariCP) so `jdbc:postgresql:` works out of the box (pg-jar-installbin)
 
 - **pg-jar-installbin** (busi df-6, rozum seq-115) — `ssc` bundled only the H2 +
@@ -18,6 +34,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   fails with a *connection* error (refused), not "No suitable driver". `installBin`
   stages `postgresql-42.7.3.jar` + `HikariCP-5.1.0.jar`; backendSqlRuntime (91) +
   clientPostgres (26) + sqlPlugin (4) green.
+## 2026-06-11 — fix(cli): parse errors fail loudly on run/compile; close 2 stale bugs
+
+- **parser-robustness-npe** — a scalascript code block that fails to parse was
+  silently dropped by the `run`/`compile` dispatch (`compileViaBackend` ran partial
+  IR → no output), the busi-reported "interpreter hangs with no message". The parser
+  already produces a structured `file:line:col` diagnostic and scalameta no longer
+  NPEs on the two repro shapes (bare `\"` in arg position; unbalanced parens in deep
+  `jObj(jField(...))` nesting); the gap was that `compileViaBackend` never surfaced
+  it. It now calls `reportCodeBlockParseErrors` after `loadModule` and returns
+  `CompileResult.Failed`, so `ssc run`/`compile`/`emit` exit non-zero with the
+  diagnostic (`ssc check` already exited 2). `ParserNpeDiagnosticTest` + 2
+  parser-level cases; CLI suite 335 green.
+- **foreach-var-mutation** — closed as stale (verified): `xs.foreach(x => outerVar =
+  …)` now propagates on interp/jvm/js (`sum=10`), fixed by an earlier interpreter
+  change. No new code.
 
 ## 2026-06-11 — verify+close: two stale perf items (ASM ADT-builder parity, bench honesty pass)
 
