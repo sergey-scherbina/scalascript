@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — feat(js): content-toolkit natives in the browser backend (js-content-toolkit-natives)
+
+- **js-content-toolkit-natives** (busi seq-87 cluster-2) — The `std/ui/content`
+  toolkit externs (`contentToolkitNode` / `contentToolkitBlock` /
+  `contentToolkitSection`) were undefined in the JS backend, so JsGen's extern
+  guard bound them to `undefined` and a call (Rule Pack Studio init) threw `not
+  callable`. Ported JvmGen's `_ssc_tk_*` content-toolkit runtime to JS
+  (`ContentToolkitJs`), emitted by `JsGen.emitContentToolkitRuntime` (gated by a
+  `std/ui/content` import). Renders authored Markdown content — `toolkit:` control
+  links, `@ui=toolkit` control trees, GFM tables, and `component=` registries —
+  into a TkNode tree (`{_type:'<Name>', …}`) that `lower()` consumes; reuses the
+  existing `__ssc_content_*` + `contentDocument`/`contentData`/`contentBind`
+  helpers and triggers the Signals capability. Toolkit names bind to the bare
+  emitted function (import special-case, like the std/content natives). Parity
+  with the JvmGen toolkit; 3a/3b action/row registries remain a follow-up (also
+  absent from JvmGen). Tests in `JsGenStdImportTest` (emit + full node render +
+  `markdown-toolkit-links` example); spec `specs/js-content-toolkit-natives.md`.
+
 ## 2026-06-11 — fix(js): normalise DataTable fetch response into rows (js-datatable-remote-envelope)
 
 - **js-datatable-remote-envelope** (busi seq-87) — Once the SPA mounted (after the
