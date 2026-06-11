@@ -377,3 +377,40 @@ class JsGenStdImportTest extends AnyFunSuite:
     }
     // whole bundle parses as JS — proves no `Match failure` syntax / no undefined call sites
     checkNodeSyntax(js)
+
+  // Follow-up to Layer 2: a raw (un-lowered) DataTableNode placed directly in an
+  // element()/container's children — a TkNode that reached the renderer because a
+  // caller mixed it into an already-lowered View — used to vanish silently on JS
+  // (walk had no 'DataTableNode' case → default '').  lower(DataTableNode) is
+  // theme-free, so walk now normalises it into a _DataTableView and renders it.
+  test("renderBody renders a raw un-lowered DataTableNode child"):
+    val source =
+      """# App
+        |
+        |[serve, element, signal, View](std/ui/primitives.ssc)
+        |[lower](std/ui/lower.ssc)
+        |[defaultTheme](std/ui/theme.ssc)
+        |[heading](std/ui/typography.ssc)
+        |[dataTable, staticRowsSource, fcol](std/ui/data.ssc)
+        |
+        |```scalascript
+        |val rows = [["name" -> "Ada"]]
+        |// dataTable() returns a raw DataTableNode (TkNode), mixed in un-lowered:
+        |val tbl  = dataTable(staticRowsSource(rows), [fcol("Name", "name")], [])
+        |def content(): View =
+        |  element("div", Map(), Map(), [ lower(heading(1, "H"), defaultTheme), tbl ])
+        |serve(lower(content(), defaultTheme))
+        |```
+        |""".stripMargin
+    val module  = Parser.parse(source)
+    val baseDir = TestPaths.repoRoot / "examples"
+    val runtime = JsGen.generateRuntime(JsGen.detectCapabilities(module, Some(baseDir)))
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    val script =
+      runtime + "\n_ssc_ui_serve = function(v){ globalThis.__captured = v; };\n" +
+      moduleJs +
+      "\nconst out = _ssc_ui_renderBody(globalThis.__captured).body;\n" +
+      "if (out.indexOf('data-ssc-datatable') < 0) throw new Error('raw DataTableNode child vanished: ' + out);\n" +
+      "if (out.indexOf('data-ssc-datatable-rows=') < 0) throw new Error('normalised static rows missing: ' + out);\n" +
+      "console.log('raw-datatable-child-ok');\n"
+    assert(runNode(script) == "raw-datatable-child-ok")

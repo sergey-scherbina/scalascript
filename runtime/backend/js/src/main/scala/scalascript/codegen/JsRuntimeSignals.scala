@@ -304,6 +304,13 @@ function _ssc_ui_renderBody(view) {
         if (dtHdr)  dtAttrs += ` data-ssc-datatable-headers="${dtHdr}"`;
         return `<div ${dtAttrs} style="overflow-x:auto"></div>`;
       }
+      // A raw, un-lowered DataTableNode (a TkNode that reached the renderer
+      // because it was placed directly in an element()/container's children
+      // instead of being lowered).  lower(DataTableNode) is theme-free —
+      // it just wraps into dataTableView — so normalise and render it here
+      // rather than dropping it silently.  See specs/js-backend-ui-render-gaps.md.
+      case 'DataTableNode':
+        return walk(_ssc_ui_dataTableView(v.signal, v.columns, v.actions));
       default: return '';
     }
   }
