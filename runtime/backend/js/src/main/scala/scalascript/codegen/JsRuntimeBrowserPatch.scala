@@ -24,7 +24,7 @@ function _spaFlush() {
 function _spaRender(response) {
   if (!response) { _spaFlush(); return; }
   const status  = response.status ?? 200;
-  const headers = response.headers instanceof Map ? response.headers : new Map();
+  const headers = _isMap(response.headers) ? response.headers : new Map();
   const ct      = (headers.get('Content-Type') || headers.get('content-type') || '').toLowerCase();
   if (status >= 300 && status < 400) {
     const loc = headers.get('Location') || headers.get('location');
@@ -86,7 +86,7 @@ function _spaNavigate(pathname, replace) {
 
 function _spaFetchResponse(resp) {
   const status = resp && resp.status ? resp.status : 200;
-  const headers = resp && resp.headers instanceof Map ? resp.headers : new Map();
+  const headers = resp && _isMap(resp.headers) ? resp.headers : new Map();
   const body = resp && resp.body != null ? String(resp.body) : '';
   return {
     ok: status >= 200 && status < 300,

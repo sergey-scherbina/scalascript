@@ -157,7 +157,7 @@ async function _runAsyncParallelInner(node) {
         case 'recvFrom': {
           const ws = node.args[0];
           const nextMsg = typeof ws._nextMessage === 'function' ? ws._nextMessage
-                        : (ws instanceof Map ? ws.get('_nextMessage') : null);
+                        : (_isMap(ws) ? ws.get('_nextMessage') : null);
           if (typeof nextMsg !== 'function') throw new Error('Async.recvFrom: ws has no _nextMessage');
           node = await nextMsg();
           break;

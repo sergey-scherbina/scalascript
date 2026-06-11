@@ -211,7 +211,7 @@ function runEnvWith(initMap) {
   return function(bodyFn) {
     const ops = new Set(['Env.get', 'Env.set', 'Env.required']);
     const overlay = {};
-    if (initMap instanceof Map) {
+    if (_isMap(initMap)) {
       for (const [k, v] of initMap) overlay[k] = v;
     } else if (initMap && typeof initMap === 'object') {
       Object.assign(overlay, initMap);
@@ -234,7 +234,7 @@ const Http = {
 
 function _httpEffectHandlers(routes) {
   function stubResponse(url) {
-    if (routes instanceof Map && routes.has(url)) {
+    if (_isMap(routes) && routes.has(url)) {
       return { status: 200, headers: new Map(), body: String(routes.get(url)) };
     }
     return { status: 404, headers: new Map(), body: '' };
@@ -252,7 +252,7 @@ function _httpEffectHandlers(routes) {
     },
     'Http.request': function(args) {
       const method = args[0]; const url = args[1];
-      const headers = args[2] instanceof Map ? Object.fromEntries(args[2].entries()) : (args[2] || {});
+      const headers = _isMap(args[2]) ? Object.fromEntries(args[2].entries()) : (args[2] || {});
       const body = args[3] != null ? String(args[3]) : null;
       const resp = routes ? stubResponse(url) : _httpSyncFetchWithRetry(method, url, body, headers);
       return args[args.length - 1](resp);

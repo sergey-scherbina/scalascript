@@ -43,7 +43,7 @@ function _registerGraphqlSdl(sdl) { _graphqlSdl = sdl; }
 // undefined) into a flat coordinate → function table.
 function _graphqlToTable(m) {
   const o = {};
-  if (m instanceof Map) { for (const [k, v] of m) o[k] = v; }
+  if (_isMap(m)) { for (const [k, v] of m) o[k] = v; }
   else if (m && typeof m === 'object') { Object.assign(o, m); }
   return o;
 }
@@ -397,7 +397,7 @@ _GraphqlDataLoaderCtx.prototype.load = function(name, key) {
   const c    = this._cacheFor(name);
   if (c.has(key)) return c.get(key);
   const fill = res => {
-    if (res instanceof Map) {
+    if (_isMap(res)) {
       for (const [k, v] of res) c.set(k, v);
       return c.has(key) ? c.get(key) : null;
     }
@@ -413,7 +413,7 @@ _GraphqlDataLoaderCtx.prototype.batchLoad = function(name, keys) {
   const uncached = keys.filter(k => !c.has(k));
   const collect  = () => new Map(keys.map(k => [k, c.has(k) ? c.get(k) : null]));
   if (uncached.length === 0) return collect();
-  const fill = res => { if (res instanceof Map) for (const [k, v] of res) c.set(k, v); return collect(); };
+  const fill = res => { if (_isMap(res)) for (const [k, v] of res) c.set(k, v); return collect(); };
   const res = spec.batchFn(uncached);
   return (res && typeof res.then === 'function') ? res.then(fill) : fill(res);
 };
@@ -443,7 +443,7 @@ function _graphqlFieldResolver(resolvers, g) {
     }
     // Default resolution — read the field off the parent. Support both
     // ScalaScript Map sources and plain objects (case-class instances).
-    if (source instanceof Map) {
+    if (_isMap(source)) {
       const v = source.get(info.fieldName);
       return typeof v === 'function' ? v(source, args, context, info) : v;
     }
@@ -526,7 +526,7 @@ function graphqlHandler(schema, resolvers, opts) {
     const method = (req && req.method ? String(req.method) : 'POST').toUpperCase();
     let query = null, variables = null, operationName = null;
     if (method === 'GET') {
-      const q = (req && req.query instanceof Map) ? req.query : new Map();
+      const q = (req && _isMap(req.query)) ? req.query : new Map();
       query = q.get('query');
       if (tooLong(query)) return lengthError();
       const v = q.get('variables');
@@ -560,7 +560,7 @@ function graphqlHandler(schema, resolvers, opts) {
     // event stream into a buffered `text/event-stream` body (one `data:` frame
     // per event).  Matches the JVM backend's `handleSseResult` — suited to
     // finite / bounded subscriptions.
-    const accept = (req && req.headers instanceof Map)
+    const accept = (req && _isMap(req.headers))
       ? (req.headers.get('accept') || req.headers.get('Accept') || '') : '';
     if (accept.indexOf('text/event-stream') >= 0 && _graphqlIsSubscription(query)) {
       const run = await _graphqlRunSubscription(schema, resolvers, query, variables, operationName, opts, g);
@@ -664,7 +664,7 @@ function _graphqlBuildFederationSdl(userSdl, entityTypeNames) {
 // plain object — used by the `_Entity` union's resolveType and the `_entities`
 // representation dispatch.
 function _graphqlTypename(obj) {
-  if (obj instanceof Map) return obj.get('__typename');
+  if (_isMap(obj)) return obj.get('__typename');
   if (obj && typeof obj === 'object') return obj.__typename;
   return undefined;
 }
@@ -701,7 +701,7 @@ function graphqlSubgraphMount(resolvers, a, b) {
   const extraQuery = { '_service': serviceResolver };
   if (entityKeys.length > 0) {
     extraQuery['_entities'] = function(args) {
-      const reps = args instanceof Map ? args.get('representations') : null;
+      const reps = _isMap(args) ? args.get('representations') : null;
       const list = Array.isArray(reps) ? reps : [];
       return list.map(function(rep) {
         // Representations arrive as plain `_Any` objects; convert to a
@@ -754,7 +754,7 @@ async function graphqlQuery(url, query, variables) {
   const u       = new URL(endpoint);
   const isTls   = u.protocol === 'https:';
   const httpMod = require(isTls ? 'https' : 'http');
-  const varsObj = (variables instanceof Map)
+  const varsObj = (_isMap(variables))
     ? Object.fromEntries(variables) : (variables || undefined);
   const payload = JSON.stringify({ query: query, variables: varsObj });
   return new Promise((resolve, reject) => {
@@ -801,7 +801,7 @@ async function graphqlSse(url, query, variables) {
   const u       = new URL(endpoint);
   const isTls   = u.protocol === 'https:';
   const httpMod = require(isTls ? 'https' : 'http');
-  const varsObj = (variables instanceof Map) ? Object.fromEntries(variables) : (variables || undefined);
+  const varsObj = (_isMap(variables)) ? Object.fromEntries(variables) : (variables || undefined);
   const payload = JSON.stringify({ query: query, variables: varsObj });
   return new Promise((resolve, reject) => {
     const reqOpts = {
@@ -856,7 +856,7 @@ async function graphqlSubscribe(url, query, variablesOrHandler, handlerArg) {
   const isTls  = u.protocol === 'wss:' || u.protocol === 'https:';
   const net    = require(isTls ? 'tls' : 'net');
   const crypto = require('crypto');
-  const varsObj = (variables instanceof Map) ? Object.fromEntries(variables) : (variables || undefined);
+  const varsObj = (_isMap(variables)) ? Object.fromEntries(variables) : (variables || undefined);
 
   // RFC-6455 client framing: client→server frames MUST be masked.
   const encode = function(str) {

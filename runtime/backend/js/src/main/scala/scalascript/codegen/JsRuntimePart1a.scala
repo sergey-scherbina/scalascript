@@ -18,7 +18,7 @@ const Console = { println: _println, print: _print };
 // so `xs(i)` / `m(k)` behave like List / Map indexing.
 function _call(fn, ...args) {
   if (typeof fn === 'function') return fn(...args);
-  if (Array.isArray(fn) || fn instanceof Map) return _dispatch(fn, 'apply', args);
+  if (Array.isArray(fn) || _isMap(fn)) return _dispatch(fn, 'apply', args);
   // v1.5 Tier 5 #22 — `JsonValue` is a plain object with an `apply`
   // method, so `v("key")` and `v(0)` reach into the wrapper.
   if (fn && fn._type === 'Signal' && typeof fn.apply === 'function') return fn.apply(...args);

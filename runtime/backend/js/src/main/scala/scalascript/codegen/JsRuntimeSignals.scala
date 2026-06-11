@@ -134,8 +134,8 @@ function _ssc_ui_seedSignal(name, source) {
 }
 function _ssc_ui_element(tag, attrs, events, children) {
   return { _type: '_Element', tag,
-    attrs: (attrs instanceof Map) ? Object.fromEntries(attrs) : (attrs || {}),
-    events: (events instanceof Map) ? Object.fromEntries(events) : (events || {}),
+    attrs: (_isMap(attrs)) ? Object.fromEntries(attrs) : (attrs || {}),
+    events: (_isMap(events)) ? Object.fromEntries(events) : (events || {}),
     children: children || [] };
 }
 function _ssc_ui_textNode(s) { return { _type: '_TextNode', s }; }

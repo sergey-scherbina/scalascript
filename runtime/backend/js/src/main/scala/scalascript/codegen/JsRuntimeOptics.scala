@@ -57,7 +57,7 @@ function _opticGetOption(steps, s) {
         if (!Array.isArray(v) || step.i < 0 || step.i >= v.length) return _None;
         v = v[step.i];
       } else if (step.kind === 'at') {
-        if (!(v instanceof Map)) return _None;
+        if (!(_isMap(v))) return _None;
         if (!v.has(step.key)) return _None;
         v = v.get(step.key);
       } else return _None;
@@ -83,7 +83,7 @@ function _opticSet(steps, s, v) {
       return out;
     }
     if (head.kind === 'at') {
-      if (!(s instanceof Map)) return s;
+      if (!(_isMap(s))) return s;
       if (!s.has(head.key)) return s;
       const out = new Map(s);
       out.set(head.key, _opticSet(rest, s.get(head.key), v));
@@ -134,7 +134,7 @@ function _opticGetAll(steps, s) {
       return _opticGetAll(rest, s[head.i]);
     }
     if (head.kind === 'at') {
-      if (!(s instanceof Map) || !s.has(head.key)) return [];
+      if (!(_isMap(s)) || !s.has(head.key)) return [];
       return _opticGetAll(rest, s.get(head.key));
     }
     return [];
@@ -161,7 +161,7 @@ function _opticModifyAll(steps, s, f) {
       return out;
     }
     if (head.kind === 'at') {
-      if (!(s instanceof Map) || !s.has(head.key)) return s;
+      if (!(_isMap(s)) || !s.has(head.key)) return s;
       const out = new Map(s);
       out.set(head.key, _opticModifyAll(rest, s.get(head.key), f));
       return out;

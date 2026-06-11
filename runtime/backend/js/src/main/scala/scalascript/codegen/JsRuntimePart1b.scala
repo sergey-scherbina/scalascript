@@ -333,7 +333,7 @@ function _sessionJson(map) {
   const esc = s => '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
     .replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t') + '"';
   const parts = [];
-  if (map instanceof Map) map.forEach((v, k) => parts.push(esc(String(k)) + ':' + esc(String(v))));
+  if (_isMap(map)) map.forEach((v, k) => parts.push(esc(String(k)) + ':' + esc(String(v))));
   else for (const [k, v] of Object.entries(map || {})) parts.push(esc(String(k)) + ':' + esc(String(v)));
   return '{' + parts.join(',') + '}';
 }
@@ -501,7 +501,7 @@ function cookieConfig(secure, sameSite) {
 }
 function _buildSetCookie(map) {
   const base = 'Path=/; HttpOnly; SameSite=' + _cookieSameSite + (_cookieSecure ? '; Secure' : '');
-  if (!map || (map instanceof Map ? map.size === 0 : Object.keys(map).length === 0))
+  if (!map || (_isMap(map) ? map.size === 0 : Object.keys(map).length === 0))
     return 'session=; ' + base + '; Max-Age=0';
   return 'session=' + _packSession(map) + '; ' + base;
 }
@@ -530,7 +530,7 @@ function _sessionStorePut(payload) {
   const crypto = require('crypto');
   const ssid   = _b64urlEnc(crypto.randomBytes(24));
   const m = new Map();
-  if (payload instanceof Map) payload.forEach((v, k) => m.set(String(k), String(v)));
+  if (_isMap(payload)) payload.forEach((v, k) => m.set(String(k), String(v)));
   else for (const [k, v] of Object.entries(payload || {})) m.set(String(k), String(v));
   _sessionStore.set(ssid, { payload: m, lastAccess: Date.now() });
   _sessionStoreMaybeSweep();

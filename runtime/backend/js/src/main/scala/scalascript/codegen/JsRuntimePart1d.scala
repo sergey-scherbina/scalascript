@@ -584,27 +584,27 @@ function _httpSyncFetchWithRetry(method, url, body, headers) {
 }
 
 function httpGet(url, headers) {
-  const h = headers instanceof Map ? Object.fromEntries(headers.entries()) : (headers || {});
+  const h = _isMap(headers) ? Object.fromEntries(headers.entries()) : (headers || {});
   return _httpSyncFetchWithRetry('GET', url, null, h);
 }
 
 function httpPost(url, body, headers) {
-  const h = headers instanceof Map ? Object.fromEntries(headers.entries()) : (headers || {});
+  const h = _isMap(headers) ? Object.fromEntries(headers.entries()) : (headers || {});
   return _httpSyncFetchWithRetry('POST', url, body, h);
 }
 
 function httpPut(url, body, headers) {
-  const h = headers instanceof Map ? Object.fromEntries(headers.entries()) : (headers || {});
+  const h = _isMap(headers) ? Object.fromEntries(headers.entries()) : (headers || {});
   return _httpSyncFetchWithRetry('PUT', url, body, h);
 }
 
 function httpPatch(url, body, headers) {
-  const h = headers instanceof Map ? Object.fromEntries(headers.entries()) : (headers || {});
+  const h = _isMap(headers) ? Object.fromEntries(headers.entries()) : (headers || {});
   return _httpSyncFetchWithRetry('PATCH', url, body, h);
 }
 
 function httpDelete(url, headers) {
-  const h = headers instanceof Map ? Object.fromEntries(headers.entries()) : (headers || {});
+  const h = _isMap(headers) ? Object.fromEntries(headers.entries()) : (headers || {});
   return _httpSyncFetchWithRetry('DELETE', url, null, h);
 }
 
@@ -665,13 +665,13 @@ function _httpStreamFetch(method, url, body, headers, handler) {
 }
 
 function httpGetStream(url, headers) {
-  const h = (headers instanceof Map) ? Object.fromEntries(headers.entries())
+  const h = (_isMap(headers)) ? Object.fromEntries(headers.entries())
             : (headers && typeof headers === 'object') ? headers : {};
   return function(handler) { return _httpStreamFetch('GET', url, null, h, handler); };
 }
 
 function httpPostStream(url, body, headers) {
-  const h = (headers instanceof Map) ? Object.fromEntries(headers.entries())
+  const h = (_isMap(headers)) ? Object.fromEntries(headers.entries())
             : (headers && typeof headers === 'object') ? headers : {};
   return function(handler) { return _httpStreamFetch('POST', url, body, h, handler); };
 }
@@ -747,7 +747,7 @@ function _ssc_http_serve(port, _tlsCfg) {
           try {
             // Streaming response — invoke the writer block with a chunk callback
             if (result && result._streaming) {
-              const _sh = result.headers instanceof Map ? Object.fromEntries(result.headers.entries()) : {};
+              const _sh = _isMap(result.headers) ? Object.fromEntries(result.headers.entries()) : {};
               if (!_sh['Content-Type']) _sh['Content-Type'] = 'text/plain; charset=utf-8';
               _applyCors(req.headers, _sh);
               res.writeHead(result.status || 200, _sh);
@@ -755,7 +755,7 @@ function _ssc_http_serve(port, _tlsCfg) {
               res.end();
               return;
             }
-            const headers = result && result.headers instanceof Map ? result.headers : new Map();
+            const headers = result && _isMap(result.headers) ? result.headers : new Map();
             if (!headers.has('Content-Type')) headers.set('Content-Type', 'text/plain; charset=utf-8');
             const out = headers ? Object.fromEntries(headers.entries()) : {};
             _applyCors(req.headers, out);
@@ -774,8 +774,8 @@ function _ssc_http_serve(port, _tlsCfg) {
                 const rawSsid = (request._rawCookieSession && request._rawCookieSession.get)
                   ? request._rawCookieSession.get('_ssid') : null;
                 if (rawSsid) _sessionStoreDelete(rawSsid);
-                if ((ssetting instanceof Map && ssetting.size === 0) ||
-                    (!(ssetting instanceof Map) && Object.keys(ssetting || {}).length === 0)) {
+                if ((_isMap(ssetting) && ssetting.size === 0) ||
+                    (!(_isMap(ssetting)) && Object.keys(ssetting || {}).length === 0)) {
                   cookiePayload = new Map();
                 } else {
                   const newSsid = _sessionStorePut(ssetting);
@@ -828,7 +828,7 @@ function _ssc_http_serve(port, _tlsCfg) {
           }
           const _uResult = await _uChain();
           if (_uResult && _uResult !== _passthrough && !_uResult._sscUnrouted) {
-            const _uh = _uResult.headers instanceof Map ? _uResult.headers : new Map();
+            const _uh = _isMap(_uResult.headers) ? _uResult.headers : new Map();
             if (!_uh.has('Content-Type')) _uh.set('Content-Type', 'text/plain; charset=utf-8');
             const _uo = Object.fromEntries(_uh.entries());
             _applyCors(req.headers, _uo);
@@ -896,7 +896,7 @@ function streamResponse(statusOrBlock, headersOrBlock) {
     return { _streaming: true, status: 200, headers: new Map(), block: statusOrBlock };
   }
   return function(block) {
-    const hdrs = (headersOrBlock instanceof Map) ? headersOrBlock : new Map();
+    const hdrs = (_isMap(headersOrBlock)) ? headersOrBlock : new Map();
     return { _streaming: true, status: statusOrBlock || 200, headers: hdrs, block: block };
   };
 }
@@ -938,14 +938,14 @@ function cors(origins, methods, headers) {
 function useGzip() { _gzipEnabled = true; }
 
 function cacheable(r, maxAge, etag) {
-  const h = r && r.headers instanceof Map ? new Map(r.headers) : new Map();
+  const h = r && _isMap(r.headers) ? new Map(r.headers) : new Map();
   h.set('Cache-Control', `public, max-age=${maxAge}`);
   if (etag) h.set('ETag', String(etag));
   return Object.assign({}, r, { headers: h });
 }
 
 function noCache(r) {
-  const h = r && r.headers instanceof Map ? new Map(r.headers) : new Map();
+  const h = r && _isMap(r.headers) ? new Map(r.headers) : new Map();
   h.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   return Object.assign({}, r, { headers: h });
 }
@@ -1040,7 +1040,7 @@ function wsConnect(url, extraHeaders, protocols) {
     // RFC 6455 handshake
     const _crypto = require('crypto');
     const _wsKey  = _crypto.randomBytes(16).toString('base64');
-    const _hdrs   = extraHeaders instanceof Map ? Object.fromEntries(extraHeaders.entries()) : (extraHeaders || {});
+    const _hdrs   = _isMap(extraHeaders) ? Object.fromEntries(extraHeaders.entries()) : (extraHeaders || {});
     const _prots  = Array.isArray(protocols) ? protocols : [];
     let _req = `GET ${_path} HTTP/1.1\r\nHost: ${_host}:${_port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${_wsKey}\r\nSec-WebSocket-Version: 13\r\n`;
     if (_prots.length > 0) _req += `Sec-WebSocket-Protocol: ${_prots.join(', ')}\r\n`;

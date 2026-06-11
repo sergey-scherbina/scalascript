@@ -146,7 +146,7 @@ function _mcpPromptResultB(rpcResult) {
 }
 
 function _mcpArgsToObj(args) {
-  if (args instanceof Map) return Object.fromEntries(args);
+  if (_isMap(args)) return Object.fromEntries(args);
   if (args && typeof args === 'object') return args;
   return {};
 }

@@ -418,9 +418,9 @@ function mcpConnect(transport, timeoutMs) {
     listTools:     () => _mcpDescriptorsToList(_call('listTools'), 'tool'),
     listResources: () => _mcpDescriptorsToList(_call('listResources'), 'resource'),
     listPrompts:   () => _mcpDescriptorsToList(_call('listPrompts'), 'prompt'),
-    callTool:      (name, args) => _mcpResultToSsc(_call('callTool', { name, args: args instanceof Map ? Object.fromEntries(args) : (args || {}) })),
+    callTool:      (name, args) => _mcpResultToSsc(_call('callTool', { name, args: _isMap(args) ? Object.fromEntries(args) : (args || {}) })),
     readResource:  (uri)  => _mcpResourceResultToSsc(_call('readResource', { uri }), uri),
-    getPrompt:     (name, args) => _mcpPromptResultToSsc(_call('getPrompt', { name, args: args instanceof Map ? Object.fromEntries(args) : (args || {}) })),
+    getPrompt:     (name, args) => _mcpPromptResultToSsc(_call('getPrompt', { name, args: _isMap(args) ? Object.fromEntries(args) : (args || {}) })),
     close:         () => { if (!_closed) { _closed = true; try { _call('close'); } finally { worker.terminate(); } } },
     isClosed:      () => _closed,
   };

@@ -149,7 +149,7 @@ function _show(v) {
     if (v._isTuple) return '(' + v.map(_show).join(', ') + ')';
     return 'List(' + v.map(_show).join(', ') + ')';
   }
-  if (v instanceof Map) {
+  if (_isMap(v)) {
     if (v.size === 0) return 'Map()';
     return 'Map(' + [...v.entries()].map(([k,vv]) => _show(k)+' -> '+_show(vv)).join(', ') + ')';
   }
@@ -230,6 +230,13 @@ List.tabulate = (n) => (f)    => Array.from({length: n}, (_, i) => f(i));
 List.range    = (from, until, step=1) => { const r=[]; for(let i=from;i<until;i+=step) r.push(i); return r; };
 List.empty    = [];
 const Nil = [];
+
+// Map predicate. Replaces the 71 raw `x instanceof Map` checks so the ssc
+// immutable-Map representation can later become a persistent `_HAMT` (T2.2)
+// without touching every consumer site again. For now it is exactly the old
+// check (no behaviour change); the HAMT activation extends it to
+// `x instanceof Map || x instanceof _HAMT`.
+function _isMap(x) { return x instanceof Map; }
 
 function _Map(...pairs) {
   const m = new Map();

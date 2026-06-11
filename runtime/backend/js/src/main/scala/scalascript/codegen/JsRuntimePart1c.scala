@@ -39,7 +39,7 @@ function _jwtHeaderB64() {
 function jwtSign(claims) {
   // Accept either a Map or a plain object/case-class with string values.
   let m;
-  if (claims instanceof Map) m = claims;
+  if (_isMap(claims)) m = claims;
   else { m = new Map(); for (const [k, v] of Object.entries(claims || {})) m.set(String(k), String(v)); }
   const payloadB64 = _b64urlEnc(Buffer.from(_sessionJson(m), 'utf-8'));
   const headerB64  = _jwtHeaderB64();
@@ -96,7 +96,7 @@ function jwtSignRsa(claims) {
     ? process.env.SSC_JWT_PRIVATE_KEY : '';
   if (!priv || !priv.length) throw new Error('SSC_JWT_PRIVATE_KEY is not set');
   let m;
-  if (claims instanceof Map) m = claims;
+  if (_isMap(claims)) m = claims;
   else { m = new Map(); for (const [k, v] of Object.entries(claims || {})) m.set(String(k), String(v)); }
   const payloadB64 = _b64urlEnc(Buffer.from(_sessionJson(m), 'utf-8'));
   const headerB64  = _jwtRsaHeader();
@@ -249,7 +249,7 @@ function oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri) 
 }
 function oauthRegisterProvider(name, cfg) {
   const out = {};
-  if (cfg instanceof Map) cfg.forEach((v, k) => out[String(k)] = String(v));
+  if (_isMap(cfg)) cfg.forEach((v, k) => out[String(k)] = String(v));
   else for (const [k, v] of Object.entries(cfg || {})) out[String(k)] = String(v);
   _oauthProviders[name] = { ..._oauthProviders[name], ...out };
 }
@@ -292,11 +292,11 @@ function csrfToken() {
 }
 function csrfValid(req) {
   if (!req) return false;
-  const session = req.session instanceof Map ? req.session : new Map();
+  const session = _isMap(req.session) ? req.session : new Map();
   const expected = session.get('csrf') || '';
-  const form     = req.form instanceof Map ? req.form : new Map();
+  const form     = _isMap(req.form) ? req.form : new Map();
   let supplied = form.get('csrf');
-  if (!supplied && req.headers instanceof Map) {
+  if (!supplied && _isMap(req.headers)) {
     for (const [k, v] of req.headers) if (k.toLowerCase() === 'x-csrf-token') { supplied = v; break; }
   }
   supplied = supplied || '';
@@ -320,7 +320,7 @@ function _toJsonValue(v) {
   if (typeof v === 'number')         return String(v);
   if (typeof v === 'string')         return _jsonQuote(v);
   if (Array.isArray(v))              return '[' + v.map(_toJsonValue).join(',') + ']';
-  if (v instanceof Map) {
+  if (_isMap(v)) {
     const parts = [];
     v.forEach((val, k) => parts.push(_jsonQuote(typeof k === 'string' ? k : _show(k)) + ':' + _toJsonValue(val)));
     return '{' + parts.join(',') + '}';
@@ -359,7 +359,7 @@ function _jsonQuote(s) {
 function _withSession(resp, payload) {
   // Accept either a Map or a plain object/case-class.
   let m;
-  if (payload instanceof Map) m = payload;
+  if (_isMap(payload)) m = payload;
   else { m = new Map(); for (const [k, v] of Object.entries(payload || {})) m.set(String(k), String(v)); }
   return { ...resp, setSession: m, withSession: resp.withSession, clearSession: resp.clearSession };
 }
@@ -371,7 +371,7 @@ function _clearSessionOn(resp) {
 // Merges into the existing `headers` Map; later calls overwrite for
 // the same key.
 function _withHeaderOn(resp, name, value) {
-  const headers = resp.headers instanceof Map ? new Map(resp.headers) : new Map();
+  const headers = _isMap(resp.headers) ? new Map(resp.headers) : new Map();
   headers.set(String(name), String(value));
   return _mkResp({ ...resp, headers });
 }

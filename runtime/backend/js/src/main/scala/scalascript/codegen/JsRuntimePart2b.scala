@@ -158,7 +158,7 @@ function _dispatch(obj, method, args) {
       case '_4': return obj[3];
     }
   }
-  if (obj instanceof Map) {
+  if (_isMap(obj)) {
     switch(method) {
       case 'get': return obj.has(args[0]) ? _Some(obj.get(args[0])) : _None;
       case 'getOrElse': return obj.has(args[0]) ? obj.get(args[0]) : args[1];
@@ -369,7 +369,7 @@ function _typeOf(obj) {
   if (obj === _None) return 'Option';
   if (typeof obj === 'object' && obj._type === '_Some') return 'Option';
   if (typeof obj === 'object' && obj._type === '_None') return 'Option';
-  if (obj instanceof Map) return 'Map';
+  if (_isMap(obj)) return 'Map';
   if (typeof obj === 'string') return 'String';
   if (typeof obj === 'number') return Number.isInteger(obj) ? 'Int' : 'Double';
   if (typeof obj === 'boolean') return 'Boolean';
@@ -420,7 +420,7 @@ function _ssc_ui_jsonStringify(v) { return _toJsonStringify(v); }
 // same source compiles cleanly on JvmGen too.  `lookup` throws on a
 // missing key; `lookupOpt` returns `_None` / `_Some(v)`.
 function _lookupKey(v, k) {
-  if (v instanceof Map) {
+  if (_isMap(v)) {
     return v.has(k) ? v.get(k) : undefined;
   }
   if (Array.isArray(v)) {
@@ -455,7 +455,7 @@ function _jsonValueWrap(inner) {
   const self = { _type: 'JsonValue', _inner: inner };
   self.apply = function(k) {
     if (typeof k === 'string') {
-      if (inner instanceof Map) {
+      if (_isMap(inner)) {
         if (inner.has(k)) return _jsonValueWrap(inner.get(k));
         throw new Error("JsonValue: no key '" + k + "'");
       }
@@ -471,7 +471,7 @@ function _jsonValueWrap(inner) {
     throw new Error("JsonValue.apply(key: String | index: Int)");
   };
   self.get = function(k) {
-    if (typeof k === 'string' && inner instanceof Map && inner.has(k))
+    if (typeof k === 'string' && _isMap(inner) && inner.has(k))
       return _Some(_jsonValueWrap(inner.get(k)));
     if (typeof k === 'number' && Array.isArray(inner) && k >= 0 && k < inner.length)
       return _Some(_jsonValueWrap(inner[k]));
@@ -499,7 +499,7 @@ function _jsonValueWrap(inner) {
     throw new Error('JsonValue.asList: expected list but got ' + _show(inner));
   };
   self.asMap = function() {
-    if (inner instanceof Map) {
+    if (_isMap(inner)) {
       const out = new Map();
       for (const [k, v] of inner) out.set(k, _jsonValueWrap(v));
       return out;
@@ -509,12 +509,12 @@ function _jsonValueWrap(inner) {
   self.raw    = function() { return inner; };
   self.isNull = function() { return inner === null || inner === undefined; };
   self.keys   = function() {
-    if (inner instanceof Map) return [...inner.keys()];
+    if (_isMap(inner)) return [...inner.keys()];
     return [];
   };
   self.size = function() {
     if (Array.isArray(inner))      return inner.length;
-    if (inner instanceof Map)      return inner.size;
+    if (_isMap(inner))      return inner.size;
     if (typeof inner === 'string') return inner.length;
     return 0;
   };
@@ -536,7 +536,7 @@ function jsonRead(s) {
 function _jsonValueTotal(inner) {
   const self = { _type: 'JsonValue', _inner: inner };
   self.get = function(k) {
-    return _jsonValueTotal((inner instanceof Map && inner.has(k)) ? inner.get(k) : null);
+    return _jsonValueTotal((_isMap(inner) && inner.has(k)) ? inner.get(k) : null);
   };
   self.at = function(i) {
     return _jsonValueTotal((Array.isArray(inner) && i >= 0 && i < inner.length) ? inner[i] : null);
@@ -576,7 +576,7 @@ function _jsonValueTotal(inner) {
     return _None;
   };
   self.getOrElse = function(k, fb) {
-    if (inner instanceof Map && inner.has(k)) {
+    if (_isMap(inner) && inner.has(k)) {
       const v = inner.get(k);
       return (typeof v === 'string') ? v : _show(v);
     }
@@ -606,8 +606,8 @@ function _restValidationError(msg) {
   return e;
 }
 function _restFieldOf(req, name) {
-  if (req && req.form instanceof Map && req.form.has(name)) return req.form.get(name);
-  if (req && req.query instanceof Map && req.query.has(name)) return req.query.get(name);
+  if (req && _isMap(req.form) && req.form.has(name)) return req.form.get(name);
+  if (req && _isMap(req.query) && req.query.has(name)) return req.query.get(name);
   return undefined;
 }
 
@@ -741,7 +741,7 @@ function _toJsonStringify(v) {
     if (v._isTuple === true) return '[' + v.map(_toJsonStringify).join(',') + ']';
     return '[' + v.map(_toJsonStringify).join(',') + ']';
   }
-  if (v instanceof Map) {
+  if (_isMap(v)) {
     const parts = [];
     for (const [k, val] of v) parts.push(JSON.stringify(String(k)) + ':' + _toJsonStringify(val));
     return '{' + parts.join(',') + '}';
