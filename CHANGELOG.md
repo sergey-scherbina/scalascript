@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — perf(interp): JIT case-class construction in loop bodies (interp-jit-object-construct, T3 partial)
+
+- **interp-jit-object-construct (case-class)** — the interpreter bytecode JIT
+  bailed any loop whose body constructs a user case class (`val v = Vec(x, y)`)
+  to slow tree-walk; the honest `instance-field` corpus exposed this at 57 ms
+  (on==off). `walkRef`/`isRefValRhs` only knew builtin List/Set/Map ctors, so a
+  user-ADT ctor was an unresolvable free name. Added `JitRefDispatch.newInstanceRef`
+  (builds an InstanceV with positional fieldsArr+fieldNames+typeTag) and a walkRef
+  case-class case in **both** JavacJitBackend and AsmJitBackend (ASM reuses its
+  emitConstructorObject). Builtin ADTs registered in `typeFieldOrder`
+  (Some/None/Right/Left/collections) are excluded so they keep their dedicated
+  OptionV/EitherV + HOF dispatch. **instance-field: 57 → 0.267 ms javac (213×),
+  57 → 0.767 ms asm (74×)**; result identical to tree-walk; backendInterpreter
+  suite 1633 green on both backends. tuple-monoid (tuple literal + `++`) remains a
+  follow-up. Spec: `specs/backend-perf-gaps.md` §T3.
+
 ## 2026-06-11 — bench(honesty): de-fold the corpus wall-table via carried-LCG seed (bench-honest-corpus-seed, Tier 2 / T2.1 follow-up)
 
 - **bench-honest-corpus-seed** — closes the optional T2.1 follow-up: the
