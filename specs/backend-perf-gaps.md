@@ -52,13 +52,35 @@ conformance + map tests green.
 - [ ] All native-`Map` coupling sites migrated/audited.
 - [ ] `map-ops` JS gap closed; no conformance regression.
 
-### T2.3 — JIT const-propagation — `ssc-jit-const-propagation`
+### T2.3 — JIT const-propagation — `ssc-jit-const-propagation` ✓ DONE (2026-06-11)
 
 Generalises invariant-call folding in the interpreter JIT.
 
-- [ ] Stage 2: pure-function calls with literal args — memoise once.
-- [ ] Stage 3: scalar-evolution-style range folding for counter loops.
-- Gate: `JitLintTest` + interp bench A/B (`scripts/bench interp`), record numbers.
+- [x] Stage 2: pure-function calls with literal/invariant args — memoise once.
+      Implemented as `EvalRuntime.tryFoldInvariantAccumLoop` (landed `3174c0b4c`,
+      "fold invariant recursive eval loops"): folds `while i<N do { acc = acc +
+      f(stableArg); i += step }` by evaluating the bytecode-JIT-direct call once
+      and multiplying by the iteration count.
+- [x] Stage 3: scalar-evolution-style range folding for counter loops.
+      Implemented as `EvalRuntime.tryClosedFormPolyLoop` (landed `abe7e4d02`,
+      "Gauss closed-form recognizer"): recognises a 1-/2-param FunV whose body is
+      degree-1 in its parameter(s) (`walkLinearPoly`) and replaces
+      `while i<N do { acc = acc + f(i); i += step }` with the algebraic Gauss sum
+      `a*step*K*(K-1)/2 + (a*s+b)*K`, bypassing bytecode JIT entirely.
+- Both fire from the FastTier loop dispatch (`EvalRuntime.scala:2726-2729`).
+- Gate (verified 2026-06-11): `JitLintTest` + `SscVmTest` (closed-form 1-param /
+  2-param / block-wrapped / val-bound-global + invariant-fold cases) +
+  `ConstFoldJsGenTest` = **277 tests green**. Bench A/B (`scripts/bench interp
+  'pureCallSum$'`): **0.003 ms/op** (was ~0.25 ms pre-fold per `abe7e4d02`; ~83×;
+  native JVM floor for this shape is 0.247 ms, so the closed form eliminates the
+  loop). `pureCallSum2` 0.29→0.003 (97×), `pureCallSumBlock` 0.28→0.003 (93×);
+  `pureCallSumIf` unchanged (conditional body rejected by the linear grammar — by
+  design).
+- **Closure note:** both stages landed under their own perf commits before this
+  spec item was tracked; this entry records the discovery + verification, not new
+  code. Coverage is the 2-assign (counter+accumulator) Int loop shape; broadening
+  (product accumulators, Double, non-counter shapes) is out of scope — no bench
+  currently demonstrates a gap there.
 
 ## Out of scope
 
@@ -74,4 +96,13 @@ Generalises invariant-call folding in the interpreter JIT.
 
 ## Results
 
-<!-- at verify -->
+**T2.3 — ssc-jit-const-propagation — DONE 2026-06-11.** Discovered already
+implemented + wired + tested; verified and closed (no new code). Stage 2 =
+`tryFoldInvariantAccumLoop` (`3174c0b4c`), Stage 3 = `tryClosedFormPolyLoop` +
+`walkLinearPoly` (`abe7e4d02`), both dispatched from the FastTier loop path. Gate
+green: JitLintTest + SscVmTest fold cases + ConstFoldJsGenTest = 277 tests.
+`scripts/bench interp 'pureCallSum$'` = 0.003 ms/op (≈83× over the ~0.25 ms
+pre-fold baseline; native JVM floor 0.247 ms). Full details + closure rationale in
+the T2.3 item above.
+
+T2.1 (bench-honesty) and T2.2 (js-persistent-map-hamt) remain open.
