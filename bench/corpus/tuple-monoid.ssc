@@ -1,17 +1,27 @@
 # tuple-monoid
 
-_tupleConcat hot path — 100k iterations of (1,2) ++ (3,4).
+`_tupleConcat` hot path — 100k iterations of `(a, 2) ++ (3, 4)`.
 
-Note: interp (tryFoldCounterLoop) and JVM (JvmGen constant hoisting +
-HotSpot folding) both legitimately collapse this to O(1), reporting near-zero
-times.  The JS number (no such optimization) is the actionable gap.
+Honest-bench note: a carried LCG state `s` (opaque `seed: Long` start) drives
+the left operand of `++` each iteration, and BOTH components of the concat
+result are consumed into `acc`.  Previously this was loop-invariant
+(`(1,2) ++ (3,4)`), so interp (`tryFoldCounterLoop`) and JVM (JvmGen constant
+hoist + HotSpot) both collapsed it to O(1) and reported near-zero times.  The
+LCG recurrence has no closed form, and consuming every concat result blocks
+dead-store elimination of the intermediate tuples, so every backend runs the
+real 100k `_tupleConcat` loop (JS still pays the tuple-allocation cost).
+Returns `Long` so the harness uses an unboxed sink.  (Shared anti-fold idiom —
+see `docs/bench/corpus-antifold.md`.)
 
 ```scalascript
-def workload(): (Int, Int, Int, Int) =
+def workload(seed: Long): Long =
+  var s = seed + 1
+  var acc = 0L
   var i = 0
-  var last = (0, 0, 0, 0)
   while i < 100000 do
-    last = (1, 2) ++ (3, 4)
+    s = s * 2862933555777941757L + 3037000493L
+    val t = ((s % 4).toInt, 2) ++ (3, 4)
+    acc = acc + t._1 + t._4
     i = i + 1
-  last
+  acc
 ```

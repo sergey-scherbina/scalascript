@@ -4,16 +4,27 @@ InstanceV field access + monomorphic method dispatch in a hot loop.
 10k calls to a 2-field accessor — deliberately stresses the slow
 InstanceV path (interp is far behind the codegen backends here).
 
+Honest-bench note: takes a `seed: Long` (opaque at compile time — fed from
+the harness sink) and advances a carried LCG state `s` each iteration, using
+`s % 8` as the `Vec`'s `x`.  A 64-bit LCG is a pseudo-random recurrence that
+C2 / LLVM / V8 provably cannot solve in closed form, so no backend can fold
+the inner loop or hoist the dispatch out, and the interpreter JIT can't hoist
+the now loop-variant body.  Every backend runs the real 10k
+allocate-and-dispatch loop.  (Shared idiom across the de-folded corpus
+workloads — see `docs/bench/corpus-antifold.md`.)
+
 ```scalascript
 case class Vec(x: Int, y: Int)
 
 def normSq(v: Vec): Int = v.x * v.x + v.y * v.y
 
-def workload(): Long =
-  val v = Vec(3, 4)
+def workload(seed: Long): Long =
+  var s = seed + 1
   var sum = 0L
   var i = 0
   while i < 10000 do
+    s = s * 2862933555777941757L + 3037000493L
+    val v = Vec((s % 8).toInt, 4)
     sum = sum + normSq(v)
     i = i + 1
   sum

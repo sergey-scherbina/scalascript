@@ -234,10 +234,14 @@ def runRustBench(sscPath: String, file: java.io.File): Option[Double] =
   // pass () to black_box<T>(T) — emit a 0i64 sentinel instead.
   // `isUnit` is set after genContent is read (step 2) so we define this
   // as a function called at step 4.
-  def buildMainRs(isUnit: Boolean): String =
+  def buildMainRs(isUnit: Boolean, hasSeed: Boolean): String =
+    // Seed-threaded workloads (`pub fn workload(seed: i64)`) take the opaque
+    // atomic seed `_s` directly — that data dependency is what stops LLVM from
+    // constant-folding the carried-LCG body (see docs/bench/corpus-antifold.md).
+    val arg = if hasSeed then "_s" else ""
     val workloadCall =
-      if isUnit then "generated::ssc_program::workload(); std::hint::black_box(0i64);"
-      else            "let r = generated::ssc_program::workload(); std::hint::black_box(r);"
+      if isUnit then s"generated::ssc_program::workload($arg); std::hint::black_box(0i64);"
+      else            s"let r = generated::ssc_program::workload($arg); std::hint::black_box(r);"
     s"""mod runtime;
 mod value;
 mod generated;
@@ -308,6 +312,11 @@ fn main() {
     // When Unit, black_box must receive an i64 sentinel rather than the () result.
     val workloadIsUnit = genContent.contains("pub fn workload() {") || genContent.contains("pub fn workload() {\n")
 
+    // Detect seed-threaded workload: a non-empty `pub fn workload(<args>)` arg
+    // list (emitted from `def workload(seed: Long)`).  We then pass the opaque
+    // atomic seed `_s` so the carried-LCG body can't be constant-folded.
+    val workloadHasSeed = raw"pub fn workload\(\s*[A-Za-z_]".r.findFirstIn(genContent).isDefined
+
     // 3. Patch Cargo.toml: switch from [[bin]] / [lib] to [[bin]] with our main.rs
     val cargoTomlFile = new java.io.File(crateDir, "Cargo.toml")
     val cargoToml = scala.io.Source.fromFile(cargoTomlFile).mkString
@@ -321,7 +330,7 @@ fn main() {
     // 4. Write our custom main.rs (Unit-aware: sentinel for black_box)
     val mainFile = new java.io.File(crateDir, "src/main.rs")
     val mw = new java.io.PrintWriter(mainFile)
-    mw.print(buildMainRs(workloadIsUnit) + mainRsSuffix); mw.close()
+    mw.print(buildMainRs(workloadIsUnit, workloadHasSeed) + mainRsSuffix); mw.close()
 
     // 5. cargo build --release --quiet
     val cargoBuf = new java.io.ByteArrayOutputStream

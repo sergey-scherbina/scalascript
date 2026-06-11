@@ -6956,10 +6956,13 @@ final class BenchCmd extends CliCommand:
       // Effect-typed workloads (`runLogger { ... }`, etc.) emit as `Any` in
       // JvmGen even when the declared return is `Int`/`Long` — fall back to
       // the boxed sink path.
-      val effectCall = """def\s+workload\s*\(\s*\)\s*:\s*[A-Za-z]+\s*=\s*run[A-Z]""".r
+      // Param list may be empty `()` or carry a bench seed `(seed: Long)` —
+      // match any parenthesised arg list so seed-threaded workloads still get
+      // their primitive (unboxed) sink instead of falling back to `Any`.
+      val effectCall = """def\s+workload\s*\([^)]*\)\s*:\s*[A-Za-z]+\s*=\s*run[A-Z]""".r
       if effectCall.findFirstIn(code).isDefined then "Any"
       else
-        val re = raw"def\s+workload\s*\(\s*\)\s*:\s*([A-Za-z]+)".r
+        val re = raw"def\s+workload\s*\([^)]*\)\s*:\s*([A-Za-z]+)".r
         re.findFirstMatchIn(code).map(_.group(1)).getOrElse("Any")
 
     // Wrap user code with a self-contained timing harness that prints BENCH_MS.
@@ -7008,6 +7011,21 @@ final class BenchCmd extends CliCommand:
       // surface in our subset, AND they aren't sophisticated enough to fold
       // the outer loop, so they keep the plain primitive sink.
       val returnTy = workloadReturnType(code)
+      // Seed-threading (bench-honest-corpus-seed): a workload declared as
+      // `def workload(seed: Long): T` opts into runtime-varying input so the
+      // AOT backends (C2 / TurboFan / LLVM) cannot constant-fold the otherwise
+      // pure, zero-input body to a compile-time constant.  The seed source must
+      // be OPAQUE to the optimiser:
+      //   - JVM: read the AtomicLong sink (`_ssc_sink.get()`).  A volatile/atomic
+      //     load is not constant-propagatable, so C2 can't precompute the body.
+      //     We feed the RAW value (no `| 1L` normalisation): `(x | 1) & mask`
+      //     would let C2 algebraically re-derive a constant and re-enable the
+      //     fold — the whole defeat hinges on the workload's `seed & mask` being
+      //     opaque.  A zero seed on iter 0 is a perfectly valid input.
+      //   - Interp/JS: they don't apply outer-loop scalar evolution, so a cheap
+      //     monotonic `_ssc_seed` (incremented per iter) is enough varying input.
+      // A no-arg `def workload(): T` keeps the historical plain call unchanged.
+      val hasSeed = raw"def\s+workload\s*\(\s*seed\b".r.findFirstIn(code).isDefined
       val (sinkDecl, sinkUpdate, sinkRead) =
         if targetBackend == "jvm" then
           // JVM anti-fold: AtomicLong.getAndAdd is `lock xaddq` on x86 / `ldadd`
@@ -7017,44 +7035,47 @@ final class BenchCmd extends CliCommand:
           // → `sink+=workload()*N` on pure-constant workloads).  Honest floor:
           // ~1.8 ns/iter on M1, ~5-10 ns/iter on x86.
           //
-          // What this DOES NOT defeat: C2 inlining workload() and seeing its
-          // result is a compile-time constant (e.g. streams-pipeline's
-          // `(1 to 10).map(*2).filter(%3==0).foldLeft(0)(+)` after fuseStreamChain
-          // collapses to `lock xaddq $36`).  To prevent C2 from precomputing
-          // workload itself we'd need Bench.opaque around the input literals
-          // INSIDE the workload body (cf. the Rust bench/run.sc patcher which
-          // injects `std::hint::black_box` around literal range bounds).  Tracked
-          // as a separate sprint slice (bench-honest-workload-opaque-jvm) — does
-          // not block this sink work.
+          // Workload-INTERNAL fold (C2 inlining workload() and seeing its result
+          // is a compile-time constant — e.g. streams-pipeline collapsing to a
+          // literal) is defeated separately by the seed parameter: `wc` below
+          // feeds `_ssc_sink.get()` (opaque atomic load) as the workload's seed,
+          // so the body is no longer a zero-input pure function.  Seed-less
+          // workloads keep the plain `workload()` call (they run a real loop).
+          val wc = if hasSeed then "workload(_ssc_sink.get())" else "workload()"
           returnTy match
             case "Int" | "Long" | "Boolean" =>
               ("val _ssc_sink = new java.util.concurrent.atomic.AtomicLong(0L)",
                returnTy match
-                 case "Int"     => "_ssc_sink.getAndAdd(workload().toLong)"
-                 case "Long"    => "_ssc_sink.getAndAdd(workload())"
-                 case "Boolean" => "_ssc_sink.getAndAdd(if workload() then 1L else 0L)",
+                 case "Int"     => s"_ssc_sink.getAndAdd($wc.toLong)"
+                 case "Long"    => s"_ssc_sink.getAndAdd($wc)"
+                 case "Boolean" => s"_ssc_sink.getAndAdd(if $wc then 1L else 0L)",
                "_ssc_sink.get()")
             case "Double" =>
               ("val _ssc_sink = new java.util.concurrent.atomic.AtomicLong(0L)",
-               "_ssc_sink.getAndAdd(java.lang.Double.doubleToRawLongBits(workload()))",
+               s"_ssc_sink.getAndAdd(java.lang.Double.doubleToRawLongBits($wc))",
                "java.lang.Double.longBitsToDouble(_ssc_sink.get())")
             case _ =>
               // Any branch — covers Unit (println workloads), tuples, case
               // classes etc.  hashCode().toLong gives a Long-shaped reduction;
               // a null guard handles both Unit and null returns.
               ("val _ssc_sink = new java.util.concurrent.atomic.AtomicLong(0L)",
-               "_ssc_sink.getAndAdd({ val __r: Any = workload(); if __r == null then 0L else __r.hashCode().toLong })",
+               s"_ssc_sink.getAndAdd({ val __r: Any = $wc; if __r == null then 0L else __r.hashCode().toLong })",
                "_ssc_sink.get()")
         else
           // Interp/JS: no AtomicLong in our subset.  Use plain primitive sink;
           // the tree-walking interpreter and V8 don't apply scalar-evolution
-          // outer-loop fold anyway, so this is honest already.
+          // outer-loop fold anyway, so this is honest already.  When the
+          // workload takes a seed, declare a monotonic `_ssc_seed` and advance
+          // it inside the (block-wrapped) sink update so the input varies.
+          val seedDecl = if hasSeed then "var _ssc_seed: Long = 1L\n" else ""
+          val wc       = if hasSeed then "workload(_ssc_seed)" else "workload()"
+          def upd(core: String) = if hasSeed then s"{ _ssc_seed = _ssc_seed + 1; $core }" else core
           returnTy match
-            case "Int"     => ("var _ssc_sink: Long = 0L",   "_ssc_sink = _ssc_sink + workload().toLong", "_ssc_sink")
-            case "Long"    => ("var _ssc_sink: Long = 0L",   "_ssc_sink = _ssc_sink + workload()",        "_ssc_sink")
-            case "Double"  => ("var _ssc_sink: Double = 0d", "_ssc_sink = _ssc_sink + workload()",        "_ssc_sink")
-            case "Boolean" => ("var _ssc_sink: Long = 0L",   "_ssc_sink = _ssc_sink + (if workload() then 1L else 0L)", "_ssc_sink")
-            case _         => ("var _ssc_sink: Any = null",  "_ssc_sink = workload()",                     "_ssc_sink")
+            case "Int"     => (seedDecl + "var _ssc_sink: Long = 0L",   upd(s"_ssc_sink = _ssc_sink + $wc.toLong"), "_ssc_sink")
+            case "Long"    => (seedDecl + "var _ssc_sink: Long = 0L",   upd(s"_ssc_sink = _ssc_sink + $wc"),        "_ssc_sink")
+            case "Double"  => (seedDecl + "var _ssc_sink: Double = 0d", upd(s"_ssc_sink = _ssc_sink + $wc"),        "_ssc_sink")
+            case "Boolean" => (seedDecl + "var _ssc_sink: Long = 0L",   upd(s"_ssc_sink = _ssc_sink + (if $wc then 1L else 0L)"), "_ssc_sink")
+            case _         => (seedDecl + "var _ssc_sink: Any = null",  upd(s"_ssc_sink = $wc"),                     "_ssc_sink")
       val warmupBlock = warmupTimeMs match
         case Some(ms) =>
           val ns       = ms * 1000000L

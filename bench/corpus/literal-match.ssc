@@ -5,6 +5,10 @@ in a hot loop. Tracks the `Pat.Lit` integer-arm JIT coverage
 (jit-universal-coverage stage 2.4) on both bytecode backends — the only
 literal-pattern match in the corpus.
 
+Honest-bench note: a carried 64-bit LCG (`s`, opaque `seed: Long` start) feeds
+`classify((s % 100))` each iteration so the AOT backends can't constant-fold the
+match chain to a literal. Shared idiom — see `docs/bench/corpus-antifold.md`.
+
 ```scalascript
 def classify(n: Int): Int =
   n % 5 match
@@ -14,11 +18,13 @@ def classify(n: Int): Int =
     case 3 => 400
     case _ => 500
 
-def workload(): Long =
+def workload(seed: Long): Long =
+  var s = seed + 1
   var sum = 0L
   var i = 0
   while i < 1000 do
-    sum = sum + classify(i).toLong
+    s = s * 2862933555777941757L + 3037000493L
+    sum = sum + classify((s % 100).toInt).toLong
     i = i + 1
   sum
 ```

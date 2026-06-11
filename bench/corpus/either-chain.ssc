@@ -4,15 +4,21 @@ Monadic `Either` pipeline: `map().flatMap().fold()`, 300 times. Exercises
 Right/Left construction + dispatch — the error-handling monad complementing
 `option-chain`, adjacent to the throwsAutoWrap Right-wrapping path.
 
+Honest-bench note: a carried 64-bit LCG (`s`, opaque `seed: Long` start) feeds
+`parse((s % 5) + 1)` each iteration so the AOT backends can't constant-fold the
+monadic pipeline to a literal. Shared idiom — see `docs/bench/corpus-antifold.md`.
+
 ```scalascript
 def parse(n: Int): Either[String, Int] =
   if n > 0 then Right(n) else Left("neg")
 
-def workload(): Long =
+def workload(seed: Long): Long =
+  var s = seed + 1
   var sum = 0L
   var i = 0
   while i < 300 do
-    val r = parse(i + 1).map(x => x + 1).flatMap(x => parse(x)).fold(_ => 0, x => x)
+    s = s * 2862933555777941757L + 3037000493L
+    val r = parse((s % 5).toInt + 1).map(x => x + 1).flatMap(x => parse(x)).fold(_ => 0, x => x)
     sum = sum + r.toLong
     i = i + 1
   sum

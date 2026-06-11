@@ -4,14 +4,20 @@ Monadic `Option` pipeline: `flatMap().map().getOrElse()`, 300 times. Stresses
 `OptionV` allocation and flatMap/map closure dispatch — the only
 Option/Either-shaped workload in the corpus and adjacent to the effect runtime.
 
+Honest-bench note: a carried 64-bit LCG (`s`, opaque `seed: Long` start) feeds
+`Some((s % 7))` each iteration so the AOT backends can't constant-fold the
+monadic pipeline to a literal. Shared idiom — see `docs/bench/corpus-antifold.md`.
+
 ```scalascript
 def lookup(k: Int): Option[Int] = if k % 2 == 0 then Some(k * 2) else None
 
-def workload(): Long =
+def workload(seed: Long): Long =
+  var s = seed + 1
   var sum = 0L
   var i = 0
   while i < 300 do
-    val r = Some(i).flatMap(x => lookup(x)).map(x => x + 1).getOrElse(0)
+    s = s * 2862933555777941757L + 3037000493L
+    val r = Some((s % 7).toInt).flatMap(x => lookup(x)).map(x => x + 1).getOrElse(0)
     sum = sum + r.toLong
     i = i + 1
   sum

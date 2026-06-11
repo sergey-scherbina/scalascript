@@ -6,16 +6,23 @@ bool-sibling JIT coverage (jit-universal-coverage stages 2.1 / 2.1b) and is a
 regression guard for Javac/ASM parity on the bool path — distinct from
 `mutual-recursion`'s trampoline.
 
+Honest-bench note: a carried 64-bit LCG (`s`, opaque `seed: Long` start) feeds
+`inRange((s % 2000))` each iteration. Without it the constant result folded to
+3 ns on JVM; the LCG has no closed form so every backend runs the real
+predicate loop. Shared idiom — see `docs/bench/corpus-antifold.md`.
+
 ```scalascript
 def isPositive(n: Int): Boolean = n > 0
 def isSmall(n: Int): Boolean = n < 1000
 def inRange(n: Int): Boolean = isPositive(n) && isSmall(n)
 
-def workload(): Long =
+def workload(seed: Long): Long =
+  var s = seed + 1
   var count = 0L
   var i = 0
   while i < 1000 do
-    if inRange(i % 2000) then count = count + 1L
+    s = s * 2862933555777941757L + 3037000493L
+    if inRange((s % 2000).toInt) then count = count + 1L
     i = i + 1
   count
 ```
