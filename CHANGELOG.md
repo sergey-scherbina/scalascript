@@ -16,6 +16,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   crypto-plugin. 6 tests incl. the RFC 8032 test #2 deterministic vector;
   spec `specs/crypto-pubkey-verify.md` §7; `examples/crypto-verify-demo.ssc`
   extended with the producing side. No key-generation extern (keys offline).
+## 2026-06-11 — fix(js): render a raw un-lowered DataTableNode child (js-ui-raw-datatable-child)
+
+- **js-ui-raw-datatable-child** — Follow-up to `js-backend-ui-render-gaps` Layer 2.
+  The idempotent `lower` passthrough returns an already-lowered `_Element` whole and
+  does not descend into its children, so a raw `DataTableNode` (the `TkNode` from
+  `dataTable(...)`, not the `View` from `dataTableView`/`staticDataTable`) mixed
+  directly into an `element(...)` children list reached the renderer un-lowered. The
+  JS `walk` had no `'DataTableNode'` case → `default → ''` → the table **vanished
+  silently** (confirmed `hasTable:false` with siblings rendering). Since
+  `lower(DataTableNode)` is theme-free (just wraps into `dataTableView`), `walk` now
+  normalises a raw `DataTableNode` into a `_DataTableView` and renders it through the
+  existing path. Theme-dependent raw `TkNode`s still need a `Theme` and remain
+  unsupported as un-lowered children. Regression test in `JsGenStdImportTest`; spec
+  `specs/js-backend-ui-render-gaps.md` §Layer 2b.
 
 ## 2026-06-11 — refactor(core): shared CollectionMethods classifier (cross-backend-method-classifier, Tier 3 / T3.3 DONE)
 
