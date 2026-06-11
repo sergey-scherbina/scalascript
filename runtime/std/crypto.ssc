@@ -23,6 +23,9 @@ exports:
   - verifyEd25519
   - verifyEd25519Url
   - verifyRsaSha256
+  - ed25519Sign
+  - ed25519SignUrl
+  - rsaSignSha256
 ---
 
 # crypto
@@ -134,4 +137,19 @@ extern def verifyEd25519Url(publicKey: String, message: String, signature: Strin
 /** Verify an RSA signature over SHA-256. `publicKey` is base64 SPKI DER;
  *  `scheme` is `"PKCS1"` (RSASSA-PKCS1-v1_5) or `"PSS"` (RSASSA-PSS). */
 extern def verifyRsaSha256(publicKey: String, message: String, signature: String, scheme: String): Boolean
+
+/** Sign `message` (UTF-8) with an Ed25519 private key, returning the base64
+ *  64-byte detached signature. `privateKey` is base64 of a raw 32-byte seed OR
+ *  base64 PKCS#8 DER. Round-trips with `verifyEd25519`. Unlike the verifiers,
+ *  signing throws on a malformed key (the key is trusted, authoring-side input). */
+extern def ed25519Sign(privateKey: String, message: String): String
+
+/** Like `ed25519Sign` but `privateKey` and the returned signature use the
+ *  base64url alphabet (`-_`, unpadded). Round-trips with `verifyEd25519Url`. */
+extern def ed25519SignUrl(privateKey: String, message: String): String
+
+/** Sign `message` (UTF-8) over SHA-256 with an RSA private key, returning the
+ *  base64 signature. `privateKey` is base64 PKCS#8 DER; `scheme` is `"PKCS1"`
+ *  (RSASSA-PKCS1-v1_5) or `"PSS"` (RSASSA-PSS). Round-trips with `verifyRsaSha256`. */
+extern def rsaSignSha256(privateKey: String, message: String, scheme: String): String
 ```

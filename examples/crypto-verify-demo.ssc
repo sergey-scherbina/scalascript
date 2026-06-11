@@ -17,3 +17,16 @@ println(s"tampered valid: $tampered")        // false
 // Malformed input is also just `false` (safe against hostile peers).
 val malformed = verifyEd25519("not-a-key", message, signature)
 println(s"malformed valid: $malformed")      // false
+
+// ── Producing side: sign with the matching private key ────────────────────
+// The RFC 8032 test #2 private seed (base64 of the raw 32-byte seed). In a real
+// app this is generated offline and kept secret; here it's the known test seed
+// so the output matches the signature above exactly.
+val privateSeed = "TM0Imyj/ltqdtsNG7BFOD1uKMZ81q6Yk2oz27U+4pvs="
+
+val produced = ed25519Sign(privateSeed, message)
+println(s"signature matches vector: ${produced == signature}")   // true
+
+// Round-trip: anyone holding only the public key can verify what we signed.
+val selfOk = verifyEd25519(publicKey, message, produced)
+println(s"round-trip valid: $selfOk")        // true

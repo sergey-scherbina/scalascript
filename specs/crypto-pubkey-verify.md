@@ -77,3 +77,39 @@ remove the `signature.unsupported` quarantine for verifiable traffic.
 busi marker `TODO(scalascript-signatures)` in the Phase 87g signature path.
 Once shipped, busi can verify peer identity signatures end-to-end and lift the
 quarantine.
+
+## 7  Signing (private-key side) — landed 2026-06-11
+
+The verifiers above only check signatures. busi's chain-checkpoint month-close
+evidence needs the **producing** side too: an asymmetric signature a third party
+(accountant / auditor) can verify without a shared secret. Added the matching
+private-key signers, round-tripping with the verifiers:
+
+```scalascript
+// Ed25519 — sign message bytes; returns base64 of the 64-byte signature.
+//   privateKey: base64 of a raw 32-byte seed OR base64 PKCS#8 DER
+extern def ed25519Sign(privateKey: String, message: String): String
+// base64url variant (federation / JWS envelopes), round-trips with verifyEd25519Url.
+extern def ed25519SignUrl(privateKey: String, message: String): String
+// RSA over SHA-256; privateKey is base64 PKCS#8 DER; scheme "PKCS1" or "PSS".
+extern def rsaSignSha256(privateKey: String, message: String, scheme: String): String
+```
+
+Unlike the **total** verifiers, the signers **throw** on a malformed key: the
+private key is trusted authoring-side input, and silently returning a bogus
+signature would be worse than a loud failure. JVM-only (JDK `java.security`,
+`initSign`); the interpreter routes through the same `crypto-plugin` path.
+
+### 7.1  Signing behavior checklist
+
+- [x] `ed25519Sign` (PKCS#8 key) round-trips with `verifyEd25519`; a tampered
+      message fails verification.
+- [x] `ed25519Sign` accepts a raw 32-byte seed (PKCS#8-wrapped internally).
+- [x] `ed25519SignUrl` round-trips with `verifyEd25519Url` (base64url, unpadded).
+- [x] `rsaSignSha256` round-trips with `verifyRsaSha256` for both `"PKCS1"` and
+      `"PSS"` (JCE keypair).
+- [x] Wrong argument arity throws a descriptive `InterpretError`.
+
+**Note — verify-only vs sign:** ScalaScript still exposes no key *generation*
+extern; keypairs are generated offline (openssl / a host KeyPairGenerator) and
+the private key is supplied as base64. This matches busi's flow.

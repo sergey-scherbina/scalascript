@@ -1,7 +1,7 @@
 package scalascript.compiler.plugin.crypto
 
 import scalascript.backend.spi.*
-import scalascript.interpreter.Value
+import scalascript.interpreter.{Value, InterpretError}
 import scalascript.ir.QualifiedName
 import scalascript.plugin.api.{PluginComputation, PluginNative, PluginValue}
 
@@ -128,6 +128,46 @@ object CryptoIntrinsics:
       v.update(message.getBytes("UTF-8"))
       v.verify(dec(sigB64))
     catch case _: Throwable => false
+
+  private def b64eUrl(bytes: Array[Byte]): String =
+    java.util.Base64.getUrlEncoder.withoutPadding.encodeToString(bytes)
+
+  /** Build an Ed25519 `PrivateKey` from either a raw 32-byte seed or PKCS#8 DER. */
+  private def ed25519PrivateKey(bytes: Array[Byte]): java.security.PrivateKey =
+    val der =
+      if bytes.length == 32 then
+        // Prepend the fixed Ed25519 PKCS#8 header (RFC 8410) to the raw seed.
+        val prefix = Array(0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03,
+                           0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20).map(_.toByte)
+        prefix ++ bytes
+      else bytes
+    java.security.KeyFactory.getInstance("Ed25519")
+      .generatePrivate(new java.security.spec.PKCS8EncodedKeySpec(der))
+
+  /** Sign `message` (UTF-8) with an Ed25519 private key; returns the 64-byte
+   *  signature encoded with `enc`. Throws (caught at the intrinsic boundary) on a
+   *  malformed key — signing is an authoring operation with a trusted key, unlike
+   *  the total verifiers. */
+  private def signEd25519B64(privB64: String, message: String,
+                             dec: String => Array[Byte], enc: Array[Byte] => String): String =
+    val s = java.security.Signature.getInstance("Ed25519")
+    s.initSign(ed25519PrivateKey(dec(privB64)))
+    s.update(message.getBytes("UTF-8"))
+    enc(s.sign())
+
+  private def signRsaSha256Raw(privB64: String, message: String, scheme: String): String =
+    val priv = java.security.KeyFactory.getInstance("RSA")
+      .generatePrivate(new java.security.spec.PKCS8EncodedKeySpec(b64d(privB64)))
+    val s =
+      if scheme == "PSS" then
+        val sig = java.security.Signature.getInstance("RSASSA-PSS")
+        sig.setParameter(new java.security.spec.PSSParameterSpec(
+          "SHA-256", "MGF1", java.security.spec.MGF1ParameterSpec.SHA256, 32, 1))
+        sig
+      else java.security.Signature.getInstance("SHA256withRSA")
+    s.initSign(priv)
+    s.update(message.getBytes("UTF-8"))
+    b64e(s.sign())
 
   private def verifyRsaSha256Raw(pubB64: String, message: String, sigB64: String, scheme: String): Boolean =
     try
@@ -291,6 +331,26 @@ object CryptoIntrinsics:
       case List(publicKey: String, message: String, signature: String, scheme: String) =>
         Value.boolV(verifyRsaSha256Raw(publicKey, message, signature, scheme))
       case _ => Value.boolV(false)
+    },
+
+    // ── public-key signing (private-key authoring — round-trips with verify) ──
+
+    QualifiedName("ed25519Sign") -> native {
+      case List(privateKey: String, message: String) =>
+        Value.StringV(signEd25519B64(privateKey, message, b64d, b64e))
+      case _ => throw InterpretError("ed25519Sign(privateKey: String, message: String)")
+    },
+
+    QualifiedName("ed25519SignUrl") -> native {
+      case List(privateKey: String, message: String) =>
+        Value.StringV(signEd25519B64(privateKey, message, b64dUrl, b64eUrl))
+      case _ => throw InterpretError("ed25519SignUrl(privateKey: String, message: String)")
+    },
+
+    QualifiedName("rsaSignSha256") -> native {
+      case List(privateKey: String, message: String, scheme: String) =>
+        Value.StringV(signRsaSha256Raw(privateKey, message, scheme))
+      case _ => throw InterpretError("rsaSignSha256(privateKey: String, message: String, scheme: String)")
     },
 
   )

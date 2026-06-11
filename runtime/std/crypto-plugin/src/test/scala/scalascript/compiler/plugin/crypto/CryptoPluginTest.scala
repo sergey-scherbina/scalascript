@@ -342,3 +342,61 @@ class CryptoPluginTest extends AnyFunSuite:
     assert(java.util.Base64.getDecoder.decode(a).length == 16, "must be 16 bytes")
     assert(a != b, "two draws must differ (overwhelmingly)")
     assert(evalStr("""secureRandomBytesB64(0)""") == "", "0 bytes → empty base64")
+
+  // ── public-key signing (ed25519Sign / rsaSignSha256 — round-trip verify) ──
+
+  test("ed25519Sign round-trips with verifyEd25519 (PKCS#8 private key)"):
+    val kp = java.security.KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+    val priv = b64(kp.getPrivate.getEncoded)   // PKCS#8 DER
+    val pub  = b64(kp.getPublic.getEncoded)     // SPKI DER
+    val sig = evalStr(s"""ed25519Sign("$priv", "month-close evidence")""")
+    assert(evalBool(s"""verifyEd25519("$pub", "month-close evidence", "$sig")"""),
+      "a fresh Ed25519 signature must verify")
+    assert(!evalBool(s"""verifyEd25519("$pub", "tampered", "$sig")"""),
+      "the same signature must not verify a tampered message")
+
+  test("ed25519Sign reproduces the RFC 8032 test #2 signature (deterministic)"):
+    // seed + public key + signature are RFC 8032 §7.1 test 2 (message = "r").
+    val seed = b64(hex("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb"))
+    val expected = b64(hex("92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00"))
+    assert(evalStr(s"""ed25519Sign("$seed", "r")""") == expected,
+      "Ed25519 is deterministic — signing the test seed over 'r' must equal the vector")
+
+  test("ed25519Sign accepts a raw 32-byte seed and verifies via the matching public key"):
+    // Derive a keypair, extract the raw 32-byte seed from the PKCS#8 DER (last 32 bytes).
+    val kp = java.security.KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+    val pkcs8 = kp.getPrivate.getEncoded
+    val seed = b64(pkcs8.takeRight(32))
+    val pub  = b64(kp.getPublic.getEncoded)
+    val sig = evalStr(s"""ed25519Sign("$seed", "raw-seed")""")
+    assert(evalBool(s"""verifyEd25519("$pub", "raw-seed", "$sig")"""),
+      "signing with a raw 32-byte seed must produce a verifiable signature")
+
+  test("ed25519SignUrl round-trips with verifyEd25519Url (base64url)"):
+    val kp = java.security.KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+    val urlEnc = java.util.Base64.getUrlEncoder.withoutPadding
+    val priv = urlEnc.encodeToString(kp.getPrivate.getEncoded)
+    val pub  = urlEnc.encodeToString(kp.getPublic.getEncoded)
+    val sig = evalStr(s"""ed25519SignUrl("$priv", "jws")""")
+    assert(evalBool(s"""verifyEd25519Url("$pub", "jws", "$sig")"""),
+      "a base64url Ed25519 signature must verify via the url verifier")
+
+  test("rsaSignSha256 PKCS1 round-trips with verifyRsaSha256"):
+    val kp = java.security.KeyPairGenerator.getInstance("RSA"); kp.initialize(2048)
+    val pair = kp.generateKeyPair()
+    val priv = b64(pair.getPrivate.getEncoded)  // PKCS#8 DER
+    val pub  = b64(pair.getPublic.getEncoded)    // SPKI DER
+    val sig = evalStr(s"""rsaSignSha256("$priv", "checkpoint", "PKCS1")""")
+    assert(evalBool(s"""verifyRsaSha256("$pub", "checkpoint", "$sig", "PKCS1")"""),
+      "a PKCS1 RSA signature must verify")
+    assert(!evalBool(s"""verifyRsaSha256("$pub", "CHECKPOINT", "$sig", "PKCS1")"""),
+      "tampered message must fail")
+
+  test("rsaSignSha256 PSS round-trips with verifyRsaSha256"):
+    val kp = java.security.KeyPairGenerator.getInstance("RSA"); kp.initialize(2048)
+    val pair = kp.generateKeyPair()
+    val priv = b64(pair.getPrivate.getEncoded)
+    val pub  = b64(pair.getPublic.getEncoded)
+    val sig = evalStr(s"""rsaSignSha256("$priv", "checkpoint", "PSS")""")
+    assert(evalBool(s"""verifyRsaSha256("$pub", "checkpoint", "$sig", "PSS")"""),
+      "a PSS RSA signature must verify")
