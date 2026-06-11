@@ -29,7 +29,10 @@ spec's acceptance.
       → new `JvmGenCpsTransform` self-typed mixin. JvmGen 7042→6073 (−969). 1605 green.
 - [x] **jvmgen-decompose-p4** — DONE 2026-06-11. Mutual-TCO emission section (8 members)
       → new `JvmGenMutualTco` self-typed mixin. JvmGen 6073→5849 (−224). 1605 green.
-- [ ] **jsgen-decompose** — apply the proven pattern to `JsGen` (5.8k) once JvmGen is split. (backlog promote)
+- [x] **jvmgen-decompose-p2b** — DONE 2026-06-11. Remaining state-coupled Preamble+runtime
+      section → new `JvmGenPreamble` mixin. JvmGen 5849→5019 (−830). Completes p2.
+      **JvmGen split fully done: 10565→5019 (−53%) across 6 mixins.** 1605 green.
+- [ ] **jsgen-decompose** — apply the proven pattern to `JsGen` (5.8k) now JvmGen is split. (backlog promote)
 
 ### Tier 2 — performance gaps (each a dedicated sub-project)
 - [ ] **bench-honesty-varying-data** — measurement integrity; trustworthy table

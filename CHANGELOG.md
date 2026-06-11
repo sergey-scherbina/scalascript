@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — refactor(jvmgen): extract Preamble+runtime; JvmGen split complete (jvmgen-decompose-p2b)
+
+- **jvmgen-decompose-p2b** — Tier-1 maintainability; completes the JvmGen split.
+  Moved the remaining state-coupled `// ─── Preamble + runtime` section (HTML-DSL
+  tag bindings, user-top-name / declared-var-type collection, the runtime-source
+  loaders, the logger/common/serve runtime string blocks p2 had to leave behind,
+  model rendering, `uiHelperFunctions`) verbatim into a new self-typed mixin
+  `JvmGenPreamble { self: JvmGen => }`. Six members widened to `private[codegen]`;
+  trait imports `scalascript.ast.*` + `JvmGenStringUtils.*`. Pure structural move,
+  no behaviour change. `JvmGen.scala` **5849 → 5019 lines (−830)**.
+  **Tier-1 JvmGen decomposition done: 10565 → 5019 (−53%) across 6 self-typed
+  mixins.** `backendJvm/compile` clean under `-Werror`; full
+  `backendInterpreter/test` 1605 green. Spec: `specs/jvmgen-decompose.md`. Only
+  `jsgen-decompose` remains in Tier-1.
+
 ## 2026-06-11 — refactor(jvmgen): extract Mutual-TCO emission (jvmgen-decompose-p4)
 
 - **jvmgen-decompose-p4** — Tier-1 maintainability. Moved the `// ─── Mutual-TCO
