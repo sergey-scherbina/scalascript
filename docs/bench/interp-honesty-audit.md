@@ -19,11 +19,20 @@ For an in-process interpreter cell the decisive de-fold A/B is
 |---|---|---|---|---|
 | `arithLoop`           | 0.248 ms | 2.746 ms | 2.746 ms | honest — bytecode JIT speeds a real loop (11×) |
 | `instanceFieldAccess` | 0.035 ms | 8.277 ms | 8.277 ms | honest — JIT speeds real work (236×) |
+| `eitherChain`         | 0.002 ms | — | 0.017 ms | honest — JIT speeds real work (8.5×) |
+| `optionChain`         | 0.002 ms | — | *(n/a)* | honest by analogy to `eitherChain`; `off` cannot be measured — the tree-walk path hits the bench-harness `initBuiltins`-skip gotcha (`Undefined: None`), not a fold |
 | `pureCallSum`         | 0.003 ms | **0.003 ms** | **11.748 ms** | was a **baseline artifact** — see below |
 
-`arithLoop` and `instanceFieldAccess` are honest: turning the JIT off makes the
-loop tree-walk for real, so the on-numbers are genuine throughput, not folds
-(consistent with the cross-backend audit's "interp runs the real loop").
+`arithLoop`, `instanceFieldAccess`, and `eitherChain` are honest: turning the JIT
+off makes the loop tree-walk for real, so the on-numbers are genuine throughput,
+not folds (consistent with the cross-backend audit's "interp runs the real loop").
+
+`optionChain` ON is 0.002 ms (same JIT'd Option-chain shape as `eitherChain`),
+but its `off` run throws `Undefined: None` — the documented bench-harness
+`initBuiltins`-skip gotcha (`docs/benchmarks.md`): the no-JIT tree-walk resolves
+`None` as a name, which the harness never initialised. This is a harness artifact,
+not a fold and not a product bug (real `ssc run` initialises builtins). So the
+interp column is honest across every audited cell.
 
 `pureCallSum` was the outlier. Its 0.003 ms is the **Gauss closed-form fold**
 (`tryClosedFormPolyLoop`, the T2.3 const-propagation feature) collapsing
