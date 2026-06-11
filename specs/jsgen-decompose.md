@@ -49,4 +49,18 @@ Phasing (largest cohesive non-core section first):
 
 ## Results
 
-(filled in per phase)
+**p1 — CPS codegen — landed 2026-06-11.** Moved the `// ─── CPS codegen for
+effectful contexts` section (15 class members: `isSimpleCpsExpr`, `bindArgsCps`,
+`genCpsExpr`, `genCpsApply`, `genCpsBlockAsIife`, `genCpsInlineFn`, `genCpsCase`,
+`genCase`, `genPattern`, `genForDo`/`genForDoHelper`, `genForYield`/
+`genForYieldHelper`, `genAsyncForYield`, `genAsyncForDo`) verbatim into new
+self-typed mixin `JsGenCpsCodegen` (881 lines). Two-way visibility surgery:
+widened `private→private[codegen]` the six moved members called from JsGen
+(`genCpsExpr`, `genCpsBlockAsIife`, `genCase`, `genPattern`, `genForDo`,
+`genForYield`) and the 16 JsGen members the trait calls back into (`freshTmp`,
+`phCounters`, `usesRunActors`, `caseClassFieldsByType`/`FieldTypeMap`/`TagMap`,
+`numericVars`, `extractStreamBody`, `genGeneratorBody`, `genHandleForm`,
+`genReceiveMatcher`, `genStatInline`, `genPatDestructure`, `genForPatBinding`,
+`isIntExpr`, `isNumericExpr`). Import is `scala.meta.*` only. `JsGen.scala`
+**5810 → 4942 lines (−868)**. 1605 tests green; clean under `-Werror`. The core
+`genExpr`/`genApply`/`genStat` dispatch stays in `JsGen.scala` per Out-of-scope.
