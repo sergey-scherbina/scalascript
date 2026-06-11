@@ -825,10 +825,21 @@ fix, and don't require a runtime refactor.
       via `emit-spa`, but `emit-js` is effectively unusable in the
       browser today.
 
-- [ ] **busi-p2-emit-js-transitive-imports** — `emit-js` does not
-      propagate transitive imports into sub-module IIFEs. With `A → B →
-      C`, the bundle of `A` does not close `B`'s IIFE over `C`. Linker
-      must hoist transitives.
+- [x] **busi-p2-emit-js-transitive-imports** [no longer reproduces 2026-06-11]
+      — `emit-js` was reported to drop transitive imports (`A → B → C`, bundle
+      of `A` not closing `B`'s code over `C`). Does **not** reproduce on the
+      current backend: `genImport` recurses into a child module's own imports
+      (`childGen.genImport(nestedImp)`), and imported modules are emitted in
+      full (the child `JsGen` is created without `reachableNames`, so
+      tree-shaking only prunes the entry module's own declarations, never
+      transitively-imported ones). Verified end-to-end through the exact
+      `emit-js` path (`generateSegmented`, tree-shaking ON, per-segment
+      `_output` flush) for three shapes — package `A→B→C`, name-only
+      (no-package) `A→B→C`, and 4-level `A→B→C→D` — all run and print the
+      transitively-computed result. Regression guards added in
+      `JsGenStdImportTest` (`examples/js-transitive-iife{,-nopkg,-4}/`).
+      Awaiting a concrete repro if busi still observes a drop on a specific
+      module shape (e.g. wildcard `import x.*` or a re-export pattern).
 
 ### P3 — name shadowing from plugin intrinsics
 

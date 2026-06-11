@@ -21,6 +21,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   in `JsGenStdImportTest` renders the child-owned block to the DOM. Known limit:
   on a duplicate id across entry+import, the entry wins for all callers.
 
+## 2026-06-11 — emit-js transitive imports verified + regression guards (busi-p2)
+
+- **busi-p2-emit-js-transitive-imports** (no longer reproduces) — The reported
+  drop of transitive imports through `emit-js` (`A → B → C`) does not reproduce
+  on the current backend: `genImport` recurses into a child module's own
+  imports and imported modules are emitted in full (child `JsGen` carries no
+  `reachableNames`, so tree-shaking only prunes the entry module's own
+  declarations, never transitively-imported ones). Verified end-to-end through
+  the exact `emit-js` path (`generateSegmented` with tree-shaking ON + the
+  per-segment `_output` flush) for three shapes — package `A→B→C`, name-only
+  `A→B→C`, and 4-level `A→B→C→D` — each prints its transitively-computed
+  result. Added regression guards in `JsGenStdImportTest` with fixtures under
+  `examples/js-transitive-iife{,-nopkg,-4}/`. Awaiting a concrete repro if a
+  specific module shape (wildcard `import x.*`, re-export) still drops.
+
 ## 2026-06-11 — feat(crypto): sha256OfBase64 + byteLengthUtf8 (busi seq-100 KSeF)
 
 - **crypto-sha256-of-base64** (busi seq-100) — Two byte-oriented `std.crypto`
