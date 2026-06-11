@@ -47,10 +47,22 @@ interp JIT does not regress on the redesigned workloads (spot-check 3 cases).
       measurable. 1605 tests green.
 - [x] Interp JIT non-regression spot-checked: `pureCallSum` 0.003 (unchanged),
       `arithLoop` 0.248, `instanceFieldAccess` 0.035 — all default-on numbers held.
-- [ ] **REMAINING (open continuation):** fix the *compiled* (jvm/js/rust) fold
-      cells via direction (b) — redesign those workloads to consume loop-varying
-      data. Per-workload benchmark-design project that changes what each cell
-      measures; not landed here. The interp side + `off` baseline are now honest.
+- [x] **Direction (b) — `tuple_monoid` de-folded (2026-06-11).** The one fold cell
+      with an automated compiled cross-backend measurement. Was loop-invariant on
+      all backends (`jvm_tupleMonoid` 0.011 µs — HotSpot hoisted `last = k`;
+      `js_tupleMonoid` ref-copied a frozen const; interp `(1,2)++(3,4)` hoisted by
+      `tryHoistedPureWhile`). Rebuilt the tuple from the loop counter each iteration
+      and accumulate all components → no backend folds. After: `jvm_tupleMonoid`
+      **205 µs** (~18000×), `js_tupleMonoid` **1688 µs**, interp **~14 ms** (1000
+      iters). Remaining jvm/js gap is honest codegen difference. Details:
+      `docs/bench/interp-honesty-audit.md`.
+- [ ] **REMAINING (open continuation):** the other audit-flagged fold cells
+      (`instance-field`, `bool-predicate`, `either-chain`, `option-chain`,
+      `literal-match`) exist only in the **interp-only `InterpreterBench`** column —
+      no automated compiled cross-backend cell exists for them; their compiled folds
+      were measured ad-hoc in the cross-backend-gap doc. De-folding each is the same
+      per-workload direction-(b) pattern demonstrated by `tuple_monoid`, applied as
+      further slices. The interp side + `off` baseline are honest.
 
 ### T2.2 — JS persistent map (HAMT) — `js-persistent-map-hamt`
 
