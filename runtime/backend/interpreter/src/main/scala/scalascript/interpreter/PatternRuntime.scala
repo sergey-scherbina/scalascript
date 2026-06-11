@@ -1222,6 +1222,12 @@ private[interpreter] object PatternRuntime:
         if patEnv != null && evalGuard(c.cond, patEnv, interp) then interp.eval(c.body, patEnv)
         else null
 
+  /** JVM exception supertypes a `catch` pattern may use to match a synthesized
+   *  exception InstanceV (whose `typeName` is the thrown throwable's simple name). */
+  private def isExceptionSupertype(typeName: String): Boolean =
+    typeName == "Throwable" || typeName == "Exception" ||
+      typeName == "RuntimeException" || typeName == "Error"
+
   /** Match pattern against scrutinee. Returns the extended env on success, null on failure.
    *  Uses null instead of Option to avoid allocating Some wrappers on the hot match path. */
   def matchPat(pat: Pat, scrutinee: Value, env: Env, interp: Interpreter): Env | Null = pat match
@@ -1287,11 +1293,20 @@ private[interpreter] object PatternRuntime:
         case Type.Name(n)   => n
         case ta: Type.Apply => ta.tpe match { case Type.Name(n) => n; case _ => "" }
         case _              => ""
-      if typeName.isEmpty then matchPat(inner, scrutinee, env, interp)
+      // `Any` / `AnyRef` are universal supertypes — match any value. Required so
+      // `try … catch { case e: Any => … }` actually fires: the catch scrutinee is
+      // a synthesized exception InstanceV carrying the JVM exception's simple name,
+      // which never equals "Any". (busi: try/catch not catching extern throws.)
+      if typeName.isEmpty || typeName == "Any" || typeName == "AnyRef" then
+        matchPat(inner, scrutinee, env, interp)
       else
         val matches = scrutinee match
           case Value.InstanceV(t, _) =>
-            t == typeName || {
+            // Exception supertypes match any InstanceV — a `catch` scrutinee is a
+            // synthesized exception (any JVM throwable's simple name), and users
+            // catch it by supertype (Throwable / Exception / RuntimeException /
+            // Error) without knowing the concrete JVM class.
+            t == typeName || isExceptionSupertype(typeName) || {
               var p = interp.parentTypes.getOrElse(t, null); var ok = false
               while p != null && !ok do { ok = p == typeName; p = interp.parentTypes.getOrElse(p, null) }
               ok
