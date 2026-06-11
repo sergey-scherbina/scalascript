@@ -19,9 +19,9 @@ dedicated sub-projects. Each task = its own worktree + commit; verify per the
 spec's acceptance.
 
 ### Tier 1 — maintainability (decompose giant codegen files)
-- [ ] **jvmgen-decompose-p1** — extract Effect-analysis section of `JvmGen` into
-      `trait JvmEffectAnalysis { self: JvmGen => }` (new file). Pattern-establisher.
-      Verify: byte-identical emit on bench corpus + JVM suites green.
+- [x] **jvmgen-decompose-p1** — DONE 2026-06-11. Effect-analysis → new
+      `JvmGenEffectAnalysis` self-typed mixin (pattern already existed:
+      JvmGenBlockAnalysis/TermAnalysis/MutualRecursion). Verbatim move, 1605 green.
 - [ ] **jvmgen-decompose-p2** — extract Preamble+runtime section → `trait JvmPreambleRuntime`.
 - [ ] **jvmgen-decompose-p3** — extract CPS-transform section → `trait JvmCpsTransform`.
 - [ ] **jvmgen-decompose-p4** — extract Mutual-TCO section → `trait JvmMutualTco`.

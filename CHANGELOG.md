@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — refactor(jvmgen): extract Effect-analysis mixin (jvmgen-decompose-p1)
+
+- **jvmgen-decompose-p1** — First phase of decomposing the 10.6k-line `JvmGen`.
+  Lifted the Effect-analysis section (`analyzeEffects`, `isEffectOpDef`,
+  `isEffectOpRef`, `isEffectfulFun`) into a new self-typed mixin
+  `JvmGenEffectAnalysis`, following the pattern already used by
+  `JvmGenBlockAnalysis`/`JvmGenTermAnalysis`/`JvmGenMutualRecursion`. Verbatim
+  move; `effectOps`/`effectfulFuns` widened `private`→`private[codegen]`. No
+  behavioural change: 1605 `backendInterpreter` tests green, clean under
+  `-Werror`. Spec: `specs/jvmgen-decompose.md`. Part of the 3-tier
+  backend/compiler/interpreter improvement program (SPRINT).
+
 ## 2026-06-11 — refactor(jit): share remaining pure shape predicates (jit-predicates-shared-rest)
 
 - **jit-predicates-shared-rest** — Follow-up to `jit-predicates-shared`. Lifted
