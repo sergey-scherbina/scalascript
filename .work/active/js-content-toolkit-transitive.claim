@@ -1,0 +1,6 @@
+feature/js-content-toolkit-transitive 2026-06-11T12:11:04Z
+agent: claude-code
+heartbeat: 2026-06-11T12:11:04Z
+status: in-progress
+done-so-far: busi seq-92 #2 — content-toolkit runtime not emitted when std/ui/content is imported only in a transitively-imported module; my contentToolkitRuntimeEnabled gate scans top module only
+next: reproduce app->child->std/ui/content; make toolkit emission transitive-aware (tie to contentRuntimeEnabled inside emitContentRuntime); test; push
