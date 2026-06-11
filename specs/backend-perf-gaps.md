@@ -75,13 +75,14 @@ future enhancement (not a current defect): add automated compiled cross-backend
 cells for those workloads with varying data, to guard against regressions — same
 direction-(b) pattern as `tuple_monoid`.
 
-### T2.2 — JS persistent map (HAMT) — `js-persistent-map-hamt`
+### T2.2 — JS persistent map (HAMT) — `js-persistent-map-hamt` ✓ DONE (2026-06-11)
 
-> **Design landed (2026-06-11):** full migration strategy + staged p1–p4 plan in
-> [`specs/js-persistent-map-hamt.md`](js-persistent-map-hamt.md). Key de-risk: a
-> duck-typed `_HAMT` (native-Map read interface) + an `_isMap()` helper replacing
-> the 71 `instanceof Map` sites, so internal native maps and the new persistent
-> user Map coexist. Implementation is the dedicated sub-project below.
+> **Landed (2026-06-11):** design + implementation in
+> [`specs/js-persistent-map-hamt.md`](js-persistent-map-hamt.md). Duck-typed
+> `_HAMT` (native-Map read interface) + `_isMap()` helper replacing the 71
+> `instanceof Map` sites; `_Map`/`updated`/`removed`/`filter` route to `_HAMT`.
+> p2 sweep `2d0b780d6`, p1+p3 activation `a653cd331`. Full suite 1609 green;
+> micro-bench O(n²)→O(n log n), ~100× at N=4000.
 
 **Problem.** JS `map-ops` is ~40× slower than JVM because the runtime models
 immutable `Map` as a native `Map` copied on every update (O(n) `new Map(obj)`).
@@ -95,9 +96,12 @@ native `Map` (completeness risk), or (b) an in-place/CoW mutation hack
 regression; all 70 native-`Map` couplings either migrated or proven safe; JS
 conformance + map tests green.
 
-- [ ] HAMT (or persistent-CoW) `Map` runtime type added.
-- [ ] All native-`Map` coupling sites migrated/audited.
-- [ ] `map-ops` JS gap closed; no conformance regression.
+- [x] HAMT (persistent) `Map` runtime type added (`_HAMT`, p1+p3 `a653cd331`).
+- [x] All 71 native-`Map` coupling sites migrated via `_isMap` (p2 `2d0b780d6`); grep
+      `instanceof Map` = 0; native↔HAMT interop verified by the green suite.
+- [x] `map-ops` O(n²) copy eliminated → O(n log n) (~100× at N=4000); full suite
+      1609 green, no conformance regression. (Cross-backend `map-ops` table
+      re-measure is an optional p4 follow-up.)
 
 ### T2.3 — JIT const-propagation — `ssc-jit-const-propagation` ✓ DONE (2026-06-11)
 

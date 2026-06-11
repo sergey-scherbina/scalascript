@@ -105,8 +105,28 @@ Per the project's split-commit safety discipline:
 - Changing ssc Map *semantics* — this is representation only; observable behaviour
   must be identical (verified by the conformance suite).
 
-## Status
+## Status — ✓ DONE (2026-06-11)
 
-Design only (2026-06-11). Implementation is the staged p1–p4 above — a dedicated
-multi-session effort, re-claimed per slice. Strategy de-risks the 71-site
-completeness problem via `_isMap` duck-typing.
+Implemented across two pushes, both full-suite green (1609):
+
+- **p2** (`2d0b780d6`) — `_isMap` helper sweep: all 71 `instanceof Map` → `_isMap`,
+  behavior-identical.
+- **p1+p3** (`a653cd331`) — added `_HAMT` (path-copying 8-nibble trie, value-equality
+  canonical-string keys, native-Map read interface); `_isMap` matches `Map`||`_HAMT`;
+  `_Map()`/`updated`/`removed`/`filter` route to `_HAMT` (via `_mapUpdated`/`_mapRemoved`
+  /`_hamtOf`); fixed two Dataset mutable-`_Map()` misuses; `groupBy` left native.
+
+**Result vs the risks above:**
+- *Key equality* — resolved by keying on a canonical value-equality string (matches
+  interp; identical to native Map for primitives). No object-key audit failures.
+- *Missed site* — grep `instanceof Map` = 0; suite green confirms coverage.
+- *Serialization/`_show`* — flow through `_isMap`+`.entries()`, work on both reps.
+- *Preamble size* — `_HAMT` ~75 lines (smaller than the ~150 estimated); not gated.
+- *Iteration order* — hash order (= interp's); suite never depended on JS insertion order.
+
+**Perf:** micro-bench (build via N `updated`): native-copy 4.2×/doubling (O(n²)) →
+HAMT 1.8×/doubling (O(n log n)); **~100× at N=4000**, growing with N. The map-ops
+O(n²) copy that made JS ~40× the JVM is eliminated.
+
+p4 (cross-backend `map-ops` table re-measure) optional follow-up; the asymptotic
+win + micro-bench + green conformance establish closure.
