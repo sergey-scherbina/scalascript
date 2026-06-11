@@ -1197,6 +1197,30 @@ object JavacJitBackend extends JitBackend:
     case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)
         if argClause.values.lengthCompare(1) == 0 =>
       looksLongValue(argClause.values.head, ctx)
+    // Stage 8: 2-arg getOrElse (Map) returns Long when default is Long-ish.
+    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)
+        if argClause.values.lengthCompare(2) == 0 =>
+      looksLongValue(argClause.values(1), ctx)
+    // Stage 8: other ref-receiver methods that return Long.
+    case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name(m)), _)
+        if (m == "size" || m == "head" || m == "last" || m == "isEmpty" ||
+            m == "nonEmpty" || m == "isDefined" || m == "get" || m == "contains" ||
+            m == "toInt" || m == "toLong" || m == "indexOf" ||
+            m == "startsWith" || m == "endsWith" || m == "charAt") =>
+      true
+    // Stage 8: Math intrinsics return Long.
+    case Term.Apply.After_4_6_0(Term.Select(Term.Name("Math"), Term.Name(m)), _)
+        if m == "max" || m == "min" || m == "abs" =>
+      true
+    // Stage 9 lambda-value-solo: local val-bound lambda call is Long-shaped
+    // when the lambda is registered; walkLong inlines it via inlineLambdaLong.
+    case Term.Apply.After_4_6_0(Term.Name(name), _) if ctx.lambdas.contains(name) =>
+      true
+    // Stage 8: global function call (Term.Apply on Term.Name) that resolves to
+    // a Long-returning FunV. Keeps `.toInt`/`.toLong` on `combineAll(xs)` on the
+    // walkLong path rather than dropping into ref-chain fallback.
+    case Term.Apply.After_4_6_0(Term.Name(name), _) =>
+      ctx.interp.globals.get(name).exists(_.isInstanceOf[Value.FunV])
     case _ => false
 
   /** If `t` is `inner.map(unary)` with a recognised arithmetic lambda, return the
