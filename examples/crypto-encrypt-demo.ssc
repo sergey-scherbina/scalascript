@@ -1,3 +1,6 @@
+# Crypto encrypt demo
+
+```scalascript
 import std.crypto.*
 
 // Hybrid encryption, the shape KSeF 2.0 `EncryptionInfo` uses:
@@ -49,3 +52,4 @@ val invoiceB64 = base64Encode(invoice)                   // CBC operates on byte
 val cbcCipher  = aesCbcEncrypt(sessionKey, iv, invoiceB64)
 val cbcPlain   = base64Decode(aesCbcDecrypt(sessionKey, iv, cbcCipher))
 println(s"AES-256-CBC round-trip ok: ${cbcPlain == invoice}")
+```

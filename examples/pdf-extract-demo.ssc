@@ -1,3 +1,6 @@
+# Pdf extract demo
+
+```scalascript
 import std.pdf.*
 
 // Read a PDF's text layer. Here we generate a small document first so the example
@@ -19,3 +22,4 @@ println(s"pages: $pages")                 // pages: 1
 val text = pdfToMarkdown(pdf)
 println("--- extracted text ---")
 println(text)                              // contains "PIT-11", "Jan Kowalski", "84210.00"
+```

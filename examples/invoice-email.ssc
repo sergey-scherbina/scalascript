@@ -1,3 +1,6 @@
+# Invoice email
+
+```scalascript
 import std.pdf.*
 import std.mime.*
 
@@ -26,3 +29,4 @@ val message = buildMimeMessage(
 )
 
 println(s"MIME message assembled: ${message.length} bytes, PDF attached")
+```

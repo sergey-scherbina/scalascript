@@ -1,3 +1,6 @@
+# Invoice pdf
+
+```scalascript
 import std.pdf.*
 
 // Build an invoice as HTML (table layout + a <style> block), then render it to
@@ -27,3 +30,4 @@ val pdfBase64 = htmlToPdfBase64(invoiceHtml)
 // `pdfBase64` is the same shape busi's PDF relay returns — attach it to an email
 // or base64-decode it to bytes and write a .pdf file.
 println(s"PDF generated: ${pdfBase64.length} base64 chars")
+```

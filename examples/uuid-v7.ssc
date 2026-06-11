@@ -1,3 +1,6 @@
+# Uuid v7
+
+```scalascript
 // UUID v7 generation and validation example.
 // v7 UUIDs encode millisecond timestamps, so they sort chronologically.
 val id1 = uuidV7()
@@ -13,3 +16,4 @@ println(s"valid  : ${uuidIsValid(id4)}")
 
 val parsed = uuidFromString(id1)
 println(s"parsed : ${parsed.getOrElse("error")}")
+```

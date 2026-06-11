@@ -10,6 +10,9 @@ graphs:
     password: "${env:RDF4J_PASS}"
 ---
 
+# Graph RDF4J HTTP storage
+
+```scalascript
 // Demonstrate RDF4J HTTP remote repository (GraphDB / Fuseki / RDF4J Server / Stardog).
 // Run with: RDF4J_URL=... RDF4J_USER=admin RDF4J_PASS=secret ssc run-jvm graph-rdf4j-http-storage.ssc
 
@@ -63,3 +66,4 @@ val after = Sparql.select("kg", """
   SELECT (COUNT(*) AS ?n) WHERE { ?s ssc:title ?t . }
 """)
 println(s"Total triples with ssc:title: ${after.head.get("n").map(_.toString).getOrElse("?")}")
+```

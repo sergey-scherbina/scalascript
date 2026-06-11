@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — fix(examples): add missing scalascript fence to 9 runnable examples
+
+- Nine `examples/*.ssc` were raw scala with no ```` ```scalascript ```` fence, so
+  the parser treated them as prose and `ssc run` silently did nothing (fences are
+  by design — code lives in a fenced block, fenceless content is prose). Wrapped
+  the code in a `scalascript` fence: `crypto-demo`, `crypto-encrypt-demo`,
+  `crypto-verify-demo`, `invoice-email`, `invoice-pdf`, `pdf-extract-demo`,
+  `script` (shebang kept outside the fence), `uuid-v7`, and
+  `graph-rdf4j-http-storage` (fence after its YAML front-matter). Verified: the
+  self-contained ones run (`pdf-extract-demo` → `pages: 1` + extracted
+  `PIT-11 / Jan Kowalski / 84210.00`); all nine parse clean. The other 33 bare
+  `examples/*.ssc` are declarative front-matter modules (routes/graphs/deploy) with
+  no scala body — correctly left as-is.
+
 ## 2026-06-11 — docs: reconcile stale feature queue (std.pdf, smtp-send, pdf-mime already shipped)
 
 - Verified-and-closed several SPRINT/BACKLOG items that parallel agents had

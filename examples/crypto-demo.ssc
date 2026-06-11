@@ -1,3 +1,6 @@
+# Crypto demo
+
+```scalascript
 import std.crypto.*
 
 val hash = sha256("hello world")
@@ -10,3 +13,4 @@ val encoded = base64Encode("Hello, ScalaScript!")
 val decoded = base64Decode(encoded)
 println(s"base64Encode = $encoded")
 println(s"base64Decode = $decoded")
+```

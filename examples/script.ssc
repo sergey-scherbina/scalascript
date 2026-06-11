@@ -1,6 +1,9 @@
 #!/usr/bin/env ssc
-// Self-executing ScalaScript — chmod +x then ./script.ssc
+# Script
 
+Self-executing ScalaScript — `chmod +x script.ssc` then `./script.ssc`.
+
+```scalascript
 val name = "ScalaScript"
 
 def greet(who: String): String = s"Hello, $who! Welcome to $name."
@@ -21,3 +24,4 @@ def fib(n: Int): Int =
   if n <= 1 then n else fib(n - 1) + fib(n - 2)
 
 println(s"fib(10) = ${fib(10)}")
+```
