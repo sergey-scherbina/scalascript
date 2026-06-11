@@ -41,62 +41,39 @@ import java.time.Duration
  *     runs it.  This is the exact code path
  *     [[JsRuntimeSeparationTest]] exercises for run-tests.
  *
- *  ## Disabled — JS node /_ssc-cluster/status empty during election
+ *  ## Enabled 2026-06-11 — JVM↔JS Bully convergence works end-to-end
  *
- *  Status (2026-06-11): the WS **subprotocol-echo** blocker is FIXED and
- *  verified; one further cross-backend convergence issue remains.
+ *  Getting here took fixing four distinct cross-backend layers, each found by
+ *  reproducing the multi-process run; all are now landed:
  *
- *  **FIXED — JVM-codegen WS server now echoes `ssc-actors-v1`.** Both peer
- *  clients (JS-codegen `connectNode` and JVM-codegen) dial `/_ssc-actors`
- *  offering only `ssc-actors-v1`, and the spec-compliant JS `ws` client
- *  *requires* the server to echo a `Sec-WebSocket-Protocol` (else "Server sent
- *  no subprotocol" → close). The JVM-codegen route used to register via the
- *  protocols-less emitted `onWebSocket(path)(handler)`, so it never echoed.
- *  Now it registers with `protocols = List("ssc-actors-v1")` (see
- *  `JvmGenRuntimeSources` `onWebSocket("/_ssc-actors", protocols = …)`), reusing
- *  the WS library's negotiation. Verified by running this test: the WS now
- *  connects and the JVM node reaches the JS peer and elects it
- *  (`{"leader":"node-bbb","members":["node-bbb"],…}`) — previously impossible.
+ *  1. **JS-codegen `_runActors` scheduler block (FIXED earlier).** The original
+ *     disable reason: a synchronous `while(true)` + `Atomics.wait` scheduler
+ *     blocked Node's event loop. Now `async` + `setImmediate` yield
+ *     (`JsRuntimeAsyncA`/`B`).
+ *  2. **JVM-codegen WS server didn't echo the subprotocol.** The `/_ssc-actors`
+ *     route registered protocols-less, so it never sent `Sec-WebSocket-Protocol`;
+ *     the JS `ws` peer client rejected the upgrade. Now
+ *     `onWebSocket("/_ssc-actors", protocols = List("ssc-actors-v1"))`
+ *     (`JvmGenRuntimeSources`).
+ *  3. **JS-codegen WS server didn't echo the subprotocol either** (symmetric).
+ *     Now `onWebSocket('/_ssc-actors', [], ['ssc-actors-v1'])(handler)`
+ *     (`JsRuntimeAsyncB`). With (2)+(3), JS↔JS and JVM↔JS upgrades negotiate
+ *     `proto=ssc-actors-v1`.
+ *  4. **JS-codegen server hung on non-WebSocket upgrades.** The test's
+ *     `java.net.http` client defaults to HTTP/2 and probes cleartext with an
+ *     `Upgrade: h2c` header. Node routes *any* `Connection: Upgrade` to the
+ *     'upgrade' handler, so `/_ssc-cluster/status` GETs hit `_wsHandleUpgrade`,
+ *     matched no WS route, and the socket hung with no response → status polls
+ *     timed out (`js=` empty) even though the node was alive and the JVM peer had
+ *     converged. Fixed in `JsRuntimePart1d`: the 'upgrade' listener now serves
+ *     any non-`websocket` upgrade as a normal HTTP/1.1 request (via
+ *     `http.ServerResponse` over the raw socket), so HTTP/2-preferring clients
+ *     fall back to 1.1.
  *
- *  **ALSO FIXED — JS-codegen WS server now echoes the subprotocol.** The JS
- *  `/_ssc-actors` route registered via the protocols-less `onWebSocket(path,
- *  handler)` form, so it never echoed `Sec-WebSocket-Protocol` either — a
- *  spec-compliant `ws` peer client (JS `connectNode`) rejected the upgrade and
- *  peers stuck `__pending__`. Now registers with `['ssc-actors-v1']`
- *  (`JsRuntimeAsyncB`), mirroring the JVM fix. Verified: two JS-codegen nodes now
- *  **converge** (each reports the same non-empty leader); the JVM↔JS upgrade now
- *  negotiates `proto=ssc-actors-v1`.
- *
- *  **REMAINING — a JVM peer connection blocks the JS node's HTTP event loop.**
- *  In the JVM↔JS matrix the JVM node converges (sees node-bbb), but once the JVM
- *  peer's WS connects (`ws.connect … proto=ssc-actors-v1` logged) the JS node
- *  stops serving plain HTTP: `/_ssc-cluster/status` GETs are never dispatched/
- *  logged (no crash trace — the node is alive, the TCP port stays bound), so the
- *  test's status poll times out (`js=` empty). It is NOT the subprotocol and NOT
- *  the (non-blocking) inbound `onMessage` handler; it only reproduces with a
- *  *JVM* peer (two JS nodes serve HTTP fine while clustered), pointing at the JS
- *  WS server's handling of JVM-(java.net.http)-originated frames or peer-message
- *  scheduling starving the event loop. The next cross-backend slice
- *  (`specs/cluster-codegen-gap.md`). Re-enable by flipping `ignore`→`test` once
- *  the JS node serves HTTP with a JVM peer connected; verification needs
- *  `-Dssc.lib.path=<root>` (via `sbt installBin`) + `npm install ws`.
- *
- *  ### History — JS-codegen scheduler block (FIXED)
- *
- *  The original disable reason: `_runActors(bodyFn)` ran a synchronous
- *  `while (true)` loop with `Atomics.wait`/`_asyncSleep`, blocking Node's event
- *  loop so the node's `/_ssc-cluster/{star}` HTTP endpoints were unreachable while an
- *  actor stayed blocked on a long-armed `receive`. **Fixed:** `_runActors` is
- *  now `async`, sleeps via `await setTimeout`, and yields via `setImmediate`
- *  between ticks (`JsRuntimeAsyncA.scala` `async function _runActors`,
- *  `JsRuntimeAsyncB.scala` `_yieldToIO`). Single-node JS-codegen
- *  `/_ssc-cluster/status` now stays reachable while actors block — the
- *  precondition for this test. `require('ws')` in the JS bundle is worked around
- *  by `requireWsModule(sandbox)` (`npm install ws`) below.
- *
- *  Re-enable by flipping `ignore(...)` → `test(...)` once the JVM serve runtime
- *  echoes the subprotocol; the harness below already builds the right two-node
- *  setup. */
+ *  Requires (else cancels gracefully): `sbt cli/assembly` + `sbt installBin`
+ *  (compiler jars; `ssc.lib.path` is derived from the jar via `sscLibArgs`),
+ *  `node`, `npm` (`ws` installed into the sandbox), `scala-cli`, and the Scala
+ *  stdlib in the Coursier cache. */
 class ClusterMultiBackendMatrixTest extends AnyFunSuite:
 
   // ── ssc.jar discovery (mirrors other cluster tests) ──────────────────
@@ -118,6 +95,24 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
 
   private def requireJar(): os.Path = sscJar.getOrElse:
     cancel("ssc.jar not found — run `sbt cli/assembly` first")
+
+  // `compile-jvm`/`link --bytecode` lazily load the Scala compiler jars from
+  // `<ssc.lib.path>/bin/lib/compiler/jars` (staged by `sbt installBin`). Plain
+  // `java -jar ssc.jar` doesn't set `ssc.lib.path`, so derive it by walking up
+  // from the jar to the staged root and pass `-Dssc.lib.path`; empty when not
+  // staged (compile-jvm then cancels the test with its own message).
+  private val sscLibArgs: Seq[String] =
+    sscJar match
+      case Some(j) =>
+        var p: os.Path = j / os.up
+        var found: Option[os.Path] = None
+        var i = 0
+        while found.isEmpty && i < 8 do
+          if os.exists(p / "bin" / "lib" / "compiler" / "jars") then found = Some(p)
+          if p != p / os.up then p = p / os.up
+          i += 1
+        found.map(r => s"-Dssc.lib.path=$r").toSeq
+      case None => Seq.empty
 
   private def requireScalaCli(): Unit =
     val res = scala.util.Try {
@@ -227,7 +222,7 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
     val artifactDir = sandbox / "artifacts-jvm"
     os.makeDir.all(artifactDir)
     val cmpRes = os.proc(
-      "java", "-jar", jar.toString,
+      "java", sscLibArgs, "-jar", jar.toString,
       "compile-jvm", "--bytecode", sscFile.toString,
       "-o", (artifactDir / s"$nodeId.scjvm").toString
     ).call(cwd = sandbox, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
@@ -236,7 +231,7 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
              s"stdout=${cmpRes.out.text()}\nstderr=${cmpRes.err.text()}")
     val outJar = sandbox / s"$nodeId.jar"
     val linkRes = os.proc(
-      "java", "-jar", jar.toString,
+      "java", sscLibArgs, "-jar", jar.toString,
       "link", "--backend", "jvm", "--bytecode",
       artifactDir.toString, "-o", outJar.toString
     ).call(cwd = sandbox, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
@@ -255,7 +250,7 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
     val artifactDir = sandbox / "artifacts-js"
     os.makeDir.all(artifactDir)
     val cmpRes = os.proc(
-      "java", "-jar", jar.toString,
+      "java", sscLibArgs, "-jar", jar.toString,
       "compile-js", sscFile.toString,
       "-o", (artifactDir / s"$nodeId.scjs").toString
     ).call(cwd = sandbox, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
@@ -264,7 +259,7 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
              s"stdout=${cmpRes.out.text()}\nstderr=${cmpRes.err.text()}")
     val outJs = sandbox / s"$nodeId.js"
     val linkRes = os.proc(
-      "java", "-jar", jar.toString,
+      "java", sscLibArgs, "-jar", jar.toString,
       "link", "--backend", "js",
       artifactDir.toString, "-o", outJs.toString
     ).call(cwd = sandbox, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
@@ -393,7 +388,7 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
   // test dependency, or the JS bundle ships its own `package.json`
   // for cluster modules), flip this back to `test(...)`.  The
   // scaffolding (npm install, sandbox cwd) is already in place.
-  ignore("JVM-codegen + JS-codegen nodes converge on a Bully leader (DISABLED — JVM peer connection blocks JS node's HTTP event loop; subprotocol echo fixed both sides, JS↔JS converges)"):
+  test("JVM-codegen + JS-codegen nodes converge on a Bully leader"):
     val jar       = requireJar()
     requireScalaCli()
     requireNode()

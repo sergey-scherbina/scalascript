@@ -852,7 +852,23 @@ function _ssc_http_serve(port, _tlsCfg) {
     : http.createServer(_requestHandler);
   // WebSocket upgrade lives on the same server — Node hands us the raw
   // socket (post-headers) and stays out of the way after.
-  server.on('upgrade', (req, socket, _head) => _wsHandleUpgrade(req, socket));
+  server.on('upgrade', (req, socket, _head) => {
+    // Node fires 'upgrade' for ANY `Connection: Upgrade` request, not just
+    // WebSocket. Non-WS upgrades (notably java.net.http's default HTTP/2
+    // cleartext probe — `Upgrade: h2c`) must NOT be routed into the WS
+    // handshake: with no matching WS route they would leave the socket hung
+    // (no response → client times out), so `/_ssc-cluster/*` and every other
+    // REST route became unreachable to HTTP/2-preferring clients. Serve them
+    // as a normal HTTP/1.1 request instead (the client then falls back to 1.1).
+    if (String(req.headers['upgrade'] || '').toLowerCase() !== 'websocket') {
+      const res = new http.ServerResponse(req);
+      res.assignSocket(socket);
+      res.on('finish', () => res.detachSocket(socket));
+      _requestHandler(req, res);
+      return;
+    }
+    _wsHandleUpgrade(req, socket);
+  });
   server.listen(port, () => console.log(`Listening on ${_useTls ? 'https' : 'http'}://localhost:${port}/  (backend=node${_ssc_frontend_name ? ', frontend=' + _ssc_frontend_name : ''})`));
   _activeServer = server;
 }
