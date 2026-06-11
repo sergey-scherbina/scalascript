@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — test(examples): smoke test so silently-broken examples are caught (ExamplesSmokeTest)
+
+- Adds `ExamplesSmokeTest` (cli) with two guards: (1) a **lint** over every
+  `examples/` `.ssc` asserting runnable scala lives inside a ```` ```scalascript ````
+  fence (a fenceless `.ssc` is prose by design → `ssc run` silently no-ops; this is
+  exactly the mistake that shipped 9 fenceless examples undetected). The matcher is
+  structural (`import a.b.*` to EOL, `case class Capitalized(`, `val x =/:`, …) so
+  markdown prose starting with "import"/"case class" doesn't false-positive. (2) a
+  **run** check that two dependency-free core examples (`hello.ssc`, `script.ssc`)
+  actually execute via the in-process interpreter and exit 0. Closes the gap the
+  user flagged: "то что результата нет должно проверяться тестами".
+
 ## 2026-06-11 — fix(examples): add missing scalascript fence to 9 runnable examples
 
 - Nine `examples/*.ssc` were raw scala with no ```` ```scalascript ```` fence, so

@@ -1,0 +1,84 @@
+package scalascript.cli
+
+import org.scalatest.funsuite.AnyFunSuite
+import scalascript.backend.spi.CompileResult
+
+/** Smoke test for the `examples` directory.
+ *
+ *  1. **Lint** — runnable scala must live inside a ` ```scalascript ` fence. A
+ *     fenceless `.ssc` is prose by design, so `ssc run` silently does nothing;
+ *     this catches the "raw scala outside any fence" mistake (which shipped on 9
+ *     examples, undetected, because nothing exercised them).
+ *  2. **Run** — a few pure-core, dependency-free examples actually execute and
+ *     exit 0 via the in-process interpreter, so a silently-broken example fails CI.
+ */
+class ExamplesSmokeTest extends AnyFunSuite:
+
+  private val repoRoot: os.Path =
+    var cur = os.pwd
+    while !(os.exists(cur / "build.sbt") && os.exists(cur / "examples")) && cur != (cur / os.up) do
+      cur = cur / os.up
+    cur
+  private val examplesDir = repoRoot / "examples"
+
+  // Patterns matching the STRUCTURAL shape of a real scala statement/definition —
+  // tight enough that ordinary markdown prose starting with the same English word
+  // ("import in the source…", "case class lifts into…") does NOT match. A match
+  // OUTSIDE a fence/front-matter is code that will silently never run.
+  private val scalaPatterns: List[scala.util.matching.Regex] = List(
+    """^\s*import\s+[\w]+(\.[\w*{}, ]+)*\s*$""".r,   // import a.b.*  (qualified, ends the line)
+    """^\s*package\s+[\w.]+\s*$""".r,
+    """^\s*(val|var)\s+\w+\s*[:=]""".r,              // val x = / var x:
+    """^\s*def\s+\w+\s*[(\[:]""".r,                  // def f( / def f[ / def f:
+    """^\s*(object|trait|enum)\s+[A-Z]\w*""".r,      // object Foo / trait Bar
+    """^\s*case\s+class\s+[A-Z]\w*\s*[(\[]""".r,     // case class Foo(
+    """^\s*given\s+[\w\[(]""".r,
+    """^\s*extension\s*\(""".r,
+    """^\s*type\s+[A-Z]\w*\s*[=\[]""".r,
+    """^\s*println\(""".r
+  )
+  private def looksLikeScala(line: String): Boolean =
+    scalaPatterns.exists(_.findFirstIn(line).isDefined)
+
+  /** Scan one example for scala statements that sit outside any fence and outside
+   *  the leading YAML front-matter. Returns the first offending (lineNo, text). */
+  private def firstUnfencedScala(content: String): Option[(Int, String)] =
+    val lines = content.linesIterator.toArray
+    var i = 0
+    // Skip a shebang.
+    if i < lines.length && lines(i).startsWith("#!") then i += 1
+    // Skip a leading `---` … `---` front-matter block.
+    if i < lines.length && lines(i).trim == "---" then
+      i += 1
+      while i < lines.length && lines(i).trim != "---" do i += 1
+      if i < lines.length then i += 1 // consume closing ---
+    var inFence = false
+    while i < lines.length do
+      val line = lines(i)
+      if line.trim.startsWith("```") then inFence = !inFence
+      else if !inFence && looksLikeScala(line) then
+        return Some((i + 1, line.trim))
+      i += 1
+    None
+
+  test("every examples/*.ssc keeps runnable scala inside a ```scalascript fence"):
+    val sscFiles = os.list(examplesDir).filter(p => p.ext == "ssc").sortBy(_.last)
+    assert(sscFiles.nonEmpty, s"no examples found under $examplesDir")
+    val offenders = sscFiles.flatMap { f =>
+      firstUnfencedScala(os.read(f)).map { case (ln, txt) => s"${f.last}:$ln  $txt" }
+    }
+    assert(offenders.isEmpty,
+      "these examples have runnable scala OUTSIDE a ```scalascript fence (so `ssc run` " +
+      "silently does nothing — wrap the code in a fence):\n  " + offenders.mkString("\n  "))
+
+  test("pure-core examples run and exit 0 (no silent no-op)"):
+    // Dependency-free examples that need only the core interpreter (no std plugins,
+    // no network/DB/GUI). Each must actually execute, not be parsed away as prose.
+    for name <- List("hello.ssc", "script.ssc") do
+      val f = examplesDir / name
+      assert(os.exists(f), s"expected example $name to exist")
+      compileViaBackend("int", f) match
+        case CompileResult.Executed(_, _, exit) =>
+          assert(exit == 0, s"$name should exit 0; got $exit")
+        case other =>
+          fail(s"$name should run (Executed); got $other")
