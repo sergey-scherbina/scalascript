@@ -2991,6 +2991,20 @@ private[interpreter] object EvalRuntime:
     case app: Term.Apply if app.fun.isInstanceOf[Term.Select] =>
       evalApplyGeneral(app, env, interp)
 
+    // Curried method calls (`recv.m(a)(b)…`) have a `Term.Apply` head whose
+    // own head is a `Term.Select`. Every curried special-form below
+    // (`withFixedUuid(x){body}`, `runState(s0){body}`, `handle(…){body}`, …)
+    // instead has a `Term.Name` head — none is a method call — so a curried
+    // method call can be routed straight to the general handler. Without this,
+    // each such call walks the ~40 curried special-form extractors above, and
+    // their inner `Term.Apply.unapply` allocates a Tuple2 every time (JFR on
+    // typeclass-fold: `xs.foldLeft(z)(op)` → 740 MB/op, the single dominant
+    // allocator). The `inner.fun` type-test is allocation-free.
+    case app: Term.Apply if (app.fun match
+          case inner: Term.Apply => inner.fun.isInstanceOf[Term.Select]
+          case _                 => false) =>
+      evalApplyGeneral(app, env, interp)
+
 
     // ── Hot non-Apply terms, hoisted above the ~40 special-form `Term.Apply`
     //    cases below.  These types (ApplyInfix, If, Block, Match) are siblings
@@ -3493,16 +3507,22 @@ private[interpreter] object EvalRuntime:
     case app: Term.Apply =>
       evalApplyGeneral(app, env, interp)
 
-    // '.!' outside a direct block (or inside a lambda/block in a direct block) — error
-    case Term.Select(_, sn: Term.Name) if sn.value == "!" =>
-      interp.located("'.!' can only appear in expression position directly inside a direct[M] block body; not inside lambdas or nested blocks")
-
-    // Field / method selection: a.b  (no-arg call)
-    case Term.Select(qual, sn: Term.Name) =>
-      val method = sn.value
-      eval(qual, env, interp) match
-        case Pure(qualV) => DispatchRuntime.dispatch(qualV, method, Nil, env, interp)
-        case qualC       => FlatMap(qualC, qualV => DispatchRuntime.dispatch(qualV, method, Nil, env, interp))
+    // Field / method selection: a.b  (no-arg call). Type-test form, not the
+    // `Term.Select(qual, sn)` extractor: `Term.Select.unapply` allocates a
+    // Tuple2 + Some on every no-arg field access (JFR on typeclass-fold:
+    // `summon[…].empty` / `.combine` hit this twice per `combineAll`). `.name`
+    // is already a `Term.Name`, and `.qual` a `Term`, so no extraction needed.
+    case sel: Term.Select =>
+      val sn = sel.name
+      // '.!' outside a direct block (or inside a lambda/block in a direct
+      // block) is an error — it is only valid directly inside a direct[M] body.
+      if sn.value == "!" then
+        interp.located("'.!' can only appear in expression position directly inside a direct[M] block body; not inside lambdas or nested blocks")
+      else
+        val method = sn.value
+        eval(sel.qual, env, interp) match
+          case Pure(qualV) => DispatchRuntime.dispatch(qualV, method, Nil, env, interp)
+          case qualC       => FlatMap(qualC, qualV => DispatchRuntime.dispatch(qualV, method, Nil, env, interp))
 
     // Fast path: s"${expr}" or s"prefix${expr}suffix" — 1-arg s-interpolation.
     // Avoids: 2 List allocations (cast map + evalArgs map), threadValues,
@@ -3873,7 +3893,23 @@ private[interpreter] object EvalRuntime:
     case t: Term.ApplyType =>
       (t.fun, t.argClause.values) match
         case (Term.Name("summon"), List(typeArg)) =>
-          val key = interp.typeToString(typeArg.asInstanceOf[scala.meta.Type])
+          // Derived lookup strings are pure functions of the (immutable) type
+          // argument AST, so compute the key + synthetic-param name once per
+          // node and cache them; only the env/global lookups below are per-call.
+          var derived = interp.summonKeyCache.get(t)
+          if derived == null then
+            val k     = interp.typeToString(typeArg.asInstanceOf[scala.meta.Type])
+            val tcEnd = k.indexOf('[')
+            val synth =
+              if tcEnd > 0 then
+                val tc         = k.substring(0, tcEnd)
+                val typeArgStr = k.substring(tcEnd + 1, k.length - 1).trim
+                s"${typeArgStr}$$${tc}"
+              else null
+            derived = Array(k, synth)
+            interp.summonKeyCache.put(t, derived)
+          val key   = derived(0)
+          val synth = derived(1)
           // 1. Direct lookup in env / interp.globals
           val direct = env.getOrElse(key, interp.globals.getOrElse(key, null))
           val found: Value | Null =
@@ -3885,12 +3921,8 @@ private[interpreter] object EvalRuntime:
               //    (which scans the given table and tries to concretize type
               //    vars).  Hot path for `[A: TC]` workloads: typeclass-fold
               //    fires summon[Monoid[A]] twice per foldLeft step.
-              val tcEnd = key.indexOf('[')
               val viaTcSyntheticParam: Value | Null =
-                if tcEnd > 0 then
-                  val tc         = key.substring(0, tcEnd)
-                  val typeArgStr = key.substring(tcEnd + 1, key.length - 1).trim
-                  env.getOrElse(s"${typeArgStr}$$${tc}", null)
+                if synth != null then env.getOrElse(synth, null)
                 else null
               if viaTcSyntheticParam != null then viaTcSyntheticParam
               else

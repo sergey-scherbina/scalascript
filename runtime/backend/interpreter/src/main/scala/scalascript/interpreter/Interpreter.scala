@@ -640,6 +640,20 @@ class Interpreter(
   private[interpreter] val closureWithSelfCache: java.util.IdentityHashMap[Value.FunV, Env] =
     java.util.IdentityHashMap()
 
+  /** Cache of derived `summon[TC[T]]` lookup strings, keyed by the
+   *  `Term.ApplyType` AST node. Each summon eval otherwise rebuilds the same
+   *  strings from the immutable type argument every time: the `typeToString`
+   *  key (`"Monoid[A]"`), and the synthetic context-bound param name
+   *  (`"A$Monoid"`). Both are pure functions of the AST node, so they're
+   *  computed once. Value layout: `Array(key, syntheticParamName)`, where
+   *  `syntheticParamName` is `null` for non-generic keys. Only the env/global
+   *  *lookups* using these strings remain per-call (they depend on runtime
+   *  scope). JFR on typeclass-fold: this path was the dominant String/byte[]
+   *  allocator after the curried-dispatch fix (`summon[Monoid[A]]` fires twice
+   *  per `combineAll`). */
+  private[interpreter] val summonKeyCache: java.util.IdentityHashMap[scala.meta.Term, Array[String]] =
+    java.util.IdentityHashMap()
+
   /** Cache params.toArray for 3+ param functions, keyed by body identity.
    *  Avoids re-allocating the Array[String] on every call to the same function. */
   private[interpreter] val paramsArrayCache: java.util.IdentityHashMap[scala.meta.Term, Array[String]] =
