@@ -2428,6 +2428,20 @@ A Markdown paragraph is treated as imports when it contains only import links
 and Markdown whitespace. Links embedded in prose stay prose, and `#...` links
 remain internal cross-references.
 
+#### Name conflicts across modules
+
+If you import the same **function name** from two different modules (e.g.
+`htmlEsc` from both `a.ssc` and `b.ssc`), the **last import wins** and the
+compiler emits a one-time warning so the shadow is never silent:
+
+```
+[warn] 'htmlEsc' imported from 'b.ssc' shadows the 'htmlEsc' imported from 'a.ssc' — last import wins
+```
+
+To keep both, import one (or both) under an alias — `[htmlEsc as escA](a.ssc)`.
+Re-importing the same name from the *same* module is idempotent and does not
+warn. Full policy: [`specs/import-name-conflict-policy.md`](../specs/import-name-conflict-policy.md).
+
 ### Package Namespaces
 
 ```yaml
