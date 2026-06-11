@@ -1,0 +1,6 @@
+feature/jsgen-decompose 2026-06-11T06:38:27Z
+agent: claude-code
+heartbeat: 2026-06-11T06:38:27Z
+status: not-started
+done-so-far:
+next: write spec then extract Effect-analysis + CPS sections from JsGen
