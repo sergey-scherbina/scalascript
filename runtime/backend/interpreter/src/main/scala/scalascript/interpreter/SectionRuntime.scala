@@ -328,6 +328,17 @@ private[interpreter] object SectionRuntime:
           // module), record the displaced side so a typed `val` ascription
           // can disambiguate back to it later via `shadowedAlternatives`.
           StatRuntime.rememberShadowedAlternativeForImport(interp, targetName, imported)
+          // busi-p3-module-fn-name-conflict — last-import-wins + warning. If a
+          // function-like name was already bound by a *different* import path,
+          // warn (the overwrite still proceeds: last import wins). Scoped to
+          // callable-vs-callable so it never fires for the intentional
+          // status-val / case-constructor disambiguation (InstanceV side).
+          interp.importedFnOrigin.get(targetName) match
+            case Some(prevPath) if prevPath != imp.path
+                && isCallableBinding(interp.globals.get(targetName)) && isCallableBinding(Some(imported)) =>
+              interp.warnImportConflict(targetName, prevPath, imp.path)
+            case _ => ()
+          interp.importedFnOrigin(targetName) = imp.path
           interp.globals(targetName) = imported
           imported match
             case inst: Value.InstanceV if inst.typeName.contains('[') =>
@@ -377,6 +388,14 @@ private[interpreter] object SectionRuntime:
   private def isContentHelperImport(path: String): Boolean =
     path == "std/content.ssc" || path.endsWith("std/content.ssc") ||
       path == "std/ui/content.ssc" || path.endsWith("std/ui/content.ssc")
+
+  /** A binding is "callable" (function-like) if it is a user FunV or a native
+   *  fn. Used to scope the import-conflict warning to genuine function-name
+   *  collisions, leaving the status-val / case-constructor disambiguation alone. */
+  private def isCallableBinding(v: Option[Value]): Boolean =
+    v match
+      case Some(_: Value.FunV) | Some(_: Value.NativeFnV) => true
+      case _                                              => false
 
   private def rebindPluginNative(
       sourceName: String,

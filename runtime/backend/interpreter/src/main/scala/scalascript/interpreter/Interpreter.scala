@@ -205,6 +205,26 @@ class Interpreter(
     if shadowedIntrinsicWarnings.add(name) then
       System.err.println(
         s"[warn] '$name' shadows plugin intrinsic '$name' — user definition wins")
+
+  // busi-p3-module-fn-name-conflict — track which import path last bound each
+  // function-like name, so a second import of the same name from a *different*
+  // module can be reported. Policy: last import wins + warning (see
+  // specs/import-name-conflict-policy.md). Without this the collision was silent
+  // and surfaced later as a confusing downstream error in unrelated code.
+  private[interpreter] val importedFnOrigin = mutable.Map.empty[String, String]
+  private[interpreter] val importConflictWarnings = mutable.LinkedHashSet.empty[String]
+
+  /** Public read-only view of cross-module import-conflict warnings (function
+   *  names imported from two different modules). For tests/tools. */
+  def importNameConflictWarnings: collection.Set[String] = importConflictWarnings
+
+  /** Record + report that an imported `name` from `newPath` shadows a same-named
+   *  function imported earlier from `prevPath`. Idempotent per name. Last wins. */
+  private[interpreter] def warnImportConflict(name: String, prevPath: String, newPath: String): Unit =
+    if importConflictWarnings.add(name) then
+      System.err.println(
+        s"[warn] '$name' imported from '$newPath' shadows the '$name' imported from " +
+        s"'$prevPath' — last import wins")
   // Effect object names detected as multi-shot by EffectAnalysis (populated in runInit).
   private[interpreter] var multiShotEffects: Set[String] = Set.empty
   private[interpreter] var sqlBlockRunner: Option[scalascript.backend.spi.SqlBlockRunner] = None
