@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — feat(std.crypto): Ed25519 / RSA private-key signing externs (busi sign request)
+
+- **crypto-sign** — Added the producing side to complement the verify externs:
+  `ed25519Sign`, `ed25519SignUrl`, `rsaSignSha256` (PKCS1/PSS). busi needs
+  asymmetric signatures a third party (accountant/auditor) can verify without a
+  shared secret for chain-checkpoint month-close evidence. Private key is a raw
+  32-byte Ed25519 seed (PKCS#8-wrapped internally) or PKCS#8 DER; signers
+  round-trip with the matching verifiers. Unlike the total verifiers, signers
+  throw on a malformed key (trusted authoring input). JVM/interpreter via
+  crypto-plugin. 6 tests incl. the RFC 8032 test #2 deterministic vector;
+  spec `specs/crypto-pubkey-verify.md` §7; `examples/crypto-verify-demo.ssc`
+  extended with the producing side. No key-generation extern (keys offline).
+
 ## 2026-06-11 — refactor(core): shared CollectionMethods classifier (cross-backend-method-classifier, Tier 3 / T3.3 DONE)
 
 - **cross-backend-method-classifier** — Unlocked the gated item and closed it.
