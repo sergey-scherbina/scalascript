@@ -49,6 +49,51 @@ private[interpreter] object GivenRuntime:
       interp
     )
 
+  /** Immutable holder for the FunV-local monomorphic using-resolution cache.
+   *  `gen` snapshots the givens-table size so a newly-registered parametric
+   *  given invalidates stale entries. */
+  private final class UsingCacheEntry(val sig: String, val resolved: List[Value], val gen: Int)
+
+  /** Cheap arg type-signature keying the using-resolution cache: the regular
+   *  args' runtime types. Strictly cheaper than the `concretizeUsingKey` type
+   *  matching + `resolveGiven` it guards. */
+  private def usingArgsSig(regularArgValues: List[Value]): String =
+    regularArgValues match
+      case Nil      => ""
+      case v :: Nil => runtimeValueType(v)
+      case vs =>
+        val sb = new StringBuilder
+        vs.foreach { v => sb ++= runtimeValueType(v); sb += '\u001f' }
+        sb.toString
+
+  /** Resolve all of `f`'s `using` / context-bound params, with a per-FunV
+   *  single-entry monomorphic cache keyed on the regular args' runtime-type sig.
+   *  Resolution depends only on `f`'s static info (`usingParams`,
+   *  `regularParamTypes`, `f.closure`) plus the regular args' runtime types, so a
+   *  monomorphic call site (e.g. `combineAll[A: Monoid](xs)` called 300×) reuses
+   *  the resolved evidence instead of re-deriving `A` every call. ONLY sound for
+   *  the standard call path that resolves against `f.closure`; instance-method
+   *  calls (which resolve against a per-instance frame) must not use this. */
+  def resolveUsingAllCached(
+    f:                 Value.FunV,
+    regularParamTypes: List[String],
+    regularArgValues:  List[Value],
+    interp:            Interpreter
+  ): List[Value] =
+    if f.usingParams.isEmpty then Nil
+    else
+      val gen = interp.givenFactories.size
+      val sig = usingArgsSig(regularArgValues)
+      f.usingResolveCache match
+        case c: UsingCacheEntry if c.gen == gen && c.sig == sig => c.resolved
+        case _ =>
+          val resolved = f.usingParams.map { (pname, typeKey) =>
+            resolveUsing(typeKey, regularParamTypes, regularArgValues, f.closure, interp)
+              .getOrElse(interp.located(s"No given instance found for '$typeKey' (using parameter '$pname')"))
+          }
+          f.usingResolveCache = new UsingCacheEntry(sig, resolved, gen)
+          resolved
+
   private def concretizeUsingKey(
     typeKey:           String,
     regularParamTypes: List[String],

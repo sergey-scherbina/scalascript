@@ -349,7 +349,16 @@ object Value:
     paramTypes: List[String] = Nil,
     usingParams: List[(String, String)] = Nil,
     returnsThrows: Boolean = false
-  ) extends Value
+  ) extends Value:
+    /** Monomorphic inline cache for auto-resolved `using` / context-bound
+     *  parameters (`GivenRuntime.resolveUsingAllCached`). Resolution depends only
+     *  on this FunV's static info + the regular args' runtime types, so a
+     *  single-entry cache keyed on a cheap arg type-signature skips the repeated
+     *  `concretizeUsingKey` type-matching on monomorphic call sites. Holder is an
+     *  immutable `(sig, resolvedValues, givensGeneration)` triple stored as
+     *  `AnyRef` to avoid a core→runtime dependency; a benign data race just
+     *  recomputes. Excluded from `equals`/`hashCode` (non-constructor field). */
+    @transient var usingResolveCache: AnyRef = null
   /** Native function: must return a Computation. Pure built-ins return Pure(v); higher-order
    *  built-ins (map, filter, …) flatMap user callbacks to propagate effects. */
   final case class NativeFnV(name: String, f: List[Value] => Computation) extends Value

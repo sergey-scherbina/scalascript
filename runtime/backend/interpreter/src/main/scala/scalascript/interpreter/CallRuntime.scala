@@ -476,10 +476,9 @@ private[interpreter] object CallRuntime:
           if tupledArgs.length >= regularCount then
             val regularArgVals    = tupledArgs.take(regularCount)
             val regularParamTypes = f.paramTypes.take(regularCount)
-            val resolved = f.usingParams.map { (pname, typeKey) =>
-              GivenRuntime.resolveUsing(typeKey, regularParamTypes, regularArgVals, f.closure, interp)
-                .getOrElse(interp.located(s"No given instance found for '$typeKey' (using parameter '$pname')"))
-            }
+            // Monomorphic cache: resolution is keyed on f's static info + the
+            // regular args' runtime types (this path resolves against f.closure).
+            val resolved = GivenRuntime.resolveUsingAllCached(f, regularParamTypes, regularArgVals, interp)
             tupledArgs ++ resolved
           else
             tupledArgs
