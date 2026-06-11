@@ -197,6 +197,22 @@ Avoid:
 - Workloads over ~10 s/op — pushes total run time past the patience
   budget for routine A/B work.
 
+### Gotcha: stale incremental state → `NoClassDefFoundError` at bench init
+
+If every interp bench suddenly fails at `_jmh_tryInit` with
+`java.lang.NoClassDefFoundError: org/commonmark/ext/gfm/tables/TableCell` (or a
+similar transitive class), it is **stale incremental build state**, not a missing
+dependency — `lang/core` correctly declares `commonmark-ext-gfm-tables` (the
+parser registers the GFM-tables extension on every parse). It shows up after
+heavy parallel-branch churn / interleaved `cli/assembly` builds leave the
+`interpreterBench` JMH-fork classpath inconsistent. Fix:
+
+```bash
+sbt "interpreterBench/clean" "interpreterBench/Jmh/compile"
+```
+
+then re-run. No source/dependency change is needed.
+
 ## Related docs
 
 - `bench/README.md` — gate policy and full-run recipes (durable summaries:

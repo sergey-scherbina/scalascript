@@ -205,6 +205,17 @@ access is O(n) → O(n²)).
       can't JIT (using params → VmCompiler bails). Deferred — smaller, riskier
       win (~2×, 1.7ms) than the JS outliers below; the macro bench stays for the
       next attempt.
+      **ALLOC MEASUREMENT 2026-06-11** (`scripts/bench profile`-style `-prof gc`):
+      `typeclassFoldMacro` allocates **688,891 B/op** ≈ **2.3 KB per `combineAll`
+      call** (300 calls/op, 10-elem fold) — confirms the cost is **allocation-driven**
+      in the generic summon/`combineAll` path, not the fold (an int fold should be
+      ~0 B/op). This is the smoking gun the "need a clean JFR" note was after:
+      the next attempt should target the per-call allocation (fresh `FunV`/boxing in
+      `summon[Monoid[A]].empty/.combine` + the InstanceV member-access), e.g. a
+      monomorphic inline cache for given dispatch (stage-9) or caching the resolved
+      `Monoid` evidence's `empty`/`combine` FunVs across calls. Site-level JFR/async
+      flamegraph not extracted (async-profiler not installed; JMH jfr file didn't
+      land locally) — the B/op rate is sufficient to direct the fix.
 
 - [x] **js-instance-field-shape** — DONE 2026-06-10. Root cause was NOT
       object-shape — it was codegen: `v.x` (a known case-class field) lowered to
