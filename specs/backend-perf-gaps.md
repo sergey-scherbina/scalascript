@@ -151,7 +151,7 @@ Generalises invariant-call folding in the interpreter JIT.
   (product accumulators, Double, non-counter shapes) is out of scope — no bench
   currently demonstrates a gap there.
 
-### T3 — Interpreter JIT object-construction coverage — `interp-jit-object-construct` ◑ PARTIAL (case-class landed 2026-06-11)
+### T3 — Interpreter JIT object-construction coverage — `interp-jit-object-construct` ✓ DONE (case-class + tuple, 2026-06-11)
 
 - [x] **Case-class / ADT construction (`instance-field`) — landed 2026-06-11.**
       `JitRefDispatch.newInstanceRef` + `walkRef`/`isRefValRhs` in both
@@ -160,24 +160,23 @@ Generalises invariant-call folding in the interpreter JIT.
       keep their dedicated dispatch. **instance-field: 57 ms → 0.267 ms javac
       (213×) / 0.767 ms asm (74×)**, result identical to tree-walk, suite 1633
       green. Lints JIT-OK on both backends.
-- [ ] **Tuple `++` (`tuple-monoid`, ~960 ms) — remaining; needs the
-      WhileGenCtx path.** Investigated 2026-06-11 (reverted, not shipped). A
-      prototype added `JitRefDispatch.newTupleRef`/`tupleIntElem` +
-      `collectionConcat` TupleV + `walkRef` `Term.Tuple` + `walkLong` `t._n` +
-      `isRefValRhs` tuple/`++` cases. **Tuple construction + element access JIT
-      cleanly that way** (isolated micro-loops: construct+`._1` 633×, 4-tuple+`._4`
-      563×, both correct). **But tuple-monoid still bailed**: its
-      `def workload(seed):Long` var+while+return shape is compiled by the
-      *optimised* WhileGenCtx / WhileJitEntry path (`walkLocalSlotCtx` /
-      `walkRefArgCtx`, ~line 3826+/3990+), which **never calls `walkRef` /
-      `isRefValRhs`** (verified by instrumentation: neither fired for the `++`
-      case). So the real fix lives in the WhileGenCtx path — add ref-val bindings
-      (`val t = … ++ …`), tuple construction, `++`, and `t._n` to its local-slot
-      walkers, *or* make it fall back to `walkWhileAsStmt` (which does route
-      through `walkRef`, where the prototype worked) on an unsupported val RHS.
-      Narrow value (artificial `_tupleConcat` bench) vs. real WhileGenCtx work —
-      deprioritised. Case-class went through `walkRef` because its body shape
-      didn't match the WhileGenCtx fast path.
+- [x] **Tuple construction + element access + `++` — landed 2026-06-11
+      (both backends).** `JitRefDispatch.newTupleRef`/`tupleIntElem` +
+      `collectionConcat` TupleV; `walkRef` `Term.Tuple`; numeric `t._n`
+      (before the ADT-field case — a tuple has no field meta); `isRefValRhs`
+      recognises `Term.Tuple` / `++`. ASM mirrors via `emitTupleObject`.
+      **tuple-monoid 962 → 2.13 ms javac (~450×) / 4.03 ms asm (~240×)**,
+      result == tree-walk, suite 1635 green on both backends.
+      **ROOT CAUSE (the earlier "needs WhileGenCtx path" note was WRONG — it was
+      based on a build that had silently failed to compile a DUMP edit, so a stale
+      binary was tested).** The real bug: the parser lowers `tupleA ++ (3, 4)` to a
+      `Term.ApplyInfix` whose arg clause is the **multi-arg list `[3, 4]`** (the RHS
+      tuple literal becomes positional args), not a single tuple arg. The `++`
+      handling required exactly one arg, so `isRefValRhs` returned false and the
+      whole loop bailed to tree-walk. The `++` case now rebuilds a `TupleV` from the
+      args when `nargs != 1`, and matches via a type test (not the version-pinned
+      `.After_4_6_0` extractor). Lesson: always confirm `sbt` printed `[success]`,
+      not `[error]`, before trusting a JIT instrumentation result.
 
 
 Surfaced by `bench-honest-corpus-seed`: once the folds were removed, two corpus

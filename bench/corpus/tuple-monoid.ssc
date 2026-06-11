@@ -11,7 +11,9 @@ LCG recurrence has no closed form, and consuming every concat result blocks
 dead-store elimination of the intermediate tuples, so every backend runs the
 real 100k `_tupleConcat` loop (JS still pays the tuple-allocation cost).
 Returns `Long` so the harness uses an unboxed sink.  (Shared anti-fold idiom —
-see `docs/bench/corpus-antifold.md`.)
+see `docs/bench/corpus-antifold.md`.)  As of the T3 JIT work the interpreter now
+compiles this loop including the tuple `++` concat and `t._n` access (962 → ~2 ms),
+so it also guards JIT tuple support (`specs/backend-perf-gaps.md` §T3).
 
 ```scalascript
 def workload(seed: Long): Long =

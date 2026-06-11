@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — perf(interp): JIT tuple ops (construction, t._n, ++ concat) — T3 complete (interp-jit-object-construct)
+
+- **interp-jit-object-construct (tuple)** — tuple operations in hot loops bailed
+  the whole function to tree-walk (tuple-monoid corpus: 962 ms, JIT contributing
+  nothing). Added tuple construction (`newTupleRef`), numeric element access
+  (`tupleIntElem`, placed before the ADT-field case), and `++` concat (TupleV in
+  `collectionConcat`) to **both** JavacJitBackend and AsmJitBackend; `isRefValRhs`
+  recognises `Term.Tuple`/`++`. **Root cause of the residual bail:** the parser
+  lowers `tupleA ++ (3, 4)` to a `Term.ApplyInfix` whose arg clause is the
+  *multi-arg* list `[3, 4]` (the RHS tuple literal becomes positional args), so the
+  old one-arg-only `++` handling rejected the shape; the `++` case now rebuilds a
+  TupleV when `nargs != 1` and matches by type test. **tuple-monoid: 962 → 2.13 ms
+  javac (~450×) / 4.03 ms asm (~240×)**, result identical to tree-walk; suite 1635
+  green on both backends. With case-class construction (shipped earlier), T3 is
+  complete: object/tuple construction in hot loops no longer bails. Spec:
+  `specs/backend-perf-gaps.md` §T3.
+
 ## 2026-06-11 — feat(declarative-ui): Scope B.1 — YAML control-tree registry resolution
 
 - **declarative-ui-scope-b-p1** — first slice of busi's declarative-dynamic-UI
