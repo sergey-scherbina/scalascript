@@ -62,3 +62,36 @@ direction (b), redesign those workloads to consume loop-varying data so no
 backend folds them. That is a per-workload benchmark-design project that changes
 what each cell measures; it is the open continuation. The interp side and the
 `off` baseline are now honest.
+
+## Direction-(b) fix landed: `tuple_monoid` (2026-06-11)
+
+The one fold cell with an automated *compiled* cross-backend measurement
+(`RuntimeBench.{jvm,js}_tupleMonoid`) was loop-invariant on every backend:
+
+- `jvm_tupleMonoid` **0.011 µs/op** — HotSpot hoisted `last = k` (a 100k-iter
+  loop cannot run in 11 ns).
+- `js_tupleMonoid` 26.7 µs — V8 didn't fold but only ref-copied a frozen const.
+- interp `tupleMonoid` 0.008 ms — `(1,2)++(3,4)` is constant, so
+  `tryHoistedPureWhile` hoisted it and the empty counter loop folded (0.008 ms
+  on **and** off — a different unconditional fold path than the FastTier folds).
+
+Fix (direction b): build the tuple from the loop counter each iteration and
+accumulate all four components, so the result depends on the whole loop and no
+backend can fold. The interp variant keeps the `++` monoid op (the workload's
+intent: `(i,i+1) ++ (i+2,i+3)`). `modTupleMonoidVal` is left unchanged — it
+*deliberately* validates the constant-hoist optimisation.
+
+| Cell | before | after | note |
+|---|---|---|---|
+| `jvm_tupleMonoid` | 0.011 µs | **205 µs** | was a fold; now real work (~18000×) |
+| `js_tupleMonoid`  | 26.7 µs  | **1688 µs** | now real per-iter tuple allocation |
+| interp `tupleMonoid` | 0.008 ms | **~14 ms** (1000 iters) | on==off, no fold; tuple-`++` ~20 µs/iter (typeclass dispatch, un-JIT'd) |
+
+The remaining jvm/js gap (205 vs 1688 µs) is now an **honest codegen difference**
+(HotSpot scalar-replaces the short-lived tuples; V8 allocates), not a fold.
+
+**Still open:** `instance-field`, `bool-predicate`, `either-chain`,
+`option-chain`, `literal-match` are folds **only in the interp-only
+`InterpreterBench`** column (no automated compiled cross-backend cell exists for
+them); the cross-backend-gap doc measured their compiled folds ad-hoc. De-folding
+those is the same per-workload pattern shown here, applied as further slices.
