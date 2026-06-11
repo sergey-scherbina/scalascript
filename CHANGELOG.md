@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — feat(std.crypto): sha256Base64 — base64 SHA-256 digest (busi KSeF invoiceHash)
+
+- **sha256Base64** — KSeF 2.0 `invoiceHash` / `encryptedInvoiceHash` carry the raw
+  SHA-256 digest base64-encoded; `sha256` returns hex and there's no hex→bytes
+  path in .ssc, so those fields stayed `"stub"`. `sha256Base64(input)` returns
+  base64 of the raw 32-byte digest directly. 3 tests (known empty/`abc` base64
+  vectors + hex/base64 consistency). JVM/interpreter via crypto-plugin.
+
 ## 2026-06-11 — feat(js): content-toolkit natives in the browser backend (js-content-toolkit-natives)
 
 - **js-content-toolkit-natives** (busi seq-87 cluster-2) — The `std/ui/content`
