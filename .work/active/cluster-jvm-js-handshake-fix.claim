@@ -1,6 +1,0 @@
-feature/cluster-jvm-js-handshake-fix 2026-06-11T08:50:53Z
-agent: claude-code
-heartbeat: 2026-06-11T08:50:53Z
-status: in-progress
-done-so-far: T3.1 root-caused (JVM onWebSocket lacks protocols echo)
-next: add protocols-aware WS reg for /_ssc-actors in emitted JVM serveRuntime; verify via matrix test

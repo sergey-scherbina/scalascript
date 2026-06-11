@@ -4,6 +4,26 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — fix(jvm-cluster): echo ssc-actors-v1 subprotocol on /_ssc-actors WS route (cluster-jvm-js-handshake, Tier 3 / T3.1)
+
+- **cluster-jvm-js-handshake (subprotocol fix)** — Fixed and verified the first of
+  two cross-backend Bully-convergence blockers behind the disabled
+  `ClusterMultiBackendMatrixTest`. The JVM-codegen `/_ssc-actors` route registered via
+  the protocols-less emitted `onWebSocket`, so its WS upgrade never echoed
+  `Sec-WebSocket-Protocol`; the JS-codegen peer (a spec-compliant `ws` client offering
+  only `ssc-actors-v1`) rejected with "Server sent no subprotocol", so envelopes never
+  flowed. Now registers with `protocols = List("ssc-actors-v1")`, reusing the WS
+  library's negotiation/echo; the no-op `onWebSocket` *stub* was widened to mirror the
+  real signature (else non-cluster JVM programs hit "Illegal combination of named and
+  unnamed tuple elements"). Verified end-to-end: ran the matrix test with
+  `-Dssc.lib.path` (via `sbt installBin`) + `npm install ws` — the WS now connects and
+  the JVM node reaches + elects the JS peer (`leader=node-bbb`), previously impossible.
+  Full `backendInterpreter/test` **1612 green**. The test still fails on a SEPARATE
+  remaining issue — the JS node's `/_ssc-cluster/status` is empty during the election
+  (a JS clustering-under-load problem, distinct from this fix) — so it stays `ignore()`
+  with the precise next-step diagnosis + re-enable recipe. Specs:
+  `backend-correctness-hygiene.md` §T3.1, `cluster-codegen-gap.md`.
+
 ## 2026-06-11 — fix(interp): warn on cross-module import name conflict (busi-p3-module-fn-name-conflict)
 
 - **busi-p3-module-fn-name-conflict** — Importing the same function name from two
