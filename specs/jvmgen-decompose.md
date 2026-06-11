@@ -118,3 +118,17 @@ eight JvmGen members the trait calls back into (`depDefs`, `depClasses`,
 `emitReceiveMatcher`, `emitHandleForm`). Imports trimmed to `scala.meta.*` only.
 `JvmGen.scala` **7042 → 6073 lines (−969)**. 1605 tests green; clean under
 `-Werror`. Next: p4 (Mutual-TCO emission).
+
+**p4 — Mutual-TCO emission — landed 2026-06-11.** Moved the `// ─── Mutual-TCO
+emission` section (8 class members: `cliqueParamTypes`, `cliqueRetType`,
+`canonicalCliqueMember`, `mergeableMutualClique`, `emitMergedMutualClique`,
+`emitMergedCliqueBody`, `emitMutualTcoFun`, `emitMutualTcoBody`, including the
+allocation-free uniform-signature clique merge) verbatim into new self-typed
+mixin `JvmGenMutualTco` (236 lines). Only one-way visibility surgery this time:
+widened `private→private[codegen]` the four moved members called from JvmGen
+(`canonicalCliqueMember`, `mergeableMutualClique`, `emitMergedMutualClique`,
+`emitMutualTcoFun`) — the trait calls back only into members already visible
+(`emitExpr`, `depDefs`, etc. widened in earlier phases), so no reverse-direction
+widening was needed. Imports trimmed to `scala.meta.*` only. `JvmGen.scala`
+**6073 → 5849 lines (−224)**. 1605 tests green; clean under `-Werror`.
+Remaining Tier-1: p2b (state-coupled Preamble defs) then `jsgen-decompose`.
