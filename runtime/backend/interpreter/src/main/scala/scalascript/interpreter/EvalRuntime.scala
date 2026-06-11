@@ -2723,10 +2723,16 @@ private[interpreter] object EvalRuntime:
         fastPrimitiveValue(t.expr, frameView, interp) match
           case Value.BoolV(false) => Computation.PureUnit
           case Value.BoolV(true) =>
-            val invariantFold = tryFoldInvariantAccumLoop(t, body, frameView, interp)
-            if invariantFold != null then return invariantFold
-            val closedForm = tryClosedFormPolyLoop(t, body, frameView, interp)
-            if closedForm != null then return closedForm
+            // Algebraic loop eliminators (invariant-call memoise + Gauss
+            // closed-form). These rewrite a whole counter loop to a constant, so
+            // a benchmark of the loop would measure the fold, not iteration.
+            // Gate them behind FastTier so `SSC_FASTTIER=off` (scripts/bench off)
+            // yields an honest un-folded baseline; default (on) keeps the win.
+            if FastTier.enabled then
+              val invariantFold = tryFoldInvariantAccumLoop(t, body, frameView, interp)
+              if invariantFold != null then return invariantFold
+              val closedForm = tryClosedFormPolyLoop(t, body, frameView, interp)
+              if closedForm != null then return closedForm
             // Hoist pure-literal assigns to non-int LHS out of the loop, then
             // delegate the int-slot subset to tryLongWhileAssign. Returns null
             // for all-int bodies (the common case) — no overhead added.
