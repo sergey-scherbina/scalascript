@@ -291,11 +291,9 @@ object JsGen:
   )
 
   /** Single-element-param list HOFs whose closure param can be typed to the
-   *  receiver's numeric element type (see `genClosureWithParamType`). */
-  val numericListHofs: Set[String] = Set(
-    "map", "filter", "filterNot", "foreach", "forall", "exists", "find",
-    "count", "takeWhile", "dropWhile",
-  )
+   *  receiver's numeric element type (see `genClosureWithParamType`). Taxonomy
+   *  owned by the shared `CollectionMethods` classifier (T3.3). */
+  val numericListHofs: Set[String] = scalascript.transform.CollectionMethods.elementHofs
 
 
 
@@ -493,9 +491,8 @@ class JsGen(
         case (Some(src), Term.Function.After_4_6_0(pc, body)) if pc.values.lengthCompare(1) == 0 =>
           withParamTyped(pc.values.head.name.value, src)(numericTypeOfExpr(body))
         case _ => None
-    case Term.Apply.After_4_6_0(Term.Select(q, Term.Name(
-        "filter" | "filterNot" | "take" | "drop" | "takeWhile" | "dropWhile" |
-        "reverse" | "sorted" | "distinct" | "tail" | "init")), _) =>
+    case Term.Apply.After_4_6_0(Term.Select(q, Term.Name(m)), _)
+        if scalascript.transform.CollectionMethods.isTypePreservingListOp(m) =>
       numericElemOf(q)
     case _ => None
 
