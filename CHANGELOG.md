@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — fix(js): hash-tolerant eqSignal for browser routing (js-routing-showsignal-hash)
+
+- **js-routing-showsignal-hash** (busi seq-94) — Hand-rolled hash routing
+  (`showSignal(eqSignal(hashSignal(), "#/a"), pageA, fallback)`) kept the matched
+  branch hidden (`display:none`) at `hash=#/a`. `hashSignal()` strips the leading
+  `#` (`"/a"`) — the convention `hashRouter` relies on — but the user compares the
+  URL form (`"#/a"`) written in an `<a href>`, so `eqSignal("/a", "#/a")` was
+  always false (the subscription/recompute machinery was correct). Made
+  `_ssc_ui_eqSignal` hash-tolerant via `_ssc_ui_hashEq`: normalise one leading `#`
+  on both operands before comparing, so `"#/a"` and `"/a"` match for both
+  hand-rolled routing and `hashRouter`. Only ever turns a `"#x"`-vs-`"x"` mismatch
+  into a match — never breaks an existing match; non-string / non-`#` values pass
+  through (tab keys, plain paths unaffected). Regression test in
+  `JsGenStdImportTest`; spec `specs/js-routing-hash-eq.md`.
+
 ## 2026-06-11 — fix(interp): try/catch with supertype patterns catches extern throws (busi)
 
 - **try-catch-supertype-patterns** — A ssc `try/catch` did not catch a Java
