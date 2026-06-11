@@ -59,15 +59,17 @@ spec's acceptance.
       `pureCallSum` 0.003 ms/op (~83×, native floor 0.247). Spec `backend-perf-gaps.md` T2.3.
 
 ### Tier 3 — correctness & hygiene
-- [~] **cluster-jvm-js-handshake** — SUBPROTOCOL FIX LANDED + VERIFIED 2026-06-11
-      (`481190610`). JVM-codegen `/_ssc-actors` now registers with
-      `protocols=List("ssc-actors-v1")` (+ stub widened); WS echo works → JS `ws` client
-      connects and the JVM node reaches+elects the JS peer (verified via the matrix test
-      with `-Dssc.lib.path` + `npm install ws`). Full suite 1612 green. REMAINING (next
-      Tier-4 slice): JS node `/_ssc-cluster/status` empty during election (JS
-      clustering-under-load; works in isolation) — matrix test stays `ignore` with the
-      precise diagnosis + re-enable recipe. Spec `backend-correctness-hygiene.md` T3.1 +
-      `cluster-codegen-gap.md`.
+- [~] **cluster-jvm-js-handshake** — TWO subprotocol fixes landed + verified 2026-06-11.
+      Both servers now echo `ssc-actors-v1`: JVM-codegen `/_ssc-actors`
+      (`481190610`, `protocols=List(...)` + stub widened) and JS-codegen
+      (`ede018597`, `onWebSocket(path,[],['ssc-actors-v1'])(handler)`). **JS↔JS clusters
+      now converge** (verified); JVM↔JS upgrade negotiates `proto=ssc-actors-v1`. Full
+      suite 1618 green. REMAINING (next Tier-4 slice): once a JVM (java.net.http) peer
+      connects, the JS node stops serving plain HTTP (`/_ssc-cluster/status` GETs never
+      dispatched; no crash, port bound) → matrix poll times out. NOT subprotocol/
+      onMessage; reproduces only with a JVM peer → JS WS-frame/scheduler interaction with
+      JVM-originated frames. Matrix test stays `ignore` with precise diagnosis +
+      re-enable recipe. Specs `backend-correctness-hygiene.md` T3.1 + `cluster-codegen-gap.md`.
 - [x] **jit-predicates-bindingisref** — DONE 2026-06-11. Shared via
       `JitShapeCtx.callArgIsRef` + `JitPredicates.bindingIsRef`. Last duplicated JIT
       predicate — drift surface fully closed. 389 green both backends, 1605 full.

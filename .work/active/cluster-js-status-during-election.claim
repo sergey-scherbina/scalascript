@@ -1,6 +1,0 @@
-feature/cluster-js-status-during-election 2026-06-11T09:46:00Z
-agent: claude-code
-heartbeat: 2026-06-11T09:46:00Z
-status: in-progress
-done-so-far: T3.1 subprotocol fixed; matrix test now connects but JS /_ssc-cluster/status empty during election
-next: investigate JS-codegen cluster status route serving during async scheduler election

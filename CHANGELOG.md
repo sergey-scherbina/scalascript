@@ -43,6 +43,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   unsupported as un-lowered children. Regression test in `JsGenStdImportTest`; spec
   `specs/js-backend-ui-render-gaps.md` §Layer 2b.
 
+## 2026-06-11 — fix(js-cluster): echo ssc-actors-v1 subprotocol on JS WS route (cluster-js-status-during-election, T3.1 Tier-4)
+
+- **cluster-js-status-during-election** — Peeled the next layer of the disabled
+  JVM↔JS matrix test. Investigating "JS status empty during election" revealed the
+  **JS-codegen `/_ssc-actors` server also never echoed the subprotocol** (registered
+  via the protocols-less `onWebSocket(path, handler)` form) — the symmetric bug to the
+  JVM server. A spec-compliant `ws` peer client (JS `connectNode`) rejected the
+  upgrade → peers stuck `__pending__`. Fixed: `onWebSocket('/_ssc-actors', [],
+  ['ssc-actors-v1'])(handler)` (`JsRuntimeAsyncB`), reusing the JS WS server's existing
+  negotiation. **Verified: two JS-codegen nodes now converge** (previously each elected
+  self with the peer `__pending__`); the JVM↔JS upgrade negotiates `proto=ssc-actors-v1`.
+  Full `backendInterpreter/test` 1618 green. The matrix test stays `ignore()` on a
+  deeper remaining blocker: once a JVM (java.net.http) peer connects, the JS node stops
+  serving plain HTTP (`/_ssc-cluster/status` GETs never dispatched; no crash, port
+  bound) — reproduces only with a JVM peer (JS↔JS serves HTTP fine), pointing at the JS
+  WS server's handling of JVM-originated frames. Precise diagnosis + re-enable recipe in
+  the test doc + `specs/cluster-codegen-gap.md`.
+
 ## 2026-06-11 — refactor(core): shared CollectionMethods classifier (cross-backend-method-classifier, Tier 3 / T3.3 DONE)
 
 - **cross-backend-method-classifier** — Unlocked the gated item and closed it.
