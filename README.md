@@ -373,6 +373,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | `std.crypto` signature verify | `verifyEd25519`/`verifyEd25519Url`, `verifyRsaSha256` (PKCS1/PSS) — total verifiers (malformed → `false`, never throw) for trustless federation (JVM only) |
 | `std.crypto` signing | `ed25519Sign`/`ed25519SignUrl`, `rsaSignSha256` (PKCS1/PSS) — private-key signers that round-trip with the verifiers; for chain-checkpoint evidence a third party can verify without a shared secret (JVM only) |
 | `std.pdf` generation | `htmlToPdfBase64(html)` — render a confined HTML/CSS subset (table layout, A4, typography/borders/bg) to base64 PDF bytes via OpenHTMLtoPDF; drop-in for an HTML→PDF relay (JVM only) |
+| `std.pdf` extraction | `pdfToMarkdown(pdfBase64)` / `pdfPageCount(pdfBase64)` — read a PDF's text layer (Apache PDFBox), pages split by `---`; honest plain-text (no layout inference), non-PDF throws (JVM only) |
 | `std.mime` assembly | `buildMimeMessage(from,to,subject,htmlBody,attachments)` — hand-rolled RFC 5322 `multipart/mixed` (base64 HTML body + base64 attachments, RFC 2047 subject), ready for SMTP `DATA` (JVM only) |
 | MCP × x402 | `mcpServer { srv => srv.tool(...).requirePayment(...) }` — paid LLM tools |
 

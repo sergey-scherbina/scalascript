@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — feat(std.pdf): PDF text extraction — pdfToMarkdown / pdfPageCount (busi PIT-11 parsing)
+
+- **pdf-text-extraction** — The reading counterpart to `htmlToPdfBase64`: extract
+  a PDF's text layer for parsing uploaded/fetched PDFs (busi PIT-11 tax forms).
+  `pdfToMarkdown(pdfBase64)` returns the recovered text per page (reading order),
+  pages separated by a Markdown `---`; `pdfPageCount(pdfBase64)` returns the page
+  count. Apache PDFBox `PDDocument` + `PDFTextStripper`. Honest plain-text — no
+  layout/font/heading inference; image-only PDFs yield empty/partial text, non-PDF
+  input throws. Same `std.pdf` surface (in `pdf-gen.ssc`) + `pdf-plugin` backend;
+  PDFBox already transitive via OpenHTMLtoPDF, so no new dependency / packaging
+  change. JVM-only. 4 tests; example `examples/pdf-extract-demo.ssc`; spec §7.
+
 ## 2026-06-11 — feat(std.crypto): Ed25519 / RSA private-key signing externs (busi sign request)
 
 - **crypto-sign** — Added the producing side to complement the verify externs:
