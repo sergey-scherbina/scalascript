@@ -135,12 +135,16 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       ms/op**. Commit eb892a82. Spec:
       [`specs/interp-opt-recursive-eval.md`](specs/interp-opt-recursive-eval.md).
 
-- [ ] **interp-opt-recursive-build-floor-asm-parity** — Port the Phase 1B
-      `LongToObject` pure ADT builder path to `AsmJitBackend` after the active
-      dirty ASM worktree lands. ASM smoke still reports `recursiveEval` 2.106
-      ms/op and `recursiveEvalMixed` 1.951 ms/op with
-      `SSC_JIT_BACKEND=asm BENCH_WI=1 BENCH_MI=2 BENCH_F=1 scripts/bench interp 'recursiveEval|recursiveEvalMixed'`.
-      Spec: [`specs/interp-opt-recursive-eval.md`](specs/interp-opt-recursive-eval.md).
+- [x] **interp-opt-recursive-build-floor-asm-parity** — ✓ DONE (verified
+      2026-06-11). The `AsmJitBackend.tryCompileLongToObject` + `emitObject` +
+      `emitConstructorObject` path already landed (after this item was written),
+      so the Phase 1B pure ADT-builder JITs on ASM too. Verified: `build`/`eval`
+      both lint `[JIT OK]` under `SSC_JIT_BACKEND=asm`, and the authoritative JMH
+      `SSC_JIT_BACKEND=asm BENCH_WI=1 BENCH_MI=3 BENCH_F=1 scripts/bench interp
+      'recursiveEval$'` = **0.067 ms/op** (was 2.106; matches the Javac floor).
+      No new code — discovery + verification, same pattern as
+      `ssc-jit-const-propagation`. Spec:
+      [`specs/interp-opt-recursive-eval.md`](specs/interp-opt-recursive-eval.md).
 
 - [x] **interp-opt-init-builtins-cache** — ✓ Landed 2026-06-04. `effectPure`
       interp floor reduced from 0.010 to **0.005 ms/op** by lazily initializing

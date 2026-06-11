@@ -110,9 +110,15 @@ Progress:
       the element type through .map/.filter chains + foldLeft. hof-pipeline 0.028→
       0.0085 (3.3×, ≈jvm), range-sum 0.048→0.011 (4.4×). Verified identical output;
       231+58 tests green. Remaining residual on hof-pipeline: outer `sum + r.toLong`.
-- [ ] **(2) honesty pass** — BLOCKED on `Bench.opaque` defeating interp JIT (see
-      trap above). Needs opaque JIT-transparency across all interp matchers OR
-      per-workload varying-data redesign. Real project.
+- [x] **(2) honesty pass** — ✓ DONE 2026-06-11 via `bench-honest-corpus-seed`
+      (the "per-workload varying-data redesign" alternative named here, not the
+      Bench.opaque route which does defeat interp JIT). Each folded corpus
+      workload carries a non-linear 64-bit LCG and consumes every result, so no
+      backend can constant-fold and no opacity barrier is needed; the harness is
+      arity-aware and feeds an opaque seed. instance-field/tuple-monoid/etc. now
+      report honest per-iteration cost across all 5 backends. Also fixed the
+      emit-rust `.toInt` width bug surfaced by it. Spec:
+      `docs/bench/corpus-antifold.md`, `specs/backend-perf-gaps.md` §T2.1.
 - [x] **(3) JS persistent map** — DONE 2026-06-11 (`js-persistent-map-hamt`,
       `a653cd331`). The feared 70-`instanceof Map`-site completeness risk was
       de-risked via a duck-typed `_HAMT` + an `_isMap()` helper (p2 swept all 71

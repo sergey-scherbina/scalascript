@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — verify+close: two stale perf items (ASM ADT-builder parity, bench honesty pass)
+
+- **interp-opt-recursive-build-floor-asm-parity** — closed by discovery +
+  verification (no new code). The `AsmJitBackend.tryCompileLongToObject` pure
+  ADT-builder path already landed after the item was written; verified `build`/
+  `eval` lint `[JIT OK]` under `SSC_JIT_BACKEND=asm` and JMH
+  `scripts/bench interp recursiveEval$` = **0.067 ms/op** on ASM (was the stale
+  2.106; matches the Javac Phase-1B floor).
+- **bench honesty pass (cross-backend-gap item 2)** — was marked BLOCKED on
+  `Bench.opaque`; resolved this cycle by `bench-honest-corpus-seed` (the named
+  varying-data alternative). With these two, the cross-backend-gap perf program
+  (js-numeric-inference, JS-HAMT, const-prop, AOT hoist/mutual-TCO, T3
+  object/tuple construction, bench honesty) has no open perf items; remaining
+  BACKLOG perf entries (`vectorize-pure-loop`, `direct-style-eval`, range-sum
+  fusion) are explicitly deferred/low-ROI.
+
 ## 2026-06-11 — perf(interp): JIT tuple ops (construction, t._n, ++ concat) — T3 complete (interp-jit-object-construct)
 
 - **interp-jit-object-construct (tuple)** — tuple operations in hot loops bailed
