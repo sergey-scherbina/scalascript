@@ -168,12 +168,13 @@ class JvmGen(
     baseDir:          Option[os.Path] = None,
     private[codegen] val intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
     lockPath:         Option[os.Path] = None,
-    frontendOverride: Option[String]  = None) extends JvmGenBlockAnalysis, JvmGenTermAnalysis, JvmGenMutualRecursion:
+    frontendOverride: Option[String]  = None) extends JvmGenBlockAnalysis, JvmGenTermAnalysis, JvmGenMutualRecursion, JvmGenEffectAnalysis:
   // Effect operations declared in the module, keyed as "Eff.op".
-  private val effectOps     = mutable.Set.empty[String]
+  // `private[codegen]` so the extracted `JvmGenEffectAnalysis` mixin can populate/read them.
+  private[codegen] val effectOps     = mutable.Set.empty[String]
   // Functions whose body transitively performs effects; their bodies are
   // emitted in CPS form.
-  private val effectfulFuns = mutable.Set.empty[String]
+  private[codegen] val effectfulFuns = mutable.Set.empty[String]
   // funName → full set of clique members (including self) for every function
   // that participates in a mutually-recursive tail-call SCC of size ≥ 2.
   private[codegen] val mutualGroups  = mutable.Map.empty[String, Set[String]]
@@ -3556,71 +3557,8 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     sb.toString
 
   // ─── Effect analysis ──────────────────────────────────────────────
-
-  private def analyzeEffects(blocks: List[JvmGen.Block]): Unit =
-    // Built-in `Async` / `Storage` / `Actor` effects — pre-populated only
-    // when the module actually uses them, keeping the emitted Scala lean
-    // otherwise.
-    val builtins =
-      (if blocksUseAsync(blocks) then
-         Set("Async.delay", "Async.async", "Async.await", "Async.parallel", "Async.recvFrom")
-       else Set.empty[String]) ++
-      (if blocksUseStorage(blocks) then
-         Set("Storage.get", "Storage.put", "Storage.remove", "Storage.has", "Storage.keys")
-       else Set.empty[String]) ++
-      (if blocksUseActors(blocks) then
-         Set("Actor.spawn", "Actor.spawn_link", "Actor.self", "Actor.send", "Actor.exit",
-             "Actor.receive", "Actor.receive_t",
-             "Actor.link", "Actor.monitor", "Actor.demonitor", "Actor.trapExit")
-       else Set.empty[String]) ++
-      (if blocksUseLogger(blocks) then
-         Set("Logger.info", "Logger.warn", "Logger.error", "Logger.debug")
-       else Set.empty[String]) ++
-      (if blocksUseRandom(blocks) then
-         Set("Random.nextInt", "Random.nextDouble", "Random.uuid", "Random.pick")
-       else Set.empty[String]) ++
-      (if blocksUseClock(blocks) then
-         Set("Clock.now", "Clock.nowIso", "Clock.sleep")
-       else Set.empty[String]) ++
-      (if blocksUseEnv(blocks) then
-         Set("Env.get", "Env.set", "Env.required")
-       else Set.empty[String]) ++
-      (if blocksUseHttp(blocks) then
-         Set("Http.get", "Http.post", "Http.request")
-       else Set.empty[String]) ++
-      (if blocksUseRetry(blocks) then
-         Set("Retry.attempt")
-       else Set.empty[String]) ++
-      (if blocksUseCache(blocks) then
-         Set("Cache.memoize")
-       else Set.empty[String]) ++
-      (if blocksUseState(blocks) then
-         Set("State.get", "State.set", "State.modify")
-       else Set.empty[String]) ++
-      // Tx and Auth don't use _perform; add dummy entries only to gate
-      // effectsRuntime emission when no other effects are present.
-      (if blocksUseTx(blocks) || blocksUseAuth(blocks) then
-         Set("_v14extras")
-       else Set.empty[String])
-
-    val trees = blocks.map(b => ScalaNode.fold(b.node)(identity))
-    val r     = EffectAnalysis.analyze(trees, builtins)
-
-    effectOps.clear();     effectOps     ++= r.effectOps
-    effectfulFuns.clear(); effectfulFuns ++= r.effectfulFuns
-
-  private[codegen] def isEffectOpDef(body: Term): Boolean = EffectAnalysis.isEffectOpDef(body)
-
-  private[codegen] def isEffectOpRef(eff: String, op: String): Boolean =
-    effectOps.contains(s"$eff.$op")
-
-  /** True for user-code effectful functions (populated by `analyzeEffects`)
-   *  AND for dep-defined functions marked effectful by Strategy D's
-   *  fixpoint (Step 2, `analyzeDepEffectfulness`). Both kinds need the
-   *  same downstream treatment: params widened to `Any`, body routed
-   *  through `emitCpsExpr`. */
-  private[codegen] def isEffectfulFun(name: String): Boolean =
-    effectfulFuns.contains(name) || globalEffectfulDeps.contains(name)
+  // Extracted to the `JvmGenEffectAnalysis` mixin (JvmGenEffectAnalysis.scala):
+  // analyzeEffects / isEffectOpDef / isEffectOpRef / isEffectfulFun.
 
 
   // ─── Strategy D, Step 1 ──────────────────────────────────────────
