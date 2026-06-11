@@ -1,6 +1,0 @@
-feature/js-content-toolkit-natives 2026-06-11T11:09:18Z
-agent: claude-code
-heartbeat: 2026-06-11T11:09:18Z
-status: in-progress
-done-so-far: busi seq-87 cluster-2 — std/ui/content toolkit externs (contentToolkitNode/Block/Section) undefined in JS (0 refs); JvmGen has ~330-line impl to mirror; JS content infra helpers all present
-next: port _ssc_tk_* + contentToolkitNode/Block/Section into JsGen.emitContentRuntime under an includeToolkit gate; test; push
