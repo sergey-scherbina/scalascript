@@ -1,0 +1,5 @@
+slug: js-content-block-transitive-register
+agent: opus-4-8-session
+started: 2026-06-11T13:01:26Z
+heartbeat: 2026-06-11T13:01:26Z
+desc: busi seq-102 — transitive module content-blocks not registered in JS browser registry (contentToolkitBlock("studio-preview") → no block with id; Rule Pack Studio crashes init). scanContentUsage emits runtime but registration is entry-module-only.
