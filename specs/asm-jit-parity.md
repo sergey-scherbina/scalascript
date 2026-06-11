@@ -180,6 +180,24 @@ Final gate:
 - `sbt "backendInterpreter/test"` in default mode.
 - `SSC_JIT_BACKEND=asm sbt "backendInterpreter/testOnly scalascript.SscVmTest scalascript.InterpreterTest scalascript.JitLintTest"`.
 
+## Parity invariant: `looksLongValue`
+
+Both backends carry a private `looksLongValue(t, ctx)` predicate that decides
+whether a term is Long-shaped (and therefore compilable on the numeric path).
+The two copies **must stay structurally identical** — they are the same
+"is this compilable" decision, so a program must classify the same way under
+`SSC_JIT_BACKEND=asm` and the default Javac backend. The only legitimate
+difference is the local-name resolution line, which is backend-specific
+(`ctx.slotOf(name) >= 0` for ASM vs `ctx.resolveLocal(name) != null` for Javac).
+
+History: the Javac copy drifted behind ASM and was missing the 2-arg
+`getOrElse`, the ref-receiver Long methods (`size`/`head`/`get`/`contains`/…),
+the `Math.max|min|abs` intrinsics, the val-bound lambda call, and the
+global Long-returning `FunV` call — even though Javac's `walkLong` emitter
+already supported all of them. Restored to match ASM. When extending one
+copy, extend the other in the same change and re-run `JitLintTest` under both
+backends (the quickest parity-drift detector).
+
 ## Open Questions
 
 - Whether ASM should eventually become the default backend once P1/P2 parity and
