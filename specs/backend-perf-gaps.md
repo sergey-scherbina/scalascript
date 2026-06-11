@@ -70,10 +70,28 @@ honest — `off` baseline fixed, the one automated compiled fold (`tuple_monoid`
 de-folded, interp column verified clean, JS column audited clean, Rust/JVM
 anti-fold documented. The cross-backend-gap doc's other compiled fold cells
 (`instance-field` etc.) were **ad-hoc one-off JVM probes with no standing
-automated cell**, so nothing dishonest is published by the harness. OPTIONAL
-future enhancement (not a current defect): add automated compiled cross-backend
-cells for those workloads with varying data, to guard against regressions — same
-direction-(b) pattern as `tuple_monoid`.
+automated cell**, so nothing dishonest is published by the harness.
+
+- [x] **OPTIONAL follow-up DONE (2026-06-11) — corpus wall-table de-folded
+      (`bench-honest-corpus-seed`).** The cross-language wall table
+      (`bench/run.sc` → `ssc bench --machine`) still folded six `bench/corpus`
+      cells to sub-nanosecond compiled numbers. Converted them to a shared
+      **carried 64-bit LCG** anti-fold idiom (`def workload(seed: Long)`):
+      `instance-field`, `tuple-monoid`, `bool-predicate`, `either-chain`,
+      `option-chain`, `literal-match`. The harness (`BenchCmd.generateWrapper`)
+      is now arity-aware and feeds an **opaque** seed (JVM `_ssc_sink.get()`,
+      atomic load); `bench/run.sc` passes the opaque rust seed `_s`. After
+      (M1): jvm `tuple-monoid` 2 ps → 0.087 ms, `instance-field` 0.32 µs →
+      6.2 µs, `bool-predicate` 19 ns → 0.81 µs; rust column restored from `n/a`
+      (see the `.toInt` fix below). Idiom doc:
+      `docs/bench/corpus-antifold.md`. The honest workloads keep their no-arg
+      signature and numbers.
+- [x] **emit-rust `.toInt` correctness fix (2026-06-11).** Exposed by the above:
+      ScalaScript `Int` maps to rust `i64`, but `.toInt` emitted `as i32`, so an
+      `i32` result couldn't be passed to an `i64` (`Int`) parameter (E0308) —
+      every seed workload's rust build failed. `RustCodeWalk` now emits
+      `as i32 as i64` (32-bit truncation semantics, i64 type). Broader than the
+      bench: any `someLong.toInt` flowing into an `Int` context was affected.
 
 ### T2.2 — JS persistent map (HAMT) — `js-persistent-map-hamt` ✓ DONE (2026-06-11)
 
