@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — perf(interp): curried-method dispatch + summon-key + field-access alloc cuts
+
+- **interp-curried-method-dispatch** — Follow-up to the typeclass-fold
+  using-cache (`f1917d2ca`). JFR on the honest `combineAll[A: Monoid]` bench
+  showed the remaining ~84% was tree-walk *dispatch* overhead (not given
+  resolution, not the JITed per-element combine). Three contained `EvalRuntime`
+  fixes: (1) curried-method fast-path — `recv.m(a)(b)` (e.g. `xs.foldLeft(z)(op)`)
+  routes straight to `evalApplyGeneral` instead of walking all ~40 curried
+  special-form extractors whose inner `Term.Apply.unapply` allocated a Tuple2
+  each call (the dominant 740 MB/op allocator); (2) `summonKeyCache` — caches the
+  per-node `summon[TC[T]]` lookup strings (`"Monoid[A]"` + synthetic `"A$Monoid"`);
+  (3) `Term.Select` no-arg field access converted from extractor to type-test
+  (kills Tuple2+Some per `a.b`). A/B (`scripts/bench interp typeclassFold`):
+  `typeclassFoldMacro` 1.722 → 1.323 ms/op (−23%), alloc 394 → 138 KB/op (−65%);
+  no hot-path regression (recursionFib 1.218 ms = baseline). Broad win — lifts
+  every curried method call and every no-arg field access. Suite 1629 green.
+
 ## 2026-06-11 — fix(js): transitive content-block registration + lookup (busi seq-102)
 
 - **js-content-toolkit-transitive-register** (busi seq-102, follow-up to
