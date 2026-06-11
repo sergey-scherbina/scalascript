@@ -35,6 +35,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   `backendInterpreter/test` 1619 green. The remaining cost (~84%, general
   tree-walk eval of the generic HOF) would need JIT-compiling `combineAll` —
   deliberately not pursued (deep, marginal). SPRINT `interp-typeclass-fold-devirt`.
+## 2026-06-11 — fix(js): emit content-toolkit runtime for transitive imports (js-content-toolkit-transitive)
+
+- **js-content-toolkit-transitive** (busi seq-92 #2) — Follow-up to
+  `js-content-toolkit-natives`. The content/toolkit emission gates scanned only
+  the top module, so when `std/ui/content` was imported (and `contentToolkitBlock`
+  called) in a **transitively**-imported module (`app.ssc → rulepack_studio.ssc →
+  [contentToolkitBlock](std/ui/content.ssc)`), the runtime was not emitted and the
+  transitive call site threw `ReferenceError` — despite the natives existing.
+  Added `scanContentUsage`: walks the `.ssc` import graph once (cycle-protected,
+  short-circuiting, each module resolved relative to its own dir) and reports
+  whether any module uses content intrinsics / imports the toolkit; both
+  `genModule` paths gate on the transitive result. Fixture
+  `examples/content-toolkit-transitive/` + regression test in `JsGenStdImportTest`;
+  spec `specs/js-content-toolkit-natives.md` §Transitive imports.
 
 ## 2026-06-11 — feat(std.crypto): sha256Base64 — base64 SHA-256 digest (busi KSeF invoiceHash)
 
