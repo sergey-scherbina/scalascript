@@ -150,7 +150,9 @@ class RustGenR23Test extends AnyFunSuite:
         |""".stripMargin
     val g = gen(src)
     assert(g.contains("(i as i64)"))
-    assert(g.contains("(l as i32)"))
+    // `.toInt` truncates to 32-bit then widens back to i64, because ScalaScript
+    // `Int` maps to rust `i64` (a bare `as i32` can't be passed to an i64 param).
+    assert(g.contains("(l as i32 as i64)"))
     assert(g.contains("(i as f64)"))
     assert(g.contains("format!(\"{}{}\", \"item-\".to_string(), i)"))
 

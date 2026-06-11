@@ -1052,8 +1052,12 @@ object RustCodeWalk:
       renderTerm(qual, ctx).map(q => s"($q as i64)")
     case m.Term.Select(qual, m.Term.Name("toInt")) =>
       renderTerm(qual, ctx).flatMap { q =>
+        // ScalaScript `Int` maps to rust `i64` everywhere (mapType line ~800),
+        // so `.toInt` must yield an i64 too — otherwise an `as i32` result
+        // can't be passed to an `i64` (Int) parameter (E0308).  Truncate to
+        // 32-bit for `Int` wraparound semantics, then widen back to i64.
         if isStringToIntExpr(qual) then Right(s"($q.parse::<i64>().unwrap_or(0))")
-        else Right(s"($q as i32)")
+        else Right(s"($q as i32 as i64)")
       }
     case m.Term.Select(qual, m.Term.Name("toDouble")) =>
       renderTerm(qual, ctx).map(q => s"($q as f64)")
