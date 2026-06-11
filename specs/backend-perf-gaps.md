@@ -157,3 +157,34 @@ pre-fold baseline; native JVM floor 0.247 ms). Full details + closure rationale 
 the T2.3 item above.
 
 T2.1 (bench-honesty) and T2.2 (js-persistent-map-hamt) remain open.
+
+**interp-curried-method-dispatch — DONE 2026-06-11.** Follow-up to the
+typeclass-fold using-cache (`f1917d2ca`). After given-resolution stopped
+dominating, JFR on `typeclassFoldMacro` (the honest `combineAll[A: Monoid]`
+bench, 300× over `List(1..10)`) showed the remaining ~84% was plain tree-walk
+*dispatch* overhead, not the JITed per-element combine. Three contained
+hot-path allocation fixes in `EvalRuntime.evalCore`:
+
+1. **Curried-method fast-path** (the dominant 740 MB/op allocator). A curried
+   method call `recv.m(a)(b)` (e.g. `xs.foldLeft(z)(op)`) has a `Term.Apply`
+   head whose own head is a `Term.Select`. It previously walked all ~40 curried
+   special-form extractors (`withFixedUuid(x){body}`, `runState(s0){body}`, …),
+   and their inner `Term.Apply.unapply` allocated a `Tuple2` every call. Every
+   curried special form has a `Term.Name` head (verified — none is a `Select`),
+   so curried *method* calls are now routed straight to `evalApplyGeneral`.
+2. **summon-key cache.** `summon[TC[T]]` rebuilt its lookup strings
+   (`typeToString` key `"Monoid[A]"` + synthetic context-bound param name
+   `"A$Monoid"`) on every eval. Both are pure functions of the immutable AST
+   node → cached per-node in `Interpreter.summonKeyCache` (`Array(key, synth)`);
+   only the env/global lookups stay per-call.
+3. **`Term.Select` no-arg field access → type-test.** The `Term.Select(qual, sn)`
+   extractor allocated `Tuple2 + Some` on every `a.b`; `.name`/`.qual` are
+   already typed fields, so a `case sel: Term.Select` type-test removes it.
+
+**Result (`scripts/bench interp typeclassFold`, A/B):** `typeclassFoldMacro`
+1.722 → 1.323 ms/op (−23%); alloc 394 → 138 KB/op (−65%). No regression on the
+hot-path sweep (recursionFib 1.218 ms = baseline, instanceFieldAccess 0.042 ms,
+nestedMatchExpr 0.007 ms, rangeSum/hofPipeline fused sub-µs). Full suite green
+(1623 tests). All three fixes are broad (they touch *every* curried method call
+and *every* no-arg field access), so they also lift any method-dispatch-heavy
+workload, not just typeclass-fold.
