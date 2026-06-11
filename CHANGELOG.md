@@ -57,6 +57,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   on JS — both backends now agree. Example `examples/datatable-static-spa.ssc`;
   4 new tests (3 JsGenStdImportTest + 1 StdUiSmokeTest). Spec
   `specs/js-backend-ui-render-gaps.md`.
+## 2026-06-11 — fix(jit): ref-returning function calls returned IntV(0) (busi seq-74 regression)
+
+- **jit-ref-return-call** — A cross-module function delegating to a ref-returning
+  (String/collection) function returned `IntV(0)` instead of the value (e.g.
+  `def f(x:String):String = g(x)` where `g = raw.trim.toLowerCase`). Broke every
+  busi phase87 public-address test and gated their re-bump off pin `351cdaf4`.
+  Two layers in the SscVm register-JIT path: (1) `VmCompiler` typed every
+  non-double user-fn `CALL` result `TInt` (no `TRef` branch) → fixed with
+  `JitPredicates.isRefReturning` + `VmCompiler.calleeReturnsRef` (recurses through
+  delegation chains); (2) the `CALL` opcode dropped the ref result stashed in
+  `tlRefReturn` → now copied into `refStack(dst)` when `callee.retIsRef` (CALL +
+  CALLREF fast path). Conservative (unknown ⇒ numeric never mis-typed as ref).
+  Spec `specs/jit-ref-return-call.md`; 3 tests `JitCrossModuleRefReturnTest`; full
+  suite green (1615).
 
 ## 2026-06-11 — fix(interp): warn on cross-module import name conflict (busi-p3-module-fn-name-conflict)
 
