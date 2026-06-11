@@ -1,0 +1,21 @@
+import std.pdf.*
+
+// Read a PDF's text layer. Here we generate a small document first so the example
+// is self-contained; in practice `pdfBase64` is an uploaded / fetched PDF (e.g. a
+// PIT-11 tax form) that you want to parse.
+
+val html =
+  "<html><body>" +
+    "<h1>PIT-11</h1>" +
+    "<p>Podatnik: <strong>Jan Kowalski</strong></p>" +
+    "<p>Przychod: 84210.00 zl</p>" +
+    "</body></html>"
+
+val pdf = htmlToPdfBase64(html)
+
+val pages = pdfPageCount(pdf)
+println(s"pages: $pages")                 // pages: 1
+
+val text = pdfToMarkdown(pdf)
+println("--- extracted text ---")
+println(text)                              // contains "PIT-11", "Jan Kowalski", "84210.00"

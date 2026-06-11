@@ -54,3 +54,35 @@ class PdfPluginTest extends AnyFunSuite:
     val b = pdfBytes("<html><body><p>hello</p></body></html>")
     assert(new String(a.take(5), "US-ASCII") == "%PDF-")
     assert(new String(b.take(5), "US-ASCII") == "%PDF-")
+
+  // ── text extraction (pdfToMarkdown / pdfPageCount) ──────────────────────────
+
+  test("pdfToMarkdown recovers the generated PDF's text layer (gen → extract round-trip)"):
+    val b64 = evalStr(s"""htmlToPdfBase64("$invoiceHtml")""")
+    val text = evalStr(s"""pdfToMarkdown("$b64")""")
+    assert(text.contains("Faktura"), s"missing heading text; got: $text")
+    assert(text.contains("FV/1"), s"missing invoice number; got: $text")
+    assert(text.contains("1000.01"), s"missing amount; got: $text")
+
+  test("pdfPageCount returns the number of pages"):
+    val b64 = evalStr(s"""htmlToPdfBase64("$invoiceHtml")""")
+    val n = interp.eval(s"""pdfPageCount("$b64")""").asInstanceOf[Long]
+    assert(n == 1L, s"expected 1 page, got $n")
+
+  test("pdfToMarkdown separates multiple pages with a horizontal rule"):
+    // Force two pages with a hard page break.
+    val twoPage =
+      "<html><head><style>.pb{page-break-before:always}</style></head><body>" +
+        "<p>PAGEONE</p><div class=pb></div><p>PAGETWO</p></body></html>"
+    val b64 = evalStr(s"""htmlToPdfBase64("$twoPage")""")
+    val n = interp.eval(s"""pdfPageCount("$b64")""").asInstanceOf[Long]
+    assume(n == 2L, s"engine did not paginate as expected ($n pages) — skipping rule check")
+    val text = evalStr(s"""pdfToMarkdown("$b64")""")
+    assert(text.contains("PAGEONE") && text.contains("PAGETWO"))
+    assert(text.contains("\n---\n"), s"expected a page-separating rule; got: $text")
+
+  test("pdfToMarkdown of a non-PDF input throws a clear error, not garbage"):
+    val notPdf = java.util.Base64.getEncoder.encodeToString("hello, not a pdf".getBytes("UTF-8"))
+    val err = intercept[Throwable](evalStr(s"""pdfToMarkdown("$notPdf")"""))
+    assert(Option(err.getMessage).exists(_.contains("pdfToMarkdown")),
+      s"expected a pdfToMarkdown error, got: ${err.getMessage}")

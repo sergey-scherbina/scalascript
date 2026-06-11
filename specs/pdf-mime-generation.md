@@ -100,3 +100,22 @@ keeps the HTTP relay as an optional alternative.
 busi Phase 56 (HTML invoice) and Phase 66a/66b (PDF/MIME via relay). With these
 externs, `BUSI_PDF_HTTP_URL` becomes optional rather than required for attachments.
 Pairs with [`smtp-send.md`](smtp-send.md) for a fully relay-free email path.
+
+## 7  Reading PDFs — text extraction (landed 2026-06-11)
+
+The reading counterpart to `htmlToPdfBase64`, for parsing uploaded/fetched PDFs
+(busi PIT-11 tax forms, Phase 50c2):
+
+```scalascript
+extern def pdfToMarkdown(pdfBase64: String): String   // text layer, pages split by `---`
+extern def pdfPageCount(pdfBase64: String): Int
+```
+
+Apache PDFBox `PDDocument` + `PDFTextStripper`, per page in reading order. Honest
+plain-text extraction — **no** layout/font/heading inference; an image-only
+(scanned) PDF yields empty/partial text rather than throwing. A non-PDF input
+throws a clear error. Same `std.pdf` surface (in `pdf-gen.ssc`) and `pdf-plugin`
+backend as generation; PDFBox is already on the plugin classpath (transitive via
+OpenHTMLtoPDF), so no new dependency and no packaging change. JVM / interpreter
+only. Tests: `PdfPluginTest` (generation→extraction round-trip, page count,
+multi-page rule, non-PDF loud error); example `examples/pdf-extract-demo.ssc`.

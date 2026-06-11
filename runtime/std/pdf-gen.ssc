@@ -1,17 +1,19 @@
 ---
 name: std-pdf
 version: 1.0.0
-description: HTML→PDF generation — htmlToPdfBase64 (JVM only, OpenHTMLtoPDF engine).
+description: PDF generation + text extraction — htmlToPdfBase64 / pdfToMarkdown / pdfPageCount (JVM only, OpenHTMLtoPDF + PDFBox).
 package: std.pdf
 exports:
   - htmlToPdfBase64
+  - pdfToMarkdown
+  - pdfPageCount
 ---
 
 # pdf
 
-Render a confined subset of HTML/CSS to PDF bytes, returned base64. The
-implementation is provided by the opt-in `pdf-plugin` intrinsic backend
-(OpenHTMLtoPDF / flying-saucer over PDFBox). **JVM / interpreter only.**
+Generate and read PDFs. The implementation is provided by the opt-in
+`pdf-plugin` intrinsic backend (OpenHTMLtoPDF / flying-saucer over Apache
+PDFBox). **JVM / interpreter only.**
 
 `htmlToPdfBase64(html)` is a drop-in for an external HTML→PDF relay
 (`POST {html} → {pdf_base64}`): produce the full HTML, get back base64 PDF bytes.
@@ -35,4 +37,22 @@ HTML is parsed leniently (jsoup), so it need not be strict XHTML.
 /** Render `html` (the supported subset) to PDF bytes, returned base64.
  *  Throws a clear error only if the document cannot be parsed at all. */
 extern def htmlToPdfBase64(html: String): String
+```
+
+## Reading PDFs (text extraction)
+
+The reading counterpart extracts a PDF's text layer (Apache PDFBox).
+`pdfToMarkdown(pdfBase64)` returns the recovered text of every page — each page's
+text in document reading order, pages separated by a Markdown horizontal rule
+(`---`). It is honest **plain-text** extraction: no layout, font, or heading
+inference, and an image-only (scanned, no text layer) PDF yields empty or partial
+text rather than throwing. A non-PDF input throws a clear error.
+
+```scalascript
+/** Extract the PDF's text layer as Markdown (pages separated by `---`).
+ *  `pdfBase64` is the base64 of the PDF bytes (e.g. from `htmlToPdfBase64`). */
+extern def pdfToMarkdown(pdfBase64: String): String
+
+/** Number of pages in the PDF. Throws only if the input is not a readable PDF. */
+extern def pdfPageCount(pdfBase64: String): Int
 ```
