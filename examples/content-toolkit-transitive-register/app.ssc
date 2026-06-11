@@ -1,0 +1,32 @@
+#!/usr/bin/env ssc
+---
+name: content-toolkit-transitive-register
+description: >
+  Entry module that imports a child (studio.ssc) and serves the toolkit block
+  the CHILD defines and renders by id.  The entry module has no `@ui=toolkit`
+  block of its own — exercises that the JS backend registers the content
+  documents of transitively-imported modules so `contentToolkitBlock(id)`
+  resolves a block authored in a deeply-imported module (busi seq-102).
+frontend: react
+---
+
+# Content Toolkit (transitive registration)
+
+This entry module deliberately defines no toolkit block; the rendered block
+`studio-preview` is owned by the imported `studio.ssc`.
+
+## Entry
+
+[studioPreview](content-toolkit-transitive-register/studio.ssc)
+[serve, element, textNode](std/ui/primitives.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+// The entry shell uses primitives directly (real apps do); the child's toolkit
+// block is lowered to an element before being embedded (build the TkNode tree,
+// lower once — the toolkit returns a TkNode, not an already-lowered View).
+val preview = lower(studioPreview(), defaultTheme)
+val shell = element("div", Map(), Map(), [textNode("Shell"), preview])
+serve(shell, 8080)
+```

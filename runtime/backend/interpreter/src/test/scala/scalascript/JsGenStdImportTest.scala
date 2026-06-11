@@ -564,6 +564,33 @@ class JsGenStdImportTest extends AnyFunSuite:
     assert(moduleJs.contains("_ssc_tk_error"), "toolkit helpers missing for transitive import")
     checkNodeSyntax(runtime + "\n" + moduleJs)
 
+  // busi seq-102 (follow-up to the transitive-emission fix above): the toolkit
+  // RUNTIME was emitted, but a block authored in a transitively-imported module
+  // was not in the browser registry — `contentDocument()` is the entry document,
+  // so `contentToolkitBlock("studio-preview")` (called from the child, where the
+  // block lives) threw `no block with id`. The child's content document is now
+  // registered transitively and the by-id lookup falls back across imported docs.
+  test("contentToolkitBlock resolves a block defined in a transitively-imported module"):
+    val source   = os.read(TestPaths.repoRoot / "examples" / "content-toolkit-transitive-register" / "app.ssc")
+    val module   = Parser.parse(source)
+    val baseDir  = TestPaths.repoRoot / "examples"
+    val caps     = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime  = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    // the child's document (with the studio-preview block) must be registered,
+    // even though the entry module never defines or imports it directly
+    assert(moduleJs.contains("studio-preview"),
+      "child module's content block must be registered in the imported-documents table")
+    // and the rendered block actually reaches the DOM via the fallback lookup
+    val script =
+      runtime + "\n_ssc_ui_serve = function(v){ globalThis.__captured = v; };\n" +
+      moduleJs +
+      "\nconst out = _ssc_ui_renderBody(globalThis.__captured).body;\n" +
+      "if (out.indexOf('Studio Preview') < 0) throw new Error('child block heading missing: ' + out);\n" +
+      "if (out.indexOf(\"child module's own content block\") < 0) throw new Error('child block text missing: ' + out);\n" +
+      "console.log('transitive-block-ok');\n"
+    assert(runNode(script) == "transitive-block-ok")
+
   test("emit-spa markdown-toolkit-links example binds contentToolkitSection and parses"):
     val source  = os.read(TestPaths.repoRoot / "examples" / "markdown-toolkit-links.ssc")
     val module  = Parser.parse(source)

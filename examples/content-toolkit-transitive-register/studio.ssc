@@ -1,0 +1,33 @@
+---
+name: studio
+description: >
+  A transitively-imported child module that BOTH defines its own
+  `@ui=toolkit` content block (id `studio-preview`) and renders it by id.
+  The block lives in this module's document, not the entry module's — so
+  `contentToolkitBlock("studio-preview")` must resolve against the child's
+  own registered content document.
+---
+
+# Studio
+
+The control block this module owns and renders by id:
+
+```yaml @id=studio-preview @ui=toolkit
+controls:
+  type: vstack
+  gap: 8
+  children:
+    - type: heading
+      level: 2
+      text: Studio Preview
+    - type: text
+      text: Rendered from the child module's own content block
+```
+
+## Render
+
+[contentToolkitBlock](std/ui/content.ssc)
+
+```scalascript
+def studioPreview(): Any = contentToolkitBlock("studio-preview")
+```

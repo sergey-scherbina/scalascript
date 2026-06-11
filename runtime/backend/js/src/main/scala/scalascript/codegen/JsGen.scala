@@ -864,25 +864,39 @@ class JsGen(
       s"${jsStringLit(namespace)}:${docs.map(jsRawDocument).mkString("[", ",", "]")}"
     }.mkString("{", ",", "}")
 
-  private def collectDirectImportedContent(module: Module): Unit =
+  /** Register the content documents of every TRANSITIVELY imported `.ssc`
+   *  module (not just the entry module's direct imports), so a block/section
+   *  defined in a deeply-imported module — e.g. `app.ssc -> rulepack_studio.ssc`
+   *  with `@id=studio-preview @ui=toolkit` — is reachable from the browser
+   *  registry.  The interpreter resolves `contentToolkitBlock(id)` against the
+   *  *calling* module's document; the flattened JS bundle has no per-module
+   *  current document, so the toolkit by-id lookups fall back across all of
+   *  these registered documents (see `contentToolkitBlock`/`Section`).
+   *  Cycle-protected; child imports resolve relative to the child's own dir,
+   *  mirroring `scanContentUsage`. */
+  private def collectImportedContent(module: Module): Unit =
     importedContentDocuments.clear()
-    def loop(section: Section): Unit =
-      section.content.foreach {
-        case imp: Content.Import if !isContentHelperImport(imp.path) =>
-          resolveImportForContent(imp.path).foreach { resolved =>
-            val childModule = scalascript.parser.Parser.parse(os.read(resolved))
-            childModule.document.foreach { doc =>
-              val namespace = importedContentNamespace(resolved, childModule)
-              importedContentDocuments.update(namespace, importedContentDocuments.getOrElse(namespace, Nil) :+ doc)
+    val seen = scala.collection.mutable.Set.empty[String]
+    def loopModule(m: Module, base: os.Path): Unit =
+      def loopSection(section: Section): Unit =
+        section.content.foreach {
+          case imp: Content.Import if !isContentHelperImport(imp.path) =>
+            resolveImportFrom(imp.path, base).foreach { resolved =>
+              if seen.add(resolved.toString) then
+                try
+                  val childModule = scalascript.parser.Parser.parse(os.read(resolved))
+                  childModule.document.foreach { doc =>
+                    val namespace = importedContentNamespace(resolved, childModule)
+                    importedContentDocuments.update(namespace, importedContentDocuments.getOrElse(namespace, Nil) :+ doc)
+                  }
+                  loopModule(childModule, resolved / os.up)
+                catch case _: Throwable => ()
             }
-          }
-        case _ => ()
-      }
-      section.subsections.foreach(loop)
-    module.sections.foreach(loop)
-
-  private def resolveImportForContent(path: String): Option[os.Path] =
-    resolveImportFrom(path, baseDir.getOrElse(os.pwd))
+          case _ => ()
+        }
+        section.subsections.foreach(loopSection)
+      m.sections.foreach(loopSection)
+    loopModule(module, baseDir.getOrElse(os.pwd))
 
   private def resolveImportFrom(path: String, base: os.Path): Option[os.Path] =
     val initiallyResolved =
@@ -1402,7 +1416,7 @@ class JsGen(
     val (_cUse, _tkUse) = scanContentUsage(module)
     contentRuntimeEnabled = _cUse
     contentToolkitRuntimeEnabled = _tkUse
-    if contentRuntimeEnabled then collectDirectImportedContent(module) else importedContentDocuments.clear()
+    if contentRuntimeEnabled then collectImportedContent(module) else importedContentDocuments.clear()
     contentSectionIndex = 0
     // v1.27 Phase 3 — sql state.  Reset every module to keep `genModule`
     // re-entrant; emit preamble once when at least one sql block is
@@ -2072,7 +2086,7 @@ class JsGen(
     val (_cUse, _tkUse) = scanContentUsage(module)
     contentRuntimeEnabled = _cUse
     contentToolkitRuntimeEnabled = _tkUse
-    if contentRuntimeEnabled then collectDirectImportedContent(module) else importedContentDocuments.clear()
+    if contentRuntimeEnabled then collectImportedContent(module) else importedContentDocuments.clear()
     contentSectionIndex = 0
     // Emit `route(...)` registrations from front-matter before user blocks,
     // so a typical user-side `serve(port)` (last statement of the script)

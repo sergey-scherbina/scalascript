@@ -310,6 +310,19 @@ function _ssc_tk_section(section, options, env) {
   return { _type: 'VStackNode', gap: options.blockGap, children: children };
 }
 function _ssc_tk_document(options) { return contentBind(contentDocument(), options.bindings); }
+// The flattened JS bundle has no per-module "current document", so a block/section
+// authored in a transitively-imported module (e.g. rulepack_studio's
+// `@id=studio-preview`) lives in the imported-documents registry, not the entry
+// document. This returns every imported document (bound with the same options) so
+// the by-id lookups can fall back across the whole graph — matching the
+// interpreter, which resolves the id against the calling module's own document.
+function _ssc_tk_imported_documents(options) {
+  var out = [];
+  __ssc_content_imported_documents().forEach(function(docs) {
+    (docs || []).forEach(function(d) { out.push(contentBind(d, options.bindings)); });
+  });
+  return out;
+}
 function _ssc_tk_block_by_id(doc, id) {
   var matches = __ssc_content_blocks_deep(doc).filter(function(b) { return __ssc_content_string_attr(__ssc_content_block_attrs(b), 'id') === id; });
   if (matches.length === 0) return null;
@@ -322,6 +335,28 @@ function _ssc_tk_section_by_id(doc, id) {
   if (matches.length === 1) return matches[0];
   _ssc_tk_error("contentToolkitSection: duplicate section id '" + id + "'");
 }
+// Entry document first (preserves existing behaviour + precedence on id collisions),
+// then fall back across imported documents; the first imported doc that holds the id wins.
+function _ssc_tk_find_block(id, options) {
+  var block = _ssc_tk_block_by_id(_ssc_tk_document(options), id);
+  if (block != null) return block;
+  var docs = _ssc_tk_imported_documents(options);
+  for (var i = 0; i < docs.length; i++) {
+    var hit = _ssc_tk_block_by_id(docs[i], id);
+    if (hit != null) return hit;
+  }
+  return null;
+}
+function _ssc_tk_find_section(id, options) {
+  var section = _ssc_tk_section_by_id(_ssc_tk_document(options), id);
+  if (section != null) return section;
+  var docs = _ssc_tk_imported_documents(options);
+  for (var i = 0; i < docs.length; i++) {
+    var hit = _ssc_tk_section_by_id(docs[i], id);
+    if (hit != null) return hit;
+  }
+  return null;
+}
 
 function contentToolkitNode(options) {
   options = _ssc_tk_options(options);
@@ -332,13 +367,13 @@ function contentToolkitNode(options) {
 }
 function contentToolkitBlock(id, options) {
   options = _ssc_tk_options(options);
-  var block = _ssc_tk_block_by_id(_ssc_tk_document(options), id);
+  var block = _ssc_tk_find_block(id, options);
   if (block == null) _ssc_tk_error("contentToolkitBlock: no block with id '" + id + "'");
   return _ssc_tk_block(block, options, _ssc_tk_markdown_env(_ssc_tk_markdown_signal_defaults_block(block)));
 }
 function contentToolkitSection(id, options) {
   options = _ssc_tk_options(options);
-  var section = _ssc_tk_section_by_id(_ssc_tk_document(options), id);
+  var section = _ssc_tk_find_section(id, options);
   if (section == null) _ssc_tk_error("contentToolkitSection: no section with id '" + id + "'");
   return _ssc_tk_section(section, options, _ssc_tk_markdown_env(_ssc_tk_markdown_signal_defaults_section(section)));
 }
