@@ -34,8 +34,13 @@ via `callParamIsRef` → `MethodSig` (different arity per backend) +
 (implemented per-backend over each `MethodSig`), move the pure tree-walk of
 `bindingIsRef` into `JitPredicates`; `JitLintTest` green under both backends.
 
-- [ ] `JitShapeCtx.callArgIsRef` added; both `GenCtx` implement it.
-- [ ] `bindingIsRef` body shared; backends delegate.
+- [x] `JitShapeCtx.callArgIsRef` added; both `GenCtx` implement it (delegating to
+      the enclosing backend's `callParamIsRef`, since `GenCtx` is nested in the
+      backend `object`).
+- [x] `bindingIsRef` body shared in `JitPredicates`; both backends delegate.
+      Landed 2026-06-11: 389 tests green in both default and `SSC_JIT_BACKEND=asm`;
+      full `backendInterpreter/test` 1605 green. This was the last duplicated JIT
+      predicate — the shape-classifier drift surface is now fully closed.
 
 ### T3.3 — cross-backend method classifier — `cross-backend-method-classifier`
 
