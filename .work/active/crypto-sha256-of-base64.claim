@@ -1,0 +1,5 @@
+slug: crypto-sha256-of-base64
+agent: opus-4-8-session
+started: 2026-06-11T12:51:38Z
+heartbeat: 2026-06-11T12:51:38Z
+desc: busi seq-100 — sha256OfBase64(b64) (KSeF encryptedInvoiceHash) + byteLengthUtf8(s) crypto-plugin externs
