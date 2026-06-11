@@ -1,6 +1,0 @@
-feature/cross-backend-method-classifier 2026-06-11T09:15:47Z
-agent: claude-code
-heartbeat: 2026-06-11T09:15:47Z
-status: scoping
-done-so-far: investigated T3.3 — taxonomy is heterogeneous per-backend (not a clean shared set); JS numericListHofs is JS-specific
-next: record precise de-risked scoping + staged plan in spec T3.3

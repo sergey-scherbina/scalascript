@@ -71,8 +71,12 @@ spec's acceptance.
 - [x] **jit-predicates-bindingisref** — DONE 2026-06-11. Shared via
       `JitShapeCtx.callArgIsRef` + `JitPredicates.bindingIsRef`. Last duplicated JIT
       predicate — drift surface fully closed. 389 green both backends, 1605 full.
-- [ ] **cross-backend-method-classifier** — GATED (×4 codegen-coupled). Single
-      `lang/core` method taxonomy; do only on a forcing function.
+- [x] **cross-backend-method-classifier** — DONE 2026-06-11. Unlocked + scoped: the
+      genuine classifier sets were JS-only (numeric inference); JVM/interp/Rust usage is
+      dispatch *implementation* (out of scope). Created `core`
+      `scalascript.transform.CollectionMethods` SSOT + migrated JS (behavior-identical,
+      1612 green). JVM/Rust have no in-scope classifier sets. Spec
+      `backend-correctness-hygiene.md` T3.3.
 
 ---
 

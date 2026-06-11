@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — refactor(core): shared CollectionMethods classifier (cross-backend-method-classifier, Tier 3 / T3.3 DONE)
+
+- **cross-backend-method-classifier** — Unlocked the gated item and closed it.
+  Investigation corrected the spec's "duplicated set across all four backends"
+  framing: the genuine multi-name *classifier* sets existed only in JS (numeric
+  inference for the dynamically-typed backend); JVM/interp/Rust method-name usage is
+  dispatch *implementation* (`case "takeWhile" => …`, per-method logic — out of
+  scope) or tiny purpose-specific local lowering alternations (not worth
+  centralizing). Created the SSOT `scalascript.transform.CollectionMethods` in `core`
+  (categorized `elementHofs` / `typePreservingListOps` + predicates) and migrated JS
+  (`numericListHofs` → alias; element-type-preservation alternation → guard) —
+  behavior-identical, full `backendInterpreter/test` 1612 green. JVM/Rust reviewed:
+  no in-scope classifier sets remain. This completes Tier 3 (and the whole
+  backend/compiler/interpreter improvement program); T3.1 has one further Tier-4
+  slice (JS status-during-election) tracked separately. Spec:
+  `specs/backend-correctness-hygiene.md` §T3.3.
+
 ## 2026-06-11 — fix(jvm-cluster): echo ssc-actors-v1 subprotocol on /_ssc-actors WS route (cluster-jvm-js-handshake, Tier 3 / T3.1)
 
 - **cluster-jvm-js-handshake (subprotocol fix)** — Fixed and verified the first of
