@@ -224,6 +224,13 @@ private[interpreter] object StatRuntime:
         else env.iterator.collect { case (k, v) if interp.globals.getOrElse(k, null) != v => k -> v }.toMap
       val rThrows = d.decltpe.exists(interp.isThrowsType)
       val fn: Value.FunV = Value.FunV(params, d.body, capturedEnv, d.name.value, defaults, paramTypes, usingInfo, rThrows)
+      // busi-p3 — user-wins: a top-level def overwriting an already-installed
+      // plugin intrinsic of the same bare name is allowed (user wins), but warn
+      // so the shadow is not silent. Local defs (env ne globals) are normal
+      // lexical scoping and never warn. See specs/intrinsic-shadow-policy.md.
+      if (env eq interp.globals) && interp.pluginNativeNames.contains(d.name.value) then
+        interp.warnIntrinsicShadow(d.name.value)
+        interp.pluginNativeNames -= d.name.value
       env(d.name.value) = fn
       if d.name.value == "main" && params.isEmpty then interp.mainCalled = false
 

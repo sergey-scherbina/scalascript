@@ -188,6 +188,23 @@ class Interpreter(
   // Phase 2 lazy loading: set to true after ensurePluginsLoaded() has run.
   private[interpreter] var _pluginsLoaded = false
   private[interpreter] val pluginNativeNames = mutable.Set.empty[String]
+  // busi-p3-ratelimit-intrinsic-shadow — names where a user top-level `def`
+  // collides with a plugin intrinsic of the same bare name. Policy: user wins
+  // (see specs/intrinsic-shadow-policy.md); we record each colliding name here
+  // (once) and emit a `[warn]` to stderr so the shadow is never silent. Tests
+  // assert on this set instead of scraping stderr.
+  private[interpreter] val shadowedIntrinsicWarnings = mutable.LinkedHashSet.empty[String]
+
+  /** Public read-only view of intrinsic-shadow warnings (names where a user
+   *  top-level def took precedence over a plugin intrinsic). For tests/tools. */
+  def intrinsicShadowWarnings: collection.Set[String] = shadowedIntrinsicWarnings
+
+  /** Record + report that user definition `name` shadows a plugin intrinsic.
+   *  Idempotent per name: warns to stderr only the first time. User wins. */
+  private[interpreter] def warnIntrinsicShadow(name: String): Unit =
+    if shadowedIntrinsicWarnings.add(name) then
+      System.err.println(
+        s"[warn] '$name' shadows plugin intrinsic '$name' — user definition wins")
   // Effect object names detected as multi-shot by EffectAnalysis (populated in runInit).
   private[interpreter] var multiShotEffects: Set[String] = Set.empty
   private[interpreter] var sqlBlockRunner: Option[scalascript.backend.spi.SqlBlockRunner] = None
@@ -1329,6 +1346,13 @@ class Interpreter(
         case (qn, scalascript.backend.spi.NativeImpl(eval)) => qn -> eval
       }.toList
     nativeEntries.groupBy(_._1.value).foreach {
+      // busi-p3 — user-wins: if a user top-level `def` already occupies this
+      // name (a FunV that is not itself a previously-installed plugin native),
+      // keep the user binding and warn instead of clobbering it. Covers the
+      // lazy-load-after-user-def ordering; the common ordering is handled in
+      // StatRuntime when the user `def` overwrites an installed native.
+      case (name, _) if userDefShadowsIntrinsic(name) =>
+        warnIntrinsicShadow(name)
       case (name, List((_, eval))) =>
         pluginNativeNames += name
         registerNative(name, args =>
@@ -1342,6 +1366,14 @@ class Interpreter(
           Computation.Pure(dispatchNativeOverload(name, overloads.map(_._2), ctx, args))
         )
     }
+
+  /** True when `globals(name)` currently holds a user-authored function (a
+   *  `FunV`) that is not a plugin native — i.e. installing the intrinsic here
+   *  would clobber a user definition. */
+  private def userDefShadowsIntrinsic(name: String): Boolean =
+    !pluginNativeNames.contains(name) && (globals.get(name) match
+      case Some(_: Value.FunV) => true
+      case _                   => false)
 
   private def dispatchNativeOverload(
       name:      String,
