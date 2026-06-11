@@ -77,7 +77,11 @@ val JsRuntimeAsyncB: String = """
         // Register /_ssc-actors WS handler for inbound peer connections.
         // Peers connect, exchange nodeId handshake, then send actor messages.
         if (typeof onWebSocket === 'function') {
-          onWebSocket('/_ssc-actors', (ws) => {
+          // protocols: echo `ssc-actors-v1` so a spec-compliant `ws` peer client
+          // (JS `connectNode`, and any RFC-6455 client) doesn't reject the upgrade
+          // with "Server sent no subprotocol" — which would leave peers __pending__
+          // and block Bully convergence. Mirrors the JVM-codegen server fix.
+          onWebSocket('/_ssc-actors', [], ['ssc-actors-v1'])((ws) => {
             let peerNodeId = '';
             ws.onMessage((msg) => {
               if (!peerNodeId) {

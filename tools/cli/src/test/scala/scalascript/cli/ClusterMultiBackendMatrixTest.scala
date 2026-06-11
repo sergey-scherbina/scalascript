@@ -58,20 +58,28 @@ import java.time.Duration
  *  connects and the JVM node reaches the JS peer and elects it
  *  (`{"leader":"node-bbb","members":["node-bbb"],…}`) — previously impossible.
  *
- *  **REMAINING — the JS-codegen node's `/_ssc-cluster/status` returns empty
- *  while clustering.** With the WS connected, the JVM node converges to see the
- *  JS peer, but polling the JS node's status endpoint during the election yields
- *  an empty body, so the test's "both report the same non-empty leader" gate
- *  never passes (`jvm=…leader:node-bbb` but `js=` empty). In isolation the JS
- *  node's status route works (see [[NodeBackendTest]] "emitted bundle binds
- *  /_ssc-cluster/status"), so this is a JS-codegen clustering-under-load issue
- *  (HTTP status served while the async actor scheduler drives the election),
- *  distinct from the subprotocol fix — the next cross-backend
- *  envelope-reconciliation slice (`specs/cluster-codegen-gap.md`). Re-enable by
- *  flipping `ignore(...)`→`test(...)` once the JS node reports status during
- *  clustering; verification needs `-Dssc.lib.path=<root>` (staged via
- *  `sbt installBin`) so the test's `compile-jvm` subprocess finds the compiler
- *  jars.
+ *  **ALSO FIXED — JS-codegen WS server now echoes the subprotocol.** The JS
+ *  `/_ssc-actors` route registered via the protocols-less `onWebSocket(path,
+ *  handler)` form, so it never echoed `Sec-WebSocket-Protocol` either — a
+ *  spec-compliant `ws` peer client (JS `connectNode`) rejected the upgrade and
+ *  peers stuck `__pending__`. Now registers with `['ssc-actors-v1']`
+ *  (`JsRuntimeAsyncB`), mirroring the JVM fix. Verified: two JS-codegen nodes now
+ *  **converge** (each reports the same non-empty leader); the JVM↔JS upgrade now
+ *  negotiates `proto=ssc-actors-v1`.
+ *
+ *  **REMAINING — a JVM peer connection blocks the JS node's HTTP event loop.**
+ *  In the JVM↔JS matrix the JVM node converges (sees node-bbb), but once the JVM
+ *  peer's WS connects (`ws.connect … proto=ssc-actors-v1` logged) the JS node
+ *  stops serving plain HTTP: `/_ssc-cluster/status` GETs are never dispatched/
+ *  logged (no crash trace — the node is alive, the TCP port stays bound), so the
+ *  test's status poll times out (`js=` empty). It is NOT the subprotocol and NOT
+ *  the (non-blocking) inbound `onMessage` handler; it only reproduces with a
+ *  *JVM* peer (two JS nodes serve HTTP fine while clustered), pointing at the JS
+ *  WS server's handling of JVM-(java.net.http)-originated frames or peer-message
+ *  scheduling starving the event loop. The next cross-backend slice
+ *  (`specs/cluster-codegen-gap.md`). Re-enable by flipping `ignore`→`test` once
+ *  the JS node serves HTTP with a JVM peer connected; verification needs
+ *  `-Dssc.lib.path=<root>` (via `sbt installBin`) + `npm install ws`.
  *
  *  ### History — JS-codegen scheduler block (FIXED)
  *
@@ -385,7 +393,7 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
   // test dependency, or the JS bundle ships its own `package.json`
   // for cluster modules), flip this back to `test(...)`.  The
   // scaffolding (npm install, sandbox cwd) is already in place.
-  ignore("JVM-codegen + JS-codegen nodes converge on a Bully leader (DISABLED — JS node /_ssc-cluster/status empty during election; subprotocol echo FIXED, see history)"):
+  ignore("JVM-codegen + JS-codegen nodes converge on a Bully leader (DISABLED — JVM peer connection blocks JS node's HTTP event loop; subprotocol echo fixed both sides, JS↔JS converges)"):
     val jar       = requireJar()
     requireScalaCli()
     requireNode()
