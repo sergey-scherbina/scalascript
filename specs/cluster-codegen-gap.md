@@ -178,18 +178,28 @@ declared fully unblocked:
   signature (else non-cluster JVM programs failed to compile). Verified: the
   matrix test's WS now connects and the JVM node reaches + elects the JS peer
   (`leader=node-bbb`); full `backendInterpreter/test` 1612 green.
-- **JS-codegen `/_ssc-cluster/status` empty during election — the active blocker.**
-  With the WS connected, the JVM node converges to see the JS peer, but polling the
-  JS node's status endpoint during the election returns an empty body (it works in
-  isolation per `NodeBackendTest`), so the matrix test's "both report the same
-  non-empty leader" gate fails (`jvm=leader:node-bbb`, `js=` empty). A JS-codegen
-  clustering-under-load issue — serving HTTP status while the async actor scheduler
-  drives the election. **Verify/re-enable recipe:** flip the matrix test
-  (`tools/cli/.../ClusterMultiBackendMatrixTest.scala`) `ignore(...)`→`test(...)`
-  and run with `-Dssc.lib.path=<root>` (after `sbt installBin` stages the compiler
-  jars) so the test's `compile-jvm` subprocess resolves them; `require('ws')` is
-  worked around via `npm install ws`.
+- **JS-codegen WS subprotocol echo — FIXED (2026-06-11).** The JS `/_ssc-actors`
+  route registered via the protocols-less `onWebSocket(path, handler)` form, so —
+  like the JVM server before its fix — it never echoed `Sec-WebSocket-Protocol`,
+  and a spec-compliant `ws` peer client (JS `connectNode`) rejected the upgrade
+  ("Server sent no subprotocol"), leaving peers `__pending__`. Now registers with
+  `onWebSocket('/_ssc-actors', [], ['ssc-actors-v1'])(handler)` (`JsRuntimeAsyncB`).
+  **Verified: two JS-codegen nodes now converge** (same non-empty leader); the
+  JVM↔JS upgrade negotiates `proto=ssc-actors-v1`. Full suite 1618 green.
+- **JVM peer connection blocks the JS node's HTTP event loop — the active blocker.**
+  In the JVM↔JS matrix the JVM node converges (sees node-bbb), but once the JVM
+  (java.net.http) peer's WS connects the JS node stops serving plain HTTP:
+  `/_ssc-cluster/status` GETs are never dispatched/logged (no crash trace; TCP port
+  stays bound), so the test's poll times out (`js=` empty). It is NOT the
+  subprotocol and NOT the (non-blocking) inbound `onMessage` handler, and it
+  reproduces **only with a JVM peer** — two JS nodes serve HTTP fine while
+  clustered. Points at the JS WS server's handling of JVM-originated frames or
+  peer-message scheduling starving the libuv poll phase. **Verify/re-enable
+  recipe:** flip the matrix test (`tools/cli/.../ClusterMultiBackendMatrixTest.scala`)
+  `ignore`→`test` and run with `-Dssc.lib.path=<root>` (after `sbt installBin`) +
+  `npm install ws`.
 
 The harness (real-WS multi-process integration test, see `cluster-raft.md` §9) is in
-place and the subprotocol blocker is cleared; the JS status-during-election gap above
-is the remaining prerequisite before the Tier 4 matrix test can be enabled.
+place; both servers' subprotocol echo is fixed and JS↔JS converges. The
+JVM-peer-blocks-JS-event-loop gap above is the remaining prerequisite before the
+Tier 4 JVM↔JS matrix test can be enabled.

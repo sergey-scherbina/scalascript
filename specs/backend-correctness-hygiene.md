@@ -42,14 +42,19 @@ backlog/spec note explaining why convergence is not supported.
       `-Dssc.lib.path` + `npm install ws`: the WS now connects and the JVM node
       reaches the JS peer and elects it (`leader=node-bbb`) — previously the upgrade
       was rejected. Full `backendInterpreter/test` 1612 green.
-- [ ] **Remaining (next Tier-4 slice):** the JS-codegen node's `/_ssc-cluster/status`
-      returns **empty during the election** (works in isolation per `NodeBackendTest`),
-      so the matrix test's "both report the same non-empty leader" gate still fails
-      (`jvm=leader:node-bbb`, `js=` empty). A JS clustering-under-load issue (HTTP
-      status served while the async actor scheduler drives the election), distinct from
-      the subprotocol fix. Test stays `ignore` with the precise diagnosis +
-      re-enable/verify recipe (`-Dssc.lib.path` via `sbt installBin`). Tracked in
-      `specs/cluster-codegen-gap.md`.
+- [x] **JS-codegen WS subprotocol echo — FIXED (2026-06-11).** Symmetric to the JVM
+      fix: the JS `/_ssc-actors` route also registered protocols-less, so it never
+      echoed `ssc-actors-v1` and `ws` peer clients rejected the upgrade → peers
+      `__pending__`. Now `onWebSocket('/_ssc-actors', [], ['ssc-actors-v1'])(handler)`
+      (`JsRuntimeAsyncB`). **Verified: two JS-codegen nodes converge**; full suite 1618.
+- [ ] **Remaining (next Tier-4 slice):** in the JVM↔JS matrix, once a JVM
+      (java.net.http) peer's WS connects, the JS node **stops serving plain HTTP**
+      (`/_ssc-cluster/status` GETs never dispatched; no crash, port bound) → poll
+      times out (`js=` empty). NOT the subprotocol, NOT the non-blocking `onMessage`;
+      reproduces **only with a JVM peer** (JS↔JS serves HTTP fine while clustered) →
+      JS WS-frame/scheduler interaction with JVM-originated frames. Test stays `ignore`
+      with the precise diagnosis + re-enable recipe (`-Dssc.lib.path` via
+      `sbt installBin` + `npm install ws`). Tracked in `specs/cluster-codegen-gap.md`.
 
 ### T3.2 — shared `bindingIsRef` — `jit-predicates-bindingisref`
 
