@@ -1,6 +1,0 @@
-feature/js-backend-ui-render-gaps 2026-06-11T09:09:35Z
-agent: claude-code
-heartbeat: 2026-06-11T09:09:35Z
-status: in-progress
-done-so-far: surveyed seq-79; root-caused both layers (5 missing _ssc_ui_* row-data natives + non-idempotent lower)
-next: write spec, implement JS natives + idempotent lower, tests
