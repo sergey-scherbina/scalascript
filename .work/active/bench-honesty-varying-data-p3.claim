@@ -1,0 +1,6 @@
+feature/bench-honesty-varying-data-p3 2026-06-11T07:43:28Z
+agent: claude-code
+heartbeat: 2026-06-11T07:43:28Z
+status: in-progress
+done-so-far: T2.1 off-baseline fix + tuple_monoid de-fold landed
+next: A/B interp bool/either/option/literal cells; de-fold any that fold
