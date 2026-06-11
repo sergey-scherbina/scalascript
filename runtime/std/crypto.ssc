@@ -5,6 +5,7 @@ description: Cryptographic hash, encoding, and encryption primitives — sha256,
 package: std.crypto
 exports:
   - sha256
+  - sha256Base64
   - hmacSha256
   - pbkdf2
   - secureRandomBytesB64
@@ -38,6 +39,11 @@ backend. **Encryption primitives are JVM/interpreter only.**
 ```scalascript
 /** SHA-256 hex digest of the UTF-8 encoding of `input`. */
 extern def sha256(input: String): String
+
+/** SHA-256 digest of the UTF-8 encoding of `input`, base64-encoded (not hex).
+ *  For protocols that carry the raw digest in base64 (e.g. KSeF 2.0
+ *  `invoiceHash` / `encryptedInvoiceHash`). */
+extern def sha256Base64(input: String): String
 
 /** HMAC-SHA-256 hex digest; `key` and `data` are UTF-8 strings. */
 extern def hmacSha256(key: String, data: String): String

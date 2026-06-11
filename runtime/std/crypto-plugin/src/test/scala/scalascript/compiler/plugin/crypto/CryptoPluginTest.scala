@@ -37,6 +37,22 @@ class CryptoPluginTest extends AnyFunSuite:
     val b = evalStr("""sha256("bar")""")
     assert(a != b)
 
+  // ── sha256Base64 — same digest, base64 (KSeF invoiceHash) ────────────────
+
+  test("sha256Base64 of empty string matches the known base64 vector"):
+    assert(evalStr("""sha256Base64("")""") == "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=")
+
+  test("sha256Base64 of 'abc' matches the known base64 vector"):
+    assert(evalStr("""sha256Base64("abc")""") == "ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0=")
+
+  test("sha256Base64 is the base64 of the same digest sha256 returns as hex"):
+    val hex = evalStr("""sha256("KSeF invoice content")""")
+    val b64 = evalStr("""sha256Base64("KSeF invoice content")""")
+    val digestBytes = hex.grouped(2).map(h => Integer.parseInt(h, 16).toByte).toArray
+    assert(b64 == java.util.Base64.getEncoder.encodeToString(digestBytes),
+      s"sha256Base64 must equal base64(hex-decoded sha256); got $b64")
+    assert(java.util.Base64.getDecoder.decode(b64).length == 32, "digest must be 32 bytes")
+
   // ── hmacSha256 — RFC 4231 test vector ────────────────────────────────────
 
   test("hmacSha256 output is always 64 lowercase hex characters"):

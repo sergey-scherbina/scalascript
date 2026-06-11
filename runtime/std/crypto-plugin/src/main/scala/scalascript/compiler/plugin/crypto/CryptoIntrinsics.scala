@@ -196,6 +196,18 @@ object CryptoIntrinsics:
         Value.StringV(md.digest(Array.emptyByteArray).map("%02x".format(_)).mkString)
     },
 
+    // base64 of the raw 32-byte SHA-256 digest (not hex). KSeF 2.0 invoiceHash /
+    // encryptedInvoiceHash carry the digest base64-encoded; `sha256` returns hex
+    // and there is no hex→bytes path in .ssc, so this gives the value directly.
+    QualifiedName("sha256Base64") -> native {
+      case List(s: String) =>
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        Value.StringV(b64e(md.digest(s.getBytes("UTF-8"))))
+      case _ =>
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        Value.StringV(b64e(md.digest(Array.emptyByteArray)))
+    },
+
     QualifiedName("hmacSha256") -> native {
       case List(key: String, data: String) =>
         val mac = javax.crypto.Mac.getInstance("HmacSHA256")
