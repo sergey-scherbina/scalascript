@@ -151,7 +151,20 @@ Generalises invariant-call folding in the interpreter JIT.
   (product accumulators, Double, non-counter shapes) is out of scope — no bench
   currently demonstrates a gap there.
 
-### T3 — Interpreter JIT object-construction coverage — `interp-jit-object-construct` ◻ OPEN
+### T3 — Interpreter JIT object-construction coverage — `interp-jit-object-construct` ◑ PARTIAL (case-class landed 2026-06-11)
+
+- [x] **Case-class / ADT construction (`instance-field`) — landed 2026-06-11.**
+      `JitRefDispatch.newInstanceRef` + `walkRef`/`isRefValRhs` in both
+      JavacJitBackend and AsmJitBackend now compile `val v = Vec(x, y)` in a hot
+      loop. Builtin ADTs (Some/None/Right/Left/collections) are excluded so they
+      keep their dedicated dispatch. **instance-field: 57 ms → 0.267 ms javac
+      (213×) / 0.767 ms asm (74×)**, result identical to tree-walk, suite 1633
+      green. Lints JIT-OK on both backends.
+- [ ] **Tuple construction + `++` (`tuple-monoid`, ~960 ms) — remaining.** The
+      tuple literal `(a, b)` and `++` concat on a TupleV are still unsupported by
+      walkRef, so tuple-monoid bails. Follow-up: a `newTupleRef` helper + a
+      walkRef case for `Term.Tuple` and the ref `++` op.
+
 
 Surfaced by `bench-honest-corpus-seed`: once the folds were removed, two corpus
 workloads showed pathological interpreter times because the bytecode JIT **bails

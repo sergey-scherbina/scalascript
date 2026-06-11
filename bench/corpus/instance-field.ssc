@@ -8,10 +8,10 @@ Honest-bench note: a carried 64-bit LCG (`s`, opaque `seed: Long` start) builds
 a fresh `Vec` whose `x` varies each iteration (`s % 8`).  The LCG recurrence
 has no closed form, so the AOT backends can't constant-fold `normSq(v)` to a
 literal and the interpreter JIT can't hoist the (previously loop-invariant)
-call out.  Every backend runs the real 10k allocate-and-dispatch loop — which
-exposes a genuine interpreter gap: its FastTier/bytecode JIT does not compile a
-loop whose body contains a method call (`normSq`) + InstanceV allocation, so it
-falls back to slow tree-walk (see `specs/backend-perf-gaps.md` §T3).  (Shared
+call out.  Every backend runs the real 10k allocate-and-dispatch loop.  As of
+the T3 JIT work (`specs/backend-perf-gaps.md` §T3) the interpreter bytecode JIT
+now compiles this loop including the `Vec(...)` construction (57 ms → ~0.27 ms),
+so it doubles as a regression guard for JIT case-class construction.  (Shared
 anti-fold idiom — see `docs/bench/corpus-antifold.md`.)
 
 ```scalascript
