@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — feat(crypto): sha256OfBase64 + byteLengthUtf8 (busi seq-100 KSeF)
+
+- **crypto-sha256-of-base64** (busi seq-100) — Two byte-oriented `std.crypto`
+  externs closing the last KSeF 2.0 invoice-POST `"stub"` fields.
+  `sha256OfBase64(b64)` takes SHA-256 over the **raw bytes decoded from a base64
+  string** (returned base64), not the UTF-8 bytes of the string itself like
+  `sha256Base64` — KSeF `encryptedInvoiceHash` is `base64(SHA-256(ciphertext))`
+  and the ciphertext is carried as base64, so the digest must run over the decoded
+  bytes; throws on malformed base64 (authoring-side input). `byteLengthUtf8(s)`
+  returns the UTF-8 byte count (not `s.length`) for `invoiceSize` /
+  `encryptedInvoiceSize`, where multi-byte characters make the char count wrong.
+  Added to `crypto-plugin` intrinsics + `runtime/std/crypto.ssc` surface; 8 tests
+  (decoded-bytes equivalence, JCE cross-check, multi-byte divergence, malformed
+  throw, UTF-8 byte count). JVM/interpreter only.
+
 ## 2026-06-11 — fix(js): hash-tolerant eqSignal for browser routing (js-routing-showsignal-hash)
 
 - **js-routing-showsignal-hash** (busi seq-94) — Hand-rolled hash routing
