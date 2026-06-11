@@ -132,3 +132,23 @@ widened `private→private[codegen]` the four moved members called from JvmGen
 widening was needed. Imports trimmed to `scala.meta.*` only. `JvmGen.scala`
 **6073 → 5849 lines (−224)**. 1605 tests green; clean under `-Werror`.
 Remaining Tier-1: p2b (state-coupled Preamble defs) then `jsgen-decompose`.
+
+**p2b — Preamble + runtime (state-coupled defs) — landed 2026-06-11.** Completes
+the p2 split: p2 had moved only the pure runtime-source constants; p2b moves the
+remaining `// ─── Preamble + runtime` section (HTML-DSL tag bindings,
+`collectUserTopNames`/`collectDeclaredVarTypes`, the runtime-source loaders, the
+`loggerRuntime`/`commonRuntime`/`serveRuntime` string blocks that p2 deliberately
+left because they call the loaders, `renderModelFieldType`/`renderModelDef`, and
+`uiHelperFunctions`) verbatim into new self-typed mixin `JvmGenPreamble` (844
+lines). Widened `private→private[codegen]` the six moved members called from
+JvmGen (`htmlDslTagBindings`, `collectUserTopNames`, `collectDeclaredVarTypes`,
+`commonRuntime`, `serveRuntime`, `uiHelperFunctions`); the trait imports
+`scalascript.ast.*` + `JvmGenStringUtils.*` + `mutable` + `scala.meta.*` (all
+external, no reverse JvmGen widening). `JvmGen.scala` **5849 → 5019 lines (−830)**.
+1605 tests green; clean under `-Werror`.
+
+**Tier-1 JvmGen split complete:** p1+p2+p2b+p3+p4 took `JvmGen.scala` from
+**10565 → 5019 lines (−53%)** across 6 self-typed mixins (JvmGenEffectAnalysis,
+JvmGenRuntimeSources, JvmGenCpsTransform, JvmGenMutualTco, JvmGenPreamble, plus
+the pre-existing BlockAnalysis/TermAnalysis/MutualRecursion). Only `jsgen-decompose`
+remains in Tier-1.
