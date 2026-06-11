@@ -114,12 +114,13 @@ Progress:
 - [ ] **(2) honesty pass** — BLOCKED on `Bench.opaque` defeating interp JIT (see
       trap above). Needs opaque JIT-transparency across all interp matchers OR
       per-workload varying-data redesign. Real project.
-- [~] **(3) JS persistent map** — DEFERRED, too large/risky for a safe contained
-      change. Verified root cause = O(n) `new Map(obj)` copy. A persistent (HAMT)
-      structure would either (a) require a new type but **70 `instanceof Map`
-      sites** across the JS runtime couple to native Map (completeness risk), or
-      (b) an in-place/CoW mutation hack (silent-corruption risk via aliasing).
-      Neither is a safe quick landing — real dedicated sub-project.
+- [x] **(3) JS persistent map** — DONE 2026-06-11 (`js-persistent-map-hamt`,
+      `a653cd331`). The feared 70-`instanceof Map`-site completeness risk was
+      de-risked via a duck-typed `_HAMT` + an `_isMap()` helper (p2 swept all 71
+      sites) — native runtime maps and the persistent user Map coexist. `_Map`/
+      `updated`/`removed`/`filter` route to `_HAMT` (path-copying nibble trie,
+      value-equality keys). `map-ops` O(n²)→O(n log n) (~100× at N=4000); full
+      suite green. Spec `specs/js-persistent-map-hamt.md`.
 - [~] **(4) AOT codegen passes** — mostly DONE. (a) invariant-accumulation hoist
       generalised Double→Long/Int in `JvmGen` (`aot-hoist`, list-fold jvm
       0.075→0.0003, 215×). (b) **mutual-TCO** allocation-free merge for
@@ -349,18 +350,18 @@ JIT optimisation can close the resulting honest gap.
       const-fold (the loop runs honestly now) — tracks with
       `ssc-jit-const-propagation` Stage 3.
 
-- [ ] **ssc-jit-const-propagation** — Generalisation of the above: when
-      the JIT sees a pure expression whose operands are all literals or
-      provably-pure pure functions, fold it at JIT time.
-      - [x] Stage 1 (literal arithmetic) — landed in VmCompiler
-        compileInto: `Lit op Lit` folded to single CONST. No bench
-        movement (corpus has no lit+lit at runtime); infra for the
-        later stages.
-      - [ ] Stage 2: pure-function calls with literal args (memoise once).
-      - [ ] Stage 3: scalar-evolution-style range folding
-            (`sum(0..N)` → closed form).
-      Each stage shipped independently with bench A/B.  Goal: ssc/asm at
-      within 100× of Rust on pure-arith workloads (currently 1000-10000×).
+- [x] **ssc-jit-const-propagation** — DONE 2026-06-11 (goals met; closed as T2.3,
+      `ea6cacaea`). Stage 2/3 goals were achieved in a **different layer** than this
+      entry anticipated: instead of the VmCompiler register-VM JIT, they live in the
+      EvalRuntime FastTier eval path, which fires *first* for these workloads —
+      `tryFoldInvariantAccumLoop` (invariant pure-call memoise, Stage-2 goal) and
+      `tryClosedFormPolyLoop`+`walkLinearPoly` (Gauss closed-form range fold,
+      Stage-3 goal). Verified: `pureCallSum` 0.003 ms/op (~83× the pre-fold
+      baseline; native JVM floor 0.247 ms — the loop is eliminated). So the
+      VmCompiler-level Stage 2/3 implementation is **unnecessary** (the FastTier
+      fold pre-empts it). Stage 1 (literal arithmetic in VmCompiler.compileInto)
+      remains as infra. Spec `specs/backend-perf-gaps.md` §T2.3;
+      `specs/jvmgen-decompose.md` cross-refs.
 
 - [x] **ssc-jit-escape-analysis** [partial — map-into-sink fusion landed
       2026-06-09; full cross-function inlining still open] — Stack-allocate
