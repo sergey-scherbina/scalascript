@@ -1,0 +1,6 @@
+feature/js-routing-showsignal-hash 2026-06-11T12:22:47Z
+agent: claude-code
+heartbeat: 2026-06-11T12:22:47Z
+status: in-progress
+done-so-far: busi seq-94 minimal repro — showSignal(eqSignal(hashSignal(), "#/a"), A, B) keeps matched branch display:none on client (hash=#/a). Suspect inline computed eqSignal not subscribed/recomputed on hashSignal update.
+next: reproduce + inspect emitted sigs/mount wiring for inline eqSignal(hashSignal()); fix; test
