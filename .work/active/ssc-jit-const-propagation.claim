@@ -1,6 +1,0 @@
-feature/ssc-jit-const-propagation 2026-06-11T07:05:25Z
-agent: claude-code
-heartbeat: 2026-06-11T07:05:25Z
-status: verifying
-done-so-far: found Stage2 (tryFoldInvariantAccumLoop abe-prior) + Stage3 (tryClosedFormPolyLoop) already implemented+wired
-next: run JitLintTest + bench A/B to confirm; mark done or fill gap

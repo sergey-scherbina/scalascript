@@ -42,7 +42,10 @@ spec's acceptance.
       before further tuning. Watch the `Bench.opaque`-defeats-interp-JIT trap (spec).
 - [~] **js-persistent-map-hamt** — DEFERRED/big: `map-ops` js 40×; 70 `instanceof Map`
       coupling sites. Dedicated sub-project, not a quick landing.
-- [ ] **ssc-jit-const-propagation** — Stage 2 (pure-call memoise) + Stage 3 (range fold).
+- [x] **ssc-jit-const-propagation** — DONE 2026-06-11. Found already implemented + tested:
+      Stage 2 = `tryFoldInvariantAccumLoop` (`3174c0b4c`), Stage 3 = `tryClosedFormPolyLoop`
+      (`abe7e4d02`, Gauss closed-form). Verified: JitLint+SscVm+ConstFold 277 green;
+      `pureCallSum` 0.003 ms/op (~83×, native floor 0.247). Spec `backend-perf-gaps.md` T2.3.
 
 ### Tier 3 — correctness & hygiene
 - [ ] **cluster-jvm-js-handshake** — fix the one DISABLED test (JVM↔JS Bully-leader

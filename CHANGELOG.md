@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — verify+close: JIT const-propagation (ssc-jit-const-propagation, Tier 2 / T2.3)
+
+- **ssc-jit-const-propagation** — Tier-2 perf item, closed by discovery +
+  verification (no new code). Both stages were already implemented and wired into
+  the FastTier loop dispatch, having landed under their own perf commits before
+  the item was tracked: **Stage 2** (pure/invariant call memoised once) =
+  `EvalRuntime.tryFoldInvariantAccumLoop` (`3174c0b4c`); **Stage 3** (Gauss
+  closed-form for degree-1-polynomial counter loops) =
+  `EvalRuntime.tryClosedFormPolyLoop` + `walkLinearPoly` (`abe7e4d02`). Verified
+  this session: JitLintTest (the spec gate) + SscVmTest closed-form/invariant fold
+  cases + ConstFoldJsGenTest = **277 tests green**; `scripts/bench interp
+  'pureCallSum$'` = **0.003 ms/op** (~83× over the ~0.25 ms pre-fold baseline;
+  native JVM floor for the shape is 0.247 ms, i.e. the loop is eliminated).
+  Coverage is the 2-assign counter+accumulator Int loop shape; broadening is out
+  of scope (no bench demonstrates a gap). Spec: `specs/backend-perf-gaps.md` §T2.3.
+  Tier-2 remaining: T2.1 bench-honesty, T2.2 js-persistent-map-hamt (deferred/big).
+
 ## 2026-06-11 — refactor(jsgen): extract CPS codegen; Tier-1 maintainability complete (jsgen-decompose)
 
 - **jsgen-decompose** — Final Tier-1 maintainability item. Applied the proven
