@@ -127,6 +127,31 @@ stands); only the theme-free `DataTableNode` is recovered.
 - Acceptance: a raw `dataTable(...)` child of an `element(...)`, lowered only at
   the top, renders a `<table>` (no longer dropped).
 
+### Layer 3 — Remote DataTable: normalise the fetch response into rows
+
+Follow-up (2026-06-11, busi seq-87). Once the SPA finally mounted, the
+Remote-source tables (`dataTable(fetchUrlSignal(url, …), cols)`) rendered empty,
+with two console errors per table:
+
+- `(rows || []).forEach is not a function` — the mount's `doFetch()` called
+  `renderTable` **directly** on `r.json()`. Business list endpoints answer either
+  a bare array `[…]` **or** an envelope `{"data":[…],"count":N}`; the envelope is
+  an object, so `(rows||[]).forEach` threw.
+- `Unexpected token '<', "<script>…"` — `r.json()` on a misrouted path that
+  returned the SPA's own HTML (the `/` fallback) threw a JSON parse error.
+
+Fix: a single shared normaliser `_ssc_ui_rowsOf(v)` (top-level, unit-testable)
+turns a bare array, a JSON string, or a common list envelope
+(`{data|rows|items|results:[...]}`) into an array; anything else (an object with
+no list field, an HTML body, `null`) → `[]`. `doFetch` now reads `r.text()`,
+normalises, and `.catch`es network errors to `[]`; the static and signal-rows
+paths route through the same `_ssc_ui_rowsOf`, so all three sources coerce
+identically and `renderTable` never sees a non-array.
+
+- Acceptance: `_ssc_ui_rowsOf` maps array / `{data:[...]}` / `{rows:[...]}` /
+  JSON string / HTML / `null` to the expected array (or `[]`); a Remote table
+  whose endpoint returns `{data:[…]}` renders its rows.
+
 ## Non-goals
 
 - Lowering theme-dependent raw `TkNode`s (vstack/heading/…) that were never
