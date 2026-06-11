@@ -2,6 +2,7 @@
 
 > Status: ✓ Landed (2026-06-11). Reported by busi (rozum seq-87, cluster-2).
 > Slug: `js-content-toolkit-natives`.
+> Follow-up: `js-content-toolkit-transitive` (seq-92 #2) — see "Transitive imports".
 
 ## Problem
 
@@ -58,6 +59,25 @@ the browser — it would also need adding to JvmGen for parity.
   type="checkbox">`, the label, and the control-tree heading/text in the HTML.
 - `examples/markdown-toolkit-links.ssc` (uses `contentToolkitSection`) emits and
   `node --check`s.
+
+## Transitive imports (follow-up, busi seq-92 #2)
+
+The content/toolkit emission gates (`contentRuntimeEnabled` /
+`contentToolkitRuntimeEnabled`) originally scanned **only the top module**. busi's
+real structure imports the toolkit transitively — `app.ssc → rulepack_studio.ssc
+→ [contentToolkitBlock](std/ui/content.ssc)` — so the entry module never imports
+`std/(ui/)content` directly, the runtime was not emitted, and the transitively
+emitted `contentToolkitBlock(...)` call site threw `ReferenceError: content
+ToolkitBlock is not defined` (Rule Pack Studio crash, despite the natives
+existing).
+
+Fix: `scanContentUsage` walks the `.ssc` import graph once (cycle-protected,
+short-circuiting, each module's imports resolved relative to its own dir) and
+reports whether **any** module uses content intrinsics / imports the toolkit. The
+runtime + toolkit now emit whenever content/toolkit is used anywhere in the
+graph. Fixture `examples/content-toolkit-transitive/` (entry imports a child that
+calls `contentToolkitBlock`); regression test asserts both `contentDocument()` and
+`contentToolkitBlock(` emit for the transitive entry.
 
 ## Non-goals
 
