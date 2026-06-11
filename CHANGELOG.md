@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — feat(js): persistent HAMT Map — O(n²)→O(n log n) (js-persistent-map-hamt, Tier 2 / T2.2 DONE)
+
+- **js-persistent-map-hamt** — Closes Tier-2 T2.2 (the last perf-gap item). The ssc
+  immutable `Map` was a native `Map` copied on every `updated` (O(n) → O(n²) over a
+  loop), making `map-ops` ~40× the JVM. Replaced with a persistent `_HAMT`: a
+  path-copying 8-nibble trie on a 32-bit hash of a canonical value-equality key
+  string, `updated`/`removed` copying only the O(8) path nodes (structural sharing).
+  It exposes the native-Map read interface, and an `_isMap()` helper (p2 sweep of all
+  71 `instanceof Map` sites, `2d0b780d6`) lets native runtime maps and the persistent
+  user Map coexist. `_Map()`/`updated`/`removed`/`filter` route to `_HAMT`; two
+  Dataset mutable-`_Map()` misuses fixed; `groupBy` left native (one-shot, exact
+  grouping semantics). Key equality is value-based (matches the interpreter; identical
+  to native Map for primitive keys); iteration is hash order (= interp's). Full suite
+  **1609 green** (JS conformance via node); micro-bench: native-copy O(n²) (4.2×/
+  doubling) → HAMT O(n log n) (1.8×/doubling), **~100× at N=4000**, growing with N.
+  p1+p3 activation `a653cd331`. Spec: `specs/js-persistent-map-hamt.md`,
+  `specs/backend-perf-gaps.md` §T2.2.
+
 ## 2026-06-11 — feat(std.ui): content-toolkit live-row binding completes ui-content-toolkit (3b)
 
 - **ui-content-toolkit 3b** — A `toolkit:table?rows=<id>` Markdown link now binds to a
