@@ -1,0 +1,6 @@
+feature/jit-predicates-shared-rest 2026-06-11T04:50:05Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-11T04:50:05Z
+status: not-started
+done-so-far:
+next: write spec, verify+lift remaining shared pure predicates
