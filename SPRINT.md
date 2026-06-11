@@ -38,17 +38,16 @@ spec's acceptance.
       **Tier 1 (maintainability) COMPLETE.** Spec: `specs/jsgen-decompose.md`.
 
 ### Tier 2 — performance gaps (each a dedicated sub-project)
-- [~] **bench-honesty-varying-data** — measurement integrity. PARTIAL 2026-06-11:
-      (1) audit complete across 3 docs (interp + JS columns clean; compiled fold
-      cells identified); (2) FIXED the `off`-baseline defect — algebraic loop-folds
-      ran unconditionally, now gated behind FastTier so `scripts/bench off` is honest
-      (`pureCallSum` 0.003 on ↔ 11.748 off); (3) **direction-(b) de-folded
-      `tuple_monoid`** — the one automated compiled cross-backend fold cell:
-      `jvm_tupleMonoid` 0.011→205 µs (~18000×), `js` 26.7→1688 µs, interp 0.008→14 ms,
-      via loop-varying tuple build (no backend folds now). REMAINING: same
-      direction-(b) pattern for the interp-only fold cells (instance-field,
-      bool-predicate, either-chain, option-chain, literal-match) — further slices,
-      re-claim separately. Spec `backend-perf-gaps.md` T2.1. Watch the opaque trap.
+- [x] **bench-honesty-varying-data** — SUBSTANTIALLY DONE 2026-06-11. Automated
+      harness now honest: (1) audit complete across 3 docs; (2) FIXED `off`-baseline
+      defect (algebraic folds gated behind FastTier; `pureCallSum` 0.003 on ↔ 11.748
+      off); (3) de-folded `tuple_monoid`, the one automated compiled fold
+      (`jvm` 0.011→205 µs, `js` 26.7→1688 µs); (4) interp column A/B-verified honest
+      (eitherChain/optionChain/instanceField/arithLoop). The gap-doc's other fold
+      cells (instance-field/bool-predicate/either/option/literal) were ad-hoc JVM
+      probes with NO automated cell — nothing dishonest published. OPTIONAL future:
+      add automated compiled cross-backend cells for them (same direction-(b)
+      pattern). Spec `backend-perf-gaps.md` T2.1.
 - [~] **js-persistent-map-hamt** — DEFERRED/big: `map-ops` js 40×; 70 `instanceof Map`
       coupling sites. Dedicated sub-project, not a quick landing.
 - [x] **ssc-jit-const-propagation** — DONE 2026-06-11. Found already implemented + tested:

@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — verify+close: interp column honest, T2.1 substantially done (bench-honesty-varying-data-p3, Tier 2 / T2.1)
+
+- **bench-honesty-varying-data-p3** — Tier-2 measurement integrity; closes the
+  interp-column audit and T2.1 for the automated harness. A/B-verified (`interp` vs
+  `off`) the remaining flagged interp cells: `eitherChain` 0.002↔0.017 ms (honest),
+  `optionChain` 0.002 ms ON (honest by analogy; `off` un-measurable due to the
+  documented bench-harness `initBuiltins`-skip gotcha, `Undefined: None` — a harness
+  artifact, not a fold or product bug), plus `instanceFieldAccess`/`arithLoop`
+  (already honest). `bool-predicate`/`literal-match` are not interp benches. **Net:
+  no interp cell is a measurement artifact.** Combined with p1 (off-baseline fix) +
+  p2 (`tuple_monoid` de-fold), the automated benchmark harness is now honest: the
+  one automated compiled fold is fixed, the interp + JS columns are clean, and the
+  Rust/JVM anti-fold gap is documented. The cross-backend-gap doc's other compiled
+  fold cells were ad-hoc one-off JVM probes with no standing automated cell.
+  Docs-only this slice; no production/bench code changed. Spec:
+  `specs/backend-perf-gaps.md` §T2.1 (now ✓ substantially done);
+  `docs/bench/interp-honesty-audit.md`.
+
 ## 2026-06-11 — bench(honesty): de-fold tuple_monoid via loop-varying data (bench-honesty-varying-data-p2, Tier 2 / T2.1 direction-b)
 
 - **bench-honesty-varying-data-p2** — Tier-2 measurement integrity, direction (b).
