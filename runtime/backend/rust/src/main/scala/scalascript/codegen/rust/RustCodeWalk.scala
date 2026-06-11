@@ -662,9 +662,19 @@ object RustCodeWalk:
              |""".stripMargin
         GeneratedDef(name = name, render = src, isMain = hasMainAnnotation(d))
 
-  /** Extract just the parameter names from a def (single parameter group). */
+  /** Extract just the parameter names from a def (all parameter groups). */
   private def extractParamNames(d: m.Defn.Def): List[String] =
     d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
+
+  /** Flatten a curried apply chain `base(a1)(a2)…` into `(base, a1 ++ a2 ++ …)`
+   *  in source order, so a multi-group call lowers to a single Rust call matching
+   *  the flattened def signature. Returns None for a non-Apply term. */
+  private def flattenCurried(t: m.Term): Option[(m.Term, List[m.Term])] = t match
+    case m.Term.Apply.After_4_6_0(inner: m.Term.Apply, args) =>
+      flattenCurried(inner).map { case (base, prev) => (base, prev ++ args.values.toList) }
+    case m.Term.Apply.After_4_6_0(base, args) =>
+      Some((base, args.values.toList))
+    case _ => None
 
   /** Check if a term in tail-position is a direct self-call to `defName` with `paramCount` args.
    *  Returns `Some(args)` on match, `None` otherwise. */
@@ -697,25 +707,20 @@ object RustCodeWalk:
   private def renderMutParams(
       d: m.Defn.Def, ctx: Ctx, effName: Option[String]
   ): Either[List[Diagnostic], String] =
-    val groups = d.paramClauseGroups.flatMap(_.paramClauses)
-    if groups.size > 1 then
-      Left(List(unsupported(
-        s"def `${ctx.defName}` has multiple parameter groups; R.2 accepts a single `(…)` group"
-      )))
+    // Curried / using groups flatten into one param list (see renderParams).
+    val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+    val rendered = params.map { p =>
+      p.decltpe match
+        case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map(r => s"mut ${p.name.value}: $r")
+        case None    => Left(List(unsupported(
+          s"def `${ctx.defName}` parameter `${p.name.value}` has no type annotation"
+        )))
+    }
+    val (errs, ok) = rendered.partitionMap(identity)
+    if errs.nonEmpty then Left(errs.flatten)
     else
-      val params = groups.flatMap(_.values)
-      val rendered = params.map { p =>
-        p.decltpe match
-          case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map(r => s"mut ${p.name.value}: $r")
-          case None    => Left(List(unsupported(
-            s"def `${ctx.defName}` parameter `${p.name.value}` has no type annotation"
-          )))
-      }
-      val (errs, ok) = rendered.partitionMap(identity)
-      if errs.nonEmpty then Left(errs.flatten)
-      else
-        val effParam = effName.map(n => s"_eff: &mut impl ${n}Effect").toList
-        Right((ok ++ effParam).mkString(", "))
+      val effParam = effName.map(n => s"_eff: &mut impl ${n}Effect").toList
+      Right((ok ++ effParam).mkString(", "))
 
   /** Render a tail-recursive function body as a Rust `loop { ... }`.
    *  Self-tail-calls become param reassignments (using temps for ordering safety).
@@ -887,25 +892,22 @@ object RustCodeWalk:
   private def renderParams(
       d: m.Defn.Def, ctx: Ctx, effName: Option[String]
   ): Either[List[Diagnostic], String] =
-    val groups = d.paramClauseGroups.flatMap(_.paramClauses)
-    if groups.size > 1 then
-      Left(List(unsupported(
-        s"def `${ctx.defName}` has multiple parameter groups; R.2 accepts a single `(…)` group"
-      )))
+    // Multiple parameter groups (curried `def f(a)(b)` / `(using ev)` typeclass
+    // evidence) flatten into a single Rust fn param list; the matching curried
+    // CALL is flattened the same way in renderTerm.
+    val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+    val rendered = params.map { p =>
+      p.decltpe match
+        case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map(r => s"${p.name.value}: $r")
+        case None    => Left(List(unsupported(
+          s"def `${ctx.defName}` parameter `${p.name.value}` has no type annotation; R.2 requires explicit param types"
+        )))
+    }
+    val (errs, ok) = rendered.partitionMap(identity)
+    if errs.nonEmpty then Left(errs.flatten)
     else
-      val params = groups.flatMap(_.values)
-      val rendered = params.map { p =>
-        p.decltpe match
-          case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map(r => s"${p.name.value}: $r")
-          case None    => Left(List(unsupported(
-            s"def `${ctx.defName}` parameter `${p.name.value}` has no type annotation; R.2 requires explicit param types"
-          )))
-      }
-      val (errs, ok) = rendered.partitionMap(identity)
-      if errs.nonEmpty then Left(errs.flatten)
-      else
-        val effParam = effName.map(n => s"_eff: &mut impl ${n}Effect").toList
-        Right((ok ++ effParam).mkString(", "))
+      val effParam = effName.map(n => s"_eff: &mut impl ${n}Effect").toList
+      Right((ok ++ effParam).mkString(", "))
 
   /** Extract the effect name from a def's return type if it has `T ! E` form.
    *  Returns `Some("Logger")` for `Int ! Logger`, `None` for plain types. */
@@ -1469,6 +1471,20 @@ object RustCodeWalk:
         args
     ) if args.values.isEmpty =>
       Right("_eff.next_float()")
+
+    // Curried call `f(a)(b)…` — the parser nests one `Term.Apply` per param
+    // group. Flatten the whole chain into a single-group call so it matches the
+    // flattened def signature (renderParams). Method chains (`xs.map(f).filter(g)`)
+    // have a `Term.Select` callee and are handled by the cases above, so only a
+    // genuine curried call reaches here (callee is itself a `Term.Apply`).
+    case m.Term.Apply.After_4_6_0(_: m.Term.Apply, _) =>
+      flattenCurried(t) match
+        case Some((base, allArgs)) =>
+          renderTerm(m.Term.Apply(base, m.Term.ArgClause(allArgs, None)), ctx)
+        case None =>
+          Left(List(unsupported(
+            s"def `${ctx.defName}` has an unsupported curried-call shape: ${t.syntax}"
+          )))
 
     // Application — intrinsic, user-defined fn, or unsupported.
     case m.Term.Apply.After_4_6_0(fn, args) =>
