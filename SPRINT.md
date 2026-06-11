@@ -1998,3 +1998,32 @@ backend.** PDF half is the priority; MIME/SMTP are a later slice. Spec already p
 > `busi-p4-smtp-send-extern` (above) is the relay-free SMTP DATA sender — the final slice
 > that pairs with `mime-p3` + `pdfgen-p1` for a fully relay-free invoice-email path
 > (`specs/smtp-send.md`). Sequence it after mime-p3.
+
+---
+
+## busi df-6 — Postgres out-of-the-box + LISTEN/NOTIFY (rozum seq-115, 2026-06-11)
+
+busi's data-model-foundation df-6 landed end-to-end against REAL Postgres using
+ScalaScript's first-class `backend/postgres` (scalascript-client-postgres,
+org.postgresql 42.7.3 + HikariCP; `backend/sql` routes `postgres:` → `jdbc:postgresql:`
+via DriverManager). Two follow-ups on our side surfaced; busi is unblocked for
+single-node without them.
+
+- [ ] **pg-jar-installbin** (medium) — `ssc` bundles only H2 + SQLite jars in
+      `bin/lib/jars/` ("zero-config quickstarts"), so out of the box
+      `jdbc:postgresql:` throws **"No suitable driver"**. busi had to manually stage
+      `postgresql-42.7.3.jar` from the Coursier cache to run the PG backend. Add the
+      Postgres driver jar (+ HikariCP if not already bundled) to the `installBin` jar
+      staging so the first-class PG backend works without manual staging. **Same
+      pattern as the pdf-plugin jar staging** (watch for the commons-logging eviction
+      gotcha we hit there). Verify: fresh `sbt cli/installBin`, then a `.ssc` opening
+      `postgres://…` connects with no manual jar copy.
+
+- [ ] **pg-listen-notify-extern** (low-pri) — LISTEN/NOTIFY *receive* side. Publish
+      already works (`SELECT pg_notify(?, ?)` through `Db.query`). Receiving needs a
+      **held connection** draining `getNotifications()`, which the stateless
+      `Db.execute` / `Db.query` cannot express. Add externs like
+      `pgListen(channel)` / `getNotifications()` (held-connection drain). Until it
+      lands, busi multi-instance cache invalidation falls back to per-request reload
+      (`BUSI_MULTI_WRITER`); NOTIFY is the optimization once the extern ships.
+      Single-node unaffected. Likely lives in `backend/postgres` or a `pg-plugin`.
