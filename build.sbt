@@ -1211,8 +1211,13 @@ lazy val backendConfigRuntime = project
 // Maps user-facing prefixes (sqlite:, duckdb:, postgres:, …) to their
 // Self-contained (no `ir` / `backend-spi` / `core` deps): takes a
 // `java.sql.Connection`, a `?`-templated SQL string, and an ordered
-// bind list, returns a `Row`-based result.  Bundles H2 + SQLite so
-// the standard examples / quickstarts work with zero configuration.
+// bind list, returns a `Row`-based result.  Bundles H2 + SQLite + PostgreSQL
+// (driver + HikariCP pool) so the standard examples / quickstarts — and the
+// first-class `postgres:`/`jdbc:postgresql:` backend — work with zero
+// configuration: these are the drivers `installBin` stages into bin/lib/jars/,
+// so a fresh `ssc` binary resolves `jdbc:postgresql:` out of the box instead of
+// throwing "No suitable driver" (the Postgres driver was previously only a
+// `clientPostgres` dep, which is not on the CLI runtime classpath).
 // DbUrl (canonical DB URL scheme mapping) lives here.
 lazy val backendSqlRuntime = project
   .in(file("backend/sql"))
@@ -1223,6 +1228,8 @@ lazy val backendSqlRuntime = project
       "com.lihaoyi"       %% "ujson"          % upickleV,
       "com.h2database"     %  "h2"              % "2.2.224",
       "org.xerial"         %  "sqlite-jdbc"     % "3.45.3.0",
+      "org.postgresql"     %  "postgresql"      % "42.7.3",
+      "com.zaxxer"         %  "HikariCP"        % "5.1.0",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
