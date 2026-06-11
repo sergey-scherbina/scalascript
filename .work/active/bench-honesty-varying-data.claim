@@ -1,0 +1,6 @@
+feature/bench-honesty-varying-data 2026-06-11T07:12:34Z
+agent: claude-code
+heartbeat: 2026-06-11T07:12:34Z
+status: in-progress
+done-so-far: T2.3 closed; JS+Rust columns already audited honest
+next: audit JVM+interp cross-backend cells for fold artifacts (BENCH_SINK-quotient method)
