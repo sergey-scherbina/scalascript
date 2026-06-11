@@ -1,0 +1,5 @@
+slug: busi-p2-emit-js-transitive-imports
+agent: opus-4-8-session
+started: 2026-06-11T13:04:11Z
+heartbeat: 2026-06-11T13:04:11Z
+desc: SPRINT busi-p2 — emit-js linker does not hoist transitive imports into sub-module IIFEs (A->B->C: A bundle does not close B's IIFE over C). Distinct from sibling js-content-toolkit-transitive-register (content-block registration).
