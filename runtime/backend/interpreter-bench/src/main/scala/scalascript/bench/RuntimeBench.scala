@@ -238,13 +238,18 @@ private def jsServerScript(n: Int): String =
       |  }
       |}
       |
-      |// js-codegen-opt-p2: constant tuple hoisted as frozen const before loop
-      |const _k_tuple = Object.freeze(Object.assign([1, 2, 3, 4], {_isTuple: true}));
+      |// honesty (T2.1): loop-VARYING tuple built from the counter, all four
+      |// components accumulated — matches the JVM workload so the cross-backend
+      |// comparison is apples-to-apples and neither side can fold a constant.
       |function bench_tupleMonoid() {
       |  let i = 0;
-      |  let last = Object.assign([0, 0, 0, 0], {_isTuple: true});
-      |  while (i < 100000) { last = _k_tuple; i = i + 1; }
-      |  return last;
+      |  let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
+      |  while (i < 100000) {
+      |    const t = Object.assign([i, i + 1, i + 2, i + 3], {_isTuple: true});
+      |    s0 = s0 + t[0]; s1 = s1 + t[1]; s2 = s2 + t[2]; s3 = s3 + t[3];
+      |    i = i + 1;
+      |  }
+      |  return Object.assign([s0, s1, s2, s3], {_isTuple: true});
       |}
       |
       |function bench_patternMatch() {
@@ -336,13 +341,16 @@ private def jvmServerScript(n: Int): String =
       |  total
       |
       |def bench_tupleMonoid(): (Int, Int, Int, Int) =
-      |  val k = (1, 2, 3, 4)  // constant; hoisted by JVM JIT
+      |  // honesty (T2.1): loop-VARYING tuple built from the counter and all four
+      |  // components accumulated, so HotSpot cannot hoist a loop-invariant constant
+      |  // (the old `last = k` collapsed to 0.011 us — a fake fold).
       |  var i = 0
-      |  var last = (0, 0, 0, 0)
+      |  var s0 = 0; var s1 = 0; var s2 = 0; var s3 = 0
       |  while i < 100000 do
-      |    last = k
+      |    val t = (i, i + 1, i + 2, i + 3)
+      |    s0 = s0 + t._1; s1 = s1 + t._2; s2 = s2 + t._3; s3 = s3 + t._4
       |    i = i + 1
-      |  last
+      |  (s0, s1, s2, s3)
       |
       |// ── Server harness ──────────────────────────────────────────────────────────
       |val N = $n

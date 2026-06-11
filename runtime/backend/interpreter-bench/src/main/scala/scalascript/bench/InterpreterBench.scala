@@ -156,13 +156,21 @@ class InterpreterBench:
       |emitted.length""".stripMargin
   )
 
+  // honesty (T2.1): the `++` operands are built from the loop counter and every
+  // component is accumulated, so the tuple-monoid concat genuinely runs each
+  // iteration. The old `(1, 2) ++ (3, 4)` was loop-invariant — `tryHoistedPureWhile`
+  // hoisted it out and the empty counter loop folded (0.008 ms, measuring nothing).
+  // 1_000 iters: the honest tuple-`++` path is ~20 us/iter in the interp
+  // (typeclass dispatch, not JIT'd), so a larger count would make this a
+  // multi-hundred-ms suite outlier without changing the per-iteration signal.
   private val modTupleMonoid: Module = src(
     """var i = 0
-      |var last = (0, 0, 0, 0)
-      |while i < 100000 do
-      |  last = (1, 2) ++ (3, 4)
+      |var s = 0
+      |while i < 1000 do
+      |  val t = (i, i + 1) ++ (i + 2, i + 3)
+      |  s = s + t._1 + t._2 + t._3 + t._4
       |  i = i + 1
-      |last""".stripMargin
+      |s""".stripMargin
   )
 
   // val-bound constant tuple: `last = k` where k is a val.
