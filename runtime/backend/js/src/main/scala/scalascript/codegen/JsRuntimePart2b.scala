@@ -171,11 +171,11 @@ function _dispatch(obj, method, args) {
       case 'size': return obj.size;
       case 'isEmpty': return obj.size === 0;
       case 'nonEmpty': return obj.size > 0;
-      case 'updated': { const m2=new Map(obj); m2.set(args[0],args[1]); return m2; }
-      case 'removed': { const m2=new Map(obj); m2.delete(args[0]); return m2; }
+      case 'updated': return _mapUpdated(obj, args[0], args[1]);   // O(log n) structural sharing
+      case 'removed': return _mapRemoved(obj, args[0]);
       case 'mkString': return [...obj.entries()].map(([k,v])=>_show(k)+'->'+_show(v)).join(args[0]??'');
       case 'map': return [...obj.entries()].map(([k,v])=>args[0]([k,v]));
-      case 'filter': return new Map([...obj.entries()].filter(([k,v])=>args[0]([k,v])));
+      case 'filter': return _hamtOf([...obj.entries()].filter(([k,v])=>args[0]([k,v])));
       case 'toList': return [...obj.entries()].map(([k,v])=>{ const t=[k,v]; t._isTuple=true; return t; });
       case 'foreach': [...obj.entries()].forEach(([k,v])=>args[0]([k,v])); return undefined;
     }

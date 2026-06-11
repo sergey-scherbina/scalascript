@@ -231,18 +231,100 @@ List.range    = (from, until, step=1) => { const r=[]; for(let i=from;i<until;i+
 List.empty    = [];
 const Nil = [];
 
-// Map predicate. Replaces the 71 raw `x instanceof Map` checks so the ssc
-// immutable-Map representation can later become a persistent `_HAMT` (T2.2)
-// without touching every consumer site again. For now it is exactly the old
-// check (no behaviour change); the HAMT activation extends it to
-// `x instanceof Map || x instanceof _HAMT`.
-function _isMap(x) { return x instanceof Map; }
-
-function _Map(...pairs) {
-  const m = new Map();
-  pairs.forEach(p => m.set(p[0], p[1]));
+// ── Persistent immutable Map (_HAMT) — T2.2 ───────────────────────────────────
+// The ssc immutable Map. A path-copying 8-nibble trie on a 32-bit hash of a
+// canonical key string; `updated`/`removed` copy only the O(8) nodes on the path
+// (structural sharing) instead of the old O(n) `new Map(obj)` copy. Keys use
+// value equality via the canonical string (matches the interpreter's
+// `Map[Value,Value]`; for primitives this coincides with native-Map equality).
+// Exposes the native-Map read interface (has/get/size/keys/values/entries/
+// iterator/forEach) so every `_isMap` consumer works on both reps unchanged, and
+// native Maps and `_HAMT`s interoperate freely.
+const _HMISS = Symbol('miss');
+function _hKey(k) {
+  const t = typeof k; let s;
+  if (t === 'string') s = 's' + k;
+  else if (t === 'number') s = 'n' + k;
+  else if (t === 'boolean') s = 'b' + k;
+  else if (k === null || k === undefined) s = 'u';
+  else s = 'o' + _show(k);
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  return [h >>> 0, s];
+}
+function _hGet(node, hash, d, ks) {
+  if (node === undefined) return _HMISS;
+  if (d === 8) { for (const e of node) if (e[0] === ks) return e[2]; return _HMISS; }
+  return _hGet(node[(hash >>> (d * 4)) & 0xf], hash, d + 1, ks);
+}
+function _hPut(node, hash, d, ks, k, v) {
+  if (d === 8) {
+    const bucket = node || [];
+    const i = bucket.findIndex(e => e[0] === ks);
+    if (i >= 0) { const nb = bucket.slice(); nb[i] = [ks, k, v]; return [nb, 0]; }
+    return [bucket.concat([[ks, k, v]]), 1];
+  }
+  const nib = (hash >>> (d * 4)) & 0xf;
+  const [nc, delta] = _hPut(node ? node[nib] : undefined, hash, d + 1, ks, k, v);
+  const nn = node ? { ...node } : {};
+  nn[nib] = nc;
+  return [nn, delta];
+}
+function _hDel(node, hash, d, ks) {
+  if (node === undefined) return [node, 0];
+  if (d === 8) {
+    const i = node.findIndex(e => e[0] === ks);
+    if (i < 0) return [node, 0];
+    const nb = node.slice(); nb.splice(i, 1);
+    return [nb.length ? nb : undefined, 1];
+  }
+  const nib = (hash >>> (d * 4)) & 0xf;
+  if (node[nib] === undefined) return [node, 0];
+  const [nc, del] = _hDel(node[nib], hash, d + 1, ks);
+  if (!del) return [node, 0];
+  const nn = { ...node };
+  if (nc === undefined) delete nn[nib]; else nn[nib] = nc;
+  return [nn, 1];
+}
+function* _hEntries(node, d) {
+  if (node === undefined) return;
+  if (d === 8) { for (const e of node) yield [e[1], e[2]]; return; }
+  for (let i = 0; i < 16; i++) if (node[i] !== undefined) yield* _hEntries(node[i], d + 1);
+}
+class _HAMT {
+  constructor(root, size) { this._r = root; this._n = size; }
+  get size() { return this._n; }
+  has(k) { const [h, ks] = _hKey(k); return _hGet(this._r, h, 0, ks) !== _HMISS; }
+  get(k) { const [h, ks] = _hKey(k); const v = _hGet(this._r, h, 0, ks); return v === _HMISS ? undefined : v; }
+  updated(k, v) { const [h, ks] = _hKey(k); const [r, d] = _hPut(this._r, h, 0, ks, k, v); return new _HAMT(r, this._n + d); }
+  removed(k) { const [h, ks] = _hKey(k); const [r, d] = _hDel(this._r, h, 0, ks); return d ? new _HAMT(r, this._n - 1) : this; }
+  *entries() { yield* _hEntries(this._r, 0); }
+  *keys() { for (const [k] of _hEntries(this._r, 0)) yield k; }
+  *values() { for (const [, v] of _hEntries(this._r, 0)) yield v; }
+  forEach(f) { for (const [k, v] of _hEntries(this._r, 0)) f(v, k, this); }
+  [Symbol.iterator]() { return _hEntries(this._r, 0); }
+}
+// Build a persistent map from [k,v] pairs (any iterable of pairs).
+function _hamtOf(pairs) {
+  let m = new _HAMT(undefined, 0);
+  for (const p of pairs) m = m.updated(p[0], p[1]);
   return m;
 }
+// updated/removed that accept either rep and always return a persistent _HAMT
+// (converting a native Map on first write).
+function _mapUpdated(m, k, v) {
+  return (m instanceof _HAMT ? m : _hamtOf(m.entries())).updated(k, v);
+}
+function _mapRemoved(m, k) {
+  return (m instanceof _HAMT ? m : _hamtOf(m.entries())).removed(k);
+}
+
+// Map predicate — true for both the native-Map rep (internal runtime maps) and
+// the persistent `_HAMT` (ssc immutable Map). All 71 consumer sites go through
+// this (see T2.2 p2 sweep), so the two reps are interchangeable for reads.
+function _isMap(x) { return x instanceof Map || x instanceof _HAMT; }
+
+function _Map(...pairs) { return _hamtOf(pairs); }
 
 // ── `.copy(...)` helper — fills positional args against the object's
 // own key order, then applies named overrides on top. Case-class

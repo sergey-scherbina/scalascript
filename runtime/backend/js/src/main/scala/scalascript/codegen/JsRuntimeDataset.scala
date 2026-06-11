@@ -140,9 +140,9 @@ class _Dataset {
       else m.set(k, { key: x, count: 1 });
     }
     // Mirror INT/JVM output — a Map of value → count
-    const out = _Map();
+    const out = new Map();
     for (const { key, count } of m.values()) out.set(key, count);
-    return out;
+    return _hamtOf(out);
   }
   // partition(p) — (matching, non-matching) as a tuple of two lists.
   // Matches Scala List.partition.
@@ -162,13 +162,13 @@ class _Dataset {
   // toMap — elements must be 2-tuples (the _isTuple flag from Term.Tuple
   // codegen). Returns an _Map preserving last-wins on duplicate keys.
   toMap() {
-    const m = _Map();
+    const m = new Map();
     for (const x of this.collect()) {
       if (!x || !x._isTuple || x.length !== 2)
         throw new Error('Dataset.toMap: element is not a 2-tuple: ' + _show(x));
       m.set(x[0], x[1]);
     }
-    return m;
+    return _hamtOf(m);
   }
   // toSet — deduped list (no dedicated Set type in the runtime).
   toSet() {
