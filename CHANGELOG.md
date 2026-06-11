@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — feat(rust): curried / multi-parameter-group functions
+
+- The Rust backend rejected any `def f(a)(b)` with "multiple parameter groups; R.2
+  accepts a single group", and a curried call `f(a)(b)` reported "no resolvable
+  name" because the callee was a nested `Term.Apply`. Now multi-group defs flatten
+  into a single Rust `fn` signature (the param-flatten already existed; only the
+  ">1 group" guard was dropped in `renderParams`/`renderMutParams`), and a new
+  `renderTerm` case flattens the curried call chain into a single-group synthetic
+  `Apply` and recurses (distinct from method chains, whose callee is a `Term.Select`).
+  Verified: 2- and 3-group curried defs + calls emit and `cargo build` clean;
+  `backendRust` 191 green + `RustGenCurriedDefsTest` (3). The `using`-evidence /
+  typeclass case is a separate follow-up — it still needs typeclass→trait
+  monomorphisation since `Show[A]` isn't a mappable Rust type — but the
+  multi-group plumbing it depends on is now in place.
+
 ## 2026-06-11 — test(examples): smoke test so silently-broken examples are caught (ExamplesSmokeTest)
 
 - Adds `ExamplesSmokeTest` (cli) with two guards: (1) a **lint** over every
