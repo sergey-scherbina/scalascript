@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — feat(std.ui): content-toolkit live-row binding completes ui-content-toolkit (3b)
+
+- **ui-content-toolkit 3b** — A `toolkit:table?rows=<id>` Markdown link now binds to a
+  `ContentRowBinding` registered in `ContentToolkitOptions.rowBindings`, rendering a live
+  `DataTable` whose rows come from a runtime fetch `Signal` instead of a static YAML
+  fence. Mirrors the 3a action registry: id resolved at lower time → `DataTableNode`
+  (reusing the existing web `<table>` / native `JTable` lowering + `fcol` field columns);
+  unregistered ids fail loudly listing available ids. `.ssc`: `ContentRowBinding`,
+  `contentRows(id, rows, columns, actions?)`, `contentToolkitOptionsWithRows`. Plugin:
+  `ContentIntrinsics` `rowBindingRegistry` + `case "table"` toolkit-link branch. Example
+  `examples/content-live-rows.ssc`; 4 tests (2 `ContentPluginInterpreterTest` + 2
+  end-to-end `MarkdownContentFrontendSmokeTest` through `emit`). Completes the
+  `ui-content-toolkit` milestone (3a + 3b); unlocks Markdown-authored live-data screens.
+
 ## 2026-06-11 — fix(interp): user-wins + warning on plugin-intrinsic name collision (busi-p3-ratelimit-intrinsic-shadow)
 
 - **busi-p3-ratelimit-intrinsic-shadow** — A user top-level `def` sharing a

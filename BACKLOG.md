@@ -6,15 +6,19 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Language Surface — Markdown Frontend from Content
 
-- [~] **ui-content-toolkit** (busi UI proposals P3) — Spec:
+- [x] **ui-content-toolkit** (busi UI proposals P3) — ✓ Complete (3a + 3b). Spec:
       [`specs/std-ui-content-toolkit.md`](specs/std-ui-content-toolkit.md).
       **3a action registry ✓ Landed 2026-06-10:** `toolkit:button?action=<id>` Markdown
       links bind to an EventHandler in `ContentToolkitOptions.actions` (id→handler, e.g.
       `fetchJsonAction`) → `ActionButtonNode`; unregistered ids fail loudly. content-plugin
       `ContentIntrinsics` + `.ssc` (`actions`/`contentAction`/`contentToolkitOptionsWithActions`);
       22 content-plugin tests. Unlocks Markdown-authored *write* screens.
-      **3b live-signal binding** (bind a `Signal[JsonValue]` as a content table's rows) —
-      remaining follow-up; start when a concrete content-authored screen needs live data.
+      **3b live-signal binding ✓ Landed 2026-06-11:** `toolkit:table?rows=<id>` Markdown
+      links bind to a `ContentRowBinding` in `ContentToolkitOptions.rowBindings` (signal +
+      `fcol` columns + optional per-row actions) → `DataTableNode`, reusing the existing
+      DataTable lowering; unregistered ids fail loudly. `.ssc`: `ContentRowBinding`,
+      `contentRows`, `contentToolkitOptionsWithRows`. Example `content-live-rows.ssc`;
+      4 tests (2 plugin + 2 end-to-end through `emit`). Unlocks Markdown-authored *live-data* screens.
 
 - [ ] **markdown-content-introspection-api** — After `markdown-frontend-mvp`,
       expose the shared content snapshot as the broader `std/content` metadata
