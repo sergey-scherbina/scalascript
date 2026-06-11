@@ -19,6 +19,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   to `[]`; the static and signal-rows paths route through the same helper, so
   `renderTable` never sees a non-array. Test in `JsGenStdImportTest`; spec
   `specs/js-backend-ui-render-gaps.md` §Layer 3.
+## 2026-06-11 — fix(server): concurrent servers in one process (busi federation regression)
+
+- **concurrent-servers** — Two `serveAsync`/`startServer` on different ports in
+  one process: the second never bound (ConnectException), breaking busi's
+  federation A↔B peer ceremony. Root cause: `WebServer` used a cached singleton
+  `HttpServerSpi` backend whose `start` short-circuits on `if _running then
+  return`, so the second concurrent start no-op'd while `onBound` still fired
+  (serveAsync falsely reported success). Latent; the block-until-bind rewrite
+  (`0bf9edc71`) exposed it by serializing the starts. Fix: each server gets a
+  fresh backend instance (`HttpServerSpi.fresh()` / `HttpServerBackends.
+  freshInstance()`) + its own serve-loop latch; `WebServer.stop()` tears down all
+  (idempotent). Interpreter serving path (busi's federation runs here); JvmGen
+  `ProxyRuntime` parity is a noted follow-up. Spec `specs/concurrent-servers.md`;
+  ServeAsyncReadyTest +concurrent-bind case; suites green (interp-server 50, SPI
+  9, runtimeServerJvm 30).
 
 ## 2026-06-11 — feat(std.pdf): PDF text extraction — pdfToMarkdown / pdfPageCount (busi PIT-11 parsing)
 
