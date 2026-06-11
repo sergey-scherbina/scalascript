@@ -1,0 +1,6 @@
+feature/jvmgen-decompose-p1 2026-06-11T05:34:33Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-11T05:34:33Z
+status: in-progress
+done-so-far:
+next: extract Effect-analysis section into trait JvmEffectAnalysis
