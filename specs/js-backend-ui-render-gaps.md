@@ -1,6 +1,6 @@
 # JS-backend UI render gaps
 
-> Status: in progress (2026-06-11). Reported by busi (rozum seq-79).
+> Status: ✓ Landed (2026-06-11). Reported by busi (rozum seq-79).
 > Owner: scalascript. Slug: `js-backend-ui-render-gaps`.
 
 ## Problem

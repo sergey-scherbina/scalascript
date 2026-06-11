@@ -165,6 +165,15 @@ or a bare `FetchUrlSignal` (legacy path auto-wrapped as `Remote`).
 New intrinsics: `staticRowsSource`, `signalRowsSource`.
 New `.ssc` helpers: `staticDataTable`, `signalDataTable` in `std/ui/data.ssc`.
 
+**JS browser backend parity (2026-06-11).** The five row-data natives
+(`staticRowsSource`, `signalRowsSource`, `fieldPayload`, `wholeRowPayload`,
+`fieldsPayload`) had no `_ssc_ui_*` shim in the JS Signals runtime, so an
+emit-spa bundle calling them threw `not callable` and blanked the SPA. They are
+now defined, and the JS `_DataTableView` renderer + mount handle `StaticRows`
+(inline JSON, no fetch) and `SignalRows` (subscribe to the rows signal) in
+addition to the legacy `Remote` fetch path — closing the Phase-2/Phase-3 gap on
+the browser backend. See [`specs/js-backend-ui-render-gaps.md`](js-backend-ui-render-gaps.md).
+
 ### Phase 3 - Column and action expressiveness
 
 Add structured column kinds or renderers for common business UI needs:
