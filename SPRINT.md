@@ -788,10 +788,12 @@ fix, and don't require a runtime refactor.
 
 ### P3 — name shadowing from plugin intrinsics
 
-- [ ] **busi-p3-ratelimit-intrinsic-shadow** — `rateLimit` plugin
-      intrinsic shadows a user-defined `rateLimit(req: Any)` without
-      warning. Need a policy: user wins / qualified resolution /
-      compile-time error on collision.
+- [x] **busi-p3-ratelimit-intrinsic-shadow** [landed 2026-06-11] — Policy
+      chosen: **user wins + warning**. A user top-level `def` sharing a bare
+      name with a plugin intrinsic now always wins; a one-time `[warn]` is
+      emitted (recorded in `intrinsicShadowWarnings`). Both load orderings
+      handled. Spec `specs/intrinsic-shadow-policy.md`; 4 tests in
+      `IntrinsicShadowTest`.
 
 - [ ] **busi-p3-module-fn-name-conflict** — Function-name conflicts
       across imported modules (`htmlEsc` defined in two modules)
@@ -800,17 +802,14 @@ fix, and don't require a runtime refactor.
 
 ### P4 — future externs (not blocking today)
 
-- [ ] **busi-p4-ed25519-rsa-verify** — Ed25519 / RSA `verify` externs
-      for upcoming busi phase 87g (signature verification). Phase spec
-      already plans HMAC fallback with `TODO(scalascript-signatures)`,
-      so not a blocker, but once phase 87g lands without it there will
-      be a `signature.unsupported` flag in prod. Nice to have before
-      87g enters the active queue.
+- [x] **busi-p4-ed25519-rsa-verify** [landed 2026-06-10, commit 778116b33] —
+      Ed25519 / RSA public-key `verify` externs in std.crypto (JVM). Closes the
+      `signature.unsupported` quarantine for busi phase 87g.
 
-- [ ] **busi-p4-smtp-send-extern** — Native `smtpSend` extern. Today
-      live email goes through an HTTP relay (`BUSI_EMAIL_HTTP_URL`).
-      Standalone installations without a relay will need a JavaMail
-      extern, or an explicit "relay-only forever" decision.
+- [x] **busi-p4-smtp-send-extern** [landed 2026-06-10, commit 4ebd4e393] —
+      Native `smtpSend` extern via the opt-in `smtp-plugin` (dependency-free
+      RFC 5321 client: EHLO→STARTTLS→AUTH LOGIN→MAIL/RCPT/DATA→QUIT). Removes
+      the relay requirement for standalone installs. 6 e2e tests.
 
 ### P1 — new busi-side bugs (2026-06-09)
 

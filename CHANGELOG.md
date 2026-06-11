@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — fix(interp): user-wins + warning on plugin-intrinsic name collision (busi-p3-ratelimit-intrinsic-shadow)
+
+- **busi-p3-ratelimit-intrinsic-shadow** — A user top-level `def` sharing a
+  bare name with a plugin intrinsic (e.g. `rateLimit` from `auth-plugin`) no
+  longer silently loses to the intrinsic. Policy: **user wins + warning** — the
+  user definition always resolves; a one-time `[warn]` is emitted and the name
+  recorded in `Interpreter.intrinsicShadowWarnings`. Both load orderings
+  handled (native-first overwrite in `StatRuntime`; user-def-first guarded in
+  `installNativeIntrinsicEntries`). Local defs and non-colliding modules
+  unaffected. Spec `specs/intrinsic-shadow-policy.md`; 4 tests
+  (`IntrinsicShadowTest`); user-guide §21.8. Also corrected two stale SPRINT
+  entries — `busi-p4-smtp-send-extern` and `busi-p4-ed25519-rsa-verify` were
+  already landed (2026-06-10) but still marked open.
+
 ## 2026-06-11 — verify+close: interp column honest, T2.1 substantially done (bench-honesty-varying-data-p3, Tier 2 / T2.1)
 
 - **bench-honesty-varying-data-p3** — Tier-2 measurement integrity; closes the
