@@ -40,7 +40,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-06-11 — emit-js transitive imports verified + regression guards (busi-p2)
 
-- **busi-p2-emit-js-transitive-imports** (no longer reproduces) — The reported
+- **busi-p2-emit-js-transitive-imports** (no longer reproduces, confirmed on
+  busi rulepack-graph) — The reported
   drop of transitive imports through `emit-js` (`A → B → C`) does not reproduce
   on the current backend: `genImport` recurses into a child module's own
   imports and imported modules are emitted in full (child `JsGen` carries no
@@ -50,8 +51,11 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   per-segment `_output` flush) for three shapes — package `A→B→C`, name-only
   `A→B→C`, and 4-level `A→B→C→D` — each prints its transitively-computed
   result. Added regression guards in `JsGenStdImportTest` with fixtures under
-  `examples/js-transitive-iife{,-nopkg,-4}/`. Awaiting a concrete repro if a
-  specific module shape (wildcard `import x.*`, re-export) still drops.
+  `examples/js-transitive-iife{,-nopkg,-4}/`. busi confirmed (rozum seq-110):
+  `ssc emit-js web/app.ssc` on their deepest real graph (616 KB bundle) loads
+  clean under node with zero `ReferenceError` — closed. Their graph uses only
+  `[name](path)` imports; wildcard / re-export in emit-js scope would need a
+  synthetic repro.
 
 ## 2026-06-11 — feat(crypto): sha256OfBase64 + byteLengthUtf8 (busi seq-100 KSeF)
 

@@ -825,8 +825,9 @@ fix, and don't require a runtime refactor.
       via `emit-spa`, but `emit-js` is effectively unusable in the
       browser today.
 
-- [x] **busi-p2-emit-js-transitive-imports** [no longer reproduces 2026-06-11]
-      — `emit-js` was reported to drop transitive imports (`A → B → C`, bundle
+- [x] **busi-p2-emit-js-transitive-imports** [no longer reproduces 2026-06-11,
+      confirmed on busi rulepack-graph] — `emit-js` was reported to drop
+      transitive imports (`A → B → C`, bundle
       of `A` not closing `B`'s code over `C`). Does **not** reproduce on the
       current backend: `genImport` recurses into a child module's own imports
       (`childGen.genImport(nestedImp)`), and imported modules are emitted in
@@ -838,8 +839,13 @@ fix, and don't require a runtime refactor.
       (no-package) `A→B→C`, and 4-level `A→B→C→D` — all run and print the
       transitively-computed result. Regression guards added in
       `JsGenStdImportTest` (`examples/js-transitive-iife{,-nopkg,-4}/`).
-      Awaiting a concrete repro if busi still observes a drop on a specific
-      module shape (e.g. wildcard `import x.*` or a re-export pattern).
+      busi confirmed (rozum seq-110): `ssc emit-js web/app.ssc` on their
+      deepest real graph (`app → rulepack_studio → rulepack_list /
+      schema_inference → std/ui/{content,data,…}`, 616 KB bundle) loads clean
+      under node with zero `ReferenceError` — the whole transitive graph and
+      top-level `appView` build. Their graph uses only `[name](path)` imports
+      (no wildcard / re-export in emit-js scope), so those forms would need a
+      synthetic repro, not a busi one. Closed.
 
 ### P3 — name shadowing from plugin intrinsics
 
