@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — fix(js): normalise DataTable fetch response into rows (js-datatable-remote-envelope)
+
+- **js-datatable-remote-envelope** (busi seq-87) — Once the SPA mounted (after the
+  `js-backend-ui-render-gaps` fixes), Remote-source tables
+  (`dataTable(fetchUrlSignal(url), cols)`) rendered empty with two console errors:
+  `(rows || []).forEach is not a function` (the mount's `doFetch()` called
+  `renderTable` directly on `r.json()`, but list endpoints answer either a bare
+  array or an envelope `{"data":[…],"count":N}`) and `Unexpected token '<'`
+  (`r.json()` on a misrouted path returning the SPA's own HTML). Added a shared,
+  unit-testable `_ssc_ui_rowsOf(v)` that coerces a bare array, a JSON string, or a
+  `{data|rows|items|results:[...]}` envelope into an array (object-without-list /
+  HTML / null → `[]`). `doFetch` now reads `r.text()`, normalises, and `.catch`es
+  to `[]`; the static and signal-rows paths route through the same helper, so
+  `renderTable` never sees a non-array. Test in `JsGenStdImportTest`; spec
+  `specs/js-backend-ui-render-gaps.md` §Layer 3.
+
 ## 2026-06-11 — feat(std.pdf): PDF text extraction — pdfToMarkdown / pdfPageCount (busi PIT-11 parsing)
 
 - **pdf-text-extraction** — The reading counterpart to `htmlToPdfBase64`: extract
