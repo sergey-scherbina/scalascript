@@ -151,6 +151,42 @@ Generalises invariant-call folding in the interpreter JIT.
   (product accumulators, Double, non-counter shapes) is out of scope — no bench
   currently demonstrates a gap there.
 
+### T3 — Interpreter JIT object-construction coverage — `interp-jit-object-construct` ◻ OPEN
+
+Surfaced by `bench-honest-corpus-seed`: once the folds were removed, two corpus
+workloads showed pathological interpreter times because the bytecode JIT **bails
+the whole loop to slow tree-walk** when the body constructs an object. Diagnosed
+with `ssc lint-jit` + on/off A/B (the JIT contributes ~nothing — on≈off):
+
+| Workload | interp (honest) | jvm | Lint bail | Root cause |
+|---|---|---|---|---|
+| `instance-field` | ~57 ms | 6 µs | `workload` NOT JIT | `Vec(x, y)` case-class **constructor** in the loop body unsupported → tree-walk |
+| `tuple-monoid` | ~960 ms | 0.09 ms | `workload` NOT JIT | tuple literal `(a, b)` construction + `++` on non-primitive → tree-walk |
+
+**Not a bail (do NOT "fix"):** `bool-predicate` (0.8 µs), `either-chain`,
+`option-chain`, `literal-match` all lint **JIT OK**; their 9–12 µs interp cost is
+*honest* per-iteration work (monadic `Either`/`Option` allocation + closures), not
+a tree-walk fallback. The AOT backends are faster only because escape analysis
+removes those allocations — a real codegen-quality gap, not a measurement issue.
+
+**The fix (large, two-backend, core-VM).** Teach the bytecode VM to construct
+ref-bank objects:
+- New construct opcode(s) in `SscVm` (`runtime/backend/interpreter/.../vm/SscVm.scala`):
+  allocate a `Value.InstanceV` / `Value.TupleV` with N numeric/ref fields onto the
+  ref-bank. The VM already reads them (`GETFI`, `ISTAG`, `RETREF`) and the dual-bank
+  LExpr layer already has `LApplyR1/R2` + `LRefFieldGet` — this adds the missing
+  *producer* side.
+- `VmCompiler` lowering for case-class / tuple constructor calls + the `++` tuple op.
+- Parity across both JIT backends (`JavacJitBackend`, `AsmJitBackend`). Safe
+  increment: land Javac first; ASM keeps bailing (no regression) until brought up.
+- Update `JitBailReason` + `JitLint` so the linter stops reporting the now-supported
+  forms; extend `SscVmTest` with construct-in-loop cases as the gate.
+
+**Recommended order:** InstanceV/case-class construction first (case classes in
+loops are ubiquitous in real code; tuple `++` is narrower). **Acceptance:**
+`instance-field` lints JIT-OK and drops to low single-digit ms; no regression on
+the bench sweep or the backendInterpreter suite (Javac + ASM).
+
 ## Out of scope
 
 - AOT codegen passes (`aot-hoist`, `aot-mutual-tco`) — already largely landed.
