@@ -197,6 +197,96 @@ class MarkdownContentFrontendSmokeTest extends AnyFunSuite:
     assert(js.contains("flexDirection: 'column'"))
     assert(js.contains("fontSize: '24px'"))
 
+  test("toolkit:table?rows=<id> binds a live fetch signal as a Markdown table's rows (content-toolkit 3b)"):
+    val outDir = Files.createTempDirectory("ssc-content-live-rows")
+    val src =
+      s"""---
+         |name: content-live-rows-smoke
+         |frontend: react
+         |---
+         |
+         |# Billing
+         |
+         |## Invoices {#invoices}
+         |
+         |- [Invoices](toolkit:table?rows=invoices)
+         |
+         |[contentToolkitSection, contentRows, contentToolkitOptionsWithRows](std/ui/content.ssc)
+         |
+         |[fcol](std/ui/data.ssc)
+         |
+         |[lower](std/ui/lower.ssc)
+         |
+         |[defaultTheme](std/ui/theme.ssc)
+         |
+         |[signal, emit, fetchUrlSignal](std/ui/primitives.ssc)
+         |
+         |```scala
+         |val tick    = signal("tick", 0)
+         |val authHdr = signal("authHdr", "")
+         |val rows    = fetchUrlSignal("invoices", "/api/invoices", tick, authHdr)
+         |val columns = [fcol("No.", "number"), fcol("Client", "client.name"), fcol("Amount", "total")]
+         |val opts    = contentToolkitOptionsWithRows(Map(contentRows("invoices", rows, columns)))
+         |emit(lower(contentToolkitSection("invoices", opts), defaultTheme), "${outDir.toString}")
+         |println("content-live-rows:ok")
+         |```
+         |""".stripMargin
+
+    val buf = java.io.ByteArrayOutputStream()
+    val ps  = java.io.PrintStream(buf, true)
+    val interp = Interpreter(out = ps, headless = true, baseDir = Some(TestPaths.repoRoot))
+    interp.injectGlobal("_ssc_frontend_name", Value.StringV("react"))
+    interp.run(Parser.parse(src))
+    ps.flush()
+
+    assert(buf.toString.contains("content-live-rows:ok"))
+    assert(Files.exists(outDir.resolve("index.html")))
+    val js = Files.readString(outDir.resolve("app.js"))
+    // The live table renders the authored column headers and fetches from the bound URL.
+    assert(js.contains("/api/invoices"), s"expected the bound fetch URL in app.js")
+    assert(js.contains("No.") && js.contains("Client") && js.contains("Amount"),
+      "expected the authored column headers in app.js")
+
+  test("toolkit:table?rows=<id> with an unregistered id fails loudly end-to-end"):
+    val src =
+      s"""---
+         |name: content-live-rows-missing-smoke
+         |frontend: react
+         |---
+         |
+         |# Billing
+         |
+         |## Invoices {#invoices}
+         |
+         |- [Invoices](toolkit:table?rows=nope)
+         |
+         |[contentToolkitSection, contentRows, contentToolkitOptionsWithRows](std/ui/content.ssc)
+         |
+         |[fcol](std/ui/data.ssc)
+         |
+         |[lower](std/ui/lower.ssc)
+         |
+         |[defaultTheme](std/ui/theme.ssc)
+         |
+         |[signal, fetchUrlSignal](std/ui/primitives.ssc)
+         |
+         |```scala
+         |val tick    = signal("tick", 0)
+         |val authHdr = signal("authHdr", "")
+         |val rows    = fetchUrlSignal("invoices", "/api/invoices", tick, authHdr)
+         |val opts    = contentToolkitOptionsWithRows(Map(contentRows("invoices", rows, [fcol("No.", "number")])))
+         |lower(contentToolkitSection("invoices", opts), defaultTheme)
+         |```
+         |""".stripMargin
+
+    val interp = Interpreter(out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+                             headless = true, baseDir = Some(TestPaths.repoRoot))
+    interp.injectGlobal("_ssc_frontend_name", Value.StringV("react"))
+    val err = intercept[Throwable](interp.run(Parser.parse(src)))
+    assert(err.getMessage.contains("rows 'nope' is not registered"),
+      s"expected a loud unregistered-rows error, got: ${err.getMessage}")
+    assert(err.getMessage.contains("invoices"), "error should list available row-binding ids")
+
   test("markdown toolkit links emit real frontend controls without YAML"):
     val outDir = Files.createTempDirectory("ssc-markdown-toolkit-links")
     val src =

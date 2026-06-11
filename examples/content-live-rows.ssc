@@ -1,0 +1,50 @@
+---
+name: content-live-rows
+description: Bind a live fetch signal as the rows of a Markdown-authored table (content-toolkit 3b).
+frontend: react
+content:
+  defaultRenderer: toolkit
+---
+
+# Billing
+
+This screen is authored in Markdown. The table below is declared as an ordinary
+`toolkit:table` link whose `rows=<id>` binds to a live data source registered in
+ScalaScript code — the rows come from a runtime fetch signal, not a static fence.
+
+## Invoices {#invoices}
+
+- [Invoices](toolkit:table?rows=invoices)
+
+## Run
+
+[contentToolkitSection, contentRows, contentToolkitOptionsWithRows](std/ui/content.ssc)
+[fcol](std/ui/data.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[signal, fetchUrlSignal](std/ui/primitives.ssc)
+
+```scalascript
+// A reactive tick + auth header drive the GET; fetchUrlSignal re-fetches on mount
+// and whenever `tick` increments. The DataTable reads its rows from this signal.
+val tick    = signal("tick", 0)
+val authHdr = signal("authHdr", "")
+val rows    = fetchUrlSignal("invoices", "/api/invoices", tick, authHdr)
+
+// Columns are the same field-column descriptors `dataTable` accepts: title + a
+// dot-path into each row record.
+val columns = [
+  fcol("No.",    "number"),
+  fcol("Client", "client.name"),
+  fcol("Amount", "total")
+]
+
+// Register the live-row source under the id referenced by `toolkit:table?rows=`.
+val opts = contentToolkitOptionsWithRows(
+  Map(contentRows("invoices", rows, columns)))
+
+// Lower the Markdown-authored section to a low-level View (web <table> / native).
+val page = lower(contentToolkitSection("invoices", opts), defaultTheme)
+
+println("content-live-rows:ok")
+```

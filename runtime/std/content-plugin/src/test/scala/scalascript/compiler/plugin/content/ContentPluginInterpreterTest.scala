@@ -1000,6 +1000,85 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
       s"expected a loud unregistered-action error, got: ${err.getMessage}")
     assert(err.getMessage.contains("save"), "error should list available action ids")
 
+  test("toolkit:table?rows=<id> binds a live DataTable to a registered ContentRowBinding (3b)"):
+    val source =
+      """---
+        |name: toolkit-rows-registry-test
+        |---
+        |
+        |# Demo
+        |
+        |## Invoices {#data}
+        |
+        |- [Invoices](toolkit:table?rows=invoices)
+        |
+        |```scala
+        |case class ContentRowBinding(rows: Any, columns: List[Any], actions: List[Any] = [])
+        |case class ContentToolkitOptions(
+        |  includeCode: Boolean = false, sectionGap: Int = 16, blockGap: Int = 8, listGap: Int = 4,
+        |  wrapDocumentInCard: Boolean = false, wrapTopLevelSectionsInCards: Boolean = false,
+        |  components: List[Any] = [], bindings: Any = null,
+        |  actions: Map[String, Any] = Map(), rowBindings: Map[String, Any] = Map())
+        |extern def contentToolkitSection(id: String, options: ContentToolkitOptions): Any
+        |contentToolkitSection("data",
+        |  ContentToolkitOptions(false, 16, 8, 4, false, false, [], null, Map(),
+        |    Map("invoices" -> ContentRowBinding("SIG", ["COL_NO", "COL_AMT"]))))
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    interp.run(Parser.parse(source))
+
+    interp.lastResult match
+      case Value.InstanceV("VStackNode", sectionFields) =>
+        val region = instanceFields(listField(sectionFields, "children", "section.children")(1), "VStackNode")
+        val nodes = listField(region, "children", "region.children")
+        assert(nodes.length == 1)
+        val table = instanceFields(nodes(0), "DataTableNode")
+        assert(table("signal") == Value.StringV("SIG"))
+        assert(table("columns") == Value.ListV(List(Value.StringV("COL_NO"), Value.StringV("COL_AMT"))))
+        assert(table("actions") == Value.ListV(Nil))
+      case other =>
+        fail(s"expected invoices section node, got $other")
+
+  test("toolkit:table?rows=<id> with an unregistered id fails loudly"):
+    val source =
+      """---
+        |name: toolkit-rows-missing-test
+        |---
+        |
+        |# Demo
+        |
+        |## Invoices {#data}
+        |
+        |- [Invoices](toolkit:table?rows=nope)
+        |
+        |```scala
+        |case class ContentRowBinding(rows: Any, columns: List[Any], actions: List[Any] = [])
+        |case class ContentToolkitOptions(
+        |  includeCode: Boolean = false, sectionGap: Int = 16, blockGap: Int = 8, listGap: Int = 4,
+        |  wrapDocumentInCard: Boolean = false, wrapTopLevelSectionsInCards: Boolean = false,
+        |  components: List[Any] = [], bindings: Any = null,
+        |  actions: Map[String, Any] = Map(), rowBindings: Map[String, Any] = Map())
+        |extern def contentToolkitSection(id: String, options: ContentToolkitOptions): Any
+        |contentToolkitSection("data",
+        |  ContentToolkitOptions(false, 16, 8, 4, false, false, [], null, Map(),
+        |    Map("invoices" -> ContentRowBinding("SIG", ["COL_NO"]))))
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    val err = intercept[Throwable](interp.run(Parser.parse(source)))
+    assert(err.getMessage.contains("rows 'nope' is not registered"),
+      s"expected a loud unregistered-rows error, got: ${err.getMessage}")
+    assert(err.getMessage.contains("invoices"), "error should list available row-binding ids")
+
   test("contentToMarkdown renders selected Markdown content"):
     val source = os.read(repoRoot / "tests" / "conformance" / "content-to-markdown.ssc")
     val expected = os.read(repoRoot / "tests" / "conformance" / "expected" / "content-to-markdown.txt").stripTrailing

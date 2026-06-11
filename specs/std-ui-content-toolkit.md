@@ -1,6 +1,6 @@
 # `std.ui` — Content-toolkit: Action Registry + Live-signal Binding
 
-Status: **3a (action registry) ✓ landed 2026-06-10; 3b (live-signal binding) deferred.**
+Status: **3a (action registry) ✓ landed 2026-06-10; 3b (live-signal binding) ✓ landed 2026-06-11.**
 Tracked as `ui-content-toolkit` in BACKLOG.md. Origin: busi UI proposals (P3).
 
 > **3a as built:** `toolkit:button?action=<id>` Markdown links bind to an EventHandler
@@ -10,7 +10,25 @@ Tracked as `ui-content-toolkit` in BACKLOG.md. Origin: busi UI proposals (P3).
 > on the existing toolkit control machinery (signals/components/bindings) — it adds the
 > *write* half. `.ssc`: `ContentToolkitOptions.actions`, `contentAction(id, handler)`,
 > `contentToolkitOptionsWithActions`. Impl: `content-plugin` `ContentIntrinsics`.
-> **3b (bind a live `Signal[JsonValue]` as a content table's rows)** remains a follow-up.
+>
+> **3b as built (2026-06-11):** `toolkit:table?rows=<id>` Markdown links bind to a
+> `ContentRowBinding` registered in `ContentToolkitOptions.rowBindings` (a
+> `Map[String, ContentRowBinding]`). The binding carries `rows` (a runtime fetch
+> `Signal`), `columns` (the same `fcol(title, fieldPath)` field-column descriptors
+> `dataTable` accepts), and optional per-row `actions`. The toolkit resolves the id at
+> lower time → a `DataTableNode`, reusing the existing DataTable lowering (web `<table>`
+> / native `JTable`); an unregistered id fails loudly, listing the available ids — the
+> same fail-loud principle as 3a. `.ssc`: `ContentToolkitOptions.rowBindings`,
+> `ContentRowBinding`, `contentRows(id, rows, columns, actions?)`,
+> `contentToolkitOptionsWithRows`. Impl: `content-plugin` `ContentIntrinsics`
+> (`rowBindingRegistry` + the `case "table"` toolkit-link branch). Example:
+> `examples/content-live-rows.ssc`. Tests: `ContentPluginInterpreterTest` (2) +
+> `MarkdownContentFrontendSmokeTest` (2, end-to-end through `emit`).
+>
+> The original sketch (below) proposed a dedicated `contentBindRows(...)` extern and a
+> `TableColumn` column type; as built, the binding is registered through the existing
+> toolkit-options machinery (mirroring 3a actions) and reuses `fcol`/`DataTableNode`
+> rather than introducing a parallel column type — simpler and with no new lowering.
 
 Original (deferred) sketch follows.
 

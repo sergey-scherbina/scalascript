@@ -139,10 +139,12 @@ object ContentIntrinsics:
     wrapTopLevelSectionsInCards: Boolean = false,
     components: Map[String, Value] = Map.empty,
     bindings: Map[String, ast.ContentValue] = Map.empty,
-    actions: Map[String, Value] = Map.empty
+    actions: Map[String, Value] = Map.empty,
+    rowBindings: Map[String, Value] = Map.empty
   )
 
-  private case class ToolkitUiEnv(signals: Map[String, Value], actions: Map[String, Value] = Map.empty)
+  private case class ToolkitUiEnv(signals: Map[String, Value], actions: Map[String, Value] = Map.empty,
+                                  rowBindings: Map[String, Value] = Map.empty)
   private case class ToolkitLink(kind: String, query: Map[String, String], label: String)
 
   private def currentDocument(ctx: PluginContext, fn: String): ast.DocumentContent =
@@ -196,7 +198,8 @@ object ContentIntrinsics:
       wrapTopLevelSectionsInCards = boolField(fields, "wrapTopLevelSectionsInCards", default = false),
       components = componentRegistry(fields.get("components")),
       bindings = contentValueMapField(fields.get("bindings")),
-      actions = actionRegistry(fields.get("actions"))
+      actions = actionRegistry(fields.get("actions")),
+      rowBindings = rowBindingRegistry(fields.get("rowBindings"))
     )
 
   // actions: a Map[String, EventHandler] — id -> handler for toolkit:button?action=id.
@@ -207,6 +210,17 @@ object ContentIntrinsics:
         m.collect { case (Value.StringV(k), v) => k -> v }
       case Some(other) =>
         throw InterpretError(s"ContentToolkitOptions.actions: expected Map[String, EventHandler], got ${Value.show(other)}")
+
+  // rowBindings: a Map[String, ContentRowBinding] — id -> live-row source for
+  // toolkit:table?rows=id.  Each value carries `rows` (a Signal), `columns`
+  // (field-column descriptors), and `actions` (per-row actions).
+  private def rowBindingRegistry(value: Option[Value]): Map[String, Value] =
+    value match
+      case None | Some(Value.NullV) => Map.empty
+      case Some(Value.MapV(m)) =>
+        m.collect { case (Value.StringV(k), v) => k -> v }
+      case Some(other) =>
+        throw InterpretError(s"ContentToolkitOptions.rowBindings: expected Map[String, ContentRowBinding], got ${Value.show(other)}")
 
   private def componentRegistry(value: Option[Value]): Map[String, Value] =
     value match
@@ -287,7 +301,7 @@ object ContentIntrinsics:
     inst
 
   private def toolkitDocumentNode(ctx: PluginContext, doc: ast.DocumentContent, options: ToolkitOptions): Value =
-    val env = toolkitMarkdownEnv(doc).copy(actions = options.actions)
+    val env = toolkitMarkdownEnv(doc).copy(actions = options.actions, rowBindings = options.rowBindings)
     val children =
       doc.blocks.map(toolkitBlockNode(ctx, doc, _, options, env)) ++
         doc.sections.map(toolkitSectionNode(ctx, doc, _, options, env, topLevel = true))
@@ -297,7 +311,7 @@ object ContentIntrinsics:
   private def toolkitBlockById(ctx: PluginContext, doc: ast.DocumentContent, id: String, options: ToolkitOptions): Value =
     blocksDeep(doc).filter(block => blockId(block).contains(id)) match
       case block :: Nil =>
-        toolkitBlockNode(ctx, doc, block, options, toolkitMarkdownEnv(block).copy(actions = options.actions))
+        toolkitBlockNode(ctx, doc, block, options, toolkitMarkdownEnv(block).copy(actions = options.actions, rowBindings = options.rowBindings))
       case Nil =>
         throw InterpretError(s"contentToolkitBlock: no block with id '$id'")
       case _ =>
@@ -306,7 +320,7 @@ object ContentIntrinsics:
   private def toolkitSectionById(ctx: PluginContext, doc: ast.DocumentContent, id: String, options: ToolkitOptions): Value =
     sectionsDeep(doc).filter(_.id == id) match
       case section :: Nil =>
-        toolkitSectionNode(ctx, doc, section, options, toolkitMarkdownEnv(section).copy(actions = options.actions), topLevel = true)
+        toolkitSectionNode(ctx, doc, section, options, toolkitMarkdownEnv(section).copy(actions = options.actions, rowBindings = options.rowBindings), topLevel = true)
       case Nil =>
         throw InterpretError(s"contentToolkitSection: no section with id '$id'")
       case _ =>
@@ -673,8 +687,39 @@ object ContentIntrinsics:
         badgeNode(link.query.getOrElse("text", toolkitLinkLabel(link)), link.query.getOrElse("variant", "default"))
       case "divider" =>
         dividerNode()
+      case "table" =>
+        // `rows=<id>` binds a live DataTable whose row source is a runtime signal
+        // registered under <id> in rowBindings (3b), mirroring the action registry.
+        val regionId = requiredToolkitQuery(link, "rows")
+        val binding = env.rowBindings.getOrElse(regionId, throw InterpretError(
+          s"contentToolkitNode: toolkit:table rows '$regionId' is not registered " +
+          s"(available: ${if env.rowBindings.isEmpty then "<none>" else env.rowBindings.keys.toList.sorted.mkString(", ")})"))
+        rowBindingDataTable(regionId, binding)
       case other =>
         throw InterpretError(s"contentToolkitNode: unsupported toolkit link control '$other'")
+
+  // rowBindingDataTable — turn a registered ContentRowBinding into a DataTableNode.
+  // Reuses the existing DataTableNode lowering (web <table> / Swing JTable); the
+  // signal + field-columns + per-row actions pass through opaquely as Values.
+  private def rowBindingDataTable(regionId: String, binding: Value): Value =
+    val fields = binding match
+      case inst: Value.InstanceV if inst.typeName == "ContentRowBinding" => inst.effectiveFields
+      case other => throw InterpretError(
+        s"contentToolkitNode: toolkit:table rows '$regionId' expected a ContentRowBinding, got ${Value.show(other)}")
+    val rows = fields.getOrElse("rows", throw InterpretError(
+      s"contentToolkitNode: ContentRowBinding('$regionId').rows is required"))
+    val columns = fields.get("columns") match
+      case Some(cols: Value.ListV) => cols
+      case Some(other) => throw InterpretError(
+        s"contentToolkitNode: ContentRowBinding('$regionId').columns expected a List, got ${Value.show(other)}")
+      case None => Value.ListV(Nil)
+    val actions = fields.get("actions") match
+      case Some(acts: Value.ListV) => acts
+      case _                       => Value.ListV(Nil)
+    instanceValue("DataTableNode",
+      "signal"  -> rows,
+      "columns" -> columns,
+      "actions" -> actions)
 
   private def toolkitLinkLabel(link: ToolkitLink): String =
     link.query.getOrElse("label", link.label)

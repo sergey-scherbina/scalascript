@@ -10,9 +10,12 @@ exports:
   - ContentToolkitComponent
   - contentComponent
   - contentAction
+  - ContentRowBinding
+  - contentRows
   - contentToolkitOptionsWithBindings
   - contentToolkitOptionsWithComponents
   - contentToolkitOptionsWithActions
+  - contentToolkitOptionsWithRows
   - contentView
   - contentViewSection
   - contentViewBlock
@@ -145,7 +148,11 @@ case class ContentToolkitOptions(
   // Action registry: a `toolkit:button?action=<id>` Markdown link binds to the
   // EventHandler registered under <id> here (e.g. a fetchAction / fetchJsonAction),
   // turning a declarative Markdown link into a typed server write.
-  actions: Map[String, Any] = Map()
+  actions: Map[String, Any] = Map(),
+  // Live-row registry (3b): a `toolkit:table?rows=<id>` Markdown link binds to the
+  // ContentRowBinding registered under <id> here, rendering a live DataTable whose
+  // rows come from a runtime Signal[JsonValue] instead of an authored static fence.
+  rowBindings: Map[String, Any] = Map()
 )
 
 case class ContentComponentContext(
@@ -172,12 +179,37 @@ def contentComponent(name: String)(render: ContentComponentContext => TkNode): C
 // registry as `Map(contentAction("save", h), contentAction("delete", h2))`.
 def contentAction(id: String, handler: Any): (String, Any) = (id, handler)
 
+// ContentRowBinding (3b) — a live-data source for a Markdown-authored table region.
+// `rows` is a Signal whose value is a list of row records (e.g. a fetchUrlSignal /
+// fetchJsonValue result); `columns` are the same field-column descriptors that
+// `dataTable` accepts (build them with `fcol(title, fieldPath)`); `actions` are
+// optional per-row actions (rowDelete / rowLink / …).  Lowered to a DataTableNode.
+case class ContentRowBinding(rows: Any, columns: List[Any], actions: List[Any] = [])
+
+// contentRows — register a live-row source under an id for `toolkit:table?rows=id`.
+// Build the registry as `Map(contentRows("invoices", sig, [fcol("No", "number")]))`.
+def contentRows(id: String, rows: Any, columns: List[Any], actions: List[Any] = []): (String, Any) =
+  (id, ContentRowBinding(rows, columns, actions))
+
 def contentToolkitOptionsWithActions(
   actions: Map[String, Any],
   components: List[ContentToolkitComponent] = [],
+  bindings: ContentValue = ContentValue.MapV(Map()),
+  rowBindings: Map[String, Any] = Map()
+): ContentToolkitOptions =
+  ContentToolkitOptions(components = components, bindings = bindings,
+                        actions = actions, rowBindings = rowBindings)
+
+// contentToolkitOptionsWithRows — options carrying a live-row registry (3b).  Use
+// when a Markdown section binds `toolkit:table?rows=<id>` regions to runtime signals.
+def contentToolkitOptionsWithRows(
+  rowBindings: Map[String, Any],
+  actions: Map[String, Any] = Map(),
+  components: List[ContentToolkitComponent] = [],
   bindings: ContentValue = ContentValue.MapV(Map())
 ): ContentToolkitOptions =
-  ContentToolkitOptions(components = components, bindings = bindings, actions = actions)
+  ContentToolkitOptions(components = components, bindings = bindings,
+                        actions = actions, rowBindings = rowBindings)
 
 def contentToolkitOptionsWithBindings(
   bindings: ContentValue,
