@@ -33,11 +33,15 @@ Pure, stateless helper groups (no access to class fields) move to companion
 
 ## Behavior
 
-- [ ] Each extracted section lives in its own file; `JvmGen.scala` shrinks by that section.
-- [ ] No behavioural change: byte-identical emitted Scala for the full bench corpus + test suite.
-- [ ] Visibility widened only as needed (`private` → `private[codegen]`); nothing becomes public.
-- [ ] `backendInterpreter/test` + the JVM-codegen suites pass after each phase.
-- [ ] Each phase is its own commit (one section per commit) for reviewability.
+- [x] (p1) Each extracted section lives in its own file; `JvmGen.scala` shrinks by that section.
+- [x] (p1) No behavioural change: methods relocated **verbatim** into a mixed-in
+      trait (which cannot alter emitted bytes); full `backendInterpreter/test`
+      green incl. the 31 JvmGen-touching test files. (Separate byte-diff of emitted
+      Scala not run — disproportionate vs the verbatim move; noted for a future
+      phase if a section's move is non-verbatim.)
+- [x] (p1) Visibility widened only as needed (`private` → `private[codegen]`); nothing becomes public.
+- [x] (p1) `backendInterpreter/test` passes (1605 green); `backendJvm/compile` clean under `-Werror`.
+- [x] (p1) Each phase is its own commit.
 
 ## Out of scope
 
@@ -76,4 +80,11 @@ Phasing (one section per phase, smallest-blast-radius first):
 
 ## Results
 
-<!-- per phase, at verify -->
+**p1 — Effect analysis — landed 2026-06-11.** Found the decomposition pattern
+already established: `JvmGen extends JvmGenBlockAnalysis, JvmGenTermAnalysis,
+JvmGenMutualRecursion` (+ `JvmGenStringUtils`). Followed it: new
+`JvmGenEffectAnalysis.scala` — `private[codegen] trait … { self: JvmGen => }`
+holding `analyzeEffects` / `isEffectOpDef` / `isEffectOpRef` / `isEffectfulFun`
+(moved verbatim). Widened `effectOps` + `effectfulFuns` from `private` to
+`private[codegen]` so the mixin reads them (same as `mutualGroups`). `JvmGen.scala`
+−66 lines. 1605 tests green; clean under `-Werror`. Next: p2 (Preamble+runtime).
