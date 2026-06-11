@@ -3193,25 +3193,24 @@ that uses them lands.
 Things noticed in passing while landing other work — not blocking, but
 worth a separate fix when somebody has cycles.
 
-- **JS backend mis-orders named args to imported functions / case-class
-  constructors.** `collectFuncParamOrders` (the param-order pre-pass that lets
-  `genApply` reorder `f(b = …, a = …)` into positional form) runs only inside
-  `genModule`, i.e. for the *entry* module. Imported modules are emitted in
-  `genImport` via `childGen.genScalaNode(...)`, which never runs that pre-pass,
-  so the child `JsGen`'s `funcParamOrder` is empty. Any named-arg call to an
-  imported function or case-class constructor then falls into the `case None`
-  fallback (emit RHS values in *written* order), silently landing values in the
-  wrong slots when the named args skip/reorder leading params. Found while landing
-  `js-toolkit-action-rows-registry`: `content.ssc`'s
-  `contentToolkitOptionsWithActions(actions = …, rowBindings = …)` put `actions`
-  into `blockGap`. Worked around there by constructing positionally, but the bug
-  is general (busi will hit it the moment they write named args on emit-spa).
-  Attempted fix `childGen.collectFuncParamOrders(childModule)` in `genImport` did
-  **not** populate the table (the pre-pass returned `total=0` even for
-  `ui-primitives` — the imported-module scan finds no defs for a reason not yet
-  diagnosed), so a real fix needs to figure out why the `ScalaNode.fold` /
-  `Source(stats)` traversal comes up empty for parsed imported modules. Also add
-  case-class primary-ctor params to `funcParamOrder` (currently only `Defn.Def`).
+- ~~**JS backend mis-orders named args to imported functions / case-class
+  constructors.**~~ ✓ **Fixed (2026-06-11)** — `js-named-arg-imported-reorder`.
+  Root cause: the param-order pre-pass's `collectDefs` only scanned *top-level*
+  statements, but a module with a `package:` manifest compiles to a single
+  wrapping `Defn.Object`, so all its defs/case-classes were invisible (the
+  `total=0` puzzle) — and imported modules never ran the pre-pass at all. Fix
+  (`JsGen.scala`): new `collectParamOrdersFromModule` descends into namespace
+  objects and records `def`s + case-class primary ctors into a **separate**
+  `importedParamOrder` map; `genImport` populates it for each imported module
+  (both the importer's later call sites and the child gen's internal calls) and
+  shares it with the childGen. The named-arg reorder consults
+  `funcParamOrder.orElse(importedParamOrder)`; critically `importedParamOrder`
+  does **not** feed the direct-call gate (kept on `funcParamOrder` only), so
+  imported calls keep going through `_call` — no `_call`→direct regression
+  (caught the `seedSignal` string-assertion test mid-fix). Regression test in
+  `JsGenStdImportTest` ("named arg to an imported option builder reorders").
+  `content.ssc`'s positional workaround can stay as-is (harmless) or revert to
+  named args — both now emit correctly.
 
 - ~~__v1.22 distributed-_ conformance tests fail on JVM_*~~  ✓ **Landed (2026-05-20)** — dep-block CPS rewriting (Steps 0–7) landed on `feature/dep-cps`; all six tests (`distributed-{map,shuffle,failure-retry,failure-partial,heterogeneous}` + `cluster-connect`) now PASS [JVM]. Root cause was dep-block effect primitives bypassing the CPS rewriter; fixed via `analyzeDepEffectfulness` fixpoint + `cpsBody` parameter threading through the emit path. Full design history in `specs/dep-cps-rewrite.md`.
 

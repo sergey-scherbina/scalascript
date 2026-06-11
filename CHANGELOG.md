@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — fix(js): reorder named args to imported functions / case-class ctors (js-named-arg-imported-reorder)
+
+- **js-named-arg-imported-reorder** — fixes the latent JsGen bug found while
+  landing `js-toolkit-action-rows-registry`: a named-arg call to an imported
+  function or case-class constructor on emit-js/emit-spa was emitted positionally
+  in *written* order, silently landing values in the wrong fields. Two root
+  causes: (1) the param-order pre-pass's `collectDefs` only scanned top-level
+  statements, so a `package:` module (compiled to one wrapping `Defn.Object`)
+  contributed nothing; (2) imported modules never ran the pre-pass. Fix: new
+  `collectParamOrdersFromModule` descends into namespace objects + records
+  case-class primary ctors into a separate `importedParamOrder` map, populated for
+  every imported module in `genImport` and shared with the child gen; the named-arg
+  reorder consults it. Kept **off** the direct-call gate (`funcParamOrder` only) so
+  imported calls still go through `_call` — no regression. Regression test in
+  `JsGenStdImportTest`; full backendInterpreter suite green. Unblocks named-arg
+  option construction on emit-spa (busi can now write `contentToolkitOptionsWith…
+  (…, rowBindings = …)` directly).
+
 ## 2026-06-11 — feat(js-toolkit): action=/rows= registry parity + fail-soft (declarative-ui Scope A)
 
 - **js-toolkit-action-rows-registry** — Scope A of busi's declarative-dynamic-UI
