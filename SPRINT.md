@@ -42,8 +42,12 @@ spec's acceptance.
       (1) audit complete across 3 docs (interp + JS columns clean; compiled fold
       cells identified); (2) FIXED the `off`-baseline defect — algebraic loop-folds
       ran unconditionally, now gated behind FastTier so `scripts/bench off` is honest
-      (`pureCallSum` 0.003 on ↔ 11.748 off). REMAINING: direction-(b) varying-data
-      redesign of the compiled (jvm/js/rust) fold cells — distinct large sub-project,
+      (`pureCallSum` 0.003 on ↔ 11.748 off); (3) **direction-(b) de-folded
+      `tuple_monoid`** — the one automated compiled cross-backend fold cell:
+      `jvm_tupleMonoid` 0.011→205 µs (~18000×), `js` 26.7→1688 µs, interp 0.008→14 ms,
+      via loop-varying tuple build (no backend folds now). REMAINING: same
+      direction-(b) pattern for the interp-only fold cells (instance-field,
+      bool-predicate, either-chain, option-chain, literal-match) — further slices,
       re-claim separately. Spec `backend-perf-gaps.md` T2.1. Watch the opaque trap.
 - [~] **js-persistent-map-hamt** — DEFERRED/big: `map-ops` js 40×; 70 `instanceof Map`
       coupling sites. Dedicated sub-project, not a quick landing.

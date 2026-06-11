@@ -1,6 +1,0 @@
-feature/bench-honesty-varying-data-p2 2026-06-11T07:30:29Z
-agent: claude-code
-heartbeat: 2026-06-11T07:30:29Z
-status: in-progress
-done-so-far: T2.1 p1 (audit+off-baseline fix) landed; T2.3 closed
-next: direction-(b) varying-data redesign of compiled fold cells (tuple_monoid in RuntimeBench)

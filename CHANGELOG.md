@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — bench(honesty): de-fold tuple_monoid via loop-varying data (bench-honesty-varying-data-p2, Tier 2 / T2.1 direction-b)
+
+- **bench-honesty-varying-data-p2** — Tier-2 measurement integrity, direction (b).
+  De-folded `tuple_monoid`, the one fold cell with an automated *compiled*
+  cross-backend measurement. It was loop-invariant on every backend
+  (`jvm_tupleMonoid` 0.011 µs — HotSpot hoisted `last = k`; `js_tupleMonoid`
+  ref-copied a frozen const; interp `(1,2)++(3,4)` hoisted by `tryHoistedPureWhile`).
+  Rebuilt the tuple from the loop counter each iteration and accumulate all four
+  components so no backend can fold; kept the `++` monoid op in the interp variant.
+  After: `jvm_tupleMonoid` **205 µs** (~18000× the fold), `js_tupleMonoid`
+  **1688 µs**, interp `tupleMonoid` **~14 ms** (1000 iters) — all real per-iteration
+  work, on==off. Bench-only change; no production code. `modTupleMonoidVal` left as
+  a deliberate hoist-optimization guard. Remaining T2.1: the same pattern for the
+  interp-only fold cells (instance-field, bool-predicate, either/option-chain,
+  literal-match). Spec: `specs/backend-perf-gaps.md` §T2.1; details
+  `docs/bench/interp-honesty-audit.md`.
+
 ## 2026-06-11 — fix(interp): honest `off` baseline + interp honesty audit (bench-honesty-varying-data, Tier 2 / T2.1, partial)
 
 - **bench-honesty-varying-data (partial)** — Tier-2 measurement integrity. Two
