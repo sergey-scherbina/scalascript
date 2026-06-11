@@ -27,7 +27,8 @@ spec's acceptance.
       (Remaining Preamble defs are state-coupled → future p2b.)
 - [x] **jvmgen-decompose-p3** — DONE 2026-06-11. CPS-transform section (15 members)
       → new `JvmGenCpsTransform` self-typed mixin. JvmGen 7042→6073 (−969). 1605 green.
-- [ ] **jvmgen-decompose-p4** — extract Mutual-TCO section → `trait JvmMutualTco`.
+- [x] **jvmgen-decompose-p4** — DONE 2026-06-11. Mutual-TCO emission section (8 members)
+      → new `JvmGenMutualTco` self-typed mixin. JvmGen 6073→5849 (−224). 1605 green.
 - [ ] **jsgen-decompose** — apply the proven pattern to `JsGen` (5.8k) once JvmGen is split. (backlog promote)
 
 ### Tier 2 — performance gaps (each a dedicated sub-project)

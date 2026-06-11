@@ -1,6 +1,0 @@
-feature/jvmgen-decompose-p4 2026-06-11T06:24:28Z
-agent: claude-code
-heartbeat: 2026-06-11T06:24:28Z
-status: not-started
-done-so-far:
-next: extract Mutual-TCO emission section into trait JvmGenMutualTco

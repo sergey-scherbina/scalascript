@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — refactor(jvmgen): extract Mutual-TCO emission (jvmgen-decompose-p4)
+
+- **jvmgen-decompose-p4** — Tier-1 maintainability. Moved the `// ─── Mutual-TCO
+  emission` section (8 class members, incl. the allocation-free uniform-signature
+  clique merge) verbatim out of `JvmGen.scala` into a new self-typed mixin
+  `JvmGenMutualTco { self: JvmGen => }`, following the p3 pattern. One-way
+  `private→private[codegen]` widening (four moved members called from JvmGen); the
+  trait's callbacks all resolve to members already widened in earlier phases. Pure
+  structural move, no behaviour change. `JvmGen.scala` **6073 → 5849 lines (−224)**.
+  `backendJvm/compile` clean under `-Werror`; full `backendInterpreter/test`
+  1605 green. Spec: `specs/jvmgen-decompose.md`. Tier-1 JvmGen split now: p1+p2+p3+p4
+  done (10565 → 5849, −45%); remaining Tier-1: p2b + `jsgen-decompose`.
+
 ## 2026-06-11 — refactor(jvmgen): extract CPS transform (jvmgen-decompose-p3)
 
 - **jvmgen-decompose-p3** — Tier-1 maintainability. Moved the `// ─── CPS
