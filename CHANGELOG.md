@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — feat(declarative-ui): typed inline columns in `@ui=toolkit` YAML tables (Scope B.2)
+
+- A `{type: table, source: <id>}` control may now declare its columns inline via a
+  `columns:` list of typed specs instead of inheriting the registered source's
+  columns. Each spec carries `kind: text|date|money|status|link` (default `text`),
+  plus `label`/`path`/`align` and per-kind options (`format` for date, `currency`/
+  `locale` for money, `url` for link, `colors:` map for status). The specs lower
+  through the very same `fieldColumn`/`dateColumn`/`moneyColumn`/`statusColumn`/
+  `linkColumn` builders that code uses — so Markdown-declared columns are byte-for-byte
+  the native column values, never a parallel re-implementation.
+- New SPI: `IntrinsicImpl.resolveGlobal(name)` (default `None`; overridden in the
+  interpreter to look up a top-level global) lets a plugin native reuse another
+  plugin's registered intrinsic. The content toolkit resolves the column builders by
+  name and drives them with `invokeCallback`, so a missing `import` of `std/ui/data`
+  fails loudly with a pointer to `fcol/mcol/scol/dcol/lcol`. Mirrored on the JS
+  backend by `_ssc_tk_build_columns` reusing the emitted `_ssc_ui_*Column` runtime.
+- `examples/content-toolkit-yaml-controls.ssc` now declares its invoice table's
+  columns inline (incl. a `money` column with `currency: PLN`).
+
 ## 2026-06-11 — feat(rust): type ascription, for-do loops, match-case guards
 
 - Three bounded Rust-backend control-flow gaps (found by probing), each lowering to
