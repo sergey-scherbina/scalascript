@@ -32,7 +32,10 @@ spec's acceptance.
 - [x] **jvmgen-decompose-p2b** — DONE 2026-06-11. Remaining state-coupled Preamble+runtime
       section → new `JvmGenPreamble` mixin. JvmGen 5849→5019 (−830). Completes p2.
       **JvmGen split fully done: 10565→5019 (−53%) across 6 mixins.** 1605 green.
-- [ ] **jsgen-decompose** — apply the proven pattern to `JsGen` (5.8k) now JvmGen is split. (backlog promote)
+- [x] **jsgen-decompose** — DONE 2026-06-11. CPS-codegen section (15 members) → new
+      `JsGenCpsCodegen` mixin. JsGen 5810→4942 (−868). 1605 green. Core genExpr/genApply
+      dispatch left in place by design (out of scope — central, low win vs risk).
+      **Tier 1 (maintainability) COMPLETE.** Spec: `specs/jsgen-decompose.md`.
 
 ### Tier 2 — performance gaps (each a dedicated sub-project)
 - [ ] **bench-honesty-varying-data** — measurement integrity; trustworthy table

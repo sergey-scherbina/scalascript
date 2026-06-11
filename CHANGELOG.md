@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — refactor(jsgen): extract CPS codegen; Tier-1 maintainability complete (jsgen-decompose)
+
+- **jsgen-decompose** — Final Tier-1 maintainability item. Applied the proven
+  self-typed-mixin pattern to `JsGen` (JS counterpart of JvmGen): moved the
+  `// ─── CPS codegen for effectful contexts` section (15 class members) verbatim
+  into a new mixin `JsGenCpsCodegen { self: JsGen => }`, continuing the existing
+  `JsGenAnalysisQueries` split. Two-way `private→private[codegen]` widening (6
+  moved members + 16 JsGen members the trait calls back into). Pure structural
+  move, no behaviour change. `JsGen.scala` **5810 → 4942 lines (−868)**. The
+  central `genExpr`/`genApply`/`genStat` dispatch (~900 lines) is deliberately
+  left in place (out of scope: very high fan-in, low maintainability win vs risk).
+  `backendJs/compile` clean under `-Werror`; full `backendInterpreter/test`
+  1605 green. Spec: `specs/jsgen-decompose.md`. **Tier 1 of the
+  backend/compiler/interpreter improvement program is now complete** (JvmGen
+  10565→5019, JsGen 5810→4942); next is Tier 2 (perf gaps).
+
 ## 2026-06-11 — refactor(jvmgen): extract Preamble+runtime; JvmGen split complete (jvmgen-decompose-p2b)
 
 - **jvmgen-decompose-p2b** — Tier-1 maintainability; completes the JvmGen split.
