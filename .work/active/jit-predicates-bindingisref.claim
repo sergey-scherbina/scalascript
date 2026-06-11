@@ -1,0 +1,6 @@
+feature/jit-predicates-bindingisref 2026-06-11T05:59:55Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-11T05:59:55Z
+status: in-progress
+done-so-far:
+next: add JitShapeCtx.callArgIsRef, move bindingIsRef tree-walk to JitPredicates
