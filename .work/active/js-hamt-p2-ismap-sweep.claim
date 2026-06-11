@@ -1,6 +1,0 @@
-feature/js-hamt-p2-ismap-sweep 2026-06-11T08:00:38Z
-agent: claude-code
-heartbeat: 2026-06-11T08:00:38Z
-status: in-progress
-done-so-far: T2.2 design landed; investigated key/order semantics (interp already hash-ordered/value-key, so HAMT safe)
-next: add _isMap helper + sweep 71 instanceof-Map sites (behavior-identical no-op)

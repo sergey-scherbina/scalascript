@@ -18,6 +18,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   end-to-end `MarkdownContentFrontendSmokeTest` through `emit`). Completes the
   `ui-content-toolkit` milestone (3a + 3b); unlocks Markdown-authored live-data screens.
 
+## 2026-06-11 — refactor(js): _isMap helper sweep — HAMT migration p2 (js-hamt-p2-ismap-sweep, Tier 2 / T2.2)
+
+- **js-hamt-p2-ismap-sweep** — Integration step of the JS persistent-Map migration
+  (`specs/js-persistent-map-hamt.md`). Routed all 71 `x instanceof Map` checks in
+  the JS runtime through `function _isMap(x) { return x instanceof Map; }`
+  (always-loaded core Part2a, hoisted) — mechanical, behavior-identical (the helper
+  is exactly the old check today). This isolates the 71-site coupling so the
+  upcoming HAMT activation (p3) only extends `_isMap` to also match `_HAMT` and
+  reroutes `_Map()` creation, instead of touching every consumer again. grep
+  `instanceof Map` in the JS runtime now 0. Full suite 1609 green (incl. JS
+  conformance via node). Next: p1+p3 — add `_HAMT` + activate.
+
 ## 2026-06-11 — fix(interp): user-wins + warning on plugin-intrinsic name collision (busi-p3-ratelimit-intrinsic-shadow)
 
 - **busi-p3-ratelimit-intrinsic-shadow** — A user top-level `def` sharing a
