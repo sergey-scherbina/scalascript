@@ -279,6 +279,99 @@ object JitPredicates:
       !looksLongValue(argClause.values.head, ctx)
     case _ => false
 
+  // ── Pure shape classifiers shared by both JIT backends ──────────────────────
+  // Total functions of scala.meta AST (and at most Value.FunV): no MethodVisitor,
+  // no GenCtx, no codegen state.  Single source so the backends cannot drift.
+
+  /** True iff `recv` is a numeric-object constructor receiver (`BigInt(_)` or
+   *  `Decimal(_)`/`Decimal(_, _)`) — i.e. a `Value`-boxed numeric, not a Long. */
+  def isNumericObjectReceiver(recv: Term): Boolean =
+    isNumericObjectValueShape(recv)
+
+  def isNumericObjectValueShape(t: Term): Boolean = t match
+    case Term.Apply.After_4_6_0(Term.Name("BigInt"), argClause) =>
+      argClause.values.lengthCompare(1) == 0
+    case Term.Apply.After_4_6_0(Term.Name("Decimal"), argClause) =>
+      argClause.values.lengthCompare(1) == 0 || argClause.values.lengthCompare(2) == 0
+    case _ => false
+
+  /** If `t` is `inner.map(unary)` with a recognised arithmetic lambda, return the
+   *  inner receiver and the map op so the caller can fuse the map into the next
+   *  stage and skip the intermediate wrapper allocation. */
+  def peelMapUnary(t: Term): (Term, JitHofShape.UnaryLong) | Null =
+    t match
+      case ap: Term.Apply =>
+        ap.fun match
+          case Term.Select(inner: Term, Term.Name("map")) if ap.argClause.values.lengthCompare(1) == 0 =>
+            ap.argClause.values.head match
+              case fn: Term.Function =>
+                val u = JitHofShape.unaryLong(fn)
+                if u == null then null else (inner, u)
+              case _ => null
+          case _ => null
+      case _ => null
+
+  /** True iff every arm of `tm` is a `Pat.Tuple`/`Pat.Wildcard`/`Pat.Var` and at
+   *  least one is a tuple pattern (so the scrutinee is a `TupleV`). */
+  def isTupleMatch(tm: Term.Match): Boolean =
+    val cases = tm.casesBlock.cases
+    cases.nonEmpty &&
+    cases.exists(_.pat.isInstanceOf[Pat.Tuple]) &&
+    cases.forall { c =>
+      c.pat match
+        case _: Pat.Tuple    => true
+        case _: Pat.Wildcard => true
+        case _: Pat.Var      => true
+        case _               => false
+    }
+
+  /** If `t` is a direct self-recursive call to `funName`, return its argument
+   *  list (used to drive the TCO loop emitter). */
+  def asSelfRecur(t: Term, funName: String): Option[List[Term]] = t match
+    case ap: Term.Apply =>
+      ap.fun match
+        case fn: Term.Name if fn.value == funName => Some(ap.argClause.values)
+        case _                                    => None
+    case _ => None
+
+  /** True iff every arm of `tm` is guard-free and matches an int/long literal or
+   *  a wildcard/var — so the scrutinee can stay a Long (no ADT boxing). */
+  def isLiteralIntMatch(tm: Term.Match): Boolean =
+    tm.casesBlock.cases.forall { c =>
+      c.cond.isEmpty && (c.pat match
+        case _: Pat.Wildcard | _: Pat.Var => true
+        case _: Lit.Int | _: Lit.Long     => true
+        case _                            => false
+      )
+    }
+
+  /** Classify which of `f`'s value params must be treated as object refs (vs
+   *  Long): function-typed params, ADT-match scrutinees, and `param.field`
+   *  receivers.  Literal-int matches keep the scrutinee as Long. */
+  def classifyParamRefs(f: Value.FunV): Array[Boolean] =
+    val paramIsRef = new Array[Boolean](f.params.length)
+    // Function-typed params (FunV HOF callbacks) are always refs.
+    f.paramTypes.zipWithIndex.foreach { case (pt, i) =>
+      if pt.contains("=>") then paramIsRef(i) = true
+    }
+    def markRefScrutinees(t: scala.meta.Tree): Unit = t match
+      case tm: Term.Match =>
+        tm.expr match
+          case n: Term.Name =>
+            val idx = f.params.indexOf(n.value)
+            // Literal-int matches keep the scrutinee as Long; only ADT matches need ref.
+            if idx >= 0 && !isLiteralIntMatch(tm) then paramIsRef(idx) = true
+          case _ =>
+        markRefScrutinees(tm.expr)
+        tm.casesBlock.cases.foreach(c => markRefScrutinees(c.body))
+      // `param.field` access ⇒ param is an InstanceV ref, not a Long.
+      case Term.Select(n: Term.Name, _) =>
+        val idx = f.params.indexOf(n.value)
+        if idx >= 0 then paramIsRef(idx) = true
+      case _ => t.children.foreach(markRefScrutinees)
+    markRefScrutinees(f.body)
+    paramIsRef
+
   /** Walk `fn.body` and the param/return metadata and collect every visible
    *  structural bail cliff.  Mirrors `JavacJitBackend.doCompile`'s early-bail
    *  predicates; backends may call this then append their own specifics.

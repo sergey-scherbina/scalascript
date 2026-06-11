@@ -126,28 +126,7 @@ object AsmJitBackend extends JitBackend:
       mutable.HashSet.empty
 
   private def classifyParamRefs(f: Value.FunV): Array[Boolean] =
-    val paramIsRef = new Array[Boolean](f.params.length)
-    // Function-typed params (FunV HOF callbacks) are always refs.
-    f.paramTypes.zipWithIndex.foreach { case (pt, i) =>
-      if pt.contains("=>") then paramIsRef(i) = true
-    }
-    def markRef(t: scala.meta.Tree): Unit = t match
-      case tm: Term.Match =>
-        tm.expr match
-          case n: Term.Name =>
-            val idx = f.params.indexOf(n.value)
-            // Literal-int matches keep the scrutinee as Long; only ADT matches need ref.
-            if idx >= 0 && !isLiteralIntMatch(tm) then paramIsRef(idx) = true
-          case _ =>
-        markRef(tm.expr)
-        tm.casesBlock.cases.foreach(c => markRef(c.body))
-      // `param.field` access ⇒ param is an InstanceV ref, not a Long.
-      case Term.Select(n: Term.Name, _) =>
-        val idx = f.params.indexOf(n.value)
-        if idx >= 0 then paramIsRef(idx) = true
-      case _ => t.children.foreach(markRef)
-    markRef(f.body)
-    paramIsRef
+    JitPredicates.classifyParamRefs(f)
 
   private def jitCompatibleSibling(f: Value.FunV): Boolean =
     f.name.nonEmpty &&
@@ -1050,17 +1029,7 @@ object AsmJitBackend extends JitBackend:
   /** If `t` is `inner.map(unary)`, return the inner receiver and map op so the
    *  caller can fuse the map into the next stage and skip the wrapper allocation. */
   private def peelMapUnary(t: Term): (Term, JitHofShape.UnaryLong) | Null =
-    t match
-      case ap: Term.Apply =>
-        ap.fun match
-          case Term.Select(inner: Term, Term.Name("map")) if ap.argClause.values.lengthCompare(1) == 0 =>
-            ap.argClause.values.head match
-              case fn: Term.Function =>
-                val u = JitHofShape.unaryLong(fn)
-                if u == null then null else (inner, u)
-              case _ => null
-          case _ => null
-      case _ => null
+    JitPredicates.peelMapUnary(t)
 
   private def emitRefChainLong(recv: Term, method: String, args: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
     method match
@@ -1321,15 +1290,11 @@ object AsmJitBackend extends JitBackend:
         true
       case _ => false
 
+  // Shared pure classifiers — see JitPredicates / specs/jit-predicates-shared-rest.md.
   private def isNumericObjectReceiver(recv: Term): Boolean =
-    isNumericObjectValueShape(recv)
-
-  private def isNumericObjectValueShape(t: Term): Boolean = t match
-    case Term.Apply.After_4_6_0(Term.Name("BigInt"), argClause) =>
-      argClause.values.lengthCompare(1) == 0
-    case Term.Apply.After_4_6_0(Term.Name("Decimal"), argClause) =>
-      argClause.values.lengthCompare(1) == 0 || argClause.values.lengthCompare(2) == 0
-    case _ => false
+    JitPredicates.isNumericObjectReceiver(recv)
+  private def isNumericObjectValueShape(t: Term): Boolean =
+    JitPredicates.isNumericObjectValueShape(t)
 
   private def emitNumericObjectValue(t: Term, ctx: GenCtx, mv: MethodVisitor): Boolean =
     t match
@@ -2485,13 +2450,7 @@ object AsmJitBackend extends JitBackend:
   /** True when every arm is a `Pat.Lit(Int/Long)`, `Pat.Var`, or `Pat.Wildcard`
    *  with no guards — the match compiles as a long-compare if-chain. */
   private def isLiteralIntMatch(tm: Term.Match): Boolean =
-    tm.casesBlock.cases.forall { c =>
-      c.cond.isEmpty && (c.pat match
-        case _: Pat.Wildcard | _: Pat.Var      => true
-        case _: Lit.Int | _: Lit.Long => true
-        case _                                  => false
-      )
-    }
+    JitPredicates.isLiteralIntMatch(tm)
 
   /** Emit a literal-integer match as a compare-and-jump chain.
    *  `returnForm = true` → each arm emits LRETURN; `false` → arm value left on
@@ -2540,16 +2499,7 @@ object AsmJitBackend extends JitBackend:
   // ── Tuple match body ─────────────────────────────────────────────────────
 
   private def isTupleMatch(tm: Term.Match): Boolean =
-    val cases = tm.casesBlock.cases
-    cases.nonEmpty &&
-    cases.exists(_.pat.isInstanceOf[Pat.Tuple]) &&
-    cases.forall { c =>
-      c.pat match
-        case _: Pat.Tuple    => true
-        case _: Pat.Wildcard => true
-        case _: Pat.Var      => true
-        case _               => false
-    }
+    JitPredicates.isTupleMatch(tm)
 
   /** Push the i-th element of a scala.collection.immutable.List stored in `elemsSlot`.
    *  Result is an Object on the stack. */
@@ -3387,11 +3337,8 @@ object AsmJitBackend extends JitBackend:
         case _                  => false
     case _ => false
 
-  private def asSelfRecur(t: Term, fn: String): Option[List[Term]] = t match
-    case ap: Term.Apply => ap.fun match
-      case fnN: Term.Name if fnN.value == fn => Some(ap.argClause.values)
-      case _                                 => None
-    case _ => None
+  private def asSelfRecur(t: Term, fn: String): Option[List[Term]] =
+    JitPredicates.asSelfRecur(t, fn)
 
   private def emitTcoLoop(cond: Term, base: Term, recurArgs: List[Term],
                           ctx: GenCtx, mv: MethodVisitor, invertExit: Boolean): Boolean =

@@ -313,29 +313,9 @@ object JavacJitBackend extends JitBackend:
   // Per-param ref/int classification. A param is ref when it is the scrutinee
   // of a `Term.Match` body (top-level or nested expression form). A param read
   // only in arithmetic remains primitive long/double.
+  // Shared pure classifier — see JitPredicates / specs/jit-predicates-shared-rest.md.
   private def classifyParamRefs(f: Value.FunV): Array[Boolean] =
-    val paramIsRef = new Array[Boolean](f.params.length)
-    // Function-typed params (FunV HOF callbacks) are always refs.
-    f.paramTypes.zipWithIndex.foreach { case (pt, i) =>
-      if pt.contains("=>") then paramIsRef(i) = true
-    }
-    def markRefScrutinees(t: scala.meta.Tree): Unit = t match
-      case tm: Term.Match =>
-        tm.expr match
-          case n: Term.Name =>
-            val idx = f.params.indexOf(n.value)
-            // Literal-int matches keep the scrutinee as Long; only ADT matches need ref.
-            if idx >= 0 && !isLiteralIntMatch(tm) then paramIsRef(idx) = true
-          case _ =>
-        markRefScrutinees(tm.expr)
-        tm.casesBlock.cases.foreach(c => markRefScrutinees(c.body))
-      // `param.field` access ⇒ param is an InstanceV ref, not a Long.
-      case Term.Select(n: Term.Name, _) =>
-        val idx = f.params.indexOf(n.value)
-        if idx >= 0 then paramIsRef(idx) = true
-      case _ => t.children.foreach(markRefScrutinees)
-    markRefScrutinees(f.body)
-    paramIsRef
+    JitPredicates.classifyParamRefs(f)
 
   private def jitCompatibleSibling(f: Value.FunV): Boolean =
     f.name.nonEmpty &&
@@ -1101,15 +1081,11 @@ object JavacJitBackend extends JitBackend:
         if sep == null then null else s"$jrd.stringSplitRef((Object) ($refExpr), (Object) ($sep))"
       case _ => null
 
+  // Shared pure classifiers — see JitPredicates / specs/jit-predicates-shared-rest.md.
   private def isNumericObjectReceiver(recv: Term): Boolean =
-    isNumericObjectValueShape(recv)
-
-  private def isNumericObjectValueShape(t: Term): Boolean = t match
-    case Term.Apply.After_4_6_0(Term.Name("BigInt"), argClause) =>
-      argClause.values.lengthCompare(1) == 0
-    case Term.Apply.After_4_6_0(Term.Name("Decimal"), argClause) =>
-      argClause.values.lengthCompare(1) == 0 || argClause.values.lengthCompare(2) == 0
-    case _ => false
+    JitPredicates.isNumericObjectReceiver(recv)
+  private def isNumericObjectValueShape(t: Term): Boolean =
+    JitPredicates.isNumericObjectValueShape(t)
 
   private def emitNumericObjectValue(t: Term, ctx: GenCtx): String | Null =
     val jrd = "scalascript.interpreter.vm.jit.JitRefDispatch$.MODULE$"
@@ -1177,17 +1153,7 @@ object JavacJitBackend extends JitBackend:
    *  inner receiver and the map op so the caller can fuse the map into the next
    *  stage (flatMap / getOrElse) and skip the intermediate wrapper allocation. */
   private def peelMapUnary(t: Term): (Term, JitHofShape.UnaryLong) | Null =
-    t match
-      case ap: Term.Apply =>
-        ap.fun match
-          case Term.Select(inner: Term, Term.Name("map")) if ap.argClause.values.lengthCompare(1) == 0 =>
-            ap.argClause.values.head match
-              case fn: Term.Function =>
-                val u = JitHofShape.unaryLong(fn)
-                if u == null then null else (inner, u)
-              case _ => null
-          case _ => null
-      case _ => null
+    JitPredicates.peelMapUnary(t)
 
   private def emitHofRefChain(recv: Term, method: String, args: List[Term], ctx: GenCtx): String | Null =
     val refExpr = walkRef(recv, ctx)
@@ -1834,16 +1800,7 @@ object JavacJitBackend extends JitBackend:
 
   /** True iff every arm is Pat.Tuple/Var/Wildcard and at least one is Pat.Tuple. */
   private def isTupleMatch(tm: Term.Match): Boolean =
-    val cases = tm.casesBlock.cases
-    cases.nonEmpty &&
-    cases.exists(_.pat.isInstanceOf[Pat.Tuple]) &&
-    cases.forall { c =>
-      c.pat match
-        case _: Pat.Tuple    => true
-        case _: Pat.Wildcard => true
-        case _: Pat.Var      => true
-        case _               => false
-    }
+    JitPredicates.isTupleMatch(tm)
 
   /** Emit body-statement form for a match where all arms are Pat.Tuple/Wildcard/Var.
    *  Casts the scrutinee to TupleV, accesses elems() list, extracts by index. */
@@ -1938,13 +1895,7 @@ object JavacJitBackend extends JitBackend:
   /** True when every arm is a literal-int pattern, Pat.Var, or Pat.Wildcard with
    *  no guards — the match compiles as a long-comparison if-else chain. */
   private def isLiteralIntMatch(tm: Term.Match): Boolean =
-    tm.casesBlock.cases.forall { c =>
-      c.cond.isEmpty && (c.pat match
-        case _: Pat.Wildcard | _: Pat.Var        => true
-        case _: Lit.Int | _: Lit.Long => true
-        case _                                    => false
-      )
-    }
+    JitPredicates.isLiteralIntMatch(tm)
 
   /** Emit a literal-integer match body as an if-else chain returning long/double.
    *  Scrutinee may be any `walkLong`-able expression, not just a `Term.Name`. */
@@ -2933,12 +2884,8 @@ object JavacJitBackend extends JitBackend:
         case _ => null
     case _ => null
 
-  private def asSelfRecur(t: Term, funName: String): Option[List[Term]] = t match
-    case ap: Term.Apply =>
-      ap.fun match
-        case fn: Term.Name if fn.value == funName => Some(ap.argClause.values)
-        case _                                    => None
-    case _ => None
+  private def asSelfRecur(t: Term, funName: String): Option[List[Term]] =
+    JitPredicates.asSelfRecur(t, funName)
 
   /** Emit: `while (true) { if (<exitCond>) return <base>;
    *                        long _t0 = <newArg0>; …;
