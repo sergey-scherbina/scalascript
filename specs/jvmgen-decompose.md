@@ -88,3 +88,16 @@ holding `analyzeEffects` / `isEffectOpDef` / `isEffectOpRef` / `isEffectfulFun`
 (moved verbatim). Widened `effectOps` + `effectfulFuns` from `private` to
 `private[codegen]` so the mixin reads them (same as `mutualGroups`). `JvmGen.scala`
 −66 lines. 1605 tests green; clean under `-Werror`. Next: p2 (Preamble+runtime).
+
+**p2 — Preamble runtime-source constants — landed 2026-06-11.** Scoped to the
+high-value, zero-coupling subset of the Preamble+runtime section: the five large
+**pure** `"""…""".stripMargin` constants `stubServeRuntime`, `fsRuntime`,
+`generatorRuntime`, `effectsRuntime` (~3.2k lines alone), `reactiveRuntime` →
+new mixin `JvmGenRuntimeSources` (3534 lines). Mechanical cut (sed) since the
+strings are too large to hand-edit; visibility widened `private`→`private[codegen]`.
+`logger`/`common`/`serveRuntime` deliberately stayed in JvmGen — they are
+method-call blocks (call `loadRuntimeSource`/`loadCommonSource`), not pure data.
+`JvmGen.scala` **10565 → 7042 lines (−3523, −33%)**. 1605 tests green; clean under
+`-Werror`. The remaining Preamble defs (`collectDeclaredVarTypes`, `htmlDslTag…`,
+`uiHelperFunctions`, the loader methods) are state-coupled — defer to a p2b/p3 that
+uses a self-typed mixin with visibility surgery. Next: p3 (CPS transform).
