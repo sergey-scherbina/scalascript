@@ -1492,6 +1492,30 @@ explicit key column and key value; the key column is excluded from the `SET`
 list when present in the encoded row. Table and column names are validated as
 plain SQL identifiers; values are still passed as JDBC bind parameters.
 
+#### PostgreSQL LISTEN / NOTIFY
+
+For Postgres, the **publish** side is plain SQL — `Db.query("db", "SELECT
+pg_notify(?, ?)", [channel, payload])`. The **receive** side needs a connection
+that stays open and is drained for notifications, which `Db.*` give via the
+connection cached per database name:
+
+```scala
+Db.pgListen("default", "events")                              // LISTEN "events"
+val _ = Db.query("default", "SELECT pg_notify(?, ?)", ["events", "hi"])
+val notes = Db.getNotifications("default", 1000)              // block up to 1000 ms
+for (n <- notes) println(n("channel") + ": " + n("payload"))  // {channel, payload, pid}
+Db.unlisten("default", "events")
+```
+
+`Db.getNotifications("db"[, timeoutMs])` returns each pending notification as a
+`Map { channel, payload, pid }`; `timeoutMs` blocks up to that long waiting for
+one (omitted / `0` = non-blocking, returns whatever is buffered). These are
+PostgreSQL-only — calling `Db.getNotifications` on a non-Postgres connection
+raises a clear error. The channel name in `pgListen`/`unlisten` is quoted
+(case-exact, matching the `pg_notify` string), so no injection through the name.
+Example: [`examples/pg-listen-notify.ssc`](../examples/pg-listen-notify.ssc)
+(requires a running Postgres).
+
 For JVM `RowCodec[A]` code, explicit row codecs can use
 `RowFieldSpec[A]` metadata to keep storage schemas stable while Scala field
 names evolve: canonical column names for writes, aliases for reads from older

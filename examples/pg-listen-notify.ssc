@@ -1,0 +1,44 @@
+---
+name: pg-listen-notify
+description: PostgreSQL LISTEN/NOTIFY receive side — Db.pgListen + Db.getNotifications on a held connection (busi df-6).
+databases:
+  default:
+    url: "jdbc:postgresql://localhost:5432/postgres?user=postgres&password=postgres"
+---
+
+# PostgreSQL LISTEN / NOTIFY
+
+> **Requires a running PostgreSQL** on `localhost:5432` (adjust the `url` above).
+> This example is not part of the test suite — H2/SQLite have no LISTEN/NOTIFY,
+> so the receive path only works against real Postgres. Run with `ssc run`.
+
+The **publish** side already works via `Db.query` and `SELECT pg_notify(channel, payload)`.
+The **receive** side needs a connection that stays open and is drained with
+`getNotifications()` — `Db.query`/`Db.execute` open and reuse one cached connection
+per database name (`ConnectionRegistry`), so `Db.pgListen` registers `LISTEN` on it
+and a later `Db.getNotifications` on the *same* database name drains what arrived.
+
+## Run
+
+```scalascript
+// Start listening on the "events" channel.  Cached per db name, so the LISTEN
+// stays registered for subsequent getNotifications calls on "default".
+Db.pgListen("default", "events")
+
+// Publish on the same channel.  A connection that is both LISTENing and NOTIFYing
+// receives its own notification (self-delivery), so this round-trips on one conn.
+val _ = Db.query("default", "SELECT pg_notify(?, ?)", ["events", "hello-from-ssc"])
+
+// Drain: block up to 1000 ms for notifications delivered to the listening conn.
+// Each entry is a Map { channel, payload, pid }.
+val notes = Db.getNotifications("default", 1000)
+
+notes.foreach { n =>
+  println("channel=" + n("channel") + " payload=" + n("payload") + " pid=" + n("pid"))
+}
+
+// Stop listening when done.
+Db.unlisten("default", "events")
+
+println("pg-listen-notify: received " + notes.length + " notification(s)")
+```
