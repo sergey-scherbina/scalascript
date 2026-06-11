@@ -41,54 +41,51 @@ import java.time.Duration
  *     runs it.  This is the exact code path
  *     [[JsRuntimeSeparationTest]] exercises for run-tests.
  *
- *  ## Disabled — JS-codegen scheduler blocks the Node event loop
+ *  ## Disabled — JVM-codegen WS server does not echo the actor subprotocol
  *
- *  This test is currently `ignore(...)` because of a JS-codegen runtime
- *  bug uncovered while writing it.  The JS `_runActors(bodyFn)` scheduler
- *  runs in a synchronous `while (true)` loop and uses `Atomics.wait` /
- *  `_asyncSleep` to wait on the next deadline (see the inlined
- *  `_asyncSleep` and the scheduler loop in the v2.0 JS runtime preamble).
- *  In Node ≥ 16 `Atomics.wait` on the main thread is permitted, but it
- *  blocks the event loop entirely — incoming HTTP requests queued by
- *  libuv accept never get dispatched, because the main thread is always
- *  either executing JS or sitting in `Atomics.wait`.  The result: a
- *  JS-codegen node whose `runActors { ... }` body keeps any actor blocked
- *  on a long-armed `receive` (which every real cluster node does — at
- *  minimum a long-armed `stop` deadline to stay alive past the election
- *  window) has its `/_ssc-cluster/{star}` HTTP endpoints permanently
- *  unreachable.  A trivial `runActors { startNode(...) }` followed by
- *  `serveAsync(port)` outside `runActors` does work (covered by
- *  [[NodeBackendTest]] "integration: emitted bundle binds
- *  /_ssc-cluster/status"), but that pattern can't drive a cluster: the
- *  scheduler exits as soon as the body returns, so no peers are kept
- *  alive long enough to converge.
+ *  Current root cause (re-diagnosed 2026-06-11; the earlier scheduler-block
+ *  reason below is FIXED). For Bully envelopes to flow, the JS-codegen node's
+ *  `connectNode` (a `ws` client) dials `/_ssc-actors` offering the
+ *  `ssc-actors-v1` subprotocol, and the spec-compliant `ws` client *requires*
+ *  the server to echo a chosen `Sec-WebSocket-Protocol` in its 101 reply
+ *  ("Server sent no subprotocol" otherwise → the socket closes → no
+ *  convergence). The interpreter node echoes correctly: it registers the route
+ *  with `protocols = ActorWireProtocol.serverProtocols`
+ *  (`ActorInterp.scala`, see `WsRoutes` negotiation via
+ *  `WsHandshake.negotiateSubprotocol`/`upgradeResponse`). **The JVM-codegen
+ *  node registers `/_ssc-actors` via the emitted `onWebSocket(path)(handler)`
+ *  helper, which carries no protocols list** (`JvmGenRuntimeSources` /
+ *  `serveRuntime`), so its WS upgrade negotiates the empty set and never emits
+ *  a `Sec-WebSocket-Protocol` header.
  *
- *  Both nodes were exercised manually in isolation:
+ *  **Fix (scoped, Tier 4 — `specs/cluster-codegen-gap.md`):** give the emitted
+ *  JVM serve runtime a protocols-aware WS registration for the cluster actor
+ *  route — negotiate `ActorWireProtocol.serverProtocols` and echo the chosen
+ *  one (reusing the same `WsHandshake` shape the interpreter already uses).
+ *  Not landed here because it is a cross-cutting change to the emitted JVM
+ *  serve runtime (also used by every JVM HTTP/WS program, and by MCP's
+ *  `onWebSocket`) whose only real verification is *this* multi-process
+ *  integration test (spawns a JVM-bytecode node + a Node node, `npm install ws`,
+ *  HTTP-polls for convergence) — too flaky/heavy to land an unverified protocol
+ *  change against. Tracked as the open cross-backend envelope-reconciliation
+ *  task.
  *
- *   - **JVM-codegen node alone:** `compile-jvm --bytecode` + `link
- *     --backend jvm --bytecode` + `java -cp out.jar:scala3-library:scala-library
- *     <moduleId>_sc` ⇒ HTTP `/_ssc-cluster/status` returns the expected
- *     JSON snapshot.  Confirms the JVM-codegen half of this test works
- *     end-to-end.
- *   - **JS-codegen node alone (with `runActors { startNode }` + outside
- *     `serveAsync`):** ⇒ HTTP `/_ssc-cluster/status` returns the expected
- *     JSON snapshot.  Confirms `_installClusterRoutes()` does fire on the
- *     JS side and the JSON shape matches.
- *   - **JS-codegen node alone (with `runActors { startNode + serveAsync +
- *     spawn { receive {} } }`):** ⇒ HTTP `/_ssc-cluster/status` HANGS
- *     forever (`curl` times out with "connection completely sent off …
- *     0 bytes received").  Confirms the event-loop block above.
+ *  ### History — JS-codegen scheduler block (FIXED)
  *
- *  This is a JS-codegen runtime issue, not a peer-envelope mismatch.  The
- *  fix belongs in a separate PR — replace the synchronous scheduler
- *  while-loop with a `setImmediate`-driven tick, or wrap `_runActors` in
- *  a `setInterval` chunk so the Node event loop gets to drain its
- *  I/O queue between scheduler ticks.  Either changes JS semantics; both
- *  need their own design + test scaffolding.
+ *  The original disable reason: `_runActors(bodyFn)` ran a synchronous
+ *  `while (true)` loop with `Atomics.wait`/`_asyncSleep`, blocking Node's event
+ *  loop so the node's `/_ssc-cluster/*` HTTP endpoints were unreachable while an
+ *  actor stayed blocked on a long-armed `receive`. **Fixed:** `_runActors` is
+ *  now `async`, sleeps via `await setTimeout`, and yields via `setImmediate`
+ *  between ticks (`JsRuntimeAsyncA.scala` `async function _runActors`,
+ *  `JsRuntimeAsyncB.scala` `_yieldToIO`). Single-node JS-codegen
+ *  `/_ssc-cluster/status` now stays reachable while actors block — the
+ *  precondition for this test. `require('ws')` in the JS bundle is worked around
+ *  by `requireWsModule(sandbox)` (`npm install ws`) below.
  *
- *  Once the JS scheduler is unblocked, re-enable this test by switching
- *  `ignore(...)` back to `test(...)` — the test body below already builds
- *  the right harness; nothing else needs to change in here. */
+ *  Re-enable by flipping `ignore(...)` → `test(...)` once the JVM serve runtime
+ *  echoes the subprotocol; the harness below already builds the right two-node
+ *  setup. */
 class ClusterMultiBackendMatrixTest extends AnyFunSuite:
 
   // ── ssc.jar discovery (mirrors other cluster tests) ──────────────────
