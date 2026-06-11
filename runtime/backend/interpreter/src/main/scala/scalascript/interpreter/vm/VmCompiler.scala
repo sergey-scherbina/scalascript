@@ -361,6 +361,48 @@ object VmCompiler:
     private def calleeParamType(callee: Value.FunV, i: Int): VmType =
       if i < callee.paramTypes.length then fieldVmType(callee.paramTypes(i)) else TInt
 
+    // busi seq-74 — does `callee` return a reference (String / collection /
+    // object) rather than a numeric long? Used to type a CALL result TRef.
+    // `JitPredicates.isRefReturning` recognises the direct ref-producing forms;
+    // for a body that just delegates to another user function (`def f(x) = g(x)`),
+    // we resolve and recurse so transitive delegation chains classify correctly.
+    // Bounded by a visited set + depth cap; conservative (unknown ⇒ false, so a
+    // numeric callee is never mis-typed as ref).
+    private def calleeReturnsRef(callee: Value.FunV): Boolean =
+      calleeReturnsRefRec(callee, new java.util.IdentityHashMap[Value.FunV, java.lang.Boolean](), 0)
+
+    private def calleeReturnsRefRec(
+        callee:  Value.FunV,
+        visited: java.util.IdentityHashMap[Value.FunV, java.lang.Boolean],
+        depth:   Int
+    ): Boolean =
+      if depth > 8 || visited.containsKey(callee) then false
+      else
+        visited.put(callee, java.lang.Boolean.TRUE)
+        if jit.JitPredicates.isRefReturning(callee.body) then true
+        else tailCallName(callee.body) match
+          case Some(name) =>
+            ctx.resolveName(callee, name) match
+              case f: Value.FunV => calleeReturnsRefRec(f, visited, depth + 1)
+              case null          => false
+          case None => false
+
+    // The name of the function called in tail position of `t`, if the tail is a
+    // bare `name(args)` call (walking through if/block/match tails). Used to
+    // follow a delegation chain when classifying a callee's return type.
+    private def tailCallName(t: Term): Option[String] = t match
+      case ap: Term.Apply =>
+        ap.fun match
+          case Term.Name(n) => Some(n)
+          case _            => None
+      case ti: Term.If =>
+        tailCallName(ti.thenp).orElse(tailCallName(ti.elsep))
+      case tb: Term.Block =>
+        tb.stats.lastOption match
+          case Some(last: Term) => tailCallName(last)
+          case _                => None
+      case _ => None
+
     // Compile `t`, emitting its result directly into register `dst`, and return
     // the static type written there. Destination-passing avoids the extra MOVE a
     // return-a-register scheme needs at every use site (call args, if-branches,
@@ -445,8 +487,18 @@ object VmCompiler:
                 case _ => bail("call: ref/numeric arg type mismatch", Br.VmCallShape)
               i += 1
             emit(CALL, dst, argBase, slot)
-            val rt = if calleeIsDouble(callee) then TDouble else TInt
-            setType(dst, rt); rt
+            // busi seq-74 — a callee returning a ref (String/collection/object)
+            // must type the call result TRef, else the JIT returns the raw long 0
+            // (the regression: cross-module `def f(x:String):String = g(x)` where
+            // g = `raw.trim.toLowerCase` came back as IntV(0)). Without a TRef
+            // branch here the result was always TInt for non-double callees.
+            val rt =
+              if calleeIsDouble(callee) then TDouble
+              else if calleeReturnsRef(callee) then TRef
+              else TInt
+            setType(dst, rt)
+            if rt == TRef then refTypeName(dst) = ""
+            rt
           case None =>
             app.fun match
               case n: Term.Name =>

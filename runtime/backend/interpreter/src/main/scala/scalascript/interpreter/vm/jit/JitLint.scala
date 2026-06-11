@@ -212,6 +212,52 @@ object JitPredicates:
       cs.nonEmpty && cs.forall(c => isBoolReturning(c.body))
     case _ => false
 
+  // Ref(String/collection/object)-returning method calls. A function whose body
+  // returns one of these produces a reference Value, not a numeric long — so a
+  // CALL to it must type its result register TRef, otherwise the JIT returns the
+  // raw long 0 instead of the ref. (Repro: busi seq-74 — a cross-module
+  // `def f(x: String): String = g(x)` delegating to `raw.trim.toLowerCase`
+  // returned IntV(0).) Curated conservatively: only methods that clearly return
+  // a non-numeric value. Numeric-returning methods (length/size/indexOf/…) are
+  // deliberately excluded so a numeric callee is never mis-typed as ref.
+  private val refMethods = Set(
+    "substring", "replace", "replaceAll", "replaceFirst", "slice", "drop",
+    "take", "dropRight", "takeRight", "padTo", "padStart", "padEnd",
+    "stripPrefix", "stripSuffix", "split", "mkString", "map", "filter",
+    "flatMap", "updated", "appended", "prepended", "patch", "grouped",
+    "sliding", "format", "concat", "zip", "diff", "intersect")
+  private val refNullaryMethods = Set(
+    "trim", "strip", "stripLeading", "stripTrailing", "toLowerCase",
+    "toUpperCase", "capitalize", "reverse", "toString", "tail", "init",
+    "toList", "toSeq", "toVector", "toArray", "toSet", "toMap", "keys",
+    "values", "distinct", "flatten", "sorted")
+
+  /** True when `t` syntactically produces a reference (String / collection /
+   *  object) value rather than a numeric long. Mirror of [[isBoolReturning]] for
+   *  the ref case; conservative (unknown forms → false, never mis-typed). Does
+   *  not resolve user-function calls — VmCompiler handles transitive delegation. */
+  def isRefReturning(t: Term): Boolean = t match
+    case _: Lit.String     => true
+    case _: Term.Interpolate => true
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, args) if op.value == "+" =>
+      // String concat: ref if either operand is itself ref-producing.
+      isRefReturning(lhs) || args.values.exists(isRefReturning)
+    case ap: Term.Apply =>
+      ap.fun match
+        case Term.Select(_, m) => refMethods.contains(m.value)
+        case _                 => false
+    case Term.Select(_, m) => refNullaryMethods.contains(m.value)
+    case ti: Term.If =>
+      isRefReturning(ti.thenp) || isRefReturning(ti.elsep)
+    case tb: Term.Block =>
+      tb.stats.lastOption match
+        case Some(last: Term) => isRefReturning(last)
+        case _                => false
+    case tm: Term.Match =>
+      val cs = tm.casesBlock.cases
+      cs.nonEmpty && cs.forall(c => isRefReturning(c.body))
+    case _ => false
+
   /** True iff `t` is a Long-shaped expression — one the numeric (`walkLong`)
    *  codegen path can compile.  Shared by both JIT backends so the same program
    *  classifies identically under `SSC_JIT_BACKEND=asm` and the default Javac

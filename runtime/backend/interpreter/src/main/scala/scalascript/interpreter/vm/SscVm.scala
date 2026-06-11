@@ -301,6 +301,10 @@ object SscVm:
             i += 1
           ensureCapacity(stack, newBase + callee.numRegs)
           stack(base + a(pc)) = exec(callee, stack, refStack, newBase)
+          // busi seq-74 — a ref-returning callee stashes its result in tlRefReturn
+          // and returns 0L; without copying it into the caller's ref bank the ref
+          // is lost and a TRef destination reads null. (Mirror of RETREF/CALLREF.)
+          if callee.retIsRef then refStack(base + a(pc)) = tlRefReturn.get()(0)
         case LOADFV  => refStack(base + a(pc)) = fn.funVPool(b(pc))
         case CALLREF =>
           val funV    = refStack(base + b(pc)).asInstanceOf[Value.FunV]
@@ -332,6 +336,7 @@ object SscVm:
               i += 1
             ensureCapacity(stack, newBase + cachedCf.numRegs)
             stack(base + a(pc)) = exec(cachedCf, stack, refStack, newBase)
+            if cachedCf.retIsRef then refStack(base + a(pc)) = tlRefReturn.get()(0)
           else
             // Slow path: dispatch through interp.invoke.
             if icStatsEnabled then _icMisses.increment()
