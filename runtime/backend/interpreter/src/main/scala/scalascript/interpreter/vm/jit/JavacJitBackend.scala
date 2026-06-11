@@ -603,6 +603,8 @@ object JavacJitBackend extends JitBackend:
   private def isRefValRhs(t: Term, ctx: GenCtx): Boolean = t match
     case Term.Name("None") => true
     case tn: Term.Name     => ctx.isRefName(tn.value)
+    case _: Term.Tuple     => true  // T3: tuple literal → TupleV (ref), compiled by walkRef.
+    case ai: Term.ApplyInfix if ai.op.value == "++" => true  // T3: ++ concat (List/Map/Tuple) → ref.
     case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
       b.stats.head match
         case inner: Term => isRefValRhs(inner, ctx)
@@ -886,6 +888,14 @@ object JavacJitBackend extends JitBackend:
           val r = walkLong(argClause.values.head, ctx); if r == null then return null
           s"(($l $opStr $r) ? 1L : 0L)"
         case _ => null
+    // T3: numeric tuple element access `t._1` … `t._n` on a ref-typed tuple local.
+    // Must precede the generic ADT-field case (a tuple has no field meta).
+    case Term.Select(Term.Name(objName), Term.Name(field))
+        if ctx.isRefName(objName) && field.length > 1 && field.charAt(0) == '_'
+           && field.substring(1).forall(_.isDigit) =>
+      val jn = ctx.resolveLocal(objName)
+      if jn == null then null
+      else s"scalascript.interpreter.vm.jit.JitRefDispatch$$.MODULE$$.tupleIntElem((Object)($jn), ${field.substring(1).toInt})"
     case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
       emitRefFieldNumeric(objName, field, ctx, wantDouble = false)
     case Term.Select(recv: Term, Term.Name("size")) =>
@@ -1375,6 +1385,18 @@ object JavacJitBackend extends JitBackend:
           val arr = parts.mkString("new scalascript.interpreter.Value[] { ", ", ", " }")
           val nms = fieldNames.map(fn => "\"" + escape(fn) + "\"").mkString("new String[] { ", ", ", " }")
           s"""scalascript.interpreter.vm.jit.JitRefDispatch$$.MODULE$$.newInstanceRef("${escape(typeName)}", $tag, $arr, $nms)"""
+    // T3: tuple literal `(a, b, …)` → TupleV via JitRefDispatch.newTupleRef.
+    case Term.Tuple(elems) =>
+      val parts = new Array[String](elems.length)
+      var i = 0; var ok = true
+      val it = elems.iterator
+      while it.hasNext && ok do
+        val v = emitValueObject(it.next(), ctx)
+        if v == null then ok = false else { parts(i) = v; i += 1 }
+      if !ok then null
+      else
+        val arr = parts.mkString("new scalascript.interpreter.Value[] { ", ", ", " }")
+        s"scalascript.interpreter.vm.jit.JitRefDispatch$$.MODULE$$.newTupleRef($arr)"
     // Stage 8: s"prefix${arg1}mid${arg2}suffix" — emit as StringV(string-concat).
     // Each arg compiled via walkLong (numeric → direct String concat) or walkRef
     // (ref → wrapped in Value.show). Only the `s` interpolator is supported here;
@@ -1403,13 +1425,25 @@ object JavacJitBackend extends JitBackend:
         idx += 1
       sb.append(")")
       sb.toString
-    // Stage 8: `xs ++ ys` — List or Map concat via JitRefDispatch.collectionConcat.
-    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
-        if op.value == "++" && argClause.values.lengthCompare(1) == 0 =>
-      val lhsRef = walkRef(lhs, ctx)
+    // Stage 8 / T3: `xs ++ ys` — List/Map/Tuple concat via JitRefDispatch.collectionConcat.
+    // Type-test form (not `.After_4_6_0`) so it matches the parser's actual
+    // ApplyInfix node regardless of scala.meta version suffix.
+    //
+    // GOTCHA: the parser lowers `tupleA ++ (3, 4)` to `++` with a MULTI-arg
+    // clause `[3, 4]` (the RHS tuple literal becomes positional args), not a
+    // single tuple arg. So when nargs != 1 we rebuild the args into a TupleV;
+    // nargs == 1 keeps the List/Map receiver-arg form.
+    case ai: Term.ApplyInfix if ai.op.value == "++" =>
+      val lhsRef = walkRef(ai.lhs, ctx)
       if lhsRef == null then null
       else
-        val rhsRef = walkRef(argClause.values.head, ctx)
+        val args = ai.argClause.values
+        val rhsRef: String | Null =
+          if args.lengthCompare(1) == 0 then walkRef(args.head, ctx)
+          else
+            val parts = args.map(a => emitValueObject(a, ctx))
+            if parts.exists(_ == null) then null
+            else parts.mkString("scalascript.interpreter.vm.jit.JitRefDispatch$.MODULE$.newTupleRef(new scalascript.interpreter.Value[] { ", ", ", " })")
         if rhsRef == null then null
         else
           s"scalascript.interpreter.vm.jit.JitRefDispatch$$.MODULE$$.collectionConcat(" +

@@ -162,12 +162,29 @@ object JitRefDispatch:
     case _ =>
       throw new ClassCastException(s"mapConcat unsupported: ${recv.getClass.getName}, ${other.getClass.getName}")
 
-  /** Generic ++ dispatch — picks List vs Map at runtime by receiver shape. */
+  /** Generic ++ dispatch — picks List vs Map vs Tuple at runtime by receiver shape. */
   def collectionConcat(recv: AnyRef, other: AnyRef): Object = recv match
     case _: Value.ListV => listConcat(recv, other)
     case _: Value.MapV  => mapConcat(recv, other)
+    case a: Value.TupleV =>
+      // T3: tuple `++` concat — `(a, b) ++ (c, d)` → TupleV(a, b, c, d).
+      val b = other.asInstanceOf[Value.TupleV]
+      Value.TupleV(a.elems ++ b.elems).asInstanceOf[Object]
     case _ =>
       throw new ClassCastException(s"collectionConcat unsupported receiver: ${recv.getClass.getName}")
+
+  // T3: tuple literal `(a, b, …)` — build a TupleV from positional Values.
+  def newTupleRef(fields: Array[Value]): Object =
+    Value.TupleV(fields.toList).asInstanceOf[Object]
+
+  // T3: numeric tuple element access `t._n` (1-based). Returns the element's raw
+  // Long (IntV.x or double-bits) for the numeric JIT path.
+  def tupleIntElem(t: AnyRef, idx1: Int): Long =
+    t.asInstanceOf[Value.TupleV].elems(idx1 - 1) match
+      case Value.IntV(x)    => x
+      case Value.DoubleV(d) => java.lang.Double.doubleToRawLongBits(d)
+      case Value.BoolV(b)   => if b then 1L else 0L
+      case other            => throw new ClassCastException(s"tupleIntElem: non-numeric element $other")
 
   // Stage 8: extra collection methods — tail/init/headOption/last/isEmpty/nonEmpty.
   def tailRef(recv: AnyRef): Object = recv match
