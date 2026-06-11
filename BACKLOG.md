@@ -445,6 +445,17 @@ the contracts are explicit.
 These items come from the 2026-06-02 whole-project review. They are intentionally
 small and dependency-aware because multiple agents are working in parallel.
 
+- [ ] **jit-predicates-shared-rest** — Follow-up to `jit-predicates-shared`
+      (landed 2026-06-11, which lifted `looksLongValue` + `objectRefFallbackAllowed`
+      into `JitPredicates` behind the new `JitShapeCtx` trait). Lift the remaining
+      shared *pure* shape predicates duplicated between `AsmJitBackend` and
+      `JavacJitBackend` — `isNumericObjectReceiver`, `bindingIsRef`,
+      `classifyParamRefs`, `asSelfRecur`, `isTupleMatch`, `peelMapUnary` — the same
+      way (extend `JitShapeCtx` if a predicate needs context, else move as-is).
+      Do NOT touch the codegen sinks (`walk*`/`emit*`) — those genuinely differ
+      (bytecode vs Java-source). Gate: `JitLintTest` under both backends + full
+      `backendInterpreter/test`. Spec: `specs/jit-predicates-shared.md`.
+
 - [x] **codebase-maintenance-roadmap** - ✓ Landed 2026-06-02. Persisted the
       maintenance plan in the relevant specs, added backlog / queue entries,
       restored the missing shared typed-models IR spec referenced by the queue,

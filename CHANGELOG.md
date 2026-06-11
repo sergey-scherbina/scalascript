@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — refactor(jit): share shape predicates via JitPredicates (jit-predicates-shared)
+
+- **jit-predicates-shared** — The two JIT backends (`AsmJitBackend` bytecode,
+  `JavacJitBackend` Java-source) each carried private copies of the same
+  AST shape-classification predicates `looksLongValue` / `objectRefFallbackAllowed`.
+  They are meant to decide the same "is this compilable on the numeric path"
+  question, but drifted — a same-day bug had Javac's copy missing 2-arg
+  `getOrElse`, `Math.max|min|abs`, val-bound lambda, and global-`FunV` cases, so
+  a program classified differently under `SSC_JIT_BACKEND=asm` vs default.
+  Lifted both predicates into `object JitPredicates` (precedent: `isBoolReturning`)
+  behind a new narrow `JitShapeCtx` trait; each backend's `GenCtx` implements it.
+  The sole per-backend difference (local-name resolution `slotOf>=0` vs
+  `resolveLocal!=null`) is folded into `JitShapeCtx.isLocalLong`, making the
+  predicate bodies byte-identical so they cannot drift again. Pure consolidation:
+  389 tests green in both default and ASM backends, full `backendInterpreter/test`
+  1605 green. Follow-up (lift remaining shared predicates) tracked in BACKLOG as
+  `jit-predicates-shared-rest`. Spec: `specs/jit-predicates-shared.md`.
+
 ## 2026-06-10 — feat(std.crypto): AES-256-CBC + PKCS#7 with external IV (crypto-aes-cbc)
 
 - **crypto-aes-cbc** — busi confirmed (vs official KSeF 2.0 OpenAPI §5222) that

@@ -1,6 +1,0 @@
-feature/jit-predicates-shared 2026-06-11T04:30:59Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-11T04:30:59Z
-status: in-progress
-done-so-far: worktree created
-next: write spec (spec-dev), then extract pure predicates
