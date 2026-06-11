@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — refactor(jit): share remaining pure shape predicates (jit-predicates-shared-rest)
+
+- **jit-predicates-shared-rest** — Follow-up to `jit-predicates-shared`. Lifted
+  the remaining pure AST classifiers duplicated between `AsmJitBackend` and
+  `JavacJitBackend` into `JitPredicates`: `isNumericObjectReceiver`,
+  `isNumericObjectValueShape`, `peelMapUnary`, `isTupleMatch`, `asSelfRecur`,
+  `isLiteralIntMatch`, `classifyParamRefs`. All are total functions of
+  scala.meta AST / `Value.FunV` (no `MethodVisitor`/`GenCtx`/codegen state), so
+  no `JitShapeCtx` extension was needed; each backend keeps a one-line delegate.
+  `bindingIsRef` was investigated and deliberately left per-backend — it reaches
+  codegen state via `callParamIsRef`→`MethodSig` (different arity per backend) +
+  `coEmit.signatures`, so it is not a pure predicate. No behavioral change: 389
+  tests green in both default and `SSC_JIT_BACKEND=asm`, full
+  `backendInterpreter/test` 1605 green, clean under `-Werror`. Spec:
+  `specs/jit-predicates-shared-rest.md`.
+
 ## 2026-06-11 — refactor(jit): share shape predicates via JitPredicates (jit-predicates-shared)
 
 - **jit-predicates-shared** — The two JIT backends (`AsmJitBackend` bytecode,
