@@ -1,0 +1,6 @@
+feature/js-ui-raw-tknode-child 2026-06-11T09:52:43Z
+agent: claude-code
+heartbeat: 2026-06-11T09:52:43Z
+status: in-progress
+done-so-far: reproduced + root-caused the seq-79 follow-up — a raw (un-lowered) DataTableNode child of an element() silently vanishes on JS (walk has no 'DataTableNode' case); fix verified (hasTable true)
+next: replace EXPLORE probe with regression test, update spec, push
