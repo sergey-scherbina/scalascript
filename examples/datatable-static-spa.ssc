@@ -1,0 +1,79 @@
+#!/usr/bin/env ssc
+---
+name: datatable-static-spa
+version: 1.0.0
+description: >
+  Browser SPA backed by a static in-memory DataTable.  Exercises the std/ui
+  row-data natives (staticRowsSource / fieldsPayload) that the JS backend used
+  to leave undefined, plus an idempotent double-`lower`.  Emit with
+  `ssc emit-spa examples/datatable-static-spa.ssc out/` and open out/index.html.
+frontend: react
+---
+
+# Static DataTable SPA
+
+[signal, serve, View](std/ui/primitives.ssc)
+
+[lower](std/ui/lower.ssc)
+
+[defaultTheme](std/ui/theme.ssc)
+
+[vstack](std/ui/layout.ssc)
+
+[heading, text](std/ui/typography.ssc)
+
+[staticDataTable, fcol, dcol, mcol, scol, rowPost, fieldsBody](std/ui/data.ssc)
+
+## Data
+
+```scalascript
+val rows = [
+  ["name" -> "Ada Lovelace", "joined" -> "2024-01-15", "salary" -> "85000", "status" -> "active"],
+  ["name" -> "Alan Turing",  "joined" -> "2023-07-02", "salary" -> "92000", "status" -> "inactive"],
+  ["name" -> "Grace Hopper", "joined" -> "2022-11-30", "salary" -> "99000", "status" -> "active"]
+]
+
+val tick = signal("tick", 0)
+```
+
+## Table
+
+```scalascript
+// staticDataTable → dataTableView(staticRowsSource(rows), …); the rowPost action
+// posts a named subset of the row via fieldsBody (RowPayload.Fields).
+val employeesTable = staticDataTable(
+  rows,
+  [
+    fcol("Name", "name"),
+    dcol("Joined", "joined"),
+    mcol("Salary", "salary"),
+    scol("Status", "status")
+  ],
+  [
+    rowPost("Promote", "POST", "/api/promote", fieldsBody(["name", "salary"]), tick)
+  ]
+)
+```
+
+## Page — note the double `lower`
+
+```scalascript
+// pageContent lowers its own children, returning an already-lowered View …
+def pageContent(): View =
+  lower(
+    vstack(gap = 12)(
+      heading(1, "Employees"),
+      text("Static in-memory table — renders client-side, no fetch.")
+    ),
+    defaultTheme
+  )
+
+// … and the entry point lowers again.  `lower` must be idempotent so the JS
+// backend does not throw "Match failure" on the already-lowered View.
+val page = vstack(gap = 16)(
+  pageContent(),
+  employeesTable
+)
+
+serve(lower(page, defaultTheme), 8080)
+```

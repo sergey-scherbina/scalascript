@@ -33,3 +33,33 @@ class StdUiSmokeTest extends AnyFunSuite:
     assert(got.contains("smoke:ok"),
       s"smoke-test.ssc did not print 'smoke:ok'.  Got:\n$got")
   }
+
+  // js-backend-ui-render-gaps (busi seq-79), Layer 2: `lower` must be idempotent
+  // on an already-lowered View, so a `*Content` that lowers its own children and
+  // a caller that lowers again do not throw.  Mirrors the JS-backend passthrough.
+  test("lower is idempotent on an already-lowered View (no MatchError)") {
+    val src =
+      """# Idempotent lower
+        |
+        |[lower](std/ui/lower.ssc)
+        |[defaultTheme](std/ui/theme.ssc)
+        |[heading](std/ui/typography.ssc)
+        |[staticDataTable, fcol](std/ui/data.ssc)
+        |
+        |```scalascript
+        |val once  = lower(heading(1, "Hi"), defaultTheme)
+        |val twice = lower(once, defaultTheme)        // lower an already-lowered _Element
+        |val tbl   = staticDataTable([["name" -> "Ada"]], [fcol("Name", "name")], [])
+        |val tbl2  = lower(tbl, defaultTheme)         // staticDataTable is already a View
+        |println("lower-idempotent:ok")
+        |```
+        |""".stripMargin
+    val buf = java.io.ByteArrayOutputStream()
+    val ps  = java.io.PrintStream(buf, true)
+    Interpreter(out = ps, headless = true,
+                baseDir = Some(TestPaths.repoRoot)).run(Parser.parse(src))
+    ps.flush()
+    val got = buf.toString.trim
+    assert(got.contains("lower-idempotent:ok"),
+      s"double-lower threw or did not complete.  Got:\n$got")
+  }

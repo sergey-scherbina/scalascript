@@ -1627,6 +1627,8 @@ class JsGen(
       "fieldColumn", "dateColumn", "moneyColumn", "statusColumn", "linkColumn",
       "fcol", "dcol", "mcol", "scol", "lcol",
       "rowDelete", "rowPost", "rowLink", "rowEdit",
+      "staticRowsSource", "signalRowsSource",
+      "fieldPayload", "wholeRowPayload", "fieldsPayload",
       "textNode", "signalText", "showSignal", "fragment("
     ).exists(allText.contains)
     val hasSignals = allText.contains("signal(") || allText.contains("Signal(") ||

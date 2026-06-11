@@ -268,8 +268,20 @@ function _ssc_ui_renderBody(view) {
       }
       case '_Fragment':      return (v.children || []).map(walk).join('');
       case '_DataTableView': {
-        if (v.signal) collectSig(v.signal);
-        const fg = v.signal && v.signal._fetchGet;
+        // The source may be a TableDataSource marker (static / signal rows) or a
+        // legacy bare FetchUrlSignal (Remote, `._fetchGet`).
+        const src   = v.signal;
+        const isStatic = src && src._source === 'static';
+        const isSigRows = src && src._source === 'signal';
+        const rowsSig = isSigRows ? src.sig : null;
+        if (isStatic) {
+          // nothing reactive to collect for static rows
+        } else if (isSigRows) {
+          if (rowsSig) collectSig(rowsSig);
+        } else if (src) {
+          collectSig(src);
+        }
+        const fg = src && src._fetchGet;
         if (fg && fg.tick)    collectSig(fg.tick);
         if (fg && fg.headers) collectSig(fg.headers);
         (v.actions || []).forEach(function(a) {
@@ -277,7 +289,7 @@ function _ssc_ui_renderBody(view) {
           if (a.headers) collectSig(a.headers);
           if (a._type === '_RowLink' && a.signal) collectSig(a.signal);
         });
-        const dtSigId  = (v.signal && v.signal.id != null) ? String(v.signal.id) : '';
+        const dtSigId  = (src && src.id != null) ? String(src.id) : '';
         const dtUrl    = fg ? _esc(fg.url) : '';
         const dtTick   = (fg && fg.tick && fg.tick.id != null) ? String(fg.tick.id) : '';
         const dtHdr    = (fg && fg.headers && fg.headers.id != null) ? String(fg.headers.id) : '';
@@ -286,6 +298,8 @@ function _ssc_ui_renderBody(view) {
         })));
         const dtActs   = _esc(JSON.stringify((v.actions || []).map(function(a) { return a; })));
         let dtAttrs = `data-ssc-datatable="${dtSigId}" data-ssc-datatable-url="${dtUrl}" data-ssc-datatable-cols="${dtCols}" data-ssc-datatable-acts="${dtActs}"`;
+        if (isStatic) dtAttrs += ` data-ssc-datatable-rows="${_esc(JSON.stringify(src.rows || []))}"`;
+        if (isSigRows && rowsSig && rowsSig.id != null) dtAttrs += ` data-ssc-datatable-rows-sig="${String(rowsSig.id)}"`;
         if (dtTick) dtAttrs += ` data-ssc-datatable-tick="${dtTick}"`;
         if (dtHdr)  dtAttrs += ` data-ssc-datatable-headers="${dtHdr}"`;
         return `<div ${dtAttrs} style="overflow-x:auto"></div>`;
@@ -442,6 +456,8 @@ function _ssc_ui_mount(sigs) {
     var rawActs    = container.getAttribute('data-ssc-datatable-acts');
     var headersId  = container.getAttribute('data-ssc-datatable-headers');
     var tickId     = container.getAttribute('data-ssc-datatable-tick');
+    var rawRows    = container.getAttribute('data-ssc-datatable-rows');
+    var rowsSigId  = container.getAttribute('data-ssc-datatable-rows-sig');
     var cols, acts;
     try { cols = JSON.parse(rawCols || '[]'); } catch(_e) { cols = []; }
     try { acts = JSON.parse(rawActs || '[]'); } catch(_e) { acts = []; }
@@ -453,6 +469,21 @@ function _ssc_ui_mount(sigs) {
     var delStyle  = 'background:#ef4444;color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:'+fs+';font-family:'+ff+';margin-right:4px';
     function getField(row, path) {
       return path.split('.').reduce(function(o, k) { return o && o[k]; }, row);
+    }
+    // Resolve a rowPostAction payload against a row.  A payload is either a
+    // plain field name (back-compat) or a RowPayload marker (field/wholeRow/
+    // fields) produced by _ssc_ui_fieldPayload / wholeRowPayload / fieldsPayload.
+    function resolvePayload(row, payload) {
+      if (payload && typeof payload === 'object') {
+        if (payload._payload === 'wholeRow') return JSON.stringify(row);
+        if (payload._payload === 'fields') {
+          var obj = {};
+          (payload.names || []).forEach(function(n) { obj[n] = getField(row, n); });
+          return JSON.stringify(obj);
+        }
+        if (payload._payload === 'field') return String(getField(row, payload.name) || '');
+      }
+      return String(getField(row, payload) || '');
     }
     function getHeaders(headersId) {
       if (!headersId) return undefined;
@@ -557,7 +588,7 @@ function _ssc_ui_mount(sigs) {
               } else if (act._type === '_RowPost') {
                 btn.setAttribute('style', btnStyle); btn.textContent = act.label || '';
                 btn.addEventListener('click', function() {
-                  var pOpts = {method: act.method || 'POST', body: String(getField(r, act.bodyField) || '')};
+                  var pOpts = {method: act.method || 'POST', body: resolvePayload(r, act.bodyField)};
                   var dh = getHeaders(act.headers && act.headers.id); if (dh) pOpts.headers = dh;
                   fetch(act.url, pOpts).then(function(res) { return res.text(); })
                     .then(function() { if (act.tick && act.tick.id) _set(String(act.tick.id), ((_sv[String(act.tick.id)] || 0) | 0) + 1); });
@@ -582,14 +613,30 @@ function _ssc_ui_mount(sigs) {
       if (headersId) { var hs = getHeaders(headersId); if (hs) opts.headers = hs; }
       fetch(fetchUrl, opts).then(function(r) { return r.json(); }).then(renderTable);
     }
-    doFetch();
-    if (tickId) _sub(tickId, function(t) { if ((t | 0) > 0) doFetch(); });
-    acts.forEach(function(act) {
-      if ((act._type === '_RowDelete' || act._type === '_RowPost') && act.tick && act.tick.id) {
-        var tId = String(act.tick.id);
-        _sub(tId, function(t) { if ((t | 0) > 0) doFetch(); });
-      }
-    });
+    function asRows(v) {
+      if (Array.isArray(v)) return v;
+      if (typeof v === 'string') { try { var p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch(_e) { return []; } }
+      return v == null ? [] : v;
+    }
+    if (rawRows != null) {
+      // Static rows — inline JSON, no fetch.
+      var staticRows; try { staticRows = JSON.parse(rawRows); } catch(_e) { staticRows = []; }
+      renderTable(asRows(staticRows));
+    } else if (rowsSigId) {
+      // Signal-backed rows — render the current value and re-render on change.
+      renderTable(asRows(_sv[rowsSigId]));
+      _sub(rowsSigId, function(rows) { renderTable(asRows(rows)); });
+    } else {
+      // Remote (FetchUrlSignal) — fetch + tick-driven re-fetch.
+      doFetch();
+      if (tickId) _sub(tickId, function(t) { if ((t | 0) > 0) doFetch(); });
+      acts.forEach(function(act) {
+        if ((act._type === '_RowDelete' || act._type === '_RowPost') && act.tick && act.tick.id) {
+          var tId = String(act.tick.id);
+          _sub(tId, function(t) { if ((t | 0) > 0) doFetch(); });
+        }
+      });
+    }
   });
   // fetchUrlSignal GET — mount + tick-driven re-fetch
   document.querySelectorAll('[data-ssc-fetch-get-url]').forEach(function(el) {
@@ -684,4 +731,15 @@ function _ssc_ui_rowPostAction(label, method, url, bodyField, tick, headers) { r
 function _ssc_ui_rowLinkAction(label, signal, fieldPath) { return { _type: '_RowLink', label, signal, fieldPath }; }
 function _ssc_ui_rowEditAction(method, url, idField, tick, headers) { return { _type: '_RowInlineEdit', method, url, idField, tick, headers: headers || null }; }
 function _ssc_ui_dataTableView(signal, columns, actions) { return { _type: '_DataTableView', signal, columns: columns || [], actions: actions || [] }; }
+// TableDataSource markers — first argument to dataTableView (parity with the
+// interpreter TableDataSource.StaticRows / SignalRows; the legacy bare
+// FetchUrlSignal Remote path is still accepted via `._fetchGet`).
+function _ssc_ui_staticRowsSource(rows) { return { _source: 'static', rows: rows || [] }; }
+function _ssc_ui_signalRowsSource(sig) { return { _source: 'signal', sig }; }
+// RowPayload markers — the `payload` argument of rowPostAction (parity with the
+// interpreter RowPayload.Field / WholeRow / Fields).  Resolved against a row in
+// _ssc_ui_mount's _RowPost handler (see _ssc_ui_resolveRowPayload).
+function _ssc_ui_fieldPayload(name) { return { _payload: 'field', name }; }
+function _ssc_ui_wholeRowPayload() { return { _payload: 'wholeRow' }; }
+function _ssc_ui_fieldsPayload(names) { return { _payload: 'fields', names: names || [] }; }
 """

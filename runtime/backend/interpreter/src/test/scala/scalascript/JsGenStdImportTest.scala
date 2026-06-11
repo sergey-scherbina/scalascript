@@ -325,3 +325,55 @@ class JsGenStdImportTest extends AnyFunSuite:
       "fetchJsonCaptureAction must lower onto the capture extern")
     // whole bundle parses as JS
     checkNodeSyntax(js)
+
+  // ── js-backend-ui-render-gaps (busi seq-79) ────────────────────────────────
+  // The five std/ui row-data natives used to be undefined in the JS Signals
+  // runtime — calling them threw "not callable" and blanked the whole SPA.
+  test("JS signal runtime defines the std/ui row-data natives"):
+    val runtime = JsGen.generateRuntime(Set(JsGen.Capability.Signals))
+    List(
+      "_ssc_ui_staticRowsSource",
+      "_ssc_ui_signalRowsSource",
+      "_ssc_ui_fieldPayload",
+      "_ssc_ui_wholeRowPayload",
+      "_ssc_ui_fieldsPayload"
+    ).foreach { helper =>
+      assert(runtime.contains(s"function $helper("), s"missing browser UI helper: $helper")
+    }
+    // RowPayload resolution lives in the _RowPost mount handler
+    assert(runtime.contains("function resolvePayload("), "mount must resolve RowPayload markers")
+    assert(runtime.contains("body: resolvePayload(r, act.bodyField)"), "_RowPost body must use resolvePayload")
+
+  test("renderBody emits inline rows for a static DataTable source"):
+    val runtime = JsGen.generateRuntime(Set(JsGen.Capability.Signals))
+    val script =
+      runtime + "\n" +
+      """
+        |const src  = _ssc_ui_staticRowsSource([{ name: 'Ada', salary: '85000' }]);
+        |const cols = [{ title: 'Name', fieldPath: 'name', align: '', kind: { type: 'text' } }];
+        |const acts = [_ssc_ui_rowPostAction('Promote','POST','/api/promote', _ssc_ui_fieldsPayload(['name','salary']), { id: 't' })];
+        |const view = _ssc_ui_dataTableView(src, cols, acts);
+        |const out  = _ssc_ui_renderBody(view).body;
+        |if (out.indexOf('data-ssc-datatable-rows=') < 0) throw new Error('static rows attr missing: ' + out);
+        |if (out.indexOf('Ada') < 0) throw new Error('static row payload missing: ' + out);
+        |console.log('static-rows-ok');
+        |""".stripMargin
+    assert(runNode(script) == "static-rows-ok")
+
+  test("emit-spa datatable-static-spa example binds the row-data natives and parses"):
+    val source  = os.read(TestPaths.repoRoot / "examples" / "datatable-static-spa.ssc")
+    val module  = Parser.parse(source)
+    val baseDir = TestPaths.repoRoot / "examples"
+    val caps    = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    val js      = runtime + "\n" + moduleJs
+    assert(caps.contains(JsGen.Capability.Signals), s"expected Signals capability, got $caps")
+    // the row-data natives must bind to defined shims, never `= undefined`
+    List("staticRowsSource", "fieldsPayload").foreach { n =>
+      assert(!moduleJs.contains(s"const $n = (typeof _ssc_ui_$n !== 'undefined') ? _ssc_ui_$n : undefined;") ||
+             runtime.contains(s"function _ssc_ui_$n("),
+        s"$n must resolve to a defined _ssc_ui_$n shim")
+    }
+    // whole bundle parses as JS — proves no `Match failure` syntax / no undefined call sites
+    checkNodeSyntax(js)

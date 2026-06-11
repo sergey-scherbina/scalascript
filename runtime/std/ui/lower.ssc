@@ -424,6 +424,16 @@ def lower(n: TkNode, theme: Theme): View = n match
   case DataTableNode(signal, columns, actions) =>
     dataTableView(signal, columns, actions)
 
+  // Idempotent passthrough.  All TkNode subtypes are matched above; this
+  // catch-all fires only when `lower` is handed an already-lowered View (e.g.
+  // an `_Element` returned by `element(...)` — a common pattern when a
+  // `*Content` helper lowers its own children and the caller lowers again).
+  // Returning it unchanged makes `lower` total and keeps the JS backend (which
+  // throws on a non-matching scrutinee) in lockstep with the interpreter.
+  // See specs/js-backend-ui-render-gaps.md (Layer 2).
+  case alreadyLowered =>
+    alreadyLowered
+
 def mobileOverrideCss(breakpoint: Int, mobile: Theme): String =
   val bp  = breakpoint
   val fs  = mobile.typography.body.fontSize
