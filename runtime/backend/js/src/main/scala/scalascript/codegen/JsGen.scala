@@ -388,7 +388,15 @@ class JsGen(
   // funcParamOrder: function name → ordered parameter names.
   // Populated by collectFuncParamOrders before the main emit pass.
   // Used at call sites with named args to reorder them to positional order.
+  // NOTE: this map also gates the direct-call emission (`f(args)` vs
+  // `_call(f, args)`), so it must hold ONLY top-level same-module `def`s whose
+  // names are bound as callables at the call site — never imported names.
   private val funcParamOrder = scala.collection.mutable.Map.empty[String, List[String]]
+  // importedParamOrder: param orders for functions / case-class ctors reachable
+  // through imports (and inside `package:` namespace objects).  Used ONLY to
+  // reorder named args for such callees — it deliberately does NOT feed the
+  // direct-call gate, so imported calls keep going through `_call`.
+  private val importedParamOrder = scala.collection.mutable.Map.empty[String, List[String]]
   // Functions with 2+ explicit (non-using) parameter clause groups.
   // Call sites for these need flattened args: _call(f, a, b) not _call(_call(f, a), b).
   private val multiParamGroupFns = scala.collection.mutable.Set.empty[String]
@@ -599,6 +607,7 @@ class JsGen(
 
   private def collectFuncParamOrders(module: Module): Unit =
     funcParamOrder.clear()
+    importedParamOrder.clear()
     multiParamGroupFns.clear()
     zeroParamFns.clear()
     emptyParamFns.clear()
@@ -653,6 +662,46 @@ class JsGen(
       }
       section.subsections.foreach(scanSection)
     module.sections.foreach(scanSection)
+    // The pass above only sees top-level statements, so a module with a
+    // `package:` manifest — whose code compiles to a single wrapping
+    // `Defn.Object` — would contribute nothing to funcParamOrder, and named-arg
+    // calls to its functions / case-class constructors would not be reordered.
+    // This second pass descends into namespace objects and also records
+    // case-class primary constructors.  See collectParamOrdersFromModule.
+    collectParamOrdersFromModule(module)
+
+  // Collect named-arg param orders (function defs + case-class primary ctors)
+  // from a module into funcParamOrder, descending into namespace/package
+  // `Defn.Object`s.  Used both for the entry module (above) and, in genImport,
+  // for each imported module so a named-arg call to an imported function or
+  // case-class constructor reorders to the declared positional order instead of
+  // landing values in the wrong fields.  Only writes funcParamOrder — the other
+  // heuristic sets (intVars, zeroParamFns, …) keep their top-level-only scope.
+  private def collectParamOrdersFromModule(module: Module): Unit =
+    def deep(stats: List[Stat]): Unit = stats.foreach {
+      case o: Defn.Object => deep(o.templ.body.stats)
+      case d: Defn.Def =>
+        val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toList
+        if params.nonEmpty then importedParamOrder(d.name.value) = params
+      case c: Defn.Class if c.mods.exists(_.isInstanceOf[Mod.Case]) =>
+        val ctorParams = c.ctor.paramClauses.flatMap(_.values).map(_.name.value).toList
+        if ctorParams.nonEmpty then importedParamOrder(c.name.value) = ctorParams
+      case _ => ()
+    }
+    def scan(section: Section): Unit =
+      section.content.foreach {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          cb.tree.foreach { node =>
+            ScalaNode.fold(node) {
+              case Source(stats)     => deep(stats)
+              case Term.Block(stats) => deep(stats)
+              case _                 => ()
+            }
+          }
+        case _ => ()
+      }
+      section.subsections.foreach(scan)
+    module.sections.foreach(scan)
 
   // ─── Mutual recursion analysis ───────────────────────────────────
 
@@ -2337,6 +2386,13 @@ class JsGen(
       val childDir = resolvedPath / os.up
       val childGen = new JsGen(Some(childDir), lockPath = lockPath, topLevelConsts = topLevelConsts, mergeHelperEmitted = mergeHelperEmitted, declaredBindings = declaredBindings)
       childGen.importedFiles ++= importedFiles
+      // Record the imported module's function / case-class param orders so that
+      // (a) named-arg call sites later in THIS module (the importer) reorder, and
+      // (b) the childGen — which emits the imported module's own bodies via
+      // genScalaNode, bypassing genModule's pre-pass — has them too for the
+      // imported module's internal named-arg constructions.
+      collectParamOrdersFromModule(childModule)
+      childGen.importedParamOrder ++= importedParamOrder
       // Emit only the definitions from the imported module (suppress top-level output)
       childModule.sections.foreach { section =>
         section.content.foreach {
@@ -4646,7 +4702,7 @@ class JsGen(
           case Term.Name(n)             => Some(n)
           case Term.Select(_, Term.Name(n)) => Some(n)
           case _                        => None
-        fnNameOpt.flatMap(funcParamOrder.get) match
+        fnNameOpt.flatMap(n => funcParamOrder.get(n).orElse(importedParamOrder.get(n))) match
           case Some(params) =>
             // Reorder: fill slots by name, then fill remaining with positionals.
             val slots = Array.fill[Option[String]](params.length)(None)

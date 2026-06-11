@@ -705,3 +705,41 @@ class JsGenStdImportTest extends AnyFunSuite:
       "if (j.indexOf('ActionButtonNode') >= 0) throw new Error('a bad id must not produce a wired button: ' + j);\n" +
       "console.log('toolkit-failsoft-ok');\n"
     assert(runNode(script) == "toolkit-failsoft-ok")
+
+  // Regression for the JsGen named-arg-to-imported-function bug: the param-order
+  // pre-pass only saw top-level statements, so functions / case classes defined
+  // inside an imported module's `package:` namespace object were invisible and a
+  // named-arg call to them was emitted positionally in WRITTEN order — landing
+  // values in the wrong fields. Here `contentToolkitOptionsWithActions` is called
+  // with a named `rowBindings =` that skips the `components`/`bindings` defaults;
+  // before the fix `rowBindings` landed in `components` and the registry was empty
+  // (`toolkit:table?rows=` → "not registered"). Now it reorders correctly and the
+  // DataTableNode resolves.
+  test("named arg to an imported option builder reorders (skips defaulted params)"):
+    val source =
+      "# Panel\n\n" +
+      "## Controls {#controls}\n\n" +
+      "- [Invoices](toolkit:table?rows=invoices)\n\n" +
+      "[serve](std/ui/primitives.ssc)\n" +
+      "[contentToolkitSection, contentToolkitOptionsWithActions, contentAction, contentRows](std/ui/content.ssc)\n\n" +
+      "```scalascript\n" +
+      "val opts = contentToolkitOptionsWithActions(\n" +
+      "  Map(contentAction(\"saveDraft\", \"SAVE_H\")),\n" +
+      "  rowBindings = Map(contentRows(\"invoices\", \"SIG\", [\"COL_NO\"]))\n" +
+      ")\n" +
+      "serve(contentToolkitSection(\"controls\", opts))\n" +
+      "```\n"
+    val module   = Parser.parse(source)
+    val baseDir  = TestPaths.repoRoot / "examples"
+    val caps     = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime  = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    val script =
+      runtime + "\n_ssc_ui_serve = function(v){ globalThis.__captured = v; };\n" +
+      moduleJs +
+      "\nconst j = JSON.stringify(globalThis.__captured);\n" +
+      "if (j.indexOf('\"DataTableNode\"') < 0) throw new Error('named-arg rowBindings did not reach the registry (rows= unresolved): ' + j);\n" +
+      "if (j.indexOf('SIG') < 0) throw new Error('registered row source missing — rowBindings landed in the wrong field: ' + j);\n" +
+      "if (j.indexOf('COL_NO') < 0) throw new Error('row binding columns missing: ' + j);\n" +
+      "console.log('named-arg-import-ok');\n"
+    assert(runNode(script) == "named-arg-import-ok")
