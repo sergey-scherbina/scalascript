@@ -371,6 +371,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | Cross-backend crypto | JVM: native `Ed25519`, secp256k1, BLS12-381; JS: `@noble/curves` Scala.js backend — uniform `CryptoBackend` SPI |
 | `std.crypto` encryption | AES-256-GCM (`aesGenKey`/`aesGcmEncrypt`/`aesGcmDecrypt` + byte variants), AES-256-CBC + PKCS#7 with external IV (`aesGenIv`/`aesCbcEncrypt`/`aesCbcDecrypt`), RSA-OAEP (`rsaOaepEncrypt`), X.509 SPKI extraction (`x509PublicKey`) — hybrid encryption for KSeF 2.0 etc. (JVM only) |
 | `std.crypto` signature verify | `verifyEd25519`/`verifyEd25519Url`, `verifyRsaSha256` (PKCS1/PSS) — total verifiers (malformed → `false`, never throw) for trustless federation (JVM only) |
+| `std.crypto` signing | `ed25519Sign`/`ed25519SignUrl`, `rsaSignSha256` (PKCS1/PSS) — private-key signers that round-trip with the verifiers; for chain-checkpoint evidence a third party can verify without a shared secret (JVM only) |
 | `std.pdf` generation | `htmlToPdfBase64(html)` — render a confined HTML/CSS subset (table layout, A4, typography/borders/bg) to base64 PDF bytes via OpenHTMLtoPDF; drop-in for an HTML→PDF relay (JVM only) |
 | `std.mime` assembly | `buildMimeMessage(from,to,subject,htmlBody,attachments)` — hand-rolled RFC 5322 `multipart/mixed` (base64 HTML body + base64 attachments, RFC 2047 subject), ready for SMTP `DATA` (JVM only) |
 | MCP × x402 | `mcpServer { srv => srv.tool(...).requirePayment(...) }` — paid LLM tools |
