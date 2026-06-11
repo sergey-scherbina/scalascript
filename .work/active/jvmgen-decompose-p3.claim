@@ -1,6 +1,0 @@
-feature/jvmgen-decompose-p3 2026-06-11T06:14:58Z
-agent: claude-code
-heartbeat: 2026-06-11T06:14:58Z
-status: not-started
-done-so-far:
-next: extract CPS-transform section into trait JvmCpsTransform

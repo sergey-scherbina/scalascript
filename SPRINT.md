@@ -25,7 +25,8 @@ spec's acceptance.
 - [x] **jvmgen-decompose-p2** — DONE 2026-06-11. Extracted the 5 pure runtime-source
       string constants → `JvmGenRuntimeSources` mixin. JvmGen 10565→7042 (−33%). 1605 green.
       (Remaining Preamble defs are state-coupled → future p2b.)
-- [ ] **jvmgen-decompose-p3** — extract CPS-transform section → `trait JvmCpsTransform`.
+- [x] **jvmgen-decompose-p3** — DONE 2026-06-11. CPS-transform section (15 members)
+      → new `JvmGenCpsTransform` self-typed mixin. JvmGen 7042→6073 (−969). 1605 green.
 - [ ] **jvmgen-decompose-p4** — extract Mutual-TCO section → `trait JvmMutualTco`.
 - [ ] **jsgen-decompose** — apply the proven pattern to `JsGen` (5.8k) once JvmGen is split. (backlog promote)
 

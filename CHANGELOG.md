@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — refactor(jvmgen): extract CPS transform (jvmgen-decompose-p3)
+
+- **jvmgen-decompose-p3** — Tier-1 maintainability. Moved the `// ─── CPS
+  transform` section (15 class members) verbatim out of the giant `JvmGen.scala`
+  into a new self-typed mixin `JvmGenCpsTransform { self: JvmGen => }`, following
+  the established p1/p2 `JvmGen*`-prefixed pattern. State-coupled section, so
+  two-way `private→private[codegen]` visibility surgery (four moved members called
+  from JvmGen; eight JvmGen members the trait calls back into). Pure structural
+  move, no behaviour change. `JvmGen.scala` **7042 → 6073 lines (−969)**.
+  `backendJvm/compile` clean under `-Werror`; full `backendInterpreter/test`
+  1605 green. Spec: `specs/jvmgen-decompose.md`. Next: p4 (Mutual-TCO).
+
 ## 2026-06-11 — refactor(jit): share bindingIsRef — last JIT predicate (jit-predicates-bindingisref)
 
 - **jit-predicates-bindingisref** — Shared `bindingIsRef`, the last JIT shape
