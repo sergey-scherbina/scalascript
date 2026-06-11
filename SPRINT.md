@@ -38,8 +38,13 @@ spec's acceptance.
       **Tier 1 (maintainability) COMPLETE.** Spec: `specs/jsgen-decompose.md`.
 
 ### Tier 2 — performance gaps (each a dedicated sub-project)
-- [ ] **bench-honesty-varying-data** — measurement integrity; trustworthy table
-      before further tuning. Watch the `Bench.opaque`-defeats-interp-JIT trap (spec).
+- [~] **bench-honesty-varying-data** — measurement integrity. PARTIAL 2026-06-11:
+      (1) audit complete across 3 docs (interp + JS columns clean; compiled fold
+      cells identified); (2) FIXED the `off`-baseline defect — algebraic loop-folds
+      ran unconditionally, now gated behind FastTier so `scripts/bench off` is honest
+      (`pureCallSum` 0.003 on ↔ 11.748 off). REMAINING: direction-(b) varying-data
+      redesign of the compiled (jvm/js/rust) fold cells — distinct large sub-project,
+      re-claim separately. Spec `backend-perf-gaps.md` T2.1. Watch the opaque trap.
 - [~] **js-persistent-map-hamt** — DEFERRED/big: `map-ops` js 40×; 70 `instanceof Map`
       coupling sites. Dedicated sub-project, not a quick landing.
 - [x] **ssc-jit-const-propagation** — DONE 2026-06-11. Found already implemented + tested:

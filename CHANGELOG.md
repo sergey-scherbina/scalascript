@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — fix(interp): honest `off` baseline + interp honesty audit (bench-honesty-varying-data, Tier 2 / T2.1, partial)
+
+- **bench-honesty-varying-data (partial)** — Tier-2 measurement integrity. Two
+  deliverables: (1) **interp-column audit** (`docs/bench/interp-honesty-audit.md`)
+  via the `interp` vs `off` A/B — `arithLoop`/`instanceFieldAccess` confirmed
+  honest (JIT speeds real work, 11×/236×); completes the cross-backend audit
+  alongside the existing JS and jvm/compiled-cell audits. (2) **Fixed an
+  `off`-baseline honesty defect:** the algebraic loop eliminators
+  (`tryFoldInvariantAccumLoop` + `tryClosedFormPolyLoop`, the T2.3 const-prop
+  folds) ran *unconditionally* (`tryFastWhileAssign` gated only by `debugHooks`),
+  so `scripts/bench off` — the documented no-JIT baseline — silently kept folding
+  (`pureCallSum` 0.003 ms both "on" and "off"). Gated them behind `FastTier.enabled`;
+  default unchanged (0.003 ms), `off` now reports the honest un-folded 11.748 ms
+  (~3900× fold, now measurable). `docs/benchmarks.md` updated. 1605 tests green.
+  **Remaining (open, re-claim separately):** direction-(b) varying-data redesign of
+  the *compiled* (jvm/js/rust) fold cells — a per-workload benchmark-design project.
+  Spec: `specs/backend-perf-gaps.md` §T2.1.
+
 ## 2026-06-11 — verify+close: JIT const-propagation (ssc-jit-const-propagation, Tier 2 / T2.3)
 
 - **ssc-jit-const-propagation** — Tier-2 perf item, closed by discovery +
