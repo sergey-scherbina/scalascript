@@ -58,13 +58,13 @@ Javac: `resolveLocal(n) != null`; both: `interp.globals` lookups, `lambdas`).
 
 ## Behavior
 
-- [ ] `JitPredicates.looksLongValue` is the single definition; both backends delegate to it.
-- [ ] `JitPredicates.objectRefFallbackAllowed` is the single definition; both backends delegate to it.
-- [ ] The shared `looksLongValue` recognizes every case the pre-refactor ASM copy did: literals, single-stmt block, `If`, names (via `isLocalLong`/`globalIsIntV`), unary +/-, arithmetic/compare infix, `size`/`head`/`length` select, `toLong`/`toInt` select, 1-arg and 2-arg `getOrElse`, ref-receiver Long methods, `Math.max|min|abs`, val-bound lambda call, global `FunV` call.
-- [ ] The only per-backend difference (local-name resolution) is expressed solely through `JitShapeCtx.isLocalLong`; the predicate bodies are byte-identical.
-- [ ] `SscVmTest`, `InterpreterTest`, `JitLintTest` pass in the default (Javac) backend.
-- [ ] The same three suites pass under `SSC_JIT_BACKEND=asm`.
-- [ ] Full `backendInterpreter/test` passes in default mode (no behavioral regression).
+- [x] `JitPredicates.looksLongValue` is the single definition; both backends delegate to it.
+- [x] `JitPredicates.objectRefFallbackAllowed` is the single definition; both backends delegate to it.
+- [x] The shared `looksLongValue` recognizes every case the pre-refactor ASM copy did: literals, single-stmt block, `If`, names (via `isLocalLong`/`globalIsIntV`), unary +/-, arithmetic/compare infix, `size`/`head`/`length` select, `toLong`/`toInt` select, 1-arg and 2-arg `getOrElse`, ref-receiver Long methods, `Math.max|min|abs`, val-bound lambda call, global `FunV` call.
+- [x] The only per-backend difference (local-name resolution) is expressed solely through `JitShapeCtx.isLocalLong`; the predicate bodies are byte-identical.
+- [x] `SscVmTest`, `InterpreterTest`, `JitLintTest` pass in the default (Javac) backend.
+- [x] The same three suites pass under `SSC_JIT_BACKEND=asm`.
+- [x] Full `backendInterpreter/test` passes in default mode (no behavioral regression).
 
 ## Out of scope
 
@@ -107,4 +107,22 @@ forwarding methods over data it already holds.
 
 ## Results
 
-<!-- filled in at verify step -->
+Landed 2026-06-11.
+
+- `JitShapeCtx` trait + `looksLongValue`/`objectRefFallbackAllowed` moved into
+  `object JitPredicates` (`JitLint.scala`). Both `GenCtx` classes now
+  `extends JitShapeCtx` with six forwarding accessors each.
+- Net deletion in the backends: ~62 duplicated predicate lines × 2 collapsed to
+  a one-line delegate each (ASM keeps both delegates — it calls `looksLongValue`
+  at three of its own sites; Javac keeps only `objectRefFallbackAllowed`, since
+  it reaches `looksLongValue` only through it — the now-dead Javac
+  `looksLongValue` delegate was removed to satisfy `-Werror`).
+- Tests: `SscVmTest`+`InterpreterTest`+`JitLintTest` = 389 green in **both**
+  default and `SSC_JIT_BACKEND=asm`. Full `backendInterpreter/test` = 1605 green
+  (default). No behavioral change — pure consolidation.
+- Drift is now structurally impossible for these two predicates: a single source,
+  with the sole backend variation behind `isLocalLong`.
+
+Follow-up (backlog `jit-predicates-shared-rest`): lift the remaining shared pure
+predicates (`isNumericObjectReceiver`, `bindingIsRef`, `classifyParamRefs`,
+`asSelfRecur`, `isTupleMatch`, `peelMapUnary`, …) the same way.
