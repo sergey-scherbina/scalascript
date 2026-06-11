@@ -60,6 +60,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   …)` now propagates on interp/jvm/js (`sum=10`), fixed by an earlier interpreter
   change. No new code.
 
+## 2026-06-11 — feat(sql): PostgreSQL LISTEN/NOTIFY receive side — Db.pgListen / Db.getNotifications (pg-listen-notify-extern)
+
+- **pg-listen-notify-extern** (busi df-6, rozum seq-115) — the NOTIFY publish side
+  already worked (`Db.query("db","SELECT pg_notify(?,?)",…)`); the receive side needs
+  a held connection drained for notifications, which the stateless `Db.query` can't
+  express. Added `Db.pgListen(db, channel)` / `Db.unlisten(db, channel)` /
+  `Db.getNotifications(db[, timeoutMs])` in `SqlIntrinsics`: they operate on the
+  connection `ConnectionRegistry` already caches per database name, so `LISTEN` on it
+  and a later `getNotifications` on the same db name drain what arrived. Each
+  notification is a `Map { channel, payload, pid }`; `timeoutMs` blocks up to that
+  long (0/omitted = non-blocking). PostgreSQL-only — a clear error on a non-PG
+  connection; channel names are quoted (case-exact, injection-safe). Enabled by
+  `pg-jar-installbin` putting the postgres driver on the classpath. `BuiltinsRuntime`
+  now assembles the `Db` namespace object by collecting **all** `Db.*` natives
+  generically (was a hardcoded query/execute/insert/update list), so future `Db.*`
+  intrinsics need no core change. Example `examples/pg-listen-notify.ssc` (requires a
+  running Postgres — H2/SQLite have no LISTEN/NOTIFY, so the receive path is verified
+  by busi against real Postgres; tests lock native registration + the PG-only guard).
+
 ## 2026-06-11 — fix(sql): bundle the PostgreSQL driver (+ HikariCP) so `jdbc:postgresql:` works out of the box (pg-jar-installbin)
 
 - **pg-jar-installbin** (busi df-6, rozum seq-115) — `ssc` bundled only the H2 +

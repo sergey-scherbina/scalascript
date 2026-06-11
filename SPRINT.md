@@ -2030,11 +2030,11 @@ single-node without them.
       `jdbc:postgresql:` from the staged classpath (connection error, not "No suitable
       driver"). sql suites green (91+26+4).
 
-- [ ] **pg-listen-notify-extern** (low-pri) — LISTEN/NOTIFY *receive* side. Publish
-      already works (`SELECT pg_notify(?, ?)` through `Db.query`). Receiving needs a
-      **held connection** draining `getNotifications()`, which the stateless
-      `Db.execute` / `Db.query` cannot express. Add externs like
-      `pgListen(channel)` / `getNotifications()` (held-connection drain). Until it
-      lands, busi multi-instance cache invalidation falls back to per-request reload
-      (`BUSI_MULTI_WRITER`); NOTIFY is the optimization once the extern ships.
-      Single-node unaffected. Likely lives in `backend/postgres` or a `pg-plugin`.
+- [x] **pg-listen-notify-extern** (low-pri) — DONE 2026-06-11. Added
+      `Db.pgListen(db, channel)` / `Db.unlisten(db, channel)` /
+      `Db.getNotifications(db[, timeoutMs])` in `SqlIntrinsics`, operating on the
+      connection `ConnectionRegistry` caches per db name. Each notification is a
+      `Map { channel, payload, pid }`; PG-only (clear error otherwise);
+      injection-safe quoted channel. `BuiltinsRuntime` now collects all `Db.*`
+      natives generically. Example `examples/pg-listen-notify.ssc` (live PG).
+      Tests lock registration + PG-guard; receive path verified by busi vs real PG.
