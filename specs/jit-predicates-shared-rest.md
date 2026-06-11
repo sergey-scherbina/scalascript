@@ -34,13 +34,13 @@ A delegate is dropped only if the backend no longer calls it (to satisfy `-Werro
 
 ## Behavior
 
-- [ ] Each of the seven functions has a single definition in `JitPredicates`; both backends delegate.
-- [ ] `classifyParamRefs` and `isLiteralIntMatch` move together (the former calls the latter).
-- [ ] No `JitShapeCtx` extension is needed — all seven are pure (Term/Match/FunV → result).
-- [ ] Behavior is unchanged: the moved bodies are the pre-existing ones (cosmetic naming reconciled only).
-- [ ] `SscVmTest`, `InterpreterTest`, `JitLintTest` pass in the default (Javac) backend.
-- [ ] The same three suites pass under `SSC_JIT_BACKEND=asm`.
-- [ ] Full `backendInterpreter/test` passes in default mode.
+- [x] Each of the seven functions has a single definition in `JitPredicates`; both backends delegate.
+- [x] `classifyParamRefs` and `isLiteralIntMatch` move together (the former calls the latter).
+- [x] No `JitShapeCtx` extension is needed — all seven are pure (Term/Match/FunV → result).
+- [x] Behavior is unchanged: the moved bodies are the pre-existing ones (cosmetic naming reconciled only).
+- [x] `SscVmTest`, `InterpreterTest`, `JitLintTest` pass in the default (Javac) backend.
+- [x] The same three suites pass under `SSC_JIT_BACKEND=asm`.
+- [x] Full `backendInterpreter/test` passes in default mode.
 
 ## Out of scope
 
@@ -66,4 +66,20 @@ A delegate is dropped only if the backend no longer calls it (to satisfy `-Werro
 
 ## Results
 
-<!-- filled in at verify step -->
+Landed 2026-06-11.
+
+- Seven pure classifiers moved into `object JitPredicates`:
+  `isNumericObjectReceiver`, `isNumericObjectValueShape`, `peelMapUnary`,
+  `isTupleMatch`, `asSelfRecur`, `isLiteralIntMatch`, `classifyParamRefs`.
+  None needed `JitShapeCtx` — all are total functions of AST / `Value.FunV`.
+- Each backend keeps a private one-line delegate; all delegates remained in use
+  in both backends (compile clean under `-Werror`, no unused-member warnings).
+- `bindingIsRef` was investigated and **left in place**: it reaches backend
+  codegen state via `callParamIsRef` → `MethodSig` (different arity per backend:
+  ASM carries `staticMethodName`, Javac does not) + `coEmit.signatures`. Not a
+  pure predicate; documented in Out of scope.
+- Tests: 389 green in **both** default and `SSC_JIT_BACKEND=asm`
+  (`SscVmTest`+`InterpreterTest`+`JitLintTest`); full `backendInterpreter/test`
+  1605 green. Pure consolidation, no behavioral change.
+- Net: ~95 duplicated predicate lines across the two backends collapsed to
+  delegates. Drift now structurally impossible for these classifiers.
