@@ -1,0 +1,6 @@
+feature/interp-typeclass-fold-using-cache 2026-06-11T11:45:47Z
+agent: claude-code
+heartbeat: 2026-06-11T11:45:47Z
+status: in-progress
+done-so-far: profiled typeclassFold — 47% alloc + 16% CPU in call-site resolveUsing (GivenRuntime); prior global-map memo failed on key overhead
+next: FunV-local monomorphic using-resolve cache keyed on cheap arg type-sig; A/B measure
