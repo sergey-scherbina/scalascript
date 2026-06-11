@@ -1,0 +1,6 @@
+feature/jit-predicates-shared 2026-06-11T04:30:43Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-11T04:30:43Z
+status: not-started
+done-so-far:
+next: write spec, then extract pure shape-predicates into JitPredicates
