@@ -487,6 +487,24 @@ object AsmJitBackend extends JitBackend:
     mv.visitVarInsn(ALOAD, instSlot)
     true
 
+  /** T3: build a TupleV from positional element terms; leaves it on the stack.
+   *  `JitRefDispatch.newTupleRef(new Value[]{ … })`. */
+  private def emitTupleObject(elems: List[Term], ctx: GenCtx, mv: MethodVisitor): Boolean =
+    mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+    emitIconst(mv, elems.length)
+    mv.visitTypeInsn(ANEWARRAY, valueInt)
+    var i = 0
+    var rest = elems
+    while rest.nonEmpty do
+      mv.visitInsn(DUP)
+      emitIconst(mv, i)
+      if !emitValueObject(rest.head, ctx, mv) then return false
+      mv.visitInsn(AASTORE)
+      i += 1
+      rest = rest.tail
+    mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "newTupleRef", s"([L$valueInt;)Ljava/lang/Object;", false)
+    true
+
   private def isPrimitiveFieldType(t: String): Boolean =
     t == "Int" || t == "Long" || t == "Double" || t == "Boolean" || t == "String"
 
@@ -534,6 +552,8 @@ object AsmJitBackend extends JitBackend:
   private def isRefValRhs(t: Term, ctx: GenCtx): Boolean = t match
     case Term.Name("None") => true
     case tn: Term.Name     => ctx.isRefName(tn.value)
+    case _: Term.Tuple     => true  // T3: tuple literal → TupleV (ref), compiled by walkRef.
+    case ai: Term.ApplyInfix if ai.op.value == "++" => true  // T3: ++ concat (List/Map/Tuple) → ref.
     case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
       b.stats.head match
         case inner: Term => isRefValRhs(inner, ctx)
@@ -954,6 +974,19 @@ object AsmJitBackend extends JitBackend:
         if op.value == "-" then mv.visitInsn(LNEG)
         true
       }
+    // T3: numeric tuple element access `t._1` … `t._n` (before the ADT-field case;
+    // a tuple has no field meta). Emits JitRefDispatch.tupleIntElem((Object)t, n).
+    case Term.Select(Term.Name(objName), Term.Name(field))
+        if ctx.isRefName(objName) && field.length > 1 && field.charAt(0) == '_'
+           && field.substring(1).forall(_.isDigit) =>
+      val slot = ctx.slotOf(objName)
+      if slot < 0 then false
+      else
+        mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+        mv.visitVarInsn(ALOAD, slot)
+        emitIconst(mv, field.substring(1).toInt)
+        mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "tupleIntElem", "(Ljava/lang/Object;I)J", false)
+        true
     case Term.Select(Term.Name(objName), Term.Name(field)) if ctx.isRefName(objName) =>
       emitRefFieldNumeric(objName, field, ctx, mv, wantDouble = false)
     case Term.Select(recv: Term, Term.Name("size")) =>
@@ -2187,12 +2220,19 @@ object AsmJitBackend extends JitBackend:
         case Term.ApplyType.After_4_6_0(Term.Name(n), _) => n
         case _ => ""
       emitConstructorObject(typeName, argClause.values, ctx, mv)
-    // Stage 8: `xs ++ ys` — List/Map concat via collectionConcat (mirrors Javac).
-    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
-        if op.value == "++" && argClause.values.lengthCompare(1) == 0 =>
+    // T3: tuple literal `(a, b, …)` → TupleV via JitRefDispatch.newTupleRef.
+    case Term.Tuple(elems) =>
+      emitTupleObject(elems, ctx, mv)
+    // Stage 8 / T3: `xs ++ ys` — List/Map/Tuple concat via collectionConcat.
+    // GOTCHA (see Javac): `tupleA ++ (3, 4)` lowers to a MULTI-arg `++` clause;
+    // when nargs != 1 we rebuild the args into a TupleV before concat.
+    case ai: Term.ApplyInfix if ai.op.value == "++" =>
       mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
-      if !walkRef(lhs, ctx, mv) then return false
-      if !walkRef(argClause.values.head, ctx, mv) then return false
+      if !walkRef(ai.lhs, ctx, mv) then return false
+      val args = ai.argClause.values
+      if args.lengthCompare(1) == 0 then
+        if !walkRef(args.head, ctx, mv) then return false
+      else if !emitTupleObject(args, ctx, mv) then return false
       mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "collectionConcat",
         "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", false)
       true
