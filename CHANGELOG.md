@@ -24,6 +24,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   with the precise next-step diagnosis + re-enable recipe. Specs:
   `backend-correctness-hygiene.md` §T3.1, `cluster-codegen-gap.md`.
 
+## 2026-06-11 — fix(js): std/ui row-data natives + idempotent lower (js-backend-ui-render-gaps)
+
+- **js-backend-ui-render-gaps** (busi seq-79) — `emit-spa` rendered a blank screen
+  because of two JS-backend divergences from the interpreter. **Layer 1:** the five
+  `std/ui` row-data natives (`staticRowsSource`, `signalRowsSource`, `fieldPayload`,
+  `wholeRowPayload`, `fieldsPayload`) had no `_ssc_ui_*` shim, so JsGen's extern
+  guard bound them to `undefined` and any call (e.g. `fieldsBody = fieldsPayload`)
+  threw `not callable`, blanking the SPA. Added the shims; the `_DataTableView`
+  renderer + mount now handle `StaticRows` (inline JSON, no fetch) and `SignalRows`
+  (subscribe to rows signal) alongside the legacy `Remote` fetch path; `_RowPost`
+  bodies resolve `RowPayload` markers (field/wholeRow/fields). **Layer 2:**
+  `std.ui.lower` gained an idempotent passthrough catch-all so lowering an
+  already-lowered `View` returns it unchanged instead of throwing `Match failure`
+  on JS — both backends now agree. Example `examples/datatable-static-spa.ssc`;
+  4 new tests (3 JsGenStdImportTest + 1 StdUiSmokeTest). Spec
+  `specs/js-backend-ui-render-gaps.md`.
+
 ## 2026-06-11 — fix(interp): warn on cross-module import name conflict (busi-p3-module-fn-name-conflict)
 
 - **busi-p3-module-fn-name-conflict** — Importing the same function name from two
