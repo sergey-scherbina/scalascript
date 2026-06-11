@@ -1,0 +1,6 @@
+feature/jvmgen-decompose-p2b 2026-06-11T06:31:02Z
+agent: claude-code
+heartbeat: 2026-06-11T06:31:02Z
+status: not-started
+done-so-far:
+next: extract remaining state-coupled Preamble defs into trait JvmGenPreamble
