@@ -197,8 +197,11 @@ def contentToolkitOptionsWithActions(
   bindings: ContentValue = ContentValue.MapV(Map()),
   rowBindings: Map[String, Any] = Map()
 ): ContentToolkitOptions =
-  ContentToolkitOptions(components = components, bindings = bindings,
-                        actions = actions, rowBindings = rowBindings)
+  // Construct positionally (matching the other option builders) — the JS backend
+  // does not reorder named args for constructors of imported case classes, so a
+  // named-arg form would land values in the wrong fields under emit-js/emit-spa.
+  ContentToolkitOptions(false, 16, 8, 4, false, false,
+                        components, bindings, actions, rowBindings)
 
 // contentToolkitOptionsWithRows — options carrying a live-row registry (3b).  Use
 // when a Markdown section binds `toolkit:table?rows=<id>` regions to runtime signals.
@@ -208,8 +211,9 @@ def contentToolkitOptionsWithRows(
   components: List[ContentToolkitComponent] = [],
   bindings: ContentValue = ContentValue.MapV(Map())
 ): ContentToolkitOptions =
-  ContentToolkitOptions(components = components, bindings = bindings,
-                        actions = actions, rowBindings = rowBindings)
+  // Positional construction — see contentToolkitOptionsWithActions above.
+  ContentToolkitOptions(false, 16, 8, 4, false, false,
+                        components, bindings, actions, rowBindings)
 
 def contentToolkitOptionsWithBindings(
   bindings: ContentValue,

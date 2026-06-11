@@ -630,3 +630,78 @@ class JsGenStdImportTest extends AnyFunSuite:
 
   test("emit-js propagates a 4-level transitive import (A->B->C->D)"):
     assert(emitJsLike("js-transitive-iife-4") == "43")
+
+  // busi declarative-ui Scope A: the JS toolkit runtime now resolves the
+  // `action=`/`rows=` registries (parity with the interpreter), turning a
+  // declarative `toolkit:` link into a typed effect / live table.  Capture the
+  // raw TkNode tree (serve intercepted, no lower) and assert the registered
+  // handler / row source threaded through into ActionButtonNode / DataTableNode.
+  test("contentToolkitSection resolves toolkit:button?action= and toolkit:table?rows= registries"):
+    val source =
+      "# Panel\n\n" +
+      "## Controls {#controls}\n\n" +
+      "- [Save draft](toolkit:button?action=saveDraft)\n" +
+      "- [Delete](toolkit:button?action=delete&disabled=true)\n" +
+      "- [Invoices](toolkit:table?rows=invoices)\n\n" +
+      "[serve](std/ui/primitives.ssc)\n" +
+      "[contentToolkitSection, contentToolkitOptionsWithRows, contentAction, contentRows](std/ui/content.ssc)\n\n" +
+      "```scalascript\n" +
+      // contentToolkitOptionsWithRows takes (rowBindings, actions) as its leading
+      // positional args — register both registries without named args.
+      "val opts = contentToolkitOptionsWithRows(\n" +
+      "  Map(contentRows(\"invoices\", \"SIG\", [\"COL_NO\", \"COL_AMT\"])),\n" +
+      "  Map(contentAction(\"saveDraft\", \"SAVE_H\"), contentAction(\"delete\", \"DEL_H\"))\n" +
+      ")\n" +
+      "serve(contentToolkitSection(\"controls\", opts))\n" +
+      "```\n"
+    val module   = Parser.parse(source)
+    val baseDir  = TestPaths.repoRoot / "examples"
+    val caps     = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime  = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    val script =
+      runtime + "\n_ssc_ui_serve = function(v){ globalThis.__captured = v; };\n" +
+      moduleJs +
+      "\nconst j = JSON.stringify(globalThis.__captured);\n" +
+      "if (j.indexOf('\"ActionButtonNode\"') < 0) throw new Error('action= did not produce ActionButtonNode: ' + j);\n" +
+      "if (j.indexOf('SAVE_H') < 0) throw new Error('registered save handler not threaded through: ' + j);\n" +
+      "if (j.indexOf('Save draft') < 0) throw new Error('action button label missing: ' + j);\n" +
+      "if (j.indexOf('DEL_H') < 0) throw new Error('registered delete handler not threaded through: ' + j);\n" +
+      "if (j.indexOf('\"DataTableNode\"') < 0) throw new Error('rows= did not produce DataTableNode: ' + j);\n" +
+      "if (j.indexOf('SIG') < 0) throw new Error('registered row source not threaded through: ' + j);\n" +
+      "if (j.indexOf('COL_NO') < 0) throw new Error('row binding columns missing: ' + j);\n" +
+      "console.log('toolkit-registry-ok');\n"
+    assert(runNode(script) == "toolkit-registry-ok")
+
+  // busi seq-102 white-screen class: an unregistered action id must NOT abort the
+  // whole render in the browser — it degrades to a visible inline error node for
+  // that block (fail-soft, declarative-ui proposal §6).  The interpreter throws
+  // here (server side); the browser fails soft — intentional, error-path-only.
+  test("an unregistered toolkit action id renders an inline error, never blanks the render"):
+    val source =
+      "# Panel\n\n" +
+      "## Controls {#controls}\n\n" +
+      "- [Save](toolkit:button?action=nope)\n\n" +
+      "[serve](std/ui/primitives.ssc)\n" +
+      "[contentToolkitSection, contentToolkitOptionsWithActions, contentAction](std/ui/content.ssc)\n\n" +
+      "```scalascript\n" +
+      "serve(contentToolkitSection(\"controls\",\n" +
+      "  contentToolkitOptionsWithActions(Map(contentAction(\"saveDraft\", \"SAVE_H\")))))\n" +
+      "```\n"
+    val module   = Parser.parse(source)
+    val baseDir  = TestPaths.repoRoot / "examples"
+    val caps     = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime  = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    val script =
+      runtime + "\n_ssc_ui_serve = function(v){ globalThis.__captured = v; };\n" +
+      moduleJs +
+      "\nconst j = JSON.stringify(globalThis.__captured);\n" +
+      // fail-soft: the render completed (serve was called) instead of throwing,
+      "if (typeof globalThis.__captured === 'undefined') throw new Error('render aborted (white-screen) instead of failing soft');\n" +
+      "if (j.indexOf('RawTextNode') < 0) throw new Error('no inline error node emitted: ' + j);\n" +
+      "if (j.indexOf('not registered') < 0) throw new Error('inline error lacks the loud message: ' + j);\n" +
+      "if (j.indexOf('nope') < 0) throw new Error('inline error should name the bad id: ' + j);\n" +
+      "if (j.indexOf('ActionButtonNode') >= 0) throw new Error('a bad id must not produce a wired button: ' + j);\n" +
+      "console.log('toolkit-failsoft-ok');\n"
+    assert(runNode(script) == "toolkit-failsoft-ok")

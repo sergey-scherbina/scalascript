@@ -141,7 +141,36 @@ function _ssc_tk_link_signal_default(link) {
   }
   return [name, initial];
 }
-function _ssc_tk_link_node(link, env) {
+// Registry lookups (parity with the interpreter's action / rowBindings env).
+// `options.actions` / `options.rowBindings` are .ssc Map[String, Any] values,
+// which compile to native JS Maps — so `.has`/`.get`/`.keys` are available.
+function _ssc_tk_registry_keys(m) {
+  if (!m || typeof m.keys !== 'function') return "<none>";
+  var ks = Array.from(m.keys());
+  return ks.length === 0 ? "<none>" : ks.sort().join(", ");
+}
+function _ssc_tk_action(options, actionId) {
+  var actions = options.actions;
+  if (actions && typeof actions.has === 'function' && actions.has(actionId)) return actions.get(actionId);
+  _ssc_tk_error("contentToolkitNode: toolkit:button action '" + actionId + "' is not registered (available: " + _ssc_tk_registry_keys(actions) + ")");
+}
+// rowBindingDataTable — turn a registered ContentRowBinding into a DataTableNode,
+// mirroring the interpreter. The binding compiles to {_type:'ContentRowBinding',
+// rows, columns, actions}; DataTableNode's first field is `signal` (= the rows source).
+function _ssc_tk_row_binding_datatable(regionId, binding) {
+  if (!binding || binding._type !== 'ContentRowBinding')
+    _ssc_tk_error("contentToolkitNode: toolkit:table rows '" + regionId + "' expected a ContentRowBinding, got " + _show(binding));
+  if (binding.rows == null)
+    _ssc_tk_error("contentToolkitNode: ContentRowBinding('" + regionId + "').rows is required");
+  return { _type: 'DataTableNode', signal: binding.rows, columns: binding.columns || [], actions: binding.actions || [] };
+}
+function _ssc_tk_row_binding(options, regionId) {
+  var rb = options.rowBindings;
+  if (rb && typeof rb.has === 'function' && rb.has(regionId)) return rb.get(regionId);
+  _ssc_tk_error("contentToolkitNode: toolkit:table rows '" + regionId + "' is not registered (available: " + _ssc_tk_registry_keys(rb) + ")");
+}
+
+function _ssc_tk_link_node(link, env, options) {
   switch (link.kind) {
     case 'textfield': case 'input':
       return { _type: 'TextFieldNode', value: _ssc_tk_signal(env, _ssc_tk_required_query(link, 'signal'), 'toolkit:textField'),
@@ -150,10 +179,21 @@ function _ssc_tk_link_node(link, env) {
       return { _type: 'CheckboxNode', checked: _ssc_tk_signal(env, _ssc_tk_required_query(link, 'signal'), 'toolkit:checkbox'),
                label: _ssc_tk_link_label(link), disabled: _ssc_tk_link_bool(link, 'disabled', false) };
     case 'button': case 'signalbutton': {
-      var signal = _ssc_tk_signal(env, _ssc_tk_required_query(link, 'signal'), 'toolkit:button');
-      var value = _ssc_tk_link_literal(_ssc_tk_has(link.query, 'value') ? link.query['value'] : 'true');
       var disabled = _ssc_tk_link_bool(link, 'disabled', false);
       var label = _ssc_tk_link_label(link);
+      // action=<id> binds the button to a registered EventHandler (a typed server
+      // write), turning a declarative Markdown link into a real effect.  Without
+      // it, the button sets a local signal (signal=) as before.
+      if (_ssc_tk_has(link.query, 'action')) {
+        var handler = _ssc_tk_action(options, link.query['action']);
+        if (_ssc_tk_has(link.query, 'enabledWhen'))
+          return { _type: 'ShowWhenNode', signal: _ssc_tk_signal(env, link.query['enabledWhen'], 'toolkit:button.enabledWhen'),
+                   whenTrue: { _type: 'ActionButtonNode', handler: handler, label: label, disabled: disabled },
+                   whenFalse: { _type: 'ActionButtonNode', handler: handler, label: label, disabled: true } };
+        return { _type: 'ActionButtonNode', handler: handler, label: label, disabled: disabled };
+      }
+      var signal = _ssc_tk_signal(env, _ssc_tk_required_query(link, 'signal'), 'toolkit:button');
+      var value = _ssc_tk_link_literal(_ssc_tk_has(link.query, 'value') ? link.query['value'] : 'true');
       if (_ssc_tk_has(link.query, 'enabledWhen'))
         return { _type: 'ShowWhenNode', signal: _ssc_tk_signal(env, link.query['enabledWhen'], 'toolkit:button.enabledWhen'),
                  whenTrue: { _type: 'SignalButtonNode', signal: signal, value: value, label: label, disabled: disabled },
@@ -162,6 +202,12 @@ function _ssc_tk_link_node(link, env) {
     }
     case 'signaltext':
       return { _type: 'SignalTextNode', signal: _ssc_tk_signal(env, _ssc_tk_required_query(link, 'signal'), 'toolkit:signalText') };
+    case 'table': {
+      // rows=<id> binds a live DataTable whose row source is the ContentRowBinding
+      // registered under <id> in rowBindings (3b), mirroring the action registry.
+      var regionId = _ssc_tk_required_query(link, 'rows');
+      return _ssc_tk_row_binding_datatable(regionId, _ssc_tk_row_binding(options, regionId));
+    }
     case 'badge':
       return { _type: 'BadgeNode', content: _ssc_tk_has(link.query, 'text') ? link.query['text'] : _ssc_tk_link_label(link),
                variant: _ssc_tk_has(link.query, 'variant') ? link.query['variant'] : 'default' };
@@ -193,18 +239,18 @@ function _ssc_tk_markdown_env(defaults) {
   return env;
 }
 
-function _ssc_tk_list_item(item, env) {
+function _ssc_tk_list_item(item, env, options) {
   if (item.length === 1 && item[0]._type === 'Paragraph') {
     var l = _ssc_tk_single_link(item[0].inlines);
-    return l ? _ssc_tk_link_node(l, env) : null;
+    return l ? _ssc_tk_link_node(l, env, options) : null;
   }
   return null;
 }
 function _ssc_tk_markdown_block(block, options, env) {
   switch (block._type) {
-    case 'Paragraph': { var l = _ssc_tk_single_link(block.inlines); return l ? _ssc_tk_link_node(l, env) : null; }
+    case 'Paragraph': { var l = _ssc_tk_single_link(block.inlines); return l ? _ssc_tk_link_node(l, env, options) : null; }
     case 'BulletList': case 'OrderedList': {
-      var rendered = block.items.map(function(item) { return _ssc_tk_list_item(item, env); });
+      var rendered = block.items.map(function(item) { return _ssc_tk_list_item(item, env, options); });
       if (!rendered.some(function(n) { return n != null; })) return null;
       var ordered = block._type === 'OrderedList';
       return { _type: 'VStackNode', gap: options.listGap, children: block.items.map(function(item, i) {
@@ -286,6 +332,19 @@ function _ssc_tk_table(headers, rows) {
   var columns = headers.map(function(header, idx) { return { _type: 'TableColumn', label: header.map(__ssc_content_inline_plain_text).join(''), key: 'col' + idx }; });
   return { _type: 'TableNode', columns: columns, rows: rows.map(function(row) { return row.map(_ssc_tk_table_cell); }), sortCol: null };
 }
+// Fail-soft (declarative-ui proposal §6): in the browser a single bad id /
+// malformed block must NOT blank the whole SPA.  A render error degrades to a
+// visible inline placeholder for that block; sibling blocks still render.  The
+// interpreter still throws (server side, caught upstream) — the divergence is
+// intentional and only on the error path; valid inputs render identically.
+function _ssc_tk_inline_error(e) {
+  var msg = (e && e.message) ? e.message : String(e);
+  return { _type: 'RawTextNode', text: '⚠ ' + msg };
+}
+function _ssc_tk_safe_block(block, options, env) {
+  try { return _ssc_tk_block(block, options, env); }
+  catch (e) { return _ssc_tk_inline_error(e); }
+}
 function _ssc_tk_block(block, options, env) {
   var attrs = __ssc_content_block_attrs(block);
   var compName = __ssc_content_string_attr(attrs, 'component');
@@ -305,7 +364,7 @@ function _ssc_tk_section(section, options, env) {
     if (comp) return _call(comp.render, _ssc_tk_ctx(compName, 'section', section.id, __ssc_content_opt(section.title), section.attrs, __ssc_content_opt(section), None, _ssc_tk_component_data(section.attrs)));
   }
   var children = [{ _type: 'HeadingNode', level: section.level, text: section.title }].concat(
-    section.blocks.map(function(b) { return _ssc_tk_block(b, options, env); }),
+    section.blocks.map(function(b) { return _ssc_tk_safe_block(b, options, env); }),
     section.children.map(function(s) { return _ssc_tk_section(s, options, env); }));
   return { _type: 'VStackNode', gap: options.blockGap, children: children };
 }
@@ -359,22 +418,28 @@ function _ssc_tk_find_section(id, options) {
 }
 
 function contentToolkitNode(options) {
-  options = _ssc_tk_options(options);
-  var doc = _ssc_tk_document(options);
-  var env = _ssc_tk_markdown_env(_ssc_tk_markdown_signal_defaults_doc(doc));
-  return { _type: 'VStackNode', gap: options.sectionGap, children: doc.blocks.map(function(b) { return _ssc_tk_block(b, options, env); })
-    .concat(doc.sections.map(function(s) { return _ssc_tk_section(s, options, env); })) };
+  try {
+    options = _ssc_tk_options(options);
+    var doc = _ssc_tk_document(options);
+    var env = _ssc_tk_markdown_env(_ssc_tk_markdown_signal_defaults_doc(doc));
+    return { _type: 'VStackNode', gap: options.sectionGap, children: doc.blocks.map(function(b) { return _ssc_tk_safe_block(b, options, env); })
+      .concat(doc.sections.map(function(s) { return _ssc_tk_section(s, options, env); })) };
+  } catch (e) { return _ssc_tk_inline_error(e); }
 }
 function contentToolkitBlock(id, options) {
-  options = _ssc_tk_options(options);
-  var block = _ssc_tk_find_block(id, options);
-  if (block == null) _ssc_tk_error("contentToolkitBlock: no block with id '" + id + "'");
-  return _ssc_tk_block(block, options, _ssc_tk_markdown_env(_ssc_tk_markdown_signal_defaults_block(block)));
+  try {
+    options = _ssc_tk_options(options);
+    var block = _ssc_tk_find_block(id, options);
+    if (block == null) _ssc_tk_error("contentToolkitBlock: no block with id '" + id + "'");
+    return _ssc_tk_block(block, options, _ssc_tk_markdown_env(_ssc_tk_markdown_signal_defaults_block(block)));
+  } catch (e) { return _ssc_tk_inline_error(e); }
 }
 function contentToolkitSection(id, options) {
-  options = _ssc_tk_options(options);
-  var section = _ssc_tk_find_section(id, options);
-  if (section == null) _ssc_tk_error("contentToolkitSection: no section with id '" + id + "'");
-  return _ssc_tk_section(section, options, _ssc_tk_markdown_env(_ssc_tk_markdown_signal_defaults_section(section)));
+  try {
+    options = _ssc_tk_options(options);
+    var section = _ssc_tk_find_section(id, options);
+    if (section == null) _ssc_tk_error("contentToolkitSection: no section with id '" + id + "'");
+    return _ssc_tk_section(section, options, _ssc_tk_markdown_env(_ssc_tk_markdown_signal_defaults_section(section)));
+  } catch (e) { return _ssc_tk_inline_error(e); }
 }
 """
