@@ -18,6 +18,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   entries — `busi-p4-smtp-send-extern` and `busi-p4-ed25519-rsa-verify` were
   already landed (2026-06-10) but still marked open.
 
+## 2026-06-11 — spec: JS persistent Map (HAMT) migration design (js-persistent-map-hamt, Tier 2 / T2.2)
+
+- **js-persistent-map-hamt (design)** — Tier-2 perf, the last open item. The ssc
+  immutable `Map` is a native `Map` copied on every `updated` (O(n²) over a loop →
+  `map-ops` JS ~40× JVM). Deferred because 71 `instanceof Map` sites couple to
+  native `Map`. Explored + categorized the sites (HTTP headers/routing, JWT claims,
+  GraphQL results, collection dispatch — all consume user Maps) and landed a
+  de-risked design (`specs/js-persistent-map-hamt.md`): a duck-typed `_HAMT`
+  (persistent, structural-sharing, exposes the native-Map read interface) + an
+  `_isMap()` helper replacing the 71 `instanceof Map` checks, so internal native
+  maps and the new persistent user Map coexist. Staged p1 infra → p2 mechanical
+  71-site sweep → p3 activation → p4 bench, per the split-commit safety discipline.
+  Design only; implementation is the dedicated multi-session sub-project (claim per
+  slice). Spec: `specs/backend-perf-gaps.md` §T2.2 links the detail.
+
 ## 2026-06-11 — verify+close: interp column honest, T2.1 substantially done (bench-honesty-varying-data-p3, Tier 2 / T2.1)
 
 - **bench-honesty-varying-data-p3** — Tier-2 measurement integrity; closes the

@@ -1,6 +1,0 @@
-feature/js-persistent-map-hamt-spec 2026-06-11T07:51:47Z
-agent: claude-code
-heartbeat: 2026-06-11T07:51:47Z
-status: in-progress
-done-so-far: explored 71 instanceof-Map sites; found _isMap+HAMT duck-typing migration strategy
-next: write design spec for HAMT migration (staged infra/integration/activation)

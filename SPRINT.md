@@ -48,8 +48,11 @@ spec's acceptance.
       probes with NO automated cell — nothing dishonest published. OPTIONAL future:
       add automated compiled cross-backend cells for them (same direction-(b)
       pattern). Spec `backend-perf-gaps.md` T2.1.
-- [~] **js-persistent-map-hamt** — DEFERRED/big: `map-ops` js 40×; 70 `instanceof Map`
-      coupling sites. Dedicated sub-project, not a quick landing.
+- [~] **js-persistent-map-hamt** — DEFERRED/big: `map-ops` js 40×; 71 `instanceof Map`
+      coupling sites. **DESIGN LANDED 2026-06-11** (`specs/js-persistent-map-hamt.md`):
+      de-risked via duck-typed `_HAMT` + `_isMap()` helper; staged p1 infra (HAMT class,
+      untested-wired) → p2 sweep 71 sites → p3 activation → p4 bench. Implementation is
+      the dedicated multi-session sub-project; claim per slice (`...-p1`, `-p2`, …).
 - [x] **ssc-jit-const-propagation** — DONE 2026-06-11. Found already implemented + tested:
       Stage 2 = `tryFoldInvariantAccumLoop` (`3174c0b4c`), Stage 3 = `tryClosedFormPolyLoop`
       (`abe7e4d02`, Gauss closed-form). Verified: JitLint+SscVm+ConstFold 277 green;
