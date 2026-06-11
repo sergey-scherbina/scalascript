@@ -185,7 +185,24 @@ access is O(n) → O(n²)).
       `./install.sh` first — `bin/ssc` is otherwise stale (JMH `scripts/bench`
       uses fresh sbt classes and needs no install).
 
-- [~] **interp-typeclass-fold-devirt** — PARTIALLY ADDRESSED + RE-DIAGNOSED
+- [x] **interp-typeclass-fold-devirt** — DONE 2026-06-11. **FunV-local monomorphic
+      using-resolution cache.** JFR (2026-06-11) pinpointed the dominant cost: the
+      **call-site `resolveUsing`** (`GivenRuntime.concretizeUsingKey` →
+      `matchTypeParts`/`splitTopLevel`/`applyTypeBindings`) — 47% of allocation,
+      ~16% of CPU — re-deriving `A→Int` identically on every `combineAll` call.
+      (The prior reverted attempt's `(FunV, argTypeSig)` global-map memo failed
+      because its key computation allocated ≈ what it saved.) Fix: a single-entry
+      cache on `FunV.usingResolveCache` keyed on a cheap arg type-sig
+      (`runtimeValueType` of the regular args), applied only on the standard call
+      path (resolves against `f.closure`; instance-method path left uncached), with
+      a `givenFactories.size` generation guard. **A/B (16 measurements each):
+      1.745 ± 0.018 → 1.667 ± 0.016 ms/op (−4.5%, non-overlapping); alloc 823 KB →
+      386 KB/op (−53%).** Beats the prior attempt (1.665→1.682, no alloc change).
+      Full suite 1619 green. Remaining gap (the ~84% general tree-walk eval of the
+      generic HOF) needs JIT-compiling `combineAll` — separate, deep, not pursued.
+      [historical diagnosis below]
+
+- [~] **interp-typeclass-fold-devirt (superseded by above)** — PARTIALLY ADDRESSED + RE-DIAGNOSED
       2026-06-10. Added JMH `typeclassFoldMacro` (300×10, mirrors the corpus) —
       the requested visible A/B harness. **Re-diagnosis flips the original
       premise**: after `interp-jit-string-closure`, the `foldLeft` closure is no

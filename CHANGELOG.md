@@ -17,6 +17,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   user types still discriminate. Spec `specs/try-catch-supertype-patterns.md`; 4
   tests; full interpreter suite green (1627).
 
+## 2026-06-11 — perf(interp): FunV-local monomorphic using-resolution cache (interp-typeclass-fold-devirt)
+
+- **interp-typeclass-fold-devirt** — Closed the last deferred perf item. JFR
+  pinpointed the dominant cost of `combineAll[A: Monoid](xs)` (called 300×): the
+  **call-site `resolveUsing`** (`GivenRuntime.concretizeUsingKey` →
+  `matchTypeParts`/`splitTopLevel`/`applyTypeBindings`) re-derives `A→Int`
+  identically every call — **47% of allocation, ~16% of CPU**. (A prior attempt
+  was reverted with no win because its `(FunV, argTypeSig)` global-map memo
+  allocated a key ≈ what it saved.) Fix: a single-entry monomorphic cache on
+  `FunV.usingResolveCache` keyed on a cheap arg type-signature (`runtimeValueType`
+  of the regular args), applied only on the standard call path (resolves against
+  `f.closure`; the instance-method path, which resolves against a per-instance
+  frame, is left uncached), with a `givenFactories.size` generation guard. A/B (16
+  measurements each): **1.745 ± 0.018 → 1.667 ± 0.016 ms/op (−4.5%,
+  non-overlapping)**; allocation **823 KB → 386 KB/op (−53%)**. Full
+  `backendInterpreter/test` 1619 green. The remaining cost (~84%, general
+  tree-walk eval of the generic HOF) would need JIT-compiling `combineAll` —
+  deliberately not pursued (deep, marginal). SPRINT `interp-typeclass-fold-devirt`.
+
 ## 2026-06-11 — feat(std.crypto): sha256Base64 — base64 SHA-256 digest (busi KSeF invoiceHash)
 
 - **sha256Base64** — KSeF 2.0 `invoiceHash` / `encryptedInvoiceHash` carry the raw
