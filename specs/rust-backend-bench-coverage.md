@@ -1,12 +1,19 @@
 # Rust Backend — Benchmark Coverage Roadmap
 
-Status: **active / planning**.  16 of 22 bench corpus workloads return
-`n/a` on the rust target.  This spec identifies every gap, categorises
-them by implementation effort, and maps them to Sprint tasks.
+Status: **COMPLETE (2026-06-12)**.  All 24 bench-corpus `.ssc` workloads now
+both *emit* Rust via the rust backend AND `cargo build` clean under rustc
+1.92 — verified end-to-end by a throwaway probe that wrote each crate to a
+temp dir and ran `cargo build` (24/24 OK). Every gap A–J catalogued below was
+closed across the R.2–R.6 sprints; the last one was the tuple accessor remap
+(`t._1` → Rust 0-indexed `t.0`, commit on 2026-06-12) which fixed the final
+`tuple-monoid` `cargo build` failure (E0609 `no field _1`).
+
+The gap taxonomy in §2 and the priority table in §3 are kept for historical
+context only — they describe the 2026-06-08 baseline and are **all done**.
 
 ---
 
-## 1. Baseline picture (2026-06-08)
+## 1. Baseline picture (2026-06-08 — HISTORICAL, all ❌ now resolved)
 
 | Workload | Status | Root cause |
 |---|---|---|
