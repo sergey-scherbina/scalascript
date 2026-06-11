@@ -52,6 +52,26 @@ class ServeAsyncReadyTest extends AnyFunSuite:
       support.stopServer()
       taken.close()
 
+  test("two concurrent startServer(async=true) on different ports both bind (busi federation A↔B)"):
+    // busi peer-ceremony runs two servers in one process. The block-until-bind
+    // rewrite serialized the starts and exposed a latent single-server limit
+    // (the cached singleton backend's `if _running then return` no-op'd the
+    // second start). Both ports must accept a connection.
+    val interp = Interpreter(out = sink)
+    val portA  = freePort()
+    val portB  = freePort()
+    try
+      support.startServer(interp, portA, ".", sink, "", "", async = true)
+      support.startServer(interp, portB, ".", sink, "", "", async = true)
+      for (p, label) <- List((portA, "A"), (portB, "B")) do
+        val sock = new Socket()
+        try sock.connect(new InetSocketAddress("127.0.0.1", p), 2000)
+        catch case e: Throwable =>
+          fail(s"server $label on port $p did not bind: ${e.getClass.getSimpleName} ${e.getMessage}")
+        finally sock.close()
+    finally
+      support.stopServer()
+
   test("async TLS startup surfaces a bad-cert failure fast instead of swallowing it"):
     // The TLS serveAsync(port, tls(...)) form routes through the same async
     // readiness path now.  Previously it ran on a detached thread that swallowed

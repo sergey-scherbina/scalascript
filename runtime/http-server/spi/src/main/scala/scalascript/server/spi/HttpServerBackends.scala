@@ -107,6 +107,12 @@ object HttpServerBackends:
       _cached = chosen
       chosen
 
+  /** A fresh instance of the resolved backend — its own socket and
+   *  lifecycle, so multiple servers can run concurrently in one process.
+   *  Same selection logic as `current()` (honors `setBackend`), but never
+   *  returns the shared cached instance. */
+  def freshInstance(): HttpServerSpi = current().fresh()
+
   /** Currently-selected backend name (whatever was passed to
    *  `setBackend`), or `None` if first-found discovery is in effect. */
   def selectedName: Option[String] = _selectedName

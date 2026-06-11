@@ -21,8 +21,14 @@ object WebServer:
   private val mdParser   = CmParser.builder().build()
   private val htmlRender = HtmlRenderer.builder().build()
 
-  @volatile private var _latch:    java.util.concurrent.CountDownLatch | Null = null
-  @volatile private var _backend:  HttpServerSpi | Null                       = null
+  // Every running server gets its own fresh backend + serve-loop latch, so N
+  // servers run concurrently in one process (busi federation A↔B). `stop()`
+  // tears them all down. (A shared singleton backend short-circuited the second
+  // `start` on `isRunning` → the second port silently never bound.)
+  private val _backends: java.util.concurrent.ConcurrentLinkedQueue[HttpServerSpi] =
+    java.util.concurrent.ConcurrentLinkedQueue[HttpServerSpi]()
+  private val _latches: java.util.concurrent.ConcurrentLinkedQueue[java.util.concurrent.CountDownLatch] =
+    java.util.concurrent.ConcurrentLinkedQueue[java.util.concurrent.CountDownLatch]()
   // Legacy fields — kept while WsProxy / TlsProxy still serve as test
   // harnesses, but they're null on production starts since the SPI
   // backend owns both the public listening socket and the internal
@@ -52,8 +58,15 @@ object WebServer:
   def setUploadDir(path: String): Unit = _uploadDir = path
 
   def stop(): Unit =
-    try _backend match { case b if b != null => b.stop(); case _ => () } catch case _: Throwable => ()
-    _latch match { case l if l != null => l.countDown(); case _ => () }
+    // Stop every running server and release every serve loop. Idempotent.
+    var b = _backends.poll()
+    while b != null do
+      try b.stop() catch case _: Throwable => ()
+      b = _backends.poll()
+    var l = _latches.poll()
+    while l != null do
+      l.countDown()
+      l = _latches.poll()
 
   def start(port: Int, root: String, log: java.io.PrintStream,
             certPath: String = "", keyPath: String = "",
@@ -63,7 +76,7 @@ object WebServer:
     val useTls = certPath.nonEmpty && keyPath.nonEmpty
 
     val latch    = java.util.concurrent.CountDownLatch(1)
-    _latch = latch
+    _latches.add(latch)
 
     // Shut down cleanly on Ctrl+C / SIGTERM: stop the SPI backend (closes
     // the server socket so the accept loop exits) and count down the latch
@@ -83,8 +96,11 @@ object WebServer:
     // call.  Default classpath = `JdkServerBackend` (zero deps);
     // adding the `runtimeServerJvmJetty` / `runtimeServerJvmNetty` sbt
     // modules puts those on the wire as alternatives.
-    val backend: HttpServerSpi = scalascript.server.spi.HttpServerBackends.current()
-    _backend = backend
+    // A FRESH backend instance per server (not the shared cached one), so a
+    // second concurrent start binds its own socket instead of no-op'ing on the
+    // first server's `isRunning`.
+    val backend: HttpServerSpi = scalascript.server.spi.HttpServerBackends.freshInstance()
+    _backends.add(backend)
 
     // Build the application-layer handler.  Route lookup, middleware,
     // `Value` ↔ POJO conversion, and ssc-page / static-asset fallback

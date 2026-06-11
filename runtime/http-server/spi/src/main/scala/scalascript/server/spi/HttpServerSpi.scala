@@ -64,6 +64,16 @@ trait HttpServerSpi:
    *  (ephemeral) was passed to `start`.  Returns 0 before `start`. */
   def localPort: Int
 
+  /** A fresh, independent instance of this backend — its own listen
+   *  socket and lifecycle state.  Each `WebServer.start` uses a fresh
+   *  instance so that N servers can run concurrently in one process
+   *  (e.g. busi's federation A↔B peer ceremony); a single shared
+   *  instance would have its `start` short-circuit on `isRunning`.
+   *  Default: reflectively construct another of the same class (impls
+   *  have a no-arg constructor); override if construction needs args. */
+  def fresh(): HttpServerSpi =
+    getClass.getDeclaredConstructor().newInstance().asInstanceOf[HttpServerSpi]
+
 /** The shared above-SPI runtime's view from the network layer's
  *  perspective.  The SPI impl calls into this on its own thread; the
  *  handler dispatches user-handler invocation to its own executor
