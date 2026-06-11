@@ -7351,10 +7351,9 @@ claimable. Bug-fix items have minimal repros in their specs.
       `EncryptionInfo.initializationVector`. 6 tests (round-trip, JCE PKCS#7 interop,
       IV-length + wrong-key negatives); 41/41 crypto-plugin green. JVM only.
       Spec: [`specs/crypto-encrypt.md`](specs/crypto-encrypt.md).
-- [ ] **pdf-mime-generation** (feature) — `htmlToPdfBase64` + `buildMimeMessage`
-      externs (opt-in `pdf-plugin.sscpkg`) so invoice PDF + email MIME do not
-      require an external HTTP relay. Spec:
-      [`specs/pdf-mime-generation.md`](specs/pdf-mime-generation.md).
-- [ ] **smtp-send** (feature) — `smtpSend` extern (opt-in `smtp-plugin.sscpkg`)
-      for direct SMTP submission without an HTTP email relay. Pairs with
-      pdf-mime-generation. Spec: [`specs/smtp-send.md`](specs/smtp-send.md).
+- [x] **pdf-mime-generation** (feature) — ✓ DONE (verified 2026-06-11). `htmlToPdfBase64`
+      (OpenHTMLtoPDF/PDFBox) ships in `pdf-plugin` + `runtime/std/pdf-gen.ssc`;
+      `buildMimeMessage` ships in `runtime/std/mime.ssc`. JVM only, as specified.
+- [x] **smtp-send** (feature) — ✓ DONE (verified 2026-06-11). `smtpSend` ships in
+      `smtp-plugin` (`SmtpIntrinsics` + `SmtpInterpreterPlugin`) with `runtime/std/smtp.ssc`
+      and `SmtpPluginTest`. Opt-in `smtp-plugin.sscpkg` as specified.

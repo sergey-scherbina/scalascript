@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — docs: reconcile stale feature queue (std.pdf, smtp-send, pdf-mime already shipped)
+
+- Verified-and-closed several SPRINT/BACKLOG items that parallel agents had
+  already implemented but never marked done: **std.pdf reader** (pdf-p1..p5 —
+  `pdfToMarkdown`/`pdfPageCount` ship in `pdf-plugin` + `runtime/std/pdf-gen.ssc`
+  under a base64-`String` API rather than the queue's `List[Int]`), **smtp-send**
+  (`smtp-plugin` + `runtime/std/smtp.ssc`), **pdf-mime-generation**
+  (`htmlToPdfBase64` + `buildMimeMessage` in `pdf-plugin`/`runtime/std/mime.ssc`).
+  Docs-only. Separately flagged a quality finding: 42/175 `examples/*.ssc` are bare
+  scala with no ```` ```scalascript ```` fence (e.g. `pdf-extract-demo.ssc`,
+  `crypto-demo.ssc`), so `ssc run` parses them as prose and silently does nothing
+  (exit 0, no output) — not test-covered. Fix direction (auto-run bare scala vs add
+  fences vs fail-loudly on no-runnable-code) is an open decision.
+
 ## 2026-06-11 — fix(cli): parse errors fail loudly on run/compile; close 2 stale bugs
 
 - **parser-robustness-npe** — a scalascript code block that fails to parse was

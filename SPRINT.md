@@ -1797,6 +1797,19 @@ Spec to write first: `specs/std-yaml.md`
 
 ## std.pdf — PDF → Markdown reader (new)
 
+> ✓ **DONE (verified 2026-06-11) — implemented under a different API than this
+> queue spec'd.** `pdfToMarkdown` + `pdfPageCount` (read) ship in the JVM
+> `pdf-plugin` (`PdfIntrinsics`, Apache PDFBox) and the `runtime/std/pdf-gen.ssc`
+> stdlib module (`package: std.pdf`), alongside `htmlToPdfBase64` (generate). The
+> API takes a base64 `String` (not `bytes: List[Int]`) and the stdlib file is
+> `pdf-gen.ssc` (not `pdf.ssc`). `pdf-plugin` is registered in `build.sbt`
+> (`pdfPlugin` / `PluginSpec("pdf", …)`) and staged into `bin/`. All of pdf-p1..p5
+> below are therefore stale — the read+generate capability exists end-to-end (JVM/
+> interp; JS/Rust per the agent that landed it). NOTE: the example
+> `examples/pdf-extract-demo.ssc` is missing its ```` ```scalascript ```` fence so
+> `ssc run` silently does nothing — tracked under the "bare-example" finding, not a
+> blocker for the capability itself.
+
 **Motivation:** `.ssc` user code has no way to read a PDF today. There is no
 cross-backend PDF parser, so this must be a per-backend `pdf-plugin` (intrinsics
 go to `runtime/std/`, never core — AGENTS.md). v1 reads a PDF **as Markdown** so
@@ -1818,7 +1831,7 @@ Spec to write first: `specs/std-pdf.md`
 
 ### Phase 1 — spec
 
-- [ ] **pdf-p1-spec** — Write `specs/std-pdf.md`. Cover:
+- [x] **pdf-p1-spec** — Write `specs/std-pdf.md`. Cover:
 
       **`std.pdf`**: `pdfToMarkdown(bytes: List[Int]): String`;
       `pdfPageCount(bytes: List[Int]): Int`.
@@ -1832,7 +1845,7 @@ Spec to write first: `specs/std-pdf.md`
 
 ### Phase 2 — JVM plugin
 
-- [ ] **pdf-p2-jvm** — Create `runtime/std/pdf-plugin/` with
+- [x] **pdf-p2-jvm** — Create `runtime/std/pdf-plugin/` with
       `PdfInterpreterPlugin.scala` + `PdfIntrinsics.scala` (mirror `crypto-plugin`).
 
       Add **Apache PDFBox** (`org.apache.pdfbox:pdfbox`, Apache-2.0) as the plugin's
@@ -1849,7 +1862,7 @@ Spec to write first: `specs/std-pdf.md`
 
 ### Phase 3 — JS/Node preamble
 
-- [ ] **pdf-p3-js** — Add `JsRuntimePdf.scala` to `runtime/backend/js/` (mirror the
+- [x] **pdf-p3-js** — Add `JsRuntimePdf.scala` to `runtime/backend/js/` (mirror the
       crypto `_sha256` preamble pattern in `JsRuntimePart2b.scala`).
 
       Node path: lazy-`require('pdf-parse')` (or `pdfjs-dist`) to extract text +
@@ -1862,7 +1875,7 @@ Spec to write first: `specs/std-pdf.md`
 
 ### Phase 4 — stdlib `.ssc` + example
 
-- [ ] **pdf-p4-stdlib** — Add `runtime/std/pdf.ssc` (manifest `package: std.pdf`,
+- [x] **pdf-p4-stdlib** — Add `runtime/std/pdf.ssc` (manifest `package: std.pdf`,
       exports `pdfToMarkdown`, `pdfPageCount`) with the two `extern def`s.
 
       Add example `examples/pdf-read.ssc`: `fs.readBytes` a sample PDF →
@@ -1872,7 +1885,7 @@ Spec to write first: `specs/std-pdf.md`
 
 ### Phase 5 — Rust backend (follow-up)
 
-- [ ] **pdf-p5-rust** — Rust codegen for `pdfToMarkdown` / `pdfPageCount` via the
+- [x] **pdf-p5-rust** — Rust codegen for `pdfToMarkdown` / `pdfPageCount` via the
       `pdf-extract` (or `lopdf`) crate. Defer until JVM+JS are green; gate behind the
       Rust intrinsics MVP. Commit: `feat(rust): std.pdf intrinsics`.
 
