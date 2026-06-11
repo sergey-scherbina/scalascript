@@ -101,3 +101,20 @@ method-call blocks (call `loadRuntimeSource`/`loadCommonSource`), not pure data.
 `-Werror`. The remaining Preamble defs (`collectDeclaredVarTypes`, `htmlDslTag…`,
 `uiHelperFunctions`, the loader methods) are state-coupled — defer to a p2b/p3 that
 uses a self-typed mixin with visibility surgery. Next: p3 (CPS transform).
+
+**p3 — CPS transform — landed 2026-06-11.** Moved the whole `// ─── CPS
+transform` section (15 class members: `foldConstantScala`, `isSimpleCps`,
+`bindArgsCps`, `tmpIdx`/`freshTmp`, `anyBoundNames`/`withAnyBoundNames`,
+`emitCpsExpr`, `emitCpsApply`, `assignmentCast`, `calleeParamType`,
+`applyCalleeCasts`, `calleeTypeArgMap`, `emitCpsBlock`, `emitCpsBindWithType`)
+verbatim into new mixin `JvmGenCpsTransform` (981 lines, named for the
+`JvmGen`-prefixed convention of p1/p2, not the spec's earlier `JvmCpsTransform`
+sketch). Unlike p2's pure constants this section is state-coupled, so it is a
+self-typed `trait { self: JvmGen => }` with two-way visibility surgery:
+widened `private→private[codegen]` the four moved members called from JvmGen
+(`foldConstantScala`, `emitCpsExpr`, `emitCpsApply`, `calleeParamType`) and the
+eight JvmGen members the trait calls back into (`depDefs`, `depClasses`,
+`depTypeNames`, `declaredVarTypes`, `emitEffectfulParamGroups`, `emitExpr`,
+`emitReceiveMatcher`, `emitHandleForm`). Imports trimmed to `scala.meta.*` only.
+`JvmGen.scala` **7042 → 6073 lines (−969)**. 1605 tests green; clean under
+`-Werror`. Next: p4 (Mutual-TCO emission).
