@@ -445,17 +445,6 @@ the contracts are explicit.
 These items come from the 2026-06-02 whole-project review. They are intentionally
 small and dependency-aware because multiple agents are working in parallel.
 
-- [ ] **jit-predicates-bindingisref** (optional, low priority) — The last shared
-      JIT predicate still duplicated between `AsmJitBackend` and `JavacJitBackend`.
-      Deliberately left per-backend by `jit-predicates-shared-rest` (landed
-      2026-06-11) because it is *not* pure: `bindingIsRef` reaches codegen state via
-      `callParamIsRef` → `MethodSig` (different arity per backend — ASM's carries
-      `staticMethodName`, Javac's does not) + `coEmit.signatures` + the ASM-only
-      `staticMethodName(fn)`. Sharing it would require adding a
-      `callArgIsRef(fnName, idx)` query to `JitShapeCtx` and keeping `callParamIsRef`
-      per-backend; the only shared part is a ~12-line tree walk, so payoff is
-      marginal. Do only if a concrete `bindingIsRef` drift bug appears. Specs:
-      `specs/jit-predicates-shared-rest.md`, `specs/jit-predicates-shared.md`.
 
 - [x] **codebase-maintenance-roadmap** - ✓ Landed 2026-06-02. Persisted the
       maintenance plan in the relevant specs, added backlog / queue entries,

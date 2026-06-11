@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — refactor(jit): share bindingIsRef — last JIT predicate (jit-predicates-bindingisref)
+
+- **jit-predicates-bindingisref** — Shared `bindingIsRef`, the last JIT shape
+  predicate still duplicated between `AsmJitBackend` and `JavacJitBackend`. It
+  resolves callee ref-ness via `callParamIsRef`→`MethodSig` (different arity per
+  backend), so a narrow `JitShapeCtx.callArgIsRef(fnName, argIdx)` query was added;
+  each `GenCtx` (nested in its backend `object`) implements it by delegating to the
+  enclosing `callParamIsRef`. The pure tree-walk moved to `JitPredicates`; both
+  backends delegate. The JIT shape-classifier drift surface is now fully closed
+  (completes `jit-predicates-shared` + `-rest`). 389 tests green in both default
+  and `SSC_JIT_BACKEND=asm`; full `backendInterpreter/test` 1605 green. Tier-3 of
+  the backend improvement program. Spec: `specs/backend-correctness-hygiene.md`.
+
 ## 2026-06-11 — refactor(jvmgen): extract runtime-source constants (jvmgen-decompose-p2)
 
 - **jvmgen-decompose-p2** — Second decomposition phase. Moved the five large pure

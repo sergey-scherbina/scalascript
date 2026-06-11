@@ -39,8 +39,9 @@ spec's acceptance.
 ### Tier 3 — correctness & hygiene
 - [ ] **cluster-jvm-js-handshake** — fix the one DISABLED test (JVM↔JS Bully-leader
       handshake mismatch) or convert to a documented asserting won't-fix.
-- [ ] **jit-predicates-bindingisref** — share last duplicated JIT predicate via a
-      `JitShapeCtx.callArgIsRef` query (optional, low priority).
+- [x] **jit-predicates-bindingisref** — DONE 2026-06-11. Shared via
+      `JitShapeCtx.callArgIsRef` + `JitPredicates.bindingIsRef`. Last duplicated JIT
+      predicate — drift surface fully closed. 389 green both backends, 1605 full.
 - [ ] **cross-backend-method-classifier** — GATED (×4 codegen-coupled). Single
       `lang/core` method taxonomy; do only on a forcing function.
 
