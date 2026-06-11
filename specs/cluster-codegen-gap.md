@@ -186,20 +186,22 @@ declared fully unblocked:
   `onWebSocket('/_ssc-actors', [], ['ssc-actors-v1'])(handler)` (`JsRuntimeAsyncB`).
   **Verified: two JS-codegen nodes now converge** (same non-empty leader); the
   JVM↔JS upgrade negotiates `proto=ssc-actors-v1`. Full suite 1618 green.
-- **JVM peer connection blocks the JS node's HTTP event loop — the active blocker.**
-  In the JVM↔JS matrix the JVM node converges (sees node-bbb), but once the JVM
-  (java.net.http) peer's WS connects the JS node stops serving plain HTTP:
-  `/_ssc-cluster/status` GETs are never dispatched/logged (no crash trace; TCP port
-  stays bound), so the test's poll times out (`js=` empty). It is NOT the
-  subprotocol and NOT the (non-blocking) inbound `onMessage` handler, and it
-  reproduces **only with a JVM peer** — two JS nodes serve HTTP fine while
-  clustered. Points at the JS WS server's handling of JVM-originated frames or
-  peer-message scheduling starving the libuv poll phase. **Verify/re-enable
-  recipe:** flip the matrix test (`tools/cli/.../ClusterMultiBackendMatrixTest.scala`)
-  `ignore`→`test` and run with `-Dssc.lib.path=<root>` (after `sbt installBin`) +
-  `npm install ws`.
+- **JS non-WebSocket-upgrade hang — FIXED (2026-06-11). This was the real final
+  blocker** (not a peer/frame issue — the "only with a JVM peer" symptom was a red
+  herring; it was the *client*). The matrix test's `java.net.http` polling client
+  defaults to HTTP/2 and probes cleartext with `Upgrade: h2c`. Node routes any
+  `Connection: Upgrade` request to the 'upgrade' handler, so `/_ssc-cluster/status`
+  GETs hit `_wsHandleUpgrade`, matched no WS route, and the socket hung with no
+  response → status polls timed out (`js=` empty) though the node was alive and the
+  JVM peer had converged (instrumented: 60 TCP accepts, 0 `'request'` events, event
+  loop ticking). Fix (`JsRuntimePart1d`): the 'upgrade' listener now serves any
+  non-`websocket` upgrade as a normal HTTP/1.1 request (`http.ServerResponse` over
+  the raw socket), so HTTP/2-preferring clients fall back to 1.1.
 
-The harness (real-WS multi-process integration test, see `cluster-raft.md` §9) is in
-place; both servers' subprotocol echo is fixed and JS↔JS converges. The
-JVM-peer-blocks-JS-event-loop gap above is the remaining prerequisite before the
-Tier 4 JVM↔JS matrix test can be enabled.
+**Tier 4 matrix test ENABLED + PASSING (2026-06-11).** With all four layers fixed
+(scheduler, JVM subprotocol echo, JS subprotocol echo, JS h2c-upgrade fallback)
+`ClusterMultiBackendMatrixTest` converges (both nodes agree `leader=node-bbb`).
+JVM-codegen and JS-codegen nodes interoperate over the real `_ssc-actors` WS link —
+multi-backend cluster deployment is real. The test self-derives `ssc.lib.path`
+(`sscLibArgs`) and cancels gracefully if the toolchain (`cli/assembly`+`installBin`,
+node, npm, scala-cli, Coursier stdlib) isn't present.

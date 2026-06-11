@@ -7,7 +7,7 @@ Smaller and more contained than Tiers 1–2, but they close real gaps.
 
 ## Items
 
-### T3.1 — JVM↔JS cluster handshake — `cluster-jvm-js-handshake`
+### T3.1 — JVM↔JS cluster handshake — `cluster-jvm-js-handshake` ✓ DONE (2026-06-11)
 
 The only genuinely disabled test in the suite:
 `ClusterMultiBackendMatrixTest` —
@@ -47,14 +47,21 @@ backlog/spec note explaining why convergence is not supported.
       echoed `ssc-actors-v1` and `ws` peer clients rejected the upgrade → peers
       `__pending__`. Now `onWebSocket('/_ssc-actors', [], ['ssc-actors-v1'])(handler)`
       (`JsRuntimeAsyncB`). **Verified: two JS-codegen nodes converge**; full suite 1618.
-- [ ] **Remaining (next Tier-4 slice):** in the JVM↔JS matrix, once a JVM
-      (java.net.http) peer's WS connects, the JS node **stops serving plain HTTP**
-      (`/_ssc-cluster/status` GETs never dispatched; no crash, port bound) → poll
-      times out (`js=` empty). NOT the subprotocol, NOT the non-blocking `onMessage`;
-      reproduces **only with a JVM peer** (JS↔JS serves HTTP fine while clustered) →
-      JS WS-frame/scheduler interaction with JVM-originated frames. Test stays `ignore`
-      with the precise diagnosis + re-enable recipe (`-Dssc.lib.path` via
-      `sbt installBin` + `npm install ws`). Tracked in `specs/cluster-codegen-gap.md`.
+- [x] **JS non-WebSocket-upgrade hang — FIXED (2026-06-11); test ENABLED + PASSING.**
+      The real final blocker was not a peer/frame issue: the test's `java.net.http`
+      client defaults to HTTP/2 and probes cleartext with `Upgrade: h2c`. Node routes
+      any `Connection: Upgrade` to the 'upgrade' handler, so `/_ssc-cluster/status`
+      GETs hit `_wsHandleUpgrade`, matched no WS route, and the socket **hung with no
+      response** → status polls timed out (`js=` empty) even though the node was alive
+      and the JVM peer had converged. (The "only with a JVM peer" framing was a red
+      herring — it was "only with the java.net.http client"; curl/HTTP-1.1 always
+      worked.) Fix (`JsRuntimePart1d`): the 'upgrade' listener serves any
+      non-`websocket` upgrade as a normal HTTP/1.1 request (`http.ServerResponse` over
+      the raw socket), so HTTP/2-preferring clients fall back to 1.1.
+      **`ClusterMultiBackendMatrixTest` flipped `ignore`→`test` and PASSES** (both
+      nodes converge on `leader=node-bbb`, full membership); it derives `ssc.lib.path`
+      itself (`sscLibArgs`) and cancels gracefully if the toolchain isn't staged.
+      **T3.1 fully resolved** — JVM↔JS multi-backend Bully convergence is real.
 
 ### T3.2 — shared `bindingIsRef` — `jit-predicates-bindingisref`
 
@@ -161,19 +168,22 @@ relevant *category* at its decision sites — but the migration is **per-use-sit
 
 ## Results
 
-**T3.1 — subprotocol echo FIXED + verified 2026-06-11 (`481190610`); one further
-slice remains.** Re-diagnosed and fixed the disabled `ClusterMultiBackendMatrixTest`
-in layers: (1) the originally-documented JS `_runActors` event-loop block was already
-FIXED (async scheduler + `setImmediate`); (2) `require('ws')` is worked around in the
-test; (3) **fixed** the real WS handshake blocker — the JVM-codegen `/_ssc-actors`
-route registered via the protocols-less emitted `onWebSocket`, so it never echoed
-`ssc-actors-v1` and the JS `ws` client rejected ("Server sent no subprotocol"). Now
-registers with `protocols = List("ssc-actors-v1")`; stub `onWebSocket` widened to
-match. Verified end-to-end (matrix test, `-Dssc.lib.path` + `npm install ws`): WS
-connects, JVM node reaches + elects the JS peer. Full suite 1612 green. **Remaining:**
-the JS node's `/_ssc-cluster/status` is empty during the election (separate JS
-clustering-under-load issue) — test stays `ignore` with the precise next-step
-diagnosis; tracked in `specs/cluster-codegen-gap.md`.
+**T3.1 — FULLY RESOLVED 2026-06-11; `ClusterMultiBackendMatrixTest` ENABLED + PASSING.**
+The disabled test was fixed across four cross-backend layers, each found by
+reproducing the multi-process run: (1) JS `_runActors` event-loop block — already
+FIXED (async scheduler); (2) JVM-codegen `/_ssc-actors` didn't echo the subprotocol
+→ `protocols = List("ssc-actors-v1")` + stub widened (`481190610`); (3) JS-codegen
+`/_ssc-actors` didn't echo it either → `onWebSocket(path,[],['ssc-actors-v1'])`
+(`ede018597`) — JS↔JS then converged; (4) **the real final blocker** — the test's
+`java.net.http` client defaults to HTTP/2 and sends `Upgrade: h2c`; Node routed it to
+the WS 'upgrade' handler, which matched no WS route and left the socket hung, so
+`/_ssc-cluster/status` GETs got 0 `'request'` events (instrumented: 60 accepts, 0
+requests, event loop alive). Fixed in `JsRuntimePart1d`: the 'upgrade' listener serves
+any non-`websocket` upgrade as a normal HTTP/1.1 request. The "only with a JVM peer"
+framing was a red herring — it was the HTTP/2 client. Test now PASSES (both nodes
+converge on `leader=node-bbb`); it self-derives `ssc.lib.path` (`sscLibArgs`) and
+cancels gracefully without the toolchain. **JVM↔JS multi-backend Bully convergence is
+real.** Spec `cluster-codegen-gap.md` updated.
 
 **T3.2 — bindingIsRef — DONE 2026-06-11** (`000eaae13`; see entry above).
 
