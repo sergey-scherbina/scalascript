@@ -414,3 +414,28 @@ class JsGenStdImportTest extends AnyFunSuite:
       "if (out.indexOf('data-ssc-datatable-rows=') < 0) throw new Error('normalised static rows missing: ' + out);\n" +
       "console.log('raw-datatable-child-ok');\n"
     assert(runNode(script) == "raw-datatable-child-ok")
+
+  // busi seq-87: a DataTable fetch endpoint may answer a bare array, an envelope
+  // {data:[...]} / {count,rows:[...]}, or — on a misrouted path — the SPA HTML.
+  // _ssc_ui_rowsOf normalises all of them to an array so renderTable never does
+  // `(rows||[]).forEach` on a non-array (the "empty tables" + `<script>` JSON.parse
+  // errors busi reported once the SPA finally mounted).
+  test("rowsOf normalises array / envelope / string / HTML into a row array"):
+    val runtime = JsGen.generateRuntime(Set(JsGen.Capability.Signals))
+    val script =
+      runtime + "\n" +
+      """
+        |function eq(a, b, msg) { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(msg + ': ' + JSON.stringify(a)); }
+        |eq(_ssc_ui_rowsOf([{a:1}]), [{a:1}], 'bare array');
+        |eq(_ssc_ui_rowsOf({data:[{a:1}], count:1}), [{a:1}], 'data envelope');
+        |eq(_ssc_ui_rowsOf({rows:[{b:2}]}), [{b:2}], 'rows envelope');
+        |eq(_ssc_ui_rowsOf({items:[{c:3}]}), [{c:3}], 'items envelope');
+        |eq(_ssc_ui_rowsOf('[{"d":4}]'), [{d:4}], 'json string');
+        |eq(_ssc_ui_rowsOf('{"data":[{"e":5}]}'), [{e:5}], 'json string envelope');
+        |eq(_ssc_ui_rowsOf('<!DOCTYPE html><script>x</script>'), [], 'html body');
+        |eq(_ssc_ui_rowsOf({count:0}), [], 'object without list field');
+        |eq(_ssc_ui_rowsOf(null), [], 'null');
+        |eq(_ssc_ui_rowsOf(''), [], 'empty string');
+        |console.log('rowsOf-ok');
+        |""".stripMargin
+    assert(runNode(script) == "rowsOf-ok")

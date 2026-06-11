@@ -618,21 +618,23 @@ function _ssc_ui_mount(sigs) {
     function doFetch() {
       var opts = {};
       if (headersId) { var hs = getHeaders(headersId); if (hs) opts.headers = hs; }
-      fetch(fetchUrl, opts).then(function(r) { return r.json(); }).then(renderTable);
-    }
-    function asRows(v) {
-      if (Array.isArray(v)) return v;
-      if (typeof v === 'string') { try { var p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch(_e) { return []; } }
-      return v == null ? [] : v;
+      // Read as text and normalise: the endpoint may answer a bare array, an
+      // envelope ({data:[...]}), or — on a misrouted path — the SPA's own HTML.
+      // _ssc_ui_rowsOf turns all of them into an array (HTML/non-JSON → []) so
+      // renderTable never crashes on `.forEach`.
+      fetch(fetchUrl, opts)
+        .then(function(r) { return r.text(); })
+        .then(function(text) { renderTable(_ssc_ui_rowsOf(text)); })
+        .catch(function() { renderTable([]); });
     }
     if (rawRows != null) {
       // Static rows — inline JSON, no fetch.
       var staticRows; try { staticRows = JSON.parse(rawRows); } catch(_e) { staticRows = []; }
-      renderTable(asRows(staticRows));
+      renderTable(_ssc_ui_rowsOf(staticRows));
     } else if (rowsSigId) {
       // Signal-backed rows — render the current value and re-render on change.
-      renderTable(asRows(_sv[rowsSigId]));
-      _sub(rowsSigId, function(rows) { renderTable(asRows(rows)); });
+      renderTable(_ssc_ui_rowsOf(_sv[rowsSigId]));
+      _sub(rowsSigId, function(rows) { renderTable(_ssc_ui_rowsOf(rows)); });
     } else {
       // Remote (FetchUrlSignal) — fetch + tick-driven re-fetch.
       doFetch();
@@ -749,4 +751,24 @@ function _ssc_ui_signalRowsSource(sig) { return { _source: 'signal', sig }; }
 function _ssc_ui_fieldPayload(name) { return { _payload: 'field', name }; }
 function _ssc_ui_wholeRowPayload() { return { _payload: 'wholeRow' }; }
 function _ssc_ui_fieldsPayload(names) { return { _payload: 'fields', names: names || [] }; }
+// Normalise a DataTable data value into an array of row objects.  A fetch
+// response / rows signal may be a bare array, a JSON string, or a common list
+// envelope ({data|rows|items|results:[...]}, e.g. {"data":[...],"count":N}).
+// Anything else (a plain object with no list field, an HTML body, null) → [] so
+// the renderer never does `(rows||[]).forEach` on a non-array.
+function _ssc_ui_rowsOf(v) {
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string') {
+    var t = v.trim();
+    if (!t || t.charAt(0) === '<') return [];   // empty or an HTML body, not JSON
+    try { return _ssc_ui_rowsOf(JSON.parse(t)); } catch(_e) { return []; }
+  }
+  if (v && typeof v === 'object') {
+    if (Array.isArray(v.data))    return v.data;
+    if (Array.isArray(v.rows))    return v.rows;
+    if (Array.isArray(v.items))   return v.items;
+    if (Array.isArray(v.results)) return v.results;
+  }
+  return [];
+}
 """
