@@ -5257,8 +5257,11 @@ private def checkOneFile(
           Typer.typeCheckStrictNamespaces(module, interfaces)
         else Typer.typeCheckWithInterfaces(module, interfaces, strict = true, pluginBuiltins)
       }
+      // declarative-ui Scope B.7 — warn on @ui=toolkit ids that reference no
+      // registered action / data source (id-existence lint; warnings only).
+      val lintWarnings = contentToolkitLintWarnings(file, module)
       val elapsed = System.currentTimeMillis() - t0
-      CheckResult(file, parseErrors = false, errors = typed.errors, elapsedMs = elapsed)
+      CheckResult(file, parseErrors = false, errors = typed.errors ++ lintWarnings, elapsedMs = elapsed)
   catch case e: Exception =>
     val elapsed = System.currentTimeMillis() - t0
     // Treat an unexpected exception as a parse error so the caller can assign
@@ -5268,6 +5271,69 @@ private def checkOneFile(
       errors = List(scalascript.typer.TypeError(e.getMessage, None)),
       elapsedMs = elapsed
     )
+
+/** declarative-ui Scope B.7 — id-existence lint for `@ui=toolkit` controls.
+ *
+ *  Returns warning [[TypeError]]s for a control `action:` / `source:` / `rows:`
+ *  that references an id no `contentAction` / `contentRows` registers. Pure
+ *  cross-check lives in [[scalascript.transform.ContentToolkitLint]]; this CLI
+ *  glue gathers registrations across the entry module's transitively-imported
+ *  `.ssc` modules so an id registered in another file is still recognised.
+ *
+ *  Conservative on incompleteness: if a **local (non-std/library)** import can
+ *  not be resolved or parsed, the import graph may hide a registration, so the
+ *  lint is suppressed for this file rather than risk a false positive. Std /
+ *  `pkg:` / `dep:` / URL imports never carry registrations, so a failure to
+ *  resolve one does not suppress the lint.
+ */
+private def contentToolkitLintWarnings(
+  file: String, module: scalascript.ast.Module
+): List[scalascript.typer.TypeError] =
+  import scalascript.transform.ContentToolkitLint
+  import scalascript.transform.ContentToolkitLint.Registrations
+  // Fast out: no toolkit references → nothing to check (and no import work).
+  if ContentToolkitLint.collectReferences(module).isEmpty then return Nil
+
+  def importPaths(m: scalascript.ast.Module): List[String] =
+    def loop(s: scalascript.ast.Section): List[String] =
+      s.content.collect { case imp: scalascript.ast.Content.Import => imp.path } ++
+        s.subsections.flatMap(loop)
+    m.sections.flatMap(loop)
+
+  // A std / packaged / remote import never registers a concrete toolkit id, so
+  // failing to resolve it must not suppress the lint.
+  def isLibraryImport(path: String): Boolean =
+    path.startsWith("std/") || path.contains("/std/") ||
+      path.startsWith("pkg:") || path.startsWith("dep:") ||
+      path.startsWith("github:") || path.startsWith("jitpack:") ||
+      path.startsWith("http://") || path.startsWith("https://")
+
+  val seen     = scala.collection.mutable.Set.empty[String]
+  var complete = true
+  def collectFrom(m: scalascript.ast.Module, base: os.Path): Registrations =
+    importPaths(m).foldLeft(Registrations.empty) { (acc, path) =>
+      val resolved =
+        try Some(scalascript.imports.ImportResolver.resolve(path, base))
+        catch case _: Throwable => None
+      resolved match
+        case Some(p) if os.exists(p) && p.ext == "ssc" =>
+          if seen.add(p.toString) then
+            try
+              val cm = Parser.parse(os.read(p))
+              acc ++ ContentToolkitLint.collectRegistrations(cm) ++ collectFrom(cm, p / os.up)
+            catch case _: Throwable =>
+              if !isLibraryImport(path) then complete = false
+              acc
+          else acc
+        case _ =>
+          if !isLibraryImport(path) then complete = false
+          acc
+    }
+
+  val base  = os.Path(file, os.pwd) / os.up
+  val extra = collectFrom(module, base)
+  if !complete then Nil
+  else ContentToolkitLint.lint(module, extra)
 
 /** Recursively walk `dir` and return paths of all `.ssc` files. */
 private def collectSscFiles(dir: os.Path): List[os.Path] =

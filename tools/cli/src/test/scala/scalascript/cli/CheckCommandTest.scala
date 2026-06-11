@@ -354,3 +354,60 @@ class CheckCommandTest extends AnyFunSuite:
       assert(err.isEmpty,
         s"expected no stderr in --quiet mode; got:\n$err")
     finally os.remove.all(sandbox)
+
+  // ── 19. declarative-ui Scope B.7 — @ui=toolkit id-existence lint ──────────
+
+  /** A self-contained `@ui=toolkit` panel + local `contentAction`/`contentRows`
+   *  stubs (so it type-checks with no std import). `source` selects the table's
+   *  registered/typo'd data-source id. */
+  private def writeToolkitFixture(dir: os.Path, sourceId: String, name: String): os.Path =
+    val src =
+      s"""# Panel
+         |
+         |```yaml @ui=toolkit
+         |controls:
+         |  type: vstack
+         |  children:
+         |    - type: button
+         |      action: refresh
+         |    - type: table
+         |      source: $sourceId
+         |```
+         |
+         |```scalascript
+         |def contentAction(id: String, h: Int): Int = h
+         |def contentRows(id: String, h: Int): Int = h
+         |val a = contentAction("refresh", 1)
+         |val s = contentRows("invoices", 2)
+         |```
+         |""".stripMargin
+    val p = dir / name
+    os.write(p, src)
+    p
+
+  test("@ui=toolkit: all ids registered → exit 0, no warning"):
+    val sandbox = os.temp.dir(prefix = "ssc-check-toolkit-ok-")
+    try
+      val fixture = writeToolkitFixture(sandbox, "invoices", "panel.ssc")
+      val res     = runSsc(sandbox, "check", fixture.last)
+      val out     = res.out.text()
+      val err     = appStderr(res)
+      assert(res.exitCode == 0, s"expected exit 0; got ${res.exitCode}\n$out\n$err")
+      assert(!err.contains("not registered"),
+        s"expected no toolkit warning; stderr=$err")
+    finally os.remove.all(sandbox)
+
+  test("@ui=toolkit: a source id with no registration → warning, exit still 0"):
+    val sandbox = os.temp.dir(prefix = "ssc-check-toolkit-typo-")
+    try
+      // YAML says `bills`; the code only registers `invoices`.
+      val fixture = writeToolkitFixture(sandbox, "bills", "panel.ssc")
+      val res     = runSsc(sandbox, "check", fixture.last)
+      val out     = res.out.text()
+      val err     = appStderr(res)
+      // Lint emits a warning, not an error: exit code is unchanged.
+      assert(res.exitCode == 0, s"expected exit 0 on warning-only; got ${res.exitCode}\n$out\n$err")
+      assert(err.contains("data source 'bills'") && err.contains("not registered"),
+        s"expected an unregistered-source warning; stderr=$err")
+      assert(out.contains("OK"), s"expected 'OK (with warnings)' on stdout; stdout=$out")
+    finally os.remove.all(sandbox)
