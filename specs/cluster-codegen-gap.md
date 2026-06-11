@@ -170,23 +170,26 @@ declared fully unblocked:
   `async function _runActors`, `JsRuntimeAsyncB.scala` `_yieldToIO`). A
   JS-codegen cluster node's `/_ssc-cluster/*` HTTP routes now stay reachable
   while actors block on long-armed `receive`s.
-- **JVM-codegen WS server does not echo the actor subprotocol — the active
-  blocker for the Tier-4 matrix test.** The JS-codegen `connectNode` (`ws`
-  client) dials `/_ssc-actors` offering `ssc-actors-v1`; per RFC 6455 the `ws`
-  client *requires* the server to echo a chosen `Sec-WebSocket-Protocol`, else it
-  errors "Server sent no subprotocol" and closes — so Bully envelopes never flow.
-  The **interpreter** node echoes correctly (route registered with
-  `protocols = ActorWireProtocol.serverProtocols`, negotiated via
-  `WsHandshake`). The **JVM-codegen** node registers `/_ssc-actors` through the
-  emitted `onWebSocket(path)(handler)` helper, which carries **no protocols
-  list** → empty negotiation → no header. **Fix:** give the emitted JVM serve
-  runtime a protocols-aware WS registration for the cluster actor route that
-  negotiates + echoes `ActorWireProtocol.serverProtocols` (reuse the `WsHandshake`
-  shape). Cross-cutting (the emitted serve runtime backs every JVM HTTP/WS program
-  + MCP `onWebSocket`); verify by flipping the matrix test
-  (`tools/cli/.../ClusterMultiBackendMatrixTest.scala`) `ignore(...)`→`test(...)`.
-  `require('ws')` is already worked around there via `npm install ws`.
+- **JVM-codegen WS subprotocol echo — FIXED (2026-06-11, `481190610`).** The
+  JVM-codegen `/_ssc-actors` route now registers with
+  `protocols = List("ssc-actors-v1")` (both codegen peer clients offer only v1),
+  so its WS upgrade echoes `Sec-WebSocket-Protocol` and the JS `ws` client no
+  longer rejects. The no-op `onWebSocket` stub was widened to mirror the real
+  signature (else non-cluster JVM programs failed to compile). Verified: the
+  matrix test's WS now connects and the JVM node reaches + elects the JS peer
+  (`leader=node-bbb`); full `backendInterpreter/test` 1612 green.
+- **JS-codegen `/_ssc-cluster/status` empty during election — the active blocker.**
+  With the WS connected, the JVM node converges to see the JS peer, but polling the
+  JS node's status endpoint during the election returns an empty body (it works in
+  isolation per `NodeBackendTest`), so the matrix test's "both report the same
+  non-empty leader" gate fails (`jvm=leader:node-bbb`, `js=` empty). A JS-codegen
+  clustering-under-load issue — serving HTTP status while the async actor scheduler
+  drives the election. **Verify/re-enable recipe:** flip the matrix test
+  (`tools/cli/.../ClusterMultiBackendMatrixTest.scala`) `ignore(...)`→`test(...)`
+  and run with `-Dssc.lib.path=<root>` (after `sbt installBin` stages the compiler
+  jars) so the test's `compile-jvm` subprocess resolves them; `require('ws')` is
+  worked around via `npm install ws`.
 
-The harness work (real-WS multi-process integration test, see
-`cluster-raft.md` §9) is in place; the JVM subprotocol-echo gap above is the
-remaining hard prerequisite before the Tier 4 matrix test can be enabled.
+The harness (real-WS multi-process integration test, see `cluster-raft.md` §9) is in
+place and the subprotocol blocker is cleared; the JS status-during-election gap above
+is the remaining prerequisite before the Tier 4 matrix test can be enabled.

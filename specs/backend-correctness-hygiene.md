@@ -33,15 +33,23 @@ backlog/spec note explaining why convergence is not supported.
       event-loop block is FIXED — now `async` + `setImmediate` yield; `require('ws')`
       is worked around by `npm install ws` in the test sandbox.) Diagnosis recorded
       in the test's doc comment + `specs/cluster-codegen-gap.md`.
-- [ ] **Fix (scoped Tier-4, not landed here):** give the emitted JVM serve runtime a
-      protocols-aware WS registration for `/_ssc-actors` that negotiates + echoes
-      `ActorWireProtocol.serverProtocols` (reusing the interpreter's `WsHandshake`
-      shape), then flip `ignore(...)`→`test(...)`. Deferred because it is a
-      cross-cutting change to the emitted JVM serve runtime (shared by every JVM
-      HTTP/WS program + MCP's `onWebSocket`) whose only real verification is the
-      heavy/flaky multi-process matrix test (JVM-bytecode node + Node node + npm +
-      HTTP poll) — landing an *unverified* cross-backend protocol change to shared
-      `main` is unsafe. Tracked as cross-backend envelope reconciliation.
+- [x] **Subprotocol echo — FIXED + verified (2026-06-11, `481190610`).** The
+      JVM-codegen `/_ssc-actors` route now registers with
+      `protocols = List("ssc-actors-v1")` (both codegen peer clients offer only v1),
+      reusing the WS library's negotiation/echo; the no-op `onWebSocket` stub was
+      widened to mirror the real signature so the actor runtime compiles with or
+      without a serve runtime. Verified by running the matrix test with
+      `-Dssc.lib.path` + `npm install ws`: the WS now connects and the JVM node
+      reaches the JS peer and elects it (`leader=node-bbb`) — previously the upgrade
+      was rejected. Full `backendInterpreter/test` 1612 green.
+- [ ] **Remaining (next Tier-4 slice):** the JS-codegen node's `/_ssc-cluster/status`
+      returns **empty during the election** (works in isolation per `NodeBackendTest`),
+      so the matrix test's "both report the same non-empty leader" gate still fails
+      (`jvm=leader:node-bbb`, `js=` empty). A JS clustering-under-load issue (HTTP
+      status served while the async actor scheduler drives the election), distinct from
+      the subprotocol fix. Test stays `ignore` with the precise diagnosis +
+      re-enable/verify recipe (`-Dssc.lib.path` via `sbt installBin`). Tracked in
+      `specs/cluster-codegen-gap.md`.
 
 ### T3.2 — shared `bindingIsRef` — `jit-predicates-bindingisref`
 
@@ -90,18 +98,18 @@ sets remain; all four backends' suites green.
 
 ## Results
 
-**T3.1 — root-caused 2026-06-11 (fix scoped to Tier-4).** Re-diagnosed the disabled
-`ClusterMultiBackendMatrixTest`. The originally-documented cause (JS `_runActors`
-event-loop block) is FIXED (async scheduler + `setImmediate` yield), and the
-`require('ws')` issue is worked around in the test. The genuine remaining blocker is
-WS **subprotocol negotiation**: JVM-codegen registers `/_ssc-actors` via the emitted
-`onWebSocket(path)(handler)` (no protocols list), so it never echoes the
-`ssc-actors-v1` the JS `ws` client requires — unlike the interpreter, which registers
-with `protocols = ActorWireProtocol.serverProtocols`. Fix = protocols-aware WS
-registration in the emitted JVM serve runtime; not landed because it is a
-cross-cutting emitted-runtime change whose only real verification is the heavy/flaky
-multi-process matrix test — unsafe to push unverified. Stale docs corrected in the
-test comment + `specs/cluster-codegen-gap.md`. Test stays `ignore` (genuine open bug,
-not by-design) with an accurate diagnosis + re-enable recipe.
+**T3.1 — subprotocol echo FIXED + verified 2026-06-11 (`481190610`); one further
+slice remains.** Re-diagnosed and fixed the disabled `ClusterMultiBackendMatrixTest`
+in layers: (1) the originally-documented JS `_runActors` event-loop block was already
+FIXED (async scheduler + `setImmediate`); (2) `require('ws')` is worked around in the
+test; (3) **fixed** the real WS handshake blocker — the JVM-codegen `/_ssc-actors`
+route registered via the protocols-less emitted `onWebSocket`, so it never echoed
+`ssc-actors-v1` and the JS `ws` client rejected ("Server sent no subprotocol"). Now
+registers with `protocols = List("ssc-actors-v1")`; stub `onWebSocket` widened to
+match. Verified end-to-end (matrix test, `-Dssc.lib.path` + `npm install ws`): WS
+connects, JVM node reaches + elects the JS peer. Full suite 1612 green. **Remaining:**
+the JS node's `/_ssc-cluster/status` is empty during the election (separate JS
+clustering-under-load issue) — test stays `ignore` with the precise next-step
+diagnosis; tracked in `specs/cluster-codegen-gap.md`.
 
 **T3.2 — bindingIsRef — DONE 2026-06-11** (`000eaae13`; see entry above).
