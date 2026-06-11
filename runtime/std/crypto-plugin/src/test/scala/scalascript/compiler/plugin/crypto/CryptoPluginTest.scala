@@ -53,6 +53,41 @@ class CryptoPluginTest extends AnyFunSuite:
       s"sha256Base64 must equal base64(hex-decoded sha256); got $b64")
     assert(java.util.Base64.getDecoder.decode(b64).length == 32, "digest must be 32 bytes")
 
+  // ── sha256OfBase64 — digest over decoded bytes (KSeF encryptedInvoiceHash) ─
+
+  test("sha256OfBase64 hashes the decoded bytes, not the base64 string's UTF-8"):
+    // base64("abc") == "YWJj"; sha256OfBase64("YWJj") must equal sha256Base64("abc").
+    assert(evalStr("""sha256OfBase64("YWJj")""") == evalStr("""sha256Base64("abc")"""))
+
+  test("sha256OfBase64 of the empty payload matches the empty-digest vector"):
+    assert(evalStr("""sha256OfBase64("")""") == "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=")
+
+  test("sha256OfBase64 matches a direct JCE digest over the decoded bytes"):
+    val payloadB64 = java.util.Base64.getEncoder.encodeToString("KSeF ciphertext bytes".getBytes("UTF-8"))
+    val expected = java.util.Base64.getEncoder.encodeToString(
+      java.security.MessageDigest.getInstance("SHA-256").digest(java.util.Base64.getDecoder.decode(payloadB64)))
+    assert(evalStr(s"""sha256OfBase64("$payloadB64")""") == expected)
+
+  test("sha256OfBase64 differs from sha256Base64 on the same multi-byte string"):
+    // base64-of-text vs hashing the text's own UTF-8 must diverge for non-trivial input.
+    val b64 = java.util.Base64.getEncoder.encodeToString("ąćę".getBytes("UTF-8"))
+    assert(evalStr(s"""sha256OfBase64("$b64")""") != evalStr(s"""sha256Base64("$b64")"""))
+
+  test("sha256OfBase64 throws on malformed base64 (authoring-side input)"):
+    assertThrows[Exception](evalStr("""sha256OfBase64("not valid base64 !!!")"""))
+
+  // ── byteLengthUtf8 — UTF-8 byte count, not char count ────────────────────
+
+  test("byteLengthUtf8 of ASCII equals the character count"):
+    assert(interp.eval("""byteLengthUtf8("hello")""") == 5L)
+
+  test("byteLengthUtf8 counts UTF-8 bytes, not characters (2-byte chars)"):
+    // "ąćę" is 3 characters but 6 UTF-8 bytes (each is 2 bytes).
+    assert(interp.eval("""byteLengthUtf8("ąćę")""") == 6L)
+
+  test("byteLengthUtf8 of the empty string is 0"):
+    assert(interp.eval("""byteLengthUtf8("")""") == 0L)
+
   // ── hmacSha256 — RFC 4231 test vector ────────────────────────────────────
 
   test("hmacSha256 output is always 64 lowercase hex characters"):

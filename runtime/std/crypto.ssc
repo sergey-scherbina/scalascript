@@ -6,6 +6,8 @@ package: std.crypto
 exports:
   - sha256
   - sha256Base64
+  - sha256OfBase64
+  - byteLengthUtf8
   - hmacSha256
   - pbkdf2
   - secureRandomBytesB64
@@ -44,6 +46,19 @@ extern def sha256(input: String): String
  *  For protocols that carry the raw digest in base64 (e.g. KSeF 2.0
  *  `invoiceHash` / `encryptedInvoiceHash`). */
 extern def sha256Base64(input: String): String
+
+/** SHA-256 digest over the RAW BYTES decoded from a base64 string, base64-encoded.
+ *  Differs from `sha256Base64`, which hashes the UTF-8 bytes of the string itself.
+ *  Use when the payload is carried as base64 and the digest must be taken over the
+ *  decoded bytes — e.g. KSeF 2.0 `encryptedInvoiceHash` = base64(SHA-256(ciphertext)),
+ *  where the ciphertext comes from `aesCbcEncrypt` as base64. Throws on malformed base64. */
+extern def sha256OfBase64(b64: String): String
+
+/** Number of bytes in the UTF-8 encoding of `s` (not the character count, which is
+ *  `s.length`). For protocol size fields measured in bytes — e.g. KSeF 2.0
+ *  `invoiceSize` / `encryptedInvoiceSize` — where multi-byte characters would make
+ *  the character count wrong. */
+extern def byteLengthUtf8(s: String): Int
 
 /** HMAC-SHA-256 hex digest; `key` and `data` are UTF-8 strings. */
 extern def hmacSha256(key: String, data: String): String

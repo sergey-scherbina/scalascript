@@ -208,6 +208,28 @@ object CryptoIntrinsics:
         Value.StringV(b64e(md.digest(Array.emptyByteArray)))
     },
 
+    // base64 of SHA-256 over the RAW BYTES decoded from a base64 string (not the
+    // UTF-8 bytes of the string itself, as `sha256Base64` does). KSeF 2.0
+    // `encryptedInvoiceHash` is base64(SHA-256(ciphertext bytes)), and the
+    // ciphertext is carried as base64 — so the digest must be taken over the
+    // decoded bytes. Throws on malformed base64 (authoring-side input).
+    QualifiedName("sha256OfBase64") -> native {
+      case List(b64: String) =>
+        try
+          val md = java.security.MessageDigest.getInstance("SHA-256")
+          Value.StringV(b64e(md.digest(b64d(b64))))
+        catch case e: Throwable => throw new RuntimeException(s"sha256OfBase64: ${e.getMessage}")
+      case _ => throw new RuntimeException("sha256OfBase64(b64)")
+    },
+
+    // Number of bytes in the UTF-8 encoding of `s` (not the character count).
+    // For protocol size fields measured in bytes, e.g. KSeF 2.0 `invoiceSize` /
+    // `encryptedInvoiceSize`, where multi-byte characters make `s.length` wrong.
+    QualifiedName("byteLengthUtf8") -> native {
+      case List(s: String) => Value.IntV(s.getBytes("UTF-8").length.toLong)
+      case _ => throw new RuntimeException("byteLengthUtf8(s)")
+    },
+
     QualifiedName("hmacSha256") -> native {
       case List(key: String, data: String) =>
         val mac = javax.crypto.Mac.getInstance("HmacSHA256")
