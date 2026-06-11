@@ -24,6 +24,12 @@ object AsmJitBackend extends JitBackend:
   private val BailSentinel = new AnyRef
   private val classCounter = new java.util.concurrent.atomic.AtomicInteger(0)
 
+  /** Builtin ADTs registered in `typeFieldOrder` (Option/Either/collections) that
+   *  have dedicated construction + HOF dispatch — the generic case-class → InstanceV
+   *  path (T3) must not intercept them (mirrors JavacJitBackend). */
+  private val builtinAdtCtorNames: Set[String] =
+    Set("Some", "None", "Right", "Left", "List", "Set", "Map", "Nil", "Vector", "Seq", "Range")
+
   // JVM internal names for interpreter types.
   private val instVInt   = "scalascript/interpreter/Value$InstanceV"
   private val tupleVInt  = "scalascript/interpreter/Value$TupleV"
@@ -544,6 +550,8 @@ object AsmJitBackend extends JitBackend:
         case Term.Select(Term.Name(recvName), Term.Name("updated"))
             if ctx.isRefName(recvName) =>
           true  // Stage 8: Map.updated returns Map.
+        case fn: Term.Name if !builtinAdtCtorNames.contains(fn.value) && ctx.interp.typeFieldOrder.contains(fn.value) =>
+          true  // T3: case-class / ADT constructor → InstanceV (ref), compiled by walkRef.
         case fn: Term.Name =>
           ensureCoEmittedRef(fn.value, ctx) != null
         case _ => false
@@ -2163,6 +2171,22 @@ object AsmJitBackend extends JitBackend:
       mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, helper,
         "([Ljava/lang/Object;)Ljava/lang/Object;", false)
       true
+    // T3: case-class / ADT constructor `Vec(a, b)` → InstanceV. Discriminated from
+    // sibling calls by `typeFieldOrder` membership; reuses emitConstructorObject
+    // (the same bytecode emitter the recursive-ADT-builder path uses).
+    case Term.Apply.After_4_6_0(funExpr, argClause)
+        if {
+          val nm = funExpr match
+            case Term.Name(n) => n
+            case Term.ApplyType.After_4_6_0(Term.Name(n), _) => n
+            case _ => ""
+          nm.nonEmpty && !builtinAdtCtorNames.contains(nm) && ctx.interp.typeFieldOrder.contains(nm)
+        } =>
+      val typeName = funExpr match
+        case Term.Name(n) => n
+        case Term.ApplyType.After_4_6_0(Term.Name(n), _) => n
+        case _ => ""
+      emitConstructorObject(typeName, argClause.values, ctx, mv)
     // Stage 8: `xs ++ ys` — List/Map concat via collectionConcat (mirrors Javac).
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
         if op.value == "++" && argClause.values.lengthCompare(1) == 0 =>

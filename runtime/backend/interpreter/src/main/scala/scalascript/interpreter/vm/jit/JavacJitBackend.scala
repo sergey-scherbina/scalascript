@@ -57,6 +57,14 @@ object JavacJitBackend extends JitBackend:
   private val cache = new java.util.IdentityHashMap[scala.meta.Term, AnyRef]()
   private val BailSentinel: AnyRef = new AnyRef
 
+  /** Builtin ADTs that ARE registered in `typeFieldOrder` (Option/Either/etc.)
+   *  but have dedicated construction + HOF dispatch (OptionV/EitherV, flatMap/
+   *  map/getOrElse). The generic case-class → InstanceV path (T3) must NOT
+   *  intercept them, or e.g. `Some(x)` becomes an InstanceV and
+   *  `JitHofDispatch.flatMapGlobalLong` rejects the receiver. */
+  private val builtinAdtCtorNames: Set[String] =
+    Set("Some", "None", "Right", "Left", "List", "Set", "Map", "Nil", "Vector", "Seq", "Range")
+
   override def tryCompile(f: Value.FunV, interp: scalascript.interpreter.Interpreter): JitResult | Null =
     if !enabled || f.name.isEmpty then return null
     if f.params.length > 3 then return null
@@ -612,6 +620,8 @@ object JavacJitBackend extends JitBackend:
         case Term.Select(Term.Name(recvName), Term.Name("updated"))
             if ctx.isRefName(recvName) =>
           true  // Stage 8: Map.updated on a ref var returns Map (ref).
+        case fn: Term.Name if !builtinAdtCtorNames.contains(fn.value) && ctx.interp.typeFieldOrder.contains(fn.value) =>
+          true  // T3: case-class / ADT constructor → InstanceV (ref), compiled by walkRef.
         case fn: Term.Name =>
           ensureCoEmittedRef(fn.value, ctx) != null
         case _ => false
@@ -1332,6 +1342,39 @@ object JavacJitBackend extends JitBackend:
       else
         sb.append(" })")
         sb.toString
+    // T3: case-class / ADT constructor `Vec(a, b)` → InstanceV via JitRefDispatch.
+    // Discriminated from sibling-function calls by membership in `typeFieldOrder`
+    // (only registered case classes / enum cases carry a positional field order).
+    // Each field Value is emitted via emitValueObject (numeric→intV, ref→walkRef);
+    // names are inlined (no statics dependency, unlike the body-return __inst path).
+    case Term.Apply.After_4_6_0(funExpr, argClause)
+        if {
+          val nm = funExpr match
+            case Term.Name(n) => n
+            case Term.ApplyType.After_4_6_0(Term.Name(n), _) => n
+            case _ => ""
+          nm.nonEmpty && !builtinAdtCtorNames.contains(nm) && ctx.interp.typeFieldOrder.contains(nm)
+        } =>
+      val typeName = funExpr match
+        case Term.Name(n) => n
+        case Term.ApplyType.After_4_6_0(Term.Name(n), _) => n
+        case _ => ""
+      val fieldNames = ctx.interp.typeFieldOrder.getOrElse(typeName, Nil)
+      val args = argClause.values
+      if fieldNames.lengthCompare(args.length) != 0 then null
+      else
+        val parts = new Array[String](args.length)
+        var i = 0; var ok = true
+        while i < args.length && ok do
+          val v = emitValueObject(args(i), ctx)
+          if v == null then ok = false else parts(i) = v
+          i += 1
+        if !ok then null
+        else
+          val tag = ctx.interp.typeTagMap.getOrElse(typeName, 0)
+          val arr = parts.mkString("new scalascript.interpreter.Value[] { ", ", ", " }")
+          val nms = fieldNames.map(fn => "\"" + escape(fn) + "\"").mkString("new String[] { ", ", ", " }")
+          s"""scalascript.interpreter.vm.jit.JitRefDispatch$$.MODULE$$.newInstanceRef("${escape(typeName)}", $tag, $arr, $nms)"""
     // Stage 8: s"prefix${arg1}mid${arg2}suffix" — emit as StringV(string-concat).
     // Each arg compiled via walkLong (numeric → direct String concat) or walkRef
     // (ref → wrapped in Value.show). Only the `s` interpolator is supported here;

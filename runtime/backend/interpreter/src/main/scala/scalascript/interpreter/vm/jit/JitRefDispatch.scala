@@ -313,6 +313,18 @@ object JitRefDispatch:
   val EmptySetRef: Object = Value.SetV(Set.empty).asInstanceOf[Object]
   val EmptyMapRef: Object = Value.EmptyMap.asInstanceOf[Object]
 
+  // T3: case-class / ADT constructor — build an InstanceV with positional fields.
+  // Mirrors StatRuntime's positional-field representation (fieldsArr + fieldNames +
+  // typeTag) so subsequent GETFI/GETFR field reads and tag-switch matches work
+  // identically to a tree-walked instance. The JIT emits the field Values and the
+  // interned name array; `tag` comes from Interpreter.typeTagMap (0 = unregistered).
+  def newInstanceRef(typeName: String, tag: Int, fields: Array[Value], names: Array[String]): Object =
+    val inst = Value.InstanceV(typeName, Map.empty)
+    inst.fieldsArr  = fields
+    inst.fieldNames = names
+    inst.typeTag    = tag
+    inst.asInstanceOf[Object]
+
   // Stage 8: BigInt/Decimal comparison ops → Long (0/1).
   def bigIntLt(recv: Value, other: Value): Long =
     if bigIntValue(recv) < bigIntValue(other) then 1L else 0L
