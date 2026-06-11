@@ -256,6 +256,15 @@ private[cli] def compileViaBackend(
     extras:    Map[String, String] = Map.empty
 ): CompileResult =
   val module  = loadModule(file)
+  // Fail loudly on a code-block parse error instead of silently dropping the
+  // un-parsed block (which left `ssc run` producing no output / a silent hang).
+  // `reportCodeBlockParseErrors` prints the structured `file:line:col` diagnostic
+  // to stderr; we then short-circuit so the backend never runs partial IR.
+  if reportCodeBlockParseErrors(module, file.toString) then
+    // The structured diagnostic was already printed to stderr above; return an
+    // empty Failed so the caller exits non-zero without re-printing a raw
+    // `Generic(...)` toString on top of it.
+    return CompileResult.Failed(Nil)
   val ir      = Normalize(module)
   val backend = resolveBackend(backendId)
   val diags   = CapabilityCheck.validate(ir, backend.capabilities, backendId)

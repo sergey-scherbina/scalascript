@@ -146,3 +146,23 @@ class ParseErrorPositionTest extends AnyFunSuite:
         s"expected a populated parseError for '$frag'; got cb=$cb")
       assert(cb.parseError.get.message.nonEmpty,
         s"diagnostic message must be non-empty for '$frag'")
+
+  // parser-robustness-npe: the two busi-reported shapes. Both must yield a
+  // populated diagnostic (file:line:col is surfaced by the CLI), never a silent
+  // hang. The CLI `run`/`compile` path now also exits non-zero on these (see
+  // compileViaBackend) — guarded separately at the CLI layer.
+  test("bare \\\" in argument position yields a diagnostic (parser-robustness-npe case A)"):
+    val src =
+      "# A\n\n```scalascript\nval badCsv = \"x\"\nval r = badCsv.replace(\\\"a\\\", \\\"b\\\")\n```\n"
+    val cb = firstCodeBlock(src)
+    assert(cb.tree.isEmpty, "expected scalameta to reject the bare-quote block")
+    assert(cb.parseError.isDefined, s"expected a populated parseError; got cb=$cb")
+    assert(cb.parseError.get.message.nonEmpty)
+
+  test("unbalanced parens in deep nesting yields a diagnostic (parser-robustness-npe case B)"):
+    val src =
+      "# B\n\n```scalascript\ndef jObj(x: Int): Int = x\ndef jField(a: String, b: Int): Int = b\nval v = 1\nval r = jObj(jField(\"a\", jObj(jField(\"b\", v)))\n```\n"
+    val cb = firstCodeBlock(src)
+    assert(cb.tree.isEmpty, "expected scalameta to reject the unbalanced-paren block")
+    assert(cb.parseError.isDefined, s"expected a populated parseError; got cb=$cb")
+    assert(cb.parseError.get.message.nonEmpty)
