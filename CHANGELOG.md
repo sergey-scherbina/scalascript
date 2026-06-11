@@ -37,6 +37,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   complete: object/tuple construction in hot loops no longer bails. Spec:
   `specs/backend-perf-gaps.md` §T3.
 
+## 2026-06-11 — feat(declarative-ui): Scope B.5 — registerComputed (code-built signals referenced by id in YAML)
+
+- **declarative-ui-scope-b-p2** — Scope B.5 of busi's declarative-dynamic-UI
+  proposal. A code-built derived signal registered via `contentComputed(id, sig)`
+  (→ `ContentToolkitOptions.computed` / the `computed =` builder arg) is merged into
+  the `@ui=toolkit` signal environment, so a YAML control can reference it by id —
+  `{type: signalText, signal: <id>}`, `showWhen: <id>`, `enabledWhen: <id>`. Unlike
+  the YAML `signals:` block (scalar defaults only), these can be `computedSignal`s
+  derived from other signals (a formatted KPI, `isOwner`). The computed registry
+  merges *under* the markdown/YAML signals (a locally-declared signal of the same
+  name wins). Interpreter (`toolkitEnvFor` merges `options.computed ++ base.signals`
+  at every env-build site) + JS (`_ssc_tk_env`) at parity, reusing the existing
+  `signalRef` resolution. Example `examples/content-toolkit-yaml-controls.ssc`
+  (extended); interpreter + JS regression tests; spec `specs/declarative-ui-scope-b.md`.
+  Spec also records that **B.2 (typed inline columns) is blocked** on a column-model
+  decoupling prerequisite (`FieldColumnDef` lives in `fetch-plugin`, the toolkit in
+  `content-plugin`).
+
 ## 2026-06-11 — feat(declarative-ui): Scope B.1 — YAML control-tree registry resolution
 
 - **declarative-ui-scope-b-p1** — first slice of busi's declarative-dynamic-UI
