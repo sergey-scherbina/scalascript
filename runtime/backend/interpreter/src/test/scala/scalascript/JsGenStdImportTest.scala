@@ -439,3 +439,84 @@ class JsGenStdImportTest extends AnyFunSuite:
         |console.log('rowsOf-ok');
         |""".stripMargin
     assert(runNode(script) == "rowsOf-ok")
+
+  // ── js-content-toolkit-natives (busi seq-87 cluster-2) ─────────────────────
+  // The std/ui/content toolkit externs (contentToolkitNode/Block/Section) were
+  // undefined in the JS backend → Rule Pack Studio crashed init with `not
+  // callable`.  They are now emitted (parity with JvmGen) and render authored
+  // Markdown content — toolkit: control links + @ui=toolkit control trees — into
+  // a TkNode tree that lowers to real DOM.
+  test("JS runtime defines the content-toolkit natives bound to functions"):
+    val source =
+      """# App
+        |
+        |[serve, lower](std/ui/primitives.ssc)
+        |[contentToolkitNode, contentToolkitBlock, contentToolkitSection](std/ui/content.ssc)
+        |
+        |```scalascript
+        |serve(contentToolkitNode())
+        |```
+        |""".stripMargin
+    val module   = Parser.parse(source)
+    val baseDir  = TestPaths.repoRoot / "examples"
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    // bound to real top-level functions, never `= undefined`
+    assert(moduleJs.contains("function contentToolkitNode("), "contentToolkitNode runtime function missing")
+    assert(moduleJs.contains("function contentToolkitBlock("), "contentToolkitBlock runtime function missing")
+    assert(moduleJs.contains("function contentToolkitSection("), "contentToolkitSection runtime function missing")
+    // The whole bundle parses — proves the bare-name call sites resolve to the
+    // emitted functions, not the undefined namespace member.
+    checkNodeSyntax(moduleJs)
+
+  test("contentToolkitNode renders toolkit links and @ui=toolkit controls to DOM"):
+    val source =
+      "# Panel\n\n" +
+      "[Agree](toolkit:checkbox?signal=agree&label=Agree)\n\n" +
+      "```yaml @id=cfg @ui=toolkit\n" +
+      "controls:\n" +
+      "  type: vstack\n" +
+      "  gap: 8\n" +
+      "  children:\n" +
+      "    - type: heading\n" +
+      "      level: 2\n" +
+      "      text: Settings\n" +
+      "    - type: text\n" +
+      "      text: Hello toolkit\n" +
+      "```\n\n" +
+      "## Render\n\n" +
+      "[serve](std/ui/primitives.ssc)\n" +
+      "[lower](std/ui/lower.ssc)\n" +
+      "[defaultTheme](std/ui/theme.ssc)\n" +
+      "[contentToolkitNode](std/ui/content.ssc)\n\n" +
+      "```scalascript\n" +
+      "serve(lower(contentToolkitNode(), defaultTheme))\n" +
+      "```\n"
+    val module   = Parser.parse(source)
+    val baseDir  = TestPaths.repoRoot / "examples"
+    val caps     = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime  = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    assert(caps.contains(JsGen.Capability.Signals), s"expected Signals capability, got $caps")
+    val script =
+      runtime + "\n_ssc_ui_serve = function(v){ globalThis.__captured = v; };\n" +
+      moduleJs +
+      "\nconst out = _ssc_ui_renderBody(globalThis.__captured).body;\n" +
+      "if (out.indexOf('Panel') < 0) throw new Error('section heading missing: ' + out);\n" +
+      "if (out.indexOf('type=\"checkbox\"') < 0) throw new Error('toolkit:checkbox control missing: ' + out);\n" +
+      "if (out.indexOf('Agree') < 0) throw new Error('checkbox label missing: ' + out);\n" +
+      "if (out.indexOf('Settings') < 0) throw new Error('@ui=toolkit heading missing: ' + out);\n" +
+      "if (out.indexOf('Hello toolkit') < 0) throw new Error('@ui=toolkit text missing: ' + out);\n" +
+      "console.log('content-toolkit-ok');\n"
+    assert(runNode(script) == "content-toolkit-ok")
+
+  test("emit-spa markdown-toolkit-links example binds contentToolkitSection and parses"):
+    val source  = os.read(TestPaths.repoRoot / "examples" / "markdown-toolkit-links.ssc")
+    val module  = Parser.parse(source)
+    val baseDir = TestPaths.repoRoot / "examples"
+    val caps    = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    assert(moduleJs.contains("function contentToolkitSection("),
+      "contentToolkitSection must be emitted for the toolkit example")
+    // whole bundle parses — no undefined `not callable` toolkit native
+    checkNodeSyntax(runtime + "\n" + moduleJs)

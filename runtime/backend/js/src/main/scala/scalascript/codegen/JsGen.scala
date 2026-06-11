@@ -425,7 +425,20 @@ class JsGen(
     "contentModuleData",
     "contentModuleMetadata"
   )
+  // The three std/ui/content toolkit externs.  Like contentIntrinsicNames they
+  // are emitted as top-level runtime functions (emitContentToolkitRuntime), so
+  // an import of them must bind to the bare name, not the `undefined` namespace
+  // member the generic extern path would produce.
+  private val contentToolkitIntrinsicNames: Set[String] = Set(
+    "contentToolkitNode",
+    "contentToolkitBlock",
+    "contentToolkitSection"
+  )
   private var contentRuntimeEnabled: Boolean = false
+  // True when the module imports std/ui/content (the toolkit layer) — gates the
+  // emission of the contentToolkitNode/Block/Section runtime so plain std/content
+  // bundles stay lean.
+  private var contentToolkitRuntimeEnabled: Boolean = false
   private var contentSectionIndex: Int = 0
 
   // Typeclass parent map: TC -> List[parentTC], accumulated from all trait declarations.
@@ -769,6 +782,16 @@ class JsGen(
       } || section.subsections.exists(sectionUsesContent)
 
     module.sections.exists(sectionUsesContent)
+
+  // True when the module imports the std/ui/content toolkit layer — used to gate
+  // the contentToolkitNode/Block/Section runtime (the toolkit externs).
+  private def moduleUsesContentToolkitIntrinsics(module: Module): Boolean =
+    def sectionImportsToolkit(section: Section): Boolean =
+      section.content.exists {
+        case imp: Content.Import => isContentToolkitStdImport(imp.path)
+        case _                   => false
+      } || section.subsections.exists(sectionImportsToolkit)
+    module.sections.exists(sectionImportsToolkit)
 
   private def jsRawOptionString(value: Option[String]): String =
     value.map(jsStringLit).getOrElse("null")
@@ -1308,6 +1331,17 @@ class JsGen(
     line("function __ssc_content_inline_code_markdown(value) { const d = '`'.repeat(Math.max(1, __ssc_content_max_backtick_run(value) + 1)); return d + value + d; }")
     line("function __ssc_content_fence_delimiter(source) { return '`'.repeat(Math.max(3, __ssc_content_max_backtick_run(source) + 1)); }")
     line("function __ssc_content_max_backtick_run(value) { let best = 0, current = 0; for (const ch of String(value)) { if (ch === '`') { current += 1; best = Math.max(best, current); } else current = 0; } return best; }")
+    if contentToolkitRuntimeEnabled then emitContentToolkitRuntime()
+
+  /** JS port of JvmGen's content-toolkit runtime: renders authored Markdown
+   *  content (sections, blocks, `toolkit:` control links, `@ui=toolkit` YAML
+   *  control trees, GFM tables, and registered components) into a TkNode tree.
+   *  Mirrors the JVM-codegen `_ssc_tk_*` helpers so the browser backend reaches
+   *  parity for contentToolkitNode / contentToolkitBlock / contentToolkitSection.
+   *  TkNode values are built as `{_type:'<Name>', <fields>}` — the same shape a
+   *  `.ssc` case-class constructor compiles to — so `lower(...)` consumes them. */
+  private def emitContentToolkitRuntime(): Unit =
+    line(ContentToolkitJs.source)
 
   private def withContentCurrentSection(sectionIndex: Option[Int])(emit: => Unit): Unit =
     if contentRuntimeEnabled then
@@ -1332,6 +1366,7 @@ class JsGen(
     scanForAwaitClient(module)
     scanForStreams(module)
     contentRuntimeEnabled = moduleUsesContentIntrinsics(module)
+    contentToolkitRuntimeEnabled = moduleUsesContentToolkitIntrinsics(module)
     if contentRuntimeEnabled then collectDirectImportedContent(module) else importedContentDocuments.clear()
     contentSectionIndex = 0
     // v1.27 Phase 3 — sql state.  Reset every module to keep `genModule`
@@ -1626,6 +1661,7 @@ class JsGen(
       "rowDelete", "rowPost", "rowLink", "rowEdit",
       "staticRowsSource", "signalRowsSource",
       "fieldPayload", "wholeRowPayload", "fieldsPayload",
+      "contentToolkit",
       "textNode", "signalText", "showSignal", "fragment("
     ).exists(allText.contains)
     val hasSignals = allText.contains("signal(") || allText.contains("Signal(") ||
@@ -1999,6 +2035,7 @@ class JsGen(
     scanForAwaitClient(module)
     scanForStreams(module)
     contentRuntimeEnabled = moduleUsesContentIntrinsics(module)
+    contentToolkitRuntimeEnabled = moduleUsesContentToolkitIntrinsics(module)
     if contentRuntimeEnabled then collectDirectImportedContent(module) else importedContentDocuments.clear()
     contentSectionIndex = 0
     // Emit `route(...)` registrations from front-matter before user blocks,
@@ -2277,7 +2314,10 @@ class JsGen(
     val pkgPrefix    = if childPkg.isEmpty then "" else childPkg.mkString("", ".", ".")
     val childExports = childModule.manifest.map(_.exports).getOrElse(Nil)
     imp.bindings.foreach { b =>
-      if imp.path.endsWith("std/content.ssc") && contentIntrinsicNames(b.name) then
+      val bindsContentRuntimeFn =
+        (imp.path.endsWith("std/content.ssc") && contentIntrinsicNames(b.name)) ||
+          (imp.path.endsWith("std/ui/content.ssc") && contentToolkitIntrinsicNames(b.name))
+      if bindsContentRuntimeFn then
         b.alias.foreach { localName =>
           if !declaredBindings.contains(localName) then
             declaredBindings += localName
