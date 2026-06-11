@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — feat(declarative-ui): Scope B.1 — YAML control-tree registry resolution
+
+- **declarative-ui-scope-b-p1** — first slice of busi's declarative-dynamic-UI
+  proposal Scope B (rozum seq-113). Brings the Scope A `action` / `rowBindings`
+  registry resolution into the `@ui=toolkit` **YAML control tree**, not just the
+  Markdown `toolkit:` links: `{type: button, action: <id>}` → `ActionButtonNode`
+  (honors `enabledWhen`) and `{type: table, source: <id>}` (alias `rows:`) → live
+  `DataTableNode` from the registered `ContentRowBinding`. Interpreter
+  (`ContentIntrinsics.toolkitControl` / `toolkitButton` + new `table` case; also
+  fixed `toolkitUiNode` to forward `rowBindings` into the YAML env, not just
+  `actions`) + JS (`ContentToolkitJs._ssc_tk_render_control`, with `options`
+  threaded through the YAML control path) at parity; reuses the shared
+  `lower.ssc` nodes and Scope A helpers. Fail-soft still applies. Example
+  `examples/content-toolkit-yaml-controls.ssc`; interpreter + JS regression tests;
+  spec `specs/declarative-ui-scope-b.md` (with the B.2–B.7 slice plan). Remaining
+  Scope B: typed inline columns, `registerDataSource`/`registerAction` onSuccess,
+  `registerComputed`, slot, build-time lint, JvmGen parity.
+
 ## 2026-06-11 — fix(js): reorder named args to imported functions / case-class ctors (js-named-arg-imported-reorder)
 
 - **js-named-arg-imported-reorder** — fixes the latent JsGen bug found while
