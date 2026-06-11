@@ -1,6 +1,0 @@
-feature/js-datatable-remote-envelope 2026-06-11T10:57:51Z
-agent: claude-code
-heartbeat: 2026-06-11T10:57:51Z
-status: in-progress
-done-so-far: busi seq-87 — browser DataTable Remote-fetch renders empty; renderTable called directly on parsed JSON, fails on {data:[...]} envelope ((rows||[]).forEach not a function) + HTML response (JSON.parse <script>)
-next: normalize fetched JSON to rows array (extract .data/.rows/.items via asRows) + defensive non-JSON; test; push
