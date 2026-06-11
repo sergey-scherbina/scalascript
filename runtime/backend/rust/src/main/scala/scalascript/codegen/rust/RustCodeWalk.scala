@@ -1096,6 +1096,11 @@ object RustCodeWalk:
     // `.toList` on a Source/range (property access form) — collect to Vec.
     case m.Term.Select(qual, m.Term.Name("toList")) if isRangeExpr(qual) =>
       renderTerm(qual, ctx).map(q => s"$q.collect::<Vec<_>>()")
+    // Tuple element access: Scala `t._1` is 1-indexed; Rust tuples are
+    // 0-indexed (`t.0`). Map `_N` → `.(N-1)`. (A user struct field literally
+    // named `_1` would be rare and is not idiomatic; tuple accessors win.)
+    case m.Term.Select(qual, m.Term.Name(field)) if isTupleAccessor(field) =>
+      renderTerm(qual, ctx).map(q => s"$q.${field.drop(1).toInt - 1}")
     // Struct / case-class field access: `v.x` → `v.x` in Rust.
     case m.Term.Select(qual, m.Term.Name(field)) =>
       renderTerm(qual, ctx).map(q => s"$q.$field")
@@ -1717,6 +1722,12 @@ object RustCodeWalk:
   /** Best-effort check that a term is a range or Source expression.
    *  Covers `lo until hi`, `lo to hi`, `Source.range(lo,hi)`,
    *  `Source.fromList(list)`, and common iterator-chain extensions. */
+  /** True for a Scala tuple accessor name `_1`..`_22` (an underscore followed
+   *  by a 1-based positive integer). Used to remap to Rust's 0-based `.0`.. */
+  private def isTupleAccessor(field: String): Boolean =
+    field.length >= 2 && field.charAt(0) == '_' &&
+      field.charAt(1) != '0' && field.drop(1).forall(_.isDigit)
+
   private def isRangeExpr(term: m.Term): Boolean = term match
     case m.Term.ApplyInfix.After_4_6_0(_, m.Term.Name("until" | "to"), _, rhs)
         if rhs.values.size == 1 => true

@@ -109,6 +109,22 @@ class RustGenR23Test extends AnyFunSuite:
     assert(g.contains("pub fn concat() -> (i64, i64, i64, i64, i64, i64)"))
     assert(g.contains("(1i64, 2i64, 3i64, 4i64, 5i64, 6i64)"))
 
+  test("tuple accessor `_1`/`_4` remaps to Rust 0-indexed `.0`/`.3`"):
+    // Scala tuples are 1-indexed; Rust tuples are 0-indexed. Without the
+    // remap, `t._1` emits `t._1` and rustc rejects it (no field `_1`).
+    val src =
+      """```scalascript
+        |def pick(): Int =
+        |  val t = (1, 2) ++ (3, 4)
+        |  t._1 + t._4
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("t.0"))
+    assert(g.contains("t.3"))
+    assert(!g.contains("t._1"))
+    assert(!g.contains("t._4"))
+
   test("String.split + trim + toInt lowers to String helpers and parse"):
     val src =
       """```scalascript
