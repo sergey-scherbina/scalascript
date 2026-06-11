@@ -751,6 +751,8 @@ object JavacJitBackend extends JitBackend:
       interp.globals.get(n).exists(_.isInstanceOf[Value.IntV])
     def globalIsFunV(n: String): Boolean =
       interp.globals.get(n).exists(_.isInstanceOf[Value.FunV])
+    def callArgIsRef(fnName: String, argIdx: Int): Boolean =
+      callParamIsRef(fnName, argIdx, this)
     def isRefName(n: String): Boolean =
       bindings.get(n) match
         case Some((_, r)) => r
@@ -2929,24 +2931,10 @@ object JavacJitBackend extends JitBackend:
    *  position whose corresponding callee param is ref-typed. Used by `walkArm`
    *  to classify pattern bindings as `Object` in Java for both self-recursive
    *  and co-emitted sibling calls. */
+  // Shared with AsmJitBackend via JitPredicates (callee ref-ness resolved
+  // per-backend through GenCtx.callArgIsRef → callParamIsRef).
   private def bindingIsRef(armBody: Term, bindingName: String, ctx: GenCtx): Boolean =
-    var hit = false
-    def walk(t: scala.meta.Tree): Unit =
-      if hit then ()
-      else t match
-        case Term.Apply.After_4_6_0(Term.Name(fnName), argClause) =>
-          var idx = 0
-          argClause.values.foreach { arg =>
-            arg match
-              case Term.Name(n) if n == bindingName && callParamIsRef(fnName, idx, ctx) =>
-                hit = true
-              case other =>
-                walk(other)
-            idx += 1
-          }
-        case _ => t.children.foreach(walk)
-    walk(armBody)
-    hit
+    JitPredicates.bindingIsRef(armBody, bindingName, ctx)
 
   // ── while-loop JIT ───────────────────────────────────────────────────────
 

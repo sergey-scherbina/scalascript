@@ -848,6 +848,8 @@ object AsmJitBackend extends JitBackend:
       interp.globals.get(n).exists(_.isInstanceOf[Value.IntV])
     def globalIsFunV(n: String): Boolean =
       interp.globals.get(n).exists(_.isInstanceOf[Value.FunV])
+    def callArgIsRef(fnName: String, argIdx: Int): Boolean =
+      callParamIsRef(fnName, argIdx, this)
     def isRefName(n: String): Boolean =
       bindings.get(n) match
         case Some((_, r)) => r
@@ -3385,22 +3387,10 @@ object AsmJitBackend extends JitBackend:
     if !baseOk then return false
     mv.visitInsn(if ctx.isDouble then DRETURN else LRETURN); true
 
+  // Shared with JavacJitBackend via JitPredicates (callee ref-ness resolved
+  // per-backend through GenCtx.callArgIsRef → callParamIsRef).
   private def bindingIsRef(armBody: Term, bindingName: String, ctx: GenCtx): Boolean =
-    var hit = false
-    def walk(t: scala.meta.Tree): Unit =
-      if !hit then t match
-        case Term.Apply.After_4_6_0(Term.Name(fnName), ac) =>
-          var idx = 0
-          ac.values.foreach { arg =>
-            arg match
-              case Term.Name(n) if n == bindingName && callParamIsRef(fnName, idx, ctx) =>
-                hit = true
-              case other =>
-                walk(other)
-            idx += 1
-          }
-        case _ => t.children.foreach(walk)
-    walk(armBody); hit
+    JitPredicates.bindingIsRef(armBody, bindingName, ctx)
 
   // ── Switch/string-chain helpers ───────────────────────────────────────────
 

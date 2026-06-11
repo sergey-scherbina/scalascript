@@ -156,6 +156,10 @@ trait JitShapeCtx:
   def globalIsIntV(n: String): Boolean
   /** Top-level global `n` is bound to a `FunV`. */
   def globalIsFunV(n: String): Boolean
+  /** True iff argument `argIdx` of a call to `fnName` is passed to a ref-typed
+   *  parameter. Backend-specific (resolves the callee's `MethodSig` from
+   *  codegen state), so each `GenCtx` implements it over its own `callParamIsRef`. */
+  def callArgIsRef(fnName: String, argIdx: Int): Boolean
 
 /** Pure predicates shared between the structural bail classifier and each
  *  `JitBackend` implementation.  Keeping the logic in one place prevents the
@@ -371,6 +375,30 @@ object JitPredicates:
       case _ => t.children.foreach(markRefScrutinees)
     markRefScrutinees(f.body)
     paramIsRef
+
+  /** True iff `bindingName` is, anywhere in `armBody`, passed as a ref-typed
+   *  argument to some call — meaning the pattern binding must be kept as an
+   *  object ref rather than unboxed to a Long. The ref-ness of each call
+   *  argument is resolved per-backend through `ctx.callArgIsRef` (which consults
+   *  the callee's `MethodSig` in codegen state). */
+  def bindingIsRef(armBody: Term, bindingName: String, ctx: JitShapeCtx): Boolean =
+    var hit = false
+    def walk(t: scala.meta.Tree): Unit =
+      if hit then ()
+      else t match
+        case Term.Apply.After_4_6_0(Term.Name(fnName), argClause) =>
+          var idx = 0
+          argClause.values.foreach { arg =>
+            arg match
+              case Term.Name(n) if n == bindingName && ctx.callArgIsRef(fnName, idx) =>
+                hit = true
+              case other =>
+                walk(other)
+            idx += 1
+          }
+        case _ => t.children.foreach(walk)
+    walk(armBody)
+    hit
 
   /** Walk `fn.body` and the param/return metadata and collect every visible
    *  structural bail cliff.  Mirrors `JavacJitBackend.doCompile`'s early-bail
