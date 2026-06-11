@@ -59,8 +59,14 @@ spec's acceptance.
       `pureCallSum` 0.003 ms/op (~83×, native floor 0.247). Spec `backend-perf-gaps.md` T2.3.
 
 ### Tier 3 — correctness & hygiene
-- [ ] **cluster-jvm-js-handshake** — fix the one DISABLED test (JVM↔JS Bully-leader
-      handshake mismatch) or convert to a documented asserting won't-fix.
+- [~] **cluster-jvm-js-handshake** — ROOT-CAUSED 2026-06-11. The disabled Bully matrix
+      test's stale "scheduler block" reason is FIXED; real blocker = JVM-codegen
+      `/_ssc-actors` route registers via the protocols-less emitted `onWebSocket`, so it
+      never echoes `ssc-actors-v1` (interp echoes via `protocols=ActorWireProtocol.
+      serverProtocols`); JS `ws` client then rejects. Diagnosis + fix plan landed in test
+      doc + `specs/cluster-codegen-gap.md` + `backend-correctness-hygiene.md` T3.1. FIX
+      (protocols-aware WS reg in emitted JVM serve runtime) deferred to Tier-4: cross-cutting
+      + only verifiable via the heavy/flaky multi-process matrix test; unsafe to push unverified.
 - [x] **jit-predicates-bindingisref** — DONE 2026-06-11. Shared via
       `JitShapeCtx.callArgIsRef` + `JitPredicates.bindingIsRef`. Last duplicated JIT
       predicate — drift surface fully closed. 389 green both backends, 1605 full.

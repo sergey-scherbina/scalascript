@@ -1,6 +1,0 @@
-feature/cluster-jvm-js-handshake 2026-06-11T08:41:48Z
-agent: claude-code
-heartbeat: 2026-06-11T08:41:48Z
-status: in-progress
-done-so-far: root-caused disabled Bully test — scheduler FIXED, require-ws worked around, remaining = JVM-codegen /_ssc-actors route lacks protocols list (interp uses ActorWireProtocol.serverProtocols)
-next: refine stale test doc + spec T3.1 with precise diagnosis + fix plan; keep disabled (unverifiable cross-cutting + Tier-4)

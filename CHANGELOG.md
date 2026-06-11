@@ -18,6 +18,26 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   downstream `No key 'toString' in map` crash did not reproduce from a plain
   two-module collision; the import-time warning now surfaces the conflict early.
 
+## 2026-06-11 — docs(cluster): re-diagnose disabled JVM↔JS Bully test (cluster-jvm-js-handshake, Tier 3 / T3.1 root-cause)
+
+- **cluster-jvm-js-handshake (root-cause)** — Precisely re-diagnosed the suite's one
+  disabled test (`ClusterMultiBackendMatrixTest`). Its documentation was stale: the
+  headline reason (JS `_runActors` event-loop block) is already FIXED (async
+  scheduler + `setImmediate` yield), and `require('ws')` is worked around in the
+  test. The genuine remaining blocker is WS **subprotocol negotiation** — JVM-codegen
+  registers `/_ssc-actors` via the emitted `onWebSocket(path)(handler)` (no protocols
+  list) and so never echoes `ssc-actors-v1`, which the JS `ws` client requires
+  ("Server sent no subprotocol" → close → no Bully convergence); the interpreter
+  echoes correctly via `protocols = ActorWireProtocol.serverProtocols`. Replaced the
+  stale test doc comment + `specs/cluster-codegen-gap.md` scheduler bullet with this
+  diagnosis and a concrete fix plan (protocols-aware WS registration in the emitted
+  JVM serve runtime). The fix is **not landed**: it is a cross-cutting emitted-runtime
+  change (backs every JVM HTTP/WS program + MCP `onWebSocket`) whose only real
+  verification is the heavy/flaky multi-process matrix test — unsafe to push
+  unverified to shared `main`. Test stays `ignore()` with an accurate re-enable
+  recipe; tracked as the Tier-4 cross-backend envelope-reconciliation task. Docs-only;
+  no code/behaviour change. Spec: `specs/backend-correctness-hygiene.md` §T3.1.
+
 ## 2026-06-11 — feat(js): persistent HAMT Map — O(n²)→O(n log n) (js-persistent-map-hamt, Tier 2 / T2.2 DONE)
 
 - **js-persistent-map-hamt** — Closes Tier-2 T2.2 (the last perf-gap item). The ssc
