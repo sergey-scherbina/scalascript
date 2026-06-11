@@ -1,0 +1,6 @@
+feature/js-hamt-p3-activate 2026-06-11T08:09:09Z
+agent: claude-code
+heartbeat: 2026-06-11T08:09:09Z
+status: in-progress
+done-so-far: p2 _isMap sweep landed (71 sites)
+next: add _HAMT persistent map, reroute _Map + updated/removed, extend _isMap, full-suite validate
