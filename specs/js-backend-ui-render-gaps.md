@@ -106,9 +106,30 @@ value, keeping the `TkNode` cases unchanged. Both backends then agree.
   interpreter and the JS backend (no `Match failure`).
 - An example `examples/datatable-static-spa.ssc` emits and `node --check`-passes.
 
+### Layer 2b — raw DataTableNode buried in an already-lowered container
+
+Follow-up (2026-06-11). The idempotent passthrough (Layer 2) returns an
+already-lowered `_Element` whole, so it does **not** descend into that element's
+children. If a caller mixes a *raw* `DataTableNode` (the `TkNode` returned by
+`dataTable(...)`, not the `View` from `dataTableView`/`staticDataTable`) directly
+into an `element(...)` children list, that node reaches the renderer un-lowered.
+The JS `walk` had no `'DataTableNode'` case, so it hit `default → ''` and the
+table **vanished silently** (confirmed: `hasTable:false`, siblings rendered).
+
+`lower(DataTableNode(signal, columns, actions))` is theme-free — it just wraps
+into `dataTableView(signal, columns, actions)` — so `walk` now normalises a raw
+`DataTableNode` (`v._type === 'DataTableNode'`) into a `_DataTableView` and
+renders it through the existing path. Theme-dependent raw TkNodes (vstack,
+heading, …) genuinely cannot render without a theme and remain unsupported as
+un-lowered children (the "build a TkNode tree, `lower` once at the top" contract
+stands); only the theme-free `DataTableNode` is recovered.
+
+- Acceptance: a raw `dataTable(...)` child of an `element(...)`, lowered only at
+  the top, renders a `<table>` (no longer dropped).
+
 ## Non-goals
 
-- Deep-walking opaque `View` children to lower a raw `TkNode` buried inside an
-  already-lowered container — containers already `kids.map(lower(_, theme))`;
-  the idempotent passthrough covers the reported top-level double-lower.
+- Lowering theme-dependent raw `TkNode`s (vstack/heading/…) that were never
+  lowered — they need a `Theme` the renderer does not carry. Only the theme-free
+  `DataTableNode` is normalised at render time.
 - SignalRows reactive semantics beyond subscribe+re-render of the rows signal.
