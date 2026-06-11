@@ -35,6 +35,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   ServeAsyncReadyTest +concurrent-bind case; suites green (interp-server 50, SPI
   9, runtimeServerJvm 30).
 
+## 2026-06-11 — fix(js): serve non-WebSocket upgrades as HTTP/1.1 — JVM↔JS cluster test PASSES (cluster-jvm-js-handshake, Tier 3 / T3.1 DONE)
+
+- **cluster-jvm-js-handshake** — Closed the suite's last disabled test. The JS-codegen
+  HTTP/WS server hung on **non-WebSocket upgrade requests**: `java.net.http` (the test's
+  poll client) defaults to HTTP/2 and probes cleartext with `Upgrade: h2c`; Node routes
+  any `Connection: Upgrade` to the 'upgrade' handler, so `/_ssc-cluster/status` GETs hit
+  `_wsHandleUpgrade`, matched no WS route, and the socket hung with no response → status
+  polls timed out (instrumented: 60 TCP accepts, 0 `'request'` events, event loop alive).
+  Fix (`JsRuntimePart1d`): the 'upgrade' listener now serves any non-`websocket` upgrade
+  as a normal HTTP/1.1 request (`http.ServerResponse` over the raw socket), so
+  HTTP/2-preferring clients fall back to 1.1. This was the 4th and final cross-backend
+  layer (after the JS scheduler async-conversion + the JVM `481190610` and JS `ede018597`
+  WS-subprotocol-echo fixes). **`ClusterMultiBackendMatrixTest` flipped `ignore`→`test`
+  and now PASSES** — a JVM-codegen node and a JS-codegen node, built from the same `.ssc`,
+  converge over real WS on `leader=node-bbb`: multi-backend cluster deployment is real.
+  The test self-derives `ssc.lib.path` (`sscLibArgs`) and cancels gracefully without the
+  toolchain. Full `backendInterpreter/test` green. Specs:
+  `specs/backend-correctness-hygiene.md` §T3.1, `specs/cluster-codegen-gap.md`.
+
 ## 2026-06-11 — feat(std.pdf): PDF text extraction — pdfToMarkdown / pdfPageCount (busi PIT-11 parsing)
 
 - **pdf-text-extraction** — The reading counterpart to `htmlToPdfBase64`: extract

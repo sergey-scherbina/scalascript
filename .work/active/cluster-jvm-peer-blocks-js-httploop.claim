@@ -1,6 +1,0 @@
-feature/cluster-jvm-peer-blocks-js-httploop 2026-06-11T10:44:44Z
-agent: claude-code
-heartbeat: 2026-06-11T10:44:44Z
-status: in-progress
-done-so-far: both servers echo subprotocol; JS<->JS converges; JVM peer connect blocks JS HTTP event loop
-next: instrument/repro why JVM (java.net.http) frames block JS node HTTP serving

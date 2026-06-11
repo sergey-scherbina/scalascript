@@ -59,17 +59,16 @@ spec's acceptance.
       `pureCallSum` 0.003 ms/op (~83×, native floor 0.247). Spec `backend-perf-gaps.md` T2.3.
 
 ### Tier 3 — correctness & hygiene
-- [~] **cluster-jvm-js-handshake** — TWO subprotocol fixes landed + verified 2026-06-11.
-      Both servers now echo `ssc-actors-v1`: JVM-codegen `/_ssc-actors`
-      (`481190610`, `protocols=List(...)` + stub widened) and JS-codegen
-      (`ede018597`, `onWebSocket(path,[],['ssc-actors-v1'])(handler)`). **JS↔JS clusters
-      now converge** (verified); JVM↔JS upgrade negotiates `proto=ssc-actors-v1`. Full
-      suite 1618 green. REMAINING (next Tier-4 slice): once a JVM (java.net.http) peer
-      connects, the JS node stops serving plain HTTP (`/_ssc-cluster/status` GETs never
-      dispatched; no crash, port bound) → matrix poll times out. NOT subprotocol/
-      onMessage; reproduces only with a JVM peer → JS WS-frame/scheduler interaction with
-      JVM-originated frames. Matrix test stays `ignore` with precise diagnosis +
-      re-enable recipe. Specs `backend-correctness-hygiene.md` T3.1 + `cluster-codegen-gap.md`.
+- [x] **cluster-jvm-js-handshake** — DONE 2026-06-11. The disabled
+      `ClusterMultiBackendMatrixTest` is now ENABLED + PASSING (both nodes converge on
+      `leader=node-bbb`). Fixed across 4 cross-backend layers: (1) JS `_runActors`
+      scheduler block (already fixed); (2) JVM-codegen subprotocol echo
+      (`481190610`); (3) JS-codegen subprotocol echo (`ede018597`); (4) **the real final
+      blocker** — JS server hung on `java.net.http`'s default HTTP/2 `Upgrade: h2c`
+      probe (Node routed it to the WS 'upgrade' handler → no WS route → socket hung →
+      0 `'request'` events); fixed by serving non-`websocket` upgrades as normal
+      HTTP/1.1 (`JsRuntimePart1d`). JVM↔JS multi-backend Bully convergence is real.
+      Specs `backend-correctness-hygiene.md` T3.1 + `cluster-codegen-gap.md`.
 - [x] **jit-predicates-bindingisref** — DONE 2026-06-11. Shared via
       `JitShapeCtx.callArgIsRef` + `JitPredicates.bindingIsRef`. Last duplicated JIT
       predicate — drift surface fully closed. 389 green both backends, 1605 full.
