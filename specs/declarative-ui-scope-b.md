@@ -139,14 +139,16 @@ clean-but-warned file: `OK (with warnings)`).
 
 ### Behavior checklist (B.7 v1)
 
-- [ ] `{type: button, action: <unknown>}` with a non-empty action registry → warning.
-- [ ] `{type: table, source: <unknown>}` / `rows: <unknown>` with a non-empty source
+- [x] `{type: button, action: <unknown>}` with a non-empty action registry → warning.
+- [x] `{type: table, source: <unknown>}` / `rows: <unknown>` with a non-empty source
       registry → warning.
-- [ ] a correct id (registered locally or in a transitively-imported module) → no warning.
-- [ ] an empty registry for that kind → no warning (conservative).
-- [ ] an unresolvable import → lint suppressed for that file (no false positive).
-- [ ] warnings carry the file-level line of the YAML reference; exit code unchanged.
-- [ ] core unit tests for collect/lint + a CLI check on the shipped example.
+- [x] a correct id (registered locally or in a transitively-imported module) → no warning.
+- [x] an empty registry for that kind → no warning (conservative).
+- [x] an unresolvable (local, non-std) import → lint suppressed for that file (no false positive).
+- [x] warnings carry the file-level line of the YAML reference; exit code unchanged.
+- [x] core unit tests (`ContentToolkitLintTest`, 11) + CLI `ssc check` tests
+      (`CheckCommandTest`, +2). An edit-distance "did you mean '…'?" hint is added
+      when a registered id is a plausible typo of the reference.
 
 ## Non-goals (later slices)
 
