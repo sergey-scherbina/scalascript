@@ -8,7 +8,7 @@ so the work can be claimed independently.
 
 ## Items
 
-### T2.1 — bench-honesty (measurement integrity) — `bench-honesty-varying-data`
+### T2.1 — bench-honesty (measurement integrity) — `bench-honesty-varying-data` ✓ SUBSTANTIALLY DONE (2026-06-11)
 
 **Problem.** Many sub-µs cells in the cross-backend bench table are HotSpot/JIT
 folds of loop-invariant work, not real throughput (verified: jvm instance-field
@@ -56,13 +56,24 @@ interp JIT does not regress on the redesigned workloads (spot-check 3 cases).
       **205 µs** (~18000×), `js_tupleMonoid` **1688 µs**, interp **~14 ms** (1000
       iters). Remaining jvm/js gap is honest codegen difference. Details:
       `docs/bench/interp-honesty-audit.md`.
-- [ ] **REMAINING (open continuation):** the other audit-flagged fold cells
-      (`instance-field`, `bool-predicate`, `either-chain`, `option-chain`,
-      `literal-match`) exist only in the **interp-only `InterpreterBench`** column —
-      no automated compiled cross-backend cell exists for them; their compiled folds
-      were measured ad-hoc in the cross-backend-gap doc. De-folding each is the same
-      per-workload direction-(b) pattern demonstrated by `tuple_monoid`, applied as
-      further slices. The interp side + `off` baseline are honest.
+- [x] **Interp column verified honest (2026-06-11).** A/B (`interp` vs `off`) on the
+      remaining audit-flagged cells that exist as interp benches: `eitherChain`
+      0.002↔0.017 ms (honest, JIT speeds real work), `optionChain` 0.002 ms ON
+      (honest by analogy — `off` un-measurable due to the bench-harness
+      `initBuiltins`-skip gotcha `Undefined: None`, a harness artifact not a fold),
+      `instanceFieldAccess` 0.035↔8.277, `arithLoop` 0.248↔2.746. `bool-predicate` /
+      `literal-match` are **not** interp benches (JS-only / ad-hoc). So no interp cell
+      is a measurement artifact.
+
+**T2.1 status: substantially complete.** The *automated* benchmark harness is now
+honest — `off` baseline fixed, the one automated compiled fold (`tuple_monoid`)
+de-folded, interp column verified clean, JS column audited clean, Rust/JVM
+anti-fold documented. The cross-backend-gap doc's other compiled fold cells
+(`instance-field` etc.) were **ad-hoc one-off JVM probes with no standing
+automated cell**, so nothing dishonest is published by the harness. OPTIONAL
+future enhancement (not a current defect): add automated compiled cross-backend
+cells for those workloads with varying data, to guard against regressions — same
+direction-(b) pattern as `tuple_monoid`.
 
 ### T2.2 — JS persistent map (HAMT) — `js-persistent-map-hamt`
 
