@@ -784,3 +784,38 @@ class JsGenStdImportTest extends AnyFunSuite:
       "if (j.indexOf('SIG') < 0) throw new Error('registered row source not threaded into YAML table: ' + j);\n" +
       "console.log('toolkit-yaml-registry-ok');\n"
     assert(runNode(script) == "toolkit-yaml-registry-ok")
+
+  // Scope B.5: a code-registered computed signal (options.computed, via the named
+  // `computed =` builder arg — also exercises the imported named-arg reorder fix)
+  // is merged into the toolkit env so a YAML `signalText` resolves it by id and
+  // renders its value in the browser.
+  test("@ui=toolkit signalText resolves a registered computed signal in JS (Scope B.5)"):
+    val source =
+      "# Panel\n\n" +
+      "## P {#p}\n\n" +
+      "```yaml @ui=toolkit\n" +
+      "controls:\n" +
+      "  type: signalText\n" +
+      "  signal: kpi\n" +
+      "```\n\n" +
+      "[serve, signal](std/ui/primitives.ssc)\n" +
+      "[lower](std/ui/lower.ssc)\n" +
+      "[defaultTheme](std/ui/theme.ssc)\n" +
+      "[contentToolkitNode, contentToolkitOptionsWithRows, contentComputed](std/ui/content.ssc)\n\n" +
+      "```scalascript\n" +
+      "val kpi = signal(\"kpiSig\", \"FREE-CASH-42\")\n" +
+      "serve(lower(contentToolkitNode(contentToolkitOptionsWithRows(\n" +
+      "  Map(), computed = Map(contentComputed(\"kpi\", kpi)))), defaultTheme))\n" +
+      "```\n"
+    val module   = Parser.parse(source)
+    val baseDir  = TestPaths.repoRoot / "examples"
+    val caps     = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime  = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    val script =
+      runtime + "\n_ssc_ui_serve = function(v){ globalThis.__captured = v; };\n" +
+      moduleJs +
+      "\nconst out = _ssc_ui_renderBody(globalThis.__captured).body;\n" +
+      "if (out.indexOf('FREE-CASH-42') < 0) throw new Error('computed signal value did not render (id unresolved?): ' + out);\n" +
+      "console.log('toolkit-computed-ok');\n"
+    assert(runNode(script) == "toolkit-computed-ok")

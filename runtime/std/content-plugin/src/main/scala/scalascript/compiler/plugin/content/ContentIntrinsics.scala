@@ -140,7 +140,8 @@ object ContentIntrinsics:
     components: Map[String, Value] = Map.empty,
     bindings: Map[String, ast.ContentValue] = Map.empty,
     actions: Map[String, Value] = Map.empty,
-    rowBindings: Map[String, Value] = Map.empty
+    rowBindings: Map[String, Value] = Map.empty,
+    computed: Map[String, Value] = Map.empty
   )
 
   private case class ToolkitUiEnv(signals: Map[String, Value], actions: Map[String, Value] = Map.empty,
@@ -199,7 +200,8 @@ object ContentIntrinsics:
       components = componentRegistry(fields.get("components")),
       bindings = contentValueMapField(fields.get("bindings")),
       actions = actionRegistry(fields.get("actions")),
-      rowBindings = rowBindingRegistry(fields.get("rowBindings"))
+      rowBindings = rowBindingRegistry(fields.get("rowBindings")),
+      computed = computedRegistry(fields.get("computed"))
     )
 
   // actions: a Map[String, EventHandler] — id -> handler for toolkit:button?action=id.
@@ -210,6 +212,16 @@ object ContentIntrinsics:
         m.collect { case (Value.StringV(k), v) => k -> v }
       case Some(other) =>
         throw InterpretError(s"ContentToolkitOptions.actions: expected Map[String, EventHandler], got ${Value.show(other)}")
+
+  // computed: a Map[String, Signal] (Scope B.5) — id -> a code-built derived signal
+  // merged into the toolkit signal environment so YAML controls can reference it.
+  private def computedRegistry(value: Option[Value]): Map[String, Value] =
+    value match
+      case None | Some(Value.NullV) => Map.empty
+      case Some(Value.MapV(m)) =>
+        m.collect { case (Value.StringV(k), v) => k -> v }
+      case Some(other) =>
+        throw InterpretError(s"ContentToolkitOptions.computed: expected Map[String, Signal], got ${Value.show(other)}")
 
   // rowBindings: a Map[String, ContentRowBinding] — id -> live-row source for
   // toolkit:table?rows=id.  Each value carries `rows` (a Signal), `columns`
@@ -300,8 +312,16 @@ object ContentIntrinsics:
     inst.fieldsArr = fields.map(_._2).toArray
     inst
 
+  // Build the toolkit env for a document/block/section: markdown signal defaults,
+  // with code-registered computed signals (Scope B.5) merged in underneath (a
+  // locally-declared signal of the same name wins), plus the action / rowBinding
+  // registries.
+  private def toolkitEnvFor(base: ToolkitUiEnv, options: ToolkitOptions): ToolkitUiEnv =
+    base.copy(signals = options.computed ++ base.signals,
+              actions = options.actions, rowBindings = options.rowBindings)
+
   private def toolkitDocumentNode(ctx: PluginContext, doc: ast.DocumentContent, options: ToolkitOptions): Value =
-    val env = toolkitMarkdownEnv(doc).copy(actions = options.actions, rowBindings = options.rowBindings)
+    val env = toolkitEnvFor(toolkitMarkdownEnv(doc), options)
     val children =
       doc.blocks.map(toolkitBlockNode(ctx, doc, _, options, env)) ++
         doc.sections.map(toolkitSectionNode(ctx, doc, _, options, env, topLevel = true))
@@ -311,7 +331,7 @@ object ContentIntrinsics:
   private def toolkitBlockById(ctx: PluginContext, doc: ast.DocumentContent, id: String, options: ToolkitOptions): Value =
     blocksDeep(doc).filter(block => blockId(block).contains(id)) match
       case block :: Nil =>
-        toolkitBlockNode(ctx, doc, block, options, toolkitMarkdownEnv(block).copy(actions = options.actions, rowBindings = options.rowBindings))
+        toolkitBlockNode(ctx, doc, block, options, toolkitEnvFor(toolkitMarkdownEnv(block), options))
       case Nil =>
         throw InterpretError(s"contentToolkitBlock: no block with id '$id'")
       case _ =>
@@ -320,7 +340,7 @@ object ContentIntrinsics:
   private def toolkitSectionById(ctx: PluginContext, doc: ast.DocumentContent, id: String, options: ToolkitOptions): Value =
     sectionsDeep(doc).filter(_.id == id) match
       case section :: Nil =>
-        toolkitSectionNode(ctx, doc, section, options, toolkitMarkdownEnv(section).copy(actions = options.actions, rowBindings = options.rowBindings), topLevel = true)
+        toolkitSectionNode(ctx, doc, section, options, toolkitEnvFor(toolkitMarkdownEnv(section), options), topLevel = true)
       case Nil =>
         throw InterpretError(s"contentToolkitSection: no section with id '$id'")
       case _ =>

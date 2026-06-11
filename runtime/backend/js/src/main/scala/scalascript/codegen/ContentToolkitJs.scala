@@ -63,7 +63,7 @@ function _ssc_tk_default_options() {
   return { includeCode: false, sectionGap: 16, blockGap: 8, listGap: 4,
            wrapDocumentInCard: false, wrapTopLevelSectionsInCards: false,
            components: [], bindings: std.content.MapV(new Map()),
-           actions: new Map(), rowBindings: new Map() };
+           actions: new Map(), rowBindings: new Map(), computed: new Map() };
 }
 function _ssc_tk_options(options) { return options ? options : _ssc_tk_default_options(); }
 
@@ -236,6 +236,17 @@ function _ssc_tk_markdown_signal_defaults_doc(doc) {
 function _ssc_tk_markdown_env(defaults) {
   var env = {};
   defaults.forEach(function(pair) { var name = pair[0]; if (!Object.prototype.hasOwnProperty.call(env, name)) env[name] = _ssc_ui_signal(name, pair[1]); });
+  return env;
+}
+// Merge code-registered computed signals (Scope B.5) into the env under the
+// markdown/YAML signals (a locally-declared signal of the same name wins), so a
+// YAML control can reference a derived signal by id.  options.computed is a .ssc
+// Map (or the default native Map) — both expose forEach(value, key).
+function _ssc_tk_env(defaults, options) {
+  var env = _ssc_tk_markdown_env(defaults);
+  var c = options && options.computed;
+  if (c && typeof c.forEach === 'function')
+    c.forEach(function(sig, id) { if (!Object.prototype.hasOwnProperty.call(env, id)) env[id] = sig; });
   return env;
 }
 
@@ -441,7 +452,7 @@ function contentToolkitNode(options) {
   try {
     options = _ssc_tk_options(options);
     var doc = _ssc_tk_document(options);
-    var env = _ssc_tk_markdown_env(_ssc_tk_markdown_signal_defaults_doc(doc));
+    var env = _ssc_tk_env(_ssc_tk_markdown_signal_defaults_doc(doc), options);
     return { _type: 'VStackNode', gap: options.sectionGap, children: doc.blocks.map(function(b) { return _ssc_tk_safe_block(b, options, env); })
       .concat(doc.sections.map(function(s) { return _ssc_tk_section(s, options, env); })) };
   } catch (e) { return _ssc_tk_inline_error(e); }
@@ -451,7 +462,7 @@ function contentToolkitBlock(id, options) {
     options = _ssc_tk_options(options);
     var block = _ssc_tk_find_block(id, options);
     if (block == null) _ssc_tk_error("contentToolkitBlock: no block with id '" + id + "'");
-    return _ssc_tk_block(block, options, _ssc_tk_markdown_env(_ssc_tk_markdown_signal_defaults_block(block)));
+    return _ssc_tk_block(block, options, _ssc_tk_env(_ssc_tk_markdown_signal_defaults_block(block), options));
   } catch (e) { return _ssc_tk_inline_error(e); }
 }
 function contentToolkitSection(id, options) {
@@ -459,7 +470,7 @@ function contentToolkitSection(id, options) {
     options = _ssc_tk_options(options);
     var section = _ssc_tk_find_section(id, options);
     if (section == null) _ssc_tk_error("contentToolkitSection: no section with id '" + id + "'");
-    return _ssc_tk_section(section, options, _ssc_tk_markdown_env(_ssc_tk_markdown_signal_defaults_section(section)));
+    return _ssc_tk_section(section, options, _ssc_tk_env(_ssc_tk_markdown_signal_defaults_section(section), options));
   } catch (e) { return _ssc_tk_inline_error(e); }
 }
 """

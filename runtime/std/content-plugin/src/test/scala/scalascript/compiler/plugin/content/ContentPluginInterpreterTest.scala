@@ -1137,6 +1137,52 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
       case other =>
         fail(s"expected panel section node, got $other")
 
+  // Scope B.5: a code-registered computed signal (options.computed) is merged into
+  // the toolkit signal env, so a YAML control can reference it by id.
+  test("@ui=toolkit YAML controls resolve a registered computed signal by id (Scope B.5)"):
+    val source =
+      """---
+        |name: toolkit-computed-test
+        |---
+        |
+        |# Demo
+        |
+        |## Panel {#panel}
+        |
+        |```yaml @ui=toolkit
+        |controls:
+        |  type: signalText
+        |  signal: kpi
+        |```
+        |
+        |```scala
+        |case class ContentToolkitOptions(
+        |  includeCode: Boolean = false, sectionGap: Int = 16, blockGap: Int = 8, listGap: Int = 4,
+        |  wrapDocumentInCard: Boolean = false, wrapTopLevelSectionsInCards: Boolean = false,
+        |  components: List[Any] = [], bindings: Any = null,
+        |  actions: Map[String, Any] = Map(), rowBindings: Map[String, Any] = Map(),
+        |  computed: Map[String, Any] = Map())
+        |extern def contentToolkitSection(id: String, options: ContentToolkitOptions): Any
+        |contentToolkitSection("panel",
+        |  ContentToolkitOptions(false, 16, 8, 4, false, false, [], null, Map(), Map(),
+        |    Map("kpi" -> "KPI_SIG")))
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    interp.run(Parser.parse(source))
+
+    interp.lastResult match
+      case Value.InstanceV("VStackNode", sectionFields) =>
+        val node = instanceFields(listField(sectionFields, "children", "section.children")(1), "SignalTextNode")
+        assert(node("signal") == Value.StringV("KPI_SIG"),
+          s"computed signal 'kpi' should resolve to the registered value, got ${node.get("signal")}")
+      case other =>
+        fail(s"expected panel section node, got $other")
+
   test("contentToMarkdown renders selected Markdown content"):
     val source = os.read(repoRoot / "tests" / "conformance" / "content-to-markdown.ssc")
     val expected = os.read(repoRoot / "tests" / "conformance" / "expected" / "content-to-markdown.txt").stripTrailing

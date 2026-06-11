@@ -23,7 +23,15 @@ render-time fail-soft (already shipped in A) + build-time (later).
 - **B.2 — typed inline columns in YAML `table`.** `columns: [{label, path, kind:
   money|status|date|link|text, …}]` → typed `DataColumn`s built from YAML (today
   the columns come from the `contentRows(id, signal, columns)` registration; B.2
-  lets the author declare them inline at the call site).
+  lets the author declare them inline at the call site). **BLOCKED on a column-model
+  decoupling prerequisite:** the interpreter column model (`FieldColumnDef` + kinds)
+  lives in `fetch-plugin` (`FetchIntrinsics`), but the toolkit lives in
+  `content-plugin`, which does not (and architecturally should not directly) depend
+  on it. Building typed columns from YAML in the interpreter needs the column model
+  moved to a shared module (e.g. a `ui-model` both plugins depend on), or resolved
+  via the native registry. That extraction is its own cross-cutting slice and must
+  land before B.2. (JvmGen + JS already have their own column reps, so JS-only B.2
+  is feasible but would break the "identical render" acceptance bar — not shipped.)
 - **B.3 — `registerDataSource`.** A `.ssc` API for `signalSource` / `fetchSource`
   (managed fetch, re-fetch on tick) / `staticSource`, with built-in envelope
   normalisation (`{data:[]}` / bare / `rowsPath`). `source:` then references a
@@ -31,8 +39,16 @@ render-time fail-soft (already shipped in A) + build-time (later).
 - **B.4 — `registerAction` + `onSuccess` vocabulary.** Structured action results
   (`bumpTick` / `setSignal` / `navigate`) + `bodyBuilder` from named fields /
   current row / whole row, with the capability/RBAC check staying in ScalaScript.
-- **B.5 — `registerComputed`.** Derived predicates/formatters referenced by id in
-  `showWhen` / `enabledWhen` / column formatters.
+- **B.5 — `registerComputed` (LANDED 2026-06-11).** Code-built derived signals
+  registered by id (`contentComputed(id, sig)` → `ContentToolkitOptions.computed` /
+  the `computed =` builder arg) are merged into the toolkit signal env *under* the
+  markdown/YAML `signals:` (a locally-declared signal of the same name wins), so a
+  YAML control can reference a derived signal by id — `showWhen: <id>`,
+  `enabledWhen: <id>`, `{type: signalText, signal: <id>}`. Interpreter
+  (`toolkitEnvFor` merges `options.computed ++ base.signals` at every env-build
+  site) + JS (`_ssc_tk_env` merges `options.computed` into the env). Reuses the
+  existing `signalRef` resolution — no new control wiring. Unlike the YAML
+  `signals:` block (scalar defaults only) these can be `computedSignal`s.
 - **B.6 — slot escape-hatch** (`{type: slot, id: …}` filled by ScalaScript) —
   proves §0 two-way coexistence. Deferred from v1 per §9.4.
 - **B.7 — build-time lint.** `ssc check` validates that referenced source/action/

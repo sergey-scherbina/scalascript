@@ -20,6 +20,8 @@ controls:
   type: vstack
   gap: 12
   children:
+    - type: signalText
+      signal: freeCash       # → the registered `freeCash` computed signal (B.5)
     - type: button
       action: refresh        # → the registered `refresh` EventHandler
       label: Refresh
@@ -29,11 +31,11 @@ controls:
 
 ## Run
 
-[contentToolkitSection, contentToolkitOptionsWithRows, contentAction, contentRows](std/ui/content.ssc)
+[contentToolkitSection, contentToolkitOptionsWithRows, contentAction, contentRows, contentComputed](std/ui/content.ssc)
 [fcol](std/ui/data.ssc)
 [lower](std/ui/lower.ssc)
 [defaultTheme](std/ui/theme.ssc)
-[signal, fetchUrlSignal, fetchAction](std/ui/primitives.ssc)
+[signal, computedSignal, fetchUrlSignal, fetchAction](std/ui/primitives.ssc)
 
 ```scalascript
 // A reactive tick drives the GET; bumping it re-fetches the table.
@@ -49,11 +51,17 @@ val columns = [
 // `refresh` is a typed server effect; the Markdown only knows its id.
 val refresh = fetchAction("POST", "/api/invoices/refresh", signal("body", ""), tick, signal("authHdr", ""))
 
-// Register both registries: the data source for `source: invoices` and the
-// action for `action: refresh`.
+// `freeCash` is a derived signal — assembled by a thunk that can read other
+// signals. It cannot be declared in a YAML `signals:` block (those are scalar
+// defaults), so it is registered in code and referenced by id from the YAML.
+val freeCash = computedSignal(() => "Free cash: 14760 PLN")
+
+// Register all three registries: data source (source:), action (action:), and the
+// computed signal (signalText signal:).
 val opts = contentToolkitOptionsWithRows(
   Map(contentRows("invoices", rows, columns)),
-  Map(contentAction("refresh", refresh)))
+  Map(contentAction("refresh", refresh)),
+  computed = Map(contentComputed("freeCash", freeCash)))
 
 // Lower the declaratively-authored panel to a low-level View (web <table> / native).
 val page = lower(contentToolkitSection("panel", opts), defaultTheme)

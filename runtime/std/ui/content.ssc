@@ -10,6 +10,7 @@ exports:
   - ContentToolkitComponent
   - contentComponent
   - contentAction
+  - contentComputed
   - ContentRowBinding
   - contentRows
   - contentToolkitOptionsWithBindings
@@ -152,7 +153,13 @@ case class ContentToolkitOptions(
   // Live-row registry (3b): a `toolkit:table?rows=<id>` Markdown link binds to the
   // ContentRowBinding registered under <id> here, rendering a live DataTable whose
   // rows come from a runtime Signal[JsonValue] instead of an authored static fence.
-  rowBindings: Map[String, Any] = Map()
+  rowBindings: Map[String, Any] = Map(),
+  // Computed registry (Scope B.5): code-built derived Signals registered by id and
+  // merged into the toolkit's signal environment, so a YAML control can reference
+  // them by name — `showWhen: <id>`, `enabledWhen: <id>`, `{type: signalText,
+  // signal: <id>}`.  Unlike the YAML `signals:` block (scalar defaults only) these
+  // can be `computedSignal`s derived from other signals (isOwner, a formatted KPI).
+  computed: Map[String, Any] = Map()
 )
 
 case class ContentComponentContext(
@@ -179,6 +186,11 @@ def contentComponent(name: String)(render: ContentComponentContext => TkNode): C
 // registry as `Map(contentAction("save", h), contentAction("delete", h2))`.
 def contentAction(id: String, handler: Any): (String, Any) = (id, handler)
 
+// contentComputed — register a code-built derived Signal under an id (Scope B.5),
+// so a YAML control can reference it: `showWhen: <id>` / `{type: signalText,
+// signal: <id>}`.  Build the registry as `Map(contentComputed("isOwner", sig))`.
+def contentComputed(id: String, signal: Any): (String, Any) = (id, signal)
+
 // ContentRowBinding (3b) — a live-data source for a Markdown-authored table region.
 // `rows` is a Signal whose value is a list of row records (e.g. a fetchUrlSignal /
 // fetchJsonValue result); `columns` are the same field-column descriptors that
@@ -195,13 +207,11 @@ def contentToolkitOptionsWithActions(
   actions: Map[String, Any],
   components: List[ContentToolkitComponent] = [],
   bindings: ContentValue = ContentValue.MapV(Map()),
-  rowBindings: Map[String, Any] = Map()
+  rowBindings: Map[String, Any] = Map(),
+  computed: Map[String, Any] = Map()
 ): ContentToolkitOptions =
-  // Construct positionally (matching the other option builders) — the JS backend
-  // does not reorder named args for constructors of imported case classes, so a
-  // named-arg form would land values in the wrong fields under emit-js/emit-spa.
   ContentToolkitOptions(false, 16, 8, 4, false, false,
-                        components, bindings, actions, rowBindings)
+                        components, bindings, actions, rowBindings, computed)
 
 // contentToolkitOptionsWithRows — options carrying a live-row registry (3b).  Use
 // when a Markdown section binds `toolkit:table?rows=<id>` regions to runtime signals.
@@ -209,11 +219,11 @@ def contentToolkitOptionsWithRows(
   rowBindings: Map[String, Any],
   actions: Map[String, Any] = Map(),
   components: List[ContentToolkitComponent] = [],
-  bindings: ContentValue = ContentValue.MapV(Map())
+  bindings: ContentValue = ContentValue.MapV(Map()),
+  computed: Map[String, Any] = Map()
 ): ContentToolkitOptions =
-  // Positional construction — see contentToolkitOptionsWithActions above.
   ContentToolkitOptions(false, 16, 8, 4, false, false,
-                        components, bindings, actions, rowBindings)
+                        components, bindings, actions, rowBindings, computed)
 
 def contentToolkitOptionsWithBindings(
   bindings: ContentValue,
