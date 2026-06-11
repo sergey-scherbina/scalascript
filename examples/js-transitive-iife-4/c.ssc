@@ -1,0 +1,10 @@
+---
+package: demo.c
+exports:
+  - cVal
+---
+# C
+[dVal](./d.ssc)
+```scalascript
+def cVal(): Int = dVal() + 32
+```

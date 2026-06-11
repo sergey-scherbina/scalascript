@@ -1,0 +1,10 @@
+---
+package: demo.c
+exports:
+  - cVal
+---
+# C
+
+```scalascript
+def cVal(): Int = 42
+```

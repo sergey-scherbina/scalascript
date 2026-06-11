@@ -1,0 +1,8 @@
+---
+name: cmod
+---
+# C
+
+```scalascript
+def cVal(): Int = 42
+```

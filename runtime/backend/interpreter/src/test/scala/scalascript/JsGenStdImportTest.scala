@@ -602,3 +602,31 @@ class JsGenStdImportTest extends AnyFunSuite:
       "contentToolkitSection must be emitted for the toolkit example")
     // whole bundle parses — no undefined `not callable` toolkit native
     checkNodeSyntax(runtime + "\n" + moduleJs)
+
+  // ── busi-p2: transitive imports through emit-js (A → B → C) ──────────────
+  //
+  // Regression guard for the busi-p2-emit-js-transitive-imports report: a
+  // bundle for `A` that imports `B`, where `B` imports `C` and uses a symbol
+  // from `C`, must carry `C`'s definitions so `B`'s code resolves at runtime.
+  // `emitJsLike` mirrors `ssc emit-js` precisely — segmented output with
+  // tree-shaking ON, plus the per-segment `_output` flush the CLI appends.
+  // Each fixture's entry module prints `bVal()` which transitively depends on
+  // the deepest module; the expected stdout is `43`.
+  private def emitJsLike(dir: String): String =
+    val baseDir  = TestPaths.repoRoot / "examples" / dir
+    val module   = Parser.parse(os.read(baseDir / "a.ssc"))
+    val caps     = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime  = JsGen.generateRuntime(caps)
+    val segs     = JsGen.generateSegmented(module, Some(baseDir), noTreeShake = false)
+    val flush    = """if (typeof process !== 'undefined' && process.stdout) { process.stdout.write(_output.join('\n') + (_output.length ? '\n' : '')); } _output = [];"""
+    val moduleJs = segs.collect { case JsGen.Segment.ScalaScriptJs(code) => code + "\n" + flush }.mkString("\n")
+    runNode(runtime + "\n" + moduleJs)
+
+  test("emit-js propagates a transitive package import (A->B->C)"):
+    assert(emitJsLike("js-transitive-iife") == "43")
+
+  test("emit-js propagates a transitive name-only import (no package, A->B->C)"):
+    assert(emitJsLike("js-transitive-iife-nopkg") == "43")
+
+  test("emit-js propagates a 4-level transitive import (A->B->C->D)"):
+    assert(emitJsLike("js-transitive-iife-4") == "43")

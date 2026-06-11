@@ -1,0 +1,10 @@
+---
+name: app
+---
+# A
+
+[bVal](./b.ssc)
+
+```scalascript
+_println(bVal())
+```

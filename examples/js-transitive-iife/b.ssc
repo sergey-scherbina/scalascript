@@ -1,0 +1,12 @@
+---
+package: demo.b
+exports:
+  - bVal
+---
+# B
+
+[cVal](./c.ssc)
+
+```scalascript
+def bVal(): Int = cVal() + 1
+```

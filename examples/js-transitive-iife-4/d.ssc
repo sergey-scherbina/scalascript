@@ -1,0 +1,9 @@
+---
+package: demo.d
+exports:
+  - dVal
+---
+# D
+```scalascript
+def dVal(): Int = 10
+```
