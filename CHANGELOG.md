@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — fix(interp): try/catch with supertype patterns catches extern throws (busi)
+
+- **try-catch-supertype-patterns** — A ssc `try/catch` did not catch a Java
+  exception thrown by an extern/runtime op when the catch used a supertype
+  pattern (`case e: Any` / `Throwable` / `Exception`) — e.g. `aesCbcDecrypt`'s
+  padding error escaped. `Term.Try` synthesizes a `Value.InstanceV(<jvm-exception
+  -simple-name>, {message})`, but `PatternRuntime` `Pat.Typed` only matched on the
+  exact type name, so `Any` and the exception supertypes never matched → rethrow.
+  Fix: `Any`/`AnyRef` are universal supertypes (match any scrutinee);
+  `Throwable`/`Exception`/`RuntimeException`/`Error` match any `InstanceV`. Specific
+  user types still discriminate. Spec `specs/try-catch-supertype-patterns.md`; 4
+  tests; full interpreter suite green (1627).
+
 ## 2026-06-11 — feat(std.crypto): sha256Base64 — base64 SHA-256 digest (busi KSeF invoiceHash)
 
 - **sha256Base64** — KSeF 2.0 `invoiceHash` / `encryptedInvoiceHash` carry the raw
