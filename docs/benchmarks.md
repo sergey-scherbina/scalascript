@@ -132,7 +132,7 @@ The interpreter has two opt-out flags:
 | Flag | Effect |
 | --- | --- |
 | `SSC_JIT_BYTECODE=off` / `-Dssc.jit.bytecode=off` | Disables the bytecode JIT (both backends). Hot recursion falls back to `SscVm.exec`. |
-| `SSC_FASTTIER=off` / `-Dssc.fasttier=off` | Disables `FastTier` (foreach-accumulator / pure-call shortcuts). Falls back to the general dispatcher. |
+| `SSC_FASTTIER=off` / `-Dssc.fasttier=off` | Disables `FastTier` (foreach-accumulator / pure-call shortcuts) **and the algebraic loop eliminators** (invariant-call memoise + Gauss closed-form). Falls back to the general dispatcher. Use this to get an honest **un-folded** baseline for closed-form-able workloads (e.g. `pureCallSum` 0.003 ms on ↔ ~12 ms off). |
 | `SSC_JIT=off` / `-Dssc.jit=off` | Disables `SscVm.exec` as well — pure tree-walker. |
 
 ```bash
