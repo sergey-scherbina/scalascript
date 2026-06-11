@@ -4029,6 +4029,23 @@ Third-party plugins follow the same `.sscpkg` format.  See
 `examples/plugins/crypto-plugin/` for a complete worked example and
 `examples/plugins/hello-backend/` for a minimal skeleton.
 
+### 21.8 Name collisions: your function wins over an intrinsic
+
+If you define a top-level `def` with the same bare name as a plugin
+intrinsic (for example your own `def rateLimit(req)` while `auth-plugin`
+provides a `rateLimit` intrinsic), **your definition always wins** —
+calls resolve to your function regardless of plugin load order.  The
+compiler emits a one-time warning so the shadow is never silent:
+
+```
+[warn] 'rateLimit' shadows plugin intrinsic 'rateLimit' — user definition wins
+```
+
+This mirrors ordinary lexical shadowing.  A `def` that is *local* to
+another function does not collide with the global intrinsic and produces
+no warning.  To keep using the intrinsic, rename your function.  Full
+policy: [`specs/intrinsic-shadow-policy.md`](../specs/intrinsic-shadow-policy.md).
+
 ---
 
 ## 22. Config System (v1.28)
