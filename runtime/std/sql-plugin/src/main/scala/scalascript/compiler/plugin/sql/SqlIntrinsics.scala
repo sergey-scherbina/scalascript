@@ -84,7 +84,74 @@ object SqlIntrinsics:
             .toLong
         case _ => throw new RuntimeException("Db.update(dbName: String, table: String, keyColumn: String, keyValue: Any, value: A)")
     },
+
+    // ── PostgreSQL LISTEN / NOTIFY receive side ──────────────────────────────
+    // The publish side already works via `Db.query("db", "SELECT pg_notify(?,?)", …)`.
+    // Receiving needs a HELD connection draining getNotifications(), which the
+    // stateless per-call Db.query cannot express — but ConnectionRegistry caches
+    // one connection per db name for the module run, so LISTEN on it and a later
+    // getNotifications on the SAME db name drain notifications delivered to it.
+
+    // Db.pgListen("default", channel): Unit — start listening on a channel.
+    QualifiedName("Db.pgListen") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case List(dbName: String, channel: String) =>
+          runIdentStatement(ctx.dbConnect(dbName), "LISTEN", channel)
+          Value.UnitV
+        case _ => throw new RuntimeException("Db.pgListen(dbName: String, channel: String)")
+    },
+
+    // Db.unlisten("default", channel): Unit — stop listening on a channel.
+    QualifiedName("Db.unlisten") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case List(dbName: String, channel: String) =>
+          runIdentStatement(ctx.dbConnect(dbName), "UNLISTEN", channel)
+          Value.UnitV
+        case _ => throw new RuntimeException("Db.unlisten(dbName: String, channel: String)")
+    },
+
+    // Db.getNotifications("default"[, timeoutMs]): List[Map[String, Any]]
+    // Drains pending LISTEN/NOTIFY notifications on the named connection; each is
+    // {channel, payload, pid}. timeoutMs blocks up to that long waiting for one
+    // (0 / omitted = non-blocking, return whatever is buffered). PostgreSQL-only.
+    QualifiedName("Db.getNotifications") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case List(dbName: String)             => drainNotifications(ctx.dbConnect(dbName), 0)
+        case List(dbName: String, timeoutMs)  => drainNotifications(ctx.dbConnect(dbName), coerceInt(timeoutMs))
+        case _ => throw new RuntimeException("Db.getNotifications(dbName: String[, timeoutMs: Int])")
+    },
   )
+
+  // LISTEN/UNLISTEN take an identifier, not a bind parameter, so the channel is
+  // double-quoted (case-exact, matching pg_notify('channel', …)) with any embedded
+  // quote doubled — preventing SQL injection through the channel name.
+  private def runIdentStatement(conn: java.sql.Connection, verb: String, channel: String): Unit =
+    val quoted = "\"" + channel.replace("\"", "\"\"") + "\""
+    val st = conn.createStatement()
+    try st.execute(s"$verb $quoted") finally st.close()
+
+  private def coerceInt(v: Any): Int = v match
+    case n: Int               => n
+    case n: Long              => n.toInt
+    case n: java.lang.Number  => n.intValue
+    case Value.IntV(n)        => n.toInt
+    case other                => throw new RuntimeException(s"Db.getNotifications: timeout must be an Int, got ${other}")
+
+  private def drainNotifications(conn: java.sql.Connection, timeoutMs: Int): Value =
+    val pg =
+      try conn.unwrap(classOf[org.postgresql.PGConnection])
+      catch case _: Throwable =>
+        throw new RuntimeException(
+          "Db.getNotifications requires a PostgreSQL connection (LISTEN/NOTIFY is PostgreSQL-only)")
+    val notes = pg.getNotifications(timeoutMs)
+    if notes == null then Value.EmptyList
+    else Value.ListV(notes.toList.map { n =>
+      Value.MapV(Map(
+        Value.StringV("channel") -> Value.StringV(n.getName),
+        Value.StringV("payload") -> Value.StringV(Option(n.getParameter).getOrElse("")),
+        Value.StringV("pid")     -> Value.intV(n.getPID.toLong),
+      ))
+    })
 
   private def extractBinds(params: Value): List[Any] = params match
     case Value.ListV(items) => items.map(unwrapValue)

@@ -774,14 +774,15 @@ private[interpreter] object BuiltinsRuntime:
         "getConnection" -> impl
       ))
     }
-    (interp.globals.get("Db.query"), interp.globals.get("Db.execute")) match
-      case (Some(queryFn), Some(executeFn)) =>
-        interp.globals("Db") = Value.InstanceV("Db", Map(
-          "query"   -> queryFn,
-          "execute" -> executeFn,
-        ) ++ interp.globals.get("Db.insert").map("insert" -> _) ++
-          interp.globals.get("Db.update").map("update" -> _))
-      case _ => ()
+    // Assemble the `Db` namespace object from every `Db.*` native the SQL plugin
+    // registered — query/execute/insert/update plus pgListen/unlisten/
+    // getNotifications (PostgreSQL LISTEN/NOTIFY, busi df-6).  Collected
+    // generically so a plugin adding a new `Db.*` intrinsic needs no core change.
+    if interp.globals.contains("Db.query") then
+      val dbMethods = interp.globals.iterator.collect {
+        case (k, v) if k.startsWith("Db.") => k.stripPrefix("Db.") -> v
+      }.toMap
+      interp.globals("Db") = Value.InstanceV("Db", dbMethods)
     interp.globals.get("Graph.putVertex").foreach { putVertexFn =>
       interp.globals("Graph") = Value.InstanceV("Graph", Map(
         "putVertex"      -> putVertexFn,

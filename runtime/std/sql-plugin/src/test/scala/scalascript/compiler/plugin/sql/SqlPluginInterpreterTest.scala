@@ -133,6 +133,36 @@ class SqlPluginInterpreterTest extends AnyFunSuite:
 
     assert(result == List("Ada", true))
 
+  // PostgreSQL LISTEN/NOTIFY receive side (busi df-6). The publish side already
+  // works via Db.query("db", "SELECT pg_notify(?,?)", …). The actual notify-receive
+  // path needs a live PostgreSQL (H2 has no LISTEN/NOTIFY), so it is verified by
+  // busi against real Postgres; here we lock the native registration + the
+  // PostgreSQL-only guard, which are what regress under refactors.
+  test("Db.pgListen / Db.unlisten / Db.getNotifications natives are registered"):
+    assert(SqlIntrinsics.table.contains(scalascript.ir.QualifiedName("Db.pgListen")))
+    assert(SqlIntrinsics.table.contains(scalascript.ir.QualifiedName("Db.unlisten")))
+    assert(SqlIntrinsics.table.contains(scalascript.ir.QualifiedName("Db.getNotifications")))
+
+  test("Db.getNotifications on a non-PostgreSQL connection fails with a clear PG-only error"):
+    val err = intercept[Throwable](evalWithSqlPlugin(
+      s"""|---
+      |databases:
+      |  default:
+      |    url: "${uniqueDb()}"
+      |---
+      |
+      |# Test
+      |
+      |```scala
+      |Db.getNotifications("default")
+      |```
+      |""".stripMargin
+    ))
+    def chain(t: Throwable): String =
+      if t == null then "" else Option(t.getMessage).getOrElse("") + " " + chain(t.getCause)
+    assert(chain(err).contains("PostgreSQL"),
+      s"expected a clear PostgreSQL-only error, got: ${chain(err)}")
+
   private def uniqueDb(): String =
     s"jdbc:h2:mem:sql-plugin-${UUID.randomUUID().toString.take(8)};DB_CLOSE_DELAY=-1"
 
