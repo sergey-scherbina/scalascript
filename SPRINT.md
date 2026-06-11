@@ -798,10 +798,16 @@ fix, and don't require a runtime refactor.
       handled. Spec `specs/intrinsic-shadow-policy.md`; 4 tests in
       `IntrinsicShadowTest`.
 
-- [ ] **busi-p3-module-fn-name-conflict** — Function-name conflicts
-      across imported modules (`htmlEsc` defined in two modules)
-      surface as a runtime `No key 'toString' in map` in unrelated
-      code. Module-scoped resolution with an explicit conflict error.
+- [x] **busi-p3-module-fn-name-conflict** [landed 2026-06-11] — Policy chosen:
+      **last import wins + warning**. Importing the same fn name from two modules
+      now emits a one-time `[warn]` (recorded in `importNameConflictWarnings`)
+      instead of silently shadowing. Scoped to callable-vs-callable so the
+      status-val/case-constructor disambiguation is untouched. Spec
+      `specs/import-name-conflict-policy.md`; 3 tests `ModuleFnNameConflictTest`.
+      NB: the original downstream `No key 'toString' in map` crash did not
+      reproduce from a plain two-module collision (already last-wins cleanly);
+      the import-time warning now surfaces the conflict early. Awaiting a busi
+      repro if the crash recurs.
 
 ### P4 — future externs (not blocking today)
 

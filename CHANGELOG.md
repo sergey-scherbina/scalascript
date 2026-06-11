@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — fix(interp): warn on cross-module import name conflict (busi-p3-module-fn-name-conflict)
+
+- **busi-p3-module-fn-name-conflict** — Importing the same function name from two
+  different modules (e.g. `htmlEsc` from `a.ssc` and `b.ssc`) no longer silently
+  overwrites the first binding. Policy: **last import wins + warning** — the last
+  import still wins, but a one-time `[warn]` is emitted and the name recorded in
+  `Interpreter.importNameConflictWarnings`. Scoped to callable-vs-callable
+  (`FunV`/`NativeFnV`) so the intentional status-val / case-constructor
+  disambiguation is untouched; idempotent re-import of the same module does not
+  warn. Spec `specs/import-name-conflict-policy.md`; 3 tests
+  `ModuleFnNameConflictTest`; user-guide imports section. The originally-reported
+  downstream `No key 'toString' in map` crash did not reproduce from a plain
+  two-module collision; the import-time warning now surfaces the conflict early.
+
 ## 2026-06-11 — feat(js): persistent HAMT Map — O(n²)→O(n log n) (js-persistent-map-hamt, Tier 2 / T2.2 DONE)
 
 - **js-persistent-map-hamt** — Closes Tier-2 T2.2 (the last perf-gap item). The ssc
