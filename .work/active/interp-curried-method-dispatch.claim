@@ -1,0 +1,5 @@
+slug: interp-curried-method-dispatch
+agent: opus-4-8-session
+started: 2026-06-11T14:50:00Z
+heartbeat: 2026-06-11T14:50:00Z
+desc: kill per-call Tuple2/Some alloc on curried method dispatch (typeclass-fold 84% tree-walk)
