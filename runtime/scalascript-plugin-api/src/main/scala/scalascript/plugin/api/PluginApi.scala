@@ -159,6 +159,10 @@ trait MountCap extends NativeContextCap:
       mountCtx: Map[String, Any]
   ): Unit = nativeContext.registerMountedRoute(method, path, handler, source, mountCtx)
   def invokeCallback(fn: Any, args: List[Any]): Any = nativeContext.invokeCallback(fn, args)
+  /** Resolve a top-level global binding by name (delegates to the backend), so a
+   *  plugin native can reuse another plugin's registered intrinsic (e.g. the
+   *  content toolkit invoking `fieldColumn`/`moneyColumn`).  None if unbound. */
+  def resolveGlobal(name: String): Option[Any] = nativeContext.resolveGlobal(name)
   /** Like [[invokeCallback]] but drives `Async` effects to completion and
    *  unwraps a resulting `Future` to its value — for callbacks that may
    *  return `Future[A]` or `A ! Async` (e.g. GraphQL resolvers). */

@@ -144,8 +144,13 @@ object ContentIntrinsics:
     computed: Map[String, Value] = Map.empty
   )
 
+  // buildColumn (Scope B.2): builds a typed DataColumn by invoking a registered
+  // column-builder native (fieldColumn/moneyColumn/…) — a closure capturing the
+  // PluginContext, so toolkitControl can construct columns from inline YAML
+  // `columns:` specs without the content plugin depending on the column model.
   private case class ToolkitUiEnv(signals: Map[String, Value], actions: Map[String, Value] = Map.empty,
-                                  rowBindings: Map[String, Value] = Map.empty)
+                                  rowBindings: Map[String, Value] = Map.empty,
+                                  buildColumn: Option[(String, List[Any]) => Value] = None)
   private case class ToolkitLink(kind: String, query: Map[String, String], label: String)
 
   private def currentDocument(ctx: PluginContext, fn: String): ast.DocumentContent =
@@ -316,12 +321,20 @@ object ContentIntrinsics:
   // with code-registered computed signals (Scope B.5) merged in underneath (a
   // locally-declared signal of the same name wins), plus the action / rowBinding
   // registries.
-  private def toolkitEnvFor(base: ToolkitUiEnv, options: ToolkitOptions): ToolkitUiEnv =
+  private def toolkitEnvFor(ctx: PluginContext, base: ToolkitUiEnv, options: ToolkitOptions): ToolkitUiEnv =
+    // Closure to build a typed DataColumn from a registered column-builder native
+    // (Scope B.2) — captures ctx so toolkitControl can construct inline columns.
+    val buildColumn: (String, List[Any]) => Value = (name, args) =>
+      ctx.resolveGlobal(name) match
+        case Some(fn) => ctx.invokeCallback(fn, args).asInstanceOf[Value]
+        case None     => throw InterpretError(
+          s"contentToolkitNode: table column builder '$name' is not available — import it from std/ui/data (fcol/mcol/scol/dcol/lcol)")
     base.copy(signals = options.computed ++ base.signals,
-              actions = options.actions, rowBindings = options.rowBindings)
+              actions = options.actions, rowBindings = options.rowBindings,
+              buildColumn = Some(buildColumn))
 
   private def toolkitDocumentNode(ctx: PluginContext, doc: ast.DocumentContent, options: ToolkitOptions): Value =
-    val env = toolkitEnvFor(toolkitMarkdownEnv(doc), options)
+    val env = toolkitEnvFor(ctx, toolkitMarkdownEnv(doc), options)
     val children =
       doc.blocks.map(toolkitBlockNode(ctx, doc, _, options, env)) ++
         doc.sections.map(toolkitSectionNode(ctx, doc, _, options, env, topLevel = true))
@@ -331,7 +344,7 @@ object ContentIntrinsics:
   private def toolkitBlockById(ctx: PluginContext, doc: ast.DocumentContent, id: String, options: ToolkitOptions): Value =
     blocksDeep(doc).filter(block => blockId(block).contains(id)) match
       case block :: Nil =>
-        toolkitBlockNode(ctx, doc, block, options, toolkitEnvFor(toolkitMarkdownEnv(block), options))
+        toolkitBlockNode(ctx, doc, block, options, toolkitEnvFor(ctx, toolkitMarkdownEnv(block), options))
       case Nil =>
         throw InterpretError(s"contentToolkitBlock: no block with id '$id'")
       case _ =>
@@ -340,7 +353,7 @@ object ContentIntrinsics:
   private def toolkitSectionById(ctx: PluginContext, doc: ast.DocumentContent, id: String, options: ToolkitOptions): Value =
     sectionsDeep(doc).filter(_.id == id) match
       case section :: Nil =>
-        toolkitSectionNode(ctx, doc, section, options, toolkitEnvFor(toolkitMarkdownEnv(section), options), topLevel = true)
+        toolkitSectionNode(ctx, doc, section, options, toolkitEnvFor(ctx, toolkitMarkdownEnv(section), options), topLevel = true)
       case Nil =>
         throw InterpretError(s"contentToolkitSection: no section with id '$id'")
       case _ =>
@@ -555,7 +568,7 @@ object ContentIntrinsics:
   private def toolkitUiNode(value: ast.ContentValue, options: ToolkitOptions, baseEnv: ToolkitUiEnv): Value =
     val root = contentMap(value, "@ui=toolkit")
     val signals = root.get("signals").map(toolkitSignals).getOrElse(Map.empty)
-    val env = ToolkitUiEnv(baseEnv.signals ++ signals, baseEnv.actions, baseEnv.rowBindings)
+    val env = ToolkitUiEnv(baseEnv.signals ++ signals, baseEnv.actions, baseEnv.rowBindings, baseEnv.buildColumn)
     root.get("controls")
       .orElse(root.get("control"))
       .map(toolkitControl(_, env, options))
@@ -721,18 +734,20 @@ object ContentIntrinsics:
   // rowBindingDataTable — turn a registered ContentRowBinding into a DataTableNode.
   // Reuses the existing DataTableNode lowering (web <table> / Swing JTable); the
   // signal + field-columns + per-row actions pass through opaquely as Values.
-  private def rowBindingDataTable(regionId: String, binding: Value): Value =
+  private def rowBindingDataTable(regionId: String, binding: Value, overrideColumns: Option[Value] = None): Value =
     val fields = binding match
       case inst: Value.InstanceV if inst.typeName == "ContentRowBinding" => inst.effectiveFields
       case other => throw InterpretError(
         s"contentToolkitNode: toolkit:table rows '$regionId' expected a ContentRowBinding, got ${Value.show(other)}")
     val rows = fields.getOrElse("rows", throw InterpretError(
       s"contentToolkitNode: ContentRowBinding('$regionId').rows is required"))
-    val columns = fields.get("columns") match
+    // Inline YAML `columns:` (Scope B.2) override the registered columns for this
+    // table; otherwise the ContentRowBinding's registered columns are used.
+    val columns = overrideColumns.getOrElse(fields.get("columns") match
       case Some(cols: Value.ListV) => cols
       case Some(other) => throw InterpretError(
         s"contentToolkitNode: ContentRowBinding('$regionId').columns expected a List, got ${Value.show(other)}")
-      case None => Value.ListV(Nil)
+      case None => Value.ListV(Nil))
     val actions = fields.get("actions") match
       case Some(acts: Value.ListV) => acts
       case _                       => Value.ListV(Nil)
@@ -740,6 +755,39 @@ object ContentIntrinsics:
       "signal"  -> rows,
       "columns" -> columns,
       "actions" -> actions)
+
+  // Build typed DataColumns from an inline YAML `columns:` list (Scope B.2) by
+  // invoking the registered column-builder natives via env.buildColumn, so the
+  // author can declare columns at the call site instead of only in code.
+  private def toolkitInlineColumns(columnsValue: ast.ContentValue, env: ToolkitUiEnv): Value =
+    val build = env.buildColumn.getOrElse(throw InterpretError(
+      "contentToolkitNode: inline table columns require a render context"))
+    val specs = columnsValue match
+      case ast.ContentValue.ListV(items) => items
+      case other => throw InterpretError(
+        s"contentToolkitNode: table columns expected a list, got ${contentValueKind(other)}")
+    Value.ListV(specs.map { spec =>
+      val cf    = contentMap(spec, "table column")
+      val label = firstContentString(cf, "label", "title").getOrElse(
+        throw InterpretError("contentToolkitNode: table column requires a label"))
+      val path  = firstContentString(cf, "path", "fieldPath").getOrElse(
+        throw InterpretError("contentToolkitNode: table column requires a path"))
+      val align = contentStringField(cf, "align", "")
+      normalizeControlKind(contentStringField(cf, "kind", "text")) match
+        case "text" | "" => build("fieldColumn",  List(label, path, align))
+        case "date"      => build("dateColumn",   List(label, path, align, contentStringField(cf, "format", "")))
+        case "money"     => build("moneyColumn",  List(label, path, align, contentStringField(cf, "currency", "USD"), contentStringField(cf, "locale", "")))
+        case "status"    => build("statusColumn", List(label, path, align, toolkitColorMap(cf)))
+        case "link"      => build("linkColumn",   List(label, path, align, contentStringField(cf, "url", "")))
+        case other       => throw InterpretError(s"contentToolkitNode: unknown table column kind '$other'")
+    })
+
+  // colors: {open: green, blocked: red} → Value.MapV for statusColumn; null if absent.
+  private def toolkitColorMap(cf: Map[String, ast.ContentValue]): Any =
+    cf.get("colors") match
+      case Some(ast.ContentValue.MapV(entries)) =>
+        Value.MapV(entries.collect { case (k, ast.ContentValue.Str(v)) => Value.StringV(k) -> Value.StringV(v) })
+      case _ => Value.NullV
 
   private def toolkitLinkLabel(link: ToolkitLink): String =
     link.query.getOrElse("label", link.label)
@@ -839,14 +887,16 @@ object ContentIntrinsics:
             toolkitButton(fields, env)
           case "table" =>
             // {type: table, source: <id>} (alias rows:) binds a live DataTable to
-            // the ContentRowBinding registered under <id> — the YAML control-tree
-            // form of the `toolkit:table?rows=<id>` Markdown link (Scope B.1).
+            // the ContentRowBinding registered under <id> (Scope B.1).  Optional
+            // inline `columns:` (Scope B.2) declare typed columns at the call site,
+            // overriding the registered columns.
             val regionId = firstContentString(fields, "source", "rows").getOrElse(
               throw InterpretError("contentToolkitNode: table control requires source or rows"))
             val binding = env.rowBindings.getOrElse(regionId, throw InterpretError(
               s"contentToolkitNode: table source '$regionId' is not registered " +
               s"(available: ${if env.rowBindings.isEmpty then "<none>" else env.rowBindings.keys.toList.sorted.mkString(", ")})"))
-            rowBindingDataTable(regionId, binding)
+            val inlineCols = fields.get("columns").map(toolkitInlineColumns(_, env))
+            rowBindingDataTable(regionId, binding, inlineCols)
           case "badge" =>
             badgeNode(
               firstContentString(fields, "content", "text").getOrElse(""),

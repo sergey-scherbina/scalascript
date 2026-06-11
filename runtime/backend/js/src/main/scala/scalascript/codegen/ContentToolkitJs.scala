@@ -157,12 +157,49 @@ function _ssc_tk_action(options, actionId) {
 // rowBindingDataTable — turn a registered ContentRowBinding into a DataTableNode,
 // mirroring the interpreter. The binding compiles to {_type:'ContentRowBinding',
 // rows, columns, actions}; DataTableNode's first field is `signal` (= the rows source).
-function _ssc_tk_row_binding_datatable(regionId, binding) {
+function _ssc_tk_row_binding_datatable(regionId, binding, overrideColumns) {
   if (!binding || binding._type !== 'ContentRowBinding')
     _ssc_tk_error("contentToolkitNode: toolkit:table rows '" + regionId + "' expected a ContentRowBinding, got " + _show(binding));
   if (binding.rows == null)
     _ssc_tk_error("contentToolkitNode: ContentRowBinding('" + regionId + "').rows is required");
-  return { _type: 'DataTableNode', signal: binding.rows, columns: binding.columns || [], actions: binding.actions || [] };
+  // Inline YAML `columns:` (Scope B.2) override the registered columns for this table.
+  return { _type: 'DataTableNode', signal: binding.rows,
+           columns: overrideColumns != null ? overrideColumns : (binding.columns || []),
+           actions: binding.actions || [] };
+}
+// Build typed DataColumns from an inline YAML `columns:` list (Scope B.2), reusing
+// the JS column-builder runtime (parity with the interpreter invoking the
+// fieldColumn/moneyColumn/… natives).
+function _ssc_tk_col_str(c, a, b) {
+  if (c.has(a)) return _ssc_tk_str(c.get(a), a);
+  if (b && c.has(b)) return _ssc_tk_str(c.get(b), b);
+  return null;
+}
+function _ssc_tk_build_columns(obj) {
+  return _ssc_tk_list(obj.get('columns'), 'table.columns').map(function(spec) {
+    var c = _ssc_tk_map(spec, 'table column');
+    var label = _ssc_tk_col_str(c, 'label', 'title');
+    if (label == null) _ssc_tk_error("contentToolkitNode: table column requires a label");
+    var path = _ssc_tk_col_str(c, 'path', 'fieldPath');
+    if (path == null) _ssc_tk_error("contentToolkitNode: table column requires a path");
+    var align = _ssc_tk_opt_str(c, 'align') || '';
+    var kind = _ssc_tk_normalize_kind(c.has('kind') ? _ssc_tk_str(c.get('kind'), 'column.kind') : 'text');
+    switch (kind) {
+      case '': case 'text': return _ssc_ui_fieldColumn(label, path, align);
+      case 'date':   return _ssc_ui_dateColumn(label, path, align, _ssc_tk_opt_str(c, 'format') || '');
+      case 'money':  return _ssc_ui_moneyColumn(label, path, align, _ssc_tk_opt_str(c, 'currency') || 'USD', _ssc_tk_opt_str(c, 'locale') || '');
+      case 'status': return _ssc_ui_statusColumn(label, path, align, _ssc_tk_col_colors(c));
+      case 'link':   return _ssc_ui_linkColumn(label, path, align, _ssc_tk_opt_str(c, 'url') || '');
+      default: _ssc_tk_error("contentToolkitNode: unknown table column kind '" + kind + "'");
+    }
+  });
+}
+function _ssc_tk_col_colors(c) {
+  if (!c.has('colors')) return null;
+  var m = _ssc_tk_map(c.get('colors'), 'column.colors');
+  var out = {};
+  m.forEach(function(v, k) { out[k] = _ssc_tk_str(v, 'column.colors'); });
+  return out;
 }
 function _ssc_tk_row_binding(options, regionId) {
   var rb = options.rowBindings;
@@ -323,7 +360,8 @@ function _ssc_tk_render_control(value, env, options) {
       // toolkit:table?rows= (Scope B.1).
       var regionId = obj.has('source') ? _ssc_tk_str(obj.get('source'), 'table.source')
                    : _ssc_tk_str(_ssc_tk_field(obj, 'rows', 'table'), 'table.rows');
-      return _ssc_tk_row_binding_datatable(regionId, _ssc_tk_row_binding(options, regionId));
+      var inlineCols = obj.has('columns') ? _ssc_tk_build_columns(obj) : null;
+      return _ssc_tk_row_binding_datatable(regionId, _ssc_tk_row_binding(options, regionId), inlineCols);
     }
     case 'badge': { var variant = _ssc_tk_opt_str(obj, 'variant'); return { _type: 'BadgeNode', content: _ssc_tk_str(_ssc_tk_field(obj, 'text', 'badge'), 'badge.text'), variant: variant != null ? variant : 'default' }; }
     case 'card': return { _type: 'CardNode', header: null, body: _ssc_tk_children(obj, env, options), footer: null };

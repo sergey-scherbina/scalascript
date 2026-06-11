@@ -1183,6 +1183,66 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
       case other =>
         fail(s"expected panel section node, got $other")
 
+  // Scope B.2: inline YAML `columns:` build typed DataColumns by invoking the
+  // registered column-builder natives via NativeContext.resolveGlobal — here the
+  // module defines fieldColumn/moneyColumn itself (markers) so the test is
+  // self-contained, proving the resolveGlobal → invokeCallback → per-kind dispatch.
+  test("@ui=toolkit table builds typed columns from inline YAML columns: (Scope B.2)"):
+    val source =
+      """---
+        |name: toolkit-inline-columns-test
+        |---
+        |
+        |# Demo
+        |
+        |## Panel {#panel}
+        |
+        |```yaml @ui=toolkit
+        |controls:
+        |  type: table
+        |  source: invoices
+        |  columns:
+        |    - label: Name
+        |      path: name
+        |    - label: Amount
+        |      path: total
+        |      kind: money
+        |      currency: PLN
+        |```
+        |
+        |```scala
+        |def fieldColumn(title: String, path: String, align: String): String = "F[" + title + ":" + path + "]"
+        |def moneyColumn(title: String, path: String, align: String, currency: String, locale: String): String = "M[" + title + ":" + path + ":" + currency + "]"
+        |case class ContentRowBinding(rows: Any, columns: List[Any], actions: List[Any] = [])
+        |case class ContentToolkitOptions(
+        |  includeCode: Boolean = false, sectionGap: Int = 16, blockGap: Int = 8, listGap: Int = 4,
+        |  wrapDocumentInCard: Boolean = false, wrapTopLevelSectionsInCards: Boolean = false,
+        |  components: List[Any] = [], bindings: Any = null,
+        |  actions: Map[String, Any] = Map(), rowBindings: Map[String, Any] = Map())
+        |extern def contentToolkitSection(id: String, options: ContentToolkitOptions): Any
+        |contentToolkitSection("panel",
+        |  ContentToolkitOptions(false, 16, 8, 4, false, false, [], null, Map(),
+        |    Map("invoices" -> ContentRowBinding("SIG", []))))
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    interp.run(Parser.parse(source))
+
+    interp.lastResult match
+      case Value.InstanceV("VStackNode", sectionFields) =>
+        val table = instanceFields(listField(sectionFields, "children", "section.children")(1), "DataTableNode")
+        assert(table("signal") == Value.StringV("SIG"))
+        assert(table("columns") == Value.ListV(List(
+          Value.StringV("F[Name:name]"),
+          Value.StringV("M[Amount:total:PLN]"))),
+          s"inline columns should be built via the column natives, got ${table.get("columns")}")
+      case other =>
+        fail(s"expected panel section node, got $other")
+
   test("contentToMarkdown renders selected Markdown content"):
     val source = os.read(repoRoot / "tests" / "conformance" / "content-to-markdown.ssc")
     val expected = os.read(repoRoot / "tests" / "conformance" / "expected" / "content-to-markdown.txt").stripTrailing

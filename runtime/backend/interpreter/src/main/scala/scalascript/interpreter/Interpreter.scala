@@ -1270,6 +1270,8 @@ class Interpreter(
         Interpreter.this.invoke(fn.asInstanceOf[Value], args.map(wrapAnyAsValue))
       override def invokeCallbackAsync(fn: Any, args: List[Any]): Any =
         Interpreter.this.invokeAsync(fn.asInstanceOf[Value], args.map(wrapAnyAsValue))
+      override def resolveGlobal(name: String): Option[Any] =
+        Interpreter.this.globals.get(name)
       override def httpBaseUrl: String    = Interpreter.this.httpBaseUrlState
       override def httpTimeoutMs: Long    = Interpreter.this.httpTimeoutMsState
       override def httpMaxRetries: Int    = Interpreter.this.httpMaxRetriesState

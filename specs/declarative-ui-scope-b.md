@@ -20,18 +20,21 @@ render-time fail-soft (already shipped in A) + build-time (later).
   `{type: table, source: <id>}` (alias `rows:`) → live `DataTableNode` from the
   registered `ContentRowBinding`. Interpreter + JS parity; reuses Scope A's
   `actions` / `rowBindings` registries and the shared `lower.ssc` nodes.
-- **B.2 — typed inline columns in YAML `table`.** `columns: [{label, path, kind:
-  money|status|date|link|text, …}]` → typed `DataColumn`s built from YAML (today
-  the columns come from the `contentRows(id, signal, columns)` registration; B.2
-  lets the author declare them inline at the call site). **BLOCKED on a column-model
-  decoupling prerequisite:** the interpreter column model (`FieldColumnDef` + kinds)
-  lives in `fetch-plugin` (`FetchIntrinsics`), but the toolkit lives in
-  `content-plugin`, which does not (and architecturally should not directly) depend
-  on it. Building typed columns from YAML in the interpreter needs the column model
-  moved to a shared module (e.g. a `ui-model` both plugins depend on), or resolved
-  via the native registry. That extraction is its own cross-cutting slice and must
-  land before B.2. (JvmGen + JS already have their own column reps, so JS-only B.2
-  is feasible but would break the "identical render" acceptance bar — not shipped.)
+- **B.2 — typed inline columns in YAML `table` (this slice).** `columns: [{label,
+  path, kind: money|status|date|link|text, …}]` → typed `DataColumn`s built from
+  YAML, so the author declares columns inline at the call site instead of only via
+  the `contentRows(id, signal, columns)` registration (which stays valid; inline
+  `columns:` overrides it for that table). **Decoupling without moving the model:**
+  the interpreter column model (`FieldColumnDef` + kinds) lives in `fetch-plugin`,
+  the toolkit in `content-plugin`, which must not depend on it. Rather than extract
+  the model to a shared module, B.2 adds a tiny `NativeContext.resolveGlobal(name)`
+  SPI bridge (default `None`, the interpreter returns its global binding) so the
+  toolkit **reuses the already-registered column-builder natives** — `fieldColumn` /
+  `dateColumn` / `moneyColumn` / `statusColumn` / `linkColumn` — via `invokeCallback`,
+  producing real `FieldColumnDef` values with no plugin→plugin compile dependency.
+  The JS side builds the column objects (`{title, fieldPath, align, kind}`) directly
+  in `ContentToolkitJs` (no coupling there). Both feed the existing `DataTableNode`,
+  so render stays identical.
 - **B.3 — `registerDataSource`.** A `.ssc` API for `signalSource` / `fetchSource`
   (managed fetch, re-fetch on tick) / `staticSource`, with built-in envelope
   normalisation (`{data:[]}` / bare / `rowsPath`). `source:` then references a

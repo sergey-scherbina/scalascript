@@ -101,6 +101,13 @@ trait NativeContext:
   def abortOpenApiDryRun(): Nothing = throw OpenApiDryRun.Sentinel
   // Invoke a user-supplied callback (Value closure/NativeFn) from native code.
   def invokeCallback(fn: Any, args: List[Any]): Any = ()
+  /** Resolve a top-level global binding (a `def`/`extern`/native function or
+   *  value) by name, so one plugin's native can reuse another's registered
+   *  intrinsic without a compile-time dependency — e.g. the content toolkit
+   *  building typed `DataColumn`s by invoking the `fieldColumn`/`moneyColumn`/…
+   *  natives the ui-fetch plugin registers.  Returns the raw backend `Value`
+   *  (pass it to `invokeCallback`).  `None` if unbound / unsupported backend. */
+  def resolveGlobal(name: String): Option[Any] = None
   /** Like [[invokeCallback]] but drives any `Async` effects the callback
    *  performs (`async`/`await`/`delay`/`parallel`) to completion, and unwraps
    *  a resulting `Future` to its underlying value.  Native code that may run

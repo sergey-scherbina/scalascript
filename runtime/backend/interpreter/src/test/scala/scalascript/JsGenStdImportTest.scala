@@ -819,3 +819,46 @@ class JsGenStdImportTest extends AnyFunSuite:
       "if (out.indexOf('FREE-CASH-42') < 0) throw new Error('computed signal value did not render (id unresolved?): ' + out);\n" +
       "console.log('toolkit-computed-ok');\n"
     assert(runNode(script) == "toolkit-computed-ok")
+
+  // Scope B.2: inline YAML `columns:` build typed DataTable columns in the browser
+  // by reusing the JS column-builder runtime (parity with the interpreter invoking
+  // the column natives). Capture the raw tree and assert the typed kind reached
+  // the DataTableNode columns.
+  test("@ui=toolkit table builds typed columns from inline YAML columns: in JS (Scope B.2)"):
+    val source =
+      "# Panel\n\n" +
+      "## P {#p}\n\n" +
+      "```yaml @ui=toolkit\n" +
+      "controls:\n" +
+      "  type: table\n" +
+      "  source: invoices\n" +
+      "  columns:\n" +
+      "    - label: Name\n" +
+      "      path: name\n" +
+      "    - label: Amount\n" +
+      "      path: total\n" +
+      "      kind: money\n" +
+      "      currency: PLN\n" +
+      "```\n\n" +
+      "[serve](std/ui/primitives.ssc)\n" +
+      "[contentToolkitNode, contentToolkitOptionsWithRows, contentRows](std/ui/content.ssc)\n\n" +
+      "```scalascript\n" +
+      "serve(contentToolkitNode(contentToolkitOptionsWithRows(\n" +
+      "  Map(contentRows(\"invoices\", \"SIG\", [])))))\n" +
+      "```\n"
+    val module   = Parser.parse(source)
+    val baseDir  = TestPaths.repoRoot / "examples"
+    val caps     = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime  = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    val script =
+      runtime + "\n_ssc_ui_serve = function(v){ globalThis.__captured = v; };\n" +
+      moduleJs +
+      "\nconst j = JSON.stringify(globalThis.__captured);\n" +
+      "if (j.indexOf('\"DataTableNode\"') < 0) throw new Error('table did not produce DataTableNode: ' + j);\n" +
+      "if (j.indexOf('\"type\":\"money\"') < 0) throw new Error('money column kind not built from inline columns: ' + j);\n" +
+      "if (j.indexOf('\"currency\":\"PLN\"') < 0) throw new Error('money currency not threaded: ' + j);\n" +
+      "if (j.indexOf('\"fieldPath\":\"total\"') < 0) throw new Error('money column fieldPath missing: ' + j);\n" +
+      "if (j.indexOf('\"type\":\"text\"') < 0) throw new Error('default text column not built: ' + j);\n" +
+      "console.log('toolkit-columns-ok');\n"
+    assert(runNode(script) == "toolkit-columns-ok")
