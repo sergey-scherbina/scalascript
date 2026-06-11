@@ -79,6 +79,36 @@ graph. Fixture `examples/content-toolkit-transitive/` (entry imports a child tha
 calls `contentToolkitBlock`); regression test asserts both `contentDocument()` and
 `contentToolkitBlock(` emit for the transitive entry.
 
+## Transitive block registration + lookup (follow-up, busi seq-102)
+
+After the emission gate was made transitive, the toolkit *runtime* emitted, but a
+block authored in a transitively-imported module still threw at call time:
+`contentToolkitBlock: no block with id 'studio-preview'`. Two gaps:
+
+1. **Registration was direct-only.** `collectImportedContent` (was
+   `collectDirectImportedContent`) registered the content documents of the entry
+   module's *direct* imports only, so a block defined in a deeper module
+   (`app.ssc → rulepack_studio.ssc`) was never in `__ssc_content_imported_raw`. It
+   now walks the transitive import graph (cycle-protected, child imports resolved
+   relative to the child's own dir — mirrors `scanContentUsage`).
+
+2. **Lookup was entry-document-only.** The interpreter resolves
+   `contentToolkitBlock(id)` against the *calling* module's document; the flattened
+   JS bundle has no per-module current document, so `contentDocument()` is always
+   the entry document. `contentToolkitBlock`/`contentToolkitSection` now look up
+   the id in the entry document first (preserves precedence on id collisions), then
+   fall back across every registered imported document (`_ssc_tk_find_block` /
+   `_ssc_tk_find_section` over `_ssc_tk_imported_documents`).
+
+Fixture `examples/content-toolkit-transitive-register/` (entry shell renders a
+`@ui=toolkit` block defined and owned by the imported child); regression test in
+`JsGenStdImportTest` asserts the child's block is registered and renders to the DOM.
+
+**Known limitation:** if the same block id exists in both the entry and an
+imported module, the entry wins for *all* callers — the interpreter would resolve
+each caller to its own module's block. Unique ids across the graph (the common
+case) are unaffected.
+
 ## Non-goals
 
 - 3a/3b action/row registries in the browser (see Scope).
