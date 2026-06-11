@@ -27,6 +27,10 @@ controls:
       label: Refresh
     - type: table
       source: invoices       # → the registered `invoices` live-row source
+      columns:               # → typed columns declared inline (B.2)
+        - {label: "No.",   path: number}
+        - {label: Client,  path: client.name}
+        - {label: Amount,  path: total, kind: money, currency: PLN, align: right}
 ```
 
 ## Run
