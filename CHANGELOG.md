@@ -4,6 +4,27 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — bench(honesty): de-fold the corpus wall-table via carried-LCG seed (bench-honest-corpus-seed, Tier 2 / T2.1 follow-up)
+
+- **bench-honest-corpus-seed** — closes the optional T2.1 follow-up: the
+  cross-language wall table (`bench/run.sc` → `ssc bench --machine`) still folded
+  six `bench/corpus` cells to sub-nanosecond compiled numbers (C2/LLVM/V8
+  constant-folded the pure, zero-input workloads). The sink defeats only the
+  outer timing loop; a one-shot seed leaves the inner loop closed-form; a linear
+  carried recurrence is scalar-evolved. **Fix:** each of `instance-field`,
+  `tuple-monoid`, `bool-predicate`, `either-chain`, `option-chain`,
+  `literal-match` now advances a non-linear carried **64-bit LCG** and consumes
+  every result, so no backend can closed-form or DSE it. `BenchCmd.generateWrapper`
+  is arity-aware and feeds an **opaque** seed (JVM `_ssc_sink.get()` atomic load;
+  interp/JS a monotonic `_ssc_seed`); `bench/run.sc` passes the opaque rust seed
+  `_s`. After (M1): jvm `tuple-monoid` 2 ps → 0.087 ms, `instance-field` 0.32 µs →
+  6 µs, `bool-predicate` 19 ns → 0.81 µs; all 5 backends now run real work and
+  the rust column is restored. The honest workloads keep their no-arg signature.
+  Idiom: `docs/bench/corpus-antifold.md`. Also surfaced + fixed an **emit-rust
+  `.toInt`** correctness bug (emitted `as i32` for a value typed `i64` as `Int`
+  → E0308; now `as i32 as i64`). These honest numbers expose real interpreter
+  gaps (instance-field ~57 ms, tuple-monoid ~960 ms) tracked under T3.
+
 ## 2026-06-11 — perf(interp): curried-method dispatch + summon-key + field-access alloc cuts
 
 - **interp-curried-method-dispatch** — Follow-up to the typeclass-fold
