@@ -1,6 +1,0 @@
-feature/jvmgen-decompose-p2 2026-06-11T05:51:45Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-11T05:51:45Z
-status: in-progress
-done-so-far:
-next: extract Preamble+runtime section into JvmGenPreambleRuntime

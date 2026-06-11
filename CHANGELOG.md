@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — refactor(jvmgen): extract runtime-source constants (jvmgen-decompose-p2)
+
+- **jvmgen-decompose-p2** — Second decomposition phase. Moved the five large pure
+  embedded runtime-source string constants (`stubServeRuntime`, `fsRuntime`,
+  `generatorRuntime`, `effectsRuntime` ~3.2k lines, `reactiveRuntime`) out of
+  `JvmGen` into a new `JvmGenRuntimeSources` mixin — pure data, zero coupling,
+  visibility widened `private`→`private[codegen]`. `JvmGen.scala` shrank
+  **10565 → 7042 lines (−33%)**. No behavioural change: 1605 `backendInterpreter`
+  tests green, clean under `-Werror`. Spec: `specs/jvmgen-decompose.md`.
+
 ## 2026-06-11 — refactor(jvmgen): extract Effect-analysis mixin (jvmgen-decompose-p1)
 
 - **jvmgen-decompose-p1** — First phase of decomposing the 10.6k-line `JvmGen`.
