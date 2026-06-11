@@ -1,0 +1,36 @@
+#!/usr/bin/env ssc
+---
+name: content-toolkit-transitive
+description: >
+  Entry module that imports a child (studio.ssc) which renders a content-toolkit
+  block.  The std/ui/content toolkit is imported only transitively — exercises
+  that the JS backend emits the toolkit runtime for transitive imports.
+frontend: react
+---
+
+# Content Toolkit (transitive)
+
+The `@ui=toolkit` control block the child renders by id:
+
+```yaml @id=cfg @ui=toolkit
+controls:
+  type: vstack
+  gap: 8
+  children:
+    - type: heading
+      level: 2
+      text: Studio Preview
+    - type: text
+      text: Rendered via a transitively-imported contentToolkitBlock
+```
+
+## Entry
+
+[studioPreview](content-toolkit-transitive/studio.ssc)
+[serve](std/ui/primitives.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+serve(lower(studioPreview(), defaultTheme), 8080)
+```

@@ -509,6 +509,25 @@ class JsGenStdImportTest extends AnyFunSuite:
       "console.log('content-toolkit-ok');\n"
     assert(runNode(script) == "content-toolkit-ok")
 
+  // busi seq-92 #2: the std/ui/content toolkit import lived only in a
+  // transitively-imported module (app → studio → [contentToolkitBlock](…)). The
+  // content/toolkit emission gate scanned the top module only, so the runtime
+  // was not emitted and the transitive `contentToolkitBlock` call site threw
+  // `ReferenceError`. The gate now walks the import graph.
+  test("content-toolkit runtime emits when the toolkit is imported transitively"):
+    val source  = os.read(TestPaths.repoRoot / "examples" / "content-toolkit-transitive" / "app.ssc")
+    val module  = Parser.parse(source)
+    val baseDir = TestPaths.repoRoot / "examples"
+    val caps    = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    // both the content runtime and the toolkit functions must be present even
+    // though the entry module never imports std/(ui/)content directly
+    assert(moduleJs.contains("function contentDocument()"), "content runtime missing for transitive import")
+    assert(moduleJs.contains("function contentToolkitBlock("), "toolkit runtime missing for transitive import")
+    assert(moduleJs.contains("_ssc_tk_error"), "toolkit helpers missing for transitive import")
+    checkNodeSyntax(runtime + "\n" + moduleJs)
+
   test("emit-spa markdown-toolkit-links example binds contentToolkitSection and parses"):
     val source  = os.read(TestPaths.repoRoot / "examples" / "markdown-toolkit-links.ssc")
     val module  = Parser.parse(source)

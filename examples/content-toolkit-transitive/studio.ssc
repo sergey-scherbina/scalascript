@@ -1,0 +1,13 @@
+---
+name: studio
+description: A child module that renders a content-toolkit block — the toolkit import lives here, not in the entry module.
+---
+
+# Studio
+
+[contentToolkitBlock](std/ui/content.ssc)
+
+```scalascript
+// The toolkit import + call live in this transitively-imported module.
+def studioPreview(): Any = contentToolkitBlock("cfg")
+```

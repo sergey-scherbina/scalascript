@@ -882,7 +882,9 @@ class JsGen(
     module.sections.foreach(loop)
 
   private def resolveImportForContent(path: String): Option[os.Path] =
-    val base = baseDir.getOrElse(os.pwd)
+    resolveImportFrom(path, baseDir.getOrElse(os.pwd))
+
+  private def resolveImportFrom(path: String, base: os.Path): Option[os.Path] =
     val initiallyResolved =
       try scalascript.imports.ImportResolver.resolve(path, base, moduleDeps, lockPath)
       catch case _: Throwable => base / os.RelPath(path)
@@ -890,6 +892,38 @@ class JsGen(
       if os.exists(initiallyResolved) then initiallyResolved
       else resolveStdImportFromProjectTree(path, base).getOrElse(initiallyResolved)
     Option.when(os.exists(resolved))(resolved)
+
+  private def moduleImportPaths(module: Module): List[String] =
+    def loop(s: Section): List[String] =
+      s.content.collect { case imp: Content.Import => imp.path } ++ s.subsections.flatMap(loop)
+    module.sections.flatMap(loop)
+
+  /** Walk the transitive `.ssc` import graph once and report whether any module
+   *  uses content intrinsics and whether any imports the std/ui/content toolkit
+   *  layer.  Content (and the toolkit) may be used only in a transitively
+   *  imported module — e.g. `app.ssc -> rulepack_studio.ssc ->
+   *  [contentToolkitBlock](std/ui/content.ssc)` — yet the runtime is emitted once
+   *  for the top module, so the gate must see the whole graph or the transitive
+   *  call site references an undefined `contentToolkit*` / `content*`.
+   *  Cycle-protected; short-circuits once both flags are set. */
+  private def scanContentUsage(module: Module): (Boolean, Boolean) =
+    val seen = scala.collection.mutable.Set.empty[String]
+    var usesContent = false
+    var usesToolkit = false
+    def go(m: Module, base: os.Path): Unit =
+      if !usesContent then usesContent = moduleUsesContentIntrinsics(m)
+      if !usesToolkit then usesToolkit = moduleUsesContentToolkitIntrinsics(m)
+      if !(usesContent && usesToolkit) then
+        moduleImportPaths(m).foreach { path =>
+          if !(usesContent && usesToolkit) then
+            resolveImportFrom(path, base).foreach { resolved =>
+              if seen.add(resolved.toString) then
+                try go(scalascript.parser.Parser.parse(os.read(resolved)), resolved / os.up)
+                catch case _: Throwable => ()
+            }
+        }
+    go(module, baseDir.getOrElse(os.pwd))
+    (usesContent, usesToolkit)
 
   private def importedContentNamespace(resolvedPath: os.Path, module: Module): String =
     module.manifest.flatMap(_.name).map(_.trim).filter(_.nonEmpty).getOrElse {
@@ -1365,8 +1399,9 @@ class JsGen(
     scanForRunActors(module)
     scanForAwaitClient(module)
     scanForStreams(module)
-    contentRuntimeEnabled = moduleUsesContentIntrinsics(module)
-    contentToolkitRuntimeEnabled = moduleUsesContentToolkitIntrinsics(module)
+    val (_cUse, _tkUse) = scanContentUsage(module)
+    contentRuntimeEnabled = _cUse
+    contentToolkitRuntimeEnabled = _tkUse
     if contentRuntimeEnabled then collectDirectImportedContent(module) else importedContentDocuments.clear()
     contentSectionIndex = 0
     // v1.27 Phase 3 — sql state.  Reset every module to keep `genModule`
@@ -2034,8 +2069,9 @@ class JsGen(
     scanForRunActors(module)
     scanForAwaitClient(module)
     scanForStreams(module)
-    contentRuntimeEnabled = moduleUsesContentIntrinsics(module)
-    contentToolkitRuntimeEnabled = moduleUsesContentToolkitIntrinsics(module)
+    val (_cUse, _tkUse) = scanContentUsage(module)
+    contentRuntimeEnabled = _cUse
+    contentToolkitRuntimeEnabled = _tkUse
     if contentRuntimeEnabled then collectDirectImportedContent(module) else importedContentDocuments.clear()
     contentSectionIndex = 0
     // Emit `route(...)` registrations from front-matter before user blocks,
