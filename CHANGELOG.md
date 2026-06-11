@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-11 — feat(js-toolkit): action=/rows= registry parity + fail-soft (declarative-ui Scope A)
+
+- **js-toolkit-action-rows-registry** — Scope A of busi's declarative-dynamic-UI
+  proposal (rozum seq-113): browser parity for the *existing* content-toolkit
+  `action` / `rowBindings` registries. `ContentToolkitJs` now resolves
+  `toolkit:button?action=<id>` → `ActionButtonNode` (bound to the registered
+  handler, honoring `&disabled`/`&enabledWhen`) and `toolkit:table?rows=<id>` →
+  `DataTableNode` (from the registered `ContentRowBinding`), matching the
+  interpreter; both lower through the shared `std/ui/lower.ssc`. Added **fail-soft**:
+  toolkit render errors degrade to an inline error node (block / entry-fn
+  granularity) instead of throwing, so a bad id no longer blanks the SPA
+  (busi seq-102 class). `content.ssc` option builders now construct positionally
+  (the JS backend mis-orders named args to imported case-class constructors — see
+  Known issues in BACKLOG). Spec `specs/js-toolkit-action-rows-registry.md`;
+  2 regression tests in `JsGenStdImportTest`; full backendInterpreter suite green
+  (1635). Non-goals (Scope B): typed YAML `table:`/`source:`/`action:` keys,
+  `registerDataSource` shape/rowsPath, `onSuccess` vocabulary, slot, build-time
+  lint, JvmGen parity.
+
 ## 2026-06-11 — perf(interp): JIT case-class construction in loop bodies (interp-jit-object-construct, T3 partial)
 
 - **interp-jit-object-construct (case-class)** — the interpreter bytecode JIT

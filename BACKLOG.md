@@ -3193,6 +3193,26 @@ that uses them lands.
 Things noticed in passing while landing other work — not blocking, but
 worth a separate fix when somebody has cycles.
 
+- **JS backend mis-orders named args to imported functions / case-class
+  constructors.** `collectFuncParamOrders` (the param-order pre-pass that lets
+  `genApply` reorder `f(b = …, a = …)` into positional form) runs only inside
+  `genModule`, i.e. for the *entry* module. Imported modules are emitted in
+  `genImport` via `childGen.genScalaNode(...)`, which never runs that pre-pass,
+  so the child `JsGen`'s `funcParamOrder` is empty. Any named-arg call to an
+  imported function or case-class constructor then falls into the `case None`
+  fallback (emit RHS values in *written* order), silently landing values in the
+  wrong slots when the named args skip/reorder leading params. Found while landing
+  `js-toolkit-action-rows-registry`: `content.ssc`'s
+  `contentToolkitOptionsWithActions(actions = …, rowBindings = …)` put `actions`
+  into `blockGap`. Worked around there by constructing positionally, but the bug
+  is general (busi will hit it the moment they write named args on emit-spa).
+  Attempted fix `childGen.collectFuncParamOrders(childModule)` in `genImport` did
+  **not** populate the table (the pre-pass returned `total=0` even for
+  `ui-primitives` — the imported-module scan finds no defs for a reason not yet
+  diagnosed), so a real fix needs to figure out why the `ScalaNode.fold` /
+  `Source(stats)` traversal comes up empty for parsed imported modules. Also add
+  case-class primary-ctor params to `funcParamOrder` (currently only `Defn.Def`).
+
 - ~~__v1.22 distributed-_ conformance tests fail on JVM_*~~  ✓ **Landed (2026-05-20)** — dep-block CPS rewriting (Steps 0–7) landed on `feature/dep-cps`; all six tests (`distributed-{map,shuffle,failure-retry,failure-partial,heterogeneous}` + `cluster-connect`) now PASS [JVM]. Root cause was dep-block effect primitives bypassing the CPS rewriter; fixed via `analyzeDepEffectfulness` fixpoint + `cpsBody` parameter threading through the emit path. Full design history in `specs/dep-cps-rewrite.md`.
 
 - ~~**`actors-process-info.ssc` JVM compile failures (Term.Match pattern-bind)**~~  ✓ **Landed (2026-05-20)** — `emitCpsExpr` `Term.Match` arm was not registering `Pat.Var` names in `anyBoundNames`, so `case Some(info) => info.links.length` emitted `info.links` directly on an `Any`-typed scrutinee binding, causing Scala compile errors. Fix: collect `Pat.Var` names per case arm and wrap with `withAnyBoundNames(...)` (mirrors the identical treatment in the `Term.PartialFunction` arm). Also fixed: `import actors.ProcessInfo` dropped via `sscDepModulePrefixes`; `_dispatch` Map key-access fallback for `processInfo`'s `Map[String,Any]` return; `object Overflow` added to runtime preamble; `_FlatMap((), senderK)` deferred resume in `_resumeBlockedSender` so `Block`-overflow sender continuation runs in its own scheduler turn (fixes `actors-bounded-mailbox.ssc` output ordering).
