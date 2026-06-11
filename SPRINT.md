@@ -8,6 +8,42 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Backend / compiler / interpreter improvement program (2026-06-11)
+
+Three-tier program from the whole-stack review. Specs:
+[`specs/jvmgen-decompose.md`](specs/jvmgen-decompose.md),
+[`specs/backend-perf-gaps.md`](specs/backend-perf-gaps.md),
+[`specs/backend-correctness-hygiene.md`](specs/backend-correctness-hygiene.md).
+Order: land safe maintainability + the latent bug first; big perf items are
+dedicated sub-projects. Each task = its own worktree + commit; verify per the
+spec's acceptance.
+
+### Tier 1 — maintainability (decompose giant codegen files)
+- [ ] **jvmgen-decompose-p1** — extract Effect-analysis section of `JvmGen` into
+      `trait JvmEffectAnalysis { self: JvmGen => }` (new file). Pattern-establisher.
+      Verify: byte-identical emit on bench corpus + JVM suites green.
+- [ ] **jvmgen-decompose-p2** — extract Preamble+runtime section → `trait JvmPreambleRuntime`.
+- [ ] **jvmgen-decompose-p3** — extract CPS-transform section → `trait JvmCpsTransform`.
+- [ ] **jvmgen-decompose-p4** — extract Mutual-TCO section → `trait JvmMutualTco`.
+- [ ] **jsgen-decompose** — apply the proven pattern to `JsGen` (5.8k) once JvmGen is split. (backlog promote)
+
+### Tier 2 — performance gaps (each a dedicated sub-project)
+- [ ] **bench-honesty-varying-data** — measurement integrity; trustworthy table
+      before further tuning. Watch the `Bench.opaque`-defeats-interp-JIT trap (spec).
+- [~] **js-persistent-map-hamt** — DEFERRED/big: `map-ops` js 40×; 70 `instanceof Map`
+      coupling sites. Dedicated sub-project, not a quick landing.
+- [ ] **ssc-jit-const-propagation** — Stage 2 (pure-call memoise) + Stage 3 (range fold).
+
+### Tier 3 — correctness & hygiene
+- [ ] **cluster-jvm-js-handshake** — fix the one DISABLED test (JVM↔JS Bully-leader
+      handshake mismatch) or convert to a documented asserting won't-fix.
+- [ ] **jit-predicates-bindingisref** — share last duplicated JIT predicate via a
+      `JitShapeCtx.callArgIsRef` query (optional, low priority).
+- [ ] **cross-backend-method-classifier** — GATED (×4 codegen-coupled). Single
+      `lang/core` method taxonomy; do only on a forcing function.
+
+---
+
 ## Cross-backend gap re-audit (2026-06-10, post-HOF-JIT)
 
 Full evidence-backed diagnosis of the remaining table unevenness in
