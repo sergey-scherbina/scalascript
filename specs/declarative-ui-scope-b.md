@@ -1,6 +1,6 @@
 # Declarative dynamic UI — Scope B (richer authoring model)
 
-**Status:** in progress (B.1 + B.5 + B.2 + B.7 v1 implemented 2026-06-11; B.3 v1 in progress).
+**Status:** in progress (B.1 + B.5 + B.2 + B.7 v1 + B.3 v1 implemented; B.4 v1 in progress).
 **Upstream proposal:** busi `docs/declarative-ui-authoring.md` (rozum seq-113).
 **Predecessor:** Scope A (`specs/js-toolkit-action-rows-registry.md`) — browser
 parity for the existing `action` / `rowBindings` registries via the Markdown
@@ -42,9 +42,13 @@ render-time fail-soft (already shipped in A) + build-time (later).
   `contentRows` signal. The genuinely-new runtime capability is `fetchSource`'s
   `rowsPath` — a dotted envelope path so a non-standard fetch envelope can be
   unwrapped. See `B.3 detail`.
-- **B.4 — `registerAction` + `onSuccess` vocabulary.** Structured action results
-  (`bumpTick` / `setSignal` / `navigate`) + `bodyBuilder` from named fields /
-  current row / whole row, with the capability/RBAC check staying in ScalaScript.
+- **B.4 — `registerAction` + `onSuccess` vocabulary (v1 this slice).** A structured
+  `onSuccess` list for a fetch action — `onBumpTick(sig)` / `onSetSignal(sig, value)`
+  / `onNavigate(path)` — run in order after a 2xx, so a `{type: button, action:
+  <id>}` declares richer post-success behaviour than the single tick `fetchAction`
+  bumps today. See `B.4 detail`. `bodyBuilder` (body from named fields / current row
+  / whole row) is deferred — `RowPayload` already covers per-row bodies — and the
+  capability/RBAC check stays in ScalaScript (the action handler is still code).
 - **B.5 — `registerComputed` (LANDED 2026-06-11).** Code-built derived signals
   registered by id (`contentComputed(id, sig)` → `ContentToolkitOptions.computed` /
   the `computed =` builder arg) are merged into the toolkit signal env *under* the
@@ -213,6 +217,51 @@ render unchanged.
 - [x] interp test (`FetchPluginInterpreterTest`) + JS emit test
       (`JsGenStdImportTest`, `_rowsPath` thread + `_ssc_ui_rowsOf` drill) +
       runnable `examples/content-data-source.ssc` (`content-data-source:ok`).
+
+## B.4 detail (v1 — structured `onSuccess`)
+
+Today a registered action (`contentAction(id, fetchAction(method, url, body, tick,
+headers))`) can bump exactly **one** tick when its POST/PUT succeeds. Real screens
+need more after a successful write: refresh a table *and* set a status signal, or
+navigate to another view. B.4 v1 adds a structured **`onSuccess` effect list** run in
+order on a 2xx.
+
+**`.ssc` surface** (`std/ui/primitives.ssc`):
+
+- `onBumpTick(tick)` — increment an `Int` signal (re-fetch a table, etc.).
+- `onSetSignal(sig, value)` — set a signal to a literal (a status/toast/flag).
+- `onNavigate(path)` — set the location hash (route) to `path`.
+- `fetchActionWith(method, url, body, headers, onSuccess)` — like `fetchAction` but
+  carrying the `onSuccess` effect list instead of a single tick. The result is an
+  ordinary `EventHandler`, so it registers via the existing `contentAction(id, …)`
+  and a `{type: button, action: <id>}` control renders it unchanged (Scope B.1).
+
+**Runtime** is **browser-scoped** (the one place an action actually executes — same
+rationale as B.3's `rowsPath`, and avoids touching `EventHandler.FetchAction`, which
+is pattern-matched in 11 places across six native backends). The JS marker carries
+`onSuccess`; the button descriptor emits `data-ssc-fetch-onsuccess` (effects with
+their signal ids); the click handler, after a 2xx, runs each effect (`bumpTick` →
+`_set(tick, +1)`, `setSignal` → `_set(sig, value)`, `navigate` → `location.hash =
+path`). The interpreter's `fetchActionWith` builds a plain `EventHandler.FetchAction`
+(using the first `onBumpTick` as its `onSuccessTick`); native/JVM tables do not
+execute the rich effects (consistent with the YAML-registry-controls non-goal).
+
+**Scope of v1 (honest):** `onBumpTick` / `onSetSignal` / `onNavigate`, browser
+runtime. `bodyBuilder` (a request body assembled from named fields / current row /
+whole row) is deferred — `RowPayload` (`fieldPayload`/`wholeRowPayload`/
+`fieldsPayload`) already covers per-row action bodies. A failed (non-2xx) action
+runs **no** effects.
+
+### Behavior checklist (B.4 v1)
+
+- [ ] `fetchActionWith(..., [onBumpTick(t)])` bumps `t` on a 2xx (parity with the
+      single-tick `fetchAction`).
+- [ ] `onSetSignal(s, v)` sets `s` to `v` on success; `onNavigate(p)` sets the hash.
+- [ ] multiple effects run in order; a non-2xx runs none.
+- [ ] a `{type: button, action: <id>}` registered with a `fetchActionWith` handler
+      renders and carries `onSuccess` (interp builds an EventHandler; JS threads it).
+- [ ] interp test (handler builds) + JS emit/runtime test (effects execute on 2xx,
+      skipped on failure) + an example.
 
 ## Non-goals (later slices)
 
