@@ -3905,6 +3905,12 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       // `_perform` chains anyway).  Fallback to Any when `decltpe` is
       // absent, matching the previous behaviour for un-annotated params.
       val params = emitEffectfulParamGroups(d)
+      // Register declared param types so a CPS-block `var x = <param-expr>` can
+      // infer its type (e.g. `var s = start + 1` → Long when `start: Long`),
+      // which lets the var stay a real typed mutable `var` across a `while`.
+      d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).foreach { p =>
+        p.decltpe.foreach(t => declaredVarTypes(p.name.value) = t.syntax)
+      }
       // Return type set to Any (could be a Free value the caller's
       // `_bind` will unwrap).
       s"def ${d.name.value}$params: Any = ${emitCpsExpr(d.body)}"

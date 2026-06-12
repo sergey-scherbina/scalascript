@@ -123,9 +123,11 @@ class CapabilityCheckTest extends AnyFunSuite:
       case _                        => false
     }
 
-  test("validate — perform inside a while-loop on a Scala-source backend → diagnostic"):
+  test("validate — perform inside a while-loop on a Scala-source (jvm) backend → NO diagnostic"):
+    // effect-cps-loops-jvm landed: the JVM backend now lowers perform-in-while, so it
+    // must NOT be gated anymore (only JS remains unsupported).
     val diags = CapabilityCheck.validate(moduleOf(performInWhile), srcCap(OutputKind.ScalaSource), "jvm")
-    assert(hasPerformLoopDiag(diags), s"expected a perform-in-while diagnostic, got: $diags")
+    assert(!hasPerformLoopDiag(diags), s"jvm now supports perform-in-while, must not flag: $diags")
 
   test("validate — perform inside a while-loop on a JS-source backend → diagnostic"):
     val diags = CapabilityCheck.validate(moduleOf(performInWhile), srcCap(OutputKind.JavaScriptSource), "js")
@@ -136,8 +138,8 @@ class CapabilityCheckTest extends AnyFunSuite:
     val diags = CapabilityCheck.validate(moduleOf(performInWhile), srcCap(OutputKind.ExecutionResult), "interp")
     assert(!hasPerformLoopDiag(diags), s"interpreter must not flag perform-in-while, got: $diags")
 
-  test("validate — NON-loop custom effect on a Scala-source backend → NO diagnostic"):
-    // Two performs, no while — this compiles + runs on jvm today, must not be flagged.
+  test("validate — NON-loop custom effect on a JS-source backend → NO diagnostic"):
+    // Two performs, no while — compiles + runs everywhere, must not be flagged (precision).
     val nonLoop =
       """effect Bump:
         |  def tick(): Int
@@ -145,10 +147,10 @@ class CapabilityCheckTest extends AnyFunSuite:
         |  val a = Bump.tick()
         |  val b = Bump.tick()
         |  a + b""".stripMargin
-    val diags = CapabilityCheck.validate(moduleOf(nonLoop), srcCap(OutputKind.ScalaSource), "jvm")
+    val diags = CapabilityCheck.validate(moduleOf(nonLoop), srcCap(OutputKind.JavaScriptSource), "js")
     assert(!hasPerformLoopDiag(diags), s"non-loop effect must not be flagged, got: $diags")
 
-  test("validate — pure while-loop (no perform) on a Scala-source backend → NO diagnostic"):
+  test("validate — pure while-loop (no perform) on a JS-source backend → NO diagnostic"):
     val pureLoop =
       """effect Bump:
         |  def tick(): Int
@@ -159,18 +161,19 @@ class CapabilityCheckTest extends AnyFunSuite:
         |    acc = acc + i
         |    i = i + 1
         |  acc""".stripMargin
-    val diags = CapabilityCheck.validate(moduleOf(pureLoop), srcCap(OutputKind.ScalaSource), "jvm")
+    val diags = CapabilityCheck.validate(moduleOf(pureLoop), srcCap(OutputKind.JavaScriptSource), "js")
     assert(!hasPerformLoopDiag(diags), s"a pure while-loop must not be flagged, got: $diags")
 
-  test("validate — the real bench/corpus/effect-oneshot.ssc is flagged on jvm"):
-    // The canonical corpus file that surfaced this gap (jvm/js report n/a). Guarded
-    // on existence so a stray CWD doesn't fail the suite.
+  test("validate — the real bench/corpus/effect-oneshot.ssc is flagged on js, NOT jvm"):
+    // The canonical corpus file that surfaced this gap. Now jvm lowers it (no flag),
+    // js still does not (flag). Guarded on existence so a stray CWD doesn't fail.
     val f = os.pwd / "bench" / "corpus" / "effect-oneshot.ssc"
     if os.exists(f) then
       val m = Normalize(Parser.parse(os.read(f)))
-      val diags = CapabilityCheck.validate(m, srcCap(OutputKind.ScalaSource), "jvm")
-      assert(hasPerformLoopDiag(diags),
-        s"effect-oneshot.ssc must be flagged as perform-in-while on jvm, got: $diags")
+      assert(!hasPerformLoopDiag(CapabilityCheck.validate(m, srcCap(OutputKind.ScalaSource), "jvm")),
+        "effect-oneshot.ssc must NOT be flagged on jvm anymore")
+      assert(hasPerformLoopDiag(CapabilityCheck.validate(m, srcCap(OutputKind.JavaScriptSource), "js")),
+        "effect-oneshot.ssc must still be flagged on js")
 
   // ── Block-language axis (v1.25 Phase 3a) ───────────────────────────────
 

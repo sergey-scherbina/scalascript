@@ -256,6 +256,12 @@ private[codegen] trait JvmGenCpsTransform:
       val cast = assignmentCast(lhs)
       s"_bind(${emitCpsExpr(rhs)}, ($v: Any) => { ${lhs.syntax} = $v$cast; () })"
 
+    // A `while` reachable in a CPS context (an effect performed in the loop body):
+    // lower to a trampolined recursive helper so the body's `perform`s thread
+    // through `_bind` (which is lazy on a `_Computation`, so `_run`/`_handle`
+    // trampoline it without growing the JVM stack). See specs/effect-cps-loops.md.
+    case w: Term.While => emitWhileTrampoline(w, "()")
+
     case Term.Function.After_4_6_0(paramClause, body) =>
       val params = paramClause.values.map { p =>
         val tpe = p.decltpe.map(t => s": ${t.syntax}").getOrElse(": Any")
@@ -799,6 +805,70 @@ private[codegen] trait JvmGenCpsTransform:
         declaredVarTypes.get(n).map(t => s".asInstanceOf[$t]").getOrElse("")
       case _ => ""
 
+  /** Lower a `while (cond) body` reachable in a CPS context to a trampolined
+   *  recursive helper, then thread `continuation` after it completes:
+   *  {{{ { def _w(): Any = if (cond) _bind(<cps body>, _ => _w()) else (); _bind(_w(), _ => <k>) } }}}
+   *  `_bind` is lazy on a `_Computation`, so a body that performs every iteration
+   *  recurses without growing the JVM stack (the runner trampolines it). The vars
+   *  the loop reads/writes are real typed mutable vars in the enclosing block, so
+   *  `cond` and the body's assignments compile. */
+  private def emitWhileTrampoline(w: Term.While, continuation: String): String =
+    val wn   = "_w" + freshTmp()
+    val body = emitCpsExpr(w.body)
+    s"{ def $wn(): Any = if (${w.cond.syntax}) _bind($body, (_wk: Any) => $wn()) else (); _bind($wn(), (_wr: Any) => ${continuation}) }"
+
+  /** True if a term reaches a `perform` (a user effect-op `Eff.op` or a call to
+   *  an effectful function) ANYWHERE in its subtree. Unlike `termUsesEffects`,
+   *  this descends through every `Tree` child (incl. `Term.ArgClause`), so it
+   *  catches a perform nested inside an operator argument — `acc + Bump.tick()` —
+   *  which decides whether a CPS-block assign must thread the continuation
+   *  through `_bind` (a lazy effectful computation discarded in statement
+   *  position would lose the perform). */
+  private def cpsTermPerforms(t: scala.meta.Tree): Boolean = t match
+    case Term.Select(Term.Name(eff), Term.Name(op)) if isEffectOpRef(eff, op)        => true
+    case Term.Apply.After_4_6_0(Term.Name(n), _) if isEffectfulFun(n)                => true
+    case Term.Apply.After_4_6_0(Term.Select(_, Term.Name(n)), _) if isEffectfulFun(n) => true
+    case _                                                                            => t.children.exists(cpsTermPerforms)
+
+  /** Best-effort type of a `var` initializer so it can be declared as a typed
+   *  mutable `var` (and registered in `declaredVarTypes` for assignment casts).
+   *  Covers the numeric-loop shapes the effect corpus uses: literals, a known
+   *  local/param name, primitive `.toX` conversions, and arithmetic over them.
+   *  `None` → no annotation (let Scala infer) and no cast registered. */
+  private def inferVarType(rhs: Term): Option[String] = rhs match
+    case Lit.Int(_)     => Some("Int")
+    case Lit.Long(_)    => Some("Long")
+    case Lit.Double(_)  => Some("Double")
+    case Lit.Float(_)   => Some("Float")
+    case Lit.Boolean(_) => Some("Boolean")
+    case Lit.String(_)  => Some("String")
+    case Lit.Char(_)    => Some("Char")
+    case Term.Name(n)   => declaredVarTypes.get(n)
+    case Term.ApplyInfix.After_4_6_0(l, Term.Name(op), _, argClause)
+        if op.length == 1 && "+-*/%".contains(op) =>
+      val rt = argClause.values.collectFirst { case t: Term => t }.flatMap(inferVarType)
+      numericJoin(inferVarType(l), rt)
+    case Term.Apply.After_4_6_0(Term.Select(_, Term.Name(m)), _) => convType(m)
+    case Term.Select(_, Term.Name(m))                            => convType(m)
+    case _                                                       => None
+
+  private def convType(m: String): Option[String] = m match
+    case "toLong"   => Some("Long")
+    case "toInt"    => Some("Int")
+    case "toDouble" => Some("Double")
+    case "toFloat"  => Some("Float")
+    case _          => None
+
+  /** Widen two numeric primitive types to the dominant one (`Double` > `Float` >
+   *  `Long` > `Int`); falls back to whichever side is known. */
+  private def numericJoin(a: Option[String], b: Option[String]): Option[String] =
+    val rank = Map("Double" -> 4, "Float" -> 3, "Long" -> 2, "Int" -> 1)
+    (a, b) match
+      case (Some(x), Some(y)) => Some(if rank.getOrElse(x, 0) >= rank.getOrElse(y, 0) then x else y)
+      case (Some(x), None)    => Some(x)
+      case (None, Some(y))    => Some(y)
+      case _                  => None
+
   /** Look up the declared param type for a call to a known dep def
    *  or dep class constructor, by position (`argIdx`) or by name
    *  (when the arg is `Term.Assign(Term.Name(n), _)`).  Returns the
@@ -932,12 +1002,32 @@ private[codegen] trait JvmGenCpsTransform:
           s match
             case Defn.Val(_, List(Pat.Var(n)), tpe, rhs) =>
               emitCpsBindWithType(rhs, n.value, tpe, build(rest))
+            // A `var` in a CPS block must stay a REAL mutable `var` (not a `_bind`
+            // lambda param) so a later `x = …` and a `while` over it compile. Emit
+            // it typed (declared ascription, else inferred) and register the type so
+            // assignments cast `Any → T`. An effectful rhs is `_bind`-threaded first.
             case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), tpe, rhs) =>
-              emitCpsBindWithType(rhs, n.value, tpe, build(rest))
+              val t = tpe.map(_.syntax).orElse(inferVarType(rhs))
+              t.foreach(tt => declaredVarTypes(n.value) = tt)
+              val ann = t.map(tt => s": $tt").getOrElse("")
+              if cpsTermPerforms(rhs) then
+                val v    = freshTmp()
+                val cast = t.map(tt => s".asInstanceOf[$tt]").getOrElse("")
+                s"_bind(${emitCpsExpr(rhs)}, ($v: Any) => { var ${n.value}$ann = $v$cast; ${build(rest)} })"
+              else
+                s"{ var ${n.value}$ann = ${rhs.syntax}; ${build(rest)} }"
+            case w: Term.While =>
+              emitWhileTrampoline(w, build(rest))
             case d: Defn.Def =>
               s"{ ${emitDefMaybeCps(d)}; ${build(rest)} }"
             case a: Term.Assign =>
-              s"{ ${emitCpsExpr(a)}; ${build(rest)} }"
+              // An effectful assign (`x = … perform …`) emits a lazy `_Computation`
+              // (`_bind` is lazy on a perform), so raw `{ comp; rest }` would discard
+              // the perform. Thread the continuation through `_bind` instead. A pure
+              // assign stays raw (eager) — unchanged behaviour.
+              if cpsTermPerforms(a) then
+                s"_bind(${emitCpsExpr(a)}, (${freshTmp()}: Any) => ${build(rest)})"
+              else s"{ ${emitCpsExpr(a)}; ${build(rest)} }"
             case t: Term =>
               if isSimpleCps(t) then s"{ ${t.syntax}; ${build(rest)} }"
               else

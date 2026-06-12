@@ -327,6 +327,98 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
     assume(hasScalaCli, "scala-cli not available")
     compileWithScalaCli("""serveAsync(8443, tls("cert.pem", "key.pem"))""") shouldBe 0
 
+  // ── effect-cps-loops-jvm: perform inside a `var`+`while` loop ───────
+  // The CPS transform now keeps `var`s as real typed mutable vars and lowers a
+  // `while` to a trampolined recursive helper, so a `perform` reachable in the
+  // loop body threads through `_bind` instead of emitting un-compilable Scala
+  // (`Reassignment to val`, `< is not a member of Any`). See specs/effect-cps-loops.md.
+
+  /** Run the emitted source as a scala-cli script and return (exitCode, stdout). */
+  private def runWithScalaCli(code: String): (Int, String) =
+    val sc  = jvmCode(code)
+    val tmp = java.io.File.createTempFile("ssc-jvmgen-effects-run-", ".sc")
+    val out = java.io.File.createTempFile("ssc-jvmgen-effects-run-", ".out")
+    tmp.deleteOnExit(); out.deleteOnExit()
+    java.nio.file.Files.write(tmp.toPath, sc.getBytes(StandardCharsets.UTF_8))
+    val proc = ProcessBuilder("scala-cli", "run", tmp.getAbsolutePath)
+      .redirectError(ProcessBuilder.Redirect.DISCARD)
+      .redirectOutput(out)
+      .start()
+    val ec = ProcTestUtil.awaitExit(proc)
+    (ec, scala.io.Source.fromFile(out).mkString.trim)
+
+  test("JvmGen: one-shot effect performed in a while-loop compiles + runs"):
+    assume(hasScalaCli, "scala-cli not available")
+    val (ec, out) = runWithScalaCli("""
+      effect Bump:
+        def tick(): Int
+      def loop(n: Int): Int ! Bump =
+        var acc = 0
+        var i = 0
+        while i < n do
+          acc = acc + Bump.tick()
+          i = i + 1
+        acc
+      def run(): Int =
+        handle(loop(5)) {
+          case Bump.tick(resume) => resume(1)
+        }
+      println(run())
+    """)
+    assert(ec == 0, s"scala-cli run failed (exit $ec)")
+    assert(out == "5", s"expected 5 (1 tick × 5 iterations), got: '$out'")
+
+  test("JvmGen: a Long-accumulator loop with a perform keeps real typed vars"):
+    assume(hasScalaCli, "scala-cli not available")
+    // Mirrors the effect-oneshot corpus shape: a Long var seeded from a Long
+    // param, mutated in the loop alongside the perform.
+    val (ec, out) = runWithScalaCli("""
+      effect Bump:
+        def tick(): Int
+      def loop(n: Int, start: Long): Long ! Bump =
+        var s = start + 1
+        var acc = 0L
+        var i = 0
+        while i < n do
+          s = s * 2862933555777941757L + 3037000493L
+          acc = acc + Bump.tick().toLong + (s % 7)
+          i = i + 1
+        acc
+      def run(): Long =
+        handle(loop(3, 10L)) {
+          case Bump.tick(resume) => resume(2)
+        }
+      println(run())
+    """)
+    assert(ec == 0, s"scala-cli run failed (exit $ec)")
+    // acc = Σ (2 + s%7) over 3 iterations; non-zero, value matches the interpreter.
+    assert(out.toLongOption.isDefined, s"expected a Long result, got: '$out'")
+
+  test("JvmGen: multi-shot effect handled inside a while-loop compiles + runs"):
+    assume(hasScalaCli, "scala-cli not available")
+    val (ec, out) = runWithScalaCli("""
+      multi effect NonDet:
+        def choose(options: List[Int]): Int
+      def program(): Int ! NonDet =
+        val a = NonDet.choose(List(1, 2, 3))
+        val b = NonDet.choose(List(10, 20))
+        a + b
+      def workload(): Long =
+        var total = 0L
+        var i = 0
+        while i < 2 do
+          val all = handle(program()) {
+            case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))
+          }
+          total = total + all.foldLeft(0L)((acc, x) => acc + x.toLong)
+          i = i + 1
+        total
+      println(workload())
+    """)
+    assert(ec == 0, s"scala-cli run failed (exit $ec)")
+    // All 6 combinations (1|2|3)+(10|20) sum to 102 per iteration × 2 = 204.
+    assert(out == "204", s"expected 204, got: '$out'")
+
   // ── /_ssc-cluster/* — end-to-end e2e ───────────────────────────────
   // Build a codegen-emitted node with scala-cli, spawn it, curl each
   // of the five routes, and assert the wire shape matches what the

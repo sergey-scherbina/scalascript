@@ -142,25 +142,24 @@ object CapabilityCheck:
     }
     unsupported ++ unknownBlockLanguages(module, cap) ++ unsupportedDbUrls(module, cap, backendId) ++ unsupportedClientSideDbUrls(module) ++ jvmOnlyExternDefs(module, cap, backendId) ++ performInWhileLoop(module, cap, backendId)
 
-  /** Honest interim diagnostic for the `effect-cps-loops` gap (SPRINT
-   *  `effect-cps-loops-{jvm,js}` is the real fix). A custom effect `perform`
-   *  reachable inside a `while` loop does not lower to the Free-monad CPS source
-   *  backends (jvm/js): `JvmGenCpsTransform` / `JsGen` have no CPS `Term.While`
-   *  case, so they silently emit broken Scala/JS that only fails downstream in
-   *  scala-cli / node. Detect the shape precisely — a `while` whose body performs
-   *  an in-module effect op (or calls an effectful function) — and refuse
-   *  compilation with a clear message. The interpreter lowers it fine, so this
-   *  fires only for source-emitting CPS backends. Only the module's OWN blocks are
-   *  scanned (imports are `Content.Import`, not inlined source), so library effect
-   *  runners never trip it. See specs/effect-cps-loops.md. */
+  /** Honest interim diagnostic for the `effect-cps-loops` gap — now **JS-only**.
+   *  A custom effect `perform` reachable inside a `while` loop did not lower to the
+   *  Free-monad CPS source backends. The JVM backend now lowers it correctly
+   *  (`effect-cps-loops-jvm`: `JvmGenCpsTransform` keeps `var`s real + trampolines
+   *  the `while`), so only the JS backend (`JavaScriptSource`) still silently emits
+   *  broken code — `JsGen` has no CPS `Term.While` case yet (`effect-cps-loops-js`).
+   *  Detect the shape precisely (a `while` whose body performs an in-module effect
+   *  op or calls an effectful function) and refuse JS compilation with a clear
+   *  message. The interpreter and JVM lower it fine, so they are not gated. Only the
+   *  module's OWN blocks are scanned (imports are `Content.Import`, not inlined
+   *  source), so library effect runners never trip it. See specs/effect-cps-loops.md. */
   private def performInWhileLoop(
     module:    ir.NormalizedModule,
     cap:       Capabilities,
     backendId: String
   ): List[Diagnostic] =
-    val isSourceCps = cap.outputs.contains(OutputKind.ScalaSource) ||
-                      cap.outputs.contains(OutputKind.JavaScriptSource)
-    if !isSourceCps then return Nil
+    // JVM (ScalaSource) lowers perform-in-while correctly now; gate JS only.
+    if !cap.outputs.contains(OutputKind.JavaScriptSource) then return Nil
 
     val sources = scala.collection.mutable.ListBuffer.empty[String]
     def scanContent(c: ir.Content): Unit = c match
@@ -196,9 +195,9 @@ object CapabilityCheck:
     if found then
       List(Diagnostic.Generic(
         s"effect `perform` inside a `while` loop is not yet supported on the '$backendId' " +
-        "backend — the Free-monad CPS codegen has no `while` case and would emit broken code. " +
-        "Refactor the loop to a recursive helper or `foldLeft`, or run it on the interpreter. " +
-        "See specs/effect-cps-loops.md."))
+        "backend — its CPS codegen has no `while` case and would emit broken code. " +
+        "Refactor the loop to a recursive helper or `foldLeft`, run it on the interpreter, " +
+        "or compile for the JVM target (which supports it). See specs/effect-cps-loops.md."))
     else Nil
 
   /** Validate `databases:` URL schemes against the target backend.

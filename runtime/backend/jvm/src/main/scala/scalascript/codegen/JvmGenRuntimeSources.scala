@@ -381,6 +381,18 @@ private[codegen] trait JvmGenRuntimeSources:
        |  case (">=", x: Int,    y: Int)    => x >= y
        |  case (">=", x: Long,   y: Long)   => x >= y
        |  case (">=", x: Double, y: Double) => x >= y
+       |  case ("%",  x: Long,   y: Long)   => x % y
+       |  case ("%",  x: Double, y: Double) => x % y
+       |  // Mixed-width numeric ops — widen to the dominant primitive and retry,
+       |  // so `_binOp` is total over Int/Long/Double combinations (a `var s: Long`
+       |  // doing `s % 7` flows here as (Long, Int)). Same-type and String cases
+       |  // above win first; these only catch the remaining mixed pairs.
+       |  case (o, x: Long,   y: Int)    => _binOp(o, x, y.toLong)
+       |  case (o, x: Int,    y: Long)   => _binOp(o, x.toLong, y)
+       |  case (o, x: Double, y: Int)    => _binOp(o, x, y.toDouble)
+       |  case (o, x: Int,    y: Double) => _binOp(o, x.toDouble, y)
+       |  case (o, x: Double, y: Long)   => _binOp(o, x, y.toDouble)
+       |  case (o, x: Long,   y: Double) => _binOp(o, x.toDouble, y)
        |  // Exact numerics (v1.64): BigInt / BigDecimal with Int/Long/BigInt
        |  // widening.  Decimal⊕Double is intentionally absent → falls through to
        |  // the error case (mixing exact and inexact is rejected).
@@ -673,6 +685,25 @@ private[codegen] trait JvmGenRuntimeSources:
        |    case (s: Set[_], "size",      Nil)     => s.size
        |    case (s: Set[_], "isEmpty",   Nil)     => s.isEmpty
        |    case (s: Set[_], "nonEmpty",  Nil)     => s.nonEmpty
+       |    // Numeric widening / narrowing conversions on a boxed primitive value
+       |    // (e.g. `Bump.tick().toLong` where the perform result flows through
+       |    // `_dispatch` as an Any). Java reflection can't resolve `toLong` on a
+       |    // boxed Integer, so dispatch them explicitly.
+       |    case (n: Int,    "toLong",   Nil) => n.toLong
+       |    case (n: Int,    "toDouble", Nil) => n.toDouble
+       |    case (n: Int,    "toFloat",  Nil) => n.toFloat
+       |    case (n: Int,    "toInt",    Nil) => n
+       |    case (n: Long,   "toInt",    Nil) => n.toInt
+       |    case (n: Long,   "toDouble", Nil) => n.toDouble
+       |    case (n: Long,   "toFloat",  Nil) => n.toFloat
+       |    case (n: Long,   "toLong",   Nil) => n
+       |    case (n: Double, "toInt",    Nil) => n.toInt
+       |    case (n: Double, "toLong",   Nil) => n.toLong
+       |    case (n: Double, "toFloat",  Nil) => n.toFloat
+       |    case (n: Double, "toDouble", Nil) => n
+       |    case (n: Float,  "toInt",    Nil) => n.toInt
+       |    case (n: Float,  "toLong",   Nil) => n.toLong
+       |    case (n: Float,  "toDouble", Nil) => n.toDouble
        |    // Fallback: try Java reflection so non-HOF method calls still work
        |    case _ =>
        |      val cls = obj.getClass
