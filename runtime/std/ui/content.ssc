@@ -19,8 +19,10 @@ exports:
   - contentDataSource
   - contentToolkitOptionsWithBindings
   - contentToolkitOptionsWithComponents
+  - contentSlot
   - contentToolkitOptionsWithActions
   - contentToolkitOptionsWithRows
+  - contentToolkitOptionsWithSlots
   - contentView
   - contentViewSection
   - contentViewBlock
@@ -163,7 +165,12 @@ case class ContentToolkitOptions(
   // them by name — `showWhen: <id>`, `enabledWhen: <id>`, `{type: signalText,
   // signal: <id>}`.  Unlike the YAML `signals:` block (scalar defaults only) these
   // can be `computedSignal`s derived from other signals (isOwner, a formatted KPI).
-  computed: Map[String, Any] = Map()
+  computed: Map[String, Any] = Map(),
+  // Slot registry (Scope B.6): code-built TkNodes registered by id and injected at a
+  // `{type: slot, id: <id>}` control — the escape hatch for content the declarative
+  // vocabulary can't express (a custom chart, a bespoke composite).  The node is
+  // returned verbatim into the control tree and lowers like any other control.
+  slots: Map[String, Any] = Map()
 )
 
 case class ContentComponentContext(
@@ -231,6 +238,10 @@ def fetchSource(id: String, url: String, tick: Any, headers: Any, rowsPath: Stri
 def contentDataSource(id: String, source: Any, columns: List[Any], actions: List[Any] = []): (String, Any) =
   (id, ContentRowBinding(source, columns, actions))
 
+// contentSlot — register a code-built TkNode under an id for `{type: slot, id}`
+// (Scope B.6).  Build the registry as `Map(contentSlot("chart", myNode))`.
+def contentSlot(id: String, node: Any): (String, Any) = (id, node)
+
 def contentToolkitOptionsWithActions(
   actions: Map[String, Any],
   components: List[ContentToolkitComponent] = [],
@@ -240,6 +251,19 @@ def contentToolkitOptionsWithActions(
 ): ContentToolkitOptions =
   ContentToolkitOptions(false, 16, 8, 4, false, false,
                         components, bindings, actions, rowBindings, computed)
+
+// contentToolkitOptionsWithSlots — options carrying a slot registry (Scope B.6),
+// for a `@ui=toolkit` panel that injects code-built TkNodes at `{type: slot}` controls.
+def contentToolkitOptionsWithSlots(
+  slots: Map[String, Any],
+  actions: Map[String, Any] = Map(),
+  components: List[ContentToolkitComponent] = [],
+  bindings: ContentValue = ContentValue.MapV(Map()),
+  rowBindings: Map[String, Any] = Map(),
+  computed: Map[String, Any] = Map()
+): ContentToolkitOptions =
+  ContentToolkitOptions(false, 16, 8, 4, false, false,
+                        components, bindings, actions, rowBindings, computed, slots)
 
 // contentToolkitOptionsWithRows — options carrying a live-row registry (3b).  Use
 // when a Markdown section binds `toolkit:table?rows=<id>` regions to runtime signals.

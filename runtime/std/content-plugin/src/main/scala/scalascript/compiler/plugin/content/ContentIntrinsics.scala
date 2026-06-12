@@ -141,7 +141,8 @@ object ContentIntrinsics:
     bindings: Map[String, ast.ContentValue] = Map.empty,
     actions: Map[String, Value] = Map.empty,
     rowBindings: Map[String, Value] = Map.empty,
-    computed: Map[String, Value] = Map.empty
+    computed: Map[String, Value] = Map.empty,
+    slots: Map[String, Value] = Map.empty
   )
 
   // buildColumn (Scope B.2): builds a typed DataColumn by invoking a registered
@@ -206,8 +207,20 @@ object ContentIntrinsics:
       bindings = contentValueMapField(fields.get("bindings")),
       actions = actionRegistry(fields.get("actions")),
       rowBindings = rowBindingRegistry(fields.get("rowBindings")),
-      computed = computedRegistry(fields.get("computed"))
+      computed = computedRegistry(fields.get("computed")),
+      slots = slotRegistry(fields.get("slots"))
     )
+
+  // slots (Scope B.6): a Map[String, TkNode] — id -> a code-built node injected at
+  // a `{type: slot, id}` control (the escape hatch for content the vocabulary can't
+  // express).  The node is already a built TkNode and is returned verbatim.
+  private def slotRegistry(value: Option[Value]): Map[String, Value] =
+    value match
+      case None | Some(Value.NullV) => Map.empty
+      case Some(Value.MapV(m)) =>
+        m.collect { case (Value.StringV(k), v) => k -> v }
+      case Some(other) =>
+        throw InterpretError(s"ContentToolkitOptions.slots: expected Map[String, TkNode], got ${Value.show(other)}")
 
   // actions: a Map[String, EventHandler] — id -> handler for toolkit:button?action=id.
   private def actionRegistry(value: Option[Value]): Map[String, Value] =
@@ -908,6 +921,13 @@ object ContentIntrinsics:
               toolkitChildren(fields, env, options),
               optionalControlField(fields, env, options, "footer").getOrElse(Value.NullV)
             )
+          case "slot" =>
+            // {type: slot, id: <id>} injects a code-built TkNode registered under
+            // <id> in options.slots (Scope B.6) — the escape hatch.  Returned verbatim.
+            val slotId = requiredContentString(fields, "id", "slot")
+            options.slots.getOrElse(slotId, throw InterpretError(
+              s"contentToolkitNode: slot '$slotId' is not registered " +
+              s"(available: ${if options.slots.isEmpty then "<none>" else options.slots.keys.toList.sorted.mkString(", ")})"))
           case otherKind =>
             throw InterpretError(s"contentToolkitNode: unsupported control type '$otherKind'")
 

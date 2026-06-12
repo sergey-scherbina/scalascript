@@ -1298,6 +1298,98 @@ class ContentPluginInterpreterTest extends AnyFunSuite:
     assert(rendered.contains("Intro **copy**."))
     assert(rendered.contains("```yaml @id=artifact-data"))
 
+  // Scope B.6: a {type: slot, id} control injects the code-built TkNode registered
+  // under that id in options.slots — returned verbatim into the control tree.
+  test("@ui=toolkit {type: slot} injects a registered code-built node (Scope B.6)"):
+    val source =
+      """---
+        |name: toolkit-slot-test
+        |---
+        |
+        |# Demo
+        |
+        |## Panel {#panel}
+        |
+        |```yaml @ui=toolkit
+        |controls:
+        |  type: vstack
+        |  children:
+        |    - type: heading
+        |      level: 2
+        |      text: Title
+        |    - type: slot
+        |      id: chart
+        |```
+        |
+        |```scala
+        |case class ContentToolkitOptions(
+        |  includeCode: Boolean = false, sectionGap: Int = 16, blockGap: Int = 8, listGap: Int = 4,
+        |  wrapDocumentInCard: Boolean = false, wrapTopLevelSectionsInCards: Boolean = false,
+        |  components: List[Any] = [], bindings: Any = null,
+        |  actions: Map[String, Any] = Map(), rowBindings: Map[String, Any] = Map(),
+        |  computed: Map[String, Any] = Map(), slots: Map[String, Any] = Map())
+        |extern def contentToolkitSection(id: String, options: ContentToolkitOptions): Any
+        |contentToolkitSection("panel",
+        |  ContentToolkitOptions(false, 16, 8, 4, false, false, [], null,
+        |    Map(), Map(), Map(), Map("chart" -> "CHART_NODE")))
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    interp.run(Parser.parse(source))
+
+    interp.lastResult match
+      case Value.InstanceV("VStackNode", sectionFields) =>
+        val controls = instanceFields(listField(sectionFields, "children", "section.children")(1), "VStackNode")
+        val nodes = listField(controls, "children", "controls.children")
+        assert(nodes.length == 2)
+        // nodes(0) is the heading; nodes(1) is the slot's registered node, verbatim.
+        assert(nodes(1) == Value.StringV("CHART_NODE"),
+          s"expected the slot to inject the registered node verbatim, got ${nodes(1)}")
+      case other =>
+        fail(s"expected panel section node, got $other")
+
+  test("@ui=toolkit {type: slot} with an unregistered id fails loudly (Scope B.6)"):
+    val source =
+      """---
+        |name: toolkit-slot-missing
+        |---
+        |
+        |# Demo
+        |
+        |## Panel {#panel}
+        |
+        |```yaml @ui=toolkit
+        |controls:
+        |  type: slot
+        |  id: chart
+        |```
+        |
+        |```scala
+        |case class ContentToolkitOptions(
+        |  includeCode: Boolean = false, sectionGap: Int = 16, blockGap: Int = 8, listGap: Int = 4,
+        |  wrapDocumentInCard: Boolean = false, wrapTopLevelSectionsInCards: Boolean = false,
+        |  components: List[Any] = [], bindings: Any = null,
+        |  actions: Map[String, Any] = Map(), rowBindings: Map[String, Any] = Map(),
+        |  computed: Map[String, Any] = Map(), slots: Map[String, Any] = Map())
+        |extern def contentToolkitSection(id: String, options: ContentToolkitOptions): Any
+        |contentToolkitSection("panel",
+        |  ContentToolkitOptions(false, 16, 8, 4, false, false, [], null,
+        |    Map(), Map(), Map(), Map()))
+        |""".stripMargin
+
+    val interp = Interpreter(
+      out = java.io.PrintStream(java.io.ByteArrayOutputStream(), true),
+      baseDir = Some(repoRoot)
+    )
+    interp.installPlugins(List(ContentInterpreterPlugin()))
+    val ex = intercept[InterpretError](interp.run(Parser.parse(source)))
+    assert(ex.getMessage.contains("slot 'chart' is not registered"),
+      s"expected a loud unregistered-slot error, got: ${ex.getMessage}")
+
   private def contentString(value: Value): Option[String] =
     value match
       case Value.OptionV(Value.InstanceV("Str", fields)) =>

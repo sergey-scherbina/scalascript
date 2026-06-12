@@ -1,6 +1,6 @@
 # Declarative dynamic UI — Scope B (richer authoring model)
 
-**Status:** in progress (B.1 + B.5 + B.2 + B.7 v1 + B.3 v1 + B.4 v1 implemented; B.6 in progress).
+**Status:** COMPLETE — B.1 + B.2 + B.3 v1 + B.4 v1 + B.5 + B.6 + B.7 v1 implemented (2026-06-11/12). Remaining items are documented v-next follow-ups (B.3 `rowsPath` on native backends, B.4 `bodyBuilder`, B.7 lint for `signal:`/`toolkit:` links).
 **Upstream proposal:** busi `docs/declarative-ui-authoring.md` (rozum seq-113).
 **Predecessor:** Scope A (`specs/js-toolkit-action-rows-registry.md`) — browser
 parity for the existing `action` / `rowBindings` registries via the Markdown
@@ -310,13 +310,15 @@ granularity into an inline error node, like every other registry miss).
 
 ### Behavior checklist (B.6)
 
-- [ ] `{type: slot, id: <id>}` returns the `contentSlot(id, node)`-registered TkNode
+- [x] `{type: slot, id: <id>}` returns the `contentSlot(id, node)`-registered TkNode
       (interp + JS).
-- [ ] a slot node composes inside a `vstack`/`card` and lowers like any control.
-- [ ] an unregistered slot id → loud error (caught fail-soft on JS).
-- [ ] `contentToolkitOptionsWithSlots` carries slots alongside the other registries;
+- [x] a slot node composes inside a `vstack`/`card` and lowers like any control
+      (the example lowers `card(kpiCard(...))` slotted into a `vstack`).
+- [x] an unregistered slot id → loud error (interp test; caught fail-soft on JS).
+- [x] `contentToolkitOptionsWithSlots` carries slots alongside the other registries;
       existing builders/options are unchanged (`slots` defaults to empty).
-- [ ] interp test + JS emit test + an example.
+- [x] interp tests (`ContentPluginInterpreterTest`, +2) + JS test
+      (`JsGenStdImportTest`) + runnable `examples/content-slot.ssc` (`content-slot:ok`).
 
 ## Non-goals (later slices)
 

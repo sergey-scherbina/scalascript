@@ -956,3 +956,42 @@ class JsGenStdImportTest extends AnyFunSuite:
       "if (sv.t !== 1) throw new Error('effects ran on a non-2xx (must skip): ' + sv.t);\n" +
       "console.log('b4-onsuccess-ok');\n"
     assert(runNode(script) == "b4-onsuccess-ok")
+
+  // Scope B.6: a {type: slot, id} control injects the code-built TkNode registered
+  // under that id with contentSlot, returned verbatim into the control tree.
+  test("@ui=toolkit {type: slot} injects a contentSlot-registered node in JS (Scope B.6)"):
+    val source =
+      "# Panel\n\n" +
+      "## P {#p}\n\n" +
+      "```yaml @ui=toolkit\n" +
+      "controls:\n" +
+      "  type: vstack\n" +
+      "  children:\n" +
+      "    - type: heading\n" +
+      "      level: 2\n" +
+      "      text: T\n" +
+      "    - type: slot\n" +
+      "      id: chart\n" +
+      "```\n\n" +
+      "[serve](std/ui/primitives.ssc)\n" +
+      "[badge](std/ui/display.ssc)\n" +
+      "[contentToolkitNode, contentToolkitOptionsWithSlots, contentSlot](std/ui/content.ssc)\n\n" +
+      "```scalascript\n" +
+      "val chart = badge(\"SLOTTED\", \"success\")\n" +
+      "serve(contentToolkitNode(contentToolkitOptionsWithSlots(\n" +
+      "  Map(contentSlot(\"chart\", chart)))))\n" +
+      "```\n"
+    val module   = Parser.parse(source)
+    val baseDir  = TestPaths.repoRoot / "examples"
+    val caps     = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime  = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    val script =
+      runtime + "\n_ssc_ui_serve = function(v){ globalThis.__captured = v; };\n" +
+      moduleJs +
+      "\nconst j = JSON.stringify(globalThis.__captured);\n" +
+      "if (j.indexOf('\"VStackNode\"') < 0) throw new Error('panel did not produce VStackNode: ' + j);\n" +
+      "if (j.indexOf('\"BadgeNode\"') < 0) throw new Error('slot did not inject the BadgeNode: ' + j);\n" +
+      "if (j.indexOf('SLOTTED') < 0) throw new Error('slotted node content missing: ' + j);\n" +
+      "console.log('b6-slot-ok');\n"
+    assert(runNode(script) == "b6-slot-ok")

@@ -154,6 +154,12 @@ function _ssc_tk_action(options, actionId) {
   if (actions && typeof actions.has === 'function' && actions.has(actionId)) return actions.get(actionId);
   _ssc_tk_error("contentToolkitNode: toolkit:button action '" + actionId + "' is not registered (available: " + _ssc_tk_registry_keys(actions) + ")");
 }
+// _ssc_tk_slot — resolve a `{type: slot, id}` to its code-built TkNode (Scope B.6).
+function _ssc_tk_slot(options, slotId) {
+  var slots = options.slots;
+  if (slots && typeof slots.has === 'function' && slots.has(slotId)) return slots.get(slotId);
+  _ssc_tk_error("contentToolkitNode: slot '" + slotId + "' is not registered (available: " + _ssc_tk_registry_keys(slots) + ")");
+}
 // rowBindingDataTable — turn a registered ContentRowBinding into a DataTableNode,
 // mirroring the interpreter. The binding compiles to {_type:'ContentRowBinding',
 // rows, columns, actions}; DataTableNode's first field is `signal` (= the rows source).
@@ -365,6 +371,8 @@ function _ssc_tk_render_control(value, env, options) {
     }
     case 'badge': { var variant = _ssc_tk_opt_str(obj, 'variant'); return { _type: 'BadgeNode', content: _ssc_tk_str(_ssc_tk_field(obj, 'text', 'badge'), 'badge.text'), variant: variant != null ? variant : 'default' }; }
     case 'card': return { _type: 'CardNode', header: null, body: _ssc_tk_children(obj, env, options), footer: null };
+    // {type: slot, id: <id>} injects a code-built TkNode from options.slots (Scope B.6).
+    case 'slot': return _ssc_tk_slot(options, _ssc_tk_str(_ssc_tk_field(obj, 'id', 'slot'), 'slot.id'));
     default: _ssc_tk_error("contentToolkitNode: unsupported control type '" + kind + "'");
   }
 }
