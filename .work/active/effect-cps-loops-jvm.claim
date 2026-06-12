@@ -1,0 +1,6 @@
+effect-cps-loops-jvm 2026-06-12T16:54:58Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-12T16:54:58Z
+status: in-progress
+done-so-far: read spec root-cause + intended-fix + attempt-trap; key = top-level effectful def body CPS-emitted via a path OTHER than emitCpsBlock (must map it first)
+next: map JvmGen def-emission + emitEffectfulParamGroups callers; find where var->_bind happens for a top-level effectful def; then keep vars as real typed mutable vars + add Term.While trampoline. Gate on full effect suite.
