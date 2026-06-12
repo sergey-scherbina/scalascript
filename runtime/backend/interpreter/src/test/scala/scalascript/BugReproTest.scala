@@ -87,6 +87,27 @@ println(total)"""
     ) shouldBe "3"
   }
 
+  // jit-walklocalslotctx-so — a hot while loop whose accumulator adds a RECURSIVE
+  // call (`s = s + fib(20)`). The while-JIT's `walkLocalSlotCtx` → `tryCompile(fib)`
+  // path used to re-enter `tryCompile` for fib's own self-recursive body and overflow
+  // the stack (caught + bailed, but expensively). The in-progress sentinel breaks the
+  // re-entry; the program must run correctly (and fast) either way.
+  test("hot while loop accumulating a recursive call does not overflow (jit-walklocalslotctx-so)") {
+    captured(
+"""def fib(n: Int): Int =
+  if n <= 1 then n
+  else fib(n - 1) + fib(n - 2)
+def run(n: Int): Int =
+  var s = 0
+  var i = 0
+  while i < n do
+    s = s + fib(20)
+    i = i + 1
+  s
+println(run(200000))"""
+    ) shouldBe "1353000000"
+  }
+
   // ── multi-line function body: last expression must be returned ────────────
 
   test("multi-line function: binary expression as last statement") {

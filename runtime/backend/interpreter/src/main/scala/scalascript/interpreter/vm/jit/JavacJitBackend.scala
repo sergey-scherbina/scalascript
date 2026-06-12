@@ -85,6 +85,13 @@ object JavacJitBackend extends JitBackend:
    *  body). Synchronized via the cache monitor. */
   private val cache = new java.util.IdentityHashMap[scala.meta.Term, AnyRef]()
   private val BailSentinel: AnyRef = new AnyRef
+  /** Marks a body whose `doCompile` is currently in flight. A re-entrant
+   *  `tryCompile` for the SAME body (a self-recursive function reached through
+   *  `walkLocalSlotCtx` → `tryCompile`, e.g. `while … s = s + fib(20)`) sees it
+   *  and bails instead of recursing into `doCompile` again — which otherwise
+   *  overflows the stack (caught by the guard below, but expensively). Replaced
+   *  by the real `JitResult`/`BailSentinel` once `doCompile` returns. */
+  private val InProgressSentinel: AnyRef = new AnyRef
 
   /** Builtin ADTs that ARE registered in `typeFieldOrder` (Option/Either/etc.)
    *  but have dedicated construction + HOF dispatch (OptionV/EitherV, flatMap/
@@ -101,13 +108,20 @@ object JavacJitBackend extends JitBackend:
     cache.synchronized {
       val cached = cache.get(body)
       if cached != null then
-        return if cached eq BailSentinel then null else cached.asInstanceOf[JitResult]
+        // BailSentinel and InProgressSentinel both mean "do not JIT this call":
+        // the latter breaks a re-entrant self-recursive compile (see below).
+        return if (cached eq BailSentinel) || (cached eq InProgressSentinel) then null
+               else cached.asInstanceOf[JitResult]
+      // Mark in-flight BEFORE doCompile so a recursive tryCompile for the same
+      // body bails (the in-progress branch above) instead of re-entering doCompile
+      // and overflowing the stack.
+      cache.put(body, InProgressSentinel)
     }
     // A codegen bug (e.g. a `walkLocalSlotCtx` recursion → StackOverflowError on
     // some shapes) must NEVER crash the user's program — it must bail to tree-walk.
     // The downstream javac/classload steps are already guarded; this guards the
-    // source-generation itself (which the sbt test harness never exercises because
-    // there the JIT can't find its runtime classes and bails earlier).
+    // source-generation itself. The InProgressSentinel above prevents the specific
+    // self-recursive overflow; this catch remains a backstop for any other shape.
     val result =
       try doCompile(f, interp)
       catch case _: Throwable => null
@@ -4044,7 +4058,19 @@ object JavacJitBackend extends JitBackend:
               fn.params.toArray, ctx.interp, ctx.pureFnEmissions,
               isCallee = true
             )
-            val bodyJava = walkLocalSlotCtx(fn.body, calleeCtx); if bodyJava == null then return null
+            // RESERVE the method name BEFORE walking the body so a SELF-recursive
+            // call inside it (`fib(n-1)` in `def fib(n) = … fib(n-1) + fib(n-2)`)
+            // takes the `contains` branch above and emits a self-call `fib(_v0)`
+            // instead of re-co-emitting the body → unbounded `walkLocalSlotCtx`
+            // recursion → StackOverflowError. This also lets a self-recursive callee
+            // co-compile as a real recursive Java static method (JIT, not bail). The
+            // placeholder is overwritten with the real source on success and removed
+            // on a bail so a later shape can retry cleanly.
+            ctx.pureFnEmissions(sanitised) = ""
+            val bodyJava = walkLocalSlotCtx(fn.body, calleeCtx)
+            if bodyJava == null then
+              ctx.pureFnEmissions.remove(sanitised)
+              return null
             val params =
               if nargs == 1 then "long _v0"
               else                "long _v0, long _v1"
