@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — fix(jit): break the self-recursive co-emit/tryCompile recursion
+
+- The while-JIT's pure-long callee co-emission and `tryCompile` populated their memo only
+  AFTER compiling the callee body, so a self-recursive callee re-co-emitted its own body
+  unboundedly → StackOverflowError (caught + bailed, expensively). Fix: reserve the name
+  before walking the body in both paths, so a recursive reference emits a self-call instead
+  of recursing — structurally impossible SO + enables self-recursive-callee JIT in the
+  co-emit path. The documented repro doesn't currently reach that path in sbt (the while-JIT
+  bails earlier on recursive-callee accumulator shapes) so it's a verified-safe
+  latent-recursion / robustness fix. backendInterpreter 1682 green.
+
+---
+
 ## 2026-06-12 — fix(jit): pass the running classpath to the runtime javac JIT
 
 - The runtime `javac` JIT's `getTask` calls used `options=null`, so javac fell back to

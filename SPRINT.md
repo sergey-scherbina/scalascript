@@ -97,7 +97,7 @@ flakily hangs Ã¢ÂÂ use the 332-test targeted set if it won't pass).
       under sbt/`runMain` too Ã¢ÂÂ making the codegen *actually tested* by the suite and
       removing the diagnosis trap. RISK: latent JIT codegen bugs start firing in tests
       (now safe to bail thanks to the crash-safety guard), may shift coverage/perf.
-- [ ] **jit-walklocalslotctx-so** Ã¢ÂÂ fix the `walkLocalSlotCtx` recursion that
+- [x] **jit-walklocalslotctx-so** — DONE 2026-06-12. The pure-long callee co-emission and `tryCompile` both populated their memo only AFTER compiling the body, so a self-recursive callee re-co-emitted its own body unboundedly → SO (caught, expensive). Fix: reserve the name BEFORE walking the body (`pureFnEmissions(name)=""` removed on bail + InProgressSentinel in the tryCompile cache) → a recursive ref emits a self-call instead of recursing — structurally impossible SO + enables self-recursive-callee JIT in the co-emit path. HONEST CAVEAT: the documented repro (`while … s = s + fib(20)`) does NOT reach the co-emit path in sbt (instrumented: while-JIT bails on recursive-callee accumulator shapes earlier), so JIT-restore wasn't demonstrable end-to-end — verified-safe latent-recursion/robustness fix. Regress: BugReproTest hot recursive-call loop (1353000000). backendInterpreter 1682 green.
       overflows on the `while`-accumulator-over-recursive-call shape (now bails
       harmlessly; a real fix restores JIT for that shape). Repro: `def fib(n)Ã¢ÂÂ¦; var
       s=0; while i<35 do s = s + fib(20); Ã¢ÂÂ¦` via the fat jar pre-guard.
