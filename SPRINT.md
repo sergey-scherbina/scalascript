@@ -26,20 +26,23 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ## Discovered: interp three-way mutual-TCO hang (2026-06-12)
 
-- [ ] **interp-three-way-tco-hang** — found while gating the module-loader fix: the
-      `backendInterpreter` test `InterpreterTest` → "**mutual-TCO — three-way ping-pong**"
-      (`InterpreterTest.scala:1025`) **hangs deterministically** (infinite loop / no
-      progress; `testOnly … -- -z "three-way ping-pong"` → timeout/exit 124). This is the
-      real cause of what was logged as a "flaky environmental hang at InterpreterTest" in
-      `project_interp_enum_trait_hierarchy_0612` — it is NOT environmental: it reproduces
-      on a clean `origin/main` (no module-loader change) and is independent of the
-      type-lambda work (my worktree base `cdd6cf31a` predates it and still hangs).
-      Two-way mutual-TCO (`isEven/isOdd`, line 1012) passes; **three-way** ping-pong
-      hangs — likely the mutual-TCO JIT/trampoline doesn't handle a 3-cycle. Repro: run
-      that one test. Priority: real correctness/hang bug, but pre-existing and not
-      blocking the seq-132 fix — investigate the mutual-TCO lowering (BytecodeJit /
-      trampoline cycle detection) and add a 3-way regression. Update the memory note
-      (mis-diagnosed as flaky). Flagged in rozum to @scalascript.
+- [x] **interp-three-way-tco-hang** — DONE 2026-06-12. The "flaky environmental hang at
+      InterpreterTest" was actually a DETERMINISTIC O(n²) blow-up in
+      "mutual-TCO — three-way ping-pong" (`InterpreterTest.scala:1025`) with the JIT ON.
+      Diagnosis: not an infinite loop — depth 30k=29ms, 60k=115s; `SSC_JIT=off` makes all
+      depths ~390ms. `jstack` = thousands of nested `SscVm.exec:303` (`CALL` opcode). The
+      TCO trampoline's `MutualTailCall` handler JIT-ran `next` whenever `noNonTailSelf`
+      (true for `pong`, which has NO self-call) — but the register VM lowers a non-self
+      tail call to a recursing `CALL`, so running the 3-cycle compiled recurses
+      `ping→pong→pang→…` until `FrameOverflow`, then `runVm` grows+restarts `exec` from
+      scratch → O(n²). Fix: only take the JIT fast-path when `next` is genuinely
+      **self-tail-recursive** (`tcoInfoFor(next).isSelfTailRec`), not merely
+      `noNonTailSelf` — so `workload→sumTco` still JITs, but a non-self cycle stays on the
+      constant-stack tree-walk trampoline. One-line gate in `TcoRuntime.tcoTrampoline`; no
+      `VmCompiler` change (SscVmTest mutual-recursion unit tests still green). Regress:
+      `ThreeWayMutualTcoTest` (3-way/2-way/self-TCO at depth ~100k + wall-clock bound).
+      `InterpreterTest` now completes (141 passed). Spec `specs/interp-three-way-tco-hang.md`.
+      Memory note corrected. Follow-up (low-pri): a real n-way mutual-TCO JIT.
 
 ## Post-busi-seq124/125 follow-ups (2026-06-12)
 

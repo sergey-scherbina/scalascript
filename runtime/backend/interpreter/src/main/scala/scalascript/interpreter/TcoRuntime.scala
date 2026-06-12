@@ -146,14 +146,29 @@ private[interpreter] object TcoRuntime:
           current = null
         case mc: MutualTailCall =>
           val next = mc.f
-          if next.name.nonEmpty && tcoInfoFor(next, interp).noNonTailSelf then
-            // Prefer JIT (bytecode or register-VM) over the tree-walk trampoline.
+          val nextInfo = if next.name.nonEmpty then tcoInfoFor(next, interp) else null
+          if nextInfo != null && nextInfo.noNonTailSelf then
+            // Prefer JIT (bytecode or register-VM) over the tree-walk trampoline —
+            // but ONLY when `next` is genuinely SELF-tail-recursive, i.e. its hot
+            // loop is its own self-call (which the JIT compiles to a `while` loop /
+            // JMP and runs in one constant-stack shot).
             // Case: `def workload() = sumTco(100000, 0)` — workload's tail call to
-            // sumTco triggers a MutualTailCall; without this check the trampoline
-            // would tree-walk sumTco's body 100K times (each iteration throws
-            // TailCall), bypassing the bytecode-JIT while-loop entirely.
-            val jitResult = scalascript.interpreter.vm.JitRuntime.tryRunList(
-              next, mc.args, interp, eager = true)
+            // sumTco triggers a MutualTailCall; running sumTco via the JIT skips the
+            // 100K tree-walk iterations.
+            // NOT self-tail-recursive `next` (e.g. a 3-way `ping→pong→pang→ping`
+            // cycle, where each fn only tail-calls the NEXT, never itself) must NOT
+            // be JIT-run here: the register VM lowers a non-self tail call to a
+            // recursing `CALL` (SscVm.exec), so running the whole cycle in compiled
+            // code grows the host + register stack per step → FrameOverflow restart
+            // → O(n²) blow-up (effectively a hang at depth ~100k). Falling through to
+            // `curFun = next` keeps the cycle on the tree-walk trampoline, which
+            // catches each MutualTailCall and loops in constant stack. (busi/perf
+            // three-way-TCO hang, 2026-06-12.)
+            val jitResult =
+              if nextInfo.isSelfTailRec then
+                scalascript.interpreter.vm.JitRuntime.tryRunList(
+                  next, mc.args, interp, eager = true)
+              else null
             if jitResult != null then return jitResult
             // Mutual tail call counts as one call to `next`.
             val profileNext = Profiler.enabled && next.name.nonEmpty

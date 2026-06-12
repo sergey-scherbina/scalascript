@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — fix(interp): three-way mutual-TCO no longer blows up (was a "flaky" gate hang)
+
+- The full `backendInterpreter/test` gate's intermittent "hang at InterpreterTest" was
+  not flaky/environmental — it was a deterministic O(n²) blow-up in `mutual-TCO —
+  three-way ping-pong` with the JIT on. A 3-function tail-recursion cycle
+  (`ping→pong→pang→ping`, no function calling itself) ran the whole cycle through the
+  register VM, which lowers a *non-self* tail call to a recursing `CALL`; the nested
+  `SscVm.exec` recursion overflowed the 64K register stack, and `runVm` grew + restarted
+  `exec` from scratch on each overflow → quadratic (depth 30k = 29 ms, 60k = 115 s,
+  99 999 ≈ a hang). `SSC_JIT=off` was unaffected (~390 ms).
+- Fix: the TCO trampoline's `MutualTailCall` handler now only takes the JIT fast-path
+  when `next` is genuinely **self**-tail-recursive (its hot loop is its own self-call,
+  which the JIT compiles to a `while`/JMP — the `workload → sumTco` case), instead of for
+  any function lacking a non-tail self-call. A non-self cycle stays on the constant-stack
+  tree-walk trampoline (correct, ~390 ms). One-line gate in `TcoRuntime.tcoTrampoline`; no
+  `VmCompiler` change. Regression `ThreeWayMutualTcoTest` (3-way / 2-way / self-TCO at
+  depth ~100k with wall-clock bounds). Spec `specs/interp-three-way-tco-hang.md`.
+
 ## 2026-06-12 — fix(interp): dedup module evaluation across a diamond import (busi seq-132)
 
 - The interpreter module loader (`SectionRuntime.runImport`) created a fresh
