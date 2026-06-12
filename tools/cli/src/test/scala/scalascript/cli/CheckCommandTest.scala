@@ -411,3 +411,48 @@ class CheckCommandTest extends AnyFunSuite:
         s"expected an unregistered-source warning; stderr=$err")
       assert(out.contains("OK"), s"expected 'OK (with warnings)' on stdout; stdout=$out")
     finally os.remove.all(sandbox)
+
+  // ── declarative-ui Scope B.7+ — signal reference lint ─────────────────────
+
+  /** A self-contained `@ui=toolkit` signalText panel + a local `contentComputed`
+   *  stub registering `status` (so it type-checks with no std import). */
+  private def writeSignalFixture(dir: os.Path, signalId: String, name: String): os.Path =
+    val src =
+      s"""# Panel
+         |
+         |```yaml @ui=toolkit
+         |controls:
+         |  type: signalText
+         |  signal: $signalId
+         |```
+         |
+         |```scalascript
+         |def contentComputed(id: String, s: Int): Int = s
+         |val c = contentComputed("status", 1)
+         |```
+         |""".stripMargin
+    val p = dir / name
+    os.write(p, src)
+    p
+
+  test("@ui=toolkit: a signal id with no computed/local registration → warning, exit 0"):
+    val sandbox = os.temp.dir(prefix = "ssc-check-toolkit-signal-")
+    try
+      val fixture = writeSignalFixture(sandbox, "stauts", "panel.ssc")   // typo of `status`
+      val res     = runSsc(sandbox, "check", fixture.last)
+      val out     = res.out.text()
+      val err     = appStderr(res)
+      assert(res.exitCode == 0, s"expected exit 0 on warning-only; got ${res.exitCode}\n$out\n$err")
+      assert(err.contains("signal 'stauts'") && err.contains("not registered"),
+        s"expected an unregistered-signal warning; stderr=$err")
+    finally os.remove.all(sandbox)
+
+  test("@ui=toolkit: a correctly-registered signal id → no signal warning"):
+    val sandbox = os.temp.dir(prefix = "ssc-check-toolkit-signal-ok-")
+    try
+      val fixture = writeSignalFixture(sandbox, "status", "panel.ssc")
+      val res     = runSsc(sandbox, "check", fixture.last)
+      val err     = appStderr(res)
+      assert(res.exitCode == 0, s"expected exit 0; got ${res.exitCode}\n$err")
+      assert(!err.contains("signal '"), s"expected no signal warning; stderr=$err")
+    finally os.remove.all(sandbox)

@@ -138,14 +138,14 @@ no interpreter, no content pipeline, no plugin YAML parser, no rendering. It onl
   cannot be resolved/parsed the graph is *incomplete* and the lint is suppressed
   entirely for that file (a hidden registration must never produce a false warning).
 
-**Scope of v1 (honest):** `action:` and `source:`/`rows:` only — these always bind
-to a code registration (`contentAction`/`contentRows`), so there is no ambiguity.
-`signal:`/`showWhen:`/`enabledWhen:` are deferred (they may reference either a
-`contentComputed` registration *or* a locally-declared YAML `signals:` default, so
-correct linting must also harvest local `signals:` ids). Markdown `toolkit:` *link*
-references (`toolkit:button?action=`, `toolkit:table?rows=`) and "shapes match"
-checking are likewise deferred. Warnings, never errors (exit code unchanged on a
-clean-but-warned file: `OK (with warnings)`).
+**Scope:** `action:` (→ `contentAction`), `source:`/`rows:` (→ `contentRows`/
+`contentDataSource`), and `signal:`/`showWhen:`/`enabledWhen:` (→ the *signal
+universe*: a `contentComputed` registration **or** a locally-declared YAML
+`signals:` default, both harvested so a valid reference never falsely warns).
+Markdown `toolkit:` *link* references (`toolkit:button?action=`,
+`toolkit:table?rows=`) and "shapes match" checking are still deferred (the links
+live in raw prose, not the `@ui=toolkit` CodeBlock the pass scans). Warnings, never
+errors (exit code unchanged on a clean-but-warned file: `OK (with warnings)`).
 
 ### Behavior checklist (B.7 v1)
 
@@ -156,6 +156,9 @@ clean-but-warned file: `OK (with warnings)`).
 - [x] an empty registry for that kind → no warning (conservative).
 - [x] an unresolvable (local, non-std) import → lint suppressed for that file (no false positive).
 - [x] warnings carry the file-level line of the YAML reference; exit code unchanged.
+- [x] **(B.7+)** `signal:`/`showWhen:`/`enabledWhen:` validated against the signal
+      universe (`contentComputed` ∪ local `signals:`); unknown → warning, a valid
+      local/computed signal → no warning, empty universe → no warning (conservative).
 - [x] core unit tests (`ContentToolkitLintTest`, 11) + CLI `ssc check` tests
       (`CheckCommandTest`, +2). An edit-distance "did you mean '…'?" hint is added
       when a registered id is a plausible typo of the reference.

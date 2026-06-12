@@ -100,7 +100,7 @@ class ContentToolkitLintTest extends AnyFunSuite:
     assert(ws.isEmpty, s"expected no warnings, got ${ws.map(_.msg)}")
 
   test("ids registered only in `extra` (imported graph) satisfy references"):
-    val extra = Registrations(Set("refresh"), Set("invoices"))
+    val extra = Registrations(Set("refresh"), Set("invoices"), Set.empty)
     assert(ContentToolkitLint.lint(mod(panel, "val x = 1"), extra).isEmpty)
 
   test("warning carries a plausible file-level line for the bad reference"):
@@ -109,3 +109,69 @@ class ContentToolkitLintTest extends AnyFunSuite:
     val ws = ContentToolkitLint.lint(mod(panel, code), Registrations.empty)
     // `source: invoices` is on the last line of the 7-line yaml panel.
     assert(ws.head.span.exists(_.start.line > 0))
+
+  // ── signal references (Scope B.7+) ──────────────────────────────────────────
+
+  private val signalPanel =
+    """controls:
+      |  type: vstack
+      |  children:
+      |    - type: signalText
+      |      signal: status
+      |    - type: button
+      |      action: save
+      |      enabledWhen: canSave""".stripMargin
+
+  test("collectReferences harvests signal / enabledWhen as Signal references"):
+    val refs = ContentToolkitLint.collectReferences(mod(signalPanel, "val x = 1"))
+    assert(refs.exists(r => r.kind == RefKind.Signal && r.id == "status"))
+    assert(refs.exists(r => r.kind == RefKind.Signal && r.id == "canSave"))
+
+  test("collectLocalSignals harvests ids from a YAML signals: block"):
+    val yaml =
+      """signals:
+        |  status: ""
+        |  count: 0
+        |controls:
+        |  type: signalText
+        |  signal: status""".stripMargin
+    assert(ContentToolkitLint.collectLocalSignals(mod(yaml, "val x = 1")) == Set("status", "count"))
+
+  test("a signal id registered via contentComputed → no warning"):
+    val code = """val a = contentAction("save", h)
+                 |val c = contentComputed("status", s1)
+                 |val d = contentComputed("canSave", s2)""".stripMargin
+    assert(ContentToolkitLint.lint(mod(signalPanel, code), Registrations.empty).isEmpty)
+
+  test("a signal id declared in a local YAML signals: block → no warning"):
+    val yaml =
+      """signals:
+        |  status: ""
+        |  canSave: false
+        |controls:
+        |  type: vstack
+        |  children:
+        |    - type: signalText
+        |      signal: status
+        |    - type: button
+        |      action: save
+        |      enabledWhen: canSave""".stripMargin
+    // computed registry non-empty (so the universe is populated) but the refs are
+    // satisfied by the local signals: block, not the computed registration.
+    val code = """val a = contentAction("save", h)
+                 |val c = contentComputed("other", s)""".stripMargin
+    assert(ContentToolkitLint.lint(mod(yaml, code), Registrations.empty).isEmpty)
+
+  test("an unknown signal id with a non-empty signal universe → warning"):
+    val code = """val a = contentAction("save", h)
+                 |val c = contentComputed("canSave", s)""".stripMargin
+    // `status` is referenced but neither registered (only canSave) nor local.
+    val ws = ContentToolkitLint.lint(mod(signalPanel, code), Registrations.empty)
+    assert(ws.exists(w => w.msg.contains("signal 'status'") && w.isWarning),
+      s"expected an unknown-signal warning, got ${ws.map(_.msg)}")
+
+  test("an empty signal universe → no signal warning (conservative)"):
+    // No contentComputed anywhere and no signals: block → universe empty → skip.
+    val code = """val a = contentAction("save", h)"""
+    val ws = ContentToolkitLint.lint(mod(signalPanel, code), Registrations.empty)
+    assert(!ws.exists(_.msg.contains("signal")), s"expected no signal warnings, got ${ws.map(_.msg)}")
