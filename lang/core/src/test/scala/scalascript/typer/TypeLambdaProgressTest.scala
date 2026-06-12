@@ -176,3 +176,73 @@ class TypeLambdaProgressTest extends AnyFunSuite:
       "type IntKey = [V] =>> Map[Int, V]\ndef f(): IntKey[Long, String] = ???")
     assert(bad.exists(m => m.contains("IntKey") && m.contains("type argument")),
       s"expected a type-lambda arity error, got: $bad")
+
+  // ════════════════════════════════════════════════════════════════════════
+  // p3b — HKT / kind-bound checking in `ssc check`.
+  // ════════════════════════════════════════════════════════════════════════
+
+  /** `ssc check` error messages for a single scalascript block. */
+  private def checkErrors(src: String): List[String] =
+    val m = Parser.parse(s"# T\n\n```scalascript\n$src\n```\n")
+    Typer.typeCheckWithInterfaces(m, interfaces = Map.empty, strict = false).errors.map(_.msg)
+
+  test("[done] arity check — known constructor with wrong type-arg count errors"):
+    assert(checkErrors("def f(): List[Int, String] = ???").exists(m =>
+      m.contains("List") && m.contains("type argument")),
+      checkErrors("def f(): List[Int, String] = ???").mkString(" | "))
+    assert(checkErrors("def f(): Map[Int] = ???").exists(m =>
+      m.contains("Map") && m.contains("type argument")))
+    // A user case class applied with the wrong arity is also flagged.
+    assert(checkErrors("case class Box[A](a: A)\ndef f(): Box[Int, String] = ???").exists(m =>
+      m.contains("Box") && m.contains("type argument")))
+
+  test("[done] arity check — correct usage does NOT error"):
+    assert(!checkErrors("def f(): List[Int] = ???").exists(_.contains("type argument")))
+    assert(!checkErrors("def f(): Map[Int, String] = ???").exists(_.contains("type argument")))
+    assert(!checkErrors("case class Box[A](a: A)\ndef f(): Box[Int] = ???").exists(_.contains("type argument")))
+
+  test("[done] HK-bound check — `trait Functor[F[_]]` instantiation kinds"):
+    // List is `* -> *` → ok; Int is a proper type → error; Map is `*->*->*` → error.
+    assert(!checkErrors("trait Functor[F[_]]\ndef f(): Functor[List] = ???").exists(_.contains("type parameter")))
+    val intErr = checkErrors("trait Functor[F[_]]\ndef f(): Functor[Int] = ???")
+    assert(intErr.exists(m => m.contains("Functor") && m.contains("type parameter")), intErr.mkString(" | "))
+    val mapErr = checkErrors("trait Functor[F[_]]\ndef f(): Functor[Map] = ???")
+    assert(mapErr.exists(m => m.contains("Functor") && m.contains("type parameter")), mapErr.mkString(" | "))
+
+  test("[done] HK-bound check — higher-kinded type-lambda param"):
+    // `type Fix = [F[_]] =>> F[Int]`; applying it to a constructor of the wrong kind errors.
+    assert(!checkErrors("type Fix = [F[_]] =>> F[Int]\ndef f(): Fix[List] = ???").exists(_.contains("type parameter")))
+    val bad = checkErrors("type Fix = [F[_]] =>> F[Int]\ndef f(): Fix[Map] = ???")
+    assert(bad.exists(m => m.contains("Fix") && m.contains("type parameter")), bad.mkString(" | "))
+
+  test("[done] HK-bound check is conservative — unknown/imported arg is not flagged"):
+    // `Unknown` is not in the kind registry, so its use as a higher-kinded arg is
+    // not flagged (no false positives on imported type constructors).
+    val errs = checkErrors("trait Functor[F[_]]\ndef f(): Functor[Unknown] = ???")
+    assert(!errs.exists(_.contains("type parameter")), errs.mkString(" | "))
+
+  test("[done] kind checking is silent on a real HKT typeclass hierarchy (no false positives)"):
+    // Mirrors runtime/std/functor-applicative-monad.ssc — the highest false-positive
+    // risk. `Functor[F]` (F a local HK param) must be skipped; `Monad[List]` /
+    // `Monad[Option]` are valid (List/Option are `*->*`).
+    val src =
+      """|trait Functor[F[_]]:
+         |  extension [A](fa: F[A]) def map[B](f: A => B): F[B]
+         |trait Applicative[F[_]] extends Functor[F]:
+         |  def pure[A](a: A): F[A]
+         |trait Monad[F[_]] extends Applicative[F]:
+         |  extension [A](fa: F[A]) def flatMap[B](f: A => F[B]): F[B]
+         |given listMonad: Monad[List] with
+         |  def pure[A](a: A): List[A] = List(a)
+         |  extension [A](fa: List[A]) def flatMap[B](f: A => List[B]): List[B] = fa.flatMap(f)
+         |""".stripMargin
+    val errs = checkErrors(src)
+    assert(!errs.exists(m => m.contains("type argument") || m.contains("type parameter")),
+      s"HKT typeclass hierarchy must not trip kind checking: $errs")
+
+  test("[done] proper-type param rejects a bare constructor argument"):
+    // `Box[A]` expects a proper type; `Box[List]` (a bare constructor) is a kind error.
+    val bad = checkErrors("case class Box[A](a: A)\ndef f(): Box[List] = ???")
+    assert(bad.exists(m => m.contains("Box") && m.contains("type parameter")), bad.mkString(" | "))
+    // But a fully-applied `Box[List[Int]]` is fine.
+    assert(!checkErrors("case class Box[A](a: A)\ndef f(): Box[List[Int]] = ???").exists(_.contains("type parameter")))

@@ -63,6 +63,16 @@ class Typer(
    *  type-parameter substitution (deferred). */
   private val classFields = collection.mutable.Map.empty[String, List[(String, SType)]]
 
+  /** Kind registry for type constructors: name → the kinds of its type
+   *  parameters, where each kind is that parameter's own arity (`0` = proper
+   *  type `*`; `k>0` = higher-kinded `F[_…]` of arity `k`). The list length is
+   *  the constructor's own arity. Populated for user `class`/`trait`/`enum`
+   *  (collect pass) and `type` aliases (incl. type lambdas). Consulted by
+   *  `checkTypeApplication` for arity + higher-kinded-bound checking. Mirrors
+   *  `classFields` (plain mutable, NOT snapshotted — a structural registry, not
+   *  per-section restorable state). */
+  private val typeCtorKinds = collection.mutable.Map.empty[String, List[Int]]
+
   /** Diagnostics accumulated so far.  Stable view into the running buffer —
    *  callers should snapshot to a `List` when they need persistence. */
   def diagnostics: List[TypeError] = errors.toList
@@ -394,15 +404,19 @@ class Typer(
     case d: Defn.Class =>
       val fields = classFieldTypes(d)
       classFields(d.name.value) = fields
+      typeCtorKinds(d.name.value) = tparamKinds(d.tparamClause)
       scope.define(Symbol(
         d.name.value,
         SType.Function(fields.map(_._2), SType.named0(d.name.value)),
         SymbolKind.Class
       ))
     case d: Defn.Object => scope.define(Symbol(d.name.value, SType.named0(d.name.value), SymbolKind.Object))
-    case d: Defn.Trait  => scope.define(Symbol(d.name.value, SType.named0(d.name.value), SymbolKind.Trait))
+    case d: Defn.Trait  =>
+      typeCtorKinds(d.name.value) = tparamKinds(d.tparamClause)
+      scope.define(Symbol(d.name.value, SType.named0(d.name.value), SymbolKind.Trait))
     case d: Defn.Enum   =>
       val enumType = SType.named0(d.name.value)
+      typeCtorKinds(d.name.value) = tparamKinds(d.tparamClause)
       scope.define(Symbol(d.name.value, enumType, SymbolKind.Enum))
       d.templ.body.stats.foreach {
         case ec: Defn.EnumCase =>
@@ -744,6 +758,12 @@ class Typer(
           errors += TypeError(s"Recursive type alias: $typeName", None)
         else
           typeAliases(typeName) = (typeParamNames, rhsSType)
+          // Kind of the alias as a type constructor: a type-lambda rhs takes the
+          // lambda's params' kinds (`type Fix = [F[_]] =>> F[Int]` → [1]); a plain
+          // parameterised alias takes its own params' kinds (`type Opt[A]` → [0]).
+          typeCtorKinds(typeName) = d.body match
+            case Type.Lambda.After_4_6_0(lamTparams, _) => tparamKinds(lamTparams)
+            case _                                      => tparamKinds(d.tparamClause)
           scope.defineType(typeName, TypeScheme(Nil, rhsSType))
           out += DefSummary(
             typeName,
@@ -1341,34 +1361,89 @@ class Typer(
    *  params — the `args` belong to the lambda. After resolving the alias's own
    *  params (none here), a `TypeLambda` rhs with use-site `args` is β-reduced:
    *  `IntKey[Long]` → `Map[Int, Long]` (p3 semantics). Mirrors the rust backend's
-   *  codegen-side reduction so `ssc check` agrees with the emitted type. */
+   *  codegen-side reduction so `ssc check` agrees with the emitted type.
+   *
+   *  Pure expander — arity / kind diagnostics are owned by `checkTypeApplication`
+   *  (the single source, called from the `Type.Apply` case). On an arity mismatch
+   *  this just returns the rhs unexpanded (no substitution, no error). */
   private def expandAlias(name: String, args: List[SType]): Option[SType] =
     typeAliases.get(name).map { (params, rhs) =>
       val expanded =
         if params.isEmpty then rhs
-        else if params.length != args.length then
-          // Arity mismatch — record error and return the rhs unexpanded
-          errors += TypeError(
-            s"Type alias $name expects ${params.length} type parameter(s), got ${args.length}",
-            None
-          )
-          rhs
-        else
-          // Substitute each of the alias's own params with the corresponding arg.
-          rhs.substNames(params.zip(args).toMap)
+        else if params.length != args.length then rhs       // mismatch → unexpanded (checker errors)
+        else rhs.substNames(params.zip(args).toMap)          // substitute the alias's own params
       // β-reduce a type-lambda alias applied at the use site. Only the no-own-params
       // alias form leaves `args` for the lambda; a parameterised alias already
       // consumed all `args` via its own params above.
       expanded match
-        case lam @ SType.TypeLambda(lamParams, _) if params.isEmpty && args.nonEmpty =>
-          if lamParams.length == args.length then lam.applyTo(args)
-          else
+        case lam @ SType.TypeLambda(lamParams, _)
+            if params.isEmpty && args.nonEmpty && lamParams.length == args.length =>
+          lam.applyTo(args)
+        case _ => expanded
+    }
+
+  /** Kinds of a scalameta type-parameter clause: for each param, the arity of
+   *  its OWN type-parameter clause (`A` → 0 proper type; `F[_]` → 1; `G[_, _]`
+   *  → 2). Drives the kind registry `typeCtorKinds`. */
+  private def tparamKinds(tparams: scala.meta.Type.ParamClause): List[Int] =
+    tparams.values.map(_.tparamClause.values.length).toList
+
+  /** The kinds of a type constructor's parameters, or `None` for an unknown /
+   *  imported name. Checks user-defined types (`typeCtorKinds`) first, then the
+   *  built-in constructor table. */
+  private def typeCtorKindsOf(name: String): Option[List[Int]] =
+    typeCtorKinds.get(name).orElse(Typer.builtinTypeCtorKinds.get(name))
+
+  /** Remaining arity (kind) of a type expression: an un-applied constructor
+   *  `List` has kind 1, a fully-applied `List[Int]` has kind 0 (a proper type),
+   *  an `F[_]` slot has its declared arity. Unknown names are treated as proper
+   *  types (kind 0) — conservative, so we never flag an imported type. */
+  private def kindOfSType(t: SType): Int = t match
+    case SType.Named(n, args)        => typeCtorKindsOf(n).map(ks => math.max(0, ks.length - args.length)).getOrElse(0)
+    case SType.HigherKinded(_, arity) => arity
+    case _                            => 0
+
+  /** True when we know a type expression's kind precisely enough to flag a
+   *  mismatch against it. Conservative: an unknown bare name (an imported type
+   *  constructor we have no kind for) is NOT known, so its use as a higher-kinded
+   *  argument is never falsely flagged. */
+  private def argKindKnown(t: SType): Boolean = t match
+    case SType.Named(n, Nil)       => typeCtorKindsOf(n).isDefined || primitiveKnownName(n)
+    case SType.Named(_, _)         => true   // applied → a proper type (kind 0)
+    case SType.HigherKinded(_, _)  => true
+    case _: SType.Tuple | _: SType.Function | _: SType.Union | _: SType.Intersection => true
+    case _                         => false
+
+  private def primitiveKnownName(n: String): Boolean =
+    Set("Int", "Long", "Double", "Float", "BigInt", "Decimal", "BigDecimal", "String",
+        "Boolean", "Char", "Unit", "Any", "Nothing", "Null", "Byte", "Short").contains(n)
+
+  /** Kind-check a type application `name[argTypes]` for a KNOWN constructor:
+   *  (1) arity — the param count must match the number of type arguments;
+   *  (2) higher-kinded bound — each argument's kind must match the declared kind
+   *      of the parameter it fills (so `Functor[Int]` / `Functor[Map]` where
+   *      `trait Functor[F[_]]`, and `Fix[Map]` where `type Fix = [F[_]] =>> …`,
+   *      are flagged). Unknown / imported names and arguments are skipped so no
+   *      valid program is ever falsely flagged. */
+  private def checkTypeApplication(name: String, argTypes: List[SType]): Unit =
+    typeCtorKindsOf(name).foreach { kinds =>
+      if kinds.length != argTypes.length then
+        errors += TypeError(
+          s"Type constructor $name expects ${kinds.length} type argument(s), got ${argTypes.length}",
+          None
+        )
+      else
+        kinds.zip(argTypes).zipWithIndex.foreach { case ((expected, arg), i) =>
+          if argKindKnown(arg) && kindOfSType(arg) != expected then
+            val want = if expected == 0 then "a proper type" else s"a type constructor of kind ${"_, " * (expected - 1)}_ (e.g. F[${List.fill(expected)("_").mkString(", ")}])"
+            val got  = kindOfSType(arg) match
+              case 0 => s"the proper type ${arg.show}"
+              case k => s"${arg.show} (a type constructor of arity $k)"
             errors += TypeError(
-              s"Type lambda $name expects ${lamParams.length} type argument(s), got ${args.length}",
+              s"Type constructor $name: type parameter #${i + 1} expects $want, got $got",
               None
             )
-            expanded
-        case _ => expanded
+        }
     }
 
   /** Convert a scalameta type annotation to our internal SType. */
@@ -1380,15 +1455,19 @@ class Typer(
     // returned `SType.Named(name, args)` lines up with `SType.list/option/map`
     // — then fall through to a generic `Named(head, args)` for any other
     // user-defined parameterised type (`Set[Int]`, `Vector[A]`, etc.).
-    case Type.Apply.After_4_6_0(Type.Name("List"),   argClause) =>
+    case Type.Apply.After_4_6_0(Type.Name("List"),   argClause) if argClause.values.length == 1 =>
       SType.list(typeAnnotToSType(argClause.values.head))
-    case Type.Apply.After_4_6_0(Type.Name("Option"), argClause) =>
+    case Type.Apply.After_4_6_0(Type.Name("Option"), argClause) if argClause.values.length == 1 =>
       SType.option(typeAnnotToSType(argClause.values.head))
     case Type.Apply.After_4_6_0(Type.Name("Map"), argClause) if argClause.values.length == 2 =>
       SType.map(typeAnnotToSType(argClause.values.head), typeAnnotToSType(argClause.values(1)))
     case Type.Apply.After_4_6_0(Type.Name(other), argClause) =>
-      // Check if `other` is a parameterized type alias (e.g. `type Opt[A] = Option[A]`).
+      // Generic parameterised type or alias (`Set[Int]`, `Vector[A]`, `Opt[A]`,
+      // `IntKey[Long]`, a wrong-arity `List[Int, String]`, …). Kind-check the
+      // application (arity + higher-kinded bounds) for known constructors, then
+      // expand if `other` is an alias.
       val typeArgs = argClause.values.map(typeAnnotToSType).toList
+      checkTypeApplication(other, typeArgs)
       expandAlias(other, typeArgs).getOrElse(SType.Named(other, typeArgs))
     case Type.Apply.After_4_6_0(sel: Type.Select, argClause) =>
       SType.Named(showTypePath(sel), argClause.values.map(typeAnnotToSType).toList)
@@ -1768,6 +1847,19 @@ object Typer:
   // typeCheckIncremental always write module names into a child scope so
   // the shared prelude is never mutated.
   private[Typer] val sharedPrelude: Scope = new Typer().createPrelude()
+
+  /** Kind registry for well-known built-in type constructors: name → its type
+   *  parameters' kinds (all `0` — the std collections take proper-type args).
+   *  The list length is the constructor's arity, used for arity + kind checking
+   *  in `checkTypeApplication`. Proper types (Int/String/…) are absent (arity 0,
+   *  treated as kind 0 by `kindOfSType`). */
+  private[typer] val builtinTypeCtorKinds: Map[String, List[Int]] = Map(
+    "List"     -> List(0), "Option"  -> List(0), "Set"      -> List(0),
+    "Vector"   -> List(0), "Seq"     -> List(0), "Iterable" -> List(0),
+    "Iterator" -> List(0), "Array"   -> List(0), "LazyList" -> List(0),
+    "Stream"   -> List(0), "Try"     -> List(0), "Future"   -> List(0),
+    "Map"      -> List(0, 0), "Either" -> List(0, 0)
+  )
 
   def typeCheck(module: Module): TypedModule = Typer().typeCheck(module)
 
