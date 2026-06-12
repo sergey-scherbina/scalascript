@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — perf(interp/jit): JIT-compile supertype type-tests (instead of bailing)
+
+- Follow-up to the seq-124 fix, which **bailed** the JIT to tree-walk on
+  `case _: Supertype`. The JIT now **compiles** it on the default `JavacJitBackend`:
+  a new `JitGlobals.isSubtype(typeName, target)` runtime parent-chain check lets a
+  JIT'd match narrow by a (possibly imported) supertype, so supertype-narrowing
+  dispatch stays JIT-fast — directly relevant to large sealed/`enum` hierarchies
+  (busi's 168-variant `Event`). A supertype `case _: T` routes the match to the
+  if-chain path (statement + expression forms) and emits
+  `JitGlobals.isSubtype(inst.typeName(), "T")`; leaf-type type-tests still switch on
+  the exact tag. First-match order is preserved (a leaf arm before a supertype arm
+  still wins — no case-collision issue). `AsmJitBackend` keeps the correct
+  bail-to-tree-walk (Javac is the default; an asm real-compile is a follow-up).
+- Tests: 3 hot-loop `BugReproTest` cases (50k calls each — statement, expression,
+  leaf-before-supertype ordering) + a `JitLintTest` assertion that the matcher now
+  reports `willJit == true` on Javac (it bailed before).
+
 ## 2026-06-12 — fix(interp): enum → trait hierarchy resolution across module imports (busi seq-124 / seq-125)
 
 - Follow-up to the same-file seq-120/121 fix: it did not cover busi's real layout

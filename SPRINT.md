@@ -15,14 +15,15 @@ work top-to-bottom. Each = its own worktree + commits; verify per the targeted-g
 note in `project_interp_enum_trait_hierarchy_0612` (full `backendInterpreter/test`
 flakily hangs — use the 332-test targeted set if it won't pass).
 
-- [ ] **jit-supertype-type-test-compile** — the seq-124 fix BAILS the JIT to tree-walk
-      on `case _: Supertype`; make it a real JIT compile instead: expand the arm into
-      switch cases for the supertype + all its descendants (reverse-lookup
-      `parentTypes`), so supertype narrowing stays JIT-fast. Both JIT backends
-      (`JavacJitBackend` ~2403, `AsmJitBackend` ~2746/2814). Dedup/bail on a case-label
-      collision (a descendant also matched by an explicit arm). Directly benefits
-      busi's 168-variant Event hierarchy (they narrow by supertype). Regression: a
-      JIT-on test asserting a hot supertype type-test stays correct AND compiles.
+- [x] **jit-supertype-type-test-compile** — DONE 2026-06-12. Took the cleaner
+      **if-chain + runtime `JitGlobals.isSubtype`** route (not switch-arm expansion —
+      avoids the dedup/case-collision edge case): a supertype `case _: T` routes to the
+      if-chain (`walkMatchBody` + `walkMatchExpr`), `walkArmAsIfBranch` gained a
+      `Pat.Typed` case emitting `isSubtype(inst.typeName(), "T")` for supertypes / exact
+      tag for leaves. First-match order preserved. `JavacJitBackend` only (default);
+      `AsmJitBackend` keeps the correct seq-124 bail (asm real-compile = follow-up).
+      Tests: 3 hot-loop `BugReproTest` + `JitLintTest` `willJit==true` guard; 347-test
+      targeted JIT/pattern/sealed/enum gate green.
 - [ ] **full-interp-gate-green** — the seq-124/125 fix was pushed on the 332-test
       targeted gate because full `backendInterpreter/test` intermittently hangs at
       startup (parked-thread environmental hang, jstack-confirmed not-our-code).
