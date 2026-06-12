@@ -101,16 +101,23 @@ flakily hangs Ã¢ÂÂ use the 332-test targeted set if it won't pass).
       overflows on the `while`-accumulator-over-recursive-call shape (now bails
       harmlessly; a real fix restores JIT for that shape). Repro: `def fib(n)Ã¢ÂÂ¦; var
       s=0; while i<35 do s = s + fib(20); Ã¢ÂÂ¦` via the fat jar pre-guard.
-- [ ] **declarative-ui-vnext** Ã¢ÂÂ remaining Scope B follow-ups (none requested by busi):
-      B.3 `rowsPath` on the native/JVM backends and a typed / `key: signalId` `formBody`
-      mapping remain. ✓ B.7 lint for Markdown `toolkit:` *link* references — DONE
-      2026-06-12: `ContentToolkitLint.markdownLinkReferences` walks `module.document` for
-      `ContentInline.Link` with a `toolkit:` href and harvests `action`/`rows`/`source`
-      query params into `collectReferences` (so the CLI early-exit + `lint` both see them);
-      link `signal=`/`showWhen=`/`enabledWhen=` left unlinted (input controls declare those
-      inline → would false-warn). Regress: 6 ContentToolkitLintTest cases + real
-      content-live-rows.ssc / markdown-toolkit-links.ssc lint clean. core 981 green. Spec
-      `specs/declarative-ui-scope-b.md` §B.7.
+- [x] **declarative-ui-vnext** - DONE 2026-06-12. Closed out the Scope B v-next
+      polish bucket (none requested by busi). (1) **Keyed `formBody`**: a field entry
+      may now be a `(jsonKey, signalId)` tuple so the JSON wire key can differ from the
+      signal id (a bare string entry keeps `key == signal`). The ssc tuple serialises to
+      a `[jsonKey, signalId]` 2-array (the `_isTuple` marker is dropped by
+      `JSON.stringify`); `_ssc_ui_buildFormBody` reads `sv[signalId]` and writes under
+      `jsonKey`. `formBody` param widened `List[String]->List[Any]`; no new intrinsic, no
+      interp change (it wraps `fields` opaquely). Regress: `JsGenStdImportTest` keyed-tuple
+      case (full ssc->JS + assembler) + example `content-form-submit.ssc`
+      (`content-form-submit:ok`). 39/39 JsGenStdImportTest green. (2) B.7 Markdown
+      `toolkit:` *link*-reference lint - done earlier 2026-06-12
+      (`ContentToolkitLint.markdownLinkReferences`). (3) The last remaining piece -
+      `rowsPath` on the **native/JVM** backend - is **deferred to BACKLOG** as an
+      architectural item: the JVM backend emits no DataTable/Remote client JS at all
+      (`rowsPath` is a browser-runtime envelope-drill, JS-only by construction), so it is
+      a new JVM client-emission path, not a small wiring change; no consumer has asked
+      for it. Spec `specs/declarative-ui-scope-b.md` B.4+.
 - [x] **scrumban-skill-zero-install** Ã¢ÂÂ DONE 2026-06-12. Codified the write-before-do
       discipline as a new agent-independent `scrumban` skill + made the whole
       `.agents/plugins` submodule usable with zero per-skill install: added

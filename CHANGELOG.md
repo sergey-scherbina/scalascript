@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — feat(declarative-ui): keyed formBody + close declarative-ui-vnext
+
+- A `formBody` field entry may now be a `(jsonKey, signalId)` tuple so the JSON wire key
+  can differ from the signal id (a bare string keeps `key == signal`). The ScalaScript
+  tuple serialises to a `[jsonKey, signalId]` 2-array (the `_isTuple` marker is dropped by
+  `JSON.stringify`); `_ssc_ui_buildFormBody` reads `sv[signalId]` and writes it under
+  `jsonKey`. `formBody`'s param widened `List[String]→List[Any]`; no new intrinsic and no
+  interpreter change (the interp wraps `fields` opaquely). Regress: `JsGenStdImportTest`
+  keyed-tuple case (full ssc→JS + assembler) + example `content-form-submit.ssc`.
+- Closed the `declarative-ui-vnext` v-next polish bucket. The one remaining piece —
+  `rowsPath` on the native/JVM backend — is deferred to BACKLOG as an architectural item
+  (`declarative-ui-rowspath-jvm`): the JVM backend emits no DataTable/Remote client JS at
+  all, so `rowsPath` (a browser-runtime envelope-drill) is JS-only by construction; no
+  consumer has requested a JVM client-emission path.
+
+---
+
 ## 2026-06-12 — fix(jit): break the self-recursive co-emit/tryCompile recursion
 
 - The while-JIT's pure-long callee co-emission and `tryCompile` populated their memo only
