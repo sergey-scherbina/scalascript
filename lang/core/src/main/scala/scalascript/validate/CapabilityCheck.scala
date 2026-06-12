@@ -140,7 +140,66 @@ object CapabilityCheck:
     val unsupported = missing.toList.sortBy(_.toString).map { f =>
       Diagnostic.Unsupported(f, backendId)
     }
-    unsupported ++ unknownBlockLanguages(module, cap) ++ unsupportedDbUrls(module, cap, backendId) ++ unsupportedClientSideDbUrls(module) ++ jvmOnlyExternDefs(module, cap, backendId)
+    unsupported ++ unknownBlockLanguages(module, cap) ++ unsupportedDbUrls(module, cap, backendId) ++ unsupportedClientSideDbUrls(module) ++ jvmOnlyExternDefs(module, cap, backendId) ++ performInWhileLoop(module, cap, backendId)
+
+  /** Honest interim diagnostic for the `effect-cps-loops` gap (SPRINT
+   *  `effect-cps-loops-{jvm,js}` is the real fix). A custom effect `perform`
+   *  reachable inside a `while` loop does not lower to the Free-monad CPS source
+   *  backends (jvm/js): `JvmGenCpsTransform` / `JsGen` have no CPS `Term.While`
+   *  case, so they silently emit broken Scala/JS that only fails downstream in
+   *  scala-cli / node. Detect the shape precisely — a `while` whose body performs
+   *  an in-module effect op (or calls an effectful function) — and refuse
+   *  compilation with a clear message. The interpreter lowers it fine, so this
+   *  fires only for source-emitting CPS backends. Only the module's OWN blocks are
+   *  scanned (imports are `Content.Import`, not inlined source), so library effect
+   *  runners never trip it. See specs/effect-cps-loops.md. */
+  private def performInWhileLoop(
+    module:    ir.NormalizedModule,
+    cap:       Capabilities,
+    backendId: String
+  ): List[Diagnostic] =
+    val isSourceCps = cap.outputs.contains(OutputKind.ScalaSource) ||
+                      cap.outputs.contains(OutputKind.JavaScriptSource)
+    if !isSourceCps then return Nil
+
+    val sources = scala.collection.mutable.ListBuffer.empty[String]
+    def scanContent(c: ir.Content): Unit = c match
+      case ir.Content.CodeBlock(source, _, _) => sources += source
+      case _                                  => ()
+    def scanSection(s: ir.Section): Unit =
+      s.content.foreach(scanContent); s.subsections.foreach(scanSection)
+    module.sections.foreach(scanSection)
+
+    // Cheap pre-gate — a perform-in-loop needs both a loop and an effect surface.
+    if !sources.exists(s => s.contains("while") &&
+        (s.contains("perform") || s.contains("effect "))) then return Nil
+
+    import scala.meta.*
+    val trees = sources.toList.flatMap(s => scalascript.parser.Parser.parseScalaSource(s).map(_.tree))
+    if trees.isEmpty then return Nil
+    val effects = scalascript.transform.EffectAnalysis.analyze(trees)
+    if effects.effectOps.isEmpty && effects.effectfulFuns.isEmpty then return Nil
+
+    def isPerformCall(t: Tree): Boolean = t match
+      case Term.Apply.After_4_6_0(Term.Select(Term.Name(recv), Term.Name(op)), _) =>
+        effects.effectOps.contains(s"$recv.$op")
+      case Term.Apply.After_4_6_0(Term.Name(fn), _) =>
+        effects.effectfulFuns.contains(fn)
+      case _ => false
+    def hasPerform(t: Tree): Boolean =
+      isPerformCall(t) || t.children.exists(hasPerform)
+
+    val found = trees.exists(_.collect {
+      case w: Term.While if hasPerform(w.body) => w
+    }.nonEmpty)
+
+    if found then
+      List(Diagnostic.Generic(
+        s"effect `perform` inside a `while` loop is not yet supported on the '$backendId' " +
+        "backend — the Free-monad CPS codegen has no `while` case and would emit broken code. " +
+        "Refactor the loop to a recursive helper or `foldLeft`, or run it on the interpreter. " +
+        "See specs/effect-cps-loops.md."))
+    else Nil
 
   /** Validate `databases:` URL schemes against the target backend.
    *

@@ -94,6 +94,84 @@ class CapabilityCheckTest extends AnyFunSuite:
     assert(missingFeatures.contains(Feature.MutableState))
     assert(missingFeatures.contains(Feature.WhileLoops))
 
+  // ── effect-cps-loops honesty: perform inside a while-loop ──────────────
+
+  /** A full-capability backend (no missing-feature diagnostics) that emits source
+   *  code — `OutputKind.ScalaSource` triggers the CPS perform-in-loop gate. */
+  private def srcCap(output: OutputKind): Capabilities =
+    Capabilities(
+      features = Feature.values.toSet,
+      outputs  = Set(output),
+      options  = Set.empty,
+      spiRange = SpiVersionRange(SpiVersion.Current, SpiVersion.Current)
+    )
+
+  private val performInWhile =
+    """effect Bump:
+      |  def tick(): Int
+      |def loop(n: Int): Int ! Bump =
+      |  var acc = 0
+      |  var i = 0
+      |  while i < n do
+      |    acc = acc + Bump.tick()
+      |    i = i + 1
+      |  acc""".stripMargin
+
+  private def hasPerformLoopDiag(diags: List[Diagnostic]): Boolean =
+    diags.exists {
+      case Diagnostic.Generic(m, _) => m.contains("while") && m.contains("perform")
+      case _                        => false
+    }
+
+  test("validate — perform inside a while-loop on a Scala-source backend → diagnostic"):
+    val diags = CapabilityCheck.validate(moduleOf(performInWhile), srcCap(OutputKind.ScalaSource), "jvm")
+    assert(hasPerformLoopDiag(diags), s"expected a perform-in-while diagnostic, got: $diags")
+
+  test("validate — perform inside a while-loop on a JS-source backend → diagnostic"):
+    val diags = CapabilityCheck.validate(moduleOf(performInWhile), srcCap(OutputKind.JavaScriptSource), "js")
+    assert(hasPerformLoopDiag(diags), s"expected a perform-in-while diagnostic, got: $diags")
+
+  test("validate — perform inside a while-loop on the interpreter → NO diagnostic"):
+    // ExecutionResult (no source emitted) — the interpreter lowers it fine.
+    val diags = CapabilityCheck.validate(moduleOf(performInWhile), srcCap(OutputKind.ExecutionResult), "interp")
+    assert(!hasPerformLoopDiag(diags), s"interpreter must not flag perform-in-while, got: $diags")
+
+  test("validate — NON-loop custom effect on a Scala-source backend → NO diagnostic"):
+    // Two performs, no while — this compiles + runs on jvm today, must not be flagged.
+    val nonLoop =
+      """effect Bump:
+        |  def tick(): Int
+        |def once(): Int ! Bump =
+        |  val a = Bump.tick()
+        |  val b = Bump.tick()
+        |  a + b""".stripMargin
+    val diags = CapabilityCheck.validate(moduleOf(nonLoop), srcCap(OutputKind.ScalaSource), "jvm")
+    assert(!hasPerformLoopDiag(diags), s"non-loop effect must not be flagged, got: $diags")
+
+  test("validate — pure while-loop (no perform) on a Scala-source backend → NO diagnostic"):
+    val pureLoop =
+      """effect Bump:
+        |  def tick(): Int
+        |def sum(n: Int): Int =
+        |  var acc = 0
+        |  var i = 0
+        |  while i < n do
+        |    acc = acc + i
+        |    i = i + 1
+        |  acc""".stripMargin
+    val diags = CapabilityCheck.validate(moduleOf(pureLoop), srcCap(OutputKind.ScalaSource), "jvm")
+    assert(!hasPerformLoopDiag(diags), s"a pure while-loop must not be flagged, got: $diags")
+
+  test("validate — the real bench/corpus/effect-oneshot.ssc is flagged on jvm"):
+    // The canonical corpus file that surfaced this gap (jvm/js report n/a). Guarded
+    // on existence so a stray CWD doesn't fail the suite.
+    val f = os.pwd / "bench" / "corpus" / "effect-oneshot.ssc"
+    if os.exists(f) then
+      val m = Normalize(Parser.parse(os.read(f)))
+      val diags = CapabilityCheck.validate(m, srcCap(OutputKind.ScalaSource), "jvm")
+      assert(hasPerformLoopDiag(diags),
+        s"effect-oneshot.ssc must be flagged as perform-in-while on jvm, got: $diags")
+
   // ── Block-language axis (v1.25 Phase 3a) ───────────────────────────────
 
   /** Module with a `node.js` fenced block alongside a regular scalascript
