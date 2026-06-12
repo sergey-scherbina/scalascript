@@ -1,11 +1,26 @@
 # Effects: `perform` inside an imperative loop (jvm/js codegen gap)
 
-Status: **JVM DONE 2026-06-12 (`effect-cps-loops-jvm`); JS still open
-(`effect-cps-loops-js`).** The JVM backend now lowers a `perform` inside a `var`+`while`
-loop correctly (see "JVM fix — landed" below); verified end-to-end via scala-cli
-(one-shot → 5, multi-shot → 204, both corpus files compile). The `effect-cps-loops-honesty`
-gate is now **JS-only** (jvm is no longer refused). The JS lowering (`effect-cps-loops-js`)
-mirrors the same shape in `JsGen` and is the remaining task. This doc is the deep write-up.
+Status: **DONE on JVM + JS 2026-06-12 (`effect-cps-loops-{jvm,js}`).** A `perform`
+inside a `var`+`while` loop now lowers + runs on BOTH source backends. JVM: verified via
+scala-cli (one-shot → 5, multi-shot → 204, both corpus files compile). JS: verified via
+node (one-shot → 5, → 30). The interim `effect-cps-loops-honesty` gate was **removed**
+(its gap is closed). A SEPARATE, unrelated JS bug remains — a *self-handling* CPS function
+(one that `handle`s its own effects, no unresolved perform) returns an un-run lazy
+`_FlatMap` on JS, so `effect-multishot` stays `n/a` on JS; tracked in `BUGS.md`
+(`js-self-handling-cps-fn-not-run`), NOT a perform-in-loop bug. This doc is the deep write-up.
+
+## JS fix — landed 2026-06-12
+
+Mirrors the JVM shape in `JsGenCpsCodegen.genCpsExpr`, simpler because JS arrow-function
+params are mutable (no type inference / casts needed):
+- A `Term.Assign` now threads its rhs through `_bind` (so a `perform` in it runs) then
+  mutates the target: `_bind(genCpsExpr(rhs), v => { lhs = v; return undefined; })`.
+  Without this the assign fell to `genExpr` and the perform was emitted as a raw
+  `_dispatch` whose Computation result was never run.
+- A `Term.While` lowers to a trampolined recursive helper (was `genExpr(t)`, a raw loop):
+  `(() => { const _w = () => cond ? _bind(<cps body>, () => _w()) : undefined; return _w(); })()`.
+  `_bind` is lazy on a Computation, so the runner trampolines it without growing the JS
+  stack. The CPS `var`s stay mutable arrow-function params (`_bind(0, acc => …)`).
 
 ## JVM fix — landed 2026-06-12
 

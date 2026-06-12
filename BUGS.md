@@ -14,6 +14,42 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ---
 
+## js-self-handling-cps-fn-not-run — `open` (found locally, 2026-06-12)
+
+- **Found:** while landing `effect-cps-loops-js` (the perform-in-while lowering).
+- **Symptom:** on the **JS backend only**, a function that handles its OWN effects
+  internally (so it has no unresolved `perform`) but is still CPS-emitted (because its
+  body contains `handle`/effect machinery) returns an **un-run lazy `_FlatMap`**. A
+  value-position call to it (`println(workload())`) prints `[object Object]` instead of
+  the result. Blocks the `effect-multishot` corpus on JS (and any self-handling block).
+- **Repro (JS only; jvm + interp are correct):**
+  ```scalascript
+  multi effect NonDet:
+    def choose(options: List[Int]): Int
+  def program(): Int ! NonDet =
+    val a = NonDet.choose(List(1, 2, 3))
+    a
+  def workload(): Int =
+    val all = handle(program()) { case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt)) }
+    all.length
+  println(workload())   // JS: prints [object Object]; expected 3
+  ```
+  Note: NO `while` needed — this is **not** a perform-in-loop bug; the `while` fix is
+  orthogonal. `effect-oneshot` (where `workload` is a *direct* `handle(...)` → a runner
+  call → plain value) works on JS.
+- **Root cause:** JS `_bind(c, f)` is **always lazy** (`return new _FlatMap(c, f)`),
+  unlike JVM's `_bind` which is eager on a non-`Perform` value. A CPS'd self-handling
+  function's chain has no `Perform` nodes, so on JVM it eager-resolves to a plain value,
+  but on JS it stays a lazy `_FlatMap` that nothing runs at the (non-CPS) call site.
+- **Verified fix hypothesis:** wrapping the value-position call in `_run` resolves it
+  (`_run(workload())` → 3 / 12 / 204). The fix is to emit `_run(...)` at a non-CPS value
+  boundary for a call whose result is a CPS'd (effectful) function — `_run` is idempotent
+  on plain values, so it's safe for the direct-runner case too. Needs care in `genApply`
+  to avoid wrapping calls that are themselves inside a CPS context (those go through
+  `genCpsApply`). HIGH-ish risk — gate on the full effect suite + node tests.
+- **Status:** open. The `effect-cps-loops-js` perform-in-while lowering landed without
+  it; `effect-multishot` stays `n/a` on JS until this is fixed.
+
 ## interp-module-loader-dedup — `done` (busi confirmed, rozum seq-137)
 
 - **Reported:** busi (`@busi-claude-code`), rozum `scalascript` seq-132 (2026-06-12).
