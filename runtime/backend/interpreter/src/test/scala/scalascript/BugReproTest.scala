@@ -504,3 +504,21 @@ while n < 50000 do
   n = n + 1
 println(s + "|" + label(Other("x")))""") shouldBe "vat:23|tax"
   }
+
+  // A `while` accumulator that calls a recursive fn triggered a StackOverflowError
+  // in the JIT while-loop codegen (walkLocalSlotCtx) on the *real CLI* (fat jar /
+  // bin/ssc) — and crashed the program instead of bailing. The fix wraps the JIT
+  // compile entries so any codegen crash bails to tree-walk. NOTE: in this sbt
+  // harness the javac JIT can't find its runtime classes and bails anyway (so this
+  // asserts the shape's CORRECTNESS; the crash-safety itself is verified on the fat
+  // jar). If the JIT classpath is ever fixed for sbt, this also guards the crash.
+  test("while accumulator over a recursive call computes correctly (JIT codegen SO shape)") {
+    captured(
+"""def fib(n: Int): Int = if n < 2 then n else fib(n - 1) + fib(n - 2)
+var i = 0
+var s = 0
+while i < 35 do
+  s = s + fib(20)
+  i = i + 1
+println(s)""") shouldBe "236775"
+  }

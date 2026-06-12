@@ -56,7 +56,11 @@ object AsmJitBackend extends JitBackend:
       if hit != null then
         return if hit eq BailSentinel then null else hit.asInstanceOf[JitResult]
     }
-    val result = doCompile(f, interp)
+    // A codegen bug must bail to tree-walk, never crash the user's program
+    // (parity with JavacJitBackend).
+    val result =
+      try doCompile(f, interp)
+      catch case _: Throwable => null
     cache.synchronized {
       cache.put(body, if result == null then BailSentinel else result.asInstanceOf[AnyRef])
     }

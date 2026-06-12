@@ -74,7 +74,14 @@ object JavacJitBackend extends JitBackend:
       if cached != null then
         return if cached eq BailSentinel then null else cached.asInstanceOf[JitResult]
     }
-    val result = doCompile(f, interp)
+    // A codegen bug (e.g. a `walkLocalSlotCtx` recursion → StackOverflowError on
+    // some shapes) must NEVER crash the user's program — it must bail to tree-walk.
+    // The downstream javac/classload steps are already guarded; this guards the
+    // source-generation itself (which the sbt test harness never exercises because
+    // there the JIT can't find its runtime classes and bails earlier).
+    val result =
+      try doCompile(f, interp)
+      catch case _: Throwable => null
     cache.synchronized {
       cache.put(body, if result == null then BailSentinel else result.asInstanceOf[AnyRef])
     }

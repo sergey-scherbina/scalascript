@@ -255,9 +255,13 @@ private[interpreter] object EvalRuntime:
             // backend can inline val-bound lambda call sites in while bodies.
             case (k, v: Value.FunV)      => (k, v: Value)
           }.toMap
-        val e = scalascript.interpreter.vm.jit.JitBackend.default.tryCompileWhileLong(
-          t.expr, body.names, body.rhs, interp, localRefs
-        )
+        // A while-loop codegen bug (e.g. a walkLocalSlotCtx recursion →
+        // StackOverflowError on some shapes) must bail to the tree-walk loop, never
+        // crash the program.
+        val e =
+          try scalascript.interpreter.vm.jit.JitBackend.default.tryCompileWhileLong(
+                t.expr, body.names, body.rhs, interp, localRefs)
+          catch case _: Throwable => null
         interp.whileJitCache.put(t, if e == null then WhileJitMiss else e.asInstanceOf[AnyRef])
         e
     if entry == null then return null
@@ -353,10 +357,11 @@ private[interpreter] object EvalRuntime:
         if cached eq WhileJitMiss then return null
         else cached.asInstanceOf[scalascript.interpreter.vm.jit.WhileJitEntry]
       else
-        val e = scalascript.interpreter.vm.jit.JitBackend.default.tryCompileWhileMixed(
-          t.expr, body.names, body.rhs,
-          foreachApply, accName, accIsDouble, interp
-        )
+        val e =
+          try scalascript.interpreter.vm.jit.JitBackend.default.tryCompileWhileMixed(
+                t.expr, body.names, body.rhs,
+                foreachApply, accName, accIsDouble, interp)
+          catch case _: Throwable => null
         interp.whileMixedJitCache.put(foreachApply, if e == null then WhileJitMiss else e.asInstanceOf[AnyRef])
         e
     if entry == null then return null
@@ -930,8 +935,11 @@ private[interpreter] object EvalRuntime:
     val allSlotNames = Array.tabulate(slotOfName.size)(slotOfName.nameAt)
 
     // Try JIT compile — cache ensures this only compiles once per body identity.
-    val emitRunner = scalascript.interpreter.vm.jit.JitBackend.default
-      .tryCompileWhileLongEmit(whileTerm.expr, emitArgs, allSlotNames, mixedBody.names.toArray, mixedBody.rhs.toArray, interp)
+    // A codegen bug must bail to tree-walk, never crash the program.
+    val emitRunner =
+      try scalascript.interpreter.vm.jit.JitBackend.default
+            .tryCompileWhileLongEmit(whileTerm.expr, emitArgs, allSlotNames, mixedBody.names.toArray, mixedBody.rhs.toArray, interp)
+      catch case _: Throwable => null
 
     // Pre-allocate Long buffer. 65536 covers the vast majority of loop counts.
     // The JIT-generated inner loop has no bounds check; AIOOB is the safety
