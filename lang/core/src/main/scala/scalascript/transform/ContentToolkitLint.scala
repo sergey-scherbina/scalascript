@@ -38,8 +38,11 @@ import scalascript.typer.TypeError
  *  the import graph is incomplete (a hidden registration must never warn).
  *
  *  Scope: `action` / `source` / `rows` / `signal` / `showWhen` / `enabledWhen`
- *  YAML control references. Markdown `toolkit:` *link* references and shape
- *  checking are still deferred.
+ *  YAML control references, **plus** `action` / `rows` / `source` references on
+ *  Markdown `toolkit:` *links* (`[Invoices](toolkit:table?rows=invoices)`, Scope
+ *  B.7). Link `signal=`/`showWhen=`/`enabledWhen=` are not linted because an input
+ *  control may *declare* its signal inline (ambiguous → would false-warn). Shape
+ *  checking is still deferred.
  */
 object ContentToolkitLint:
 
@@ -124,6 +127,53 @@ object ContentToolkitLint:
       }
       s.subsections.foreach(walkSection)
     module.sections.foreach(walkSection)
+    refs.toList ++ markdownLinkReferences(module)
+
+  // Query keys on a Markdown `toolkit:` link that REFERENCE a registration (vs.
+  // `signal=`/`showWhen=`/`enabledWhen=`, which an input control may *declare*
+  // inline — ambiguous, so we don't lint those here to stay false-positive-free).
+  private val ToolkitLinkRefKeys = Set("action", "rows", "source")
+
+  /** Harvest `action` / `rows` / `source` references from every Markdown
+   *  `toolkit:` link (`[label](toolkit:table?rows=invoices)`), which live in the
+   *  document tree (`module.document`) rather than in `@ui=toolkit` YAML blocks.
+   *  Scope B.7: these are cross-checked against the same registration universe as
+   *  the YAML control references. No reliable per-link line number is available
+   *  (inline nodes carry no span), so references default to line 1. */
+  private def markdownLinkReferences(module: ast.Module): List[Reference] =
+    val refs = scala.collection.mutable.ListBuffer.empty[Reference]
+    def harvest(href: String): Unit =
+      val q = href.indexOf('?')
+      if q < 0 then return
+      href.substring(q + 1).split("&").foreach { pair =>
+        val kv = pair.split("=", 2)
+        if kv.length == 2 then
+          val key = kv(0)
+          val id  = kv(1)
+          if ToolkitLinkRefKeys.contains(key) && id.nonEmpty && !id.startsWith("$") then
+            refs += Reference(refKindFor(key), id, 1)
+      }
+    def inline(i: ast.ContentInline): Unit = i match
+      case ast.ContentInline.Link(label, href, _) =>
+        if href.startsWith("toolkit:") then harvest(href)
+        label.foreach(inline)
+      case ast.ContentInline.Emphasis(ch) => ch.foreach(inline)
+      case ast.ContentInline.Strong(ch)   => ch.foreach(inline)
+      case _                              => ()
+    def block(b: ast.ContentBlock): Unit = b match
+      case ast.ContentBlock.Paragraph(inlines, _)    => inlines.foreach(inline)
+      case ast.ContentBlock.BulletList(items, _)     => items.foreach(_.foreach(block))
+      case ast.ContentBlock.OrderedList(items, _, _) => items.foreach(_.foreach(block))
+      case ast.ContentBlock.Table(headers, rows, _, _) =>
+        headers.foreach(_.foreach(inline))
+        rows.foreach(_.foreach(_.foreach(inline)))
+      case _                                         => ()
+    def section(s: ast.SectionContent): Unit =
+      s.blocks.foreach(block); s.children.foreach(section)
+    module.document.foreach { doc =>
+      doc.blocks.foreach(block)
+      doc.sections.foreach(section)
+    }
     refs.toList
 
   private def isToolkitBlock(cb: ast.Content.CodeBlock): Boolean =

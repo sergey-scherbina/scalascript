@@ -175,3 +175,64 @@ class ContentToolkitLintTest extends AnyFunSuite:
     val code = """val a = contentAction("save", h)"""
     val ws = ContentToolkitLint.lint(mod(signalPanel, code), Registrations.empty)
     assert(!ws.exists(_.msg.contains("signal")), s"expected no signal warnings, got ${ws.map(_.msg)}")
+
+  // ── Markdown `toolkit:` link references (Scope B.7) ─────────────────────────
+
+  /** Module pairing Markdown body (incl. `toolkit:` links) with a registration block. */
+  private def modMd(markdown: String, code: String): scalascript.ast.Module =
+    Parser.parse(
+      s"""# Panel
+         |
+         |$markdown
+         |
+         |```scalascript
+         |$code
+         |```
+         |""".stripMargin)
+
+  test("collectReferences harvests rows/action/source from Markdown toolkit links"):
+    val md =
+      """- [Invoices](toolkit:table?rows=invoices)
+        |- [Refresh](toolkit:button?action=refresh)
+        |- [Bills](toolkit:table?source=bills)""".stripMargin
+    val refs = ContentToolkitLint.collectReferences(modMd(md, "val x = 1"))
+    assert(refs.map(r => (r.kind, r.id)).toSet ==
+      Set((RefKind.Source, "invoices"), (RefKind.Action, "refresh"), (RefKind.Source, "bills")),
+      s"got: ${refs.map(r => (r.kind, r.id))}")
+
+  test("collectReferences does NOT harvest signal/enabledWhen from a Markdown link (ambiguous)"):
+    // An input control declares its signal inline — linting it would false-warn.
+    val md = "- [Apply](toolkit:button?signal=applyStatus&value=x&enabledWhen=enabled)"
+    assert(ContentToolkitLint.collectReferences(modMd(md, "val x = 1")).isEmpty)
+
+  test("collectReferences skips a non-toolkit Markdown link"):
+    val md = "- [Docs](https://example.com/page?action=refresh)"
+    assert(ContentToolkitLint.collectReferences(modMd(md, "val x = 1")).isEmpty)
+
+  test("lint warns on an unregistered Markdown `toolkit:table?rows=` id"):
+    val md = "- [Invoices](toolkit:table?rows=invioces)"   // typo'd id
+    val code = """val s = contentRows("invoices", r, c)"""
+    val ws = ContentToolkitLint.lint(modMd(md, code), Registrations.empty)
+    assert(ws.size == 1, s"expected 1 warning, got ${ws.map(_.msg)}")
+    assert(ws.head.msg.contains("data source 'invioces'"))
+    assert(ws.head.msg.contains("did you mean 'invoices'"))
+
+  test("lint does NOT warn when the Markdown link id IS registered"):
+    val md = "- [Invoices](toolkit:table?rows=invoices)"
+    val code = """val s = contentRows("invoices", r, c)"""
+    assert(ContentToolkitLint.lint(modMd(md, code), Registrations.empty).isEmpty)
+
+  test("lint is conservative — a Markdown link ref with an empty registry → no warning"):
+    val md = "- [Invoices](toolkit:table?rows=invoices)"
+    assert(ContentToolkitLint.lint(modMd(md, "val x = 1"), Registrations.empty).isEmpty)
+
+  test("real toolkit-link examples lint clean (no false positives)"):
+    // Guarded on existence so a stray CWD doesn't fail the suite. content-live-rows
+    // registers its `rows=invoices` source in-module; markdown-toolkit-links uses only
+    // signal/value controls (not linted) — both must produce zero warnings.
+    for name <- List("content-live-rows.ssc", "markdown-toolkit-links.ssc") do
+      val f = os.pwd / "examples" / name
+      if os.exists(f) then
+        val m  = Parser.parse(os.read(f))
+        val ws = ContentToolkitLint.lint(m, Registrations.empty)
+        assert(ws.isEmpty, s"$name should lint clean, got: ${ws.map(_.msg)}")
