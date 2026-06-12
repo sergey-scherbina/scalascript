@@ -1,0 +1,6 @@
+effect-cps-loops-js 2026-06-12T19:10:22Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-12T19:10:22Z
+status: in-progress
+done-so-far: jvm landed (8a91c9c7c); mirror the same shape in JsGen CPS codegen
+next: map JsGen CPS block emission; var->real let/var, while->trampoline, effectful-assign threading; verify via node; remove JS from honesty gate when done
