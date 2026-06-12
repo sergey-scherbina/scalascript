@@ -1,6 +1,0 @@
-declarative-ui-vnext-b7-mdlink-lint 2026-06-12T16:43:12Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-12T16:43:12Z
-status: in-progress
-done-so-far: design done — ContentToolkitLint extend collectReferences to harvest action/rows/source refs from Markdown toolkit: links in module.document
-next: add markdownLinkReferences + fold into collectReferences; tests; verify examples don't false-warn

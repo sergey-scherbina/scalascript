@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — feat(lint): `@ui=toolkit` lint extends to Markdown `toolkit:` link references (B.7)
+
+- `ContentToolkitLint` now harvests `action` / `rows` / `source` references from Markdown
+  `toolkit:` links (`[Invoices](toolkit:table?rows=invoices)`) — which live in the document
+  tree (`module.document`) — and feeds them through the same registration cross-check as the
+  `@ui=toolkit` YAML control references (typo hint + conservative non-empty-registry gate).
+  Folded into `collectReferences` so a Markdown-only module is linted too. Link `signal=`/
+  `showWhen=`/`enabledWhen=` are deliberately not linted (input controls may declare a signal
+  inline → would false-warn). Regress: 6 `ContentToolkitLintTest` cases + the real
+  `examples/content-live-rows.ssc` and `examples/markdown-toolkit-links.ssc` lint clean.
+  core 981 green. (declarative-ui-vnext B.7; B.3 `rowsPath` + typed `formBody` still open.)
+
 ## 2026-06-12 — feat(validate): honest diagnostic for effect `perform` inside a while-loop (jvm/js)
 
 - A custom effect performed inside an imperative `while` loop does not lower to the

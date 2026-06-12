@@ -92,8 +92,15 @@ flakily hangs Ã¢ÂÂ use the 332-test targeted set if it won't pass).
       harmlessly; a real fix restores JIT for that shape). Repro: `def fib(n)Ã¢ÂÂ¦; var
       s=0; while i<35 do s = s + fib(20); Ã¢ÂÂ¦` via the fat jar pre-guard.
 - [ ] **declarative-ui-vnext** Ã¢ÂÂ remaining Scope B follow-ups (none requested by busi):
-      B.3 `rowsPath` on the native/JVM backends, B.7 lint for Markdown `toolkit:`
-      *link* references, and a typed / `key: signalId` `formBody` mapping. All small.
+      B.3 `rowsPath` on the native/JVM backends and a typed / `key: signalId` `formBody`
+      mapping remain. ✓ B.7 lint for Markdown `toolkit:` *link* references — DONE
+      2026-06-12: `ContentToolkitLint.markdownLinkReferences` walks `module.document` for
+      `ContentInline.Link` with a `toolkit:` href and harvests `action`/`rows`/`source`
+      query params into `collectReferences` (so the CLI early-exit + `lint` both see them);
+      link `signal=`/`showWhen=`/`enabledWhen=` left unlinted (input controls declare those
+      inline → would false-warn). Regress: 6 ContentToolkitLintTest cases + real
+      content-live-rows.ssc / markdown-toolkit-links.ssc lint clean. core 981 green. Spec
+      `specs/declarative-ui-scope-b.md` §B.7.
 - [x] **scrumban-skill-zero-install** Ã¢ÂÂ DONE 2026-06-12. Codified the write-before-do
       discipline as a new agent-independent `scrumban` skill + made the whole
       `.agents/plugins` submodule usable with zero per-skill install: added
