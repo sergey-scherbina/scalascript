@@ -1,7 +1,33 @@
-# Interpreter — enum → trait hierarchy resolution (busi seq-120 / seq-121)
+# Interpreter — enum → trait hierarchy resolution (busi seq-120 / seq-121 / seq-124-125)
 
-**Status:** implemented 2026-06-12.
-**Source:** busi rozum seq-120 + seq-121 (two symptoms of one root).
+**Status:** implemented 2026-06-12 (same-file); cross-module follow-up 2026-06-12.
+**Source:** busi rozum seq-120 + seq-121 (same-file), seq-124 + seq-125 (cross-module).
+
+## Cross-module follow-up (busi seq-124 / seq-125)
+
+The same-file fix did not cover busi's real layout — types declared in one module,
+values/calls in another via `[name](path)`. Two further gaps (one per symptom):
+
+- **Trait methods not merged across imports (seq-125).** The import merge propagated
+  `parentTypes`, `typeFieldOrder`, … but **not** `typeMethods`, so a concrete method
+  on an imported trait (`e.kind`) was absent on instances of imported enum-cases
+  (`No field 'kind'`). Fix: `Interpreter.exportedTypeMethods` + a per-type union
+  merge in `SectionRuntime` next to the `parentTypes` merge.
+- **JIT type-test against a supertype is exact-match (seq-124).** `parentTypes` *is*
+  merged across imports, so the **tree-walk** type-test already worked cross-module;
+  but a function like `eventIsCore(e) = e match { case _: CoreEvent => … }` gets
+  **JIT-compiled**, and the JIT lowers `case _: T` to a switch on the **exact** type
+  tag/name — which can never see a subtype instance, so it returned `false`. (This is
+  a *general* JIT gap for any JIT'd supertype type-test; it only surfaced
+  cross-module because there the matcher function gets compiled — same-file matchers
+  in `main` run once and never JIT.) Fix: both JIT backends (`JavacJitBackend`,
+  `AsmJitBackend`) **bail to tree-walk** when any match arm type-tests a supertype (a
+  type that appears as a value in `parentTypes`, i.e. has descendants); the tree-walk
+  path walks the parent chain correctly. Leaf-type type-tests still JIT.
+
+Regression: `EnumTraitCrossModuleTest` (2-file — type-test `true` + `a.kind`
+`k:1000`), run with the JIT **on** (default), so it actually exercises the compiled
+path the same-file `BugReproTest` cases do not.
 
 ## Problem
 
