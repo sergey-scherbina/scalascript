@@ -1,0 +1,6 @@
+type-lambda-p3b-kind-checking 2026-06-12T15:46:52Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-12T15:46:52Z
+status: in-progress
+done-so-far: design done — typeCtorKinds registry (mirrors classFields, unsnapshotted) + checkTypeApplication (arity + HK-bound) in typeAnnotToSType; expandAlias loses arity errors to the checker
+next: add registry + checker + tests; conservative for unknown/imported names (no false positives)
