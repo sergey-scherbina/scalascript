@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — fix(interp): enum → trait hierarchy resolution across module imports (busi seq-124 / seq-125)
+
+- Follow-up to the same-file seq-120/121 fix: it did not cover busi's real layout
+  (types declared in one module, used in another via `[name](path)`). Two further
+  gaps, one per symptom:
+  - **Trait methods (`e.kind`) cross-module → `No field 'kind'`.** The import merge
+    propagated `parentTypes` etc. but **not** `typeMethods`, so concrete methods of
+    an imported trait were absent on instances of imported enum-cases. Fixed with
+    `Interpreter.exportedTypeMethods` + a per-type union merge in `SectionRuntime`.
+  - **Type-test by a supertype (`case _: CoreEvent`) cross-module → `false`.** The
+    tree-walk path already worked (`parentTypes` *is* merged), but the matcher
+    function gets **JIT-compiled**, and the JIT lowered `case _: T` to an **exact**
+    type-tag switch that can never see a subtype instance. (A general JIT gap for any
+    JIT'd supertype type-test; only surfaced cross-module because there the matcher
+    is compiled — same-file matchers in `main` run once and never JIT.) Both JIT
+    backends now **bail to tree-walk** when an arm type-tests a supertype (a type
+    with descendants in `parentTypes`); leaf-type type-tests still JIT.
+- 2-file regression `EnumTraitCrossModuleTest`, run with the JIT on (default).
+
 ## 2026-06-12 — feat(declarative-ui): `formBody` request-body builder for `@ui=toolkit` actions (Scope B.4+)
 
 - A `fetchActionWith` action body can now be a `formBody([field, …])` that assembles
