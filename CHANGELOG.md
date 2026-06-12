@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — fix(typer): nominal subtyping for `case class … extends Trait`
+
+- busi (testbed) hit a confusing, name-dependent error building its
+  `RepositoryBackend` trait SPI: `case class C() extends T; def f(): T = C()`
+  errored `Type mismatch: expected T, found C` — but only for multi-character
+  names (`A`/`B` passed). Root cause: `Typer.isCompatible` had **no** nominal
+  subtype rule; the only `C <: T` upcast that ever passed was an accidental
+  `looksLikeTypeVar` match on single-uppercase names.
+- Fix (additive): a `classParents` registry from each class/case-class/trait/enum
+  `extends` template inits, a transitive cycle-guarded `nominalSubtype`, and an
+  `isCompatible` clause. `NominalSubtypeTest` (5 cases) + full typer suite (193)
+  green; negative case (unrelated class) still errors. Spec
+  `specs/typer-nominal-subtype.md`.
+
 ## 2026-06-12 — feat(declarative-ui): keyed formBody + close declarative-ui-vnext
 
 - A `formBody` field entry may now be a `(jsonKey, signalId)` tuple so the JSON wire key
