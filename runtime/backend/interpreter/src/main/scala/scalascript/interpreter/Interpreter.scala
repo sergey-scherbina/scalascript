@@ -659,6 +659,20 @@ class Interpreter(
   private[interpreter] val paramsArrayCache: java.util.IdentityHashMap[scala.meta.Term, Array[String]] =
     java.util.IdentityHashMap()
 
+  /** Cache "does this method body reference `this`?" keyed by body identity, so a
+   *  type-method dispatch only pays the `this`-binding allocation for bodies that
+   *  actually use it (busi seq-121). */
+  private val methodUsesThisCache: java.util.IdentityHashMap[scala.meta.Tree, java.lang.Boolean] =
+    java.util.IdentityHashMap()
+  private[interpreter] def methodUsesThis(body: scala.meta.Tree): Boolean =
+    val cached = methodUsesThisCache.get(body)
+    if cached != null then cached.booleanValue
+    else
+      var found = false
+      body.traverse { case _: scala.meta.Term.This => found = true }
+      methodUsesThisCache.put(body, java.lang.Boolean.valueOf(found))
+      found
+
   /** Cache (paramNames, paramTypes) for each lambda parameter clause.
    *  A lambda evaluated in a tight loop recreates these Lists on every iteration;
    *  caching by ParamClause identity saves O(n_params) allocations per pass. */

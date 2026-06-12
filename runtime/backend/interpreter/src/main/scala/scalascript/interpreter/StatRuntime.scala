@@ -336,6 +336,11 @@ private[interpreter] object StatRuntime:
 
     case d: Defn.Enum =>
       val enumName = d.name.value
+      // Record the enum's own supertype so a type-test / method dispatch can walk
+      // the full hierarchy `case → enum → (intermediate trait) → trait`.  Without
+      // this the parent chain broke at the enum (`case _: TaxEvent` on a
+      // `PolishTaxEvent` case returned false — busi seq-120).
+      recordFirstParent(enumName, d.templ.inits, interp)
       val caseFields = mutable.Map.empty[String, Value]
       // Parameterless cases, in declaration order, for `EnumName.values`.
       val enumValues = mutable.ListBuffer.empty[Value]
@@ -398,6 +403,22 @@ private[interpreter] object StatRuntime:
       val traitName = d.name.value
       if !env.contains(traitName) then
         env(traitName) = Value.InstanceV(traitName, Map.empty)
+      // Record the trait's own supertype so `sealed trait B extends A` extends the
+      // type-test / dispatch parent chain up to `A` (busi seq-120).
+      recordFirstParent(traitName, d.templ.inits, interp)
+      // Register the trait's *concrete* methods (a `def kind = …` body, not an
+      // abstract `Decl.Def`) so they dispatch on instances of subtypes that extend
+      // the trait — the parent-chain method lookup walks here (busi seq-121).
+      val traitEnv = envView
+      val traitMethodDefs: Map[String, Value.FunV] = d.templ.body.stats.collect {
+        case dd: Defn.Def =>
+          val mparamVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
+          dd.name.value -> Value.FunV(mparamVals.map(_.name.value), dd.body, traitEnv,
+                                      dd.name.value, mparamVals.map(_.default))
+      }.toMap
+      if traitMethodDefs.nonEmpty then
+        interp.typeMethods(traitName) =
+          interp.typeMethods.get(traitName).fold(traitMethodDefs)(_ ++ traitMethodDefs)
       DerivesRuntime.registerMirror(traitName, env, interp)
       // Store abstract method names for remoteStub[Api] trait-method derivation.
       val abstractMethods = d.templ.body.stats.collect { case m: Decl.Def => m.name.value }
@@ -541,6 +562,18 @@ private[interpreter] object StatRuntime:
     case scalascript.ast.SchemaDefault.IntValue(value) => Value.intV(value)
     case scalascript.ast.SchemaDefault.DoubleValue(value) => Value.doubleV(value)
     case scalascript.ast.SchemaDefault.StringValue(value) => Value.StringV(value)
+
+  /** Record the first declared supertype of `typeName` into `interp.parentTypes`
+   *  (the single-parent chain walked by type-tests and method dispatch).  Used for
+   *  classes, enums and traits so `case → enum → trait → trait` resolves end-to-end. */
+  private def recordFirstParent(typeName: String, inits: List[Init], interp: Interpreter): Unit =
+    inits.headOption.foreach { init =>
+      val pn = init.tpe match
+        case Type.Name(n)   => n
+        case ta: Type.Apply => ta.tpe match { case Type.Name(n) => n; case _ => "" }
+        case _              => ""
+      if pn.nonEmpty then interp.parentTypes(typeName) = pn
+    }
 
   private def hasAnnot(mods: List[Mod], name: String): Boolean =
     mods.exists {

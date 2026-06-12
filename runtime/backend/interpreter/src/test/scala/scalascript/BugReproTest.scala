@@ -373,3 +373,76 @@ val m = events.foldLeft(Map[String, P]())((acc, ev) =>
 println(m("x").a)
 println(m.values.toList.sortBy(p => p.a).map(p => p.a).mkString(","))""") shouldBe "4\n2,4"
   }
+
+  // ── enum → intermediate-trait → trait hierarchy resolution (busi seq-120/121) ──
+
+  test("type-test by an intermediate sealed-trait supertype (busi seq-120)") {
+    captured(
+"""sealed trait Event
+sealed trait TaxEvent extends Event
+enum PolishTaxEvent extends TaxEvent:
+  case PolishVatConfigured(code: String)
+
+val p: Event = PolishVatConfigured("23")
+val r = p match
+  case _: TaxEvent => "yes"
+  case _ => "no"
+println(r)""") shouldBe "yes"
+  }
+
+  test("type-test by the top trait and the enum, through the chain (busi seq-120)") {
+    captured(
+"""sealed trait Event
+sealed trait TaxEvent extends Event
+enum PolishTaxEvent extends TaxEvent:
+  case PolishVatConfigured(code: String)
+
+val p: Event = PolishVatConfigured("23")
+println(p match { case _: Event => "e"; case _ => "x" })
+println(p match { case _: PolishTaxEvent => "pte"; case _ => "x" })
+println(p match { case _: TaxEvent => "te"; case _ => "x" })""") shouldBe "e\npte\nte"
+  }
+
+  test("concrete method on a sealed trait dispatches on enum-case instances (busi seq-121)") {
+    captured(
+"""sealed trait Event:
+  def kind: String = this match
+    case AccountCreated(c) => "ledger:" + c
+    case PartyCreated(i)   => "party:" + i
+enum LedgerEvent extends Event:
+  case AccountCreated(code: String)
+enum PartyEvent extends Event:
+  case PartyCreated(id: String)
+
+val e: Event = AccountCreated("1000")
+println(e.kind)
+val p: Event = PartyCreated("p7")
+println(p.kind)""") shouldBe "ledger:1000\nparty:p7"
+  }
+
+  test("`this` resolves to the receiver in a case-class method body") {
+    captured(
+"""case class Foo(x: Int):
+  def describe: String = this match
+    case Foo(n) => "foo:" + n
+println(Foo(5).describe)""") shouldBe "foo:5"
+  }
+
+  test("inherited trait method with an argument dispatches on a subtype instance") {
+    captured(
+"""sealed trait Shape:
+  def scaled(by: Int): Int = this match
+    case Square(s) => s * by
+enum Shapes extends Shape:
+  case Square(side: Int)
+val sh: Shape = Square(3)
+println(sh.scaled(4))""") shouldBe "12"
+  }
+
+  test("an instance field shadows an inherited method of the same name") {
+    captured(
+"""sealed trait Named:
+  def label: String = "trait-label"
+case class Tagged(label: String) extends Named
+println(Tagged("field-label").label)""") shouldBe "field-label"
+  }

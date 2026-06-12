@@ -4087,6 +4087,14 @@ private[interpreter] object EvalRuntime:
     case t: Term.Ascribe =>
       eval(t.expr, env, interp)
 
+    case _: Term.This =>
+      // `this` inside a class / enum-case / trait method body — bound to the
+      // receiver instance by `invokeTypeMethod` when the body references it
+      // (busi seq-121). Outside a method, there is no receiver.
+      env.getOrElse("this", interp.globals.getOrElse("this", null)) match
+        case null => interp.located("`this` is only available inside a method body")
+        case v    => Pure(v)
+
     case other => interp.located(s"Cannot eval: ${other.productPrefix}")
 
   // ─── Lenses / Optics — see OpticsRuntime.scala ─────────────────────

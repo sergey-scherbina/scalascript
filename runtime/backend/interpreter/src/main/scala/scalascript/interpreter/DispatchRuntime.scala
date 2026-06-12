@@ -2846,9 +2846,7 @@ private[interpreter] object DispatchRuntime:
       if typeMethodMap != null then
         val fn = typeMethodMap.getOrElse(name, null)
         if fn != null then
-          args match
-            case List(a) => interp.callTypeMethod1(fn, fields, a)
-            case _       => interp.callTypeMethod(fn, fields, args)
+          invokeTypeMethod(fn, recv, fields, args, interp)
         else
           dispatchInstanceAfterMethods(recv, fields, name, args, env, interp)
       else
@@ -2905,9 +2903,7 @@ private[interpreter] object DispatchRuntime:
       if typeMethodMap != null then
         val fn = typeMethodMap.getOrElse(name, null)
         if fn != null then
-          args match
-            case List(a) => interp.callTypeMethod1(fn, fields, a)
-            case _       => interp.callTypeMethod(fn, fields, args)
+          invokeTypeMethod(fn, recv, fields, args, interp)
         else
           dispatchInstanceAfterMethods(recv, fields, name, args, env, interp)
       else
@@ -2928,6 +2924,27 @@ private[interpreter] object DispatchRuntime:
     if arr == null || names == null then inst.fields
     else FrameMap.fromArrays(names, arr, Map.empty)
 
+  /** Look up a concrete type method `name`, walking the parent-type chain so a
+   *  method inherited from a (sealed-)trait / superclass dispatches on a subtype
+   *  instance — `enum case → enum → intermediate trait → trait` (busi seq-121). */
+  private def lookupTypeMethod(typeName: String, name: String, interp: Interpreter): Value.FunV | Null =
+    var t: String | Null = typeName
+    while t != null do
+      val m = interp.typeMethods.getOrElse(t, null)
+      if m != null then
+        val fn = m.getOrElse(name, null)
+        if fn != null then return fn
+      t = interp.parentTypes.getOrElse(t, null)
+    null
+
+  /** Invoke a resolved type method, binding `this` to the receiver when the body
+   *  references it (cached). Keeps the common `this`-free path allocation-free. */
+  private def invokeTypeMethod(fn: Value.FunV, recv: Value, fields: Map[String, Value], args: List[Value], interp: Interpreter): Computation =
+    val callFields = if interp.methodUsesThis(fn.body) then fields.updated("this", recv) else fields
+    args match
+      case List(a) => interp.callTypeMethod1(fn, callFields, a)
+      case _       => interp.callTypeMethod(fn, callFields, args)
+
   private def dispatchInstanceAfterMethods(recv: Value, fields: Map[String, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     // Resolve field value: prefer fieldsArr index lookup (O(1)) when available,
     // otherwise fall back to the fields Map (non-StatRuntime instances).
@@ -2946,7 +2963,15 @@ private[interpreter] object DispatchRuntime:
         case _                     => fields.getOrElse(name, null)
       fieldV match
         case null =>
-          if name == "toString" then Pure(Value.StringV(Value.show(recv)))
+          // An inherited concrete method from a parent trait/class — `e.kind` where
+          // `kind` is defined on a sealed supertype (busi seq-121).  Fields shadow
+          // inherited methods (checked above), so this only fires when no field matched.
+          val inherited = recv match
+            case inst: Value.InstanceV => lookupTypeMethod(inst.typeName, name, interp)
+            case _                     => null
+          if inherited != null && inherited.params.isEmpty then
+            invokeTypeMethod(inherited, recv, fields, Nil, interp)
+          else if name == "toString" then Pure(Value.StringV(Value.show(recv)))
           else
             val ext = extensionDispatch(recv, name, Nil, env, interp)
             if ext != null then ext else interp.located(s"No field '$name'")
@@ -2961,8 +2986,14 @@ private[interpreter] object DispatchRuntime:
       if fieldV != null then
         interp.callValue(fieldV, args, env)
       else
-        val ext = extensionDispatch(recv, name, args, env, interp)
-        if ext != null then ext else interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})")
+        val inherited = recv match
+          case inst: Value.InstanceV => lookupTypeMethod(inst.typeName, name, interp)
+          case _                     => null
+        if inherited != null then
+          invokeTypeMethod(inherited, recv, fields, args, interp)
+        else
+          val ext = extensionDispatch(recv, name, args, env, interp)
+          if ext != null then ext else interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})")
 
   // ── Cross-type ++ (bare operands) and final fallback ──────────────────────
 
