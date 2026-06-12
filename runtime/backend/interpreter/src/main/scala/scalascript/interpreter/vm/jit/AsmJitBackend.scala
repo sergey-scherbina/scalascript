@@ -993,7 +993,28 @@ object AsmJitBackend extends JitBackend:
       emitRefChainLong(recv, "size", Nil, ctx, mv)
     case Term.Select(recv: Term, Term.Name("head")) =>
       emitRefChainLong(recv, "head", Nil, ctx, mv)
+    // Bare zero-arg Bool property accessors (0L/1L) — like `.size`, route to the
+    // ref-dispatch helpers so a global/collection receiver (resolved via walkRef)
+    // does not bail the loop. (`.head`/`.last` element accessors are excluded: their
+    // element type is ambiguous, so a wrapping `.toLong` mis-routes.)
+    case Term.Select(recv: Term, Term.Name(m @ ("isEmpty" | "nonEmpty" | "isDefined"))) =>
+      emitRefChainLong(recv, m, Nil, ctx, mv)
     // `<stringExpr>.length` → push the String, INVOKEVIRTUAL length()I, widen to long.
+    // A known local String uses the direct path. A bare name that is NOT a local
+    // String (a GLOBAL `val csv: String`, or a collection) can't be walked as a
+    // java.lang.String, so route it to ref-dispatch `sizeLong` (resolves the
+    // receiver via walkRef — globals included — and measures String/List/Map/Set/
+    // Tuple alike). Without this a bare `.length` bailed the WHOLE enclosing loop
+    // to a tree-walk (~280× slower on the common `while … csv.length …` shape).
+    // The receiver-shape guard keeps us off walkString's emit-then-fail paths
+    // (string concat / calls), which would corrupt the operand stack on fallback.
+    case Term.Select(recv @ Term.Name(nm), Term.Name("length")) if ctx.isStringName(nm) =>
+      walkString(recv, ctx, mv) && {
+        mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "length", "()I", false)
+        mv.visitInsn(I2L); true
+      }
+    case Term.Select(recv: Term.Name, Term.Name("length")) =>
+      emitRefChainLong(recv, "length", Nil, ctx, mv)
     case Term.Select(recv, Term.Name("length")) =>
       if !walkString(recv, ctx, mv) then false
       else
@@ -1102,7 +1123,8 @@ object AsmJitBackend extends JitBackend:
         mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "mapGetOrElseLong",
           s"(Ljava/lang/Object;L$valueInt;J)J", false)
         true
-      case "size" if args.isEmpty =>
+      // `.size` and `.length` both route through sizeLong (String/List/Map/Set/Tuple).
+      case "size" | "length" if args.isEmpty =>
         mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
         if !walkRef(recv, ctx, mv) then return false
         mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "sizeLong", "(Ljava/lang/Object;)J", false)

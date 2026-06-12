@@ -106,6 +106,49 @@ class JitLintTest extends AnyFunSuite with Matchers:
       list.javac.bailReasons shouldBe empty
       list.asm.bailReasons shouldBe empty
 
+  test("bare `.length`/`.size` on a global String / collection JITs on both backends"):
+    // Regression: a bare `.length` on a non-local-String receiver (a global
+    // `val csv: String`, or a collection) used to bail the WHOLE enclosing loop
+    // to a tree-walk (~280× slower). `walkString` can't resolve a global String,
+    // so `.length` now falls back to ref-dispatch `sizeLong`.
+    val r = lintCompareFor(
+      """val csv: String = "1,2,3,4,5"
+        |val xs: List[Int] = List(10, 20, 30)
+        |def f(): Long =
+        |  var sum = 0L
+        |  var i = 0
+        |  while i < 10 do
+        |    sum = sum + csv.length.toLong + xs.length.toLong + xs.size.toLong
+        |    i = i + 1
+        |  sum
+        |f()""".stripMargin
+    ).forDef("f")
+    withClue(r.humanReadable):
+      r.bothJit shouldBe true
+      r.javac.bailReasons shouldBe empty
+      r.asm.bailReasons shouldBe empty
+
+  test("bare `.isEmpty`/`.nonEmpty` on a global String / collection JITs on both backends"):
+    // Same family as `.length`: bare zero-arg Bool accessors on a global /
+    // collection receiver had no bare-Select route and bailed the whole loop.
+    val r = lintCompareFor(
+      """val csv: String = "hi"
+        |val ys: List[Int] = List()
+        |def f(): Long =
+        |  var sum = 0L
+        |  var i = 0
+        |  while i < 10 do
+        |    if csv.nonEmpty then sum = sum + 1L
+        |    if ys.isEmpty then sum = sum + 100L
+        |    i = i + 1
+        |  sum
+        |f()""".stripMargin
+    ).forDef("f")
+    withClue(r.humanReadable):
+      r.bothJit shouldBe true
+      r.javac.bailReasons shouldBe empty
+      r.asm.bailReasons shouldBe empty
+
   // ── loop fusion (jit-loop-fusion) ─────────────────────────────────
 
   test("jit-loop-fusion: map+filter foldLeft receiver decomposes to a FoldChain"):

@@ -902,11 +902,27 @@ object JavacJitBackend extends JitBackend:
       emitRefChainLong(recv, "size", Nil, ctx)
     case Term.Select(recv: Term, Term.Name("head")) =>
       emitRefChainLong(recv, "head", Nil, ctx)
+    // Bare zero-arg Bool property accessors (encoded as 0L/1L). Like `.size`,
+    // these reach the ref-dispatch helpers (which resolve a global/collection
+    // receiver via walkRef). Without a bare-Select route they fell to
+    // `case _ => null` and bailed the whole loop — e.g. `while … if csv.nonEmpty …`
+    // or `xs.isEmpty`. (`.head`/`.last` element accessors are deliberately not here:
+    // their element type is ambiguous — Long vs ref — so a wrapping `.toLong`
+    // mis-routes; `.head` is handled separately above for parity with prior code.)
+    case Term.Select(recv: Term, Term.Name(m @ ("isEmpty" | "nonEmpty" | "isDefined"))) =>
+      emitRefChainLong(recv, m, Nil, ctx)
     // `<stringExpr>.length` → Java `(long)(<str>).length()`. Lets a numeric body
     // consume the length of a JIT-compiled String expression (e.g. `label(i).length`).
+    // When the receiver is not a directly-walkable String literal/local (e.g. a
+    // GLOBAL `val csv: String` or a collection), `walkString` returns null —
+    // fall back to the ref-dispatch `sizeLong`, which resolves the receiver via
+    // `walkRef` (globals included) and measures String/List/Map/Set/Tuple alike.
+    // Without this fallback a bare `.length` bailed the WHOLE enclosing loop to a
+    // tree-walk (the common `while … csv.length …` pattern), ~280× slower.
     case Term.Select(recv, Term.Name("length")) =>
       val s = walkString(recv, ctx)
-      if s == null then null else s"((long)($s).length())"
+      if s != null then s"((long)($s).length())"
+      else emitRefChainLong(recv, "length", Nil, ctx)
     // `.toLong` / `.toInt` are no-ops in ScalaScript when inner is Long-typed.
     // Stage 8: when inner walks as ref (e.g. String), route to stringToIntLong.
     case Term.Select(inner: Term, Term.Name("toLong" | "toInt")) =>
@@ -984,7 +1000,9 @@ object JavacJitBackend extends JitBackend:
         val d = walkLong(args(1), ctx)
         if k == null || d == null then null
         else s"$jrd.mapGetOrElseLong((Object) ($refExpr), $k, $d)"
-      case "size" if args.isEmpty =>
+      // `.size` and `.length` are interchangeable on String/List/Map/Set/Tuple;
+      // sizeLong handles every receiver, so route both through it.
+      case "size" | "length" if args.isEmpty =>
         s"$jrd.sizeLong((Object) ($refExpr))"
       case "head" if args.isEmpty =>
         s"$jrd.headLong((Object) ($refExpr))"
