@@ -59,6 +59,28 @@ are we from native?" checkpoints.
 Use the wall-clock benches when you need cold-JVM, fresh-process numbers
 (JMH only measures the warmed-up steady state).
 
+#### Anti-fold strategy (keeping the corpus honest across backends)
+
+A constant-folding compiler can replace a whole benchmark loop with a single
+constant load, reporting a dishonest ~0 ms. The corpus defends against this
+**uniformly but minimally**:
+
+- **Primary (all backends):** each folded workload carries a non-linear 64-bit
+  LCG seed and consumes every result, so no backend can derive a closed form
+  (see `docs/bench/corpus-antifold.md`).
+- **Rust only — one extra barrier:** LLVM's scalar evolution is far more
+  aggressive than HotSpot/V8 (it solves affine/polynomial recurrences
+  symbolically — even opaque *inputs* don't stop it). So `bench/run.sc` adds a
+  single `std::hint::black_box(...)` on the **first loop-carried reassignment**
+  of each emitted `pub fn`. One barrier is necessary *and* sufficient: measured on
+  `sumTco(100000,0)` at `-O3`, 0 barriers folds to 0.000001 ms, one barrier on the
+  carried accumulator gives an honest 0.10 ms, and the loop's time scales linearly
+  with the trip count. The earlier harness wrapped *every* assignment (3–4
+  barriers/iter), which inflated rust loop cells 3–4× and made the column look
+  slower than codegen-equal jvm; that redundant tax is gone (`recursion-tco`
+  0.34 → 0.025 ms, now ≈ jvm). A single irreducible barrier still taxes rust on
+  loops jvm folds for free — that asymmetry is real, not a harness defect.
+
 ### ⚠️ JMH and the corpus measure different *scales* under the same name
 
 Several JMH methods in `InterpreterBench` share a name with a

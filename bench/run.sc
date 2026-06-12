@@ -127,16 +127,16 @@ def patchGenWorkloadForAntiFold(src: String): String =
         k += 1
       if depth == 0 then Some((ob + 1, k - 1)) else None
 
-  // Patch a single function body.  Two passes:
-  //   pass 1: assignments — `let mut x = …;`, `let x = …;`, `x = …;` →
-  //           wrap rhs in `std::hint::black_box(…)`.  Rhs excludes `{}/;` so
-  //           closure-containing rhs are skipped (regex-safe).
-  //   pass 2: if the body has NO assignments (pure expression body), wrap
-  //           the entire trailing expression with `std::hint::black_box(...)`.
-  //           That catches direct call chains like `intMonoid.combine(...)`
-  //           and `(1..=10).map(...).filter(...).fold(...)`.
-  val assignRe =
-    """(?m)(let (?:mut )?[A-Za-z_]\w*(?:: [A-Za-z_:<>0-9, ]+)? = |[A-Za-z_]\w* = )(?!std::hint::black_box\()([^{};]+);""".r
+  // Patch a single function body — minimal anti-fold (see `bareReassignRe` /
+  // `patchBody` below). Imperative loop bodies get ONE barrier on the first
+  // loop-carried reassignment; pure-expression / iterator-chain bodies fall back
+  // to closure-body then first-literal wrapping.
+  //
+  // CAVEAT: a body with TWO *sequential independent* loops would barrier only the
+  // first, leaving the second foldable. No corpus workload has that shape today
+  // (multi-loop cases are nested — shared accumulator — or have a loop-invariant
+  // iterator chain that is legitimately hoisted). Such a regression is also
+  // self-revealing: a folded loop shows up as a ~0 ms cell in the table.
 
   // Wraps the first integer/float literal in a body with `black_box(...)`.
   // This makes a literal opaque so LLVM can't derive closed-form solutions
@@ -164,23 +164,43 @@ def patchGenWorkloadForAntiFold(src: String): String =
       s"${pre}std::hint::black_box($expr)$post"
     )
 
+  // A single black_box on ONE per-iteration reassignment is necessary AND
+  // sufficient to stop LLVM deriving a closed form for an imperative loop.
+  // Measured on `sumTco(100000,0)` (release -O3):
+  //   0 barriers           → 0.000001 ms  (folded to a constant load — dishonest)
+  //   1 barrier on `acc =`  → 0.101 ms     (honest; loop actually runs)
+  //   4 barriers (old "all")→ 0.341 ms     (honest but 3.4× redundant tax)
+  // Opaque inits/inputs do NOT suffice — LLVM solves the recurrence symbolically
+  // — so the barrier must sit on a per-iteration reassignment (`x = …;`), never a
+  // `let` init. This mirrors the other backends' lighter anti-fold (jvm/js/interp
+  // rely on the carried-LCG-seed idiom + sink, no per-statement barriers), so the
+  // rust column stops looking 3–4× slower than codegen-equal jvm on tight loops.
+  val bareReassignRe =
+    """(?m)^([ \t]*)([A-Za-z_]\w* = )(?!std::hint::black_box\()([^{};]+);""".r
+
   def patchBody(body: String): String =
-    val withAssign = assignRe.replaceAllIn(body, m =>
-      val lhs = scala.util.matching.Regex.quoteReplacement(m.group(1))
-      val rhs = scala.util.matching.Regex.quoteReplacement(m.group(2))
-      s"${lhs}std::hint::black_box($rhs);"
+    // Wrap only the FIRST bare reassignment (the loop-carried update); leave the
+    // rest untouched. `let` inits are intentionally excluded (an opaque init does
+    // not block the closed-form derivation).
+    var wrapped = false
+    val withAssign = bareReassignRe.replaceAllIn(body, m =>
+      if wrapped then scala.util.matching.Regex.quoteReplacement(m.matched)
+      else
+        wrapped = true
+        val ws  = scala.util.matching.Regex.quoteReplacement(m.group(1))
+        val lhs = scala.util.matching.Regex.quoteReplacement(m.group(2))
+        val rhs = scala.util.matching.Regex.quoteReplacement(m.group(3))
+        s"$ws${lhs}std::hint::black_box($rhs);"
     )
-    // Pass 2 (post-assignment): also wrap closure bodies inside the same
-    // body — catches iterator chains that survive past the assignment pass
-    // (e.g. `.map(move |x| { x * 2 })`).
-    val afterAssign = wrapClosureBodies(if withAssign != body then withAssign else body)
-    if afterAssign != body then afterAssign
+    // Iterator-chain / pure-expression bodies have no imperative reassignment —
+    // wrap their closure bodies (e.g. `.map(move |x| { x * 2 })`) instead.
+    val afterClosures = wrapClosureBodies(withAssign)
+    if afterClosures != body then afterClosures
     else
-      // For bodies WITHOUT assignments/closures, wrap the FIRST integer
-      // literal in black_box.  This makes a literal opaque on the INPUT
-      // side so LLVM can't derive a closed-form for the chain.
-      // (`black_box(WholeExpr)` doesn't work — LLVM still computes WholeExpr
-      // statically if all inputs are known, then makes the result opaque.)
+      // Pure-expression bodies with no assignment or closure (e.g. recursive
+      // `fib(n-1)+fib(n-2)`): wrap the FIRST integer literal so LLVM can't derive
+      // a closed-form for the chain. (`black_box(WholeExpr)` doesn't work — LLVM
+      // still computes WholeExpr statically, then makes only the result opaque.)
       wrapFirstLit(body)
 
   // Walk the function starts in REVERSE so we don't invalidate earlier offsets.

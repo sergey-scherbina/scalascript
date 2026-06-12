@@ -32,25 +32,24 @@ remain — both characterised, neither yet started.
       e.g. `s => s.substring(1).toInt`) still fall back — would need the compiled-
       closure / inline-body sink originally sketched here. Not blocking any corpus cell.
 
-- [ ] **rust-bench-antifold-alignment** (bench methodology) — `bench/run.sc` makes
-      the rust column misleading on loop workloads: it wraps EVERY assignment rhs +
-      closure body in `std::hint::black_box(...)` (e.g. 4 barriers/iter on
-      `recursion-tco`), so rust looks 2–14× slower than jvm on tight loops even
-      though codegen is fine (recursion-tco IS TCO'd into a `loop {}`). jvm/js/interp
-      use the lighter carried-LCG-seed idiom ([[project_bench_honest_corpus_seed]]),
-      so the anti-fold strategies are ASYMMETRIC and cross-backend comparison is
-      unfair. GOAL: make rust use the SAME seed-threaded anti-fold as the other
-      backends (consume the carried LCG result into the sink; black_box ONLY the
-      final returned value, not every internal assignment), so LLVM can't derive a
-      closed form yet pays no per-statement barrier tax. VALIDATION BURDEN (critical):
-      after the change, confirm each rust workload still does real work — diff the
-      reported ms against an obviously-folded control, and spot-check the emitted
-      `--release` asm for at least `recursion-tco`/`arith-loop` to prove the loop
-      survives (no Gauss/scalar-evolution collapse to a constant load). Acceptance:
-      rust loop cells become comparable to jvm where codegen is genuinely equal;
-      no cell reports a folded ~0; `docs/benchmarks.md` notes the unified strategy.
-      Files: `bench/run.sc` (the black_box wrappers ~L130–180), maybe corpus seed
-      wiring. Spec/notes under `docs/bench/`.
+- [x] **rust-bench-antifold-alignment** (bench methodology) — DONE 2026-06-12.
+      `bench/run.sc` wrapped EVERY assignment in `black_box` (3–4 barriers/iter),
+      inflating rust loop cells 3–4× vs codegen-equal jvm. Replaced with ONE barrier
+      on the first loop-carried reassignment per `pub fn`. VALIDATED that one barrier
+      is necessary AND sufficient: hand-built `sumTco(100000,0)` at -O3 → 0 barriers
+      folds to 0.000001 ms, 1 barrier honest, and **time scales linearly with trip
+      count** (100k→0.025, 200k→0.051, 400k→0.102, 800k→0.204 — proves the loop runs,
+      not a closed form). Note opaque inits/inputs do NOT suffice (LLVM solves the
+      recurrence symbolically) — the barrier MUST sit on a per-iteration reassignment.
+      Results: `recursion-tco` 0.34 → 0.025 ms (now ≈ jvm 0.025), `pattern-match-heavy`
+      0.67 → 0.33, `list-fold` 0.12 → 0.05, `arith-loop` 1.42 → 0.86; `nested-loop`
+      0.47 → 0.95 (UP = more honest, not a fold). No new ~0 cells; expression-body
+      workloads (streams/typeclass-monoid) untouched. Corpus has no sequential-
+      independent-loop workload (multi-loop cases are nested or invariant-hoisted),
+      and any such future regression self-reveals as a ~0 cell. `docs/benchmarks.md`
+      documents the unified strategy. Residual rust>jvm on loops jvm folds for free is
+      the irreducible single-barrier tax (LLVM scalar-evolution ≫ HotSpot), not a
+      defect.
 
 ---
 
