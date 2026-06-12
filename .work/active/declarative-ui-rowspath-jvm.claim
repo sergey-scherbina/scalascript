@@ -1,0 +1,6 @@
+declarative-ui-rowspath-jvm 2026-06-12T20:45:00Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-12T20:45:00Z
+status: in-progress
+done-so-far: Re-opened by user (override of the deferral). Architecture mapped: JVM web serve() -> _ssc_ui_emit_to_tempdir -> FrontendFrameworks.current().emit() -> StaticJsEmitter for custom/default frontend, which emits `fetch(url).then(r=>r.json()).then(data=>__setSignal(rows,data))` with NO envelope drill. Interp dev-WebServer uses JsGen (already drills via signal _rowsPath).
+next: (1) add rowsPath to TableDataSource.Remote (default ""); (2) thread it in FetchIntrinsics.fetchRowsSource; (3) add fetchRowsSource def to JVM preamble (currently missing); (4) StaticJsEmitter emits __ssc_rowsOf helper + drills in the two fetch callbacks. Test: StaticJsEmitter Remote+rowsPath drill + interp intrinsic carries rowsPath. Native Swing/JavaFX toolkit envelope-unwrap assessed separately.
