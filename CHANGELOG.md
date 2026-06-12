@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — chore(skills): agent-independent skill index + zero-install submodule wiring
+
+- Added a new **`scrumban`** skill (`.agents/plugins/scrumban/`) codifying the
+  write-before-do discipline: record intended work in `SPRINT.md` (do-soon) /
+  `BACKLOG.md` (can-wait) + `specs/` *before* executing it, so a reboot / context
+  clear / parallel agent resumes cold from the board, not from a lost context. It is
+  agent-independent (plain markdown, any agent can read it).
+- Made the whole `.agents/plugins` submodule usable with **zero per-skill install**:
+  new `.agents/plugins/AGENTS.md` is a skill *index* (read-on-demand + glob discovery
+  so future skills appear automatically), and `.claude-plugin/marketplace.json`
+  exposes the same skills as optional Claude-native slash-commands. This project's
+  `AGENTS.md` `MANDATORY: required skills` is now a single pointer to that index —
+  new skills need no edit here and no installation. Submodule bumped to `bc2a53a`.
+
 ## 2026-06-12 — fix(interp/jit): a JIT codegen crash bails to tree-walk, never crashes the program
 
 - Investigating the dev-only "JIT classpath fallback" (the runtime javac can't find

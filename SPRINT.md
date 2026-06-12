@@ -58,6 +58,14 @@ flakily hangs — use the 332-test targeted set if it won't pass).
 - [ ] **declarative-ui-vnext** — remaining Scope B follow-ups (none requested by busi):
       B.3 `rowsPath` on the native/JVM backends, B.7 lint for Markdown `toolkit:`
       *link* references, and a typed / `key: signalId` `formBody` mapping. All small.
+- [x] **scrumban-skill-zero-install** — DONE 2026-06-12. Codified the write-before-do
+      discipline as a new agent-independent `scrumban` skill + made the whole
+      `.agents/plugins` submodule usable with zero per-skill install: added
+      `.agents/plugins/AGENTS.md` (the skill index — read-on-demand + glob discovery
+      of future skills) and `.claude-plugin/marketplace.json` (optional Claude-native
+      slash-commands). Rewrote this project's `AGENTS.md` `MANDATORY: required skills`
+      to one index pointer (new skills appear automatically, no edit here). Submodule
+      bumped to `bc2a53a`.
 
 ---
 

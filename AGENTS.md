@@ -5,22 +5,25 @@
 
 ## MANDATORY: required skills
 
-Three skills govern how all feature work is done. Read their full instructions
-before starting any implementation. Skill files are in the `.agents/plugins/`
-submodule which is **only initialized in the shared main repo** — do NOT run
-`git submodule update --init` inside a worktree.
+All skills live in the **`.agents/plugins/` submodule** (the
+[agent-plugins](https://github.com/sergey-scherbina/agent-plugins) repo). **Read its
+index — `.agents/plugins/AGENTS.md` — for the full list of available skills and when
+to use each**, then load the relevant skill's `commands/<name>.md` on demand. New
+skills added to the submodule appear in that index automatically — no edit here, no
+per-skill install. Update all skills with `git submodule update --remote`.
 
-From a worktree, find the main repo root and read skills from there:
+The submodule is **only initialized in the shared main repo** — do NOT run
+`git submodule update --init` inside a worktree. From a worktree, find the main repo
+and read skills from there:
 
 ```bash
 MAIN=$(git worktree list | head -1 | awk '{print $1}')
+# index:  $MAIN/.agents/plugins/AGENTS.md
+# a skill: $MAIN/.agents/plugins/<name>/commands/<name>.md
 ```
 
-| Skill | File (relative to `$MAIN`) | When to use |
-|---|---|---|
-| `scrumban` | `.agents/plugins/scrumban/commands/scrumban.md` | **Always** — durable planning: write-before-do, SPRINT/BACKLOG hygiene, crash-resilient resume |
-| `spec-dev` | `.agents/plugins/spec-dev/commands/spec-dev.md` | Every new feature or change |
-| `multi-agent` | `.agents/plugins/multi-agent/commands/multi-agent.md` | Autonomous loop / queue work |
+The three skills below are **non-negotiable on this project** — their rules are
+inlined here so they bind even before you open the index:
 
 **scrumban rules (non-negotiable):**
 - **Write the plan before you execute it.** Before starting a task, write it into
