@@ -80,6 +80,23 @@ object JitGlobals:
    *  return its `Long` value. Throws `RuntimeException` if the name is
    *  missing or not an `IntV` — caller's MH invocation catches and falls
    *  back to the SscVm.exec / tree-walk path. */
+  /** Runtime subtype test for JIT-compiled `case _: T` arms: true if `typeName`
+   *  is `target` or has it as an ancestor in the current interpreter's
+   *  `parentTypes` chain. Lets a JIT'd match narrow by a (possibly imported)
+   *  supertype without expanding subtype arms at compile time (busi seq-124). */
+  def isSubtype(typeName: String, target: String): Boolean =
+    if typeName == target then true
+    else
+      val interp = interpTls.get()
+      if interp == null then false
+      else
+        var p = interp.parentTypes.getOrElse(typeName, null)
+        var found = false
+        while p != null && !found do
+          if p == target then found = true
+          else p = interp.parentTypes.getOrElse(p, null)
+        found
+
   def readGlobalLong(name: String): Long =
     val interp = interpTls.get()
     if interp == null then throw new RuntimeException("JitGlobals.readGlobalLong: no interp in TLS")

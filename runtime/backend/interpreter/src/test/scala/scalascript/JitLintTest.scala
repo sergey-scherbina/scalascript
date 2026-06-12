@@ -68,6 +68,24 @@ class JitLintTest extends AnyFunSuite with Matchers:
     r.willJit shouldBe true
     r.bailReasons shouldBe empty
 
+  // Supertype type-test (`case _: Tax` over a subtype) now JIT-compiles on Javac
+  // via the if-chain + `JitGlobals.isSubtype` parent-chain check, instead of
+  // bailing to tree-walk (busi seq-124 follow-up). Leaf-type type-tests already
+  // JIT'd; this is the supertype case.
+  test("supertype type-test JITs on Javac (isSubtype if-chain, not a bail)"):
+    val r = lintFor(
+      """sealed trait E
+        |sealed trait Tax extends E
+        |enum PE extends Tax:
+        |  case V(c: String)
+        |def f(e: E): Boolean = e match
+        |  case _: Tax => true
+        |  case _      => false
+        |f(V("x"))""".stripMargin
+    ).forDef("f")
+    withClue(r.bailReasons.mkString(", ")):
+      r.willJit shouldBe true
+
   test("stage7-refchain: local ref val getOrElse JITs on both backends"):
     val r = lintCompareFor(
       """def parse(n: Int): Option[Int] =

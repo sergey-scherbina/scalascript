@@ -446,3 +446,61 @@ println(sh.scaled(4))""") shouldBe "12"
 case class Tagged(label: String) extends Named
 println(Tagged("field-label").label)""") shouldBe "field-label"
   }
+
+  // ── JIT-compiled supertype type-test (follow-up to seq-124) ──────────────────
+  // These force the matcher FUNCTION hot (50k calls) so it JIT-compiles, then
+  // assert correctness — the JIT now lowers `case _: Supertype` to a runtime
+  // isSubtype parent-chain check (if-chain) instead of an exact-tag switch.
+
+  test("hot JIT'd function: supertype type-test (statement form) stays correct") {
+    captured(
+"""sealed trait E
+sealed trait Tax extends E
+enum PE extends Tax:
+  case V(c: String)
+def isTax(e: E): Boolean = e match
+  case _: Tax => true
+  case _      => false
+var n = 0
+var hits = 0
+while n < 50000 do
+  if isTax(V("x")) then hits = hits + 1
+  n = n + 1
+println(hits)""") shouldBe "50000"
+  }
+
+  test("hot JIT'd function: supertype type-test in a larger expression stays correct") {
+    captured(
+"""sealed trait E
+sealed trait Tax extends E
+enum PE extends Tax:
+  case V(c: String)
+def score(e: E): Int = 1 + (e match
+  case _: Tax => 10
+  case _      => 20)
+var n = 0
+var total = 0
+while n < 50000 do
+  total = total + score(V("x"))
+  n = n + 1
+println(total)""") shouldBe "550000"
+  }
+
+  test("hot JIT'd function: leaf + supertype arms ordered correctly") {
+    captured(
+"""sealed trait E
+sealed trait Tax extends E
+enum PE extends Tax:
+  case Vat(c: String)
+  case Other(c: String)
+def label(e: E): String = e match
+  case Vat(c) => "vat:" + c
+  case _: Tax => "tax"
+  case _      => "?"
+var n = 0
+var s = ""
+while n < 50000 do
+  s = label(Vat("23"))
+  n = n + 1
+println(s + "|" + label(Other("x")))""") shouldBe "vat:23|tax"
+  }

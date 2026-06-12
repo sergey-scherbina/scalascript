@@ -2056,16 +2056,16 @@ object JavacJitBackend extends JitBackend:
     var allTagged = true
     var ai = 0
     val casesArr = cases.toArray
-    // Bail to tree-walk if any arm type-tests against a SUPERTYPE (a type with
-    // descendants in `parentTypes`). The JIT switches on the exact type tag/name,
-    // which cannot see subtype instances, so `case _: Supertype` would wrongly miss;
-    // the tree-walk path walks the parent chain correctly (busi seq-124 — surfaced
-    // cross-module, but the gap is general to any JIT'd supertype type-test).
-    if casesArr.exists { c =>
+    // A `case _: Supertype` arm (a type with descendants in `parentTypes`) cannot be
+    // a switch on the exact type tag/name — it must runtime-test the parent chain.
+    // Route the whole match through the if-chain path, where the typed arm emits a
+    // `JitGlobals.isSubtype(...)` runtime check (busi seq-124; keeps it JIT-compiled
+    // rather than bailing to tree-walk). Leaf-type type-tests still switch exactly.
+    val hasSupertypeArm = casesArr.exists { c =>
       c.pat match
         case Pat.Typed(_, scala.meta.Type.Name(n)) => interp.parentTypes.valuesIterator.contains(n)
         case _                                      => false
-    } then return null
+    }
     while ai < casesArr.length do
       val ctorNameOpt = casesArr(ai).pat match
         case ext: scala.meta.Pat.Extract => ext.fun match
@@ -2090,7 +2090,7 @@ object JavacJitBackend extends JitBackend:
     val hasAnyGuard  = casesArr.exists(_.cond.nonEmpty)
     val hasAltPat    = casesArr.exists(_.pat.isInstanceOf[Pat.Alternative])
     val hasWildcard  = casesArr.exists(c => c.pat.isInstanceOf[Pat.Wildcard] || c.pat.isInstanceOf[Pat.Var])
-    if hasAnyGuard || hasAltPat then
+    if hasAnyGuard || hasAltPat || hasSupertypeArm then
       var ci = 0
       var restList = cases
       while restList.nonEmpty do
@@ -2183,8 +2183,16 @@ object JavacJitBackend extends JitBackend:
     sb.append(s"(($supplierIface)(() -> {\n      ")
     sb.append(s"scalascript.interpreter.Value.InstanceV inst = (scalascript.interpreter.Value.InstanceV) $scrutJava;\n      ")
     val hasAnyGuard = casesArr.exists(_.cond.nonEmpty)
+    // A supertype `case _: T` arm can't be an exact-tag switch — route to the
+    // if-chain, where `walkArmAsIfBranch` emits a `JitGlobals.isSubtype` check
+    // (busi seq-124, expression form).
+    val hasSupertypeArm = casesArr.exists { c =>
+      c.pat match
+        case Pat.Typed(_, scala.meta.Type.Name(n)) => interp.parentTypes.valuesIterator.contains(n)
+        case _                                      => false
+    }
     val hasWildcardExpr = casesArr.exists(c => c.pat.isInstanceOf[Pat.Wildcard] || c.pat.isInstanceOf[Pat.Var])
-    if hasAnyGuard then
+    if hasAnyGuard || hasSupertypeArm then
       // Guard path: emit an if-chain inside the IIFE.
       // walkArmAsIfBranch emits `return body;` — inside the IIFE lambda this
       // returns from the lambda, producing the expression value.
@@ -2363,6 +2371,36 @@ object JavacJitBackend extends JitBackend:
           sb.append(s"if ($guardJava) { return $armBodyJava; }\n    ")
         else
           sb.append(s"return $armBodyJava;\n    ")
+        sb.append("  }\n    ")
+        sb.toString
+      // `case _: T =>` / `case x: T =>` in the if-chain — a supertype `T` emits a
+      // runtime `isSubtype` parent-chain check; a leaf `T` an exact tag/name check.
+      case Pat.Typed(inner, scala.meta.Type.Name(typeName)) =>
+        val bindName: String | Null = inner match
+          case Pat.Var(Term.Name(bn)) => bn
+          case _: Pat.Wildcard        => null
+          case _                      => return null
+        val isSuper = interp.parentTypes.valuesIterator.contains(typeName)
+        val tag     = interp.typeTagMap.getOrElse(typeName, 0)
+        val cond =
+          if isSuper        then s"""scalascript.interpreter.vm.jit.JitGlobals.isSubtype(inst.typeName(), "${escape(typeName)}")"""
+          else if tag > 0   then s"inst.typeTag() == $tag"
+          else                   s""""${escape(typeName)}".equals(inst.typeName())"""
+        val newCtx =
+          if bindName == null then ctx
+          else ctx.withBindings(Map(bindName -> (sanitize(bindName) + "_a", true)))
+        val armBodyJava = if ctx.isDouble then walkDouble(c.body, newCtx) else walkLong(c.body, newCtx)
+        if armBodyJava == null then return null
+        val sb = new StringBuilder
+        sb.append(s"if ($cond) {\n      ")
+        if bindName != null then sb.append(s"Object ${sanitize(bindName)}_a = inst;\n      ")
+        c.cond match
+          case Some(g) =>
+            val guardJava = guardBoolExpr(g, newCtx)
+            if guardJava == null then return null
+            sb.append(s"if ($guardJava) { return $armBodyJava; }\n      ")
+          case None =>
+            sb.append(s"return $armBodyJava;\n      ")
         sb.append("  }\n    ")
         sb.toString
       case _: Pat.Wildcard =>
