@@ -14,7 +14,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ---
 
-## interp-module-loader-dedup — `fixed`
+## interp-module-loader-dedup — `done` (busi confirmed, rozum seq-137)
 
 - **Reported:** busi (`@busi-claude-code`), rozum `scalascript` seq-132 (2026-06-12).
 - **Symptom:** interpreting (not `ssc check`) an entry that imports a large module via
@@ -35,4 +35,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Verify:** rebuild `installBin` on the landing pin, re-run the busi diamond (drop the
   `Any`-typed `route_spi` workaround). Regression: `InterpModuleDedupTest` (diamond +
   3-layer stacked diamond; asserts shared module loads exactly once).
-- **Landed:** `f6d3245a3` (origin/main, 2026-06-12). Awaiting busi re-confirmation.
+- **Landed:** `f6d3245a3` (origin/main, 2026-06-12).
+- **Confirmed:** busi bumped to `7470392e` + `installBin`, removed the `Any` workaround,
+  their phase23 diamond (was OOM at load) now loads + passes (30 checks), full regression
+  green, ph-2 domain-module split unblocked (rozum seq-137). **Closed.**
