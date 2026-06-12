@@ -18,6 +18,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   green; negative case (unrelated class) still errors. Spec
   `specs/typer-nominal-subtype.md`.
 
+## 2026-06-12 — feat(declarative-ui): rowsPath on the native/server-rendered path (B.3 v2)
+
+- The Remote DataTable envelope-drill (`rowsPath`, Scope B.3) now works on the
+  server-rendered custom/static frontend used by the interpreter `serve()`/`emit()` and
+  emit-jvm `serve()`, not just the JS browser SPA. Carried on the shared model
+  (`TableDataSource.Remote(signal, rowsPath = "")`), threaded through the interp +
+  JVM-codegen `fetchRowsSource`, and drilled in `StaticJsEmitter` via a shared
+  `__ssc_rowsOf(data, rowsPath)` helper that mirrors the browser `_ssc_ui_rowsOf` (drill the
+  dotted path, else fall back to `{data|rows|items|results}`, never throw). `dataTableView`
+  now accepts a `TableDataSource` (was a hard cast to `FetchUrlSignal`). The earlier deferral
+  premise ("JVM emits no DataTable client JS") was wrong — both serve paths render via
+  `FrontendFrameworks.current().emit()` = StaticJsEmitter. Verified end-to-end (`ssc run` +
+  `emit` → drilled `app.js`); `RemoteRowsPathTest` runs the emitted helper under Node,
+  `JvmGenRowsPathTest` covers the emit-jvm codegen. All 6 frontend suites green.
+
 ## 2026-06-12 — feat(declarative-ui): keyed formBody + close declarative-ui-vnext
 
 - A `formBody` field entry may now be a `(jsonKey, signalId)` tuple so the JSON wire key

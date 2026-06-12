@@ -20,18 +20,19 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       `contentRows`, `contentToolkitOptionsWithRows`. Example `content-live-rows.ssc`;
       4 tests (2 plugin + 2 end-to-end through `emit`). Unlocks Markdown-authored *live-data* screens.
 
-- [ ] **declarative-ui-rowspath-jvm** — `rowsPath` (the dotted fetch-envelope drill for
-      Remote DataTables, declarative-ui Scope B.3) on the **native/JVM** backend. Deferred
-      from `declarative-ui-vnext` (closed 2026-06-12) as an architectural item, not a small
-      wiring change: `rowsPath` is a **browser-runtime** concern — the JS backend threads
-      `data-ssc-datatable-rows-path` and `_ssc_ui_rowsOf(v, rowsPath)` drills the envelope
-      at fetch time. The **JVM backend emits no DataTable/Remote client JS at all**
-      (`grep rowsPath runtime/backend/jvm/src/main` = empty; `JvmRuntimeUiPrimitives` /
-      `JvmGenPreamble` reference DataTable types but emit no client-side fetch/drill), so
-      supporting `rowsPath` there means building a whole JVM client-emission path for
-      Remote tables first. **Not requested by any consumer (busi).** Only pick up if a JVM
-      target ever needs live Remote tables; otherwise leave JS-only by design. Spec
-      `specs/declarative-ui-scope-b.md` §B.3 ("Scope of v1 (honest)").
+- [x] **declarative-ui-rowspath-jvm** — ✓ Landed (2026-06-12). `rowsPath` (the dotted
+      fetch-envelope drill for Remote DataTables, Scope B.3) now works on the
+      **server-rendered native path**, not just the JS browser SPA. The earlier deferral
+      premise ("JVM emits no DataTable client JS") was wrong: both the interpreter
+      `serve(view)`/`emit(view, dir)` and emit-jvm `serve` render the View via
+      `FrontendFrameworks.current().emit()` = `StaticJsEmitter` (custom/default frontend),
+      which DOES emit client fetch JS. Fix: carry `rowsPath` on the shared model
+      (`TableDataSource.Remote(signal, rowsPath = "")`), thread it through the interp +
+      JVM-codegen `fetchRowsSource`, and drill it in StaticJsEmitter via a shared
+      `__ssc_rowsOf` helper (mirrors the browser `_ssc_ui_rowsOf`). Verified end-to-end
+      (`ssc run` + `emit` → drilled `app.js`). Native Swing/JavaFX/SwiftUI toolkit tables
+      (no client JS fetch layer) remain envelope-drill-free by design. Spec
+      `specs/declarative-ui-scope-b.md` §B.3 v2.
 
 - [x] **markdown-content-introspection-api** — ✓ DONE (verified 2026-06-12: every
       sub-feature below landed 2026-06-04/05; `content-plugin` ships the full helper set,
