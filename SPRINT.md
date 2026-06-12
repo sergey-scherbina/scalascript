@@ -8,6 +8,20 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## busi-seq132 — interp module-loader diamond OOM (2026-06-12)
+
+- [ ] **interp-module-loader-dedup** — busi (rozum seq-132): the interpreter module
+      loader (`SectionRuntime.runImport`) creates a fresh `Interpreter` and re-runs the
+      imported module on **every import edge** — no cache. A diamond over a big module
+      (busi `dispatch.ssc`, ~7942 lines) re-evaluates it once per DAG path → exponential
+      → OOM/hang at load time (0 lines run). `ssc check` is fine (typer memoizes); only
+      the interp loader re-evaluates. Fix: add a shared `moduleCache: Map[os.Path,
+      Interpreter]` threaded through child constructors, `getOrElseUpdate(resolvedPath)`
+      in `runImport` → each module evaluated once per run (init side effects run once,
+      like the typer / ES/Python modules). Regress test = 3-module diamond asserting a
+      shared-module side effect fires exactly once. Spec
+      `specs/interp-module-loader-dedup.md`. Blocks busi ph-2 monolith modularization.
+
 ## Post-busi-seq124/125 follow-ups (2026-06-12)
 
 Queued after the cross-module enum→trait fix (`1ddf10517`). Ordered by value;
