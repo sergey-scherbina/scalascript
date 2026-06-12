@@ -149,6 +149,26 @@ class JitLintTest extends AnyFunSuite with Matchers:
       r.javac.bailReasons shouldBe empty
       r.asm.bailReasons shouldBe empty
 
+  test("numeric `.last.toLong` JITs on both backends (looksLongValue covers .last)"):
+    // `.last`/`.head` on a numeric list return Long via lastLong/headLong.
+    // `looksLongValue` must list `.last` so the wrapping `.toLong` stays on the
+    // numeric path (a ref element throws at runtime → JIT guard falls back).
+    val r = lintCompareFor(
+      """val xs: List[Int] = List(1, 2, 3)
+        |def f(): Long =
+        |  var sum = 0L
+        |  var i = 0
+        |  while i < 10 do
+        |    sum = sum + xs.last.toLong + xs.head.toLong
+        |    i = i + 1
+        |  sum
+        |f()""".stripMargin
+    ).forDef("f")
+    withClue(r.humanReadable):
+      r.bothJit shouldBe true
+      r.javac.bailReasons shouldBe empty
+      r.asm.bailReasons shouldBe empty
+
   // ── loop fusion (jit-loop-fusion) ─────────────────────────────────
 
   test("jit-loop-fusion: map+filter foldLeft receiver decomposes to a FoldChain"):

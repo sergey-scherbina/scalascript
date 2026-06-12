@@ -1039,7 +1039,9 @@ private[interpreter] object DispatchRuntime:
       case "toLowerCase" => Pure(Value.StringV(s.toLowerCase))
       case "reverse"     => Pure(Value.StringV(s.reverse))
       case "toInt"       => Computation.pureIntV(s.toLong)
+      case "toLong"      => Computation.pureIntV(s.toLong)
       case "toDouble"    => Pure(Value.doubleV(s.toDouble))
+      case "toFloat"     => Pure(Value.doubleV(s.toDouble))
       case "toString"    => Pure(recv)
       case "mkString"    => Pure(recv)
       case "contains"    => args match

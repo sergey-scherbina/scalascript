@@ -993,11 +993,12 @@ object AsmJitBackend extends JitBackend:
       emitRefChainLong(recv, "size", Nil, ctx, mv)
     case Term.Select(recv: Term, Term.Name("head")) =>
       emitRefChainLong(recv, "head", Nil, ctx, mv)
-    // Bare zero-arg Bool property accessors (0L/1L) — like `.size`, route to the
-    // ref-dispatch helpers so a global/collection receiver (resolved via walkRef)
-    // does not bail the loop. (`.head`/`.last` element accessors are excluded: their
-    // element type is ambiguous, so a wrapping `.toLong` mis-routes.)
-    case Term.Select(recv: Term, Term.Name(m @ ("isEmpty" | "nonEmpty" | "isDefined"))) =>
+    // Bare zero-arg accessors the ref-dispatch helpers return as Long: the Bool
+    // accessors (0L/1L) and `.last` (mirrors `.head`). Like `.size`, they resolve a
+    // global/collection receiver via walkRef so the loop does not bail. A `.last` on
+    // a ref-element list throws at runtime → JIT guard falls back to the tree-walk.
+    // `looksLongValue` lists the same set so a wrapping `.toLong` does not mis-route.
+    case Term.Select(recv: Term, Term.Name(m @ ("isEmpty" | "nonEmpty" | "isDefined" | "last"))) =>
       emitRefChainLong(recv, m, Nil, ctx, mv)
     // `<stringExpr>.length` → push the String, INVOKEVIRTUAL length()I, widen to long.
     // A known local String uses the direct path. A bare name that is NOT a local

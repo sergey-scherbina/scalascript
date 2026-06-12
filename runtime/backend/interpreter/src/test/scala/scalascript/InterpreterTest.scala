@@ -870,6 +870,15 @@ def main(): Unit =
     captured("""println(3.7.toInt)""") shouldBe "3"
   }
 
+  test("String numeric parses: toInt / toLong / toDouble") {
+    // Regression: `String.toLong` was missing from DispatchRuntime (only
+    // toInt/toDouble were wired), so `"30".toLong` raised "No method 'toLong'".
+    captured("""println("42".toInt + 1)""") shouldBe "43"
+    captured("""println("12345".toLong + 1)""") shouldBe "12346"
+    captured("""println("3.5".toDouble + 0.25)""") shouldBe "3.75"
+    captured("""println("3.5".toFloat + 0.25)""") shouldBe "3.75"
+  }
+
   // ── new keyword ──────────────────────────────────────────────────
 
   test("new class instantiation") {

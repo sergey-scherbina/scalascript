@@ -281,7 +281,14 @@ object JitPredicates:
         case "+" | "-" | "*" | "/" | "%" | "<" | "<=" | ">" | ">=" | "==" | "!=" =>
           looksLongValue(lhs, ctx) && looksLongValue(argClause.values.head, ctx)
         case _ => false
-    case Term.Select(_: Term, Term.Name("size" | "head" | "length")) =>
+    // Bare zero-arg accessors that the ref-dispatch helpers return as Long
+    // (element accessors assume numeric elements; a ref element throws at runtime
+    // and the JIT invocation guard falls back to the tree-walk — see JitRuntime
+    // `catch case _: Throwable => return null`). Must mirror the `walkLong`
+    // bare-Select set in both backends so `.toLong`/`.toInt`/arith on them stays
+    // on the numeric path instead of mis-routing to the ref fallback.
+    case Term.Select(_: Term, Term.Name(
+        "size" | "length" | "head" | "last" | "isEmpty" | "nonEmpty" | "isDefined")) =>
       true
     case Term.Select(inner: Term, Term.Name("toLong" | "toInt")) =>
       looksLongValue(inner, ctx)

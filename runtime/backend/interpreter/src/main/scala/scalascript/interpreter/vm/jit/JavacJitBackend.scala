@@ -902,14 +902,15 @@ object JavacJitBackend extends JitBackend:
       emitRefChainLong(recv, "size", Nil, ctx)
     case Term.Select(recv: Term, Term.Name("head")) =>
       emitRefChainLong(recv, "head", Nil, ctx)
-    // Bare zero-arg Bool property accessors (encoded as 0L/1L). Like `.size`,
-    // these reach the ref-dispatch helpers (which resolve a global/collection
-    // receiver via walkRef). Without a bare-Select route they fell to
-    // `case _ => null` and bailed the whole loop — e.g. `while … if csv.nonEmpty …`
-    // or `xs.isEmpty`. (`.head`/`.last` element accessors are deliberately not here:
-    // their element type is ambiguous — Long vs ref — so a wrapping `.toLong`
-    // mis-routes; `.head` is handled separately above for parity with prior code.)
-    case Term.Select(recv: Term, Term.Name(m @ ("isEmpty" | "nonEmpty" | "isDefined"))) =>
+    // Bare zero-arg accessors the ref-dispatch helpers return as Long: the Bool
+    // accessors (0L/1L) and the `.last` element accessor (mirrors `.head`). Like
+    // `.size`, these resolve a global/collection receiver via walkRef. Without a
+    // bare-Select route they fell to `case _ => null` and bailed the whole loop
+    // (e.g. `while … if csv.nonEmpty …`, `xs.isEmpty`, `xs.last.toLong`). A `.last`
+    // on a ref-element list throws at runtime; the JIT invocation guard then falls
+    // back to the tree-walk, so the common numeric case is fast and the rest stays
+    // correct. `looksLongValue` lists the same set so `.toLong` does not mis-route.
+    case Term.Select(recv: Term, Term.Name(m @ ("isEmpty" | "nonEmpty" | "isDefined" | "last"))) =>
       emitRefChainLong(recv, m, Nil, ctx)
     // `<stringExpr>.length` → Java `(long)(<str>).length()`. Lets a numeric body
     // consume the length of a JIT-compiled String expression (e.g. `label(i).length`).
