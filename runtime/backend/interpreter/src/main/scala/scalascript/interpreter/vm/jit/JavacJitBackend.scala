@@ -2056,6 +2056,16 @@ object JavacJitBackend extends JitBackend:
     var allTagged = true
     var ai = 0
     val casesArr = cases.toArray
+    // Bail to tree-walk if any arm type-tests against a SUPERTYPE (a type with
+    // descendants in `parentTypes`). The JIT switches on the exact type tag/name,
+    // which cannot see subtype instances, so `case _: Supertype` would wrongly miss;
+    // the tree-walk path walks the parent chain correctly (busi seq-124 — surfaced
+    // cross-module, but the gap is general to any JIT'd supertype type-test).
+    if casesArr.exists { c =>
+      c.pat match
+        case Pat.Typed(_, scala.meta.Type.Name(n)) => interp.parentTypes.valuesIterator.contains(n)
+        case _                                      => false
+    } then return null
     while ai < casesArr.length do
       val ctorNameOpt = casesArr(ai).pat match
         case ext: scala.meta.Pat.Extract => ext.fun match

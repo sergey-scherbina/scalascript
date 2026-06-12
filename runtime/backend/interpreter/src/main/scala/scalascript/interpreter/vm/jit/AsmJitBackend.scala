@@ -70,6 +70,17 @@ object AsmJitBackend extends JitBackend:
 
   // ── Shared guards (mirrors JavacJitBackend) ───────────────────────────────
 
+  /** True if any arm type-tests against a SUPERTYPE (a type with descendants in
+   *  `parentTypes`). The JIT matches the exact type tag, which cannot see subtype
+   *  instances, so `case _: Supertype` would wrongly miss — bail to tree-walk,
+   *  which walks the parent chain correctly (busi seq-124). */
+  private def armsTestSupertype(casesArr: Array[scala.meta.Case], interp: Interpreter): Boolean =
+    casesArr.exists { c =>
+      c.pat match
+        case Pat.Typed(_, scala.meta.Type.Name(n)) => interp.parentTypes.valuesIterator.contains(n)
+        case _                                      => false
+    }
+
   private def bodyHasDoubleLit(t: Term): Boolean =
     var hit = false
     def walk(tree: scala.meta.Tree): Unit =
@@ -2747,6 +2758,7 @@ object AsmJitBackend extends JitBackend:
 
     val cases    = tm.casesBlock.cases
     val casesArr = cases.toArray
+    if armsTestSupertype(casesArr, interp) then return false
     val tags     = resolveArmTags(casesArr, interp)
     val wildcardIdx = casesArr.indexWhere(c => isCatchAllPat(c.pat))
     if wildcardIdx >= 0 && wildcardIdx != casesArr.length - 1 then return false
@@ -2815,6 +2827,7 @@ object AsmJitBackend extends JitBackend:
 
     val cases    = tm.casesBlock.cases
     val casesArr = cases.toArray
+    if armsTestSupertype(casesArr, ctx.interp) then return false
     val wildcardIdx = casesArr.indexWhere(c => isCatchAllPat(c.pat))
     // Wildcard/Pat.Var must be last arm (catch-all).
     if wildcardIdx >= 0 && wildcardIdx != casesArr.length - 1 then return false
