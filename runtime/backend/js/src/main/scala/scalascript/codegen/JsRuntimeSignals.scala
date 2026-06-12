@@ -749,12 +749,19 @@ function _ssc_ui_onNavigate(path) { return { _eff: 'navigate', path: String(path
 function _ssc_ui_fetchActionWith(method, url, body, onSuccess, headers) { return { _type: '_FetchAction', method, url, body, headers: headers || null, onSuccess: onSuccess || [] }; }
 // Scope B.4+ — a request-body source assembled from named field signals at submit.
 function _ssc_ui_formBody(fields) { return { _body: 'fields', fields: fields || [] }; }
-// Assemble a flat JSON object body `{ field: <signal value> }` from the named field
-// signals (pure + testable: `sv` is the mount's value store).
+// Assemble a flat JSON object body `{ key: <signal value> }` from the named field
+// signals (pure + testable: `sv` is the mount's value store).  Each entry is either
+// a bare field name (the JSON key equals the signal id) or a `[jsonKey, signalId]`
+// pair (Scope B.4+ keyed mapping — the JSON key differs from the signal id; a
+// ScalaScript `(jsonKey, signalId)` tuple serialises to exactly this 2-array).
 function _ssc_ui_buildFormBody(raw, sv) {
   try {
     var obj = {};
-    JSON.parse(raw).forEach(function(f) { obj[f] = sv[f] == null ? '' : sv[f]; });
+    JSON.parse(raw).forEach(function(f) {
+      var key = f, sig = f;
+      if (Array.isArray(f)) { key = f[0]; sig = f.length > 1 ? f[1] : f[0]; }
+      obj[key] = sv[sig] == null ? '' : sv[sig];
+    });
     return JSON.stringify(obj);
   } catch(_e) { return '{}'; }
 }

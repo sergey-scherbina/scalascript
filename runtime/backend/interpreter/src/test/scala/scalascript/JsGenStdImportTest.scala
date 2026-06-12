@@ -1039,3 +1039,51 @@ class JsGenStdImportTest extends AnyFunSuite:
       "if (JSON.parse(bodyStr2).missing !== '') throw new Error('missing field not defaulted to empty: ' + bodyStr2);\n" +
       "console.log('b4-formbody-ok');\n"
     assert(runNode(script) == "b4-formbody-ok")
+
+  // Scope B.4+: a keyed formBody entry `(jsonKey, signalId)` lets the wire key differ
+  // from the signal id.  The ScalaScript tuple serialises to a `[jsonKey, signalId]`
+  // 2-array; the assembler reads the value from `signalId` and writes it under `jsonKey`.
+  test("@ui=toolkit formBody supports keyed (jsonKey, signalId) tuples (Scope B.4+)"):
+    val source =
+      "# Panel\n\n" +
+      "## P {#p}\n\n" +
+      "```yaml @ui=toolkit\n" +
+      "controls:\n" +
+      "  type: button\n" +
+      "  action: submitOrder\n" +
+      "  label: Submit\n" +
+      "```\n\n" +
+      "[serve, signal, fetchActionWith, formBody, onBumpTick](std/ui/primitives.ssc)\n" +
+      "[contentToolkitNode, contentToolkitOptionsWithActions, contentAction](std/ui/content.ssc)\n\n" +
+      "```scalascript\n" +
+      "val tick = signal(\"t\", 0)\n" +
+      "val submit = fetchActionWith(\"POST\", \"/api/orders\",\n" +
+      "  formBody([(\"customerName\", \"customer\"), \"amount\"]), [onBumpTick(tick)])\n" +
+      "serve(contentToolkitNode(contentToolkitOptionsWithActions(\n" +
+      "  Map(contentAction(\"submitOrder\", submit)))))\n" +
+      "```\n"
+    val module   = Parser.parse(source)
+    val baseDir  = TestPaths.repoRoot / "examples"
+    val caps     = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime  = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    val script =
+      runtime + "\n_ssc_ui_serve = function(v){ globalThis.__captured = v; };\n" +
+      moduleJs +
+      "\nconst j = JSON.stringify(globalThis.__captured);\n" +
+      // The keyed tuple threads through as a [jsonKey, signalId] 2-array (the _isTuple
+      // marker is a non-index prop, dropped by JSON.stringify).
+      "if (j.indexOf('[\"customerName\",\"customer\"]') < 0) throw new Error('keyed formBody pair not threaded: ' + j);\n" +
+      "if (j.indexOf('\"amount\"') < 0) throw new Error('bare formBody field missing: ' + j);\n" +
+      // Assemble: the value comes from the `customer` signal but is written under `customerName`.
+      "var sv = { customer: 'Acme', amount: '100' };\n" +
+      "var bodyStr = _ssc_ui_buildFormBody(JSON.stringify([['customerName', 'customer'], 'amount']), sv);\n" +
+      "var parsed = JSON.parse(bodyStr);\n" +
+      "if (parsed.customerName !== 'Acme') throw new Error('keyed field not mapped: ' + bodyStr);\n" +
+      "if (parsed.customer !== undefined) throw new Error('signal id leaked as key: ' + bodyStr);\n" +
+      "if (parsed.amount !== '100') throw new Error('bare field assembly wrong: ' + bodyStr);\n" +
+      // a keyed entry whose signal is missing still defaults to '' under the json key
+      "var bodyStr2 = _ssc_ui_buildFormBody(JSON.stringify([['note', 'absent']]), sv);\n" +
+      "if (JSON.parse(bodyStr2).note !== '') throw new Error('keyed missing field not defaulted to empty: ' + bodyStr2);\n" +
+      "console.log('b4-keyed-formbody-ok');\n"
+    assert(runNode(script) == "b4-keyed-formbody-ok")

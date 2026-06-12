@@ -145,9 +145,13 @@ extern def onSetSignal[T](sig: Signal[T], value: T): Any
 extern def onNavigate(path: String): Any
 
 // formBody — a request-body source (Scope B.4+) assembled at submit from the named
-// field signals into a flat JSON object `{ field: <signal value> }`; pass it as the
-// `body` of fetchActionWith for declarative form submits (browser-assembled).
-extern def formBody(fields: List[String]): Any
+// field signals into a flat JSON object; pass it as the `body` of fetchActionWith
+// for declarative form submits (browser-assembled).  Each entry is either a bare
+// field name (the JSON key equals the signal id) or a `(jsonKey, signalId)` tuple
+// when the wire key must differ from the signal id, e.g.
+// `formBody([("customerName", "customer"), "amount"])` →
+// `{ "customerName": <customer>, "amount": <amount> }`.
+extern def formBody(fields: List[Any]): Any
 
 // fetchActionWith — like fetchAction but with a structured onSuccess effect list
 // instead of a single tick.  Registers as an ordinary action (contentAction).
