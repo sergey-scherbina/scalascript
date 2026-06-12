@@ -14,8 +14,17 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ---
 
-## js-self-handling-cps-fn-not-run — `open` (found locally, 2026-06-12)
+## js-self-handling-cps-fn-not-run — `fixed` (2026-06-12)
 
+- **Fixed:** `JsGen.runIfEffectful` wraps a non-CPS-context call to an effectful
+  function in `_run`, so a self-handling CPS fn's lazy `_FlatMap` resolves at the
+  value boundary (`println(workload())`). `_run` is idempotent on an already-resolved
+  plain value (so a direct-runner result like `_handleOneShot(…)` is unaffected) and
+  throws loudly on an unhandled effect; CPS-context calls go through `genCpsApply`,
+  never `genApply`, so they're untouched. Verified via node: non-loop self-handling →
+  3, multi-shot handled-in-while → 204, one-shot regression → 5. backendInterpreter 1678
+  green. Regress: `JsEffectLoopTest` (self-handling + multi-shot). **effect-multishot now
+  runs on JS.** Diagnosis below.
 - **Found:** while landing `effect-cps-loops-js` (the perform-in-while lowering).
 - **Symptom:** on the **JS backend only**, a function that handles its OWN effects
   internally (so it has no unresolved `perform`) but is still CPS-emitted (because its

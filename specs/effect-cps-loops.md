@@ -4,10 +4,11 @@ Status: **DONE on JVM + JS 2026-06-12 (`effect-cps-loops-{jvm,js}`).** A `perfor
 inside a `var`+`while` loop now lowers + runs on BOTH source backends. JVM: verified via
 scala-cli (one-shot → 5, multi-shot → 204, both corpus files compile). JS: verified via
 node (one-shot → 5, → 30). The interim `effect-cps-loops-honesty` gate was **removed**
-(its gap is closed). A SEPARATE, unrelated JS bug remains — a *self-handling* CPS function
-(one that `handle`s its own effects, no unresolved perform) returns an un-run lazy
-`_FlatMap` on JS, so `effect-multishot` stays `n/a` on JS; tracked in `BUGS.md`
-(`js-self-handling-cps-fn-not-run`), NOT a perform-in-loop bug. This doc is the deep write-up.
+(its gap is closed). A SEPARATE JS bug surfaced — a *self-handling* CPS function (one that
+`handle`s its own effects, no unresolved perform) returned an un-run lazy `_FlatMap` on JS
+— was **also fixed 2026-06-12** (`JsGen.runIfEffectful` `_run`-wraps a non-CPS-context
+effectful-fn call; BUGS.md `js-self-handling-cps-fn-not-run`). **`effect-multishot` now
+runs on JS too** (handled-in-while → 204). This doc is the deep write-up.
 
 ## JS fix — landed 2026-06-12
 
