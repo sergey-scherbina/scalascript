@@ -1,0 +1,58 @@
+---
+name: content-form-submit
+description: A declarative @ui=toolkit form whose submit action assembles its POST body from the named field signals with formBody (Scope B.4+).
+frontend: react
+content:
+  defaultRenderer: toolkit
+---
+
+# New order
+
+The **Submit** button POSTs a body assembled at click time from the form's named
+field signals — `formBody(["customer", "amount"])` serialises
+`{ "customer": <customer>, "amount": <amount> }` from the live signal values, so the
+author never hand-maintains a JSON body signal in sync with the inputs.
+
+## Panel {#panel}
+
+```yaml @ui=toolkit
+signals:
+  customer: ""
+  amount: ""
+controls:
+  type: vstack
+  gap: 12
+  children:
+    - type: textField
+      signal: customer
+      label: Customer
+    - type: textField
+      signal: amount
+      label: Amount
+    - type: button
+      action: submitOrder
+      label: Submit
+```
+
+## Run
+
+[contentToolkitSection, contentToolkitOptionsWithActions, contentAction](std/ui/content.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[signal, fetchActionWith, formBody, onBumpTick, onSetSignal](std/ui/primitives.ssc)
+
+```scalascript
+val ordersTick = signal("ordersTick", 0)
+
+// The POST body is built from the `customer` / `amount` field signals at submit;
+// onSuccess bumps the orders tick. The capability (URL/method) stays in code.
+val submit = fetchActionWith("POST", "/api/orders",
+  formBody(["customer", "amount"]),
+  [onBumpTick(ordersTick)])
+
+val opts = contentToolkitOptionsWithActions(Map(contentAction("submitOrder", submit)))
+
+val page = lower(contentToolkitSection("panel", opts), defaultTheme)
+
+println("content-form-submit:ok")
+```
