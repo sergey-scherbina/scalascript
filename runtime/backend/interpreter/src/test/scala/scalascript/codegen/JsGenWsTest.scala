@@ -112,7 +112,13 @@ serve(__PORT__)
   private def openWithRetry(host: String, port: Int, within: FiniteDuration): Socket =
     val deadline = System.nanoTime() + within.toNanos
     while System.nanoTime() < deadline do
-      try return Socket(host, port)
+      try
+        val s = Socket(host, port)
+        // Read timeout so a non-responding server fails this test fast with a
+        // SocketTimeoutException instead of blocking the unbounded `readHttpLine`
+        // read forever and hanging the whole `backendInterpreter/test` gate.
+        s.setSoTimeout(15000)
+        return s
       catch case _: java.io.IOException => Thread.sleep(50)
     throw java.net.ConnectException(s"timed out waiting for $host:$port")
 
