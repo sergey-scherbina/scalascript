@@ -157,8 +157,12 @@ object JitHofDispatch:
         var acc = init
         var rem = items
         while rem.nonEmpty do
-          var x = asLong(rem.head)
-          if hasMap then x = applyUnaryLong(x, mapOp, mapC)
+          // Apply the map op on the raw Value via applyUnary (NOT asLong then
+          // applyUnaryLong): asLong throws on a StringV, so a string-element map
+          // such as `s => s.trim.toInt` (OpStringTrimToInt) would otherwise always
+          // throw here and force a fallback to the tree-walk. applyUnary handles the
+          // string ops and falls through to asLong+numeric for the arithmetic ops.
+          val x = if hasMap then applyUnary(rem.head, mapOp, mapC) else asLong(rem.head)
           if !hasFilter || applyPredicateLong(x, pred, fc1, fc2) then acc += x
           rem = rem.tail
         acc

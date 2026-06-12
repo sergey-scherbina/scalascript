@@ -171,6 +171,23 @@ class JitLintTest extends AnyFunSuite with Matchers:
 
   // ── loop fusion (jit-loop-fusion) ─────────────────────────────────
 
+  test("jit-loop-fusion: fusedFoldLong applies a string map op (OpStringTrimToInt) without throwing"):
+    // Regression: fusedFoldLong's ListV loop called asLong(elem) BEFORE the map op,
+    // which throws on a StringV — so `xs.map(s => s.trim.toInt).foldLeft(0)(_+_)`
+    // (a recognised fuse) always fell back to the tree-walk (~16× slower). It must
+    // apply the map op on the raw Value via applyUnary instead.
+    val strs: Value = Value.ListV(List("1", " 2 ", "3").map(Value.StringV(_)))
+    val sum = JitHofDispatch.fusedFoldLong(
+      strs, /*hasMap*/true, JitHofDispatch.OpStringTrimToInt, 0L,
+      /*hasFilter*/false, 0, 0L, 0L, /*init*/0L, JitHofDispatch.FoldAdd)
+    sum shouldBe 6L
+    // map + filter (keep evens) over string elements stays correct too.
+    val evens = JitHofDispatch.fusedFoldLong(
+      Value.ListV(List("1", "2", "3", "4").map(Value.StringV(_))),
+      true, JitHofDispatch.OpStringTrimToInt, 0L,
+      true, JitHofDispatch.PredModEq, 2L, 0L, 0L, JitHofDispatch.FoldAdd)
+    evens shouldBe 6L  // 2 + 4
+
   test("jit-loop-fusion: map+filter foldLeft receiver decomposes to a FoldChain"):
     val recv = "xs.map(x => x * 2).filter(x => x % 3 == 0)".parse[Term].get
     val chain = JitHofShape.fuseFoldChain(recv)
