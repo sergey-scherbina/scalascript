@@ -141,11 +141,7 @@ optional later phase (only matters for `ssc check` and typed backends).
       (`collectTypeLambdaAliases` + `substType`): `Pair[Long]` → `(i64, i64)`; multi-param
       reorder works. **`type-lambda-native` now GREEN ON ALL 5 BACKENDS.** emit-rust +
       cargo-build clean; backendRust 200 green.
-- [ ] **type-lambda-p2b** — placeholder desugaring (`Map[Int, _]` → `TypeLambda`) in
-      parseSType + `.sscc` round-trip. NOTE: `_` is context-dependent (wildcard in value
-      position vs lambda in an applied alias — `ParseSTypeTest` pins the wildcard case), so this
-      is use-site-driven, NOT a blind parseSType change. Flips the 2 remaining pending
-      TypeLambdaProgressTest cases + the `type-lambda-placeholder` jvm/rust cells.
+- [~] **type-lambda-p2b** — PARTIAL 2026-06-12. rust placeholder DONE (desugarPlaceholders + reduction → type-lambda-placeholder green on ssc/ssc-asm/js/rust). jvm STILL n/a: Scala 3 reads `Either[_, Int]` as a wildcard; needs placeholder→native `=>>` desugar, but the JvmGen emitStat arm never fires (top-level `type` aliases bypass emitStat — same trap as effect-cps-loops). Cleanest fix: desugar at parser/AST level. parseSType placeholder desugar + 2 pending tests still open. See specs/type-level-lambdas.md §5b.
 - [ ] **type-lambda-p3-semantics (optional, later)** — beta-reduce type lambdas in `ssc
       check` (apply `([X] =>> F[X])[A]` → `F[A]`) + HKT bound checking. Only if a real
       use-case (typed JS/Rust backend, or `ssc check` strictness) motivates it.

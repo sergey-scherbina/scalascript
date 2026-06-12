@@ -58,6 +58,31 @@ maps the result — `Pair[Long]` → `(Long, Long)` → `(i64, i64)`. Status
 (ssc/ssc-asm/jvm/js/rust). The placeholder form is green on ssc/js but `n/a` on
 jvm/rust until p2b.
 
+## 5b  Placeholder status + the jvm blocker (2026-06-12)
+
+`type-lambda-placeholder` (`Either[_, Int]` applied as `RightInt[String]`) is green
+on **ssc / ssc-asm / js / rust**, `n/a` on **jvm**.
+
+- **rust** ✓ — `collectTypeLambdaAliases` + `desugarPlaceholders` turn an alias RHS
+  with `_` into `[A] =>> body` and the existing reduction maps `RightInt[String]`
+  → `Either<String, i64>`.
+- **interp / js** ✓ — erase the annotation.
+- **jvm** ✗ — JvmGen passes a `type` alias through verbatim, and **Scala 3 reads
+  `type RightInt = Either[_, Int]` as a WILDCARD, not a lambda**, so `RightInt[String]`
+  fails ("does not take type parameters"). The fix is to desugar the placeholder
+  alias to the native `type RightInt = [A] =>> Either[A, Int]` (which Scala 3
+  accepts — the native form is already green on jvm).
+  **BLOCKER (recorded):** an `emitStat` arm that does this desugaring **never
+  fires** — a top-level user `type` alias reaches the emitted Scala via a path
+  **other than `emitStat`** (verified: a forced-rebuilt arm before the `.syntax`
+  catch-all had no effect; the alias still printed verbatim). This is the SAME
+  "top-level user declaration bypasses the obvious emitter" trap documented for the
+  effect CPS work in `specs/effect-cps-loops.md`. FIRST STEP: map where JvmGen
+  actually emits a top-level `Defn.Type` (it is not `emitStats`/`emitStat`). A
+  cleaner alternative that fixes jvm AND unifies parseSType: desugar placeholder
+  aliases to native `=>>` at the **parser/AST** level (post-parse `Defn.Type`
+  rewrite), so every consumer sees the native form.
+
 ## 6  Follow-ups
 
 - **p2b — placeholder desugaring (NEEDS CONTEXT — not a naive parser tweak):**
