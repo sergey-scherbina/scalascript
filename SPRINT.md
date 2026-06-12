@@ -16,24 +16,21 @@ in auto-memory + `docs/bench/cross-backend-gap-analysis.md`). The bare
 `toFloat` are already FIXED on main (commits `841319153`, `3d8db4b0a`). These two
 remain — both characterised, neither yet started.
 
-- [ ] **interp-foldchain-unary-closure-fusion** (perf, interp JIT) — the dominant
-      remaining interp outlier is `string-split` (ssc ~2.6 ms vs jvm 0.08 ms, ~33×)
-      and the general shape `xs.map(s => <unary>).foldLeft(z)(_+_)` where the map
-      closure is NOT simple arithmetic (here `s => s.trim.toInt`). Today
-      `JitHofShape.fuseFoldChain` only fuses map/filter stages whose op encodes as an
-      integer (`mapOp`/`mapC` in `JitHofDispatch.foldChainLong`), so a closure with
-      String method calls forces a per-element `CALLREF` into generic dispatch +
-      intermediate List allocation. GOAL: let the fold sink apply an arbitrary
-      *compiled unary* `String|Long → Long` closure per element with no wrapper-List
-      alloc. Approach to evaluate: (a) compile the map closure body to its own
-      MethodHandle/`long`-returning fn and thread it into a `foldChainClosureLong`
-      sink (function-pointer per element), or (b) inline the closure body into the
-      generated fold loop. Both backends (Javac + Asm) + `looksLongValue`/JitLint
-      parity. Acceptance: `string-split` corpus ssc drops toward jvm; new JitLintTest
-      fixture (map-with-string-closure foldLeft JITs both backends); value-correct;
-      full `backendInterpreter/test` green. Scope guard: keep the existing
-      simple-arith fuse path; this is an ADDITIVE closure sink. Spec section to add
-      under `specs/backend-perf-gaps.md`.
+- [x] **interp-foldchain-unary-closure-fusion** (perf, interp JIT) — DONE 2026-06-12
+      (`d1aadf920`), and the real cause was simpler than the proposed closure-sink.
+      `s => s.trim.toInt` was ALREADY a recognised fuse op (`OpStringTrimToInt`); the
+      bug was in `JitHofDispatch.fusedFoldLong`'s ListV loop, which called
+      `asLong(elem)` BEFORE the map op — asLong throws on a StringV, so the fused path
+      always threw and the JIT-invocation guard fell back to the tree-walk (string-
+      split ran ~2.6 ms despite linting "JIT OK"). Fixed by applying the map op on the
+      raw Value via `applyUnary` (handles string ops, falls through to numeric),
+      matching every other map-applying site in the file. Shared runtime → both
+      backends. **string-split 2.6 ms → 0.166 ms (16×, now ~2× off jvm**; residual =
+      split allocation + parse, not the fold). Value-correct both backends; regression
+      guard (direct `fusedFoldLong` string-op test). 1657 green. FOLLOW-UP (separate,
+      lower-pri): genuinely *arbitrary* unary closures (shapes not in `unaryLong`,
+      e.g. `s => s.substring(1).toInt`) still fall back — would need the compiled-
+      closure / inline-body sink originally sketched here. Not blocking any corpus cell.
 
 - [ ] **rust-bench-antifold-alignment** (bench methodology) — `bench/run.sc` makes
       the rust column misleading on loop workloads: it wraps EVERY assignment rhs +
