@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — fix(js): run a self-handling effectful function at the value boundary
+
+- A function that handles its own effects internally (no unresolved `perform`) but is
+  CPS-emitted (its body contains `handle`) returned an un-run lazy `_FlatMap` on JS (JS
+  `_bind` is always lazy, unlike JVM's eager-on-Pure), so `println(workload())` printed
+  `[object Object]`. `JsGen.runIfEffectful` now wraps a non-CPS-context call to an
+  effectful function in `_run` (idempotent on a resolved value; CPS-context calls go
+  through `genCpsApply`, untouched). **`effect-multishot` now runs on JS** (handled-in-while
+  → 204; non-loop self-handling → 3; one-shot regression → 5). BUGS.md
+  `js-self-handling-cps-fn-not-run` `fixed`. backendInterpreter 1678 green.
+
 ## 2026-06-12 — feat(js): custom effect `perform` inside a var+while loop now compiles + runs
 
 - Mirrors the JVM fix on the JS backend (`JsGenCpsCodegen`): a `Term.Assign` threads its
