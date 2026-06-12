@@ -22,8 +22,19 @@ MAIN=$(git worktree list | head -1 | awk '{print $1}')
 # a skill: $MAIN/.agents/plugins/<name>/commands/<name>.md
 ```
 
-The three skills below are **non-negotiable on this project** — their rules are
-inlined here so they bind even before you open the index:
+### The skills (read on demand)
+
+| Skill | When |
+|---|---|
+| [`scrumban`](.agents/plugins/scrumban/commands/scrumban.md) | **Always** — write the plan into `SPRINT.md`/`BACKLOG.md` before you execute; triage discovered work (SPRINT if urgent/critical/easy/needs-a-check, else BACKLOG). |
+| [`bugs`](.agents/plugins/bugs/commands/bugs.md) | Any bug (reported by busi in rozum, or found by you): track in `BUGS.md`, work the fix loop, reproduce in the **real harness**. |
+| [`rozum`](.agents/plugins/rozum/commands/rozum.md) | Coordinating with `busi` (and the human) in the `scalascript` rozum room — the default coordination channel. |
+| [`spec-dev`](.agents/plugins/spec-dev/commands/spec-dev.md) | Every feature / non-trivial change: `specs/<slug>.md` first, commit, implement against it. |
+| [`multi-agent`](.agents/plugins/multi-agent/commands/multi-agent.md) | Autonomous-loop / parallel-agent work on shared `origin/main`: claim → implement → push → release. |
+| [`multi-repo`](.agents/plugins/multi-repo/commands/multi-repo.md) | Treating several repos as a virtual monorepo (status / sync / update). |
+
+The skills below are **non-negotiable on this project** — their rules are inlined here
+so they bind even before you open the index:
 
 **scrumban rules (non-negotiable):**
 - **Write the plan before you execute it.** Before starting a task, write it into
@@ -31,6 +42,25 @@ inlined here so they bind even before you open the index:
   fresh agent — or you after a reboot mid-task — can finish it without you.
 - Queue follow-ups/deferrals the moment you decide them; never carry them only in
   context. A reboot between "decide" and "finish" orphans unrecorded work.
+- **Triage a problem the moment you find it:** SPRINT if urgent/critical/easy/just-
+  needs-a-check; BACKLOG if not-urgent + not-critical + hard/unclear-but-maybe-useful.
+
+**bugs rules (non-negotiable):**
+- Every bug — reported by busi in the rozum room, or found by you — gets a `BUGS.md`
+  entry (status + how-to-reproduce + reporter/`seqN` + SHA + notes). Status flows
+  `open → needs-info → fixed → done`; close only when the reporter confirms.
+- Reproduce from the reporter's minimal repro **in the real harness / assembled jar**,
+  not `ssc run`/`runMain` (which can disable the JIT via classpath and hide the bug).
+  A wrong "your binary is stale" reply once had to be retracted for exactly this.
+- Cross-module bug ⇒ a **multi-file** regression test (a single-file test passes while
+  the real bug lives at the import boundary).
+- Report `done:` in rozum with the SHA + the actual root cause; if you find a bug,
+  announce it in the room to the owning project.
+
+**rozum rules:** the `scalascript` room is the **default coordination channel** with
+busi. Sweep it **periodically, not constantly — when no other task is in flight**.
+Address with `@name` (agent/human) and `@project` (broadcast). Post `working:` before
+long offline work and `done:` on return.
 
 **spec-dev rules (non-negotiable):**
 - Read `specs/jit-completeness.md` (or the relevant feature spec) before starting any implementation.
