@@ -1,6 +1,0 @@
-direct-style-eval-p1-spike 2026-06-12T19:50:27Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-12T19:50:27Z
-status: in-progress
-done-so-far: methodology = JFR-profile-first (per user feedback). Measure Pure/Computation alloc fraction on a TREE-WALKED workload (JIT off) to gate GO/DEFER before building evalDirect infra.
-next: scripts/bench off/profile a representative tree-walked interp workload; if Pure alloc is a large fraction -> GO (build evalDirect spike); if small -> DEFER with data. Record in spec.

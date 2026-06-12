@@ -225,7 +225,7 @@ generated Scala fails with "Reassignment to val s" / "< is not a member of Any".
       Regress: 3 JvmGenEffectsRuntimeTest compile+run cases. core 982 + backendInterpreter
       1676 green (0 regressions). JS (`effect-cps-loops-js`) remains. [ORIG NOTE (conclusion
       was incorrect) below:]
-- [ ] **effect-cps-loops-jvm (orig)** Ã¢ÂÂ in `JvmGenCpsTransform`: (1) emit a `Defn.Var` in a
+- [x] **effect-cps-loops-jvm (orig)** Ã¢ÂÂ in `JvmGenCpsTransform`: (1) emit a `Defn.Var` in a
       CPS block as a REAL mutable `var x = <rhs>` (CPS the rhs if effectful), not a
       `_bind` lambda param; (2) add a `Term.While` CPS case that lowers
       `while(cond){ body-with-perform }` to a trampolined recursive helper
@@ -254,7 +254,7 @@ generated Scala fails with "Reassignment to val s" / "< is not a member of Any".
       FOUND a SEPARATE pre-existing JS bug — a self-handling CPS fn returns an un-run lazy
       `_FlatMap` on js (effect-multishot `n/a` on js; affects non-loop too) — tracked in
       BUGS.md (`js-self-handling-cps-fn-not-run`, verified `_run`-wrap fix). [ORIG:]
-- [ ] **effect-cps-loops-js (orig)** Ã¢ÂÂ same fix in the JS CPS codegen (JsGen) once jvm lands.
+- [x] **effect-cps-loops-js (orig)** Ã¢ÂÂ same fix in the JS CPS codegen (JsGen) once jvm lands.
 - [x] **effect-cps-loops-honesty** — DONE 2026-06-12 (orig note kept below): Ã¢ÂÂ until the above land, make the codegen emit a
       DONE: `CapabilityCheck.performInWhileLoop` refuses compilation with a clear
       `Diagnostic.Generic` message when a custom effect `perform` is reachable inside a
@@ -289,24 +289,36 @@ regressions across 1230+, multi-shot handlers identical both flags.
       surrounding direct-style stack Ã¢ÂÂ `evalDirect` may ONLY touch statically-effect-free
       exprs; ÃÂ§3.4 boundary detection is LOAD-BEARING. GO/NO-GO: **conditional GO via a gated
       spike, NOT a blind 530-site migration** (see p1).
-- [ ] **direct-style-eval-p1-spike** Ã¢ÂÂ RESCOPED (was "infra"): build `evalDirect` +
+- [x] **direct-style-eval-p1-spike** — DONE (DEFER) 2026-06-12. JFR-profile-first gate
+      (no infra built): `scripts/bench profile typeclassFoldMacro` (the representative
+      tree-walked HOF/dispatch workload — `combineAll` can't JIT) → `Computation.Pure` is
+      only **~18% of allocation**, dwarfed by dispatch machinery (Lambda+Some+Tuple2+List
+      ≈70%). Confirms §10.2: the JIT already captured every high-Pure shape; the remaining
+      tree-walked shapes are dispatch-heavy where Pure is a small slice. `evalDirect` would
+      drop Pure ~100% but that's ≥50% of an 18% slice → wall-clock ceiling ≪ the 15% target,
+      vs HIGH migration risk (530 sites + load-bearing §3.4 effect boundaries). **DEFER**;
+      the real win for these shapes is JIT-compiling the generic HOF dispatch. p2–p6 below
+      are GATED on this spike → also DEFERRED. Spec §11. Revisit only if a workload surfaces
+      where Pure dominates a tree-walked path.
+      [orig spike plan:]
+- [x] **direct-style-eval-p1-spike (orig plan)** Ã¢ÂÂ RESCOPED (was "infra"): build `evalDirect` +
       `EffectPerform(comp) extends Exception with NoStackTrace` + `SSC_DIRECT_EVAL` flag, then
       migrate ONE representative *tree-walked* hot path (NOT recursiveEval Ã¢ÂÂ it JITs) and
       MEASURE the real `Pure`-allocation delta (JFR) + wall-clock. **GATE the full migration on
       the spike showing a worthwhile win** (Ã¢ÂÂ¥15% on a tree-walked workload, or Ã¢ÂÂ¥50% `Pure` drop
       there, measured e.g. with `SSC_JIT_BYTECODE=off` to isolate the tree-walk path). If the
       spike underperforms Ã¢ÂÂ DEFER (the JIT already captured the easy wins). Spec ÃÂ§10.4.
-- [ ] **direct-style-eval-p2-evalruntime-leaves** (gated on p1 spike) Ã¢ÂÂ migrate EvalRuntime
+- [x] **direct-style-eval-p2-evalruntime-leaves** (DEFERRED — gated on p1 spike, which deferred; spec §11) (gated on p1 spike) Ã¢ÂÂ migrate EvalRuntime
       leaf exprs (`Lit`, `Term.Name`, pure-builtin `Term.Apply`) to `evalDirect`. Per spec ÃÂ§6:
       flag-off identical, flag-on green, multi-shot fixtures identical. ÃÂ§3.4 boundary detection
       is a prerequisite here.
-- [ ] **direct-style-eval-p3-evalruntime-compound** (gated) Ã¢ÂÂ `Term.If`/`Term.Match`/
+- [x] **direct-style-eval-p3-evalruntime-compound** (DEFERRED — gated on p1 spike, which deferred; spec §11) (gated) Ã¢ÂÂ `Term.If`/`Term.Match`/
       `Term.Block` (effect boundaries stay monadic). Measure on the tree-walked workload from
       p1 (NOT recursiveEval).
-- [ ] **direct-style-eval-p4-block-pattern-call** Ã¢ÂÂ BlockRuntime (41) + PatternRuntime (37)
+- [x] **direct-style-eval-p4-block-pattern-call** (DEFERRED — gated on p1 spike, which deferred; spec §11) Ã¢ÂÂ BlockRuntime (41) + PatternRuntime (37)
       + CallRuntime (15).
-- [ ] **direct-style-eval-p5-dispatch** Ã¢ÂÂ DispatchRuntime (89, many effect-adjacent Ã¢ÂÂ care).
-- [ ] **direct-style-eval-p6-validate-and-default** Ã¢ÂÂ hit success criteria (Ã¢ÂÂ¥20% / Ã¢ÂÂ50% Pure /
+- [x] **direct-style-eval-p5-dispatch** (DEFERRED — gated on p1 spike, which deferred; spec §11) Ã¢ÂÂ DispatchRuntime (89, many effect-adjacent Ã¢ÂÂ care).
+- [x] **direct-style-eval-p6-validate-and-default** (DEFERRED — gated on p1 spike, which deferred; spec §11) Ã¢ÂÂ hit success criteria (Ã¢ÂÂ¥20% / Ã¢ÂÂ50% Pure /
       multishot identical); decide whether to flip `SSC_DIRECT_EVAL` default to `on`.
       Each phase = own worktree + commit; the spec's ÃÂ§6 verification protocol per batch.
 

@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — docs(direct-style-eval): p1 spike → DEFER (data-backed go/no-go)
+
+- Resolved the direct-style-eval strategic question with a cheap JFR-profile-first gate
+  (no `evalDirect` infra built). On the representative tree-walked HOF/dispatch workload
+  (`typeclassFoldMacro`), `Computation.Pure` is only ~18% of allocation — dwarfed by the
+  generic-HOF dispatch machinery (~70%). The JIT already eliminates `Pure` on every shape
+  where it dominates; the shapes that still tree-walk are dispatch-heavy where `Pure` is a
+  minority. `evalDirect`'s wall-clock ceiling is well below the ≥15% gate, against a HIGH
+  migration risk (530 sites + load-bearing effect-boundary detection) → **DEFER**. The real
+  win for these shapes is JIT-compiling the generic HOF dispatch. Spec §11. SPRINT cleaned
+  up (p2–p6 deferred; stale `(orig)` plan-note lines closed).
+
 ## 2026-06-12 — fix(js): run a self-handling effectful function at the value boundary
 
 - A function that handles its own effects internally (no unresolved `perform`) but is
