@@ -4,6 +4,28 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — feat(declarative-ui): structured `onSuccess` for `@ui=toolkit` actions (Scope B.4 v1)
+
+- A registered action can now declare a **structured `onSuccess`** effect list run
+  in order after a successful (2xx) write, instead of bumping a single tick:
+  `fetchActionWith(method, url, body, [onBumpTick(tick), onSetSignal(sig, value),
+  onNavigate(path)])`. So a `{type: button, action: <id>}` control can refresh a
+  table *and* flash a status signal *and* route on success — declaratively. A failed
+  (non-2xx) write runs none of the effects.
+- The handler registers via the existing `contentAction(id, …)` and renders through
+  the Scope B.1 action path unchanged. Runtime is **browser-scoped** (the one place
+  an action executes; also avoids touching `EventHandler.FetchAction`, which is
+  pattern-matched in 11 places across six native backends): the JS marker carries
+  `onSuccess`, the button descriptor emits `data-ssc-fetch-onsuccess`, and a new
+  testable `_ssc_ui_runOnSuccess(effects, ok, setFn, sv)` applies them. The
+  interpreter's `fetchActionWith` builds a plain `EventHandler.FetchAction` (first
+  `onBumpTick` → `onSuccessTick`).
+- New `onBumpTick` / `onSetSignal` / `onNavigate` / `fetchActionWith` intrinsics
+  (interp + JS). `bodyBuilder` is deferred (`RowPayload` already covers per-row
+  bodies). Tests: `FetchPluginInterpreterTest` + `JsGenStdImportTest` (structural
+  thread + `_ssc_ui_runOnSuccess` apply-on-2xx / skip-on-failure) +
+  `examples/content-action-onsuccess.ssc`.
+
 ## 2026-06-12 — feat(declarative-ui): named data sources for `@ui=toolkit` tables (Scope B.3 v1)
 
 - A `{type: table, source: <id>}` control may now bind to a **named data source**
