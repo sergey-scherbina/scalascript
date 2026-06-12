@@ -36,13 +36,25 @@ flakily hangs — use the 332-test targeted set if it won't pass).
       cooperative scalascript coroutine/actor fixtures; latches/awaits are bounded).
       `Test / fork := true` ⇒ a hang lives in the FORKED test JVM (jstack that, not
       the sbt launcher — the earlier mis-diagnosis).
-- [ ] **cli-jit-classpath-fallback** — discovered during seq-124 diagnosis: `ssc run`
-      / `cli/runMain` JIT codegen fails at runtime (`GenJit_*.java: package
-      scalascript.interpreter.vm.jit does not exist`) and silently falls back to
-      tree-walk. Verify whether the assembled `bin/ssc` fat jar (after
-      `sbt cli/installBin`) is affected too, or only the dev `runMain` classpath. If
-      the real CLI is affected, `ssc run` never JITs → silent perf loss; fix the
-      JIT-runtime classpath. If runMain-only, document it.
+- [x] **cli-jit-classpath-fallback** — DONE 2026-06-12. Verified: the classpath
+      fallback is **`runMain`/dev-only** — the real `bin/ssc` fat jar JITs fine
+      (`fib(30)`→`832040`; `java.class.path` = the jar). BUT this hid a real bug: the
+      javac JIT is *untested by the suite* (always bails on the classpath in sbt), and
+      on the fat jar a JIT codegen `StackOverflowError` (`walkLocalSlotCtx`, a `while`
+      accumulator over a recursive call) **crashed the program** instead of bailing.
+      Fixed: guarded all 4 JIT compile entries (`Javac`/`Asm` `tryCompile` + 3
+      `EvalRuntime` while-JIT sites) with `catch Throwable => null` → bails to
+      tree-walk, never crashes. Spec `specs/jit-crash-safety-and-cli-classpath.md`.
+      Spun off two follow-ups below.
+- [ ] **jit-runmain-classpath** — pass the running classloader's URLs as `-classpath`
+      to the runtime javac (`compiler.getTask` options) so the javac JIT compiles
+      under sbt/`runMain` too — making the codegen *actually tested* by the suite and
+      removing the diagnosis trap. RISK: latent JIT codegen bugs start firing in tests
+      (now safe to bail thanks to the crash-safety guard), may shift coverage/perf.
+- [ ] **jit-walklocalslotctx-so** — fix the `walkLocalSlotCtx` recursion that
+      overflows on the `while`-accumulator-over-recursive-call shape (now bails
+      harmlessly; a real fix restores JIT for that shape). Repro: `def fib(n)…; var
+      s=0; while i<35 do s = s + fib(20); …` via the fat jar pre-guard.
 - [ ] **declarative-ui-vnext** — remaining Scope B follow-ups (none requested by busi):
       B.3 `rowsPath` on the native/JVM backends, B.7 lint for Markdown `toolkit:`
       *link* references, and a typed / `key: signalId` `formBody` mapping. All small.

@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — fix(interp/jit): a JIT codegen crash bails to tree-walk, never crashes the program
+
+- Investigating the dev-only "JIT classpath fallback" (the runtime javac can't find
+  `scalascript.interpreter.vm.jit.*` under sbt/`runMain` because app classes live in
+  a classloader, not `java.class.path` — the **real `bin/ssc` fat jar is unaffected**
+  and JITs fine) surfaced a genuine bug it had hidden: the javac JIT is *effectively
+  untested by the suite* (it always bails on the classpath there), and on the **fat
+  jar** a JIT codegen `StackOverflowError` in `walkLocalSlotCtx` (a `while`
+  accumulator calling a recursive fn) **crashed the program** (`[ERROR] null`, exit 1)
+  instead of bailing.
+- A JIT codegen bug must never crash a valid program. Wrapped every JIT compile
+  entry in `try … catch case _: Throwable => null`: `JavacJitBackend.tryCompile`,
+  `AsmJitBackend.tryCompile`, and the three while-loop-JIT call sites in
+  `EvalRuntime`. The offending shape now bails to tree-walk and prints the correct
+  result on the fat jar; the suite stays green (the guards are pure additions with
+  existing bail semantics). Follow-ups (in SPRINT): pass the classloader URLs to the
+  runtime javac so the JIT runs/tests under sbt; fix the `walkLocalSlotCtx`
+  recursion. Spec `specs/jit-crash-safety-and-cli-classpath.md`.
+
 ## 2026-06-12 — test(interp): JsGenWsTest read-timeout so a stuck WS server can't hang the gate
 
 - `JsGenWsTest.readHttpLine` did an **unbounded** blocking socket read (`in.read()`
