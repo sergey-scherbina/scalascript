@@ -1,0 +1,18 @@
+# type-lambda-placeholder
+
+Placeholder/wildcard type-lambda short form `Map[Int, _]` (each `_` = a fresh
+lambda param) used in a `type` alias, then applied (`IntKey[Long]`). PROGRESS
+TRACKER for sprint `type-lambda-p2`: today `Map[Int, _]` parses as a structural
+placeholder and the interpreter runs it via type erasure, so it may already be
+green where types are erased and `n/a` where a backend type-checks the
+applied alias. As p2 desugars `_` → `[X] =>> Map[Int, X]`, the representation
+becomes correct and cross-backend support should converge.
+
+```scalascript
+type IntKey = Map[Int, _]
+
+def workload(seed: Long): Long =
+  val s = seed + 1
+  val m: IntKey[Long] = Map(1 -> (s % 7))
+  m.getOrElse(1, 0L)
+```

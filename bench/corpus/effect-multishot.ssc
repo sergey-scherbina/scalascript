@@ -1,0 +1,34 @@
+# effect-multishot
+
+A `multi effect` (`NonDet.choose`) whose handler resumes once per option,
+exploring all branches (`opts.flatMap(opt => resume(opt))`). Isolates the
+multi-shot trampoline — the regime that REQUIRES a re-callable monadic
+continuation and therefore cannot use the direct-style exception model
+(`specs/direct-style-eval-spec.md` §10.1). Tracks cross-backend multi-shot
+support: a backend without multi-shot resume reports `n/a`.
+
+Honest-bench note: a carried 64-bit LCG (`s`) varies each branch's contribution
+so the summed result can't be constant-folded.
+
+```scalascript
+multi effect NonDet:
+  def choose(options: List[Int]): Int
+
+def program(seed: Long): Int ! NonDet =
+  val a = NonDet.choose(List(1, 2, 3))
+  val b = NonDet.choose(List(10, 20))
+  a + b + (seed % 5).toInt
+
+def workload(seed: Long): Long =
+  var s = seed + 1
+  var total = 0L
+  var i = 0
+  while i < 100 do
+    s = s * 2862933555777941757L + 3037000493L
+    val all = handle(program(s)) {
+      case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))
+    }
+    total = total + all.foldLeft(0L)((acc, x) => acc + x.toLong)
+    i = i + 1
+  total
+```

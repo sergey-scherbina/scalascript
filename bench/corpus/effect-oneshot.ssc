@@ -1,0 +1,31 @@
+# effect-oneshot
+
+A custom one-shot algebraic effect (`effect Bump`) performed in a hot loop; the
+handler resumes exactly once (`resume(1)`). Isolates the per-`perform` dispatch
+cost — the `Perform → handle → resume → continuation` trampoline — which is the
+regime that *could* in principle use a direct-style fast path (see
+`specs/direct-style-eval-spec.md` §10). Tracks cross-backend effect support: a
+backend that cannot lower custom effects + handlers reports `n/a`.
+
+Honest-bench note: a carried 64-bit LCG (`s`, opaque `seed: Long` start) is mixed
+into the accumulator each iteration so no backend can constant-fold the loop.
+
+```scalascript
+effect Bump:
+  def tick(): Int
+
+def loop(n: Int, start: Long): Long ! Bump =
+  var s = start + 1
+  var acc = 0L
+  var i = 0
+  while i < n do
+    s = s * 2862933555777941757L + 3037000493L
+    acc = acc + Bump.tick().toLong + (s % 7)
+    i = i + 1
+  acc
+
+def workload(seed: Long): Long =
+  handle(loop(1000, seed)) {
+    case Bump.tick(resume) => resume(1)
+  }
+```
