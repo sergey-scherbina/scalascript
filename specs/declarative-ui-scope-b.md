@@ -1,6 +1,6 @@
 # Declarative dynamic UI — Scope B (richer authoring model)
 
-**Status:** in progress (B.1 + B.5 + B.2 implemented 2026-06-11; B.7 v1 lint in progress).
+**Status:** in progress (B.1 + B.5 + B.2 + B.7 v1 implemented 2026-06-11; B.3 v1 in progress).
 **Upstream proposal:** busi `docs/declarative-ui-authoring.md` (rozum seq-113).
 **Predecessor:** Scope A (`specs/js-toolkit-action-rows-registry.md`) — browser
 parity for the existing `action` / `rowBindings` registries via the Markdown
@@ -35,10 +35,13 @@ render-time fail-soft (already shipped in A) + build-time (later).
   The JS side builds the column objects (`{title, fieldPath, align, kind}`) directly
   in `ContentToolkitJs` (no coupling there). Both feed the existing `DataTableNode`,
   so render stays identical.
-- **B.3 — `registerDataSource`.** A `.ssc` API for `signalSource` / `fetchSource`
-  (managed fetch, re-fetch on tick) / `staticSource`, with built-in envelope
-  normalisation (`{data:[]}` / bare / `rowsPath`). `source:` then references a
-  registered data source, not only a `ContentRowBinding`.
+- **B.3 — `registerDataSource` (v1 this slice).** A `.ssc` data-source vocabulary
+  for `signalSource` / `fetchSource` (managed fetch, re-fetch on tick) /
+  `staticSource`, registered by id with `contentDataSource(id, source, columns,
+  actions)`; `source:` then references a registered data source, not only a raw
+  `contentRows` signal. The genuinely-new runtime capability is `fetchSource`'s
+  `rowsPath` — a dotted envelope path so a non-standard fetch envelope can be
+  unwrapped. See `B.3 detail`.
 - **B.4 — `registerAction` + `onSuccess` vocabulary.** Structured action results
   (`bumpTick` / `setSignal` / `navigate`) + `bodyBuilder` from named fields /
   current row / whole row, with the capability/RBAC check staying in ScalaScript.
@@ -149,6 +152,60 @@ clean-but-warned file: `OK (with warnings)`).
 - [x] core unit tests (`ContentToolkitLintTest`, 11) + CLI `ssc check` tests
       (`CheckCommandTest`, +2). An edit-distance "did you mean '…'?" hint is added
       when a registered id is a plausible typo of the reference.
+
+## B.3 detail (v1 — data-source vocabulary + `rowsPath`)
+
+Today a `{type: table, source: <id>}` resolves a `contentRows(id, signal, columns)`
+registration whose `rows` must be a pre-built fetch `Signal`. B.3 adds a named
+**data-source vocabulary** so the author declares *how* the rows are produced and
+registers it by id, and folds the envelope-shape concern into `fetchSource`.
+
+**`.ssc` surface** (`std/ui/content.ssc`, reusing the existing `TableDataSource`
+machinery from `std/ui/data` — `staticRowsSource` / `signalRowsSource` already
+render on interp + JVM + JS):
+
+- `staticSource(rows)` — in-memory rows, no fetch (`= staticRowsSource(rows)`). This
+  is the genuinely-missing path: a static row set in the `source:` registry that
+  previously required hand-wrapping a signal.
+- `signalSource(sig)` — reactive rows from an arbitrary signal (`= signalRowsSource`).
+- `fetchSource(id, url, tick, headers, rowsPath = "")` — a managed GET that
+  re-fetches when `tick` bumps, with bearer `headers`; the response envelope is
+  normalised to a row array. `rowsPath` is an optional dotted path
+  (`result.page.items`) tried before the built-in envelope keys.
+- `contentDataSource(id, source, columns, actions = [])` — register any of the
+  above under an id (builds a `ContentRowBinding`); `source:` / `rows:` resolve it
+  exactly like `contentRows`, so render is unchanged.
+
+**`rowsPath` runtime** (the only new runtime capability) rides on
+`TableDataSource.Remote(signal, rowsPath)` (new field, default `""`) via a new
+`fetchRowsSource(signal, rowsPath)` intrinsic. On the **browser** runtime — the one
+place a live envelope is unwrapped at run time — `_ssc_ui_rowsOf(v, rowsPath)`
+drills the dotted path and, if it yields an array, uses it; otherwise it falls back
+to the existing `{data|rows|items|results}` keys (a wrong path degrades to the
+default, never crashes). The Remote source carries `rowsPath` into the emitted
+DataTable descriptor (`data-ssc-datatable-rows-path`).
+
+**Scope of v1 (honest):** `rowsPath` is wired on the **JS browser** fetch path
+only — that is where a fetch envelope is unwrapped at run time and matches Scope
+B's browser-first staging. Interp/JVM-codegen and native (Swing/JavaFX/SwiftUI)
+toolkit tables carry the field harmlessly but do not re-implement envelope
+unwrapping (consistent with "JvmGen parity for the YAML registry controls" being a
+non-goal). `staticSource` / `signalSource` reuse the existing cross-backend
+`TableDataSource` render unchanged.
+
+### Behavior checklist (B.3 v1)
+
+- [ ] `staticSource(rows)` registered via `contentDataSource` renders an in-memory
+      `source:` table (interp + JS), no fetch.
+- [ ] `signalSource(sig)` renders a reactive `source:` table.
+- [ ] `fetchSource(id, url, tick, headers)` renders a managed-fetch `source:` table
+      that re-fetches on tick.
+- [ ] `fetchSource(..., rowsPath = "result.items")` unwraps a non-standard envelope
+      on the browser runtime; a wrong path falls back to the default keys.
+- [ ] `TableDataSource.Remote.rowsPath` added without breaking the legacy bare
+      FetchUrlSignal / `contentRows` paths.
+- [ ] interp tests (vocabulary + Remote rowsPath) + JS emit test (rows-path attr +
+      `_ssc_ui_rowsOf` path drill) + an example.
 
 ## Non-goals (later slices)
 
