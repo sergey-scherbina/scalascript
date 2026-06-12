@@ -132,13 +132,17 @@ optional later phase (only matters for `ssc check` and typed backends).
       Root cause was `Parser.preprocessListLiterals` rewriting `[A]` after `= ` into `List(A)`
       — fixed by detecting `[…] =>>` as a type-param clause. Added `SType.TypeLambda` +
       `show` + `containsAny` + `parseSType` native parse. `bench.sh` `type-lambda-native`
-      flipped n/a→green on ssc/ssc-asm/jvm/js (rust n/a). TypeLambdaProgressTest 10 pass / 4
-      pending. core 950 green, interp 1666 green. FOLLOW-UPS (p2b): placeholder `_`→`=>>`
-      desugaring in parseSType (2 pending tests), `.sscc` v3 round-trip, and rust lowering
-      (still n/a). `type-lambda-placeholder` is green on ssc/js, n/a on jvm/rust until p2b.
+      flipped n/a→green. TypeLambdaProgressTest 10 pass / 4 pending. core 950, interp 1666 green.
+- [x] **type-lambda-p2-rust (reduction)** — ✓ DONE 2026-06-12 (`04f687554`). rust can't erase
+      (real types), so RustCodeWalk β-reduces a type-lambda alias application in `mapType`
+      (`collectTypeLambdaAliases` + `substType`): `Pair[Long]` → `(i64, i64)`; multi-param
+      reorder works. **`type-lambda-native` now GREEN ON ALL 5 BACKENDS.** emit-rust +
+      cargo-build clean; backendRust 200 green.
 - [ ] **type-lambda-p2b** — placeholder desugaring (`Map[Int, _]` → `TypeLambda`) in
-      parseSType + `.sscc` round-trip + rust decision (erase vs diagnose). Flips the remaining
-      pending TypeLambdaProgressTest cases and the `type-lambda-placeholder` jvm/rust cells.
+      parseSType + `.sscc` round-trip. NOTE: `_` is context-dependent (wildcard in value
+      position vs lambda in an applied alias — `ParseSTypeTest` pins the wildcard case), so this
+      is use-site-driven, NOT a blind parseSType change. Flips the 2 remaining pending
+      TypeLambdaProgressTest cases + the `type-lambda-placeholder` jvm/rust cells.
 - [ ] **type-lambda-p3-semantics (optional, later)** — beta-reduce type lambdas in `ssc
       check` (apply `([X] =>> F[X])[A]` → `F[A]`) + HKT bound checking. Only if a real
       use-case (typed JS/Rust backend, or `ssc check` strictness) motivates it.
