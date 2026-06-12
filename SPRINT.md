@@ -8,6 +8,39 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Post-busi-seq124/125 follow-ups (2026-06-12)
+
+Queued after the cross-module enum→trait fix (`1ddf10517`). Ordered by value;
+work top-to-bottom. Each = its own worktree + commits; verify per the targeted-gate
+note in `project_interp_enum_trait_hierarchy_0612` (full `backendInterpreter/test`
+flakily hangs — use the 332-test targeted set if it won't pass).
+
+- [ ] **jit-supertype-type-test-compile** — the seq-124 fix BAILS the JIT to tree-walk
+      on `case _: Supertype`; make it a real JIT compile instead: expand the arm into
+      switch cases for the supertype + all its descendants (reverse-lookup
+      `parentTypes`), so supertype narrowing stays JIT-fast. Both JIT backends
+      (`JavacJitBackend` ~2403, `AsmJitBackend` ~2746/2814). Dedup/bail on a case-label
+      collision (a descendant also matched by an explicit arm). Directly benefits
+      busi's 168-variant Event hierarchy (they narrow by supertype). Regression: a
+      JIT-on test asserting a hot supertype type-test stays correct AND compiles.
+- [ ] **full-interp-gate-green** — the seq-124/125 fix was pushed on the 332-test
+      targeted gate because full `backendInterpreter/test` intermittently hangs at
+      startup (parked-thread environmental hang, jstack-confirmed not-our-code).
+      Land a clean full green run; if the hang is reproducible, fix the flaky suite
+      (likely a server/port bind in a cluster test). Low new value, closes the loop.
+- [ ] **cli-jit-classpath-fallback** — discovered during seq-124 diagnosis: `ssc run`
+      / `cli/runMain` JIT codegen fails at runtime (`GenJit_*.java: package
+      scalascript.interpreter.vm.jit does not exist`) and silently falls back to
+      tree-walk. Verify whether the assembled `bin/ssc` fat jar (after
+      `sbt cli/installBin`) is affected too, or only the dev `runMain` classpath. If
+      the real CLI is affected, `ssc run` never JITs → silent perf loss; fix the
+      JIT-runtime classpath. If runMain-only, document it.
+- [ ] **declarative-ui-vnext** — remaining Scope B follow-ups (none requested by busi):
+      B.3 `rowsPath` on the native/JVM backends, B.7 lint for Markdown `toolkit:`
+      *link* references, and a typed / `key: signalId` `formBody` mapping. All small.
+
+---
+
 ## New direction (2026-06-12) — type-level lambdas, direct-style eval, uuid-p6
 
 ### uuid-p6 — monotonic v7 counter (no blocker, small)
