@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — fix(interp): enum → trait hierarchy resolution (busi seq-120 / seq-121)
+
+- A runtime type-test by an **intermediate** sealed-trait supertype now matches
+  through the whole chain: `case _: TaxEvent` on a `PolishTaxEvent.PolishVatConfigured`
+  value returns `true` (was `false`). Root cause: the interpreter recorded only the
+  `case → enum` parent link — the enum's and trait's *own* `extends` parents were
+  never recorded, so the single-parent chain broke. `recordFirstParent` now records
+  it for enums and traits (it already did for classes). (busi seq-120)
+- A **concrete method defined on a sealed trait** now dispatches on enum-case /
+  case-class instances of its subtypes — `e.kind` where `def kind = this match …`
+  lives on the `Event` trait returns the right value (was `No field 'kind'`). Traits
+  now register their concrete methods, member dispatch walks the parent-type chain
+  (after instance fields, so a field still shadows an inherited method), and **`this`
+  (`Term.This`) is now implemented** — bound to the receiver inside any class / enum
+  / trait method body (was `Cannot eval: Term.This`). The `this`-binding allocation is
+  paid only by bodies that reference `this` (cached). (busi seq-121)
+- 6 regression tests in `BugReproTest`; spec `specs/interp-enum-trait-hierarchy.md`.
+
 ## 2026-06-12 — feat(declarative-ui): `ssc check` lints `signal:` toolkit references (Scope B.7+)
 
 - The build-time `@ui=toolkit` id lint (`ContentToolkitLint`) now also validates
