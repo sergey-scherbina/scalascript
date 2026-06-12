@@ -35,4 +35,4 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Verify:** rebuild `installBin` on the landing pin, re-run the busi diamond (drop the
   `Any`-typed `route_spi` workaround). Regression: `InterpModuleDedupTest` (diamond +
   3-layer stacked diamond; asserts shared module loads exactly once).
-- **Landed:** `793b63e6c` (origin/main, 2026-06-12). Awaiting busi re-confirmation.
+- **Landed:** `f6d3245a3` (origin/main, 2026-06-12). Awaiting busi re-confirmation.
