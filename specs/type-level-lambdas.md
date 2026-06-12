@@ -56,9 +56,18 @@ follow-up). The placeholder form is green on ssc/js but `n/a` on jvm/rust until 
 
 ## 6  Follow-ups
 
-- **p2b — placeholder desugaring:** in `parseSType`, lower a mixed-wildcard
-  application `F[a, _, b]` to `TypeLambda([X], F[a, X, b])` (left→right), so the
-  representation matches the native form; flip the two `[target]` desugaring tests.
+- **p2b — placeholder desugaring (NEEDS CONTEXT — not a naive parser tweak):**
+  `_` is **context-dependent**. In a *value-type* position `Map[Int, _]` is a
+  wildcard (`Map[Int, ?]`) and must stay `Named("Map", [Int, _])` —
+  `ParseSTypeTest` "mixed `_` … stays a Named app" pins this on purpose. It is a
+  *type lambda* only in a *type-constructor* position — a `type` alias whose result
+  is later applied (`type IntKey = Map[Int, _]; … IntKey[Long]`). So desugaring
+  `F[a, _, b]` → `TypeLambda([X], F[a, X, b])` must be driven by the *use site*
+  (alias-RHS-that-gets-applied), not by `parseSType` blindly. Approach: detect the
+  alias-applied case in the typer/normalizer, or only desugar when the alias is
+  used with type args. Until then `Map[Int, _]` runs via erasure on interp/js
+  (green) and is `n/a` on jvm/rust. Flip the two `[target]` desugaring tests when
+  done.
 - **p2b — `.sscc` v3 artifact round-trip** for `TypeLambda`.
 - **p3 (optional) — semantics:** β-reduce `([X] =>> F[X])[A]` → `F[A]` in
   `ssc check` + HKT bound checking. Only if a typed backend / strict check needs it.
