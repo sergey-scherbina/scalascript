@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — feat(validate): honest diagnostic for effect `perform` inside a while-loop (jvm/js)
+
+- A custom effect performed inside an imperative `while` loop does not lower to the
+  Free-monad CPS source backends (jvm/js) — they silently emitted broken Scala/JS that
+  only failed downstream in scala-cli / node (a mystery `n/a`). `CapabilityCheck.performInWhileLoop`
+  now refuses compilation with a clear message instead. Precise + conservative: parses the
+  module's own scalascript blocks (imports are never inlined, so library effect runners
+  can't trip it), runs `EffectAnalysis.analyze`, and flags a `Term.While` only when its
+  body actually performs an in-module effect op or calls an effectful function. Gated on
+  source-emitting backends (`OutputKind.ScalaSource`/`JavaScriptSource`) so the interpreter
+  is untouched. Interim until `effect-cps-loops-{jvm,js}` land the real lowering. Tests:
+  `CapabilityCheckTest` + the real `bench/corpus/effect-oneshot.ssc`. core 974 green.
+
 ## 2026-06-12 — feat(types): HKT / kind-bound checking in `ssc check` (type-lambda p3b)
 
 - Adds a kind registry `typeCtorKinds` (type-constructor name → its params' kinds; 0 =

@@ -1,6 +1,0 @@
-effect-cps-loops-honesty 2026-06-12T16:27:54Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-12T16:27:54Z
-status: in-progress
-done-so-far: design done — CapabilityCheck.performInWhileLoop, Diagnostic.Generic, gate on ScalaSource/JavaScriptSource outputs, EffectAnalysis-precise (Term.While containing a perform/effectful call), own-blocks-only (no std false positives)
-next: implement in CapabilityCheck + wire into validate + CapabilityCheckTest

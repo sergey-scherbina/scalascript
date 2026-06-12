@@ -229,7 +229,16 @@ generated Scala fails with "Reassignment to val s" / "< is not a member of Any".
       actually emitted (grep the main `JvmGen` def-emission + `emitEffectfulParamGroups`
       callers), because that Ã¢ÂÂ not `emitCpsBlock` Ã¢ÂÂ is where the varÃ¢ÂÂ`_bind` happens.
 - [ ] **effect-cps-loops-js** Ã¢ÂÂ same fix in the JS CPS codegen (JsGen) once jvm lands.
-- [ ] **effect-cps-loops-honesty** Ã¢ÂÂ until the above land, make the codegen emit a
+- [x] **effect-cps-loops-honesty** — DONE 2026-06-12 (orig note kept below): Ã¢ÂÂ until the above land, make the codegen emit a
+      DONE: `CapabilityCheck.performInWhileLoop` refuses compilation with a clear
+      `Diagnostic.Generic` message when a custom effect `perform` is reachable inside a
+      `while` loop, for source-emitting CPS backends only (`OutputKind.ScalaSource`/
+      `JavaScriptSource`; interpreter untouched). Precise+conservative — parses the
+      module's OWN blocks (imports never inlined → no std false positives), runs
+      `EffectAnalysis.analyze`, flags a `Term.While` only when its body actually performs
+      an in-module effect op / calls an effectful fun. Tests: CapabilityCheckTest +
+      real `bench/corpus/effect-oneshot.ssc`. core 974 green. Real lowering
+      (effect-cps-loops-{jvm,js}) stays open. ORIGINAL NOTE:
       `Diagnostic.Unsupported("effect perform inside a while-loop")` instead of silently
       generating broken Scala (currently emit-scala succeeds Ã¢ÂÂ scala-cli fails downstream
       Ã¢ÂÂ silent `n/a`). Small, honest interim improvement.
