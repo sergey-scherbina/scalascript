@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — feat(declarative-ui): `formBody` request-body builder for `@ui=toolkit` actions (Scope B.4+)
+
+- A `fetchActionWith` action body can now be a `formBody([field, …])` that assembles
+  the POST/PUT body from the **named field signals** at submit, instead of a single
+  hand-maintained `Signal[String]`: `fetchActionWith("POST", url, formBody(["customer",
+  "amount"]), [onBumpTick(t)])` serialises `{"customer": <sig>, "amount": <sig>}` from
+  the live signal values at click. The top-level analog of `RowPayload` for row
+  actions; the capability (URL/method) stays in code.
+- `fetchActionWith`'s `body` is widened to `Any` so it accepts **either** a
+  `Signal[String]` (unchanged, backward-compatible) **or** a `formBody(...)`
+  descriptor. Browser-scoped (where the action runs, same as `onSuccess`): the
+  descriptor emits `data-ssc-fetch-body-fields` and a testable
+  `_ssc_ui_buildFormBody(fieldsJson, sv)` builds the JSON (a missing signal → `""`,
+  never `undefined`). The interpreter accepts `formBody` and builds a `FetchAction`
+  with a synthetic empty body (assembly is browser-only).
+- New `formBody` intrinsic (interp + JS). Tests: `FetchPluginInterpreterTest` +
+  `JsGenStdImportTest` (descriptor thread + assembly) + runnable
+  `examples/content-form-submit.ssc`.
+
 ## 2026-06-12 — fix(interp): enum → trait hierarchy resolution (busi seq-120 / seq-121)
 
 - A runtime type-test by an **intermediate** sealed-trait supertype now matches
