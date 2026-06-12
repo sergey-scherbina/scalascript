@@ -1,0 +1,52 @@
+---
+name: content-slot
+description: A declarative @ui=toolkit panel with a slot escape hatch filled by a code-built TkNode registered with contentSlot (Scope B.6).
+frontend: react
+content:
+  defaultRenderer: toolkit
+---
+
+# Dashboard
+
+Most of this panel is authored declaratively as a `@ui=toolkit` control tree. The
+`{type: slot, id: revenueChart}` placeholder is the **escape hatch**: it is filled by
+an arbitrary ScalaScript-authored widget registered under that id with
+`contentSlot(...)`, so content the declarative vocabulary can't express still drops
+into the panel by id.
+
+## Panel {#panel}
+
+```yaml @ui=toolkit
+controls:
+  type: vstack
+  gap: 12
+  children:
+    - type: heading
+      level: 2
+      text: Quarterly review
+    - type: slot
+      id: revenueChart      # ← filled by a code-built TkNode
+    - type: badge
+      text: Live
+      variant: success
+```
+
+## Run
+
+[contentToolkitSection, contentToolkitOptionsWithSlots, contentSlot](std/ui/content.ssc)
+[card](std/ui/containers.ssc)
+[badge, kpiCard](std/ui/display.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+// A bespoke widget the YAML vocabulary has no control for — built in code with the
+// ordinary std/ui node helpers and injected at the `revenueChart` slot.
+val chart = card(kpiCard("Revenue", badge("Q3  +12%", "success")))
+
+val opts = contentToolkitOptionsWithSlots(Map(contentSlot("revenueChart", chart)))
+
+val page = lower(contentToolkitSection("panel", opts), defaultTheme)
+
+println("content-slot:ok")
+```
