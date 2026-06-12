@@ -120,9 +120,24 @@ partial-application lambda from a wildcard.
   application. Fixed: parse `Type.Lambda` → `SType.TypeLambda`, and β-reduce a
   `TypeLambda` rhs against the use-site args in `expandAlias` (wrong arity → error), via
   new `SType.substNames` (name-keyed, shadowing-aware) + `SType.applyTo`. Matches the
-  rust codegen reduction. HKT/kind *bound* checking remains out of scope (no driver) —
-  the reduction is the useful part. Regress: `TypeLambdaProgressTest` (pure `applyTo` +
+  rust codegen reduction. Regress: `TypeLambdaProgressTest` (pure `applyTo` +
   `ssc check` integration, native + placeholder + arity error).
+- ~~**p3b — HKT / kind-bound checking** in `ssc check`~~ ✓ DONE 2026-06-12. A kind
+  registry `typeCtorKinds: Map[String, List[Int]]` (name → its params' kinds; `0` =
+  proper type, `k>0` = higher-kinded `F[_…]`) is populated from built-ins, user
+  class/trait/enum tparams, and `type` aliases (a type-lambda alias takes the lambda's
+  param kinds). `checkTypeApplication` (called from `typeAnnotToSType`'s `Type.Apply`
+  case) flags (1) ARITY — a known constructor applied to the wrong number of args
+  (`List[Int, String]`, `Map[Int]`); (2) KIND-BOUND — an argument whose kind ≠ the
+  filled parameter's declared kind (`Functor[Int]`/`Functor[Map]` where
+  `trait Functor[F[_]]`; `Fix[Map]` where `type Fix = [F[_]] =>> F[Int]`; `Box[List]`
+  where `Box[A]`). CONSERVATIVE: only known names are checked and only known-kind args
+  are flagged, so a local HK type param (`Functor[F]` inside `Applicative[F[_]]`) and
+  imported/unknown constructors are never falsely flagged (validated against the real
+  `runtime/std/functor-applicative-monad.ssc` hierarchy). Arity errors moved out of
+  `expandAlias` into the single checker. Regress: 7 `TypeLambdaProgressTest` cases
+  (arity ±, HK-bound ±, conservative, proper-type-rejects-constructor, real HKT
+  typeclass hierarchy). core 968 + backendInterpreter 1673 green.
 - ~~**rust:** decide whether to erase or diagnose type lambdas.~~ ✓ DONE
   2026-06-12: `RustCodeWalk` β-reduces a type-lambda alias application in `mapType`
   (`collectTypeLambdaAliases` + `substType`). `type-lambda-native` is green on rust.
