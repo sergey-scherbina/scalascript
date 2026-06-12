@@ -121,11 +121,24 @@ method name).
 | `pureCallSum` | 1-param pure `f(x) = x + 1` in a tight 1M loop — exercises the Tier-2b pure-call path. |
 | `pureCallSum2` | 2-param parallel: `g(x, y) = x + y` — exercises `LApply2` raw-Long inlining. |
 | `tupleMonoid` | `(1, 2) ++ (3, 4)` in a loop — tuple-concat intrinsic. |
-| `effectPure` | `runLogger { compute(10000) }` — algebraic-effects baseline. |
+| `effectPure` | `runLogger { compute(10000) }` — a PURE arithmetic loop inside an effect context. Baseline for "effect-typed but effect-free" code. Measured ~0.006 ms — already near-free (the body optimises), which is itself the evidence that pure-in-effect overhead is small (cf. direct-style-eval §10). |
+| `effectOneShot` | A custom `effect Bump` performed N times, handler resumes exactly once (`resume(1)`). Isolates the **per-`perform` dispatch cost** of the one-shot regime (~µs/perform — the Perform→handle→resume→continuation trampoline, NOT `Pure`-wrapping). This is the regime that *could* in principle use the direct-style `EffectPerform` fast-path. |
+| `effectMultiShot` | `multi effect NonDet` with 4 choose-points of 4 (256 branches); handler `resume`s once per option. Isolates the **multi-shot trampoline** — which REQUIRES the re-callable monadic continuation and therefore *cannot* use the exception model (direct-style-eval §10.1). Watch this stay correct + bounded as the effect runtime evolves. Both effect benches use `interp.run` (not `runSections`) so `multiShotEffects` is populated by EffectAnalysis. |
 | `instanceFieldAccess` | Inline `while: total += p match { case Pair(a,b) => a+b }`. Post-LMatch (2026-06-02): whole loop in Long-slot array, ~16.6 ms/op (1M iters, 162× vs baseline 2690 ms). Remaining cost: HashMap reads inside `CompiledMatch.runValueLong`. |
 | `mapForeach` | `Map(...).foreach((k, v) => …)` — 2-arg callEntry path; not yet FastTier-covered. |
 | `option-chain` / `either-chain` / `hof-pipeline` / `range-sum` | Warmed HOF method-chain call targets. Kebab names are `scripts/bench` aliases for JMH methods `optionChain`, `eitherChain`, `hofPipeline`, and `rangeSum`. |
 | `typeclass-fold` | Warmed context-bound typeclass fold target. Alias for JMH method `typeclassFold`; classified separately from the monomorphic standard-library HOF receiver path. |
+
+## Type-level lambdas — capability tracker (not a perf bench)
+
+Type lambdas are surface-only (types are erased at runtime in this
+interpreter-first language), so there is nothing to micro-benchmark. The
+equivalent "see what works / where the progress is" artifact is
+`lang/core/.../typer/TypeLambdaProgressTest.scala`: `[now]` tests pin the current
+parser/SType behaviour; `[target]` tests are `pending` and flip to passing as
+`type-lambda-p2` lands. The passing-vs-pending split is the progress dashboard
+(run `sbt "core/testOnly scalascript.typer.TypeLambdaProgressTest"`). A real
+parse/typecheck-throughput bench is only worth adding once the surface parses.
 
 ## JIT backend selector
 

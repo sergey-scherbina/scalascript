@@ -156,6 +156,44 @@ class InterpreterBench:
       |emitted.length""".stripMargin
   )
 
+  // Effect perf trackers (added 2026-06-12). These isolate the two algebraic-
+  // effect regimes that bound the direct-style-eval design (specs/
+  // direct-style-eval-spec.md §10):
+  //   - one-shot: `resume` called exactly once → in principle expressible by the
+  //     `EffectPerform` exception fast-path; measures per-`perform` dispatch cost.
+  //   - multi-shot: `resume` called once per option → REQUIRES the re-callable
+  //     monadic continuation (the trampoline); cannot use the exception model.
+  // Compare against `effectPure` (pure body inside an effect context — the pure
+  // tree-walked overhead direct-style targets).
+  private val modEffectOneShot: Module = src(
+    """effect Bump:
+      |  def tick(): Int
+      |def loop(n: Int): Int ! Bump =
+      |  var acc = 0
+      |  var i = 0
+      |  while i < n do
+      |    acc = acc + Bump.tick()
+      |    i = i + 1
+      |  acc
+      |handle(loop(5000)) {
+      |  case Bump.tick(resume) => resume(1)
+      |}""".stripMargin
+  )
+
+  private val modEffectMultiShot: Module = src(
+    """multi effect NonDet:
+      |  def choose(options: List[Int]): Int
+      |def program(): Int ! NonDet =
+      |  val a = NonDet.choose(List(1, 2, 3, 4))
+      |  val b = NonDet.choose(List(1, 2, 3, 4))
+      |  val c = NonDet.choose(List(1, 2, 3, 4))
+      |  val d = NonDet.choose(List(1, 2, 3, 4))
+      |  a + b + c + d
+      |handle(program()) {
+      |  case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))
+      |}.length""".stripMargin
+  )
+
   // honesty (T2.1): the `++` operands are built from the loop counter and every
   // component is accumulated, so the tuple-monoid concat genuinely runs each
   // iteration. The old `(1, 2) ++ (3, 4)` was loop-invariant — `tryHoistedPureWhile`
@@ -499,6 +537,18 @@ class InterpreterBench:
   @Benchmark
   def effectStream(): Unit =
     Interpreter(devNull).runSections(modEffectStream)
+
+  // Use `run` (not `runSections`): the full entry calls `runInit`, which populates
+  // `multiShotEffects` via EffectAnalysis — `runSections` skips it, so a `multi
+  // effect` would wrongly trip the one-shot-violation guard. `run` is also the
+  // realistic CLI execution path.
+  @Benchmark
+  def effectOneShot(): Unit =
+    Interpreter(devNull).run(modEffectOneShot)
+
+  @Benchmark
+  def effectMultiShot(): Unit =
+    Interpreter(devNull).run(modEffectMultiShot)
 
   @Benchmark
   def tupleMonoid(): Unit =
