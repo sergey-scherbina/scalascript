@@ -140,65 +140,14 @@ object CapabilityCheck:
     val unsupported = missing.toList.sortBy(_.toString).map { f =>
       Diagnostic.Unsupported(f, backendId)
     }
-    unsupported ++ unknownBlockLanguages(module, cap) ++ unsupportedDbUrls(module, cap, backendId) ++ unsupportedClientSideDbUrls(module) ++ jvmOnlyExternDefs(module, cap, backendId) ++ performInWhileLoop(module, cap, backendId)
+    unsupported ++ unknownBlockLanguages(module, cap) ++ unsupportedDbUrls(module, cap, backendId) ++ unsupportedClientSideDbUrls(module) ++ jvmOnlyExternDefs(module, cap, backendId)
 
-  /** Honest interim diagnostic for the `effect-cps-loops` gap — now **JS-only**.
-   *  A custom effect `perform` reachable inside a `while` loop did not lower to the
-   *  Free-monad CPS source backends. The JVM backend now lowers it correctly
-   *  (`effect-cps-loops-jvm`: `JvmGenCpsTransform` keeps `var`s real + trampolines
-   *  the `while`), so only the JS backend (`JavaScriptSource`) still silently emits
-   *  broken code — `JsGen` has no CPS `Term.While` case yet (`effect-cps-loops-js`).
-   *  Detect the shape precisely (a `while` whose body performs an in-module effect
-   *  op or calls an effectful function) and refuse JS compilation with a clear
-   *  message. The interpreter and JVM lower it fine, so they are not gated. Only the
-   *  module's OWN blocks are scanned (imports are `Content.Import`, not inlined
-   *  source), so library effect runners never trip it. See specs/effect-cps-loops.md. */
-  private def performInWhileLoop(
-    module:    ir.NormalizedModule,
-    cap:       Capabilities,
-    backendId: String
-  ): List[Diagnostic] =
-    // JVM (ScalaSource) lowers perform-in-while correctly now; gate JS only.
-    if !cap.outputs.contains(OutputKind.JavaScriptSource) then return Nil
-
-    val sources = scala.collection.mutable.ListBuffer.empty[String]
-    def scanContent(c: ir.Content): Unit = c match
-      case ir.Content.CodeBlock(source, _, _) => sources += source
-      case _                                  => ()
-    def scanSection(s: ir.Section): Unit =
-      s.content.foreach(scanContent); s.subsections.foreach(scanSection)
-    module.sections.foreach(scanSection)
-
-    // Cheap pre-gate — a perform-in-loop needs both a loop and an effect surface.
-    if !sources.exists(s => s.contains("while") &&
-        (s.contains("perform") || s.contains("effect "))) then return Nil
-
-    import scala.meta.*
-    val trees = sources.toList.flatMap(s => scalascript.parser.Parser.parseScalaSource(s).map(_.tree))
-    if trees.isEmpty then return Nil
-    val effects = scalascript.transform.EffectAnalysis.analyze(trees)
-    if effects.effectOps.isEmpty && effects.effectfulFuns.isEmpty then return Nil
-
-    def isPerformCall(t: Tree): Boolean = t match
-      case Term.Apply.After_4_6_0(Term.Select(Term.Name(recv), Term.Name(op)), _) =>
-        effects.effectOps.contains(s"$recv.$op")
-      case Term.Apply.After_4_6_0(Term.Name(fn), _) =>
-        effects.effectfulFuns.contains(fn)
-      case _ => false
-    def hasPerform(t: Tree): Boolean =
-      isPerformCall(t) || t.children.exists(hasPerform)
-
-    val found = trees.exists(_.collect {
-      case w: Term.While if hasPerform(w.body) => w
-    }.nonEmpty)
-
-    if found then
-      List(Diagnostic.Generic(
-        s"effect `perform` inside a `while` loop is not yet supported on the '$backendId' " +
-        "backend — its CPS codegen has no `while` case and would emit broken code. " +
-        "Refactor the loop to a recursive helper or `foldLeft`, run it on the interpreter, " +
-        "or compile for the JVM target (which supports it). See specs/effect-cps-loops.md."))
-    else Nil
+  // NOTE: the interim "effect `perform` inside a `while` loop" honesty gate
+  // (`performInWhileLoop`) was REMOVED 2026-06-12 once `effect-cps-loops-{jvm,js}`
+  // landed the real lowering — a perform reachable in a `while` now compiles + runs
+  // on both source backends. A separate, unrelated JS bug remains (a self-handling
+  // CPS function returns an un-run lazy `_FlatMap` on JS; affects effect-multishot
+  // and non-loop cases alike) — tracked in BUGS.md, not gated here.
 
   /** Validate `databases:` URL schemes against the target backend.
    *

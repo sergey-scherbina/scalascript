@@ -476,8 +476,20 @@ private[codegen] trait JsGenCpsCodegen:
     case t: Term.ForYield => genForYield(t.enumsBlock.enums, t.body)
     case t: Term.For      => genForDo(t.enumsBlock.enums, t.body)
 
-    // While — CPS not really meaningful (side-effecting loop). Fall back.
-    case t: Term.While    => genExpr(t)
+    // Assign — thread the rhs (so a `perform` in it runs) then mutate the target.
+    // JS arrow-function params (the CPS `var` bindings) are mutable, so `x = …`
+    // works directly. Without this the assign falls to `genExpr` and the perform
+    // is emitted as a raw `_dispatch` whose Computation result is never run.
+    case Term.Assign(lhs, rhs) =>
+      val v = freshTmp()
+      s"_bind(${genCpsExpr(rhs)}, $v => { ${genExpr(lhs)} = $v; return undefined; })"
+
+    // While — lower to a trampolined recursive helper so a `perform` in the body
+    // threads through `_bind` (lazy on a Computation → the runner trampolines it
+    // without growing the JS stack). See specs/effect-cps-loops.md.
+    case t: Term.While =>
+      val wn = freshTmp()
+      s"(() => { const $wn = () => (${genExpr(t.cond)}) ? _bind(${genCpsExpr(t.body)}, () => $wn()) : undefined; return $wn(); })()"
 
     // Return
     case Term.Return(expr) => genCpsExpr(expr)

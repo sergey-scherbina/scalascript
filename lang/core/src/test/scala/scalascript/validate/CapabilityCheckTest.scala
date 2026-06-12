@@ -94,86 +94,10 @@ class CapabilityCheckTest extends AnyFunSuite:
     assert(missingFeatures.contains(Feature.MutableState))
     assert(missingFeatures.contains(Feature.WhileLoops))
 
-  // ── effect-cps-loops honesty: perform inside a while-loop ──────────────
-
-  /** A full-capability backend (no missing-feature diagnostics) that emits source
-   *  code — `OutputKind.ScalaSource` triggers the CPS perform-in-loop gate. */
-  private def srcCap(output: OutputKind): Capabilities =
-    Capabilities(
-      features = Feature.values.toSet,
-      outputs  = Set(output),
-      options  = Set.empty,
-      spiRange = SpiVersionRange(SpiVersion.Current, SpiVersion.Current)
-    )
-
-  private val performInWhile =
-    """effect Bump:
-      |  def tick(): Int
-      |def loop(n: Int): Int ! Bump =
-      |  var acc = 0
-      |  var i = 0
-      |  while i < n do
-      |    acc = acc + Bump.tick()
-      |    i = i + 1
-      |  acc""".stripMargin
-
-  private def hasPerformLoopDiag(diags: List[Diagnostic]): Boolean =
-    diags.exists {
-      case Diagnostic.Generic(m, _) => m.contains("while") && m.contains("perform")
-      case _                        => false
-    }
-
-  test("validate — perform inside a while-loop on a Scala-source (jvm) backend → NO diagnostic"):
-    // effect-cps-loops-jvm landed: the JVM backend now lowers perform-in-while, so it
-    // must NOT be gated anymore (only JS remains unsupported).
-    val diags = CapabilityCheck.validate(moduleOf(performInWhile), srcCap(OutputKind.ScalaSource), "jvm")
-    assert(!hasPerformLoopDiag(diags), s"jvm now supports perform-in-while, must not flag: $diags")
-
-  test("validate — perform inside a while-loop on a JS-source backend → diagnostic"):
-    val diags = CapabilityCheck.validate(moduleOf(performInWhile), srcCap(OutputKind.JavaScriptSource), "js")
-    assert(hasPerformLoopDiag(diags), s"expected a perform-in-while diagnostic, got: $diags")
-
-  test("validate — perform inside a while-loop on the interpreter → NO diagnostic"):
-    // ExecutionResult (no source emitted) — the interpreter lowers it fine.
-    val diags = CapabilityCheck.validate(moduleOf(performInWhile), srcCap(OutputKind.ExecutionResult), "interp")
-    assert(!hasPerformLoopDiag(diags), s"interpreter must not flag perform-in-while, got: $diags")
-
-  test("validate — NON-loop custom effect on a JS-source backend → NO diagnostic"):
-    // Two performs, no while — compiles + runs everywhere, must not be flagged (precision).
-    val nonLoop =
-      """effect Bump:
-        |  def tick(): Int
-        |def once(): Int ! Bump =
-        |  val a = Bump.tick()
-        |  val b = Bump.tick()
-        |  a + b""".stripMargin
-    val diags = CapabilityCheck.validate(moduleOf(nonLoop), srcCap(OutputKind.JavaScriptSource), "js")
-    assert(!hasPerformLoopDiag(diags), s"non-loop effect must not be flagged, got: $diags")
-
-  test("validate — pure while-loop (no perform) on a JS-source backend → NO diagnostic"):
-    val pureLoop =
-      """effect Bump:
-        |  def tick(): Int
-        |def sum(n: Int): Int =
-        |  var acc = 0
-        |  var i = 0
-        |  while i < n do
-        |    acc = acc + i
-        |    i = i + 1
-        |  acc""".stripMargin
-    val diags = CapabilityCheck.validate(moduleOf(pureLoop), srcCap(OutputKind.JavaScriptSource), "js")
-    assert(!hasPerformLoopDiag(diags), s"a pure while-loop must not be flagged, got: $diags")
-
-  test("validate — the real bench/corpus/effect-oneshot.ssc is flagged on js, NOT jvm"):
-    // The canonical corpus file that surfaced this gap. Now jvm lowers it (no flag),
-    // js still does not (flag). Guarded on existence so a stray CWD doesn't fail.
-    val f = os.pwd / "bench" / "corpus" / "effect-oneshot.ssc"
-    if os.exists(f) then
-      val m = Normalize(Parser.parse(os.read(f)))
-      assert(!hasPerformLoopDiag(CapabilityCheck.validate(m, srcCap(OutputKind.ScalaSource), "jvm")),
-        "effect-oneshot.ssc must NOT be flagged on jvm anymore")
-      assert(hasPerformLoopDiag(CapabilityCheck.validate(m, srcCap(OutputKind.JavaScriptSource), "js")),
-        "effect-oneshot.ssc must still be flagged on js")
+  // NOTE: the interim "effect `perform` inside a `while` loop" honesty-diagnostic
+  // tests were removed 2026-06-12 — `effect-cps-loops-{jvm,js}` landed the real
+  // lowering, so the gate (and these tests) are obsolete. The real lowering is
+  // exercised by JvmGenEffectsRuntimeTest (scala-cli) and JsEffectLoopTest (node).
 
   // ── Block-language axis (v1.25 Phase 3a) ───────────────────────────────
 
