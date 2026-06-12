@@ -1,0 +1,62 @@
+---
+name: content-data-source
+description: Declarative @ui=toolkit tables bound to named data sources (Scope B.3) — a managed fetchSource with a non-standard envelope path, and an in-memory staticSource.
+frontend: react
+content:
+  defaultRenderer: toolkit
+---
+
+# Billing
+
+The two tables below are authored declaratively as a `@ui=toolkit` control tree.
+Each `source:` resolves a **named data source** registered in ScalaScript with
+`contentDataSource(id, source, columns)` — the author declares *how* the rows are
+produced (`fetchSource` / `staticSource`) instead of hand-wiring a signal.
+
+## Panel {#panel}
+
+```yaml @ui=toolkit
+controls:
+  type: vstack
+  gap: 12
+  children:
+    - type: table
+      source: invoices       # → a managed fetchSource (re-fetch on tick)
+    - type: table
+      source: rules          # → an in-memory staticSource (no fetch)
+```
+
+## Run
+
+[contentToolkitSection, contentToolkitOptionsWithRows, contentDataSource, fetchSource, staticSource](std/ui/content.ssc)
+[fcol](std/ui/data.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[signal](std/ui/primitives.ssc)
+
+```scalascript
+// `invoices` is a managed GET that re-fetches when `tick` bumps. The API wraps
+// its rows in a non-standard envelope `{ result: { items: [...] } }`, so the
+// data source declares the dotted `rowsPath` "result.items" — the browser
+// runtime unwraps it before the built-in {data|rows|items|results} keys.
+val tick = signal("tick", 0)
+val invoices = fetchSource("invoices", "/api/invoices", tick, signal("authHdr", ""), "result.items")
+
+// `rules` is a fixed in-memory row set — no fetch, no signal to wire.
+val rules = staticSource([
+  ["name" -> "Net 30 days",  "active" -> "yes"],
+  ["name" -> "Late fee 2%",  "active" -> "yes"]
+])
+
+val cols = [fcol("Name", "name")]
+
+// Register both data sources by id; the YAML `source:` ids resolve to these.
+val opts = contentToolkitOptionsWithRows(
+  Map(contentDataSource("invoices", invoices, cols),
+      contentDataSource("rules", rules, cols)))
+
+// Lower the declaratively-authored panel to a low-level View.
+val page = lower(contentToolkitSection("panel", opts), defaultTheme)
+
+println("content-data-source:ok")
+```
