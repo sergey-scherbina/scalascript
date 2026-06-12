@@ -1,15 +1,23 @@
 # Type-level lambdas
 
-Status: **p2 part 1 landed 2026-06-12** (native `[X] =>> F[X]` across interp/jvm/js).
-Placeholder desugaring + rust + `.sscc` round-trip are follow-ups (p2b/p3).
+Status: **COMPLETE 2026-06-12.** Native `[X] =>> F[X]` and placeholder `Map[Int, _]`
+both parse, run, and round-trip across all five backends (interp/jvm/js/rust + `.sscc`
+v3 cache); placeholder aliases desugar at parse time (top-level + nested in
+object/trait/class); the typer / `ssc check` β-reduces a type-lambda alias at its use
+site (`IntKey[Long]` → `Map[Int, Long]`, p3). `TypeLambdaProgressTest` is all-green
+(no pending).
 
 ## 1  Motivation & scope
 
 ScalaScript is interpreter-first: **types are erased at runtime**. Type lambdas
-are therefore *surface-only* — like `SType.HigherKinded` (`F[_]`) and
-`SType.Match` (match types), they parse and round-trip through interface
-artifacts but never participate in unification or runtime semantics. There is no
-runtime cost to benchmark; the deliverable is *parse + represent + round-trip*,
+are therefore *surface-only at runtime* — like `SType.HigherKinded` (`F[_]`) and
+`SType.Match` (match types), they parse and round-trip through interface artifacts
+and carry no runtime cost. They are NOT fully inert at *check* time, however: the
+typer β-reduces a type-lambda alias applied at a use site (`type IntKey = [V] =>>
+Map[Int, V]; IntKey[Long]` → `Map[Int, Long]`, p3 below), mirroring the rust
+backend's codegen-side reduction so `ssc check` agrees with the emitted type. They
+still never participate in value-type *unification* (a bare unapplied lambda is not
+unified). The deliverable is *parse + represent + round-trip + use-site reduction*,
 and which backends accept the syntax (tracked by `bench/corpus/type-lambda-*.ssc`
 and `lang/core/.../typer/TypeLambdaProgressTest.scala`).
 
@@ -105,8 +113,16 @@ partial-application lambda from a wildcard.
   (`Parser.desugarTypeLambdaAliases`, called from `ScalaNode.deferred`). Regress:
   `TypeLambdaProgressTest` "survives a `.sscc` v3 artifact round-trip" (both surfaces)
   + two `SsccFormatV3Test` phase-B cases.
-- **p3 (optional) — semantics:** β-reduce `([X] =>> F[X])[A]` → `F[A]` in
-  `ssc check` + HKT bound checking. Only if a typed backend / strict check needs it.
+- ~~**p3 — semantics:** β-reduce `([X] =>> F[X])[A]` → `F[A]` in `ssc check`~~ ✓ DONE
+  2026-06-12. The typer ignored type lambdas twice: `typeAnnotToSType` had no
+  `Type.Lambda` case (a `[V] =>> …` rhs fell through to `SType.Any`), and `expandAlias`
+  returned a no-own-params alias's rhs verbatim — so `IntKey[Long]` dropped its `[Long]`
+  application. Fixed: parse `Type.Lambda` → `SType.TypeLambda`, and β-reduce a
+  `TypeLambda` rhs against the use-site args in `expandAlias` (wrong arity → error), via
+  new `SType.substNames` (name-keyed, shadowing-aware) + `SType.applyTo`. Matches the
+  rust codegen reduction. HKT/kind *bound* checking remains out of scope (no driver) —
+  the reduction is the useful part. Regress: `TypeLambdaProgressTest` (pure `applyTo` +
+  `ssc check` integration, native + placeholder + arity error).
 - ~~**rust:** decide whether to erase or diagnose type lambdas.~~ ✓ DONE
   2026-06-12: `RustCodeWalk` β-reduces a type-lambda alias application in `mapType`
   (`collectTypeLambdaAliases` + `substType`). `type-lambda-native` is green on rust.
