@@ -8,6 +8,87 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## New direction (2026-06-12) — type-level lambdas, direct-style eval, uuid-p6
+
+### uuid-p6 — monotonic v7 counter (no blocker, small)
+- [ ] **uuid-p6** — JVM monotonic v7 UUID counter: a `rand_a` counter advanced
+      within the same millisecond, exposed as `Uuid.v7Monotonic(): Uuid ! SideEffect`
+      (explicit opt-in). Self-contained, no external dependency. Mirror in the JS/Node
+      backend if cheap. Acceptance: two `v7Monotonic()` calls in the same ms produce
+      strictly increasing UUIDs; tests pin monotonicity + ordering. See uuid plugin
+      ([[project_uuid_plugin]]).
+
+### type-level-lambdas — syntax + representation
+Investigation (2026-06-12): current state is **surface-only**. `SType.HigherKinded(name,
+arity)` round-trips `F[_]` for interface artifacts but "never participates in unification
+or runtime semantics"; `SType.Match` (match-types) likewise surface-only. There is **no
+`SType.TypeLambda`**. Scala 3 native `[X] =>> F[X]` does NOT parse (`=>>` is only in the
+parser's `exprOperators` token set + `SsccFormatV3.TypeLambdaArrow`, never wired into type
+parsing). `Lambda[X => F[X]]` "parses" only as a generic name application (no meaning).
+ScalaScript is interpreter-first → types are erased at runtime, so "implementation" here is
+parse + `SType` representation + show/parseSType round-trip; real reduction/unification is an
+optional later phase (only matters for `ssc check` and typed backends).
+
+- [ ] **type-lambda-p1-syntax-decision** — SYNTAX IS UNDECIDED (user wants ≥ Scala+kind-
+      projector, ideally shorter — to be agreed). Candidates captured for the discussion:
+      (A) Scala-3 native `[X] =>> F[X]`; (B) wildcard/placeholder `Map[Int, _]` (kind-
+      projector's `Map[Int, *]` — shortest; `_` is free to repurpose, ScalaScript has no
+      existentials); (C) lambda-calculus `\X => F[X]` / `λX.F[X]`. DELIVERABLE: pick the
+      surface, write `specs/type-level-lambdas.md` (grammar + `SType.TypeLambda` shape +
+      round-trip + which backends ignore it). BLOCKED ON: syntax decision (AskUserQuestion
+      pending).
+- [ ] **type-lambda-p2-parse-represent** — add `SType.TypeLambda(params, body)`; parse the
+      agreed surface in type position; `show`/`parseSType` round-trip; `.sscc` v3 artifact
+      round-trip. Accept partial application `Map[Int, _]` and named forms. Tests: parse +
+      round-trip + interface-artifact stability. NO semantics yet (no reduction).
+- [ ] **type-lambda-p3-semantics (optional, later)** — beta-reduce type lambdas in `ssc
+      check` (apply `([X] =>> F[X])[A]` → `F[A]`) + HKT bound checking. Only if a real
+      use-case (typed JS/Rust backend, or `ssc check` strictness) motivates it.
+
+### direct-style-eval — Direction C (spec EXISTS, ready to plan)
+`specs/direct-style-eval-spec.md` is written + detailed (dual-entry `evalDirect(...):Value`
+throwing `EffectPerform(comp)` with `NoStackTrace`; `SSC_DIRECT_EVAL` flag default-off;
+hybrid direct-fast-path + monadic-trampoline fallback; per-file migration order;
+~530 sites, 62% in EvalRuntime). Goal: kill the per-call `Computation.Pure` allocation on
+the effect-free hot path. Success: `recursiveEval` ≥ 20% faster on, JFR `Pure` −50%, zero
+regressions across 1230+, multi-shot handlers identical both flags.
+
+- [ ] **direct-style-eval-p0-resolve-open-questions** — clear spec §9 before any code:
+      (1) review the `multishot-stack` worktree fixtures — are any passes dependent on the
+      trampoline preserving all resume branches? link findings; (2) confirm `@pure` annotation
+      is deferred to its own spec; (3) verify the DoubleV double-slot / JIT path stays correct
+      under direct-style; (4) confirm `evalDirect` is suppressed inside any active handler
+      scope (`EffectsRuntime.withHandler`). Output: §9 answered + go/no-go on the
+      `EffectPerform` exception model. No production code.
+- [ ] **direct-style-eval-p1-infra** — `evalDirect(term,env,interp): Value` +
+      `final class EffectPerform(comp) extends Exception with NoStackTrace` + flag plumbing
+      (`interp.directEvalEnabled`) + the dual-entry call-site idiom helper. NO call sites
+      migrated yet; behavior identical with flag off. Tests: pure expr returns Value; a
+      `Perform` throws+catches into the trampoline with identical result.
+- [ ] **direct-style-eval-p2-evalruntime-leaves** — migrate EvalRuntime leaf exprs
+      (`Lit`, `Term.Name`, pure-builtin `Term.Apply`) to `evalDirect`. Per spec §6 verify:
+      flag-off identical, flag-on green, multi-shot fixtures identical.
+- [ ] **direct-style-eval-p3-evalruntime-compound** — `Term.If`/`Term.Match`/`Term.Block`
+      (effect boundaries stay monadic). Bench `recursiveEval` should start moving.
+- [ ] **direct-style-eval-p4-block-pattern-call** — BlockRuntime (41) + PatternRuntime (37)
+      + CallRuntime (15).
+- [ ] **direct-style-eval-p5-dispatch** — DispatchRuntime (89, many effect-adjacent — care).
+- [ ] **direct-style-eval-p6-validate-and-default** — hit success criteria (≥20% / −50% Pure /
+      multishot identical); decide whether to flip `SSC_DIRECT_EVAL` default to `on`.
+      Each phase = own worktree + commit; the spec's §6 verification protocol per batch.
+
+### Deferred / blocked (NOT taken — recorded for clarity)
+- **Real browser-WebSocket integration testing** — partial only: Node test runtime has no
+      native WebSocket. A `ws` npm de-mock + local echo server is doable; the "real browser +
+      live `wss://relay.walletconnect.com`" goal needs a browser harness AND a WC projectId.
+      Hold for the PWA-wallet sprint.
+- **WC project-ID** — BLOCKED ON USER: code already accepts `projectId`; needs a WalletConnect
+      Cloud account + projectId provisioned as a CI secret. Cannot proceed without the secret.
+- **FROST-Ed25519** — not technically blocked but large + speculative (no concrete driver);
+      hold until a real use case.
+
+---
+
 ## Bench-outlier follow-ups (2026-06-12)
 
 Surfaced analysing `bench.sh` outliers (see [[project_jit_bare_length_bail_0612]]
