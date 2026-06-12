@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — feat(types): typer β-reduces type-lambda aliases in `ssc check` (type-lambda feature complete)
+
+- The typer ignored type lambdas twice: `typeAnnotToSType` had no `Type.Lambda` case
+  (a `type IntKey = [V] =>> Map[Int, V]` rhs fell through to `SType.Any`), and
+  `expandAlias` returned a no-own-params alias's rhs verbatim — so `IntKey[Long]`
+  dropped its `[Long]` application. `ssc check` therefore saw `Any` where the rust
+  backend already β-reduces. Fixed: parse `Type.Lambda` → `SType.TypeLambda`, and
+  β-reduce a `TypeLambda` rhs against the use-site args in `expandAlias` (wrong arity →
+  error), via new `SType.substNames` (name-keyed, shadowing-aware) + `SType.applyTo`.
+  Both surfaces covered (the parser desugars the placeholder form to a lambda first).
+  Regress: `TypeLambdaProgressTest` (pure `applyTo` + `ssc check` integration). core 962
+  green. This closes `type-lambda-p3-semantics` — **the type-lambda feature is complete**
+  (parse + represent + round-trip across 5 backends + `.sscc` cache + use-site reduction).
+
 ## 2026-06-12 — fix(sscc): placeholder type-lambda aliases survive the `.sscc` v3 cache round-trip
 
 - The `.sscc` v3 read (`ScalaNode.deferred`) raw-parses the source reconstructed from

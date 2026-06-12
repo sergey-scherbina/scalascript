@@ -169,12 +169,19 @@ optional later phase (only matters for `ssc check` and typed backends).
       pending; two `SsccFormatV3Test` phase-B cases. core 958 green. The `.scir` interface
       side already round-trips via `show`/`parseSType` (existing `[done]` test). Spec
       `specs/type-level-lambdas.md` §6 updated. Only p3 (optional β-reduction) remains.
-- [ ] **type-lambda-p3-semantics (optional, later)** — beta-reduce type lambdas in `ssc
-      check` (`([X] =>> F[X])[A]` → `F[A]`) + HKT/kind checking. rust already reduces in
-      codegen; this is the typer/`ssc check` side. Only if a real use-case motivates it.
-      NOTE: `parseSType` deliberately keeps `Map[String, _]` a wildcard `Named` (the
-      artifact parser has no use-site context to tell a partial-application lambda from a
-      wildcard) — by design; do NOT change without solving the disambiguation.
+- [x] **type-lambda-p3-semantics** — DONE 2026-06-12 (user-requested). The typer ignored
+      type lambdas twice: `typeAnnotToSType` had no `Type.Lambda` case (a `[V] =>> …` rhs
+      → `SType.Any`) and `expandAlias` returned a no-own-params alias's rhs verbatim, so
+      `IntKey[Long]` dropped its `[Long]`. Fixed: parse `Type.Lambda` → `SType.TypeLambda`,
+      and β-reduce a `TypeLambda` rhs against use-site args in `expandAlias` (wrong arity →
+      error), via new `SType.substNames` (name-keyed, shadowing-aware, complete — replaces
+      expandAlias's partial local `applySubst`) + `SType.applyTo`. Matches rust codegen so
+      `ssc check` agrees with emit. HKT/kind *bound* checking left out of scope (no driver).
+      Regress: TypeLambdaProgressTest — pure `applyTo` (single/multi-param/shadowing) + full
+      `ssc check` integration (native + placeholder reduce; arity mismatch errors). All
+      pending cases flipped to `[done]`; core 962 green. **type-lambda feature COMPLETE.**
+      NOTE: `parseSType` deliberately keeps a use-site `Map[String, _]` a wildcard `Named`
+      (artifact parser has no use-site context) — by design; unchanged.
 
 ### effect-cps-loops Ã¢ÂÂ custom effects with perform-in-loop on jvm/js
 Precise diagnosis 2026-06-12 (from the `effect-oneshot`/`effect-multishot` bench
