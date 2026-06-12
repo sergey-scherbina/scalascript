@@ -20,7 +20,11 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       `contentRows`, `contentToolkitOptionsWithRows`. Example `content-live-rows.ssc`;
       4 tests (2 plugin + 2 end-to-end through `emit`). Unlocks Markdown-authored *live-data* screens.
 
-- [ ] **markdown-content-introspection-api** — After `markdown-frontend-mvp`,
+- [x] **markdown-content-introspection-api** — ✓ DONE (verified 2026-06-12: every
+      sub-feature below landed 2026-06-04/05; `content-plugin` ships the full helper set,
+      `contentToMarkdown`/`contentBind`/`contentModules` in JsGen+JvmGen, conformance
+      `tests/conformance/content-introspection.ssc` un-pended, `examples/content-linked-
+      namespaces.ssc` present). After `markdown-frontend-mvp`,
       expose the shared content snapshot as the broader `std/content` metadata
       API from
       [`specs/markdown-content-introspection.md`](specs/markdown-content-introspection.md):
@@ -7239,16 +7243,18 @@ for JVM).
   does not apply inside them; `@interpreterUnsupported` for interp gap.
 
 **Phases:**
-- [ ] **backend-blocks-p1-parse** — `BackendBlock(tag, src)` AST node; parser
-      recognises `scala`/`java`/`javascript`/`rust`/`wasm` block tags.
-- [ ] **backend-blocks-p2-typecheck** — `E_PlatformType` + `E_NoBackendImpl`
-      + `E_BackendSymbolLeak` compile errors.
-- [ ] **backend-blocks-p3-jvm** — `JvmGen` emits `scala` + `java` blocks.
-- [ ] **backend-blocks-p4-js** — `JsGen` emits `javascript` blocks.
-- [ ] **backend-blocks-p5-rust** — `RustGen` emits `rust` blocks.
-- [ ] **backend-blocks-p6-ffi-extend** — `@rust`/`@wasm`/`@wasmExport`/
-      `@wasmImport` annotations; WASM boundary emission.
-- [ ] **backend-blocks-p7-audit** — migrate codebase; flip ban to hard error.
+- [x] **backend-blocks-p1-parse** — ✓ DONE (`39664edb6`; verified 2026-06-12).
+      `Lang.Java/Rust/Wasm` + `isNativeBackendBlock`/`isOpaqueExec`; `BackendBlockParserTest`.
+- [x] **backend-blocks-p2-typecheck** — ✓ DONE (`33ca97529`). `E_PlatformType` ban for
+      java/javax/sun imports in scalascript blocks (`Typer.scala`, `PlatformTypeBanTest`).
+- [x] **backend-blocks-p3-jvm** — ✓ DONE (`5f8b96910`). `JvmGen` java blocks →
+      `//> using sources _ssc_java_N.java`; scala blocks via isParseable.
+- [x] **backend-blocks-p4-js** — ✓ DONE (`462cb3028`). `JsGen` javascript blocks verbatim.
+- [x] **backend-blocks-p5-rust** — ✓ DONE (`f88dc155c` / `26404e906`). `RustGen` rust blocks.
+- [x] **backend-blocks-p6-ffi-extend** — ✓ DONE. `@rust("expr")` wired in
+      `RustCodeWalk.renderDef`; extern defs without `@rust` skipped; `arch-ffi.md` updated.
+- [x] **backend-blocks-p7-audit** — ✓ DONE (`e57541f18`). 1 violation fixed; runtime/std/
+      + conformance/ clean.
 
 **Acceptance:** `ssc compile` on a `.ssc` file containing `import java.io.File`
 in a `scalascript` block emits `E_PlatformType` and exits non-zero. Same file
@@ -7289,18 +7295,18 @@ ProcessError.NotSupported on Browser target.
 
 **Phases:**
 
-- [ ] **std-fs-os-p1-spec** — `specs/std-fs-os.md`: all three modules,
-      error models, backend policy table (JVM/Node/Browser/Rust).
-- [ ] **std-fs-os-p2-jvm** — `fs-plugin/` + `os-plugin/`; JVM impls via
-      `java.nio.file` + `ProcessBuilder`; conformance tests.
-- [ ] **std-fs-os-p3-js** — Node preamble (`node:fs`, `node:os`,
-      `node:path`, `node:child_process`); browser NotSupported stubs.
-- [ ] **std-fs-os-p4-rust** — `RustGen` lowering (`std::fs`, `std::env`,
-      `std::process::Command`); conformance snapshot.
-- [ ] **std-fs-os-p5-stdlib** — `os.ssc` + `process.ssc` stdlib files;
-      examples (`fs-roundtrip.ssc`, `os-env.ssc`, `process-exec.ssc`).
-- [ ] **std-fs-os-p6-cleanup** — Audit `.ssc` for java imports; boundary
-      rule in `AGENTS.md` + `specs/std-fs-os.md`.
+- [x] **std-fs-os-p1-spec** — ✓ DONE (`0757d27e7`; verified 2026-06-12).
+      `specs/std-fs-os.md` (271 lines, all 3 modules + backend policy table).
+- [x] **std-fs-os-p2-jvm** — ✓ DONE (`d7bfd7b54`). `fs-plugin/` (16 ops) + `os-plugin/`
+      (18 ops incl. exec) via `java.nio.file`/`ProcessBuilder`; conformance tests.
+- [x] **std-fs-os-p3-js** — ✓ DONE (`3d72a7972`). `JsRuntimeFs`: 16 std.fs + 15 std.os +
+      exec; Node lazy-require; browser `FsNotSupported` stubs.
+- [x] **std-fs-os-p4-rust** — ✓ DONE (`6903a5857`; the one memory thought deferred).
+      `RustGen` lowering of `std::fs`/`std::env`/`std::process::Command`; conformance snapshot.
+- [x] **std-fs-os-p5-stdlib** — ✓ DONE (`d7bfd7b54`). `os.ssc` + `process.ssc` + expanded
+      `fs.ssc`; `examples/fs-roundtrip.ssc` + `os-env.ssc` (process-exec example not added — trivial).
+- [x] **std-fs-os-p6-cleanup** — ✓ DONE (`d7bfd7b54`). `.ssc` java-import audit; `AGENTS.md`
+      references the spec boundary rule.
 
 **Acceptance:** `ssc run examples/fs-roundtrip.ssc` + `examples/process-exec.ssc`
 green on interpreter + JS/Node + Rust. No `.ssc` file imports `java.*`.
