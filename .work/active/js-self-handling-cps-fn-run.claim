@@ -1,0 +1,6 @@
+js-self-handling-cps-fn-run 2026-06-12T19:35:37Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-12T19:35:37Z
+status: in-progress
+done-so-far: BUGS.md js-self-handling-cps-fn-not-run diagnosed; verified fix = wrap value-position effectful-fn call in _run (JS _bind always lazy vs JVM eager)
+next: in JsGen genApply, wrap a call to an effectfulFun (non-CPS path) in _run; ensure CPS-context calls (genCpsApply) unaffected; gate on full effect suite + node tests; verify effect-multishot js
