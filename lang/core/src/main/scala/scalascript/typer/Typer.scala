@@ -63,6 +63,16 @@ class Typer(
    *  type-parameter substitution (deferred). */
   private val classFields = collection.mutable.Map.empty[String, List[(String, SType)]]
 
+  /** Direct nominal parents (the `extends` clause) of each user `class` /
+   *  `case class` / `trait` / `enum`, by name. Populated in the collect pass
+   *  (alongside `classFields`) from the template `inits`; consulted by
+   *  [[nominalSubtype]] so `isCompatible` recognises `C <: T` for a declared
+   *  `case class C() extends T`. Without it the only "subtype" that ever
+   *  passed was the accidental `looksLikeTypeVar` match on single-uppercase
+   *  names; real multi-character names failed. Plain mutable, NOT snapshotted
+   *  — a structural registry like `classFields`. */
+  private val classParents = collection.mutable.Map.empty[String, List[String]]
+
   /** Kind registry for type constructors: name → the kinds of its type
    *  parameters, where each kind is that parameter's own arity (`0` = proper
    *  type `*`; `k>0` = higher-kinded `F[_…]` of arity `k`). The list length is
@@ -405,6 +415,7 @@ class Typer(
       val fields = classFieldTypes(d)
       classFields(d.name.value) = fields
       typeCtorKinds(d.name.value) = tparamKinds(d.tparamClause)
+      classParents(d.name.value) = parentNamesOf(d.templ)
       scope.define(Symbol(
         d.name.value,
         SType.Function(fields.map(_._2), SType.named0(d.name.value)),
@@ -413,10 +424,12 @@ class Typer(
     case d: Defn.Object => scope.define(Symbol(d.name.value, SType.named0(d.name.value), SymbolKind.Object))
     case d: Defn.Trait  =>
       typeCtorKinds(d.name.value) = tparamKinds(d.tparamClause)
+      classParents(d.name.value) = parentNamesOf(d.templ)
       scope.define(Symbol(d.name.value, SType.named0(d.name.value), SymbolKind.Trait))
     case d: Defn.Enum   =>
       val enumType = SType.named0(d.name.value)
       typeCtorKinds(d.name.value) = tparamKinds(d.tparamClause)
+      classParents(d.name.value) = parentNamesOf(d.templ)
       scope.define(Symbol(d.name.value, enumType, SymbolKind.Enum))
       d.templ.body.stats.foreach {
         case ec: Defn.EnumCase =>
@@ -1224,6 +1237,13 @@ class Typer(
     //  - Type variable heuristic: if either side looks like a type parameter (all-uppercase,
     //    ≤3 chars, no type args) the check is skipped — the typer lacks full poly inference.
     genericCompatible(actual, expected) ||
+    // Nominal subtyping: a declared `case class C extends T` (transitively
+    // through trait/enum `extends` chains) makes `C <: T`. Before this the
+    // only nominal "subtype" that passed was the accidental looksLikeTypeVar
+    // match on single-uppercase names; real multi-character names errored.
+    ((actual, expected) match
+      case (SType.Named(an, _), SType.Named(en, _)) => nominalSubtype(an, en)
+      case _                                        => false) ||
     // Union subtyping: `A <: A | B` — actual is assignable to a union if it
     // is assignable to at least one member of the union.
     (expected match
@@ -1253,6 +1273,27 @@ class Typer(
       case (SType.Named(an, Nil), _) if looksLikeTypeVar(an) => true
       case (_, SType.Named(en, Nil)) if looksLikeTypeVar(en) => true
       case _ => false
+
+  /** Direct parent type-names of a template's `extends` clause (the head
+   *  name of each `init`, e.g. `Foo` for `extends Foo[Bar]`). */
+  private def parentNamesOf(templ: scala.meta.Template): List[String] =
+    templ.inits.flatMap { init =>
+      typeAnnotToSType(init.tpe) match
+        case SType.Named(n, _) => Some(n)
+        case _                 => None
+    }.toList
+
+  /** Transitive nominal subtype over the declared `extends` graph: is `sup`
+   *  a (reflexive) supertype of `sub`? Cycle-guarded against malformed input. */
+  private def nominalSubtype(sub: String, sup: String): Boolean =
+    sub == sup || {
+      val seen = collection.mutable.Set.empty[String]
+      def reaches(n: String): Boolean =
+        classParents.getOrElse(n, Nil).exists { p =>
+          p == sup || (seen.add(p) && reaches(p))
+        }
+      reaches(sub)
+    }
 
   /** Basic type rules for infix operators. */
   private def checkBinaryOp(lhs: SType, op: String, rhs: SType, pos: scala.meta.Position): SType =
