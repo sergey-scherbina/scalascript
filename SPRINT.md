@@ -45,12 +45,14 @@ flakily hangs — use the 332-test targeted set if it won't pass).
 ## New direction (2026-06-12) — type-level lambdas, direct-style eval, uuid-p6
 
 ### uuid-p6 — monotonic v7 counter (no blocker, small)
-- [ ] **uuid-p6** — JVM monotonic v7 UUID counter: a `rand_a` counter advanced
-      within the same millisecond, exposed as `Uuid.v7Monotonic(): Uuid ! SideEffect`
-      (explicit opt-in). Self-contained, no external dependency. Mirror in the JS/Node
-      backend if cheap. Acceptance: two `v7Monotonic()` calls in the same ms produce
-      strictly increasing UUIDs; tests pin monotonicity + ordering. See uuid plugin
-      ([[project_uuid_plugin]]).
+- [x] **uuid-p6** — ✓ DONE 2026-06-12 (`9fa049920`). `uuidV7Monotonic` / typed
+      `Uuid.v7Monotonic()`: rand_a as a per-ms counter (RFC 9562 §6.2 Method 1) →
+      strictly increasing within a ms, timestamp dominates across. JVM + JS/Node +
+      effect classification (SideEffect like v4/v7). Verified end-to-end via bin/ssc
+      (bare: valid + rand_a 2da→2db monotonic). Tests: UuidPluginTest (valid + 500-call
+      strict monotonicity), DepEffectfulnessFixpointTest (effectful). NOTE: typed
+      `Uuid.v7Monotonic()` shares the pre-existing std-import-path limitation affecting
+      all of object Uuid (bare intrinsic is the working surface). ([[project_uuid_plugin]])
 
 ### type-level-lambdas — syntax + representation
 Investigation (2026-06-12): current state is **surface-only**. `SType.HigherKinded(name,
@@ -63,14 +65,15 @@ ScalaScript is interpreter-first → types are erased at runtime, so "implementa
 parse + `SType` representation + show/parseSType round-trip; real reduction/unification is an
 optional later phase (only matters for `ssc check` and typed backends).
 
-- [ ] **type-lambda-p1-syntax-decision** — SYNTAX IS UNDECIDED (user wants ≥ Scala+kind-
-      projector, ideally shorter — to be agreed). Candidates captured for the discussion:
-      (A) Scala-3 native `[X] =>> F[X]`; (B) wildcard/placeholder `Map[Int, _]` (kind-
-      projector's `Map[Int, *]` — shortest; `_` is free to repurpose, ScalaScript has no
-      existentials); (C) lambda-calculus `\X => F[X]` / `λX.F[X]`. DELIVERABLE: pick the
-      surface, write `specs/type-level-lambdas.md` (grammar + `SType.TypeLambda` shape +
-      round-trip + which backends ignore it). BLOCKED ON: syntax decision (AskUserQuestion
-      pending).
+- [ ] **type-lambda-p1-spec** — SYNTAX DECIDED 2026-06-12: support **BOTH** (a) placeholder
+      `Map[Int, _]` short form (each `_` = a fresh lambda param, bound left-to-right in source
+      order; `_` is free — ScalaScript has no existentials) AND (b) Scala-3 native
+      `[X] =>> F[X]` for full control / reorder / multi-param / Scala copy-paste. Equivalent:
+      `Map[Int, _]` desugars to `[X] =>> Map[Int, X]`. DELIVERABLE: write
+      `specs/type-level-lambdas.md` — grammar for both surfaces, the `_`→`=>>` desugaring
+      (param order = source order of `_`), `SType.TypeLambda(params, body)` shape, canonical
+      `show` = `=>>` (`_` is sugar-in only), parseSType round-trip, and that all runtime
+      backends ignore it (surface-only, like HKT/Match).
 - [ ] **type-lambda-p2-parse-represent** — add `SType.TypeLambda(params, body)`; parse the
       agreed surface in type position; `show`/`parseSType` round-trip; `.sscc` v3 artifact
       round-trip. Accept partial application `Map[Int, _]` and named forms. Tests: parse +
