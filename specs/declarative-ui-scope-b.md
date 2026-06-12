@@ -1,6 +1,6 @@
 # Declarative dynamic UI — Scope B (richer authoring model)
 
-**Status:** COMPLETE — B.1 + B.2 + B.3 v1 + B.4 v1 (+ B.4+ bodyBuilder) + B.5 + B.6 + B.7 v1 (+ signal-ref lint) implemented (2026-06-11/12). Remaining items are documented v-next follow-ups (B.3 `rowsPath` on native backends, B.7 lint for Markdown `toolkit:` links, typed/keyed `formBody`).
+**Status:** COMPLETE — B.1 + B.2 + B.3 v1 + B.4 v1 (+ B.4+ bodyBuilder) + B.5 + B.6 + B.7 v1 (+ signal-ref lint) implemented (2026-06-11/12). Remaining items are documented v-next follow-ups (B.3 `rowsPath` on native backends, typed/keyed `formBody`). B.7 Markdown `toolkit:` link-reference lint landed 2026-06-12.
 **Upstream proposal:** busi `docs/declarative-ui-authoring.md` (rozum seq-113).
 **Predecessor:** Scope A (`specs/js-toolkit-action-rows-registry.md`) — browser
 parity for the existing `action` / `rowBindings` registries via the Markdown
@@ -143,9 +143,13 @@ no interpreter, no content pipeline, no plugin YAML parser, no rendering. It onl
 universe*: a `contentComputed` registration **or** a locally-declared YAML
 `signals:` default, both harvested so a valid reference never falsely warns).
 Markdown `toolkit:` *link* references (`toolkit:button?action=`,
-`toolkit:table?rows=`) and "shapes match" checking are still deferred (the links
-live in raw prose, not the `@ui=toolkit` CodeBlock the pass scans). Warnings, never
-errors (exit code unchanged on a clean-but-warned file: `OK (with warnings)`).
+`toolkit:table?rows=`/`source=`) are now linted too (2026-06-12): `markdownLinkReferences`
+walks the document tree (`module.document` — where the parsed `ContentInline.Link`s live)
+and harvests the `action`/`rows`/`source` query params into the same `collectReferences`
+result, so the CLI early-exit and `lint` both see them. Link `signal=`/`showWhen=`/
+`enabledWhen=` are NOT linted — an input control may *declare* its signal inline, so
+validating those would false-warn. "Shapes match" checking is still deferred. Warnings,
+never errors (exit code unchanged on a clean-but-warned file: `OK (with warnings)`).
 
 ### Behavior checklist (B.7 v1)
 
