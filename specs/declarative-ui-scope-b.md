@@ -1,6 +1,6 @@
 # Declarative dynamic UI — Scope B (richer authoring model)
 
-**Status:** COMPLETE — B.1 + B.2 + B.3 v1 + B.4 v1 (+ B.4+ bodyBuilder) + B.5 + B.6 + B.7 v1 (+ signal-ref lint) implemented (2026-06-11/12). Remaining items are documented v-next follow-ups (B.3 `rowsPath` on native backends, typed/keyed `formBody`). B.7 Markdown `toolkit:` link-reference lint landed 2026-06-12.
+**Status:** COMPLETE — B.1 + B.2 + B.3 v1 + B.4 v1 (+ B.4+ bodyBuilder + keyed `formBody`) + B.5 + B.6 + B.7 v1 (+ signal-ref lint) implemented (2026-06-11/12). B.7 Markdown `toolkit:` link-reference lint + keyed `(jsonKey, signalId)` `formBody` landed 2026-06-12. The one remaining v-next follow-up — `rowsPath` on the **native/JVM** backend — is deferred to `BACKLOG.md` as an architectural item: the JVM backend emits no DataTable/Remote client JS at all (`rowsPath` is a browser-runtime envelope-drill, JS-only by construction), so it is not a small wiring change but a new JVM client-emission path; no consumer (busi) has requested it.
 **Upstream proposal:** busi `docs/declarative-ui-authoring.md` (rozum seq-113).
 **Predecessor:** Scope A (`specs/js-toolkit-action-rows-registry.md`) — browser
 parity for the existing `action` / `rowBindings` registries via the Markdown
@@ -300,9 +300,24 @@ are the field names: `{"customer": <_sv.customer>, "amount": <_sv.amount>}`. The
 descriptor emits `data-ssc-fetch-body-fields`; a testable
 `_ssc_ui_buildFormBody(fieldsJson, sv)` does the assembly. The interpreter's
 `fetchActionWith` accepts the `formBody` descriptor and builds a `FetchAction` with a
-synthetic empty body (the assembly is browser-only, like the effect list). Values
-are taken verbatim from the signals (strings) — a typed-field / `key: signalId`
-mapping is a later refinement.
+synthetic empty body (the assembly is browser-only, like the effect list).
+
+**Keyed mapping (landed).** `formBody`'s `fields` is `List[Any]`, so each entry is
+**either** a bare field name (the JSON key equals the signal id) **or** a
+`(jsonKey, signalId)` tuple when the wire key must differ from the signal id:
+
+```scalascript
+formBody([("customerName", "customer"), "amount"])
+// → { "customerName": <_sv.customer>, "amount": <_sv.amount> }
+```
+
+A ScalaScript tuple serialises to a JS array (`Object.assign([k,s], {_isTuple:true})`),
+whose `_isTuple` marker is dropped by `JSON.stringify`, so the descriptor carries a
+plain `["customerName","customer"]` 2-array through `data-ssc-fetch-body-fields`.
+`_ssc_ui_buildFormBody` reads the value from `signalId` and writes it under `jsonKey`
+(a bare string entry keeps `key == signal`). No new intrinsic and no interpreter
+change — the interp wraps `fields` opaquely; only the browser assembler and the
+`formBody` param type changed.
 
 ### Behavior checklist (B.4+ bodyBuilder)
 
@@ -315,6 +330,11 @@ mapping is a later refinement.
 - [x] interp test (`FetchPluginInterpreterTest`) + JS test (`JsGenStdImportTest`:
       descriptor thread + `_ssc_ui_buildFormBody` assembly) + runnable
       `examples/content-form-submit.ssc` (`content-form-submit:ok`).
+- [x] keyed `(jsonKey, signalId)` entries map a signal to a different wire key —
+      the tuple threads as a `[jsonKey, signalId]` 2-array; the assembler writes
+      `sv[signalId]` under `jsonKey` (a bare string keeps `key == signal`). Mixed
+      bare + keyed lists work; a missing keyed signal still defaults to `""`.
+      (`JsGenStdImportTest` keyed-tuple case, full ssc→JS path + assembler.)
 
 ## B.6 detail (slot escape-hatch)
 
