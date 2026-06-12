@@ -108,7 +108,16 @@ class Interpreter(
      *  synthetic requests. */
     headless: Boolean              = false,
     openApiDryRun: Boolean         = false,
-    private[interpreter] val lockPath: Option[os.Path]      = None) extends ActorInterp:
+    private[interpreter] val lockPath: Option[os.Path]      = None,
+    /** Shared module-evaluation cache, keyed by resolved absolute module path,
+     *  for one import-graph run.  `SectionRuntime.runImport` populates it via
+     *  `getOrElseUpdate` and threads the *same* map into every child interpreter,
+     *  so a module reachable through a diamond is evaluated exactly once instead
+     *  of once per DAG path (busi seq-132: a diamond over a large module re-ran it
+     *  exponentially → OOM/hang at load time).  Defaults to a fresh map, so a
+     *  top-level `Interpreter(...)` owns one cache for its whole run. */
+    private[interpreter] val moduleCache: mutable.Map[os.Path, Interpreter] =
+      mutable.Map.empty) extends ActorInterp:
   /** Per-interpreter WebSocket route table.  Owning this here means each
    *  `Interpreter` instance has an isolated WS route set — no global lock
    *  or `WsTestLock` synchronization required in tests. */

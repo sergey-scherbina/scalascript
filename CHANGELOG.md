@@ -4,7 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
-## 2026-06-12 — chore(skills): agent-independent skill index + zero-install submodule wiring
+## 2026-06-12 — fix(interp): dedup module evaluation across a diamond import (busi seq-132)
+
+- The interpreter module loader (`SectionRuntime.runImport`) created a fresh
+  `Interpreter` and re-ran the imported module on **every import edge** — no cache. In a
+  diamond import (a module reached by two paths — busi: `dispatch.ssc` ~7942 lines
+  imported both directly and via an SPI module) the shared module was re-evaluated once
+  per DAG path, **exponential in diamond layers** → OOM / hang at load time, 0 lines of
+  the program run. `ssc check` was unaffected (the typer memoizes module loads); only the
+  interpreter loader re-evaluated.
+- Fix: a shared `moduleCache: Map[os.Path, Interpreter]` on `Interpreter`, threaded into
+  every child interpreter; `runImport` builds/runs the child via
+  `getOrElseUpdate(resolvedPath)`. Each module is now evaluated **once per run** (init
+  side effects run once, matching the typer and ES/Python module semantics); each
+  importer still merges the shared child's exports into its own tables, so per-importer
+  aliasing/registration is unchanged. Regression `InterpModuleDedupTest` (a diamond + a
+  3-layer stacked diamond) asserts the shared module's load side effect fires exactly
+  once. Spec `specs/interp-module-loader-dedup.md`. Unblocks busi ph-2 modularization.
 
 - Added a new **`scrumban`** skill (`.agents/plugins/scrumban/`) codifying the
   write-before-do discipline: record intended work in `SPRINT.md` (do-soon) /

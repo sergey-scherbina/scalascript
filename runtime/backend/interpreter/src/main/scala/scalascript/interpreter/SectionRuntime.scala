@@ -305,8 +305,19 @@ private[interpreter] object SectionRuntime:
       throw InterpretError(s"Import not found: ${imp.path}")
     val childDir = resolvedPath / os.up
     val childModule = Parser.parse(os.read(resolvedPath))
-    val child    = Interpreter(interp.out, Some(childDir), lockPath = interp.lockPath)
-    child.run(childModule)
+    // Evaluate the imported module at most once per import-graph run.  Keyed by the
+    // resolved absolute path and shared via `interp.moduleCache` (threaded into the
+    // child below), so a module reachable through a diamond — busi `dispatch.ssc`
+    // imported both directly and via an SPI module — is run a single time instead of
+    // once per DAG path (which was exponential in diamond layers → OOM/hang at load
+    // time, busi seq-132).  The importer below still does its own binding/merge of the
+    // (now shared) child's exports, so per-importer aliasing/registration is unchanged.
+    val child = interp.moduleCache.getOrElseUpdate(resolvedPath, {
+      val c = Interpreter(interp.out, Some(childDir), lockPath = interp.lockPath,
+                          moduleCache = interp.moduleCache)
+      c.run(childModule)
+      c
+    })
     if !isContentHelperImport(imp.path) then
       registerImportedContent(interp, resolvedPath, childModule)
     val exported    = child.exportedGlobals

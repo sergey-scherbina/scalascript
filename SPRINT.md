@@ -10,17 +10,36 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ## busi-seq132 — interp module-loader diamond OOM (2026-06-12)
 
-- [ ] **interp-module-loader-dedup** — busi (rozum seq-132): the interpreter module
-      loader (`SectionRuntime.runImport`) creates a fresh `Interpreter` and re-runs the
-      imported module on **every import edge** — no cache. A diamond over a big module
-      (busi `dispatch.ssc`, ~7942 lines) re-evaluates it once per DAG path → exponential
-      → OOM/hang at load time (0 lines run). `ssc check` is fine (typer memoizes); only
-      the interp loader re-evaluates. Fix: add a shared `moduleCache: Map[os.Path,
-      Interpreter]` threaded through child constructors, `getOrElseUpdate(resolvedPath)`
-      in `runImport` → each module evaluated once per run (init side effects run once,
-      like the typer / ES/Python modules). Regress test = 3-module diamond asserting a
-      shared-module side effect fires exactly once. Spec
-      `specs/interp-module-loader-dedup.md`. Blocks busi ph-2 monolith modularization.
+- [x] **interp-module-loader-dedup** — DONE 2026-06-12. busi (rozum seq-132): the
+      interpreter module loader (`SectionRuntime.runImport`) created a fresh `Interpreter`
+      and re-ran the imported module on **every import edge** — no cache. A diamond over a
+      big module re-evaluated it once per DAG path → exponential → OOM/hang at load time.
+      `ssc check` was fine (typer memoizes); only the interp loader re-evaluated. Fix:
+      shared `moduleCache: Map[os.Path, Interpreter]` threaded through child constructors,
+      `getOrElseUpdate(resolvedPath)` in `runImport` → each module evaluated once per run
+      (init side effects run once, like the typer / ES/Python modules). Regress:
+      `InterpModuleDedupTest` (diamond + 3-layer stacked diamond; asserts the shared
+      module's load side effect fires exactly once) — green. 108 suites @ 0 failures in
+      the full run (only the pre-existing three-way-ping-pong hang below blocks a single
+      all-green number; unrelated to imports). Spec `specs/interp-module-loader-dedup.md`.
+      `BUGS.md` entry `fixed`. Unblocks busi ph-2 monolith modularization.
+
+## Discovered: interp three-way mutual-TCO hang (2026-06-12)
+
+- [ ] **interp-three-way-tco-hang** — found while gating the module-loader fix: the
+      `backendInterpreter` test `InterpreterTest` → "**mutual-TCO — three-way ping-pong**"
+      (`InterpreterTest.scala:1025`) **hangs deterministically** (infinite loop / no
+      progress; `testOnly … -- -z "three-way ping-pong"` → timeout/exit 124). This is the
+      real cause of what was logged as a "flaky environmental hang at InterpreterTest" in
+      `project_interp_enum_trait_hierarchy_0612` — it is NOT environmental: it reproduces
+      on a clean `origin/main` (no module-loader change) and is independent of the
+      type-lambda work (my worktree base `cdd6cf31a` predates it and still hangs).
+      Two-way mutual-TCO (`isEven/isOdd`, line 1012) passes; **three-way** ping-pong
+      hangs — likely the mutual-TCO JIT/trampoline doesn't handle a 3-cycle. Repro: run
+      that one test. Priority: real correctness/hang bug, but pre-existing and not
+      blocking the seq-132 fix — investigate the mutual-TCO lowering (BytecodeJit /
+      trampoline cycle detection) and add a 3-way regression. Update the memory note
+      (mis-diagnosed as flaky). Flagged in rozum to @scalascript.
 
 ## Post-busi-seq124/125 follow-ups (2026-06-12)
 
