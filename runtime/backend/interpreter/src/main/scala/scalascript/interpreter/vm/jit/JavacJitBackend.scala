@@ -51,6 +51,35 @@ object JavacJitBackend extends JitBackend:
     !sys.env.get("SSC_JIT_BYTECODE").map(_.toLowerCase).contains("off") &&
       !sys.props.get("ssc.jit.bytecode").map(_.toLowerCase).contains("off")
 
+  /** `-classpath` options for the runtime `javac` JIT. With `null` options javac
+   *  resolves references using only `java.class.path` — the full classpath under
+   *  `java -jar` (the fat jar) and sbt's *forked* tests, but NOT under sbt
+   *  `runMain` / unforked runs, which use layered `URLClassLoader`s whose entries
+   *  never appear on `java.class.path`. There the generated Java cannot resolve the
+   *  runtime classes it references and the compile bails to tree-walk, leaving the
+   *  JIT codegen UNTESTED. We additionally harvest the running classloader
+   *  hierarchy's `URLClassLoader` URLs so the JIT compiles under sbt too. The four
+   *  `tryCompile` entry points already `catch Throwable => null` (crash-safety), so
+   *  any codegen bug newly surfaced by actually compiling bails harmlessly. */
+  private[scalascript] lazy val jitClasspathOptions: java.util.List[String] =
+    val entries = new java.util.LinkedHashSet[String]()
+    val sep = java.io.File.pathSeparator
+    val jcp = System.getProperty("java.class.path", "")
+    if jcp != null && jcp.nonEmpty then
+      jcp.split(java.util.regex.Pattern.quote(sep)).foreach(e => if e.nonEmpty then entries.add(e))
+    var cl = classOf[JavacJitBackend.type].getClassLoader
+    while cl != null do
+      cl match
+        case u: java.net.URLClassLoader =>
+          u.getURLs.foreach { url =>
+            try entries.add(new java.io.File(url.toURI).getPath)
+            catch case _: Throwable => ()
+          }
+        case _ => ()
+      cl = cl.getParent
+    if entries.isEmpty then java.util.Collections.emptyList()
+    else java.util.Arrays.asList("-classpath", String.join(sep, entries))
+
   /** Cache by FunV body AST identity. Value is a `JitResult` on hit or the
    *  `BailSentinel` on miss (so we don't re-attempt compilation for the same
    *  body). Synchronized via the cache monitor. */
@@ -272,7 +301,7 @@ object JavacJitBackend extends JitBackend:
         new SimpleJavaFileObject(URI.create(s"mem:///$name.class"), kind):
           override def openOutputStream(): OutputStream = classBytes
 
-    val task = compiler.getTask(null, fm, null, null, null, java.util.Arrays.asList(javaFile))
+    val task = compiler.getTask(null, fm, null, jitClasspathOptions, null, java.util.Arrays.asList(javaFile))
     val ok =
       try task.call().booleanValue()
       catch case _: Throwable => false
@@ -3254,7 +3283,7 @@ object JavacJitBackend extends JitBackend:
       override def getJavaFileForOutput(loc: JavaFileManager.Location, name: String, kind: JavaFileObject.Kind, sib: FileObject) =
         new SimpleJavaFileObject(URI.create(s"mem:///$name.class"), kind):
           override def openOutputStream(): OutputStream = classBytes
-    val task = compiler.getTask(null, fm, null, null, null, java.util.Arrays.asList(javaFile))
+    val task = compiler.getTask(null, fm, null, jitClasspathOptions, null, java.util.Arrays.asList(javaFile))
     val ok = try task.call().booleanValue() catch case _: Throwable => false
     if !ok then
       whileLongGlobalCache.put(cond, WhileLongMiss)
@@ -3407,7 +3436,7 @@ object JavacJitBackend extends JitBackend:
       override def getJavaFileForOutput(loc: JavaFileManager.Location, name: String, kind: JavaFileObject.Kind, sib: FileObject) =
         new SimpleJavaFileObject(URI.create(s"mem:///$name.class"), kind):
           override def openOutputStream(): OutputStream = classBytes
-    val task = compiler.getTask(null, fm, null, null, null, java.util.Arrays.asList(javaFile))
+    val task = compiler.getTask(null, fm, null, jitClasspathOptions, null, java.util.Arrays.asList(javaFile))
     val ok   = try task.call().booleanValue() catch case _: Throwable => false
     if !ok then
       whileLongEmitGlobalCache.put(cond, WhileLongEmitMiss); return null
@@ -3731,7 +3760,7 @@ object JavacJitBackend extends JitBackend:
       override def getJavaFileForOutput(loc: JavaFileManager.Location, name: String, kind: JavaFileObject.Kind, sib: FileObject) =
         new SimpleJavaFileObject(URI.create(s"mem:///$name.class"), kind):
           override def openOutputStream(): OutputStream = classBytes
-    val task = compiler.getTask(null, fm, null, null, null, java.util.Arrays.asList(javaFile))
+    val task = compiler.getTask(null, fm, null, jitClasspathOptions, null, java.util.Arrays.asList(javaFile))
     val ok = try task.call().booleanValue() catch case _: Throwable => false
     if !ok then
       whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
@@ -3865,7 +3894,7 @@ object JavacJitBackend extends JitBackend:
       override def getJavaFileForOutput(loc: JavaFileManager.Location, name: String, kind: JavaFileObject.Kind, sib: FileObject) =
         new SimpleJavaFileObject(URI.create(s"mem:///$name.class"), kind):
           override def openOutputStream(): OutputStream = classBytes
-    val task = compiler.getTask(null, fm, null, null, null, java.util.Arrays.asList(javaFile))
+    val task = compiler.getTask(null, fm, null, jitClasspathOptions, null, java.util.Arrays.asList(javaFile))
     val ok = try task.call().booleanValue() catch case _: Throwable => false
     if !ok then
       whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
