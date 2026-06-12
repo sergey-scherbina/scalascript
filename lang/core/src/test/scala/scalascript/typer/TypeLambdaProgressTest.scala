@@ -94,6 +94,27 @@ class TypeLambdaProgressTest extends AnyFunSuite:
     assert(node.exists(_.tree.toString.contains("[A, B] =>> Either[A, B]")),
       node.map(_.tree.toString).getOrElse("parse failed"))
 
+  test("[done] placeholder alias nested in an `object` desugars (nested-aliases)"):
+    // The desugar now recurses into template bodies, so an alias inside an object
+    // body is rewritten to native `=>>` — without this, jvm codegen reads the
+    // member alias as a wildcard that "does not take type parameters".
+    val node = Parser.parseScalaSource(
+      "object M:\n  type IntKey = Map[Int, _]\n  def f(): IntKey[Long] = ???")
+    assert(node.exists(_.tree.toString.contains("[A] =>> Map[Int, A]")),
+      node.map(_.tree.toString).getOrElse("parse failed"))
+
+  test("[done] placeholder alias nested in a `trait` desugars (nested-aliases)"):
+    val node = Parser.parseScalaSource("trait T:\n  type E = Either[_, _]")
+    assert(node.exists(_.tree.toString.contains("[A, B] =>> Either[A, B]")),
+      node.map(_.tree.toString).getOrElse("parse failed"))
+
+  test("[done] placeholder alias nested two levels deep desugars (nested-aliases)"):
+    // Recursion is depth-unbounded: an alias inside an object inside an object.
+    val node = Parser.parseScalaSource(
+      "object Outer:\n  object Inner:\n    type IntKey = Map[Int, _]")
+    assert(node.exists(_.tree.toString.contains("[A] =>> Map[Int, A]")),
+      node.map(_.tree.toString).getOrElse("parse failed"))
+
   test("[target] type lambda survives a `.sscc` v3 artifact round-trip"):
     pending // p2b: artifact stability
 

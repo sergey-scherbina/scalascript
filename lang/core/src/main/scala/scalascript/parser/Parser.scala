@@ -2157,7 +2157,7 @@ object Parser:
    *  param, left→right). ScalaScript has no existentials, so an alias RHS with `_`
    *  is always a type lambda. Without this, Scala-3 codegen (jvm) reads `Map[Int, _]`
    *  as a wildcard that "does not take type parameters" when the alias is applied.
-   *  Top-level + one nesting level (object/trait/class bodies). */
+   *  Top-level + nested at any depth (object/trait/class bodies). */
   private def desugarPlaceholderTypeAliases(tree: scala.meta.Tree): scala.meta.Tree =
     import scala.meta.*
     given Dialect = dialects.Scala3
@@ -2166,6 +2166,16 @@ object Parser:
       case Type.Apply.After_4_6_0(_, ac) => ac.values.exists(typeHasWildcard)
       case Type.Tuple(elems)             => elems.exists(typeHasWildcard)
       case _                             => false
+    // Recurse into a template body (object/trait/class) so a placeholder alias
+    // nested in an object/trait/class is desugared too. scalameta 4.17 reads the
+    // member stats via `templ.body.stats` but `Template.copy` still takes the
+    // legacy flat `stats` parameter directly. Reconstruct only when a member
+    // actually changed so the common (no-alias) case keeps its original node
+    // (positions/origin intact) instead of a synthetic copy.
+    def rewriteTemplate(t: Template): Template =
+      val newStats = t.body.stats.map(rewriteStat)
+      if newStats.corresponds(t.body.stats)(_ eq _) then t
+      else t.copy(stats = newStats)
     def rewriteStat(s: Stat): Stat = s match
       case Defn.Type.After_4_6_0(mods, name, tparams, rhs, bounds) if typeHasWildcard(rhs) =>
         val params = scala.collection.mutable.ListBuffer.empty[String]
@@ -2179,9 +2189,14 @@ object Parser:
         s"[${params.mkString(", ")}] =>> ${body.syntax}".parse[Type] match
           case Parsed.Success(lam) => Defn.Type(mods, name, tparams, lam, bounds)
           case _                   => s
+      case o: Defn.Object =>
+        val nt = rewriteTemplate(o.templ); if nt eq o.templ then o else o.copy(templ = nt)
+      case t: Defn.Trait =>
+        val nt = rewriteTemplate(t.templ); if nt eq t.templ then t else t.copy(templ = nt)
+      case c: Defn.Class =>
+        val nt = rewriteTemplate(c.templ); if nt eq c.templ then c else c.copy(templ = nt)
       case other          => other
-    // Top-level aliases (Source / script-block). Nested-in-object aliases are a
-    // follow-up (the Template stats API churned across scalameta versions).
+    // Top-level aliases (Source / script-block) + nested object/trait/class bodies.
     tree match
       case Source(stats)     => Source(stats.map(rewriteStat))
       case Term.Block(stats) => Term.Block(stats.map(rewriteStat))
