@@ -3582,8 +3582,8 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
   private val clockPrimitiveOps:   Set[String] = Set("now", "nowIso", "sleep")
   private val loggerPrimitiveOps:  Set[String] = Set("info", "warn", "error", "debug")
   private val asyncPrimitiveOps:   Set[String] = Set("delay", "async", "await", "parallel")
-  // Uuid.v4/v7 are SideEffect primitives; rawV4/rawV7 are deliberately excluded
-  private val uuidPrimitiveOps:    Set[String] = Set("v4", "v7")
+  // Uuid.v4/v7/v7Monotonic are SideEffect primitives; rawV4/rawV7 deliberately excluded
+  private val uuidPrimitiveOps:    Set[String] = Set("v4", "v7", "v7Monotonic")
 
   /** Step 1 — intrinsic-only predicate (default `crossDepEffectful = empty`).
    *  Step 2 — cross-dep aware variant: also matches `Term.Apply(Term.Name(n), _)`

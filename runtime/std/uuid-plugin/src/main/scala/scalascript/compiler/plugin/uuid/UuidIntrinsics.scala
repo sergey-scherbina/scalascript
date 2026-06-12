@@ -29,6 +29,46 @@ object UuidIntrinsics:
     val tLo    = tsMs & 0xFFFFL
     f"${tHi}%08x-${tLo}%04x-7${randA}%03x-${randB1}%04x-${randB2}%04x${randB3}%04x${randB4}%04x"
 
+  // ── Monotonic v7 (RFC 9562 §6.2 Method 1 — fixed-length dedicated counter) ──
+  // `rand_a` (bits 52–63, 12 bits) is used as a per-millisecond counter. Because
+  // rand_a is MORE significant than rand_b, a larger counter always yields a
+  // larger UUID regardless of rand_b — so incrementing it within the same
+  // millisecond produces STRICTLY increasing UUIDs, and across millisecond
+  // boundaries the 48-bit timestamp dominates. State is guarded by `monoLock`.
+  private val monoLock      = new Object
+  private var monoLastMs    = -1L
+  private var monoCounter   = 0   // current 12-bit rand_a value
+
+  private def generateV7Monotonic(): String =
+    val (tsMs, randA) = monoLock.synchronized {
+      var ms = System.currentTimeMillis()
+      // Never move the timestamp backwards (monotonic across a clock rewind).
+      if ms < monoLastMs then ms = monoLastMs
+      if ms > monoLastMs then
+        // New millisecond: seed the counter in the lower half (11 bits) so there
+        // is headroom to increment without overflowing the 12-bit field.
+        monoLastMs  = ms
+        monoCounter = rng.nextInt(0x800)
+      else
+        // Same millisecond: advance the counter. On overflow, spin to the next ms
+        // (≥4096 ids in one ms is ~4M/s — rare) and reseed.
+        monoCounter += 1
+        if monoCounter > 0xFFF then
+          var next = System.currentTimeMillis()
+          while next <= monoLastMs do next = System.currentTimeMillis()
+          monoLastMs  = next
+          monoCounter = rng.nextInt(0x800)
+          ms = next
+      (monoLastMs, monoCounter)
+    }
+    val randB1 = rng.nextInt(0x4000) | 0x8000       // 14 bits + variant 0b10
+    val randB2 = rng.nextInt(0x10000)
+    val randB3 = rng.nextInt(0x10000)
+    val randB4 = rng.nextInt(0x10000)
+    val tHi    = (tsMs >>> 16) & 0xFFFFFFFFL
+    val tLo    = tsMs & 0xFFFFL
+    f"${tHi}%08x-${tLo}%04x-7${randA}%03x-${randB1}%04x-${randB2}%04x${randB3}%04x${randB4}%04x"
+
   private val uuidRegex =
     "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$".r
 
@@ -45,6 +85,11 @@ object UuidIntrinsics:
     ctx.featureLocalGet(NativeContextFeatureKeys.UuidFixed) match
       case Some(fixed: String) => fixed
       case _                   => generateV7()
+
+  private def generateV7MonotonicWithCtx(ctx: NativeContext): String =
+    ctx.featureLocalGet(NativeContextFeatureKeys.UuidFixed) match
+      case Some(fixed: String) => fixed
+      case _                   => generateV7Monotonic()
 
   private def nativeCtx(f: (NativeContext, List[Any]) => Value): NativeImpl =
     NativeImpl { (ctx, args) => f(ctx, args) }
@@ -64,6 +109,12 @@ object UuidIntrinsics:
 
     QualifiedName("uuidV7") -> nativeCtx { (ctx, _) =>
       Value.StringV(generateV7WithCtx(ctx))
+    },
+
+    // Monotonic v7: strictly increasing across calls within the same millisecond
+    // (rand_a counter). Explicit opt-in — `Uuid.v7Monotonic(): Uuid ! SideEffect`.
+    QualifiedName("uuidV7Monotonic") -> nativeCtx { (ctx, _) =>
+      Value.StringV(generateV7MonotonicWithCtx(ctx))
     },
 
     // ── raw generators (also respect override for test predictability) ──

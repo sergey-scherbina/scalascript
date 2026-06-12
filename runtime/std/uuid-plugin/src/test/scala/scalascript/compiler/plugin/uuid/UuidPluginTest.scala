@@ -35,6 +35,29 @@ class UuidPluginTest extends AnyFunSuite:
     assert(a.matches(v7re), s"u1 not v7: $a")
     assert(b.matches(v7re), s"u2 not v7: $b")
 
+  test("uuidV7Monotonic returns a valid v7 UUID"):
+    val result = evalStr("""uuidV7Monotonic()""")
+    assert(result.matches("[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"),
+      s"not a valid v7 UUID: $result")
+
+  test("uuidV7Monotonic is strictly increasing across many same-process calls"):
+    // Generate a burst (almost all land in the same millisecond) and assert every
+    // UUID is strictly greater than the previous — the rand_a counter guarantees it.
+    val raw = evalStr(
+      """
+      var prev = uuidV7Monotonic()
+      var ok = true
+      var i = 0
+      while i < 500 do
+        val next = uuidV7Monotonic()
+        if next <= prev then ok = false
+        prev = next
+        i = i + 1
+      if ok then "ok" else "violation"
+      """
+    )
+    assert(raw == "ok", s"monotonicity violated: $raw")
+
   test("uuidFromString accepts a valid UUID"):
     val result = evalStr(
       """

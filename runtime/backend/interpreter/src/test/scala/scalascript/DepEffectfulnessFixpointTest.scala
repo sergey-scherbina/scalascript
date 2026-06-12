@@ -46,6 +46,13 @@ class DepEffectfulnessFixpointTest extends AnyFunSuite with Matchers:
     effectful shouldBe Set("makeId")
   }
 
+  test("seed: def calling Uuid.v7Monotonic() is effectful") {
+    val effectful = analyse("""
+      def makeId(): String = Uuid.v7Monotonic().asInstanceOf[String]
+    """)
+    effectful shouldBe Set("makeId")
+  }
+
   test("seed: def calling Uuid.rawV7() is NOT effectful") {
     val effectful = analyse("""
       def makeRawId(): String = Uuid.rawV7().asInstanceOf[String]

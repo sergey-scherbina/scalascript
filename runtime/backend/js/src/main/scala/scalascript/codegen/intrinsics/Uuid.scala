@@ -7,6 +7,7 @@ import scalascript.ir.QualifiedName
 val JsUuidIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("uuidV4")               -> RuntimeCall("uuidV4"),
   QualifiedName("uuidV7")               -> RuntimeCall("uuidV7"),
+  QualifiedName("uuidV7Monotonic")      -> RuntimeCall("uuidV7Monotonic"),
   QualifiedName("rawUuidV4")            -> RuntimeCall("uuidV4"),
   QualifiedName("rawUuidV7")            -> RuntimeCall("uuidV7"),
   QualifiedName("uuidFromString")       -> RuntimeCall("uuidFromString"),

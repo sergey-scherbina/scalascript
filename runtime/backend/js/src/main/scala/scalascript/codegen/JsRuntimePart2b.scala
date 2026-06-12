@@ -992,6 +992,39 @@ function uuidV7() {
   const rb4 = (((rand[8]<<8)|rand[9])&0xffff).toString(16).padStart(4,'0');
   return `${tHi}-${tLo}-7${ra}-${rb1}-${rb2}${rb3}${rb4}`;
 }
+// Monotonic v7 (RFC 9562 §6.2 Method 1): rand_a as a per-millisecond counter.
+// rand_a is more significant than rand_b, so a larger counter always yields a
+// larger UUID — strictly increasing within a ms; the timestamp dominates across.
+let _uuidMonoLastMs = -1;
+let _uuidMonoCounter = 0;
+function uuidV7Monotonic() {
+  let now = Date.now();
+  if (now < _uuidMonoLastMs) now = _uuidMonoLastMs;   // never go backwards
+  if (now > _uuidMonoLastMs) {
+    _uuidMonoLastMs = now;
+    _uuidMonoCounter = Math.floor(Math.random() * 0x800); // seed in lower half
+  } else {
+    _uuidMonoCounter += 1;
+    if (_uuidMonoCounter > 0xfff) {                   // overflow: spin to next ms
+      let next = Date.now();
+      while (next <= _uuidMonoLastMs) next = Date.now();
+      _uuidMonoLastMs = next; now = next;
+      _uuidMonoCounter = Math.floor(Math.random() * 0x800);
+    }
+  }
+  const nowB = BigInt(_uuidMonoLastMs);
+  const rand = new Uint8Array(8);
+  (typeof crypto !== 'undefined' ? crypto : require('crypto')).getRandomValues(rand);
+  const randB1 = ((rand[0] & 0x3f) << 8) | rand[1] | 0x8000;
+  const tHi = Number((nowB >> 16n) & 0xffffffffn).toString(16).padStart(8,'0');
+  const tLo = Number(nowB & 0xffffn).toString(16).padStart(4,'0');
+  const ra  = (_uuidMonoCounter & 0xfff).toString(16).padStart(3,'0');
+  const rb1 = randB1.toString(16).padStart(4,'0');
+  const rb2 = (((rand[2]<<8)|rand[3])&0xffff).toString(16).padStart(4,'0');
+  const rb3 = (((rand[4]<<8)|rand[5])&0xffff).toString(16).padStart(4,'0');
+  const rb4 = (((rand[6]<<8)|rand[7])&0xffff).toString(16).padStart(4,'0');
+  return `${tHi}-${tLo}-7${ra}-${rb1}-${rb2}${rb3}${rb4}`;
+}
 const _uuidRx = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 function uuidIsValid(s) { return _uuidRx.test(typeof s === 'string' ? s.toLowerCase() : ''); }
 function uuidFromString(s) { return uuidIsValid(s) ? _Some(s.toLowerCase()) : _None; }

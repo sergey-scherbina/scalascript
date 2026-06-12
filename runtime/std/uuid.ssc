@@ -10,6 +10,7 @@ object Uuid:
   // ── Generators ───────────────────────────────────────────────────────────
   extern def v4(): Uuid                            // CSPRNG v4; effectful (SideEffect)
   extern def v7(): Uuid                            // time-ordered v7; effectful (SideEffect)
+  extern def v7Monotonic(): Uuid                   // v7, strictly increasing within a ms; effectful (SideEffect)
   extern def rawV4(): Uuid                         // same as v4(), no SideEffect annotation
   extern def rawV7(): Uuid                         // same as v7(), no SideEffect annotation
 
