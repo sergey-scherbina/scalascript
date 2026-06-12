@@ -4,6 +4,27 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — feat(declarative-ui): slot escape-hatch for `@ui=toolkit` panels (Scope B.6)
+
+- A `{type: slot, id: <id>}` control injects an arbitrary **ScalaScript-authored
+  `TkNode`** registered by id with `contentSlot(id, node)` (via the new
+  `contentToolkitOptionsWithSlots(...)` builder). It is the inverse of the
+  declarative controls — when the YAML vocabulary can't express a widget (a custom
+  chart, a bespoke composite), the author builds it in code with the ordinary
+  `std/ui` node helpers and drops it into the declarative panel by id (§0 two-way
+  coexistence).
+- Reuses the existing registry pattern (parity with `actions`/`rowBindings`/
+  `computed`): a new `slots: Map[String, Any]` registry on `ContentToolkitOptions`;
+  the control resolves `<id>` in `options.slots` and returns the registered node
+  **verbatim** (already a built `TkNode`, so it composes into the tree and lowers
+  normally — no re-render, no env resolution). Interpreter (`toolkitControl`
+  `case "slot"`) + JS (`_ssc_tk_render_control` `case 'slot'` → `_ssc_tk_slot`)
+  parity; an unregistered id is a loud error (fail-soft on JS). Existing builders are
+  unchanged (`slots` defaults to empty).
+- Tests: `ContentPluginInterpreterTest` (+2: verbatim inject + unregistered loud
+  error) + `JsGenStdImportTest` + runnable `examples/content-slot.ssc`. **With B.6,
+  declarative-ui Scope B (B.1–B.7) is complete.**
+
 ## 2026-06-12 — feat(declarative-ui): structured `onSuccess` for `@ui=toolkit` actions (Scope B.4 v1)
 
 - A registered action can now declare a **structured `onSuccess`** effect list run
