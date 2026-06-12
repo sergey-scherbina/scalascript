@@ -1,0 +1,6 @@
+jit-walklocalslotctx-so 2026-06-12T20:10:12Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-12T20:10:12Z
+status: in-progress
+done-so-far: jit-runmain-classpath finding: forked suite compiles the JIT, so this is in-sbt testable (no fat jar).
+next: read walkLocalSlotCtx recursion; fix the SO on while-accumulator-over-recursive-call (def fib; var s; while i<35 do s=s+fib(20)); verify JIT compiles the shape in sbt + full suite green
