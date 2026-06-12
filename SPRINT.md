@@ -8,6 +8,55 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Bench-outlier follow-ups (2026-06-12)
+
+Surfaced analysing `bench.sh` outliers (see [[project_jit_bare_length_bail_0612]]
+in auto-memory + `docs/bench/cross-backend-gap-analysis.md`). The bare
+`.length`/`.size`/`.isEmpty`/`.last` JIT bails and the missing `String.toLong`/
+`toFloat` are already FIXED on main (commits `841319153`, `3d8db4b0a`). These two
+remain — both characterised, neither yet started.
+
+- [ ] **interp-foldchain-unary-closure-fusion** (perf, interp JIT) — the dominant
+      remaining interp outlier is `string-split` (ssc ~2.6 ms vs jvm 0.08 ms, ~33×)
+      and the general shape `xs.map(s => <unary>).foldLeft(z)(_+_)` where the map
+      closure is NOT simple arithmetic (here `s => s.trim.toInt`). Today
+      `JitHofShape.fuseFoldChain` only fuses map/filter stages whose op encodes as an
+      integer (`mapOp`/`mapC` in `JitHofDispatch.foldChainLong`), so a closure with
+      String method calls forces a per-element `CALLREF` into generic dispatch +
+      intermediate List allocation. GOAL: let the fold sink apply an arbitrary
+      *compiled unary* `String|Long → Long` closure per element with no wrapper-List
+      alloc. Approach to evaluate: (a) compile the map closure body to its own
+      MethodHandle/`long`-returning fn and thread it into a `foldChainClosureLong`
+      sink (function-pointer per element), or (b) inline the closure body into the
+      generated fold loop. Both backends (Javac + Asm) + `looksLongValue`/JitLint
+      parity. Acceptance: `string-split` corpus ssc drops toward jvm; new JitLintTest
+      fixture (map-with-string-closure foldLeft JITs both backends); value-correct;
+      full `backendInterpreter/test` green. Scope guard: keep the existing
+      simple-arith fuse path; this is an ADDITIVE closure sink. Spec section to add
+      under `specs/backend-perf-gaps.md`.
+
+- [ ] **rust-bench-antifold-alignment** (bench methodology) — `bench/run.sc` makes
+      the rust column misleading on loop workloads: it wraps EVERY assignment rhs +
+      closure body in `std::hint::black_box(...)` (e.g. 4 barriers/iter on
+      `recursion-tco`), so rust looks 2–14× slower than jvm on tight loops even
+      though codegen is fine (recursion-tco IS TCO'd into a `loop {}`). jvm/js/interp
+      use the lighter carried-LCG-seed idiom ([[project_bench_honest_corpus_seed]]),
+      so the anti-fold strategies are ASYMMETRIC and cross-backend comparison is
+      unfair. GOAL: make rust use the SAME seed-threaded anti-fold as the other
+      backends (consume the carried LCG result into the sink; black_box ONLY the
+      final returned value, not every internal assignment), so LLVM can't derive a
+      closed form yet pays no per-statement barrier tax. VALIDATION BURDEN (critical):
+      after the change, confirm each rust workload still does real work — diff the
+      reported ms against an obviously-folded control, and spot-check the emitted
+      `--release` asm for at least `recursion-tco`/`arith-loop` to prove the loop
+      survives (no Gauss/scalar-evolution collapse to a constant load). Acceptance:
+      rust loop cells become comparable to jvm where codegen is genuinely equal;
+      no cell reports a folded ~0; `docs/benchmarks.md` notes the unified strategy.
+      Files: `bench/run.sc` (the black_box wrappers ~L130–180), maybe corpus seed
+      wiring. Spec/notes under `docs/bench/`.
+
+---
+
 ## Backend / compiler / interpreter improvement program (2026-06-11)
 
 Three-tier program from the whole-stack review. Specs:
