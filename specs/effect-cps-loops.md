@@ -1,8 +1,10 @@
 # Effects: `perform` inside an imperative loop (jvm/js codegen gap)
 
-Status: **diagnosed, not fixed** (2026-06-12). A focused codegen task — see
-SPRINT `effect-cps-loops-{jvm,js,honesty}`. This doc is the deep write-up so the
-next person doesn't re-derive it.
+Status: **diagnosed; honesty diagnostic landed 2026-06-12; real codegen fix still
+open.** `effect-cps-loops-honesty` shipped (jvm/js now refuse to compile instead of
+emitting broken code — see "Interim honesty option" below). The real lowering
+(`effect-cps-loops-{jvm,js}`) is still a focused codegen task. This doc is the deep
+write-up so the next person doesn't re-derive it.
 
 ## TL;DR
 
@@ -115,12 +117,27 @@ than `emitCpsBlock`.** Before touching anything, MAP that path:
   `JvmGenEffectsRuntimeTest`, `CoroutineTest`, `AlgebraicEffects*`, and the corpus
   `effect-pure`/`effect-stream` cells. HIGH regression risk — gate on all of them.
 
-## Interim honesty option (small)
+## Interim honesty option — ✓ LANDED 2026-06-12 (`effect-cps-loops-honesty`)
 
-Until the fix lands, make the codegen emit a
-`Diagnostic.Unsupported("effect perform inside a while-loop")` instead of silently
-producing Scala that fails downstream in scala-cli (today: `emit-scala` exits 0,
-scala-cli fails, harness shows a silent `n/a`). Converts a mystery into a message.
+`CapabilityCheck.performInWhileLoop` (in `lang/core/.../validate/CapabilityCheck.scala`)
+now refuses compilation with a clear `Diagnostic.Generic` message when a custom effect
+`perform` is reachable inside a `while` loop, **for source-emitting CPS backends only**
+(gated on `OutputKind.ScalaSource` / `JavaScriptSource`; the interpreter is unaffected).
+Previously `emit-scala`/`emit-js` exited 0 with broken output that only failed downstream
+in scala-cli / node — a silent `n/a`. Now it's a loud message naming the workaround.
+
+Detection is **precise and conservative** (no false positives):
+- Parses the module's OWN scalascript blocks (imports are `Content.Import`, never inlined
+  source — so library effect runners can't trip it) and runs `EffectAnalysis.analyze` to
+  get the in-module effect ops + effectful funs.
+- Flags a `Term.While` only when its body subtree actually performs an in-module effect op
+  (`Eff.op(…)`) or calls an effectful function. A non-loop effect, a pure `while`, and an
+  imported/unknown call are all left alone.
+
+Tests: `CapabilityCheckTest` — perform-in-while on jvm/js → diagnostic; interpreter,
+non-loop effect, and pure `while` → none; plus the real `bench/corpus/effect-oneshot.ssc`
+is flagged on jvm. Remove this gate (or narrow it) once `effect-cps-loops-{jvm,js}` lands
+the real lowering.
 
 ## Related
 
