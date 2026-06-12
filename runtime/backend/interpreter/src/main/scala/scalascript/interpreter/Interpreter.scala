@@ -1508,6 +1508,9 @@ class Interpreter(
   def exportedExtensions: Map[(String, String), Value.FunV] =
     extensions.iterator.flatMap { case (t, mm) => mm.iterator.map { case (m, f) => (t, m) -> f } }.toMap
   def exportedParentTypes:   Map[String, String]               = parentTypes.toMap
+  /** Concrete class/enum/trait methods, so an instance of an *imported* type
+   *  dispatches inherited methods identically to same-module (busi seq-121 x-mod). */
+  def exportedTypeMethods:   Map[String, Map[String, Value.FunV]] = typeMethods.toMap
   def exportedTypeFieldOrder: Map[String, List[String]]        = typeFieldOrder.toMap
   def exportedTypeFieldDefaults: Map[String, (List[Option[scala.meta.Term]], Env)] = typeFieldDefaults.toMap
   def exportedTypeFieldTypes: Map[String, List[String]]        = typeFieldTypes.toMap

@@ -349,6 +349,16 @@ private[interpreter] object SectionRuntime:
       interp.extensions.getOrElseUpdate(typeName, mutable.HashMap.empty)(method) = fn
     }
     interp.parentTypes    ++= child.exportedParentTypes
+    // Concrete trait/class methods of imported types — so `e.kind` (a method on a
+    // trait an imported enum-case extends) dispatches across the import boundary,
+    // like the parent chain above (busi seq-121 cross-module).  Union per type so a
+    // type with methods in two modules keeps both.
+    child.exportedTypeMethods.foreach { case (typeName, methods) =>
+      interp.typeMethods.updateWith(typeName) {
+        case Some(existing) => Some(existing ++ methods)
+        case None           => Some(methods)
+      }
+    }
     interp.typeFieldOrder ++= child.exportedTypeFieldOrder
     interp.typeFieldDefaults ++= child.exportedTypeFieldDefaults
     interp.typeFieldSchemas ++= child.exportedTypeFieldSchemas
