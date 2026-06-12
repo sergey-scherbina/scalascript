@@ -144,6 +144,16 @@ generated Scala fails with "Reassignment to val s" / "< is not a member of Any".
       `effect-oneshot` compiles + runs; `bench.sh effect-oneshot` jvm flips n/a→green;
       ALL existing effect tests (StdEffectsTest, JvmGenEffectsRuntimeTest, etc.) stay
       green. HIGH regression risk — gate on the full effect suite.
+      ATTEMPT NOTE (2026-06-12, reverted): editing the obvious `emitCpsBlock`/`build`
+      `Defn.Var` case + adding a `Term.While` case to `emitCpsExpr` did NOT change the
+      generated code — a *minimal* `def f(): Int ! Bump = { var x = 0; x = x +
+      Bump.tick(); x }` still emits `_bind(0, (x: Any) => …)` for the var. So a
+      TOP-LEVEL effectful def body is CPS-emitted via a path *other* than
+      `emitCpsBlock` (the only `emitCpsBindWithType` callers left after the edit were
+      the last-stat + Val cases, yet the var still bound that way). FIRST STEP for
+      whoever takes this: map where a top-level effectful `def` body's block is
+      actually emitted (grep the main `JvmGen` def-emission + `emitEffectfulParamGroups`
+      callers), because that — not `emitCpsBlock` — is where the var→`_bind` happens.
 - [ ] **effect-cps-loops-js** — same fix in the JS CPS codegen (JsGen) once jvm lands.
 - [ ] **effect-cps-loops-honesty** — until the above land, make the codegen emit a
       `Diagnostic.Unsupported("effect perform inside a while-loop")` instead of silently
