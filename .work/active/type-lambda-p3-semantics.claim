@@ -1,0 +1,6 @@
+type-lambda-p3-semantics 2026-06-12T15:26:07Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-12T15:26:07Z
+status: in-progress
+done-so-far: investigated — typer sees Type.Lambda as Any (catch-all); expandAlias drops use-site args for a lambda alias
+next: parse Type.Lambda in typeAnnotToSType + beta-reduce in expandAlias (SType.substNames/applyTo); flip pending test
