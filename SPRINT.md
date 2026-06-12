@@ -24,11 +24,18 @@ flakily hangs — use the 332-test targeted set if it won't pass).
       `AsmJitBackend` keeps the correct seq-124 bail (asm real-compile = follow-up).
       Tests: 3 hot-loop `BugReproTest` + `JitLintTest` `willJit==true` guard; 347-test
       targeted JIT/pattern/sealed/enum gate green.
-- [ ] **full-interp-gate-green** — the seq-124/125 fix was pushed on the 332-test
-      targeted gate because full `backendInterpreter/test` intermittently hangs at
-      startup (parked-thread environmental hang, jstack-confirmed not-our-code).
-      Land a clean full green run; if the hang is reproducible, fix the flaky suite
-      (likely a server/port bind in a cluster test). Low new value, closes the loop.
+- [x] **full-interp-gate-green** — DONE 2026-06-12. (1) Landed a clean full green run:
+      `backendInterpreter/test` = **1664 passed, 0 failed** — confirming the 4 earlier
+      hangs were the flaky environmental issue, NOT the jit/enum-trait code (all green
+      once it doesn't hang). (2) Hardened the one genuine hang-risk: `JsGenWsTest`'s
+      `readHttpLine` was an UNBOUNDED blocking socket read (`in.read()` with no
+      timeout) — a non-responding emitted WS server would block the whole gate
+      forever. Added `setSoTimeout(15000)` in `openWithRetry`, so a stuck read now
+      fails the one test fast (SocketTimeoutException) instead of hanging the gate.
+      It was the only unbounded blocking I/O in the suite (other `while true` are
+      cooperative scalascript coroutine/actor fixtures; latches/awaits are bounded).
+      `Test / fork := true` ⇒ a hang lives in the FORKED test JVM (jstack that, not
+      the sbt launcher — the earlier mis-diagnosis).
 - [ ] **cli-jit-classpath-fallback** — discovered during seq-124 diagnosis: `ssc run`
       / `cli/runMain` JIT codegen fails at runtime (`GenJit_*.java: package
       scalascript.interpreter.vm.jit does not exist`) and silently falls back to

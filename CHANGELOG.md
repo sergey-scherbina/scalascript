@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — test(interp): JsGenWsTest read-timeout so a stuck WS server can't hang the gate
+
+- `JsGenWsTest.readHttpLine` did an **unbounded** blocking socket read (`in.read()`
+  with no timeout); if the emitted WebSocket server (run under Node) didn't respond,
+  the read — and the whole `backendInterpreter/test` run — blocked forever. Added
+  `setSoTimeout(15000)` on the client socket in `openWithRetry`, so a non-responding
+  server fails this one test fast with a `SocketTimeoutException` instead of hanging
+  the gate. It was the only unbounded blocking I/O in the suite. (Confirmed
+  separately: a clean full `backendInterpreter/test` run is 1664 green — the recent
+  intermittent gate hangs were this environmental risk, not a code failure.)
+
 ## 2026-06-12 — perf(interp/jit): JIT-compile supertype type-tests (instead of bailing)
 
 - Follow-up to the seq-124 fix, which **bailed** the JIT to tree-walk on
