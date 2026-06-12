@@ -95,9 +95,16 @@ partial-application lambda from a wildcard.
   `object`/`trait`/`class` bodies (`type-lambda-nested-aliases`). `parseSType` keeps
   a use-site `Map[Int, _]` a wildcard `Named` by design (no use-site context). Green
   on all five backends; see §5b.
-- **p2b — `.sscc` v3 artifact round-trip** for `TypeLambda` (one pending
-  `TypeLambdaProgressTest` case; `SsccFormatV3` already has a `TypeLambdaArrow` token,
-  so confirm + flip, else wire it).
+- ~~**p2b — `.sscc` v3 artifact round-trip** for `TypeLambda`~~ ✓ DONE 2026-06-12.
+  Native `[X] =>> F[X]` round-trips via the stored `=>>` token (`TypeLambdaArrow`,
+  kind 55). The placeholder form did **not** — the `.sscc` v3 read (`ScalaNode.deferred`)
+  raw-parses the reconstructed source and the write stores the *placeholder* token
+  stream (`Map[Int, _]`) verbatim (the desugar is a tree rewrite, not a string
+  preprocessor), so a cached placeholder alias reverted to a wildcard, diverging from
+  the direct `Parser` parse. Fixed by applying the same desugar on the read path
+  (`Parser.desugarTypeLambdaAliases`, called from `ScalaNode.deferred`). Regress:
+  `TypeLambdaProgressTest` "survives a `.sscc` v3 artifact round-trip" (both surfaces)
+  + two `SsccFormatV3Test` phase-B cases.
 - **p3 (optional) — semantics:** β-reduce `([X] =>> F[X])[A]` → `F[A]` in
   `ssc check` + HKT bound checking. Only if a typed backend / strict check needs it.
 - ~~**rust:** decide whether to erase or diagnose type lambdas.~~ ✓ DONE
