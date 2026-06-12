@@ -4,6 +4,29 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — feat(declarative-ui): named data sources for `@ui=toolkit` tables (Scope B.3 v1)
+
+- A `{type: table, source: <id>}` control may now bind to a **named data source**
+  registered with `contentDataSource(id, source, columns, actions)` instead of only
+  a raw `contentRows` signal. The author declares *how* the rows are produced with a
+  small vocabulary: `staticSource(rows)` (in-memory, no fetch — previously needed a
+  hand-wrapped signal), `signalSource(sig)` (reactive), and `fetchSource(id, url,
+  tick, headers, rowsPath = "")` (a managed GET that re-fetches when `tick` bumps).
+  All lower to the existing `TableDataSource` render, so interpreter / JVM / JS
+  parity is unchanged.
+- `fetchSource`'s `rowsPath` (the new runtime capability) is a dotted envelope path
+  (`result.items`) unwrapped before the built-in `{data|rows|items|results}` keys —
+  for an API whose rows are nested non-standardly. It is a **browser-runtime**
+  concern (the one place a live fetch envelope is unwrapped at run time): the JS
+  shim carries it on the fetch signal, the DataTable descriptor emits
+  `data-ssc-datatable-rows-path`, and `_ssc_ui_rowsOf(v, rowsPath)` drills the path
+  (a wrong path degrades to the default keys, never crashes). The shared
+  `TableDataSource` model and the six native frontend backends are untouched.
+- New `fetchRowsSource(signal, rowsPath)` intrinsic (interp + JS). Tests:
+  `FetchPluginInterpreterTest` (Remote build) + `JsGenStdImportTest` (`_rowsPath`
+  thread + `_ssc_ui_rowsOf` drill/fallback/legacy) + runnable
+  `examples/content-data-source.ssc`.
+
 ## 2026-06-11 — feat(declarative-ui): build-time id-existence lint for `@ui=toolkit` controls (Scope B.7 v1)
 
 - `ssc check` now warns when a `@ui=toolkit` control references an `action:` /
