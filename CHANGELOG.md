@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — feat(jvm): custom effect `perform` inside a var+while loop now compiles + runs
+
+- A `perform` reachable in an imperative `var`+`while` loop was n/a on the JVM backend
+  (JvmGenCpsTransform bound `var` as an immutable `_bind` lambda param and had no `while`
+  case → un-compilable Scala). Now a CPS-block `var` stays a real typed mutable `var`
+  (type inferred + registered for assignment casts), a `Term.While` lowers to a trampolined
+  recursive helper that threads each iteration's perform through `_bind`, and effectful
+  assigns thread the continuation (a perform nested in an operator arg is detected by a new
+  whole-subtree predicate). The runtime `_dispatch` gained numeric `.toX` conversions and
+  `_binOp` gained `%`/mixed-width widening (perform results flow through them as `Any`).
+  The perform-in-while honesty gate is now JS-only. Verified end-to-end via scala-cli
+  (one-shot → 5, multi-shot → 204; both `bench/corpus/effect-{oneshot,multishot}.ssc`
+  compile). core 982 + backendInterpreter 1676 green (zero regressions). JS lowering
+  (`effect-cps-loops-js`) remains.
+
 ## 2026-06-12 — feat(lint): `@ui=toolkit` lint extends to Markdown `toolkit:` link references (B.7)
 
 - `ContentToolkitLint` now harvests `action` / `rows` / `source` references from Markdown

@@ -215,7 +215,17 @@ binds a `Defn.Var` in a CPS block EXACTLY like a `Defn.Val` (one `_bind(rhs,
 (x: Any) => rest)` lambda param Ã¢ÂÂ JvmGenCpsTransform.scala ~935) and has NO
 `Term.While` case, so `var s/acc/i` become immutable `Any` lambda params Ã¢ÂÂ
 generated Scala fails with "Reassignment to val s" / "< is not a member of Any".
-- [ ] **effect-cps-loops-jvm** Ã¢ÂÂ in `JvmGenCpsTransform`: (1) emit a `Defn.Var` in a
+- [x] **effect-cps-loops-jvm** — DONE 2026-06-12. perform inside a `var`+`while` loop now
+      compiles + runs on JVM. Attempt-note below was WRONG — path IS `emitCpsBlock`. Fix:
+      CPS-block `var` → real typed mutable var (`inferVarType` + `declaredVarTypes`);
+      `Term.While` → trampoline (`emitWhileTrampoline`); effectful assign threads via `_bind`
+      (`cpsTermPerforms` descends Tree incl. ArgClause); JvmGen registers effectful-def param
+      types; runtime `_dispatch` numeric `.toX` + `_binOp` `%`/mixed-width. Honesty gate now
+      JS-only. Verified via scala-cli (one-shot→5, multi-shot→204; both corpus files compile).
+      Regress: 3 JvmGenEffectsRuntimeTest compile+run cases. core 982 + backendInterpreter
+      1676 green (0 regressions). JS (`effect-cps-loops-js`) remains. [ORIG NOTE (conclusion
+      was incorrect) below:]
+- [ ] **effect-cps-loops-jvm (orig)** Ã¢ÂÂ in `JvmGenCpsTransform`: (1) emit a `Defn.Var` in a
       CPS block as a REAL mutable `var x = <rhs>` (CPS the rhs if effectful), not a
       `_bind` lambda param; (2) add a `Term.While` CPS case that lowers
       `while(cond){ body-with-perform }` to a trampolined recursive helper
