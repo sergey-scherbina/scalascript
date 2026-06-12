@@ -100,9 +100,9 @@ continuing:
 
 ```bash
 BRANCH="feature/your-task-name"
-WT="/Users/sergiy/work/my/scalascript/.worktrees/$BRANCH"
-git -C /Users/sergiy/work/my/scalascript fetch origin
-git -C /Users/sergiy/work/my/scalascript worktree add "$WT" -b "$BRANCH" origin/main
+WT=".worktrees/$BRANCH"                 # relative to the main checkout (run from there)
+git fetch origin
+git worktree add "$WT" -b "$BRANCH" origin/main
 ```
 
 Then do all work from `$WT`. Details and common traps — in §"Workflow for parallel agents" below.
@@ -441,7 +441,7 @@ worktree (it's just a regular directory inside the main repo tree with no
 ```bash
 # A real worktree has a .git FILE whose content starts with "gitdir:"
 cat .git 2>/dev/null | head -1
-# Real worktree → "gitdir: /Users/sergiy/work/my/scalascript/.git/worktrees/NAME"
+# Real worktree → "gitdir: <repo-root>/.git/worktrees/NAME"
 # NOT a worktree → file missing, or .git is a directory
 ```
 
@@ -450,13 +450,13 @@ with plain git — no tool needed:
 
 ```bash
 BRANCH="feature/your-task-name"
-WT="/Users/sergiy/work/my/scalascript/.worktrees/$BRANCH"
-git -C /Users/sergiy/work/my/scalascript worktree add "$WT" -b "$BRANCH"
+WT=".worktrees/$BRANCH"                 # relative to the main checkout (run from there)
+git worktree add "$WT" -b "$BRANCH"
 ```
 
 Then do **all** work (reads, writes, compiles, tests, commits) from `$WT`
 using relative paths or `$WT`-prefixed absolute paths.  The absolute-path
-trap applies here too — use `$WT/...`, never `/Users/sergiy/work/my/scalascript/...`.
+trap applies here too — use `$WT/...`, never a bare `<repo-root>/...`.
 
 Push when done — **directly from the worktree branch**, skipping the
 shared `main` checkout entirely:
@@ -468,7 +468,7 @@ git -C "$WT" push origin "$BRANCH:main"
 Clean up afterward:
 
 ```bash
-git -C /Users/sergiy/work/my/scalascript worktree remove "$WT"
+git -C "$MAIN" worktree remove "$WT"
 ```
 
 This pattern — `worktree add` → work → `push branch:main` → `worktree remove` —
@@ -479,8 +479,8 @@ exactly the same isolation guarantee.
 
 The single most common way agents accidentally edit shared `main` is
 the **absolute-path trap**: you're running in a worktree at
-`/Users/sergiy/work/my/scalascript/.worktrees/agent-XXX/`, but
-you call `Write(file_path="/Users/sergiy/work/my/scalascript/docs/foo.md", ...)`
+`<repo-root>/.worktrees/agent-XXX/`, but
+you call `Write(file_path="<repo-root>/docs/foo.md", ...)`
 out of habit — the project lives at that root, and the path looks
 right.  The Write tool happily writes to shared `main` instead of
 your worktree.  You don't notice because `sbt` still passes (it runs
@@ -496,12 +496,12 @@ self-cleanup, and what NOT to do follow.
 - Run `pwd` as the first command in your worktree session, and
   prefer **relative paths** for every Write / Edit / Read of project
   files.  `Write(file_path="docs/foo.md")` resolves against the
-  worktree CWD; `Write(file_path="/Users/sergiy/.../docs/foo.md")`
+  worktree CWD; `Write(file_path="<repo-root>/docs/foo.md")`
   doesn't.  Relative wins by construction.
 - If you must use an absolute path (some tools / scripts require it),
   build it from `$(pwd)` first — never hand-type the full project
   root in a `Write` / `Edit` call.  Hardcoded
-  `/Users/sergiy/work/my/scalascript/...` strings in tool arguments
+  `<repo-root>/...` strings in tool arguments
   are the smell.
 - After each edit, glance at `git status` *inside your worktree*.
   Clean status after you just edited something means you wrote to
@@ -512,7 +512,7 @@ self-cleanup, and what NOT to do follow.
 Long sessions get compacted: a summary replaces the full transcript,
 and the next session reads that summary as its starting point.
 Summaries routinely contain absolute paths like
-`/Users/sergiy/work/my/scalascript/payments/foo/Bar.scala` — the paths
+`<repo-root>/payments/foo/Bar.scala` — the paths
 where the earlier session was (incorrectly) writing.  A new session
 that blindly follows those paths writes to shared `main` again,
 perpetuating the mistake across context boundaries.
@@ -525,8 +525,8 @@ How to break the cycle after compaction:
 2. Run `pwd` once.  If the output matches `Primary working directory`,
    you are in the worktree.  If not, `cd` there first.
 3. Scan the summary for absolute paths.  Any path that starts with
-   `/Users/sergiy/work/my/scalascript/` but does *not* start with
-   `/Users/sergiy/work/my/scalascript/.worktrees/<name>/` is a
+   `<repo-root>/` but does *not* start with
+   `<repo-root>/.worktrees/<name>/` is a
    shared-main path.  Treat it as a hint about *which file*, never as
    the write destination.  Rebuild the correct path by prepending the
    worktree root from step 1.
@@ -603,7 +603,7 @@ rules that catch every first-time sub-agent:
 
 - "Always use **relative paths** for Write / Edit / Read of project
   files; verify `pwd` once at the start and don't hand-type
-  `/Users/sergiy/work/my/scalascript/...` into tool arguments.  The
+  `<repo-root>/...` into tool arguments.  The
   absolute-path trap (described in AGENTS.md §1) hits shared `main`
   silently."
 - "If a leak into shared `main` is confusing to clean up, prefer
@@ -752,8 +752,8 @@ git rebase origin/main           # if origin/main moved
 # re-run the suite if the rebase touched anything
 <merge or fast-forward into main>
 git push origin main
-git -C /Users/sergiy/work/my/scalascript fetch origin
-git -C /Users/sergiy/work/my/scalascript merge --ff-only origin/main
+git -C "$MAIN" fetch origin
+git -C "$MAIN" merge --ff-only origin/main
 ```
 
 No "accumulate and push at the end of the sprint". Each piece gets its
@@ -775,7 +775,7 @@ to `origin/main`, clean up:
 
 ```bash
 # After the feature branch has been pushed to origin/main and local main synced:
-cd /Users/sergiy/work/my/scalascript             # go to shared main repo
+cd "$MAIN"                                       # go to shared main repo
 git worktree remove --force <path-to-worktree>   # remove working dir
 git branch -D <branch-name>                      # delete local branch
 git push origin --delete <branch-name>           # delete remote branch (if pushed)
@@ -866,7 +866,7 @@ See the `/multi-agent` skill for the full protocol (claim, heartbeat, triage, re
 Skill location: `.agents/plugins/multi-agent/commands/multi-agent.md` (in main repo — use `$MAIN` from above).
 
 Key invariants:
-- Claim from the **main checkout** (`/Users/sergiy/work/my/scalascript`) only — never from a worktree
+- Claim from the **main checkout** (`$MAIN`) only — never from a worktree
 - A claim is valid only when `.work/active/<slug>.claim` is visible on `origin/main`
 - Files in `.work/active/` without `.claim` suffix are invalid markers — report or repair before starting
 - Never assume a claim is yours; read the `agent:` field first
