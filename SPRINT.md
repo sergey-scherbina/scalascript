@@ -156,10 +156,19 @@ optional later phase (only matters for `ssc check` and typed backends).
       (top-level + nested emit `[A] =>> Map[Int, A]`, never the verbatim wildcard).
       core 955 green; verified Scala 3 compiles a nested type-lambda alias at use site.
       Spec `specs/type-level-lambdas.md` §5b/§6 updated.
-- [ ] **type-lambda-sscc-roundtrip** — verify a `Type.Lambda` / `SType.TypeLambda` survives
-      the `.sscc` v3 binary tree cache + `.scir` interface artifact (1 pending
-      TypeLambdaProgressTest case). `SsccFormatV3` already has a `TypeLambdaArrow` token, so
-      it may already work — confirm + flip the test, else wire it.
+- [x] **type-lambda-sscc-roundtrip** — DONE 2026-06-12. Native `[X] =>> F[X]` already
+      round-tripped via the stored `=>>` token (`TypeLambdaArrow`, kind 55). The
+      PLACEHOLDER form did NOT: the `.sscc` v3 write stores the placeholder token stream
+      (`Map[Int, _]`) verbatim and the read (`ScalaNode.deferred`) raw-parses it — the
+      placeholder→`=>>` desugar is a TREE rewrite (`desugarPlaceholderTypeAliases`), not a
+      string preprocessor, so it never ran on read → a cached placeholder alias reverted
+      to a wildcard, diverging from the direct `Parser` parse. Fixed by exposing
+      `Parser.desugarTypeLambdaAliases` (pure tree rewrite, no re-preprocess) and applying
+      it in `ScalaNode.deferred` after the raw parse. Regress: TypeLambdaProgressTest
+      "survives a `.sscc` v3 artifact round-trip" (native + placeholder) flipped from
+      pending; two `SsccFormatV3Test` phase-B cases. core 958 green. The `.scir` interface
+      side already round-trips via `show`/`parseSType` (existing `[done]` test). Spec
+      `specs/type-level-lambdas.md` §6 updated. Only p3 (optional β-reduction) remains.
 - [ ] **type-lambda-p3-semantics (optional, later)** — beta-reduce type lambdas in `ssc
       check` (`([X] =>> F[X])[A]` → `F[A]`) + HKT/kind checking. rust already reduces in
       codegen; this is the typer/`ssc check` side. Only if a real use-case motivates it.

@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — fix(sscc): placeholder type-lambda aliases survive the `.sscc` v3 cache round-trip
+
+- The `.sscc` v3 read (`ScalaNode.deferred`) raw-parses the source reconstructed from
+  the token stream, and the write stores the *placeholder* tokens (`Map[Int, _]`)
+  verbatim — the placeholder→`=>>` desugar is a tree rewrite, not a string preprocessor,
+  so it never ran on read. A placeholder type-lambda alias read from the cache therefore
+  reverted to a wildcard, diverging from the direct `Parser` parse. Fixed by exposing
+  `Parser.desugarTypeLambdaAliases` (pure tree rewrite, no re-preprocess) and applying it
+  in `ScalaNode.deferred`. Native `[X] =>> F[X]` already round-tripped via the stored
+  `=>>` token. Regress: `TypeLambdaProgressTest` round-trip case (flipped from pending) +
+  two `SsccFormatV3Test` phase-B cases. core 958 green. Closes `type-lambda-sscc-roundtrip`;
+  only optional p3 β-reduction remains.
+
 ## 2026-06-12 — feat(types): placeholder type-lambda aliases desugar when nested in object/trait/class
 
 - `Parser.desugarPlaceholderTypeAliases` previously only rewrote TOP-LEVEL `type`
