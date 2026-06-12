@@ -349,3 +349,42 @@ Recommended sequencing change:
 Net: the architecture in §3–§4 is sound, but its value is narrower and its metric
 is wrong because the JIT matured past the 2026-06-02 premise. Proceed via a gated
 spike, not a blind 530-site migration.
+
+## 11  p1 spike result — **DEFER** (2026-06-12)
+
+Followed the **JFR-profile-first** methodology (cheap gate before building any
+`evalDirect` infra): profile the `Computation.Pure` allocation *fraction* on the
+representative **tree-walked** HOF/dispatch workload (`typeclassFoldMacro` — its
+`combineAll` cannot JIT, so it tree-walks even with the JIT on). `scripts/bench
+profile typeclassFoldMacro` → 1.4 ms/op, ~132 KB/op. JFR `ObjectAllocationSample`
+weight breakdown:
+
+| class | ~% of alloc |
+|---|---|
+| `scala.collection.immutable.::` (List cons) | ~22% |
+| **`Computation$Pure`** | **~18%** |
+| `DispatchRuntime$$Lambda` | ~18% |
+| `scala.Some` | ~17% |
+| `scala.Tuple2` | ~13% |
+| `byte[]` | ~8% |
+
+**`Computation.Pure` is a MINORITY (~18%) of allocation, dwarfed by the dispatch
+machinery** (Lambda + Some + Tuple2 + List ≈ 70%). This confirms §10.2 empirically:
+the JIT already captured every *high*-`Pure`-fraction shape (numeric loops, simple
+recursion, ADT interpreters — they JIT and wrap `Pure` once at the boundary); the
+shapes that still tree-walk are *dispatch*-heavy, where `Pure` is a small slice and
+the real cost is the generic-HOF dispatch tree-walk (CPU + the Lambda/Some/Tuple2/List
+allocation it produces) — which `evalDirect` does **not** touch.
+
+**Decision: DEFER.** `evalDirect` would drop `Pure` ~100% on effect-free paths (meeting
+the spec's literal "≥50% `Pure` drop" sub-criterion), but that is ≥50% of an ~18% slice
+— the wall-clock ceiling is well below the "≥15% on a tree-walked workload" target,
+while the migration is HIGH risk (530 sites, load-bearing §3.4 effect-boundary
+detection). The cost/risk does not pencil out. The honest win for these tree-walked
+dispatch shapes is **JIT-compiling the generic HOF dispatch** (see
+[[project_backend_improvement_program]] / typeclass-fold devirt notes), not direct-style
+eval. Caveat: the allocation fraction is a proxy — it omits the per-`Pure` wrap/unwrap
+CPU — so a full on/off wall-clock spike could refine the number; but the bounded ceiling
+(`Pure` ≪ dispatch) plus the HIGH migration risk justify deferring without building
+speculative infra (per the user's JFR-profile-first rule). Revisit only if a real
+workload surfaces where `Pure` dominates a *tree-walked* path.
