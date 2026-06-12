@@ -90,23 +90,32 @@ hybrid direct-fast-path + monadic-trampoline fallback; per-file migration order;
 the effect-free hot path. Success: `recursiveEval` ≥ 20% faster on, JFR `Pure` −50%, zero
 regressions across 1230+, multi-shot handlers identical both flags.
 
-- [ ] **direct-style-eval-p0-resolve-open-questions** — clear spec §9 before any code:
-      (1) review the `multishot-stack` worktree fixtures — are any passes dependent on the
-      trampoline preserving all resume branches? link findings; (2) confirm `@pure` annotation
-      is deferred to its own spec; (3) verify the DoubleV double-slot / JIT path stays correct
-      under direct-style; (4) confirm `evalDirect` is suppressed inside any active handler
-      scope (`EffectsRuntime.withHandler`). Output: §9 answered + go/no-go on the
-      `EffectPerform` exception model. No production code.
-- [ ] **direct-style-eval-p1-infra** — `evalDirect(term,env,interp): Value` +
-      `final class EffectPerform(comp) extends Exception with NoStackTrace` + flag plumbing
-      (`interp.directEvalEnabled`) + the dual-entry call-site idiom helper. NO call sites
-      migrated yet; behavior identical with flag off. Tests: pure expr returns Value; a
-      `Perform` throws+catches into the trampoline with identical result.
-- [ ] **direct-style-eval-p2-evalruntime-leaves** — migrate EvalRuntime leaf exprs
-      (`Lit`, `Term.Name`, pure-builtin `Term.Apply`) to `evalDirect`. Per spec §6 verify:
-      flag-off identical, flag-on green, multi-shot fixtures identical.
-- [ ] **direct-style-eval-p3-evalruntime-compound** — `Term.If`/`Term.Match`/`Term.Block`
-      (effect boundaries stay monadic). Bench `recursiveEval` should start moving.
+- [x] **direct-style-eval-p0-resolve-open-questions** — ✓ DONE 2026-06-12. §9 answered in
+      `specs/direct-style-eval-spec.md` §10. KEY FINDING that re-scopes the project: the
+      bytecode JIT **already returns `Value` directly** (wraps `Pure` once at the call
+      boundary, not per sub-expr) for everything it compiles — incl. recursive ADT
+      interpreters. Verified: in `recursiveEval` (the spec's own success metric) `eval`+`build`
+      lint JIT OK; only the outer loop tree-walks. So the per-`Pure` overhead direct-style
+      targets is already gone on the JIT'd hot path → the ≥20% target on recursiveEval is
+      unreachable; the metric is invalid. Multi-shot resume RELIES on the re-callable monadic
+      continuation (commits `e29c5b182`/`deed8fce9`) → `EffectPerform` is one-shot + loses the
+      surrounding direct-style stack → `evalDirect` may ONLY touch statically-effect-free
+      exprs; §3.4 boundary detection is LOAD-BEARING. GO/NO-GO: **conditional GO via a gated
+      spike, NOT a blind 530-site migration** (see p1).
+- [ ] **direct-style-eval-p1-spike** — RESCOPED (was "infra"): build `evalDirect` +
+      `EffectPerform(comp) extends Exception with NoStackTrace` + `SSC_DIRECT_EVAL` flag, then
+      migrate ONE representative *tree-walked* hot path (NOT recursiveEval — it JITs) and
+      MEASURE the real `Pure`-allocation delta (JFR) + wall-clock. **GATE the full migration on
+      the spike showing a worthwhile win** (≥15% on a tree-walked workload, or ≥50% `Pure` drop
+      there, measured e.g. with `SSC_JIT_BYTECODE=off` to isolate the tree-walk path). If the
+      spike underperforms → DEFER (the JIT already captured the easy wins). Spec §10.4.
+- [ ] **direct-style-eval-p2-evalruntime-leaves** (gated on p1 spike) — migrate EvalRuntime
+      leaf exprs (`Lit`, `Term.Name`, pure-builtin `Term.Apply`) to `evalDirect`. Per spec §6:
+      flag-off identical, flag-on green, multi-shot fixtures identical. §3.4 boundary detection
+      is a prerequisite here.
+- [ ] **direct-style-eval-p3-evalruntime-compound** (gated) — `Term.If`/`Term.Match`/
+      `Term.Block` (effect boundaries stay monadic). Measure on the tree-walked workload from
+      p1 (NOT recursiveEval).
 - [ ] **direct-style-eval-p4-block-pattern-call** — BlockRuntime (41) + PatternRuntime (37)
       + CallRuntime (15).
 - [ ] **direct-style-eval-p5-dispatch** — DispatchRuntime (89, many effect-adjacent — care).

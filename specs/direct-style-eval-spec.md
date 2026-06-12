@@ -270,3 +270,82 @@ later phase under the Loom virtual-thread model (§4.3).
    effect handler, inner `eval` calls must use the monadic path.  The
    scope entry point is `EffectsRuntime.withHandler`.  Verify that
    `evalDirect` is suppressed for the duration of any handler scope.
+
+---
+
+## 10  §9 resolution + go/no-go (p0, 2026-06-12)
+
+Investigated `direct-style-eval-p0`. Each open question answered, plus a
+material finding that re-scopes the whole effort.
+
+### 10.1  Q1 — multi-shot continuations (the load-bearing constraint)
+
+The `multishot-stack` worktree is gone, but its conclusion is captured in
+commits `e29c5b182` ("multi-shot handler dispatch stays eager") and `deed8fce9`.
+The live mechanism (`EffectsRuntime.handleInterp`): a multi-shot `resume` is a
+`Value.NativeFnV` that **re-runs `handleInterp(f(v))` on each call**, where
+`f: Value => Computation` is the continuation captured by the trampoline's
+`FlatMap(Perform(...), v => handleInterp(f(v)))`. So multi-shot correctness
+**depends on the monadic continuation being a re-callable closure**.
+
+Implication for direct-style: the `EffectPerform` exception model is **one-shot
+by nature** (a `catch` recovers once) AND it loses the surrounding direct-style
+stack (`a + evalDirect(b)` — if `evalDirect(b)` throws, `a + _` is unwound and
+gone). Therefore `evalDirect` must **never** intercept a `Perform` that needs
+resumption. The only sound rule: **`evalDirect` is applied only to expressions
+statically proven effect-free** (no reachable `Perform`); `EffectPerform` is a
+*safety net* (should never actually throw if the analysis is sound), not a
+control-flow device. **§3.4 effect-boundary detection is load-bearing, not
+optional** — without it, both multi-shot and ordinary surrounding continuations
+break.
+
+### 10.2  Q3 — double-slot / JIT: no interaction (and the big finding)
+
+The bytecode JIT **already returns a `Value` directly** — `JitRuntime`:
+`r.mh.invoke().asInstanceOf[AnyRef]` produces the Value, wrapped in `Pure`
+exactly **once** at the call boundary, not per sub-expression. The JIT path is
+therefore *already direct-style*; `evalDirect` is a **tree-walk-only** change and
+does not touch the JIT, so the `DoubleV` double-slot concern is moot (it lives on
+the JIT path, untouched).
+
+**Consequence (re-scopes the project):** the per-`Pure` overhead direct-style
+targets is **already eliminated on every function/expression the JIT compiles** —
+including tight numeric loops, simple recursion, AND recursive ADT interpreters.
+Verified: in `recursiveEval` (the spec's own §8 success metric) `eval` and `build`
+both lint **JIT OK**; only the outer `workload` loop tree-walks. JIT on = 4.6 ms,
+off = 52 ms (11×). So direct-style's ceiling on `recursiveEval` is just the outer
+loop's handful of `Pure`s per iteration — **nowhere near the claimed ≥20%**. The
+spec (2026-06-02) predates the JIT covering this shape.
+
+### 10.3  Q4 — effect scope: handled by boundary detection
+
+`evalDirect` must be suppressed inside any active handler scope. The entry point
+is `EffectsRuntime.withHandler`; a `with`/`handle` region is marked effectful by
+the same §3.4 analysis, so `evalDirect` is simply never selected there. No extra
+mechanism needed beyond boundary detection. Q2 (`@pure`): deferred, as written.
+
+### 10.4  Go / no-go
+
+**Conditional GO — but NOT the spec's framing, and NOT yet the 530-site
+migration.** The remaining genuine win is **hot *tree-walked* code the JIT bails
+on** — closure/HOF-heavy, method-dispatch-heavy, effect-adjacent business logic
+(the bulk of real apps), where per-`Pure` allocation is pervasive. That is also
+the riskiest surface (effect boundaries), so boundary detection must come first.
+
+Recommended sequencing change:
+1. **p1 = infra + a measurement SPIKE first.** Build `evalDirect` + `EffectPerform`
+   behind `SSC_DIRECT_EVAL`, migrate ONE representative *tree-walked* hot path
+   (not `recursiveEval` — it JITs), and measure the real `Pure`-allocation delta
+   (JFR) + wall-clock. **Gate the full migration on the spike showing a
+   worthwhile win (target ≥15% on a tree-walked workload, or ≥50% `Pure` drop
+   there).** If the spike underperforms, DEFER — the JIT already captured the easy
+   wins and the migration's cost/risk would not pencil out.
+2. **Fix the success metric (§8):** `recursiveEval` is invalid (it JITs). Replace
+   with a closure/dispatch-heavy tree-walked workload, or measure with
+   `SSC_JIT_BYTECODE=off` to isolate the tree-walk path the change actually
+   touches.
+3. **§3.4 effect-boundary detection is a prerequisite of p2**, not a late step.
+
+Net: the architecture in §3–§4 is sound, but its value is narrower and its metric
+is wrong because the JIT matured past the 2026-06-02 premise. Proceed via a gated
+spike, not a blind 530-site migration.
