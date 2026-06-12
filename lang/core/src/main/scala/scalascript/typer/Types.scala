@@ -202,6 +202,45 @@ enum SType:
         Match(scrut.subst(m), cs.map(c => MatchCase(c.pattern.subst(m), c.rhs.subst(m))))
       case _ => this
 
+  /** Name-based substitution: replace each `Named(n, …)` whose `n` is a key in `m`.
+   *  A bare `Named(n, Nil)` becomes `m(n)`; a higher-kinded `Named(n, args)` whose
+   *  replacement is a `Named(rn, Nil)` becomes `Named(rn, args')` (so `(F := G)[X]`
+   *  → `G[X]`). Unlike `subst` (which keys on unification-var ids), this keys on
+   *  type-parameter NAMES — used for type-alias parameter substitution and
+   *  type-lambda β-reduction. Respects shadowing: a nested `TypeLambda` rebinding a
+   *  name drops it from `m` within its body. */
+  def substNames(m: Map[String, SType]): SType =
+    if m.isEmpty then this
+    else this match
+      case Named(n, Nil)  => m.getOrElse(n, this)
+      case Named(n, args) =>
+        val newArgs = args.map(_.substNames(m))
+        m.get(n) match
+          case Some(Named(rn, Nil)) => Named(rn, newArgs)
+          case _                    => Named(n, newArgs)
+      case Function(ps, r, effs) =>
+        Function(ps.map(_.substNames(m)), r.substNames(m),
+          EffectRow(effs.tail, effs.ops.map(op => EffectOp(op.name, op.args.map(_.substNames(m))))))
+      case Tuple(elems)        => Tuple(elems.map(_.substNames(m)))
+      case Union(ts)           => Union(ts.map(_.substNames(m)))
+      case Intersection(ts)    => Intersection(ts.map(_.substNames(m)))
+      case Refinement(base, mem) =>
+        Refinement(base.substNames(m), mem.map(rm => RefMember(rm.kind, rm.name, rm.sig.substNames(m))))
+      case Match(scrut, cs) =>
+        Match(scrut.substNames(m), cs.map(c => MatchCase(c.pattern.substNames(m), c.rhs.substNames(m))))
+      case TypeLambda(params, body) =>
+        val m2 = m -- params
+        if m2.isEmpty then this else TypeLambda(params, body.substNames(m2))
+      case Var(_) | HigherKinded(_, _) | EffectRow(_, _) | Error(_) => this
+
+  /** β-reduce a type-lambda applied to `args`: `([X] =>> F[X]).applyTo(List(A))`
+   *  → `F[A]`. Only meaningful on a `TypeLambda` with matching arity; otherwise
+   *  returns `this` unchanged (the caller decides whether to diagnose the mismatch). */
+  def applyTo(args: List[SType]): SType = this match
+    case TypeLambda(params, body) if params.length == args.length =>
+      body.substNames(params.zip(args).toMap)
+    case _ => this
+
   /** Short-circuit occurs check: true if unification variable `id` appears in this type.
    *  Avoids building a Set[Int] — returns as soon as the variable is found. */
   def containsFreeVar(id: Int): Boolean = this match

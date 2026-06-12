@@ -1335,31 +1335,40 @@ class Typer(
   /** Expand a type alias if `name` is registered in `typeAliases`.
    *  For a parameterized alias `type Opt[A] = Option[A]`, `args` holds the
    *  concrete type arguments and we substitute `A → args(0)` in the rhs.
-   *  For a simple alias `type UserId = String`, `args` must be empty. */
+   *  For a simple alias `type UserId = String`, `args` must be empty.
+   *
+   *  Type-lambda aliases (`type IntKey = [V] =>> Map[Int, V]`) have no own type
+   *  params — the `args` belong to the lambda. After resolving the alias's own
+   *  params (none here), a `TypeLambda` rhs with use-site `args` is β-reduced:
+   *  `IntKey[Long]` → `Map[Int, Long]` (p3 semantics). Mirrors the rust backend's
+   *  codegen-side reduction so `ssc check` agrees with the emitted type. */
   private def expandAlias(name: String, args: List[SType]): Option[SType] =
     typeAliases.get(name).map { (params, rhs) =>
-      if params.isEmpty then rhs
-      else if params.length != args.length then
-        // Arity mismatch — record error and return the rhs unexpanded
-        errors += TypeError(
-          s"Type alias $name expects ${params.length} type parameter(s), got ${args.length}",
-          None
-        )
-        rhs
-      else
-        // Substitute each param with the corresponding arg.  We use a simple
-        // name-based substitution: any `Named(param, Nil)` in the rhs is replaced
-        // with the corresponding arg SType.
-        val subst: Map[String, SType] = params.zip(args).toMap
-        def applySubst(t: SType): SType = t match
-          case SType.Named(n, Nil) if subst.contains(n) => subst(n)
-          case SType.Named(n, as)  => SType.Named(n, as.map(applySubst))
-          case SType.Function(ps, r, effs) => SType.Function(ps.map(applySubst), applySubst(r), effs)
-          case SType.Tuple(elems)  => SType.Tuple(elems.map(applySubst))
-          case SType.Union(ts)     => SType.Union(ts.map(applySubst))
-          case SType.Intersection(ts) => SType.Intersection(ts.map(applySubst))
-          case other               => other
-        applySubst(rhs)
+      val expanded =
+        if params.isEmpty then rhs
+        else if params.length != args.length then
+          // Arity mismatch — record error and return the rhs unexpanded
+          errors += TypeError(
+            s"Type alias $name expects ${params.length} type parameter(s), got ${args.length}",
+            None
+          )
+          rhs
+        else
+          // Substitute each of the alias's own params with the corresponding arg.
+          rhs.substNames(params.zip(args).toMap)
+      // β-reduce a type-lambda alias applied at the use site. Only the no-own-params
+      // alias form leaves `args` for the lambda; a parameterised alias already
+      // consumed all `args` via its own params above.
+      expanded match
+        case lam @ SType.TypeLambda(lamParams, _) if params.isEmpty && args.nonEmpty =>
+          if lamParams.length == args.length then lam.applyTo(args)
+          else
+            errors += TypeError(
+              s"Type lambda $name expects ${lamParams.length} type argument(s), got ${args.length}",
+              None
+            )
+            expanded
+        case _ => expanded
     }
 
   /** Convert a scalameta type annotation to our internal SType. */
@@ -1407,6 +1416,13 @@ class Typer(
       val left  = l match { case SType.Intersection(xs) => xs; case other => List(other) }
       val right = r match { case SType.Intersection(xs) => xs; case other => List(other) }
       SType.Intersection(left ++ right)
+    // Type lambda — `[X] =>> F[X]` (native; the parser also desugars the
+    // placeholder form `Map[Int, _]` to this before the typer sees it). Surface-
+    // only as a value type, but registered so a `type` alias bound to it can be
+    // β-reduced at the use site (see `expandAlias`). Without this it fell through
+    // to `Any` and `IntKey[Long]` lost all meaning.
+    case Type.Lambda.After_4_6_0(tparams, body) =>
+      SType.TypeLambda(tparams.values.map(_.name.value).toList, typeAnnotToSType(body))
     // Qualified type names: `scala.collection.Map`, `std.actors.Spec` etc.
     // Preserve the dotted path verbatim so `SType.show` / `parseSType` can
     // round-trip the interface entry.

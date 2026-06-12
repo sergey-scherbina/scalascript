@@ -140,5 +140,39 @@ class TypeLambdaProgressTest extends AnyFunSuite:
     assert(placeholder.contains("[A] =>> Map[Int, A]"),
       s"placeholder lambda lost in round-trip:\n$placeholder")
 
-  test("[target] beta-reduction `([X] =>> F[X])[A]` == `F[A]` in `ssc check`"):
-    pending // p3 (optional): only if a typed backend / strict check motivates it
+  test("[done] beta-reduction `([X] =>> F[X])[A]` == `F[A]` (p3 semantics)"):
+    val lam = SType.TypeLambda(List("X"), SType.Named("F", List(SType.Named("X", Nil))))
+    assert(lam.applyTo(List(SType.Named("A", Nil))) ==
+      SType.Named("F", List(SType.Named("A", Nil))))
+
+  test("[done] multi-param β-reduction `([A, B] =>> Map[B, A])[Int, String]` reorders"):
+    val lam = SType.TypeLambda(List("A", "B"),
+      SType.Named("Map", List(SType.Named("B", Nil), SType.Named("A", Nil))))
+    assert(lam.applyTo(List(SType.Int, SType.String)) ==
+      SType.Named("Map", List(SType.String, SType.Int)))
+
+  test("[done] β-reduction respects shadowing — inner lambda rebinds the name"):
+    // `[X] =>> ([X] =>> X)` applied to `A` must NOT substitute the inner `X`.
+    val inner = SType.TypeLambda(List("X"), SType.Named("X", Nil))
+    val outer = SType.TypeLambda(List("X"), inner)
+    assert(outer.applyTo(List(SType.Int)) == inner)
+
+  test("[done] `ssc check` β-reduces a type-lambda alias at the use site"):
+    // Native + placeholder surfaces both reduce; a use-site arity mismatch errors.
+    def errorsOf(src: String): List[String] =
+      val m = Parser.parse(s"# T\n\n```scalascript\n$src\n```\n")
+      Typer.typeCheckWithInterfaces(m, interfaces = Map.empty, strict = false).errors.map(_.msg)
+    // Correct arity: no type-lambda arity error.
+    val ok = errorsOf(
+      "type IntKey = [V] =>> Map[Int, V]\ndef f(): IntKey[Long] = ???")
+    assert(!ok.exists(_.contains("type argument")), s"unexpected arity error: $ok")
+    // Placeholder alias (desugared to a lambda by the parser) reduces the same way.
+    val okPlaceholder = errorsOf(
+      "type IntKey = Map[Int, _]\ndef f(): IntKey[Long] = ???")
+    assert(!okPlaceholder.exists(_.contains("type argument")),
+      s"unexpected arity error: $okPlaceholder")
+    // Wrong arity: 2 args to a 1-param lambda → a clear error.
+    val bad = errorsOf(
+      "type IntKey = [V] =>> Map[Int, V]\ndef f(): IntKey[Long, String] = ???")
+    assert(bad.exists(m => m.contains("IntKey") && m.contains("type argument")),
+      s"expected a type-lambda arity error, got: $bad")
