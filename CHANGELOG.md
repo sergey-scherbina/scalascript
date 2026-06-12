@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — feat(js): custom effect `perform` inside a var+while loop now compiles + runs
+
+- Mirrors the JVM fix on the JS backend (`JsGenCpsCodegen`): a `Term.Assign` threads its
+  rhs through `_bind` (so a `perform` in it runs) then mutates the target, and a
+  `Term.While` lowers to a trampolined recursive helper (was a raw `genExpr` loop). JS
+  arrow-function params are mutable, so the CPS `var`s need no special handling. The
+  interim perform-in-while honesty gate (`CapabilityCheck.performInWhileLoop`) is removed
+  now that the gap is closed on both source backends. Verified via node (one-shot → 5,
+  longer loop → 30). core 976 + backendInterpreter 1678 green. A separate pre-existing JS
+  bug — a self-handling CPS function returns an un-run lazy `_FlatMap` on JS, so
+  `effect-multishot` stays `n/a` on JS — is recorded in `BUGS.md`
+  (`js-self-handling-cps-fn-not-run`) with a verified `_run`-wrap fix.
+
 ## 2026-06-12 — feat(jvm): custom effect `perform` inside a var+while loop now compiles + runs
 
 - A `perform` reachable in an imperative `var`+`while` loop was n/a on the JVM backend

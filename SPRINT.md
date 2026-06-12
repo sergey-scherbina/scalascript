@@ -245,7 +245,16 @@ generated Scala fails with "Reassignment to val s" / "< is not a member of Any".
       whoever takes this: map where a top-level effectful `def` body's block is
       actually emitted (grep the main `JvmGen` def-emission + `emitEffectfulParamGroups`
       callers), because that Ã¢ÂÂ not `emitCpsBlock` Ã¢ÂÂ is where the varÃ¢ÂÂ`_bind` happens.
-- [ ] **effect-cps-loops-js** Ã¢ÂÂ same fix in the JS CPS codegen (JsGen) once jvm lands.
+- [x] **effect-cps-loops-js** — DONE 2026-06-12. Mirrored the JVM fix in
+      `JsGenCpsCodegen.genCpsExpr` (simpler — JS arrow params are mutable, no type
+      inference): `Term.Assign` threads rhs via `_bind` then mutates; `Term.While` →
+      trampolined recursive helper (was raw `genExpr`). Interim honesty gate REMOVED (gap
+      closed on both backends). Verified via node: one-shot perform-in-while → 5, longer →
+      30. Regress: JsEffectLoopTest. core 976 + backendInterpreter 1678 green (0 regress).
+      FOUND a SEPARATE pre-existing JS bug — a self-handling CPS fn returns an un-run lazy
+      `_FlatMap` on js (effect-multishot `n/a` on js; affects non-loop too) — tracked in
+      BUGS.md (`js-self-handling-cps-fn-not-run`, verified `_run`-wrap fix). [ORIG:]
+- [ ] **effect-cps-loops-js (orig)** Ã¢ÂÂ same fix in the JS CPS codegen (JsGen) once jvm lands.
 - [x] **effect-cps-loops-honesty** — DONE 2026-06-12 (orig note kept below): Ã¢ÂÂ until the above land, make the codegen emit a
       DONE: `CapabilityCheck.performInWhileLoop` refuses compilation with a clear
       `Diagnostic.Generic` message when a custom effect `perform` is reachable inside a
