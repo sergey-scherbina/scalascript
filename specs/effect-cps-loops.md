@@ -1,10 +1,32 @@
 # Effects: `perform` inside an imperative loop (jvm/js codegen gap)
 
-Status: **diagnosed; honesty diagnostic landed 2026-06-12; real codegen fix still
-open.** `effect-cps-loops-honesty` shipped (jvm/js now refuse to compile instead of
-emitting broken code — see "Interim honesty option" below). The real lowering
-(`effect-cps-loops-{jvm,js}`) is still a focused codegen task. This doc is the deep
-write-up so the next person doesn't re-derive it.
+Status: **JVM DONE 2026-06-12 (`effect-cps-loops-jvm`); JS still open
+(`effect-cps-loops-js`).** The JVM backend now lowers a `perform` inside a `var`+`while`
+loop correctly (see "JVM fix — landed" below); verified end-to-end via scala-cli
+(one-shot → 5, multi-shot → 204, both corpus files compile). The `effect-cps-loops-honesty`
+gate is now **JS-only** (jvm is no longer refused). The JS lowering (`effect-cps-loops-js`)
+mirrors the same shape in `JsGen` and is the remaining task. This doc is the deep write-up.
+
+## JVM fix — landed 2026-06-12
+
+The attempt-note's conclusion below ("a top-level effectful def is CPS-emitted via a path
+OTHER than `emitCpsBlock`") was **WRONG** — it IS `emitCpsBlock`, reached from JvmGen's
+`case d: Defn.Def if isEffectfulFun` arm via `emitCpsExpr(d.body)` → `emitCpsBlock(stats)`.
+The previous attempt's edits must have had a bug; the path was correct all along. The fix
+(`JvmGenCpsTransform` + `JvmGenRuntimeSources` + `JvmGen`):
+- A CPS-block `var` stays a REAL typed mutable `var` (type from the ascription else
+  `inferVarType`: literals / param-refs / `.toX` / arithmetic), registered in
+  `declaredVarTypes` so the existing `Term.Assign` arm casts `Any → T`.
+- `Term.While` → trampolined recursive helper (`emitWhileTrampoline`):
+  `def _w(): Any = if (cond) _bind(<cps body>, _ => _w()) else (); _bind(_w(), _ => k)`.
+- An **effectful** assign threads via `_bind(emitCpsExpr(a), _ => rest)` (a lazy
+  effectful computation discarded in statement position loses the perform). The
+  effectful-detection predicate `cpsTermPerforms` descends through EVERY `Tree` child
+  (incl. `Term.ArgClause`) — `termUsesEffects` misses `acc + Bump.tick()` (perform nested
+  in an operator arg).
+- `_dispatch` gained numeric `.toLong/.toInt/.toDouble/.toFloat` (a perform result flows
+  through it as `Any`); `_binOp` gained `%` for Long/Double + mixed-width widening so it
+  is total over Int/Long/Double.
 
 ## TL;DR
 
