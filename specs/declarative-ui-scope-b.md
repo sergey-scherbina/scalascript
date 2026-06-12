@@ -1,6 +1,6 @@
 # Declarative dynamic UI — Scope B (richer authoring model)
 
-**Status:** COMPLETE — B.1 + B.2 + B.3 v1 + B.4 v1 + B.5 + B.6 + B.7 v1 implemented (2026-06-11/12). Remaining items are documented v-next follow-ups (B.3 `rowsPath` on native backends, B.4 `bodyBuilder`, B.7 lint for `signal:`/`toolkit:` links).
+**Status:** COMPLETE — B.1 + B.2 + B.3 v1 + B.4 v1 (+ B.4+ bodyBuilder) + B.5 + B.6 + B.7 v1 (+ signal-ref lint) implemented (2026-06-11/12). Remaining items are documented v-next follow-ups (B.3 `rowsPath` on native backends, B.7 lint for Markdown `toolkit:` links, typed/keyed `formBody`).
 **Upstream proposal:** busi `docs/declarative-ui-authoring.md` (rozum seq-113).
 **Predecessor:** Scope A (`specs/js-toolkit-action-rows-registry.md`) — browser
 parity for the existing `action` / `rowBindings` registries via the Markdown
@@ -253,10 +253,10 @@ path`). The interpreter's `fetchActionWith` builds a plain `EventHandler.FetchAc
 execute the rich effects (consistent with the YAML-registry-controls non-goal).
 
 **Scope of v1 (honest):** `onBumpTick` / `onSetSignal` / `onNavigate`, browser
-runtime. `bodyBuilder` (a request body assembled from named fields / current row /
-whole row) is deferred — `RowPayload` (`fieldPayload`/`wholeRowPayload`/
-`fieldsPayload`) already covers per-row action bodies. A failed (non-2xx) action
-runs **no** effects.
+runtime. A failed (non-2xx) action runs **no** effects. The **bodyBuilder** (a
+request body assembled from named field signals) is the follow-up below; the
+per-row variants (`current row` / `whole row`) are already covered by `RowPayload`
+(`fieldPayload`/`wholeRowPayload`/`fieldsPayload`).
 
 ### Behavior checklist (B.4 v1)
 
@@ -273,6 +273,41 @@ runs **no** effects.
 - Note: `headers` is the last (defaulted) param of `fetchActionWith`; like the other
   fetch natives it handles both the 4-arg (no headers) and 5-arg arities, since
   extern defaults are typer-level (not runtime-filled for plugin natives).
+
+## B.4+ detail (bodyBuilder — `formBody`)
+
+`fetchActionWith` takes the POST/PUT body as a single `Signal[String]` (a pre-built
+JSON string the author must keep in sync with the form). A declarative form instead
+wants the body assembled from its **named field signals** at submit time — the
+top-level analog of `RowPayload` for row actions. `formBody(fields)` is that body
+source:
+
+```scalascript
+val submit = fetchActionWith("POST", "/api/orders",
+  formBody(["customer", "amount"]),       // body = { customer: <sig>, amount: <sig> }
+  [onBumpTick(tick), onSetSignal(status, "Saved")])
+```
+
+`fetchActionWith`'s `body` is widened to `Any` so it accepts **either** a
+`Signal[String]` (unchanged) **or** a `formBody(...)` descriptor. At submit on the
+**browser** (where the action executes — same scoping as `onSuccess`), the field
+ids are read from the signal store and serialised to a flat JSON object whose keys
+are the field names: `{"customer": <_sv.customer>, "amount": <_sv.amount>}`. The
+descriptor emits `data-ssc-fetch-body-fields`; a testable
+`_ssc_ui_buildFormBody(fieldsJson, sv)` does the assembly. The interpreter's
+`fetchActionWith` accepts the `formBody` descriptor and builds a `FetchAction` with a
+synthetic empty body (the assembly is browser-only, like the effect list). Values
+are taken verbatim from the signals (strings) — a typed-field / `key: signalId`
+mapping is a later refinement.
+
+### Behavior checklist (B.4+ bodyBuilder)
+
+- [ ] `fetchActionWith(..., formBody([a, b]), …)` POSTs `{"a": <sig a>, "b": <sig b>}`
+      assembled from the named signals at click (browser).
+- [ ] a plain `Signal[String]` body still works (the `body: Any` widening is
+      backward-compatible).
+- [ ] interp accepts `formBody(...)` and builds an `EventHandler` (browser assembles).
+- [ ] interp test + JS test (`_ssc_ui_buildFormBody` assembly) + an example.
 
 ## B.6 detail (slot escape-hatch)
 
