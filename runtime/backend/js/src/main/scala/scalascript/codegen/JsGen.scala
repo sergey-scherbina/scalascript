@@ -1752,7 +1752,7 @@ class JsGen(
     // user-level `signal(...)` call.
     val hasUiHelpers = List(
       "fetchUrlSignal", "fetchAction", "fetchActionClear", "fetchActionWith", "CaptureAction", "emptyHeaders",
-      "onBumpTick", "onSetSignal", "onNavigate",
+      "onBumpTick", "onSetSignal", "onNavigate", "formBody",
       "dataTable", "dataTableView", "staticDataTable", "signalDataTable",
       "seedSignal",
       "fieldColumn", "dateColumn", "moneyColumn", "statusColumn", "linkColumn",

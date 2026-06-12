@@ -136,11 +136,25 @@ object FetchIntrinsics:
         case _ => throw InterpretError("onNavigate(path)")
     },
 
-    // fetchActionWith(method, url, body, headers, onSuccess): EventHandler
+    // formBody(fields): a request-body descriptor (Scope B.4+) — the browser
+    // assembles `{ field: <signal value> }` from the named field signals at submit.
+    QualifiedName("formBody") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(fields: Value) => Value.Foreign("FormBody", fields)
+        case _                   => throw InterpretError("formBody(fields)")
+    },
+
+    // fetchActionWith(method, url, body, onSuccess[, headers]): EventHandler
     // Like fetchAction but carries a structured onSuccess effect list (run in order
     // on a 2xx by the browser runtime).  The interpreter builds a plain FetchAction
     // (first onBumpTick → onSuccessTick); the rich effects are browser-scoped.
+    // `body` is a Signal[String] or a `formBody(...)` descriptor (Scope B.4+) — the
+    // latter is browser-assembled, so the interpreter uses a synthetic empty body.
     QualifiedName("fetchActionWith") -> PluginNative.evalLegacy { (_, args) =>
+      def resolveBody(b: Any): ReactiveSignal[?] = b match
+        case Value.Foreign("ReactiveSignal", s: ReactiveSignal[?]) => s
+        case Value.Foreign("FormBody", _) => new ReactiveSignal[String]("__ssc_form_body", "")
+        case _ => throw InterpretError("fetchActionWith: body must be a Signal[String] or formBody(...)")
       def mk(method: String, url: String, body: ReactiveSignal[?], onSuccess: Any,
              headers: Option[ReactiveSignal[String]]): Value =
         val effects = onSuccess match
@@ -155,14 +169,12 @@ object FetchIntrinsics:
           EventHandler.FetchAction(method, url,
             body.asInstanceOf[ReactiveSignal[String]], tick, headers = headers))
       args match
-        case List(method: String, url: String,
-                  Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]), onSuccess) =>
-          mk(method, url, body, onSuccess, None)
-        case List(method: String, url: String,
-                  Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]), onSuccess,
+        case List(method: String, url: String, body, onSuccess) =>
+          mk(method, url, resolveBody(body), onSuccess, None)
+        case List(method: String, url: String, body, onSuccess,
                   Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
           val h = headers.asInstanceOf[ReactiveSignal[String]]
-          mk(method, url, body, onSuccess,
+          mk(method, url, resolveBody(body), onSuccess,
              if h.id == "__ssc_empty_headers" then None else Some(h))
         case _ => throw InterpretError("fetchActionWith(method, url, body, onSuccess[, headers])")
     },

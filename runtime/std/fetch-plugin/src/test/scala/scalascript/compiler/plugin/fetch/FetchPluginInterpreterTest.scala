@@ -182,3 +182,19 @@ class FetchPluginInterpreterTest extends AnyFunSuite:
         assert(url == "/api/orders")
         assert(onSuccessTick.id == "ordersTick")
       case other => fail(s"expected FetchAction from fetchActionWith, got $other")
+
+  test("Fetch plugin: fetchActionWith accepts a formBody(...) body (Scope B.4+)"):
+    val result = interp.eval(
+      """
+      val tick = signal("ordersTick", 0)
+      fetchActionWith("POST", "/api/orders", formBody(["customer", "amount"]),
+        [onBumpTick(tick)])
+      """
+    )
+    result match
+      case Value.Foreign("EventHandler", EventHandler.FetchAction(method, url, _, onSuccessTick, _, _)) =>
+        assert(method == "POST")
+        assert(url == "/api/orders")
+        // first onBumpTick → onSuccessTick (the form body is assembled browser-side)
+        assert(onSuccessTick.id == "ordersTick")
+      case other => fail(s"expected FetchAction from fetchActionWith(formBody), got $other")

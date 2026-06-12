@@ -233,7 +233,10 @@ function _ssc_ui_renderBody(view) {
           else if (h._type === '_SetSignal'  && h.s) { collectSig(h.s); aStr += ` data-ssc-set="${h.s.id}" data-ssc-set-val="${_esc(JSON.stringify(h.v))}"`; }
           else if (h._type === '_InputChange' && h.s) { collectSig(h.s); aStr += ` data-ssc-change="${h.s.id}"`; }
           else if ((h._type === '_FetchAction' || h._type === '_FetchActionClear') && h.url) {
-            if (h.body) collectSig(h.body); if (h.tick) collectSig(h.tick);
+            // Scope B.4+ — body may be a formBody descriptor (assemble from named
+            // field signals at submit) instead of a single body signal.
+            const bodyFields = (h.body && h.body._body === 'fields') ? h.body.fields : null;
+            if (h.body && !bodyFields) collectSig(h.body); if (h.tick) collectSig(h.tick);
             if (h.headers) collectSig(h.headers); if (h.into) collectSig(h.into);
             const bId = (h.body && h.body.id) ? h.body.id : '';
             const tId = (h.tick && h.tick.id) ? h.tick.id : '';
@@ -242,6 +245,7 @@ function _ssc_ui_renderBody(view) {
             aStr += ` data-ssc-fetch-method="${_esc(h.method||'POST')}" data-ssc-fetch-url="${_esc(h.url)}" data-ssc-fetch-body="${_esc(bId)}" data-ssc-fetch-tick="${_esc(tId)}"`;
             if (hId) aStr += ` data-ssc-fetch-headers="${_esc(hId)}"`;
             if (iId) aStr += ` data-ssc-fetch-into="${_esc(iId)}"`;
+            if (bodyFields) aStr += ` data-ssc-fetch-body-fields="${_esc(JSON.stringify(bodyFields))}"`;
             if (h._type === '_FetchActionClear') aStr += ` data-ssc-fetch-clear="1"`;
             if (h.onSuccess && h.onSuccess.length) {                // Scope B.4
               const effs = h.onSuccess.map(function(e) {
@@ -455,8 +459,10 @@ function _ssc_ui_mount(sigs) {
     var clear     = el.getAttribute('data-ssc-fetch-clear');
     var intoId    = el.getAttribute('data-ssc-fetch-into');
     var onSuccessRaw = el.getAttribute('data-ssc-fetch-onsuccess');   // Scope B.4
+    var bodyFieldsRaw = el.getAttribute('data-ssc-fetch-body-fields'); // Scope B.4+
     el.addEventListener('click', function() {
-      var body = bodyId ? String(_sv[bodyId] == null ? '' : _sv[bodyId]) : '';
+      var body = bodyFieldsRaw ? _ssc_ui_buildFormBody(bodyFieldsRaw, _sv)
+               : (bodyId ? String(_sv[bodyId] == null ? '' : _sv[bodyId]) : '');
       var opts = {method: method, body: body};
       if (headersId) {
         var hs = _sv[headersId];
@@ -741,6 +747,17 @@ function _ssc_ui_onBumpTick(tick) { return { _eff: 'bumpTick', tick }; }
 function _ssc_ui_onSetSignal(sig, value) { return { _eff: 'setSignal', s: sig, v: value }; }
 function _ssc_ui_onNavigate(path) { return { _eff: 'navigate', path: String(path == null ? '' : path) }; }
 function _ssc_ui_fetchActionWith(method, url, body, onSuccess, headers) { return { _type: '_FetchAction', method, url, body, headers: headers || null, onSuccess: onSuccess || [] }; }
+// Scope B.4+ — a request-body source assembled from named field signals at submit.
+function _ssc_ui_formBody(fields) { return { _body: 'fields', fields: fields || [] }; }
+// Assemble a flat JSON object body `{ field: <signal value> }` from the named field
+// signals (pure + testable: `sv` is the mount's value store).
+function _ssc_ui_buildFormBody(raw, sv) {
+  try {
+    var obj = {};
+    JSON.parse(raw).forEach(function(f) { obj[f] = sv[f] == null ? '' : sv[f]; });
+    return JSON.stringify(obj);
+  } catch(_e) { return '{}'; }
+}
 // Run a fetch action's serialised onSuccess effects, in order, on a 2xx (`ok`).
 // `setFn`/`sv` are the mount's signal setter + value store (passed in so the
 // effect runner is a pure, testable top-level function).  A non-2xx runs nothing.

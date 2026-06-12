@@ -302,12 +302,15 @@ mapping is a later refinement.
 
 ### Behavior checklist (B.4+ bodyBuilder)
 
-- [ ] `fetchActionWith(..., formBody([a, b]), …)` POSTs `{"a": <sig a>, "b": <sig b>}`
-      assembled from the named signals at click (browser).
-- [ ] a plain `Signal[String]` body still works (the `body: Any` widening is
-      backward-compatible).
-- [ ] interp accepts `formBody(...)` and builds an `EventHandler` (browser assembles).
-- [ ] interp test + JS test (`_ssc_ui_buildFormBody` assembly) + an example.
+- [x] `fetchActionWith(..., formBody([a, b]), …)` POSTs `{"a": <sig a>, "b": <sig b>}`
+      assembled from the named signals at click (`_ssc_ui_buildFormBody`).
+- [x] a plain `Signal[String]` body still works (the `body: Any` widening is
+      backward-compatible; the existing onSuccess example/tests stay green).
+- [x] interp accepts `formBody(...)` and builds an `EventHandler` (browser assembles;
+      a missing signal serialises to `""`, never `undefined`).
+- [x] interp test (`FetchPluginInterpreterTest`) + JS test (`JsGenStdImportTest`:
+      descriptor thread + `_ssc_ui_buildFormBody` assembly) + runnable
+      `examples/content-form-submit.ssc` (`content-form-submit:ok`).
 
 ## B.6 detail (slot escape-hatch)
 

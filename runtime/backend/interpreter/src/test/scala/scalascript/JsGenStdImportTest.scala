@@ -995,3 +995,47 @@ class JsGenStdImportTest extends AnyFunSuite:
       "if (j.indexOf('SLOTTED') < 0) throw new Error('slotted node content missing: ' + j);\n" +
       "console.log('b6-slot-ok');\n"
     assert(runNode(script) == "b6-slot-ok")
+
+  // Scope B.4+: a fetchActionWith body of formBody([...]) carries the field list into
+  // the action marker; the browser assembles {field: signalValue} at submit.
+  test("@ui=toolkit button action with formBody threads field list + assembles body in JS (Scope B.4+)"):
+    val source =
+      "# Panel\n\n" +
+      "## P {#p}\n\n" +
+      "```yaml @ui=toolkit\n" +
+      "controls:\n" +
+      "  type: button\n" +
+      "  action: submitOrder\n" +
+      "  label: Submit\n" +
+      "```\n\n" +
+      "[serve, signal, fetchActionWith, formBody, onBumpTick](std/ui/primitives.ssc)\n" +
+      "[contentToolkitNode, contentToolkitOptionsWithActions, contentAction](std/ui/content.ssc)\n\n" +
+      "```scalascript\n" +
+      "val tick = signal(\"t\", 0)\n" +
+      "val submit = fetchActionWith(\"POST\", \"/api/orders\",\n" +
+      "  formBody([\"customer\", \"amount\"]), [onBumpTick(tick)])\n" +
+      "serve(contentToolkitNode(contentToolkitOptionsWithActions(\n" +
+      "  Map(contentAction(\"submitOrder\", submit)))))\n" +
+      "```\n"
+    val module   = Parser.parse(source)
+    val baseDir  = TestPaths.repoRoot / "examples"
+    val caps     = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime  = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    val script =
+      runtime + "\n_ssc_ui_serve = function(v){ globalThis.__captured = v; };\n" +
+      moduleJs +
+      "\nconst j = JSON.stringify(globalThis.__captured);\n" +
+      "if (j.indexOf('\"ActionButtonNode\"') < 0) throw new Error('button did not produce ActionButtonNode: ' + j);\n" +
+      "if (j.indexOf('\"_body\":\"fields\"') < 0) throw new Error('formBody descriptor not threaded: ' + j);\n" +
+      "if (j.indexOf('\"customer\"') < 0 || j.indexOf('\"amount\"') < 0) throw new Error('formBody field list missing: ' + j);\n" +
+      // Exercise the assembler directly: it builds {field: signalValue} JSON.
+      "var sv = { customer: 'Acme', amount: '100' };\n" +
+      "var bodyStr = _ssc_ui_buildFormBody(JSON.stringify(['customer', 'amount']), sv);\n" +
+      "var parsed = JSON.parse(bodyStr);\n" +
+      "if (parsed.customer !== 'Acme' || parsed.amount !== '100') throw new Error('formBody assembly wrong: ' + bodyStr);\n" +
+      // a missing signal becomes '' (never undefined / crash)
+      "var bodyStr2 = _ssc_ui_buildFormBody(JSON.stringify(['customer', 'missing']), sv);\n" +
+      "if (JSON.parse(bodyStr2).missing !== '') throw new Error('missing field not defaulted to empty: ' + bodyStr2);\n" +
+      "console.log('b4-formbody-ok');\n"
+    assert(runNode(script) == "b4-formbody-ok")

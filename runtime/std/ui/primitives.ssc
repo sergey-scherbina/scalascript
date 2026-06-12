@@ -30,6 +30,7 @@ exports:
   - onBumpTick
   - onSetSignal
   - onNavigate
+  - formBody
   - fetchActionWith
   - emptyHeaders
   - fieldColumn
@@ -143,9 +144,15 @@ extern def onBumpTick(tick: Signal[Int]): Any
 extern def onSetSignal[T](sig: Signal[T], value: T): Any
 extern def onNavigate(path: String): Any
 
+// formBody — a request-body source (Scope B.4+) assembled at submit from the named
+// field signals into a flat JSON object `{ field: <signal value> }`; pass it as the
+// `body` of fetchActionWith for declarative form submits (browser-assembled).
+extern def formBody(fields: List[String]): Any
+
 // fetchActionWith — like fetchAction but with a structured onSuccess effect list
 // instead of a single tick.  Registers as an ordinary action (contentAction).
-extern def fetchActionWith(method: String, url: String, body: Signal[String],
+// `body` is a Signal[String] or a `formBody(...)` descriptor.
+extern def fetchActionWith(method: String, url: String, body: Any,
                            onSuccess: List[Any], headers: Signal[String] = emptyHeaders): EventHandler
 
 // fetchCaptureAction — like fetchAction, but on a 2xx writes the RESPONSE BODY
