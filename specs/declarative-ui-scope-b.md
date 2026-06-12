@@ -1,6 +1,6 @@
 # Declarative dynamic UI — Scope B (richer authoring model)
 
-**Status:** in progress (B.1 + B.5 + B.2 + B.7 v1 + B.3 v1 implemented; B.4 v1 in progress).
+**Status:** in progress (B.1 + B.5 + B.2 + B.7 v1 + B.3 v1 + B.4 v1 implemented; B.6 in progress).
 **Upstream proposal:** busi `docs/declarative-ui-authoring.md` (rozum seq-113).
 **Predecessor:** Scope A (`specs/js-toolkit-action-rows-registry.md`) — browser
 parity for the existing `action` / `rowBindings` registries via the Markdown
@@ -59,8 +59,11 @@ render-time fail-soft (already shipped in A) + build-time (later).
   site) + JS (`_ssc_tk_env` merges `options.computed` into the env). Reuses the
   existing `signalRef` resolution — no new control wiring. Unlike the YAML
   `signals:` block (scalar defaults only) these can be `computedSignal`s.
-- **B.6 — slot escape-hatch** (`{type: slot, id: …}` filled by ScalaScript) —
-  proves §0 two-way coexistence. Deferred from v1 per §9.4.
+- **B.6 — slot escape-hatch (this slice).** `{type: slot, id: <id>}` injects a
+  ScalaScript-authored `TkNode` registered by id with `contentSlot(id, node)` — the
+  inverse of the declarative controls, so when the vocabulary is not enough the
+  author drops a code-built widget into a declarative panel by id. Proves §0
+  two-way coexistence. See `B.6 detail`.
 - **B.7 — build-time lint (v1 this slice).** `ssc check` validates that referenced
   source/action ids exist (a static pass like `scanContentUsage`). See `B.7 detail`.
 
@@ -267,6 +270,53 @@ runs **no** effects.
 - Note: `headers` is the last (defaulted) param of `fetchActionWith`; like the other
   fetch natives it handles both the 4-arg (no headers) and 5-arg arities, since
   extern defaults are typer-level (not runtime-filled for plugin natives).
+
+## B.6 detail (slot escape-hatch)
+
+The declarative controls go one way — Markdown/YAML drives the View. A `slot` is the
+**escape hatch the other way**: a placeholder in the control tree that ScalaScript
+fills with an arbitrary code-built `TkNode`. So an author who needs a widget the
+vocabulary does not cover (a custom chart, a bespoke composite) builds it in code
+with the ordinary `std/ui` node helpers and drops it into the declarative panel by
+id — §0 two-way coexistence.
+
+**Authoring:**
+
+```yaml @ui=toolkit
+controls:
+  type: vstack
+  children:
+    - type: heading
+      text: Dashboard
+    - type: slot
+      id: revenueChart      # → filled by a code-built TkNode
+```
+
+```scalascript
+val chart = card(badge("Q3", "success"), [ /* … any TkNode … */ ])
+val opts  = contentToolkitOptionsWithSlots(Map(contentSlot("revenueChart", chart)))
+```
+
+**Mechanism** reuses the existing registry pattern (parity with
+`actions`/`rowBindings`/`computed`): a new `slots: Map[String, Any]` registry on
+`ContentToolkitOptions`, populated by `contentSlot(id, node)` and the
+`contentToolkitOptionsWithSlots(...)` builder. A `{type: slot, id: <id>}` control
+resolves `<id>` in `options.slots` and returns the registered node **verbatim** (it
+is already a built `TkNode`, so it composes into the tree and lowers normally — no
+re-rendering, no env resolution). Interpreter (`toolkitControl` `case "slot"` →
+`slotRegistry`) + JS (`_ssc_tk_render_control` `case 'slot'` → `_ssc_tk_slot`)
+parity. An unregistered id is a loud error (fail-soft on JS — caught at block
+granularity into an inline error node, like every other registry miss).
+
+### Behavior checklist (B.6)
+
+- [ ] `{type: slot, id: <id>}` returns the `contentSlot(id, node)`-registered TkNode
+      (interp + JS).
+- [ ] a slot node composes inside a `vstack`/`card` and lowers like any control.
+- [ ] an unregistered slot id → loud error (caught fail-soft on JS).
+- [ ] `contentToolkitOptionsWithSlots` carries slots alongside the other registries;
+      existing builders/options are unchanged (`slots` defaults to empty).
+- [ ] interp test + JS emit test + an example.
 
 ## Non-goals (later slices)
 
