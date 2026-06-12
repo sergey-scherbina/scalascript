@@ -312,6 +312,7 @@ function _ssc_ui_renderBody(view) {
         let dtAttrs = `data-ssc-datatable="${dtSigId}" data-ssc-datatable-url="${dtUrl}" data-ssc-datatable-cols="${dtCols}" data-ssc-datatable-acts="${dtActs}"`;
         if (isStatic) dtAttrs += ` data-ssc-datatable-rows="${_esc(JSON.stringify(src.rows || []))}"`;
         if (isSigRows && rowsSig && rowsSig.id != null) dtAttrs += ` data-ssc-datatable-rows-sig="${String(rowsSig.id)}"`;
+        if (src && src._rowsPath) dtAttrs += ` data-ssc-datatable-rows-path="${_esc(String(src._rowsPath))}"`;
         if (dtTick) dtAttrs += ` data-ssc-datatable-tick="${dtTick}"`;
         if (dtHdr)  dtAttrs += ` data-ssc-datatable-headers="${dtHdr}"`;
         return `<div ${dtAttrs} style="overflow-x:auto"></div>`;
@@ -477,6 +478,7 @@ function _ssc_ui_mount(sigs) {
     var tickId     = container.getAttribute('data-ssc-datatable-tick');
     var rawRows    = container.getAttribute('data-ssc-datatable-rows');
     var rowsSigId  = container.getAttribute('data-ssc-datatable-rows-sig');
+    var rowsPath   = container.getAttribute('data-ssc-datatable-rows-path') || '';
     var cols, acts;
     try { cols = JSON.parse(rawCols || '[]'); } catch(_e) { cols = []; }
     try { acts = JSON.parse(rawActs || '[]'); } catch(_e) { acts = []; }
@@ -636,7 +638,7 @@ function _ssc_ui_mount(sigs) {
       // renderTable never crashes on `.forEach`.
       fetch(fetchUrl, opts)
         .then(function(r) { return r.text(); })
-        .then(function(text) { renderTable(_ssc_ui_rowsOf(text)); })
+        .then(function(text) { renderTable(_ssc_ui_rowsOf(text, rowsPath)); })
         .catch(function() { renderTable([]); });
     }
     if (rawRows != null) {
@@ -757,6 +759,10 @@ function _ssc_ui_dataTableView(signal, columns, actions) { return { _type: '_Dat
 // FetchUrlSignal Remote path is still accepted via `._fetchGet`).
 function _ssc_ui_staticRowsSource(rows) { return { _source: 'static', rows: rows || [] }; }
 function _ssc_ui_signalRowsSource(sig) { return { _source: 'signal', sig }; }
+// fetchRowsSource — a managed-fetch Remote source carrying an optional dotted
+// envelope path (Scope B.3).  Attaches `_rowsPath` to the fetch signal so the
+// existing Remote render path (`._fetchGet`) is reused unchanged.
+function _ssc_ui_fetchRowsSource(sig, rowsPath) { if (sig) sig._rowsPath = rowsPath || ''; return sig; }
 // RowPayload markers — the `payload` argument of rowPostAction (parity with the
 // interpreter RowPayload.Field / WholeRow / Fields).  Resolved against a row in
 // _ssc_ui_mount's _RowPost handler (see _ssc_ui_resolveRowPayload).
@@ -768,14 +774,21 @@ function _ssc_ui_fieldsPayload(names) { return { _payload: 'fields', names: name
 // envelope ({data|rows|items|results:[...]}, e.g. {"data":[...],"count":N}).
 // Anything else (a plain object with no list field, an HTML body, null) → [] so
 // the renderer never does `(rows||[]).forEach` on a non-array.
-function _ssc_ui_rowsOf(v) {
+function _ssc_ui_rowsOf(v, rowsPath) {
   if (Array.isArray(v)) return v;
   if (typeof v === 'string') {
     var t = v.trim();
     if (!t || t.charAt(0) === '<') return [];   // empty or an HTML body, not JSON
-    try { return _ssc_ui_rowsOf(JSON.parse(t)); } catch(_e) { return []; }
+    try { return _ssc_ui_rowsOf(JSON.parse(t), rowsPath); } catch(_e) { return []; }
   }
   if (v && typeof v === 'object') {
+    if (rowsPath) {
+      // Scope B.3 — drill a dotted envelope path (`result.items`) first; if it
+      // yields an array use it, else fall through to the built-in keys below.
+      var cur = v, parts = String(rowsPath).split('.');
+      for (var i = 0; i < parts.length && cur != null; i++) cur = cur[parts[i]];
+      if (Array.isArray(cur)) return cur;
+    }
     if (Array.isArray(v.data))    return v.data;
     if (Array.isArray(v.rows))    return v.rows;
     if (Array.isArray(v.items))   return v.items;

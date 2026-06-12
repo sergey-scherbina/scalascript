@@ -386,4 +386,17 @@ object FetchIntrinsics:
           Value.Foreign("TableDataSource", TableDataSource.SignalRows(sig))
         case _ => throw InterpretError("signalRowsSource(signal)")
     },
+
+    // fetchRowsSource(sig: FetchUrlSignal, rowsPath: String): TableDataSource.Remote
+    // Scope B.3 — a managed-fetch row source.  `rowsPath` (a dotted envelope path,
+    // e.g. "result.items") is a *browser-runtime* concern: the JS shim attaches it
+    // to the fetch signal and `_ssc_ui_rowsOf` honours it.  On the interpreter /
+    // native backends a Remote table is a render descriptor that does not unwrap a
+    // live envelope, so `rowsPath` is accepted and intentionally not re-applied here.
+    QualifiedName("fetchRowsSource") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(Value.Foreign("ReactiveSignal", sig: FetchUrlSignal), _) =>
+          Value.Foreign("TableDataSource", TableDataSource.Remote(sig))
+        case _ => throw InterpretError("fetchRowsSource(fetchSignal, rowsPath)")
+    },
   )

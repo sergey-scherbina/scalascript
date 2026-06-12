@@ -176,36 +176,43 @@ render on interp + JVM + JS):
   above under an id (builds a `ContentRowBinding`); `source:` / `rows:` resolve it
   exactly like `contentRows`, so render is unchanged.
 
-**`rowsPath` runtime** (the only new runtime capability) rides on
-`TableDataSource.Remote(signal, rowsPath)` (new field, default `""`) via a new
-`fetchRowsSource(signal, rowsPath)` intrinsic. On the **browser** runtime — the one
-place a live envelope is unwrapped at run time — `_ssc_ui_rowsOf(v, rowsPath)`
+**`rowsPath` runtime** (the only new runtime capability) is exposed by a new
+`fetchRowsSource(signal, rowsPath)` intrinsic. It is a **browser-runtime** concern —
+the one place a live fetch envelope is unwrapped at run time — so it is carried on
+the signal there rather than on the shared `TableDataSource` model (keeping the
+model and the six native frontend backends untouched): the JS shim attaches
+`_rowsPath` to the fetch signal, the Remote source emits it into the DataTable
+descriptor (`data-ssc-datatable-rows-path`), and `_ssc_ui_rowsOf(v, rowsPath)`
 drills the dotted path and, if it yields an array, uses it; otherwise it falls back
 to the existing `{data|rows|items|results}` keys (a wrong path degrades to the
-default, never crashes). The Remote source carries `rowsPath` into the emitted
-DataTable descriptor (`data-ssc-datatable-rows-path`).
+default, never crashes). The interpreter's `fetchRowsSource` builds a plain
+`TableDataSource.Remote` (a render descriptor that does not unwrap a live envelope).
 
 **Scope of v1 (honest):** `rowsPath` is wired on the **JS browser** fetch path
 only — that is where a fetch envelope is unwrapped at run time and matches Scope
 B's browser-first staging. Interp/JVM-codegen and native (Swing/JavaFX/SwiftUI)
-toolkit tables carry the field harmlessly but do not re-implement envelope
-unwrapping (consistent with "JvmGen parity for the YAML registry controls" being a
-non-goal). `staticSource` / `signalSource` reuse the existing cross-backend
-`TableDataSource` render unchanged.
+toolkit tables accept it but do not re-implement envelope unwrapping (consistent
+with "JvmGen parity for the YAML registry controls" being a non-goal).
+`staticSource` / `signalSource` reuse the existing cross-backend `TableDataSource`
+render unchanged.
 
 ### Behavior checklist (B.3 v1)
 
-- [ ] `staticSource(rows)` registered via `contentDataSource` renders an in-memory
-      `source:` table (interp + JS), no fetch.
-- [ ] `signalSource(sig)` renders a reactive `source:` table.
-- [ ] `fetchSource(id, url, tick, headers)` renders a managed-fetch `source:` table
-      that re-fetches on tick.
-- [ ] `fetchSource(..., rowsPath = "result.items")` unwraps a non-standard envelope
-      on the browser runtime; a wrong path falls back to the default keys.
-- [ ] `TableDataSource.Remote.rowsPath` added without breaking the legacy bare
-      FetchUrlSignal / `contentRows` paths.
-- [ ] interp tests (vocabulary + Remote rowsPath) + JS emit test (rows-path attr +
-      `_ssc_ui_rowsOf` path drill) + an example.
+- [x] `staticSource(rows)` registered via `contentDataSource` renders an in-memory
+      `source:` table, no fetch (interp via the example; JS reuses the existing
+      `staticRowsSource` `_source:'static'` path).
+- [x] `signalSource(sig)` renders a reactive `source:` table (alias of the existing
+      cross-backend `signalRowsSource`).
+- [x] `fetchSource(id, url, tick, headers)` renders a managed-fetch `source:` table
+      (interp builds `TableDataSource.Remote`; JS threads the fetch signal).
+- [x] `fetchSource(..., rowsPath = "result.items")` unwraps a non-standard envelope
+      on the browser runtime; a wrong path falls back to the default keys (JS test
+      exercises `_ssc_ui_rowsOf` drill + fallback + legacy).
+- [x] `fetchRowsSource(sig, rowsPath)` added without breaking the legacy bare
+      FetchUrlSignal / `contentRows` paths (shared `TableDataSource` model unchanged).
+- [x] interp test (`FetchPluginInterpreterTest`) + JS emit test
+      (`JsGenStdImportTest`, `_rowsPath` thread + `_ssc_ui_rowsOf` drill) +
+      runnable `examples/content-data-source.ssc` (`content-data-source:ok`).
 
 ## Non-goals (later slices)
 

@@ -13,6 +13,10 @@ exports:
   - contentComputed
   - ContentRowBinding
   - contentRows
+  - staticSource
+  - signalSource
+  - fetchSource
+  - contentDataSource
   - contentToolkitOptionsWithBindings
   - contentToolkitOptionsWithComponents
   - contentToolkitOptionsWithActions
@@ -28,7 +32,7 @@ exports:
 # `std.ui.content` — Markdown content lowering
 
 [DocumentContent, SectionContent, ContentBlock, ContentInline, ContentValue](../content.ssc)
-[View, element, textNode, fragment](primitives.ssc)
+[View, element, textNode, fragment, staticRowsSource, signalRowsSource, fetchRowsSource, fetchUrlSignal](primitives.ssc)
 [TkNode](nodes.ssc)
 
 ```scalascript
@@ -202,6 +206,30 @@ case class ContentRowBinding(rows: Any, columns: List[Any], actions: List[Any] =
 // Build the registry as `Map(contentRows("invoices", sig, [fcol("No", "number")]))`.
 def contentRows(id: String, rows: Any, columns: List[Any], actions: List[Any] = []): (String, Any) =
   (id, ContentRowBinding(rows, columns, actions))
+
+// ── Data-source vocabulary (Scope B.3) ─────────────────────────────────────────
+// Named row-source constructors for `contentDataSource(id, source, columns)`, so a
+// `{type: table, source: <id>}` control declares *how* its rows are produced.  All
+// three lower to the same TableDataSource the low-level `dataTable` accepts, so
+// render is identical across interpreter, JVM and the JS browser backend.
+
+// staticSource — in-memory rows, no fetch (a list of row maps).
+def staticSource(rows: List[Any]): Any = staticRowsSource(rows)
+
+// signalSource — reactive rows from an arbitrary Signal (e.g. a captured fetch).
+def signalSource(sig: Any): Any = signalRowsSource(sig)
+
+// fetchSource — a managed GET that re-fetches when `tick` bumps, sending bearer
+// `headers`.  `rowsPath` (Scope B.3) is an optional dotted envelope path
+// (`result.items`) unwrapped before the built-in `{data|rows|items|results}`
+// keys; honoured by the browser runtime.
+def fetchSource(id: String, url: String, tick: Any, headers: Any, rowsPath: String = ""): Any =
+  fetchRowsSource(fetchUrlSignal(id, url, tick, headers), rowsPath)
+
+// contentDataSource — register any data source under an id for `source:`/`rows:`.
+// Build the registry as `Map(contentDataSource("invoices", fetchSource(...), cols))`.
+def contentDataSource(id: String, source: Any, columns: List[Any], actions: List[Any] = []): (String, Any) =
+  (id, ContentRowBinding(source, columns, actions))
 
 def contentToolkitOptionsWithActions(
   actions: Map[String, Any],

@@ -862,3 +862,47 @@ class JsGenStdImportTest extends AnyFunSuite:
       "if (j.indexOf('\"type\":\"text\"') < 0) throw new Error('default text column not built: ' + j);\n" +
       "console.log('toolkit-columns-ok');\n"
     assert(runNode(script) == "toolkit-columns-ok")
+
+  // Scope B.3: a `{type: table, source: <id>}` resolves a contentDataSource backed
+  // by `fetchSource(..., rowsPath)`.  The managed-fetch source threads `_rowsPath`
+  // onto the DataTableNode's source, and the browser `_ssc_ui_rowsOf` drills that
+  // dotted envelope path (falling back to the built-in keys on a wrong path).
+  test("@ui=toolkit source bound to a fetchSource(rowsPath) data source threads rowsPath in JS (Scope B.3)"):
+    val source =
+      "# Panel\n\n" +
+      "## P {#p}\n\n" +
+      "```yaml @ui=toolkit\n" +
+      "controls:\n" +
+      "  type: table\n" +
+      "  source: invoices\n" +
+      "```\n\n" +
+      "[serve, signal](std/ui/primitives.ssc)\n" +
+      "[contentToolkitNode, contentToolkitOptionsWithRows, contentDataSource, fetchSource](std/ui/content.ssc)\n\n" +
+      "```scalascript\n" +
+      "val tick = signal(\"tick\", 0)\n" +
+      "val src = fetchSource(\"invoices\", \"/api/invoices\", tick, signal(\"h\", \"\"), \"result.items\")\n" +
+      "serve(contentToolkitNode(contentToolkitOptionsWithRows(\n" +
+      "  Map(contentDataSource(\"invoices\", src, [])))))\n" +
+      "```\n"
+    val module   = Parser.parse(source)
+    val baseDir  = TestPaths.repoRoot / "examples"
+    val caps     = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime  = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    val script =
+      runtime + "\n_ssc_ui_serve = function(v){ globalThis.__captured = v; };\n" +
+      moduleJs +
+      "\nconst j = JSON.stringify(globalThis.__captured);\n" +
+      "if (j.indexOf('\"DataTableNode\"') < 0) throw new Error('table did not produce DataTableNode: ' + j);\n" +
+      "if (j.indexOf('\"_rowsPath\":\"result.items\"') < 0) throw new Error('rowsPath not threaded onto the fetch source: ' + j);\n" +
+      // Directly exercise the envelope normaliser: the dotted path is drilled,
+      "var drilled = _ssc_ui_rowsOf({ result: { items: [ { x: 1 }, { x: 2 } ] } }, 'result.items');\n" +
+      "if (!Array.isArray(drilled) || drilled.length !== 2) throw new Error('rowsPath drill failed: ' + JSON.stringify(drilled));\n" +
+      // a wrong path falls back to the built-in {data:[...]} key (never crashes),
+      "var fellBack = _ssc_ui_rowsOf({ data: [ { y: 1 } ] }, 'no.such.path');\n" +
+      "if (!Array.isArray(fellBack) || fellBack.length !== 1) throw new Error('rowsPath fallback failed: ' + JSON.stringify(fellBack));\n" +
+      // and no rowsPath keeps the legacy behaviour.
+      "var legacy = _ssc_ui_rowsOf({ items: [ { z: 1 } ] });\n" +
+      "if (!Array.isArray(legacy) || legacy.length !== 1) throw new Error('legacy rowsOf regressed: ' + JSON.stringify(legacy));\n" +
+      "console.log('b3-datasource-ok');\n"
+    assert(runNode(script) == "b3-datasource-ok")

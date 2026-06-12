@@ -36,6 +36,7 @@ exports:
   - dataTableView
   - staticRowsSource
   - signalRowsSource
+  - fetchRowsSource
   - fieldPayload
   - wholeRowPayload
   - fieldsPayload
@@ -174,6 +175,10 @@ extern def staticRowsSource(rows: List[Any]): Any
 
 // signalRowsSource — wraps a reactive signal into a TableDataSource.SignalRows.
 extern def signalRowsSource(sig: Any): Any
+
+// fetchRowsSource — wraps a fetch signal + dotted envelope path (Scope B.3) into
+// a TableDataSource.Remote; rowsPath unwraps a non-standard fetch envelope.
+extern def fetchRowsSource(sig: Any, rowsPath: String): Any
 
 // ── RowPayload constructors ───────────────────────────────────────────────────
 extern def fieldPayload(name: String): Any

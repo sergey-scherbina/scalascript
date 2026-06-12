@@ -1757,7 +1757,7 @@ class JsGen(
       "fieldColumn", "dateColumn", "moneyColumn", "statusColumn", "linkColumn",
       "fcol", "dcol", "mcol", "scol", "lcol",
       "rowDelete", "rowPost", "rowLink", "rowEdit",
-      "staticRowsSource", "signalRowsSource",
+      "staticRowsSource", "signalRowsSource", "fetchRowsSource",
       "fieldPayload", "wholeRowPayload", "fieldsPayload",
       "contentToolkit",
       "textNode", "signalText", "showSignal", "fragment("

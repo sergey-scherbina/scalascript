@@ -148,3 +148,20 @@ class FetchPluginInterpreterTest extends AnyFunSuite:
       primitiveImport.contains("rowEditAction"),
       s"std/ui/data.ssc rowEdit helper must import rowEditAction; import line was: $primitiveImport"
     )
+
+  test("Fetch plugin: fetchRowsSource builds a Remote table data source (Scope B.3)"):
+    val result = interp.eval(
+      """
+      val tick = signal("tick", 0)
+      val sig  = fetchUrlSignal("rows", "/api/invoices", tick)
+      val src  = fetchRowsSource(sig, "result.items")
+      dataTableView(src, [fieldColumn("No","number")], [])
+      """
+    )
+    result match
+      case Value.Foreign("View", dt: View.DataTable) =>
+        dt.source match
+          case TableDataSource.Remote(s) => assert(s.fetchUrl == "/api/invoices")
+          case other => fail(s"expected Remote source from fetchRowsSource, got $other")
+        assert(dt.columns.length == 1)
+      case other => fail(s"expected DataTable foreign value, got $other")
