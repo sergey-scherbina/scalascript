@@ -124,6 +124,32 @@ optional later phase (only matters for `ssc check` and typed backends).
       check` (apply `([X] =>> F[X])[A]` → `F[A]`) + HKT bound checking. Only if a real
       use-case (typed JS/Rust backend, or `ssc check` strictness) motivates it.
 
+### effect-cps-loops — custom effects with perform-in-loop on jvm/js
+Precise diagnosis 2026-06-12 (from the `effect-oneshot`/`effect-multishot` bench
+dashboards — both show jvm/js/rust `n/a`). The gap is NOT effects in general:
+built-in `runLogger`/`runStream` (effect-pure/stream) AND non-loop custom effects
+(`val a = Bump.tick(); val b = Bump.tick()`) compile + run on jvm fine. The gap is
+**a `perform` inside an imperative `var` + `while` loop**. `JvmGenCpsTransform`
+binds a `Defn.Var` in a CPS block EXACTLY like a `Defn.Val` (one `_bind(rhs,
+(x: Any) => rest)` lambda param — JvmGenCpsTransform.scala ~935) and has NO
+`Term.While` case, so `var s/acc/i` become immutable `Any` lambda params →
+generated Scala fails with "Reassignment to val s" / "< is not a member of Any".
+- [ ] **effect-cps-loops-jvm** — in `JvmGenCpsTransform`: (1) emit a `Defn.Var` in a
+      CPS block as a REAL mutable `var x = <rhs>` (CPS the rhs if effectful), not a
+      `_bind` lambda param; (2) add a `Term.While` CPS case that lowers
+      `while(cond){ body-with-perform }` to a trampolined recursive helper
+      (`def _loop(): Any = if (cond) _bind(<cps body>, _ => _loop()) else ()`), with
+      the surrounding vars staying real mutable vars. Verify `_bind`/`_perform`
+      trampoline so a 1000-iter loop doesn't blow the stack. Acceptance: emit-scala of
+      `effect-oneshot` compiles + runs; `bench.sh effect-oneshot` jvm flips n/a→green;
+      ALL existing effect tests (StdEffectsTest, JvmGenEffectsRuntimeTest, etc.) stay
+      green. HIGH regression risk — gate on the full effect suite.
+- [ ] **effect-cps-loops-js** — same fix in the JS CPS codegen (JsGen) once jvm lands.
+- [ ] **effect-cps-loops-honesty** — until the above land, make the codegen emit a
+      `Diagnostic.Unsupported("effect perform inside a while-loop")` instead of silently
+      generating broken Scala (currently emit-scala succeeds → scala-cli fails downstream
+      → silent `n/a`). Small, honest interim improvement.
+
 ### direct-style-eval — Direction C (spec EXISTS, ready to plan)
 `specs/direct-style-eval-spec.md` is written + detailed (dual-entry `evalDirect(...):Value`
 throwing `EffectPerform(comp)` with `NoStackTrace`; `SSC_DIRECT_EVAL` flag default-off;
