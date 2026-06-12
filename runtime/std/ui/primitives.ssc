@@ -27,6 +27,10 @@ exports:
   - incSignal
   - fetchActionClear
   - fetchCaptureAction
+  - onBumpTick
+  - onSetSignal
+  - onNavigate
+  - fetchActionWith
   - emptyHeaders
   - fieldColumn
   - rowDeleteAction
@@ -130,6 +134,19 @@ extern def incSignal(s: Signal[Int]): EventHandler
 // fetchActionClear — like fetchAction but resets the body signal to "" on success.
 extern def fetchActionClear(method: String, url: String, body: Signal[String], onSuccessTick: Signal[Int],
                             headers: Signal[String] = emptyHeaders): EventHandler
+
+// ── Scope B.4: structured onSuccess effects ────────────────────────────────────
+// Effect descriptors passed to fetchActionWith; the browser runs them in order on
+// a 2xx response. onBumpTick → increment a tick (re-fetch); onSetSignal → set a
+// signal to a literal; onNavigate → set the location hash (route).
+extern def onBumpTick(tick: Signal[Int]): Any
+extern def onSetSignal[T](sig: Signal[T], value: T): Any
+extern def onNavigate(path: String): Any
+
+// fetchActionWith — like fetchAction but with a structured onSuccess effect list
+// instead of a single tick.  Registers as an ordinary action (contentAction).
+extern def fetchActionWith(method: String, url: String, body: Signal[String],
+                           onSuccess: List[Any], headers: Signal[String] = emptyHeaders): EventHandler
 
 // fetchCaptureAction — like fetchAction, but on a 2xx writes the RESPONSE BODY
 // into the `into` signal (instead of discarding it), then increments

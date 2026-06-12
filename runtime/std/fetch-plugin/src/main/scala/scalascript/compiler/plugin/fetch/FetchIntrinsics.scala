@@ -115,6 +115,58 @@ object FetchIntrinsics:
         case _ => throw InterpretError("fetchActionClear(method, url, body, onSuccessTick[, headers])")
     },
 
+    // ── Scope B.4: structured onSuccess effects ────────────────────────────────
+    // onBumpTick / onSetSignal / onNavigate build effect descriptors consumed by
+    // fetchActionWith; the browser runtime runs them in order after a 2xx.
+    QualifiedName("onBumpTick") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          Value.Foreign("OnSuccessEffect", ("bumpTick", tick))
+        case _ => throw InterpretError("onBumpTick(tickSignal)")
+    },
+    QualifiedName("onSetSignal") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(Value.Foreign("ReactiveSignal", sig: ReactiveSignal[?]), value) =>
+          Value.Foreign("OnSuccessEffect", ("setSignal", sig, value))
+        case _ => throw InterpretError("onSetSignal(signal, value)")
+    },
+    QualifiedName("onNavigate") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(path) => Value.Foreign("OnSuccessEffect", ("navigate", String.valueOf(path)))
+        case _ => throw InterpretError("onNavigate(path)")
+    },
+
+    // fetchActionWith(method, url, body, headers, onSuccess): EventHandler
+    // Like fetchAction but carries a structured onSuccess effect list (run in order
+    // on a 2xx by the browser runtime).  The interpreter builds a plain FetchAction
+    // (first onBumpTick → onSuccessTick); the rich effects are browser-scoped.
+    QualifiedName("fetchActionWith") -> PluginNative.evalLegacy { (_, args) =>
+      def mk(method: String, url: String, body: ReactiveSignal[?], onSuccess: Any,
+             headers: Option[ReactiveSignal[String]]): Value =
+        val effects = onSuccess match
+          case Value.ListV(es) => es
+          case _               => Nil
+        val firstTick = effects.collectFirst {
+          case Value.Foreign("OnSuccessEffect", ("bumpTick", t: ReactiveSignal[?])) =>
+            t.asInstanceOf[ReactiveSignal[Int]]
+        }
+        val tick = firstTick.getOrElse(new ReactiveSignal[Int]("__ssc_no_tick", 0))
+        Value.Foreign("EventHandler",
+          EventHandler.FetchAction(method, url,
+            body.asInstanceOf[ReactiveSignal[String]], tick, headers = headers))
+      args match
+        case List(method: String, url: String,
+                  Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]), onSuccess) =>
+          mk(method, url, body, onSuccess, None)
+        case List(method: String, url: String,
+                  Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]), onSuccess,
+                  Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
+          val h = headers.asInstanceOf[ReactiveSignal[String]]
+          mk(method, url, body, onSuccess,
+             if h.id == "__ssc_empty_headers" then None else Some(h))
+        case _ => throw InterpretError("fetchActionWith(method, url, body, onSuccess[, headers])")
+    },
+
     // fetchCaptureAction(method, url, body, into, onSuccessTick[, headers]): EventHandler
     // On a 2xx, the response BODY is captured into `into` (read back with
     // jsonOf), then onSuccessTick is bumped.  The capture is realized by the

@@ -254,14 +254,19 @@ runs **no** effects.
 
 ### Behavior checklist (B.4 v1)
 
-- [ ] `fetchActionWith(..., [onBumpTick(t)])` bumps `t` on a 2xx (parity with the
-      single-tick `fetchAction`).
-- [ ] `onSetSignal(s, v)` sets `s` to `v` on success; `onNavigate(p)` sets the hash.
-- [ ] multiple effects run in order; a non-2xx runs none.
-- [ ] a `{type: button, action: <id>}` registered with a `fetchActionWith` handler
-      renders and carries `onSuccess` (interp builds an EventHandler; JS threads it).
-- [ ] interp test (handler builds) + JS emit/runtime test (effects execute on 2xx,
-      skipped on failure) + an example.
+- [x] `fetchActionWith(..., [onBumpTick(t)])` bumps `t` on a 2xx
+      (`_ssc_ui_runOnSuccess` increments the tick id).
+- [x] `onSetSignal(s, v)` sets `s` to `v` on success; `onNavigate(p)` sets the hash.
+- [x] multiple effects run in order; a non-2xx runs none (runner is `ok`-guarded).
+- [x] a `{type: button, action: <id>}` registered with a `fetchActionWith` handler
+      renders and carries `onSuccess` (interp builds an `EventHandler.FetchAction`;
+      JS threads the effects into the `ActionButtonNode` handler).
+- [x] interp test (`FetchPluginInterpreterTest`) + JS test (`JsGenStdImportTest`:
+      structural thread + `_ssc_ui_runOnSuccess` apply-on-2xx / skip-on-failure) +
+      runnable `examples/content-action-onsuccess.ssc` (`content-action-onsuccess:ok`).
+- Note: `headers` is the last (defaulted) param of `fetchActionWith`; like the other
+  fetch natives it handles both the 4-arg (no headers) and 5-arg arities, since
+  extern defaults are typer-level (not runtime-filled for plugin natives).
 
 ## Non-goals (later slices)
 

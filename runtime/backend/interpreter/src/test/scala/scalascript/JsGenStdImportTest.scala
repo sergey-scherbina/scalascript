@@ -906,3 +906,53 @@ class JsGenStdImportTest extends AnyFunSuite:
       "if (!Array.isArray(legacy) || legacy.length !== 1) throw new Error('legacy rowsOf regressed: ' + JSON.stringify(legacy));\n" +
       "console.log('b3-datasource-ok');\n"
     assert(runNode(script) == "b3-datasource-ok")
+
+  // Scope B.4: a `{type: button, action: <id>}` registered with a fetchActionWith
+  // handler carries the structured onSuccess effects (bumpTick / setSignal /
+  // navigate) into the ActionButtonNode handler, so the browser runs them on a 2xx.
+  test("@ui=toolkit button action with fetchActionWith threads structured onSuccess in JS (Scope B.4)"):
+    val source =
+      "# Panel\n\n" +
+      "## P {#p}\n\n" +
+      "```yaml @ui=toolkit\n" +
+      "controls:\n" +
+      "  type: button\n" +
+      "  action: submitOrder\n" +
+      "  label: Submit\n" +
+      "```\n\n" +
+      "[serve, signal, fetchActionWith, onBumpTick, onSetSignal, onNavigate](std/ui/primitives.ssc)\n" +
+      "[contentToolkitNode, contentToolkitOptionsWithActions, contentAction](std/ui/content.ssc)\n\n" +
+      "```scalascript\n" +
+      "val tick = signal(\"t\", 0)\n" +
+      "val status = signal(\"status\", \"\")\n" +
+      "val body = signal(\"b\", \"{}\")\n" +
+      "val submit = fetchActionWith(\"POST\", \"/api/x\", body,\n" +
+      "  [onBumpTick(tick), onSetSignal(status, \"done\"), onNavigate(\"/done\")])\n" +
+      "serve(contentToolkitNode(contentToolkitOptionsWithActions(\n" +
+      "  Map(contentAction(\"submitOrder\", submit)))))\n" +
+      "```\n"
+    val module   = Parser.parse(source)
+    val baseDir  = TestPaths.repoRoot / "examples"
+    val caps     = JsGen.detectCapabilities(module, Some(baseDir))
+    val runtime  = JsGen.generateRuntime(caps)
+    val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
+    val script =
+      runtime + "\n_ssc_ui_serve = function(v){ globalThis.__captured = v; };\n" +
+      moduleJs +
+      "\nconst j = JSON.stringify(globalThis.__captured);\n" +
+      "if (j.indexOf('\"ActionButtonNode\"') < 0) throw new Error('button did not produce ActionButtonNode: ' + j);\n" +
+      "if (j.indexOf('\"_eff\":\"bumpTick\"') < 0) throw new Error('onBumpTick effect missing: ' + j);\n" +
+      "if (j.indexOf('\"_eff\":\"setSignal\"') < 0 || j.indexOf('\"v\":\"done\"') < 0) throw new Error('onSetSignal effect missing: ' + j);\n" +
+      "if (j.indexOf('\"_eff\":\"navigate\"') < 0 || j.indexOf('\"path\":\"/done\"') < 0) throw new Error('onNavigate effect missing: ' + j);\n" +
+      // Exercise the runtime effect runner directly: on a 2xx the effects apply;
+      // on a non-2xx none do.
+      "var sv = { t: 0, status: 'x' };\n" +
+      "var setFn = function(id, v) { sv[id] = v; };\n" +
+      "var effs = JSON.stringify([{ eff: 'bumpTick', id: 't' }, { eff: 'setSignal', id: 'status', v: 'done' }]);\n" +
+      "_ssc_ui_runOnSuccess(effs, true, setFn, sv);\n" +
+      "if (sv.t !== 1) throw new Error('bumpTick did not increment on 2xx: ' + sv.t);\n" +
+      "if (sv.status !== 'done') throw new Error('setSignal did not apply on 2xx: ' + sv.status);\n" +
+      "_ssc_ui_runOnSuccess(effs, false, setFn, sv);\n" +
+      "if (sv.t !== 1) throw new Error('effects ran on a non-2xx (must skip): ' + sv.t);\n" +
+      "console.log('b4-onsuccess-ok');\n"
+    assert(runNode(script) == "b4-onsuccess-ok")

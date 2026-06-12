@@ -165,3 +165,20 @@ class FetchPluginInterpreterTest extends AnyFunSuite:
           case other => fail(s"expected Remote source from fetchRowsSource, got $other")
         assert(dt.columns.length == 1)
       case other => fail(s"expected DataTable foreign value, got $other")
+
+  test("Fetch plugin: fetchActionWith builds a FetchAction using the first onBumpTick (Scope B.4)"):
+    val result = interp.eval(
+      """
+      val tick = signal("ordersTick", 0)
+      val status = signal("status", "")
+      val body = signal("body", "{}")
+      fetchActionWith("POST", "/api/orders", body,
+        [onBumpTick(tick), onSetSignal(status, "ok"), onNavigate("/done")])
+      """
+    )
+    result match
+      case Value.Foreign("EventHandler", EventHandler.FetchAction(method, url, _, onSuccessTick, _, _)) =>
+        assert(method == "POST")
+        assert(url == "/api/orders")
+        assert(onSuccessTick.id == "ordersTick")
+      case other => fail(s"expected FetchAction from fetchActionWith, got $other")

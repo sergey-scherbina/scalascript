@@ -243,6 +243,15 @@ function _ssc_ui_renderBody(view) {
             if (hId) aStr += ` data-ssc-fetch-headers="${_esc(hId)}"`;
             if (iId) aStr += ` data-ssc-fetch-into="${_esc(iId)}"`;
             if (h._type === '_FetchActionClear') aStr += ` data-ssc-fetch-clear="1"`;
+            if (h.onSuccess && h.onSuccess.length) {                // Scope B.4
+              const effs = h.onSuccess.map(function(e) {
+                if (e._eff === 'bumpTick' && e.tick) { collectSig(e.tick); return { eff: 'bumpTick', id: String(e.tick.id) }; }
+                if (e._eff === 'setSignal' && e.s)   { collectSig(e.s);    return { eff: 'setSignal', id: String(e.s.id), v: e.v }; }
+                if (e._eff === 'navigate')           { return { eff: 'navigate', path: String(e.path || '') }; }
+                return null;
+              }).filter(function(x) { return x; });
+              if (effs.length) aStr += ` data-ssc-fetch-onsuccess="${_esc(JSON.stringify(effs))}"`;
+            }
           }
         }
         const kids = (v.children || []).map(walk).join('');
@@ -445,6 +454,7 @@ function _ssc_ui_mount(sigs) {
     var headersId = el.getAttribute('data-ssc-fetch-headers');
     var clear     = el.getAttribute('data-ssc-fetch-clear');
     var intoId    = el.getAttribute('data-ssc-fetch-into');
+    var onSuccessRaw = el.getAttribute('data-ssc-fetch-onsuccess');   // Scope B.4
     el.addEventListener('click', function() {
       var body = bodyId ? String(_sv[bodyId] == null ? '' : _sv[bodyId]) : '';
       var opts = {method: method, body: body};
@@ -465,6 +475,9 @@ function _ssc_ui_mount(sigs) {
           }
           if (tickId) _set(tickId, ((_sv[tickId] || 0) | 0) + 1);
           if (clear && bodyId) _set(bodyId, '');
+          // Scope B.4 — run the structured onSuccess effects in order, but only on
+          // a 2xx (a failed write must not navigate / flip a status signal).
+          _ssc_ui_runOnSuccess(onSuccessRaw, ok, _set, _sv);
         });
     });
   });
@@ -723,6 +736,24 @@ function _ssc_ui_fetchUrlSignal(name, url, tick, headers) {
 function _ssc_ui_fetchAction(method, url, body, tick, headers) { return { _type: '_FetchAction', method, url, body, tick, headers: headers || null }; }
 function _ssc_ui_incSignal(s) { return { _type: '_IncSignal', s }; }
 function _ssc_ui_fetchActionClear(method, url, body, tick, headers) { return { _type: '_FetchActionClear', method, url, body, tick, headers: headers || null }; }
+// Scope B.4 — structured onSuccess effects + fetchActionWith.
+function _ssc_ui_onBumpTick(tick) { return { _eff: 'bumpTick', tick }; }
+function _ssc_ui_onSetSignal(sig, value) { return { _eff: 'setSignal', s: sig, v: value }; }
+function _ssc_ui_onNavigate(path) { return { _eff: 'navigate', path: String(path == null ? '' : path) }; }
+function _ssc_ui_fetchActionWith(method, url, body, onSuccess, headers) { return { _type: '_FetchAction', method, url, body, headers: headers || null, onSuccess: onSuccess || [] }; }
+// Run a fetch action's serialised onSuccess effects, in order, on a 2xx (`ok`).
+// `setFn`/`sv` are the mount's signal setter + value store (passed in so the
+// effect runner is a pure, testable top-level function).  A non-2xx runs nothing.
+function _ssc_ui_runOnSuccess(raw, ok, setFn, sv) {
+  if (!ok || !raw) return;
+  try {
+    JSON.parse(raw).forEach(function(e) {
+      if (e.eff === 'bumpTick' && e.id) setFn(e.id, ((sv[e.id] || 0) | 0) + 1);
+      else if (e.eff === 'setSignal' && e.id) setFn(e.id, e.v);
+      else if (e.eff === 'navigate' && typeof window !== 'undefined' && window.location) window.location.hash = e.path;
+    });
+  } catch(_e) {}
+}
 function _ssc_ui_fetchCaptureAction(method, url, body, into, tick, headers) { return { _type: '_FetchAction', method, url, body, tick, into: into || null, headers: headers || null }; }
 function _ssc_ui_colorMapObject(colorMap) {
   if (!colorMap) return {};
