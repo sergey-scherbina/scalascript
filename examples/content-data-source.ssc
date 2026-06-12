@@ -37,8 +37,10 @@ controls:
 ```scalascript
 // `invoices` is a managed GET that re-fetches when `tick` bumps. The API wraps
 // its rows in a non-standard envelope `{ result: { items: [...] } }`, so the
-// data source declares the dotted `rowsPath` "result.items" — the browser
-// runtime unwraps it before the built-in {data|rows|items|results} keys.
+// data source declares the dotted `rowsPath` "result.items" — unwrapped before
+// the built-in {data|rows|items|results} keys. The drill runs on every backend
+// that emits the fetch: the JS browser SPA (_ssc_ui_rowsOf) and the
+// server-rendered custom / emit-jvm path (StaticJsEmitter __ssc_rowsOf).
 val tick = signal("tick", 0)
 val invoices = fetchSource("invoices", "/api/invoices", tick, signal("authHdr", ""), "result.items")
 

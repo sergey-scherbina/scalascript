@@ -1,6 +1,6 @@
 # Declarative dynamic UI — Scope B (richer authoring model)
 
-**Status:** COMPLETE — B.1 + B.2 + B.3 v1 + B.4 v1 (+ B.4+ bodyBuilder + keyed `formBody`) + B.5 + B.6 + B.7 v1 (+ signal-ref lint) implemented (2026-06-11/12). B.7 Markdown `toolkit:` link-reference lint + keyed `(jsonKey, signalId)` `formBody` landed 2026-06-12. The one remaining v-next follow-up — `rowsPath` on the **native/JVM** backend — is deferred to `BACKLOG.md` as an architectural item: the JVM backend emits no DataTable/Remote client JS at all (`rowsPath` is a browser-runtime envelope-drill, JS-only by construction), so it is not a small wiring change but a new JVM client-emission path; no consumer (busi) has requested it.
+**Status:** COMPLETE — B.1 + B.2 + B.3 v1 (+ v2 native/server `rowsPath`) + B.4 v1 (+ B.4+ bodyBuilder + keyed `formBody`) + B.5 + B.6 + B.7 v1 (+ signal-ref lint) implemented (2026-06-11/12). B.7 Markdown `toolkit:` link-reference lint + keyed `(jsonKey, signalId)` `formBody` + B.3 v2 `rowsPath` on the native/server-rendered (custom / emit-jvm) path landed 2026-06-12. `rowsPath` now drills on the interpreter `serve`/`emit` and emit-jvm `serve` paths (via the shared `TableDataSource.Remote(signal, rowsPath)` model + `StaticJsEmitter __ssc_rowsOf`), in addition to the JS browser SPA. Native Swing/JavaFX/SwiftUI toolkit tables (no client JS fetch layer) remain envelope-drill-free by design — see "Still browser/JS-runtime only" in §B.3.
 **Upstream proposal:** busi `docs/declarative-ui-authoring.md` (rozum seq-113).
 **Predecessor:** Scope A (`specs/js-toolkit-action-rows-registry.md`) — browser
 parity for the existing `action` / `rowBindings` registries via the Markdown
@@ -202,13 +202,29 @@ to the existing `{data|rows|items|results}` keys (a wrong path degrades to the
 default, never crashes). The interpreter's `fetchRowsSource` builds a plain
 `TableDataSource.Remote` (a render descriptor that does not unwrap a live envelope).
 
-**Scope of v1 (honest):** `rowsPath` is wired on the **JS browser** fetch path
-only — that is where a fetch envelope is unwrapped at run time and matches Scope
-B's browser-first staging. Interp/JVM-codegen and native (Swing/JavaFX/SwiftUI)
-toolkit tables accept it but do not re-implement envelope unwrapping (consistent
-with "JvmGen parity for the YAML registry controls" being a non-goal).
-`staticSource` / `signalSource` reuse the existing cross-backend `TableDataSource`
-render unchanged.
+**`rowsPath` on the native / server-rendered path (v2, landed 2026-06-12).** The
+dotted path is now carried on the shared model — `TableDataSource.Remote(signal,
+rowsPath)` — so the **server-rendered custom/static frontend** drills it too, not
+just the browser SPA. The interpreter `serve(view)` / `emit(view, dir)` and the
+emit-jvm `serve` both render the View via `FrontendFrameworks.current().emit()`,
+which for the custom/default frontend is `StaticJsEmitter`; its emitted client JS
+now routes every Remote fetch response through a shared `__ssc_rowsOf(data, rowsPath)`
+helper that mirrors the browser runtime's `_ssc_ui_rowsOf` (drill the dotted path,
+else fall back to `{data|rows|items|results}`, never throw). Threading: the interp
+`fetchRowsSource` intrinsic and the JVM-codegen `fetchRowsSource` primitive (added to
+`JvmRuntimeUiPrimitives` + the native preamble) both build `Remote(sig, rowsPath)`;
+`dataTableView` passes a `TableDataSource` through unchanged. Verified end-to-end:
+`ssc run` of a `fetchRowsSource(..., "result.items")` table + `emit` writes an
+`app.js` whose fetch callbacks call `__ssc_rowsOf(data, 'result.items')`
+(`RemoteRowsPathTest` executes the emitted helper under Node; `JvmGenRowsPathTest`
+asserts the emit-jvm codegen).
+
+**Still browser/JS-runtime only (out of scope):** the native **Swing/JavaFX/SwiftUI**
+toolkit tables render rows in-process (JTable / TableView / SwiftUI List) with no
+client-side JS fetch layer, so they accept `rowsPath` but do not unwrap a live
+envelope. The React/Vue/Solid SPA emitters likewise ignore it (they are separate
+JS-SPA targets from the default `emit-spa` path that does honour it). `staticSource`
+/ `signalSource` reuse the existing cross-backend `TableDataSource` render unchanged.
 
 ### Behavior checklist (B.3 v1)
 
@@ -223,10 +239,28 @@ render unchanged.
       on the browser runtime; a wrong path falls back to the default keys (JS test
       exercises `_ssc_ui_rowsOf` drill + fallback + legacy).
 - [x] `fetchRowsSource(sig, rowsPath)` added without breaking the legacy bare
-      FetchUrlSignal / `contentRows` paths (shared `TableDataSource` model unchanged).
+      FetchUrlSignal / `contentRows` paths.
 - [x] interp test (`FetchPluginInterpreterTest`) + JS emit test
       (`JsGenStdImportTest`, `_rowsPath` thread + `_ssc_ui_rowsOf` drill) +
       runnable `examples/content-data-source.ssc` (`content-data-source:ok`).
+
+### Behavior checklist (B.3 v2 — native / server-rendered `rowsPath`)
+
+- [x] `rowsPath` carried on the shared model: `TableDataSource.Remote(signal,
+      rowsPath = "")` (backward-compatible default; all 6 frontends' `Remote(sig, _)`
+      patterns updated, JS/React/Vue/Solid/Swing/JavaFX/SwiftUI suites green).
+- [x] interp `fetchRowsSource` threads `rowsPath` into the Remote source
+      (`FetchPluginInterpreterTest` asserts `rowsPath == "result.items"`).
+- [x] `StaticJsEmitter` (custom/static frontend used by interp `serve`/`emit` + emit-jvm
+      `serve`) emits a shared `__ssc_rowsOf(data, rowsPath)` and drills both the initial
+      and tick-driven fetch (`RemoteRowsPathTest`: 2 drilled callbacks + the emitted
+      helper executed under Node for dotted-path / array / fallback / unknown-shape).
+- [x] emit-jvm parity: the generated Scala calls `fetchRowsSource(..., "result.items")`
+      and defines it as a `TableDataSource.Remote(sig, rowsPath)` builder
+      (`JvmRuntimeUiPrimitives` + native preamble; `dataTableView` passes a
+      `TableDataSource` through). `JvmGenRowsPathTest`.
+- [x] end-to-end: `ssc run` of a `fetchRowsSource(..., "result.items")` table + `emit`
+      writes `app.js` whose fetch callbacks call `__ssc_rowsOf(data, 'result.items')`.
 
 ## B.4 detail (v1 — structured `onSuccess`)
 
