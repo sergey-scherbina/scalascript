@@ -182,25 +182,21 @@ optional later phase (only matters for `ssc check` and typed backends).
       pending cases flipped to `[done]`; core 962 green. **type-lambda feature COMPLETE.**
       NOTE: `parseSType` deliberately keeps a use-site `Map[String, _]` a wildcard `Named`
       (artifact parser has no use-site context) — by design; unchanged.
-- [ ] **type-lambda-p3b-kind-checking** (user-requested follow-up to p3) — HKT / kind-bound
-      checking in `ssc check`. PLAN: add a typer registry `typeCtorKinds: Map[String,
-      List[Int]]` (name → its type params' kinds; 0 = proper type, k>0 = higher-kinded
-      `F[_…]`). Mirror `classFields` (plain mutable, NOT snapshotted). Populate from:
-      built-ins (List/Option/Set/Vector/Seq/Iterable/Array → [0]; Map/Either → [0,0]),
-      class/trait/enum tparams (collect pass: `tparamClause.values.map(_.tparamClause.values.length)`),
-      and `type` aliases (Defn.Type: type-lambda rhs → its lambda params' kinds; else the
-      alias's own tparams' kinds). Add `checkTypeApplication(name, argTypes)` in
-      `typeAnnotToSType`'s generic `Type.Apply(Type.Name, …)` case: (1) ARITY — known name
-      whose param count != args.length -> error; (2) HK-BOUND — for each known-kind arg whose
-      `kindOfSType` != the param's declared kind -> error (`Functor[Int]`/`Functor[Map]` where
-      `trait Functor[F[_]]`; `Fix[Map]` where `type Fix = [F[_]] =>> F[Int]`). CONSERVATIVE:
-      only fire for names in the registry; unknown/imported args skipped (no false positives).
-      Move the arity errors out of `expandAlias` into the checker (single source; no double
-      errors). Add `if .length == 1` guards to the List/Option special cases so wrong arity
-      falls through to the checked generic path. Tests: arity (`List[Int,String]`, `Map[Int]`,
-      user `Box[Int,String]`), HK-bound (`Functor[List]` ok / `Functor[Int]`/`Functor[Map]`
-      err; `Fix[List]` ok / `Fix[Map]` err), conservative (unknown imported arg -> no error).
-      Full core/test must stay green (risk: a too-eager arity/kind error on valid code).
+- [x] **type-lambda-p3b-kind-checking** — DONE 2026-06-12 (user-requested). Kind registry
+      `typeCtorKinds: Map[String, List[Int]]` (name -> param kinds; 0 = proper, k>0 = HK
+      `F[_…]`; mirrors `classFields`, NOT snapshotted) populated from built-ins +
+      class/trait/enum tparams (collect pass) + `type` aliases (type-lambda alias -> lambda
+      param kinds). `checkTypeApplication` in `typeAnnotToSType`'s generic `Type.Apply` case
+      flags ARITY (`List[Int,String]`, `Map[Int]`, `Box[Int,String]`) + KIND-BOUND
+      (`Functor[Int]`/`Functor[Map]` where `trait Functor[F[_]]`; `Fix[Map]` where
+      `type Fix = [F[_]] =>> F[Int]`; `Box[List]` where `Box[A]`). CONSERVATIVE — only known
+      names checked, only known-kind args flagged, so a local HK param (`Functor[F]`) and
+      imported/unknown constructors are never falsely flagged (validated on the real
+      `runtime/std/functor-applicative-monad.ssc` hierarchy). Arity errors moved out of
+      `expandAlias` into the single checker; List/Option special cases got `.length == 1`
+      arity guards. Regress: 7 TypeLambdaProgressTest cases. **core 968 + backendInterpreter
+      1673 green** (full e2e — no false positives on hundreds of real .ssc programs). Spec
+      `specs/type-level-lambdas.md` §6.
 
 ### effect-cps-loops Ã¢ÂÂ custom effects with perform-in-loop on jvm/js
 Precise diagnosis 2026-06-12 (from the `effect-oneshot`/`effect-multishot` bench

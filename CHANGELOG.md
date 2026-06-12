@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — feat(types): HKT / kind-bound checking in `ssc check` (type-lambda p3b)
+
+- Adds a kind registry `typeCtorKinds` (type-constructor name → its params' kinds; 0 =
+  proper type, k>0 = higher-kinded `F[_…]`), populated from built-ins + user
+  class/trait/enum tparams + `type` aliases. `checkTypeApplication` (in `typeAnnotToSType`)
+  flags, for KNOWN constructors only, wrong arity (`List[Int, String]`, `Map[Int]`) and
+  kind-bound violations (`Functor[Int]`/`Functor[Map]` where `trait Functor[F[_]]`,
+  `Fix[Map]` where `type Fix = [F[_]] =>> F[Int]`, `Box[List]` where `Box[A]`). Conservative
+  by construction — local HK type params and imported/unknown constructors are never
+  falsely flagged (validated against `runtime/std/functor-applicative-monad.ssc`). Arity
+  errors consolidated out of `expandAlias` into the single checker. Regress: 7
+  `TypeLambdaProgressTest` cases. core 968 + backendInterpreter 1673 green.
+
 ## 2026-06-12 — feat(types): typer β-reduces type-lambda aliases in `ssc check` (type-lambda feature complete)
 
 - The typer ignored type lambdas twice: `typeAnnotToSType` had no `Type.Lambda` case
