@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — feat(declarative-ui): `ssc check` lints `signal:` toolkit references (Scope B.7+)
+
+- The build-time `@ui=toolkit` id lint (`ContentToolkitLint`) now also validates
+  `signal:` / `showWhen:` / `enabledWhen:` references, not just `action:` /
+  `source:` / `rows:`. A reference is checked against the **signal universe** — the
+  union of `contentComputed(id, …)` registrations and the ids declared in a YAML
+  `signals:` block (both harvested, so a reference satisfied by a *local* signal
+  default never falsely warns). Unknown id with a non-empty universe → a `signal
+  '<id>' is not registered` warning (with the same edit-distance "did you mean"
+  hint); an empty universe → no warning (conservative). `source:` now also
+  recognises `contentDataSource` registrations (Scope B.3). Markdown `toolkit:`
+  *link* references remain deferred (they live in raw prose, not the scanned
+  CodeBlock).
+- Tests: `ContentToolkitLintTest` (+6, core) + `CheckCommandTest` (+2, CLI).
+
 ## 2026-06-12 — feat(declarative-ui): slot escape-hatch for `@ui=toolkit` panels (Scope B.6)
 
 - A `{type: slot, id: <id>}` control injects an arbitrary **ScalaScript-authored
