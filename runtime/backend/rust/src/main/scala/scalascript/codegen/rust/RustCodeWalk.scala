@@ -330,13 +330,39 @@ object RustCodeWalk:
     def fromContent(c: ast.Content): List[(String, (List[String], m.Type))] = c match
       case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isScalaLang(lang) =>
         node.tree.collect {
+          // Native: `type Pair = [A] =>> body`.
           case m.Defn.Type.After_4_6_0(_, m.Type.Name(n), _, m.Type.Lambda.After_4_6_0(tparams, body), _) =>
             n -> (tparams.values.map(_.name.value), body)
-        }.toList
+        }.toList ++
+        // Placeholder: `type IntKey = Map[Int, _]` — an alias RHS that gets applied
+        // is a type lambda (no existentials in ScalaScript), so each `_` is a param.
+        node.tree.collect {
+          case m.Defn.Type.After_4_6_0(_, m.Type.Name(n), _, rhs, _)
+              if !rhs.isInstanceOf[m.Type.Lambda] =>
+            desugarPlaceholders(rhs).map(n -> _)
+        }.flatten.toList
       case _ => Nil
     def fromSection(s: ast.Section): List[(String, (List[String], m.Type))] =
       s.content.flatMap(fromContent) ++ s.subsections.flatMap(fromSection)
     module.sections.flatMap(fromSection).toMap
+
+  /** Desugar an alias RHS containing `_` placeholders into a type lambda:
+   *  `Map[Int, _]` → `(List("A"), Map[Int, A])`; `Either[_, _]` → `(["A","B"],
+   *  Either[A, B])`, binding left→right in source order. Returns `None` if there
+   *  are no placeholders. */
+  private def desugarPlaceholders(t: m.Type): Option[(List[String], m.Type)] =
+    val params = scala.collection.mutable.ListBuffer.empty[String]
+    def go(tt: m.Type): m.Type = tt match
+      case _: m.Type.Wildcard =>
+        val p = ('A' + params.length).toChar.toString
+        params += p
+        m.Type.Name(p)
+      case m.Type.Apply.After_4_6_0(tn, ac) =>
+        m.Type.Apply(tn, m.Type.ArgClause(ac.values.toList.map(go)))
+      case m.Type.Tuple(elems) => m.Type.Tuple(elems.toList.map(go))
+      case other => other
+    val body = go(t)
+    if params.isEmpty then None else Some((params.toList, body))
 
   /** Substitute type-param names with concrete types throughout a `Type` tree
    *  (β-reduction of a type lambda body). Covers the shapes `mapType` accepts

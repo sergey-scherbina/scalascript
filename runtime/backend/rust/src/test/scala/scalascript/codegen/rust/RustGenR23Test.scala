@@ -103,6 +103,19 @@ class RustGenR23Test extends AnyFunSuite:
     val g = gen(src)
     assert(g.contains("let p: (i64, i64) ="), s"expected reduced tuple type, got:\n$g")
 
+  test("placeholder type lambda `Either[_, Int]` desugars + reduces"):
+    // `type RightInt = Either[_, Int]` ≡ `[A] =>> Either[A, Int]`; `RightInt[String]`
+    // reduces to `Either[String, Int]` → `Either<String, i64>`.
+    val src =
+      """```scalascript
+        |type RightInt = Either[_, Int]
+        |def mk(n: Int): RightInt[String] =
+        |  if n > 0 then Right(n) else Left("neg")
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("Either<String, i64>"), s"got:\n$g")
+
   test("multi-param type lambda reorders args under reduction"):
     // `type Swap = [A, B] =>> Map[B, A]` applied as `Swap[Int, String]` reduces to
     // `Map[String, Int]` → `HashMap<String, i64>`.

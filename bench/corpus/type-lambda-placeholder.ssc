@@ -1,18 +1,30 @@
 # type-lambda-placeholder
 
-Placeholder/wildcard type-lambda short form `Map[Int, _]` (each `_` = a fresh
-lambda param) used in a `type` alias, then applied (`IntKey[Long]`). PROGRESS
-TRACKER for sprint `type-lambda-p2`: today `Map[Int, _]` parses as a structural
-placeholder and the interpreter runs it via type erasure, so it may already be
-green where types are erased and `n/a` where a backend type-checks the
-applied alias. As p2 desugars `_` → `[X] =>> Map[Int, X]`, the representation
-becomes correct and cross-backend support should converge.
+Placeholder/wildcard type-lambda short form `Either[_, Int]` (one slot fixed, one
+open) used in a `type` alias and applied in a function return type
+(`RightInt[String]`). PROGRESS TRACKER for `type-lambda-p2b`: `Either[_, Int]`
+desugars to `[A] =>> Either[A, Int]` (each `_` = a fresh param, left→right —
+ScalaScript has no existentials, so an alias RHS with `_` is always a lambda).
+interp/jvm/js erase the annotation; rust β-reduces the alias
+(`RightInt[String]` → `Either[String, Int]` → `Either<String, i64>`). Body uses
+only rust-supported Either ops (mirrors `either-chain`).
+
+Honest-bench note: a carried 64-bit LCG (`s`) varies the branch each iteration.
 
 ```scalascript
-type IntKey = Map[Int, _]
+type RightInt = Either[_, Int]
+
+def mk(n: Int): RightInt[String] =
+  if n > 0 then Right(n) else Left("neg")
 
 def workload(seed: Long): Long =
-  val s = seed + 1
-  val m: IntKey[Long] = Map(1 -> (s % 7))
-  m.getOrElse(1, 0L)
+  var s = seed + 1
+  var sum = 0L
+  var i = 0
+  while i < 300 do
+    s = s * 2862933555777941757L + 3037000493L
+    val r = mk((s % 5).toInt + 1).fold(_ => 0, x => x)
+    sum = sum + r.toLong
+    i = i + 1
+  sum
 ```
