@@ -1,6 +1,0 @@
-type-lambda-nested-aliases 2026-06-12T14:49:13Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-12T14:49:13Z
-status: in-progress
-done-so-far: 
-next: recurse desugarPlaceholderTypeAliases into object/trait/class template bodies (scalameta 4.17 templ.body.stats)

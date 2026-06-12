@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — feat(types): placeholder type-lambda aliases desugar when nested in object/trait/class
+
+- `Parser.desugarPlaceholderTypeAliases` previously only rewrote TOP-LEVEL `type`
+  aliases, so a placeholder alias inside an `object`/`trait`/`class` body
+  (`object M: type X = Map[Int, _]`) stayed a wildcard and failed jvm codegen ("does
+  not take type parameters") when applied. It now recurses into template bodies
+  (scalameta 4.17 `templ.body.stats`; `Template.copy` takes the legacy flat `stats`)
+  at any depth, reconstructing a template only when a member actually changed so
+  unrelated nodes keep their original positions. No JvmGen change — `blockContainsTypeLambda`
+  already recurses through children, so the nested `Type.Lambda` routes through the
+  tree-emit. Regress: 3 nested cases in `TypeLambdaProgressTest` + new `JvmGenTypeLambdaTest`.
+  core 955 green. Closes `type-lambda-nested-aliases`; `.sscc` round-trip + p3 remain.
+
 ## 2026-06-12 — fix(interp): three-way mutual-TCO no longer blows up (was a "flaky" gate hang)
 
 - The full `backendInterpreter/test` gate's intermittent "hang at InterpreterTest" was

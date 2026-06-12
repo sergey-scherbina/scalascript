@@ -143,14 +143,19 @@ optional later phase (only matters for `ssc check` and typed backends).
       cargo-build clean; backendRust 200 green.
 - [x] **type-lambda-p2b** Ã¢ÂÂ â DONE 2026-06-12 (bc9984378). Placeholder `Map[Int, _]` now works on ALL backends. Parser desugars a placeholder alias to native `=>>` at parse time; JvmGen `blockContainsTypeLambda` routes such blocks through the tree-emit (not verbatim source) so Scala 3 sees the lambda. rust desugars+reduces. **type-lambda-native AND type-lambda-placeholder green on all 5 backends (10/10).** TypeLambdaProgressTest 12 pass/2 pending (only .sscc round-trip + p3 reduction remain). core 950, interp 1671 green. parseSType placeholder stays a wildcard (no use-site context) by design.
 #### type-lambda — remaining (core feature DONE: both forms green on all 5 backends)
-- [ ] **type-lambda-nested-aliases** — the parser placeholder→`=>>` desugar
-      (`Parser.desugarPlaceholderTypeAliases`) only rewrites TOP-LEVEL aliases (`Source` /
-      script-block stats). A placeholder alias INSIDE an `object`/`trait`/`class` body is
-      not desugared (the scalameta `Template` stats API churned — `t.stats` deprecated, a
-      nested `body` replaced it). So `object M: type X = Map[Int, _]` + `M.X[Long]` would
-      still fail on jvm. Fix: recurse into template bodies with the scalameta 4.17
-      `Template` shape. Native `[A] =>> ...` nested aliases already work (no desugar). Add
-      a nested-in-object case to TypeLambdaProgressTest + a jvm emit test.
+- [x] **type-lambda-nested-aliases** — DONE 2026-06-12. `desugarPlaceholderTypeAliases`
+      now recurses into `object`/`trait`/`class` template bodies (scalameta 4.17
+      `templ.body.stats`; `Template.copy` still takes the legacy flat `stats` param) at
+      any depth, so `object M: type X = Map[Int, _]` + `M.X[Long]` desugars to native
+      `=>>` and compiles on jvm. Reconstruction is conservative — a template is copied
+      only when a member actually changed (`corresponds(_ eq _)`), so unrelated
+      object/trait/class nodes keep their original positions. No JvmGen change needed:
+      `blockContainsTypeLambda` already recurses through children, so the nested
+      `Type.Lambda` routes through the tree-emit. Regress: 3 nested cases in
+      TypeLambdaProgressTest (object/trait/2-deep) + new `JvmGenTypeLambdaTest`
+      (top-level + nested emit `[A] =>> Map[Int, A]`, never the verbatim wildcard).
+      core 955 green; verified Scala 3 compiles a nested type-lambda alias at use site.
+      Spec `specs/type-level-lambdas.md` §5b/§6 updated.
 - [ ] **type-lambda-sscc-roundtrip** — verify a `Type.Lambda` / `SType.TypeLambda` survives
       the `.sscc` v3 binary tree cache + `.scir` interface artifact (1 pending
       TypeLambdaProgressTest case). `SsccFormatV3` already has a `TypeLambdaArrow` token, so
