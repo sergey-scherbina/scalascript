@@ -2151,6 +2151,42 @@ object Parser:
         sb.append(c); i += 1
     sb.toString
 
+  /** Desugar placeholder type-lambda aliases to the native `=>>` form so every
+   *  consumer (interp/jvm/js/rust + interface artifacts) sees one canonical shape.
+   *  `type X = Map[Int, _]` → `type X = [A] =>> Map[Int, A]` (each `_` → a fresh
+   *  param, left→right). ScalaScript has no existentials, so an alias RHS with `_`
+   *  is always a type lambda. Without this, Scala-3 codegen (jvm) reads `Map[Int, _]`
+   *  as a wildcard that "does not take type parameters" when the alias is applied.
+   *  Top-level + one nesting level (object/trait/class bodies). */
+  private def desugarPlaceholderTypeAliases(tree: scala.meta.Tree): scala.meta.Tree =
+    import scala.meta.*
+    given Dialect = dialects.Scala3
+    def typeHasWildcard(t: Type): Boolean = t match
+      case _: Type.Wildcard              => true
+      case Type.Apply.After_4_6_0(_, ac) => ac.values.exists(typeHasWildcard)
+      case Type.Tuple(elems)             => elems.exists(typeHasWildcard)
+      case _                             => false
+    def rewriteStat(s: Stat): Stat = s match
+      case Defn.Type.After_4_6_0(mods, name, tparams, rhs, bounds) if typeHasWildcard(rhs) =>
+        val params = scala.collection.mutable.ListBuffer.empty[String]
+        def go(tt: Type): Type = tt match
+          case _: Type.Wildcard =>
+            val p = ('A' + params.length).toChar.toString; params += p; Type.Name(p)
+          case Type.Apply.After_4_6_0(tn, ac) => Type.Apply(tn, Type.ArgClause(ac.values.toList.map(go)))
+          case Type.Tuple(elems)              => Type.Tuple(elems.toList.map(go))
+          case other                          => other
+        val body = go(rhs)
+        s"[${params.mkString(", ")}] =>> ${body.syntax}".parse[Type] match
+          case Parsed.Success(lam) => Defn.Type(mods, name, tparams, lam, bounds)
+          case _                   => s
+      case other          => other
+    // Top-level aliases (Source / script-block). Nested-in-object aliases are a
+    // follow-up (the Template stats API churned across scalameta versions).
+    tree match
+      case Source(stats)     => Source(stats.map(rewriteStat))
+      case Term.Block(stats) => Term.Block(stats.map(rewriteStat))
+      case other             => other
+
   /** Re-parse a scalascript code-block body to a scalameta `ScalaNode`.
    *
    *  Public so `transform.Denormalize` can rebuild the AST trees that
@@ -2174,14 +2210,14 @@ object Parser:
     given Dialect = dialects.Scala3
     val processed = preprocessForScala(code)
     safeParse(processed.parse[Source]) match
-      case Parsed.Success(tree) => (Some(ScalaNode(tree)), None)
+      case Parsed.Success(tree) => (Some(ScalaNode(desugarPlaceholderTypeAliases(tree))), None)
       case sourceErr: Parsed.Error =>
         // Script mode: code may contain top-level expressions.
         // Wrap in a block so scalameta accepts arbitrary statement sequences.
         // Note: the wrap prepends a synthetic `{\n` line so positions in the
         // wrapped parse are offset by +1 line.  We undo that mapping below.
         safeParse(s"{\n$processed\n}".parse[Term]) match
-          case Parsed.Success(tree) => (Some(ScalaNode(tree)), None)
+          case Parsed.Success(tree) => (Some(ScalaNode(desugarPlaceholderTypeAliases(tree))), None)
           case _: Parsed.Error      =>
             // Try 3: "mixed" mode — declarations (Source) followed by a trailing
             // expression (Term).  This handles handler files of the form:
@@ -2193,7 +2229,7 @@ object Parser:
             // on the first (prefix-as-Source, suffix-as-Term) pair that works.
             val splitResult = trySplitParse(processed)
             splitResult match
-              case Some(tree) => (Some(ScalaNode(tree)), None)
+              case Some(tree) => (Some(ScalaNode(desugarPlaceholderTypeAliases(tree))), None)
               case None       =>
                 // All attempts failed.  We prefer the source-mode error since
                 // its positions map 1:1 to the user's block body (no wrap-line

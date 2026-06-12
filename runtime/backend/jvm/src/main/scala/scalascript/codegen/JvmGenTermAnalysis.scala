@@ -22,7 +22,19 @@ private[codegen] trait JvmGenTermAnalysis:
     blockContainsRegisteredInterpolator(node) ||
     blockContainsModelAnnotation(node)        ||
     blockContainsNamedArgAscription(node)     ||
-    blockContainsBareNameBlockCall(node)
+    blockContainsBareNameBlockCall(node)      ||
+    blockContainsTypeLambda(node)
+
+  /** True if the block declares a type lambda (`type X = [A] =>> …`). Forces the
+   *  block through `emitStats` (the tree-emit) instead of verbatim `block.src`, so
+   *  a placeholder alias the parser desugared to native `=>>` reaches Scala 3 as a
+   *  type lambda — a raw `type X = F[Int, _]` in `block.src` would be read as a
+   *  wildcard ("does not take type parameters") when applied. */
+  private[codegen] def blockContainsTypeLambda(node: ScalaNode): Boolean =
+    def go(t: scala.meta.Tree): Boolean = t match
+      case _: Type.Lambda => true
+      case other          => other.children.exists(go)
+    ScalaNode.fold(node)(go)
 
   private[codegen] def blockContainsBareNameBlockCall(node: ScalaNode): Boolean =
     def go(t: scala.meta.Tree): Boolean = t match

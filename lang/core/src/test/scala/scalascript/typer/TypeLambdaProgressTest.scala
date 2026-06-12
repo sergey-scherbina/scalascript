@@ -80,11 +80,19 @@ class TypeLambdaProgressTest extends AnyFunSuite:
     assert(srcParses("type IntMap = [V] =>> Map[Int, V]"))
     assert(srcParses("type IntMap = Map[Int, _]"))
 
-  test("[target] placeholder `Map[Int, _]` desugars to `[X] =>> Map[Int, X]`"):
-    pending // p2b: `_` → fresh param, left→right; equivalent to the native form
+  test("[done] placeholder alias `Map[Int, _]` desugars to native `=>>` at parse (p2b)"):
+    // The source parser rewrites a placeholder alias to the canonical native form
+    // (an alias RHS with `_` is always a lambda — no existentials). parseSType (the
+    // interface-artifact parser) still keeps `Map[String, _]` as a wildcard Named,
+    // because it has no use-site context to disambiguate — see the `[now]` test above.
+    val node = Parser.parseScalaSource("type IntKey = Map[Int, _]\ndef f(): IntKey[Long] = ???")
+    assert(node.exists(_.tree.toString.contains("[A] =>> Map[Int, A]")),
+      node.map(_.tree.toString).getOrElse("parse failed"))
 
-  test("[target] two placeholders `Either[_, _]` bind in source order"):
-    pending // p2b: `[A, B] =>> Either[A, B]`
+  test("[done] two placeholders `Either[_, _]` bind left→right at parse (p2b)"):
+    val node = Parser.parseScalaSource("type E = Either[_, _]")
+    assert(node.exists(_.tree.toString.contains("[A, B] =>> Either[A, B]")),
+      node.map(_.tree.toString).getOrElse("parse failed"))
 
   test("[target] type lambda survives a `.sscc` v3 artifact round-trip"):
     pending // p2b: artifact stability
