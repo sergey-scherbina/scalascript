@@ -29,6 +29,29 @@ Regression: `EnumTraitCrossModuleTest` (2-file — type-test `true` + `a.kind`
 `k:1000`), run with the JIT **on** (default), so it actually exercises the compiled
 path the same-file `BugReproTest` cases do not.
 
+## JIT supertype type-test — real compile (follow-up to the seq-124 bail)
+
+The seq-124 fix **bailed** the JIT to tree-walk on `case _: Supertype` (correct, but
+loses JIT speed for supertype-narrowing dispatch — exactly busi's 168-variant `Event`
+hierarchy). This follow-up makes it a **real compile** on the default (`JavacJitBackend`):
+
+- New `JitGlobals.isSubtype(typeName, target)` — a runtime parent-chain test against
+  the current interpreter's `parentTypes` (thread-local). Lets JIT'd code narrow by a
+  (possibly imported) supertype without expanding subtype arms at compile time.
+- A match with a supertype `case _: T` arm now routes to the **if-chain** path (both
+  the statement form `walkMatchBody` and the expression form `walkMatchExpr`), and
+  `walkArmAsIfBranch` gained a `Pat.Typed` case that emits the right condition: a
+  **supertype** → `JitGlobals.isSubtype(inst.typeName(), "T")`; a **leaf** type →
+  the exact `inst.typeTag()==tag` / `"T".equals(inst.typeName())`. The if-chain
+  preserves Scala first-match order, so a leaf arm before a supertype arm still wins
+  (no dedup / case-collision problem the switch-arm-expansion approach would have).
+- `AsmJitBackend` keeps the seq-124 **bail** (correct via tree-walk); upgrading it to
+  a real compile is a separate follow-up — Javac is the default backend.
+
+Regression: 3 hot-loop (`50k`-call) `BugReproTest` cases (statement form, expression
+form, leaf-before-supertype ordering) + a `JitLintTest` assertion that the supertype
+matcher reports `willJit == true` on Javac (it bailed before this change).
+
 ## Problem
 
 The interpreter records type ancestry in a single-parent chain
