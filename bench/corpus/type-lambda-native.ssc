@@ -3,9 +3,10 @@
 Scala-3 native type-lambda syntax `[X] =>> F[X]` used in a `type` alias, then
 applied (`Pair[Long]`). PROGRESS TRACKER for sprint `type-lambda-p2`: this does
 NOT parse yet (`=>>` is tokenised but not wired into type parsing), so every
-backend currently reports `n/a`. As parsing + `SType.TypeLambda` land, the cells
-turn green. Types are erased at runtime, so once it parses the runtime work is
-trivial — the signal is *which backends accept the syntax*.
+backend currently reports `n/a`. Now green on ALL backends: interp/jvm/js erase the annotation; rust BETA-REDUCES
+the alias (`Pair[Long]` → `(i64, i64)`) since it needs a real type. The signal is
+*which backends accept the syntax* — all five do.
+DONE 2026-06-12.
 
 ```scalascript
 type Pair = [A] =>> (A, A)

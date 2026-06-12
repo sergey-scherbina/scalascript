@@ -89,6 +89,32 @@ class RustGenR23Test extends AnyFunSuite:
     assert(g.contains("pub fn make() -> (i64, f64, String)"))
     assert(g.contains("(1i64, 2.0f64, \"ok\".to_string())"))
 
+  test("type lambda application is beta-reduced in a type annotation"):
+    // `type Pair = [A] =>> (A, A)` applied as `Pair[Long]` reduces to `(Long, Long)`
+    // → Rust `(i64, i64)`. (Other backends erase the type; rust needs the real one.)
+    val src =
+      """```scalascript
+        |type Pair = [A] =>> (A, A)
+        |def make(): Long =
+        |  val p: Pair[Long] = (3, 4)
+        |  p._1 + p._2
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("let p: (i64, i64) ="), s"expected reduced tuple type, got:\n$g")
+
+  test("multi-param type lambda reorders args under reduction"):
+    // `type Swap = [A, B] =>> Map[B, A]` applied as `Swap[Int, String]` reduces to
+    // `Map[String, Int]` → `HashMap<String, i64>`.
+    val src =
+      """```scalascript
+        |type Swap = [A, B] =>> Map[B, A]
+        |def keys(m: Swap[Int, String]): Long = 0L
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("std::collections::HashMap<String, i64>"), s"got:\n$g")
+
   test("tuple ++ tuple-literal flattening emits one wider tuple"):
     val src =
       """```scalascript

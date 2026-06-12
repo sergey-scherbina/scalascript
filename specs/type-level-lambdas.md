@@ -48,11 +48,15 @@ Canonical form is the native `=>>` (what `SType.show` emits); `_` is sugar-in.
 
 ## 5  Backend handling
 
-All runtime backends **erase** type lambdas (surface-only), so once the source
-parses, interp / jvm / js run the program (the type annotation is dropped). Status
-(`bench.sh`): native `[X] =>> F[X]` is green on **ssc / ssc-asm / jvm / js**; rust
-is `n/a` (RustCodeWalk emits real Rust types and needs a dedicated lowering —
-follow-up). The placeholder form is green on ssc/js but `n/a` on jvm/rust until p2b.
+interp / jvm / js **erase** type lambdas (surface-only) — once the source parses,
+the type annotation is dropped at runtime. **rust** uses real types, so it
+**β-reduces** a type-lambda alias application instead: `RustCodeWalk` collects
+`type Pair = [A] =>> body` aliases (`collectTypeLambdaAliases`) and, in `mapType`,
+an application `Pair[Long]` substitutes the params in the body (`substType`) and
+maps the result — `Pair[Long]` → `(Long, Long)` → `(i64, i64)`. Status
+(`bench.sh`): native `[X] =>> F[X]` is **green on all five backends**
+(ssc/ssc-asm/jvm/js/rust). The placeholder form is green on ssc/js but `n/a` on
+jvm/rust until p2b.
 
 ## 6  Follow-ups
 
@@ -71,5 +75,6 @@ follow-up). The placeholder form is green on ssc/js but `n/a` on jvm/rust until 
 - **p2b — `.sscc` v3 artifact round-trip** for `TypeLambda`.
 - **p3 (optional) — semantics:** β-reduce `([X] =>> F[X])[A]` → `F[A]` in
   `ssc check` + HKT bound checking. Only if a typed backend / strict check needs it.
-- **rust:** decide whether to erase (alias to the body with a fresh generic) or
-  diagnose `Unsupported` for type lambdas in `RustCodeWalk`.
+- ~~**rust:** decide whether to erase or diagnose type lambdas.~~ ✓ DONE
+  2026-06-12: `RustCodeWalk` β-reduces a type-lambda alias application in `mapType`
+  (`collectTypeLambdaAliases` + `substType`). `type-lambda-native` is green on rust.

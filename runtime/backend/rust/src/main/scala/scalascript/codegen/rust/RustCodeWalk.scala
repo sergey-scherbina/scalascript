@@ -40,6 +40,7 @@ object RustCodeWalk:
       module:     ast.Module,
       intrinsics: Map[QualifiedName, IntrinsicImpl]
   ): Either[List[Diagnostic], WalkResult] =
+    _typeLambdas          = collectTypeLambdaAliases(module)
     val defs              = collectDefs(module)
     val enums             = collectEnums(module)
     val traitEnums        = collectSealedTraitEnums(module)
@@ -317,6 +318,35 @@ object RustCodeWalk:
         if isScalaLang(lang) =>
       node.tree.collect { case d: m.Defn.Enum => d }.toList
     case _ => Nil
+
+  /** Type-lambda aliases: `type Pair = [A] =>> (A, A)` → `"Pair" -> (List("A"),
+   *  Type.Tuple([A, A]))`. Set per-compile; consulted by `mapType` to BETA-REDUCE
+   *  an application `Pair[Long]` (substitute the params in the body) so rust gets a
+   *  real type. Type lambdas are surface-only on the other backends (erased), so
+   *  this reduction is rust's equivalent. */
+  private var _typeLambdas: Map[String, (List[String], m.Type)] = Map.empty
+
+  private def collectTypeLambdaAliases(module: ast.Module): Map[String, (List[String], m.Type)] =
+    def fromContent(c: ast.Content): List[(String, (List[String], m.Type))] = c match
+      case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isScalaLang(lang) =>
+        node.tree.collect {
+          case m.Defn.Type.After_4_6_0(_, m.Type.Name(n), _, m.Type.Lambda.After_4_6_0(tparams, body), _) =>
+            n -> (tparams.values.map(_.name.value), body)
+        }.toList
+      case _ => Nil
+    def fromSection(s: ast.Section): List[(String, (List[String], m.Type))] =
+      s.content.flatMap(fromContent) ++ s.subsections.flatMap(fromSection)
+    module.sections.flatMap(fromSection).toMap
+
+  /** Substitute type-param names with concrete types throughout a `Type` tree
+   *  (β-reduction of a type lambda body). Covers the shapes `mapType` accepts
+   *  (Name / Tuple / generic Apply); rarer shapes pass through unsubstituted. */
+  private def substType(t: m.Type, subst: Map[String, m.Type]): m.Type = t match
+    case m.Type.Name(n) if subst.contains(n) => subst(n)
+    case m.Type.Apply.After_4_6_0(tn, argClause) =>
+      m.Type.Apply(tn, m.Type.ArgClause(argClause.values.toList.map(substType(_, subst))))
+    case m.Type.Tuple(elems) => m.Type.Tuple(elems.toList.map(substType(_, subst)))
+    case other => other
 
   /** A `sealed trait` + its associated case classes. */
   private case class SealedTraitEnum(
@@ -808,6 +838,14 @@ object RustCodeWalk:
     case m.Type.Name("Float")   => Right("f64")
     case m.Type.Name("String")  => Right("String")
     case m.Type.Name(n) if enumNames.contains(n) => Right(n)
+    // Type-lambda application `Pair[Long]` where `Pair = [A] =>> body` — β-reduce
+    // (substitute the params with the args) and map the result. A nullary alias
+    // `type X = [] =>> body` reduces with no args.
+    case m.Type.Apply.After_4_6_0(m.Type.Name(n), argClause)
+        if _typeLambdas.contains(n) && _typeLambdas(n)._1.length == argClause.values.size =>
+      val (params, body) = _typeLambdas(n)
+      val subst = params.zip(argClause.values.toList).toMap
+      mapType(substType(body, subst), defName, enumNames)
     // Option[T] lowers to Rust `Option<T>` for bench-friendly semantics.
     case m.Type.Apply.After_4_6_0(m.Type.Name("Option"), argClause)
         if argClause.values.size == 1 =>
