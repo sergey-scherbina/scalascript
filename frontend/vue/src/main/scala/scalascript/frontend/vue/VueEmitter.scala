@@ -300,7 +300,7 @@ private[vue] object VueEmitter:
     def walk(v: View[?]): Unit = v match
       case dt: View.DataTable =>
         dt.source match
-          case TableDataSource.Remote(sig) if !seen.contains(sig.id) => seen(sig.id) = sig
+          case TableDataSource.Remote(sig, _) if !seen.contains(sig.id) => seen(sig.id) = sig
           case _ => ()
       case View.Fragment(children)                    => children.foreach(walk)
       case View.Element(_, _, _, children)            => children.foreach(walk)

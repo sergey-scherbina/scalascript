@@ -313,7 +313,7 @@ object JavaFxRuntime:
 
     def doFetch(): Unit =
       dt.source match
-        case TableDataSource.Remote(sig) =>
+        case TableDataSource.Remote(sig, _) =>
           Thread(() =>
             try state.fetchDispatcher.foreach { dispatcher =>
               val typeName = sig match { case fjs: FetchJsonSignal => fjs.modelTypeName; case _ => "" }
@@ -564,7 +564,7 @@ object JavaFxRuntime:
         case View.ForModel(_, _, _, tmpl, _) => loop(acc, tmpl)
         case dt: View.DataTable =>
           val base = dt.source match
-            case TableDataSource.Remote(sig) => add(acc, sig)
+            case TableDataSource.Remote(sig, _) => add(acc, sig)
             case _ => acc
           dt.actions.foldLeft(base) {
             case (a, RowActionDef.RowDelete(_, _, tick, _))         => add(a, tick)

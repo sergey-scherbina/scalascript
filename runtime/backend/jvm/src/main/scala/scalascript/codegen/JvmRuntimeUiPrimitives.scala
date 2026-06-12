@@ -72,6 +72,14 @@ object JvmRuntimeUiPrimitives:
        |          .filter(_.id != "__ssc_empty_headers").map(_.id)
        |        new scalascript.frontend.FetchUrlSignal(name, url, _tick.id, _hOpt)
        |
+       |      // Scope B.3 — a managed-fetch Remote source whose optional dotted envelope
+       |      // path (e.g. "result.items") is carried on the model so the served custom
+       |      // frontend drills it (StaticJsEmitter __ssc_rowsOf), matching the browser.
+       |      def fetchRowsSource(sig: Any, rowsPath: Any = ""): Any =
+       |        scalascript.frontend.TableDataSource.Remote(
+       |          sig.asInstanceOf[scalascript.frontend.FetchUrlSignal],
+       |          Option(rowsPath).map(_.toString).filter(_ != "null").getOrElse(""))
+       |
        |      def fetchAction(method: String, url: String, body: Any, onSuccessTick: Any, headers: Any = null): EventHandler =
        |        val _hOpt = Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]])
        |          .filter(_.id != "__ssc_empty_headers")
@@ -134,11 +142,15 @@ object JvmRuntimeUiPrimitives:
        |        scalascript.frontend.RowActionDef.RowInlineEdit(method, url, idField,
        |          tick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]], _hOpt)
        |
-       |      def dataTableView(signal: Any, columns: Any, actions: Any): View =
+       |      def dataTableView(source: Any, columns: Any, actions: Any): View =
        |        val _cols = columns.asInstanceOf[List[scalascript.frontend.FieldColumnDef]]
        |        val _acts = actions.asInstanceOf[List[scalascript.frontend.RowActionDef]]
-       |        scalascript.frontend.View.DataTable(
-       |          scalascript.frontend.TableDataSource.Remote(signal.asInstanceOf[scalascript.frontend.FetchUrlSignal]), _cols, _acts)
+       |        // Accept a TableDataSource (e.g. fetchRowsSource, carrying rowsPath) or a
+       |        // bare FetchUrlSignal (legacy → wrap as a Remote with no envelope path).
+       |        val _src = source match
+       |          case s: scalascript.frontend.TableDataSource => s
+       |          case s => scalascript.frontend.TableDataSource.Remote(s.asInstanceOf[scalascript.frontend.FetchUrlSignal])
+       |        scalascript.frontend.View.DataTable(_src, _cols, _acts)
        |
        |      def emit(tree: View, outDir: String): Unit =
        |        _ssc_ui_emit_to_dir(tree.asInstanceOf[scalascript.frontend.View[?]], outDir)

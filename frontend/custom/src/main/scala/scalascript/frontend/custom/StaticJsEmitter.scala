@@ -97,6 +97,32 @@ private[custom] object StaticJsEmitter:
       }
       sb ++= "}\n"
 
+    // B.3 — shared envelope normaliser for Remote DataTables.  Mirrors the JS
+    // browser runtime's `_ssc_ui_rowsOf(v, rowsPath)`: drill the optional dotted
+    // `rowsPath` first; if it yields an array use it, else fall back to the built-in
+    // `{data|rows|items|results}` keys (a wrong path degrades to default, never throws).
+    if ctx.needsRowsOf then
+      sb ++= "function __ssc_rowsOf(v, rowsPath) {\n"
+      sb ++= "  if (Array.isArray(v)) return v;\n"
+      sb ++= "  if (typeof v === 'string') {\n"
+      sb ++= "    var t = v.trim();\n"
+      sb ++= "    if (!t || t.charAt(0) === '<') return [];\n"
+      sb ++= "    try { return __ssc_rowsOf(JSON.parse(t), rowsPath); } catch(_e) { return []; }\n"
+      sb ++= "  }\n"
+      sb ++= "  if (v && typeof v === 'object') {\n"
+      sb ++= "    if (rowsPath) {\n"
+      sb ++= "      var cur = v, parts = String(rowsPath).split('.');\n"
+      sb ++= "      for (var i = 0; i < parts.length && cur != null; i++) cur = cur[parts[i]];\n"
+      sb ++= "      if (Array.isArray(cur)) return cur;\n"
+      sb ++= "    }\n"
+      sb ++= "    if (Array.isArray(v.data))    return v.data;\n"
+      sb ++= "    if (Array.isArray(v.rows))    return v.rows;\n"
+      sb ++= "    if (Array.isArray(v.items))   return v.items;\n"
+      sb ++= "    if (Array.isArray(v.results)) return v.results;\n"
+      sb ++= "  }\n"
+      sb ++= "  return [];\n"
+      sb ++= "}\n"
+
     sb ++= "function mount(root) {\n"
     ctx.statements.foreach { stmt =>
       sb ++= "  "
@@ -133,6 +159,11 @@ private[custom] object StaticJsEmitter:
     // order for deterministic output.
     val domRefs: scala.collection.mutable.LinkedHashSet[String] =
       scala.collection.mutable.LinkedHashSet.empty
+
+    // B.3 — set when a Remote DataTable is compiled, so emit() emits the shared
+    // `__ssc_rowsOf(v, rowsPath)` envelope-normaliser helper once (mirrors the JS
+    // browser runtime's `_ssc_ui_rowsOf`).
+    var needsRowsOf: Boolean = false
 
     // A2e.2 — while emitting an `itemTemplate`, statements go into a
     // separate buffer so we can wrap them in `function __render_item_x(__item, __idx)`.
@@ -511,12 +542,16 @@ private[custom] object StaticJsEmitter:
         statements += s"$theadVar.appendChild($trHVar); $tableVar.appendChild($theadVar);"
         statements += s"const $tbodyVar = document.createElement('tbody'); $tableVar.appendChild($tbodyVar);"
         dt.source match
-          case TableDataSource.Remote(sig) =>
-            val tableId   = sig.id
-            val tickId    = sig.tickId
-            val rowsJs    = jsString(tableId)
-            val urlJs     = jsString(sig.fetchUrl)
-            val headersJs = sig.headersId.map(h => s", headers: JSON.parse(__ssc_signals[${jsString(h)}].value || '{}')").getOrElse("")
+          case TableDataSource.Remote(sig, rowsPath) =>
+            val tableId    = sig.id
+            val tickId     = sig.tickId
+            val rowsJs     = jsString(tableId)
+            val urlJs      = jsString(sig.fetchUrl)
+            val headersJs  = sig.headersId.map(h => s", headers: JSON.parse(__ssc_signals[${jsString(h)}].value || '{}')").getOrElse("")
+            // B.3 — normalise the fetched envelope to a row array (dotted `rowsPath`
+            // first, then the built-in keys) via the shared __ssc_rowsOf helper.
+            needsRowsOf = true
+            val rowsPathJs = jsString(rowsPath)
             if !reactiveSignals.contains(tableId) then reactiveSignals.update(tableId, "null")
             if !reactiveSignals.contains(tickId) then reactiveSignals.update(tickId, "0")
             val rebuildFn = s"__rebuild_$tableId"
@@ -589,8 +624,8 @@ private[custom] object StaticJsEmitter:
             statements += s"}"
             statements += s"__ssc_signals[$rowsJs].subs.add($rebuildFn);"
             val tickJs = jsString(tickId)
-            statements += s"__ssc_signals[$tickJs].subs.add((t) => { if (t > 0) fetch($urlJs$headersJs).then(r => r.json()).then(data => __setSignal($rowsJs, data)); });"
-            statements += s"fetch($urlJs$headersJs).then(r => r.json()).then(data => __setSignal($rowsJs, data));"
+            statements += s"__ssc_signals[$tickJs].subs.add((t) => { if (t > 0) fetch($urlJs$headersJs).then(r => r.json()).then(data => __setSignal($rowsJs, __ssc_rowsOf(data, $rowsPathJs))); });"
+            statements += s"fetch($urlJs$headersJs).then(r => r.json()).then(data => __setSignal($rowsJs, __ssc_rowsOf(data, $rowsPathJs)));"
           case _ =>
             // StaticRows / SignalRows: stub — empty tbody; full rendering in Phase 3
             ()

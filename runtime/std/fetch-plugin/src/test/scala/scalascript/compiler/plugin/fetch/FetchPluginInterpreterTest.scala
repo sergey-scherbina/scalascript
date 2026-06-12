@@ -105,7 +105,7 @@ class FetchPluginInterpreterTest extends AnyFunSuite:
     result match
       case Value.Foreign("View", dt: View.DataTable) =>
         val fetchUrl = dt.source match
-          case TableDataSource.Remote(sig) => sig.fetchUrl
+          case TableDataSource.Remote(sig, _) => sig.fetchUrl
           case other => fail(s"expected Remote source, got $other"); ""
         assert(fetchUrl == "/api/employees")
         assert(dt.columns.length == 3)
@@ -161,7 +161,10 @@ class FetchPluginInterpreterTest extends AnyFunSuite:
     result match
       case Value.Foreign("View", dt: View.DataTable) =>
         dt.source match
-          case TableDataSource.Remote(s) => assert(s.fetchUrl == "/api/invoices")
+          case TableDataSource.Remote(s, rowsPath) =>
+            assert(s.fetchUrl == "/api/invoices")
+            // Scope B.3 — rowsPath is now carried on the model (server-rendered drill).
+            assert(rowsPath == "result.items", s"expected rowsPath carried, got '$rowsPath'")
           case other => fail(s"expected Remote source from fetchRowsSource, got $other")
         assert(dt.columns.length == 1)
       case other => fail(s"expected DataTable foreign value, got $other")

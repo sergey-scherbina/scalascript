@@ -394,7 +394,7 @@ object SwiftUIEmitter:
 
       case dt: View.DataTable =>
         dt.source match
-          case TableDataSource.Remote(sig) =>
+          case TableDataSource.Remote(sig, _) =>
             val pad2 = " " * (indent + 4)
             val pad3 = " " * (indent + 8)
             val pad4 = " " * (indent + 12)
@@ -973,7 +973,7 @@ object SwiftUIEmitter:
     def walk(v: View[?]): Unit = v match
       case dt: View.DataTable =>
         dt.source match
-          case TableDataSource.Remote(sig) => seen(sig.id) = dt
+          case TableDataSource.Remote(sig, _) => seen(sig.id) = dt
           case _ => ()
       case View.Column(ch, _, _, _)                     => ch.foreach(walk)
       case View.Row(ch, _, _, _)                        => ch.foreach(walk)
@@ -1008,7 +1008,7 @@ object SwiftUIEmitter:
       val pad = " " * indent
       dts.flatMap { dt =>
         dt.source match
-          case TableDataSource.Remote(sig) =>
+          case TableDataSource.Remote(sig, _) =>
             val rowState  = s"${pad}@State private var ${sig.id}: [[String: Any]] = []"
             val editState = if dt.columns.exists(_.editAction.isDefined) then
               Some(s"${pad}@State private var _edit_${sig.id}: [String: String] = [:]")
@@ -1023,7 +1023,7 @@ object SwiftUIEmitter:
       val pad = " " * indent
       dts.flatMap { dt =>
         dt.source match
-          case TableDataSource.Remote(sig) =>
+          case TableDataSource.Remote(sig, _) =>
             val fn      = s"_load_dt_${sig.id}"
             val tickIds = scala.collection.mutable.LinkedHashSet(sig.tickId)
             dt.actions.foreach {
@@ -1046,7 +1046,7 @@ object SwiftUIEmitter:
       val pad3 = " " * (indent + 8)
       dts.flatMap { dt =>
         dt.source match
-          case TableDataSource.Remote(sig) =>
+          case TableDataSource.Remote(sig, _) =>
             val hBlock    = headersBlock(sig.headersId, "_req", indent + 4)
             val hSep      = if hBlock.nonEmpty then "\n" + hBlock + "\n" else ""
             val fetch     = fetchDataLine(sig.headersId, "_req", indent + 8)

@@ -116,7 +116,7 @@ object ModelPathValidator:
       acc:    List[PathError]
   ): List[PathError] =
     val sigOpt: Option[FetchUrlSignal] = dt.source match
-      case TableDataSource.Remote(sig) => Some(sig)
+      case TableDataSource.Remote(sig, _) => Some(sig)
       case _                           => None
     sigOpt.flatMap(rowModelName) match
       case None => acc

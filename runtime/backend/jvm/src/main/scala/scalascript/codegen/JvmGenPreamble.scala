@@ -690,6 +690,14 @@ private[codegen] trait JvmGenPreamble:
          |    .filter(_.id != "__ssc_empty_headers").map(_.id)
          |  new scalascript.frontend.FetchUrlSignal(name, url, _tick.id, _hOpt)
          |
+         |// fetchRowsSource(sig, rowsPath): Scope B.3 — a managed-fetch Remote source whose
+         |// optional dotted envelope path (e.g. "result.items") is carried on the model so the
+         |// emitted client fetch JS drills it (StaticJsEmitter __ssc_rowsOf), matching the browser.
+         |def fetchRowsSource(sig: Any, rowsPath: Any = ""): Any =
+         |  scalascript.frontend.TableDataSource.Remote(
+         |    sig.asInstanceOf[scalascript.frontend.FetchUrlSignal],
+         |    Option(rowsPath).map(_.toString).filter(_ != "null").getOrElse(""))
+         |
          |def emptyHeaders: Any = new scalascript.frontend.ReactiveSignal[String]("__ssc_empty_headers", "")
          |
          |def fieldColumn(title: String, fieldPath: String, align: String = ""): Any =
@@ -710,9 +718,11 @@ private[codegen] trait JvmGenPreamble:
          |  scalascript.frontend.RowActionDef.RowLink(label,
          |    signal.asInstanceOf[scalascript.frontend.ReactiveSignal[String]], fieldPath)
          |
-         |def dataTableView(signal: Any, columns: Any, actions: Any): scalascript.frontend.View[?] =
-         |  scalascript.frontend.View.DataTable(
-         |    scalascript.frontend.TableDataSource.Remote(signal.asInstanceOf[scalascript.frontend.FetchUrlSignal]),
+         |def dataTableView(source: Any, columns: Any, actions: Any): scalascript.frontend.View[?] =
+         |  val _src = source match
+         |    case s: scalascript.frontend.TableDataSource => s
+         |    case s => scalascript.frontend.TableDataSource.Remote(s.asInstanceOf[scalascript.frontend.FetchUrlSignal])
+         |  scalascript.frontend.View.DataTable(_src,
          |    columns.asInstanceOf[List[scalascript.frontend.FieldColumnDef]],
          |    actions.asInstanceOf[List[scalascript.frontend.RowActionDef]])
          |

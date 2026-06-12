@@ -26,7 +26,7 @@ object DataTableLowering:
 
   def lower(dt: View.DataTable): View[?] =
     dt.source match
-      case TableDataSource.Remote(sig) =>
+      case TableDataSource.Remote(sig, _) =>
         val bindingVar = sig.id
         val itemVar    = "row"
         val headerRow  = elem("tr",

@@ -744,7 +744,7 @@ class SwiftUIEmitterTest extends AnyFunSuite:
     val view = View.Column(List(dt), 8, HAlign.Start, Style())
     val found = SwiftUIEmitter.collectDataTableSignals(view)
     def sigId(d: View.DataTable): String = d.source match
-      case TableDataSource.Remote(s) => s.id
+      case TableDataSource.Remote(s, _) => s.id
       case _ => ""
     assert(found.exists(sigId(_) == sig.id), s"DataTable not collected in: ${found.map(sigId)}")
   }

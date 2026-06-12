@@ -405,7 +405,7 @@ object SwingRuntime:
 
     def doFetch(): Unit =
       dt.source match
-        case TableDataSource.Remote(sig) =>
+        case TableDataSource.Remote(sig, _) =>
           state.fetchDispatcher.foreach { dispatcher =>
             val typeName = sig match { case fjs: FetchJsonSignal => fjs.modelTypeName; case _ => "" }
             val response = dispatcher.request("GET", sig.fetchUrl, "")
@@ -572,7 +572,7 @@ object SwingRuntime:
         case View.Toggle(checked, _, _) => add(acc, checked)
         case dt: View.DataTable =>
           val base = dt.source match
-            case TableDataSource.Remote(sig) => add(acc, sig)
+            case TableDataSource.Remote(sig, _) => add(acc, sig)
             case _ => acc
           dt.actions.foldLeft(base) {
             case (a, RowActionDef.RowDelete(_, _, tick, _))         => add(a, tick)

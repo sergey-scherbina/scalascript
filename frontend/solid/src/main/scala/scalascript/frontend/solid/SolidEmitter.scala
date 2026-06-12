@@ -379,7 +379,7 @@ private[solid] object SolidEmitter:
 
       case dt: View.DataTable =>
         dt.source match
-          case TableDataSource.Remote(sig) =>
+          case TableDataSource.Remote(sig, _) =>
             registerSignal(sig)
           case _ => ()
         dt.actions.foreach {
@@ -415,7 +415,7 @@ private[solid] object SolidEmitter:
         statements += s"$theadVar.appendChild($trHVar); $tableVar.appendChild($theadVar);"
         statements += s"const $tbodyVar = document.createElement('tbody'); $tableVar.appendChild($tbodyVar);"
         dt.source match
-          case TableDataSource.Remote(sig) =>
+          case TableDataSource.Remote(sig, _) =>
             val tableId  = sig.id
             val tickId   = sig.tickId
             val urlJs    = jsString(sig.fetchUrl)
@@ -1097,7 +1097,7 @@ private[solid] object SolidEmitter:
       case View.ForSignal(_, _, _, tmpl)            => tmpl.foreach(walk)
       case dt: View.DataTable =>
         dt.source match
-          case TableDataSource.Remote(sig) => checkSig(sig)
+          case TableDataSource.Remote(sig, _) => checkSig(sig)
           case _ => ()
       case _                                        => ()
     walk(view)

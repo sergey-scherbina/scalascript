@@ -310,10 +310,17 @@ enum ImageSource:
  *
  *  `Remote`     — classic behaviour: fetch from a `FetchUrlSignal`.
  *  `StaticRows` — data supplied at build time as a list of maps.
- *  `SignalRows`  — data driven by an arbitrary `ReactiveSignal[?]`. */
+ *  `SignalRows`  — data driven by an arbitrary `ReactiveSignal[?]`.
+ *
+ *  `Remote.rowsPath` (Scope B.3) is an optional dotted envelope path
+ *  (`result.items`) tried before the built-in `{data|rows|items|results}`
+ *  keys when normalising a fetched response to a row array. Empty = use the
+ *  built-in keys only. Carried on the shared model so the server-rendered
+ *  (custom / emit-jvm) fetch path can drill it, matching the JS browser
+ *  runtime's `_ssc_ui_rowsOf(v, rowsPath)`. */
 sealed trait TableDataSource
 object TableDataSource:
-  case class Remote(signal: FetchUrlSignal)                           extends TableDataSource
+  case class Remote(signal: FetchUrlSignal, rowsPath: String = "")    extends TableDataSource
   case class StaticRows(rows: List[Map[String, Any]])                 extends TableDataSource
   case class SignalRows(signal: ReactiveSignal[?])                    extends TableDataSource
 

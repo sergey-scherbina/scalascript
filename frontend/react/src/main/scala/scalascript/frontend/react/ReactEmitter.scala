@@ -424,7 +424,7 @@ private[react] object ReactEmitter:
     ViewTraversal.foreachDepthFirst(view, ViewTraversal.Options.Web) {
       case dt: View.DataTable =>
         dt.source match
-          case TableDataSource.Remote(sig) if !seen.contains(sig.id) => seen(sig.id) = sig
+          case TableDataSource.Remote(sig, _) if !seen.contains(sig.id) => seen(sig.id) = sig
           case _ => ()
       case _ => ()
     }
