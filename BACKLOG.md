@@ -306,8 +306,15 @@ for database primary keys and event IDs. Spec: [`specs/uuid.md`](specs/uuid.md).
 - [x] **uuid-p3** — JS backend: done 2026-06-04.
 - [x] **uuid-p4** — Opaque boundary hardening + effect system integration: done 2026-06-04.
 - [x] **uuid-p5** — Direct/raw tier: done 2026-06-04 (bundled with p4).
-- [ ] **uuid-p6** (optional) — JVM monotonic v7 counter (`rand_a` counter within same
-      millisecond, `Uuid.v7Monotonic(): Uuid ! SideEffect` explicit opt-in).
+- [x] **uuid-p6** — ✓ Landed 2026-06-12 (`bcb687ec3`; bookkeeping closed out 2026-06-12).
+      `Uuid.v7Monotonic(): Uuid ! SideEffect` — a strictly-increasing-within-a-millisecond
+      v7 generator (RFC 9562 §6.2 Method 1: `rand_a` 12-bit dedicated counter seeded in the
+      lower half each new ms, increment within the ms, spin-to-next-ms + reseed on overflow,
+      clock-rewind guard). Shipped on **both** JVM (`UuidIntrinsics.generateV7Monotonic`,
+      `monoLock`-synchronized) and JS (`JsRuntimePart2b.uuidV7Monotonic`) — the spec's
+      original "JVM-only / no JS equivalent" note was superseded. Surface: `uuid.ssc`
+      `extern def v7Monotonic(): Uuid`. Tests: `UuidPluginTest` (valid v7 + strictly
+      increasing across many same-process calls). Completes the UUID milestone.
 
 ## Crypto primitives — v1.66
 

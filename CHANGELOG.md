@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — feat(uuid): uuid-p6 — monotonic v7 (closes the UUID milestone)
+
+- `Uuid.v7Monotonic(): Uuid ! SideEffect` — a strictly-increasing-within-a-millisecond v7
+  generator (RFC 9562 §6.2 Method 1: `rand_a` 12-bit dedicated counter, seed-in-lower-half /
+  increment / overflow-spin / clock-rewind guard). Shipped on **both** JVM
+  (`UuidIntrinsics.generateV7Monotonic`) and JS (`JsRuntimePart2b.uuidV7Monotonic`),
+  surfaced as `uuid.ssc`'s `v7Monotonic()`. The generator code landed in `bcb687ec3`; this
+  entry closes out the BACKLOG/spec bookkeeping (the item was left as an open `[ ]` and the
+  spec still said "optional / no JS equivalent"). `UuidPluginTest` green (17 cases incl. the
+  2 monotonic ones). The UUID milestone (p1–p6) is now complete.
+
 ## 2026-06-12 — fix(typer): nominal subtyping for `case class … extends Trait`
 
 - busi (testbed) hit a confusing, name-dependent error building its

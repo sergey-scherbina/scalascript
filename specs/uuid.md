@@ -1,6 +1,6 @@
 # UUID Support — Spec
 
-**Status:** Active — p1/p2/p3/p4/p5 landed 2026-06-04; p6 optional  
+**Status:** COMPLETE — p1/p2/p3/p4/p5 landed 2026-06-04; p6 (monotonic v7) landed 2026-06-12 on JVM **and** JS  
 **Milestone:** v1.65 — UUID Library  
 **Primary goal:** UUID v7 (time-ordered) for database primary keys
 
@@ -285,11 +285,18 @@ No existing public API changes. `Random.uuid()` remains.
 - `Uuid.rawV4(): Uuid` + `Uuid.rawV7(): Uuid` — public `.ssc` wrappers without `! SideEffect` annotation; for library authors and interop code
 - `rawUuidV4(): Uuid` + `rawUuidV7(): Uuid` — backend intrinsic names used by the interpreter/JS runtime
 
-### Phase 6 — Monotonic v7 counter (`uuid-p6`, optional)
+### ✓ Phase 6 — Monotonic v7 counter (`uuid-p6`, landed 2026-06-12, `bcb687ec3`)
 
-- JVM thread-local counter in `rand_a` for within-millisecond monotonicity (RFC 9562 §6.2)
-- `Uuid.v7Monotonic(): Uuid ! SideEffect` as explicit opt-in; default `v7()` stays CSPRNG-only
-- No JS equivalent
+- `rand_a` (12 bits, bits 52–63) used as a dedicated within-millisecond counter (RFC 9562
+  §6.2 Method 1): seed in the lower half (11 bits) each new ms for increment headroom,
+  advance by 1 within the same ms, and on overflow (>0xFFF) spin to the next ms + reseed.
+  A clock-rewind guard never moves the timestamp backwards. Because `rand_a` is more
+  significant than `rand_b`, a larger counter always yields a lexicographically larger UUID.
+- `Uuid.v7Monotonic(): Uuid ! SideEffect` as explicit opt-in; default `v7()` stays CSPRNG-only.
+- **Shipped on both backends** (the original "JVM-only / no JS equivalent" plan was superseded):
+  JVM `UuidIntrinsics.generateV7Monotonic` (guarded by `monoLock`) and JS
+  `JsRuntimePart2b.uuidV7Monotonic` (mirrors the same algorithm). Tests: `UuidPluginTest`
+  (valid v7 + strictly increasing across many same-process calls).
 
 ## 6. Testing strategy
 
