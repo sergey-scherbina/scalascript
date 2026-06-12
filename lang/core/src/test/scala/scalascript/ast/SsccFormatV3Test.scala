@@ -379,6 +379,44 @@ val result: Int = fib(10)
     assert(cb.get.source.contains("result"))
   }
 
+  test("v3 phase-B: native `=>>` type lambda survives round-trip") {
+    val ssc = """
+# TL
+
+```scalascript
+type IntMap = [V] =>> Map[Int, V]
+```
+"""
+    val m  = parseModule(ssc)
+    val m2 = roundtrip(m)
+    val cb = m2.sections.head.content.collectFirst { case cb: Content.CodeBlock => cb }
+    assert(cb.isDefined)
+    assert(cb.get.source.contains("=>>"), "the `=>>` token must survive the token stream")
+    // `.toString` on a scalameta tree reconstructs source — the lambda is preserved.
+    assert(cb.get.tree.get.tree.toString.contains("=>>"))
+  }
+
+  test("v3 phase-B: placeholder type lambda is desugared on read (cache == direct parse)") {
+    // The token stream stores the placeholder verbatim (`Map[Int, _]`); the read
+    // path applies the same tree-level desugar the direct Parser parse does, so a
+    // `.sscc`-cached block does not silently revert to a wildcard.
+    val ssc = """
+# TL
+
+```scalascript
+type IntKey = Map[Int, _]
+def f(): IntKey[Long] = ???
+```
+"""
+    val m  = parseModule(ssc)
+    val m2 = roundtrip(m)
+    val cb = m2.sections.head.content.collectFirst { case cb: Content.CodeBlock => cb }
+    assert(cb.isDefined)
+    assert(cb.get.source.contains("Map[Int, _]"), "token stream keeps the placeholder source")
+    assert(cb.get.tree.get.tree.toString.contains("[A] =>> Map[Int, A]"),
+      s"placeholder must desugar to a type lambda on read, got:\n${cb.get.tree.get.tree}")
+  }
+
   // ─── Size comparison ─────────────────────────────────────────────────────
 
   test("v3 vs v2 size delta on a real .ssc file (informational)") {

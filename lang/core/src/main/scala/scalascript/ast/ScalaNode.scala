@@ -25,11 +25,17 @@ object ScalaNode:
   def deferred(src: String): ScalaNode =
     new ScalaNode(() =>
       import scala.meta.*
+      // Apply the placeholder type-lambda desugar (`type X = Map[Int, _]` →
+      // `[A] =>> Map[Int, A]`) so a `.sscc`-cached block matches the direct
+      // `Parser` parse. The token stream stores the placeholder source verbatim
+      // (the desugar is a tree rewrite, not a string preprocessor), so a raw parse
+      // alone would lose the type-lambda meaning. Native `=>>` round-trips already.
+      val desugar = scalascript.parser.Parser.desugarTypeLambdaAliases
       dialects.Scala3(Input.VirtualFile("<sscc>", src)).parse[Source] match
-        case Parsed.Success(t) => t
+        case Parsed.Success(t) => desugar(t)
         case _: Parsed.Error =>
           s"{\n$src\n}".parse[Term] match
-            case Parsed.Success(t) => t
+            case Parsed.Success(t) => desugar(t)
             case Parsed.Error(_, msg, _) =>
               throw new IllegalStateException(
                 s"sscc v3 lazy parse failed (format invariant violated): $msg")

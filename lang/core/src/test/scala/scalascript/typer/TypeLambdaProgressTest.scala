@@ -2,6 +2,7 @@ package scalascript.typer
 
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.artifact.InterfaceScope
+import scalascript.ast.{Content, Section, SsccFormat}
 import scalascript.parser.Parser
 
 /** PROGRESS TRACKER for type-level lambdas (sprint `type-lambda-p1/p2/p3`).
@@ -115,8 +116,29 @@ class TypeLambdaProgressTest extends AnyFunSuite:
     assert(node.exists(_.tree.toString.contains("[A] =>> Map[Int, A]")),
       node.map(_.tree.toString).getOrElse("parse failed"))
 
-  test("[target] type lambda survives a `.sscc` v3 artifact round-trip"):
-    pending // p2b: artifact stability
+  /** Parse → write `.sscc` v3 → read back → reconstructed source of the first
+   *  code block's re-parsed tree. The `.sscc` read re-parses from a token stream
+   *  and applies the placeholder type-lambda desugar, so both surfaces come back
+   *  as `=>>` (native via its stored token, placeholder via the read-side desugar). */
+  private def ssccRoundtripBlockTree(ssc: String): String =
+    val m  = Parser.parse(ssc)
+    val m2 = SsccFormat.read(SsccFormat.write(m)).fold(e => sys.error(s".sscc read: $e"), identity)
+    def blocks(s: Section): List[Content.CodeBlock] =
+      s.content.collect { case c: Content.CodeBlock => c } ++ s.subsections.flatMap(blocks)
+    m2.sections.flatMap(blocks).headOption
+      .flatMap(_.tree).map(_.tree.toString).getOrElse("<no code block tree>")
+
+  test("[done] type lambda survives a `.sscc` v3 artifact round-trip"):
+    // Native `=>>` round-trips via its stored `=>>` token.
+    val native = ssccRoundtripBlockTree(
+      "# M\n\n```scalascript\ntype IntMap = [V] =>> Map[Int, V]\n```\n")
+    assert(native.contains("=>>"), s"native lambda lost in round-trip:\n$native")
+    // Placeholder `Map[Int, _]` round-trips because the read path applies the
+    // same desugar the direct Parser parse does (otherwise it reverts to a wildcard).
+    val placeholder = ssccRoundtripBlockTree(
+      "# M\n\n```scalascript\ntype IntKey = Map[Int, _]\ndef f(): IntKey[Long] = ???\n```\n")
+    assert(placeholder.contains("[A] =>> Map[Int, A]"),
+      s"placeholder lambda lost in round-trip:\n$placeholder")
 
   test("[target] beta-reduction `([X] =>> F[X])[A]` == `F[A]` in `ssc check`"):
     pending // p3 (optional): only if a typed backend / strict check motivates it

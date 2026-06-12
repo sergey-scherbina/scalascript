@@ -2151,6 +2151,17 @@ object Parser:
         sb.append(c); i += 1
     sb.toString
 
+  /** Public entry for the `.sscc` v3 read path (`ScalaNode.deferred`): apply the
+   *  placeholder→`=>>` type-lambda desugar to an already-parsed tree. The `.sscc`
+   *  read reconstructs source from a post-preprocess token stream and raw-parses it
+   *  (it does NOT run a `Parser` pass), so without this a placeholder alias
+   *  `type X = Map[Int, _]` comes back as a wildcard instead of a type lambda — a
+   *  cache-vs-direct-parse divergence. Native `[A] =>> …` already round-trips via the
+   *  stored `=>>` token. No preprocessing is re-run (tokens are stored post-preprocess);
+   *  this is a pure tree rewrite. */
+  def desugarTypeLambdaAliases(tree: scala.meta.Tree): scala.meta.Tree =
+    desugarPlaceholderTypeAliases(tree)
+
   /** Desugar placeholder type-lambda aliases to the native `=>>` form so every
    *  consumer (interp/jvm/js/rust + interface artifacts) sees one canonical shape.
    *  `type X = Map[Int, _]` → `type X = [A] =>> Map[Int, A]` (each `_` → a fresh
