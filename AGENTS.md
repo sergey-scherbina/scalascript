@@ -5,7 +5,7 @@
 
 ## MANDATORY: required skills
 
-Two skills govern how all feature work is done. Read their full instructions
+Three skills govern how all feature work is done. Read their full instructions
 before starting any implementation. Skill files are in the `.agents/plugins/`
 submodule which is **only initialized in the shared main repo** — do NOT run
 `git submodule update --init` inside a worktree.
@@ -18,8 +18,16 @@ MAIN=$(git worktree list | head -1 | awk '{print $1}')
 
 | Skill | File (relative to `$MAIN`) | When to use |
 |---|---|---|
+| `scrumban` | `.agents/plugins/scrumban/commands/scrumban.md` | **Always** — durable planning: write-before-do, SPRINT/BACKLOG hygiene, crash-resilient resume |
 | `spec-dev` | `.agents/plugins/spec-dev/commands/spec-dev.md` | Every new feature or change |
 | `multi-agent` | `.agents/plugins/multi-agent/commands/multi-agent.md` | Autonomous loop / queue work |
+
+**scrumban rules (non-negotiable):**
+- **Write the plan before you execute it.** Before starting a task, write it into
+  `SPRINT.md` (do-soon) or `BACKLOG.md` (can-wait) with enough "what + how" that a
+  fresh agent — or you after a reboot mid-task — can finish it without you.
+- Queue follow-ups/deferrals the moment you decide them; never carry them only in
+  context. A reboot between "decide" and "finish" orphans unrecorded work.
 
 **spec-dev rules (non-negotiable):**
 - Read `specs/jit-completeness.md` (or the relevant feature spec) before starting any implementation.
@@ -127,6 +135,19 @@ context that is not written down is one `/clear` away from being lost.**
 
 Treat persistence as a **continuous activity**, not an end-of-session
 chore. The moment you learn something durable, record it.
+
+**Persist the *plan*, not just the *findings*.** The section above is about
+recording what you have *learned*; this is about recording what you are *about
+to do*. **Before you start a task, write it into `SPRINT.md` (do-soon) or
+`BACKLOG.md` (can-wait)** with enough "what + how" that a fresh agent — or you
+after a reboot — can pick it up and finish it. A machine can reboot, or your
+context can clear, *between deciding to do something and finishing it*; if the
+plan only lived in your head, that work is orphaned. Rule of thumb: **if you want
+to do something, queue it first, then calmly do it.** Discoveries you make
+mid-task (a follow-up, a deferred edge case) get the same treatment — queue the
+follow-up the moment you decide to defer it. The full discipline (the scrumban
+board: SPRINT vs BACKLOG, write-before-do, claim/done hygiene) is in the
+`scrumban` skill.
 
 **What to persist:**
 
