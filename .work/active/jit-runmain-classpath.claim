@@ -1,6 +1,0 @@
-jit-runmain-classpath 2026-06-12T20:01:01Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-12T20:01:01Z
-status: in-progress
-done-so-far: getTask options=null → javac default classpath lacks runtime classes in sbt → bail. Fix: pass -classpath from running classloader URLs + java.class.path.
-next: add jitClasspath helper in JavacJitBackend, pass to all 5 getTask calls; verify JIT compiles in sbt (was bailing); full suite stays green (crash-guard bails latent bugs harmlessly)

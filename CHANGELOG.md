@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-12 — fix(jit): pass the running classpath to the runtime javac JIT
+
+- The runtime `javac` JIT's `getTask` calls used `options=null`, so javac fell back to
+  its default classpath (`.`, not `java.class.path`) and bailed to tree-walk under sbt
+  `runMain`/unforked runs. New `jitClasspathOptions` harvests the classloader URLs +
+  `java.class.path` and passes `-classpath`, so the JIT compiles in every launch mode
+  (harmless — tryCompile already catches Throwable). Finding: the forked test suite
+  already compiled the JIT via `java.class.path`, so JIT codegen is in-sbt testable
+  (no fat jar needed). Regress: JitClasspathTest. backendInterpreter 1680 green.
+
+---
+
 ## 2026-06-12 — docs(direct-style-eval): p1 spike → DEFER (data-backed go/no-go)
 
 - Resolved the direct-style-eval strategic question with a cheap JFR-profile-first gate

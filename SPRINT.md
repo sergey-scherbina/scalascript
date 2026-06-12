@@ -82,7 +82,17 @@ flakily hangs Ã¢ÂÂ use the 332-test targeted set if it won't pass).
       `EvalRuntime` while-JIT sites) with `catch Throwable => null` Ã¢ÂÂ bails to
       tree-walk, never crashes. Spec `specs/jit-crash-safety-and-cli-classpath.md`.
       Spun off two follow-ups below.
-- [ ] **jit-runmain-classpath** Ã¢ÂÂ pass the running classloader's URLs as `-classpath`
+- [x] **jit-runmain-classpath** — DONE 2026-06-12. `jitClasspathOptions` harvests the
+      running classloader's URLClassLoader URLs + `java.class.path` and passes them as
+      `-classpath` to the 5 runtime-javac `getTask` calls (was `options=null` → javac's
+      default classpath `.` → bail under runMain). FINDING (corrects the orig note): under
+      sbt's *forked* test suite `java.class.path` already carries the runtime classes, so
+      the javac JIT was ALREADY compiling + tested there (verified `canResolveRuntime(null)`
+      = true in a forked test). Fix is load-bearing for unforked `runMain` + robustness.
+      **Key unblock: since the forked suite compiles the JIT, JIT codegen bugs (e.g.
+      jit-walklocalslotctx-so) ARE in-sbt testable — no fat jar needed.** Regress:
+      JitClasspathTest. backendInterpreter 1680 green (unchanged → harmless). [orig:]
+- [x] **jit-runmain-classpath (orig)** Ã¢ÂÂ pass the running classloader's URLs as `-classpath`
       to the runtime javac (`compiler.getTask` options) so the javac JIT compiles
       under sbt/`runMain` too Ã¢ÂÂ making the codegen *actually tested* by the suite and
       removing the diagnosis trap. RISK: latent JIT codegen bugs start firing in tests
