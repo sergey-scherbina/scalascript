@@ -55,49 +55,49 @@ the type annotation is dropped at runtime. **rust** uses real types, so it
 an application `Pair[Long]` substitutes the params in the body (`substType`) and
 maps the result — `Pair[Long]` → `(Long, Long)` → `(i64, i64)`. Status
 (`bench.sh`): native `[X] =>> F[X]` is **green on all five backends**
-(ssc/ssc-asm/jvm/js/rust). The placeholder form is green on ssc/js but `n/a` on
-jvm/rust until p2b.
+(ssc/ssc-asm/jvm/js/rust). The placeholder form is **also green on all five
+backends** since p2b (see §5b).
 
-## 5b  Placeholder status + the jvm blocker (2026-06-12)
+## 5b  Placeholder status — green on all backends (2026-06-12)
 
 `type-lambda-placeholder` (`Either[_, Int]` applied as `RightInt[String]`) is green
-on **ssc / ssc-asm / js / rust**, `n/a` on **jvm**.
+on **all five backends** (ssc / ssc-asm / jvm / js / rust).
 
-- **rust** ✓ — `collectTypeLambdaAliases` + `desugarPlaceholders` turn an alias RHS
-  with `_` into `[A] =>> body` and the existing reduction maps `RightInt[String]`
-  → `Either<String, i64>`.
+The jvm blocker was resolved at the **parser/AST level** (the "cleaner alternative"
+below), not via an `emitStat` arm: `Parser.desugarPlaceholderTypeAliases` rewrites a
+`type` alias RHS containing `_` to the native `type RightInt = [A] =>> Either[A, Int]`
+right after parsing, so **every consumer (interp/jvm/js/rust + artifacts) sees one
+canonical native form**. `JvmGenTermAnalysis.blockContainsTypeLambda` then routes any
+block declaring a `Type.Lambda` through the tree-emit (`emitStats`) instead of verbatim
+`block.src`, so Scala 3 receives the lambda rather than a wildcard.
+
+- **rust** ✓ — `collectTypeLambdaAliases` + `desugarPlaceholders` (codegen-side) reduce
+  `RightInt[String]` → `Either<String, i64>`.
 - **interp / js** ✓ — erase the annotation.
-- **jvm** ✗ — JvmGen passes a `type` alias through verbatim, and **Scala 3 reads
-  `type RightInt = Either[_, Int]` as a WILDCARD, not a lambda**, so `RightInt[String]`
-  fails ("does not take type parameters"). The fix is to desugar the placeholder
-  alias to the native `type RightInt = [A] =>> Either[A, Int]` (which Scala 3
-  accepts — the native form is already green on jvm).
-  **BLOCKER (recorded):** an `emitStat` arm that does this desugaring **never
-  fires** — a top-level user `type` alias reaches the emitted Scala via a path
-  **other than `emitStat`** (verified: a forced-rebuilt arm before the `.syntax`
-  catch-all had no effect; the alias still printed verbatim). This is the SAME
-  "top-level user declaration bypasses the obvious emitter" trap documented for the
-  effect CPS work in `specs/effect-cps-loops.md`. FIRST STEP: map where JvmGen
-  actually emits a top-level `Defn.Type` (it is not `emitStats`/`emitStat`). A
-  cleaner alternative that fixes jvm AND unifies parseSType: desugar placeholder
-  aliases to native `=>>` at the **parser/AST** level (post-parse `Defn.Type`
-  rewrite), so every consumer sees the native form.
+- **jvm** ✓ — sees the desugared native `=>>` and applies it like any type lambda.
+
+The desugar covers **top-level aliases AND aliases nested at any depth inside
+`object`/`trait`/`class` bodies** (`type-lambda-nested-aliases`, 2026-06-12 — it
+recurses into `templ.body.stats`, reconstructing a template only when a member
+actually changed so unrelated nodes keep their original positions). Why the desugar
+is unconditional for an alias RHS: ScalaScript has no existentials, so an alias whose
+RHS contains `_` is always a type-constructor (it gets applied). The interface-artifact
+parser `parseSType` deliberately keeps a use-site `Map[Int, _]` a wildcard `Named`
+(`ParseSTypeTest` pins this) — it has no use-site context to disambiguate a
+partial-application lambda from a wildcard.
 
 ## 6  Follow-ups
 
-- **p2b — placeholder desugaring (NEEDS CONTEXT — not a naive parser tweak):**
-  `_` is **context-dependent**. In a *value-type* position `Map[Int, _]` is a
-  wildcard (`Map[Int, ?]`) and must stay `Named("Map", [Int, _])` —
-  `ParseSTypeTest` "mixed `_` … stays a Named app" pins this on purpose. It is a
-  *type lambda* only in a *type-constructor* position — a `type` alias whose result
-  is later applied (`type IntKey = Map[Int, _]; … IntKey[Long]`). So desugaring
-  `F[a, _, b]` → `TypeLambda([X], F[a, X, b])` must be driven by the *use site*
-  (alias-RHS-that-gets-applied), not by `parseSType` blindly. Approach: detect the
-  alias-applied case in the typer/normalizer, or only desugar when the alias is
-  used with type args. Until then `Map[Int, _]` runs via erasure on interp/js
-  (green) and is `n/a` on jvm/rust. Flip the two `[target]` desugaring tests when
-  done.
-- **p2b — `.sscc` v3 artifact round-trip** for `TypeLambda`.
+- ~~**p2b — placeholder desugaring**~~ ✓ DONE 2026-06-12. Resolved at the
+  parser/AST level (`Parser.desugarPlaceholderTypeAliases`): an alias RHS with `_`
+  is unconditionally a type-constructor (no existentials in ScalaScript), so it is
+  rewritten to native `=>>` at parse time — top-level and nested in
+  `object`/`trait`/`class` bodies (`type-lambda-nested-aliases`). `parseSType` keeps
+  a use-site `Map[Int, _]` a wildcard `Named` by design (no use-site context). Green
+  on all five backends; see §5b.
+- **p2b — `.sscc` v3 artifact round-trip** for `TypeLambda` (one pending
+  `TypeLambdaProgressTest` case; `SsccFormatV3` already has a `TypeLambdaArrow` token,
+  so confirm + flip, else wire it).
 - **p3 (optional) — semantics:** β-reduce `([X] =>> F[X])[A]` → `F[A]` in
   `ssc check` + HKT bound checking. Only if a typed backend / strict check needs it.
 - ~~**rust:** decide whether to erase or diagnose type lambdas.~~ ✓ DONE
