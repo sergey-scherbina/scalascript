@@ -106,19 +106,20 @@ ScalaScript is interpreter-first → types are erased at runtime, so "implementa
 parse + `SType` representation + show/parseSType round-trip; real reduction/unification is an
 optional later phase (only matters for `ssc check` and typed backends).
 
-- [ ] **type-lambda-p1-spec** — SYNTAX DECIDED 2026-06-12: support **BOTH** (a) placeholder
-      `Map[Int, _]` short form (each `_` = a fresh lambda param, bound left-to-right in source
-      order; `_` is free — ScalaScript has no existentials) AND (b) Scala-3 native
-      `[X] =>> F[X]` for full control / reorder / multi-param / Scala copy-paste. Equivalent:
-      `Map[Int, _]` desugars to `[X] =>> Map[Int, X]`. DELIVERABLE: write
-      `specs/type-level-lambdas.md` — grammar for both surfaces, the `_`→`=>>` desugaring
-      (param order = source order of `_`), `SType.TypeLambda(params, body)` shape, canonical
-      `show` = `=>>` (`_` is sugar-in only), parseSType round-trip, and that all runtime
-      backends ignore it (surface-only, like HKT/Match).
-- [ ] **type-lambda-p2-parse-represent** — add `SType.TypeLambda(params, body)`; parse the
-      agreed surface in type position; `show`/`parseSType` round-trip; `.sscc` v3 artifact
-      round-trip. Accept partial application `Map[Int, _]` and named forms. Tests: parse +
-      round-trip + interface-artifact stability. NO semantics yet (no reduction).
+- [x] **type-lambda-p1-spec** — ✓ DONE 2026-06-12. `specs/type-level-lambdas.md` written
+      (both surfaces, `_`→`=>>` desugaring, `SType.TypeLambda` shape, surface-only erasure).
+- [x] **type-lambda-p2-parse-represent (part 1: native `=>>`)** — ✓ DONE 2026-06-12. Native
+      `[X] =>> F[X]` / `[A, B] =>> Map[B, A]` now parse + run + round-trip across interp/jvm/js.
+      Root cause was `Parser.preprocessListLiterals` rewriting `[A]` after `= ` into `List(A)`
+      — fixed by detecting `[…] =>>` as a type-param clause. Added `SType.TypeLambda` +
+      `show` + `containsAny` + `parseSType` native parse. `bench.sh` `type-lambda-native`
+      flipped n/a→green on ssc/ssc-asm/jvm/js (rust n/a). TypeLambdaProgressTest 10 pass / 4
+      pending. core 950 green, interp 1666 green. FOLLOW-UPS (p2b): placeholder `_`→`=>>`
+      desugaring in parseSType (2 pending tests), `.sscc` v3 round-trip, and rust lowering
+      (still n/a). `type-lambda-placeholder` is green on ssc/js, n/a on jvm/rust until p2b.
+- [ ] **type-lambda-p2b** — placeholder desugaring (`Map[Int, _]` → `TypeLambda`) in
+      parseSType + `.sscc` round-trip + rust decision (erase vs diagnose). Flips the remaining
+      pending TypeLambdaProgressTest cases and the `type-lambda-placeholder` jvm/rust cells.
 - [ ] **type-lambda-p3-semantics (optional, later)** — beta-reduce type lambdas in `ssc
       check` (apply `([X] =>> F[X])[A]` → `F[A]`) + HKT bound checking. Only if a real
       use-case (typed JS/Rust backend, or `ssc check` strictness) motivates it.

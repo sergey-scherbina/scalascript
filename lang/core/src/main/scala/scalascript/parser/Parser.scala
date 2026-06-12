@@ -1634,7 +1634,18 @@ object Parser:
           val lastIdx = out.length - 1
           val j = { var k = lastIdx; while k >= 0 && out.charAt(k).isWhitespace do k -= 1; k }
           val hadSpaceBefore = j < lastIdx   // whitespace existed between prev token and `[`
-          val isTypeParam = j >= 0 && {
+          // `[X] =>> …` — a type-lambda parameter clause is a type-param list, never
+          // a list literal, even after `=` / an operator (`type F = [A] =>> G[A]`).
+          // Detect by peeking past the matching `]` for the `=>>` arrow.
+          val isTypeLambdaParams = {
+            val close = findClose(i + 1)
+            close >= 0 && {
+              var k = close + 1
+              while k < n && in(k).isWhitespace do k += 1
+              k + 2 < n && in(k) == '=' && in(k + 1) == '>' && in(k + 2) == '>'
+            }
+          }
+          val isTypeParam = isTypeLambdaParams || j >= 0 && {
             val c = out.charAt(j)
             if c == ')' || c == ']' then true
             else if c.isLetterOrDigit || c == '_' then

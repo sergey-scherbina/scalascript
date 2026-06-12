@@ -47,6 +47,13 @@ enum SType:
    *  `show` / `parseSType` so interface artifacts retain the declared
    *  shape verbatim. */
   case Match(scrutinee: SType, cases: List[MatchCase])
+  /** Type lambda — `[X] =>> F[X]` (Scala-3 native) or its placeholder short form
+   *  `F[Int, _]` (each `_` desugars to a fresh param, bound left→right). Like
+   *  HigherKinded / Match it is SURFACE-ONLY: never reduced or unified, it just
+   *  round-trips through `show` / `parseSType` (canonical form `[params] =>> body`)
+   *  so interface artifacts retain the declared shape. `params` are the bound
+   *  type-parameter names. */
+  case TypeLambda(params: List[String], body: SType)
   /** An effect row `{ Eff1, Eff2[T], … }` with an optional open tail variable.
    *  Ops may be non-parameterized (`Logger`) or parameterized (`Stream[A]`, `State[S, A]`).
    *  Only appears as the `effects` field of `SType.Function`; never stands alone as a value type. */
@@ -84,6 +91,8 @@ enum SType:
     case Match(scrutinee, cases) =>
       val body = cases.map(c => s"case ${c.pattern.show} => ${c.rhs.show}").mkString("; ")
       s"${showMatchScrutinee(scrutinee)} match { $body }"
+    case TypeLambda(params, body) =>
+      s"[${params.mkString(", ")}] =>> ${body.show}"
     case EffectRow(_, ops)    => s"{ ${ops.map(_.show).mkString(", ")} }"
     case Error(msg)           => s"<error: $msg>"
 
@@ -152,6 +161,7 @@ enum SType:
       scrutinee.containsAny ||
       cases.exists(c => c.pattern.containsAny || c.rhs.containsAny)
     case EffectRow(_, ops)                => ops.exists(op => op.args.exists(_.containsAny))
+    case TypeLambda(_, body)              => body.containsAny
     case Var(_) | HigherKinded(_, _) | Error(_) => false
 
   def subst(m: scala.collection.immutable.IntMap[SType]): SType =

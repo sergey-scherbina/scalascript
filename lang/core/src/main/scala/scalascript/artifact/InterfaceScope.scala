@@ -195,6 +195,30 @@ object InterfaceScope:
         pos += 2; true
       else false
 
+    /** Match the type-lambda arrow `=>>` (preceded by optional ws). */
+    private def consumeFatArrow(): Boolean =
+      skipWs()
+      if pos + 2 < len && s.charAt(pos) == '=' && s.charAt(pos + 1) == '>' && s.charAt(pos + 2) == '>' then
+        pos += 3; true
+      else false
+
+    /** Parse `[A, B] =>> body` into `SType.TypeLambda(List("A","B"), body)`.
+     *  Called only when `peek == '['`. */
+    private def parseTypeLambda(): Option[SType] =
+      if !consume('[') then return None
+      val params = scala.collection.mutable.ListBuffer.empty[String]
+      skipWs()
+      if peek != ']' then
+        var more = true
+        while more do
+          parsePath() match
+            case Some(name) => params += name
+            case None       => return None
+          more = consume(',')
+      if !consume(']') then return None
+      if !consumeFatArrow() then return None
+      parseType().map(body => SType.TypeLambda(params.toList, body))
+
     /** A dotted identifier path, e.g. `foo.Bar.Baz`.  Returns the joined
      *  name (with dots preserved) or `None` if no ident starts here. */
     private def parsePath(): Option[String] =
@@ -241,6 +265,10 @@ object InterfaceScope:
      *  level only when it stands alone (no `|` / `&` follows).
      */
     def parseType(): Option[SType] =
+      skipWs()
+      // A `[` at the START of a type can only begin a type lambda `[X] =>> body`
+      // (HigherKinded shows as `F[_]` — name first; tuples as `(...)`).
+      if peek == '[' then return parseTypeLambda()
       parseUnion().flatMap { lhs =>
         skipWs()
         if consumeArrow() then

@@ -43,40 +43,51 @@ class TypeLambdaProgressTest extends AnyFunSuite:
     assert(parseT("Map[Int, _]") ==
       SType.Named("Map", List(SType.Int, SType.Named("_", Nil))))
 
-  test("[now] Scala-3 native `[X] =>> F[X]` is unrepresented (falls back to Any)"):
-    // No `SType.TypeLambda` case exists yet; the artifact parser can't model it.
-    assert(parseT("[X] =>> List[X]") == SType.Any)
+  test("[now] Scala-3 native `[X] =>> List[X]` parses to a TypeLambda (p2)"):
+    assert(parseT("[X] =>> List[X]") ==
+      SType.TypeLambda(List("X"), SType.Named("List", List(SType.Named("X", Nil)))))
 
   test("[now] HKT type param `F[_]` parses in source (trait Functor[F[_]])"):
     assert(srcParses("trait Functor[F[_]]:\n  def unit[A](a: A): F[A]"))
 
-  test("[now] Scala-3 native type lambda does NOT parse in a `type` alias yet"):
-    assert(!srcParses("type IntMap = [V] =>> Map[Int, V]"))
+  test("[now] Scala-3 native type lambda NOW parses in a `type` alias (p2)"):
+    assert(srcParses("type IntMap = [V] =>> Map[Int, V]"))
 
   // ════════════════════════════════════════════════════════════════════════
   // TARGET — `pending` until `type-lambda-p2`. Flip each as it lands.
   // ════════════════════════════════════════════════════════════════════════
 
-  test("[target] SType.TypeLambda(params, body) exists and shows as `=>>`"):
-    pending // p2: add the SType case + canonical show
+  test("[done] SType.TypeLambda(params, body) exists and shows as `=>>` (p2)"):
+    assert(SType.TypeLambda(List("X"),
+      SType.Named("F", List(SType.Named("X", Nil)))).show == "[X] =>> F[X]")
 
-  test("[target] native `[X] =>> Map[Int, X]` parses to a TypeLambda"):
-    pending // p2: parseSType + source parser
+  test("[done] native `[X] =>> Map[Int, X]` parses to a TypeLambda (p2)"):
+    assert(parseT("[X] =>> Map[Int, X]") ==
+      SType.TypeLambda(List("X"),
+        SType.Named("Map", List(SType.Int, SType.Named("X", Nil)))))
+
+  test("[done] multi-param `[A, B] =>> Map[B, A]` binds both params (p2)"):
+    assert(parseT("[A, B] =>> Map[B, A]") ==
+      SType.TypeLambda(List("A", "B"),
+        SType.Named("Map", List(SType.Named("B", Nil), SType.Named("A", Nil)))))
+
+  test("[done] type lambda round-trips through show/parseSType (p2)"):
+    val t = SType.TypeLambda(List("V"),
+      SType.Named("Map", List(SType.Int, SType.Named("V", Nil))))
+    assert(parseT(t.show) == t)
+
+  test("[done] `type` alias with a type lambda parses in source — both surfaces (p2)"):
+    assert(srcParses("type IntMap = [V] =>> Map[Int, V]"))
+    assert(srcParses("type IntMap = Map[Int, _]"))
 
   test("[target] placeholder `Map[Int, _]` desugars to `[X] =>> Map[Int, X]`"):
-    pending // p2: `_` → fresh param, left→right; equivalent to the native form
+    pending // p2b: `_` → fresh param, left→right; equivalent to the native form
 
   test("[target] two placeholders `Either[_, _]` bind in source order"):
-    pending // p2: `[A, B] =>> Either[A, B]`
-
-  test("[target] type lambda round-trips through show/parseSType"):
-    pending // p2: parse(t.show) == t for a TypeLambda
-
-  test("[target] `type` alias with a type lambda parses in source (both surfaces)"):
-    pending // p2: `type IntMap = [V] =>> Map[Int, V]` and `type IntMap = Map[Int, _]`
+    pending // p2b: `[A, B] =>> Either[A, B]`
 
   test("[target] type lambda survives a `.sscc` v3 artifact round-trip"):
-    pending // p2: artifact stability
+    pending // p2b: artifact stability
 
   test("[target] beta-reduction `([X] =>> F[X])[A]` == `F[A]` in `ssc check`"):
     pending // p3 (optional): only if a typed backend / strict check motivates it

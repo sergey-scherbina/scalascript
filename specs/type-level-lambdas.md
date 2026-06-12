@@ -1,0 +1,66 @@
+# Type-level lambdas
+
+Status: **p2 part 1 landed 2026-06-12** (native `[X] =>> F[X]` across interp/jvm/js).
+Placeholder desugaring + rust + `.sscc` round-trip are follow-ups (p2b/p3).
+
+## 1  Motivation & scope
+
+ScalaScript is interpreter-first: **types are erased at runtime**. Type lambdas
+are therefore *surface-only* — like `SType.HigherKinded` (`F[_]`) and
+`SType.Match` (match types), they parse and round-trip through interface
+artifacts but never participate in unification or runtime semantics. There is no
+runtime cost to benchmark; the deliverable is *parse + represent + round-trip*,
+and which backends accept the syntax (tracked by `bench/corpus/type-lambda-*.ssc`
+and `lang/core/.../typer/TypeLambdaProgressTest.scala`).
+
+## 2  Surface syntax — two equivalent forms
+
+Decision (2026-06-12): support **both**, equivalent.
+
+- **Scala-3 native:** `[X] =>> F[X]`, `[A, B] =>> Map[B, A]`.
+- **Placeholder / wildcard short form:** `Map[Int, _]` — each `_` is a fresh
+  lambda parameter, bound left→right in source order. `Map[Int, _]` ≡
+  `[X] =>> Map[Int, X]`; `Either[_, _]` ≡ `[A, B] =>> Either[A, B]`. (`_` is free
+  to repurpose — ScalaScript has no existential types.) A `F[_]` whose args are
+  **all** `_` stays `HigherKinded` (a kind, not a lambda); a *mixed* application
+  like `Map[Int, _]` is the placeholder lambda.
+
+Canonical form is the native `=>>` (what `SType.show` emits); `_` is sugar-in.
+
+## 3  Representation
+
+`SType.TypeLambda(params: List[String], body: SType)` (Types.scala). Surface-only:
+`show` = `[p1, p2] =>> body.show`; `containsAny` recurses into `body`; `subst` /
+`containsFreeVar` fall through (params are bound, never substituted). No reduction.
+
+## 4  Parsing
+
+- **Source (`.ssc`):** scalameta's Scala3 dialect already parses `[X] =>> T` and
+  `Map[Int, _]` natively. The only blocker was `Parser.preprocessListLiterals`,
+  which rewrote a `[A]` after `= ` (operator + space) into `List(A)` — corrupting
+  `type F = [A] =>> …`. Fixed by peeking past the matching `]` for `=>>` and
+  treating such a bracket as a type-param clause (never a list literal). The
+  placeholder form already passed through (its `[` follows a type name).
+- **Artifact (`InterfaceScope.parseSType`):** a `[` at the *start* of a type can
+  only begin a type lambda (HigherKinded shows name-first, tuples paren-first), so
+  `parseType` dispatches to `parseTypeLambda` → `[params] =>> body` →
+  `SType.TypeLambda`. Round-trips with `show`.
+
+## 5  Backend handling
+
+All runtime backends **erase** type lambdas (surface-only), so once the source
+parses, interp / jvm / js run the program (the type annotation is dropped). Status
+(`bench.sh`): native `[X] =>> F[X]` is green on **ssc / ssc-asm / jvm / js**; rust
+is `n/a` (RustCodeWalk emits real Rust types and needs a dedicated lowering —
+follow-up). The placeholder form is green on ssc/js but `n/a` on jvm/rust until p2b.
+
+## 6  Follow-ups
+
+- **p2b — placeholder desugaring:** in `parseSType`, lower a mixed-wildcard
+  application `F[a, _, b]` to `TypeLambda([X], F[a, X, b])` (left→right), so the
+  representation matches the native form; flip the two `[target]` desugaring tests.
+- **p2b — `.sscc` v3 artifact round-trip** for `TypeLambda`.
+- **p3 (optional) — semantics:** β-reduce `([X] =>> F[X])[A]` → `F[A]` in
+  `ssc check` + HKT bound checking. Only if a typed backend / strict check needs it.
+- **rust:** decide whether to erase (alias to the body with a fresh generic) or
+  diagnose `Unsupported` for type lambdas in `RustCodeWalk`.
