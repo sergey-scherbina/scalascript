@@ -1,0 +1,60 @@
+---
+name: content-action-onsuccess
+description: A declarative @ui=toolkit button whose registered action declares a structured onSuccess (bumpTick + setSignal + navigate) run after a successful POST (Scope B.4).
+frontend: react
+content:
+  defaultRenderer: toolkit
+---
+
+# Orders
+
+The **Submit order** button below is authored declaratively as a `@ui=toolkit`
+control bound by id to a registered action. The action is a `fetchActionWith` whose
+**`onSuccess`** list declares, in order, what happens after a 2xx: refresh the orders
+table (`onBumpTick`), show a status banner (`onSetSignal`), and navigate to the
+confirmation view (`onNavigate`). A failed POST runs none of them.
+
+## Panel {#panel}
+
+```yaml @ui=toolkit
+controls:
+  type: vstack
+  gap: 12
+  children:
+    - type: signalText
+      signal: status
+    - type: button
+      action: submitOrder
+      label: Submit order
+```
+
+## Run
+
+[contentToolkitSection, contentToolkitOptionsWithActions, contentAction, contentComputed](std/ui/content.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[signal, fetchActionWith, onBumpTick, onSetSignal, onNavigate](std/ui/primitives.ssc)
+
+```scalascript
+val ordersTick = signal("ordersTick", 0)
+val status     = signal("status", "")
+val body       = signal("orderBody", "{}")
+
+// `submitOrder` is a typed server write; the Markdown only knows its id.  Its
+// onSuccess effects fire in order, but only on a successful (2xx) response.
+val submit = fetchActionWith("POST", "/api/orders", body, [
+  onBumpTick(ordersTick),                  // re-fetch the orders table
+  onSetSignal(status, "Order submitted"),  // flash a status banner
+  onNavigate("/orders/confirmed")          // route to the confirmation view
+])
+
+// Register the action by id, and the `status` signal as a computed so the YAML
+// `{type: signalText, signal: status}` banner can reference it (Scope B.5).
+val opts = contentToolkitOptionsWithActions(
+  Map(contentAction("submitOrder", submit)),
+  computed = Map(contentComputed("status", status)))
+
+val page = lower(contentToolkitSection("panel", opts), defaultTheme)
+
+println("content-action-onsuccess:ok")
+```
