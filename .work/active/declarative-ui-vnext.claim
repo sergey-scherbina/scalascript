@@ -1,0 +1,6 @@
+declarative-ui-vnext 2026-06-12T21:00:00Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-12T21:00:00Z
+status: in-progress
+done-so-far: B.7 markdown toolkit-link lint already landed (2026-06-12). Remaining: typed/keyed formBody mapping (key != signalId) + honest disposition of B.3 rowsPath-on-JVM.
+next: implement keyed formBody (list entries may be a (jsonKey, signalId) tuple) via _ssc_ui_buildFormBody + relax param type; defer B.3 rowsPath-on-JVM to BACKLOG (JS-only DataTable client emission, no JVM architecture); then close declarative-ui-vnext.
