@@ -4623,6 +4623,17 @@ class JsGen(
     case other =>
       s"/* unsupported: ${other.productPrefix} */"
 
+  /** A call to an effectful function in a NON-CPS (direct) context produces a lazy
+   *  `_FlatMap` on JS (JS `_bind` is always lazy, unlike JVM's eager-on-Pure `_bind`),
+   *  which the direct context cannot bind — so its result must be RUN to get a value
+   *  (e.g. a self-handling fn used as `println(workload())`, which otherwise prints
+   *  `[object Object]`). `_run` is idempotent on an already-resolved plain value (so
+   *  wrapping a direct-runner result like `_handleOneShot(…)` is harmless) and throws
+   *  loudly on an unhandled effect (an invalid program). CPS-context calls go through
+   *  `genCpsApply`, never here, so they are unaffected. See BUGS.md. */
+  private def runIfEffectful(name: String, call: String): String =
+    if isEffectfulFun(name) then s"_run($call)" else call
+
   private def genApply(app: Term.Apply): String =
     // f(regular)(using tc) — flatten all curried arg lists when the outermost
     // Apply carries a `using` clause, so the JS call passes all args at once.
@@ -4803,19 +4814,22 @@ class JsGen(
       // Safe because funcParamOrder only contains `def f(...)` declarations;
       // Array/Map values are vals, never in funcParamOrder.
       case Term.Name(n) if funcParamOrder.contains(n) =>
-        s"$n(${argVals.mkString(", ")})"
+        runIfEffectful(n, s"$n(${argVals.mkString(", ")})")
 
       // Known zero-param user-defined function — direct call, no _call wrapper.
       // Covers both def f(): T (one empty param clause) and def f: T (no clause).
       case Term.Name(n) if (emptyParamFns(n) || zeroParamFns(n)) && argVals.isEmpty =>
-        s"$n()"
+        runIfEffectful(n, s"$n()")
 
       // Regular function call or constructor — wrap in `_call` so a
       // bare Array / Map reference (`xs(i)` / `m(k)`) is dispatched as
       // indexing rather than failing with "not a function".
       case fun =>
         val funJs = genExpr(fun)
-        s"_call($funJs, ${argVals.mkString(", ")})"
+        val call  = s"_call($funJs, ${argVals.mkString(", ")})"
+        fun match
+          case Term.Name(n) => runIfEffectful(n, call)
+          case _            => call
 
   // ─── Lenses / Focus / .copy ──────────────────────────────────────
 

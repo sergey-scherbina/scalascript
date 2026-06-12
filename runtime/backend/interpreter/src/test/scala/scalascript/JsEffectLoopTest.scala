@@ -64,3 +64,49 @@ class JsEffectLoopTest extends AnyFunSuite:
       println(run())
     """)
     assert(out == "30", s"expected 30 (3 ticks × 10 iterations), got '$out'")
+
+  // ── self-handling CPS fn run at the value boundary (js-self-handling-cps-fn-run) ──
+  // A function that handles its own effects but is CPS-emitted returns a lazy
+  // `_FlatMap` on JS; a value-position call (`println(workload())`) must be `_run`
+  // or it prints `[object Object]`. genApply wraps effectful-fn calls in `_run`.
+
+  test("JsGen: a self-handling CPS fn (no loop) runs at the value boundary"):
+    assume(hasNode, "node not available")
+    val out = runJs("""
+      multi effect NonDet:
+        def choose(options: List[Int]): Int
+      def program(): Int ! NonDet =
+        val a = NonDet.choose(List(1, 2, 3))
+        a
+      def workload(): Int =
+        val all = handle(program()) {
+          case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))
+        }
+        all.length
+      println(workload())
+    """)
+    assert(out == "3", s"expected 3 (3 choices), got '$out'")
+
+  test("JsGen: multi-shot effect handled inside a while-loop runs end-to-end"):
+    assume(hasNode, "node not available")
+    val out = runJs("""
+      multi effect NonDet:
+        def choose(options: List[Int]): Int
+      def program(): Int ! NonDet =
+        val a = NonDet.choose(List(1, 2, 3))
+        val b = NonDet.choose(List(10, 20))
+        a + b
+      def workload(): Long =
+        var total = 0L
+        var i = 0
+        while i < 2 do
+          val all = handle(program()) {
+            case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))
+          }
+          total = total + all.foldLeft(0L)((acc, x) => acc + x.toLong)
+          i = i + 1
+        total
+      println(workload())
+    """)
+    // 6 combinations sum to 102 per iteration × 2 = 204.
+    assert(out == "204", s"expected 204, got '$out'")
