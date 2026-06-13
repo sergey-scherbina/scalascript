@@ -1,0 +1,6 @@
+hof-glue-jit-compile 2026-06-13T14:35:00Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-13T14:35:00Z
+status: in-progress
+done-so-far: PARTIAL slice landed (origin/main 6db7ebcfc): fused curried List.foldLeft(z)(g) fast-path in evalApplyGeneral → foldLeftReusing direct; typeclassFoldMacro 1.259→1.127 ms (−10.5%). FusedFoldLeftTest + 224 fold/typeclass tests green. spec direct-style-eval-spec.md §11.4.
+next: continue. RE-PROFILE post-fused typeclassFoldMacro to find the NEXT bottleneck in combineAll's body glue (candidates: combineAll using-param resolution per-call — is FunV.usingResolveCache hit?; summon[M].empty 0-arg method call 300×; evalPlainApply for combineAll). Pursue most tractable data-indicated win OR a bounded piece of the full VM fold-compile (SscVm List-iter opcodes + VmCompiler foldLeft recognizer @ VmCompiler:521 call:no-compilable-target, reuse CALLREF). GATE: measurable wall-clock win, A/B scripts/bench interp typeclassFoldMacro; honest scoping — partial/negative OK to record.
