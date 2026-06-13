@@ -465,28 +465,108 @@ private[interpreter] object EvalRuntime:
     override def removed(key: String): Map[String, Value] =
       (base ++ overlay).removed(key)
 
+  /** Flatten a STATIC tuple expression — `(a, b)` and `(a, b) ++ (c, d)` (any nesting
+   *  of literal tuples joined by `++`) — into its component element terms. Returns
+   *  null for anything that isn't a compile-time-known tuple shape. */
+  private def tupleComponents(e: Term): List[Term] | Null = e match
+    case t: Term.Tuple => t.args
+    // `(a, b) ++ (c, d)` parses as `ApplyInfix((a,b), ++, ArgClause(c, d))` — the RHS
+    // tuple is FLATTENED into the arg clause (Scala's `x op (a, b)` two-arg rule), so the
+    // arg-clause values are exactly the right-hand components. Left side may itself be a
+    // tuple or a nested `++`. Require ≥2 flattened args: a single arg (`t ++ x`) could be
+    // a tuple-VALUED expression whose runtime arity we can't know statically — bail there
+    // (keep the materialised tuple) so we never miscount components.
+    case ai: Term.ApplyInfix if ai.op.value == "++" && ai.argClause.values.lengthCompare(2) >= 0 =>
+      val lc = tupleComponents(ai.lhs)
+      if lc == null then null else lc ++ ai.argClause.values
+    case _ => null
+
+  /** `"_3"` → 3, anything else → -1. */
+  private def tupleIdx(sel: String): Int =
+    if sel.length >= 2 && sel(0) == '_' && sel.substring(1).forall(_.isDigit) then sel.substring(1).toInt else -1
+
+  private def containsName(t: Tree, name: String): Boolean =
+    var found = false
+    t.traverse { case Term.Name(`name`) => found = true }
+    found
+
+  /** Substitute every `tname._K` accessor in `rhs` with the K-th flattened tuple
+   *  component. Returns null if `tname` is referenced any other way (a bare use, an
+   *  out-of-range `_K`, or an unhandled term shape that mentions it) — in which case
+   *  scalar-replacement is unsound and the caller keeps the materialised tuple (no JIT).
+   *  Manual rewrite (scalameta `Tree.transform` isn't available here) modelled on
+   *  `scalascript.transform.DirectAnorm`. */
+  private def substTupleAccess(rhs: Term, tname: String, comps: List[Term]): Term | Null =
+    var bad = false
+    def go(e: Term): Term =
+      if bad then e
+      else e match
+        case Term.Select(Term.Name(`tname`), Term.Name(sel)) =>
+          val k = tupleIdx(sel)
+          if k >= 1 && k <= comps.length then comps(k - 1) else { bad = true; e }
+        case Term.Name(`tname`)    => bad = true; e          // bare reference → unsupported
+        case _: Term.Name | _: Lit => e
+        case Term.Select(qual, name) =>
+          val q2 = go(qual); if q2 eq qual then e else Term.Select(q2, name)
+        case Term.Apply.After_4_6_0(fun, ac) =>
+          val f2 = go(fun); val a2 = ac.values.map(go)
+          if (f2 eq fun) && a2.corresponds(ac.values)(_ eq _) then e
+          else Term.Apply.After_4_6_0(f2, Term.ArgClause(a2, ac.mod))
+        case Term.ApplyInfix.After_4_6_0(lhs, op, targs, ac) =>
+          val l2 = go(lhs); val a2 = ac.values.map(go)
+          if (l2 eq lhs) && a2.corresponds(ac.values)(_ eq _) then e
+          else Term.ApplyInfix.After_4_6_0(l2, op, targs, Term.ArgClause(a2, ac.mod))
+        case Term.ApplyUnary(op, arg) =>
+          val a2 = go(arg); if a2 eq arg then e else Term.ApplyUnary(op, a2)
+        case Term.Tuple(args) =>
+          val a2 = args.map(go); if a2.corresponds(args)(_ eq _) then e else Term.Tuple(a2)
+        case other =>
+          if containsName(other, tname) then { bad = true; e } else e
+    val out = go(rhs)
+    if bad then null else out
+
   private def collectFastAssignBody(body: Term): FastAssignBody | Null =
     def one(assign: Term.Assign): FastAssignBody | Null =
       if assign.lhs.isInstanceOf[Term.Name] then
         new FastAssignBody(Array(assign.lhs.asInstanceOf[Term.Name].value), Array(assign.rhs))
       else null
 
+    // Build a FastAssignBody from a list of `name = rhs` stats. When `tname`/`comps`
+    // are supplied (a scalar-replaced leading `val tname = <tuple>`), each rhs has its
+    // `tname._K` accessors inlined to the tuple component — so the loop body becomes
+    // pure assignments the Long-while JIT can compile.
+    def fromAssigns(stats: List[scala.meta.Stat], tname: String | Null, comps: List[Term] | Null): FastAssignBody | Null =
+      val n = stats.length
+      if n == 0 then return null
+      val names = new Array[String](n)
+      val rhsA  = new Array[Term](n)
+      var rest  = stats
+      var i     = 0
+      while rest.nonEmpty do
+        rest.head match
+          case assign: Term.Assign if assign.lhs.isInstanceOf[Term.Name] =>
+            names(i) = assign.lhs.asInstanceOf[Term.Name].value
+            val r: Term | Null =
+              if tname == null then assign.rhs
+              else substTupleAccess(assign.rhs, tname, comps.asInstanceOf[List[Term]])
+            if r == null then return null
+            rhsA(i) = r
+          case _ => return null
+        i += 1
+        rest = rest.tail
+      new FastAssignBody(names, rhsA)
+
     body match
       case assign: Term.Assign => one(assign)
       case Term.Block(stats) if stats.nonEmpty =>
-        val names = new Array[String](stats.length)
-        val rhs   = new Array[Term](stats.length)
-        var rest  = stats
-        var i     = 0
-        while rest.nonEmpty do
-          rest.head match
-            case assign: Term.Assign if assign.lhs.isInstanceOf[Term.Name] =>
-              names(i) = assign.lhs.asInstanceOf[Term.Name].value
-              rhs(i) = assign.rhs
-            case _ => return null
-          i += 1
-          rest = rest.tail
-        new FastAssignBody(names, rhs)
+        stats.head match
+          // Leading `val t = <static tuple>` whose only uses are `t._K`: scalar-replace
+          // it away so the rest of the body is pure assignments (tuple never materialises).
+          case Defn.Val(_, List(Pat.Var(tn)), _, rhsTuple) =>
+            tupleComponents(rhsTuple) match
+              case null               => null
+              case comps: List[Term]  => fromAssigns(stats.tail, tn.value, comps)
+          case _ => fromAssigns(stats, null, null)
       case _ => null
 
   /** Body shape for a mixed while-loop: one or more leading no-result `Term.Apply`
