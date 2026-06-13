@@ -1,0 +1,6 @@
+jit-loop-val-inline 2026-06-13T18:30:00Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-13T18:30:00Z
+status: in-progress
+done-so-far: jit-loop-tuple shipped (tupleMonoid 2663× via AST tuple scalar-replacement in EvalRuntime.collectFastAssignBody). This generalizes it: a leading `val x = <pure-arith expr>` (non-tuple) in a while body, used as a whole `x`, is inlined (x -> expr) into the assignments → body becomes pure assigns the Long-while JIT compiles. Currently ANY leading val (except the new tuple case) bails the JIT → tree-walk. Common real-code pattern (val intermediate in a loop). No existing bench covers it (tupleMonoid was the only val-loop) → add a representative honest bench.
+next: (1) generalize collectFastAssignBody: tuple expr -> _K component subst (existing); pure-arith non-tuple expr -> whole-name subst (new). PURITY: restrict inlinable scalar exprs to Lit/Name/ApplyInfix-arith/ApplyUnary/Tuple (NO Term.Apply) so duplication is free (JIT CSEs arith; never pessimizes; tree-walk fallback uses ORIGINAL body so no dup there). (2) add bench modValIntermediate (e.g. `while i<N { val d=i-mid; s=s+d*d; i+=1 }` — honest, i-dependent). (3) A/B scripts/bench interp <newbench>; GATE real win. tuple + 454 interp tests must stay green. SAME GOTCHAS as jit-loop-tuple: scalameta no Tree.transform (manual rewrite); sbt incremental stale (use clean).
