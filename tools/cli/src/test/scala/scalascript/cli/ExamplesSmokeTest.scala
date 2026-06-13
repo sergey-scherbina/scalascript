@@ -71,14 +71,44 @@ class ExamplesSmokeTest extends AnyFunSuite:
       "these examples have runnable scala OUTSIDE a ```scalascript fence (so `ssc run` " +
       "silently does nothing — wrap the code in a fence):\n  " + offenders.mkString("\n  "))
 
-  test("pure-core examples run and exit 0 (no silent no-op)"):
-    // Dependency-free examples that need only the core interpreter (no std plugins,
-    // no network/DB/GUI). Each must actually execute, not be parsed away as prose.
-    for name <- List("hello.ssc", "script.ssc") do
+  /** Curated set of CORE-interpreter examples that run end-to-end in-process and exit 0:
+   *  no network, no DB, no GUI/browser, no external service, no build step, and — because
+   *  the `cli` test classpath carries only the core interpreter — **no std plugin**.
+   *
+   *  Excluded on purpose:
+   *   - plugin-backed examples (crypto / uuid / spark / typed-data / pdf+email): they need
+   *     a plugin that isn't on the `cli` test classpath (they exit 1 here even though the
+   *     bundled `bin/ssc` fat jar runs them). Each is already covered by its own plugin
+   *     test suite (`CryptoPluginTest`, `UuidPluginTest`, …).
+   *   - examples needing CLI args, a server/socket, a real browser (`@js`/IndexedDB/WASM),
+   *     a Spark/maven build, or an undefined provider — they can't run headlessly.
+   *
+   *  We assert only `exit == 0` (not captured stdout): the in-process interpreter writes
+   *  directly to the real `System.out`, so `Executed.stdout` is empty by construction. The
+   *  fence-lint test above is what catches the "parsed away as prose" silent no-op.
+   *
+   *  Expanded from 2 → 22 on 2026-06-13 to give the 180-example corpus real regression
+   *  coverage (previously only the fence-lint ran on the whole corpus). */
+  private val runnableExamples: List[String] = List(
+    "hello.ssc", "script.ssc", "recursion.ssc", "functional.ssc", "enums.ssc",
+    "extensions.ssc", "typeclass.ssc", "lenses.ssc", "generators.ssc",
+    "default-params.ssc", "data-types.ssc", "imports.ssc", "index.ssc",
+    "custom-derives-mirror.ssc", "quoted-macro-interpreter.ssc", "lang-split.ssc",
+    "content.ssc", "signals-demo.ssc", "storage-demo.ssc",
+    "graph-storage-interpreter.ssc", "dataset-parallel-sum.ssc", "dataset-stats.ssc"
+  )
+
+  test("curated core examples run and exit 0 (no silent no-op)"):
+    val failures = runnableExamples.flatMap { name =>
       val f = examplesDir / name
-      assert(os.exists(f), s"expected example $name to exist")
-      compileViaBackend("int", f) match
-        case CompileResult.Executed(_, _, exit) =>
-          assert(exit == 0, s"$name should exit 0; got $exit")
-        case other =>
-          fail(s"$name should run (Executed); got $other")
+      if !os.exists(f) then Some(s"$name: missing")
+      else
+        try compileViaBackend("int", f) match
+          case CompileResult.Executed(_, _, exit) =>
+            if exit != 0 then Some(s"$name: exit $exit") else None
+          case other => Some(s"$name: did not Execute → $other")
+        catch case e: Throwable => Some(s"$name: threw ${e.getClass.getSimpleName}: ${e.getMessage}")
+    }
+    assert(failures.isEmpty,
+      s"${failures.size}/${runnableExamples.size} curated examples failed to run cleanly:\n  " +
+      failures.mkString("\n  "))
