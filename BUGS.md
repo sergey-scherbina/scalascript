@@ -14,6 +14,51 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ---
 
+## interp-cons-right-assoc-desugar — `open` (2026-06-13)
+
+- **Found:** by me, while expanding `ExamplesSmokeTest` run coverage
+  (`examples/algebraic-effects.ssc` fails to run). Reproduces on `origin/main`
+  (`e73fd9a73`) via the in-process interpreter AND the fat-jar `bin/ssc`.
+- **Symptom:** the cons operator `::` is right-associative in Scala — `a :: b`
+  desugars to `b.::(a)`. The interpreter appears to dispatch it **left**-associatively
+  (`a.::(b)`), so `msg :: rest` where `msg: String`, `rest: List[String]` errors
+  `No method '::' on StringV(Hello, World!)` instead of consing onto the list.
+- **Repro:**
+  ```scalascript
+  def build(msg: String, rest: List[String]): List[String] =
+    msg :: rest
+  println(build("Hello, World!", List("x")))   // expected List(Hello, World!, x)
+  ```
+- **Note:** any right-associative operator (`::`, user-defined `:`-ending ops) is
+  suspect. Fix belongs in the interpreter's operator desugaring/dispatch; check
+  JVM/JS codegen for the same gap before closing (cross-backend regression test).
+
+## interp-toString-on-collection — `open` (2026-06-13)
+
+- **Found:** by me, expanding `ExamplesSmokeTest` (`examples/async-parallel-demo.ssc`
+  fails). Reproduces on `origin/main` (`e73fd9a73`) via the interpreter.
+- **Symptom:** `.toString` is universal in Scala (every value has it) but the
+  interpreter has no `.toString` dispatch for a `ListV` (and likely other collection /
+  composite Values) → `No method 'toString' on ListV(List(50, 50, 50))`.
+- **Repro:**
+  ```scalascript
+  val xs = List(50, 50, 50)
+  println("result=" + xs.toString)   // No method 'toString' on ListV
+  ```
+- **Note:** broadly useful, likely small — add a universal `.toString` fallback in the
+  interpreter's method dispatch (render via the same path as `println`/string-concat).
+  Check Map/Set/tuple/Option/Either too. Cross-backend regression.
+
+## interp-typed-data-not-callable — `open` (2026-06-13)
+
+- **Found:** by me, expanding `ExamplesSmokeTest` (`examples/typed-data.ssc` fails).
+  Reproduces on `origin/main` (`e73fd9a73`).
+- **Symptom:** `ssc run examples/typed-data.ssc` errors `[line 11, col 35] Not callable:
+  ()` — something in the typed-data showcase evaluates to `Unit` and is then applied as
+  a function. Needs narrowing to the exact construct (case-class default param? a tuple
+  accessor? a block returning Unit used in call position). Lower priority — single
+  example, not a known common pattern.
+
 ## js-self-handling-cps-fn-not-run — `fixed` (2026-06-12)
 
 - **Fixed:** `JsGen.runIfEffectful` wraps a non-CPS-context call to an effectful

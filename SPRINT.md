@@ -2426,3 +2426,29 @@ single-node without them.
       injection-safe quoted channel. `BuiltinsRuntime` now collects all `Db.*`
       natives generically. Example `examples/pg-listen-notify.ssc` (live PG).
       Tests lock registration + PG-guard; receive path verified by busi vs real PG.
+
+## Examples smoke-run + discovered interp bugs (2026-06-13)
+
+- [x] **examples-smoke-run-expand** - DONE 2026-06-13. `ExamplesSmokeTest` fence-lints all
+      180 examples but only RAN 2 (hello, script). Expanded the run-set to a curated 22
+      CORE-interpreter examples (no plugin/network/DB/GUI/browser) that Execute + exit 0
+      via `compileViaBackend("int", ...)`; collects ALL failures in one pass for easy
+      pruning. Found that the `cli` test classpath has no std plugins (so crypto/uuid/spark/
+      pdf example files exit 1 there - excluded; they're covered by their own plugin suites)
+      and that the in-process interp writes to the real System.out (so `Executed.stdout` is
+      empty - assert exit==0 only, the fence-lint catches no-ops). Triage surfaced 3 real
+      interp bugs (filed in BUGS.md, queued below). Follow-up `examples-smoke-run-plugins`
+      in BACKLOG (run plugin-backed example FILES in a harness that has the plugins).
+
+- [ ] **interp-cons-right-assoc-desugar** - The cons `::` is right-associative (`a :: b` =
+      `b.::(a)`) but the interpreter dispatches it left-associatively, so `msg :: rest`
+      (msg: String, rest: List) errors `No method '::' on StringV`. Real correctness bug
+      (breaks a common pattern; `examples/algebraic-effects.ssc` can't run). Fix in the
+      interpreter operator desugaring/dispatch; verify JVM/JS codegen don't share the gap;
+      cross-backend regression test. BUGS.md `interp-cons-right-assoc-desugar`.
+
+- [ ] **interp-toString-on-collection** - `.toString` is universal but the interpreter has
+      no dispatch for `ListV` (likely Map/Set/tuple/Option/Either too) -> `No method
+      'toString' on ListV`. Broadly useful, likely small: universal `.toString` fallback in
+      method dispatch (reuse the println/string-concat render path). `examples/
+      async-parallel-demo.ssc` repro. BUGS.md `interp-toString-on-collection`.

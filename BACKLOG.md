@@ -333,6 +333,24 @@ These items come from the 2026-05-30 project-state review. They are intentionall
 ordered to reduce risk: spec and hygiene first, broad implementation only after
 the contracts are explicit.
 
+- [ ] **examples-smoke-run-plugins** — `ExamplesSmokeTest` now runs 22 *core* examples
+      (`examples-smoke-run-expand`, 2026-06-13), but plugin-backed example FILES
+      (crypto / uuid / spark / typed-data / pdf+email) aren't smoke-RUN anywhere — the
+      `cli` test classpath has no std plugins, so they exit 1 there and are excluded.
+      Their intrinsics are covered by the plugin suites, but the example *files* can
+      silently break (e.g. a renamed intrinsic). Fix: either add the light plugins
+      (crypto, uuid) as `% Test` deps to the `cli` project, or add an example-runner test
+      in `backendInterpreter` (which already has the plugins on `% Test`). Skip spark
+      (heavy) + network/GUI/browser examples. Low-risk, broadens regression coverage of
+      the 180-example corpus.
+
+- [ ] **interp-typed-data-not-callable** (low-pri) — `ssc run examples/typed-data.ssc`
+      errors `[line 11, col 35] Not callable: ()` on `origin/main` — some construct in the
+      typed-data showcase evaluates to `Unit` and is applied as a function. Narrow the
+      exact construct first (case-class default param / tuple accessor / Unit block in call
+      position). Single example, not a known common pattern. BUGS.md
+      `interp-typed-data-not-callable`.
+
 - [x] **contract-validation-spec** - Spec first. Define a shared contract
       validation model for OpenAPI and GraphQL drift checks: route/resolver
       signature ↔ schema compatibility, request and response bodies, typed
