@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-13 — perf(interp): multiple/chained/destructuring leading vals → while-JIT — 5650×
+
+- Extends `jit-loop-val-inline` (single leading val) to the rest of the common loop-body shapes:
+  **multiple** leading vals (a 2nd `val` previously made the whole loop bail to tree-walk),
+  **chained** vals (`val b = a * 2`, folded via `substPriorVals` so each resolves to loop-vars
+  only), **destructuring** `val (a, b) = (e1, e2)` (each pattern var → its tuple component), and
+  pure numeric **conversions** `.toInt/.toLong/.toDouble` in `isPureArith`.
+- `collectFastAssignBody` now `peelVals` all leading vals into a resolved list, then inlines each
+  into the assignments. The reassignment soundness guard is **per-val** (a use is inlined only
+  when none of that val's expr vars were reassigned by an earlier assignment); unused vals aren't
+  dropped. All inlinable vals are pure (tuple / pure-arith), so there's no side-effect reordering
+  risk; function-call vals still bail.
+- **`multiVal` (`val a=i-500; val b=a*2; s=s+a*a+b`, 1M iters): 3248.42 → 0.575 ms/op (~5650×).**
+  `TupleScalarReplaceTest` (18, incl. chained/destructuring/multi-val-soundness/conversion) + 537
+  while-loop/interp tests green; full interp bench shows no regression.
+
 ## 2026-06-13 — perf(interp): inline pure-`val` loop intermediates into the while-JIT — 9124×
 
 - Generalises the tuple scalar-replacement (`jit-loop-tuple`) to the ubiquitous real-code shape

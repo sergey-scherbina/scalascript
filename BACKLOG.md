@@ -156,6 +156,14 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
 >   soundness guard** (an expr var must not be reassigned before a use — also fixes a latent bug
 >   in the tuple slice) + unused-val/`/`-by-zero preservation. Bigger real-world impact than the
 >   named microbenches (val-in-loop is everywhere). `TupleScalarReplaceTest` (12).
+> - **multiple/chained/destructuring leading vals ✅ 2026-06-13 (`jit-loop-val-extensions`):
+>   `multiVal` 3248.42 → 0.575 ms (~5650×).** `collectFastAssignBody` now peels ALL leading vals
+>   (multiple `val a=…; val b=…`; chained `val b=a*2`; destructuring `val (a,b)=…`) + numeric
+>   conversions (`.toInt/.toLong/.toDouble`) in `isPureArith`. Per-val reassignment guard; unused
+>   vals kept. The single-leading-`val` limit was the last gap — real loops routinely have
+>   several intermediates. Still NOT inlined (deferred, side-effect ORDERING risk): function-call
+>   vals (a single-use call val could inline but reorders the call past intervening stmts —
+>   needs side-effect analysis). `TupleScalarReplaceTest` (18).
 >
 > **CONVERGED META-FINDING (2026-06-13) — "start the JIT lever".** The top interp outliers —
 > `effectOneShot`, `tupleMonoid`, `typeclassFoldMacro` — are ALL CPU-bound on `evalCore`
