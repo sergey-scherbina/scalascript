@@ -92,3 +92,69 @@ class TupleScalarReplaceTest extends AnyFunSuite with Matchers:
       val t = (1, 2) ++ (3, 4)
       println(t._1 + t._2 + t._3 + t._4)
     """) shouldBe "10"
+
+  // ── SOUNDNESS: a loop var of the tuple/val expr reassigned BEFORE the use ──
+  // The val captures the var at the binding point; inlining must not pick up the
+  // post-reassignment value. These must match the tree-walk (no scalar-replace).
+
+  test("SOUNDNESS: tuple var reassigned before use (i += 1 between val and use)"):
+    run("""
+      var i = 0
+      var s = 0
+      while i < 3 do
+        val t = (i, i)
+        i = i + 1
+        s = s + t._1
+      println(s)
+    """) shouldBe "3"   // t._1 = i at val time: 0,1,2 → 3 (NOT 1+2+3=6 with buggy inline)
+
+  test("SOUNDNESS: scalar val var reassigned before use"):
+    run("""
+      var i = 0
+      var s = 0
+      while i < 4 do
+        val x = i * 10
+        i = i + 1
+        s = s + x
+      println(s)
+    """) shouldBe "60"  // x = i*10 at val time: 0,10,20,30 → 60
+
+  // ── scalar pure-arith val inlining (the generalisation) ──
+
+  test("scalar val intermediate, used twice (JIT path)"):
+    run("""
+      var i = 0
+      var s = 0
+      while i < 100 do
+        val d = i - 50
+        s = s + d * d
+        i = i + 1
+      println(s)
+    """) shouldBe "83350"  // sum_{0..99} (i-50)^2 = sum_{-50..49} k^2
+
+  test("scalar val used once (JIT path)"):
+    run("""
+      var i = 0
+      var s = 0
+      while i < 10 do
+        val y = i + i + 1
+        s = s + y
+        i = i + 1
+      println(s)
+    """) shouldBe "100"  // sum_{0..9} (2i+1) = 100
+
+  test("SOUNDNESS: val with a function call is NOT inlined (stays correct)"):
+    run("""
+      var calls = 0
+      def f(n: Int): Int =
+        calls = calls + 1
+        n * 2
+      var i = 0
+      var s = 0
+      while i < 5 do
+        val x = f(i)
+        s = s + x + x
+        i = i + 1
+      println(s)
+      println(calls)
+    """) shouldBe "40\n5"  // f called once per iter (NOT duplicated): calls=5, s=2*(0+2+4+6+8)=40

@@ -211,6 +211,22 @@ class InterpreterBench:
       |s""".stripMargin
   )
 
+  // val-intermediate accumulation: a leading `val d = <pure-arith>` in the loop body,
+  // used in the assignment(s). A ubiquitous real-code shape (compute an intermediate,
+  // accumulate it). Before `jit-loop-val-inline`, ANY leading `val` bailed the while-JIT
+  // → tree-walk; now the pure-arith val is inlined (d → i - 500) so the body is pure
+  // assignments the Long-while JIT compiles. Honest: `s` accumulates an i-dependent value
+  // (sum of squared deviations), not folded away. 1M iters.
+  private val modValIntermediate: Module = src(
+    """var i = 0
+      |var s = 0
+      |while i < 1000000 do
+      |  val d = i - 500
+      |  s = s + d * d
+      |  i = i + 1
+      |s""".stripMargin
+  )
+
   // val-bound constant tuple: `last = k` where k is a val.
   // Without the Term.Name hoist, tryHoistedPureWhile bails and falls through
   // to the value-space loop (~65 ms for 1M iters, similar to counterWithTupleVar).
@@ -557,6 +573,10 @@ class InterpreterBench:
   @Benchmark
   def tupleMonoidVal(): Unit =
     Interpreter(devNull).runSections(modTupleMonoidVal)
+
+  @Benchmark
+  def valIntermediate(): Unit =
+    Interpreter(devNull).runSections(modValIntermediate)
 
   @Benchmark
   def counterWithTupleVar(): Unit =
