@@ -1,0 +1,6 @@
+examples-smoke-run-expand 2026-06-13T00:00:00Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-13T00:00:00Z
+status: in-progress
+done-so-far: ExamplesSmokeTest currently fence-lints all 180 examples but only RUNS 2 (hello, script). Triaged ~60 no-import candidates via bin/ssc: ~37 exit 0 clean; correctly-excluded need maven/server/browser/undefined-providers; real-looking interp failures: algebraic-effects (No method '::' on StringV), async-parallel-demo (No method 'toString' on ListV), typed-data (Not callable: ()), dataset-word-count (needs args).
+next: expand ExamplesSmokeTest run-set from 2 -> curated ~30 dependency-free examples that exit 0 AND produce output (validate via compileViaBackend in the test, not just bin/ssc); triage the 3-4 real-looking failures (fix trivial example issues, file deeper interp bugs in BUGS.md + exclude with a comment). Keep the set deterministic + headless (no network/DB/GUI/browser).
