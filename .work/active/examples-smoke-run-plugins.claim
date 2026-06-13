@@ -1,0 +1,6 @@
+examples-smoke-run-plugins 2026-06-13T10:15:00Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-13T10:15:00Z
+status: in-progress
+done-so-far: backendInterpreterPluginTests project depends on allPlugins -> right home for a plugin-backed example smoke-run (cli test classpath has no plugins). Targets that exit-1 in cli ExamplesSmokeTest but should run with plugins: crypto-demo/crypto-encrypt-demo/crypto-verify-demo (crypto), uuid-v7 (uuid). Skip spark (heavy), pdf/email (external), network/GUI/browser.
+next: add a smoke test in interpreter-plugin-tests that loads each curated plugin example .ssc + runs via Interpreter.run, asserts no throw/exit 0; triage the candidate list empirically (some may need network/services); ship.
