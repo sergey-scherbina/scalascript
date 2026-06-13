@@ -141,3 +141,26 @@ class FsPluginTest extends AnyFunSuite:
            |println(readFile("$dst"))""".stripMargin
       ), "false\ndata")
     }
+
+  // Directory globals are provided by BuiltinsRuntime (NOT only the fs-plugin):
+  // run WITHOUT installing the plugin to prove the bare globals are present.
+  private def runNoPlugin(code: String): String =
+    val buf = java.io.ByteArrayOutputStream()
+    val ps  = java.io.PrintStream(buf, true)
+    Interpreter(out = ps).run(Parser.parse(s"# Test\n\n```scalascript\n$code\n```\n"))
+    ps.flush()
+    buf.toString.trim
+
+  test("dir globals (no fs-plugin): mkdirs / mkdir / listDir / isDir"):
+    withTempDir { dir =>
+      val base = dir.resolve("g").toString
+      check(runNoPlugin(
+        s"""mkdirs("$base/a/b")
+           |writeFile("$base/a/b/x.txt", "1")
+           |writeFile("$base/a/b/y.txt", "2")
+           |mkdir("$base/c")
+           |println(isDir("$base/a/b").toString + " " + isDir("$base/missing").toString)
+           |println(listDir("$base/a/b").length.toString + " " + listDir("$base/a/b").head)
+           |println(isDir("$base/c").toString)""".stripMargin
+      ), "true false\n2 x.txt\ntrue")
+    }

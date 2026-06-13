@@ -763,6 +763,34 @@ private[interpreter] object BuiltinsRuntime:
         Computation.pureBool(java.nio.file.Files.exists(java.nio.file.Paths.get(path)))
       case _ => throw InterpretError("exists(path: String): Boolean")
     })
+    // Directory primitives — global builtins alongside writeFile/readFile/exists
+    // (the fs-plugin FsIntrinsics also defines these, but std.fs `extern def`s do
+    // not link to a native impl on import; a script needs them bare, like writeFile).
+    interp.globals("isDir") = Value.NativeFnV("isDir", {
+      case List(Value.StringV(path)) =>
+        Computation.pureBool(java.nio.file.Files.isDirectory(java.nio.file.Paths.get(path)))
+      case _ => throw InterpretError("isDir(path: String): Boolean")
+    })
+    interp.globals("mkdir") = Value.NativeFnV("mkdir", {
+      case List(Value.StringV(path)) =>
+        val p = java.nio.file.Paths.get(path)
+        if !java.nio.file.Files.exists(p) then java.nio.file.Files.createDirectory(p)
+        Computation.PureUnit
+      case _ => throw InterpretError("mkdir(path: String): Unit")
+    })
+    interp.globals("mkdirs") = Value.NativeFnV("mkdirs", {
+      case List(Value.StringV(path)) =>
+        java.nio.file.Files.createDirectories(java.nio.file.Paths.get(path))
+        Computation.PureUnit
+      case _ => throw InterpretError("mkdirs(path: String): Unit")
+    })
+    interp.globals("listDir") = Value.NativeFnV("listDir", {
+      case List(Value.StringV(path)) =>
+        val f = new java.io.File(path)
+        val names = if f.isDirectory then f.listFiles().map(_.getName).toList.sorted else Nil
+        Pure(Value.ListV(names.map(n => Value.StringV(n))))
+      case _ => throw InterpretError("listDir(path: String): List[String]")
+    })
 
   /** Install plugin-provided companion objects (Db, DriverManager, Graph) after their
    *  NativeImpl intrinsics have been registered via `ensurePluginsLoaded`.
