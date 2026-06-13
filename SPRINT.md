@@ -2457,3 +2457,25 @@ single-node without them.
 
 ## interp HOF-dispatch devirt (redirect from direct-style-eval, 2026-06-13)
 
+## Both into sprint, go auto (2026-06-13) - work return-clause-codegen first, then hof-dispatch
+
+- [ ] **effect-handler-return-clause-codegen** — the handler return clause
+      (`case Return(x) => …`, landed 2026-06-13 on the interpreter, spec §5.2.1) is
+      **interp-only**. Lower it on the JVM / JS / Rust CPS backends so a `handle` with a
+      `Return` case maps the body's pure completion there too (today those backends treat
+      `Return` as an unrecognised effect case / ignore it). Each emits Free-monad CPS — the
+      return clause becomes the `Pure`-arm mapping in the lowered `_handle`/`_run`. Verify a
+      `handle(...) { … case Return(_) => List() }` cross-backend (interp == JVM == JS).
+
+- [ ] **hof-dispatch-cpu-devirt** (deep) — `hof-dispatch-devirt` (2026-06-13) shipped the
+      obvious allocation slice (InstanceV.unapply Some+Tuple2 hygiene), but the FINDING is
+      that `typeclassFoldMacro` (the representative tree-walked HOF/dispatch workload) is
+      **CPU-bound on dispatch logic, NOT allocation-bound**: eliminating the dominant-by-JFR-
+      sample-count `Some` left both `gc.alloc.rate.norm` (132 KB/op) and wall-clock (1.30 ms/op)
+      unchanged. (Lesson: JFR sample COUNT/weight ≠ bytes; tiny frequent objects mislead.) The
+      genuine win is **devirtualizing the dispatch CPU** — the per-element given-resolution +
+      curried-method dispatch in `DispatchRuntime`/`CallRuntime` (given-resolution is already
+      `summonKeyCache`'d; the residual is the method-dispatch walk). Deep: likely JIT-compiling
+      or memoizing the resolved dispatch target across a `combineAll`/fold loop. A/B with
+      `scripts/bench interp typeclassFold*` (wall-clock, NOT alloc). Dedicated effort, not a
+      quick slice. (This is also the redirect target the deferred `direct-style-eval` points at.)
