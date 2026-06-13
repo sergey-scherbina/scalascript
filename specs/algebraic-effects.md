@@ -258,6 +258,34 @@ result type under the residual effect row. For multi-shot effects the type is
 the same; the compiler emits no distinction — the difference is only the
 runtime path (see §4).
 
+### 5.2.1 Return clause (`case Return(x) => …`)
+
+A handler may include an optional **return clause** — a `case Return(x) => expr`
+arm (unqualified `Return`, as opposed to the qualified `Eff.op(...)` effect cases).
+It maps the handled computation's **final pure value**: when `body` (or a resumed
+continuation) completes with value `x`, the handler yields `expr` instead of `x`.
+
+This is what makes the textbook *deep-handler accumulation* work — `resume(())` of
+the final continuation yields the return-clause result (e.g. `Nil`) rather than the
+raw pure value, so it can be combined:
+
+```ssc
+val messages = handle(greet("World")) {
+  case Logger.log(msg, resume) => msg :: resume(())   // prepend onto the rest
+  case Return(_)               => List()               // base case: completed → []
+}
+// messages == List("Hello, World!")
+```
+
+The clause is a normal pattern (`Return(x)`, `Return(_)`, `Return(Some(y))`, multiple
+arms with guards), matched against the completion value. **It is applied to each
+continuation completion, not to op-case-body results** (so it composes once, never
+twice). A handler **without** a return clause returns the pure value unchanged
+(backward-compatible). Implementation: a handler with a return clause uses a direct
+recursive evaluator (`EffectsRuntime.handleWithReturn`) where `resume` is an eager
+`x => handleWithReturn(continuation(x))`; the optimized one-shot loop is kept for the
+no-return-clause path. (Interpreter; JVM/JS/Rust CPS lowering is a follow-up.)
+
 ### 5.3 Runtime paths per backend
 
 | Backend | One-shot fast path | Multi-shot path |

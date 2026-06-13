@@ -18,17 +18,14 @@ effect Logger:
 def greet(name: String): Unit ! Logger =
   Logger.log(s"Hello, $name!")
 
-// Discharge Logger — collect messages into a list. The handler appends each logged
-// message to an accumulator and resumes. (The textbook *pure* deep-handler form
-// `msg :: resume(())` would need a handler return clause to seed the base case as
-// `Nil` — `return x => Nil` in Koka/Eff; ScalaScript's `handle` has no return clause,
-// so `resume(())` yields the continuation's pure result `()`, and we accumulate
-// explicitly instead.)
-var messages: List[String] = List()
-handle(greet("World")) {
-  case Logger.log(msg, resume) =>
-    messages = messages :+ msg
-    resume(())
+// Discharge Logger — collect messages into a list, the textbook *pure* deep-handler
+// way: prepend each logged message onto the result of resuming the rest. The
+// `case Return(_) => List()` RETURN CLAUSE seeds the base case (a completed
+// computation maps to the empty list), so `resume(())` of the final continuation
+// yields `Nil` and `msg :: Nil` builds the list.
+val messages = handle(greet("World")) {
+  case Logger.log(msg, resume) => msg :: resume(())
+  case Return(_)               => List()
 }
 println(messages)  // List(Hello, World!)
 ```
