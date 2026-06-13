@@ -18,11 +18,17 @@ effect Logger:
 def greet(name: String): Unit ! Logger =
   Logger.log(s"Hello, $name!")
 
-// Discharge Logger — collect messages in a list
-val messages = handle(greet("World")) {
+// Discharge Logger — collect messages into a list. The handler appends each logged
+// message to an accumulator and resumes. (The textbook *pure* deep-handler form
+// `msg :: resume(())` would need a handler return clause to seed the base case as
+// `Nil` — `return x => Nil` in Koka/Eff; ScalaScript's `handle` has no return clause,
+// so `resume(())` yields the continuation's pure result `()`, and we accumulate
+// explicitly instead.)
+var messages: List[String] = List()
+handle(greet("World")) {
   case Logger.log(msg, resume) =>
-    val rest = resume(())
-    msg :: rest
+    messages = messages :+ msg
+    resume(())
 }
 println(messages)  // List(Hello, World!)
 ```
@@ -30,13 +36,11 @@ println(messages)  // List(Hello, World!)
 ## State effect
 
 ```scalascript
-effect State[S]:
-  def get(): S
-  def put(s: S): Unit
-
+// `State[S]` is a stdlib parameterized effect; use it directly with the `runState`
+// runner. (Methods are `get` / `set` / `modify`.)
 def counter(): Int ! State[Int] =
   val n = State.get()
-  State.put(n + 1)
+  State.set(n + 1)
   n
 
 // runState discharges State — returns (finalState, result)
@@ -51,7 +55,7 @@ println(finalState)  // 1
 def tracedIncrement(): Int ! (Logger, State[Int]) =
   Logger.log("before increment")
   val n = State.get()
-  State.put(n + 1)
+  State.set(n + 1)
   Logger.log("after increment")
   n
 
