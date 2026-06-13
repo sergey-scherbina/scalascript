@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-13 — feat(effects): handler return clause
+
+- A handler may include `case Return(x) => expr` — a RETURN CLAUSE that maps the handled
+  computation's final pure value, enabling the textbook deep-handler accumulation
+  `handle(body) { case Eff.op(.., resume) => msg :: resume(()); case Return(_) => List() }`
+  (→ `List(Hello, World!)`). `evalHandle` partitions out `Return` cases; a handler with one
+  uses a direct recursive evaluator (`handleWithReturn`) where `resume` is an eager
+  `x => handleWithReturn(continuation(x))` — applying the clause per continuation completion
+  (no double application) and yielding a concrete value for non-tail `resume(())` (vs the
+  optimized loop's lazy placeholder). The O(1) one-shot loop is kept unchanged for the
+  no-return-clause path. Works for one-shot deep accumulation, tail-position mapping, and
+  multi-shot branch wrapping. Interp-only (JVM/JS/Rust CPS lowering is a follow-up).
+  `examples/algebraic-effects.ssc` restored to the pure `msg :: resume(())` form. Regress:
+  `StdEffectsTest` (4 cases); existing effect suites (interp/JVM/JS) green. Spec
+  `specs/algebraic-effects.md` §5.2.1.
+
 ## 2026-06-13 — test(examples): smoke-run plugin-backed examples
 
 - `PluginExamplesSmokeTest` (in `backendInterpreterPluginTests`, which depends on

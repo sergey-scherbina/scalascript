@@ -1,6 +1,0 @@
-effect-handler-return-clause 2026-06-13T10:30:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-13T10:30:00Z
-status: in-progress
-done-so-far: handle(body){cases} is a special form (EvalRuntime ~3139) -> EffectsRuntime.evalHandle(body, cases, env, interp, multiShotEffects). The return clause hooks at handleInterp's `case Pure(v) => return current` (apply the clause to v there; resume completions also hit Pure so it covers deep-handler accumulation). Design: a special `case Return(x) => expr` in the handler (unqualified Term.Name "Return" distinguishes it from effect-op cases which are Eff.op qualified Selects). Partition cases in evalHandle; when body completes Pure(v), if a Return case exists bind v + eval its body, else return v raw (back-compat).
-next: spec-dev (specs/algebraic-effects.md return-clause section); parse/partition the Return case; thread it through handleInterp + all Pure exits (line 82 + resume paths); test (msg :: resume(()) -> List(Hello,World!) with `case Return(_) => Nil`; back-compat no-return-clause still returns pure value). INTERP-ONLY first; JVM/JS/Rust CPS = follow-up note.

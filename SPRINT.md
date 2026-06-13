@@ -2442,14 +2442,6 @@ single-node without them.
 
 ## Promoted from BACKLOG 2026-06-13 (user: "go auto mode all") - work in order
 
-- [ ] **effect-handler-return-clause** - add a return clause to `handle` so the textbook
-      deep-handler accumulation `msg :: resume(())` works (`resume(())` of the final
-      continuation must yield the handler's mapped base value, not the raw pure value).
-      Syntax TBD (e.g. `case return(x) => ...` / `handle(body) { ops } returning x => ...`).
-      Scope: parser (syntax) + interp (EffectsRuntime.handleInterp: when the body completes
-      `Pure(v)`, apply the return clause to v). Start INTERP-ONLY (the primary `ssc run`
-      runtime); JVM/JS/Rust CPS lowering = follow-up. Spec first (spec-dev). MEDIUM-BIG.
-
 - [ ] **direct-style-eval** - the deferred multi-week arch item. Migrate `eval(...):
       Computation` -> direct-style `eval(...): Value` (effects via control-flow exceptions),
       killing per-call Pure/FlatMap alloc. 530+ sites, 62% in EvalRuntime/BlockRuntime/

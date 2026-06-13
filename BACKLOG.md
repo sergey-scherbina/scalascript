@@ -333,6 +333,14 @@ These items come from the 2026-05-30 project-state review. They are intentionall
 ordered to reduce risk: spec and hygiene first, broad implementation only after
 the contracts are explicit.
 
+- [ ] **effect-handler-return-clause-codegen** — the handler return clause
+      (`case Return(x) => …`, landed 2026-06-13 on the interpreter, spec §5.2.1) is
+      **interp-only**. Lower it on the JVM / JS / Rust CPS backends so a `handle` with a
+      `Return` case maps the body's pure completion there too (today those backends treat
+      `Return` as an unrecognised effect case / ignore it). Each emits Free-monad CPS — the
+      return clause becomes the `Pure`-arm mapping in the lowered `_handle`/`_run`. Verify a
+      `handle(...) { … case Return(_) => List() }` cross-backend (interp == JVM == JS).
+
 - [x] **contract-validation-spec** - Spec first. Define a shared contract
       validation model for OpenAPI and GraphQL drift checks: route/resolver
       signature ↔ schema compatibility, request and response bodies, typed
