@@ -34,38 +34,30 @@ commit SHA until the reporter confirms, then they can be trimmed.
   *handler body's* type, which requires bridging the pure/base case). Large feature
   (parser + typer + interp + 4 backends) — out of scope; noted in BACKLOG.
 
-## interp-parameterized-effect-decl — `open` (2026-06-13)
+## interp-parameterized-effect-decl — `fixed` (2026-06-13, `2a818e45c`)
 
-- **Found:** by me, fixing `algebraic-effects.ssc`. A parameterized effect **declaration**
-  `effect Name[T]:` is broken on the interpreter (and `bin/ssc`): `effect State[S]:` /
-  `effect Box[T]:` both error `No method 'Name' on NativeFnV(<native:effect>)` at runtime.
-  Non-parameterized `effect Name:` works fine (e.g. `Logger`, `NonDet`).
-- **Repro:**
-  ```scalascript
-  effect Box[T]:
-    def stash(x: T): Unit
-  def use(): Unit ! Box[Int] = Box.stash(5)
-  handle(use()) { case Box.stash(x, resume) => println(x); resume(()) }
-  // ERROR: No method 'Box' on NativeFnV(<native:effect>)
-  ```
-- **Note:** the effect-decl preprocessing/parsing mis-handles the `[T]` type param.
-  Stdlib parameterized effects (`State[S]`) are *usable* (via `runState`); only a
-  user **declaration** of a parameterized effect breaks. Cross-backend check needed.
+- **Fixed:** `Parser.effectLinePat` (the regex that rewrites `effect Name:` →
+  `object Name { … }`) had no type-param clause after the name, so `effect State[S]:` /
+  `effect Box[T]:` were left un-rewritten and reached the Scala parser as a bare
+  `effect Name[T]` expression → `No method 'Name' on NativeFnV(<native:effect>)`. Added an
+  optional `(?:\[[^\]]*\])?` after `(\w+)` (the `object` drops the type param; op
+  signatures may still mention it — the interpreter erases types). Shared `lang/core`
+  Parser, so all backends benefit. Regress: `StdEffectsTest` (`effect Box[T]:` decl + handle).
 
-## interp-effect-multishot-cross-section-leak — `open` (2026-06-13)
+## interp-effect-multishot-in-subsection — `fixed` (2026-06-13, `2a818e45c`)
 
-- **Found:** by me, running the full `algebraic-effects.ssc` after fixing its sections.
-  The multi-shot NonDet handler (`opts.flatMap(opt => resume(opt))`) errors `One-shot
-  violation: NonDet.choose resumed more than once` — **but only when run after the earlier
-  one-shot effect sections** (Logger / State) in the same program. The NonDet section runs
-  correctly **in isolation** (`List(11, 21, 12, 22, 13, 23)`). So some global one-shot/
-  multi-shot state set by a one-shot `handle` leaks and is not cleared/keyed per handler,
-  flipping a later `multi effect` handler to one-shot.
-- **Repro:** run `examples/algebraic-effects.ssc` end-to-end (Logger → State → interleaved
-  all print, then NonDet throws); each section alone is green.
-- **Note:** effects-runtime state management — likely a global flag/registry that should be
-  per-`handle` or per-effect. Deep; blocks the flagship effects example from running
-  end-to-end (so it is NOT in `ExamplesSmokeTest`). Cross-backend check needed.
+- **CORRECTION:** filed as `interp-effect-multishot-cross-section-leak` — that "global state
+  leaks from an earlier one-shot `handle`" diagnosis was **wrong**. Real cause: `multiShotEffects`
+  was **never populated for subsection code blocks at all**. `Interpreter.runInit` collected the
+  effect-analysis trees only from top-level `module.sections` content, not the nested `##`/`###`
+  subsections where the blocks actually live (`[DBG] sections=1 allTrees=0 multiShotEffects=Set()`).
+  So a `multi effect` declared in a subsection was never registered → its handler defaulted to
+  one-shot → `One-shot violation` on the 2nd `resume`. A `multi effect` directly under the top-level
+  `#` worked, which made it look order/leak-dependent.
+- **Fixed:** `runInit`'s tree collection now recurses `s.subsections`. Regress: `StdEffectsTest`
+  (`multi effect` in a `##` subsection multi-shots); `examples/algebraic-effects.ssc` runs
+  end-to-end and is in `ExamplesSmokeTest`. Interp-only — JVM/JS codegen already gather all
+  blocks recursively.
 
 ## interp-toString-on-collection — `fixed` (2026-06-13, `225aacc18`)
 

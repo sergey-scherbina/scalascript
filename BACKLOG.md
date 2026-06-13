@@ -344,21 +344,6 @@ the contracts are explicit.
       (heavy) + network/GUI/browser examples. Low-risk, broadens regression coverage of
       the 180-example corpus.
 
-- [ ] **interp-parameterized-effect-decl** (deep) — a parameterized effect *declaration*
-      `effect Name[T]:` errors `No method 'Name' on NativeFnV(<native:effect>)` at runtime
-      (`effect State[S]:` / `effect Box[T]:`); non-parameterized `effect Name:` works. The
-      effect-decl preprocessing mis-handles the `[T]` type param. Stdlib parameterized
-      effects (`State[S]` via `runState`) are usable — only a user *declaration* breaks.
-      Found fixing `algebraic-effects.ssc`. BUGS.md `interp-parameterized-effect-decl`.
-
-- [ ] **interp-effect-multishot-cross-section-leak** (deep) — a `multi effect` handler
-      (NonDet `opts.flatMap(opt => resume(opt))`) hits `One-shot violation: ... resumed
-      more than once` **only when run after an earlier one-shot `handle`** in the same
-      program; it's green in isolation. A global one-shot/multi-shot flag leaks across
-      handlers (should be per-`handle`/per-effect). Blocks `examples/algebraic-effects.ssc`
-      from running end-to-end (so it is NOT in `ExamplesSmokeTest`). Effects-runtime;
-      cross-backend check. BUGS.md `interp-effect-multishot-cross-section-leak`.
-
 - [ ] **effect-handler-return-clause** (feature, not a bug) — `handle` has no return clause
       (`return x => …`), so the textbook deep-handler accumulation `msg :: resume(())` can't
       seed its base case (`resume(())` yields the continuation's pure value). The spec types

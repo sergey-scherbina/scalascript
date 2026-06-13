@@ -1,6 +1,0 @@
-interp-effect-bugs 2026-06-13T09:25:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-13T09:25:00Z
-status: in-progress
-done-so-far: Fixing both interp-parameterized-effect-decl + interp-effect-multishot-cross-section-leak. Bug 1 root cause: Parser.effectLinePat `^(\s*)(multi\s+)?effect\s+(\w+)(?:\s+extends\s+\S+)?\s*:` has no `[T]` type-param after the name, so `effect State[S]:` isn't preprocessed to `object State {...}` -> reaches scalameta as bare `effect State[S]` -> "No method 'State' on native effect". Fix: add `(?:\[[^\]]*\])?` after `(\w+)` (groups 1-3 unchanged).
-next: (1) fix the regex, test `effect Box[T]:` + State[S]; (2) investigate the multishot cross-section leak (a global one-shot flag set by a one-shot handle leaks to a later multi handle in the same program) - find the one-shot/multishot registry in StdEffectsRuntime/EvalRuntime handle, make it per-handle/per-effect; (3) verify examples/algebraic-effects.ssc runs end-to-end, add to ExamplesSmokeTest. Cross-backend check for both.

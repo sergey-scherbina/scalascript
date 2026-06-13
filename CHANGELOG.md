@@ -15,6 +15,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   `dir globals (no fs-plugin)` case proving they work without the plugin. Unblocks
   busi vr-2b (the readable `docs/`+`events/` partitioned tree).
 
+## 2026-06-13 — fix(interp): parameterized effect decls + multi-shot effects in subsections
+
+- `effect Name[T]:` (parameterized effect *declaration*) errored `No method 'Name' on native
+  effect` — `Parser.effectLinePat` had no type-param clause, so it wasn't rewritten to
+  `object Name { … }`. Added an optional `[…]` after the name (shared `lang/core`, all backends).
+- A `multi effect` declared under a `##`/`###` subsection was treated as one-shot
+  (`One-shot violation`): `Interpreter.runInit` gathered the `multiShotEffects` trees only from
+  top-level `module.sections` content, never the nested subsections where blocks live. Made the
+  collection recurse `subsections`. (The earlier "cross-section leak" diagnosis was wrong — it
+  was a missing traversal; a top-level `multi effect` always worked.)
+- `examples/algebraic-effects.ssc` now runs end-to-end (Logger / State / interleaved / NonDet
+  multi-shot / capability / stdlib runners / Stream) and joined the `ExamplesSmokeTest` run-set.
+  Regress: `StdEffectsTest` (parameterized `effect Box[T]:` + `multi effect` in a `##` subsection).
+  Closes BUGS.md `interp-parameterized-effect-decl` + `interp-effect-multishot-in-subsection`.
+
 ## 2026-06-13 — docs/fix: algebraic-effects example + 2 interp effect bugs filed
 
 - Resolved `interp-cons-in-effect-handler`: the `examples/algebraic-effects.ssc` Logger
