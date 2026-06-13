@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-13 — feat: `exec` process-execution global builtin (busi vr-10)
+
+- New global `exec(command: List[String]): (Int, String, String)` = (exitCode, stdout,
+  stderr) in the JVM interpreter (`BuiltinsRuntime`), beside the `std.fs` bare globals.
+  argv form (no shell ⇒ no injection), blocking, stderr drained on a side thread (no pipe
+  deadlock), spawn failure → `InterpretError`. The bare-global primitive of the planned
+  `std.process.exec` (`specs/std-fs-os.md` §4 — rich `ProcessResult`/opts/`spawn` + JS/Rust
+  backends still planned there). Requested by busi to drive the local `git` CLI for the
+  versioned-repository `git-mirror` transport. Spec `specs/exec-builtin.md`.
+
 ## 2026-06-13 — perf/investigation: HOF-dispatch (redirect from direct-style-eval)
 
 - `direct-style-eval` re-validated and DEFERRED (data-disproven: `Computation.Pure` ~16% of

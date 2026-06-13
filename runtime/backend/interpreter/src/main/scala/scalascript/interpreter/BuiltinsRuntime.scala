@@ -791,6 +791,33 @@ private[interpreter] object BuiltinsRuntime:
         Pure(Value.ListV(names.map(n => Value.StringV(n))))
       case _ => throw InterpretError("listDir(path: String): List[String]")
     })
+    // ── std.process (bare-global primitive) — run a program in argv form ───
+    // exec(command: List[String]): (Int, String, String) = (exitCode, stdout, stderr).
+    // No shell (no word-splitting/injection); blocks until exit. stderr is drained on
+    // a side thread while stdout is read, so a program filling both pipes can't
+    // deadlock. A spawn failure (missing/unrunnable exe) throws; a process that runs
+    // and exits non-zero returns its code in the tuple. See specs/exec-builtin.md.
+    interp.globals("exec") = Value.NativeFnV("exec", {
+      case List(Value.ListV(parts)) =>
+        val cmd = parts.map {
+          case Value.StringV(s) => s
+          case other            => other.toString
+        }
+        if cmd.isEmpty then throw InterpretError("exec(command): command list must be non-empty")
+        val utf8 = java.nio.charset.StandardCharsets.UTF_8
+        try
+          val proc = new java.lang.ProcessBuilder(cmd*).start()
+          val errF = java.util.concurrent.CompletableFuture.supplyAsync(
+            () => new String(proc.getErrorStream.readAllBytes(), utf8))
+          val out = new String(proc.getInputStream.readAllBytes(), utf8)
+          val err = errF.get()
+          val code = proc.waitFor()
+          Pure(Value.TupleV(List(Value.IntV(code.toLong), Value.StringV(out), Value.StringV(err))))
+        catch
+          case e: java.io.IOException =>
+            throw InterpretError("exec: cannot run '" + cmd.head + "': " + e.getMessage)
+      case _ => throw InterpretError("exec(command: List[String]): (Int, String, String)")
+    })
 
   /** Install plugin-provided companion objects (Db, DriverManager, Graph) after their
    *  NativeImpl intrinsics have been registered via `ensurePluginsLoaded`.

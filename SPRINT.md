@@ -8,6 +8,19 @@ Start: tell the agent `"ÃÂÃÂ°ÃÂ±ÃÂ¾ÃÂÃÂ°ÃÂ¹
 
 ---
 
+## busi — exec builtin for vr-10 git-mirror (2026-06-13)
+
+- [x] **exec-builtin** — DONE 2026-06-13. busi (versioned-repository vr-10): needs to
+      drive the local `git` CLI to mirror a repo to a real git host. Added a global
+      `exec(command: List[String]): (Int, String, String)` = (exitCode, stdout, stderr)
+      to `BuiltinsRuntime.scala` beside the `std.fs` bare globals — argv form (no shell),
+      blocking, stderr drained on a `CompletableFuture` to avoid pipe deadlock, spawn
+      failure -> `InterpretError`. The bare-global primitive of the planned
+      `std.process.exec` (`specs/std-fs-os.md` section 4); rich `ProcessResult`/opts/`spawn`
+      + JS/Rust backends stay in that plan. `sbt installBin` + assembled-jar smoke (echo,
+      nonzero exit, independent stdout/stderr, missing-binary throw) ALL OK. Spec
+      `specs/exec-builtin.md`.
+
 ## busi-seq132 Ã¢ÂÂ interp module-loader diamond OOM (2026-06-12)
 
 - [x] **interp-module-loader-dedup** Ã¢ÂÂ DONE 2026-06-12. busi (rozum seq-132): the

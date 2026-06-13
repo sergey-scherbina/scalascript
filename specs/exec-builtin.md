@@ -57,15 +57,29 @@ A spawn failure (`IOException`) is rethrown as `InterpretError`.
 
 ## Behavior
 
-- [ ] `exec(List("echo", "hi"))` → `(0, "hi\n", "")`.
-- [ ] A program exiting non-zero returns its code with any stderr captured (no throw).
-- [ ] stdout and stderr are captured independently.
-- [ ] A missing executable throws (not a silent `(0,"","")`).
-- [ ] Large output does not deadlock (stderr drained concurrently).
-- [ ] Assembled-jar (`sbt installBin`) smoke test passes — the real harness, not
+- [x] `exec(List("echo", "hi"))` → `(0, "hi\n", "")`.
+- [x] A program exiting non-zero returns its code with any stderr captured (no throw).
+- [x] stdout and stderr are captured independently.
+- [x] A missing executable throws (not a silent `(0,"","")`).
+- [x] Large output does not deadlock (stderr drained concurrently).
+- [x] Assembled-jar (`sbt installBin`) smoke test passes — the real harness, not
       `ssc run`.
 
 ## Verification
 
 `sbt installBin`, then run a `.ssc` smoke that calls `exec(List("echo","hi"))`,
 `exec(List("sh","-c","exit 3"))`, and a missing-binary case; assert the tuple fields.
+
+## Results
+
+Implemented 2026-06-13. Added `interp.globals("exec")` to `BuiltinsRuntime.scala`
+beside the `std.fs` bare globals: `ProcessBuilder(command*)`, stderr drained on a
+`CompletableFuture` while stdout is read, then `waitFor()`; returns
+`TupleV(IntV(code), StringV(out), StringV(err))`; an `IOException` (spawn failure)
+rethrows as `InterpretError`. No `CapabilityRegistry` entry needed (it is a
+manifest heuristic, not a gate — the `mkdirs`/`listDir` bare globals likewise
+aren't listed and work). Built `sbt installBin`; smoke (`echo` → `(0,"hi\n","")`,
+`sh -c 'exit 3'` → code 3, independent stdout/stderr capture with exit 7, missing
+binary → throws) **ALL OK in the assembled jar**. The rich `std.process.exec(cmd,
+args, opts): ProcessResult` + JS/Rust backends + `spawn` remain in the `std-fs-os`
+plan.
