@@ -908,12 +908,18 @@ class Interpreter(
       nativeFeatureSet(scalascript.backend.spi.NativeContextFeatureKeys.ContentDocument, doc)
     }
     // Populate multiShotEffects for one-shot violation checks in evalHandle.
-    val allTrees: List[scala.meta.Tree] = module.sections.flatMap { s =>
-      s.content.collect {
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
-          cb.tree.map(ScalaNode.fold(_)(identity))
-      }.flatten
-    }
+    // Recurse through `subsections` — code blocks under `##`/`###` headings are nested,
+    // not in the top-level section content. Without the recursion a `multi effect` declared
+    // in a subsection was never seen, so its handler was wrongly treated as one-shot
+    // ("One-shot violation" the second time `resume` was called).
+    def collectScalaTrees(secs: List[Section]): List[scala.meta.Tree] =
+      secs.flatMap { s =>
+        s.content.collect {
+          case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+            cb.tree.map(ScalaNode.fold(_)(identity))
+        }.flatten ++ collectScalaTrees(s.subsections)
+      }
+    val allTrees: List[scala.meta.Tree] = collectScalaTrees(module.sections)
     multiShotEffects = scalascript.transform.EffectAnalysis.analyze(allTrees).multiShotEffects
     registerFrontmatterRoutes(module)
     registerFrontmatterRemoteHandlers(module)

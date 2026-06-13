@@ -1761,7 +1761,11 @@ object Parser:
     result.toString
 
   // Preprocess `effect Name:` declarations into `object Name { def op(...) = __effectOp__ }`.
-  private val effectLinePat = """^(\s*)(multi\s+)?effect\s+(\w+)(?:\s+extends\s+\S+)?\s*:""".r
+  // A parameterized effect `effect Name[T]:` keeps `object Name` (the type param is erased at
+  // the interpreter level; the op signatures may still mention `T`). The `(?:\[[^\]]*\])?`
+  // makes the type-param clause optional — without it `effect State[S]:` was left un-rewritten
+  // and reached the Scala parser as a bare `effect State[S]` expression.
+  private val effectLinePat = """^(\s*)(multi\s+)?effect\s+(\w+)(?:\[[^\]]*\])?(?:\s+extends\s+\S+)?\s*:""".r
   private[parser] def preprocessEffects(code: String): String =
     if !code.contains("effect") then return code
     val effectLine = effectLinePat

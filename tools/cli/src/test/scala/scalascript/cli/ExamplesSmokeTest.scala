@@ -98,7 +98,11 @@ class ExamplesSmokeTest extends AnyFunSuite:
     "graph-storage-interpreter.ssc", "dataset-parallel-sum.ssc", "dataset-stats.ssc",
     // typed-data exercises `foreach(println)` end-to-end through Normalize (the bare
     // `println` rewrite that used to break with "Not callable: ()").
-    "typed-data.ssc"
+    "typed-data.ssc",
+    // algebraic-effects exercises the full effect system across `##` subsections:
+    // Logger/State/NonDet (multi-shot) + stdlib runners + Stream. Regression for both
+    // interp-parameterized-effect-decl and the multi-shot-in-subsection registry fix.
+    "algebraic-effects.ssc"
   )
 
   test("curated core examples run and exit 0 (no silent no-op)"):

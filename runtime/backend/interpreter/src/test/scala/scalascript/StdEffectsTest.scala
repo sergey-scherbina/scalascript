@@ -430,3 +430,44 @@ class StdEffectsTest extends AnyFunSuite with Matchers:
       val v = Reader.ask
       println(v)
     """) shouldBe "()"
+
+  // ── interp-parameterized-effect-decl ─────────────────────────────────
+  // `effect Name[T]:` (parameterized) must preprocess like `effect Name:` —
+  // the type-param clause was previously left un-rewritten and reached the
+  // Scala parser as a bare `effect Name[T]` expression.
+  test("a parameterized effect declaration `effect Name[T]:` works"):
+    captured("""
+      effect Box[T]:
+        def stash(x: T): Unit
+      def use(): Unit ! Box[Int] = Box.stash(5)
+      handle(use()) { case Box.stash(x, resume) => println("stashed " + x); resume(()) }
+    """) shouldBe "stashed 5"
+
+  // ── interp-effect-multishot-cross-section (subsections) ──────────────
+  // The multi-shot registry must traverse `##`/`###` subsections; a `multi
+  // effect` declared in a subsection was missed, so its handler was wrongly
+  // treated as one-shot ("One-shot violation"), regardless of any earlier
+  // one-shot section.
+  private def capturedMd(md: String): String =
+    val buf = java.io.ByteArrayOutputStream()
+    val ps  = java.io.PrintStream(buf, true)
+    Interpreter(ps).run(Parser.parse(md))
+    ps.flush()
+    buf.toString.trim
+
+  test("a multi effect declared in a `##` subsection multi-shots"):
+    val md =
+      "# T\n\n" +
+      "## one-shot {#a}\n\n```scalascript\n" +
+      "effect Logger:\n" +
+      "  def log(m: String): Unit\n" +
+      "def greet(): Unit ! Logger = Logger.log(\"hi\")\n" +
+      "handle(greet()) { case Logger.log(m, resume) => println(m); resume(()) }\n" +
+      "```\n\n" +
+      "## multi {#b}\n\n```scalascript\n" +
+      "multi effect NonDet:\n" +
+      "  def choose(options: List[Int]): Int\n" +
+      "def prog(): Int ! NonDet = NonDet.choose(List(1, 2, 3))\n" +
+      "println(handle(prog()) { case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt)) })\n" +
+      "```\n"
+    capturedMd(md) shouldBe "hi\nList(1, 2, 3)"
