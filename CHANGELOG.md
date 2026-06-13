@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-13 — perf/investigation: HOF-dispatch (redirect from direct-style-eval)
+
+- `direct-style-eval` re-validated and DEFERRED (data-disproven: `Computation.Pure` ~16% of
+  alloc, dispatch machinery ~66%; spec §11.1). Redirected to the data-indicated win, HOF/
+  typeclass dispatch.
+- Shipped the obvious allocation slice: `DispatchRuntime` matched `case InstanceV(t, f)` at
+  3 hot sites, and InstanceV's custom `unapply` allocates a `Some`+`Tuple2` per dispatch.
+  Replaced with a type-test (confirmed via JFR: `InstanceV.unapply` gone, `Some` 116→76).
+- FINDING (honest): `typeclassFoldMacro` is **CPU-bound on dispatch**, not alloc-bound —
+  removing the (tiny) `Some`s left alloc-rate (132 KB/op) and wall-clock (1.30 ms/op)
+  unchanged. JFR sample count/weight overstated the byte impact. The real win is
+  devirtualizing the dispatch CPU — queued as `hof-dispatch-cpu-devirt` (BACKLOG, deep).
+
 ## 2026-06-13 — feat(effects): handler return clause
 
 - A handler may include `case Return(x) => expr` — a RETURN CLAUSE that maps the handled

@@ -333,6 +333,19 @@ These items come from the 2026-05-30 project-state review. They are intentionall
 ordered to reduce risk: spec and hygiene first, broad implementation only after
 the contracts are explicit.
 
+- [ ] **hof-dispatch-cpu-devirt** (deep) — `hof-dispatch-devirt` (2026-06-13) shipped the
+      obvious allocation slice (InstanceV.unapply Some+Tuple2 hygiene), but the FINDING is
+      that `typeclassFoldMacro` (the representative tree-walked HOF/dispatch workload) is
+      **CPU-bound on dispatch logic, NOT allocation-bound**: eliminating the dominant-by-JFR-
+      sample-count `Some` left both `gc.alloc.rate.norm` (132 KB/op) and wall-clock (1.30 ms/op)
+      unchanged. (Lesson: JFR sample COUNT/weight ≠ bytes; tiny frequent objects mislead.) The
+      genuine win is **devirtualizing the dispatch CPU** — the per-element given-resolution +
+      curried-method dispatch in `DispatchRuntime`/`CallRuntime` (given-resolution is already
+      `summonKeyCache`'d; the residual is the method-dispatch walk). Deep: likely JIT-compiling
+      or memoizing the resolved dispatch target across a `combineAll`/fold loop. A/B with
+      `scripts/bench interp typeclassFold*` (wall-clock, NOT alloc). Dedicated effort, not a
+      quick slice. (This is also the redirect target the deferred `direct-style-eval` points at.)
+
 - [ ] **direct-style-eval** (DEFERRED — data-disproven) — migrate `eval(...): Computation`
       to direct-style `eval(...): Value` to kill per-call `Pure` allocation. **Re-validated
       2026-06-13** (`specs/direct-style-eval-spec.md` §11.1): on the representative tree-walked
