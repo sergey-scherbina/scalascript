@@ -344,15 +344,28 @@ the contracts are explicit.
       (heavy) + network/GUI/browser examples. Low-risk, broadens regression coverage of
       the 180-example corpus.
 
-- [ ] **interp-cons-in-effect-handler** (low-pri, deep) — `msg :: rest` errors `No method
-      '::' on StringV` **only when `rest = resume(())`** (a continuation result) inside a
-      `handle` case; `msg :: List(...)` in the same handler works, and `::` is fine
-      everywhere else (the earlier "right-assoc desugar" diagnosis was WRONG — corrected
-      in BUGS.md). Root cause: a `resume(())` result isn't forced to its concrete `ListV`
-      before being used as the right operand of a right-associative operator, so dispatch
-      falls back to the left operand (the String) and fails. Fix in the interp's
-      effect/CPS value resolution; risky (effects-runtime), cross-backend check needed.
-      `examples/algebraic-effects.ssc` repro. BUGS.md `interp-cons-in-effect-handler`.
+- [ ] **interp-parameterized-effect-decl** (deep) — a parameterized effect *declaration*
+      `effect Name[T]:` errors `No method 'Name' on NativeFnV(<native:effect>)` at runtime
+      (`effect State[S]:` / `effect Box[T]:`); non-parameterized `effect Name:` works. The
+      effect-decl preprocessing mis-handles the `[T]` type param. Stdlib parameterized
+      effects (`State[S]` via `runState`) are usable — only a user *declaration* breaks.
+      Found fixing `algebraic-effects.ssc`. BUGS.md `interp-parameterized-effect-decl`.
+
+- [ ] **interp-effect-multishot-cross-section-leak** (deep) — a `multi effect` handler
+      (NonDet `opts.flatMap(opt => resume(opt))`) hits `One-shot violation: ... resumed
+      more than once` **only when run after an earlier one-shot `handle`** in the same
+      program; it's green in isolation. A global one-shot/multi-shot flag leaks across
+      handlers (should be per-`handle`/per-effect). Blocks `examples/algebraic-effects.ssc`
+      from running end-to-end (so it is NOT in `ExamplesSmokeTest`). Effects-runtime;
+      cross-backend check. BUGS.md `interp-effect-multishot-cross-section-leak`.
+
+- [ ] **effect-handler-return-clause** (feature, not a bug) — `handle` has no return clause
+      (`return x => …`), so the textbook deep-handler accumulation `msg :: resume(())` can't
+      seed its base case (`resume(())` yields the continuation's pure value). The spec types
+      `resume` as returning the *handler body's* type, which a return clause would bridge.
+      Large (parser + typer + interp + 4 backends). Workaround today: accumulate via a
+      `var` (see `examples/algebraic-effects.ssc` Logger section). Resolved
+      `interp-cons-in-effect-handler` by documenting this.
 
 - [x] **contract-validation-spec** - Spec first. Define a shared contract
       validation model for OpenAPI and GraphQL drift checks: route/resolver

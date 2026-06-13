@@ -14,45 +14,58 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ---
 
-## interp-cons-in-effect-handler — `open` (2026-06-13)
+## interp-cons-in-effect-handler — `fixed` (example) (2026-06-13, `721ee62b9`)
 
-- **Found:** by me, while expanding `ExamplesSmokeTest` run coverage
-  (`examples/algebraic-effects.ssc` fails to run). Reproduces on `origin/main`
-  (`bb580815c`) via the in-process interpreter AND the fat-jar `bin/ssc`.
-- **CORRECTION (earlier mis-diagnosis):** this is **not** a general `::`
-  right-associativity bug. `::` is right-associative and works fine on its own —
-  `"a" :: List("b")` → `List(a, b)`, `1 :: 2 :: List(3)` → `List(1, 2, 3)`, and even
-  `def build(m, rest) = m :: rest; build("x", List("y"))` → `List(x, y)` all work. The
-  original filed repro (`build(...)`) does **not** reproduce. Apologies to the next
-  agent — verify against the corrected repro below.
-- **Symptom (actual):** `msg :: rest` errors `No method '::' on StringV(...)` **only when
-  the right operand is the result of a continuation call** `resume(())` inside a `handle`
-  case. `msg :: List("end")` in the *same* handler works. So the right operand of a
-  right-associative operator, when it is a `resume(())` result, is not resolved to its
-  concrete `ListV` at the point `::` dispatches → the interpreter falls back to dispatching
-  `::` on the **left** operand (the String) and fails. This is an **effects-CPS /
-  resume-result interaction** in the interpreter's operator dispatch, not parsing.
-- **Repro (needs a `handle` block):**
+- **FINAL diagnosis (two earlier mis-diagnoses corrected):** NOT a `::` bug and NOT a
+  "resume result not forced to ListV" bug. `resume(())` **correctly** returns the
+  continuation's pure result `()` (Unit); `println(rest)` after `val rest = resume(())`
+  prints `()`. The `algebraic-effects.ssc` Logger handler did `msg :: resume(())`, i.e.
+  `msg :: ()` → "No method '::' on StringV" — it assumed `resume(())` of the final
+  continuation would be `Nil`. That is the **deep-handler list-accumulation** pattern
+  (Koka/Eff `return x => []`), which needs a handler **return clause**. ScalaScript's
+  `handle` has **no return clause** (the spec's own Logger example just does `resume(())`,
+  returning Unit), so the pattern is unsupported. **Example bug, not an interp bug.**
+- **Fixed:** rewrote the Logger section to a working accumulator (append each msg + resume)
+  producing the same `List(Hello, World!)`, with a comment on the return-clause gap.
+  Also corrected the State section (stdlib `State` + `set`, dropped a broken parameterized
+  redecl — see `interp-parameterized-effect-decl`).
+- **Underlying language gap (future feature, not filed as a bug):** a handler **return
+  clause** would make `msg :: resume(())` work (the spec types `resume` as returning the
+  *handler body's* type, which requires bridging the pure/base case). Large feature
+  (parser + typer + interp + 4 backends) — out of scope; noted in BACKLOG.
+
+## interp-parameterized-effect-decl — `open` (2026-06-13)
+
+- **Found:** by me, fixing `algebraic-effects.ssc`. A parameterized effect **declaration**
+  `effect Name[T]:` is broken on the interpreter (and `bin/ssc`): `effect State[S]:` /
+  `effect Box[T]:` both error `No method 'Name' on NativeFnV(<native:effect>)` at runtime.
+  Non-parameterized `effect Name:` works fine (e.g. `Logger`, `NonDet`).
+- **Repro:**
   ```scalascript
-  effect Logger:
-    def log(msg: String): Unit
-  def greet(): Unit ! Logger = Logger.log("Hello")
-  val messages = handle(greet()) {
-    case Logger.log(msg, resume) =>
-      val rest = resume(())   // continuation result
-      msg :: rest             // ERROR: No method '::' on StringV(Hello)
-  }
-  println(messages)           // expected List(Hello)
+  effect Box[T]:
+    def stash(x: T): Unit
+  def use(): Unit ! Box[Int] = Box.stash(5)
+  handle(use()) { case Box.stash(x, resume) => println(x); resume(()) }
+  // ERROR: No method 'Box' on NativeFnV(<native:effect>)
   ```
-- **Control (works):** replace `val rest = resume(())` with `resume(()); val rest =
-  List("end")` → prints `List(Hello, end)`. Confirms it's the `resume`-result operand,
-  not `::` itself.
-- **Note:** deep + narrow (right-assoc ops on a `resume(())` result in a handler — and
-  possibly any method that must dispatch on the right operand). Fix lives in the interp's
-  effect/CPS value resolution: a `resume(())` result must be forced to its concrete Value
-  before it is used as a right-associative operand. Risky — needs effects-runtime care +
-  cross-backend check (does jvm/js CPS lowering share it?). Lower priority: `::` directly
-  on a continuation result is an uncommon pattern.
+- **Note:** the effect-decl preprocessing/parsing mis-handles the `[T]` type param.
+  Stdlib parameterized effects (`State[S]`) are *usable* (via `runState`); only a
+  user **declaration** of a parameterized effect breaks. Cross-backend check needed.
+
+## interp-effect-multishot-cross-section-leak — `open` (2026-06-13)
+
+- **Found:** by me, running the full `algebraic-effects.ssc` after fixing its sections.
+  The multi-shot NonDet handler (`opts.flatMap(opt => resume(opt))`) errors `One-shot
+  violation: NonDet.choose resumed more than once` — **but only when run after the earlier
+  one-shot effect sections** (Logger / State) in the same program. The NonDet section runs
+  correctly **in isolation** (`List(11, 21, 12, 22, 13, 23)`). So some global one-shot/
+  multi-shot state set by a one-shot `handle` leaks and is not cleared/keyed per handler,
+  flipping a later `multi effect` handler to one-shot.
+- **Repro:** run `examples/algebraic-effects.ssc` end-to-end (Logger → State → interleaved
+  all print, then NonDet throws); each section alone is green.
+- **Note:** effects-runtime state management — likely a global flag/registry that should be
+  per-`handle` or per-effect. Deep; blocks the flagship effects example from running
+  end-to-end (so it is NOT in `ExamplesSmokeTest`). Cross-backend check needed.
 
 ## interp-toString-on-collection — `fixed` (2026-06-13, `225aacc18`)
 

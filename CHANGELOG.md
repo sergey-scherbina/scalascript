@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-13 — docs/fix: algebraic-effects example + 2 interp effect bugs filed
+
+- Resolved `interp-cons-in-effect-handler`: the `examples/algebraic-effects.ssc` Logger
+  handler did `msg :: resume(())` (deep-handler list accumulation), but ScalaScript's
+  `handle` has no return clause to seed the base case, so `resume(())` yields the
+  continuation's pure `()` and `msg :: ()` errored. Not an interp bug — rewrote the section
+  to a working `var` accumulator (same `List(Hello, World!)`), and fixed the State section
+  (stdlib `State` + `set`, dropped a broken parameterized redecl). All sections now run in
+  isolation.
+- Two real interp bugs discovered + filed (BUGS.md): `interp-parameterized-effect-decl`
+  (`effect Name[T]:` declaration errors `No method 'Name' on native effect`) and
+  `interp-effect-multishot-cross-section-leak` (a `multi effect` handler is treated as
+  one-shot when run after an earlier one-shot `handle` in the same program — green in
+  isolation). The latter blocks the example from running end-to-end, so it's not yet in
+  `ExamplesSmokeTest`. Also queued `effect-handler-return-clause` as a future feature.
+
 ## 2026-06-13 — fix(normalize): bare `println` reference no longer auto-invoked
 
 - `xs.foreach(println)` / `val f = println` errored `Not callable: ()` (and broke

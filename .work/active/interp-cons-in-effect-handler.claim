@@ -1,6 +1,0 @@
-interp-cons-in-effect-handler 2026-06-13T09:10:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-13T09:10:00Z
-status: in-progress
-done-so-far: Root-caused. NOT a :: bug. examples/algebraic-effects.ssc Logger handler does `msg :: resume(())` expecting resume(()) to be Nil (deep-handler accumulation). But resume(()) returns the continuation's PURE result = () (Unit), so `msg :: ()` -> "No method '::' on StringV". The spec (algebraic-effects.md:256) implies resume returns the handler-body type (List), which needs a RETURN CLAUSE (return x => Nil) to bridge the base case; ScalaScript handle has no return clause (spec's own Logger example just does resume(()) returning Unit). So the example uses an unsupported pattern. Implementing return clauses = large feature (out of scope).
-next: fix the example Logger section to a working accumulator (var collected; handler appends msg + resume(())) -> List(Hello, World!); verify the WHOLE example (State + NonDet sections) runs end-to-end; add algebraic-effects.ssc to ExamplesSmokeTest if fully green; correct BUGS.md (example bug, not interp; note return-clause as a future feature in BACKLOG).
