@@ -242,6 +242,19 @@ class InterpreterBench:
       |s""".stripMargin
   )
 
+  // Conditional intermediate (jit-loop-if-val): `val x = if … then … else …` in a loop body —
+  // conditional accumulation (abs/clamp/select), very common. The pure `if` is now admitted to
+  // isPureArith, so the val is inlined and the body JITs (the bytecode JIT compiles Term.If).
+  private val modValIf: Module = src(
+    """var i = 0
+      |var s = 0
+      |while i < 1000000 do
+      |  val x = if i % 2 == 0 then i else 0 - i
+      |  s = s + x
+      |  i = i + 1
+      |s""".stripMargin
+  )
+
   // val-bound constant tuple: `last = k` where k is a val.
   // Without the Term.Name hoist, tryHoistedPureWhile bails and falls through
   // to the value-space loop (~65 ms for 1M iters, similar to counterWithTupleVar).
@@ -596,6 +609,10 @@ class InterpreterBench:
   @Benchmark
   def multiVal(): Unit =
     Interpreter(devNull).runSections(modMultiVal)
+
+  @Benchmark
+  def valIf(): Unit =
+    Interpreter(devNull).runSections(modValIf)
 
   @Benchmark
   def counterWithTupleVar(): Unit =

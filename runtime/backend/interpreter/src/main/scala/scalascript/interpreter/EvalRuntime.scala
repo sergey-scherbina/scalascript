@@ -500,12 +500,27 @@ private[interpreter] object EvalRuntime:
   private def isArithOp(op: String): Boolean =
     op == "+" || op == "-" || op == "*" || op == "/" || op == "%"
 
+  private def isCompareOp(op: String): Boolean =
+    op == "<" || op == ">" || op == "<=" || op == ">=" || op == "==" || op == "!="
+
+  /** Side-effect-free boolean condition: comparisons of pure-arith operands, `&&`/`||` of
+   *  pure conditions, unary `!`, and bool literals/names. Admits a pure `if` into
+   *  [[isPureArith]] (a conditional intermediate). */
+  private def isPureCond(c: Term): Boolean = c match
+    case _: Lit | _: Term.Name => true
+    case ai: Term.ApplyInfix if isCompareOp(ai.op.value) =>
+      isPureArith(ai.lhs) && ai.argClause.values.forall(isPureArith)
+    case ai: Term.ApplyInfix if ai.op.value == "&&" || ai.op.value == "||" =>
+      isPureCond(ai.lhs) && ai.argClause.values.forall(isPureCond)
+    case Term.ApplyUnary(op, arg) if op.value == "!" => isPureCond(arg)
+    case _ => false
+
   /** True for a side-effect-free numeric expression — `Lit`, `Term.Name`, arithmetic
-   *  `ApplyInfix`, unary `+/-`, and the total pure numeric conversions `.toInt/.toLong/
-   *  .toDouble`. Excludes `Term.Apply` (a call may have side effects, and inlining would
-   *  duplicate it) and all other selects. Such an expr may be freely duplicated, so a
-   *  `val x = <isPureArith>` binding used only as a whole `x` can be inlined into the loop
-   *  assignments. (Inlining only GATES on this — the substituted body still bails to
+   *  `ApplyInfix`, unary `+/-`, the total pure numeric conversions `.toInt/.toLong/.toDouble`,
+   *  and a pure `if c then a else b` (conditional intermediate). Excludes `Term.Apply` (a call
+   *  may have side effects, and inlining would duplicate it) and other selects. Such an expr
+   *  may be freely duplicated, so a `val x = <isPureArith>` binding used only as a whole `x`
+   *  can be inlined. (Inlining only GATES on this — the substituted body still bails to
    *  tree-walk if the while-JIT can't compile it, so this is purely about correctness.) */
   private def isPureArith(e: Term): Boolean = e match
     case _: Lit | _: Term.Name    => true
@@ -513,6 +528,7 @@ private[interpreter] object EvalRuntime:
       isArithOp(ai.op.value) && isPureArith(ai.lhs) && ai.argClause.values.forall(isPureArith)
     case Term.ApplyUnary(op, arg) => (op.value == "-" || op.value == "+") && isPureArith(arg)
     case Term.Select(qual, Term.Name("toInt" | "toLong" | "toDouble")) => isPureArith(qual)
+    case ti: Term.If              => isPureCond(ti.cond) && isPureArith(ti.thenp) && isPureArith(ti.elsep)
     case _                        => false
 
   /** Substitute a leading loop-body `val name = …` away in `rhs`. With `comps` (the val
@@ -547,6 +563,10 @@ private[interpreter] object EvalRuntime:
           val a2 = go(arg); if a2 eq arg then e else Term.ApplyUnary(op, a2)
         case Term.Tuple(args) =>
           val a2 = args.map(go); if a2.corresponds(args)(_ eq _) then e else Term.Tuple(a2)
+        case ti: Term.If =>
+          val c2 = go(ti.cond); val t2 = go(ti.thenp); val el2 = go(ti.elsep)
+          if (c2 eq ti.cond) && (t2 eq ti.thenp) && (el2 eq ti.elsep) then e
+          else Term.If.After_4_4_0(c2, t2, el2, ti.mods)
         case other =>
           if containsName(other, name) then { bad = true; e } else e
     val out = go(rhs)

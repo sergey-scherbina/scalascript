@@ -159,6 +159,41 @@ class TupleScalarReplaceTest extends AnyFunSuite with Matchers:
       println(calls)
     """) shouldBe "40\n5"  // f called once per iter (NOT duplicated): calls=5, s=2*(0+2+4+6+8)=40
 
+  // ── conditional intermediates: val x = if … (jit-loop-if-val) ──
+
+  test("conditional intermediate: val x = if … then … else …"):
+    run("""
+      var i = 0
+      var s = 0
+      while i < 10 do
+        val x = if i % 2 == 0 then i else -i
+        s = s + x
+        i = i + 1
+      println(s)
+    """) shouldBe "-5"  // +0-1+2-3+4-5+6-7+8-9 = -5
+
+  test("conditional intermediate with && condition"):
+    run("""
+      var i = 0
+      var s = 0
+      while i < 10 do
+        val x = if i > 2 && i < 7 then i * 10 else 1
+        s = s + x
+        i = i + 1
+      println(s)
+    """) shouldBe "186"  // i=3,4,5,6 → 180; the other 6 → 1 each = 6; total 186
+
+  test("SOUNDNESS: if-cond var reassigned before use stays correct"):
+    run("""
+      var i = 0
+      var s = 0
+      while i < 4 do
+        val x = if i < 2 then 100 else 0
+        i = i + 1
+        s = s + x
+      println(s)
+    """) shouldBe "200"  // x captured at val time: i=0,1 → 100; i=2,3 → 0; = 200
+
   // ── multiple / chained / destructuring leading vals (jit-loop-val-extensions) ──
 
   test("multiple independent leading vals"):
