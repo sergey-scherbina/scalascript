@@ -344,6 +344,16 @@ the contracts are explicit.
       (heavy) + network/GUI/browser examples. Low-risk, broadens regression coverage of
       the 180-example corpus.
 
+- [ ] **interp-cons-in-effect-handler** (low-pri, deep) — `msg :: rest` errors `No method
+      '::' on StringV` **only when `rest = resume(())`** (a continuation result) inside a
+      `handle` case; `msg :: List(...)` in the same handler works, and `::` is fine
+      everywhere else (the earlier "right-assoc desugar" diagnosis was WRONG — corrected
+      in BUGS.md). Root cause: a `resume(())` result isn't forced to its concrete `ListV`
+      before being used as the right operand of a right-associative operator, so dispatch
+      falls back to the left operand (the String) and fails. Fix in the interp's
+      effect/CPS value resolution; risky (effects-runtime), cross-backend check needed.
+      `examples/algebraic-effects.ssc` repro. BUGS.md `interp-cons-in-effect-handler`.
+
 - [ ] **interp-typed-data-not-callable** (low-pri) — `ssc run examples/typed-data.ssc`
       errors `[line 11, col 35] Not callable: ()` on `origin/main` — some construct in the
       typed-data showcase evaluates to `Unit` and is applied as a function. Narrow the

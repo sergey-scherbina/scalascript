@@ -2440,10 +2440,3 @@ single-node without them.
       interp bugs (filed in BUGS.md, queued below). Follow-up `examples-smoke-run-plugins`
       in BACKLOG (run plugin-backed example FILES in a harness that has the plugins).
 
-- [ ] **interp-cons-right-assoc-desugar** - The cons `::` is right-associative (`a :: b` =
-      `b.::(a)`) but the interpreter dispatches it left-associatively, so `msg :: rest`
-      (msg: String, rest: List) errors `No method '::' on StringV`. Real correctness bug
-      (breaks a common pattern; `examples/algebraic-effects.ssc` can't run). Fix in the
-      interpreter operator desugaring/dispatch; verify JVM/JS codegen don't share the gap;
-      cross-backend regression test. BUGS.md `interp-cons-right-assoc-desugar`.
-

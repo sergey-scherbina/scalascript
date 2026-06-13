@@ -14,24 +14,45 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ---
 
-## interp-cons-right-assoc-desugar — `open` (2026-06-13)
+## interp-cons-in-effect-handler — `open` (2026-06-13)
 
 - **Found:** by me, while expanding `ExamplesSmokeTest` run coverage
   (`examples/algebraic-effects.ssc` fails to run). Reproduces on `origin/main`
-  (`e73fd9a73`) via the in-process interpreter AND the fat-jar `bin/ssc`.
-- **Symptom:** the cons operator `::` is right-associative in Scala — `a :: b`
-  desugars to `b.::(a)`. The interpreter appears to dispatch it **left**-associatively
-  (`a.::(b)`), so `msg :: rest` where `msg: String`, `rest: List[String]` errors
-  `No method '::' on StringV(Hello, World!)` instead of consing onto the list.
-- **Repro:**
+  (`bb580815c`) via the in-process interpreter AND the fat-jar `bin/ssc`.
+- **CORRECTION (earlier mis-diagnosis):** this is **not** a general `::`
+  right-associativity bug. `::` is right-associative and works fine on its own —
+  `"a" :: List("b")` → `List(a, b)`, `1 :: 2 :: List(3)` → `List(1, 2, 3)`, and even
+  `def build(m, rest) = m :: rest; build("x", List("y"))` → `List(x, y)` all work. The
+  original filed repro (`build(...)`) does **not** reproduce. Apologies to the next
+  agent — verify against the corrected repro below.
+- **Symptom (actual):** `msg :: rest` errors `No method '::' on StringV(...)` **only when
+  the right operand is the result of a continuation call** `resume(())` inside a `handle`
+  case. `msg :: List("end")` in the *same* handler works. So the right operand of a
+  right-associative operator, when it is a `resume(())` result, is not resolved to its
+  concrete `ListV` at the point `::` dispatches → the interpreter falls back to dispatching
+  `::` on the **left** operand (the String) and fails. This is an **effects-CPS /
+  resume-result interaction** in the interpreter's operator dispatch, not parsing.
+- **Repro (needs a `handle` block):**
   ```scalascript
-  def build(msg: String, rest: List[String]): List[String] =
-    msg :: rest
-  println(build("Hello, World!", List("x")))   // expected List(Hello, World!, x)
+  effect Logger:
+    def log(msg: String): Unit
+  def greet(): Unit ! Logger = Logger.log("Hello")
+  val messages = handle(greet()) {
+    case Logger.log(msg, resume) =>
+      val rest = resume(())   // continuation result
+      msg :: rest             // ERROR: No method '::' on StringV(Hello)
+  }
+  println(messages)           // expected List(Hello)
   ```
-- **Note:** any right-associative operator (`::`, user-defined `:`-ending ops) is
-  suspect. Fix belongs in the interpreter's operator desugaring/dispatch; check
-  JVM/JS codegen for the same gap before closing (cross-backend regression test).
+- **Control (works):** replace `val rest = resume(())` with `resume(()); val rest =
+  List("end")` → prints `List(Hello, end)`. Confirms it's the `resume`-result operand,
+  not `::` itself.
+- **Note:** deep + narrow (right-assoc ops on a `resume(())` result in a handler — and
+  possibly any method that must dispatch on the right operand). Fix lives in the interp's
+  effect/CPS value resolution: a `resume(())` result must be forced to its concrete Value
+  before it is used as a right-associative operand. Risky — needs effects-runtime care +
+  cross-backend check (does jvm/js CPS lowering share it?). Lower priority: `::` directly
+  on a continuation result is an uncommon pattern.
 
 ## interp-toString-on-collection — `fixed` (2026-06-13, `225aacc18`)
 
