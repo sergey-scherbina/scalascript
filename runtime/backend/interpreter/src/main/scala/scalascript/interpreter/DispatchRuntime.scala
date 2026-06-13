@@ -33,9 +33,9 @@ private[interpreter] object DispatchRuntime:
     // consistent. A case-class instance with a user-defined `toString` method keeps it.
     if name == "toString" && args.isEmpty then
       return recv match
-        case Value.InstanceV(t, f) =>
-          val tm = lookupTypeMethod(t, "toString", interp)
-          if tm != null then invokeTypeMethod(tm, recv, f, args, interp)
+        case inst: Value.InstanceV =>
+          val tm = lookupTypeMethod(inst.typeName, "toString", interp)
+          if tm != null then invokeTypeMethod(tm, recv, inst.effectiveFields, args, interp)
           else Pure(Value.StringV(Value.show(recv)))
         case _ => Pure(Value.StringV(Value.show(recv)))
     // Extensions early-exit: avoid 7 HashMap lookups when no extensions registered.
@@ -68,7 +68,10 @@ private[interpreter] object DispatchRuntime:
       case Value.BoolV(b)          => dispatchBool(recv, b, name, args, env, interp)
       case Value.TupleV(es)        => dispatchTuple(es, name, args, env, interp)
       case Value.UnitV             => dispatchUnit(recv, name, args, env, interp)
-      case Value.InstanceV(t, f)   => dispatchInstance(recv, t, f, name, args, env, interp)
+      // Type-test, NOT `case InstanceV(t, f)`: the custom `InstanceV.unapply` allocates a
+      // `Some` + `Tuple2` on every instance dispatch (the dominant alloc on typeclass/HOF
+      // workloads — JFR ~600 MB on typeclassFoldMacro). Read the fields via the type-tested ref.
+      case inst: Value.InstanceV   => dispatchInstance(recv, inst.typeName, inst.effectiveFields, name, args, env, interp)
       case Value.Foreign(t, _)     => dispatchForeign(recv, t, name, args, env, interp)
       case other                   => dispatchFallback(other, name, args, env, interp)
 
@@ -98,7 +101,7 @@ private[interpreter] object DispatchRuntime:
       case Value.StringV(s)     => dispatchString1(recv, s, name, arg, env, interp)
       case Value.IntV(n)        => dispatchInt1(n, name, arg, env, interp)
       case Value.DoubleV(d)     => dispatchDouble1(d, name, arg, env, interp)
-      case Value.InstanceV(t, f) => dispatchInstance1(recv, t, f, name, arg, env, interp)
+      case inst: Value.InstanceV => dispatchInstance1(recv, inst.typeName, inst.effectiveFields, name, arg, env, interp)
       case Value.Foreign(t, _)   => dispatchForeign(recv, t, name, arg :: Nil, env, interp)
       case _                    => dispatch(recv, name, arg :: Nil, env, interp)
 
