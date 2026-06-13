@@ -1,0 +1,6 @@
+hof-dispatch-devirt 2026-06-13T11:20:00Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-13T11:20:00Z
+status: in-progress
+done-so-far: redirected from direct-style-eval (DEFER'd). Target: the generic HOF/typeclass dispatch machinery dominating alloc on typeclassFoldMacro (JFR: Some ~24%, DispatchRuntime$Lambda ~16%, EvalRuntime$Lambda ~5%, Tuple2 ~5%, List ~16%); baseline 1.30 ms/op ~132 KB/op.
+next: JFR stack-trace the Some/Tuple2/Lambda allocations (jfr print --events jdk.ObjectAllocationSample --stack-depth) to pinpoint the call sites in DispatchRuntime/EvalRuntime given-resolution + curried dispatch; find a BOUNDED A/B-provable reduction; prove with scripts/bench interp typeclassFold* A/B; ship measured slices.
