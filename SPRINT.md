@@ -2467,7 +2467,7 @@ single-node without them.
       return clause becomes the `Pure`-arm mapping in the lowered `_handle`/`_run`. Verify a
       `handle(...) { … case Return(_) => List() }` cross-backend (interp == JVM == JS).
 
-- [ ] **hof-dispatch-cpu-devirt** (deep) — `hof-dispatch-devirt` (2026-06-13) shipped the
+- [>] **hof-dispatch-cpu-devirt** -> BACKLOG (investigated 2026-06-13, spec direct-style-eval-spec.md §11.3: NO targeted >=15% devirt win; inner combine already JIT'd 3x, 78% residual = irreducible evalCore megamorphic term-match; trackPos no-op + FunV jit-entry-cache both measured 0%; real lever = compile the HOF glue / `call:no-compilable-target` gap, large effort). (deep) — `hof-dispatch-devirt` (2026-06-13) shipped the
       obvious allocation slice (InstanceV.unapply Some+Tuple2 hygiene), but the FINDING is
       that `typeclassFoldMacro` (the representative tree-walked HOF/dispatch workload) is
       **CPU-bound on dispatch logic, NOT allocation-bound**: eliminating the dominant-by-JFR-

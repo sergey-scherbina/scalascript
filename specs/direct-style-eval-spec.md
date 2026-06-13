@@ -438,3 +438,38 @@ fully-measured verdict** (allocation *and* CPU). The interpreter CPU lives in `e
 term dispatch — which direct-style-eval does not change — so the win is `hof-dispatch-cpu-devirt`
 (devirt/JIT the dispatch the tree-walk does inside `evalCore`), not a `Computation`→`Value`
 signature migration.
+
+## 11.3  `hof-dispatch-cpu-devirt` investigated — **no targeted devirt win; DEFER → BACKLOG** (2026-06-13)
+
+Took §11.2's redirect (`hof-dispatch-cpu-devirt`) off the shelf and measured it directly on
+`typeclassFoldMacro` (`combineAll[A: Monoid]` = `xs.foldLeft(empty)(combine)`, 300× over a
+10-element list; baseline **1.286 ms/op**). Findings:
+
+1. **The inner `combine` is already JIT-compiled.** JIT on/off A/B: **1.256 ms (on)** vs
+   **3.795 ms (off)** — a 3× win. The bytecode JIT compiles `def combine(a,b) = a+b` to a
+   `LongFn2` and dispatches via `invokeBytecode2` (no tree-walk for the 3000 inner calls).
+   `SSC_JIT_STATS=1` reports **no bails** for this workload.
+
+2. **The residual is `evalCore` self-time, not a devirtualizable callee.** Fresh JFR
+   `jdk.ExecutionSample` (189 samples, stack-depth 1): **147 (78%) leaf = `EvalRuntime.evalCore`**
+   — the megamorphic `term match` dispatch itself. No callee is hot: `entryFor`/`synchronized`,
+   `trackPos`, `resolveGiven`, `JitGlobals.withInterp`, `dispatch*` each appear 0–2× as leaves.
+   The 78% is the 300× re-walk of `combineAll`'s HOF glue (the `foldLeft` Apply, the two
+   `summon[Monoid[A]].{empty,combine}` Selects) + the `macroFold` loop body — all flowing
+   through `evalCore`'s ~50-arm match.
+
+3. **Every targeted micro-lever measured 0%.** (a) `trackPos` no-op (eliminate the per-eval
+   `tree.pos` read): **1.250 vs 1.256 ms** — no change. (b) Cache the JIT `Entry` on `FunV`
+   to remove the `synchronized` IdentityHashMap lookup `entryFor` does on *every* dispatch
+   (`bytecodeFor`/`hotCompiled`): **fib 1.219 vs 1.216, fold 1.253 vs 1.256** — no change
+   (HotSpot's uncontended lock + identity-get is in the noise). Both reverted (the prior
+   lesson: don't ship non-improvements as wins).
+
+**Verdict: there is no targeted ≥15% devirt win.** The per-call dispatch machinery is already
+cached/JIT'd; the cost is the irreducible megamorphic term-match in a >1000-line `evalCore`,
+only reducible by a *different dispatch mechanism* (tagged-switch / compiled-AST) or by
+**compiling the HOF glue itself** — i.e. JIT-compiling `combineAll`'s `foldLeft`-with-a-runtime-
+monoid (`combineAll` bails the bytecode/VM JIT on the `foldLeft` HOF call: the known
+`call:no-compilable-target` gap). That is a large architectural effort (CALLREF opcode / HOF
+inlining / the dual-bank `LExpr` roadmap), **not** a quick devirt slice. Moved to **BACKLOG**
+under that framing.

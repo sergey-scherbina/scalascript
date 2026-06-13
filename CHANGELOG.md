@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-13 — perf/investigation: `hof-dispatch-cpu-devirt` — no targeted win, → BACKLOG
+
+- Investigated the SPRINT item `hof-dispatch-cpu-devirt` (devirtualize the typeclass/HOF
+  dispatch that dominates `typeclassFoldMacro`, baseline 1.286 ms/op). **Outcome: no targeted
+  ≥15% devirt win exists** — recorded with data, moved to BACKLOG as `hof-glue-jit-compile`.
+- Measurements: (1) the inner `combine` (`a+b`) is **already bytecode-JIT'd** — JIT on/off =
+  1.26 vs 3.80 ms/op (3×), `SSC_JIT_STATS` reports no bails. (2) Fresh JFR `jdk.ExecutionSample`
+  (189 samples): **147 = 78% leaf `EvalRuntime.evalCore`** — the megamorphic `term match`
+  itself; no callee is hot. (3) Two targeted levers each measured **0%** and were reverted:
+  no-op'ing `trackPos` (per-eval `tree.pos` read) and caching the JIT `Entry` on `FunV` to
+  drop the `synchronized` `entryFor` lookup from every dispatch.
+- The residual is the 300× tree-walk of `combineAll`'s HOF glue (`foldLeft` + two `summon`
+  Selects); the real lever is **compiling that glue** (`combineAll` bails the JIT on the
+  `foldLeft` HOF call — the `call:no-compilable-target` gap), a large CALLREF / `LExpr`-roadmap
+  effort, not a devirt slice. No product code changed. Spec `direct-style-eval-spec.md` §11.3.
+
 ## 2026-06-13 — feat(effects): handler return clause codegen (JVM + JS)
 
 - Lowered the handler return clause (`case Return(x) => expr`, landed earlier on the

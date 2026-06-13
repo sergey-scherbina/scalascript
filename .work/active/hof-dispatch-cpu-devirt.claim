@@ -1,6 +1,0 @@
-hof-dispatch-cpu-devirt 2026-06-13T14:20:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-13T14:20:00Z
-status: in-progress
-done-so-far: prior session shipped the alloc slice (InstanceV.unapply Some+Tuple2 hygiene, f5b2fea64) but FINDING is typeclassFoldMacro is CPU-bound on dispatch, NOT alloc-bound (removing Some left 132 KB/op + 1.30 ms/op unchanged). JFR ExecutionSample (186 samples): 79% leaf CPU = EvalRuntime.evalCore term dispatch; the Computation trampoline direct-style-eval would remove is ~2% (so direct-style-eval DEFERRED, spec §11.1+11.2). given-resolution already summonKeyCache'd.
-next: (1) RE-PROFILE typeclassFoldMacro with scripts/bench profile to find the SPECIFIC hot dispatch frame inside evalCore (curried-method dispatch in DispatchRuntime/CallRuntime is the suspect). (2) A/B with `scripts/bench interp typeclassFold*` WALL-CLOCK (not alloc — alloc won't move). (3) Likely win: memoize/JIT the resolved dispatch target across a combineAll/fold loop (per-element re-resolution of the same method/given is the waste). Gate: >=15% wall-clock or don't ship. Deep task — honest scoping, partial/negative result is a valid outcome to record.
