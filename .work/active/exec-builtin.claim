@@ -1,0 +1,6 @@
+feature/exec-builtin 2026-06-13T11:01:56Z
+agent: claude-code
+heartbeat: 2026-06-13T11:01:56Z
+status: not-started
+done-so-far:
+next: Add a global exec(command: List[String]) -> (Int, String, String) native builtin to BuiltinsRuntime.scala (ProcessBuilder, argv list = no shell, read stderr on a side thread to avoid pipe deadlock, return (exitCode, stdout, stderr)). Spec specs/exec-builtin.md first. Build sbt installBin; smoke-test exec(List("echo","hi")) and a nonzero exit. Requested by busi for vr-10 git-mirror (drive local git CLI).
