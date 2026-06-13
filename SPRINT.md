@@ -20,6 +20,13 @@ Start: tell the agent `"ÃÂÃÂ°ÃÂ±ÃÂ¾ÃÂÃÂ°ÃÂ¹
       + JS/Rust backends stay in that plan. `sbt installBin` + assembled-jar smoke (echo,
       nonzero exit, independent stdout/stderr, missing-binary throw) ALL OK. Spec
       `specs/exec-builtin.md`.
+- [x] **exec-env** — DONE 2026-06-13. busi (vr-13 git-semantic faithful dates): added an
+      optional per-call environment to the `exec` builtin — a 2-arg form
+      `exec(command: List[String], env: List[(String,String)])` alongside the 1-arg form,
+      applying the pairs to `ProcessBuilder.environment()`. Body refactored into a shared
+      `runExec` helper. Lets busi set `GIT_AUTHOR_DATE`/`GIT_COMMITTER_DATE` for faithful,
+      deterministic git-semantic commits. `sbt installBin` + assembled-jar smoke (env var
+      reaches the child; 1-arg form unchanged) ALL OK. Spec `specs/exec-builtin.md` (extended).
 
 ## busi-seq132 Ã¢ÂÂ interp module-loader diamond OOM (2026-06-12)
 

@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-13 — feat: `exec` per-call environment (busi vr-13 faithful dates)
+
+- Added a 2-arg form `exec(command: List[String], env: List[(String,String)])` to the
+  JVM interpreter's `exec` builtin, alongside the existing 1-arg form — the pairs are
+  applied to `ProcessBuilder.environment()` (the child otherwise inherits the process
+  env). Body refactored into a shared `runExec` helper. Requested by busi to set
+  `GIT_AUTHOR_DATE`/`GIT_COMMITTER_DATE` for faithful, deterministic git-semantic
+  commits. Forward-compatible with the planned `std.process.exec`'s `ProcessOptions(env)`
+  (`specs/std-fs-os.md` §4). Spec `specs/exec-builtin.md` (extended).
+
 ## 2026-06-13 — perf(interp): one-shot tail-resume fast path — −39% alloc on effect handlers
 
 - `effect-oneshot-perf`: `effectOneShot` (18.4 ms) is the #1 interp-bench outlier. Investigation

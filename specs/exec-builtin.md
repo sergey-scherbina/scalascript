@@ -14,6 +14,9 @@ local `git` CLI to mirror a repository losslessly to a real git host.
 // Run a program (argv form — no shell, no word-splitting). command.head is the
 // executable; the rest are its arguments. Returns (exitCode, stdout, stderr).
 exec(command: List[String]): (Int, String, String)
+
+// With per-call environment variables added/overridden for the child process.
+exec(command: List[String], env: List[(String, String)]): (Int, String, String)
 ```
 
 - **argv, not a shell line**: `exec(List("git", "-C", dir, "push", "origin", "main"))`.
@@ -22,9 +25,12 @@ exec(command: List[String]): (Int, String, String)
 - **blocking**: runs to completion and returns the exit code, full stdout, and full
   stderr (UTF-8). stderr is drained on a side thread while stdout is read, so a
   program that fills both pipes cannot deadlock.
-- **working directory / env**: inherited from the interpreter process. Per-call cwd
-  is achieved by the program's own flag (e.g. `git -C <dir>`); a richer
-  `ProcessOptions`-bearing form is the planned `std.process.exec` (§4, later).
+- **environment**: the child inherits the interpreter's environment; the optional
+  2-arg form adds/overrides the given `(name, value)` pairs (e.g.
+  `exec(List("git", …), List(("GIT_AUTHOR_DATE", iso)))` for a deterministic,
+  faithfully-dated commit). Per-call cwd is still via the program's own flag (e.g.
+  `git -C <dir>`); a fuller `ProcessOptions` (cwd/timeout) form is the planned
+  `std.process.exec` (§4, later).
 - **not found / spawn failure**: throws `InterpretError` (the executable is missing
   or not runnable) — distinct from a process that *runs* and exits non-zero, which
   returns a non-zero exit code in the tuple.
