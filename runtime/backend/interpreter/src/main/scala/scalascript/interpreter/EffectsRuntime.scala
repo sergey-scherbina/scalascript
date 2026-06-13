@@ -103,6 +103,63 @@ private[interpreter] object EffectsRuntime:
       }.nextOption()
         .getOrElse(throw InterpretError(s"Unhandled effect: $eff.$op (no matching case)"))
 
+    // ── One-shot tail-resume fast path ───────────────────────────────────────────
+    // The overwhelmingly common one-shot handler arm is a BARE tail-position resume:
+    //   `case Eff.op(a.., resume) => resume(rexpr..)`   (no guard, single arm for the op).
+    // Such an arm is provably tail-position and its body just feeds a value back into the
+    // continuation, so it needs neither the per-perform lazy `placeholder` (used only to
+    // *detect* tail position) nor the `resume` NativeFnV (we apply the continuation `f`
+    // directly). Precompute (op-arg pats, resume-arg terms) per (eff,op); restricted to
+    // resume-args that are literals / names (always `Pure`, so `f(v)` is exact). Absent
+    // key → the general placeholder path below (unchanged).
+    val tailResumeFast: Map[(String, String), (List[Pat], List[Term])] =
+      def simpleArg(t: Term, resumeName: String): Boolean = t match
+        case _: Lit            => true
+        case n: Term.Name      => n.value != resumeName
+        case Term.Tuple(args)  => args.forall(simpleArg(_, resumeName))
+        case _                 => false
+      opCases.groupBy { c =>
+        c.pat match
+          case Pat.Extract.After_4_6_0(Term.Select(Term.Name(e), Term.Name(o)), _) => (e, o)
+          case _ => ("", "")
+      }.flatMap { (key, cs) =>
+        if cs.lengthCompare(1) != 0 then None
+        else
+          val c = cs.head
+          if c.cond.isDefined then None
+          else c.pat match
+            case Pat.Extract.After_4_6_0(Term.Select(Term.Name(_), Term.Name(_)), argClause) =>
+              val resumeName = argClause.values.lastOption match
+                case Some(pv: Pat.Var) => pv.name.value
+                case _                 => null
+              if resumeName == null then None
+              else c.body match
+                case Term.Apply.After_4_6_0(Term.Name(`resumeName`), rArgClause)
+                    if rArgClause.values.forall(simpleArg(_, resumeName)) =>
+                  Some(key -> (argClause.values.dropRight(1).map(_.asInstanceOf[Pat]), rArgClause.values))
+                case _ => None
+            case _ => None
+      }
+
+    /** Apply a bare tail-resume arm directly: bind op-args, evaluate the (simple) resume
+     *  args, and feed the value into the continuation `f`. Returns null if the op-arg
+     *  patterns fail to match (→ caller uses the general path). */
+    def tryTailResume(argPats: List[Pat], rArgTerms: List[Term],
+                      args: List[Value], f: Value => Computation): Computation | Null =
+      var matchEnv: Env | Null = env
+      var pi = 0
+      while matchEnv != null && pi < argPats.length do
+        matchEnv = PatternRuntime.matchPat(argPats(pi), args(pi), matchEnv.asInstanceOf[Env], interp)
+        pi += 1
+      if matchEnv == null then null
+      else
+        val be = matchEnv.asInstanceOf[Env]
+        val v = rArgTerms match
+          case Nil      => Value.UnitV
+          case t :: Nil => Computation.run(interp.eval(t, be))
+          case ts       => Value.TupleV(ts.map(t => Computation.run(interp.eval(t, be))))
+        f(v)
+
     def handleInterp(initial: Computation): Computation =
       var current: Computation = initial
       while true do
@@ -147,6 +204,14 @@ private[interpreter] object EffectsRuntime:
                 })
                 current = dispatchCase(eff, op, args, resume)
               else
+                // One-shot tail-resume fast path: a bare `case Eff.op(..) => resume(rexpr)`
+                // arm. Skips the placeholder + resume-NativeFnV allocation — apply the
+                // continuation directly. Falls through to the general path on a pattern miss.
+                val fast: Computation | Null = tailResumeFast.get((eff, op)) match
+                  case Some((argPats, rArgTerms)) => tryTailResume(argPats, rArgTerms, args, f)
+                  case None                       => null
+                if fast != null then current = fast
+                else {
                 // One-shot: use a lazy sentinel to detect tail-position resume.
                 //
                 // resume.f stores f(v) in `resolved` and returns the stable
@@ -182,6 +247,7 @@ private[interpreter] object EffectsRuntime:
                   current = caseBodyResult
                 else
                   current = caseBodyResult   // resume not called (e.g. early abort)
+                }
       throw InterpretError("unreachable")
 
     // ── Return-clause path: a clean RECURSIVE handler ────────────────────────────
