@@ -1,0 +1,6 @@
+tuple-monoid-perf 2026-06-13T16:40:00Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-13T16:40:00Z
+status: in-progress
+done-so-far: full `scripts/bench interp` (2026-06-13) — tupleMonoid = 13.3 ms is the #2 interp outlier (after effectOneShot 18ms, now shipped). Workload: `var i,s; while i<1000 { val t = (i,i+1) ++ (i+2,i+3); s = s + t._1+t._2+t._3+t._4; i+=1 }` — ~13 µs/iter. Memory says tuple `++` is a JIT-bail (tuple construct + ++ tree-walks, typeclass/_tupleConcat dispatch).
+next: APPLY THE LESSON — profile FIRST (scripts/bench profile tupleMonoid) to determine CPU-bound (evalCore term-walk, like effectOneShot/typeclassFold) vs alloc-bound (TupleV/IntV allocs) BEFORE optimizing. If CPU-bound on evalCore → likely needs JIT (large, defer like the others). If there's a concentrated tractable hot spot (tuple ++ dispatch, _tupleConcat, TupleV access) → optimize it. GATE: wall-clock win (A/B scripts/bench interp tupleMonoid) or record honest finding. Verify tuple/monoid tests green.
