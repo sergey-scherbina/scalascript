@@ -4,6 +4,28 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-13 — perf(interp): inline pure-`val` loop intermediates into the while-JIT — 9124×
+
+- Generalises the tuple scalar-replacement (`jit-loop-tuple`) to the ubiquitous real-code shape
+  of a **leading `val` intermediate in a loop body**. Previously *any* leading `val` made
+  `EvalRuntime.collectFastAssignBody` bail → the whole loop tree-walked (block scoping per
+  iteration); now a leading `val x = <expr>` used only as a whole `x` (pure-arith expr) or as
+  `x._K` (static tuple) is inlined into the assignments, so the body becomes pure `name = rhs`
+  the Long-while JIT compiles.
+- **`valIntermediate` (`val d = i-500; s = s + d*d`, 1M iters): 2289.85 → 0.251 ms/op (~9124×)**
+  — now arithLoop parity. `isPureArith` gates the scalar case (`Lit`/`Name`/arith `ApplyInfix`/
+  unary `±` — no `Term.Apply`, so duplicating the inlined expr is free, never a function-call
+  pessimisation).
+- **Soundness** (and a fix for a latent bug in the just-shipped tuple path): inlining is only
+  applied when no variable of the val's expr is **reassigned by an earlier statement before a
+  use** of the val (`val t=(i,..); i=i+1; s=s+t._1` would otherwise capture the post-increment
+  `i`) — verified by reassign-before-use tests for both tuple and scalar. Also refuses to inline
+  an *unused* val (its evaluation, e.g. a `/`-by-zero, is preserved) and any non-`_K`/bare-`t`
+  use of a tuple val. JIT-bail safety means the original body still tree-walks identically when
+  the substituted body can't compile.
+- `TupleScalarReplaceTest` (12, incl. soundness + function-call-not-inlined + JIT parity) + 521
+  while-loop/interp tests green.
+
 ## 2026-06-13 — perf(interp): tuple scalar-replacement in the while-loop JIT — tupleMonoid 2600×
 
 - First slice of "start the JIT lever": the converged fix for the top interp outliers is to make

@@ -148,6 +148,14 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
 >   `++` (runtime arity unknown), or a non-static tuple. `TupleScalarReplaceTest`. The earlier
 >   profile (84% `evalCore`) was right that the *tuple dispatch* wasn't the cost — eliminating
 >   the tuple so the loop JITs is what moved it.
+> - **leading-`val` loop intermediates ✅ GENERALISED 2026-06-13 (`jit-loop-val-inline`):
+>   `valIntermediate` 2289.85 → 0.251 ms (~9124×).** Generalised the above to the ubiquitous
+>   real-code shape `while … { val x = <pure-arith>; s = s + f(x); i += 1 }` — any leading `val`
+>   used to bail the while-JIT (block scoping → tree-walk); now a pure-arith val (`isPureArith`:
+>   Lit/Name/arith-infix/unary, no `Term.Apply`) is inlined `x → expr`. Added a **reassignment
+>   soundness guard** (an expr var must not be reassigned before a use — also fixes a latent bug
+>   in the tuple slice) + unused-val/`/`-by-zero preservation. Bigger real-world impact than the
+>   named microbenches (val-in-loop is everywhere). `TupleScalarReplaceTest` (12).
 >
 > **CONVERGED META-FINDING (2026-06-13) — "start the JIT lever".** The top interp outliers —
 > `effectOneShot`, `tupleMonoid`, `typeclassFoldMacro` — are ALL CPU-bound on `evalCore`
