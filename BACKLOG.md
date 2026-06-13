@@ -164,6 +164,13 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
 >   several intermediates. Still NOT inlined (deferred, side-effect ORDERING risk): function-call
 >   vals (a single-use call val could inline but reorders the call past intervening stmts —
 >   needs side-effect analysis). `TupleScalarReplaceTest` (18).
+> - **conditional intermediates ✅ 2026-06-13 (`jit-loop-if-val`): `valIf` 4446.54 → 0.405 ms
+>   (~10980×).** `isPureArith` admits a pure `if c then a else b` (`isPureCond`: comparisons,
+>   `&&`/`||`, `!`); `substVal` recurses through `Term.If`. `val x = if … ; s += x` (abs/clamp/
+>   select) now JITs. `TupleScalarReplaceTest` (21). **The loop-val-inline family is now
+>   essentially complete** (single/multiple/chained/destructuring/conversion/conditional). Only
+>   `match`-vals (`val x = p match {…}`) remain uncovered — deferred (Match purity = cases +
+>   guards + bindings; lower frequency than `if`; `p match {…}` directly in an assign already JITs).
 >
 > **CONVERGED META-FINDING (2026-06-13) — "start the JIT lever".** The top interp outliers —
 > `effectOneShot`, `tupleMonoid`, `typeclassFoldMacro` — are ALL CPU-bound on `evalCore`

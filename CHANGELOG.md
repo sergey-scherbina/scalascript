@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-13 — perf(interp): conditional `val x = if …` intermediates → while-JIT — 10980×
+
+- Extends the loop-val inlining to **conditional intermediates** — `val x = if c then a else b`
+  (abs / clamp / select, a very common loop shape). `isPureArith` now admits a pure `if`
+  (`isPureCond`: comparisons of pure-arith operands, `&&`/`||`, unary `!`) and `substVal`
+  recurses through `Term.If`, so the inlined `s = s + (if …)` JIT-compiles (the bytecode JIT
+  already lowers `Term.If`). The `if`-expr is pure → free to duplicate; the existing per-val
+  reassignment guard covers vars captured in the condition/branches.
+- **`valIf` (`val x = if i%2==0 then i else -i; s = s + x`, 1M iters): 4446.54 → 0.405 ms/op
+  (~10980×).** `TupleScalarReplaceTest` (21, incl. `&&`-cond + if-cond reassign soundness) + 499
+  while-loop/interp tests green; full interp bench shows no regression.
+
 ## 2026-06-13 — perf(interp): multiple/chained/destructuring leading vals → while-JIT — 5650×
 
 - Extends `jit-loop-val-inline` (single leading val) to the rest of the common loop-body shapes:

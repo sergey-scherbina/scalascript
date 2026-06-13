@@ -1,6 +1,0 @@
-jit-loop-if-val 2026-06-13T21:10:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-13T21:10:00Z
-status: in-progress
-done-so-far: loop-val-inline family shipped (single/multiple/chained/destructuring/conversions). This adds conditional intermediates: `val x = if c then a else b; s += x` (and the if directly in an assign). JavacJitBackend DOES compile Term.If (lines 905/1642/...), so the inlined `s += if...` JITs. Common real-code pattern (abs/clamp/conditional accumulation).
-next: (1) isPureArith += Term.If (pure cond via new isPureCond: comparison/bool-infix/`!`/Lit/Name with pure-arith leaves; then/else pure-arith). (2) substVal += Term.If recursion (cond+thenp+elsep). Use type-test `ti: Term.If` + accessors (After_4_6_0 extractor failed before for ApplyInfix). (3) bench valIf (`val x = if i%2==0 then i else -i; s+=x`), A/B. GATE real win. TupleScalarReplaceTest + 537 tests green; full bench no-regression. Soundness: if-expr is pure (no side effects) → free to duplicate; reassign guard already covers captured vars.
