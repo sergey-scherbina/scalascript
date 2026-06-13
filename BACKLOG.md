@@ -333,25 +333,6 @@ These items come from the 2026-05-30 project-state review. They are intentionall
 ordered to reduce risk: spec and hygiene first, broad implementation only after
 the contracts are explicit.
 
-- [ ] **examples-smoke-run-plugins** — `ExamplesSmokeTest` now runs 22 *core* examples
-      (`examples-smoke-run-expand`, 2026-06-13), but plugin-backed example FILES
-      (crypto / uuid / spark / typed-data / pdf+email) aren't smoke-RUN anywhere — the
-      `cli` test classpath has no std plugins, so they exit 1 there and are excluded.
-      Their intrinsics are covered by the plugin suites, but the example *files* can
-      silently break (e.g. a renamed intrinsic). Fix: either add the light plugins
-      (crypto, uuid) as `% Test` deps to the `cli` project, or add an example-runner test
-      in `backendInterpreter` (which already has the plugins on `% Test`). Skip spark
-      (heavy) + network/GUI/browser examples. Low-risk, broadens regression coverage of
-      the 180-example corpus.
-
-- [ ] **effect-handler-return-clause** (feature, not a bug) — `handle` has no return clause
-      (`return x => …`), so the textbook deep-handler accumulation `msg :: resume(())` can't
-      seed its base case (`resume(())` yields the continuation's pure value). The spec types
-      `resume` as returning the *handler body's* type, which a return clause would bridge.
-      Large (parser + typer + interp + 4 backends). Workaround today: accumulate via a
-      `var` (see `examples/algebraic-effects.ssc` Logger section). Resolved
-      `interp-cons-in-effect-handler` by documenting this.
-
 - [x] **contract-validation-spec** - Spec first. Define a shared contract
       validation model for OpenAPI and GraphQL drift checks: route/resolver
       signature ↔ schema compatibility, request and response bodies, typed
@@ -2567,19 +2548,6 @@ gated on same-session A/B + full suite green with the gate off AND on.
 - [x] **effect-stream-opt1** — Superseded by OPT-2 (Perform1 moot after trampoline eliminated).
 
 - [x] **effect-stream-opt3** — Superseded by OPT-2 (closure reuse moot after trampoline eliminated).
-
-- [ ] **direct-style-eval** (deferred multi-week, post Directions A+B) —
-      Migrate `eval(term, env, interp): Computation` to direct-style
-      `eval(...): Value` returning the raw value, with effects via
-      control-flow exceptions. Eliminates per-call `Computation.Pure` /
-      `FlatMap` allocation across every hot eval path. 530+ call sites
-      total; 62% concentrated in 3 files (`EvalRuntime` 230, `BlockRuntime`
-      41, `PatternRuntime` 37). Multi-shot continuation compatibility
-      needs careful design — verify against the `multishot-stack` agent
-      worktree's findings before any code lands. Blocking task:
-      `direct-style-eval-spec` (WORK_QUEUE) — write the migration plan
-      doc first. **Not for this quarter; placeholder for the next
-      architectural cycle.**
 
 ## v1.55 — First-class XML / Generic Markup
 

@@ -2440,3 +2440,28 @@ single-node without them.
       interp bugs (filed in BUGS.md, queued below). Follow-up `examples-smoke-run-plugins`
       in BACKLOG (run plugin-backed example FILES in a harness that has the plugins).
 
+## Promoted from BACKLOG 2026-06-13 (user: "go auto mode all") - work in order
+
+- [ ] **examples-smoke-run-plugins** - run plugin-backed example FILES (crypto/uuid/
+      typed-data/etc.) that ExamplesSmokeTest currently excludes because the `cli` test
+      classpath has no std plugins. Approach: add an example-runner in `backendInterpreter`
+      test (it already has the plugins on `% Test` + `compileViaBackend`-equivalent), or add
+      light plugins (crypto, uuid) as `% Test` deps to `cli`. Skip spark (heavy) + network/
+      GUI/browser. Assert exit 0. Low-risk; broadens regression coverage. EASIEST - do first.
+
+- [ ] **effect-handler-return-clause** - add a return clause to `handle` so the textbook
+      deep-handler accumulation `msg :: resume(())` works (`resume(())` of the final
+      continuation must yield the handler's mapped base value, not the raw pure value).
+      Syntax TBD (e.g. `case return(x) => ...` / `handle(body) { ops } returning x => ...`).
+      Scope: parser (syntax) + interp (EffectsRuntime.handleInterp: when the body completes
+      `Pure(v)`, apply the return clause to v). Start INTERP-ONLY (the primary `ssc run`
+      runtime); JVM/JS/Rust CPS lowering = follow-up. Spec first (spec-dev). MEDIUM-BIG.
+
+- [ ] **direct-style-eval** - the deferred multi-week arch item. Migrate `eval(...):
+      Computation` -> direct-style `eval(...): Value` (effects via control-flow exceptions),
+      killing per-call Pure/FlatMap alloc. 530+ sites, 62% in EvalRuntime/BlockRuntime/
+      PatternRuntime. CAUTION (memory project_perf_roadmap): a JFR spike showed Pure is only
+      ~18% of tree-walked alloc (dispatch ~70%) - the win may be small vs huge migration
+      risk. Spec exists: specs/direct-style-eval-spec.md. Write/refresh the migration plan,
+      re-validate the win on a Pure-dominated workload, then do a BOUNDED slice (not the full
+      530-site migration) - prove it on one hot path first. HARDEST - do last, scope honestly.
