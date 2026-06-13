@@ -388,3 +388,29 @@ CPU — so a full on/off wall-clock spike could refine the number; but the bound
 (`Pure` ≪ dispatch) plus the HIGH migration risk justify deferring without building
 speculative infra (per the user's JFR-profile-first rule). Revisit only if a real
 workload surfaces where `Pure` dominates a *tree-walked* path.
+
+## 11.1  Re-validation on the current codebase — **DEFER stands** (2026-06-13)
+
+Re-ran the gated profile (`scripts/bench profile typeclassFoldMacro`, the representative
+tree-walked HOF/dispatch workload) on the current `origin/main` after a request to take the
+migration off the shelf. **1.30 ms/op, ~132 KB/op** — unchanged from the 2026-06-02 / -12
+numbers. Fresh JFR `jdk.ObjectAllocationSample` counts (≈480 samples):
+
+| class | ~% |
+|---|---|
+| `scala.Some` | 24% |
+| **`Computation$Pure`** | **~16%** |
+| `scala.collection.immutable.::` | 16% |
+| `DispatchRuntime$$Lambda` | 16% |
+| `byte[]` | 10% |
+| `EvalRuntime$$Lambda` + `Tuple2` | 10% |
+
+`Computation.Pure` is **~16% of allocation**, the dispatch machinery (`Some` + the two
+`Lambda`s + `Tuple2` + `::` ≈ **66%**) dominates — identical conclusion to §11. `evalDirect`
+would zero the `Pure` slice on effect-free paths but leaves the 66% dispatch cost untouched;
+the wall-clock ceiling is well under the ≥15% gate against a 530-site, high-risk migration.
+**DEFER recommendation stands.** The real win for these shapes is JIT/devirt of the generic
+HOF dispatch (the `Some`/`Lambda`/`Tuple2`/`List` producers), not direct-style eval. If
+interpreter perf is the goal, pursue HOF-dispatch devirtualization instead. (Surfaced to the
+user as a direction decision: proceed with the 530-site migration anyway / accept the
+data-driven defer / redirect to HOF-dispatch devirt.)
