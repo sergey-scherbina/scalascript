@@ -128,20 +128,24 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
 Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 -i 5 -f 1`).
 
 - [ ] **hof-glue-jit-compile** (deep; reframed from `hof-dispatch-cpu-devirt`, investigated
-      2026-06-13) — `typeclassFoldMacro` (`combineAll[A: Monoid]` = `xs.foldLeft(empty)(combine)`,
-      300×) sits at **1.286 ms/op**. Investigation (spec `direct-style-eval-spec.md` §11.3)
-      proved there is **no targeted ≥15% devirt win**: the inner `combine` is already
-      bytecode-JIT'd (JIT on/off = 1.26 vs 3.80 ms, 3×), and a fresh JFR CPU profile shows
-      **78% leaf = `evalCore`** self-time (the megamorphic `term match`), with *no*
-      devirtualizable callee — `trackPos` no-op and a `FunV` JIT-Entry cache (kill the
-      `synchronized` `entryFor` lookup) both measured **0%**. The cost is the 300× tree-walk
-      of `combineAll`'s HOF glue (the `foldLeft` Apply + the two `summon[Monoid[A]].{empty,
-      combine}` Selects). The genuine lever is **compiling that glue**: `combineAll` bails the
-      bytecode/VM JIT on the `foldLeft` HOF call (`call:no-compilable-target`), so it is
-      re-interpreted every call. Closing it needs a CALLREF opcode / HOF inlining (the dual-bank
-      `LExpr` roadmap, `project_dual_bank_lexpr`) so a `foldLeft`-with-a-runtime-monoid compiles
-      to a tight loop. Large architectural effort, not a slice. A/B with
-      `scripts/bench interp typeclassFoldMacro` (wall-clock).
+      2026-06-13) — **PARTIAL interp slice landed 2026-06-13** (fused curried
+      `List.foldLeft(z)(g)` fast-path in `evalApplyGeneral`: `typeclassFoldMacro` 1.259 → 1.127
+      ms/op, **−10.5%**; `FusedFoldLeftTest`). The **full lever is still open.**
+      `typeclassFoldMacro` (`combineAll[A: Monoid]` = `xs.foldLeft(empty)(combine)`, 300×).
+      Investigation (spec `direct-style-eval-spec.md` §11.3) proved there is **no targeted
+      ≥15% *devirt* win**: the inner `combine` is already bytecode-JIT'd (JIT on/off = 1.26 vs
+      3.80 ms, 3×), and a fresh JFR CPU profile shows **78% leaf = `evalCore`** self-time (the
+      megamorphic `term match`), with *no* devirtualizable callee — `trackPos` no-op and a
+      `FunV` JIT-Entry cache (kill the `synchronized` `entryFor` lookup) both measured **0%**.
+      The cost is the 300× tree-walk of `combineAll`'s HOF glue (the `foldLeft` Apply + the two
+      `summon[Monoid[A]].{empty,combine}` Selects); the fused fast-path shaved the `foldLeft`
+      dispatch portion (−10.5%) but the body is still re-interpreted 300×. The remaining lever
+      is **compiling that glue**: `combineAll` bails the bytecode/VM JIT on the `foldLeft` HOF
+      call (`call:no-compilable-target`, `VmCompiler.scala:521`). Closing it needs List-iteration
+      opcodes in `SscVm` + a `foldLeft`-intrinsic recognizer in `VmCompiler` reusing the existing
+      `CALLREF` opcode (the dual-bank `LExpr` roadmap, `project_dual_bank_lexpr`) so a
+      `foldLeft`-with-a-runtime-monoid compiles to a tight loop. Large architectural effort, not
+      a slice. A/B with `scripts/bench interp typeclassFoldMacro` (wall-clock).
 
 - [x] **interp-opt-tuple-var** — ✓ Landed 2026-06-04 by another agent.
       counterWithTupleVar: 58.751 → 0.009 ms (6500×, tryFoldCounterLoop + self-assign hoist).

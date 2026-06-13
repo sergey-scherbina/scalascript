@@ -1,6 +1,0 @@
-hof-glue-jit-compile 2026-06-13T14:20:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-13T14:20:00Z
-status: in-progress
-done-so-far: reframed from hof-dispatch-cpu-devirt (investigated, spec direct-style-eval-spec.md §11.3). typeclassFoldMacro 1.286 ms/op; 78% leaf=evalCore re-walking combineAll's HOF glue 300× (the inner 3000 combine calls ARE already bytecode-JIT'd via invokeBytecode2). combineAll body = `xs.foldLeft(summon[Monoid[A]].empty)(summon[Monoid[A]].combine)`; it bails the bytecode/VM JIT on the foldLeft HOF call (call:no-compilable-target).
-next: (1) SSC_JIT_STATS=1 on typeclassFoldMacro to see EXACTLY what bails (combineAll vs macroFold) + the JitBailReason tag. (2) read VmCompiler/BytecodeJit to find the foldLeft/HOF-call gap. (3) most tractable slice: either compile `List.foldLeft(z)(g)` in VmCompiler as a loop calling g via the existing FunV-ref machinery (wrapFunVAsLong/CALLREF), OR a fused interp fast-path. GATE: >=15% wall-clock on typeclassFoldMacro or don't ship; partial enabling slice OK if it measurably helps. A/B `scripts/bench interp typeclassFoldMacro`.

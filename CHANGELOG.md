@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-13 — perf(interp): fused `List.foldLeft(z)(g)` fast-path (`hof-glue-jit-compile` slice)
+
+- Shipped the safe, bounded interp slice of `hof-glue-jit-compile`: `evalApplyGeneral` now
+  recognizes the curried `Apply(Apply(Select(_, "foldLeft"), [z]), [g])` shape and, for a List
+  receiver + FunV combine, goes straight to `foldLeftReusing` — skipping the intermediate
+  `NativeFnV` alloc + the ~40-case `dispatchList` name-match the generic curried path does.
+  Any other receiver/combine (Range/Set/Vector, NativeFnV combine) completes via the *same*
+  generic `foldLeft` dispatch using the already-evaluated values, so semantics + effect ordering
+  are preserved exactly. Minimal blast radius (matches only when `app.fun` is itself an `Apply`,
+  i.e. curried — plain and method calls never reach it).
+- Matched A/B (`-wi3 -i5`): `typeclassFoldMacro` **1.259 → 1.127 ms/op (−10.5%)**; `stringSplit`
+  (folds a `.map` result) unchanged at 0.217. `FusedFoldLeftTest` (6 cases) + 224 fold/typeclass
+  tests green. Spec `direct-style-eval-spec.md` §11.4.
+- The full lever (JIT-compiling `combineAll`'s body so the 300× tree-walk disappears — the
+  `call:no-compilable-target` VmCompiler gap, needing SscVm List-iteration opcodes) stays open
+  in BACKLOG as `hof-glue-jit-compile`.
+
 ## 2026-06-13 — perf/investigation: `hof-dispatch-cpu-devirt` — no targeted win, → BACKLOG
 
 - Investigated the SPRINT item `hof-dispatch-cpu-devirt` (devirtualize the typeclass/HOF

@@ -473,3 +473,27 @@ monoid (`combineAll` bails the bytecode/VM JIT on the `foldLeft` HOF call: the k
 `call:no-compilable-target` gap). That is a large architectural effort (CALLREF opcode / HOF
 inlining / the dual-bank `LExpr` roadmap), **not** a quick devirt slice. Moved to **BACKLOG**
 under that framing.
+
+## 11.4  `hof-glue-jit-compile` — partial interp slice landed (−10.5%) (2026-06-13)
+
+Took the BACKLOG item and shipped the **safe, bounded interp slice** of "compiling the glue":
+a fused fast-path for the curried `qual.foldLeft(z)(g)` shape in `evalApplyGeneral`. The generic
+path evaluates the inner `qual.foldLeft(z)` to a `NativeFnV` (one alloc) via the ~40-case
+`dispatchList` name-match, then applies it; the fast-path recognizes the
+`Apply(Apply(Select(_, "foldLeft"), [z]), [g])` AST and, for a `ListV` receiver + `FunV` combine,
+calls `foldLeftReusing` directly — skipping the `NativeFnV` alloc + the dispatch match. Any other
+receiver/combine (Range/Set/Vector, `NativeFnV` combine) completes through the *same* generic
+`foldLeft` dispatch with the already-evaluated values, so semantics + effect ordering are
+identical. Blast radius is minimal — the case only matches when `app.fun` is itself an `Apply`
+(curried), so plain (`evalPlainApply`) and method (Select-head) calls never reach it.
+
+Matched A/B (`-wi3 -i5`): `typeclassFoldMacro` **1.259 → 1.127 ms/op (−10.5%)**, tight error
+bars; `stringSplit` (which folds a `.map` result, so it exercises the path) unchanged at 0.217.
+`FusedFoldLeftTest` (6 cases across List/Range/Set/String/typeclass/List-accumulator) + 224
+fold/typeclass tests green.
+
+This shaves the `foldLeft`-dispatch portion of the glue, but the `combineAll` body is still
+re-interpreted 300× — so the **full lever remains open** in BACKLOG: JIT-compiling `combineAll`
+itself needs List-iteration opcodes in `SscVm` + a `foldLeft`-intrinsic recognizer in
+`VmCompiler` (`VmCompiler.scala:521`, `call:no-compilable-target`) reusing the existing `CALLREF`
+opcode. That is the remaining large effort.
