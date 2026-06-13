@@ -110,3 +110,57 @@ class JsEffectLoopTest extends AnyFunSuite:
     """)
     // 6 combinations sum to 102 per iteration × 2 = 204.
     assert(out == "204", s"expected 204, got '$out'")
+
+  // ── handler return clause (effect-handler-return-clause-codegen, JS slice) ──
+  // A handler with a `case Return(x) => expr` arm lowers to `_handleWithReturn`,
+  // which maps the body's pure completion (and each resumed continuation) through
+  // retMap — enabling deep-handler accumulation `msg :: resume(())`.
+
+  test("JsGen return clause: code-shape emits _handleWithReturn + retMap"):
+    val js = JsGen.generate(module("""
+      effect MyLog:
+        def log(msg: String): Unit
+      def program(): Unit ! MyLog =
+        MyLog.log("Hello")
+      def run(): List[String] =
+        handle(program()) {
+          case MyLog.log(msg, resume) => msg :: resume(())
+          case Return(_) => List()
+        }
+    """))
+    assert(js.contains("_handleWithReturn("), s"expected _handleWithReturn in:\n$js")
+    assert(js.contains("(_rv) =>"), s"expected retMap lambda in:\n$js")
+
+  test("JsGen return clause: deep-handler accumulation collects messages"):
+    assume(hasNode, "node not available")
+    val out = runJs("""
+      effect MyLog:
+        def log(msg: String): Unit
+      def program(): Unit ! MyLog =
+        MyLog.log("Hello")
+        MyLog.log("World!")
+      def run(): List[String] =
+        handle(program()) {
+          case MyLog.log(msg, resume) => msg :: resume(())
+          case Return(_) => List()
+        }
+      println(run())
+    """)
+    assert(out == "List(Hello, World!)", s"expected List(Hello, World!), got '$out'")
+
+  test("JsGen return clause: binds + maps the completion value (tail-position resume)"):
+    assume(hasNode, "node not available")
+    val out = runJs("""
+      effect Ask:
+        def ask(): String
+      def program(): String ! Ask =
+        val x = Ask.ask()
+        x
+      def run(): List[String] =
+        handle(program()) {
+          case Ask.ask(resume) => resume("hi")
+          case Return(x) => List(x, x)
+        }
+      println(run())
+    """)
+    assert(out == "List(hi, hi)", s"expected List(hi, hi), got '$out'")

@@ -947,6 +947,54 @@ function _handleOneShot(bodyFn, handledOps, handlers) {
   return interp(bodyFn());
 }
 
+// Return-clause variant of _handle: applies retMap to the handled
+// computation's final pure value (and to each resumed continuation's
+// completion), enabling deep-handler accumulation `msg :: resume(())`.
+// RECURSIVE (resume = hwr(continuation)): the op-case-body result is returned
+// directly so retMap maps each continuation completion exactly once (never an
+// op-case-body result). Used only when the handler has a `case Return(_)` arm.
+function _handleWithReturn(bodyFn, handledOps, handlers, retMap) {
+  const handled = new Set(handledOps);
+  function hwr(initial) {
+    let current = initial;
+    while (true) {
+      if (current instanceof _Perform) {
+        const key = current.eff + '.' + current.op;
+        if (handled.has(key) && handlers[key]) {
+          // bare Perform: resume re-enters hwr on the injected value
+          const resume = (v) => hwr(v);
+          return handlers[key]([...current.args, resume]);
+        } else {
+          return current;  // propagate (unhandled)
+        }
+      } else if (current instanceof _FlatMap) {
+        const sub = current.sub;
+        if (sub instanceof _FlatMap) {
+          const sub2 = sub.sub; const g = sub.k; const f = current.k;
+          current = new _FlatMap(sub2, (x) => new _FlatMap(g(x), f));
+        } else if (sub instanceof _Perform) {
+          const key = sub.eff + '.' + sub.op;
+          const f   = current.k;
+          if (handled.has(key) && handlers[key]) {
+            // resume runs the captured continuation through hwr, so the
+            // continuation's completion is mapped through retMap.
+            const resume = (v) => hwr(f(v));
+            return handlers[key]([...sub.args, resume]);
+          } else {
+            return new _FlatMap(sub, (v) => hwr(f(v)));
+          }
+        } else {
+          // Pure: step into the continuation
+          current = current.k(sub);
+        }
+      } else {
+        return retMap(current);  // plain value (Pure) → through retMap
+      }
+    }
+  }
+  return hwr(bodyFn());
+}
+
 // ── std.fs — synchronous file primitives (Node only) ───────────────────
 // Defined under user-facing names so nested calls like
 // `_println(readFile(p))` resolve directly.

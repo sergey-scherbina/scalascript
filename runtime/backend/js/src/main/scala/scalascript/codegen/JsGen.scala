@@ -3672,7 +3672,41 @@ class JsGen(
         !resumeUsedMultiShot
     }
     val handleFn = if allOneShot then "_handleOneShot" else "_handle"
-    s"$handleFn($bodyThunk, [${handledOps.mkString(", ")}], {${handlerEntries.mkString(", ")}})"
+    // Optional return clause: `case Return(x) => expr` (unqualified `Return`, vs the
+    // qualified `Eff.op` effect cases — those go through handledOps/handlerEntries,
+    // which already skip `Return` since it's not a `Term.Select`). When present,
+    // emit a retMap and route through _handleWithReturn so the body's pure
+    // completion (and each resumed continuation) maps through it.
+    val returnCase = cases.find { c =>
+      c.pat match
+        case Pat.Extract.After_4_6_0(Term.Name("Return"), _) => true
+        case _                                               => false
+    }
+    def caseBodyStmts(body: Term): String = body match
+      case Term.Block(stats) =>
+        val stmts = stats.dropRight(1).map {
+          case t: Term => genExpr(t) + ";"
+          case s       => genStatInline(s)
+        }.mkString(" ")
+        val last = stats.lastOption.map {
+          case t: Term => s"return ${genExpr(t)};"
+          case _       => ""
+        }.getOrElse("")
+        s"$stmts $last"
+      case expr => s"return ${genExpr(expr)};"
+    returnCase match
+      case None =>
+        s"$handleFn($bodyThunk, [${handledOps.mkString(", ")}], {${handlerEntries.mkString(", ")}})"
+      case Some(c) =>
+        val binder = c.pat match
+          case Pat.Extract.After_4_6_0(_, ac) if ac.values.nonEmpty =>
+            ac.values.head match
+              case Pat.Var(n) => Some(n.value)
+              case _          => None
+          case _ => None
+        val decl   = binder.map(n => s"const $n = _rv; ").getOrElse("")
+        val retMap = s"(_rv) => { $decl${caseBodyStmts(c.body)} }"
+        s"_handleWithReturn($bodyThunk, [${handledOps.mkString(", ")}], {${handlerEntries.mkString(", ")}}, $retMap)"
 
   /** Stage 5+/A.5 — per-call-site intrinsic dispatch.  Returns the
    *  JS expression string to splice in, or `None` if no intrinsic
