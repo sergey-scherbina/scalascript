@@ -295,9 +295,15 @@ object Normalize:
    *  qualified forms so all backends dispatch through the intrinsic table.
    *  The regex uses word-boundaries so identifiers like `myPrintln` are
    *  untouched; the substitution is purely textual (no AST parse). */
-  // Matches bare `println` / `print` that are NOT already dot-qualified.
-  private val PrintlnRe = raw"(?<!\.)(\bprintln\b)".r
-  private val PrintRe   = raw"(?<!\.)(\bprint\b)".r
+  // Matches `println` / `print` that are NOT already dot-qualified AND are *applied*
+  // (immediately followed by `(`). Only the applied form is rewritten to `Console.*`;
+  // a bare reference (`xs.foreach(println)`, `val f = println`) is left as the plain
+  // name so it resolves to the intrinsic *function value* (every backend binds bare
+  // `println`/`print` — interp globals, JVM Predef, JS `_println`). Rewriting a bare
+  // reference made the interpreter evaluate `Console.println` as a 0-arg field access
+  // → auto-invoke → `()` → "Not callable: ()" (e.g. `foreach(println)`).
+  private val PrintlnRe = raw"(?<!\.)(\bprintln\b)(?=\s*\()".r
+  private val PrintRe   = raw"(?<!\.)(\bprint\b)(?=\s*\()".r
 
   private def rewriteConsole(src: String): String =
     val s1 = PrintlnRe.replaceAllIn(src,   "Console.println")

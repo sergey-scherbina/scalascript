@@ -567,3 +567,29 @@ println(t.toString  == s"$t")
 println(o.toString  == s"$o")
 println(p.toString  == s"$p")""") shouldBe "true\ntrue\ntrue\ntrue\ntrue"
   }
+
+  // A bare function-valued member (`println`, rewritten to `Console.println`) passed as a
+  // value was auto-invoked → `()` → `Not callable`. Now a bare `a.b` member reference
+  // returns the function (eta); only an actual call `a.b(...)` invokes it.
+  test("bare println reference is not auto-invoked — foreach(println) (interp-bare-fn-ref)") {
+    captured("""List("a", "b", "c").foreach(println)""") shouldBe "a\nb\nc"
+  }
+
+  test("println bound to a val is a callable function") {
+    captured(
+"""val p = println
+p("hi")
+p("bye")""") shouldBe "hi\nbye"
+  }
+
+  test("explicit println() / println(x) still invoke (eta change is reference-only)") {
+    // println() prints a blank line; the empty-paren CALL must still invoke.
+    captured(
+"""println("x")
+println()
+println("y")""") shouldBe "x\n\ny"
+  }
+
+  test("0-arg native getter called with parens still works (nanoTime)") {
+    captured("""println(if nanoTime() > 0L then "ok" else "bad")""") shouldBe "ok"
+  }
