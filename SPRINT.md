@@ -2442,11 +2442,17 @@ single-node without them.
 
 ## Promoted from BACKLOG 2026-06-13 (user: "go auto mode all") - work in order
 
-- [ ] **direct-style-eval** - the deferred multi-week arch item. Migrate `eval(...):
-      Computation` -> direct-style `eval(...): Value` (effects via control-flow exceptions),
-      killing per-call Pure/FlatMap alloc. 530+ sites, 62% in EvalRuntime/BlockRuntime/
-      PatternRuntime. CAUTION (memory project_perf_roadmap): a JFR spike showed Pure is only
-      ~18% of tree-walked alloc (dispatch ~70%) - the win may be small vs huge migration
-      risk. Spec exists: specs/direct-style-eval-spec.md. Write/refresh the migration plan,
-      re-validate the win on a Pure-dominated workload, then do a BOUNDED slice (not the full
-      530-site migration) - prove it on one hot path first. HARDEST - do last, scope honestly.
+## interp HOF-dispatch devirt (redirect from direct-style-eval, 2026-06-13)
+
+- [ ] **hof-dispatch-devirt** - direct-style-eval was DEFER'd (re-validated: Pure ~16%); the
+      data points the real interp win at the generic HOF/typeclass dispatch machinery, which
+      DOMINATES allocation on the representative tree-walked workload `typeclassFoldMacro`
+      (JFR: scala.Some ~24%, DispatchRuntime$Lambda ~16%, EvalRuntime$Lambda ~5%, Tuple2 ~5%,
+      List ~16% = ~66%; baseline 1.30 ms/op ~132 KB/op via `scripts/bench profile
+      typeclassFoldMacro`). Approach: JFR stack-trace the Some/Lambda/Tuple2 allocations in the
+      typeclass-given/curried-method dispatch path (DispatchRuntime + EvalRuntime), find a
+      BOUNDED A/B-provable reduction (e.g. cache/devirt the given-resolution Some/Tuple2, avoid
+      per-call lambda capture). Prove each slice with `scripts/bench interp typeclassFold*` A/B.
+      Builds on the earlier curried-method-dispatch fast-path (memory
+      project_interp_curried_method_dispatch). Honest scoping: ship measured slices, stop when
+      the residual is the algebraic floor.

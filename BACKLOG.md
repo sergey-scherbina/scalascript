@@ -333,6 +333,15 @@ These items come from the 2026-05-30 project-state review. They are intentionall
 ordered to reduce risk: spec and hygiene first, broad implementation only after
 the contracts are explicit.
 
+- [ ] **direct-style-eval** (DEFERRED — data-disproven) — migrate `eval(...): Computation`
+      to direct-style `eval(...): Value` to kill per-call `Pure` allocation. **Re-validated
+      2026-06-13** (`specs/direct-style-eval-spec.md` §11.1): on the representative tree-walked
+      workload `Computation.Pure` is only ~16% of allocation; the dispatch machinery (~66%)
+      dominates and `evalDirect` doesn't touch it, so the wall-clock ceiling is below the ≥15%
+      gate against a 530-site, high-risk migration. **Do NOT start** without a real workload
+      where `Pure` dominates a *tree-walked* path. The win these shapes actually want is
+      `hof-dispatch-devirt` (SPRINT) — pursue that instead.
+
 - [ ] **effect-handler-return-clause-codegen** — the handler return clause
       (`case Return(x) => …`, landed 2026-06-13 on the interpreter, spec §5.2.1) is
       **interp-only**. Lower it on the JVM / JS / Rust CPS backends so a `handle` with a
