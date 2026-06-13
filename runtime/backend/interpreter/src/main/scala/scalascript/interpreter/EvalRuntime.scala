@@ -4395,8 +4395,52 @@ private[interpreter] object EvalRuntime:
           else
             FlatMap(qualC, qualV =>
               interp.threadValues(argComps)(argVals => DispatchRuntime.dispatch(qualV, method, argVals, env, interp)))
+        // Fused curried `qual.foldLeft(z)(g)` — the typeclass-fold HOF glue.
+        // The generic path evals the inner `qual.foldLeft(z)` to a `NativeFnV`
+        // (one alloc) via the ~40-case dispatchList name-match, then applies it.
+        // For a List receiver + FunV combine this fast-path skips the NativeFnV
+        // alloc and goes straight to foldLeftReusing. Only matches the curried
+        // `Apply(Apply(Select(_, "foldLeft"), [z]), [g])` shape, so plain/method
+        // applies (app.fun is a Name/Select) never reach this branch.
+        case inner: Term.Apply
+            if app.argClause.values.lengthCompare(1) == 0
+            && inner.argClause.values.lengthCompare(1) == 0
+            && (inner.fun match
+                  case s: Term.Select => s.name.value == "foldLeft"
+                  case _              => false) =>
+          val sel = inner.fun.asInstanceOf[Term.Select]
+          evalFusedFoldLeft(sel.qual, inner.argClause.values.head,
+                            app.argClause.values.head, env, interp)
         case _ =>
           evalPlainApply(app, env, interp)
+
+  /** Evaluate a curried `qual.foldLeft(z)(g)`. Evaluates `qual`, `z`, `g` in the
+   *  same order the generic path would, then folds. For a `ListV` receiver + a
+   *  `FunV` combine it calls `foldLeftReusing` directly (no intermediate
+   *  `NativeFnV`); any other receiver/combine shape completes via the generic
+   *  `foldLeft` dispatch using the already-evaluated values (no re-evaluation,
+   *  so semantics + effect ordering are preserved). */
+  private def evalFusedFoldLeft(qualT: Term, zT: Term, gT: Term, env: Env, interp: Interpreter): Computation =
+    def finish(qualV: Value, zV: Value, gV: Value): Computation =
+      qualV match
+        case Value.ListV(ls) =>
+          gV match
+            case g: Value.FunV => CallRuntime.foldLeftReusing(ls, zV, g, env, interp)
+            case _             => DispatchRuntime.dispatch1(qualV, "foldLeft", zV, env, interp)
+                                    .flatMap(nf => interp.callValue1(nf, gV, env))
+        case _ =>
+          DispatchRuntime.dispatch1(qualV, "foldLeft", zV, env, interp)
+            .flatMap(nf => interp.callValue1(nf, gV, env))
+    eval(qualT, env, interp) match
+      case Pure(qualV) =>
+        eval(zT, env, interp) match
+          case Pure(zV) =>
+            eval(gT, env, interp) match
+              case Pure(gV) => finish(qualV, zV, gV)
+              case gC       => FlatMap(gC, gV => finish(qualV, zV, gV))
+          case zC => FlatMap(zC, zV => eval(gT, env, interp).flatMap(gV => finish(qualV, zV, gV)))
+      case qualC => FlatMap(qualC, qualV =>
+        eval(zT, env, interp).flatMap(zV => eval(gT, env, interp).flatMap(gV => finish(qualV, zV, gV))))
 
   private def evalArgs(args: List[Term], env: Env, interp: Interpreter)(k: List[Value] => Computation): Computation =
     val argComps = args.map(eval(_, env, interp))
