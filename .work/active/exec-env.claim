@@ -1,0 +1,6 @@
+feature/exec-env 2026-06-13T16:47:39Z
+agent: claude-code
+heartbeat: 2026-06-13T16:47:39Z
+status: not-started
+done-so-far:
+next: Extend the exec global builtin with an optional per-call env: add a 2-arg form exec(command: List[String], env: List[(String,String)]) alongside the existing 1-arg form, applying the (name,value) pairs to ProcessBuilder.environment(). Refactor the body into a shared helper. Requested by busi for vr-13 git-semantic faithful commit dates (GIT_AUTHOR_DATE/GIT_COMMITTER_DATE) + deterministic export. Spec specs/exec-builtin.md (extend). sbt installBin; smoke: exec(List(sh,-c,echo $FOO), List((FOO,bar))) -> stdout bar; 1-arg form still works.
