@@ -1,6 +1,0 @@
-effect-oneshot-perf 2026-06-13T14:45:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-13T14:45:00Z
-status: in-progress
-done-so-far: full `scripts/bench interp` (2026-06-13) revealed effectOneShot = 18.4 ms is the #1 interp outlier (next-slowest 1.57 ms). Workload: `handle(loop(5000)) { case Bump.tick(resume) => resume(1) }` — 5000 one-shot performs in a var+while loop, ~3.7 µs/perform. Suspect super-linear (O(n²)) cost in the Free-monad one-shot handle path (left-nested _FlatMap build/walk or per-perform reassociation).
-next: (1) CONFIRM complexity by varying loop count (2500/5000/10000) — if time 4× when n 2× → O(n²). (2) profile to find the quadratic frame (EffectsRuntime.handleInterp / one-shot loop / FlatMap reassociation). (3) fix to O(n) (likely the perform threading builds a left-nested FlatMap that's re-walked per step). GATE: large win expected if O(n²); A/B scripts/bench interp effectOneShot. Verify effectMultiShot + StdEffectsTest + JvmGenEffectsRuntimeTest stay green (shared EffectsRuntime).

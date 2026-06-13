@@ -129,11 +129,15 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
 
 > **Full-suite landscape (`scripts/bench interp`, 2026-06-13, 37 benches).** The two dominant
 > outliers dwarf everything else (next-slowest is 1.57 ms) and are the real targets:
-> - **`effectOneShot` 18.4 ms** — `handle(loop(5000)) { case Bump.tick(resume) => resume(1) }`
->   (5000 one-shot performs in a `var`+`while` loop; ~3.7 µs/perform). Suspect **super-linear**
->   handle-path cost (Free-monad `_FlatMap` build/walk per perform). HIGHEST-VALUE — verify O(n)
->   vs O(n²) by varying the loop count, then fix in `EffectsRuntime` one-shot path. **(now in
->   progress as `effect-oneshot-perf`.)**
+> - **`effectOneShot` 18.4 ms** — `handle(loop(5000)) { case Bump.tick(resume) => resume(1) }`.
+>   INVESTIGATED 2026-06-13 (`effect-oneshot-perf`): it is **O(n)** (not O(n²) — the one-shot
+>   placeholder loop is O(1)/dispatch), and **CPU-bound on the effectful-loop *body* tree-walk**
+>   (JFR ~65% leaf `EvalRuntime.evalCore`; the `var`+`while` loop can't JIT with a `perform`
+>   inside). Shipped the one-shot **tail-resume fast path** (−39% alloc: 4.10 → 2.50 MB/op) but
+>   wall-clock is unchanged — the effects machinery was alloc-only, not the bottleneck. **The
+>   wall-clock lever is JIT-compiling the effectful loop body** (run the pure parts — `i+1`,
+>   `i<n`, accumulate — in a compiled loop, threading only the `perform` through the Free monad).
+>   Large effort, same family as the JIT-the-glue work below.
 > - **`tupleMonoid` 13.3 ms** — `(i, i+1) ++ (i+2, i+3)` × 1000 (~13 µs/iter). Honest workload;
 >   the tuple `++` + construction tree-walks (JIT-bail, typeclass dispatch). Lever: a faster
 >   interp tuple-`++` path or JIT tuple construction/concat.

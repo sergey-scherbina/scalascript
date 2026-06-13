@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-13 — perf(interp): one-shot tail-resume fast path — −39% alloc on effect handlers
+
+- `effect-oneshot-perf`: `effectOneShot` (18.4 ms) is the #1 interp-bench outlier. Investigation
+  found it is **O(n)** (the one-shot placeholder loop is O(1)/dispatch) and **CPU-bound on the
+  effectful-loop body tree-walk** (JFR ~65% leaf `EvalRuntime.evalCore`; a `var`+`while` loop
+  with a `perform` inside can't JIT), not on the effects machinery.
+- Shipped a narrow **one-shot tail-resume fast path** in `EffectsRuntime`: a bare
+  `case Eff.op(..) => resume(simpleArgs)` arm (no guard, single arm, literal/name resume args)
+  is provably tail-position, so it skips the per-perform placeholder `FlatMap` + the `resume`
+  NativeFnV and feeds the value into the continuation directly. Anything else (non-tail like
+  `msg :: resume(())`, guards, multi-shot) uses the unchanged placeholder path.
+- **Allocation −39%** on `effectOneShot` (gc.alloc.rate.norm 4.10 → 2.50 MB/op) — a common
+  pattern (state machines / counters / readers). **Honest scope: this is an allocation
+  reduction, NOT a wall-clock speedup** (effectOneShot stays ~18.3 ms, CPU-bound as above).
+  The wall-clock lever is JIT-compiling the effectful loop body — a large effort in BACKLOG.
+- Correctness-preserving: `EffectOneShotFastPathTest` (5) + StdEffects/JvmGen/JsEffect suites green.
+
 ## 2026-06-13 — perf(interp): fused `List.foldLeft(z)(g)` fast-path (`hof-glue-jit-compile` slice)
 
 - Shipped the safe, bounded interp slice of `hof-glue-jit-compile`: `evalApplyGeneral` now
