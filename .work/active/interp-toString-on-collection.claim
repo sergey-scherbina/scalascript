@@ -1,6 +1,0 @@
-interp-toString-on-collection 2026-06-13T00:30:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-13T00:30:00Z
-status: in-progress
-done-so-far: Repro confirmed (xs.toString on a ListV -> "No method 'toString' on ListV"). Located the 3 generic fallthrough sites in DispatchRuntime.scala (2996, 3020, 3023), all of form `if ext != null then ext else interp.located("No method ...")` and all already render via Value.show(recv) which prints "List(50, 50, 50)" (== Scala List.toString).
-next: at each fallthrough add `else if name == "toString" && args.isEmpty then Pure(StringV(Value.show(recv)))` BEFORE the error (after extensionDispatch so user .toString extensions win). Universal -> covers ListV/MapV/SetV/TupleV/OptionV/EitherV/InstanceV. Test in backendInterpreter (toString on list/map/set/tuple/option/instance). Verify async-parallel-demo line 16 no longer errors there.

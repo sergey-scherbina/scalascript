@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-13 — fix(interp): universal `.toString` fallback
+
+- The interpreter had no `.toString` dispatch for composite Values — `xs.toString` on a
+  list errored `No method 'toString' on ListV`, and `m.toString` on a map was read as a
+  key lookup (`No key 'toString'`). Fixed by intercepting `toString` (0-arg) at the top of
+  `DispatchRuntime.dispatch` (next to the `asInstanceOf` early-return), rendering via
+  `Value.show` — the canonical println / string-interpolation path — so `x.toString ==
+  s"$x"` for every value. Case-class instances with a user-defined `toString` keep it
+  (`lookupTypeMethod` checked first). Interp-only (JVM/JS codegen emit native `toString`).
+  Found while expanding examples smoke-run coverage; `examples/async-parallel-demo.ssc`
+  now runs end-to-end. `BugReproTest` + 65 `.toString`-dependent tests (7 suites) green.
+  BUGS.md `interp-toString-on-collection` → fixed.
+
 ## 2026-06-12 — feat(uuid): uuid-p6 — monotonic v7 (closes the UUID milestone)
 
 - `Uuid.v7Monotonic(): Uuid ! SideEffect` — a strictly-increasing-within-a-millisecond v7

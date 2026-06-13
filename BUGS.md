@@ -33,8 +33,18 @@ commit SHA until the reporter confirms, then they can be trimmed.
   suspect. Fix belongs in the interpreter's operator desugaring/dispatch; check
   JVM/JS codegen for the same gap before closing (cross-backend regression test).
 
-## interp-toString-on-collection — `open` (2026-06-13)
+## interp-toString-on-collection — `fixed` (2026-06-13, `225aacc18`)
 
+- **Fixed:** intercept `toString` (0-arg) at the top of `DispatchRuntime.dispatch`
+  (alongside the `asInstanceOf` early-return) → render via `Value.show`, the canonical
+  println / string-interpolation path, so `x.toString == s"$x"` for every value. A
+  case-class instance with a user-defined `toString` method keeps it (checked via
+  `lookupTypeMethod` first). Needed to intercept at the TOP because type-specific
+  dispatchers mis-handle the name first (`map.toString` → key lookup → "No key
+  'toString'"). Interp-only fix (JVM/JS codegen emit native `toString`). Regress:
+  `BugReproTest` (list render + composite canonical-render invariant across
+  List/Map/tuple/Option/case-class); 65 `.toString`-dependent tests across 7 suites
+  green; `examples/async-parallel-demo.ssc` now runs end-to-end.
 - **Found:** by me, expanding `ExamplesSmokeTest` (`examples/async-parallel-demo.ssc`
   fails). Reproduces on `origin/main` (`e73fd9a73`) via the interpreter.
 - **Symptom:** `.toString` is universal in Scala (every value has it) but the

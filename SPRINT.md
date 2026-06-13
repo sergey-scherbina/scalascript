@@ -2447,8 +2447,3 @@ single-node without them.
       interpreter operator desugaring/dispatch; verify JVM/JS codegen don't share the gap;
       cross-backend regression test. BUGS.md `interp-cons-right-assoc-desugar`.
 
-- [ ] **interp-toString-on-collection** - `.toString` is universal but the interpreter has
-      no dispatch for `ListV` (likely Map/Set/tuple/Option/Either too) -> `No method
-      'toString' on ListV`. Broadly useful, likely small: universal `.toString` fallback in
-      method dispatch (reuse the println/string-concat render path). `examples/
-      async-parallel-demo.ssc` repro. BUGS.md `interp-toString-on-collection`.
