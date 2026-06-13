@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-13 — feat(interp): mkdir/mkdirs/listDir/isDir global builtins
+
+- busi (testbed) needed directory primitives from plain `.ssc`. `mkdir`/`mkdirs`/
+  `listDir` existed only in the fs-plugin (`FsIntrinsics`) + `std/fs.ssc` extern
+  decls, but the `std.fs` externs do not link to a native impl on import and a
+  bare call was `Undefined`. Registered `mkdir`/`mkdirs`/`listDir`/`isDir` as
+  **global builtins** in `BuiltinsRuntime` next to `writeFile`/`readFile`/`exists`
+  (`java.nio.file` / `java.io.File`; `listDir` sorted). `FsPluginTest` gains a
+  `dir globals (no fs-plugin)` case proving they work without the plugin. Unblocks
+  busi vr-2b (the readable `docs/`+`events/` partitioned tree).
+
 ## 2026-06-13 — docs/fix: algebraic-effects example + 2 interp effect bugs filed
 
 - Resolved `interp-cons-in-effect-handler`: the `examples/algebraic-effects.ssc` Logger
