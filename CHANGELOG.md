@@ -4,6 +4,27 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-13 — perf(interp): tuple scalar-replacement in the while-loop JIT — tupleMonoid 2600×
+
+- First slice of "start the JIT lever": the converged fix for the top interp outliers is to make
+  the hot loop body JIT-compilable by eliminating the construct that forces tree-walk. Here that
+  construct is `TupleV`.
+- A `while` body whose only tuple use is a leading `val t = <static tuple>` (`(a, b)` or
+  `(a, b) ++ (c, d)`, any nesting of literal tuples joined by `++`) accessed only by `t._K` is
+  **scalar-replaced** at the AST level in `EvalRuntime.collectFastAssignBody`: `tupleComponents`
+  flattens the tuple to its element terms and `substTupleAccess` inlines each `t._K` → component,
+  so the body becomes pure `name = rhs` assignments the existing Long-while JIT compiles — the
+  tuple never materialises. (Gotcha learned: `(a,b) ++ (c,d)` parses as `ApplyInfix((a,b), ++,
+  ArgClause(c, d))` — the RHS tuple is *flattened* into the arg clause, not a single tuple arg.)
+- **Sound by construction**: bails (keeps the materialised tuple, tree-walks — identical result)
+  on any non-`_K` use of `t` (e.g. `firstOf(t)`), a single-arg `++` (runtime arity unknown), a
+  non-static tuple, or an out-of-range `_K`. Minimal blast radius: `collectFastAssignBody` already
+  bailed on any block with a non-`Assign` leading stat, so this only *adds* the tuple case.
+- **`tupleMonoid` 13.3 → 0.005 ms/op (~2600×)** — `(i,i+1)++(i+2,i+3)` + `t._1..t._4` accumulation
+  now compiles to a pure-Long loop. `TupleScalarReplaceTest` (7, incl. soundness/JIT-vs-tree-walk
+  parity) + 454 while-loop/interp tests green. Remaining outliers (`effectOneShot`,
+  `typeclassFoldMacro`) need their own slices of the same lever (BACKLOG).
+
 ## 2026-06-13 — feat: `exec` per-call environment (busi vr-13 faithful dates)
 
 - Added a 2-arg form `exec(command: List[String], env: List[(String,String)])` to the

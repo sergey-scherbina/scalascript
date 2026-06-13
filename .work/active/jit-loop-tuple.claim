@@ -1,6 +1,0 @@
-jit-loop-tuple 2026-06-13T16:55:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-13T16:55:00Z
-status: in-progress
-done-so-far: user chose "start the JIT lever" (the converged architectural fix for the top interp outliers). First slice = TupleV in the loop compiler (unblocks tupleMonoid 13.3ms, the most self-contained: no effects-suspension/HOF semantics). tupleMonoid PROFILED CPU-bound: 84% leaf evalCore, the while-loop body `val t=(i,i+1)++(i+2,i+3); s=s+t._1+..+t._4` tree-walks 1000× because the loop JIT bails on TupleV construction/++/._N.
-next: (1) STUDY existing while-loop JIT: VmCompiler / JavacJitBackend.tryCompileWhileLong+tryCompileWhileMixed / SscVm; how loop bodies + ref values compile; the dual-bank LExpr/CALLREF infra (project_dual_bank_lexpr). (2) decide minimal extension: likely emit tuple construct/++/._N as JitGlobals runtime-helper calls so loop control + scalar accumulation compile (eliminating the 84% evalCore term-walk; tuple allocs remain via helpers). (3) implement one path, A/B scripts/bench interp tupleMonoid, GATE >=15% wall-clock. Verify tuple tests + full interp suite green; JIT safety contract = bail to tree-walk on anything unsupported (never miscompile). Honest scoping — a measured partial/negative is a valid record.

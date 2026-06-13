@@ -138,24 +138,27 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
 >   wall-clock lever is JIT-compiling the effectful loop body** (run the pure parts — `i+1`,
 >   `i<n`, accumulate — in a compiled loop, threading only the `perform` through the Free monad).
 >   Large effort, same family as the JIT-the-glue work below.
-> - **`tupleMonoid` 13.3 ms** — `(i, i+1) ++ (i+2, i+3)` × 1000 (~13 µs/iter). PROFILED
->   2026-06-13 (`tuple-monoid-perf`): **CPU-bound on the generic term-walk** — 84% leaf
->   `EvalRuntime.evalCore`, `dispatchTuple` in just 1/201 samples, alloc-rate only ~88 MB/s
->   (1.15 MB/op, NOT GC-bound). So a faster tuple-`++`/TupleV-as-array path would NOT move the
->   needle (the tuple dispatch isn't the cost). Same root cause as effectOneShot/typeclassFold:
->   the `var`+`while` body tree-walks 1000× because the loop JIT bails on TupleV
->   construction/`++`/`_N`. Lever = teach the loop JIT to handle tuples (large). No tractable
->   micro-opt; left as-is.
+> - **`tupleMonoid` ✅ FIXED 2026-06-13 (`jit-loop-tuple`): 13.3 ms → 0.005 ms (~2600×).** The
+>   first slice of "start the JIT lever". A `while` body whose only tuple use is a leading
+>   `val t = <static tuple>` (`(a,b)` / `(a,b) ++ (c,d)`) accessed by `t._K` is **scalar-replaced**
+>   at the AST level — `EvalRuntime.collectFastAssignBody` flattens the tuple to its component
+>   terms and inlines each `t._K` → component, so the body becomes pure `name = rhs` assignments
+>   the existing Long-while JIT compiles (the tuple never materialises). Sound-by-construction:
+>   bails (keeps the materialised tuple, tree-walks) on any non-`_K` use of `t`, a single-arg
+>   `++` (runtime arity unknown), or a non-static tuple. `TupleScalarReplaceTest`. The earlier
+>   profile (84% `evalCore`) was right that the *tuple dispatch* wasn't the cost — eliminating
+>   the tuple so the loop JITs is what moved it.
 >
-> **CONVERGED META-FINDING (2026-06-13).** The top interp outliers — `effectOneShot`,
-> `tupleMonoid`, `typeclassFoldMacro` — are ALL CPU-bound on `evalCore` term-walk, each because
-> the hot loop/glue can't JIT due to one unsupported construct (`perform` / `TupleV` / a
-> `foldLeft` HOF call). They converge on a **single architectural lever: extend the loop/expr
-> JIT to compile the pure parts while threading only the unsupported construct through the
-> interpreter** (the dual-bank `LExpr` / CALLREF roadmap, `project_dual_bank_lexpr`). Per-workload
-> micro-opts are exhausted; this one feature unlocks all of them. Alloc-only wins shipped where
-> safe (effect tail-resume −39%, fused foldLeft −10.5% — the only one that moved wall-clock,
-> by removing a *dispatch* not alloc).
+> **CONVERGED META-FINDING (2026-06-13) — "start the JIT lever".** The top interp outliers —
+> `effectOneShot`, `tupleMonoid`, `typeclassFoldMacro` — are ALL CPU-bound on `evalCore`
+> term-walk, each because the hot loop/glue can't JIT due to one unsupported construct
+> (`perform` / `TupleV` / a `foldLeft` HOF call). The lever: **make the loop/expr body
+> JIT-compilable by eliminating or threading the unsupported construct.** ✅ **`tupleMonoid`
+> DONE** (AST scalar-replacement of `TupleV`, 2600×) — proves the approach. **Remaining:**
+> `effectOneShot` (thread the `perform` through the Free monad while compiling the pure loop
+> parts — harder: needs VM suspend/resume) and `typeclassFoldMacro` (compile the `foldLeft` HOF
+> call — List-iter opcodes + CALLREF). Each is its own slice; the dual-bank `LExpr` / CALLREF
+> roadmap (`project_dual_bank_lexpr`) is the substrate for the latter two.
 >
 > Lower-priority (near floor / deep): `recursionFib` ~1.19 ms (already 24× via Phase C JIT);
 > `typeclassFoldMacro` 1.15 ms (re-walks `combineAll` body 300× — needs the full VM-compile
