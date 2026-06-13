@@ -414,3 +414,27 @@ HOF dispatch (the `Some`/`Lambda`/`Tuple2`/`List` producers), not direct-style e
 interpreter perf is the goal, pursue HOF-dispatch devirtualization instead. (Surfaced to the
 user as a direction decision: proceed with the 530-site migration anyway / accept the
 data-driven defer / redirect to HOF-dispatch devirt.)
+
+## 11.2  CPU profile — resolves the §11 "proxy" caveat — **DEFER confirmed** (2026-06-13)
+
+§11 flagged one residual uncertainty: the allocation fraction omits the per-`Pure`
+**wrap/unwrap + `FlatMap` trampoline CPU**, which a CPU (not allocation) profile would reveal.
+Two independent results now close it:
+
+1. **Empirical proof the workload is CPU-bound, not alloc-bound** (`hof-dispatch-devirt`,
+   2026-06-13): eliminating the dominant-by-sample-count `Some` allocation left
+   `gc.alloc.rate.norm` (132 KB/op) **and** wall-clock (1.30 ms/op) **unchanged**. So removing
+   `Pure` *allocation* would likewise move wall-clock by ~0.
+
+2. **CPU profile of `typeclassFoldMacro`** (JFR `jdk.ExecutionSample`, 186 samples): leaf-frame
+   CPU is **79% `EvalRuntime.evalCore`** (the term-dispatch match), and the `Computation`
+   trampoline machinery direct-style-eval would remove (`callValue` + `callValue1Slow` +
+   `Interpreter.callValue`) is **~2%** of CPU. (96% of *stacks* mention `Computation` only
+   because every eval *returns* one — almost no CPU is spent *in* the trampoline.)
+
+So even counting the trampoline CPU the proxy missed, direct-style-eval's ceiling is **~2%**,
+≪ the ≥15% gate, against a 530-site, high-risk migration. **DEFER is the definitive,
+fully-measured verdict** (allocation *and* CPU). The interpreter CPU lives in `evalCore`'s
+term dispatch — which direct-style-eval does not change — so the win is `hof-dispatch-cpu-devirt`
+(devirt/JIT the dispatch the tree-walk does inside `evalCore`), not a `Computation`→`Value`
+signature migration.
