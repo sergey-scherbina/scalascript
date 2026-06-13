@@ -1,0 +1,4 @@
+feature/fs-global-builtins 2026-06-13T09:26:14Z
+agent: claude-code
+status: in-progress
+next: busi (testbed) needs mkdir/mkdirs/listDir from .ssc but they are only in the fs-plugin (FsIntrinsics) + std/fs.ssc extern decls — NOT global builtins, and the std/fs.ssc import does not link to the native impl at runtime ("not found in std/fs.ssc"); bare call = "Undefined: mkdir". writeFile/readFile/exists ARE global builtins (BuiltinsRuntime.installX, interp.globals). Fix: register mkdir/mkdirs/listDir/isDir as GLOBAL builtins in BuiltinsRuntime.scala next to writeFile/exists (java.nio.file / java.io.File; listDir via File.listFiles to avoid CollectionConverters; sorted). Verify: a .ssc using bare mkdirs/listDir/isDir works; build cli/installBin; quick repro. Then busi bump unblocks vr-2b (readable docs/+events/ partitioned tree). Dep: none.
