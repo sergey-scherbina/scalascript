@@ -1,0 +1,6 @@
+direct-style-eval 2026-06-13T11:00:00Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-13T11:00:00Z
+status: in-progress
+done-so-far: starting the deferred multi-week arch item. Per SPRINT plan + memory project_perf_roadmap (Pure ~18% of tree-walked alloc, dispatch ~70%): NOT doing a blind 530-site migration. Re-validate the win via JFR on a Pure-dominated workload first, then a BOUNDED proven slice on one hot path.
+next: read specs/direct-style-eval-spec.md (§10-11); JFR-profile a Pure-heavy interp bench to re-confirm/refute the ROI; if a slice shows real win, implement it + measure; report honestly whether the full migration is worth a dedicated multi-week effort vs deferring.
