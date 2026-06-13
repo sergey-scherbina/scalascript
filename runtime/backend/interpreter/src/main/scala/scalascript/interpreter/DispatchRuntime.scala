@@ -26,6 +26,18 @@ private[interpreter] object DispatchRuntime:
     // Must be first: type-specific dispatchers (dispatchMap, dispatchList, etc.)
     // throw on unknown methods before reaching dispatchFallback.
     if name == "asInstanceOf" then return Pure(recv)
+    // `.toString` is universal in Scala — every value has it. Intercept here (same
+    // reason as asInstanceOf above): a type-specific dispatcher would otherwise mis-handle
+    // it first — e.g. `map.toString` is read as a key lookup → "No key 'toString'". Render
+    // via `Value.show`, the same path as println / string interpolation, so the result is
+    // consistent. A case-class instance with a user-defined `toString` method keeps it.
+    if name == "toString" && args.isEmpty then
+      return recv match
+        case Value.InstanceV(t, f) =>
+          val tm = lookupTypeMethod(t, "toString", interp)
+          if tm != null then invokeTypeMethod(tm, recv, f, args, interp)
+          else Pure(Value.StringV(Value.show(recv)))
+        case _ => Pure(Value.StringV(Value.show(recv)))
     // Extensions early-exit: avoid 7 HashMap lookups when no extensions registered.
     if interp.extensions.nonEmpty then
       val typeName: String = recv match

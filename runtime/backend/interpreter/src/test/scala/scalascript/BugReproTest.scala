@@ -543,3 +543,27 @@ while i < 35 do
   i = i + 1
 println(s)""") shouldBe "236775"
   }
+
+  // `.toString` is universal in Scala but the interpreter had no dispatch for a
+  // ListV (and other composite Values) → `No method 'toString' on ListV`. Now it
+  // falls back to the same render as println / string interpolation (Value.show).
+  test("toString on a list renders like println (interp-toString-on-collection)") {
+    captured("""println(List(1, 2, 3).toString)""") shouldBe "List(1, 2, 3)"
+  }
+
+  test("toString matches the canonical render for composite values") {
+    // `.toString` must equal what `s"$value"` / println produces, for every
+    // composite Value type that previously errored.
+    captured(
+"""val xs = List(1, 2, 3)
+val m  = Map("a" -> 1)
+val t  = (1, "x")
+val o: Option[Int] = Some(5)
+case class P(name: String, age: Int)
+val p = P("Ann", 30)
+println(xs.toString == s"$xs")
+println(m.toString  == s"$m")
+println(t.toString  == s"$t")
+println(o.toString  == s"$o")
+println(p.toString  == s"$p")""") shouldBe "true\ntrue\ntrue\ntrue\ntrue"
+  }
