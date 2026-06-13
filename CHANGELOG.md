@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-13 — fix(normalize): bare `println` reference no longer auto-invoked
+
+- `xs.foreach(println)` / `val f = println` errored `Not callable: ()` (and broke
+  `examples/typed-data.ssc`): Normalize rewrote every bare `println` → `Console.println`
+  (a Select to a native-fn field), which the interpreter auto-invoked as a 0-arg field
+  access → `()`. Fixed by rewriting to `Console.*` **only when applied** (`(?=\s*\()`
+  lookahead); a bare reference stays the plain name, bound by every backend to the
+  intrinsic function value. Surgical (only `println`/`print` — paren-less 0-arg methods like
+  `gen.zipWithIndex` are untouched; an earlier dispatch-level `bareSelect` attempt regressed
+  those and was reverted). `typed-data.ssc` now runs end-to-end and joined the
+  `ExamplesSmokeTest` curated run-set. BUGS.md `interp-typed-data-not-callable` → fixed.
+
 ## 2026-06-13 — fix(interp): universal `.toString` fallback
 
 - The interpreter had no `.toString` dispatch for composite Values — `xs.toString` on a

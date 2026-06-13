@@ -80,15 +80,22 @@ commit SHA until the reporter confirms, then they can be trimmed.
   interpreter's method dispatch (render via the same path as `println`/string-concat).
   Check Map/Set/tuple/Option/Either too. Cross-backend regression.
 
-## interp-typed-data-not-callable — `open` (2026-06-13)
+## interp-typed-data-not-callable (a.k.a. bare-fn-ref auto-invoke) — `fixed` (2026-06-13, `175c01d72`)
 
-- **Found:** by me, expanding `ExamplesSmokeTest` (`examples/typed-data.ssc` fails).
-  Reproduces on `origin/main` (`e73fd9a73`).
-- **Symptom:** `ssc run examples/typed-data.ssc` errors `[line 11, col 35] Not callable:
-  ()` — something in the typed-data showcase evaluates to `Unit` and is then applied as
-  a function. Needs narrowing to the exact construct (case-class default param? a tuple
-  accessor? a block returning Unit used in call position). Lower priority — single
-  example, not a known common pattern.
+- **Root cause (narrowed):** NOT a rare typed-data construct — it was the common
+  `xs.foreach(println)` idiom. Normalize rewrote **every** bare `println` → `Console.println`
+  (a `Select` to an InstanceV native-fn field); the interpreter evaluates a bare member `a.b`
+  as a 0-arg field access, so `Console.println` was auto-invoked → `()` → `Not callable: ()`.
+  Minimal repro: `List("a","b").foreach(println)` and `val f = println; f("x")`.
+- **Fixed:** Normalize now rewrites `println`/`print` to `Console.*` **only when applied**
+  (a `(?=\s*\()` lookahead). A bare reference stays the plain name → every backend binds it
+  to the intrinsic function value (interp globals, JVM Predef, JS `_println`, Rust intrinsic
+  table). Surgical: only `println`/`print`, so paren-less 0-arg method calls like
+  `gen.zipWithIndex` are untouched (an earlier dispatch-level `bareSelect` attempt regressed
+  exactly those — reverted). Regress: `BugReproTest` (foreach(println), val-bound println,
+  explicit `println()`/`println(x)`, `nanoTime()`); `examples/typed-data.ssc` runs end-to-end
+  and is now in `ExamplesSmokeTest`'s curated run-set (which goes through Normalize); Rust +
+  JS codegen + interp suites green.
 
 ## js-self-handling-cps-fn-not-run — `fixed` (2026-06-12)
 

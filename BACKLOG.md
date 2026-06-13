@@ -354,13 +354,6 @@ the contracts are explicit.
       effect/CPS value resolution; risky (effects-runtime), cross-backend check needed.
       `examples/algebraic-effects.ssc` repro. BUGS.md `interp-cons-in-effect-handler`.
 
-- [ ] **interp-typed-data-not-callable** (low-pri) — `ssc run examples/typed-data.ssc`
-      errors `[line 11, col 35] Not callable: ()` on `origin/main` — some construct in the
-      typed-data showcase evaluates to `Unit` and is applied as a function. Narrow the
-      exact construct first (case-class default param / tuple accessor / Unit block in call
-      position). Single example, not a known common pattern. BUGS.md
-      `interp-typed-data-not-callable`.
-
 - [x] **contract-validation-spec** - Spec first. Define a shared contract
       validation model for OpenAPI and GraphQL drift checks: route/resolver
       signature ↔ schema compatibility, request and response bodies, typed
