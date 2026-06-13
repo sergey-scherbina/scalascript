@@ -2459,7 +2459,7 @@ single-node without them.
 
 ## Both into sprint, go auto (2026-06-13) - work return-clause-codegen first, then hof-dispatch
 
-- [ ] **effect-handler-return-clause-codegen** — the handler return clause
+- [x] **effect-handler-return-clause-codegen** _(DONE 2026-06-13 — JVM `_handleWithReturn`+emitHandleForm, JS `_handleWithReturn`+genHandleForm; interp==JVM==JS parity tests green; Rust n/a, base handle/resume IR lowering itself unstarted (R.4.2). spec §5.2.1.)_ — the handler return clause
       (`case Return(x) => …`, landed 2026-06-13 on the interpreter, spec §5.2.1) is
       **interp-only**. Lower it on the JVM / JS / Rust CPS backends so a `handle` with a
       `Return` case maps the body's pure completion there too (today those backends treat

@@ -1,6 +1,0 @@
-effect-handler-return-clause-codegen 2026-06-13T12:00:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-13T12:00:00Z
-status: in-progress
-done-so-far: lower the interp return clause (case Return(x)=>...) to JVM/JS/Rust CPS. JVM: emitHandleForm (JvmGen:4957) currently DROPS a Return case (only matches Eff.op Selects) -> handle ignores it. _handle runtime (JvmGenRuntimeSources:250) loops; line 280 `case v => return v` is the pure completion (return-clause hook) BUT naive retMap there double-applies (op-case-body results also hit it) - same subtlety as interp. Need a separate _handleWithReturn (recursive: resume=interp-with-retMap, op-case-body returned directly) mirroring interp EffectsRuntime.handleWithReturn.
-next: JVM first (add _handleWithReturn runtime + emitHandleForm partitions Return case + passes retMap), test via scala-cli (msg::resume(())->List(Hello,World!) + backcompat + tail-mapping). Then JS (JsGenCpsCodegen, node test), then Rust (cargo). Cross-backend parity test.

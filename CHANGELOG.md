@@ -4,6 +4,27 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-13 — feat(effects): handler return clause codegen (JVM + JS)
+
+- Lowered the handler return clause (`case Return(x) => expr`, landed earlier on the
+  interpreter) to the JVM and JS Free-monad CPS backends, so `handle(body) { … case
+  Return(_) => List() }` maps the body's pure completion there too (previously those
+  backends silently dropped a `Return` case — it didn't match the qualified `Eff.op` shape).
+- **JVM**: new `_handleWithReturn(bodyThunk, handledOps, handlers, retMap)` runtime
+  (`JvmGenRuntimeSources`) + `JvmGen.emitHandleForm` partitions the `Return` case into an
+  `Any => Any` retMap and routes through it. **JS**: same-shaped `_handleWithReturn`
+  (`JsRuntimePart2b`) + `JsGen.genHandleForm` emits a `(_rv) => {…}` retMap. Both are
+  recursive evaluators: `resume` re-enters (`v => hwr(continuation(v))`), a bare pure value
+  passes through retMap, op-case-body results are returned directly (mapped exactly once).
+  Handlers with no `Return` arm keep the unchanged `_handle`/`_handleOneShot` loop.
+- Cross-backend parity verified at the same `List(Hello, World!)` deep accumulation +
+  `List(hi, hi)` tail-completion shapes: interp `StdEffectsTest` (48), JVM
+  `JvmGenEffectsRuntimeTest` (33, +3), JS `JsEffectLoopTest` (7, +3) all green.
+- **Rust**: n/a — the base `handle`/`resume`/`perform` IR lowering itself is unstarted
+  (R.4.2); `effect.rs` ships the runtime infrastructure only, so there is no handler codegen
+  to attach a return clause to. It lands automatically once R.4.2 wires `handle`/`resume`
+  through `run_with`. Spec `specs/algebraic-effects.md` §5.2.1 (per-backend table).
+
 ## 2026-06-13 — feat: `exec` process-execution global builtin (busi vr-10)
 
 - New global `exec(command: List[String]): (Int, String, String)` = (exitCode, stdout,
