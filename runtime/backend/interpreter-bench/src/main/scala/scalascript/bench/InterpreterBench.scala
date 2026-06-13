@@ -227,6 +227,21 @@ class InterpreterBench:
       |s""".stripMargin
   )
 
+  // MULTIPLE + chained leading vals in a loop body (jit-loop-val-extensions). Before, a
+  // SECOND leading `val` made collectFastAssignBody bail → tree-walk; now all leading
+  // pure-arith/tuple vals (incl. chains like `val b = a * 2`) are inlined so the body is
+  // pure assignments the Long-while JIT compiles. Honest: i-dependent accumulation. 1M iters.
+  private val modMultiVal: Module = src(
+    """var i = 0
+      |var s = 0
+      |while i < 1000000 do
+      |  val a = i - 500
+      |  val b = a * 2
+      |  s = s + a * a + b
+      |  i = i + 1
+      |s""".stripMargin
+  )
+
   // val-bound constant tuple: `last = k` where k is a val.
   // Without the Term.Name hoist, tryHoistedPureWhile bails and falls through
   // to the value-space loop (~65 ms for 1M iters, similar to counterWithTupleVar).
@@ -577,6 +592,10 @@ class InterpreterBench:
   @Benchmark
   def valIntermediate(): Unit =
     Interpreter(devNull).runSections(modValIntermediate)
+
+  @Benchmark
+  def multiVal(): Unit =
+    Interpreter(devNull).runSections(modMultiVal)
 
   @Benchmark
   def counterWithTupleVar(): Unit =

@@ -158,3 +158,75 @@ class TupleScalarReplaceTest extends AnyFunSuite with Matchers:
       println(s)
       println(calls)
     """) shouldBe "40\n5"  // f called once per iter (NOT duplicated): calls=5, s=2*(0+2+4+6+8)=40
+
+  // ── multiple / chained / destructuring leading vals (jit-loop-val-extensions) ──
+
+  test("multiple independent leading vals"):
+    run("""
+      var i = 0
+      var s = 0
+      while i < 10 do
+        val a = i + 1
+        val b = i * 2
+        s = s + a + b
+        i = i + 1
+      println(s)
+    """) shouldBe "145"  // sum_{0..9} ((i+1) + 2i) = sum(3i+1) = 3*45 + 10 = 145
+
+  test("chained leading vals (b references a)"):
+    run("""
+      var i = 0
+      var s = 0
+      while i < 10 do
+        val a = i + 1
+        val b = a * 2
+        s = s + b
+        i = i + 1
+      println(s)
+    """) shouldBe "110"  // sum_{0..9} 2(i+1) = 2*55 = 110
+
+  test("multiple vals mixing tuple + scalar"):
+    run("""
+      var i = 0
+      var s = 0
+      while i < 5 do
+        val t = (i, i + 1) ++ (i + 2, i + 3)
+        val m = i * 10
+        s = s + t._1 + t._4 + m
+        i = i + 1
+      println(s)
+    """) shouldBe "135"  // sum_{0..4} (i + (i+3) + 10i) = sum(12i+3) = 12*10 + 15 = 135
+
+  test("destructuring val (a, b) = tuple"):
+    run("""
+      var i = 0
+      var s = 0
+      while i < 10 do
+        val (a, b) = (i, i + 1)
+        s = s + a + b
+        i = i + 1
+      println(s)
+    """) shouldBe "100"  // sum_{0..9} (i + i+1) = sum(2i+1) = 100
+
+  test("val with a pure numeric conversion (.toLong) is inlinable"):
+    run("""
+      var i = 0
+      var s = 0L
+      while i < 10 do
+        val x = (i + 1).toLong
+        s = s + x
+        i = i + 1
+      println(s)
+    """) shouldBe "55"  // sum_{1..10} = 55
+
+  test("SOUNDNESS multi: second val's var reassigned before its use"):
+    run("""
+      var i = 0
+      var s = 0
+      while i < 3 do
+        val a = i + 1
+        val b = i * 10
+        i = i + 1
+        s = s + a + b
+      println(s)
+    """) shouldBe "36"  // captured at val time: (1+0)+(2+10)+(3+20) = 1+12+23 = 36 (reassign guard bails → tree-walk)

@@ -500,16 +500,19 @@ private[interpreter] object EvalRuntime:
   private def isArithOp(op: String): Boolean =
     op == "+" || op == "-" || op == "*" || op == "/" || op == "%"
 
-  /** True for a side-effect-free integer/double arithmetic expression — only `Lit`,
-   *  `Term.Name`, arithmetic `ApplyInfix`, and unary `+/-`. Excludes `Term.Apply`
-   *  (a call may have side effects, and inlining would duplicate it) and field/method
-   *  selects. Such an expr may be freely duplicated, so a `val x = <isPureArith>` binding
-   *  used only as a whole `x` can be inlined into the loop assignments. */
+  /** True for a side-effect-free numeric expression — `Lit`, `Term.Name`, arithmetic
+   *  `ApplyInfix`, unary `+/-`, and the total pure numeric conversions `.toInt/.toLong/
+   *  .toDouble`. Excludes `Term.Apply` (a call may have side effects, and inlining would
+   *  duplicate it) and all other selects. Such an expr may be freely duplicated, so a
+   *  `val x = <isPureArith>` binding used only as a whole `x` can be inlined into the loop
+   *  assignments. (Inlining only GATES on this — the substituted body still bails to
+   *  tree-walk if the while-JIT can't compile it, so this is purely about correctness.) */
   private def isPureArith(e: Term): Boolean = e match
     case _: Lit | _: Term.Name    => true
     case ai: Term.ApplyInfix      =>
       isArithOp(ai.op.value) && isPureArith(ai.lhs) && ai.argClause.values.forall(isPureArith)
     case Term.ApplyUnary(op, arg) => (op.value == "-" || op.value == "+") && isPureArith(arg)
+    case Term.Select(qual, Term.Name("toInt" | "toLong" | "toDouble")) => isPureArith(qual)
     case _                        => false
 
   /** Substitute a leading loop-body `val name = …` away in `rhs`. With `comps` (the val
@@ -549,31 +552,83 @@ private[interpreter] object EvalRuntime:
     val out = go(rhs)
     if bad then null else out
 
+  /** A leading loop-body `val` resolved to a pure inlinable form: either a static tuple
+   *  (`comps`, substituted at `name._K`) or a pure-arith scalar (`scalar`, substituted at a
+   *  bare `name`). `exprVars` are the loop variables it captures (after prior vals are
+   *  folded in) — used for the reassignment soundness guard. */
+  private final case class ResolvedVal(name: String, comps: List[Term] | Null,
+                                       scalar: Term | Null, exprVars: Set[String])
+
+  private def classifyVal(name: String, e: Term): ResolvedVal | Null =
+    tupleComponents(e) match
+      case comps: List[Term] => ResolvedVal(name, comps, null, comps.foldLeft(Set.empty[String])(_ ++ freeNames(_)))
+      case null              => if isPureArith(e) then ResolvedVal(name, null, e, freeNames(e)) else null
+
+  /** Fold the already-resolved (loop-var-only) vals into `e` so chained bindings like
+   *  `val b = a * 2` (a a prior val) become loop-var-only too. Null on an unsupported use. */
+  private def substPriorVals(e: Term, prior: List[ResolvedVal]): Term | Null =
+    var cur: Term | Null = e
+    val it = prior.iterator
+    while it.hasNext && cur != null do
+      val rv = it.next()
+      if containsName(cur.asInstanceOf[Term], rv.name) then
+        cur = substVal(cur.asInstanceOf[Term], rv.name, rv.comps, rv.scalar)
+    cur
+
   private def collectFastAssignBody(body: Term): FastAssignBody | Null =
     def one(assign: Term.Assign): FastAssignBody | Null =
       if assign.lhs.isInstanceOf[Term.Name] then
         new FastAssignBody(Array(assign.lhs.asInstanceOf[Term.Name].value), Array(assign.rhs))
       else null
 
-    // Build a FastAssignBody from a list of `name = rhs` stats. When `tname` is set (a
-    // scalar-replaced leading `val tname = …`), each rhs has `tname` inlined — `tname._K`
-    // → tuple component (`comps`) or bare `tname` → the pure-arith expr (`scalar`) — so the
-    // body becomes pure assignments the Long-while JIT can compile.
-    //
-    // SOUNDNESS: the val captures its expr's variables at the binding point. Inlining is
-    // only valid if no variable of the expr (`exprVars`) is reassigned by an *earlier*
-    // statement in the body before a use of `tname` — else the inlined value would differ
-    // from the captured one. We also refuse to inline an *unused* val (its evaluation, e.g.
-    // a `/`-by-zero, must be preserved).
-    def fromAssigns(stats: List[scala.meta.Stat], tname: String | Null,
-                    comps: List[Term] | Null, scalar: Term | Null,
-                    exprVars: Set[String]): FastAssignBody | Null =
+    // Peel ALL leading `val` bindings (`val x = …` and destructuring `val (a, b) = …`),
+    // resolving each to an inlinable form (chained bindings are folded into later ones via
+    // substPriorVals). Returns the resolved vals + the remaining (assignment) stats, or null
+    // if any leading val isn't inlinable (→ caller bails to tree-walk, the prior behaviour).
+    def peelVals(stats: List[scala.meta.Stat]): (List[ResolvedVal], List[scala.meta.Stat]) | Null =
+      val resolved = scala.collection.mutable.ListBuffer.empty[ResolvedVal]
+      var rest = stats
+      var ok   = true
+      while ok && rest.nonEmpty && rest.head.isInstanceOf[Defn.Val] do
+        rest.head.asInstanceOf[Defn.Val] match
+          case Defn.Val(_, List(Pat.Var(tn)), _, e0) =>
+            substPriorVals(e0, resolved.toList) match
+              case null      => ok = false
+              case e: Term   =>
+                classifyVal(tn.value, e) match
+                  case null            => ok = false
+                  case rv: ResolvedVal => resolved += rv; rest = rest.tail
+          // Destructuring `val (a, b, …) = <static tuple>`: bind each pattern var to its
+          // component (each then classified independently).
+          case Defn.Val(_, List(Pat.Tuple(pats)), _, e0) if pats.forall(_.isInstanceOf[Pat.Var]) =>
+            substPriorVals(e0, resolved.toList) match
+              case null    => ok = false
+              case e: Term =>
+                tupleComponents(e) match
+                  case comps: List[Term] if comps.length == pats.length =>
+                    var j = 0
+                    while ok && j < pats.length do
+                      classifyVal(pats(j).asInstanceOf[Pat.Var].name.value, comps(j)) match
+                        case null            => ok = false
+                        case rv: ResolvedVal => resolved += rv
+                      j += 1
+                    if ok then rest = rest.tail
+                  case _ => ok = false
+          case _ => ok = false
+      if !ok then null else (resolved.toList, rest)
+
+    // Build a FastAssignBody from the assignment stats, inlining each resolved val into the
+    // rhs it appears in. SOUNDNESS: a val captures its expr at the binding point, so inlining
+    // a use is only valid if no variable of that val's expr was reassigned by an EARLIER
+    // assignment (`val t=(i,..); i=i+1; s=s+t._1` would otherwise capture the post-increment i).
+    // An unused val is NOT dropped (its evaluation — e.g. a `/`-by-zero — is preserved).
+    def fromAssigns(stats: List[scala.meta.Stat], resolved: List[ResolvedVal]): FastAssignBody | Null =
       val n = stats.length
       if n == 0 then return null
       val names    = new Array[String](n)
       val rhsA     = new Array[Term](n)
       val assigned = scala.collection.mutable.Set.empty[String]
-      var anyUse   = false
+      val usedVals = scala.collection.mutable.Set.empty[String]
       var rest     = stats
       var i        = 0
       while rest.nonEmpty do
@@ -581,38 +636,29 @@ private[interpreter] object EvalRuntime:
           case assign: Term.Assign if assign.lhs.isInstanceOf[Term.Name] =>
             val lhsName = assign.lhs.asInstanceOf[Term.Name].value
             names(i) = lhsName
-            val r: Term | Null =
-              if tname == null then assign.rhs
-              else
-                if containsName(assign.rhs, tname) then
-                  if exprVars.exists(assigned.contains) then return null   // reassigned before use
-                  anyUse = true
-                substVal(assign.rhs, tname, comps, scalar)
-            if r == null then return null
-            rhsA(i) = r
+            var rhs: Term | Null = assign.rhs
+            val it = resolved.iterator
+            while it.hasNext && rhs != null do
+              val rv = it.next()
+              if containsName(rhs.asInstanceOf[Term], rv.name) then
+                if rv.exprVars.exists(assigned.contains) then return null   // reassigned before use
+                usedVals += rv.name
+                rhs = substVal(rhs.asInstanceOf[Term], rv.name, rv.comps, rv.scalar)
+            if rhs == null then return null
+            rhsA(i) = rhs.asInstanceOf[Term]
             assigned += lhsName
           case _ => return null
         i += 1
         rest = rest.tail
-      if tname != null && !anyUse then return null   // don't drop an unused val
+      if resolved.exists(rv => !usedVals.contains(rv.name)) then return null   // don't drop an unused val
       new FastAssignBody(names, rhsA)
 
     body match
       case assign: Term.Assign => one(assign)
       case Term.Block(stats) if stats.nonEmpty =>
-        stats.head match
-          // Leading `val x = <expr>` used only as `x._K` (static tuple) or bare `x`
-          // (pure-arith): inline it away so the rest of the body is pure assignments.
-          case Defn.Val(_, List(Pat.Var(tn)), _, rhsExpr) =>
-            tupleComponents(rhsExpr) match
-              case comps: List[Term] =>
-                fromAssigns(stats.tail, tn.value, comps, null,
-                            comps.foldLeft(Set.empty[String])(_ ++ freeNames(_)))
-              case null =>
-                if isPureArith(rhsExpr) then
-                  fromAssigns(stats.tail, tn.value, null, rhsExpr, freeNames(rhsExpr))
-                else null
-          case _ => fromAssigns(stats, null, null, null, Set.empty)
+        peelVals(stats) match
+          case null                  => null
+          case (resolved, assigns)   => fromAssigns(assigns, resolved)
       case _ => null
 
   /** Body shape for a mixed while-loop: one or more leading no-result `Term.Apply`
