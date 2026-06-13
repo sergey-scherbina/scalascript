@@ -4988,9 +4988,34 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     }
     val bodyThunk = s"() => ${emitCpsExpr(body)}"
     val handlersMap = handlerEntries.mkString(",\n  ")
-    s"""_handle($bodyThunk, Set(${handled.mkString(", ")}), Map(
+    // Optional return clause: `case Return(x) => expr` (unqualified `Return`, vs the
+    // qualified `Eff.op` effect cases). Emits a `retMap: Any => Any` and routes through
+    // `_handleWithReturn` so the body's pure completion maps through it (deep-handler
+    // accumulation). No `Return` case → the plain `_handle` (identity completion).
+    val returnCase = cases.find { c =>
+      c.pat match
+        case Pat.Extract.After_4_6_0(Term.Name("Return"), _) => true
+        case _                                               => false
+    }
+    returnCase match
+      case None =>
+        s"""_handle($bodyThunk, Set(${handled.mkString(", ")}), Map(
   $handlersMap
 ))"""
+      case Some(c) =>
+        val binder = c.pat match
+          case Pat.Extract.After_4_6_0(_, ac) if ac.values.nonEmpty =>
+            ac.values.head match
+              case Pat.Var(n) => Some(n.value)
+              case _          => None
+          case _ => None
+        val retBody = emitCaseBody(c.body)
+        val retMap = binder match
+          case Some(name) => s"((_rv: Any) => { val $name = _rv; $retBody })"
+          case None       => s"((_rv: Any) => { $retBody })"
+        s"""_handleWithReturn($bodyThunk, Set(${handled.mkString(", ")}), Map(
+  $handlersMap
+), $retMap)"""
 
   /** Emit a handler case body. Mostly verbatim Scala, but `<list>.flatMap(...)`
    *  is rewritten to use a runtime helper so the callback may return either a

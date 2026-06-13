@@ -281,6 +281,45 @@ private[codegen] trait JvmGenRuntimeSources:
        |    throw new RuntimeException("unreachable")
        |  interp(bodyThunk())
        |
+       |// Return-clause variant of `_handle`: applies `retMap` to the handled
+       |// computation's final pure value (and to each resumed continuation's
+       |// completion), enabling deep-handler accumulation `msg :: resume(())`.
+       |// RECURSIVE (resume = hwr(continuation)): the op-case-body result is returned
+       |// directly so `retMap` maps each continuation completion exactly once (never an
+       |// op-case-body result). Used only when the handler has a `case Return(_)` arm.
+       |def _handleWithReturn(
+       |  bodyThunk:  () => Any,
+       |  handledOps: Set[String],
+       |  handlers:   Map[String, List[Any] => Any],
+       |  retMap:     Any => Any
+       |): Any =
+       |  def hwr(comp: Any): Any =
+       |    var current: Any = comp
+       |    while true do
+       |      current match
+       |        case _Perform(eff, op, args) =>
+       |          val key = s"$eff.$op"
+       |          if handledOps(key) then
+       |            val resume: Any => Any = (v: Any) => hwr(v)
+       |            return handlers(key)(args :+ resume)
+       |          else return current
+       |        case _FlatMap(sub, f) => sub match
+       |          case _Perform(eff, op, args) =>
+       |            val key = s"$eff.$op"
+       |            val fn  = f.asInstanceOf[Any => Any]
+       |            if handledOps(key) then
+       |              val resume: Any => Any = (v: Any) => hwr(fn(v))
+       |              return handlers(key)(args :+ resume)
+       |            else
+       |              return _FlatMap(_Perform(eff, op, args), (v: Any) => hwr(fn(v)))
+       |          case _FlatMap(s2, g) =>
+       |            current = _FlatMap(s2,
+       |              (x: Any) => _FlatMap(g.asInstanceOf[Any => Any](x), f))
+       |          case v => current = f.asInstanceOf[Any => Any](v)
+       |        case v => return retMap(v)
+       |    throw new RuntimeException("unreachable")
+       |  hwr(bodyThunk())
+       |
        |/** Loose flatMap used inside handler case bodies — accepts callbacks that
        | *  return either an iterable (multi-shot resume) or a single value
        | *  (one-shot resume), matching the duck-typed JS semantics. */

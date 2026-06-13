@@ -323,6 +323,50 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
     assume(hasScalaCli, "scala-cli not available")
     compileWithScalaCli("""serveAsync(8080)""") shouldBe 0
 
+  // ── effect-handler-return-clause codegen ────────────────────────────
+
+  test("JvmGen return clause: code-shape emits _handleWithReturn + retMap"):
+    val code = jvmCode("""
+      effect Logger:
+        def log(msg: String): Unit
+      def greet(): Unit ! Logger = Logger.log("hi")
+      val r = handle(greet()) {
+        case Logger.log(m, resume) => m :: resume(())
+        case Return(_) => List()
+      }
+      println(r)
+    """)
+    code should include ("def _handleWithReturn(")
+    code should include ("_handleWithReturn(")
+
+  test("JvmGen return clause: scala-cli runs deep-handler accumulation"):
+    assume(hasScalaCli, "scala-cli not available")
+    runWithScalaCli("""
+      effect MyLog:
+        def log(msg: String): Unit
+      def greet(name: String): Unit ! MyLog = MyLog.log(s"Hello, $name!")
+      val messages = handle(greet("World")) {
+        case MyLog.log(msg, resume) => msg :: resume(())
+        case Return(_) => List()
+      }
+      println(messages)
+    """)._2 shouldBe "List(Hello, World!)"
+
+  test("JvmGen return clause: binds + maps the completion value (tail-position resume)"):
+    assume(hasScalaCli, "scala-cli not available")
+    // `Return(x)` binds the completion value and maps it (no Any-arithmetic — that's a
+    // separate pre-existing JVM limitation; here we wrap x to prove the binding works).
+    runWithScalaCli("""
+      effect Ask:
+        def get(): String
+      def prog(): String ! Ask = Ask.get()
+      val r = handle(prog()) {
+        case Ask.get(resume) => resume("hi")
+        case Return(x) => List(x, x)
+      }
+      println(r)
+    """)._2 shouldBe "List(hi, hi)"
+
   test("JvmGen: scala-cli compiles a `serveAsync(port, tls(...))` module"):
     assume(hasScalaCli, "scala-cli not available")
     compileWithScalaCli("""serveAsync(8443, tls("cert.pem", "key.pem"))""") shouldBe 0
