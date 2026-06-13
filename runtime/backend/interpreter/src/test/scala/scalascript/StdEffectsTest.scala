@@ -471,3 +471,57 @@ class StdEffectsTest extends AnyFunSuite with Matchers:
       "println(handle(prog()) { case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt)) })\n" +
       "```\n"
     capturedMd(md) shouldBe "hi\nList(1, 2, 3)"
+
+  // ── effect-handler-return-clause ─────────────────────────────────────
+  // `case Return(x) => …` maps the handled computation's final pure value, bridging
+  // the base case so the textbook deep-handler accumulation works.
+
+  test("return clause enables deep-handler accumulation msg :: resume(())"):
+    captured("""
+      effect Logger:
+        def log(msg: String): Unit
+      def greet(name: String): Unit ! Logger = Logger.log(s"Hello, $name!")
+      val messages = handle(greet("World")) {
+        case Logger.log(msg, resume) => msg :: resume(())
+        case Return(_) => List()
+      }
+      println(messages)
+    """) shouldBe "List(Hello, World!)"
+
+  test("return clause maps a tail-position completion value"):
+    captured("""
+      effect Counter:
+        def tick(): Int
+      def prog(): Int ! Counter =
+        val a = Counter.tick()
+        a + 1
+      println(handle(prog()) {
+        case Counter.tick(resume) => resume(10)
+        case Return(x) => x * 100
+      })
+    """) shouldBe "1100"
+
+  test("return clause wraps each multi-shot branch (NonDet singleton)"):
+    // Uses a ```scalascript block (multi-shot detection only scans scalascript blocks).
+    capturedMd(
+      "# T\n\n```scalascript\n" +
+      "multi effect NonDet:\n" +
+      "  def choose(options: List[Int]): Int\n" +
+      "def program(): Int ! NonDet =\n" +
+      "  val x = NonDet.choose(List(1, 2, 3))\n" +
+      "  x * 10\n" +
+      "println(handle(program()) {\n" +
+      "  case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))\n" +
+      "  case Return(x) => List(x)\n" +
+      "})\n" +
+      "```\n") shouldBe "List(10, 20, 30)"
+
+  test("a handler with no return clause returns the pure value unchanged (back-compat)"):
+    captured("""
+      effect Logger:
+        def log(msg: String): Unit
+      def pure(): Int ! Logger =
+        Logger.log("x")
+        42
+      println(handle(pure()) { case Logger.log(m, resume) => resume(()) })
+    """) shouldBe "42"

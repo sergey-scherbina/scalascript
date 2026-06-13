@@ -33,20 +33,48 @@ private[interpreter] object EffectsRuntime:
    */
   def evalHandle(body: Term, cases: List[Case], env: Env, interp: Interpreter,
                  multiShotEffects: Set[String] = Set.empty): Computation =
-    // Fast path: evaluate body first; if Pure (no perform calls), skip handler setup.
+    // A `case Return(x) => expr` (unqualified `Return`, vs the `Eff.op(...)` effect-op
+    // cases which are qualified `Select`s) is the optional RETURN CLAUSE: it maps the
+    // handled computation's final pure value. This is what makes the textbook deep-handler
+    // accumulation `msg :: resume(())` work — `resume(())` of the final continuation yields
+    // the return-clause result (e.g. `Nil`) instead of the raw pure value. Without it, the
+    // pure value is returned unchanged (backward-compatible).
+    val (returnCases, opCases) = cases.partition { c =>
+      c.pat match
+        case Pat.Extract.After_4_6_0(Term.Name("Return"), _) => true
+        case _                                               => false
+    }
+    def applyReturn(v: Value): Computation =
+      if returnCases.isEmpty then Pure(v)
+      else returnCases.iterator.flatMap { c =>
+        val innerPat: Pat = c.pat match
+          case Pat.Extract.After_4_6_0(_, ac) if ac.values.nonEmpty => ac.values.head.asInstanceOf[Pat]
+          case _                                                    => Pat.Wildcard()
+        PatternRuntime.matchPat(innerPat, v, env, interp) match
+          case null    => None
+          case bindEnv =>
+            val be = bindEnv.asInstanceOf[Env]
+            val guardOk = c.cond.forall { g =>
+              Computation.run(interp.eval(g, be)) match { case Value.BoolV(b) => b; case _ => false }
+            }
+            if guardOk then Some(interp.eval(c.body, be)) else None
+      }.nextOption().getOrElse(Pure(v))
+
+    // Fast path: evaluate body first; if Pure (no perform calls), apply the return clause
+    // (if any) and skip handler setup.
     val initial = interp.eval(body, env)
     initial match
-      case p: Pure => return p
+      case Pure(v) => return applyReturn(v)
       case _ =>
 
-    val handledOps: Set[(String, String)] = cases.flatMap { c =>
+    val handledOps: Set[(String, String)] = opCases.flatMap { c =>
       c.pat match
         case Pat.Extract.After_4_6_0(Term.Select(Term.Name(eff), Term.Name(op)), _) => Some((eff, op))
         case _ => None
     }.toSet
 
     def dispatchCase(eff: String, op: String, args: List[Value], resume: Value): Computation =
-      cases.iterator.flatMap { c =>
+      opCases.iterator.flatMap { c =>
         c.pat match
           case Pat.Extract.After_4_6_0(Term.Select(Term.Name(`eff`), Term.Name(`op`)), argClause) =>
             val patArgs   = argClause.values
@@ -156,7 +184,45 @@ private[interpreter] object EffectsRuntime:
                   current = caseBodyResult   // resume not called (e.g. early abort)
       throw InterpretError("unreachable")
 
-    handleInterp(initial)
+    // ── Return-clause path: a clean RECURSIVE handler ────────────────────────────
+    // Used only when the handler has a `case Return(x) => …`. It is correct where the
+    // optimized one-shot loop above can't be: `resume` is a DIRECT eager function
+    // `x => handleWithReturn(continuation(x))`, so (a) the return clause maps each
+    // continuation's completion (not op-case-body results — no double application), and
+    // (b) `resume(v)` in a non-tail position like `msg :: resume(())` yields a concrete
+    // value (no lazy placeholder to mis-thread). Cost: O(depth) JVM stack for chained
+    // tail resumes — acceptable, and isolated to return-clause handlers (the common
+    // no-return-clause path keeps the O(1) loop unchanged).
+    def makeReturnResume(eff: String, op: String, k: Value => Computation): Value =
+      val isOneShot = !multiShotEffects.contains(eff)
+      var resumed = false
+      Value.NativeFnV("resume", rargs => {
+        if isOneShot && resumed then
+          throw InterpretError(s"One-shot violation: $eff.$op resumed more than once")
+        resumed = true
+        val v = rargs match { case List(x) => x; case Nil => Value.UnitV; case xs => Value.TupleV(xs) }
+        handleWithReturn(k(v))
+      })
+
+    def handleWithReturn(comp: Computation): Computation =
+      var current: Computation = comp
+      while true do
+        current match
+          case Pure(v) => return applyReturn(v)
+          case Perform(eff, op, args) =>
+            if !handledOps.contains((eff, op)) then return current
+            else return dispatchCase(eff, op, args, makeReturnResume(eff, op, x => Pure(x)))
+          case FlatMap(sub, f) => sub match
+            case Pure(v)            => current = f(v)
+            case FlatMap(sub2, g)   => current = FlatMap(sub2, x => FlatMap(g(x), f))
+            case Perform(eff, op, args) =>
+              if !handledOps.contains((eff, op)) then
+                return FlatMap(Perform(eff, op, args), v => handleWithReturn(f(v)))
+              else
+                return dispatchCase(eff, op, args, makeReturnResume(eff, op, f))
+      throw InterpretError("unreachable")
+
+    if returnCases.isEmpty then handleInterp(initial) else handleWithReturn(initial)
 
   /** Interpret `restartable { cases } { body }` — Common Lisp condition-system style.
    *
