@@ -284,7 +284,23 @@ twice). A handler **without** a return clause returns the pure value unchanged
 (backward-compatible). Implementation: a handler with a return clause uses a direct
 recursive evaluator (`EffectsRuntime.handleWithReturn`) where `resume` is an eager
 `x => handleWithReturn(continuation(x))`; the optimized one-shot loop is kept for the
-no-return-clause path. (Interpreter; JVM/JS/Rust CPS lowering is a follow-up.)
+no-return-clause path.
+
+**Backend codegen (effect-handler-return-clause-codegen).** The return clause now
+lowers on every backend that has a Free-monad `handle`/`resume` codegen path:
+
+| Backend | Return-clause lowering |
+|---------|------------------------|
+| **Interpreter** | `EffectsRuntime.handleWithReturn` (recursive evaluator) |
+| **JVM** | `_handleWithReturn(bodyThunk, handledOps, handlers, retMap)` runtime + `JvmGen.emitHandleForm` partitions the `Return` case into an `Any => Any` retMap |
+| **JS / Node** | `_handleWithReturn(bodyFn, handledOps, handlers, retMap)` runtime + `JsGen.genHandleForm` emits a `(_rv) => {…}` retMap |
+| **Rust** | n/a — the base `handle`/`resume`/`perform` IR lowering itself is unstarted (R.4.2). `effect.rs` ships the runtime infrastructure only; user `handle(...)` does not yet lower to executable Rust, so there is no handler codegen to attach a return clause to. The return clause lands automatically once R.4.2 wires `handle`/`resume` through `run_with`. |
+
+On JVM and JS, `_handleWithReturn` is a recursive evaluator: `resume` re-enters it
+(`v => hwr(continuation(v))`), a bare pure value passes through `retMap`, and
+op-case-body results are returned directly so `retMap` maps each continuation
+completion exactly once. A handler with no `Return` arm keeps using the unchanged
+`_handle` / `_handleOneShot` loop.
 
 ### 5.3 Runtime paths per backend
 
