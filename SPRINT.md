@@ -2442,13 +2442,6 @@ single-node without them.
 
 ## Promoted from BACKLOG 2026-06-13 (user: "go auto mode all") - work in order
 
-- [ ] **examples-smoke-run-plugins** - run plugin-backed example FILES (crypto/uuid/
-      typed-data/etc.) that ExamplesSmokeTest currently excludes because the `cli` test
-      classpath has no std plugins. Approach: add an example-runner in `backendInterpreter`
-      test (it already has the plugins on `% Test` + `compileViaBackend`-equivalent), or add
-      light plugins (crypto, uuid) as `% Test` deps to `cli`. Skip spark (heavy) + network/
-      GUI/browser. Assert exit 0. Low-risk; broadens regression coverage. EASIEST - do first.
-
 - [ ] **effect-handler-return-clause** - add a return clause to `handle` so the textbook
       deep-handler accumulation `msg :: resume(())` works (`resume(())` of the final
       continuation must yield the handler's mapped base value, not the raw pure value).

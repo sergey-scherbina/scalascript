@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-13 — test(examples): smoke-run plugin-backed examples
+
+- `PluginExamplesSmokeTest` (in `backendInterpreterPluginTests`, which depends on
+  `allPlugins`) runs `crypto-demo`/`crypto-encrypt-demo`/`crypto-verify-demo` + `uuid-v7` +
+  `invoice-pdf`/`invoice-email` end-to-end through the interpreter with plugins loaded —
+  the gap the cli `ExamplesSmokeTest` can't cover (no plugins on its test classpath). Each
+  must complete without throwing or printing an error marker. Closes
+  `examples-smoke-run-plugins`.
+
 ## 2026-06-13 — feat(interp): mkdir/mkdirs/listDir/isDir global builtins
 
 - busi (testbed) needed directory primitives from plain `.ssc`. `mkdir`/`mkdirs`/
