@@ -276,13 +276,36 @@ back-to-back A/B, tight non-overlapping bars). Cumulative 7.39 → 5.44 ms (−2
 regression. Same safety argument (pure-only ⇒ no dropped/reordered effect). General win for any pure
 expression statement / block result.
 
+### Phase 3e — post-slice-2a profile: the cheap arith cuts are exhausted, residual is structural (DIAGNOSTIC 2026-06-14)
+
+A CPU re-profile after slices 1+2a (196 exec samples) shows the picture has shifted: **`evalCore`
+33 %** (down from ~50 %), and **env `HashMap` operations ~26 %** — `MutableEnvView.foreachEntry`
+(the per-block env copy in `evalBlock`, reached via `evalApplyGeneral`, ~14 %) + `findNode`/`index`/
+`String.hashCode`/`equals` (name lookups, ~12 %). The remaining `evalCore` is reached mostly from
+**`evalApplyGeneral`** — i.e. the `choose(..)` *perform* eval and the handler-body `opts.flatMap(..)`,
+NOT pure arithmetic. So the cheap `fastPrimitiveValue` fast-path approach (slices 1/2a) is
+**exhausted** for this shape: `choose` performs and `flatMap` is a HOF — neither is pure, so the fast
+path returns null and they stay on `evalCore`. The two remaining levers are **structural**:
+1. **Compile the perform / handler-body eval** (the `evalApplyGeneral` path) — part of the fuller
+   compiled-continuation feature; large.
+2. **Avoid the per-block `HashMap` env copy** (`evalBlock` `foreachEntry`) — use a `FrameMap` chain /
+   reuse where block-scoping permits. A *general* eval-perf lever (helps far beyond effects), but
+   correctness-sensitive (scoping) → its own slice with its own A/B, NOT under this spec.
+
+`dispatchCase`'s per-perform recompute (`argPats.dropRight(1).map`/`lastOption`/`zip`) is a real but
+**marginal** alloc cut (its own code is not a hot leaf; the per-perform cost is the handler-body eval,
+which a precompute does not touch) — not worth a change to the correctness-critical effect handler
+for a small gain.
+
+**Net: slices 1+2a captured the tractable arith re-eval cuts (−26 %). The residual is the larger
+structural CPS/env work — approach deliberately, not as a tail-end micro-slice.**
+
 ### Recommendation (full feature — IN PROGRESS)
 
 Building incrementally (user-directed). Slices 1 + 2a route the continuation's pure-arith
 val-bindings AND the result expr off the megamorphic `evalCore` (cumulative −26 % on
-effectMultiShotDeep). The fuller compiled-continuation feature (compile whole straight-line
-continuation segments once, re-run compiled instead of re-walking `step`/rebuilding `FlatMap`)
-remains the larger lever — the residual is now the `perform` eval (`evalApplyGeneral`), `dispatchCase`
-per-perform recompute, and the `FlatMap` threading. Each slice ships green + A/B'd on a quiet machine
-(CPU wins need wall-clock validation — alloc metrics won't show them). This section is
-the durable design + the profiled justification so the next session continues from data.
+effectMultiShotDeep) — the cheap, safe, high-value cuts. The fuller compiled-continuation feature
+(compile whole straight-line continuation segments once + a cheaper continuation env) remains the
+larger structural lever (3e). Each slice ships green + A/B'd on a quiet machine (CPU wins need
+wall-clock validation — alloc metrics won't show them). This section is the durable design + the
+profiled justification so the next session continues from data.
