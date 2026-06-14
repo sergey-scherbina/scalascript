@@ -1,0 +1,6 @@
+jit-backend-consolidation 2026-06-14T22:32:44Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-14T22:32:44Z
+status: in-progress
+done-so-far: arch-review T2. AsmJitBackend 5017 + JavacJitBackend 4309 LOC parallel; Javac default, Asm via SSC_JIT_BACKEND=asm. JitPredicates already shares some classifiers.
+next: investigate what each JIT uniquely provides (opcodes/features/capabilities), the selection mechanism + default, test coverage of each, and how much lowering logic is duplicated vs shared. Produce a written comparison + recommendation (keep-both-with-more-shared-lowering vs primary+archive). If a SAFE shared-lowering extraction exists, do it; else deliver the decision doc (the consolidation/archive call itself needs user sign-off).
