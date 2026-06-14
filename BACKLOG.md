@@ -34,7 +34,7 @@ recommended first pick** (bounded, measurable, compounds with the perf work).
       genExpr/genStat into cohesive mixins. Pure maintainability; verify emitted source byte-identical
       via the JvmGen/JsGen output-assertion suites. No behaviour change.
 
-- [ ] **jit-backend-consolidation** (Tier 2) — TWO parallel JIT backends: `AsmJitBackend` (5017 LOC)
+- [x] **jit-backend-consolidation** (Tier 2) ✓ RESOLVED 2026-06-15 → **KEEP BOTH** (no code change). Investigated: deliberate dual-strategy, not duplication — clean JitBackend SPI + shared JitPredicates/JitLint already extracted; JavacJit (default, needs javac) vs AsmJit (opt-in, direct ASM, no-javac/native-image path) target different outputs so their lowering is inherently un-shareable; AsmJit is complete + maintained at parity. No safe consolidation/extraction remains. Decision record: `specs/jit-backend-consolidation.md`. ORIGINAL — TWO parallel JIT backends: `AsmJitBackend` (5017 LOC)
       + `JavacJitBackend` (4309 LOC) = ~9.3K LOC, Javac the default, Asm selected via
       `SSC_JIT_BACKEND=asm`. ~9K LOC of parallel JIT to keep in sync (every new lowering must land in
       both, or drift). DECISION needed: is Asm earning its maintenance cost (faster startup? no-javac

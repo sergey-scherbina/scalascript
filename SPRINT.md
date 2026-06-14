@@ -26,7 +26,7 @@ slice if investigation shows it's not worth it (as meta-extractor-decouple was).
 - [x] **codegen-megafile-deflation** ✓ SLICE 1 LANDED 2026-06-15 — JvmGenContentEmit extracted, JvmGen.scala −20% (5050→4022), 63 tests green; JsGen mirror + route/registry = follow-on (BACKLOG). ORIGINAL: JsGen/JvmGen ~5K LOC each. Extract a cohesive pure cluster
       (e.g. finish JvmGenStringUtils, or genExpr/genStat split) to a new file, behavior-identical,
       verify output suites + byte-identical. See BACKLOG.
-- [ ] **jit-backend-consolidation** (T2) — AsmJitBackend (5017) + JavacJitBackend (4309) parallel.
+- [x] **jit-backend-consolidation** ✓ RESOLVED 2026-06-15 → KEEP BOTH (deliberate dual-strategy, shared infra already extracted, lowerings un-shareable; decision record specs/jit-backend-consolidation.md). ORIGINAL: AsmJitBackend (5017) + JavacJitBackend (4309) parallel.
       Start with a written comparison of what each uniquely provides → decide keep-both-with-shared-
       lowering vs primary+archive. Investigation-led. See BACKLOG.
 - [ ] **intrinsic-registration-harmonise** (T3) — JS bundles crypto/uuid/graphql/json into core
