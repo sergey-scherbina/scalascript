@@ -1,6 +1,0 @@
-effect-vm-cont-p2c 2026-06-14T10:30:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-14T10:30:00Z
-status: in-progress
-done-so-far: P2/P2b shipped (effectOneShot 1.64ms, effectReader 2.63ms). Re-measured full InterpreterBench landscape — effectReader is the #1 outlier; the 1.0ms delta over effectOneShot = interp.eval(k*2) tree-walked 5000x in the resolver.
-next: compile the pure-Int-arith resume expr in the EffectsRuntime one-shot tail-resume resolver to a Long-closure (Lit/Name(op-arg)/+/-/*/unary-), replacing per-iteration interp.eval; fall back to interp.eval for anything else (Double/div/free-names/non-IntV args). HONEST: dispatch stays each iter (bridge->resolver), only the handler tree-walk is removed (same principle as P2 compiling the loop body); NOT inlining the value into the loop (that drops the dispatch = gaming). Target effectReader 2.63 -> ~1.7ms. Local to EffectsRuntime.evalHandle resolver construction; small blast radius. Tests: EffectVmContinuationsTest + new compiled-resolver parity tests + effects suites; A/B effectReader/effectOneShot.
