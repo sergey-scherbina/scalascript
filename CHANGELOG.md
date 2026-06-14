@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-14 — perf(interp): memoise constant collection literals (effect-vm-continuations P3a) — effectMultiShot −13.7% alloc
+
+- Deep-profiling `effectMultiShot` (multi-shot delimited continuations, 0.93 ms — a non-outlier,
+  already correct via the Free-monad trampoline) found it alloc-bound at 406 KB/op, with the
+  `choose(List(1,2,3,4))` argument **rebuilt ~85×** across the continuation re-runs — a cacheable
+  allocation distinct from the inherent flat-map result lists.
+- `EvalRuntime.isPureConstExpr` + the `pureConstCache` gate now memoise a constant **immutable**
+  collection literal (`List(..)` / `Vector(..)` / `Seq(..)` with all-pure-const args) by AST
+  identity — the same mechanism already used for `Term.Tuple` / `Term.ApplyInfix`. The result is an
+  immutable value, so sharing the cached instance is safe; a cheap callee-name gate keeps
+  non-collection applies (`fib(n-1)`) off the cache path.
+- **effectMultiShot 406 → 350 KB/op (−13.7% alloc), ~0.93 → ~0.78 ms.** Also a general win for any
+  constant collection literal in a hot loop. No regression on the Apply-heavy benches (recursionFib
+  family, arithLoop). Guard: `EffectVmContinuationsTest` "multi-shot over a cached const list yields
+  all 256 paths" (256/2560 — the shared cached list must not corrupt the enumeration).
+- This is the safe, tractable slice of P3's "cheaper reification" — **not** the full
+  compiled-continuation feature (the per-resume AST re-walk + Free-monad rebuild remain; deferred,
+  design in `specs/effect-vm-continuations.md` Phase 3).
+
 ## 2026-06-14 — fix(interp): report module import cycles instead of StackOverflowError (busi-reported)
 
 - A true module import **cycle** (`A→B→A`, e.g. a sub-module importing back from the facade

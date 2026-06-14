@@ -194,11 +194,29 @@ alloc-cut that meaningfully moves a non-outlier.
    re-evaluation, and the env-allocation cut is a *general* interp win (not effect-specific) — if
    pursued, do it as a general eval-perf slice with its own A/B, not under this spec.
 
-### Recommendation
+### Phase 3a — const collection-literal memoization (SHIPPED 2026-06-14)
 
-**Deferred — do not build yet.** The target is a non-outlier already correct via the trampoline,
-the fix is a major feature (an effect-aware interp JIT or VM state capture), and there is no
-tractable incremental win (profile: spread 406 KB/op, no smoking gun). Build option 1 or 2 only
-when a real effect-heavy workload (deep multi-shot search, generators) shows up as an actual
-outlier. Until then this section is the durable design so the next session starts from the plan,
-not a cold re-derivation.
+The one **safe + tractable** piece of option 3, shipped as the first P3 slice. Deep-profiling the
+`::`/`Object[]` allocation found the `choose(List(1,2,3,4))` argument was rebuilt on **every**
+continuation re-run (~85× for the 4×4 search) — a *cacheable* allocation distinct from the
+inherent flat-map result lists. `EvalRuntime.isPureConstExpr` + the `pureConstCache` gate now
+memoise a constant **immutable** collection literal (`List(..)` / `Vector(..)` / `Seq(..)` with
+all-pure-const args) by AST identity, the same mechanism already used for `Term.Tuple` /
+`Term.ApplyInfix`. Sharing is safe (immutable value); the callee-name gate keeps non-collection
+applies (`fib(n-1)`) off the cache path. **effectMultiShot 406 → 350 KB/op (−13.7% alloc),
+~0.93 → ~0.78 ms.** Also a *general* win for any const collection literal in a hot loop. Guard:
+`EffectVmContinuationsTest` "multi-shot over a cached const list yields all 256 paths" (256/2560 —
+the shared cached list must not corrupt the enumeration). No regression on the Apply-heavy benches
+(recursionFib family / arithLoop). This is **not** the compiled-continuation feature — it reduces
+reification allocation; the per-resume AST re-walk + Free-monad rebuild remain (options 1/2).
+
+### Recommendation (full feature)
+
+**The compiled-continuation build (option 1/2) stays deferred — do not build yet.** The target is
+a non-outlier already correct via the trampoline; the remaining cost is the per-resume AST re-walk
++ Free-monad reification, whose fix is a major feature (an effect-aware interp JIT or VM state
+capture) AND whose payoff on `effectMultiShot` is bounded (trivial continuation segments; part of
+the 0.93 ms is per-op `Interpreter` construction, not multi-shot). Build option 1 or 2 only when a
+real effect-heavy workload (deep multi-shot search, generators) with *non-trivial* per-step work
+shows up as an actual outlier — and add a representative stress bench first so the win is
+measurable. Until then this section is the durable design so the next session starts from the plan.

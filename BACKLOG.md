@@ -148,18 +148,22 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       floor), NOT folded (effectReader's unfoldable `i*2` ≈ effectOneShot's constant; `loop(5000)`
       computes the exact 24 995 000). **Open: P2c-rest** ref-return/ref-arg ops
       (`resolveEffectRef`/`walkRef`), >2 args, slot-cache the resolver (shave the TLS walk).
-      **P3 — INVESTIGATED + DESIGNED + DEFERRED 2026-06-14** (profile-justified): general
-      delimited continuations for multi-shot + non-tail resumes. `effectMultiShot` (0.93 ms) is
-      **NOT an outlier** and already correct via the Free-monad trampoline (continuation = reified
-      `FlatMap` closure, `resume` re-runs `handleInterp(f(v))` per value). Profiled
-      (`scripts/bench profile`): **alloc-bound 406 KB/op, spread across env/List/Free-monad/closure
-      allocation** from re-reifying + re-evaluating the continuation 256× — **no single wasteful
-      allocation, no tractable incremental win**. The real fix is a major feature (option 1:
-      compiled/CPS continuation segments = an effect-aware interp JIT, mirroring `emitCpsBlock` /
-      `JsGenCpsCodegen`; option 2: `SscVm` stack capture/clone). Full design + recommendation in
-      `specs/effect-vm-continuations.md` Phase 3. **BUILD DEFERRED** until a real effect-heavy
-      workload (deep multi-shot search, generators) appears as an actual outlier — building a large
-      VM feature for a 0.93 ms non-outlier with no demonstrated payoff is not justified yet.
+      **P3 — multi-shot / non-tail delimited continuations.** `effectMultiShot` (0.93 ms) is NOT an
+      outlier and already correct via the Free-monad trampoline (continuation = reified `FlatMap`
+      closure, `resume` re-runs `handleInterp(f(v))` per value). Profiled: alloc-bound 406 KB/op,
+      spread across env/List/Free-monad/closure from re-reifying+re-evaluating the continuation 256×.
+      **P3a ✅ SHIPPED 2026-06-14** — const collection-literal memoization: deep-profiling found the
+      `choose(List(1,2,3,4))` arg rebuilt ~85× across continuation re-runs; `EvalRuntime` now
+      memoises a constant immutable collection literal (`List`/`Vector`/`Seq` + all-pure-const args)
+      via `pureConstCache` (same path as Tuple/ApplyInfix). **effectMultiShot 406 → 350 KB/op
+      (−13.7%), ~0.93 → ~0.78 ms**; general win for any const collection in a hot loop; safe (shared
+      immutable value); no regression (recursionFib family/arithLoop); guard test 256/2560. **Full
+      compiled-continuation feature STILL DEFERRED** (the per-resume AST re-walk + Free-monad rebuild
+      remain): option 1 (compiled/CPS continuation segments = effect-aware interp JIT, mirroring
+      `emitCpsBlock`/`JsGenCpsCodegen`) or option 2 (`SscVm` stack capture/clone). Payoff bounded on
+      `effectMultiShot` (trivial segments; part of 0.93 ms is per-op `Interpreter` construction) —
+      build only when a deep-multi-shot/generator workload with non-trivial per-step work appears as
+      an outlier; add a stress bench first. Full design: `specs/effect-vm-continuations.md` Phase 3.
 
 > **Full-suite landscape (`scripts/bench interp`, 2026-06-13, 37 benches).** The two dominant
 > outliers dwarf everything else (next-slowest is 1.57 ms) and are the real targets:
