@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-14 — perf(interp): P4.1 compiled-eff-block — multi-shot resume replays compiled segments — effectMultiShotDeep −10% (cumulative −73%)
+
+Compile a straight-line effectful continuation block ONCE into a pre-classified `Array[CStep]`
+(`CValStep`/`CExprStep`, cached by `stats` AST identity in `Interpreter.effBlockCache`), so a
+multi-shot `resume(v)` replays the compiled segments via `runCompiled` instead of re-walking
+`BlockRuntime.step`'s per-statement `s match` dispatch (+ list-cons + `Defn.Val`/`Pat.Var` unapply)
+on every resume. Pure-Int-arith scoring segments compile to a direct `Array[Long] => Long` closure
+(no `fastPrimitiveValue` recursion / IntV intermediate boxing / `evalCore`); every perform/effectful
+rhs routes through `interp.eval` unchanged (effects never folded or reordered). Recognition bails to
+`step` for any non-straight-line shape; the hot reused-view loop-body path keeps `step`. Measured
+(back-to-back stash A/B, 5 pairs): effectMultiShotDeep ~2.33 → ~2.06 ms (−10%, non-overlapping bars),
+no regression on non-effect val/fn/pattern benches. Cumulative 7.39 → ~2.0 ms (−73%). Spec
+`specs/effect-vm-continuations.md` §5.
+---
+
 ## 2026-06-14 — perf(interp): flatMap-resume η-reduction in the multi-shot handler (effect CPS-compile slice 1) — effectMultiShotDeep −47% (cumulative −70%)
 
 - Started the CPS perform-eval compile (Task 4 / spec §4) by re-checking where the residual is:

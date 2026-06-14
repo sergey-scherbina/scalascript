@@ -50,7 +50,7 @@ claim -> worktree -> test -> ship cycle. Value/tractability order below.
       4.2ms). Design + first real slice; ship incrementally. Spec `specs/effect-vm-continuations.md`
       §3f. Do LAST (lowest ROI; cheap+safe cuts proven exhausted via the s3 within-noise experiment).
 
-- [ ] **effect-cps-p41-build** — BUILD the full P4.1 compiled-eff-block (user-directed 2026-06-14:
+- [x] **effect-cps-p41-build** ✓ DONE 2026-06-14 — SHIPPED: effectMultiShotDeep ~2.33→~2.06 ms (−10%, back-to-back A/B 5 pairs, non-overlapping bars; cumulative 7.39→~2.0 ms −73%), no regression on non-effect benches, all effect/interp tests green (3125/171875 guard). Impl: `BlockRuntime` (`CStep`/`compileEffBlock`/`compileEnvIntArith`/`runCompiled`) + `Interpreter.effBlockCache`; spec §5 DONE. ORIGINAL: BUILD the full P4.1 compiled-eff-block (user-directed 2026-06-14:
       "единственный путь к измеримому дальнейшему ускорению multi-shot — полная P4.1"). GOAL: compile
       a straight-line effectful continuation block ONCE into pre-classified compiled segments, so a
       multi-shot `resume(v)` REPLAYS the compiled segments instead of re-walking `BlockRuntime.step`'s
