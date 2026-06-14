@@ -1,6 +1,0 @@
-effect-cps-s2 2026-06-14T18:12:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-14T18:12:00Z
-status: in-progress
-done-so-far: effect CPS-compile slice 1 (flatMap-resume η-reduction) shipped — effectMultiShotDeep 4.26→2.24ms (−47%, cumulative −70%).
-next: re-profile effectMultiShotDeep (now 2.24ms) CPU leaf frames → find the NEW residual after slice 1 removed the handler-side flatMap re-eval. Take the next cut IF tractable+safe (another recognised handler pattern, or a cheap dispatch cut); else if it's the irreducible branch work (handleInterp(f(opt))), STOP — record + release. Quiet-machine back-to-back stash A/B. spec §4.
