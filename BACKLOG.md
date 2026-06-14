@@ -164,6 +164,15 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       `effectMultiShot` (trivial segments; part of 0.93 ms is per-op `Interpreter` construction) —
       build only when a deep-multi-shot/generator workload with non-trivial per-step work appears as
       an outlier; add a stress bench first. Full design: `specs/effect-vm-continuations.md` Phase 3.
+      **P3b ✅ SHIPPED 2026-06-14** — stress bench + unapply-alloc cuts. Added `effectMultiShotDeep`
+      (5×5 = 3125 paths, interleaved scoring; baseline 7.5 ms, 1.95 MB/op — a real outlier where the
+      continuation re-eval dominates, unlike effectMultiShot). Deep-profile found two avoidable
+      `Some`+`Tuple4` unapply allocs on the re-eval path: `BlockRuntime.step` `Defn.Val(_,pats,_,rhs)`
+      + `EvalRuntime.fastPrimitiveValue` `ApplyInfix.After_4_6_0(...)`; both → type-test + field
+      access. **effectMultiShotDeep 1.95 → 1.57 MB/op (−19.5% alloc)** (reliable; wall-clock not
+      cleanly measurable under machine load but alloc-bound + no algorithmic change so it tracks);
+      general win for every val-binding + binary-op eval; guard 3125/171875; 225 tests green. Full
+      compiled-continuation feature (AST re-walk itself) STILL deferred — options 1/2.
 
 > **Full-suite landscape (`scripts/bench interp`, 2026-06-13, 37 benches).** The two dominant
 > outliers dwarf everything else (next-slowest is 1.57 ms) and are the real targets:

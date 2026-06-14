@@ -210,6 +210,24 @@ the shared cached list must not corrupt the enumeration). No regression on the A
 (recursionFib family / arithLoop). This is **not** the compiled-continuation feature — it reduces
 reification allocation; the per-resume AST re-walk + Free-monad rebuild remain (options 1/2).
 
+### Phase 3b — stress bench + unapply-allocation cuts in the continuation re-eval path (SHIPPED 2026-06-14)
+
+`effectMultiShot` (256 trivial paths) is partly per-op `Interpreter`-construction-bound, a poor
+signal for the continuation cost. Added **`effectMultiShotDeep`** — a representative nondeterministic
+search (5 levels × 5 options = 3125 paths, with interleaved per-step scoring `val sa = a*a; val b =
+choose(..); val sb = b*b+sa; …`) where the per-resume continuation **re-evaluation** genuinely
+dominates: **baseline 7.5 ms, 1.95 MB/op** (a real outlier). Deep-profiling its allocation
+(`jfr ObjectAllocationSample`) found two avoidable **unapply** allocations in the re-eval path — a
+`Some` + `Tuple4` per visit — from scalameta version-extractors: `BlockRuntime.step`'s
+`case Defn.Val(_, pats, _, rhs)` (Tuple4 ~89 samples) and `EvalRuntime.fastPrimitiveValue`'s
+`Term.ApplyInfix.After_4_6_0(lhs, op, _, ac)` (Tuple4 ~55 / Some ~60). Both converted to the
+codebase's established **type-test + direct field access** (`dv.pats`/`dv.rhs`, `ai.lhs`/`ai.op`/
+`ai.argClause`) — behaviour-identical, no per-visit `Some`/`Tuple4`. **effectMultiShotDeep
+1.95 → 1.57 MB/op (−19.5% alloc)**; a *general* win for every `val`-binding + binary-op eval, not
+just effects. Guard: `EffectVmContinuationsTest` "deep interleaved multi-shot (5×5) yields all 3125
+paths" (3125/171875). 225 interp/effects tests green; no regression. Still **not** the
+compiled-continuation feature — the AST re-walk itself remains (options 1/2).
+
 ### Recommendation (full feature)
 
 **The compiled-continuation build (option 1/2) stays deferred — do not build yet.** The target is

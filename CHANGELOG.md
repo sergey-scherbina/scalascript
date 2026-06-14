@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-14 — perf(interp): cut unapply allocation in the continuation re-eval path (effect-vm-continuations P3b) — effectMultiShotDeep −19.5% alloc
+
+- Added a representative deep-multi-shot stress bench `effectMultiShotDeep` (nondeterministic
+  search, 5 levels × 5 options = 3125 paths, interleaved per-step scoring) — the per-resume
+  continuation **re-evaluation** dominates here (baseline 7.5 ms, 1.95 MB/op, a real outlier),
+  unlike `effectMultiShot` (256 trivial paths, partly per-op `Interpreter`-construction-bound).
+- Deep-profiling its allocation found two avoidable **unapply** allocations on the re-eval path —
+  a `Some` + `Tuple4` per visit from scalameta version-extractors: `BlockRuntime.step`'s
+  `case Defn.Val(_, pats, _, rhs)` and `EvalRuntime.fastPrimitiveValue`'s
+  `Term.ApplyInfix.After_4_6_0(lhs, op, _, ac)`. Converted both to the codebase's established
+  **type-test + direct field access** (`dv.pats`/`dv.rhs`; `ai.lhs`/`ai.op`/`ai.argClause`) —
+  behaviour-identical, no per-visit `Some`/`Tuple4`.
+- **effectMultiShotDeep 1.95 → 1.57 MB/op (−19.5% alloc).** A general win for every `val`-binding +
+  binary-op evaluation, not just effects. Guard: `EffectVmContinuationsTest` "deep interleaved
+  multi-shot (5×5) yields all 3125 paths" (3125/171875). 225 interp/effects tests green; no regression.
+- Still **not** the full compiled-continuation feature (the per-resume AST re-walk remains; deferred,
+  design in `specs/effect-vm-continuations.md` Phase 3).
+
 ## 2026-06-14 — perf(interp): memoise constant collection literals (effect-vm-continuations P3a) — effectMultiShot −13.7% alloc
 
 - Deep-profiling `effectMultiShot` (multi-shot delimited continuations, 0.93 ms — a non-outlier,
