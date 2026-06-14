@@ -4,6 +4,28 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-14 — perf(interp): compile pure-arith resume expr in the resolver (effect-vm-continuations P2c) — effectReader ~15×, effectOneShot ~11×
+
+- Re-measuring the full `InterpreterBench` landscape put **effectReader (2.63 ms)** and
+  **effectOneShot (1.64 ms)** as the top two interp outliers — both bounded by the one-shot
+  tail-resume resolver re-running `interp.eval` on the resume expr **every perform** (the 1.0 ms
+  gap between them was exactly `interp.eval(k*2)` tree-walked 5000×; re-entering the megamorphic
+  tree-walker from inside the JIT'd loop also defeated bridge inlining).
+- `EffectsRuntime.compileIntArith` compiles a single pure-Int-arith resume expr (`Lit.Int/Long`,
+  `Name(op-arg)`, `+`/`-`/`*`, unary `±`) into a direct `Array[Long] => Long` closure; the
+  resolver returns `Value.intV(closure(args))`. Falls back to the unchanged `interp.eval` resolver
+  for any op-arg that isn't `IntV` at runtime, and `compileIntArith` returns null for any shape not
+  provably bit-identical to interp over 64-bit `Long` (`/`/`%`, Double, conversions, free names,
+  tuples). `IntV op IntV ⇒ intV` is plain `Long` (`DispatchRuntime`), so the compiled path is exact.
+- **effectReader 2.63 → 0.175 ms (~15×); effectOneShot 1.64 → 0.145 ms (~11×)** — the two slowest
+  effect benches become among the fastest.
+- **Honest, not folded**: the effect still dispatches every iteration (bridge → resolver) and the
+  handler still computes the arithmetic — only the redundant tree-walk is removed (same principle as
+  P2 compiling the loop body; NOT inlining the value into the loop, which would drop the dispatch).
+  effectReader's unfoldable `i*2` runs at ≈ effectOneShot's constant; `loop(5000)` computes the
+  exact 24 995 000. Tests: `EffectVmContinuationsTest` +5; 157 effect-suite tests green.
+- Spec: `specs/effect-vm-continuations.md` Phase 2c. Open: ref-return/ref-arg ops, >2 args, slot-cache.
+
 ## 2026-06-14 — perf(interp): JIT arg-carrying effect ops (effect-vm-continuations P2b) — ~9.8×
 
 - Extends the effect-op JIT (P2) from 0-arg to **arg-carrying** ops `Eff.op(a)` / `Eff.op(a, b)`

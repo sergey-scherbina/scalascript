@@ -118,6 +118,39 @@ resolver classifier) from literals/names to **pure arithmetic** so a `resume(k *
 `case Reader.ask(k,resume)=>resume(k*2)`) 26.7 → 2.72 ms. STILL OPEN: ref-return / ref-arg effect
 ops (`resolveEffectRef` / `walkRef`); >2 args.
 
+## Phase 2c — compile the resume expression in the resolver — ✅ DONE 2026-06-14 (effectReader 2.63 → 0.175 ms ~15×, effectOneShot 1.64 → 0.145 ms ~11×)
+
+Re-measuring the full `InterpreterBench` landscape (2026-06-14) put **effectReader (2.63 ms)** and
+**effectOneShot (1.64 ms)** as the top two outliers. After Phase 2/2b the loop already JITs and
+calls the bridge each iteration; the residual is the resolver itself re-running `interp.eval` on
+the resume expr **every perform**. The 1.0 ms `effectReader − effectOneShot` gap was exactly
+`interp.eval(k * 2)` tree-walked 5000× (effectOneShot's `resume(1)` tree-walks a trivial `Lit`);
+re-entering the megamorphic tree-walker from inside the JIT'd loop also defeats bridge inlining.
+
+**Mechanism.** `EffectsRuntime.compileIntArith(t, argIdx)` compiles a single pure-**Int**-arith
+resume expr — `Lit.Int/Long`, `Name(op-arg)`, `+` / `-` / `*`, unary `±` — into a direct
+`Array[Long] => Long` closure (`argIdx` maps each op-arg name to its perform-arg slot). The
+resolver builds a `Long[]` from the perform args and returns `Value.intV(closure(args))`. It is
+**bit-identical** to `interp.eval` because `IntV op IntV ⇒ intV` is plain 64-bit `Long`
+(`DispatchRuntime`). `compileIntArith` returns `null` (→ the unchanged `interp.eval` resolver) for
+any shape NOT provably bit-exact: `/` / `%` (div-by-zero + Double-promotion semantics),
+Double/conversions, free names, tuples. At runtime the fast resolver also falls back to
+`interp.eval` if any op-arg isn't an `IntV` — so semantics are unconditionally preserved.
+
+**Honest — not folded.** The effect still dispatches every iteration (bridge → resolver) and the
+handler still computes the arithmetic; only the redundant per-perform tree-walk is removed — the
+same principle as Phase 2 compiling the loop body. We do NOT inline the resume value into the loop
+(that would drop the dispatch = gaming). Evidence the loop is not folded: effectReader's
+**unfoldable** `i * 2` runs at ≈ effectOneShot's constant `resume(1)` (0.175 vs 0.145 ms) — a
+folded constant loop would be ~10× faster (cf. `tupleMonoid`/`effectStream` at ~0.01 ms when a
+loop folds); ~30 ns/iter is the genuine bridge + TLS-lookup dispatch floor. `loop(5000)` still
+computes the exact sum 24 995 000 (`EffectVmContinuationsTest`). Tests +5
+(nested/unary/subtraction, division fallback-to-`interp.eval`, 0-arg constant, at-scale sum).
+
+STILL OPEN: ref-return / ref-arg effect ops (`resolveEffectRef` / `walkRef`); >2 args; the
+residual ~30 ns/iter (the bridge call + `lookupResolver` TLS walk) — a slot-cached resolver could
+shave the TLS walk but the dispatch floor remains.
+
 ## Phase 3 — general delimited continuations (future)
 
 Multi-shot effects + non-tail resumes need real continuations: a VM **suspend** that captures

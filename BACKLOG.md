@@ -139,9 +139,16 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       trampoline. Spec `specs/effect-vm-continuations.md`. **P2b ✅ 2026-06-14**: arg-carrying
       effect ops JIT — `effectReader` (`Reader.ask(i)` loop) 26.7 → 2.66 ms (~10×);
       `resolveEffectLong1/2` + `JavacJitBackend` lowering ≤2-numeric-arg ops + `isSimpleResumeArg`
-      broadened to pure-arith resume exprs. **Open: P2c** ref-return/ref-arg ops
-      (`resolveEffectRef`/`walkRef`), >2 args, cache the resolver in a slot; **P3** general VM
-      suspend/resume for multi-shot + non-tail resumes (`effectMultiShot` 0.95 ms).
+      broadened to pure-arith resume exprs. **P2c ✅ 2026-06-14**: compile the pure-Int-arith
+      resume expr in the resolver (`EffectsRuntime.compileIntArith` → `Array[Long]=>Long` closure,
+      replacing the per-perform `interp.eval`; falls back to interp.eval for any non-bit-exact shape
+      — `/`/`%`, Double, conversions, free names, non-IntV args). `effectReader` 2.63 → **0.175 ms
+      (~15×)**, `effectOneShot` 1.64 → **0.145 ms (~11×)** — the top two interp outliers are now
+      among the FASTEST benches. Honest: dispatch preserved each iteration (≈30 ns/iter bridge+TLS
+      floor), NOT folded (effectReader's unfoldable `i*2` ≈ effectOneShot's constant; `loop(5000)`
+      computes the exact 24 995 000). **Open: P2c-rest** ref-return/ref-arg ops
+      (`resolveEffectRef`/`walkRef`), >2 args, slot-cache the resolver (shave the TLS walk); **P3**
+      general VM suspend/resume for multi-shot + non-tail resumes (`effectMultiShot` 0.93 ms).
 
 > **Full-suite landscape (`scripts/bench interp`, 2026-06-13, 37 benches).** The two dominant
 > outliers dwarf everything else (next-slowest is 1.57 ms) and are the real targets:
