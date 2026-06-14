@@ -1,6 +1,0 @@
-effect-vm-continuations 2026-06-14T07:25:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-14T07:25:00Z
-status: in-progress
-done-so-far: loop-val-inline family COMPLETE (b653b741f). effectOneShot (18ms, #1 outlier) re-profiled: 72% leaf evalCore = the effectful while-loop body (`acc=acc+Bump.tick(); i+=1`) tree-walks 5000× because the `perform` forces the Free-monad trampoline → can't JIT. User: "start delimited continuations in the register VM" + "record everything in specs/sprint/backlog".
-next: (1) STUDY: EffectsRuntime (Pure/Perform/FlatMap, handleInterp, my one-shot tail-resume fast path), the effectful-while eval/trampoline (EvalRuntime ~3890 loopCont/condCont), SscVm/JIT. (2) WRITE design spec specs/effect-vm-continuations.md (the one-shot tail-resume effectful-loop fast path: drive the loop NATIVELY, calling the handler for the perform value — honest, NOT inlining the constant; OR full VM suspend/resume). (3) SPRINT.md + BACKLOG.md entries. (4) implement first tractable slice, A/B scripts/bench interp effectOneShot. GATE: honest (don't game the bench — the effect must actually run), correctness (StdEffectsTest/JvmGen/JsEffect green), real win. Hard/research — incremental progress + honest scoping OK.

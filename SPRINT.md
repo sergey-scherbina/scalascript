@@ -2486,3 +2486,22 @@ single-node without them.
       or memoizing the resolved dispatch target across a `combineAll`/fold loop. A/B with
       `scripts/bench interp typeclassFold*` (wall-clock, NOT alloc). Dedicated effort, not a
       quick slice. (This is also the redirect target the deferred `direct-style-eval` points at.)
+
+
+## effect-vm-continuations (2026-06-14) - delimited continuations / effectful-loop JIT
+
+- [ ] **effect-vm-continuations** - make effectful loops fast (effectOneShot ~18ms, #1 interp
+      outlier; 72% leaf evalCore - the perform forces the Free-monad trampoline so the loop
+      can't reach the while-JIT). Spec `specs/effect-vm-continuations.md`. Phased:
+      - [~] **P1 one-shot tail-resume resolver** (IMPLEMENTED + MEASURED 2026-06-14, then REVERTED):
+        the TLS resolver works (Bump.tick() resolves inline 5000x, correct, all effects suites
+        green) and DOES make the body pure, BUT effectOneShot measured 18.8 vs 19.3 ms = ~0%.
+        FINDING: removing the Free-monad trampoline does NOT help - the 72% cost is the
+        per-iteration BODY TREE-WALK, which the all-pure native loop does identically. So the
+        resolver is only the SUBSTRATE for P2 (it gives P2 a runtime value); it ships WITH P2,
+        not alone. Reverted to avoid dead weight on the hot effect-op path. spec section P1.
+      - [ ] **P2 JIT the effectful body**: lower a resolved effect-op call to a perform-bridge
+        (JitGlobals.performOneShot reading TLS) so the while-JIT compiles the whole body ->
+        arithLoop parity. Needs the bytecode JIT to recognize effect-op call sites.
+      - [ ] **P3 general delimited continuations**: VM suspend/resume (capture resumable VM
+        state at a perform) for multi-shot + non-tail resumes. Major VM feature; deferred.
