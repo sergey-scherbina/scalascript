@@ -1,0 +1,6 @@
+jit-loop-match-val 2026-06-13T21:30:00Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-13T21:30:00Z
+status: in-progress
+done-so-far: loop-val-inline family (tuple/scalar/multi/chained/destructuring/conversions/if) shipped. effectOneShot RE-PROFILED (72% leaf evalCore = loop-body tree-walk floor; needs hard VM-suspend, NOT a safe slice). This adds the last AST-level val-inline gap: MATCH intermediates `val x = p match {…}; s += x` — currently bails the JIT → whole loop tree-walks ~2.3µs/iter; `p match{}` DIRECTLY in an assign already JITs (instanceFieldAccess 0.043ms), so inlining the val → JIT.
+next: (1) isPureMatch(m): scrutinee isPureArith (Name/Lit/arith), every case body isPureArith, guards None-or-isPureCond. (2) isPureArith += Term.Match. (No substVal change needed — the match is inserted whole at the bare-name site; `case other` preserves it when recursing for other vals.) (3) bench valMatch (`case class Pair; val p=Pair(i,i+1); val x = p match {case Pair(a,b)=>a+b}; s+=x` — or simpler), A/B. GATE real win. TupleScalarReplaceTest + 499 tests green; full bench no-regression. Use type-test `m: Term.Match` + .expr/.cases accessors.
