@@ -13,6 +13,22 @@ private[interpreter] object EffectsRuntime:
     case Term.Name("__effectOp__") => true
     case _                         => false
 
+  /** A `resume(...)` argument that is side-effect-free (no nested effect/perform): a literal,
+   *  a name (other than `resume` itself), a tuple of such, or pure arithmetic over them. Such
+   *  an arg is always `Pure`, so a tail-resume arm can feed `f(value)` directly and the
+   *  effect-vm-continuations resolver can evaluate it at the perform site. */
+  private def isArith(op: String): Boolean =
+    op == "+" || op == "-" || op == "*" || op == "/" || op == "%"
+  def isSimpleResumeArg(t: Term, resumeName: String): Boolean = t match
+    case _: Lit                   => true
+    case n: Term.Name             => n.value != resumeName
+    case Term.Tuple(args)         => args.forall(isSimpleResumeArg(_, resumeName))
+    case ai: Term.ApplyInfix      =>
+      isArith(ai.op.value) && isSimpleResumeArg(ai.lhs, resumeName) &&
+        ai.argClause.values.forall(isSimpleResumeArg(_, resumeName))
+    case Term.ApplyUnary(op, arg) => (op.value == "-" || op.value == "+") && isSimpleResumeArg(arg, resumeName)
+    case _                        => false
+
   // ── effect-vm-continuations (specs/effect-vm-continuations.md) ──
   // A handler arm `case Eff.op(a.., resume) => resume(rexpr)` (clean one-shot tail-resume)
   // means the value of `Eff.op(callArgs)` is `rexpr` with `a.. := callArgs`. evalHandle
@@ -99,11 +115,6 @@ private[interpreter] object EffectsRuntime:
     // only via a continuation in `handleInterp` still go through normal dispatch (same handler,
     // same value), so this is purely an optimisation.
     val resolverFrame: Map[(String, String), Resolver] =
-      def simpleArg(t: Term, resumeName: String): Boolean = t match
-        case _: Lit           => true
-        case n: Term.Name     => n.value != resumeName
-        case Term.Tuple(args) => args.forall(simpleArg(_, resumeName))
-        case _                => false
       def irrefutable(p: Pat): Boolean = p match
         case _: Pat.Var | _: Pat.Wildcard => true
         case _                            => false
@@ -125,7 +136,7 @@ private[interpreter] object EffectsRuntime:
               if resumeName == null || !opPats.forall(irrefutable) then None
               else c.body match
                 case Term.Apply.After_4_6_0(Term.Name(`resumeName`), rArgClause)
-                    if rArgClause.values.forall(simpleArg(_, resumeName)) =>
+                    if rArgClause.values.forall(isSimpleResumeArg(_, resumeName)) =>
                   val rArgTerms = rArgClause.values
                   val resolver: Resolver = (args: List[Value]) =>
                     var menv: Env = env
@@ -198,11 +209,6 @@ private[interpreter] object EffectsRuntime:
     // resume-args that are literals / names (always `Pure`, so `f(v)` is exact). Absent
     // key → the general placeholder path below (unchanged).
     val tailResumeFast: Map[(String, String), (List[Pat], List[Term])] =
-      def simpleArg(t: Term, resumeName: String): Boolean = t match
-        case _: Lit            => true
-        case n: Term.Name      => n.value != resumeName
-        case Term.Tuple(args)  => args.forall(simpleArg(_, resumeName))
-        case _                 => false
       opCases.groupBy { c =>
         c.pat match
           case Pat.Extract.After_4_6_0(Term.Select(Term.Name(e), Term.Name(o)), _) => (e, o)
@@ -220,7 +226,7 @@ private[interpreter] object EffectsRuntime:
               if resumeName == null then None
               else c.body match
                 case Term.Apply.After_4_6_0(Term.Name(`resumeName`), rArgClause)
-                    if rArgClause.values.forall(simpleArg(_, resumeName)) =>
+                    if rArgClause.values.forall(isSimpleResumeArg(_, resumeName)) =>
                   Some(key -> (argClause.values.dropRight(1).map(_.asInstanceOf[Pat]), rArgClause.values))
                 case _ => None
             case _ => None

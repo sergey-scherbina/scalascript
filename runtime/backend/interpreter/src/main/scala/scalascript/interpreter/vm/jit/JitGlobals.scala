@@ -175,11 +175,23 @@ object JitGlobals:
    *  writes its slots back ONLY on success, so the loop bails cleanly to tree-walk with no
    *  partial side effect. The op stays handled through the handler each iteration. */
   def resolveEffectLong(eff: String, op: String): Long =
+    resolveEffectValue(eff, op, Nil)
+
+  /** 1-/2-arg numeric variants (effect-vm-continuations P2b): an arg-carrying effect op
+   *  `Eff.op(a)` / `Eff.op(a, b)` whose args are numeric, resolved by a one-shot tail-resume
+   *  handler. The args are passed to the resolver (which binds the op-arg patterns). */
+  def resolveEffectLong1(eff: String, op: String, a1: Long): Long =
+    resolveEffectValue(eff, op, List(Value.intV(a1)))
+
+  def resolveEffectLong2(eff: String, op: String, a1: Long, a2: Long): Long =
+    resolveEffectValue(eff, op, List(Value.intV(a1), Value.intV(a2)))
+
+  private def resolveEffectValue(eff: String, op: String, args: List[Value]): Long =
     scalascript.interpreter.EffectsRuntime.lookupResolver(eff, op) match
       case null => throw new RuntimeException(s"resolveEffectLong: no resolver for $eff.$op")
       case r =>
-        r(Nil) match
-          case Value.IntV(v) => v
+        r(args) match
+          case Value.IntV(v)  => v
           case Value.BoolV(b) => if b then 1L else 0L
           case other          => throw new RuntimeException(s"resolveEffectLong: $eff.$op resolved to ${other.getClass.getSimpleName}")
 

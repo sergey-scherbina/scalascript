@@ -913,8 +913,18 @@ object JavacJitBackend extends JitBackend:
     // call. The bridge throws if the resolver is absent at run time; tryWhileJit's run is
     // try/catch-wrapped and writes its slots back only on success, so the loop bails cleanly.
     case Term.Apply.After_4_6_0(Term.Select(Term.Name(eff), Term.Name(op)), ac)
-        if ac.values.isEmpty && scalascript.interpreter.EffectsRuntime.lookupResolver(eff, op) != null =>
-      s"""scalascript.interpreter.vm.jit.JitGlobals$$.MODULE$$.resolveEffectLong("${escape(eff)}", "${escape(op)}")"""
+        if ac.values.lengthCompare(2) <= 0
+        && scalascript.interpreter.EffectsRuntime.lookupResolver(eff, op) != null =>
+      val jkg = "scalascript.interpreter.vm.jit.JitGlobals$.MODULE$"
+      ac.values match
+        case Nil => s"""$jkg.resolveEffectLong("${escape(eff)}", "${escape(op)}")"""
+        case args =>
+          // P2b: arg-carrying op — args must be numeric (walkLong each; bail otherwise).
+          val argExprs = args.map(a => walkLong(a, ctx))
+          if argExprs.exists(_ == null) then null
+          else
+            val fn = if args.lengthCompare(1) == 0 then "resolveEffectLong1" else "resolveEffectLong2"
+            s"""$jkg.$fn("${escape(eff)}", "${escape(op)}", ${argExprs.mkString(", ")})"""
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
         if argClause.values.lengthCompare(1) == 0 =>
       val opStr = op.value

@@ -180,6 +180,25 @@ class InterpreterBench:
       |}""".stripMargin
   )
 
+  // effect-vm-continuations P2b: an ARG-carrying effect op `Reader.ask(i)` in a loop, handled
+  // by a one-shot tail-resume arm that uses the op-arg. Before P2b only 0-arg effect ops JIT'd
+  // (the loop tree-walked); now the bridge passes the numeric arg to the resolver so the body
+  // JITs. Honest: the effect runs each iteration, resolved through the handler (i-dependent).
+  private val modEffectReader: Module = src(
+    """effect Reader:
+      |  def ask(k: Int): Int
+      |def loop(n: Int): Int ! Reader =
+      |  var acc = 0
+      |  var i = 0
+      |  while i < n do
+      |    acc = acc + Reader.ask(i)
+      |    i = i + 1
+      |  acc
+      |handle(loop(5000)) {
+      |  case Reader.ask(k, resume) => resume(k * 2)
+      |}""".stripMargin
+  )
+
   private val modEffectMultiShot: Module = src(
     """multi effect NonDet:
       |  def choose(options: List[Int]): Int
@@ -609,6 +628,10 @@ class InterpreterBench:
   @Benchmark
   def effectOneShot(): Unit =
     Interpreter(devNull).run(modEffectOneShot)
+
+  @Benchmark
+  def effectReader(): Unit =
+    Interpreter(devNull).run(modEffectReader)
 
   @Benchmark
   def effectMultiShot(): Unit =

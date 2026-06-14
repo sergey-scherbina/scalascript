@@ -68,6 +68,20 @@ class EffectVmContinuationsTest extends AnyFunSuite with Matchers:
       println(handle(loop(5)) { case Reader.ask(k, resume) => resume(k * 10) })
     """) shouldBe "100"  // sum_{i=0..4} (i*10) = 100
 
+  test("two-arg effect op + arithmetic resume expr (P2b: resolveEffectLong2)"):
+    run("""
+      effect Combine:
+        def mix(a: Int, b: Int): Int
+      def loop(n: Int): Int ! Combine =
+        var acc = 0
+        var i = 0
+        while i < n do
+          acc = acc + Combine.mix(i, i + 1)
+          i = i + 1
+        acc
+      println(handle(loop(5)) { case Combine.mix(a, b, resume) => resume(a * b + 1) })
+    """) shouldBe "45"  // sum_{i=0..4} (i*(i+1) + 1) = 1+3+7+13+21 = 45
+
   test("multi-shot effect in a loop is unaffected (no resolver)"):
     run("""
       multi effect NonDet:
