@@ -2520,11 +2520,13 @@ single-node without them.
         each iter (~30 ns/iter bridge+TLS floor), NOT folded (effectReader's unfoldable i*2 ≈
         effectOneShot's constant; loop(5000) computes the exact 24_995_000). EffectVmContinuationsTest
         +5 + 157 effect-suite tests green. Spec Phase 2c. Open: ref-return/ref-arg ops; >2 args; slot-cache.
-      - [x] **P3 general delimited continuations** — INVESTIGATED + DESIGNED + DEFERRED 2026-06-14.
+      - [x] **P3 delimited continuations** — P3a SHIPPED 2026-06-14; full feature DEFERRED.
         Multi-shot/non-tail resumes already work (Free-monad trampoline). Profiled effectMultiShot
-        (0.93 ms, NOT an outlier): alloc-bound 406 KB/op, SPREAD across env/List/Free-monad/closure
-        from re-reifying+re-evaluating the continuation 256× — no single wasteful alloc, no tractable
-        incremental win. Real fix = major feature (compiled/CPS continuation segments = effect-aware
-        interp JIT, or SscVm stack capture). Full design in specs Phase 3; BUILD DEFERRED to BACKLOG
-        until a real effect-heavy workload appears as an outlier. NOT building a large VM feature for
-        a non-outlier with no demonstrated payoff.
+        (0.93 ms, NOT an outlier): alloc-bound 406 KB/op, spread. **P3a (const collection-literal
+        memoization)**: deep-profile found `choose(List(1,2,3,4))` rebuilt ~85× across continuation
+        re-runs; `pureConstCache` now memoises const immutable `List`/`Vector`/`Seq` literals →
+        effectMultiShot 406→350 KB/op (−13.7%), ~0.93→0.78 ms; general win; no regression; guard
+        256/2560. **Full compiled-continuation feature still deferred** (per-resume AST re-walk +
+        Free-monad rebuild remain; option 1 effect-aware interp JIT / option 2 SscVm stack capture;
+        bounded payoff + partly Interpreter-construction-bound — build with a stress bench when a
+        deep-multi-shot/generator outlier appears). Design: specs Phase 3.
