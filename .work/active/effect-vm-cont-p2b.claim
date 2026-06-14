@@ -1,0 +1,6 @@
+effect-vm-cont-p2b 2026-06-14T09:45:00Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-14T09:45:00Z
+status: in-progress
+done-so-far: effect-vm-continuations P1+P2 shipped (6302d8dba): effectOneShot 18->1.67ms via 0-arg effect-op JIT bridge (resolveEffectLong). P2b = extend to ARG-carrying effect ops (Reader.ask(k), the common algebraic-effect shape) so those loops JIT too.
+next: (1) JitGlobals.resolveEffectLong1/2(eff,op,a1[,a2]:Long): wrap args in IntV, call resolver(List(...)), extract Long. (2) JavacJitBackend.walkLong: extend the effect-op case to 1-2 NUMERIC args (walkLong each arg; bail if any non-numeric/ref) -> resolveEffectLong1/2. (3) bench modEffectReader (`while i<n { acc=acc+Reader.ask(i) }` + `case Reader.ask(k,resume)=>resume(k*10)`), A/B. (4) test. NOT doing constant-inlining of the resume value (would fold the effect away = gaming; consulting the handler each iter is the honest floor). GATE: real A/B win on the new bench; EffectVmContinuations/StdEffects/518 suites green; full bench no-regression.
