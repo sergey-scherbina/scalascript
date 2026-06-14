@@ -93,7 +93,14 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Codegen-time perf — jvmGen ~100× slower than jsGen (survey 2026-06-14)
 
-- [ ] **jvmgen-codegen-time** — codegen-TIME survey (`scripts/bench gen`, CrossBackendBench):
+- [x] **jvmgen-codegen-time** ✓ DONE 2026-06-14 — root cause: `JvmGen.generate` allocates a fresh
+      instance per call + the ~180KB runtime preamble (effectsRuntime/commonRuntime/serveRuntime/…) lives in
+      traits mixed into JvmGen, so every call re-ran stripMargin over 180KB AND re-loaded runtime-server
+      sources from the classpath (commonRuntime/serveRuntime/loggerRuntime). Fix: memoize each process-invariant
+      preamble val in `JvmGenRuntimeCache.memo(key){…}` (ConcurrentHashMap, runs once per key). Measured
+      (CrossBackendBench A/B): jvmGen 2.5→0.15-0.5 ms (**−82..94%, 5.6-17×**), jsGen unchanged, output
+      byte-identical (61 JvmGen output tests green). ~100× asymmetry → ~2-20×; residual is the genuine 180KB
+      assembly. (3996106c1) — codegen-TIME survey (`scripts/bench gen`, CrossBackendBench):
       **jsGen 0.023–0.090 ms (at floor), jvmGen 2.36–2.79 ms for the SAME tiny programs (arithLoop/
       recursionFib/Tco/patternMatch) — ~100× asymmetry.** jvmGen source generation is suspiciously
       slow for trivial inputs; likely a per-call heavy step (scalameta re-parse / pretty-print /

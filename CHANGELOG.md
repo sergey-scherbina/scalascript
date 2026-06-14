@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-14 — perf(jvmgen): memoize the runtime-source preamble constants — codegen-time −82..94% (5.6–17×)
+
+`JvmGen.generate` allocates a fresh `JvmGen` instance per call, and the ~180 KB runtime preamble
+(`effectsRuntime` ~3300 lines, `commonRuntime`, `serveRuntime`, `fsRuntime`, `generatorRuntime`,
+`reactiveRuntime`, `stubServeRuntime`, `loggerRuntime`) lives in traits mixed into `JvmGen` — so every
+call re-ran `stripMargin` over the whole preamble AND re-loaded the runtime-server source files from the
+classpath. Profile: ~43% of codegen time was instance-init alone. These vals are process-invariant
+constants, now wrapped in a process-level `JvmGenRuntimeCache.memo(key){…}` (ConcurrentHashMap, by-name
+compute runs once per key). Measured (CrossBackendBench A/B, non-overlapping bars): jvmGen_arithLoop
+2.47→0.145 ms (17×), patternMatch 2.81→0.50 ms (5.6×), recursionFib 2.47→0.171 ms (14×), recursionTco
+2.55→0.166 ms (15×); jsGen unchanged; output byte-identical (61 JvmGen output-assertion tests green). The
+~100× jvmGen/jsGen asymmetry is now ~2–20×; residual is the genuine 180 KB preamble assembly.
+---
+
 ## 2026-06-14 — perf(interp): P4.1 compiled-eff-block — multi-shot resume replays compiled segments — effectMultiShotDeep −10% (cumulative −73%)
 
 Compile a straight-line effectful continuation block ONCE into a pre-classified `Array[CStep]`
