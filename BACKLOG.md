@@ -478,13 +478,16 @@ for database primary keys and event IDs. Spec: [`specs/uuid.md`](specs/uuid.md).
       `extern def v7Monotonic(): Uuid`. Tests: `UuidPluginTest` (valid v7 + strictly
       increasing across many same-process calls). Completes the UUID milestone.
 
-## Crypto primitives — v1.66
+## Crypto primitives — v1.66 ✓ DONE
 
-`sha256`, `hmacSha256`, `base64Encode`, `base64Decode` as stdlib
-intrinsics (JVM interpreter + JS/Node.js backend). Today these exist
-only as `extern def` stubs in `examples/plugins/crypto-plugin/` — a
-template for third-party plugins, not a standard built-in.  Spec:
-[`specs/crypto.md`](specs/crypto.md).
+`sha256`, `hmacSha256`, `base64Encode`, `base64Decode` as **first-class `std` intrinsics** on
+both backends. ✓ DONE — verified 2026-06-14: the real `runtime/std/crypto-plugin`
+(`CryptoIntrinsics.scala`, `runtime/std/crypto.ssc`) provides these on the JVM interpreter (plus
+the later busi crypto suite: sha256Base64/pbkdf2/secureRandom/AES-CBC+GCM/RSA/Ed25519), and
+`runtime/backend/js/.../intrinsics/Crypto.scala` provides the four core ones on JS/Node.
+`cryptoPlugin/test` 58 green. Spec: [`specs/crypto.md`](specs/crypto.md). (Advanced crypto beyond
+the core four is JVM-only by design; JS-parity for AES/RSA/Ed25519 would be a separate
+cross-backend item, not v1.66.)
 
 - [x] **crypto-p1** — ✓ Landed 2026-06-04.
 - [x] **crypto-p2** — ✓ Landed 2026-06-04.
@@ -710,7 +713,7 @@ small and dependency-aware because multiple agents are working in parallel.
       derived from `allFrontends`. Mirrors the existing `PluginSpec`/`allPlugins`
       pattern. Spec: `specs/arch-build-registry.md §Phase 4`.
 
-## Exact Numerics — BigInt, Decimal, Money (v1.64 planned)
+## Exact Numerics — BigInt, Decimal, Money (v1.64 ✓ DONE — all phases landed 2026-06; verified 2026-06-14)
 
 Spec: [`specs/exact-numerics.md`](specs/exact-numerics.md).
 

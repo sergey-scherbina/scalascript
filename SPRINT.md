@@ -14,7 +14,8 @@ Start: tell the agent `"ÃÂÃÂ°ÃÂ±ÃÂ¾ÃÂÃÂ°ÃÂ¹
 User: "все четыре задачи внеси в спринт и сделай автономно". Execute each as its own
 claim -> worktree -> test -> ship cycle. Value/tractability order below.
 
-- [ ] **crypto-v166-verify** — Crypto v1.66 is LARGELY DONE already (stale BACKLOG): the
+- [x] **crypto-v166-verify** ✓ DONE 2026-06-14 — Crypto v1.66 verified complete (JVM crypto-plugin
+      58 tests green; JS has the 4 core sha256/hmacSha256/base64; BACKLOG marked done). Crypto v1.66 is LARGELY DONE already (stale BACKLOG): the
       `runtime/std/crypto-plugin` JVM intrinsics provide sha256/sha256Base64/hmacSha256/
       base64Encode+Decode/pbkdf2/secureRandom/AES-CBC+GCM/RSA/Ed25519 (see `runtime/std/crypto.ssc`),
       and a JS backend `runtime/backend/js/.../intrinsics/Crypto.scala` exists. TASK: verify
@@ -24,7 +25,10 @@ claim -> worktree -> test -> ship cycle. Value/tractability order below.
 - [ ] **cross-backend-parity** — survey the cross-backend conformance suite (RuntimeBench /
       cluster handshake / conformance tests) to find REAL JS/Rust gaps vs the interpreter; fix
       the tractable ones. Data-driven: run the suite first, fix actual failures (not speculative).
-- [ ] **feature-milestone** — pick the more bounded of: UUID v7 cross-backend (v1.65 next phases
+- [x] **feature-milestone** ✓ ALREADY DONE 2026-06-14 — both candidates are complete: UUID (p1–p6
+      incl. JS) AND Exact Numerics (v1.64.0–.7 incl. JS codegen + Money + sugar) all landed; BACKLOG
+      headers were stale, now fixed. No open feature here → genuine remaining work is parity + CPS.
+      ORIGINAL: pick the more bounded of: UUID v7 cross-backend (v1.65 next phases
       after uuid-p1 JVM core; spec `specs/uuid.md`) OR exact-numerics polish (BigIntV/DecimalV
       exist; ensure cross-backend + Money; spec `specs/exact-numerics.md`). Ship one concrete piece.
 - [ ] **effect-cps-compile** — the LARGE deferred perf lever: compile the perform/handler eval
