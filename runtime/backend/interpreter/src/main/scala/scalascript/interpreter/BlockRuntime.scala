@@ -197,7 +197,15 @@ private[interpreter] object BlockRuntime:
                     }
                   })
           case t: Term =>
-            interp.eval(t, localView) match
+            // effect-cps-continuation slice 2a: an expression statement — most importantly the
+            // block's RESULT expr (e.g. `e*e + sd`, evaluated once per complete continuation path,
+            // 3125× for effectMultiShotDeep — MORE than all the intermediate vals combined). Bind it
+            // via the fast path (bare Value, no `evalCore` megamorphic dispatch / `Pure` alloc) when
+            // it is provably pure; `fastPrimitiveValue` returns null for any effectful expr (a
+            // `perform` etc.) → unchanged monadic path, so no effect is dropped or reordered.
+            val fv = EvalRuntime.fastPrimitiveValue(t, localView, interp)
+            if fv != null then step(rest, fv)
+            else interp.eval(t, localView) match
               case Pure(v) => step(rest, v)
               case c       => FlatMap(c, v => step(rest, v))
           case stat =>
