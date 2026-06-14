@@ -6,14 +6,20 @@ package: std.ui.typography
 exports:
   - heading
   - text
+  - signalHeading
 ---
 
 # `std.ui.typography` — typography constructors
 
-[TkNode, HeadingNode, TextNode_](nodes.ssc)
+[TkNode, HeadingNode, TextNode_, SignalHeadingNode](nodes.ssc)
 
 ```scalascript
 def heading(level: Int, content: String): TkNode = HeadingNode(level, content)
 
 def text(content: String): TkNode = TextNode_(content)
+
+// signalHeading — reactive heading: an <hN> whose text tracks a Signal[String],
+// so it re-renders live (e.g. on a locale switch). Mirrors `heading` but the
+// content is a signal instead of a static String.
+def signalHeading(level: Int, sig: Any): TkNode = SignalHeadingNode(level, sig)
 ```

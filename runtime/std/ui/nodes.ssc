@@ -11,6 +11,7 @@ exports:
   - SpacerNode
   - HeadingNode
   - TextNode_
+  - SignalHeadingNode
   - ShowWhenNode
   - SignalTextNode
   - FragmentNode
@@ -60,6 +61,8 @@ case class HeadingNode(level: Int, text: String)        extends TkNode
 case class TextNode_(text: String)                      extends TkNode
 
 // ── Reactive helpers ─────────────────────────────────────────────────────
+// SignalHeadingNode — an <hN> whose text tracks a Signal[String] (reactive heading).
+case class SignalHeadingNode(level: Int, signal: Any)   extends TkNode
 case class ShowWhenNode(signal: Any, whenTrue: TkNode, whenFalse: TkNode) extends TkNode
 case class SignalTextNode(signal: Any)                  extends TkNode
 case class FragmentNode(children: List[TkNode])         extends TkNode

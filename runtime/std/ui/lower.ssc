@@ -14,7 +14,7 @@ Pure function, no DOM, no async — safe for SSR.
 Import this + a Theme, build your tree with widget constructors,
 then call `serve(lower(tree, defaultTheme), 8080)`.
 
-[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, ShowWhenNode, SignalTextNode, FragmentNode, RawTextNode, TextFieldNode, CheckboxNode, SignalButtonNode, ActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode, DataTableNode, StyledNode, TagNode, PillNode, KpiCardNode, Tab, TabBarNode, BoxNode, AnchorNode](nodes.ssc)
+[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, SignalHeadingNode, ShowWhenNode, SignalTextNode, FragmentNode, RawTextNode, TextFieldNode, CheckboxNode, SignalButtonNode, ActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode, DataTableNode, StyledNode, TagNode, PillNode, KpiCardNode, Tab, TabBarNode, BoxNode, AnchorNode](nodes.ssc)
 
 [Theme, TypographyItem](theme.ssc)
 
@@ -140,6 +140,15 @@ def lower(n: TkNode, theme: Theme): View = n match
       ["style" -> s"font-size:${fs}px; font-family:${ff}; margin:0; color:${theme.colors.onSurface}"],
       Map(),
       [textNode(text)])
+
+  case SignalHeadingNode(level, sig) =>
+    val sizes = [32, 24, 20, 18, 16, 14]
+    val sz    = if level >= 1 && level <= 6 then sizes(level - 1) else 20
+    val ff    = theme.typography.heading.fontFamily
+    element(s"h${level}",
+      ["style" -> s"font-size:${sz}px; font-weight:bold; font-family:${ff}; margin:0; color:${theme.colors.onSurface}"],
+      Map(),
+      [signalText(sig)])
 
   // ── Reactive ─────────────────────────────────────────────────────────
   case ShowWhenNode(sig, whenTrue, whenFalse) =>
