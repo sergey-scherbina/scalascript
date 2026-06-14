@@ -1,6 +1,0 @@
-effect-cps-cont-s2b-env 2026-06-14T14:23:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-14T14:23:00Z
-status: in-progress
-done-so-far: compiled-continuation slices 1+2a shipped (−26% on effectMultiShotDeep). 3e profile: residual is structural — perform-eval (evalApplyGeneral 33%) + per-block env-copy (evalBlock MutableEnvView.foreachEntry ~14%).
-next: investigate the env-copy lever — find the EXACT foreachEntry call site (deep JFR stack: caller was evalApplyGeneral) to see which block is copied per-perform and whether the HashMap env copy is safely reducible (FrameMap-chain reuse / skip copy when scoping permits). If safe+tractable: implement + back-to-back stash A/B on a quiet machine. If scoping-risky: record + release. General eval-perf win (helps beyond effects). Spec §3e.

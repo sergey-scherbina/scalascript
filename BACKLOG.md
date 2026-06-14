@@ -191,6 +191,14 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       more than all vals) was still on evalCore. **effectMultiShotDeep 6.95 → 5.44 ms (−21.7%)**, bigger
       than slice 1; cumulative 7.39→5.44 (−26%). 207 tests; no regress. Residual now: `perform` eval
       (`evalApplyGeneral`), `dispatchCase` per-perform recompute, `FlatMap` threading.
+      **3e (DIAGNOSTIC)**: re-profile showed the cheap arith cuts EXHAUSTED — evalCore 33%, env-HashMap
+      ops ~26%; residual is structural. **Slice 3f ✅ SHIPPED 2026-06-14 — free-var-limited closure
+      capture (biggest single slice)**: traced the ~14% `MutableEnvView.foreachEntry` to LAMBDA capture
+      — `opts.flatMap(opt => resume(opt))` (per perform, 781×) captured the WHOLE env though it only
+      refs `resume`. `EvalRuntime` `Term.Function` now captures only the body's referenced names
+      (`collectBodyNames`, cached; sound over-approx). **effectMultiShotDeep 5.53→4.23 ms (−23.4%);
+      cumulative 1+2a+3f 7.39→4.23 (−43%).** General lambda/HOF win; 248 tests incl. GivenUsing; no
+      regress. Residual: the `perform`/handler eval (`evalApplyGeneral`) = the fuller CPS feature. §3f.
 
 > **Full-suite landscape (`scripts/bench interp`, 2026-06-13, 37 benches).** The two dominant
 > outliers dwarf everything else (next-slowest is 1.57 ms) and are the real targets:
