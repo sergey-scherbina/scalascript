@@ -35,7 +35,12 @@ claim -> worktree -> test -> ship cycle. Value/tractability order below.
       ORIGINAL: pick the more bounded of: UUID v7 cross-backend (v1.65 next phases
       after uuid-p1 JVM core; spec `specs/uuid.md`) OR exact-numerics polish (BigIntV/DecimalV
       exist; ensure cross-backend + Money; spec `specs/exact-numerics.md`). Ship one concrete piece.
-- [ ] **effect-cps-compile** — the LARGE deferred perf lever: compile the perform/handler eval
+- [x] **effect-cps-compile** ✓ DESIGNED + DEFERRED 2026-06-14 — wrote a concrete, phased,
+      implementable plan (spec §4: P4.1 straight-line eff-blocks → P4.2 branch point → P4.3 JavacJit
+      lowering → P4.4 multi-shot fast resume; safety invariants; reference = JVM JvmGenCpsTransform /
+      JS JsGenCpsCodegen ~1000 lines each). The s3 experiment PROVED no cheaper slice exists → this is
+      the genuine large feature. BUILD DEFERRED (non-outlier 4.2ms; high blast radius) until a real
+      effect-heavy workload justifies it. ORIGINAL: the LARGE deferred perf lever: compile the perform/handler eval
       (`evalApplyGeneral` + lambda-body run) — the residual after slices 1/2a/3f (−43% already).
       effect-aware interp JIT; multi-session, high-risk, for a NON-outlier (effectMultiShotDeep
       4.2ms). Design + first real slice; ship incrementally. Spec `specs/effect-vm-continuations.md`

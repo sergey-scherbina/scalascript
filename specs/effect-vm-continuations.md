@@ -337,3 +337,65 @@ handler-body eval (`evalApplyGeneral`) — the fuller compiled-continuation feat
 ships green + A/B'd on a quiet machine (CPU wins need wall-clock validation — alloc metrics won't show
 them). This section is the durable design + the profiled justification so the next session continues
 from data.
+
+## Phase 4 — implementation plan: compiling the perform / handler-body eval (the remaining large lever)
+
+This is the durable, concrete plan for the only residual after slices 1/2a/3f (cumulative −43 % on
+`effectMultiShotDeep`, now ~4.2 ms). Profiles + the **s3 experiment** (the `dispatchCase` precompute
+measured *within noise* and was reverted) prove there is **no cheaper slice** — the residual is
+genuinely the CPS-style compile of the perform path, an effect-aware interpreter JIT. Build it
+**deliberately**, when an effect-heavy workload (deep nondeterministic search, generators, streaming
+with non-trivial per-step work) shows up as a *production* outlier — `effectMultiShotDeep` is a
+synthetic non-outlier today.
+
+### Where the residual CPU goes (post-3f profile, 178 leaf samples)
+`evalCore` ~53 %, reached from **`evalApplyGeneral`** (the `choose(..)` *perform* eval + the handler
+body `opts.flatMap(opt => resume(opt))`) and **`CallRuntime.runBody1`** (running the `opt => resume(opt)`
+lambda body). I.e. per perform (781× for the 5×5 search) the interpreter tree-walks: the perform-op
+call, the HOF (`flatMap`) dispatch, and the lambda body — none of which `fastPrimitiveValue` can fold
+(they are not pure). The continuation is also rebuilt as a `FlatMap`/`Pure` tree each resume.
+
+### The proven approach (reference implementations already in the tree)
+The JVM and JS **codegen** backends already CPS-transform direct-style effectful `.ssc` into
+monadic/Free-threaded target code: `runtime/backend/jvm/.../JvmGenCpsTransform.scala` (~1070 lines)
+and `runtime/backend/js/.../JsGenCpsCodegen.scala` (~890 lines). They split an effectful body at its
+`perform` points, keep pure sub-expressions as-is, and thread effect ops through `_bind`. Phase 4 is
+**bringing that transform to the interpreter's JIT** (`JavacJitBackend`, which emits Java source →
+javac → `MethodHandle`): compile a `handle` body's continuation **segments** once, so a multi-shot
+`resume(v)` invokes a *compiled* segment instead of re-tree-walking the AST + rebuilding the Free tree.
+
+### Phased build (each phase ships green + a quiet-machine wall-clock A/B; CPU wins are invisible in alloc)
+1. **P4.1 — straight-line effectful blocks only.** Recognise the canonical shape
+   `val x1 = E.op(a..); <pure>; val x2 = E.op(..); …; <pure result>` (exactly `effectMultiShotDeep`).
+   Build a `CompiledEffBlock` = ordered list of `(bindName, performTemplate)` + a compiled pure
+   `resultFn: Array[Value] => Value` (reuse `compileIntArith` / the slice-1/2a fast-path machinery for
+   the pure segments). The handler drives it: each `resume(v)` writes the slot and runs the next
+   compiled perform-template + pure segment — no AST re-walk, no per-resume `FlatMap` alloc. Bail to
+   the existing trampoline for any non-straight-line body (nested `if`/`while`/`match` between performs,
+   non-`Pat.Var` binders, guards). This is the bulk of the win for search/generator workloads.
+2. **P4.2 — compiled continuation across one branch point.** Handle a single `if`/`match` between
+   performs by compiling each arm's segment; the runtime picks the arm, then runs its compiled tail.
+3. **P4.3 — JavacJitBackend lowering.** For a *hot* compiled-eff-block, emit Java source for the pure
+   segments (already supported by `walkLong`/`walkRef`) + a perform bridge (cf. the P2 `resolveEffect*`
+   bridge), so the segments run as compiled bytecode, not closures. Only when a segment is hot enough.
+4. **P4.4 — multi-shot fast resume.** With segments compiled, a multi-shot `resume` is just re-running
+   the compiled tail with a fresh slot value — the structural win over today's `handleInterp(f(v))`
+   re-reification.
+
+### Safety invariants (non-negotiable — effects are correctness-critical)
+- **Effect order + multiplicity preserved.** A compiled segment must perform exactly the same ops in
+  the same order as the tree-walk; `resume` called 0/1/N times must run the continuation 0/1/N times.
+- **Bail must be transparent.** Any unsupported shape (or a `perform` reaching an outer handler with no
+  compiled segment) falls back to the current trampoline with no partial side effects (mirror the
+  P2 `tryWhileJit` "write slots only on success" property).
+- **Pure-segment compile reuses the proven slice-1/2a path** (`fastPrimitiveValue` ⇒ provably
+  side-effect-free), so no effect is ever folded away or reordered.
+- **Test:** `EffectVmContinuationsTest` 3125/171875 multi-shot guard + one-shot + deep-handler +
+  `StdEffects`/`JvmGenEffects`/`JsEffectLoop` + a new compiled-vs-trampoline differential test over a
+  corpus of handler shapes; A/B on a quiet machine.
+
+### Honest cost / recommendation
+~1000-line-class-scale effort (the codegen CPS transforms are that size), high blast radius (the core
+effect path), for a **non-outlier** (4.2 ms synthetic). **DEFER the build** until a real effect-heavy
+workload justifies it; this section is the implementable plan so it can be picked up cold. The cheap +
+safe + general cuts that delivered −43 % are done and shipped.
