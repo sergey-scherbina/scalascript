@@ -1,6 +1,0 @@
-effect-vm-cont-p3 2026-06-14T10:55:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-14T10:55:00Z
-status: in-progress
-done-so-far: P2c shipped (effectReader 0.175ms, effectOneShot 0.145ms). Interp landscape converged — no outlier. User chose P3 (general multi-shot continuations) as next direction.
-next: P3 = general delimited continuations / faster multi-shot. Current multi-shot WORKS (continuation = reified Free-monad FlatMap closure f; resume re-runs handleInterp(f(v)) per value, EffectsRuntime:354) but reifies+tree-walks the body each re-run. effectMultiShot 0.93ms (NOT an outlier). FIRST SLICE = PROFILE effectMultiShot (JFR leaf frames + gc.alloc.rate.norm via scripts/bench profile) to determine CPU-bound (tree-walk -> compile-the-continuation/VM-suspend, hard) vs alloc-bound (Free-monad reification -> tractable targeted cut). Pick the lever from data; ship incrementally; be honest if the full VM-suspend feature isn't justified for a non-outlier. Spec specs/effect-vm-continuations.md Phase 3.
