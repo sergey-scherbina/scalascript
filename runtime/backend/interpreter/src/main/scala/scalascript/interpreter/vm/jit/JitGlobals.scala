@@ -168,6 +168,21 @@ object JitGlobals:
           case other         => throw new RuntimeException(s"JitGlobals.callGlobalLong3: '$name' returned ${other.getClass.getSimpleName}")
       case _ => throw new RuntimeException(s"JitGlobals.callGlobalLong3: '$name' is not a FunV")
 
+  /** effect-vm-continuations (spec): a compiled effectful loop body calls this for a 0-arg
+   *  effect op `Eff.op()` that a one-shot tail-resume handler resolves. Reads the innermost
+   *  resolver (installed by `EffectsRuntime.evalHandle`) and returns its value as a Long.
+   *  Throws if no resolver is in scope — the `tryWhileJit` run is wrapped in try/catch and
+   *  writes its slots back ONLY on success, so the loop bails cleanly to tree-walk with no
+   *  partial side effect. The op stays handled through the handler each iteration. */
+  def resolveEffectLong(eff: String, op: String): Long =
+    scalascript.interpreter.EffectsRuntime.lookupResolver(eff, op) match
+      case null => throw new RuntimeException(s"resolveEffectLong: no resolver for $eff.$op")
+      case r =>
+        r(Nil) match
+          case Value.IntV(v) => v
+          case Value.BoolV(b) => if b then 1L else 0L
+          case other          => throw new RuntimeException(s"resolveEffectLong: $eff.$op resolved to ${other.getClass.getSimpleName}")
+
   /** Stage 8: ref-typed arg, Long return — used for callees with `using` params
    *  (typeclass dispatch) or any ref param shape. `interp.invoke` handles given
    *  resolution and other tree-walker semantics automatically. */

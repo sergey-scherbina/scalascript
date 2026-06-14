@@ -13,6 +13,38 @@ private[interpreter] object EffectsRuntime:
     case Term.Name("__effectOp__") => true
     case _                         => false
 
+  // ── effect-vm-continuations (specs/effect-vm-continuations.md) ──
+  // A handler arm `case Eff.op(a.., resume) => resume(rexpr)` (clean one-shot tail-resume)
+  // means the value of `Eff.op(callArgs)` is `rexpr` with `a.. := callArgs`. evalHandle
+  // installs a thread-local resolver for such ops around the body eval; the op `NativeFnV`
+  // (StatRuntime) returns `Pure(resolver(args))` instead of a `Perform`, making the body pure.
+  // The win comes from the JIT (`JitGlobals.resolveEffectLong` + `JavacJitBackend`) compiling
+  // the now-pure effectful loop body — see spec Phase 2. Honest: the effect still runs each
+  // iteration, resolved through the handler.
+  type Resolver = List[Value] => Value
+  private val resolverStack: ThreadLocal[List[Map[(String, String), Resolver]]] =
+    ThreadLocal.withInitial(() => Nil)
+
+  /** True iff any resolver frame is in scope (cheap gate before a per-op lookup). */
+  def hasResolvers: Boolean = resolverStack.get().nonEmpty
+
+  /** Innermost resolver for `(eff, op)`, or null if no clean one-shot tail-resume handler in
+   *  scope handles it (→ the op emits a normal `Perform`, or the JIT bridge bails). */
+  def lookupResolver(eff: String, op: String): Resolver | Null =
+    var st = resolverStack.get()
+    while st.nonEmpty do
+      st.head.get((eff, op)) match
+        case Some(r) => return r
+        case None    => st = st.tail
+    null
+
+  private def withResolvers[A](frame: Map[(String, String), Resolver])(thunk: => A): A =
+    if frame.isEmpty then thunk
+    else
+      val st = resolverStack.get()
+      resolverStack.set(frame :: st)
+      try thunk finally resolverStack.set(st)
+
   /** Interpret `handle(body) { cases }` — trampolined.
    *
    *  The body is evaluated to a Computation tree. We walk it with a while-loop:
@@ -60,9 +92,62 @@ private[interpreter] object EffectsRuntime:
             if guardOk then Some(interp.eval(c.body, be)) else None
       }.nextOption().getOrElse(Pure(v))
 
+    // effect-vm-continuations (spec): a resolver for each clean one-shot tail-resume arm
+    // `case Eff.op(a.., resume) => resume(rexpr)` with IRREFUTABLE op-arg patterns, installed
+    // around the body eval so `Eff.op(callArgs)` resolves directly to `rexpr` (op-args bound).
+    // The handled body is then pure and the JIT can compile it (Phase 2). Clean ops reached
+    // only via a continuation in `handleInterp` still go through normal dispatch (same handler,
+    // same value), so this is purely an optimisation.
+    val resolverFrame: Map[(String, String), Resolver] =
+      def simpleArg(t: Term, resumeName: String): Boolean = t match
+        case _: Lit           => true
+        case n: Term.Name     => n.value != resumeName
+        case Term.Tuple(args) => args.forall(simpleArg(_, resumeName))
+        case _                => false
+      def irrefutable(p: Pat): Boolean = p match
+        case _: Pat.Var | _: Pat.Wildcard => true
+        case _                            => false
+      opCases.groupBy { c =>
+        c.pat match
+          case Pat.Extract.After_4_6_0(Term.Select(Term.Name(e), Term.Name(o)), _) => (e, o)
+          case _ => ("", "")
+      }.flatMap { (key, cs) =>
+        if key._1.isEmpty || cs.lengthCompare(1) != 0 then None
+        else
+          val c = cs.head
+          if c.cond.isDefined then None
+          else c.pat match
+            case Pat.Extract.After_4_6_0(Term.Select(Term.Name(_), Term.Name(_)), argClause) =>
+              val opPats     = argClause.values.dropRight(1).map(_.asInstanceOf[Pat])
+              val resumeName = argClause.values.lastOption match
+                case Some(pv: Pat.Var) => pv.name.value
+                case _                 => null
+              if resumeName == null || !opPats.forall(irrefutable) then None
+              else c.body match
+                case Term.Apply.After_4_6_0(Term.Name(`resumeName`), rArgClause)
+                    if rArgClause.values.forall(simpleArg(_, resumeName)) =>
+                  val rArgTerms = rArgClause.values
+                  val resolver: Resolver = (args: List[Value]) =>
+                    var menv: Env = env
+                    var k = 0
+                    while k < opPats.length do
+                      opPats(k) match
+                        case pv: Pat.Var => menv = FrameMap.one(pv.name.value, args(k), menv)
+                        case _           => ()
+                      k += 1
+                    rArgTerms match
+                      case Nil      => Value.UnitV
+                      case t :: Nil => Computation.run(interp.eval(t, menv))
+                      case ts       => Value.TupleV(ts.map(t => Computation.run(interp.eval(t, menv))))
+                  Some(key -> resolver)
+                case _ => None
+            case _ => None
+      }
+
     // Fast path: evaluate body first; if Pure (no perform calls), apply the return clause
-    // (if any) and skip handler setup.
-    val initial = interp.eval(body, env)
+    // (if any) and skip handler setup. With the resolver active, clean one-shot tail-resume
+    // effects resolve inline, so an all-tail-resume body (e.g. effectOneShot) becomes Pure here.
+    val initial = withResolvers(resolverFrame)(interp.eval(body, env))
     initial match
       case Pure(v) => return applyReturn(v)
       case _ =>

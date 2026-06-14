@@ -907,6 +907,14 @@ object JavacJitBackend extends JitBackend:
       val a = walkLong(ti.thenp, ctx); if a == null then return null
       val b = walkLong(ti.elsep, ctx); if b == null then return null
       s"(($c) ? ($a) : ($b))"
+    // effect-vm-continuations (spec Phase 2): a 0-arg effect-op call `Eff.op()` whose
+    // `(eff,op)` has a live one-shot tail-resume resolver AT COMPILE TIME (the JIT runs during
+    // the handle's body eval, when evalHandle has installed the resolver) lowers to a bridge
+    // call. The bridge throws if the resolver is absent at run time; tryWhileJit's run is
+    // try/catch-wrapped and writes its slots back only on success, so the loop bails cleanly.
+    case Term.Apply.After_4_6_0(Term.Select(Term.Name(eff), Term.Name(op)), ac)
+        if ac.values.isEmpty && scalascript.interpreter.EffectsRuntime.lookupResolver(eff, op) != null =>
+      s"""scalascript.interpreter.vm.jit.JitGlobals$$.MODULE$$.resolveEffectLong("${escape(eff)}", "${escape(op)}")"""
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
         if argClause.values.lengthCompare(1) == 0 =>
       val opStr = op.value

@@ -254,8 +254,13 @@ private[interpreter] object StatRuntime:
           val opName  = dd.name.value
           // Effect op: a bare Perform request. The "rest of the computation" is
           // captured in an outer FlatMap by the bind chain that consumed it.
+          // effect-vm-continuations (spec): if a clean one-shot tail-resume handler in scope
+          // resolves this op, return its value directly (Pure) so the handled body stays pure
+          // (and the JIT can compile it); else emit the Perform.
           members(opName) = Value.NativeFnV(s"$effName.$opName",
-            args => Perform(effName, opName, args))
+            args =>
+              val r = if EffectsRuntime.hasResolvers then EffectsRuntime.lookupResolver(effName, opName) else null
+              if r != null then Pure(r(args)) else Perform(effName, opName, args))
         case s => StatRuntime.execStat(s, members, false, interp)
       }
       // Only expose fields that are NEW or CHANGED relative to the outer scope,
