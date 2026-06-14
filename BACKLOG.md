@@ -169,10 +169,17 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       continuation re-eval dominates, unlike effectMultiShot). Deep-profile found two avoidable
       `Some`+`Tuple4` unapply allocs on the re-eval path: `BlockRuntime.step` `Defn.Val(_,pats,_,rhs)`
       + `EvalRuntime.fastPrimitiveValue` `ApplyInfix.After_4_6_0(...)`; both → type-test + field
-      access. **effectMultiShotDeep 1.95 → 1.57 MB/op (−19.5% alloc)** (reliable; wall-clock not
-      cleanly measurable under machine load but alloc-bound + no algorithmic change so it tracks);
-      general win for every val-binding + binary-op eval; guard 3125/171875; 225 tests green. Full
-      compiled-continuation feature (AST re-walk itself) STILL deferred — options 1/2.
+      access. **effectMultiShotDeep 1.95 → 1.57 MB/op (−19.5% alloc)** (reliable alloc/GC hygiene +
+      general val-binding/binary-op win; wall-clock not separately measurable under machine load);
+      guard 3125/171875; 225 tests green.
+      **P3c (CPU profile, 2026-06-14): the multi-shot floor is the TREE-WALK, not allocation.** A CPU
+      leaf-frame profile of `effectMultiShotDeep` (load-independent, 156 samples) = **49 % `evalCore`,
+      ~63 % the walk** → CPU-bound, not alloc-bound. So further P3a/P3b-style alloc cuts WON'T move
+      wall-clock (project lesson); the only lever is compiling the continuation (the large feature).
+      Next non-full-feature candidate: route `BlockRuntime.step` pure-arith `val` rhs through
+      `fastPrimitiveValue` (skip `evalCore`) — a CPU change, A/B on an UNLOADED machine (load was 5–7,
+      wall-clock unmeasurable). Full compiled-continuation feature (eliminate the AST re-walk) STILL
+      the large deferred lever — options 1/2. Design + profile: `specs/effect-vm-continuations.md` §3c.
 
 > **Full-suite landscape (`scripts/bench interp`, 2026-06-13, 37 benches).** The two dominant
 > outliers dwarf everything else (next-slowest is 1.57 ms) and are the real targets:

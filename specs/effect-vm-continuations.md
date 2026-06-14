@@ -228,13 +228,39 @@ just effects. Guard: `EffectVmContinuationsTest` "deep interleaved multi-shot (5
 paths" (3125/171875). 225 interp/effects tests green; no regression. Still **not** the
 compiled-continuation feature — the AST re-walk itself remains (options 1/2).
 
+### Phase 3c — CPU profile: the residual is the tree-walk, not allocation (DIAGNOSTIC 2026-06-14)
+
+After P3a/P3b cut reification *allocation* (1.95 → 1.57 MB/op), a CPU leaf-frame profile of
+`effectMultiShotDeep` (`jdk.ExecutionSample`, 156 samples — load-independent) settles the strategy:
+
+| leaf frame | % |
+|---|---|
+| `EvalRuntime.evalCore` | **49 %** |
+| + `eval` / `fastValue` / `fastPrimitiveValue` / `evalApplyGeneral` / `step` | **~63 % (the walk)** |
+| `HashMap.foreachEntry` / `Node` (env copy) | ~8 % |
+| `IdentityHashMap.get` (pureConstCache) | ~2 % |
+
+**`effectMultiShotDeep` is CPU-bound on the megamorphic `evalCore` re-walk of the continuation**
+(re-walked across all 3125 paths) — NOT allocation-bound. Per the project's repeatedly-reinforced
+lesson (*alloc cuts don't move CPU-bound wall-clock*), **further P3a/P3b-style allocation cuts will
+not move wall-clock here.** The only lever that reduces the `evalCore` re-walk is compiling the
+continuation (options 1/2). P3a/P3b remain worthwhile as alloc/GC hygiene (and general
+val/binop/const-collection wins) but the multi-shot wall-clock floor is now the tree-walk.
+
+**Candidate cheaper-than-full-compile slice (for next time, needs an unloaded machine to validate a
+CPU win):** route `BlockRuntime.step`'s pure-arith `val` rhs through `fastPrimitiveValue` (bare
+Value, no `evalCore` megamorphic dispatch, no `Pure` alloc) before falling back to `interp.eval` —
+the profile shows the `sa=a*a; sb=b*b+sa; …` segments go through full `evalCore`, not the fast path.
+Falls back for effectful rhs (a `perform` → `fastPrimitiveValue` returns null). Safe, and attacks
+the dominant `evalCore` directly — but it is a *CPU* change, so it MUST be A/B'd on wall-clock on an
+unloaded machine (alloc won't show it).
+
 ### Recommendation (full feature)
 
-**The compiled-continuation build (option 1/2) stays deferred — do not build yet.** The target is
-a non-outlier already correct via the trampoline; the remaining cost is the per-resume AST re-walk
-+ Free-monad reification, whose fix is a major feature (an effect-aware interp JIT or VM state
-capture) AND whose payoff on `effectMultiShot` is bounded (trivial continuation segments; part of
-the 0.93 ms is per-op `Interpreter` construction, not multi-shot). Build option 1 or 2 only when a
-real effect-heavy workload (deep multi-shot search, generators) with *non-trivial* per-step work
-shows up as an actual outlier — and add a representative stress bench first so the win is
-measurable. Until then this section is the durable design so the next session starts from the plan.
+**The compiled-continuation build (option 1/2) stays deferred — do not build yet.** Profiling now
+shows the residual is the `evalCore` tree-walk, whose only real fix is the large effect-aware interp
+JIT / VM state capture (multi-session, high-risk). The tractable *allocation* cuts are shipped
+(P3a/P3b); the next non-full-feature lever (`fastPrimitiveValue`-in-`step`) is a CPU change that
+needs an unloaded machine to validate. Build option 1/2 only when a real effect-heavy workload
+warrants the multi-session effort. This section is the durable design + the profiled justification
+so the next session starts from data, not a cold re-derivation.
