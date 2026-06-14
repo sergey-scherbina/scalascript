@@ -4,6 +4,77 @@ Open and planned milestones — what still needs to be done.
 Active in-progress work is in [ACTIVE.md](ACTIVE.md).
 Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
+## Architecture Review follow-ups (2026-06-14)
+
+Whole-project architecture survey (231 sbt modules, ~145K LOC main Scala). The project is
+mature and low-debt (only 6 TODO/FIXME files, 21 "not yet supported"); these are *refinements*,
+not blockers — hence BACKLOG, not SPRINT. Ordered by leverage/tractability. **#1 is the
+recommended first pick** (bounded, measurable, compounds with the perf work).
+
+- [ ] **meta-extractor-decouple** (Tier 1 — RECOMMENDED FIRST) — **949 `scala.meta` `After_4_x`
+      version-extractor unapply sites** across the codebase. Two costs: (a) each allocates a
+      `Some`+`TupleN` per match (hit repeatedly in interp perf work — see effect-vm-continuations
+      §3b/§4 where these were converted to type-test + field access for measurable alloc cuts), and
+      (b) **the whole codebase is version-pinned to one scalameta release** — a scalameta upgrade
+      risks breaking all 949 sites at once. HOW: add a shared accessor helper (e.g. `SsMeta.{pats,
+      rhs, op, argClause, …}` — thin `inline` field-access wrappers over the AST nodes, the proven
+      pattern already used ad-hoc in `BlockRuntime`/`EvalRuntime`/`EffectsRuntime`), then migrate
+      sites off the `After_4_x` unapplies — start with the hottest (codegen/eval inner loops) and
+      the most numerous shapes (`Defn.Val`, `Term.ApplyInfix`, `Term.Apply.After_4_6_0`,
+      `Pat.Extract`). Bounded + incremental (one shape/file at a time); each batch byte-identical-
+      verifiable. Payoff: alloc reduction in hot paths + a scalameta-upgrade unblock. Spec it first.
+
+- [ ] **codegen-megafile-deflation** (Tier 1) — `JsGen.scala` (5136 LOC) and `JvmGen.scala`
+      (5050 LOC) are still ~5K each, though the `Compiler extensibility roadmap` projected ~1500
+      after the `dispatchIntrinsic` intrinsics-to-plugins migration. The migration landed but the
+      files did NOT shrink as planned. HOW: re-survey what's left in each (likely genExpr/genStat
+      clusters + residual inline handling), finish the `JsGenStringUtils`/`JvmGenStringUtils` split
+      (the hygiene section has a half-done `JvmGenStringUtils` item: extract the pure `String=>String`
+      helpers `scalaStringLiteral`/`jsLitForClientSql`/… into their own object), then split
+      genExpr/genStat into cohesive mixins. Pure maintainability; verify emitted source byte-identical
+      via the JvmGen/JsGen output-assertion suites. No behaviour change.
+
+- [ ] **jit-backend-consolidation** (Tier 2) — TWO parallel JIT backends: `AsmJitBackend` (5017 LOC)
+      + `JavacJitBackend` (4309 LOC) = ~9.3K LOC, Javac the default, Asm selected via
+      `SSC_JIT_BACKEND=asm`. ~9K LOC of parallel JIT to keep in sync (every new lowering must land in
+      both, or drift). DECISION needed: is Asm earning its maintenance cost (faster startup? no-javac
+      envs?), or should one be primary and the other archived/feature-gated? If both stay: extract the
+      shared lowering logic (the `JitPredicates`/`jit-predicates-shared` work already started this) so
+      a new opcode is written once. Start with a written comparison of what each uniquely provides.
+
+- [ ] **embedded-runtime-source-migration** (Tier 2) — `JvmGenRuntimeSources.scala` still holds
+      ~3633 LOC of Scala *runtime* embedded as `"""..."""` string literals (effectsRuntime ~3300
+      lines, fsRuntime, generatorRuntime, reactiveRuntime, stubServeRuntime). Untype-checked,
+      untestable-in-place, fragile to edit. The project ALREADY migrated `commonRuntime`/`serveRuntime`
+      to real Scala source files inlined from the classpath (`loadCommonSource`/`loadJvmRuntimeSource`,
+      build-time type-checked — see `specs/runtime-server-strategic-plan.md`). HOW: extend that same
+      pattern to the remaining string-literal runtimes — move each into a `runtime-server-*`-style
+      source module compiled at our build time, inline via the loader. (NB: jvmgen-codegen-time already
+      made these FAST via memoization; this makes them SAFE/maintainable.) Output must stay byte-identical.
+
+- [ ] **build-time-cross-backend-parity** (Tier 3) — backend drift (an intrinsic emitted on one
+      backend but missing on a declared peer) is currently caught "post-hoc" by the conformance suite
+      (`tests/conformance/run.sc`), not at build time — the Compiler-extensibility roadmap notes this
+      gap explicitly. HOW: a build-time check that every intrinsic/`QualifiedName` claimed in one
+      backend's `Backend.intrinsics` table exists in its declared peers (JVM↔JS↔interp at least),
+      failing the build on a gap. Turns a CI-latency miss into a compile-time error. Quality
+      infrastructure; pairs with the SPI work already landed.
+
+- [ ] **module-graph-grouping** (Tier 3, low-pri) — 231 sbt modules, ~150 of them thin
+      payments/wallet/blockchain/x402 SPI impls (`walletVault*`, `paymentsX`, `blockchain*`, `x402*`).
+      Largely intentional (one module per SPI impl), but it's real build-graph + cognitive load and
+      slows cold builds. HOW (if pursued): evaluate aggregate grouping or multi-target consolidation for
+      the thinnest families WITHOUT collapsing the SPI boundaries. Investigate-first; may conclude "leave
+      as-is" — the current shape works. Low priority.
+
+- [ ] **remote-package-registry** (Tier 3, strategic/product) — the plugin ecosystem story is
+      local-only (`~/.scalascript/registry.yaml` + `pkg:` resolver + `ssc install`, all LANDED). The SPI
+      already supports third-party intrinsic packages (`.sscpkg`), but there's no `registry.scalascript.io`
+      to discover/distribute them — deferred "no concrete demand yet". This is the missing piece to
+      actually unlock the third-party ecosystem the SPI was built for. Product decision (build when there's
+      a real external plugin author), not debt. Spec: extend `specs/arch-build-registry.md`.
+
+
 ## Language Surface — Markdown Frontend from Content
 
 - [x] **ui-content-toolkit** (busi UI proposals P3) — ✓ Complete (3a + 3b). Spec:
