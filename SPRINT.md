@@ -8,6 +8,31 @@ Start: tell the agent `"ÃÂÃÂ°ÃÂ±ÃÂ¾ÃÂÃÂ°ÃÂ¹
 
 ---
 
+
+## Autonomous batch (2026-06-14) — 4 user-approved directions, work in order
+
+User: "все четыре задачи внеси в спринт и сделай автономно". Execute each as its own
+claim -> worktree -> test -> ship cycle. Value/tractability order below.
+
+- [ ] **crypto-v166-verify** — Crypto v1.66 is LARGELY DONE already (stale BACKLOG): the
+      `runtime/std/crypto-plugin` JVM intrinsics provide sha256/sha256Base64/hmacSha256/
+      base64Encode+Decode/pbkdf2/secureRandom/AES-CBC+GCM/RSA/Ed25519 (see `runtime/std/crypto.ssc`),
+      and a JS backend `runtime/backend/js/.../intrinsics/Crypto.scala` exists. TASK: verify
+      JS (and Rust, if applicable) cross-backend PARITY for the core hashing/encoding intrinsics
+      (sha256/hmacSha256/base64), run CryptoPluginTest + any JS crypto example, close any gap,
+      then mark v1.66 DONE in BACKLOG (or list the precise remaining gap). Small/bounded.
+- [ ] **cross-backend-parity** — survey the cross-backend conformance suite (RuntimeBench /
+      cluster handshake / conformance tests) to find REAL JS/Rust gaps vs the interpreter; fix
+      the tractable ones. Data-driven: run the suite first, fix actual failures (not speculative).
+- [ ] **feature-milestone** — pick the more bounded of: UUID v7 cross-backend (v1.65 next phases
+      after uuid-p1 JVM core; spec `specs/uuid.md`) OR exact-numerics polish (BigIntV/DecimalV
+      exist; ensure cross-backend + Money; spec `specs/exact-numerics.md`). Ship one concrete piece.
+- [ ] **effect-cps-compile** — the LARGE deferred perf lever: compile the perform/handler eval
+      (`evalApplyGeneral` + lambda-body run) — the residual after slices 1/2a/3f (−43% already).
+      effect-aware interp JIT; multi-session, high-risk, for a NON-outlier (effectMultiShotDeep
+      4.2ms). Design + first real slice; ship incrementally. Spec `specs/effect-vm-continuations.md`
+      §3f. Do LAST (lowest ROI; cheap+safe cuts proven exhausted via the s3 within-noise experiment).
+
 ## busi — exec builtin for vr-10 git-mirror (2026-06-13)
 
 - [x] **exec-builtin** — DONE 2026-06-13. busi (versioned-repository vr-10): needs to
