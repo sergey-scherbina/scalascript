@@ -29,7 +29,7 @@ slice if investigation shows it's not worth it (as meta-extractor-decouple was).
 - [x] **jit-backend-consolidation** ✓ RESOLVED 2026-06-15 → KEEP BOTH (deliberate dual-strategy, shared infra already extracted, lowerings un-shareable; decision record specs/jit-backend-consolidation.md). ORIGINAL: AsmJitBackend (5017) + JavacJitBackend (4309) parallel.
       Start with a written comparison of what each uniquely provides → decide keep-both-with-shared-
       lowering vs primary+archive. Investigation-led. See BACKLOG.
-- [ ] **intrinsic-registration-harmonise** (T3) — JS bundles crypto/uuid/graphql/json into core
+- [x] **intrinsic-registration-harmonise** ✓ WON'T-DO 2026-06-15 — justified asymmetry (externs implemented per-backend via the platform-natural mechanism; not a defect; harmonising fights the design + risks the crypto path). See BACKLOG. ORIGINAL: JS bundles crypto/uuid/graphql/json into core
       JsIntrinsics while JVM delegates to plugins (27 allowlist exceptions in
       CrossBackendIntrinsicParityTest). Pick one convention + align; shrink the parity allowlist. See BACKLOG.
 
