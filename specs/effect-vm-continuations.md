@@ -86,23 +86,27 @@ runtime value for the effect op), so it ships TOGETHER with Phase 2, not alone.*
 code was reverted to avoid dead weight on the hot effect-op path (a per-op TLS lookup with no
 benefit). The TLS resolver design above stands; re-introduce it with Phase 2.
 
-## Phase 2 — JIT the effectful loop body (THE win; includes the Phase 1 resolver)
+## Phase 2 — JIT the effectful loop body — ✅ DONE 2026-06-14 (effectOneShot ~18 → 1.67 ms, ~11×)
 
-Phase 1 proved the body must be **compiled**, not just de-trampolined. Plan:
-1. **Resolver substrate** (Phase 1 above): TLS `(eff,op) → resume value`, installed by
-   `evalHandle` for clean one-shot tail-resume arms.
-2. **Perform bridge**: `JitGlobals.resolveEffectLong(eff, op, args…): Long` reads the innermost
-   TLS resolver and returns its value (the resume expr is a literal/name → cheap).
-3. **JIT lowering**: extend the bytecode JIT (`JavacJitBackend.walkLong`/`walkRef`) so a call
-   `Eff.op(args)` whose `(eff,op)` has a live TLS resolver *at compile time* (the JIT runs during
-   the handle's body eval, when the resolver is installed) emits `resolveEffectLong("eff","op",…)`
-   instead of bailing. Then `acc + Bump.tick()` compiles, the while-JIT compiles the whole loop
-   (control + accumulation), and the only per-iteration interp cost is the bridge call.
-4. Effect-op call shape handling: 0-arg (`tick()`) and N-arg ops; numeric vs ref resume values.
+Phase 1 proved the body must be **compiled**, not just de-trampolined. Shipped:
+1. **Resolver substrate** (Phase 1, re-added): `EffectsRuntime` TLS resolver stack + `evalHandle`
+   installs it for clean one-shot tail-resume arms + the op `NativeFnV` (`StatRuntime`) returns
+   `Pure(resolver(args))` when one is in scope.
+2. **Bridge**: `JitGlobals.resolveEffectLong(eff, op): Long` reads the innermost resolver,
+   returns its value; throws if absent.
+3. **JIT lowering**: `JavacJitBackend.walkLong` lowers a 0-arg effect-op call `Eff.op()` whose
+   `(eff,op)` has a **live resolver at compile time** (the JIT runs during the handle's body eval)
+   to `resolveEffectLong("eff","op")` — so `acc + Bump.tick()` compiles and the while-JIT compiles
+   the whole loop.
+4. **Safety — no resolver-gating needed**: `tryWhileJit` writes its slots back ONLY on success and
+   is try/catch-wrapped, so if the bridge throws at run time (the same `loop` later deep-handled —
+   no resolver), the compiled loop discards its partial slot updates and bails to the trampoline →
+   the effect is handled normally, no double execution. `EffectVmContinuationsTest` covers the JIT
+   path, the deep-handler bail, op-arg binding, and multi-shot-untouched.
 
-Expected: `effectOneShot` → arithLoop parity (like the pure loops), the effect still resolved
-through the handler each iteration. Risk: JIT internals + effect semantics — test against the
-full effects suites + bench.
+Residual ~1.67 ms (vs ~0.26 ms arithLoop) = the per-iteration bridge call (TLS lookup +
+`interp.eval` of the resume expr). **Future Phase 2b** (open): hoist a constant resume expr;
+N-arg + ref-return effect ops (`resolveEffectRef`, `walkRef`); cache the resolver in a slot.
 
 ## Phase 3 — general delimited continuations (future)
 

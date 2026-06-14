@@ -127,18 +127,18 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
 Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 -i 5 -f 1`).
 
-- [ ] **effect-vm-continuations** (deep) — make effectful loops fast. `effectOneShot` (~18 ms)
-      is the #1 interp outlier; re-profiled 72% leaf `evalCore` (the `perform` forces the
-      Free-monad trampoline so the loop never reaches the while-JIT). Spec
-      `specs/effect-vm-continuations.md`; tracked in SPRINT. Phased: **P1** one-shot tail-resume
-      *resolver* — IMPLEMENTED + measured 2026-06-14, then reverted: the resolver works (op
-      resolves inline, correct, all effects suites green) and makes the body pure, but
-      effectOneShot was **~0%** (18.8 vs 19.3 ms) — removing the trampoline doesn't help, the 72%
-      is the per-iteration body TREE-WALK which the all-pure native loop does the same. So the
-      resolver is only the substrate for **P2** = JIT the body via a perform-bridge
-      (`JitGlobals.resolveEffectLong` + `JavacJitBackend` lowering effect-op calls), THE win
-      (arithLoop parity); ships P1+P2 together. **P3** general VM suspend/resume for
-      multi-shot/non-tail. Honest — the effect still runs each iteration; do not fold the loop.
+- [x] **effect-vm-continuations P1+P2 ✅ 2026-06-14: effectOneShot ~18 → 1.67 ms (~11×).** The
+      #1 interp outlier — re-profiled 72% leaf `evalCore` (the `perform` forced the Free-monad
+      trampoline so the loop never reached the while-JIT). A clean one-shot tail-resume arm
+      `case Eff.op(..)=>resume(rexpr)` is resolved at the perform site (TLS resolver in
+      `EffectsRuntime`, checked by the op `NativeFnV`) so the body is pure, then the JIT compiles
+      it: `JitGlobals.resolveEffectLong` bridge + `JavacJitBackend.walkLong` lowering a 0-arg
+      `Eff.op()` with a live resolver. Safe (tryWhileJit writes slots only on success → the
+      bridge throw bails cleanly to the trampoline; deep-handling the same op still works). P1
+      FINDING: the resolver ALONE was ~0% — the win is compiling the body, not skipping the
+      trampoline. Spec `specs/effect-vm-continuations.md`. **Open: P2b** (residual ~1.67 vs 0.26 ms
+      = the per-iteration bridge call — hoist a constant resume expr; N-arg / ref-return ops);
+      **P3** general VM suspend/resume for multi-shot + non-tail resumes (`effectMultiShot`).
 
 > **Full-suite landscape (`scripts/bench interp`, 2026-06-13, 37 benches).** The two dominant
 > outliers dwarf everything else (next-slowest is 1.57 ms) and are the real targets:

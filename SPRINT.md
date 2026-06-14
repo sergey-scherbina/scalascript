@@ -2500,8 +2500,12 @@ single-node without them.
         per-iteration BODY TREE-WALK, which the all-pure native loop does identically. So the
         resolver is only the SUBSTRATE for P2 (it gives P2 a runtime value); it ships WITH P2,
         not alone. Reverted to avoid dead weight on the hot effect-op path. spec section P1.
-      - [ ] **P2 JIT the effectful body**: lower a resolved effect-op call to a perform-bridge
-        (JitGlobals.performOneShot reading TLS) so the while-JIT compiles the whole body ->
-        arithLoop parity. Needs the bytecode JIT to recognize effect-op call sites.
+      - [x] **P2 JIT the effectful body** DONE 2026-06-14: effectOneShot ~18 -> 1.67 ms (~11x).
+        Re-added the P1 resolver substrate + JitGlobals.resolveEffectLong bridge + JavacJitBackend
+        .walkLong lowering a 0-arg `Eff.op()` with a live resolver to the bridge, so the whole
+        effectful loop JIT-compiles. Safe (tryWhileJit writes slots only on success -> bridge throw
+        bails cleanly). EffectVmContinuationsTest + 518 tests + full bench green. spec Phase 2.
+      - [ ] **P2b** (open): hoist a constant resume expr; N-arg + ref-return effect ops
+        (resolveEffectRef / walkRef); cache the resolver in a slot (residual ~1.67 vs 0.26 ms).
       - [ ] **P3 general delimited continuations**: VM suspend/resume (capture resumable VM
         state at a perform) for multi-shot + non-tail resumes. Major VM feature; deferred.

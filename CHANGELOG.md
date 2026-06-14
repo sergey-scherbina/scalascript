@@ -4,6 +4,27 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-14 — perf(interp): JIT effectful loops (one-shot tail-resume) — effectOneShot ~11×
+
+- `effect-vm-continuations` Phases 1+2 (spec `specs/effect-vm-continuations.md`). `effectOneShot`
+  was the #1 interp-bench outlier (~18 ms; 72% leaf `evalCore` — the `perform` forced the
+  Free-monad trampoline so the loop never reached the while-JIT). Now **~18 → 1.67 ms (~11×)**.
+- A clean one-shot tail-resume arm `case Eff.op(a.., resume) => resume(rexpr)` makes the effect
+  equal to a direct value, so `EffectsRuntime.evalHandle` installs a thread-local **resolver**
+  for such ops around the body eval; the op `NativeFnV` (`StatRuntime`) returns `Pure(rexpr)`
+  instead of a `Perform`, making the handled body pure. (Phase 1 finding: that alone is ~0% —
+  the win is **compiling** the body, not skipping the trampoline.) Phase 2: a new
+  `JitGlobals.resolveEffectLong` bridge + `JavacJitBackend.walkLong` lowering a 0-arg `Eff.op()`
+  with a live resolver to it, so the whole effectful loop JIT-compiles.
+- Safe with no resolver-gating: `tryWhileJit` writes slots back only on success, so if the bridge
+  throws (the same `loop` later deep-handled — no resolver), the compiled loop discards its
+  partial updates and bails to the trampoline → effect handled normally, no double execution.
+- Honest: the effect still runs each iteration, resolved through the handler (the loop is not
+  folded). `EffectVmContinuationsTest` (5: JIT path, deep-handler bail, op-arg binding,
+  multi-shot untouched) + 518 effects/interp/JIT/while tests green; full interp bench no
+  regression. Residual vs arithLoop is the per-iteration bridge call (Phase 2b: hoist constant
+  resume exprs; N-arg / ref-return ops).
+
 ## 2026-06-14 — perf(interp): `val x = p match { … }` intermediates → while-JIT — ~3000×
 
 - Final loop-val-inline slice: a `val` bound to a pure `match` (`val x = p match { case Pt(a,b)
