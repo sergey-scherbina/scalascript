@@ -104,13 +104,15 @@ private[interpreter] object EvalRuntime:
 
   private def fastPrimitiveValue(term: Term, env: Env, interp: Interpreter): Value | Null =
     term match
-      case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
-          if argClause.values.lengthCompare(1) == 0 =>
-        val lv = fastPrimitiveValue(lhs, env, interp)
+      // Type-test + direct field access (no `After_4_6_0` unapply) — the extractor allocates a
+      // `Some` + `Tuple4` per visit, and this is on the per-resume continuation re-eval path
+      // (effect-vm-cont-p3b: `a*a`, `b*b+sa`, … re-evaluated across 3125 multi-shot paths).
+      case ai: Term.ApplyInfix if ai.argClause.values.lengthCompare(1) == 0 =>
+        val lv = fastPrimitiveValue(ai.lhs, env, interp)
         if lv == null then null
         else
-          val rv = fastPrimitiveValue(argClause.values.head, env, interp)
-          if rv == null then null else fastPrimitiveInfixValue(lv, op.value, rv)
+          val rv = fastPrimitiveValue(ai.argClause.values.head, env, interp)
+          if rv == null then null else fastPrimitiveInfixValue(lv, ai.op.value, rv)
       // Direct-style call of a pure match-bodied function (e.g. `area(s)`):
       // folds the call to a bare Value so an enclosing pure expression such as
       // `total + area(s)` needs no Pure wrapper for the call result and no

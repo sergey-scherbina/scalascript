@@ -116,6 +116,32 @@ class EffectVmContinuationsTest extends AnyFunSuite with Matchers:
       println(all.length.toString + "/" + all.sum.toString)
     """) shouldBe "256/2560"  // 256 paths; Σ sums = 256·(mean 2.5·4) = 256·10 = 2560
 
+  // effect-vm-cont-p3b: the `effectMultiShotDeep` stress shape — 5 levels × 5 options with
+  // INTERLEAVED per-step scoring (`val sa = a*a; val b = choose(..); val sb = b*b+sa; …`). Pins
+  // that the unapply-allocation cuts in the continuation re-eval path (Defn.Val / ApplyInfix
+  // type-tests in BlockRuntime.step / EvalRuntime.fastPrimitiveValue) preserve multi-shot
+  // semantics across all 3125 paths.
+  test("p3b: deep interleaved multi-shot (5×5) yields all 3125 paths, exact score sum"):
+    run("""
+      multi effect NonDet:
+        def choose(options: List[Int]): Int
+      def search(): Int ! NonDet =
+        val a = NonDet.choose(List(1, 2, 3, 4, 5))
+        val sa = a * a
+        val b = NonDet.choose(List(1, 2, 3, 4, 5))
+        val sb = b * b + sa
+        val c = NonDet.choose(List(1, 2, 3, 4, 5))
+        val sc = c * c + sb
+        val d = NonDet.choose(List(1, 2, 3, 4, 5))
+        val sd = d * d + sc
+        val e = NonDet.choose(List(1, 2, 3, 4, 5))
+        e * e + sd
+      val all = handle(search()) {
+        case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))
+      }
+      println(all.length.toString + "/" + all.sum.toString)
+    """) shouldBe "3125/171875"  // 5^5 paths; Σ(a²+…+e²) = 5·(55·5⁴) = 5·34375 = 171875
+
   // ── effect-vm-cont-p2c: compiled pure-Int-arith resume expressions ──
   // The resolver compiles `+`/`-`/`*`/unary `±` resume exprs to a Long closure instead of
   // tree-walking `interp.eval` each perform. These pin that the compiled path is numerically

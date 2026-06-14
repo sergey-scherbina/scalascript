@@ -98,8 +98,13 @@ private[interpreter] object BlockRuntime:
       case Nil => Pure(lastVal)
       case s :: rest =>
         s match
-          case Defn.Val(_, pats, _, rhs) =>
-            interp.eval(rhs, localView) match
+          // Type-test + direct field access (`dv.pats`/`dv.rhs`) instead of the
+          // `Defn.Val(_, pats, _, rhs)` unapply, which allocates a `Some` + `Tuple4` per
+          // statement — hot on the per-resume continuation re-eval path (effect-vm-cont-p3b:
+          // `Tuple4` ~89 JFR samples in `step` across 3125 multi-shot paths).
+          case dv: Defn.Val =>
+            val pats = dv.pats
+            interp.eval(dv.rhs, localView) match
               case Pure(rhsVal) =>
                 pats match
                   case List(Pat.Var(n)) => local(n.value) = rhsVal

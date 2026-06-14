@@ -213,6 +213,31 @@ class InterpreterBench:
       |}.length""".stripMargin
   )
 
+  // effect-vm-cont-p3b: a DEEPER multi-shot search with INTERLEAVED per-step scoring — the
+  // representative nondeterminism workload (constraint search) the P3 continuation-compile feature
+  // targets. 5 levels × 5 options = 3125 paths; each continuation segment between `choose`s does a
+  // real `x*x + acc` step, so the per-resume continuation RE-EVALUATION (AST re-walk + Free-monad
+  // rebuild) dominates — unlike `effectMultiShot` (256 trivial paths) whose cost is partly per-op
+  // `Interpreter` construction. `.length` = 3125 (deterministic).
+  private val modEffectMultiShotDeep: Module = src(
+    """multi effect NonDet:
+      |  def choose(options: List[Int]): Int
+      |def search(): Int ! NonDet =
+      |  val a = NonDet.choose(List(1, 2, 3, 4, 5))
+      |  val sa = a * a
+      |  val b = NonDet.choose(List(1, 2, 3, 4, 5))
+      |  val sb = b * b + sa
+      |  val c = NonDet.choose(List(1, 2, 3, 4, 5))
+      |  val sc = c * c + sb
+      |  val d = NonDet.choose(List(1, 2, 3, 4, 5))
+      |  val sd = d * d + sc
+      |  val e = NonDet.choose(List(1, 2, 3, 4, 5))
+      |  e * e + sd
+      |handle(search()) {
+      |  case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))
+      |}.length""".stripMargin
+  )
+
   // honesty (T2.1): the `++` operands are built from the loop counter and every
   // component is accumulated, so the tuple-monoid concat genuinely runs each
   // iteration. The old `(1, 2) ++ (3, 4)` was loop-invariant — `tryHoistedPureWhile`
@@ -636,6 +661,10 @@ class InterpreterBench:
   @Benchmark
   def effectMultiShot(): Unit =
     Interpreter(devNull).run(modEffectMultiShot)
+
+  @Benchmark
+  def effectMultiShotDeep(): Unit =
+    Interpreter(devNull).run(modEffectMultiShotDeep)
 
   @Benchmark
   def tupleMonoid(): Unit =
