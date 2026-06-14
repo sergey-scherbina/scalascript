@@ -1,0 +1,6 @@
+effect-vm-cont-p3c 2026-06-14T12:40:00Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-14T12:40:00Z
+status: in-progress
+done-so-far: P3a (const-coll cache) + P3b (unapply-alloc cuts, effectMultiShotDeep 1.95->1.57MB) shipped. User wants P3 continued.
+next: CPU LEAF-FRAME profile effectMultiShotDeep (now 1.57MB) to determine alloc-bound (keep cutting alloc) vs CPU-bound-on-tree-walk (only the big CPS-compiler helps — alloc cuts won't move wall-clock per the project lesson). Then ship the next tractable cut OR honestly report the remaining lever is the large compiled-continuation feature. Spec specs/effect-vm-continuations.md Phase 3. NOTE: machine under external load (~5-7) — wall-clock unreliable; use load-independent metrics (gc.alloc.rate.norm, JFR leaf-frame %).
