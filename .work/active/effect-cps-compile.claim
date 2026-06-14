@@ -1,6 +1,0 @@
-effect-cps-compile 2026-06-14T17:10:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-14T17:10:00Z
-status: in-progress
-done-so-far: §4 design written. User wants it BUILT. Building P4.1 (compiled straight-line effectful blocks).
-next: investigate effect-op static detection → build P4.1 (CompiledEffBlock: ordered perform/pure segments, compiled pure-eval fns reusing fastPrimitiveValue, replay avoids per-resume AST re-walk). Bail to current evalBlock/step for any non-straight-line shape. EXTENSIVE effect correctness tests (3125/171875 + one-shot + deep-handler + StdEffects/JvmGen/JsEffect). A/B effectMultiShotDeep on quiet machine. Spec §4 P4.1.
