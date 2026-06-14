@@ -1,0 +1,18 @@
+Cześć
+Привіт
+Hello
+missing
+uk
+pl
+en
+en
+ru many one few many many one few many many
+uk one few many few
+pl one few many many few few
+en other one other
+1 файл
+3 файли
+5 файлів
+22 pliki
+1 file
+7 files

@@ -1,0 +1,64 @@
+---
+name: ui-i18n
+version: 1.0.0
+description: "Reactive i18n for std/ui — a shared locale signal plus reactive translated text/heading/plural and a locale switcher. A language switch re-renders the whole UI live, client-side, no reload."
+package: std.ui.i18n
+exports:
+  - localeSignal
+  - setLocale
+  - localeText
+  - localeHeading
+  - localePlural
+  - localeSwitcher
+---
+
+# `std.ui.i18n` — reactive i18n binding
+
+Binds the pure `std/i18n` core to the reactive std/ui layer. `localeSignal` is a
+module-level `val`, so every screen that imports it shares the **same** signal
+instance — one switch updates them all. Translated nodes are built over
+`computedSignal`, so they re-render automatically when the locale changes (or,
+for `localePlural`, when the count changes). See `specs/i18n.md`.
+
+A catalog is `locale → (key → text)` (owned by the app); plural keys are
+`keyBase + "." + category` (`one`/`few`/`many`/`other`).
+
+[Signal, signal, computedSignal, setSignal](primitives.ssc)
+
+[TkNode, HStackNode](nodes.ssc)
+
+[signalText_](reactive.ssc)
+
+[signalHeading](typography.ssc)
+
+[signalButton](input.ssc)
+
+[translateIn, plural](../i18n.ssc)
+
+```scalascript
+// Shared reactive locale (default English). Importers reference this same
+// instance, so a switch is global + instant.
+val localeSignal: Signal[String] = signal("locale", "en")
+
+// setLocale — EventHandler switching the active locale (for custom controls).
+def setLocale(loc: String): Any = setSignal(localeSignal, loc)
+
+// localeText — reactive translated <span> bound to localeSignal.
+def localeText(catalog: Map[String, Map[String, String]], key: String, base: String): TkNode =
+  signalText_(computedSignal(() => translateIn(catalog, localeSignal(), key, base)))
+
+// localeHeading — reactive translated <hN> bound to localeSignal.
+def localeHeading(level: Int, catalog: Map[String, Map[String, String]], key: String, base: String): TkNode =
+  signalHeading(level, computedSignal(() => translateIn(catalog, localeSignal(), key, base)))
+
+// localePlural — reactive plural <span> bound to localeSignal + a count signal.
+def localePlural(catalog: Map[String, Map[String, String]], keyBase: String, nSig: Signal[Int]): TkNode =
+  signalText_(computedSignal(() => plural(catalog, localeSignal(), keyBase, nSig())))
+
+// localeSwitcher — a button row, one per supported locale, each switching the
+// shared localeSignal. `labels` supplies button text (e.g. "uk" -> "Українська");
+// missing labels fall back to the locale code.
+def localeSwitcher(locales: List[String], labels: Map[String, String]): TkNode =
+  HStackNode(8, locales.map(loc =>
+    signalButton(localeSignal, loc, if labels.contains(loc) then labels.getOrElse(loc, loc) else loc, false)))
+```

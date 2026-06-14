@@ -1,0 +1,27 @@
+---
+name: i18n-cap-lib
+version: 0.1.0
+description: "Conformance helper — a library def building a computedSignal over a module-level locale signal + catalog, to exercise cross-interpreter closure capture + signal read."
+exports:
+  - greetingSignal
+  - activeLocale
+---
+
+# i18n-cap-lib
+
+[Signal, signal, computedSignal](std/ui/primitives.ssc)
+
+[translateIn](std/i18n.ssc)
+
+```scalascript
+val activeLocale: Signal[String] = signal("loc", "en")
+val cat = Map(
+  "en" -> Map("hi" -> "Hello"),
+  "pl" -> Map("hi" -> "Czesc"),
+  "uk" -> Map("hi" -> "Pryvit"))
+
+// The thunk references this module's own `val`s (activeLocale, cat) and the
+// imported `translateIn`; it is invoked by the frontend runtime cross-interpreter.
+def greetingSignal(): Signal[String] =
+  computedSignal(() => translateIn(cat, activeLocale(), "hi", "en"))
+```

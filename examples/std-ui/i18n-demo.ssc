@@ -1,0 +1,44 @@
+---
+name: std-ui-i18n-demo
+version: 0.1.0
+description: "std/ui/i18n demo — locale switcher + reactive translated heading/text/plural over an EN/RU/UK/PL catalog."
+---
+
+# std/ui/i18n demo
+
+Exercises the reactive i18n helpers from an app module: a shared locale signal,
+a locale switcher, and reactive translated heading / text / plural bound to it.
+Renders the default-locale (en) snapshot on INT/JVM; switches live on JS.
+
+[View, signal, serve](std/ui/primitives.ssc)
+
+[lower](std/ui/lower.ssc)
+
+[defaultTheme](std/ui/theme.ssc)
+
+[vstack](std/ui/layout.ssc)
+
+[localeText, localeHeading, localePlural, localeSwitcher](std/ui/i18n.ssc)
+
+```scalascript
+val cat = Map(
+  "en" -> Map("app.title" -> "Dashboard", "greeting" -> "Welcome",
+              "file.one" -> "{n} file", "file.other" -> "{n} files"),
+  "ru" -> Map("app.title" -> "Панель", "greeting" -> "Добро пожаловать",
+              "file.one" -> "{n} файл", "file.few" -> "{n} файла", "file.many" -> "{n} файлов"),
+  "uk" -> Map("app.title" -> "Панель керування", "greeting" -> "Ласкаво просимо",
+              "file.one" -> "{n} файл", "file.few" -> "{n} файли", "file.many" -> "{n} файлів"),
+  "pl" -> Map("app.title" -> "Panel", "greeting" -> "Witamy",
+              "file.one" -> "{n} plik", "file.few" -> "{n} pliki", "file.many" -> "{n} plików"))
+
+val labels = Map("en" -> "English", "ru" -> "Русский", "uk" -> "Українська", "pl" -> "Polski")
+val nFiles = signal("nFiles", 5)
+
+val tree = vstack(8)(
+  localeSwitcher(List("en", "ru", "uk", "pl"), labels),
+  localeHeading(1, cat, "app.title", "en"),
+  localeText(cat, "greeting", "en"),
+  localePlural(cat, "file", nFiles))
+
+serve(lower(tree, defaultTheme), 8771)
+```

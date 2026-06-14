@@ -1,0 +1,42 @@
+---
+name: std-i18n
+---
+
+# std.i18n conformance — translate fallback, Accept-Language, CLDR plurals
+
+[translateIn, negotiateLocale, pluralCategory, plural](std/i18n.ssc)
+
+```scalascript
+val cat = Map(
+  "en" -> Map("hi" -> "Hello", "file.one" -> "{n} file", "file.other" -> "{n} files"),
+  "uk" -> Map("hi" -> "Привіт",
+              "file.one" -> "{n} файл", "file.few" -> "{n} файли", "file.many" -> "{n} файлів"),
+  "pl" -> Map("hi" -> "Cześć",
+              "file.one" -> "{n} plik", "file.few" -> "{n} pliki", "file.many" -> "{n} plików"))
+
+// translateIn: locale hit, base fallback, raw-key fallback
+println(translateIn(cat, "pl", "hi", "en"))
+println(translateIn(cat, "uk", "hi", "en"))
+println(translateIn(cat, "de", "hi", "en"))       // unknown locale -> base en
+println(translateIn(cat, "pl", "missing", "en"))  // unknown key -> raw key
+
+// negotiateLocale: region + q-values stripped; unknown -> default
+println(negotiateLocale("uk-UA,uk;q=0.9,en;q=0.5", List("en", "ru", "uk", "pl"), "en"))
+println(negotiateLocale("pl-PL", List("en", "ru", "uk", "pl"), "en"))
+println(negotiateLocale("de-DE", List("en", "ru", "uk", "pl"), "en"))
+println(negotiateLocale("", List("en", "ru", "uk", "pl"), "en"))
+
+// pluralCategory: CLDR edge cases across the ones/teens boundary
+println("ru " + pluralCategory("ru", 0) + " " + pluralCategory("ru", 1) + " " + pluralCategory("ru", 2) + " " + pluralCategory("ru", 5) + " " + pluralCategory("ru", 11) + " " + pluralCategory("ru", 21) + " " + pluralCategory("ru", 22) + " " + pluralCategory("ru", 25) + " " + pluralCategory("ru", 111))
+println("uk " + pluralCategory("uk", 1) + " " + pluralCategory("uk", 3) + " " + pluralCategory("uk", 14) + " " + pluralCategory("uk", 102))
+println("pl " + pluralCategory("pl", 1) + " " + pluralCategory("pl", 2) + " " + pluralCategory("pl", 5) + " " + pluralCategory("pl", 12) + " " + pluralCategory("pl", 22) + " " + pluralCategory("pl", 23))
+println("en " + pluralCategory("en", 0) + " " + pluralCategory("en", 1) + " " + pluralCategory("en", 2))
+
+// plural: form selection + {n} interpolation
+println(plural(cat, "uk", "file", 1))
+println(plural(cat, "uk", "file", 3))
+println(plural(cat, "uk", "file", 5))
+println(plural(cat, "pl", "file", 22))
+println(plural(cat, "en", "file", 1))
+println(plural(cat, "en", "file", 7))
+```

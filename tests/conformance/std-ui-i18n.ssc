@@ -1,0 +1,19 @@
+---
+name: std-ui-i18n
+backends: [int]
+---
+
+# cross-module reactive i18n — computedSignal over an imported module's val, read via sig()
+#
+# INT-scoped: this guards the interpreter closure-capture + signal-read fix that makes a
+# `computedSignal(() => … moduleVal …)` thunk in an imported module resolve cross-interpreter.
+# The JS/JVM backends lower closures lexically and never had this bug; their reactive `sig()`
+# semantics and opaque-type imports run through the SPA emit path, not the emit-js lane.
+
+[greetingSignal, activeLocale](../../examples/std-ui/i18n-cap-lib.ssc)
+
+```scalascript
+val g = greetingSignal()
+println(g())
+println(activeLocale())
+```
