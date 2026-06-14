@@ -1,0 +1,6 @@
+codegen-megafile-deflation 2026-06-14T22:18:52Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-14T22:18:52Z
+status: in-progress
+done-so-far: arch-review T1. JsGen 5136 / JvmGen 5050 LOC. JvmGenStringUtils.scala already exists (partial). Goal: extract a cohesive pure cluster to a new file, behavior-identical, verify output suites + byte-identical emitted source.
+next: investigate JvmGen/JsGen structure → identify the largest cohesive safely-extractable cluster (pure helpers / a self-contained emit family) → extract to its own file in package scalascript.codegen with import to keep call sites unqualified → verify JvmGen/JsGen output-assertion suites green + emitted source byte-identical. One slice, shippable.
