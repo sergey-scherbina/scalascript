@@ -1,6 +1,0 @@
-effect-cps-p41 2026-06-14T19:25:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-14T19:25:00Z
-status: in-progress
-done-so-far: effect slice 1 (flatMap-resume) −70%. Re-profiled: block-side residual evalCore 23% + Tuple4/Some unapply (95/80) from step's COMPOUND-ASSIGN case `Term.ApplyInfix.After_4_6_0(lhs:Term.Name,...)` unapplying the result expr `e*e+sd` (a Term.ApplyInfix) 3125× before the lhs:Term.Name guard fails → falls to slice-2a fast path. Wasted Tuple4+Some per result re-eval.
-next: P3b-style type-test the compound-assign case in BlockRuntime.step (gate on `ai.lhs.isInstanceOf[Term.Name]` + op ends '=' BEFORE binding, field-access instead of After_4_6_0 unapply) → no Tuple4/Some for the result Term.ApplyInfix. Effect tests (3125/171875). Back-to-back stash A/B. (NOTE: sibling pushed import-exports fix; main/worktree synced to c281f9594.)
