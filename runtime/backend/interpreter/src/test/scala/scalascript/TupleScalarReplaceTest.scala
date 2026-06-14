@@ -159,6 +159,50 @@ class TupleScalarReplaceTest extends AnyFunSuite with Matchers:
       println(calls)
     """) shouldBe "40\n5"  // f called once per iter (NOT duplicated): calls=5, s=2*(0+2+4+6+8)=40
 
+  // ── match intermediates: val x = … match { … } (jit-loop-match-val) ──
+
+  test("match intermediate on an Int scrutinee"):
+    run("""
+      var i = 0
+      var s = 0
+      while i < 9 do
+        val x = (i % 3) match
+          case 0 => i
+          case 1 => 0 - i
+          case _ => i * 2
+        s = s + x
+        i = i + 1
+      println(s)
+    """) shouldBe "27"  // i:0..8, i%3 0→i 1→-i 2→2i: 0-1+4+3-4+10+6-7+16 = 27
+
+  test("match intermediate destructuring a constant case class"):
+    run("""
+      case class Pt(a: Int, b: Int)
+      val p = Pt(3, 4)
+      var i = 0
+      var s = 0
+      while i < 5 do
+        val x = p match
+          case Pt(a, b) => a + b
+        s = s + x + i
+        i = i + 1
+      println(s)
+    """) shouldBe "45"  // (3+4)=7 each iter + i: 7*5 + (0+1+2+3+4) = 35 + 10 = 45
+
+  test("SOUNDNESS: match scrutinee var reassigned before use"):
+    run("""
+      var i = 0
+      var s = 0
+      while i < 4 do
+        val x = i match
+          case 0 => 100
+          case 1 => 200
+          case _ => 0
+        i = i + 1
+        s = s + x
+      println(s)
+    """) shouldBe "300"  // x captured at val time: i=0→100, i=1→200, i=2,3→0; = 300
+
   // ── conditional intermediates: val x = if … (jit-loop-if-val) ──
 
   test("conditional intermediate: val x = if … then … else …"):

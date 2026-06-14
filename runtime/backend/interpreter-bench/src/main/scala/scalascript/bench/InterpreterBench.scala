@@ -255,6 +255,26 @@ class InterpreterBench:
       |s""".stripMargin
   )
 
+  // Match intermediate (jit-loop-match-val): `val x = p match { case Ctor(a,b) => … }` in a
+  // loop body. Previously a `val` bound to a `match` bailed the while-JIT → whole loop
+  // tree-walked; now a pure match is admitted to isPureArith and inlined, so the body JITs via
+  // the same ref-destructuring match-compile as instanceFieldAccess (~3000×). (An Int/literal-
+  // scrutinee match inlines correctly but bails to tree-walk — the JIT compiles only the
+  // ref-destructuring form.) Honest: `s` accumulates an i-dependent value, same shape as
+  // instanceFieldAccess (constant scrutinee matched per iteration).
+  private val modValMatch: Module = src(
+    """case class Pt(a: Int, b: Int)
+      |val p = Pt(3, 4)
+      |var i = 0
+      |var s = 0
+      |while i < 1000000 do
+      |  val x = p match
+      |    case Pt(a, b) => a + b
+      |  s = s + x + i
+      |  i = i + 1
+      |s""".stripMargin
+  )
+
   // val-bound constant tuple: `last = k` where k is a val.
   // Without the Term.Name hoist, tryHoistedPureWhile bails and falls through
   // to the value-space loop (~65 ms for 1M iters, similar to counterWithTupleVar).
@@ -613,6 +633,10 @@ class InterpreterBench:
   @Benchmark
   def valIf(): Unit =
     Interpreter(devNull).runSections(modValIf)
+
+  @Benchmark
+  def valMatch(): Unit =
+    Interpreter(devNull).runSections(modValMatch)
 
   @Benchmark
   def counterWithTupleVar(): Unit =

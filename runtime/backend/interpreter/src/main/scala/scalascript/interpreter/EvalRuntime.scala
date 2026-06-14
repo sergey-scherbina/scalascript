@@ -522,6 +522,14 @@ private[interpreter] object EvalRuntime:
    *  may be freely duplicated, so a `val x = <isPureArith>` binding used only as a whole `x`
    *  can be inlined. (Inlining only GATES on this — the substituted body still bails to
    *  tree-walk if the while-JIT can't compile it, so this is purely about correctness.) */
+  /** Side-effect-free pattern match: pure scrutinee, every guard pure (or none), every case
+   *  body pure-arith. Pattern matching + binding is itself side-effect-free, so such a `match`
+   *  may be admitted to [[isPureArith]] (a `val x = p match { … }` intermediate). */
+  private def isPureMatch(m: Term.Match): Boolean =
+    isPureArith(m.expr) && m.casesBlock.cases.forall { c =>
+      c.cond.forall(isPureCond) && isPureArith(c.body)
+    }
+
   private def isPureArith(e: Term): Boolean = e match
     case _: Lit | _: Term.Name    => true
     case ai: Term.ApplyInfix      =>
@@ -529,6 +537,7 @@ private[interpreter] object EvalRuntime:
     case Term.ApplyUnary(op, arg) => (op.value == "-" || op.value == "+") && isPureArith(arg)
     case Term.Select(qual, Term.Name("toInt" | "toLong" | "toDouble")) => isPureArith(qual)
     case ti: Term.If              => isPureCond(ti.cond) && isPureArith(ti.thenp) && isPureArith(ti.elsep)
+    case m: Term.Match            => isPureMatch(m)
     case _                        => false
 
   /** Substitute a leading loop-body `val name = …` away in `rhs`. With `comps` (the val
