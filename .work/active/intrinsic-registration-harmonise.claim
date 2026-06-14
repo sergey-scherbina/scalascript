@@ -1,6 +1,0 @@
-intrinsic-registration-harmonise 2026-06-14T22:35:38Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-14T22:35:38Z
-status: in-progress
-done-so-far: surfaced by build-time-cross-backend-parity. JS bundles crypto/uuid/graphql/json into core JsIntrinsics (27 names); JVM delegates same to crypto/uuid/graphql/json plugins. → 27 allowlist exceptions in CrossBackendIntrinsicParityTest.
-next: investigate WHY (do JS plugins exist + register as 'js'-targeting providers, or only core?). Determine the safe harmonisation direction (architecture trends toward plugins → move JS core ones to JS plugins, IF the JS plugin tables exist + overlay works for JS codegen). If safe + tractable → do it, shrink the allowlist, verify JS codegen + parity gate green. If risky/large → document recommended direction + defer with rationale (honest scoping).
