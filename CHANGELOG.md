@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-14 — fix(interp): report module import cycles instead of StackOverflowError (busi-reported)
+
+- A true module import **cycle** (`A→B→A`, e.g. a sub-module importing back from the facade
+  that imports it) overflowed the stack with no diagnostic. `SectionRuntime.runImport`'s
+  `moduleCache.getOrElseUpdate` only inserts after the load thunk returns, so a still-loading
+  module is absent from the cache and a cyclic re-import re-runs it forever. (Distinct from the
+  diamond dedup `moduleCache` already handles — a diamond is acyclic and never re-enters a
+  still-loading path.)
+- Added a shared, insertion-ordered `moduleLoading: LinkedHashSet[os.Path]` threaded into child
+  interpreters like `moduleCache`; `runImport` checks it before `getOrElseUpdate` and throws
+  `InterpretError("Import cycle detected: a.ssc → b.ssc → a.ssc")` on a re-entry. The path is
+  marked in-progress only while its body runs (`try/finally`), so a later legitimate import of
+  the finished module still hits the cache. Purely diagnostic — acyclic graphs/diamonds unchanged.
+- Busi-reported during the busi `p5` `dispatch.ssc` decomposition (facade re-export / strict-DAG).
+  `InterpImportCycleTest` (2-cycle + facade↔leaf cycle + acyclic-re-export control) + the existing
+  `InterpModuleDedupTest` both green. Spec `specs/import-cycle-diagnostic.md`; `BUGS.md`
+  `interp-import-cycle-stackoverflow`.
+
 ## 2026-06-14 — perf(interp): compile pure-arith resume expr in the resolver (effect-vm-continuations P2c) — effectReader ~15×, effectOneShot ~11×
 
 - Re-measuring the full `InterpreterBench` landscape put **effectReader (2.63 ms)** and

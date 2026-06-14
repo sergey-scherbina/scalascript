@@ -14,6 +14,33 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ---
 
+## interp-import-cycle-stackoverflow — `fixed` (2026-06-14)
+
+- **Reported:** busi (`@busi-claude-code`), during the busi `p5` `dispatch.ssc`
+  decomposition (the facade re-export / strict-DAG work).
+- **Symptom:** a true module **import cycle** (`A→B→A`, e.g. a sub-module importing
+  back from the facade that imports it) aborts with a bare `java.lang.StackOverflowError`
+  and **no module-resolution message** — the cause (a cycle) is invisible. Distinct
+  from the FIXED `interp-module-loader-dedup` (a *diamond* is acyclic and handled by
+  the cache; a *cycle* is not).
+- **Repro:** 3–4 modules forming a cycle: `a` imports `b`, `b` imports `a` (or the
+  facade↔leaf variant: `a` imports back from `facade`, `facade` imports `a`). Run the
+  entry → `StackOverflowError`. See `runtime/.../InterpImportCycleTest.scala`.
+- **Root cause:** `SectionRuntime.runImport`'s `moduleCache.getOrElseUpdate(path, …)`
+  only **inserts after the thunk returns**; while a module's body is still running its
+  path is absent from the cache, so a cyclic re-import re-runs it → unbounded recursion.
+- **Fix:** a shared, insertion-ordered `moduleLoading: LinkedHashSet[os.Path]` threaded
+  into child interpreters like `moduleCache`. `runImport` checks it **before**
+  `getOrElseUpdate` — a re-entry on a still-loading path throws
+  `InterpretError("Import cycle detected: a.ssc → b.ssc → a.ssc")`; the path is added
+  before the body runs and removed in a `finally`, so a later legitimate import of the
+  same (finished) module is unaffected. Purely diagnostic — no semantic change for
+  acyclic graphs / diamonds. Spec `specs/import-cycle-diagnostic.md`.
+- **Verify:** `InterpImportCycleTest` (2-cycle + facade↔leaf cycle → legible error not
+  `StackOverflowError`; acyclic re-export control still computes) + `InterpModuleDedupTest`
+  green (no regression).
+- **Landed:** (this branch → origin/main).
+
 ## interp-cons-in-effect-handler — `fixed` (example) (2026-06-13, `721ee62b9`)
 
 - **FINAL diagnosis (two earlier mis-diagnoses corrected):** NOT a `::` bug and NOT a
