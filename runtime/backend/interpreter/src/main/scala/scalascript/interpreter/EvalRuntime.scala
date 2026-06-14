@@ -3909,7 +3909,15 @@ private[interpreter] object EvalRuntime:
             while i < names.length do
               val k = names(i)
               val v = env.getOrElse(k, null)
-              if v != null && interp.globals.getOrElse(k, null) != v then
+              // Drop k only when it resolves to the *identical* global binding (a true
+              // top-level reference, re-read live at call time). Use reference identity
+              // (`ne`), NOT value inequality: `Value` has structural equality, so a genuine
+              // frame-local whose value merely *equals* a same-named global (e.g. a
+              // per-request value coinciding with a global) was misclassified as the global
+              // and dropped — then re-read live at call time, leaking a later/other context's
+              // value (cross-tenant state leak). A distinct binding object is always a real
+              // capture; only the literal global object is re-read live.
+              if v != null && (interp.globals.getOrElse(k, null) ne v) then
                 if b == null then b = new scala.collection.mutable.HashMap[String, Value]
                 b(k) = v
               i += 1
