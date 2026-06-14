@@ -3119,6 +3119,16 @@ private[interpreter] object EvalRuntime:
       n == "List" || n == "Vector" || n == "Seq"
     }
 
+  /** The distinct `Term.Name` strings appearing anywhere in a lambda `body` — a SOUND
+   *  over-approximation of its free variables (it also picks up locally-bound names,
+   *  method-selection names, and names inside nested lambdas; all harmless for closure
+   *  capture — see `lambdaFreeNamesCache`). Used once per lambda AST (cached) so a
+   *  closure captures only these names from the env instead of iterating the whole env. */
+  private def collectBodyNames(body: Term): Array[String] =
+    // `.collect` visits the whole subtree INCLUDING the root, so a body that is itself a
+    // bare `Term.Name` (`x => x`) is covered. `.distinct` dedups; done once per lambda.
+    body.collect { case n: Term.Name => n.value }.distinct.toArray
+
   private def isPureConstExpr(t: Term): Boolean = t match
     case _: Lit         => true
     case tu: Term.Tuple =>
@@ -3877,34 +3887,32 @@ private[interpreter] object EvalRuntime:
       // a param like `a` for `def adder(a)` is stripped because interp.globals also
       // hold the `<a>` HTML tag under that name, and the inner `b => a + b`
       // would resolve `a` to the tag instead of the captured Int.
-      // Build closure by walking only FrameMap local slots, skipping the globals
-      // parent chain.  Avoids O(|globals|) iteration that env.filter would do.
-      val closure: Map[String, Value] = env match
-        case fm: FrameMap =>
-          val b = new scala.collection.mutable.HashMap[String, Value]
-          var cur: Map[String, Value] = fm
-          while cur.isInstanceOf[FrameMap] do
-            cur.asInstanceOf[FrameMap].appendLocalTo(b, interp.globals)
-            cur = cur.asInstanceOf[FrameMap].parent
-          // Include terminal non-FrameMap parent (e.g., a prior closure Map).
-          // Local bindings already in `b` take priority — do NOT overwrite them.
-          if cur ne interp.globals then
-            cur.foreachEntry { (k, v) =>
-              if !b.contains(k) && interp.globals.getOrElse(k, null) != v then b(k) = v
-            }
-          b.toMap
-        case _ =>
-          if env eq interp.globals then Map.empty
+      // Capture ONLY the names the body could reference (free-var-limited closure,
+      // effect-cps-continuation env slice), instead of iterating the whole env — a
+      // lambda created in a large env (a multi-shot handler's `opt => resume(opt)`
+      // re-evaluated per perform, env holding all accumulated continuation vars) used
+      // to `foreachEntry` the entire env. `collectBodyNames` is a SOUND over-approx of
+      // the free vars (cached by AST identity), so no needed binding is dropped; a name
+      // not in the env is skipped, a same-as-globals name is left to re-read live at call
+      // time (so a later-reassigned `var` is visible), exactly as before.
+      val closure: Map[String, Value] =
+        if env eq interp.globals then Map.empty
+        else
+          var names = interp.lambdaFreeNamesCache.get(t)
+          if names == null then
+            names = collectBodyNames(body)
+            interp.lambdaFreeNamesCache.put(t, names)
+          if names.length == 0 then Map.empty
           else
-            // foreachEntry (not .filter) so we never allocate a Tuple2 per entry;
-            // builder stays null until a genuine capture appears, so the common
-            // all-globals case (empty closure) allocates nothing.
             var b: scala.collection.mutable.HashMap[String, Value] = null
-            env.foreachEntry { (k, v) =>
-              if interp.globals.getOrElse(k, null) != v then
+            var i = 0
+            while i < names.length do
+              val k = names(i)
+              val v = env.getOrElse(k, null)
+              if v != null && interp.globals.getOrElse(k, null) != v then
                 if b == null then b = new scala.collection.mutable.HashMap[String, Value]
                 b(k) = v
-            }
+              i += 1
             if b == null then Map.empty else b.toMap
       // Extract and cache lambda parameter metadata once per AST node. Typed
       // handler mounting reads paramTypes, with empty string for unannotated params.

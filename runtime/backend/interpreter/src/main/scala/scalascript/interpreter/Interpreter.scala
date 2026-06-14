@@ -710,6 +710,18 @@ class Interpreter(
   private[interpreter] val emptyClosureFunCache: java.util.IdentityHashMap[scala.meta.Term.Function, Computation] =
     java.util.IdentityHashMap()
 
+  /** Cache of the distinct `Term.Name` strings appearing anywhere in a lambda body
+   *  (effect-cps-continuation env slice), keyed by the `Term.Function` AST node. Used
+   *  to build a closure by capturing ONLY the names the body could reference, instead
+   *  of iterating the whole env — a lambda created in a large env (e.g. a multi-shot
+   *  handler's `opt => resume(opt)` re-evaluated per `perform`, where the env holds all
+   *  the accumulated continuation vars) used to `foreachEntry` the entire env. The set
+   *  is a SOUND over-approximation of the free vars (it includes locally-bound and
+   *  method names too — harmless: a non-captured name simply isn't in the env, and a
+   *  shadowed one is overridden at call time), so capture is never under-approximated. */
+  private[interpreter] val lambdaFreeNamesCache: java.util.IdentityHashMap[scala.meta.Term, Array[String]] =
+    java.util.IdentityHashMap()
+
   /** Cache of `typeToString` results by AST identity.  Type AST nodes (the
    *  argument of `summon[…]` and friends) are immutable — recursing across
    *  `Type.Apply`/`Type.Name` and string-building takes O(n) on each visit,
