@@ -420,3 +420,24 @@ result-identical). Safe: recognised pattern + fallback, scoped to `dispatchCase`
 Generalises to any `coll.flatMap(x => resume(x))` handler (the textbook nondeterminism shape). The
 *fuller* compiled-eff-block / JavacJit-lowering work (P4.1/P4.3 above) remains larger and is now
 lower-priority (effectMultiShotDeep is 2.24 ms) — build it only when a real workload justifies it.
+
+### Phase 4 — post-slice-1 re-profile (DIAGNOSTIC 2026-06-14): the cheap cuts are now genuinely done
+
+After slice 1 (effectMultiShotDeep 2.24 ms), a CPU re-profile (194 leaf samples, quiet machine)
+shows the residual is **inherent enumeration + the larger P4.1 block-compile**, NOT a missed cheap
+cut:
+- **`DispatchRuntime.dispatchList` 38 %** — the `coll.flatMap(resume)` enumeration loop (now called
+  directly). Largely *inherent*: it builds the 3125-path result via `buf ++= inner` across the nested
+  flatMaps — that IS the multi-shot work; can't be cut without folding the effect away.
+- **`evalCore` 23 %** — the block continuation re-eval (`step` re-walk + the `NonDet.choose` perform
+  eval). This is the P4.1 *compiled-eff-block* territory (compile the continuation block so resume
+  replays compiled segments instead of re-walking) — the larger, lower-priority feature.
+- `Tuple4`/`Some` unapply alloc reappears in the block-re-eval path — but the **s3 experiment already
+  proved an unapply/alloc cut in the effect re-eval is within-noise** on this CPU-bound residual, so
+  it is not worth a change to the core effect path.
+
+**Conclusion (profile-backed this time): the cheap + safe handler-side cuts are done.** slice 1
+(η-reduction) captured the dominant avoidable cost; the remaining ~2.24 ms is the inherent
+nondeterminism enumeration plus the larger P4.1 block-compile. effectMultiShotDeep went 7.39 → 2.24 ms
+(−70 %) across slices 1/2a/3f + the η-reduction. Build P4.1/P4.3 only when a real effect-heavy
+workload makes 2.24 ms a production outlier.
