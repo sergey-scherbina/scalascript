@@ -1,6 +1,0 @@
-effect-cps-cont-s3 2026-06-14T16:02:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-14T16:02:00Z
-status: in-progress
-done-so-far: compiled-continuation slices 1/2a/3f + P3a/P3b shipped — effectMultiShotDeep 7.39→4.23ms (−43%). Residual = the perform/handler eval (evalApplyGeneral: choose perform + opts.flatMap).
-next: SLICE 3 — re-profile effectMultiShotDeep (post-3f; CPU leaf frames + alloc) to find the CURRENT dominant hotspot. Likely the perform-eval path (evalApplyGeneral) and/or dispatchCase per-perform recompute. Find the next TRACTABLE cut (prefer a safe sub-cut over the full CPS compile) + back-to-back stash A/B on the quiet machine. Spec §3f. Methodology: profile→cut→A/B, prefer general+safe wins.
