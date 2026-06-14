@@ -1,6 +1,0 @@
-interp-recursion-profile 2026-06-14T18:30:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-14T18:30:00Z
-status: in-progress
-done-so-far: effect-perf thread at floor (−70%). Pivoting to the slowest NON-effect bench.
-next: profile recursionFibMulD (1.58ms, slowest non-effect; "at JIT floor" per memory but UNVERIFIED this session) + recursionFibD (1.44, Double variant) — CPU leaf frames. Slice-1 taught me not to trust "at floor" without a profile. If a tractable cut (e.g. the deferred DoubleV boundary-unboxing) exists → take it w/ back-to-back A/B; else confirm floor + release. Quiet machine.
