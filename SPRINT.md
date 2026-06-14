@@ -9,6 +9,30 @@ Start: tell the agent `"ÃÂÃÂ°ÃÂ±ÃÂ¾ÃÂÃÂ°ÃÂ¹
 ---
 
 
+## Architecture refinements — autonomous queue (2026-06-15)
+
+User: "add embedded-runtime-source-migration (T2), codegen-megafile-deflation (T1),
+jit-backend-consolidation (T2), + intrinsic-registration-harmonise into sprint and do all in
+autonomous mode." Full what+how detail in BACKLOG.md §"Architecture Review follow-ups (2026-06-14)".
+Each: claim → worktree → spec → implement smallest safe slice → verify (byte-identical output /
+suites green; A/B where perf-relevant) → ship; **honest scoping** — ship real wins, document+close a
+slice if investigation shows it's not worth it (as meta-extractor-decouple was). Work top-to-bottom.
+
+- [ ] **embedded-runtime-source-migration** (T2) — migrate JvmGenRuntimeSources' Scala-in-strings
+      (~3633 LOC) to real type-checked source inlined via loadRuntimeSource. PRECONDITION per slice:
+      the runtime must form an independently-compilable unit (effectsRuntime references _Computation/
+      _perform fragments — may not compile standalone). Migrate one safe runtime, verify JvmGen output
+      suites behavior-identical. See BACKLOG.
+- [ ] **codegen-megafile-deflation** (T1) — JsGen/JvmGen ~5K LOC each. Extract a cohesive pure cluster
+      (e.g. finish JvmGenStringUtils, or genExpr/genStat split) to a new file, behavior-identical,
+      verify output suites + byte-identical. See BACKLOG.
+- [ ] **jit-backend-consolidation** (T2) — AsmJitBackend (5017) + JavacJitBackend (4309) parallel.
+      Start with a written comparison of what each uniquely provides → decide keep-both-with-shared-
+      lowering vs primary+archive. Investigation-led. See BACKLOG.
+- [ ] **intrinsic-registration-harmonise** (T3) — JS bundles crypto/uuid/graphql/json into core
+      JsIntrinsics while JVM delegates to plugins (27 allowlist exceptions in
+      CrossBackendIntrinsicParityTest). Pick one convention + align; shrink the parity allowlist. See BACKLOG.
+
 ## Autonomous batch (2026-06-14) — 4 user-approved directions, work in order
 
 User: "все четыре задачи внеси в спринт и сделай автономно". Execute each as its own
