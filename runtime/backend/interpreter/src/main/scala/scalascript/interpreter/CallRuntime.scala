@@ -38,6 +38,14 @@ private[interpreter] object CallRuntime:
       if applyFn != null then callValue(applyFn, args, env, interp)
       else interp.located(s"Instance is not callable")
     case _: Value.ListV | _: Value.MapV => DispatchRuntime.dispatch(fn, "apply", args, env, interp)
+    // `sig()` — read a reactive Signal's current value (Scala `Signal.apply(): T`).
+    // The JS/JVM emitters wire this to the reactive runtime; on the interpreter it
+    // returns the signal's current (initial) value, so a `computedSignal(() => … sig() …)`
+    // thunk and other signal reads can be evaluated for server-side/initial render
+    // instead of failing the callable check with a misleading "Not callable". A frontend
+    // library type referenced via a string-tagged Foreign, mirroring the `.bind` bridge.
+    case Value.Foreign("ReactiveSignal", sig: scalascript.frontend.Signal[?]) if args.isEmpty =>
+      Pure(interp.wrapAnyAsValue(sig.apply()))
     // `s(i)` — String index-apply returns the i-th char (Scala `s.apply(i): Char`),
     // matching ListV/MapV/SetV apply.  Without this, `s(i)` fails the callable check
     // with a misleading "Not callable" (specs/string-index-apply.md).

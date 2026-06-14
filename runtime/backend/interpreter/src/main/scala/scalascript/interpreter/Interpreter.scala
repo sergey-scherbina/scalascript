@@ -1511,7 +1511,7 @@ class Interpreter(
     case Value.UnitV      => ()
     case other            => other  // pass complex Values through unchanged
 
-  private def wrapAnyAsValue(a: Any): Value = a match
+  private[interpreter] def wrapAnyAsValue(a: Any): Value = a match
     case n: Long    => Value.intV(n)
     case i: Int     => Value.intV(i.toLong)
     case d: Double  => Value.doubleV(d)

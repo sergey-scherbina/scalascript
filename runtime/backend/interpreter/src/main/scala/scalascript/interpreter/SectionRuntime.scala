@@ -408,6 +408,13 @@ private[interpreter] object SectionRuntime:
     for (name, value) <- childCtx do
       if !interp.globals.contains(name) then
         interp.globals(name) = value
+        // Carry the dependency's val-ness for this name across the import boundary.
+        // The closure-capture optimization re-reads eq-global *vars* live at call time
+        // but must CAPTURE eq-global *vals* (stable, and a lambda may be invoked under a
+        // different interpreter than the one that created it — e.g. a `computedSignal`
+        // thunk in an imported library module). Without this, a dumped module val looks
+        // like a var to the importer and gets re-read-live → Undefined cross-interp.
+        if child.valNames.contains(name) then interp.valNames += name
 
   private def registerImportedContent(interp: Interpreter, resolvedPath: os.Path, childModule: Module): Unit =
     childModule.document.foreach { doc =>

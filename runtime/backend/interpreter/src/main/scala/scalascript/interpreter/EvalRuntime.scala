@@ -3917,7 +3917,18 @@ private[interpreter] object EvalRuntime:
               // and dropped — then re-read live at call time, leaking a later/other context's
               // value (cross-tenant state leak). A distinct binding object is always a real
               // capture; only the literal global object is re-read live.
-              if v != null && (interp.globals.getOrElse(k, null) ne v) then
+              // Capture k when it is NOT the identical live global (`ne` — a genuine
+              // frame-local; see the cross-tenant-leak note above), OR when it is a
+              // stable top-level `val` (in `valNames`). The "drop eq-global, re-read
+              // live at call time" shortcut is only sound for *reassignable vars*
+              // (whose later reassignment must stay visible). A `val` never changes,
+              // so capturing it is value-identical AND robust when the lambda is
+              // invoked under a *different* interpreter than the one that created it
+              // — e.g. a `computedSignal(() => … moduleVal …)` thunk in an imported
+              // library module, evaluated by the frontend runtime's interpreter,
+              // whose globals do not hold that module's vals (they were re-read-live
+              // before this and came back Undefined). Vars stay re-read-live.
+              if v != null && ((interp.globals.getOrElse(k, null) ne v) || interp.valNames.contains(k)) then
                 if b == null then b = new scala.collection.mutable.HashMap[String, Value]
                 b(k) = v
               i += 1
