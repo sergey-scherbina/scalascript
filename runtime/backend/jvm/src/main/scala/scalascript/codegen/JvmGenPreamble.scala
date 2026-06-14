@@ -176,7 +176,7 @@ private[codegen] trait JvmGenPreamble:
    *  runtime-server sources can reference it by the unqualified name `Logger`
    *  (their BUILD-ONLY import blocks provide the qualified name for the
    *  module build). */
-  private lazy val loggerRuntime: String =
+  private lazy val loggerRuntime: String = JvmGenRuntimeCache.memo("loggerRuntime"):
     val path = "/logger-sources/scalascript/logging/Logger.scala"
     val stream = getClass.getResourceAsStream(path)
     if stream == null then
@@ -211,7 +211,7 @@ private[codegen] trait JvmGenPreamble:
    *
    *  Logger is prepended first so runtime-server sources that reference
    *  the unqualified `Logger` name find it in scope. */
-  private[codegen] lazy val commonRuntime: String =
+  private[codegen] lazy val commonRuntime: String = JvmGenRuntimeCache.memo("commonRuntime"):
     val files = List(
       "RestValidationError", "DerCodec", "WsFraming", "Metrics",
       "RateLimit", "Password", "Totp", "Jwt", "JwtRsa",
@@ -251,7 +251,7 @@ private[codegen] trait JvmGenPreamble:
   // runtimes (commonRuntime, effectsRuntime) when no HTTP server is needed.
   // Request/Response/StreamResponse are already defined in commonRuntime; only the
   // server dispatch functions (_routes, route, onWebSocket, _httpDoRequest) need stubs.
-  private[codegen] val serveRuntime: String =
+  private[codegen] val serveRuntime: String = JvmGenRuntimeCache.memo("serveRuntime"):
     val spiHeader =
       "\n// ── runtime-server-spi (inlined from classpath resources) ────────────\n" +
       "// Source of truth: runtime-server-spi/src/main/scala/scalascript/server/spi/*.scala\n"

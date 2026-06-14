@@ -1,5 +1,24 @@
 package scalascript.codegen
 
+/** Process-level memo for the JvmGen runtime-source preamble constants
+ *  (jvmgen-codegen-time). These vals (`effectsRuntime`, `commonRuntime`,
+ *  `serveRuntime`, …) are process-invariant — pure string literals + `stripMargin`,
+ *  or classpath-resource loads keyed only by name — but they live in traits mixed
+ *  into `JvmGen`, and `JvmGen.generate` allocates a fresh instance per call. Without
+ *  this, every `generate` re-runs `stripMargin` over ~180 KB and re-loads runtime
+ *  source resources from the classpath — measured ~43 % of jvmGen codegen time.
+ *  The by-name `compute` runs once per key (first instance); later instances get the
+ *  cached string. Benign data race just recomputes a deterministic constant once. */
+private[codegen] object JvmGenRuntimeCache:
+  private val cache = new java.util.concurrent.ConcurrentHashMap[String, String]()
+  def memo(key: String)(compute: => String): String =
+    val hit = cache.get(key)
+    if hit ne null then hit
+    else
+      val v    = compute
+      val prev = cache.putIfAbsent(key, v)
+      if prev ne null then prev else v
+
 /** Large embedded runtime-source string constants emitted into the generated
  *  Scala preamble (stub-serve, filesystem, generator, effects free-monad, and
  *  reactive-signal runtimes). Pure `String` data — no generator state — lifted
@@ -9,7 +28,7 @@ package scalascript.codegen
 private[codegen] trait JvmGenRuntimeSources:
   self: JvmGen =>
 
-  private[codegen] val stubServeRuntime: String =
+  private[codegen] val stubServeRuntime: String = JvmGenRuntimeCache.memo("stubServeRuntime"):
     """|
        |// ── stub serve runtime (no HTTP server) ──────────────────────────────────────
        |// No-op stubs for route/onWebSocket/_routes/_httpDoRequest so the actor and
@@ -30,7 +49,7 @@ private[codegen] trait JvmGenRuntimeSources:
        |  sys.error("Http effect requires a serve runtime; call runHttp{} or add serve()")
        |""".stripMargin
 
-  private[codegen] val fsRuntime: String =
+  private[codegen] val fsRuntime: String = JvmGenRuntimeCache.memo("fsRuntime"):
     """|
        |// ── std.fs — synchronous file primitives (java.nio.file) ─────────────────
        |// Defined under the user-facing names so nested calls like
@@ -52,7 +71,7 @@ private[codegen] trait JvmGenRuntimeSources:
        |
        |""".stripMargin
 
-  private[codegen] val generatorRuntime: String =
+  private[codegen] val generatorRuntime: String = JvmGenRuntimeCache.memo("generatorRuntime"):
     """|
        |// ── v1.10 Generator — pull-based lazy streams via virtual threads ────────
        |// Each Generator[A] runs its body in a virtual thread.
@@ -217,7 +236,7 @@ private[codegen] trait JvmGenRuntimeSources:
    *  backend: Pure values are plain Scala values, Perform/FlatMap are case
    *  classes, _bind is constant-time, _run / _handle right-associate
    *  FlatMaps in a while-loop (stack-safe in bind-chain depth). */
-  private[codegen] val effectsRuntime: String =
+  private[codegen] val effectsRuntime: String = JvmGenRuntimeCache.memo("effectsRuntime"):
     """|
        |// ── Algebraic effects runtime (trampolined Free Monad) ─────────────────
        |sealed trait _Computation
@@ -3526,7 +3545,7 @@ private[codegen] trait JvmGenRuntimeSources:
    *  queue subscribers into a LinkedHashSet and a scheduled flush
    *  drains it so each effect runs at most once per synchronous
    *  transaction (dedupes the diamond). */
-  private[codegen] val reactiveRuntime: String =
+  private[codegen] val reactiveRuntime: String = JvmGenRuntimeCache.memo("reactiveRuntime"):
     """|
        |// ── Reactive signals (fine-grained reactivity) ─────────────────────
        |class _Signal(var value: Any, val subs: scala.collection.mutable.HashSet[Long])
