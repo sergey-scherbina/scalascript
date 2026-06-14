@@ -464,12 +464,30 @@ cuts + the slice-1 η-reduction.
 
 ## §5 — P4.1 compiled-eff-block (the full straight-line continuation compile) — user-directed build
 
-Status: **building 2026-06-14** (user override of the "deferred" disposition: *"единственный путь к
+Status: **✅ DONE 2026-06-14** (user override of the "deferred" disposition: *"единственный путь к
 измеримому дальнейшему ускорению multi-shot — полная P4.1 (compiled-eff-block): компилировать
 прямолинейный блок-продолжение, чтобы resume проигрывал скомпилированные сегменты вместо повторного
-обхода step"*). This section is the durable design; it ships green + a quiet-machine A/B and is kept
-even if the A/B is within-noise (the design + measured result are the value, as for the two prior
-within-noise block-side cuts in §4).
+обхода step"*). Shipped as designed below; the build was the **safe scope** (structural
+pre-classification + pure-Int-arith Long-compile; performs unchanged), NOT the direct-Perform replay
+(out of scope — see below). The user's hypothesis held: P4.1 **is** a measurable win.
+
+**MEASURED — SHIPPED (not within-noise).** Back-to-back stash A/B, 5 WITH/BASE pairs across two runs
+(machine under elevated load → absolute numbers above the spec's quiet-machine 2.24 ms baseline, but
+the relative delta is load-robust): **effectMultiShotDeep ~2.33 → ~2.06 ms = −10 %** (range −8 % to
+−12 %; tight non-overlapping error bars on the cleanest pairs, e.g. `2.347 ± 0.054 → 2.055 ± 0.013`
+and `2.305 ± 0.029 → 2.061 ± 0.023`). This clears the noise floor where the two prior block-side cuts
+died (~−1 %, §4) — the difference is that P4.1 is a **CPU** cut (removes the `step` structural re-walk
++ the pure-arith re-eval across all 3125 multi-shot paths), and CPU cuts move wall-clock on this
+CPU-bound bench (the recurring lesson). **No regression** on non-effect blocks (back-to-back A/B:
+`multiVal` 0.591/0.592, `valIntermediate` 0.265/0.262, `valMatch` 0.544/0.546, `recursionFib`
+1.21/1.29, pattern benches all equal within bars) — the `reusedView` gate keeps the hot loop-body path
+on `step`, and the per-`evalBlock` cache lookup is a single IdentityHashMap.get. **Cumulative
+effectMultiShotDeep: 7.39 → ~2.0 ms (≈ −73 %)** across slices 1/2a/3f + the slice-1 η-reduction + this.
+Tests: `EffectVmContinuationsTest` 3125/171875 + 256/2560 multi-shot guards + one-shot + deep-handler,
+`StdEffectsTest`, `EffectOneShotFastPathTest`, `JvmGenEffectsRuntimeTest` (33/33 isolated — the
+parallel-run failures were scala-cli-compile flakiness under memory contention, not this change, which
+cannot touch `JvmGen.generate`), `JsEffectLoopTest`, `InterpreterTest` all green. Impl: `BlockRuntime`
+(`CStep`/`compileEffBlock`/`compileEnvIntArith`/`runCompiled`) + `Interpreter.effBlockCache`.
 
 ### Goal
 Compile a **straight-line effectful block** (the canonical multi-shot continuation shape — exactly
