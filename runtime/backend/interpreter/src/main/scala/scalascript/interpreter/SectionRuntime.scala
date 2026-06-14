@@ -312,11 +312,24 @@ private[interpreter] object SectionRuntime:
     // once per DAG path (which was exponential in diamond layers → OOM/hang at load
     // time, busi seq-132).  The importer below still does its own binding/merge of the
     // (now shared) child's exports, so per-importer aliasing/registration is unchanged.
+    // Detect a true import CYCLE (A→B→A) before re-entering the load. `moduleCache`
+    // alone can't: `getOrElseUpdate` only inserts after the thunk returns, so while a
+    // module's body is still running its path is absent from the cache and a cyclic
+    // re-import re-runs it forever → StackOverflowError. `moduleLoading` tracks paths
+    // currently on the resolution stack; a hit here is a genuine cycle, reported as a
+    // legible error instead of overflowing the stack. (A diamond is acyclic and never
+    // re-enters a still-loading path, so this is invisible to the dedup path above.)
+    if interp.moduleLoading.contains(resolvedPath) then
+      val chain = (interp.moduleLoading.toList :+ resolvedPath).map(_.last).mkString(" → ")
+      throw InterpretError(s"Import cycle detected: $chain")
     val child = interp.moduleCache.getOrElseUpdate(resolvedPath, {
-      val c = Interpreter(interp.out, Some(childDir), lockPath = interp.lockPath,
-                          moduleCache = interp.moduleCache)
-      c.run(childModule)
-      c
+      interp.moduleLoading += resolvedPath
+      try
+        val c = Interpreter(interp.out, Some(childDir), lockPath = interp.lockPath,
+                            moduleCache = interp.moduleCache, moduleLoading = interp.moduleLoading)
+        c.run(childModule)
+        c
+      finally interp.moduleLoading -= resolvedPath
     })
     if !isContentHelperImport(imp.path) then
       registerImportedContent(interp, resolvedPath, childModule)

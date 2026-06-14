@@ -117,7 +117,18 @@ class Interpreter(
      *  exponentially → OOM/hang at load time).  Defaults to a fresh map, so a
      *  top-level `Interpreter(...)` owns one cache for its whole run. */
     private[interpreter] val moduleCache: mutable.Map[os.Path, Interpreter] =
-      mutable.Map.empty) extends ActorInterp:
+      mutable.Map.empty,
+    /** Modules **currently being loaded** (on the import-resolution stack), shared
+     *  across the whole import-graph run and threaded into every child interpreter
+     *  like `moduleCache`.  Insertion-ordered so a detected cycle can be rendered as
+     *  a path.  `SectionRuntime.runImport` adds a path before running its module body
+     *  and removes it after (in a `finally`); a re-entry on a path still in this set
+     *  is a true import cycle (`A→B→A`) — caught and reported as a clear
+     *  `InterpretError` instead of recursing into a `StackOverflowError`.  This is
+     *  distinct from the `moduleCache` diamond dedup: a diamond is acyclic and never
+     *  re-enters a still-loading path. */
+    private[interpreter] val moduleLoading: mutable.LinkedHashSet[os.Path] =
+      mutable.LinkedHashSet.empty) extends ActorInterp:
   /** Per-interpreter WebSocket route table.  Owning this here means each
    *  `Interpreter` instance has an isolated WS route set — no global lock
    *  or `WsTestLock` synchronization required in tests. */
