@@ -3073,8 +3073,12 @@ private[interpreter] object EvalRuntime:
     // the result by AST identity. First visit computes + classifies + stores;
     // subsequent visits return a single HashMap.get + Pure wrap. Limited to
     // these two kinds because they're the heavyweight allocators that benefit
-    // from caching — Lit is already interned via litCache.
-    val isCacheKind = term.isInstanceOf[Term.Tuple] || term.isInstanceOf[Term.ApplyInfix]
+    // from caching — Lit is already interned via litCache. effect-vm-cont-p3 adds
+    // constant immutable collection literals (`List(1,2,3,4)`) — rebuilt per visit
+    // in a hot loop / multi-shot continuation; the callee-name gate keeps non-`List`
+    // applies (e.g. `fib(n-1)`) off the cache path.
+    val isCacheKind = term.isInstanceOf[Term.Tuple] || term.isInstanceOf[Term.ApplyInfix] ||
+      (term.isInstanceOf[Term.Apply] && isConstCollName(term.asInstanceOf[Term.Apply].fun))
     if isCacheKind then
       val cv = interp.pureConstCache.get(term)
       if cv != null && (cv ne interp.NotPure) then
@@ -3096,11 +3100,30 @@ private[interpreter] object EvalRuntime:
    *  decide whether a Term's evaluation is deterministic + env-independent and
    *  therefore cacheable. Caching is otherwise inserted by `eval` for the
    *  `Term.Tuple`/`Term.ApplyInfix` outer kinds only. */
+  /** The callee of a constant **immutable** collection literal — `List(..)` / `Vector(..)` /
+   *  `Seq(..)`. Such a literal with all-pure-const args is loop-invariant and its value is
+   *  immutable (safe to share), so `pureConstCache` can memoise it (effect-vm-cont-p3: the
+   *  `choose(List(1,2,3,4))` arg was rebuilt ~85× across the multi-shot continuation re-runs;
+   *  also a general win for any `const-collection` literal in a hot loop). Plain field-access on
+   *  the `Term.Name` (no `unapply`) keeps the per-`Apply` cache-gate cheap. */
+  private def isConstCollName(t: Term): Boolean =
+    t.isInstanceOf[Term.Name] && {
+      val n = t.asInstanceOf[Term.Name].value
+      n == "List" || n == "Vector" || n == "Seq"
+    }
+
   private def isPureConstExpr(t: Term): Boolean = t match
     case _: Lit         => true
     case tu: Term.Tuple =>
       var ok = true
       var xs = tu.args
+      while ok && xs.nonEmpty do
+        ok = isPureConstExpr(xs.head)
+        xs = xs.tail
+      ok
+    case app: Term.Apply if isConstCollName(app.fun) =>
+      var ok = true
+      var xs = app.argClause.values
       while ok && xs.nonEmpty do
         ok = isPureConstExpr(xs.head)
         xs = xs.tail

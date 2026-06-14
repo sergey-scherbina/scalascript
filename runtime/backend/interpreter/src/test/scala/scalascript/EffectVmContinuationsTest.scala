@@ -96,6 +96,26 @@ class EffectVmContinuationsTest extends AnyFunSuite with Matchers:
       println(all.length)
     """) shouldBe "4"
 
+  // effect-vm-cont-p3: the `List(1,2,3,4)` arg is now memoised by `pureConstCache` (const
+  // immutable collection literal). Pin that the SHARED cached list does not corrupt the
+  // multi-shot enumeration — 4 nested `choose` over a 4-elem list must still yield 4^4 = 256
+  // independent paths, and the sum is path-dependent (not folded).
+  test("p3: multi-shot over a cached const list literal yields all 256 paths"):
+    run("""
+      multi effect NonDet:
+        def choose(options: List[Int]): Int
+      def program(): Int ! NonDet =
+        val a = NonDet.choose(List(1, 2, 3, 4))
+        val b = NonDet.choose(List(1, 2, 3, 4))
+        val c = NonDet.choose(List(1, 2, 3, 4))
+        val d = NonDet.choose(List(1, 2, 3, 4))
+        a + b + c + d
+      val all = handle(program()) {
+        case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))
+      }
+      println(all.length.toString + "/" + all.sum.toString)
+    """) shouldBe "256/2560"  // 256 paths; Σ sums = 256·(mean 2.5·4) = 256·10 = 2560
+
   // ── effect-vm-cont-p2c: compiled pure-Int-arith resume expressions ──
   // The resolver compiles `+`/`-`/`*`/unary `±` resume exprs to a Long closure instead of
   // tree-walking `interp.eval` each perform. These pin that the compiled path is numerically
