@@ -1,6 +1,0 @@
-feature/std-i18n 2026-06-14T21:39:31Z
-agent: claude-code
-heartbeat: 2026-06-14T21:39:31Z
-status: in-progress
-done-so-far: scoped design (pure core + reactive ui helper + reactive heading node)
-next: write specs/i18n.md, then runtime/std/i18n.ssc + runtime/std/ui/i18n.ssc + SignalHeadingNode wiring + conformance test
