@@ -1,0 +1,6 @@
+effect-vm-cont-p3 2026-06-14T11:35:00Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-14T11:35:00Z
+status: in-progress
+done-so-far: P3 design+profile in spec (effectMultiShot 0.93ms, alloc-bound 406KB/op, spread). User OVERRODE the deferral — wants P3 built. Resuming to build it in phased shippable slices.
+next: re-profile effectMultiShot with DEEP allocation stacks to split cacheable (repeated literal/continuation-reification rebuilds, memoizable) vs inherent (256-combination flatMap result lists) allocation, pick the highest-value tractable lever, implement Phase 3a, measure, ship. Spec specs/effect-vm-continuations.md Phase 3.
