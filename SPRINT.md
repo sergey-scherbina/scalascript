@@ -2505,7 +2505,11 @@ single-node without them.
         .walkLong lowering a 0-arg `Eff.op()` with a live resolver to the bridge, so the whole
         effectful loop JIT-compiles. Safe (tryWhileJit writes slots only on success -> bridge throw
         bails cleanly). EffectVmContinuationsTest + 518 tests + full bench green. spec Phase 2.
-      - [ ] **P2b** (open): hoist a constant resume expr; N-arg + ref-return effect ops
-        (resolveEffectRef / walkRef); cache the resolver in a slot (residual ~1.67 vs 0.26 ms).
+      - [~] **P2b** arg-carrying effect ops DONE 2026-06-14: effectReader (`Reader.ask(i)` loop)
+        26.7 -> 2.72 ms (~9.8x). resolveEffectLong1/2 + JavacJitBackend lowers <=2-numeric-arg
+        `Eff.op(args)`; broadened isSimpleResumeArg to pure-arith resume exprs (`resume(k*2)`).
+        STILL OPEN: ref-return / ref-arg effect ops (resolveEffectRef / walkRef); >2 args;
+        cache the resolver in a slot (residual per-iter bridge call). NOT doing constant-inline
+        of the resume value (would fold the effect away = gaming).
       - [ ] **P3 general delimited continuations**: VM suspend/resume (capture resumable VM
         state at a perform) for multi-shot + non-tail resumes. Major VM feature; deferred.

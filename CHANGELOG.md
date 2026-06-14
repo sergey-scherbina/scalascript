@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-14 — perf(interp): JIT arg-carrying effect ops (effect-vm-continuations P2b) — ~9.8×
+
+- Extends the effect-op JIT (P2) from 0-arg to **arg-carrying** ops `Eff.op(a)` / `Eff.op(a, b)`
+  (numeric args) — the common algebraic-effect shape (`Reader.ask(k)`, `Combine.mix(a,b)`).
+  `JitGlobals.resolveEffectLong1/2` pass the numeric args to the resolver; `JavacJitBackend
+  .walkLong` lowers a ≤2-numeric-arg `Eff.op(args)` with a live resolver to the right bridge.
+- Also broadened `EffectsRuntime.isSimpleResumeArg` (the resolver/tail-resume classifier) from
+  literals/names to **pure arithmetic** (`+ - * / %`, unary `±`), so a `resume(k * 2)` arm now
+  resolves (previously only `resume(1)`-style literals did — which is why arg-effect loops hadn't
+  JIT'd). Still side-effect-free (no nested perform), evaluated per perform with the op-args bound.
+- **New bench `effectReader` (`acc + Reader.ask(i)` × 5000, `case Reader.ask(k,resume)=>resume(k*2)`):
+  26.7 → 2.72 ms (~9.8×).** effectOneShot unchanged (~1.7 ms). `EffectVmContinuationsTest` (+1: a
+  2-arg op with `resume(a*b+1)`) + 425 effects/interp/JIT/while tests green; full bench no regression.
+
 ## 2026-06-14 — perf(interp): JIT effectful loops (one-shot tail-resume) — effectOneShot ~11×
 
 - `effect-vm-continuations` Phases 1+2 (spec `specs/effect-vm-continuations.md`). `effectOneShot`

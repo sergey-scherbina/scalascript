@@ -136,9 +136,12 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       `Eff.op()` with a live resolver. Safe (tryWhileJit writes slots only on success → the
       bridge throw bails cleanly to the trampoline; deep-handling the same op still works). P1
       FINDING: the resolver ALONE was ~0% — the win is compiling the body, not skipping the
-      trampoline. Spec `specs/effect-vm-continuations.md`. **Open: P2b** (residual ~1.67 vs 0.26 ms
-      = the per-iteration bridge call — hoist a constant resume expr; N-arg / ref-return ops);
-      **P3** general VM suspend/resume for multi-shot + non-tail resumes (`effectMultiShot`).
+      trampoline. Spec `specs/effect-vm-continuations.md`. **P2b ✅ 2026-06-14**: arg-carrying
+      effect ops JIT — `effectReader` (`Reader.ask(i)` loop) 26.7 → 2.66 ms (~10×);
+      `resolveEffectLong1/2` + `JavacJitBackend` lowering ≤2-numeric-arg ops + `isSimpleResumeArg`
+      broadened to pure-arith resume exprs. **Open: P2c** ref-return/ref-arg ops
+      (`resolveEffectRef`/`walkRef`), >2 args, cache the resolver in a slot; **P3** general VM
+      suspend/resume for multi-shot + non-tail resumes (`effectMultiShot` 0.95 ms).
 
 > **Full-suite landscape (`scripts/bench interp`, 2026-06-13, 37 benches).** The two dominant
 > outliers dwarf everything else (next-slowest is 1.57 ms) and are the real targets:

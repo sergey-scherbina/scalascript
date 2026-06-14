@@ -105,8 +105,18 @@ Phase 1 proved the body must be **compiled**, not just de-trampolined. Shipped:
    path, the deep-handler bail, op-arg binding, and multi-shot-untouched.
 
 Residual ~1.67 ms (vs ~0.26 ms arithLoop) = the per-iteration bridge call (TLS lookup +
-`interp.eval` of the resume expr). **Future Phase 2b** (open): hoist a constant resume expr;
-N-arg + ref-return effect ops (`resolveEffectRef`, `walkRef`); cache the resolver in a slot.
+`interp.eval` of the resume expr). NB: we deliberately do NOT inline a constant resume value to
+reach arithLoop parity — that would fold the effect away (gaming); consulting the handler each
+iteration is the honest floor.
+
+**Phase 2b — arg-carrying effect ops — ✅ DONE 2026-06-14 (effectReader ~9.8×).** Extended the
+JIT lowering from 0-arg to `Eff.op(a)` / `Eff.op(a, b)` (numeric args): `JitGlobals
+.resolveEffectLong1/2` pass the args to the resolver; `JavacJitBackend.walkLong` emits them for a
+≤2-numeric-arg op with a live resolver. Also broadened `EffectsRuntime.isSimpleResumeArg` (the
+resolver classifier) from literals/names to **pure arithmetic** so a `resume(k * 2)` arm resolves
+(previously only `resume(1)`-style literals did). `effectReader` (`acc + Reader.ask(i)` × 5000,
+`case Reader.ask(k,resume)=>resume(k*2)`) 26.7 → 2.72 ms. STILL OPEN: ref-return / ref-arg effect
+ops (`resolveEffectRef` / `walkRef`); >2 args.
 
 ## Phase 3 — general delimited continuations (future)
 
