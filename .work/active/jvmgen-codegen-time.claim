@@ -1,0 +1,6 @@
+jvmgen-codegen-time 2026-06-14T20:56:34Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-14T20:56:34Z
+status: in-progress
+done-so-far: codegen-time surveyed this session — jsGen 0.023-0.090ms (floor), jvmGen 2.36-2.79ms for the SAME tiny programs (arithLoop/recursionFib/Tco/patternMatch) → ~100× asymmetry. Runtime + compile-time parse/type/unify already verified at floor.
+next: profile jvmGen_arithLoop leaf frames (scripts/bench gen + JFR / direct) to find the per-call heavy step (likely scalameta re-parse / pretty-print / a transform pass that re-runs); cut the hot path; back-to-back A/B via scripts/bench gen; ship only on a measurable cut. One-time compile cost (DX), lower-pri than runtime but bounded + tractable.
