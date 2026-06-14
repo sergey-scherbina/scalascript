@@ -1,0 +1,6 @@
+meta-extractor-decouple 2026-06-14T21:54:35Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-14T21:54:35Z
+status: in-progress
+done-so-far: recorded in BACKLOG (arch review 2026-06-14). 949 After_4_x extractor sites identified.
+next: SLICE 1 = scope honestly (investigation, read-only): classify the 949 sites hot-path (interp eval/dispatch/call inner loops — alloc matters) vs cold (codegen/parse/one-time analysis — alloc irrelevant); check scalameta version + whether an upgrade is actually blocked by these. THEN decide: build SsMeta accessor helper + convert the real hot-path subset + A/B (if a perf win remains), or report low-value + narrow/repick if the hot paths are already converted. Do NOT mass-migrate 949 cold sites (low value, hurts readability of nested patterns). spec specs/meta-extractor-decouple.md after scoping.
