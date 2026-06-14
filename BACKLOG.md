@@ -52,13 +52,15 @@ recommended first pick** (bounded, measurable, compounds with the perf work).
       source module compiled at our build time, inline via the loader. (NB: jvmgen-codegen-time already
       made these FAST via memoization; this makes them SAFE/maintainable.) Output must stay byte-identical.
 
-- [ ] **build-time-cross-backend-parity** (Tier 3) — backend drift (an intrinsic emitted on one
+- [x] **build-time-cross-backend-parity** ✓ DONE 2026-06-15 — `CrossBackendIntrinsicParityTest` (backendInterpreter/Test) gates the two hand-maintained core codegen tables `JvmIntrinsics` vs `JsIntrinsics`: diffs keysets with a classified allowlist (3 jvm-only native wallet crypto; 27 js-only that JVM provides via crypto/uuid/graphql/json plugins). Exact-match ratchet → new drift OR a stale allowlist entry fails with an actionable message. Verified green + red-on-drift. Interp SPI map (sparse/native), plugin overlays, hardcoded codegen out of scope (other mechanisms; conformance-covered). spec `specs/cross-backend-intrinsic-parity.md`. Surfaced a follow-up (`intrinsic-registration-harmonise`). ORIGINAL (Tier 3) — backend drift (an intrinsic emitted on one
       backend but missing on a declared peer) is currently caught "post-hoc" by the conformance suite
       (`tests/conformance/run.sc`), not at build time — the Compiler-extensibility roadmap notes this
       gap explicitly. HOW: a build-time check that every intrinsic/`QualifiedName` claimed in one
       backend's `Backend.intrinsics` table exists in its declared peers (JVM↔JS↔interp at least),
       failing the build on a gap. Turns a CI-latency miss into a compile-time error. Quality
       infrastructure; pairs with the SPI work already landed.
+
+- [ ] **intrinsic-registration-harmonise** (Tier 3, low-pri — surfaced by build-time-cross-backend-parity 2026-06-15) — JS bundles crypto/uuid/graphql/json intrinsics into its CORE `JsIntrinsics` table, while JVM delegates the same to PLUGINS (crypto/uuid/graphql/json-plugin). Same capability, different registration location → 27 documented allowlist exceptions in `CrossBackendIntrinsicParityTest`. HOW: pick one convention (both delegate to plugins, OR both keep in core) and align the two backends; then the parity gate could compare true resolved capability sets (core + overlays) and the allowlist shrinks toward zero. Pure consistency; no user-facing change. Verify the gate + all backend output suites stay green.
 
 - [ ] **module-graph-grouping** (Tier 3, low-pri) — 231 sbt modules, ~150 of them thin
       payments/wallet/blockchain/x402 SPI impls (`walletVault*`, `paymentsX`, `blockchain*`, `x402*`).

@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — infra(backend): build-time cross-backend intrinsic-table parity gate
+
+`CrossBackendIntrinsicParityTest` (backendInterpreter/Test) guards the two hand-maintained core codegen
+intrinsic tables `JvmIntrinsics` vs `JsIntrinsics` against undocumented drift (an intrinsic added to one
+backend but forgotten on the peer) — previously caught only post-hoc by the conformance suite. Diffs the
+keysets against a classified allowlist (3 jvm-only native wallet crypto ops; 27 js-only that JVM provides
+via crypto/uuid/graphql/json plugins — a registration-location inconsistency, each verified present on
+JVM). Exact-match ratchet: new drift OR a stale allowlist entry fails with an actionable message.
+Out of scope (other mechanisms; conformance-covered): the sparse interpreter SPI map (hardcoded natives),
+plugin overlays, hardcoded codegen dispatch. Verified green + red-on-drift. Spec
+`specs/cross-backend-intrinsic-parity.md`; surfaced follow-up `intrinsic-registration-harmonise`.
+---
+
 ## 2026-06-14 — perf(jvmgen): memoize the runtime-source preamble constants — codegen-time −82..94% (5.6–17×)
 
 `JvmGen.generate` allocates a fresh `JvmGen` instance per call, and the ~180 KB runtime preamble
