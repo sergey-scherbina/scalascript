@@ -1,0 +1,6 @@
+build-time-cross-backend-parity 2026-06-14T21:59:41Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-14T21:59:41Z
+status: in-progress
+done-so-far: arch-review BACKLOG item. Goal: build-time check that an intrinsic claimed on one backend exists on its declared peers (JVM/JS/interp), failing the build on drift instead of post-hoc conformance CI.
+next: SLICE 1 = explore the intrinsics SPI (Backend.intrinsics / dispatchIntrinsic / QualifiedName registries) to confirm each backend's intrinsic name set is programmatically enumerable; design the parity check (likely a ScalaTest suite that diffs the registries with an allowlist for intentional backend-specific intrinsics). spec specs/cross-backend-intrinsic-parity.md after exploration. Then implement + run.
