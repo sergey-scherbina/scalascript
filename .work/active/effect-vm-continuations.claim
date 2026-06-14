@@ -1,0 +1,10 @@
+effect-vm-continuations 2026-06-14T09:25:00Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-14T09:25:00Z
+status: in-progress
+done-so-far: design spec + P1 finding shipped (4011e0c7c). P1 resolver alone = 0% (the win is COMPILE the body, not skip the trampoline). P2 = the win.
+next: P2 (specs/effect-vm-continuations.md). KEY SIMPLIFICATION: tryWhileJit writes slots back ONLY on success, so a speculative compiled loop whose effect-bridge throws (no resolver) discards partial updates + bails to trampoline -> NO double-execution. So no resolver-gating needed.
+  (1) re-add P1 resolver: EffectsRuntime TLS resolverStack + lookupResolver + withResolvers; evalHandle builds resolverFrame from clean one-shot tail-resume arms (irrefutable op-args) + wraps body eval; StatRuntime op NativeFnV checks lookupResolver -> Pure(value) else Perform.
+  (2) JitGlobals.resolveEffectLong(eff,op): reads TLS resolver, returns Long (throws if absent -> JIT bails safely).
+  (3) JavacJitBackend.walkLong: `Term.Apply(Term.Select(Name(eff),Name(op)), Nil)` with lookupResolver(eff,op)!=null AT COMPILE TIME (resolver in TLS during handle body eval) -> emit `$jkg.resolveEffectLong("eff","op")`. 0-arg numeric first (effectOneShot tick()).
+  GATE: A/B effectOneShot (target arithLoop parity-ish); StdEffects/JvmGen/JsEffect + full while/interp suites green; full bench no-regression. HIGH blast radius (JIT+effects) - test hard.
