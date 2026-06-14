@@ -65,6 +65,34 @@ private[interpreter] object EffectsRuntime:
             case _   => (a: Array[Long]) => lf(a) * rf(a)
       case _ => null
 
+  /** effect-cps-compile (spec §4): recognise the canonical multi-shot handler body
+   *  `coll.flatMap(x => resume(x))` and return `coll`. Such a body is η-equivalent to
+   *  `coll.flatMap(resume)` (`resume` is a 1-arg `NativeFnV`), so the handler can call the
+   *  `flatMap` dispatch with the `resume` Value DIRECTLY — skipping, on every perform (781× for
+   *  effectMultiShotDeep), the `x => resume(x)` lambda `FunV` creation, the `evalApplyGeneral`
+   *  `flatMap` method-resolution, and the per-element lambda-body re-eval — the handler-side
+   *  residual after slices 1/2a/3f. Returns null (→ the unchanged `interp.eval(body)` path) for
+   *  any non-matching body, so semantics are preserved for every other handler shape. */
+  private def flatMapResumeColl(body: Term, resumeName: String): Term | Null =
+    body match
+      case Term.Apply.After_4_6_0(Term.Select(coll, Term.Name("flatMap")), ac)
+          if ac.values.lengthCompare(1) == 0 =>
+        ac.values.head match
+          case Term.Function.After_4_6_0(pc, inner) =>
+            pc.values match
+              case (p: Term.Param) :: Nil =>
+                val pname = p.name.value
+                inner match
+                  case Term.Apply.After_4_6_0(Term.Name(`resumeName`), iac)
+                      if iac.values.lengthCompare(1) == 0 =>
+                    iac.values.head match
+                      case Term.Name(`pname`) if pname.nonEmpty => coll
+                      case _                                     => null
+                  case _ => null
+              case _ => null
+          case _ => null
+      case _ => null
+
   // ── effect-vm-continuations (specs/effect-vm-continuations.md) ──
   // A handler arm `case Eff.op(a.., resume) => resume(rexpr)` (clean one-shot tail-resume)
   // means the value of `Eff.op(callArgs)` is `rexpr` with `a.. := callArgs`. evalHandle
@@ -257,7 +285,21 @@ private[interpreter] object EffectsRuntime:
                   case Value.BoolV(b) => b
                   case _              => false
               }
-              if guardOk then Some(interp.eval(c.body, finalEnv)) else None
+              if !guardOk then None
+              else
+                // effect-cps-compile P4: `coll.flatMap(x => resume(x))` → `coll.flatMap(resume)`
+                // dispatched directly (η-equivalent), skipping the per-perform lambda + per-element
+                // body re-eval. Only when the body matches AND resume binds a simple Pat.Var.
+                val rname = resumePat match { case Some(pv: Pat.Var) => pv.name.value; case _ => null }
+                val collT = if rname != null then flatMapResumeColl(c.body, rname) else null
+                if collT == null then Some(interp.eval(c.body, finalEnv))
+                else
+                  interp.eval(collT, finalEnv) match
+                    case Pure(collV) =>
+                      Some(DispatchRuntime.dispatch(collV, "flatMap", List(resume), finalEnv, interp))
+                    case collC =>
+                      Some(FlatMap(collC, (collV: Value) =>
+                        DispatchRuntime.dispatch(collV, "flatMap", List(resume), finalEnv, interp)))
           case _ => None
       }.nextOption()
         .getOrElse(throw InterpretError(s"Unhandled effect: $eff.$op (no matching case)"))
