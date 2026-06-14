@@ -95,3 +95,53 @@ class EffectVmContinuationsTest extends AnyFunSuite with Matchers:
       }
       println(all.length)
     """) shouldBe "4"
+
+  // ── effect-vm-cont-p2c: compiled pure-Int-arith resume expressions ──
+  // The resolver compiles `+`/`-`/`*`/unary `±` resume exprs to a Long closure instead of
+  // tree-walking `interp.eval` each perform. These pin that the compiled path is numerically
+  // identical to the old interp.eval path across nested/unary/subtraction shapes, and that
+  // a non-compilable shape (division) falls back to interp.eval and stays correct.
+
+  private val Reader =
+    """effect Reader:
+      |  def ask(k: Int): Int
+      |def loop(n: Int): Int ! Reader =
+      |  var acc = 0
+      |  var i = 0
+      |  while i < n do
+      |    acc = acc + Reader.ask(i)
+      |    i = i + 1
+      |  acc
+      |""".stripMargin
+
+  test("p2c: subtraction + nested arith resume expr (compiled path)"):
+    run(Reader + """println(handle(loop(5)) { case Reader.ask(k, resume) => resume((k + 1) * 2 - 3) })""")
+      .shouldBe("15")  // sum_{i=0..4} ((i+1)*2 - 3) = -1+1+3+5+7 = 15
+
+  test("p2c: long compiled-arith loop computes the exact sum (not folded)"):
+    // loop(5000) with resume(k*2) ⇒ 2·Σ(i=0..4999) i = 4999·5000 = 24_995_000. Pins that the
+    // compiled-resolver path runs every iteration with correct per-iter arithmetic at scale.
+    run(Reader + """println(handle(loop(5000)) { case Reader.ask(k, resume) => resume(k * 2) })""")
+      .shouldBe("24995000")
+
+  test("p2c: unary-minus resume expr (compiled path)"):
+    run(Reader + """println(handle(loop(4)) { case Reader.ask(k, resume) => resume(-k + 10) })""")
+      .shouldBe("34")  // sum_{i=0..3} (10 - i) = 10+9+8+7 = 34
+
+  test("p2c: division resume expr falls back to interp.eval (still correct)"):
+    run(Reader + """println(handle(loop(6)) { case Reader.ask(k, resume) => resume(k / 2) })""")
+      .shouldBe("6")   // sum_{i=0..5} (i/2) = 0+0+1+1+2+2 = 6 (integer division; slow path)
+
+  test("p2c: zero-arg constant resume compiles (effectOneShot shape)"):
+    run("""
+      effect Bump:
+        def tick(): Int
+      def loop(n: Int): Int ! Bump =
+        var acc = 0
+        var i = 0
+        while i < n do
+          acc = acc + Bump.tick()
+          i = i + 1
+        acc
+      println(handle(loop(1000)) { case Bump.tick(resume) => resume(2 * 3 + 1) })
+    """) shouldBe "7000"  // 1000 * 7

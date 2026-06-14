@@ -29,6 +29,42 @@ private[interpreter] object EffectsRuntime:
     case Term.ApplyUnary(op, arg) => (op.value == "-" || op.value == "+") && isSimpleResumeArg(arg, resumeName)
     case _                        => false
 
+  /** effect-vm-cont-p2c: compile a pure-**Int**-arithmetic resume expression (the subset
+   *  `isSimpleResumeArg` allows, restricted to `+`/`-`/`*` and unary `±`) into a direct
+   *  `Array[Long] => Long` closure, so the one-shot tail-resume resolver does NOT re-tree-walk
+   *  the handler expression on every perform — it was the dominant residual (effectReader's
+   *  `resume(k * 2)` tree-walked 5000×). `argIdx` maps each op-arg name to its slot in the
+   *  perform's args. Returns `null` for any shape NOT provably bit-identical to `interp.eval`
+   *  over 64-bit `Long` (`IntV op IntV ⇒ intV`, `DispatchRuntime`): `/`/`%` (div-by-zero +
+   *  Double-promotion), Double/conversions, free names, tuples — those keep the `interp.eval`
+   *  resolver. Honest: the effect still dispatches each iteration; only the redundant tree-walk
+   *  of the handler's arithmetic is removed (cf. Phase 2 compiling the loop body). */
+  private def compileIntArith(t: Term, argIdx: Map[String, Int]): (Array[Long] => Long) | Null =
+    t match
+      case Lit.Int(n)  => (_: Array[Long]) => n.toLong
+      case Lit.Long(n) => (_: Array[Long]) => n
+      case Term.Name(x) =>
+        argIdx.get(x) match
+          case Some(i) => (a: Array[Long]) => a(i)
+          case None    => null
+      case Term.ApplyUnary(op, arg) if op.value == "+" => compileIntArith(arg, argIdx)
+      case Term.ApplyUnary(op, arg) if op.value == "-" =>
+        val c = compileIntArith(arg, argIdx)
+        if c == null then null else { val cf = c.nn; (a: Array[Long]) => -cf(a) }
+      case ai: Term.ApplyInfix
+          if (ai.op.value == "+" || ai.op.value == "-" || ai.op.value == "*")
+            && ai.argClause.values.lengthCompare(1) == 0 =>
+        val l = compileIntArith(ai.lhs, argIdx)
+        val r = compileIntArith(ai.argClause.values.head, argIdx)
+        if l == null || r == null then null
+        else
+          val lf = l.nn; val rf = r.nn
+          ai.op.value match
+            case "+" => (a: Array[Long]) => lf(a) + rf(a)
+            case "-" => (a: Array[Long]) => lf(a) - rf(a)
+            case _   => (a: Array[Long]) => lf(a) * rf(a)
+      case _ => null
+
   // ── effect-vm-continuations (specs/effect-vm-continuations.md) ──
   // A handler arm `case Eff.op(a.., resume) => resume(rexpr)` (clean one-shot tail-resume)
   // means the value of `Eff.op(callArgs)` is `rexpr` with `a.. := callArgs`. evalHandle
@@ -138,7 +174,9 @@ private[interpreter] object EffectsRuntime:
                 case Term.Apply.After_4_6_0(Term.Name(`resumeName`), rArgClause)
                     if rArgClause.values.forall(isSimpleResumeArg(_, resumeName)) =>
                   val rArgTerms = rArgClause.values
-                  val resolver: Resolver = (args: List[Value]) =>
+                  // Slow path: bind op-args and `interp.eval` the resume expr. Always correct;
+                  // used verbatim when the expr isn't a compilable pure-Int-arith single term.
+                  val slow: Resolver = (args: List[Value]) =>
                     var menv: Env = env
                     var k = 0
                     while k < opPats.length do
@@ -150,6 +188,31 @@ private[interpreter] object EffectsRuntime:
                       case Nil      => Value.UnitV
                       case t :: Nil => Computation.run(interp.eval(t, menv))
                       case ts       => Value.TupleV(ts.map(t => Computation.run(interp.eval(t, menv))))
+                  // Fast path (effect-vm-cont-p2c): a single pure-Int-arith resume expr compiles
+                  // to a `Long` closure, so the handler arithmetic isn't re-tree-walked per perform.
+                  // Falls back to `slow` if any op-arg isn't an `IntV` at runtime → semantics unchanged.
+                  val argIdx: Map[String, Int] =
+                    opPats.iterator.zipWithIndex.collect {
+                      case (pv: Pat.Var, i) => pv.name.value -> i
+                    }.toMap
+                  val compiled: (Array[Long] => Long) | Null = rArgTerms match
+                    case t :: Nil => compileIntArith(t, argIdx)
+                    case _        => null
+                  val resolver: Resolver =
+                    if compiled == null then slow
+                    else
+                      val cf    = compiled.nn
+                      val nArgs = opPats.length
+                      (args: List[Value]) =>
+                        val buf  = new Array[Long](nArgs)
+                        var k    = 0
+                        var ok   = true
+                        var rest = args
+                        while ok && k < nArgs do
+                          rest match
+                            case (h: Value.IntV) :: tl => buf(k) = h.v; rest = tl; k += 1
+                            case _                     => ok = false
+                        if ok then Value.intV(cf(buf)) else slow(args)
                   Some(key -> resolver)
                 case _ => None
             case _ => None
