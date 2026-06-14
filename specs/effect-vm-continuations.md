@@ -441,3 +441,23 @@ cut:
 nondeterminism enumeration plus the larger P4.1 block-compile. effectMultiShotDeep went 7.39 → 2.24 ms
 (−70 %) across slices 1/2a/3f + the η-reduction. Build P4.1/P4.3 only when a real effect-heavy
 workload makes 2.24 ms a production outlier.
+
+### Phase 4 — P4.1 block-side micro-cut attempt (TRIED + within-noise + REVERTED 2026-06-14)
+
+User asked to speed multi-shot further (build P4.1). Profiling the 2.24 ms residual pinpointed the
+biggest *tractable* block-side waste: `step`'s compound-assign case
+`case Term.ApplyInfix.After_4_6_0(lhs: Term.Name, …)` UNAPPLIES every `Term.ApplyInfix` statement
+(allocating `Some`+`Tuple4`, JFR 95/80 samples) before the `lhs: Term.Name` guard can reject it — and
+a block's pure result expr (`e*e + sd`) is exactly such an infix, re-evaluated per continuation re-run
+(3125×). Converted it to a type-test + field-access guard (no unapply); 226 tests green. But the clean
+back-to-back A/B was **2.34 → 2.31 ms — within noise (overlapping bars)** → reverted.
+
+This is the **second** block-side micro-cut to land within-noise (after the s3 `dispatchCase`
+precompute). Both confirm: post-slice-1 the residual is **`dispatchList` 38 % (inherent nondeterminism
+enumeration) + `evalCore` 23 % (block continuation re-eval)**, and the block-side `evalCore` does NOT
+yield to cheap per-statement cuts (they're alloc on a partly-CPU-bound bench → within-noise, the
+recurring lesson). The **only** path to a further *measurable* multi-shot speedup is the full P4.1
+compiled-eff-block (compile the straight-line continuation so resume replays compiled segments instead
+of re-walking `step`) — a ~1000-line, high-blast-radius build for a 2.24 ms non-outlier. **Disproportionate;
+deferred.** effectMultiShotDeep is at its practical floor at −70 % (7.39 → 2.24 ms) via the cheap+safe
+cuts + the slice-1 η-reduction.
