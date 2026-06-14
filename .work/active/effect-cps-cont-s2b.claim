@@ -1,6 +1,0 @@
-effect-cps-cont-s2b 2026-06-14T14:05:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-14T14:05:00Z
-status: in-progress
-done-so-far: compiled-continuation slices 1 (−5.6%) + 2a (−21.7%, cumulative −26%) shipped — routed pure val-bindings + block result expr off evalCore. effectMultiShotDeep now 5.44ms.
-next: SLICE 2b — re-profile effectMultiShotDeep (post-2a) for the new top hotspot. Likely candidate: dispatchCase (EffectsRuntime:235) recomputes argPats=patArgs.dropRight(1).map(_.asInstanceOf[Pat]) + resumePat + argPats.zip(args) on EVERY perform (781 performs for the deep bench) though they depend only on the handler case, not args — precompute per (eff,op) once (like tailResumeFast/resolverFrame already do). Safe alloc+CPU cut. OR the perform eval (evalApplyGeneral for choose). Cut + back-to-back stash A/B on the (currently-quiet-enough) machine. Spec §3d.
