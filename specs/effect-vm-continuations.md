@@ -266,10 +266,23 @@ interp/effects tests green (incl. the 3125/171875 multi-shot guard); no regressi
 block benches. This is the first slice — the continuation is still re-walked structurally
 (`step`/`FlatMap`); subsequent slices push the compiled-segment idea further (options 1/2).
 
+**Slice 2a — the block RESULT expr too (SHIPPED 2026-06-14).** A re-profile after slice 1 showed
+`evalCore` *still* ~50 % leaf — because slice 1 only handled `Defn.Val`, while the block's final
+expression statement (`e*e + sd`) is evaluated **once per complete path = 3125×** (more than all the
+intermediate vals, ~780×, combined). Extending the same fast path to `step`'s `case t: Term` (bind a
+provably-pure expression statement via `fastPrimitiveValue`, fall back to `interp.eval` for an
+effectful one) gives the bigger win: **effectMultiShotDeep 6.95 → 5.44 ms (−21.7 %)** (clean
+back-to-back A/B, tight non-overlapping bars). Cumulative 7.39 → 5.44 ms (−26 %). 207 tests green; no
+regression. Same safety argument (pure-only ⇒ no dropped/reordered effect). General win for any pure
+expression statement / block result.
+
 ### Recommendation (full feature — IN PROGRESS)
 
-Building incrementally (user-directed). 3d shipped the first CPU slice (−5.6 %). The fuller
-compiled-continuation feature (compile whole straight-line continuation segments once, re-run
-compiled instead of re-walking `step`) remains the larger lever; each slice ships green + A/B'd on a
-quiet machine (CPU wins need wall-clock validation — alloc metrics won't show them). This section is
+Building incrementally (user-directed). Slices 1 + 2a route the continuation's pure-arith
+val-bindings AND the result expr off the megamorphic `evalCore` (cumulative −26 % on
+effectMultiShotDeep). The fuller compiled-continuation feature (compile whole straight-line
+continuation segments once, re-run compiled instead of re-walking `step`/rebuilding `FlatMap`)
+remains the larger lever — the residual is now the `perform` eval (`evalApplyGeneral`), `dispatchCase`
+per-perform recompute, and the `FlatMap` threading. Each slice ships green + A/B'd on a quiet machine
+(CPU wins need wall-clock validation — alloc metrics won't show them). This section is
 the durable design + the profiled justification so the next session continues from data.

@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-14 — perf(interp): bind the block result expr via the fast path in `step` (compiled-continuation slice 2a) — effectMultiShotDeep −21.7%
+
+- Re-profiling after slice 1 showed `evalCore` still ~50% leaf — because slice 1 only handled
+  `Defn.Val`, while the block's final expression statement (`e*e + sd`) is evaluated **once per
+  complete continuation path = 3125×** (more than all intermediate vals combined).
+- Extended the slice-1 fast path to `BlockRuntime.step`'s `case t: Term`: a provably-pure expression
+  statement (most importantly the block result) binds via `fastPrimitiveValue` (bare Value, no
+  `evalCore` megamorphic dispatch / `Pure` alloc); an effectful expr returns null → unchanged monadic
+  path (no dropped/reordered effect).
+- **effectMultiShotDeep 6.95 → 5.44 ms (−21.7%)** — clean back-to-back A/B, tight non-overlapping
+  error bars. Cumulative with slice 1: **7.39 → 5.44 ms (−26%)**. 207 interp/effects tests green; no
+  regression. General win for any pure expression statement / block result.
+- Compiled-continuation build, slice 2a. Residual now: the `perform` eval (`evalApplyGeneral`),
+  `dispatchCase` per-perform recompute, `FlatMap` threading. Design: `specs/effect-vm-continuations.md` §3d.
+
 ## 2026-06-14 — perf(interp): bind pure `val`s via the fast path in `step` (effect-vm-continuations / compiled-continuation slice 1) — effectMultiShotDeep −5.6%
 
 - First slice of the compiled-continuation build (P3c CPU profile: effectMultiShotDeep is CPU-bound,

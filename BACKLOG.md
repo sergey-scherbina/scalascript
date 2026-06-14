@@ -186,6 +186,11 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       tests green; no regression (recursionFib variants at baseline). First slice — the continuation
       is still re-walked structurally; next slices compile whole straight-line segments (options 1/2).
       Design: `specs/effect-vm-continuations.md` §3d. CPU wins need wall-clock A/B on a quiet machine.
+      **Slice 2a ✅ SHIPPED 2026-06-14**: extended the same fast path to `step`'s `case t: Term` — a
+      re-profile showed evalCore STILL ~50% because the block RESULT expr (`e*e+sd`, evaluated 3125×,
+      more than all vals) was still on evalCore. **effectMultiShotDeep 6.95 → 5.44 ms (−21.7%)**, bigger
+      than slice 1; cumulative 7.39→5.44 (−26%). 207 tests; no regress. Residual now: `perform` eval
+      (`evalApplyGeneral`), `dispatchCase` per-perform recompute, `FlatMap` threading.
 
 > **Full-suite landscape (`scripts/bench interp`, 2026-06-13, 37 benches).** The two dominant
 > outliers dwarf everything else (next-slowest is 1.57 ms) and are the real targets:
