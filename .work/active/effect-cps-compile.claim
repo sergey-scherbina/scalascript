@@ -1,6 +1,0 @@
-effect-cps-compile 2026-06-14T16:52:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-14T16:52:00Z
-status: in-progress
-done-so-far: autonomous batch tasks 1/2/3 done (crypto+UUID+numerics verified; parity green). Task 4 = the large CPS perform-eval compile.
-next: write a CONCRETE, IMPLEMENTABLE design for compiling the perform/handler eval (the residual after slices 1/2a/3f = −43%; effectMultiShotDeep evalApplyGeneral + runBody1). Reference: JVM `JvmGenCpsTransform` + JS `JsGenCpsCodegen` (the CPS transform already done in the codegen backends). The s3 within-noise experiment PROVED no slice is cheaper than the full compile, so the deliverable is the design + phased plan + honest recommendation (build deliberately when an effect-heavy workload justifies it; non-outlier today at 4.2ms). spec specs/effect-vm-continuations.md §4.
