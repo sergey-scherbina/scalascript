@@ -1,0 +1,6 @@
+effect-cps-cont-s2 2026-06-14T13:52:00Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-14T13:52:00Z
+status: in-progress
+done-so-far: compiled-continuation build slice 1 shipped (fastPrimitiveValue for pure Defn.Val in step, effectMultiShotDeep 7.39->6.98ms -5.6%). User wants the build continued.
+next: SLICE 2 — re-profile effectMultiShotDeep (post-slice-1; CPU leaf frames) to find the NEW dominant cost (slice 1 moved pure-arith VALS off evalCore; remaining likely = the final result-expr `case t: Term` still via evalCore, the choose perform via evalApplyGeneral, dispatchCase per-perform recompute, FlatMap threading). Cut the next hotspot incrementally + A/B wall-clock on the now-quiet machine (load ~3/14 cores). Likely easy first: extend slice 1's fastPrimitiveValue to step's final `case t: Term` pure expr. Spec specs/effect-vm-continuations.md §3d. CPU wins need quiet-machine back-to-back A/B (stash baseline).
