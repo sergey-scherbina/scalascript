@@ -1,6 +1,0 @@
-effect-vm-cont-p3b 2026-06-14T12:20:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-14T12:20:00Z
-status: in-progress
-done-so-far: P3a shipped (const-coll-literal memoization, effectMultiShot -13.7% alloc). User wants the FULL multi-shot continuation feature built. effectMultiShot (0.93ms) is harness-construction-dominated + trivial segments — a poor signal for the real continuation re-eval cost.
-next: P3b = (1) add a REPRESENTATIVE deep-multi-shot STRESS bench (nondeterministic search, deeper nesting + non-trivial per-path compute) so the continuation re-eval cost dominates and the feature payoff is measurable; (2) profile it (alloc + leaf CPU) to find the next tractable cut in the per-resume continuation re-evaluation (AST re-walk + Free-monad rebuild); (3) ship the cut. Incremental, shippable. The full CPS-compiler for effect bodies (port JVM emitCpsBlock to the interp JIT) remains the large eventual lever. Spec specs/effect-vm-continuations.md Phase 3.

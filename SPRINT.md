@@ -2530,3 +2530,10 @@ single-node without them.
         Free-monad rebuild remain; option 1 effect-aware interp JIT / option 2 SscVm stack capture;
         bounded payoff + partly Interpreter-construction-bound — build with a stress bench when a
         deep-multi-shot/generator outlier appears). Design: specs Phase 3.
+        **P3b ✅ SHIPPED 2026-06-14**: added `effectMultiShotDeep` stress bench (5×5=3125 paths,
+        interleaved scoring; 7.5 ms / 1.95 MB/op — a real outlier where continuation re-eval
+        dominates) + cut two `Some`+`Tuple4` unapply allocs on the re-eval path (`BlockRuntime.step`
+        `Defn.Val` + `EvalRuntime.fastPrimitiveValue` `ApplyInfix` → type-test+field-access).
+        effectMultiShotDeep 1.95→1.57 MB/op (−19.5% alloc, reliable; wall-clock noisy under load,
+        alloc-bound+no-algo-change so tracks); general val/binop win; guard 3125/171875; 225 tests
+        green. Full compiled-continuation feature (AST re-walk) STILL deferred — options 1/2.
