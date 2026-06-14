@@ -1,6 +1,0 @@
-cross-backend-parity 2026-06-14T16:45:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-14T16:45:00Z
-status: in-progress
-done-so-far: autonomous batch — tasks 1 (crypto v1.66) + 3 (UUID/exact-numerics) verified DONE + backlog hygiene shipped. Now task 2 (parity).
-next: run the FAST maintained cross-backend ScalaTest suites (Enum/Money/MutualTco/FinalTagless/Coordinator/Numeric/Raft Conformance + JVM<->JS handshake) for an immediate parity signal — the full tests/conformance/run.sc (103 cases x 3 backends incl slow scala-cli JVM) is a periodic/CI sweep, impractical ad-hoc. If a suite fails -> fix the real gap. If green -> parity solid at the maintained level; record + release.

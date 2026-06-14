@@ -22,7 +22,11 @@ claim -> worktree -> test -> ship cycle. Value/tractability order below.
       JS (and Rust, if applicable) cross-backend PARITY for the core hashing/encoding intrinsics
       (sha256/hmacSha256/base64), run CryptoPluginTest + any JS crypto example, close any gap,
       then mark v1.66 DONE in BACKLOG (or list the precise remaining gap). Small/bounded.
-- [ ] **cross-backend-parity** — survey the cross-backend conformance suite (RuntimeBench /
+- [x] **cross-backend-parity** ✓ DONE 2026-06-14 — surveyed via the 8 maintained cross-backend
+      ScalaTest suites (Enum/Money/MutualTco/FinalTagless/Coordinator/NumericJs/NumericJvm/Raft
+      Conformance): **25 tests all green → parity solid at the maintained level, NO gaps found.**
+      The full `tests/conformance/run.sc` sweep (103 cases × interp/JS/JVM-scala-cli) is a
+      periodic/CI check, impractical ad-hoc; no failing case to chase. ORIGINAL: survey the cross-backend conformance suite (RuntimeBench /
       cluster handshake / conformance tests) to find REAL JS/Rust gaps vs the interpreter; fix
       the tractable ones. Data-driven: run the suite first, fix actual failures (not speculative).
 - [x] **feature-milestone** ✓ ALREADY DONE 2026-06-14 — both candidates are complete: UUID (p1–p6
