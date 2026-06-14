@@ -168,9 +168,16 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
 >   (~10980×).** `isPureArith` admits a pure `if c then a else b` (`isPureCond`: comparisons,
 >   `&&`/`||`, `!`); `substVal` recurses through `Term.If`. `val x = if … ; s += x` (abs/clamp/
 >   select) now JITs. `TupleScalarReplaceTest` (21). **The loop-val-inline family is now
->   essentially complete** (single/multiple/chained/destructuring/conversion/conditional). Only
->   `match`-vals (`val x = p match {…}`) remain uncovered — deferred (Match purity = cases +
->   guards + bindings; lower frequency than `if`; `p match {…}` directly in an assign already JITs).
+>   essentially complete** (single/multiple/chained/destructuring/conversion/conditional).
+> - **match intermediates ✅ 2026-06-14 (`jit-loop-match-val`): `valMatch` 2848.6 → ~0.7 ms
+>   (~4000×).** `isPureArith` admits a pure `match` (`isPureMatch`). `val x = p match { case
+>   Pt(a,b)=>a+b }` now JITs via the ref-destructuring match path (cf. `instanceFieldAccess`).
+>   FINDING: only **ref/case-class** scrutinees JIT; **Int/literal** matches inline correctly but
+>   bail to tree-walk (the while-JIT compiles only the ref-destructuring match form) — measured,
+>   documented, not shipped as a win. **The loop-val-inline family is now COMPLETE.** Remaining
+>   interp outliers all need VM-level work: effectOneShot/effectMultiShot (re-profiled — 72% leaf
+>   evalCore loop-body tree-walk; need VM suspend/resume for the `perform`, research-level),
+>   typeclassFold (~1.1 ms, VM foldLeft-compile), stringSplit (~0.24 ms, split+alloc dominated).
 >
 > **CONVERGED META-FINDING (2026-06-13) — "start the JIT lever".** The top interp outliers —
 > `effectOneShot`, `tupleMonoid`, `typeclassFoldMacro` — are ALL CPU-bound on `evalCore`

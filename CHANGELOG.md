@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-14 — perf(interp): `val x = p match { … }` intermediates → while-JIT — ~3000×
+
+- Final loop-val-inline slice: a `val` bound to a pure `match` (`val x = p match { case Pt(a,b)
+  => a + b }`). `isPureArith` now admits a pure `match` (`isPureMatch`: pure scrutinee, every
+  guard pure-or-absent, every case body pure-arith), so the val is inlined and `s = s + (p match
+  { … })` JIT-compiles via the same ref-destructuring match path as `instanceFieldAccess`.
+- **`valMatch` (`val x = p match { case Pt(a,b) => a+b }; s = s + x + i`, 1M iters): 2848.6 →
+  ~0.7 ms/op (~4000×).**
+- Honest scope: this wins for **ref/case-class-destructuring** scrutinees (what the while-JIT's
+  match-compile supports). An **Int/literal-scrutinee** match (`(i%3) match { case 0 => … }`)
+  inlines correctly but bails to tree-walk — measured no speedup, no regression (the JIT doesn't
+  compile that match form; left as a documented limit, not shipped as a win).
+- `TupleScalarReplaceTest` (24, incl. Int-match correctness, case-class destructuring, scrutinee
+  reassign soundness) + 550 while-loop/interp tests green; full interp bench no regression.
+
 ## 2026-06-13 — perf(interp): conditional `val x = if …` intermediates → while-JIT — 10980×
 
 - Extends the loop-val inlining to **conditional intermediates** — `val x = if c then a else b`
