@@ -1,0 +1,6 @@
+effect-cps-continuation 2026-06-14T13:40:00Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-14T13:40:00Z
+status: in-progress
+done-so-far: P3a/P3b (alloc cuts) + P3c diagnostic (effectMultiShotDeep CPU-bound: 49% evalCore leaf). User chose (a) — BUILD the full compiled-continuation feature. Machine load now low (3.18/14 cores) so wall-clock is measurable again.
+next: SLICE 1 of the compiled-continuation feature = route BlockRuntime.step's pure-arith `val` rhs through EvalRuntime.fastPrimitiveValue (bare Value, skips the megamorphic evalCore dispatch + Pure alloc that's 49% of effectMultiShotDeep's CPU), falling back to interp.eval for effectful/perform rhs. CRITICAL SAFETY: must verify fastPrimitiveValue/pureCallValue return null for ANY effectful rhs (else an effect would be silently folded away = correctness bug). Expose fastPrimitiveValue (private->private[interpreter]). Test effects correctness HARD (multi-shot 3125/171875, one-shot, all StdEffects). A/B effectMultiShotDeep wall-clock on the now-quiet machine. Then continue toward fuller CPS compilation. Spec specs/effect-vm-continuations.md Phase 3c/3d.
