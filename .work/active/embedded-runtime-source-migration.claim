@@ -1,0 +1,6 @@
+embedded-runtime-source-migration 2026-06-14T22:16:48Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-14T22:16:48Z
+status: in-progress
+done-so-far: arch-review item. JvmGenRuntimeSources ~3633 LOC Scala-in-strings (effectsRuntime/fsRuntime/generatorRuntime/reactiveRuntime/stubServeRuntime). commonRuntime/serveRuntime already migrated to classpath-loaded real source (runtime-server-common via loadRuntimeSource).
+next: SLICE 1 = feasibility scope (read-only): determine which embedded runtimes form an INDEPENDENTLY-COMPILABLE unit (the precondition for the loadRuntimeSource pattern). effectsRuntime references _Computation/_perform etc. — fragments may not compile standalone. If a runtime has a clean compilable home → migrate ONE (smallest-risk) to a real type-checked source file inlined via loadRuntimeSource, verify JvmGen output suites stay behavior-identical (green), ship. If none compiles standalone cleanly → document the finding + pivot to codegen-megafile-deflation (JvmGenStringUtils/genExpr split). spec specs/embedded-runtime-source-migration.md after scoping.
