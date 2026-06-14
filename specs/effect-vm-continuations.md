@@ -396,6 +396,27 @@ javac → `MethodHandle`): compile a `handle` body's continuation **segments** o
 
 ### Honest cost / recommendation
 ~1000-line-class-scale effort (the codegen CPS transforms are that size), high blast radius (the core
-effect path), for a **non-outlier** (4.2 ms synthetic). **DEFER the build** until a real effect-heavy
-workload justifies it; this section is the implementable plan so it can be picked up cold. The cheap +
-safe + general cuts that delivered −43 % are done and shipped.
+effect path), for a **non-outlier** (4.2 ms synthetic). The implementable plan above stands; but
+**slice 1 below captured the dominant handler-side residual cheaply first.**
+
+### Phase 4 — slice 1: `flatMap`-resume η-reduction (SHIPPED 2026-06-14, −47 % — the biggest single slice)
+
+Building P4 started by re-checking *where* the residual is: post-3f the profile shows it is
+**handler-side** (`evalApplyGeneral` + `CallRuntime.runBody1` — the handler body
+`opts.flatMap(opt => resume(opt))` re-evaluated on every perform, 781× for the 5×5 search), **not**
+the block's `step` (~5 leaf samples). So P4.1-as-written (compile the *block*) targeted the wrong
+thing. The high-value cut is the canonical multi-shot handler body itself:
+`coll.flatMap(x => resume(x))` is **η-equivalent to `coll.flatMap(resume)`** (`resume` is a 1-arg
+`NativeFnV`). `EffectsRuntime.flatMapResumeColl` recognises that exact shape and `dispatchCase`
+calls the `flatMap` dispatch with the `resume` Value **directly** — eliminating, per perform, the
+`x => resume(x)` lambda `FunV` creation, the `evalApplyGeneral` `flatMap` method-resolution, and the
+per-element lambda-body re-eval (`callValue1`/`runBody1`/`eval(resume(opt))`). Bails to the unchanged
+`interp.eval(c.body)` for any other handler shape, so semantics are preserved everywhere else.
+
+**effectMultiShotDeep 4.26 → 2.24 ms (−47.3 %)** (clean back-to-back A/B, tight non-overlapping
+bars) — the biggest single slice. **Cumulative 7.39 → 2.24 ms (−70 %)** across slices 1/2a/3f + this.
+247 effect/interp tests green incl. the 3125/171875 + 256/2560 multi-shot guards (η-reduction is
+result-identical). Safe: recognised pattern + fallback, scoped to `dispatchCase` (effect path only).
+Generalises to any `coll.flatMap(x => resume(x))` handler (the textbook nondeterminism shape). The
+*fuller* compiled-eff-block / JavacJit-lowering work (P4.1/P4.3 above) remains larger and is now
+lower-priority (effectMultiShotDeep is 2.24 ms) — build it only when a real workload justifies it.

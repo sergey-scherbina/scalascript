@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-14 — perf(interp): flatMap-resume η-reduction in the multi-shot handler (effect CPS-compile slice 1) — effectMultiShotDeep −47% (cumulative −70%)
+
+- Started the CPS perform-eval compile (Task 4 / spec §4) by re-checking where the residual is:
+  post-3f it's **handler-side** (`evalApplyGeneral` + `runBody1` — the handler body
+  `opts.flatMap(opt => resume(opt))` re-evaluated per perform, 781×), not the block's `step`.
+- The canonical multi-shot handler `coll.flatMap(x => resume(x))` is **η-equivalent to
+  `coll.flatMap(resume)`** (`resume` is a 1-arg `NativeFnV`). `EffectsRuntime.flatMapResumeColl`
+  recognises that shape and `dispatchCase` calls the `flatMap` dispatch with `resume` **directly** —
+  eliminating, per perform, the `x => resume(x)` lambda `FunV` creation, the `evalApplyGeneral`
+  `flatMap` method-resolution, and the per-element lambda-body re-eval. Bails to `interp.eval(c.body)`
+  for any other handler shape (semantics preserved everywhere else).
+- **effectMultiShotDeep 4.26 → 2.24 ms (−47.3%)** — clean back-to-back A/B, tight non-overlapping
+  bars; the biggest single slice. **Cumulative 7.39 → 2.24 ms (−70%)** across slices 1/2a/3f + this.
+  247 effect/interp tests green incl. the 3125/171875 + 256/2560 multi-shot guards (η-reduction is
+  result-identical). General win for any `coll.flatMap(x => resume(x))` (textbook nondeterminism).
+- Spec: `specs/effect-vm-continuations.md` §4. The fuller compiled-eff-block / JavacJit lowering
+  (P4.1/P4.3) remains larger and is now lower-priority (effectMultiShotDeep is 2.24 ms).
+
 ## 2026-06-14 — perf(interp): free-var-limited closure capture (compiled-continuation slice 3f) — effectMultiShotDeep −23.4% (cumulative −43%)
 
 - Profiling traced ~14% of effectMultiShotDeep CPU (`MutableEnvView.foreachEntry`) to **lambda

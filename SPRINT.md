@@ -35,7 +35,11 @@ claim -> worktree -> test -> ship cycle. Value/tractability order below.
       ORIGINAL: pick the more bounded of: UUID v7 cross-backend (v1.65 next phases
       after uuid-p1 JVM core; spec `specs/uuid.md`) OR exact-numerics polish (BigIntV/DecimalV
       exist; ensure cross-backend + Money; spec `specs/exact-numerics.md`). Ship one concrete piece.
-- [x] **effect-cps-compile** ✓ DESIGNED + DEFERRED 2026-06-14 — wrote a concrete, phased,
+- [x] **effect-cps-compile** ✓ SLICE 1 SHIPPED 2026-06-14 (−47%, cumulative −70%) — flatMap-resume
+      η-reduction: `coll.flatMap(x=>resume(x))` → `coll.flatMap(resume)` dispatched directly in
+      dispatchCase (handler-side residual, not block-side as P4.1 assumed). effectMultiShotDeep
+      4.26→2.24 ms; 247 tests green. Fuller P4.1/P4.3 (compiled eff-blocks + JavacJit) remain, lower-pri.
+      ALSO wrote a concrete, phased,
       implementable plan (spec §4: P4.1 straight-line eff-blocks → P4.2 branch point → P4.3 JavacJit
       lowering → P4.4 multi-shot fast resume; safety invariants; reference = JVM JvmGenCpsTransform /
       JS JsGenCpsCodegen ~1000 lines each). The s3 experiment PROVED no cheaper slice exists → this is
