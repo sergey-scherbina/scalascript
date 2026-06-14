@@ -2537,3 +2537,8 @@ single-node without them.
         effectMultiShotDeep 1.95→1.57 MB/op (−19.5% alloc, reliable; wall-clock noisy under load,
         alloc-bound+no-algo-change so tracks); general val/binop win; guard 3125/171875; 225 tests
         green. Full compiled-continuation feature (AST re-walk) STILL deferred — options 1/2.
+        **compiled-continuation BUILD STARTED (user-directed). Slice 1 ✅ 2026-06-14**:
+        `BlockRuntime.step` binds a single pure `val` via `fastPrimitiveValue` (skip evalCore
+        megamorphic dispatch + Pure alloc; safe — non-null ⇒ provably pure, perform rhs → null →
+        monadic path). effectMultiShotDeep 7.39→6.98 ms (−5.6% CPU, clean A/B); 231 tests; no regress.
+        Next slices: compile whole straight-line continuation segments. CPU wins need quiet-machine A/B.
