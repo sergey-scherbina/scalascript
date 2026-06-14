@@ -1,0 +1,6 @@
+effect-cps-p41-build 2026-06-14T20:10:00Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-14T20:10:00Z
+status: in-progress
+done-so-far: slice 1 (flatMap-resume) −70%. Block-side micro-cuts within-noise. User EXPLICITLY directed: build full P4.1 (compiled-eff-block) — write spec + sprint + implement.
+next: P4.1 = compile a straight-line effectful block `[val x = E.op(args)|pure; …; result]` into a CompiledBlock (array of typed steps: pure-fast / general / perform-with-precomputed-(eff,op,argFns) / result), so multi-shot resume REPLAYS compiled segments instead of re-walking step (no `remaining match` List, no `s match` AST dispatch, no unapply garbage, and PERFORM steps build Perform(eff,op,args) directly w/o re-resolving the op Select). Recognize straight-line blocks in evalBlock; classify perform-vs-pure on FIRST run (eval yields Perform vs Pure), cache CompiledBlock by stats AST identity; resume continuations re-enter the compiled runner. Bail to current step for any non-straight-line shape. EXTENSIVE effect tests (3125/171875 + one-shot + deep-handler + StdEffects/JvmGen/JsEffect). Back-to-back stash A/B; ship only if measurable win (revert if within-noise like the 2 prior block-side cuts). spec specs/effect-vm-continuations.md §5 (P4.1 build).
