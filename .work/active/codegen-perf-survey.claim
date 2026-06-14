@@ -1,6 +1,0 @@
-codegen-perf-survey 2026-06-14T20:00:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-14T20:00:00Z
-status: in-progress
-done-so-far: runtime perf converged (verified); compile-time (parse 2.2ms/type 3us/unify 1us) at floor. Last unmeasured surface = codegen-time.
-next: run `scripts/bench gen` (CrossBackendBench: jsGen/jvmGen codegen-time for arithLoop/recursionFib). Find any outlier or confirm at floor. If a tractable hot path → profile+cut+A/B; else confirm + release. Completes the "perf fully optimized" answer across ALL surfaces.

@@ -91,6 +91,16 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       visibility, helper import filtering, conformance fixtures, and
       `examples/content-linked-namespaces.ssc`.
 
+## Codegen-time perf — jvmGen ~100× slower than jsGen (survey 2026-06-14)
+
+- [ ] **jvmgen-codegen-time** — codegen-TIME survey (`scripts/bench gen`, CrossBackendBench):
+      **jsGen 0.023–0.090 ms (at floor), jvmGen 2.36–2.79 ms for the SAME tiny programs (arithLoop/
+      recursionFib/Tco/patternMatch) — ~100× asymmetry.** jvmGen source generation is suspiciously
+      slow for trivial inputs; likely a per-call heavy step (scalameta re-parse / pretty-print /
+      a transform pass). Profile `jvmGen_arithLoop` (leaf frames) → cut the hot path. One-time
+      compile cost (DX), lower-pri than runtime but a clear tractable target. (Runtime + compile-time
+      parse/type/unify already verified at floor this session.)
+
 ## JS Codegen Performance
 
 - [x] **js-codegen-opt-p1** — ✓ Landed 2026-06-03 commit `957a66f0`.
