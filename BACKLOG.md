@@ -176,10 +176,16 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       leaf-frame profile of `effectMultiShotDeep` (load-independent, 156 samples) = **49 % `evalCore`,
       ~63 % the walk** → CPU-bound, not alloc-bound. So further P3a/P3b-style alloc cuts WON'T move
       wall-clock (project lesson); the only lever is compiling the continuation (the large feature).
-      Next non-full-feature candidate: route `BlockRuntime.step` pure-arith `val` rhs through
-      `fastPrimitiveValue` (skip `evalCore`) — a CPU change, A/B on an UNLOADED machine (load was 5–7,
-      wall-clock unmeasurable). Full compiled-continuation feature (eliminate the AST re-walk) STILL
-      the large deferred lever — options 1/2. Design + profile: `specs/effect-vm-continuations.md` §3c.
+      **P3d ✅ SHIPPED 2026-06-14 — compiled-continuation build, slice 1** (user chose to build the
+      full feature). `BlockRuntime.step` binds a single `val x = <expr>` via `fastPrimitiveValue`
+      (bare Value, no `evalCore` megamorphic dispatch, no `Pure` alloc), falling back to `interp.eval`
+      on null. Safe by construction (`fastPrimitiveValue` non-null ⇒ provably pure: effect ops are
+      `NativeFnV`→bail, effectful fn bodies don't compile→bail, so a `perform` rhs → null → unchanged
+      monadic path). **effectMultiShotDeep 7.39 → 6.98 ms (−5.6 % CPU)** — clean back-to-back A/B on a
+      quiet machine, tight non-overlapping bars; general win for any pure single-`val` binding; 231
+      tests green; no regression (recursionFib variants at baseline). First slice — the continuation
+      is still re-walked structurally; next slices compile whole straight-line segments (options 1/2).
+      Design: `specs/effect-vm-continuations.md` §3d. CPU wins need wall-clock A/B on a quiet machine.
 
 > **Full-suite landscape (`scripts/bench interp`, 2026-06-13, 37 benches).** The two dominant
 > outliers dwarf everything else (next-slowest is 1.57 ms) and are the real targets:

@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-14 — perf(interp): bind pure `val`s via the fast path in `step` (effect-vm-continuations / compiled-continuation slice 1) — effectMultiShotDeep −5.6%
+
+- First slice of the compiled-continuation build (P3c CPU profile: effectMultiShotDeep is CPU-bound,
+  **49 % `evalCore`** tree-walk of the continuation). `BlockRuntime.step` now binds a single
+  `val x = <expr>` via `EvalRuntime.fastPrimitiveValue` — a bare Value with **no `evalCore`
+  megamorphic match dispatch and no `Pure` allocation** — falling back to `interp.eval` only when
+  that returns null.
+- **Safe by construction:** `fastPrimitiveValue` returns non-null ONLY for a provably
+  side-effect-free expression (effect ops are `NativeFnV` → `pureCallValue` bails; effectful
+  function bodies don't compile via `compileSlotBody`/`valueCapable` → bail), so binding the value
+  directly can never drop a `perform` — a `perform` rhs returns null and takes the unchanged monadic
+  path. Only the single-`Pat.Var` shape uses the fast path.
+- **effectMultiShotDeep 7.39 → 6.98 ms (−5.6 %)** — a real CPU/wall-clock win (clean back-to-back
+  A/B, low load, tight non-overlapping error bars), not allocation. A general win for any pure
+  single-`val` binding in any block. 231 interp/effects tests green (incl. the 3125/171875 multi-shot
+  guard); no regression on recursionFib / block benches.
+- First slice — the continuation is still re-walked structurally; subsequent slices push the
+  compiled-segment idea further. Design: `specs/effect-vm-continuations.md` Phase 3d.
+
 ## 2026-06-14 — perf(interp): cut unapply allocation in the continuation re-eval path (effect-vm-continuations P3b) — effectMultiShotDeep −19.5% alloc
 
 - Added a representative deep-multi-shot stress bench `effectMultiShotDeep` (nondeterministic

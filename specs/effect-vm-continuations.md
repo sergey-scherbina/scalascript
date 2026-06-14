@@ -247,20 +247,29 @@ not move wall-clock here.** The only lever that reduces the `evalCore` re-walk i
 continuation (options 1/2). P3a/P3b remain worthwhile as alloc/GC hygiene (and general
 val/binop/const-collection wins) but the multi-shot wall-clock floor is now the tree-walk.
 
-**Candidate cheaper-than-full-compile slice (for next time, needs an unloaded machine to validate a
-CPU win):** route `BlockRuntime.step`'s pure-arith `val` rhs through `fastPrimitiveValue` (bare
-Value, no `evalCore` megamorphic dispatch, no `Pure` alloc) before falling back to `interp.eval` —
-the profile shows the `sa=a*a; sb=b*b+sa; …` segments go through full `evalCore`, not the fast path.
-Falls back for effectful rhs (a `perform` → `fastPrimitiveValue` returns null). Safe, and attacks
-the dominant `evalCore` directly — but it is a *CPU* change, so it MUST be A/B'd on wall-clock on an
-unloaded machine (alloc won't show it).
+### Phase 3d — slice 1 of the compiled-continuation build: `fastPrimitiveValue` in `step` (SHIPPED 2026-06-14)
 
-### Recommendation (full feature)
+The first real attack on the `evalCore` tree-walk (the 49 % from 3c), and the first CPU/wall-clock
+win on multi-shot. `BlockRuntime.step` now binds a single `val x = <expr>` via
+`EvalRuntime.fastPrimitiveValue` (bare Value — no `evalCore` megamorphic match dispatch, no `Pure`
+alloc) and only falls back to `interp.eval` when that returns null. **Safe by construction:**
+`fastPrimitiveValue` returns non-null ONLY for a provably side-effect-free expression — effect ops
+are `NativeFnV` (→ `pureCallValue` bails), and an effectful function body does not compile via
+`compileSlotBody`/`valueCapable` (→ bails) — so binding the value directly can never drop a
+`perform`; a `perform` rhs returns null and takes the unchanged monadic path. Only the single
+`Pat.Var` shape uses the fast path; destructuring / multi-pat use `interp.eval` unchanged.
 
-**The compiled-continuation build (option 1/2) stays deferred — do not build yet.** Profiling now
-shows the residual is the `evalCore` tree-walk, whose only real fix is the large effect-aware interp
-JIT / VM state capture (multi-session, high-risk). The tractable *allocation* cuts are shipped
-(P3a/P3b); the next non-full-feature lever (`fastPrimitiveValue`-in-`step`) is a CPU change that
-needs an unloaded machine to validate. Build option 1/2 only when a real effect-heavy workload
-warrants the multi-session effort. This section is the durable design + the profiled justification
-so the next session starts from data, not a cold re-derivation.
+**Measured (clean back-to-back A/B, low load): effectMultiShotDeep 7.39 → 6.98 ms (−5.6 %)** —
+a real CPU win (tight, non-overlapping error bars ±0.23 / ±0.19), not allocation. A *general* win
+for any pure single-`val` binding in any block (function bodies, effect-body continuations). 231
+interp/effects tests green (incl. the 3125/171875 multi-shot guard); no regression on recursionFib /
+block benches. This is the first slice — the continuation is still re-walked structurally
+(`step`/`FlatMap`); subsequent slices push the compiled-segment idea further (options 1/2).
+
+### Recommendation (full feature — IN PROGRESS)
+
+Building incrementally (user-directed). 3d shipped the first CPU slice (−5.6 %). The fuller
+compiled-continuation feature (compile whole straight-line continuation segments once, re-run
+compiled instead of re-walking `step`) remains the larger lever; each slice ships green + A/B'd on a
+quiet machine (CPU wins need wall-clock validation — alloc metrics won't show them). This section is
+the durable design + the profiled justification so the next session continues from data.
