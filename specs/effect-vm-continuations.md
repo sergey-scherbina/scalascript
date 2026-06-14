@@ -300,12 +300,34 @@ for a small gain.
 **Net: slices 1+2a captured the tractable arith re-eval cuts (−26 %). The residual is the larger
 structural CPS/env work — approach deliberately, not as a tail-end micro-slice.**
 
+### Phase 3f — free-var-limited closure capture (SHIPPED 2026-06-14, the biggest single slice)
+
+3e flagged the env-copy as the next lever. Tracing the `MutableEnvView.foreachEntry` (~14 % CPU)
+found it was **not** `evalBlock` — it was **lambda closure capture** (`EvalRuntime`'s `Term.Function`
+case). The multi-shot handler body `opts.flatMap(opt => resume(opt))` is evaluated **per perform**
+(781× for effectMultiShotDeep), and creating the `opt => resume(opt)` lambda captured the **entire**
+env via `foreachEntry` — even though the body only references `resume`. Massive over-capture (the env
+holds all accumulated continuation vars `a, sa, b, sb, …`).
+
+Fix (a classic, well-understood closure optimization): capture **only the names the body could
+reference**. `collectBodyNames(body)` = the distinct `Term.Name`s anywhere in the body, cached by AST
+identity (`interp.lambdaFreeNamesCache`); the closure is built by looking up just those names in the
+env instead of iterating the whole env. **Sound over-approximation** of the free vars (it also picks
+up locally-bound / method / nested-lambda names — harmless: a non-captured name simply isn't in the
+env, a same-as-globals name is left to re-read live at call time exactly as before, a shadowed one is
+overridden at call), so no needed binding is ever dropped.
+
+**effectMultiShotDeep 5.53 → 4.23 ms (−23.4 %)** (clean back-to-back A/B, tight non-overlapping bars)
+— the biggest single slice. A **general** win for every lambda created in a non-trivial env (HOFs,
+handlers, callbacks). No regression (hofPipeline ≈10⁻³, recursionFib family at baseline); 248
+interp/effects tests green incl. the capture-heavy `GivenUsingTest`. **Cumulative effectMultiShotDeep:
+7.39 → 4.23 ms (−43 %)** across slices 1 + 2a + 3f.
+
 ### Recommendation (full feature — IN PROGRESS)
 
-Building incrementally (user-directed). Slices 1 + 2a route the continuation's pure-arith
-val-bindings AND the result expr off the megamorphic `evalCore` (cumulative −26 % on
-effectMultiShotDeep) — the cheap, safe, high-value cuts. The fuller compiled-continuation feature
-(compile whole straight-line continuation segments once + a cheaper continuation env) remains the
-larger structural lever (3e). Each slice ships green + A/B'd on a quiet machine (CPU wins need
-wall-clock validation — alloc metrics won't show them). This section is the durable design + the
-profiled justification so the next session continues from data.
+Building incrementally (user-directed). Slices 1 + 2a (arith off `evalCore`) + 3f (free-var closure
+capture) total **−43 %** on effectMultiShotDeep. The remaining lever is compiling the `perform` /
+handler-body eval (`evalApplyGeneral`) — the fuller compiled-continuation feature, larger. Each slice
+ships green + A/B'd on a quiet machine (CPU wins need wall-clock validation — alloc metrics won't show
+them). This section is the durable design + the profiled justification so the next session continues
+from data.

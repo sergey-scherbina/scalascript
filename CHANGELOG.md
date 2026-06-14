@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-14 — perf(interp): free-var-limited closure capture (compiled-continuation slice 3f) — effectMultiShotDeep −23.4% (cumulative −43%)
+
+- Profiling traced ~14% of effectMultiShotDeep CPU (`MutableEnvView.foreachEntry`) to **lambda
+  closure capture**: the multi-shot handler body `opts.flatMap(opt => resume(opt))` is evaluated per
+  perform (781×), and creating the `opt => resume(opt)` lambda captured the **entire** env via
+  `foreachEntry` — though the body only references `resume` (the env holds all accumulated
+  continuation vars). Massive over-capture.
+- `EvalRuntime`'s `Term.Function` case now captures **only the names the body could reference**:
+  `collectBodyNames(body)` (distinct `Term.Name`s, cached by AST identity in
+  `interp.lambdaFreeNamesCache`) drives the capture by env lookup instead of iterating the whole env.
+  A **sound over-approximation** of the free vars (also picks up locally-bound / method / nested-lambda
+  names — harmless), so no needed binding is ever dropped; same-as-globals names are still re-read
+  live at call time.
+- **effectMultiShotDeep 5.53 → 4.23 ms (−23.4%)** — biggest single slice; clean back-to-back A/B,
+  tight non-overlapping bars. A **general** win for every lambda created in a non-trivial env (HOFs,
+  handlers, callbacks). No regression (hofPipeline ≈10⁻³, recursionFib family at baseline); 248
+  interp/effects tests green incl. the capture-heavy `GivenUsingTest`. **Cumulative effectMultiShotDeep
+  7.39 → 4.23 ms (−43%)** (slices 1 + 2a + 3f). Design: `specs/effect-vm-continuations.md` §3f.
+
 ## 2026-06-14 — perf(interp): bind the block result expr via the fast path in `step` (compiled-continuation slice 2a) — effectMultiShotDeep −21.7%
 
 - Re-profiling after slice 1 showed `evalCore` still ~50% leaf — because slice 1 only handled
