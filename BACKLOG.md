@@ -42,7 +42,7 @@ recommended first pick** (bounded, measurable, compounds with the perf work).
       shared lowering logic (the `JitPredicates`/`jit-predicates-shared` work already started this) so
       a new opcode is written once. Start with a written comparison of what each uniquely provides.
 
-- [ ] **embedded-runtime-source-migration** (Tier 2) — `JvmGenRuntimeSources.scala` still holds
+- [~] **embedded-runtime-source-migration** — **INVESTIGATED 2026-06-15 → NOT a tractable slice (closed).** The remaining string-literal runtimes (stubServeRuntime/fsRuntime/generatorRuntime/reactiveRuntime/effectsRuntime) are INTERDEPENDENT preamble FRAGMENTS, not independently-compilable units: stubServeRuntime defines `private` top-level stubs that must mirror serveRuntime/WebSocketRuntime signatures + references `Request` (from commonRuntime); effectsRuntime references `_Computation`/`_perform`. The commonRuntime/serveRuntime migration only worked because those were ALREADY real compilable modules (runtime-server-common). Migrating these needs a whole new compilable 'generated-runtime' module (their deps must compile together) — a large architecture project, disproportionate for a runtime that already works + is now FAST (jvmgen-codegen-time memoized it). Value (type-checking) is real but effort/risk far exceeds it. Reopen only if a compilable host module is built for another reason. ORIGINAL (Tier 2) — `JvmGenRuntimeSources.scala` still holds
       ~3633 LOC of Scala *runtime* embedded as `"""..."""` string literals (effectsRuntime ~3300
       lines, fsRuntime, generatorRuntime, reactiveRuntime, stubServeRuntime). Untype-checked,
       untestable-in-place, fragile to edit. The project ALREADY migrated `commonRuntime`/`serveRuntime`

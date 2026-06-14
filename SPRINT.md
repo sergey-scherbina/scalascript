@@ -18,7 +18,7 @@ Each: claim → worktree → spec → implement smallest safe slice → verify (
 suites green; A/B where perf-relevant) → ship; **honest scoping** — ship real wins, document+close a
 slice if investigation shows it's not worth it (as meta-extractor-decouple was). Work top-to-bottom.
 
-- [ ] **embedded-runtime-source-migration** (T2) — migrate JvmGenRuntimeSources' Scala-in-strings
+- [x] **embedded-runtime-source-migration** ✓ INVESTIGATED→CLOSED 2026-06-15 (not a tractable slice — remaining runtimes are interdependent non-compilable preamble fragments; see BACKLOG). ORIGINAL: migrate JvmGenRuntimeSources' Scala-in-strings
       (~3633 LOC) to real type-checked source inlined via loadRuntimeSource. PRECONDITION per slice:
       the runtime must form an independently-compilable unit (effectsRuntime references _Computation/
       _perform fragments — may not compile standalone). Migrate one safe runtime, verify JvmGen output
