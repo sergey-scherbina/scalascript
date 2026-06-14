@@ -794,6 +794,10 @@ class Interpreter(
    *  can rewrite its scheme through `ImportResolver`. */
   private[interpreter] var moduleDeps: Map[String, String] = Map.empty
   private[interpreter] var modulePkg: List[String] = Nil
+  // The module's declared `exports:` surface (empty ⇒ none declared ⇒ permissive).
+  // Gates explicit `[x](M)` import resolution, mirroring the JS/JVM backends; the
+  // transitive call-time dump (childCtx → parent globals) is independent of this.
+  private[interpreter] var moduleExports: Set[String] = Set.empty
   private[interpreter] var i18nTranslations: Map[String, Map[String, String]] = Map.empty
   private[interpreter] var i18nLocale: String = "en"
   private[interpreter] var frontmatterSchemas: Map[String, scalascript.ast.TypeSchemaDecl] = Map.empty
@@ -823,6 +827,7 @@ class Interpreter(
     currentCodeIdentity = computeCodeIdentity(module)
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     modulePkg  = module.manifest.flatMap(_.pkg).getOrElse(Nil)
+    moduleExports = module.manifest.map(_.exports.toSet).getOrElse(Set.empty)
     module.manifest.foreach(m => i18nTranslations = m.translations)
     frontmatterSchemas = module.manifest.map(_.schemas.map(s => s.typeName -> s).toMap).getOrElse(Map.empty)
     module.manifest.foreach { m =>
@@ -1529,6 +1534,9 @@ class Interpreter(
     case _                          => htmlEscape(rendered)
 
   def exportedGlobals: Map[String, Value] = globals.toMap
+  // The declared `exports:` names (empty ⇒ none declared ⇒ permissive). Gates explicit
+  // `[x](M)` import resolution in runImport; `exportedGlobals` (full) still feeds childCtx.
+  def exportedNames: Set[String]          = moduleExports
   def exportedPkg: List[String]           = modulePkg
 
   /** Inject a named value into the global scope before (or after) `run`.

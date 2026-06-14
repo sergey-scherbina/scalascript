@@ -4,6 +4,7 @@ version: 1.0.0
 description: Functor, Applicative, Monad typeclasses — std v1.1 step 2
 package: std.functor_applicative_monad
 exports:
+  - Functor
   - listMonad
   - optionMonad
   - pureList

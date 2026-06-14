@@ -4,6 +4,7 @@ version: 1.0.0
 description: Either sum type — std v1.1 support type
 package: std.either
 exports:
+  - Either
   - Left
   - Right
   - mapRight

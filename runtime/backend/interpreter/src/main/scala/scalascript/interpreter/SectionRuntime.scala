@@ -341,6 +341,16 @@ private[interpreter] object SectionRuntime:
     for binding <- imp.bindings do
       val sourceName = binding.name
       val targetName = binding.alias.getOrElse(binding.name)
+      // Honor the module's declared `exports:` surface (mirrors the JS/JVM backends, which
+      // gate bindings by `manifest.exports`).  A name that is reachable only transitively —
+      // present in `childCtx` for call-time helper resolution, or dumped into the module's
+      // globals by a dependency — but NOT listed in the module's `exports:` is not importable
+      // by name from it.  A module that declares no exports stays permissive (legacy).  This
+      // closes an interpreter↔codegen gap: programs importing a non-exported name ran under the
+      // interpreter but failed under emit-js/emit-scala.
+      if child.exportedNames.nonEmpty && !child.exportedNames.contains(sourceName) then
+        throw InterpretError(
+          s"'$sourceName' is not exported by ${imp.path} — add it to that module's `exports:` to re-export it")
       lookupExport(exported, childPkg, sourceName) match
         case Some(v) =>
           val enriched = enrichFnClosures(v, childCtx)
