@@ -2511,5 +2511,19 @@ single-node without them.
         STILL OPEN: ref-return / ref-arg effect ops (resolveEffectRef / walkRef); >2 args;
         cache the resolver in a slot (residual per-iter bridge call). NOT doing constant-inline
         of the resume value (would fold the effect away = gaming).
+      - [ ] **P2c compile the resume expr in the resolver** (effect-vm-cont-p2c, claimed): the
+        re-measured #1 interp outlier is effectReader 2.63 ms; effectOneShot is 1.64 ms. The 1.0 ms
+        delta = `interp.eval(k*2)` tree-walked 5000x inside the one-shot tail-resume resolver
+        (effectOneShot's `resume(1)` tree-walks a trivial Lit). Plan: in EffectsRuntime.evalHandle
+        resolver construction, compile a pure-Int-arith single resume expr (Lit.Int/Long, Name(op-arg),
+        +/-/*, unary +/-) to a `(Array[Long])=>Long` closure and return `Value.intV(closure(args))`;
+        fall back to the existing `interp.eval` resolver for anything else (Double, div/%, free names,
+        non-IntV args at runtime). (IntV op IntV => intV via 64-bit Long, DispatchRuntime:3224, so
+        bit-exact.) HONEST: the effect still dispatches every iteration (bridge -> resolver.apply) and
+        the handler still computes k*2 each iter; only the megamorphic tree-walk is removed (same
+        principle as P2 compiling the loop body). NOT inlining the value into the loop (drops the
+        dispatch = gaming). Target effectReader 2.63 -> ~1.7 ms; small blast radius (local to the
+        resolver). Tests: new compiled-vs-interp parity + EffectVmContinuationsTest + effects suites;
+        A/B effectReader/effectOneShot. STILL OPEN after this: ref-return/ref-arg ops; >2 args; slot-cache.
       - [ ] **P3 general delimited continuations**: VM suspend/resume (capture resumable VM
         state at a perform) for multi-shot + non-tail resumes. Major VM feature; deferred.
