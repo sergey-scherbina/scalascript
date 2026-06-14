@@ -1,0 +1,6 @@
+compiler-perf-survey 2026-06-14T19:45:00Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-14T19:45:00Z
+status: in-progress
+done-so-far: interp-execution perf converged (effects −70%/~15×, recursion at JIT floor). multi-shot at practical floor (P4.1 micro-cuts within-noise; full P4.1 disproportionate, deferred).
+next: survey the UNEXPLORED perf surfaces this session — `scripts/bench compile` (CompilerBench: parser/typer/unifier) + `scripts/bench gen` (CrossBackendBench: codegen-time). Find any real outlier (like effects were pre-session) or confirm at floor. If a tractable hot path exists → profile + cut + A/B. Answers "perf оптимизирован полностью?" with data for the compile-time surface.
