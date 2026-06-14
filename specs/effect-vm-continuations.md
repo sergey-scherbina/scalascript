@@ -295,7 +295,13 @@ path returns null and they stay on `evalCore`. The two remaining levers are **st
 `dispatchCase`'s per-perform recompute (`argPats.dropRight(1).map`/`lastOption`/`zip`) is a real but
 **marginal** alloc cut (its own code is not a hot leaf; the per-perform cost is the handler-body eval,
 which a precompute does not touch) — not worth a change to the correctness-critical effect handler
-for a small gain.
+for a small gain. **TRIED + MEASURED 2026-06-14 (post-3f) + REVERTED:** built the per-`(eff,op)`
+`OpCaseSpec` precompute (no per-perform `dropRight`/`map`/`zip`/`lastOption`/iterator); 316 effect+interp
+tests green, but the clean back-to-back A/B was **4.25 → 4.19 ms — within noise (overlapping bars)**.
+Confirms the post-3f residual is CPU-bound on the perform/handler eval (`evalApplyGeneral`), not the
+dispatch overhead — so the alloc cut doesn't move wall-clock (the lesson), and a within-noise result
+does not justify a change to the core effect dispatch. **The cheap + safe cuts are now definitively
+EXHAUSTED.**
 
 **Net: slices 1+2a captured the tractable arith re-eval cuts (−26 %). The residual is the larger
 structural CPS/env work — approach deliberately, not as a tail-end micro-slice.**
