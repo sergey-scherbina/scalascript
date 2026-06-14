@@ -102,7 +102,12 @@ private[interpreter] object EvalRuntime:
         case _ => null
       case _ => null
 
-  private def fastPrimitiveValue(term: Term, env: Env, interp: Interpreter): Value | Null =
+  /** `private[interpreter]` (effect-cps-continuation): `BlockRuntime.step` uses this to bind a
+   *  pure `val` rhs to a bare Value without the `evalCore` megamorphic dispatch + `Pure` alloc.
+   *  Returns non-null ONLY for a provably side-effect-free expression (arith over names/literals,
+   *  or a pure match/slot-bodied user-`FunV` call — effect ops are `NativeFnV` and bail, effectful
+   *  fn bodies don't compile and bail), so a caller may treat non-null as "pure value, no effect". */
+  private[interpreter] def fastPrimitiveValue(term: Term, env: Env, interp: Interpreter): Value | Null =
     term match
       // Type-test + direct field access (no `After_4_6_0` unapply) — the extractor allocates a
       // `Some` + `Tuple4` per visit, and this is on the per-resume continuation re-eval path

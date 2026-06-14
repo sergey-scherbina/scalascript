@@ -104,7 +104,21 @@ private[interpreter] object BlockRuntime:
           // `Tuple4` ~89 JFR samples in `step` across 3125 multi-shot paths).
           case dv: Defn.Val =>
             val pats = dv.pats
-            interp.eval(dv.rhs, localView) match
+            // effect-cps-continuation slice 1: a single `val x = <pure expr>` (the arithmetic
+            // "scoring" segments of an effect-body continuation, e.g. `val sb = b*b + sa`) binds a
+            // bare Value via the fast path — no `evalCore` megamorphic dispatch, no `Pure` alloc
+            // (that dispatch is ~49% of the multi-shot `effectMultiShotDeep` CPU re-walk). SAFE: a
+            // non-null `fastPrimitiveValue` means the rhs is provably side-effect-free (effect ops
+            // are `NativeFnV` → null → the monadic path below performs them; effectful fn bodies
+            // don't compile → null), so binding directly cannot drop a `perform`. Only the single
+            // `Pat.Var` shape; destructuring / anything else uses `interp.eval` unchanged.
+            val fastBound: Boolean = pats match
+              case List(Pat.Var(n)) =>
+                val fv = EvalRuntime.fastPrimitiveValue(dv.rhs, localView, interp)
+                if fv != null then { local(n.value) = fv; true } else false
+              case _ => false
+            if fastBound then step(rest, Value.UnitV)
+            else interp.eval(dv.rhs, localView) match
               case Pure(rhsVal) =>
                 pats match
                   case List(Pat.Var(n)) => local(n.value) = rhsVal
