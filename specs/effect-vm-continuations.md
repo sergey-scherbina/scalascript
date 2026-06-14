@@ -151,9 +151,54 @@ STILL OPEN: ref-return / ref-arg effect ops (`resolveEffectRef` / `walkRef`); >2
 residual ~30 ns/iter (the bridge call + `lookupResolver` TLS walk) — a slot-cached resolver could
 shave the TLS walk but the dispatch floor remains.
 
-## Phase 3 — general delimited continuations (future)
+## Phase 3 — general delimited continuations (multi-shot + non-tail)
 
-Multi-shot effects + non-tail resumes need real continuations: a VM **suspend** that captures
-the resumable VM state (stack + pc) at a `perform`, and the handler **resumes** it (once for
-one-shot, repeatedly for multi-shot). This is the general solution but a major VM feature
-(save/restore VM state); deferred until Phases 1–2 are exhausted.
+Multi-shot effects + non-tail resumes need real continuations. The resolver trick (P1–P2c) only
+covers a handler arm that is a single tail-position `resume(pure-expr)`; it cannot cover a handler
+that calls `resume` zero or many times (`opts.flatMap(o => resume(o))`) or wraps it in a larger
+expression (`msg :: resume(())`). Those already **work correctly today** via the Free-monad
+trampoline (`handleInterp`, `EffectsRuntime`): the body is reified into a `Computation`
+(`Pure | Perform | FlatMap`) tree, the continuation is the reified `FlatMap` closure
+`f: Value => Computation`, and `resume(v)` re-runs `handleInterp(f(v))` — once for one-shot, once
+per value for multi-shot. P3 is about making that **fast/compiled**, not correct.
+
+### Profile finding (2026-06-14, `scripts/bench profile effectMultiShot`)
+
+`effectMultiShot` (`4 × choose` over `List(1,2,3,4)` ⇒ 256 paths) is **0.93 ms — NOT an interp
+outlier** (the slowest benches are the recursionFib family at 1.16–1.58 ms, at the Phase-C JIT
+floor). It is **alloc-bound: 406 KB/op** (`gc.alloc.rate.norm`), and the JFR allocation breakdown
+is **spread**, not dominated by one site: `Object[]`/`::` (List + arg arrays), `mutable.HashMap`
+nodes + `FrameMap1` (per-call **env construction** in the re-evaluated continuation —
+`EvalRuntime.eval:3082`, `evalApplyGeneral:4507`, `evalPlainApply:3060`), `Computation.Pure`/
+`FlatMap` nodes, and the per-perform `resume` `NativeFnV` + continuation lambdas. **There is no
+single wasteful allocation to remove** — the 406 KB is the aggregate cost of the tree-walking
+interpreter **re-reifying + re-evaluating the continuation 256×**. So the only real lever is to
+stop re-tree-walking the continuation, i.e. compile it. There is no tractable incremental
+alloc-cut that meaningfully moves a non-outlier.
+
+### Design options (for when an effect-heavy workload justifies the build)
+
+1. **Compiled/CPS continuation segments.** Split an effectful body at its `perform` points into
+   continuation segments and compile each segment once (to a Scala closure or via the existing
+   javac-JIT), so `resume(v)` invokes a **compiled** segment instead of re-reifying the AST. This
+   mirrors what the JVM (`emitCpsBlock`) and JS (`JsGenCpsCodegen`) backends already do for
+   effectful functions — bring that to the interpreter. Multi-shot just calls the compiled segment
+   N times; non-tail resumes return a concrete value the segment composes. Largest payoff,
+   largest effort (an effect-aware JIT).
+2. **Register-VM stack capture.** Run the body in `SscVm` and at a `perform` snapshot the VM frame
+   stack + pc into a resumable handle; the handler resumes by restarting from the snapshot (a
+   deep-copy of the frame stack per resume for multi-shot). Requires teaching `SscVm` to (a) host
+   effect bodies and (b) save/restore/clone its state. True delimited continuations; large.
+3. **Stopgap — cheaper reification.** Pool/reuse `FlatMap`/`Pure` nodes and avoid the per-call
+   `HashMap` env where a `FrameMap` chain suffices. Modest, doesn't change the fundamental
+   re-evaluation, and the env-allocation cut is a *general* interp win (not effect-specific) — if
+   pursued, do it as a general eval-perf slice with its own A/B, not under this spec.
+
+### Recommendation
+
+**Deferred — do not build yet.** The target is a non-outlier already correct via the trampoline,
+the fix is a major feature (an effect-aware interp JIT or VM state capture), and there is no
+tractable incremental win (profile: spread 406 KB/op, no smoking gun). Build option 1 or 2 only
+when a real effect-heavy workload (deep multi-shot search, generators) shows up as an actual
+outlier. Until then this section is the durable design so the next session starts from the plan,
+not a cold re-derivation.

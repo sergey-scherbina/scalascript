@@ -147,8 +147,19 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       among the FASTEST benches. Honest: dispatch preserved each iteration (≈30 ns/iter bridge+TLS
       floor), NOT folded (effectReader's unfoldable `i*2` ≈ effectOneShot's constant; `loop(5000)`
       computes the exact 24 995 000). **Open: P2c-rest** ref-return/ref-arg ops
-      (`resolveEffectRef`/`walkRef`), >2 args, slot-cache the resolver (shave the TLS walk); **P3**
-      general VM suspend/resume for multi-shot + non-tail resumes (`effectMultiShot` 0.93 ms).
+      (`resolveEffectRef`/`walkRef`), >2 args, slot-cache the resolver (shave the TLS walk).
+      **P3 — INVESTIGATED + DESIGNED + DEFERRED 2026-06-14** (profile-justified): general
+      delimited continuations for multi-shot + non-tail resumes. `effectMultiShot` (0.93 ms) is
+      **NOT an outlier** and already correct via the Free-monad trampoline (continuation = reified
+      `FlatMap` closure, `resume` re-runs `handleInterp(f(v))` per value). Profiled
+      (`scripts/bench profile`): **alloc-bound 406 KB/op, spread across env/List/Free-monad/closure
+      allocation** from re-reifying + re-evaluating the continuation 256× — **no single wasteful
+      allocation, no tractable incremental win**. The real fix is a major feature (option 1:
+      compiled/CPS continuation segments = an effect-aware interp JIT, mirroring `emitCpsBlock` /
+      `JsGenCpsCodegen`; option 2: `SscVm` stack capture/clone). Full design + recommendation in
+      `specs/effect-vm-continuations.md` Phase 3. **BUILD DEFERRED** until a real effect-heavy
+      workload (deep multi-shot search, generators) appears as an actual outlier — building a large
+      VM feature for a 0.93 ms non-outlier with no demonstrated payoff is not justified yet.
 
 > **Full-suite landscape (`scripts/bench interp`, 2026-06-13, 37 benches).** The two dominant
 > outliers dwarf everything else (next-slowest is 1.57 ms) and are the real targets:
