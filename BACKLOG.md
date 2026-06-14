@@ -24,7 +24,7 @@ recommended first pick** (bounded, measurable, compounds with the perf work).
       `Pat.Extract`). Bounded + incremental (one shape/file at a time); each batch byte-identical-
       verifiable. Payoff: alloc reduction in hot paths + a scalameta-upgrade unblock. Spec it first.
 
-- [ ] **codegen-megafile-deflation** (Tier 1) — `JsGen.scala` (5136 LOC) and `JvmGen.scala`
+- [~] **codegen-megafile-deflation** (Tier 1) — **SLICE 1 ✓ LANDED 2026-06-15**: extracted the content-toolkit emission domain (~1000 LOC → `JvmGenContentEmit`, `self: JvmGen =>` mixin) → **JvmGen.scala 5050→4022 (−20%)**, behaviour-identical (63 tests green). FOLLOW-ON slices (same pattern): JsGen content-emission mirror; JvmGen route/registry helper cluster (~500 LOC). ORIGINAL — `JsGen.scala` (5136 LOC) and `JvmGen.scala`
       (5050 LOC) are still ~5K each, though the `Compiler extensibility roadmap` projected ~1500
       after the `dispatchIntrinsic` intrinsics-to-plugins migration. The migration landed but the
       files did NOT shrink as planned. HOW: re-survey what's left in each (likely genExpr/genStat

@@ -23,7 +23,7 @@ slice if investigation shows it's not worth it (as meta-extractor-decouple was).
       the runtime must form an independently-compilable unit (effectsRuntime references _Computation/
       _perform fragments — may not compile standalone). Migrate one safe runtime, verify JvmGen output
       suites behavior-identical. See BACKLOG.
-- [ ] **codegen-megafile-deflation** (T1) — JsGen/JvmGen ~5K LOC each. Extract a cohesive pure cluster
+- [x] **codegen-megafile-deflation** ✓ SLICE 1 LANDED 2026-06-15 — JvmGenContentEmit extracted, JvmGen.scala −20% (5050→4022), 63 tests green; JsGen mirror + route/registry = follow-on (BACKLOG). ORIGINAL: JsGen/JvmGen ~5K LOC each. Extract a cohesive pure cluster
       (e.g. finish JvmGenStringUtils, or genExpr/genStat split) to a new file, behavior-identical,
       verify output suites + byte-identical. See BACKLOG.
 - [ ] **jit-backend-consolidation** (T2) — AsmJitBackend (5017) + JavacJitBackend (4309) parallel.

@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — refactor(jvmgen): extract content-toolkit emission to JvmGenContentEmit (JvmGen.scala −20%)
+
+codegen-megafile-deflation slice 1. The self-contained content-toolkit Scala-source emission domain
+(~1000 LOC) moved verbatim from the 5050-line JvmGen into a new `JvmGenContentEmit` trait (`self: JvmGen =>`),
+mirroring the existing mixin pattern; baseDir/lockPath exposed as `private[codegen] val`. Behaviour-identical
+(compiler-verified): JvmGen.scala 5050 → 4022 LOC; 63 content + JvmGen output + scala-cli e2e tests green.
+JsGen mirror + JvmGen route/registry clusters = follow-on slices.
+---
+
 ## 2026-06-15 — infra(backend): build-time cross-backend intrinsic-table parity gate
 
 `CrossBackendIntrinsicParityTest` (backendInterpreter/Test) guards the two hand-maintained core codegen
