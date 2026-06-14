@@ -461,3 +461,100 @@ compiled-eff-block (compile the straight-line continuation so resume replays com
 of re-walking `step`) — a ~1000-line, high-blast-radius build for a 2.24 ms non-outlier. **Disproportionate;
 deferred.** effectMultiShotDeep is at its practical floor at −70 % (7.39 → 2.24 ms) via the cheap+safe
 cuts + the slice-1 η-reduction.
+
+## §5 — P4.1 compiled-eff-block (the full straight-line continuation compile) — user-directed build
+
+Status: **building 2026-06-14** (user override of the "deferred" disposition: *"единственный путь к
+измеримому дальнейшему ускорению multi-shot — полная P4.1 (compiled-eff-block): компилировать
+прямолинейный блок-продолжение, чтобы resume проигрывал скомпилированные сегменты вместо повторного
+обхода step"*). This section is the durable design; it ships green + a quiet-machine A/B and is kept
+even if the A/B is within-noise (the design + measured result are the value, as for the two prior
+within-noise block-side cuts in §4).
+
+### Goal
+Compile a **straight-line effectful block** (the canonical multi-shot continuation shape — exactly
+`effectMultiShotDeep`) ONCE into a pre-classified array of compiled segments, so a multi-shot
+`resume(v)` REPLAYS the compiled segments instead of re-walking `BlockRuntime.step`'s per-statement
+`s match` dispatch (+ list-cons traversal + `Defn.Val`/`Pat.Var` unapply) on every resume. Per the §4
+post-slice-1 profile the block-side residual is `evalCore` ~23 % (the `step` re-walk + the `choose(..)`
+perform eval); this targets the `step` re-walk + the pure-arith re-eval directly.
+
+### Where the win is — and is NOT (honest, profile-backed)
+The §4 profile splits the 2.24 ms residual into **`dispatchList` 38 % (inherent nondeterminism
+enumeration — uncuttable without folding the effect away)** + **`evalCore` 23 % (block continuation
+re-eval) + ~39 % env/resume/FlatMap/trampoline**. P4.1 attacks the `evalCore` 23 % *block-side* part:
+- **Structural**: a pre-classified `Array[CStep]` indexed by position replaces `step`'s `remaining
+  match` (list-cons) + `s match` (type-test chain) + the `Defn.Val` field-access + `List(Pat.Var(n))`
+  unapply per statement per resume.
+- **Pure-Int-arith**: the scoring segments (`a*a`, `b*b+sa`, …, `e*e+sd`) compile to a direct
+  `Env => Long` closure (no `fastPrimitiveValue` recursion, no per-intermediate `IntV` boxing, no
+  `fastPrimitiveInfixValue` op-string match, no `evalCore`).
+
+P4.1 does **NOT** cut the *perform's* `evalCore` dispatch (the `choose(..)` call that must dispatch to
+produce a `Perform`). Cutting that would need a **direct-Perform replay** (eval args + emit
+`Perform(eff,op,args)` without `interp.eval`), which re-implements correctness-critical effect-op
+dispatch — including the one-shot **resolver** check (§ Phase 2: an in-scope resolver makes the op
+return `Pure(resolver(args))` not a `Perform`) and nested-effect arg threading. That is the
+~1000-line, high-blast-radius work; **explicitly OUT OF SCOPE for this slice** (disproportionate for a
+2.24 ms non-outlier). Performs stay on the proven `interp.eval` monadic path, unchanged.
+
+### Data structures
+```
+sealed abstract class CStep
+final class CValStep(name: String, rhs: Term, arith: (Env => Long) | Null)   // val name = rhs
+final class CExprStep(rhs: Term, arith: (Env => Long) | Null, isLast: Boolean) // bare expr stmt
+```
+`arith` (when non-null) is a compiled pure-Int-arithmetic closure over env names + Int/Long literals
+(`+`/`-`/`*`, unary `±`) — the `compileEnvIntArith` analogue of §2c's `compileIntArith`, keyed by env
+name instead of perform-arg slot. It is paired with the set of free names it reads; at replay the step
+first checks all those names are currently `IntV` (a cheap pre-pass) and only then runs the primitive
+`Long` closure (no intermediate boxing); if any name is non-`IntV`/absent it falls back to
+`fastPrimitiveValue` then `interp.eval` — so semantics are unconditionally preserved.
+
+### Recognition — `compileEffBlock(stats): Array[CStep] | Null`
+Returns the compiled array, or **null to bail to `step`** for any non-straight-line shape:
+- `Defn.Val` with `pats == List(Pat.Var(n))` → `CValStep(n.value, rhs, compileEnvIntArith(rhs))`.
+- A bare `Term` expression statement that is **not** a `Term.Assign` and **not** a compound-assign
+  `Term.ApplyInfix` (`op` ends in `=`, not a compare) → `CExprStep(rhs, compileEnvIntArith(rhs), isLast)`.
+- **Bail (null)** for: destructuring / typed / multi-pat `Defn.Val`, `Defn.Var`, `Term.Assign`,
+  compound-assign infix, `Defn.Def`, and any other `Stat`. Those need `step`'s local+global
+  write-through / scoping and are not the straight-line pure/perform shape.
+Cached by `stats` AST identity in `interp.effBlockCache` (List object is stable for a given
+`Term.Block` node); a bail caches the `EffBlockMiss` sentinel so re-bail is one IdentityHashMap.get.
+
+### Replay — `runCompiled(steps, i, lastVal): Computation`
+Replaces `step(remaining, lastVal)`; same `local`/`localView` env as `step` (defined as its sibling in
+`evalBlock`, sharing the captured `local`/`localView` so binds + reads are identical). For step `i`:
+- `CValStep`: if `arith` non-null and its names are all `IntV` → `local(name) = IntV(arith(localView))`,
+  recurse `runCompiled(i+1, Unit)`. Else `fastPrimitiveValue(rhs)` → bind + recurse (the slice-1 fast
+  path); else `interp.eval(rhs)` → `Pure(v)` bind + recurse, or `FlatMap(rhsC, v => bind; runCompiled(i+1))`
+  (the perform path — IDENTICAL to `step`'s `Defn.Val` monadic arm, continuation re-enters `runCompiled`).
+- `CExprStep`: same, binding `lastVal` instead of a name (the slice-2a fast path for a pure result expr;
+  the monadic path threads an effectful expr unchanged).
+- `i == steps.length` → `Pure(lastVal)`.
+
+`evalBlock` routes the **multi-statement** path (its single-statement and env-setup fast paths are
+untouched) to `runCompiled(steps, 0, Unit)` when `compileEffBlock` succeeds, else to `step` unchanged.
+
+### Safety invariants (effects are correctness-critical)
+- **Effects untouched**: every perform/effectful rhs takes the exact `interp.eval` monadic path `step`
+  uses; `resume` 0/1/N times runs the continuation 0/1/N times (the `FlatMap` continuations re-enter
+  `runCompiled` identically to how they re-enter `step`). No perform is folded, dropped, or reordered.
+- **Pure-arith bit-identical**: `IntV op IntV ⇒ intV` is plain 64-bit `Long` (`DispatchRuntime`); the
+  closure computes the same `Long`. Any non-`IntV` operand at runtime ⇒ fall back to
+  `fastPrimitiveValue`/`interp.eval`. `/`,`%`, Double, conversions, free names, tuples ⇒ `arith == null`.
+- **No cross-context perform mis-classification**: only the **context-free** structural classification
+  (val-vs-expr, names, `arith` closures) is cached by `stats` identity. The perform-vs-pure runtime
+  determination is made fresh by `interp.eval`'s return (`Pure` vs `FlatMap`/`Perform`) on each
+  `evalBlock` call's pass — never cached — so the same block evaluated under a different handler
+  (different resolver scope) is always correct.
+- **Bail is transparent**: an unsupported shape uses `step` with no behavioural change.
+
+### Test plan
+`EffectVmContinuationsTest`: the 3125/171875 deep-interleaved multi-shot guard (the compiled block) +
+256/2560 (cached const list) + one-shot tail-resume + deep-handler `msg :: resume(())` (return clause,
+NOT a straight-line block → must bail to `step`) + op-arg binding + multi-shot-untouched. Plus
+`StdEffectsTest`, `EffectOneShotFastPathTest`, `JvmGenEffectsRuntimeTest`, `JsEffectLoopTest`,
+`InterpreterTest` (block semantics: nested blocks, destructuring vals → bail path, var/assign → bail
+path). Then a back-to-back **stash A/B** on a quiet machine (`scripts/bench interp effectMultiShotDeep`,
+several reps): ship only on a measurable non-overlapping-error-bar win; revert the impl if within-noise.

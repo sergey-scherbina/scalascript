@@ -50,6 +50,33 @@ claim -> worktree -> test -> ship cycle. Value/tractability order below.
       4.2ms). Design + first real slice; ship incrementally. Spec `specs/effect-vm-continuations.md`
       §3f. Do LAST (lowest ROI; cheap+safe cuts proven exhausted via the s3 within-noise experiment).
 
+- [ ] **effect-cps-p41-build** — BUILD the full P4.1 compiled-eff-block (user-directed 2026-06-14:
+      "единственный путь к измеримому дальнейшему ускорению multi-shot — полная P4.1"). GOAL: compile
+      a straight-line effectful continuation block ONCE into pre-classified compiled segments, so a
+      multi-shot `resume(v)` REPLAYS the compiled segments instead of re-walking `BlockRuntime.step`'s
+      per-statement `s match` dispatch (+ list-cons + Defn.Val/Pat.Var unapply) on every resume.
+      Spec: `specs/effect-vm-continuations.md` §5 (data structures `CStep`/`compileEffBlock`, the
+      `runCompiled` replay, recognition + bail conditions, pure-Int-arith Long-compile, safety
+      invariants, test plan). DESIGN (safe scope): `evalBlock` builds `Array[CStep]` cached by
+      `stats` AST identity; each stat → `CValStep(name, rhs, arithClosure?)` (single Pat.Var binder)
+      or `CExprStep(rhs, arithClosure?)`; BAIL to `step` (null) for var/assign/compound-assign/def/
+      destructuring/other. `runCompiled(i, lastVal)` replaces `step`: pure-Int-arith segments run a
+      compiled `Env=>Long` closure (no `fastPrimitiveValue` recursion / IntV intermediate boxing /
+      evalCore); every other rhs (incl. ALL performs) routes through `interp.eval` UNCHANGED (effects
+      never folded/reordered — same monadic threading + `FlatMap` continuations, which now re-enter
+      `runCompiled(i+1)`). SAFETY: performs untouched; pure-arith bit-identical (64-bit Long, fall
+      back to `interp.eval` if any name isn't IntV at runtime); perform-vs-pure NOT cached across
+      `evalBlock` calls (resolver context can differ) — only the context-free structural
+      classification + arith closures are cached. NON-GOAL (this slice): direct-Perform NativeFnV
+      replay (re-implements correctness-critical effect-op dispatch incl. the one-shot resolver check
+      — disproportionate for a 2.24ms non-outlier; explicitly out of scope, documented in §5). TEST:
+      `EffectVmContinuationsTest` 3125/171875 + 256/2560 multi-shot guards + one-shot + deep-handler +
+      `StdEffectsTest`/`JvmGenEffectsRuntimeTest`/`JsEffectLoopTest`/`InterpreterTest`; back-to-back
+      stash A/B on a quiet machine (`scripts/bench interp effectMultiShotDeep`). SHIP ONLY IF the A/B
+      is a measurable (non-overlapping error-bar) win; REVERT the impl if within-noise (consistent
+      with the 2 prior block-side cuts) but KEEP this SPRINT record + the §5 spec + the measured
+      result. Baseline: effectMultiShotDeep 2.24 ms (post slice-1 η-reduction).
+
 ## busi — exec builtin for vr-10 git-mirror (2026-06-13)
 
 - [x] **exec-builtin** — DONE 2026-06-13. busi (versioned-repository vr-10): needs to
