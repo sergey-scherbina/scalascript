@@ -722,6 +722,18 @@ class Interpreter(
   private[interpreter] val lambdaFreeNamesCache: java.util.IdentityHashMap[scala.meta.Term, Array[String]] =
     java.util.IdentityHashMap()
 
+  /** effect-cps-p41 (specs/effect-vm-continuations.md §5): per-block-AST compiled
+   *  straight-line effectful-block plan. Keyed by the `stats` List object identity (stable
+   *  for a given `Term.Block` node). A hit is an `Array[BlockRuntime.CStep]` (the
+   *  pre-classified segments a multi-shot `resume` replays instead of re-walking `step`);
+   *  the `EffBlockMiss` sentinel records a previous bail (non-straight-line block) so the
+   *  one-time recognition runs once per block AST. The structural classification cached here
+   *  is context-free (val-vs-expr, names, pure-arith closures); the perform-vs-pure runtime
+   *  determination is NOT cached (it depends on the live handler/resolver scope). */
+  private[interpreter] val effBlockCache: java.util.IdentityHashMap[AnyRef, AnyRef] =
+    java.util.IdentityHashMap()
+  private[interpreter] val EffBlockMiss: AnyRef = new AnyRef
+
   /** Cache of `typeToString` results by AST identity.  Type AST nodes (the
    *  argument of `summon[…]` and friends) are immutable — recursing across
    *  `Type.Apply`/`Type.Name` and string-building takes O(n) on each visit,

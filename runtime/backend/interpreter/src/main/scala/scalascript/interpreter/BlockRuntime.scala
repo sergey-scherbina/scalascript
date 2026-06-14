@@ -21,6 +21,87 @@ private[interpreter] object BlockRuntime:
       case "Async"  => AsyncM
       case _        => OtherM
 
+  // ── effect-cps-p41 (specs/effect-vm-continuations.md §5) — compiled straight-line eff-block ──
+  // A pre-classified statement of a straight-line effectful block. `runCompiled` (inside evalBlock)
+  // replays these segments on every multi-shot `resume` instead of re-walking `step`'s per-statement
+  // `s match` dispatch (+ list-cons + Defn.Val/Pat.Var unapply). See §5 for the win/non-win analysis:
+  // it cuts the block-side structural re-walk + the pure-Int-arith re-eval; performs stay on the
+  // unchanged `interp.eval` monadic path (effects never folded/reordered).
+  private[interpreter] final class ArithPlan(val names: Array[String], val compute: Array[Long] => Long)
+  private[interpreter] sealed abstract class CStep
+  private[interpreter] final class CValStep(val name: String, val rhs: Term, val arith: ArithPlan | Null) extends CStep
+  private[interpreter] final class CExprStep(val rhs: Term, val arith: ArithPlan | Null) extends CStep
+
+  /** Compile a pure-Int-arithmetic expr (env-name + Int/Long literals; `+`/`-`/`*`, unary `±`) into
+   *  an `Array[Long] => Long` closure over its distinct free names — the §2c `compileIntArith`
+   *  analogue keyed by env name instead of perform-arg slot. Returns null for any shape not provably
+   *  bit-identical to `interp.eval` over 64-bit `Long` (`/`,`%`, Double, conversions, calls, tuples).
+   *  At replay the names are read from the block-local env and checked to be `IntV` before the closure
+   *  runs; a non-`IntV`/absent operand falls back to `fastPrimitiveValue`/`interp.eval` (semantics
+   *  unconditionally preserved). A constant expr (no names) is left to `fastPrimitiveValue`/const-cache. */
+  private def compileEnvIntArith(t: Term): ArithPlan | Null =
+    val names = scala.collection.mutable.LinkedHashSet.empty[String]
+    def ok(e: Term): Boolean = e match
+      case _: Lit.Int | _: Lit.Long => true
+      case n: Term.Name             => names += n.value; true
+      case Term.ApplyUnary(op, a)   => (op.value == "-" || op.value == "+") && ok(a)
+      case ai: Term.ApplyInfix
+          if ai.argClause.values.lengthCompare(1) == 0 &&
+             (ai.op.value == "+" || ai.op.value == "-" || ai.op.value == "*") =>
+        ok(ai.lhs) && ok(ai.argClause.values.head)
+      case _ => false
+    if !ok(t) || names.isEmpty then return null
+    val nameArr = names.toArray
+    val idx: Map[String, Int] = nameArr.iterator.zipWithIndex.toMap
+    val compute = compileArithSlots(t, idx)
+    if compute == null then null else new ArithPlan(nameArr, compute.nn)
+
+  private def compileArithSlots(t: Term, idx: Map[String, Int]): (Array[Long] => Long) | Null =
+    t match
+      case Lit.Int(n)   => (_: Array[Long]) => n.toLong
+      case Lit.Long(n)  => (_: Array[Long]) => n
+      case Term.Name(x) => idx.get(x) match { case Some(i) => (a: Array[Long]) => a(i); case None => null }
+      case Term.ApplyUnary(op, a) if op.value == "+" => compileArithSlots(a, idx)
+      case Term.ApplyUnary(op, a) if op.value == "-" =>
+        val c = compileArithSlots(a, idx); if c == null then null else { val cf = c.nn; (x: Array[Long]) => -cf(x) }
+      case ai: Term.ApplyInfix if ai.argClause.values.lengthCompare(1) == 0 =>
+        val l = compileArithSlots(ai.lhs, idx)
+        val r = compileArithSlots(ai.argClause.values.head, idx)
+        if l == null || r == null then null
+        else
+          val lf = l.nn; val rf = r.nn
+          ai.op.value match
+            case "+" => (a: Array[Long]) => lf(a) + rf(a)
+            case "-" => (a: Array[Long]) => lf(a) - rf(a)
+            case "*" => (a: Array[Long]) => lf(a) * rf(a)
+            case _   => null
+      case _ => null
+
+  /** §5: recognise a straight-line effectful block — every statement is either a `val name = rhs`
+   *  (single irrefutable `Pat.Var` binder) or a bare expression statement that is neither an
+   *  assignment nor a compound-assignment. Returns the compiled segments, or **null to bail to
+   *  `step`** for any other shape (destructuring/typed `Defn.Val`, `Defn.Var`, `Term.Assign`,
+   *  compound-assign, `Defn.Def`, other `Stat`s — those need `step`'s local+global write-through /
+   *  scoping). Requires ≥2 stats (single-statement blocks use `evalBlock`'s own fast path). */
+  private def compileEffBlock(stats: List[Stat]): Array[CStep] | Null =
+    val buf = scala.collection.mutable.ArrayBuffer.empty[CStep]
+    var cur = stats
+    while cur.nonEmpty do
+      cur.head match
+        case dv: Defn.Val =>
+          dv.pats match
+            case List(Pat.Var(n)) => buf += new CValStep(n.value, dv.rhs, compileEnvIntArith(dv.rhs))
+            case _                => return null
+        case _: Defn.Var         => return null
+        case _: Term.Assign      => return null
+        case ai: Term.ApplyInfix
+            if ai.op.value.lengthIs > 1 && ai.op.value.last == '=' && !isCompareOp(ai.op.value) =>
+          return null
+        case t: Term             => buf += new CExprStep(t, compileEnvIntArith(t))
+        case _                   => return null
+      cur = cur.tail
+    if buf.lengthIs < 2 then null else buf.toArray
+
   /** Evaluate a block of statements; effects propagate through statements via flatMap.
    *  val/var declarations are threaded as Computation so effects in their rhs work. */
   def evalBlock(stats: List[Stat], env: Env, interp: Interpreter): Computation =
@@ -52,12 +133,17 @@ private[interpreter] object BlockRuntime:
     // when evalBlock is called 1M times per tight while loop.
     var localVar: mutable.Map[String, Value] = null
     var localViewVar: MutableEnvView = null
+    // The MutableEnvView-reuse branch is the hot while-loop body path (assign/expr blocks, no
+    // declarations); keep it on `step` (the compiled-eff-block path below targets declaration
+    // blocks — the straight-line effect-continuation shape — so skip its cache lookup here).
+    var reusedView = false
     if env.isInstanceOf[MutableEnvView] &&
        !stats.exists { case _: Defn.Val | _: Defn.Var => true; case _ => false }
     then
       val mev = env.asInstanceOf[MutableEnvView]
       localVar = mev.underlying
       localViewVar = mev
+      reusedView = true
     else env match
       case fm: FrameMap =>
         // Only copy env entries that are absent from (or differ from) interp.globals.
@@ -211,7 +297,64 @@ private[interpreter] object BlockRuntime:
           case stat =>
             interp.execStat(stat, local)
             step(rest, Value.UnitV)
-    step(stats, Value.UnitV)
+
+    // ── effect-cps-p41 (§5): replay pre-compiled segments instead of re-walking `step` ──
+    // Read each arith free name from the block-local map; return the Longs iff all are IntV,
+    // else null (→ the step falls back to fastPrimitiveValue / interp.eval — semantics preserved).
+    def readIntSlots(names: Array[String]): Array[Long] | Null =
+      val out = new Array[Long](names.length)
+      var k = 0
+      while k < names.length do
+        local.getOrElse(names(k), null) match
+          case iv: Value.IntV => out(k) = iv.v; k += 1
+          case _              => return null
+      out
+    def arithValue(plan: ArithPlan | Null): Value | Null =
+      if plan == null then null
+      else
+        val slots = readIntSlots(plan.names)
+        if slots == null then null else Value.intV(plan.compute(slots))
+    // Pre-classified replay of `step`. Each arm MIRRORS the corresponding `step` arm (slice-1 Defn.Val
+    // / slice-2a Term-result fast paths + the unchanged monadic perform path), with no per-statement
+    // `s match` / list-cons / unapply, plus the compiled pure-Int-arith fast path. FlatMap
+    // continuations re-enter `runCompiled(i+1)` exactly as `step`'s re-enter `step(rest)`.
+    def runCompiled(steps: Array[CStep], i: Int, lastVal: Value): Computation =
+      if i >= steps.length then Pure(lastVal)
+      else steps(i) match
+        case vs: CValStep =>
+          val av = arithValue(vs.arith)
+          if av != null then { local(vs.name) = av; runCompiled(steps, i + 1, Value.UnitV) }
+          else
+            val fv = EvalRuntime.fastPrimitiveValue(vs.rhs, localView, interp)
+            if fv != null then { local(vs.name) = fv; runCompiled(steps, i + 1, Value.UnitV) }
+            else interp.eval(vs.rhs, localView) match
+              case Pure(v) => local(vs.name) = v; runCompiled(steps, i + 1, Value.UnitV)
+              case c       => FlatMap(c, { v => local(vs.name) = v; runCompiled(steps, i + 1, Value.UnitV) })
+        case es: CExprStep =>
+          val av = arithValue(es.arith)
+          if av != null then runCompiled(steps, i + 1, av)
+          else
+            val fv = EvalRuntime.fastPrimitiveValue(es.rhs, localView, interp)
+            if fv != null then runCompiled(steps, i + 1, fv)
+            else interp.eval(es.rhs, localView) match
+              case Pure(v) => runCompiled(steps, i + 1, v)
+              case c       => FlatMap(c, v => runCompiled(steps, i + 1, v))
+
+    // Route a multi-statement DECLARATION block (the straight-line effect-continuation shape) to the
+    // compiled replay when it recognises; cache the plan (or the bail sentinel) by `stats` identity.
+    // The hot reused-view loop-body path keeps `step` (no cache lookup, no regression).
+    val compiledSteps: Array[CStep] | Null =
+      if reusedView then null
+      else
+        val cached = interp.effBlockCache.get(stats)
+        if cached != null then
+          if cached eq interp.EffBlockMiss then null else cached.asInstanceOf[Array[CStep]]
+        else
+          val c = compileEffBlock(stats)
+          interp.effBlockCache.put(stats, if c == null then interp.EffBlockMiss else c.asInstanceOf[AnyRef])
+          c
+    if compiledSteps != null then runCompiled(compiledSteps, 0, Value.UnitV)
+    else step(stats, Value.UnitV)
 
   /** True when `op` is a comparison operator ending in `=` (not a compound assignment). */
   private[interpreter] inline def isCompareOp(op: String): Boolean =
