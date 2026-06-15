@@ -1382,6 +1382,35 @@ route("GET", "/download") { req =>
 }
 ```
 
+### Rozum agent streaming
+
+`std.agent` provides an app-owned tool loop over OpenAI-compatible rozum
+gateways. Use `runAgent` for ordinary non-streaming completions, or
+`runAgentStream` / `collectAgentStream` when the gateway returns SSE chunks.
+
+```scalascript
+[AgentEndpoint, RunOptions, runAgentStream](std/agent.ssc)
+
+val result = runAgentStream(
+  AgentEndpoint("http://localhost:18089"),
+  "local-model",
+  "You are a careful assistant.",
+  "Summarize the current task.",
+  List(),
+  RunOptions(maxSteps = 4)
+) { event =>
+  if event.kind == "TextDelta" then
+    println(event.text)
+}
+```
+
+Streaming events use `AgentEvent.kind` values such as `TextDelta`,
+`ToolCallStarted`, `ToolCallDelta`, `ToolCallResult`, `Errored`, and
+`Stopped`. `collectAgentStream(...)` returns `AgentStreamResult` when the app
+wants the final `AgentResult` plus the ordered event list. See
+[`examples/rozum-agent-streaming.ssc`](../examples/rozum-agent-streaming.ssc)
+and [`specs/rozum-agent-streaming.md`](../specs/rozum-agent-streaming.md).
+
 ### TLS
 
 ```scalascript

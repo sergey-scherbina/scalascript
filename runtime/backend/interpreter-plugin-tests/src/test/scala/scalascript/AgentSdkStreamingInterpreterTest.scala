@@ -272,6 +272,20 @@ class AgentSdkStreamingInterpreterTest extends AnyFunSuite with Matchers with Be
     out shouldBe "MaxSteps\n1\ntrue\nToolCallStarted:|ToolCallDelta:|ToolCallDelta:|ToolCallDelta:|ToolCallResult:|Stopped:MaxSteps"
     requests.size() shouldBe 1
 
+  test("rozum-agent-streaming example runs end-to-end with its fake SSE gateway"):
+    val src = os.read(TestPaths.repoRoot / "examples" / "rozum-agent-streaming.ssc")
+    val buf = java.io.ByteArrayOutputStream()
+    val ps = java.io.PrintStream(buf, true)
+    val interp = Interpreter(out = ps, baseDir = Some(TestPaths.repoRoot))
+    interp.installPlugins(List(HttpInterpreterPlugin(), JsonInterpreterPlugin()))
+    interp.run(Parser.parse(src))
+    ps.flush()
+    val out = buf.toString.trim
+    out should include("tool:post_transaction")
+    out should include("tool-result-error:false")
+    out should include("delta:Posted via stream.")
+    out should endWith("stopped:Done\nDone\nPosted via stream.\n1")
+
   private def streamedToolCall: List[String] =
     List(
       sse("""{"choices":[{"delta":{"role":"assistant","content":null},"finish_reason":null}]}"""),

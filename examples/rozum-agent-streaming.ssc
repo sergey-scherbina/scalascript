@@ -1,0 +1,92 @@
+---
+name: rozum-agent-streaming-demo
+version: 0.1.0
+description: Self-contained std.agent streaming demo against a fake OpenAI-compatible rozum gateway.
+---
+
+# Rozum Agent Streaming Demo
+
+[AgentEndpoint, RunOptions, agentTool, runAgentStream, toolOk, objectSchema](std/agent.ssc)
+[jsonValue, jStr, jNum, jField, jObj](std/json.ssc)
+[route, serveAsync, stop, httpRetry, Request, Response](std/http.ssc)
+
+```scalascript
+val port = 19695
+var calls = 0
+
+def sseFrame(data: String): String =
+  "data: " + data + "\n\n"
+
+def done(): String =
+  "data: [DONE]\n\n"
+
+def toolCallStream(): String =
+  sseFrame("""{"choices":[{"delta":{"role":"assistant","content":null},"finish_reason":null}]}""") +
+  sseFrame("""{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"post_transaction","arguments":""}}]},"finish_reason":null}]}""") +
+  sseFrame("""{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"amount\":"}}]},"finish_reason":null}]}""") +
+  sseFrame("""{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"125,\"memo\":\"office"}}]},"finish_reason":null}]}""") +
+  sseFrame("""{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":" supplies\"}"}}]},"finish_reason":null}]}""") +
+  sseFrame("""{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}""") +
+  done()
+
+def finalTextStream(): String =
+  sseFrame("""{"choices":[{"delta":{"content":"Posted via stream."},"finish_reason":null}]}""") +
+  sseFrame("""{"choices":[{"delta":{},"finish_reason":"stop"}]}""") +
+  done()
+
+route("POST", "/v1/chat/completions") { req =>
+  calls = calls + 1
+  val body =
+    if calls == 1 then toolCallStream()
+    else finalTextStream()
+  Response(200, Map("Content-Type" -> "text/event-stream"), body)
+}
+
+serveAsync(port)
+httpRetry(20, 50)
+
+val schema = objectSchema(
+  jObj(List(
+    jField("amount", jObj(List(jField("type", jStr("integer"))))),
+    jField("memo", jObj(List(jField("type", jStr("string")))))
+  )),
+  List("amount", "memo")
+)
+
+val postTransaction = agentTool(
+  "post_transaction",
+  "Post one validated accounting transaction.",
+  schema
+) { argsJson =>
+  val args = jsonValue(argsJson)
+  toolOk(jObj(List(
+    jField("status", jStr("posted")),
+    jField("amount", jNum(args.get("amount").asInt.toString)),
+    jField("memo", jStr(args.get("memo").asString))
+  )))
+}
+
+val result = runAgentStream(
+  AgentEndpoint("http://localhost:" + port),
+  "local-stream-model",
+  "You are a careful accounting assistant.",
+  "Post the office supplies transaction.",
+  List(postTransaction),
+  RunOptions(maxSteps = 4)
+) { event =>
+  if event.kind == "ToolCallStarted" then
+    println("tool:" + event.tool)
+  if event.kind == "ToolCallResult" then
+    println("tool-result-error:" + event.isError)
+  if event.kind == "TextDelta" then
+    println("delta:" + event.text)
+  if event.kind == "Stopped" then
+    println("stopped:" + event.stop)
+}
+
+println(result.stop)
+println(result.text)
+println(result.operations.length)
+
+stop()
+```
