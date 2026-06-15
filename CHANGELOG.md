@@ -4,6 +4,27 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — feat: interpreter uses REAL Scala collection semantics (Array mutable, LazyList lazy)
+
+Follow-up to the constructors above: the user asked that the interpreter not just *display* the
+real collection type but *really use* it. Analysis (agreed): in an **eager** interpreter
+`List`/`Seq`/`Vector`/`IndexedSeq`/`Iterable` are observably identical (`Vector(1,2,3) == List(1,2,3)`
+is `true` in Scala too) — only **display** differs, handled by a `ListV.collKind` tag preserved
+through type-preserving ops. The only two types with genuinely different runtime semantics now have
+real backing:
+- **`Value.ArrayV(Array[Value])`** — mutable (`a(i) = x` / `a.update(i,x)` mutate in place;
+  `EvalRuntime` lowers `recv(idx…) = rhs` to `recv.update`), reference identity
+  (`Array(1,2,3) != Array(1,2,3)`), `.map`/etc. return a fresh mutable Array.
+- **`Value.LazyListV(LazyList[Value])`** — backed by Scala's own `LazyList`, so laziness, infinite
+  streams, memoization, and `toString` parity with JVM (`LazyList(<not computed>)`) come for free;
+  `#::` is special-cased to defer its RHS so `def from(n) = n #:: from(n+1)` is an infinite stream.
+
+Verified output-for-output against real Scala / the JVM backend. JS gains a Vector/IndexedSeq
+display tag (`_seqKind`) and mutable-Array indexed assignment for cross-backend parity; JS Array
+reference-identity and LazyList laziness stay interp-vs-JVM (JS arrays are eager + structural).
+Guards: `CollectionRealTypeTest` (19 interp cases) + `CrossBackendPropertyTest` "real collection
+type". spec: `specs/collection-real-type.md`.
+
 ## 2026-06-15 — feat: Seq/Vector/Array/IndexedSeq/Iterable/LazyList constructors + toX conversions
 
 Despite the user guide listing `Seq`/`Vector`/`Array`/`Set`, the interpreter only had

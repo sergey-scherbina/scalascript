@@ -1,6 +1,6 @@
 # spec: collection-real-type — interpreter uses real Scala collection semantics
 
-Status: in-progress (2026-06-15)
+Status: DONE (2026-06-15)
 Claim: `collection-real-type`
 Backends: interp (primary, the explicit ask), JVM (already correct — reference), JS (parity, best-effort)
 
@@ -86,11 +86,16 @@ raw-emitted JVM program, since both use the real Scala `LazyList`).
 
 ## Behavior checklist
 
-- [ ] `Vector(1,2,3)` prints `Vector(1, 2, 3)`; `.map(_*2)` stays `Vector`.
-- [ ] `Vector(1,2,3) == List(1,2,3)` is `true`.
-- [ ] `val a = Array(1,2,3); a(0)=9; a(0)` → `9`; `a.update(1,8); a(1)` → `8`.
-- [ ] `Array(1,2,3) != Array(1,2,3)`; `val a=Array(1); a == a` → `true`.
-- [ ] `Array(1,2,3).map(_*2)` is an `Array` (mutable), `.mkString(",")` → `2,4,6`.
-- [ ] `LazyList.from(1).map(_*2).take(3).toList` → `List(2, 4, 6)` (infinite source).
-- [ ] `LazyList(1,2,3).toString` → `LazyList(<not computed>)` (matches JVM).
-- [ ] `def from(n:Int):LazyList[Int] = n #:: from(n+1); from(1).take(4).toList` → `List(1,2,3,4)`.
+- [x] `Vector(1,2,3)` prints `Vector(1, 2, 3)`; `.map(_*2)` stays `Vector` (interp/JVM; JS shows base on `.map`).
+- [x] `Vector(1,2,3) == List(1,2,3)` is `true`.
+- [x] `val a = Array(1,2,3); a(0)=9; a(0)` → `9`; `a.update(1,8); a(1)` → `8`.
+- [x] `Array(1,2,3) != Array(1,2,3)`; `val a=Array(1); a == a` → `true` (interp/JVM; JS structural).
+- [x] `Array(1,2,3).map(_*2)` is an `Array` (mutable), `.mkString(",")` → `2,4,6`.
+- [x] `LazyList.from(1).map(_*2).take(3).toList` → `List(2, 4, 6)` (infinite source; interp/JVM).
+- [x] `LazyList(1,2,3).toString` → `LazyList(<not computed>)` (matches JVM; interp/JVM).
+- [x] `def from(n:Int):LazyList[Int] = n #:: from(n+1); from(1).take(4).toList` → `List(1,2,3,4)` (interp/JVM).
+
+Verified: `CollectionRealTypeTest` (19 interp cases) + `CrossBackendPropertyTest` "real collection
+type" (interp==JS==JVM). interp output matched real Scala / JVM exactly for every shape. JS deferred
+(documented): LazyList laziness/combinators (`from`/`iterate`/`continually`) and `#::` are interp/JVM
+only; JS Array equality is structural; JS loses the Vector display tag through array-rebuilding ops.

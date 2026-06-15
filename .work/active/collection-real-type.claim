@@ -1,6 +1,0 @@
-collection-real-type 2026-06-15T19:35:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-15T19:35:00Z
-status: in-progress
-done-so-far: interp side done (uncommitted) — ListV.collKind display tag; Vector/IndexedSeq->"Vector", Seq/Iterable/Array->"List", LazyList->"LazyList"; preserved through type-preserving ops (map/filter/etc), toVector/toIndexedSeq convert to Vector; aliasing fix (fresh wrapper on kind change).
-next: implement JS side (tag arrays with non-enumerable _kind; _show renders it; preserve through _dispatch ops). Cross-backend verify Vector(1,2,3) + .map(_*2) display "Vector(2, 4, 6)" on interp==JS==JVM. Avoid println(Array)/println(LazyList) (non-det/lazy). BUGS/CHANGELOG, commit, push, release.
