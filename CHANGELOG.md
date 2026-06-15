@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — refactor(jsgen): extract content-toolkit emission to JsGenContentEmit (JsGen.scala −13%)
+
+codegen-megafile-deflation slice 2 (mirrors the JvmGen extraction). The content-toolkit JS emission
+(~650 LOC) moved verbatim from the 5136-line JsGen into a new `JsGenContentEmit` trait (`self: JsGen =>`),
+mirroring the existing mixin pattern; baseDir/lockPath exposed as `private[codegen] val`, `line()` emit
+helper widened. Behaviour-identical (compiler-verified): JsGen.scala 5136 → 4486 LOC; 224 JS content +
+JsGen output-assertion tests green. Both codegen megafiles now have content emission extracted (JvmGen
+−20%, JsGen −13%).
+---
+
 ## 2026-06-15 — refactor(jvmgen): extract content-toolkit emission to JvmGenContentEmit (JvmGen.scala −20%)
 
 codegen-megafile-deflation slice 1. The self-contained content-toolkit Scala-source emission domain
