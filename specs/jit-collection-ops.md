@@ -1,8 +1,10 @@
 # spec: jit-collection-ops — bytecode-JIT for Vector / Array (and why not LazyList)
 
-Status: in-progress (2026-06-15)
+Status: slice 1 DONE (2026-06-15) — Vector/List/Array indexed READ JITs on the default
+JavacJitBackend (`vector-index` 1056 → 1.14 ms, ~925×). Slice 2 (Array update) + ASM parity
++ LazyList rationale below.
 Claim: `jit-collection-ops`
-Backends: interp bytecode JIT — `JavacJitBackend` (default) + `AsmJitBackend` (parity)
+Backends: interp bytecode JIT — `JavacJitBackend` (default, DONE) + `AsmJitBackend` (parity, follow-up)
 
 ## Motivation
 
@@ -60,8 +62,11 @@ removes. Left tree-walked; documented here so it isn't re-attempted as a "collec
 
 ## Behavior checklist
 
-- [ ] `seqIndexLong` returns the right element for VectorV / ListV / ArrayV.
-- [ ] `vector-index` JITs on JavacJitBackend (bench drop; result unchanged).
-- [ ] `SSC_JIT_BYTECODE=off` gives the identical result.
-- [ ] AsmJitBackend parity (or documented as follow-up).
-- [ ] Slice 2 (Array update) + LazyList rationale recorded.
+- [x] `seqIndexLong` returns the right element for VectorV / ListV / ArrayV (`JitSeqIndexTest`).
+- [x] `vector-index` JITs on JavacJitBackend: 1056 → 1.14 ms (~925×), result unchanged.
+- [x] `SSC_JIT_BYTECODE=off` gives the identical result (952395756 both ways).
+- [~] AsmJitBackend: `walkRef` parity for Vector/Array globals kept; the `walkLong` seq-index
+      emission BAILS (ASM tracks top-level-val globals differently than Javac) → reverted to avoid
+      shipping an inert/risky path. Documented FOLLOW-UP.
+- [x] Slice 2 (Array update) + LazyList rationale recorded (above).
+- Full clean interp suite 1820 green; no regression.

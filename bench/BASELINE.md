@@ -57,7 +57,7 @@ JIT backend (≈ `ssc` for tree-walked collection/effect workloads).
 | `type-lambda-placeholder` |        0.0076 |            0.0078 |        0.0012 |        0.018 |       0.000490 |
 | `typeclass-fold`          |          1.21 |              1.20 |        0.0029 |        0.045 |       0.000594 |
 | `typeclass-monoid`        |         0.010 |             0.010 |      0.000005 |     0.000221 |       0.000006 |
-| `vector-index`            |        1056.3 |            1048.9 |         0.507 |         16.3 |          0.638 |
+| `vector-index`            |          1.14 |            1048.9 |         0.507 |         16.3 |          0.638 |
 
 ### Collection-type microbenchmarks
 
@@ -67,16 +67,19 @@ full table above). `n/a` is the honest support signal: `Vector` is now O(1)-inde
 on Rust (`vec![]` + `seq[i as usize]`), but `Array` (mutable) and `LazyList` (lazy)
 need a distinct runtime Rust doesn't have; JS is eager with no `LazyList.from`.
 
-| Workload | what it measures | ssc (interp) | jvm | js | rust |
-|---|---|---:|---:|---:|---:|
-| `vector-index`  | O(1) `Vector` indexed reads      | 1056.3 | 0.507 | 16.3 | 0.638 |
-| `array-update`  | in-place mutable `Array` update  | 1580.5 | 0.535 | 24.4 | n/a |
-| `lazylist-take` | lazy `take(8)` of an infinite `LazyList` | 198.2 | 5.59 | n/a | n/a |
+| Workload | what it measures | ssc (interp) | ssc-asm | jvm | js | rust |
+|---|---|---:|---:|---:|---:|---:|
+| `vector-index`  | O(1) `Vector` indexed reads      | **1.14** | 1048.9 | 0.507 | 16.3 | 0.638 |
+| `array-update`  | in-place mutable `Array` update  | 1580.5 | 1578.6 | 0.535 | 24.4 | n/a |
+| `lazylist-take` | lazy `take(8)` of an infinite `LazyList` | 198.2 | 197.4 | 5.59 | n/a | n/a |
 
-Notes: the interpreter **tree-walks** these (collection ops aren't bytecode-JITted, so
-`ssc-asm` ≈ `ssc` — that ~1000× gap to jvm/rust is the tree-walk tax, not a real-work
-cost); `vector-index` and `array-update` use a JS-f64-safe MINSTD index generator so
-they stay in bounds on every backend (see the corpus headers).
+Notes: `vector-index` now **bytecode-JITs** on the default `ssc` (Javac) backend
+(1056 → 1.14 ms, ~925×; `JitRefDispatch.seqIndexLong`, `jit-collection-ops`) — on par
+with jvm/rust. The `ssc-asm` column stays tree-walked (ASM backend tracks top-level-val
+globals differently — a documented follow-up). `array-update` (local array + in-place
+store) and `lazylist-take` (a per-iteration lazy pipeline, not a loop-op) are still
+tree-walked — the former is the next JIT slice, the latter is inherent `LazyList` cost.
+`vector-index`/`array-update` use a JS-f64-safe MINSTD index generator (corpus headers).
 
 ## JMH microbenchmarks (`sbt "interpreterBench/Jmh/run"`)
 
