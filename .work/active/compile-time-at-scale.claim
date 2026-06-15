@@ -1,6 +1,0 @@
-compile-time-at-scale 2026-06-15T06:01:57Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-15T06:01:57Z
-status: in-progress
-done-so-far: proposed in strategic review — all existing compile/codegen benches use TINY inputs (6-line programs); compile-time at REAL scale (1000s LOC / deep import graphs) is unmeasured. jvmgen-codegen-time (-94%) was on tiny inputs.
-next: build a large-program compile-time bench (generate a big synthetic .ssc: many defs/blocks/types, or a deep import chain), profile parser/typer/normalize/codegen scaling vs input size, find any O(n^2) hotspot. Fix if a clear one exists + A/B; else document the scaling profile as the deliverable. Also queue cross-backend-property-equivalence + real-workload-perf in BACKLOG.
