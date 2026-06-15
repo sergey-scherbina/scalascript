@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix(interpreter): TCO trampoline fills default args on short tail/mutual calls
+
+A tail/mutual call may supply fewer args than the callee declares, relying on default params
+(`def g(x, y = 10)` tail-called as `g(5)`). `callFun`'s normal entry runs `applyDefaults`, but the
+trampoline's tail-dispatch paths (self `TailCall`, `MutualTailCall`, resume re-entries) bound
+`curArgs` raw — so the callEnv builder read `curArgs(1)` off a 1-element list and threw
+`IndexOutOfBoundsException` (2 params) / `ArrayIndexOutOfBoundsException` (3+ params). Found via
+`std.ui.content.contentView(doc)` (2 params, `options` defaulted) tail-called from a per-locale
+content selector in busi. Fix: `TcoRuntime.tcoTrampoline` now fills missing trailing args from
+their defaults (`bindShortCall` → `CallRuntime.applyDefaults`) in the callEnv builder — the single
+chokepoint all dispatch paths funnel through. The full-arity hot path stays allocation-free
+(cons-pattern checks, no `applyDefaults`); only a short call pays. Guarded by
+`TailCallDefaultArgsTest` (2-param mutual, self-tail short, 3-param two-defaults). Full conformance
+suite (127 fixtures) byte-identical vs baseline; 152 interpreter+content+TCO tests green.
+---
+
 ## 2026-06-15 — fix(jvmgen): lower arithmetic on Any-typed effect-handler op-args
 
 Second JVM codegen bug found by `CrossBackendPropertyTest` (jvmgen-effect-handler-arg-arith): a handler

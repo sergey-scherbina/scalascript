@@ -27,6 +27,25 @@ private[interpreter] object TcoRuntime:
         interp.tcoCache.put(f.body, info)
         info
 
+  /** Bind a short tail/mutual call's args onto `envStable`, filling the trailing
+   *  params it left unsupplied from their defaults via `CallRuntime.applyDefaults`
+   *  (the same routine `callFun` runs on a normal entry). Only reached for a tail
+   *  call that supplied fewer args than the callee declares; the full-arity path
+   *  never calls this. A genuinely missing required arg still throws there. */
+  private def bindShortCall(
+    curFun: Value.FunV, curArgs: List[Value], envStable: Env, interp: Interpreter
+  ): Env =
+    val full = CallRuntime.applyDefaults(
+      curFun.params, curFun.defaults, curArgs, interp.closureWithSelfFor(curFun), interp)
+    var env = envStable
+    var ps  = curFun.params
+    var as  = full
+    while ps.nonEmpty && as.nonEmpty do
+      env = FrameMap.one(ps.head, as.head, env)
+      ps  = ps.tail
+      as  = as.tail
+    env
+
   /** TCO trampoline that survives effect suspensions.
    *
    *  Body code is evaluated under an env that maps the function name (and any
@@ -97,15 +116,29 @@ private[interpreter] object TcoRuntime:
                 if mutualEntries.isEmpty then selfEnv
                 else FrameMap.fromMap(mutualEntries, selfEnv)
             envStableFor  = curFun
+          // Fill any trailing params the tail/mutual call left unsupplied from
+          // their defaults. `callFun`'s initial entry runs applyDefaults, but the
+          // trampoline's tail-dispatch paths (self TailCall, MutualTailCall, and
+          // the resume re-entries) bind `curArgs` raw — so a tail call that relied
+          // on a default arg (`contentView(doc)` → 2 params, `options` defaulted)
+          // would otherwise crash here. The full-arity hot path stays
+          // allocation-free via cons-pattern checks; only a short call pays applyDefaults.
           val callEnv: Env = curFun.params match
             case Nil               => envStable
-            case p :: Nil          => FrameMap.one(p, curArgs.head, envStable)
-            case p1 :: p2 :: Nil   => FrameMap.two(p1, curArgs.head, p2, curArgs(1), envStable)
+            case p :: Nil          => curArgs match
+              case a1 :: _ => FrameMap.one(p, a1, envStable)
+              case _       => bindShortCall(curFun, curArgs, envStable, interp)
+            case p1 :: p2 :: Nil   => curArgs match
+              case a1 :: a2 :: _ => FrameMap.two(p1, a1, p2, a2, envStable)
+              case _             => bindShortCall(curFun, curArgs, envStable, interp)
             case ps                =>
               var names = interp.paramsArrayCache.get(curFun.body)
               if names == null then { names = ps.toArray; interp.paramsArrayCache.put(curFun.body, names) }
-              val vals = curArgs.iterator.take(names.length).toArray
-              FrameMap.of(names, vals, envStable)
+              if curArgs.lengthCompare(names.length) < 0 then
+                bindShortCall(curFun, curArgs, envStable, interp)
+              else
+                val vals = curArgs.iterator.take(names.length).toArray
+                FrameMap.of(names, vals, envStable)
           current = interp.eval(curFun.body, callEnv)
         // Inner step loop — re-associate FlatMaps and step Pure short-circuits.
         // Exits via `return` inside the match; the condition stays `true`.
