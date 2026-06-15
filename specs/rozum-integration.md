@@ -67,25 +67,25 @@ text. Applications may parse arguments with `std.json.jsonValue`.
 
 ## Behavior
 
-- [ ] `runAgent` sends `POST <baseUrl>/v1/chat/completions` with `model`,
+- [x] `runAgent` sends `POST <baseUrl>/v1/chat/completions` with `model`,
       `messages`, `tools`, `tool_choice`, `temperature`, `max_tokens`, and
       `stream=false`.
-- [ ] The request uses OpenAI-compatible function-tool JSON:
+- [x] The request uses OpenAI-compatible function-tool JSON:
       `{type:"function", function:{name, description, parameters}}`.
-- [ ] If rozum returns final assistant text, `runAgent` returns
+- [x] If rozum returns final assistant text, `runAgent` returns
       `AgentResult(stop = "Done")` with no synthetic tool execution.
-- [ ] If rozum returns `finish_reason = "tool_calls"`, the SDK appends the
+- [x] If rozum returns `finish_reason = "tool_calls"`, the SDK appends the
       assistant tool-call message, dispatches each known tool handler, appends
       tool-result messages, records `ExecutedOp`s, and calls rozum again.
-- [ ] Unknown tools and malformed/missing tool arguments become tool-result
+- [x] Unknown tools and malformed/missing tool arguments become tool-result
       errors fed back to the model instead of crashing the loop.
-- [ ] The loop stops with `stop = "MaxSteps"` when `maxSteps` tool-call rounds
+- [x] The loop stops with `stop = "MaxSteps"` when `maxSteps` tool-call rounds
       are exhausted and preserves the transcript for audit/resume.
-- [ ] HTTP status outside 2xx returns `AgentResult(stop = "Error")` with a
+- [x] HTTP status outside 2xx returns `AgentResult(stop = "Error")` with a
       diagnostic text; it does not throw from the public API.
-- [ ] `authToken` adds `Authorization: Bearer <token>` when non-empty and is
+- [x] `authToken` adds `Authorization: Bearer <token>` when non-empty and is
       omitted otherwise.
-- [ ] `examples/rozum-agent.ssc` demonstrates a fake accounting-style tool and
+- [x] `examples/rozum-agent.ssc` demonstrates a fake accounting-style tool and
       points at a local rozum gateway URL.
 
 ## Design
@@ -139,4 +139,13 @@ The test asserts both request shape and resulting `AgentResult`.
 
 ## Results
 
-Filled during implementation verification.
+Implemented P0 as `runtime/std/agent.ssc`, with no new intrinsic plugin. Added
+`examples/rozum-agent.ssc` and README references. Verified with:
+
+```bash
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/rozum-integration && sbt "backendInterpreterPluginTests/testOnly scalascript.AgentSdkInterpreterTest"
+```
+
+The suite has 7 tests covering request shape, bearer auth, direct final text,
+tool-call dispatch, unknown-tool error feedback, handler validation error
+feedback, `MaxSteps`, non-2xx `Error`, and the self-contained example.
