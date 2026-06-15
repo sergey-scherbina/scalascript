@@ -1,0 +1,6 @@
+xbackend-range-and-wave7 2026-06-15T14:23:48Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-15T14:23:48Z
+status: in-progress
+done-so-far: 22 cross-backend bugs fixed. range-by-step filed open.
+next: fix xbackend-range-by-step (by(n) on interp range-List + JS array = every n-th element), then keep hunting (wave-7).
