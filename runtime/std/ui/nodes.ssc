@@ -20,6 +20,8 @@ exports:
   - CheckboxNode
   - SignalButtonNode
   - ActionButtonNode
+  - SignalLabelButtonNode
+  - SignalActionButtonNode
   - BadgeNode
   - SpinnerNode
   - SignalPreNode
@@ -84,6 +86,15 @@ case class SignalButtonNode(signal: Any,
 case class ActionButtonNode(handler: Any,
                              label: String,
                              disabled: Boolean)         extends TkNode
+// Reactive-label buttons — the label tracks a Signal[String] (e.g. a locale switch),
+// otherwise identical to SignalButtonNode / ActionButtonNode.
+case class SignalLabelButtonNode(signal: Any,
+                                 value: Any,
+                                 labelSig: Any,
+                                 disabled: Boolean)     extends TkNode
+case class SignalActionButtonNode(handler: Any,
+                                  labelSig: Any,
+                                  disabled: Boolean)    extends TkNode
 
 // ── Display ───────────────────────────────────────────────────────────────
 case class BadgeNode(content: String, variant: String)  extends TkNode

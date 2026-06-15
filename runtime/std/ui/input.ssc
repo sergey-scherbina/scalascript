@@ -8,11 +8,13 @@ exports:
   - checkbox
   - signalButton
   - actionButton
+  - signalLabelButton
+  - signalActionButton
 ---
 
 # `std.ui.input` — input constructors
 
-[TkNode, TextFieldNode, CheckboxNode, SignalButtonNode, ActionButtonNode](nodes.ssc)
+[TkNode, TextFieldNode, CheckboxNode, SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode](nodes.ssc)
 
 ```scalascript
 def textField(value: Any,
@@ -36,4 +38,18 @@ def actionButton(handler: Any,
                  label: String = "Submit",
                  disabled: Boolean = false): TkNode =
   ActionButtonNode(handler, label, disabled)
+
+// signalLabelButton — like signalButton but the label tracks a Signal[String]
+// (reactive, e.g. on a locale switch).
+def signalLabelButton(signal: Any,
+                      value: Any,
+                      labelSig: Any,
+                      disabled: Boolean = false): TkNode =
+  SignalLabelButtonNode(signal, value, labelSig, disabled)
+
+// signalActionButton — like actionButton but the label tracks a Signal[String].
+def signalActionButton(handler: Any,
+                       labelSig: Any,
+                       disabled: Boolean = false): TkNode =
+  SignalActionButtonNode(handler, labelSig, disabled)
 ```
