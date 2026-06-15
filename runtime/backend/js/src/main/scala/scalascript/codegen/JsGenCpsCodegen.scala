@@ -484,6 +484,13 @@ private[codegen] trait JsGenCpsCodegen:
       val wn  = freshTmp()
       s"(() => { let $iName = ${genExpr(lo)}; const $wn = () => ($iName $cmp ${genExpr(hi)}) ? " +
         s"_bind(${genCpsExpr(t.body)}, () => { $iName = $iName + 1; return $wn(); }) : undefined; return $wn(); })()"
+    // `for x <- coll do body` over a non-Range pure collection (a JS array, e.g. a List): iterate by
+    // index + the same trampoline so the body's effects thread through `_bind`. (effect-perform-in-fordo.)
+    case t: Term.For if jsCollForDo(t).isDefined =>
+      val (iName, coll) = jsCollForDo(t).get
+      val arr = freshTmp(); val ix = freshTmp(); val wn = freshTmp()
+      s"(() => { const $arr = ${genExpr(coll)}; let $ix = 0; const $wn = () => { if ($ix >= $arr.length) return undefined; " +
+        s"const $iName = $arr[$ix]; $ix = $ix + 1; return _bind(${genCpsExpr(t.body)}, () => $wn()); }; return $wn(); })()"
     case t: Term.For      => genForDo(t.enumsBlock.enums, t.body)
 
     // Assign — thread the rhs (so a `perform` in it runs) then mutate the target.
@@ -792,6 +799,23 @@ private[codegen] trait JsGenCpsCodegen:
             Some((iName, lo, ac.values.head.asInstanceOf[Term], op == "to"))
           case _ => None
       case _ => None
+
+  /** `for x <- coll do …` where `x` is a plain var and `coll` is a pure non-Range collection.
+   *  Returns `(loopVarName, coll)`. (effect-perform-in-fordo.) */
+  private def jsCollForDo(t: Term.For): Option[(String, Term)] =
+    if jsRangeForDo(t).isDefined then None
+    else t.enumsBlock.enums match
+      case List(g: Enumerator.Generator) =>
+        g.pat match
+          case scala.meta.Pat.Var(Term.Name(iName)) if !jsForTermPerforms(g.rhs) => Some((iName, g.rhs))
+          case _ => None
+      case _ => None
+
+  private def jsForTermPerforms(t: scala.meta.Tree): Boolean = t match
+    case Term.Select(Term.Name(eff), Term.Name(op)) if isEffectOpRef(eff, op)         => true
+    case Term.Apply.After_4_6_0(Term.Name(n), _) if isEffectfulFun(n)                 => true
+    case Term.Apply.After_4_6_0(Term.Select(_, Term.Name(n)), _) if isEffectfulFun(n) => true
+    case _                                                                            => t.children.exists(jsForTermPerforms)
 
   private[codegen] def genForDo(enums: List[Enumerator], body: Term): String =
     if enumeratorsNeedAsyncFor(enums) then genAsyncForDo(enums, body)

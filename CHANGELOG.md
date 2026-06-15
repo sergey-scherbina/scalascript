@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix(jvm/js): effect perform inside a collection for-do loop
+
+Completes effect-perform-in-fordo: an effect op performed inside a `for x <- coll do …`
+loop (non-Range collection generator) diverged the same way the Range case did before
+its fix — JVM compile error (`Int + _perform`), JS garbage; interp correct. Extended the
+for-do CPS recognizers in both emitters (`JvmGenCpsTransform` + `JsGenCpsCodegen`) to also
+handle a single plain-var generator over a pure non-Range collection, desugaring to the
+while-trampoline via `.iterator` (JVM) / array-index (JS) so the body's `perform`s thread
+through `_bind`. Multi-generator / guarded / complex-pattern for-do still falls through
+unchanged. The "effect perform in for-do loop cross-backend" guard now covers 5 shapes
+(range until/to/loop-var + collection elem/side-effect), interp == JS == JVM.
+
+---
+
 ## 2026-06-15 — fix(jvm/js): effect perform inside a for-do loop (CPS desugar)
 
 An effect op performed inside a `for i <- 0 until n do …` loop diverged across all

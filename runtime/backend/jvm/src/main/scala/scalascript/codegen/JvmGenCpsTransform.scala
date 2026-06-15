@@ -275,6 +275,17 @@ private[codegen] trait JvmGenCpsTransform:
       s"{ var $iName: Int = ${lo.syntax}; def $wn(): Any = if ($iName $cmp ${hi.syntax}) " +
         s"_bind($cpsBody, (_wk: Any) => { $iName = $iName + 1; $wn() }) else (); _bind($wn(), (_wr: Any) => ()) }"
 
+    // A `for x <- coll do body` over a non-Range pure collection: iterate via `.iterator` + the same
+    // while-trampoline so the body's `perform`s thread through `_bind`. (effect-perform-in-fordo,
+    // collection case.) `coll` is required pure (no perform); complex generator patterns fall through.
+    case t: Term.For if collForDo(t).isDefined =>
+      val (iName, coll) = collForDo(t).get
+      val itn     = "_it" + freshTmp()
+      val wn      = "_wf" + freshTmp()
+      val cpsBody = emitCpsExpr(t.body)
+      s"{ val $itn = (${coll.syntax}).iterator; def $wn(): Any = if ($itn.hasNext) { val $iName = $itn.next(); " +
+        s"_bind($cpsBody, (_wk: Any) => $wn()) } else (); _bind($wn(), (_wr: Any) => ()) }"
+
     case Term.Function.After_4_6_0(paramClause, body) =>
       val params = paramClause.values.map { p =>
         val tpe = p.decltpe.map(t => s": ${t.syntax}").getOrElse(": Any")
@@ -836,6 +847,18 @@ private[codegen] trait JvmGenCpsTransform:
                 Term.ApplyInfix.After_4_6_0(lo, Term.Name(op), _, ac))
               if (op == "until" || op == "to") && ac.values.lengthCompare(1) == 0 =>
             Some((iName, lo, ac.values.head.asInstanceOf[Term], op == "to"))
+          case _ => None
+      case _ => None
+
+  /** Recognise a single-generator `for x <- coll do …` where `x` is a plain var and `coll` is a pure
+   *  (effect-free) non-Range collection expression. Returns `(loopVarName, coll)`. (effect-perform-in-fordo.) */
+  private def collForDo(t: Term.For): Option[(String, Term)] =
+    if rangeForDo(t).isDefined then None
+    else t.enumsBlock.enums match
+      case List(g: scala.meta.Enumerator.Generator) =>
+        g.pat match
+          case scala.meta.Pat.Var(scala.meta.Term.Name(iName)) if !cpsTermPerforms(g.rhs) =>
+            Some((iName, g.rhs))
           case _ => None
       case _ => None
 
