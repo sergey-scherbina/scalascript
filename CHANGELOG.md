@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — test(std): add rozum live conformance smoke
+
+Added `RozumLiveConformanceTest`, an opt-in interpreter-plugin test for
+`std.agent` against a real OpenAI-compatible rozum gateway. It is gated by
+`ROZUM_BASE_URL` + `ROZUM_MODEL` with optional `ROZUM_AUTH_TOKEN`, cancels cleanly
+when env is absent, and documents the live command in
+`specs/rozum-live-conformance.md`. Verified with
+`sbt "backendInterpreterPluginTests/testOnly scalascript.RozumLiveConformanceTest"`;
+local no-env path canceled as expected. An attempted adjacent `rozum gateway
+--model hello` smoke built the Rust binary but current rozum rejected `hello` as
+no backend, so true live execution requires a real cached model or
+`ROZUM_BACKEND_URL` upstream.
+---
+
 ## 2026-06-15 — feat(std): add rozum agent SDK P0
 
 Added `runtime/std/agent.ssc`, a generic app-owned agent loop for stateless

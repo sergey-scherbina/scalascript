@@ -14,15 +14,6 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Strategic-review proposals (2026-06-15) — the feature roadmap is built out; leverage has shifted from
 building features to validating/hardening/enabling what exists. Work top-to-bottom.
 
-- [ ] **rozum-live-conformance** — Add an opt-in live conformance check against a real
-      adjacent Rust `rozum` OpenAI-compatible gateway. HOW: create/extend a focused
-      spec before code; inspect `../rozum/docs/specs/integration.md` and
-      `../rozum/docs/specs/agent-sdk.md` plus gateway examples/tests; add a
-      skipped-by-default interpreter plugin test gated by `ROZUM_BASE_URL` and
-      `ROZUM_MODEL` (optional `ROZUM_AUTH_TOKEN`) that exercises `std.agent` against
-      `/v1/chat/completions` without requiring CI to run rozum. Done when the no-env
-      test path skips cleanly, the opt-in command is documented, and the spec records
-      the exact live env contract.
 - [ ] **rozum-agent-streaming** — Add P1 streaming support for rozum/OpenAI-compatible
       chat completions. HOW: spec `AgentEvent`/`AgentStreamResult` first; build on the
       existing `std.http` streaming/SSE surface if present (otherwise queue the missing
