@@ -61,21 +61,21 @@ bad tool declarations surface before the first model call.
 
 ## Behavior
 
-- [ ] `AgentSchema` can be derived for a top-level case-class record with
+- [x] `AgentSchema` can be derived for a top-level case-class record with
       scalar fields and produces an object schema with all non-optional fields
       in `required`.
-- [ ] `List[T]` fields derive array schemas and decode JSON arrays into
+- [x] `List[T]` fields derive array schemas and decode JSON arrays into
       ScalaScript lists when `T` is a supported scalar.
-- [ ] `Option[T]` fields derive nullable schemas, are not required, and decode
+- [x] `Option[T]` fields derive nullable schemas, are not required, and decode
       missing/null JSON values to `None`.
-- [ ] `agentToolFor[A]` constructs a normal `AgentTool`: the outbound OpenAI
+- [x] `agentToolFor[A]` constructs a normal `AgentTool`: the outbound OpenAI
       tool JSON contains the derived schema, and local handlers receive a typed
       `A` decoded from raw tool-call arguments.
-- [ ] Explicit `agentTool(..., parametersJson)` remains unchanged and remains
+- [x] Explicit `agentTool(..., parametersJson)` remains unchanged and remains
       the fallback for unsupported or custom schemas.
-- [ ] Unsupported types produce a diagnostic containing the field name and type
+- [x] Unsupported types produce a diagnostic containing the field name and type
       instead of silently emitting an underspecified schema.
-- [ ] Examples show both derived and explicit schemas in the same `std.agent`
+- [x] Examples show both derived and explicit schemas in the same `std.agent`
       surface.
 
 ## Design
@@ -126,4 +126,10 @@ subset.
 
 ## Results
 
-Filled in after implementation and verification.
+Implemented in `runtime/std/agent.ssc` as pure `.ssc` library code with no new
+backend intrinsic. Added `examples/rozum-agent-schema-derived.ssc`, covering
+derived and explicit schemas side by side.
+
+Verification:
+
+- `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/rozum-agent-schema-derivation && sbt "backendInterpreterPluginTests/testOnly scalascript.AgentSchemaDerivationInterpreterTest"` -- 4 tests passed, covering derived schema JSON, typed handler dispatch/decode, explicit schema fallback, unsupported-type diagnostics, and the new example.

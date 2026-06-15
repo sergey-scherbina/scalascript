@@ -1388,6 +1388,33 @@ route("GET", "/download") { req =>
 gateways. Use `runAgent` for ordinary non-streaming completions, or
 `runAgentStream` / `collectAgentStream` when the gateway returns SSE chunks.
 
+Tool schemas can be explicit JSON Schema strings through `agentTool`, or
+derived from a typed case-class input through `AgentSchema`:
+
+```scalascript
+[AgentSchema, agentToolFor, toolOk](std/agent.ssc)
+[jStr, jNum, jField, jObj](std/json.ssc)
+
+case class PostTransaction(amount: Int, memo: String) derives AgentSchema
+
+val postTransaction =
+  agentToolFor[PostTransaction](
+    "post_transaction",
+    "Post one accounting transaction.",
+    summon[AgentSchema[PostTransaction]]
+  ) { args =>
+    toolOk(jObj(List(
+      jField("amount", jNum(args.amount.toString)),
+      jField("memo", jStr(args.memo))
+    )))
+  }
+```
+
+Derived schemas support top-level case-class records with `String`, `Int`,
+`Double`, `Boolean`, `List[T]`, and `Option[T]` fields where `T` is supported.
+Use explicit `agentTool(..., parametersJson)` for custom constraints, enums, or
+unsupported shapes.
+
 ```scalascript
 [AgentEndpoint, RunOptions, runAgentStream](std/agent.ssc)
 
@@ -1427,7 +1454,9 @@ Pool failover retries only transport failures and HTTP `5xx` responses. HTTP
 `4xx`, unknown tools, and handler validation errors use the normal `Error` or
 tool-result path and do not try another endpoint. See
 [`examples/rozum-agent-pool.ssc`](../examples/rozum-agent-pool.ssc),
+[`examples/rozum-agent-schema-derived.ssc`](../examples/rozum-agent-schema-derived.ssc),
 [`examples/rozum-agent-streaming.ssc`](../examples/rozum-agent-streaming.ssc),
+[`specs/rozum-agent-schema-derivation.md`](../specs/rozum-agent-schema-derivation.md),
 [`specs/rozum-agent-endpoint-pool.md`](../specs/rozum-agent-endpoint-pool.md),
 and [`specs/rozum-agent-streaming.md`](../specs/rozum-agent-streaming.md).
 
