@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix(interp): String.map returns a Seq when the element fn yields a non-Char
+
+`"abc".map(c => c.toInt).sum` threw in the interpreter (`No method 'sum'`) — interp's
+`String.map` always rebuilt a String, but Scala's `String.map(f)` is a `String` only when
+`f` yields a `Char`; otherwise a `Seq[B]`. Fixed: `strMapResult` returns a `String` when
+every mapped element is a `CharV` (incl. empty), else a `List` — so `"abc".map(_.toInt)` →
+`List(97, 98, 99)` (matches JVM = 294), while char-to-char maps stay Strings. Guarded by a
+new "String.map char vs non-char cross-backend" test (interp == JVM for the non-Char case;
+char-map agrees on all three). 155 interp / cross-backend tests green. The JS side stays open
+(BUGS.md interp-js-string-map-nonchar): JS has no distinct Char type — chars are char-code
+numbers, so `_.toInt` (int) and `_.toUpper` (char) are indistinguishable at runtime; a correct
+JS fix needs a real Char wrapper (larger change, deferred).
+
+---
+
 ## 2026-06-15 — fix: stepped Ranges (`by`) + collection/String dispatch gaps (cross-backend)
 
 Fixed the open `xbackend-range-by-step` plus a cluster of stdlib dispatch gaps found by a

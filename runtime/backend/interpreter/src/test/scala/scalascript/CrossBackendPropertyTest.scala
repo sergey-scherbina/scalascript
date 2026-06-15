@@ -444,6 +444,22 @@ class CrossBackendPropertyTest extends AnyFunSuite:
       assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
       assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
 
+  // `String.map(f)` is a `String` only when `f` yields a `Char`; otherwise a `Seq[B]`. interp now
+  // matches JVM for the non-Char case (`"abc".map(_.toInt)` → `List(97,98,99)`, sum 294). JS can't
+  // agree here — it has no distinct Char type (chars are char-code numbers), so `_.toInt` vs `_.toUpper`
+  // are indistinguishable at runtime; the non-Char map is asserted interp == JVM only.
+  // (interp-js-string-map-nonchar — interp fixed, JS needs a Char type.)
+  test("String.map char vs non-char cross-backend"):
+    assume(has("node") && has("scala-cli"), "node/scala-cli not available")
+    // char-to-char map stays a String on ALL three backends (regression guard).
+    val cc  = module("println(\"abc\".map(c => c).length + \"abc\".reverse.length)\n")
+    val ce  = interp(cc)
+    assert(runJs(cc) == ce && runJvm(cc) == ce, s"char-map diverged: interp=$ce js=${runJs(cc)} jvm=${runJvm(cc)}")
+    // non-Char map → Seq: interp now matches JVM (294).
+    val nc  = module("println(\"abc\".map(c => c.toInt).sum)\n")
+    val nci = interp(nc)
+    assert(nci == runJvm(nc), s"non-char String.map interp != jvm: interp=$nci jvm=${runJvm(nc)}")
+
   private def module(program: String) = Parser.parse(s"# Gen\n\n```scalascript\n$program\n```\n")
 
   private def interp(m: scalascript.ast.Module): String =

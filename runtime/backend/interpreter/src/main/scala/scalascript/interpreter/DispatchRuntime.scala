@@ -875,12 +875,14 @@ private[interpreter] object DispatchRuntime:
           else Computation.pureIntV(s.codePointAt(i.toInt).toLong)
         case _             => dispatchString(recv, s, name, arg :: Nil, env, interp)
       case "map"       =>
+        // `String.map(f)` is a `String` only when `f` yields a `Char`; otherwise a `Seq[B]`
+        // (e.g. `"abc".map(_.toInt)` → `List(97, 98, 99)`). (interp-js-string-map-nonchar.)
         Computation.mapSequenceStr(s, c => interp.callValue1(arg, Value.charV(c), env)) match
-          case Pure(Value.ListV(items)) => Pure(Value.StringV(items.iterator.map(Value.show).mkString))
-          case Pure(_)                  => Pure(Value.StringV(s))
+          case Pure(Value.ListV(items)) => Pure(strMapResult(items))
+          case Pure(other)              => Pure(other)
           case comp                     => FlatMap(comp, {
-            case Value.ListV(items) => Pure(Value.StringV(items.iterator.map(Value.show).mkString))
-            case _                  => Pure(Value.StringV(s))
+            case Value.ListV(items) => Pure(strMapResult(items))
+            case other              => Pure(other)
           })
       case "foreach"   =>
         var i = 0
@@ -2473,6 +2475,15 @@ private[interpreter] object DispatchRuntime:
   /** Apply a `collect` element function, returning `null` to SKIP the element when a partial function
    *  isn't defined there (a `case`-guard that doesn't match raises a located "Match failure" rather than
    *  returning). An `Option`-returning fn handles its own skip via `None`. (interp-collect-partial.) */
+  /** `String.map` result: a `String` when every mapped element is a `Char` (incl. the empty case),
+   *  else a `List` (`Seq[B]`). (interp-js-string-map-nonchar.) */
+  private def strMapResult(items: List[Value]): Value =
+    if items.forall(_.isInstanceOf[Value.CharV]) then
+      val sb = new java.lang.StringBuilder(items.length)
+      items.foreach { case Value.CharV(c) => sb.append(c); case _ => () }
+      Value.StringV(sb.toString)
+    else Value.ListV(items)
+
   private def collectStep(f: Value, elem: Value, env: Env, interp: Interpreter): Computation | Null =
     try interp.callValue1(f, elem, env)
     catch case e: InterpretError if e.getMessage != null && e.getMessage.contains("Match failure:") => null

@@ -43,11 +43,12 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Symptom:** several stdlib methods were missing from the JS `_dispatch` (and one from interp), failing with `Method not found` / `No method`: `List.scanLeft`/`scanRight`/`indexWhere`, tuple `.swap`, `String.padTo`; interp also lacked `indexWhere`. interp + JVM (or JVM alone) were correct.
 - **FIXED (2026-06-15):** added JS array dispatch `scanLeft`(curried)/`scanRight`/`indexWhere`/`swap`, JS string `padTo` (Char arg arrives as a char-code number), and interp `indexWhere` (`dispatchList`). Guard: `CrossBackendPropertyTest` string-pad / list-scanleft / list-indexwhere / tuple-swap.
 
-## interp-js-string-map-nonchar — `open`
+## interp-js-string-map-nonchar — `fixed (interp); open (js — needs Char type)`
 
 - **Found by:** `CrossBackendPropertyTest` (wave-7).
-- **Symptom:** `"abc".map(c => c.toInt).sum` throws (`No method 'sum'`) on interp + JS — mapping a String's chars to a NON-Char value should yield a `Seq[Int]` (then `.sum`), but interp/JS `String.map` return a String. JVM correct (294).
-- **Note:** interp/JS `String.map` always rebuild a String; when the element function returns a non-Char, the result should be a List/Seq. Deferred (niche).
+- **Symptom:** `"abc".map(c => c.toInt).sum` threw (`No method 'sum'`) on interp + JS — mapping a String's chars to a NON-Char value should yield a `Seq[Int]` (then `.sum`), but interp/JS `String.map` rebuild a String. JVM correct (294).
+- **FIXED (interp, 2026-06-15):** `String.map` returns a `String` only when EVERY mapped element is a `Char` (interp has a real `CharV`); otherwise a `List` (`strMapResult`). `"abc".map(_.toInt)` → `List(97,98,99)`; char-to-char maps stay Strings. Guard: `CrossBackendPropertyTest` "String.map char vs non-char cross-backend" (interp == JVM for the non-Char case; char-map agrees on all three).
+- **OPEN (JS — Char-type limitation):** JS has no distinct `Char` type — chars are char-code NUMBERS, so `_.toInt` (int) and `_.toUpper` (char) both produce numbers, and `'5'.toInt` (53) is indistinguishable from `"5".toInt` (5). A correct cross-backend `String.map(nonChar)` (and `Char.toInt`) needs a real JS Char wrapper — a larger change, deferred.
 
 ## jvmgen-autooutput-after-classdef — `fixed` (2026-06-15)
 
