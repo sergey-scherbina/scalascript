@@ -63,6 +63,38 @@ class CapabilityCheckTest extends AnyFunSuite:
     val m = Normalize(Parser.parse(src))
     assert(CapabilityCheck.detect(m).contains(Feature.ModuleImports))
 
+  test("detect — std.nfc import requires NfcNdef"):
+    val src =
+      """# NFC
+        |
+        |[nfcCapabilities](std/nfc.ssc)
+        |
+        |```scalascript
+        |val caps = nfcCapabilities()
+        |```
+        |""".stripMargin
+    val m = Normalize(Parser.parse(src))
+    val features = CapabilityCheck.detect(m)
+    assert(features.contains(Feature.ModuleImports))
+    assert(features.contains(Feature.NfcNdef))
+
+  test("validate — std.nfc against backend without NfcNdef fails"):
+    val src =
+      """# NFC
+        |
+        |[nfcCapabilities](std/nfc.ssc)
+        |
+        |```scalascript
+        |val caps = nfcCapabilities()
+        |```
+        |""".stripMargin
+    val m = Normalize(Parser.parse(src))
+    val diags = CapabilityCheck.validate(m, cap(Set(Feature.ModuleImports)), "stub")
+    assert(diags.exists {
+      case Diagnostic.Unsupported(Feature.NfcNdef, "stub") => true
+      case _ => false
+    }, s"expected Unsupported(NfcNdef, stub), got: $diags")
+
   test("detect — empty program detects no features"):
     val m = moduleOf("val x = 1")
     // Plain val and Int literal — no language or platform features triggered.

@@ -61,6 +61,11 @@ object CapabilityCheck:
                                                                   then detected += Feature.Dataset
       if XmlInterpolatorPat.findFirstIn(src).isDefined            then detected += Feature.Markup
       if XsltTransformPat.findFirstIn(src).isDefined             then detected += Feature.Xslt
+      if src.contains("nfcCapabilities(") ||
+         src.contains("nfcPermissionStatus(") ||
+         src.contains("requestNfcPermission(") ||
+         src.contains("readNdef(") ||
+         src.contains("writeNdef(") then detected += Feature.NfcNdef
       // Registry-based interpolator capability detection: if a registered
       // interpolator's prefix appears in source, gate on its requiredFeatures.
       scalascript.compiler.plugin.InterpolatorRegistry.all.foreach { impl =>
@@ -88,6 +93,11 @@ object CapabilityCheck:
           detected += Feature.McpClient
         if path.contains("std/mapreduce") then
           detected += Feature.Dataset
+        val normalizedPath = path.replace('\\', '/')
+        if normalizedPath.contains("std/nfc.ssc") ||
+           normalizedPath == "std/nfc" ||
+           normalizedPath.endsWith("/std/nfc") then
+          detected += Feature.NfcNdef
       case _                          => ()
 
     def scanSection(s: ir.Section): Unit =

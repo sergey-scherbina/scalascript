@@ -1,0 +1,105 @@
+---
+name: std-nfc
+version: 0.1.0
+description: NFC tag support - NDEF read/write/status with native adapters
+package: std.nfc
+exports:
+  - NfcCapabilities
+  - NfcPermission
+  - NfcPermissionGranted
+  - NfcPermissionDenied
+  - NfcPermissionPrompt
+  - NfcPermissionUnknown
+  - NfcScanOptions
+  - NdefRecord
+  - NdefMessage
+  - NfcTag
+  - NfcError
+  - NfcNotSupported
+  - NfcDisabled
+  - NfcPermissionDeniedError
+  - NfcCancelled
+  - NfcTimeout
+  - NfcTagLost
+  - NfcInvalidMessage
+  - NfcPlatformError
+  - nfcCapabilities
+  - nfcPermissionStatus
+  - requestNfcPermission
+  - readNdef
+  - writeNdef
+  - textRecord
+  - uriRecord
+  - mimeRecord
+---
+
+# std.nfc - NFC NDEF
+
+Portable NFC tag API. The MVP exposes NDEF status, read, write, and record
+constructors. Platform NFC APIs stay behind backend/plugin adapters; regular
+`.ssc` code must not reference Android NFC, Core NFC, or Web NFC objects.
+
+See `specs/std-nfc.md` for backend policy and deferred raw tag/card-emulation
+capabilities.
+
+```scalascript
+case class NfcCapabilities(
+  supported:       Boolean,
+  enabled:         Boolean,
+  ndefRead:        Boolean,
+  ndefWrite:       Boolean,
+  tagTech:         Boolean = false,
+  cardEmulation:   Boolean = false,
+  platform:        String = ""
+)
+
+sealed trait NfcPermission
+case object NfcPermissionGranted extends NfcPermission
+case object NfcPermissionDenied extends NfcPermission
+case object NfcPermissionPrompt extends NfcPermission
+case object NfcPermissionUnknown extends NfcPermission
+
+case class NfcScanOptions(
+  prompt:          String = "Hold an NFC tag near this device",
+  timeoutMs:       Int = 60000,
+  multiple:        Boolean = false,
+  requireWritable: Boolean = false
+)
+
+case class NdefRecord(
+  recordType: String,
+  mediaType:  Option[String],
+  id:         Option[String],
+  encoding:   String,
+  lang:       String,
+  data:       List[Int]
+)
+
+case class NdefMessage(records: List[NdefRecord])
+
+case class NfcTag(
+  id:           Option[String],
+  technologies: List[String],
+  message:      NdefMessage
+)
+
+sealed trait NfcError
+case object NfcNotSupported extends NfcError
+case object NfcDisabled extends NfcError
+case object NfcPermissionDeniedError extends NfcError
+case object NfcCancelled extends NfcError
+case object NfcTimeout extends NfcError
+case object NfcTagLost extends NfcError
+case class NfcInvalidMessage(reason: String) extends NfcError
+case class NfcPlatformError(code: String, message: String) extends NfcError
+
+extern def nfcCapabilities(): NfcCapabilities
+extern def nfcPermissionStatus(): NfcPermission
+extern def requestNfcPermission(): NfcPermission
+extern def readNdef(options: NfcScanOptions = NfcScanOptions()): NfcTag
+extern def writeNdef(message: NdefMessage, options: NfcScanOptions = NfcScanOptions()): Unit
+
+extern def textRecord(text: String, lang: String = "en", id: Option[String] = None): NdefRecord
+extern def uriRecord(uri: String, id: Option[String] = None): NdefRecord
+extern def mimeRecord(mediaType: String, bytes: List[Int], id: Option[String] = None): NdefRecord
+```

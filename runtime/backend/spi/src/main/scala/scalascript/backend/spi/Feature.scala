@@ -42,3 +42,6 @@ enum Feature:
   case Markup                    // std.markup — xml"..." interpolator + fenced xml blocks (jvm, int)
   case Xslt                      // std.markup — XSLT 1.0 transform via javax.xml.transform (jvm, int)
   case GraphQL                   // std.graphql — schema-first GraphQL server + client (jvm, int, js, node)
+  case NfcNdef                   // std.nfc — NDEF read/write/status
+  case NfcTagTech                // std.nfc — raw tag technologies (deferred)
+  case NfcCardEmulation          // std.nfc — card emulation / presentment (deferred)

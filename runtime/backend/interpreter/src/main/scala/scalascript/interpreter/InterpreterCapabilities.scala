@@ -34,7 +34,8 @@ val InterpreterCapabilities: Capabilities = Capabilities(
     Feature.Dataset,
     Feature.Streams,
     Feature.Markup,               // xml"..." interpolator + fenced xml blocks via JvmMarkupCodec
-    Feature.Xslt                  // XSLT 1.0 transform via JvmMarkupCodec.transform
+    Feature.Xslt,                 // XSLT 1.0 transform via JvmMarkupCodec.transform
+    Feature.NfcNdef               // std.nfc interpreter adapter returns deterministic unsupported status
   ),
   outputs  = Set(OutputKind.ExecutionResult),
   options  = Set("emitAssertions"),

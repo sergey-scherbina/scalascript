@@ -1098,6 +1098,7 @@ lazy val cli = project
         (remotePlugin          / packagePlugin).value,
         (swingPlugin           / packagePlugin).value,
         (pwaPlugin             / packagePlugin).value,
+        (nfcPlugin             / packagePlugin).value,
         (streamsPlugin         / packagePlugin).value,
         (dstreamsPlugin        / packagePlugin).value,
         (graphqlPlugin         / packagePlugin).value,
@@ -2614,6 +2615,18 @@ lazy val pwaPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.pwa"))
 
+// ── std.nfc — NFC NDEF status/read/write declarations ───────────────────
+lazy val nfcPlugin = project
+  .in(file("runtime/std/nfc-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-nfc-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.nfc"))
+
 lazy val backendInterpreterPluginTests = project
   .in(file("runtime/backend/interpreter-plugin-tests"))
   .dependsOn(
@@ -2901,6 +2914,7 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("mcp",             mcpPlugin,             "scalascript-mcp-plugin"),
   PluginSpec("remote",          remotePlugin,          "scalascript-remote-plugin"),
   PluginSpec("pwa",             pwaPlugin,             "scalascript-pwa-plugin"),
+  PluginSpec("nfc",             nfcPlugin,             "scalascript-nfc-plugin"),
   PluginSpec("streams",         streamsPlugin,         "scalascript-streams-plugin"),
   PluginSpec("dstreams",        dstreamsPlugin,        "scalascript-dstreams-plugin"),
   PluginSpec("graphql",         graphqlPlugin,         "scalascript-graphql-plugin"),
