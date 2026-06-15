@@ -5,22 +5,23 @@ a hot loop, the path that distinguishes `Array` (mutable, reference identity)
 from the immutable `List`/`Vector` types. 200k LCG-driven update+read pairs into
 a 16-element Array.
 
-Honest-bench note: the index and written value both come from a carried 64-bit
-LCG (`s`, opaque `seed: Long` start), so the store/load is data-dependent and
-can't be folded or hoisted. (Shared anti-fold idiom — see
+Honest-bench note: the index and written value both come from a carried MINSTD
+generator (`s`, opaque `seed: Long` start; `s * 48271 % 2147483647`), so the
+store/load is data-dependent and can't be folded or hoisted. MINSTD stays exact
+in JS's f64 `Number` (product < 2⁵³). (Anti-fold — see
 `docs/bench/corpus-antifold.md`.) Supported on interp / JVM / JS (JS arrays are
 mutable); `n/a` on Rust, which has no distinct mutable `Array` type.
 
 ```scalascript
 def workload(seed: Long): Long =
-  var s = seed + 1
+  var s = (seed % 2147483646L) + 1L
   val a = Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
   var sum = 0L
   var i = 0
   while i < 200000 do
-    s = s * 2862933555777941757L + 3037000493L
-    val idx = (((s % 16) + 16) % 16).toInt
-    a(idx) = (((s % 100) + 100) % 100).toInt
+    s = (s * 48271L) % 2147483647L
+    val idx = (s % 16L).toInt
+    a(idx) = (s % 100L).toInt
     sum = sum + a(idx).toLong
     i = i + 1
   sum

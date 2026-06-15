@@ -19,7 +19,25 @@ artifacts and are ignored; promote stable summaries into this markdown file.
 
 ## Wall-clock baselines (`./bench.sh`)
 
-*Not yet captured — run `./bench.sh --baseline` after building `ssc`.*
+*Full corpus not yet captured — run `./bench.sh --baseline` after building `ssc`.*
+
+### Collection-type microbenchmarks
+
+Captured 2026-06-15 with `./bench.sh --backend <b> --reps 30 <workload>` (bin/ssc
+classpath launch). Machine: macOS arm64, JDK 21.0.7. ms/iter, lower is better.
+These exercise the real collection semantics added in `collection-real-type` /
+`collection-vector-indexed`; `n/a` is the honest support signal where a backend
+has no distinct type (Rust: no Vector/Array/LazyList; JS: eager, no `LazyList.from`).
+
+| Workload | what it measures | ssc (interp) | jvm | js | rust |
+|---|---|---:|---:|---:|---:|
+| `vector-index`  | O(1) `Vector` indexed reads      | 1049.9 | 0.504 | 16.7 | n/a |
+| `array-update`  | in-place mutable `Array` update  | 1582.7 | 0.516 | 23.8 | n/a |
+| `lazylist-take` | lazy `take(8)` of an infinite `LazyList` | 197.9 | 5.72 | n/a | n/a |
+
+Notes: the interpreter tree-walks these (collection ops aren't bytecode-JITted, so
+`ssc-asm` ≈ `ssc`); `vector-index` and `array-update` use a JS-f64-safe MINSTD
+index generator so they stay in bounds on every backend (see the corpus headers).
 
 ## JMH microbenchmarks (`sbt "interpreterBench/Jmh/run"`)
 

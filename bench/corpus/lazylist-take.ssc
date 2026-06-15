@@ -6,20 +6,21 @@ distinguishes a real lazy `LazyList` from an eager `List`/`Vector` (which can't
 represent an infinite source at all). 20k iterations, each building a fresh
 infinite stream and forcing 8 elements.
 
-Honest-bench note: the stream's start comes from a carried 64-bit LCG (`s`,
-opaque `seed: Long` start), so each iteration's prefix differs and nothing folds.
-(Shared anti-fold idiom — see `docs/bench/corpus-antifold.md`.) Supported on
-interp / JVM only; `n/a` on JS (eager arrays, no `LazyList.from`) and Rust (no
-`LazyList` type) — the dashboard `n/a` is the honest support signal.
+Honest-bench note: the stream's start comes from a carried MINSTD generator
+(`s`, opaque `seed: Long` start; `s * 48271 % 2147483647`), so each iteration's
+prefix differs and nothing folds. (Anti-fold — see
+`docs/bench/corpus-antifold.md`.) Supported on interp / JVM only; `n/a` on JS
+(eager arrays, no `LazyList.from`) and Rust (no `LazyList` type) — the dashboard
+`n/a` is the honest support signal.
 
 ```scalascript
 def workload(seed: Long): Long =
-  var s = seed + 1
+  var s = (seed % 2147483646L) + 1L
   var sum = 0L
   var i = 0
   while i < 20000 do
-    s = s * 2862933555777941757L + 3037000493L
-    val start = (((s % 1000) + 1000) % 1000).toInt
+    s = (s * 48271L) % 2147483647L
+    val start = (s % 1000L).toInt
     sum = sum + LazyList.from(start).map(x => x * 2).take(8).sum.toLong
     i = i + 1
   sum

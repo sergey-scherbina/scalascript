@@ -81,6 +81,49 @@ constant load, reporting a dishonest ~0 ms. The corpus defends against this
   0.34 → 0.025 ms, now ≈ jvm). A single irreducible barrier still taxes rust on
   loops jvm folds for free — that asymmetry is real, not a harness defect.
 
+#### Adding a new workload to the dashboard
+
+The wall-clock dashboard (`bench/BASELINE.md`) is fed by `bench/corpus/*.ssc`,
+**auto-discovered** by `bench/run.sc` — there is no registry to edit. To add one:
+
+1. **Create `bench/corpus/<name>.ssc`.** It is a normal `.ssc` markdown doc: a
+   title, a short paragraph saying what the workload measures and on which
+   backends it is supported, then **one ` ```scalascript ` fence** defining the
+   entry point. The harness (`ssc bench --machine`) calls one of:
+   - `def workload(seed: Long): Long` — preferred. The harness feeds an opaque
+     `seed`; carry it through a generator so nothing constant-folds (see below).
+   - `def workload(): Long` — only when the body is already non-foldable.
+   Return a `Long` and make the loop **consume every result** into it, or a
+   backend may delete the loop. Put any fixtures (a top-level `val`, a
+   `case class`) above the `def`, inside the same fence.
+
+2. **Keep it honest (anti-fold).** Carry a per-iteration generator and feed its
+   output into the work:
+   - Default: the 64-bit LCG `s = s * 2862933555777941757L + 3037000493L`
+     (relies on 64-bit wrap; fine for interp/JVM/Rust).
+   - **If the value feeds an array index** (or anything where overflow must not
+     escape a range): use **MINSTD** `s = (s * 48271L) % 2147483647L` (start
+     `(seed % 2147483646L) + 1L`). Its product stays below 2⁵³, so it is *exact*
+     in JS's f64 `Number`; a 64-bit-wrapping LCG overflows to `NaN` on JS and an
+     `arr(NaN)` read returns `undefined` → crash → a misleading `n/a`. See
+     `vector-index.ssc` / `array-update.ssc` for the pattern.
+
+3. **Verify on one backend (fast):** `./bench.sh --backend ssc <name>`. A backend
+   that can't run the workload (e.g. Rust has no `Vector`/`Array`/`LazyList`, JS
+   has no `LazyList.from`) reports `n/a` — that is the honest support signal, not
+   a failure. Run the other backends with `--backend jvm|js|rust`.
+
+4. **Publish numbers.** `./bench.sh --baseline` regenerates the **whole** corpus
+   table into `bench/BASELINE.md` (needs `bin/ssc` staged via `sbt installBin`,
+   plus `node` / `scala-cli` / a Rust toolchain for those columns). To add just
+   your rows without a full multi-backend sweep, run the single-backend commands
+   above and paste a focused table into `bench/BASELINE.md` (as the
+   *Collection-type microbenchmarks* section does).
+
+The matching JMH micro (`InterpreterBench`/`RuntimeBench`) is **optional** and
+separate — add a method there only if you want a warmed-up steady-state number;
+note the scale caveat below.
+
 ### ⚠️ JMH and the corpus measure different *scales* under the same name
 
 Several JMH methods in `InterpreterBench` share a name with a
