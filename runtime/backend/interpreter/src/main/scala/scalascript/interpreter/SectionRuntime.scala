@@ -295,6 +295,25 @@ private[interpreter] object SectionRuntime:
           i += 1
     -1
 
+  // True if the module declares a TOP-LEVEL `var` (mutable module state) — checked on the direct
+  // statements of each code block only (a function-local `var` is nested, not flagged). Used to
+  // decide whether the module's exported functions must run in the child interp (live module
+  // globals) instead of an import-time snapshot. See bug interp-module-var-home.
+  private def moduleDeclaresTopLevelVar(m: Module): Boolean =
+    def hasVarStat(stats: List[Stat]): Boolean = stats.exists(_.isInstanceOf[Defn.Var])
+    def loop(section: Section): Boolean =
+      section.content.exists {
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+          cb.tree.exists(t => ScalaNode.fold(t) {
+            case s: Source     => hasVarStat(s.stats)
+            case b: Term.Block => hasVarStat(b.stats)
+            case _: Defn.Var   => true
+            case _             => false
+          })
+        case _ => false
+      } || section.subsections.exists(loop)
+    m.sections.exists(loop)
+
   def runImport(imp: Content.Import, interp: Interpreter): Unit =
     import scalascript.parser.Parser
     val base = interp.baseDir.getOrElse(os.pwd)
@@ -338,6 +357,9 @@ private[interpreter] object SectionRuntime:
     // Snapshot all child globals so exported FunVs can reference sibling imports
     // (e.g. VStackNode, element) when called from a parent interpreter that lacks them.
     val childCtx: Map[String, Value] = exported ++ packageMembers(exported, childPkg)
+    // Does the imported module hold mutable top-level state? If so its exported functions are
+    // bound to run in the child interp (live module globals) rather than a frozen snapshot.
+    val childHasVars = moduleDeclaresTopLevelVar(childModule)
     for binding <- imp.bindings do
       val sourceName = binding.name
       val targetName = binding.alias.getOrElse(binding.name)
@@ -353,7 +375,21 @@ private[interpreter] object SectionRuntime:
           s"'$sourceName' is not exported by ${imp.path} — add it to that module's `exports:` to re-export it")
       lookupExport(exported, childPkg, sourceName) match
         case Some(v) =>
-          val enriched = enrichFnClosures(v, childCtx)
+          // If the imported module declares mutable top-level `var` state (a shared registry),
+          // bind each exported function as a wrapper that runs IN THE CHILD interpreter, so its
+          // reads AND `var` writes hit the module's LIVE globals. A plain `enrichFnClosures` merges
+          // an import-time SNAPSHOT of the child globals into the (empty top-level) closure, which
+          // freezes the var at its initial value and routes writes to the caller's globals — so
+          // cross-module mutable module state was incoherent. (Pure/effectful modules with no
+          // top-level var keep the snapshot binding: running them in the child would change their
+          // effect/plugin context.) See bug interp-module-var-home.
+          val enriched =
+            if childHasVars then v match
+              case fv: Value.FunV =>
+                Value.NativeFnV(targetName,
+                  (args: List[Value]) => CallRuntime.callValue(fv, args, Map.empty[String, Value], child))
+              case _ => enrichFnClosures(v, childCtx)
+            else enrichFnClosures(v, childCtx)
           val imported = rebindPluginNative(sourceName, targetName, enriched, interp)
           // busi-p0-statusval-eventcase-collision — if an imported binding
           // would overwrite an existing same-name binding of a different
