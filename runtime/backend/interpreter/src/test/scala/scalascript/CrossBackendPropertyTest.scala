@@ -48,15 +48,19 @@ class CrossBackendPropertyTest extends AnyFunSuite:
   /** Dispatch across program KINDS so the generator exercises more of the language than arithmetic.
    *  Every kind prints a deterministic `Int`/`String` — NOT a `Double` (formatting differs across
    *  backends) and NOT a `Set`/`Map` (iteration order legitimately differs); `List` is ordered, safe. */
+  private val Kinds = 9
   private def genProgram(seed: Int): String =
     val rng = new Random(seed.toLong)
-    (seed % 6) match
+    (seed % Kinds) match
       case 0 => genArithProgram(rng)
       case 1 => genListProgram(rng)
       case 2 => genMatchProgram(rng)
       case 3 => genEnumProgram(rng)
       case 4 => genStringProgram(rng)
-      case _ => genCaseClassProgram(rng)
+      case 5 => genCaseClassProgram(rng)
+      case 6 => genOptionProgram(rng)
+      case 7 => genEitherProgram(rng)
+      case _ => genEffectProgram(rng)
 
   private def genArithProgram(rng: Random): String =
     val sb  = new StringBuilder
@@ -113,6 +117,31 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     "case class Point(x: Int, y: Int)\n" +
       s"val p = Point($x, $y)\nprintln(p.x + p.y * 2)\n"
 
+  /** `Option[Int]` — construct via a branch, then `map`/`getOrElse`. */
+  private def genOptionProgram(rng: Random): String =
+    val v = rng.nextInt(20); val d = rng.nextInt(10); val some = rng.nextBoolean()
+    val o = if some then s"Some($v)" else "None"
+    s"val o: Option[Int] = $o\nprintln(o.map(e => e + 1).getOrElse($d))\n"
+
+  /** `Either[String, Int]` — construct via a branch, then `match`. */
+  private def genEitherProgram(rng: Random): String =
+    val v = rng.nextInt(20); val right = rng.nextBoolean()
+    val e = if right then s"Right($v)" else "Left(\"err\")"
+    s"val e: Either[String, Int] = $e\n" +
+      "println(e match\n  case Right(n) => n * 2\n  case Left(_) => -1\n)\n"
+
+  /** Algebraic EFFECT: a `Counter.tick` loop under a one-shot `handle` returning a deterministic Int.
+   *  Exercises the SEPARATE CPS codegen on each backend (JvmGenCpsTransform / JsGenCpsCodegen / interp).
+   *  Result = n * k. NB: binds the handle result to a `val` (the idiomatic form) — the inline form
+   *  `println(handle(...))` is excluded because JVM codegen does not lower a `handle` in call-argument
+   *  position (BUGS.md `jvmgen-handle-in-arg-position`, found by this very test; interp+JS handle both). */
+  private def genEffectProgram(rng: Random): String =
+    val n = 1 + rng.nextInt(6); val k = 1 + rng.nextInt(4)
+    "effect Counter:\n  def tick(): Int\n" +
+      "def loop(n: Int): Int ! Counter =\n  var acc = 0\n  var i = 0\n  while i < n do\n" +
+      "    acc = acc + Counter.tick()\n    i = i + 1\n  acc\n" +
+      s"val out = handle(loop($n)) {\n  case Counter.tick(resume) => resume($k)\n}\nprintln(out)\n"
+
   private def module(program: String) = Parser.parse(s"# Gen\n\n```scalascript\n$program\n```\n")
 
   private def interp(m: scalascript.ast.Module): String =
@@ -148,10 +177,10 @@ class CrossBackendPropertyTest extends AnyFunSuite:
       case Some(v) => math.abs(v) < 100000000L
       case None    => true
 
-  test("generated programs (6 kinds): interp == JS(node) over 48 seeds"):
+  test("generated programs (9 kinds incl. effects): interp == JS(node) over 54 seeds"):
     assume(has("node"), "node not available")
     var checked = 0; var skipped = 0
-    for seed <- 0 until 48 do
+    for seed <- 0 until 54 do
       val prog = genProgram(seed)
       val m    = module(prog)
       val exp  = try interp(m) catch case _: Throwable => null
@@ -164,14 +193,14 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     info(s"interp==JS: checked $checked generated programs, skipped $skipped (out-of-range/interp-error)")
     assert(checked >= 30, s"too few programs exercised ($checked) — generator may be degenerate")
 
-  test("generated programs (all 6 kinds): interp == JVM(scala-cli) over a 6-seed sample"):
+  test("generated programs (all 9 kinds incl. effects): interp == JVM(scala-cli)"):
     assume(has("scala-cli"), "scala-cli not available")
     var checked = 0
-    for seed <- 0 until 6 do
-      val prog = genProgram(seed * 7 + 1) // seeds 1,8,15,22,29,36 → mod 6 hits all 6 kinds
+    for seed <- 0 until Kinds do // seeds 0..8 = one program of each kind (incl. the effect kind)
+      val prog = genProgram(seed)
       val m    = module(prog)
       val exp  = try interp(m) catch case _: Throwable => null
       if exp != null && comparable(exp) then
-        assert(runJvm(m) == exp, s"\nJVM diverged from interp on seed-sample $seed:\n$prog--- interp: [$exp] ---")
+        assert(runJvm(m) == exp, s"\nJVM diverged from interp on kind seed=$seed:\n$prog--- interp: [$exp] ---")
         checked += 1
-    info(s"interp==JVM: checked $checked generated programs")
+    info(s"interp==JVM: checked $checked generated programs (one per kind)")

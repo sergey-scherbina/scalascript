@@ -12,6 +12,46 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+
+---
+
+## jvmgen-handle-in-arg-position — `open` (2026-06-15)
+
+- **Found by:** `CrossBackendPropertyTest` (xbackend-property-equivalence — the generated
+  cross-backend differential, found this on its first effects run).
+- **Symptom:** JVM codegen emits a `handle(...)` effect expression RAW (unqualified) when it
+  appears in **call-argument position**, e.g. `println(handle(body){cases})`, so scala-cli fails
+  with `Not found: handle - did you mean _handle?`. interp **and** JS run it correctly.
+- **Works (idiomatic):** binding the result first — `val r = handle(body){cases}; println(r)` —
+  lowers correctly to `_handle(() => body, Set(...), Map(...))`. Only the inline/nested form breaks.
+- **Repro (minimal):**
+  ```scalascript
+  effect Counter:
+    def tick(): Int
+  def loop(n: Int): Int ! Counter =
+    var acc = 0
+    var i = 0
+    while i < n do
+      acc = acc + Counter.tick()
+      i = i + 1
+    acc
+  println(handle(loop(3)) { case Counter.tick(resume) => resume(2) })
+  ```
+  `ssc emit-jvm` / scala-cli the output → "Not found: handle". Change last line to
+  `val r = handle(loop(3)) { ... }
+println(r)` → works.
+- **Root cause:** `JvmGen` lowers `handle` via `emitExpr` (case `handle(body){cases}` →
+  `emitHandleForm`) and special-cases the `val x = handle(...)` / statement forms, but an
+  effectful term nested inside another `Term.Apply` arg falls to the `.syntax` raw fallback
+  instead of recursing the arg through `emitExpr`/`emitHandleForm`. (Likely the same for other
+  effectful forms — `runAsync`, etc. — as direct call args.)
+- **Severity:** low — narrow corner case, trivial workaround (bind to a `val`). Fix touches the
+  core CPS emission path (would need care vs the 33 JvmGenEffects tests), so deferred from the
+  property-test slice that found it.
+- **Status:** open. SHA at filing: 4b21d527b. The property test excludes the inline form (uses the
+  bound form) so it stays green; re-add the inline form to that generator as the regression check
+  when this is fixed.
+
 ---
 
 ## interp-import-cycle-stackoverflow — `fixed` (2026-06-14)
