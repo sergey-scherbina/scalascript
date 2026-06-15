@@ -1,0 +1,6 @@
+feature/std-nfc-native-adapters 2026-06-15T08:04:59Z
+agent: codex
+heartbeat: 2026-06-15T08:04:59Z
+status: not-started
+done-so-far: SPRINT plan queued in 626edcf31.
+next: Create feature worktree, re-read specs/std-nfc.md, inspect target/backend structure, then implement next NFC adapter slice.
