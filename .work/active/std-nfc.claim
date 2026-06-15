@@ -1,6 +1,0 @@
-feature/std-nfc 2026-06-15T07:26:10Z
-agent: codex
-heartbeat: 2026-06-15T07:38:26Z
-status: in-progress
-done-so-far: worktree created; SPRINT plan committed; specs/std-nfc.md committed and API names tightened on feature branch
-next: implement Feature flags, capability detection, runtime/std/nfc.ssc, nfc-plugin scaffold, tests, docs, and example

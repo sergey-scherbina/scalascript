@@ -4,6 +4,11 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — feat(std): add portable `std.nfc` NDEF support
+
+Added the `std.nfc` NDEF API surface, `Feature.NfcNdef` capability gating, deferred tag-tech/card-emulation feature flags, an interpreter plugin with deterministic unsupported-backend behavior, portable text/URI/MIME record constructors, capability-check coverage, docs, and `examples/nfc-ndef.ssc`. Verified with `sbt "nfcPlugin/test"`, `sbt "core/testOnly scalascript.validate.CapabilityCheckTest"`, `sbt "installBin"`, and `bin/ssc run examples/nfc-ndef.ssc`.
+---
+
 ## 2026-06-15 — fix(interpreter): TCO trampoline fills default args on short tail/mutual calls
 
 A tail/mutual call may supply fewer args than the callee declares, relying on default params
