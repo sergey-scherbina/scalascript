@@ -1,0 +1,6 @@
+xbackend-property-wave5 2026-06-15T13:32:29Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-15T13:32:29Z
+status: in-progress
+done-so-far: 14 cross-backend bugs fixed via property test.
+next: wave-5 hunt — Map/Set ops (sorted output), case class copy/==/nested, numeric (Long/Double mix, div/mod negatives), exception handling (finally, custom exc message, throw in expr pos), lazy val/by-name. interp==JS==JVM; fix divergences (re-verify codegen fails on clean run).
