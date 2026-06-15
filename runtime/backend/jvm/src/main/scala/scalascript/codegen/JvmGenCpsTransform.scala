@@ -884,7 +884,7 @@ private[codegen] trait JvmGenCpsTransform:
       typeArgMap: Map[String, String]
   ): Option[String] =
     val classDef = depClasses.get(callee)
-    val defDef = depDefs.get(callee)
+    val defDef = depDefs.get(callee).orElse(localDefSigs.get(callee))
     val ps: Option[List[scala.meta.Term.Param]] =
       classDef.map(_.ctor.paramClauses.flatMap(_.values).toList)
         .orElse(
@@ -946,7 +946,7 @@ private[codegen] trait JvmGenCpsTransform:
       vs:     List[String],
       typeArgMap: Map[String, String] = Map.empty
   ): List[String] =
-    if depClasses.get(callee).isEmpty && depDefs.get(callee).isEmpty then vs
+    if depClasses.get(callee).isEmpty && depDefs.get(callee).isEmpty && localDefSigs.get(callee).isEmpty then vs
     else
       vs.zip(args).zipWithIndex.map { case ((v, arg), i) =>
         arg match
@@ -969,7 +969,7 @@ private[codegen] trait JvmGenCpsTransform:
       callee: String,
       typeArgs: Seq[scala.meta.Type]
   ): Map[String, String] =
-    depDefs.get(callee) match
+    depDefs.get(callee).orElse(localDefSigs.get(callee)) match
       case None => Map.empty
       case Some(d) =>
         d.paramClauseGroups.flatMap(_.tparamClause.values).map(_.name.value)

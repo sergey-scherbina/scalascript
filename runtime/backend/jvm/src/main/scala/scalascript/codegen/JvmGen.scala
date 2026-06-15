@@ -261,6 +261,17 @@ class JvmGen(
   // `inlineImport`.
   private[codegen] val depClasses = mutable.Map.empty[String, scala.meta.Defn.Class]
 
+  // `localDefSigs` — every `Defn.Def` in the USER module being generated (not a
+  // dep), keyed by simple name.  Used ONLY by `applyCalleeCasts`/`calleeParamType`
+  // to cast Any-bound CPS call args to a callee's declared param type — e.g. a
+  // recursive effectful `def go(n: Int): Int ! Log` whose CPS body calls `go(_t3)`
+  // with `_t3: Any` (a `_bind` continuation result): the call must read
+  // `go(_t3.asInstanceOf[Int])` or scala-cli rejects it (Found Any / Required Int).
+  // Kept SEPARATE from `depDefs` (which drives effect-propagation + dep emission)
+  // so registering user defs here has no effect-analysis / double-emit side effects.
+  // (BUGS.md jvmgen-returnclause-effect-in-recursion.)
+  private[codegen] val localDefSigs = mutable.Map.empty[String, scala.meta.Defn.Def]
+
   // `depTypeNames` — every type-defining decl (Defn.Class, Defn.Trait,
   // Defn.Enum) found in an inlined dep, mapped to its package path.
   // Used by `calleeParamType` to qualify dep type names in injected
@@ -325,6 +336,7 @@ class JvmGen(
     analyzeDepEffectfulness()
     analyzeEffects(blocks)
     analyzeMutualRecursion(blocks)
+    indexLocalDefSigs(blocks)
     val sb = StringBuilder()
 
     // //> using directives from YAML front-matter.  URL-shaped values
@@ -1262,6 +1274,7 @@ class JvmGen(
     analyzeDepEffectfulness()
     analyzeEffects(blocks)
     analyzeMutualRecursion(blocks)
+    indexLocalDefSigs(blocks)
     val sb = StringBuilder()
     val lineMap = scala.collection.mutable.LinkedHashMap.empty[Int, Int]
 
@@ -2625,6 +2638,18 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
   //   3. TERMINATE: when a pass adds nothing.
   //
   // O(deps × defs × calls) — <1 ms for the std corpus.
+
+  /** Index this module's own `Defn.Def`s (top-level + nested) by simple name so a
+   *  CPS call to one of them casts its Any-bound args to the declared param types.
+   *  Pre-pass so forward refs / mutual recursion resolve. Dep defs win on a name
+   *  clash (they're consulted first in `applyCalleeCasts`/`calleeParamType`). */
+  private def indexLocalDefSigs(blocks: List[JvmGen.Block]): Unit =
+    localDefSigs.clear()
+    blocks.foreach { b =>
+      ScalaNode.fold(b.node) { tree =>
+        tree.collect { case d: Defn.Def => localDefSigs.getOrElseUpdate(d.name.value, d) }
+      }
+    }
 
   private[scalascript] def analyzeDepEffectfulness(): Unit =
     globalEffectfulDeps.clear()

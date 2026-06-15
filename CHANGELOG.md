@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix(jvmgen): cast CPS call args to user-module callee param types (effectful recursion)
+
+A return-clause handler over a **recursive** effectful function failed JVM
+scala-cli compilation (`Found: (_t3 : Any) / Required: Int`): the CPS transform
+emits `def go(n: Int): Any = _bind(..., (_t3: Any) => go(_t3))`, and `applyCalleeCasts`
+(which casts Any-bound CPS args to the callee's declared param types) only
+consulted imported deps (`depDefs`/`depClasses`), never the user module's own
+defs — so the recursive call got no cast. interp + JS ran it fine. Fixed by adding
+`localDefSigs`, a pre-pass index of the module's own `Defn.Def`s, consulted as a
+fallback in `applyCalleeCasts`/`calleeParamType`/`calleeTypeArgMap`; `go(_t3)` now
+emits `go(_t3.asInstanceOf[Int])`. Found by `CrossBackendPropertyTest`; guarded by
+a new deterministic "effect return-clause cross-backend (direct / recursion)" test
+(interp == JS == JVM). 120 effect/CPS unit tests green. (BUGS.md
+jvmgen-returnclause-effect-in-recursion.) Remaining open: interp-returnclause-effect-in-while.
+
+---
+
 ## 2026-06-15 — feat(std): add rozum endpoint pool failover
 
 Added `AgentEndpointPool`, `runAgentPool`, `runAgentStreamPool`, and
@@ -22,6 +39,7 @@ Fixed a test-order flake where `examples/rozum-agent.ssc` and
 `AgentSdkStreamingInterpreterTest` both bound port `19694`; the streaming suite
 now uses `19698`. Verified the formerly failing order with
 `sbt "backendInterpreterPluginTests/testOnly scalascript.AgentSdkInterpreterTest scalascript.AgentSdkStreamingInterpreterTest"` (14 tests passed).
+
 ---
 
 ## 2026-06-15 — fix(jvmgen): handle-result val in main-path arithmetic; broaden xbackend property test

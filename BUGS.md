@@ -65,7 +65,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ---
 
-## jvmgen-returnclause-effect-in-recursion — `open`
+## jvmgen-returnclause-effect-in-recursion — `fixed` (2026-06-15)
 
 - **Found by:** `CrossBackendPropertyTest` diagnostic (return-clause shape localization).
 - **Symptom:** a return-clause handler over a **recursive** effectful function fails JVM scala-cli compilation: `Found: (_t3 : Any) / Required: Int`. **interp and JS both produce the correct result.**
@@ -86,7 +86,8 @@ commit SHA until the reporter confirms, then they can be trimmed.
   }
   println(xs.length)   // interp/js: 3 ; jvm: scala-cli COMPILE ERROR
   ```
-- **Root cause:** the CPS transform emits `def go(n: Int): Any = _bind(..., (_t3: Any) => go(_t3))` — the recursive call passes the Any-typed `_bind` continuation result `_t3` to `go`, whose param stays declared `Int`. Fix: either cast CPS call arguments to the callee's declared param type, or widen CPS-transformed function params to `Any` (the body already routes everything through `_binOp`/`_bind`, which accept `Any`).
+- **Root cause:** the CPS transform emits `def go(n: Int): Any = _bind(..., (_t3: Any) => go(_t3))` — the recursive call passes the Any-typed `_bind` continuation result `_t3` to `go`, whose param stays declared `Int`. The existing `applyCalleeCasts` (which casts CPS call args to the callee's declared param types) only consulted `depDefs`/`depClasses` (IMPORTED deps), never the user module's own defs, so a recursive/sibling call got no cast. (Widening the param to `Any` is NOT a valid fix — params keep their declared type so field access like `node.nodes` type-checks; the design casts at call sites instead.)
+- **FIXED (2026-06-15):** added `localDefSigs` — a pre-pass index of the user module's own `Defn.Def`s — and made `applyCalleeCasts` / `calleeParamType` / `calleeTypeArgMap` consult it as a fallback after `depDefs`. `go(_t3)` now emits `go(_t3.asInstanceOf[Int])`. Guard: `CrossBackendPropertyTest` "effect return-clause cross-backend (direct / recursion)" (interp == JS == JVM). 120 effect/CPS unit tests stay green.
 
 ---
 

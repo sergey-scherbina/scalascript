@@ -302,3 +302,25 @@ class CrossBackendPropertyTest extends AnyFunSuite:
         assert(runJvm(m) == exp, s"\nJVM diverged from interp on seed=$seed:\n$prog--- interp: [$exp] ---")
         checked += 1
     info(s"interp==JVM: checked $checked generated programs (all kinds + effect shapes)")
+
+  // Deterministic guard for return-clause handlers (`case Eff.op(resume) => v :: resume(()); case
+  // Return(_) => List()`) over different control-flow shapes of the handled program. Found two bugs:
+  //   - jvmgen-returnclause-effect-in-recursion: a recursive effectful `go(n-1)` failed JVM scala-cli
+  //     (Any-bound `_t3` passed to an `Int` param) — fixed via localDefSigs callee-cast.
+  //   - interp-returnclause-effect-in-while: an effect performed in a `while` loop throws in interp
+  //     (fast-while runs the perform eagerly) — STILL OPEN, so the while shape is excluded here.
+  // Each shape emits `xs.length` (= number of emits). interp/JS are baselines; JVM via scala-cli.
+  test("effect return-clause cross-backend (direct / recursion)"):
+    assume(has("node") && has("scala-cli"), "node/scala-cli not available")
+    val effDecl = "effect Log:\n  def emit(): Int\n"
+    val handler = "val xs = handle(prog()) {\n  case Log.emit(resume) => 7 :: resume(())\n  case Return(_) => List()\n}\nprintln(xs.length)\n"
+    val shapes = Seq(
+      "direct-single" -> "def prog(): Int ! Log =\n  Log.emit()\n  0\n",
+      "direct-two"    -> "def prog(): Int ! Log =\n  Log.emit()\n  Log.emit()\n  0\n",
+      "recursion"     -> "def go(n: Int): Int ! Log =\n  if n <= 0 then 0\n  else\n    Log.emit()\n    go(n - 1)\ndef prog(): Int ! Log =\n  go(3)\n",
+    )
+    for (label, progDecl) <- shapes do
+      val m   = module(effDecl + progDecl + handler)
+      val exp = interp(m)
+      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
+      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
