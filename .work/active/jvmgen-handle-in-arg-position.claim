@@ -1,6 +1,0 @@
-jvmgen-handle-in-arg-position 2026-06-15T07:07:59Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-15T07:07:59Z
-status: in-progress
-done-so-far: filed in BUGS.md (found by CrossBackendPropertyTest). JVM emits handle(...) raw in call-arg position (println(handle(...))) → "Not found: handle"; val r=handle(...) works. interp+JS ok.
-next: LEAD — println is an intrinsic, so emitExpr(println(handle(...))) likely hits the intrinsic-dispatch case before the generic apply path, and dispatchIntrinsic may render args via .syntax (raw) instead of emitExpr → raw handle. Confirm + make dispatchIntrinsic render RuntimeCall args through emitCallArg/emitExpr (so nested handle lowers). Verify: full JvmGenEffectsRuntimeTest (33) + StdEffects + the property test (re-add inline form) + JS/interp effect tests all green. Revert if not clean.
