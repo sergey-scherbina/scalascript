@@ -280,7 +280,7 @@ function _ssc_ui_renderBody(view) {
         const txt = _escT(v.sig && v.sig.get ? String(v.sig.get()) : '');
         if (!id) return txt;
         const fg = v.sig && v.sig._fetchGet;
-        if (fg) {
+        if (fg && fg.url) {
           if (fg.tick) collectSig(fg.tick);
           if (fg.headers) collectSig(fg.headers);
           const fgTick = (fg.tick && fg.tick.id != null) ? String(fg.tick.id) : '';
@@ -321,13 +321,15 @@ function _ssc_ui_renderBody(view) {
         const fg = src && src._fetchGet;
         if (fg && fg.tick)    collectSig(fg.tick);
         if (fg && fg.headers) collectSig(fg.headers);
+        if (fg && fg.urlSig)  collectSig(fg.urlSig);  // fetchUrlSignalTo: reactive URL signal
         (v.actions || []).forEach(function(a) {
           if (a.tick) collectSig(a.tick);
           if (a.headers) collectSig(a.headers);
           if (a._type === '_RowLink' && a.signal) collectSig(a.signal);
         });
         const dtSigId  = (src && src.id != null) ? String(src.id) : '';
-        const dtUrl    = fg ? _esc(fg.url) : '';
+        const dtUrl    = (fg && fg.url) ? _esc(fg.url) : '';
+        const dtUrlSig = (fg && fg.urlSig && fg.urlSig.id != null) ? String(fg.urlSig.id) : '';
         const dtTick   = (fg && fg.tick && fg.tick.id != null) ? String(fg.tick.id) : '';
         const dtHdr    = (fg && fg.headers && fg.headers.id != null) ? String(fg.headers.id) : '';
         const dtCols   = _esc(JSON.stringify((v.columns || []).map(function(c) {
@@ -351,6 +353,7 @@ function _ssc_ui_renderBody(view) {
         if (src && src._rowsPath) dtAttrs += ` data-ssc-datatable-rows-path="${_esc(String(src._rowsPath))}"`;
         if (dtTick) dtAttrs += ` data-ssc-datatable-tick="${dtTick}"`;
         if (dtHdr)  dtAttrs += ` data-ssc-datatable-headers="${dtHdr}"`;
+        if (dtUrlSig) dtAttrs += ` data-ssc-datatable-url-sig="${dtUrlSig}"`;
         return `<div ${dtAttrs} style="overflow-x:auto"></div>`;
       }
       // A raw, un-lowered DataTableNode (a TkNode that reached the renderer
@@ -414,18 +417,24 @@ function _ssc_ui_mount(sigs) {
     _syncBridgeSignals();
   }
   var _fetchGetMounted = {};
-  function _mountFetchGet(sigId, url, tickId, headersId) {
-    if (!sigId || !url || _fetchGetMounted[sigId]) return;
+  function _mountFetchGet(sigId, url, tickId, headersId, urlSig) {
+    var urlSigId = (urlSig && urlSig.id != null) ? String(urlSig.id) : '';
+    if (!sigId || (!url && !urlSigId) || _fetchGetMounted[sigId]) return;
     _fetchGetMounted[sigId] = true;
     function doGet() {
+      // fetchUrlSignalTo: resolve the URL from its signal (fresh reactive value) at fetch time.
+      var theUrl = urlSig ? String(urlSig.get() == null ? '' : urlSig.get()) : url;
+      if (!theUrl) return;
       var opts = {};
       if (headersId) {
         var hs = _sv[headersId];
         if (hs) { try { opts.headers = JSON.parse(hs); } catch(_e) {} }
       }
-      fetch(url, opts).then(function(r) { return r.text(); }).then(function(t) { _set(sigId, t); });
+      fetch(theUrl, opts).then(function(r) { return r.text(); }).then(function(t) { _set(sigId, t); });
     }
-    doGet();
+    // urlSig present: _sub fires doGet on mount AND whenever the URL signal changes; else fetch once.
+    if (urlSigId) _sub(urlSigId, function() { doGet(); });
+    else doGet();
     if (tickId) _sub(tickId, function(t) { if ((t | 0) > 0) doGet(); });
   }
   _signals.forEach(function(s, rawId) {
@@ -445,7 +454,7 @@ function _ssc_ui_mount(sigs) {
       var fg = s._fetchGet;
       var tickId = (fg.tick && fg.tick.id != null) ? String(fg.tick.id) : '';
       var headersId = (fg.headers && fg.headers.id != null) ? String(fg.headers.id) : '';
-      _mountFetchGet(sigId, fg.url, tickId, headersId);
+      _mountFetchGet(sigId, fg.url, tickId, headersId, fg.urlSig);
     }
   });
   // show/hide branches
@@ -536,6 +545,7 @@ function _ssc_ui_mount(sigs) {
   document.querySelectorAll('[data-ssc-datatable]').forEach(function(container) {
     var sigId      = container.getAttribute('data-ssc-datatable');
     var fetchUrl   = container.getAttribute('data-ssc-datatable-url');
+    var urlSigId   = container.getAttribute('data-ssc-datatable-url-sig'); // fetchUrlSignalTo: reactive URL
     var rawCols    = container.getAttribute('data-ssc-datatable-cols');
     var rawActs    = container.getAttribute('data-ssc-datatable-acts');
     var headersId  = container.getAttribute('data-ssc-datatable-headers');
@@ -706,11 +716,15 @@ function _ssc_ui_mount(sigs) {
     function doFetch() {
       var opts = {};
       if (headersId) { var hs = getHeaders(headersId); if (hs) opts.headers = hs; }
+      // fetchUrlSignalTo: resolve the URL from its (collected, _sv-fresh) signal at fetch
+      // time, so a filter/branch change re-fetches the new URL; else the baked url.
+      var theUrl = urlSigId ? String(_sv[urlSigId] == null ? '' : _sv[urlSigId]) : fetchUrl;
+      if (!theUrl) { renderTable([]); return; }
       // Read as text and normalise: the endpoint may answer a bare array, an
       // envelope ({data:[...]}), or — on a misrouted path — the SPA's own HTML.
       // _ssc_ui_rowsOf turns all of them into an array (HTML/non-JSON → []) so
       // renderTable never crashes on `.forEach`.
-      fetch(fetchUrl, opts)
+      fetch(theUrl, opts)
         .then(function(r) { return r.text(); })
         .then(function(text) { renderTable(_ssc_ui_rowsOf(text, rowsPath)); })
         .catch(function() { renderTable([]); });
@@ -727,6 +741,8 @@ function _ssc_ui_mount(sigs) {
       // Remote (FetchUrlSignal) — fetch + tick-driven re-fetch.
       doFetch();
       if (tickId) _sub(tickId, function(t) { if ((t | 0) > 0) doFetch(); });
+      // fetchUrlSignalTo — re-fetch whenever the URL signal changes (filter/branch switch).
+      if (urlSigId) _sub(urlSigId, function() { doFetch(); });
       acts.forEach(function(act) {
         if ((act._type === '_RowDelete' || act._type === '_RowPost') && act.tick && act.tick.id) {
           var tId = String(act.tick.id);
@@ -790,6 +806,16 @@ function _ssc_ui_emptyHeaders() { return Signal(''); }
 function _ssc_ui_fetchUrlSignal(name, url, tick, headers) {
   var sig = Signal('');
   if (url) sig._fetchGet = { url, tick: tick || null, headers: headers || null };
+  var state = _signals.get(sig.id);
+  if (state) state._fetchGet = sig._fetchGet;
+  return sig;
+}
+// fetchUrlSignalTo — like fetchUrlSignal but the URL is a Signal[String] resolved at
+// fetch time, re-fetching whenever it changes (filter/branch switch). The read-side
+// counterpart of fetchActionTo. urlSig is collected + kept fresh by the computed→_sv bridge.
+function _ssc_ui_fetchUrlSignalTo(name, urlSig, tick, headers) {
+  var sig = Signal('');
+  if (urlSig) sig._fetchGet = { urlSig: urlSig, tick: tick || null, headers: headers || null };
   var state = _signals.get(sig.id);
   if (state) state._fetchGet = sig._fetchGet;
   return sig;

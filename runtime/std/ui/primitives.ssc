@@ -23,6 +23,7 @@ exports:
   - emit
   - serve
   - fetchUrlSignal
+  - fetchUrlSignalTo
   - fetchAction
   - fetchActionTo
   - incSignal
@@ -123,6 +124,15 @@ extern def emptyHeaders: Signal[String]
 // headers: JSON-object Signal read at fetch time (e.g. {"Authorization":"Bearer …"}).
 extern def fetchUrlSignal(name: String, url: String, refreshTick: Signal[Int],
                           headers: Signal[String] = emptyHeaders): Signal[String]
+
+// fetchUrlSignalTo — like fetchUrlSignal but the URL is a Signal[String] resolved at
+// fetch time, re-fetching whenever it changes (a filter/branch switch), e.g.
+// `fetchUrlSignalTo("commits", urlSig, tick)` where
+// `urlSig = computedSignal(() => base + "/commits?branch=" + branchSig())`.
+// The read-side counterpart of fetchActionTo. (A plain fetchUrlSignal bakes its `url`
+// String at render time, so a dependent signal change never re-fetches.)
+extern def fetchUrlSignalTo(name: String, urlSig: Signal[String], refreshTick: Signal[Int],
+                            headers: Signal[String] = emptyHeaders): Signal[String]
 
 // fetchAction — on click: POST/PUT/DELETE url with body signal value,
 // then increment onSuccessTick so fetchUrlSignal consumers re-fetch.
