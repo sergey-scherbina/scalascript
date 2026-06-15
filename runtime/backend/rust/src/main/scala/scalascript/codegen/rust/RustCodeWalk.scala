@@ -924,8 +924,9 @@ object RustCodeWalk:
       yield
         if rRs.isEmpty then s"impl Fn(${pRs.mkString(", ")})"
         else                s"impl Fn(${pRs.mkString(", ")}) -> $rRs"
-    // R.2.5 — `List[T]` / `Vec[T]` lower to `Vec<T>`.
-    case m.Type.Apply.After_4_6_0(m.Type.Name("List" | "Vec"), argClause) =>
+    // R.2.5 — `List[T]` / `Vec[T]` / `Vector[T]` / `Seq[T]` / `IndexedSeq[T]` / `Iterable[T]`
+    // all lower to `Vec<T>` (eager immutable sequences; identical in Rust's Vec-backed model).
+    case m.Type.Apply.After_4_6_0(m.Type.Name("List" | "Vec" | "Vector" | "Seq" | "IndexedSeq" | "Iterable"), argClause) =>
       argClause.values.toList match
         case List(elem) => mapType(elem, defName, enumNames).map(r => s"Vec<$r>")
         case other      => Left(List(unsupported(
@@ -1603,18 +1604,31 @@ object RustCodeWalk:
           case m.Term.Name(n) if ctx.ctorMap.contains(n) => Some(n)
           case _                                          => None
         // `List(1, 2, 3)` / `Vec(1, 2, 3)` → Rust `vec![1, 2, 3]` unless Vec is a user struct.
+        // Vector/Seq/IndexedSeq/Iterable are eager immutable sequences — observably identical to
+        // List in Rust's `Vec`-backed model (which is itself O(1)-indexed), so they alias List.
+        // (Array's mutability and LazyList's laziness need a distinct runtime → still unsupported.)
+        // (collection-vector-indexed.)
         val isListCtor = userCtorName.isEmpty && (fn match
-          case m.Term.Name("List" | "Vec") => true
+          case m.Term.Name("List" | "Vec" | "Vector" | "Seq" | "IndexedSeq" | "Iterable") => true
           case _                            => false)
         val isMapCtor = fn match
           case m.Term.Name("Map") => true
           case m.Term.ApplyType.After_4_6_0(m.Term.Name("Map"), _) => true
           case _                    => false
+        // `seq(i)` indexing — when the callee is a top-level sequence val (a `vec![…]`), Scala's
+        // `seq(i)` apply lowers to Rust `seq[i as usize]` (Vec is O(1)-indexed). Limited to
+        // top-level vals, the only bindings whose rendered Rust we track here. (collection-vector-indexed.)
+        val seqIndexName: Option[String] = fn match
+          case m.Term.Name(n) if args.values.size == 1 &&
+            ctx.topVals.exists { case (vn, init) => vn == n && init.startsWith("vec![") } => Some(n)
+          case _ => None
         if isListCtor then Right(s"vec![$joined]")
         else if isMapCtor then
           if args.values.isEmpty then Right("std::collections::HashMap::new()")
           else Left(List(unsupported(s"def `${ctx.defName}` uses `Map` with ${args.values.size} args; only empty `Map()` is supported")))
-        else applyNonListCtor(fn, callee, renderedArgs, joined, ctx)
+        else seqIndexName match
+          case Some(n) => Right(s"$n[($joined) as usize]")
+          case None    => applyNonListCtor(fn, callee, renderedArgs, joined, ctx)
 
     // `String + any` / `any + String` — lower to `format!("{}{}", lhs, rhs)`.
     // Triggered when either side is a best-effort string expression.
@@ -1767,7 +1781,8 @@ object RustCodeWalk:
     // Only Name-based callees qualify — method calls like `csv.split(",")` are
     // NOT treated as Either (they return collections/strings, not Either values).
     case m.Term.Apply.After_4_6_0(m.Term.Name(n), _)
-        if n != "Some" && n != "List" && n != "Vec" && n != "Map" => !isOptionExpr(term)
+        if n != "Some" && n != "List" && n != "Vec" && n != "Map"
+        && n != "Vector" && n != "Seq" && n != "IndexedSeq" && n != "Iterable" => !isOptionExpr(term)
     case _ => false
 
   /** Best-effort check that a term is an Option-shaped expression so we can
