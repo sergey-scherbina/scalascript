@@ -1,0 +1,4 @@
+jit-collection-ops 2026-06-15T20:40:00Z
+agent: claude-opus-4-8
+status: in-progress
+next: slice 1 - seqIndexLong helper + JavacJit walkLong recognition for seq(i) on a seq-typed global; verify vector-index JITs (bench drop) via assembled jar; AsmJit parity; correctness test. Array update = slice 2; LazyList declined (lazy pipeline).
