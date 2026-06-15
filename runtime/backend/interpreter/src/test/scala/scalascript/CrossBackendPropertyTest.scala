@@ -130,17 +130,37 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     s"val e: Either[String, Int] = $e\n" +
       "println(e match\n  case Right(n) => n * 2\n  case Left(_) => -1\n)\n"
 
-  /** Algebraic EFFECT: a `Counter.tick` loop under a one-shot `handle` returning a deterministic Int.
-   *  Exercises the SEPARATE CPS codegen on each backend (JvmGenCpsTransform / JsGenCpsCodegen / interp).
-   *  Result = n * k. Uses the INLINE `println(handle(...))` form on purpose — it is the regression
-   *  guard for BUGS.md `jvmgen-handle-in-arg-position` (this test found that bug; it is now fixed:
-   *  an effectful call-arg lowers via emitExpr → `_handle(...)`). */
-  private def genEffectProgram(rng: Random): String =
-    val n = 1 + rng.nextInt(6); val k = 1 + rng.nextInt(4)
-    "effect Counter:\n  def tick(): Int\n" +
-      "def loop(n: Int): Int ! Counter =\n  var acc = 0\n  var i = 0\n  while i < n do\n" +
-      "    acc = acc + Counter.tick()\n    i = i + 1\n  acc\n" +
-      s"println(handle(loop($n)) {\n  case Counter.tick(resume) => resume($k)\n})\n"
+  /** Algebraic EFFECTS — sub-dispatch across shapes that stress the SEPARATE CPS codegen on each
+   *  backend (JvmGenCpsTransform / JsGenCpsCodegen / interp): one-shot, arg-carrying, two-op, and
+   *  MULTI-SHOT. The one-shot/arg/two-op use the INLINE `println(handle(...))` form on purpose — the
+   *  regression guard for BUGS.md `jvmgen-handle-in-arg-position` (found by this test, now fixed; the
+   *  fix should hold for every effectful call-arg, which these verify). All print a deterministic Int. */
+  private def genEffectProgram(rng: Random): String = rng.nextInt(4) match
+    case 0 => // one-shot: result n*k
+      val n = 1 + rng.nextInt(6); val k = 1 + rng.nextInt(4)
+      "effect Counter:\n  def tick(): Int\n" +
+        "def loop(n: Int): Int ! Counter =\n  var acc = 0\n  var i = 0\n  while i < n do\n" +
+        "    acc = acc + Counter.tick()\n    i = i + 1\n  acc\n" +
+        s"println(handle(loop($n)) {\n  case Counter.tick(resume) => resume($k)\n})\n"
+    case 1 => // arg-carrying: resume(k * mult), result sum_{i<n} i*mult
+      val n = 1 + rng.nextInt(6); val m = 1 + rng.nextInt(5)
+      "effect Reader:\n  def ask(k: Int): Int\n" +
+        "def loop(n: Int): Int ! Reader =\n  var acc = 0\n  var i = 0\n  while i < n do\n" +
+        "    acc = acc + Reader.ask(i)\n    i = i + 1\n  acc\n" +
+        s"println(handle(loop($n)) {\n  case Reader.ask(k, resume) => resume(k * $m)\n})\n"
+    case 2 => // two-op-arg effect: Combine.mix(a, b) → a*b + c
+      val n = 1 + rng.nextInt(6); val c = rng.nextInt(4)
+      "effect Combine:\n  def mix(a: Int, b: Int): Int\n" +
+        "def loop(n: Int): Int ! Combine =\n  var acc = 0\n  var i = 0\n  while i < n do\n" +
+        "    acc = acc + Combine.mix(i, i + 1)\n    i = i + 1\n  acc\n" +
+        s"println(handle(loop($n)) {\n  case Combine.mix(a, b, resume) => resume(a * b + $c)\n})\n"
+    case _ => // MULTI-SHOT nondeterminism: sum over all path results (bound — result is a List)
+      val a = 1 + rng.nextInt(3); val b = 1 + rng.nextInt(3)
+      "multi effect NonDet:\n  def choose(opts: List[Int]): Int\n" +
+        "def prog(): Int ! NonDet =\n" +
+        s"  val x = NonDet.choose(List($a, ${a + 1}))\n  val y = NonDet.choose(List($b, ${b + 10}))\n  x + y\n" +
+        "val all = handle(prog()) {\n  case NonDet.choose(opts, resume) => opts.flatMap(o => resume(o))\n}\n" +
+        "println(all.sum)\n"
 
   private def module(program: String) = Parser.parse(s"# Gen\n\n```scalascript\n$program\n```\n")
 
@@ -193,14 +213,17 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     info(s"interp==JS: checked $checked generated programs, skipped $skipped (out-of-range/interp-error)")
     assert(checked >= 30, s"too few programs exercised ($checked) — generator may be degenerate")
 
-  test("generated programs (all 9 kinds incl. effects): interp == JVM(scala-cli)"):
+  test("generated programs (all 9 kinds + effect shapes): interp == JVM(scala-cli)"):
     assume(has("scala-cli"), "scala-cli not available")
     var checked = 0
-    for seed <- 0 until Kinds do // seeds 0..8 = one program of each kind (incl. the effect kind)
+    // seeds 0..8 = one program of each kind; 17/26/35/44 are also the effect kind (seed%9==8) so the
+    // varied effect SHAPES (one-shot / arg-carrying / two-op / multi-shot) all get a JVM scala-cli run —
+    // the regression check that jvmgen-handle-in-arg-position is fixed for every effectful call-arg.
+    for seed <- (0 until Kinds) ++ List(17, 26, 35, 44) do
       val prog = genProgram(seed)
       val m    = module(prog)
       val exp  = try interp(m) catch case _: Throwable => null
       if exp != null && comparable(exp) then
-        assert(runJvm(m) == exp, s"\nJVM diverged from interp on kind seed=$seed:\n$prog--- interp: [$exp] ---")
+        assert(runJvm(m) == exp, s"\nJVM diverged from interp on seed=$seed:\n$prog--- interp: [$exp] ---")
         checked += 1
-    info(s"interp==JVM: checked $checked generated programs (one per kind)")
+    info(s"interp==JVM: checked $checked generated programs (all kinds + effect shapes)")

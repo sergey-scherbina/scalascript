@@ -4004,6 +4004,15 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       val l = emitCaseBody(lhs)
       val r = emitCaseBody(argClause.values.head)
       s"($l :: $r.asInstanceOf[List[Any]])"
+    // Arithmetic / comparison on Any-typed handler operands (e.g. `resume(a * b + 1)`,
+    // `resume(k * 10)`): the op-args `_args(i)` are bound as `Any`, so `a * b` raw is rejected by
+    // Scala 3 — lower to the `_binOp` runtime helper, exactly as `emitExpr` does in CPS context.
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+        if argClause.values.lengthCompare(1) == 0 &&
+           Set("+", "-", "*", "/", "%", "<", ">", "<=", ">=").contains(op.value) =>
+      val l = emitCaseBody(lhs)
+      val r = emitCaseBody(argClause.values.head)
+      s"""_binOp("${op.value}", $l, $r)"""
     case Term.Apply.After_4_6_0(fun, argClause) =>
       val f = emitCaseBody(fun)
       val a = argClause.values.map(emitCaseBody).mkString(", ")
