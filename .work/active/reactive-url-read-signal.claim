@@ -1,6 +1,0 @@
-reactive-url-read-signal 2026-06-15T11:18:47Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-15T11:18:47Z
-status: in-progress
-done-so-far: read-side counterpart to the just-landed fetchActionTo (e5bbaf9c8); driven by busi branch-switch + admin audit-filter UIs
-next: add std/ui fetchUrlSignalTo(name, urlSig: Signal[String], tick, headers): Signal[String] — a fetchUrlSignal whose URL is a Signal resolved at fetch time, re-fetching when the URL signal changes. JsRuntimeSignals: _ssc_ui_fetchUrlSignalTo constructor (sig._fetchGet={urlSig,...}); _mountFetchGet gains a urlSig param (resolve via urlSig.get(); _sub(urlSigId, doGet) for reactive re-fetch; guard allows empty url when urlSig set); the _signals.forEach mount passes fg.urlSig. primitives.ssc extern+export. Touches ONLY the UI signals runtime + std/ui (NOT JsGen/general codegen — convention-based _ssc_ui_ mapping; hasUiHelpers substring already covers it), so no collision with xbackend-property-hof (codegen/closures). Build via install.sh --dev; headless test (type filter -> GET re-fetches new URL). Then busi pin bump + consume (versions commits branch-switch + admin audit filters).
