@@ -96,29 +96,29 @@ MVP because portable UTF-8 byte construction is not yet available as a pure
 
 ## Behavior
 
-- [ ] Regular `.ssc` code never imports or references `android.*`, `CoreNFC`,
+- [x] Regular `.ssc` code never imports or references `android.*`, `CoreNFC`,
       `NDEFReader`, or other platform NFC APIs directly.
-- [ ] Importing/calling `std.nfc` requires `Feature.NfcNdef`; a backend without
+- [x] Importing/calling `std.nfc` requires `Feature.NfcNdef`; a backend without
       the flag rejects the program or returns a typed `NfcNotSupported` result
       through the interpreter, depending on the existing intrinsic path.
-- [ ] `nfcCapabilities()` is total and returns `supported = false` on unsupported
+- [x] `nfcCapabilities()` is total and returns `supported = false` on unsupported
       targets instead of throwing.
-- [ ] `nfcPermissionStatus()` is total. Web may report
+- [x] `nfcPermissionStatus()` is total. Web may report
       `NfcPermissionPrompt`/`NfcPermissionUnknown`; native adapters map platform
       state to `NfcPermissionGranted`, `NfcPermissionDenied`, or
       `NfcPermissionUnknown`.
-- [ ] `requestNfcPermission()` may be a no-op on platforms where permission is
+- [x] `requestNfcPermission()` may be a no-op on platforms where permission is
       install-time/entitlement-based, but it must never expose platform objects.
 - [ ] `readNdef()` returns an `NfcTag` with zero or more NDEF records, preserving
       tag id when the platform exposes one and using `None` when it does not.
 - [ ] `writeNdef()` writes an NDEF message to a compatible writable tag or fails
       predictably with `NfcNotSupported`, `NfcPermissionDeniedError`,
       `NfcInvalidMessage`, `NfcTagLost`, or `NfcTimeout`.
-- [ ] Helper constructors produce portable NDEF records for text, URI, and MIME
+- [x] Helper constructors produce portable NDEF records for text, URI, and MIME
       payloads without requiring platform-specific record classes.
 - [ ] Native mobile packaging injects only the declarations required by the
       selected NFC capability.
-- [ ] Tests cover unsupported interpreter behavior and pure helper encoding.
+- [x] Tests cover unsupported interpreter behavior and helper encoding.
 
 ## Design
 
@@ -187,8 +187,8 @@ MVP tests:
 - `nfcPermissionStatus()` returns `Unknown` or `Denied` consistently in the
   unsupported interpreter adapter.
 - `readNdef()` and `writeNdef()` fail with a clear unsupported diagnostic.
-- Pure helper constructors in `runtime/std/nfc.ssc` compile through the normal
-  frontend path.
+- Helper constructors declared in `runtime/std/nfc.ssc` compile through the
+  normal frontend path.
 
 Native adapter tests are deferred until Android/Kotlin and Swift business-code
 backends can run real generated NFC code.
@@ -227,7 +227,22 @@ backends can run real generated NFC code.
 
 ## Results
 
-To be filled during verification.
+Implemented Phase 1 on 2026-06-15:
+
+- Added `Feature.NfcNdef`, `Feature.NfcTagTech`, and
+  `Feature.NfcCardEmulation`.
+- Added `runtime/std/nfc.ssc` plus `runtime/std/nfc-plugin/` with interpreter
+  intrinsics for capability/permission status, clear unsupported read/write
+  diagnostics, and text/URI/MIME record constructors.
+- Added `CapabilityCheck` detection for `std/nfc.ssc` imports and direct
+  `nfcCapabilities` / `readNdef` / `writeNdef` calls.
+- Verification:
+  - `sbt "nfcPlugin/test"`: 9 tests passed.
+  - `sbt "core/testOnly scalascript.validate.CapabilityCheckTest"`: 37 tests passed.
+  - `sbt "installBin"`: packaged the CLI with 28 `.sscpkg` files including
+    `scalascript.std.nfc`.
+  - `bin/ssc run examples/nfc-ndef.ssc`: printed interpreter unsupported
+    capability status plus text/URI/MIME record summaries.
 
 ## References
 

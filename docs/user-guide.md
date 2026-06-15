@@ -4348,6 +4348,44 @@ See [examples/pwa/pwa-demo.ssc](../examples/pwa/pwa-demo.ssc) and
 
 ---
 
+## 24. NFC NDEF (`std.nfc`)
+
+`std.nfc` exposes portable Near Field Communication status, NDEF read/write
+declarations, and helper constructors for text, URI, and MIME NDEF records.
+Regular `.ssc` code uses `NfcCapabilities`, `NfcScanOptions`, `NdefRecord`,
+and `NdefMessage`; Android `android.nfc.*`, Apple Core NFC, and browser
+`NDEFReader` objects remain behind backend/plugin adapters.
+
+Phase 1 is intentionally honest: the interpreter plugin is installed and
+returns `supported = false` from `nfcCapabilities()`. `readNdef()` and
+`writeNdef()` fail with a clear unsupported diagnostic on the interpreter
+until native Android/iOS/Web adapters land. Backends that do not declare
+`Feature.NfcNdef` are rejected by `CapabilityCheck` when a module imports or
+calls `std.nfc`.
+
+```scalascript
+[nfcCapabilities, nfcPermissionStatus, textRecord, uriRecord, mimeRecord](std/nfc.ssc)
+
+val caps = nfcCapabilities()
+println("NFC supported: " + caps.supported)
+println("Permission: " + nfcPermissionStatus())
+
+val text = textRecord("Hello from ScalaScript", "en", None)
+val link = uriRecord("https://scalascript.example/nfc", None)
+val raw  = mimeRecord("application/octet-stream", List(1, 2, 3, 255), None)
+```
+
+Use `Feature.NfcNdef` for NDEF read/write/status. Raw tag communication
+(`Feature.NfcTagTech`) and card emulation / presentment
+(`Feature.NfcCardEmulation`) are deliberately separate future capabilities
+because Android, iOS, and Web NFC expose different policy and entitlement
+surfaces.
+
+See [examples/nfc-ndef.ssc](../examples/nfc-ndef.ssc) and
+[specs/std-nfc.md](../specs/std-nfc.md).
+
+---
+
 ## Quick Reference
 
 ### CLI

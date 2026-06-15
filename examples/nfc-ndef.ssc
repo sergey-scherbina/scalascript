@@ -1,0 +1,38 @@
+#!/usr/bin/env ssc
+---
+name: nfc-ndef
+version: 0.1.0
+description: NFC NDEF capability and record-constructor demo via std.nfc
+---
+
+# nfc-ndef - std.nfc demo
+
+Demonstrates portable NFC capability checks and NDEF record construction.
+Run with: `ssc run examples/nfc-ndef.ssc`
+
+```scalascript
+[nfcCapabilities, nfcPermissionStatus, requestNfcPermission, readNdef, textRecord, uriRecord, mimeRecord, NfcScanOptions](std/nfc.ssc)
+
+val caps = nfcCapabilities()
+println("NFC platform:  " + caps.platform)
+println("NFC supported: " + caps.supported)
+println("NDEF read:     " + caps.ndefRead)
+println("NDEF write:    " + caps.ndefWrite)
+println("Permission:    " + nfcPermissionStatus())
+
+val text = textRecord("Hello from ScalaScript", "en", None)
+val uri  = uriRecord("https://scalascript.example/nfc", None)
+val mime = mimeRecord("application/octet-stream", List(1, 2, 3, 255), None)
+
+println("Text record:   " + text.recordType + " " + text.lang + " bytes=" + text.data.length)
+println("URI record:    " + uri.recordType + " bytes=" + uri.data.length)
+println("MIME record:   " + mime.mediaType.getOrElse("(none)") + " bytes=" + mime.data.mkString(","))
+
+if caps.supported && caps.ndefRead then
+  val perm = requestNfcPermission()
+  println("Requested:     " + perm)
+  val tag = readNdef(NfcScanOptions(prompt = "Hold an NFC tag near this device"))
+  println("Tag records:   " + tag.message.records.length)
+else
+  println("Scan skipped:  NFC hardware is unavailable on this backend")
+```
