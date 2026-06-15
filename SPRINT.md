@@ -14,6 +14,14 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Strategic-review proposals (2026-06-15) — the feature roadmap is built out; leverage has shifted from
 building features to validating/hardening/enabling what exists. Work top-to-bottom.
 
+- [ ] **rozum-integration** — Add ScalaScript integration with the adjacent Rust `rozum`
+      app, following `../rozum/integration.md` and `../rozum/sdk.md`. HOW: read the
+      rozum docs first, write and commit `specs/rozum-integration.md`, then implement
+      the smallest ScalaScript surface that matches the documented SDK/integration
+      contract. Keep any new user-facing APIs under `std.*` and implement required
+      intrinsics in a `runtime/std/<feature>-plugin/` plugin, not interpreter core.
+      Add a runnable `examples/` script and focused tests. Done when the example and
+      relevant sbt tests pass from the worktree with explicit `cd`.
 - [x] **compile-time-at-scale** ✓ DONE 2026-06-15 — measured parse/type/jvmGen/jsGen across N=50→6400 defs: frontend LINEAR, codegen ~linear+mild tail, NO O(n²); 6400-def module compiles <0.5s. Added CompileScaleBench guard + docs/compile-scale-findings.md. ORIGINAL — every compile/codegen bench uses TINY inputs (6-line
       programs; jvmgen-codegen-time −94% was on those). Compile-time at REAL scale is UNMEASURED. HOW:
       build a large-program compile-time bench (generate a big synthetic `.ssc` — many defs/blocks/types
