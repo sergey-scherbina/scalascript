@@ -4270,6 +4270,13 @@ class JsGen(
       case Term.ApplyType.After_4_6_0(Term.Name("List"), _) =>
         s"[${argVals.mkString(", ")}]"
 
+      // Set constructor → deduplicated array (`Set(...)` otherwise hit the JS global `Set`,
+      // which requires `new`). Array repr makes the existing array `_dispatch` methods apply.
+      case Term.Name("Set") =>
+        s"_setOf(${argVals.mkString(", ")})"
+      case Term.ApplyType.After_4_6_0(Term.Name("Set"), _) =>
+        s"_setOf(${argVals.mkString(", ")})"
+
       // Some / None
       case Term.Name("Some") | Term.Name("_Some") =>
         s"_Some(${argVals.mkString(", ")})"

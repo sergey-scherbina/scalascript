@@ -106,6 +106,32 @@ function _toDec(v) {
 }
 // Arithmetic/comparison dispatch for operands that may be BigInt/Decimal.
 // Emitted by codegen only when operands are not both statically Int.
+// Structural (deep) equality — matches the interpreter/JVM `==` for case classes, tuples, Lists.
+// JS `===` is reference equality, so `P(1) === P(1)` is false for two distinct instances.
+// (jsgen-structural-equality.)
+function _eq(a, b) {
+  if (a === b) return true;
+  if (a == null || b == null) return false;
+  if (typeof a !== 'object' || typeof b !== 'object') return a === b;
+  const aArr = Array.isArray(a), bArr = Array.isArray(b);
+  if (aArr !== bArr) return false;
+  if (aArr) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!_eq(a[i], b[i])) return false;
+    return true;
+  }
+  if (a._type !== b._type) return false;
+  const ka = Object.keys(a), kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) if (!_eq(a[k], b[k])) return false;
+  return true;
+}
+// Set constructor → a deduplicated array (structural dedup), so array `_dispatch` methods apply.
+function _setOf(...xs) {
+  const out = [];
+  for (const x of xs) if (!out.some(y => _eq(y, x))) out.push(x);
+  return out;
+}
 function _arith(op, a, b) {
   // String concatenation keeps priority (matches the interpreter's `a + show(b)`).
   if (op === '+' && (typeof a === 'string' || typeof b === 'string'))
@@ -132,7 +158,8 @@ function _arith(op, a, b) {
   switch (op) {
     case '+': return a + b; case '-': return a - b; case '*': return a * b; case '/': return a / b; case '%': return a % b;
     case '<': return a < b; case '>': return a > b; case '<=': return a <= b; case '>=': return a >= b;
-    case '==': return a === b; case '!=': return a !== b;
+    // Structural equality for objects/arrays (case classes, tuples, Lists); `===` for primitives.
+    case '==': return _eq(a, b); case '!=': return !_eq(a, b);
   }
   throw new Error('bad _arith op: ' + op);
 }

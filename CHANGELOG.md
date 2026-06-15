@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix: 4 cross-backend bugs (case-class eq, Set, num+String, JVM auto-output)
+
+A wave-5 property probe (Map/Set, case-class equality, numerics) found four cross-backend
+divergences, each fixed: (1) **jvmgen-autooutput-after-classdef** — a top-level `case class`
+followed by an auto-output block printed NOTHING; the bare `{ … }` block was parsed as the
+class body. `wrapAutoOutput` now emits `locally { … }`. (2) **jsgen-structural-equality** —
+JS `==` used reference equality, so `P(1) == P(1)` was false; added a deep `_eq` runtime helper
+and routed `_arith('=='/'!=')` through it (also used for Set dedup). (3) **jsgen-set-constructor** —
+`Set(...)` hit the JS global `Set` (`requires new`); added a `Set(...)` → `_setOf(...)` case
+(deduplicated array, so array `_dispatch` applies). (4) **interp-num-string-concat** — `6 + "_"`
+(`any2stringadd`) threw in the interpreter; `dispatchInt`/`dispatchInt1` now concatenate a number
+with a String operand. interp/JS/JVM now agree on all four. Found by `CrossBackendPropertyTest`;
+guarded by a new "collections, case-class equality, num+string cross-backend" test. 234
+cross-backend / interp / codegen tests green (incl. InterpreterTest, both NumericConformance
+suites, ConstFold JVM+JS, ExamplesSmokeTest — confirming the core `locally` auto-output and JS
+`==` changes don't regress).
+
+---
+
 ## 2026-06-15 — fix(interp): monad-polymorphic for-comprehension (Option / Either)
 
 A `for`-comprehension over a non-`List` monad threw in the interpreter while JS + JVM

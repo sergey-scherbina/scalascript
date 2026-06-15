@@ -2700,7 +2700,10 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
    *  printed — mirrors interpreter `autoOutput` and JsGen's `_auto` block.
    *  Goes through the overridden `println` so Doubles strip ".0". */
   private def wrapAutoOutput(expr: String): String =
-    s"{ val _auto: Any = $expr; if _auto != () && _auto != null then println(_auto) }"
+    // `locally { … }` (not a bare `{ … }`) so a top-level auto-output block FOLLOWING a class/trait/def
+    // definition isn't parsed as that definition's body — `case class P(x: Int)` then a bare `{ … }`
+    // on the next line silently became `P`'s template, swallowing the statement. (jvmgen-autooutput-after-classdef.)
+    s"locally { val _auto: Any = $expr; if _auto != () && _auto != null then println(_auto) }"
 
   /** Route emitted code through `_show` for the cases where Scala 3's
    *  default Any.toString would print a whole-number Double as "4.0":

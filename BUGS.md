@@ -13,6 +13,30 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `done` | reporter confirmed fixed (safe to trim) |
 
 
+## jvmgen-autooutput-after-classdef — `fixed` (2026-06-15)
+
+- **Found by:** `CrossBackendPropertyTest` (wave-5 case-class probes).
+- **Symptom:** a JVM program with a top-level `case class` (or trait/object) followed by ANY auto-output/expression statement printed NOTHING — `case class P(x: Int)\nprintln(if P(1) == P(1) then 10 else 0)` produced empty output; interp + JS correct. `wrapAutoOutput` emitted a bare `{ … }` block, and `case class P(x: Int)` on one line followed by `{ … }` on the next is parsed by Scala as **P's body template**, so the statement was swallowed (never run).
+- **FIXED (2026-06-15):** `wrapAutoOutput` now emits `locally { … }` (an unambiguous method call) instead of a bare `{ … }`, so the block can't attach to a preceding definition. Guard: `CrossBackendPropertyTest` "collections, case-class equality, num+string cross-backend" (caseclass-eq/-ne/-output).
+
+## jsgen-structural-equality — `fixed` (2026-06-15)
+
+- **Found by:** `CrossBackendPropertyTest` (wave-5 case-class probes).
+- **Symptom:** `==` on the JS backend used JS reference equality (`===`), so two structurally-equal case-class instances / tuples / Lists compared unequal — `P(1) == P(1)` → `false`; interp + JVM correct.
+- **FIXED (2026-06-15):** added a `_eq(a, b)` deep-structural-equality runtime helper (arrays elementwise, objects by `_type` + own keys, primitives by `===`) and routed `_arith('==' / '!=', …)` through it. Also used for Set dedup. Guard: `CrossBackendPropertyTest` caseclass-eq/-ne, tuple-eq.
+
+## jsgen-set-constructor — `fixed` (2026-06-15)
+
+- **Found by:** `CrossBackendPropertyTest` (wave-5 Set probes).
+- **Symptom:** `Set(1, 2, 3)` failed on JS with `TypeError: Constructor Set requires 'new'` — JsGen had `Map`/`List` constructor cases but no `Set`, so `Set(...)` fell through to the JS global `Set`.
+- **FIXED (2026-06-15):** added a `Set(...)` / `Set[T](...)` case emitting `_setOf(...)` — a runtime helper that builds a structurally-deduplicated array, so the existing array `_dispatch` methods (`size`/`toList`/`sorted`/`contains`/…) apply. Guard: `CrossBackendPropertyTest` set-dedup-ops, set-contains.
+
+## interp-num-string-concat — `fixed` (2026-06-15)
+
+- **Found by:** `CrossBackendPropertyTest` (wave-5 Map probes).
+- **Symptom:** `6 + "_"` (a number `+` a String — Scala's `any2stringadd`) threw in the interpreter (`No method '+' on IntV`); JS + JVM correct. interp's `Int + …` only handled numeric operands.
+- **FIXED (2026-06-15):** `dispatchInt` / `dispatchInt1` now concatenate when the `+` operand is a `StringV` (`n.toString + s`). Guard: `CrossBackendPropertyTest` num-string-concat.
+
 ## js-supertype-typetest — `fixed` (2026-06-15)
 
 - **Found by:** busi (UI session). A `cardWithHeader(header)` card title rendered on **no**

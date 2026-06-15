@@ -2433,6 +2433,10 @@ private[interpreter] object DispatchRuntime:
   private def dispatchInt1(n: Long, name: String, arg: Value, env: Env, interp: Interpreter): Computation =
     val recv = Value.intV(n)
     name match
+      // `6 + "_"` — Scala's `any2stringadd` concatenates a number with a String. (interp-num-string-concat.)
+      case "+" => arg match
+        case Value.StringV(s) => Pure(Value.StringV(n.toString + s))
+        case _                => dispatchInt(n, name, arg :: Nil, env, interp)
       case "max"   => arg match
         case Value.IntV(m)    => Computation.pureIntV(math.max(n, m))
         case Value.DoubleV(d) => Pure(Value.doubleV(math.max(n.toDouble, d)))
@@ -2462,6 +2466,10 @@ private[interpreter] object DispatchRuntime:
   private def dispatchInt(n: Long, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     val recv = Value.intV(n)
     name match
+      // `6 + "_"` — `any2stringadd` concatenates a number with a String. (interp-num-string-concat.)
+      case "+" => args match
+        case List(Value.StringV(s)) => Pure(Value.StringV(n.toString + s))
+        case _                      => dispatchFallback(recv, name, args, env, interp)
       case "toDouble"  => Pure(Value.doubleV(n.toDouble))
       case "toLong"    => Pure(recv)
       case "toInt"     => Pure(recv)

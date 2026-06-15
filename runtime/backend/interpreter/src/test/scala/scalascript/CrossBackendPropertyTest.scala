@@ -380,6 +380,28 @@ class CrossBackendPropertyTest extends AnyFunSuite:
       assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
       assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
 
+  // Wave-5: Map/Set, case-class equality, numeric+String concat. Found 4 cross-backend bugs:
+  //   interp `6 + "_"` (any2stringadd) threw; JS `Set(...)` hit the JS global (`requires new`); JS `==`
+  //   used reference equality (case classes never equal); JVM auto-output block after a top-level
+  //   case class was parsed as the class body (output swallowed). (interp-num-string-concat,
+  //   jsgen-set-constructor, jsgen-structural-equality, jvmgen-autooutput-after-classdef.)
+  test("collections, case-class equality, num+string cross-backend"):
+    assume(has("node") && has("scala-cli"), "node/scala-cli not available")
+    val shapes = Seq(
+      "num-string-concat" -> "val m = Map(\"a\" -> 1, \"b\" -> 2, \"c\" -> 3)\nprintln(m.values.sum + \"_\" + m.keys.toList.sorted.mkString)\n",
+      "set-dedup-ops"     -> "val s = Set(1, 2, 3, 2, 1)\nprintln(s.size + s.toList.sorted.sum)\n",
+      "set-contains"      -> "val s = Set(1, 2, 3)\nprintln(if s.contains(2) then 1 else 0)\n",
+      "caseclass-eq"      -> "case class P(x: Int)\nprintln(if P(1) == P(1) then 10 else 0)\n",
+      "caseclass-ne"      -> "case class P(x: Int)\nprintln(if P(1) == P(2) then 10 else 0)\n",
+      "caseclass-output"  -> "case class P(x: Int, y: Int)\nval p = P(3, 4)\nprintln(p.x + p.y)\n",
+      "tuple-eq"          -> "val a = (1, 2)\nval b = (1, 2)\nprintln(if a == b then 5 else 0)\n",
+    )
+    for (label, prog) <- shapes do
+      val m   = module(prog)
+      val exp = interp(m)
+      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
+      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+
   private def module(program: String) = Parser.parse(s"# Gen\n\n```scalascript\n$program\n```\n")
 
   private def interp(m: scalascript.ast.Module): String =
