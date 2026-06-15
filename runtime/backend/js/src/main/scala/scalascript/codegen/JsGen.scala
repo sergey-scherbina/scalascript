@@ -461,11 +461,16 @@ class JsGen(
   // Case class / enum case type name → integer tag; populated per module by genModule.
   // Enables O(1) switch dispatch instead of O(n) string comparison in pattern matches.
   private[codegen] var caseClassTagMap: Map[String, Int] = Map.empty
-  // Supertype name (sealed trait / parent enum / abstract class) → the set of concrete
-  // `_type` names that are transitive subtypes of it. Populated per module by genModule.
-  // Lets a type-test against a supertype (`case h: TkNode`) match a subtype instance —
-  // emitted objects carry only their own leaf `_type`, so an exact `_type === 'TkNode'`
-  // check would never match a `SignalHeadingNode`. See genPattern's Pat.Typed branch.
+  // Subtype graph for supertype type-tests. `case h: TkNode` must match a concrete
+  // subtype instance, but emitted objects carry only their own leaf `_type`, so an
+  // exact `_type === 'TkNode'` check never matches a `SignalHeadingNode`. We record
+  // `child → direct parents` + the concrete leaf names, accumulating ACROSS imported
+  // modules (a trait and its subtypes routinely live in a different module than the
+  // `match`, and each imported module is emitted by a child `JsGen`). `subtypeClosure`
+  // is the derived `supertype → transitive concrete-descendant _type names` map, read
+  // by genPattern's Pat.Typed branch and refreshed by recomputeSubtypeClosure().
+  private[codegen] val subtypeParents  = scala.collection.mutable.LinkedHashMap.empty[String, scala.collection.mutable.LinkedHashSet[String]]
+  private[codegen] val subtypeConcrete = scala.collection.mutable.LinkedHashSet.empty[String]
   private[codegen] var subtypeClosure: Map[String, Set[String]] = Map.empty
   // Variables statically known to hold Double/Float values — arithmetic on them uses direct JS operators.
   private[codegen] val numericVars = scala.collection.mutable.Set[String]()
@@ -811,7 +816,8 @@ class JsGen(
     caseClassFieldsByType = caseClassFieldsInModule(module)
     caseClassFieldTypeMap = caseClassFieldTypesInModule(module)
     caseClassTagMap       = caseClassTagsInModule(module)
-    subtypeClosure        = subtypeClosureInModule(module)
+    subtypeParents.clear(); subtypeConcrete.clear()
+    collectSubtypeEdgesFromModule(module); recomputeSubtypeClosure()
     collectFuncParamOrders(module)
     analyzeMutualRecursion(module)
     analyzeEffects(module)
@@ -1243,14 +1249,14 @@ class JsGen(
     module.sections.foreach(scanSection)
     result.toMap
 
-  // Builds `supertypeName → transitive concrete subtype `_type` names` for the module.
-  // A type-test against a sealed trait / parent enum / abstract class (`case h: TkNode`)
-  // must match any concrete instance below it, but emitted objects carry only their own
-  // leaf `_type` — so the matcher needs the closure of concrete descendants. Mirrors
-  // `caseClassTagsInModule`'s scan skeleton.
-  private def subtypeClosureInModule(module: Module): Map[String, Set[String]] =
-    val directParents = scala.collection.mutable.LinkedHashMap.empty[String, List[String]]
-    val concrete      = scala.collection.mutable.LinkedHashSet.empty[String]
+  // Records the subtype edges (`child → direct parents`) and concrete leaf names of one
+  // module into the accumulators `subtypeParents` / `subtypeConcrete`. Descends into
+  // namespace/`package:` `Defn.Object`s (a `package:` module compiles to a wrapping
+  // object — without descent its types would be invisible). Called for the entry module
+  // and, in genImport, for each imported module, so a `case h: <trait>` whose trait + its
+  // subtypes live in a different module than the `match` resolves correctly. See
+  // recomputeSubtypeClosure + genPattern's Pat.Typed branch.
+  private def collectSubtypeEdgesFromModule(module: Module): Unit =
     def parentNames(inits: List[scala.meta.Init]): List[String] = inits.flatMap { init =>
       init.tpe match
         case Type.Name(n)   => List(n)
@@ -1258,19 +1264,21 @@ class JsGen(
         case _              => Nil
     }
     def record(name: String, parents: List[String], isConcrete: Boolean): Unit =
-      if parents.nonEmpty then directParents(name) = (directParents.getOrElse(name, Nil) ++ parents).distinct
-      else directParents.getOrElseUpdate(name, Nil)
-      if isConcrete then concrete += name
-    def scanStats(stats: List[scala.meta.Stat]): Unit = stats.foreach {
+      if parents.nonEmpty then
+        subtypeParents.getOrElseUpdate(name, scala.collection.mutable.LinkedHashSet.empty) ++= parents
+      if isConcrete then subtypeConcrete += name
+    def deep(stats: List[Stat]): Unit = stats.foreach {
+      case o: Defn.Object if o.mods.exists(_.isInstanceOf[Mod.Case]) =>
+        // case object Foo extends T — a concrete singleton; still descend in case it nests types.
+        record(o.name.value, parentNames(o.templ.inits), isConcrete = true)
+        deep(o.templ.body.stats)
+      case o: Defn.Object => deep(o.templ.body.stats)  // namespace / `package:` wrapper
       case d: Defn.Class if d.mods.exists(_.isInstanceOf[Mod.Case]) =>
-        record(d.name.value, parentNames(d.templ.inits), isConcrete = true)
-      case d: Defn.Object if d.mods.exists(_.isInstanceOf[Mod.Case]) =>
         record(d.name.value, parentNames(d.templ.inits), isConcrete = true)
       case td: Defn.Trait =>
         record(td.name.value, parentNames(td.templ.inits), isConcrete = false)
       case d: Defn.Enum =>
-        val enumParents = parentNames(d.templ.inits)
-        record(d.name.value, enumParents, isConcrete = false)
+        record(d.name.value, parentNames(d.templ.inits), isConcrete = false)
         d.templ.body.stats.foreach {
           case ec: Defn.EnumCase          => record(ec.name.value, List(d.name.value), isConcrete = true)
           case rec: Defn.RepeatedEnumCase => rec.cases.foreach(nm => record(nm.value, List(d.name.value), isConcrete = true))
@@ -1282,27 +1290,31 @@ class JsGen(
       s.content.foreach {
         case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
           cb.tree.foreach { node => ScalaNode.fold(node) {
-            case Source(stats)     => scanStats(stats); ()
-            case Term.Block(stats) => scanStats(stats); ()
+            case Source(stats)     => deep(stats); ()
+            case Term.Block(stats) => deep(stats); ()
             case _                 => ()
           }}
         case _ => ()
       }
       s.subsections.foreach(scanSection)
     module.sections.foreach(scanSection)
-    // Transitive closure: for every concrete type, walk its ancestor chain and add it
-    // under each ancestor. Guards against cycles via a visited set.
+
+  // Derives `subtypeClosure` (supertype → transitive concrete-descendant `_type` names)
+  // from the current `subtypeParents` accumulator. For every concrete leaf, walk its
+  // ancestor chain and add it under each ancestor (cycle-guarded). Cheap; called whenever
+  // the accumulator grows (entry module + each import) so the closure stays complete.
+  private def recomputeSubtypeClosure(): Unit =
     val closure = scala.collection.mutable.LinkedHashMap.empty[String, scala.collection.mutable.LinkedHashSet[String]]
-    for c <- concrete do
+    for c <- subtypeConcrete do
       val seen = scala.collection.mutable.HashSet.empty[String]
-      var frontier = directParents.getOrElse(c, Nil)
+      var frontier = subtypeParents.get(c).map(_.toList).getOrElse(Nil)
       while frontier.nonEmpty do
         val next = scala.collection.mutable.ListBuffer.empty[String]
         for p <- frontier if seen.add(p) do
           closure.getOrElseUpdate(p, scala.collection.mutable.LinkedHashSet.empty) += c
-          next ++= directParents.getOrElse(p, Nil)
+          next ++= subtypeParents.get(p).map(_.toList).getOrElse(Nil)
         frontier = next.toList
-    closure.view.mapValues(_.toSet).toMap
+    subtypeClosure = closure.view.mapValues(_.toSet).toMap
 
   private def endpointPathWarnings(
     clientName: String,
@@ -1544,7 +1556,8 @@ class JsGen(
     caseClassFieldsByType = caseClassFieldsInModule(module)
     caseClassFieldTypeMap = caseClassFieldTypesInModule(module)
     caseClassTagMap       = caseClassTagsInModule(module)
-    subtypeClosure        = subtypeClosureInModule(module)
+    subtypeParents.clear(); subtypeConcrete.clear()
+    collectSubtypeEdgesFromModule(module); recomputeSubtypeClosure()
     collectFuncParamOrders(module)
     analyzeMutualRecursion(module)
     analyzeEffects(module)
@@ -1813,6 +1826,20 @@ class JsGen(
       // imported module's internal named-arg constructions.
       collectParamOrdersFromModule(childModule)
       childGen.importedParamOrder ++= importedParamOrder
+      // Record the imported module's subtype edges so a `case x: <trait>` in THIS module
+      // (or in the childGen as it emits the import's own bodies) matches a subtype whose
+      // declaration lives in the imported module — the trait + its subtypes routinely sit
+      // in a different file than the `match`. Refresh both gens' derived closures; the
+      // childGen further grows its own as it processes its nested imports.
+      collectSubtypeEdgesFromModule(childModule)
+      recomputeSubtypeClosure()
+      // Deep-copy the parent set values so the childGen's later in-place merges (as it
+      // processes its own imports) don't mutate the parent's shared LinkedHashSets.
+      subtypeParents.foreach { (k, v) =>
+        childGen.subtypeParents.getOrElseUpdate(k, scala.collection.mutable.LinkedHashSet.empty) ++= v
+      }
+      childGen.subtypeConcrete ++= subtypeConcrete
+      childGen.recomputeSubtypeClosure()
       // Emit only the definitions from the imported module (suppress top-level output)
       childModule.sections.foreach { section =>
         section.content.foreach {
