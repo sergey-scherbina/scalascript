@@ -33,30 +33,33 @@ def collectAgentStreamPool(pool: AgentEndpointPool, model: String, system: Strin
                            tools: List[AgentTool], options: RunOptions = RunOptions()): AgentStreamResult
 ```
 
-`maxAttempts` is the total number of gateway attempts for each model-call
-round. It is capped by the number of configured endpoints; values less than
-`1` are treated as `1`. Endpoint order is stable and deterministic.
+`maxAttempts` is the agent-level number of endpoint attempts for each
+model-call round. It is capped by the number of configured endpoints; values
+less than `1` are treated as `1`. Endpoint order is stable and deterministic.
+Callers should not enable ambient `std.http.httpRetry` around pool calls when
+they need exact per-endpoint attempt counts, because that lower-level HTTP
+policy can retry inside one endpoint attempt before the pool sees a response.
 
 ## Behavior
 
-- [ ] Existing `runAgent(endpoint, ...)`, `runAgentStream(endpoint, ...)`, and
+- [x] Existing `runAgent(endpoint, ...)`, `runAgentStream(endpoint, ...)`, and
       `collectAgentStream(endpoint, ...)` stay source-compatible and route
       through a single-endpoint pool internally.
-- [ ] `runAgentPool` tries endpoints in list order and falls through from
+- [x] `runAgentPool` tries endpoints in list order and falls through from
       transport exceptions or HTTP `5xx` responses to the next endpoint until
       `maxAttempts` is exhausted.
-- [ ] HTTP `4xx` responses are returned as `AgentResult(stop = "Error")`
+- [x] HTTP `4xx` responses are returned as `AgentResult(stop = "Error")`
       immediately and do not retry another endpoint.
-- [ ] Model-level tool calls, unknown tools, and handler validation errors use
+- [x] Model-level tool calls, unknown tools, and handler validation errors use
       the normal tool-result feedback path and do not trigger endpoint retry.
-- [ ] Tool handlers are executed only after a successful model response; a
+- [x] Tool handlers are executed only after a successful model response; a
       failed gateway attempt never replays a local tool side effect.
-- [ ] After a successful tool-call response, the next model-call round starts
+- [x] After a successful tool-call response, the next model-call round starts
       from the first endpoint again so recovered gateways can rejoin without
       sticky health state in this small P2 slice.
-- [ ] The single-endpoint pool path behaves the same as the old single endpoint
+- [x] The single-endpoint pool path behaves the same as the old single endpoint
       path for success, tool calls, maxSteps, and non-2xx errors.
-- [ ] Streaming pool APIs retry pre-stream `5xx` / transport failures, preserve
+- [x] Streaming pool APIs retry pre-stream `5xx` / transport failures, preserve
       ordered `AgentEvent`s on the successful endpoint, and do not retry `4xx`
       or stream-level OpenAI error frames.
 
@@ -96,6 +99,10 @@ re-run because a prior gateway returned `5xx`.
   avoid masking user/model errors. Rejected: retrying `4xx`, unknown tools, or
   handler validation failures, because those are not gateway availability
   problems.
+- **Do not mutate ambient HTTP retry state** — chosen because `httpRetry` is a
+  broader `std.http` setting and `httpClient` is not importable through the
+  current interpreter module path. Rejected: silently calling `httpRetry(0, 0)`
+  inside `std.agent`, because that would change caller state outside the pool.
 
 ## Out of scope
 
@@ -105,7 +112,20 @@ re-run because a prior gateway returned `5xx`.
 - Per-tool idempotency keys or replay protection beyond "do not run tools until
   a model response succeeds".
 - Live multi-gateway rozum conformance.
+- Enforcing exact physical HTTP request counts when a caller has enabled
+  ambient `std.http.httpRetry`.
 
 ## Results
 
-Fill this in after implementation and verification.
+Implemented in `runtime/std/agent.ssc` as pure `.ssc` library code, with no new
+intrinsic plugin. Existing single-endpoint functions now delegate to
+single-endpoint pools; new pool APIs cover non-streaming and streaming calls.
+
+Verification:
+
+- `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/rozum-agent-endpoint-pool && sbt "backendInterpreterPluginTests/testOnly scalascript.AgentEndpointPoolInterpreterTest"` — 7 endpoint-pool tests passed, covering ordered 5xx fallback, no retry on 4xx, `maxAttempts`, no retry on unknown-tool feedback, single-endpoint stability, streaming fallback, and `examples/rozum-agent-pool.ssc`.
+- `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/rozum-agent-endpoint-pool && sbt "backendInterpreterPluginTests/testOnly scalascript.AgentSdkInterpreterTest scalascript.AgentSdkStreamingInterpreterTest scalascript.AgentEndpointPoolInterpreterTest"` — 21 agent SDK tests passed, including P0/P1 regression coverage and the endpoint-pool suite.
+- While verifying, a test-order port collision between `examples/rozum-agent.ssc`
+  and `AgentSdkStreamingInterpreterTest` was found, tracked in `BUGS.md`, fixed
+  by moving the streaming suite to port `19698`, and verified in the formerly
+  failing suite order.
