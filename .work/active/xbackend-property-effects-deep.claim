@@ -1,6 +1,0 @@
-xbackend-property-effects-deep 2026-06-15T07:22:44Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-15T07:22:44Z
-status: in-progress
-done-so-far: property test covers 9 kinds incl. one-shot effect; found+fixed jvmgen-handle-in-arg-position. Effects = richest bug territory (separate JVM/JS CPS codegen).
-next: broaden the effect coverage — multi-shot (NonDet.choose, result.sum), two-op effect, handler doing arithmetic-on-resume, effect in arg position for the new shapes. Keep deterministic Int output. Run interp==JS==JVM; fix anything found, else stronger guarantee.
