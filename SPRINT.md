@@ -21,9 +21,14 @@ building features to validating/hardening/enabling what exists. Work top-to-bott
       every `cardWithHeader` title was dropped in the SPA on all screens (interp was correct →
       `.ssc` tests passed). Fix: `JsGen.subtypeClosureInModule` builds `supertype → concrete
       descendants`; `Pat.Typed` widens a no-tag check to an `_type` OR over that closure.
-      Leaf-tag / primitive / `Pat.Extract` paths unchanged. Guard `SupertypeTypeTestJsTest`;
-      `BUGS.md#js-supertype-typetest`; spec `specs/js-supertype-typetest.md`. The JS analogue
-      of the interp/JIT #1/#3 supertype-type-test fix.
+      Leaf-tag / primitive / `Pat.Extract` paths unchanged. The JS analogue of the interp/JIT
+      #1/#3 supertype-type-test fix. **Cross-module follow-up:** the first commit was single-module
+      and its single-file test gave false confidence — the trait + subtypes live in an imported
+      `package:` module (`nodes.ssc`) emitted by a fresh child `JsGen`, so the closure must
+      accumulate across imports (`collectSubtypeEdgesFromModule` + `recomputeSubtypeClosure`,
+      folded in per import + propagated to the child gen). Guards `SupertypeTypeTestJsTest` +
+      `SupertypeTypeTestXModuleJsTest` (multi-file); `BUGS.md#js-supertype-typetest`; spec
+      `specs/js-supertype-typetest.md`.
 - [x] **rozum-integration** ✓ DONE 2026-06-15 — Added `std.agent` P0: app-owned
       OpenAI-compatible tool-call loop for stateless rozum gateways over existing
       `std.http` + `std.json`, with explicit JSON schemas, `AgentTool` handlers,

@@ -28,14 +28,21 @@ commit SHA until the reporter confirms, then they can be trimmed.
   exact `scrut._type === 'TkNode'` check, which a subtype never satisfies. `cardWithHeader`
   lowers `header match { case h: TkNode => render; case _ => [] }` (header field typed `Any`),
   so the title fell to the empty wildcard. The JS analogue of the interp/JIT fix for #1/#3.
-- **FIXED (2026-06-15):** `JsGen.subtypeClosureInModule` scans type decls + their `extends`
-  clauses into `supertypeName → Set[concrete leaf _type]` (transitive); stored per module in
-  `subtypeClosure`. `genPattern`'s `Pat.Typed` widens a no-tag (supertype) check to an `_type`
-  OR over the concrete-descendant closure; unknown types fall back to exact-name, tagged leaf
-  case classes keep their O(1) `_tag` check, and the `Pat.Extract` destructuring path is
-  unchanged. Guard: `SupertypeTypeTestJsTest` (4 cases: direct subtype = the busi repro,
-  transitive enum-case, 3-level intermediate-trait narrowing, value binding). Spec
-  `specs/js-supertype-typetest.md`.
+- **FIXED — single-module (commit 775a10e68):** scanned type decls + `extends` into
+  `supertypeName → Set[concrete leaf _type]` per module; `genPattern`'s `Pat.Typed` widens a
+  no-tag (supertype) check to an `_type` OR over that closure. Guard `SupertypeTypeTestJsTest`.
+- **FIXED — cross-module (follow-up):** the first commit was insufficient for the actual busi
+  case and the single-module test gave **false confidence**. The JS backend emits each imported
+  module with a *fresh child `JsGen`* (genImport), and `TkNode` + subtypes live in `nodes.ssc`
+  (a `package:` module) while `case h: TkNode` lives in `lower.ssc` — so the importer's matcher
+  had no record of the subtype graph and still fell back to the broken exact check (browser
+  re-verify after the rebuild still showed dropped titles + `_type === 'TkNode'` in the emitted
+  SPA). Fix: accumulate the subtype edges ACROSS imports — `collectSubtypeEdgesFromModule`
+  (descends into `package:` wrapping objects) + `recomputeSubtypeClosure`, folded in for the
+  entry module and, in genImport, for each imported module + propagated into the child gen
+  (mirrors `importedParamOrder`). Guard `SupertypeTypeTestXModuleJsTest` (multi-file: imported
+  `package:` trait/subtypes + transitive enum across the import boundary) — the multi-file test
+  the `bugs` rule requires. Spec `specs/js-supertype-typetest.md`.
 - **Repro:**
   ```scalascript
   sealed trait TkNode

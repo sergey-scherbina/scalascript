@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix(js): supertype type-tests match subtype instances — cross-module
+
+Follow-up to the single-module fix below: the subtype closure now accumulates ACROSS the import
+boundary. The JS backend emits each imported module with a fresh child `JsGen`, and a trait + its
+subtypes routinely live in a different file than the `match` (busi: `TkNode` in a `package:`
+`nodes.ssc`, `case h: TkNode` in `lower.ssc`), so the single-module closure left the real busi
+symptom in place (the single-file test gave false confidence). `collectSubtypeEdgesFromModule`
+(descends into `package:` wrapping objects) + `recomputeSubtypeClosure` are folded in for the entry
+module and each imported module in genImport, propagated into the child gen (mirrors
+`importedParamOrder`). Guard `SupertypeTypeTestXModuleJsTest` (multi-file). 
+
 ## 2026-06-15 — fix(js): supertype type-tests match subtype instances
 
 JS backend: a type-test against a supertype (sealed trait / parent enum / abstract class) —
