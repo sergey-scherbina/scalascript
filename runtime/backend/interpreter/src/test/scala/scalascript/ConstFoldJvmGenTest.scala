@@ -41,7 +41,10 @@ class ConstFoldJvmGenTest extends AnyFunSuite:
     val sc = gen(ssc("val x = 3 > 2"))
     assert(sc.contains("true"),
       s"expected literal true:\n${extractVal(sc, "x")}")
-    assert(!sc.contains("""_binOp(">""""),
+    // Check the specific dispatch for the folded operands (not the bare `_binOp(">"` prefix, which
+    // also appears in the `_anyCall0` runtime helper's `max` case — `_binOp(">", a, x)`). Mirrors the
+    // operand-qualified assertions in the int-add / -subtract tests above.
+    assert(!sc.contains("""_binOp(">", 3, 2)"""),
       "should not emit _binOp for literal comparison")
 
   // ── Boolean logic ─────────────────────────────────────────────────────────
