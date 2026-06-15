@@ -1,0 +1,6 @@
+xbackend-property-mainpath 2026-06-15T09:02:34Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-15T09:02:34Z
+status: in-progress
+done-so-far: property test found+fixed 4 effect-codegen bugs; effects now quiet (return-clause clean). 8 kinds + 8 effect shapes green.
+next: pivot hunt to the MAIN codegen path (non-effect, common features): closures/HOF composition, nested collections (flatten/zip), richer string ops. Higher-value bug territory (real programs use these). Run interp==JS==JVM; fix anything found.
