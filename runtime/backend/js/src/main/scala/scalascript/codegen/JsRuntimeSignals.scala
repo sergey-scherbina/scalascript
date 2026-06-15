@@ -319,9 +319,20 @@ function _ssc_ui_renderBody(view) {
         const dtTick   = (fg && fg.tick && fg.tick.id != null) ? String(fg.tick.id) : '';
         const dtHdr    = (fg && fg.headers && fg.headers.id != null) ? String(fg.headers.id) : '';
         const dtCols   = _esc(JSON.stringify((v.columns || []).map(function(c) {
-          return { title: c.title, fieldPath: c.fieldPath, align: c.align || '', kind: c.kind || { type: 'text' } };
+          // A column title may be a reactive Signal[String] (e.g. an i18n-translated
+          // title): collect it (+ its deps, e.g. a locale signal) and encode it as a
+          // {__sig} ref so the client binds it reactively instead of stringifying the ref.
+          var _t = c.title;
+          if (_t && typeof _t === 'object' && _t._type === 'Signal') { collectSig(_t); _t = { __sig: String(_t.id) }; }
+          return { title: _t, fieldPath: c.fieldPath, align: c.align || '', kind: c.kind || { type: 'text' } };
         })));
-        const dtActs   = _esc(JSON.stringify((v.actions || []).map(function(a) { return a; })));
+        const dtActs   = _esc(JSON.stringify((v.actions || []).map(function(a) {
+          // A row-action label may likewise be a reactive Signal[String].
+          if (a && a.label && typeof a.label === 'object' && a.label._type === 'Signal') {
+            collectSig(a.label); var _a = Object.assign({}, a); _a.label = { __sig: String(a.label.id) }; return _a;
+          }
+          return a;
+        })));
         let dtAttrs = `data-ssc-datatable="${dtSigId}" data-ssc-datatable-url="${dtUrl}" data-ssc-datatable-cols="${dtCols}" data-ssc-datatable-acts="${dtActs}"`;
         if (isStatic) dtAttrs += ` data-ssc-datatable-rows="${_esc(JSON.stringify(src.rows || []))}"`;
         if (isSigRows && rowsSig && rowsSig.id != null) dtAttrs += ` data-ssc-datatable-rows-sig="${String(rowsSig.id)}"`;
@@ -593,6 +604,12 @@ function _ssc_ui_mount(sigs) {
       if (rendered && rendered.nodeType) td.appendChild(rendered);
       else td.textContent = String(rendered == null ? '' : rendered);
     }
+    // Set a button caption that may be a reactive {__sig} ref (i18n label) or a string.
+    function _actLabel(btn, label) {
+      if (label && typeof label === 'object' && label.__sig != null) {
+        _sub(label.__sig, function(v){ btn.textContent = v == null ? '' : String(v); });
+      } else { btn.textContent = label || ''; }
+    }
     function renderTable(rows) {
       container.innerHTML = '';
       var tbl = document.createElement('table');
@@ -600,7 +617,11 @@ function _ssc_ui_mount(sigs) {
       var thead = document.createElement('thead'); thead.setAttribute('style', 'background:#f9fafb');
       var trH = document.createElement('tr');
       cols.forEach(function(col) {
-        var th = document.createElement('th'); th.setAttribute('style', thStyle + (col.align ? ';text-align:' + col.align : '')); th.textContent = col.title; trH.appendChild(th);
+        var th = document.createElement('th'); th.setAttribute('style', thStyle + (col.align ? ';text-align:' + col.align : ''));
+        if (col.title && typeof col.title === 'object' && col.title.__sig != null) {
+          _sub(col.title.__sig, function(v){ th.textContent = v == null ? '' : String(v); });
+        } else { th.textContent = col.title; }
+        trH.appendChild(th);
       });
       if (acts.length > 0) { var thA = document.createElement('th'); thA.setAttribute('style', thStyle); trH.appendChild(thA); }
       thead.appendChild(trH); tbl.appendChild(thead);
@@ -626,7 +647,7 @@ function _ssc_ui_mount(sigs) {
                     .then(function() { if (act.tick && act.tick.id) _set(String(act.tick.id), ((_sv[String(act.tick.id)] || 0) | 0) + 1); });
                 });
               } else if (act._type === '_RowPost') {
-                btn.setAttribute('style', btnStyle); btn.textContent = act.label || '';
+                btn.setAttribute('style', btnStyle); _actLabel(btn, act.label);
                 btn.addEventListener('click', function() {
                   var pOpts = {method: act.method || 'POST', body: resolvePayload(r, act.bodyField)};
                   var dh = getHeaders(act.headers && act.headers.id); if (dh) pOpts.headers = dh;
@@ -634,7 +655,7 @@ function _ssc_ui_mount(sigs) {
                     .then(function() { if (act.tick && act.tick.id) _set(String(act.tick.id), ((_sv[String(act.tick.id)] || 0) | 0) + 1); });
                 });
               } else if (act._type === '_RowLink') {
-                btn.setAttribute('style', btnStyle); btn.textContent = act.label || '';
+                btn.setAttribute('style', btnStyle); _actLabel(btn, act.label);
                 btn.addEventListener('click', function() {
                   if (act.signal && act.signal.id) _set(String(act.signal.id), String(getField(r, act.fieldPath) || ''));
                 });
