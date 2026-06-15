@@ -394,15 +394,15 @@ object Value:
   object InstanceV:
     def unapply(inst: InstanceV): Some[(String, Map[String, Value])] =
       Some((inst.typeName, inst.effectiveFields))
-  final case class ListV(items: List[Value])     extends Value:
-    // Display/type tag: "List" (default), "Vector", "Seq", "Array", "IndexedSeq", "LazyList".
-    // The interpreter backs every sequence type with one `ListV` for uniform dispatch, but this
-    // tag lets `Value.show` / `toString` render the REAL type (`Vector(1, 2, 3)`, not `List(...)`)
-    // and is preserved through type-preserving ops. A mutable field (set only on a FRESH instance
-    // via `withKind`) avoids changing the case-field arity, which would break the ~330 `ListV(xs)`
-    // patterns. (collection-real-type.)
-    private[interpreter] var collKind: String = "List"
-    def withKind(k: String): ListV = { collKind = k; this }
+  /** The default eager linear sequence — backs `List`, `Seq`, and `Iterable` (all observably
+   *  identical and all display as `List(…)` in an eager interpreter). */
+  final case class ListV(items: List[Value])     extends Value
+  /** A real **indexed** sequence backed by a Scala `Vector[Value]` — backs `Vector` and `IndexedSeq`
+   *  so that `vec(i)` / `vec.updated(i, x)` are O(log₃₂ n) (effectively O(1)) instead of the O(n) a
+   *  `List` would give. Cross-`Seq` equality with `ListV` (`Vector(1,2,3) == List(1,2,3)` is `true`,
+   *  as in Scala) is handled in the `==` dispatch path, not via `equals`, so `ListV` stays untouched.
+   *  (collection-vector-indexed.) */
+  final case class VectorV(items: Vector[Value]) extends Value
   /** A real **mutable** array — distinct from `ListV` because `Array` has genuinely
    *  different runtime semantics: in-place update (`a(i) = x`) and **reference identity**
    *  (`Array(1,2,3) != Array(1,2,3)`). Case-class `==` compares the `Array[Value]` field
@@ -523,7 +523,8 @@ object Value:
     case CharV(c)             => c.toString
     case UnitV                => "()"
     case NullV                => "null"
-    case l: ListV             => l.items.iterator.map(show).mkString(s"${l.collKind}(", ", ", ")")
+    case ListV(items)         => items.iterator.map(show).mkString("List(", ", ", ")")
+    case VectorV(items)       => items.iterator.map(show).mkString("Vector(", ", ", ")")
     // Readable `Array(1, 2, 3)`. DIVERGES from Scala's non-deterministic `[I@hash` toString
     // by design (`[I@hash` is useless and can't be cross-backend-asserted). (collection-real-type.)
     case ArrayV(items)        => items.iterator.map(show).mkString("Array(", ", ", ")")

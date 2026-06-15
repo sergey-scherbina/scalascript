@@ -1317,7 +1317,9 @@ private[interpreter] object PatternRuntime:
           case _: Value.StringV => typeName == "String"
           case _: Value.BoolV   => typeName == "Boolean"
           case _: Value.CharV   => typeName == "Char"
-          case _: Value.ListV   => typeName == "List"
+          case _: Value.ListV   => typeName == "List" || typeName == "Seq" || typeName == "Iterable"
+          case _: Value.VectorV => typeName == "Vector" || typeName == "IndexedSeq" || typeName == "Seq" || typeName == "Iterable"
+          case _: Value.ArrayV  => typeName == "Array"
           case _: Value.OptionV => typeName == "Option"
           case _: Value.MapV    => typeName == "Map"
           case _                => false
@@ -1362,6 +1364,8 @@ private[interpreter] object PatternRuntime:
 
   def evalCollection(v: Value, interp: Interpreter): List[Value] = v match
     case Value.ListV(ls)        => ls
+    case Value.VectorV(vec)     => vec.toList
+    case Value.ArrayV(arr)      => arr.toList
     case ov: Value.OptionV => if ov.inner != null then ov.inner :: Nil else Nil
     case _ => interp.located(s"Cannot iterate over ${Value.show(v)}")
 

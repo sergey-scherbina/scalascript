@@ -56,7 +56,8 @@ private[interpreter] object DispatchRuntime:
           if fn != null then return interp.callValuePrepend(fn, recv, args, env)
     recv match
       case Value.StringV(s)        => dispatchString(recv, s, name, args, env, interp)
-      case l: Value.ListV          => stampListKind(l.collKind, name, dispatchList(l.items, name, args, env, interp))
+      case Value.ListV(ls)         => dispatchList(ls, name, args, env, interp)
+      case v: Value.VectorV        => dispatchVector(v, name, args, env, interp)
       case a: Value.ArrayV         => dispatchArray(a, name, args, env, interp)
       case ll: Value.LazyListV     => dispatchLazyList(ll, name, args, env, interp)
       case Value.MapV(m)           => dispatchMap(m, name, args, env, interp)
@@ -97,7 +98,7 @@ private[interpreter] object DispatchRuntime:
           val fn = typeExts.getOrElse(name, null)
           if fn != null then return interp.callValue2(fn, recv, arg, env)
     recv match
-      case l: Value.ListV       => stampListKind(l.collKind, name, dispatchList1(l.items, recv, name, arg, env, interp))
+      case Value.ListV(ls)      => dispatchList1(ls, recv, name, arg, env, interp)
       case Value.MapV(m)        => dispatchMap1(m, name, arg, env, interp)
       case Value.OptionV(opt)   => dispatchOption1(recv, if opt == null then None else Some(opt), name, arg, env, interp)
       case Value.StringV(s)     => dispatchString1(recv, s, name, arg, env, interp)
@@ -1489,7 +1490,8 @@ private[interpreter] object DispatchRuntime:
       case "subsetOf" => args match
         case List(o) => Computation.pureBool(s.subsetOf(asSet(o)))
         case _       => dispatchFallback(recv, name, args, env, interp)
-      case "toList" | "toSeq" | "toVector" => Pure(Value.ListV(s.toList))
+      case "toList" | "toSeq"          => Pure(Value.ListV(s.toList))
+      case "toVector" | "toIndexedSeq" => Pure(Value.VectorV(s.toVector))
       case "toSet"     => Pure(recv)
       case "head"      => if s.isEmpty then interp.located("head of empty Set") else Pure(s.head)
       case "headOption" => Pure(Value.optionV(s.headOption))
@@ -1588,7 +1590,9 @@ private[interpreter] object DispatchRuntime:
               result = arr(i)._1 :: result
               i -= 1
             Pure(Value.ListV(result))
-      case "toList" | "toSeq" | "toVector" | "toIndexedSeq" | "toArray" | "toIterable" => Pure(recv)
+      case "toList" | "toSeq" | "toIterable" => Pure(recv)
+      case "toVector" | "toIndexedSeq" => Pure(Value.VectorV(ls.toVector))   // O(1)-indexed real Vector
+      case "toArray"      => Pure(Value.ArrayV(ls.toArray))                  // real mutable Array
       case "toSet"        => Pure(Value.SetV(ls.toSet))
       case "flatten"      =>
         val flatBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
@@ -2128,7 +2132,8 @@ private[interpreter] object DispatchRuntime:
         while tlIt.hasNext do
           val (k, v) = tlIt.next()
           tlBuf += Value.TupleV(k :: v :: Nil)
-        Pure(Value.ListV(tlBuf.toList))
+        if name == "toVector" || name == "toIndexedSeq" then Pure(Value.VectorV(tlBuf.toVector))
+        else Pure(Value.ListV(tlBuf.toList))
       case "mkString" => Pure(Value.StringV(Value.show(recv)))
       case "contains" => args match
         case List(k)       => Computation.pureBool(m.contains(k))
@@ -2474,39 +2479,21 @@ private[interpreter] object DispatchRuntime:
   // ── Int ─────────────────────────────────────────────────────────────────────
 
   /** Single-arg fast path for Int — avoids `arg :: Nil` cons cell for max/min/to/until. */
-  /** Ops on a `ListV` that RETURN the same sequence type (so the `collKind` display tag is preserved):
-   *  `Vector(1,2,3).map(_*2)` stays a `Vector`. (collection-real-type.) */
+
+  // ── Array / Vector / LazyList — real Scala collection semantics ───────────────────────────────
+
+  /** Ops that RETURN the same sequence type, so a typed sequence keeps its type through them
+   *  (`Vector(1,2,3).map(_*2)` stays a `Vector`; `Array.map` stays an `Array`). (collection-real-type.) */
   private val kindPreservingOps: Set[String] = Set(
     "map", "filter", "filterNot", "take", "drop", "takeWhile", "dropWhile",
     "reverse", "sorted", "sortBy", "sortWith", "distinct", "tail", "init",
     "slice", "dropRight", "takeRight", "updated", "padTo", "appended", "prepended",
     "++", ":::", "concat", "intersect", "diff", "by", "collect")
 
-  /** Re-stamp the `collKind` of a `ListV` result so a typed sequence keeps its display type through
-   *  type-preserving ops, and `toVector`/`toIndexedSeq` convert TO `Vector`. (collection-real-type.) */
-  private def stampListKind(srcKind: String, op: String, comp: Computation): Computation =
-    val target = op match
-      case "toVector" | "toIndexedSeq" => "Vector"
-      case _ if kindPreservingOps(op)  => srcKind
-      case _                           => "List"
-    if target == "List" then comp
-    else
-      // Allocate a FRESH wrapper when the kind actually changes: `withKind` mutates in place, and some
-      // ops (e.g. `toVector`) return `Pure(recv)` — mutating that would re-tag the caller's original
-      // value. When the result already carries `target` (or is the freshly-built map/filter list we just
-      // want to keep), no copy is needed. (collection-real-type.)
-      def retag(lv: Value.ListV): Value.ListV =
-        if lv.collKind == target then lv else Value.ListV(lv.items).withKind(target)
-      comp match
-        case Pure(lv: Value.ListV) => Pure(retag(lv))
-        case Pure(_)               => comp
-        case c                     => c.map { case lv: Value.ListV => retag(lv); case v => v }
-
-  // ── Array / LazyList — real Scala collection semantics (collection-real-type) ─────────────────
-
   /** The element list backing any sequence Value (forces a LazyList). */
   private def seqAsList(v: Value): List[Value] = v match
     case l: Value.ListV      => l.items
+    case v: Value.VectorV    => v.items.toList
     case a: Value.ArrayV     => a.items.toList
     case ll: Value.LazyListV => ll.underlying.toList
     case Value.SetV(s)       => s.toList
@@ -2516,6 +2503,7 @@ private[interpreter] object DispatchRuntime:
   private def seqAsLazy(v: Value): LazyList[Value] = v match
     case ll: Value.LazyListV => ll.underlying
     case l: Value.ListV      => l.items.to(LazyList)
+    case v: Value.VectorV    => v.items.to(LazyList)
     case a: Value.ArrayV     => a.items.to(LazyList)
     case Value.SetV(s)       => s.to(LazyList)
     case _                   => LazyList.empty
@@ -2523,6 +2511,42 @@ private[interpreter] object DispatchRuntime:
   private def boolOf(v: Value): Boolean = v match
     case Value.BoolV(b) => b
     case _              => false
+
+  /** Dispatch on a real **indexed** `Vector` (`Value.VectorV`). Index/update/head/last/length are
+   *  handled directly on the `Vector[Value]` so they stay O(log₃₂ n); conversions return the right
+   *  type; everything else delegates to the shared List dispatch and re-wraps a fresh sequence result
+   *  as a `VectorV` for ops that keep the collection type (`Vector.map` returns a `Vector`).
+   *  (collection-vector-indexed.) */
+  private def dispatchVector(vv: Value.VectorV, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    val items = vv.items
+    name match
+      case "apply" => args match
+        case List(Value.IntV(i)) =>
+          val idx = i.toInt
+          if idx < 0 || idx >= items.length then interp.located(s"index $idx out of bounds for vector of length ${items.length}")
+          else Pure(items(idx))                                   // O(log₃₂ n) indexed read
+        case _ => dispatchList(items.toList, name, args, env, interp)
+      case "updated" => args match
+        case List(Value.IntV(i), v) =>
+          val idx = i.toInt
+          if idx < 0 || idx >= items.length then interp.located(s"index $idx out of bounds for vector of length ${items.length}")
+          else Pure(Value.VectorV(items.updated(idx, v)))         // O(log₃₂ n) functional update
+        case _ => dispatchList(items.toList, name, args, env, interp)
+      case "length" | "size"                 => Computation.pureIntV(items.length.toLong)
+      case "head"                            => if items.isEmpty then interp.located("head on empty Vector") else Pure(items.head)
+      case "last"                            => if items.isEmpty then interp.located("last on empty Vector") else Pure(items.last)
+      case "isEmpty"                         => Computation.pureBool(items.isEmpty)
+      case "nonEmpty"                        => Computation.pureBool(items.nonEmpty)
+      case "toVector" | "toIndexedSeq" | "toSeq" => Pure(vv)
+      case "toList" | "toIterable"           => Pure(Value.ListV(items.toList))
+      case "toArray"                         => Pure(Value.ArrayV(items.toArray))
+      case _ =>
+        val comp = dispatchList(items.toList, name, args, env, interp)
+        if !kindPreservingOps(name) then comp
+        else comp match
+          case Pure(lv: Value.ListV) => Pure(Value.VectorV(lv.items.toVector))
+          case Pure(_)               => comp
+          case c                     => c.map { case lv: Value.ListV => Value.VectorV(lv.items.toVector); case v => v }
 
   /** Dispatch on a real **mutable** `Array` (`Value.ArrayV`). `update` mutates in place; conversions
    *  return the right target type; everything else delegates to the shared List dispatch and re-wraps a
@@ -2545,7 +2569,7 @@ private[interpreter] object DispatchRuntime:
       case "length" | "size"                 => Computation.pureIntV(items.length.toLong)
       case "clone" | "toArray"               => Pure(Value.ArrayV(items.clone()))
       case "toList" | "toSeq" | "toIterable" => Pure(Value.ListV(items.toList))
-      case "toVector" | "toIndexedSeq"       => Pure(Value.ListV(items.toList).withKind("Vector"))
+      case "toVector" | "toIndexedSeq"       => Pure(Value.VectorV(items.toVector))
       case "sameElements" => args match
         case List(other) => Computation.pureBool(items.toList == seqAsList(other))
         case _           => interp.located("sameElements requires one argument")
@@ -2592,7 +2616,7 @@ private[interpreter] object DispatchRuntime:
       case "apply"      => args match { case List(Value.IntV(i)) => Pure(ll(i.toInt)); case _ => interp.located("LazyList.apply(i)") }
       case "contains"   => args match { case List(x) => Computation.pureBool(ll.contains(x)); case _ => interp.located("LazyList.contains(x)") }
       case "toList" | "toSeq" | "toIterable" => Pure(Value.ListV(ll.toList))
-      case "toVector" | "toIndexedSeq"       => Pure(Value.ListV(ll.toList).withKind("Vector"))
+      case "toVector" | "toIndexedSeq"       => Pure(Value.VectorV(ll.toVector))
       case "toArray"    => Pure(Value.ArrayV(ll.toArray))
       case "force"      => ll.force; Pure(llv)
       case _            => dispatchList(ll.toList, name, args, env, interp)   // force for the rest (finite only)
@@ -3457,6 +3481,11 @@ private[interpreter] object DispatchRuntime:
         case (Value.IntV(a),     Value.DecimalV(b))=> Computation.pureBool(BigDecimal(a) == b)
         case (Value.DecimalV(a), Value.BigIntV(b)) => Computation.pureBool(a == BigDecimal(b))
         case (Value.BigIntV(a), Value.DecimalV(b)) => Computation.pureBool(BigDecimal(a) == b)
+        // Cross-`Seq` equality: a `List` and a `Vector` compare element-wise, as in real Scala
+        // (`Vector(1,2,3) == List(1,2,3)` is `true`). Same-type combos use the default below.
+        // (collection-vector-indexed.)
+        case (l: Value.ListV, v: Value.VectorV) => Computation.pureBool(l.items == v.items)
+        case (v: Value.VectorV, l: Value.ListV) => Computation.pureBool(v.items == l.items)
         case _                                     => Computation.pureBool(lhs == rhs)
       case "!=" => (lhs, rhs) match
         case (Value.BigIntV(a), Value.IntV(b))     => Computation.pureBool(a != BigInt(b))
@@ -3465,6 +3494,8 @@ private[interpreter] object DispatchRuntime:
         case (Value.IntV(a),     Value.DecimalV(b))=> Computation.pureBool(BigDecimal(a) != b)
         case (Value.DecimalV(a), Value.BigIntV(b)) => Computation.pureBool(a != BigDecimal(b))
         case (Value.BigIntV(a), Value.DecimalV(b)) => Computation.pureBool(BigDecimal(a) != b)
+        case (l: Value.ListV, v: Value.VectorV) => Computation.pureBool(l.items != v.items)
+        case (v: Value.VectorV, l: Value.ListV) => Computation.pureBool(v.items != l.items)
         case _                                     => Computation.pureBool(lhs != rhs)
       case "<" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a < b)

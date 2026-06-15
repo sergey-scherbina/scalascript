@@ -104,23 +104,49 @@ private[interpreter] object BuiltinsRuntime:
       "empty"    -> Value.EmptyList,
       "apply"    -> listNative
     ))
-    // Seq / Vector / IndexedSeq / Iterable — observably identical to `List` in an EAGER interpreter
-    // (Scala's `Vector(1,2,3) == List(1,2,3)` is `true`), so they share the `ListV` backing and differ
-    // only by a DISPLAY tag (`collKind`): `Vector(1,2,3)` renders as `Vector(1, 2, 3)`, and the tag is
-    // preserved through type-preserving ops. Seq/Iterable display as `List` (Scala's Seq/Iterable
-    // default IS List); Vector/IndexedSeq display as `Vector` (IndexedSeq's default impl). On the JVM
-    // backend these compile to the REAL Scala types (raw emit). (collection-ctor-aliases / collection-real-type.)
-    val seqKinds = List(
-      "Seq" -> "List", "Iterable" -> "List",
-      "Vector" -> "Vector", "IndexedSeq" -> "Vector")
-    for (name, kind) <- seqKinds do
-      val ctor = Value.NativeFnV(name, args => Pure(Value.ListV(args).withKind(kind)))
+    // Seq / Iterable — observably identical to `List` in an EAGER interpreter (Scala's default `Seq` /
+    // `Iterable` IS `List`, and they display as `List(…)`), so they share the `ListV` backing.
+    // (collection-ctor-aliases.)
+    for name <- List("Seq", "Iterable") do
       interp.globals(name) = Value.InstanceV(name, Map(
         "fill"     -> interp.globals("List.fill"),
         "tabulate" -> interp.globals("List.tabulate"),
         "range"    -> interp.globals("List.range"),
-        "empty"    -> Value.ListV(Nil).withKind(kind),
-        "apply"    -> ctor
+        "empty"    -> Value.EmptyList,
+        "apply"    -> Value.NativeFnV(name, args => Pure(Value.ListV(args)))
+      ))
+    // Vector / IndexedSeq — a REAL indexed sequence (`Value.VectorV`) so `vec(i)` / `.updated` are
+    // O(log₃₂ n), not the O(n) a List would give. (IndexedSeq's default impl is Vector.)
+    // (collection-vector-indexed.)
+    for name <- List("Vector", "IndexedSeq") do
+      interp.globals(name) = Value.InstanceV(name, Map(
+        "apply"    -> Value.NativeFnV(name, args => Pure(Value.VectorV(args.toVector))),
+        "empty"    -> Value.VectorV(Vector.empty),
+        "fill"     -> Value.NativeFnV(s"$name.fill", {
+          case List(Value.IntV(n)) =>
+            Pure(Value.NativeFnV(s"$name.fill.n", {
+              case List(elem) => Pure(Value.VectorV(Vector.fill(n.toInt)(elem)))
+              case _          => throw InterpretError(s"$name.fill(n)(elem)")
+            }))
+          case _ => throw InterpretError(s"$name.fill(n)(elem)")
+        }),
+        "tabulate" -> Value.NativeFnV(s"$name.tabulate", {
+          case List(Value.IntV(n)) =>
+            Pure(Value.NativeFnV(s"$name.tabulate.n", {
+              case List(f) =>
+                Computation.mapSequenceRange(0, n.toInt, i => interp.callValue1(f, Value.intV(i), Map.empty))
+                  .map { case lv: Value.ListV => Value.VectorV(lv.items.toVector); case v => v }
+              case _ => throw InterpretError(s"$name.tabulate(n)(f)")
+            }))
+          case _ => throw InterpretError(s"$name.tabulate(n)(f)")
+        }),
+        "range"    -> Value.NativeFnV(s"$name.range", {
+          case List(Value.IntV(from), Value.IntV(until)) =>
+            Pure(Value.VectorV((from until until).map(i => Value.intV(i.toInt): Value).toVector))
+          case List(Value.IntV(from), Value.IntV(until), Value.IntV(step)) =>
+            Pure(Value.VectorV((from until until by step).map(i => Value.intV(i.toInt): Value).toVector))
+          case _ => throw InterpretError(s"$name.range(from, until[, step])")
+        })
       ))
     // Array — a REAL mutable array (`Value.ArrayV`): in-place `a(i) = x` + reference identity, unlike
     // the immutable `ListV` types. (collection-real-type.)

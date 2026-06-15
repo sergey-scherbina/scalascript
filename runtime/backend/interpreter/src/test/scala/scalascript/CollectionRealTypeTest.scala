@@ -39,6 +39,32 @@ class CollectionRealTypeTest extends AnyFunSuite with Matchers:
     captured("val xs = List(1, 2, 3); val v = xs.toVector; println(v); println(xs)") shouldBe
       "Vector(1, 2, 3)\nList(1, 2, 3)"
 
+  // ── Vector: real indexed sequence (distinct type, O(1) index) ─────────────
+
+  test("Vector indexed access returns the right element"):
+    captured("val v = Vector(10, 20, 30); println(v(1))") shouldBe "20"
+
+  test("Vector.updated returns a new Vector; original unchanged"):
+    captured("val v = Vector(1, 2, 3); val w = v.updated(1, 9); println(w); println(v)") shouldBe
+      "Vector(1, 9, 3)\nVector(1, 2, 3)"
+
+  test("Vector.map / filter stay Vector"):
+    captured("println(Vector(1, 2, 3, 4).filter(x => x % 2 == 0))") shouldBe "Vector(2, 4)"
+
+  test("Vector.fill / tabulate are Vectors"):
+    captured("println(Vector.fill(3)(0))") shouldBe "Vector(0, 0, 0)"
+    captured("println(Vector.tabulate(4)(i => i * i))") shouldBe "Vector(0, 1, 4, 9)"
+
+  test("Vector head/last/length and toList round-trip"):
+    captured("val v = Vector(5, 6, 7); println(v.head); println(v.last); println(v.length); println(v.toList)") shouldBe
+      "5\n7\n3\nList(5, 6, 7)"
+
+  test("List.toVector then index is the real Vector"):
+    captured("val v = List(1, 2, 3, 4, 5).toVector; println(v(3))") shouldBe "4"
+
+  test("for-comprehension over a Vector iterates correctly"):
+    captured("val v = Vector(1, 2, 3); var s = 0; for (x <- v) s = s + x; println(s)") shouldBe "6"
+
   // ── Array: real mutable + reference identity ──────────────────────────────
 
   test("Array index update mutates in place"):
