@@ -4,6 +4,26 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix(jvmgen): handle-result val in main-path contexts (match / if / fn-arg)
+
+Continued the cross-backend property-test hunt into effect-result × main-path
+compositions and found a cluster of JVM-only bugs (interp + JS ran them): a
+`val r = handle(...)` (Any-typed `_handle` result) used in a non-arithmetic
+main-path context. Fixed three: `r match { case _ => r * 2 }` (added a `Term.Match`
+case to `emitExprDeep` that recurses scrutinee/arms/guards), `if r > 5 then …` (cast
+the Any-typed `_binOp` condition to Boolean), and `dbl(r)` (cast main-path call args
+that reference a handle-result val to the callee's `calleeParamType`, reusing the
+CPS `localDefSigs`/`depDefs` index). Routed any handle-result-referencing term
+through `emitExprDeep` via `termRefsHandleResultVal` in `termNeedsCustomEmit`; also
+added a `Term.Tuple` recursion case. Guard: `CrossBackendPropertyTest` "effect-result
+main-path composition cross-backend" (match / if-cmp / fn-arg / multishot-arith /
+nested-handles — interp == JS == JVM); 146 effect/JVM-codegen tests green. Two rarer
+contexts deferred (need Any-type propagation): `List(r, r).sum` (Numeric[Any]) and
+tuple-accessor arithmetic `t._1 + t._2` — filed open in BUGS.md
+jvmgen-handle-result-mainpath.
+
+---
+
 ## 2026-06-15 — fix(js/spa): bridge un-displayed computedSignals into the hydration store
 
 A `computedSignal` read ONLY at event time — e.g. a `fetchAction` body that interpolates field

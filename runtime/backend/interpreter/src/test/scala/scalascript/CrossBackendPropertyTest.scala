@@ -234,6 +234,37 @@ class CrossBackendPropertyTest extends AnyFunSuite:
         "    acc = acc + Counter.tick()\n    i = i + 1\n  acc\n" +
         s"println(handle(loop($n)) {\n  case Counter.tick(resume) =>\n    val r = resume($k)\n    r\n})\n"
 
+  // Effect-result × main-path COMPOSITIONS: an Any-typed `handle(...)` result used in a non-arithmetic
+  // main-path context. Found a cluster of JVM-only bugs (interp + JS ran them); these are the FIXED
+  // shapes (jvmgen-handle-result-mainpath): result fed into a `match` arm, an `if`/comparison condition,
+  // a function-call arg, plus multi-shot `.sum` arithmetic and nested handles. (Still deferred / harder:
+  // `List(r, r).sum` needs Numeric[Any]; tuple-accessor arithmetic `t._1 + t._2` needs Any propagation
+  // through a tuple-bound val — see BUGS.md jvmgen-handle-result-mainpath.)
+  test("effect-result main-path composition cross-backend"):
+    assume(has("node") && has("scala-cli"), "node/scala-cli not available")
+    val counter = "effect Counter:\n  def tick(): Int\n" +
+      "def loop(n: Int): Int ! Counter =\n  var acc = 0\n  var i = 0\n  while i < n do\n" +
+      "    acc = acc + Counter.tick()\n    i = i + 1\n  acc\n"
+    val oneShot = "val r = handle(loop(3)) { case Counter.tick(resume) => resume(2) }\n"  // r = 6
+    val shapes = Seq(
+      "result-into-match" -> (counter + oneShot + "println(r match { case 0 => 100\n  case _ => r * 2 })\n"),
+      "result-in-if-cmp"  -> (counter + oneShot + "println(if r > 5 then r * 10 else 0)\n"),
+      "result-fn-arg"     -> (counter + oneShot + "def dbl(x: Int): Int = x * 2\nprintln(dbl(r) + 1)\n"),
+      "multishot-arith"   -> ("multi effect NonDet:\n  def choose(opts: List[Int]): Int\n" +
+        "def prog(): Int ! NonDet =\n  val x = NonDet.choose(List(1, 2))\n  x\n" +
+        "val all = handle(prog()) { case NonDet.choose(opts, resume) => opts.flatMap(o => resume(o)) }\n" +
+        "println(all.sum * 2 + 1)\n"),
+      "nested-handles"    -> ("effect Counter:\n  def tick(): Int\neffect Reader:\n  def ask(): Int\n" +
+        "def prog(): Int ! Counter =\n  Counter.tick() + Reader.ask()\n" +
+        "val r = handle(handle(prog()) { case Reader.ask(resume) => resume(10) }) { case Counter.tick(resume) => resume(5) }\n" +
+        "println(r)\n"),
+    )
+    for (label, prog) <- shapes do
+      val m   = module(prog)
+      val exp = interp(m)
+      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
+      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+
   private def module(program: String) = Parser.parse(s"# Gen\n\n```scalascript\n$program\n```\n")
 
   private def interp(m: scalascript.ast.Module): String =

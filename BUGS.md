@@ -13,6 +13,19 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `done` | reporter confirmed fixed (safe to trim) |
 
 
+## jvmgen-handle-result-mainpath — `fixed` (2026-06-15, partial — 2 rarer contexts deferred)
+
+- **Found by:** `CrossBackendPropertyTest` (effect-result × main-path composition probes).
+- **Symptom:** a `val r = handle(...)` (Any-typed `_handle` result) used in a NON-arithmetic main-path
+  context fails JVM scala-cli; interp + JS run it fine. A cluster of related JVM-only divergences:
+  - `r match { case _ => r * 2 }` → `value * is not a member of Any` (`emitExprDeep` had no `Term.Match` case → arm fell to `.syntax`).
+  - `if r > 5 then r * 10 else 0` → `Found Any / Required Boolean` (the `_binOp(">", r, 5)` cond wasn't cast to Boolean).
+  - `dbl(r)` (user fn) → `Found Any / Required Int` (main-path call didn't cast the arg to the callee param type; only the CPS path did).
+- **FIXED (2026-06-15):** in `emitExprDeep` — added a `Term.If` Boolean cast when the cond is an Any-typed handle-result comparison, a `Term.Match` case that recurses scrutinee + arm bodies + guards, and a `Term.Tuple` case; cast main-path call args that reference a handle-result val to the callee's `calleeParamType` (reusing the CPS `localDefSigs`/`depDefs` index). Routed any term that references a handle-result val through `emitExprDeep` via a new `termRefsHandleResultVal` in `termNeedsCustomEmit`. Guard: `CrossBackendPropertyTest` "effect-result main-path composition cross-backend" (match / if-cmp / fn-arg / multishot-arith / nested-handles — interp == JS == JVM).
+- **DEFERRED (still `open`, rarer + harder — need Any-type propagation/inference, not localized):**
+  - `List(r, r).sum` → `No given Numeric[Any]` (a fresh `List[Any]` of handle results; `.sum` needs element type, not reachable via the `_anyCall0` handle-result-val path since the receiver is a List literal, not a tracked val).
+  - tuple-accessor arithmetic `val t = (r, r+1); t._1 + t._2` (the `(r, r+1)` binding now lowers, but `t` is an Any-tuple val whose `t._1 + t._2` isn't routed — would need to propagate Any-ness through the tuple-bound val).
+
 ## agent-streaming-test-port-collision — `fixed` (2026-06-15, 26dae7699)
 
 - **Found by:** codex during `rozum-agent-endpoint-pool` regression check.

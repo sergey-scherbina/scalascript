@@ -3840,7 +3840,12 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         case Lit.Boolean(false) => t.elsep match
           case Lit.Unit() => "()"
           case e          => emitExpr(e)
-        case _ => s"if ${emitExpr(t.cond)} then ${emitExpr(t.thenp)} else ${emitExpr(t.elsep)}"
+        case _ =>
+          // A comparison on an Any-typed handle-result val lowers to `_binOp(">", r, 5)` which
+          // returns Any, so the `if` condition needs an explicit Boolean cast (jvmgen-handle-result-mainpath).
+          val condStr = emitExpr(t.cond)
+          val cond = if termContainsHandleResultArith(t.cond) then s"$condStr.asInstanceOf[Boolean]" else condStr
+          s"if $cond then ${emitExpr(t.thenp)} else ${emitExpr(t.elsep)}"
     case ta: Term.ApplyType if isPrismApplyType(ta) =>
       emitPrism(ta)
     case app: Term.Apply =>
@@ -3864,7 +3869,20 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
             case List(block: Term.Block) if fun.isInstanceOf[Term.Name] =>
               s"$f() ${emitExprDeep(block)}"
             case _ =>
-              val args = app.argClause.values.map(emitCallArg).mkString(", ")
+              // jvmgen-handle-result-mainpath: a call arg that references an Any-typed handle-result
+              // val (`dbl(r)`) is cast to the callee's declared param type, mirroring the CPS-path
+              // `applyCalleeCasts` — otherwise `dbl(r)` fails (Found Any / Required Int).
+              val calleeName = fun match { case Term.Name(n) => Some(n); case _ => None }
+              val args = app.argClause.values.zipWithIndex.map { (a, i) =>
+                val emitted = emitCallArg(a)
+                a match
+                  case Term.Ascribe(_, _) => emitted
+                  case _ if termRefsHandleResultVal(a) =>
+                    calleeName.flatMap(n => calleeParamType(n, i, None, Map.empty)) match
+                      case Some(t) => s"$emitted.asInstanceOf[$t]"
+                      case None    => emitted
+                  case _ => emitted
+              }.mkString(", ")
               s"$f($args)"
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
       val args = argClause.values
@@ -3890,6 +3908,20 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       s"""_anyCall0(${emitExpr(qual)}, "${name.value}")"""
     case Term.Select(qual, name) =>
       s"${emitExpr(qual)}.${name.value}"
+    // jvmgen-handle-result-mainpath: recurse the scrutinee + arm bodies + guards so a handle-result
+    // val used in a `match` arm (`r match { case _ => r * 2 }`) lowers through `_binOp` rather than
+    // falling to the `.syntax` raw fallback (which Scala 3 rejects on the Any-typed result).
+    case t: Term.Match =>
+      val arms = t.casesBlock.cases.map { c =>
+        val guard = c.cond.map { g =>
+          val gs = emitExpr(g)
+          s" if ${if termContainsHandleResultArith(g) then s"$gs.asInstanceOf[Boolean]" else gs}"
+        }.getOrElse("")
+        s"case ${c.pat.syntax}$guard => ${emitExpr(c.body)}"
+      }.mkString("; ")
+      s"(${emitExpr(t.expr)} match { $arms })"
+    case Term.Tuple(args) =>
+      s"(${args.map(emitExpr).mkString(", ")})"
     case other => other.syntax
 
   // ─── direct[M] { ... } — v1.8 do-notation ────────────────────────
