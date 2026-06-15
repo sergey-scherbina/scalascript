@@ -1,0 +1,6 @@
+collection-ctor-aliases 2026-06-15T15:15:23Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-15T15:15:23Z
+status: in-progress
+done-so-far: collections survey found Seq/Vector/Array/IndexedSeq constructors throw "Undefined" in interp; toVector/toSeq missing. List/Map/Set/Option/Either/Tuple/Range work.
+next: alias Seq/Vector/Array/IndexedSeq/Iterable constructors -> List in interp (+ JS if needed); add toVector/toSeq/toIndexedSeq conversions. Cross-backend verify.
