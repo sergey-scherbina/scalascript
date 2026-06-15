@@ -58,16 +58,16 @@ because launch-oriented OpenAI clients conventionally include `/v1`.
 
 ## Behavior
 
-- [ ] With no `ROZUM_BASE_URL` or no `ROZUM_MODEL`, the live test cancels with a
+- [x] With no `ROZUM_BASE_URL` or no `ROZUM_MODEL`, the live test cancels with a
       clear message and the suite remains green.
-- [ ] With both required env vars set, the test runs a ScalaScript snippet that
+- [x] With both required env vars set, the test runs a ScalaScript snippet that
       imports `std.agent`, calls `runAgent`, and reaches
       `<ROZUM_BASE_URL>/v1/chat/completions`.
-- [ ] The request uses `stream:false`, `temperature:0`, a bounded `max_tokens`,
+- [x] The request uses `stream:false`, `temperature:0`, a bounded `max_tokens`,
       no tools, and the configured `model`.
-- [ ] `ROZUM_AUTH_TOKEN` is not printed or logged and, when non-empty, is sent
+- [x] `ROZUM_AUTH_TOKEN` is not printed or logged and, when non-empty, is sent
       through `AgentEndpoint` as `Authorization: Bearer <token>`.
-- [ ] A conforming non-streaming response returns `AgentResult.stop = "Done"`,
+- [x] A conforming non-streaming response returns `AgentResult.stop = "Done"`,
       a non-empty final `text`, zero operations, and a transcript containing the
       system and user messages.
 
@@ -117,4 +117,30 @@ Assertions are structural rather than exact-output:
 
 ## Results
 
-Fill this in after implementation and verification.
+Implemented as
+`runtime/backend/interpreter-plugin-tests/src/test/scala/scalascript/RozumLiveConformanceTest.scala`.
+The test reads `ROZUM_BASE_URL`, `ROZUM_MODEL`, and optional
+`ROZUM_AUTH_TOKEN` on the ScalaTest side, constructs an `AgentEndpoint`, and
+executes the same interpreter/plugin stack as `AgentSdkInterpreterTest`.
+
+Verified the default no-env path with:
+
+```bash
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/rozum-live-conformance && sbt "backendInterpreterPluginTests/testOnly scalascript.RozumLiveConformanceTest"
+```
+
+Result on 2026-06-15: suite success with one canceled test:
+`ROZUM_BASE_URL not set - opt in with ROZUM_BASE_URL and ROZUM_MODEL to hit a live rozum gateway`.
+
+Attempted to start the adjacent rozum gateway with the historical docs smoke
+model:
+
+```bash
+cd /Users/sergiy/work/my/rozum
+cargo run -- gateway --port 18089 --model hello
+```
+
+The current rozum CLI built successfully but rejected `hello` with
+`no backend found for 'hello'`; current live verification therefore requires a
+real cached model or `ROZUM_BACKEND_URL` upstream, as documented in the
+Interface section.
