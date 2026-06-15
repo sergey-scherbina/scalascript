@@ -11,6 +11,23 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ## Active tasks
 
+- [ ] **std-nfc** — Add mobile NFC support as a portable `std.nfc` capability.
+      WHY: NFC is a platform capability (Android `NfcAdapter`, iOS Core NFC,
+      Web NFC), so `.ssc` user code must call `std.nfc` rather than importing
+      `android.*`, `CoreNFC`, or browser globals directly. HOW: first write
+      and commit `specs/std-nfc.md`; then add `Feature.NfcNdef` (plus deferred
+      `NfcTagTech`/`NfcCardEmulation` gates if the enum shape allows), create
+      `runtime/std/nfc.ssc`, scaffold `runtime/std/nfc-plugin/`, wire it in
+      `build.sbt` and ServiceLoader, add interpreter test coverage with a mock
+      adapter/clear `NotSupported` behavior, update docs/user guide, and add a
+      small `examples/nfc-ndef.ssc`. MVP is NDEF read/write/status only.
+      Rejected: direct backend blocks or raw platform types in user `.ssc`
+      (violates backend-specific-blocks rule); card emulation in MVP (Android
+      HCE and iOS NFC/SE entitlements have different security/product gates).
+      Done when the spec behavior checklist is checked, focused tests pass via
+      explicit `cd <worktree> && sbt "..."`, and unsupported targets fail
+      predictably instead of exposing platform APIs.
+
 Strategic-review proposals (2026-06-15) — the feature roadmap is built out; leverage has shifted from
 building features to validating/hardening/enabling what exists. Work top-to-bottom.
 
