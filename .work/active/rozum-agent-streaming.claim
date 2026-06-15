@@ -1,6 +1,6 @@
 feature/rozum-agent-streaming 2026-06-15T08:43:52Z
 agent: codex
-heartbeat: 2026-06-15T08:43:52Z
-status: not-started
-done-so-far:
-next: create worktree, inspect existing HTTP streaming support, then write and commit the streaming spec before code
+heartbeat: 2026-06-15T08:44:10Z
+status: in-progress
+done-so-far: worktree created at .worktrees/feature/rozum-agent-streaming
+next: inspect existing HTTP/SSE primitives and commit specs/rozum-agent-streaming.md before code
