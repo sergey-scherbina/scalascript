@@ -206,6 +206,16 @@ class AgentEndpointPoolInterpreterTest extends AnyFunSuite with Matchers with Be
       "/stream-secondary/v1/chat/completions"
     )
 
+  test("rozum-agent-pool example runs end-to-end with fake primary and secondary gateways"):
+    val src = os.read(TestPaths.repoRoot / "examples" / "rozum-agent-pool.ssc")
+    val buf = java.io.ByteArrayOutputStream()
+    val ps = java.io.PrintStream(buf, true)
+    val interp = Interpreter(out = ps, baseDir = Some(TestPaths.repoRoot))
+    interp.installPlugins(List(HttpInterpreterPlugin(), JsonInterpreterPlugin()))
+    interp.run(Parser.parse(src))
+    ps.flush()
+    buf.toString.trim should endWith("Done\nSecondary gateway answered.\n0\n1\n1")
+
   private def writeJson(exchange: HttpExchange, status: Int, body: String): Unit =
     val bytes = body.getBytes(StandardCharsets.UTF_8)
     exchange.getResponseHeaders.add("Content-Type", "application/json")

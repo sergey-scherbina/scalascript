@@ -1,0 +1,54 @@
+---
+name: rozum-agent-pool-demo
+version: 0.1.0
+description: Self-contained std.agent endpoint-pool demo against fake primary/secondary rozum gateways.
+---
+
+# Rozum Agent Endpoint Pool Demo
+
+[AgentEndpoint, AgentEndpointPool, RunOptions, runAgentPool](std/agent.ssc)
+[route, serveAsync, stop, Request, Response](std/http.ssc)
+
+```scalascript
+val port = 19700
+var primaryCalls = 0
+var secondaryCalls = 0
+
+route("POST", "/primary/v1/chat/completions") { req =>
+  primaryCalls = primaryCalls + 1
+  Response(503, Map("Content-Type" -> "text/plain"), "primary unavailable")
+}
+
+route("POST", "/secondary/v1/chat/completions") { req =>
+  secondaryCalls = secondaryCalls + 1
+  Response(
+    200,
+    Map("Content-Type" -> "application/json"),
+    """{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"Secondary gateway answered."}}]}"""
+  )
+}
+
+serveAsync(port)
+
+val pool = AgentEndpointPool(List(
+  AgentEndpoint("http://localhost:" + port + "/primary"),
+  AgentEndpoint("http://localhost:" + port + "/secondary")
+), 2)
+
+val result = runAgentPool(
+  pool,
+  "local-pool-model",
+  "You are a careful assistant.",
+  "Answer through the available gateway.",
+  List(),
+  RunOptions(maxSteps = 4)
+)
+
+println(result.stop)
+println(result.text)
+println(result.operations.length)
+println(primaryCalls)
+println(secondaryCalls)
+
+stop()
+```

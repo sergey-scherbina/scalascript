@@ -1382,7 +1382,7 @@ route("GET", "/download") { req =>
 }
 ```
 
-### Rozum agent streaming
+### Rozum agent gateways
 
 `std.agent` provides an app-owned tool loop over OpenAI-compatible rozum
 gateways. Use `runAgent` for ordinary non-streaming completions, or
@@ -1407,8 +1407,28 @@ val result = runAgentStream(
 Streaming events use `AgentEvent.kind` values such as `TextDelta`,
 `ToolCallStarted`, `ToolCallDelta`, `ToolCallResult`, `Errored`, and
 `Stopped`. `collectAgentStream(...)` returns `AgentStreamResult` when the app
-wants the final `AgentResult` plus the ordered event list. See
-[`examples/rozum-agent-streaming.ssc`](../examples/rozum-agent-streaming.ssc)
+wants the final `AgentResult` plus the ordered event list.
+
+For bounded ordered failover across several rozum gateways, build an
+`AgentEndpointPool` and call the pool variants:
+
+```scalascript
+[AgentEndpoint, AgentEndpointPool, RunOptions, runAgentPool](std/agent.ssc)
+
+val pool = AgentEndpointPool(List(
+  AgentEndpoint("http://primary.internal:18089"),
+  AgentEndpoint("http://secondary.internal:18089")
+), maxAttempts = 2)
+
+val result = runAgentPool(pool, "local-model", "system", "user", List(), RunOptions())
+```
+
+Pool failover retries only transport failures and HTTP `5xx` responses. HTTP
+`4xx`, unknown tools, and handler validation errors use the normal `Error` or
+tool-result path and do not try another endpoint. See
+[`examples/rozum-agent-pool.ssc`](../examples/rozum-agent-pool.ssc),
+[`examples/rozum-agent-streaming.ssc`](../examples/rozum-agent-streaming.ssc),
+[`specs/rozum-agent-endpoint-pool.md`](../specs/rozum-agent-endpoint-pool.md),
 and [`specs/rozum-agent-streaming.md`](../specs/rozum-agent-streaming.md).
 
 ### TLS
