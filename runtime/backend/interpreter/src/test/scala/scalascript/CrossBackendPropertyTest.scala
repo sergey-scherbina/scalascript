@@ -307,10 +307,11 @@ class CrossBackendPropertyTest extends AnyFunSuite:
   // Return(_) => List()`) over different control-flow shapes of the handled program. Found two bugs:
   //   - jvmgen-returnclause-effect-in-recursion: a recursive effectful `go(n-1)` failed JVM scala-cli
   //     (Any-bound `_t3` passed to an `Int` param) — fixed via localDefSigs callee-cast.
-  //   - interp-returnclause-effect-in-while: an effect performed in a `while` loop throws in interp
-  //     (fast-while runs the perform eagerly) — STILL OPEN, so the while shape is excluded here.
+  //   - interp-returnclause-effect-in-while: an effect performed in a `while` loop threw in interp
+  //     (fast-while ran the perform eagerly) — fixed by bailing the fast-while to the trampoline when
+  //     the body performs an effect op with no active resolver.
   // Each shape emits `xs.length` (= number of emits). interp/JS are baselines; JVM via scala-cli.
-  test("effect return-clause cross-backend (direct / recursion)"):
+  test("effect return-clause cross-backend (direct / recursion / while)"):
     assume(has("node") && has("scala-cli"), "node/scala-cli not available")
     val effDecl = "effect Log:\n  def emit(): Int\n"
     val handler = "val xs = handle(prog()) {\n  case Log.emit(resume) => 7 :: resume(())\n  case Return(_) => List()\n}\nprintln(xs.length)\n"
@@ -318,6 +319,7 @@ class CrossBackendPropertyTest extends AnyFunSuite:
       "direct-single" -> "def prog(): Int ! Log =\n  Log.emit()\n  0\n",
       "direct-two"    -> "def prog(): Int ! Log =\n  Log.emit()\n  Log.emit()\n  0\n",
       "recursion"     -> "def go(n: Int): Int ! Log =\n  if n <= 0 then 0\n  else\n    Log.emit()\n    go(n - 1)\ndef prog(): Int ! Log =\n  go(3)\n",
+      "while-loop"    -> "def prog(): Int ! Log =\n  var i = 0\n  while i < 3 do\n    Log.emit()\n    i = i + 1\n  0\n",
     )
     for (label, progDecl) <- shapes do
       val m   = module(effDecl + progDecl + handler)

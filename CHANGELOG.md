@@ -4,6 +4,28 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix(interp): bail fast-while to trampoline on unresolved effect in loop
+
+A deep return-clause handler over a program that performs an effect inside a
+`while` loop threw in the interpreter (`Unhandled effect: Log.emit (no handler in
+scope)`) — JS and JVM both ran it correctly. The handler body `7 :: resume(())` is
+not a clean tail-resume, so no inline resolver is installed; the effect op must
+thread as a `Computation` through the handler, but the fast-while path
+(`tryFastWhileAssign`) ran the loop's leading applies eagerly via `Computation.run`,
+letting the `Perform` escape. Fixed by capturing `EffectAnalysis.effectOps` into
+`Interpreter.effectOpNames` and adding an up-front guard: if the loop body performs
+an effect op with no active resolver (`EffectsRuntime.lookupResolver == null`), bail
+to the monadic trampoline (which threads effects via `FlatMap`). The one-shot
+tail-resume fast path keeps a live resolver, so it's preserved with no perf
+regression. Found by `CrossBackendPropertyTest`; the new "effect return-clause
+cross-backend (… / while)" guard now runs the while shape interp == JS == JVM, and
+the generated JVM differential rose 17 → 19 checked seeds (formerly-skipped
+return-clause seeds 23/59 now produce an interp baseline). 366 effect/JIT/VM tests
+green. (BUGS.md interp-returnclause-effect-in-while — closes the last of the three
+cross-backend bugs found this property-test hunt.)
+
+---
+
 ## 2026-06-15 — fix(jvmgen): cast CPS call args to user-module callee param types (effectful recursion)
 
 A return-clause handler over a **recursive** effectful function failed JVM

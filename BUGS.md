@@ -41,10 +41,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ---
 
-## interp-returnclause-effect-in-while — `open`
+## interp-returnclause-effect-in-while — `fixed` (2026-06-15)
 
 - **Found by:** `CrossBackendPropertyTest` diagnostic (return-clause shape localization).
-- **Symptom:** a deep return-clause handler over a program that performs an effect inside a `while` loop throws **in the interpreter** with `Unhandled effect: Log.emit (no handler in scope)`, even for a single iteration. **JS and JVM both produce the correct result.** This makes the property test's case-7 (return-clause) shape vacuous: interp throws → seed skipped → JS/JVM never compared.
+- **Symptom:** a deep return-clause handler over a program that performs an effect inside a `while` loop threw **in the interpreter** with `Unhandled effect: Log.emit (no handler in scope)`, even for a single iteration. **JS and JVM both produce the correct result.** This made the property test's case-7 (return-clause) shape vacuous: interp threw → seed skipped → JS/JVM never compared.
 - **Repro:**
   ```scalascript
   effect Log:
@@ -61,7 +61,8 @@ commit SHA until the reporter confirms, then they can be trimmed.
   }
   println(xs.length)   // js/jvm: 3 ; interp: THROWS
   ```
-- **Root cause (suspected):** the handler body `7 :: resume(())` is NOT a clean tail-resume, so `evalHandle` installs no inline resolver for `Log.emit`. The op then has to thread as a `Computation` (Perform/FlatMap) through `handleInterp`, but the fast-while path (`tryFastWhileAssign`, `EvalRuntime.scala`) drives the loop's leading applies eagerly via `Computation.run`, so the `Perform` escapes the handler. A direct (non-loop) emit (shapes A/B) works; only the while-loop shape fails. The fix is to make the fast-while path BAIL (return null → monadic trampoline, which already threads effects via `FlatMap`) when a leading apply yields a `Perform`.
+- **Root cause:** the handler body `7 :: resume(())` is NOT a clean tail-resume, so `evalHandle` installs no inline resolver for `Log.emit`. The op then has to thread as a `Computation` (Perform/FlatMap) through `handleInterp`, but the fast-while path (`tryFastWhileAssign`, `EvalRuntime.scala`) drove the loop's leading applies eagerly via `Computation.run`, so the `Perform` escaped the handler. A direct (non-loop) emit works; only the while-loop shape failed.
+- **FIXED (2026-06-15):** captured `EffectAnalysis.effectOps` into `Interpreter.effectOpNames` (alongside `multiShotEffects`) at module init, and added an up-front guard `whileBodyHasUnresolvedEffect` at the top of `tryFastWhileAssign`: if the loop body performs an effect op with NO active inline resolver (`EffectsRuntime.lookupResolver(eff, op) == null`), bail (return null) to the monadic trampoline, which threads effects via `FlatMap`. The one-shot tail-resume fast path keeps a live resolver, so the guard returns false for it and the fast/JIT path is preserved (no perf regression — `EffectVmContinuationsTest` / `EffectOneShotFastPathTest` stay green). Guard: `CrossBackendPropertyTest` "effect return-clause cross-backend (… / while)" now runs the while shape interp == JS == JVM, and the generated JVM differential rose from 17 → 19 checked seeds (the formerly-skipped return-clause seeds 23/59 now produce an interp baseline). 366 effect/JIT/VM tests green.
 
 ---
 

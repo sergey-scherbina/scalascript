@@ -2772,8 +2772,31 @@ private[interpreter] object EvalRuntime:
     catch
       case PatternRuntime.NotDouble => null
 
+  /** True if the loop body performs an effect op (`Eff.op(...)`) that has NO active inline
+   *  resolver in scope. Such an op must thread as a `Computation` through the surrounding
+   *  handler, but the fast-while path runs leading applies eagerly via `Computation.run`, so
+   *  the `Perform` would escape ("Unhandled effect ... no handler in scope"). Bailing to the
+   *  monadic trampoline (which threads effects via `FlatMap`) is correct. A resolved op (the
+   *  one-shot tail-resume fast path) keeps a live resolver, so this returns false for it and
+   *  the fast path is preserved. (interp-returnclause-effect-in-while.) */
+  private def whileBodyHasUnresolvedEffect(body: Term, interp: Interpreter): Boolean =
+    if interp.effectOpNames.isEmpty then false
+    else
+      var found = false
+      def walk(n: scala.meta.Tree): Unit =
+        if !found then
+          n match
+            case Term.Apply.After_4_6_0(Term.Select(Term.Name(eff), Term.Name(op)), _)
+                if interp.effectOpNames.contains(s"$eff.$op") &&
+                   EffectsRuntime.lookupResolver(eff, op) == null =>
+              found = true
+            case _ => n.children.foreach(walk)
+      walk(body)
+      found
+
   private def tryFastWhileAssign(t: Term.While, frameView: MutableEnvView, interp: Interpreter): Computation | Null =
     if interp.debugHooks.nonEmpty then null
+    else if whileBodyHasUnresolvedEffect(t.body, interp) then null
     else
       val body = collectFastAssignBody(t.body)
       if body == null then

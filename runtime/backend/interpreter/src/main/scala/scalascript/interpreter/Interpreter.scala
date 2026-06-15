@@ -247,6 +247,10 @@ class Interpreter(
         s"'$prevPath' — last import wins")
   // Effect object names detected as multi-shot by EffectAnalysis (populated in runInit).
   private[interpreter] var multiShotEffects: Set[String] = Set.empty
+  // Fully-qualified effect-op names (`Eff.op`) detected by EffectAnalysis (populated in runInit).
+  // Used by the fast-while path to bail to the monadic trampoline when a loop performs an effect
+  // op that has no active inline resolver (interp-returnclause-effect-in-while).
+  private[interpreter] var effectOpNames: Set[String] = Set.empty
   private[interpreter] var sqlBlockRunner: Option[scalascript.backend.spi.SqlBlockRunner] = None
   private[interpreter] var graphqlBlockRunner: Option[scalascript.backend.spi.GraphQLBlockRunner] = None
 
@@ -960,7 +964,9 @@ class Interpreter(
         }.flatten ++ collectScalaTrees(s.subsections)
       }
     val allTrees: List[scala.meta.Tree] = collectScalaTrees(module.sections)
-    multiShotEffects = scalascript.transform.EffectAnalysis.analyze(allTrees).multiShotEffects
+    val effectAnalysis = scalascript.transform.EffectAnalysis.analyze(allTrees)
+    multiShotEffects = effectAnalysis.multiShotEffects
+    effectOpNames = effectAnalysis.effectOps
     registerFrontmatterRoutes(module)
     registerFrontmatterRemoteHandlers(module)
 
