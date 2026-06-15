@@ -1,6 +1,0 @@
-jsgen-content-extract 2026-06-15T05:08:39Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-15T05:08:39Z
-status: in-progress
-done-so-far: codegen-megafile-deflation follow-on. JvmGen content-emission already extracted to JvmGenContentEmit (JvmGen -20%). Now mirror for JsGen (5136 LOC).
-next: find JsGen's content-emission cluster (mirrors JVM), extract to JsGenContentEmit trait (self: JsGen =>), widen referenced state/helpers to private[codegen], verify JS content + JsGen output suites green + behaviour-identical. Ship.
