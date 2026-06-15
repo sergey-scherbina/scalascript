@@ -60,22 +60,22 @@ tool dispatch, and returns the final `AgentResult`.
 
 ## Behavior
 
-- [ ] `runAgentStream` sends the same OpenAI-compatible request shape as
+- [x] `runAgentStream` sends the same OpenAI-compatible request shape as
       `runAgent`, except `stream=true` and `Accept: text/event-stream`.
-- [ ] Text SSE deltas append to the final `AgentResult.text` and emit
+- [x] Text SSE deltas append to the final `AgentResult.text` and emit
       `TextDelta` events in order.
-- [ ] Tool-call SSE deltas assemble `id`, `name`, and chunked
+- [x] Tool-call SSE deltas assemble `id`, `name`, and chunked
       `function.arguments` by `tool_calls[].index`; when `finish_reason` is
       `tool_calls`, the SDK appends the assistant tool-call message, dispatches
       handlers, emits `ToolCallResult`, appends tool-result messages, and
       continues the loop with another streaming model call.
-- [ ] Unknown tools and handler validation errors use the same tool-error
+- [x] Unknown tools and handler validation errors use the same tool-error
       feedback path as `runAgent`.
-- [ ] `maxSteps` caps streamed tool-call rounds and returns `AgentResult.stop =
+- [x] `maxSteps` caps streamed tool-call rounds and returns `AgentResult.stop =
       "MaxSteps"` with a `Stopped(MaxSteps)` event.
-- [ ] Non-2xx HTTP status, OpenAI SSE error frames, or transport exceptions
+- [x] Non-2xx HTTP status, OpenAI SSE error frames, or transport exceptions
       return `AgentResult.stop = "Error"` and emit `Errored`/`Stopped(Error)`.
-- [ ] `collectAgentStream` returns the same final result and the ordered event
+- [x] `collectAgentStream` returns the same final result and the ordered event
       list without requiring users to manage a mutable event buffer.
 
 ## Design
@@ -95,8 +95,8 @@ The implementation will add pure `.ssc` helpers to `runtime/std/agent.ssc`:
   `stream=false` while `runAgentStream` sends `stream=true`.
 - `streamRequestHeaders` to add `Accept: text/event-stream` while preserving
   bearer auth.
-- `parseOpenAiSseLine`/loop-local helpers that update text, pending tool-call
-  accumulators, and finish/error state.
+- `handleStreamLine`, `applyToolCallDeltas`, and loop-local helpers that update
+  text, pending tool-call accumulators, and finish/error state.
 
 Pending tool calls are stored in a small list keyed by streamed
 `tool_calls[].index`. This avoids assuming one tool call while still keeping the
@@ -135,4 +135,11 @@ second streamed final answer, stream error frames, and `MaxSteps`.
 
 ## Results
 
-Fill this in after implementation and verification.
+Implemented in `std.agent` with no new backend intrinsic: streaming reuses
+`std.http.httpPostStream`, sends `stream=true`, and preserves the existing
+non-streaming `runAgent` behavior.
+
+Verification:
+
+- `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/rozum-agent-streaming && sbt "backendInterpreterPluginTests/testOnly scalascript.AgentSdkStreamingInterpreterTest scalascript.AgentSdkInterpreterTest"` — 14 tests passed, covering text deltas, callback delivery, streamed tool-call assembly/dispatch/continuation, non-2xx errors, SSE error frames, maxSteps, sync API regression, and both `rozum-agent` examples.
+- `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/rozum-agent-streaming && sbt "backendInterpreterPluginTests/testOnly scalascript.AgentSdkStreamingInterpreterTest"` — 7 streaming tests passed after adding `examples/rozum-agent-streaming.ssc`.
