@@ -1,0 +1,6 @@
+interp-monadic-forcomp 2026-06-15T13:24:53Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-15T13:24:53Z
+status: in-progress
+done-so-far: 13 cross-backend bugs fixed via property test. interp Option/Either for-comp throws (evalForYield List-specialized).
+next: make evalForYield monad-polymorphic — when first generator is non-List (Option/Either), desugar to flatMap/map dispatch on the actual value. Keep List fast path. Then resume hunting.
