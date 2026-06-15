@@ -394,7 +394,26 @@ object Value:
   object InstanceV:
     def unapply(inst: InstanceV): Some[(String, Map[String, Value])] =
       Some((inst.typeName, inst.effectiveFields))
-  final case class ListV(items: List[Value])     extends Value
+  final case class ListV(items: List[Value])     extends Value:
+    // Display/type tag: "List" (default), "Vector", "Seq", "Array", "IndexedSeq", "LazyList".
+    // The interpreter backs every sequence type with one `ListV` for uniform dispatch, but this
+    // tag lets `Value.show` / `toString` render the REAL type (`Vector(1, 2, 3)`, not `List(...)`)
+    // and is preserved through type-preserving ops. A mutable field (set only on a FRESH instance
+    // via `withKind`) avoids changing the case-field arity, which would break the ~330 `ListV(xs)`
+    // patterns. (collection-real-type.)
+    private[interpreter] var collKind: String = "List"
+    def withKind(k: String): ListV = { collKind = k; this }
+  /** A real **mutable** array — distinct from `ListV` because `Array` has genuinely
+   *  different runtime semantics: in-place update (`a(i) = x`) and **reference identity**
+   *  (`Array(1,2,3) != Array(1,2,3)`). Case-class `==` compares the `Array[Value]` field
+   *  by reference (JVM array equality), which is exactly Scala's `Array` identity.
+   *  (collection-real-type.) */
+  final case class ArrayV(items: Array[Value])   extends Value
+  /** A real **lazy** list, backed by Scala's own `LazyList[Value]` so it gets laziness,
+   *  memoization, infinite-stream support, and `toString` parity with the JVM backend
+   *  (which raw-emits a real `scala.collection.immutable.LazyList`) for free.
+   *  (collection-real-type.) */
+  final case class LazyListV(underlying: LazyList[Value]) extends Value
   final case class OptionV(inner: Value | Null)  extends Value
   final case class TupleV(elems: List[Value])    extends Value
   final case class MapV(entries: Map[Value, Value]) extends Value
@@ -504,7 +523,12 @@ object Value:
     case CharV(c)             => c.toString
     case UnitV                => "()"
     case NullV                => "null"
-    case ListV(items)         => items.iterator.map(show).mkString("List(", ", ", ")")
+    case l: ListV             => l.items.iterator.map(show).mkString(s"${l.collKind}(", ", ", ")")
+    // Readable `Array(1, 2, 3)`. DIVERGES from Scala's non-deterministic `[I@hash` toString
+    // by design (`[I@hash` is useless and can't be cross-backend-asserted). (collection-real-type.)
+    case ArrayV(items)        => items.iterator.map(show).mkString("Array(", ", ", ")")
+    // `LazyList.toString` itself yields `LazyList(<not computed>)` / forced-prefix — exact JVM parity.
+    case LazyListV(ll)        => ll.toString
     case OptionV(null)        => "None"
     case OptionV(v)           => s"Some(${show(v)})"
     case TupleV(elems)        => elems.iterator.map(show).mkString("(", ", ", ")")

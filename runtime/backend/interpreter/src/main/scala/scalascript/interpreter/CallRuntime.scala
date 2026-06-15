@@ -37,7 +37,8 @@ private[interpreter] object CallRuntime:
       val applyFn = fields.getOrElse("apply", null)
       if applyFn != null then callValue(applyFn, args, env, interp)
       else interp.located(s"Instance is not callable")
-    case _: Value.ListV | _: Value.MapV => DispatchRuntime.dispatch(fn, "apply", args, env, interp)
+    case _: Value.ListV | _: Value.MapV | _: Value.ArrayV | _: Value.LazyListV =>
+      DispatchRuntime.dispatch(fn, "apply", args, env, interp)
     // `sig()` — read a reactive Signal's current value (Scala `Signal.apply(): T`).
     // The JS/JVM emitters wire this to the reactive runtime; on the interpreter it
     // returns the signal's current (initial) value, so a `computedSignal(() => … sig() …)`

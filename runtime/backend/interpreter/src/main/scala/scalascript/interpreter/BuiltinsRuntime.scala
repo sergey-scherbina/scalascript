@@ -104,14 +104,101 @@ private[interpreter] object BuiltinsRuntime:
       "empty"    -> Value.EmptyList,
       "apply"    -> listNative
     ))
-    // Seq / Vector / Array / IndexedSeq / Iterable / LazyList — the interpreter backs every sequence
-    // type with `ListV`, so their companions alias `List`'s (`Seq(1,2,3)`, `Vector.fill`, …). On the JVM
-    // backend these compile to the REAL Scala types (raw emit); interp/JS use the List/array backing
-    // (no distinct runtime type — `LazyList` is eager here, so an infinite LazyList won't work off-JVM).
-    // (collection-ctor-aliases.)
-    val seqCompanion = interp.globals("List")
-    for n <- List("Seq", "Vector", "Array", "IndexedSeq", "Iterable", "LazyList", "List$") do
-      interp.globals(n) = seqCompanion
+    // Seq / Vector / IndexedSeq / Iterable — observably identical to `List` in an EAGER interpreter
+    // (Scala's `Vector(1,2,3) == List(1,2,3)` is `true`), so they share the `ListV` backing and differ
+    // only by a DISPLAY tag (`collKind`): `Vector(1,2,3)` renders as `Vector(1, 2, 3)`, and the tag is
+    // preserved through type-preserving ops. Seq/Iterable display as `List` (Scala's Seq/Iterable
+    // default IS List); Vector/IndexedSeq display as `Vector` (IndexedSeq's default impl). On the JVM
+    // backend these compile to the REAL Scala types (raw emit). (collection-ctor-aliases / collection-real-type.)
+    val seqKinds = List(
+      "Seq" -> "List", "Iterable" -> "List",
+      "Vector" -> "Vector", "IndexedSeq" -> "Vector")
+    for (name, kind) <- seqKinds do
+      val ctor = Value.NativeFnV(name, args => Pure(Value.ListV(args).withKind(kind)))
+      interp.globals(name) = Value.InstanceV(name, Map(
+        "fill"     -> interp.globals("List.fill"),
+        "tabulate" -> interp.globals("List.tabulate"),
+        "range"    -> interp.globals("List.range"),
+        "empty"    -> Value.ListV(Nil).withKind(kind),
+        "apply"    -> ctor
+      ))
+    // Array — a REAL mutable array (`Value.ArrayV`): in-place `a(i) = x` + reference identity, unlike
+    // the immutable `ListV` types. (collection-real-type.)
+    interp.globals("Array") = Value.InstanceV("Array", Map(
+      "apply"    -> Value.NativeFnV("Array", args => Pure(Value.ArrayV(args.toArray))),
+      "empty"    -> Value.NativeFnV("Array.empty", _ => Pure(Value.ArrayV(Array.empty[Value]))),
+      "fill"     -> Value.NativeFnV("Array.fill", {
+        case List(Value.IntV(n)) =>
+          Pure(Value.NativeFnV("Array.fill.n", {
+            case List(elem) => Pure(Value.ArrayV(Array.fill(n.toInt)(elem)))
+            case _          => throw InterpretError("Array.fill(n)(elem)")
+          }))
+        case _ => throw InterpretError("Array.fill(n)(elem)")
+      }),
+      "ofDim"    -> Value.NativeFnV("Array.ofDim", {
+        case List(Value.IntV(n)) => Pure(Value.ArrayV(Array.fill(n.toInt)(Value.IntV(0))))
+        case _                   => throw InterpretError("Array.ofDim(n)")
+      }),
+      "tabulate" -> Value.NativeFnV("Array.tabulate", {
+        case List(Value.IntV(n)) =>
+          Pure(Value.NativeFnV("Array.tabulate.n", {
+            case List(f) =>
+              Computation.mapSequenceRange(0, n.toInt, i => interp.callValue1(f, Value.intV(i), Map.empty))
+                .map { case lv: Value.ListV => Value.ArrayV(lv.items.toArray); case v => v }
+            case _ => throw InterpretError("Array.tabulate(n)(f)")
+          }))
+        case _ => throw InterpretError("Array.tabulate(n)(f)")
+      }),
+      "range"    -> Value.NativeFnV("Array.range", {
+        case List(Value.IntV(from), Value.IntV(until)) =>
+          Pure(Value.ArrayV((from until until).map(i => Value.intV(i.toInt): Value).toArray))
+        case List(Value.IntV(from), Value.IntV(until), Value.IntV(step)) =>
+          Pure(Value.ArrayV((from until until by step).map(i => Value.intV(i.toInt): Value).toArray))
+        case _ => throw InterpretError("Array.range(from, until[, step])")
+      })
+    ))
+    // LazyList — a REAL lazy list backed by Scala's own `LazyList[Value]` (laziness, memoization,
+    // infinite streams, and `toString` parity with the JVM backend). (collection-real-type.)
+    interp.globals("LazyList") = Value.InstanceV("LazyList", Map(
+      "apply"      -> Value.NativeFnV("LazyList", args => Pure(Value.LazyListV(LazyList.from(args)))),
+      "empty"      -> Value.LazyListV(LazyList.empty),
+      "from"       -> Value.NativeFnV("LazyList.from", {
+        case List(Value.IntV(start)) => Pure(Value.LazyListV(LazyList.from(start.toInt).map(i => Value.intV(i))))
+        case List(Value.IntV(start), Value.IntV(step)) =>
+          Pure(Value.LazyListV(LazyList.iterate(start.toInt)(_ + step.toInt).map(i => Value.intV(i))))
+        case _ => throw InterpretError("LazyList.from(start[, step])")
+      }),
+      "continually"-> Value.NativeFnV("LazyList.continually", {
+        case List(elem) => Pure(Value.LazyListV(LazyList.continually(elem)))
+        case _          => throw InterpretError("LazyList.continually(elem)")
+      }),
+      "iterate"    -> Value.NativeFnV("LazyList.iterate", {
+        case List(seed) =>
+          Pure(Value.NativeFnV("LazyList.iterate.f", {
+            case List(f) =>
+              // lazily unfold: each step forces f(prev) — must be a PURE function for laziness.
+              Pure(Value.LazyListV(LazyList.iterate(seed)(prev => Computation.run(interp.callValue1(f, prev, Map.empty)))))
+            case _ => throw InterpretError("LazyList.iterate(seed)(f)")
+          }))
+        case _ => throw InterpretError("LazyList.iterate(seed)(f)")
+      }),
+      "tabulate"   -> Value.NativeFnV("LazyList.tabulate", {
+        case List(Value.IntV(n)) =>
+          Pure(Value.NativeFnV("LazyList.tabulate.n", {
+            case List(f) =>
+              Pure(Value.LazyListV(LazyList.tabulate(n.toInt)(i => Computation.run(interp.callValue1(f, Value.intV(i), Map.empty)))))
+            case _ => throw InterpretError("LazyList.tabulate(n)(f)")
+          }))
+        case _ => throw InterpretError("LazyList.tabulate(n)(f)")
+      }),
+      "range"      -> Value.NativeFnV("LazyList.range", {
+        case List(Value.IntV(from), Value.IntV(until)) =>
+          Pure(Value.LazyListV(LazyList.range(from.toInt, until.toInt).map(i => Value.intV(i))))
+        case List(Value.IntV(from), Value.IntV(until), Value.IntV(step)) =>
+          Pure(Value.LazyListV(LazyList.range(from.toInt, until.toInt, step.toInt).map(i => Value.intV(i))))
+        case _ => throw InterpretError("LazyList.range(from, until[, step])")
+      })
+    ))
     // Set constructor: `Set(a, b)`, `Set[T]()`, `Set.empty`.
     val setNative = Value.NativeFnV("Set", args => Pure(Value.SetV(args.toSet)))
     interp.globals("Set") = Value.InstanceV("Set", Map(

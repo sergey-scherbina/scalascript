@@ -3287,6 +3287,23 @@ private[interpreter] object EvalRuntime:
     //    instanceof/extractor checks on every visit.  JFR showed eval's own
     //    match body dominating self-time on these workloads.
 
+    // `head #:: tail` — lazy cons. Evaluate the head eagerly but DEFER the tail (Scala's by-name
+    // cons), so a self-recursive stream def `def from(n) = n #:: from(n+1)` yields an infinite
+    // `LazyList` instead of recursing eagerly. `LazyList.cons`'s second param is by-name, so the
+    // braced tail block runs only when the tail is forced. (collection-real-type.)
+    case app: Term.ApplyInfix if app.op.value == "#::" && app.argClause.values.lengthCompare(1) == 0 =>
+      val tailExpr = app.argClause.values.head
+      eval(app.lhs, env, interp).flatMap { headV =>
+        Pure(Value.LazyListV(LazyList.cons(headV, {
+          Computation.run(eval(tailExpr, env, interp)) match
+            case llv: Value.LazyListV => llv.underlying
+            case l: Value.ListV       => l.items.to(LazyList)
+            case a: Value.ArrayV      => a.items.to(LazyList)
+            case Value.SetV(s)        => s.to(LazyList)
+            case other                => other #:: LazyList.empty[Value]
+        })))
+      }
+
     // Infix operators — handles both plain binary (a + b) and compound
     // assignment (x += e).  Using `case app: Term.ApplyInfix` avoids calling
     // Term.ApplyInfix.After_4_6_0.unapply, which allocates a Tuple4 even for
@@ -4215,6 +4232,18 @@ private[interpreter] object EvalRuntime:
       eval(rhs, env, interp) match
         case Pure(v) => interp.globals(name) = v; Computation.PureUnit
         case c       => FlatMap(c, { v => interp.globals(name) = v; Computation.PureUnit })
+
+    // `recv(idx…) = rhs` desugars to `recv.update(idx…, rhs)` (Scala). Mutates a real `ArrayV` in place
+    // (and works for any receiver exposing `update`). Eval order: recv, indices (l→r), rhs. (collection-real-type.)
+    case Term.Assign(app: Term.Apply, rhs) =>
+      eval(app.fun, env, interp).flatMap { recvV =>
+        def evalIdx(remaining: List[Term], acc: List[Value]): Computation = remaining match
+          case Nil    => eval(rhs, env, interp).flatMap { v =>
+            DispatchRuntime.dispatch(recvV, "update", acc.reverse ::: List(v), env, interp)
+          }
+          case h :: t => eval(h, env, interp).flatMap { iv => evalIdx(t, iv :: acc) }
+        evalIdx(app.argClause.values, Nil)
+      }
 
     // summon[TC[T]] — retrieve a given instance from the table
     case t: Term.ApplyType =>

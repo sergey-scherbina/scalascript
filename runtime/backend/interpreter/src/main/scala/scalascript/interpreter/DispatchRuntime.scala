@@ -56,7 +56,9 @@ private[interpreter] object DispatchRuntime:
           if fn != null then return interp.callValuePrepend(fn, recv, args, env)
     recv match
       case Value.StringV(s)        => dispatchString(recv, s, name, args, env, interp)
-      case Value.ListV(ls)         => dispatchList(ls, name, args, env, interp)
+      case l: Value.ListV          => stampListKind(l.collKind, name, dispatchList(l.items, name, args, env, interp))
+      case a: Value.ArrayV         => dispatchArray(a, name, args, env, interp)
+      case ll: Value.LazyListV     => dispatchLazyList(ll, name, args, env, interp)
       case Value.MapV(m)           => dispatchMap(m, name, args, env, interp)
       case Value.SetV(s)           => dispatchSet(s, name, args, env, interp)
       case Value.OptionV(opt)      => dispatchOption(recv, if opt == null then None else Some(opt), name, args, env, interp)
@@ -95,7 +97,7 @@ private[interpreter] object DispatchRuntime:
           val fn = typeExts.getOrElse(name, null)
           if fn != null then return interp.callValue2(fn, recv, arg, env)
     recv match
-      case Value.ListV(ls)      => dispatchList1(ls, recv, name, arg, env, interp)
+      case l: Value.ListV       => stampListKind(l.collKind, name, dispatchList1(l.items, recv, name, arg, env, interp))
       case Value.MapV(m)        => dispatchMap1(m, name, arg, env, interp)
       case Value.OptionV(opt)   => dispatchOption1(recv, if opt == null then None else Some(opt), name, arg, env, interp)
       case Value.StringV(s)     => dispatchString1(recv, s, name, arg, env, interp)
@@ -2472,6 +2474,129 @@ private[interpreter] object DispatchRuntime:
   // ── Int ─────────────────────────────────────────────────────────────────────
 
   /** Single-arg fast path for Int — avoids `arg :: Nil` cons cell for max/min/to/until. */
+  /** Ops on a `ListV` that RETURN the same sequence type (so the `collKind` display tag is preserved):
+   *  `Vector(1,2,3).map(_*2)` stays a `Vector`. (collection-real-type.) */
+  private val kindPreservingOps: Set[String] = Set(
+    "map", "filter", "filterNot", "take", "drop", "takeWhile", "dropWhile",
+    "reverse", "sorted", "sortBy", "sortWith", "distinct", "tail", "init",
+    "slice", "dropRight", "takeRight", "updated", "padTo", "appended", "prepended",
+    "++", ":::", "concat", "intersect", "diff", "by", "collect")
+
+  /** Re-stamp the `collKind` of a `ListV` result so a typed sequence keeps its display type through
+   *  type-preserving ops, and `toVector`/`toIndexedSeq` convert TO `Vector`. (collection-real-type.) */
+  private def stampListKind(srcKind: String, op: String, comp: Computation): Computation =
+    val target = op match
+      case "toVector" | "toIndexedSeq" => "Vector"
+      case _ if kindPreservingOps(op)  => srcKind
+      case _                           => "List"
+    if target == "List" then comp
+    else
+      // Allocate a FRESH wrapper when the kind actually changes: `withKind` mutates in place, and some
+      // ops (e.g. `toVector`) return `Pure(recv)` — mutating that would re-tag the caller's original
+      // value. When the result already carries `target` (or is the freshly-built map/filter list we just
+      // want to keep), no copy is needed. (collection-real-type.)
+      def retag(lv: Value.ListV): Value.ListV =
+        if lv.collKind == target then lv else Value.ListV(lv.items).withKind(target)
+      comp match
+        case Pure(lv: Value.ListV) => Pure(retag(lv))
+        case Pure(_)               => comp
+        case c                     => c.map { case lv: Value.ListV => retag(lv); case v => v }
+
+  // ── Array / LazyList — real Scala collection semantics (collection-real-type) ─────────────────
+
+  /** The element list backing any sequence Value (forces a LazyList). */
+  private def seqAsList(v: Value): List[Value] = v match
+    case l: Value.ListV      => l.items
+    case a: Value.ArrayV     => a.items.toList
+    case ll: Value.LazyListV => ll.underlying.toList
+    case Value.SetV(s)       => s.toList
+    case _                   => Nil
+
+  /** Any sequence Value as a (lazy) `LazyList[Value]` — preserves laziness when the source is lazy. */
+  private def seqAsLazy(v: Value): LazyList[Value] = v match
+    case ll: Value.LazyListV => ll.underlying
+    case l: Value.ListV      => l.items.to(LazyList)
+    case a: Value.ArrayV     => a.items.to(LazyList)
+    case Value.SetV(s)       => s.to(LazyList)
+    case _                   => LazyList.empty
+
+  private def boolOf(v: Value): Boolean = v match
+    case Value.BoolV(b) => b
+    case _              => false
+
+  /** Dispatch on a real **mutable** `Array` (`Value.ArrayV`). `update` mutates in place; conversions
+   *  return the right target type; everything else delegates to the shared List dispatch and re-wraps a
+   *  sequence result as a FRESH mutable `ArrayV` (`Array.map` returns an `Array`). (collection-real-type.) */
+  private def dispatchArray(a: Value.ArrayV, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    val items = a.items
+    name match
+      case "update" => args match
+        case List(Value.IntV(i), v) =>
+          val idx = i.toInt
+          if idx < 0 || idx >= items.length then interp.located(s"index $idx out of bounds for array of length ${items.length}")
+          else { items(idx) = v; Computation.PureUnit }
+        case _ => interp.located("Array.update requires (Int index, value)")
+      case "apply" => args match
+        case List(Value.IntV(i)) =>
+          val idx = i.toInt
+          if idx < 0 || idx >= items.length then interp.located(s"index $idx out of bounds for array of length ${items.length}")
+          else Pure(items(idx))
+        case _ => dispatchList(items.toList, name, args, env, interp)
+      case "length" | "size"                 => Computation.pureIntV(items.length.toLong)
+      case "clone" | "toArray"               => Pure(Value.ArrayV(items.clone()))
+      case "toList" | "toSeq" | "toIterable" => Pure(Value.ListV(items.toList))
+      case "toVector" | "toIndexedSeq"       => Pure(Value.ListV(items.toList).withKind("Vector"))
+      case "sameElements" => args match
+        case List(other) => Computation.pureBool(items.toList == seqAsList(other))
+        case _           => interp.located("sameElements requires one argument")
+      case _ =>
+        // Delegate to List dispatch; re-wrap a fresh sequence result as a mutable ArrayV for ops that
+        // keep the collection type (`Array.map`/`filter`/… return an `Array`).
+        val comp = dispatchList(items.toList, name, args, env, interp)
+        if !kindPreservingOps(name) then comp
+        else comp match
+          case Pure(lv: Value.ListV) => Pure(Value.ArrayV(lv.items.toArray))
+          case Pure(_)               => comp
+          case c                     => c.map { case lv: Value.ListV => Value.ArrayV(lv.items.toArray); case v => v }
+
+  /** Dispatch on a real **lazy** `LazyList` (`Value.LazyListV`). Lazy-critical ops operate directly on
+   *  the backing `LazyList[Value]` so infinite streams work and only the demanded prefix is forced;
+   *  anything else forces to a List and reuses the shared dispatch. Element functions must be PURE
+   *  (run via `Computation.run`). (collection-real-type.) */
+  private def dispatchLazyList(llv: Value.LazyListV, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    val ll = llv.underlying
+    def lazily(r: LazyList[Value]): Computation = Pure(Value.LazyListV(r))
+    def fn1(f: Value): Value => Value = (x: Value) => Computation.run(interp.callValue1(f, x, env))
+    name match
+      case "map"        => args match { case List(f) => lazily(ll.map(fn1(f)));                       case _ => interp.located("LazyList.map(f)") }
+      case "filter"     => args match { case List(f) => lazily(ll.filter(x => boolOf(fn1(f)(x))));    case _ => interp.located("LazyList.filter(p)") }
+      case "filterNot" | "withFilter" => args match { case List(f) => lazily(ll.filterNot(x => boolOf(fn1(f)(x)))); case _ => interp.located("LazyList.filterNot(p)") }
+      case "flatMap"    => args match { case List(f) => lazily(ll.flatMap(x => seqAsLazy(fn1(f)(x)))); case _ => interp.located("LazyList.flatMap(f)") }
+      case "take"       => args match { case List(Value.IntV(n)) => lazily(ll.take(n.toInt));         case _ => interp.located("LazyList.take(n)") }
+      case "drop"       => args match { case List(Value.IntV(n)) => lazily(ll.drop(n.toInt));         case _ => interp.located("LazyList.drop(n)") }
+      case "takeWhile"  => args match { case List(f) => lazily(ll.takeWhile(x => boolOf(fn1(f)(x)))); case _ => interp.located("LazyList.takeWhile(p)") }
+      case "dropWhile"  => args match { case List(f) => lazily(ll.dropWhile(x => boolOf(fn1(f)(x)))); case _ => interp.located("LazyList.dropWhile(p)") }
+      case "zipWithIndex" => lazily(ll.zipWithIndex.map((v, i) => Value.TupleV(List(v, Value.intV(i)))))
+      case "zip"        => args match { case List(other) => lazily(ll.zip(seqAsLazy(other)).map((x, y) => Value.TupleV(List(x, y)))); case _ => interp.located("LazyList.zip(other)") }
+      case "++" | "concat" | "appendedAll" | "lazyAppendedAll" =>
+        args match { case List(other) => lazily(ll.lazyAppendedAll(seqAsLazy(other))); case _ => interp.located("LazyList ++ other") }
+      case "prepended" | "+:" => args match { case List(x) => lazily(LazyList.cons(x, ll)); case _ => interp.located("LazyList.+:(x)") }
+      case "head"       => if ll.isEmpty then interp.located("head on empty LazyList") else Pure(ll.head)
+      case "headOption" => Pure(Value.optionV(ll.headOption))
+      case "tail"       => if ll.isEmpty then interp.located("tail on empty LazyList") else lazily(ll.tail)
+      case "isEmpty"    => Computation.pureBool(ll.isEmpty)
+      case "nonEmpty"   => Computation.pureBool(ll.nonEmpty)
+      case "exists"     => args match { case List(f) => Computation.pureBool(ll.exists(x => boolOf(fn1(f)(x)))); case _ => interp.located("LazyList.exists(p)") }
+      case "forall"     => args match { case List(f) => Computation.pureBool(ll.forall(x => boolOf(fn1(f)(x)))); case _ => interp.located("LazyList.forall(p)") }
+      case "find"       => args match { case List(f) => Pure(Value.optionV(ll.find(x => boolOf(fn1(f)(x))))); case _ => interp.located("LazyList.find(p)") }
+      case "apply"      => args match { case List(Value.IntV(i)) => Pure(ll(i.toInt)); case _ => interp.located("LazyList.apply(i)") }
+      case "contains"   => args match { case List(x) => Computation.pureBool(ll.contains(x)); case _ => interp.located("LazyList.contains(x)") }
+      case "toList" | "toSeq" | "toIterable" => Pure(Value.ListV(ll.toList))
+      case "toVector" | "toIndexedSeq"       => Pure(Value.ListV(ll.toList).withKind("Vector"))
+      case "toArray"    => Pure(Value.ArrayV(ll.toArray))
+      case "force"      => ll.force; Pure(llv)
+      case _            => dispatchList(ll.toList, name, args, env, interp)   // force for the rest (finite only)
+
   /** Apply a `collect` element function, returning `null` to SKIP the element when a partial function
    *  isn't defined there (a `case`-guard that doesn't match raises a located "Match failure" rather than
    *  returning). An `Option`-returning fn handles its own skip via `None`. (interp-collect-partial.) */
