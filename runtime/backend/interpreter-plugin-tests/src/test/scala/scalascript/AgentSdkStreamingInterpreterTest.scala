@@ -16,7 +16,7 @@ import scalascript.parser.Parser
 
 class AgentSdkStreamingInterpreterTest extends AnyFunSuite with Matchers with BeforeAndAfterAll:
 
-  private val port = 19694
+  private val port = 19698
   private var server: HttpServer = scala.compiletime.uninitialized
   private val requests = ConcurrentLinkedQueue[String]()
   private val acceptHeaders = ConcurrentLinkedQueue[String]()
