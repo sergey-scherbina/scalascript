@@ -285,6 +285,12 @@ class JvmGen(
   // `_handle` returns Any, so a 0-arg collection method on such a val (`val all = handle(..); all.sum`)
   // is routed through `_anyCall0` (dynamic dispatch) instead of `all.sum` raw, which Scala 3 rejects.
   private[codegen] val handleResultVals = mutable.Set.empty[String]
+  // jvmgen-handle-result-mainpath: Any-taint propagation. Superset of `handleResultVals` that also
+  // includes vals bound (no explicit type) to an expression DERIVED from an Any-typed handle result —
+  // e.g. `val t = (r, r + 1)` makes `t` an Any-tuple, so `t._1 + t._2` must route through `_binOp`.
+  // The routing predicates (`termRefsHandleResultVal`, `termContainsHandleResultArith`) key off this
+  // set. Only ever non-empty for effect programs (seeded by `handleResultVals`), so pure code is unaffected.
+  private[codegen] val anyTypedVals = mutable.Set.empty[String]
   private def isHandleApp(t: Term): Boolean = t match
     case Term.Apply.After_4_6_0(Term.Apply.After_4_6_0(Term.Name("handle"), _), _) => true
     case _ => false
@@ -2949,11 +2955,18 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
 
     case Defn.Val(mods, pats, tpe, rhs) =>
       // Record `val x = handle(...)` so a later `x.sum`/`x.length` routes through `_anyCall0`
-      // (jvmgen-multishot-handle-result-any) — `_handle` returns Any.
-      if tpe.isEmpty && isHandleApp(rhs) then pats.foreach {
-        case Pat.Var(n) => handleResultVals += n.value
-        case _          => ()
-      }
+      // (jvmgen-multishot-handle-result-any) — `_handle` returns Any. Plus Any-taint PROPAGATION
+      // (jvmgen-handle-result-mainpath): an untyped val whose rhs is derived from an Any handle result
+      // (`val t = (r, r + 1)`) is itself Any-typed, so its accessors/uses also need `_binOp`/`_anyCall0`.
+      if tpe.isEmpty then
+        val isHandle = isHandleApp(rhs)
+        val derived  = !isHandle && termRefsHandleResultVal(rhs)
+        if isHandle || derived then pats.foreach {
+          case Pat.Var(n) =>
+            anyTypedVals += n.value
+            if isHandle then handleResultVals += n.value
+          case _ => ()
+        }
       val mod = mods.map(_.syntax).mkString(" ")
       val modStr = if mod.isEmpty then "" else mod + " "
       val patsStr = pats.map(_.syntax).mkString(", ")
@@ -3901,10 +3914,10 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
           case other                      => s"$l $other $r"
       }
     case Term.Select(qual, name)
-        if (qual match { case Term.Name(n) => handleResultVals(n); case _ => false })
-           && anyCall0Methods(name.value) =>
-      // jvmgen-multishot-handle-result-any: 0-arg collection method on an Any-typed `handle(...)`
-      // result → dynamic dispatch, since `all.sum` raw doesn't type-check on Any.
+        if termRefsHandleResultVal(qual) && anyCall0Methods(name.value) =>
+      // jvmgen-multishot-handle-result-any / -mainpath: a 0-arg collection method whose receiver is
+      // (or contains) an Any-typed `handle(...)` result — `all.sum`, `List(r, r).sum` — routes through
+      // `_anyCall0` (dynamic dispatch), since the raw `.sum` doesn't type-check on Any / List[Any].
       s"""_anyCall0(${emitExpr(qual)}, "${name.value}")"""
     case Term.Select(qual, name) =>
       s"${emitExpr(qual)}.${name.value}"

@@ -235,11 +235,11 @@ class CrossBackendPropertyTest extends AnyFunSuite:
         s"println(handle(loop($n)) {\n  case Counter.tick(resume) =>\n    val r = resume($k)\n    r\n})\n"
 
   // Effect-result × main-path COMPOSITIONS: an Any-typed `handle(...)` result used in a non-arithmetic
-  // main-path context. Found a cluster of JVM-only bugs (interp + JS ran them); these are the FIXED
-  // shapes (jvmgen-handle-result-mainpath): result fed into a `match` arm, an `if`/comparison condition,
-  // a function-call arg, plus multi-shot `.sum` arithmetic and nested handles. (Still deferred / harder:
-  // `List(r, r).sum` needs Numeric[Any]; tuple-accessor arithmetic `t._1 + t._2` needs Any propagation
-  // through a tuple-bound val — see BUGS.md jvmgen-handle-result-mainpath.)
+  // main-path context. Found a cluster of JVM-only bugs (interp + JS ran them), all fixed
+  // (jvmgen-handle-result-mainpath): result fed into a `match` arm, an `if`/comparison condition, a
+  // function-call arg, a fresh `List(r, r).sum`, and a tuple-accessor `t._1 + t._2` (the last two via
+  // Any-taint propagation: a val bound to an Any-derived expression is itself Any-typed), plus
+  // multi-shot `.sum` arithmetic and nested handles.
   test("effect-result main-path composition cross-backend"):
     assume(has("node") && has("scala-cli"), "node/scala-cli not available")
     val counter = "effect Counter:\n  def tick(): Int\n" +
@@ -250,6 +250,8 @@ class CrossBackendPropertyTest extends AnyFunSuite:
       "result-into-match" -> (counter + oneShot + "println(r match { case 0 => 100\n  case _ => r * 2 })\n"),
       "result-in-if-cmp"  -> (counter + oneShot + "println(if r > 5 then r * 10 else 0)\n"),
       "result-fn-arg"     -> (counter + oneShot + "def dbl(x: Int): Int = x * 2\nprintln(dbl(r) + 1)\n"),
+      "result-in-list-sum"-> (counter + oneShot + "println(List(r, r, r).sum)\n"),
+      "result-in-tuple"   -> (counter + oneShot + "val t = (r, r + 1)\nprintln(t._1 + t._2)\n"),
       "multishot-arith"   -> ("multi effect NonDet:\n  def choose(opts: List[Int]): Int\n" +
         "def prog(): Int ! NonDet =\n  val x = NonDet.choose(List(1, 2))\n  x\n" +
         "val all = handle(prog()) { case NonDet.choose(opts, resume) => opts.flatMap(o => resume(o)) }\n" +

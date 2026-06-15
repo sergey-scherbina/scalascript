@@ -260,16 +260,19 @@ private[codegen] trait JvmGenTermAnalysis:
     var found = false
     def walk(n: Tree): Unit =
       if !found then n match
-        case Term.Name(nm) if handleResultVals(nm) => found = true
-        case _                                     => n.children.foreach(walk)
+        case Term.Name(nm) if anyTypedVals(nm) => found = true
+        case _                                 => n.children.foreach(walk)
     walk(t)
     found
 
   private[codegen] def termContainsHandleResultArith(t: Term): Boolean =
     val arithOps = Set("+", "-", "*", "/", "%", "<", ">", "<=", ">=")
+    // An Any operand is either a direct Any-typed val (`r`) or an accessor on one
+    // (`t._1` where `t` is an Any-typed tuple val) — both need `_binOp` lowering.
     def refsHandleResultVal(x: Tree): Boolean = x match
-      case Term.Name(nm) => handleResultVals(nm)
-      case _             => false
+      case Term.Name(nm)                    => anyTypedVals(nm)
+      case Term.Select(Term.Name(nm), _)    => anyTypedVals(nm)
+      case _                                => false
     var found = false
     def walk(n: Tree): Unit =
       if !found then n match

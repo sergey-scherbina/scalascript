@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix(jvmgen): Any-taint propagation for handle-result compositions
+
+Closed the two deferred cross-backend bugs from the handle-result-mainpath cluster
+by generalizing handle-result tracking into a lightweight Any-taint analysis.
+`List(r, r).sum` (`No given Numeric[Any]`) is fixed by broadening the `emitExprDeep`
+`_anyCall0` Select routing from "qual IS a handle-result-val" to "qual REFERENCES
+one". Tuple-accessor arithmetic `val t = (r, r+1); t._1 + t._2` is fixed by adding
+`anyTypedVals` — a superset of `handleResultVals` populated by propagation: an
+untyped val whose rhs references an Any-typed val is itself Any-typed. The routing
+predicates key off `anyTypedVals`, and the arith-operand check recognizes
+`Select(anyTypedVal, _)` so `t._1 + t._2` lowers to `_binOp`. `anyTypedVals` is only
+ever non-empty for effect programs (seeded by `handleResultVals`), so pure code is
+unaffected. The composition guard test gained `result-in-list-sum` + `result-in-tuple`
+(interp == JS == JVM); 331 effect/JVM-codegen/VM tests green. Completes BUGS.md
+jvmgen-handle-result-mainpath — the property-test hunt's handle-result vein is now clean.
+
+---
+
 ## 2026-06-15 — fix(jvmgen): handle-result val in main-path contexts (match / if / fn-arg)
 
 Continued the cross-backend property-test hunt into effect-result × main-path
