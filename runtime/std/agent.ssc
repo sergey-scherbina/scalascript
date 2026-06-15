@@ -10,7 +10,11 @@ exports:
   - AgentTool
   - ExecutedOp
   - AgentResult
+  - AgentEvent
+  - AgentStreamResult
   - runAgent
+  - runAgentStream
+  - collectAgentStream
   - agentTool
   - toolOk
   - toolError
@@ -24,7 +28,7 @@ rozum. The application owns prompts, tool handlers, validation, and session
 state; the SDK only frames model calls and dispatches tool requests.
 
 ```scalascript
-[httpPost, Response](std/http.ssc)
+[httpPost, httpPostStream, Response](std/http.ssc)
 [JsonValue, jsonValue, jStr, jNum, jBool, jField, jObj, jArr](std/json.ssc)
 
 case class AgentEndpoint(baseUrl: String, authToken: String = "")
@@ -59,6 +63,47 @@ case class AgentResult(
   stop: String
 )
 
+case class AgentEvent(
+  kind: String,
+  text: String = "",
+  tool: String = "",
+  argsJson: String = "",
+  resultJson: String = "",
+  isError: Boolean = false,
+  stop: String = ""
+)
+
+case class AgentStreamResult(
+  result: AgentResult,
+  events: List[AgentEvent]
+)
+
+case class PendingToolCall(
+  index: Long,
+  id: String,
+  name: String,
+  argsJson: String
+)
+
+case class StreamStep(
+  text: String,
+  toolCalls: List[PendingToolCall],
+  finishReason: String,
+  errorText: String,
+  events: List[AgentEvent]
+)
+
+case class ToolDeltaStep(
+  toolCalls: List[PendingToolCall],
+  events: List[AgentEvent]
+)
+
+case class ToolDispatchStep(
+  messages: List[String],
+  operations: List[ExecutedOp],
+  events: List[AgentEvent]
+)
+
 def agentTool(name: String, description: String, parametersJson: String)
              (handler: String => ToolResult): AgentTool =
   AgentTool(name, description, parametersJson, handler)
@@ -80,6 +125,17 @@ def runAgent(endpoint: AgentEndpoint, model: String, system: String, user: Strin
              tools: List[AgentTool], options: RunOptions = RunOptions()): AgentResult =
   val initialMessages = List(systemMessage(system), userMessage(user))
   runAgentLoop(endpoint, model, tools, options, initialMessages, List(), 0, "")
+
+def runAgentStream(endpoint: AgentEndpoint, model: String, system: String, user: String,
+                   tools: List[AgentTool], options: RunOptions = RunOptions())
+                  (onEvent: AgentEvent => Unit): AgentResult =
+  val initialMessages = List(systemMessage(system), userMessage(user))
+  runAgentStreamLoop(endpoint, model, tools, options, initialMessages, List(), 0, "", List(), onEvent).result
+
+def collectAgentStream(endpoint: AgentEndpoint, model: String, system: String, user: String,
+                       tools: List[AgentTool], options: RunOptions = RunOptions()): AgentStreamResult =
+  runAgentStreamLoop(endpoint, model, tools, options,
+    List(systemMessage(system), userMessage(user)), List(), 0, "", List(), event => ())
 
 def runAgentLoop(endpoint: AgentEndpoint, model: String, tools: List[AgentTool],
                  options: RunOptions, messages: List[String], ops: List[ExecutedOp],
@@ -105,6 +161,60 @@ def runAgentLoop(endpoint: AgentEndpoint, model: String, tools: List[AgentTool],
         val text = message.get("content").asString
         AgentResult(text, ops, jArr(messages :+ assistantTextMessage(text)), "Done")
 
+def runAgentStreamLoop(endpoint: AgentEndpoint, model: String, tools: List[AgentTool],
+                       options: RunOptions, messages: List[String], ops: List[ExecutedOp],
+                       step: Int, lastText: String, events: List[AgentEvent],
+                       onEvent: AgentEvent => Unit): AgentStreamResult =
+  if step >= options.maxSteps then
+    val nextEvents = emitEvent(events, AgentEvent("Stopped", stop = "MaxSteps"), onEvent)
+    AgentStreamResult(AgentResult(lastText, ops, jArr(messages), "MaxSteps"), nextEvents)
+  else
+    var text = ""
+    var pending = List[PendingToolCall]()
+    var finishReason = ""
+    var streamError = ""
+    var streamEvents = events
+    try
+      val response = httpPostStream(
+        chatCompletionsUrl(endpoint),
+        requestBodyWithStream(model, messages, tools, options, true),
+        streamRequestHeaders(endpoint)
+      ) { line =>
+        val parsed = handleStreamLine(line, pending, text, finishReason, streamError, streamEvents, onEvent)
+        text = parsed.text
+        pending = parsed.toolCalls
+        streamEvents = parsed.events
+        if parsed.finishReason != "" then finishReason = parsed.finishReason
+        if parsed.errorText != "" then streamError = parsed.errorText
+      }
+      if response.status < 200 || response.status >= 300 then
+        val msg = "rozum gateway HTTP " + response.status
+        val errEvents = emitEvent(streamEvents, AgentEvent("Errored", text = msg), onEvent)
+        val doneEvents = emitEvent(errEvents, AgentEvent("Stopped", stop = "Error"), onEvent)
+        AgentStreamResult(AgentResult(msg, ops, jArr(messages), "Error"), doneEvents)
+      else if streamError != "" then
+        val doneEvents = emitEvent(streamEvents, AgentEvent("Stopped", stop = "Error"), onEvent)
+        AgentStreamResult(AgentResult(streamError, ops, jArr(messages), "Error"), doneEvents)
+      else if finishReason == "tool_calls" || pending.length > 0 then
+        val assistant = assistantPendingToolCallsMessage(pending)
+        val next = appendStreamingToolResults(pending, tools, messages :+ assistant, ops, streamEvents, onEvent)
+        val latestText = if text == "" then lastText else text
+        runAgentStreamLoop(endpoint, model, tools, options, next.messages, next.operations,
+          step + 1, latestText, next.events, onEvent)
+      else
+        val finalText = if text == "" then lastText else text
+        val doneEvents = emitEvent(streamEvents, AgentEvent("Stopped", stop = "Done"), onEvent)
+        AgentStreamResult(AgentResult(finalText, ops, jArr(messages :+ assistantTextMessage(finalText)), "Done"), doneEvents)
+    catch case e: Throwable =>
+      val msg = "rozum stream failed: " + e.getMessage
+      val errEvents = emitEvent(streamEvents, AgentEvent("Errored", text = msg), onEvent)
+      val doneEvents = emitEvent(errEvents, AgentEvent("Stopped", stop = "Error"), onEvent)
+      AgentStreamResult(AgentResult(msg, ops, jArr(messages), "Error"), doneEvents)
+
+def emitEvent(events: List[AgentEvent], event: AgentEvent, onEvent: AgentEvent => Unit): List[AgentEvent] =
+  onEvent(event)
+  events :+ event
+
 def chatCompletionsUrl(endpoint: AgentEndpoint): String =
   endpoint.baseUrl + "/v1/chat/completions"
 
@@ -114,8 +224,22 @@ def requestHeaders(endpoint: AgentEndpoint): Map[String, String] =
   else
     Map("Content-Type" -> "application/json", "Authorization" -> ("Bearer " + endpoint.authToken))
 
+def streamRequestHeaders(endpoint: AgentEndpoint): Map[String, String] =
+  if endpoint.authToken == "" then
+    Map("Content-Type" -> "application/json", "Accept" -> "text/event-stream")
+  else
+    Map(
+      "Content-Type" -> "application/json",
+      "Accept" -> "text/event-stream",
+      "Authorization" -> ("Bearer " + endpoint.authToken)
+    )
+
 def requestBody(model: String, messages: List[String], tools: List[AgentTool],
                 options: RunOptions): String =
+  requestBodyWithStream(model, messages, tools, options, false)
+
+def requestBodyWithStream(model: String, messages: List[String], tools: List[AgentTool],
+                          options: RunOptions, stream: Boolean): String =
   jObj(List(
     jField("model", jStr(model)),
     jField("messages", jArr(messages)),
@@ -123,7 +247,7 @@ def requestBody(model: String, messages: List[String], tools: List[AgentTool],
     jField("tool_choice", jStr(options.toolChoice)),
     jField("temperature", jNum(options.temperature.toString)),
     jField("max_tokens", jNum(options.maxTokens.toString)),
-    jField("stream", jBool(false))
+    jField("stream", jBool(stream))
   ))
 
 def toolRequestJson(tool: AgentTool): String =
@@ -149,6 +273,96 @@ def appendToolResults(calls: List[JsonValue], tools: List[AgentTool],
       val msg = toolResultMessage(id, result)
       val op = ExecutedOp(name, args, result.contentJson, result.isError)
       appendToolResults(rest, tools, messages :+ msg, ops :+ op)
+
+def appendStreamingToolResults(calls: List[PendingToolCall], tools: List[AgentTool],
+                               messages: List[String], ops: List[ExecutedOp],
+                               events: List[AgentEvent],
+                               onEvent: AgentEvent => Unit): ToolDispatchStep =
+  calls match
+    case Nil => ToolDispatchStep(messages, ops, events)
+    case call :: rest =>
+      val args = normalizedArgs(call.argsJson)
+      val result = dispatchTool(tools, call.name, args)
+      val nextEvents = emitEvent(events, AgentEvent("ToolCallResult", tool = call.name,
+        argsJson = args, resultJson = result.contentJson, isError = result.isError), onEvent)
+      val msg = toolResultMessage(call.id, result)
+      val op = ExecutedOp(call.name, args, result.contentJson, result.isError)
+      appendStreamingToolResults(rest, tools, messages :+ msg, ops :+ op, nextEvents, onEvent)
+
+def handleStreamLine(line: String, pending: List[PendingToolCall], text: String,
+                     finishReason: String, streamError: String,
+                     events: List[AgentEvent],
+                     onEvent: AgentEvent => Unit): StreamStep =
+  if !line.startsWith("data:") then
+    StreamStep(text, pending, finishReason, streamError, events)
+  else
+    val data = line.substring(5).trim
+    if data == "" || data == "[DONE]" then
+      StreamStep(text, pending, finishReason, streamError, events)
+    else
+      val root = jsonValue(data)
+      val errorMessage = root.get("error").get("message").asString
+      if errorMessage != "" then
+        val nextEvents = emitEvent(events, AgentEvent("Errored", text = errorMessage), onEvent)
+        StreamStep(text, pending, finishReason, errorMessage, nextEvents)
+      else
+        val choice = root.get("choices").at(0)
+        val delta = choice.get("delta")
+        val content = delta.get("content").asString
+        var nextText = text
+        var nextEvents = events
+        if content != "" then
+          nextText = text + content
+          nextEvents = emitEvent(events, AgentEvent("TextDelta", text = content), onEvent)
+        val toolStep = applyToolCallDeltas(delta.get("tool_calls").asList, pending, nextEvents, onEvent)
+        val finish = choice.get("finish_reason").asString
+        val nextFinish = if finish != "" then finish else finishReason
+        StreamStep(nextText, toolStep.toolCalls, nextFinish, streamError, toolStep.events)
+
+def applyToolCallDeltas(deltas: List[JsonValue], pending: List[PendingToolCall],
+                        events: List[AgentEvent],
+                        onEvent: AgentEvent => Unit): ToolDeltaStep =
+  deltas match
+    case Nil => ToolDeltaStep(pending, events)
+    case delta :: rest =>
+      val next = applyToolCallDelta(delta, pending, events, onEvent)
+      applyToolCallDeltas(rest, next.toolCalls, next.events, onEvent)
+
+def applyToolCallDelta(delta: JsonValue, pending: List[PendingToolCall],
+                       events: List[AgentEvent],
+                       onEvent: AgentEvent => Unit): ToolDeltaStep =
+  val index = delta.get("index").asInt
+  val existing = pendingToolCall(pending, index)
+  val fn = delta.get("function")
+  val id = delta.get("id").asString
+  val name = fn.get("name").asString
+  val argsDelta = fn.get("arguments").asString
+  val nextId = if id == "" then existing.id else id
+  val nextName = if name == "" then existing.name else name
+  val updated = PendingToolCall(index, nextId, nextName, existing.argsJson + argsDelta)
+  val startedEvents =
+    if existing.id == "" && existing.name == "" && (nextId != "" || nextName != "") then
+      emitEvent(events, AgentEvent("ToolCallStarted", tool = nextName), onEvent)
+    else
+      events
+  val deltaEvents =
+    if argsDelta != "" then
+      emitEvent(startedEvents, AgentEvent("ToolCallDelta", tool = nextName, argsJson = argsDelta), onEvent)
+    else
+      startedEvents
+  ToolDeltaStep(upsertPendingToolCall(pending, updated), deltaEvents)
+
+def pendingToolCall(calls: List[PendingToolCall], index: Long): PendingToolCall =
+  calls.find(call => call.index == index) match
+    case Some(call) => call
+    case None => PendingToolCall(index, "", "", "")
+
+def upsertPendingToolCall(calls: List[PendingToolCall], updated: PendingToolCall): List[PendingToolCall] =
+  calls match
+    case Nil => List(updated)
+    case head :: tail =>
+      if head.index == updated.index then updated :: tail
+      else head :: upsertPendingToolCall(tail, updated)
 
 def normalizedArgs(args: String): String =
   if args == "" then "{}" else args
@@ -178,6 +392,22 @@ def assistantToolCallsMessage(toolCalls: JsonValue): String =
   jObj(List(
     jField("role", jStr("assistant")),
     jField("tool_calls", toolCalls.raw)
+  ))
+
+def assistantPendingToolCallsMessage(toolCalls: List[PendingToolCall]): String =
+  jObj(List(
+    jField("role", jStr("assistant")),
+    jField("tool_calls", jArr(toolCalls.map(call => pendingToolCallJson(call))))
+  ))
+
+def pendingToolCallJson(call: PendingToolCall): String =
+  jObj(List(
+    jField("id", jStr(call.id)),
+    jField("type", jStr("function")),
+    jField("function", jObj(List(
+      jField("name", jStr(call.name)),
+      jField("arguments", jStr(normalizedArgs(call.argsJson)))
+    )))
   ))
 
 def toolResultMessage(callId: String, result: ToolResult): String =
