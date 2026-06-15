@@ -1,6 +1,0 @@
-feature/rozum-integration 2026-06-15T08:03:16Z
-agent: codex
-heartbeat: 2026-06-15T08:03:16Z
-status: in-progress
-done-so-far: SPRINT plan queued; previous claim was released by another process before implementation.
-next: Create feature worktree, read rozum integration + agent-sdk specs, then commit specs/rozum-integration.md.
