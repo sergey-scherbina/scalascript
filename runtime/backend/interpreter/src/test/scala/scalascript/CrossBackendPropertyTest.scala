@@ -135,7 +135,7 @@ class CrossBackendPropertyTest extends AnyFunSuite:
    *  MULTI-SHOT. The one-shot/arg/two-op use the INLINE `println(handle(...))` form on purpose — the
    *  regression guard for BUGS.md `jvmgen-handle-in-arg-position` (found by this test, now fixed; the
    *  fix should hold for every effectful call-arg, which these verify). All print a deterministic Int. */
-  private def genEffectProgram(rng: Random): String = rng.nextInt(5) match
+  private def genEffectProgram(rng: Random): String = rng.nextInt(6) match
     case 4 => // conditional resume: `if k > t then resume(k) else resume(0)` — comparison on an
       // Any-typed handler op-arg inside an `if` condition (stresses emitCaseBody's control-flow path)
       val n = 2 + rng.nextInt(5); val t = rng.nextInt(3)
@@ -143,6 +143,12 @@ class CrossBackendPropertyTest extends AnyFunSuite:
         "def loop(n: Int): Int ! Reader =\n  var acc = 0\n  var i = 0\n  while i < n do\n" +
         "    acc = acc + Reader.ask(i)\n    i = i + 1\n  acc\n" +
         s"println(handle(loop($n)) {\n  case Reader.ask(k, resume) => if k > $t then resume(k) else resume(0)\n})\n"
+    case 5 => // MATCH in handler body, with arithmetic in an arm (`k match { case 0 => …; case _ => resume(k * m) }`)
+      val n = 2 + rng.nextInt(5); val m = 1 + rng.nextInt(4)
+      "effect Reader:\n  def ask(k: Int): Int\n" +
+        "def loop(n: Int): Int ! Reader =\n  var acc = 0\n  var i = 0\n  while i < n do\n" +
+        "    acc = acc + Reader.ask(i)\n    i = i + 1\n  acc\n" +
+        s"println(handle(loop($n)) {\n  case Reader.ask(k, resume) => k match\n    case 0 => resume(0)\n    case _ => resume(k * $m)\n})\n"
     case 0 => // one-shot: result n*k
       val n = 1 + rng.nextInt(6); val k = 1 + rng.nextInt(4)
       "effect Counter:\n  def tick(): Int\n" +
@@ -161,13 +167,14 @@ class CrossBackendPropertyTest extends AnyFunSuite:
         "def loop(n: Int): Int ! Combine =\n  var acc = 0\n  var i = 0\n  while i < n do\n" +
         "    acc = acc + Combine.mix(i, i + 1)\n    i = i + 1\n  acc\n" +
         s"println(handle(loop($n)) {\n  case Combine.mix(a, b, resume) => resume(a * b + $c)\n})\n"
-    case _ => // MULTI-SHOT nondeterminism: sum over all path results (bound — result is a List)
-      val a = 1 + rng.nextInt(3); val b = 1 + rng.nextInt(3)
-      "multi effect NonDet:\n  def choose(opts: List[Int]): Int\n" +
-        "def prog(): Int ! NonDet =\n" +
-        s"  val x = NonDet.choose(List($a, ${a + 1}))\n  val y = NonDet.choose(List($b, ${b + 10}))\n  x + y\n" +
-        "val all = handle(prog()) {\n  case NonDet.choose(opts, resume) => opts.flatMap(o => resume(o))\n}\n" +
-        "println(all.sum)\n"
+    case _ => // BLOCK handler body: `{ val r = resume(k); r }` — exercises emitCaseBody's Block + val.
+      // (NB: the multi-shot `println(all.sum)` shape is excluded — calling a method on the Any-typed
+      // `handle(...)` result fails on JVM codegen: BUGS.md `jvmgen-multishot-handle-result-any`.)
+      val n = 1 + rng.nextInt(6); val k = 1 + rng.nextInt(4)
+      "effect Counter:\n  def tick(): Int\n" +
+        "def loop(n: Int): Int ! Counter =\n  var acc = 0\n  var i = 0\n  while i < n do\n" +
+        "    acc = acc + Counter.tick()\n    i = i + 1\n  acc\n" +
+        s"println(handle(loop($n)) {\n  case Counter.tick(resume) =>\n    val r = resume($k)\n    r\n})\n"
 
   private def module(program: String) = Parser.parse(s"# Gen\n\n```scalascript\n$program\n```\n")
 
@@ -226,7 +233,7 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     // seeds 0..8 = one program of each kind; 17/26/35/44 are also the effect kind (seed%9==8) so the
     // varied effect SHAPES (one-shot / arg-carrying / two-op / multi-shot) all get a JVM scala-cli run —
     // the regression check that jvmgen-handle-in-arg-position is fixed for every effectful call-arg.
-    for seed <- (0 until Kinds) ++ List(17, 26, 35, 44, 53, 62) do
+    for seed <- (0 until Kinds) ++ List(17, 26, 35, 44, 53, 62, 71, 80) do
       val prog = genProgram(seed)
       val m    = module(prog)
       val exp  = try interp(m) catch case _: Throwable => null

@@ -4034,5 +4034,25 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       // The condition is Any-typed here (op-args are Any, and `_binOp(">", …)` returns Any), so cast
       // to Boolean for the `if` — the comparison genuinely yields a Boolean at runtime.
       s"(if (${emitCaseBody(t.cond)}.asInstanceOf[Boolean]) ${emitCaseBody(t.thenp)} else ${emitCaseBody(t.elsep)})"
+    // ── Systemic (jvmgen-emitcasebody-systemic): recurse EVERY remaining composite term so the
+    //    `.syntax` raw fallback below only ever sees atoms (Lit / Name). A composite that fell to
+    //    `.syntax` while containing an Any-typed effectful sub-op (arithmetic / comparison / flatMap)
+    //    is exactly the recurring JVM-handler-codegen bug class — recursing transforms the sub-op. ──
+    case t: Term.Match =>
+      val arms = t.casesBlock.cases.map { c =>
+        val guard = c.cond.map(g => s" if ${emitCaseBody(g)}.asInstanceOf[Boolean]").getOrElse("")
+        s"case ${c.pat.syntax}$guard => ${emitCaseBody(c.body)}"
+      }.mkString("; ")
+      s"(${emitCaseBody(t.expr)} match { $arms })"
+    case Term.Tuple(args) =>
+      s"(${args.map(emitCaseBody).mkString(", ")})"
+    case Term.Ascribe(expr, tpe) =>
+      s"(${emitCaseBody(expr)}: ${tpe.syntax})"
+    case Term.Select(qual, name) =>
+      s"${emitCaseBody(qual)}.${name.value}"
+    // General infix beyond arithmetic/`::` (e.g. `==`, `!=` on Any — which type-check raw): recurse
+    // both operands so any nested Any-typed arithmetic inside them still lowers via `_binOp`.
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) if argClause.values.lengthCompare(1) == 0 =>
+      s"(${emitCaseBody(lhs)} ${op.value} ${emitCaseBody(argClause.values.head)})"
     case other => other.syntax
 
