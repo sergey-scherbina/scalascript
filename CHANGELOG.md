@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — feat(std): derive rozum agent tool schemas
+
+Added `AgentSchema[A] derives` and `agentToolFor[A]` to `std.agent` so tool
+inputs can be modeled as typed case classes while still emitting
+OpenAI-compatible JSON Schema parameters. Explicit `agentTool(...,
+parametersJson)` remains the authoritative fallback for custom/unsupported
+schemas. Added `examples/rozum-agent-schema-derived.ssc`, README/User Guide/spec
+docs, and `AgentSchemaDerivationInterpreterTest`. Verified with
+`sbt "backendInterpreterPluginTests/testOnly scalascript.AgentSchemaDerivationInterpreterTest scalascript.AgentSdkInterpreterTest scalascript.AgentSdkStreamingInterpreterTest scalascript.AgentEndpointPoolInterpreterTest"` (25 tests passed).
+
+---
+
 ## 2026-06-15 — fix(interp): bail fast-while to trampoline on unresolved effect in loop
 
 A deep return-clause handler over a program that performs an effect inside a

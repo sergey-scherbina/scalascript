@@ -14,13 +14,6 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Strategic-review proposals (2026-06-15) — the feature roadmap is built out; leverage has shifted from
 building features to validating/hardening/enabling what exists. Work top-to-bottom.
 
-- [ ] **rozum-agent-schema-derivation** — Derive JSON schemas for `AgentTool` handlers
-      from typed ScalaScript signatures where possible, leaving explicit schemas as the
-      fallback. HOW: spec the supported type subset (`String`, `Int`, `Double`,
-      `Boolean`, records, arrays, optionals if available) and rejection behavior for
-      unsupported types; keep hand-written schemas authoritative when provided. Done
-      when examples show both derived and explicit schemas and tests cover unsupported
-      type diagnostics.
 - [x] **rozum-integration** ✓ DONE 2026-06-15 — Added `std.agent` P0: app-owned
       OpenAI-compatible tool-call loop for stateless rozum gateways over existing
       `std.http` + `std.json`, with explicit JSON schemas, `AgentTool` handlers,
