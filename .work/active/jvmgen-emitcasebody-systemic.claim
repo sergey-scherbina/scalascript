@@ -1,0 +1,6 @@
+jvmgen-emitcasebody-systemic 2026-06-15T08:05:17Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-15T08:05:17Z
+status: in-progress
+done-so-far: found+fixed 3 JVM effect-handler-body codegen bugs (handle-in-arg, arg-arith, if-cond). All share root: emitCaseBody is an incomplete mini-emitter whose  raw fallback emits composites containing Any-typed effectful ops raw → JVM compile fails.
+next: SYSTEMIC fix — make emitCaseBody recurse all COMPOSITE Terms (Match, Tuple, Select, general ApplyInfix beyond arith/::) so  only hits atoms (Lit/Name). Then broaden the property test (more handler-body constructs: match/tuple/string-in-handler/nested) to verify the class is dead + find any remnant. Verify interp==JS==JVM + effect suites. Ship.
