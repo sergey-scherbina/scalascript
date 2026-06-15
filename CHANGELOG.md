@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — feat(std): stream rozum agent events
+
+Added `runAgentStream`, `collectAgentStream`, `AgentEvent`, and
+`AgentStreamResult` to `std.agent`. The streaming loop sends OpenAI-compatible
+`stream=true` requests with `Accept: text/event-stream`, emits ordered text,
+tool-call, tool-result, error, and stopped events, assembles chunked tool-call
+arguments, dispatches local handlers, and preserves the existing sync `runAgent`
+surface. Added `examples/rozum-agent-streaming.ssc`, README/User Guide/spec docs,
+and interpreter-plugin coverage for callbacks, collection, errors, max steps, the
+streaming example, and the P0 sync regression. Verified with
+`sbt "backendInterpreterPluginTests/testOnly scalascript.AgentSdkStreamingInterpreterTest scalascript.AgentSdkInterpreterTest"`.
+---
+
 ## 2026-06-15 — test(std): add rozum live conformance smoke
 
 Added `RozumLiveConformanceTest`, an opt-in interpreter-plugin test for

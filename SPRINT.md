@@ -14,13 +14,6 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Strategic-review proposals (2026-06-15) — the feature roadmap is built out; leverage has shifted from
 building features to validating/hardening/enabling what exists. Work top-to-bottom.
 
-- [ ] **rozum-agent-streaming** — Add P1 streaming support for rozum/OpenAI-compatible
-      chat completions. HOW: spec `AgentEvent`/`AgentStreamResult` first; build on the
-      existing `std.http` streaming/SSE surface if present (otherwise queue the missing
-      HTTP stream primitive separately); assemble text deltas and tool-call deltas in
-      `std.agent` without moving agent-session ownership into rozum. Done when a fake
-      SSE fixture covers text streaming, tool-call streaming, stream errors, and max
-      step behavior.
 - [ ] **rozum-agent-endpoint-pool** — Add optional endpoint pool + retry/failover for
       multiple rozum gateways. HOW: spec config fields and failure semantics first;
       keep the default single-endpoint API stable; retry only transport/5xx failures
