@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — feat(std): add rozum agent SDK P0
+
+Added `runtime/std/agent.ssc`, a generic app-owned agent loop for stateless
+OpenAI-compatible rozum gateways. The P0 surface includes `AgentEndpoint`,
+`RunOptions`, `AgentTool`, `ToolResult`, `ExecutedOp`, `AgentResult`, `runAgent`,
+and JSON-schema helpers; it uses existing `std.http` + `std.json` and adds no
+new intrinsic plugin. Added `examples/rozum-agent.ssc`, README/spec docs, and
+`AgentSdkInterpreterTest` covering request shape, bearer auth, direct final text,
+tool-call dispatch, unknown-tool feedback, handler validation feedback, max-step
+stop, non-2xx errors, and the self-contained example.
+---
+
 ## 2026-06-15 — feat(nfc): add native requirement contract
 
 Continued `std.nfc` by adding frontend `Capability.NfcNdef` / `NfcTagTech` / `NfcCardEmulation`, a `NativePlatformRequirements` resolver for iOS Info.plist + NFC reader-session entitlements, Android NFC permissions/features, and Web NFC permission-model requirements, plus `.scim` capability detection for NFC calls. Verified with `sbt "frontendCore/testOnly scalascript.frontend.NativePlatformRequirementsTest scalascript.frontend.FrontendFrameworksTest"` and `sbt "core/testOnly scalascript.artifact.InterfaceExtractorTest"`. Real packager consumption and hardware adapters are deferred in `BACKLOG.md` as `std-nfc-packager-adapters`.

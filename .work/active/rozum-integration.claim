@@ -1,6 +1,0 @@
-feature/rozum-integration 2026-06-15T08:07:20Z
-agent: codex
-heartbeat: 2026-06-15T08:09:26Z
-status: in-progress
-done-so-far: Spec committed on feature/rozum-integration as 8c6434c54 and pushed; docs source is rozum docs/specs/integration.md + agent-sdk.md.
-next: Implement runtime/std/agent.ssc P0, add example and fake-gateway tests, then verify.

@@ -14,7 +14,15 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Strategic-review proposals (2026-06-15) — the feature roadmap is built out; leverage has shifted from
 building features to validating/hardening/enabling what exists. Work top-to-bottom.
 
-- [ ] **rozum-integration** — Add ScalaScript integration with the adjacent Rust `rozum`
+- [x] **rozum-integration** ✓ DONE 2026-06-15 — Added `std.agent` P0: app-owned
+      OpenAI-compatible tool-call loop for stateless rozum gateways over existing
+      `std.http` + `std.json`, with explicit JSON schemas, `AgentTool` handlers,
+      transcript JSON, `MaxSteps`, non-2xx `Error`, unknown-tool and handler-validation
+      tool-error feedback. Added `examples/rozum-agent.ssc`, README links, and
+      `AgentSdkInterpreterTest` (7 cases). Verified with
+      `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/rozum-integration && sbt "backendInterpreterPluginTests/testOnly scalascript.AgentSdkInterpreterTest"`.
+      Commits: spec `08f03f18f`, implementation `fce51c2e6`, verify/docs
+      `2290e95bf`. ORIGINAL — Add ScalaScript integration with the adjacent Rust `rozum`
       app, following `../rozum/integration.md` and `../rozum/sdk.md`. HOW: read the
       rozum docs first, write and commit `specs/rozum-integration.md`, then implement
       the smallest ScalaScript surface that matches the documented SDK/integration
