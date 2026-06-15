@@ -38,10 +38,10 @@ case class NfcCapabilities(
 )
 
 sealed trait NfcPermission
-case object Granted extends NfcPermission
-case object Denied extends NfcPermission
-case object Prompt extends NfcPermission
-case object Unknown extends NfcPermission
+case object NfcPermissionGranted extends NfcPermission
+case object NfcPermissionDenied extends NfcPermission
+case object NfcPermissionPrompt extends NfcPermission
+case object NfcPermissionUnknown extends NfcPermission
 
 case class NfcScanOptions(
   prompt:          String = "Hold an NFC tag near this device",
@@ -70,7 +70,7 @@ case class NfcTag(
 sealed trait NfcError
 case object NfcNotSupported extends NfcError
 case object NfcDisabled extends NfcError
-case object NfcPermissionDenied extends NfcError
+case object NfcPermissionDeniedError extends NfcError
 case object NfcCancelled extends NfcError
 case object NfcTimeout extends NfcError
 case object NfcTagLost extends NfcError
@@ -83,14 +83,16 @@ extern def requestNfcPermission(): NfcPermission
 extern def readNdef(options: NfcScanOptions = NfcScanOptions()): NfcTag
 extern def writeNdef(message: NdefMessage, options: NfcScanOptions = NfcScanOptions()): Unit
 
-def textRecord(text: String, lang: String = "en", id: Option[String] = None): NdefRecord
-def uriRecord(uri: String, id: Option[String] = None): NdefRecord
-def mimeRecord(mediaType: String, bytes: List[Int], id: Option[String] = None): NdefRecord
+extern def textRecord(text: String, lang: String = "en", id: Option[String] = None): NdefRecord
+extern def uriRecord(uri: String, id: Option[String] = None): NdefRecord
+extern def mimeRecord(mediaType: String, bytes: List[Int], id: Option[String] = None): NdefRecord
 ```
 
 The byte representation is `List[Int]` with each element in `0..255`, matching
 existing byte-like std APIs. Helper constructors validate or normalize this
-shape before calling native intrinsics.
+shape inside the std/plugin boundary. They are declared as `extern def` in the
+MVP because portable UTF-8 byte construction is not yet available as a pure
+`.ssc` helper.
 
 ## Behavior
 
@@ -101,14 +103,16 @@ shape before calling native intrinsics.
       through the interpreter, depending on the existing intrinsic path.
 - [ ] `nfcCapabilities()` is total and returns `supported = false` on unsupported
       targets instead of throwing.
-- [ ] `nfcPermissionStatus()` is total. Web may report `Prompt`/`Unknown`; native
-      adapters map platform state to `Granted`, `Denied`, or `Unknown`.
+- [ ] `nfcPermissionStatus()` is total. Web may report
+      `NfcPermissionPrompt`/`NfcPermissionUnknown`; native adapters map platform
+      state to `NfcPermissionGranted`, `NfcPermissionDenied`, or
+      `NfcPermissionUnknown`.
 - [ ] `requestNfcPermission()` may be a no-op on platforms where permission is
       install-time/entitlement-based, but it must never expose platform objects.
 - [ ] `readNdef()` returns an `NfcTag` with zero or more NDEF records, preserving
       tag id when the platform exposes one and using `None` when it does not.
 - [ ] `writeNdef()` writes an NDEF message to a compatible writable tag or fails
-      predictably with `NfcNotSupported`, `NfcPermissionDenied`,
+      predictably with `NfcNotSupported`, `NfcPermissionDeniedError`,
       `NfcInvalidMessage`, `NfcTagLost`, or `NfcTimeout`.
 - [ ] Helper constructors produce portable NDEF records for text, URI, and MIME
       payloads without requiring platform-specific record classes.
@@ -206,6 +210,10 @@ backends can run real generated NFC code.
   hardware and the current repository has SwiftUI UI emission but no complete
   Android/Kotlin backend. Rejected: pretending full mobile NFC is implemented
   before a native adapter exists.
+- **Prefixed permission and error cases** — chosen because std modules are often
+  linked into one flat namespace today. Rejected: generic `Granted`, `Denied`,
+  `Prompt`, and `Unknown` case objects, because they collide too easily with
+  nearby std APIs and with the NFC error model.
 
 ## Out of scope
 
