@@ -693,7 +693,18 @@ private[codegen] trait JsGenCpsCodegen:
         case _ =>
           caseClassTagMap.get(typeName) match
             case Some(tag) => s"($scrutVar && $scrutVar._tag === $tag)"
-            case None      => s"($scrutVar && $scrutVar._type === '$typeName')"
+            case None      =>
+              // Supertype (sealed trait / parent enum / abstract class): an instance
+              // carries only its own leaf `_type`, so an exact `_type === 'TkNode'`
+              // check never matches a subtype. Widen to the closure of concrete
+              // descendants when known (the JS analogue of the interp/JIT supertype
+              // type-test fix); fall back to exact-name for an unknown type.
+              subtypeClosure.get(typeName) match
+                case Some(subs) if subs.nonEmpty =>
+                  val names = (subs + typeName).toList.sorted
+                  val ors   = names.map(n => s"$scrutVar._type === '$n'").mkString(" || ")
+                  s"($scrutVar && ($ors))"
+                case _ => s"($scrutVar && $scrutVar._type === '$typeName')"
       val (innerCond, bindings) = genPattern(scrutVar, inner)
       val cond =
         if typeCond == "true" then innerCond
