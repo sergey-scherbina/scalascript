@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix(js): collection dispatch gaps + match case guards
+
+A wave-4 cross-backend property probe (collection HOFs / pattern matching) found two
+JS-only bugs (interp + JVM correct). (1) `sortWith` / `sorted` / `partition` / `span`
+were missing from the JS `_dispatch` array-method table — added them (`partition`/`span`
+return a `[yes, no]` tuple, which `val (a, b) = …` already destructures). (2) JS `match`
+codegen DROPPED case guards (`case x if x < 0`): `genMatchAsStmts` and the coroutine match
+built arm conditions from the pattern only, so a guarded arm looked like a catch-all
+mid-chain and produced malformed `} else if` JS (node syntax error). Fixed all three JS
+match paths to fold the guard into the arm condition via an IIFE that scopes the pattern
+bindings (`(cond) && (() => { <binds>; return (<guard>); })()`); the switch fast-path
+naturally excludes guarded arms. Found by `CrossBackendPropertyTest`; guarded by a new
+"collection HOFs and pattern matching cross-backend" test (6 shapes, interp == JS == JVM).
+49 JS-codegen / cross-backend tests green. (Open follow-up, filed: interp-monadic-forcomp —
+a `for`-comprehension over Option/Either throws in the interpreter; JS + JVM are correct.)
+
+---
+
 ## 2026-06-15 — fix(js): supertype type-tests match subtype instances — cross-module
 
 Follow-up to the single-module fix below: the subtype closure now accumulates ACROSS the import
@@ -13,7 +31,7 @@ subtypes routinely live in a different file than the `match` (busi: `TkNode` in 
 symptom in place (the single-file test gave false confidence). `collectSubtypeEdgesFromModule`
 (descends into `package:` wrapping objects) + `recomputeSubtypeClosure` are folded in for the entry
 module and each imported module in genImport, propagated into the child gen (mirrors
-`importedParamOrder`). Guard `SupertypeTypeTestXModuleJsTest` (multi-file). 
+`importedParamOrder`). Guard `SupertypeTypeTestXModuleJsTest` (multi-file).
 
 ## 2026-06-15 — fix(js): supertype type-tests match subtype instances
 

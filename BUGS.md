@@ -53,6 +53,30 @@ commit SHA until the reporter confirms, then they can be trimmed.
   println(isTk(HeadingNode("hi")))  // interp/JVM: "tk" ; JS (buggy): "other"
   ```
 
+## jsgen-collection-dispatch-gaps — `fixed` (2026-06-15)
+
+- **Found by:** `CrossBackendPropertyTest` (wave-4 collection-HOF probes).
+- **Symptom:** `xs.sortWith((a,b) => a < b)`, `xs.sorted`, `xs.partition(p)` fail on the JS backend (node) — they were simply MISSING from the `_dispatch` runtime method table (`JsRuntimePart2b.scala`); interp + JVM correct. `val (a, b) = xs.partition(…)` then also failed for lack of `partition`.
+- **FIXED (2026-06-15):** added `sortWith` (`lt(a,b)?-1:lt(b,a)?1:0`), `sorted`, `partition` (→ `[yes, no]`), and `span` to the JS `_dispatch` array-method table. The `val (a, b) = …` tuple destructuring already works (`genPatDestructure`). Guard: `CrossBackendPropertyTest` "collection HOFs and pattern matching cross-backend".
+
+## jsgen-match-guard-bind — `fixed` (2026-06-15)
+
+- **Found by:** `CrossBackendPropertyTest` (wave-4 pattern-match probes).
+- **Symptom:** a `match` with a case GUARD (`case x if x < 0 => …`) fails on the JS backend (node syntax error); interp + JVM correct. `genMatchAsStmts` and the coroutine `genGenStmt` match dropped `c.cond` entirely, so a guarded `case x if …` got pattern-cond `"true"` and was treated as a catch-all mid-chain → malformed `{ … } else if (…)` JS. (`genReceiveMatcher` ANDed the guard but evaluated it with the pattern bindings out of scope.)
+- **FIXED (2026-06-15):** all three JS match paths now fold the guard into the arm condition via an IIFE that scopes the pattern bindings: `(cond) && (() => { <bindings>; return (<guard>); })()`. Guarded arms are no longer mistaken for catch-alls (the switch fast-path also excludes them since the cond is no longer `"true"`). Guard: `CrossBackendPropertyTest` "collection HOFs and pattern matching cross-backend" (match-guard-bind shape).
+
+## interp-monadic-forcomp — `open`
+
+- **Found by:** `CrossBackendPropertyTest` (wave-4 comprehension probes).
+- **Symptom:** a `for`-comprehension over `Option` / `Either` (non-`List` monad) throws **in the interpreter**; JS + JVM are correct.
+  - `for x <- Some(3); y <- Some(4) yield x + y` → interp `No method 'getOrElse' on List` (interp desugars the Option for-comp as a List op → result is a `List`, not an `Option`).
+  - `for x <- Right(3); y <- Right(4) yield x * y` → interp `Cannot iterate over Right(3)`.
+- **Note:** JS + JVM produce the correct `Some(7)` / `Right(12)`. The interp for-comprehension desugar only generalises to `List`-shaped iterables; it needs to dispatch `map`/`flatMap`/`withFilter` on the generator's actual type (Option/Either) like the codegen backends do. NOT YET FIXED (interp `PatternRuntime.evalForYield` change).
+
+## xbackend-wave4-jvm-transient — `wontfix` (2026-06-15, not reproduced)
+
+- Two wave-4 shapes (`xs.zip(ys).map((a,b)=>a+b).sum`, `(1,(2,3)) match { case (a,(b,c)) => … }`) reported a JVM `scala-cli failed` ONCE, but did NOT reproduce on a clean re-run (interp == JS == JVM all green). The original failure coincided with two contending `sbt`/`scala-cli` processes corrupting temp compiles. Kept as cross-backend guards in "collection HOFs and pattern matching cross-backend"; no code change.
+
 ## jvmgen-js-curried-partial — `fixed` (2026-06-15)
 
 - **Found by:** `CrossBackendPropertyTest` (main-path edge-case probes).

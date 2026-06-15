@@ -145,7 +145,12 @@ function _dispatch(obj, method, args) {
         if (args.length === 1) return obj.map(_show).join(args[0]);
         return args[0] + obj.map(_show).join(args[1]) + args[2];
       case 'sortBy': return [...obj].sort((a,b) => { const fa=args[0](a),fb=args[0](b); return fa<fb?-1:fa>fb?1:0; });
+      // sortWith(lt): `lt(a,b)` is true when a should precede b. sorted: natural order.
+      case 'sortWith': return [...obj].sort((a,b) => args[0](a,b) ? -1 : (args[0](b,a) ? 1 : 0));
+      case 'sorted': return [...obj].sort((a,b) => a<b?-1:a>b?1:0);
       case 'groupBy': { const m=new Map(); obj.forEach(x=>{const k=args[0](x);if(!m.has(k))m.set(k,[]);m.get(k).push(x);}); return m; }
+      case 'partition': { const yes=[],no=[]; obj.forEach(x=>(args[0](x)?yes:no).push(x)); return [yes, no]; }
+      case 'span': { let i=0; while(i<obj.length&&args[0](obj[i]))i++; return [obj.slice(0,i), obj.slice(i)]; }
       case 'reduceLeft': return obj.reduce(args[0]);
       case 'foldLeft':  return (f) => _seqFoldLeft(obj, args[0], f);
       case 'foldRight': return (f) => _seqFoldLeft([...obj].reverse(), args[0], (acc, x) => f(x, acc));

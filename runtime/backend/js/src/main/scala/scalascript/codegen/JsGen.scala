@@ -2817,7 +2817,14 @@ class JsGen(
       val scrutVar = freshTmp()
       val scrutExpr = genGenExpr(t.expr)
       val casesJs = t.casesBlock.cases.map { c =>
-        val (cond, bindings) = genPattern(scrutVar, c.pat)
+        val (cond0, bindings) = genPattern(scrutVar, c.pat)
+        // jsgen-match-guard-bind: fold the case guard into the condition (bindings scoped in an IIFE).
+        val cond = c.cond match
+          case Some(g) =>
+            val binds = bindings.map { case (n, e) => s"const $n = $e;" }.mkString(" ")
+            val guardIife = s"(() => { $binds return (${genExpr(g)}); })()"
+            if cond0 == "true" then guardIife else s"($cond0) && $guardIife"
+          case None => cond0
         val bindingJs = if bindings.isEmpty then ""
           else bindings.map { case (n, e) => s"    const $n = $e;" }.mkString("\n") + "\n"
         val bodyJs = genGenStmt(c.body)
@@ -2855,7 +2862,16 @@ class JsGen(
     val scrutVar = freshTmp()
     line(s"const $scrutVar = ${genExpr(t.expr)};")
     val arms = t.casesBlock.cases.map { c =>
-      val (cond, bindings) = genPattern(scrutVar, c.pat)
+      val (cond0, bindings) = genPattern(scrutVar, c.pat)
+      // jsgen-match-guard-bind: fold a case GUARD (`case x if x < 0`) into the arm condition. The
+      // guard references the pattern bindings, so scope them in an IIFE. Without this the guard was
+      // dropped → a guarded `case x if …` looked like a catch-all mid-chain → malformed `} else if`.
+      val cond = c.cond match
+        case Some(g) =>
+          val binds = bindings.map { case (n, e) => s"const $n = $e;" }.mkString(" ")
+          val guardIife = s"(() => { $binds return (${genExpr(g)}); })()"
+          if cond0 == "true" then guardIife else s"($cond0) && $guardIife"
+        case None => cond0
       (cond, bindings, c.body.asInstanceOf[Term])
     }
     // If all non-wildcard arms are pure integer-tag checks, emit a switch for O(1) dispatch.
@@ -3068,8 +3084,10 @@ class JsGen(
       val bodyCps   = genCpsExpr(c.body)
       val condFinal = c.cond match
         case Some(g) =>
-          val guardJs = genExpr(g)
-          if cond == "true" then s"($guardJs)" else s"($cond) && ($guardJs)"
+          // The guard references the pattern bindings — scope them in an IIFE (they aren't yet
+          // declared at the `if` condition). (jsgen-match-guard-bind.)
+          val guardIife = s"(() => { $bindStmts return (${genExpr(g)}); })()"
+          if cond == "true" then guardIife else s"($cond) && $guardIife"
         case None => if cond == "true" then "true" else s"($cond)"
       s"if ($condFinal) { $bindStmts return { matched: true, body: () => $bodyCps }; }"
     }.mkString(" ")

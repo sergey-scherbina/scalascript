@@ -340,6 +340,26 @@ class CrossBackendPropertyTest extends AnyFunSuite:
       assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
       assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
 
+  // Collection HOFs + pattern-matching edge cases. JS was missing `sortWith`/`sorted`/`partition`/`span`
+  // in `_dispatch`, and dropped `match` case GUARDS (`case x if x < 0`) — a guarded arm looked like a
+  // catch-all mid-chain and produced malformed `} else if` JS. (jsgen-collection-dispatch-gaps,
+  // jsgen-match-guard-bind.) The JVM/interp baselines already handled all of these.
+  test("collection HOFs and pattern matching cross-backend"):
+    assume(has("node") && has("scala-cli"), "node/scala-cli not available")
+    val shapes = Seq(
+      "zip-map-untuple"  -> "val xs = List(1, 2, 3)\nval ys = List(10, 20, 30)\nprintln(xs.zip(ys).map((a, b) => a + b).sum)\n",
+      "partition-destr"  -> "val xs = List(1, 2, 3, 4, 5, 6)\nval (evens, odds) = xs.partition(x => x % 2 == 0)\nprintln(evens.sum * 100 + odds.sum)\n",
+      "nested-tuple-pat" -> "val p = (1, (2, 3))\nval r = p match\n  case (a, (b, c)) => a + b * c\nprintln(r)\n",
+      "match-guard-bind" -> "def cls(n: Int): String =\n  n match\n    case x if x < 0 => \"neg\"\n    case 0 => \"zero\"\n    case x if x > 100 => \"big\"\n    case _ => \"small\"\nprintln(cls(-5) + cls(0) + cls(200) + cls(7))\n",
+      "sortWith"         -> "val xs = List(3, 1, 4, 1, 5, 9, 2, 6)\nprintln(xs.sortWith((a, b) => a < b).take(3).sum)\n",
+      "sorted"           -> "val xs = List(3, 1, 2)\nprintln(xs.sorted.head + xs.sorted.last)\n",
+    )
+    for (label, prog) <- shapes do
+      val m   = module(prog)
+      val exp = interp(m)
+      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
+      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+
   private def module(program: String) = Parser.parse(s"# Gen\n\n```scalascript\n$program\n```\n")
 
   private def interp(m: scalascript.ast.Module): String =
