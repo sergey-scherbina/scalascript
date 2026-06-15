@@ -1,6 +1,0 @@
-feature/rozum-integration 2026-06-15T08:00:12Z
-agent: codex
-heartbeat: 2026-06-15T08:01:28Z
-status: in-progress
-done-so-far: SPRINT plan queued; feature worktree created at .worktrees/feature/rozum-integration.
-next: Read specs/jit-completeness.md, SPEC.md, ../rozum/integration.md, and ../rozum/sdk.md; then commit specs/rozum-integration.md.
