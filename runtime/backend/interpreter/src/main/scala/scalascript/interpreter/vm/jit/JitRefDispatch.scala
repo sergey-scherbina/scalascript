@@ -30,12 +30,32 @@ object JitRefDispatch:
 
   def sizeLong(recv: AnyRef): Long = recv match
     case Value.ListV(items)    => items.length.toLong
+    case v: Value.VectorV      => v.items.length.toLong
+    case a: Value.ArrayV       => a.items.length.toLong
     case Value.MapV(entries)   => entries.size.toLong
     case Value.SetV(items)     => items.size.toLong
     case Value.TupleV(elems)   => elems.length.toLong
     case Value.StringV(value)  => value.length.toLong
     case other =>
       throw new ClassCastException(s"sizeLong unsupported receiver: ${other.getClass.getName}")
+
+  /** `seq(i)` indexed read → the element's Long. `VectorV`/`ArrayV` are O(1); `ListV` is O(i) but
+   *  correct. Out-of-range or a non-numeric element / non-seq receiver throws → the JIT entry catches
+   *  and the loop falls back to tree-walk. (jit-collection-ops.) */
+  def seqIndexLong(recv: AnyRef, idx: Long): Long = recv match
+    case v: Value.VectorV   => longValue(v.items(idx.toInt))
+    case Value.ListV(items) => longValue(items(idx.toInt))
+    case a: Value.ArrayV    => longValue(a.items(idx.toInt))
+    case other =>
+      throw new ClassCastException(s"seqIndexLong unsupported receiver: ${other.getClass.getName}")
+
+  /** `seq(i)` indexed read → the element as a ref `Value` (for non-numeric elements). */
+  def seqIndexRef(recv: AnyRef, idx: Long): Object = recv match
+    case v: Value.VectorV   => v.items(idx.toInt).asInstanceOf[Object]
+    case Value.ListV(items) => items(idx.toInt).asInstanceOf[Object]
+    case a: Value.ArrayV    => a.items(idx.toInt).asInstanceOf[Object]
+    case other =>
+      throw new ClassCastException(s"seqIndexRef unsupported receiver: ${other.getClass.getName}")
 
   def headLong(recv: AnyRef): Long = recv match
     case Value.ListV(head :: _)  => longValue(head)

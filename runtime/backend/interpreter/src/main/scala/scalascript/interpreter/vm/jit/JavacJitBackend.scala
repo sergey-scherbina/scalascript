@@ -1039,12 +1039,29 @@ object JavacJitBackend extends JitBackend:
         // Stage 9: inline a val-bound lambda call site (no FunV runtime alloc).
         case fn: Term.Name if ctx.lambdas.contains(fn.value) =>
           inlineLambdaLong(fn.value, ap.argClause.values, ctx)
+        // jit-collection-ops: `seq(idx)` indexed read on a seq-typed global (Vector/List/Array) →
+        // O(1) JitRefDispatch.seqIndexLong. Discriminated from a function call by the global's runtime
+        // type (the loop is compiled only after it is hot, so the seq is already constructed).
+        case fn: Term.Name if ap.argClause.values.lengthCompare(1) == 0 && isSeqRefName(fn.value, ctx) =>
+          val ref = walkRef(fn, ctx)
+          val idx = walkLong(ap.argClause.values.head, ctx)
+          if ref == null || idx == null then null
+          else s"scalascript.interpreter.vm.jit.JitRefDispatch$$.MODULE$$.seqIndexLong((Object) ($ref), $idx)"
         case fn: Term.Name => emitLongCall(fn.value, ap.argClause.values, ctx)
         case _ => null
     case Term.ApplyUnary(op, arg) if op.value == "-" || op.value == "+" =>
       val a = walkLong(arg, ctx); if a == null then return null
       s"(${op.value}$a)"
     case _ => null
+
+  /** Is `n` a name that currently refers to an indexable sequence GLOBAL (`Vector`/`List`/`Array`)?
+   *  Used to discriminate `seq(idx)` indexing from a function call. Restricted to globals (whose
+   *  runtime type is known at JIT-compile time); ref-locals are deferred to slice 2. A `FunV` global
+   *  (a function) correctly fails this test. (jit-collection-ops.) */
+  private def isSeqRefName(n: String, ctx: GenCtx): Boolean =
+    !ctx.isRefName(n) && (ctx.interp.globals.get(n) match
+      case Some(_: Value.VectorV) | Some(_: Value.ListV) | Some(_: Value.ArrayV) => true
+      case _ => false)
 
   private def emitRefChainLong(recv: Term, method: String, args: List[Term], ctx: GenCtx): String | Null =
     val refExpr = walkRef(recv, ctx)
@@ -1577,7 +1594,7 @@ object JavacJitBackend extends JitBackend:
     case tn: Term.Name if ctx.isRefName(tn.value) => ctx.resolveLocal(tn.value)
     case tn: Term.Name =>
       ctx.interp.globals.getOrElse(tn.value, null) match
-        case _: Value.ListV | _: Value.OptionV | _: Value.InstanceV | _: Value.MapV | _: Value.StringV =>
+        case _: Value.ListV | _: Value.VectorV | _: Value.ArrayV | _: Value.OptionV | _: Value.InstanceV | _: Value.MapV | _: Value.StringV =>
           s"""scalascript.interpreter.vm.jit.JitGlobals$$.MODULE$$.readGlobalRef("${escape(tn.value)}")"""
         case _ => null
     // Direction A.1: 1-stmt block unwrap parallel to walkLong.

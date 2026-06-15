@@ -1082,6 +1082,9 @@ object AsmJitBackend extends JitBackend:
         // Stage 9 lambda-value-solo: inline a val-bound lambda call site.
         case fn: Term.Name if ctx.lambdas.contains(fn.value) =>
           inlineLambdaLong(fn.value, ap.argClause.values, ctx, mv)
+        // jit-collection-ops: `seq(idx)` JIT is on the default JavacJitBackend only for now; the ASM
+        // backend tracks top-level-val globals differently and bails here (correct, tree-walked) — a
+        // documented follow-up (specs/jit-collection-ops.md).
         case fn: Term.Name =>
           emitLongCall(fn.value, ap.argClause.values, ctx, mv)
         case _ => false
@@ -2369,7 +2372,7 @@ object AsmJitBackend extends JitBackend:
       val s = ctx.slotOf(tn.value); if s < 0 then false else { mv.visitVarInsn(ALOAD, s); true }
     case tn: Term.Name =>
       ctx.interp.globals.getOrElse(tn.value, null) match
-        case _: Value.ListV | _: Value.OptionV | _: Value.InstanceV | _: Value.MapV | _: Value.StringV =>
+        case _: Value.ListV | _: Value.VectorV | _: Value.ArrayV | _: Value.OptionV | _: Value.InstanceV | _: Value.MapV | _: Value.StringV =>
           emitGlobalRef(tn.value, mv)
           true
         case _ => false
