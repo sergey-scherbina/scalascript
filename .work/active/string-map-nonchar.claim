@@ -1,0 +1,6 @@
+string-map-nonchar 2026-06-15T14:45:52Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-15T14:45:52Z
+status: in-progress
+done-so-far: ~28 cross-backend bugs fixed.
+next: fix interp-js-string-map-nonchar — String.map(f) returns String only when f yields Char, else Seq. interp dispatchString.map + JS string map. Then resume hunting.
