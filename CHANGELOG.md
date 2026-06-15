@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — feat: real `VectorV` — distinct indexed type with O(1) access
+
+Follow-up to the collection-real-type work: a List-backed `Vector` indexes in O(n), which isn't
+"really using" Vector (its whole point is fast indexed access). `Vector`/`IndexedSeq` are now a
+distinct `Value.VectorV` backed by a real Scala `Vector[Value]`, so `vec(i)` / `.updated` are
+O(log₃₂ n). This also **replaces the `collKind` display-tag hack** (List/Seq/Iterable = `ListV`
+displaying `List`; Vector/IndexedSeq = `VectorV` displaying `Vector`) — a net simplification.
+`Vector == List` stays `true` (cross-`Seq` equality) via the `==` dispatch path, so `ListV.equals`
+is untouched (no blast radius on the hottest value type). `toVector`/`toIndexedSeq` → `VectorV`
+everywhere; `toArray` → `ArrayV`. PatternRuntime iterates `VectorV`/`ArrayV` in for-comprehensions
+and matches their type-tests. Verified output-for-output vs real Scala; full interp suite
+1816/1816; interp==JS 74 programs; cross-backend collection guards green.
+`CollectionRealTypeTest` +8 Vector cases. (collection-vector-indexed.)
+
 ## 2026-06-15 — feat: interpreter uses REAL Scala collection semantics (Array mutable, LazyList lazy)
 
 Follow-up to the constructors above: the user asked that the interpreter not just *display* the

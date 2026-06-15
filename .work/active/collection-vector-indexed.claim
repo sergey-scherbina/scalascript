@@ -1,6 +1,0 @@
-collection-vector-indexed 2026-06-15T19:00:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-15T19:00:00Z
-status: in-progress
-done-so-far: collection-real-type shipped (ArrayV/LazyListV). User asked why List==Vector in interp + index access. List-backed Vector indexes O(n), not O(1).
-next: add real Value.VectorV(Vector[Value]) for O(1) indexed access; remove the collKind display tag (List/Seq/Iterable=ListV "List"; Vector/IndexedSeq=VectorV); Vector==List via == dispatch cross-equality (no ListV.equals change); PatternRuntime evalCollection+type-test; toVector/toIndexedSeq->VectorV, toArray->ArrayV. Verify vs JVM + full suite.
