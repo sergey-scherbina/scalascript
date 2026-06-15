@@ -1,6 +1,6 @@
 feature/std-nfc 2026-06-15T07:26:10Z
 agent: codex
-heartbeat: 2026-06-15T07:26:10Z
-status: not-started
-done-so-far:
-next: create feature worktree, queue SPRINT entry, write and commit specs/std-nfc.md before implementation
+heartbeat: 2026-06-15T07:26:33Z
+status: in-progress
+done-so-far: worktree created at .worktrees/feature/std-nfc
+next: queue SPRINT entry and write committed specs/std-nfc.md before implementation
