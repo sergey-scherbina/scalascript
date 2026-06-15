@@ -25,6 +25,11 @@ chokepoint all dispatch paths funnel through. The full-arity hot path stays allo
 suite (127 fixtures) byte-identical vs baseline; 152 interpreter+content+TCO tests green.
 ---
 
+## 2026-06-15 — fix(jvmgen): lower an `if` in an effect-handler body (Any-typed condition)
+
+Third JVM codegen bug found by CrossBackendPropertyTest (control-flow case): a handler `case Reader.ask(k, resume) => if k > 2 then resume(k) else resume(0)` failed scala-cli because `emitCaseBody` had no `Term.If` case -> `k > 2` emitted raw on `Any`. Fix: added a `Term.If` case that recurses (lowers `k > 2` to `_binOp`) and casts the condition to `Boolean`. Property test gained a conditional-resume effect shape; 96 tests green. THREE real JVM codegen bugs found + fixed this session via the generated cross-backend differential -- all in the effect-handler emitter (emitCaseBody / emitExpr).
+---
+
 ## 2026-06-15 — fix(jvmgen): lower arithmetic on Any-typed effect-handler op-args
 
 Second JVM codegen bug found by `CrossBackendPropertyTest` (jvmgen-effect-handler-arg-arith): a handler

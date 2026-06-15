@@ -29,6 +29,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `_binOp("op", l, r)` runtime helper (same as `emitExpr` for Any operands; mirrors the existing
   `::` Any-cast case). Guard: `CrossBackendPropertyTest` effect shapes (arg-carrying / two-op) run
   through scala-cli. 101 effect+jvmgen tests green.
+- **ALSO FIXED (78d1ce178) — control-flow case:** an `if` in a handler body with a comparison on Any-typed op-args (`if k > 2 then resume(k) else resume(0)`) — `emitCaseBody` had no `Term.If` case so `k > 2` emitted raw. Added a `Term.If` case that recurses (lowers `k > 2` to `_binOp`) + casts the condition to `Boolean`. Property test gained a conditional-resume effect shape (run through scala-cli).
 
 ---
 
