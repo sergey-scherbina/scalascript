@@ -135,7 +135,17 @@ class CrossBackendPropertyTest extends AnyFunSuite:
    *  MULTI-SHOT. The one-shot/arg/two-op use the INLINE `println(handle(...))` form on purpose — the
    *  regression guard for BUGS.md `jvmgen-handle-in-arg-position` (found by this test, now fixed; the
    *  fix should hold for every effectful call-arg, which these verify). All print a deterministic Int. */
-  private def genEffectProgram(rng: Random): String = rng.nextInt(6) match
+  private def genEffectProgram(rng: Random): String = rng.nextInt(7) match
+    case 6 => // MULTI-SHOT nondeterminism: `val all = handle(prog()){…}; println(all.sum)` — regression
+      // guard for jvmgen-multishot-handle-result-any (a 0-arg collection method on the Any-typed
+      // `handle(...)` result now routes through `_anyCall0`). Result = sum over all path values.
+      val a = 1 + rng.nextInt(3); val b = 1 + rng.nextInt(3)
+      val agg = Vector("sum", "max", "min", "length")(rng.nextInt(4))
+      "multi effect NonDet:\n  def choose(opts: List[Int]): Int\n" +
+        "def prog(): Int ! NonDet =\n" +
+        s"  val x = NonDet.choose(List($a, ${a + 1}))\n  val y = NonDet.choose(List($b, ${b + 5}))\n  x + y\n" +
+        "val all = handle(prog()) {\n  case NonDet.choose(opts, resume) => opts.flatMap(o => resume(o))\n}\n" +
+        s"println(all.$agg)\n"
     case 4 => // conditional resume: `if k > t then resume(k) else resume(0)` — comparison on an
       // Any-typed handler op-arg inside an `if` condition (stresses emitCaseBody's control-flow path)
       val n = 2 + rng.nextInt(5); val t = rng.nextInt(3)
@@ -168,8 +178,6 @@ class CrossBackendPropertyTest extends AnyFunSuite:
         "    acc = acc + Combine.mix(i, i + 1)\n    i = i + 1\n  acc\n" +
         s"println(handle(loop($n)) {\n  case Combine.mix(a, b, resume) => resume(a * b + $c)\n})\n"
     case _ => // BLOCK handler body: `{ val r = resume(k); r }` — exercises emitCaseBody's Block + val.
-      // (NB: the multi-shot `println(all.sum)` shape is excluded — calling a method on the Any-typed
-      // `handle(...)` result fails on JVM codegen: BUGS.md `jvmgen-multishot-handle-result-any`.)
       val n = 1 + rng.nextInt(6); val k = 1 + rng.nextInt(4)
       "effect Counter:\n  def tick(): Int\n" +
         "def loop(n: Int): Int ! Counter =\n  var acc = 0\n  var i = 0\n  while i < n do\n" +
@@ -233,7 +241,7 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     // seeds 0..8 = one program of each kind; 17/26/35/44 are also the effect kind (seed%9==8) so the
     // varied effect SHAPES (one-shot / arg-carrying / two-op / multi-shot) all get a JVM scala-cli run —
     // the regression check that jvmgen-handle-in-arg-position is fixed for every effectful call-arg.
-    for seed <- (0 until Kinds) ++ List(17, 26, 35, 44, 53, 62, 71, 80) do
+    for seed <- (0 until Kinds) ++ List(17, 26, 35, 44, 53, 62, 71, 80, 89, 98, 107) do
       val prog = genProgram(seed)
       val m    = module(prog)
       val exp  = try interp(m) catch case _: Throwable => null

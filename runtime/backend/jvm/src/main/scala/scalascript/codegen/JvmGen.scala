@@ -270,6 +270,16 @@ class JvmGen(
   // the concrete cases).
   private[codegen] val depTypeNames = mutable.Map.empty[String, List[String]]
   private[codegen] val declaredVarTypes = mutable.Map.empty[String, String]
+  // jvmgen-multishot-handle-result-any: names of vals bound directly to a `handle(...)` expression.
+  // `_handle` returns Any, so a 0-arg collection method on such a val (`val all = handle(..); all.sum`)
+  // is routed through `_anyCall0` (dynamic dispatch) instead of `all.sum` raw, which Scala 3 rejects.
+  private[codegen] val handleResultVals = mutable.Set.empty[String]
+  private def isHandleApp(t: Term): Boolean = t match
+    case Term.Apply.After_4_6_0(Term.Apply.After_4_6_0(Term.Name("handle"), _), _) => true
+    case _ => false
+  private[codegen] val anyCall0Methods = Set(
+    "sum", "product", "length", "size", "head", "last", "min", "max",
+    "isEmpty", "nonEmpty", "toList", "reverse", "distinct")
 
   // Test hooks — Step 2 unit tests populate `depDefs` via
   // `seedDepDefsForTest` (which mirrors what `inlineImport` does
@@ -2913,6 +2923,12 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       s"${modStr}val $patsStr$tpeStr = ${emitExpr(rhs)}.runtimeChecked"
 
     case Defn.Val(mods, pats, tpe, rhs) =>
+      // Record `val x = handle(...)` so a later `x.sum`/`x.length` routes through `_anyCall0`
+      // (jvmgen-multishot-handle-result-any) — `_handle` returns Any.
+      if tpe.isEmpty && isHandleApp(rhs) then pats.foreach {
+        case Pat.Var(n) => handleResultVals += n.value
+        case _          => ()
+      }
       val mod = mods.map(_.syntax).mkString(" ")
       val modStr = if mod.isEmpty then "" else mod + " "
       val patsStr = pats.map(_.syntax).mkString(", ")
@@ -3841,6 +3857,12 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
                "<" | ">" | "<=" | ">="    => s"""_binOp("${op.value}", $l, $r)"""
           case other                      => s"$l $other $r"
       }
+    case Term.Select(qual, name)
+        if (qual match { case Term.Name(n) => handleResultVals(n); case _ => false })
+           && anyCall0Methods(name.value) =>
+      // jvmgen-multishot-handle-result-any: 0-arg collection method on an Any-typed `handle(...)`
+      // result → dynamic dispatch, since `all.sum` raw doesn't type-check on Any.
+      s"""_anyCall0(${emitExpr(qual)}, "${name.value}")"""
     case Term.Select(qual, name) =>
       s"${emitExpr(qual)}.${name.value}"
     case other => other.syntax

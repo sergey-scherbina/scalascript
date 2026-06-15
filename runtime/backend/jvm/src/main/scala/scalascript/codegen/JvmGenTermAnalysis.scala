@@ -246,7 +246,20 @@ private[codegen] trait JvmGenTermAnalysis:
    *  Focus → Lens expansion, Prism[O, V] → Prism literal) rather than
    *  verbatim Scala source emission. */
   private[codegen] def termNeedsCustomEmit(t: Term): Boolean =
-    termUsesEffects(t) || termContainsEffectExpr(t) || termContainsFocus(t) || termContainsPrism(t) || termContainsIntrinsic(t) || termContainsDirectBlock(t) || termContainsRegisteredInterpolator(t) || termContainsNamedArgAscription(t) || termContainsBareNameBlockCall(t)
+    termUsesEffects(t) || termContainsEffectExpr(t) || termContainsHandleResultCall(t) || termContainsFocus(t) || termContainsPrism(t) || termContainsIntrinsic(t) || termContainsDirectBlock(t) || termContainsRegisteredInterpolator(t) || termContainsNamedArgAscription(t) || termContainsBareNameBlockCall(t)
+
+  /** jvmgen-multishot-handle-result-any: true when `t` contains a 0-arg collection method on a val
+   *  bound to `handle(...)` (e.g. `all.sum` for `val all = handle(..)`). Such a term must route through
+   *  `emitExprDeep` so the `Term.Select` case lowers it to `_anyCall0` — otherwise `emitExpr`'s `.syntax`
+   *  fallback emits `all.sum` raw, which Scala 3 rejects on the Any-typed `_handle` result. */
+  private[codegen] def termContainsHandleResultCall(t: Term): Boolean =
+    var found = false
+    def walk(n: Tree): Unit =
+      if !found then n match
+        case Term.Select(Term.Name(nm), m) if handleResultVals(nm) && anyCall0Methods(m.value) => found = true
+        case _ => n.children.foreach(walk)
+    walk(t)
+    found
 
   /** True when an effectful expression (`handle`/`runAsync`/effect-op/effectful-fun call …) appears
    *  ANYWHERE inside `t`, including nested in a call argument (e.g. `println(handle(...))`).

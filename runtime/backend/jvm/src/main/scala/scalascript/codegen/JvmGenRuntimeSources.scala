@@ -351,6 +351,29 @@ private[codegen] trait JvmGenRuntimeSources:
        |    }
        |  case _ => xs
        |
+       |// jvmgen-multishot-handle-result-any: a 0-arg collection method called on an Any-typed value
+       |// (typically the result of `handle(...)`, which `_handle` returns as Any — e.g. a multi-shot
+       |// `val all = handle(..); all.sum`). Dispatches dynamically on the runtime type; numeric folds go
+       |// through `_binOp` so Int/Long/Double elements all work without a static Numeric instance.
+       |def _anyCall0(recv: Any, m: String): Any = recv match
+       |  case ys: scala.collection.Iterable[_] =>
+       |    val it = ys.asInstanceOf[Iterable[Any]]
+       |    m match
+       |      case "sum"             => it.foldLeft(0: Any)((a, x) => _binOp("+", a, x))
+       |      case "product"         => it.foldLeft(1: Any)((a, x) => _binOp("*", a, x))
+       |      case "length" | "size" => it.size
+       |      case "head"            => it.head
+       |      case "last"            => it.last
+       |      case "min"             => it.reduce((a, x) => if _binOp("<", a, x).asInstanceOf[Boolean] then a else x)
+       |      case "max"             => it.reduce((a, x) => if _binOp(">", a, x).asInstanceOf[Boolean] then a else x)
+       |      case "isEmpty"         => it.isEmpty
+       |      case "nonEmpty"        => it.nonEmpty
+       |      case "toList"          => it.toList
+       |      case "reverse"         => it.toList.reverse
+       |      case "distinct"        => it.toList.distinct
+       |      case _                 => recv
+       |  case _ => recv
+       |
        |// ── Exact numerics (v1.64): BigInt / Decimal ───────────────────────────
        |// `Decimal`/`RoundingMode` are ScalaScript names; alias them to the native
        |// Scala types so emitted `Decimal("1.5")`, `Decimal(123, 2)`, `val x: Decimal`,
