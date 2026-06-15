@@ -1317,6 +1317,42 @@ val location: ReactiveSignal[Option[Position]] = LocationSignal(GeoOptions(enabl
 
 `LocationSignal` calls `watchPosition` under the hood and sets the signal on each callback. The signal holds `None` until the first fix arrives. Cancels automatically on component unmount.
 
+### 15.5 NFC — `std/nfc.ssc`
+
+```
+nfcCapabilities(): NfcCapabilities
+nfcPermissionStatus(): NfcPermission
+requestNfcPermission(): NfcPermission
+readNdef(options: NfcScanOptions = NfcScanOptions()): NfcTag
+writeNdef(message: NdefMessage, options: NfcScanOptions = NfcScanOptions()): Unit
+```
+
+`std.nfc` is a platform capability, not a UI primitive. Regular `.ssc` code
+must call the portable API and must not import Android `android.nfc.*`, Apple
+Core NFC, or browser `NDEFReader` objects directly. MVP support is NDEF
+read/write/status (`Feature.NfcNdef`). Raw tag protocols and card emulation are
+separate gated capabilities (`Feature.NfcTagTech`, `Feature.NfcCardEmulation`)
+because platform support and entitlement requirements differ.
+
+**Permissions auto-injected on native targets only:**
+
+| Platform | Injected declaration |
+|----------|---------------------|
+| iOS | `NFCReaderUsageDescription` in `Info.plist` + NFC Tag Reading entitlement/capability |
+| Android | `android.permission.NFC` + `android.hardware.nfc` feature declaration |
+| Web/PWA | Browser permission prompt/model; no manifest injection |
+
+**Backend implementations:**
+
+| Backend | Provider | Notes |
+|---------|----------|-------|
+| `js` (web/PWA) | Web NFC `NDEFReader` | NDEF-only and limited browser availability; no raw tag tech |
+| `kotlin` (Android) | `NfcAdapter` + NDEF/tag APIs | Reader mode and manifest injection; HCE deferred |
+| `swift` (iOS) | Core NFC sessions | Foreground/on-demand scan model; card presentment deferred |
+| Interpreter / JVM server | Unsupported or mock adapter | CI-safe behavior; no real NFC hardware dependency |
+
+Full contract: [`specs/std-nfc.md`](std-nfc.md).
+
 ---
 
 ## 16. Asset Pipeline
