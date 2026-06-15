@@ -23,7 +23,7 @@ for `localePlural`, when the count changes). See `specs/i18n.md`.
 A catalog is `locale → (key → text)` (owned by the app); plural keys are
 `keyBase + "." + category` (`one`/`few`/`many`/`other`).
 
-[Signal, signal, computedSignal, setSignal](primitives.ssc)
+[signal, computedSignal, setSignal](primitives.ssc)
 
 [TkNode, HStackNode](nodes.ssc)
 
