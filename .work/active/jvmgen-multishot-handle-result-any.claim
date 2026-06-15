@@ -1,0 +1,6 @@
+jvmgen-multishot-handle-result-any 2026-06-15T08:19:34Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-15T08:19:34Z
+status: in-progress
+done-so-far: filed. handle(...) -> _handle(...) returns Any; all.sum (multi-shot result, a List) fails JVM compile. interp+JS dynamic. Harder: about result type, not handler body.
+next: investigate _handle return type + whether JVM codegen has any dynamic method-dispatch on Any (e.g. _anyFlatMap exists). Find tractable fix (runtime helper for collection methods on Any, OR cast). If big/reflection -> honest analysis + narrowest viable fix or defer, then keep hunting elsewhere.
