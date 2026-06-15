@@ -1365,21 +1365,52 @@ private[interpreter] object PatternRuntime:
     case ov: Value.OptionV => if ov.inner != null then ov.inner :: Nil else Nil
     case _ => interp.located(s"Cannot iterate over ${Value.show(v)}")
 
+  /** Monad-polymorphic `for`-comprehension: a generator over a NON-`List` monad (Option / Either /
+   *  Set / Map …) desugars to `recv.flatMap(pat => <rest>)` (or `recv.map(pat => body)` for the last
+   *  generator) dispatched on the actual value — so `for x <- Some(3); y <- Some(4) yield x+y` yields
+   *  `Some(7)`, not a `List`. (interp-monadic-forcomp.) Only used for irrefutable patterns + an all-
+   *  simple-generator tail; `List` keeps its allocation-light fast path. */
+  private def forCompIrrefutable(p: Pat): Boolean = p match
+    case _: scala.meta.Pat.Var | _: scala.meta.Pat.Wildcard => true
+    case _                                                   => false
+  private def forCompRestSimple(es: List[Enumerator]): Boolean = es.forall {
+    case Enumerator.Generator(p, _) => forCompIrrefutable(p)
+    case _                          => false
+  }
+  private def monadicForYield(mv: Value, pat: Pat, rest: List[Enumerator], body: Term,
+                              env: Env, interp: Interpreter): Computation =
+    val method = if rest.isEmpty then "map" else "flatMap"
+    val fn = Value.NativeFnV("__forComp", {
+      case arg :: _ =>
+        val patEnv = matchPat(pat, arg, env, interp)
+        val e2 = if patEnv == null then env else patEnv.asInstanceOf[Env]
+        if rest.isEmpty then interp.eval(body, e2) else evalForYield(rest, body, e2, interp)
+      case _ => Computation.PureUnit
+    })
+    DispatchRuntime.dispatch1(mv, method, fn, env, interp)
+
   def evalForYield(enums: List[Enumerator], body: Term, env: Env, interp: Interpreter): Computation =
     enums match
       case Nil => interp.eval(body, env)
       // Fast path: `for x <- items yield expr` — avoids N Option/Some allocations and
       // intermediate List[Computation] from the general branches+sequence approach.
-      case Enumerator.Generator(scala.meta.Pat.Var(vn), rhs) :: Nil =>
+      case Enumerator.Generator(pv @ scala.meta.Pat.Var(vn), rhs) :: Nil =>
         val varName = vn.value
-        interp.eval(rhs, env) match
-          case Pure(rhsV) =>
+        def go(rhsV: Value): Computation =
+          // Non-List monad (Option/Either/…) → `recv.map(x => body)`; List keeps the fast path.
+          if rhsV.isInstanceOf[Value.ListV] then
             Computation.mapSequence(evalCollection(rhsV, interp),
               item => interp.eval(body, FrameMap.one(varName, item, env)))
-          case rhsC => FlatMap(rhsC, rhsV =>
-            Computation.mapSequence(evalCollection(rhsV, interp),
-              item => interp.eval(body, FrameMap.one(varName, item, env))))
+          else monadicForYield(rhsV, pv, Nil, body, env, interp)
+        interp.eval(rhs, env) match
+          case Pure(rhsV) => go(rhsV)
+          case rhsC       => FlatMap(rhsC, go)
       case Enumerator.Generator(pat, rhs) :: rest =>
+        // Non-List monad with an irrefutable pattern + all-simple tail → `recv.flatMap(pat => <rest>)`.
+        def goGen(rhsV: Value): Computation =
+          if !rhsV.isInstanceOf[Value.ListV] && forCompIrrefutable(pat) && forCompRestSimple(rest) then
+            monadicForYield(rhsV, pat, rest, body, env, interp)
+          else genBody(rhsV)
         @inline def genBody(rhsV: Value): Computation =
           val items  = evalCollection(rhsV, interp)
           val isLast = rest.isEmpty
@@ -1398,8 +1429,8 @@ private[interpreter] object PatternRuntime:
             case other => other
           }
         interp.eval(rhs, env) match
-          case Pure(rhsV) => genBody(rhsV)
-          case rhsC       => FlatMap(rhsC, genBody)
+          case Pure(rhsV) => goGen(rhsV)
+          case rhsC       => FlatMap(rhsC, goGen)
       case Enumerator.Guard(cond) :: rest =>
         interp.eval(cond, env) match
           case Pure(Value.BoolV(true)) => evalForYield(rest, body, env, interp)

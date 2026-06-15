@@ -65,13 +65,13 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Symptom:** a `match` with a case GUARD (`case x if x < 0 => …`) fails on the JS backend (node syntax error); interp + JVM correct. `genMatchAsStmts` and the coroutine `genGenStmt` match dropped `c.cond` entirely, so a guarded `case x if …` got pattern-cond `"true"` and was treated as a catch-all mid-chain → malformed `{ … } else if (…)` JS. (`genReceiveMatcher` ANDed the guard but evaluated it with the pattern bindings out of scope.)
 - **FIXED (2026-06-15):** all three JS match paths now fold the guard into the arm condition via an IIFE that scopes the pattern bindings: `(cond) && (() => { <bindings>; return (<guard>); })()`. Guarded arms are no longer mistaken for catch-alls (the switch fast-path also excludes them since the cond is no longer `"true"`). Guard: `CrossBackendPropertyTest` "collection HOFs and pattern matching cross-backend" (match-guard-bind shape).
 
-## interp-monadic-forcomp — `open`
+## interp-monadic-forcomp — `fixed` (2026-06-15)
 
 - **Found by:** `CrossBackendPropertyTest` (wave-4 comprehension probes).
-- **Symptom:** a `for`-comprehension over `Option` / `Either` (non-`List` monad) throws **in the interpreter**; JS + JVM are correct.
-  - `for x <- Some(3); y <- Some(4) yield x + y` → interp `No method 'getOrElse' on List` (interp desugars the Option for-comp as a List op → result is a `List`, not an `Option`).
+- **Symptom:** a `for`-comprehension over `Option` / `Either` (non-`List` monad) threw **in the interpreter**; JS + JVM were correct.
+  - `for x <- Some(3); y <- Some(4) yield x + y` → interp `No method 'getOrElse' on List` (interp desugared the Option for-comp as a List op → result was a `List`, not an `Option`).
   - `for x <- Right(3); y <- Right(4) yield x * y` → interp `Cannot iterate over Right(3)`.
-- **Note:** JS + JVM produce the correct `Some(7)` / `Right(12)`. The interp for-comprehension desugar only generalises to `List`-shaped iterables; it needs to dispatch `map`/`flatMap`/`withFilter` on the generator's actual type (Option/Either) like the codegen backends do. NOT YET FIXED (interp `PatternRuntime.evalForYield` change).
+- **FIXED (2026-06-15):** made `PatternRuntime.evalForYield` monad-polymorphic. When a generator's evaluated value is NOT a `ListV` (and the pattern is irrefutable + the tail is all simple generators), it desugars to `recv.flatMap(pat => <rest>)` / `recv.map(pat => body)` dispatched on the actual value via `DispatchRuntime.dispatch1` + a `NativeFnV` closure — exactly what the JS/JVM backends emit. `List` keeps its allocation-light fast path; guards / refutable patterns over a non-List monad fall through unchanged. Guard: `CrossBackendPropertyTest` "monadic for-comprehension cross-backend" (option some/none, either right/left, single-generator, + a List regression — interp == JS == JVM).
 
 ## xbackend-wave4-jvm-transient — `wontfix` (2026-06-15, not reproduced)
 

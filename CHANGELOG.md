@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix(interp): monad-polymorphic for-comprehension (Option / Either)
+
+A `for`-comprehension over a non-`List` monad threw in the interpreter while JS + JVM
+were correct: `for x <- Some(3); y <- Some(4) yield x + y` → `No method 'getOrElse' on
+List`, `for x <- Right(3); … ` → `Cannot iterate over Right(3)`. `PatternRuntime.evalForYield`
+was List-specialized — it flattened an Option to a 0/1-element list and always returned a
+`ListV`, so the result was a `List` rather than `Some`/`Right`. Fixed by dispatching
+`flatMap`/`map` on the generator's actual value (via `DispatchRuntime.dispatch1` + a
+`NativeFnV` closure) whenever it isn't a `ListV` — the same desugar the codegen backends
+emit. `List` keeps its allocation-light fast path; guards / refutable patterns over a
+non-List monad fall through unchanged. Found by `CrossBackendPropertyTest`; guarded by a
+new "monadic for-comprehension cross-backend" test (option some/none, either right/left,
+single-generator, + a List regression — interp == JS == JVM). 266 interp / cross-backend
+tests green (incl. InterpreterTest, ParsingCombinatorsTest, FreeMonadTest).
+
+---
+
 ## 2026-06-15 — fix(js): collection dispatch gaps + match case guards
 
 A wave-4 cross-backend property probe (collection HOFs / pattern matching) found two

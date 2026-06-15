@@ -360,6 +360,26 @@ class CrossBackendPropertyTest extends AnyFunSuite:
       assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
       assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
 
+  // `for`-comprehension over a NON-List monad (Option / Either). The interpreter's `evalForYield` was
+  // List-specialized (flattened Option to a 0/1-list, always returned a `ListV`), so an Option/Either
+  // for-comp threw or produced a `List` instead of `Some`/`Right`; JS + JVM were correct. Fixed by
+  // dispatching `flatMap`/`map` on the actual monad value. (interp-monadic-forcomp.)
+  test("monadic for-comprehension cross-backend"):
+    assume(has("node") && has("scala-cli"), "node/scala-cli not available")
+    val shapes = Seq(
+      "option-some"   -> "val a: Option[Int] = Some(3)\nval b: Option[Int] = Some(4)\nval r = for\n  x <- a\n  y <- b\nyield x + y\nprintln(r.getOrElse(-1))\n",
+      "option-none"   -> "val a: Option[Int] = Some(3)\nval b: Option[Int] = None\nval r = for\n  x <- a\n  y <- b\nyield x + y\nprintln(r.getOrElse(-1))\n",
+      "either-right"  -> "val a: Either[String, Int] = Right(3)\nval b: Either[String, Int] = Right(4)\nval r = for\n  x <- a\n  y <- b\nyield x * y\nprintln(r.getOrElse(-1))\n",
+      "either-left"   -> "val a: Either[String, Int] = Right(3)\nval b: Either[String, Int] = Left(\"e\")\nval r = for\n  x <- a\n  y <- b\nyield x * y\nprintln(r.getOrElse(-1))\n",
+      "option-single" -> "val a: Option[Int] = Some(5)\nval r = for x <- a yield x * 2\nprintln(r.getOrElse(-1))\n",
+      "list-regress"  -> "val r = for\n  x <- List(1, 2, 3)\n  y <- List(10, 20)\nyield x * y\nprintln(r.sum)\n",
+    )
+    for (label, prog) <- shapes do
+      val m   = module(prog)
+      val exp = interp(m)
+      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
+      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+
   private def module(program: String) = Parser.parse(s"# Gen\n\n```scalascript\n$program\n```\n")
 
   private def interp(m: scalascript.ast.Module): String =
