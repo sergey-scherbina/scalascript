@@ -20,12 +20,6 @@ building features to validating/hardening/enabling what exists. Work top-to-bott
       with bounded attempts/backoff and preserve transcript/tool idempotency. Done when
       tests prove fallback order, no retry on model/tool validation errors, and stable
       behavior with one endpoint.
-- [ ] **agent-streaming-test-port-collision** — Fix the agent SDK test-order flake found
-      while working endpoint pools. HOW: `AgentSdkInterpreterTest` runs
-      `examples/rozum-agent.ssc`, which binds `19694`; `AgentSdkStreamingInterpreterTest`
-      also binds `19694`, so the reversed test order can abort with
-      `java.net.BindException`. Move the streaming suite to its own port and rerun
-      `sbt "backendInterpreterPluginTests/testOnly scalascript.AgentSdkInterpreterTest scalascript.AgentSdkStreamingInterpreterTest"`.
 - [ ] **rozum-agent-schema-derivation** — Derive JSON schemas for `AgentTool` handlers
       from typed ScalaScript signatures where possible, leaving explicit schemas as the
       fallback. HOW: spec the supported type subset (`String`, `Int`, `Double`,

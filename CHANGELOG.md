@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — test(std): avoid agent streaming port collision
+
+Fixed a test-order flake where `examples/rozum-agent.ssc` and
+`AgentSdkStreamingInterpreterTest` both bound port `19694`; the streaming suite
+now uses `19698`. Verified the formerly failing order with
+`sbt "backendInterpreterPluginTests/testOnly scalascript.AgentSdkInterpreterTest scalascript.AgentSdkStreamingInterpreterTest"` (14 tests passed).
+---
+
 ## 2026-06-15 — fix(jvmgen): handle-result val in main-path arithmetic; broaden xbackend property test
 
 Broadened `CrossBackendPropertyTest` to 12 program kinds (added closures/HOF,
