@@ -135,7 +135,14 @@ class CrossBackendPropertyTest extends AnyFunSuite:
    *  MULTI-SHOT. The one-shot/arg/two-op use the INLINE `println(handle(...))` form on purpose — the
    *  regression guard for BUGS.md `jvmgen-handle-in-arg-position` (found by this test, now fixed; the
    *  fix should hold for every effectful call-arg, which these verify). All print a deterministic Int. */
-  private def genEffectProgram(rng: Random): String = rng.nextInt(4) match
+  private def genEffectProgram(rng: Random): String = rng.nextInt(5) match
+    case 4 => // conditional resume: `if k > t then resume(k) else resume(0)` — comparison on an
+      // Any-typed handler op-arg inside an `if` condition (stresses emitCaseBody's control-flow path)
+      val n = 2 + rng.nextInt(5); val t = rng.nextInt(3)
+      "effect Reader:\n  def ask(k: Int): Int\n" +
+        "def loop(n: Int): Int ! Reader =\n  var acc = 0\n  var i = 0\n  while i < n do\n" +
+        "    acc = acc + Reader.ask(i)\n    i = i + 1\n  acc\n" +
+        s"println(handle(loop($n)) {\n  case Reader.ask(k, resume) => if k > $t then resume(k) else resume(0)\n})\n"
     case 0 => // one-shot: result n*k
       val n = 1 + rng.nextInt(6); val k = 1 + rng.nextInt(4)
       "effect Counter:\n  def tick(): Int\n" +
@@ -219,7 +226,7 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     // seeds 0..8 = one program of each kind; 17/26/35/44 are also the effect kind (seed%9==8) so the
     // varied effect SHAPES (one-shot / arg-carrying / two-op / multi-shot) all get a JVM scala-cli run —
     // the regression check that jvmgen-handle-in-arg-position is fixed for every effectful call-arg.
-    for seed <- (0 until Kinds) ++ List(17, 26, 35, 44) do
+    for seed <- (0 until Kinds) ++ List(17, 26, 35, 44, 53, 62) do
       val prog = genProgram(seed)
       val m    = module(prog)
       val exp  = try interp(m) catch case _: Throwable => null

@@ -4027,5 +4027,12 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         case s       => s.syntax
       }
       "{ " + items.mkString("; ") + " }"
+    // `if` in a handler body: recurse so a comparison on an Any-typed op-arg in the condition
+    // (e.g. `if k > 2 then resume(k) else resume(0)`) lowers to `_binOp` rather than emitting `k > 2`
+    // raw, which Scala 3 rejects on `Any` (jvmgen-effect-handler-arg-arith, control-flow case).
+    case t: Term.If =>
+      // The condition is Any-typed here (op-args are Any, and `_binOp(">", …)` returns Any), so cast
+      // to Boolean for the `if` — the comparison genuinely yields a Boolean at runtime.
+      s"(if (${emitCaseBody(t.cond)}.asInstanceOf[Boolean]) ${emitCaseBody(t.thenp)} else ${emitCaseBody(t.elsep)})"
     case other => other.syntax
 
