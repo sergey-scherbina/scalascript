@@ -14,21 +14,6 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Strategic-review proposals (2026-06-15) — the feature roadmap is built out; leverage has shifted from
 building features to validating/hardening/enabling what exists. Work top-to-bottom.
 
-- [ ] **std-nfc-native-adapters** — Continue NFC support beyond the portable
-      `std.nfc` NDEF API skeleton by adding the next backend-facing slice from
-      `specs/std-nfc.md`. HOW: first re-read `specs/std-nfc.md` and inspect the
-      existing target/backend structure; keep the `.ssc` API unchanged; implement
-      target adapters behind the existing `runtime/std/nfc-plugin` boundary; wire
-      Android NFC permissions/foreground scanning, iOS Core NFC entitlements/session
-      constraints, and Web NFC secure-context/user-activation gating where the
-      current target infrastructure supports it. If full hardware execution is not
-      yet possible in this repo, land the concrete adapter/SPI/packaging contract
-      and focused tests that make the unsupported boundary explicit, then record the
-      remaining real-device harness work. Done when `readNdef()` / `writeNdef()`
-      behavior is verified in the real available harnesses, focused sbt tests pass
-      with explicit `cd <worktree> && sbt "..."`, and unchecked behavior items in
-      `specs/std-nfc.md` are either checked off or explicitly deferred with a
-      follow-up.
 - [ ] **rozum-integration** — Add ScalaScript integration with the adjacent Rust `rozum`
       app, following `../rozum/integration.md` and `../rozum/sdk.md`. HOW: read the
       rozum docs first, write and commit `specs/rozum-integration.md`, then implement

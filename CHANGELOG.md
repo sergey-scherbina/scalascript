@@ -4,6 +4,11 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — feat(nfc): add native requirement contract
+
+Continued `std.nfc` by adding frontend `Capability.NfcNdef` / `NfcTagTech` / `NfcCardEmulation`, a `NativePlatformRequirements` resolver for iOS Info.plist + NFC reader-session entitlements, Android NFC permissions/features, and Web NFC permission-model requirements, plus `.scim` capability detection for NFC calls. Verified with `sbt "frontendCore/testOnly scalascript.frontend.NativePlatformRequirementsTest scalascript.frontend.FrontendFrameworksTest"` and `sbt "core/testOnly scalascript.artifact.InterfaceExtractorTest"`. Real packager consumption and hardware adapters are deferred in `BACKLOG.md` as `std-nfc-packager-adapters`.
+---
+
 ## 2026-06-15 — feat(std): add portable `std.nfc` NDEF support
 
 Added the `std.nfc` NDEF API surface, `Feature.NfcNdef` capability gating, deferred tag-tech/card-emulation feature flags, an interpreter plugin with deterministic unsupported-backend behavior, portable text/URI/MIME record constructors, capability-check coverage, docs, and `examples/nfc-ndef.ssc`. Verified with `sbt "nfcPlugin/test"`, `sbt "core/testOnly scalascript.validate.CapabilityCheckTest"`, `sbt "installBin"`, and `bin/ssc run examples/nfc-ndef.ssc`.
