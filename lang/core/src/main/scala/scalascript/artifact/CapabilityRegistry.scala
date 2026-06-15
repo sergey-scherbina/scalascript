@@ -90,6 +90,10 @@ object CapabilityRegistry:
       "Dataset.of", "Dataset.fromList",
       "Dataset.fromGenerator", "Dataset.fromFile",
     ),
+    "NfcNdef" -> Set(
+      "nfcCapabilities", "nfcPermissionStatus", "requestNfcPermission",
+      "readNdef", "writeNdef",
+    ),
   )
 
   /** Reverse lookup: intrinsic call name → capability label.  Built once. */
@@ -103,6 +107,7 @@ object CapabilityRegistry:
    *  which historically signalled the Crypto capability. */
   private val qualifierToCapability: Map[String, String] = Map(
     "crypto" -> "Crypto",
+    "nfc"    -> "NfcNdef",
   )
 
   /** Resolve a call-site name (bare or qualified) to its capability, if any. */

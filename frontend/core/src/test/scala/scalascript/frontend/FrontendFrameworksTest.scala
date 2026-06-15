@@ -72,6 +72,9 @@ class FrontendFrameworksTest extends AnyFunSuite:
     assert(all.contains(Capability.Suspense))
     assert(all.contains(Capability.Untrack))
     assert(all.contains(Capability.TwoWayBinding))
+    assert(all.contains(Capability.NfcNdef))
+    assert(all.contains(Capability.NfcTagTech))
+    assert(all.contains(Capability.NfcCardEmulation))
   }
 
 private final case class FakeBackend(name: String) extends FrontendFrameworkSpi:

@@ -744,6 +744,9 @@ enum Capability:
   case PushNotifications
   case LocalStorage
   case Geolocation
+  case NfcNdef
+  case NfcTagTech
+  case NfcCardEmulation
   case Haptics
   case DeepLinks
   case BackgroundTasks

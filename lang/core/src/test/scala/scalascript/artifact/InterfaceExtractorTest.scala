@@ -114,6 +114,18 @@ class InterfaceExtractorTest extends AnyFunSuite:
     assert(caps.contains("Crypto"),
       s"expected Crypto capability via crypto.* qualifier, got: $caps")
 
+  test("capability — NfcNdef detected for std.nfc intrinsic calls"):
+    val iface = extract("""val caps = nfcCapabilities()""")
+    val caps = iface.capabilities.map(_.name).toSet
+    assert(caps.contains("NfcNdef"),
+      s"expected NfcNdef capability, got: $caps")
+
+  test("capability — NfcNdef via `nfc.<anything>` qualifier"):
+    val iface = extract("""val tag = nfc.readNdef(null)""")
+    val caps = iface.capabilities.map(_.name).toSet
+    assert(caps.contains("NfcNdef"),
+      s"expected NfcNdef capability via nfc.* qualifier, got: $caps")
+
   // ── capability detection: negative cases (the bug fix) ──────────────────
 
   test("capability — string literal containing `serve(` does NOT trigger Http"):
