@@ -132,15 +132,15 @@ class CrossBackendPropertyTest extends AnyFunSuite:
 
   /** Algebraic EFFECT: a `Counter.tick` loop under a one-shot `handle` returning a deterministic Int.
    *  Exercises the SEPARATE CPS codegen on each backend (JvmGenCpsTransform / JsGenCpsCodegen / interp).
-   *  Result = n * k. NB: binds the handle result to a `val` (the idiomatic form) — the inline form
-   *  `println(handle(...))` is excluded because JVM codegen does not lower a `handle` in call-argument
-   *  position (BUGS.md `jvmgen-handle-in-arg-position`, found by this very test; interp+JS handle both). */
+   *  Result = n * k. Uses the INLINE `println(handle(...))` form on purpose — it is the regression
+   *  guard for BUGS.md `jvmgen-handle-in-arg-position` (this test found that bug; it is now fixed:
+   *  an effectful call-arg lowers via emitExpr → `_handle(...)`). */
   private def genEffectProgram(rng: Random): String =
     val n = 1 + rng.nextInt(6); val k = 1 + rng.nextInt(4)
     "effect Counter:\n  def tick(): Int\n" +
       "def loop(n: Int): Int ! Counter =\n  var acc = 0\n  var i = 0\n  while i < n do\n" +
       "    acc = acc + Counter.tick()\n    i = i + 1\n  acc\n" +
-      s"val out = handle(loop($n)) {\n  case Counter.tick(resume) => resume($k)\n}\nprintln(out)\n"
+      s"println(handle(loop($n)) {\n  case Counter.tick(resume) => resume($k)\n})\n"
 
   private def module(program: String) = Parser.parse(s"# Gen\n\n```scalascript\n$program\n```\n")
 

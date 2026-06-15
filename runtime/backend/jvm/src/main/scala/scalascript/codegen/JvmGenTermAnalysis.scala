@@ -246,7 +246,22 @@ private[codegen] trait JvmGenTermAnalysis:
    *  Focus → Lens expansion, Prism[O, V] → Prism literal) rather than
    *  verbatim Scala source emission. */
   private[codegen] def termNeedsCustomEmit(t: Term): Boolean =
-    termUsesEffects(t) || termContainsFocus(t) || termContainsPrism(t) || termContainsIntrinsic(t) || termContainsDirectBlock(t) || termContainsRegisteredInterpolator(t) || termContainsNamedArgAscription(t) || termContainsBareNameBlockCall(t)
+    termUsesEffects(t) || termContainsEffectExpr(t) || termContainsFocus(t) || termContainsPrism(t) || termContainsIntrinsic(t) || termContainsDirectBlock(t) || termContainsRegisteredInterpolator(t) || termContainsNamedArgAscription(t) || termContainsBareNameBlockCall(t)
+
+  /** True when an effectful expression (`handle`/`runAsync`/effect-op/effectful-fun call …) appears
+   *  ANYWHERE inside `t`, including nested in a call argument (e.g. `println(handle(...))`).
+   *  `termUsesEffects` only inspects the top-level shape, so a nested effect slips past it and the term
+   *  falls to the `.syntax` raw fallback in `emitExpr` — emitting a bare `handle(...)` that scala-cli
+   *  rejects ("Not found: handle"). Walking the children routes the term through `emitExprDeep`, which
+   *  recurses and lowers the nested effect to `_handle(...)` (BUGS.md jvmgen-handle-in-arg-position). */
+  private[codegen] def termContainsEffectExpr(t: Term): Boolean =
+    var found = false
+    def walk(n: Tree): Unit =
+      if !found then n match
+        case e: Term if termUsesEffects(e) => found = true
+        case _                             => n.children.foreach(walk)
+    walk(t)
+    found
 
   private[codegen] def termContainsRegisteredInterpolator(t: Term): Boolean =
     def walk(n: Tree): Boolean = n match
