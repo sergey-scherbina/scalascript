@@ -1,6 +1,0 @@
-xbackend-property-foreach-cps 2026-06-15T11:16:19Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-15T11:16:19Z
-status: in-progress
-done-so-far: Range for-do effect fixed both backends. Remaining: non-Range for x <- collection do perform.
-next: CPS-thread effect in a collection for-do (JvmGenCpsTransform + JsGenCpsCodegen) via iterator/array trampoline; then keep hunting new surfaces.
