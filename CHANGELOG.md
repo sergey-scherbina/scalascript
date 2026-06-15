@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — feat(std): add rozum endpoint pool failover
+
+Added `AgentEndpointPool`, `runAgentPool`, `runAgentStreamPool`, and
+`collectAgentStreamPool` to `std.agent`. Pool calls preserve the existing
+single-endpoint API while adding bounded ordered failover across multiple
+OpenAI-compatible rozum gateways for transport failures and HTTP `5xx`; `4xx`,
+unknown tools, and handler validation errors do not retry another endpoint.
+Added `examples/rozum-agent-pool.ssc`, README/User Guide/spec docs, and
+`AgentEndpointPoolInterpreterTest`. Verified with
+`sbt "backendInterpreterPluginTests/testOnly scalascript.AgentSdkInterpreterTest scalascript.AgentSdkStreamingInterpreterTest scalascript.AgentEndpointPoolInterpreterTest"` (21 tests passed).
+---
+
 ## 2026-06-15 — test(std): avoid agent streaming port collision
 
 Fixed a test-order flake where `examples/rozum-agent.ssc` and

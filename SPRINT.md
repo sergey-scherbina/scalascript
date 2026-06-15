@@ -14,12 +14,6 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Strategic-review proposals (2026-06-15) — the feature roadmap is built out; leverage has shifted from
 building features to validating/hardening/enabling what exists. Work top-to-bottom.
 
-- [ ] **rozum-agent-endpoint-pool** — Add optional endpoint pool + retry/failover for
-      multiple rozum gateways. HOW: spec config fields and failure semantics first;
-      keep the default single-endpoint API stable; retry only transport/5xx failures
-      with bounded attempts/backoff and preserve transcript/tool idempotency. Done when
-      tests prove fallback order, no retry on model/tool validation errors, and stable
-      behavior with one endpoint.
 - [ ] **rozum-agent-schema-derivation** — Derive JSON schemas for `AgentTool` handlers
       from typed ScalaScript signatures where possible, leaving explicit schemas as the
       fallback. HOW: spec the supported type subset (`String`, `Int`, `Double`,
