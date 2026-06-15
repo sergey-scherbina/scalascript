@@ -1,6 +1,0 @@
-xbackend-property-compositions 2026-06-15T10:12:30Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-15T10:12:30Z
-status: in-progress
-done-so-far: prior slice found+fixed 3 cross-backend bugs (handle-result-arith, returnclause-recursion-jvm, returnclause-while-interp). All shipped.
-next: probe effect x main-path COMPOSITIONS — effect-result into match/for-comp, nested handles, multi-shot result into arithmetic, effect inside HOF closure. Run interp==JS==JVM; fix divergences.
