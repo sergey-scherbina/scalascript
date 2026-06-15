@@ -1,0 +1,6 @@
+xbackend-property-hof 2026-06-15T10:54:23Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-15T10:54:23Z
+status: in-progress
+done-so-far: property-test hunt fixed 8 cross-backend codegen bugs (handle-result vein comprehensively clean).
+next: NEW surface — effects in HOF/closure positions (perform inside .map/.foldLeft/for-do closures), for-comprehension yield, + a few non-effect main-path edge cases (currying, closures-returning-closures, recursion, string interp). Run interp==JS==JVM; fix divergences.
