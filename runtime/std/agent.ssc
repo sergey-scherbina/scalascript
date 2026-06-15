@@ -8,6 +8,7 @@ exports:
   - AgentEndpointPool
   - RunOptions
   - ToolResult
+  - AgentSchema
   - AgentTool
   - ExecutedOp
   - AgentResult
@@ -20,6 +21,7 @@ exports:
   - collectAgentStream
   - collectAgentStreamPool
   - agentTool
+  - agentToolFor
   - toolOk
   - toolError
   - objectSchema
@@ -50,6 +52,26 @@ case class RunOptions(
 )
 
 case class ToolResult(contentJson: String, isError: Boolean = false)
+
+trait AgentSchema[A]:
+  def parametersJson: String
+  def decode(argsJson: String): A
+
+case class AgentSchemaInstance(parametersJson: String, decodeAny: String => Any) extends AgentSchema[Any]:
+  def decode(argsJson: String): Any =
+    decodeAny(argsJson)
+
+object AgentSchema:
+  def derived(m: Mirror): AgentSchema[Any] =
+    if !m.isProduct then
+      throw RuntimeException("std.agent AgentSchema supports product records only: " + m.label)
+    val properties = agentSchemaProperties(m.elemLabels, m.elemTypes)
+    val required = agentSchemaRequired(m.elemLabels, m.elemTypes)
+    AgentSchemaInstance(objectSchema(properties, required), argsJson =>
+      val args = jsonValue(argsJson)
+      val values = agentSchemaDecodeFields(m.elemLabels, m.elemTypes, args)
+      m.fromProduct(values)
+    )
 
 case class AgentTool(
   name: String,
@@ -135,6 +157,12 @@ def agentTool(name: String, description: String, parametersJson: String)
              (handler: String => ToolResult): AgentTool =
   AgentTool(name, description, parametersJson, handler)
 
+def agentToolFor[A](name: String, description: String, schema: AgentSchema[A])
+                   (handler: A => ToolResult): AgentTool =
+  agentTool(name, description, schema.parametersJson) { argsJson =>
+    handler(schema.decode(argsJson))
+  }
+
 def toolOk(contentJson: String): ToolResult =
   ToolResult(contentJson, false)
 
@@ -147,6 +175,84 @@ def objectSchema(propertiesJson: String, required: List[String]): String =
     jField("properties", propertiesJson),
     jField("required", jArr(required.map(name => jStr(name))))
   ))
+
+def agentSchemaProperties(labels: List[String], types: List[String]): String =
+  jObj(agentSchemaPropertyFields(labels, types))
+
+def agentSchemaPropertyFields(labels: List[String], types: List[String]): List[String] =
+  (labels, types) match
+    case (Nil, _) => List()
+    case (_, Nil) => List()
+    case (label :: labelRest, tpe :: typeRest) =>
+      jField(label, agentJsonSchemaForType(label, tpe)) :: agentSchemaPropertyFields(labelRest, typeRest)
+
+def agentSchemaRequired(labels: List[String], types: List[String]): List[String] =
+  (labels, types) match
+    case (Nil, _) => List()
+    case (_, Nil) => List()
+    case (label :: labelRest, tpe :: typeRest) =>
+      val rest = agentSchemaRequired(labelRest, typeRest)
+      if isAgentOptionType(tpe) then rest else label :: rest
+
+def agentSchemaDecodeFields(labels: List[String], types: List[String], args: JsonValue): List[Any] =
+  (labels, types) match
+    case (Nil, _) => List()
+    case (_, Nil) => List()
+    case (label :: labelRest, tpe :: typeRest) =>
+      agentDecodeValue(label, tpe, args.get(label)) :: agentSchemaDecodeFields(labelRest, typeRest, args)
+
+def agentJsonSchemaForType(field: String, tpe: String): String =
+  val clean = tpe.trim
+  if clean == "String" then
+    jObj(List(jField("type", jStr("string"))))
+  else if clean == "Int" then
+    jObj(List(jField("type", jStr("integer"))))
+  else if clean == "Double" then
+    jObj(List(jField("type", jStr("number"))))
+  else if clean == "Boolean" then
+    jObj(List(jField("type", jStr("boolean"))))
+  else if isAgentListType(clean) then
+    jObj(List(
+      jField("type", jStr("array")),
+      jField("items", agentJsonSchemaForType(field, agentInnerType(clean, "List[")))
+    ))
+  else if isAgentOptionType(clean) then
+    jObj(List(jField("anyOf", jArr(List(
+      agentJsonSchemaForType(field, agentInnerType(clean, "Option[")),
+      jObj(List(jField("type", jStr("null"))))
+    )))))
+  else
+    throw RuntimeException("std.agent AgentSchema unsupported field '" + field + "' type '" + clean + "'")
+
+def agentDecodeValue(field: String, tpe: String, value: JsonValue): Any =
+  val clean = tpe.trim
+  if clean == "String" then
+    value.asString
+  else if clean == "Int" then
+    value.asInt
+  else if clean == "Double" then
+    value.asDouble
+  else if clean == "Boolean" then
+    value.asBool
+  else if isAgentListType(clean) then
+    val inner = agentInnerType(clean, "List[")
+    value.asList.map(v => agentDecodeValue(field, inner, v))
+  else if isAgentOptionType(clean) then
+    if value.isNull then
+      None
+    else
+      Some(agentDecodeValue(field, agentInnerType(clean, "Option["), value))
+  else
+    throw RuntimeException("std.agent AgentSchema unsupported field '" + field + "' type '" + clean + "'")
+
+def isAgentListType(tpe: String): Boolean =
+  tpe.startsWith("List[") && tpe.endsWith("]")
+
+def isAgentOptionType(tpe: String): Boolean =
+  tpe.startsWith("Option[") && tpe.endsWith("]")
+
+def agentInnerType(tpe: String, prefix: String): String =
+  tpe.substring(prefix.length, tpe.length - 1).trim
 
 def runAgent(endpoint: AgentEndpoint, model: String, system: String, user: String,
              tools: List[AgentTool], options: RunOptions = RunOptions()): AgentResult =

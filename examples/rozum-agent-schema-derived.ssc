@@ -1,0 +1,96 @@
+---
+name: rozum-agent-schema-derived-demo
+version: 0.1.0
+description: Self-contained std.agent demo for derived and explicit tool schemas.
+---
+
+# Rozum Agent Derived Schema Demo
+
+[AgentEndpoint, AgentSchema, RunOptions, agentTool, agentToolFor, runAgent, toolOk, objectSchema](std/agent.ssc)
+[jsonValue, jStr, jNum, jBool, jField, jObj, jArr](std/json.ssc)
+[route, serveAsync, stop, httpRetry, Request, Response](std/http.ssc)
+
+```scalascript
+val port = 19702
+var calls = 0
+
+route("POST", "/v1/chat/completions") { req =>
+  calls = calls + 1
+  if calls == 1 then
+    Response(
+      200,
+      Map("Content-Type" -> "application/json"),
+      """{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","tool_calls":[{"id":"call_derived","type":"function","function":{"name":"post_transaction","arguments":"{\"amount\":125,\"memo\":\"office supplies\",\"tags\":[\"office\",\"cash\"],\"approved\":true,\"note\":null}"}},{"id":"call_explicit","type":"function","function":{"name":"post_transaction_explicit","arguments":"{\"mode\":\"fast\"}"}}]}}]}"""
+    )
+  else
+    Response(
+      200,
+      Map("Content-Type" -> "application/json"),
+      """{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"Derived posted.\nExplicit posted."}}]}"""
+    )
+}
+
+serveAsync(port)
+httpRetry(20, 50)
+
+case class PostTransaction(
+  amount: Int,
+  memo: String,
+  tags: List[String],
+  approved: Boolean,
+  note: Option[String]
+) derives AgentSchema
+
+val derivedTool = agentToolFor[PostTransaction](
+  "post_transaction",
+  "Post one typed accounting transaction.",
+  summon[AgentSchema[PostTransaction]]
+) { args =>
+  val note = args.note match
+    case Some(value) => value
+    case None => "none"
+  toolOk(jObj(List(
+    jField("status", jStr("posted")),
+    jField("amount", jNum(args.amount.toString)),
+    jField("memo", jStr(args.memo)),
+    jField("tagCount", jNum(args.tags.length.toString)),
+    jField("approved", jBool(args.approved)),
+    jField("note", jStr(note))
+  )))
+}
+
+val explicitSchema = objectSchema(
+  jObj(List(jField("mode", jObj(List(
+    jField("type", jStr("string")),
+    jField("enum", jArr(List(jStr("fast"), jStr("safe"))))
+  ))))),
+  List("mode")
+)
+
+val explicitTool = agentTool(
+  "post_transaction_explicit",
+  "Post with a custom explicit schema.",
+  explicitSchema
+) { argsJson =>
+  val args = jsonValue(argsJson)
+  toolOk(jObj(List(
+    jField("status", jStr("posted")),
+    jField("mode", jStr(args.get("mode").asString))
+  )))
+}
+
+val result = runAgent(
+  AgentEndpoint("http://localhost:" + port),
+  "local-schema-model",
+  "You are a careful accounting assistant.",
+  "Post the office supplies transaction with schema-derived and explicit tools.",
+  List(derivedTool, explicitTool),
+  RunOptions(maxSteps = 4)
+)
+
+println(result.stop)
+println(result.text)
+println(result.operations.length)
+
+stop()
+```
