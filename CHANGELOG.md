@@ -30,6 +30,11 @@ chokepoint all dispatch paths funnel through. The full-arity hot path stays allo
 suite (127 fixtures) byte-identical vs baseline; 152 interpreter+content+TCO tests green.
 ---
 
+## 2026-06-15 — fix(jvmgen): systemic — emitCaseBody recurses all composite handler-body terms
+
+Killed the recurring JVM effect-handler-codegen bug class at the root. `emitCaseBody` (the mini-emitter for handler case bodies over Any-typed op-args/resume results) had a `.syntax` raw fallback that emitted any un-special-cased composite RAW — so a composite containing Any-typed arithmetic/comparison/flatMap broke JVM compile (the three earlier bugs were all instances). Now emitCaseBody recurses EVERY composite (added Term.Match / Tuple / Ascribe / Select / general ApplyInfix), so the fallback only reaches atoms (Lit/Name). Property test gained match-in-handler + block-handler shapes; 96 tests green, no regression. Surfaced + filed a separate harder bug: jvmgen-multishot-handle-result-any (a method call on the Any-typed `handle(...)` result). FOUR JVM codegen bugs found via the property test this session; three classes fixed.
+---
+
 ## 2026-06-15 — fix(jvmgen): lower an `if` in an effect-handler body (Any-typed condition)
 
 Third JVM codegen bug found by CrossBackendPropertyTest (control-flow case): a handler `case Reader.ask(k, resume) => if k > 2 then resume(k) else resume(0)` failed scala-cli because `emitCaseBody` had no `Term.If` case -> `k > 2` emitted raw on `Any`. Fix: added a `Term.If` case that recurses (lowers `k > 2` to `_binOp`) and casts the condition to `Boolean`. Property test gained a conditional-resume effect shape; 96 tests green. THREE real JVM codegen bugs found + fixed this session via the generated cross-backend differential -- all in the effect-handler emitter (emitCaseBody / emitExpr).

@@ -14,6 +14,15 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 
 
+
+---
+
+## jvmgen-multishot-handle-result-any — `open` (2026-06-15)
+
+- **Found by:** `CrossBackendPropertyTest` (its multi-shot effect shape).
+- **Symptom:** a method call on the result of `handle(...)` fails JVM scala-cli with e.g. `value sum is not a member of Any` — `handle(...)` lowers to `_handle(...)` which returns `Any`, so `val all = handle(prog()){…}; all.sum` (typical for a multi-shot handler whose result is a `List`) doesn't type-check. interp + JS (dynamically typed) run it fine.
+- **Repro:** a `multi effect NonDet` program ending `val all = handle(prog()){ case NonDet.choose(opts, resume) => opts.flatMap(o => resume(o)) }; println(all.sum)`.
+- **Severity / why deferred:** harder than the emitCaseBody class — it is about the `_handle` RESULT type (Any), not the handler body. A real fix needs the codegen to know the handled-program's result type (here `List[Int]`) and cast, or `_handle` to be generically typed; `List[Any].sum` would still need `Numeric[Any]`. Not a localized fix. The property test excludes the multi-shot-result-method-call shape (uses a block-handler one-shot instead) so it stays green; re-add it as the regression check when fixed. **Status:** open. SHA at filing: 2088ce52e.
 ---
 
 ## jvmgen-effect-handler-arg-arith — `fixed` (2026-06-15, 7c843b121)
