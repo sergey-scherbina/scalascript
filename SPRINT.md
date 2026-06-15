@@ -20,7 +20,7 @@ building features to validating/hardening/enabling what exists. Work top-to-bott
       and/or a deep import chain), profile parser/typer/normalize/codegen scaling vs input size, find any
       O(n²) hotspot. Fix if a clear one exists (A/B); else ship the scaling profile + a guard bench as the
       deliverable. This is the real perf frontier now that micro-perf is at floor.
-- [ ] **xbackend-property-equivalence** (slice 1) — harden the core "one source, many targets" guarantee:
+- [x] **xbackend-property-equivalence** ✓ SLICE 1 DONE 2026-06-15 — CrossBackendPropertyTest generates core Int programs (arith/val/if/fns) from seeds + asserts interp==JS(node) over 40 + interp==JVM(scala-cli) over 5; all agree (core holds). Harness extensible; broadening (ADTs/match/effects) + overflow dimension = BACKLOG full-suite. ORIGINAL (slice 1) — harden the core "one source, many targets" guarantee:
       a property/fuzz test that GENERATES small programs over a core expression/stmt subset and asserts
       `interp output == jvm == js`. Start bounded (arithmetic, lets, if/match, simple functions); reuse the
       existing 127-case conformance harness + the ~70 property/fuzz test files as scaffolding. Each found

@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — test(xbackend): generated cross-backend property/differential test (slice 1)
+
+xbackend-property-equivalence. The conformance suite checks ~127 fixed programs; `CrossBackendPropertyTest`
+GENERATES programs over the core deterministic-Int subset (arithmetic, val, if, user functions) from fixed
+seeds and asserts `interp == JS(node)` over 40 + `interp == JVM(scala-cli)` over a 5-seed sample — turning
+the one-source-many-targets guarantee from fixed cases into generated coverage. Results bounded to all
+backends' safe int range so overflow edge cases don't false-fail. Verified: all 40 + 5 agree (0 skipped) —
+the core holds. Extensible harness; broadening to ADTs/match/effects/collections + the overflow dimension
+are follow-on slices.
+---
+
 ## 2026-06-15 — perf(compile): compile-time-at-scale measured — no O(n²), + CompileScaleBench guard
 
 Closed the measurement gap: all prior compile/codegen benches used 6-line inputs. Profiled
