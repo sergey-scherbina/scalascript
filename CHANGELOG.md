@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — chore: tidy SPRINT + BACKLOG (archive completed work)
+
+Housekeeping. SPRINT (2637 lines of already-shipped task history — autonomous batches, busi fixes, JIT
+stages, rust/std milestones, the 4 architecture refinements, the effect-vm-continuations perf thread) →
+reset to a clean "no active tasks" queue. BACKLOG (7638 lines, 62 sections, 729/740 items done) → slimmed
+to **326 lines**: the 7 sections with open `[ ]` work kept (11 open items, all preserved + verified),
+their completed `[x]` sub-items dropped, and the 55 fully-landed milestone sections moved to a compact
+"Completed milestones — archived" index. Full detailed history of the archived milestones remains
+recoverable via `git log -p BACKLOG.md`. Net: the queues now read honestly — SPRINT empty, BACKLOG shows
+only the 11 genuinely-open (mostly deferred/strategic/low-pri) items.
+---
+
 ## 2026-06-15 — refactor(jsgen): extract content-toolkit emission to JsGenContentEmit (JsGen.scala −13%)
 
 codegen-megafile-deflation slice 2 (mirrors the JvmGen extraction). The content-toolkit JS emission
