@@ -42,6 +42,11 @@ chokepoint all dispatch paths funnel through. The full-arity hot path stays allo
 suite (127 fixtures) byte-identical vs baseline; 152 interpreter+content+TCO tests green.
 ---
 
+## 2026-06-15 — test(xbackend): return-clause deep-handler effect shape (coverage; no bug)
+
+Keep-hunting capstone: added a return-clause deep-accumulation handler shape to CrossBackendPropertyTest (`case Log.emit(resume) => v :: resume(())` + `case Return(_) => List()`, printed via `xs.length`/`.sum`). interp==JS==JVM all green — return-clause codegen holds. After FOUR effect-codegen bugs found+fixed this session, this clean no-bug hunt indicates the effect-handler emitter is now solid; the property test covers 8 program kinds + 8 effect handler shapes cross-backend.
+---
+
 ## 2026-06-15 — fix(jvmgen): dynamic-dispatch collection methods on the Any-typed handle result
 
 jvmgen-multishot-handle-result-any (4th & hardest property-test find). `_handle` returns Any, so `val all = handle(prog()){…}; all.sum` (multi-shot result is a List) failed JVM ('value sum is not a member of Any'). Fix (mirrors `_anyFlatMap`): runtime `_anyCall0(recv, m)` dynamically dispatches sum/length/min/max/… on an Any Iterable (numeric folds via `_binOp`); codegen tracks `val x = handle(..)` and routes `x.method` through `emitExprDeep` → `_anyCall0`. 96 tests green. All FOUR JVM codegen bugs found via the generated cross-backend property test this session are now fixed.
