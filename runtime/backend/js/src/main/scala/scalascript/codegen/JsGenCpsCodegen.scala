@@ -474,6 +474,16 @@ private[codegen] trait JsGenCpsCodegen:
     // For-yield in CPS — fall back: the rhs collections / generators don't typically
     // perform effects, so direct codegen with bind on result suffices for now.
     case t: Term.ForYield => genForYield(t.enumsBlock.enums, t.body)
+    // `for i <- (lo until/to hi) do body` with a `perform` in the body: desugar the Range generator
+    // to an index `let` + the same while-trampoline so the body's effects thread through `_bind`.
+    // `genForDo`'s `_forEach` runs the body via NON-CPS `genExpr`, so `acc + Eff.op()` would be
+    // `acc + <Computation>` (NaN / "[object Object]"). (effect-perform-in-fordo.)
+    case t: Term.For if jsRangeForDo(t).isDefined =>
+      val (iName, lo, hi, inclusive) = jsRangeForDo(t).get
+      val cmp = if inclusive then "<=" else "<"
+      val wn  = freshTmp()
+      s"(() => { let $iName = ${genExpr(lo)}; const $wn = () => ($iName $cmp ${genExpr(hi)}) ? " +
+        s"_bind(${genCpsExpr(t.body)}, () => { $iName = $iName + 1; return $wn(); }) : undefined; return $wn(); })()"
     case t: Term.For      => genForDo(t.enumsBlock.enums, t.body)
 
     // Assign — thread the rhs (so a `perform` in it runs) then mutate the target.
@@ -769,6 +779,19 @@ private[codegen] trait JsGenCpsCodegen:
 
     case _ =>
       ("true", Nil)
+
+  /** Recognise a single-generator `for i <- (lo until/to hi) do …` over an integer Range.
+   *  Returns `(loopVarName, lo, hi, inclusive)`; `None` otherwise. (effect-perform-in-fordo.) */
+  private def jsRangeForDo(t: Term.For): Option[(String, Term, Term, Boolean)] =
+    t.enumsBlock.enums match
+      case List(g: Enumerator.Generator) =>
+        (g.pat, g.rhs) match
+          case (scala.meta.Pat.Var(Term.Name(iName)),
+                Term.ApplyInfix.After_4_6_0(lo, Term.Name(op), _, ac))
+              if (op == "until" || op == "to") && ac.values.lengthCompare(1) == 0 =>
+            Some((iName, lo, ac.values.head.asInstanceOf[Term], op == "to"))
+          case _ => None
+      case _ => None
 
   private[codegen] def genForDo(enums: List[Enumerator], body: Term): String =
     if enumeratorsNeedAsyncFor(enums) then genAsyncForDo(enums, body)

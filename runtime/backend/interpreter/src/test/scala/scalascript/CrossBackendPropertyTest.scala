@@ -309,6 +309,30 @@ class CrossBackendPropertyTest extends AnyFunSuite:
       assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
       assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
 
+  // An effect op performed inside a Range `for i <- (lo until/to hi) do …` loop. The `for-do` →
+  // `foreach` desugar ran the body via non-CPS codegen, so `acc + Eff.op()` was `Int + _perform`
+  // (JVM compile error) / `acc + <Computation>` (JS garbage); interp was correct. Fixed by desugaring
+  // a Range for-do to the same while-trampoline the `while` form already uses, on both JVM + JS.
+  // (effect-perform-in-fordo.)
+  test("effect perform in for-do loop cross-backend"):
+    assume(has("node") && has("scala-cli"), "node/scala-cli not available")
+    val shapes = Seq(
+      "until" -> ("effect Counter:\n  def tick(): Int\n" +
+        "def prog(): Int ! Counter =\n  var acc = 0\n  for i <- 0 until 3 do\n    acc = acc + Counter.tick()\n  acc\n" +
+        "println(handle(prog()) { case Counter.tick(resume) => resume(5) })\n"),
+      "to-inclusive" -> ("effect Counter:\n  def tick(): Int\n" +
+        "def prog(): Int ! Counter =\n  var acc = 0\n  for i <- 1 to 3 do\n    acc = acc + Counter.tick()\n  acc\n" +
+        "println(handle(prog()) { case Counter.tick(resume) => resume(2) })\n"),
+      "body-uses-loopvar" -> ("effect Reader:\n  def ask(k: Int): Int\n" +
+        "def prog(): Int ! Reader =\n  var acc = 0\n  for i <- 0 until 4 do\n    acc = acc + Reader.ask(i)\n  acc\n" +
+        "println(handle(prog()) { case Reader.ask(k, resume) => resume(k * 10) })\n"),
+    )
+    for (label, prog) <- shapes do
+      val m   = module(prog)
+      val exp = interp(m)
+      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
+      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+
   private def module(program: String) = Parser.parse(s"# Gen\n\n```scalascript\n$program\n```\n")
 
   private def interp(m: scalascript.ast.Module): String =

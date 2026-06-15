@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix(jvm/js): effect perform inside a for-do loop (CPS desugar)
+
+An effect op performed inside a `for i <- 0 until n do …` loop diverged across all
+three backends — interp correct, JVM compile error (`Int + _perform`), JS garbage
+(`acc + <Computation>`). The `while`-loop form works (dedicated CPS while-trampoline),
+but the `for-do` → `foreach` desugar ran the body via non-CPS codegen so the effect
+wasn't threaded. Fixed by adding a Range `for i <- (lo until/to hi) do body` recognizer
+to BOTH CPS emitters (`JvmGenCpsTransform` + `JsGenCpsCodegen`) that desugars to an
+index var + the same while-trampoline, threading the body's `perform`s through `_bind`.
+Covers `until`/`to` and bodies reading the loop var; non-Range / multi-generator / guarded
+for-do is unchanged. Found by `CrossBackendPropertyTest`; guarded by a new "effect perform
+in for-do loop cross-backend" test (interp == JS == JVM). 65 effect/CPS tests green.
+
+---
+
 ## 2026-06-15 — fix(js): partial application of curried defs (auto-curry)
 
 Partial application of a curried def failed on the JS backend (`not callable: NaN`)

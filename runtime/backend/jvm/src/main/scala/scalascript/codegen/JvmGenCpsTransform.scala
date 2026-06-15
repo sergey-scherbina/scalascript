@@ -262,6 +262,19 @@ private[codegen] trait JvmGenCpsTransform:
     // trampoline it without growing the JVM stack). See specs/effect-cps-loops.md.
     case w: Term.While => emitWhileTrampoline(w, "()")
 
+    // A `for i <- (lo until/to hi) do body` reachable in a CPS context (effect performed in the body):
+    // desugar the Range generator to an index `var` + the same while-trampoline, so the body's
+    // `perform`s thread through `_bind`. Without this the `for-do` emits raw and `acc + Eff.op()`
+    // (Int + Any `_perform`) fails to compile. (effect-perform-in-fordo.) Non-range / multi-generator
+    // for-do falls through to the raw fallback (unchanged).
+    case t: Term.For if rangeForDo(t).isDefined =>
+      val (iName, lo, hi, inclusive) = rangeForDo(t).get
+      val cmp     = if inclusive then "<=" else "<"
+      val wn      = "_wf" + freshTmp()
+      val cpsBody = emitCpsExpr(t.body)
+      s"{ var $iName: Int = ${lo.syntax}; def $wn(): Any = if ($iName $cmp ${hi.syntax}) " +
+        s"_bind($cpsBody, (_wk: Any) => { $iName = $iName + 1; $wn() }) else (); _bind($wn(), (_wr: Any) => ()) }"
+
     case Term.Function.After_4_6_0(paramClause, body) =>
       val params = paramClause.values.map { p =>
         val tpe = p.decltpe.map(t => s": ${t.syntax}").getOrElse(": Any")
@@ -812,6 +825,20 @@ private[codegen] trait JvmGenCpsTransform:
    *  recurses without growing the JVM stack (the runner trampolines it). The vars
    *  the loop reads/writes are real typed mutable vars in the enclosing block, so
    *  `cond` and the body's assignments compile. */
+  /** Recognise a single-generator `for i <- (lo until/to hi) do …` over an integer Range.
+   *  Returns `(loopVarName, lo, hi, inclusive)`; `None` for anything else (multi-generator,
+   *  non-range source, `by`-stepped, filter guards). (effect-perform-in-fordo.) */
+  private def rangeForDo(t: Term.For): Option[(String, Term, Term, Boolean)] =
+    t.enumsBlock.enums match
+      case List(g: scala.meta.Enumerator.Generator) =>
+        (g.pat, g.rhs) match
+          case (scala.meta.Pat.Var(scala.meta.Term.Name(iName)),
+                Term.ApplyInfix.After_4_6_0(lo, Term.Name(op), _, ac))
+              if (op == "until" || op == "to") && ac.values.lengthCompare(1) == 0 =>
+            Some((iName, lo, ac.values.head.asInstanceOf[Term], op == "to"))
+          case _ => None
+      case _ => None
+
   private def emitWhileTrampoline(w: Term.While, continuation: String): String =
     val wn   = "_w" + freshTmp()
     val body = emitCpsExpr(w.body)
