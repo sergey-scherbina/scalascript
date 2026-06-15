@@ -488,6 +488,25 @@ class CrossBackendPropertyTest extends AnyFunSuite:
       val jvm = JvmGen.generate(module(s"println($ctor(1, 2, 3).sum)\n"))
       assert(jvm.contains(s"$ctor("), s"JVM should preserve real $ctor type, got:\n${jvm.linesIterator.filter(_.contains("println")).mkString}")
 
+  test("real collection type: Vector display + mutable Array cross-backend"):
+    assume(has("node") && has("scala-cli"), "node/scala-cli not available")
+    // Deterministic shapes all three backends agree on (display + Array mutation). NOT here: Array
+    // reference-identity equality (JS `_eq` is structural) and LazyList laziness/<not computed> display
+    // (JS arrays are eager) — those are interp-vs-JVM and live in CollectionRealTypeTest. (collection-real-type.)
+    val shapes = Seq(
+      "vector-show"     -> "println(Vector(1, 2, 3))\n",
+      "indexedseq-show" -> "println(IndexedSeq(7, 8, 9))\n",
+      "array-update"    -> "val a = Array(1, 2, 3)\na(0) = 9\nprintln(a(0))\n",
+      "array-update-mk" -> "val a = Array(1, 2, 3)\na.update(1, 8)\nprintln(a.mkString(\",\"))\n",
+      "array-map-mut"   -> "val a = Array(1, 2, 3).map(x => x * 2)\na(0) = 100\nprintln(a.mkString(\",\"))\n",
+      "array-tolist"    -> "println(Array(1, 2, 3).toList)\n",
+    )
+    for (label, prog) <- shapes do
+      val m   = module(prog)
+      val exp = interp(m)
+      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
+      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+
   private def module(program: String) = Parser.parse(s"# Gen\n\n```scalascript\n$program\n```\n")
 
   private def interp(m: scalascript.ast.Module): String =

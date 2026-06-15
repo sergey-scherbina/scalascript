@@ -174,7 +174,7 @@ function _show(v) {
   if (typeof v === 'string') return v;
   if (Array.isArray(v)) {
     if (v._isTuple) return '(' + v.map(_show).join(', ') + ')';
-    return 'List(' + v.map(_show).join(', ') + ')';
+    return (v._kind || 'List') + '(' + v.map(_show).join(', ') + ')';
   }
   if (_isMap(v)) {
     if (v.size === 0) return 'Map()';
@@ -249,6 +249,15 @@ function render(...args) {
   }
   const parts = args.length === 1 && args[0] && args[0]._type === '_Doc' ? args[0].parts : args;
   _println(parts.map(toStr).join('\n'));
+}
+
+// Tag a backing array with its real Scala collection type for display (`Vector(1, 2, 3)` vs the
+// default `List(...)`). Non-enumerable so it never leaks into JSON.stringify / spread / structural
+// `_eq`. The tag is set at construction; ops that rebuild the array (`.map`) drop it (shown as List)
+// — a known, documented JS-display limitation; the interpreter/JVM keep it through ops. (collection-real-type.)
+function _seqKind(kind, arr) {
+  Object.defineProperty(arr, '_kind', { value: kind, writable: true, configurable: true, enumerable: false });
+  return arr;
 }
 
 function List(...args) { return [...args]; }

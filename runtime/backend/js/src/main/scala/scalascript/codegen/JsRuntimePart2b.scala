@@ -105,6 +105,9 @@ function _dispatch(obj, method, args) {
       }
       case 'isEmpty': return obj.length === 0;
       case 'nonEmpty': return obj.length > 0;
+      // Mutable Array: `a.update(i, x)` writes in place (the method form of `a(i) = x`). On an immutable
+      // ssc List this never type-checks, so the array backing is safe. (collection-real-type.)
+      case 'update': obj[args[0]] = args[1]; return undefined;
       case 'reverse': return [...obj].reverse();
       case 'distinct': return [...new Set(obj)];
       case 'toList': case 'toSeq': case 'toVector': case 'toIndexedSeq': case 'toArray': case 'toIterable': return obj;

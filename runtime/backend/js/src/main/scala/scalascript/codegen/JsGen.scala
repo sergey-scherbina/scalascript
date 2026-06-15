@@ -3412,6 +3412,11 @@ class JsGen(
         s"Object.assign([$elemsJs], {_isTuple: true})"
 
     // Assignment
+    // `recv(idx) = rhs` — indexed assignment (Scala desugars to `recv.update(idx, rhs)`). For a JS array
+    // backing this is a plain element write. Single-index only (the common Array case). (collection-real-type.)
+    case Term.Assign(Term.Apply.After_4_6_0(recv, ac), rhs) if ac.values.lengthCompare(1) == 0 =>
+      s"${genExpr(recv)}[${genExpr(ac.values.head)}] = ${genExpr(rhs)}"
+
     case Term.Assign(lhs, rhs) =>
       s"${genExpr(lhs)} = ${genExpr(rhs)}"
 
@@ -4276,11 +4281,18 @@ class JsGen(
       case Term.ApplyType.After_4_6_0(Term.Name("Map"), _) =>
         s"_Map(${argVals.mkString(", ")})"
 
-      // List / Seq / Vector / Array / IndexedSeq / Iterable / LazyList constructor — all backed by a JS
-      // array (eager — no distinct runtime type). (collection-ctor-aliases.)
-      case Term.Name("List" | "Seq" | "Vector" | "Array" | "IndexedSeq" | "Iterable" | "LazyList") =>
+      // Vector / IndexedSeq — backed by a JS array but tagged with their display type so
+      // `println(Vector(1,2,3))` renders `Vector(1, 2, 3)` (matching interp/JVM). (collection-real-type.)
+      case Term.Name("Vector" | "IndexedSeq") =>
+        s"_seqKind('Vector', [${argVals.mkString(", ")}])"
+      case Term.ApplyType.After_4_6_0(Term.Name("Vector" | "IndexedSeq"), _) =>
+        s"_seqKind('Vector', [${argVals.mkString(", ")}])"
+      // List / Seq / Array / Iterable / LazyList constructor — backed by a plain JS array (eager — no
+      // distinct runtime type; Seq/Iterable display as List, Array's toString is non-deterministic, and
+      // LazyList is eager off-JVM). (collection-ctor-aliases / collection-real-type.)
+      case Term.Name("List" | "Seq" | "Array" | "Iterable" | "LazyList") =>
         s"[${argVals.mkString(", ")}]"
-      case Term.ApplyType.After_4_6_0(Term.Name("List" | "Seq" | "Vector" | "Array" | "IndexedSeq" | "Iterable" | "LazyList"), _) =>
+      case Term.ApplyType.After_4_6_0(Term.Name("List" | "Seq" | "Array" | "Iterable" | "LazyList"), _) =>
         s"[${argVals.mkString(", ")}]"
 
       // Set constructor → deduplicated array (`Set(...)` otherwise hit the JS global `Set`,
