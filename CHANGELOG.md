@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — perf(compile): compile-time-at-scale measured — no O(n²), + CompileScaleBench guard
+
+Closed the measurement gap: all prior compile/codegen benches used 6-line inputs. Profiled
+parse/type/jvmGen/jsGen across N=50→6400 defs (largest ~345 KB single module). Parse + type scale
+LINEARLY; jvmGen/jsGen roughly linear with a mild superlinear tail (×2.1–2.4 per doubling, not quadratic).
+A 6400-def module compiles in <0.5 s (jvmGen ~465 ms, jsGen ~240 ms). No pathology found, no fix
+warranted. Added `CompileScaleBench` (JMH, ~800-def module through each stage) as a standing guard against
+a future O(n²) regression; findings in `docs/compile-scale-findings.md`.
+---
+
 ## 2026-06-15 — chore: tidy SPRINT + BACKLOG (archive completed work)
 
 Housekeeping. SPRINT (2637 lines of already-shipped task history — autonomous batches, busi fixes, JIT

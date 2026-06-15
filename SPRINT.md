@@ -14,7 +14,7 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Strategic-review proposals (2026-06-15) — the feature roadmap is built out; leverage has shifted from
 building features to validating/hardening/enabling what exists. Work top-to-bottom.
 
-- [ ] **compile-time-at-scale** (IN PROGRESS) — every compile/codegen bench uses TINY inputs (6-line
+- [x] **compile-time-at-scale** ✓ DONE 2026-06-15 — measured parse/type/jvmGen/jsGen across N=50→6400 defs: frontend LINEAR, codegen ~linear+mild tail, NO O(n²); 6400-def module compiles <0.5s. Added CompileScaleBench guard + docs/compile-scale-findings.md. ORIGINAL — every compile/codegen bench uses TINY inputs (6-line
       programs; jvmgen-codegen-time −94% was on those). Compile-time at REAL scale is UNMEASURED. HOW:
       build a large-program compile-time bench (generate a big synthetic `.ssc` — many defs/blocks/types
       and/or a deep import chain), profile parser/typer/normalize/codegen scaling vs input size, find any
