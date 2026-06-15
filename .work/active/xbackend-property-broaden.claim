@@ -1,0 +1,6 @@
+xbackend-property-broaden 2026-06-15T06:46:54Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-15T06:46:54Z
+status: in-progress
+done-so-far: slice 1 (CrossBackendPropertyTest) ships — core Int subset (arith/val/if/fns), interp==JS==JVM, core holds.
+next: broaden the generator to ADTs+match, List[Int] ops (sum/length/fold/filter — ordered/deterministic), Int-match, String concat/length. Keep output Int/String/Bool ONLY (avoid Double formatting + Set/Map ordering which legitimately differ across backends). Run; investigate + report/fix any divergence found (the high-value outcome). Ship.
