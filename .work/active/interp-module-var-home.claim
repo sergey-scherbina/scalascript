@@ -1,0 +1,6 @@
+interp-module-var-home 2026-06-15T13:03:51Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-15T13:03:51Z
+status: in-progress
+done-so-far: root-caused the cross-module mutable module-var bug — imported module fns run in the caller's interp; var writes hit caller globals; reads use an import-time snapshot (enrichFnClosures). Minimal repro confirmed (putAndSize returns 1,1,1).
+next: give module-level FunV a home-module interpreter; route MODULE-GLOBAL reads + var-assignment writes to home.globals (NOT switching interp wholesale — out/effects/plugin ctx stay the caller's). Touches Value.FunV + global read resolution + BlockRuntime var-assign + StatRuntime FunV creation + CallRuntime closure setup. Test-gate: /tmp repro + FULL backendInterpreter suite + busi s2a-pat/s2a-signing/resilience-runtime/s1a-vcs MUST stay green; revert if any regress. Check JS/JVM parity (xbackend agent territory — coordinate). Then unblock busi verified-author commits.
