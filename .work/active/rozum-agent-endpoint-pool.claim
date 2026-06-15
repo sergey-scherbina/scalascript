@@ -1,0 +1,6 @@
+feature/rozum-agent-endpoint-pool 2026-06-15T09:06:59Z
+agent: codex
+heartbeat: 2026-06-15T09:06:59Z
+status: not-started
+done-so-far:
+next: write and commit specs/rozum-agent-endpoint-pool.md before code
