@@ -1,6 +1,6 @@
 feature/rozum-agent-schema-derivation 2026-06-15T09:39:44Z
 agent: codex
-heartbeat: 2026-06-15T09:40:10Z
+heartbeat: 2026-06-15T09:49:35Z
 status: in-progress
-done-so-far: worktree created
-next: write and commit specs/rozum-agent-schema-derivation.md
+done-so-far: spec and feature implementation committed on feature branch; focused tests green
+next: update docs, verify full agent suites, then release claim
