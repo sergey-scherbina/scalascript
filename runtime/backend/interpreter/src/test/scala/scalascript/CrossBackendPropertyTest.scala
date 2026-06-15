@@ -460,6 +460,34 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     val nci = interp(nc)
     assert(nci == runJvm(nc), s"non-char String.map interp != jvm: interp=$nci jvm=${runJvm(nc)}")
 
+  // Collection constructors beyond List/Map/Set. The interpreter backs every sequence type with a
+  // single `ListV` (and JS with arrays), but `Seq(...)` / `Vector(...)` / `Array(...)` / `IndexedSeq(...)`
+  // threw `Undefined: Seq` in interp (no companion), and `.toVector`/`.toSeq` were missing. Now their
+  // constructors alias `List` and the `toX` conversions are identities. (collection-ctor-aliases.)
+  test("Seq/Vector/Array constructors + conversions cross-backend"):
+    assume(has("node") && has("scala-cli"), "node/scala-cli not available")
+    val shapes = Seq(
+      "seq-ctor"      -> "println(Seq(1, 2, 3).sum)\n",
+      "vector-ctor"   -> "println(Vector(1, 2, 3).map(x => x * 2).sum)\n",
+      "array-ctor"    -> "println(Array(1, 2, 3).length)\n",
+      "indexedseq"    -> "val xs: IndexedSeq[Int] = IndexedSeq(5, 6)\nprintln(xs.sum)\n",
+      "lazylist"      -> "println(LazyList(1, 2, 3).map(x => x * 2).sum)\n",
+      "list-tovector" -> "println(List(1, 2, 3).toVector.sum)\n",
+      "list-toseq"    -> "println(List(4, 5).toSeq.length)\n",
+      "map-toseq"     -> "println(Map(1 -> 10, 2 -> 20).toSeq.length)\n",
+      "set-ctor"      -> "println(Set(1, 2, 2, 3).size)\n",
+    )
+    for (label, prog) <- shapes do
+      val m   = module(prog)
+      val exp = interp(m)
+      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
+      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+    // The JVM backend compiles real Scala — each constructor must stay its OWN type (not collapse to
+    // List), so the emitted source contains the real companion call. (collection-ctor-aliases.)
+    for ctor <- Seq("Vector", "Array", "IndexedSeq", "LazyList") do
+      val jvm = JvmGen.generate(module(s"println($ctor(1, 2, 3).sum)\n"))
+      assert(jvm.contains(s"$ctor("), s"JVM should preserve real $ctor type, got:\n${jvm.linesIterator.filter(_.contains("println")).mkString}")
+
   private def module(program: String) = Parser.parse(s"# Gen\n\n```scalascript\n$program\n```\n")
 
   private def interp(m: scalascript.ast.Module): String =
@@ -485,7 +513,10 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     val tmp = java.io.File.createTempFile("ssc-prop-", ".sc"); tmp.deleteOnExit()
     java.nio.file.Files.write(tmp.toPath,
       ("//> using scala 3.8.3\n" + JvmGen.generate(m)).getBytes(StandardCharsets.UTF_8))
-    runProc("scala-cli", "run", tmp.getAbsolutePath)
+    // `--server=false` compiles in-process (no bloop BSP daemon) so concurrent scala-cli runs don't
+    // collide on the bloop socket/port (`BindException: Address already in use`) and there's no idle
+    // ZGC daemon to clean up.
+    runProc("scala-cli", "run", tmp.getAbsolutePath, "--server=false")
 
   /** Compare the interp output unless it is a numeric value OUTSIDE all backends' safe int range
    *  (then skip — overflow is a documented platform difference). Non-numeric output (strings) is

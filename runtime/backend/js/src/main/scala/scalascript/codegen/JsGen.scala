@@ -4276,10 +4276,11 @@ class JsGen(
       case Term.ApplyType.After_4_6_0(Term.Name("Map"), _) =>
         s"_Map(${argVals.mkString(", ")})"
 
-      // List constructor (List(...) or List[T](...))
-      case Term.Name("List") =>
+      // List / Seq / Vector / Array / IndexedSeq / Iterable / LazyList constructor — all backed by a JS
+      // array (eager — no distinct runtime type). (collection-ctor-aliases.)
+      case Term.Name("List" | "Seq" | "Vector" | "Array" | "IndexedSeq" | "Iterable" | "LazyList") =>
         s"[${argVals.mkString(", ")}]"
-      case Term.ApplyType.After_4_6_0(Term.Name("List"), _) =>
+      case Term.ApplyType.After_4_6_0(Term.Name("List" | "Seq" | "Vector" | "Array" | "IndexedSeq" | "Iterable" | "LazyList"), _) =>
         s"[${argVals.mkString(", ")}]"
 
       // Set constructor → deduplicated array (`Set(...)` otherwise hit the JS global `Set`,

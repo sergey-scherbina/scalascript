@@ -104,6 +104,14 @@ private[interpreter] object BuiltinsRuntime:
       "empty"    -> Value.EmptyList,
       "apply"    -> listNative
     ))
+    // Seq / Vector / Array / IndexedSeq / Iterable / LazyList — the interpreter backs every sequence
+    // type with `ListV`, so their companions alias `List`'s (`Seq(1,2,3)`, `Vector.fill`, …). On the JVM
+    // backend these compile to the REAL Scala types (raw emit); interp/JS use the List/array backing
+    // (no distinct runtime type — `LazyList` is eager here, so an infinite LazyList won't work off-JVM).
+    // (collection-ctor-aliases.)
+    val seqCompanion = interp.globals("List")
+    for n <- List("Seq", "Vector", "Array", "IndexedSeq", "Iterable", "LazyList", "List$") do
+      interp.globals(n) = seqCompanion
     // Set constructor: `Set(a, b)`, `Set[T]()`, `Set.empty`.
     val setNative = Value.NativeFnV("Set", args => Pure(Value.SetV(args.toSet)))
     interp.globals("Set") = Value.InstanceV("Set", Map(

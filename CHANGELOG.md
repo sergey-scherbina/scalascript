@@ -4,6 +4,30 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — feat: Seq/Vector/Array/IndexedSeq/Iterable/LazyList constructors + toX conversions
+
+Despite the user guide listing `Seq`/`Vector`/`Array`/`Set`, the interpreter only had
+`List`/`Map`/`Set` companions — `Seq(1,2,3)`, `Vector(...)`, `Array(...)`, `IndexedSeq(...)`
+threw `Undefined: Seq`. Added them (+ `LazyList`): the interpreter backs every sequence type
+with a single `ListV` (JS with arrays), so these companions alias `List`'s (`BuiltinsRuntime`),
+JsGen emits the constructors as arrays, and `toList`/`toSeq`/`toVector`/`toIndexedSeq`/`toArray`/
+`toIterable` are identity conversions (interp + JS, List + Map). On the JVM backend each stays
+its REAL Scala type (raw emit), guarded by a JvmGen-preserves-type assertion. Caveat: off-JVM
+they're not distinct runtime types (Vector/Array = List, LazyList is eager). Guard:
+`CrossBackendPropertyTest` "Seq/Vector/Array constructors + conversions cross-backend".
+
+## 2026-06-15 — chore: run scala-cli serverless (`--server=false`) to avoid Bloop contention
+
+The cross-backend test harness invoked `scala-cli run` without `--server=false`, so concurrent
+runs shared one Bloop BSP daemon and collided on its socket/port (`BindException: Address
+already in use` / `TimeoutException`), intermittently failing JVM cross-backend assertions. Added
+`--server=false` to the harness and the one remaining bench runner that lacked it (the rest of the
+`ssc` CLI already passes it). With serverless compiles there's no Bloop daemon at all — no idle
+ZGC churn and no port contention. (Companion local change: the `scala-cli()` shell wrapper now
+appends `--server=false` for build subcommands instead of pre-starting a GC-tuned Bloop daemon.)
+
+---
+
 ## 2026-06-15 — fix(interp): String.map returns a Seq when the element fn yields a non-Char
 
 `"abc".map(c => c.toInt).sum` threw in the interpreter (`No method 'sum'`) — interp's

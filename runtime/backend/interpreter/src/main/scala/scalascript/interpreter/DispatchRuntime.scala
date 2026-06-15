@@ -1586,7 +1586,7 @@ private[interpreter] object DispatchRuntime:
               result = arr(i)._1 :: result
               i -= 1
             Pure(Value.ListV(result))
-      case "toList"       => Pure(recv)
+      case "toList" | "toSeq" | "toVector" | "toIndexedSeq" | "toArray" | "toIterable" => Pure(recv)
       case "toSet"        => Pure(Value.SetV(ls.toSet))
       case "flatten"      =>
         val flatBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
@@ -2120,7 +2120,7 @@ private[interpreter] object DispatchRuntime:
       case "nonEmpty" => Computation.pureBool(m.nonEmpty)
       case "keys"     => Pure(Value.ListV(m.keys.toList))
       case "values"   => Pure(Value.ListV(m.values.toList))
-      case "toList"   =>
+      case "toList" | "toSeq" | "toVector" | "toIndexedSeq" =>
         val tlBuf = new scala.collection.mutable.ArrayBuffer[Value](m.size)
         val tlIt = m.iterator
         while tlIt.hasNext do

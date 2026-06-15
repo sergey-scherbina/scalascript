@@ -107,7 +107,7 @@ function _dispatch(obj, method, args) {
       case 'nonEmpty': return obj.length > 0;
       case 'reverse': return [...obj].reverse();
       case 'distinct': return [...new Set(obj)];
-      case 'toList': return obj;
+      case 'toList': case 'toSeq': case 'toVector': case 'toIndexedSeq': case 'toArray': case 'toIterable': return obj;
       case 'toSet': return [...new Set(obj)];
       case 'sum': return obj.reduce((a,b)=>a+b, 0);
       case 'min': return Math.min(...obj);
@@ -191,7 +191,7 @@ function _dispatch(obj, method, args) {
       case 'mkString': return [...obj.entries()].map(([k,v])=>_show(k)+'->'+_show(v)).join(args[0]??'');
       case 'map': return [...obj.entries()].map(([k,v])=>args[0]([k,v]));
       case 'filter': return _hamtOf([...obj.entries()].filter(([k,v])=>args[0]([k,v])));
-      case 'toList': return [...obj.entries()].map(([k,v])=>{ const t=[k,v]; t._isTuple=true; return t; });
+      case 'toList': case 'toSeq': case 'toVector': case 'toIndexedSeq': return [...obj.entries()].map(([k,v])=>{ const t=[k,v]; t._isTuple=true; return t; });
       case 'foreach': [...obj.entries()].forEach(([k,v])=>args[0]([k,v])); return undefined;
     }
   }
