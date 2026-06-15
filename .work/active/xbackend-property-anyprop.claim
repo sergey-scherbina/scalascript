@@ -1,0 +1,6 @@
+xbackend-property-anyprop 2026-06-15T10:41:03Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-15T10:41:03Z
+status: in-progress
+done-so-far: property-test hunt fixed 6 cross-backend codegen bugs. 2 deferred: List(r,r).sum (Numeric[Any]) + tuple-accessor arith t._1+t._2 — both need Any-type propagation.
+next: generalize handleResultVals→anyTypedVals taint (vals bound to Any-typed exprs); broaden _anyCall0 Select routing to termRefsHandleResultVal(qual); route Select(anyTypedVal,_N) arith via _binOp. Fix the 2 deferred; guard cross-backend.
