@@ -45,8 +45,20 @@ class CrossBackendPropertyTest extends AnyFunSuite:
         case _ =>
           s"${fns(rng.nextInt(fns.size))}(${genExpr(rng, depth-1, vars, fns)})"
 
+  /** Dispatch across program KINDS so the generator exercises more of the language than arithmetic.
+   *  Every kind prints a deterministic `Int`/`String` — NOT a `Double` (formatting differs across
+   *  backends) and NOT a `Set`/`Map` (iteration order legitimately differs); `List` is ordered, safe. */
   private def genProgram(seed: Int): String =
     val rng = new Random(seed.toLong)
+    (seed % 6) match
+      case 0 => genArithProgram(rng)
+      case 1 => genListProgram(rng)
+      case 2 => genMatchProgram(rng)
+      case 3 => genEnumProgram(rng)
+      case 4 => genStringProgram(rng)
+      case _ => genCaseClassProgram(rng)
+
+  private def genArithProgram(rng: Random): String =
     val sb  = new StringBuilder
     val nFns    = rng.nextInt(3)            // 0–2 helper functions
     val fnNames = (0 until nFns).map(i => s"f$i")
@@ -58,6 +70,48 @@ class CrossBackendPropertyTest extends AnyFunSuite:
       sb.append(s"val v$i = ${genExpr(rng, 2, valNames.take(i), fnNames)}\n")
     sb.append(s"println(${genExpr(rng, 3, valNames, fnNames)})\n")
     sb.toString
+
+  /** `List[Int]` operations producing an `Int` — ordered, deterministic. */
+  private def genListProgram(rng: Random): String =
+    val n  = 3 + rng.nextInt(4)
+    val xs = (0 until n).map(_ => rng.nextInt(10)).mkString(", ")
+    val k  = rng.nextInt(6)
+    val op = rng.nextInt(8) match
+      case 0 => "sum"
+      case 1 => "length"
+      case 2 => "max"
+      case 3 => "min"
+      case 4 => s"filter(e => e > $k).length"
+      case 5 => "map(e => e * 2).sum"
+      case 6 => "foldLeft(0)((a, b) => a + b)"
+      case _ => s"count(e => e > $k)"
+    s"val xs = List($xs)\nprintln(xs.$op)\n"
+
+  /** `Int` `match` with a wildcard. */
+  private def genMatchProgram(rng: Random): String =
+    val n = rng.nextInt(5)
+    s"val n = $n\nprintln(n match\n  case 0 => 10\n  case 1 => 21\n  case 2 => 32\n  case _ => 99\n)\n"
+
+  /** Enum ADT + exhaustive `match`. */
+  private def genEnumProgram(rng: Random): String =
+    val pick = Vector("Red", "Green", "Blue")
+    val a = pick(rng.nextInt(3)); val b = pick(rng.nextInt(3))
+    "enum Color:\n  case Red, Green, Blue\n" +
+      "def rank(c: Color): Int = c match\n  case Red => 1\n  case Green => 2\n  case Blue => 3\n" +
+      s"println(rank($a) + rank($b) * 10)\n"
+
+  /** String concatenation + `.length`. */
+  private def genStringProgram(rng: Random): String =
+    val parts = (0 until (2 + rng.nextInt(3))).map(_ => "\"" + ("ab".repeat(1 + rng.nextInt(3))) + "\"")
+    val s = parts.mkString(" + ")
+    if rng.nextBoolean() then s"val s = $s\nprintln(s.length)\n"
+    else s"val s = $s\nprintln(s)\n"
+
+  /** Case-class construction + field access. */
+  private def genCaseClassProgram(rng: Random): String =
+    val x = rng.nextInt(50); val y = rng.nextInt(50)
+    "case class Point(x: Int, y: Int)\n" +
+      s"val p = Point($x, $y)\nprintln(p.x + p.y * 2)\n"
 
   private def module(program: String) = Parser.parse(s"# Gen\n\n```scalascript\n$program\n```\n")
 
@@ -86,34 +140,38 @@ class CrossBackendPropertyTest extends AnyFunSuite:
       ("//> using scala 3.8.3\n" + JvmGen.generate(m)).getBytes(StandardCharsets.UTF_8))
     runProc("scala-cli", "run", tmp.getAbsolutePath)
 
-  /** True when interp produced a clean integer in all backends' safe range. */
-  private def inRange(s: String): Boolean =
-    s.toLongOption.exists(v => math.abs(v) < 100000000L)
+  /** Compare the interp output unless it is a numeric value OUTSIDE all backends' safe int range
+   *  (then skip — overflow is a documented platform difference). Non-numeric output (strings) is
+   *  always compared. */
+  private def comparable(s: String): Boolean =
+    s.toLongOption match
+      case Some(v) => math.abs(v) < 100000000L
+      case None    => true
 
-  test("generated core programs: interp == JS(node) over 40 seeds"):
+  test("generated programs (6 kinds): interp == JS(node) over 48 seeds"):
     assume(has("node"), "node not available")
     var checked = 0; var skipped = 0
-    for seed <- 0 until 40 do
+    for seed <- 0 until 48 do
       val prog = genProgram(seed)
       val m    = module(prog)
       val exp  = try interp(m) catch case _: Throwable => null
-      if exp == null || !inRange(exp) then skipped += 1
+      if exp == null || !comparable(exp) then skipped += 1
       else
         val js = runJs(m)
         assert(js == exp,
-          s"\nJS diverged from interp on seed $seed:\n--- program ---\n$prog--- interp: $exp | js: $js ---")
+          s"\nJS diverged from interp on seed $seed:\n--- program ---\n$prog--- interp: [$exp] | js: [$js] ---")
         checked += 1
     info(s"interp==JS: checked $checked generated programs, skipped $skipped (out-of-range/interp-error)")
-    assert(checked >= 20, s"too few programs exercised ($checked) — generator may be degenerate")
+    assert(checked >= 30, s"too few programs exercised ($checked) — generator may be degenerate")
 
-  test("generated core programs: interp == JVM(scala-cli) over a 5-seed sample"):
+  test("generated programs (all 6 kinds): interp == JVM(scala-cli) over a 6-seed sample"):
     assume(has("scala-cli"), "scala-cli not available")
     var checked = 0
-    for seed <- 0 until 5 do
-      val prog = genProgram(seed * 7 + 1)
+    for seed <- 0 until 6 do
+      val prog = genProgram(seed * 7 + 1) // seeds 1,8,15,22,29,36 → mod 6 hits all 6 kinds
       val m    = module(prog)
       val exp  = try interp(m) catch case _: Throwable => null
-      if exp != null && inRange(exp) then
-        assert(runJvm(m) == exp, s"\nJVM diverged from interp on seed-sample $seed:\n$prog--- interp: $exp ---")
+      if exp != null && comparable(exp) then
+        assert(runJvm(m) == exp, s"\nJVM diverged from interp on seed-sample $seed:\n$prog--- interp: [$exp] ---")
         checked += 1
     info(s"interp==JVM: checked $checked generated programs")
