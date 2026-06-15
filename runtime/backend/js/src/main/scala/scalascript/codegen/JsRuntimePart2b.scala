@@ -150,6 +150,9 @@ function _dispatch(obj, method, args) {
       case 'sorted': return [...obj].sort((a,b) => a<b?-1:a>b?1:0);
       case 'groupBy': { const m=new Map(); obj.forEach(x=>{const k=args[0](x);if(!m.has(k))m.set(k,[]);m.get(k).push(x);}); return m; }
       case 'partition': { const yes=[],no=[]; obj.forEach(x=>(args[0](x)?yes:no).push(x)); return [yes, no]; }
+      // collect(pf): keep results where the partial function is defined; a `case`-guard miss throws
+      // "Match failure" (the emitted PF closure), so skip those. (jsgen-collect-partial.)
+      case 'collect': { const out=[]; for (const x of obj) { try { out.push(args[0](x)); } catch (e) { if (!(e instanceof Error && typeof e.message === 'string' && e.message.indexOf('Match failure:') === 0)) throw e; } } return out; }
       case 'span': { let i=0; while(i<obj.length&&args[0](obj[i]))i++; return [obj.slice(0,i), obj.slice(i)]; }
       case 'reduceLeft': return obj.reduce(args[0]);
       case 'foldLeft':  return (f) => _seqFoldLeft(obj, args[0], f);
@@ -205,7 +208,11 @@ function _dispatch(obj, method, args) {
       case 'foreach': args[0](obj.value); return undefined;
       case 'toList': return [obj.value];
       case 'orElse': return obj;
-      case 'contains': return obj.value === args[0];
+      case 'contains': return _eq(obj.value, args[0]);
+      case 'exists': return !!args[0](obj.value);
+      case 'forall': return !!args[0](obj.value);
+      // Option.fold is curried: `fold(ifEmpty)(f)`. (jsgen-option-fold-curried.)
+      case 'fold': return (f) => f(obj.value);
     }
   }
   if (obj && obj._type === '_None') {
@@ -222,6 +229,10 @@ function _dispatch(obj, method, args) {
       case 'toList': return [];
       case 'orElse': return args[0];
       case 'contains': return false;
+      case 'exists': return false;
+      case 'forall': return true;
+      // None.fold(ifEmpty)(f) = ifEmpty. (jsgen-option-fold-curried.)
+      case 'fold': return (f) => args[0];
     }
   }
   // Either[L, R] dispatch — Right(v) is the success channel; Left(v) is the

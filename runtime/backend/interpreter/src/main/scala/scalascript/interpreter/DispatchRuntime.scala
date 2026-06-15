@@ -369,7 +369,8 @@ private[interpreter] object DispatchRuntime:
         val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
         var rem = ls
         while rem.nonEmpty do
-          interp.callValue1(arg, rem.head, env) match
+          collectStep(arg, rem.head, env, interp) match
+            case null                    => rem = rem.tail   // PF not defined here → skip
             case Pure(ov: Value.OptionV) => if ov.inner != null then buf += ov.inner; rem = rem.tail
             case Pure(v)                 => buf += v; rem = rem.tail
             case comp =>
@@ -377,10 +378,14 @@ private[interpreter] object DispatchRuntime:
               def loopRest(remaining: List[Value]): Computation = remaining match
                 case Nil => Pure(Value.ListV(buf.toList))
                 case h :: rest =>
-                  FlatMap(interp.callValue1(arg, h, env), {
-                    case ov: Value.OptionV => if ov.inner != null then buf += ov.inner; loopRest(rest)
-                    case v                 => buf += v; loopRest(rest)
-                  })
+                  collectStep(arg, h, env, interp) match
+                    case null                    => loopRest(rest)
+                    case Pure(ov: Value.OptionV) => if ov.inner != null then buf += ov.inner; loopRest(rest)
+                    case Pure(v)                 => buf += v; loopRest(rest)
+                    case c => FlatMap(c, {
+                      case ov: Value.OptionV => if ov.inner != null then buf += ov.inner; loopRest(rest)
+                      case v                 => buf += v; loopRest(rest)
+                    })
               return FlatMap(comp, {
                 case ov: Value.OptionV => if ov.inner != null then buf += ov.inner; loopRest(tail)
                 case v                 => buf += v; loopRest(tail)
@@ -2036,7 +2041,8 @@ private[interpreter] object DispatchRuntime:
           val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
           var rem = ls
           while rem.nonEmpty do
-            interp.callValue1(f, rem.head, env) match
+            collectStep(f, rem.head, env, interp) match
+              case null                         => rem = rem.tail   // PF not defined here → skip
               case Pure(ov: Value.OptionV) => if ov.inner != null then buf += ov.inner; rem = rem.tail
               case Pure(v)                      => buf += v; rem = rem.tail
               case comp =>
@@ -2044,10 +2050,14 @@ private[interpreter] object DispatchRuntime:
                 def loopRest(remaining: List[Value]): Computation = remaining match
                   case Nil => Pure(Value.ListV(buf.toList))
                   case h :: rest =>
-                    FlatMap(interp.callValue1(f, h, env), {
-                      case ov: Value.OptionV => if ov.inner != null then buf += ov.inner; loopRest(rest)
-                      case v                 => buf += v; loopRest(rest)
-                    })
+                    collectStep(f, h, env, interp) match
+                      case null                    => loopRest(rest)
+                      case Pure(ov: Value.OptionV) => if ov.inner != null then buf += ov.inner; loopRest(rest)
+                      case Pure(v)                 => buf += v; loopRest(rest)
+                      case c => FlatMap(c, {
+                        case ov: Value.OptionV => if ov.inner != null then buf += ov.inner; loopRest(rest)
+                        case v                 => buf += v; loopRest(rest)
+                      })
                 return FlatMap(comp, {
                   case ov: Value.OptionV => if ov.inner != null then buf += ov.inner; loopRest(tail)
                   case v                 => buf += v; loopRest(tail)
@@ -2430,6 +2440,13 @@ private[interpreter] object DispatchRuntime:
   // ── Int ─────────────────────────────────────────────────────────────────────
 
   /** Single-arg fast path for Int — avoids `arg :: Nil` cons cell for max/min/to/until. */
+  /** Apply a `collect` element function, returning `null` to SKIP the element when a partial function
+   *  isn't defined there (a `case`-guard that doesn't match raises a located "Match failure" rather than
+   *  returning). An `Option`-returning fn handles its own skip via `None`. (interp-collect-partial.) */
+  private def collectStep(f: Value, elem: Value, env: Env, interp: Interpreter): Computation | Null =
+    try interp.callValue1(f, elem, env)
+    catch case e: InterpretError if e.getMessage != null && e.getMessage.contains("Match failure:") => null
+
   private def dispatchInt1(n: Long, name: String, arg: Value, env: Env, interp: Interpreter): Computation =
     val recv = Value.intV(n)
     name match

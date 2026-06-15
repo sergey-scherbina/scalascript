@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix: enum-payload match, partial-fn collect, Option.fold (cross-backend)
+
+A wave-6 property probe (enums / collections / Option) found and fixed three cross-backend
+bugs: (1) **jsgen-enum-payload-extract** — matching an enum case WITH a payload bound the
+`_tag` slot instead of the field (`case Circle(r)` gave `r = 0`/`1`), because
+`caseClassFieldsByType` (used for field-name accessors) indexed only `Defn.Class`, not enum
+cases, so the positional `Object.values(scrut).slice(1)[i]` fallback skipped only `_type`, not
+`_tag`. Now indexes enum cases too. (2) **collect-partial** — `xs.collect { case x if … => … }`
+threw `Match failure` in the interpreter (called the PF as total) and was absent from the JS
+array dispatch; both now SKIP elements the PF isn't defined on. (3) **jsgen-option-fold-curried** —
+curried `Option.fold(ifEmpty)(f)` was missing from the JS Option dispatch; added it (plus
+`exists`/`forall`, structural `Some.contains`). interp/JS/JVM now agree. Found by
+`CrossBackendPropertyTest`; guarded by a new "enum payload, collect, Option.fold cross-backend"
+test. 159 cross-backend / interp / JS-codegen tests green. (Filed open: xbackend-range-by-step —
+`(0 to 10 by 2)` stepped Ranges work on JVM but not interp/JS.)
+
+---
+
 ## 2026-06-15 — fix: 4 cross-backend bugs (case-class eq, Set, num+String, JVM auto-output)
 
 A wave-5 property probe (Map/Set, case-class equality, numerics) found four cross-backend

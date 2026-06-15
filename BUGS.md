@@ -13,6 +13,30 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `done` | reporter confirmed fixed (safe to trim) |
 
 
+## jsgen-enum-payload-extract — `fixed` (2026-06-15)
+
+- **Found by:** `CrossBackendPropertyTest` (wave-6 enum probes).
+- **Symptom:** matching an `enum` case WITH a payload bound the wrong value on JS — `enum Shape: case Circle(r: Int); … case Circle(r) => …` bound `r` to the case's `_tag` (0/1), not the field. `area(Circle(2)) + area(Square(3))` gave `1` instead of `21`; interp + JVM correct. `genPattern`'s Extract used field NAMES from `caseClassFieldsByType` when known, else the positional `Object.values(scrut).slice(1)[i]` — but enum cases carry an extra `_tag` field, and `caseClassFieldsByType` was populated only for `Defn.Class`, not enum cases, so `slice(1)[0]` returned `_tag`.
+- **FIXED (2026-06-15):** `caseClassFieldsInModule` now also indexes `Defn.Enum` cases (name → field list), so enum-case Extract binds by field name. Guard: `CrossBackendPropertyTest` "enum payload, collect, Option.fold cross-backend" (enum-payload-match + enum-nullary).
+
+## interp-collect-partial / jsgen-collect-partial — `fixed` (2026-06-15)
+
+- **Found by:** `CrossBackendPropertyTest` (wave-6 collection probes).
+- **Symptom:** `xs.collect { case x if x % 2 == 0 => x * 10 }` (a partial function with a guard) threw `Match failure: 1` in the INTERPRETER (it called the PF as a total function), and on JS threw `Method not found: collect` (no `collect` in the array `_dispatch`); JVM correct. `collect` must SKIP elements the PF isn't defined on.
+- **FIXED (2026-06-15):** interp — a `collectStep` helper catches the located "Match failure" and skips (reusing the existing `None`-skip path). JS — added a `collect` array-dispatch case that calls the element fn and skips when it throws a "Match failure" (the emitted PF closure's no-match error). Guard: `CrossBackendPropertyTest` collect-guard.
+
+## jsgen-option-fold-curried — `fixed` (2026-06-15)
+
+- **Found by:** `CrossBackendPropertyTest` (wave-6 Option probes).
+- **Symptom:** `Some(5).fold(0)(x => x * 2)` failed on JS — the curried `Option.fold(ifEmpty)(f)` was absent from the `_Some`/`_None` dispatch (only `Either.fold(fa, fb)` uncurried was present). interp + JVM correct.
+- **FIXED (2026-06-15):** added `fold` to the JS Option dispatch — `_Some`: `(f) => f(value)`, `_None`: `(f) => ifEmpty` — handling the curried second clause. Also added `exists`/`forall` and fixed `Some.contains` to use structural `_eq`. Guard: `CrossBackendPropertyTest` option-fold-some/-none.
+
+## xbackend-range-by-step — `open`
+
+- **Found by:** `CrossBackendPropertyTest` (wave-6).
+- **Symptom:** `(0 to 10 by 2)` — a Range with a `by` step — throws on interp (`No method 'by' on List`; interp materializes `0 to 10` as a List, which has no `by`) and on JS; JVM (raw scala-cli) is correct. `by` / stepped ranges are unsupported off-JVM.
+- **Note:** needs a Range representation (or a `by` that re-steps the materialized list) in interp + a `by` dispatch on JS. Deferred (lower frequency, multi-backend).
+
 ## jvmgen-autooutput-after-classdef — `fixed` (2026-06-15)
 
 - **Found by:** `CrossBackendPropertyTest` (wave-5 case-class probes).

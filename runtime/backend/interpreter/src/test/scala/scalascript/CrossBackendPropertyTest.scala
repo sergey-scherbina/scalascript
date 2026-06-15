@@ -402,6 +402,26 @@ class CrossBackendPropertyTest extends AnyFunSuite:
       assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
       assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
 
+  // Wave-6: enum-with-payload match, partial-function `collect`, `Option.fold`. Found 4 cross-backend
+  // bugs (3 fixed here): JS enum-case extraction bound the `_tag` slot instead of the field
+  // (jsgen-enum-payload-extract); `collect` with a guard threw in interp + was absent on JS
+  // (interp-collect-partial, jsgen-collect-partial); curried `Option.fold(ifEmpty)(f)` was missing
+  // from the JS Option dispatch (jsgen-option-fold-curried). (Range `by` step is filed open separately.)
+  test("enum payload, collect, Option.fold cross-backend"):
+    assume(has("node") && has("scala-cli"), "node/scala-cli not available")
+    val shapes = Seq(
+      "enum-payload-match" -> "enum Shape:\n  case Circle(r: Int)\n  case Square(s: Int)\ndef area(sh: Shape): Int = sh match\n  case Circle(r) => 3 * r * r\n  case Square(s) => s * s\nprintln(area(Circle(2)) + area(Square(3)))\n",
+      "collect-guard"      -> "val xs = List(1, 2, 3, 4, 5)\nprintln(xs.collect { case x if x % 2 == 0 => x * 10 }.sum)\n",
+      "option-fold-some"   -> "val o: Option[Int] = Some(5)\nprintln(o.fold(0)(x => x * 2))\n",
+      "option-fold-none"   -> "val o: Option[Int] = None\nprintln(o.fold(100)(x => x * 2))\n",
+      "enum-nullary"       -> "enum Color:\n  case Red, Green, Blue\ndef rank(c: Color): Int = c match\n  case Red => 1\n  case Green => 2\n  case Blue => 3\nprintln(rank(Green) + rank(Blue))\n",
+    )
+    for (label, prog) <- shapes do
+      val m   = module(prog)
+      val exp = interp(m)
+      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
+      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+
   private def module(program: String) = Parser.parse(s"# Gen\n\n```scalascript\n$program\n```\n")
 
   private def interp(m: scalascript.ast.Module): String =

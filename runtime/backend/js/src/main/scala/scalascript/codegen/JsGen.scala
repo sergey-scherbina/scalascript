@@ -1181,6 +1181,15 @@ class JsGen(
     def scanStats(stats: List[scala.meta.Stat]): Unit = stats.foreach {
       case d: Defn.Class if d.mods.exists(_.isInstanceOf[Mod.Case]) =>
         result(d.name.value) = d.ctor.paramClauses.flatMap(_.values).map(_.name.value).toList
+      // jsgen-enum-payload-extract: enum cases carry a `_tag` field, so the positional
+      // `Object.values(...).slice(1)` fallback binds the wrong slot — index field accessors by NAME.
+      case d: Defn.Enum =>
+        d.templ.body.stats.foreach {
+          case ec: Defn.EnumCase =>
+            val ps = ec.ctor.paramClauses.flatMap(_.values).map(_.name.value).toList
+            if ps.nonEmpty then result(ec.name.value) = ps
+          case _ => ()
+        }
       case _ => ()
     }
     def scanSection(s: Section): Unit =
