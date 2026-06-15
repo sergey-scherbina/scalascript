@@ -5,6 +5,7 @@ description: Generic tool-using agent loop for OpenAI-compatible model gateways 
 package: std.agent
 exports:
   - AgentEndpoint
+  - AgentEndpointPool
   - RunOptions
   - ToolResult
   - AgentTool
@@ -13,8 +14,11 @@ exports:
   - AgentEvent
   - AgentStreamResult
   - runAgent
+  - runAgentPool
   - runAgentStream
+  - runAgentStreamPool
   - collectAgentStream
+  - collectAgentStreamPool
   - agentTool
   - toolOk
   - toolError
@@ -32,6 +36,11 @@ state; the SDK only frames model calls and dispatches tool requests.
 [JsonValue, jsonValue, jStr, jNum, jBool, jField, jObj, jArr](std/json.ssc)
 
 case class AgentEndpoint(baseUrl: String, authToken: String = "")
+
+case class AgentEndpointPool(
+  endpoints: List[AgentEndpoint],
+  maxAttempts: Int = 3
+)
 
 case class RunOptions(
   temperature: Double = 0.0,
@@ -104,6 +113,24 @@ case class ToolDispatchStep(
   events: List[AgentEvent]
 )
 
+case class AgentHttpAttempt(
+  status: Int,
+  body: String,
+  transportError: Boolean,
+  errorText: String
+)
+
+case class AgentStreamAttempt(
+  status: Int,
+  transportError: Boolean,
+  errorText: String,
+  text: String,
+  toolCalls: List[PendingToolCall],
+  finishReason: String,
+  streamError: String,
+  events: List[AgentEvent]
+)
+
 def agentTool(name: String, description: String, parametersJson: String)
              (handler: String => ToolResult): AgentTool =
   AgentTool(name, description, parametersJson, handler)
@@ -123,28 +150,43 @@ def objectSchema(propertiesJson: String, required: List[String]): String =
 
 def runAgent(endpoint: AgentEndpoint, model: String, system: String, user: String,
              tools: List[AgentTool], options: RunOptions = RunOptions()): AgentResult =
+  runAgentPool(AgentEndpointPool(List(endpoint), 1), model, system, user, tools, options)
+
+def runAgentPool(pool: AgentEndpointPool, model: String, system: String, user: String,
+                 tools: List[AgentTool], options: RunOptions = RunOptions()): AgentResult =
   val initialMessages = List(systemMessage(system), userMessage(user))
-  runAgentLoop(endpoint, model, tools, options, initialMessages, List(), 0, "")
+  runAgentLoop(pool, model, tools, options, initialMessages, List(), 0, "")
 
 def runAgentStream(endpoint: AgentEndpoint, model: String, system: String, user: String,
                    tools: List[AgentTool], options: RunOptions = RunOptions())
                   (onEvent: AgentEvent => Unit): AgentResult =
+  runAgentStreamPool(AgentEndpointPool(List(endpoint), 1), model, system, user, tools, options)(onEvent)
+
+def runAgentStreamPool(pool: AgentEndpointPool, model: String, system: String, user: String,
+                       tools: List[AgentTool], options: RunOptions = RunOptions())
+                      (onEvent: AgentEvent => Unit): AgentResult =
   val initialMessages = List(systemMessage(system), userMessage(user))
-  runAgentStreamLoop(endpoint, model, tools, options, initialMessages, List(), 0, "", List(), onEvent).result
+  runAgentStreamLoop(pool, model, tools, options, initialMessages, List(), 0, "", List(), onEvent).result
 
 def collectAgentStream(endpoint: AgentEndpoint, model: String, system: String, user: String,
                        tools: List[AgentTool], options: RunOptions = RunOptions()): AgentStreamResult =
-  runAgentStreamLoop(endpoint, model, tools, options,
+  collectAgentStreamPool(AgentEndpointPool(List(endpoint), 1), model, system, user, tools, options)
+
+def collectAgentStreamPool(pool: AgentEndpointPool, model: String, system: String, user: String,
+                           tools: List[AgentTool], options: RunOptions = RunOptions()): AgentStreamResult =
+  runAgentStreamLoop(pool, model, tools, options,
     List(systemMessage(system), userMessage(user)), List(), 0, "", List(), event => ())
 
-def runAgentLoop(endpoint: AgentEndpoint, model: String, tools: List[AgentTool],
+def runAgentLoop(pool: AgentEndpointPool, model: String, tools: List[AgentTool],
                  options: RunOptions, messages: List[String], ops: List[ExecutedOp],
                  step: Int, lastText: String): AgentResult =
   if step >= options.maxSteps then
     AgentResult(lastText, ops, jArr(messages), "MaxSteps")
   else
-    val response = httpPost(chatCompletionsUrl(endpoint), requestBody(model, messages, tools, options), requestHeaders(endpoint))
-    if response.status < 200 || response.status >= 300 then
+    val response = postChatCompletions(pool, requestBody(model, messages, tools, options))
+    if response.transportError then
+      AgentResult("rozum gateway transport failed: " + response.errorText, ops, jArr(messages), "Error")
+    else if response.status < 200 || response.status >= 300 then
       AgentResult("rozum gateway HTTP " + response.status + ": " + response.body, ops, jArr(messages), "Error")
     else
       val root = jsonValue(response.body)
@@ -156,12 +198,12 @@ def runAgentLoop(endpoint: AgentEndpoint, model: String, tools: List[AgentTool],
       if finishReason == "tool_calls" || calls.length > 0 then
         val assistant = assistantToolCallsMessage(toolCallsJson)
         val next = appendToolResults(calls, tools, messages :+ assistant, ops)
-        runAgentLoop(endpoint, model, tools, options, next._1, next._2, step + 1, lastText)
+        runAgentLoop(pool, model, tools, options, next._1, next._2, step + 1, lastText)
       else
         val text = message.get("content").asString
         AgentResult(text, ops, jArr(messages :+ assistantTextMessage(text)), "Done")
 
-def runAgentStreamLoop(endpoint: AgentEndpoint, model: String, tools: List[AgentTool],
+def runAgentStreamLoop(pool: AgentEndpointPool, model: String, tools: List[AgentTool],
                        options: RunOptions, messages: List[String], ops: List[ExecutedOp],
                        step: Int, lastText: String, events: List[AgentEvent],
                        onEvent: AgentEvent => Unit): AgentStreamResult =
@@ -169,45 +211,39 @@ def runAgentStreamLoop(endpoint: AgentEndpoint, model: String, tools: List[Agent
     val nextEvents = emitEvent(events, AgentEvent("Stopped", stop = "MaxSteps"), onEvent)
     AgentStreamResult(AgentResult(lastText, ops, jArr(messages), "MaxSteps"), nextEvents)
   else
-    var text = ""
-    var pending = List[PendingToolCall]()
-    var finishReason = ""
-    var streamError = ""
-    var streamEvents = events
+    val attempt = postChatCompletionsStream(
+      pool,
+      requestBodyWithStream(model, messages, tools, options, true),
+      events,
+      onEvent
+    )
     try
-      val response = httpPostStream(
-        chatCompletionsUrl(endpoint),
-        requestBodyWithStream(model, messages, tools, options, true),
-        streamRequestHeaders(endpoint)
-      ) { line =>
-        val parsed = handleStreamLine(line, pending, text, finishReason, streamError, streamEvents, onEvent)
-        text = parsed.text
-        pending = parsed.toolCalls
-        streamEvents = parsed.events
-        if parsed.finishReason != "" then finishReason = parsed.finishReason
-        if parsed.errorText != "" then streamError = parsed.errorText
-      }
-      if response.status < 200 || response.status >= 300 then
-        val msg = "rozum gateway HTTP " + response.status
-        val errEvents = emitEvent(streamEvents, AgentEvent("Errored", text = msg), onEvent)
+      if attempt.transportError then
+        val msg = "rozum gateway transport failed: " + attempt.errorText
+        val errEvents = emitEvent(attempt.events, AgentEvent("Errored", text = msg), onEvent)
         val doneEvents = emitEvent(errEvents, AgentEvent("Stopped", stop = "Error"), onEvent)
         AgentStreamResult(AgentResult(msg, ops, jArr(messages), "Error"), doneEvents)
-      else if streamError != "" then
-        val doneEvents = emitEvent(streamEvents, AgentEvent("Stopped", stop = "Error"), onEvent)
-        AgentStreamResult(AgentResult(streamError, ops, jArr(messages), "Error"), doneEvents)
-      else if finishReason == "tool_calls" || pending.length > 0 then
-        val assistant = assistantPendingToolCallsMessage(pending)
-        val next = appendStreamingToolResults(pending, tools, messages :+ assistant, ops, streamEvents, onEvent)
-        val latestText = if text == "" then lastText else text
-        runAgentStreamLoop(endpoint, model, tools, options, next.messages, next.operations,
+      else if attempt.status < 200 || attempt.status >= 300 then
+        val msg = "rozum gateway HTTP " + attempt.status
+        val errEvents = emitEvent(attempt.events, AgentEvent("Errored", text = msg), onEvent)
+        val doneEvents = emitEvent(errEvents, AgentEvent("Stopped", stop = "Error"), onEvent)
+        AgentStreamResult(AgentResult(msg, ops, jArr(messages), "Error"), doneEvents)
+      else if attempt.streamError != "" then
+        val doneEvents = emitEvent(attempt.events, AgentEvent("Stopped", stop = "Error"), onEvent)
+        AgentStreamResult(AgentResult(attempt.streamError, ops, jArr(messages), "Error"), doneEvents)
+      else if attempt.finishReason == "tool_calls" || attempt.toolCalls.length > 0 then
+        val assistant = assistantPendingToolCallsMessage(attempt.toolCalls)
+        val next = appendStreamingToolResults(attempt.toolCalls, tools, messages :+ assistant, ops, attempt.events, onEvent)
+        val latestText = if attempt.text == "" then lastText else attempt.text
+        runAgentStreamLoop(pool, model, tools, options, next.messages, next.operations,
           step + 1, latestText, next.events, onEvent)
       else
-        val finalText = if text == "" then lastText else text
-        val doneEvents = emitEvent(streamEvents, AgentEvent("Stopped", stop = "Done"), onEvent)
+        val finalText = if attempt.text == "" then lastText else attempt.text
+        val doneEvents = emitEvent(attempt.events, AgentEvent("Stopped", stop = "Done"), onEvent)
         AgentStreamResult(AgentResult(finalText, ops, jArr(messages :+ assistantTextMessage(finalText)), "Done"), doneEvents)
     catch case e: Throwable =>
       val msg = "rozum stream failed: " + e.getMessage
-      val errEvents = emitEvent(streamEvents, AgentEvent("Errored", text = msg), onEvent)
+      val errEvents = emitEvent(attempt.events, AgentEvent("Errored", text = msg), onEvent)
       val doneEvents = emitEvent(errEvents, AgentEvent("Stopped", stop = "Error"), onEvent)
       AgentStreamResult(AgentResult(msg, ops, jArr(messages), "Error"), doneEvents)
 
@@ -217,6 +253,82 @@ def emitEvent(events: List[AgentEvent], event: AgentEvent, onEvent: AgentEvent =
 
 def chatCompletionsUrl(endpoint: AgentEndpoint): String =
   endpoint.baseUrl + "/v1/chat/completions"
+
+def poolAttemptLimit(pool: AgentEndpointPool): Int =
+  val requested = if pool.maxAttempts < 1 then 1 else pool.maxAttempts
+  val available = pool.endpoints.length
+  if requested > available then available else requested
+
+def postChatCompletions(pool: AgentEndpointPool, body: String): AgentHttpAttempt =
+  postChatCompletionsFrom(pool.endpoints, poolAttemptLimit(pool), body)
+
+def postChatCompletionsFrom(endpoints: List[AgentEndpoint], remaining: Int, body: String): AgentHttpAttempt =
+  if remaining <= 0 then
+    AgentHttpAttempt(0, "", true, "no rozum endpoints configured")
+  else
+    endpoints match
+      case Nil =>
+        AgentHttpAttempt(0, "", true, "no rozum endpoints configured")
+      case endpoint :: rest =>
+        val attempt = postChatCompletionsOnce(endpoint, body)
+        if shouldRetryEndpoint(attempt.status, attempt.transportError) && remaining > 1 && rest.length > 0 then
+          postChatCompletionsFrom(rest, remaining - 1, body)
+        else
+          attempt
+
+def postChatCompletionsOnce(endpoint: AgentEndpoint, body: String): AgentHttpAttempt =
+  try
+    val response = httpPost(chatCompletionsUrl(endpoint), body, requestHeaders(endpoint))
+    AgentHttpAttempt(response.status, response.body, false, "")
+  catch case e: Throwable =>
+    AgentHttpAttempt(0, "", true, e.getMessage)
+
+def shouldRetryEndpoint(status: Int, transportError: Boolean): Boolean =
+  transportError || status >= 500
+
+def postChatCompletionsStream(pool: AgentEndpointPool, body: String, events: List[AgentEvent],
+                              onEvent: AgentEvent => Unit): AgentStreamAttempt =
+  postChatCompletionsStreamFrom(pool.endpoints, poolAttemptLimit(pool), body, events, onEvent)
+
+def postChatCompletionsStreamFrom(endpoints: List[AgentEndpoint], remaining: Int, body: String,
+                                  events: List[AgentEvent],
+                                  onEvent: AgentEvent => Unit): AgentStreamAttempt =
+  if remaining <= 0 then
+    AgentStreamAttempt(0, true, "no rozum endpoints configured", "", List(), "", "", events)
+  else
+    endpoints match
+      case Nil =>
+        AgentStreamAttempt(0, true, "no rozum endpoints configured", "", List(), "", "", events)
+      case endpoint :: rest =>
+        val attempt = postChatCompletionsStreamOnce(endpoint, body, events, onEvent)
+        if shouldRetryEndpoint(attempt.status, attempt.transportError) && remaining > 1 && rest.length > 0 then
+          postChatCompletionsStreamFrom(rest, remaining - 1, body, events, onEvent)
+        else
+          attempt
+
+def postChatCompletionsStreamOnce(endpoint: AgentEndpoint, body: String, events: List[AgentEvent],
+                                  onEvent: AgentEvent => Unit): AgentStreamAttempt =
+  var text = ""
+  var pending = List[PendingToolCall]()
+  var finishReason = ""
+  var streamError = ""
+  var streamEvents = events
+  try
+    val response = httpPostStream(
+      chatCompletionsUrl(endpoint),
+      body,
+      streamRequestHeaders(endpoint)
+    ) { line =>
+      val parsed = handleStreamLine(line, pending, text, finishReason, streamError, streamEvents, onEvent)
+      text = parsed.text
+      pending = parsed.toolCalls
+      streamEvents = parsed.events
+      if parsed.finishReason != "" then finishReason = parsed.finishReason
+      if parsed.errorText != "" then streamError = parsed.errorText
+    }
+    AgentStreamAttempt(response.status, false, "", text, pending, finishReason, streamError, streamEvents)
+  catch case e: Throwable =>
+    AgentStreamAttempt(0, true, e.getMessage, "", List(), "", "", events)
 
 def requestHeaders(endpoint: AgentEndpoint): Map[String, String] =
   if endpoint.authToken == "" then
