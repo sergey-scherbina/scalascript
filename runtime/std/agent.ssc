@@ -1,0 +1,189 @@
+---
+name: std-agent
+version: 0.1.0
+description: Generic tool-using agent loop for OpenAI-compatible model gateways such as rozum.
+package: std.agent
+exports:
+  - AgentEndpoint
+  - RunOptions
+  - ToolResult
+  - AgentTool
+  - ExecutedOp
+  - AgentResult
+  - runAgent
+  - agentTool
+  - toolOk
+  - toolError
+  - objectSchema
+---
+
+# `std.agent`
+
+Generic agent loop for stateless OpenAI-compatible model gateways such as
+rozum. The application owns prompts, tool handlers, validation, and session
+state; the SDK only frames model calls and dispatches tool requests.
+
+```scalascript
+[httpPost, Response](std/http.ssc)
+[JsonValue, jsonValue, jStr, jNum, jBool, jField, jObj, jArr](std/json.ssc)
+
+case class AgentEndpoint(baseUrl: String, authToken: String = "")
+
+case class RunOptions(
+  temperature: Double = 0.0,
+  maxSteps: Int = 8,
+  maxTokens: Int = 4096,
+  toolChoice: String = "auto"
+)
+
+case class ToolResult(contentJson: String, isError: Boolean = false)
+
+case class AgentTool(
+  name: String,
+  description: String,
+  parametersJson: String,
+  handler: String => ToolResult
+)
+
+case class ExecutedOp(
+  tool: String,
+  argsJson: String,
+  resultJson: String,
+  isError: Boolean
+)
+
+case class AgentResult(
+  text: String,
+  operations: List[ExecutedOp],
+  transcriptJson: String,
+  stop: String
+)
+
+def agentTool(name: String, description: String, parametersJson: String)
+             (handler: String => ToolResult): AgentTool =
+  AgentTool(name, description, parametersJson, handler)
+
+def toolOk(contentJson: String): ToolResult =
+  ToolResult(contentJson, false)
+
+def toolError(message: String): ToolResult =
+  ToolResult(jObj(List(jField("error", jStr(message)))), true)
+
+def objectSchema(propertiesJson: String, required: List[String]): String =
+  jObj(List(
+    jField("type", jStr("object")),
+    jField("properties", propertiesJson),
+    jField("required", jArr(required.map(name => jStr(name))))
+  ))
+
+def runAgent(endpoint: AgentEndpoint, model: String, system: String, user: String,
+             tools: List[AgentTool], options: RunOptions = RunOptions()): AgentResult =
+  val initialMessages = List(systemMessage(system), userMessage(user))
+  runAgentLoop(endpoint, model, tools, options, initialMessages, List(), 0, "")
+
+def runAgentLoop(endpoint: AgentEndpoint, model: String, tools: List[AgentTool],
+                 options: RunOptions, messages: List[String], ops: List[ExecutedOp],
+                 step: Int, lastText: String): AgentResult =
+  if step >= options.maxSteps then
+    AgentResult(lastText, ops, jArr(messages), "MaxSteps")
+  else
+    val response = httpPost(chatCompletionsUrl(endpoint), requestBody(model, messages, tools, options), requestHeaders(endpoint))
+    if response.status < 200 || response.status >= 300 then
+      AgentResult("rozum gateway HTTP " + response.status + ": " + response.body, ops, jArr(messages), "Error")
+    else
+      val root = jsonValue(response.body)
+      val choice = root.get("choices").at(0)
+      val message = choice.get("message")
+      val finishReason = choice.get("finish_reason").asString
+      val toolCallsJson = message.get("tool_calls")
+      val calls = toolCallsJson.asList
+      if finishReason == "tool_calls" || calls.length > 0 then
+        val assistant = assistantToolCallsMessage(toolCallsJson)
+        val next = appendToolResults(calls, tools, messages :+ assistant, ops)
+        runAgentLoop(endpoint, model, tools, options, next._1, next._2, step + 1, lastText)
+      else
+        val text = message.get("content").asString
+        AgentResult(text, ops, jArr(messages :+ assistantTextMessage(text)), "Done")
+
+def chatCompletionsUrl(endpoint: AgentEndpoint): String =
+  endpoint.baseUrl + "/v1/chat/completions"
+
+def requestHeaders(endpoint: AgentEndpoint): Map[String, String] =
+  if endpoint.authToken == "" then
+    Map("Content-Type" -> "application/json")
+  else
+    Map("Content-Type" -> "application/json", "Authorization" -> ("Bearer " + endpoint.authToken))
+
+def requestBody(model: String, messages: List[String], tools: List[AgentTool],
+                options: RunOptions): String =
+  jObj(List(
+    jField("model", jStr(model)),
+    jField("messages", jArr(messages)),
+    jField("tools", jArr(tools.map(t => toolRequestJson(t)))),
+    jField("tool_choice", jStr(options.toolChoice)),
+    jField("temperature", jNum(options.temperature.toString)),
+    jField("max_tokens", jNum(options.maxTokens.toString)),
+    jField("stream", jBool(false))
+  ))
+
+def toolRequestJson(tool: AgentTool): String =
+  jObj(List(
+    jField("type", jStr("function")),
+    jField("function", jObj(List(
+      jField("name", jStr(tool.name)),
+      jField("description", jStr(tool.description)),
+      jField("parameters", tool.parametersJson)
+    )))
+  ))
+
+def appendToolResults(calls: List[JsonValue], tools: List[AgentTool],
+                      messages: List[String], ops: List[ExecutedOp]): (List[String], List[ExecutedOp]) =
+  calls match
+    case Nil => (messages, ops)
+    case call :: rest =>
+      val id = call.get("id").asString
+      val fn = call.get("function")
+      val name = fn.get("name").asString
+      val args = normalizedArgs(fn.get("arguments").asString)
+      val result = dispatchTool(tools, name, args)
+      val msg = toolResultMessage(id, result)
+      val op = ExecutedOp(name, args, result.contentJson, result.isError)
+      appendToolResults(rest, tools, messages :+ msg, ops :+ op)
+
+def normalizedArgs(args: String): String =
+  if args == "" then "{}" else args
+
+def dispatchTool(tools: List[AgentTool], name: String, argsJson: String): ToolResult =
+  tools.find(t => t.name == name) match
+    case Some(tool) =>
+      try tool.handler(argsJson)
+      catch case e: Throwable =>
+        toolError("tool '" + name + "' failed: " + e.getMessage)
+    case None =>
+      toolError("unknown tool: " + name)
+
+def systemMessage(content: String): String =
+  roleContentMessage("system", content)
+
+def userMessage(content: String): String =
+  roleContentMessage("user", content)
+
+def assistantTextMessage(content: String): String =
+  roleContentMessage("assistant", content)
+
+def roleContentMessage(role: String, content: String): String =
+  jObj(List(jField("role", jStr(role)), jField("content", jStr(content))))
+
+def assistantToolCallsMessage(toolCalls: JsonValue): String =
+  jObj(List(
+    jField("role", jStr("assistant")),
+    jField("tool_calls", toolCalls.raw)
+  ))
+
+def toolResultMessage(callId: String, result: ToolResult): String =
+  jObj(List(
+    jField("role", jStr("tool")),
+    jField("tool_call_id", jStr(callId)),
+    jField("content", jStr(result.contentJson))
+  ))
+```
