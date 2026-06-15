@@ -1,6 +1,0 @@
-xbackend-property-equivalence 2026-06-15T06:08:41Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-15T06:08:41Z
-status: in-progress
-done-so-far: proposed in strategic review. interp(in-process,fast) + JS(node,~100ms) + JVM(scala-cli,slow). 127 conformance cases + ~70 property/fuzz files exist as scaffolding.
-next: investigate how to drive interp + JS programmatically/fast for GENERATED programs; build slice 1 = a generator over a core deterministic-Int subset (arith/let/if/match/simple fns) + a differential test asserting interp==JS (and a small JVM sample) output. Each divergence = real cross-backend bug. Bounded; ship slice 1.
