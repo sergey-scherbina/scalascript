@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix(jvmgen): lower a handle/effect nested in a call argument
+
+The JVM codegen bug that `CrossBackendPropertyTest` found (jvmgen-handle-in-arg-position): `handle(...)`
+(or any effectful expr) nested in a call argument — `println(handle(...))` — emitted RAW → scala-cli
+"Not found: handle". `emitExpr` routes to `emitExprDeep` (which lowers nested effects) only when
+`termNeedsCustomEmit` is true, but that predicate's effect check (`termUsesEffects`) only inspected the
+top-level shape. Added `termContainsEffectExpr` (walks children) to `termNeedsCustomEmit`, so the term
+routes through `emitExprDeep` and lowers to `_handle(...)`. The property test's effect kind now uses the
+inline form as the regression guard; interp==JS==JVM verified via scala-cli, 119 effect+jvmgen tests green.
+Full loop: the generated cross-backend differential found the bug, root-caused, fixed, and now guards it.
+---
+
 ## 2026-06-15 — test(xbackend): property generator → 9 kinds (Option/Either/effects); found a real JVM bug
 
 xbackend-property-equivalence slice 3. Added Option, Either, and an algebraic-EFFECT kind (Counter.tick

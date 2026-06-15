@@ -15,7 +15,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ---
 
-## jvmgen-handle-in-arg-position — `open` (2026-06-15)
+## jvmgen-handle-in-arg-position — `fixed` (2026-06-15, 91fc574f5)
 
 - **Found by:** `CrossBackendPropertyTest` (xbackend-property-equivalence — the generated
   cross-backend differential, found this on its first effects run).
@@ -48,6 +48,7 @@ println(r)` → works.
 - **Severity:** low — narrow corner case, trivial workaround (bind to a `val`). Fix touches the
   core CPS emission path (would need care vs the 33 JvmGenEffects tests), so deferred from the
   property-test slice that found it.
+- **FIXED (91fc574f5):** `termContainsEffectExpr` (walks children for any effectful sub-expr) added to `termNeedsCustomEmit` so a `handle`/effect nested in a call arg routes through `emitExprDeep` and lowers to `_handle(...)`. Regression guard: `CrossBackendPropertyTest` effect kind uses the inline `println(handle(...))` form (interp==JS==JVM via scala-cli). 119 effect+jvmgen tests green, no regression.
 - **Status:** open. SHA at filing: 4b21d527b. The property test excludes the inline form (uses the
   bound form) so it stays green; re-add the inline form to that generator as the regression check
   when this is fixed.
