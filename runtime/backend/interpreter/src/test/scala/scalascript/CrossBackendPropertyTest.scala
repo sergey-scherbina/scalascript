@@ -135,7 +135,15 @@ class CrossBackendPropertyTest extends AnyFunSuite:
    *  MULTI-SHOT. The one-shot/arg/two-op use the INLINE `println(handle(...))` form on purpose — the
    *  regression guard for BUGS.md `jvmgen-handle-in-arg-position` (found by this test, now fixed; the
    *  fix should hold for every effectful call-arg, which these verify). All print a deterministic Int. */
-  private def genEffectProgram(rng: Random): String = rng.nextInt(7) match
+  private def genEffectProgram(rng: Random): String = rng.nextInt(8) match
+    case 7 => // RETURN-CLAUSE deep handler: `case Log.emit(resume) => v :: resume(())` + `case Return(_)
+      // => List()` accumulates a List, printed via a 0-arg collection method (routes through _anyCall0).
+      val n = 1 + rng.nextInt(5); val v = 1 + rng.nextInt(5)
+      val agg = Vector("length", "sum")(rng.nextInt(2))
+      "effect Log:\n  def emit(): Int\n" +
+        "def loop(n: Int): Int ! Log =\n  var i = 0\n  while i < n do\n    Log.emit()\n    i = i + 1\n  0\n" +
+        s"val xs = handle(loop($n)) {\n  case Log.emit(resume) => $v :: resume(())\n  case Return(_) => List()\n}\n" +
+        s"println(xs.$agg)\n"
     case 6 => // MULTI-SHOT nondeterminism: `val all = handle(prog()){…}; println(all.sum)` — regression
       // guard for jvmgen-multishot-handle-result-any (a 0-arg collection method on the Any-typed
       // `handle(...)` result now routes through `_anyCall0`). Result = sum over all path values.
