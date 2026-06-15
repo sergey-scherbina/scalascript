@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix(js): partial application of curried defs (auto-curry)
+
+Partial application of a curried def failed on the JS backend (`not callable: NaN`)
+while interp + JVM were correct: `def add(a)(b) = a + b; val f = add(3); f(4)` — JsGen
+flattens curried params to `function add(a, b)`, so `add(3)` runs the body with
+`b === undefined` → `NaN`. Full application `add(1)(2)` was fine (it arrives flattened
+as `add(1, 2)`); only under-applied calls broke. Fixed with a `_curry(fn, arity, args)`
+JS runtime helper plus an auto-curry guard at the top of plain multi-clause def
+emission (`if (arguments.length < N) return _curry(fname, N, arguments);`), emitted only
+for multi-clause defs without defaults/using/context-bounds. Found by
+`CrossBackendPropertyTest`; guarded by a new "curried partial application cross-backend"
+test (2-/3-clause, full + partial, interp == JS == JVM) plus an "effects-in-hof and
+main-path edge cases" test (perform-in-map/-foldLeft, closures-returning-closures, nested
+for-yield, recursion, string interpolation). 95 cross-backend / JS-codegen tests green.
+(Also filed BUGS.md effect-perform-in-fordo — effects inside a `for … do` loop diverge on
+JS + JVM; tracked open.)
+
+---
+
 ## 2026-06-15 — feat(std/ui): fetchActionTo — reactive-URL fetch action
 
 `std/ui/primitives.fetchAction` takes a **static** `url: String`, so a path-id endpoint

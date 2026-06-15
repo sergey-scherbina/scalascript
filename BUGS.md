@@ -13,6 +13,28 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `done` | reporter confirmed fixed (safe to trim) |
 
 
+## jvmgen-js-curried-partial — `fixed` (2026-06-15)
+
+- **Found by:** `CrossBackendPropertyTest` (main-path edge-case probes).
+- **Symptom:** PARTIAL application of a curried def fails on the **JS backend** (`not callable: NaN`); interp + JVM are correct. `def add(a: Int)(b: Int) = a + b; val f = add(3); f(4)` — JsGen flattens curried params to `function add(a, b)`, so `add(3)` runs the body with `b === undefined` → `3 + undefined` = `NaN`. FULL application `add(1)(2)` works (it arrives flattened as `add(1, 2)`); only under-applied calls break. Reproduced for 2- and 3-clause defs.
+- **FIXED (2026-06-15):** added a `_curry(fn, arity, args)` JS runtime helper (accumulates args, applies when arity reached) and an auto-curry guard at the top of plain multi-clause def emission: `if (arguments.length < N) return _curry(fname, N, arguments);`. Only emitted for multi-clause defs with no defaults / using / context-bounds; single-clause defs and full applications are unaffected (arity already reached). Guard: `CrossBackendPropertyTest` "curried partial application cross-backend" (2-/3-clause, full + partial, interp == JS == JVM).
+
+## effect-perform-in-fordo — `open`
+
+- **Found by:** `CrossBackendPropertyTest` (effects-in-HOF/loop probes).
+- **Symptom:** an effect op performed inside a `for i <- 0 until n do …` loop diverges across all three backends. interp is CORRECT; **JVM** fails scala-cli (`None of the overloaded alternatives of method + in class Int` — `acc + Counter.tick()` where `tick()` is the Any `_perform`), and **JS** prints garbage (`0[object Object][object Object]…`). The `while`-loop form of the same program works on all backends (it has dedicated CPS while-trampoline handling); the `for … do` → `foreach(i => …)` desugar does NOT CPS-thread the effect in the closure body. `.map` / `.foldLeft` closures DO thread effects correctly — only `foreach`-from-`for-do` is broken.
+- **Repro:**
+  ```scalascript
+  effect Counter:
+    def tick(): Int
+  def prog(): Int ! Counter =
+    var acc = 0
+    for i <- 0 until 3 do
+      acc = acc + Counter.tick()
+    acc
+  println(handle(prog()) { case Counter.tick(resume) => resume(5) })  // interp: 15 ; jvm: COMPILE ERROR ; js: garbage
+  ```
+
 ## jvmgen-handle-result-mainpath — `fixed` (2026-06-15, all contexts incl. Any-taint propagation)
 
 - **Found by:** `CrossBackendPropertyTest` (effect-result × main-path composition probes).

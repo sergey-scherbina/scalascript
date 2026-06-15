@@ -120,6 +120,16 @@ function _resolveGiven(key) {
   if (v !== undefined) return v;
   throw new Error('No given instance for ' + JSON.stringify(key));
 }
+// Partial application of a curried def `def add(a)(b)`: when `add(3)` is called with
+// fewer args than the flattened arity, return a function that accumulates the rest.
+// `add(1)(2)` (full) still calls `add(1, 2)` directly. (jvmgen-js-curried-partial.)
+function _curry(fn, arity, args0) {
+  var a0 = Array.prototype.slice.call(args0);
+  return function() {
+    var all = a0.concat(Array.prototype.slice.call(arguments));
+    return all.length >= arity ? fn.apply(null, all) : _curry(fn, arity, all);
+  };
+}
 
 // ── Typed HTML DSL — `div(attr.cls := "hero", h1("hi"))` ───────────────
 function _attr(key, value) { return { _type: 'Attr', name: key.name, value: _show(value) }; }

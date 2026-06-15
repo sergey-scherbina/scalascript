@@ -267,6 +267,48 @@ class CrossBackendPropertyTest extends AnyFunSuite:
       assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
       assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
 
+  // Partial application of a CURRIED def (`def add(a)(b); val f = add(3); f(4)`). JsGen flattens curried
+  // params to `function add(a, b)`, so an under-applied JS call produced NaN (`3 + undefined`); interp +
+  // JVM handled it. Fixed by auto-currying multi-clause defs (the `_curry` runtime helper + a guard).
+  // (jvmgen-js-curried-partial.)
+  test("curried partial application cross-backend"):
+    assume(has("node") && has("scala-cli"), "node/scala-cli not available")
+    val shapes = Seq(
+      "2clause-full"    -> "def add(a: Int)(b: Int): Int = a + b\nprintln(add(1)(2))\n",
+      "2clause-partial" -> "def add(a: Int)(b: Int): Int = a + b\nval f = add(3)\nprintln(f(4) + add(1)(2))\n",
+      "3clause-full"    -> "def add3(a: Int)(b: Int)(c: Int): Int = a + b + c\nprintln(add3(1)(2)(3))\n",
+      "3clause-partial" -> "def add3(a: Int)(b: Int)(c: Int): Int = a + b + c\nval g = add3(1)(2)\nprintln(g(3) + add3(4)(5)(6))\n",
+    )
+    for (label, prog) <- shapes do
+      val m   = module(prog)
+      val exp = interp(m)
+      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
+      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+
+  // Effects in HOF/closure positions + non-effect main-path edge cases. `perform` inside `.map` /
+  // `.foldLeft` closures threads correctly; closures-returning-closures, nested for-yield, recursion,
+  // and string interpolation all agree cross-backend. (NOTE: `perform` inside a `for … do` loop is a
+  // known open divergence — interp-vs-js-vs-jvm — tracked separately as effect-perform-in-fordo.)
+  test("effects-in-hof and main-path edge cases cross-backend"):
+    assume(has("node") && has("scala-cli"), "node/scala-cli not available")
+    val shapes = Seq(
+      "perform-in-map" -> ("effect Reader:\n  def ask(k: Int): Int\n" +
+        "def prog(): Int ! Reader =\n  List(1, 2, 3).map(x => x + Reader.ask(x)).sum\n" +
+        "println(handle(prog()) { case Reader.ask(k, resume) => resume(k * 10) })\n"),
+      "perform-in-foldleft" -> ("effect Reader:\n  def ask(k: Int): Int\n" +
+        "def prog(): Int ! Reader =\n  List(1, 2, 3).foldLeft(0)((a, x) => a + Reader.ask(x))\n" +
+        "println(handle(prog()) { case Reader.ask(k, resume) => resume(k * 2) })\n"),
+      "closure-ret-closure" -> "def mk(n: Int): Int => Int = (x: Int) => x + n\nval f = mk(10)\nprintln(f(5) + mk(100)(1))\n",
+      "for-yield-nested" -> "val xs = for\n  x <- List(1, 2, 3)\n  y <- List(10, 20)\nyield x * y\nprintln(xs.sum)\n",
+      "recursion-fib" -> "def fib(n: Int): Int =\n  if n < 2 then n else fib(n - 1) + fib(n - 2)\nprintln(fib(10))\n",
+      "string-interp" -> "val n = 5\nprintln(s\"n=$n sq=${n * n}\")\n",
+    )
+    for (label, prog) <- shapes do
+      val m   = module(prog)
+      val exp = interp(m)
+      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
+      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+
   private def module(program: String) = Parser.parse(s"# Gen\n\n```scalascript\n$program\n```\n")
 
   private def interp(m: scalascript.ast.Module): String =

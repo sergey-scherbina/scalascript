@@ -2078,21 +2078,43 @@ class JsGen(
         line("}")
       else
         val fnKw = if containsAwaitClient(d.body) then "async function" else "function"
+        // Auto-curry guard for a multi-clause def `def add(a)(b)` so a partial application
+        // `add(3)` returns a function instead of computing on `undefined` (NaN). Only for plain
+        // multi-clause defs (no defaults/using/cb); full application `add(1)(2)` is unaffected
+        // because it arrives flattened as `add(1, 2)` (arity reached). (jvmgen-js-curried-partial.)
+        val explicitClauseCount = d.paramClauseGroups.flatMap(_.paramClauses).count { pc =>
+          pc.mod match { case Some(_: scala.meta.Mod.Using) => false; case _ => true }
+        }
+        val curryGuard: Option[String] =
+          if explicitClauseCount > 1 && !hasDefaults && params.nonEmpty then
+            Some(s"if (arguments.length < ${params.size}) return _curry($fname, ${params.size}, arguments);")
+          else None
         d.body match
           case Term.Block(bodyStats) =>
             line(s"$fnKw $fname($paramsStr) {")
             indent += 1
+            curryGuard.foreach(line)
             withParamRenames(defRenames)(genFunctionBody(bodyStats))
             indent -= 1
             line("}")
           case tm: Term.Match =>
             line(s"$fnKw $fname($paramsStr) {")
             indent += 1
+            curryGuard.foreach(line)
             withParamRenames(defRenames)(genMatchAsStmts(tm, t => line(s"return ${genExpr(t)};")))
             indent -= 1
             line("}")
           case expr =>
-            line(s"$fnKw $fname($paramsStr) { return ${withParamRenames(defRenames)(genExpr(expr))}; }")
+            curryGuard match
+              case Some(g) =>
+                line(s"$fnKw $fname($paramsStr) {")
+                indent += 1
+                line(g)
+                line(s"return ${withParamRenames(defRenames)(genExpr(expr))};")
+                indent -= 1
+                line("}")
+              case None =>
+                line(s"$fnKw $fname($paramsStr) { return ${withParamRenames(defRenames)(genExpr(expr))}; }")
       cbSummonMap.clear()
       cbSummonMap ++= savedCbMap
 
