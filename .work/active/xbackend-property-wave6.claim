@@ -1,0 +1,6 @@
+xbackend-property-wave6 2026-06-15T13:58:59Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-15T13:58:59Z
+status: in-progress
+done-so-far: 19 cross-backend bugs fixed via property test.
+next: wave-6 hunt — enum-with-payloads+match, List[case class] sortBy/filter, collect(partial fn), Option/Either fold/orElse/flatten, zipWithIndex, mutual recursion, Range by-step, given/using typeclass, nested Map. interp==JS==JVM; clean re-verify before filing.
