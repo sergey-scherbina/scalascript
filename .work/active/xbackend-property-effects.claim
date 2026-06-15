@@ -1,0 +1,6 @@
+xbackend-property-effects 2026-06-15T06:52:09Z
+agent: claude-opus-4-8
+heartbeat: 2026-06-15T06:52:09Z
+status: in-progress
+done-so-far: property test covers 6 kinds (arith/List/match/enum/String/case-class); all interp==JS==JVM.
+next: add Option, Either, and a deterministic algebraic-EFFECT kind (Counter.tick loop + handle, result n*k). Effects are the highest bug-EV: JVM (JvmGenCpsTransform) and JS (JsGenCpsCodegen) have SEPARATE CPS codegen, so a cross-backend effect divergence is most likely here. Keep output deterministic Int. Run; investigate+report/fix any divergence. Ship.
