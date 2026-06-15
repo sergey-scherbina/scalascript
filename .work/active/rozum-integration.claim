@@ -1,0 +1,6 @@
+feature/rozum-integration 2026-06-15T08:07:20Z
+agent: codex
+heartbeat: 2026-06-15T08:07:20Z
+status: in-progress
+done-so-far: User explicitly confirmed rozum integration priority after prior releases redirected to NFC; docs discovery found rozum docs/specs/integration.md and docs/specs/agent-sdk.md.
+next: Create feature worktree, write committed specs/rozum-integration.md, then implement P0 SDK over std.http/std.json.
