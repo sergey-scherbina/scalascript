@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — test(xbackend): property generator → 9 kinds (Option/Either/effects); found a real JVM bug
+
+xbackend-property-equivalence slice 3. Added Option, Either, and an algebraic-EFFECT kind (Counter.tick
+loop under a one-shot handle — exercising the separate JvmGenCpsTransform / JsGenCpsCodegen / interp CPS
+paths). 54 generated programs agree interp==JS(node) + 9 (one per kind) agree interp==JVM(scala-cli). The
+effect kind FOUND a real JVM codegen bug — a `handle(...)` in call-argument position (`println(handle(...))`)
+emits raw → scala-cli "Not found: handle"; interp+JS handle it. Filed BUGS.md `jvmgen-handle-in-arg-position`
+(open, low-severity, workaround: bind to a val). The property test proved its value on slice 3.
+---
+
 ## 2026-06-15 — test(xbackend): broaden property generator to 6 feature kinds
 
 xbackend-property-equivalence slice 2. Extended the generated cross-backend differential from arith-only
