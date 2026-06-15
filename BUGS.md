@@ -13,6 +13,23 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `done` | reporter confirmed fixed (safe to trim) |
 
 
+
+---
+
+## jvmgen-effect-handler-arg-arith — `fixed` (2026-06-15, 7c843b121)
+
+- **Found by:** `CrossBackendPropertyTest` (its broadened multi-arg / arithmetic effect handlers).
+- **Symptom:** a handler that does arithmetic on op-args, e.g. `case Combine.mix(a, b, resume) =>
+  resume(a * b + 1)`, fails JVM scala-cli with `value * is not a member of Any`. The op-args are
+  bound `val a = _args(0)` (type `Any`) and `emitCaseBody` had no arithmetic case → `a * b`
+  emitted raw, which Scala 3 rejects on `Any`. interp + JS run it fine.
+- **Repro:** `println(handle(loop(5)) { case Combine.mix(a, b, resume) => resume(a * b + 1) })`
+  for `effect Combine: def mix(a: Int, b: Int): Int` → scala-cli "value * is not a member of Any".
+- **FIXED (7c843b121):** `emitCaseBody` now lowers an arithmetic/comparison `ApplyInfix` to the
+  `_binOp("op", l, r)` runtime helper (same as `emitExpr` for Any operands; mirrors the existing
+  `::` Any-cast case). Guard: `CrossBackendPropertyTest` effect shapes (arg-carrying / two-op) run
+  through scala-cli. 101 effect+jvmgen tests green.
+
 ---
 
 ## jvmgen-handle-in-arg-position — `fixed` (2026-06-15, 91fc574f5)

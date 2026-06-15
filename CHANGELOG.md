@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix(jvmgen): lower arithmetic on Any-typed effect-handler op-args
+
+Second JVM codegen bug found by `CrossBackendPropertyTest` (jvmgen-effect-handler-arg-arith): a handler
+doing arithmetic on op-args — `case Combine.mix(a, b, resume) => resume(a * b + 1)` — failed scala-cli
+("value * is not a member of Any") because op-args are bound as `Any` and `emitCaseBody` had no
+arithmetic case, so `a * b` emitted raw. Fix: `emitCaseBody` lowers arithmetic/comparison `ApplyInfix`
+to the `_binOp("op", l, r)` runtime helper (as `emitExpr` already does). Also broadened the property
+test's effect kind to 4 shapes (one-shot / arg-carrying / two-op / multi-shot) run across interp/JS/JVM.
+101 tests green. Two real JVM codegen bugs found + fixed via the generated cross-backend differential.
+---
+
 ## 2026-06-15 — fix(jvmgen): lower a handle/effect nested in a call argument
 
 The JVM codegen bug that `CrossBackendPropertyTest` found (jvmgen-handle-in-arg-position): `handle(...)`
