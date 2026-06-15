@@ -1,6 +1,6 @@
 feature/rozum-live-conformance 2026-06-15T08:32:07Z
 agent: codex
-heartbeat: 2026-06-15T08:32:07Z
-status: not-started
-done-so-far:
-next: create worktree, write and commit the live conformance spec before code
+heartbeat: 2026-06-15T08:32:49Z
+status: in-progress
+done-so-far: worktree created at .worktrees/feature/rozum-live-conformance
+next: read current std.agent implementation and rozum gateway docs, then commit specs/rozum-live-conformance.md
