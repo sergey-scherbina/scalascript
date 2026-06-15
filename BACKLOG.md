@@ -269,6 +269,29 @@ device, one seed, per-chain on-device apps; the Vault routes
 
 ---
 
+## Strategic-review proposals (2026-06-15)
+
+The feature roadmap is built out (729/740 done, 127 conformance cases, ~70 property/fuzz suites,
+comprehensive docs). These are the higher-leverage *productization/hardening/enablement* directions.
+The two active ones are in SPRINT (`compile-time-at-scale`, `xbackend-property-equivalence`).
+
+- [ ] **real-workload-perf** — micro-throughput is at floor, but real-workload perf dimensions are
+      unmeasured: (a) cold-start / GraalVM native-image startup time, (b) long-running-server memory
+      footprint over hours, (c) GC behaviour under sustained load. Build a startup-time + steady-state-RSS
+      measurement; profile + cut the worst. Complements `compile-time-at-scale` (the other unmeasured axis).
+- [ ] **xbackend-property-equivalence (full suite)** — beyond SPRINT slice 1: broaden the generator to
+      collections, ADTs, pattern matching, effects, closures; wire it into CI as a standing cross-backend
+      differential. The definitive guarantee for a one-source-many-targets language.
+- [ ] **registry.scalascript.io (remote package registry)** — the strategic platform move: the SPI +
+      `.sscpkg` + `pkg:` resolver + `ssc install` are all built and local-only; a remote registry is the
+      missing piece to unlock the third-party plugin ecosystem the SPI was designed for. Product decision
+      (build when there's a real external plugin author). Extends `specs/arch-build-registry.md`. (Dup of
+      the existing `remote-package-registry` backlog item — consolidate when picked up.)
+- [ ] **demand-driven-from-busi** (ongoing, not a discrete task) — the `busi` rozum channel is the live
+      testbed and the highest-signal priority source; it is currently quiet. Proactively building one
+      comprehensive real app (or asking busi what's painful) surfaces the gaps that matter more than any
+      speculative backlog item. Keep sweeping the room per the rozum skill.
+
 ## Completed milestones — archived 2026-06-15 (detail in CHANGELOG.md + git history)
 
 - Language Surface — Markdown Frontend from Content
