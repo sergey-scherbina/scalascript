@@ -1,0 +1,6 @@
+feature/rozum-live-conformance 2026-06-15T08:32:07Z
+agent: codex
+heartbeat: 2026-06-15T08:32:07Z
+status: not-started
+done-so-far:
+next: create worktree, write and commit the live conformance spec before code
