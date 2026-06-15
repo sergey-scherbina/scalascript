@@ -133,3 +133,4 @@ derived and explicit schemas side by side.
 Verification:
 
 - `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/rozum-agent-schema-derivation && sbt "backendInterpreterPluginTests/testOnly scalascript.AgentSchemaDerivationInterpreterTest"` -- 4 tests passed, covering derived schema JSON, typed handler dispatch/decode, explicit schema fallback, unsupported-type diagnostics, and the new example.
+- `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/rozum-agent-schema-derivation && sbt "backendInterpreterPluginTests/testOnly scalascript.AgentSchemaDerivationInterpreterTest scalascript.AgentSdkInterpreterTest scalascript.AgentSdkStreamingInterpreterTest scalascript.AgentEndpointPoolInterpreterTest"` -- 25 tests passed across schema derivation, P0 agent loop, streaming, and endpoint-pool regression suites.
