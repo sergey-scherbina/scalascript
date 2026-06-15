@@ -4381,6 +4381,13 @@ Use `Feature.NfcNdef` for NDEF read/write/status. Raw tag communication
 because Android, iOS, and Web NFC expose different policy and entitlement
 surfaces.
 
+Native packaging has a shared requirements contract for NFC: `Capability.NfcNdef`
+maps to iOS `NFCReaderUsageDescription` + the NDEF reader-session entitlement,
+Android `android.permission.NFC` + `android.hardware.nfc`, and Web NFC's secure
+context / user-activation permission model. Full SwiftUI/iOS, Android, and
+Web/PWA packager consumption of that contract is still a follow-up; the
+interpreter remains deterministic unsupported.
+
 See [examples/nfc-ndef.ssc](../examples/nfc-ndef.ssc) and
 [specs/std-nfc.md](../specs/std-nfc.md).
 

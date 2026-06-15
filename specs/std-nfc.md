@@ -116,6 +116,9 @@ MVP because portable UTF-8 byte construction is not yet available as a pure
       `NfcInvalidMessage`, `NfcTagLost`, or `NfcTimeout`.
 - [x] Helper constructors produce portable NDEF records for text, URI, and MIME
       payloads without requiring platform-specific record classes.
+- [x] Native requirement resolution maps NFC capabilities to concrete iOS,
+      Android, and Web declarations without text-scanning `.ssc` code or
+      exposing platform APIs.
 - [ ] Native mobile packaging injects only the declarations required by the
       selected NFC capability.
 - [x] Tests cover unsupported interpreter behavior and helper encoding.
@@ -158,6 +161,13 @@ host browser supports it.
 Importing `std.nfc` or otherwise requiring `Feature.NfcNdef` causes native
 packagers to inject NFC declarations. The exact insertion point follows the
 existing native-platform pattern used for `std.geo`.
+
+Phase 2 adds the shared frontend/native packaging contract in
+`scalascript.frontend.NativePlatformRequirements`. `Capability.NfcNdef`,
+`Capability.NfcTagTech`, and `Capability.NfcCardEmulation` now resolve to the
+target-specific declarations below. Actual SwiftUI/iOS, Android, and Web/PWA
+packagers still need to consume that resolver when they start emitting
+capability-specific manifests.
 
 | Platform | MVP injected declaration |
 |---|---|
@@ -244,11 +254,40 @@ Implemented Phase 1 on 2026-06-15:
   - `bin/ssc run examples/nfc-ndef.ssc`: printed interpreter unsupported
     capability status plus text/URI/MIME record summaries.
 
+Implemented Phase 2 native-requirement contract on 2026-06-15:
+
+- Added frontend `Capability.NfcNdef`, `Capability.NfcTagTech`, and
+  `Capability.NfcCardEmulation`.
+- Added `NativePlatformRequirements` mappings for:
+  - iOS `NFCReaderUsageDescription` plus
+    `com.apple.developer.nfc.readersession.formats = [NDEF]`;
+  - Android `android.permission.NFC` plus `android.hardware.nfc` with
+    configurable `required`;
+  - Web NFC permission/model requirements (`nfc`, secure context, top-level
+    context, user activation).
+- Added artifact capability detection so `.scim` extraction records `NfcNdef`
+  for `nfcCapabilities`, permission calls, `readNdef`, `writeNdef`, and
+  `nfc.*` qualified calls.
+- Verification:
+  - `sbt "frontendCore/testOnly scalascript.frontend.NativePlatformRequirementsTest scalascript.frontend.FrontendFrameworksTest"`:
+    14 tests passed.
+  - `sbt "core/testOnly scalascript.artifact.InterfaceExtractorTest"`:
+    41 tests passed.
+
 ## References
 
-- Android NFC basics and `NfcAdapter` / NDEF dispatch.
+- Android NFC basics and `NfcAdapter` / NDEF dispatch:
+  <https://developer.android.com/develop/connectivity/nfc/nfc>.
+- Android manifest `<uses-feature>` required/optional hardware filtering:
+  <https://developer.android.com/guide/topics/manifest/uses-feature-element>.
 - Android host-based card emulation and `HostApduService` for deferred
   `NfcCardEmulation`.
 - Apple Core NFC tag reading/writing, `NFCReaderUsageDescription`, and NFC & SE
-  Platform entitlement constraints.
-- MDN Web NFC / `NDEFReader` limited availability and NDEF-only scope.
+  Platform entitlement constraints:
+  <https://developer.apple.com/documentation/corenfc>.
+- Apple NFC tag-reader app requirements:
+  <https://developer.apple.com/documentation/CoreNFC/building-an-nfc-tag-reader-app>.
+- MDN Web NFC / `NDEFReader` limited availability and NDEF-only scope:
+  <https://developer.mozilla.org/en-US/docs/Web/API/NDEFReader>.
+- W3C Web NFC scope and permission model:
+  <https://w3c.github.io/web-nfc/>.

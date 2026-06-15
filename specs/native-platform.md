@@ -768,6 +768,9 @@ case Biometrics
 case PushNotifications
 case LocalStorage
 case Geolocation      // web: browser prompt; native: manifest injection (no extra dep)
+case NfcNdef          // NDEF read/write/status; native: NFC manifest/entitlement declarations
+case NfcTagTech       // raw tag protocols; native: extra reader-session declarations
+case NfcCardEmulation // HCE / presentment; native: policy-gated declarations
 case Haptics
 case DeepLinks
 case BackgroundTasks
