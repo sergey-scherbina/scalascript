@@ -1,0 +1,27 @@
+# array-update
+
+In-place mutation of a real mutable `Array` — `a(idx) = x` write + read-back in
+a hot loop, the path that distinguishes `Array` (mutable, reference identity)
+from the immutable `List`/`Vector` types. 200k LCG-driven update+read pairs into
+a 16-element Array.
+
+Honest-bench note: the index and written value both come from a carried 64-bit
+LCG (`s`, opaque `seed: Long` start), so the store/load is data-dependent and
+can't be folded or hoisted. (Shared anti-fold idiom — see
+`docs/bench/corpus-antifold.md`.) Supported on interp / JVM / JS (JS arrays are
+mutable); `n/a` on Rust, which has no distinct mutable `Array` type.
+
+```scalascript
+def workload(seed: Long): Long =
+  var s = seed + 1
+  val a = Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+  var sum = 0L
+  var i = 0
+  while i < 200000 do
+    s = s * 2862933555777941757L + 3037000493L
+    val idx = (((s % 16) + 16) % 16).toInt
+    a(idx) = (((s % 100) + 100) % 100).toInt
+    sum = sum + a(idx).toLong
+    i = i + 1
+  sum
+```

@@ -1,0 +1,27 @@
+# vector-index
+
+Random indexed reads into a `Vector` — exercises the real O(log₃₂ n) (≈O(1))
+indexed-access path that distinguishes `Vector` from `List` (where `xs(i)` is
+O(n)). 200k LCG-driven reads into a 16-element Vector.
+
+Honest-bench note: the index is derived from a carried 64-bit LCG (`s`, opaque
+`seed: Long` start), so every read hits a data-dependent position and no backend
+can hoist the (otherwise loop-invariant) lookup out or constant-fold the sum.
+(Shared anti-fold idiom — see `docs/bench/corpus-antifold.md`.) Supported on
+interp / JVM / JS (JS backs Vector with a tagged array); `n/a` on Rust, which
+has no distinct `Vector` type.
+
+```scalascript
+val v: Vector[Int] = Vector(2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53)
+
+def workload(seed: Long): Long =
+  var s = seed + 1
+  var sum = 0L
+  var i = 0
+  while i < 200000 do
+    s = s * 2862933555777941757L + 3037000493L
+    val idx = (((s % 16) + 16) % 16).toInt
+    sum = sum + v(idx).toLong
+    i = i + 1
+  sum
+```
