@@ -13,6 +13,18 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `done` | reporter confirmed fixed (safe to trim) |
 
 
+## agent-streaming-test-port-collision — `open` (2026-06-15)
+
+- **Found by:** codex during `rozum-agent-endpoint-pool` regression check.
+- **SHA at filing:** `2334d0be4` (feature worktree).
+- **Symptom:** running the sync and streaming agent SDK suites in the order
+  `AgentSdkInterpreterTest AgentSdkStreamingInterpreterTest` aborts the streaming
+  suite with `java.net.BindException: Address already in use`.
+- **Repro:** `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/rozum-agent-endpoint-pool && sbt "backendInterpreterPluginTests/testOnly scalascript.AgentSdkInterpreterTest scalascript.AgentSdkStreamingInterpreterTest"`.
+- **Root cause:** pending; likely port reuse because `examples/rozum-agent.ssc`
+  binds `19694`, the same port as `AgentSdkStreamingInterpreterTest`.
+- **Notes:** easy local test-harness fix; no production runtime impact.
+
 
 
 ---
