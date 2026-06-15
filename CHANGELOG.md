@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix(js/spa): bridge un-displayed computedSignals into the hydration store
+
+A `computedSignal` read ONLY at event time — e.g. a `fetchAction` body that interpolates field
+signals, `fetchAction("POST", url, computedSignal(() => "{...:" + fieldSig() + "...}"), tick)` —
+POSTed its **load-time** value, ignoring typed input. The SPA click handler reads the body from the
+hydration/bridge store `_sv[bodyId]`, not the live reactive `_signals` graph. Field inputs refresh
+`_sv` via `_set`, and `_syncBridgeSignals` bridges a signal's reactive value back into `_sv` only for
+ids that were `_sub`'d. A computed displayed by `showSignal`/`signalText` gets `_sub`'d and stays
+fresh, but one read solely by a `fetchAction`/header never was — so its `_sv` value froze at the
+seed while the reactive graph (correctly) recomputed it. Fix: `_ssc_ui_mount` now `_sub`s every
+collected computed signal, so `_syncBridgeSignals` keeps its `_sv` entry tracking the reactive graph
+— covering bodies, headers, and any event-time computed read uniformly. Found building busi
+(`fetchAction` write forms — money/sales/ukraine/access all affected; single-instance, not a
+multi-instance issue). Guarded by `SpaComputedBodyBridgeTest` (runs the real `JsRuntimeSignals`
+headless with document/fetch shims: type → click → assert the POST body reflects the input). Full
+conformance unchanged for this JS-runtime-only change; 48 JS/SPA-path tests green.
+
+---
+
 ## 2026-06-15 — feat(std): derive rozum agent tool schemas
 
 Added `AgentSchema[A] derives` and `agentToolFor[A]` to `std.agent` so tool

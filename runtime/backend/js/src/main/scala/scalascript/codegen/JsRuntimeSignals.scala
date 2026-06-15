@@ -376,6 +376,16 @@ function _ssc_ui_mount(sigs) {
   });
   var _sb = {};
   function _sub(id, fn) { (_sb[id] = _sb[id] || []).push(fn); fn(_sv[id]); }
+  // A computedSignal read only at event time (e.g. a fetchAction body) is never
+  // _sub'd by any display binding, so without this its _sv entry would stay frozen
+  // at the load-time seed while its dependency signals change — the reactive graph
+  // recomputes it, but only _sb-tracked ids are bridged back into _sv by
+  // _syncBridgeSignals. Subscribe every collected computed so its _sv value tracks
+  // the (always-fresh) reactive graph.
+  sigs.forEach(function(v, id) {
+    var rs = _signals.get(parseInt(String(id), 10));
+    if (rs && rs._isComputed) _sub(String(id), function(){});
+  });
   function _notifyBridge(idStr, v) {
     _sv[idStr] = v;
     (_sb[idStr] || []).forEach(function(fn){ fn(v); });
