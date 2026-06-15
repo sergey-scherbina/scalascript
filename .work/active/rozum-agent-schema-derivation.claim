@@ -1,0 +1,6 @@
+feature/rozum-agent-schema-derivation 2026-06-15T09:39:44Z
+agent: codex
+heartbeat: 2026-06-15T09:39:44Z
+status: not-started
+done-so-far:
+next: write and commit the feature spec before implementation
