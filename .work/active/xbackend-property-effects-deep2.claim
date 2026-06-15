@@ -1,6 +1,0 @@
-xbackend-property-effects-deep2 2026-06-15T07:49:43Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-15T07:49:43Z
-status: in-progress
-done-so-far: property test found+fixed 2 JVM effect-codegen bugs (handle-in-arg, handler-arg-arith). Both in emitCaseBody (handler-body mini-emitter, .syntax fallback for unhandled constructs).
-next: add a handler shape with if/comparison on op-args (if k>2 then resume(k) else resume(0)) + match-in-handler-body + string-concat-in-handler. emitCaseBody likely .syntax-es Term.If/Match → comparison on Any fails on JVM. Fix emitCaseBody (recurse into If/Match) or do the systemic fix (fallback recurses). Verify interp==JS==JVM + effect suites. Ship.
