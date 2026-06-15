@@ -31,18 +31,6 @@ recommended first pick** (bounded, measurable, compounds with the perf work).
       actually unlock the third-party ecosystem the SPI was built for. Product decision (build when there's
       a real external plugin author), not debt. Spec: extend `specs/arch-build-registry.md`.
 
-## Native Platform follow-ups
-
-- [ ] **std-nfc-native-adapters** — Implement real Android/iOS/Web NFC backends for
-      the portable `std.nfc` NDEF contract landed in `specs/std-nfc.md`. HOW: keep
-      the `.ssc` API unchanged; add target adapters behind the existing
-      `runtime/std/nfc-plugin` boundary; wire Android NFC permissions/foreground
-      scanning, iOS Core NFC entitlements/session constraints, and Web NFC
-      secure-context/user-activation gating; preserve explicit unsupported and
-      permission-denied behavior on unavailable targets. Done when `readNdef()` /
-      `writeNdef()` are verified in real mobile/browser harnesses and the unchecked
-      hardware/manifest behavior items in `specs/std-nfc.md` are checked off.
-
 ## Interpreter Performance — Open Targets
 
 Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 -i 5 -f 1`).
