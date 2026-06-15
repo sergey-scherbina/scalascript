@@ -26,7 +26,7 @@ Environment contract:
 | Env var | Required | Meaning |
 |---|---:|---|
 | `ROZUM_BASE_URL` | yes | Gateway base URL without `/v1`, for example `http://127.0.0.1:8089`. |
-| `ROZUM_MODEL` | yes | Model id accepted by the gateway, for example `hello` or an id from `GET /v1/models`. |
+| `ROZUM_MODEL` | yes | Model id accepted by the gateway, for example a cached local model spec or an id from `GET /v1/models`. |
 | `ROZUM_AUTH_TOKEN` | no | Optional bearer token; when set, passed as `AgentEndpoint.authToken`. |
 
 Run command:
@@ -36,15 +36,19 @@ cd <absolute-worktree-path> && sbt "backendInterpreterPluginTests/testOnly scala
 ```
 
 The no-env path must cancel/skip the test, not fail. To run against the adjacent
-rozum smoke backend:
+rozum gateway with a real local model or configured upstream:
 
 ```bash
 cd /Users/sergiy/work/my/rozum
-cargo run -- gateway --port 8089 --model hello
+cargo run -- gateway --port 8089 --model <model-spec>
+
+# Or, with any OpenAI-compatible upstream already serving /v1:
+ROZUM_BACKEND_URL=http://127.0.0.1:<upstream-port>/v1 \
+  cargo run -- gateway --port 8089 --model <upstream-model-id>
 
 cd <absolute-worktree-path> && \
   ROZUM_BASE_URL=http://127.0.0.1:8089 \
-  ROZUM_MODEL=hello \
+  ROZUM_MODEL=<model-id> \
   sbt "backendInterpreterPluginTests/testOnly scalascript.RozumLiveConformanceTest"
 ```
 
@@ -82,7 +86,7 @@ snippet. This keeps secrets out of source and avoids adding environment logic to
 Assertions are structural rather than exact-output:
 
 - `stop == "Done"` proves the non-streaming response shape was parsed.
-- `text.nonEmpty` works for both rozum's `hello` backend and real local models.
+- `text.nonEmpty` works for real local models without depending on exact wording.
 - `operations.length == 0` proves a no-tool prompt did not synthesize tool work.
 - transcript containment checks prove request-side message assembly survived the
   real round trip.
