@@ -17,6 +17,65 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ---
 
+## jvmgen-handle-result-arith — `fixed` (2026-06-15)
+
+- **Found by:** `CrossBackendPropertyTest` (new effect-composition shapes — handle result fed into main-path arithmetic).
+- **Symptom:** using a `val` bound to `handle(...)` as an operand of an arithmetic/comparison infix fails JVM scala-cli with `value * is not a member of Any`. `handle(...)` lowers to `_handle(...)` (returns `Any`), so `val r = handle(...){…}; println(r * 2 + base)` emits `r * 2` raw on the Any-typed result, which Scala 3 rejects. interp + JS run it fine.
+- **Repro:** a one-shot effect program ending `val r = handle(loop(n)){ case Counter.tick(resume) => resume(k) }; println(r * 2 + base)` (or two results: `println(r1 + r2)`).
+- **Root cause:** `termNeedsCustomEmit` only routed a handle-result-val through `emitExprDeep` (where `ApplyInfix` lowers `+ - * / % < > <= >=` to `_binOp`) when the val appeared in a 0-arg method `Select` (`termContainsHandleResultCall`), NOT when it appeared as an arithmetic operand — so `r * 2` fell to `emitExpr`'s `.syntax` raw fallback.
+- **FIXED:** added `termContainsHandleResultArith` (walks for a handle-result-val `Term.Name` used as an operand of an arithmetic/comparison `ApplyInfix`) and wired it into `termNeedsCustomEmit`; the existing `emitExprDeep` `ApplyInfix` → `_binOp` path then lowers it (nested arith re-fires the predicate via `emitCallArg`→`emitExpr`). Guard: `CrossBackendPropertyTest` effect sub-shapes 8 (`r*2+base`) and 9 (`r1+r2`), run through scala-cli on seeds 11/47 and 155/191. Property test green.
+
+---
+
+## interp-returnclause-effect-in-while — `open`
+
+- **Found by:** `CrossBackendPropertyTest` diagnostic (return-clause shape localization).
+- **Symptom:** a deep return-clause handler over a program that performs an effect inside a `while` loop throws **in the interpreter** with `Unhandled effect: Log.emit (no handler in scope)`, even for a single iteration. **JS and JVM both produce the correct result.** This makes the property test's case-7 (return-clause) shape vacuous: interp throws → seed skipped → JS/JVM never compared.
+- **Repro:**
+  ```scalascript
+  effect Log:
+    def emit(): Int
+  def prog(): Int ! Log =
+    var i = 0
+    while i < 3 do
+      Log.emit()
+      i = i + 1
+    0
+  val xs = handle(prog()) {
+    case Log.emit(resume) => 7 :: resume(())
+    case Return(_) => List()
+  }
+  println(xs.length)   // js/jvm: 3 ; interp: THROWS
+  ```
+- **Root cause (suspected):** the handler body `7 :: resume(())` is NOT a clean tail-resume, so `evalHandle` installs no inline resolver for `Log.emit`. The op then has to thread as a `Computation` (Perform/FlatMap) through `handleInterp`, but the fast-while path (`tryFastWhileAssign`, `EvalRuntime.scala`) drives the loop's leading applies eagerly via `Computation.run`, so the `Perform` escapes the handler. A direct (non-loop) emit (shapes A/B) works; only the while-loop shape fails. The fix is to make the fast-while path BAIL (return null → monadic trampoline, which already threads effects via `FlatMap`) when a leading apply yields a `Perform`.
+
+---
+
+## jvmgen-returnclause-effect-in-recursion — `open`
+
+- **Found by:** `CrossBackendPropertyTest` diagnostic (return-clause shape localization).
+- **Symptom:** a return-clause handler over a **recursive** effectful function fails JVM scala-cli compilation: `Found: (_t3 : Any) / Required: Int`. **interp and JS both produce the correct result.**
+- **Repro:**
+  ```scalascript
+  effect Log:
+    def emit(): Int
+  def go(n: Int): Int ! Log =
+    if n <= 0 then 0
+    else
+      Log.emit()
+      go(n - 1)
+  def prog(): Int ! Log =
+    go(3)
+  val xs = handle(prog()) {
+    case Log.emit(resume) => 7 :: resume(())
+    case Return(_) => List()
+  }
+  println(xs.length)   // interp/js: 3 ; jvm: scala-cli COMPILE ERROR
+  ```
+- **Root cause:** the CPS transform emits `def go(n: Int): Any = _bind(..., (_t3: Any) => go(_t3))` — the recursive call passes the Any-typed `_bind` continuation result `_t3` to `go`, whose param stays declared `Int`. Fix: either cast CPS call arguments to the callee's declared param type, or widen CPS-transformed function params to `Any` (the body already routes everything through `_binOp`/`_bind`, which accept `Any`).
+
+---
+
 ## jvmgen-multishot-handle-result-any — `fixed` (2026-06-15, 23a33c976)
 
 - **Found by:** `CrossBackendPropertyTest` (its multi-shot effect shape).

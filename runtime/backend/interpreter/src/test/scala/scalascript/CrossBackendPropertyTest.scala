@@ -48,19 +48,40 @@ class CrossBackendPropertyTest extends AnyFunSuite:
   /** Dispatch across program KINDS so the generator exercises more of the language than arithmetic.
    *  Every kind prints a deterministic `Int`/`String` — NOT a `Double` (formatting differs across
    *  backends) and NOT a `Set`/`Map` (iteration order legitimately differs); `List` is ordered, safe. */
-  private val Kinds = 9
+  private val Kinds = 12
   private def genProgram(seed: Int): String =
     val rng = new Random(seed.toLong)
     (seed % Kinds) match
-      case 0 => genArithProgram(rng)
-      case 1 => genListProgram(rng)
-      case 2 => genMatchProgram(rng)
-      case 3 => genEnumProgram(rng)
-      case 4 => genStringProgram(rng)
-      case 5 => genCaseClassProgram(rng)
-      case 6 => genOptionProgram(rng)
-      case 7 => genEitherProgram(rng)
-      case _ => genEffectProgram(rng)
+      case 0  => genArithProgram(rng)
+      case 1  => genListProgram(rng)
+      case 2  => genMatchProgram(rng)
+      case 3  => genEnumProgram(rng)
+      case 4  => genStringProgram(rng)
+      case 5  => genCaseClassProgram(rng)
+      case 6  => genOptionProgram(rng)
+      case 7  => genEitherProgram(rng)
+      case 8  => genClosureProgram(rng)
+      case 9  => genNestedCollProgram(rng)
+      case 10 => genStringOpsProgram(rng)
+      case _  => genEffectProgram(rng)
+
+  /** Closures as values + HOF application/composition. */
+  private def genClosureProgram(rng: Random): String =
+    val a = rng.nextInt(6); val b = rng.nextInt(8); val c = rng.nextInt(8); val d = rng.nextInt(8)
+    s"val f = (x: Int) => x * 2 + $a\nval g = (x: Int) => x - 1\n" +
+      s"println(f(g($b)) + List($c, $d).map(f).sum)\n"
+
+  /** Nested `List[List[Int]]` — flatten + map-of-lengths. */
+  private def genNestedCollProgram(rng: Random): String =
+    def row = (0 until (1 + rng.nextInt(3))).map(_ => rng.nextInt(7)).mkString(", ")
+    val xss = s"List(List($row), List($row), List($row))"
+    s"val xss = $xss\nprintln(xss.flatten.sum + xss.map(ys => ys.length).sum)\n"
+
+  /** Richer String ops — length / take / drop (all deterministic). */
+  private def genStringOpsProgram(rng: Random): String =
+    val word = Vector("hello", "world", "scala", "effect", "abcdef")(rng.nextInt(5))
+    val n = rng.nextInt(7); val m = rng.nextInt(7)
+    s"""val s = "$word"\nprintln(s.length + s.take($n).length + s.drop($m).length)\n"""
 
   private def genArithProgram(rng: Random): String =
     val sb  = new StringBuilder
@@ -135,7 +156,28 @@ class CrossBackendPropertyTest extends AnyFunSuite:
    *  MULTI-SHOT. The one-shot/arg/two-op use the INLINE `println(handle(...))` form on purpose — the
    *  regression guard for BUGS.md `jvmgen-handle-in-arg-position` (found by this test, now fixed; the
    *  fix should hold for every effectful call-arg, which these verify). All print a deterministic Int. */
-  private def genEffectProgram(rng: Random): String = rng.nextInt(8) match
+  private def genEffectProgram(rng: Random): String = rng.nextInt(10) match
+    case 8 => // COMPOSITION: handle result feeds MAIN-PATH arithmetic — `val r = handle(...); println(r * 2 + base)`.
+      // `r` is the Any-typed `_handle` result; `r * 2 + base` must route through `_binOp` (else `Any * 2`
+      // won't compile under scala-cli). High-signal probe for an emit-routing gap on handle-result vals.
+      val n = 1 + rng.nextInt(6); val k = 1 + rng.nextInt(4)
+      val a = rng.nextInt(7); val b = rng.nextInt(7); val c = rng.nextInt(7)
+      "effect Counter:\n  def tick(): Int\n" +
+        "def loop(n: Int): Int ! Counter =\n  var acc = 0\n  var i = 0\n  while i < n do\n" +
+        "    acc = acc + Counter.tick()\n    i = i + 1\n  acc\n" +
+        s"val base = List($a, $b, $c).sum\n" +
+        s"val r = handle(loop($n)) {\n  case Counter.tick(resume) => resume($k)\n}\n" +
+        "println(r * 2 + base)\n"
+    case 9 => // COMPOSITION: TWO handle results combined in a binop — `val r1 = handle(...); val r2 = handle(...); println(r1 + r2)`.
+      // Both operands are Any-typed `_handle` results; `r1 + r2` must route through `_binOp`.
+      val n = 1 + rng.nextInt(5); val k = 1 + rng.nextInt(4)
+      val n2 = 1 + rng.nextInt(5); val k2 = 1 + rng.nextInt(4)
+      "effect Counter:\n  def tick(): Int\n" +
+        "def loop(n: Int): Int ! Counter =\n  var acc = 0\n  var i = 0\n  while i < n do\n" +
+        "    acc = acc + Counter.tick()\n    i = i + 1\n  acc\n" +
+        s"val r1 = handle(loop($n)) {\n  case Counter.tick(resume) => resume($k)\n}\n" +
+        s"val r2 = handle(loop($n2)) {\n  case Counter.tick(resume) => resume($k2)\n}\n" +
+        "println(r1 + r2)\n"
     case 7 => // RETURN-CLAUSE deep handler: `case Log.emit(resume) => v :: resume(())` + `case Return(_)
       // => List()` accumulates a List, printed via a 0-arg collection method (routes through _anyCall0).
       val n = 1 + rng.nextInt(5); val v = 1 + rng.nextInt(5)
@@ -227,10 +269,11 @@ class CrossBackendPropertyTest extends AnyFunSuite:
       case Some(v) => math.abs(v) < 100000000L
       case None    => true
 
-  test("generated programs (9 kinds incl. effects): interp == JS(node) over 54 seeds"):
+  test("generated programs (12 kinds incl. effects + main-path): interp == JS(node) over 72 seeds"):
     assume(has("node"), "node not available")
     var checked = 0; var skipped = 0
-    for seed <- 0 until 54 do
+    // 0..71 covers all 12 kinds; +155/191 reach effect sub-shape 9 (two-handle-result binop composition).
+    for seed <- (0 until 72) ++ Seq(155, 191) do
       val prog = genProgram(seed)
       val m    = module(prog)
       val exp  = try interp(m) catch case _: Throwable => null
@@ -243,13 +286,15 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     info(s"interp==JS: checked $checked generated programs, skipped $skipped (out-of-range/interp-error)")
     assert(checked >= 30, s"too few programs exercised ($checked) — generator may be degenerate")
 
-  test("generated programs (all 9 kinds + effect shapes): interp == JVM(scala-cli)"):
+  test("generated programs (all 12 kinds + effect shapes): interp == JVM(scala-cli)"):
     assume(has("scala-cli"), "scala-cli not available")
     var checked = 0
-    // seeds 0..8 = one program of each kind; 17/26/35/44 are also the effect kind (seed%9==8) so the
-    // varied effect SHAPES (one-shot / arg-carrying / two-op / multi-shot) all get a JVM scala-cli run —
-    // the regression check that jvmgen-handle-in-arg-position is fixed for every effectful call-arg.
-    for seed <- (0 until Kinds) ++ List(17, 26, 35, 44, 53, 62, 71, 80, 89, 98, 107) do
+    // seeds 0..11 = one program of each kind (incl. closures/nested-coll/strings main-path + effects);
+    // 23/35/47/59/71 + 155/191 are also the effect kind (seed%12==11) so every effect SHAPE (one-shot /
+    // arg-carrying / two-op / multi-shot / return-clause / handle-result composition) gets a JVM scala-cli
+    // run — the regression check that jvmgen-handle-in-arg-position & jvmgen-multishot-handle-result-any
+    // stay fixed, and that handle-result arithmetic (r*2+base, r1+r2) routes through _binOp.
+    for seed <- (0 until Kinds) ++ List(23, 35, 47, 59, 71, 155, 191) do
       val prog = genProgram(seed)
       val m    = module(prog)
       val exp  = try interp(m) catch case _: Throwable => null

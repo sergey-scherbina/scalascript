@@ -246,7 +246,28 @@ private[codegen] trait JvmGenTermAnalysis:
    *  Focus → Lens expansion, Prism[O, V] → Prism literal) rather than
    *  verbatim Scala source emission. */
   private[codegen] def termNeedsCustomEmit(t: Term): Boolean =
-    termUsesEffects(t) || termContainsEffectExpr(t) || termContainsHandleResultCall(t) || termContainsFocus(t) || termContainsPrism(t) || termContainsIntrinsic(t) || termContainsDirectBlock(t) || termContainsRegisteredInterpolator(t) || termContainsNamedArgAscription(t) || termContainsBareNameBlockCall(t)
+    termUsesEffects(t) || termContainsEffectExpr(t) || termContainsHandleResultCall(t) || termContainsHandleResultArith(t) || termContainsFocus(t) || termContainsPrism(t) || termContainsIntrinsic(t) || termContainsDirectBlock(t) || termContainsRegisteredInterpolator(t) || termContainsNamedArgAscription(t) || termContainsBareNameBlockCall(t)
+
+  /** jvmgen-handle-result-arith: true when `t` uses a `handle(...)`-result val as an operand of an
+   *  arithmetic/comparison infix (e.g. `r * 2 + base` or `r1 + r2` for `val r = handle(..)`). Such a
+   *  term must route through `emitExprDeep`, whose `ApplyInfix` case lowers `+ - * / % < > <= >=` to the
+   *  `_binOp` runtime helper — otherwise `emitExpr`'s `.syntax` fallback emits `r * 2` raw, which Scala 3
+   *  rejects on the Any-typed `_handle` result ("value * is not a member of Any"). */
+  private[codegen] def termContainsHandleResultArith(t: Term): Boolean =
+    val arithOps = Set("+", "-", "*", "/", "%", "<", ">", "<=", ">=")
+    def refsHandleResultVal(x: Tree): Boolean = x match
+      case Term.Name(nm) => handleResultVals(nm)
+      case _             => false
+    var found = false
+    def walk(n: Tree): Unit =
+      if !found then n match
+        case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+            if arithOps(op.value) &&
+               (refsHandleResultVal(lhs) || argClause.values.exists(refsHandleResultVal)) =>
+          found = true
+        case _ => n.children.foreach(walk)
+    walk(t)
+    found
 
   /** jvmgen-multishot-handle-result-any: true when `t` contains a 0-arg collection method on a val
    *  bound to `handle(...)` (e.g. `all.sum` for `val all = handle(..)`). Such a term must route through

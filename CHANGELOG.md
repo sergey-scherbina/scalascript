@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix(jvmgen): handle-result val in main-path arithmetic; broaden xbackend property test
+
+Broadened `CrossBackendPropertyTest` to 12 program kinds (added closures/HOF,
+nested `List[List[Int]]`, richer String ops) plus two effect-composition shapes
+that feed a `handle(...)` result into main-path arithmetic (`r * 2 + base`,
+`r1 + r2`). The latter immediately surfaced **jvmgen-handle-result-arith**: a
+`val` bound to `handle(...)` (Any-typed `_handle` result) used as an arithmetic
+operand emitted `r * 2` raw, which scala-cli rejects (`value * is not a member of
+Any`); interp + JS ran it fine. Fixed by adding `termContainsHandleResultArith`
+(detects a handle-result-val used as an arith/comparison `ApplyInfix` operand) to
+`termNeedsCustomEmit`, routing the term through `emitExprDeep` whose existing
+`ApplyInfix → _binOp` lowering handles it. Verified: `CrossBackendPropertyTest`
+green (interp == JS over 74 seeds, interp == JVM over 19 — sub-shapes 8/9 run
+through scala-cli). The same hunt also found two further cross-backend bugs filed
+open in BUGS.md (interp-returnclause-effect-in-while, jvmgen-returnclause-effect-in-recursion).
+
+---
+
 ## 2026-06-15 — feat(std): stream rozum agent events
 
 Added `runAgentStream`, `collectAgentStream`, `AgentEvent`, and
@@ -15,6 +33,7 @@ surface. Added `examples/rozum-agent-streaming.ssc`, README/User Guide/spec docs
 and interpreter-plugin coverage for callbacks, collection, errors, max steps, the
 streaming example, and the P0 sync regression. Verified with
 `sbt "backendInterpreterPluginTests/testOnly scalascript.AgentSdkStreamingInterpreterTest scalascript.AgentSdkInterpreterTest"`.
+
 ---
 
 ## 2026-06-15 — test(std): add rozum live conformance smoke
