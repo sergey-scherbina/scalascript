@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix: stepped Ranges (`by`) + collection/String dispatch gaps (cross-backend)
+
+Fixed the open `xbackend-range-by-step` plus a cluster of stdlib dispatch gaps found by a
+wave-7 property probe. `(0 to 10 by 2)` threw on interp + JS (a materialized range has no
+`by`, and the JS `by` infix emitted invalid `(range by step)`); `by(step)` now keeps every
+step-th element — added to interp `dispatchList`/`dispatchList1`, the JS array `_dispatch`,
+and JsGen emits `by` as `_dispatch(range, 'by', [step])`. Also added the missing methods that
+failed with `Method not found` / `No method`: JS `List.scanLeft`(curried)/`scanRight`/
+`indexWhere`, tuple `.swap`, `String.padTo` (Char arg = char-code number), and interp
+`indexWhere`. interp/JS/JVM now agree. Found by `CrossBackendPropertyTest`; guarded by a new
+"ranges, collection + string method gaps cross-backend" test (8 shapes). 160 cross-backend /
+interp / JS tests green. (Filed open: interp-js-string-map-nonchar — `"abc".map(_.toInt)`
+should yield a `Seq[Int]`, but interp/JS `String.map` rebuild a String.)
+
+---
+
 ## 2026-06-15 — fix: enum-payload match, partial-fn collect, Option.fold (cross-backend)
 
 A wave-6 property probe (enums / collections / Option) found and fixed three cross-backend

@@ -422,6 +422,28 @@ class CrossBackendPropertyTest extends AnyFunSuite:
       assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
       assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
 
+  // Wave-7: stepped Ranges (`by`) + collection/String dispatch gaps. interp lacked `by`/`indexWhere`;
+  // JS lacked `by`/`padTo`/`scanLeft`/`scanRight`/`indexWhere`/tuple-`swap`. (xbackend-range-by-step,
+  // jsgen-string-padto, jsgen-collection-method-gaps.) (Filed open: interp/JS `"abc".map(_.toInt)` —
+  // String.map returning a non-Char Seq.)
+  test("ranges, collection + string method gaps cross-backend"):
+    assume(has("node") && has("scala-cli"), "node/scala-cli not available")
+    val shapes = Seq(
+      "range-by-sum"    -> "println((0 to 10 by 2).toList.sum)\n",
+      "range-by-until"  -> "println((1 until 10 by 3).toList.mkString(\",\"))\n",
+      "string-pad"      -> "println(\"ab\".padTo(5, 'x').length)\n",
+      "list-scanleft"   -> "println(List(1, 2, 3).scanLeft(0)((a, b) => a + b).sum)\n",
+      "list-indexwhere" -> "println(List(10, 20, 30).indexWhere(x => x > 15))\n",
+      "tuple-swap"      -> "val t = (1, 2)\nprintln(t.swap._1)\n",
+      "list-takewhile"  -> "println(List(1, 2, 3, 4, 1).takeWhile(x => x < 3).sum)\n",
+      "list-distinct"   -> "println(List(1, 2, 2, 3, 3, 3).distinct.sum)\n",
+    )
+    for (label, prog) <- shapes do
+      val m   = module(prog)
+      val exp = interp(m)
+      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
+      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+
   private def module(program: String) = Parser.parse(s"# Gen\n\n```scalascript\n$program\n```\n")
 
   private def interp(m: scalascript.ast.Module): String =

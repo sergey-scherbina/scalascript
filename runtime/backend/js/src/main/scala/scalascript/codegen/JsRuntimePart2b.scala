@@ -144,6 +144,8 @@ function _dispatch(obj, method, args) {
         if (!args.length) return obj.map(_show).join('');
         if (args.length === 1) return obj.map(_show).join(args[0]);
         return args[0] + obj.map(_show).join(args[1]) + args[2];
+      // `(0 to 10) by 2` — a materialized Range array re-stepped by keeping every step-th element.
+      case 'by': { const step=args[0]; if (step<=0) return obj; const out=[]; for (let i=0;i<obj.length;i+=step) out.push(obj[i]); return out; }
       case 'sortBy': return [...obj].sort((a,b) => { const fa=args[0](a),fb=args[0](b); return fa<fb?-1:fa>fb?1:0; });
       // sortWith(lt): `lt(a,b)` is true when a should precede b. sorted: natural order.
       case 'sortWith': return [...obj].sort((a,b) => args[0](a,b) ? -1 : (args[0](b,a) ? 1 : 0));
@@ -157,6 +159,11 @@ function _dispatch(obj, method, args) {
       case 'reduceLeft': return obj.reduce(args[0]);
       case 'foldLeft':  return (f) => _seqFoldLeft(obj, args[0], f);
       case 'foldRight': return (f) => _seqFoldLeft([...obj].reverse(), args[0], (acc, x) => f(x, acc));
+      case 'indexWhere': return obj.findIndex(args[0]);
+      // scanLeft(z)(op) is curried. swap on a 2-tuple array.
+      case 'scanLeft': { const z=args[0]; return (op) => { const out=[z]; let acc=z; for (const x of obj) { acc=op(acc,x); out.push(acc); } return out; }; }
+      case 'scanRight': { const z=args[0]; return (op) => { const out=[z]; let acc=z; for (let i=obj.length-1;i>=0;i--) { acc=op(obj[i],acc); out.unshift(acc); } return out; }; }
+      case 'swap': return [obj[1], obj[0]];
       case 'sliding': { const n=args[0]; const r=[]; for(let i=0;i<=obj.length-n;i++) r.push(obj.slice(i,i+n)); return r; }
       case 'grouped': { const n=args[0]; const r=[]; for(let i=0;i<obj.length;i+=n) r.push(obj.slice(i,i+n)); return r; }
       case 'toString': return _show(obj);
@@ -299,6 +306,8 @@ function _dispatch(obj, method, args) {
       case 'substring': return obj.substring(args[0], args[1]);
       case 'take': return obj.slice(0, args[0]);
       case 'drop': return obj.slice(args[0]);
+      // padTo(len, ch) — a Char arg arrives as a char-code number. (jsgen-string-padto.)
+      case 'padTo': { const ch = typeof args[1] === 'number' ? String.fromCharCode(args[1]) : args[1]; let s = obj; while (s.length < args[0]) s += ch; return s; }
       case 'mkString': return obj;
       case 'reverse': return [...obj].reverse().join('');
       case 'isEmpty': return obj.length === 0;

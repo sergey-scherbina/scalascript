@@ -4079,6 +4079,9 @@ class JsGen(
           case "until" =>
             // n until m → array [n, n+1, ..., m-1]
             s"_dispatch($lhsJs, 'until', [$rhsJs])"
+          case "by" =>
+            // `(n to m) by step` → re-step the materialized range array. (xbackend-range-by-step.)
+            s"_dispatch($lhsJs, 'by', [$rhsJs])"
           case "/" if isIntExpr(lhs) && args.headOption.exists(isIntExpr) =>
             s"Math.trunc($lhsJs / $rhsJs)"
           // Exact numerics (v1.64): when operands aren't both statically Int,

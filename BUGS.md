@@ -31,11 +31,23 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Symptom:** `Some(5).fold(0)(x => x * 2)` failed on JS — the curried `Option.fold(ifEmpty)(f)` was absent from the `_Some`/`_None` dispatch (only `Either.fold(fa, fb)` uncurried was present). interp + JVM correct.
 - **FIXED (2026-06-15):** added `fold` to the JS Option dispatch — `_Some`: `(f) => f(value)`, `_None`: `(f) => ifEmpty` — handling the curried second clause. Also added `exists`/`forall` and fixed `Some.contains` to use structural `_eq`. Guard: `CrossBackendPropertyTest` option-fold-some/-none.
 
-## xbackend-range-by-step — `open`
+## xbackend-range-by-step — `fixed` (2026-06-15)
 
-- **Found by:** `CrossBackendPropertyTest` (wave-6).
-- **Symptom:** `(0 to 10 by 2)` — a Range with a `by` step — throws on interp (`No method 'by' on List`; interp materializes `0 to 10` as a List, which has no `by`) and on JS; JVM (raw scala-cli) is correct. `by` / stepped ranges are unsupported off-JVM.
-- **Note:** needs a Range representation (or a `by` that re-steps the materialized list) in interp + a `by` dispatch on JS. Deferred (lower frequency, multi-backend).
+- **Found by:** `CrossBackendPropertyTest` (wave-6/7).
+- **Symptom:** `(0 to 10 by 2)` — a Range with a `by` step — threw on interp (`No method 'by' on List`) and on JS; JVM correct. interp + JS materialize a Range as a List/array, which had no `by`; the JS `by` infix also fell to an invalid `(range by step)` emission.
+- **FIXED (2026-06-15):** `by(step)` keeps every step-th element of the materialized range — added to interp `dispatchList`/`dispatchList1` and the JS array `_dispatch`; JsGen now emits the `by` infix as `_dispatch(range, 'by', [step])`. Guard: `CrossBackendPropertyTest` "ranges, collection + string method gaps cross-backend" (range-by-sum/-until).
+
+## jsgen-collection-method-gaps / jsgen-string-padto — `fixed` (2026-06-15)
+
+- **Found by:** `CrossBackendPropertyTest` (wave-7).
+- **Symptom:** several stdlib methods were missing from the JS `_dispatch` (and one from interp), failing with `Method not found` / `No method`: `List.scanLeft`/`scanRight`/`indexWhere`, tuple `.swap`, `String.padTo`; interp also lacked `indexWhere`. interp + JVM (or JVM alone) were correct.
+- **FIXED (2026-06-15):** added JS array dispatch `scanLeft`(curried)/`scanRight`/`indexWhere`/`swap`, JS string `padTo` (Char arg arrives as a char-code number), and interp `indexWhere` (`dispatchList`). Guard: `CrossBackendPropertyTest` string-pad / list-scanleft / list-indexwhere / tuple-swap.
+
+## interp-js-string-map-nonchar — `open`
+
+- **Found by:** `CrossBackendPropertyTest` (wave-7).
+- **Symptom:** `"abc".map(c => c.toInt).sum` throws (`No method 'sum'`) on interp + JS — mapping a String's chars to a NON-Char value should yield a `Seq[Int]` (then `.sum`), but interp/JS `String.map` return a String. JVM correct (294).
+- **Note:** interp/JS `String.map` always rebuild a String; when the element function returns a non-Char, the result should be a List/Seq. Deferred (niche).
 
 ## jvmgen-autooutput-after-classdef — `fixed` (2026-06-15)
 

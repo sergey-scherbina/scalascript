@@ -197,6 +197,17 @@ private[interpreter] object DispatchRuntime:
   /** 1-arg fast path for List — avoids `arg :: Nil` allocation for the most common ops. */
   private def dispatchList1(ls: List[Value], recv: Value, name: String, arg: Value, env: Env, interp: Interpreter): Computation =
     name match
+      // `(0 to 10) by 2` — interp materializes the Range as a List, so `by(step)` re-steps it by
+      // keeping every step-th element. (xbackend-range-by-step.)
+      case "by" => arg match
+        case Value.IntV(step) if step > 0 =>
+          val buf = new scala.collection.mutable.ArrayBuffer[Value]((ls.length / step.toInt) + 1)
+          var i = 0; var rem = ls
+          while rem.nonEmpty do
+            if i % step == 0 then buf += rem.head
+            i += 1; rem = rem.tail
+          Pure(Value.ListV(buf.toList))
+        case _ => dispatchFallback(recv, name, arg :: Nil, env, interp)
       case "map"        => arg match
         case f: Value.FunV => CallRuntime.mapReusing(ls, f, env, interp)
         case _             => Computation.mapSequence(ls, item => interp.callValue1(arg, item, env))
@@ -1515,6 +1526,25 @@ private[interpreter] object DispatchRuntime:
       case "nonEmpty"     => Computation.pureBool(ls.nonEmpty)
       case "head"         => if ls.isEmpty then interp.located("head on Nil") else Pure(ls.head)
       case "headOption"   => Pure(Value.optionV(ls.headOption))
+      // `(0 to 10) by 2` — interp materializes the Range as a List; `by(step)` keeps every step-th
+      // element. (xbackend-range-by-step.)
+      case "by"           => args match
+        case List(Value.IntV(step)) if step > 0 =>
+          val buf = new scala.collection.mutable.ArrayBuffer[Value]((ls.length / step.toInt) + 1)
+          var i = 0; var rem = ls
+          while rem.nonEmpty do { if i % step == 0 then buf += rem.head; i += 1; rem = rem.tail }
+          Pure(Value.ListV(buf.toList))
+        case _ => dispatchFallback(recv, name, args, env, interp)
+      case "indexWhere"   => args match
+        case List(f) =>
+          var i = 0; var rem = ls; var found = -1L
+          while found < 0 && rem.nonEmpty do
+            (Computation.run(interp.callValue1(f, rem.head, env)) match
+              case Value.BoolV(true) => found = i.toLong
+              case _                 => ())
+            i += 1; rem = rem.tail
+          Computation.pureIntV(found)
+        case _ => dispatchFallback(recv, name, args, env, interp)
       case "lastOption"   => Pure(Value.optionV(ls.lastOption))
       case "tail"         => if ls.isEmpty then interp.located("tail on Nil") else if ls.tail.isEmpty then Computation.PureEmptyList else Pure(Value.ListV(ls.tail))
       case "last"         => if ls.isEmpty then interp.located("last on Nil") else Pure(ls.last)
