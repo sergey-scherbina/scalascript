@@ -31,6 +31,20 @@ recommended first pick** (bounded, measurable, compounds with the perf work).
       actually unlock the third-party ecosystem the SPI was built for. Product decision (build when there's
       a real external plugin author), not debt. Spec: extend `specs/arch-build-registry.md`.
 
+## Native Platform follow-ups
+
+- [ ] **std-nfc-packager-adapters** — Consume
+      `scalascript.frontend.NativePlatformRequirements` in the SwiftUI/iOS,
+      Android, and Web/PWA packagers, then implement real `std.nfc` read/write
+      adapters where those targets exist. HOW: keep `runtime/std/nfc.ssc`
+      unchanged; make native package generation use `Capability.NfcNdef` to
+      emit Info.plist/entitlement, AndroidManifest, and Web permission/model
+      declarations; add real device/browser harnesses for `readNdef()` and
+      `writeNdef()`; check off the remaining hardware/manifest behavior items
+      in `specs/std-nfc.md`. Deferred from `std-nfc-native-adapters` because
+      the repo currently has the NFC API and requirements contract but no
+      complete Android/Web-NFC packager integration path.
+
 ## Interpreter Performance — Open Targets
 
 Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 -i 5 -f 1`).
