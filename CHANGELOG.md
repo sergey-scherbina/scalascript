@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — test(xbackend): broaden property generator to 6 feature kinds
+
+xbackend-property-equivalence slice 2. Extended the generated cross-backend differential from arith-only
+to 6 program kinds — arithmetic, List[Int] ops, Int match, enum ADT + match, String concat/length,
+case-class construction + field access (all deterministic Int/String output). 48 generated programs agree
+interp==JS(node) + 6 agree interp==JVM(scala-cli), 0 skipped — the one-source-many-targets guarantee holds
+across a much wider surface. Follow-on classes (effects, Option/Either, nested data, closures) queued.
+---
+
 ## 2026-06-15 — test(xbackend): generated cross-backend property/differential test (slice 1)
 
 xbackend-property-equivalence. The conformance suite checks ~127 fixed programs; `CrossBackendPropertyTest`

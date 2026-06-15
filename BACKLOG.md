@@ -279,7 +279,7 @@ The two active ones are in SPRINT (`compile-time-at-scale`, `xbackend-property-e
       unmeasured: (a) cold-start / GraalVM native-image startup time, (b) long-running-server memory
       footprint over hours, (c) GC behaviour under sustained load. Build a startup-time + steady-state-RSS
       measurement; profile + cut the worst. Complements `compile-time-at-scale` (the other unmeasured axis).
-- [ ] **xbackend-property-equivalence (full suite)** — beyond SPRINT slice 1: broaden the generator to
+- [ ] **xbackend-property-equivalence (full suite)** — slice 2 ✓ LANDED 2026-06-15 (broadened to 6 kinds: arith/List/match/enum/String/case-class; 48 JS + 6 JVM all agree). REMAINING: effects, Option/Either, nested data, closures-as-values (each needs per-class determinism care); wire into CI. ORIGINAL — beyond SPRINT slice 1: broaden the generator to
       collections, ADTs, pattern matching, effects, closures; wire it into CI as a standing cross-backend
       differential. The definitive guarantee for a one-source-many-targets language.
 - [ ] **registry.scalascript.io (remote package registry)** — the strategic platform move: the SPI +
