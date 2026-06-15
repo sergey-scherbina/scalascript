@@ -222,11 +222,18 @@ function _ssc_ui_renderBody(view) {
         const attrs  = v.attrs  || {};
         const events = v.events || {};
         let   aStr   = '';
+        let   _bAttrs = null;
         for (const [k, val] of Object.entries(attrs)) {
-          const r = (val && typeof val === 'object' && typeof val.get === 'function') ? (collectSig(val), val.get()) : val;
+          const _isSig = val && typeof val === 'object' && typeof val.get === 'function';
+          const r = _isSig ? (collectSig(val), val.get()) : val;
           if (r !== undefined && r !== null && r !== false)
             aStr += ` ${k}="${_esc(r)}"`;
+          // A signal-valued attribute (other than an input's `value`, which has its own
+          // change/read binding via data-ssc-change) is bound reactively so it updates on
+          // signal change — e.g. a localized placeholder switching with the locale.
+          if (_isSig && k !== 'value' && val.id != null) (_bAttrs = _bAttrs || {})[k] = String(val.id);
         }
+        if (_bAttrs) aStr += ` data-ssc-bind-attrs="${_esc(JSON.stringify(_bAttrs))}"`;
         for (const [, h] of Object.entries(events)) {
           if (!h || typeof h !== 'object') continue;
           if (h._type === '_ToggleSignal' && h.s) { collectSig(h.s); aStr += ` data-ssc-toggle="${h.s.id}"`; }
@@ -441,6 +448,14 @@ function _ssc_ui_mount(sigs) {
   document.querySelectorAll('[data-ssc-text]').forEach(function(el) {
     var id = el.getAttribute('data-ssc-text');
     _sub(id, function(v) { el.textContent = v == null ? '' : String(v); });
+  });
+  // reactive element attributes (e.g. a localized placeholder that switches with the locale)
+  document.querySelectorAll('[data-ssc-bind-attrs]').forEach(function(el) {
+    var m; try { m = JSON.parse(el.getAttribute('data-ssc-bind-attrs')); } catch(_e) { m = null; }
+    if (!m) return;
+    Object.keys(m).forEach(function(attr) {
+      _sub(m[attr], function(v) { if (v == null) el.removeAttribute(attr); else el.setAttribute(attr, String(v)); });
+    });
   });
   // checkbox toggle
   document.querySelectorAll('[data-ssc-toggle]').forEach(function(el) {
