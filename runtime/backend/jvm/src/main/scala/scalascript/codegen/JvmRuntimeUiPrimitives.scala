@@ -88,6 +88,16 @@ object JvmRuntimeUiPrimitives:
        |          onSuccessTick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]],
        |          headers = _hOpt)
        |
+       |      def fetchActionTo(method: String, urlSig: Any, body: Any, onSuccessTick: Any, headers: Any = null): EventHandler =
+       |        val _hOpt = Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]])
+       |          .filter(_.id != "__ssc_empty_headers")
+       |        // headless (no SPA click dispatch): snapshot the urlSig's current value
+       |        scalascript.frontend.EventHandler.FetchAction(method,
+       |          urlSig.asInstanceOf[scalascript.frontend.ReactiveSignal[String]].apply(),
+       |          body.asInstanceOf[scalascript.frontend.ReactiveSignal[String]],
+       |          onSuccessTick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]],
+       |          headers = _hOpt)
+       |
        |      def incSignal(s: Any): EventHandler =
        |        scalascript.frontend.EventHandler.IncrementSignal(
        |          s.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]], 1)

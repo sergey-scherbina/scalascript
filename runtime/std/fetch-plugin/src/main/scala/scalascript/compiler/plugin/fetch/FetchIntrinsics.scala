@@ -89,6 +89,34 @@ object FetchIntrinsics:
         case _ => throw InterpretError("fetchAction(method, url, body, onSuccessTick[, headers])")
     },
 
+    // fetchActionTo(method, urlSig, body, onSuccessTick[, headers]): EventHandler
+    // Like fetchAction but the URL is a Signal[String] resolved at click time on the
+    // reactive (react/JS SPA) backend. The interpreter is headless (no SPA click
+    // dispatch), so it snapshots the urlSig's current value into the descriptor.
+    QualifiedName("fetchActionTo") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(method: String,
+                  Value.Foreign("ReactiveSignal", urlSig: ReactiveSignal[?]),
+                  Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
+                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          Value.Foreign("EventHandler",
+            EventHandler.FetchAction(method, urlSig.asInstanceOf[ReactiveSignal[String]].apply(),
+              body.asInstanceOf[ReactiveSignal[String]],
+              tick.asInstanceOf[ReactiveSignal[Int]]))
+        case List(method: String,
+                  Value.Foreign("ReactiveSignal", urlSig: ReactiveSignal[?]),
+                  Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
+                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
+                  Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
+          val h = headers.asInstanceOf[ReactiveSignal[String]]
+          Value.Foreign("EventHandler",
+            EventHandler.FetchAction(method, urlSig.asInstanceOf[ReactiveSignal[String]].apply(),
+              body.asInstanceOf[ReactiveSignal[String]],
+              tick.asInstanceOf[ReactiveSignal[Int]],
+              headers = if h.id == "__ssc_empty_headers" then None else Some(h)))
+        case _ => throw InterpretError("fetchActionTo(method, urlSig, body, onSuccessTick[, headers])")
+    },
+
     // fetchActionClear(method, url, body, onSuccessTick[, headers]): EventHandler
     // Like fetchAction but also clears the body signal to "" on success.
     QualifiedName("fetchActionClear") -> PluginNative.evalLegacy { (_, args) =>

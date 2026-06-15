@@ -24,6 +24,7 @@ exports:
   - serve
   - fetchUrlSignal
   - fetchAction
+  - fetchActionTo
   - incSignal
   - fetchActionClear
   - fetchCaptureAction
@@ -128,6 +129,14 @@ extern def fetchUrlSignal(name: String, url: String, refreshTick: Signal[Int],
 // headers: JSON-object Signal read at click time.
 extern def fetchAction(method: String, url: String, body: Signal[String], onSuccessTick: Signal[Int],
                        headers: Signal[String] = emptyHeaders): EventHandler
+
+// fetchActionTo — like fetchAction but the URL is a Signal[String] resolved at
+// click time, for path-id endpoints whose id is a runtime selection, e.g.
+// `fetchActionTo("POST", docUrlSig, emptyBody, tick)` where
+// `docUrlSig = computedSignal(() => baseUrl + "/documents/" + selectedSig() + "/submit")`.
+// (A plain `fetchAction` bakes its `url` String at render time.)
+extern def fetchActionTo(method: String, urlSig: Signal[String], body: Signal[String], onSuccessTick: Signal[Int],
+                         headers: Signal[String] = emptyHeaders): EventHandler
 
 // incSignal — on click: increment an Int signal by 1.
 extern def incSignal(s: Signal[Int]): EventHandler

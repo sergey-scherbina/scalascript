@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — feat(std/ui): fetchActionTo — reactive-URL fetch action
+
+`std/ui/primitives.fetchAction` takes a **static** `url: String`, so a path-id endpoint
+(`POST /documents/<selectedId>/submit`) had to interpolate a signal at *render* time —
+baking in the then-current (empty) selection → a static `…/documents//submit` that never
+updates. New `fetchActionTo(method, urlSig: Signal[String], body, onSuccessTick, headers)`
+resolves the URL from a signal at **click** time (the body already worked this way). On the
+react/JS SPA backend `_ssc_ui_fetchActionTo` carries `urlSig`; `_ssc_ui_renderBody` collects
+it (kept fresh by the computed→`_sv` bridge) + emits `data-ssc-fetch-url-sig`, and the click
+handler resolves `_sv[urlSigId]`. INT/JVM are headless (no SPA click loop) so they snapshot
+the urlSig's current value into a regular `EventHandler.FetchAction` — no change to the
+shared `EventHandler` ADT or any frontend emitter. Guarded by `FetchActionToUrlTest` (real
+`JsRuntimeSignals` headless: type → click → URL reflects the typed selection). Spec
+`specs/fetch-action-to.md`. Found building busi `web/peer.ssc` doc Submit/Approve/Reject.
+
+---
+
 ## 2026-06-15 — fix(jvmgen): Any-taint propagation for handle-result compositions
 
 Closed the two deferred cross-backend bugs from the handle-result-mainpath cluster

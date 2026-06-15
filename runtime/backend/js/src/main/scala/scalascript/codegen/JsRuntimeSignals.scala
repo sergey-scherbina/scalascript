@@ -239,17 +239,22 @@ function _ssc_ui_renderBody(view) {
           if (h._type === '_ToggleSignal' && h.s) { collectSig(h.s); aStr += ` data-ssc-toggle="${h.s.id}"`; }
           else if (h._type === '_SetSignal'  && h.s) { collectSig(h.s); aStr += ` data-ssc-set="${h.s.id}" data-ssc-set-val="${_esc(JSON.stringify(h.v))}"`; }
           else if (h._type === '_InputChange' && h.s) { collectSig(h.s); aStr += ` data-ssc-change="${h.s.id}"`; }
-          else if ((h._type === '_FetchAction' || h._type === '_FetchActionClear') && h.url) {
+          else if ((h._type === '_FetchAction' || h._type === '_FetchActionClear') && (h.url || h.urlSig)) {
             // Scope B.4+ — body may be a formBody descriptor (assemble from named
             // field signals at submit) instead of a single body signal.
             const bodyFields = (h.body && h.body._body === 'fields') ? h.body.fields : null;
             if (h.body && !bodyFields) collectSig(h.body); if (h.tick) collectSig(h.tick);
             if (h.headers) collectSig(h.headers); if (h.into) collectSig(h.into);
+            // Reactive URL (fetchActionTo): the URL is a signal resolved at click,
+            // not a static string — collect it so its _sv entry is kept fresh.
+            if (h.urlSig) collectSig(h.urlSig);
             const bId = (h.body && h.body.id) ? h.body.id : '';
             const tId = (h.tick && h.tick.id) ? h.tick.id : '';
             const hId = (h.headers && h.headers.id != null) ? String(h.headers.id) : '';
             const iId = (h.into && h.into.id != null) ? String(h.into.id) : '';
-            aStr += ` data-ssc-fetch-method="${_esc(h.method||'POST')}" data-ssc-fetch-url="${_esc(h.url)}" data-ssc-fetch-body="${_esc(bId)}" data-ssc-fetch-tick="${_esc(tId)}"`;
+            const uSigId = (h.urlSig && h.urlSig.id != null) ? String(h.urlSig.id) : '';
+            aStr += ` data-ssc-fetch-method="${_esc(h.method||'POST')}" data-ssc-fetch-url="${_esc(h.url || '')}" data-ssc-fetch-body="${_esc(bId)}" data-ssc-fetch-tick="${_esc(tId)}"`;
+            if (uSigId) aStr += ` data-ssc-fetch-url-sig="${_esc(uSigId)}"`;
             if (hId) aStr += ` data-ssc-fetch-headers="${_esc(hId)}"`;
             if (iId) aStr += ` data-ssc-fetch-into="${_esc(iId)}"`;
             if (bodyFields) aStr += ` data-ssc-fetch-body-fields="${_esc(JSON.stringify(bodyFields))}"`;
@@ -496,7 +501,11 @@ function _ssc_ui_mount(sigs) {
     var intoId    = el.getAttribute('data-ssc-fetch-into');
     var onSuccessRaw = el.getAttribute('data-ssc-fetch-onsuccess');   // Scope B.4
     var bodyFieldsRaw = el.getAttribute('data-ssc-fetch-body-fields'); // Scope B.4+
+    var urlSigId  = el.getAttribute('data-ssc-fetch-url-sig'); // fetchActionTo: reactive URL
     el.addEventListener('click', function() {
+      // fetchActionTo resolves its URL from a signal at click time (kept fresh in
+      // _sv by the computed→_sv bridge); plain fetchAction uses the static attr.
+      var theUrl = urlSigId ? String(_sv[urlSigId] == null ? '' : _sv[urlSigId]) : url;
       var body = bodyFieldsRaw ? _ssc_ui_buildFormBody(bodyFieldsRaw, _sv)
                : (bodyId ? String(_sv[bodyId] == null ? '' : _sv[bodyId]) : '');
       var opts = {method: method, body: body};
@@ -505,7 +514,7 @@ function _ssc_ui_mount(sigs) {
         if (hs) { try { opts.headers = JSON.parse(hs); } catch(_e) {} }
       }
       var ok = true;
-      fetch(url, opts)
+      fetch(theUrl, opts)
         .then(function(r) { ok = !!(r && r.ok); return r.text(); })
         .then(function(text) {
           // Capture variant: on a 2xx, stash the response body into `into`,
@@ -786,6 +795,10 @@ function _ssc_ui_fetchUrlSignal(name, url, tick, headers) {
   return sig;
 }
 function _ssc_ui_fetchAction(method, url, body, tick, headers) { return { _type: '_FetchAction', method, url, body, tick, headers: headers || null }; }
+// fetchActionTo — like fetchAction but the URL is a Signal[String] resolved at
+// click time (path-id endpoints, e.g. /documents/<selectedId>/submit). urlSig is
+// collected into _sv (kept fresh by the computed→_sv bridge).
+function _ssc_ui_fetchActionTo(method, urlSig, body, tick, headers) { return { _type: '_FetchAction', method, urlSig: urlSig || null, body, tick, headers: headers || null }; }
 function _ssc_ui_incSignal(s) { return { _type: '_IncSignal', s }; }
 function _ssc_ui_fetchActionClear(method, url, body, tick, headers) { return { _type: '_FetchActionClear', method, url, body, tick, headers: headers || null }; }
 // Scope B.4 — structured onSuccess effects + fetchActionWith.
