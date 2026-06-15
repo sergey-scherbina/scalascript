@@ -13,6 +13,39 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `done` | reporter confirmed fixed (safe to trim) |
 
 
+## js-supertype-typetest — `fixed` (2026-06-15)
+
+- **Found by:** busi (UI session). A `cardWithHeader(header)` card title rendered on **no**
+  screen in the SPA — money, compliance, and the new UA ФОП cockpit alike — while the card
+  body rendered fine and the interpreter (`ssc render`) was correct, so every `.ssc` test
+  passed. Browser DOM inspection showed the card-header `<div>` absent; the page heading
+  (`thView(2,…)`) and standalone section headings (`thView(3,…)` in a vstack) rendered.
+- **Symptom:** on the **JS backend**, a type-test against a supertype — sealed trait /
+  parent enum / abstract class — never matches a subtype instance. `sealed trait TkNode;
+  case class HeadingNode(t) extends TkNode; (x: Any) match { case h: TkNode => … }` skips the
+  `TkNode` arm for a `HeadingNode`. Emitted objects carry only their leaf `_type`
+  (`{_type:'HeadingNode'}`); `JsGenCpsCodegen.genPattern`'s `Pat.Typed` branch emitted an
+  exact `scrut._type === 'TkNode'` check, which a subtype never satisfies. `cardWithHeader`
+  lowers `header match { case h: TkNode => render; case _ => [] }` (header field typed `Any`),
+  so the title fell to the empty wildcard. The JS analogue of the interp/JIT fix for #1/#3.
+- **FIXED (2026-06-15):** `JsGen.subtypeClosureInModule` scans type decls + their `extends`
+  clauses into `supertypeName → Set[concrete leaf _type]` (transitive); stored per module in
+  `subtypeClosure`. `genPattern`'s `Pat.Typed` widens a no-tag (supertype) check to an `_type`
+  OR over the concrete-descendant closure; unknown types fall back to exact-name, tagged leaf
+  case classes keep their O(1) `_tag` check, and the `Pat.Extract` destructuring path is
+  unchanged. Guard: `SupertypeTypeTestJsTest` (4 cases: direct subtype = the busi repro,
+  transitive enum-case, 3-level intermediate-trait narrowing, value binding). Spec
+  `specs/js-supertype-typetest.md`.
+- **Repro:**
+  ```scalascript
+  sealed trait TkNode
+  case class HeadingNode(text: String) extends TkNode
+  def isTk(x: Any): String = x match
+    case h: TkNode => "tk"
+    case _         => "other"
+  println(isTk(HeadingNode("hi")))  // interp/JVM: "tk" ; JS (buggy): "other"
+  ```
+
 ## jvmgen-js-curried-partial — `fixed` (2026-06-15)
 
 - **Found by:** `CrossBackendPropertyTest` (main-path edge-case probes).

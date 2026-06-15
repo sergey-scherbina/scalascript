@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-15 — fix(js): supertype type-tests match subtype instances
+
+JS backend: a type-test against a supertype (sealed trait / parent enum / abstract class) —
+`case h: TkNode` — never matched a subtype instance, because emitted objects carry only their
+leaf `_type` and `genPattern`'s `Pat.Typed` tested an exact `_type === 'TkNode'`. Found by busi:
+every `cardWithHeader` title was silently dropped in the SPA on all screens (the interpreter was
+correct, so `.ssc` tests passed). Fix: `JsGen.subtypeClosureInModule` builds `supertype → concrete
+descendant `_type`s` (transitive) per module; `Pat.Typed` widens a no-tag check to an `_type` OR
+over that closure. Leaf-tag / primitive / destructuring (`Pat.Extract`) paths unchanged. The JS
+analogue of the interpreter/JIT supertype-type-test fix (BUGS #1/#3). Guard
+`SupertypeTypeTestJsTest`; spec `specs/js-supertype-typetest.md`; `BUGS.md#js-supertype-typetest`.
+
 ## 2026-06-15 — fix(jvm/js): effect perform inside a collection for-do loop
 
 Completes effect-perform-in-fordo: an effect op performed inside a `for x <- coll do …`

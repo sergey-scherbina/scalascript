@@ -14,6 +14,16 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Strategic-review proposals (2026-06-15) — the feature roadmap is built out; leverage has shifted from
 building features to validating/hardening/enabling what exists. Work top-to-bottom.
 
+- [x] **js-supertype-typetest** ✓ DONE 2026-06-15 — Fixed a JS-backend bug (found by busi):
+      a type-test against a supertype (sealed trait / parent enum / abstract class) never
+      matched a subtype instance, because `genPattern`'s `Pat.Typed` tested an exact
+      `_type === 'Trait'` and emitted objects carry only their leaf `_type`. busi symptom:
+      every `cardWithHeader` title was dropped in the SPA on all screens (interp was correct →
+      `.ssc` tests passed). Fix: `JsGen.subtypeClosureInModule` builds `supertype → concrete
+      descendants`; `Pat.Typed` widens a no-tag check to an `_type` OR over that closure.
+      Leaf-tag / primitive / `Pat.Extract` paths unchanged. Guard `SupertypeTypeTestJsTest`;
+      `BUGS.md#js-supertype-typetest`; spec `specs/js-supertype-typetest.md`. The JS analogue
+      of the interp/JIT #1/#3 supertype-type-test fix.
 - [x] **rozum-integration** ✓ DONE 2026-06-15 — Added `std.agent` P0: app-owned
       OpenAI-compatible tool-call loop for stateless rozum gateways over existing
       `std.http` + `std.json`, with explicit JSON schemas, `AgentTool` handlers,
