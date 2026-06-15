@@ -1,6 +1,0 @@
-bench-collection-corpus 2026-06-15T19:45:00Z
-agent: claude-opus-4-8
-heartbeat: 2026-06-15T19:45:00Z
-status: in-progress
-done-so-far: added 3 corpus workloads (vector-index, array-update, lazylist-take) showcasing the new collection types; verified they run on interp (sane Long results).
-next: stage bin/lib (installBin), run dashboard for the 3 across interp/jvm/js (rust=n/a, js=n/a for lazylist), add a Collection-type section to bench/BASELINE.md. Commit + push.
