@@ -22,9 +22,8 @@ trait AgentSchema[A]:
 object AgentSchema:
   def derived(m: Mirror): AgentSchema[Any]
 
-def agentToolFor[A](name: String, description: String)
-                   (handler: A => ToolResult)
-                   (using schema: AgentSchema[A]): AgentTool
+def agentToolFor[A](name: String, description: String, schema: AgentSchema[A])
+                   (handler: A => ToolResult): AgentTool
 ```
 
 Usage:
@@ -33,7 +32,11 @@ Usage:
 case class PostTransaction(amount: Int, memo: String) derives AgentSchema
 
 val postTransaction =
-  agentToolFor[PostTransaction]("post_transaction", "Post one transaction.") { args =>
+  agentToolFor[PostTransaction](
+    "post_transaction",
+    "Post one transaction.",
+    summon[AgentSchema[PostTransaction]]
+  ) { args =>
     toolOk(jObj(List(
       jField("amount", jNum(args.amount.toString)),
       jField("memo", jStr(args.memo))
@@ -91,10 +94,14 @@ subset.
 
 ## Decisions
 
-- **Typeclass-based helper** -- chosen because ScalaScript already supports
-  `derives` through runtime `Mirror` metadata. Rejected: compiler rewriting of
-  arbitrary handler signatures, because that would require a larger typer/codegen
-  contract and is not needed for the first usable slice.
+- **Explicit schema argument on the typed helper** -- chosen because
+  ScalaScript already supports `derives` through runtime `Mirror` metadata, and
+  `summon[AgentSchema[A]]` keeps derivation visible at the call site. Rejected:
+  a trailing `using AgentSchema[A]` clause after the handler, because the current
+  interpreter call path treats that shape as a missing curried handler argument.
+  Rejected: compiler rewriting of arbitrary handler signatures, because that
+  would require a larger typer/codegen contract and is not needed for the first
+  usable slice.
 - **Explicit schemas remain authoritative** -- chosen to keep custom JSON Schema
   constraints, enums, descriptions, and one-off validation under application
   control. Rejected: trying to merge explicit and derived schemas in this slice,
