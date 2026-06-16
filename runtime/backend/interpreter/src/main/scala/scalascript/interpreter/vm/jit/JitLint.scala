@@ -156,6 +156,12 @@ trait JitShapeCtx:
   def globalIsIntV(n: String): Boolean
   /** Top-level global `n` is bound to a `FunV`. */
   def globalIsFunV(n: String): Boolean
+  /** jit-collection-ops slice 2: `n(idx)` is an indexable-seq read (not a function call) —
+   *  `n` is a Vector/List/Array global, or a local statically bound to a seq ctor. Lets
+   *  `looksLongValue` keep `seq(idx).toLong` on the numeric path (the ASM `.toLong` gate
+   *  pre-checks shape before emitting; Javac can try-walk so it does not strictly need this).
+   *  Defaults to false for ctxs that don't track seqs (e.g. the lint classifier). */
+  def isSeqIndexName(n: String): Boolean = false
   /** True iff argument `argIdx` of a call to `fnName` is passed to a ref-typed
    *  parameter. Backend-specific (resolves the callee's `MethodSig` from
    *  codegen state), so each `GenCtx` implements it over its own `callParamIsRef`. */
@@ -313,6 +319,11 @@ object JitPredicates:
     // Stage 9 lambda-value-solo: local val-bound lambda call is Long-shaped
     // when the lambda is registered; walkLong inlines it at the call site.
     case Term.Apply.After_4_6_0(Term.Name(name), _) if ctx.isLambda(name) =>
+      true
+    // jit-collection-ops slice 2: `seq(idx)` indexed read is Long-shaped (seqIndexLong).
+    // Keeps `seq(idx).toLong` / arith on it on the numeric path (ASM's `.toLong` gate).
+    case Term.Apply.After_4_6_0(Term.Name(name), argClause)
+        if argClause.values.lengthCompare(1) == 0 && ctx.isSeqIndexName(name) =>
       true
     // Stage 8: global function call (Term.Apply on Term.Name) that resolves to
     // a Long-returning FunV. Keeps `.toInt`/`.toLong` on `combineAll(xs)` on the

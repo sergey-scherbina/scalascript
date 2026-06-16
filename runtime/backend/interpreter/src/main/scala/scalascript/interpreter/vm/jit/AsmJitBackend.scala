@@ -564,6 +564,30 @@ object AsmJitBackend extends JitBackend:
         emitValueObject(t, ctx, mv)
       case _ => false
 
+  /** slice 2: is `n` a name currently bound to an indexable seq GLOBAL (Vector/List/Array)?
+   *  Discriminates `seq(idx)` from a function call; restricted to globals (whose runtime type is
+   *  known at JIT-compile time). A FunV global correctly fails. Mirrors Javac's isSeqRefName. */
+  private def isSeqRefName(n: String, ctx: GenCtx): Boolean =
+    !ctx.isRefName(n) && (ctx.interp.globals.get(n) match
+      case Some(_: Value.VectorV) | Some(_: Value.ListV) | Some(_: Value.ArrayV) => true
+      case _ => false)
+
+  /** slice 2: if `t` is a builtin indexable-seq ctor, Some(isArray) else None (mirrors Javac). */
+  private def seqCtorKind(t: Term): Option[Boolean] = t match
+    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+      b.stats.head match
+        case inner: Term => seqCtorKind(inner)
+        case _           => None
+    case Term.Apply.After_4_6_0(funExpr, _) =>
+      val name = funExpr match
+        case Term.Name(n) => n
+        case Term.ApplyType.After_4_6_0(Term.Name(n), _) => n
+        case _ => ""
+      if name == "Array" then Some(true)
+      else if name == "Vector" || name == "List" then Some(false)
+      else None
+    case _ => None
+
   private def isRefValRhs(t: Term, ctx: GenCtx): Boolean = t match
     case Term.Name("None") => true
     case tn: Term.Name     => ctx.isRefName(tn.value)
@@ -577,10 +601,11 @@ object AsmJitBackend extends JitBackend:
       ap.fun match
         case fn: Term.Name if fn.value == "Some" =>
           ap.argClause.values.lengthCompare(1) == 0
-        case fn: Term.Name if fn.value == "List" || fn.value == "Set" || fn.value == "Map" =>
-          true  // Stage 8: builtin collection ctors compile via walkRef.
+        case fn: Term.Name if fn.value == "List" || fn.value == "Set" || fn.value == "Map"
+            || fn.value == "Array" || fn.value == "Vector" =>
+          true  // Stage 8 / slice 2: builtin collection ctors compile via walkRef.
         case Term.ApplyType.After_4_6_0(Term.Name(n), _)
-            if n == "List" || n == "Set" || n == "Map" =>
+            if n == "List" || n == "Set" || n == "Map" || n == "Array" || n == "Vector" =>
           true  // Stage 8: Map[K,V](...)
         case Term.Select(Term.Name(recvName), Term.Name("updated"))
             if ctx.isRefName(recvName) =>
@@ -617,7 +642,9 @@ object AsmJitBackend extends JitBackend:
           if isRefValRhs(rhs, curCtx) then
             if !walkRef(rhs, curCtx, mv) then return null
             mv.visitVarInsn(ASTORE, slot)
-            curCtx = curCtx.withBindings(Map(n.value -> (slot, true)))
+            curCtx = seqCtorKind(rhs) match
+              case Some(isArray) => curCtx.withSeqLocal(n.value, slot, isArray)
+              case None          => curCtx.withBindings(Map(n.value -> (slot, true)))
           else
             val ok = if curCtx.isDouble then walkDouble(rhs, curCtx, mv) else walkLong(rhs, curCtx, mv)
             if !ok then return null
@@ -643,6 +670,17 @@ object AsmJitBackend extends JitBackend:
    *  into later body statements, or null on failure. Mirrors javac
    *  `walkStatAsVoid`. */
   private def emitStatAsVoid(stat: Stat, ctx: GenCtx, mv: MethodVisitor): GenCtx | Null = stat match
+    // slice 2: in-place array store `a(idx) = x` on a mutable-array local → arrayUpdateLong (void).
+    case Term.Assign(Term.Apply.After_4_6_0(an: Term.Name, argClause), rhs: Term)
+        if argClause.values.lengthCompare(1) == 0 && ctx.seqLocals.get(an.value).contains(true) =>
+      val slot = ctx.slotOf(an.value)
+      if slot < 0 then return null
+      mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+      mv.visitVarInsn(ALOAD, slot)
+      if !walkLong(argClause.values.head, ctx, mv) then return null
+      if !walkLong(rhs, ctx, mv) then return null
+      mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "arrayUpdateLong", "(Ljava/lang/Object;JJ)V", false)
+      ctx
     case Term.Assign(nm: Term.Name, rhs: Term) =>
       val slot = ctx.slotOf(nm.value)
       if slot < 0 then return null
@@ -680,7 +718,9 @@ object AsmJitBackend extends JitBackend:
       if isRefValRhs(rhs, ctx) then
         if !walkRef(rhs, ctx, mv) then return null
         mv.visitVarInsn(ASTORE, slot)
-        ctx.withBindings(Map(n.value -> (slot, true)))
+        seqCtorKind(rhs) match
+          case Some(isArray) => ctx.withSeqLocal(n.value, slot, isArray)
+          case None          => ctx.withBindings(Map(n.value -> (slot, true)))
       else
         val ok = if ctx.isDouble then walkDouble(rhs, ctx, mv) else walkLong(rhs, ctx, mv)
         if !ok then return null
@@ -882,7 +922,10 @@ object AsmJitBackend extends JitBackend:
     paramTypes:       Array[String] = Array.empty,
     // Stage 9: val-bound lambdas — name → (param names, body). Used to inline
     // a lambda call site as `eval each arg into a slot, bind, emit body`.
-    lambdas:          Map[String, (Array[String], Term)] = Map.empty
+    lambdas:          Map[String, (Array[String], Term)] = Map.empty,
+    // jit-collection-ops slice 2: ref-local names statically bound to an indexable
+    // seq ctor (Array/Vector/List); value true iff a mutable Array (stores allowed).
+    seqLocals:        Map[String, Boolean] = Map.empty
   ) extends JitShapeCtx:
     // JitShapeCtx: a local Long is one that resolves to a non-negative slot.
     def isLocalLong(n: String): Boolean = slotOf(n) >= 0
@@ -891,6 +934,10 @@ object AsmJitBackend extends JitBackend:
       interp.globals.get(n).exists(_.isInstanceOf[Value.IntV])
     def globalIsFunV(n: String): Boolean =
       interp.globals.get(n).exists(_.isInstanceOf[Value.FunV])
+    override def isSeqIndexName(n: String): Boolean =
+      seqLocals.contains(n) || (!isRefName(n) && (interp.globals.get(n) match
+        case Some(_: Value.VectorV) | Some(_: Value.ListV) | Some(_: Value.ArrayV) => true
+        case _ => false))
     def callArgIsRef(fnName: String, argIdx: Int): Boolean =
       callParamIsRef(fnName, argIdx, this)
     def isRefName(n: String): Boolean =
@@ -921,6 +968,9 @@ object AsmJitBackend extends JitBackend:
     def withBindings(more: Map[String, (Int, Boolean)]): GenCtx = copy(bindings = bindings ++ more)
     def withLambda(name: String, pNames: Array[String], body: Term): GenCtx =
       copy(lambdas = lambdas + (name -> (pNames, body)))
+    /** slice 2: bind a ref-local at `slot` AND tag it as a seq (`isArray` enables stores). */
+    def withSeqLocal(name: String, slot: Int, isArray: Boolean): GenCtx =
+      copy(bindings = bindings + (name -> (slot, true)), seqLocals = seqLocals + (name -> isArray))
 
   // ── walkLong ─────────────────────────────────────────────────────────────
 
@@ -1082,9 +1132,16 @@ object AsmJitBackend extends JitBackend:
         // Stage 9 lambda-value-solo: inline a val-bound lambda call site.
         case fn: Term.Name if ctx.lambdas.contains(fn.value) =>
           inlineLambdaLong(fn.value, ap.argClause.values, ctx, mv)
-        // jit-collection-ops: `seq(idx)` JIT is on the default JavacJitBackend only for now; the ASM
-        // backend tracks top-level-val globals differently and bails here (correct, tree-walked) — a
-        // documented follow-up (specs/jit-collection-ops.md).
+        // jit-collection-ops slice 2: `seq(idx)` indexed read on a seq-typed global (Vector/List/
+        // Array) or a seq-bound local → O(1) JitRefDispatch.seqIndexLong. Discriminated from a
+        // function call by the receiver's runtime type / static seq-local tag, exactly as Javac.
+        case fn: Term.Name if ap.argClause.values.lengthCompare(1) == 0
+            && (isSeqRefName(fn.value, ctx) || ctx.seqLocals.contains(fn.value)) =>
+          mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
+          if !walkRef(fn, ctx, mv) then return false
+          if !walkLong(ap.argClause.values.head, ctx, mv) then return false
+          mv.visitMethodInsn(INVOKEVIRTUAL, refDispatchInt, "seqIndexLong", "(Ljava/lang/Object;J)J", false)
+          true
         case fn: Term.Name =>
           emitLongCall(fn.value, ap.argClause.values, ctx, mv)
         case _ => false
@@ -2217,16 +2274,18 @@ object AsmJitBackend extends JitBackend:
             case Term.Name(n) => n
             case Term.ApplyType.After_4_6_0(Term.Name(n), _) => n
             case _ => ""
-          name == "List" || name == "Set" || name == "Map"
+          name == "List" || name == "Set" || name == "Map" || name == "Array" || name == "Vector"
         } =>
       val ctorName = funExpr match
         case Term.Name(n) => n
         case Term.ApplyType.After_4_6_0(Term.Name(n), _) => n
         case _ => ""
       val helper = ctorName match
-        case "List" => "buildListRef"
-        case "Set"  => "buildSetRef"
-        case "Map"  => "buildMapRef"
+        case "List"   => "buildListRef"
+        case "Set"    => "buildSetRef"
+        case "Map"    => "buildMapRef"
+        case "Array"  => "buildArrayRef"
+        case "Vector" => "buildVectorRef"
       val args = argClause.values
       mv.visitFieldInsn(GETSTATIC, refDispatchInt, "MODULE$", s"L$refDispatchInt;")
       // Build Object[] of args

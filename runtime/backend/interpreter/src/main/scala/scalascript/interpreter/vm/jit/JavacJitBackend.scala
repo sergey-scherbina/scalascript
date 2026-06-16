@@ -838,6 +838,10 @@ object JavacJitBackend extends JitBackend:
       interp.globals.get(n).exists(_.isInstanceOf[Value.IntV])
     def globalIsFunV(n: String): Boolean =
       interp.globals.get(n).exists(_.isInstanceOf[Value.FunV])
+    override def isSeqIndexName(n: String): Boolean =
+      seqLocals.contains(n) || (!isRefName(n) && (interp.globals.get(n) match
+        case Some(_: Value.VectorV) | Some(_: Value.ListV) | Some(_: Value.ArrayV) => true
+        case _ => false))
     def callArgIsRef(fnName: String, argIdx: Int): Boolean =
       callParamIsRef(fnName, argIdx, this)
     def isRefName(n: String): Boolean =
