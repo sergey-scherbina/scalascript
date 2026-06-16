@@ -14,6 +14,31 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Strategic-review proposals (2026-06-15) — the feature roadmap is built out; leverage has shifted from
 building features to validating/hardening/enabling what exists. Work top-to-bottom.
 
+Cross-backend collection-perf follow-ups (2026-06-16, after jit-collection-ops-slice2) — the dashboard
+(`./bench.sh vector-index array-update lazylist-take`) showed each backend's remaining weak spot. Close them:
+
+- [ ] **rust-mutable-array** — `array-update` is `n/a` on Rust (the corpus assumed Rust "has no distinct
+      mutable Array type"). It does: `Vec<i64>`. Implement the `Array(...)` ctor + `a(i)` read + `a(i)=x`
+      store in the Rust backend (`runtime/backend/rust`), mapping `Array(0,…)` → a mutable `vec![…]`,
+      `a(idx)` → indexed read, `a(idx) = x` → `a[idx as usize] = x`. The Vector path already works
+      (`vector-index` 0.66 ms) — mirror it but mutable. Verify `array-update` runs on Rust + the
+      cross-backend result matches interp/jvm. Repro: `./bench.sh --backend rust array-update`.
+
+- [ ] **jvm-lazylist-fusion** — JvmGen emits a real Scala `LazyList` for `LazyList.from(s).map(f).take(n).sum`,
+      so `lazylist-take` is 5.87 ms (vs interp-JIT 0.058 ms). Apply the SAME pipeline fusion in JvmGen:
+      recognize `LazyList.from(start).map(unary)?.take(n).sum` and emit a tight `while` loop over the
+      n-element prefix (no lazy cons / thunk alloc). Reuse the recognizer idea from
+      `JitHofShape.lazyFromMapTake` (interp). Verify `lazylist-take` drops on jvm + result unchanged
+      (cross-backend). Repro: `./bench.sh --backend jvm lazylist-take`.
+
+- [ ] **js-collection-perf** — the JS backend is slow on ALL three: `array-update` 24.8, `lazylist-take`
+      8.92, `vector-index` 17.2 ms/iter (vs interp-JIT sub-ms). Speed up JS codegen / runtime for:
+      (a) array `a[i]=x` store + read in a hot loop, (b) `Vector` indexed read (tagged-array path),
+      (c) the LazyList thunk pipeline (`_lz*` runtime — consider fusing `from().map().take().sum`).
+      Profile first to find the dominant cost (likely per-iteration allocation / megamorphic dispatch /
+      the `_lz` thunk chain). Verify each workload drops + results match. Repro:
+      `./bench.sh --backend js vector-index array-update lazylist-take`.
+
 - [x] **jit-collection-ops-slice2** ✓ DONE 2026-06-16 — finished array / vector / lazy-list JIT on
       the interp bytecode JIT (both backends). Array read + in-place update (`array-update` 1580 →
       0.66 ms ~2400×; `GenCtx.seqLocals` static seq-local tracking + `buildArrayRef`/`arrayUpdateLong`);
