@@ -507,6 +507,24 @@ class CrossBackendPropertyTest extends AnyFunSuite:
       assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
       assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
 
+  test("LazyList lazy combinators cross-backend (interp == JS == JVM)"):
+    assume(has("node") && has("scala-cli"), "node/scala-cli not available")
+    // LazyList must FUNCTION on every backend — infinite sources forced only by `take`. (lazylist-all-backends.)
+    val shapes = Seq(
+      "from-map-take"   -> "println(LazyList.from(1).map(x => x * 2).take(8).toList)\n",
+      "from-filter"     -> "println(LazyList.from(1).filter(x => x % 2 == 0).take(3).toList)\n",
+      "iterate"         -> "println(LazyList.iterate(1)(x => x * 2).take(5).toList)\n",
+      "continually"     -> "println(LazyList.continually(7).take(3).toList)\n",
+      "literal-map"     -> "println(LazyList(1, 2, 3).map(x => x + 1).take(2).toList)\n",
+      "from-sum"        -> "println(LazyList.from(1).map(x => x * 2).take(8).sum)\n",
+      "not-computed"    -> "println(LazyList(1, 2, 3))\n",
+    )
+    for (label, prog) <- shapes do
+      val m   = module(prog)
+      val exp = interp(m)
+      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
+      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+
   private def module(program: String) = Parser.parse(s"# Gen\n\n```scalascript\n$program\n```\n")
 
   private def interp(m: scalascript.ast.Module): String =

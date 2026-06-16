@@ -4287,12 +4287,12 @@ class JsGen(
         s"_seqKind('Vector', [${argVals.mkString(", ")}])"
       case Term.ApplyType.After_4_6_0(Term.Name("Vector" | "IndexedSeq"), _) =>
         s"_seqKind('Vector', [${argVals.mkString(", ")}])"
-      // List / Seq / Array / Iterable / LazyList constructor — backed by a plain JS array (eager — no
-      // distinct runtime type; Seq/Iterable display as List, Array's toString is non-deterministic, and
-      // LazyList is eager off-JVM). (collection-ctor-aliases / collection-real-type.)
-      case Term.Name("List" | "Seq" | "Array" | "Iterable" | "LazyList") =>
+      // List / Seq / Array / Iterable constructor — backed by a plain JS array (eager — no distinct
+      // runtime type; Seq/Iterable display as List, Array's toString is non-deterministic).
+      // (`LazyList` is NOT here — it calls the real lazy `LazyList(...)` runtime. lazylist-all-backends.)
+      case Term.Name("List" | "Seq" | "Array" | "Iterable") =>
         s"[${argVals.mkString(", ")}]"
-      case Term.ApplyType.After_4_6_0(Term.Name("List" | "Seq" | "Array" | "Iterable" | "LazyList"), _) =>
+      case Term.ApplyType.After_4_6_0(Term.Name("List" | "Seq" | "Array" | "Iterable"), _) =>
         s"[${argVals.mkString(", ")}]"
 
       // Set constructor → deduplicated array (`Set(...)` otherwise hit the JS global `Set`,

@@ -172,6 +172,8 @@ function _show(v) {
   if (typeof v === 'bigint') return v.toString();
   if (v && v._type === '_Decimal') return _decShow(v);
   if (typeof v === 'string') return v;
+  // A lazy list renders `LazyList(<not computed>)` until forced — matches interp/JVM toString.
+  if (v && v._lazy) return 'LazyList(<not computed>)';
   if (Array.isArray(v)) {
     if (v._isTuple) return '(' + v.map(_show).join(', ') + ')';
     return (v._kind || 'List') + '(' + v.map(_show).join(', ') + ')';
@@ -266,6 +268,37 @@ List.tabulate = (n) => (f)    => Array.from({length: n}, (_, i) => f(i));
 List.range    = (from, until, step=1) => { const r=[]; for(let i=from;i<until;i+=step) r.push(i); return r; };
 List.empty    = [];
 const Nil = [];
+
+// ── LazyList — a real lazy list (thunk-based memoised cons), so infinite streams work and only
+// the demanded prefix is forced. `tail` is computed once and memoised. (lazylist-all-backends.)
+const _LZ_NIL = { _lazy: true, _nil: true };
+function _lzCons(head, tailThunk) {
+  let memo, forced = false;
+  return { _lazy: true, _nil: false, head: head,
+           tail: () => { if (!forced) { memo = tailThunk(); forced = true; } return memo; } };
+}
+function _lzFromArray(arr) { let r = _LZ_NIL; for (let i = arr.length - 1; i >= 0; i--) { const t = r; r = _lzCons(arr[i], () => t); } return r; }
+function _lzFrom(n)        { return _lzCons(n, () => _lzFrom(n + 1)); }            // infinite n, n+1, …
+function _lzIterate(seed, f) { return _lzCons(seed, () => _lzIterate(f(seed), f)); }  // infinite
+function _lzContinually(f) { return _lzCons(f(), () => _lzContinually(f)); }       // f re-evaluated lazily
+function _lzRange(a, b, step) { step = step || 1; return (step > 0 ? a >= b : a <= b) ? _LZ_NIL : _lzCons(a, () => _lzRange(a + step, b, step)); }
+function _lzMap(ll, f)     { return ll._nil ? _LZ_NIL : _lzCons(f(ll.head), () => _lzMap(ll.tail(), f)); }
+function _lzFilter(ll, p, neg) { while (!ll._nil) { if (p(ll.head) !== !!neg) { const cur = ll; return _lzCons(cur.head, () => _lzFilter(cur.tail(), p, neg)); } ll = ll.tail(); } return _LZ_NIL; }
+function _lzTake(ll, k)    { return (k <= 0 || ll._nil) ? _LZ_NIL : _lzCons(ll.head, () => _lzTake(ll.tail(), k - 1)); }
+function _lzDrop(ll, k)    { while (k > 0 && !ll._nil) { ll = ll.tail(); k--; } return ll; }
+function _lzTakeWhile(ll, p) { return (ll._nil || !p(ll.head)) ? _LZ_NIL : _lzCons(ll.head, () => _lzTakeWhile(ll.tail(), p)); }
+function _lzDropWhile(ll, p) { while (!ll._nil && p(ll.head)) ll = ll.tail(); return ll; }
+function _lzZipIdx(ll, i)  { i = i || 0; if (ll._nil) return _LZ_NIL; const t = [ll.head, i]; t._isTuple = true; return _lzCons(t, () => _lzZipIdx(ll.tail(), i + 1)); }
+function _lzFlatMap(ll, f) { while (!ll._nil) { const inner = _lzCoerce(f(ll.head)); if (!inner._nil) { const rest = ll; return _lzAppend(inner, () => _lzFlatMap(rest.tail(), f)); } ll = ll.tail(); } return _LZ_NIL; }
+function _lzAppend(ll, thunk) { return ll._nil ? thunk() : _lzCons(ll.head, () => _lzAppend(ll.tail(), thunk)); }
+function _lzCoerce(v)      { return (v && v._lazy) ? v : _lzFromArray(Array.isArray(v) ? v : [v]); }
+function _lzToArray(ll)    { const r = []; while (!ll._nil) { r.push(ll.head); ll = ll.tail(); } return r; }
+const LazyList = Object.assign(function(...args) { return _lzFromArray(args); }, {
+  from: (n) => _lzFrom(n), iterate: (seed) => (f) => _lzIterate(seed, f),
+  continually: (x) => _lzContinually(() => x), range: (a, b, step) => _lzRange(a, b, step),
+  tabulate: (n) => (f) => { let r = _LZ_NIL; for (let i = n - 1; i >= 0; i--) { const t = r, j = i; r = _lzCons(f(j), () => t); } return r; },
+  empty: _LZ_NIL,
+});
 
 // ── Persistent immutable Map (_HAMT) — T2.2 ───────────────────────────────────
 // The ssc immutable Map. A path-copying 8-nibble trie on a 32-bit hash of a

@@ -90,6 +90,39 @@ function _dispatch(obj, method, args) {
       case 'toDecimal': return Decimal(obj);
     }
   }
+  // LazyList — lazy ops stay lazy (only forced on demand); force ops materialise. (lazylist-all-backends.)
+  if (obj && obj._lazy) {
+    switch(method) {
+      case 'map':       return _lzMap(obj, args[0]);
+      case 'filter':    return _lzFilter(obj, args[0], false);
+      case 'filterNot': case 'withFilter': return _lzFilter(obj, args[0], true);
+      case 'take':      return _lzTake(obj, args[0]);
+      case 'drop':      return _lzDrop(obj, args[0]);
+      case 'takeWhile': return _lzTakeWhile(obj, args[0]);
+      case 'dropWhile': return _lzDropWhile(obj, args[0]);
+      case 'flatMap':   return _lzFlatMap(obj, args[0]);
+      case 'zipWithIndex': return _lzZipIdx(obj, 0);
+      case '++': case 'concat': case 'appendedAll': case 'lazyAppendedAll': { const o = _lzCoerce(args[0]); return _lzAppend(obj, () => o); }
+      case 'prepended': case '+:': return _lzCons(args[0], () => obj);
+      case 'head':      if (obj._nil) throw new Error('head on empty LazyList'); return obj.head;
+      case 'headOption': return obj._nil ? _None : _Some(obj.head);
+      case 'tail':      if (obj._nil) throw new Error('tail on empty LazyList'); return obj.tail();
+      case 'isEmpty':   return obj._nil;
+      case 'nonEmpty':  return !obj._nil;
+      case 'exists':    { let l = obj; while (!l._nil) { if (args[0](l.head)) return true; l = l.tail(); } return false; }
+      case 'forall':    { let l = obj; while (!l._nil) { if (!args[0](l.head)) return false; l = l.tail(); } return true; }
+      case 'find':      { let l = obj; while (!l._nil) { if (args[0](l.head)) return _Some(l.head); l = l.tail(); } return _None; }
+      case 'apply':     { let l = obj, i = args[0]; while (i > 0 && !l._nil) { l = l.tail(); i--; } if (l._nil) throw new Error('LazyList index out of bounds'); return l.head; }
+      case 'toList': case 'toSeq': case 'toVector': case 'toIndexedSeq': case 'toArray': case 'force': return _lzToArray(obj);
+      case 'length': case 'size': { let l = obj, n = 0; while (!l._nil) { n++; l = l.tail(); } return n; }
+      case 'sum':       { let l = obj, s = 0; while (!l._nil) { s += l.head; l = l.tail(); } return s; }
+      case 'foreach': case 'forEach': { let l = obj; while (!l._nil) { args[0](l.head); l = l.tail(); } return undefined; }
+      case 'mkString':  { const a = _lzToArray(obj); if (!args.length) return a.map(_show).join(''); if (args.length === 1) return a.map(_show).join(args[0]); return args[0] + a.map(_show).join(args[1]) + args[2]; }
+      case 'toString':  return _show(obj);
+      // anything else: force to an array and reuse the array dispatch.
+      default: return _dispatch(_lzToArray(obj), method, args);
+    }
+  }
   if (Array.isArray(obj)) {
     switch(method) {
       case 'head': return obj[0];

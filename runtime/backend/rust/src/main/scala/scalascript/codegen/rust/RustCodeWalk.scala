@@ -1158,6 +1158,57 @@ object RustCodeWalk:
       renderTerm(qual, ctx).map(q => s"format!(\"{}\", $q)")
     case m.Term.Select(qual, m.Term.Name("trim")) =>
       renderTerm(qual, ctx).map(q => s"$q.trim().to_string()")
+    // ── LazyList → std lazy iterators (Rust iterators are lazy). (lazylist-all-backends.) ──
+    // `LazyList.from(n)` → `(n..)` (infinite); `LazyList.range(a,b[,s])`; `LazyList.continually(x)`
+    // → `std::iter::repeat(x)`; `LazyList.iterate(s)(f)` → `std::iter::successors(...)`;
+    // `LazyList(a,b,c)` → `vec![…].into_iter()`. They are recognised by `isRangeExpr`, so the existing
+    // range-chain `.map`/`.filter`/`.toList` handlers + the `.take`/`.drop`/`.sum` ones below apply.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name("LazyList"), m.Term.Name("from")), a)
+        if a.values.size == 1 =>
+      renderTerm(a.values.head, ctx).map(n => s"($n..)")
+    case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name("LazyList"), m.Term.Name("range")), a)
+        if a.values.size == 2 =>
+      for lo <- renderTerm(a.values.head, ctx); hi <- renderTerm(a.values(1), ctx) yield s"($lo..$hi)"
+    case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name("LazyList"), m.Term.Name("continually")), a)
+        if a.values.size == 1 =>
+      renderTerm(a.values.head, ctx).map(x => s"std::iter::repeat($x)")
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name("LazyList"), m.Term.Name("iterate")), sArgs),
+        fArgs) if sArgs.values.size == 1 && fArgs.values.size == 1 =>
+      for
+        seed <- renderTerm(sArgs.values.head, ctx)
+        step <- fArgs.values.head match
+          case fn: m.Term.Function =>
+            val p = fn.paramClause.values.headOption.map(_.name.value).getOrElse("x")
+            renderTerm(fn.body, ctx).map(b => s"|&$p| Some($b)")
+          case other => renderTerm(other, ctx).map(f => s"|&x| Some(($f)(x))")
+      yield s"std::iter::successors(Some($seed), $step)"
+    case m.Term.Apply.After_4_6_0(m.Term.Name("LazyList"), a) =>
+      val rs = a.values.map(renderTerm(_, ctx))
+      val (errs, ok) = rs.partitionMap(identity)
+      if errs.nonEmpty then Left(errs.flatten) else Right(s"vec![${ok.mkString(", ")}].into_iter()")
+    // Lazy/force adapters on a range/iterator: take/drop/take_while/skip_while/sum (+ toVector/toArray).
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("take")), a)
+        if isRangeExpr(qual) && a.values.size == 1 =>
+      for q <- renderTerm(qual, ctx); k <- renderTerm(a.values.head, ctx) yield s"$q.take($k as usize)"
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("drop")), a)
+        if isRangeExpr(qual) && a.values.size == 1 =>
+      for q <- renderTerm(qual, ctx); k <- renderTerm(a.values.head, ctx) yield s"$q.skip($k as usize)"
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name(mw @ ("takeWhile" | "dropWhile"))), a)
+        if isRangeExpr(qual) && a.values.size == 1 =>
+      val rustMethod = if mw == "takeWhile" then "take_while" else "skip_while"
+      for
+        q <- renderTerm(qual, ctx)
+        f <- a.values.head match
+          case fn: m.Term.Function =>
+            val p = fn.paramClause.values.headOption.map(_.name.value).getOrElse("x")
+            renderTerm(fn.body, ctx).map(b => s"|&$p| { $b }")
+          case other => renderTerm(other, ctx).map(f => s"|&x| ($f)(*x)")
+      yield s"$q.$rustMethod($f)"
+    case m.Term.Select(qual, m.Term.Name("sum")) if isRangeExpr(qual) =>
+      renderTerm(qual, ctx).map(q => s"$q.sum::<i64>()")
+    case m.Term.Select(qual, m.Term.Name("toVector" | "toArray" | "toSeq")) if isRangeExpr(qual) =>
+      renderTerm(qual, ctx).map(q => s"$q.collect::<Vec<_>>()")
     // `.toList` on a Source/range (property access form) — collect to Vec.
     case m.Term.Select(qual, m.Term.Name("toList")) if isRangeExpr(qual) =>
       renderTerm(qual, ctx).map(q => s"$q.collect::<Vec<_>>()")
@@ -1819,9 +1870,16 @@ object RustCodeWalk:
         m.Term.Select(m.Term.Name("Source"), m.Term.Name("fromList")), args)
         if args.values.size == 1 => true
     case m.Term.Apply.After_4_6_0(
-      m.Term.Select(inner, m.Term.Name("map" | "filter" | "foldLeft" | "toList" | "collect")),
+      m.Term.Select(inner, m.Term.Name("map" | "filter" | "foldLeft" | "toList" | "collect"
+        | "take" | "drop" | "takeWhile" | "dropWhile")),
       _
     ) if isRangeExpr(inner) => true
+    // LazyList constructors are lazy iterators (lazylist-all-backends).
+    case m.Term.Apply.After_4_6_0(
+      m.Term.Select(m.Term.Name("LazyList"), m.Term.Name("from" | "range" | "continually")), _) => true
+    case m.Term.Apply.After_4_6_0(
+      m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name("LazyList"), m.Term.Name("iterate")), _), _) => true
+    case m.Term.Apply.After_4_6_0(m.Term.Name("LazyList"), _) => true
     case _ => false
 
   private def needsEitherType(module: ast.Module): Boolean =
