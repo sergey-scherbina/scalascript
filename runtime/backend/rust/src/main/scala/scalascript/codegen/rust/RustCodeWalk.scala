@@ -627,7 +627,13 @@ object RustCodeWalk:
       ctorMap:      Map[String, EnumCtor],
       topVals:      List[TopVal],
       defName:      String,
-      effectfulDefs: Set[String] = Set.empty  // defs that carry `T ! E` return type
+      effectfulDefs: Set[String] = Set.empty,  // defs that carry `T ! E` return type
+      // collection-rust-array: local val/var names bound to an indexable-seq ctor in this def.
+      // `localSeqs` = all (Array/Vector/List → `vec![…]`, O(1)-indexed), so `a(i)` lowers to
+      // `a[(i) as usize]`; `localArrays` ⊆ localSeqs are mutable `Array`s, bound `let mut` so
+      // `a(i) = x` (→ `a[(i) as usize] = x`) is allowed. Computed by a per-def pre-pass.
+      localSeqs:    Set[String] = Set.empty,
+      localArrays:  Set[String] = Set.empty
   ):
     def enumNames: Set[String] = ctorMap.values.map(_.enumName).toSet
     @annotation.unused def topValNames: Set[String] = topVals.map(_._1).toSet
@@ -695,7 +701,8 @@ object RustCodeWalk:
         case None =>
           Right(GeneratedDef(name = name, render = "", isMain = false))
     else
-      val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs)
+      val (lseqs, larrays) = collectLocalSeqs(d.body)
+      val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs, larrays)
       val effName = defEffectName(d)
       val pNames  = extractParamNames(d)
       val useTCO  = pNames.nonEmpty && hasTailCallPath(name, pNames.size, d.body)
@@ -721,6 +728,37 @@ object RustCodeWalk:
   /** Extract just the parameter names from a def (all parameter groups). */
   private def extractParamNames(d: m.Defn.Def): List[String] =
     d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
+
+  /** collection-rust-array: scan a def body for local `val/var x = Array(...)/Vector(...)/List(...)`
+   *  bindings. Returns (allIndexableSeqLocals, mutableArrayLocals). A local seq lowers `x(i)` to
+   *  `x[(i) as usize]`; a mutable array additionally needs a `let mut` binding so `x(i)=v` stores. */
+  private def collectLocalSeqs(body: m.Term): (Set[String], Set[String]) =
+    val seqs   = scala.collection.mutable.Set.empty[String]
+    val arrays = scala.collection.mutable.Set.empty[String]
+    def seqCtor(rhs: m.Term): Option[Boolean] = rhs match  // Some(isArray) iff a seq ctor
+      case m.Term.Apply.After_4_6_0(fn, _) =>
+        val nm = fn match
+          case m.Term.Name(n) => n
+          case m.Term.ApplyType.After_4_6_0(m.Term.Name(n), _) => n
+          case _ => ""
+        if nm == "Array" then Some(true)
+        else if nm == "Vector" || nm == "List" then Some(false)
+        else None
+      case _ => None
+    def record(n: String, rhs: m.Term): Unit =
+      seqCtor(rhs).foreach { isArr => seqs += n; if isArr then arrays += n }
+    def walk(t: m.Tree): Unit =
+      t match
+        case v: m.Defn.Val => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) => record(n, v.rhs)
+          case _                               => ()
+        case v: m.Defn.Var => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) => record(n, v.body)
+          case _                               => ()
+        case _ => ()
+      t.children.foreach(walk)
+    walk(body)
+    (seqs.toSet, arrays.toSet)
 
   /** Flatten a curried apply chain `base(a1)(a2)…` into `(base, a1 ++ a2 ++ …)`
    *  in source order, so a multi-group call lowers to a single Rust call matching
@@ -1657,21 +1695,24 @@ object RustCodeWalk:
         // `List(1, 2, 3)` / `Vec(1, 2, 3)` → Rust `vec![1, 2, 3]` unless Vec is a user struct.
         // Vector/Seq/IndexedSeq/Iterable are eager immutable sequences — observably identical to
         // List in Rust's `Vec`-backed model (which is itself O(1)-indexed), so they alias List.
-        // (Array's mutability and LazyList's laziness need a distinct runtime → still unsupported.)
-        // (collection-vector-indexed.)
+        // collection-rust-array: `Array(...)` is ALSO a `vec![...]` — its mutability comes from the
+        // `let mut` binding (collectLocalSeqs marks array locals) + the `a(i)=x` store path below.
+        // (LazyList's laziness still needs a distinct runtime → handled via isRangeExpr, not here.)
+        // (collection-vector-indexed / collection-rust-array.)
         val isListCtor = userCtorName.isEmpty && (fn match
-          case m.Term.Name("List" | "Vec" | "Vector" | "Seq" | "IndexedSeq" | "Iterable") => true
+          case m.Term.Name("List" | "Vec" | "Vector" | "Seq" | "IndexedSeq" | "Iterable" | "Array") => true
           case _                            => false)
         val isMapCtor = fn match
           case m.Term.Name("Map") => true
           case m.Term.ApplyType.After_4_6_0(m.Term.Name("Map"), _) => true
           case _                    => false
-        // `seq(i)` indexing — when the callee is a top-level sequence val (a `vec![…]`), Scala's
-        // `seq(i)` apply lowers to Rust `seq[i as usize]` (Vec is O(1)-indexed). Limited to
-        // top-level vals, the only bindings whose rendered Rust we track here. (collection-vector-indexed.)
+        // `seq(i)` indexing — when the callee is a sequence val (a `vec![…]`), Scala's `seq(i)`
+        // apply lowers to Rust `seq[i as usize]` (Vec is O(1)-indexed). Covers top-level vals
+        // (tracked init) AND local Array/Vector/List vals (collectLocalSeqs). (collection-rust-array.)
         val seqIndexName: Option[String] = fn match
           case m.Term.Name(n) if args.values.size == 1 &&
-            ctx.topVals.exists { case (vn, init) => vn == n && init.startsWith("vec![") } => Some(n)
+            (ctx.localSeqs.contains(n) ||
+             ctx.topVals.exists { case (vn, init) => vn == n && init.startsWith("vec![") }) => Some(n)
           case _ => None
         if isListCtor then Right(s"vec![$joined]")
         else if isMapCtor then
@@ -2164,7 +2205,8 @@ object RustCodeWalk:
   ): Either[List[Diagnostic], String] =
     pats match
       case List(m.Pat.Var(m.Term.Name(name))) =>
-        val kw = if mutable then "let mut" else "let"
+        // collection-rust-array: a `val a = Array(...)` local must bind `let mut` so `a(i)=x` stores.
+        val kw = if mutable || ctx.localArrays.contains(name) then "let mut" else "let"
         val annotated: Either[List[Diagnostic], String] = decltpe match
           case None    => Right("")
           case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map { r =>
