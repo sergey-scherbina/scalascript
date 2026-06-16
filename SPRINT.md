@@ -17,27 +17,22 @@ building features to validating/hardening/enabling what exists. Work top-to-bott
 Cross-backend collection-perf follow-ups (2026-06-16, after jit-collection-ops-slice2) — the dashboard
 (`./bench.sh vector-index array-update lazylist-take`) showed each backend's remaining weak spot. Close them:
 
-- [ ] **rust-mutable-array** — `array-update` is `n/a` on Rust (the corpus assumed Rust "has no distinct
-      mutable Array type"). It does: `Vec<i64>`. Implement the `Array(...)` ctor + `a(i)` read + `a(i)=x`
-      store in the Rust backend (`runtime/backend/rust`), mapping `Array(0,…)` → a mutable `vec![…]`,
-      `a(idx)` → indexed read, `a(idx) = x` → `a[idx as usize] = x`. The Vector path already works
-      (`vector-index` 0.66 ms) — mirror it but mutable. Verify `array-update` runs on Rust + the
-      cross-backend result matches interp/jvm. Repro: `./bench.sh --backend rust array-update`.
+- [x] **rust-mutable-array** ✓ DONE 2026-06-16 — `array-update` no longer `n/a` on Rust (it has
+      `Vec<i64>`). `collectLocalSeqs` per-def pre-pass tracks local `val a = Array/Vector/List(…)` →
+      `Ctx.localSeqs`/`localArrays`; `Array(…)`→`vec![…]` (array local binds `let mut`), `a(i)`→
+      `a[(i) as usize]`, `a(i)=x` store falls out of the existing Term.Assign path. array-update
+      0.681 ms/iter, value-correct vs interp (4963475). backendRust 204 green.
 
-- [ ] **jvm-lazylist-fusion** — JvmGen emits a real Scala `LazyList` for `LazyList.from(s).map(f).take(n).sum`,
-      so `lazylist-take` is 5.87 ms (vs interp-JIT 0.058 ms). Apply the SAME pipeline fusion in JvmGen:
-      recognize `LazyList.from(start).map(unary)?.take(n).sum` and emit a tight `while` loop over the
-      n-element prefix (no lazy cons / thunk alloc). Reuse the recognizer idea from
-      `JitHofShape.lazyFromMapTake` (interp). Verify `lazylist-take` drops on jvm + result unchanged
-      (cross-backend). Repro: `./bench.sh --backend jvm lazylist-take`.
+- [x] **jvm-lazylist-fusion** ✓ DONE 2026-06-16 — `fuseLazyListInSource` (parse→splice pass, same
+      mechanism as rewriteActorAstCallsInSource) fuses `LazyList.from(s).map(f)?.take(n).sum` into a
+      native `while` loop in the emitted Scala (emit-scala/run-jvm), applied to the user slice only.
+      lazylist-take 5.87 → 0.052 ms (~113×); run-jvm == interp (74944). JvmLazyListFusionTest (5).
 
-- [ ] **js-collection-perf** — the JS backend is slow on ALL three: `array-update` 24.8, `lazylist-take`
-      8.92, `vector-index` 17.2 ms/iter (vs interp-JIT sub-ms). Speed up JS codegen / runtime for:
-      (a) array `a[i]=x` store + read in a hot loop, (b) `Vector` indexed read (tagged-array path),
-      (c) the LazyList thunk pipeline (`_lz*` runtime — consider fusing `from().map().take().sum`).
-      Profile first to find the dominant cost (likely per-iteration allocation / megamorphic dispatch /
-      the `_lz` thunk chain). Verify each workload drops + results match. Repro:
-      `./bench.sh --backend js vector-index array-update lazylist-take`.
+- [x] **js-collection-perf** ✓ DONE 2026-06-16 — JsGen now emits native JS for hot collection/numeric
+      ops instead of `_call`/`_dispatch`/`_arith`: `.toInt/.toLong`→`Math.trunc` (numeric receiver),
+      `seq(idx)`→`v[idx]` (listElemType-tracked numeric seqs incl. local `Array(…)`), and
+      `LazyList.from(s).map(f)?.take(n).sum`→a native-loop IIFE. vector-index 17.2→4.96, array-update
+      24.8→17.6, lazylist-take 8.92→1.11 ms/iter; interp == node on all. JsCollectionPerfTest (7).
 
 - [x] **jit-collection-ops-slice2** ✓ DONE 2026-06-16 — finished array / vector / lazy-list JIT on
       the interp bytecode JIT (both backends). Array read + in-place update (`array-update` 1580 →

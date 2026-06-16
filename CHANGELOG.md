@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-16 — feat: cross-backend collection perf — Rust Array, JVM + JS LazyList fusion, JS native seq ops
+
+Closed each backend's remaining weak spot on the collection workloads (dashboard
+`./bench.sh vector-index array-update lazylist-take`), all results verified equal to interp:
+
+- **Rust**: `array-update` was `n/a` (the corpus wrongly assumed Rust has no mutable Array — it has
+  `Vec<i64>`). A per-def pre-pass tracks local `val a = Array/Vector/List(…)`; `Array(…)`→`let mut
+  vec![…]`, `a(i)`→`a[(i) as usize]`, `a(i)=x` store. array-update 0.681 ms/iter, value-correct.
+- **JVM**: `LazyList.from(s).map(f)?.take(n).sum` fused (parse→splice in JvmGen) into a native `while`
+  loop in the emitted Scala — `lazylist-take` 5.87 → 0.052 ms (~113×).
+- **JS**: hot collection/numeric ops now emit native JS instead of the megamorphic
+  `_call`/`_dispatch`/`_arith` helpers — `.toInt/.toLong`→`Math.trunc`, `seq(idx)`→`v[idx]`, and the
+  LazyList pipeline→a native-loop IIFE. vector-index 17.2→4.96, array-update 24.8→17.6,
+  lazylist-take 8.92→1.11 ms/iter.
+
 ## 2026-06-16 — feat: jit-collection-ops slice 2 — Array update + ASM parity + LazyList fusion
 
 Finished the collection JIT (array / vector / lazy list) on the interpreter's bytecode JIT.
