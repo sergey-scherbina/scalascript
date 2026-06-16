@@ -541,7 +541,9 @@ class JvmGen(
       if hasViewDef then sb.append("serve(view(), 0)\n")
 
     val fixedHead = sb.substring(0, preambleLen)
-    val userSrc   = sb.substring(preambleLen)
+    // jvm-lazylist-fusion: fuse bounded LazyList.from(s).map(f)?.take(n).sum pipelines into native
+    // loops in the USER code only (parsing just the user slice, not the ~7k-line preamble).
+    val userSrc   = fuseLazyListInSource(sb.substring(preambleLen))
     // Inject UI helper functions (top-level) + primitives object block when
     // the module uses a frontend framework.  Helpers are prepended so they're
     // defined before the `import std.ui.primitives.{serve,...}` line and can
@@ -1375,7 +1377,10 @@ class JvmGen(
     // form was never spliced.  Use the AST-only pass — the regex pass
     // would also rewrite `def NAME(...)` declarations, breaking files
     // that legitimately re-export an intrinsic name as a wrapper.
-    val qualifiedSrc = rewriteActorAstCallsInSource(rawSrc)
+    val actorSrc     = rewriteActorAstCallsInSource(rawSrc)
+    // jvm-lazylist-fusion: fuse bounded LazyList.from(s).map(f)?.take(n).sum pipelines into
+    // native loops so the emitted Scala (emit-scala / run-jvm) doesn't pay LazyList cons cost.
+    val qualifiedSrc = fuseLazyListInSource(actorSrc)
     // `extern def` stubs at top-level (or inside an effectful object) are
     // stripped by the `case d: Defn.Def if isExternDef(d.body)` arm in
     // emitStat — but stubs nested inside plain classes / non-recursing
@@ -2536,6 +2541,70 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
           ordered.foreach { sp =>
             sb.replace(sp.start, sp.end, sp.replacement)
           }
+          sb.toString
+
+  /** jvm-lazylist-fusion: fuse `LazyList.from(start).map(f)?.take(n).sum` (the receiver of a
+   *  terminal `.sum`) into a native `while` loop over the bounded n-element prefix — no lazy
+   *  cons cells / thunks (the inherent LazyList cost that made `lazylist-take` ~5.9 ms). The
+   *  spliced expression is `Int` (matching `LazyList[Int].sum`), so a trailing `.toLong` outside
+   *  the replaced node still applies. `take` is REQUIRED (an unbounded `.sum` would never
+   *  terminate), so only bounded prefixes match. Same parse → splice mechanism as
+   *  [[rewriteActorAstCallsInSource]] (scalameta 4.13 ships no public `Tree.transform`). */
+  private def fuseLazyListInSource(src: String): String =
+    if !src.contains("LazyList.from") then return src
+    import scala.meta.{dialects, *}
+    def tryParse(text: String): Option[Tree] =
+      scala.util.Try(dialects.Scala3(Input.VirtualFile("<llf>", text)).parse[Source])
+        .toOption.flatMap(_.toOption).map(t => t: Tree)
+    // Parse src directly (full source); if that fails — e.g. a user-code FRAGMENT with top-level
+    // statements, which `parse[Source]` rejects — retry wrapped in an object, offsetting positions.
+    val (parsed, off): (Option[Tree], Int) =
+      tryParse(src) match
+        case Some(t) => (Some(t), 0)
+        case None =>
+          val pfx = "object __sscLazyFuse {\n"
+          (tryParse(pfx + src + "\n}"), pfx.length)
+    parsed match
+      case None => src
+      case Some(tree) =>
+        case class Splice(start: Int, end: Int, replacement: String)
+        val splices = scala.collection.mutable.ListBuffer.empty[Splice]
+        // recv of `.sum` ≟ `LazyList.from(start).map(1-arg-lambda)?.take(n)` → (start, map?, n).
+        def recognize(recv: Term): Option[(Term, Option[(String, Term)], Term)] = recv match
+          case Term.Apply.After_4_6_0(Term.Select(inner, Term.Name("take")), tArgs)
+              if tArgs.values.lengthCompare(1) == 0 =>
+            val nT = tArgs.values.head
+            inner match
+              case Term.Apply.After_4_6_0(Term.Select(
+                     Term.Apply.After_4_6_0(Term.Select(Term.Name("LazyList"), Term.Name("from")), fArgs),
+                     Term.Name("map")), mArgs)
+                  if fArgs.values.lengthCompare(1) == 0 && mArgs.values.lengthCompare(1) == 0 =>
+                mArgs.values.head match
+                  case Term.Function.After_4_6_0(pc, body) if pc.values.lengthCompare(1) == 0 =>
+                    Some((fArgs.values.head, Some((pc.values.head.name.value, body)), nT))
+                  case _ => None
+              case Term.Apply.After_4_6_0(Term.Select(Term.Name("LazyList"), Term.Name("from")), fArgs)
+                  if fArgs.values.lengthCompare(1) == 0 =>
+                Some((fArgs.values.head, None, nT))
+              case _ => None
+          case _ => None
+        def walk(t: Tree): Unit =
+          t match
+            case sel @ Term.Select(recv, Term.Name("sum")) if recognize(recv).isDefined =>
+              val (startT, mapOpt, nT) = recognize(recv).get
+              val loopBody = mapOpt match
+                case Some((p, body)) => s"val $p = __st + __k; __acc += (${body.syntax})"
+                case None            => "__acc += (__st + __k)"
+              splices += Splice(sel.pos.start - off, sel.pos.end - off,
+                s"{ val __st = (${startT.syntax}); val __n = (${nT.syntax}); var __acc = 0; var __k = 0; " +
+                s"while (__k < __n) { $loopBody; __k += 1 }; __acc }")
+            case other => other.children.foreach(walk)
+        walk(tree)
+        if splices.isEmpty then src
+        else
+          val ordered = splices.sortBy(-_.start).toList
+          val sb = new StringBuilder(src)
+          ordered.foreach(sp => sb.replace(sp.start, sp.end, sp.replacement))
           sb.toString
 
   /** Build the `_pfToFun { case … => Some(body); case _ => None }`
