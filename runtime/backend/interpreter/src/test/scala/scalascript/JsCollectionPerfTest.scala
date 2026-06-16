@@ -41,3 +41,13 @@ class JsCollectionPerfTest extends AnyFunSuite:
     val js = gen("def f(s: String): Int = s.toInt")
     assert(js.contains("_dispatch") && js.contains("'toInt'"),
       s"String .toInt must stay on the runtime path, got:\n$js")
+
+  test("LazyList.from(s).map(f).take(n).sum is fused into a native loop (no _lz/_dispatch chain)"):
+    val js = gen("def f(start: Int): Int = LazyList.from(start).map(x => x * 2).take(8).sum")
+    assert(js.contains("__acc") && js.contains("while"), s"expected a fused loop, got:\n$js")
+    assert(!js.contains("'from'") && !js.contains("'take'"),
+      "the matched LazyList pipeline should not emit a _dispatch/_lz chain")
+
+  test("unbounded LazyList (no take) is NOT fused"):
+    val js = gen("def f(start: Int): Any = LazyList.from(start).map(x => x * 2)")
+    assert(!js.contains("__acc"), "an unbounded LazyList must not be rewritten")

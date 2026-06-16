@@ -2030,6 +2030,36 @@ class JsGen(
       else None
     case _ => None
 
+  /** js-collection-perf: recognise `LazyList.from(start).map(1-arg-lambda)?.take(n)` (the receiver
+   *  of a terminal `.sum`) → (start, map?, n). `take` REQUIRED (unbounded `.sum` never terminates). */
+  private def lazyFromMapTakeJs(recv: Term): Option[(Term, Option[(String, Term)], Term)] = recv match
+    case Term.Apply.After_4_6_0(Term.Select(inner, Term.Name("take")), tArgs)
+        if tArgs.values.lengthCompare(1) == 0 =>
+      val nT = tArgs.values.head
+      inner match
+        case Term.Apply.After_4_6_0(Term.Select(
+               Term.Apply.After_4_6_0(Term.Select(Term.Name("LazyList"), Term.Name("from")), fArgs),
+               Term.Name("map")), mArgs)
+            if fArgs.values.lengthCompare(1) == 0 && mArgs.values.lengthCompare(1) == 0 =>
+          mArgs.values.head match
+            case Term.Function.After_4_6_0(pc, body) if pc.values.lengthCompare(1) == 0 =>
+              Some((fArgs.values.head, Some((pc.values.head.name.value, body)), nT))
+            case _ => None
+        case Term.Apply.After_4_6_0(Term.Select(Term.Name("LazyList"), Term.Name("from")), fArgs)
+            if fArgs.values.lengthCompare(1) == 0 =>
+          Some((fArgs.values.head, None, nT))
+        case _ => None
+    case _ => None
+
+  /** Emit the fused native-loop IIFE for a recognised LazyList `.sum` pipeline (no `_lz*` thunks). */
+  private def genLazySumFused(pipe: (Term, Option[(String, Term)], Term)): String =
+    val (startT, mapOpt, nT) = pipe
+    val bodyJs = mapOpt match
+      case Some((p, body)) => s"const $p = __st + __k; __acc += (${withParamTyped(p, "Int")(genExpr(body))});"
+      case None            => "__acc += (__st + __k);"
+    s"(() => { const __st = (${genExpr(startT)}); const __n = (${genExpr(nT)}); let __acc = 0; let __k = 0; " +
+    s"while (__k < __n) { $bodyJs __k += 1; } return __acc; })()"
+
   private def genStat(stat: Stat): Unit = stat match
     case Defn.Val(_, pats, declT, rhs) =>
       pats match
@@ -3500,6 +3530,10 @@ class JsGen(
       "({ run: (src) => src.runDrain() })"
     case Term.Select(Term.Name("Sink"), Term.Name("toList")) =>
       "({ run: (src) => src.runToList() })"
+    // js-collection-perf: fused `LazyList.from(s).map(f)?.take(n).sum` → native loop IIFE (no _lz thunks).
+    case Term.Select(qual, Term.Name("sum")) if lazyFromMapTakeJs(qual).isDefined =>
+      genLazySumFused(lazyFromMapTakeJs(qual).get)
+
     // Field/method selection without arguments
     case Term.Select(qual, name) =>
       val qualJs = genExpr(qual)
@@ -4626,6 +4660,8 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("toDouble" | "toFloat")), _) => true
     // js-collection-perf: bare-select `.toDouble` / `.toFloat` is numeric.
     case Term.Select(_, Term.Name("toDouble" | "toFloat")) => true
+    // a fused LazyList `.sum` pipeline yields a number — keep a trailing `.toLong` native.
+    case Term.Select(q, Term.Name("sum")) if lazyFromMapTakeJs(q).isDefined => true
     // Case-class field of declared numeric type: `v.x` where `x: Int|Long|Double|Float`.
     case Term.Select(Term.Name(v), Term.Name(f)) =>
       instanceVars.get(v).flatMap(caseClassFieldTypeMap.get).flatMap(_.get(f))
