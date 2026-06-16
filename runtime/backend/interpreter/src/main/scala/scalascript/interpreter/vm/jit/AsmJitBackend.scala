@@ -1087,6 +1087,18 @@ object AsmJitBackend extends JitBackend:
         mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "length", "()I", false)
         mv.visitInsn(I2L)
         true
+    // jit-collection-ops slice 2: fused `LazyList.from(s).map(f)?.take(n).sum` → native loop.
+    case Term.Select(recv: Term, Term.Name("sum")) if JitHofShape.lazyFromMapTake(recv) != null =>
+      val pipe = JitHofShape.lazyFromMapTake(recv)
+      mv.visitFieldInsn(GETSTATIC, hofDispatchInt, "MODULE$", s"L$hofDispatchInt;")
+      if !walkLong(pipe.start, ctx, mv) then return false
+      val hasMap = pipe.map != null
+      mv.visitInsn(if hasMap then ICONST_1 else ICONST_0)
+      emitIconst(mv, if hasMap then pipe.map.op else 0)
+      mv.visitLdcInsn(if hasMap then pipe.map.c else 0L)
+      if !walkLong(pipe.n, ctx, mv) then return false
+      mv.visitMethodInsn(INVOKEVIRTUAL, hofDispatchInt, "lazyFromMapTakeSum", "(JZIJJ)J", false)
+      true
     // `.toLong` / `.toInt` are no-ops in ScalaScript when inner is Long-typed.
     // Stage 8: when inner walks as ref (e.g. String.trim), route through emitRefChainLong("toInt").
     case Term.Select(inner: Term, Term.Name("toLong" | "toInt")) =>

@@ -187,6 +187,21 @@ object JitHofDispatch:
       i += 1L
     acc
 
+  /** jit-collection-ops slice 2: fused `LazyList.from(start).map(unary)?.take(n).sum`.
+   *  Forces only the demanded n-element prefix of the infinite stream in a tight native
+   *  loop — no lazy cons cells, thunks, or per-element wrapper allocation (the ~35× interp
+   *  gap was the LazyList machinery, not the arithmetic). Long arithmetic mirrors the rest
+   *  of the numeric JIT lane (Int treated as Long). */
+  def lazyFromMapTakeSum(start: Long, hasMap: Boolean, mapOp: Int, mapC: Long, n: Long): Long =
+    var i = 0L
+    var acc = 0L
+    while i < n do
+      var x = start + i
+      if hasMap then x = applyUnaryLong(x, mapOp, mapC)
+      acc += x
+      i += 1L
+    acc
+
   private def applyUnaryLong(x: Long, op: Int, c: Long): Long =
     op match
       case OpId     => x

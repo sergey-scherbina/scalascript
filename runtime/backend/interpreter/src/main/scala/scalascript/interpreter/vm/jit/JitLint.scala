@@ -296,6 +296,10 @@ object JitPredicates:
     case Term.Select(_: Term, Term.Name(
         "size" | "length" | "head" | "last" | "isEmpty" | "nonEmpty" | "isDefined")) =>
       true
+    // jit-collection-ops slice 2: fused `LazyList.from(s).map(f)?.take(n).sum` is Long-shaped,
+    // so `<pipeline>.sum.toLong` stays on the numeric path (ASM's `.toLong` shape-gate).
+    case Term.Select(recv: Term, Term.Name("sum")) if JitHofShape.lazyFromMapTake(recv) != null =>
+      true
     case Term.Select(inner: Term, Term.Name("toLong" | "toInt")) =>
       looksLongValue(inner, ctx)
     case Term.Apply.After_4_6_0(Term.Select(_: Term, Term.Name("getOrElse")), argClause)

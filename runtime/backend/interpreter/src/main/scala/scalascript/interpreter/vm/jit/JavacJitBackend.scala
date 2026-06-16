@@ -1024,6 +1024,18 @@ object JavacJitBackend extends JitBackend:
       val s = walkString(recv, ctx)
       if s != null then s"((long)($s).length())"
       else emitRefChainLong(recv, "length", Nil, ctx)
+    // jit-collection-ops slice 2: fused `LazyList.from(s).map(f)?.take(n).sum` → native loop,
+    // no lazy cons/thunk allocation. Guarded on the exact pipeline shape so other `.sum` bail.
+    case Term.Select(recv: Term, Term.Name("sum")) if JitHofShape.lazyFromMapTake(recv) != null =>
+      val pipe  = JitHofShape.lazyFromMapTake(recv)
+      val start = walkLong(pipe.start, ctx)
+      val n     = walkLong(pipe.n, ctx)
+      if start == null || n == null then null
+      else
+        val hasMap = pipe.map != null
+        val op     = if hasMap then pipe.map.op else 0
+        val c      = if hasMap then pipe.map.c else 0L
+        s"scalascript.interpreter.vm.jit.JitHofDispatch$$.MODULE$$.lazyFromMapTakeSum($start, $hasMap, $op, ${c}L, $n)"
     // `.toLong` / `.toInt` are no-ops in ScalaScript when inner is Long-typed.
     // Stage 8: when inner walks as ref (e.g. String), route to stringToIntLong.
     case Term.Select(inner: Term, Term.Name("toLong" | "toInt")) =>

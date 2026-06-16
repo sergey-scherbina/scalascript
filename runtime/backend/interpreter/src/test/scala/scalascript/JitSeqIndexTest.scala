@@ -2,7 +2,8 @@ package scalascript
 
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.interpreter.Value
-import scalascript.interpreter.vm.jit.JitRefDispatch
+import scalascript.interpreter.vm.jit.{JitRefDispatch, JitHofDispatch, JitHofShape}
+import scala.meta.*
 
 /** Unit guard for the JIT seq-index helpers used by the bytecode-JIT'd `seq(i)` indexed read.
  *  (The end-to-end JIT firing is verified via the assembled jar / bench — a ScalaTest classpath
@@ -51,3 +52,25 @@ class JitSeqIndexTest extends AnyFunSuite:
   test("arrayUpdateLong throws (→ JIT bail) on a non-Array receiver"):
     assertThrows[ClassCastException](
       JitRefDispatch.arrayUpdateLong(Value.VectorV(Vector(iv(1))), 0L, 5L))
+
+  // slice 2: LazyList.from(s).map(f)?.take(n).sum fusion helper + recognizer.
+  test("lazyFromMapTakeSum matches LazyList.from(s).map(_*2).take(8).sum"):
+    // with map x => x*2: sum over i in [0,8) of (start+i)*2 = 2*(8*start + 28)
+    assert(JitHofDispatch.lazyFromMapTakeSum(5L, true, JitHofDispatch.OpMul, 2L, 8L)
+             == (0 until 8).map(i => (5 + i) * 2).sum.toLong)
+    // no map: plain sum of the 8-element prefix.
+    assert(JitHofDispatch.lazyFromMapTakeSum(5L, false, 0, 0L, 8L)
+             == (0 until 8).map(i => 5 + i).sum.toLong)
+    // n == 0 forces nothing.
+    assert(JitHofDispatch.lazyFromMapTakeSum(5L, true, JitHofDispatch.OpMul, 2L, 0L) == 0L)
+
+  test("lazyFromMapTake recognizes the pipeline shape and rejects unbounded / foreign shapes"):
+    def parse(s: String): Term = s.parse[Term].get
+    val withMap = JitHofShape.lazyFromMapTake(parse("LazyList.from(start).map(x => x * 2).take(8)"))
+    assert(withMap != null && withMap.map != null)
+    val noMap = JitHofShape.lazyFromMapTake(parse("LazyList.from(start).take(8)"))
+    assert(noMap != null && noMap.map == null)
+    // unbounded (no take) must NOT match — an infinite .sum would never terminate.
+    assert(JitHofShape.lazyFromMapTake(parse("LazyList.from(start).map(x => x * 2)")) == null)
+    // a List pipeline is not a LazyList pipeline.
+    assert(JitHofShape.lazyFromMapTake(parse("List(1,2,3).map(x => x * 2).take(8)")) == null)

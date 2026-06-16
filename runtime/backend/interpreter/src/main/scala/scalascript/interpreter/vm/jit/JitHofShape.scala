@@ -64,6 +64,43 @@ object JitHofShape:
     if (mp == null) && (filt == null) then null
     else FoldChain(cur, mp, filt)
 
+  /** jit-collection-ops slice 2: a fusable lazy pipeline `LazyList.from(start).map(unary)?.take(n)`
+   *  — the receiver of a terminal `.sum`. `map` is null when absent. `take` is required (an
+   *  unbounded `.sum` would never terminate), so only bounded prefixes match. */
+  final case class LazyTakeSum(start: Term, map: UnaryLong | Null, n: Term)
+
+  /** Recognise `LazyList.from(start).map(unary)?.take(n)` (optionally 1-stmt-block-wrapped).
+   *  Returns null on any other shape; the caller then bails to the tree-walk. */
+  def lazyFromMapTake(t: Term): LazyTakeSum | Null =
+    val cur0 = t match
+      case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+        b.stats.head match
+          case inner: Term => inner
+          case _           => return null
+      case other => other
+    cur0 match
+      case Term.Apply.After_4_6_0(Term.Select(inner, Term.Name("take")), ac)
+          if ac.values.lengthCompare(1) == 0 =>
+        val nTerm = ac.values.head
+        var base: Term = inner
+        var mp: UnaryLong | Null = null
+        base match
+          case Term.Apply.After_4_6_0(Term.Select(inner2, Term.Name("map")), ac2)
+              if ac2.values.lengthCompare(1) == 0 =>
+            ac2.values.head match
+              case fn: Term.Function =>
+                val u = unaryLong(fn)
+                if u == null then return null
+                mp = u; base = inner2
+              case _ => return null
+          case _ => ()
+        base match
+          case Term.Apply.After_4_6_0(Term.Select(Term.Name("LazyList"), Term.Name("from")), ac3)
+              if ac3.values.lengthCompare(1) == 0 =>
+            LazyTakeSum(ac3.values.head, mp, nTerm)
+          case _ => null
+      case _ => null
+
   def unaryLong(fn: Term.Function): UnaryLong | Null =
     val p = oneParamName(fn)
     if p == null then return null
