@@ -1,0 +1,6 @@
+feature/perf-followups 2026-06-16T22:31:32Z
+agent: claude-code
+heartbeat: 2026-06-16T22:31:32Z
+status: in-progress
+done-so-far: collection perf wave done; starting JS array-update residual
+next: profile JS array-update; then hof-glue VM compile; then full clean suite hardening
