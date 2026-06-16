@@ -2011,12 +2011,33 @@ class JsGen(
   private def substituteJsArgs(expr: String, params: List[String]): String =
     params.zipWithIndex.foldLeft(expr) { case (e, (n, i)) => e.replace(s"$$$i", n) }
 
+  /** js-collection-perf: numeric element type of a seq ctor RHS (`Array(0,…)`/`Vector(1,2)`/`List(…)`)
+   *  — Some("Int"/"Double") when the first element is numeric. Lets a LOCAL `val a = Array(…)` be
+   *  tracked in `listElemType` (collectDefs only sees top-level declared types), so `a(i)` reads
+   *  lower to `a[i]` and type as numeric. */
+  private def numericSeqCtorElem(rhs: Term): Option[String] = rhs match
+    case Term.Apply.After_4_6_0(fn, ac) =>
+      val nm = fn match
+        case Term.Name(n) => n
+        case Term.ApplyType.After_4_6_0(Term.Name(n), _) => n
+        case _ => ""
+      if Set("Vector", "Array", "List", "Seq", "IndexedSeq", "Iterable").contains(nm) then
+        ac.values.headOption.flatMap {
+          case e if isIntExpr(e)     => Some("Int")
+          case e if isNumericExpr(e) => Some("Double")
+          case _                     => None
+        }
+      else None
+    case _ => None
+
   private def genStat(stat: Stat): Unit = stat match
-    case Defn.Val(_, pats, _, rhs) =>
+    case Defn.Val(_, pats, declT, rhs) =>
       pats match
         case List(Pat.Var(n)) =>
           if isIntExpr(rhs) then intVars += n.value
           else if isNumericExpr(rhs) then numericVars += n.value
+          declT.flatMap(numericListElem).orElse(numericSeqCtorElem(rhs))
+            .foreach(e => listElemType(n.value) = e)
           line(s"const ${n.value} = ${genExpr(rhs)};")
         case List(pat) =>
           // Tuple/pattern destructuring
@@ -2025,9 +2046,11 @@ class JsGen(
         case _ =>
           line(s"/* multi-pat val */")
 
-    case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
+    case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), declT, rhs) =>
       if isIntExpr(rhs) then intVars += n.value
       else if isNumericExpr(rhs) then numericVars += n.value
+      declT.flatMap(numericListElem).orElse(numericSeqCtorElem(rhs))
+        .foreach(e => listElemType(n.value) = e)
       line(s"let ${n.value} = ${genExpr(rhs)};")
 
     // arch-ffi-p1 — @js("expr") / @jvm-only handling for extern defs.
@@ -3481,6 +3504,12 @@ class JsGen(
     case Term.Select(qual, name) =>
       val qualJs = genExpr(qual)
       name.value match
+        // js-collection-perf: numeric-conversion no-ops on a provably-numeric receiver lower to
+        // native JS (matching the runtime: `.toInt`/`.toLong` → Math.trunc, `.toDouble` → identity)
+        // instead of the megamorphic `_dispatch(x, 'toInt', [])`. Gated on isNumericExpr so a String
+        // receiver (`s.toInt` → parseInt) still routes through _dispatch.
+        case "toInt" | "toLong" if isNumericExpr(qual) => s"Math.trunc($qualJs)"
+        case "toDouble" if isNumericExpr(qual)         => s"($qualJs)"
         // Built-in collection/string methods that need runtime dispatch (computed properties)
         case "head" | "tail" | "last" | "init" | "reverse" | "distinct" | "sorted" |
              "toList" | "toSet" | "sum" | "min" | "max" | "flatten" | "isEmpty" |
@@ -4373,6 +4402,13 @@ class JsGen(
       case Term.Name(n) if (emptyParamFns(n) || zeroParamFns(n)) && argVals.isEmpty =>
         runIfEffectful(n, s"$n()")
 
+      // js-collection-perf: indexed read on a known numeric-seq val (Vector/Array/List/Seq, tracked
+      // in listElemType) → direct `v[idx]` (the JS backing is a real array), skipping the megamorphic
+      // `_call`. isIntExpr/isNumericExpr also type `v(idx)` numeric so surrounding arithmetic and a
+      // trailing `.toLong`/`.toInt` emit native ops.
+      case Term.Name(v) if listElemType.contains(v) && argVals.lengthCompare(1) == 0 =>
+        s"$v[${argVals.head}]"
+
       // Regular function call or constructor — wrap in `_call` so a
       // bare Array / Map reference (`xs(i)` / `m(k)`) is dispatched as
       // indexing rather than failing with "not a function".
@@ -4551,9 +4587,16 @@ class JsGen(
     case _: Lit.Int | _: Lit.Long                 => true
     case _: Lit.Double | _: Lit.Float              => false
     case Term.Name(n)                              => intVars.contains(n)
-    case Term.Apply.After_4_6_0(Term.Name(n), _)  => intFunctions.contains(n)
+    // int-returning fn call, OR `seq(idx)` indexed read on an Int/Long-element seq (js-collection-perf).
+    case Term.Apply.After_4_6_0(Term.Name(n), ac) =>
+      intFunctions.contains(n) ||
+        (ac.values.lengthCompare(1) == 0 && listElemType.get(n).exists(e => e == "Int" || e == "Long"))
     case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("toInt" | "toLong")), _) => true
     case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("toDouble" | "toFloat")), _) => false
+    // js-collection-perf: bare-select `.toInt` / `.toLong` (no parens) is Int regardless of the
+    // receiver (numeric → Math.trunc, String → parseInt) — recognise it so surrounding arithmetic
+    // emits native operators instead of `_arith`.
+    case Term.Select(_, Term.Name("toInt" | "toLong")) => true
     // Collection / String methods that always return an Int regardless of the
     // element type — both the field-access (`xs.length`) and the apply
     // (`xs.indexOf(x)`) forms.
@@ -4576,8 +4619,13 @@ class JsGen(
   private[codegen] def isNumericExpr(t: Term): Boolean = isIntExpr(t) || (t match
     case _: Lit.Double | _: Lit.Float => true
     case Term.Name(n)                 => numericVars.contains(n)
-    case Term.Apply.After_4_6_0(Term.Name(n), _)  => numericFunctions.contains(n)
+    // numeric-returning fn call, OR `seq(idx)` on a numeric-element seq (js-collection-perf;
+    // listElemType holds only Int/Long/Double/Float-element seqs).
+    case Term.Apply.After_4_6_0(Term.Name(n), ac) =>
+      numericFunctions.contains(n) || (ac.values.lengthCompare(1) == 0 && listElemType.contains(n))
     case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("toDouble" | "toFloat")), _) => true
+    // js-collection-perf: bare-select `.toDouble` / `.toFloat` is numeric.
+    case Term.Select(_, Term.Name("toDouble" | "toFloat")) => true
     // Case-class field of declared numeric type: `v.x` where `x: Int|Long|Double|Float`.
     case Term.Select(Term.Name(v), Term.Name(f)) =>
       instanceVars.get(v).flatMap(caseClassFieldTypeMap.get).flatMap(_.get(f))
