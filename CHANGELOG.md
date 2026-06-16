@@ -4,6 +4,26 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-16 — feat: jit-collection-ops slice 2 — Array update + ASM parity + LazyList fusion
+
+Finished the collection JIT (array / vector / lazy list) on the interpreter's bytecode JIT.
+Three workloads that previously tree-walked now JIT on **both** backends, with the JIT-on result
+identical to JIT-off (verified via the assembled jar):
+
+- **Array** read + in-place update (`a(i)` / `a(i)=x`): `array-update` 1580 → 0.66 ms (~2400×).
+  A local `val a = Array(...)` is tracked statically via `GenCtx.seqLocals` (a local can't be
+  classified by runtime type like a global); `JitRefDispatch.buildArrayRef` + `arrayUpdateLong`.
+- **ASM-backend parity** for `seq(i)` + `array(i)=x`: the `ssc-asm` column drops too
+  (`vector-index` 1003 → 0.87 ms, `array-update` 1473 → 0.69 ms). The real reason slice 1's ASM
+  path looked "inert" was the shared `JitPredicates.looksLongValue` not recognising `seq(idx)` as
+  a Long (ASM shape-gates `.toLong` before emitting; Javac try-walks) — fixed with
+  `JitShapeCtx.isSeqIndexName`, not reverted.
+- **LazyList** pipeline fusion: `LazyList.from(s).map(f)?.take(n).sum` fuses into a native loop
+  (no lazy cons/thunk alloc), `lazylist-take` 190 → 0.058 ms (~3275×). The ~35× gap was the
+  LazyList machinery, not the arithmetic — so it was tractable, not "inherent cost".
+
+Spec: `specs/jit-collection-ops.md` (all slices DONE).
+
 ## 2026-06-15 — feat: real `VectorV` — distinct indexed type with O(1) access
 
 Follow-up to the collection-real-type work: a List-backed `Vector` indexes in O(n), which isn't

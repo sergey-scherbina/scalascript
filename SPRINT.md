@@ -14,24 +14,15 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Strategic-review proposals (2026-06-15) — the feature roadmap is built out; leverage has shifted from
 building features to validating/hardening/enabling what exists. Work top-to-bottom.
 
-- [ ] **jit-collection-ops-slice2** — follow-ups to the Vector-index JIT (slice 1 DONE: `seq(i)`
-      read JITs on the default JavacJitBackend, `vector-index` 1056→1.14 ms ~925×; spec
-      `specs/jit-collection-ops.md`). Remaining:
-      1. **Array read + in-place update** (`array-update` workload, 1580 ms tree-walked): JIT
-         `a(i)` read + `a(i)=x` store. Needs (a) slot-type tracking so the JIT knows a local val
-         holds an `ArrayV`, and (b) `JitRefDispatch.arrayUpdateLong(recv, idx, value)` + `walkStat`
-         recognition of `Term.Assign(Term.Apply(a,[idx]), rhs)`. More involved than slice 1 (local +
-         mutation, not a global read).
-      2. **ASM-backend parity for `seq(i)`**: the Javac backend JITs it; `AsmJitBackend` bails (it
-         tracks top-level-val globals differently — the `walkRef`/`isSeqRefName` discrimination that
-         works on Javac doesn't engage on ASM). The inert ASM emission was reverted; the `walkRef`
-         Vector/Array-global parity was kept. Investigate ASM global tracking and emit the
-         `INVOKEVIRTUAL seqIndexLong` path so the `ssc-asm` dashboard column also drops.
-      Note on **interp LazyList JIT**: the interp tree-walks the per-iteration lazy pipeline
-      `from().map().take().sum` (not a simple loop-op to bytecode-JIT) — that interp-perf gap is a
-      lower-priority follow-up, NOT a correctness issue. Verify each via the assembled jar
-      (`sbt installBin`) + `./bench.sh --backend ssc <wl>` + JIT-on==off; clean-verify any JIT/codegen
-      suite failure (stale-incremental compile gives false fails).
+- [x] **jit-collection-ops-slice2** ✓ DONE 2026-06-16 — finished array / vector / lazy-list JIT on
+      the interp bytecode JIT (both backends). Array read + in-place update (`array-update` 1580 →
+      0.66 ms ~2400×; `GenCtx.seqLocals` static seq-local tracking + `buildArrayRef`/`arrayUpdateLong`);
+      ASM-backend parity for `seq(i)` + `array(i)=x` (the `ssc-asm` column drops too — slice-1's
+      "inert ASM" was the shared `looksLongValue` not knowing `seq(idx)`:Long, fixed via
+      `JitShapeCtx.isSeqIndexName`); LazyList pipeline fusion (`LazyList.from(s).map(f)?.take(n).sum`
+      → native loop, `lazylist-take` 190 → 0.058 ms ~3275× — the gap was LazyList machinery, not the
+      arithmetic). JIT-on == off on all three (assembled jar, both backends). spec
+      `specs/jit-collection-ops.md`.
 
 - [x] **lazylist-all-backends** ✓ DONE 2026-06-16 — `LazyList` must FUNCTION on all 5 backends like
       Vector/Array do; today it is `n/a` on JS (eager arrays, no `LazyList.from`) and Rust (no
