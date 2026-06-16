@@ -1,6 +1,0 @@
-feature/cross-backend-collection-perf 2026-06-16T21:41:02Z
-agent: claude-code
-heartbeat: 2026-06-16T21:41:02Z
-status: in-progress
-done-so-far: slice2 landed; starting rust mutable Array
-next: compile+test rust array-update; then jvm-lazylist-fusion, js-collection-perf
