@@ -68,6 +68,15 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       `CALLREF` opcode (the dual-bank `LExpr` roadmap, `project_dual_bank_lexpr`) so a
       `foldLeft`-with-a-runtime-monoid compiles to a tight loop. Large architectural effort, not
       a slice. A/B with `scripts/bench interp typeclassFoldMacro` (wall-clock).
+      **Re-confirmed 2026-06-17 (perf-followups):** `CallRuntime.foldLeftReusing` ALREADY runs the
+      fold as a native Scala `while` over a single reused `ReusableFrame2`, calling the
+      bytecode-JIT'd `combine` per element (`JitRuntime.tryRun2`, CallRuntime.scala:221) — so the
+      loop AND the combine are already fast. The residual is purely `combineAll`'s PER-CALL glue,
+      tree-walked once per call: resolving the `using Monoid[A]` given + the two `summon`-member
+      Selects + the `foldLeft` Apply dispatch. The only remaining lever is whole-function JIT of
+      `combineAll` itself — which additionally needs **`using`-param + given-member-access support
+      in the JIT** (not just a foldLeft recognizer). Confirmed DEFER: too large + too risky (JIT is
+      on every hot path) for the ≤15% ceiling; revisit only with the dual-bank `LExpr` VM work.
 
 - [ ] **vectorize-pure-loop** — Use `jdk.incubator.vector.LongVector` inside
       `tryCompileWhileLong` to batch 4–8 lanes when the body is pure arithmetic
