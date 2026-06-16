@@ -60,7 +60,7 @@ class AsyncCodegenTest extends AnyFunSuite with Matchers:
     val tmp = java.io.File.createTempFile("ssc-async-", ".sc")
     tmp.deleteOnExit()
     java.nio.file.Files.write(tmp.toPath, sc.getBytes(StandardCharsets.UTF_8))
-    val proc = ProcessBuilder("scala-cli", "run", tmp.getAbsolutePath)
+    val proc = ProcessBuilder("scala-cli", "run", "--server=false", tmp.getAbsolutePath)
       .redirectError(ProcessBuilder.Redirect.DISCARD)
       .start()
     val out = Source.fromInputStream(proc.getInputStream).mkString

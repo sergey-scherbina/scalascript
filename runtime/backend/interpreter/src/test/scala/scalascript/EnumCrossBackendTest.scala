@@ -53,7 +53,7 @@ class EnumCrossBackendTest extends AnyFunSuite with Matchers:
     val tmp = java.io.File.createTempFile("ssc-enum-", ".sc"); tmp.deleteOnExit()
     java.nio.file.Files.write(tmp.toPath,
       ("//> using scala 3.8.3\n" + JvmGen.generate(module)).getBytes(StandardCharsets.UTF_8))
-    runProc("scala-cli", "run", tmp.getAbsolutePath) shouldBe interp()
+    runProc("scala-cli", "run", "--server=false", tmp.getAbsolutePath) shouldBe interp()
 
   test("JS matches the interpreter"):
     assume(has("node"), "node not available")

@@ -553,7 +553,7 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     // `--server=false` compiles in-process (no bloop BSP daemon) so concurrent scala-cli runs don't
     // collide on the bloop socket/port (`BindException: Address already in use`) and there's no idle
     // ZGC daemon to clean up.
-    runProc("scala-cli", "run", tmp.getAbsolutePath, "--server=false")
+    runProc("scala-cli", "run", "--server=false", tmp.getAbsolutePath, "--server=false")
 
   /** Compare the interp output unless it is a numeric value OUTSIDE all backends' safe int range
    *  (then skip — overflow is a documented platform difference). Non-numeric output (strings) is

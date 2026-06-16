@@ -129,7 +129,7 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
       val tmp = os.temp("@main def probe() = ()", suffix = ".sc", deleteOnExit = true)
       val outDir = os.temp.dir(deleteOnExit = true)
       val result = os.proc(
-        "scala-cli", "--power", "package", "--js", "--js-emit-wasm",
+        "scala-cli", "--power", "package", "--server=false", "--js", "--js-emit-wasm",
         "-o", (outDir / "probe").toString, tmp
       ).call(check = false, stderr = os.Pipe)
       !result.err.text().contains("Unrecognized argument")

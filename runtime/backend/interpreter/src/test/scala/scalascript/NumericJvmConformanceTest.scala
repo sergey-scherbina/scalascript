@@ -38,7 +38,7 @@ class NumericJvmConformanceTest extends AnyFunSuite with Matchers:
     // Keep stdout (program output) separate from stderr (scala-cli's
     // "Compiling…/Compiled" progress + warnings) so the latter doesn't pollute
     // the compared output.
-    val proc = ProcessBuilder("scala-cli", "run", tmp.getAbsolutePath).start()
+    val proc = ProcessBuilder("scala-cli", "run", "--server=false", tmp.getAbsolutePath).start()
     val out  = Source.fromInputStream(proc.getInputStream).mkString
     val err  = Source.fromInputStream(proc.getErrorStream).mkString
     val ok   = ProcTestUtil.awaitExit(proc)

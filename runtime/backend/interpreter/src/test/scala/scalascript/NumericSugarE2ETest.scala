@@ -57,7 +57,7 @@ class NumericSugarE2ETest extends AnyFunSuite with Matchers:
     val tmp = java.io.File.createTempFile("ssc-sugar-", ".sc"); tmp.deleteOnExit()
     java.nio.file.Files.write(tmp.toPath,
       ("//> using scala 3.8.3\n" + JvmGen.generate(module(code))).getBytes(StandardCharsets.UTF_8))
-    runProc("scala-cli", "run", tmp.getAbsolutePath) shouldBe interp(code)
+    runProc("scala-cli", "run", "--server=false", tmp.getAbsolutePath) shouldBe interp(code)
 
   test("JS conformance for literal sugar"):
     assume(has("node"), "node not available")

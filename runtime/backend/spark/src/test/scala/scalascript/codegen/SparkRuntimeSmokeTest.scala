@@ -72,7 +72,7 @@ class SparkRuntimeSmokeTest extends AnyFunSuite:
     // scala-cli reads everything from the file itself, so the test
     // invocation is identical to what a user runs locally:
     //   scala-cli compile <file>
-    val cmd = List("scala-cli", "compile", out.toString)
+    val cmd = List("scala-cli", "compile", "--server=false", out.toString)
     val res = sys.process.Process(cmd).!
     assert(res == 0,
       s"scala-cli compile of generated $rel source failed (exit $res); inspect $out")

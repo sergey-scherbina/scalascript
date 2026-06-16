@@ -53,7 +53,7 @@ class MoneyCrossBackendTest extends AnyFunSuite with Matchers:
     val tmp = java.io.File.createTempFile("ssc-money-", ".sc"); tmp.deleteOnExit()
     java.nio.file.Files.write(tmp.toPath,
       ("//> using scala 3.8.3\n" + JvmGen.generate(Parser.parse(moduleSrc))).getBytes(StandardCharsets.UTF_8))
-    runProc("scala-cli", "run", tmp.getAbsolutePath) shouldBe interp()
+    runProc("scala-cli", "run", "--server=false", tmp.getAbsolutePath) shouldBe interp()
 
   test("money.ssc — JS output matches the interpreter"):
     assume(has("node"), "node not available")

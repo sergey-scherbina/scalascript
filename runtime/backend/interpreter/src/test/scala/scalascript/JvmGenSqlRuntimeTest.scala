@@ -77,7 +77,7 @@ class JvmGenSqlRuntimeTest extends AnyFunSuite {
     tmp.toFile.deleteOnExit()
     Files.write(tmp, patched.getBytes(StandardCharsets.UTF_8),
       StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
-    val pb = ProcessBuilder("scala-cli", "run", tmp.toAbsolutePath.toString)
+    val pb = ProcessBuilder("scala-cli", "run", "--server=false", tmp.toAbsolutePath.toString)
       .redirectErrorStream(false)
     val proc = pb.start()
     val out  = new String(proc.getInputStream.readAllBytes(), StandardCharsets.UTF_8)

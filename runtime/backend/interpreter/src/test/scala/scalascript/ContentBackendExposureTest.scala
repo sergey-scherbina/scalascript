@@ -53,7 +53,7 @@ class ContentBackendExposureTest extends AnyFunSuite with Matchers:
     val module = Parser.parse(source)
     val scala = "//> using scala 3.8.3\n" + JvmGen.generate(module, Some(repoRoot))
     val tmp = os.temp(scala, suffix = ".sc", deleteOnExit = true)
-    val result = os.proc("scala-cli", "run", tmp.toString).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+    val result = os.proc("scala-cli", "run", "--server=false", tmp.toString).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
     assert(result.exitCode == 0, s"scala-cli failed:\n${result.err.text()}")
     result.out.text().stripTrailing shouldBe expected
 
@@ -72,7 +72,7 @@ class ContentBackendExposureTest extends AnyFunSuite with Matchers:
     val module = Parser.parse(toMarkdownSource)
     val scala = "//> using scala 3.8.3\n" + JvmGen.generate(module, Some(repoRoot))
     val tmp = os.temp(scala, suffix = ".sc", deleteOnExit = true)
-    val result = os.proc("scala-cli", "run", tmp.toString).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+    val result = os.proc("scala-cli", "run", "--server=false", tmp.toString).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
     assert(result.exitCode == 0, s"scala-cli failed:\n${result.err.text()}")
     result.out.text().stripTrailing shouldBe toMarkdownExpected
 
@@ -91,7 +91,7 @@ class ContentBackendExposureTest extends AnyFunSuite with Matchers:
     val module = Parser.parse(linkedNamespacesSource)
     val scala = "//> using scala 3.8.3\n" + JvmGen.generate(module, Some(repoRoot))
     val tmp = os.temp(scala, suffix = ".sc", deleteOnExit = true)
-    val result = os.proc("scala-cli", "run", tmp.toString).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+    val result = os.proc("scala-cli", "run", "--server=false", tmp.toString).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
     assert(result.exitCode == 0, s"scala-cli failed:\n${result.err.text()}")
     result.out.text().stripTrailing shouldBe linkedNamespacesExpected
 
@@ -110,6 +110,6 @@ class ContentBackendExposureTest extends AnyFunSuite with Matchers:
     val module = Parser.parse(tablesSource)
     val scala = "//> using scala 3.8.3\n" + JvmGen.generate(module, Some(repoRoot))
     val tmp = os.temp(scala, suffix = ".sc", deleteOnExit = true)
-    val result = os.proc("scala-cli", "run", tmp.toString).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+    val result = os.proc("scala-cli", "run", "--server=false", tmp.toString).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
     assert(result.exitCode == 0, s"scala-cli failed:\n${result.err.text()}")
     result.out.text().stripTrailing shouldBe tablesExpected

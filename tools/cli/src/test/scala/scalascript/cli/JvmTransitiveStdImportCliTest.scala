@@ -97,7 +97,7 @@ class JvmTransitiveStdImportCliTest extends AnyFunSuite:
     assert(emit.exitCode == 0, s"emit-scala failed:\n${emit.err.text()}")
     val scriptFile = dir / "main.sc"
     os.write(scriptFile, "//> using scala 3.8.3\n" + emit.out.text())
-    val compiled = os.proc("scala-cli", "run", scriptFile.toString)
+    val compiled = os.proc("scala-cli", "run", "--server=false", scriptFile.toString)
       .call(cwd = dir, check = false, stdin = os.Path("/dev/null"), stderr = os.Pipe, stdout = os.Pipe)
     assert(compiled.exitCode == 0, s"scala-cli failed:\n${compiled.err.text()}")
 
