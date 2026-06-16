@@ -38,7 +38,7 @@ JIT backend (≈ `ssc` for tree-walked collection/effect workloads).
 | `hello-world`             |        0.0031 |            0.0031 |      0.000485 |     0.000024 |       0.000385 |
 | `hof-pipeline`            |        0.0051 |            0.0051 |        0.0049 |       0.0083 |         0.0032 |
 | `instance-field`          |         0.300 |             0.514 |        0.0061 |        0.087 |          0.011 |
-| `lazylist-take`           |         198.2 |             197.4 |          5.59 |          n/a |            n/a |
+| `lazylist-take`           |         198.2 |             197.4 |          5.59 |         8.75 |          0.083 |
 | `list-fold`               |        0.0062 |            0.0064 |      0.000338 |       0.0026 |          0.049 |
 | `literal-match`           |         0.010 |             0.010 |        0.0080 |        0.029 |         0.0016 |
 | `map-ops`                 |         0.025 |             0.027 |         0.020 |        0.193 |          0.022 |
@@ -71,15 +71,17 @@ need a distinct runtime Rust doesn't have; JS is eager with no `LazyList.from`.
 |---|---|---:|---:|---:|---:|---:|
 | `vector-index`  | O(1) `Vector` indexed reads      | **1.14** | 1048.9 | 0.507 | 16.3 | 0.638 |
 | `array-update`  | in-place mutable `Array` update  | 1580.5 | 1578.6 | 0.535 | 24.4 | n/a |
-| `lazylist-take` | lazy `take(8)` of an infinite `LazyList` | 198.2 | 197.4 | 5.59 | n/a | n/a |
+| `lazylist-take` | lazy `take(8)` of an infinite `LazyList` | 198.2 | 197.4 | 5.59 | 8.75 | 0.083 |
 
 Notes: `vector-index` now **bytecode-JITs** on the default `ssc` (Javac) backend
 (1056 → 1.14 ms, ~925×; `JitRefDispatch.seqIndexLong`, `jit-collection-ops`) — on par
 with jvm/rust. The `ssc-asm` column stays tree-walked (ASM backend tracks top-level-val
-globals differently — a documented follow-up). `array-update` (local array + in-place
-store) and `lazylist-take` (a per-iteration lazy pipeline, not a loop-op) are still
-tree-walked — the former is the next JIT slice, the latter is inherent `LazyList` cost.
-`vector-index`/`array-update` use a JS-f64-safe MINSTD index generator (corpus headers).
+globals differently — a documented follow-up). `lazylist-take` now **runs on every
+backend** (`lazylist-all-backends`): JS gets a thunk-based lazy runtime, Rust maps it to
+std lazy iterators (0.083 ms — native fusion). The interp tree-walks the per-iteration
+lazy pipeline (198 ms — inherent `LazyList` cost, a lower-priority interp-perf follow-up).
+`array-update` (local array + in-place store) is the next JIT slice. `vector-index`/
+`array-update` use a JS-f64-safe MINSTD index generator (corpus headers).
 
 ## JMH microbenchmarks (`sbt "interpreterBench/Jmh/run"`)
 

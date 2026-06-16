@@ -33,7 +33,7 @@ building features to validating/hardening/enabling what exists. Work top-to-bott
       (`sbt installBin`) + `./bench.sh --backend ssc <wl>` + JIT-on==off; clean-verify any JIT/codegen
       suite failure (stale-incremental compile gives false fails).
 
-- [ ] **lazylist-all-backends** (in progress) — `LazyList` must FUNCTION on all 5 backends like
+- [x] **lazylist-all-backends** ✓ DONE 2026-06-16 — `LazyList` must FUNCTION on all 5 backends like
       Vector/Array do; today it is `n/a` on JS (eager arrays, no `LazyList.from`) and Rust (no
       LazyList). interp/JVM already work. JS: a thunk-based lazy runtime (`_lz*` cons/map/filter/
       take/drop/from/iterate/continually/range + force toList/sum) + dispatch + `_show`

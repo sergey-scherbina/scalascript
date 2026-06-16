@@ -1,8 +1,9 @@
 # spec: lazylist-all-backends — `LazyList` works on every backend
 
-Status: in-progress (2026-06-16)
+Status: DONE (2026-06-16) — `LazyList` now functions on all 5 backends. `lazylist-take`:
+ssc 198 / ssc-asm 197 / jvm 5.6 / **js 8.75 (was n/a)** / **rust 0.083 (was n/a)**.
 Claim: `lazylist-all-backends`
-Backends: interp ✓ + JVM ✓ (already real & lazy) · JS (NEW) · Rust (NEW)
+Backends: interp ✓ + JVM ✓ (already real & lazy) · JS ✓ (NEW) · Rust ✓ (NEW)
 
 ## Motivation
 
@@ -54,8 +55,14 @@ forced at the end:
 
 ## Behavior checklist
 
-- [ ] JS: `LazyList.from(1).map(x=>x*2).take(3).toList` → `List(2, 4, 6)` (infinite source, terminates).
-- [ ] JS: `LazyList(1,2,3).toList` → `List(1, 2, 3)`; `println(LazyList(1,2,3))` → `LazyList(<not computed>)`.
-- [ ] JS: `LazyList.iterate(1)(x=>x*2).take(5).toList`, `LazyList.continually(7).take(3).toList`.
-- [ ] Rust: `LazyList.from(1).map(...).take(8).sum` compiles + runs (lazy iterator).
-- [ ] `lazylist-take` no longer `n/a` on JS/Rust; cross-backend guard added.
+- [x] JS: `LazyList.from(1).map(x=>x*2).take(3).toList` → `List(2, 4, 6)` (infinite source, terminates).
+- [x] JS: `LazyList(1,2,3).toList` → `List(1, 2, 3)`; `println(LazyList(1,2,3))` → `LazyList(<not computed>)`.
+- [x] JS: `LazyList.iterate(1)(x=>x*2).take(5).toList`, `LazyList.continually(7).take(3).toList`.
+- [x] Rust: `LazyList.from(1).map(...).take(8).sum` compiles + runs as `(1..).map(...).take(8).sum::<i64>()`.
+- [x] `lazylist-take` no longer `n/a` on JS (8.75 ms) / Rust (0.083 ms); cross-backend guard added.
+
+Verified: interp == JS == JVM on 7 shapes (`CrossBackendPropertyTest "LazyList lazy combinators"`),
+interp == real Scala exactly, `RustGenLazyListTest`, Rust suite 204 green, interp==JS 74 programs
+0-skip. FOLLOW-UP (documented, not blocking): a `LazyList` stored in a `val` and reused across
+statements on Rust needs a boxed-iterator type — typical code chains-then-forces; the interp tree-
+walks the lazy pipeline (perf, not correctness).

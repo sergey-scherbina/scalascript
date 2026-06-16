@@ -1,4 +1,0 @@
-lazylist-all-backends 2026-06-16T02:50:00Z
-agent: claude-opus-4-8
-status: in-progress
-next: make LazyList FUNCTION on JS (thunk-based lazy runtime + combinators + dispatch + _show) and Rust (map LazyList.from/iterate/continually/map/filter/take/drop/toList/sum to std lazy iterators). interp/JVM already work. Verify lazylist-take runs on JS+Rust (no longer n/a); cross-backend LazyList.from(1).map(_*2).take(8).toList agrees.
