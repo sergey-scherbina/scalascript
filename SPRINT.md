@@ -27,10 +27,20 @@ building features to validating/hardening/enabling what exists. Work top-to-bott
          works on Javac doesn't engage on ASM). The inert ASM emission was reverted; the `walkRef`
          Vector/Array-global parity was kept. Investigate ASM global tracking and emit the
          `INVOKEVIRTUAL seqIndexLong` path so the `ssc-asm` dashboard column also drops.
-      NOT a task: **LazyList JIT** — declined (a per-iteration lazy pipeline `from().map().take().sum`
-      is whole-pipeline fusion, not a loop-op; the 35× gap is inherent Scala `LazyList` cost). Verify
-      each via the assembled jar (`sbt installBin`) + `./bench.sh --backend ssc <wl>` + JIT-on==off;
-      clean-verify any JIT/codegen suite failure (stale-incremental compile gives false fails).
+      Note on **interp LazyList JIT**: the interp tree-walks the per-iteration lazy pipeline
+      `from().map().take().sum` (not a simple loop-op to bytecode-JIT) — that interp-perf gap is a
+      lower-priority follow-up, NOT a correctness issue. Verify each via the assembled jar
+      (`sbt installBin`) + `./bench.sh --backend ssc <wl>` + JIT-on==off; clean-verify any JIT/codegen
+      suite failure (stale-incremental compile gives false fails).
+
+- [ ] **lazylist-all-backends** (in progress) — `LazyList` must FUNCTION on all 5 backends like
+      Vector/Array do; today it is `n/a` on JS (eager arrays, no `LazyList.from`) and Rust (no
+      LazyList). interp/JVM already work. JS: a thunk-based lazy runtime (`_lz*` cons/map/filter/
+      take/drop/from/iterate/continually/range + force toList/sum) + dispatch + `_show`
+      `LazyList(<not computed>)`. Rust: map the combinators to std lazy iterators (`(n..)`,
+      `iter::successors`, `iter::repeat`, `.map/.filter/.take`, `.collect()/.sum()`). Verify
+      `lazylist-take` runs on JS+Rust + cross-backend `LazyList.from(1).map(_*2).take(8).toList`
+      agrees. spec `specs/lazylist-all-backends.md`.
 
 - [x] **js-supertype-typetest** ✓ DONE 2026-06-15 — Fixed a JS-backend bug (found by busi):
       a type-test against a supertype (sealed trait / parent enum / abstract class) never

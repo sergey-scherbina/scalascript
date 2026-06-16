@@ -45,13 +45,14 @@ Needs (a) slot-type tracking so the JIT knows local `a` holds an `ArrayV`, and (
 `JitRefDispatch.arrayUpdateLong(recv, idx, value)` store op + `walkStat` recognition of
 `Term.Assign(Term.Apply(a, [idx]), rhs)`. More involved (local + mutation) → its own slice.
 
-### LazyList — NOT a JIT target (declined, with rationale)
+### LazyList — interp JIT is a low-priority perf follow-up (NOT a correctness issue)
 
-`lazylist-take`'s body is `LazyList.from(start).map(_*2).take(8).sum` — it constructs a fresh
-infinite lazy list, maps, takes, and folds **per iteration**. That is not a loop-op to lower;
-it is whole-pipeline fusion of Scala's `LazyList` machinery (cons thunks, memoisation) into
-bytecode. The 35× gap is the inherent cost of real laziness, not a tree-walk bail that a helper
-removes. Left tree-walked; documented here so it isn't re-attempted as a "collection op".
+`lazylist-take`'s body is `LazyList.from(start).map(_*2).take(8).sum` — a fresh lazy pipeline
+**per iteration**. Bytecode-JITing that is whole-pipeline fusion (cons thunks, memoisation), not
+a simple loop-op, so the interp tree-walks it (the ~35× gap vs jvm is inherent `LazyList` cost).
+That is a *perf* follow-up, not a blocker. SEPARATELY — and higher priority — `LazyList` must
+FUNCTION on every backend (it is `n/a` on JS/Rust today); that cross-backend work is its own spec
+`specs/lazylist-all-backends.md`, independent of this interp-JIT spec.
 
 ## Verify
 
