@@ -1,4 +1,4 @@
-#!/usr/bin/env scala-cli
+#!/usr/bin/env -S scala-cli --server=false
 //> using toolkit 0.9.2
 
 // Conformance test runner for ScalaScript.

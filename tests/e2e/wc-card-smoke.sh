@@ -7,7 +7,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$ROOT/examples/wc-card.ssc"
 
-bundle=$(scala-cli --power run "$ROOT/compiler" \
+bundle=$(scala-cli --power run --server=false "$ROOT/compiler" \
   --main-class scalascript.cli.ssc --server=false \
   -- emit-wc "$SRC" 2>/dev/null)
 

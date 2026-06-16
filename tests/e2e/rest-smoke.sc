@@ -1,4 +1,4 @@
-#!/usr/bin/env scala-cli
+#!/usr/bin/env -S scala-cli --server=false
 //> using toolkit 0.9.2
 
 // Cross-backend REST smoke harness.
@@ -27,7 +27,7 @@ def cmdFor(subcommand: String, launcher: String, postPipe: String = ""): List[St
     // Fallback: run the compiler directly via scala-cli. For the JS backend
     // we additionally pipe emit-js output through node, mirroring what
     // bin/jssc does in a single shell command.
-    val core = s"scala-cli run ${compiler.toString} -- $subcommand ${example.toString}"
+    val core = s"scala-cli run --server=false ${compiler.toString} -- $subcommand ${example.toString}"
     val full = if postPipe.isEmpty then core else s"$core | $postPipe"
     List("bash", "-c", full)
 

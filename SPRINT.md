@@ -14,6 +14,24 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Strategic-review proposals (2026-06-15) — the feature roadmap is built out; leverage has shifted from
 building features to validating/hardening/enabling what exists. Work top-to-bottom.
 
+- [ ] **jit-collection-ops-slice2** — follow-ups to the Vector-index JIT (slice 1 DONE: `seq(i)`
+      read JITs on the default JavacJitBackend, `vector-index` 1056→1.14 ms ~925×; spec
+      `specs/jit-collection-ops.md`). Remaining:
+      1. **Array read + in-place update** (`array-update` workload, 1580 ms tree-walked): JIT
+         `a(i)` read + `a(i)=x` store. Needs (a) slot-type tracking so the JIT knows a local val
+         holds an `ArrayV`, and (b) `JitRefDispatch.arrayUpdateLong(recv, idx, value)` + `walkStat`
+         recognition of `Term.Assign(Term.Apply(a,[idx]), rhs)`. More involved than slice 1 (local +
+         mutation, not a global read).
+      2. **ASM-backend parity for `seq(i)`**: the Javac backend JITs it; `AsmJitBackend` bails (it
+         tracks top-level-val globals differently — the `walkRef`/`isSeqRefName` discrimination that
+         works on Javac doesn't engage on ASM). The inert ASM emission was reverted; the `walkRef`
+         Vector/Array-global parity was kept. Investigate ASM global tracking and emit the
+         `INVOKEVIRTUAL seqIndexLong` path so the `ssc-asm` dashboard column also drops.
+      NOT a task: **LazyList JIT** — declined (a per-iteration lazy pipeline `from().map().take().sum`
+      is whole-pipeline fusion, not a loop-op; the 35× gap is inherent Scala `LazyList` cost). Verify
+      each via the assembled jar (`sbt installBin`) + `./bench.sh --backend ssc <wl>` + JIT-on==off;
+      clean-verify any JIT/codegen suite failure (stale-incremental compile gives false fails).
+
 - [x] **js-supertype-typetest** ✓ DONE 2026-06-15 — Fixed a JS-backend bug (found by busi):
       a type-test against a supertype (sealed trait / parent enum / abstract class) never
       matched a subtype instance, because `genPattern`'s `Pat.Typed` tested an exact

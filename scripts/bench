@@ -134,7 +134,7 @@ case "$cmd" in
       echo "scripts/bench wall: scala-cli not found; install it or skip" >&2
       exit 1
     fi
-    scala-cli tests/bench/run.sc
+    scala-cli --server=false tests/bench/run.sc   # serverless: no lingering bloop daemon
     ;;
 
   list)

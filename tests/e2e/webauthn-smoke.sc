@@ -1,4 +1,4 @@
-#!/usr/bin/env scala-cli
+#!/usr/bin/env -S scala-cli --server=false
 //> using toolkit 0.9.2
 
 // WebAuthn cross-backend e2e smoke harness.

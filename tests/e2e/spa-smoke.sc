@@ -1,4 +1,4 @@
-#!/usr/bin/env scala-cli
+#!/usr/bin/env -S scala-cli --server=false
 //> using toolkit 0.9.2
 
 // Browser-SPA smoke harness.
@@ -25,7 +25,7 @@ def emitSpa(): String =
   val bin = binDir / "ssc"
   val proc =
     if os.exists(bin) then os.proc(bin.toString, "emit-spa", example.toString)
-    else os.proc("scala-cli", "run", compiler.toString, "--", "emit-spa", example.toString)
+    else os.proc("scala-cli", "run", "--server=false", compiler.toString, "--", "emit-spa", example.toString)
   proc.call(cwd = root, check = true, stderr = os.Pipe).out.text()
 
 case class Check(name: String, ok: Boolean, detail: String = "")

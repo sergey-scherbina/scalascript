@@ -1,4 +1,4 @@
-#!/usr/bin/env scala-cli
+#!/usr/bin/env -S scala-cli --server=false
 //> using toolkit 0.9.2
 
 // Cross-backend benchmark driver.
@@ -49,7 +49,7 @@ def backends(name: String): Seq[Target] = Seq(
   Target("ssc-int",     _ => sscProc(dir / s"$name.ssc")),
   Target("ssc-js",      _ => jsscProc(dir / s"$name.ssc")),
   Target("ssc-jvm",     _ => ssccProc(dir / s"$name.ssc")),
-  Target("scala-cli",   _ => os.proc("scala-cli", "run", (dir / s"$name.scala").toString)),
+  Target("scala-cli",   _ => os.proc("scala-cli", "run", "--server=false", (dir / s"$name.scala").toString)),
   Target("node",        _ => os.proc("node", (dir / s"$name.js").toString)),
 )
 

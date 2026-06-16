@@ -1,4 +1,4 @@
-#!/usr/bin/env scala-cli
+#!/usr/bin/env -S scala-cli --server=false
 
 //> using scala "3.8.3"
 //> using dep "com.lihaoyi::os-lib:0.9.3"
