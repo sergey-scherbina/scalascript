@@ -650,6 +650,25 @@ object JavacJitBackend extends JitBackend:
       rem = rem.tail
     sb.append(')').toString
 
+  /** slice 2: if `t` is a builtin indexable-seq constructor (`Array`/`Vector`/`List`), return
+   *  Some(isArray) — true iff it's a mutable `Array` (so `a(i)=x` stores are allowed); else None.
+   *  Lets a `val a = Array(…)` local be tracked as a seq so subsequent `a(idx)` reads and
+   *  `a(idx)=x` stores JIT (a local can't be classified by runtime type like a global). */
+  private def seqCtorKind(t: Term): Option[Boolean] = t match
+    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+      b.stats.head match
+        case inner: Term => seqCtorKind(inner)
+        case _           => None
+    case Term.Apply.After_4_6_0(funExpr, _) =>
+      val name = funExpr match
+        case Term.Name(n) => n
+        case Term.ApplyType.After_4_6_0(Term.Name(n), _) => n
+        case _ => ""
+      if name == "Array" then Some(true)
+      else if name == "Vector" || name == "List" then Some(false)
+      else None
+    case _ => None
+
   private def isRefValRhs(t: Term, ctx: GenCtx): Boolean = t match
     case Term.Name("None") => true
     case tn: Term.Name     => ctx.isRefName(tn.value)
@@ -663,11 +682,12 @@ object JavacJitBackend extends JitBackend:
       ap.fun match
         case fn: Term.Name if fn.value == "Some" =>
           ap.argClause.values.lengthCompare(1) == 0
-        case fn: Term.Name if fn.value == "List" || fn.value == "Set" || fn.value == "Map" =>
-          // Stage 8: builtin collection ctors compile via walkRef.
+        case fn: Term.Name if fn.value == "List" || fn.value == "Set" || fn.value == "Map"
+            || fn.value == "Array" || fn.value == "Vector" =>
+          // Stage 8 / slice 2: builtin collection ctors compile via walkRef.
           true
         case Term.ApplyType.After_4_6_0(Term.Name(n), _)
-            if n == "List" || n == "Set" || n == "Map" =>
+            if n == "List" || n == "Set" || n == "Map" || n == "Array" || n == "Vector" =>
           true
         case Term.Select(Term.Name(recvName), Term.Name("updated"))
             if ctx.isRefName(recvName) =>
@@ -804,7 +824,12 @@ object JavacJitBackend extends JitBackend:
     // Stage 9: val-bound lambdas — name → (paramNames, body). Used to inline
     // a lambda body at the call site when the lambda escapes only via direct
     // call (no HOF arg, no return). Avoids needing a runtime FunV constant.
-    val lambdas:     Map[String, (Array[String], Term)] = Map.empty
+    val lambdas:     Map[String, (Array[String], Term)] = Map.empty,
+    // jit-collection-ops slice 2: ref-local names statically known to hold an
+    // indexable seq (bound to `Array(...)`/`Vector(...)`/`List(...)`). Value is
+    // true iff the seq is a mutable `Array` (so `a(i)=x` stores are allowed).
+    // Lets `a(idx)` read JIT as seqIndexLong on a *local* (slice 1 only did globals).
+    val seqLocals:   Map[String, Boolean] = Map.empty
   ) extends JitShapeCtx:
     // JitShapeCtx: a local Long is one that resolves to a Java variable.
     def isLocalLong(n: String): Boolean = resolveLocal(n) != null
@@ -838,9 +863,12 @@ object JavacJitBackend extends JitBackend:
       val idx = paramNames.indexOf(n)
       if idx >= 0 && idx < paramTypes.length then paramTypes(idx) else null
     def withBindings(more: Iterable[(String, (String, Boolean))]): GenCtx =
-      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings ++ more, interp, coEmit, paramTypes, lambdas)
+      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings ++ more, interp, coEmit, paramTypes, lambdas, seqLocals)
     def withLambda(name: String, paramNamesL: Array[String], body: Term): GenCtx =
-      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings, interp, coEmit, paramTypes, lambdas + (name -> (paramNamesL, body)))
+      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings, interp, coEmit, paramTypes, lambdas + (name -> (paramNamesL, body)), seqLocals)
+    /** Bind a ref-local AND record it as a seq (slice 2). `isArray` enables `a(i)=x` stores. */
+    def withSeqLocal(name: String, jvar: String, isArray: Boolean): GenCtx =
+      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings + (name -> (jvar, true)), interp, coEmit, paramTypes, lambdas, seqLocals + (name -> isArray))
 
   /** Stage 9: inline a val-bound lambda's body at the call site by binding
    *  each lambda param to the arg's *Java expression* directly (no local var,
@@ -1042,7 +1070,8 @@ object JavacJitBackend extends JitBackend:
         // jit-collection-ops: `seq(idx)` indexed read on a seq-typed global (Vector/List/Array) →
         // O(1) JitRefDispatch.seqIndexLong. Discriminated from a function call by the global's runtime
         // type (the loop is compiled only after it is hot, so the seq is already constructed).
-        case fn: Term.Name if ap.argClause.values.lengthCompare(1) == 0 && isSeqRefName(fn.value, ctx) =>
+        case fn: Term.Name if ap.argClause.values.lengthCompare(1) == 0
+            && (isSeqRefName(fn.value, ctx) || ctx.seqLocals.contains(fn.value)) =>
           val ref = walkRef(fn, ctx)
           val idx = walkLong(ap.argClause.values.head, ctx)
           if ref == null || idx == null then null
@@ -1429,16 +1458,18 @@ object JavacJitBackend extends JitBackend:
             case Term.Name(n) => n
             case Term.ApplyType.After_4_6_0(Term.Name(n), _) => n
             case _ => ""
-          name == "List" || name == "Set" || name == "Map"
+          name == "List" || name == "Set" || name == "Map" || name == "Array" || name == "Vector"
         } =>
       val ctorName = funExpr match
         case Term.Name(n) => n
         case Term.ApplyType.After_4_6_0(Term.Name(n), _) => n
         case _ => ""
       val helper = ctorName match
-        case "List" => "buildListRef"
-        case "Set"  => "buildSetRef"
-        case "Map"  => "buildMapRef"
+        case "List"   => "buildListRef"
+        case "Set"    => "buildSetRef"
+        case "Map"    => "buildMapRef"
+        case "Array"  => "buildArrayRef"
+        case "Vector" => "buildVectorRef"
       val args = argClause.values
       val sb = new StringBuilder
       sb.append("scalascript.interpreter.vm.jit.JitRefDispatch$.MODULE$.")
@@ -2896,6 +2927,18 @@ object JavacJitBackend extends JitBackend:
    *  the (possibly extended) context to thread into subsequent body statements — a
    *  `var`/`val` decl introduces a binding the following statements can reference. */
   private def walkStatAsVoid(stat: Stat, ctx: GenCtx): (String, GenCtx) | Null = stat match
+    // slice 2: in-place array store `a(idx) = x` on a mutable-array local → arrayUpdateLong.
+    // Only ArrayV (the seqLocals `true` flag) supports stores; the helper throws on a bad
+    // receiver so a mis-shaped store bails the whole loop to tree-walk.
+    case Term.Assign(Term.Apply.After_4_6_0(an: Term.Name, argClause), rhs: Term)
+        if argClause.values.lengthCompare(1) == 0 && ctx.seqLocals.get(an.value).contains(true) =>
+      val ref = ctx.resolveLocal(an.value)
+      if ref == null then return null
+      val idx = walkLong(argClause.values.head, ctx)
+      if idx == null then return null
+      val v = walkLong(rhs, ctx)
+      if v == null then return null
+      (s"scalascript.interpreter.vm.jit.JitRefDispatch$$.MODULE$$.arrayUpdateLong((Object) ($ref), $idx, $v);\n        ", ctx)
     case Term.Assign(nm: Term.Name, rhs: Term) =>
       val jn = ctx.resolveLocal(nm.value)
       if jn == null then return null
@@ -2925,7 +2968,10 @@ object JavacJitBackend extends JitBackend:
       if isRefValRhs(rhs, ctx) then
         val r = walkRef(rhs, ctx)
         if r == null then return null
-        (s"Object $jn = $r;\n        ", ctx.withBindings(Seq(n.value -> (jn, true))))
+        val nextCtx = seqCtorKind(rhs) match
+          case Some(isArray) => ctx.withSeqLocal(n.value, jn, isArray)
+          case None          => ctx.withBindings(Seq(n.value -> (jn, true)))
+        (s"Object $jn = $r;\n        ", nextCtx)
       else
         val e = if ctx.isDouble then walkDouble(rhs, ctx) else walkLong(rhs, ctx)
         if e == null then return null
@@ -3013,7 +3059,9 @@ object JavacJitBackend extends JitBackend:
               val r = walkRef(rhs, curCtx)
               if r == null then return null
               sb.append(s"Object $jn = $r;\n      ")
-              curCtx = curCtx.withBindings(Seq(n.value -> (jn, true)))
+              curCtx = seqCtorKind(rhs) match
+                case Some(isArray) => curCtx.withSeqLocal(n.value, jn, isArray)
+                case None          => curCtx.withBindings(Seq(n.value -> (jn, true)))
             else
               val e = if curCtx.isDouble then walkDouble(rhs, curCtx)
                       else walkLong(rhs, curCtx)
@@ -3090,7 +3138,9 @@ object JavacJitBackend extends JitBackend:
           if isRefValRhs(rhs, curCtx) then
             val r = walkRef(rhs, curCtx)
             if r == null then return null
-            curCtx = curCtx.withBindings(Seq(n.value -> (jn, true)))
+            curCtx = seqCtorKind(rhs) match
+              case Some(isArray) => curCtx.withSeqLocal(n.value, jn, isArray)
+              case None          => curCtx.withBindings(Seq(n.value -> (jn, true)))
           else
             val e = if curCtx.isDouble then walkDouble(rhs, curCtx)
                     else walkLong(rhs, curCtx)

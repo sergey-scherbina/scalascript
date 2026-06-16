@@ -335,6 +335,23 @@ object JitRefDispatch:
   def buildSetRef(items: Array[Object]): Object =
     Value.SetV(items.iterator.map(_.asInstanceOf[Value]).toSet).asInstanceOf[Object]
 
+  // jit-collection-ops slice 2: Array(...) / Vector(...) builtin constructors. A local
+  // `val a = Array(...)` is the receiver an in-place `a(i)=x` store mutates (ArrayV is the
+  // only seq with reference identity + mutation), so the JIT must build a real ArrayV.
+  def buildArrayRef(items: Array[Object]): Object =
+    Value.ArrayV(items.map(_.asInstanceOf[Value])).asInstanceOf[Object]
+
+  def buildVectorRef(items: Array[Object]): Object =
+    Value.VectorV(items.iterator.map(_.asInstanceOf[Value]).toVector).asInstanceOf[Object]
+
+  /** `a(idx) = value` in-place store on a mutable `ArrayV` (slice 2). Mirrors the tree-walker's
+   *  `ArrayV.update` desugaring; the element is written as an `IntV` (the numeric JIT lane). A
+   *  non-Array receiver throws → the JIT entry catches and the loop falls back to tree-walk. */
+  def arrayUpdateLong(recv: AnyRef, idx: Long, value: Long): Unit = recv match
+    case a: Value.ArrayV => a.items(idx.toInt) = Value.intV(value)
+    case other =>
+      throw new ClassCastException(s"arrayUpdateLong unsupported receiver: ${other.getClass.getName}")
+
   /** Map(...) expects a list of (key, value) Value.TupleV pairs. */
   def buildMapRef(items: Array[Object]): Object =
     val builder = scala.collection.immutable.Map.newBuilder[Value, Value]

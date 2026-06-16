@@ -30,3 +30,24 @@ class JitSeqIndexTest extends AnyFunSuite:
   test("seqIndexRef returns the element Value for ref elements"):
     val vec = Value.VectorV(Vector(Value.StringV("a"), Value.StringV("b")))
     assert(JitRefDispatch.seqIndexRef(vec, 1L) == Value.StringV("b"))
+
+  // slice 2: Array(...) / Vector(...) builders + in-place arrayUpdateLong store.
+  test("buildArrayRef builds a mutable ArrayV; buildVectorRef builds a VectorV"):
+    val a = JitRefDispatch.buildArrayRef(Array[Object](iv(1), iv(2), iv(3)))
+    assert(a.isInstanceOf[Value.ArrayV])
+    assert(JitRefDispatch.sizeLong(a) == 3L)
+    val v = JitRefDispatch.buildVectorRef(Array[Object](iv(7), iv(8)))
+    assert(v.isInstanceOf[Value.VectorV])
+    assert(JitRefDispatch.seqIndexLong(v, 1L) == 8L)
+
+  test("arrayUpdateLong stores in place and reads back via seqIndexLong"):
+    val a = Value.ArrayV(Array[Value](iv(0), iv(0), iv(0)))
+    JitRefDispatch.arrayUpdateLong(a, 1L, 42L)
+    assert(JitRefDispatch.seqIndexLong(a, 1L) == 42L)
+    assert(JitRefDispatch.seqIndexLong(a, 0L) == 0L)
+    // mutation is observable on the same instance (reference identity).
+    assert(a.items(1) == Value.IntV(42L))
+
+  test("arrayUpdateLong throws (→ JIT bail) on a non-Array receiver"):
+    assertThrows[ClassCastException](
+      JitRefDispatch.arrayUpdateLong(Value.VectorV(Vector(iv(1))), 0L, 5L))
