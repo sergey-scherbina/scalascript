@@ -1,0 +1,6 @@
+feature/jit-collection-ops-slice2 2026-06-16T20:28:18Z
+agent: claude-code
+heartbeat: 2026-06-16T20:28:18Z
+status: in-progress
+done-so-far: starting array read+update JIT (slice 2.1)
+next: JitRefDispatch.buildArrayRef + arrayUpdateLong; GenCtx seqLocals; walkRef/walkStatAsVoid wiring
