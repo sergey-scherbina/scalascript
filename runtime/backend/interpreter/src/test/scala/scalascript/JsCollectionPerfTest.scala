@@ -25,15 +25,18 @@ class JsCollectionPerfTest extends AnyFunSuite:
     assert(!js.contains("_call(a"), "should not _call a local Array val")
 
   test(".toInt/.toLong on a numeric receiver lower to Math.trunc (no _dispatch)"):
+    // Integer receiver: `.toInt` → `(x | 0)` (ToInt32 — Scala 32-bit wrap + V8 int32/SMI),
+    // `.toLong` → identity. A Double receiver → Math.trunc.
     val js = gen("def f(n: Int): Int = (n % 16).toInt")
-    assert(js.contains("Math.trunc"), s"expected Math.trunc, got:\n$js")
-    assert(!js.contains("_dispatch") || !js.contains("'toInt'"),
-      "numeric .toInt should not _dispatch")
+    assert(js.contains("| 0)"), s"expected (x | 0) for integer .toInt, got:\n$js")
+    assert(!js.contains("'toInt'"), "numeric .toInt should not _dispatch")
+    val jsD = gen("def g(d: Double): Int = d.toInt")
+    assert(jsD.contains("Math.trunc"), s"expected Math.trunc for Double .toInt, got:\n$jsD")
 
   test("seq(idx).toLong makes surrounding arithmetic native (no _arith / _dispatch)"):
     val js = gen(
       "val v: Vector[Int] = Vector(1, 2, 3)\ndef f(s: Int): Int = s + v(s % 3).toLong")
-    assert(js.contains("Math.trunc(v["), s"expected native v-index + trunc, got:\n$js")
+    assert(js.contains("v[") && !js.contains("_call(v"), s"expected native v-index, got:\n$js")
     assert(!js.contains("_arith"), "numeric add should be native")
 
   test(".toInt on a String receiver still routes through the runtime (not Math.trunc)"):

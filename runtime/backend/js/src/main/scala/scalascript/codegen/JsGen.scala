@@ -3542,7 +3542,17 @@ class JsGen(
         // native JS (matching the runtime: `.toInt`/`.toLong` → Math.trunc, `.toDouble` → identity)
         // instead of the megamorphic `_dispatch(x, 'toInt', [])`. Gated on isNumericExpr so a String
         // receiver (`s.toInt` → parseInt) still routes through _dispatch.
-        case "toInt" | "toLong" if isNumericExpr(qual) => s"Math.trunc($qualJs)"
+        // `.toInt` on an INTEGER-typed receiver → `(x | 0)` (ToInt32). This matches Scala's 32-bit
+        // `Int`/`Long.toInt` wrap (which `Math.trunc` does NOT — `Math.trunc(3e9)` stays 3e9 while
+        // Scala wraps), AND forces a V8 int32 so an array indexed/filled by it stays SMI-packed
+        // instead of falling to the slow double-elements path (~2.4× on array-update). A Double
+        // receiver keeps `Math.trunc` (truncate toward zero).
+        case "toInt" if isIntExpr(qual)                => s"($qualJs | 0)"
+        case "toInt" if isNumericExpr(qual)            => s"Math.trunc($qualJs)"
+        // `.toLong` on an integer receiver is identity (already integral, no 32-bit wrap — Long is
+        // 64-bit); a Double truncates toward zero.
+        case "toLong" if isIntExpr(qual)               => s"($qualJs)"
+        case "toLong" if isNumericExpr(qual)           => s"Math.trunc($qualJs)"
         case "toDouble" if isNumericExpr(qual)         => s"($qualJs)"
         // Built-in collection/string methods that need runtime dispatch (computed properties)
         case "head" | "tail" | "last" | "init" | "reverse" | "distinct" | "sorted" |
