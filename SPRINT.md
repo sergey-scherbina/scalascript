@@ -50,15 +50,23 @@ While pulling these in I audited each against the code — and like agent-sdk + 
 most are already implemented; the specs/BACKLOG were stale. So Tier 2 is mostly **reconcile +
 verify residuals**, NOT from-scratch builds:
 
-- [~] **theme-a-stable-plugin-spi** — `BackendRegistry` exists; reconcile spec, verify versioning residual.
-- [~] **theme-f-dsl-platform-hooks** — spec "implemented through Phase 4" (`InterpolatorRegistry`). Reconcile.
-- [~] **theme-h-library-modularity** — spec "implemented through Phase 6" (`SsclibManifest`). Reconcile.
-- [~] **theme-j-lightweight-ffi** — `GlueClasspathRegistry`/`GlueJsPreambleRegistry` + `@jvm`/`@js` +
-      `examples/js-glue-component.ssc` exist; spec stale at "planned". Reconcile + verify `@rust`/`@wasm` residual.
-- [~] **theme-e-ssc-new** — `ssc new`/install present in `Main`. Reconcile + verify completeness.
-- [~] **theme-b-build-registry-consolidation** — CORRECTION 2026-06-17: Phases 1 AND 2 BOTH landed
-      2026-05-29 (spec confirms). Only Phase 3 (cleanup, partly gated on Theme A Phase 3) + OPTIONAL
-      Phase 4 (family registries) remain. Not a "genuine Phase-2 build" — that staleness is fixed.
+**RECONCILED 2026-06-18 (`tier2-spec-reconcile`)** — verified each theme against the code:
+- [x] **theme-f-dsl-platform-hooks** — spec Status already accurate ("implemented through Phase 4",
+      `InterpolatorRegistry`). No change needed.
+- [x] **theme-h-library-modularity** — spec Status already accurate ("implemented through Phase 6",
+      `SsclibManifest`). No change needed.
+- [x] **theme-j-lightweight-ffi** — ✓ spec reconciled: arch-ffi.md Status was badly stale ("planned"),
+      now "implemented" — `@jvm`/`@js` Phases 1–4 (`FfiAnnotationTest`/`FfiPhase2Test`, JvmGen/JsGen,
+      glue.jar/glue.js) **+ `@rust`** (`RustFfiAnnotationTest`, RustGen) are all built. **Residual: `@wasm`**
+      only (deferred — no WASM backend wiring).
+- [~] **theme-a-stable-plugin-spi** — spec Status accurate ("partially implemented"; Phases 1+2 landed).
+      Residual = Phase 3 versioned stable API module. Left as-is (accurate).
+- [~] **theme-e-ssc-new** — `ssc new`/install present in `Main` (verified `def name = "new"`). No dedicated
+      spec file; nothing stale to reconcile. Effectively done; verify completeness if revisited.
+- [~] **theme-b-build-registry-consolidation** — ✓ spec Phase 3 reconciled: `isStdPluginInterpreterTest`
+      filter is **already gone** (stale bullet removed); `PluginManifest`/`LocalRegistry` are **not** dead
+      wrappers — they have **live callers** so Phase 3 is a **caller migration** (regression risk), not a
+      delete. OPTIONAL Phase 4 (family registries) remains.
 - [ ] **module-graph-grouping** (low-pri) — 231 sbt modules (~150 thin) → consolidate into grouped builds.
 - [ ] **std-nfc-packager-adapters** — NFC packager adapters (native platform follow-up).
 - [ ] **wallet-browser-ws-itest** — real browser-WebSocket integration testing for wallet-connect (scaffold; full run needs a browser).
