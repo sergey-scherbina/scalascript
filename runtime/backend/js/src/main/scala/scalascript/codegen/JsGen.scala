@@ -1308,10 +1308,13 @@ class JsGen(
   /** Emit per-product-type Mirror objects + custom `derives` instances (lazy),
    *  registered in `_ssc_givens`, BEFORE the user blocks.  Records the summon
    *  keys so `genExpr` routes them through `_resolveGiven`. */
+  /** The stdlib typeclasses synthesized structurally on JS (A1c), parallel to
+   *  the JVM `stdlibStructuralTCs`. */
+  private val jsStdlibStructuralTCs: Set[String] = Set("Eq", "Show", "Hash", "Order")
+
   private def emitMirrorAndDerives(module: Module): Unit =
     val userTCs        = scala.collection.mutable.Set.empty[String]
     val productClasses = scala.collection.mutable.LinkedHashSet.empty[String]
-    val derivesPairs   = scala.collection.mutable.LinkedHashMap.empty[String, List[String]]
     foreachTopStats(module) { stats => stats.foreach {
       case o: Defn.Object if o.templ.body.stats.exists {
             case dd: Defn.Def => dd.name.value == "derived"; case _ => false
@@ -1320,16 +1323,22 @@ class JsGen(
         productClasses += d.name.value
       case _ => ()
     }}
+    val handledTCs     = userTCs.toSet ++ jsStdlibStructuralTCs
+    val handledDerives = scala.collection.mutable.LinkedHashMap.empty[String, List[String]]
     foreachTopStats(module) { stats => stats.foreach {
       case d: Defn.Class if d.mods.exists(_.isInstanceOf[Mod.Case]) && d.templ.derives.nonEmpty =>
         val tcs = d.templ.derives.map { case Type.Name(n) => n; case t => t.syntax }
-        if tcs.forall(userTCs.contains) then derivesPairs(d.name.value) = tcs
+        if tcs.forall(handledTCs.contains) then handledDerives(d.name.value) = tcs
       case _ => ()
     }}
-    if !(moduleUsesMirror(module) || derivesPairs.nonEmpty) then return
-    if productClasses.isEmpty && derivesPairs.isEmpty then return
+    val hasCustom  = handledDerives.values.exists(_.exists(userTCs.contains))
+    val hasStdlib  = handledDerives.values.exists(_.exists(jsStdlibStructuralTCs.contains))
+    val emitMirror = moduleUsesMirror(module) || hasCustom
+    if !(emitMirror || hasStdlib) then return
     line("// arch-meta-v2-p5 Track A — Mirror metadata + derived givens")
-    productClasses.foreach { t =>
+    // Per-type Mirror objects — needed for `summon[Mirror.Of[T]]` and the custom
+    // `derives` path; skipped for stdlib-only modules (which don't use Mirror).
+    if emitMirror then productClasses.foreach { t =>
       val labels  = caseClassFieldsByType.getOrElse(t, Nil)
       val typeMap = caseClassFieldTypeMap.getOrElse(t, Map.empty)
       val types   = labels.map(l => typeMap.getOrElse(l, "Any"))
@@ -1340,10 +1349,28 @@ class JsGen(
       line(s"""_ssc_givens[${jsQuote(s"Mirror_$t")}] = _sscMirror_$t;""")
       jsSyntheticGivenKeys += s"Mirror_$t"
     }
-    derivesPairs.foreach { (t, tcs) =>
+    handledDerives.foreach { (t, tcs) =>
       tcs.foreach { tc =>
-        line(s"""_ssc_def_given(${jsQuote(s"${tc}_$t")}, function(){ return $tc.derived(_sscMirror_$t); });""")
-        jsSyntheticGivenKeys += s"${tc}_$t"
+        val key = s"${tc}_$t"
+        if userTCs.contains(tc) then
+          // custom derives: lazy (TC is a not-yet-initialised `const`)
+          line(s"""_ssc_def_given(${jsQuote(key)}, function(){ return $tc.derived(_sscMirror_$t); });""")
+        else
+          // stdlib structural: eager (depends only on runtime helpers)
+          val obj = tc match
+            case "Eq"    => "{ eqv: function(a, b) { return _eq(a, b); }, neqv: function(a, b) { return !_eq(a, b); } }"
+            case "Show"  => "{ show: function(a) { return _ssc_structShow(a); } }"
+            case "Hash"  => "{ hash: function(a) { return _ssc_structHash(a); } }"
+            case "Order" => "{ compare: function(a, b) { return _ssc_structCompare(a, b); }, " +
+                            "lt: function(a, b) { return _ssc_structCompare(a, b) < 0; }, " +
+                            "gt: function(a, b) { return _ssc_structCompare(a, b) > 0; }, " +
+                            "lte: function(a, b) { return _ssc_structCompare(a, b) <= 0; }, " +
+                            "gte: function(a, b) { return _ssc_structCompare(a, b) >= 0; }, " +
+                            "min: function(a, b) { return _ssc_structCompare(a, b) <= 0 ? a : b; }, " +
+                            "max: function(a, b) { return _ssc_structCompare(a, b) >= 0 ? a : b; } }"
+            case _       => "undefined"
+          line(s"""_ssc_givens[${jsQuote(key)}] = $obj;""")
+        jsSyntheticGivenKeys += key
       }
     }
 

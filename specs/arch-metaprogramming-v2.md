@@ -220,14 +220,15 @@ So Track A = **implement `derives` typeclass synthesis on the generated backends
   `given TC[T] = TC.derived(summon[Mirror.Of[T]]).asInstanceOf[TC[T]]`. The JVM case of
   `CustomDerivesMirrorCrossBackendTest` now passes (flipped `ignore`→`test`). DEFERRED: `derives`
   clauses that MIX user + non-user typeclasses (left untouched — passthrough); sum-type derives.
-- **A1c** — stdlib structural `derives Eq/Show/Hash/Order`. ✓ DONE on **JVM** 2026-06-17 (JS pending).
-  The strip pass (A1b) generalized to also handle the stdlib four; JVM synthesizes structural givens
-  using Scala `Product`: `Eq` = `a == b`, `Hash` = `a.hashCode`, `Show` = `_ssc_structShow`
-  (`TypeName(field=value, ...)` via `productElementName`), `Order` = `_ssc_structCompare` (field-by-field,
-  first non-zero) — matching `DerivesRuntime.structuralShow`/`structuralCompare`. A clause mixing a
-  handled TC with an unknown one is left untouched (conservative). `StdlibDerivesJvmConformanceTest`.
-  REMAINING: the JS equivalent (synthesize structural givens in `JsGen` — `_ssc_givens` + lazy getters
-  like A2; helpers reading the object's own keys minus `_type`/`_tag`).
+- **A1c** — stdlib structural `derives Eq/Show/Hash/Order`. ✓ DONE on **JVM + JS** 2026-06-17.
+  JVM: the A1b strip generalized to also handle the stdlib four; synthesizes structural givens using
+  Scala `Product` — `Eq` = `a == b`, `Hash` = `a.hashCode`, `Show` = `_ssc_structShow`
+  (`TypeName(field=value, ...)` via `productElementName`), `Order` = `_ssc_structCompare`. JS: `JsGen`
+  registers EAGER structural givens in `_ssc_givens` (they depend only on runtime helpers, not a user
+  `const`) — `Eq` reuses `_eq`, `Show`/`Order`/`Hash` use new `_ssc_structShow`/`_ssc_structCompare`/
+  `_ssc_structHash` helpers (reading object keys minus `_type`/`_tag`). Both match
+  `DerivesRuntime.structuralShow`/`structuralCompare`. A clause mixing a handled TC with an unknown one
+  is left untouched (conservative). `StdlibDerivesJvmConformanceTest` (interp + JVM + JS).
 - **A2** — ✓ DONE 2026-06-17. A1a+A1b equivalents on JS (`JsGen`). JsGen already emits case classes
   as plain constructor functions (the `derives` clause is dropped — no stripping needed). Added a JS
   `_ssc_mkMirror` + `_ssc_def_given` (lazy getter) runtime; `JsGen` registers a per-product-type
@@ -237,10 +238,12 @@ So Track A = **implement `derives` typeclass synthesis on the generated backends
   `_resolveGiven` (explicit user-given summon untouched).
 - **A3** — ✓ DONE. The pinned cross-backend bar is fully green (interp + JVM + JS).
 
-**Conformance bar (2026-06-17):** `CustomDerivesMirrorCrossBackendTest` — interp + JVM + JS all PASS
-(custom derives cross-backend complete). `MirrorOfJvmConformanceTest` covers A1a
-(`summon[Mirror.Of[T]]` metadata on the JVM). Remaining Track A: **A1c** (stdlib structural derives on
-generated backends), plus sum-type mirrors and generic case classes.
+**Conformance bar (2026-06-17):** `CustomDerivesMirrorCrossBackendTest` (custom derives) +
+`StdlibDerivesJvmConformanceTest` (stdlib `Eq/Show/Hash/Order`) both PASS on interp + JVM + JS —
+`derives` (custom AND stdlib) is now cross-backend complete for product (case-class) types.
+`MirrorOfJvmConformanceTest` covers A1a (`summon[Mirror.Of[T]]` metadata on the JVM). **Remaining
+Track A (deferred edge cases):** sum-type mirrors / derives (enum, sealed trait — variants/ordinal),
+generic case classes, and `derives` clauses mixing user + stdlib + unknown typeclasses.
 
 **Track B — P4 compile-time constant folding** *(self-contained; turns today's diagnostics at
 `Linker.scala:~384/387` into real folds).* 

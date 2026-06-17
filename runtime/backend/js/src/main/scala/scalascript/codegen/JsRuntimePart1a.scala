@@ -139,6 +139,35 @@ function _ssc_def_given(key, factory) {
     get: function() { if (!done) { val = factory(); done = true; } return val; }
   });
 }
+// ── arch-meta-v2-p5 Track A (A1c) — structural derives helpers (JS) ────────
+// Mirror the interpreter's DerivesRuntime.structuralShow / structuralCompare.
+// `Show` renders `TypeName(field=value, ...)` WITH field names (unlike `_show`,
+// which omits them).  Eq reuses `_eq` (deep structural equality).
+function _ssc_structShow(v) {
+  if (v && typeof v === 'object' && v._type && v._type[0] !== '_' &&
+      !Array.isArray(v) && !v._lazy) {
+    var fs = Object.entries(v).filter(function(e) { return e[0] !== '_type' && e[0] !== '_tag'; });
+    if (!fs.length) return v._type;
+    return v._type + '(' + fs.map(function(e) { return e[0] + '=' + _ssc_structShow(e[1]); }).join(', ') + ')';
+  }
+  return _show(v);
+}
+function _ssc_structCompare(a, b) {
+  if (typeof a === 'number'  && typeof b === 'number')  return a < b ? -1 : a > b ? 1 : 0;
+  if (typeof a === 'string'  && typeof b === 'string')  return a < b ? -1 : a > b ? 1 : 0;
+  if (typeof a === 'boolean' && typeof b === 'boolean') return (a === b) ? 0 : (a ? 1 : -1);
+  if (a && b && typeof a === 'object' && a._type && a._type === b._type) {
+    var ks = Object.keys(a).filter(function(k) { return k !== '_type' && k !== '_tag'; });
+    for (var i = 0; i < ks.length; i++) { var r = _ssc_structCompare(a[ks[i]], b[ks[i]]); if (r !== 0) return r; }
+    return 0;
+  }
+  return 0;
+}
+function _ssc_structHash(v) {
+  var s = _ssc_structShow(v), h = 0;
+  for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return h;
+}
 // Partial application of a curried def `def add(a)(b)`: when `add(3)` is called with
 // fewer args than the flattened arity, return a function that accumulates the rest.
 // `add(1)(2)` (full) still calls `add(1, 2)` directly. (jvmgen-js-curried-partial.)

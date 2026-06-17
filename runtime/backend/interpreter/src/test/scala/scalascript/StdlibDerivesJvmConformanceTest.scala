@@ -2,7 +2,7 @@ package scalascript
 
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
-import scalascript.codegen.JvmGen
+import scalascript.codegen.{JsGen, JvmGen}
 import scalascript.interpreter.Interpreter
 import scalascript.parser.Parser
 
@@ -10,9 +10,10 @@ import java.nio.charset.StandardCharsets
 import scala.io.Source
 
 /** arch-meta-v2-p5 Track A — A1c: stdlib structural `derives Eq/Show/Hash/Order`
- *  must produce identical output on the interpreter and the JVM backend.  These
- *  typeclasses define no `derived`; the JVM synthesizes structural instances
- *  (Scala `Product` + `_ssc_struct*` helpers) mirroring `DerivesRuntime`. */
+ *  must produce identical output on the interpreter, the JVM backend, and the JS
+ *  backend.  These typeclasses define no `derived`; the generated backends
+ *  synthesize structural instances (JVM: Scala `Product`; JS: `_ssc_struct*`
+ *  runtime helpers) mirroring the interpreter's `DerivesRuntime`. */
 class StdlibDerivesJvmConformanceTest extends AnyFunSuite with Matchers:
 
   private val repoRoot = TestPaths.repoRoot
@@ -63,3 +64,11 @@ class StdlibDerivesJvmConformanceTest extends AnyFunSuite with Matchers:
     java.nio.file.Files.write(tmp.toPath,
       ("//> using scala 3.8.3\n" + JvmGen.generate(module, baseDir = Some(repoRoot))).getBytes(StandardCharsets.UTF_8))
     runProc("scala-cli", "run", "--server=false", tmp.getAbsolutePath) shouldBe interp()
+
+  test("JS stdlib derives matches the interpreter"):
+    assume(has("node"), "node not available")
+    val tmp = java.io.File.createTempFile("ssc-stdderives-", ".cjs"); tmp.deleteOnExit()
+    val rt  = JsGen.generateRuntime(JsGen.Capability.all)
+    java.nio.file.Files.write(tmp.toPath,
+      (rt + "\n" + JsGen.generate(module, baseDir = Some(repoRoot))).getBytes(StandardCharsets.UTF_8))
+    runProc("node", tmp.getAbsolutePath) shouldBe interp()

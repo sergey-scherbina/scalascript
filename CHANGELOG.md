@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-17 — feat(meta-v2): Track A1c (JS) — stdlib structural `derives` cross-backend
+
+Completes stdlib `derives Eq/Show/Hash/Order` on the JS backend (JVM landed earlier same day), so
+`StdlibDerivesJvmConformanceTest` is green on interp + JVM + JS. With A1a/A1b/A2 + A1c, **`derives`
+(custom AND stdlib) is now cross-backend complete for product (case-class) types.**
+- New JS runtime helpers `_ssc_structShow` (renders `TypeName(field=value, ...)` WITH field names —
+  unlike `_show`), `_ssc_structCompare` (field-by-field), `_ssc_structHash` (deterministic). `Eq`
+  reuses the existing deep `_eq`.
+- `JsGen.emitMirrorAndDerives` extended: registers EAGER structural givens in `_ssc_givens` for stdlib
+  `derives` (they depend only on runtime helpers, not a user `const`, so no lazy getter needed), and
+  routes the `Eq_T`/`Show_T`/`Hash_T`/`Order_T` summon keys through `_resolveGiven`.
+- REMAINING Track A (deferred edge cases): sum-type mirrors/derives (enum, sealed), generic case
+  classes, mixed user+stdlib+unknown derives clauses.
+
 ## 2026-06-17 — feat(meta-v2): Track A1c (JVM) — stdlib structural `derives`
 
 Brings stdlib `derives Eq/Show/Hash/Order` to the JVM backend (was interpreter-only). Unlike custom
