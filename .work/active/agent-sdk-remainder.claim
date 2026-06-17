@@ -1,0 +1,6 @@
+feature/agent-sdk-remainder 2026-06-17T04:58:38Z
+agent: claude-code
+heartbeat: 2026-06-17T04:58:38Z
+status: in-progress
+done-so-far: surveyed agent SDK (P0-P2 done) + MCP stack (exists); bridge is the gap
+next: consolidated specs/agent-sdk.md, then MCP-bridge code (tools-over-MCP + MCP-as-tool-source)
