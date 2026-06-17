@@ -1,0 +1,30 @@
+---
+name: agent-mcp-server
+version: 0.1.0
+description: Expose an app's std.agent tools over MCP with serveAgentToolsMcp, so an external agent can drive them.
+---
+
+# Agent tools over MCP
+
+Declare tools once as `std.agent` `AgentTool`s (the same ones an in-process agent loop
+would use), then expose them over MCP with a single call — an external agent (Claude
+Code, another rozum agent, …) can now drive the same tools.
+
+[agentTool, toolOk, toolError, objectSchema](std/agent.ssc)
+[serveAgentToolsMcp](std/agent-mcp.ssc)
+[Transport](std/mcp/server.ssc)
+[jsonValue](std/json.ssc)
+
+```scalascript
+val tools = List(
+  agentTool("greet", "Greet a person by name",
+            objectSchema("\"name\":{\"type\":\"string\"}", List("name"))) { argsJson =>
+    val name = jsonValue(argsJson).get("name").asString
+    if name == "" then toolError("name is required")
+    else toolOk("{\"text\":\"Hello, " + name + "!\"}")
+  }
+)
+
+println("agent tools exposed over MCP (stdio)")
+serveAgentToolsMcp(tools, Transport.Stdio)
+```

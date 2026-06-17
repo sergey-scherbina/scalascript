@@ -1,0 +1,42 @@
+---
+name: std-agent-mcp
+version: 0.1.0
+description: Bridge between std.agent tools and the std.mcp server — expose an app's AgentTools over MCP so an external agent (Claude Code, etc.) can drive the same tools.
+package: std.agent.mcp
+exports:
+  - serveAgentToolsMcp
+---
+
+# `std.agent.mcp` — expose agent tools over MCP
+
+The agent SDK (`std.agent`) and the MCP stack (`std.mcp`) define tools independently.
+`serveAgentToolsMcp` is the bridge in the **provider direction** (the rozum
+`integration.md` "one tool definition, two consumers" goal): take the `AgentTool`s an
+app already declared for its in-process agent loop and serve them over MCP, so an
+**external** agent can drive the very same tools — no second tool definition.
+
+Each MCP call arrives with JSON-decoded args as `Map[String, Any]`; we re-serialize
+them to the JSON string an `AgentTool.handler` expects (`jsonStringify`), run the
+app's handler (which validates + executes), and map its `ToolResult` back to an MCP
+result. The two `ToolResult` types never meet by name — the agent result is consumed
+by field, the MCP result is produced via `Tool.text` / `Tool.error`.
+
+```scalascript
+[mcpServer, serveMcp, Tool, Transport](std/mcp/server.ssc)
+[AgentTool](std/agent.ssc)
+[jsonStringify](std/json.ssc)
+
+/** Serve a list of agent tools over MCP on `transport`, then block (per `serveMcp`).
+ *  `Transport.Stdio` blocks until stdin closes; `Transport.Http(port)` listens (JS). */
+def serveAgentToolsMcp(tools: List[AgentTool], transport: Transport): Unit =
+  mcpServer { srv =>
+    tools.foreach { t =>
+      srv.tool(t.name, t.description) { args =>
+        val result = t.handler(jsonStringify(args))
+        if result.isError then Tool.error(result.contentJson)
+        else Tool.text(result.contentJson)
+      }
+    }
+  }
+  serveMcp(transport)
+```
