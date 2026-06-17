@@ -1,6 +1,15 @@
 # Lightweight FFI — @jvm / @js / @rust / @wasm Inline Annotations + glue.jar in .ssclib
 
-Status: **planned**.  Tracked as `arch-ffi` milestone in `BACKLOG.md`.
+Status: **implemented** (reconciled 2026-06-18 — the prior "planned" was stale).
+Tier 1 `@jvm` / `@js` inline annotations (Phases 1–2) and Tier 2 `jvm/glue.jar` /
+`js/glue.js` in `.ssclib` (Phases 3–4) are built, with `@rust` annotation wiring in
+`RustGen` on top. Tests: `FfiAnnotationTest`, `FfiPhase2Test` (interpreter),
+`RustFfiAnnotationTest` (Rust); `@jvm`/`@js` codegen in `JvmGen`/`JsGen`
+(`extractAnnotationArg`), `CapabilityCheck` wrong-backend errors, glue artifacts via
+`GlueClasspathRegistry` / `GlueJsPreambleRegistry`; example
+`examples/js-glue-component.ssc`. **Residual:** `@wasm` / `@wasmExport` /
+`@wasmImport` are deferred until WASM backend wiring exists (BACKLOG).
+Tracked as `arch-ffi` milestone in `BACKLOG.md`.
 Companion: [`specs/arch-library-modularity.md`](arch-library-modularity.md),
 [`specs/arch-stable-spi.md`](arch-stable-spi.md),
 [`specs/backend-specific-blocks.md`](backend-specific-blocks.md)

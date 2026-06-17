@@ -59,11 +59,22 @@ last — after everything else.**
      quoted macros are **interpreter-only** today. `JvmGen.generate`/`JsGen.generate` run on the parsed
      `ast.Module` with no macro handling; `Linker.expandMacroSource` only runs in the separate `ssc link`
      step (not in `emit`/`build` codegen); macro-impl defs (`isMacroImpl`) are not stripped before codegen;
-     there is **no** JVM/JS macro test. HOW: in the codegen path (or a pre-codegen transform), expand macro
-     call sites in the codegen-reachable source AND strip macro-impl/entrypoint defs, on both JVM and JS;
-     then add a generated-backend conformance test (mirror `MirrorOfJvmConformanceTest`) for a folded macro
-     (`examples/quoted-macro-constfold.ssc`, literal arg → `literal: 7`). The B1/B2 const-fold is already in
-     place to feed it. Discovered 2026-06-18 during meta-v2 Track B.
+     there is **no** JVM/JS macro test. **ARCHITECTURE (mapped 2026-06-18):** the default
+     `emit`/`build`/`run --backend jvm|js` path does NOT use the Linker — `JvmGen`/`JsGen` resolve + inline
+     imported modules at the **source/tree level** themselves (`JvmGen.scala:2477` `ImportResolver.resolve` +
+     `2486` `Parser.parse`) and rely on **scalac's own `inline`** for cross-module `inline def` (that's why
+     P3 cross-module inline "works" on JVM with no Linker involvement). Macros break because scalac can't run
+     ScalaScript's `__ssc_macro__`/`Expr`/`QuotedContext`. `Linker.expandMacroSource` is for the SEPARATE
+     `ssc link` artifact pipeline, which does not feed `JvmGen` (type gap: Linker emits `NormalizedModule`,
+     codegen consumes `ast.Module`/`cb.tree`). HOW: add a pre-codegen pass in the `JvmGen`/`JsGen` emission
+     path (after import inlining) that, **only for modules containing macro defs** (strict no-op otherwise →
+     can't regress working code), expands macro call sites + strips macro-impl/entrypoint defs, re-deriving
+     `cb.tree` from the rewritten source. Reuse `Linker.parseAsValueFold`/`expandMacroSource`/
+     `normalizeQuotedMacroBody` (the const-fold logic already exists). Then add a generated-backend
+     conformance test (mirror `MirrorOfJvmConformanceTest`) for a folded macro (`examples/quoted-macro-constfold.ssc`,
+     literal arg → `literal: 7`) on JVM (scala-cli) + JS (node). Slice JVM-first. **Needs design + review** —
+     it touches the delicate codegen emission path; not a blind change. The B1/B2 const-fold feeds it.
+     Discovered 2026-06-18 during meta-v2 Track B; architecture mapped during tier2-spec-reconcile.
 6. **deferred perf** — `hof-glue-jit-compile` (whole-fn JIT of `combineAll`, needs using/summon JIT;
    sub-15% ceiling) + `vectorize-pure-loop` (SIMD). Low ROI / high risk; revisit opportunistically.
 7. **other extensibility themes** — **AUDIT 2026-06-17: most are already BUILT; specs were stale.**

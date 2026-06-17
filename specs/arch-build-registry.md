@@ -156,11 +156,17 @@ as a thin compatibility surface through one release.  `PluginManifest` and
 - ✓ Landed 2026-05-29: `BackendRegistryTest` covers the facade and classpath
   install strategy; existing local-registry and subprocess tests remain green.
 
-### Phase 3 — Cleanup
+### Phase 3 — Cleanup (status reconciled 2026-06-18)
 
-- Remove deprecated `PluginManifest`/`LocalRegistry` wrappers.
-- Remove `isStdPluginInterpreterTest` filter (depends on Theme A Phase 3).
-- Update `specs/plugin-architecture.md` to reflect new shape.
+- `PluginManifest` / `LocalRegistry` are **not** trivial dead wrappers — they have
+  **live callers** (`ImportResolver`, `RemotePluginInstaller`, `BackendRegistry`,
+  `tools/cli/.../PluginCommands`). "Removal" is therefore a **caller migration** onto
+  the `PluginRegistry`/`BackendRegistry` facade, not a delete — with real regression
+  risk. Do it caller-by-caller behind green tests, or leave the thin compat surface as
+  documented in §"Migration". NOT a quick cleanup; partly gated on Theme A Phase 3.
+- `isStdPluginInterpreterTest` filter: **already gone** (no such symbol in the tree as
+  of 2026-06-18) — this bullet was stale; nothing to remove.
+- Update `specs/plugin-architecture.md` to reflect the new shape (still open).
 
 ### Phase 4 — Build family registries
 
