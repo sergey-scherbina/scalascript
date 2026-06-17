@@ -2848,7 +2848,7 @@ lazy val paymentsWebhookPostgres = project
 
 // ── Payments — PaymentProvider SPI plugin ────────────────────────────────
 lazy val paymentsPlugin = project
-  .in(file("runtime/std/payments-plugin"))
+  .in(file("payments/processors/spi"))
   .dependsOn(backendSpi, pluginApi, ir, core, paymentsMoney, paymentsWebhook, testUtils % Test)
   .settings(
     name := "scalascript-payments-plugin",
