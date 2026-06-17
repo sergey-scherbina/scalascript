@@ -3027,7 +3027,7 @@ lazy val paymentsSquare = project
   )
 
 lazy val paymentsMock = project
-  .in(file("runtime/std/payments-mock"))
+  .in(file("payments/processors/mock"))
   .dependsOn(paymentsPlugin, paymentsWebhook, testUtils % Test)
   .settings(
     name := "scalascript-payments-mock",
@@ -3163,7 +3163,7 @@ lazy val paymentsSwift = project
 
 // ── Bank Rails — UK Faster Payments Service adapter ───────────────────────
 lazy val paymentsUkFps = project
-  .in(file("runtime/std/payments-uk-fps"))
+  .in(file("payments/processors/uk-fps"))
   .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
   .settings(
     name := "scalascript-payments-uk-fps",
@@ -3174,7 +3174,7 @@ lazy val paymentsUkFps = project
 
 // ── Bank Rails — UK BACS Direct Debit adapter ────────────────────────────
 lazy val paymentsUkBacs = project
-  .in(file("runtime/std/payments-uk-bacs"))
+  .in(file("payments/processors/uk-bacs"))
   .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
   .settings(
     name := "scalascript-payments-uk-bacs",
@@ -3185,7 +3185,7 @@ lazy val paymentsUkBacs = project
 
 // ── Bank Rails — UK CHAPS adapter ────────────────────────────────────────
 lazy val paymentsUkChaps = project
-  .in(file("runtime/std/payments-uk-chaps"))
+  .in(file("payments/processors/uk-chaps"))
   .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
   .settings(
     name := "scalascript-payments-uk-chaps",
@@ -3196,7 +3196,7 @@ lazy val paymentsUkChaps = project
 
 // ── Bank Rails — India UPI adapter ───────────────────────────────────────
 lazy val paymentsIndiaUpi = project
-  .in(file("runtime/std/payments-india-upi"))
+  .in(file("payments/processors/india-upi"))
   .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
   .settings(
     name := "scalascript-payments-india-upi",
@@ -3207,7 +3207,7 @@ lazy val paymentsIndiaUpi = project
 
 // ── Bank Rails — Japan Zengin (全銀) domestic bank transfer adapter ────────
 lazy val paymentsJapanZengin = project
-  .in(file("runtime/std/payments-japan-zengin"))
+  .in(file("payments/processors/japan-zengin"))
   .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
   .settings(
     name := "scalascript-payments-japan-zengin",
@@ -3218,7 +3218,7 @@ lazy val paymentsJapanZengin = project
 
 // ── Bank Rails — Singapore PayNow adapter ────────────────────────────────
 lazy val paymentsSgPaynow = project
-  .in(file("runtime/std/payments-sg-paynow"))
+  .in(file("payments/processors/sg-paynow"))
   .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
   .settings(
     name := "scalascript-payments-sg-paynow",
@@ -3283,7 +3283,7 @@ lazy val fxOer = project
 
 // ── Bank Rails — Australia NPP (New Payments Platform) / PayID adapter ───
 lazy val paymentsAuNpp = project
-  .in(file("runtime/std/payments-au-npp"))
+  .in(file("payments/processors/au-npp"))
   .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
   .settings(
     name := "scalascript-payments-au-npp",
