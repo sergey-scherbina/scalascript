@@ -58,8 +58,8 @@ class CustomDerivesMirrorCrossBackendTest extends AnyFunSuite with Matchers:
   test("interpreter result is the expected baseline"):
     interp() shouldBe "name,age"
 
-  // PENDING arch-meta-v2 §4b Track A (A1b custom derives synthesis on JVM).
-  ignore("JVM matches the interpreter"):
+  // arch-meta-v2 §4b Track A1b — custom derives synthesis on JVM (landed).
+  test("JVM matches the interpreter"):
     assume(has("scala-cli"), "scala-cli not available")
     val tmp = java.io.File.createTempFile("ssc-csv-", ".sc"); tmp.deleteOnExit()
     java.nio.file.Files.write(tmp.toPath,

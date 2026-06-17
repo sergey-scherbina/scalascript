@@ -212,17 +212,22 @@ So Track A = **implement `derives` typeclass synthesis on the generated backends
   fromProduct, matching the interpreter. `MirrorOfJvmConformanceTest` (interp baseline + scala-cli JVM).
   DEFERRED to follow-ups: sum-type mirrors (enum / sealed trait — variants/ordinal) and generic case
   classes (skipped for now); `fromProduct().field` round-trip on JVM needs dynamic field-access typing.
-- **A1b** — custom `derives TC`: strip the clause from the emitted class, emit `given TC[T] = TC.derived(mirror)`.
+- **A1b** — ✓ DONE 2026-06-17. Custom `derives TC` synthesis on JVM. `_SscMirror[+A]` made covariant
+  (so a per-type mirror is accepted where `def derived(m: Mirror)` expects `_SscMirror[Any]`).
+  `JvmGen` detects user typeclasses with a `derived` method (`object Csv: def derived(m: Mirror)`),
+  strips all-custom `derives TC` clauses from the emitted case classes (both the parsed tree and
+  `block.src`, via tree positions), and appends
+  `given TC[T] = TC.derived(summon[Mirror.Of[T]]).asInstanceOf[TC[T]]`. The JVM case of
+  `CustomDerivesMirrorCrossBackendTest` now passes (flipped `ignore`→`test`). DEFERRED: `derives`
+  clauses that MIX user + non-user typeclasses (left untouched — passthrough); sum-type derives.
 - **A1c** — stdlib structural `derives Eq/Show/Hash/Order` on JVM (std modules define no `derived`; the
   interpreter synthesizes these structurally — the JVM path must too).
 - **A2** — the A1a/A1b/A1c equivalents on JS (`JsGen`).
 - **A3** — flip the pinned cross-backend conformance bar back on (see below).
 
-**Conformance bar pinned (2026-06-17):** `CustomDerivesMirrorCrossBackendTest` — interpreter baseline
-asserts `"name,age"` (passing); the JVM + JS cases are committed as `ignore` (suite stays green) and flip
-to `test` as A1b/A2 land. Effort: each sub-slice is bounded but the track as a whole is multi-day, not
-"days" — and carries scalac type-checking risk in the emitted Scala. **Recommend an explicit greenlight
-before building A1a** (it was greenlit as a small slice; the evidence shows it is not).
+**Conformance bar (2026-06-17):** `CustomDerivesMirrorCrossBackendTest` — interpreter baseline asserts
+`"name,age"` (passing); the JVM case now PASSES (A1b landed); the JS case stays `ignore`d until A2.
+`MirrorOfJvmConformanceTest` covers A1a (`summon[Mirror.Of[T]]` metadata on the JVM).
 
 **Track B — P4 compile-time constant folding** *(self-contained; turns today's diagnostics at
 `Linker.scala:~384/387` into real folds).* 

@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-17 — feat(meta-v2): Track A1b — JVM custom `derives` synthesis
+
+Second build slice of `arch-metaprogramming-v2` §4b Track A. User-defined typeclass derivation
+(`case class T(...) derives Csv` where `object Csv: def derived(m: Mirror)`) now works on the JVM
+backend, matching the interpreter.
+- `_SscMirror[+A]` is now covariant (phantom tag) so a per-type mirror is accepted where
+  `def derived(m: Mirror)` (= `_SscMirror[Any]`) is expected.
+- **JvmGen** detects user typeclasses with a `derived` method, strips all-custom `derives TC` clauses
+  from the emitted case classes (both the parsed tree and `block.src`, via tree positions — scalac's
+  `derives` contract can't satisfy the SS `derived(m: Mirror)` signature), and appends
+  `given TC[T] = TC.derived(summon[Mirror.Of[T]]).asInstanceOf[TC[T]]` reusing the A1a per-type Mirror given.
+- `CustomDerivesMirrorCrossBackendTest` JVM case flipped `ignore`→`test` (now green).
+- DEFERRED: `derives` clauses mixing user + stdlib typeclasses (left untouched); stdlib structural
+  derives (A1c); JS (A2). The JS case of the cross-backend test stays `ignore`d.
+
 ## 2026-06-17 — feat(meta-v2): Track A1a — JVM `summon[Mirror.Of[T]]` conformance
 
 First build slice of `arch-metaprogramming-v2` §4b Track A (cross-backend `derives`/`Mirror`

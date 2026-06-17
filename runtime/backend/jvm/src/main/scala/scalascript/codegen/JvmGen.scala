@@ -437,11 +437,19 @@ class JvmGen(
     // _perform. Keep the effect runtime available even for route-only modules
     // that do not otherwise use explicit effects.
     sb.append(effectsRuntime)
-    // arch-meta-v2-p5 Track A (A1a) — runtime Mirror metadata, emitted into the
-    // preamble (so it is not subject to colon→brace rewriting) when the module
-    // references the `Mirror` API.  Per-type givens are appended after the user
-    // blocks below.
-    val emitMirror = blocksUseMirror(blocks)
+    // arch-meta-v2-p5 Track A (A1a/A1b) — runtime Mirror metadata, emitted into
+    // the preamble (so it is not subject to colon→brace rewriting) when the
+    // module references the `Mirror` API or has a custom `derives` to synthesize.
+    // A1b: strip all-custom `derives TC` clauses from the blocks up front so the
+    // emitted classes don't carry a clause scalac can't satisfy; the per-type
+    // Mirror givens and the synthesized `given TC[T]` are appended after the
+    // user blocks below.
+    val userDerivableTCs = userDerivableTypeclasses(blocks)
+    val customDerives    = scala.collection.mutable.LinkedHashMap.empty[String, List[String]]
+    val emitBlocksList   =
+      if userDerivableTCs.isEmpty then blocks
+      else blocks.map(b => stripCustomDerives(b, userDerivableTCs, customDerives))
+    val emitMirror = blocksUseMirror(blocks) || customDerives.nonEmpty
     if emitMirror then sb.append(mirrorRuntime)
     if mutualGroups.nonEmpty                               then sb.append(JvmRuntimeMutualTco.source)
     // SwiftUI builds get a dedicated reactive preamble (ReactiveSignal-based)
@@ -520,21 +528,26 @@ class JvmGen(
     // `object Actor:` intentionally and must NOT be rewritten.
     val preambleLen = sb.length
 
-    blocks.foreach { block =>
+    emitBlocksList.foreach { block =>
       sb.append(emitBlock(block).stripTrailing())
       sb.append("\n\n")
     }
 
-    // arch-meta-v2-p5 Track A (A1a) — per-product-type Mirror givens, appended
-    // after the user case-class definitions.  Givens are lazy, so a forward
-    // `summon[Mirror.Of[T]]` earlier in the script resolves and initialises
-    // correctly.
+    // arch-meta-v2-p5 Track A — per-product-type Mirror givens (A1a) and
+    // synthesized custom `given TC[T]` (A1b), appended after the user case-class
+    // definitions.  Givens are lazy, so a forward `summon[Mirror.Of[T]]` /
+    // `summon[TC[T]]` earlier in the script resolves and initialises correctly.
     if emitMirror then
       val givens = mirrorProductGivens(blocks)
       if givens.nonEmpty then
         sb.append("// arch-meta-v2-p5 Track A — derived Mirror givens\n")
         givens.foreach { g => sb.append(g); sb.append("\n") }
         sb.append("\n")
+    val derivesGivens = customDerivesGivens(customDerives)
+    if derivesGivens.nonEmpty then
+      sb.append("// arch-meta-v2-p5 Track A (A1b) — synthesized derives givens\n")
+      derivesGivens.foreach { g => sb.append(g); sb.append("\n") }
+      sb.append("\n")
 
     // Emit heading-bound string blocks as `lazy val` accessors on a per-section
     // object.  `lazy val` makes the body see definitions that appear earlier
@@ -1984,7 +1997,10 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
   private[codegen] val mirrorRuntime: String =
     """
       |// ── arch-meta-v2-p5 Track A — runtime Mirror metadata (JVM) ──────────────
-      |final class _SscMirror[A](
+      |// `+A` is a phantom type tag (no member references A), covariant so a
+      |// per-type `_SscMirror[T]` is accepted where a bare `Mirror` (= `_SscMirror[Any]`)
+      |// is expected — e.g. `def derived(m: Mirror)` called with `summon[Mirror.Of[T]]`.
+      |final class _SscMirror[+A](
       |    val label: String,
       |    val elemLabels: List[String],
       |    val elemTypes: List[String],
@@ -2033,6 +2049,84 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       }
     }
     out.values.toList
+
+  // ── arch-meta-v2-p5 Track A (A1b) — custom `derives TC` synthesis (JVM) ─────
+  //
+  // For `case class T(...) derives TC` where `TC` is a user typeclass providing
+  // `def derived(m: Mirror)`, scalac's own derivation contract (`derived[T](using
+  // Mirror.Of[T])`) does not match the SS contract.  So we STRIP the (all-custom)
+  // derives clause from the emitted class and synthesize the given ourselves:
+  //   given TC[T] = TC.derived(summon[Mirror.Of[T]]).asInstanceOf[TC[T]]
+  // reusing the A1a per-type Mirror given.  `derives` clauses that mix in
+  // non-user typeclasses (e.g. stdlib `Eq`) are left untouched — stdlib
+  // structural derivation is A1c.
+
+  /** Object names that declare a `derived` method — the user typeclasses whose
+   *  `derives` clause we can synthesize (`object Csv: def derived(m: Mirror)`). */
+  private def userDerivableTypeclasses(blocks: List[JvmGen.Block]): Set[String] =
+    val names = scala.collection.mutable.Set.empty[String]
+    blocks.foreach { b =>
+      ScalaNode.fold(b.node) { tree =>
+        tree.collect {
+          case o: Defn.Object if o.templ.body.stats.exists {
+                case dd: Defn.Def => dd.name.value == "derived"
+                case _            => false
+              } => names += o.name.value
+        }
+      }
+    }
+    names.toSet
+
+  /** Strip all-custom `derives TC` clauses from top-level case classes in a
+   *  block (both the parsed tree and the raw `block.src`, via tree positions),
+   *  recording `typeName -> derived TC names` into `sink`.  Returns the block
+   *  unchanged when it has no such clause. */
+  private def stripCustomDerives(
+      b: JvmGen.Block,
+      userTCs: Set[String],
+      sink: scala.collection.mutable.LinkedHashMap[String, List[String]]
+  ): JvmGen.Block =
+    val topStats = b.node.tree match
+      case Source(stats)     => stats
+      case Term.Block(stats) => stats
+      case _                 => Nil
+    if topStats.isEmpty then return b
+    var srcEdits = List.empty[(Int, Int)]
+    var changed  = false
+    val newStats = topStats.map {
+      case d: Defn.Class if d.mods.exists(_.isInstanceOf[Mod.Case]) && d.templ.derives.nonEmpty =>
+        val tcNames = d.templ.derives.map { case Type.Name(n) => n; case t => t.syntax }
+        if tcNames.forall(userTCs.contains) then
+          sink(d.name.value) = tcNames
+          val firstT = d.templ.derives.head
+          val lastT  = d.templ.derives.last
+          val kw     = b.src.lastIndexOf("derives", firstT.pos.start)
+          if kw >= 0 then srcEdits = (kw, lastT.pos.end) :: srcEdits
+          changed = true
+          d.copy(templ = d.templ.copy(derives = Nil))
+        else d
+      case other => other
+    }
+    if !changed then b
+    else
+      val newTree = b.node.tree match
+        case s: Source      => s.copy(stats = newStats)
+        case tb: Term.Block => tb.copy(stats = newStats)
+        case other          => other
+      val newSrc = srcEdits.sortBy(-_._1).foldLeft(b.src) {
+        case (s, (a, e)) => s.substring(0, a) + s.substring(e)
+      }
+      b.copy(node = ScalaNode(newTree), src = newSrc)
+
+  /** `given TC[T] = TC.derived(summon[Mirror.Of[T]]).asInstanceOf[TC[T]]` lines. */
+  private def customDerivesGivens(
+      derives: scala.collection.mutable.LinkedHashMap[String, List[String]]
+  ): List[String] =
+    derives.toList.flatMap { (typeName, tcs) =>
+      tcs.map { tc =>
+        s"given $tc[$typeName] = $tc.derived(summon[Mirror.Of[$typeName]]).asInstanceOf[$tc[$typeName]]"
+      }
+    }
 
   private def jvmEndpointPathWarnings(
     clientName: String,
