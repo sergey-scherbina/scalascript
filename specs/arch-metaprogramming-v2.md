@@ -191,12 +191,34 @@ build that **already happened in part**. The remaining work is the "Planned" bul
 which decompose into small, independently-shippable slices (one worktree/claim/PR each,
 `on==off`-style verified). The tracks are independent of one another.
 
-**Track A — P5 cross-backend conformance** *(lowest risk, highest ROI: runtime is done, the gap
-is the generated backends; crisp acceptance = "make JVM/JS match the interpreter").*
-- **A1** — JVM `case class T(...) derives MyTypeclass` via `derived(m: Mirror)` parity test + fixes.
-- **A2** — JS parity for the same.
-- **A3** — one cross-backend conformance test (interp/JVM/JS produce identical output), in the
-  style of the existing JVM↔JS handshake matrix.
+**Track A — P5 cross-backend conformance** *(crisp acceptance = "make JVM/JS match the interpreter").*
+
+**SCOPE CORRECTION (verified 2026-06-17, A1 investigation):** this is BIGGER than the original
+"smallest/days" estimate. `derives` is **interpreter-only** on the generated backends — confirmed by
+running both stdlib and custom cases through scala-cli/node:
+- `JvmGen` emits the `derives` clause **verbatim** and passes it to scalac: stdlib `case class P(...) derives Eq`
+  → scalac error (Eq has no Scala-3 `derived`); custom `derived(m: Mirror)` → `Not found: type Mirror` +
+  `method derived takes explicit term parameters` (SS contract ≠ Scala-3 derivation contract).
+- `JsGen` never synthesizes the instance → `summon[Csv[Person]]` resolves to an undefined `Csv_Person`.
+- There is **no** `derives`→given desugaring in `AstToIr`/transform; only the interpreter's
+  `DerivesRuntime.synthesizeDerivedInstance` exists.
+
+So Track A = **implement `derives` typeclass synthesis on the generated backends** (a real feature in the
+4200-line `JvmGen` + its ~180KB preamble, and in `JsGen`). Decomposition:
+- **A1a** — JVM `Mirror` runtime type in the preamble + per-product/sum-type `Mirror` value + make
+  `summon[Mirror.Of[T]]` resolve (mirrors the interp `Mirror.Of` metadata: label/elemLabels/elemTypes/
+  variants/isProduct/isSum/ordinal; `fromProduct` may be its own step). Foundation; self-contained.
+- **A1b** — custom `derives TC`: strip the clause from the emitted class, emit `given TC[T] = TC.derived(mirror)`.
+- **A1c** — stdlib structural `derives Eq/Show/Hash/Order` on JVM (std modules define no `derived`; the
+  interpreter synthesizes these structurally — the JVM path must too).
+- **A2** — the A1a/A1b/A1c equivalents on JS (`JsGen`).
+- **A3** — flip the pinned cross-backend conformance bar back on (see below).
+
+**Conformance bar pinned (2026-06-17):** `CustomDerivesMirrorCrossBackendTest` — interpreter baseline
+asserts `"name,age"` (passing); the JVM + JS cases are committed as `ignore` (suite stays green) and flip
+to `test` as A1b/A2 land. Effort: each sub-slice is bounded but the track as a whole is multi-day, not
+"days" — and carries scalac type-checking risk in the emitted Scala. **Recommend an explicit greenlight
+before building A1a** (it was greenlit as a small slice; the evidence shows it is not).
 
 **Track B — P4 compile-time constant folding** *(self-contained; turns today's diagnostics at
 `Linker.scala:~384/387` into real folds).* 
@@ -209,8 +231,11 @@ is the generated backends; crisp acceptance = "make JVM/JS match the interpreter
 - **C1** — multi-clause inline support in `buildInlineTable`/`expandInlineSource` (today excluded).
 - **C2** — post-expansion re-typecheck pass + source-positioned errors when an expansion doesn't typecheck.
 
-**Recommended order:** Track A first (smallest, closes the most-cited "cross-backend conformance"
-gap shared by P4 and P5), then B, then C. Effort is days-per-slice, not weeks.
+**Recommended order:** originally "Track A first (smallest)" — but the 2026-06-17 A1 investigation
+shows Track A is the LARGEST of the three (it's a from-scratch backend feature, not a parity tweak).
+**Track B** (P4 const-fold) and **Track C** (P3 robustness) are the genuinely small, self-contained
+slices that extend an existing working `Linker` base — prefer them if a quick win is wanted; reserve
+Track A for when cross-backend `derives` is explicitly prioritized. Effort: B/C days-per-slice; A multi-day.
 
 ## 5. Dependency graph
 
