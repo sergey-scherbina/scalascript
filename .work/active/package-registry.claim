@@ -1,0 +1,6 @@
+feature/package-registry 2026-06-17T15:28:20Z
+agent: claude-code
+heartbeat: 2026-06-17T15:28:20Z
+status: in-progress
+done-so-far: agent-sdk-remainder done; starting package-registry CLI (ssc search/info/add)
+next: packages.yaml model + parser + ssc search + ssc info; then ssc add; then registry-repo seed
