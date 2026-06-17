@@ -1,0 +1,6 @@
+feature/meta-v2-a1-jvm-mirror 2026-06-17T16:50:00Z
+agent: claude-code
+heartbeat: 2026-06-17T16:50:00Z
+status: in-progress
+done-so-far: starting Track A1 (metaprogramming-v2 §4b) — JVM derives MyTypeclass via derived(m: Mirror) parity with interpreter
+next: audit JvmGen Mirror support; add JVM parity for custom-derives-mirror example; cross-backend test
