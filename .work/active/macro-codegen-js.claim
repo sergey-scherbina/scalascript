@@ -1,0 +1,6 @@
+feature/macro-codegen-js 2026-06-17T23:16:24Z
+agent: claude
+heartbeat: 2026-06-17T23:16:24Z
+status: in-progress
+done-so-far: JVM slice shipped (MacroCodegen.expand); claim from main
+next: hook MacroCodegen.expand into JsGen.generate/generateUserOnly/generateSegmented; add node conformance leg; ship
