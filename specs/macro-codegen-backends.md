@@ -1,7 +1,13 @@
 # Macro Expansion on the Generated Backends (JVM / JS)
 
-Status: **in progress** — JVM slice first. Tracked as `macro-codegen-backends` in
-`BACKLOG.md`. Unblocks `arch-metaprogramming-v2.md` Track B3.
+Status: **JVM slice DONE 2026-06-18; JS slice is the follow-up.** Tracked as
+`macro-codegen-backends` in `BACKLOG.md`. Unblocks `arch-metaprogramming-v2.md` Track B3
+on JVM (`QuotedMacroJvmConformanceTest` runs an `asValue match` + a direct-quote macro
+through scala-cli, matching the interpreter). The JVM emitter beta-reduces by **direct
+substitution** of the bound variable (wrapped in parens), not the lambda-lift form: scalac
+rejects `((n) => body)(7)` ("missing parameter type") and a block argument
+`f({ val n = 7; body })` re-renders as a brace-arg — a substituted parenthesised expression
+embeds cleanly.
 
 ## Problem
 

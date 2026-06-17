@@ -12,8 +12,11 @@ selected; the `None` branch is the dynamic fallback for non-literal arguments.
 
 This runs on the interpreter (`ssc run`): its `asValue` is always available, so
 a literal argument takes the `Some` branch and the `${ }` splice unwraps the
-returned `Expr` to its value. Cross-module `ssc link` const-folds the same call
-sites at link time (literal → `Some`, otherwise the `None` direct quote).
+returned `Expr` to its value. It also runs on the **JVM backend**
+(`ssc run --backend jvm`): a pre-codegen pass expands the macro call sites to
+their beta-reduced expansion and strips the macro definitions, so the literal
+call compiles to the same value. Cross-module `ssc link` const-folds the same
+call sites at link time (literal → `Some`, otherwise the `None` direct quote).
 
 ```scalascript
 inline def label(x: Int): String = ${ labelImpl('x) }
