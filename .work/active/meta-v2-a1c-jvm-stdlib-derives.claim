@@ -1,6 +1,0 @@
-feature/meta-v2-a1c-jvm-stdlib-derives 2026-06-17T18:00:00Z
-agent: claude-code
-heartbeat: 2026-06-17T18:00:00Z
-status: in-progress
-done-so-far: A1a/A1b/A2 landed (custom derives cross-backend green). Starting A1c-jvm — stdlib structural derives Eq/Show/Hash/Order on JVM.
-next: synthesize structural given Eq/Show/Hash/Order on JVM (strip clause + emit instances using Scala Product); cross-backend conformance test
