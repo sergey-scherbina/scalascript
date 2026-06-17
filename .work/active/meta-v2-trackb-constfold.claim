@@ -1,0 +1,6 @@
+feature/meta-v2-trackb-constfold 2026-06-17T21:54:43Z
+agent: claude
+heartbeat: 2026-06-17T21:54:43Z
+status: in-progress
+done-so-far: claim created from main checkout
+next: read specs/arch-metaprogramming-v2.md Track B + Linker.scala:~384/387 diagnostics; implement B1 (Expr.asValue match const-fold for literal-arg case) + interp parity
