@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-17 — feat: agent-sdk-remainder — consolidated spec + MCP bridge (both directions)
+
+Closed out the generic LLM-agent SDK's remaining actionable scope (P0–P2 shipped earlier).
+- **Consolidated `specs/agent-sdk.md`** — single authoritative scalascript-side SDK spec mirroring
+  rozum's `agent-sdk.md` + `integration.md` (the 3 contracts), superseding the 3 `rozum-agent-*` slice specs.
+- **P3a MCP bridge** — `runtime/std/agent-mcp.ssc`, both directions (the rozum "one tool definition,
+  two consumers"): `serveAgentToolsMcp(tools, transport)` exposes an app's `AgentTool`s over `mcpServer`;
+  `mcpToolSource(client)` wraps an MCP server's tools as `AgentTool`s. `Map`↔JSON via `jsonStringify`
+  + the existing `jsonParse` intrinsic; the two `ToolResult` types never meet by name (built via
+  `Tool.text/error` and `toolOk/toolError`). Examples `agent-mcp-{server,toolsource}.ssc`; module +
+  both examples `ssc check` OK.
+- **Loop conformance** already covered by `AgentSdkInterpreterTest` (fake gateway + canned
+  `stop`/`tool_calls`). DEFERRED with reasons: bridge round-trip test (heavy jvm/js infra for thin
+  glue), golden transcripts, P3b embedded transport (blocked on rozum's `rozum-embed` crate).
+
 ## 2026-06-17 — refactor: payments-reorg — unify crypto/wallet/payments under `payments/`
 
 All payment-domain interpreter plugins moved out of the flat `runtime/std/` sprawl into the

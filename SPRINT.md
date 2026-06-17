@@ -14,16 +14,12 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Driven by the agreed roadmap (BACKLOG.md → "Roadmap — agreed priority order, 2026-06-17").
 Work top-to-bottom, one major theme at a time. **Maven/centralized publication is LAST.**
 
-- [ ] **agent-sdk-remainder** (IN PROGRESS — claim `agent-sdk-remainder`) — the generic LLM-agent SDK.
-      DONE: consolidated `specs/agent-sdk.md` (P0–P2 confirmed shipped); **P3a MCP bridge, both
-      directions** — `runtime/std/agent-mcp.ssc` `serveAgentToolsMcp` (expose AgentTools over MCP) +
-      `mcpToolSource` (use an MCP server's tools as agent tools); examples `agent-mcp-{server,toolsource}.ssc`;
-      module + both examples `ssc check` OK. REMAINING:
-      - round-trip test (server+client) — needs an MCP transport workable in a jvm/js test
-        (Http is JS-only, Stdio blocks); mirror `McpEndToEndTest`.
-      - conformance — mock gateway (canned Contract-1 text/tool_calls) + golden transcripts.
-      - P3b embedded transport — DEFERRED until rozum ships the `rozum-embed` crate.
-      spec `specs/agent-sdk.md`.
+- [x] **agent-sdk-remainder** ✓ DONE 2026-06-17 (actionable scope) — consolidated `specs/agent-sdk.md`
+      + **P3a MCP bridge both directions** (`runtime/std/agent-mcp.ssc`: `serveAgentToolsMcp` +
+      `mcpToolSource`; examples `agent-mcp-{server,toolsource}.ssc`; all `ssc check` OK). Loop
+      conformance already covered by `AgentSdkInterpreterTest`. DEFERRED (reasons in spec): bridge
+      round-trip test (heavy jvm/js infra for thin glue), golden transcripts, P3b embedded (blocked
+      on rozum `rozum-embed`). spec `specs/agent-sdk.md`. → **Next: package-registry.**
 
 - [ ] **package-registry** (roadmap #3) — `specs/arch-registry.md`: GitHub-repo + GitHub-Pages registry,
       `packages.yaml` source of truth, `ssc search`/`info`/`add` CLI, PR-based publish + CI validate,
