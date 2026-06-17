@@ -1,6 +1,0 @@
-feature/meta-v2-a1a-jvm-mirror 2026-06-17T17:00:00Z
-agent: claude-code
-heartbeat: 2026-06-17T17:00:00Z
-status: in-progress
-done-so-far: starting A1a (metaprogramming-v2 §4b Track A foundation) — JVM Mirror runtime type + summon[Mirror.Of[T]]
-next: add _SscMirror[A] preamble type + per-product-type given + accessors (label/elemLabels/elemTypes/fromProduct); JVM conformance test mirroring interp Mirror.Of test
