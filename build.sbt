@@ -3108,7 +3108,7 @@ lazy val markupNode = project
 
 // ── Bank Rails — SEPA CT + DD adapter ────────────────────────────────────
 lazy val paymentsSepa = project
-  .in(file("runtime/std/payments-sepa"))
+  .in(file("payments/processors/sepa"))
   .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, markupCore, testUtils % Test)
   .settings(
     name := "scalascript-payments-sepa",
@@ -3119,7 +3119,7 @@ lazy val paymentsSepa = project
 
 // ── Bank Rails — ACH Nacha flat-file adapter ─────────────────────────────
 lazy val paymentsAch = project
-  .in(file("runtime/std/payments-ach"))
+  .in(file("payments/processors/ach"))
   .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
   .settings(
     name := "scalascript-payments-ach",
@@ -3130,7 +3130,7 @@ lazy val paymentsAch = project
 
 // ── Bank Rails — FedNow ISO 20022 instant payments adapter ───────────────
 lazy val paymentsFednow = project
-  .in(file("runtime/std/payments-fednow"))
+  .in(file("payments/processors/fednow"))
   .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, markupCore, testUtils % Test)
   .settings(
     name := "scalascript-payments-fednow",
@@ -3141,7 +3141,7 @@ lazy val paymentsFednow = project
 
 // ── Bank Rails — Pix instant payments adapter (Brazil) ───────────────────
 lazy val paymentsPix = project
-  .in(file("runtime/std/payments-pix"))
+  .in(file("payments/processors/pix"))
   .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
   .settings(
     name := "scalascript-payments-pix",
@@ -3152,7 +3152,7 @@ lazy val paymentsPix = project
 
 // ── Bank Rails — SWIFT MT103 + ISO 20022 pacs.008 CBPR+ adapter ──────────
 lazy val paymentsSwift = project
-  .in(file("runtime/std/payments-swift"))
+  .in(file("payments/processors/swift"))
   .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
   .settings(
     name := "scalascript-payments-swift",
@@ -3228,7 +3228,7 @@ lazy val paymentsSgPaynow = project
   )
 
 lazy val paymentsMxSpei = project
-  .in(file("runtime/std/payments-mx-spei"))
+  .in(file("payments/processors/mx-spei"))
   .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
   .settings(
     name := "scalascript-payments-mx-spei",
@@ -3239,7 +3239,7 @@ lazy val paymentsMxSpei = project
 
 // ── Bank Rails — Canada Interac e-Transfer + EFT adapter ─────────────────
 lazy val paymentsCaEft = project
-  .in(file("runtime/std/payments-ca-eft"))
+  .in(file("payments/processors/ca-eft"))
   .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
   .settings(
     name := "scalascript-payments-ca-eft",
