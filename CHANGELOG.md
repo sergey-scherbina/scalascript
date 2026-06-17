@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-17 — feat(meta-v2): Track A2 — JS Mirror + custom `derives` (cross-backend bar green)
+
+Third build slice of `arch-metaprogramming-v2` §4b Track A. Custom typeclass derivation and the
+`Mirror` metadata surface now work on the **JS** backend, so the cross-backend conformance bar
+(`CustomDerivesMirrorCrossBackendTest`) is green on **interp + JVM + JS**.
+- New JS runtime helpers `_ssc_mkMirror` + `_ssc_def_given` (a lazy given getter via
+  `Object.defineProperty`). JS `const` objects aren't hoisted, so an eager custom-derives instance
+  registered before the user code would reference an uninitialised `const TC` — the lazy getter
+  defers `TC.derived(...)` until the summon site runs.
+- **JsGen** registers a per-product-type Mirror object (eager) and a custom-derives given (lazy) in
+  `_ssc_givens` before the user blocks (no `derives`-stripping needed — JsGen already emits case
+  classes as plain constructor functions), and routes `summon[Mirror.Of[T]]` / `summon[TC[T]]` for
+  the synthesized keys through `_resolveGiven` (explicit user-given summon untouched).
+- `CustomDerivesMirrorCrossBackendTest` JS case flipped `ignore`→`test` (now green).
+- REMAINING Track A: **A1c** (stdlib structural `derives Eq/Show/Hash/Order` on the generated
+  backends), sum-type mirrors (enum / sealed), generic case classes.
+
 ## 2026-06-17 — feat(meta-v2): Track A1b — JVM custom `derives` synthesis
 
 Second build slice of `arch-metaprogramming-v2` §4b Track A. User-defined typeclass derivation

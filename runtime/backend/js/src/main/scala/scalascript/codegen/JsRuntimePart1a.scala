@@ -120,6 +120,25 @@ function _resolveGiven(key) {
   if (v !== undefined) return v;
   throw new Error('No given instance for ' + JSON.stringify(key));
 }
+// ── arch-meta-v2-p5 Track A (A2) — runtime Mirror metadata (JS) ────────────
+// Mirrors the JVM `_SscMirror` / interpreter `DerivesRuntime.mirrorForType`.
+function _ssc_mkMirror(label, elemLabels, elemTypes, variants, isProduct, fromProduct, ordinal) {
+  return {
+    label: label, elemLabels: elemLabels, elemTypes: elemTypes, fields: elemLabels,
+    variants: variants, isProduct: isProduct, isSum: !isProduct,
+    fromProduct: fromProduct, ordinal: ordinal
+  };
+}
+// Register a LAZY given factory under `key`: the factory runs (once) on first
+// access, deferring any reference to a not-yet-initialised `const` (e.g. an
+// `object TC` emitted later in source order) until the summon site runs.
+function _ssc_def_given(key, factory) {
+  var done = false, val;
+  Object.defineProperty(_ssc_givens, key, {
+    configurable: true,
+    get: function() { if (!done) { val = factory(); done = true; } return val; }
+  });
+}
 // Partial application of a curried def `def add(a)(b)`: when `add(3)` is called with
 // fewer args than the flattened arity, return a function that accumulates the rest.
 // `add(1)(2)` (full) still calls `add(1, 2)` directly. (jvmgen-js-curried-partial.)

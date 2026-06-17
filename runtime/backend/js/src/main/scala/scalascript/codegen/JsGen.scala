@@ -385,6 +385,11 @@ class JsGen(
   // Maps summon key "TC_A" → local param name "A$TC" for context-bound params
   // of the current Defn.Def being emitted. Cleared before each function.
   private val cbSummonMap = scala.collection.mutable.Map.empty[String, String]
+  // arch-meta-v2-p5 Track A (A2) — summon keys backed by a SYNTHESIZED given
+  // (per-type `Mirror_T` + custom `derives` `TC_T`), registered up front in
+  // `_ssc_givens`.  summon routes these through `_resolveGiven(key)` (registry,
+  // lazy) instead of a bare name; explicit user-given summon is left untouched.
+  private val jsSyntheticGivenKeys = scala.collection.mutable.Set.empty[String]
   // funcParamOrder: function name → ordered parameter names.
   // Populated by collectFuncParamOrders before the main emit pass.
   // Used at call sites with named args to reorder them to positional order.
@@ -817,6 +822,7 @@ class JsGen(
     caseClassFieldTypeMap = caseClassFieldTypesInModule(module)
     caseClassTagMap       = caseClassTagsInModule(module)
     subtypeParents.clear(); subtypeConcrete.clear()
+    jsSyntheticGivenKeys.clear()
     collectSubtypeEdgesFromModule(module); recomputeSubtypeClosure()
     collectFuncParamOrders(module)
     analyzeMutualRecursion(module)
@@ -894,6 +900,12 @@ class JsGen(
       val dbNames = module.manifest.toList.flatMap(_.databases).map(_.name)
       for dbName <- dbNames do
         line(s"Db._conns[${jsQuote(dbName)}] = await _ssc_sql_resolve(${jsQuote(dbName)});")
+    // arch-meta-v2-p5 Track A (A2) — register Mirror metadata + custom-derives
+    // givens before the user blocks (same scope as the emitted classes/objects,
+    // inside the async IIFE when present).  Case classes are hoisted functions;
+    // the custom-derives instance is a lazy getter so it can reference the
+    // not-yet-initialised `const TC` object until its summon site runs.
+    emitMirrorAndDerives(module)
     genSections(module.sections, module.document.map(_.sections).getOrElse(Nil))
     // Auto-call main() if defined and not already called
     if hasMain && !mainCalled then
@@ -1258,6 +1270,83 @@ class JsGen(
     module.sections.foreach(scanSection)
     result.toMap
 
+  // ── arch-meta-v2-p5 Track A (A2) — JS Mirror metadata + custom derives ─────
+  //
+  // Mirrors JVM A1a/A1b.  `summon[Mirror.Of[T]]` and a custom `derives TC`
+  // (`object TC: def derived(m: Mirror)`) were both interpreter-only on JS:
+  // JsGen emits case classes as plain constructor functions (the `derives`
+  // clause is already dropped — no stripping needed), and `summon` resolved to
+  // an undefined name.  We register a per-product-type Mirror object and a lazy
+  // custom-derives instance in `_ssc_givens`, and route the matching `summon`
+  // keys through `_resolveGiven` (see `genExpr`'s summon case).
+
+  /** Walk a module's top-level scalascript stats, applying `f` to each block's
+   *  top statement list. */
+  private def foreachTopStats(module: Module)(f: List[scala.meta.Stat] => Unit): Unit =
+    def scanSection(s: Section): Unit =
+      s.content.foreach {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          cb.tree.foreach { node => ScalaNode.fold(node) {
+            case Source(stats)     => f(stats)
+            case Term.Block(stats) => f(stats)
+            case _                 => ()
+          }}
+        case _ => ()
+      }
+      s.subsections.foreach(scanSection)
+    module.sections.foreach(scanSection)
+
+  /** True when any scalascript block mentions the `Mirror` API. */
+  private def moduleUsesMirror(module: Module): Boolean =
+    def sectionHas(s: Section): Boolean =
+      s.content.exists {
+        case cb: Content.CodeBlock => Lang.isScalaScript(cb.lang) && cb.source.contains("Mirror")
+        case _ => false
+      } || s.subsections.exists(sectionHas)
+    module.sections.exists(sectionHas)
+
+  /** Emit per-product-type Mirror objects + custom `derives` instances (lazy),
+   *  registered in `_ssc_givens`, BEFORE the user blocks.  Records the summon
+   *  keys so `genExpr` routes them through `_resolveGiven`. */
+  private def emitMirrorAndDerives(module: Module): Unit =
+    val userTCs        = scala.collection.mutable.Set.empty[String]
+    val productClasses = scala.collection.mutable.LinkedHashSet.empty[String]
+    val derivesPairs   = scala.collection.mutable.LinkedHashMap.empty[String, List[String]]
+    foreachTopStats(module) { stats => stats.foreach {
+      case o: Defn.Object if o.templ.body.stats.exists {
+            case dd: Defn.Def => dd.name.value == "derived"; case _ => false
+          } => userTCs += o.name.value
+      case d: Defn.Class if d.mods.exists(_.isInstanceOf[Mod.Case]) && d.tparamClause.values.isEmpty =>
+        productClasses += d.name.value
+      case _ => ()
+    }}
+    foreachTopStats(module) { stats => stats.foreach {
+      case d: Defn.Class if d.mods.exists(_.isInstanceOf[Mod.Case]) && d.templ.derives.nonEmpty =>
+        val tcs = d.templ.derives.map { case Type.Name(n) => n; case t => t.syntax }
+        if tcs.forall(userTCs.contains) then derivesPairs(d.name.value) = tcs
+      case _ => ()
+    }}
+    if !(moduleUsesMirror(module) || derivesPairs.nonEmpty) then return
+    if productClasses.isEmpty && derivesPairs.isEmpty then return
+    line("// arch-meta-v2-p5 Track A — Mirror metadata + derived givens")
+    productClasses.foreach { t =>
+      val labels  = caseClassFieldsByType.getOrElse(t, Nil)
+      val typeMap = caseClassFieldTypeMap.getOrElse(t, Map.empty)
+      val types   = labels.map(l => typeMap.getOrElse(l, "Any"))
+      val labelsJs = labels.map(jsQuote).mkString("[", ", ", "]")
+      val typesJs  = types.map(jsQuote).mkString("[", ", ", "]")
+      val ctorArgs = labels.indices.map(i => s"xs[$i]").mkString(", ")
+      line(s"""const _sscMirror_$t = _ssc_mkMirror(${jsQuote(t)}, $labelsJs, $typesJs, [], true, function(xs){ return $t($ctorArgs); }, function(x){ return -1; });""")
+      line(s"""_ssc_givens[${jsQuote(s"Mirror_$t")}] = _sscMirror_$t;""")
+      jsSyntheticGivenKeys += s"Mirror_$t"
+    }
+    derivesPairs.foreach { (t, tcs) =>
+      tcs.foreach { tc =>
+        line(s"""_ssc_def_given(${jsQuote(s"${tc}_$t")}, function(){ return $tc.derived(_sscMirror_$t); });""")
+        jsSyntheticGivenKeys += s"${tc}_$t"
+      }
+    }
+
   // Records the subtype edges (`child → direct parents`) and concrete leaf names of one
   // module into the accumulators `subtypeParents` / `subtypeConcrete`. Descends into
   // namespace/`package:` `Defn.Object`s (a `package:` module compiles to a wrapping
@@ -1566,6 +1655,7 @@ class JsGen(
     caseClassFieldTypeMap = caseClassFieldTypesInModule(module)
     caseClassTagMap       = caseClassTagsInModule(module)
     subtypeParents.clear(); subtypeConcrete.clear()
+    jsSyntheticGivenKeys.clear()
     collectSubtypeEdgesFromModule(module); recomputeSubtypeClosure()
     collectFuncParamOrders(module)
     analyzeMutualRecursion(module)
@@ -3510,12 +3600,22 @@ class JsGen(
           val key = typeArg match
             case n: Type.Name  => n.value
             case ta: Type.Apply =>
-              val tc  = ta.tpe match { case n: Type.Name => n.value; case _ => "?" }
+              // arch-meta-v2-p5 (A2): `Mirror.Of[T]` / `ProductOf` / `SumOf`
+              // (a Type.Select) maps to the registered `Mirror_T` key.
+              val tc = ta.tpe match
+                case n: Type.Name => n.value
+                case Type.Select(Type.Name("Mirror"), Type.Name(of))
+                    if of == "Of" || of == "ProductOf" || of == "SumOf" => "Mirror"
+                case _ => "?"
               val arg = ta.argClause.values match { case List(n: Type.Name) => n.value; case _ => "_" }
               s"${tc}_${arg}"
             case _ => "undefined"
-          // Prefer a local CB param if one shadows this summon key
-          cbSummonMap.getOrElse(key, key)
+          // arch-meta-v2-p5 (A2): synthesized givens (per-type Mirror + custom
+          // `derives`) live in `_ssc_givens` (the Mirror eagerly, derives lazily)
+          // — resolve them through the registry.  Explicit user givens keep the
+          // bare-name resolution.
+          if jsSyntheticGivenKeys.contains(key) then s"""_resolveGiven(${jsQuote(key)})"""
+          else cbSummonMap.getOrElse(key, key)
         case (Term.Name("Prism"), List(_, variantType)) =>
           val variantName = variantType match
             case n: Type.Name => n.value

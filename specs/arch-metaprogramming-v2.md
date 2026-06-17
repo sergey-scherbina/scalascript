@@ -220,14 +220,22 @@ So Track A = **implement `derives` typeclass synthesis on the generated backends
   `given TC[T] = TC.derived(summon[Mirror.Of[T]]).asInstanceOf[TC[T]]`. The JVM case of
   `CustomDerivesMirrorCrossBackendTest` now passes (flipped `ignore`→`test`). DEFERRED: `derives`
   clauses that MIX user + non-user typeclasses (left untouched — passthrough); sum-type derives.
-- **A1c** — stdlib structural `derives Eq/Show/Hash/Order` on JVM (std modules define no `derived`; the
-  interpreter synthesizes these structurally — the JVM path must too).
-- **A2** — the A1a/A1b/A1c equivalents on JS (`JsGen`).
-- **A3** — flip the pinned cross-backend conformance bar back on (see below).
+- **A1c** — stdlib structural `derives Eq/Show/Hash/Order` on the generated backends (std modules
+  define no `derived`; the interpreter synthesizes these structurally in `DerivesRuntime` — the
+  JVM/JS paths must too). The remaining open Track-A sub-slice.
+- **A2** — ✓ DONE 2026-06-17. A1a+A1b equivalents on JS (`JsGen`). JsGen already emits case classes
+  as plain constructor functions (the `derives` clause is dropped — no stripping needed). Added a JS
+  `_ssc_mkMirror` + `_ssc_def_given` (lazy getter) runtime; `JsGen` registers a per-product-type
+  Mirror object (eager) and a custom-derives instance (LAZY — JS `const` objects aren't hoisted, so
+  the getter defers `TC.derived(...)` until the summon site runs) in `_ssc_givens` BEFORE the user
+  blocks, and routes `summon[Mirror.Of[T]]` / `summon[TC[T]]` for these synthesized keys through
+  `_resolveGiven` (explicit user-given summon untouched).
+- **A3** — ✓ DONE. The pinned cross-backend bar is fully green (interp + JVM + JS).
 
-**Conformance bar (2026-06-17):** `CustomDerivesMirrorCrossBackendTest` — interpreter baseline asserts
-`"name,age"` (passing); the JVM case now PASSES (A1b landed); the JS case stays `ignore`d until A2.
-`MirrorOfJvmConformanceTest` covers A1a (`summon[Mirror.Of[T]]` metadata on the JVM).
+**Conformance bar (2026-06-17):** `CustomDerivesMirrorCrossBackendTest` — interp + JVM + JS all PASS
+(custom derives cross-backend complete). `MirrorOfJvmConformanceTest` covers A1a
+(`summon[Mirror.Of[T]]` metadata on the JVM). Remaining Track A: **A1c** (stdlib structural derives on
+generated backends), plus sum-type mirrors and generic case classes.
 
 **Track B — P4 compile-time constant folding** *(self-contained; turns today's diagnostics at
 `Linker.scala:~384/387` into real folds).* 

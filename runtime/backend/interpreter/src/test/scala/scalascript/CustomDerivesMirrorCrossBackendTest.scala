@@ -14,15 +14,13 @@ import scala.io.Source
  *  identical output on the interpreter, the JVM backend (scala-cli), and the
  *  JS backend (node). Mirrors `examples/custom-derives-mirror.ssc`.
  *
- *  CONFORMANCE BAR (pinned 2026-06-17): the interpreter baseline passes today.
- *  The JVM and JS cases are `ignore`d PENDING the feature — verified this session
- *  that `derives` (BOTH stdlib `derives Eq` and custom `derived(m: Mirror)`) is
- *  interpreter-only on the generated backends: JvmGen emits `derives Csv`
- *  verbatim (scalac: "Not found: type Mirror" + "derived takes explicit term
- *  parameters"); JsGen never synthesizes the instance ("Csv_Person is not
- *  defined"). Implementing it = `specs/arch-metaprogramming-v2.md` §4b Track A
- *  (A1a Mirror metadata + summon, A1b custom derives synthesis, A1c stdlib
- *  structural). Flip the two `ignore`s back to `test` as each lands. */
+ *  CONFORMANCE BAR (2026-06-17): all three backends now agree. Custom
+ *  `derives` was interpreter-only; A1b (JVM) and A2 (JS) brought it to the
+ *  generated backends — JvmGen strips the clause + synthesizes `given TC[T] =
+ *  TC.derived(summon[Mirror.Of[T]])`; JsGen registers a lazy custom-derives
+ *  given in `_ssc_givens` and routes the summon through `_resolveGiven`.
+ *  See `specs/arch-metaprogramming-v2.md` §4b Track A. (A1c — stdlib structural
+ *  `derives Eq/Show/...` on the generated backends — remains a follow-up.) */
 class CustomDerivesMirrorCrossBackendTest extends AnyFunSuite with Matchers:
 
   private val program =
@@ -66,8 +64,8 @@ class CustomDerivesMirrorCrossBackendTest extends AnyFunSuite with Matchers:
       ("//> using scala 3.8.3\n" + JvmGen.generate(module)).getBytes(StandardCharsets.UTF_8))
     runProc("scala-cli", "run", "--server=false", tmp.getAbsolutePath) shouldBe interp()
 
-  // PENDING arch-meta-v2 §4b Track A (A2 custom derives synthesis on JS).
-  ignore("JS matches the interpreter"):
+  // arch-meta-v2 §4b Track A2 — custom derives synthesis on JS (landed).
+  test("JS matches the interpreter"):
     assume(has("node"), "node not available")
     val tmp = java.io.File.createTempFile("ssc-csv-", ".cjs"); tmp.deleteOnExit()
     val rt  = JsGen.generateRuntime(JsGen.Capability.all)
