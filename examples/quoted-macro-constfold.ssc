@@ -7,10 +7,13 @@ description: Restricted quoted macro compile-time constant folding (Expr.asValue
 # Restricted Quoted Macro Constant Folding
 
 A restricted quoted macro can branch on whether its argument is a compile-time
-constant via `Expr.asValue`. For a **literal** argument the `Some` branch folds
-at link time on the generated backends; the interpreter run-path produces the
-same value (its `asValue` is always available, so it takes the same `Some`
-branch). The `None` branch is the dynamic fallback for non-literal arguments.
+constant via `Expr.asValue`. For a **literal** argument the `Some` branch is
+selected; the `None` branch is the dynamic fallback for non-literal arguments.
+
+This runs on the interpreter (`ssc run`): its `asValue` is always available, so
+a literal argument takes the `Some` branch and the `${ }` splice unwraps the
+returned `Expr` to its value. Cross-module `ssc link` const-folds the same call
+sites at link time (literal → `Some`, otherwise the `None` direct quote).
 
 ```scalascript
 inline def label(x: Int): String = ${ labelImpl('x) }

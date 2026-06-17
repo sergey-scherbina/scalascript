@@ -488,12 +488,15 @@ class LinkerRewriteTest extends AnyFunSuite:
     }
     assert(ex.getMessage.contains("restricted quoted macros must return a direct quoted expression"), ex.getMessage)
 
-  test("unsupportedQuotedMacroBodyMessage classifies asValue match"):
+  test("unsupportedQuotedMacroBodyMessage classifies an unrecognised asValue match shape"):
+    // arch-meta-v2 Track B: well-formed `Some(n)`/`None` bodies now const-fold
+    // (see the `expandMacroSource` tests below); the diagnostic is only a
+    // fallback for asValue-match bodies whose shape we cannot fold.
     val msg = Linker.unsupportedQuotedMacroBodyMessage(
-      """x.asValue match { case Some(n) => Expr(n + 1); case None => '{ $x + 1 } }"""
+      """x.asValue match { case other => '{ $x + 1 } }"""
     )
     assert(msg.contains("Expr.asValue match"), msg)
-    assert(msg.contains("not implemented yet"), msg)
+    assert(msg.contains("const-folded only for the shape"), msg)
 
   test("unsupportedQuotedMacroBodyMessage classifies Expr construction"):
     val msg = Linker.unsupportedQuotedMacroBodyMessage("""Expr("literal")""")
@@ -508,6 +511,61 @@ class LinkerRewriteTest extends AnyFunSuite:
     val table = Map("plusOne" -> Linker.MacroExpansion(List("x"), """'{ $x + 1 }"""))
     val result = Linker.expandMacroSource("val y = plusOne(n)", table)
     assert(result == "val y = ((x) => x + 1)(n)", s"unexpected macro expansion: $result")
+
+  // ── arch-meta-v2 Track B — Expr.asValue match const-fold ─────────────
+
+  // Body shape as it reaches the Linker (after parser preprocessing turns the
+  // `None` branch's `'{ ... }` into `__ssc_quote_expr__(__ssc_splice__(...))`).
+  private val asValueBody =
+    """x.asValue match {
+      |  case Some(n) => Expr("literal: " + n.toString)
+      |  case None    => __ssc_quote_expr__("dynamic: " + __ssc_splice__("x", x).toString)
+      |}""".stripMargin
+
+  test("parseAsValueFold extracts param, binder, and unwrapped branches"):
+    val fold = Linker.parseAsValueFold(asValueBody)
+    assert(fold.isDefined, "expected an AsValueFold")
+    val f = fold.get
+    assert(f.param == "x", f.param)
+    assert(f.binder == "n", f.binder)
+    assert(f.someBranch == "\"literal: \" + n.toString", f.someBranch)
+    assert(f.noneBranch == "\"dynamic: \" + x.toString", f.noneBranch)
+
+  test("parseAsValueFold returns None for a plain direct-quote body"):
+    assert(Linker.parseAsValueFold("""'{ $x + 1 }""").isEmpty)
+
+  test("isLiteralArg recognises literals and rejects expressions"):
+    assert(Linker.isLiteralArg("7"))
+    assert(Linker.isLiteralArg("-7"))
+    assert(Linker.isLiteralArg("3.14"))
+    assert(Linker.isLiteralArg("\"hi\""))
+    assert(Linker.isLiteralArg("true"))
+    assert(!Linker.isLiteralArg("y"))
+    assert(!Linker.isLiteralArg("y + 1"))
+    assert(!Linker.isLiteralArg("foo(3)"))
+
+  test("expandMacroSource const-folds a literal argument to the Some branch"):
+    val table  = Map("label" -> Linker.MacroExpansion(List("x"), asValueBody))
+    val result = Linker.expandMacroSource("val s = label(7)", table)
+    assert(result == "val s = ((n) => \"literal: \" + n.toString)(7)",
+           s"unexpected fold: $result")
+
+  test("expandMacroSource folds a non-literal argument to the None branch"):
+    val table  = Map("label" -> Linker.MacroExpansion(List("x"), asValueBody))
+    val result = Linker.expandMacroSource("val s = label(y)", table)
+    assert(result == "val s = ((x) => \"dynamic: \" + x.toString)(y)",
+           s"unexpected fold: $result")
+
+  test("expandMacroSource folds multiple call sites independently"):
+    val table  = Map("label" -> Linker.MacroExpansion(List("x"), asValueBody))
+    val result = Linker.expandMacroSource("label(7); label(z)", table)
+    assert(result == "((n) => \"literal: \" + n.toString)(7); ((x) => \"dynamic: \" + x.toString)(z)",
+           s"unexpected fold: $result")
+
+  test("expandMacroSource does not fold a name inside a string literal"):
+    val table  = Map("label" -> Linker.MacroExpansion(List("x"), asValueBody))
+    val result = Linker.expandMacroSource("\"label(7)\"", table)
+    assert(result == "\"label(7)\"", s"unexpected fold: $result")
 
   test("link — inline export in dependency module is expanded in consumer source"):
     // Build a library module that exports an `inline def`

@@ -360,8 +360,158 @@ object Linker:
       macroTable: Map[String, MacroExpansion]
   ): String =
     if macroTable.isEmpty || src.isEmpty then return src
-    val inlineShape = macroTable.view.mapValues(m => (m.paramNames, normalizeQuotedMacroBody(m.bodySource))).toMap
-    expandInlineSource(src, inlineShape)
+    // arch-meta-v2 Track B — split the table: `Expr.asValue match` macros are
+    // const-folded per call site (literal arg → `Some` branch, else the `None`
+    // direct-quote fallback); every other macro is a uniform direct-quote
+    // body expanded by lambda-lifting through `expandInlineSource`.
+    val foldTable =
+      macroTable.flatMap { case (name, m) => parseAsValueFold(m.bodySource).map(name -> _) }
+    val afterQuotes =
+      val quoteTable = macroTable.filterNot { case (name, _) => foldTable.contains(name) }
+      if quoteTable.isEmpty then src
+      else
+        val inlineShape = quoteTable.view.mapValues(m => (m.paramNames, normalizeQuotedMacroBody(m.bodySource))).toMap
+        expandInlineSource(src, inlineShape)
+    if foldTable.isEmpty then afterQuotes
+    else expandAsValueMatchSource(afterQuotes, foldTable)
+
+  /** arch-meta-v2 Track B — a parsed `Expr.asValue match` macro body, ready for
+   *  per-call-site const folding. `param` is the quoted parameter, `binder` the
+   *  name bound by the `Some(_)` pattern; `someBranch` / `noneBranch` are the
+   *  unwrapped branch expressions (splice markers already normalised). */
+  private[artifact] case class AsValueFold(
+      param:      String,
+      binder:     String,
+      someBranch: String,
+      noneBranch: String
+  )
+
+  /** Parse a restricted `Expr.asValue match` macro body into its fold pieces.
+   *  Recognised shape (after parser preprocessing):
+   *    `<param>.asValue match { case Some(<binder>) => <some> case None => <none> }`
+   *  (`case _ =>` is accepted in place of `case None =>`). Returns `None` for
+   *  any other body — those route through the direct-quote path instead. */
+  private[artifact] def parseAsValueFold(bodySource: String): Option[AsValueFold] =
+    if !bodySource.contains(".asValue") then return None
+    import scala.meta.*
+    given Dialect = dialects.Scala3
+    bodySource.trim.parse[Term].toOption.flatMap {
+      case m: Term.Match =>
+        m.expr match
+          case Term.Select(Term.Name(param), Term.Name("asValue")) =>
+            val cases    = m.casesBlock.cases
+            val someCase = cases.find(_.pat.syntax.trim.startsWith("Some("))
+            val noneCase = cases.find { c => val p = c.pat.syntax.trim; p == "None" || p == "_" }
+            for
+              sc     <- someCase
+              binder <- """Some\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)""".r
+                          .findFirstMatchIn(sc.pat.syntax).map(_.group(1))
+              nc     <- noneCase
+            yield AsValueFold(param, binder, unwrapMacroBranch(sc.body), unwrapMacroBranch(nc.body))
+          case _ => None
+      case _ => None
+    }
+
+  /** Unwrap a single macro branch to the source expression the `${ }` splice
+   *  yields: `Expr(e)` → `e`, a direct quote → its normalised inner expression,
+   *  anything else → verbatim source. */
+  private[artifact] def unwrapMacroBranch(body: scala.meta.Term): String =
+    import scala.meta.*
+    body match
+      case Term.Apply.After_4_6_0(Term.Name("Expr"), Term.ArgClause(List(arg), _)) =>
+        arg.syntax.trim
+      case Term.Apply.After_4_6_0(Term.Name("__ssc_quote_expr__"), Term.ArgClause(List(arg), _)) =>
+        normalizeQuotedMacroBody(s"__ssc_quote_expr__(${arg.syntax})")
+      case _ =>
+        val s = body.syntax.trim
+        if (s.startsWith("'{") && s.endsWith("}")) ||
+           (s.startsWith("__ssc_quote_expr__(") && s.endsWith(")")) then
+          normalizeQuotedMacroBody(s)
+        else s
+
+  /** True when `arg` is a compile-time constant (a literal, or a unary-negated
+   *  literal). Only such arguments take the const-folded `Some` branch. */
+  private[artifact] def isLiteralArg(arg: String): Boolean =
+    import scala.meta.*
+    given Dialect = dialects.Scala3
+    arg.trim.parse[Term].toOption.exists {
+      case _: Lit                       => true
+      case Term.ApplyUnary(_, _: Lit)   => true
+      case _                            => false
+    }
+
+  /** arch-meta-v2 Track B — Const-fold `Expr.asValue match` macro call sites.
+   *  A call `name(arg)` is rewritten by lambda-lifting the selected branch:
+   *  literal `arg` → `((binder) => someBranch)(arg)`; otherwise →
+   *  `((param) => noneBranch)(arg)`. The backend beta-reduces the result.
+   *  These macros take a single quoted argument. */
+  private[artifact] def expandAsValueMatchSource(
+      src:       String,
+      foldTable: Map[String, AsValueFold]
+  ): String =
+    if foldTable.isEmpty || src.isEmpty then return src
+    val sb       = new java.lang.StringBuilder(src.length + 64)
+    val len      = src.length
+    var i        = 0
+    var modified = false
+
+    def isIdentChar(c: Char): Boolean = c.isLetterOrDigit || c == '_' || c == '$'
+
+    def skipStringLit(j: Int): Int =
+      val delim = src(j)
+      var k = j + 1
+      while k < len && src(k) != delim do
+        if src(k) == '\\' then k += 1
+        k += 1
+      if k < len then k + 1 else k
+
+    // Extract the single argument between parens (from = index just inside '(').
+    // Returns (argSource, indexOfMatchingCloseParen).
+    def extractSingleArg(from: Int): Option[(String, Int)] =
+      var depth = 1
+      var k     = from
+      val buf   = new java.lang.StringBuilder
+      while k < len && depth > 0 do
+        src(k) match
+          case '"' | '\'' =>
+            val end = skipStringLit(k); buf.append(src, k, end); k = end
+          case '(' => depth += 1; buf.append('('); k += 1
+          case ')' => depth -= 1; if depth > 0 then buf.append(')'); k += 1
+          case c   => buf.append(c); k += 1
+      if depth != 0 then None else Some(buf.toString.trim -> (k - 1))
+
+    while i < len do
+      src(i) match
+        case '"' | '\'' =>
+          val end = skipStringLit(i); sb.append(src, i, end); i = end
+        case c =>
+          if isIdentChar(c) && (i == 0 || !isIdentChar(src(i - 1))) then
+            foldTable.find { case (name, _) =>
+              src.startsWith(name, i) &&
+                (i + name.length >= len || !isIdentChar(src(i + name.length)))
+            } match
+              case Some((name, fold)) =>
+                var j = i + name.length
+                while j < len && src(j).isWhitespace do j += 1
+                if j < len && src(j) == '(' then
+                  extractSingleArg(j + 1) match
+                    case Some((arg, endPos)) =>
+                      modified = true
+                      val (bindVar, body) =
+                        if isLiteralArg(arg) then (fold.binder, fold.someBranch)
+                        else (fold.param, fold.noneBranch)
+                      sb.append("((").append(bindVar).append(") => ")
+                        .append(body).append(")(").append(arg).append(')')
+                      i = endPos + 1
+                    case None => sb.append(src(i)); i += 1
+                else
+                  sb.append(src(i)); i += 1
+              case None =>
+                sb.append(src(i)); i += 1
+          else
+            sb.append(src(i)); i += 1
+
+    if modified then sb.toString else src
 
   private[artifact] def normalizeQuotedMacroBody(bodySource: String): String =
     val body = bodySource.trim
@@ -381,7 +531,7 @@ object Linker:
       "quoted macro error: unsupported macro body; restricted quoted macros must return a direct quoted expression, e.g. '{ $x + 1 }"
     val hint =
       if body.contains(".asValue match") || body.contains(".asValue.match") then
-        "compile-time `Expr.asValue match` branching is not implemented yet; keep the implementation body as a direct quote and move branching to ordinary runtime code for now."
+        "compile-time `Expr.asValue match` is const-folded only for the shape `x.asValue match { case Some(n) => ... case None => ... }` (a literal argument takes the `Some` branch); this body's shape is not recognised."
       else if body.startsWith("Expr(") || body.contains(" Expr(") || body.contains(".Expr(") then
         "`Expr(...)` construction is not link-expanded yet; use direct quote syntax `'{ ... }` in restricted quoted macros."
       else if body.contains("'{") || body.contains("__ssc_quote_expr__(") then

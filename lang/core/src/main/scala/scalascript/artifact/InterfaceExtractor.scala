@@ -461,7 +461,20 @@ object InterfaceExtractor:
     def extractMacroQuotedBody(d: Defn.Def): Option[String] =
       val body = d.body.syntax.trim
       if body.startsWith("__ssc_quote_expr__(") && body.endsWith(")") then Some(body)
+      else if isAsValueMatchBody(d.body) then Some(body)
       else None
+
+    /** arch-meta-v2 Track B — a macro impl that branches on `Expr.asValue` via
+     *  `<param>.asValue match { case Some(_) => … case None => … }`.  The body
+     *  is stored verbatim so the Linker can const-fold call sites with literal
+     *  arguments (the `Some` branch) and fall back to the direct-quote `None`
+     *  branch otherwise. */
+    def isAsValueMatchBody(t: Term): Boolean = t match
+      case m: Term.Match =>
+        m.expr match
+          case Term.Select(_, Term.Name("asValue")) => true
+          case _                                    => false
+      case _ => false
 
     def isMacroImplDef(d: Defn.Def): Boolean =
       d.decltpe.exists(_.toString.contains("Expr[")) || extractMacroQuotedBody(d).nonEmpty
