@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — feat(meta-v2): macro-codegen-backends (JVM) — quoted macros run on the JVM backend
+
+Restricted quoted macros now compile and run on the **JVM backend** (previously interpreter-only on the
+generated backends), unblocking meta-v2 Track B3 on JVM.
+
+- New `scalascript.artifact.MacroCodegen.expand` — a pre-codegen `ast.Module` pass hooked into
+  `JvmGen.generate` / `generateUserOnly` (`+WithLineMap`). For a module with expandable macro
+  entrypoints it builds the macro table + strip-set from the module's own macro defs, drops the
+  entrypoint + impl definitions, and rewrites each call site to its beta-reduced expansion (literal arg
+  → `Some` branch / const value, else the `None` direct quote; direct-quote macros too), reusing the
+  const-fold parsers (`parseAsValueFold` / `normalizeQuotedMacroBody` / `isLiteralArg`).
+- The emitter substitutes the bound variable directly (parenthesised) rather than lambda-lifting —
+  scalac rejects `((n) => body)(7)` ("missing parameter type") and a block argument re-renders as a
+  brace-arg; substitution skips string literals so a binder name in a string isn't corrupted.
+- **Strict no-op** for macro-free modules (returned unchanged) → cannot regress working codegen;
+  verified across 49 JvmGen codegen tests + Mirror/derives conformance.
+- `QuotedMacroJvmConformanceTest` (scala-cli: `asValue match` + direct-quote macro → `literal: 7` / `42`)
+  + `MacroCodegenTest`. spec `specs/macro-codegen-backends.md`. **JS slice is the follow-up.**
+
 ## 2026-06-18 — feat(meta-v2): Track B1/B2 — `Expr.asValue match` compile-time constant folding
 
 Restricted quoted macros can now branch on whether an argument is a compile-time constant via

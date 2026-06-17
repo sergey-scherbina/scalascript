@@ -258,16 +258,17 @@ generic case classes, and `derives` clauses mixing user + stdlib + unknown typec
 - **B2** — ✓ DONE 2026-06-18 (with B1). `Expr(e)` is unwrapped to its inner expression `e` at link
   time in `unwrapMacroBranch` (scalameta `Term.Apply(Term.Name("Expr"), …)`); the folded branch emits
   plain source the backend compiles.
-- **B3** — **BLOCKED (not done) — generated-backend conformance for a folded macro (JVM/JS).**
-  AUDIT 2026-06-18: restricted quoted macros are **interpreter-only** on the generated backends today.
-  `JvmGen.generate`/`JsGen.generate` run on the *parsed* `ast.Module` and have **no** macro handling;
-  `Linker.expandMacroSource` only runs in the separate `ssc link` artifact step (not in the
-  `emit`/`build` codegen path), and macro-impl defs (`isMacroImpl`) are **not** stripped before
-  codegen. So a `.ssc` with a quoted macro can't compile on scala-cli/node yet. There is **no existing
-  JVM/JS macro test** — this is a pre-existing pipeline gap, not specific to the const-fold. B3 first
-  needs the macro→codegen pipeline: expand call sites in the codegen-reachable source AND strip macro
-  defs, on both JVM and JS. Tracked separately (see BACKLOG `macro-codegen-backends`). The const-fold
-  (B1/B2) is already in place to feed it.
+- **B3** — ✓ **DONE on JVM 2026-06-18; JS is the follow-up.** generated-backend conformance for a
+  folded macro. The blocker (macros were interpreter-only on the generated backends) is resolved on JVM
+  via the `macro-codegen-backends` pass: `scalascript.artifact.MacroCodegen.expand` runs at the top of
+  `JvmGen.generate`/`generateUserOnly`, builds the macro table + strip-set from the module's own macro
+  defs, drops the entrypoint + impl defs, and rewrites each call site to its beta-reduced expansion
+  (reusing `parseAsValueFold`/`normalizeQuotedMacroBody`/`isLiteralArg`; literal arg → `Some` branch /
+  const value, else the `None` direct quote). Strict no-op for macro-free modules. The emitter
+  substitutes the bound variable directly (parenthesised) — scalac rejects the lambda-lift form and a
+  block argument re-renders as a brace-arg. `QuotedMacroJvmConformanceTest` (scala-cli) +
+  `MacroCodegenTest`. spec `specs/macro-codegen-backends.md`. **Remaining:** the JS slice (apply the same
+  pass at the top of `JsGen.generate`) — tracked in BACKLOG `macro-codegen-backends`.
 
 **Track C — P3 robustness** *(extends the existing `Linker` inline base).* 
 - **C1** — multi-clause inline support in `buildInlineTable`/`expandInlineSource` (today excluded).

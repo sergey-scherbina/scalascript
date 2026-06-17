@@ -55,11 +55,18 @@ last — after everything else.**
    **B1+B2 ✓ DONE 2026-06-18**, B3 blocked — see `macro-codegen-backends`), **C** (P3 robustness — open,
    next slice). Days-per-slice, not the old "~3 months". **← Track C is the genuine remaining build.**
 
-   - [ ] **macro-codegen-backends** (blocks meta-v2 Track B3 + general macro use on JVM/JS) — restricted
-     quoted macros are **interpreter-only** today. `JvmGen.generate`/`JsGen.generate` run on the parsed
-     `ast.Module` with no macro handling; `Linker.expandMacroSource` only runs in the separate `ssc link`
-     step (not in `emit`/`build` codegen); macro-impl defs (`isMacroImpl`) are not stripped before codegen;
-     there is **no** JVM/JS macro test. **ARCHITECTURE (mapped 2026-06-18):** the default
+   - [~] **macro-codegen-backends** (meta-v2 Track B3) — **JVM ✓ DONE 2026-06-18; JS slice remaining.**
+     `scalascript.artifact.MacroCodegen.expand` is a pre-codegen `ast.Module` pass hooked into
+     `JvmGen.generate`/`generateUserOnly`(`+WithLineMap`): for modules with expandable macro entrypoints it
+     drops the entrypoint + impl defs and rewrites call sites to their beta-reduced expansion (literal →
+     `Some`/const, else `None` quote; direct-quote macros too), reusing `parseAsValueFold`/
+     `normalizeQuotedMacroBody`/`isLiteralArg` and substituting the bound var directly (parenthesised — scalac
+     rejects the lambda-lift form; a block arg re-renders as a brace-arg). Strict no-op for macro-free modules
+     (verified across 49 JvmGen codegen tests). `QuotedMacroJvmConformanceTest` (scala-cli) + `MacroCodegenTest`;
+     spec `specs/macro-codegen-backends.md`. **JS slice (remaining):** apply the same `MacroCodegen.expand` at
+     the top of `JsGen.generate` + a node conformance test; JS strips the macro defs differently (case classes
+     etc. are plain functions) but the call-site substitution is the same — verify the block-arg / emission
+     shape is valid JS too. — ORIGINAL ARCHITECTURE NOTES (mapped 2026-06-18): the default
      `emit`/`build`/`run --backend jvm|js` path does NOT use the Linker — `JvmGen`/`JsGen` resolve + inline
      imported modules at the **source/tree level** themselves (`JvmGen.scala:2477` `ImportResolver.resolve` +
      `2486` `Parser.parse`) and rely on **scalac's own `inline`** for cross-module `inline def` (that's why

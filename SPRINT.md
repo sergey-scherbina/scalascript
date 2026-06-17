@@ -40,9 +40,11 @@ Work top-to-bottom, one major theme at a time. **Maven/centralized publication i
       **Track B** (P4 const-folding `Expr.asValue match`): **B1 + B2 ✓ DONE 2026-06-18** (interp splice
       unwraps `Expr(v)`; `Linker.expandMacroSource` const-folds literal args to the `Some` branch, else the
       `None` direct quote; `LinkerRewriteTest` +7 / `InlineDerivesTest`; `examples/quoted-macro-constfold.ssc`).
-      **B3 BLOCKED** — quoted macros are interpreter-only on the generated backends today (see BACKLOG
-      `macro-codegen-backends`). **Track C** (P3 multi-clause inline + re-typecheck) still open — next meta-v2 slice.
-      Days-per-slice, not weeks. Spec Status corrected from stale "deferred/planning".
+      **B3 ✓ DONE on JVM 2026-06-18** (was blocked — quoted macros were interpreter-only): the
+      `macro-codegen-backends` pass (`MacroCodegen.expand`, hooked into `JvmGen.generate`) expands + strips
+      macros pre-codegen, no-op for macro-free modules; `QuotedMacroJvmConformanceTest` (scala-cli) matches
+      interp. **JS slice remaining** (BACKLOG `macro-codegen-backends`). **Track C** (P3 multi-clause inline +
+      re-typecheck) still open. Days-per-slice. Spec Status corrected from stale "deferred/planning".
 
 ### Tier 2 — AUDIT 2026-06-17: most "themes" are already BUILT (specs stale)
 
