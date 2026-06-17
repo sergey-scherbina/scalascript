@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-17 — feat(meta-v2): Track A1a — JVM `summon[Mirror.Of[T]]` conformance
+
+First build slice of `arch-metaprogramming-v2` §4b Track A (cross-backend `derives`/`Mirror`
+conformance). Investigation this session verified `derives` was **interpreter-only** on the generated
+backends; A1a brings the public `Mirror` metadata surface to the JVM backend.
+- **JvmGen** now emits a phantom-typed `_SscMirror[A]` runtime class + `object Mirror` (`Of`/`ProductOf`/
+  `SumOf` aliases) + a bare `type Mirror` into the preamble (gated on the module referencing `Mirror`),
+  and appends one `given _SscMirror[T]` per top-level non-generic case class after the user blocks. So
+  `summon[Mirror.Of[Person]]` resolves on the JVM with `label`/`elemLabels`/`elemTypes`/`isProduct`/
+  `fromProduct`, matching the interpreter's `DerivesRuntime` metadata.
+- `MirrorOfJvmConformanceTest` — interpreter baseline + scala-cli JVM run, identical output.
+- DEFERRED follow-ups: sum-type mirrors (enum / sealed trait), generic case classes, custom `derives`
+  synthesis (A1b), stdlib structural `derives` (A1c), and the JS equivalents (A2). The cross-backend
+  `CustomDerivesMirrorCrossBackendTest` JVM/JS cases stay `ignore`d until A1b/A2.
+
 ## 2026-06-17 — feat: agent-sdk-remainder — consolidated spec + MCP bridge (both directions)
 
 Closed out the generic LLM-agent SDK's remaining actionable scope (P0–P2 shipped earlier).

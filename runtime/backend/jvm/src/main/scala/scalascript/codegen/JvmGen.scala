@@ -437,6 +437,12 @@ class JvmGen(
     // _perform. Keep the effect runtime available even for route-only modules
     // that do not otherwise use explicit effects.
     sb.append(effectsRuntime)
+    // arch-meta-v2-p5 Track A (A1a) — runtime Mirror metadata, emitted into the
+    // preamble (so it is not subject to colon→brace rewriting) when the module
+    // references the `Mirror` API.  Per-type givens are appended after the user
+    // blocks below.
+    val emitMirror = blocksUseMirror(blocks)
+    if emitMirror then sb.append(mirrorRuntime)
     if mutualGroups.nonEmpty                               then sb.append(JvmRuntimeMutualTco.source)
     // SwiftUI builds get a dedicated reactive preamble (ReactiveSignal-based)
     // in uiHelperFunctions instead of the JVM-only Signal runtime.
@@ -518,6 +524,17 @@ class JvmGen(
       sb.append(emitBlock(block).stripTrailing())
       sb.append("\n\n")
     }
+
+    // arch-meta-v2-p5 Track A (A1a) — per-product-type Mirror givens, appended
+    // after the user case-class definitions.  Givens are lazy, so a forward
+    // `summon[Mirror.Of[T]]` earlier in the script resolves and initialises
+    // correctly.
+    if emitMirror then
+      val givens = mirrorProductGivens(blocks)
+      if givens.nonEmpty then
+        sb.append("// arch-meta-v2-p5 Track A — derived Mirror givens\n")
+        givens.foreach { g => sb.append(g); sb.append("\n") }
+        sb.append("\n")
 
     // Emit heading-bound string blocks as `lazy val` accessors on a per-section
     // object.  `lazy val` makes the body see definitions that appear earlier
@@ -1944,6 +1961,78 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       }
     }
     result.toMap
+
+  // ── arch-meta-v2-p5 Track A (A1a) — JVM runtime Mirror metadata ────────────
+  //
+  // The interpreter registers summon-able `Mirror.Of[T]` metadata as types are
+  // declared (`DerivesRuntime.mirrorForType`).  The generated JVM backend had
+  // no equivalent — `summon[Mirror.Of[Person]]` did not resolve and the bare
+  // `Mirror` type was undefined.  We mirror the interpreter shape with a small
+  // PHANTOM-typed `_SscMirror[A]` runtime class (so `Mirror.Of[A]` selects the
+  // per-type given) and emit one `given _SscMirror[T]` per top-level product
+  // (case class).  Sum types (enum / sealed trait) and generic case classes are
+  // deferred follow-ups.  Emitted only when the module references `Mirror`.
+
+  /** True when any user block mentions the `Mirror` API (the trigger for
+   *  emitting the Mirror runtime + product givens). */
+  private def blocksUseMirror(blocks: List[JvmGen.Block]): Boolean =
+    blocks.exists(_.src.contains("Mirror"))
+
+  /** Runtime preamble for the JVM Mirror surface — a phantom-typed metadata
+   *  class plus the `Mirror.{Of,ProductOf,SumOf}` type aliases and a bare
+   *  `Mirror` alias (so `def derived(m: Mirror)` type-checks once A1b lands). */
+  private[codegen] val mirrorRuntime: String =
+    """
+      |// ── arch-meta-v2-p5 Track A — runtime Mirror metadata (JVM) ──────────────
+      |final class _SscMirror[A](
+      |    val label: String,
+      |    val elemLabels: List[String],
+      |    val elemTypes: List[String],
+      |    val variants: List[String],
+      |    val isProduct: Boolean,
+      |    val isSum: Boolean,
+      |    _fromProduct: List[Any] => Any,
+      |    _ordinal: Any => Int):
+      |  def fields: List[String] = elemLabels
+      |  def fromProduct(xs: Any): Any = (xs: @unchecked) match
+      |    case l: List[Any] => _fromProduct(l)
+      |    case p: Product   => _fromProduct(p.productIterator.toList)
+      |    case other        => _fromProduct(List(other))
+      |  def ordinal(x: Any): Int = _ordinal(x)
+      |object Mirror:
+      |  type Of[A] = _SscMirror[A]
+      |  type ProductOf[A] = _SscMirror[A]
+      |  type SumOf[A] = _SscMirror[A]
+      |type Mirror = _SscMirror[Any]
+      |""".stripMargin
+
+  /** Emit a `given _SscMirror[T]` for each top-level, non-generic case class
+   *  in the user blocks.  Deterministic order, de-duplicated by type name. */
+  private def mirrorProductGivens(blocks: List[JvmGen.Block]): List[String] =
+    val out = scala.collection.mutable.LinkedHashMap.empty[String, String]
+    blocks.foreach { b =>
+      val topStats = b.node.tree match
+        case Source(stats)     => stats
+        case Term.Block(stats) => stats
+        case other             => List(other)
+      topStats.foreach {
+        case d: Defn.Class
+            if d.mods.exists(_.isInstanceOf[Mod.Case]) && d.tparamClause.values.isEmpty =>
+          val name   = d.name.value
+          val params = d.ctor.paramClauses.flatMap(_.values)
+          val labels = params.map(_.name.value)
+          val types  = params.map(_.decltpe.map(_.syntax).getOrElse("Any"))
+          val labelList = labels.map(l => "\"" + l + "\"").mkString("List(", ", ", ")")
+          val typeList  = types.map(t => "\"" + t + "\"").mkString("List(", ", ", ")")
+          val ctorArgs  = labels.indices.map(i => s"xs($i).asInstanceOf[${types(i)}]").mkString(", ")
+          out(name) =
+            s"given _SscMirror[$name] = new _SscMirror[$name](" +
+            s""""$name", $labelList, $typeList, Nil, true, false, """ +
+            s"(xs: List[Any]) => $name($ctorArgs), (x: Any) => -1)"
+        case _ =>
+      }
+    }
+    out.values.toList
 
   private def jvmEndpointPathWarnings(
     clientName: String,

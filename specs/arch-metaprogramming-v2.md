@@ -205,9 +205,13 @@ running both stdlib and custom cases through scala-cli/node:
 
 So Track A = **implement `derives` typeclass synthesis on the generated backends** (a real feature in the
 4200-line `JvmGen` + its ~180KB preamble, and in `JsGen`). Decomposition:
-- **A1a** — JVM `Mirror` runtime type in the preamble + per-product/sum-type `Mirror` value + make
-  `summon[Mirror.Of[T]]` resolve (mirrors the interp `Mirror.Of` metadata: label/elemLabels/elemTypes/
-  variants/isProduct/isSum/ordinal; `fromProduct` may be its own step). Foundation; self-contained.
+- **A1a** — ✓ DONE 2026-06-17. JVM `Mirror` runtime type in the preamble (phantom-typed
+  `_SscMirror[A]` + `object Mirror{type Of/ProductOf/SumOf}` + bare `type Mirror`, emitted when the
+  module references `Mirror`) + a per-top-level-product-type `given _SscMirror[T]` appended after the
+  user blocks → `summon[Mirror.Of[T]]` resolves on the JVM with label/elemLabels/elemTypes/isProduct/
+  fromProduct, matching the interpreter. `MirrorOfJvmConformanceTest` (interp baseline + scala-cli JVM).
+  DEFERRED to follow-ups: sum-type mirrors (enum / sealed trait — variants/ordinal) and generic case
+  classes (skipped for now); `fromProduct().field` round-trip on JVM needs dynamic field-access typing.
 - **A1b** — custom `derives TC`: strip the clause from the emitted class, emit `given TC[T] = TC.derived(mirror)`.
 - **A1c** — stdlib structural `derives Eq/Show/Hash/Order` on JVM (std modules define no `derived`; the
   interpreter synthesizes these structurally — the JVM path must too).
