@@ -1,0 +1,6 @@
+feature/meta-v2-a1b-jvm-derives 2026-06-17T17:20:00Z
+agent: claude-code
+heartbeat: 2026-06-17T17:20:00Z
+status: in-progress
+done-so-far: A1a landed (JVM Mirror metadata + summon). Starting A1b — custom derives TC synthesis on JVM.
+next: covariance _SscMirror[+A]; strip derives clause from case class; emit given TC[T]=TC.derived(summon[Mirror.Of[T]]); flip CustomDerivesMirror JVM bar
