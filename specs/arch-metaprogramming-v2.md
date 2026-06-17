@@ -1,8 +1,21 @@
 # Metaprogramming v2.x Roadmap
 
-Status: **deferred / planning**.  Tracked as `arch-metaprogramming-v2` in `BACKLOG.md`.
+Status: **partially implemented** (corrected 2026-06-17 — was stale "deferred / planning").
+All three phases have a working base in the code; what remains is the explicitly-"Planned"
+extension bullets in §4 (NOT a from-scratch build). See §4b for the remaining-work slice
+breakdown. Tracked as `arch-metaprogramming-v2` in `BACKLOG.md`.
 Prerequisite: [`specs/arch-dsl-hooks.md`](arch-dsl-hooks.md) (DSL platform hooks, v1.x).
 Existing v1.x surface: [`specs/metaprogramming.md`](metaprogramming.md).
+
+**Landed bases (audited 2026-06-17, origin/main):**
+- **P3 cross-module `inline`** — `Linker` builds an `inlineTable` from foreign `.scim` and
+  expands call sites via lambda-lifting (`expandInlineSource`, `arch-meta-v2-p3`); `LinkerRewriteTest`.
+- **P4 `QuotedMacro[A]`** — `${ impl('x) }` entrypoints + direct `'{ $x + 1 }` bodies; parser
+  lowering, `MacroImpl`/`MacroImplRef` IR (`Ir.scala:423`), link-time expansion, interpreter
+  run-path parity (`Expr.asValue`/`asTerm`), tiered diagnostics; `examples/quoted-macro-interpreter.ssc`.
+- **P5 user `derives` via `Mirror`** — summon-able `Mirror.Of/ProductOf/SumOf`, `Mirror.of[T]`,
+  `label/elemLabels/elemTypes/variants/fromProduct/ordinal`, user `derived(m: Mirror)` dispatch
+  (interpreter); `examples/custom-derives-mirror.ssc`, `InlineDerivesTest`.
 
 ---
 
@@ -171,6 +184,34 @@ Current implementation boundary:
   compile-time tuple operations, and explicit cross-backend conformance for
   generated JVM/JS/WASM paths.
 
+## 4b. Remaining-work slice breakdown (2026-06-17)
+
+Audit conclusion: the §7 effort estimate ("2–3 + 6–8 + 2–3 weeks") is for a from-scratch
+build that **already happened in part**. The remaining work is the "Planned" bullets above,
+which decompose into small, independently-shippable slices (one worktree/claim/PR each,
+`on==off`-style verified). The tracks are independent of one another.
+
+**Track A — P5 cross-backend conformance** *(lowest risk, highest ROI: runtime is done, the gap
+is the generated backends; crisp acceptance = "make JVM/JS match the interpreter").*
+- **A1** — JVM `case class T(...) derives MyTypeclass` via `derived(m: Mirror)` parity test + fixes.
+- **A2** — JS parity for the same.
+- **A3** — one cross-backend conformance test (interp/JVM/JS produce identical output), in the
+  style of the existing JVM↔JS handshake matrix.
+
+**Track B — P4 compile-time constant folding** *(self-contained; turns today's diagnostics at
+`Linker.scala:~384/387` into real folds).* 
+- **B1** — `Expr.asValue match` constant-fold in `Linker` macro expansion for the literal-arg
+  case + interpreter parity.
+- **B2** — `Expr(...)` construction at link time for the folded branch.
+- **B3** — generated-backend conformance for a folded macro (JVM/JS).
+
+**Track C — P3 robustness** *(extends the existing `Linker` inline base).* 
+- **C1** — multi-clause inline support in `buildInlineTable`/`expandInlineSource` (today excluded).
+- **C2** — post-expansion re-typecheck pass + source-positioned errors when an expansion doesn't typecheck.
+
+**Recommended order:** Track A first (smallest, closes the most-cited "cross-backend conformance"
+gap shared by P4 and P5), then B, then C. Effort is days-per-slice, not weeks.
+
 ## 5. Dependency graph
 
 ```
@@ -202,13 +243,18 @@ Revisit after Phase 4 validation.
 
 ## 7. Effort estimates
 
-| Phase | Scope | Estimate |
+**OUTDATED (2026-06-17):** these are the original from-scratch estimates. A large part of all
+three phases has since landed (see Status header + §4 "Landed" notes). The *remaining* work is
+the §4b slice breakdown — days-per-slice, not weeks. The table below is kept only for historical
+context.
+
+| Phase | Scope | Original estimate (from-scratch) |
 |-------|-------|----------|
 | 3 — cross-module inline | IR linker + inlining pass | 2-3 weeks |
 | 4 — `QuotedMacro[A]` | New IR node + backends (3) | 6-8 weeks |
 | 5 — full Mirror derives | Typer + IR + stdlib | 2-3 weeks |
 
-Total: ~3 months of focused work for all three phases.
+Total (original): ~3 months for all three from scratch. **Actual remaining: the §4b slices.**
 
 ## 8. Open questions
 

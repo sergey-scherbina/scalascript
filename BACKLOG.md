@@ -47,9 +47,12 @@ last — after everything else.**
 4. **sbt-plugin-finish** — `specs/arch-sbt-plugin.md` remaining surface: front-matter
    `dependencies:`→Coursier, cross-build targets (`sscBackends`), LSP/BSP polish. (Phases 1–4 landed;
    publication of the plugin itself = part of the deferred Maven step.) **← genuine remaining build work.**
-5. **metaprogramming-v2** — `specs/arch-metaprogramming-v2.md`: P3 cross-module `inline`, P4
-   restricted `QuotedMacro[A]` surface, P5 `Mirror`-derivation for user typeclasses. Largest/riskiest;
-   gated on ecosystem demand. **← genuine remaining build work.**
+5. **metaprogramming-v2** — `specs/arch-metaprogramming-v2.md`. AUDIT 2026-06-17: NOT from-scratch.
+   All three phases have working bases (P3 Linker inline expansion; P4 `${impl('x)}`+`'{…}`+interp
+   parity+`MacroImpl` IR; P5 runtime `Mirror`+user `derived(m: Mirror)`). Remaining = the "Planned"
+   extension bullets, decomposed in spec §4b into small slices — **Track A** (P5 cross-backend
+   conformance, recommended first), **B** (P4 const-fold), **C** (P3 robustness). Days-per-slice, not
+   the old "~3 months". Spec Status corrected from stale "deferred/planning". **← genuine remaining build.**
 6. **deferred perf** — `hof-glue-jit-compile` (whole-fn JIT of `combineAll`, needs using/summon JIT;
    sub-15% ceiling) + `vectorize-pure-loop` (SIMD). Low ROI / high risk; revisit opportunistically.
 7. **other extensibility themes** — **AUDIT 2026-06-17: most are already BUILT; specs were stale.**
@@ -70,9 +73,12 @@ last — after everything else.**
 > the audit shows A/E/F/H/J are largely built too. The genuine remaining **build** work is narrow:
 > **sbt-plugin-finish** (Phase 5 = dep-resolution wiring + Maven publish; publish is Maven-gated),
 > **build-registry Phase 3 cleanup + optional Phase 4** (Phases 1–2 landed), **metaprogramming-v2**
-> (large, ecosystem-gated), and Maven (last). The high-value next move is RECONCILING the stale specs +
+> (also NOT from-scratch — all 3 phases have working bases; remaining = spec §4b slice tracks A/B/C,
+> days-per-slice), and Maven (last). The high-value next move is RECONCILING the stale specs +
 > filling small residuals, not re-building. **Update 2026-06-17:** `package-registry` + its `--offline`
-> flag closed; `agent-sdk-remainder` MCP bridge closed. The substantive remainder is now all gated/large.
+> flag closed; `agent-sdk-remainder` MCP bridge closed; `metaprogramming-v2` audited + spec/SPRINT
+> reconciled (it was the last "large from-scratch" entry — it isn't). Substantive remainder = §4b slices,
+> sbt Phase 5 (Maven-gated), build-registry Phase 3/4, all needing a steer on which to invest in.
 
 ## Architecture Review follow-ups (2026-06-14)
 

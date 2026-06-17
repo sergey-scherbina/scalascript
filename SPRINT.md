@@ -31,9 +31,13 @@ Work top-to-bottom, one major theme at a time. **Maven/centralized publication i
       `dependencies:` → Coursier, cross-build targets (`sscBackends` JVM/JS/WASM), LSP/BSP polish.
       (Phases 1–4 already landed.) Publishing the plugin artifact itself = part of the deferred Maven step.
 
-- [ ] **metaprogramming-v2** (roadmap #5) — `specs/arch-metaprogramming-v2.md`: P3 cross-module `inline`,
-      P4 restricted `QuotedMacro[A]` surface, P5 `Mirror`-derivation for user typeclasses. Largest/riskiest;
-      spec itself says do it only "once the plugin ecosystem has validated demand" (i.e. after registry).
+- [~] **metaprogramming-v2** (roadmap #5) — AUDIT 2026-06-17: NOT a from-scratch build. All three
+      phases have working bases (P3 Linker `inlineTable`/`expandInlineSource`; P4 `${impl('x)}` + direct
+      `'{ $x+1 }` + interp parity + `MacroImpl` IR; P5 runtime `Mirror` + user `derived(m: Mirror)`).
+      Remaining = the "Planned" extension bullets, broken into small slices in `specs/arch-metaprogramming-v2.md`
+      §4b: **Track A** (P5 cross-backend conformance — JVM/JS derives-via-Mirror parity; recommended first),
+      **Track B** (P4 const-folding `Expr.asValue match`), **Track C** (P3 multi-clause inline + re-typecheck).
+      Days-per-slice, not weeks. Spec Status corrected from stale "deferred/planning".
 
 ### Tier 2 — AUDIT 2026-06-17: most "themes" are already BUILT (specs stale)
 
@@ -56,8 +60,9 @@ verify residuals**, NOT from-scratch builds:
 
 **Genuine remaining BUILD work** (across Tiers): `sbt-plugin-finish` Phase 5 (dep-resolution wiring +
 Maven publish — publish is Maven-gated), `build-registry` Phase 3 cleanup + optional Phase 4 (Phases 1–2
-landed), `metaprogramming-v2` (large/ecosystem-gated), + the small residuals above. The substantive
-remainder is now all gated/large — needs a steer on which to invest in. See BACKLOG "Roadmap reality check".
+landed), `metaprogramming-v2` — NOT large/from-scratch: all 3 phases have working bases; remaining =
+the §4b slice tracks (A: P5 cross-backend conformance [first], B: P4 const-fold, C: P3 robustness),
+days-per-slice. + the small residuals above. See BACKLOG "Roadmap reality check".
 
 ### Excluded from the sprint (deferred / blocked — stay in BACKLOG, NOT actionable now)
 

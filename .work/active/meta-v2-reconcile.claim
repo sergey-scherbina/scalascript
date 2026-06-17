@@ -1,6 +1,0 @@
-feature/meta-v2-reconcile 2026-06-17T16:30:00Z
-agent: claude-code
-heartbeat: 2026-06-17T16:30:00Z
-status: in-progress
-done-so-far: audited metaprogramming-v2 — Phases 3/4/5 all have working bases (Linker inline table, MacroImpl pipeline + interp parity, runtime Mirror + derived dispatch); spec Status "deferred/planning" is stale
-next: reconcile spec Status + add remaining-work slice breakdown (Tracks A/B/C); update SPRINT/BACKLOG (not a from-scratch build)
