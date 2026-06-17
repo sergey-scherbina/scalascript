@@ -10,6 +10,37 @@ This backlog was tidied 2026-06-15: completed milestones moved to `CHANGELOG.md`
 history; only sections with open `[ ]` items remain below. The full detailed history of the
 55 archived milestones is recoverable from git (`git log -p BACKLOG.md`).
 
+## Roadmap — agreed priority order (2026-06-17, with Sergiy)
+
+Drive top-to-bottom, one major theme at a time. **Maven/centralized publication is dead
+last — after everything else.**
+
+1. **payments-reorg** (ACTIVE, claimed) — unify the flat `runtime/std/payments-*` (21
+   processors) + `payments-plugin`/`payment-request-plugin` SPIs + `crypto-plugin` under one
+   `payments/` tree (`payments/{spi,request,processors,crypto}`), matching the already-nested
+   `payments/{blockchain,wallet,x402}`. Build-config-only (ServiceLoader, not import paths) →
+   user `.ssc` unchanged. Incremental, per family. spec `specs/payments-reorg.md`.
+2. **agent-sdk-remainder** (MINE) — the generic LLM-agent SDK is ~P0–P2 built
+   (`runtime/std/agent.ssc`; specs `rozum-agent-{endpoint-pool,schema-derivation,streaming}`;
+   4 interp test suites; 5 examples). Remaining: **P3** (embedded transport + MCP-server
+   framework so external agents can drive an app), a **consolidated scalascript-side
+   `specs/agent-sdk.md`** (mirroring rozum's `docs/specs/agent-sdk.md` + `integration.md` —
+   the 3-contract model: ModelClient/AgentLoop/ToolRegistry/SchemaDerivation/EndpointPool/
+   Transcript), and broader **conformance** (mock gateway + golden transcripts + live rozum).
+   Coordinate via claims — core is shared with the rozum/busi effort.
+3. **package-registry** — `specs/arch-registry.md`: GitHub-repo + Pages registry, `packages.yaml`,
+   `ssc search`/`info`/`add`, PR-based publish + CI validate. Zero server. Self-contained, low-risk.
+4. **sbt-plugin-finish** — `specs/arch-sbt-plugin.md` remaining surface: front-matter
+   `dependencies:`→Coursier, cross-build targets (`sscBackends`), LSP/BSP polish. (Publication
+   of the plugin itself = part of the deferred Maven step.)
+5. **metaprogramming-v2** — `specs/arch-metaprogramming-v2.md`: P3 cross-module `inline`, P4
+   restricted `QuotedMacro[A]` surface, P5 `Mirror`-derivation for user typeclasses. Largest/riskiest.
+6. **deferred perf** — `hof-glue-jit-compile` (whole-fn JIT of `combineAll`, needs using/summon JIT;
+   sub-15% ceiling) + `vectorize-pure-loop` (SIMD). Low ROI / high risk; revisit opportunistically.
+7. **other extensibility themes** — A (stable Plugin SPI), B (build-time registry consolidation),
+   E (`ssc new` + standalone install), F (DSL platform hooks), H (library modularity), J (lightweight FFI).
+8. **arch-distribution-p3 / Maven Central + sbt Plugin Portal** — **LAST**, only on explicit go.
+
 ## Architecture Review follow-ups (2026-06-14)
 
 Whole-project architecture survey (231 sbt modules, ~145K LOC main Scala). The project is
