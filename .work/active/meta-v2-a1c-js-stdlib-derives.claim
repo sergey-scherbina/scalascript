@@ -1,6 +1,0 @@
-feature/meta-v2-a1c-js-stdlib-derives 2026-06-17T18:25:00Z
-agent: claude-code
-heartbeat: 2026-06-17T18:25:00Z
-status: in-progress
-done-so-far: A1c-jvm landed. Starting A1c-js — stdlib structural derives Eq/Show/Hash/Order on JS.
-next: JS _ssc_structEq/Show/Hash/Compare helpers; register eager structural givens in _ssc_givens; route summon; cross-backend test
