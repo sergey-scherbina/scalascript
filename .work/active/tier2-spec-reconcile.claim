@@ -1,0 +1,6 @@
+feature/tier2-spec-reconcile 2026-06-17T22:39:23Z
+agent: claude
+heartbeat: 2026-06-17T22:39:23Z
+status: in-progress
+done-so-far: claim from main checkout
+next: reconcile Tier-2 theme spec Status lines + sharpen macro-codegen-backends BACKLOG with the emit/build architecture finding; document @rust/@wasm glue + plugin Phase 3 migration residuals
