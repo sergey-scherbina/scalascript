@@ -1,0 +1,6 @@
+feature/payments-reorg 2026-06-17T04:34:59Z
+agent: claude-code
+heartbeat: 2026-06-17T04:34:59Z
+status: in-progress
+done-so-far: spec+roadmap pushed; starting slice 1 (spi+request)
+next: move payments-plugin->payments/spi, payment-request->payments/request; then processors; then crypto
