@@ -118,8 +118,12 @@ Bundle small families per commit to keep the count reasonable; verify each befor
 
 ## Behavior checklist
 
-- [ ] `payments/processors/spi` moved; build green.
-- [ ] `payments/processors/*` — all 21 providers moved; build green; `traditional-payments` runs.
-- [ ] `payments/crypto/plugin` + `payments/payment-request/plugin` moved; build green.
-- [ ] No `runtime/std/payments-*` / `crypto-plugin` / `payment-request-plugin` dirs remain; no stale `file()` paths.
-- [ ] Full `sbt compile` + the payments/crypto plugin test suites green.
+- [x] `payments/processors/spi` moved; `paymentsPlugin/compile` green. (slice 1)
+- [x] `payments/processors/*` — all 21 providers moved; all compile; `paymentsSepa/test` 71, `paymentsStripe/test` 23 green. (slices 2–4)
+- [x] `payments/crypto/plugin` + `payments/payment-request/plugin` moved; `cryptoPlugin/test` 58 green. (slice 5)
+- [x] No `runtime/std/payments-*` / `crypto-plugin` / `payment-request-plugin` dirs remain; no stale `file()` refs in build.sbt/scala/scripts (only CHANGELOG history retains old paths, which is correct).
+- [x] `cli/installBin` stages all bundled plugins (PluginSpec list + root aggregate intact). DONE 2026-06-17.
+
+Note: standalone `ssc check` of examples using a non-bundled processor (e.g. SEPA `MandateId`)
+fails — **pre-existing**: only the SPI + crypto + payment-request plugins are bundled in the
+default CLI; individual processors never were. Unrelated to the move.

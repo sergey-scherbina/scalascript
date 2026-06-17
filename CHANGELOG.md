@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-17 — refactor: payments-reorg — unify crypto/wallet/payments under `payments/`
+
+All payment-domain interpreter plugins moved out of the flat `runtime/std/` sprawl into the
+`payments/` tree (joining the already-nested `payments/{blockchain,wallet,x402,money,…}` libs).
+Hybrid layering: plugin-only families → `payments/processors/{spi,stripe,paypal,sepa,ach,swift,
+fednow,pix,…}` (21 providers + the `PaymentProvider` SPI); wrapper plugins → next to their lib
+(`payments/crypto/plugin`, `payments/payment-request/plugin`). Build-config-only: `git mv`
+(history preserved) + `.in(file(...))` paths; Scala packages, `META-INF/services`, sbt val names,
+the root aggregate, and the CLI `PluginSpec` list all unchanged → **user `.ssc` code untouched**.
+Done incrementally (5 slices, each compiled + pushed); `sepa` 71 / `stripe` 23 / `crypto` 58 tests
+green from the new locations; `cli/installBin` stages all plugins; no payment dirs remain in
+`runtime/std/`. spec `specs/payments-reorg.md`.
+
 ## 2026-06-17 — perf(js): array-update residual — `.toInt`→`(x|0)`, `.toLong`→identity
 
 Closed the last collection perf outlier. JS `array-update` was 17.6 ms (vs vector-index 4.99) because

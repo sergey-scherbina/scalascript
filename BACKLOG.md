@@ -15,11 +15,13 @@ history; only sections with open `[ ]` items remain below. The full detailed his
 Drive top-to-bottom, one major theme at a time. **Maven/centralized publication is dead
 last — after everything else.**
 
-1. **payments-reorg** (ACTIVE, claimed) — unify the flat `runtime/std/payments-*` (21
-   processors) + `payments-plugin`/`payment-request-plugin` SPIs + `crypto-plugin` under one
-   `payments/` tree (`payments/{spi,request,processors,crypto}`), matching the already-nested
-   `payments/{blockchain,wallet,x402}`. Build-config-only (ServiceLoader, not import paths) →
-   user `.ssc` unchanged. Incremental, per family. spec `specs/payments-reorg.md`.
+1. **payments-reorg** ✓ DONE 2026-06-17 — all 24 payment-domain interp plugins moved under
+   `payments/` (hybrid: `payments/processors/{spi,stripe,…}` for the 21 providers + SPI;
+   `payments/crypto/plugin` + `payments/payment-request/plugin` next to their libs). Build-config
+   only (git mv + `file()` paths); packages/services/val-names/aggregate/PluginSpec unchanged →
+   user `.ssc` untouched. 5 slices, all compiled; sepa 71 / stripe 23 / crypto 58 tests green;
+   installBin stages all plugins; 0 payment dirs left in runtime/std. spec `specs/payments-reorg.md`.
+   **→ Next theme: agent-sdk-remainder (#2).**
 2. **agent-sdk-remainder** (MINE) — the generic LLM-agent SDK is ~P0–P2 built
    (`runtime/std/agent.ssc`; specs `rozum-agent-{endpoint-pool,schema-derivation,streaming}`;
    4 interp test suites; 5 examples). Remaining: **P3** (embedded transport + MCP-server
