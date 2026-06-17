@@ -1,0 +1,6 @@
+feature/roadmap-reconcile 2026-06-17T16:10:00Z
+agent: claude-code
+heartbeat: 2026-06-17T16:10:00Z
+status: in-progress
+done-so-far: audited remaining roadmap — build-registry Phase 2 ALREADY landed (spec confirms); BACKLOG mislabels it as open
+next: correct BACKLOG/SPRINT build-registry status (Phase 2 done; only Phase 3 cleanup + optional Phase 4 remain)
