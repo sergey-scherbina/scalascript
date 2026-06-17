@@ -2949,7 +2949,7 @@ lazy val allFrontends: Seq[FrontendSpec] = Seq(
 
 // ── Payments — Stripe adapter ─────────────────────────────────────────────
 lazy val paymentsStripe = project
-  .in(file("runtime/std/payments-stripe"))
+  .in(file("payments/processors/stripe"))
   .dependsOn(paymentsPlugin, testUtils % Test)
   .settings(
     name := "scalascript-payments-stripe",
@@ -2962,7 +2962,7 @@ lazy val paymentsStripe = project
   )
 
 lazy val paymentsPaypal = project
-  .in(file("runtime/std/payments-paypal"))
+  .in(file("payments/processors/paypal"))
   .dependsOn(paymentsPlugin, testUtils % Test)
   .settings(
     name := "scalascript-payments-paypal",
@@ -2975,7 +2975,7 @@ lazy val paymentsPaypal = project
   )
 
 lazy val paymentsBraintree = project
-  .in(file("runtime/std/payments-braintree"))
+  .in(file("payments/processors/braintree"))
   .dependsOn(paymentsPlugin, testUtils % Test)
   .settings(
     name := "scalascript-payments-braintree",
@@ -2988,7 +2988,7 @@ lazy val paymentsBraintree = project
   )
 
 lazy val paymentsAdyen = project
-  .in(file("runtime/std/payments-adyen"))
+  .in(file("payments/processors/adyen"))
   .dependsOn(paymentsPlugin, testUtils % Test)
   .settings(
     name := "scalascript-payments-adyen",
@@ -3001,7 +3001,7 @@ lazy val paymentsAdyen = project
   )
 
 lazy val paymentsCheckout = project
-  .in(file("runtime/std/payments-checkout"))
+  .in(file("payments/processors/checkout"))
   .dependsOn(paymentsPlugin, testUtils % Test)
   .settings(
     name := "scalascript-payments-checkout",
@@ -3014,7 +3014,7 @@ lazy val paymentsCheckout = project
   )
 
 lazy val paymentsSquare = project
-  .in(file("runtime/std/payments-square"))
+  .in(file("payments/processors/square"))
   .dependsOn(paymentsPlugin, testUtils % Test)
   .settings(
     name := "scalascript-payments-square",
