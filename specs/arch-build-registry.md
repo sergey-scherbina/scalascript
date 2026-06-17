@@ -1,8 +1,10 @@
 # Build-time Registry Consolidation — Specification
 
-Status: **partially implemented**.  Phase 1 landed 2026-05-29; Phase 2
-landed 2026-05-29.  Tracked as `arch-build-registry` milestone in
-`BACKLOG.md`.
+Status: **partially implemented**.  Phases 1 AND 2 landed 2026-05-29.
+Remaining: Phase 3 (cleanup — remove deprecated `PluginManifest`/`LocalRegistry`
+wrappers + `isStdPluginInterpreterTest` filter; partly gated on Theme A Phase 3)
+and the OPTIONAL Phase 4 (family registries, only where they remove real
+duplication).  Tracked as `arch-build-registry` milestone in `BACKLOG.md`.
 Companion: [`specs/plugin-architecture.md`](plugin-architecture.md).
 
 ---

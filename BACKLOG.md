@@ -57,15 +57,22 @@ last — after everything else.**
    "implemented through Phase 4", `InterpolatorRegistry`), H (library modularity — spec "implemented
    through Phase 6", `SsclibManifest`), J (FFI — `GlueClasspathRegistry`/`GlueJsPreambleRegistry` +
    `@jvm`/`@js` + `examples/js-glue-component.ssc`; spec stale at "planned"). **Action: reconcile these
-   specs/BACKLOG to reality + verify any residual — NOT a from-scratch build.** Only **B** (build-time
-   registry consolidation) has a clear open Phase 2.
+   specs/BACKLOG to reality + verify any residual — NOT a from-scratch build.** **B** (build-time
+   registry consolidation): Phases 1 AND 2 BOTH landed 2026-05-29 (spec confirms — `PluginRegistry`/
+   `PluginMeta`/`PluginSource` + `BackendRegistry` facade + `SubprocessPlugin` + `RemotePluginInstaller`
+   + `BackendRegistryTest`). Only Phase 3 (cleanup — remove deprecated `PluginManifest`/`LocalRegistry`
+   wrappers + `isStdPluginInterpreterTest` filter; partly gated on Theme A Phase 3) and the OPTIONAL
+   Phase 4 (family registries, "only where they remove real duplication") remain.
 8. **arch-distribution-p3 / Maven Central + sbt Plugin Portal** — **LAST**, only on explicit go.
 
 > **Roadmap reality check (2026-06-17):** the codebase is well ahead of these specs/BACKLOG entries —
 > agent-sdk-remainder and package-registry were both found ALREADY BUILT (specs said "planned"), and
 > the audit shows A/E/F/H/J are largely built too. The genuine remaining **build** work is narrow:
-> **sbt-plugin-finish**, **build-registry Phase 2**, **metaprogramming-v2** (large), and Maven (last).
-> The high-value next move is RECONCILING the stale specs + filling small residuals, not re-building.
+> **sbt-plugin-finish** (Phase 5 = dep-resolution wiring + Maven publish; publish is Maven-gated),
+> **build-registry Phase 3 cleanup + optional Phase 4** (Phases 1–2 landed), **metaprogramming-v2**
+> (large, ecosystem-gated), and Maven (last). The high-value next move is RECONCILING the stale specs +
+> filling small residuals, not re-building. **Update 2026-06-17:** `package-registry` + its `--offline`
+> flag closed; `agent-sdk-remainder` MCP bridge closed. The substantive remainder is now all gated/large.
 
 ## Architecture Review follow-ups (2026-06-14)
 

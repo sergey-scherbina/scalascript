@@ -47,13 +47,17 @@ verify residuals**, NOT from-scratch builds:
 - [~] **theme-j-lightweight-ffi** — `GlueClasspathRegistry`/`GlueJsPreambleRegistry` + `@jvm`/`@js` +
       `examples/js-glue-component.ssc` exist; spec stale at "planned". Reconcile + verify `@rust`/`@wasm` residual.
 - [~] **theme-e-ssc-new** — `ssc new`/install present in `Main`. Reconcile + verify completeness.
-- [ ] **theme-b-build-registry-consolidation** — spec "Phase 1 landed; Phase 2 open" → genuine Phase-2 build.
+- [~] **theme-b-build-registry-consolidation** — CORRECTION 2026-06-17: Phases 1 AND 2 BOTH landed
+      2026-05-29 (spec confirms). Only Phase 3 (cleanup, partly gated on Theme A Phase 3) + OPTIONAL
+      Phase 4 (family registries) remain. Not a "genuine Phase-2 build" — that staleness is fixed.
 - [ ] **module-graph-grouping** (low-pri) — 231 sbt modules (~150 thin) → consolidate into grouped builds.
 - [ ] **std-nfc-packager-adapters** — NFC packager adapters (native platform follow-up).
 - [ ] **wallet-browser-ws-itest** — real browser-WebSocket integration testing for wallet-connect (scaffold; full run needs a browser).
 
-**Genuine remaining BUILD work** (across Tiers): `sbt-plugin-finish`, `build-registry` Phase 2,
-`metaprogramming-v2` (large/gated), + the small residuals above. See BACKLOG "Roadmap reality check".
+**Genuine remaining BUILD work** (across Tiers): `sbt-plugin-finish` Phase 5 (dep-resolution wiring +
+Maven publish — publish is Maven-gated), `build-registry` Phase 3 cleanup + optional Phase 4 (Phases 1–2
+landed), `metaprogramming-v2` (large/ecosystem-gated), + the small residuals above. The substantive
+remainder is now all gated/large — needs a steer on which to invest in. See BACKLOG "Roadmap reality check".
 
 ### Excluded from the sprint (deferred / blocked — stay in BACKLOG, NOT actionable now)
 
