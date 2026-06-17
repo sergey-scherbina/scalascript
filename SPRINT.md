@@ -38,6 +38,28 @@ Work top-to-bottom, one major theme at a time. **Maven/centralized publication i
       P4 restricted `QuotedMacro[A]` surface, P5 `Mirror`-derivation for user typeclasses. Largest/riskiest;
       spec itself says do it only "once the plugin ecosystem has validated demand" (i.e. after registry).
 
-_Lower-priority / deferred stay in BACKLOG (not pulled into the sprint): deferred perf
-(`hof-glue-jit-compile`, `vectorize-pure-loop`), extensibility themes A/B/E/F/H/J, wallet/MPC/Ledger
-follow-ups, and **Maven Central + sbt Plugin Portal — LAST, explicit-go only**. See BACKLOG.md._
+### Tier 2 — other actionable backlog items (after the roadmap top, 2026-06-17)
+
+Pulled in per Sergiy "take everything you can do into the sprint." Work after Tier 1; each is
+self-contained enough to slice + verify + push. Order roughly by leverage:
+
+- [ ] **theme-a-stable-plugin-spi** — versioned, stable Plugin SPI contract (`specs/plugin-architecture.md`).
+- [ ] **theme-h-library-modularity** — multi-file pure-`.ssc` package format, transitive dep
+      propagation, access control, namespace collision, API lifecycle + versioning (`specs/arch-library-modularity.md`).
+- [ ] **theme-j-lightweight-ffi** — `@jvm`/`@js` + glue.jar two-tier FFI so community libs can call
+      Java/JS without a full backend plugin (`specs/arch-ffi.md`).
+- [ ] **theme-e-ssc-new** — `ssc new` project scaffolding + standalone install (`specs/arch-ssc-new.md` / `arch-sbt-plugin`).
+- [ ] **theme-b-build-registry-consolidation** — merge the build-time registries (`specs/arch-build-registry.md`).
+- [ ] **theme-f-dsl-platform-hooks** — DSL extension points (`specs/arch-dsl-hooks.md`).
+- [ ] **module-graph-grouping** (low-pri) — 231 sbt modules (~150 thin) → consolidate into grouped builds.
+- [ ] **std-nfc-packager-adapters** — NFC packager adapters (native platform follow-up).
+- [ ] **wallet-browser-ws-itest** — real browser-WebSocket integration testing for wallet-connect (scaffold; full run needs a browser).
+
+### Excluded from the sprint (deferred / blocked — stay in BACKLOG, NOT actionable now)
+
+- **Maven Central + sbt Plugin Portal** (roadmap #8 / Theme C) — LAST, explicit-go only.
+- **direct-style-eval** — DEFERRED, data-disproven ("do not start").
+- **hof-glue-jit-compile**, **vectorize-pure-loop** — deferred perf (sub-15% ceiling / speculative SIMD).
+- **agent P3b embedded transport** — blocked on rozum shipping the `rozum-embed` crate.
+- **WalletConnect project-ID** — blocked on an external decision.
+- **Hardware-wallet Vault (Ledger)**, **MPC Vault** — need real hardware / external SDKs; can't verify autonomously.
