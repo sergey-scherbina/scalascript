@@ -4,11 +4,11 @@ Status: **IMPLEMENTED (in-repo CLI), 2026-06-17.** The `ssc search` / `ssc info`
 is built (`LockCommands.SearchCmd`/`AddCmd`, `Main.InfoCmd` registry dispatch) over
 `scalascript.imports.RegistryClient` (URL priority `--registry` → config → default
 `registry.scalascript.io/packages.yaml`; 1-hour-TTL cache at `~/.cache/scalascript/registry/`;
-`--refresh`; substring+keyword search via `RegistryEntry`). In-repo seed catalog at
-`registry/packages.yaml` (5 first-party `io.scalascript/*` entries). REMAINING (mostly external):
-the `scalascript/registry` GitHub repo + GitHub-Pages HTML index + `validate.yml`/`publish.yml` CI;
-plus a minor `--offline` flag on `ssc search`. This spec was previously stale ("planned") — the
-implementation had already landed.
+`--refresh`; `--offline` cached-only search via `RegistryClient.loadOffline()`;
+substring+keyword search via `RegistryEntry`). In-repo seed catalog at
+`registry/packages.yaml` (5 first-party `io.scalascript/*` entries). REMAINING (external only):
+the `scalascript/registry` GitHub repo + GitHub-Pages HTML index + `validate.yml`/`publish.yml` CI.
+This spec was previously stale ("planned") — the implementation had already landed.
 Companion: [`specs/arch-distribution.md`](arch-distribution.md),
 [`specs/arch-library-modularity.md`](arch-library-modularity.md),
 [`specs/arch-ssc-new.md`](arch-ssc-new.md).

@@ -41,9 +41,9 @@ last — after everything else.**
    mirror `McpEndToEndTest`); (c) conformance (mock gateway + golden transcripts). P3b Embedded =
    deferred (needs rozum `rozum-embed`).
 3. **package-registry** ✓ DONE 2026-06-17 (in-repo CLI; spec was stale) — `ssc search`/`info`/`add`
-   over `RegistryClient` (URL-priority + 1h-TTL cache + `--refresh`) + seed `registry/packages.yaml`.
-   spec `specs/arch-registry.md` reconciled. REMAINING (mostly external): the `scalascript/registry`
-   GitHub repo + Pages HTML index + validate/publish CI; minor `ssc search --offline` flag.
+   over `RegistryClient` (URL-priority + 1h-TTL cache + `--refresh` + `--offline`) + seed
+   `registry/packages.yaml`. spec `specs/arch-registry.md` reconciled. REMAINING (external only): the
+   `scalascript/registry` GitHub repo + Pages HTML index + validate/publish CI.
 4. **sbt-plugin-finish** — `specs/arch-sbt-plugin.md` remaining surface: front-matter
    `dependencies:`→Coursier, cross-build targets (`sscBackends`), LSP/BSP polish. (Phases 1–4 landed;
    publication of the plugin itself = part of the deferred Maven step.) **← genuine remaining build work.**

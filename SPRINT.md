@@ -23,8 +23,9 @@ Work top-to-bottom, one major theme at a time. **Maven/centralized publication i
 
 - [x] **package-registry** (roadmap #3) ✓ DONE 2026-06-17 — found ALREADY BUILT (spec was stale):
       `ssc search`/`info`/`add` over `RegistryClient` (URL-priority + 1h-TTL cache + `--refresh`) +
-      seed `registry/packages.yaml`. spec `specs/arch-registry.md` reconciled. REMAINING (external):
-      the `scalascript/registry` GitHub repo + Pages HTML + validate/publish CI; minor `--offline` flag.
+      seed `registry/packages.yaml`. spec `specs/arch-registry.md` reconciled. Added the minor
+      `--offline` flag (cached-only search, `RegistryClient.loadOffline()`). REMAINING (external only):
+      the `scalascript/registry` GitHub repo + Pages HTML + validate/publish CI.
 
 - [ ] **sbt-plugin-finish** (roadmap #4) — `specs/arch-sbt-plugin.md` remaining surface: front-matter
       `dependencies:` → Coursier, cross-build targets (`sscBackends` JVM/JS/WASM), LSP/BSP polish.

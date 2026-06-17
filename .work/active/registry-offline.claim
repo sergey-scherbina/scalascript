@@ -1,6 +1,0 @@
-feature/registry-offline 2026-06-17T15:43:30Z
-agent: claude-code
-heartbeat: 2026-06-17T15:43:30Z
-status: in-progress
-done-so-far: audited remaining roadmap (sbt-plugin/distribution mostly done/deferred); implementing ssc search --offline residual
-next: add --offline to RegistryClient + SearchCmd + test
