@@ -1,0 +1,25 @@
+---
+name: quoted-macro-constfold
+version: 1.0.0
+description: Restricted quoted macro compile-time constant folding (Expr.asValue match)
+---
+
+# Restricted Quoted Macro Constant Folding
+
+A restricted quoted macro can branch on whether its argument is a compile-time
+constant via `Expr.asValue`. For a **literal** argument the `Some` branch folds
+at link time on the generated backends; the interpreter run-path produces the
+same value (its `asValue` is always available, so it takes the same `Some`
+branch). The `None` branch is the dynamic fallback for non-literal arguments.
+
+```scalascript
+inline def label(x: Int): String = ${ labelImpl('x) }
+
+def labelImpl(x: Expr[Int])(using q: QuotedContext): Expr[String] =
+  x.asValue match
+    case Some(n) => Expr("literal: " + n.toString)
+    case None    => '{ "dynamic: " + $x.toString }
+
+println(label(7))
+println(label(41))
+```

@@ -498,6 +498,14 @@ private[interpreter] object BuiltinsRuntime:
     // separately compiled modules; the interpreter keeps enough structure to
     // run the direct quoted-body subset without going through `ssc link`.
     interp.globals("__ssc_macro__") = Value.NativeFnV("__ssc_macro__", {
+      // The `${ ... }` splice yields the underlying value of the macro's
+      // `Expr[T]` result. Direct-quote bodies (`'{ ... }`) already evaluate to
+      // the raw value, but an impl that returns `Expr(v)` explicitly (e.g. the
+      // `Some` branch of an `x.asValue match`) hands back an `Expr` instance —
+      // unwrap it to its `value` so the splice produces `T`, matching the
+      // link-time const-fold on the generated backends (arch-meta-v2 Track B).
+      case List(Value.InstanceV("Expr", fields)) =>
+        Pure(fields.getOrElse("value", Value.UnitV))
       case List(v) => Pure(v)
       case _       => interp.located("__ssc_macro__(expr)")
     })

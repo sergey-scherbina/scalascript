@@ -177,6 +177,20 @@ class InlineDerivesTest extends AnyFunSuite with Matchers:
       println(literalLabel(7))
     """) shouldBe "literal: 7"
 
+  test("restricted quoted macro — Expr.asValue match Some-branch Expr(...) is unwrapped by the splice"):
+    // arch-meta-v2 Track B: the `Some` branch returns an `Expr` built with
+    // `Expr(...)`; the `${ }` splice must unwrap it to the underlying value,
+    // matching the link-time const-fold on the generated backends. For a
+    // literal arg the interpreter takes the same `Some` branch as the fold.
+    captured("""
+      inline def label(x: Int): String = ${ labelImpl('x) }
+      def labelImpl(x: Expr[Int])(using q: QuotedContext): Expr[String] =
+        x.asValue match
+          case Some(n) => Expr("literal: " + n.toString)
+          case None    => '{ "dynamic: " + $x.toString }
+      println(label(7))
+    """) shouldBe "literal: 7"
+
   test("restricted quoted macro — Expr.asTerm exposes opaque term metadata"):
     captured("""
       inline def termName(x: Int): String = ${ termNameImpl('x) }
