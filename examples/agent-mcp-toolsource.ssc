@@ -1,0 +1,24 @@
+---
+name: agent-mcp-toolsource
+version: 0.1.0
+description: Use a downstream MCP server's tools as agent tools via mcpToolSource (jvm/js backends).
+---
+
+# MCP tools as agent tools
+
+`mcpToolSource` turns every tool a connected MCP server exposes into an `AgentTool`, so the
+agent loop can call external MCP tools alongside the app's own — the consumer half of the
+bridge. Requires a jvm/js backend (the MCP client is unavailable on the interpreter).
+
+[mcpConnect](std/mcp/client.ssc)
+[Transport](std/mcp/server.ssc)
+[mcpToolSource](std/agent-mcp.ssc)
+
+```scalascript
+val client = mcpConnect(Transport.Spawn("node", List("examples/mcp-server-tools.js")))
+val tools = mcpToolSource(client)
+println("imported " + tools.length.toString + " MCP tools as agent tools:")
+tools.foreach { t => println("  " + t.name + " — " + t.description) }
+// `tools` can now be passed to runAgent(...) alongside the app's own AgentTools.
+client.close()
+```

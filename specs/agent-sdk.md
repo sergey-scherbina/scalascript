@@ -104,15 +104,14 @@ runtime" follow-up). Document as a follow-up; do not build the scalascript side 
 - [x] **P0** ModelClient + AgentLoop + ToolRegistry + `run()`.
 - [x] **P1** `stream()` + AgentEvents; EndpointPool + retry/failover; Transcript.
 - [x] **P2** SchemaDerivation from typed handlers; resume-able transcript.
-- [~] **P3a** MCP bridge — `runtime/std/agent-mcp.ssc`:
-  - [x] **provider direction** `serveAgentToolsMcp(tools, transport)` — expose `AgentTool`s over
-        `mcpServer` (Map→JSON via `jsonStringify`; agent→mcp result via `Tool.text`/`Tool.error`,
-        no `ToolResult` name collision). `example/agent-mcp-server.ssc`; module + example
-        `ssc check` OK.
-  - [ ] **consumer direction** `mcpToolSource(client)` — wrap an MCP server's tools as `AgentTool`s.
-        BLOCKED on a JSON-string → `Map[String,Any]` helper (`JsonValue` has no `asMap`); add a
-        small `jsonToArgsMap` (json plugin or json.ssc) first.
-  - [ ] round-trip test (server+client) — needs an MCP transport workable in the JVM interp test
+- [x] **P3a** MCP bridge — `runtime/std/agent-mcp.ssc` (both directions, typecheck-verified):
+  - [x] **provider** `serveAgentToolsMcp(tools, transport)` — expose `AgentTool`s over `mcpServer`
+        (Map→JSON via `jsonStringify`; agent→mcp via `Tool.text`/`Tool.error`). `examples/agent-mcp-server.ssc`.
+  - [x] **consumer** `mcpToolSource(client)` — wrap an MCP server's tools as `AgentTool`s (resolved
+        JSON→Map via the existing `jsonParse` intrinsic, surfaced as a local `extern def`; mcp→agent
+        via `mcpResultText` + `toolOk`/`toolError`). `examples/agent-mcp-toolsource.ssc`. jvm/js only
+        (MCP client unavailable on interp). The two `ToolResult` types never meet by name → no collision.
+  - [ ] round-trip test (server+client) — needs an MCP transport workable in a jvm/js test
         (Http is JS-only; Stdio blocks); mirror `McpEndToEndTest`'s approach.
 - [ ] **P3b** Embedded transport — deferred until `rozum-embed` crate exists.
 - [ ] **Conformance** — mock-gateway loop test + golden transcripts + live-rozum smoke.

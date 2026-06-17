@@ -5,6 +5,7 @@ description: Bridge between std.agent tools and the std.mcp server — expose an
 package: std.agent.mcp
 exports:
   - serveAgentToolsMcp
+  - mcpToolSource
 ---
 
 # `std.agent.mcp` — expose agent tools over MCP
@@ -22,9 +23,16 @@ result. The two `ToolResult` types never meet by name — the agent result is co
 by field, the MCP result is produced via `Tool.text` / `Tool.error`.
 
 ```scalascript
-[mcpServer, serveMcp, Tool, Transport](std/mcp/server.ssc)
-[AgentTool](std/agent.ssc)
+[mcpServer, serveMcp, Tool, Transport, Content](std/mcp/server.ssc)
+[McpClient](std/mcp/client.ssc)
+[AgentTool, agentTool, toolOk, toolError](std/agent.ssc)
 [jsonStringify](std/json.ssc)
+
+// Parse a tool-call arguments JSON object into the Map the MCP client expects.
+// Binds to the json plugin's `jsonParse` intrinsic; tool args are always JSON objects.
+extern def jsonParse(s: String): Map[String, Any]
+
+// ─── Provider direction: expose AgentTools over MCP ──────────────────────────
 
 /** Serve a list of agent tools over MCP on `transport`, then block (per `serveMcp`).
  *  `Transport.Stdio` blocks until stdin closes; `Transport.Http(port)` listens (JS). */
@@ -39,4 +47,26 @@ def serveAgentToolsMcp(tools: List[AgentTool], transport: Transport): Unit =
     }
   }
   serveMcp(transport)
+
+// ─── Consumer direction: use an MCP server's tools as agent tools ────────────
+
+/** Flatten an MCP `ToolResult`'s content into the JSON/text string an agent tool returns. */
+def mcpResultText(content: List[Content]): String =
+  content.map { c =>
+    c match
+      case Content.Text(t) => t
+      case _               => ""
+  }.mkString
+
+/** Wrap every tool of a connected MCP server as an `AgentTool`, so the agent loop can call
+ *  them. The handler forwards the model's JSON args to `client.callTool` and maps the MCP
+ *  result back (`Tool` error flag → `toolError`). Requires a jvm/js backend (`McpClient`). */
+def mcpToolSource(client: McpClient): List[AgentTool] =
+  client.listTools().map { td =>
+    agentTool(td.name, td.description, jsonStringify(td.schema)) { argsJson =>
+      val result = client.callTool(td.name, jsonParse(argsJson))
+      val text = mcpResultText(result.content)
+      if result.isError then toolError(text) else toolOk(text)
+    }
+  }
 ```
