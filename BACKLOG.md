@@ -52,36 +52,14 @@ last — after everything else.**
    parity+`MacroImpl` IR; P5 runtime `Mirror`+user `derived(m: Mirror)`). Remaining = the "Planned"
    extension bullets, decomposed in spec §4b into small slices — **Track A** ✓ DONE (P5 cross-backend
    derives conformance — A1a/b/c+A2+A3, 2026-06-17; deferred edge cases only), **B** (P4 const-fold:
-   **B1+B2 ✓ DONE 2026-06-18**, B3 blocked — see `macro-codegen-backends`), **C** (P3 robustness — open,
-   next slice). Days-per-slice, not the old "~3 months". **← Track C is the genuine remaining build.**
+   **B1+B2 ✓ DONE 2026-06-18**, **B3 ✓ DONE 2026-06-18 — JVM + JS** via `macro-codegen-backends`
+   (`MacroCodegen.expand`); Track B complete), **C** (P3 robustness — open, next slice). Days-per-slice,
+   not the old "~3 months". **← Track C is the genuine remaining build.**
 
-   - [~] **macro-codegen-backends** (meta-v2 Track B3) — **JVM ✓ DONE 2026-06-18; JS slice remaining.**
-     `scalascript.artifact.MacroCodegen.expand` is a pre-codegen `ast.Module` pass hooked into
-     `JvmGen.generate`/`generateUserOnly`(`+WithLineMap`): for modules with expandable macro entrypoints it
-     drops the entrypoint + impl defs and rewrites call sites to their beta-reduced expansion (literal →
-     `Some`/const, else `None` quote; direct-quote macros too), reusing `parseAsValueFold`/
-     `normalizeQuotedMacroBody`/`isLiteralArg` and substituting the bound var directly (parenthesised — scalac
-     rejects the lambda-lift form; a block arg re-renders as a brace-arg). Strict no-op for macro-free modules
-     (verified across 49 JvmGen codegen tests). `QuotedMacroJvmConformanceTest` (scala-cli) + `MacroCodegenTest`;
-     spec `specs/macro-codegen-backends.md`. **JS slice (remaining):** apply the same `MacroCodegen.expand` at
-     the top of `JsGen.generate` + a node conformance test; JS strips the macro defs differently (case classes
-     etc. are plain functions) but the call-site substitution is the same — verify the block-arg / emission
-     shape is valid JS too. — ORIGINAL ARCHITECTURE NOTES (mapped 2026-06-18): the default
-     `emit`/`build`/`run --backend jvm|js` path does NOT use the Linker — `JvmGen`/`JsGen` resolve + inline
-     imported modules at the **source/tree level** themselves (`JvmGen.scala:2477` `ImportResolver.resolve` +
-     `2486` `Parser.parse`) and rely on **scalac's own `inline`** for cross-module `inline def` (that's why
-     P3 cross-module inline "works" on JVM with no Linker involvement). Macros break because scalac can't run
-     ScalaScript's `__ssc_macro__`/`Expr`/`QuotedContext`. `Linker.expandMacroSource` is for the SEPARATE
-     `ssc link` artifact pipeline, which does not feed `JvmGen` (type gap: Linker emits `NormalizedModule`,
-     codegen consumes `ast.Module`/`cb.tree`). HOW: add a pre-codegen pass in the `JvmGen`/`JsGen` emission
-     path (after import inlining) that, **only for modules containing macro defs** (strict no-op otherwise →
-     can't regress working code), expands macro call sites + strips macro-impl/entrypoint defs, re-deriving
-     `cb.tree` from the rewritten source. Reuse `Linker.parseAsValueFold`/`expandMacroSource`/
-     `normalizeQuotedMacroBody` (the const-fold logic already exists). Then add a generated-backend
-     conformance test (mirror `MirrorOfJvmConformanceTest`) for a folded macro (`examples/quoted-macro-constfold.ssc`,
-     literal arg → `literal: 7`) on JVM (scala-cli) + JS (node). Slice JVM-first. **Needs design + review** —
-     it touches the delicate codegen emission path; not a blind change. The B1/B2 const-fold feeds it.
-     Discovered 2026-06-18 during meta-v2 Track B; architecture mapped during tier2-spec-reconcile.
+   *(macro-codegen-backends ✓ DONE 2026-06-18 — JVM + JS; moved to CHANGELOG. The default
+   `emit`/`build`/`run` path does not use the Linker — `JvmGen`/`JsGen` inline imports at the
+   source/tree level and rely on scalac's own `inline`; the `MacroCodegen.expand` pre-codegen pass
+   handles macros for both backends.)*
 6. **deferred perf** — `hof-glue-jit-compile` (whole-fn JIT of `combineAll`, needs using/summon JIT;
    sub-15% ceiling) + `vectorize-pure-loop` (SIMD). Low ROI / high risk; revisit opportunistically.
 7. **other extensibility themes** — **AUDIT 2026-06-17: most are already BUILT; specs were stale.**

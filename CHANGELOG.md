@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — feat(meta-v2): macro-codegen-backends (JS) — quoted macros run on the JS backend
+
+Completes `macro-codegen-backends` across both generated backends (JVM landed earlier same day), so
+**meta-v2 Track B is fully done (B1 + B2 + B3)**.
+
+- The backend-agnostic `MacroCodegen.expand` pass is now hooked into `JsGen.generate` /
+  `generateUserOnly` / `generateSegmented` (no-op for macro-free modules). Because the pass produces
+  plain ScalaScript source, the same code that landed for JVM works unchanged for JS.
+- `QuotedMacroJsConformanceTest` runs an `asValue match` + a direct-quote macro through node and matches
+  the interpreter (`literal: 7` / `42`). Verified no JS-codegen regression.
+- `macro-codegen-backends` milestone complete (JVM + JS); removed from BACKLOG.
+
 ## 2026-06-18 — feat(meta-v2): macro-codegen-backends (JVM) — quoted macros run on the JVM backend
 
 Restricted quoted macros now compile and run on the **JVM backend** (previously interpreter-only on the

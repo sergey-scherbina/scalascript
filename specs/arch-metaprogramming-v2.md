@@ -258,17 +258,18 @@ generic case classes, and `derives` clauses mixing user + stdlib + unknown typec
 - **B2** — ✓ DONE 2026-06-18 (with B1). `Expr(e)` is unwrapped to its inner expression `e` at link
   time in `unwrapMacroBranch` (scalameta `Term.Apply(Term.Name("Expr"), …)`); the folded branch emits
   plain source the backend compiles.
-- **B3** — ✓ **DONE on JVM 2026-06-18; JS is the follow-up.** generated-backend conformance for a
-  folded macro. The blocker (macros were interpreter-only on the generated backends) is resolved on JVM
-  via the `macro-codegen-backends` pass: `scalascript.artifact.MacroCodegen.expand` runs at the top of
-  `JvmGen.generate`/`generateUserOnly`, builds the macro table + strip-set from the module's own macro
-  defs, drops the entrypoint + impl defs, and rewrites each call site to its beta-reduced expansion
-  (reusing `parseAsValueFold`/`normalizeQuotedMacroBody`/`isLiteralArg`; literal arg → `Some` branch /
-  const value, else the `None` direct quote). Strict no-op for macro-free modules. The emitter
-  substitutes the bound variable directly (parenthesised) — scalac rejects the lambda-lift form and a
-  block argument re-renders as a brace-arg. `QuotedMacroJvmConformanceTest` (scala-cli) +
-  `MacroCodegenTest`. spec `specs/macro-codegen-backends.md`. **Remaining:** the JS slice (apply the same
-  pass at the top of `JsGen.generate`) — tracked in BACKLOG `macro-codegen-backends`.
+- **B3** — ✓ **DONE 2026-06-18 — JVM + JS.** generated-backend conformance for a folded macro. The
+  blocker (macros were interpreter-only on the generated backends) is resolved via the
+  `macro-codegen-backends` pass: `scalascript.artifact.MacroCodegen.expand` runs at the top of
+  `JvmGen.generate`/`generateUserOnly`(`+WithLineMap`) and `JsGen.generate`/`generateUserOnly`/
+  `generateSegmented`, builds the macro table + strip-set from the module's own macro defs, drops the
+  entrypoint + impl defs, and rewrites each call site to its beta-reduced expansion (reusing
+  `parseAsValueFold`/`normalizeQuotedMacroBody`/`isLiteralArg`; literal arg → `Some` branch / const
+  value, else the `None` direct quote). Strict no-op for macro-free modules. The emitter substitutes the
+  bound variable directly (parenthesised) — scalac rejects the lambda-lift form and a block argument
+  re-renders as a brace-arg. `QuotedMacroJvmConformanceTest` (scala-cli) +
+  `QuotedMacroJsConformanceTest` (node) + `MacroCodegenTest`. spec `specs/macro-codegen-backends.md`.
+  **Track B is now complete** (B1, B2, B3 all done).
 
 **Track C — P3 robustness** *(extends the existing `Linker` inline base).* 
 - **C1** — multi-clause inline support in `buildInlineTable`/`expandInlineSource` (today excluded).
