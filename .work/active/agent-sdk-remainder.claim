@@ -1,6 +1,0 @@
-feature/agent-sdk-remainder 2026-06-17T06:48:19Z
-agent: claude-code
-heartbeat: 2026-06-17T06:48:19Z
-status: in-progress
-done-so-far: P3a MCP bridge COMPLETE (serveAgentToolsMcp + mcpToolSource) + 2 examples, all ssc check OK
-next: round-trip test (MCP transport in jvm/js test); conformance (mock gateway + golden transcripts)
