@@ -21,10 +21,10 @@ Work top-to-bottom, one major theme at a time. **Maven/centralized publication i
       round-trip test (heavy jvm/js infra for thin glue), golden transcripts, P3b embedded (blocked
       on rozum `rozum-embed`). spec `specs/agent-sdk.md`. → **Next: package-registry.**
 
-- [ ] **package-registry** (roadmap #3) — `specs/arch-registry.md`: GitHub-repo + GitHub-Pages registry,
-      `packages.yaml` source of truth, `ssc search`/`info`/`add` CLI, PR-based publish + CI validate,
-      lunr.js HTML index. Zero server. Self-contained, low-risk; doesn't touch the shared agent code —
-      a good standalone next theme.
+- [x] **package-registry** (roadmap #3) ✓ DONE 2026-06-17 — found ALREADY BUILT (spec was stale):
+      `ssc search`/`info`/`add` over `RegistryClient` (URL-priority + 1h-TTL cache + `--refresh`) +
+      seed `registry/packages.yaml`. spec `specs/arch-registry.md` reconciled. REMAINING (external):
+      the `scalascript/registry` GitHub repo + Pages HTML + validate/publish CI; minor `--offline` flag.
 
 - [ ] **sbt-plugin-finish** (roadmap #4) — `specs/arch-sbt-plugin.md` remaining surface: front-matter
       `dependencies:` → Coursier, cross-build targets (`sscBackends` JVM/JS/WASM), LSP/BSP polish.
@@ -34,22 +34,25 @@ Work top-to-bottom, one major theme at a time. **Maven/centralized publication i
       P4 restricted `QuotedMacro[A]` surface, P5 `Mirror`-derivation for user typeclasses. Largest/riskiest;
       spec itself says do it only "once the plugin ecosystem has validated demand" (i.e. after registry).
 
-### Tier 2 — other actionable backlog items (after the roadmap top, 2026-06-17)
+### Tier 2 — AUDIT 2026-06-17: most "themes" are already BUILT (specs stale)
 
-Pulled in per Sergiy "take everything you can do into the sprint." Work after Tier 1; each is
-self-contained enough to slice + verify + push. Order roughly by leverage:
+While pulling these in I audited each against the code — and like agent-sdk + package-registry,
+most are already implemented; the specs/BACKLOG were stale. So Tier 2 is mostly **reconcile +
+verify residuals**, NOT from-scratch builds:
 
-- [ ] **theme-a-stable-plugin-spi** — versioned, stable Plugin SPI contract (`specs/plugin-architecture.md`).
-- [ ] **theme-h-library-modularity** — multi-file pure-`.ssc` package format, transitive dep
-      propagation, access control, namespace collision, API lifecycle + versioning (`specs/arch-library-modularity.md`).
-- [ ] **theme-j-lightweight-ffi** — `@jvm`/`@js` + glue.jar two-tier FFI so community libs can call
-      Java/JS without a full backend plugin (`specs/arch-ffi.md`).
-- [ ] **theme-e-ssc-new** — `ssc new` project scaffolding + standalone install (`specs/arch-ssc-new.md` / `arch-sbt-plugin`).
-- [ ] **theme-b-build-registry-consolidation** — merge the build-time registries (`specs/arch-build-registry.md`).
-- [ ] **theme-f-dsl-platform-hooks** — DSL extension points (`specs/arch-dsl-hooks.md`).
+- [~] **theme-a-stable-plugin-spi** — `BackendRegistry` exists; reconcile spec, verify versioning residual.
+- [~] **theme-f-dsl-platform-hooks** — spec "implemented through Phase 4" (`InterpolatorRegistry`). Reconcile.
+- [~] **theme-h-library-modularity** — spec "implemented through Phase 6" (`SsclibManifest`). Reconcile.
+- [~] **theme-j-lightweight-ffi** — `GlueClasspathRegistry`/`GlueJsPreambleRegistry` + `@jvm`/`@js` +
+      `examples/js-glue-component.ssc` exist; spec stale at "planned". Reconcile + verify `@rust`/`@wasm` residual.
+- [~] **theme-e-ssc-new** — `ssc new`/install present in `Main`. Reconcile + verify completeness.
+- [ ] **theme-b-build-registry-consolidation** — spec "Phase 1 landed; Phase 2 open" → genuine Phase-2 build.
 - [ ] **module-graph-grouping** (low-pri) — 231 sbt modules (~150 thin) → consolidate into grouped builds.
 - [ ] **std-nfc-packager-adapters** — NFC packager adapters (native platform follow-up).
 - [ ] **wallet-browser-ws-itest** — real browser-WebSocket integration testing for wallet-connect (scaffold; full run needs a browser).
+
+**Genuine remaining BUILD work** (across Tiers): `sbt-plugin-finish`, `build-registry` Phase 2,
+`metaprogramming-v2` (large/gated), + the small residuals above. See BACKLOG "Roadmap reality check".
 
 ### Excluded from the sprint (deferred / blocked — stay in BACKLOG, NOT actionable now)
 

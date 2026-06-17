@@ -40,18 +40,32 @@ last — after everything else.**
    (server+client; needs an MCP transport workable in a jvm/js test — Http is JS-only, Stdio blocks;
    mirror `McpEndToEndTest`); (c) conformance (mock gateway + golden transcripts). P3b Embedded =
    deferred (needs rozum `rozum-embed`).
-3. **package-registry** — `specs/arch-registry.md`: GitHub-repo + Pages registry, `packages.yaml`,
-   `ssc search`/`info`/`add`, PR-based publish + CI validate. Zero server. Self-contained, low-risk.
+3. **package-registry** ✓ DONE 2026-06-17 (in-repo CLI; spec was stale) — `ssc search`/`info`/`add`
+   over `RegistryClient` (URL-priority + 1h-TTL cache + `--refresh`) + seed `registry/packages.yaml`.
+   spec `specs/arch-registry.md` reconciled. REMAINING (mostly external): the `scalascript/registry`
+   GitHub repo + Pages HTML index + validate/publish CI; minor `ssc search --offline` flag.
 4. **sbt-plugin-finish** — `specs/arch-sbt-plugin.md` remaining surface: front-matter
-   `dependencies:`→Coursier, cross-build targets (`sscBackends`), LSP/BSP polish. (Publication
-   of the plugin itself = part of the deferred Maven step.)
+   `dependencies:`→Coursier, cross-build targets (`sscBackends`), LSP/BSP polish. (Phases 1–4 landed;
+   publication of the plugin itself = part of the deferred Maven step.) **← genuine remaining build work.**
 5. **metaprogramming-v2** — `specs/arch-metaprogramming-v2.md`: P3 cross-module `inline`, P4
-   restricted `QuotedMacro[A]` surface, P5 `Mirror`-derivation for user typeclasses. Largest/riskiest.
+   restricted `QuotedMacro[A]` surface, P5 `Mirror`-derivation for user typeclasses. Largest/riskiest;
+   gated on ecosystem demand. **← genuine remaining build work.**
 6. **deferred perf** — `hof-glue-jit-compile` (whole-fn JIT of `combineAll`, needs using/summon JIT;
    sub-15% ceiling) + `vectorize-pure-loop` (SIMD). Low ROI / high risk; revisit opportunistically.
-7. **other extensibility themes** — A (stable Plugin SPI), B (build-time registry consolidation),
-   E (`ssc new` + standalone install), F (DSL platform hooks), H (library modularity), J (lightweight FFI).
+7. **other extensibility themes** — **AUDIT 2026-06-17: most are already BUILT; specs were stale.**
+   A (Plugin SPI — `BackendRegistry` exists), E (`ssc new`/install — in `Main`), F (DSL hooks — spec
+   "implemented through Phase 4", `InterpolatorRegistry`), H (library modularity — spec "implemented
+   through Phase 6", `SsclibManifest`), J (FFI — `GlueClasspathRegistry`/`GlueJsPreambleRegistry` +
+   `@jvm`/`@js` + `examples/js-glue-component.ssc`; spec stale at "planned"). **Action: reconcile these
+   specs/BACKLOG to reality + verify any residual — NOT a from-scratch build.** Only **B** (build-time
+   registry consolidation) has a clear open Phase 2.
 8. **arch-distribution-p3 / Maven Central + sbt Plugin Portal** — **LAST**, only on explicit go.
+
+> **Roadmap reality check (2026-06-17):** the codebase is well ahead of these specs/BACKLOG entries —
+> agent-sdk-remainder and package-registry were both found ALREADY BUILT (specs said "planned"), and
+> the audit shows A/E/F/H/J are largely built too. The genuine remaining **build** work is narrow:
+> **sbt-plugin-finish**, **build-registry Phase 2**, **metaprogramming-v2** (large), and Maven (last).
+> The high-value next move is RECONCILING the stale specs + filling small residuals, not re-building.
 
 ## Architecture Review follow-ups (2026-06-14)
 
