@@ -1,13 +1,15 @@
 # Macro Expansion on the Generated Backends (JVM / JS)
 
-Status: **JVM slice DONE 2026-06-18; JS slice is the follow-up.** Tracked as
-`macro-codegen-backends` in `BACKLOG.md`. Unblocks `arch-metaprogramming-v2.md` Track B3
-on JVM (`QuotedMacroJvmConformanceTest` runs an `asValue match` + a direct-quote macro
-through scala-cli, matching the interpreter). The JVM emitter beta-reduces by **direct
+Status: **DONE 2026-06-18 — JVM + JS.** Tracked as `macro-codegen-backends` in `BACKLOG.md`.
+Unblocks `arch-metaprogramming-v2.md` Track B3 on both generated backends:
+`QuotedMacroJvmConformanceTest` (scala-cli) and `QuotedMacroJsConformanceTest` (node) each run
+an `asValue match` + a direct-quote macro and match the interpreter. The same backend-agnostic
+`MacroCodegen.expand` pass is hooked into `JvmGen.generate`/`generateUserOnly`(`+WithLineMap`)
+and `JsGen.generate`/`generateUserOnly`/`generateSegmented`. The emitter beta-reduces by **direct
 substitution** of the bound variable (wrapped in parens), not the lambda-lift form: scalac
 rejects `((n) => body)(7)` ("missing parameter type") and a block argument
 `f({ val n = 7; body })` re-renders as a brace-arg — a substituted parenthesised expression
-embeds cleanly.
+embeds cleanly on both backends.
 
 ## Problem
 
@@ -76,7 +78,7 @@ scala-cli** (mirror `MirrorOfJvmConformanceTest`). Expected: `label(7)` → `lit
 
 ## Scope
 
-- **JVM first** (this slice). **JS** is a follow-up applying the same `MacroCodegen.expand`
-  at the top of `JsGen.generate`.
+- **JVM + JS** — both done (the same `MacroCodegen.expand` pass, hooked into each backend's
+  generate entry points).
 - `@wasm` / native: out of scope (no macro demand there yet).
 - Non-product / sum-type / multi-clause macros: out of scope (Track B literal-arg slice).

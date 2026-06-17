@@ -5007,14 +5007,14 @@ const-folded, a top-level `Expr(...)` body reports that direct quote syntax is
 required today, and nested quotes or splices outside a direct quoted expression
 explain the current restricted body shape.
 
-Generated-backend execution: quoted macros now run on the **JVM backend** too — a
+Generated-backend execution: quoted macros now run on the **JVM and JS backends** too — a
 pre-codegen pass (`MacroCodegen`) expands expandable macro call sites (direct
 quotes and `Expr.asValue match` const-folds) to their beta-reduced expansion and
-strips the macro definitions before `JvmGen` runs. Macro-free modules are
-untouched. The **JS backend** is a follow-up.
+strips the macro definitions before `JvmGen` / `JsGen` run. Macro-free modules are
+untouched.
 
 Still planned: richer quoted-term construction inside macro implementations,
-source-positioned diagnostics, and JS-backend macro execution.
+and source-positioned diagnostics.
 
 ---
 
