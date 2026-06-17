@@ -4973,19 +4973,44 @@ quoted-body subset. In the interpreter, `Expr[A].asValue` returns the quoted
 runtime value as `Option[A]`, and `Expr[A].asTerm` returns an opaque
 `ScalaScriptTerm` value with `name` and `value` fields.
 
+### Compile-time constant folding (`Expr.asValue match`)
+
+A macro implementation can branch on whether its argument is a compile-time
+constant. The `Some` branch is taken for a literal argument; the `None` branch
+is the dynamic fallback:
+
+```scala
+inline def label(x: Int): String = ${ labelImpl('x) }
+
+def labelImpl(x: Expr[Int])(using q: QuotedContext): Expr[String] =
+  x.asValue match
+    case Some(n) => Expr("literal: " + n.toString)
+    case None    => '{ "dynamic: " + $x.toString }
+
+println(label(7))   // literal: 7
+```
+
+On the interpreter (`ssc run`), `asValue` is always available, so a literal
+argument takes the `Some` branch and the `${ }` splice unwraps the returned
+`Expr` to its value. Cross-module `ssc link` const-folds the same call sites at
+link time: a literal argument expands to the `Some` branch (with `Expr(e)`
+unwrapped to `e`), and any other argument expands to the `None` direct quote.
+See [examples/quoted-macro-constfold.ssc](../examples/quoted-macro-constfold.ssc).
+
 Unsupported restricted macro forms fail explicitly. `${ impl(x) }` reports
 that quoted macro entrypoints must pass quoted arguments such as
 `${ impl('x) }`, and linker-time macro metadata rejects implementation bodies
 that are not direct quoted expressions such as `'{ $x + 1 }`. Common
-unsupported implementation shapes get targeted hints: `x.asValue match`
-reports that compile-time macro branching is not implemented yet, `Expr(...)`
-reports that direct quote syntax is required today, and nested quotes or
-splices outside a direct quoted expression explain the current restricted
-body shape.
+unsupported implementation shapes get targeted hints: an `x.asValue match` that
+is not the `case Some(n) => … case None => …` shape reports that it cannot be
+const-folded, a top-level `Expr(...)` body reports that direct quote syntax is
+required today, and nested quotes or splices outside a direct quoted expression
+explain the current restricted body shape.
 
-Still planned: richer quoted-term construction, compile-time constant folding
-inside macro implementations, source-positioned diagnostics, and broader
-generated-backend conformance.
+Still planned: richer quoted-term construction inside macro implementations,
+source-positioned diagnostics, and generated-backend (JVM/JS) execution — today
+quoted macros run on the interpreter and expand at `ssc link` time, but the
+`emit`/`build` codegen path does not yet expand or strip them.
 
 ---
 

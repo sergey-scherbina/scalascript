@@ -247,10 +247,27 @@ generic case classes, and `derives` clauses mixing user + stdlib + unknown typec
 
 **Track B — P4 compile-time constant folding** *(self-contained; turns today's diagnostics at
 `Linker.scala:~384/387` into real folds).* 
-- **B1** — `Expr.asValue match` constant-fold in `Linker` macro expansion for the literal-arg
-  case + interpreter parity.
-- **B2** — `Expr(...)` construction at link time for the folded branch.
-- **B3** — generated-backend conformance for a folded macro (JVM/JS).
+- **B1** — ✓ DONE 2026-06-18. `Expr.asValue match` const-fold in `Linker` macro expansion for the
+  literal-arg case + interpreter parity. `InterfaceExtractor.extractMacroQuotedBody` now also captures
+  `asValue match` bodies (not just direct `'{…}` quotes) so the entrypoint carries
+  `expansionBodySource`. `Linker.expandMacroSource` splits the macro table: asValue-match macros are
+  const-folded per call site (`parseAsValueFold` + scalameta `isLiteralArg`) by lambda-lifting the
+  selected branch — literal arg → `Some(n)` branch, non-literal → `None` direct-quote fallback.
+  Interpreter parity: the `${ }` splice (`__ssc_macro__`) unwraps an `Expr(v)` result to `v`.
+  `examples/quoted-macro-constfold.ssc`; `LinkerRewriteTest` (7 cases) + `InlineDerivesTest`.
+- **B2** — ✓ DONE 2026-06-18 (with B1). `Expr(e)` is unwrapped to its inner expression `e` at link
+  time in `unwrapMacroBranch` (scalameta `Term.Apply(Term.Name("Expr"), …)`); the folded branch emits
+  plain source the backend compiles.
+- **B3** — **BLOCKED (not done) — generated-backend conformance for a folded macro (JVM/JS).**
+  AUDIT 2026-06-18: restricted quoted macros are **interpreter-only** on the generated backends today.
+  `JvmGen.generate`/`JsGen.generate` run on the *parsed* `ast.Module` and have **no** macro handling;
+  `Linker.expandMacroSource` only runs in the separate `ssc link` artifact step (not in the
+  `emit`/`build` codegen path), and macro-impl defs (`isMacroImpl`) are **not** stripped before
+  codegen. So a `.ssc` with a quoted macro can't compile on scala-cli/node yet. There is **no existing
+  JVM/JS macro test** — this is a pre-existing pipeline gap, not specific to the const-fold. B3 first
+  needs the macro→codegen pipeline: expand call sites in the codegen-reachable source AND strip macro
+  defs, on both JVM and JS. Tracked separately (see BACKLOG `macro-codegen-backends`). The const-fold
+  (B1/B2) is already in place to feed it.
 
 **Track C — P3 robustness** *(extends the existing `Linker` inline base).* 
 - **C1** — multi-clause inline support in `buildInlineTable`/`expandInlineSource` (today excluded).
