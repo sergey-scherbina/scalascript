@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-17 — perf(js): array-update residual — `.toInt`→`(x|0)`, `.toLong`→identity
+
+Closed the last collection perf outlier. JS `array-update` was 17.6 ms (vs vector-index 4.99) because
+`s` exceeds V8's SMI range, so `s%16`/`s%100` are *doubles* — indexing/filling a JS array with doubles
+drops it off the fast SMI-packed path (node `--prof` bisect: `(x|0)` 6.9 ms vs `Math.trunc` 16.4 ms).
+Emitting `(x|0)` for `.toInt` on an integer receiver forces a V8 int32 (array stays PACKED_SMI) **and**
+matches Scala's 32-bit `Int`/`Long.toInt` wrap (which `Math.trunc` did not — JS now agrees with interp
+for `Long.toInt > 2^31`). `.toLong` on an integer receiver is now identity. array-update 17.6→4.99 ms
+(~5× over the session), lazylist-take 1.11→0.556; interp == node (9906427). Also: `hof-glue-jit-compile`
+re-confirmed DEFER (`foldLeftReusing` already JITs the loop+combine; the residual is `combineAll`'s
+`using`/`summon` glue, which needs whole-function JIT — too large/risky for the sub-15% ceiling).
+
 ## 2026-06-16 — feat: cross-backend collection perf — Rust Array, JVM + JS LazyList fusion, JS native seq ops
 
 Closed each backend's remaining weak spot on the collection workloads (dashboard
