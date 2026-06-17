@@ -1,6 +1,0 @@
-feature/macro-codegen-jvm 2026-06-17T22:50:36Z
-agent: claude
-heartbeat: 2026-06-17T22:50:36Z
-status: in-progress
-done-so-far: claim from main checkout; architecture mapped (emit/build inlines imports + relies on scalac inline; macros interp-only)
-next: write specs/macro-codegen-backends.md; implement scalascript.artifact.MacroCodegen.expand pre-codegen pass hooked into JvmGen.generate (no-op if no macros); conformance test on scala-cli
