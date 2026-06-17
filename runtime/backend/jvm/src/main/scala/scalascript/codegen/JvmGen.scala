@@ -437,20 +437,23 @@ class JvmGen(
     // _perform. Keep the effect runtime available even for route-only modules
     // that do not otherwise use explicit effects.
     sb.append(effectsRuntime)
-    // arch-meta-v2-p5 Track A (A1a/A1b) — runtime Mirror metadata, emitted into
-    // the preamble (so it is not subject to colon→brace rewriting) when the
-    // module references the `Mirror` API or has a custom `derives` to synthesize.
-    // A1b: strip all-custom `derives TC` clauses from the blocks up front so the
-    // emitted classes don't carry a clause scalac can't satisfy; the per-type
-    // Mirror givens and the synthesized `given TC[T]` are appended after the
-    // user blocks below.
+    // arch-meta-v2-p5 Track A (A1a/A1b/A1c) — `derives` synthesis on the JVM.
+    // Strip every HANDLED `derives` clause (custom user typeclasses + the stdlib
+    // structural four Eq/Show/Hash/Order) from the blocks up front so the emitted
+    // classes don't carry a clause scalac can't satisfy; the per-type Mirror
+    // givens and the synthesized `given TC[T]` are appended after the user blocks
+    // below.  The Mirror runtime is emitted when the module references `Mirror`
+    // or has a custom derive; the structural-derives runtime when any stdlib
+    // structural derive is present.
     val userDerivableTCs = userDerivableTypeclasses(blocks)
-    val customDerives    = scala.collection.mutable.LinkedHashMap.empty[String, List[String]]
-    val emitBlocksList   =
-      if userDerivableTCs.isEmpty then blocks
-      else blocks.map(b => stripCustomDerives(b, userDerivableTCs, customDerives))
-    val emitMirror = blocksUseMirror(blocks) || customDerives.nonEmpty
+    val handledTCs       = userDerivableTCs ++ stdlibStructuralTCs
+    val handledDerives   = scala.collection.mutable.LinkedHashMap.empty[String, List[String]]
+    val emitBlocksList   = blocks.map(b => stripHandledDerives(b, handledTCs, handledDerives))
+    val hasCustomDerive  = handledDerives.values.exists(_.exists(userDerivableTCs.contains))
+    val hasStdlibDerive  = handledDerives.values.exists(_.exists(stdlibStructuralTCs.contains))
+    val emitMirror = blocksUseMirror(blocks) || hasCustomDerive
     if emitMirror then sb.append(mirrorRuntime)
+    if hasStdlibDerive then sb.append(mirrorStructRuntime)
     if mutualGroups.nonEmpty                               then sb.append(JvmRuntimeMutualTco.source)
     // SwiftUI builds get a dedicated reactive preamble (ReactiveSignal-based)
     // in uiHelperFunctions instead of the JVM-only Signal runtime.
@@ -534,18 +537,19 @@ class JvmGen(
     }
 
     // arch-meta-v2-p5 Track A — per-product-type Mirror givens (A1a) and
-    // synthesized custom `given TC[T]` (A1b), appended after the user case-class
-    // definitions.  Givens are lazy, so a forward `summon[Mirror.Of[T]]` /
-    // `summon[TC[T]]` earlier in the script resolves and initialises correctly.
+    // synthesized `given TC[T]` (A1b custom + A1c stdlib structural), appended
+    // after the user case-class definitions.  Givens are lazy, so a forward
+    // `summon[Mirror.Of[T]]` / `summon[TC[T]]` earlier in the script resolves
+    // and initialises correctly.
     if emitMirror then
       val givens = mirrorProductGivens(blocks)
       if givens.nonEmpty then
         sb.append("// arch-meta-v2-p5 Track A — derived Mirror givens\n")
         givens.foreach { g => sb.append(g); sb.append("\n") }
         sb.append("\n")
-    val derivesGivens = customDerivesGivens(customDerives)
+    val derivesGivens = derivesGivensFor(handledDerives, userDerivableTCs)
     if derivesGivens.nonEmpty then
-      sb.append("// arch-meta-v2-p5 Track A (A1b) — synthesized derives givens\n")
+      sb.append("// arch-meta-v2-p5 Track A — synthesized derives givens\n")
       derivesGivens.foreach { g => sb.append(g); sb.append("\n") }
       sb.append("\n")
 
@@ -2077,13 +2081,18 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     }
     names.toSet
 
-  /** Strip all-custom `derives TC` clauses from top-level case classes in a
-   *  block (both the parsed tree and the raw `block.src`, via tree positions),
-   *  recording `typeName -> derived TC names` into `sink`.  Returns the block
-   *  unchanged when it has no such clause. */
-  private def stripCustomDerives(
+  /** The four stdlib typeclasses the JVM backend synthesizes STRUCTURALLY (A1c)
+   *  — they define no `derived`; the interpreter builds them in `DerivesRuntime`.*/
+  private val stdlibStructuralTCs: Set[String] = Set("Eq", "Show", "Hash", "Order")
+
+  /** Strip `derives TC` clauses we HANDLE (custom user typeclasses + the stdlib
+   *  structural four) from top-level case classes in a block — but only when ALL
+   *  of a class's derives are handled (a clause mixing in an unknown typeclass is
+   *  left untouched).  Strips both the parsed tree and the raw `block.src` (via
+   *  tree positions), recording `typeName -> derived TC names` into `sink`. */
+  private def stripHandledDerives(
       b: JvmGen.Block,
-      userTCs: Set[String],
+      handledTCs: Set[String],
       sink: scala.collection.mutable.LinkedHashMap[String, List[String]]
   ): JvmGen.Block =
     val topStats = b.node.tree match
@@ -2096,7 +2105,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     val newStats = topStats.map {
       case d: Defn.Class if d.mods.exists(_.isInstanceOf[Mod.Case]) && d.templ.derives.nonEmpty =>
         val tcNames = d.templ.derives.map { case Type.Name(n) => n; case t => t.syntax }
-        if tcNames.forall(userTCs.contains) then
+        if tcNames.forall(handledTCs.contains) then
           sink(d.name.value) = tcNames
           val firstT = d.templ.derives.head
           val lastT  = d.templ.derives.last
@@ -2118,15 +2127,59 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       }
       b.copy(node = ScalaNode(newTree), src = newSrc)
 
-  /** `given TC[T] = TC.derived(summon[Mirror.Of[T]]).asInstanceOf[TC[T]]` lines. */
-  private def customDerivesGivens(
-      derives: scala.collection.mutable.LinkedHashMap[String, List[String]]
+  /** Synthesize the `given` lines for the handled derives recorded by
+   *  [[stripHandledDerives]].  Custom typeclasses (with a `derived` method) get
+   *  `given TC[T] = TC.derived(summon[Mirror.Of[T]])` (A1b); the stdlib four get
+   *  a structural instance (A1c) using Scala `Product` + the `_ssc_struct*`
+   *  runtime helpers. */
+  private def derivesGivensFor(
+      derives: scala.collection.mutable.LinkedHashMap[String, List[String]],
+      userTCs: Set[String]
   ): List[String] =
-    derives.toList.flatMap { (typeName, tcs) =>
+    derives.toList.flatMap { (t, tcs) =>
       tcs.map { tc =>
-        s"given $tc[$typeName] = $tc.derived(summon[Mirror.Of[$typeName]]).asInstanceOf[$tc[$typeName]]"
+        if userTCs.contains(tc) then
+          s"given $tc[$t] = $tc.derived(summon[Mirror.Of[$t]]).asInstanceOf[$tc[$t]]"
+        else tc match
+          case "Eq"    => s"given Eq[$t] = new Eq[$t] { def eqv(a: $t, b: $t): Boolean = a == b }"
+          case "Show"  => s"given Show[$t] = new Show[$t] { def show(a: $t): String = _ssc_structShow(a) }"
+          case "Hash"  => s"given Hash[$t] = new Hash[$t] { def hash(a: $t): Int = a.hashCode }"
+          case "Order" => s"given Order[$t] = new Order[$t] { def compare(a: $t, b: $t): Int = _ssc_structCompare(a, b) }"
+          case _       => s"// arch-meta-v2: unhandled derives $tc on $t"
       }
     }
+
+  /** Runtime helpers for A1c stdlib structural derives — structural `show`
+   *  (`TypeName(field=value, ...)` via `Product.productElementName`) and
+   *  `compare` (field-by-field, first non-zero), matching the interpreter's
+   *  `DerivesRuntime.structuralShow` / `structuralCompare`.  Emitted into the
+   *  preamble when a module has any stdlib structural `derives`. */
+  private[codegen] val mirrorStructRuntime: String =
+    """
+      |// ── arch-meta-v2-p5 Track A (A1c) — structural derives helpers (JVM) ─────
+      |def _ssc_structShow(v: Any): String = v match
+      |  case s: String                       => s
+      |  case _: scala.collection.Iterable[?] => _show(v)
+      |  case _: Option[?]                    => _show(v)
+      |  case p: Product if !v.getClass.getName.startsWith("scala.") =>
+      |    if p.productArity == 0 then p.productPrefix
+      |    else p.productPrefix + "(" + (0 until p.productArity).map(i =>
+      |      p.productElementName(i) + "=" + _ssc_structShow(p.productElement(i))).mkString(", ") + ")"
+      |  case other => _show(other)
+      |def _ssc_structCompare(a: Any, b: Any): Int = (a, b) match
+      |  case (x: Int, y: Int)         => x.compareTo(y)
+      |  case (x: Long, y: Long)       => x.compareTo(y)
+      |  case (x: Double, y: Double)   => x.compareTo(y)
+      |  case (x: String, y: String)   => x.compareTo(y)
+      |  case (x: Boolean, y: Boolean) => x.compareTo(y)
+      |  case (pa: Product, pb: Product) if pa.productPrefix == pb.productPrefix =>
+      |    var i = 0; var r = 0
+      |    while i < pa.productArity && r == 0 do {
+      |      r = _ssc_structCompare(pa.productElement(i), pb.productElement(i)); i += 1
+      |    }
+      |    r
+      |  case _ => 0
+      |""".stripMargin
 
   private def jvmEndpointPathWarnings(
     clientName: String,

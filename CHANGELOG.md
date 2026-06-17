@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-17 — feat(meta-v2): Track A1c (JVM) — stdlib structural `derives`
+
+Brings stdlib `derives Eq/Show/Hash/Order` to the JVM backend (was interpreter-only). Unlike custom
+`derives` (A1b, which calls a user `derived(m: Mirror)`), the stdlib four define no `derived` — the
+JVM synthesizes them STRUCTURALLY, mirroring the interpreter's `DerivesRuntime`.
+- The A1b strip pass generalized to handle the stdlib four (`stripHandledDerives`); a `derives` clause
+  is stripped only when ALL its typeclasses are handled (custom + stdlib), else left untouched.
+- Synthesized givens use Scala `Product`: `Eq` = `a == b`, `Hash` = `a.hashCode`, `Show` =
+  `_ssc_structShow` (`TypeName(field=value, ...)` via `productElementName`), `Order` =
+  `_ssc_structCompare` (field-by-field, first non-zero). New `_ssc_struct*` preamble helpers.
+- `StdlibDerivesJvmConformanceTest` — interp baseline + scala-cli JVM, identical output.
+- REMAINING: the JS equivalent of A1c; sum-type mirrors; generic case classes.
+
 ## 2026-06-17 — feat(meta-v2): Track A2 — JS Mirror + custom `derives` (cross-backend bar green)
 
 Third build slice of `arch-metaprogramming-v2` §4b Track A. Custom typeclass derivation and the
