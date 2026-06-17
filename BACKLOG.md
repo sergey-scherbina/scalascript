@@ -30,6 +30,16 @@ last — after everything else.**
    the 3-contract model: ModelClient/AgentLoop/ToolRegistry/SchemaDerivation/EndpointPool/
    Transcript), and broader **conformance** (mock gateway + golden transcripts + live rozum).
    Coordinate via claims — core is shared with the rozum/busi effort.
+   **Progress 2026-06-17:** ✓ consolidated `specs/agent-sdk.md` written (P0–P2 confirmed shipped;
+   P3 + conformance scoped). **Reframed P3:** scalascript ALREADY has a full MCP stack
+   (`std/mcp/{server,client,types}.ssc` + rich test suite) — so the gap is the **MCP bridge**,
+   not an MCP server. Next slice = `runtime/std/agent-mcp.ssc`: (a) `serveAgentToolsMcp(tools)` —
+   expose `AgentTool`s over `mcpServer`; (b) `mcpToolSource(client)` — wrap an MCP server's tools
+   as `AgentTool`s. Identified sub-tasks: avoid the `ToolResult` name collision by building results
+   via helpers (`toolOk`/`toolError` vs MCP `text`/`error`), find/add a generic `Map[String,Any]→JSON`
+   serializer (the json.ssc `jObj`/`jStr` are field-builders, not a generic Map serializer), and
+   read `ToolDescriptor.schema`. Then example + tests + interp-verify. P3b Embedded = deferred
+   (needs rozum `rozum-embed` crate).
 3. **package-registry** — `specs/arch-registry.md`: GitHub-repo + Pages registry, `packages.yaml`,
    `ssc search`/`info`/`add`, PR-based publish + CI validate. Zero server. Self-contained, low-risk.
 4. **sbt-plugin-finish** — `specs/arch-sbt-plugin.md` remaining surface: front-matter
