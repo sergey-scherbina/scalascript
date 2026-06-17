@@ -2698,7 +2698,7 @@ lazy val deployPlugin = project
 
 // ── Crypto — sha256, hmacSha256, base64Encode, base64Decode ─────────────
 lazy val cryptoPlugin = project
-  .in(file("runtime/std/crypto-plugin"))
+  .in(file("payments/crypto/plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-crypto-plugin",
@@ -2783,7 +2783,7 @@ lazy val uuidPlugin = project
 
 // ── Payment Request API — interpreter plugin ──────────────────────────────
 lazy val paymentRequestPlugin = project
-  .in(file("runtime/std/payment-request-plugin"))
+  .in(file("payments/payment-request/plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core)
   .settings(
     name := "scalascript-payment-request-plugin",
