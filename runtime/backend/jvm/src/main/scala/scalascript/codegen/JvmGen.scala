@@ -26,7 +26,10 @@ object JvmGen:
       lockPath:        Option[os.Path] = None,
       frontendOverride: Option[String] = None
   ): String =
-    JvmGen(baseDir, intrinsics, lockPath, frontendOverride).genModule(module)
+    // arch-meta-v2 macro-codegen-backends — expand restricted quoted macros to
+    // plain code before codegen (no-op for macro-free modules).
+    JvmGen(baseDir, intrinsics, lockPath, frontendOverride)
+      .genModule(scalascript.artifact.MacroCodegen.expand(module))
 
   // ─── v2.0 Phase 2 — split-runtime emit ──────────────────────────────────
   //
@@ -121,7 +124,7 @@ object JvmGen:
       intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
       lockPath:   Option[os.Path] = None
   ): String =
-    JvmGen(baseDir, intrinsics, lockPath).genUserOnly(module)
+    JvmGen(baseDir, intrinsics, lockPath).genUserOnly(scalascript.artifact.MacroCodegen.expand(module))
 
   /** Emit user code only AND a generated-Scala-line → original-`.ssc`-line
    *  map suitable for JSR-45 SMAP injection.  Returns the same Scala
@@ -145,7 +148,7 @@ object JvmGen:
       intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
       lockPath:   Option[os.Path] = None
   ): (String, Map[Int, Int]) =
-    JvmGen(baseDir, intrinsics, lockPath).genUserOnlyWithLineMap(module)
+    JvmGen(baseDir, intrinsics, lockPath).genUserOnlyWithLineMap(scalascript.artifact.MacroCodegen.expand(module))
 
   /** Block carries its original `.ssc` source-line offset so the emitter
    *  can build a JSR-45 SMAP line map.  `lineOffset` is the 1-based line
