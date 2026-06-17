@@ -34,46 +34,70 @@ the root `aggregate`, and the `PluginSpec` list. The Scala **package stays**
 `scalascript.payments.<x>`, the `META-INF/services` stays, and **no `.ssc` user code,
 example, or import changes**. The `git mv` preserves history.
 
-## Target tree
+## Two layers (the structure that drives the hybrid scheme)
+
+`payments/` is the **cross-compiled LIBRARY layer** and already holds nested families:
+`payments/{crypto/{spi,bouncycastle,noble-js}, money, webhook, fx, tax, compliance,
+micropayment, payment-request, client, bank-rails, blockchain, wallet, x402}`.
+
+`runtime/std/*` is the **interpreter-PLUGIN layer** (ServiceLoader `scalascript.backend.spi.Backend`s
+exposing intrinsics/providers to `.ssc`). Only **24** of these are payment-domain (no fx/tax/
+compliance interp plugins exist — those are libs-only):
+
+| Plugin (runtime/std) | Kind | Wraps a `payments/` lib? |
+|---|---|---|
+| `payments-plugin` | defines the `PaymentProvider` SPI + registration | no (plugin-only) |
+| `payments-{stripe,paypal,braintree,adyen,checkout,square}` | card PSP providers | no (provider IS the plugin) |
+| `payments-{ach,sepa,swift,fednow,pix,mx-spei,ca-eft,uk-bacs,uk-chaps,uk-fps,au-npp,sg-paynow,india-upi,japan-zengin}` | bank-rail providers | no |
+| `payments-mock` | test double | no |
+| `crypto-plugin` | intrinsics over the crypto lib | **yes** → `payments/crypto` |
+| `payment-request-plugin` | intrinsics over the W3C lib | **yes** → `payments/payment-request` |
+
+## Hybrid target (chosen with Sergiy)
+
+- **Plugin-only families** (no separate lib) group under `payments/processors/`:
+  the SPI hub at `payments/processors/spi` (matching `payments/blockchain/spi`,
+  `payments/wallet/spi`), the 21 providers at `payments/processors/<name>`.
+- **Wrapper plugins** sit next to the lib they wrap: `payments/crypto/plugin`,
+  `payments/payment-request/plugin`.
 
 ```
 payments/
-  spi/            ← runtime/std/payments-plugin      (PaymentProvider SPI, Money, WebhookReceiver)
-  request/        ← runtime/std/payment-request-plugin (W3C Payment Request API)
   processors/
-    stripe/ paypal/ braintree/ adyen/ checkout/ square/    (card PSPs)
-    ach/ sepa/ swift/ fednow/                              (bank rails — Americas/EU/global)
-    pix/ mx-spei/ ca-eft/                                   (Americas)
-    uk-bacs/ uk-chaps/ uk-fps/                              (UK)
-    au-npp/ sg-paynow/ india-upi/ japan-zengin/             (APAC)
-    mock/                                                   (test double)
-  crypto/         ← runtime/std/crypto-plugin + cryptoSpi/cryptoBouncycastle/cryptoNobleJs
-  blockchain/     (already here — unchanged)
-  wallet/         (already here — unchanged)
-  x402/           (already here — unchanged)
+    spi/          ← runtime/std/payments-plugin   (PaymentProvider SPI + registration)
+    stripe/ paypal/ braintree/ adyen/ checkout/ square/        ← runtime/std/payments-*
+    ach/ sepa/ swift/ fednow/ pix/ mx-spei/ ca-eft/
+    uk-bacs/ uk-chaps/ uk-fps/ au-npp/ sg-paynow/ india-upi/ japan-zengin/ mock/
+  crypto/
+    spi/ bouncycastle/ noble-js/   (libs — already here)
+    plugin/       ← runtime/std/crypto-plugin
+  payment-request/                 (lib — already here)
+    plugin/       ← runtime/std/payment-request-plugin
+  blockchain/ wallet/ x402/ money/ webhook/ fx/ tax/ compliance/ micropayment/  (unchanged)
 ```
 
 Notes:
-- **sbt val names stay** (`paymentsStripe`, `paymentsPlugin`, `cryptoSpiCross`, …) — only
-  the `.in(file(...))` directory path changes. Renaming vals is out of scope (churns every
-  `.dependsOn`/aggregate reference for zero functional gain).
-- `payments-plugin` → `payments/spi` (it IS the SPI); `payment-request-plugin` →
-  `payments/request` (distinct W3C API, not the PaymentProvider SPI).
-- **crypto** is shared (wallet + x402 + blockchain depend on it), but lives under
-  `payments/crypto/` for locality; it stays a peer, not a processor.
+- **sbt val names stay** (`paymentsStripe`, `paymentsPlugin`, `cryptoPlugin`, …) — only the
+  `.in(file(...))` path changes. The root `aggregate` + the CLI `PluginSpec` list reference val
+  names, so they don't change; verify they still resolve.
+- Scala packages stay (`scalascript.compiler.plugin.payments.*`, `…plugin.crypto.*`); `git mv`
+  preserves history; `META-INF/services` moves with the dir → ServiceLoader unaffected.
+- A wrapper plugin already `.dependsOn` its lib by **val name**, so colocating it under the lib's
+  dir changes only its own `file()` path.
 
 ## Migration — incremental, per family
 
 Each slice: `git mv` the dir(s) → fix the `.in(file(...))` path(s) in `build.sbt` →
-`sbt <module>/compile` (+ `/test` where fast) → commit → push. The root `aggregate` and
-`PluginSpec` list reference **val names**, so they only change if a val is renamed (it
-isn't) — verify they still resolve after each move.
+`sbt <module>/compile` (+ `/test` for the SPI + one provider) → commit → push.
 
-1. **spi + request** — `payments-plugin`→`payments/spi`, `payment-request-plugin`→`payments/request`.
+1. **spi** — `payments-plugin` → `payments/processors/spi`.
 2. **card PSPs** — stripe, paypal, braintree, adyen, checkout, square → `payments/processors/`.
-3. **bank rails** — ach, sepa, swift, fednow → `payments/processors/`.
-4. **Americas + UK + APAC rails** — pix, mx-spei, ca-eft, uk-*, au-npp, sg-paynow, india-upi, japan-zengin, mock.
-5. **crypto** — crypto-plugin + cryptoSpi/bouncycastle/noble → `payments/crypto/`.
+3. **bank rails (global/EU/Americas)** — ach, sepa, swift, fednow, pix, mx-spei, ca-eft → `payments/processors/`.
+4. **UK + APAC + mock** — uk-bacs, uk-chaps, uk-fps, au-npp, sg-paynow, india-upi, japan-zengin, mock.
+5. **wrapper plugins** — crypto-plugin → `payments/crypto/plugin`; payment-request-plugin → `payments/payment-request/plugin`.
+
+Root `sbt compile` green after each slice; the `traditional-payments` example runs (ServiceLoader
+proof) after the processors land.
 
 Bundle small families per commit to keep the count reasonable; verify each before push.
 
@@ -94,8 +118,8 @@ Bundle small families per commit to keep the count reasonable; verify each befor
 
 ## Behavior checklist
 
-- [ ] `payments/spi` + `payments/request` moved; build green.
-- [ ] `payments/processors/*` — all 21 processors moved; build green; `traditional-payments` runs.
-- [ ] `payments/crypto/*` moved; build green.
-- [ ] No `runtime/std/payments-*` / `runtime/std/crypto-plugin` dirs remain; no stale `file()` paths.
+- [ ] `payments/processors/spi` moved; build green.
+- [ ] `payments/processors/*` — all 21 providers moved; build green; `traditional-payments` runs.
+- [ ] `payments/crypto/plugin` + `payments/payment-request/plugin` moved; build green.
+- [ ] No `runtime/std/payments-*` / `crypto-plugin` / `payment-request-plugin` dirs remain; no stale `file()` paths.
 - [ ] Full `sbt compile` + the payments/crypto plugin test suites green.
