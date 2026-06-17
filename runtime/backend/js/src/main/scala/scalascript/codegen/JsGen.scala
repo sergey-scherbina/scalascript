@@ -61,18 +61,22 @@ object JsGen:
       lockPath:   Option[os.Path] = None
   ): String =
     val gen = new JsGen(baseDir, intrinsics, lockPath)
-    gen.genModule(module)
+    // arch-meta-v2 macro-codegen-backends — expand restricted quoted macros to
+    // plain code before codegen (no-op for macro-free modules).
+    gen.genModule(scalascript.artifact.MacroCodegen.expand(module))
 
   /** Generate segments in document order, preserving scala/scalascript interleaving.
    *  Tree-shaking is OFF by default to preserve the existing API behaviour.
    *  Pass `noTreeShake = false` explicitly (or use [[generateWithStats]]) to enable it. */
   def generateSegmented(
-      module:      Module,
+      moduleIn:    Module,
       baseDir:     Option[os.Path] = None,
       intrinsics:  Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
       lockPath:    Option[os.Path] = None,
       noTreeShake: Boolean = true
   ): List[Segment] =
+    // arch-meta-v2 macro-codegen-backends — expand macros before tree-shaking + codegen.
+    val module = scalascript.artifact.MacroCodegen.expand(moduleIn)
     val shakeResult =
       if noTreeShake then None
       else Some(TreeShaker.shake(module))
@@ -279,7 +283,7 @@ object JsGen:
       lockPath:    Option[os.Path] = None,
       noTreeShake: Boolean = true
   ): String =
-    generateWithStats(module, baseDir, intrinsics, lockPath, noTreeShake)._1
+    generateWithStats(scalascript.artifact.MacroCodegen.expand(module), baseDir, intrinsics, lockPath, noTreeShake)._1
 
   /** Stdlib runtime singleton methods that can be emitted as direct JS calls
    *  (`Stream.emit(x)`) instead of `_dispatch(Stream, 'emit', [x])`.
