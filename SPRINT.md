@@ -35,8 +35,13 @@ Work top-to-bottom, one major theme at a time. **Maven/centralized publication i
       phases have working bases (P3 Linker `inlineTable`/`expandInlineSource`; P4 `${impl('x)}` + direct
       `'{ $x+1 }` + interp parity + `MacroImpl` IR; P5 runtime `Mirror` + user `derived(m: Mirror)`).
       Remaining = the "Planned" extension bullets, broken into small slices in `specs/arch-metaprogramming-v2.md`
-      §4b: **Track A** (P5 cross-backend conformance — JVM/JS derives-via-Mirror parity; recommended first),
-      **Track B** (P4 const-folding `Expr.asValue match`), **Track C** (P3 multi-clause inline + re-typecheck).
+      §4b. PROGRESS: **Track A** (P5 cross-backend derives conformance) ✓ DONE (A1a/b/c + A2 + A3,
+      2026-06-17; only deferred edge cases remain — sum-type/enum mirrors, generics, mixed-derives clauses).
+      **Track B** (P4 const-folding `Expr.asValue match`): **B1 + B2 ✓ DONE 2026-06-18** (interp splice
+      unwraps `Expr(v)`; `Linker.expandMacroSource` const-folds literal args to the `Some` branch, else the
+      `None` direct quote; `LinkerRewriteTest` +7 / `InlineDerivesTest`; `examples/quoted-macro-constfold.ssc`).
+      **B3 BLOCKED** — quoted macros are interpreter-only on the generated backends today (see BACKLOG
+      `macro-codegen-backends`). **Track C** (P3 multi-clause inline + re-typecheck) still open — next meta-v2 slice.
       Days-per-slice, not weeks. Spec Status corrected from stale "deferred/planning".
 
 ### Tier 2 — AUDIT 2026-06-17: most "themes" are already BUILT (specs stale)

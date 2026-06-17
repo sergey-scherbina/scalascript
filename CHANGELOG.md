@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — feat(meta-v2): Track B1/B2 — `Expr.asValue match` compile-time constant folding
+
+Restricted quoted macros can now branch on whether an argument is a compile-time constant via
+`Expr.asValue` — the literal-argument case const-folds.
+
+- **Interpreter parity (B1):** the `${ }` splice (`__ssc_macro__`) unwraps an `Expr(v)` result to `v`,
+  so a `Some` branch that returns `Expr(...)` produces the underlying value (matching the link-time fold).
+- **Linker const-fold (B1) + `Expr(...)` construction (B2):** `InterfaceExtractor.extractMacroQuotedBody`
+  now also captures `asValue match` bodies (not just direct `'{…}` quotes). `Linker.expandMacroSource`
+  splits the macro table and const-folds asValue-match call sites per literality (`parseAsValueFold` +
+  scalameta `isLiteralArg`): literal arg → the `Some(n)` branch (with `Expr(e)` unwrapped to `e`),
+  non-literal → the `None` direct-quote fallback, both lambda-lifted for the backend to beta-reduce.
+- `examples/quoted-macro-constfold.ssc`; `LinkerRewriteTest` (+7 cases) + `InlineDerivesTest` (+1).
+- **B3 (generated-backend conformance) is BLOCKED**: quoted macros are interpreter-only on JVM/JS today
+  (the `emit`/`build` codegen path neither expands nor strips them). Queued as `macro-codegen-backends`
+  in BACKLOG; the B1/B2 fold is in place to feed it once that pipeline exists.
+
 ## 2026-06-17 — feat(meta-v2): Track A1c (JS) — stdlib structural `derives` cross-backend
 
 Completes stdlib `derives Eq/Show/Hash/Order` on the JS backend (JVM landed earlier same day), so

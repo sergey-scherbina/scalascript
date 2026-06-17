@@ -50,9 +50,20 @@ last — after everything else.**
 5. **metaprogramming-v2** — `specs/arch-metaprogramming-v2.md`. AUDIT 2026-06-17: NOT from-scratch.
    All three phases have working bases (P3 Linker inline expansion; P4 `${impl('x)}`+`'{…}`+interp
    parity+`MacroImpl` IR; P5 runtime `Mirror`+user `derived(m: Mirror)`). Remaining = the "Planned"
-   extension bullets, decomposed in spec §4b into small slices — **Track A** (P5 cross-backend
-   conformance, recommended first), **B** (P4 const-fold), **C** (P3 robustness). Days-per-slice, not
-   the old "~3 months". Spec Status corrected from stale "deferred/planning". **← genuine remaining build.**
+   extension bullets, decomposed in spec §4b into small slices — **Track A** ✓ DONE (P5 cross-backend
+   derives conformance — A1a/b/c+A2+A3, 2026-06-17; deferred edge cases only), **B** (P4 const-fold:
+   **B1+B2 ✓ DONE 2026-06-18**, B3 blocked — see `macro-codegen-backends`), **C** (P3 robustness — open,
+   next slice). Days-per-slice, not the old "~3 months". **← Track C is the genuine remaining build.**
+
+   - [ ] **macro-codegen-backends** (blocks meta-v2 Track B3 + general macro use on JVM/JS) — restricted
+     quoted macros are **interpreter-only** today. `JvmGen.generate`/`JsGen.generate` run on the parsed
+     `ast.Module` with no macro handling; `Linker.expandMacroSource` only runs in the separate `ssc link`
+     step (not in `emit`/`build` codegen); macro-impl defs (`isMacroImpl`) are not stripped before codegen;
+     there is **no** JVM/JS macro test. HOW: in the codegen path (or a pre-codegen transform), expand macro
+     call sites in the codegen-reachable source AND strip macro-impl/entrypoint defs, on both JVM and JS;
+     then add a generated-backend conformance test (mirror `MirrorOfJvmConformanceTest`) for a folded macro
+     (`examples/quoted-macro-constfold.ssc`, literal arg → `literal: 7`). The B1/B2 const-fold is already in
+     place to feed it. Discovered 2026-06-18 during meta-v2 Track B.
 6. **deferred perf** — `hof-glue-jit-compile` (whole-fn JIT of `combineAll`, needs using/summon JIT;
    sub-15% ceiling) + `vectorize-pure-loop` (SIMD). Low ROI / high risk; revisit opportunistically.
 7. **other extensibility themes** — **AUDIT 2026-06-17: most are already BUILT; specs were stale.**
