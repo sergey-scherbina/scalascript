@@ -102,19 +102,29 @@ final class SearchCmd extends CliCommand:
   def run(args: List[String]): Unit =
     import scalascript.imports.RegistryClient
     var refresh     = false
+    var offline     = false
     var query       = ""
     var registryArg: Option[String] = None
     val it = args.iterator
     while it.hasNext do
       it.next() match
         case "--refresh"                      => refresh = true
+        case "--offline"                      => offline = true
         case "--registry" if it.hasNext       => registryArg = Some(it.next())
         case q                                => query = q
-    val url    = RegistryClient.effectiveUrl(registryArg)
-    val cached = registryArg.isEmpty && RegistryClient.isCacheFresh
-    if refresh || !cached then print("Fetching registry... ")
-    val entries = RegistryClient.load(url, refresh = refresh || registryArg.isDefined)
-    if refresh || !cached then println(s"(${entries.length} packages)")
+    // --offline: use the cached index only, never fetch; error clearly if the cache is empty.
+    val entries =
+      if offline then
+        RegistryClient.loadOffline() match
+          case Right(es) => es
+          case Left(msg) => println(s"ssc search --offline: $msg"); return
+      else
+        val url    = RegistryClient.effectiveUrl(registryArg)
+        val cached = registryArg.isEmpty && RegistryClient.isCacheFresh
+        if refresh || !cached then print("Fetching registry... ")
+        val es = RegistryClient.load(url, refresh = refresh || registryArg.isDefined)
+        if refresh || !cached then println(s"(${es.length} packages)")
+        es
     if entries.isEmpty then
       println("Registry is empty or could not be fetched.  Try --refresh.")
       return

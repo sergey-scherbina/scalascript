@@ -65,6 +65,14 @@ object RegistryClient:
     else
       RegistryEntry.parseAll(os.read(cacheFile)).toOption
 
+  /** Cached-only load for `ssc search --offline`: never fetches. Returns the cached entries, or a
+   *  Left message when no cache exists yet (the user must run a search online / with --refresh first). */
+  def loadOffline(): Either[String, List[RegistryEntry]] =
+    readCache() match
+      case Some(entries) => Right(entries)
+      case None          => Left(
+        "no cached registry — run `ssc search <query>` once online (or with --refresh) to populate the cache")
+
   def fetchAndCache(url: String = DefaultRegistryUrl): List[RegistryEntry] =
     fetchYaml(url) match
       case None       => Nil
