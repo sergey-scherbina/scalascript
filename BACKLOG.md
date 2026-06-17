@@ -30,15 +30,16 @@ last — after everything else.**
    the 3-contract model: ModelClient/AgentLoop/ToolRegistry/SchemaDerivation/EndpointPool/
    Transcript), and broader **conformance** (mock gateway + golden transcripts + live rozum).
    Coordinate via claims — core is shared with the rozum/busi effort.
-   **Progress 2026-06-17:** ✓ consolidated `specs/agent-sdk.md` (P0–P2 confirmed shipped). ✓ **P3a
-   provider direction** — `runtime/std/agent-mcp.ssc` `serveAgentToolsMcp(tools, transport)` exposes
-   `AgentTool`s over the existing `std.mcp` server (`jsonStringify` Map→JSON; `Tool.text/error` for
-   the result; no `ToolResult` collision); `examples/agent-mcp-server.ssc`; module+example `ssc check`
-   OK; pushed. **Remaining:** (a) `mcpToolSource(client)` consumer direction — BLOCKED on a
-   `jsonToArgsMap` (JSON-string → `Map[String,Any]`) helper (`JsonValue` has no `asMap`; add a small
-   json-plugin/json.ssc helper first); (b) round-trip test (server+client, needs an MCP transport
-   workable in the JVM interp — Http is JS-only, Stdio blocks; mirror `McpEndToEndTest`); (c)
-   conformance (mock gateway + golden transcripts). P3b Embedded = deferred (needs rozum `rozum-embed`).
+   **Progress 2026-06-17:** ✓ consolidated `specs/agent-sdk.md` (P0–P2 confirmed shipped).
+   ✓ **P3a MCP bridge COMPLETE (both directions)** — `runtime/std/agent-mcp.ssc`:
+   `serveAgentToolsMcp(tools, transport)` (expose AgentTools over `mcpServer`) +
+   `mcpToolSource(client)` (wrap an MCP server's tools as AgentTools; JSON→Map via the existing
+   `jsonParse` intrinsic surfaced as a local extern; jvm/js only). Examples
+   `agent-mcp-{server,toolsource}.ssc`; module + both examples `ssc check` OK; pushed. The two
+   `ToolResult` types never meet by name → no collision. **Remaining:** (b) round-trip test
+   (server+client; needs an MCP transport workable in a jvm/js test — Http is JS-only, Stdio blocks;
+   mirror `McpEndToEndTest`); (c) conformance (mock gateway + golden transcripts). P3b Embedded =
+   deferred (needs rozum `rozum-embed`).
 3. **package-registry** — `specs/arch-registry.md`: GitHub-repo + Pages registry, `packages.yaml`,
    `ssc search`/`info`/`add`, PR-based publish + CI validate. Zero server. Self-contained, low-risk.
 4. **sbt-plugin-finish** — `specs/arch-sbt-plugin.md` remaining surface: front-matter
