@@ -156,10 +156,15 @@ handles `@wasm` externs, local `.ssc` import inlining, and quoted macros (2026-0
       _seqExists/_seqForall/_seqCount/_seqFind/_seqFoldLeft` (+ `_seq`/`_isFree`) to `WasmEffectRuntime` —
       the JVM `getClass.getMethods…invoke` reflection `case _` (which the Scala.js linker rejects) is
       replaced by a clear error. Covers List/String/Option/Map/Set/numeric incl. sortBy/sorted. Test 'effects
-      with collection HOFs in body RUN on wasm' → 6. **REMAINING (follow-up slices):** (a) multi-shot resume —
-      needs `_handle`/`_anyFlatMap` semantic changes, not just a helper copy. (b) cross-module effects (effect
-      declared in an imported `.ssc`) — `usesEffects` keys on a local `effect <Cap>:`; route imported-effect
-      consumers + feed the import into `generateUserOnly`. (c) `@main` with args / non-`Unit` return. (d) any
+      with collection HOFs in body RUN on wasm' → 6. **multi-shot ✓ DONE 2026-06-18 (slice 2c):** did NOT need
+      a `_handle` rewrite (the wasm `_handle`'s `resume = (v) => interp(fn(v))` already supports repeated
+      resume — same structure as the JVM one). A probe showed the canonical `opts.flatMap(o => resume(o))`
+      handler lowers to `_anyFlatMap` + `_dispatch(all,"length")`; only `_anyFlatMap` was missing — added it
+      (pure-Scala). Also fixed `usesEffects` to recognise the `multi effect Foo:` form (it keyed on a leading
+      `effect`, so multi-shot modules skipped CPS lowering and hit scala-cli raw). Test 'multi-shot effects RUN
+      on wasm' (NonDet `{1,2}×{10,20}`) → 4. **REMAINING (follow-up slices):** (a) cross-module effects (effect
+      declared in an imported `.ssc`) — `usesEffects` keys on a *local* `effect <Cap>:`; route imported-effect
+      consumers + feed the import into `generateUserOnly`. (b) `@main` with args / non-`Unit` return. (c) any
       dynamic method outside the linkable `_dispatch` subset now errors clearly (was a reflection call on JVM).
       All additive, wasm-only.
 - [ ] **`@wasmExport` / `@wasmImport`** — raw WASM ABI export/import. Out of scope **by design** (the

@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — feat(wasm): multi-shot resume in effects
+
+Follow-up slice — and it did **not** need a `_handle` rewrite (the earlier-feared blocker). The wasm
+`_handle`'s `resume = (v) => interp(fn(v))` already supports calling resume repeatedly (same structure as
+the JVM `_handle`). A probe showed the canonical multi-shot handler `opts.flatMap(o => resume(o))` lowers
+to `_anyFlatMap(opts, ..)` + `_dispatch(all, "length", ..)` — only `_anyFlatMap` was missing. Two fixes:
+added the pure-Scala `_anyFlatMap` to `WasmEffectRuntime`, and fixed `WasmGen.usesEffects` to recognise the
+`multi effect Foo:` declaration form (it keyed on a leading `effect`, so a multi-shot module skipped CPS
+lowering and its `multi`/`!` syntax reached scala-cli raw). Verified: a `NonDet` program
+(`choose(List(1,2)) × choose(List(10,20))`) compiles to `.wasm` and runs via node — `all.length == 4`;
+35 `WasmBackendTest` green. Remaining wasm-effects follow-up (BACKLOG): cross-module effects.
+
 ## 2026-06-18 — feat(wasm): collection HOFs in effects (`_dispatch` in the wasm effect runtime)
 
 Follow-up to the arithmetic slice. A probe showed `xs.map(..)`/`.filter(..)`/`.head` on an `Any`-typed
