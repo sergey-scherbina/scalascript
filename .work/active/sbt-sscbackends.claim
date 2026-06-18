@@ -1,6 +1,0 @@
-feature/sbt-sscbackends 2026-06-18T13:30:48Z
-agent: claude
-heartbeat: 2026-06-18T13:30:48Z
-status: in-progress
-done-so-far: starting sscBackends cross-build (sbt-plugin); resolving spec open-Q #2 design
-next: investigate current sscBackend/sscCompile; frame the parallel-outputs vs separate-configs design choice
