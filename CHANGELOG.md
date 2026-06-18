@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — feat(sbt-plugin): Phase 5 dependency resolution
+
+The sbt plugin now lifts Maven dependencies declared in a `.ssc` front-matter `dependencies:` map into
+sbt `libraryDependencies`, so Coursier resolves them onto the JVM/test classpath alongside the generated
+facade (`arch-sbt-plugin.md` §3h). Phase 5's other parts (Maven Central publish + Plugin Portal) stay
+Maven-gated.
+
+- `SscFrontMatter` — a narrow, dependency-free front-matter extractor (the standalone plugin build has no
+  YAML library and no core dependency). Reads the `---`…`---` block + `dependencies:` map (block or
+  inline-flow) and keeps only Maven coordinates using core's rule: `dep:g:a:v` → `g % a % v` (Java),
+  `dep:g::a:v` → `g %% a % v` (Scala-cross). Local `.ssc` paths / URLs / `git:` are ignored.
+- New `sscManagedDependencies` setting (derived from Compile `.ssc` sources at project-load);
+  `libraryDependencies ++= sscManagedDependencies.value`. `reload` to pick up `.ssc` edits.
+- Scripted `dep-resolution/` asserts the wiring (Java `%`, Scala-cross `%%`, local-path ignored) without
+  Coursier resolution → no network. Full scripted suite green (9 tests).
+
 ## 2026-06-18 — feat(wasm): algebraic effects on the WASM backend (compile + run)
 
 Effects now **work on wasm** — superseding the previous round's clear-error stopgap. The blocker was

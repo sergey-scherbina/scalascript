@@ -1,15 +1,17 @@
 # sbt-scalascript Plugin — Full Completion Spec
 
 Status: **partially implemented**. Phases 1, 2, 3, and 4 landed on
-2026-05-29.
+2026-05-29; Phase 5 **dependency resolution** landed 2026-06-18 (Maven
+publication + Plugin Portal remain, Maven-gated).
 Tracked as `arch-sbt-plugin` milestone in `BACKLOG.md`.
 Current state: `tools/sbt-plugin/` contains the existing `sscGenerateFacade`
 task plus Phase 1 source-convention compilation (`sscSourceDirectories`,
 `sscCompile`, `sscBackend`, `sscExtraArgs`) and Phase 2 linking (`sscLink`,
 `sscLinkedJar`), plus Phase 3 test integration (`sscTest`,
-`sscTestResultsDir`, `SscTestFramework`) and Phase 4 developer tooling
-(`sscRepl`, `sscRun`, `sscWatch`, `sscBspSetup`, `BspIntegration`). This spec
-covers the remaining plugin surface needed for standalone ScalaScript projects.
+`sscTestResultsDir`, `SscTestFramework`), Phase 4 developer tooling
+(`sscRepl`, `sscRun`, `sscWatch`, `sscBspSetup`, `BspIntegration`), and the
+Phase 5 dep-resolution wiring (`sscManagedDependencies` + `SscFrontMatter`).
+The only remaining surface is Maven Central publication of the plugin itself.
 
 ---
 
@@ -206,13 +208,33 @@ still routing process output into the sbt logger.
 Metals / IntelliJ pick this up via BSP discovery and route `.ssc`
 diagnostics to `ssc lsp`.
 
-### 3h. Dep resolution
+### 3h. Dep resolution — ✓ landed 2026-06-18
 
-Front-matter `dependencies: { foo: "dep:io.example/myLib:1.0" }` is parsed
-by `ssc build`; the plugin additionally exposes these as sbt
+Front-matter `dependencies: { foo: "dep:io.example::myLib:1.0" }` is parsed
+by `ssc build`; the plugin additionally exposes the **Maven** values as sbt
 `libraryDependencies` entries so Coursier downloads them into the Coursier
-cache and they appear on the JVM test classpath.  Requires
-`arch-distribution.md` Phase 2 (Coursier wiring) to be implemented first.
+cache and they appear on the JVM/test classpath.
+
+Implementation: `SscFrontMatter` (in the standalone plugin build — no YAML
+library, no core dependency) reads each Compile `.ssc` source's leading
+`---`…`---` front-matter block and its `dependencies:` map (block *or*
+inline-flow form), and keeps only Maven coordinates using the same rule as
+core `MavenDepResolver.isMavenCoordinate`:
+
+| Front-matter value                  | `ModuleID`                 |
+|-------------------------------------|----------------------------|
+| `dep:<group>:<artifact>:<version>`  | `group %  artifact % ver`  (Java) |
+| `dep:<group>::<artifact>:<version>` | `group %% artifact % ver`  (Scala-cross, `CrossVersion.binary`) |
+
+Non-Maven values (local `.ssc` paths, URLs, `git:` schemes) are ignored —
+`ssc build` resolves those; they are not JVM classpath entries.  The derived
+list is the `sscManagedDependencies` setting, and `libraryDependencies ++=
+sscManagedDependencies.value`.  Because it reads files at project-load
+(setting evaluation), editing a `.ssc` `dependencies:` map needs an sbt
+`reload` — the standard caveat for any file-derived setting.  `%%` uses the
+host project's `scalaVersion`, so a Scala-cross `.ssc` dep assumes the sbt
+project is on a compatible Scala (3.x).  Builds on `arch-distribution.md`
+Phase 2 (Coursier wiring), which is already implemented.
 
 ## 4. Migration
 
@@ -258,8 +280,10 @@ cache and they appear on the JVM test classpath.  Requires
 ### Phase 5 — Dep resolution + Maven publication
 
 - Dep resolution wiring (depends on `arch-distribution.md` Phase 2).
-- Maven Central publish (`io.scalascript:sbt-scalascript:1.0.0`).
-- sbt Plugin Portal registration.
+  ✓ Landed 2026-06-18 (`SscFrontMatter` + `sscManagedDependencies`;
+  scripted `dep-resolution/`).
+- Maven Central publish (`io.scalascript:sbt-scalascript:1.0.0`). — Maven-gated.
+- sbt Plugin Portal registration. — Maven-gated.
 
 ## 6. Testing strategy
 
@@ -271,7 +295,10 @@ cache and they appear on the JVM test classpath.  Requires
 - Phase 2: `link-jar/` — `sbt package` produces a JAR that `java -jar` runs.
 - Phase 3: `run-tests/` — `.ssc` test file, `sbt test` green.
 - Phase 4: `bsp/` — `.bsp/scalascript.json` present after `sbt sscBspSetup`.
-- Phase 5: `dep-resolution/` — front-matter dep resolved via Coursier.
+- Phase 5: `dep-resolution/` — front-matter `dep:` coords lifted into
+  `sscManagedDependencies` / `libraryDependencies` (Java `%`, Scala-cross
+  `%%`, local paths ignored). Settings-only assertion, no network. ✓ Landed
+  2026-06-18.
 
 ## 7. Open questions
 

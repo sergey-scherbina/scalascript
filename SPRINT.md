@@ -29,9 +29,15 @@ or blocked/deferred (kept for record, NOT actionable now — see "Excluded from 
       map (re-parse loses positions) + risks false positives (Typer may not grok expanded macro-runtime
       constructs), niche audience — low ROI vs the codegen warning that covers the real failure mode. Building
       it now = busywork against the spec's own judgment. **→ Next pick: sbt-plugin-finish.**
-- [ ] **sbt-plugin-finish** (roadmap #4, Phase 5) — `specs/arch-sbt-plugin.md` remaining surface:
-      front-matter `dependencies:` → Coursier resolution, cross-build targets (`sscBackends` JVM/JS/WASM),
-      LSP/BSP polish. Phases 1–4 landed. Publishing the plugin artifact itself = Maven-gated (NOT here).
+- [~] **sbt-plugin-finish** (roadmap #4, Phase 5) — **dep-resolution ✓ DONE 2026-06-18**: the concrete
+      actionable Phase 5 slice. `SscFrontMatter` lifts `.ssc` front-matter `dependencies:` `dep:` Maven
+      coords into `sscManagedDependencies` → `libraryDependencies` (Java `%`, Scala-cross `%%`, local paths
+      ignored); scripted `dep-resolution/` + full scripted suite green (9). Spec §3h/Phase 5 reconciled.
+      RESIDUALS (NOT done): (a) `sscBackends` plural cross-build — blocked on spec open-Q #2 (parallel
+      outputs in one compile vs separate configs — a design decision, not autonomous); (b) LSP/BSP "polish"
+      — `BspIntegration`/`sscBspSetup` already landed Phase 4, no concrete remaining deliverable; (c) Maven
+      Central publish + Plugin Portal — Maven-gated (LAST). So the buildable remainder here is design-gated
+      or Maven-gated.
 - [ ] **wasm-effects** (follow-up slices to the 2026-06-18 first slice) — additive, wasm-only:
       (a) handlers needing `_dispatch`/`_binOp` (currently fail at link — add their pure-Scala subset to
       `WasmEffectRuntime` + routing); (b) multi-shot resume (`_anyFlatMap`); (c) cross-module effects
