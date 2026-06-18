@@ -87,16 +87,25 @@ scala-cli** (mirror `MirrorOfJvmConformanceTest`). Expected: `label(7)` → `lit
 
 ## Cross-module macros
 
-**Status: JVM ✓ DONE 2026-06-18 (Approach B); JS slice remaining.** Tracked in `BACKLOG.md` as
-`macro-crossmodule`. `MacroCodegen.expandUnits` collects macros across an assembled `(tree, source)`
-set and strips/expands each; `JvmGen.expandMacrosInBlocks` runs it at the 4 top-level `collectBlocks`
-sites (the full consumer + inlined-imports set, never the nested per-import call). No import resolution,
-no double-parse. `QuotedMacroCrossModuleJvmTest` (lib defines macro, consumer imports + calls →
-scala-cli matches interp). **JS remaining** — JsGen has no assembled-block list (it emits imports inline
-via a child `JsGen` whose output is string-appended, `genImport` ~1987), so Approach B doesn't transfer;
-the JS slice needs its own hook (genImport accumulates the imported macro table + strips the imported
-defs, and `genModule` expands the consumer's code blocks during emit using that table), or it falls back
-to Approach A (resolve imports for the table — double-parse). See BACKLOG.
+**Status: ✓ DONE 2026-06-18 — JVM + JS.** Tracked in `BACKLOG.md` as `macro-crossmodule`. The two
+backends use different hooks because their import-inlining differs:
+
+- **JVM (Approach B):** `MacroCodegen.expandUnits` collects macros across an assembled `(tree, source)`
+  set and strips/expands each; `JvmGen.expandMacrosInBlocks` runs it at the 4 top-level `collectBlocks`
+  sites (the full consumer + inlined-imports set, never the nested per-import call). No import
+  resolution, no double-parse.
+- **JS (Approach A):** JsGen has no assembled-block list (it emits imports inline via a string-appending
+  child `JsGen` with many code-block passes), so Approach B doesn't transfer. The entry-hook
+  `MacroCodegen.expand(module, baseDir)` seeds the call table with macros from the consumer's **local
+  relative `.ssc` imports** (resolved via `base / RelPath` — no `ImportResolver` download, no
+  std/external parse, fault-tolerant) and expands the consumer's call sites; `JsGen.genImport` strips
+  the imported module's own macro defs (`MacroCodegen.expand(childModule)`, no `baseDir` → no recursive
+  resolution).
+
+Conformance: `QuotedMacroCrossModuleJvmTest` (scala-cli) + `QuotedMacroCrossModuleJsTest` (node) — lib
+defines the macro, consumer imports + calls it, both match the interpreter (`literal: 7`). **Known
+limitation:** transitive cross-module macros on JS (the imported module itself *calls* a macro from
+*its* imports) aren't handled — the `genImport` strip uses no `baseDir`; rare, noted as a follow-up.
 
 ### Problem
 

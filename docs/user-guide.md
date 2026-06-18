@@ -5011,7 +5011,9 @@ Generated-backend execution: quoted macros now run on the **JVM and JS backends*
 pre-codegen pass (`MacroCodegen`) expands expandable macro call sites (direct
 quotes and `Expr.asValue match` const-folds) to their beta-reduced expansion and
 strips the macro definitions before `JvmGen` / `JsGen` run. Macro-free modules are
-untouched.
+untouched. This works both **single-module** (macro defined and used in the same
+file) and **cross-module** (macro defined in an imported `.ssc` and called from a
+consumer), on JVM and JS.
 
 Still planned: richer quoted-term construction inside macro implementations,
 and source-positioned diagnostics.

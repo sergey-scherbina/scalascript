@@ -61,17 +61,10 @@ last — after everything else.**
    source/tree level and rely on scalac's own `inline`; the `MacroCodegen.expand` pre-codegen pass
    handles macros for both backends.)*
 
-   - [~] **macro-crossmodule** — macro **defined in an imported module**, **called from a consumer**, on the
-     generated backends. **JVM ✓ DONE 2026-06-18** (Approach B): `MacroCodegen.expandUnits` over the
-     assembled `(tree, source)` set; `JvmGen.expandMacrosInBlocks` at the 4 top-level `collectBlocks` sites
-     (consumer + inlined imports; never the nested per-import call) — no import resolution / double-parse.
-     `QuotedMacroCrossModuleJvmTest` matches interp. **JS REMAINING:** JsGen has no assembled-block list — it
-     emits imports inline via a child `JsGen` whose JS is string-appended (`genImport` ~1987), so Approach B
-     doesn't transfer. JS needs its own hook: `genImport` accumulates the imported macro table + strips the
-     imported macro defs (`MacroCodegen.expand(childModule)`), and `genModule` expands the consumer's code
-     blocks during emit using the accumulated table (imports precede code in document order, so the table is
-     ready). Conformance = mirror `QuotedMacroCrossModuleJvmTest` on node. Touches the load-bearing
-     import-emit path → careful.
+   *(macro-crossmodule ✓ DONE 2026-06-18 — JVM (Approach B, `expandUnits`+`expandMacrosInBlocks`) + JS
+   (Approach A entry-hook over local `.ssc` imports + `genImport` strip); moved to CHANGELOG. Follow-up:
+   transitive cross-module macros on JS — the `genImport` strip uses no `baseDir`, so an imported module
+   that itself calls a macro from its own imports isn't handled. Rare.)*
 6. **deferred perf** — `hof-glue-jit-compile` (whole-fn JIT of `combineAll`, needs using/summon JIT;
    sub-15% ceiling) + `vectorize-pure-loop` (SIMD). Low ROI / high risk; revisit opportunistically.
 7. **other extensibility themes** — **AUDIT 2026-06-17: most are already BUILT; specs were stale.**

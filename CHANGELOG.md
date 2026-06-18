@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — feat(meta-v2): cross-module macros on JS — completes JVM+JS
+
+A quoted macro defined in an imported module and called from a consumer now works on the **JS backend**
+too (JVM landed earlier same day), completing `macro-crossmodule` on both generated backends.
+
+- JsGen has no assembled-block list (it emits imports inline via a string-appending child `JsGen` with
+  many code-block passes), so the JVM Approach B doesn't transfer. JS uses **Approach A**: the entry-hook
+  `MacroCodegen.expand(module, baseDir)` seeds the call table from the consumer's **local relative `.ssc`
+  imports** (`base / RelPath`, no `ImportResolver` download, no std/external parse, fault-tolerant) and
+  expands the consumer's call sites; `JsGen.genImport` strips the imported module's own macro defs
+  (`MacroCodegen.expand(childModule)`, no `baseDir` → no recursive resolution).
+- Strict no-op for macro-free modules — 39 transitive-import + 22 JS/macro/conformance tests green.
+- `QuotedMacroCrossModuleJsTest` (node) matches the interpreter (`literal: 7`). Follow-up: transitive
+  cross-module macros on JS (rare). The macro feature now works single-module **and** cross-module on
+  interp + JVM + JS.
+
 ## 2026-06-18 — feat(meta-v2): cross-module macros on JVM
 
 A quoted macro **defined in an imported module** and **called from a consumer** now works on the JVM
