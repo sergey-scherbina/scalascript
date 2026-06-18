@@ -33,6 +33,8 @@ import sbt.plugins.JvmPlugin
  *  - `sscBinary`       — path to the `ssc` binary (default: "ssc" on PATH).
  *  - `sscSourceDirectories` — source directories containing `.ssc` files.
  *  - `sscBackend`      — backend passed to `ssc build --incremental`.
+ *  - `sscManagedDependencies` — Maven `dep:` coordinates lifted from `.ssc`
+ *    front-matter `dependencies:` and added to `libraryDependencies` (Phase 5).
  *
  *  Tasks:
  *  - `sscCompile` — compile `.ssc` sources via `ssc build --incremental`.
@@ -89,6 +91,10 @@ object ScalascriptInteropPlugin extends AutoPlugin {
     val sscGenerateFacade = taskKey[Seq[File]](
       "Generate Scala 3 facade sources from .scim artifacts via `ssc generate-facade`."
     )
+    val sscManagedDependencies = settingKey[Seq[ModuleID]](
+      "Maven deps lifted from .ssc front-matter `dependencies:` (dep: coordinates) " +
+      "and added to libraryDependencies so Coursier resolves them onto the classpath."
+    )
   }
 
   import autoImport._
@@ -110,6 +116,17 @@ object ScalascriptInteropPlugin extends AutoPlugin {
     sscArtifactDir := (Compile / sscArtifactDir).value,
     sscLinkedJar := (Compile / sscLinkedJar).value,
     sscTestResultsDir := (Test / sscTestResultsDir).value,
+
+    // Phase 5 — dep resolution: lift Maven `dep:` coordinates from the
+    // front-matter `dependencies:` of Compile `.ssc` sources into
+    // libraryDependencies so Coursier resolves them onto the classpath
+    // (spec §3h). Evaluated at project-load; `reload` to pick up edits.
+    sscManagedDependencies := SscFrontMatter.mavenDeps(
+      (Compile / sscSourceDirectories).value
+        .filter(_.isDirectory)
+        .flatMap(dir => (dir ** "*.ssc").get())
+    ),
+    libraryDependencies ++= sscManagedDependencies.value,
 
     Compile / sscCompile := {
       val dirs = (Compile / sscSourceDirectories).value.filter(_.isDirectory)

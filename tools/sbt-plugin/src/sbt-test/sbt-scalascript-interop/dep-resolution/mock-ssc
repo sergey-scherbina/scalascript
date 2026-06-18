@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# The dep-resolution scripted test parses front-matter in-plugin and never
+# forks ssc; sscBinary just needs to point at a valid executable.
+exit 0

@@ -1,0 +1,17 @@
+---
+name: app
+dependencies:
+  demo: "dep:io.example:demo:1.0.0"
+  oslib: "dep:com.lihaoyi::os-lib:0.11.4"
+  helper: "../other/helper.ssc"
+---
+
+# App
+
+Front-matter carrier for the dep-resolution scripted test: two Maven `dep:`
+coordinates (one Java, one Scala-cross) plus a local `.ssc` path that must be
+ignored by `SscFrontMatter.mavenDeps`.
+
+```scala
+println("app")
+```

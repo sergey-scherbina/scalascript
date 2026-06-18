@@ -1,0 +1,4 @@
+# Phase 5 — front-matter `dependencies:` (dep: Maven coords) lifted into
+# sscManagedDependencies and libraryDependencies. checkDeps asserts the wiring
+# (Java %, Scala-cross %%, local-path ignored) without resolving from network.
+> checkDeps
