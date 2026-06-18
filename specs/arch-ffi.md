@@ -11,7 +11,10 @@ Tier 1 `@jvm` / `@js` inline annotations (Phases 1–2) and Tier 2 `jvm/glue.jar
 the WASM backend (`runtime/backend/wasm`, Scala.js → `.wasm` via
 `scala-cli --js-emit-wasm`) **exists** — the prior "no WASM target" note was stale.
 `WasmGen` lowers `@wasm("expr")` externs to a real `def` (`$0`/`$1` substitution, FFI
-annotations stripped) and drops unimplemented externs (`WasmBackendTest`). **Residual:**
+annotations stripped) and drops unimplemented externs; it also inlines local `.ssc` imports
+(transitively, deduped) and expands quoted macros, so cross-module wasm compiles
+(`WasmBackendTest`, incl. a `@wasm`-extern end-to-end to a real `.wasm`). Algebraic effects /
+handlers stay out of scope (need CPS codegen). **Residual:**
 `@wasmExport` / `@wasmImport` (the raw **WASM ABI** import/export boundary) remain out of
 scope **by design** — the backend routes through Scala.js, which *owns* the wasm ABI, so a
 hand-controlled `@wasmExport`/`@wasmImport` doesn't map onto this path (it would need a

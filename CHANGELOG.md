@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — feat(wasm): cross-module wasm — import inlining + macro expansion
+
+Brought the WASM backend up to parity with JVM/JS on the language surface it can support: it used to
+silently ignore `Content.Import` (cross-module wasm lost the imported code) and didn't expand macros.
+
+- `WasmGen.compileToWasm` now runs `MacroCodegen.expand(module, baseDir)` first (restricted quoted
+  macros, single + cross-module), and `collectSource` **inlines local `.ssc` imports**: resolve (no
+  scheme/download) → parse → `MacroCodegen.expand` (strip the import's own macros) → recurse, **deduped +
+  cycle-safe** (`seenFiles`). So a wasm `.ssc` importing sibling `.ssc` modules (transitively) and/or
+  using quoted macros now compiles.
+- Extern-free / import-free blocks stay byte-identical (no regression). 5 new tests incl. transitive +
+  diamond-dedup + single-module macro + a `@wasm`-extern compiled **end-to-end to a real `.wasm`** binary.
+- Still out of scope (documented in `WasmGen`): algebraic effects / handlers (need the CPS codegen) and
+  `std` externs without a `@wasm` impl (dropped). The backend now handles macros, imports, and `@wasm`
+  FFI on top of Scala.js-compatible code.
+
 ## 2026-06-18 — feat(wasm): wire `@wasm` extern FFI + tidy the WASM backend
 
 The WASM backend (`runtime/backend/wasm`, Scala.js → `.wasm` via `scala-cli --js-emit-wasm`) already
