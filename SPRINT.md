@@ -20,6 +20,14 @@ The genuine remaining **autonomously-actionable** build work, in priority order.
 one theme at a time, per-feature worktrees + claims. Everything below the queue is either history (`[x]`)
 or blocked/deferred (kept for record, NOT actionable now — see "Excluded from the sprint").
 
+> **Status 2026-06-18 (end of autonomous pass):** queue worked top-to-bottom. #1 meta-v2-track-c —
+> verified already complete (no build). #2 sbt-plugin dep-resolution — ✓ built + tested (residuals
+> design-/Maven-gated). #3 wasm-effects — arithmetic slice ✓ built + tested; deeper slices remain. #4
+> build-registry-phase4 — assessed, no concrete target → no action. **No bounded, high-value autonomous
+> build work is left.** What remains is deeper-slice / design-gated / Maven-gated (see each item): the
+> wasm-effects `_dispatch`/multi-shot/cross-module slices (lower-frequency or needing runtime-semantic
+> changes), `sscBackends` cross-build (spec open-Q #2 design decision), and Maven publication (LAST).
+
 - [x] **meta-v2-track-c** ✓ DONE 2026-06-18 (verified, no build needed) — Track C is COMPLETE. C1
       (multi-clause inline) ✓ done 2026-06-18. C2's high-value slice ✓ already done + wired:
       `MacroCodegen.codegenWarnings(module)` is computed in `ssc check` (`Main.scala:5265`, merged into
@@ -45,9 +53,13 @@ or blocked/deferred (kept for record, NOT actionable now — see "Excluded from 
       under Scala.js, needs a *pruned* copy + ~15 `_seqX` helpers; (b) multi-shot resume (needs `_handle`
       changes, not just helpers); (c) cross-module effects (imported `effect`); (d) `@main` args/non-Unit.
       Each a focused slice. BACKLOG `wasm-effects`.
-- [ ] **build-registry-phase4** (roadmap #7B, OPTIONAL / demand-driven) — family registries, **only where
-      they remove real duplication**. Phases 1–2 landed; Phase 3 is moot (load-bearing, reconciled
-      2026-06-18). Lowest priority; skip unless a concrete duplication target appears.
+- [x] **build-registry-phase4** ✓ ASSESSED → no action 2026-06-18 (demand-driven). Surveyed the ~24
+      `*Registry` classes: they are domain-distinct (Preprocessor / Interpolator / Backend / Capability /
+      Route / Command / GlueClasspath / GlueJsPreamble / …), each registering a different kind of thing —
+      **not** a duplicated template. The closest pairs (`Glue*`, `Interpolator*`) are small and cohesive;
+      consolidating them would be speculative refactoring, exactly what the spec's "only where they remove
+      real duplication" guard rules out. No concrete duplication target → no build. Revisit only if one
+      appears. (Phases 1–2 landed; Phase 3 moot/load-bearing.)
 
 ---
 
