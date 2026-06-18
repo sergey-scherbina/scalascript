@@ -1,0 +1,6 @@
+feature/wasm-complete 2026-06-18T09:29:17Z
+agent: claude
+heartbeat: 2026-06-18T09:29:17Z
+status: in-progress
+done-so-far: WasmGen import inlining (transitive/deduped) + macro expansion + @wasm e2e test (stashed); 30 WasmBackendTest green
+next: pop stash into worktree, commit, docs, push
