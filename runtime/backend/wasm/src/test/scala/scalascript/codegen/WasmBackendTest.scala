@@ -75,6 +75,37 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
     src should include("val a = 1")
     src should include("val b = 2")
 
+  // ── arch-ffi: @wasm extern lowering ──────────────────────────────────────
+
+  test("collectSource lowers @wasm extern to a real def (with $N substitution)"):
+    val src = WasmGen.collectSource(module(
+      """@wasm("scala.scalajs.js.Math.max($0, $1)")
+        |extern def maxOf(a: Int, b: Int): Int
+        |
+        |@main def run(): Unit = println(maxOf(2, 5))""".stripMargin))
+    withClue(s"generated:\n$src\n") {
+      src should not include "__extern__"
+      src should not include "extern def"
+      src should not include "@wasm"
+      src should include ("def maxOf")
+      src should include ("scala.scalajs.js.Math.max(a, b)")   // $0/$1 → a/b
+    }
+
+  test("collectSource drops an extern with no @wasm implementation"):
+    val src = WasmGen.collectSource(module(
+      """extern def unsupported(): Int
+        |
+        |@main def run(): Unit = ()""".stripMargin))
+    withClue(s"generated:\n$src\n") {
+      src should not include "__extern__"
+      src should not include "unsupported"
+      src should include ("def run")
+    }
+
+  test("collectSource leaves an extern-free block byte-identical (raw passthrough)"):
+    val raw = "val x = 1\n\nval y = 2"
+    WasmGen.collectSource(module(raw)).trim shouldBe raw
+
   // ── Phase 3: //> using directive hoisting ────────────────────────────────
 
   test("collectSource hoists //> using dep directive to top of output"):

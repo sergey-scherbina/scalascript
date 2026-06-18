@@ -58,17 +58,80 @@ object WasmGen:
     body:       StringBuilder,
   ): Unit =
     s.content.foreach {
-      case Content.CodeBlock(lang, src, _, _, _, _, _) if isCompilable(lang) =>
+      case Content.CodeBlock(lang, src, tree, _, _, _, _) if isCompilable(lang) =>
         val (dirs, rest) = src.linesIterator.partition(_.startsWith("//>"))
         dirs.foreach { d =>
           val trimmed = d.trim
           if seen.add(trimmed) then directives += trimmed
         }
-        val restStr = rest.mkString("\n").stripTrailing()
-        if restStr.nonEmpty then body.append(restStr).append("\n\n")
+        // FFI: a block carrying `extern def` declarations can't be passed to
+        // scala-cli verbatim (`extern`/`__extern__` aren't Scala). When the
+        // block has externs, re-emit it from the parsed tree, lowering each
+        // `@wasm("expr")` extern to a real `def` and dropping unimplemented
+        // ones. Extern-free blocks keep the raw passthrough (byte-identical).
+        val bodyStr = tree match
+          case Some(node) if blockHasExtern(node) => transformExternBlock(node)
+          case _                                  => rest.mkString("\n").stripTrailing()
+        if bodyStr.nonEmpty then body.append(bodyStr).append("\n\n")
       case _ => ()
     }
     s.subsections.foreach(collectSection(_, directives, seen, body))
+
+  // ── FFI: @wasm extern lowering (arch-ffi) ─────────────────────────────
+
+  import scala.meta.*
+
+  private def topStats(node: ScalaNode): List[scala.meta.Stat] =
+    ScalaNode.fold(node) {
+      case s: Source           => s.stats
+      case b: Term.Block       => b.stats
+      case other: scala.meta.Stat => List(other)
+      case _                   => Nil
+    }
+
+  /** `extern def f(...)` is preprocessed to `def f(...) = __extern__`. */
+  private def isExternStat(st: scala.meta.Stat): Boolean = st match
+    case d: Defn.Def => d.body match { case Term.Name("__extern__") => true; case _ => false }
+    case _           => false
+
+  private def blockHasExtern(node: ScalaNode): Boolean =
+    scala.util.Try(topStats(node).exists(isExternStat)).getOrElse(false)
+
+  private val ffiAnnotNames = Set("wasm", "jvm", "js", "rust", "interpreterUnsupported")
+
+  private def annotName(m: Mod): Option[String] = m match
+    case Mod.Annot(init) => init.tpe match
+      case Type.Name(n)                 => Some(n)
+      case Type.Select(_, Type.Name(n)) => Some(n)
+      case _                            => None
+    case _ => None
+
+  private def wasmArg(mods: List[Mod]): Option[String] =
+    mods.collectFirst {
+      case m @ Mod.Annot(init) if annotName(m).contains("wasm") =>
+        init.argClauses.headOption.flatMap(_.values.collectFirst { case Lit.String(s) => s })
+    }.flatten
+
+  private def stripFfiAnnots(mods: List[Mod]): List[Mod] =
+    mods.filterNot(m => annotName(m).exists(ffiAnnotNames.contains))
+
+  private def substituteWasmArgs(expr: String, params: List[String]): String =
+    params.zipWithIndex.foldLeft(expr) { case (e, (n, i)) => e.replace(s"$$$i", n) }
+
+  /** Re-emit a block's statements, lowering `@wasm("expr")` externs to real
+   *  `def`s (with `$0`/`$1` → param substitution, FFI annotations stripped) and
+   *  dropping externs that have no `@wasm` implementation. */
+  private def transformExternBlock(node: ScalaNode): String =
+    given Dialect = dialects.Scala3
+    topStats(node).flatMap {
+      case d: Defn.Def if isExternStat(d) =>
+        wasmArg(d.mods).flatMap { rawExpr =>
+          val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
+          substituteWasmArgs(rawExpr, params).parse[Term].toOption
+            .map(bodyTerm => d.copy(mods = stripFfiAnnots(d.mods), body = bodyTerm).syntax)
+        }                                   // None (no @wasm or unparseable) → drop
+      case other => Some(other.syntax)
+    }.mkString("\n\n")
 
   /** Compile all `scala` and `scalascript` blocks to a WASM bundle.
    *  Throws `RuntimeException` on compilation failure.
