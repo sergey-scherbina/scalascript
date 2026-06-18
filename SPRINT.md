@@ -14,6 +14,30 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Driven by the agreed roadmap (BACKLOG.md → "Roadmap — agreed priority order, 2026-06-17").
 Work top-to-bottom, one major theme at a time. **Maven/centralized publication is LAST.**
 
+### ▶ Prioritized build queue (2026-06-18, with Sergiy — "внеси всё и делай автономно")
+
+The genuine remaining **autonomously-actionable** build work, in priority order. Drive top-to-bottom,
+one theme at a time, per-feature worktrees + claims. Everything below the queue is either history (`[x]`)
+or blocked/deferred (kept for record, NOT actionable now — see "Excluded from the sprint").
+
+- [ ] **meta-v2-track-c** (roadmap #5, the LAST open meta-v2 slice) — Track C of `metaprogramming-v2`.
+      C1 (multi-clause inline) ✓ done 2026-06-18. **C2 OPEN:** post-expansion re-typecheck of the
+      expanded macro source + source-positioned errors (so a macro that produces ill-typed code fails at
+      the call site, not deep in generated text). Spec `specs/arch-metaprogramming-v2.md` §4b Track C.
+      Days-per-slice. **← next pick.**
+- [ ] **sbt-plugin-finish** (roadmap #4, Phase 5) — `specs/arch-sbt-plugin.md` remaining surface:
+      front-matter `dependencies:` → Coursier resolution, cross-build targets (`sscBackends` JVM/JS/WASM),
+      LSP/BSP polish. Phases 1–4 landed. Publishing the plugin artifact itself = Maven-gated (NOT here).
+- [ ] **wasm-effects** (follow-up slices to the 2026-06-18 first slice) — additive, wasm-only:
+      (a) handlers needing `_dispatch`/`_binOp` (currently fail at link — add their pure-Scala subset to
+      `WasmEffectRuntime` + routing); (b) multi-shot resume (`_anyFlatMap`); (c) cross-module effects
+      (effect declared in an imported `.ssc`); (d) `@main` with args / non-`Unit` return. BACKLOG `wasm-effects`.
+- [ ] **build-registry-phase4** (roadmap #7B, OPTIONAL / demand-driven) — family registries, **only where
+      they remove real duplication**. Phases 1–2 landed; Phase 3 is moot (load-bearing, reconciled
+      2026-06-18). Lowest priority; skip unless a concrete duplication target appears.
+
+---
+
 - [x] **agent-sdk-remainder** ✓ DONE 2026-06-17 (actionable scope) — consolidated `specs/agent-sdk.md`
       + **P3a MCP bridge both directions** (`runtime/std/agent-mcp.ssc`: `serveAgentToolsMcp` +
       `mcpToolSource`; examples `agent-mcp-{server,toolsource}.ssc`; all `ssc check` OK). Loop
