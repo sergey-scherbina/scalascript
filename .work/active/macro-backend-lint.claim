@@ -1,6 +1,0 @@
-feature/macro-backend-lint 2026-06-18T07:17:36Z
-agent: claude
-heartbeat: 2026-06-18T07:17:36Z
-status: in-progress
-done-so-far: claim from main
-next: MacroCodegen.codegenWarnings(module) warns on interp-only macro entrypoints (local impl, non-expandable); wire into ssc check; test + CheckCommandTest regression
