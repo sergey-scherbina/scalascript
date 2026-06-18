@@ -1,0 +1,6 @@
+feature/wasm-effects-5 2026-06-18T13:05:57Z
+agent: claude
+heartbeat: 2026-06-18T13:05:57Z
+status: in-progress
+done-so-far: scoping cross-module effects on wasm
+next: probe whether generateUserOnly sees imported effect decls; check compileEffectfulToWasm import handling
