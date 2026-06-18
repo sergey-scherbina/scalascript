@@ -4,10 +4,10 @@ package scalascript.codegen
  *
  *  It is the pure-Scala subset of `JvmGenRuntimeSources`' effect runtime
  *  (`_Computation` .. `_handleWithReturn`, plus `_binOp`/`_bigIntOp`/`_bigDecOp`
- *  for arithmetic and `_dispatch`/`_seqX`/`_seq`/`_isFree` for CPS-aware
- *  collection HOFs — all over `Any`-typed effect-op results; `_dispatch`'s
- *  JVM reflection fallback is replaced by an error since it can't link) —
- *  the JVM preamble's *other* parts
+ *  for arithmetic, `_dispatch`/`_seqX`/`_seq`/`_isFree` for CPS-aware
+ *  collection HOFs, and `_anyFlatMap` for multi-shot resume — all over
+ *  `Any`-typed effect-op results; `_dispatch`'s JVM reflection fallback is
+ *  replaced by an error since it can't link) — the JVM preamble's *other* parts
  *  (generators / coroutines / `std.fs`) use `Thread` + `java.nio` and crash the
  *  Scala.js linker, which is why we can't reuse the full `JvmGen.generate`
  *  output. This subset uses only pure Scala (+ `RuntimeException`, which Scala.js
@@ -369,6 +369,20 @@ object WasmEffectRuntime:
       |    case (n: Float,  "toDouble", Nil) => n.toDouble
       |    case _ => sys.error("wasm effect runtime: cannot dispatch '" + method + "' on " + obj +
       |      " (dynamic method outside the linkable subset; the JVM reflection fallback can't link under Scala.js)")
+      |  }
+      |  // Multi-shot resume: `opts.flatMap(o => resume(o))` lowers to this. A
+      |  // resume that returns an iterable (the collected branch results) is
+      |  // flattened; a scalar branch result is wrapped. Pure-Scala copy of
+      |  // JvmGenRuntimeSources `_anyFlatMap`.
+      |  def _anyFlatMap(xs: Any, f: Any => Any): Any = xs match {
+      |    case ys: scala.collection.Iterable[_] =>
+      |      ys.asInstanceOf[Iterable[Any]].toList.flatMap { x =>
+      |        f(x) match {
+      |          case zs: scala.collection.Iterable[_] => zs.asInstanceOf[Iterable[Any]].toList
+      |          case v                                => List(v)
+      |        }
+      |      }
+      |    case _ => xs
       |  }
       |}
       |""".stripMargin

@@ -181,7 +181,10 @@ object WasmGen:
    *  module's source is present), which is not valid plain Scala — so it never
    *  false-positives onto an extern-free / effect-free block. */
   private def usesEffects(src: String): Boolean =
-    """(?m)^\s*effect\s+[A-Z]\w*""".r.findFirstIn(src).isDefined
+    // Mirror the parser's effect-decl recognition (`effectLinePat`), incl. the
+    // `multi effect` (multi-shot) form — otherwise a multi-shot module skips the
+    // CPS-lowering path and its `multi`/`!` surface syntax reaches scala-cli raw.
+    """(?m)^\s*(?:multi\s+)?effect\s+[A-Z]\w*""".r.findFirstIn(src).isDefined
 
   /** WASM effect path: reuse `JvmGen.generateUserOnly`'s CPS lowering of the
    *  effect ops (perform/handle threaded through `_bind`), drop the JVM preamble

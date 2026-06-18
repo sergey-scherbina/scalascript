@@ -246,6 +246,38 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
     p.waitFor()
     out.trim shouldBe "6"
 
+  // wasm-effects-4: multi-shot resume. The handler calls resume once per option
+  // and flatMaps (`_anyFlatMap`); resume returns each branch's collected results.
+  // {1,2} × {10,20} → 4 combinations → all.length == 4.
+  private val effectMultiShotProg =
+    """multi effect NonDet:
+      |  def choose(opts: List[Int]): Int
+      |
+      |def prog(): Int ! NonDet =
+      |  val a = NonDet.choose(List(1, 2))
+      |  val b = NonDet.choose(List(10, 20))
+      |  a + b
+      |
+      |@main def main(): Unit =
+      |  val all = handle(prog()) {
+      |    case NonDet.choose(opts, resume) => opts.flatMap(o => resume(o))
+      |  }
+      |  println(all.length)""".stripMargin
+
+  test("multi-shot effects RUN on wasm (_anyFlatMap; resume called per option)"):
+    assume(hasWasmSupport, "scala-cli --js-wasm not available")
+    assume(hasNode, "node not available")
+    val bundle = WasmGen.compileToWasm(module(effectMultiShotProg))
+    bundle.wasmBytes should not be empty
+    val dir = os.temp.dir(prefix = "ssc-wasm-eff-multishot-")
+    os.write(dir / "main.wasm", bundle.wasmBytes)
+    os.write(dir / "main.mjs",  bundle.mainJs)
+    os.write(dir / "__loader.js", bundle.loaderJs)
+    val p = ProcessBuilder("node", (dir / "main.mjs").toString).directory(dir.toIO).start()
+    val out = scala.io.Source.fromInputStream(p.getInputStream).mkString
+    p.waitFor()
+    out.trim shouldBe "4"
+
   // ── Phase 3: //> using directive hoisting ────────────────────────────────
 
   test("collectSource hoists //> using dep directive to top of output"):
