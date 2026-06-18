@@ -272,8 +272,15 @@ generic case classes, and `derives` clauses mixing user + stdlib + unknown typec
   **Track B is now complete** (B1, B2, B3 all done).
 
 **Track C — P3 robustness** *(extends the existing `Linker` inline base).* 
-- **C1** — multi-clause inline support in `buildInlineTable`/`expandInlineSource` (today excluded).
+- **C1** — ✓ DONE 2026-06-18. Multi-clause inline (`inline def f(a)(b) = body`) cross-module expansion.
+  Implemented without a scanner or `.scim` wire change: `InterfaceExtractor.extractInlineInfo` curries
+  the tail parameter clauses into the body (params = first clause, body = `(b) => body`), so the
+  existing single-clause call-site scanner rewrites the first clause and leaves the trailing `(y)` as an
+  ordinary application → `((a) => (b) => body)(x)(y)`. `using`/`given` clauses dropped. `LinkerRewriteTest`
+  (curried 2-/3-clause) + `InterfaceExtractorTest` (multi-clause body + using-drop).
 - **C2** — post-expansion re-typecheck pass + source-positioned errors when an expansion doesn't typecheck.
+  *(Open — the remaining Track C slice. Needs the Typer over expanded source + a position map back to the
+  `.ssc`; the expansion currently only catches parse errors, not type errors.)*
 
 **Recommended order:** originally "Track A first (smallest)" — but the 2026-06-17 A1 investigation
 shows Track A is the LARGEST of the three (it's a from-scratch backend feature, not a parity tweak).

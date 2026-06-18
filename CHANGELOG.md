@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — feat(meta-v2): Track C1 — multi-clause inline cross-module expansion
+
+`inline def f(a)(b) = body` was excluded from the cross-module inline table. Now supported with no
+scanner or `.scim` wire-schema change: `InterfaceExtractor.extractInlineInfo` curries the tail
+parameter clauses into the body (params = first clause, body = `(b) => body`), so the existing
+single-clause call-site scanner expands `f(x)(y)` to `((a) => (b) => body)(x)(y)` — it rewrites the
+first clause and leaves the trailing `(y)` as an ordinary application. `using`/`given` clauses are
+dropped. No regression to single-clause inline. 4 tests (`LinkerRewriteTest` curried 2-/3-clause +
+`InterfaceExtractorTest` multi-clause body / using-drop). Track C2 (post-expansion re-typecheck) remains.
+
 ## 2026-06-18 — feat(meta-v2): macro-codegen-backends (JS) — quoted macros run on the JS backend
 
 Completes `macro-codegen-backends` across both generated backends (JVM landed earlier same day), so

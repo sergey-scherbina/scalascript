@@ -44,8 +44,10 @@ Work top-to-bottom, one major theme at a time. **Maven/centralized publication i
       `macro-codegen-backends` pass (`MacroCodegen.expand`, hooked into `JvmGen` + `JsGen` generate entry
       points) expands + strips macros pre-codegen, no-op for macro-free modules;
       `QuotedMacroJvmConformanceTest` (scala-cli) + `QuotedMacroJsConformanceTest` (node) match interp.
-      **Track B is complete (B1+B2+B3).** **Track C** (P3 multi-clause inline + re-typecheck) still open —
-      next meta-v2 slice. Days-per-slice. Spec Status corrected from stale "deferred/planning".
+      **Track B is complete (B1+B2+B3).** **Track C:** C1 (multi-clause inline) ✓ DONE 2026-06-18
+      (curry tail clauses into the body — no scanner/wire change); **C2** (post-expansion re-typecheck +
+      source-positioned errors) is the last open meta-v2 slice. Days-per-slice. Spec Status corrected from
+      stale "deferred/planning".
 
 ### Tier 2 — AUDIT 2026-06-17: most "themes" are already BUILT (specs stale)
 
