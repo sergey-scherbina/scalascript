@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — docs: triage remaining roadmap items to honest status
+
+Worked through the remaining roadmap menu and resolved each to an accurate status instead of leaving
+stale/misleading entries:
+- **module-graph-grouping** — ✓ investigated → leave-as-is (`docs/module-graph-findings.md`): 197 module
+  defs; the per-impl module *is* the SPI boundary, so grouping the thin families either collapses it or is
+  a build-graph no-op (sbt `aggregate` only). No action.
+- **build-registry Phase 3** — MOOT: `PluginManifest`/`LocalRegistry` are the implementation the facade is
+  built on (not removable wrappers); `isStdPluginInterpreterTest` already gone. Nothing to remove.
+- **metaprogramming-v2 C2** — the high-value slice is covered (the new `ssc check` interp-only-macro
+  warning); the full re-typecheck-with-positions is deferred as low-ROI (needs a position map + risks
+  false positives, niche audience).
+- **std-nfc / wallet-browser-ws-itest** — blocked autonomously (need device/browser); **@wasm glue** needs
+  a WASM backend; **Maven** is gated/last. Marked accordingly.
+
 ## 2026-06-18 — feat(meta-v2): `ssc check` warns on interpreter-only macros
 
 Closes a DX hole in the quoted-macro feature: a macro entrypoint whose impl is defined locally but is

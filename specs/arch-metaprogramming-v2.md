@@ -279,8 +279,15 @@ generic case classes, and `derives` clauses mixing user + stdlib + unknown typec
   ordinary application → `((a) => (b) => body)(x)(y)`. `using`/`given` clauses dropped. `LinkerRewriteTest`
   (curried 2-/3-clause) + `InterfaceExtractorTest` (multi-clause body + using-drop).
 - **C2** — post-expansion re-typecheck pass + source-positioned errors when an expansion doesn't typecheck.
-  *(Open — the remaining Track C slice. Needs the Typer over expanded source + a position map back to the
-  `.ssc`; the expansion currently only catches parse errors, not type errors.)*
+  **Status (2026-06-18): the high-value slice is DONE differently; the rest is DEFERRED as low-ROI.** The
+  practical macro DX hole — a macro that *can't* compile to the generated backends — is now caught up front
+  by `MacroCodegen.codegenWarnings` (surfaced by `ssc check`; warns on interpreter-only macro impls). The
+  remaining C2 ambition (run the Typer over *arbitrary* inline/macro-expanded source and map type-errors
+  back to `.ssc` positions) is **deferred**: it needs the Typer to run on expanded code (re-parse loses
+  positions → a position map is required) AND risks **false positives** (the Typer may not understand the
+  expanded macro-runtime constructs), for a niche audience. Not worth the effort/risk vs the codegen
+  warning that covers the real failure mode. Revisit only if inline/macro type-errors become a real pain
+  point.
 
 **Recommended order:** originally "Track A first (smallest)" — but the 2026-06-17 A1 investigation
 shows Track A is the LARGEST of the three (it's a from-scratch backend feature, not a parity tweak).

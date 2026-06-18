@@ -75,9 +75,13 @@ last — after everything else.**
    specs/BACKLOG to reality + verify any residual — NOT a from-scratch build.** **B** (build-time
    registry consolidation): Phases 1 AND 2 BOTH landed 2026-05-29 (spec confirms — `PluginRegistry`/
    `PluginMeta`/`PluginSource` + `BackendRegistry` facade + `SubprocessPlugin` + `RemotePluginInstaller`
-   + `BackendRegistryTest`). Only Phase 3 (cleanup — remove deprecated `PluginManifest`/`LocalRegistry`
-   wrappers + `isStdPluginInterpreterTest` filter; partly gated on Theme A Phase 3) and the OPTIONAL
-   Phase 4 (family registries, "only where they remove real duplication") remain.
+   + `BackendRegistryTest`). **Phase 3 is MOOT (reconciled 2026-06-18):** `PluginManifest`/`LocalRegistry`
+   are NOT removable "deprecated wrappers" — they are the **implementation** the facade is built ON
+   (`BackendRegistry` uses `PluginManifest` for `manifestCache`/`defaultSearchPaths`; `ImportResolver` +
+   `PluginCommands` use `LocalRegistry.resolve`/`loadAll` for the `~/.scalascript/registry.yaml`
+   download-URL flow). There is nothing to "remove" — they're load-bearing. `isStdPluginInterpreterTest`
+   is already gone. So Phase 3 = no action. OPTIONAL Phase 4 (family registries, "only where they remove
+   real duplication") remains, demand-driven.
 8. **arch-distribution-p3 / Maven Central + sbt Plugin Portal** — **LAST**, only on explicit go.
 
 > **Roadmap reality check (2026-06-17):** the codebase is well ahead of these specs/BACKLOG entries —
@@ -99,12 +103,15 @@ mature and low-debt (only 6 TODO/FIXME files, 21 "not yet supported"); these are
 not blockers — hence BACKLOG, not SPRINT. Ordered by leverage/tractability. **#1 is the
 recommended first pick** (bounded, measurable, compounds with the perf work).
 
-- [ ] **module-graph-grouping** (Tier 3, low-pri) — 231 sbt modules, ~150 of them thin
-      payments/wallet/blockchain/x402 SPI impls (`walletVault*`, `paymentsX`, `blockchain*`, `x402*`).
-      Largely intentional (one module per SPI impl), but it's real build-graph + cognitive load and
-      slows cold builds. HOW (if pursued): evaluate aggregate grouping or multi-target consolidation for
-      the thinnest families WITHOUT collapsing the SPI boundaries. Investigate-first; may conclude "leave
-      as-is" — the current shape works. Low priority.
+- [x] **module-graph-grouping** ✓ INVESTIGATED → leave-as-is (2026-06-18, `docs/module-graph-findings.md`).
+      197 `lazy val` module defs; thin SPI families (wallet 42, payments 35, walletVault 18, blockchain 13,
+      x402 13). Conclusion: the per-impl module boundary **is** the SPI boundary — grouping the families
+      either collapses it (shared package/service/artifact, can't take one impl) or is a no-op on the build
+      graph (sbt `aggregate` only reduces typing). There is no consolidation that shrinks the graph AND
+      keeps the boundaries, which the item's own constraint requires. The cold-build cost is the price of
+      the deliberate "one module per SPI impl" design (cf. payments-reorg). **No action**; if a specific
+      family is later found to have *true* code duplication, factor the shared part into one library module
+      the impls depend on (targeted refactor, not family grouping).
 
 - [ ] **remote-package-registry** (Tier 3, strategic/product) — the plugin ecosystem story is
       local-only (`~/.scalascript/registry.yaml` + `pkg:` resolver + `ssc install`, all LANDED). The SPI

@@ -68,13 +68,18 @@ verify residuals**, NOT from-scratch builds:
       Residual = Phase 3 versioned stable API module. Left as-is (accurate).
 - [~] **theme-e-ssc-new** — `ssc new`/install present in `Main` (verified `def name = "new"`). No dedicated
       spec file; nothing stale to reconcile. Effectively done; verify completeness if revisited.
-- [~] **theme-b-build-registry-consolidation** — ✓ spec Phase 3 reconciled: `isStdPluginInterpreterTest`
-      filter is **already gone** (stale bullet removed); `PluginManifest`/`LocalRegistry` are **not** dead
-      wrappers — they have **live callers** so Phase 3 is a **caller migration** (regression risk), not a
-      delete. OPTIONAL Phase 4 (family registries) remains.
-- [ ] **module-graph-grouping** (low-pri) — 231 sbt modules (~150 thin) → consolidate into grouped builds.
-- [ ] **std-nfc-packager-adapters** — NFC packager adapters (native platform follow-up).
-- [ ] **wallet-browser-ws-itest** — real browser-WebSocket integration testing for wallet-connect (scaffold; full run needs a browser).
+- [x] **theme-b-build-registry-consolidation** — Phase 3 is **MOOT** (triaged 2026-06-18):
+      `PluginManifest`/`LocalRegistry` are the **implementation** the facade is built on (not removable
+      wrappers — `BackendRegistry` uses `PluginManifest`; `ImportResolver`/`PluginCommands` use
+      `LocalRegistry`), and `isStdPluginInterpreterTest` is already gone. Nothing to remove. OPTIONAL
+      Phase 4 (family registries) remains, demand-driven.
+- [x] **module-graph-grouping** — ✓ INVESTIGATED → leave-as-is (2026-06-18, `docs/module-graph-findings.md`):
+      197 modules; the per-impl module IS the SPI boundary; grouping either collapses it or is a no-op on
+      the graph. No action.
+- [ ] **std-nfc-packager-adapters** — BLOCKED autonomously: needs real iOS/Android/Web-NFC packager
+      integration + device/browser harnesses. Native platform follow-up; can't verify without targets.
+- [ ] **wallet-browser-ws-itest** — BLOCKED autonomously: real browser-WebSocket integration; full run
+      needs a browser.
 
 **Genuine remaining BUILD work** (across Tiers): `sbt-plugin-finish` Phase 5 (dep-resolution wiring +
 Maven publish — publish is Maven-gated), `build-registry` Phase 3 cleanup + optional Phase 4 (Phases 1–2
