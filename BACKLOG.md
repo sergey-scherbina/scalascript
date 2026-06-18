@@ -134,6 +134,28 @@ recommended first pick** (bounded, measurable, compounds with the perf work).
       the repo currently has the NFC API and requirements contract but no
       complete Android/Web-NFC packager integration path.
 
+## WASM backend
+
+The WASM backend (`runtime/backend/wasm`, Scala.js → `.wasm` via `scala-cli --js-emit-wasm`) now
+handles `@wasm` externs, local `.ssc` import inlining, and quoted macros (2026-06-18). What remains:
+
+- [ ] **wasm-effects** — algebraic effects / handlers on WASM. **INVESTIGATED 2026-06-18 (empirical
+      probe), NOT a tidy-up — a real multi-day feature.** Findings: JvmGen's effect-lowered Scala
+      *compiles* on Scala.js (no `java.*` compile blocker — encouraging!), BUT the Scala.js linker
+      **crashes** on JvmGen's ~300 KB preamble, and this is **general** — even a trivial `@main def
+      run = println(42)` routed through `JvmGen.generate → scala-cli --js-emit-wasm` fails to link the
+      same way. So **reusing JvmGen verbatim is blocked**. APPROACH: emit `JvmGen.generateUserOnly`
+      (the CPS-lowered user code, *without* the full 300 KB preamble — which is what crashes the
+      linker) + a hand-written **Scala.js-linkable minimal effect runtime** (the `_bind` / `perform` /
+      `_run` / handler/resume helpers as pure Scala — no threads, no `System.getenv`, no
+      `java.util.regex.Matcher`), then `scala-cli --js-emit-wasm`. Requires reverse-engineering the CPS
+      runtime contract + verifying **compile + link + run** correctness on a wasm runtime (one-shot
+      first, then multi-shot). High care; touches no JVM/JS code (additive wasm-only). Until then
+      `WasmGen.compileToWasm` **fails fast with a clear error** (`WasmBackendTest`) instead of the
+      cryptic linker crash; effects run on JVM / JS / interpreter.
+- [ ] **`@wasmExport` / `@wasmImport`** — raw WASM ABI export/import. Out of scope **by design** (the
+      Scala.js path owns the wasm ABI); would need a direct-emit wasm backend, not the Scala.js one.
+
 ## Interpreter Performance — Open Targets
 
 Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 -i 5 -f 1`).

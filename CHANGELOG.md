@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — feat(wasm): clear error on effects + scope `wasm-effects`
+
+Investigated algebraic-effects-on-WASM empirically (probe). Finding: JvmGen's effect-lowered Scala
+**compiles** under Scala.js (no `java.*` compile blocker), but the Scala.js **linker crashes** on
+JvmGen's ~300 KB preamble — and it's **general** (even a trivial `@main` through `JvmGen.generate →
+scala-cli --js-emit-wasm` fails to link the same way), so reusing JvmGen verbatim is blocked.
+
+- A real implementation is a multi-day feature: `JvmGen.generateUserOnly` (lowered user code, no full
+  preamble) + a hand-written **Scala.js-linkable minimal effect runtime** + verification on a wasm
+  runtime. Scoped in BACKLOG `wasm-effects` with the concrete approach so it isn't re-investigated.
+- Until then, `WasmGen.compileToWasm` **fails fast with a clear message** when effects are used (keys on
+  the unambiguous `effect <Cap>:` declaration), surfaced as `CompileResult.Failed` — instead of the
+  cryptic Scala.js linker crash. Effects run on JVM / JS / interpreter. Test added.
+
 ## 2026-06-18 — feat(wasm): cross-module wasm — import inlining + macro expansion
 
 Brought the WASM backend up to parity with JVM/JS on the language surface it can support: it used to
