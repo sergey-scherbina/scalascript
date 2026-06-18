@@ -1,0 +1,6 @@
+feature/meta-v2-track-c 2026-06-18T11:56:31Z
+agent: claude
+heartbeat: 2026-06-18T11:56:31Z
+status: in-progress
+done-so-far: starting — investigating spec §4b Track C + MacroCodegen.expand pipeline
+next: C2 = post-expansion re-typecheck of expanded macro source + source-positioned errors
