@@ -20,13 +20,13 @@ The genuine remaining **autonomously-actionable** build work, in priority order.
 one theme at a time, per-feature worktrees + claims. Everything below the queue is either history (`[x]`)
 or blocked/deferred (kept for record, NOT actionable now — see "Excluded from the sprint").
 
-> **Status 2026-06-18 (end of autonomous pass):** queue worked top-to-bottom. #1 meta-v2-track-c —
+> **Status 2026-06-18 (autonomous pass):** queue worked top-to-bottom. #1 meta-v2-track-c —
 > verified already complete (no build). #2 sbt-plugin dep-resolution — ✓ built + tested (residuals
-> design-/Maven-gated). #3 wasm-effects — arithmetic slice ✓ built + tested; deeper slices remain. #4
-> build-registry-phase4 — assessed, no concrete target → no action. **No bounded, high-value autonomous
-> build work is left.** What remains is deeper-slice / design-gated / Maven-gated (see each item): the
-> wasm-effects `_dispatch`/multi-shot/cross-module slices (lower-frequency or needing runtime-semantic
-> changes), `sscBackends` cross-build (spec open-Q #2 design decision), and Maven publication (LAST).
+> design-/Maven-gated). #3 wasm-effects — arithmetic (2a) + `_dispatch` collection-HOFs (2b) slices ✓ built
+> + run-verified on node; multi-shot + cross-module remain. #4 build-registry-phase4 — assessed, no concrete
+> target → no action. What remains is deeper-slice / design-gated / Maven-gated (see each item): the
+> wasm-effects multi-shot (needs `_handle` semantic changes) + cross-module slices, `sscBackends` cross-build
+> (spec open-Q #2 design decision), and Maven publication (LAST).
 
 - [x] **meta-v2-track-c** ✓ DONE 2026-06-18 (verified, no build needed) — Track C is COMPLETE. C1
       (multi-clause inline) ✓ done 2026-06-18. C2's high-value slice ✓ already done + wired:
@@ -47,12 +47,12 @@ or blocked/deferred (kept for record, NOT actionable now — see "Excluded from 
       Central publish + Plugin Portal — Maven-gated (LAST). So the buildable remainder here is design-gated
       or Maven-gated.
 - [~] **wasm-effects** (follow-up slices to the 2026-06-18 first slice) — additive, wasm-only.
-      **arithmetic ✓ DONE 2026-06-18 (slice 2a):** `_binOp` (+`_bigIntOp`/`_bigDecOp`) added to
-      `WasmEffectRuntime` — programs doing `a + b` / `sum * 2` over effect-op results now link + run
-      (test → 40). REMAINING: (a) `_dispatch` (method calls on `Any`) — its reflection fallback can't link
-      under Scala.js, needs a *pruned* copy + ~15 `_seqX` helpers; (b) multi-shot resume (needs `_handle`
-      changes, not just helpers); (c) cross-module effects (imported `effect`); (d) `@main` args/non-Unit.
-      Each a focused slice. BACKLOG `wasm-effects`.
+      **arithmetic ✓ DONE (slice 2a):** `_binOp` (+`_bigIntOp`/`_bigDecOp`) — `a + b`/`sum * 2` over effect-op
+      results link + run (test → 40). **`_dispatch` ✓ DONE (slice 2b):** collection HOFs on `Any` —
+      `xs.map(..).filter(..).head` in a handler links + runs (test → 6); copied the pure subset of `_dispatch`
+      + `_seqX`/`_seq`/`_isFree`, reflection fallback → clear error. REMAINING: (a) multi-shot resume (needs
+      `_handle` semantic changes, not just helpers); (b) cross-module effects (imported `effect`); (c) `@main`
+      args/non-Unit. Each a focused slice. BACKLOG `wasm-effects`.
 - [x] **build-registry-phase4** ✓ ASSESSED → no action 2026-06-18 (demand-driven). Surveyed the ~24
       `*Registry` classes: they are domain-distinct (Preprocessor / Interpolator / Backend / Capability /
       Route / Command / GlueClasspath / GlueJsPreamble / …), each registering a different kind of thing —

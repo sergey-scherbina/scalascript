@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — feat(wasm): collection HOFs in effects (`_dispatch` in the wasm effect runtime)
+
+Follow-up to the arithmetic slice. A probe showed `xs.map(..)`/`.filter(..)`/`.head` on an `Any`-typed
+effect result lower to `_dispatch(xs, "map", List(fn))`, which `WasmEffectRuntime` lacked → such programs
+failed at link. Added the pure-Scala subset of `_dispatch` + its CPS-aware helpers (`_seqMap`/`_seqFlatMap`/
+`_seqFilter`/`_seqForeach`/`_seqExists`/`_seqForall`/`_seqCount`/`_seqFind`/`_seqFoldLeft` + `_seq`/`_isFree`).
+The JVM version's Java-reflection `case _` fallback (`getClass.getMethods…invoke`) can't link under Scala.js,
+so unknown methods raise a clear error instead. Covers List/String/Option/Map/Set/numeric methods (incl.
+`sortBy`/`sorted`). Verified: a `xs.map(*2).filter(>4).head` program inside handler + resume compiles to
+`.wasm` and runs via node (prints `6`); 34 `WasmBackendTest` green. Remaining wasm-effects follow-ups
+(BACKLOG): multi-shot resume, cross-module effects.
+
 ## 2026-06-18 — feat(wasm): arithmetic in effects (`_binOp` in the wasm effect runtime)
 
 Follow-up to the wasm-effects first slice. A probe showed an effect program doing arithmetic over op

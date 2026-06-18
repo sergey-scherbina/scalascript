@@ -150,15 +150,18 @@ handles `@wasm` externs, local `.ssc` import inlining, and quoted macros (2026-0
       **arithmetic ✓ DONE 2026-06-18 (slice 2a):** `_binOp` (+ `_bigIntOp`/`_bigDecOp`, all pure-Scala /
       Scala.js-linkable) added to `WasmEffectRuntime`; a probe showed `a + b` over `Any`-typed effect-op
       results lowers to `_binOp` — programs doing arithmetic in/around handlers now link + run (test
-      'effects with arithmetic in body RUN on wasm' → 40). **REMAINING (follow-up slices):** (a) `_dispatch`
-      (method calls on `Any`, e.g. `xs.map(..)` inside a handler) — **blocked differently than expected:**
-      `_dispatch` has a `getClass.getMethods…invoke` **reflection fallback** (JvmGenRuntimeSources ~790)
-      that the Scala.js linker rejects, so it needs a *pruned* copy (collection/string cases kept, reflection
-      `case _` → `sys.error`) plus its ~15 `_seqX` helpers — bigger sync burden, lower frequency. (b)
-      multi-shot resume — needs `_handle`/`_anyFlatMap` semantic changes, not just a helper copy. (c)
-      cross-module effects (effect declared in an imported `.ssc`) — `usesEffects` keys on a local
-      `effect <Cap>:`; route imported-effect consumers + feed the import into `generateUserOnly`. (d) `@main`
-      with args / non-`Unit` return. All additive, wasm-only.
+      'effects with arithmetic in body RUN on wasm' → 40). **`_dispatch` ✓ DONE 2026-06-18 (slice 2b):**
+      collection/method calls on `Any` (e.g. `xs.map(..).filter(..).head` in a handler) lower to `_dispatch`;
+      added the pure-Scala subset of `_dispatch` + its CPS-aware `_seqMap/_seqFlatMap/_seqFilter/_seqForeach/
+      _seqExists/_seqForall/_seqCount/_seqFind/_seqFoldLeft` (+ `_seq`/`_isFree`) to `WasmEffectRuntime` —
+      the JVM `getClass.getMethods…invoke` reflection `case _` (which the Scala.js linker rejects) is
+      replaced by a clear error. Covers List/String/Option/Map/Set/numeric incl. sortBy/sorted. Test 'effects
+      with collection HOFs in body RUN on wasm' → 6. **REMAINING (follow-up slices):** (a) multi-shot resume —
+      needs `_handle`/`_anyFlatMap` semantic changes, not just a helper copy. (b) cross-module effects (effect
+      declared in an imported `.ssc`) — `usesEffects` keys on a local `effect <Cap>:`; route imported-effect
+      consumers + feed the import into `generateUserOnly`. (c) `@main` with args / non-`Unit` return. (d) any
+      dynamic method outside the linkable `_dispatch` subset now errors clearly (was a reflection call on JVM).
+      All additive, wasm-only.
 - [ ] **`@wasmExport` / `@wasmImport`** — raw WASM ABI export/import. Out of scope **by design** (the
       Scala.js path owns the wasm ABI); would need a direct-emit wasm backend, not the Scala.js one.
 
