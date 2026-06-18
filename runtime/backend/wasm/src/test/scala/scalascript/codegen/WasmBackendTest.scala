@@ -106,6 +106,46 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
     val raw = "val x = 1\n\nval y = 2"
     WasmGen.collectSource(module(raw)).trim shouldBe raw
 
+  // ── cross-module: import inlining + macro expansion ──────────────────────
+
+  test("collectSource inlines a local .ssc import (cross-module)"):
+    val dir = os.temp.dir(prefix = "ssc-wasm-import-")
+    os.write(dir / "lib.ssc", "# Lib\n\n```scalascript\ndef helper(x: Int): Int = x * 10\n```\n")
+    val consumer = Parser.parse(
+      "# Consumer\n\n[helper](lib.ssc)\n\n```scalascript\n@main def run(): Unit = println(helper(4))\n```\n")
+    val src = WasmGen.collectSource(consumer, Some(dir))
+    withClue(s"generated:\n$src\n") {
+      src should include ("def helper")          // imported def inlined
+      src should include ("helper(4)")           // consumer call
+    }
+
+  test("collectSource inlines transitively + dedupes a diamond import"):
+    val dir = os.temp.dir(prefix = "ssc-wasm-diamond-")
+    os.write(dir / "base.ssc", "# Base\n\n```scalascript\ndef base(): Int = 7\n```\n")
+    os.write(dir / "a.ssc", "# A\n\n[base](base.ssc)\n\n```scalascript\ndef a(): Int = base()\n```\n")
+    os.write(dir / "b.ssc", "# B\n\n[base](base.ssc)\n\n```scalascript\ndef b(): Int = base()\n```\n")
+    val consumer = Parser.parse(
+      "# C\n\n[a](a.ssc)\n\n[b](b.ssc)\n\n```scalascript\n@main def run(): Unit = println(a() + b())\n```\n")
+    val src = WasmGen.collectSource(consumer, Some(dir))
+    withClue(s"generated:\n$src\n") {
+      src should include ("def a()")
+      src should include ("def b()")
+      ("def base\\(\\)".r.findAllIn(src).size) shouldBe 1   // base inlined exactly once (deduped)
+    }
+
+  test("collectSource: a single-module macro is expanded (no __ssc_macro__ leakage)"):
+    val m = Parser.parse(
+      "# Test\n\n```scalascript\n" +
+        "inline def plusOne(x: Int): Int = ${ plusOneImpl('x) }\n" +
+        "def plusOneImpl(x: Expr[Int])(using q: QuotedContext): Expr[Int] = '{ $x + 1 }\n" +
+        "@main def run(): Unit = println(plusOne(41))\n```\n")
+    val src = WasmGen.collectSource(scalascript.artifact.MacroCodegen.expand(m))
+    withClue(s"generated:\n$src\n") {
+      src should not include "__ssc_macro__"
+      src should not include "plusOneImpl"
+      src should include ("41")
+    }
+
   // ── Phase 3: //> using directive hoisting ────────────────────────────────
 
   test("collectSource hoists //> using dep directive to top of output"):
@@ -188,6 +228,16 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
     val bytes = runWasm("@main def run() = println(\"hello wasm\")")
     bytes should not be empty
     // WASM magic number: \0asm
+    bytes.take(4) shouldBe Array(0x00, 0x61, 0x73, 0x6d).map(_.toByte)
+
+  test("compile a @wasm extern end-to-end to a WASM binary"):
+    assume(hasWasmSupport, "scala-cli --js-wasm not available")
+    val bytes = runWasmSsc(
+      """@wasm("$0 + $1")
+        |extern def add(a: Int, b: Int): Int
+        |
+        |@main def run(): Unit = println(add(20, 22))""".stripMargin)
+    bytes should not be empty
     bytes.take(4) shouldBe Array(0x00, 0x61, 0x73, 0x6d).map(_.toByte)
 
   test("compile simple scalascript block produces non-empty WASM binary"):

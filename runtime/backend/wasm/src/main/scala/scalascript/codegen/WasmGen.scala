@@ -12,9 +12,13 @@ import scalascript.ast.*
  *
  *  All three are returned so the CLI / server can write them together.
  *
- *  Phase 1 note: `scalascript` blocks are treated as Scala 3 source and
- *  compiled as-is.  Blocks must contain valid Scala.js code; ScalaScript
- *  extensions (algebraic effects, handlers) are not yet transpiled.  An
+ *  `scalascript` blocks are treated as Scala 3 source and compiled as-is, with
+ *  three ScalaScript-aware passes layered on the raw collection: restricted
+ *  quoted macros are expanded (`MacroCodegen`), local `.ssc` imports are inlined
+ *  (transitively, deduped), and `@wasm("expr")` externs are lowered to real
+ *  `def`s. Blocks must otherwise contain valid Scala.js code; algebraic effects
+ *  / handlers are NOT transpiled (they need the CPS codegen — out of scope for
+ *  this backend), and `std` externs without a `@wasm` impl are dropped. An
  *  `@main def main(): Unit` entry point is required for executable bundles.
  */
 object WasmGen:
@@ -42,27 +46,34 @@ object WasmGen:
    *  This lets users embed `//> using dep "org.scala-js::scalajs-dom::2.8.0"`
    *  (or similar) inside their `scalascript` / `scala` blocks.
    */
-  def collectSource(module: Module): String =
+  def collectSource(module: Module, baseDir: Option[os.Path] = None): String =
     val directives = List.newBuilder[String]  // //> using … lines, deduped
     val body       = StringBuilder()
     val seen       = scala.collection.mutable.LinkedHashSet.empty[String]
-    module.sections.foreach(collectSection(_, directives, seen, body))
+    val seenFiles  = scala.collection.mutable.HashSet.empty[String]   // inlined imports (dedup)
+    val deps       = module.manifest.map(_.dependencies).getOrElse(Map.empty)
+    val ctx        = CollectCtx(directives, seen, body, baseDir, deps, seenFiles)
+    module.sections.foreach(collectSection(_, ctx))
     val dirs = directives.result()
     if dirs.isEmpty then body.toString
     else dirs.mkString("", "\n", "\n\n") + body.toString
 
-  private def collectSection(
-    s:          Section,
+  private case class CollectCtx(
     directives: scala.collection.mutable.Builder[String, List[String]],
     seen:       scala.collection.mutable.Set[String],
     body:       StringBuilder,
-  ): Unit =
+    baseDir:    Option[os.Path],
+    moduleDeps: Map[String, String],
+    seenFiles:  scala.collection.mutable.Set[String],
+  )
+
+  private def collectSection(s: Section, ctx: CollectCtx): Unit =
     s.content.foreach {
       case Content.CodeBlock(lang, src, tree, _, _, _, _) if isCompilable(lang) =>
         val (dirs, rest) = src.linesIterator.partition(_.startsWith("//>"))
         dirs.foreach { d =>
           val trimmed = d.trim
-          if seen.add(trimmed) then directives += trimmed
+          if ctx.seen.add(trimmed) then ctx.directives += trimmed
         }
         // FFI: a block carrying `extern def` declarations can't be passed to
         // scala-cli verbatim (`extern`/`__extern__` aren't Scala). When the
@@ -72,10 +83,29 @@ object WasmGen:
         val bodyStr = tree match
           case Some(node) if blockHasExtern(node) => transformExternBlock(node)
           case _                                  => rest.mkString("\n").stripTrailing()
-        if bodyStr.nonEmpty then body.append(bodyStr).append("\n\n")
-      case _ => ()
+        if bodyStr.nonEmpty then ctx.body.append(bodyStr).append("\n\n")
+      case imp: Content.Import => inlineImport(imp, ctx)
+      case _                   => ()
     }
-    s.subsections.foreach(collectSection(_, directives, seen, body))
+    s.subsections.foreach(collectSection(_, ctx))
+
+  /** Inline a local `.ssc` import: resolve (no scheme/download), parse,
+   *  macro-expand (strips the imported module's own quoted macros), and recurse
+   *  — so cross-module wasm code compiles. Deduped + cycle-safe via `seenFiles`;
+   *  scheme imports (`pkg:`/`dep:`/`github:`) and non-`.ssc` are skipped. */
+  private def inlineImport(imp: Content.Import, ctx: CollectCtx): Unit =
+    if imp.path.contains(":") then return   // scheme import (compiled artifact) — not source-inlinable
+    ctx.baseDir.foreach { base =>
+      scala.util.Try {
+        val resolved = scalascript.imports.ImportResolver.resolve(imp.path, base, ctx.moduleDeps, None)
+        val key      = resolved.toString
+        if os.exists(resolved) && resolved.ext == "ssc" && ctx.seenFiles.add(key) then
+          val child     = scalascript.artifact.MacroCodegen.expand(scalascript.parser.Parser.parse(os.read(resolved)))
+          val childDeps = child.manifest.map(_.dependencies).getOrElse(Map.empty)
+          val childCtx  = ctx.copy(baseDir = Some(resolved / os.up), moduleDeps = childDeps)
+          child.sections.foreach(collectSection(_, childCtx))
+      }
+    }
 
   // ── FFI: @wasm extern lowering (arch-ffi) ─────────────────────────────
 
@@ -137,7 +167,11 @@ object WasmGen:
    *  Throws `RuntimeException` on compilation failure.
    */
   def compileToWasm(module: Module, baseDir: Option[os.Path] = None): WasmBundle =
-    val src = collectSource(module)
+    // Expand restricted quoted macros (incl. cross-module via local .ssc imports)
+    // before collecting source; collectSource then inlines imports + lowers
+    // @wasm externs. No-op for macro-free modules.
+    val expanded = scalascript.artifact.MacroCodegen.expand(module, baseDir)
+    val src      = collectSource(expanded, baseDir)
     if src.isBlank then return WasmBundle(Array.emptyByteArray, "", "")
     compileSourceToWasm(src, baseDir)
 
