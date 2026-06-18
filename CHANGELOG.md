@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — feat(meta-v2): `ssc check` warns on interpreter-only macros
+
+Closes a DX hole in the quoted-macro feature: a macro entrypoint whose impl is defined locally but is
+**not expandable for codegen** (an interpreter-only body — not a direct quote `'{ … }` and not an
+`Expr.asValue match`, e.g. `x.asValue.getOrElse(…)` / `x.asTerm`) runs on `ssc run` but fails the JVM/JS
+target compiler with a cryptic `__ssc_macro__ not found`. `MacroCodegen.codegenWarnings(module)` now
+detects these, and `ssc check` surfaces them as warnings (exit code unaffected — `ok` ignores warnings),
+mirroring the existing `contentToolkitLintWarnings` wiring. 3 unit tests.
+
 ## 2026-06-18 — feat(meta-v2): cross-module macros on JS — completes JVM+JS
 
 A quoted macro defined in an imported module and called from a consumer now works on the **JS backend**

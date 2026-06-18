@@ -5015,6 +5015,13 @@ untouched. This works both **single-module** (macro defined and used in the same
 file) and **cross-module** (macro defined in an imported `.ssc` and called from a
 consumer), on JVM and JS.
 
+A macro whose implementation is **interpreter-only** (its body is not a direct
+quote `'{ … }` and not an `Expr.asValue match` — e.g. `x.asValue.getOrElse(…)` or
+`x.asTerm`) runs on `ssc run` but cannot compile to the JVM/JS backends. `ssc
+check` now warns about these up front (`quoted macro \`name\` has an
+interpreter-only implementation …`) instead of leaving you with a cryptic
+target-compiler error.
+
 Still planned: richer quoted-term construction inside macro implementations,
 and source-positioned diagnostics.
 
