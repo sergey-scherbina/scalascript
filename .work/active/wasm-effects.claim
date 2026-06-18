@@ -1,0 +1,6 @@
+feature/wasm-effects 2026-06-18T11:05:04Z
+agent: claude
+heartbeat: 2026-06-18T11:05:04Z
+status: in-progress
+done-so-far: KEY FINDING — JvmGen effect runtime (_Computation/_bind/_perform/_run/_handle/_handleWithReturn in JvmGenRuntimeSources ~242-320) is PURE SCALA (Scala.js-compatible). Thread/java.nio is in OTHER preamble parts (generators/coroutines/fs). Plan: generateUserOnly + minimal pure effect runtime -> scala-cli wasm.
+next: probe generateUserOnly output for a one-shot effect prog (what _helpers it references); extract minimal Scala.js runtime; wire WasmGen; verify compile+link+run on wasm
