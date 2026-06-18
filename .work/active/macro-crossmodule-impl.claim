@@ -1,0 +1,6 @@
+feature/macro-crossmodule-impl 2026-06-18T06:46:06Z
+agent: claude
+heartbeat: 2026-06-18T06:46:06Z
+status: in-progress
+done-so-far: claim from main; design = Approach B (expand over assembled blocks post import-inlining)
+next: refactor MacroCodegen (collectMacrosFromStats/safeStats/expandUnits); hook JvmGen after collectBlocks; cross-module conformance JVM then JS
