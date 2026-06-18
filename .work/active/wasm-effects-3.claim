@@ -1,0 +1,6 @@
+feature/wasm-effects-3 2026-06-18T12:49:10Z
+agent: claude
+heartbeat: 2026-06-18T12:49:10Z
+status: in-progress
+done-so-far: starting _dispatch slice for wasm effects
+next: probe which _dispatch + _seqX helpers a handler doing xs.map/.filter references; copy pure subset (strip reflection fallback) into WasmEffectRuntime
