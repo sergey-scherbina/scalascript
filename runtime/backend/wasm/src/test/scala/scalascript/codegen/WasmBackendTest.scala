@@ -182,6 +182,38 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
     p.waitFor()
     out.trim shouldBe "hello\nworld"
 
+  // wasm-effects-2: arithmetic over Any-typed effect-op results uses `_binOp`,
+  // now part of WasmEffectRuntime. handle(total())=20, doubled=40.
+  private val effectArithProg =
+    """effect Counter:
+      |  def next(): Int
+      |
+      |def total(): Int =
+      |  val a = Counter.next()
+      |  val b = Counter.next()
+      |  a + b
+      |
+      |@main def main(): Unit =
+      |  val sum = handle(total()) {
+      |    case Counter.next(resume) => resume(10)
+      |  }
+      |  val doubled = sum * 2
+      |  println(doubled)""".stripMargin
+
+  test("effects with arithmetic in body RUN on wasm (_binOp over Any)"):
+    assume(hasWasmSupport, "scala-cli --js-wasm not available")
+    assume(hasNode, "node not available")
+    val bundle = WasmGen.compileToWasm(module(effectArithProg))
+    bundle.wasmBytes should not be empty
+    val dir = os.temp.dir(prefix = "ssc-wasm-eff-arith-")
+    os.write(dir / "main.wasm", bundle.wasmBytes)
+    os.write(dir / "main.mjs",  bundle.mainJs)
+    os.write(dir / "__loader.js", bundle.loaderJs)
+    val p = ProcessBuilder("node", (dir / "main.mjs").toString).directory(dir.toIO).start()
+    val out = scala.io.Source.fromInputStream(p.getInputStream).mkString
+    p.waitFor()
+    out.trim shouldBe "40"
+
   // ── Phase 3: //> using directive hoisting ────────────────────────────────
 
   test("collectSource hoists //> using dep directive to top of output"):
