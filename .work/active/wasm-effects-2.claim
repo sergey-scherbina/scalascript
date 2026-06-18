@@ -1,0 +1,6 @@
+feature/wasm-effects-2 2026-06-18T12:10:48Z
+agent: claude
+heartbeat: 2026-06-18T12:10:48Z
+status: in-progress
+done-so-far: starting follow-up slices to wasm-effects first slice
+next: investigate _dispatch/_binOp in JvmGenRuntimeSources — are they Scala.js-linkable? add pure subset to WasmEffectRuntime
