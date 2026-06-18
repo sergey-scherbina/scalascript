@@ -60,10 +60,11 @@ verify residuals**, NOT from-scratch builds:
       `InterpolatorRegistry`). No change needed.
 - [x] **theme-h-library-modularity** — spec Status already accurate ("implemented through Phase 6",
       `SsclibManifest`). No change needed.
-- [x] **theme-j-lightweight-ffi** — ✓ spec reconciled: arch-ffi.md Status was badly stale ("planned"),
-      now "implemented" — `@jvm`/`@js` Phases 1–4 (`FfiAnnotationTest`/`FfiPhase2Test`, JvmGen/JsGen,
-      glue.jar/glue.js) **+ `@rust`** (`RustFfiAnnotationTest`, RustGen) are all built. **Residual: `@wasm`**
-      only (deferred — no WASM backend wiring).
+- [x] **theme-j-lightweight-ffi** — ✓ DONE: `@jvm`/`@js` (Phases 1–4) + `@rust` + **`@wasm`** all wired.
+      The WASM backend exists (`runtime/backend/wasm`, Scala.js → `.wasm`); `WasmGen` lowers `@wasm("expr")`
+      externs to a `def` (2026-06-18, `WasmBackendTest`). Only `@wasmExport`/`@wasmImport` (raw WASM ABI)
+      stay out of scope **by design** (the Scala.js path owns the ABI). The "no WASM backend wiring" note
+      was stale.
 - [~] **theme-a-stable-plugin-spi** — spec Status accurate ("partially implemented"; Phases 1+2 landed).
       Residual = Phase 3 versioned stable API module. Left as-is (accurate).
 - [~] **theme-e-ssc-new** — `ssc new`/install present in `Main` (verified `def name = "new"`). No dedicated

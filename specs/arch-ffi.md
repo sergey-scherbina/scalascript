@@ -7,9 +7,15 @@ Tier 1 `@jvm` / `@js` inline annotations (Phases 1–2) and Tier 2 `jvm/glue.jar
 `RustFfiAnnotationTest` (Rust); `@jvm`/`@js` codegen in `JvmGen`/`JsGen`
 (`extractAnnotationArg`), `CapabilityCheck` wrong-backend errors, glue artifacts via
 `GlueClasspathRegistry` / `GlueJsPreambleRegistry`; example
-`examples/js-glue-component.ssc`. **Residual:** `@wasm` / `@wasmExport` /
-`@wasmImport` are deferred until WASM backend wiring exists (BACKLOG).
-Tracked as `arch-ffi` milestone in `BACKLOG.md`.
+`examples/js-glue-component.ssc`. **`@wasm("expr")` is now wired too** (2026-06-18):
+the WASM backend (`runtime/backend/wasm`, Scala.js → `.wasm` via
+`scala-cli --js-emit-wasm`) **exists** — the prior "no WASM target" note was stale.
+`WasmGen` lowers `@wasm("expr")` externs to a real `def` (`$0`/`$1` substitution, FFI
+annotations stripped) and drops unimplemented externs (`WasmBackendTest`). **Residual:**
+`@wasmExport` / `@wasmImport` (the raw **WASM ABI** import/export boundary) remain out of
+scope **by design** — the backend routes through Scala.js, which *owns* the wasm ABI, so a
+hand-controlled `@wasmExport`/`@wasmImport` doesn't map onto this path (it would need a
+direct-emit wasm backend, not the Scala.js one). Tracked as `arch-ffi` milestone in `BACKLOG.md`.
 Companion: [`specs/arch-library-modularity.md`](arch-library-modularity.md),
 [`specs/arch-stable-spi.md`](arch-stable-spi.md),
 [`specs/backend-specific-blocks.md`](backend-specific-blocks.md)
@@ -36,9 +42,10 @@ Companion: [`specs/arch-library-modularity.md`](arch-library-modularity.md),
 ## 2. Non-goals
 
 - Calling arbitrary C / native code (WASM / JNI) — out of scope for v1.x.
-- `@wasm("...")` / `@wasmExport` / `@wasmImport` — defined in
-  `specs/backend-specific-blocks.md §4`; WASM backend wiring deferred until
-  a WASM compilation target exists.
+- `@wasm("...")` — **DONE 2026-06-18**: `WasmGen` lowers it to a `def` on the
+  Scala.js → wasm path (the expression is Scala/Scala.js source, like `@jvm`).
+  `@wasmExport` / `@wasmImport` (raw WASM ABI) stay out of scope by design — the
+  Scala.js path owns the wasm ABI (see Status above).
 - Reflection-based Java interop (`Class.forName`, dynamic proxies).
 - Replacing the existing `.sscpkg` / `BackendRegistry` path for first-party
   std plugins — they keep using their current architecture.

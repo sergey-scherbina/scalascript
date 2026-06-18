@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — feat(wasm): wire `@wasm` extern FFI + tidy the WASM backend
+
+The WASM backend (`runtime/backend/wasm`, Scala.js → `.wasm` via `scala-cli --js-emit-wasm`) already
+existed and compiled; what was missing was the `@wasm` FFI layer, and `extern def`s made `WasmGen` choke
+(it passes block text verbatim to scala-cli, which can't parse `extern`/`__extern__`).
+
+- `WasmGen` now re-emits any extern-carrying block from its parsed tree: each `@wasm("expr")` extern is
+  lowered to a real `def` (with `$0`/`$1` → param substitution and the FFI annotations stripped), and
+  externs with no `@wasm` impl are dropped (a call then fails clearly, not as an `extern` syntax error).
+  Extern-free blocks keep the byte-identical raw passthrough — no regression (the scala-cli → wasm compile
+  tests stay green). 3 new `WasmBackendTest` cases.
+- Reconciled the stale docs: `specs/arch-ffi.md` no longer claims "no WASM compilation target exists" (it
+  does). `@wasmExport`/`@wasmImport` (raw WASM ABI) stay out of scope **by design** — the Scala.js path
+  owns the wasm ABI, so they'd need a direct-emit wasm backend.
+
 ## 2026-06-18 — docs: triage remaining roadmap items to honest status
 
 Worked through the remaining roadmap menu and resolved each to an accurate status instead of leaving
