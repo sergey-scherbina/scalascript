@@ -1,6 +1,0 @@
-feature/wasm-tidy 2026-06-18T08:44:30Z
-agent: claude
-heartbeat: 2026-06-18T08:44:30Z
-status: in-progress
-done-so-far: claim; WASM backend exists (Scala.js->wasm via scala-cli --js-emit-wasm, raw-source passthrough). @wasm FFI not wired; extern defs choke scalac; docs stale ("no WASM target")
-next: WasmGen handles extern defs (emit @wasm("expr") as def body w/ $N subst; drop plain externs; strip FFI annots); fix arch-ffi/BACKLOG/SPRINT; gated test
