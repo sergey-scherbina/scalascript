@@ -1,6 +1,0 @@
-feature/macro-crossmodule-js 2026-06-18T07:02:18Z
-agent: claude
-heartbeat: 2026-06-18T07:02:18Z
-status: in-progress
-done-so-far: claim from main; JVM cross-module done; JS design = Approach A entry-hook (local .ssc imports only) + genImport strip
-next: MacroCodegen.expand(module, baseDir) resolves local .ssc imports for the call table; JsGen entry hooks pass baseDir; genImport strips childModule; JS cross-module conformance test
