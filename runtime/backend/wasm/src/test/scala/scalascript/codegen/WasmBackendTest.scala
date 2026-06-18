@@ -214,6 +214,38 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
     p.waitFor()
     out.trim shouldBe "40"
 
+  // wasm-effects-3: collection HOFs on an Any-typed effect result lower to
+  // `_dispatch` (which calls _seqMap/_seqFilter/…). map(*2)=[2,4,6], filter(>4)=[6], head=6.
+  private val effectCollProg =
+    """effect Items:
+      |  def get(): List[Int]
+      |
+      |def process(): Int =
+      |  val xs = Items.get()
+      |  val doubled = xs.map(x => x * 2)
+      |  val big = doubled.filter(x => x > 4)
+      |  big.head
+      |
+      |@main def main(): Unit =
+      |  val r = handle(process()) {
+      |    case Items.get(resume) => resume(List(1, 2, 3))
+      |  }
+      |  println(r)""".stripMargin
+
+  test("effects with collection HOFs in body RUN on wasm (_dispatch over Any)"):
+    assume(hasWasmSupport, "scala-cli --js-wasm not available")
+    assume(hasNode, "node not available")
+    val bundle = WasmGen.compileToWasm(module(effectCollProg))
+    bundle.wasmBytes should not be empty
+    val dir = os.temp.dir(prefix = "ssc-wasm-eff-coll-")
+    os.write(dir / "main.wasm", bundle.wasmBytes)
+    os.write(dir / "main.mjs",  bundle.mainJs)
+    os.write(dir / "__loader.js", bundle.loaderJs)
+    val p = ProcessBuilder("node", (dir / "main.mjs").toString).directory(dir.toIO).start()
+    val out = scala.io.Source.fromInputStream(p.getInputStream).mkString
+    p.waitFor()
+    out.trim shouldBe "6"
+
   // ── Phase 3: //> using directive hoisting ────────────────────────────────
 
   test("collectSource hoists //> using dep directive to top of output"):
