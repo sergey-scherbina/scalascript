@@ -1,6 +1,0 @@
-feature/wasm-effects-triage 2026-06-18T10:57:35Z
-agent: claude
-heartbeat: 2026-06-18T10:57:35Z
-status: in-progress
-done-so-far: PROBED effects-on-wasm: JvmGen effect output COMPILES on Scala.js but the linker CRASHES on the 300KB+ JvmGen preamble (general, not effect-specific) -> reuse blocked; needs a Scala.js-compatible effect runtime + CPS lowering (multi-day)
-next: WasmGen clear error for effects (not cryptic linker crash) + BACKLOG wasm-effects feature scope; honest report
