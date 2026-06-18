@@ -22,11 +22,11 @@ or blocked/deferred (kept for record, NOT actionable now — see "Excluded from 
 
 > **Status 2026-06-18 (autonomous pass):** queue worked top-to-bottom. #1 meta-v2-track-c —
 > verified already complete (no build). #2 sbt-plugin dep-resolution — ✓ built + tested (residuals
-> design-/Maven-gated). #3 wasm-effects — arithmetic (2a) + `_dispatch` collection-HOFs (2b) + multi-shot
-> (2c) slices ✓ built + run-verified on node; only cross-module effects remain. #4 build-registry-phase4 —
-> assessed, no concrete target → no action. What remains is design-gated / Maven-gated / one last wasm slice:
-> wasm-effects cross-module (imported `effect`), `sscBackends` cross-build (spec open-Q #2 design decision),
-> and Maven publication (LAST).
+> design-/Maven-gated). #3 wasm-effects — **effectively COMPLETE**: arithmetic (2a) + `_dispatch`
+> collection-HOFs (2b) + multi-shot (2c) + cross-module (2d) all built + run-verified on node (36 tests);
+> only a minor `@main`-args edge remains. #4 build-registry-phase4 — assessed, no concrete target → no
+> action. **What remains is design-gated / Maven-gated only:** `sscBackends` cross-build (spec open-Q #2
+> design decision) and Maven publication (LAST). No bounded autonomous build work left.
 
 - [x] **meta-v2-track-c** ✓ DONE 2026-06-18 (verified, no build needed) — Track C is COMPLETE. C1
       (multi-clause inline) ✓ done 2026-06-18. C2's high-value slice ✓ already done + wired:
@@ -52,8 +52,10 @@ or blocked/deferred (kept for record, NOT actionable now — see "Excluded from 
       `xs.map(..).filter(..).head` in a handler links + runs (test → 6); copied the pure subset of `_dispatch`
       + `_seqX`/`_seq`/`_isFree`, reflection fallback → clear error. **multi-shot ✓ DONE (slice 2c):** did NOT
       need a `_handle` rewrite (probe disproved it) — just the pure `_anyFlatMap` helper + a `usesEffects` fix
-      to recognise `multi effect Foo:`; NonDet `{1,2}×{10,20}` runs on node (test → 4). REMAINING: (a)
-      cross-module effects (imported `effect`); (b) `@main` args/non-Unit. BACKLOG `wasm-effects`.
+      to recognise `multi effect Foo:`; NonDet `{1,2}×{10,20}` runs on node (test → 4). **cross-module ✓ DONE
+      (slice 2d, no code change):** an imported `effect` already works — `generateUserOnly` resolves imports via
+      `baseDir`; run test → `hello\nworld`. **Effectively COMPLETE (36 tests):** common + advanced cases all run;
+      only the minor `@main`-args/non-Unit edge remains. BACKLOG `wasm-effects`.
 - [x] **build-registry-phase4** ✓ ASSESSED → no action 2026-06-18 (demand-driven). Surveyed the ~24
       `*Registry` classes: they are domain-distinct (Preprocessor / Interpolator / Backend / Capability /
       Route / Command / GlueClasspath / GlueJsPreamble / …), each registering a different kind of thing —

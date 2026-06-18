@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — test(wasm): cross-module effects already work (wasm-effects effectively complete)
+
+The last wasm-effects follow-up needed **no code change**. A probe showed `JvmGen.generateUserOnly(module,
+baseDir)` already resolves local `.ssc` imports and lowers the whole graph — so an `effect` declared in an
+imported `lib.ssc` and only handled in the consumer lowers correctly (`object Log` + `_perform` + the
+inlined `shout()`), and `collectSource` inlines the declaration so `usesEffects` routes to the effect path.
+Added a run test ('cross-module effects RUN on wasm') that splits the effect declaration from its handler
+and runs the compiled `.wasm` via node → `hello\nworld`; 36 `WasmBackendTest` green. With this the
+wasm-effects follow-ups are complete — arithmetic (`_binOp`), collection HOFs (`_dispatch`), multi-shot
+(`_anyFlatMap`), and cross-module all run on wasm; only the minor `@main`-with-args/non-`Unit`-return edge
+remains.
+
 ## 2026-06-18 — feat(wasm): multi-shot resume in effects
 
 Follow-up slice — and it did **not** need a `_handle` rewrite (the earlier-feared blocker). The wasm

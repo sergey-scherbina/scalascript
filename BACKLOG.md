@@ -162,11 +162,14 @@ handles `@wasm` externs, local `.ssc` import inlining, and quoted macros (2026-0
       handler lowers to `_anyFlatMap` + `_dispatch(all,"length")`; only `_anyFlatMap` was missing — added it
       (pure-Scala). Also fixed `usesEffects` to recognise the `multi effect Foo:` form (it keyed on a leading
       `effect`, so multi-shot modules skipped CPS lowering and hit scala-cli raw). Test 'multi-shot effects RUN
-      on wasm' (NonDet `{1,2}×{10,20}`) → 4. **REMAINING (follow-up slices):** (a) cross-module effects (effect
-      declared in an imported `.ssc`) — `usesEffects` keys on a *local* `effect <Cap>:`; route imported-effect
-      consumers + feed the import into `generateUserOnly`. (b) `@main` with args / non-`Unit` return. (c) any
-      dynamic method outside the linkable `_dispatch` subset now errors clearly (was a reflection call on JVM).
-      All additive, wasm-only.
+      on wasm' (NonDet `{1,2}×{10,20}`) → 4. **cross-module ✓ DONE 2026-06-18 (slice 2d, no code change):** an
+      `effect` declared in an imported `.ssc` and only handled in the consumer already works — `generateUserOnly`
+      resolves local imports via `baseDir` and lowers the whole graph (`object Log` + `_perform` + inlined
+      `shout()`), and `collectSource` inlines the decl so `usesEffects` routes to the effect path. Verified by a
+      run test 'cross-module effects RUN on wasm' (lib.ssc declares + performs, consumer handles) → `hello\nworld`.
+      **Effectively COMPLETE for wasm — common + advanced cases all run** (36 `WasmBackendTest`). Only remaining
+      edge: `@main` with args / non-`Unit` return; and any dynamic method outside the linkable `_dispatch` subset
+      now errors clearly (was a reflection call on JVM). All additive, wasm-only.
 - [ ] **`@wasmExport` / `@wasmImport`** — raw WASM ABI export/import. Out of scope **by design** (the
       Scala.js path owns the wasm ABI); would need a direct-emit wasm backend, not the Scala.js one.
 
