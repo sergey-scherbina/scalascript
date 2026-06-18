@@ -20,11 +20,15 @@ The genuine remaining **autonomously-actionable** build work, in priority order.
 one theme at a time, per-feature worktrees + claims. Everything below the queue is either history (`[x]`)
 or blocked/deferred (kept for record, NOT actionable now — see "Excluded from the sprint").
 
-- [ ] **meta-v2-track-c** (roadmap #5, the LAST open meta-v2 slice) — Track C of `metaprogramming-v2`.
-      C1 (multi-clause inline) ✓ done 2026-06-18. **C2 OPEN:** post-expansion re-typecheck of the
-      expanded macro source + source-positioned errors (so a macro that produces ill-typed code fails at
-      the call site, not deep in generated text). Spec `specs/arch-metaprogramming-v2.md` §4b Track C.
-      Days-per-slice. **← next pick.**
+- [x] **meta-v2-track-c** ✓ DONE 2026-06-18 (verified, no build needed) — Track C is COMPLETE. C1
+      (multi-clause inline) ✓ done 2026-06-18. C2's high-value slice ✓ already done + wired:
+      `MacroCodegen.codegenWarnings(module)` is computed in `ssc check` (`Main.scala:5265`, merged into
+      `CheckResult.errors:5267`) and warns up-front on interpreter-only macros that can't compile to JVM/JS —
+      `MacroCodegenTest` 6/6 green. The remaining C2 ambition (run the Typer over *arbitrary* macro-expanded
+      source, map type-errors to `.ssc` positions) is **DEFERRED by design** in the spec: needs a position
+      map (re-parse loses positions) + risks false positives (Typer may not grok expanded macro-runtime
+      constructs), niche audience — low ROI vs the codegen warning that covers the real failure mode. Building
+      it now = busywork against the spec's own judgment. **→ Next pick: sbt-plugin-finish.**
 - [ ] **sbt-plugin-finish** (roadmap #4, Phase 5) — `specs/arch-sbt-plugin.md` remaining surface:
       front-matter `dependencies:` → Coursier resolution, cross-build targets (`sscBackends` JVM/JS/WASM),
       LSP/BSP polish. Phases 1–4 landed. Publishing the plugin artifact itself = Maven-gated (NOT here).
