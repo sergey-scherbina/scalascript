@@ -93,7 +93,11 @@ class ExamplesSmokeTest extends AnyFunSuite:
     "hello.ssc", "script.ssc", "recursion.ssc", "functional.ssc", "enums.ssc",
     "extensions.ssc", "typeclass.ssc", "lenses.ssc", "generators.ssc",
     "default-params.ssc", "data-types.ssc", "imports.ssc", "index.ssc",
-    "custom-derives-mirror.ssc", "quoted-macro-interpreter.ssc", "lang-split.ssc",
+    "custom-derives-mirror.ssc", "quoted-macro-interpreter.ssc",
+    // quoted-macro-constfold exercises `Expr.asValue match` const-folding on the
+    // interpreter run path (literal arg → Some branch; `${ }` splice unwraps Expr).
+    "quoted-macro-constfold.ssc",
+    "lang-split.ssc",
     "content.ssc", "signals-demo.ssc", "storage-demo.ssc",
     "graph-storage-interpreter.ssc", "dataset-parallel-sum.ssc", "dataset-stats.ssc",
     // typed-data exercises `foreach(println)` end-to-end through Normalize (the bare
