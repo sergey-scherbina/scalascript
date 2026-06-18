@@ -1,0 +1,6 @@
+feature/wasm-effects-4 2026-06-18T12:57:13Z
+agent: claude
+heartbeat: 2026-06-18T12:57:13Z
+status: in-progress
+done-so-far: scoping multi-shot resume on wasm
+next: compare JVM _handle multi-shot semantics vs the wasm _handle; decide tractable-now vs deep-rewrite
