@@ -65,8 +65,11 @@ last — after everything else.**
    (Approach A entry-hook over local `.ssc` imports + `genImport` strip); moved to CHANGELOG. Follow-up:
    transitive cross-module macros on JS — the `genImport` strip uses no `baseDir`, so an imported module
    that itself calls a macro from its own imports isn't handled. Rare.)*
-6. **deferred perf** — `hof-glue-jit-compile` (whole-fn JIT of `combineAll`, needs using/summon JIT;
-   sub-15% ceiling) + `vectorize-pure-loop` (SIMD). Low ROI / high risk; revisit opportunistically.
+6. **deferred perf** — **CLOSED 2026-06-18 (re-measured; see the resolved entries below).**
+   `hof-glue-jit-compile` → DEFERRED to the dual-bank `LExpr` VM roadmap (the only remaining lever is whole-fn
+   JIT of `combineAll`, gated on that VM + `using`/given JIT support). `vectorize-pure-loop` → WONTFIX-until a
+   non-polynomial hot-loop workload appears (targets already bypass the loop via Gauss). `direct-style-eval`
+   → WONTFIX (data-disproven: `Pure` ≈16% alloc, dispatch ≈66% which it doesn't touch; 1261-site migration).
 7. **other extensibility themes** — **AUDIT 2026-06-17: most are already BUILT; specs were stale.**
    A (Plugin SPI — `BackendRegistry` exists), E (`ssc new`/install — in `Main`), F (DSL hooks — spec
    "implemented through Phase 4", `InterpolatorRegistry`), H (library modularity — spec "implemented
@@ -177,7 +180,17 @@ handles `@wasm` externs, local `.ssc` import inlining, and quoted macros (2026-0
 
 Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 -i 5 -f 1`).
 
-- [ ] **hof-glue-jit-compile** (deep; reframed from `hof-dispatch-cpu-devirt`, investigated
+- [x] **hof-glue-jit-compile** — **RESOLVED 2026-06-18 → DEFERRED to the dual-bank `LExpr` VM roadmap
+      (closed; stop re-investigating in isolation).** Re-measured on current main: `typeclassFoldMacro` =
+      **1.142 ms/op** vs `typeclassFold` = **0.005 ms/op** — the statically-typed fold fully JITs; the 228×
+      gap is purely the macro version's per-call given/summon glue. The −10.5% fused fast-path is intact and
+      `foldLeftReusing` (CallRuntime:212) already runs the fold as a native loop calling the bytecode-JIT'd
+      `combine` per element, so loop+combine are fast. The ONLY remaining lever is whole-function JIT of
+      `combineAll`, needing List-iteration opcodes in SscVm + a `foldLeft` recognizer in VmCompiler +
+      `using`-param/given-member-access support in the JIT — a large architectural effort gated on the
+      dual-bank `LExpr` VM work, risky (JIT is on every hot path). Big win is *possible* but it rides that VM
+      roadmap; NOT a bounded slice. History below.
+- [ ] ~~**hof-glue-jit-compile** (history)~~ (deep; reframed from `hof-dispatch-cpu-devirt`, investigated
       2026-06-13) — **PARTIAL interp slice landed 2026-06-13** (fused curried
       `List.foldLeft(z)(g)` fast-path in `evalApplyGeneral`: `typeclassFoldMacro` 1.259 → 1.127
       ms/op, **−10.5%**; `FusedFoldLeftTest`). The **full lever is still open.**
@@ -206,7 +219,14 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       in the JIT** (not just a foldLeft recognizer). Confirmed DEFER: too large + too risky (JIT is
       on every hot path) for the ≤15% ceiling; revisit only with the dual-bank `LExpr` VM work.
 
-- [ ] **vectorize-pure-loop** — Use `jdk.incubator.vector.LongVector` inside
+- [x] **vectorize-pure-loop** — **RESOLVED 2026-06-18 → WONTFIX-until-a-motivating-workload (closed).**
+      Confirmed on current main: `jdk.incubator.vector`/`LongVector` is referenced **nowhere** (truly
+      unstarted), and `pureCallSum*` are computed by the Gauss closed-form in `walkLinearPoly`
+      (EvalRuntime:1835/1872) — they **bypass the loop entirely**, so SIMD would help them 0%. There is no
+      non-polynomial hot-loop benchmark that motivates it, and the cost (incubator `--add-modules`, ABI
+      churn, tail-loop handling) is real. Do NOT build speculatively; revisit ONLY if a concrete
+      non-polynomial pure-arithmetic hot loop appears as a real workload. Original sketch below.
+- [ ] ~~**vectorize-pure-loop** (history)~~ — Use `jdk.incubator.vector.LongVector` inside
       `tryCompileWhileLong` to batch 4–8 lanes when the body is pure arithmetic
       on the counter. Expected 4–8× speedup on `pureCallSumIf` (if the recognized
       grammar for `walkLinearPoly` is extended) and similar shapes. `pureCallSum*`
@@ -221,7 +241,14 @@ These items come from the 2026-05-30 project-state review. They are intentionall
 ordered to reduce risk: spec and hygiene first, broad implementation only after
 the contracts are explicit.
 
-- [ ] **direct-style-eval** (DEFERRED — data-disproven) — migrate `eval(...): Computation`
+- [x] **direct-style-eval** — **RESOLVED 2026-06-18 → WONTFIX (closed; data-disproven, do not start).**
+      Re-confirmed on current main: `Computation.Pure` is constructed at **1261 sites** (even larger than the
+      earlier ~530 estimate), and the allocation split is unchanged — `Pure` ≈16%, dispatch machinery ≈66%,
+      which a direct-style `eval(...): Value` migration **does not touch**. So the wall-clock ceiling is below
+      the ≥15% gate against a 1200-site, high-risk migration. The win these shapes want is JIT/devirt, not
+      direct-style. Do NOT start without a real workload where `Pure` dominates a *tree-walked* path. Original
+      below.
+- [ ] ~~**direct-style-eval** (history)~~ (DEFERRED — data-disproven) — migrate `eval(...): Computation`
       to direct-style `eval(...): Value` to kill per-call `Pure` allocation. **Re-validated
       2026-06-13** (`specs/direct-style-eval-spec.md` §11.1): on the representative tree-walked
       workload `Computation.Pure` is only ~16% of allocation; the dispatch machinery (~66%)

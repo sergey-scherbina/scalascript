@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — chore(perf): close out the three deferred perf items (re-measured)
+
+The three perennially-re-investigated deferred perf items now have permanent, data-backed verdicts (3rd+
+round) so they stop being re-litigated. Re-measured on current main:
+
+- **hof-glue-jit-compile** → **DEFERRED to the dual-bank `LExpr` VM roadmap.** `typeclassFoldMacro` =
+  1.142 ms/op vs `typeclassFold` = 0.005 ms/op — the static fold fully JITs; the 228× gap is the macro
+  version's per-call given/summon glue. Loop+combine are already native+JIT'd (`foldLeftReusing`); the only
+  lever left is whole-function JIT of `combineAll`, which needs SscVm List-iteration opcodes + a `foldLeft`
+  recognizer + `using`/given-member JIT support — gated on the LExpr VM work, not a bounded slice.
+- **vectorize-pure-loop** → **WONTFIX until a motivating workload.** `jdk.incubator.vector` is unreferenced;
+  `pureCallSum*` bypass the loop via the Gauss closed-form (`walkLinearPoly`) so SIMD helps them 0%. No
+  non-polynomial hot loop exists to justify the incubator dependency / ABI churn.
+- **direct-style-eval** → **WONTFIX (data-disproven).** `Computation.Pure` is built at 1261 sites; alloc is
+  ~16% Pure / ~66% dispatch (untouched by the migration) → sub-15% win for a 1200-site high-risk change.
+
+No code change — these are close-outs with fresh numbers; the project's micro-perf is at its floor.
+
 ## 2026-06-18 — feat(sbt-plugin): `sscBackends` cross-build
 
 Resolves `arch-sbt-plugin.md` open-question #2 → **design A (parallel outputs in one `compile`)**, the fit
