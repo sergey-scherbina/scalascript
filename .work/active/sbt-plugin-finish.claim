@@ -1,0 +1,6 @@
+feature/sbt-plugin-finish 2026-06-18T11:59:15Z
+agent: claude
+heartbeat: 2026-06-18T11:59:15Z
+status: in-progress
+done-so-far: starting — auditing arch-sbt-plugin.md Phase 5 vs existing sbt plugin code
+next: identify real gaps (dependencies->Coursier, sscBackends cross-build, LSP/BSP) vs already-built
