@@ -1,8 +1,8 @@
 # sbt-scalascript Plugin — Full Completion Spec
 
 Status: **partially implemented**. Phases 1, 2, 3, and 4 landed on
-2026-05-29; Phase 5 **dependency resolution** landed 2026-06-18 (Maven
-publication + Plugin Portal remain, Maven-gated).
+2026-05-29; Phase 5 **dependency resolution** + **`sscBackends` cross-build**
+landed 2026-06-18 (Maven publication + Plugin Portal remain, Maven-gated).
 Tracked as `arch-sbt-plugin` milestone in `BACKLOG.md`.
 Current state: `tools/sbt-plugin/` contains the existing `sscGenerateFacade`
 task plus Phase 1 source-convention compilation (`sscSourceDirectories`,
@@ -11,7 +11,9 @@ task plus Phase 1 source-convention compilation (`sscSourceDirectories`,
 `sscTestResultsDir`, `SscTestFramework`), Phase 4 developer tooling
 (`sscRepl`, `sscRun`, `sscWatch`, `sscBspSetup`, `BspIntegration`), and the
 Phase 5 dep-resolution wiring (`sscManagedDependencies` + `SscFrontMatter`).
-The only remaining surface is Maven Central publication of the plugin itself.
+The only remaining surface is Maven Central publication of the plugin itself
+(plus the `sscBackends` cross-build axis, `sscCompile` building each backend in
+one `compile` — landed 2026-06-18).
 
 ---
 
@@ -305,6 +307,12 @@ Phase 2 (Coursier wiring), which is already implemented.
 1. Should `sscCompile` fork `ssc` or call it in-process via a launcher
    classloader?  Fork is safer (no classpath pollution); in-process would
    enable better incremental signals.
-2. Should `sscBackends` (plural) produce parallel outputs in one `sbt compile`,
-   or require separate sbt configurations (like `js` / `jvm` cross-build)?
+2. ~~Should `sscBackends` (plural) produce parallel outputs in one `sbt compile`,
+   or require separate sbt configurations (like `js` / `jvm` cross-build)?~~
+   **RESOLVED 2026-06-18 → parallel outputs in one `compile`** (design A; fits the
+   plugin's thin fork-the-CLI model — separate configs would turn a CLI-flag axis
+   into a cross-project framework). `sscBackends: Seq[String]` (default
+   `Seq(sscBackend.value)`); `sscCompile` forks `ssc build --backend <b>` per
+   backend; a single backend writes the flat `sscArtifactDir` (backward-compatible),
+   multiple write `sscArtifactDir/<backend>/`. Scripted `cross-build/`.
 3. Should `sscRepl` attach to sbt's stdin (blocking) or spawn a terminal emulator?

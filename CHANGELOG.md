@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — feat(sbt-plugin): `sscBackends` cross-build
+
+Resolves `arch-sbt-plugin.md` open-question #2 → **design A (parallel outputs in one `compile`)**, the fit
+for the plugin's thin fork-the-CLI model (separate sbt configs would turn a CLI-flag axis into a
+cross-project framework). New `sscBackends: Seq[String]` setting (default `Seq(sscBackend.value)`);
+`sscCompile` forks `ssc build --backend <b>` once per backend. A single backend (the default) writes the
+flat `sscArtifactDir` — byte-identical to before (backward-compatible); multiple backends each write
+`sscArtifactDir/<backend>/`. Scripted `cross-build/` (`Seq("jvm","js")` → per-backend markers with the
+right backend id); full scripted suite green (10 tests). Cross-build *publication* stays Maven-gated.
+
 ## 2026-06-18 — test(wasm): cross-module effects already work (wasm-effects effectively complete)
 
 The last wasm-effects follow-up needed **no code change**. A probe showed `JvmGen.generateUserOnly(module,

@@ -25,8 +25,9 @@ or blocked/deferred (kept for record, NOT actionable now — see "Excluded from 
 > design-/Maven-gated). #3 wasm-effects — **effectively COMPLETE**: arithmetic (2a) + `_dispatch`
 > collection-HOFs (2b) + multi-shot (2c) + cross-module (2d) all built + run-verified on node (36 tests);
 > only a minor `@main`-args edge remains. #4 build-registry-phase4 — assessed, no concrete target → no
-> action. **What remains is design-gated / Maven-gated only:** `sscBackends` cross-build (spec open-Q #2
-> design decision) and Maven publication (LAST). No bounded autonomous build work left.
+> action. Then `sscBackends` cross-build ✓ DONE (user picked spec open-Q #2 → parallel outputs in one
+> `compile`; scripted `cross-build/`). **What remains is Maven-gated only:** Maven Central + Plugin Portal
+> publication (LAST, explicit-go). No bounded autonomous build work left.
 
 - [x] **meta-v2-track-c** ✓ DONE 2026-06-18 (verified, no build needed) — Track C is COMPLETE. C1
       (multi-clause inline) ✓ done 2026-06-18. C2's high-value slice ✓ already done + wired:
@@ -41,11 +42,13 @@ or blocked/deferred (kept for record, NOT actionable now — see "Excluded from 
       actionable Phase 5 slice. `SscFrontMatter` lifts `.ssc` front-matter `dependencies:` `dep:` Maven
       coords into `sscManagedDependencies` → `libraryDependencies` (Java `%`, Scala-cross `%%`, local paths
       ignored); scripted `dep-resolution/` + full scripted suite green (9). Spec §3h/Phase 5 reconciled.
-      RESIDUALS (NOT done): (a) `sscBackends` plural cross-build — blocked on spec open-Q #2 (parallel
-      outputs in one compile vs separate configs — a design decision, not autonomous); (b) LSP/BSP "polish"
-      — `BspIntegration`/`sscBspSetup` already landed Phase 4, no concrete remaining deliverable; (c) Maven
-      Central publish + Plugin Portal — Maven-gated (LAST). So the buildable remainder here is design-gated
-      or Maven-gated.
+      **`sscBackends` cross-build ✓ DONE 2026-06-18** (user picked spec open-Q #2 → design A = parallel
+      outputs in one `compile`): `sscBackends: Seq[String]` (default `Seq(sscBackend)`); `sscCompile` forks
+      `ssc build --backend <b>` per backend — single = flat dir (backward-compat), multiple = per-backend
+      subdirs. Scripted `cross-build/`; full suite green (10). RESIDUALS (NOT done): (a) LSP/BSP "polish" —
+      `BspIntegration`/`sscBspSetup` already landed Phase 4, no concrete remaining deliverable; (b) Maven
+      Central publish + Plugin Portal — Maven-gated (LAST). So the only buildable remainder here is
+      Maven-gated.
 - [~] **wasm-effects** (follow-up slices to the 2026-06-18 first slice) — additive, wasm-only.
       **arithmetic ✓ DONE (slice 2a):** `_binOp` (+`_bigIntOp`/`_bigDecOp`) — `a + b`/`sum * 2` over effect-op
       results link + run (test → 40). **`_dispatch` ✓ DONE (slice 2b):** collection HOFs on `Any` —
