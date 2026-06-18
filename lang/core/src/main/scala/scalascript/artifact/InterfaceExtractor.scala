@@ -410,22 +410,31 @@ object InterfaceExtractor:
       val ret = typeToString(d.decltpe)
       if paramText.isEmpty then ret else s"$paramText: $ret"
 
-    /** arch-meta-v2-p3 — Extract `inline def` metadata.
+    /** arch-meta-v2-p3 / C1 — Extract `inline def` metadata.
      *
-     *  Returns `Some((paramNames, bodySource))` when `d` is an `inline def`
-     *  with a single, simple parameter clause (no `using`/`given` clauses)
-     *  and a single-expression body.  Returns `None` for non-inline defs,
-     *  multi-clause defs, and defs whose body is not a single term. */
+     *  Returns `Some((firstClauseParamNames, bodySource))`. For a **single**
+     *  parameter clause (`inline def f(a, b) = body`) the body is the def body
+     *  verbatim. For **multiple** clauses (`inline def f(a)(b) = body`) the tail
+     *  clauses are curried into the body — `((b) => body)` — so the existing
+     *  single-clause call-site scanner expands `f(x)(y)` to
+     *  `((a) => (b) => body)(x)(y)` with no scanner change: it rewrites the
+     *  first clause and leaves the trailing `(y)` as an ordinary application.
+     *  `using`/`given` clauses are dropped (resolved by the compiler).
+     *  Returns `None` for non-inline defs. */
     def extractInlineInfo(d: Defn.Def): Option[(List[String], String)] =
       if !d.mods.exists(_.is[Mod.Inline]) then None
       else
-        // Only inline single-clause defs for now; multi-clause is deferred.
         val clauses = d.paramClauseGroups.flatMap(_.paramClauses)
           .filterNot(_.values.exists(_.mods.exists(_.is[Mod.Using])))
-        if clauses.size > 1 then None
-        else
-          val params = clauses.headOption.map(_.values.map(_.name.value)).getOrElse(Nil)
-          Some(params -> d.body.syntax)
+          .map(_.values.map(_.name.value))
+        clauses match
+          case Nil            => Some(Nil   -> d.body.syntax)   // zero-arg
+          case first :: Nil   => Some(first -> d.body.syntax)   // single clause (unchanged)
+          case first :: rest  =>                                // multi-clause → curry the tail
+            val curriedBody = rest.foldRight(d.body.syntax) { (clauseParams, acc) =>
+              s"(${clauseParams.mkString(", ")}) => $acc"
+            }
+            Some(first -> curriedBody)
 
     /** arch-meta-v2-p4 — Extract restricted quoted macro entrypoints.
      *

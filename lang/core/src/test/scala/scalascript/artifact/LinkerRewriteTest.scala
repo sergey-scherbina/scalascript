@@ -447,6 +447,19 @@ class LinkerRewriteTest extends AnyFunSuite:
     val result = Linker.expandInlineSource("""val s = "double(5)"""", table)
     assert(result == """val s = "double(5)"""", s"string contents must not be expanded: $result")
 
+  test("expandInlineSource — multi-clause inline (C1): curried tail leaves trailing arg clause"):
+    // arch-meta-v2 Track C1: `inline def add(a)(b) = a + b` is stored as
+    // (firstClause=[a], curriedBody="(b) => a + b"). The scanner rewrites the
+    // first clause and leaves `(2)` as an ordinary application → curried call.
+    val table = Map("add" -> (List("a") -> "(b) => a + b"))
+    val result = Linker.expandInlineSource("val z = add(1)(2)", table)
+    assert(result == "val z = ((a) => (b) => a + b)(1)(2)", s"unexpected expansion: $result")
+
+  test("expandInlineSource — three-clause inline (C1)"):
+    val table = Map("f" -> (List("a") -> "(b) => (c) => a + b + c"))
+    val result = Linker.expandInlineSource("f(1)(2)(3)", table)
+    assert(result == "((a) => (b) => (c) => a + b + c)(1)(2)(3)", s"unexpected: $result")
+
   test("expandInlineSource — nested parens in args parsed correctly"):
     val table = Map("neg" -> (List("x") -> "-x"))
     val result = Linker.expandInlineSource("neg(f(g(1, 2), 3))", table)

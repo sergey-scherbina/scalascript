@@ -511,6 +511,30 @@ class InterfaceExtractorTest extends AnyFunSuite:
     assert(sym.inlineBodySource.contains("x * 2"),
       s"expected body 'x * 2', got: ${sym.inlineBodySource}")
 
+  test("inline def — multi-clause (C1): first clause params + curried-tail body"):
+    val iface = extract("inline def add(a: Int)(b: Int): Int = a + b")
+    val sym = iface.exports.find(_.name == "add").getOrElse {
+      fail(s"expected 'add' in exports; got: ${iface.exports.map(_.name)}")
+    }
+    assert(sym.isInline, "isInline should be true for multi-clause `inline def`")
+    assert(sym.inlineParamNames == List("a"),
+      s"expected first-clause paramNames=[a], got: ${sym.inlineParamNames}")
+    // tail clause is curried into the body so the existing scanner produces a
+    // curried call site (`((a) => (b) => a + b)(x)(y)`).
+    val body = sym.inlineBodySource.getOrElse("")
+    assert(body.contains("(b) =>") && body.contains("a + b"),
+      s"expected curried body '(b) => a + b', got: $body")
+
+  test("inline def — multi-clause drops a trailing `using` clause (C1)"):
+    val iface = extract("inline def scaled(a: Int)(b: Int)(using f: Int): Int = a + b + f")
+    val sym = iface.exports.find(_.name == "scaled").getOrElse {
+      fail(s"expected 'scaled' in exports; got: ${iface.exports.map(_.name)}")
+    }
+    assert(sym.inlineParamNames == List("a"), s"got: ${sym.inlineParamNames}")
+    val body = sym.inlineBodySource.getOrElse("")
+    assert(body.contains("(b) =>") && !body.contains("using") && !body.contains("(f)"),
+      s"using clause must be dropped, got: $body")
+
   test("inline def — non-inline def leaves isInline=false"):
     val iface = extract("def add(a: Int, b: Int): Int = a + b")
     val sym = iface.exports.find(_.name == "add").getOrElse {
