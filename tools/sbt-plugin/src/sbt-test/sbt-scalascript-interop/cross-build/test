@@ -1,0 +1,7 @@
+# sscBackends cross-build: one `compile` builds every backend into per-backend
+# artifact subdirs (sscArtifactDir/<backend>/). Single backend stays flat (see
+# compile-sources). Verifies spec open-Q #2 resolution (parallel outputs).
+> compile
+$ exists target/ssc-artifacts/jvm/compiled.marker
+$ exists target/ssc-artifacts/js/compiled.marker
+> checkBackends

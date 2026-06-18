@@ -33,6 +33,8 @@ import sbt.plugins.JvmPlugin
  *  - `sscBinary`       — path to the `ssc` binary (default: "ssc" on PATH).
  *  - `sscSourceDirectories` — source directories containing `.ssc` files.
  *  - `sscBackend`      — backend passed to `ssc build --incremental`.
+ *  - `sscBackends`     — cross-build target backends; `sscCompile` builds each
+ *    in one `compile` (single = flat dir, multiple = per-backend subdirs).
  *  - `sscManagedDependencies` — Maven `dep:` coordinates lifted from `.ssc`
  *    front-matter `dependencies:` and added to `libraryDependencies` (Phase 5).
  *
@@ -63,6 +65,11 @@ object ScalascriptInteropPlugin extends AutoPlugin {
     )
     val sscBackend = settingKey[String](
       "ScalaScript backend passed to `ssc build --incremental`."
+    )
+    val sscBackends = settingKey[Seq[String]](
+      "Cross-build target backends. `sscCompile` builds each in one `compile`; a " +
+      "single backend (the default, Seq(sscBackend)) writes to the flat sscArtifactDir, " +
+      "multiple write to per-backend subdirectories sscArtifactDir/<backend>/."
     )
     val sscExtraArgs = settingKey[Seq[String]](
       "Extra arguments appended to `ssc build --incremental`."
@@ -107,6 +114,7 @@ object ScalascriptInteropPlugin extends AutoPlugin {
   override def projectSettings: Seq[Setting[_]] = Seq(
     sscBinary := "ssc",
     sscBackend := "jvm",
+    sscBackends := Seq(sscBackend.value),
     sscExtraArgs := Seq.empty,
     Compile / sscSourceDirectories := Seq((Compile / sourceDirectory).value / "scalascript"),
     Test / sscSourceDirectories := Seq((Test / sourceDirectory).value / "scalascript"),
@@ -132,28 +140,36 @@ object ScalascriptInteropPlugin extends AutoPlugin {
       val dirs = (Compile / sscSourceDirectories).value.filter(_.isDirectory)
       val sourceDirs = dirs.filter(dir => (dir ** "*.ssc").get().nonEmpty)
       val artifactDir = (Compile / sscArtifactDir).value
+      val backends = sscBackends.value
       val log = streams.value.log
       if (sourceDirs.isEmpty) {
         log.info("[ssc] no .ssc sources found")
         Seq.empty[File]
       } else {
-        IO.createDirectory(artifactDir)
-        sourceDirs.foreach { dir =>
-          SscRunner.run(
-            binary = sscBinary.value,
-            args = Seq(
-              "build",
-              "--incremental",
-              dir.getAbsolutePath,
-              "--artifact-dir",
-              artifactDir.getAbsolutePath,
-              "--backend",
-              sscBackend.value
-            ) ++ sscExtraArgs.value,
-            log = log
-          )
-        }
-        (artifactDir ** "*").get().filter(_.isFile).toSeq
+        // Cross-build: one `compile` builds every backend in `sscBackends`. A
+        // single backend writes to the flat artifactDir (backward-compatible);
+        // multiple backends each write to artifactDir/<backend>/ so outputs
+        // don't collide.
+        backends.flatMap { backend =>
+          val outDir = if (backends.lengthCompare(1) <= 0) artifactDir else artifactDir / backend
+          IO.createDirectory(outDir)
+          sourceDirs.foreach { dir =>
+            SscRunner.run(
+              binary = sscBinary.value,
+              args = Seq(
+                "build",
+                "--incremental",
+                dir.getAbsolutePath,
+                "--artifact-dir",
+                outDir.getAbsolutePath,
+                "--backend",
+                backend
+              ) ++ sscExtraArgs.value,
+              log = log
+            )
+          }
+          (outDir ** "*").get().filter(_.isFile).toSeq
+        }.distinct
       }
     },
 

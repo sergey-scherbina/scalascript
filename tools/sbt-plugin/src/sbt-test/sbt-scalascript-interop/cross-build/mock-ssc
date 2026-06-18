@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "$1" = "generate-facade" ]; then
+  mkdir -p "$4"
+  exit 0
+fi
+
+if [ "$1" != "build" ] || [ "$2" != "--incremental" ]; then
+  echo "[mock-ssc] expected: build --incremental <src-dir> --artifact-dir <dir> --backend <id>" >&2
+  exit 1
+fi
+
+SRC_DIR="$3"
+ARTIFACT_DIR=""
+BACKEND=""
+shift 3
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --artifact-dir)
+      ARTIFACT_DIR="$2"; shift 2 ;;
+    --backend)
+      BACKEND="$2"; shift 2 ;;
+    *)
+      shift ;;
+  esac
+done
+
+if [ -z "$ARTIFACT_DIR" ] || [ -z "$BACKEND" ]; then
+  echo "[mock-ssc] missing artifact dir or backend" >&2
+  exit 1
+fi
+
+mkdir -p "$ARTIFACT_DIR"
+printf 'src=%s\nbackend=%s\n' "$SRC_DIR" "$BACKEND" > "$ARTIFACT_DIR/compiled.marker"
