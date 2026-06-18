@@ -278,6 +278,34 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
     p.waitFor()
     out.trim shouldBe "4"
 
+  // wasm-effects-5: cross-module effect — `effect Log` + `shout()` are declared in
+  // an imported lib.ssc; the consumer only handles them. generateUserOnly resolves
+  // the import (via baseDir) and lowers the whole graph.
+  test("cross-module effects RUN on wasm (effect declared in an imported .ssc)"):
+    assume(hasWasmSupport, "scala-cli --js-wasm not available")
+    assume(hasNode, "node not available")
+    val proj = os.temp.dir(prefix = "ssc-wasm-eff-xmod-")
+    os.write(proj / "lib.ssc",
+      "# Lib\n\n```scalascript\n" +
+        "effect Log:\n  def write(s: String): Unit\n\n" +
+        "def shout(): Unit =\n  Log.write(\"hello\")\n  Log.write(\"world\")\n```\n")
+    val consumer = Parser.parse(
+      "# Consumer\n\n[shout](lib.ssc)\n\n```scalascript\n" +
+        "@main def main(): Unit =\n" +
+        "  handle(shout()) {\n" +
+        "    case Log.write(msg, resume) => println(msg); resume(())\n" +
+        "  }\n```\n")
+    val bundle = WasmGen.compileToWasm(consumer, Some(proj))
+    bundle.wasmBytes should not be empty
+    val dir = os.temp.dir(prefix = "ssc-wasm-eff-xmod-run-")
+    os.write(dir / "main.wasm", bundle.wasmBytes)
+    os.write(dir / "main.mjs",  bundle.mainJs)
+    os.write(dir / "__loader.js", bundle.loaderJs)
+    val p = ProcessBuilder("node", (dir / "main.mjs").toString).directory(dir.toIO).start()
+    val out = scala.io.Source.fromInputStream(p.getInputStream).mkString
+    p.waitFor()
+    out.trim shouldBe "hello\nworld"
+
   // ── Phase 3: //> using directive hoisting ────────────────────────────────
 
   test("collectSource hoists //> using dep directive to top of output"):
