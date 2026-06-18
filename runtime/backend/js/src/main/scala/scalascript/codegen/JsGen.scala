@@ -63,7 +63,7 @@ object JsGen:
     val gen = new JsGen(baseDir, intrinsics, lockPath)
     // arch-meta-v2 macro-codegen-backends — expand restricted quoted macros to
     // plain code before codegen (no-op for macro-free modules).
-    gen.genModule(scalascript.artifact.MacroCodegen.expand(module))
+    gen.genModule(scalascript.artifact.MacroCodegen.expand(module, baseDir))
 
   /** Generate segments in document order, preserving scala/scalascript interleaving.
    *  Tree-shaking is OFF by default to preserve the existing API behaviour.
@@ -76,7 +76,7 @@ object JsGen:
       noTreeShake: Boolean = true
   ): List[Segment] =
     // arch-meta-v2 macro-codegen-backends — expand macros before tree-shaking + codegen.
-    val module = scalascript.artifact.MacroCodegen.expand(moduleIn)
+    val module = scalascript.artifact.MacroCodegen.expand(moduleIn, baseDir)
     val shakeResult =
       if noTreeShake then None
       else Some(TreeShaker.shake(module))
@@ -283,7 +283,7 @@ object JsGen:
       lockPath:    Option[os.Path] = None,
       noTreeShake: Boolean = true
   ): String =
-    generateWithStats(scalascript.artifact.MacroCodegen.expand(module), baseDir, intrinsics, lockPath, noTreeShake)._1
+    generateWithStats(scalascript.artifact.MacroCodegen.expand(module, baseDir), baseDir, intrinsics, lockPath, noTreeShake)._1
 
   /** Stdlib runtime singleton methods that can be emitted as direct JS calls
    *  (`Stream.emit(x)`) instead of `_dispatch(Stream, 'emit', [x])`.
@@ -1943,7 +1943,11 @@ class JsGen(
       else resolveStdImportFromProjectTree(imp.path, base).getOrElse(initiallyResolved)
     if !os.exists(resolvedPath) then return
     val key         = resolvedPath.toString
-    val childModule = Parser.parse(os.read(resolvedPath))
+    // arch-meta-v2 macro-codegen-backends (cross-module) — strip the imported
+    // module's own quoted-macro defs before inlining its blocks (the consumer's
+    // call sites were already expanded against these by the entry-hook pass).
+    // No baseDir → no recursive import resolution here (no-op for macro-free imports).
+    val childModule = scalascript.artifact.MacroCodegen.expand(Parser.parse(os.read(resolvedPath)))
     if !importedFiles.contains(key) then
       importedFiles += key
       val childDir = resolvedPath / os.up

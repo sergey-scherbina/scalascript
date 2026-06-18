@@ -23,13 +23,39 @@ object MacroCodegen:
 
   given Dialect = dialects.Scala3
 
-  /** Single-module path — expand + strip quoted macros in one parsed module
-   *  (defs and call sites both in this module). No-op when the module declares
-   *  no expandable macro entrypoints. */
-  def expand(module: Module): Module =
-    val (table, stripSet) = collectMacros(module)
-    if table.isEmpty then module
-    else module.copy(sections = module.sections.map(s => rewriteSection(s, table, stripSet)))
+  /** Expand + strip quoted macros in one parsed module. The module's OWN macro
+   *  defs are stripped and its call sites expanded; when `baseDir` is given, the
+   *  call table is also seeded with macros from **local `.ssc` imports** so a
+   *  macro defined in an imported module and called here is expanded too (the
+   *  JS cross-module path — `JsGen` strips the imported defs separately when it
+   *  inlines the import). Only local relative `.ssc` imports are resolved (no
+   *  `ImportResolver` download, no std/external parse). No-op when the resulting
+   *  call table is empty. */
+  def expand(module: Module, baseDir: Option[os.Path] = None): Module =
+    val (localTable, localStrip) = collectMacros(module)
+    val importedTable = baseDir.map(b => collectImportedMacroTable(module, b)).getOrElse(Map.empty)
+    val callTable     = importedTable ++ localTable   // local defs win on a name clash
+    if callTable.isEmpty then module
+    else module.copy(sections = module.sections.map(s => rewriteSection(s, callTable, localStrip)))
+
+  /** Macro entrypoints exported by the module's **local relative `.ssc`**
+   *  imports (resolved against `base` without downloading). Fault-tolerant: an
+   *  import that doesn't resolve to a local `.ssc` file contributes nothing. */
+  private def collectImportedMacroTable(
+      module: Module, base: os.Path): Map[String, Linker.MacroExpansion] =
+    importPathsOf(module).flatMap { path =>
+      scala.util.Try {
+        val candidate = base / os.RelPath(path)   // throws for absolute / scheme paths → skipped
+        if os.exists(candidate) && candidate.ext == "ssc" then
+          collectMacros(Parser.parse(os.read(candidate)))._1
+        else Map.empty[String, Linker.MacroExpansion]
+      }.toOption.getOrElse(Map.empty)
+    }.toMap
+
+  private def importPathsOf(module: Module): List[String] =
+    def go(s: Section): List[String] =
+      s.content.collect { case imp: Content.Import => imp.path } ++ s.subsections.flatMap(go)
+    module.sections.flatMap(go)
 
   /** Cross-module path (Approach B) — expand + strip macros over an ALREADY
    *  ASSEMBLED set of code units (consumer blocks + inlined imported blocks),
