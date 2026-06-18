@@ -1,0 +1,6 @@
+feature/meta-v2-c1-multiclause 2026-06-18T05:52:21Z
+agent: claude
+heartbeat: 2026-06-18T05:52:21Z
+status: in-progress
+done-so-far: claim from main; design = curry tail clauses into body in extractInlineInfo (no scanner/wire change)
+next: implement extractInlineInfo multi-clause currying + LinkerRewriteTest + InterfaceExtractorTest cases
