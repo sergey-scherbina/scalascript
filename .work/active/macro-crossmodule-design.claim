@@ -1,0 +1,6 @@
+feature/macro-crossmodule-design 2026-06-18T06:39:09Z
+agent: claude
+heartbeat: 2026-06-18T06:39:09Z
+status: in-progress
+done-so-far: claim from main; investigated JvmGen(~2486)/JsGen genImport(1946) inline-imports-from-disk, no tree-shake
+next: write specs/macro-codegen-backends.md "Cross-module macros" design section (Approach A vs B + perf tradeoff + recommendation)
