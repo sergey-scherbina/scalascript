@@ -173,7 +173,19 @@ object WasmGen:
     val expanded = scalascript.artifact.MacroCodegen.expand(module, baseDir)
     val src      = collectSource(expanded, baseDir)
     if src.isBlank then return WasmBundle(Array.emptyByteArray, "", "")
+    if usesEffects(src) then
+      throw RuntimeException(
+        "The WASM backend does not support algebraic effects / handlers yet. They require a " +
+        "Scala.js-compatible CPS runtime (the JVM effect lowering does not link under Scala.js — " +
+        "see BACKLOG `wasm-effects`). Run effectful code on the JVM, JS, or interpreter backend.")
     compileSourceToWasm(src, baseDir)
+
+  /** Detect ScalaScript algebraic-effect usage, to fail fast with a clear
+   *  message instead of a cryptic Scala.js linker crash. Keys on the
+   *  unambiguous `effect <Capitalised>:` declaration (after import inlining the
+   *  declaring module's source is present), which is not valid plain Scala. */
+  private def usesEffects(src: String): Boolean =
+    """(?m)^\s*effect\s+[A-Z]\w*""".r.findFirstIn(src).isDefined
 
   def compileSourceToWasm(source: String, baseDir: Option[os.Path] = None): WasmBundle =
     if source.isBlank then return WasmBundle(Array.emptyByteArray, "", "")

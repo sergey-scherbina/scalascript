@@ -146,6 +146,14 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
       src should include ("41")
     }
 
+  test("effects fail fast with a clear error (not a cryptic Scala.js linker crash)"):
+    val ir = Normalize(module(
+      "effect Log:\n  def write(s: String): Unit\n\n@main def run(): Unit = ()"))
+    backend.compile(ir, BackendOptions()) match
+      case CompileResult.Failed(diags) =>
+        diags.mkString should include ("does not support algebraic effects")
+      case other => fail(s"expected Failed for an effect module, got: $other")
+
   // ── Phase 3: //> using directive hoisting ────────────────────────────────
 
   test("collectSource hoists //> using dep directive to top of output"):
