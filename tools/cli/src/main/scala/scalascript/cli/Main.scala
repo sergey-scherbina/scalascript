@@ -5260,8 +5260,11 @@ private def checkOneFile(
       // declarative-ui Scope B.7 — warn on @ui=toolkit ids that reference no
       // registered action / data source (id-existence lint; warnings only).
       val lintWarnings = contentToolkitLintWarnings(file, module)
+      // arch-meta-v2 macro-codegen — warn on interpreter-only quoted macros that
+      // can't compile to the JVM/JS backends (warnings only).
+      val macroWarnings = scalascript.artifact.MacroCodegen.codegenWarnings(module)
       val elapsed = System.currentTimeMillis() - t0
-      CheckResult(file, parseErrors = false, errors = typed.errors ++ lintWarnings, elapsedMs = elapsed)
+      CheckResult(file, parseErrors = false, errors = typed.errors ++ lintWarnings ++ macroWarnings, elapsedMs = elapsed)
   catch case e: Exception =>
     val elapsed = System.currentTimeMillis() - t0
     // Treat an unexpected exception as a parse error so the caller can assign

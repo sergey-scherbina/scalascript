@@ -53,3 +53,28 @@ class MacroCodegenTest extends AnyFunSuite with Matchers:
     val m   = parse("val x = 1\nprintln(x + 2)")
     val out = MacroCodegen.expand(m)
     out shouldBe theSameInstanceAs (m)
+
+  test("codegenWarnings flags an interpreter-only macro (non-expandable impl)"):
+    val m = parse(
+      """inline def lbl(x: Int): String = ${ lblImpl('x) }
+        |def lblImpl(x: Expr[Int])(using q: QuotedContext): Expr[String] =
+        |  "literal: " + x.asValue.getOrElse("?")
+        |println(lbl(7))""".stripMargin)
+    val warns = MacroCodegen.codegenWarnings(m)
+    warns.size shouldBe 1
+    warns.head.isWarning shouldBe true
+    warns.head.msg should include ("lbl")
+    warns.head.msg should include ("interpreter-only")
+
+  test("codegenWarnings is empty for an expandable (asValue match) macro"):
+    val m = parse(
+      """inline def lbl(x: Int): String = ${ lblImpl('x) }
+        |def lblImpl(x: Expr[Int])(using q: QuotedContext): Expr[String] =
+        |  x.asValue match
+        |    case Some(n) => Expr("literal: " + n.toString)
+        |    case None    => '{ "dynamic: " + $x.toString }
+        |println(lbl(7))""".stripMargin)
+    MacroCodegen.codegenWarnings(m) shouldBe empty
+
+  test("codegenWarnings is empty for a module with no macros"):
+    MacroCodegen.codegenWarnings(parse("val x = 1\nprintln(x)")) shouldBe empty

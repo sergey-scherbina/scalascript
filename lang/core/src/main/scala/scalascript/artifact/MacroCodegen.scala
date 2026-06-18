@@ -2,6 +2,7 @@ package scalascript.artifact
 
 import scalascript.ast.{Module, Section, Content, ScalaNode}
 import scalascript.parser.Parser
+import scalascript.typer.TypeError
 import scala.meta.*
 
 /** arch-meta-v2 `macro-codegen-backends` — expand restricted quoted macros in an
@@ -56,6 +57,29 @@ object MacroCodegen:
     def go(s: Section): List[String] =
       s.content.collect { case imp: Content.Import => imp.path } ++ s.subsections.flatMap(go)
     module.sections.flatMap(go)
+
+  /** Backend diagnostics for `ssc check`: a quoted-macro entrypoint whose IMPL is
+   *  defined locally but is NOT expandable for codegen (an interpreter-only body —
+   *  not a direct quote `'{ … }` and not an `Expr.asValue match`) runs fine on
+   *  `ssc run` but cannot compile to the JVM/JS backends (it would be emitted with
+   *  `__ssc_macro__` and fail the target compiler). Surfaced as a warning so the
+   *  failure mode is clear instead of a cryptic backend error. Empty when every
+   *  macro is expandable or there are no local macros. */
+  def codegenWarnings(module: Module): List[TypeError] =
+    val stats = scala.collection.mutable.ListBuffer.empty[Stat]
+    foreachTopStat(module)(stats += _)
+    val all           = stats.toList
+    val entrypoints   = all.collect { case d: Defn.Def => detectEntrypoint(d) }.flatten
+    val localDefNames = all.collect { case d: Defn.Def => d.name.value }.toSet
+    val expandable    = all.collect { case d: Defn.Def => detectImpl(d) }.flatten.map(_._1).toSet
+    entrypoints.collect {
+      case (name, impl, _) if localDefNames.contains(impl) && !expandable.contains(impl) =>
+        TypeError(
+          s"quoted macro `$name` has an interpreter-only implementation (`$impl`): it runs on " +
+            "`ssc run` but cannot compile to the JVM/JS backends. Use a direct quote `'{ … }` " +
+            "or an `Expr.asValue match` body.",
+          None, isWarning = true)
+    }.distinct
 
   /** Cross-module path (Approach B) — expand + strip macros over an ALREADY
    *  ASSEMBLED set of code units (consumer blocks + inlined imported blocks),
