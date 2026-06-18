@@ -61,17 +61,17 @@ last — after everything else.**
    source/tree level and rely on scalac's own `inline`; the `MacroCodegen.expand` pre-codegen pass
    handles macros for both backends.)*
 
-   - [ ] **macro-crossmodule** — make a macro **defined in an imported module** work when **called from a
-     consumer** on the generated backends (single-module already works). Today the consumer's call isn't
-     expanded (the macro def is in the import, which `MacroCodegen` doesn't scan) and the imported
-     `inline def … = __ssc_macro__(…)` is inlined verbatim → target-compiler failure. **Design DONE** in
-     `specs/macro-codegen-backends.md` §"Cross-module macros": **Approach B recommended** — run the
-     (already-written) expand+strip pass *after* `JvmGen`/`JsGen` assemble the inlined block set (defs +
-     calls coexist), so there is no import double-parse and no `moduleDeps`/`lockPath` threading; the hook
-     is deeper than the current `generate`-entry wrapper (after `collectBlocks` in `JvmGen` / segment
-     assembly in `JsGen`). Approach A (MacroCodegen resolves imports itself) is rejected — double-parses
-     every build's imports. Conformance = a two-module fixture (lib `.ssc` + consumer) matching interp on
-     JVM + JS. Touches the load-bearing import-inlining path → implement carefully / with review.
+   - [~] **macro-crossmodule** — macro **defined in an imported module**, **called from a consumer**, on the
+     generated backends. **JVM ✓ DONE 2026-06-18** (Approach B): `MacroCodegen.expandUnits` over the
+     assembled `(tree, source)` set; `JvmGen.expandMacrosInBlocks` at the 4 top-level `collectBlocks` sites
+     (consumer + inlined imports; never the nested per-import call) — no import resolution / double-parse.
+     `QuotedMacroCrossModuleJvmTest` matches interp. **JS REMAINING:** JsGen has no assembled-block list — it
+     emits imports inline via a child `JsGen` whose JS is string-appended (`genImport` ~1987), so Approach B
+     doesn't transfer. JS needs its own hook: `genImport` accumulates the imported macro table + strips the
+     imported macro defs (`MacroCodegen.expand(childModule)`), and `genModule` expands the consumer's code
+     blocks during emit using the accumulated table (imports precede code in document order, so the table is
+     ready). Conformance = mirror `QuotedMacroCrossModuleJvmTest` on node. Touches the load-bearing
+     import-emit path → careful.
 6. **deferred perf** — `hof-glue-jit-compile` (whole-fn JIT of `combineAll`, needs using/summon JIT;
    sub-15% ceiling) + `vectorize-pure-loop` (SIMD). Low ROI / high risk; revisit opportunistically.
 7. **other extensibility themes** — **AUDIT 2026-06-17: most are already BUILT; specs were stale.**

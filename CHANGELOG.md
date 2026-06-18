@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — feat(meta-v2): cross-module macros on JVM
+
+A quoted macro **defined in an imported module** and **called from a consumer** now works on the JVM
+backend (single-module already worked; the imported `inline def … = __ssc_macro__(…)` used to be inlined
+verbatim → compiler failure).
+
+- `MacroCodegen.expandUnits` — an assembled-block core (Approach B): collects macros across a flat
+  `(tree, source)` set and strips/expands each, sharing `collectMacrosFromStats` / `nodeStats` /
+  `transformUnit` with the single-module path.
+- `JvmGen.expandMacrosInBlocks` runs it at the 4 **top-level** `collectBlocks` sites — the full consumer +
+  inlined-imports set, never the nested per-import call — so the imported macro defs and the consumer's
+  call sites coexist there: **no import resolution, no double-parse**. Strict no-op for macro-free sets
+  (29 JVM codegen/conformance tests green).
+- `QuotedMacroCrossModuleJvmTest`: lib defines the macro, consumer imports + calls it, scala-cli matches
+  the interpreter (`literal: 7`). **JS slice remains** (JsGen has no assembled-block list — see BACKLOG
+  `macro-crossmodule`).
+
 ## 2026-06-18 — feat(meta-v2): Track C1 — multi-clause inline cross-module expansion
 
 `inline def f(a)(b) = body` was excluded from the cross-module inline table. Now supported with no

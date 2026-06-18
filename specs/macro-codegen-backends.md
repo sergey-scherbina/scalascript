@@ -85,9 +85,18 @@ scala-cli** (mirror `MirrorOfJvmConformanceTest`). Expected: `label(7)` → `lit
 
 ---
 
-## Cross-module macros — design (NOT yet implemented)
+## Cross-module macros
 
-**Status: design / open.** Tracked in `BACKLOG.md` as `macro-crossmodule`.
+**Status: JVM ✓ DONE 2026-06-18 (Approach B); JS slice remaining.** Tracked in `BACKLOG.md` as
+`macro-crossmodule`. `MacroCodegen.expandUnits` collects macros across an assembled `(tree, source)`
+set and strips/expands each; `JvmGen.expandMacrosInBlocks` runs it at the 4 top-level `collectBlocks`
+sites (the full consumer + inlined-imports set, never the nested per-import call). No import resolution,
+no double-parse. `QuotedMacroCrossModuleJvmTest` (lib defines macro, consumer imports + calls →
+scala-cli matches interp). **JS remaining** — JsGen has no assembled-block list (it emits imports inline
+via a child `JsGen` whose output is string-appended, `genImport` ~1987), so Approach B doesn't transfer;
+the JS slice needs its own hook (genImport accumulates the imported macro table + strips the imported
+defs, and `genModule` expands the consumer's code blocks during emit using that table), or it falls back
+to Approach A (resolve imports for the table — double-parse). See BACKLOG.
 
 ### Problem
 
