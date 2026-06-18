@@ -38,10 +38,13 @@ or blocked/deferred (kept for record, NOT actionable now — see "Excluded from 
       — `BspIntegration`/`sscBspSetup` already landed Phase 4, no concrete remaining deliverable; (c) Maven
       Central publish + Plugin Portal — Maven-gated (LAST). So the buildable remainder here is design-gated
       or Maven-gated.
-- [ ] **wasm-effects** (follow-up slices to the 2026-06-18 first slice) — additive, wasm-only:
-      (a) handlers needing `_dispatch`/`_binOp` (currently fail at link — add their pure-Scala subset to
-      `WasmEffectRuntime` + routing); (b) multi-shot resume (`_anyFlatMap`); (c) cross-module effects
-      (effect declared in an imported `.ssc`); (d) `@main` with args / non-`Unit` return. BACKLOG `wasm-effects`.
+- [~] **wasm-effects** (follow-up slices to the 2026-06-18 first slice) — additive, wasm-only.
+      **arithmetic ✓ DONE 2026-06-18 (slice 2a):** `_binOp` (+`_bigIntOp`/`_bigDecOp`) added to
+      `WasmEffectRuntime` — programs doing `a + b` / `sum * 2` over effect-op results now link + run
+      (test → 40). REMAINING: (a) `_dispatch` (method calls on `Any`) — its reflection fallback can't link
+      under Scala.js, needs a *pruned* copy + ~15 `_seqX` helpers; (b) multi-shot resume (needs `_handle`
+      changes, not just helpers); (c) cross-module effects (imported `effect`); (d) `@main` args/non-Unit.
+      Each a focused slice. BACKLOG `wasm-effects`.
 - [ ] **build-registry-phase4** (roadmap #7B, OPTIONAL / demand-driven) — family registries, **only where
       they remove real duplication**. Phases 1–2 landed; Phase 3 is moot (load-bearing, reconciled
       2026-06-18). Lowest priority; skip unless a concrete duplication target appears.

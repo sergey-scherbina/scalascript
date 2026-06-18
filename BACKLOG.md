@@ -147,12 +147,18 @@ handles `@wasm` externs, local `.ssc` import inlining, and quoted macros (2026-0
       `JvmGenRuntimeSources`) emitted in `package _ssc_runtime`, + a re-added `@main` (generateUserOnly
       strips it). `backendWasm` now `dependsOn backendJvm`. Verified: `WasmBackendTest` compiles an effect
       program to a valid `.wasm` AND runs it via node (handler + resume → `hello\nworld`).
-      **REMAINING (follow-up slices):** (a) handlers whose bodies reach for other JVM-preamble helpers
-      (`_dispatch` for method calls on `Any`, `_binOp` for mixed arithmetic) — they'd fail at link; add the
-      pure-Scala subset of those helpers to `WasmEffectRuntime` and the routing. (b) multi-shot resume
-      (`_anyFlatMap` returning iterables). (c) cross-module effects (effect declared in an imported `.ssc`)
-      — the `usesEffects` detector keys on a local `effect <Cap>:`; route imported-effect consumers too.
-      (d) `@main` with args / non-`Unit` return. All additive, wasm-only.
+      **arithmetic ✓ DONE 2026-06-18 (slice 2a):** `_binOp` (+ `_bigIntOp`/`_bigDecOp`, all pure-Scala /
+      Scala.js-linkable) added to `WasmEffectRuntime`; a probe showed `a + b` over `Any`-typed effect-op
+      results lowers to `_binOp` — programs doing arithmetic in/around handlers now link + run (test
+      'effects with arithmetic in body RUN on wasm' → 40). **REMAINING (follow-up slices):** (a) `_dispatch`
+      (method calls on `Any`, e.g. `xs.map(..)` inside a handler) — **blocked differently than expected:**
+      `_dispatch` has a `getClass.getMethods…invoke` **reflection fallback** (JvmGenRuntimeSources ~790)
+      that the Scala.js linker rejects, so it needs a *pruned* copy (collection/string cases kept, reflection
+      `case _` → `sys.error`) plus its ~15 `_seqX` helpers — bigger sync burden, lower frequency. (b)
+      multi-shot resume — needs `_handle`/`_anyFlatMap` semantic changes, not just a helper copy. (c)
+      cross-module effects (effect declared in an imported `.ssc`) — `usesEffects` keys on a local
+      `effect <Cap>:`; route imported-effect consumers + feed the import into `generateUserOnly`. (d) `@main`
+      with args / non-`Unit` return. All additive, wasm-only.
 - [ ] **`@wasmExport` / `@wasmImport`** — raw WASM ABI export/import. Out of scope **by design** (the
       Scala.js path owns the wasm ABI); would need a direct-emit wasm backend, not the Scala.js one.
 

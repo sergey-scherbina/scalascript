@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — feat(wasm): arithmetic in effects (`_binOp` in the wasm effect runtime)
+
+Follow-up to the wasm-effects first slice. A probe showed an effect program doing arithmetic over op
+results (`a + b` where the operands are threaded through `_bind` as `Any`) lowers to `_binOp("+", a, b)`,
+which `WasmEffectRuntime` lacked — so such programs failed at link. Added the pure-Scala subset of
+`_binOp` (+ `_bigIntOp`/`_bigDecOp`; all Int/Long/Double/String/BigInt/BigDecimal/Set/Map cases are
+Scala.js-linkable) to the wasm effect runtime. Verified: a handler + resume + `sum * 2` program compiles
+to `.wasm` and runs via node (prints `40`); 33 `WasmBackendTest` green. Still deferred (BACKLOG
+`wasm-effects`): `_dispatch` (its reflection fallback can't link under Scala.js → needs a pruned copy),
+multi-shot resume, cross-module effects.
+
 ## 2026-06-18 — feat(sbt-plugin): Phase 5 dependency resolution
 
 The sbt plugin now lifts Maven dependencies declared in a `.ssc` front-matter `dependencies:` map into
