@@ -1,6 +1,0 @@
-feature/plan-items-triage 2026-06-18T07:37:52Z
-agent: claude
-heartbeat: 2026-06-18T07:37:52Z
-status: in-progress
-done-so-far: claim; investigated remaining plan items — plugin-registry Phase 3 MOOT (PluginManifest/LocalRegistry are implementation not wrappers), module-graph = leave-as-is (197 modules, SPI per-impl boundaries intentional)
-next: docs/module-graph-findings.md + reconcile BACKLOG/specs for C2 (partly covered), plugin-registry P3 (moot), transitive-JS, sbt-plugin, @wasm, Maven, nfc/wallet
