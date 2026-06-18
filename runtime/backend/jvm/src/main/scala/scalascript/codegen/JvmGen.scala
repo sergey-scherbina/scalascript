@@ -307,7 +307,7 @@ class JvmGen(
   // `analyzeDepEffectfulness()` runs.
   private[scalascript] def globalEffectfulDepsForTest: mutable.Set[String] = globalEffectfulDeps
   private[scalascript] def seedDepDefsForTest(module: Module): Unit =
-    val blocks = collectBlocks(module.sections)
+    val blocks = expandMacrosInBlocks(collectBlocks(module.sections))
     blocks.foreach { b =>
       ScalaNode.fold(b.node) { tree =>
         tree.collect { case d: Defn.Def => depDefs(d.name.value) = d }
@@ -338,7 +338,7 @@ class JvmGen(
     contentSectionIndex = 0
     // Collect blocks first — including those pulled in by `[..](./x.ssc)`
     // imports — so the effect / mutual-TCO analysis sees the full picture.
-    val blocks = collectBlocks(module.sections, module.document.map(_.sections).getOrElse(Nil))
+    val blocks = expandMacrosInBlocks(collectBlocks(module.sections, module.document.map(_.sections).getOrElse(Nil)))
     // Strategy D, Step 2 — fixpoint over the dep call graph runs AFTER
     // collectBlocks (all `inlineImport` calls have populated `depDefs`)
     // and BEFORE emit so Step 3 can consult `globalEffectfulDeps`.
@@ -953,7 +953,7 @@ class JvmGen(
   def detectCapabilities(module: Module): Set[JvmGen.Capability] =
     import JvmGen.Capability.*
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
-    val blocks = collectBlocks(module.sections)
+    val blocks = expandMacrosInBlocks(collectBlocks(module.sections))
     analyzeDepEffectfulness()
     analyzeEffects(blocks)
     analyzeMutualRecursion(blocks)
@@ -1315,7 +1315,7 @@ class JvmGen(
     contentToolkitRuntimeEnabled = moduleUsesContentToolkitIntrinsics(module)
     if contentRuntimeEnabled then collectDirectImportedContent(module) else importedContentDocuments.clear()
     contentSectionIndex = 0
-    val blocks = collectBlocks(module.sections, module.document.map(_.sections).getOrElse(Nil))
+    val blocks = expandMacrosInBlocks(collectBlocks(module.sections, module.document.map(_.sections).getOrElse(Nil)))
     analyzeDepEffectfulness()
     analyzeEffects(blocks)
     analyzeMutualRecursion(blocks)
@@ -1522,6 +1522,18 @@ class JvmGen(
   // Each entry is the raw Java source.  Emitted as `//> using sources` directives
   // + written to files alongside the .ssc source when `baseDir` is set.
   private val javaBlocks = mutable.ArrayBuffer.empty[String]
+
+  /** arch-meta-v2 macro-codegen-backends (cross-module) — expand + strip quoted
+   *  macros over the ASSEMBLED block set (consumer + inlined imports), so a macro
+   *  defined in an imported module and called from the consumer is handled. Runs
+   *  at the top-level `collectBlocks` sites only (never the nested per-import
+   *  call), where the imported macro defs and the consumer's call sites coexist.
+   *  Strict no-op when the set declares no expandable macros. */
+  private def expandMacrosInBlocks(blocks: List[JvmGen.Block]): List[JvmGen.Block] =
+    val transformed = scalascript.artifact.MacroCodegen.expandUnits(blocks.map(b => (b.node, b.src)))
+    blocks.zip(transformed).map { case (b, (node, src)) =>
+      if node eq b.node then b else b.copy(node = node, src = src)
+    }
 
   private def collectBlocks(sections: List[Section]): List[JvmGen.Block] =
     collectBlocks(sections, Nil)

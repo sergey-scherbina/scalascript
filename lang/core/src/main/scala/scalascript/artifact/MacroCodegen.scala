@@ -1,6 +1,6 @@
 package scalascript.artifact
 
-import scalascript.ast.{Module, Section, Content}
+import scalascript.ast.{Module, Section, Content, ScalaNode}
 import scalascript.parser.Parser
 import scala.meta.*
 
@@ -23,12 +23,28 @@ object MacroCodegen:
 
   given Dialect = dialects.Scala3
 
-  /** Expand + strip quoted macros for codegen.  No-op when the module declares
-   *  no fully-expandable macro entrypoints. */
+  /** Single-module path — expand + strip quoted macros in one parsed module
+   *  (defs and call sites both in this module). No-op when the module declares
+   *  no expandable macro entrypoints. */
   def expand(module: Module): Module =
     val (table, stripSet) = collectMacros(module)
     if table.isEmpty then module
     else module.copy(sections = module.sections.map(s => rewriteSection(s, table, stripSet)))
+
+  /** Cross-module path (Approach B) — expand + strip macros over an ALREADY
+   *  ASSEMBLED set of code units (consumer blocks + inlined imported blocks),
+   *  collected by the generated backends AFTER import inlining. Because the
+   *  imported macro defs and the consumer's call sites coexist here, a macro
+   *  defined in an imported module and called from a consumer is handled with
+   *  no import resolution / double-parse. Each unit is `(tree, source)`; the
+   *  returned tuple is unchanged (same `ScalaNode` identity) when nothing in the
+   *  unit changed. No-op when the combined set declares no expandable macros. */
+  def expandUnits(units: List[(ScalaNode, String)]): List[(ScalaNode, String)] =
+    if units.isEmpty then return units
+    val allStats          = units.flatMap { case (node, _) => nodeStats(node).getOrElse(Nil) }
+    val (table, stripSet)  = collectMacrosFromStats(allStats)
+    if table.isEmpty then units
+    else units.map { case (node, source) => transformUnit(node, source, table, stripSet) }
 
   // ── macro discovery ──────────────────────────────────────────────────
 
@@ -37,14 +53,22 @@ object MacroCodegen:
    *  quote or an `Expr.asValue match`).  Interpreter-only macro shapes are left
    *  untouched. */
   private def collectMacros(module: Module): (Map[String, Linker.MacroExpansion], Set[String]) =
+    val stats = scala.collection.mutable.ListBuffer.empty[Stat]
+    foreachTopStat(module)(stats += _)
+    collectMacrosFromStats(stats.toList)
+
+  /** Build `name → MacroExpansion` + the strip-set of entrypoint + impl names
+   *  from a flat statement list (the module's own, or the assembled cross-module
+   *  set). Considers only macros whose impl body is expandable. */
+  private def collectMacrosFromStats(
+      stats: List[Stat]): (Map[String, Linker.MacroExpansion], Set[String]) =
     val entrypoints = scala.collection.mutable.LinkedHashMap.empty[String, (String, List[String])]
     val implBodies  = scala.collection.mutable.LinkedHashMap.empty[String, String]
-    foreachTopStat(module) { st =>
-      st match
-        case d: Defn.Def =>
-          detectEntrypoint(d).foreach { case (name, impl, params) => entrypoints(name) = (impl, params) }
-          detectImpl(d).foreach { case (impl, body) => implBodies(impl) = body }
-        case _ => ()
+    stats.foreach {
+      case d: Defn.Def =>
+        detectEntrypoint(d).foreach { case (name, impl, params) => entrypoints(name) = (impl, params) }
+        detectImpl(d).foreach { case (impl, body) => implBodies(impl) = body }
+      case _ => ()
     }
     val table = entrypoints.flatMap { case (name, (impl, params)) =>
       implBodies.get(impl).map(body => name -> Linker.MacroExpansion(params, body))
@@ -91,22 +115,32 @@ object MacroCodegen:
       case cb: Content.CodeBlock if cb.tree.isDefined => rewriteBlock(cb, table, stripSet)
       case other                                      => other
 
-  /** Strip macro-def statements + expand macro call sites in one code block,
-   *  then re-parse to a fresh tree.  Leaves the block unchanged on an
-   *  unsupported tree shape or a re-parse failure (never worse than today). */
   private def rewriteBlock(
       cb: Content.CodeBlock, table: Map[String, Linker.MacroExpansion], stripSet: Set[String]): Content =
-    blockStats(cb) match
+    cb.tree match
       case None => cb
+      case Some(node) =>
+        val (newNode, newSrc) = transformUnit(node, cb.source, table, stripSet)
+        if newNode eq node then cb else cb.copy(source = newSrc, tree = Some(newNode))
+
+  /** Strip macro-def statements + expand macro call sites in one code unit, then
+   *  re-parse to a fresh tree. Returns the same `(node, source)` (same `node`
+   *  identity) when nothing changed or the tree shape is unsupported / the
+   *  re-parse fails — never worse than today. */
+  private def transformUnit(
+      node: ScalaNode, source: String,
+      table: Map[String, Linker.MacroExpansion], stripSet: Set[String]): (ScalaNode, String) =
+    nodeStats(node) match
+      case None => (node, source)
       case Some(stats) =>
-        val kept = stats.filterNot(isMacroDefStat(_, stripSet))
+        val kept     = stats.filterNot(isMacroDefStat(_, stripSet))
         val keptSrc  = kept.map(_.syntax).mkString("\n\n")
         val expanded = expandCalls(keptSrc, table)
-        if expanded == keptSrc && kept.size == stats.size then cb   // nothing changed
+        if expanded == keptSrc && kept.size == stats.size then (node, source)
         else
           Parser.parseScalaWithDiagnostic(expanded) match
-            case (Some(tree), _) => cb.copy(source = expanded, tree = Some(tree))
-            case (None, _)       => cb   // re-parse failed → keep original (defensive)
+            case (Some(tree), _) => (tree, expanded)
+            case (None, _)       => (node, source)   // re-parse failed → keep original
 
   // ── codegen-oriented expansion (block-val, scalac-compilable) ─────────
 
@@ -221,10 +255,13 @@ object MacroCodegen:
     case b: Term.Block => Some(b.stats)
     case _             => None
 
-  /** Top-level statements of a code block, guarding the lazy `ScalaNode.tree`
+  /** Top-level statements of a parsed unit, guarding the lazy `ScalaNode.tree`
    *  access (a deferred node can throw on a failed parse → treat as no stats). */
+  private def nodeStats(node: ScalaNode): Option[List[Stat]] =
+    scala.util.Try(topLevelStats(node.tree)).toOption.flatten
+
   private def blockStats(cb: Content.CodeBlock): Option[List[Stat]] =
-    cb.tree.flatMap(n => scala.util.Try(topLevelStats(n.tree)).toOption.flatten)
+    cb.tree.flatMap(nodeStats)
 
   private def isMacroDefStat(st: Stat, stripSet: Set[String]): Boolean = st match
     case d: Defn.Def => stripSet.contains(d.name.value)
