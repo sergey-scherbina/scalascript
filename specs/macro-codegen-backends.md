@@ -76,9 +76,69 @@ macro (`'{ $x + 1 }`) must produce identical output on the **interpreter** and o
 scala-cli** (mirror `MirrorOfJvmConformanceTest`). Expected: `label(7)` → `literal: 7`,
 `plusOne(41)` → `42`.
 
-## Scope
+## Scope (single-module — DONE)
 
 - **JVM + JS** — both done (the same `MacroCodegen.expand` pass, hooked into each backend's
-  generate entry points).
+  generate entry points), for macros **defined and used in the same module**.
 - `@wasm` / native: out of scope (no macro demand there yet).
 - Non-product / sum-type / multi-clause macros: out of scope (Track B literal-arg slice).
+
+---
+
+## Cross-module macros — design (NOT yet implemented)
+
+**Status: design / open.** Tracked in `BACKLOG.md` as `macro-crossmodule`.
+
+### Problem
+
+A macro **defined in an imported module** and **called from a consumer** does not yet work on the
+generated backends. `MacroCodegen.expand(consumerModule)` scans only the consumer's *own* code-block
+trees for macro defs (`collectMacros`), finds none (the `inline def label = ${ … }` lives in the
+imported module), and so the consumer's `label(7)` call is left unexpanded. `JvmGen`/`JsGen` then inline
+the imported module's source verbatim (JvmGen `~2486`, JsGen `genImport` `~1946`) — there is **no
+tree-shaking**, so the imported `inline def label = __ssc_macro__(…)` is emitted and the target compiler
+fails on `__ssc_macro__`/`Expr`/`QuotedContext`.
+
+So two things must happen: (1) the consumer's call sites must expand using the **imported** macro
+table, and (2) the imported macro defs must be **stripped** when they are inlined.
+
+### Approach A — `MacroCodegen` resolves imports itself
+
+`MacroCodegen.expand(module, baseDir, moduleDeps, lockPath)` resolves the module's `Content.Import`s
+(via `ImportResolver.resolve`), parses each, runs `collectMacros` on it, and merges the result into the
+**call table** (used to expand call sites). The **strip-set stays local** (only this module's own defs).
+Then `JvmGen`/`JsGen` additionally apply `MacroCodegen.expand` to each *imported* module at the inlining
+point, which strips that module's macro defs.
+
+- **Pro:** localized; reuses the existing `MacroCodegen` pass.
+- **Con:** **double-parses every module's imports** — `MacroCodegen` parses them to build the table,
+  then `JvmGen`/`JsGen` parse them again to inline. This is a **build-time perf regression on all
+  import-having modules**, not just macro ones, unless gated. A correct cheap gate is hard: a macro call
+  looks like any `name(args)` call, so you cannot tell whether an import is needed without parsing it.
+  Also needs `moduleDeps`/`lockPath` threaded into `MacroCodegen` + transitive-import recursion.
+
+### Approach B — expand after the backend inlines imports (RECOMMENDED)
+
+Run macro expansion **after** `JvmGen`/`JsGen` have assembled the full block set (consumer + inlined
+imports). At that point the macro defs and their call sites coexist in one unit, so the existing
+single-module `collectMacros` + strip + expand logic applies directly — no import resolution inside
+`MacroCodegen`, **no double-parse**.
+
+- **Pro:** no perf regression (reuses the modules the backend already parsed); no `moduleDeps`/`lockPath`
+  threading; transitive imports handled for free (everything is already inlined).
+- **Con:** a deeper hook than the current `generate`-entry-point wrapper — the pass must run over the
+  **assembled** blocks/trees (after `collectBlocks` in `JvmGen`, after segment assembly in `JsGen`),
+  which is closer to the codegen core. The current `MacroCodegen.expand(module)` operates on an
+  `ast.Module`; Approach B needs it to operate on the assembled representation (or to expand the
+  assembled *source* before final emit).
+
+**Recommendation: Approach B.** The double-parse cost of Approach A on every build is the dealbreaker;
+Approach B has no steady-state cost and no new threading. The work is to find the assembled-block hook
+in each backend and run the (already-written) expand+strip there, keeping the strict no-op for
+macro-free units.
+
+### Conformance (when implemented)
+
+A library module that exports a macro + a consumer module that imports and calls it with a literal
+argument must produce the same output on the **interpreter**, **JVM** (scala-cli), and **JS** (node).
+Mirror `QuotedMacroJvmConformanceTest` but with a two-module fixture (lib `.ssc` + consumer `.ssc`).

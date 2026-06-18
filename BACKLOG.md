@@ -60,6 +60,18 @@ last — after everything else.**
    `emit`/`build`/`run` path does not use the Linker — `JvmGen`/`JsGen` inline imports at the
    source/tree level and rely on scalac's own `inline`; the `MacroCodegen.expand` pre-codegen pass
    handles macros for both backends.)*
+
+   - [ ] **macro-crossmodule** — make a macro **defined in an imported module** work when **called from a
+     consumer** on the generated backends (single-module already works). Today the consumer's call isn't
+     expanded (the macro def is in the import, which `MacroCodegen` doesn't scan) and the imported
+     `inline def … = __ssc_macro__(…)` is inlined verbatim → target-compiler failure. **Design DONE** in
+     `specs/macro-codegen-backends.md` §"Cross-module macros": **Approach B recommended** — run the
+     (already-written) expand+strip pass *after* `JvmGen`/`JsGen` assemble the inlined block set (defs +
+     calls coexist), so there is no import double-parse and no `moduleDeps`/`lockPath` threading; the hook
+     is deeper than the current `generate`-entry wrapper (after `collectBlocks` in `JvmGen` / segment
+     assembly in `JsGen`). Approach A (MacroCodegen resolves imports itself) is rejected — double-parses
+     every build's imports. Conformance = a two-module fixture (lib `.ssc` + consumer) matching interp on
+     JVM + JS. Touches the load-bearing import-inlining path → implement carefully / with review.
 6. **deferred perf** — `hof-glue-jit-compile` (whole-fn JIT of `combineAll`, needs using/summon JIT;
    sub-15% ceiling) + `vectorize-pure-loop` (SIMD). Low ROI / high risk; revisit opportunistically.
 7. **other extensibility themes** — **AUDIT 2026-06-17: most are already BUILT; specs were stale.**
