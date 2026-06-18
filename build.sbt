@@ -580,7 +580,9 @@ lazy val backendWasm = project
   // v1.27 Phase 5 — backendSqlRuntimeJs for ProviderId / SqlRuntimeJsEmit
   // shared with backend-js + backend-node.  sql blocks routed through the
   // JS shim that already accompanies the .wasm blob.
-  .dependsOn(backendSpi, core, backendSqlRuntimeJs)
+  // backendJvm: reuse its CPS effect lowering (generateUserOnly) for the WASM
+  // target — the lowered Scala + a minimal pure effect runtime compile via Scala.js.
+  .dependsOn(backendSpi, core, backendSqlRuntimeJs, backendJvm)
   .settings(
     name := "scalascript-backend-wasm",
     libraryDependencies ++= Seq(scalatestTest),

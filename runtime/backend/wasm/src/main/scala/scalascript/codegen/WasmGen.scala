@@ -173,19 +173,42 @@ object WasmGen:
     val expanded = scalascript.artifact.MacroCodegen.expand(module, baseDir)
     val src      = collectSource(expanded, baseDir)
     if src.isBlank then return WasmBundle(Array.emptyByteArray, "", "")
-    if usesEffects(src) then
-      throw RuntimeException(
-        "The WASM backend does not support algebraic effects / handlers yet. They require a " +
-        "Scala.js-compatible CPS runtime (the JVM effect lowering does not link under Scala.js — " +
-        "see BACKLOG `wasm-effects`). Run effectful code on the JVM, JS, or interpreter backend.")
-    compileSourceToWasm(src, baseDir)
+    if usesEffects(src) then compileEffectfulToWasm(module, baseDir)
+    else compileSourceToWasm(src, baseDir)
 
-  /** Detect ScalaScript algebraic-effect usage, to fail fast with a clear
-   *  message instead of a cryptic Scala.js linker crash. Keys on the
-   *  unambiguous `effect <Capitalised>:` declaration (after import inlining the
-   *  declaring module's source is present), which is not valid plain Scala. */
+  /** Detect ScalaScript algebraic-effect usage. Keys on the unambiguous
+   *  `effect <Capitalised>:` declaration (after import inlining the declaring
+   *  module's source is present), which is not valid plain Scala — so it never
+   *  false-positives onto an extern-free / effect-free block. */
   private def usesEffects(src: String): Boolean =
     """(?m)^\s*effect\s+[A-Z]\w*""".r.findFirstIn(src).isDefined
+
+  /** WASM effect path: reuse `JvmGen.generateUserOnly`'s CPS lowering of the
+   *  effect ops (perform/handle threaded through `_bind`), drop the JVM preamble
+   *  (its `Thread`/`java.nio` parts crash the Scala.js linker), and supply a
+   *  minimal pure-Scala effect runtime (`WasmEffectRuntime`) in `_ssc_runtime`.
+   *  `generateUserOnly` strips the user's `@main` (returning a plain `def`), so
+   *  re-add a wasm entry that calls it. Covers single-module effect programs
+   *  using the core effect runtime + Scala stdlib; programs whose handler bodies
+   *  reach for other JVM-preamble helpers (`_dispatch`/`_binOp`) fail at link
+   *  for now — see BACKLOG `wasm-effects`. */
+  private def compileEffectfulToWasm(module: Module, baseDir: Option[os.Path]): WasmBundle =
+    val lowered = scalascript.codegen.JvmGen.generateUserOnly(module, baseDir)
+    val entry   = mainEntryName(module).getOrElse(throw RuntimeException(
+      "An effectful WASM module needs an `@main def` entry point (effects run from it)."))
+    val full =
+      WasmEffectRuntime.source + "\n" + lowered +
+      s"\n@main def _ssc_wasm_main(): Unit = { $entry(); () }\n"
+    compileSourceToWasm(full, baseDir)
+
+  /** Name of the user's `@main def` (lowered to a plain `def` of the same name
+   *  by `generateUserOnly`), scanned from the source. */
+  private def mainEntryName(module: Module): Option[String] =
+    def srcs(s: Section): List[String] =
+      s.content.collect { case cb: Content.CodeBlock if isCompilable(cb.lang) => cb.source } ++
+        s.subsections.flatMap(srcs)
+    val all = module.sections.flatMap(srcs).mkString("\n")
+    """@main\s+def\s+([A-Za-z_][A-Za-z0-9_]*)""".r.findFirstMatchIn(all).map(_.group(1))
 
   def compileSourceToWasm(source: String, baseDir: Option[os.Path] = None): WasmBundle =
     if source.isBlank then return WasmBundle(Array.emptyByteArray, "", "")

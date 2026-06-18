@@ -146,13 +146,41 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
       src should include ("41")
     }
 
-  test("effects fail fast with a clear error (not a cryptic Scala.js linker crash)"):
-    val ir = Normalize(module(
-      "effect Log:\n  def write(s: String): Unit\n\n@main def run(): Unit = ()"))
-    backend.compile(ir, BackendOptions()) match
-      case CompileResult.Failed(diags) =>
-        diags.mkString should include ("does not support algebraic effects")
-      case other => fail(s"expected Failed for an effect module, got: $other")
+  private val effectProg =
+    """effect Log:
+      |  def write(s: String): Unit
+      |
+      |def shout(): Unit =
+      |  Log.write("hello")
+      |  Log.write("world")
+      |
+      |@main def main(): Unit =
+      |  handle(shout()) {
+      |    case Log.write(msg, resume) => println(msg); resume(())
+      |  }""".stripMargin
+
+  test("effects compile end-to-end to a WASM binary (CPS lowering + Scala.js effect runtime)"):
+    assume(hasWasmSupport, "scala-cli --js-wasm not available")
+    val bytes = runWasmSsc(effectProg)
+    bytes should not be empty
+    bytes.take(4) shouldBe Array(0x00, 0x61, 0x73, 0x6d).map(_.toByte)   // \0asm
+
+  private lazy val hasNode: Boolean =
+    try os.proc("node", "--version").call(check = false).exitCode == 0 catch case _: Throwable => false
+
+  test("effects RUN correctly on wasm (handler + resume, matches interpreter)"):
+    assume(hasWasmSupport, "scala-cli --js-wasm not available")
+    assume(hasNode, "node not available")
+    val bundle = WasmGen.compileToWasm(module(effectProg))
+    bundle.wasmBytes should not be empty
+    val dir = os.temp.dir(prefix = "ssc-wasm-eff-run-")
+    os.write(dir / "main.wasm", bundle.wasmBytes)
+    os.write(dir / "main.mjs",  bundle.mainJs)
+    os.write(dir / "__loader.js", bundle.loaderJs)
+    val p = ProcessBuilder("node", (dir / "main.mjs").toString).directory(dir.toIO).start()
+    val out = scala.io.Source.fromInputStream(p.getInputStream).mkString
+    p.waitFor()
+    out.trim shouldBe "hello\nworld"
 
   // ── Phase 3: //> using directive hoisting ────────────────────────────────
 
