@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-18 — feat(wasm): algebraic effects on the WASM backend (compile + run)
+
+Effects now **work on wasm** — superseding the previous round's clear-error stopgap. The blocker was
+never the language: JvmGen's effect-lowered Scala compiles fine under Scala.js; what crashes the
+Scala.js linker is the ~300 KB JVM preamble (its `Thread`/`java.nio` generator/coroutine/`std.fs`
+parts). So we drop the preamble.
+
+- `WasmGen.compileToWasm` routes effectful modules through `compileEffectfulToWasm`:
+  `JvmGen.generateUserOnly` (CPS-lowered user code, **no** full preamble) + `WasmEffectRuntime` (a
+  minimal **Scala.js-linkable** effect runtime — the pure-Scala subset of `JvmGenRuntimeSources`'
+  `_Computation`/`_bind`/`_perform`/`_run`/`_handle`/`_handleWithReturn`) emitted in `package
+  _ssc_runtime`, + a re-added wasm `@main` (generateUserOnly strips the user's `@main`).
+- `backendWasm` now `dependsOn backendJvm` to reuse the CPS lowering (no cycle).
+- Verified **end-to-end**: `WasmBackendTest` compiles an effect program to a valid `.wasm` **and runs
+  it via node** (handler + resume → `hello\nworld`), 32 tests green.
+- First slice = single-module one-shot effects on the core runtime + stdlib. Follow-ups (BACKLOG
+  `wasm-effects`): handlers needing `_dispatch`/`_binOp`, multi-shot resume, cross-module effects.
+
 ## 2026-06-18 — feat(wasm): clear error on effects + scope `wasm-effects`
 
 Investigated algebraic-effects-on-WASM empirically (probe). Finding: JvmGen's effect-lowered Scala
