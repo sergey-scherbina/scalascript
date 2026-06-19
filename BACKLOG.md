@@ -181,7 +181,15 @@ handles `@wasm` externs, local `.ssc` import inlining, and quoted macros (2026-0
 
 Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 -i 5 -f 1`).
 
-- [x] **hof-glue-jit-compile** — **RESOLVED 2026-06-19 with WORKING CODE + MEASUREMENT (not just analysis).**
+- [x] **hof-glue-jit-compile** — **RESOLVED 2026-06-19 with WORKING CODE + MEASUREMENT (not just analysis).
+      Slice A SHIPPED to main default-on** (`LITER*` opcodes + `VmCompiler.tryCompileFoldLeft`; compiles a
+      `List[Int].foldLeft` so it no longer bails the whole enclosing function; kill-switch `SSC_JIT_FOLDLEFT=0`;
+      `JitFoldLeftTest` 17 differential tests + full interp suite 1878 green WITH IT ON). **No measured perf
+      win** (interp `foldLeftReusing`/while-JIT already optimize the hot parts) — shipped per decision as a
+      capability. The typeclass case (`typeclassFoldMacro` 1.14ms) still needs Slice C (type-method opcode +
+      hot-path using-guard relaxation), verified disproportionate; not pursued. Detail in
+      `specs/jit-foldleft-compile.md`.
+- [x] ~~**hof-glue-jit-compile** (superseded note)~~ — **RESOLVED 2026-06-19 with WORKING CODE + MEASUREMENT.**
       Slice A (inline-lambda `foldLeft` VM compilation) was BUILT + VERIFIED (`LITER*` opcodes +
       `VmCompiler.tryCompileFoldLeft`, flag-gated off-by-default; `JitFoldLeftTest` 12 differential tests +
       1873 interp green) and kept on branch `feature/jit-foldleft-a` (commit `4be211177`), NOT merged —

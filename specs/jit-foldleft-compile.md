@@ -2,15 +2,18 @@
 
 ## Build log / outcome (2026-06-19)
 
-- **Slice A (inline-lambda `foldLeft`) — BUILT + VERIFIED, NO standalone win. Lives on branch
-  `feature/jit-foldleft-a` (commit `4be211177`), NOT merged to main.** Added `LITERINIT`/`LITERHN`/
-  `LITERNXI` opcodes + `VmCompiler.tryCompileFoldLeft` (inline lambda body, flag-gated off-by-default,
-  statically `List[Int]`-only for safe unbox). Correctness proven: `JitFoldLeftTest` 12 differential
-  tests (JIT-on == JIT-off == hand-computed across 10 shapes) + full interp suite 1873 green with the
-  flag off. **Measurement: `foldLeftLambda` 0.004 ms/op off vs 0.003 ms/op on — inside the ±0.001 error
-  bar = no real win.** The plain-lambda `foldLeft` is already fast via the interpreter's `foldLeftReusing`
-  fast-path; Slice A optimizes a case that was never slow. Kept on a branch as the foundation Slice C would
-  reuse, but not shipped (off-by-default no-win code is just complexity on main).
+- **Slice A (inline-lambda `foldLeft`) — SHIPPED to main 2026-06-19, default-on (kill-switch
+  `SSC_JIT_FOLDLEFT=0`).** `LITERINIT`/`LITERHN`/`LITERNXI` opcodes + `VmCompiler.tryCompileFoldLeft` (inline
+  lambda body into the accumulator, no CALLREF; statically `List[Int]`-only so the IntV unbox can never
+  misfire). Closes the gap where a `List[Int].foldLeft` bailed the WHOLE enclosing function to tree-walk —
+  now the fold loop AND the surrounding code compile. Verified: `JitFoldLeftTest` 17 differential tests
+  (JIT-on == JIT-off == hand-computed across 15 shapes incl. fold-inside-a-larger-function + a counter
+  proving the whole surrounding fn compiles) + **full interp suite 1878 green WITH THE FEATURE ON** (no
+  mis-fire on existing programs). **Honest perf: NO measured win** (`foldLeftLambda` 0.004↔0.003,
+  `foldLeftThenWork` 0.004 both — within noise): the interpreter's `foldLeftReusing` + while-JIT already
+  optimize the hot parts of every plain-lambda fold, so compiling the enclosing function only removes cheap
+  glue. Shipped per decision as a correct, safe capability (may help workloads the micro-benchmarks don't
+  capture); the verified branch `feature/jit-foldleft-a` (`4be211177`) is now superseded.
 - **Slice C (the only path to the `typeclassFoldMacro` win) — NOT pursued; verified disproportionate.**
   Tracing it against the code: `combineAll`'s elements are `List[A]` (generic) so the safe Long-unbox loop
   can't be reused (needs a ref-domain boxed-`Value` fold); the combine is a *type-method* (`lookupTypeMethod`

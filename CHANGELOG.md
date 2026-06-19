@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-19 — feat(jit): compile `List[Int].foldLeft` into an inline VM loop
+
+A function containing a `List[Int].foldLeft((a,b) => body)` used to bail the *whole* function to tree-walk;
+now it compiles — the fold loop and the surrounding code. New `LITERINIT`/`LITERHN`/`LITERNXI` opcodes (List
+cursor = bare `List[Value]` in the ref bank, O(1) tail) + `VmCompiler.tryCompileFoldLeft`, which inlines the
+lambda body into the accumulator (no `CALLREF`). Statically gated to `List[Int]` receivers so the `IntV`
+unbox can never misfire. ON by default; kill-switch `SSC_JIT_FOLDLEFT=0` / `-Dssc.jit.foldleft=0`.
+
+Verified: `JitFoldLeftTest` 17 differential tests (JIT-on == JIT-off == hand-computed across 15 shapes incl.
+fold-inside-a-larger-function) + a counter proving the surrounding function actually compiles; the **full
+interp suite is green with the feature ON (1878 tests)** — no mis-fire on existing programs.
+
+Honest perf note: no measured win on the micro-benchmarks (`foldLeftLambda` 0.004↔0.003 ms/op,
+`foldLeftThenWork` 0.004 both — within noise), because the interpreter's `foldLeftReusing` fast-path and
+while-JIT already optimize the hot parts of every plain-lambda fold. Shipped as a correct, safe capability
+that closes the compilation gap. The slow typeclass case (`summon[M].combine` is a type-method,
+`typeclassFoldMacro` 1.14 ms) still needs the deeper "Slice C" — verified disproportionate, not pursued
+(`specs/jit-foldleft-compile.md`).
+
 ## 2026-06-19 — chore(board): clean stale sprint and bug ledger markers
 
 Docs-only coordination cleanup. The duplicate open `sbt-plugin-finish` SPRINT marker is now closed as
