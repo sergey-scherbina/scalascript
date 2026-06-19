@@ -153,6 +153,18 @@ class RustGenWebToolkitTest extends AnyFunSuite:
       "a pure-http program must NOT reference runtime::ui via _ui_serve")
     assert(!a.contains("src/runtime/ui.rs"))
 
+  test("a block expression in value position lowers to a Rust block"):
+    val src =
+      """```scalascript
+        |def f(): Long =
+        |  val x = { val a = 2; a + 1 }
+        |  x
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("let x = { let a = 2i64;"),
+      s"expected the block-valued binding to lower to a Rust block, got:\n$g")
+
   test("a program with no View primitives stays ui-free"):
     val src =
       """```scalascript

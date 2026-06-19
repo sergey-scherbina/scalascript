@@ -1788,6 +1788,12 @@ object RustCodeWalk:
     case m.Lit.Boolean(b) => Right(b.toString)
     case m.Lit.Unit()     => Right("()")
 
+    // Block `{ stmts; tail }` used as an expression → Rust block expression.
+    // (Interpolation splices unwrap single-term blocks via `renderInterpArg`;
+    // this covers blocks in argument / match-arm / rhs position.)
+    case b: m.Term.Block =>
+      renderBody(b, ctx, isUnit = false).map(inner => s"{ $inner }")
+
     case other =>
       Left(List(unsupported(
         s"def `${ctx.defName}` contains an unsupported expression: ${other.productPrefix} (${other.syntax})"

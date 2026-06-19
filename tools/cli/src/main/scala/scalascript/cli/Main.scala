@@ -255,7 +255,14 @@ private[cli] def compileViaBackend(
     file:      os.Path,
     extras:    Map[String, String] = Map.empty
 ): CompileResult =
-  val module  = loadModule(file)
+  val module0 = loadModule(file)
+  // The Rust backend (unlike JVM/JS) does not resolve `[name](path.ssc)` file
+  // imports inside its codegen, so inline the imported modules' defs here.
+  val module  =
+    if backendId == "rust" then
+      val extra = inlineImportsRust(module0, file / os.up, scala.collection.mutable.Set.empty[String])
+      if extra.isEmpty then module0 else module0.copy(sections = extra ++ module0.sections)
+    else module0
   // Fail loudly on a code-block parse error instead of silently dropping the
   // un-parsed block (which left `ssc run` producing no output / a silent hang).
   // `reportCodeBlockParseErrors` prints the structured `file:line:col` diagnostic
@@ -1399,6 +1406,35 @@ final class ParseCmd extends CliCommand:
 /** Load a [[scalascript.ast.Module]] from an `.ssc` source or a pre-compiled
  *  `.sscc` binary.  `.sscc` files skip markdown/YAML/scalameta parsing;
  *  all other extensions fall through to [[Parser.parse]]. */
+/** Recursively inline `[name](path.ssc)` file imports into a flat list of the
+ *  imported modules' sections, for the Rust backend (which does not resolve
+ *  imports inside codegen the way JVM/JS do).  Transitive imports resolve
+ *  relative to the importing file's directory; deduped by resolved path
+ *  (cycle-safe).  `dep:`/URL imports and parse failures are skipped silently —
+ *  the backend then surfaces any genuinely missing symbol. */
+private def inlineImportsRust(
+    module:  scalascript.ast.Module,
+    baseDir: os.Path,
+    seen:    scala.collection.mutable.Set[String]
+): List[scalascript.ast.Section] =
+  import scalascript.ast.{Section, Content}
+  def importPaths(secs: List[Section]): List[String] =
+    secs.flatMap(s =>
+      s.content.collect { case i: Content.Import => i.path } ++ importPaths(s.subsections))
+  importPaths(module.sections).flatMap { rawPath =>
+    val resolved =
+      try Some(scalascript.imports.ImportResolver.resolve(rawPath, baseDir))
+      catch { case _: Throwable => None }
+    resolved match
+      case Some(p) if os.exists(p) && !os.isDir(p) && !p.last.endsWith(".sscc")
+          && !seen.contains(p.toString) =>
+        seen += p.toString
+        scala.util.Try(Parser.parse(os.read(p))).toOption match
+          case Some(im) => inlineImportsRust(im, p / os.up, seen) ++ im.sections
+          case None     => Nil
+      case _ => Nil
+  }
+
 private def loadModule(path: os.Path): scalascript.ast.Module =
   if path.last.endsWith(".sscc") then
     scalascript.ast.SsccFormat.read(os.read.bytes(path)) match
