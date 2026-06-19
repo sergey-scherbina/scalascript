@@ -221,6 +221,19 @@ class RustGenWebToolkitTest extends AnyFunSuite:
     assert(!g.contains("gap = 12i64"),
       s"named arg should not emit a Rust assignment, got:\n$g")
 
+  test("a call omitting trailing default params fills the defaults"):
+    // Rust has no default parameters, so `greet("hi")` must be lowered with the
+    // `punct`/`loud` defaults filled in, else rustc rejects the arity.
+    val src =
+      """```scalascript
+        |def greet(name: String, punct: String = "!", loud: Boolean = false): String = name
+        |@main def run(): Unit = println(greet("hi"))
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("""greet("hi".to_string(), "!".to_string(), false)"""),
+      s"expected omitted defaults to be filled, got:\n$g")
+
   test("a program with no View primitives stays ui-free"):
     val src =
       """```scalascript

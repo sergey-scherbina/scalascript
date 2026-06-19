@@ -1,0 +1,29 @@
+# rozum meeting — web UI authored in ScalaScript, SSR'd on the Rust backend
+
+[serve, signal](std/ui/primitives.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[vstack, hstack, spacer, divider](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+[textField, actionButton](std/ui/input.ssc)
+[badge](std/ui/display.ssc)
+
+```scalascript
+def message(who: String, body: String): TkNode =
+  hstack(6)(text(who), text(body))
+
+@main def run(): Unit =
+  val draft = signal("draft", "")
+  val page = vstack(10)(
+    hstack(0)(heading(3, "rozum meeting"), spacer(true), badge("connected", "success")),
+    divider(),
+    vstack(8)(
+      message("alice:", "hey — the std/ui toolkit SSRs on the Rust backend now"),
+      message("bob:",   "same .ssc as the JVM run?"),
+      message("alice:", "exactly: vstack/heading/text -> View -> HTML, served over hyper")
+    ),
+    spacer(true),
+    hstack(8)(textField(draft, "message…"), actionButton(draft, "send"))
+  )
+  serve(lower(page, defaultTheme), 8127)
+```

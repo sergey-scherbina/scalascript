@@ -49,6 +49,9 @@ object RustCodeWalk:
           Some(d.name.value -> (ps.size - 1))
         case _ => None
     }.toMap
+    _defaultsMap = defs.map { d =>
+      d.name.value -> d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.default)
+    }.toMap
     val enums             = collectEnums(module)
     val traitEnums        = collectSealedTraitEnums(module)
     val standaloneCases   = collectStandaloneCaseClasses(module, traitEnums)
@@ -356,6 +359,11 @@ object RustCodeWalk:
    *  fixed params before the vararg.  At a call site the trailing args (after the
    *  fixed ones) are wrapped into a single `vec![…]` (Rust has no varargs). */
   private var _varargDefs: Map[String, Int] = Map.empty
+
+  /** User-def name → its flat parameter list's default terms (`None` where a param has
+   *  no default).  A call that omits trailing defaulted params (`textField(v, label)`)
+   *  fills them, since Rust has no default parameters. */
+  private var _defaultsMap: Map[String, List[Option[m.Term]]] = Map.empty
 
   /** `given` instance names — these ARE emitted as named Rust bindings, so a
    *  reference uses the name (unlike a plain top-level `val`, which is inlined). */
@@ -1996,6 +2004,16 @@ object RustCodeWalk:
           case m.Term.Name(n) if _varargDefs.get(n).exists(_ <= renderedArgsBase.size) =>
             val k = _varargDefs(n)
             renderedArgsBase.take(k) :+ s"vec![${renderedArgsBase.drop(k).mkString(", ")}]"
+          // Fill omitted trailing parameters that carry a default (`textField(v, label)` →
+          // the `disabled`/`required` defaults) — Rust has no default parameters.  Only when
+          // every omitted param has a default value to render.
+          case m.Term.Name(n)
+              if _defaultsMap.get(n).exists(ds =>
+                   renderedArgsBase.size < ds.size
+                   && ds.drop(renderedArgsBase.size).forall(_.isDefined)) =>
+            val fills = _defaultsMap(n).drop(renderedArgsBase.size).flatten.map(renderTerm(_, ctx))
+            val (_, okFills) = fills.partitionMap(identity)
+            if okFills.size == fills.size then renderedArgsBase ++ okFills else renderedArgsBase
           case _ => renderedArgsBase
         val joined = renderedArgs.mkString(", ")
         // User-defined struct/enum ctors take priority over stdlib names (e.g. user Vec vs List[Vec]).

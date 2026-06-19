@@ -193,8 +193,12 @@ SSR at the primitive level first (no library needed), then layer the widget libr
    `Term.Assign`; a Rust call is positional, so the generic-`Apply` path now strips `name =`
    and emits the value (toolkit passes named args in declaration order, so position holds).
    `vstack(gap=12)(…)` probe → cargo 0; positional unchanged. Regression test in `RustGenWebToolkitTest`.
-   (Out-of-order named args + omitted-default fill would need the callee's param list — deferred
-   until the toolkit needs it.)
+   **Omitted-default fill — DONE (2026-06-19):** `_defaultsMap` (per-def flat param defaults) lets a
+   call that omits trailing defaulted params (`textField(v, label)`, `actionButton(h, "send")`) fill
+   them — Rust has no default parameters. Filled only when every omitted param has a default value.
+   (Out-of-order named args still deferred.)  This is what made the **`examples/rozum-meeting.ssc`**
+   page (header + status badge + message log + input form) build to a binary and SSR over hyper —
+   the driving use case (author rozum's meeting web in `.ssc`→Rust) demonstrated end-to-end.
 5. **S5 (G5)** — `Signal` reactivity.
    - **S5a — DONE (2026-06-19): SSR the initial value.** Signals now carry their initial value as a
      `Value` (`From<String/&str/bool/i64/f64> for Value`); `_ui_signal(name, default)` → `default.into()`;
