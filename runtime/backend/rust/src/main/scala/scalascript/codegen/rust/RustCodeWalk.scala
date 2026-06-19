@@ -51,15 +51,15 @@ object RustCodeWalk:
     // Collect names of defs that carry a `T ! EffectName` return type so
     // call sites can thread the `_eff` parameter automatically.
     val effectfulDefs: Set[String] = defs.flatMap(d => defEffectName(d).map(_ => d.name.value)).toSet
-    val enumRendered =
-      (if needsEitherType(module) then List(renderBuiltinEitherEnum()) else Nil) ++
-      enums.map(renderEnum) ++
-      traitEnums.map { case SealedTraitEnum(t, caseClasses) => renderTraitEnum(t, caseClasses) }
-    // All user type names (standalone structs + sealed-trait enums) so struct
+    // All user type names (standalone structs + sealed-trait enums) so struct/enum
     // field types that reference another user type map to it, not the i64 default.
     val userTypeNames: Set[String] =
       standaloneCases.map(_.name.value).toSet ++
       traitEnums.map { case SealedTraitEnum(t, _) => t.name.value }.toSet
+    val enumRendered =
+      (if needsEitherType(module) then List(renderBuiltinEitherEnum()) else Nil) ++
+      enums.map(renderEnum) ++
+      traitEnums.map { case SealedTraitEnum(t, caseClasses) => renderTraitEnum(t, caseClasses, userTypeNames) }
     val structRendered    = standaloneCases.map(c => renderStruct(c, userTypeNames))
     val (enumErrs, enumOk)     = enumRendered.partitionMap(identity)
     val (structErrs, structOk) = structRendered.partitionMap(identity)
@@ -537,10 +537,11 @@ object RustCodeWalk:
    */
   private def renderTraitEnum(
       t: m.Defn.Trait,
-      caseClasses: List[m.Defn.Class]
+      caseClasses: List[m.Defn.Class],
+      typeNames: Set[String]
   ): Either[List[Diagnostic], GeneratedEnum] =
     val enumName = t.name.value
-    val rendered = caseClasses.map(c => renderClassCtor(enumName, c))
+    val rendered = caseClasses.map(c => renderClassCtor(enumName, c, typeNames))
     val (errs, ok) = rendered.partitionMap(identity)
     if errs.nonEmpty then Left(errs.flatten)
     else
@@ -579,13 +580,13 @@ object RustCodeWalk:
   /** Render one `case class` constructor into a Rust struct-style enum
    *  variant. Returns variant text + ctor metadata for `ctorMap`. */
   private def renderClassCtor(
-      enumName: String, c: m.Defn.Class
+      enumName: String, c: m.Defn.Class, typeNames: Set[String]
   ): Either[List[Diagnostic], (String, (String, EnumCtor))] =
     val ctor   = c.name.value
     val params = c.ctor.paramClauses.flatMap(_.values).toList
     val fieldRendered = params.map { p =>
       p.decltpe match
-        case Some(t) => mapType(t, s"enum $enumName.$ctor").map(r => (p.name.value, r))
+        case Some(t) => mapType(t, s"enum $enumName.$ctor", typeNames).map(r => (p.name.value, r))
         case None    => Left(List(unsupported(
           s"enum `$enumName.$ctor` parameter `${p.name.value}` has no type annotation"
         )))
