@@ -137,17 +137,23 @@ SSR at the primitive level first (no library needed), then layer the widget libr
    `EnumCtor.boxedFields`; cleared E0072 "infinite size" + E0391 cycle); **vararg call-site** (S3n
    — `_varargDefs` map; `vstack(12)(a,b)` → `vstack(12, vec![a,b])`; cleared the arg-count error).
 
-   **STATUS: codegen 100% (whole std/ui transpiles); cargo `build` 290 → ~29.** Two Rust-specific
-   STRUCTURAL walls cleared (recursive Box, varargs). The remaining **~29 are dominated (~25) by
-   ONE type-system issue: `Any`-value coercion.** `Map[String, Any]` attribute maps mix `String` +
-   `bool` + `Value` values; Rust `HashMap` is homogeneous, so `__m.insert("style", style /*String*/)`
-   then `__m.insert("disabled", disabled /*bool*/)` conflicts (E0308 expected String found bool).
-   The fix is **type-directed coercion**: when a value enters an `Any` slot, coerce it to a common
-   type — for HTML attrs, stringify via a `_ui_attr<T: Display>(v) -> String` helper (needs a
-   dedicated `element(…)` codegen case re-rendering the attrs/events maps, + a `Display`/render for
-   `Value`). This is a genuine type-system feature (coercion at `Any` boundaries), the architectural
-   core of the tail. Plus: `defaultTheme` (top-level `val` not emitted as a Rust item), a
-   HashMap-`.map`, incompatible match arms. Cascade: codegen 28→0; cargo 290→170→108→70→56→31→29.
+   **STATUS: codegen 100% (whole std/ui transpiles); cargo `build` 290 → 7.** Cleared: two
+   STRUCTURAL walls (recursive `Box`, varargs call-site); the **`Any`-value coercion** core
+   (S3o — `impl Display for Value` + `_ui_attr<T: Display>` + a dedicated `element(…)` case that
+   stringifies attr values; events stay `Value`); **top-level `val`s** (inline the initializer,
+   except `given` instances which are emitted by name; `collectTopVals` recurses into Normalize's
+   synthetic namespace `object`s to reach a library's vals like `defaultTheme`); **named-arg
+   construction** `Ctor(field = value, …)`; `.toList`→`clone().into_iter().collect()`,
+   `.mkString`→`.join`. Cascade: codegen 28→0; cargo 290→170→108→70→56→31→29→7.
+
+   **REMAINING 7 — a deep Rust ownership/type-inference tail in `lower.ssc`'s CSS helpers:**
+   (a) **E0507** — `_styleCss`'s `props.toList.map { (k,v) => _propCss(k, v, theme) }` moves the
+   non-`Copy` `theme` out of an `FnMut` closure; needs the codegen to `.clone()` a captured non-Copy
+   value at a by-value call inside a closure (ownership analysis), or pass theme helpers `&Theme`.
+   (b) **TkNode/Value** ×2 — `lower(h, theme)` where `h` is inferred `Value` not `TkNode` (a
+   Value↔concrete edge in a specific lower arm). (c) incompatible **match arms** (one lower arm's
+   type differs). (d) **String/&str**. These need per-case ownership/type-inference work; not a
+   single root.
 4. **S4 (G3)** — named args in curried application (`vstack(gap=12)(…)`).
 5. **S5 (G5)** — `Signal` reactivity: SSR initial value + emit the client JS bundle.
 
