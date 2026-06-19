@@ -2704,6 +2704,26 @@ private[interpreter] object DispatchRuntime:
       case "isOdd"     => Computation.pureBool((n & 1L) != 0L)
       case "toBinary"  => Pure(Value.StringV(java.lang.Long.toBinaryString(n)))
       case "toHex"     => Pure(Value.StringV(java.lang.Long.toHexString(n)))
+      // ── bitwise operators (Int is Long-backed, so results are 64-bit; mask with `& 0xFF` etc.) ──
+      case "&"   => args match
+        case List(Value.IntV(m)) => Computation.pureIntV(n & m)
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "|"   => args match
+        case List(Value.IntV(m)) => Computation.pureIntV(n | m)
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "^"   => args match
+        case List(Value.IntV(m)) => Computation.pureIntV(n ^ m)
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "<<"  => args match
+        case List(Value.IntV(m)) => Computation.pureIntV(n << m)
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case ">>"  => args match
+        case List(Value.IntV(m)) => Computation.pureIntV(n >> m)
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case ">>>" => args match
+        case List(Value.IntV(m)) => Computation.pureIntV(n >>> m)
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "unary_~"   => Computation.pureIntV(~n)
       case "to"        => args match
         case List(Value.IntV(m)) =>
           if n > m then Computation.PureEmptyList

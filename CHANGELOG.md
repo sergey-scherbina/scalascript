@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-19 — feat(interp): bitwise operators on Int — `&` `|` `^` `<<` `>>` `>>>` `~`
+
+`Int` (Long-backed) now answers the standard integer bitwise operators on the interpreter backend.
+They are served by `DispatchRuntime.dispatchInt` alongside `toBinary`/`toHex`/`isEven` (they ride the
+method-dispatch path, since they are not in `PatternRuntime`'s arith set), so they work uniformly in
+plain expressions and compiled function bodies. Both operands must be `Int`; other right-hand operands
+fall through to normal dispatch unchanged. Unlocks bit math in `.ssc` (masks/flags, hashing, and the
+GF(256)/Reed–Solomon code a QR-payload encoder needs — the busi ZBP-QR use-case). Spec:
+`specs/bitwise-operators.md`; example: `examples/bitwise-operators.ssc`; test: `BitwiseTest` (6 cases).
+Follow-up (BACKLOG): fast-path folding + codegen-backend (JS/Rust/WASM/JVM) emission + BigInt bitwise.
+
 ## 2026-06-18 — chore(perf): close out the three deferred perf items (re-measured)
 
 The three perennially-re-investigated deferred perf items now have permanent, data-backed verdicts (3rd+

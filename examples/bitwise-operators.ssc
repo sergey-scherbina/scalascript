@@ -1,0 +1,25 @@
+#!/usr/bin/env ssc
+---
+name: bitwise-operators
+description: Bitwise operators on Int — & | ^ << >> >>> and unary ~ (Long-backed).
+---
+
+# Bitwise operators
+
+`Int` is `Long`-backed in the interpreter, so the bitwise operators are the usual
+64-bit ones. Mask with `& 0xFF` when you want byte semantics (e.g. GF(256) /
+Reed–Solomon code for QR payloads).
+
+```scalascript
+println(0xF0 & 0x0F)   // 0     — and
+println(0xF0 | 0x0F)   // 255   — or
+println(0xF0 ^ 0xFF)   // 15    — xor
+println(1 << 4)        // 16    — shift left
+println(256 >> 2)      // 64    — arithmetic shift right
+println(255 >>> 4)     // 15    — logical (unsigned) shift right
+println(~0)            // -1    — bitwise not
+
+// a byte-masked combination (the kind of thing a QR/GF256 encoder does)
+val x = (1 << 9) ^ 0x123
+println(x & 0xFF)      // 35
+```
