@@ -878,6 +878,54 @@ class InterpreterBench:
   private val typeclassFoldMacroTerm: Term =
     dialects.Scala3("macroFold()").parse[Term].get
 
+  // jit-foldleft Slice A: plain inline-lambda `List[Int].foldLeft(z)((a,b)=>body)`,
+  // 300× over a 10-element list. A/B with SSC_JIT_FOLDLEFT=1 (compiles the fold to
+  // a VM loop) vs unset (tree-walk). The receiver is statically List[Int] so the
+  // Slice-A recognizer fires.
+  private val foldLeftLambdaInterp: Interpreter = warmInterp(
+    """def sumFold(xs: List[Int]): Int =
+      |  xs.foldLeft(0)((a, b) => a + b)
+      |val xs: List[Int] = List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+      |def lambdaFold(): Long =
+      |  var sum = 0L
+      |  var i = 0
+      |  while i < 300 do
+      |    sum = sum + sumFold(xs).toLong
+      |    i = i + 1
+      |  sum""".stripMargin
+  )
+  private val foldLeftLambdaTerm: Term =
+    dialects.Scala3("lambdaFold()").parse[Term].get
+
+  // jit-foldleft — the BROADER win: a function with a foldLeft followed by
+  // straight-line scalar work. Without foldLeft compilation the *whole* function
+  // bails to tree-walk, so the arithmetic chain is tree-walked too (no while-loop
+  // for the while-JIT to rescue independently); with it, the whole function
+  // compiles. A/B default-on vs SSC_JIT_FOLDLEFT=0.
+  private val foldLeftThenWorkInterp: Interpreter = warmInterp(
+    """def score(xs: List[Int]): Int =
+      |  val s = xs.foldLeft(0)((a, b) => a + b)
+      |  val a1 = s * 2 + 1
+      |  val a2 = a1 * 3 - s
+      |  val a3 = a2 + a1 * 2 - 7
+      |  val a4 = a3 * 2 + a2 - a1
+      |  val a5 = a4 - a3 + a2 * 2
+      |  val a6 = a5 * 3 - a4 + a1
+      |  val a7 = a6 + a5 - a4 * 2 + 11
+      |  val a8 = a7 * 2 - a6 + a3
+      |  a8 + a7 - a6 + a5 - a4 + a3 - a2 + a1 - s
+      |val xs: List[Int] = List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+      |def runScore(): Long =
+      |  var sum = 0L
+      |  var i = 0
+      |  while i < 300 do
+      |    sum = sum + score(xs).toLong
+      |    i = i + 1
+      |  sum""".stripMargin
+  )
+  private val foldLeftThenWorkTerm: Term =
+    dialects.Scala3("runScore()").parse[Term].get
+
   // String parse-and-sum HOF chain: `split(",").map(s => s.trim.toInt).foldLeft`.
   // Mirrors the `bench/corpus/string-split.ssc` macro workload (300 iters over a
   // 20-field CSV) so the cross-backend outlier (interp ~18 ms vs jvm 0.08 ms)
@@ -928,6 +976,14 @@ class InterpreterBench:
   @Benchmark
   def typeclassFoldMacro(): Unit =
     typeclassFoldMacroInterp.evalTerm(typeclassFoldMacroTerm)
+
+  @Benchmark
+  def foldLeftLambda(): Unit =
+    foldLeftLambdaInterp.evalTerm(foldLeftLambdaTerm)
+
+  @Benchmark
+  def foldLeftThenWork(): Unit =
+    foldLeftThenWorkInterp.evalTerm(foldLeftThenWorkTerm)
 
   @Benchmark
   def helloWorld(): Unit =

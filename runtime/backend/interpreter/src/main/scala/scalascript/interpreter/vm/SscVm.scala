@@ -129,6 +129,20 @@ object SscVm:
   //   ref register already typed "String", so the cast is safe.
   final val SSTR = 50
 
+  // ── List-iteration opcodes (Slice A: inline-lambda foldLeft) ──────────────
+  // A foldLeft cursor is the bare underlying `List[Value]` of a ListV, held in
+  // the ref bank (tail is O(1), no per-iteration re-wrap). Only emitted when the
+  // receiver's declared element type is statically Int (VmCompiler gate), so the
+  // IntV unbox in LITERNXI can never see a non-IntV element.
+  //
+  // LITERINIT dst, b, 0: refStack(dst) = (refStack(b): Value.ListV).items.
+  final val LITERINIT = 51
+  // LITERHN dst, b, 0: stack(dst) = (refStack(b): List[Value]).nonEmpty ? 1 : 0.
+  final val LITERHN = 52
+  // LITERNXI dst, b, 0: l = refStack(b): List[Value]; stack(dst) = l.head.(IntV).v;
+  //   refStack(b) = l.tail (advance the cursor in place).
+  final val LITERNXI = 53
+
   /** A compiled function: parallel instruction arrays + pools.
    *  `op(i)` is the opcode; `a/b/c(i)` its operands (meaning per §4 of spec).
    *  `constPool` backs CONST; `callPool` backs CALL (callee by slot). */
@@ -281,6 +295,15 @@ object SscVm:
             case "toLowerCase" => Value.StringV(sv.v.toLowerCase)
             case "toUpperCase" => Value.StringV(sv.v.toUpperCase)
             case m             => throw new RuntimeException(s"SSTR: unknown String method '$m'")
+        case LITERINIT =>
+          refStack(base + a(pc)) = refStack(base + b(pc)).asInstanceOf[Value.ListV].items
+        case LITERHN =>
+          stack(base + a(pc)) =
+            if refStack(base + b(pc)).asInstanceOf[List[Value]].nonEmpty then 1L else 0L
+        case LITERNXI =>
+          val l = refStack(base + b(pc)).asInstanceOf[List[Value]]
+          stack(base + a(pc)) = l.head.asInstanceOf[Value.IntV].v
+          refStack(base + b(pc)) = l.tail
         case LOADS  => refStack(base + a(pc)) = Value.StringV(sp(b(pc)))
         case EQREF  => stack(base + a(pc)) = if Objects.equals(refStack(base + b(pc)), refStack(base + c(pc))) then 1L else 0L
         case NEREF  => stack(base + a(pc)) = if !Objects.equals(refStack(base + b(pc)), refStack(base + c(pc))) then 1L else 0L

@@ -96,6 +96,24 @@ object VmCompiler:
   private def typeGateOk(fn: Value.FunV): Boolean =
     fn.usingParams.isEmpty && !fn.defaults.exists(_.isDefined)
 
+  // jit-foldleft: compile `recv.foldLeft(z)((a,b) => body)` into an inline VM loop.
+  // ON by default — a function containing a `List[Int].foldLeft` used to bail the
+  // WHOLE function to tree-walk; now it compiles (the loop AND the surrounding
+  // code). Kill-switch: SSC_JIT_FOLDLEFT=0 (env) or -Dssc.jit.foldleft=0 (prop;
+  // also lets differential tests toggle it in process). Statically gated to
+  // `List[Int]` receivers so the IntV unbox can never misfire (runVm does not catch
+  // arbitrary throws, and a blanket fallback would risk double effects). A `def` so
+  // tests see property changes; compilation is infrequent (once per FunV) so the
+  // re-read cost is irrelevant.
+  private def foldLeftJit: Boolean =
+    sys.props.get("ssc.jit.foldleft").orElse(sys.env.get("SSC_JIT_FOLDLEFT"))
+      .forall(v => v != "0" && v != "false")
+
+  /** Observability (tests): number of foldLeft loops successfully compiled. Lets a
+   *  differential test confirm the JIT path was actually exercised, not vacuously
+   *  matched because `f` stayed tree-walked. */
+  val foldLeftCompileCount = new java.util.concurrent.atomic.AtomicLong(0L)
+
   // ── shared compilation context (handles cyclic call graphs) ──────
   private final class Ctx(resolve: Resolve, meta: Meta):
     // Shells registered BEFORE their callPool is filled, so a cycle (f→g→f)
@@ -403,6 +421,59 @@ object VmCompiler:
           case _                => None
       case _ => None
 
+    // Slice A (jit-foldleft): recognise `recv.foldLeft(z)((a,b) => body)` and emit
+    // an inline VM loop (no CALLREF — the lambda body is compiled straight into the
+    // accumulator). Returns the result type if compiled, or `null` if the term is
+    // not a 2-arg-lambda foldLeft (caller falls through to the normal path). Once
+    // the shape is confirmed, unsupported sub-cases `bail` so the WHOLE function
+    // falls back to the tree-walker (no partial/half-compiled state survives a Bail).
+    private def tryCompileFoldLeft(app: Term.Apply, dst: Int): VmType | Null =
+      if !foldLeftJit then return null
+      val lambda = app.argClause.values match
+        case List(f: Term.Function) => f
+        case _                      => return null
+      val (recv, z) = app.fun match
+        case inner: Term.Apply =>
+          inner.fun match
+            case Term.Select(r, m: Term.Name) if m.value == "foldLeft" =>
+              inner.argClause.values match
+                case List(zz) => (r, zz)
+                case _        => return null
+            case _ => return null
+        case _ => return null
+      val lps = lambda.paramClause.values
+      if lps.length != 2 then return null
+      // Shape confirmed → committed to compiling this as a foldLeft loop.
+      val xsReg = compileExpr(recv)
+      if typeOf(xsReg) != TRef then bail("foldLeft: non-ref receiver", Br.VmUnsupportedTerm)
+      // Statically require List[Int] so LITERNXI's IntV unbox can never misfire.
+      if refTypeName.getOrElse(xsReg, "") != "List[Int]" then
+        bail("foldLeft: receiver not statically List[Int] (Slice A)", Br.VmUnsupportedTerm)
+      val accReg = freshReg()
+      if compileInto(z, accReg) != TInt then bail("foldLeft: non-Int accumulator (Slice A)", Br.VmUnsupportedTerm)
+      val cursor = freshReg()
+      emit(LITERINIT, cursor, xsReg, 0); setType(cursor, TRef)
+      val loopStart = ops.length
+      val hn = freshReg()
+      emit(LITERHN, hn, cursor, 0)
+      val jf = emit(JF, hn, -1, 0)
+      val elem = freshReg()
+      emit(LITERNXI, elem, cursor, 0); setType(elem, TInt)
+      val aName = lps(0).name.value; val bName = lps(1).name.value
+      val savedA = locals.get(aName); val savedB = locals.get(bName)
+      locals(aName) = accReg; locals(bName) = elem
+      val res = freshReg()
+      val bt = compileInto(lambda.body, res)
+      savedA match { case Some(r) => locals(aName) = r; case None => locals.remove(aName) }
+      savedB match { case Some(r) => locals(bName) = r; case None => locals.remove(bName) }
+      if bt != TInt then bail("foldLeft: non-Int lambda body (Slice A)", Br.VmUnsupportedTerm)
+      emit(MOVE, accReg, res, 0)
+      emit(JMP, loopStart, 0, 0)
+      bs(jf) = ops.length
+      emit(MOVE, dst, accReg, 0); setType(dst, TInt)
+      foldLeftCompileCount.incrementAndGet()
+      TInt
+
     // Compile `t`, emitting its result directly into register `dst`, and return
     // the static type written there. Destination-passing avoids the extra MOVE a
     // return-a-register scheme needs at every use site (call args, if-branches,
@@ -470,6 +541,9 @@ object VmCompiler:
 
       // call to self or another compilable function (int or double domain)
       case app: Term.Apply =>
+        tryCompileFoldLeft(app, dst) match
+          case null => ()
+          case t    => return t
         callTarget(app) match
           case Some(callee) =>
             val args = app.argClause.values
