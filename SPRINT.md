@@ -143,16 +143,15 @@ verify residuals**, NOT from-scratch builds:
       was stale.
 - [~] **theme-a-stable-plugin-spi** — spec Status accurate ("partially implemented"; Phases 1+2 landed).
       Residual = Phase 3 versioned stable API module. Left as-is (accurate).
-- [ ] **ssc-new-audit** — verify the `ssc new` / standalone-install surface against
-      `specs/arch-ssc-new.md` without touching Maven publication. WHY: the roadmap says this is
-      effectively done but only spot-verified (`def name = "new"`); a cold agent still cannot tell whether
-      the shipped templates, installer fixtures, and tests cover the spec's remaining behavior items. HOW:
-      read `specs/arch-ssc-new.md`; inspect `tools/cli` `NewProject` implementation/resources/tests plus
-      `releases/{coursier.json,install.sh,homebrew/ssc.rb}`; add narrowly-scoped tests or docs/spec
-      checkmarks for any missing local-only behavior. Do not require a published sbt plugin or network.
-      DONE WHEN: targeted CLI/template tests are green with explicit `cd <worktree> && sbt ...`, the spec's
-      behavior/test items reflect the real coverage, and any remaining external/publishing gap is recorded
-      as deferred rather than rediscovered later.
+- [x] **ssc-new-audit** ✓ DONE 2026-06-19 — verified and tightened the local `ssc new` /
+      standalone-install surface without touching Maven/publication. Fixed `NewProject.create` to best-effort
+      `git init -q`; fixed `ssc new` usage to list all bundled templates; made root `install.sh` match docs
+      (`./install.sh` prints standalone Coursier/Homebrew/curl guidance, `./install.sh --dev` runs monorepo
+      staging); clarified `specs/arch-ssc-new.md` (plugin template intentionally has no `project/plugins.sbt`;
+      live channel publication remains deferred); updated the old benchmark note to use `install.sh --dev`.
+      Added tests for all six templates, output-dir aliases, placeholder-free rendering, git-init, and release
+      fixtures. Verify: `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/ssc-new-audit && sbt
+      "cli/testOnly scalascript.cli.NewProjectTest scalascript.cli.StandaloneInstallFixturesTest"` → 8/8 green.
 - [x] **theme-b-build-registry-consolidation** — Phase 3 is **MOOT** (triaged 2026-06-18):
       `PluginManifest`/`LocalRegistry` are the **implementation** the facade is built on (not removable
       wrappers — `BackendRegistry` uses `PluginManifest`; `ImportResolver`/`PluginCommands` use

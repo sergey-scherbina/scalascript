@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-19 — test(cli): complete `ssc new` / standalone install audit
+
+`ssc new` now matches `specs/arch-ssc-new.md` for the local scaffold surface: generated projects run a
+best-effort `git init -q`, and CLI usage lists all bundled templates (`app`, `lib`, `plugin`, `dsl`,
+`web-app`, `wasm-app`). Root `install.sh` now follows the documented split: no args print standalone
+Coursier/Homebrew/curl install guidance, while `--dev` runs the monorepo sbt staging build. The spec now
+records the 2026-06-19 audit result, clarifies that the plugin template intentionally has no
+`project/plugins.sbt`, and keeps live channel publication deferred. Tests added: all-template rendering
+without leftover placeholders, output-dir aliases, git-init, and standalone release fixtures
+(`NewProjectTest`, `StandaloneInstallFixturesTest`; 8 targeted tests green).
+
 ## 2026-06-19 — feat(interp): bitwise operators on Int — `&` `|` `^` `<<` `>>` `>>>` `~`
 
 `Int` (Long-backed) now answers the standard integer bitwise operators on the interpreter backend.

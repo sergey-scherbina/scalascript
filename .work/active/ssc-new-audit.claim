@@ -1,6 +1,0 @@
-feature/ssc-new-audit 2026-06-19T11:28:04Z
-agent: codex
-heartbeat: 2026-06-19T11:28:24Z
-status: in-progress
-done-so-far: plan written to SPRINT.md; worktree created at .worktrees/feature/ssc-new-audit
-next: audit specs/arch-ssc-new.md against tools/cli NewProject tests and release fixtures

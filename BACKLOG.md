@@ -71,7 +71,8 @@ last — after everything else.**
    non-polynomial hot-loop workload appears (targets already bypass the loop via Gauss). `direct-style-eval`
    → WONTFIX (data-disproven: `Pure` ≈16% alloc, dispatch ≈66% which it doesn't touch; 1261-site migration).
 7. **other extensibility themes** — **AUDIT 2026-06-17: most are already BUILT; specs were stale.**
-   A (Plugin SPI — `BackendRegistry` exists), E (`ssc new`/install — in `Main`), F (DSL hooks — spec
+   A (Plugin SPI — `BackendRegistry` exists), E (`ssc new`/install — verified 2026-06-19: all bundled
+   templates + standalone fixtures covered locally; live publication remains deferred), F (DSL hooks — spec
    "implemented through Phase 4", `InterpolatorRegistry`), H (library modularity — spec "implemented
    through Phase 6", `SsclibManifest`), J (FFI — `GlueClasspathRegistry`/`GlueJsPreambleRegistry` +
    `@jvm`/`@js` + `examples/js-glue-component.ssc`; spec stale at "planned"). **Action: reconcile these
