@@ -207,8 +207,18 @@ SSR at the primitive level first (no library needed), then layer the widget libr
      "name","World")), showSignal(signal("shown",true), textNode("YES"), textNode("NO"))]), 8126)` →
      `curl` → `<div>WorldYES</div>`.  Event-handler primitives (`setSignal`/`inputChange`/`toggleSignal`)
      stay inert for SSR.  Test in `RustGenWebToolkitTest`.
-   - **S5b (later) — live updates**: client JS bundle (subscribe + DOM patch) and/or server push over
-     the existing WS; `computedSignal`/`seedSignal`/`fetchUrlSignal` initial-evaluation.
+   - **S5b.1 — DONE (2026-06-19): local client reactivity.** Signals now carry their name —
+     `Value::Signal(name, Box<value>)`; `signalText(s)` emits `<span data-ssc-text="<name>">value</span>`;
+     `inputChange(s)` is encoded as a marker that `_ui_element` surfaces as `data-ssc-input="<name>"`;
+     `serve` wraps the SSR body in a minimal document and appends `_UI_CLIENT_SCRIPT` — a tiny runtime
+     that, on `input`, mirrors the value into every matching `[data-ssc-text]`.  Probe: a `signalText` +
+     `inputChange`-bound input on one signal → `curl` returns the markers + script; typing in the input
+     live-updates the span in the browser (no server round-trip).  `is_truthy`/`eqSignal`/`show` unwrap
+     the signal.  Test in `RustGenWebToolkitTest`.
+   - **S5b.2 (later) — channel-backed updates**: push over the existing WS / SSE so a *server-side*
+     signal change (e.g. a new chat message) patches the DOM; `computedSignal`/`seedSignal`/
+     `fetchUrlSignal` initial-evaluation + subscriptions; `setSignal`/`toggleSignal`/`showSignal`
+     client wiring (only `inputChange`→`signalText` is wired so far).
 
 Prereq landed: **I1** `s"…${expr}…"` compound splices (`RustGenWebToolkitTest` 3/3).
 

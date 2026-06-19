@@ -109,14 +109,17 @@ class RustGenWebToolkitTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val ui = assets(src)("src/runtime/ui.rs")
-    // signal(name, default) carries `default`; signalText/showSignal render that initial
-    // value (static reactivity), not the old empty stubs.
+    // signal(name, default) carries name + default; signalText emits a `data-ssc-text`
+    // span rendering the current value; showSignal picks a branch from the value.
     assert(ui.contains("pub fn _ui_signal<T: Into<Value>>"),
       s"_ui_signal should carry its default into a Value, got:\n$ui")
-    assert(ui.contains("View::Text(s.show())"),
-      "signalText should render the signal's current value")
+    assert(ui.contains("\"data-ssc-text\".to_string()") && ui.contains("View::Text(v.show())"),
+      "signalText should render the value inside a data-ssc-text span")
     assert(ui.contains("if cond.is_truthy()"),
       "showSignal should pick a branch from the signal's value")
+    // S5b client wiring: inputChange marks the input; serve appends the reactivity script.
+    assert(ui.contains("data-ssc-input") && ui.contains("_UI_CLIENT_SCRIPT"),
+      "inputChange should mark the input + a client script const should exist")
 
   test("renderHtml(view) wires the SSR render entry"):
     val src =

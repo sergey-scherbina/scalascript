@@ -27,19 +27,27 @@ object RustRuntimeTemplates:
       |    Str(String),
       |    Tuple(Vec<Value>),
       |    List(Vec<Value>),
+      |    // A reactive signal: its name (for client-side `data-ssc-*` wiring) + current value.
+      |    Signal(String, Box<Value>),
       |}
       |
       |impl Value {
       |    pub fn show(&self) -> String {
       |        match self {
-      |            Value::Unit      => "()".to_string(),
-      |            Value::Bool(b)   => b.to_string(),
-      |            Value::Int(n)    => n.to_string(),
-      |            Value::Double(f) => format_double(*f),
-      |            Value::Str(s)    => s.clone(),
-      |            Value::Tuple(xs) => render_seq("(", ")", xs),
-      |            Value::List(xs)  => render_seq("List(", ")", xs),
+      |            Value::Unit       => "()".to_string(),
+      |            Value::Bool(b)    => b.to_string(),
+      |            Value::Int(n)     => n.to_string(),
+      |            Value::Double(f)  => format_double(*f),
+      |            Value::Str(s)     => s.clone(),
+      |            Value::Tuple(xs)  => render_seq("(", ")", xs),
+      |            Value::List(xs)   => render_seq("List(", ")", xs),
+      |            Value::Signal(_, v) => v.show(),
       |        }
+      |    }
+      |    // Unwrap a signal to its current value (or itself if not a signal).
+      |    #[allow(dead_code)]
+      |    pub fn signal_value(self) -> Value {
+      |        match self { Value::Signal(_, v) => *v, other => other }
       |    }
       |}
       |
@@ -53,9 +61,14 @@ object RustRuntimeTemplates:
       |
       |impl Value {
       |    // Truthiness for `showSignal(cond, …)` SSR: only `false`/`Unit` are falsey.
+      |    // A signal unwraps to its current value.
       |    #[allow(dead_code)]
       |    pub fn is_truthy(&self) -> bool {
-      |        !matches!(self, Value::Bool(false) | Value::Unit)
+      |        match self {
+      |            Value::Bool(false) | Value::Unit => false,
+      |            Value::Signal(_, v)              => v.is_truthy(),
+      |            _                                => true,
+      |        }
       |    }
       |}
       |
@@ -669,11 +682,20 @@ object RustRuntimeTemplates:
       |pub fn _ui_element(
       |    tag: String,
       |    attrs: std::collections::HashMap<String, String>,
-      |    _events: std::collections::HashMap<String, crate::value::Value>,
+      |    events: std::collections::HashMap<String, crate::value::Value>,
       |    children: Vec<View>,
       |) -> View {
-      |    // Key-sorted attribute order → deterministic SSR output (HashMap is unordered).
       |    let mut attrs: Vec<(String, String)> = attrs.into_iter().collect();
+      |    // A signal-bound event handler (e.g. `inputChange`) is encoded as a marker string;
+      |    // surface it as a `data-ssc-*` attribute the client reactivity runtime reads.
+      |    for (_evt, handler) in events {
+      |        if let crate::value::Value::Str(s) = handler {
+      |            if let Some(name) = s.strip_prefix("ssc-input:") {
+      |                attrs.push(("data-ssc-input".to_string(), name.to_string()));
+      |            }
+      |        }
+      |    }
+      |    // Key-sorted attribute order → deterministic SSR output (HashMap is unordered).
       |    attrs.sort_by(|a, b| a.0.cmp(&b.0));
       |    View::Element { tag, attrs, children }
       |}
@@ -681,6 +703,13 @@ object RustRuntimeTemplates:
       |pub fn _ui_text(s: String) -> View { View::Text(s) }
       |
       |pub fn _ui_fragment(children: Vec<View>) -> View { View::Fragment(children) }
+      |
+      |// Minimal client reactivity runtime appended by `serve(view, port)`: when an input
+      |// bound to a signal (`data-ssc-input="<name>"`) changes, mirror its value into every
+      |// `[data-ssc-text="<name>"]` element.  Local (no server round-trip).  Live updates
+      |// over a channel (WS/SSE) are a later slice.
+      |#[allow(dead_code)]
+      |pub const _UI_CLIENT_SCRIPT: &str = "<script>document.addEventListener('input',function(e){var n=e.target.getAttribute('data-ssc-input');if(n==null)return;var v=e.target.value;document.querySelectorAll('[data-ssc-text=\"'+n+'\"]').forEach(function(el){el.textContent=v;});});</script>";
       |
       |/// Render a `View` to an HTML string (SSR).  Takes the tree by value so it
       |/// can be the tail of an SSR entry (`renderHtml(view)`); recursion borrows
@@ -742,22 +771,45 @@ object RustRuntimeTemplates:
       |// Signals carry their initial value as a `Value` so the *initial* render is SSR'd
       |// (static reactivity).  Live updates (client JS / server push) are a later slice;
       |// the event-handler primitives below stay inert for SSR.
+      |// A signal carries its name (for client `data-ssc-*` wiring) + current value.
       |#[allow(dead_code)]
-      |pub fn _ui_signal<T: Into<Value>>(_name: String, default: T) -> Value { default.into() }
+      |pub fn _ui_signal<T: Into<Value>>(name: String, default: T) -> Value {
+      |    Value::Signal(name, Box::new(default.into()))
+      |}
+      |// signalText(s) → a `<span data-ssc-text="<name>">value</span>` so the client runtime
+      |// can live-patch its text; a non-signal value renders as plain text.
       |#[allow(dead_code)]
-      |pub fn _ui_signal_text(s: Value) -> View { View::Text(s.show()) }
+      |pub fn _ui_signal_text(s: Value) -> View {
+      |    match s {
+      |        Value::Signal(name, v) => View::Element {
+      |            tag: "span".to_string(),
+      |            attrs: vec![("data-ssc-text".to_string(), name)],
+      |            children: vec![View::Text(v.show())],
+      |        },
+      |        other => View::Text(other.show()),
+      |    }
+      |}
       |#[allow(dead_code)]
       |pub fn _ui_show_signal(cond: Value, when_true: View, when_false: View) -> View {
       |    if cond.is_truthy() { when_true } else { when_false }
       |}
       |#[allow(dead_code)]
       |pub fn _ui_set_signal<T>(_s: Value, _v: T) -> Value { Value::Unit }
+      |// inputChange(s) marks the bound input so the client runtime mirrors its value into
+      |// every `[data-ssc-text="<name>"]`.  `_ui_element` turns this marker into an attribute.
       |#[allow(dead_code)]
-      |pub fn _ui_input_change(_s: Value) -> Value { Value::Unit }
+      |pub fn _ui_input_change(s: Value) -> Value {
+      |    match s {
+      |        Value::Signal(name, _) => Value::Str(format!("ssc-input:{}", name)),
+      |        _                      => Value::Unit,
+      |    }
+      |}
       |#[allow(dead_code)]
       |pub fn _ui_toggle_signal(_s: Value) -> Value { Value::Unit }
       |#[allow(dead_code)]
-      |pub fn _ui_eq_signal<T: Into<Value>>(s: Value, value: T) -> Value { Value::Bool(s == value.into()) }
+      |pub fn _ui_eq_signal<T: Into<Value>>(s: Value, value: T) -> Value {
+      |    Value::Bool(s.signal_value() == value.into())
+      |}
       |#[allow(dead_code)]
       |pub fn _ui_data_table_view(_source: Value, _columns: Vec<Value>, _actions: Vec<Value>) -> View {
       |    View::Fragment(vec![])
@@ -861,7 +913,12 @@ object RustRuntimeTemplates:
       |/// page (text/html) for every request.
       |#[allow(dead_code)]
       |pub fn _ui_serve(tree: crate::runtime::ui::View, port: i64) {
-      |    let html = Arc::new(crate::runtime::ui::_ui_render(tree));
+      |    // Wrap the SSR body in a minimal document + the client reactivity runtime so a
+      |    // signal-bound input live-updates the matching signalText spans in the browser.
+      |    let body = crate::runtime::ui::_ui_render(tree);
+      |    let html = Arc::new(format!(
+      |        "<!doctype html><meta charset=\"utf-8\">{}{}",
+      |        body, crate::runtime::ui::_UI_CLIENT_SCRIPT));
       |    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
       |    rt.block_on(async move {
       |        let addr = SocketAddr::from(([0, 0, 0, 0], port as u16));
