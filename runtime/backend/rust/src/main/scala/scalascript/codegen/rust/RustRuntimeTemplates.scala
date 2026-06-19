@@ -704,12 +704,12 @@ object RustRuntimeTemplates:
       |
       |pub fn _ui_fragment(children: Vec<View>) -> View { View::Fragment(children) }
       |
-      |// Minimal client reactivity runtime appended by `serve(view, port)`: when an input
-      |// bound to a signal (`data-ssc-input="<name>"`) changes, mirror its value into every
-      |// `[data-ssc-text="<name>"]` element.  Local (no server round-trip).  Live updates
-      |// over a channel (WS/SSE) are a later slice.
+      |// Client reactivity runtime appended by `serve(view, port)`:
+      |//  (1) local — a signal-bound input (`data-ssc-input`) mirrors into `[data-ssc-text]`;
+      |//  (2) server-push — poll `/__ssc/state` and patch `[data-ssc-text]` from server-side
+      |//      signal updates (e.g. a new chat message pushed to `/__ssc/push`).
       |#[allow(dead_code)]
-      |pub const _UI_CLIENT_SCRIPT: &str = "<script>document.addEventListener('input',function(e){var n=e.target.getAttribute('data-ssc-input');if(n==null)return;var v=e.target.value;document.querySelectorAll('[data-ssc-text=\"'+n+'\"]').forEach(function(el){el.textContent=v;});});</script>";
+      |pub const _UI_CLIENT_SCRIPT: &str = "<script>function _sscSet(n,v){document.querySelectorAll('[data-ssc-text=\"'+n+'\"]').forEach(function(el){el.textContent=v;});}document.addEventListener('input',function(e){var n=e.target.getAttribute('data-ssc-input');if(n==null)return;_sscSet(n,e.target.value);});setInterval(function(){fetch('/__ssc/state').then(function(r){return r.json();}).then(function(s){for(var n in s){_sscSet(n,s[n]);}}).catch(function(){});},1000);</script>";
       |
       |/// Render a `View` to an HTML string (SSR).  Takes the tree by value so it
       |/// can be the tail of an SSR entry (`renderHtml(view)`); recursion borrows
@@ -909,12 +909,59 @@ object RustRuntimeTemplates:
    *  `crate::runtime::ui`.  A pure `route`/`serve(port)` program omits it. */
   val UiServeRs: String =
     """
-      |/// `serve(view, port)` — render the View tree to HTML once, then serve that
-      |/// page (text/html) for every request.
+      |// Server-side signal store: a `broadcastSignal(name, value)` or a `GET /__ssc/push?name=
+      |// &value=` updates it; connected clients pick up the change on their next `/__ssc/state`
+      |// poll (the client runtime patches every `[data-ssc-text="<name>"]`).  This is the
+      |// server-push bridge — e.g. rozum's meeting daemon hits `/__ssc/push` on a new message.
+      |static SSC_SIGNALS: std::sync::OnceLock<Mutex<std::collections::HashMap<String, String>>> =
+      |    std::sync::OnceLock::new();
+      |fn ssc_signals() -> &'static Mutex<std::collections::HashMap<String, String>> {
+      |    SSC_SIGNALS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+      |}
+      |#[allow(dead_code)]
+      |pub fn _ui_broadcast_signal(name: String, value: String) {
+      |    ssc_signals().lock().unwrap().insert(name, value);
+      |}
+      |fn ssc_json_escape(s: &str) -> String {
+      |    let mut o = String::with_capacity(s.len() + 2);
+      |    o.push('"');
+      |    for c in s.chars() {
+      |        match c {
+      |            '"'  => o.push_str("\\\""),
+      |            '\\' => o.push_str("\\\\"),
+      |            '\n' => o.push_str("\\n"),
+      |            '\r' => o.push_str("\\r"),
+      |            '\t' => o.push_str("\\t"),
+      |            _    => o.push(c),
+      |        }
+      |    }
+      |    o.push('"');
+      |    o
+      |}
+      |fn ssc_urldecode(s: &str) -> String {
+      |    let b = s.as_bytes();
+      |    let mut o = String::with_capacity(b.len());
+      |    let mut i = 0;
+      |    while i < b.len() {
+      |        match b[i] {
+      |            b'+' => { o.push(' '); i += 1; }
+      |            b'%' if i + 2 < b.len() => {
+      |                let h = |c: u8| (c as char).to_digit(16);
+      |                match (h(b[i + 1]), h(b[i + 2])) {
+      |                    (Some(hi), Some(lo)) => { o.push((hi * 16 + lo) as u8 as char); i += 3; }
+      |                    _ => { o.push('%'); i += 1; }
+      |                }
+      |            }
+      |            c => { o.push(c as char); i += 1; }
+      |        }
+      |    }
+      |    o
+      |}
+      |
+      |/// `serve(view, port)` — SSR the View tree once, then serve it (with a tiny reactivity
+      |/// runtime) plus `/__ssc/state` (signal JSON) and `/__ssc/push` (server-side update).
       |#[allow(dead_code)]
       |pub fn _ui_serve(tree: crate::runtime::ui::View, port: i64) {
-      |    // Wrap the SSR body in a minimal document + the client reactivity runtime so a
-      |    // signal-bound input live-updates the matching signalText spans in the browser.
       |    let body = crate::runtime::ui::_ui_render(tree);
       |    let html = Arc::new(format!(
       |        "<!doctype html><meta charset=\"utf-8\">{}{}",
@@ -931,13 +978,36 @@ object RustRuntimeTemplates:
       |            let io = hyper_util::rt::TokioIo::new(stream);
       |            let page = html.clone();
       |            tokio::task::spawn(async move {
-      |                let svc = service_fn(move |_req: Request<Incoming>| {
+      |                let svc = service_fn(move |req: Request<Incoming>| {
       |                    let page = page.clone();
       |                    async move {
+      |                        let path = req.uri().path().to_owned();
+      |                        let (ctype, payload) = if path == "/__ssc/state" {
+      |                            let m = ssc_signals().lock().unwrap();
+      |                            let entries: Vec<String> = m.iter()
+      |                                .map(|(k, v)| format!("{}:{}", ssc_json_escape(k), ssc_json_escape(v)))
+      |                                .collect();
+      |                            ("application/json", format!("{{{}}}", entries.join(",")))
+      |                        } else if path == "/__ssc/push" {
+      |                            let q = req.uri().query().unwrap_or("").to_owned();
+      |                            let (mut name, mut value) = (String::new(), String::new());
+      |                            for kv in q.split('&') {
+      |                                let mut it = kv.splitn(2, '=');
+      |                                match (it.next(), it.next()) {
+      |                                    (Some("name"),  Some(v)) => name  = ssc_urldecode(v),
+      |                                    (Some("value"), Some(v)) => value = ssc_urldecode(v),
+      |                                    _ => {}
+      |                                }
+      |                            }
+      |                            if !name.is_empty() { ssc_signals().lock().unwrap().insert(name, value); }
+      |                            ("text/plain; charset=utf-8", "ok".to_string())
+      |                        } else {
+      |                            ("text/html; charset=utf-8", (*page).clone())
+      |                        };
       |                        Ok::<_, hyper::Error>(Response::builder()
       |                            .status(StatusCode::OK)
-      |                            .header("Content-Type", "text/html; charset=utf-8")
-      |                            .body(Full::new(Bytes::from((*page).clone())))
+      |                            .header("Content-Type", ctype)
+      |                            .body(Full::new(Bytes::from(payload)))
       |                            .unwrap())
       |                    }
       |                });

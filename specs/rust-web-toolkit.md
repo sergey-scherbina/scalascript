@@ -215,10 +215,18 @@ SSR at the primitive level first (no library needed), then layer the widget libr
      `inputChange`-bound input on one signal → `curl` returns the markers + script; typing in the input
      live-updates the span in the browser (no server round-trip).  `is_truthy`/`eqSignal`/`show` unwrap
      the signal.  Test in `RustGenWebToolkitTest`.
-   - **S5b.2 (later) — channel-backed updates**: push over the existing WS / SSE so a *server-side*
-     signal change (e.g. a new chat message) patches the DOM; `computedSignal`/`seedSignal`/
-     `fetchUrlSignal` initial-evaluation + subscriptions; `setSignal`/`toggleSignal`/`showSignal`
-     client wiring (only `inputChange`→`signalText` is wired so far).
+   - **S5b.2 — IN PROGRESS (operator: "all three variants").**
+     - **A — server-push transport, DONE (2026-06-19).** `serve(view, port)` now also exposes a
+       server-side signal store: `GET /__ssc/state` (JSON of all signals), `GET /__ssc/push?name=&value=`
+       (set a signal — urldecoded), and `_ui_broadcast_signal(name, value)`; the client runtime polls
+       `/__ssc/state` every 1s and patches `[data-ssc-text]`.  This is the **generic** push (variant 1)
+       AND the **rozum-WS bridge** (variant 2): rozum's meeting daemon hits `/__ssc/push` on a new
+       message → the page updates. Verified: `curl /__ssc/push?...` → `/__ssc/state` reflects it. Poll,
+       not SSE/WS streaming (a `Full<Bytes>` reuse; streaming would need a `BoxBody` rework — refinement).
+     - **B (next) — computed/derived signals**: `computedSignal(f)` evaluates `f()` for the initial SSR +
+       client recompute on dep change; `seedSignal`; `setSignal`/`toggleSignal`/`showSignal` client wiring.
+     - **C (next) — tighter rozum-WS**: optionally connect the client directly to rozum's WS instead of
+       polling, and/or have the meeting daemon push to `/__ssc/push`.
 
 Prereq landed: **I1** `s"…${expr}…"` compound splices (`RustGenWebToolkitTest` 3/3).
 

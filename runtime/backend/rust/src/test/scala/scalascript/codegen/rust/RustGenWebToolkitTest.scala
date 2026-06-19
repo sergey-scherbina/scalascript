@@ -161,6 +161,13 @@ class RustGenWebToolkitTest extends AnyFunSuite:
     assert(a("src/runtime/http.rs").contains("pub fn _ui_serve"),
       "http.rs should carry the _ui_serve overload when ui is used")
     assert(a.contains("src/runtime/ui.rs"), "ui.rs must be present for serve(view,port)")
+    // S5b.2 server-push: serve exposes the signal store endpoints + broadcast; the client polls.
+    val http = a("src/runtime/http.rs")
+    assert(http.contains("/__ssc/push") && http.contains("/__ssc/state")
+      && http.contains("pub fn _ui_broadcast_signal"),
+      "serve(view,port) should expose the signal-push/state endpoints + broadcast")
+    assert(a("src/runtime/ui.rs").contains("/__ssc/state"),
+      "the client runtime should poll /__ssc/state for server-pushed signal updates")
 
   test("pure route/serve(port) program omits the ui _ui_serve overload"):
     val src =
