@@ -703,6 +703,30 @@ object RustRuntimeTemplates:
       |fn _ui_escape_attr(s: &str) -> String {
       |    _ui_escape_text(s).replace('"', "&quot;")
       |}
+      |
+      |// ── std/ui signal primitives — SSR stubs ──────────────────────────────────
+      |// Signals/EventHandlers are `crate::value::Value` on Rust. For static SSR these
+      |// render the initial branch / no-op; full reactivity ships via the JS target.
+      |use crate::value::Value;
+      |
+      |#[allow(dead_code)]
+      |pub fn _ui_signal<T>(_name: String, _default: T) -> Value { Value::Unit }
+      |#[allow(dead_code)]
+      |pub fn _ui_signal_text(_s: Value) -> View { View::Text(String::new()) }
+      |#[allow(dead_code)]
+      |pub fn _ui_show_signal(_cond: Value, when_true: View, _when_false: View) -> View { when_true }
+      |#[allow(dead_code)]
+      |pub fn _ui_set_signal<T>(_s: Value, _v: T) -> Value { Value::Unit }
+      |#[allow(dead_code)]
+      |pub fn _ui_input_change(_s: Value) -> Value { Value::Unit }
+      |#[allow(dead_code)]
+      |pub fn _ui_toggle_signal(_s: Value) -> Value { Value::Unit }
+      |#[allow(dead_code)]
+      |pub fn _ui_eq_signal<T>(_s: Value, _value: T) -> Value { Value::Unit }
+      |#[allow(dead_code)]
+      |pub fn _ui_data_table_view(_source: Value, _columns: Vec<Value>, _actions: Vec<Value>) -> View {
+      |    View::Fragment(vec![])
+      |}
       |""".stripMargin
 
   /** R.5 — HTTP server runtime helpers.  Emitted as `src/runtime/http.rs`

@@ -86,6 +86,15 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("textNode")         -> RuntimeCall("crate::runtime::ui::_ui_text"),
   QualifiedName("fragment")         -> RuntimeCall("crate::runtime::ui::_ui_fragment"),
   QualifiedName("renderHtml")       -> RuntimeCall("crate::runtime::ui::_ui_render"),
+  // std/ui signal primitives (SSR stubs).
+  QualifiedName("signal")           -> RuntimeCall("crate::runtime::ui::_ui_signal"),
+  QualifiedName("signalText")       -> RuntimeCall("crate::runtime::ui::_ui_signal_text"),
+  QualifiedName("showSignal")       -> RuntimeCall("crate::runtime::ui::_ui_show_signal"),
+  QualifiedName("setSignal")        -> RuntimeCall("crate::runtime::ui::_ui_set_signal"),
+  QualifiedName("inputChange")      -> RuntimeCall("crate::runtime::ui::_ui_input_change"),
+  QualifiedName("toggleSignal")     -> RuntimeCall("crate::runtime::ui::_ui_toggle_signal"),
+  QualifiedName("eqSignal")         -> RuntimeCall("crate::runtime::ui::_ui_eq_signal"),
+  QualifiedName("dataTableView")    -> RuntimeCall("crate::runtime::ui::_ui_data_table_view"),
   // Bench.opaque(x) — identity that prevents LLVM constant-folding the
   // surrounding expression.  Maps to std::hint::black_box; same shape per
   // arg type.  On other backends this is identity (no fold to defeat).

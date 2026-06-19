@@ -918,6 +918,8 @@ object RustCodeWalk:
     case m.Type.Name("EventHandler") => Right("crate::value::Value")
     case m.Type.Name("Signal")       => Right("crate::value::Value")
     case m.Type.Apply.After_4_6_0(m.Type.Name("Signal"), _) => Right("crate::value::Value")
+    // `Any` (untyped/erased values) → the boxed `Value`.
+    case m.Type.Name("Any")          => Right("crate::value::Value")
     case m.Type.Name(n) if enumNames.contains(n) => Right(n)
     // Repeated parameter `T*` → Rust `Vec<T>` (the call site wraps the trailing
     // varargs into `vec![…]` — see the vararg-aware Apply handling).
@@ -1197,6 +1199,11 @@ object RustCodeWalk:
     // NOTE: these cases sit BEFORE the general Apply catch-all so they fire
     // even when the method name is not in the intrinsic table.
 
+    // `.toList` / `.toSeq` / `.toVector` on a Vec are identity (already Vec-backed).
+    // (Range/iterator forms collect to a Vec via the `isRangeExpr`-guarded cases below.)
+    case m.Term.Select(qual, m.Term.Name("toList" | "toSeq" | "toVector" | "toIndexedSeq"))
+        if !isRangeExpr(qual) =>
+      renderTerm(qual, ctx).map(q => s"$q.clone()")
     // Numeric coercions — P0 bench fix (specs/rust-backend-bench-coverage.md §Gap A).
     case m.Term.Select(qual, m.Term.Name("toLong")) =>
       renderTerm(qual, ctx).map(q => s"($q as i64)")
@@ -1855,7 +1862,7 @@ object RustCodeWalk:
     case m.Lit.Boolean(b) => Right(b.toString)
     case m.Lit.Unit()     => Right("()")
     // `null` (used as an `Any` sentinel) → the boxed unit value.
-    case m.Lit.Null()     => Right("Value::Unit")
+    case m.Lit.Null()     => Right("crate::value::Value::Unit")
 
     // Block `{ stmts; tail }` used as an expression → Rust block expression.
     // (Interpolation splices unwrap single-term blocks via `renderInterpArg`;
