@@ -131,16 +131,23 @@ SSR at the primitive level first (no library needed), then layer the widget libr
    Converging but finicky/multi-session. Then **S4** named/curried args, **S5** signal reactivity
    (the stubs render static-only). Cascade summary: codegen 28→11→6→3→0; cargo 290→170→108→70→56→31.
 
-   **S3l (pushed)** — enum-variant field types resolve to user types (TabBarNode `tabs: List[Tab]`
-   → `Vec<Tab>` not `Vec<i64>`): cleared the residual 12 `i64 has no fields` + mismatches 39→25,
-   cargo **56→~31**. This surfaced the **next structural wall: `TkNode` is a RECURSIVE enum** —
-   variants with a *direct* self field (`ShowWhenNode.whenTrue: TkNode`, `KpiCardNode.value: TkNode`)
-   give Rust E0072 "recursive type has infinite size". Fixing it needs **`Box<TkNode>`** for
-   direct self-referential fields, which is a coordinated 3-site change: (a) Box at the enum
-   definition, (b) `Box::new(...)` at every construction, (c) deref the bound field at every
-   `match` usage — and (c) needs the codegen to track which bound vars are boxed. Plus the ~25
-   remaining type mismatches, the curried-vararg call-site, `defaultTheme` val, a HashMap-`.map`.
-   Genuinely multi-session structural work; not cleanly sliceable further without the Box-tracking.
+   **S3l–S3n (pushed)** — enum-variant field types (TabBarNode `tabs: List[Tab]`→`Vec<Tab>`;
+   cleared 12 i64 + mismatches 39→25); **recursive-enum `Box`** (S3m — `ShowWhenNode.whenTrue:
+   TkNode` → `Box<TkNode>` at def + `Box::new` at construction + `*field` deref-rebind at match,
+   `EnumCtor.boxedFields`; cleared E0072 "infinite size" + E0391 cycle); **vararg call-site** (S3n
+   — `_varargDefs` map; `vstack(12)(a,b)` → `vstack(12, vec![a,b])`; cleared the arg-count error).
+
+   **STATUS: codegen 100% (whole std/ui transpiles); cargo `build` 290 → ~29.** Two Rust-specific
+   STRUCTURAL walls cleared (recursive Box, varargs). The remaining **~29 are dominated (~25) by
+   ONE type-system issue: `Any`-value coercion.** `Map[String, Any]` attribute maps mix `String` +
+   `bool` + `Value` values; Rust `HashMap` is homogeneous, so `__m.insert("style", style /*String*/)`
+   then `__m.insert("disabled", disabled /*bool*/)` conflicts (E0308 expected String found bool).
+   The fix is **type-directed coercion**: when a value enters an `Any` slot, coerce it to a common
+   type — for HTML attrs, stringify via a `_ui_attr<T: Display>(v) -> String` helper (needs a
+   dedicated `element(…)` codegen case re-rendering the attrs/events maps, + a `Display`/render for
+   `Value`). This is a genuine type-system feature (coercion at `Any` boundaries), the architectural
+   core of the tail. Plus: `defaultTheme` (top-level `val` not emitted as a Rust item), a
+   HashMap-`.map`, incompatible match arms. Cascade: codegen 28→0; cargo 290→170→108→70→56→31→29.
 4. **S4 (G3)** — named args in curried application (`vstack(gap=12)(…)`).
 5. **S5 (G5)** — `Signal` reactivity: SSR initial value + emit the client JS bundle.
 
