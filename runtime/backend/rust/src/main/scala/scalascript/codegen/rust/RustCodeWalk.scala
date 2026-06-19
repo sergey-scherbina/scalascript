@@ -907,6 +907,10 @@ object RustCodeWalk:
     case m.Type.Name("Float")   => Right("f64")
     case m.Type.Name("String")  => Right("String")
     case m.Type.Name(n) if enumNames.contains(n) => Right(n)
+    // Repeated parameter `T*` → Rust `Vec<T>` (the call site wraps the trailing
+    // varargs into `vec![…]` — see the vararg-aware Apply handling).
+    case m.Type.Repeated(tpe) =>
+      mapType(tpe, defName, enumNames).map(t => s"Vec<$t>")
     // Type-lambda application `Pair[Long]` where `Pair = [A] =>> body` — β-reduce
     // (substitute the params with the args) and map the result. A nullary alias
     // `type X = [] =>> body` reduces with no args.
