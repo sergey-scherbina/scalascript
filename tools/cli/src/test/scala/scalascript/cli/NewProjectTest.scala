@@ -12,6 +12,7 @@ class NewProjectTest extends AnyFunSuite:
       assert(os.exists(dir / "build.sbt"))
       assert(os.exists(dir / "project" / "plugins.sbt"))
       assert(os.exists(dir / "src" / "main" / "scalascript" / "Main.ssc"))
+      if gitAvailable then assert(os.exists(dir / ".git"), "ssc new should git-init projects when git is available")
       assert(os.read(dir / "README.md").contains("DemoApp"))
       assert(os.read(dir / "src" / "main" / "scalascript" / "Main.ssc").contains("Hello from DemoApp"))
     finally os.remove.all(out)
@@ -54,3 +55,43 @@ class NewProjectTest extends AnyFunSuite:
       assert(os.read(dir / "src" / "main" / "resources" / "META-INF" / "services" / "scalascript.backend.spi.Backend")
         .contains("com.example.demo.plugin.DemoPlugin"))
     finally os.remove.all(out)
+
+  test("parseOptions accepts every bundled template and output-dir aliases"):
+    val out = os.temp.dir(prefix = "ssc-new-options")
+    try
+      val templates = Seq("app", "lib", "plugin", "dsl", "web-app", "wasm-app")
+      templates.foreach { id =>
+        val opts = NewProject.parseOptions(List("--template", id, "--output-dir", out.toString))
+        assert(opts.template == id)
+        assert(opts.outputDir == out)
+      }
+      val short = NewProject.parseOptions(List("-t", "web-app", "-o", out.toString))
+      assert(short.template == "web-app")
+      assert(short.outputDir == out)
+      val dirAlias = NewProject.parseOptions(List("-t", "wasm-app", "--dir", out.toString))
+      assert(dirAlias.template == "wasm-app")
+      assert(dirAlias.outputDir == out)
+    finally os.remove.all(out)
+
+  test("all bundled templates render without leftover placeholders"):
+    val out = os.temp.dir(prefix = "ssc-new-all")
+    try
+      val templates = Seq("app", "lib", "plugin", "dsl", "web-app", "wasm-app")
+      templates.foreach { id =>
+        val dir = NewProject.create(s"demo-$id", template = id, outputDir = out)
+        val files = os.walk(dir).filter(p => os.isFile(p) && !p.toString.contains("/.git/"))
+        assert(files.nonEmpty, s"$id template should render at least one file")
+        files.foreach { file =>
+          assert(!file.toString.contains("${"), s"unsubstituted placeholder in path: $file")
+          val text = os.read(file)
+          assert(!text.contains("${"), s"unsubstituted placeholder in $file")
+        }
+      }
+    finally os.remove.all(out)
+
+  private def gitAvailable: Boolean =
+    scala.util.Try {
+      os.proc("git", "--version")
+        .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+        .exitCode == 0
+    }.getOrElse(false)

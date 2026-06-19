@@ -7,6 +7,41 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$ROOT/bin"
 LIB="$BIN/lib"
 
+usage() {
+    cat <<'MSG'
+ScalaScript standalone install options:
+
+  cs install ssc --channel https://releases.scalascript.io/coursier.json
+  brew install scalascript/tap/ssc
+  curl -fsSL https://get.scalascript.io | sh
+
+For a contributor build from this monorepo, run:
+
+  ./install.sh --dev
+MSG
+}
+
+case "${1:-}" in
+    --dev)
+        shift
+        ;;
+    ""|-h|--help)
+        usage
+        exit 0
+        ;;
+    *)
+        echo "Unknown option: $1" >&2
+        usage >&2
+        exit 1
+        ;;
+esac
+
+if [ "$#" -ne 0 ]; then
+    echo "Unexpected arguments: $*" >&2
+    usage >&2
+    exit 1
+fi
+
 if ! command -v java &>/dev/null; then
     echo "Error: JDK not found. Run ./setup.sh first to install required tools." >&2
     exit 1

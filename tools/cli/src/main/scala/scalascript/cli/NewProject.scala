@@ -23,6 +23,7 @@ object NewProject:
       os.makeDir.all(out / os.up)
       os.write.over(out, replaceVars(text, vars))
     }
+    initGitIfAvailable(target)
     target
 
   def parseOptions(args: List[String]): Options =
@@ -55,6 +56,18 @@ object NewProject:
     }
     try in.readAllBytes()
     finally in.close()
+
+  private def initGitIfAvailable(target: os.Path): Unit =
+    val gitAvailable = scala.util.Try {
+      os.proc("git", "--version")
+        .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+        .exitCode == 0
+    }.getOrElse(false)
+    if gitAvailable then
+      scala.util.Try {
+        os.proc("git", "init", "-q")
+          .call(cwd = target, check = false, stdout = os.Pipe, stderr = os.Pipe)
+      }.foreach(_ => ())
 
   private def variables(name: String): Map[String, String] =
     val pascal = name.split("[^A-Za-z0-9]+").filter(_.nonEmpty)

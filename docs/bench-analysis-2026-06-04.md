@@ -7,7 +7,7 @@ identified.
 ## Protocol used
 
 ```
-bash install.sh          # rebuild ssc binary
+bash install.sh --dev    # rebuild ssc binary
 bash bench.sh            # wall-clock cross-backend
 scripts/bench interp     # JMH microbenchmarks (wi=3 mi=5 1 fork)
 ```
