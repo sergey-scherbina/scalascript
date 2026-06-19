@@ -913,6 +913,11 @@ object RustCodeWalk:
     case m.Type.Name("Double")  => Right("f64")
     case m.Type.Name("Float")   => Right("f64")
     case m.Type.Name("String")  => Right("String")
+    // std/ui opaque types map to their Rust runtime representations.
+    case m.Type.Name("View")         => Right("crate::runtime::ui::View")
+    case m.Type.Name("EventHandler") => Right("crate::value::Value")
+    case m.Type.Name("Signal")       => Right("crate::value::Value")
+    case m.Type.Apply.After_4_6_0(m.Type.Name("Signal"), _) => Right("crate::value::Value")
     case m.Type.Name(n) if enumNames.contains(n) => Right(n)
     // Repeated parameter `T*` → Rust `Vec<T>` (the call site wraps the trailing
     // varargs into `vec![…]` — see the vararg-aware Apply handling).
