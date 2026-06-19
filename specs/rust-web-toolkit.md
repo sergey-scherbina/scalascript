@@ -129,7 +129,18 @@ SSR at the primitive level first (no library needed), then layer the widget libr
    ~12 residual struct-field `i64`, the curried-vararg **call-site** `vec![…]` wrapping (S3f did
    the param type only), `defaultTheme` (a top-level `val` not emitted), a HashMap-`.map` shape.
    Converging but finicky/multi-session. Then **S4** named/curried args, **S5** signal reactivity
-   (the stubs render static-only). Cascade summary: codegen 28→11→6→3→0; cargo 290→170→108→70→56.
+   (the stubs render static-only). Cascade summary: codegen 28→11→6→3→0; cargo 290→170→108→70→56→31.
+
+   **S3l (pushed)** — enum-variant field types resolve to user types (TabBarNode `tabs: List[Tab]`
+   → `Vec<Tab>` not `Vec<i64>`): cleared the residual 12 `i64 has no fields` + mismatches 39→25,
+   cargo **56→~31**. This surfaced the **next structural wall: `TkNode` is a RECURSIVE enum** —
+   variants with a *direct* self field (`ShowWhenNode.whenTrue: TkNode`, `KpiCardNode.value: TkNode`)
+   give Rust E0072 "recursive type has infinite size". Fixing it needs **`Box<TkNode>`** for
+   direct self-referential fields, which is a coordinated 3-site change: (a) Box at the enum
+   definition, (b) `Box::new(...)` at every construction, (c) deref the bound field at every
+   `match` usage — and (c) needs the codegen to track which bound vars are boxed. Plus the ~25
+   remaining type mismatches, the curried-vararg call-site, `defaultTheme` val, a HashMap-`.map`.
+   Genuinely multi-session structural work; not cleanly sliceable further without the Box-tracking.
 4. **S4 (G3)** — named args in curried application (`vstack(gap=12)(…)`).
 5. **S5 (G5)** — `Signal` reactivity: SSR initial value + emit the client JS bundle.
 
