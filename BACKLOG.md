@@ -181,7 +181,19 @@ handles `@wasm` externs, local `.ssc` import inlining, and quoted macros (2026-0
 
 Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 -i 5 -f 1`).
 
-- [~] **hof-glue-jit-compile** — **DESIGNED + BUILD-READY 2026-06-19 (`specs/jit-foldleft-compile.md`).**
+- [x] **hof-glue-jit-compile** — **RESOLVED 2026-06-19 with WORKING CODE + MEASUREMENT (not just analysis).**
+      Slice A (inline-lambda `foldLeft` VM compilation) was BUILT + VERIFIED (`LITER*` opcodes +
+      `VmCompiler.tryCompileFoldLeft`, flag-gated off-by-default; `JitFoldLeftTest` 12 differential tests +
+      1873 interp green) and kept on branch `feature/jit-foldleft-a` (commit `4be211177`), NOT merged —
+      because the **measurement showed no win**: `foldLeftLambda` 0.004→0.003 ms/op (within ±0.001 noise),
+      since the plain-lambda fold is already fast via `foldLeftReusing`. The only slow case
+      (`typeclassFoldMacro` 1.14 ms) needs Slice C, which tracing proved is disproportionate: generic
+      `List[A]` (ref-domain fold, no safe unbox), a *type-method* combine (`lookupTypeMethod`/`invokeTypeMethod`,
+      new opcode, still a dispatch per element even compiled), + relaxing the type-gate and the
+      `usingParams.isEmpty` guards on the hottest call path (`CallRuntime` 137/239/257/284/632). A large
+      multi-site hot-path change for a synthetic-bench bounded win — NOT pursued. Detail/build-log in
+      `specs/jit-foldleft-compile.md`. Revisit only if a real runtime-typeclass-fold hot loop appears.
+- [x] ~~**hof-glue-jit-compile** (prior design note)~~ — **DESIGNED + BUILD-READY 2026-06-19 (`specs/jit-foldleft-compile.md`).**
       Mapped the full "JIT-compile `combineAll`/`foldLeft`" lever against the real VM code: 6 interlocking
       pieces in dependency order, with a safe-first build order (Slice A = inline-lambda `foldLeft`, flag-gated
       off-by-default, differential-tested, measurable on a new `foldLeftLambda` bench → zero given/type-method

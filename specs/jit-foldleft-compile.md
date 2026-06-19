@@ -1,5 +1,29 @@
 # JIT-compile `combineAll`/`foldLeft` glue — implementation spec
 
+## Build log / outcome (2026-06-19)
+
+- **Slice A (inline-lambda `foldLeft`) — BUILT + VERIFIED, NO standalone win. Lives on branch
+  `feature/jit-foldleft-a` (commit `4be211177`), NOT merged to main.** Added `LITERINIT`/`LITERHN`/
+  `LITERNXI` opcodes + `VmCompiler.tryCompileFoldLeft` (inline lambda body, flag-gated off-by-default,
+  statically `List[Int]`-only for safe unbox). Correctness proven: `JitFoldLeftTest` 12 differential
+  tests (JIT-on == JIT-off == hand-computed across 10 shapes) + full interp suite 1873 green with the
+  flag off. **Measurement: `foldLeftLambda` 0.004 ms/op off vs 0.003 ms/op on — inside the ±0.001 error
+  bar = no real win.** The plain-lambda `foldLeft` is already fast via the interpreter's `foldLeftReusing`
+  fast-path; Slice A optimizes a case that was never slow. Kept on a branch as the foundation Slice C would
+  reuse, but not shipped (off-by-default no-win code is just complexity on main).
+- **Slice C (the only path to the `typeclassFoldMacro` win) — NOT pursued; verified disproportionate.**
+  Tracing it against the code: `combineAll`'s elements are `List[A]` (generic) so the safe Long-unbox loop
+  can't be reused (needs a ref-domain boxed-`Value` fold); the combine is a *type-method* (`lookupTypeMethod`
+  + `invokeTypeMethod`, binds `this`+fields) needing a new ref-domain opcode, and each element still pays a
+  type-method dispatch even compiled; and reaching it requires relaxing the `VmCompiler` type-gate AND the
+  `usingParams.isEmpty` guards on the hottest call path (`CallRuntime` 137/239/257/284/632) + threading the
+  resolved `using` arg. A large multi-site change to code every program runs, for a bounded win on one
+  synthetic benchmark. Confirms the three prior investigations' verdict — now with working code + a
+  measurement rather than analysis. Revisit only if a real (non-synthetic) runtime-typeclass-fold hot loop
+  appears.
+
+---
+
 Status: **DESIGNED 2026-06-19, not yet built.** This is the "full lever" behind
 `hof-glue-jit-compile` (BACKLOG, resolved → deferred to this work). It is a real,
 de-risked, multi-slice VM feature — NOT a one-shot. The JIT runs on every hot

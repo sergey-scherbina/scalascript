@@ -1,6 +1,0 @@
-feature/jit-foldleft-a 2026-06-19T10:22:33Z
-agent: claude
-heartbeat: 2026-06-19T10:22:33Z
-status: in-progress
-done-so-far: building Slice A (inline-lambda foldLeft, flag-gated off-by-default) per specs/jit-foldleft-compile.md
-next: add LITER opcodes to SscVm + foldLeft recognizer in VmCompiler; differential-test JIT-on vs interp
