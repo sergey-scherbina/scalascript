@@ -55,7 +55,12 @@ object RustCodeWalk:
       (if needsEitherType(module) then List(renderBuiltinEitherEnum()) else Nil) ++
       enums.map(renderEnum) ++
       traitEnums.map { case SealedTraitEnum(t, caseClasses) => renderTraitEnum(t, caseClasses) }
-    val structRendered    = standaloneCases.map(renderStruct)
+    // All user type names (standalone structs + sealed-trait enums) so struct
+    // field types that reference another user type map to it, not the i64 default.
+    val userTypeNames: Set[String] =
+      standaloneCases.map(_.name.value).toSet ++
+      traitEnums.map { case SealedTraitEnum(t, _) => t.name.value }.toSet
+    val structRendered    = standaloneCases.map(c => renderStruct(c, userTypeNames))
     val (enumErrs, enumOk)     = enumRendered.partitionMap(identity)
     val (structErrs, structOk) = structRendered.partitionMap(identity)
     val ctorMap = enumOk.flatMap(_.ctors).toMap ++
@@ -394,12 +399,14 @@ object RustCodeWalk:
     module.sections.flatMap(sectionClasses)
       .filter(c => isCaseClass(c) && !traitCaseNames.contains(c.name.value))
 
-  private def renderStruct(c: m.Defn.Class): Either[List[Diagnostic], GeneratedStruct] =
+  private def renderStruct(
+      c: m.Defn.Class, typeNames: Set[String]
+  ): Either[List[Diagnostic], GeneratedStruct] =
     val name   = c.name.value
     val params = c.ctor.paramClauses.flatMap(_.values).toList
     val fieldRendered = params.map { p =>
       p.decltpe match
-        case Some(t) => mapType(t, s"struct $name").map(r => (p.name.value, r))
+        case Some(t) => mapType(t, s"struct $name", typeNames).map(r => (p.name.value, r))
         case None    => Left(List(unsupported(
           s"struct `$name` field `${p.name.value}` has no type annotation"
         )))
