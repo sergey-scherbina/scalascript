@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-19 — feat(interp): typeclass-fold memo — ~19% on `combineAll`-style folds (opt-in)
+
+The slow typeclass case (`xs.foldLeft(summon[M].empty)(summon[M].combine)`) is now ~19% faster — achieved
+safely at the interpreter level rather than the invasive VM "Slice C". A JFR profile showed the cost is
+~79% `evalCore` tree-walk of the `summon[M].empty` / `summon[M].combine` sub-expressions, re-evaluated every
+call (not the fold loop or the given lookup). So `evalFusedFoldLeft` memoizes the evaluated `(empty,
+combine)` per call-site, keyed by both resolved given identities; repeat calls skip those sub-expressions.
+
+OPT-IN (`-Dssc.jit.foldtc=1` / `SSC_JIT_FOLDTC=1`) because caching the evaluated `empty` assumes a
+referentially-transparent monoid. No VM changes, no hot-path guard relaxation. Verified: `JitFoldTcTest`
+8 differential tests (memo-on == memo-off across single/repeated/string-monoid/**polymorphic two-given**/
+nested shapes); `typeclassFoldMacro` **1.794 → 1.453 ms/op** (non-overlapping error bars). The full VM
+Slice C stays unbuilt — disproportionate (`specs/jit-foldleft-compile.md`).
+
 ## 2026-06-19 — feat(jit): compile `List[Int].foldLeft` into an inline VM loop
 
 A function containing a `List[Int].foldLeft((a,b) => body)` used to bail the *whole* function to tree-walk;

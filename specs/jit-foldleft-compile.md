@@ -2,6 +2,18 @@
 
 ## Build log / outcome (2026-06-19)
 
+- **Slice C goal (`typeclassFoldMacro` win) — ACHIEVED ~19%, but via a SAFE interpreter memo, not the VM.**
+  A fresh JFR profile showed the 1.79 ms cost is ~79% `evalCore` tree-walk of `combineAll`'s body — the
+  `summon[M].empty` / `summon[M].combine` sub-expressions re-evaluated every call — NOT the fold loop
+  (`foldLeftReusing` = 2 samples) nor the given lookup (`dispatchInstance` = 1). So instead of the invasive
+  VM Slice C (type-method opcode + relaxing the type-gate and `usingParams.isEmpty` guards on the hottest
+  call path), `EvalRuntime.evalFusedFoldLeft` now **memoizes the evaluated `(empty, combine)` per call-site**,
+  keyed by BOTH resolved given identities. Repeat calls skip those sub-expressions. **OPT-IN**
+  (`-Dssc.jit.foldtc=1`) — caching the evaluated `empty` assumes a referentially-transparent monoid.
+  Verified: `JitFoldTcTest` 8 differential tests (memo-on == memo-off, incl. a polymorphic two-given
+  soundness case); `typeclassFoldMacro` **1.794 → 1.453 ms/op (~19%, non-overlapping error bars)**. The full
+  VM Slice C stays unbuilt (disproportionate); the memo captures most of the win without touching the JIT.
+
 - **Slice A (inline-lambda `foldLeft`) — SHIPPED to main 2026-06-19, default-on (kill-switch
   `SSC_JIT_FOLDLEFT=0`).** `LITERINIT`/`LITERHN`/`LITERNXI` opcodes + `VmCompiler.tryCompileFoldLeft` (inline
   lambda body into the accumulator, no CALLREF; statically `List[Int]`-only so the IntV unbox can never

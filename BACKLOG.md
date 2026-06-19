@@ -186,9 +186,15 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       `List[Int].foldLeft` so it no longer bails the whole enclosing function; kill-switch `SSC_JIT_FOLDLEFT=0`;
       `JitFoldLeftTest` 17 differential tests + full interp suite 1878 green WITH IT ON). **No measured perf
       win** (interp `foldLeftReusing`/while-JIT already optimize the hot parts) — shipped per decision as a
-      capability. The typeclass case (`typeclassFoldMacro` 1.14ms) still needs Slice C (type-method opcode +
-      hot-path using-guard relaxation), verified disproportionate; not pursued. Detail in
-      `specs/jit-foldleft-compile.md`.
+      capability. **The typeclass case (`typeclassFoldMacro`) IS now sped up — ~19% — but via a SAFE
+      interpreter memo, not the VM Slice C** (2026-06-19): a JFR profile showed the cost is ~79% evalCore
+      tree-walk of the `summon[M].empty`/`summon[M].combine` sub-expressions, re-evaluated per call. So
+      `evalFusedFoldLeft` memoizes the evaluated `(empty, combine)` per call-site keyed by given identity —
+      repeat calls skip those sub-expressions. **OPT-IN** (`-Dssc.jit.foldtc=1`) because it assumes a
+      referentially-transparent monoid `empty`. `JitFoldTcTest` 8 differential tests (incl. polymorphic
+      two-given soundness); typeclassFoldMacro 1.794 → 1.453 ms/op. The full VM Slice C (type-method opcode +
+      hot-path using-guard relaxation) stays unbuilt — disproportionate, and the interp memo gets most of the
+      win safely. Detail in `specs/jit-foldleft-compile.md`.
 - [x] ~~**hof-glue-jit-compile** (superseded note)~~ — **RESOLVED 2026-06-19 with WORKING CODE + MEASUREMENT.**
       Slice A (inline-lambda `foldLeft` VM compilation) was BUILT + VERIFIED (`LITER*` opcodes +
       `VmCompiler.tryCompileFoldLeft`, flag-gated off-by-default; `JitFoldLeftTest` 12 differential tests +
