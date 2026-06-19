@@ -172,7 +172,8 @@ class RustGenWebToolkitTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = gen(src)
-    assert(g.contains("move |__p0|"),
+    // An inline iterator-arg lambda borrows (no `move`) so captures can be re-read.
+    assert(g.contains("|__p0|"),
       s"expected the `_`-lambda to desugar to a closure, got:\n$g")
     assert(g.contains("__p0 + 1i64"),
       s"expected the placeholder body, got:\n$g")

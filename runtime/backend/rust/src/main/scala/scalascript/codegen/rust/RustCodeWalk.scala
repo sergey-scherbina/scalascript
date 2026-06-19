@@ -682,7 +682,13 @@ object RustCodeWalk:
       // Names bound by the enclosing closure(s) (params + pattern binds).  Inside a
       // closure, a non-Copy bare-name arg that is NOT one of these is a *captured*
       // value, so it's cloned at by-value calls to avoid moving it out of an FnMut.
-      closureParams: Set[String] = Set.empty
+      closureParams: Set[String] = Set.empty,
+      // Names read more than once in this def body (params, match binds, locals).  A
+      // non-Copy value read >1× must be `.clone()`d at by-value arg positions, else the
+      // first read moves it and the rest fail (E0382).  Single-use names stay clone-free
+      // (so simple goldens keep their exact `f(x)` output).  Cloning a Copy value is a
+      // harmless no-op, so we don't try to prove non-Copy-ness for match binds/locals.
+      multiUse: Set[String] = Set.empty
   ):
     def enumNames: Set[String] = ctorMap.values.map(_.enumName).toSet
     @annotation.unused def topValNames: Set[String] = topVals.map(_._1).toSet
@@ -756,7 +762,8 @@ object RustCodeWalk:
     else
       val (lseqs, larrays) = collectLocalSeqs(d.body)
       val lstrings = collectLocalStrings(d.body)
-      val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs, larrays, lstrings)
+      val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs, larrays, lstrings,
+                        multiUse = collectMultiUse(d.body) -- collectCopyNames(d))
       val effName = defEffectName(d)
       val pNames  = extractParamNames(d)
       val useTCO  = pNames.nonEmpty && hasTailCallPath(name, pNames.size, d.body)
@@ -813,6 +820,85 @@ object RustCodeWalk:
       t.children.foreach(walk)
     walk(body)
     (seqs.toSet, arrays.toSet)
+
+  /** Names *read* more than once in a def body — counting `Term.Name` uses but NOT
+   *  their binding occurrences (`Pat.Var` binders are skipped).  A non-Copy value read
+   *  more than once must be `.clone()`d at by-value argument positions, since the first
+   *  read moves it.  Single-use names are excluded so a plain `f(x)` stays clone-free. */
+  private def collectMultiUse(body: m.Term): Set[String] =
+    val counts = scala.collection.mutable.Map.empty[String, Int].withDefaultValue(0)
+    def walk(t: m.Tree): Unit = t match
+      case _: m.Pat.Var   => ()                 // a binder, not a use
+      case m.Term.Name(n) => counts(n) += 1
+      case _              => t.children.foreach(walk)
+    walk(body)
+    counts.collect { case (n, c) if c > 1 => n }.toSet
+
+  /** Root name of a field-projection chain (`a.b.c` → `a`); None if it doesn't bottom
+   *  out in a bare name. */
+  private def selectRoot(t: m.Term): Option[String] = t match
+    case m.Term.Name(n)         => Some(n)
+    case m.Term.Select(q, _)    => selectRoot(q)
+    case _                      => None
+
+  private val CopyTypeNames =
+    Set("Int", "Long", "Short", "Byte", "Double", "Float", "Boolean", "Bool", "Char", "Unit")
+  private def isCopyType(t: m.Type): Boolean = t match
+    case m.Type.Name(n) => CopyTypeNames.contains(n)
+    case _              => false
+  private val ArithOps = Set("+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "!=", "&&", "||")
+  /** A best-effort "this rhs is a Copy (numeric/bool) value" test: numeric/bool/char
+   *  literals and arithmetic/comparison/logical infix expressions. */
+  private def isCopyRhs(t: m.Term): Boolean = t match
+    case _: m.Lit.String                  => false
+    case m.Lit.Null()                     => false
+    case _: m.Lit                         => true
+    case m.Term.ApplyInfix.After_4_6_0(_, m.Term.Name(op), _, _) if ArithOps.contains(op) => true
+    case _                                => false
+
+  /** Names bound to a Copy-typed value (def params + locals).  Excluded from `multiUse`
+   *  cloning: a Copy value never moves, so cloning it is needless noise — and would break
+   *  goldens that assert the bare name (`_println(a)`).  Conservative: only names with a
+   *  Copy *declared* type or an obviously-numeric rhs; match binds / untyped stay eligible. */
+  private def collectCopyNames(d: m.Defn.Def): Set[String] =
+    val out = scala.collection.mutable.Set.empty[String]
+    d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).foreach { p =>
+      if p.decltpe.exists(isCopyType) then out += p.name.value
+    }
+    def walk(t: m.Tree): Unit =
+      t match
+        case v: m.Defn.Val => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n)))
+              if v.decltpe.exists(isCopyType) || isCopyRhs(v.rhs) => out += n
+          case _ => ()
+        case v: m.Defn.Var => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n)))
+              if v.decltpe.exists(isCopyType) || isCopyRhs(v.body) => out += n
+          case _ => ()
+        case _ => ()
+      t.children.foreach(walk)
+    walk(d.body)
+    out.toSet
+
+  /** Append `.clone()` to a rendered by-value argument when its source term is a value
+   *  that would otherwise be MOVED at this position: a bare name (topVal / read-more-than-
+   *  once / closure-captured) or a pure field projection rooted at such a name.  Cloning a
+   *  Copy value is a harmless no-op; `__pN` placeholder params, method-call projections and
+   *  rendered primitive literals are left alone.  Used both for generic call args and for
+   *  `element(…)` attr-map values (`_ui_attr(v)`), which move their `String`/`Value` too. */
+  private def cloneIfMoved(arg: m.Term, rendered: String, ctx: Ctx): String =
+    val topValNames = ctx.topVals.map(_._1).toSet
+    def needs(r: String): Boolean =
+      !r.matches("__p\\d+") &&
+        (topValNames.contains(r) || ctx.multiUse.contains(r)
+          || (ctx.closureParams.nonEmpty && !ctx.closureParams.contains(r)))
+    arg match
+      case m.Term.Name(n)
+          if needs(n) && !rendered.matches(raw"-?\d+i64|-?\d+\.\d+f64|true|false") =>
+        s"$rendered.clone()"
+      case sel: m.Term.Select if !rendered.contains("(") && selectRoot(sel).exists(needs) =>
+        s"$rendered.clone()"
+      case _ => rendered
 
   /** Local `val`/`var` names bound to a String-valued rhs (literal, `s"…"`,
    *  `.toString`/`.trim`/`.mkString`, an `if` whose branches are strings, a `+`
@@ -1473,7 +1559,11 @@ object RustCodeWalk:
       _phCounters = _phCounters.drop(1)
       bodyR.map { b =>
         val params = (0 until count).map(i => s"__p$i").mkString(", ")
-        s"move |$params| { $b }"
+        // No `move`: a placeholder lambda is an inline iterator arg (`xs.map(lower(_, theme))`)
+        // that's consumed in place, so it borrows its captures — letting a sibling/later
+        // closure read the same `theme` instead of fighting over the move.  Captures used
+        // by value are still cloned (the `__ph` closure marker turns on capture-cloning).
+        s"|$params| { $b }"
       }
 
     // `_` placeholder inside an anonymous function → the i-th fresh param.
@@ -1885,16 +1975,14 @@ object RustCodeWalk:
         // otherwise, breaking calls inside loops.  Skip when callee is a known
         // intrinsic that borrows its args (Borrowed list).  Skip primitives —
         // .clone() on i64 is a no-op but emits a cleaner diff to keep it off.
-        val topValNames = ctx.topVals.map(_._1).toSet
-        val isPrimLit = renderedArgs0.map(_.matches(raw"-?\d+i64|-?\d+\.\d+f64|true|false"))
-        val renderedArgsBase = args.values.toList.zip(renderedArgs0).zip(isPrimLit).map {
-          case ((m.Term.Name(n), rendered), false)
-              if !n.matches("__p\\d+")
-              && (topValNames.contains(n)
-                  || (ctx.closureParams.nonEmpty && !ctx.closureParams.contains(n))) =>
-            s"$rendered.clone()"
-          case ((_, rendered), _) => rendered
+        // A borrow-intrinsic (`writeFile`/`readFile`/…) takes its args by reference, so
+        // the value isn't moved — don't clone (the `&$arg` borrow is applied later).
+        val borrowsArgs = callee.flatMap(qn => ctx.intrinsics.get(qn)).exists {
+          case RuntimeCall(target) => BorrowedArgIntrinsics.contains(target)
+          case _                   => false
         }
+        val renderedArgsBase = if borrowsArgs then renderedArgs0 else
+          args.values.toList.zip(renderedArgs0).map((arg, rendered) => cloneIfMoved(arg, rendered, ctx))
         // Vararg call site (`f(a)(xs: T*)`): wrap the trailing args into one `vec![…]`
         // (the curried chain was flattened, so they arrive as plain trailing args).
         val renderedArgs = fn match
@@ -2330,6 +2418,11 @@ object RustCodeWalk:
       method: String,
       zero:   Option[String] = None
   ): Either[List[Diagnostic], String] = fn match
+    // `xs.map { x => … }` (brace-block syntax) parses as a Block wrapping the Function;
+    // unwrap + re-dispatch so it takes the borrow-not-move Function path below, not the
+    // generic fallback (which renders the inner closure with `move` and re-moves captures).
+    case m.Term.Block(List(f: m.Term.Function)) =>
+      renderVecIterBody(f, q, ctx, method, zero)
     // Single or two-param closure `(p: T) => body` or `(a, b) => body`.
     case fn2: m.Term.Function =>
       val params = fn2.paramClause.values.toList
@@ -2346,10 +2439,15 @@ object RustCodeWalk:
           case "foreach"  =>
             val stmtBody = if b.endsWith(";") then b else b + ";"
             s"for $p0 in $q.iter().cloned() {\n${indent(stmtBody)}\n}"
-          case "map"      => s"$q.iter().cloned().map(move |$p0| { $b }).collect::<Vec<_>>()"
-          case "filter"   => s"$q.iter().cloned().filter(move |$p0| { $b }).collect::<Vec<_>>()"
-          case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, move |$p0, $p1| { $b })"
-          case other      => s"$q.$other(move |$p0| { $b })"
+          // These iterators are consumed in place (`.collect()`/`.fold()`), so the
+          // closure can BORROW its captures rather than `move` them — letting an outer
+          // value (e.g. `theme`) be read again afterwards, or captured by a sibling/nested
+          // map closure, instead of being moved into the first one (E0507/E0382).  The
+          // `.cloned()` element is owned, and clone-insertion clones any by-value capture.
+          case "map"      => s"$q.iter().cloned().map(|$p0| { $b }).collect::<Vec<_>>()"
+          case "filter"   => s"$q.iter().cloned().filter(|$p0| { $b }).collect::<Vec<_>>()"
+          case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, |$p0, $p1| { $b })"
+          case other      => s"$q.$other(|$p0| { $b })"
       }
     // Method reference `obj.method` → wrap in a closure so it's a callable value.
     // (Rust can't take a method as a fn pointer without a turbofish bound trait.)
@@ -2483,7 +2581,7 @@ object RustCodeWalk:
               for
                 kr <- renderTerm(k, ctx)
                 vr <- renderTerm(vArgs.values.head, ctx)
-              yield s"__m.insert($kr, crate::runtime::ui::_ui_attr($vr));"
+              yield s"__m.insert($kr, crate::runtime::ui::_ui_attr(${cloneIfMoved(vArgs.values.head, vr, ctx)}));"
             case _ =>
               Left(List(unsupported(s"def `${ctx.defName}`: attr entry is not `k -> v`")))
           }
@@ -2578,7 +2676,10 @@ object RustCodeWalk:
           tyAnn <- annotated
           rhsRs <- renderTerm(rhs, ctx)
         yield
-          s"$kw $name$tyAnn = $rhsRs;"
+          // A `val t = theme.typography.body` binding moves the field out of its owner
+          // (partial move), poisoning a later read of `theme`.  Clone a name/projection
+          // rhs rooted at a reused/captured value so the owner survives.
+          s"$kw $name$tyAnn = ${cloneIfMoved(rhs, rhsRs, ctx)};"
       // `val (a, b) = expr` / `val (a, _) = expr` — tuple destructuring.
       case List(m.Pat.Tuple(elems)) =>
         val kw = if mutable then "let mut" else "let"

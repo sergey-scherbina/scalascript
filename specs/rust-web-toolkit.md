@@ -169,11 +169,26 @@ SSR at the primitive level first (no library needed), then layer the widget libr
    - S3t.1 (done): placeholder `_`-lambda renders its body as a closure body (sets `closureParams`
      marker) so captured non-Copy (`theme`) clones instead of moving out of the `FnMut`; `__pN`
      placeholder params excluded from the arg-clone rule.
-   - S3t.2 (next): clone non-Copy **projection** args (`_ui_attr(theme.colors.muted)` → `.clone()` at
-     the leaf — borrows the root, no move) and bare-Name args of a **multiply-read non-Copy param**
-     (compute per-def; single-use stays clone-free so golden tests are untouched).
-   - S3t.3: closures that capture `theme` and are immediately collected (`.map().collect()`) borrow
-     rather than `move`, so multiple closures / a later use in the same arm don't fight over the move.
+   - S3t.2 (done): a per-def **use-count** `multiUse` (names read >1×, minus a `copyNames` set of
+     params/locals with a Copy declared type / numeric rhs so single-use & Copy stay clone-free →
+     goldens hold). `cloneIfMoved(arg, rendered, ctx)` clones a bare-name OR pure field-projection
+     (clone the *leaf*: borrows the root, moves nothing) when its root is a topVal / multiUse /
+     closure-capture. Applied at call args, `element(…)` attr-map values (`_ui_attr(v)`), and val/var
+     rhs (`let t = theme.typography.body.clone()` — else the field partial-moves `theme`). Borrow
+     intrinsics (`writeFile`/…) skip cloning (they take `&arg`).
+   - S3t.3 (done): immediately-collected `.map`/`.filter`/`.foreach`/`.fold` closures + placeholder
+     `_`-lambdas drop `move` (borrow captures), so sibling/nested closures (DataTable `rows.map{…
+     cells.map{…}}`) and a later read of `theme` don't fight over the move. Brace-block lambdas
+     (`xs.map { x => … }`, a `Block`-wrapped `Function`) are unwrapped to the same borrow path.
+     Event handlers etc. keep `move` (they may escape) — but the toolkit's events are `_ui_*(…)`
+     calls (Values), not stored closures, so nothing regressed.
+
+   **STATUS (2026-06-19): cargo `build` 290 → 0 — the whole std/ui toolkit COMPILES on Rust.** The
+   `@main` probe `serve(lower(vstack(12)(heading(1,"Hi"), text("hello")), defaultTheme), 8124)` builds
+   to a binary and SSRs `<div style="…gap:12px…"><h1 …>Hi</h1><p …>hello</p></div>` over hyper/tokio
+   (verified by `curl`). backendRust 218 green; full suite green for everything touched. Only cosmetic
+   `non_snake_case` warnings remain. **The Rust-SSR web goal is reached via the declarative toolkit.**
+   Next: S4 named/curried args (`vstack(gap=12)(…)`), S5 `Signal` reactivity (SSR initial + client JS).
 4. **S4 (G3)** — named args in curried application (`vstack(gap=12)(…)`).
 5. **S5 (G5)** — `Signal` reactivity: SSR initial value + emit the client JS bundle.
 
