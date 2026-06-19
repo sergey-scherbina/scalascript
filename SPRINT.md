@@ -143,8 +143,16 @@ verify residuals**, NOT from-scratch builds:
       was stale.
 - [~] **theme-a-stable-plugin-spi** — spec Status accurate ("partially implemented"; Phases 1+2 landed).
       Residual = Phase 3 versioned stable API module. Left as-is (accurate).
-- [~] **theme-e-ssc-new** — `ssc new`/install present in `Main` (verified `def name = "new"`). No dedicated
-      spec file; nothing stale to reconcile. Effectively done; verify completeness if revisited.
+- [ ] **ssc-new-audit** — verify the `ssc new` / standalone-install surface against
+      `specs/arch-ssc-new.md` without touching Maven publication. WHY: the roadmap says this is
+      effectively done but only spot-verified (`def name = "new"`); a cold agent still cannot tell whether
+      the shipped templates, installer fixtures, and tests cover the spec's remaining behavior items. HOW:
+      read `specs/arch-ssc-new.md`; inspect `tools/cli` `NewProject` implementation/resources/tests plus
+      `releases/{coursier.json,install.sh,homebrew/ssc.rb}`; add narrowly-scoped tests or docs/spec
+      checkmarks for any missing local-only behavior. Do not require a published sbt plugin or network.
+      DONE WHEN: targeted CLI/template tests are green with explicit `cd <worktree> && sbt ...`, the spec's
+      behavior/test items reflect the real coverage, and any remaining external/publishing gap is recorded
+      as deferred rather than rediscovered later.
 - [x] **theme-b-build-registry-consolidation** — Phase 3 is **MOOT** (triaged 2026-06-18):
       `PluginManifest`/`LocalRegistry` are the **implementation** the facade is built on (not removable
       wrappers — `BackendRegistry` uses `PluginManifest`; `ImportResolver`/`PluginCommands` use
