@@ -180,7 +180,19 @@ handles `@wasm` externs, local `.ssc` import inlining, and quoted macros (2026-0
 
 Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 -i 5 -f 1`).
 
-- [x] **hof-glue-jit-compile** — **RESOLVED 2026-06-18 → DEFERRED to the dual-bank `LExpr` VM roadmap
+- [~] **hof-glue-jit-compile** — **DESIGNED + BUILD-READY 2026-06-19 (`specs/jit-foldleft-compile.md`).**
+      Mapped the full "JIT-compile `combineAll`/`foldLeft`" lever against the real VM code: 6 interlocking
+      pieces in dependency order, with a safe-first build order (Slice A = inline-lambda `foldLeft`, flag-gated
+      off-by-default, differential-tested, measurable on a new `foldLeftLambda` bench → zero given/type-method
+      risk; Slice B = `using`+`summon` plumbing; Slice C = type-method `.empty`/`.combine` opcodes → the
+      `typeclassFoldMacro` win). KEY de-risking finding: the `using` arg is RESOLVED + APPENDED to the args
+      array before invoke (`CallRuntime.bindArgs` ~430), so a compiled `combineAll` just gets the monoid as a
+      trailing ref param. HARD WRINKLE: `summon[M].combine`/`.empty` are NOT InstanceV fields — they resolve
+      via `lookupTypeMethod(typeName, name)` (DispatchRuntime:3180) + `invokeTypeMethod` (binds `this`+fields),
+      so the per-element call is a type-method invocation needing a new `TMLOOKUP` opcode, not a bare CALLREF.
+      Deliberately NOT one-shot: the JIT is on every hot path (silent-wrong-result risk), and the payoff is a
+      synthetic bench (1.14 ms → ~0.1–0.3 ms). Next: build Slice A as a focused effort. (Prior history below.)
+- [x] ~~**hof-glue-jit-compile** (history)~~ — **RESOLVED 2026-06-18 → DEFERRED to the dual-bank `LExpr` VM roadmap
       (closed; stop re-investigating in isolation).** Re-measured on current main: `typeclassFoldMacro` =
       **1.142 ms/op** vs `typeclassFold` = **0.005 ms/op** — the statically-typed fold fully JITs; the 228×
       gap is purely the macro version's per-call given/summon glue. The −10.5% fused fast-path is intact and
