@@ -4737,10 +4737,12 @@ private[interpreter] object EvalRuntime:
    *  so semantics + effect ordering are preserved). */
   // jit-foldleft-tc: memoize the evaluated (empty, combine) of a typeclass fold
   // `xs.foldLeft(summon[M].empty)(summon[M].combine)` per call-site, keyed by the
-  // resolved given identity. OFF by default — -Dssc.jit.foldtc=1 / SSC_JIT_FOLDTC=1.
+  // resolved given identity. ON by default — kill-switch -Dssc.jit.foldtc=0 /
+  // SSC_JIT_FOLDTC=0. Assumes a lawful (referentially-transparent) monoid `empty`;
+  // a side-effecting `empty` (an anti-pattern) should disable it via the switch.
   private def foldTcEnabled: Boolean =
     sys.props.get("ssc.jit.foldtc").orElse(sys.env.get("SSC_JIT_FOLDTC"))
-      .exists(v => v == "1" || v == "true")
+      .forall(v => v != "0" && v != "false")
 
   /** `summon[M].member` → the Select node, else null. */
   private def asSummonMember(t: Term): Term.Select | Null = t match
