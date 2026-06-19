@@ -1,11 +1,13 @@
 # `ssc new` — Project Scaffolding & Installation
 
-Status: **partially implemented**. The plugin template path
+Status: **implemented for local scaffolding + release-input fixtures**. The plugin template path
 (`ssc new <name> --template plugin`) landed with `arch-distribution-p4` on
 2026-05-29. Phase 1 app/lib templates and repository-side Coursier channel
 fixture landed on 2026-05-29. Phase 2 dsl/web-app/wasm-app templates plus
 Homebrew/curl release inputs landed on 2026-05-29. Phase 3 standalone docs and
-`install.sh --dev` behavior landed on 2026-05-29.
+`install.sh --dev` behavior were verified on 2026-06-19. External publication
+of the Coursier channel, Homebrew tap, and release assets is part of the
+deferred distribution/Maven work, not this local scaffold slice.
 Companion: [`specs/arch-sbt-plugin.md`](arch-sbt-plugin.md),
 [`specs/arch-distribution.md`](arch-distribution.md).
 
@@ -67,7 +69,7 @@ templates/
 Implementation note: `app/`, `lib/`, `plugin/`, `dsl/`, `web-app/`, and
 `wasm-app/` are currently implemented.
 
-Each template includes at minimum:
+The app/lib/dsl/web-app/wasm-app templates include:
 ```
 ${name}/
   build.sbt                           # sbt-scalascript plugin wired
@@ -76,7 +78,9 @@ ${name}/
   .gitignore
 ```
 
-The `plugin` template additionally includes:
+The `plugin` template is intentionally a plain Scala backend-plugin project
+rather than an sbt-scalascript consumer project, so it has `project/build.properties`
+but no `project/plugins.sbt`. It additionally includes:
 ```
   .github/workflows/release.yml       # build + attach .sscpkg on tag push
   src/main/resources/META-INF/services/scalascript.backend.spi.Backend
@@ -184,8 +188,10 @@ User-facing docs replace references to it with Option A/B/C.
   structure); integration test: `ssc new foo --template app && sbt run`
   exits 0.
   ✓ Unit coverage landed 2026-05-29 for default app, lib, and plugin
-  scaffolds. Full `sbt run` integration remains CI-only/future because it
-  requires a published sbt plugin artifact.
+  scaffolds. ✓ Audit coverage added 2026-06-19 for all six bundled templates,
+  placeholder substitution, `--output-dir` aliases, and best-effort `git init`.
+  Full `sbt run` integration remains CI-only/future because it requires a
+  published sbt plugin artifact.
 
 ### Phase 2 — `plugin`, `dsl`, `web-app`, `wasm-app` templates
 
@@ -204,20 +210,39 @@ User-facing docs replace references to it with Option A/B/C.
 - `specs/community-plugins.md` walkthrough for plugin template. ✓ Updated
   2026-05-29 with current template/install status.
 - Update `docs/user-guide.md` "Installation" section. ✓ Landed 2026-05-29.
-- `install.sh --dev` developer-mode switch. ✓ Landed 2026-05-29; plain
+- `install.sh --dev` developer-mode switch. ✓ Verified 2026-06-19; plain
   `./install.sh` prints standalone install options instead of building.
 
 ## 6. Testing strategy
 
 - `NewProject` unit test: calls `NewProject.create("hello", "app", tmpDir)`;
   asserts `build.sbt`, `src/main/scalascript/Main.ssc`, `.gitignore` exist;
-  checks placeholder substitution.
+  checks placeholder substitution and best-effort `git init`.
+- All-template manifest test: renders `app`, `lib`, `plugin`, `dsl`,
+  `web-app`, and `wasm-app` and asserts no `${...}` placeholders remain in
+  generated paths or files.
 - Integration test (CI only): `ssc new hello --template app && cd hello && sbt run`.
 - Plugin template test: `ssc new my-plugin --template plugin && sbt package`
   produces a `.sscpkg`.
 - Coursier channel test: `cs install ssc --channel <local-fixture-channel>`.
 
-## 7. Open questions
+## 7. Audit results (2026-06-19)
+
+- Fixed: `NewProject.create` now runs best-effort `git init -q` when `git` is
+  available, matching §3a.
+- Fixed: the `ssc new` usage string now lists all bundled templates:
+  `app|lib|plugin|dsl|web-app|wasm-app`.
+- Fixed: root `install.sh` now matches the standalone-install contract: no
+  args print the Coursier/Homebrew/curl install paths, while `--dev` runs the
+  monorepo sbt staging build.
+- Verified: release fixtures exist for Coursier (`releases/coursier.json`),
+  curl installer (`releases/install.sh`), and Homebrew
+  (`releases/homebrew/ssc.rb`). Live publication remains external/deferred.
+- Clarified: the plugin template intentionally omits `project/plugins.sbt`
+  because it is a plain Scala backend-plugin project, not an sbt-scalascript
+  consumer app.
+
+## 8. Open questions
 
 1. Should templates live inside `ssc.jar` (current plan) or in a separate
    `ssc-templates` artifact fetched on first `ssc new` run?  Bundling keeps
