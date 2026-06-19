@@ -676,7 +676,11 @@ object RustCodeWalk:
       // `a[(i) as usize]`; `localArrays` ⊆ localSeqs are mutable `Array`s, bound `let mut` so
       // `a(i) = x` (→ `a[(i) as usize] = x`) is allowed. Computed by a per-def pre-pass.
       localSeqs:    Set[String] = Set.empty,
-      localArrays:  Set[String] = Set.empty
+      localArrays:  Set[String] = Set.empty,
+      // Names bound by the enclosing closure(s) (params + pattern binds).  Inside a
+      // closure, a non-Copy bare-name arg that is NOT one of these is a *captured*
+      // value, so it's cloned at by-value calls to avoid moving it out of an FnMut.
+      closureParams: Set[String] = Set.empty
   ):
     def enumNames: Set[String] = ctorMap.values.map(_.enumName).toSet
     @annotation.unused def topValNames: Set[String] = topVals.map(_._1).toSet
@@ -1405,12 +1409,15 @@ object RustCodeWalk:
     // → a Rust closure that matches its single argument: `move |__pf| match __pf { … }`.
     case pf: m.Term.PartialFunction =>
       val arms = pf.cases.map { c =>
+        // The arm body runs inside the closure: `__pf` + the pattern binders are
+        // closure-locals; everything else it touches is captured.
+        val bodyCtx = ctx.copy(closureParams = ctx.closureParams ++ patBoundNames(c.pat) + "__pf")
         for
           pat   <- renderPattern(c.pat, ctx)
           guard <- c.cond match
-                     case Some(g) => renderTerm(g, ctx).map(gr => s" if $gr")
+                     case Some(g) => renderTerm(g, bodyCtx).map(gr => s" if $gr")
                      case None    => Right("")
-          bod   <- renderTerm(c.body, ctx)
+          bod   <- renderTerm(c.body, bodyCtx)
         yield s"$pat$guard => $bod,"
       }
       val (errs, ok) = arms.partitionMap(identity)
@@ -1842,7 +1849,9 @@ object RustCodeWalk:
         val topValNames = ctx.topVals.map(_._1).toSet
         val isPrimLit = renderedArgs0.map(_.matches(raw"-?\d+i64|-?\d+\.\d+f64|true|false"))
         val renderedArgsBase = args.values.toList.zip(renderedArgs0).zip(isPrimLit).map {
-          case ((m.Term.Name(n), rendered), false) if topValNames.contains(n) =>
+          case ((m.Term.Name(n), rendered), false)
+              if topValNames.contains(n)
+              || (ctx.closureParams.nonEmpty && !ctx.closureParams.contains(n)) =>
             s"$rendered.clone()"
           case ((_, rendered), _) => rendered
         }
@@ -2282,9 +2291,10 @@ object RustCodeWalk:
       val p1 = params.lift(1).map(_.name.value).getOrElse("__b")
       // Block bodies (multi-stmt) use renderBody with isUnit=true for foreach/foldLeft.
       val isUnitCtx = method == "foreach"
+      val bodyCtx = ctx.copy(closureParams = ctx.closureParams ++ Set(p0, p1))
       val bodyResult = fn2.body match
-        case blk: m.Term.Block => renderBody(blk, ctx, isUnit = isUnitCtx)
-        case t                 => renderTerm(t, ctx)
+        case blk: m.Term.Block => renderBody(blk, bodyCtx, isUnit = isUnitCtx)
+        case t                 => renderTerm(t, bodyCtx)
       bodyResult.map { b =>
         method match
           case "foreach"  =>
@@ -2335,7 +2345,8 @@ object RustCodeWalk:
     val (errs, ok) = rendered.partitionMap(identity)
     if errs.nonEmpty then Left(errs.flatten)
     else
-      for b <- renderTerm(body, ctx)
+      val bodyCtx = ctx.copy(closureParams = ctx.closureParams ++ params.map(_.name.value).toSet)
+      for b <- renderTerm(body, bodyCtx)
       yield s"move |${ok.mkString(", ")}| { $b }"
 
   /** Lower a `Term.Match(subject, cases)` to a Rust `match` expression.
@@ -2374,6 +2385,15 @@ object RustCodeWalk:
         val arms = ok.mkString("\n")
         Right(s"match $s {\n${indent(arms)}\n}")
     }
+
+  /** Names a pattern binds (var binders, recursively through tuples/extractors) —
+   *  used to mark closure-local names so captured vars can be told apart. */
+  private def patBoundNames(p: m.Pat): Set[String] = p match
+    case m.Pat.Var(m.Term.Name(n))               => Set(n)
+    case m.Pat.Tuple(args)                       => args.flatMap(patBoundNames).toSet
+    case m.Pat.Extract.After_4_6_0(_, argClause) => argClause.values.flatMap(patBoundNames).toSet
+    case m.Pat.Typed(inner, _)                   => patBoundNames(inner)
+    case _                                       => Set.empty
 
   private def isMapCtorFn(fn: m.Term): Boolean = fn match
     case m.Term.Name("Map")                                  => true
