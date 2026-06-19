@@ -67,11 +67,12 @@ SSR at the primitive level first (no library needed), then layer the widget libr
      + `fragment` compile **and run** end-to-end: `renderHtml(fragment(List(textNode("hi "),
      textNode("& <world>"))))` → `hi &amp; &lt;world&gt;` via `ssc run-rust`. Typing aligned
      itself (String literal → `"…".to_string()`; untyped `let` infers `View`).
-   - **S1c — `element` (the tag builder).** Blocked on two codegen gaps surfaced by an
-     `element("div", Map("class" -> "root"), Map(), List(textNode("hi")))` probe:
-     (i) the `->` infix operator (`unsupported infix operator \`->\``) → lower to a Rust
-     tuple; (ii) `Map[String, Any]` literal → the attrs representation matching
-     `_ui_element` (likely `HashMap<String, Value>` + render Value attrs to strings).
+   - **S1c ✅ DONE — `element` (the tag builder).** Two codegen fixes: (i) the `->` infix
+     operator → Rust tuple `(a, b)`; (ii) non-empty `Map(k -> v, …)` → a HashMap-insert
+     block (consistent with empty `Map()` → `HashMap::new()`). `_ui_element` takes
+     `HashMap<String,String>` attrs, key-sorted for deterministic SSR. End-to-end:
+     `renderHtml(element("div", Map("class"->"root","id"->"main"), Map(), List(textNode("hi & bye"))))`
+     → `<div class="root" id="main">hi &amp; bye</div>` via `ssc run-rust`. `backendRust` 212/0.
 2. **S2 (G4)** — `serve(view, port)` overload: render the `View` then serve it via the
    existing `_http_serve` listener (static `GET /`). Arity-2 `serve` dispatch in the codewalk.
 3. **S3 (G1)** — transpile imported `std/ui/*.ssc` widget library into the crate so

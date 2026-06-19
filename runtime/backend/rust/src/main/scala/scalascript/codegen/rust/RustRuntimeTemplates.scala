@@ -643,10 +643,13 @@ object RustRuntimeTemplates:
       |
       |pub fn _ui_element(
       |    tag: String,
-      |    attrs: Vec<(String, String)>,
-      |    _events: Vec<(String, String)>,
+      |    attrs: std::collections::HashMap<String, String>,
+      |    _events: std::collections::HashMap<String, String>,
       |    children: Vec<View>,
       |) -> View {
+      |    // Key-sorted attribute order → deterministic SSR output (HashMap is unordered).
+      |    let mut attrs: Vec<(String, String)> = attrs.into_iter().collect();
+      |    attrs.sort_by(|a, b| a.0.cmp(&b.0));
       |    View::Element { tag, attrs, children }
       |}
       |

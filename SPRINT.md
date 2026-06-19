@@ -75,9 +75,11 @@ or blocked/deferred (kept for record, NOT actionable now — see "Excluded from 
       too costly). **DONE 2026-06-19:** I1 `s"…${expr}…"` splices + S1a HTML/SSR View primitives
       (`element/textNode/fragment` → `runtime/ui.rs`, gated) + S1b `renderHtml` SSR — `textNode`/
       `fragment` compile AND run end-to-end (`renderHtml(...)` → escaped HTML via `ssc run-rust`).
-      `backendRust` 211/0. **NEXT:** S1c `element` (blocked on `->` infix op + `Map` literal codegen) ·
-      S2 `serve(view, port)` · S3 transpile imported `std/ui/*.ssc` · S4 named/curried args ·
-      S5 `Signal` reactivity. Spec `specs/rust-web-toolkit.md`. Branch `feature/rust-web-toolkit`.
+      `backendRust` 211/0. + S1c `element` (`->` → tuple; non-empty `Map(k->v)` → HashMap-insert;
+      `_ui_element` key-sorted attrs) — `renderHtml(element("div",Map("class"->"root"),…))` →
+      `<div class="root" …>…</div>` end-to-end, `backendRust` 212/0. **NEXT:** S2 `serve(view, port)` ·
+      S3 transpile imported `std/ui/*.ssc` · S4 named/curried args · S5 `Signal` reactivity.
+      Spec `specs/rust-web-toolkit.md`. Branch `feature/rust-web-toolkit`.
 
 - [x] **agent-sdk-remainder** ✓ DONE 2026-06-17 (actionable scope) — consolidated `specs/agent-sdk.md`
       + **P3a MCP bridge both directions** (`runtime/std/agent-mcp.ssc`: `serveAgentToolsMcp` +

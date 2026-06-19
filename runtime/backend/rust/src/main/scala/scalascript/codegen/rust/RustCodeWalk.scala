@@ -1717,7 +1717,22 @@ object RustCodeWalk:
         if isListCtor then Right(s"vec![$joined]")
         else if isMapCtor then
           if args.values.isEmpty then Right("std::collections::HashMap::new()")
-          else Left(List(unsupported(s"def `${ctx.defName}` uses `Map` with ${args.values.size} args; only empty `Map()` is supported")))
+          else
+            // `Map(k -> v, …)` → `{ let mut __m = HashMap::new(); __m.insert(k, v); … __m }`
+            // (consistent with empty `Map()` → `HashMap::new()`).
+            val inserts = args.values.toList.map {
+              case m.Term.ApplyInfix.After_4_6_0(k, m.Term.Name("->"), _, vArgs)
+                  if vArgs.values.size == 1 =>
+                for
+                  kr <- renderTerm(k, ctx)
+                  vr <- renderTerm(vArgs.values.head, ctx)
+                yield s"__m.insert($kr, $vr);"
+              case _ =>
+                Left(List(unsupported(s"def `${ctx.defName}`: `Map` entry is not `k -> v`")))
+            }
+            val (errs, ok) = inserts.partitionMap(identity)
+            if errs.nonEmpty then Left(errs.flatten)
+            else Right(s"{ let mut __m = std::collections::HashMap::new(); ${ok.mkString(" ")} __m }")
         else seqIndexName match
           case Some(n) => Right(s"$n[($joined) as usize]")
           case None    => applyNonListCtor(fn, callee, renderedArgs, joined, ctx)
@@ -1730,6 +1745,17 @@ object RustCodeWalk:
         l <- renderTerm(lhs, ctx)
         r <- renderTerm(args.values.head, ctx)
       yield s"format!(\"{}{}\", $l, $r)"
+
+    // `a -> b` (Scala's tuple-arrow) → Rust tuple `(a, b)`.  `Map(k -> v, …)`
+    // literals already lower to `vec![ <pairs> ]`, so with this each pair
+    // becomes a `(K, V)` tuple — e.g. `Map("c" -> "r")` → `vec![("c".to_string(),
+    // "r".to_string())]`, matching the attrs surface of the std/ui `element`.
+    case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("->"), _, args)
+        if args.values.size == 1 =>
+      for
+        l <- renderTerm(lhs, ctx)
+        r <- renderTerm(args.values.head, ctx)
+      yield s"($l, $r)"
 
     // Infix `++` for tuple literals: flatten tuple-literal concat chains.
     // `(a, b) ++ (c, d) == (a, b, c, d)`, also right-recursive.

@@ -112,6 +112,19 @@ class RustGenWebToolkitTest extends AnyFunSuite:
     val a = assets(src)
     assert(a("src/runtime/ui.rs").contains("pub fn _ui_render(v: View) -> String"))
 
+  test("element with Map attrs emits _ui_element with tuple attrs (-> arrow)"):
+    val src =
+      """```scalascript
+        |@main def run(): Unit =
+        |  println(renderHtml(element("div", Map("class" -> "root"), Map(), List(textNode("hi")))))
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("crate::runtime::ui::_ui_element"),
+      s"expected a _ui_element call, got:\n$g")
+    assert(g.contains("""__m.insert("class".to_string(), "root".to_string());"""),
+      s"expected the `->` entry to lower to a HashMap insert, got:\n$g")
+
   test("a program with no View primitives stays ui-free"):
     val src =
       """```scalascript
