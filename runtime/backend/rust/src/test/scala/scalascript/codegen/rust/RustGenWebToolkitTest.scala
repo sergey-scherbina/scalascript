@@ -98,6 +98,7 @@ class RustGenWebToolkitTest extends AnyFunSuite:
     val ui = a("src/runtime/ui.rs")
     assert(ui.contains("pub fn _ui_render(v: View) -> String"))
     assert(ui.contains("pub enum View"))
+    assert(ui.contains("fn _ui_is_void"), "void-element handling should be present")
 
   test("renderHtml(view) wires the SSR render entry"):
     val src =

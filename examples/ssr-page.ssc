@@ -1,0 +1,42 @@
+#!/usr/bin/env ssc
+---
+name: ssr-page
+version: 1.0.0
+description: Server-side-rendered HTML page on the Rust backend, built from the std/ui View primitives and served with serve(view, port).
+---
+
+# SSR page on Rust
+
+A self-contained page built from the `std/ui` **View primitives** — `element`,
+`textNode`, `fragment` — lowered to HTML by the Rust backend's SSR renderer and
+served with `serve(view, port)`. No JS, no external GUI: a ScalaScript program
+compiles to a native Rust HTTP server.
+
+```bash
+ssc run-rust examples/ssr-page.ssc   # then: curl http://localhost:8123/
+```
+
+```scalascript
+@main def run(): Unit =
+  val page = element("html", Map("lang" -> "en"), Map(), List(
+    element("head", Map(), Map(), List(
+      element("meta", Map("charset" -> "utf-8"), Map(), List()),
+      element("title", Map(), Map(), List(textNode("rozum")))
+    )),
+    element("body", Map(), Map(), List(
+      element("h1", Map(), Map(), List(textNode("rozum meeting"))),
+      element("div", Map("class" -> "log"), Map(), List(
+        element("p", Map("class" -> "msg"), Map(), List(
+          element("b", Map(), Map(), List(textNode("claude"))),
+          textNode(": привет — это SSR на Rust")
+        )),
+        element("p", Map("class" -> "msg"), Map(), List(
+          element("b", Map(), Map(), List(textNode("sergiy"))),
+          textNode(": вижу, рендерится & работает")
+        ))
+      ))
+    ))
+  ))
+  println("serving on http://localhost:8123/")
+  serve(page, 8123)
+```

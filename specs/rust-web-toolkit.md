@@ -80,8 +80,27 @@ SSR at the primitive level first (no library needed), then layer the widget libr
    programs are unaffected. Proven end-to-end: `serve(element("div", Map("id"->"app"), Map(),
    List(textNode("hello from rust ssr"))), 8099)` compiles + runs; `curl :8099` →
    `<div id="app">hello from rust ssr</div>`. `backendRust` 214/0.
-3. **S3 (G1)** — transpile imported `std/ui/*.ssc` widget library into the crate so
-   `vstack`/`heading`/`text`/`lower` work on top of the S1 primitives.
+   - **S1d ✅ DONE — void elements.** `_ui_render` self-closes HTML void tags
+     (`meta`/`br`/`img`/…): `<meta charset="utf-8">` with no closing tag.
+
+   **Capstone (S1+S2): `examples/ssr-page.ssc`** — a full nested HTML page (html/head/
+   meta/title/body/h1/div/p/b, attrs, Cyrillic, `&` escaping) built from the View
+   primitives, compiled with `ssc build-rust`, served, and fetched: `curl :8123` →
+   `<html lang="en">…<p class="msg"><b>claude</b>: …&amp; работает</p>…</html>`.
+   A ScalaScript program → native Rust HTTP server that SSRs HTML. **The end goal is
+   reachable today via the primitives** (verbose `element(...)` authoring).
+
+3. **S3 (G1) — transpile the `std/ui` widget library (`vstack`/`heading`/`text`/`lower`).**
+   LARGE + open-ended; entangled with S5. Requires: (a) a **recursive import inliner** for
+   the Rust path — `compileViaBackend`/`RustGen` must resolve `[name](path.ssc)` imports
+   (JVM/JS do this inside their gen via `ImportResolver`+baseDir; RustGen does not →
+   `cannot find function text`); (b) transpiling the dependency graph
+   `nodes.ssc` (sealed `TkNode` + ~20 case classes) → `theme.ssc` (Theme struct) →
+   `layout/typography` (constructors) → `lower.ssc` (494-line monolithic `TkNode`→`View`
+   match). `lower` is monolithic — it references the **signal** primitives (`signalText`,
+   `showSignal`, `setSignal`, `inputChange`, `toggleSignal`, `eqSignal`, `dataTableView`),
+   so it only compiles once those have Rust runtimes (≈ S5). No small slice exists.
+   Recommended as a focused follow-up effort.
 4. **S4 (G3)** — named args in curried application (`vstack(gap=12)(…)`).
 5. **S5 (G5)** — `Signal` reactivity: SSR initial value + emit the client JS bundle.
 

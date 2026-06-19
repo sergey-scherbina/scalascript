@@ -678,13 +678,22 @@ object RustRuntimeTemplates:
       |                s.push('"');
       |            }
       |            s.push('>');
-      |            for c in children { s.push_str(&_ui_render_ref(c)); }
-      |            s.push_str("</");
-      |            s.push_str(tag);
-      |            s.push('>');
+      |            // HTML void elements (meta/br/img/…) take no closing tag.
+      |            if !(_ui_is_void(tag) && children.is_empty()) {
+      |                for c in children { s.push_str(&_ui_render_ref(c)); }
+      |                s.push_str("</");
+      |                s.push_str(tag);
+      |                s.push('>');
+      |            }
       |            s
       |        }
       |    }
+      |}
+      |
+      |fn _ui_is_void(tag: &str) -> bool {
+      |    matches!(tag,
+      |        "area" | "base" | "br" | "col" | "embed" | "hr" | "img" | "input"
+      |        | "link" | "meta" | "param" | "source" | "track" | "wbr")
       |}
       |
       |fn _ui_escape_text(s: &str) -> String {
