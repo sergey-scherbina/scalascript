@@ -1,6 +1,0 @@
-feature/jit-foldtc-on 2026-06-19T20:45:50Z
-agent: claude
-heartbeat: 2026-06-19T20:45:50Z
-status: in-progress
-done-so-far: making typeclass-fold memo default-on (user: сделай все до конца)
-next: flip flag default-on+killswitch; full suite green WITH IT ON; docs opt-in->default-on; ship
