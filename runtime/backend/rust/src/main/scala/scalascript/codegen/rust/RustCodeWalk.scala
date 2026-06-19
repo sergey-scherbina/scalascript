@@ -42,6 +42,13 @@ object RustCodeWalk:
   ): Either[List[Diagnostic], WalkResult] =
     _typeLambdas          = collectTypeLambdaAliases(module)
     val defs              = collectDefs(module)
+    _varargDefs = defs.flatMap { d =>
+      val ps = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+      ps.lastOption match
+        case Some(p) if p.decltpe.exists(_.isInstanceOf[m.Type.Repeated]) =>
+          Some(d.name.value -> (ps.size - 1))
+        case _ => None
+    }.toMap
     val enums             = collectEnums(module)
     val traitEnums        = collectSealedTraitEnums(module)
     val standaloneCases   = collectStandaloneCaseClasses(module, traitEnums)
@@ -335,6 +342,11 @@ object RustCodeWalk:
    *  each `Term.AnonymousFunction` pushes a 0, each `Term.Placeholder` rendered
    *  inside it increments the top and emits `__p<i>`. */
   private var _phCounters: List[Int] = Nil
+
+  /** Defs with a trailing vararg param (`def f(a)(xs: T*)`): name → number of
+   *  fixed params before the vararg.  At a call site the trailing args (after the
+   *  fixed ones) are wrapped into a single `vec![…]` (Rust has no varargs). */
+  private var _varargDefs: Map[String, Int] = Map.empty
 
   private def collectTypeLambdaAliases(module: ast.Module): Map[String, (List[String], m.Type)] =
     def fromContent(c: ast.Content): List[(String, (List[String], m.Type))] = c match
@@ -1769,11 +1781,18 @@ object RustCodeWalk:
         // .clone() on i64 is a no-op but emits a cleaner diff to keep it off.
         val topValNames = ctx.topVals.map(_._1).toSet
         val isPrimLit = renderedArgs0.map(_.matches(raw"-?\d+i64|-?\d+\.\d+f64|true|false"))
-        val renderedArgs = args.values.toList.zip(renderedArgs0).zip(isPrimLit).map {
+        val renderedArgsBase = args.values.toList.zip(renderedArgs0).zip(isPrimLit).map {
           case ((m.Term.Name(n), rendered), false) if topValNames.contains(n) =>
             s"$rendered.clone()"
           case ((_, rendered), _) => rendered
         }
+        // Vararg call site (`f(a)(xs: T*)`): wrap the trailing args into one `vec![…]`
+        // (the curried chain was flattened, so they arrive as plain trailing args).
+        val renderedArgs = fn match
+          case m.Term.Name(n) if _varargDefs.get(n).exists(_ <= renderedArgsBase.size) =>
+            val k = _varargDefs(n)
+            renderedArgsBase.take(k) :+ s"vec![${renderedArgsBase.drop(k).mkString(", ")}]"
+          case _ => renderedArgsBase
         val joined = renderedArgs.mkString(", ")
         // User-defined struct/enum ctors take priority over stdlib names (e.g. user Vec vs List[Vec]).
         val userCtorName = fn match
