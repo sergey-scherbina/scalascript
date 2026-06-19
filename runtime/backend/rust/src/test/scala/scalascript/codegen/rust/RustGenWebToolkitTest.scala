@@ -120,6 +120,9 @@ class RustGenWebToolkitTest extends AnyFunSuite:
     // S5b client wiring: inputChange marks the input; serve appends the reactivity script.
     assert(ui.contains("data-ssc-input") && ui.contains("_UI_CLIENT_SCRIPT"),
       "inputChange should mark the input + a client script const should exist")
+    // S5b.2-B derived signals: computedSignal evaluates its thunk; seedSignal carries the name.
+    assert(ui.contains("pub fn _ui_computed_signal") && ui.contains("pub fn _ui_seed_signal"),
+      "computed/seed signal runtimes should be present")
 
   test("renderHtml(view) wires the SSR render entry"):
     val src =

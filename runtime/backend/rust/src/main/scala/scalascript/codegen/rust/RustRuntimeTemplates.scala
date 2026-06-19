@@ -810,6 +810,18 @@ object RustRuntimeTemplates:
       |pub fn _ui_eq_signal<T: Into<Value>>(s: Value, value: T) -> Value {
       |    Value::Bool(s.signal_value() == value.into())
       |}
+      |// computedSignal(f) — derive a String signal; evaluate the thunk for the initial SSR
+      |// value (it reads other signals' current values).  Client recompute on a dependency
+      |// change is a later slice; the result is an anonymous signal (no `data-ssc-*` name).
+      |#[allow(dead_code)]
+      |pub fn _ui_computed_signal<F: FnOnce() -> String>(f: F) -> Value {
+      |    Value::Signal(String::new(), Box::new(Value::Str(f())))
+      |}
+      |// seedSignal(name, source) — a named signal seeded from another signal's current value.
+      |#[allow(dead_code)]
+      |pub fn _ui_seed_signal(name: String, source: Value) -> Value {
+      |    Value::Signal(name, Box::new(source.signal_value()))
+      |}
       |#[allow(dead_code)]
       |pub fn _ui_data_table_view(_source: Value, _columns: Vec<Value>, _actions: Vec<Value>) -> View {
       |    View::Fragment(vec![])

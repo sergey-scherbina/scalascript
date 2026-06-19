@@ -94,6 +94,8 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("inputChange")      -> RuntimeCall("crate::runtime::ui::_ui_input_change"),
   QualifiedName("toggleSignal")     -> RuntimeCall("crate::runtime::ui::_ui_toggle_signal"),
   QualifiedName("eqSignal")         -> RuntimeCall("crate::runtime::ui::_ui_eq_signal"),
+  QualifiedName("computedSignal")   -> RuntimeCall("crate::runtime::ui::_ui_computed_signal"),
+  QualifiedName("seedSignal")       -> RuntimeCall("crate::runtime::ui::_ui_seed_signal"),
   QualifiedName("dataTableView")    -> RuntimeCall("crate::runtime::ui::_ui_data_table_view"),
   // Bench.opaque(x) — identity that prevents LLVM constant-folding the
   // surrounding expression.  Maps to std::hint::black_box; same shape per

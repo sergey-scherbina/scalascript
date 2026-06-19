@@ -223,10 +223,19 @@ SSR at the primitive level first (no library needed), then layer the widget libr
        AND the **rozum-WS bridge** (variant 2): rozum's meeting daemon hits `/__ssc/push` on a new
        message → the page updates. Verified: `curl /__ssc/push?...` → `/__ssc/state` reflects it. Poll,
        not SSE/WS streaming (a `Full<Bytes>` reuse; streaming would need a `BoxBody` rework — refinement).
-     - **B (next) — computed/derived signals**: `computedSignal(f)` evaluates `f()` for the initial SSR +
-       client recompute on dep change; `seedSignal`; `setSignal`/`toggleSignal`/`showSignal` client wiring.
-     - **C (next) — tighter rozum-WS**: optionally connect the client directly to rozum's WS instead of
-       polling, and/or have the meeting daemon push to `/__ssc/push`.
+     - **B — computed/derived signals, DONE (2026-06-19).** `computedSignal(f)` evaluates the thunk
+       `f()` for the initial SSR value (an anonymous signal); `seedSignal(name, source)` carries `name`
+       + the source's current value. Mapped as Rust intrinsics (`_ui_computed_signal`/`_ui_seed_signal`).
+       Verified: `signalText(computedSignal(() => "computed-value"))` → `computed-value`;
+       `signalText(seedSignal("seeded", base))` → base's value. Client recompute on a dependency change
+       (a JS dep graph) is the remaining refinement.
+     - **C — rozum-WS, COVERED by A's bridge.** Variant 2 is satisfied: rozum's meeting daemon POSTs/GETs
+       `/__ssc/push?name=&value=` on a new message → the page picks it up on the next poll. A *tighter*
+       direct-WS client (skip polling, connect to rozum's WS) is an optional refinement.
+
+   **S5 STATUS: all three S5b.2 variants delivered** (generic push, rozum bridge, computed/derived) at
+   poll-transport depth. Refinements deferred: SSE/WS streaming transport, client recompute of computed
+   signals, set/toggle/show client wiring, direct-WS client.
 
 Prereq landed: **I1** `s"…${expr}…"` compound splices (`RustGenWebToolkitTest` 3/3).
 
