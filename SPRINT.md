@@ -69,6 +69,16 @@ or blocked/deferred (kept for record, NOT actionable now — see "Excluded from 
 
 ---
 
+- [~] **rust-web-toolkit** (external driver: rozum) — bring the declarative std/ui toolkit
+      (`vstack/heading/text` → `lower(theme)` → `View` → `serve(view, port)`), which works on JVM,
+      up on the **Rust** backend via an HTML/SSR binding (operator path A; native GUI rejected as
+      too costly). **DONE 2026-06-19:** I1 `s"…${expr}…"` compound splices (Term.Block unwrap) +
+      S1a HTML/SSR View primitives (`element/textNode/fragment` → `runtime/ui.rs` `_ui_render`,
+      gated on use) — `RustGenWebToolkitTest` 6/6, full `backendRust` 210/0. **NEXT:** S1b cargo
+      end-to-end (`View`=`Any`→`Value` typing) · S2 `serve(view, port)` · S3 transpile imported
+      `std/ui/*.ssc` library · S4 named/curried args · S5 `Signal` reactivity. Spec
+      `specs/rust-web-toolkit.md`. Branch `feature/rust-web-toolkit`.
+
 - [x] **agent-sdk-remainder** ✓ DONE 2026-06-17 (actionable scope) — consolidated `specs/agent-sdk.md`
       + **P3a MCP bridge both directions** (`runtime/std/agent-mcp.ssc`: `serveAgentToolsMcp` +
       `mcpToolSource`; examples `agent-mcp-{server,toolsource}.ssc`; all `ssc check` OK). Loop

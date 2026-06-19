@@ -51,6 +51,7 @@ object RustGen:
     val authUsage   = scanAuthUsage(astModule)
     val wsUsage     = scanWsUsage(astModule)
     val mcpUsage    = scanMcpUsage(astModule)
+    val uiUsage     = scanUiUsage(astModule)
     val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage)
 
     RustCodeWalk.walk(astModule, intrinsics) match
@@ -98,6 +99,9 @@ object RustGen:
           if mcpUsage.nonEmpty then
             sb.append("\n// ── R.6 — MCP server runtime ──\n")
             sb.append("pub mod mcp;\n")
+          if uiUsage then
+            sb.append("\n// ── std/ui — SSR View runtime ──\n")
+            sb.append("pub mod ui;\n")
           sb.toString
         val baseAssets = List(
           Segment.Asset("Cargo.toml",                   cargoTomlFinal.getBytes("UTF-8"),       "application/toml"),
@@ -149,7 +153,14 @@ object RustGen:
             RustRuntimeTemplates.McpRs.getBytes("UTF-8"),
             "text/x-rust"
           ))
-        CompileResult.Segmented(baseAssets ++ effectAsset ++ taglessEffectAsset ++ httpAsset ++ authAsset ++ wsAsset ++ mcpAsset)
+        val uiAsset =
+          if !uiUsage then Nil
+          else List(Segment.Asset(
+            "src/runtime/ui.rs",
+            RustRuntimeTemplates.UiRs.getBytes("UTF-8"),
+            "text/x-rust"
+          ))
+        CompileResult.Segmented(baseAssets ++ effectAsset ++ taglessEffectAsset ++ httpAsset ++ authAsset ++ wsAsset ++ mcpAsset ++ uiAsset)
 
   /** R.3.2 — IR walk for crypto-intrinsic usage.  Returns the set of
    *  intrinsic names actually reached so RustGen can decide which
@@ -161,6 +172,13 @@ object RustGen:
   private[rust] def scanHttpUsage(astModule: scalascript.ast.Module): Boolean =
     val found = scala.collection.mutable.Set.empty[String]
     astModule.sections.foreach(s => scanSectionForNames(s, Set("serve", "route"), found))
+    found.nonEmpty
+
+  /** std/ui — detect `element` / `textNode` / `fragment` View-primitive
+   *  usage; triggers the `src/runtime/ui.rs` SSR asset + `pub mod ui`. */
+  private[rust] def scanUiUsage(astModule: scalascript.ast.Module): Boolean =
+    val found = scala.collection.mutable.Set.empty[String]
+    astModule.sections.foreach(s => scanSectionForNames(s, Set("element", "textNode", "fragment"), found))
     found.nonEmpty
 
   private[rust] def scanCryptoUsage(astModule: scalascript.ast.Module): Set[String] =

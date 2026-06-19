@@ -1,0 +1,110 @@
+package scalascript.codegen.rust
+
+import scalascript.backend.spi.*
+import scalascript.parser.Parser
+import scalascript.transform.Normalize
+import org.scalatest.funsuite.AnyFunSuite
+
+/** rust-web-toolkit — bring the high-level web toolkit up on Rust.
+ *
+ *  I1 — string interpolation with a compound `${ expr }` splice. scalameta
+ *  wraps the braced splice in a `Term.Block`; before the fix `renderTerm`
+ *  rejected it as "unsupported expression: Term.Block". Spec:
+ *  `specs/rust-web-toolkit.md`.
+ */
+class RustGenWebToolkitTest extends AnyFunSuite:
+
+  private val emptyOpts = BackendOptions(
+    baseDir = None, outputDir = None,
+    optimizationLevel = 0, emitSourceMaps = false, emitAssertions = false,
+    target = None, extra = Map.empty
+  )
+
+  private def gen(src: String): String =
+    new RustBackend().compile(Normalize(Parser.parse(src)), emptyOpts) match
+      case CompileResult.Segmented(segs) =>
+        segs.collectFirst {
+          case Segment.Asset("src/generated/ssc_program.rs", b, _) => new String(b, "UTF-8")
+        }.getOrElse(fail("generated module missing"))
+      case other => fail(s"expected Segmented, got $other")
+
+  private def assets(src: String): Map[String, String] =
+    new RustBackend().compile(Normalize(Parser.parse(src)), emptyOpts) match
+      case CompileResult.Segmented(segs) =>
+        segs.collect { case Segment.Asset(n, b, _) => n -> new String(b, "UTF-8") }.toMap
+      case other => fail(s"expected Segmented, got $other")
+
+  // ── I1: compound interpolation splices ─────────────────────────────
+
+  test("s\"…${literal arith}…\" lowers the braced splice to a format! arg"):
+    val src =
+      """```scalascript
+        |def two(): String = s"sum=${1 + 2}"
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("""format!("sum={}", (1i64 + 2i64))"""),
+      s"expected a format! with the unwrapped arithmetic splice, got:\n$g")
+
+  test("s\"…${expr over a param}…\" renders the inner expression, not a Block"):
+    val src =
+      """```scalascript
+        |def label(n: Long): String = s"n=${n + 1}"
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("""format!("n={}", (n + 1i64))"""),
+      s"expected the splice to render `(n + 1i64)`, got:\n$g")
+
+  test("a bare $name splice still works (no regression)"):
+    val src =
+      """```scalascript
+        |def greet(who: String): String = s"hi $who"
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("""format!("hi {}", who)"""),
+      s"expected the bare-name splice unchanged, got:\n$g")
+
+  // ── S1: HTML/SSR binding of the std/ui View primitives ─────────────
+
+  test("textNode/fragment usage emits the ui intrinsic calls"):
+    val src =
+      """```scalascript
+        |@main def run(): Unit =
+        |  val a = textNode("hi")
+        |  val b = fragment(List(a))
+        |  ()
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("crate::runtime::ui::_ui_text"),
+      s"expected a _ui_text call, got:\n$g")
+    assert(g.contains("crate::runtime::ui::_ui_fragment"),
+      s"expected a _ui_fragment call, got:\n$g")
+
+  test("using a View primitive wires the ui runtime module + asset"):
+    val src =
+      """```scalascript
+        |@main def run(): Unit =
+        |  val a = textNode("hi")
+        |  ()
+        |```
+        |""".stripMargin
+    val a = assets(src)
+    assert(a.contains("src/runtime/ui.rs"),
+      s"ui.rs missing from: ${a.keys.toList.sorted}")
+    assert(a("src/runtime/mod.rs").contains("pub mod ui;"))
+    val ui = a("src/runtime/ui.rs")
+    assert(ui.contains("pub fn _ui_render(v: &View) -> String"))
+    assert(ui.contains("pub enum View"))
+
+  test("a program with no View primitives stays ui-free"):
+    val src =
+      """```scalascript
+        |@main def run(): Unit = println("hi")
+        |```
+        |""".stripMargin
+    val a = assets(src)
+    assert(!a.contains("src/runtime/ui.rs"))
+    assert(!a("src/runtime/mod.rs").contains("pub mod ui;"))

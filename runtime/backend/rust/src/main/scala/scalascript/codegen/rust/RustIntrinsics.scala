@@ -80,6 +80,11 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   // Only serde_json dep added (already present when JSON intrinsics are used).
   QualifiedName("mcpRegisterTool")  -> RuntimeCall("crate::runtime::mcp::_mcp_register_tool"),
   QualifiedName("mcpServe")         -> RuntimeCall("crate::runtime::mcp::_mcp_serve"),
+  // std/ui — server-side View tree primitives (SSR).  Pull in
+  // `src/runtime/ui.rs` only when an element/textNode/fragment is reached.
+  QualifiedName("element")          -> RuntimeCall("crate::runtime::ui::_ui_element"),
+  QualifiedName("textNode")         -> RuntimeCall("crate::runtime::ui::_ui_text"),
+  QualifiedName("fragment")         -> RuntimeCall("crate::runtime::ui::_ui_fragment"),
   // Bench.opaque(x) — identity that prevents LLVM constant-folding the
   // surrounding expression.  Maps to std::hint::black_box; same shape per
   // arg type.  On other backends this is identity (no fold to defeat).

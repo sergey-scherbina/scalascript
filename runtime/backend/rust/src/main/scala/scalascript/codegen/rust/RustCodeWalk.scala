@@ -2261,7 +2261,7 @@ object RustCodeWalk:
         s"def `${ctx.defName}` has a non-string interpolation part"
       )))
     else
-      val argRendered = args.map(renderTerm(_, ctx))
+      val argRendered = args.map(renderInterpArg(_, ctx))
       val (errs, ok)  = argRendered.partitionMap(identity)
       if errs.nonEmpty then Left(errs.flatten)
       else
@@ -2273,6 +2273,18 @@ object RustCodeWalk:
         }.toString
         val tail = if ok.isEmpty then "" else ", " + ok.mkString(", ")
         Right(s"""format!("$formatStr"$tail)""")
+
+  /** Render one interpolation splice. A bare `$name` arrives as a plain
+   *  term, but a braced `${ expr }` is wrapped by scalameta in a
+   *  `Term.Block`: a single-term block unwraps to its inner expression
+   *  (`${1 + 2}` → `(1 + 2)`), a multi-statement block becomes a Rust
+   *  block expression `{ … }`. Without this, any compound splice failed
+   *  with "unsupported expression: Term.Block". */
+  private def renderInterpArg(arg: m.Term, ctx: Ctx): Either[List[Diagnostic], String] =
+    arg match
+      case m.Term.Block(List(single: m.Term)) => renderTerm(single, ctx)
+      case b: m.Term.Block                     => renderBody(b, ctx, isUnit = false).map(inner => s"{ $inner }")
+      case other                               => renderTerm(other, ctx)
 
   /** Escape a string for `format!("…")` — same rules as the Rust lexer
    *  plus `{` / `}` are doubled to avoid being read as format markers. */

@@ -625,6 +625,70 @@ object RustRuntimeTemplates:
       |}
       |""".stripMargin
 
+  /** std/ui — server-side `View` tree + HTML render (SSR).  Emitted as
+   *  `src/runtime/ui.rs` only when `element`/`textNode`/`fragment` are
+   *  reached.  `_ui_render` walks the tree, escaping text + attribute
+   *  values.  This is the HTML/SSR binding of the std/ui primitives
+   *  (spec: rust-web-toolkit.md, increment S1). */
+  val UiRs: String =
+    """//! std/ui — server-side rendering of the View tree to HTML (SSR).
+      |//! Emitted verbatim by RustGen when element/textNode/fragment are reached.
+      |
+      |#[derive(Clone, Debug)]
+      |pub enum View {
+      |    Element { tag: String, attrs: Vec<(String, String)>, children: Vec<View> },
+      |    Text(String),
+      |    Fragment(Vec<View>),
+      |}
+      |
+      |pub fn _ui_element(
+      |    tag: String,
+      |    attrs: Vec<(String, String)>,
+      |    _events: Vec<(String, String)>,
+      |    children: Vec<View>,
+      |) -> View {
+      |    View::Element { tag, attrs, children }
+      |}
+      |
+      |pub fn _ui_text(s: String) -> View { View::Text(s) }
+      |
+      |pub fn _ui_fragment(children: Vec<View>) -> View { View::Fragment(children) }
+      |
+      |/// Render a `View` to an HTML string.
+      |pub fn _ui_render(v: &View) -> String {
+      |    match v {
+      |        View::Text(s) => _ui_escape_text(s),
+      |        View::Fragment(cs) => cs.iter().map(_ui_render).collect::<Vec<_>>().join(""),
+      |        View::Element { tag, attrs, children } => {
+      |            let mut s = String::new();
+      |            s.push('<');
+      |            s.push_str(tag);
+      |            for (k, val) in attrs {
+      |                s.push(' ');
+      |                s.push_str(k);
+      |                s.push_str("=\"");
+      |                s.push_str(&_ui_escape_attr(val));
+      |                s.push('"');
+      |            }
+      |            s.push('>');
+      |            for c in children { s.push_str(&_ui_render(c)); }
+      |            s.push_str("</");
+      |            s.push_str(tag);
+      |            s.push('>');
+      |            s
+      |        }
+      |    }
+      |}
+      |
+      |fn _ui_escape_text(s: &str) -> String {
+      |    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+      |}
+      |
+      |fn _ui_escape_attr(s: &str) -> String {
+      |    _ui_escape_text(s).replace('"', "&quot;")
+      |}
+      |""".stripMargin
+
   /** R.5 — HTTP server runtime helpers.  Emitted as `src/runtime/http.rs`
    *  only when `serve` / `route` are reached in the program source.
    *  Handler takes `String` (matches SS `String => String` surface). */
