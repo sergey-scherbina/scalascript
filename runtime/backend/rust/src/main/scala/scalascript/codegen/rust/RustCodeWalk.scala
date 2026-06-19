@@ -2241,6 +2241,11 @@ object RustCodeWalk:
       subject: m.Term, cases: List[m.Case], ctx: Ctx
   ): Either[List[Diagnostic], String] =
     val subjRendered = renderTerm(subject, ctx)
+    // A `String` subject must be matched as `&str` for string-literal patterns
+    // (`match s.as_str() { "x" => … }`) — Rust won't match `String` against `&str`.
+    val hasStringPat = cases.exists(c => c.pat match
+      case _: m.Lit.String => true
+      case _               => false)
     val caseRendered = cases.map { c =>
       // A case guard `case p if cond =>` maps onto a Rust match-arm guard.
       for
@@ -2252,7 +2257,8 @@ object RustCodeWalk:
       yield s"$pat$guard => $bod,"
     }
     val (errs, ok) = caseRendered.partitionMap(identity)
-    subjRendered.flatMap { s =>
+    subjRendered.flatMap { s0 =>
+      val s = if hasStringPat then s"($s0).as_str()" else s0
       if errs.nonEmpty then Left(errs.flatten)
       else
         val arms = ok.mkString("\n")
