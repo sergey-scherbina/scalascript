@@ -123,8 +123,8 @@ class RustGenWebToolkitTest extends AnyFunSuite:
     val g = gen(src)
     assert(g.contains("crate::runtime::ui::_ui_element"),
       s"expected a _ui_element call, got:\n$g")
-    assert(g.contains("""__m.insert("class".to_string(), "root".to_string());"""),
-      s"expected the `->` entry to lower to a HashMap insert, got:\n$g")
+    assert(g.contains("""__m.insert("class".to_string(), crate::runtime::ui::_ui_attr("root".to_string()));"""),
+      s"expected the attr value to be coerced via _ui_attr, got:\n$g")
 
   test("serve(view, port) dispatches to the SSR _ui_serve overload"):
     val src =

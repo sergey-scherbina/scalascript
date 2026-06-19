@@ -43,6 +43,14 @@ object RustRuntimeTemplates:
       |    }
       |}
       |
+      |// Lets a `Value` be formatted with `{}` (e.g. by the std/ui `_ui_attr` coercion),
+      |// reusing the same rendering as `.show()`.
+      |impl std::fmt::Display for Value {
+      |    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      |        write!(f, "{}", self.show())
+      |    }
+      |}
+      |
       |fn format_double(f: f64) -> String {
       |    if f.fract() == 0.0 && f.is_finite() {
       |        format!("{:.1}", f)
@@ -644,7 +652,7 @@ object RustRuntimeTemplates:
       |pub fn _ui_element(
       |    tag: String,
       |    attrs: std::collections::HashMap<String, String>,
-      |    _events: std::collections::HashMap<String, String>,
+      |    _events: std::collections::HashMap<String, crate::value::Value>,
       |    children: Vec<View>,
       |) -> View {
       |    // Key-sorted attribute order → deterministic SSR output (HashMap is unordered).
@@ -708,6 +716,11 @@ object RustRuntimeTemplates:
       |// Signals/EventHandlers are `crate::value::Value` on Rust. For static SSR these
       |// render the initial branch / no-op; full reactivity ships via the JS target.
       |use crate::value::Value;
+      |
+      |// Coerce any attribute value (String / bool / i64 / Value) to a String — HTML
+      |// attribute values are strings, and a Rust HashMap needs one value type.
+      |#[allow(dead_code)]
+      |pub fn _ui_attr<T: std::fmt::Display>(v: T) -> String { v.to_string() }
       |
       |#[allow(dead_code)]
       |pub fn _ui_signal<T>(_name: String, _default: T) -> Value { Value::Unit }

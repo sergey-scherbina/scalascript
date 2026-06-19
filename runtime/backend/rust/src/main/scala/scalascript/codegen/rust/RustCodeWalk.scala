@@ -1448,6 +1448,19 @@ object RustCodeWalk:
         p <- renderTerm(args.values(1), ctx)
       yield s"crate::runtime::http::_ui_serve($v, $p)"
 
+    // std/ui `element(tag, attrs, events, children)` — the attrs map is
+    // `Map[String, Any]` with mixed value types (String/bool/Value); coerce each
+    // attr value to a String via `_ui_attr(...)` so the HashMap is homogeneous.
+    // events are EventHandlers (Value) and children are Views — rendered as-is.
+    case m.Term.Apply.After_4_6_0(m.Term.Name("element"), args) if args.values.size == 4 =>
+      val a = args.values.toList
+      for
+        tag      <- renderTerm(a(0), ctx)
+        attrs    <- renderAttrMap(a(1), ctx)
+        events   <- renderTerm(a(2), ctx)
+        children <- renderTerm(a(3), ctx)
+      yield s"crate::runtime::ui::_ui_element($tag, $attrs, $events, $children)"
+
     // ── Vec method chaining via Term.Apply ─────────────────────────────────
     // Matches: xs.foreach(f), xs.map(f), xs.filter(f), xs.foldLeft(z)(f).
     // These bind before the generic Apply so the method name is visible.
@@ -2314,6 +2327,35 @@ object RustCodeWalk:
         val arms = ok.mkString("\n")
         Right(s"match $s {\n${indent(arms)}\n}")
     }
+
+  private def isMapCtorFn(fn: m.Term): Boolean = fn match
+    case m.Term.Name("Map")                                  => true
+    case m.Term.ApplyType.After_4_6_0(m.Term.Name("Map"), _) => true
+    case _                                                   => false
+
+  /** Render an `element(…)` attribute map (`Map[String, Any]` literal) into a
+   *  `HashMap<String, String>`, coercing each value with `_ui_attr(...)` so mixed
+   *  `String`/`bool`/`Value` attr values become homogeneous strings.  A non-literal
+   *  arg (variable / empty) falls back to the generic rendering. */
+  private def renderAttrMap(t: m.Term, ctx: Ctx): Either[List[Diagnostic], String] =
+    t match
+      case m.Term.Apply.After_4_6_0(fn, args) if isMapCtorFn(fn) =>
+        if args.values.isEmpty then Right("std::collections::HashMap::new()")
+        else
+          val inserts = args.values.toList.map {
+            case m.Term.ApplyInfix.After_4_6_0(k, m.Term.Name("->"), _, vArgs)
+                if vArgs.values.size == 1 =>
+              for
+                kr <- renderTerm(k, ctx)
+                vr <- renderTerm(vArgs.values.head, ctx)
+              yield s"__m.insert($kr, crate::runtime::ui::_ui_attr($vr));"
+            case _ =>
+              Left(List(unsupported(s"def `${ctx.defName}`: attr entry is not `k -> v`")))
+          }
+          val (errs, ok) = inserts.partitionMap(identity)
+          if errs.nonEmpty then Left(errs.flatten)
+          else Right(s"{ let mut __m = std::collections::HashMap::new(); ${ok.mkString(" ")} __m }")
+      case _ => renderTerm(t, ctx)
 
   /** For a `Pat.Extract(Ctor, args)` whose ctor has boxed (recursive) fields, emit
    *  `let v = *v; ` deref-rebinds for each boxed field bound as a plain var, so the
