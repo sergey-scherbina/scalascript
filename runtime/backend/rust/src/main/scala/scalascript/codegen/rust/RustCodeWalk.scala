@@ -1379,6 +1379,16 @@ object RustCodeWalk:
         case Nil    => Nil
       Right(s"__p$i")
 
+    // `try <e>.toInt catch { case _ => fb }` → `<e>.parse().unwrap_or(fb)`.
+    // (`.toInt` already lowers to a fallible parse; the catch picks the fallback.
+    //  Other try/catch shapes are unsupported — Rust has no exceptions.)
+    case m.Term.Try.After_4_9_9(m.Term.Select(qual, m.Term.Name("toInt" | "toLong")), Some(handler), _)
+        if handler.cases.size == 1 =>
+      for
+        q  <- renderTerm(qual, ctx)
+        fb <- renderTerm(handler.cases.head.body, ctx)
+      yield s"$q.parse::<i64>().unwrap_or($fb)"
+
     // `(a, b, ...)` — native Rust tuple literal.  Rust requires a
     // trailing comma in `(..., )`, so a 1-tuple emits `(x,)`.
     case m.Term.Tuple(values) =>
@@ -1807,10 +1817,16 @@ object RustCodeWalk:
 
     // Infix `++` for tuple literals: flatten tuple-literal concat chains.
     // `(a, b) ++ (c, d) == (a, b, c, d)`, also right-recursive.
-    case infix @ m.Term.ApplyInfix.After_4_6_0(_, m.Term.Name("++"), _, _) =>
+    case infix @ m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("++"), _, rargs) =>
       collectTupleConcat(infix) match
         case Some(terms) => renderTupleElems(terms, ctx).map(renderTuple)
-        case None        => renderInfix(infix, ctx)
+        case None if rargs.values.size == 1 =>
+          // List/Vec concat `a ++ b` → `[(a), (b)].concat()` (chains nest).
+          for
+            l <- renderTerm(lhs, ctx)
+            r <- renderTerm(rargs.values.head, ctx)
+          yield s"[$l, $r].concat()"
+        case None => renderInfix(infix, ctx)
 
     // Infix operators: arithmetic, comparison, boolean.
     case infix @ m.Term.ApplyInfix.After_4_6_0(_, _, _, _) =>
@@ -1826,6 +1842,8 @@ object RustCodeWalk:
     case m.Lit.Double(d)  => Right(s"${d}f64")
     case m.Lit.Boolean(b) => Right(b.toString)
     case m.Lit.Unit()     => Right("()")
+    // `null` (used as an `Any` sentinel) → the boxed unit value.
+    case m.Lit.Null()     => Right("Value::Unit")
 
     // Block `{ stmts; tail }` used as an expression → Rust block expression.
     // (Interpolation splices unwrap single-term blocks via `renderInterpArg`;

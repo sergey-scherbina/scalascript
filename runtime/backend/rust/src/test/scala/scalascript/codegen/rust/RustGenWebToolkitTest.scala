@@ -177,6 +177,16 @@ class RustGenWebToolkitTest extends AnyFunSuite:
     assert(g.contains("__p0 + 1i64"),
       s"expected the placeholder body, got:\n$g")
 
+  test("List ++ concat lowers to a Rust concat"):
+    val src =
+      """```scalascript
+        |def cat(a: List[Long], b: List[Long]): List[Long] = a ++ b
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains(".concat()"),
+      s"expected `a ++ b` to lower to a Vec concat, got:\n$g")
+
   test("a program with no View primitives stays ui-free"):
     val src =
       """```scalascript
