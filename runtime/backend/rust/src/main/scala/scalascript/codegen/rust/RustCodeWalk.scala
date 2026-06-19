@@ -586,7 +586,12 @@ object RustCodeWalk:
     val params = c.ctor.paramClauses.flatMap(_.values).toList
     val fieldRendered = params.map { p =>
       p.decltpe match
-        case Some(t) => mapType(t, s"enum $enumName.$ctor", typeNames).map(r => (p.name.value, r))
+        case Some(t) => mapType(t, s"enum $enumName.$ctor", typeNames).map { r =>
+          // A field whose type IS the enum itself is direct recursion → `Box` it so
+          // the enum has a finite size (Vec<T>/Option<T> already go through the heap).
+          if r == enumName then (p.name.value, s"Box<$r>", true)
+          else (p.name.value, r, false)
+        }
         case None    => Left(List(unsupported(
           s"enum `$enumName.$ctor` parameter `${p.name.value}` has no type annotation"
         )))
@@ -594,12 +599,12 @@ object RustCodeWalk:
     val (errs, ok) = fieldRendered.partitionMap(identity)
     if errs.nonEmpty then Left(errs.flatten)
     else
-      val fields = ok
       val body   =
-        if fields.isEmpty then ""
-        else " { " + fields.map((n, t) => s"$n: $t").mkString(", ") + " }"
+        if ok.isEmpty then ""
+        else " { " + ok.map((n, t, _) => s"$n: $t").mkString(", ") + " }"
       val variant = s"$ctor$body"
-      Right((variant, (ctor, EnumCtor(enumName, fields.map(_._1)))))
+      val boxed   = ok.collect { case (n, _, true) => n }.toSet
+      Right((variant, (ctor, EnumCtor(enumName, ok.map(_._1), boxed))))
 
   /** Render one `case Ctor(field1: T1, …)` into a Rust struct-style
    *  enum variant.  Returns the variant text + the ctor metadata. */
@@ -655,8 +660,12 @@ object RustCodeWalk:
    *  names (in order).  R.2.3 lowers ctor application as
    *  `EnumName::Ctor { field0: arg0, field1: arg1, … }`. */
   private case class EnumCtor(
-      enumName:   String,
-      fieldNames: List[String]
+      enumName:    String,
+      fieldNames:  List[String],
+      // Fields whose type is the enum itself (direct recursion) — emitted as
+      // `Box<EnumName>`, so they're `Box::new(...)`-wrapped at construction and
+      // deref'd (`*field`) at a `match` binding.
+      boxedFields: Set[String] = Set.empty
   )
 
   /** A rendered Rust `enum` block + its ctor table. */
@@ -2117,7 +2126,11 @@ object RustCodeWalk:
                 val fields = ec.fieldNames.zip(renderedArgs)
                 val body   =
                   if fields.isEmpty then ""
-                  else " { " + fields.map((fn, a) => s"$fn: $a").mkString(", ") + " }"
+                  else " { " + fields.map { (fn, a) =>
+                    // Box-wrap a recursive field's argument at construction.
+                    val av = if ec.boxedFields.contains(fn) then s"Box::new($a)" else a
+                    s"$fn: $av"
+                  }.mkString(", ") + " }"
                 // Struct: enumName == n (standalone case class) → `StructName { fields }`
                 // Enum variant: enumName != n → `EnumName::Variant { fields }`
                 if ec.enumName == n then s"$n$body"
@@ -2261,13 +2274,18 @@ object RustCodeWalk:
       case _               => false)
     val caseRendered = cases.map { c =>
       // A case guard `case p if cond =>` maps onto a Rust match-arm guard.
+      // A boxed (recursive) field binds as `Box<T>`; deref-rebind it at the top of
+      // the arm (`let f = *f;`) so the body sees the unboxed `T`.
+      val derefs = boxedFieldDerefs(c.pat, ctx)
       for
         pat   <- renderPattern(c.pat, ctx)
         guard <- c.cond match
                    case Some(g) => renderTerm(g, ctx).map(gr => s" if $gr")
                    case None    => Right("")
         bod   <- renderTerm(c.body, ctx)
-      yield s"$pat$guard => $bod,"
+      yield
+        if derefs.isEmpty then s"$pat$guard => $bod,"
+        else s"$pat$guard => { $derefs$bod },"
     }
     val (errs, ok) = caseRendered.partitionMap(identity)
     subjRendered.flatMap { s0 =>
@@ -2277,6 +2295,21 @@ object RustCodeWalk:
         val arms = ok.mkString("\n")
         Right(s"match $s {\n${indent(arms)}\n}")
     }
+
+  /** For a `Pat.Extract(Ctor, args)` whose ctor has boxed (recursive) fields, emit
+   *  `let v = *v; ` deref-rebinds for each boxed field bound as a plain var, so the
+   *  arm body sees the unboxed value rather than a `Box<T>`. */
+  private def boxedFieldDerefs(pat: m.Pat, ctx: Ctx): String =
+    pat match
+      case m.Pat.Extract.After_4_6_0(m.Term.Name(ctor), argClause) =>
+        ctx.ctorMap.get(ctor) match
+          case Some(ec) if ec.boxedFields.nonEmpty =>
+            ec.fieldNames.zip(argClause.values).collect {
+              case (fieldName, m.Pat.Var(m.Term.Name(v))) if ec.boxedFields.contains(fieldName) =>
+                s"let $v = *$v; "
+            }.mkString
+          case _ => ""
+      case _ => ""
 
   /** Lower a scalameta `Pat` to a Rust pattern.  R.2.3 covers the
    *  shapes the case-class fixture needs: extractor (`Pat.Extract`)
