@@ -1,0 +1,6 @@
+feature/board-ledger-hygiene 2026-06-19T11:38:18Z
+agent: codex
+heartbeat: 2026-06-19T11:38:18Z
+status: not-started
+done-so-far: plan written to SPRINT.md
+next: create worktree; reconcile stale SPRINT and BUGS markers without touching implementation files
