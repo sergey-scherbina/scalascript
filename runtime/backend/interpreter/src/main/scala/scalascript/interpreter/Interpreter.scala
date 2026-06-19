@@ -678,6 +678,16 @@ class Interpreter(
   private[interpreter] val summonKeyCache: java.util.IdentityHashMap[scala.meta.Term, Array[String]] =
     java.util.IdentityHashMap()
 
+  /** jit-foldleft-tc: memoize the evaluated `(empty, combine)` of a typeclass fold
+   *  `xs.foldLeft(summon[M].empty)(summon[M].combine)`, keyed per call-site by the
+   *  resolved given identity. Repeat calls (same monoid) skip re-walking the
+   *  `summon[M].empty` / `summon[M].combine` sub-expressions — which the JFR shows
+   *  is the dominant `evalCore` dispatch cost of `combineAll`-style folds. A
+   *  monomorphic inline cache: slot layout `[monoid: Value, zV: Value, gV: Value]`,
+   *  keyed by the combine `Term` node; a different given identity re-resolves. */
+  private[interpreter] val foldTcMemo: java.util.IdentityHashMap[scala.meta.Term, Array[AnyRef]] =
+    java.util.IdentityHashMap()
+
   /** Cache params.toArray for 3+ param functions, keyed by body identity.
    *  Avoids re-allocating the Array[String] on every call to the same function. */
   private[interpreter] val paramsArrayCache: java.util.IdentityHashMap[scala.meta.Term, Array[String]] =

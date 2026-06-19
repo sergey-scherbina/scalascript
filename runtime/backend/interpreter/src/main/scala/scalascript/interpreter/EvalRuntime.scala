@@ -7,6 +7,11 @@ import scala.meta.*
 import Computation.{Pure, FlatMap, Perform}
 import java.lang.Double.{doubleToRawLongBits, longBitsToDouble}
 
+/** Public observability for the jit-foldleft-tc typeclass-fold memo, so a
+ *  differential test (outside this package) can confirm the memo path is exercised. */
+object JitFoldTcStats:
+  val hits = new java.util.concurrent.atomic.AtomicLong(0L)
+
 /** Expression evaluator: the core `eval(term, env, interp)` dispatch,
  *  plus the `evalArgs`, `collectApplyArgs`, and `threadValues` helpers.
  */
@@ -4730,6 +4735,24 @@ private[interpreter] object EvalRuntime:
    *  `NativeFnV`); any other receiver/combine shape completes via the generic
    *  `foldLeft` dispatch using the already-evaluated values (no re-evaluation,
    *  so semantics + effect ordering are preserved). */
+  // jit-foldleft-tc: memoize the evaluated (empty, combine) of a typeclass fold
+  // `xs.foldLeft(summon[M].empty)(summon[M].combine)` per call-site, keyed by the
+  // resolved given identity. OFF by default — -Dssc.jit.foldtc=1 / SSC_JIT_FOLDTC=1.
+  private def foldTcEnabled: Boolean =
+    sys.props.get("ssc.jit.foldtc").orElse(sys.env.get("SSC_JIT_FOLDTC"))
+      .exists(v => v == "1" || v == "true")
+
+  /** `summon[M].member` → the Select node, else null. */
+  private def asSummonMember(t: Term): Term.Select | Null = t match
+    case sel: Term.Select =>
+      sel.qual match
+        case at: Term.ApplyType =>
+          at.fun match
+            case Term.Name("summon") => sel
+            case _                   => null
+        case _ => null
+    case _ => null
+
   private def evalFusedFoldLeft(qualT: Term, zT: Term, gT: Term, env: Env, interp: Interpreter): Computation =
     def finish(qualV: Value, zV: Value, gV: Value): Computation =
       qualV match
@@ -4741,6 +4764,41 @@ private[interpreter] object EvalRuntime:
         case _ =>
           DispatchRuntime.dispatch1(qualV, "foldLeft", zV, env, interp)
             .flatMap(nf => interp.callValue1(nf, gV, env))
+    // jit-foldleft-tc memo: when z = summon[M].x and g = summon[N].y are both pure
+    // given-member accesses, resolve the two givens (cheap) and — if their identities
+    // match the per-call-site cache — reuse the already-evaluated (z, g), skipping the
+    // member-access sub-expressions. Sound: keyed by BOTH given identities; any change
+    // re-evaluates. Bails (falls through) on any non-Pure piece.
+    if foldTcEnabled && asSummonMember(zT) != null && asSummonMember(gT) != null then
+      val zSel = asSummonMember(zT); val gSel = asSummonMember(gT)
+      // Eval qual (xs) first — the normal order. The memo only engages for a
+      // NON-EMPTY list: an empty `List[T]()` infers the given from the element
+      // type, and resolving `summon[M]` standalone (without the `.member`) fails
+      // for it — and an empty fold is trivially cheap anyway, so skip the memo.
+      def normal(qualV: Value): Computation =
+        eval(zT, env, interp).flatMap(zV => eval(gT, env, interp).flatMap(gV => finish(qualV, zV, gV)))
+      return eval(qualT, env, interp).flatMap {
+        case qualV @ Value.ListV(elems) if elems.nonEmpty =>
+          eval(zSel.qual, env, interp) match
+            case Pure(mz) =>
+              eval(gSel.qual, env, interp) match
+                case Pure(mg) =>
+                  val cached = interp.foldTcMemo.get(gT)
+                  if cached != null && (cached(0) eq mz) && (cached(1) eq mg) then
+                    JitFoldTcStats.hits.incrementAndGet()
+                    finish(qualV, cached(2).asInstanceOf[Value], cached(3).asInstanceOf[Value])
+                  else
+                    eval(zT, env, interp).flatMap { zV =>
+                      eval(gT, env, interp).flatMap { gV =>
+                        interp.foldTcMemo.put(gT,
+                          Array(mz, mg, zV.asInstanceOf[AnyRef], gV.asInstanceOf[AnyRef]))
+                        finish(qualV, zV, gV)
+                      }
+                    }
+                case gqC => FlatMap(gqC, (_: Value) => normal(qualV))
+            case zqC => FlatMap(zqC, (_: Value) => normal(qualV))
+        case qualV => normal(qualV)   // empty list / non-list → normal eval
+      }
     eval(qualT, env, interp) match
       case Pure(qualV) =>
         eval(zT, env, interp) match
