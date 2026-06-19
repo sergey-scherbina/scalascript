@@ -1350,7 +1350,8 @@ object RustCodeWalk:
       else Right(s"move |__pf| match __pf {\n${indent(ok.mkString("\n"))}\n}")
 
     // Some scalameta versions parse `x => body` as `Term.AnonymousFunction`
-    // with a placeholder; cover the same shape conservatively.
+    // with a placeholder; cover the same shape conservatively.  (Placeholder
+    // `_`-lambda desugaring is a TODO — see specs/rust-web-toolkit.md S3.)
     case _: m.Term.AnonymousFunction =>
       Left(List(unsupported(
         s"def `${ctx.defName}` uses an anonymous-function placeholder; R.2.4 accepts only explicit `(params) => body`"
@@ -2245,6 +2246,15 @@ object RustCodeWalk:
                            if f == p then f else s"$f: $p"
                          }.mkString(", ") + " }"
               Right(s"${ec.enumName}::$ctor$body")
+    // Tuple pattern `(a, b)` → Rust tuple pattern.
+    case m.Pat.Tuple(args) =>
+      val ps = args.map(renderPattern(_, ctx))
+      val (errs, ok) = ps.partitionMap(identity)
+      if errs.nonEmpty then Left(errs.flatten) else Right(s"(${ok.mkString(", ")})")
+    // Typed pattern `h: T` — the ascription is the subject's own type (a
+    // bind-all on a sealed-trait match), so drop the type and keep the binder.
+    case m.Pat.Typed(inner, _) =>
+      renderPattern(inner, ctx)
     case other =>
       Left(List(unsupported(
         s"def `${ctx.defName}` has unsupported pattern: ${other.productPrefix} (${other.syntax})"

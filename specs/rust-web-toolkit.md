@@ -100,7 +100,21 @@ SSR at the primitive level first (no library needed), then layer the widget libr
    match). `lower` is monolithic — it references the **signal** primitives (`signalText`,
    `showSignal`, `setSignal`, `inputChange`, `toggleSignal`, `eqSignal`, `dataTableView`),
    so it only compiles once those have Rust runtimes (≈ S5). No small slice exists.
-   Recommended as a focused follow-up effort.
+
+   **S3 progress (2026-06-19) — drove the gap cascade down on the `vstack/heading/lower`
+   probe (`backendRust` green at each step, each pushed):**
+   - ✅ **S3a import inliner** — `[name](path.ssc)` imports now resolve+transpile for Rust
+     (`compileViaBackend`, recursive, cycle-safe). `cannot find function …` gone.
+   - ✅ **S3b block expressions** — `Term.Block` in value/arg/match-arm position → Rust block.
+     Cleared 28 errors at once.
+   - ✅ **S3c partial functions** — `{ case p => … }` → `move |__pf| match __pf { … }`.
+   - ✅ **S3d tuple + typed patterns** — `(k, v)` and `case h: T` in `renderPattern`.
+   - ⏳ **REMAINING on the probe:** placeholder `_`-lambdas (×8 — BLOCKED: needs a scalameta
+     tree-transform to desugar `_`; `scala.meta.transversers.Transformer` did NOT resolve in
+     this scalameta version — find the right transform API); vararg params `TkNode*` (×3 —
+     param-type `Vec<T>` + signature-aware call-site `vec![…]` wrapping); `List ++` concat;
+     `Lit.Null`; `Term.Try` (try/catch). The cascade likely deepens further, plus the
+     signal-primitive runtimes (S5) `lower` calls, plus S4 named/curried args. Multi-session.
 4. **S4 (G3)** — named args in curried application (`vstack(gap=12)(…)`).
 5. **S5 (G5)** — `Signal` reactivity: SSR initial value + emit the client JS bundle.
 
