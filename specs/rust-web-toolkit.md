@@ -137,23 +137,25 @@ SSR at the primitive level first (no library needed), then layer the widget libr
    `EnumCtor.boxedFields`; cleared E0072 "infinite size" + E0391 cycle); **vararg call-site** (S3n
    — `_varargDefs` map; `vstack(12)(a,b)` → `vstack(12, vec![a,b])`; cleared the arg-count error).
 
-   **STATUS: codegen 100% (whole std/ui transpiles); cargo `build` 290 → 7.** Cleared: two
-   STRUCTURAL walls (recursive `Box`, varargs call-site); the **`Any`-value coercion** core
-   (S3o — `impl Display for Value` + `_ui_attr<T: Display>` + a dedicated `element(…)` case that
-   stringifies attr values; events stay `Value`); **top-level `val`s** (inline the initializer,
-   except `given` instances which are emitted by name; `collectTopVals` recurses into Normalize's
-   synthetic namespace `object`s to reach a library's vals like `defaultTheme`); **named-arg
-   construction** `Ctor(field = value, …)`; `.toList`→`clone().into_iter().collect()`,
-   `.mkString`→`.join`. Cascade: codegen 28→0; cargo 290→170→108→70→56→31→29→7.
+   **STATUS: codegen 100% (whole std/ui transpiles); cargo `build` 290 → 3.** Cleared (S3o–S3s):
+   two STRUCTURAL walls (recursive `Box`, varargs call-site); the **`Any`-value coercion** core
+   (`impl Display for Value` + `_ui_attr<T: Display>` + a dedicated `element(…)` case stringifying
+   attr values; events stay `Value`); **top-level `val`s** (inline initializer except `given`
+   instances; `collectTopVals` recurses into Normalize's namespace `object`s for `defaultTheme`);
+   **named-arg construction**; `.toList`→`clone().into_iter().collect()`, `.mkString`→`.join`;
+   **closure-aware clone** of captured non-Copy values (E0507 — `Ctx.closureParams`); **String-val
+   tracking** so `a + b` over strings → `format!` (`collectLocalStrings`); `&str` catch-all binders
+   rebound to `String`; **reserved-keyword escaping** (`box`/`use` → `r#box`/`r#use`).
+   Cascade: codegen 28→0; cargo 290→170→108→70→56→31→29→7→3.
 
-   **REMAINING 7 — a deep Rust ownership/type-inference tail in `lower.ssc`'s CSS helpers:**
-   (a) **E0507** — `_styleCss`'s `props.toList.map { (k,v) => _propCss(k, v, theme) }` moves the
-   non-`Copy` `theme` out of an `FnMut` closure; needs the codegen to `.clone()` a captured non-Copy
-   value at a by-value call inside a closure (ownership analysis), or pass theme helpers `&Theme`.
-   (b) **TkNode/Value** ×2 — `lower(h, theme)` where `h` is inferred `Value` not `TkNode` (a
-   Value↔concrete edge in a specific lower arm). (c) incompatible **match arms** (one lower arm's
-   type differs). (d) **String/&str**. These need per-case ownership/type-inference work; not a
-   single root.
+   **REMAINING 3 — the ARCHITECTURAL limit: dynamic `Any` vs Rust static types.** All three are the
+   toolkit treating `Any`/`View`/`TkNode` as interchangeable (erased on JVM). (a)(b) **TkNode/Value
+   ×2** — `CardNode(headerAny: Any, …)`'s `case h: TkNode => lower(h, …)` is an `Any → TkNode`
+   *downcast*; on Rust `headerAny: Value` and `TkNode` are unrelated enums (no downcast). (c) **match
+   arms** — `lower`'s catch-all `case alreadyLowered => alreadyLowered` returns `TkNode` where `View`
+   is expected (`View=TkNode=Any` on JVM). Closing these needs `Value` to *carry* a domain enum —
+   a `Value::Node(Box<TkNode>)` variant + box-on-construction + extract-on-downcast (a real feature),
+   OR statically typing the library (`headerAny: TkNode`, drop the `alreadyLowered` catch-all).
 4. **S4 (G3)** — named args in curried application (`vstack(gap=12)(…)`).
 5. **S5 (G5)** — `Signal` reactivity: SSR initial value + emit the client JS bundle.
 
