@@ -54,6 +54,7 @@ object RustCodeWalk:
     val standaloneCases   = collectStandaloneCaseClasses(module, traitEnums)
     val rustBlocks        = collectRustBlocks(module)
     val givens            = collectGivens(module)
+    _givenNames           = givens.map(_.instanceName).toSet
     val userDefs          = defs.map(_.name.value).toSet
     // Collect names of defs that carry a `T ! EffectName` return type so
     // call sites can thread the `_eff` parameter automatically.
@@ -284,10 +285,18 @@ object RustCodeWalk:
       // Only look at TOP-LEVEL statements — not nested inside Defn.Def bodies.
       // tree.collect traverses the whole tree and would pick up val bindings
       // inside function bodies (e.g. `val r = ...` in a while loop).
-      val topStats: List[m.Tree] = node.tree match
+      val topStats0: List[m.Tree] = node.tree match
         case m.Source(stats)     => stats.toList
         case m.Term.Block(stats) => stats.toList
         case single              => List(single)
+      // Normalize wraps a library module's statements in synthetic namespace
+      // `object`s (e.g. `object std { object ui { object theme { … } } }`), so
+      // recursively descend into top-level objects to reach their vals.
+      def descend(stats: List[m.Tree]): List[m.Tree] = stats.flatMap {
+        case obj: m.Defn.Object => descend(obj.templ.body.stats.toList)
+        case other              => List(other)
+      }
+      val topStats: List[m.Tree] = descend(topStats0)
       topStats.collect { case v: m.Defn.Val => v }.foreach { v =>
         v.pats match
           case List(m.Pat.Var(m.Term.Name(name))) =>
@@ -347,6 +356,10 @@ object RustCodeWalk:
    *  fixed params before the vararg.  At a call site the trailing args (after the
    *  fixed ones) are wrapped into a single `vec![…]` (Rust has no varargs). */
   private var _varargDefs: Map[String, Int] = Map.empty
+
+  /** `given` instance names — these ARE emitted as named Rust bindings, so a
+   *  reference uses the name (unlike a plain top-level `val`, which is inlined). */
+  private var _givenNames: Set[String] = Set.empty
 
   private def collectTypeLambdaAliases(module: ast.Module): Map[String, (List[String], m.Type)] =
     def fromContent(c: ast.Content): List[(String, (List[String], m.Type))] = c match
@@ -1131,9 +1144,13 @@ object RustCodeWalk:
   ): Either[List[Diagnostic], String] = t match
     // Option None constructor — must come before the catch-all Term.Name.
     case m.Term.Name("None") => Right("None")
-    // Plain identifier — parameter reference or in-scope fn name.
+    // Plain identifier — parameter / in-scope fn name, OR a top-level `val`.
+    // Top-level vals aren't emitted as Rust items, so inline their (already-rendered)
+    // initializer at the reference site (e.g. `defaultTheme` → `Theme { … }`).
     case m.Term.Name(n) =>
-      Right(n)
+      ctx.topVals.collectFirst { case (vn, init) if vn == n && !_givenNames.contains(n) => init } match
+        case Some(init) => Right(init)
+        case None       => Right(n)
 
     // `if (cond) thenp else elsep` — Rust if expression.
     case ifExpr: m.Term.If =>
@@ -1221,11 +1238,12 @@ object RustCodeWalk:
     // NOTE: these cases sit BEFORE the general Apply catch-all so they fire
     // even when the method name is not in the intrinsic table.
 
-    // `.toList` / `.toSeq` / `.toVector` on a Vec are identity (already Vec-backed).
+    // `.toList` / `.toSeq` / `.toVector` → a Vec.  `clone().into_iter().collect()` is
+    // type-agnostic: identity for a Vec, and turns a HashMap into a `Vec<(K, V)>`.
     // (Range/iterator forms collect to a Vec via the `isRangeExpr`-guarded cases below.)
     case m.Term.Select(qual, m.Term.Name("toList" | "toSeq" | "toVector" | "toIndexedSeq"))
         if !isRangeExpr(qual) =>
-      renderTerm(qual, ctx).map(q => s"$q.clone()")
+      renderTerm(qual, ctx).map(q => s"$q.clone().into_iter().collect::<Vec<_>>()")
     // Numeric coercions — P0 bench fix (specs/rust-backend-bench-coverage.md §Gap A).
     case m.Term.Select(qual, m.Term.Name("toLong")) =>
       renderTerm(qual, ctx).map(q => s"($q as i64)")
@@ -1460,6 +1478,13 @@ object RustCodeWalk:
         events   <- renderTerm(a(2), ctx)
         children <- renderTerm(a(3), ctx)
       yield s"crate::runtime::ui::_ui_element($tag, $attrs, $events, $children)"
+
+    // `xs.mkString(sep)` / `xs.mkString` on a `Vec<String>` → Rust `xs.join(sep)`.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("mkString")), args) =>
+      for
+        q   <- renderTerm(qual, ctx)
+        sep <- args.values.headOption.map(renderTerm(_, ctx)).getOrElse(Right("\"\".to_string()"))
+      yield s"$q.join(($sep).as_str())"
 
     // ── Vec method chaining via Term.Apply ─────────────────────────────────
     // Matches: xs.foreach(f), xs.map(f), xs.filter(f), xs.foldLeft(z)(f).
@@ -1780,6 +1805,28 @@ object RustCodeWalk:
           Left(List(unsupported(
             s"def `${ctx.defName}` has an unsupported curried-call shape: ${t.syntax}"
           )))
+
+    // Named-argument construction `Ctor(field = value, …)` → Rust struct-init
+    // `Ctor { field: value, … }` (Rust ignores field order).  Recursive fields are
+    // `Box::new`-wrapped.  Mixed positional/named falls through to the generic path.
+    case m.Term.Apply.After_4_6_0(m.Term.Name(n), args)
+        if ctx.ctorMap.contains(n) && args.values.nonEmpty
+        && args.values.forall { case _: m.Term.Assign => true; case _ => false } =>
+      val ec = ctx.ctorMap(n)
+      val rendered = args.values.toList.map {
+        case m.Term.Assign(m.Term.Name(field), value) =>
+          renderTerm(value, ctx).map { v =>
+            val vv = if ec.boxedFields.contains(field) then s"Box::new($v)" else v
+            s"$field: $vv"
+          }
+        case other =>
+          Left(List(unsupported(s"def `${ctx.defName}`: unsupported named-ctor arg ${other.productPrefix}")))
+      }
+      val (errs, ok) = rendered.partitionMap(identity)
+      if errs.nonEmpty then Left(errs.flatten)
+      else
+        val prefix = if ec.enumName == n then n else s"${ec.enumName}::$n"
+        Right(s"$prefix { ${ok.mkString(", ")} }")
 
     // Application — intrinsic, user-defined fn, or unsupported.
     case m.Term.Apply.After_4_6_0(fn, args) =>
