@@ -103,9 +103,10 @@ or blocked/deferred (kept for record, NOT actionable now — see "Excluded from 
       `--offline` flag (cached-only search, `RegistryClient.loadOffline()`). REMAINING (external only):
       the `scalascript/registry` GitHub repo + Pages HTML + validate/publish CI.
 
-- [ ] **sbt-plugin-finish** (roadmap #4) — `specs/arch-sbt-plugin.md` remaining surface: front-matter
-      `dependencies:` → Coursier, cross-build targets (`sscBackends` JVM/JS/WASM), LSP/BSP polish.
-      (Phases 1–4 already landed.) Publishing the plugin artifact itself = part of the deferred Maven step.
+- [x] **sbt-plugin-finish** ✓ ACTIONABLE SCOPE DONE 2026-06-18 — this duplicate open marker was stale.
+      Front-matter `dependencies:` → Coursier and `sscBackends` cross-build are done + scripted-tested;
+      LSP/BSP Phase 4 already landed with no concrete remaining deliverable. Publishing the plugin artifact
+      itself is the deferred Maven Central / sbt Plugin Portal step and remains excluded from autonomous work.
 
 - [~] **metaprogramming-v2** (roadmap #5) — AUDIT 2026-06-17: NOT a from-scratch build. All three
       phases have working bases (P3 Linker `inlineTable`/`expandInlineSource`; P4 `${impl('x)}` + direct
@@ -152,14 +153,12 @@ verify residuals**, NOT from-scratch builds:
       Added tests for all six templates, output-dir aliases, placeholder-free rendering, git-init, and release
       fixtures. Verify: `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/ssc-new-audit && sbt
       "cli/testOnly scalascript.cli.NewProjectTest scalascript.cli.StandaloneInstallFixturesTest"` → 8/8 green.
-- [ ] **board-ledger-hygiene** — remove stale/contradictory queue and bug-ledger markers discovered during
-      the post-JIT/Rust task scan. WHY: agents pick from `SPRINT.md`/`BUGS.md`; stale `[ ]` or `Status: open`
-      lines on already-closed work cause duplicate claims and wasted triage. HOW: update documentation only:
-      mark the duplicate `sbt-plugin-finish` active item as no-longer-actionable/Maven-gated, fix stale
-      `BUGS.md` embedded status lines that contradict fixed headings, and add a `CHANGELOG.md` note. Do not
-      touch implementation files or active JIT/Rust claims. DONE WHEN: `git grep` no longer shows the known
-      stale `Status: open` markers under fixed bug entries, and `SPRINT.md` has no open duplicate for
-      already-completed `sbt-plugin-finish` work.
+- [x] **board-ledger-hygiene** ✓ DONE 2026-06-19 — docs-only cleanup. Marked the duplicate
+      `sbt-plugin-finish` open item as actionable-scope done/Maven-gated, and removed three stale
+      `Status: open` lines inside fixed `BUGS.md` entries (`jvmgen-multishot-handle-result-any`,
+      `jvmgen-handle-in-arg-position`, `js-self-handling-cps-fn-not-run`). Verify:
+      `git grep -n "\*\*Status:\*\* open\|Status: open" -- BUGS.md` → no matches, and
+      `git grep -n "^- \[ \] \*\*sbt-plugin-finish" -- SPRINT.md` → no matches.
 - [x] **theme-b-build-registry-consolidation** — Phase 3 is **MOOT** (triaged 2026-06-18):
       `PluginManifest`/`LocalRegistry` are the **implementation** the facade is built on (not removable
       wrappers — `BackendRegistry` uses `PluginManifest`; `ImportResolver`/`PluginCommands` use

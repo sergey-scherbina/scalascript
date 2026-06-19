@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-19 — chore(board): clean stale sprint and bug ledger markers
+
+Docs-only coordination cleanup. The duplicate open `sbt-plugin-finish` SPRINT marker is now closed as
+actionable-scope done with Maven/plugin-portal publication left deferred, matching the detailed Phase 5
+entry above it. `BUGS.md` no longer has stale embedded `Status: open` lines inside fixed entries for
+`jvmgen-multishot-handle-result-any`, `jvmgen-handle-in-arg-position`, and
+`js-self-handling-cps-fn-not-run`. This prevents agents from reclaiming already-fixed work during queue
+sweeps.
+
 ## 2026-06-19 — test(cli): complete `ssc new` / standalone install audit
 
 `ssc new` now matches `specs/arch-ssc-new.md` for the local scaffold surface: generated projects run a

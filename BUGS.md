@@ -267,8 +267,8 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Found by:** `CrossBackendPropertyTest` (its multi-shot effect shape).
 - **Symptom:** a method call on the result of `handle(...)` fails JVM scala-cli with e.g. `value sum is not a member of Any` — `handle(...)` lowers to `_handle(...)` which returns `Any`, so `val all = handle(prog()){…}; all.sum` (typical for a multi-shot handler whose result is a `List`) doesn't type-check. interp + JS (dynamically typed) run it fine.
 - **Repro:** a `multi effect NonDet` program ending `val all = handle(prog()){ case NonDet.choose(opts, resume) => opts.flatMap(o => resume(o)) }; println(all.sum)`.
-- **Severity / why deferred:** harder than the emitCaseBody class — it is about the `_handle` RESULT type (Any), not the handler body. A real fix needs the codegen to know the handled-program's result type (here `List[Int]`) and cast, or `_handle` to be generically typed; `List[Any].sum` would still need `Numeric[Any]`. Not a localized fix. The property test excludes the multi-shot-result-method-call shape (uses a block-handler one-shot instead) so it stays green; re-add it as the regression check when fixed. - **FIXED (23a33c976):** runtime `_anyCall0(recv, m)` dynamically dispatches 0-arg collection methods on an Any Iterable (numeric folds via `_binOp`); codegen tracks vals bound to `handle(...)` (`handleResultVals`), routes a `x.method` on them through `emitExprDeep` (via `termContainsHandleResultCall` in `termNeedsCustomEmit`) → `_anyCall0`. Property test re-added the multi-shot `all.{sum,max,min,length}` shape as the guard; 96 tests green.
-**Status:** open. SHA at filing: 2088ce52e.
+- **Severity / why deferred at filing:** harder than the emitCaseBody class — it is about the `_handle` RESULT type (Any), not the handler body. A real fix needed the codegen to know the handled-program's result type (here `List[Int]`) and cast, or `_handle` to be generically typed; `List[Any].sum` would still need `Numeric[Any]`.
+- **FIXED (23a33c976):** runtime `_anyCall0(recv, m)` dynamically dispatches 0-arg collection methods on an Any Iterable (numeric folds via `_binOp`); codegen tracks vals bound to `handle(...)` (`handleResultVals`), routes a `x.method` on them through `emitExprDeep` (via `termContainsHandleResultCall` in `termNeedsCustomEmit`) → `_anyCall0`. Property test re-added the multi-shot `all.{sum,max,min,length}` shape as the guard; 96 tests green.
 ---
 
 ## jvmgen-effect-handler-arg-arith — `fixed` (2026-06-15, 7c843b121)
@@ -322,9 +322,6 @@ println(r)` → works.
   core CPS emission path (would need care vs the 33 JvmGenEffects tests), so deferred from the
   property-test slice that found it.
 - **FIXED (91fc574f5):** `termContainsEffectExpr` (walks children for any effectful sub-expr) added to `termNeedsCustomEmit` so a `handle`/effect nested in a call arg routes through `emitExprDeep` and lowers to `_handle(...)`. Regression guard: `CrossBackendPropertyTest` effect kind uses the inline `println(handle(...))` form (interp==JS==JVM via scala-cli). 119 effect+jvmgen tests green, no regression.
-- **Status:** open. SHA at filing: 4b21d527b. The property test excludes the inline form (uses the
-  bound form) so it stays green; re-add the inline form to that generator as the regression check
-  when this is fixed.
 
 ---
 
@@ -485,8 +482,6 @@ println(r)` → works.
   on plain values, so it's safe for the direct-runner case too. Needs care in `genApply`
   to avoid wrapping calls that are themselves inside a CPS context (those go through
   `genCpsApply`). HIGH-ish risk — gate on the full effect suite + node tests.
-- **Status:** open. The `effect-cps-loops-js` perform-in-while lowering landed without
-  it; `effect-multishot` stays `n/a` on JS until this is fixed.
 
 ## interp-module-loader-dedup — `done` (busi confirmed, rozum seq-137)
 
