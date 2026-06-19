@@ -1,6 +1,0 @@
-feature/jit-foldleft 2026-06-19T10:07:16Z
-agent: claude
-heartbeat: 2026-06-19T10:07:16Z
-status: in-progress
-done-so-far: starting hof-glue full lever — JIT-compile combineAll foldLeft (using/given + List-iter opcodes + foldLeft recognizer)
-next: understand exact combineAll AST + VmCompiler function-compile entry + CALLREF/GETFR runtime; implement flag-gated, test vs tree-walk, A/B
