@@ -195,7 +195,16 @@ SSR at the primitive level first (no library needed), then layer the widget libr
    `vstack(gap=12)(…)` probe → cargo 0; positional unchanged. Regression test in `RustGenWebToolkitTest`.
    (Out-of-order named args + omitted-default fill would need the callee's param list — deferred
    until the toolkit needs it.)
-5. **S5 (G5)** — `Signal` reactivity: SSR initial value + emit the client JS bundle.
+5. **S5 (G5)** — `Signal` reactivity.
+   - **S5a — DONE (2026-06-19): SSR the initial value.** Signals now carry their initial value as a
+     `Value` (`From<String/&str/bool/i64/f64> for Value`); `_ui_signal(name, default)` → `default.into()`;
+     `signalText(s)` → `View::Text(s.show())`; `showSignal(cond, t, f)` → `cond.is_truthy() ? t : f`;
+     `eqSignal(s, v)` → `Value::Bool(s == v.into())`.  Probe `serve(element("div",…,[signalText(signal(
+     "name","World")), showSignal(signal("shown",true), textNode("YES"), textNode("NO"))]), 8126)` →
+     `curl` → `<div>WorldYES</div>`.  Event-handler primitives (`setSignal`/`inputChange`/`toggleSignal`)
+     stay inert for SSR.  Test in `RustGenWebToolkitTest`.
+   - **S5b (later) — live updates**: client JS bundle (subscribe + DOM patch) and/or server push over
+     the existing WS; `computedSignal`/`seedSignal`/`fetchUrlSignal` initial-evaluation.
 
 Prereq landed: **I1** `s"…${expr}…"` compound splices (`RustGenWebToolkitTest` 3/3).
 

@@ -100,6 +100,24 @@ class RustGenWebToolkitTest extends AnyFunSuite:
     assert(ui.contains("pub enum View"))
     assert(ui.contains("fn _ui_is_void"), "void-element handling should be present")
 
+  test("signal SSR runtime carries + renders the initial value (S5a)"):
+    val src =
+      """```scalascript
+        |@main def run(): Unit =
+        |  val a = textNode("hi")
+        |  ()
+        |```
+        |""".stripMargin
+    val ui = assets(src)("src/runtime/ui.rs")
+    // signal(name, default) carries `default`; signalText/showSignal render that initial
+    // value (static reactivity), not the old empty stubs.
+    assert(ui.contains("pub fn _ui_signal<T: Into<Value>>"),
+      s"_ui_signal should carry its default into a Value, got:\n$ui")
+    assert(ui.contains("View::Text(s.show())"),
+      "signalText should render the signal's current value")
+    assert(ui.contains("if cond.is_truthy()"),
+      "showSignal should pick a branch from the signal's value")
+
   test("renderHtml(view) wires the SSR render entry"):
     val src =
       """```scalascript

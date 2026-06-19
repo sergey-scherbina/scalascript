@@ -51,6 +51,23 @@ object RustRuntimeTemplates:
       |    }
       |}
       |
+      |impl Value {
+      |    // Truthiness for `showSignal(cond, …)` SSR: only `false`/`Unit` are falsey.
+      |    #[allow(dead_code)]
+      |    pub fn is_truthy(&self) -> bool {
+      |        !matches!(self, Value::Bool(false) | Value::Unit)
+      |    }
+      |}
+      |
+      |// `From` conversions so a signal's initial value (`signal(name, default)`) of a
+      |// primitive type can be carried as a `Value` and SSR-rendered.
+      |impl From<String> for Value { fn from(s: String) -> Self { Value::Str(s) } }
+      |impl From<&str>   for Value { fn from(s: &str)   -> Self { Value::Str(s.to_string()) } }
+      |impl From<bool>   for Value { fn from(b: bool)   -> Self { Value::Bool(b) } }
+      |impl From<i64>    for Value { fn from(n: i64)    -> Self { Value::Int(n) } }
+      |impl From<f64>    for Value { fn from(f: f64)    -> Self { Value::Double(f) } }
+      |// (`From<Value> for Value` is already provided by std's reflexive `impl<T> From<T> for T`.)
+      |
       |fn format_double(f: f64) -> String {
       |    if f.fract() == 0.0 && f.is_finite() {
       |        format!("{:.1}", f)
@@ -722,12 +739,17 @@ object RustRuntimeTemplates:
       |#[allow(dead_code)]
       |pub fn _ui_attr<T: std::fmt::Display>(v: T) -> String { v.to_string() }
       |
+      |// Signals carry their initial value as a `Value` so the *initial* render is SSR'd
+      |// (static reactivity).  Live updates (client JS / server push) are a later slice;
+      |// the event-handler primitives below stay inert for SSR.
       |#[allow(dead_code)]
-      |pub fn _ui_signal<T>(_name: String, _default: T) -> Value { Value::Unit }
+      |pub fn _ui_signal<T: Into<Value>>(_name: String, default: T) -> Value { default.into() }
       |#[allow(dead_code)]
-      |pub fn _ui_signal_text(_s: Value) -> View { View::Text(String::new()) }
+      |pub fn _ui_signal_text(s: Value) -> View { View::Text(s.show()) }
       |#[allow(dead_code)]
-      |pub fn _ui_show_signal(_cond: Value, when_true: View, _when_false: View) -> View { when_true }
+      |pub fn _ui_show_signal(cond: Value, when_true: View, when_false: View) -> View {
+      |    if cond.is_truthy() { when_true } else { when_false }
+      |}
       |#[allow(dead_code)]
       |pub fn _ui_set_signal<T>(_s: Value, _v: T) -> Value { Value::Unit }
       |#[allow(dead_code)]
@@ -735,7 +757,7 @@ object RustRuntimeTemplates:
       |#[allow(dead_code)]
       |pub fn _ui_toggle_signal(_s: Value) -> Value { Value::Unit }
       |#[allow(dead_code)]
-      |pub fn _ui_eq_signal<T>(_s: Value, _value: T) -> Value { Value::Unit }
+      |pub fn _ui_eq_signal<T: Into<Value>>(s: Value, value: T) -> Value { Value::Bool(s == value.into()) }
       |#[allow(dead_code)]
       |pub fn _ui_data_table_view(_source: Value, _columns: Vec<Value>, _actions: Vec<Value>) -> View {
       |    View::Fragment(vec![])
