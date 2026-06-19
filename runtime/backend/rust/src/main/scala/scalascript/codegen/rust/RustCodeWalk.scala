@@ -748,8 +748,8 @@ object RustCodeWalk:
             params <- renderParams(d, ctx0, None)
             ret    <- renderReturnType(d, ctx0)
           yield
-            val sig = if ret.isEmpty then s"pub fn $name($params)"
-                      else               s"pub fn $name($params) -> $ret"
+            val sig = if ret.isEmpty then s"pub fn ${rustIdent(name)}($params)"
+                      else               s"pub fn ${rustIdent(name)}($params) -> $ret"
             GeneratedDef(name = name, render = s"$sig { $body }\n", isMain = false)
         case None =>
           Right(GeneratedDef(name = name, render = "", isMain = false))
@@ -767,8 +767,8 @@ object RustCodeWalk:
         bodyRs  <- if useTCO then renderTCOBody(name, pNames, d.body, ctx, isUnit = ret.isEmpty)
                    else            renderBody(d.body, ctx, isUnit = ret.isEmpty)
       yield
-        val signature = if ret.isEmpty then s"pub fn $name($params)"
-                        else                s"pub fn $name($params) -> $ret"
+        val signature = if ret.isEmpty then s"pub fn ${rustIdent(name)}($params)"
+                        else                s"pub fn ${rustIdent(name)}($params) -> $ret"
         val topValPreamble =
           if ctx.topVals.isEmpty then ""
           else ctx.topVals.map { case (n, init) => s"let $n = $init;" }.mkString("\n") + "\n"
@@ -2268,10 +2268,11 @@ object RustCodeWalk:
               case None     =>
                 // Thread `_eff` when calling an effectful user-defined function.
                 def withEff(n: String, args: String): String =
+                  val rn = rustIdent(n)  // escape a call to a reserved-keyword-named def (e.g. `box`)
                   if ctx.effectfulDefs.contains(n) then
-                    if args.isEmpty then s"$n(&mut _eff)"
-                    else s"$n($args, &mut _eff)"
-                  else s"$n($args)"
+                    if args.isEmpty then s"$rn(&mut _eff)"
+                    else s"$rn($args, &mut _eff)"
+                  else s"$rn($args)"
                 plainName.filter(ctx.userDefs.contains) match
                   case Some(n) => Right(withEff(n, joined))
                   case None    =>
@@ -2683,6 +2684,20 @@ object RustCodeWalk:
 
   private def indent(s: String): String =
     s.linesIterator.map(line => if line.isEmpty then "" else "    " + line).mkString("\n")
+
+  /** Rust reserved keywords that a ScalaScript identifier might collide with (e.g. a
+   *  `box` widget constructor).  `crate`/`self`/`Self`/`super` can't be raw identifiers
+   *  and are left as-is (unlikely as user names). */
+  private val rustReserved: Set[String] = Set(
+    "as", "break", "const", "continue", "dyn", "else", "enum", "extern", "false", "fn",
+    "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref",
+    "return", "static", "struct", "trait", "true", "type", "unsafe", "use", "where", "while",
+    "async", "await", "abstract", "become", "box", "do", "final", "macro", "override", "priv",
+    "typeof", "unsized", "virtual", "yield", "try")
+
+  /** Escape a Rust reserved keyword used as an identifier with the raw-identifier prefix. */
+  private def rustIdent(name: String): String =
+    if rustReserved.contains(name) then s"r#$name" else name
 
   private[rust] def escapeRustString(s: String): String =
     val sb = new StringBuilder(s.length)

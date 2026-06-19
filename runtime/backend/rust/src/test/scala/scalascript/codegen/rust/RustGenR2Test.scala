@@ -95,7 +95,8 @@ class RustGenR2Test extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = gen(src)
-    assert(g.contains("pub fn use(n: i64) -> i64 {"))
+    // `use` is a Rust keyword → emitted as the raw identifier `r#use`.
+    assert(g.contains("pub fn r#use(n: i64) -> i64 {"))
     assert(g.contains("(inc(n) + 2i64)"),
       s"user-fn call not found in:\n$g")
 
