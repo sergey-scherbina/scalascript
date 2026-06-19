@@ -1,0 +1,6 @@
+feature/jit-foldleft-tc 2026-06-19T18:54:59Z
+agent: claude
+heartbeat: 2026-06-19T18:54:59Z
+status: in-progress
+done-so-far: attempting Slice C (typeclass foldLeft) flag-gated off-by-default per user request
+next: verify combineAll reaches JIT with resolved using-arg; if feasible build TMFOLD opcode + recognizer; differential-test + measure
