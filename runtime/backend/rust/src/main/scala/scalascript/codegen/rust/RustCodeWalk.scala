@@ -2366,7 +2366,13 @@ object RustCodeWalk:
       // A case guard `case p if cond =>` maps onto a Rust match-arm guard.
       // A boxed (recursive) field binds as `Box<T>`; deref-rebind it at the top of
       // the arm (`let f = *f;`) so the body sees the unboxed `T`.
-      val derefs = boxedFieldDerefs(c.pat, ctx)
+      // In a `match s.as_str()`, a var-binding arm (`other => …`) binds `&str`;
+      // rebind it to a `String` so a body that needs `String` typechecks (a `String`
+      // still coerces back to `&str` where needed).
+      val strRebind = (if hasStringPat then c.pat match
+        case m.Pat.Var(m.Term.Name(n)) => s"let $n = $n.to_string(); "
+        case _                         => "" else "")
+      val prefix = boxedFieldDerefs(c.pat, ctx) + strRebind
       for
         pat   <- renderPattern(c.pat, ctx)
         guard <- c.cond match
@@ -2374,8 +2380,8 @@ object RustCodeWalk:
                    case None    => Right("")
         bod   <- renderTerm(c.body, ctx)
       yield
-        if derefs.isEmpty then s"$pat$guard => $bod,"
-        else s"$pat$guard => { $derefs$bod },"
+        if prefix.isEmpty then s"$pat$guard => $bod,"
+        else s"$pat$guard => { $prefix$bod },"
     }
     val (errs, ok) = caseRendered.partitionMap(identity)
     subjRendered.flatMap { s0 =>
