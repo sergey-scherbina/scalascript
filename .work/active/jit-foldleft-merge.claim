@@ -1,6 +1,0 @@
-feature/jit-foldleft-merge 2026-06-19T16:23:28Z
-agent: claude
-heartbeat: 2026-06-19T16:23:28Z
-status: in-progress
-done-so-far: finishing Slice A for merge (default-on + kill-switch); user wants it shipped — useful when a foldLeft sits inside a larger compiled fn
-next: cherry-pick Slice A, default-on, add tests incl foldLeft-in-bigger-fn, FULL suite green with it ON, A/B, merge
