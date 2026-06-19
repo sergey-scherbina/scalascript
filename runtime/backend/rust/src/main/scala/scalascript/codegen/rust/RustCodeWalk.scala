@@ -677,6 +677,8 @@ object RustCodeWalk:
       // `a(i) = x` (→ `a[(i) as usize] = x`) is allowed. Computed by a per-def pre-pass.
       localSeqs:    Set[String] = Set.empty,
       localArrays:  Set[String] = Set.empty,
+      // Local val/var names known to hold a String (so `a + b` over them is String concat).
+      localStrings: Set[String] = Set.empty,
       // Names bound by the enclosing closure(s) (params + pattern binds).  Inside a
       // closure, a non-Copy bare-name arg that is NOT one of these is a *captured*
       // value, so it's cloned at by-value calls to avoid moving it out of an FnMut.
@@ -753,7 +755,8 @@ object RustCodeWalk:
           Right(GeneratedDef(name = name, render = "", isMain = false))
     else
       val (lseqs, larrays) = collectLocalSeqs(d.body)
-      val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs, larrays)
+      val lstrings = collectLocalStrings(d.body)
+      val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs, larrays, lstrings)
       val effName = defEffectName(d)
       val pNames  = extractParamNames(d)
       val useTCO  = pNames.nonEmpty && hasTailCallPath(name, pNames.size, d.body)
@@ -810,6 +813,37 @@ object RustCodeWalk:
       t.children.foreach(walk)
     walk(body)
     (seqs.toSet, arrays.toSet)
+
+  /** Local `val`/`var` names bound to a String-valued rhs (literal, `s"…"`,
+   *  `.toString`/`.trim`/`.mkString`, an `if` whose branches are strings, a `+`
+   *  with a string operand, or another known string val).  Used so a `a + b`
+   *  over two such vars lowers to `format!` (String concat) not numeric `+`. */
+  private def collectLocalStrings(body: m.Term): Set[String] =
+    val strs = scala.collection.mutable.Set.empty[String]
+    def isStr(rhs: m.Term): Boolean = rhs match
+      case m.Lit.String(_)                            => true
+      case m.Term.Interpolate(m.Term.Name("s"), _, _) => true
+      case m.Term.Select(_, m.Term.Name("toString" | "trim" | "mkString")) => true
+      case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("toString" | "trim" | "mkString")), _) => true
+      case m.Term.Name(n)                             => strs.contains(n)
+      case ifx: m.Term.If                             => isStr(ifx.thenp) || isStr(ifx.elsep)
+      case m.Term.ApplyInfix.After_4_6_0(l, m.Term.Name("+"), _, args) =>
+        isStr(l) || args.values.headOption.exists(isStr)
+      case m.Term.Block(stats)                        =>
+        stats.lastOption.collect { case t: m.Term => isStr(t) }.getOrElse(false)
+      case _                                          => false
+    def walk(t: m.Tree): Unit =
+      t match
+        case v: m.Defn.Val => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) => if isStr(v.rhs) then strs += n
+          case _                               => ()
+        case v: m.Defn.Var => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) => if isStr(v.body) then strs += n
+          case _                               => ()
+        case _ => ()
+      t.children.foreach(walk)
+    walk(body)
+    strs.toSet
 
   /** Flatten a curried apply chain `base(a1)(a2)…` into `(base, a1 ++ a2 ++ …)`
    *  in source order, so a multi-group call lowers to a single Rust call matching
@@ -1915,7 +1949,12 @@ object RustCodeWalk:
     // `String + any` / `any + String` — lower to `format!("{}{}", lhs, rhs)`.
     // Triggered when either side is a best-effort string expression.
     case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("+"), _, args)
-        if args.values.size == 1 && (isStringExpr(lhs) || isStringExpr(args.values.head)) =>
+        if args.values.size == 1 && {
+          def strOp(t: m.Term) = isStringExpr(t) || (t match
+            case m.Term.Name(n) => ctx.localStrings.contains(n)
+            case _              => false)
+          strOp(lhs) || strOp(args.values.head)
+        } =>
       for
         l <- renderTerm(lhs, ctx)
         r <- renderTerm(args.values.head, ctx)
