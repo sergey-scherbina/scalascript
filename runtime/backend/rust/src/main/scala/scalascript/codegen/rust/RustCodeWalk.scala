@@ -1333,6 +1333,22 @@ object RustCodeWalk:
         k <- renderTerm(args.values(0), ctx)
         d <- renderTerm(args.values(1), ctx)
       yield s"$q.get(&$k).copied().unwrap_or($d)"
+    // Partial function `{ case p => body; … }` (e.g. `xs.map { case (k, v) => … }`)
+    // → a Rust closure that matches its single argument: `move |__pf| match __pf { … }`.
+    case pf: m.Term.PartialFunction =>
+      val arms = pf.cases.map { c =>
+        for
+          pat   <- renderPattern(c.pat, ctx)
+          guard <- c.cond match
+                     case Some(g) => renderTerm(g, ctx).map(gr => s" if $gr")
+                     case None    => Right("")
+          bod   <- renderTerm(c.body, ctx)
+        yield s"$pat$guard => $bod,"
+      }
+      val (errs, ok) = arms.partitionMap(identity)
+      if errs.nonEmpty then Left(errs.flatten)
+      else Right(s"move |__pf| match __pf {\n${indent(ok.mkString("\n"))}\n}")
+
     // Some scalameta versions parse `x => body` as `Term.AnonymousFunction`
     // with a placeholder; cover the same shape conservatively.
     case _: m.Term.AnonymousFunction =>
