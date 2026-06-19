@@ -190,9 +190,10 @@ Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 
       interpreter memo, not the VM Slice C** (2026-06-19): a JFR profile showed the cost is ~79% evalCore
       tree-walk of the `summon[M].empty`/`summon[M].combine` sub-expressions, re-evaluated per call. So
       `evalFusedFoldLeft` memoizes the evaluated `(empty, combine)` per call-site keyed by given identity —
-      repeat calls skip those sub-expressions. **OPT-IN** (`-Dssc.jit.foldtc=1`) because it assumes a
-      referentially-transparent monoid `empty`. `JitFoldTcTest` 8 differential tests (incl. polymorphic
-      two-given soundness); typeclassFoldMacro 1.794 → 1.453 ms/op. The full VM Slice C (type-method opcode +
+      repeat calls skip those sub-expressions. **DEFAULT-ON** (kill-switch `-Dssc.jit.foldtc=0`) — assumes a
+      lawful, referentially-transparent monoid `empty`. `JitFoldTcTest` 8 differential tests (incl. polymorphic
+      two-given soundness) + full interp suite green WITH IT ON (1839 tests, excl. infra-flaky cross-backend);
+      typeclassFoldMacro 1.794 → 1.453 ms/op. The full VM Slice C (type-method opcode +
       hot-path using-guard relaxation) stays unbuilt — disproportionate, and the interp memo gets most of the
       win safely. Detail in `specs/jit-foldleft-compile.md`.
 - [x] ~~**hof-glue-jit-compile** (superseded note)~~ — **RESOLVED 2026-06-19 with WORKING CODE + MEASUREMENT.**
