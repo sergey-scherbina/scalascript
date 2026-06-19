@@ -82,10 +82,13 @@ or blocked/deferred (kept for record, NOT actionable now — see "Excluded from 
       end-to-end, `backendRust` 214/0. + S1d void elements (`<meta>` self-close) + **capstone
       `examples/ssr-page.ssc`**: full nested HTML page built from primitives → `ssc build-rust` →
       `curl :8123` returns the SSR'd page. **The Rust-SSR web goal is reachable today via primitives.**
-      **REMAINING (large, open-ended):** S3 transpile `std/ui` library — needs a recursive import
-      inliner for Rust + transpiling the `nodes→theme→layout/typography→lower` graph; `lower.ssc`
-      is monolithic + references signal primitives, so it's entangled with S5. No small slice.
-      Then S4 named/curried args · S5 `Signal` reactivity. Spec `specs/rust-web-toolkit.md`.
+      + **S3 (a–k) the std/ui library now CODEGEN-transpiles** (import inliner + block exprs +
+      partial fns + patterns + placeholder `_`-lambdas + varargs type + `++`/try/null + struct
+      field types + String-match `.as_str()` + opaque-type mapping + signal SSR stubs). Cascade:
+      codegen 28→11→6→3→**0**; cargo 290→170→108→70→**56**. **REMAINING:** a finicky cargo
+      type-reconciliation tail (~56: TkNode/i64 + String/Value + struct-field i64 + curried-vararg
+      **call-site** `vec![]` wrapping + `defaultTheme` val) — converging, multi-session. Then S4
+      named/curried args · S5 signal reactivity (stubs are static-only). Spec `specs/rust-web-toolkit.md`.
 
 - [x] **agent-sdk-remainder** ✓ DONE 2026-06-17 (actionable scope) — consolidated `specs/agent-sdk.md`
       + **P3a MCP bridge both directions** (`runtime/std/agent-mcp.ssc`: `serveAgentToolsMcp` +

@@ -109,12 +109,27 @@ SSR at the primitive level first (no library needed), then layer the widget libr
      Cleared 28 errors at once.
    - ✅ **S3c partial functions** — `{ case p => … }` → `move |__pf| match __pf { … }`.
    - ✅ **S3d tuple + typed patterns** — `(k, v)` and `case h: T` in `renderPattern`.
-   - ⏳ **REMAINING on the probe:** placeholder `_`-lambdas (×8 — BLOCKED: needs a scalameta
-     tree-transform to desugar `_`; `scala.meta.transversers.Transformer` did NOT resolve in
-     this scalameta version — find the right transform API); vararg params `TkNode*` (×3 —
-     param-type `Vec<T>` + signature-aware call-site `vec![…]` wrapping); `List ++` concat;
-     `Lit.Null`; `Term.Try` (try/catch). The cascade likely deepens further, plus the
-     signal-primitive runtimes (S5) `lower` calls, plus S4 named/curried args. Multi-session.
+   - ✅ **S3e placeholder `_`-lambdas** — counter-stack desugar (mirrors JsGen), `_.foo` →
+     `move |__p0| { … }`. (Cleared 8.)
+   - ✅ **S3f vararg param type** — `T*` → `Vec<T>` in mapType. (Cleared 3.)
+   - ✅ **S3g `List ++` / try-`toInt` / `null`** — `a ++ b` → `[a, b].concat()`;
+     `try e.toInt catch _ => fb` → `e.parse().unwrap_or(fb)`; `null` → `Value::Unit`.
+   - ✅ **S3h struct field types** — `renderStruct` maps field types vs all user type names
+     (Theme.colors → `ThemeColors`, not i64). (Cargo `i64 has no fields` 170 → 12.)
+   - ✅ **S3i String match** — `match s.as_str() { "x" => … }`. (Cargo mismatches 110 → 69.)
+   - ✅ **S3j opaque types** — `View` → `crate::runtime::ui::View`, `Signal`/`EventHandler`/`Any`
+     → `crate::value::Value`. (Cargo mismatches 69 → 28.)
+   - ✅ **S3k signal SSR stubs** — Rust runtimes for the signal extern defs (static SSR) +
+     `.toList` on Vec → clone. (Cleared all ~22 signal `cannot find function`.)
+
+   **STATUS: the whole std/ui library now CODEGEN-transpiles (zero "unsupported …"
+   diagnostics).** The `cargo build` of the emitted crate is down to **~56 errors (from ~290)**
+   — a type-reconciliation TAIL in `lower.ssc`'s intricate code: `TkNode`/`i64`, `String`/`Value`,
+   `String`/`bool` mismatches (some from `Any→Value` interacting with concrete-typed args),
+   ~12 residual struct-field `i64`, the curried-vararg **call-site** `vec![…]` wrapping (S3f did
+   the param type only), `defaultTheme` (a top-level `val` not emitted), a HashMap-`.map` shape.
+   Converging but finicky/multi-session. Then **S4** named/curried args, **S5** signal reactivity
+   (the stubs render static-only). Cascade summary: codegen 28→11→6→3→0; cargo 290→170→108→70→56.
 4. **S4 (G3)** — named args in curried application (`vstack(gap=12)(…)`).
 5. **S5 (G5)** — `Signal` reactivity: SSR initial value + emit the client JS bundle.
 
