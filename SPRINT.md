@@ -152,6 +152,14 @@ verify residuals**, NOT from-scratch builds:
       Added tests for all six templates, output-dir aliases, placeholder-free rendering, git-init, and release
       fixtures. Verify: `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/ssc-new-audit && sbt
       "cli/testOnly scalascript.cli.NewProjectTest scalascript.cli.StandaloneInstallFixturesTest"` → 8/8 green.
+- [ ] **board-ledger-hygiene** — remove stale/contradictory queue and bug-ledger markers discovered during
+      the post-JIT/Rust task scan. WHY: agents pick from `SPRINT.md`/`BUGS.md`; stale `[ ]` or `Status: open`
+      lines on already-closed work cause duplicate claims and wasted triage. HOW: update documentation only:
+      mark the duplicate `sbt-plugin-finish` active item as no-longer-actionable/Maven-gated, fix stale
+      `BUGS.md` embedded status lines that contradict fixed headings, and add a `CHANGELOG.md` note. Do not
+      touch implementation files or active JIT/Rust claims. DONE WHEN: `git grep` no longer shows the known
+      stale `Status: open` markers under fixed bug entries, and `SPRINT.md` has no open duplicate for
+      already-completed `sbt-plugin-finish` work.
 - [x] **theme-b-build-registry-consolidation** — Phase 3 is **MOOT** (triaged 2026-06-18):
       `PluginManifest`/`LocalRegistry` are the **implementation** the facade is built on (not removable
       wrappers — `BackendRegistry` uses `PluginManifest`; `ImportResolver`/`PluginCommands` use
