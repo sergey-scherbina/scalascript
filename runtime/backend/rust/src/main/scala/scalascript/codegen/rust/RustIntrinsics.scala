@@ -85,6 +85,7 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("element")          -> RuntimeCall("crate::runtime::ui::_ui_element"),
   QualifiedName("textNode")         -> RuntimeCall("crate::runtime::ui::_ui_text"),
   QualifiedName("fragment")         -> RuntimeCall("crate::runtime::ui::_ui_fragment"),
+  QualifiedName("renderHtml")       -> RuntimeCall("crate::runtime::ui::_ui_render"),
   // Bench.opaque(x) — identity that prevents LLVM constant-folding the
   // surrounding expression.  Maps to std::hint::black_box; same shape per
   // arg type.  On other backends this is identity (no fold to defeat).

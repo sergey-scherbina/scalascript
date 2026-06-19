@@ -654,11 +654,15 @@ object RustRuntimeTemplates:
       |
       |pub fn _ui_fragment(children: Vec<View>) -> View { View::Fragment(children) }
       |
-      |/// Render a `View` to an HTML string.
-      |pub fn _ui_render(v: &View) -> String {
+      |/// Render a `View` to an HTML string (SSR).  Takes the tree by value so it
+      |/// can be the tail of an SSR entry (`renderHtml(view)`); recursion borrows
+      |/// through `_ui_render_ref`.
+      |pub fn _ui_render(v: View) -> String { _ui_render_ref(&v) }
+      |
+      |fn _ui_render_ref(v: &View) -> String {
       |    match v {
       |        View::Text(s) => _ui_escape_text(s),
-      |        View::Fragment(cs) => cs.iter().map(_ui_render).collect::<Vec<_>>().join(""),
+      |        View::Fragment(cs) => cs.iter().map(_ui_render_ref).collect::<Vec<_>>().join(""),
       |        View::Element { tag, attrs, children } => {
       |            let mut s = String::new();
       |            s.push('<');
@@ -671,7 +675,7 @@ object RustRuntimeTemplates:
       |                s.push('"');
       |            }
       |            s.push('>');
-      |            for c in children { s.push_str(&_ui_render(c)); }
+      |            for c in children { s.push_str(&_ui_render_ref(c)); }
       |            s.push_str("</");
       |            s.push_str(tag);
       |            s.push('>');

@@ -59,10 +59,19 @@ SSR at the primitive level first (no library needed), then layer the widget libr
 
 ## Increments (ship one at a time; green on `backendRust/test` + conformance)
 
-1. **S1 (G2-core)** — `View` HTML runtime: `element`/`textNode`/`fragment` intrinsics +
-   a `_ui_render(View) -> String` SSR fn (a Rust `runtime/ui.rs` template, gated on use
-   like `http.rs`). A `@main` building `element("div", …, [textNode("hi")])` SSRs the
-   expected HTML. **This PR.**
+1. **S1 (G2-core)** — `View` HTML runtime: `runtime/ui.rs` template (`enum View` +
+   `_ui_render` SSR with text/attr escaping), gated on use like `http.rs`.
+   - **S1a ✅ DONE** — `element`/`textNode`/`fragment` intrinsics + the template; gated.
+     `RustGenWebToolkitTest`, full `backendRust` green.
+   - **S1b ✅ DONE** — `renderHtml(view)` intrinsic (`_ui_render`, by-value). `textNode`
+     + `fragment` compile **and run** end-to-end: `renderHtml(fragment(List(textNode("hi "),
+     textNode("& <world>"))))` → `hi &amp; &lt;world&gt;` via `ssc run-rust`. Typing aligned
+     itself (String literal → `"…".to_string()`; untyped `let` infers `View`).
+   - **S1c — `element` (the tag builder).** Blocked on two codegen gaps surfaced by an
+     `element("div", Map("class" -> "root"), Map(), List(textNode("hi")))` probe:
+     (i) the `->` infix operator (`unsupported infix operator \`->\``) → lower to a Rust
+     tuple; (ii) `Map[String, Any]` literal → the attrs representation matching
+     `_ui_element` (likely `HashMap<String, Value>` + render Value attrs to strings).
 2. **S2 (G4)** — `serve(view, port)` overload: render the `View` then serve it via the
    existing `_http_serve` listener (static `GET /`). Arity-2 `serve` dispatch in the codewalk.
 3. **S3 (G1)** — transpile imported `std/ui/*.ssc` widget library into the crate so

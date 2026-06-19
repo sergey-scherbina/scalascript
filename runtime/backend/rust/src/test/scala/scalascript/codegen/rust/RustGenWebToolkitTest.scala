@@ -96,8 +96,21 @@ class RustGenWebToolkitTest extends AnyFunSuite:
       s"ui.rs missing from: ${a.keys.toList.sorted}")
     assert(a("src/runtime/mod.rs").contains("pub mod ui;"))
     val ui = a("src/runtime/ui.rs")
-    assert(ui.contains("pub fn _ui_render(v: &View) -> String"))
+    assert(ui.contains("pub fn _ui_render(v: View) -> String"))
     assert(ui.contains("pub enum View"))
+
+  test("renderHtml(view) wires the SSR render entry"):
+    val src =
+      """```scalascript
+        |@main def run(): Unit =
+        |  println(renderHtml(fragment(List(textNode("hi")))))
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("crate::runtime::ui::_ui_render"),
+      s"expected a _ui_render call, got:\n$g")
+    val a = assets(src)
+    assert(a("src/runtime/ui.rs").contains("pub fn _ui_render(v: View) -> String"))
 
   test("a program with no View primitives stays ui-free"):
     val src =
