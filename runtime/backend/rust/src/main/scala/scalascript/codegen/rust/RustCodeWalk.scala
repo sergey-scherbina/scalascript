@@ -326,6 +326,11 @@ object RustCodeWalk:
    *  this reduction is rust's equivalent. */
   private var _typeLambdas: Map[String, (List[String], m.Type)] = Map.empty
 
+  /** Stack of placeholder counters for `_`-lambda desugaring (mirrors JsGen):
+   *  each `Term.AnonymousFunction` pushes a 0, each `Term.Placeholder` rendered
+   *  inside it increments the top and emits `__p<i>`. */
+  private var _phCounters: List[Int] = Nil
+
   private def collectTypeLambdaAliases(module: ast.Module): Map[String, (List[String], m.Type)] =
     def fromContent(c: ast.Content): List[(String, (List[String], m.Type))] = c match
       case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isScalaLang(lang) =>
@@ -1349,13 +1354,26 @@ object RustCodeWalk:
       if errs.nonEmpty then Left(errs.flatten)
       else Right(s"move |__pf| match __pf {\n${indent(ok.mkString("\n"))}\n}")
 
-    // Some scalameta versions parse `x => body` as `Term.AnonymousFunction`
-    // with a placeholder; cover the same shape conservatively.  (Placeholder
-    // `_`-lambda desugaring is a TODO — see specs/rust-web-toolkit.md S3.)
-    case _: m.Term.AnonymousFunction =>
-      Left(List(unsupported(
-        s"def `${ctx.defName}` uses an anonymous-function placeholder; R.2.4 accepts only explicit `(params) => body`"
-      )))
+    // Placeholder lambda `_.foo` / `_ + 1` → desugar via a counter stack: push a
+    // fresh counter, render the body (each `_` increments it + emits `__p<i>`),
+    // then build `move |__p0, …| { body }`.  Mirrors JsGen's stack-based approach.
+    case af: m.Term.AnonymousFunction =>
+      _phCounters = 0 :: _phCounters
+      val bodyR = renderTerm(af.body, ctx)
+      val count = _phCounters.headOption.getOrElse(0)
+      _phCounters = _phCounters.drop(1)
+      bodyR.map { b =>
+        val params = (0 until count).map(i => s"__p$i").mkString(", ")
+        s"move |$params| { $b }"
+      }
+
+    // `_` placeholder inside an anonymous function → the i-th fresh param.
+    case _: m.Term.Placeholder =>
+      val i = _phCounters.headOption.getOrElse(0)
+      _phCounters = _phCounters match
+        case h :: t => (h + 1) :: t
+        case Nil    => Nil
+      Right(s"__p$i")
 
     // `(a, b, ...)` — native Rust tuple literal.  Rust requires a
     // trailing comma in `(..., )`, so a 1-tuple emits `(x,)`.

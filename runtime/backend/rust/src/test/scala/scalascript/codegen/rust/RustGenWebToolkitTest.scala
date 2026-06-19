@@ -165,6 +165,18 @@ class RustGenWebToolkitTest extends AnyFunSuite:
     assert(g.contains("let x = { let a = 2i64;"),
       s"expected the block-valued binding to lower to a Rust block, got:\n$g")
 
+  test("placeholder _-lambda desugars to a Rust closure"):
+    val src =
+      """```scalascript
+        |def inc(xs: List[Long]): List[Long] = xs.map(_ + 1)
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("move |__p0|"),
+      s"expected the `_`-lambda to desugar to a closure, got:\n$g")
+    assert(g.contains("__p0 + 1i64"),
+      s"expected the placeholder body, got:\n$g")
+
   test("a program with no View primitives stays ui-free"):
     val src =
       """```scalascript
