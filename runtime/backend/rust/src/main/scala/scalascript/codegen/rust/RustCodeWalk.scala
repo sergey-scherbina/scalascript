@@ -1349,6 +1349,15 @@ object RustCodeWalk:
     case m.Term.Interpolate(m.Term.Name("s"), parts, args) =>
       renderStringInterpolation(parts, args, ctx)
 
+    // std/ui `serve(view, port)` — SSR overload (arity 2): render the View and
+    // serve it as text/html.  Must bind before the generic intrinsic resolution,
+    // which maps `serve` → `_http_serve(port)` (arity 1).
+    case m.Term.Apply.After_4_6_0(m.Term.Name("serve"), args) if args.values.size == 2 =>
+      for
+        v <- renderTerm(args.values(0), ctx)
+        p <- renderTerm(args.values(1), ctx)
+      yield s"crate::runtime::http::_ui_serve($v, $p)"
+
     // ── Vec method chaining via Term.Apply ─────────────────────────────────
     // Matches: xs.foreach(f), xs.map(f), xs.filter(f), xs.foldLeft(z)(f).
     // These bind before the generic Apply so the method name is visible.

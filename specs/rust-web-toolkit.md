@@ -73,8 +73,13 @@ SSR at the primitive level first (no library needed), then layer the widget libr
      `HashMap<String,String>` attrs, key-sorted for deterministic SSR. End-to-end:
      `renderHtml(element("div", Map("class"->"root","id"->"main"), Map(), List(textNode("hi & bye"))))`
      → `<div class="root" id="main">hi &amp; bye</div>` via `ssc run-rust`. `backendRust` 212/0.
-2. **S2 (G4)** — `serve(view, port)` overload: render the `View` then serve it via the
-   existing `_http_serve` listener (static `GET /`). Arity-2 `serve` dispatch in the codewalk.
+2. **S2 (G4) ✅ DONE** — `serve(view, port)` overload. Arity-2 `serve` dispatch in the
+   codewalk → `crate::runtime::http::_ui_serve`; `_ui_serve` renders the View once and
+   serves it (text/html) for every request. Lives in a `UiServeRs` snippet appended to
+   `http.rs` ONLY when uiUsage (it references `runtime::ui`), so pure `route`/`serve(port)`
+   programs are unaffected. Proven end-to-end: `serve(element("div", Map("id"->"app"), Map(),
+   List(textNode("hello from rust ssr"))), 8099)` compiles + runs; `curl :8099` →
+   `<div id="app">hello from rust ssr</div>`. `backendRust` 214/0.
 3. **S3 (G1)** — transpile imported `std/ui/*.ssc` widget library into the crate so
    `vstack`/`heading`/`text`/`lower` work on top of the S1 primitives.
 4. **S4 (G3)** — named args in curried application (`vstack(gap=12)(…)`).

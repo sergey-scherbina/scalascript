@@ -127,11 +127,16 @@ object RustGen:
           ))
         val httpAsset =
           if !httpUsage then Nil
-          else List(Segment.Asset(
-            "src/runtime/http.rs",
-            RustRuntimeTemplates.HttpRs.getBytes("UTF-8"),
-            "text/x-rust"
-          ))
+          else
+            // Append the std/ui `serve(view, port)` SSR overload only when the
+            // program also uses the View primitives (it references `runtime::ui`).
+            val httpSrc = RustRuntimeTemplates.HttpRs +
+              (if uiUsage then RustRuntimeTemplates.UiServeRs else "")
+            List(Segment.Asset(
+              "src/runtime/http.rs",
+              httpSrc.getBytes("UTF-8"),
+              "text/x-rust"
+            ))
         val authAsset =
           if authUsage.isEmpty then Nil
           else List(Segment.Asset(

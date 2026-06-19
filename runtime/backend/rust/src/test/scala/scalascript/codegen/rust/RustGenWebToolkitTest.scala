@@ -125,6 +125,33 @@ class RustGenWebToolkitTest extends AnyFunSuite:
     assert(g.contains("""__m.insert("class".to_string(), "root".to_string());"""),
       s"expected the `->` entry to lower to a HashMap insert, got:\n$g")
 
+  test("serve(view, port) dispatches to the SSR _ui_serve overload"):
+    val src =
+      """```scalascript
+        |@main def run(): Unit =
+        |  serve(element("div", Map(), Map(), List(textNode("hi"))), 8099)
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("crate::runtime::http::_ui_serve"),
+      s"expected serve(view,port) to dispatch to _ui_serve, got:\n$g")
+    val a = assets(src)
+    assert(a("src/runtime/http.rs").contains("pub fn _ui_serve"),
+      "http.rs should carry the _ui_serve overload when ui is used")
+    assert(a.contains("src/runtime/ui.rs"), "ui.rs must be present for serve(view,port)")
+
+  test("pure route/serve(port) program omits the ui _ui_serve overload"):
+    val src =
+      """```scalascript
+        |@main def run(): Unit = serve(8080)
+        |```
+        |""".stripMargin
+    val a = assets(src)
+    assert(a.contains("src/runtime/http.rs"))
+    assert(!a("src/runtime/http.rs").contains("_ui_serve"),
+      "a pure-http program must NOT reference runtime::ui via _ui_serve")
+    assert(!a.contains("src/runtime/ui.rs"))
+
   test("a program with no View primitives stays ui-free"):
     val src =
       """```scalascript

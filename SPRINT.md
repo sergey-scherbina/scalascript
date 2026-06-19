@@ -77,9 +77,11 @@ or blocked/deferred (kept for record, NOT actionable now — see "Excluded from 
       `fragment` compile AND run end-to-end (`renderHtml(...)` → escaped HTML via `ssc run-rust`).
       `backendRust` 211/0. + S1c `element` (`->` → tuple; non-empty `Map(k->v)` → HashMap-insert;
       `_ui_element` key-sorted attrs) — `renderHtml(element("div",Map("class"->"root"),…))` →
-      `<div class="root" …>…</div>` end-to-end, `backendRust` 212/0. **NEXT:** S2 `serve(view, port)` ·
-      S3 transpile imported `std/ui/*.ssc` · S4 named/curried args · S5 `Signal` reactivity.
-      Spec `specs/rust-web-toolkit.md`. Branch `feature/rust-web-toolkit`.
+      `<div class="root" …>…</div>` end-to-end, `backendRust` 212/0. + S2 `serve(view, port)` SSR
+      overload (`_ui_serve` in `http.rs`, gated on uiUsage) — `curl :8099` → SSR'd HTML, proven
+      end-to-end, `backendRust` 214/0. **NEXT:** S3 transpile imported `std/ui/*.ssc` (vstack/heading/
+      lower) · S4 named/curried args · S5 `Signal` reactivity. Spec `specs/rust-web-toolkit.md`.
+      Branch `feature/rust-web-toolkit`.
 
 - [x] **agent-sdk-remainder** ✓ DONE 2026-06-17 (actionable scope) — consolidated `specs/agent-sdk.md`
       + **P3a MCP bridge both directions** (`runtime/std/agent-mcp.ssc`: `serveAgentToolsMcp` +

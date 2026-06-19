@@ -784,6 +784,45 @@ object RustRuntimeTemplates:
       |}
       |""".stripMargin
 
+  /** std/ui `serve(view, port)` — SSR overload.  Appended to `http.rs` ONLY when
+   *  the program also uses the View primitives (uiUsage), since it references
+   *  `crate::runtime::ui`.  A pure `route`/`serve(port)` program omits it. */
+  val UiServeRs: String =
+    """
+      |/// `serve(view, port)` — render the View tree to HTML once, then serve that
+      |/// page (text/html) for every request.
+      |#[allow(dead_code)]
+      |pub fn _ui_serve(tree: crate::runtime::ui::View, port: i64) {
+      |    let html = Arc::new(crate::runtime::ui::_ui_render(tree));
+      |    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+      |    rt.block_on(async move {
+      |        let addr = SocketAddr::from(([0, 0, 0, 0], port as u16));
+      |        let listener = TcpListener::bind(addr).await
+      |            .unwrap_or_else(|e| panic!("serve(view, {}): {}", port, e));
+      |        eprintln!("Listening on http://{}", listener.local_addr().unwrap());
+      |        loop {
+      |            let (stream, _) = listener.accept().await
+      |                .unwrap_or_else(|e| panic!("accept: {}", e));
+      |            let io = hyper_util::rt::TokioIo::new(stream);
+      |            let page = html.clone();
+      |            tokio::task::spawn(async move {
+      |                let svc = service_fn(move |_req: Request<Incoming>| {
+      |                    let page = page.clone();
+      |                    async move {
+      |                        Ok::<_, hyper::Error>(Response::builder()
+      |                            .status(StatusCode::OK)
+      |                            .header("Content-Type", "text/html; charset=utf-8")
+      |                            .body(Full::new(Bytes::from((*page).clone())))
+      |                            .unwrap())
+      |                    }
+      |                });
+      |                let _ = http1::Builder::new().serve_connection(io, svc).await;
+      |            });
+      |        }
+      |    });
+      |}
+      |""".stripMargin
+
   /** R.6 — WebSocket server + client helpers.
    *  `wsRoute(path, handler)` registers a string-echo handler; `wsServe(port)`
    *  starts the server; `wsConnectSync(url, handler)` is a blocking client.
