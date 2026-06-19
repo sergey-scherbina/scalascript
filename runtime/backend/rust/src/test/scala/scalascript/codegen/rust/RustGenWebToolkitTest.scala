@@ -196,3 +196,28 @@ class RustGenWebToolkitTest extends AnyFunSuite:
     val a = assets(src)
     assert(!a.contains("src/runtime/ui.rs"))
     assert(!a("src/runtime/mod.rs").contains("pub mod ui;"))
+
+  // ── identity catch-all over an exhaustive enum match ───────────────
+  // `std/ui/lower` ends its TkNode match with `case alreadyLowered => alreadyLowered`
+  // — a JVM-side idempotency passthrough.  On the statically-typed Rust enum the
+  // variant arms are exhaustive, so the catch-all can't fire and its body (the bound
+  // enum value) would mistype against the match's result.  Drop it; let rustc check
+  // exhaustiveness over the variants.
+  test("trailing identity catch-all on a covered enum match is dropped"):
+    val src =
+      """```scalascript
+        |sealed trait Shape
+        |case class Circle(r: Long) extends Shape
+        |case class Square(s: Long) extends Shape
+        |
+        |def norm(sh: Shape): Shape = sh match
+        |  case Circle(r) => Square(r)
+        |  case Square(s) => Square(s)
+        |  case other     => other
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("Shape::Circle") && g.contains("Shape::Square"),
+      s"expected the two variant arms, got:\n$g")
+    assert(!g.contains("=> other"),
+      s"identity catch-all should be dropped on an exhaustive enum match, got:\n$g")

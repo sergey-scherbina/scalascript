@@ -360,25 +360,22 @@ def lower(n: TkNode, theme: Theme): View = n match
       Map(), [])
 
   // ── Containers ───────────────────────────────────────────────────────
-  case CardNode(headerAny, body, footerAny) =>
+  case CardNode(header, body, footer) =>
     val sp      = theme.spacing
     val cardStyle = s"background:${theme.colors.surface}; border:1px solid ${theme.colors.muted}; " +
                     s"border-radius:${theme.radii.md}px; overflow:hidden"
     val bodyEl  = element("div",
       ["style" -> s"padding:${sp.md}px"],
       Map(), body.map(lower(_, theme)))
-    val headerParts = headerAny match
-      case h: TkNode =>
-        [element("div",
-          ["style" -> s"padding:${sp.sm}px ${sp.md}px; border-bottom:1px solid ${theme.colors.muted}; font-weight:600"],
-          Map(), [lower(h, theme)])]
-      case _ => []
-    val footerParts = footerAny match
-      case f: TkNode =>
-        [element("div",
-          ["style" -> s"padding:${sp.sm}px ${sp.md}px; border-top:1px solid ${theme.colors.muted}"],
-          Map(), [lower(f, theme)])]
-      case _ => []
+    // header/footer are 0-or-1 TkNode (a List): map over them to get 0-or-1 wrapper divs.
+    val headerParts = header.map(h =>
+      element("div",
+        ["style" -> s"padding:${sp.sm}px ${sp.md}px; border-bottom:1px solid ${theme.colors.muted}; font-weight:600"],
+        Map(), [lower(h, theme)]))
+    val footerParts = footer.map(f =>
+      element("div",
+        ["style" -> s"padding:${sp.sm}px ${sp.md}px; border-top:1px solid ${theme.colors.muted}"],
+        Map(), [lower(f, theme)]))
     element("div", ["style" -> cardStyle], Map(),
       headerParts ++ [bodyEl] ++ footerParts)
 

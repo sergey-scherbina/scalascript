@@ -945,7 +945,7 @@ private[codegen] trait JvmGenContentEmit:
        |    case "badge" =>
        |      std.ui.nodes.BadgeNode(_ssc_tk_str(_ssc_tk_field(obj, "text", "badge"), "badge.text"), _ssc_tk_opt_str(obj, "variant").getOrElse("default"))
        |    case "card" =>
-       |      std.ui.nodes.CardNode(null, _ssc_tk_children(obj, env), null)
+       |      std.ui.nodes.CardNode(Nil, _ssc_tk_children(obj, env), Nil)
        |    case other =>
        |      _ssc_tk_error(s"contentToolkitNode: unsupported control type '$$other'")
        |

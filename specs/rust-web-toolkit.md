@@ -148,14 +148,32 @@ SSR at the primitive level first (no library needed), then layer the widget libr
    rebound to `String`; **reserved-keyword escaping** (`box`/`use` → `r#box`/`r#use`).
    Cascade: codegen 28→0; cargo 290→170→108→70→56→31→29→7→3.
 
-   **REMAINING 3 — the ARCHITECTURAL limit: dynamic `Any` vs Rust static types.** All three are the
-   toolkit treating `Any`/`View`/`TkNode` as interchangeable (erased on JVM). (a)(b) **TkNode/Value
-   ×2** — `CardNode(headerAny: Any, …)`'s `case h: TkNode => lower(h, …)` is an `Any → TkNode`
-   *downcast*; on Rust `headerAny: Value` and `TkNode` are unrelated enums (no downcast). (c) **match
-   arms** — `lower`'s catch-all `case alreadyLowered => alreadyLowered` returns `TkNode` where `View`
-   is expected (`View=TkNode=Any` on JVM). Closing these needs `Value` to *carry* a domain enum —
-   a `Value::Node(Box<TkNode>)` variant + box-on-construction + extract-on-downcast (a real feature),
-   OR statically typing the library (`headerAny: TkNode`, drop the `alreadyLowered` catch-all).
+   **S3t (2026-06-19) — the "3" were MASKING the real wall.** Path 2 (statically type the library)
+   closed the `Any`-downcast pair: `CardNode(header: Any, footer: Any)` → `List[TkNode]` (0-or-1; a
+   `Vec` keeps the recursion behind the heap so the enum stays finitely sized — `Option[TkNode]` would
+   re-introduce E0072 since `Option<T>` stores `T` inline), constructors `null`→`List()`/`List(x)`,
+   `lower`'s arm via `.map`. The catch-all `case alreadyLowered => alreadyLowered` is the JVM
+   idempotency passthrough; on the statically-typed Rust enum the variant arms are exhaustive so it
+   can't fire — **dropped in codegen** (`renderMatch`: trailing identity catch-all after a `Pat.Extract`
+   arm is removed; rustc then checks exhaustiveness). Regression test in `RustGenWebToolkitTest`.
+
+   But `E0308` (the catch-all's incompatible-arm error) is a HARD type error that **poisons rustc's
+   inference and halts checking of the rest of `lower`** — so it was hiding ~30 downstream errors.
+   Fixing it unmasked the TRUE wall: **OWNERSHIP**. `lower(n: TkNode, theme: Theme)` takes `theme`
+   by value and reads it in nearly every arm (field projections `theme.colors.muted` move the String
+   out; recursive `lower(child, theme)` moves the whole struct; `children.map(lower(_, theme))`
+   moves it into an `FnMut`). On the JVM everything is a shared reference, so this is free; in Rust
+   each first use *moves*. Breakdown of the 30: ~20 `theme` (9 E0507 move-out-of-FnMut, ~11 E0382
+   reuse), ~10 non-Copy field/local reuse (`tb.href/key/label`, `value`, `to`, `title`, `label`,
+   `checked`). **Fix = clone-insertion** (fits the existing clone-everywhere model; no borrow concept):
+   - S3t.1 (done): placeholder `_`-lambda renders its body as a closure body (sets `closureParams`
+     marker) so captured non-Copy (`theme`) clones instead of moving out of the `FnMut`; `__pN`
+     placeholder params excluded from the arg-clone rule.
+   - S3t.2 (next): clone non-Copy **projection** args (`_ui_attr(theme.colors.muted)` → `.clone()` at
+     the leaf — borrows the root, no move) and bare-Name args of a **multiply-read non-Copy param**
+     (compute per-def; single-use stays clone-free so golden tests are untouched).
+   - S3t.3: closures that capture `theme` and are immediately collected (`.map().collect()`) borrow
+     rather than `move`, so multiple closures / a later use in the same arm don't fight over the move.
 4. **S4 (G3)** — named args in curried application (`vstack(gap=12)(…)`).
 5. **S5 (G5)** — `Signal` reactivity: SSR initial value + emit the client JS bundle.
 

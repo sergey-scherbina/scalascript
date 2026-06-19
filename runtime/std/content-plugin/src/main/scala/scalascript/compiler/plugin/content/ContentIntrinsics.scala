@@ -2036,11 +2036,16 @@ object ContentIntrinsics:
   private def cardNode(body: List[Value]): Value =
     cardNode(Value.NullV, body, Value.NullV)
 
+  // CardNode's `header`/`footer` are `List[TkNode]` (0-or-1 — empty = absent), so an
+  // absent slot is the empty list and a present node is a singleton, not a bare `Any`.
   private def cardNode(header: Value, body: List[Value], footer: Value): Value =
+    def slot(v: Value): Value = v match
+      case Value.NullV => Value.ListV(Nil)
+      case other       => Value.ListV(List(other))
     instanceValue("CardNode",
-      "header" -> header,
+      "header" -> slot(header),
       "body" -> Value.ListV(body),
-      "footer" -> footer
+      "footer" -> slot(footer)
     )
 
   private def documentValue(doc: ast.DocumentContent): Value =

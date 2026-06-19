@@ -1463,7 +1463,12 @@ object RustCodeWalk:
     // then build `move |__p0, …| { body }`.  Mirrors JsGen's stack-based approach.
     case af: m.Term.AnonymousFunction =>
       _phCounters = 0 :: _phCounters
-      val bodyR = renderTerm(af.body, ctx)
+      // Render the body as a closure body: the `__pN` placeholder params aren't known
+      // until the body is walked, so flag "inside a closure" with a marker — this turns
+      // on capture-cloning (a captured non-Copy like `theme` in `lower(_, theme)` is
+      // cloned, not moved out of the resulting `FnMut`).  `__pN` names are excluded from
+      // cloning in the arg rule (they're the closure's own params).
+      val bodyR = renderTerm(af.body, ctx.copy(closureParams = ctx.closureParams + "__ph"))
       val count = _phCounters.headOption.getOrElse(0)
       _phCounters = _phCounters.drop(1)
       bodyR.map { b =>
@@ -1884,8 +1889,9 @@ object RustCodeWalk:
         val isPrimLit = renderedArgs0.map(_.matches(raw"-?\d+i64|-?\d+\.\d+f64|true|false"))
         val renderedArgsBase = args.values.toList.zip(renderedArgs0).zip(isPrimLit).map {
           case ((m.Term.Name(n), rendered), false)
-              if topValNames.contains(n)
-              || (ctx.closureParams.nonEmpty && !ctx.closureParams.contains(n)) =>
+              if !n.matches("__p\\d+")
+              && (topValNames.contains(n)
+                  || (ctx.closureParams.nonEmpty && !ctx.closureParams.contains(n))) =>
             s"$rendered.clone()"
           case ((_, rendered), _) => rendered
         }
@@ -2397,12 +2403,28 @@ object RustCodeWalk:
       subject: m.Term, cases: List[m.Case], ctx: Ctx
   ): Either[List[Diagnostic], String] =
     val subjRendered = renderTerm(subject, ctx)
+    // An identity catch-all (`case x => x`, no guard) trailing a sealed-enum match is the
+    // toolkit's JVM-side idempotency passthrough (`lower` handed an already-lowered View).
+    // On the statically-typed Rust enum the variant arms are exhaustive, so the catch-all
+    // can't fire — and its body (the bound enum value) would mistype against the match's
+    // result type.  Drop it when there is at least one constructor arm and let rustc's own
+    // exhaustiveness check confirm the variants cover the enum.
+    def isIdentityCatchAll(c: m.Case): Boolean = (c.pat, c.body, c.cond) match
+      case (m.Pat.Var(m.Term.Name(a)), m.Term.Name(b), None) => a == b
+      case _                                                 => false
+    val hasCtorArm = cases.exists(_.pat match
+      case m.Pat.Extract.After_4_6_0(_, _) => true
+      case _                               => false)
+    val cases1 =
+      if hasCtorArm && cases.lastOption.exists(isIdentityCatchAll)
+      then cases.filterNot(isIdentityCatchAll)
+      else cases
     // A `String` subject must be matched as `&str` for string-literal patterns
     // (`match s.as_str() { "x" => … }`) — Rust won't match `String` against `&str`.
-    val hasStringPat = cases.exists(c => c.pat match
+    val hasStringPat = cases1.exists(c => c.pat match
       case _: m.Lit.String => true
       case _               => false)
-    val caseRendered = cases.map { c =>
+    val caseRendered = cases1.map { c =>
       // A case guard `case p if cond =>` maps onto a Rust match-arm guard.
       // A boxed (recursive) field binds as `Box<T>`; deref-rebind it at the top of
       // the arm (`let f = *f;`) so the body sees the unboxed `T`.

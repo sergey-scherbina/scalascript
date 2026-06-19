@@ -104,9 +104,12 @@ case class SignalPreNode(signal: Any)                    extends TkNode
 
 // ── Containers ────────────────────────────────────────────────────────────
 // Card: optional header/footer; pass header/footer as TkNode or null/None.
-case class CardNode(header: Any,
+// header/footer are 0-or-1 TkNode (empty = absent).  A `List[TkNode]` rather than
+// `Any`/`Option[TkNode]` keeps the recursion behind a Vec (heap), so the enum stays
+// finitely sized on the Rust backend without boxing.
+case class CardNode(header: List[TkNode],
                     body: List[TkNode],
-                    footer: Any)                         extends TkNode
+                    footer: List[TkNode])                extends TkNode
 
 // Modal: open is Signal[Boolean]; body children shown inside overlay.
 case class ModalNode(open: Any,

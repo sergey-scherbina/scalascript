@@ -20,16 +20,16 @@ Tabs are deferred to a later iteration (requires derived signals).
 
 ```scalascript
 def card(body: TkNode*): TkNode =
-  CardNode(null, body.toList, null)
+  CardNode(List(), body.toList, List())
 
 def cardWithHeader(header: TkNode)(body: TkNode*): TkNode =
-  CardNode(header, body.toList, null)
+  CardNode(List(header), body.toList, List())
 
 def cardWithFooter(footer: TkNode)(body: TkNode*): TkNode =
-  CardNode(null, body.toList, footer)
+  CardNode(List(), body.toList, List(footer))
 
 def cardFull(header: TkNode, footer: TkNode)(body: TkNode*): TkNode =
-  CardNode(header, body.toList, footer)
+  CardNode(List(header), body.toList, List(footer))
 
 def modal(open: Any, title: String)(body: TkNode*): TkNode =
   ModalNode(open, title, body.toList)

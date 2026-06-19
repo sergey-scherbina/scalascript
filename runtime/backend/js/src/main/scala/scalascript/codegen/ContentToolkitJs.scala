@@ -370,7 +370,7 @@ function _ssc_tk_render_control(value, env, options) {
       return _ssc_tk_row_binding_datatable(regionId, _ssc_tk_row_binding(options, regionId), inlineCols);
     }
     case 'badge': { var variant = _ssc_tk_opt_str(obj, 'variant'); return { _type: 'BadgeNode', content: _ssc_tk_str(_ssc_tk_field(obj, 'text', 'badge'), 'badge.text'), variant: variant != null ? variant : 'default' }; }
-    case 'card': return { _type: 'CardNode', header: null, body: _ssc_tk_children(obj, env, options), footer: null };
+    case 'card': return { _type: 'CardNode', header: [], body: _ssc_tk_children(obj, env, options), footer: [] };
     // {type: slot, id: <id>} injects a code-built TkNode from options.slots (Scope B.6).
     case 'slot': return _ssc_tk_slot(options, _ssc_tk_str(_ssc_tk_field(obj, 'id', 'slot'), 'slot.id'));
     default: _ssc_tk_error("contentToolkitNode: unsupported control type '" + kind + "'");
