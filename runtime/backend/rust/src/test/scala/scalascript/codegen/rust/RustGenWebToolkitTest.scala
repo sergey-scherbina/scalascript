@@ -188,6 +188,21 @@ class RustGenWebToolkitTest extends AnyFunSuite:
     assert(g.contains(".concat()"),
       s"expected `a ++ b` to lower to a Vec concat, got:\n$g")
 
+  test("a named call argument lowers to a positional Rust argument"):
+    // `f(gap = 12)` parses as a `Term.Assign`; a Rust call is positional, so the
+    // `name =` must be dropped (else rustc reads it as an assignment: `cannot find value`).
+    val src =
+      """```scalascript
+        |def box(gap: Long): Long = gap
+        |@main def run(): Unit = println(box(gap = 12))
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("r#box(12i64)"),
+      s"expected named arg to lower to a positional `12i64`, got:\n$g")
+    assert(!g.contains("gap = 12i64"),
+      s"named arg should not emit a Rust assignment, got:\n$g")
+
   test("a program with no View primitives stays ui-free"):
     val src =
       """```scalascript

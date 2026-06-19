@@ -189,7 +189,12 @@ SSR at the primitive level first (no library needed), then layer the widget libr
    (verified by `curl`). backendRust 218 green; full suite green for everything touched. Only cosmetic
    `non_snake_case` warnings remain. **The Rust-SSR web goal is reached via the declarative toolkit.**
    Next: S4 named/curried args (`vstack(gap=12)(…)`), S5 `Signal` reactivity (SSR initial + client JS).
-4. **S4 (G3)** — named args in curried application (`vstack(gap=12)(…)`).
+4. **S4 (G3) — DONE (2026-06-19).** Named args in a call (`vstack(gap = 12)(…)`) parse as
+   `Term.Assign`; a Rust call is positional, so the generic-`Apply` path now strips `name =`
+   and emits the value (toolkit passes named args in declaration order, so position holds).
+   `vstack(gap=12)(…)` probe → cargo 0; positional unchanged. Regression test in `RustGenWebToolkitTest`.
+   (Out-of-order named args + omitted-default fill would need the callee's param list — deferred
+   until the toolkit needs it.)
 5. **S5 (G5)** — `Signal` reactivity: SSR initial value + emit the client JS bundle.
 
 Prereq landed: **I1** `s"…${expr}…"` compound splices (`RustGenWebToolkitTest` 3/3).

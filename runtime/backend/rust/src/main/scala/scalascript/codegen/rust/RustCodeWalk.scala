@@ -1967,7 +1967,14 @@ object RustCodeWalk:
     // Application — intrinsic, user-defined fn, or unsupported.
     case m.Term.Apply.After_4_6_0(fn, args) =>
       val callee  = qualifiedName(fn)
-      val argList = args.values.map(renderTerm(_, ctx))
+      // A named call argument `p = v` (`vstack(gap = 12)(…)`) parses as `Term.Assign`;
+      // Rust calls are positional, so emit just the value `v` (the toolkit passes named
+      // args in declaration order, so position is preserved).
+      val argTerms = args.values.toList.map {
+        case m.Term.Assign(_: m.Term.Name, v) => v
+        case other                            => other
+      }
+      val argList = argTerms.map(renderTerm(_, ctx))
       val (errs, renderedArgs0) = argList.partitionMap(identity)
       if errs.nonEmpty then Left(errs.flatten)
       else
@@ -1982,7 +1989,7 @@ object RustCodeWalk:
           case _                   => false
         }
         val renderedArgsBase = if borrowsArgs then renderedArgs0 else
-          args.values.toList.zip(renderedArgs0).map((arg, rendered) => cloneIfMoved(arg, rendered, ctx))
+          argTerms.zip(renderedArgs0).map((arg, rendered) => cloneIfMoved(arg, rendered, ctx))
         // Vararg call site (`f(a)(xs: T*)`): wrap the trailing args into one `vec![…]`
         // (the curried chain was flattened, so they arrive as plain trailing args).
         val renderedArgs = fn match
