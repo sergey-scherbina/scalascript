@@ -7,7 +7,6 @@ import scalascript.interpreter.Interpreter
 import scalascript.parser.Parser
 
 import java.nio.charset.StandardCharsets
-import scala.io.Source
 
 /** arch-meta-v2-p5 Track A — user-defined typeclass derivation through the
  *  runtime `Mirror` (`object Csv: def derived(m: Mirror)`) must produce
@@ -48,10 +47,7 @@ class CustomDerivesMirrorCrossBackendTest extends AnyFunSuite with Matchers:
 
   private def has(cmd: String): Boolean = ProcTestUtil.commandOk(cmd)
   private def runProc(cmd: String*): String =
-    val p = ProcessBuilder(cmd*).start()
-    val out = Source.fromInputStream(p.getInputStream).mkString
-    val err = Source.fromInputStream(p.getErrorStream).mkString
-    if ProcTestUtil.awaitExit(p) != 0 then fail(s"${cmd.head} failed:\n$err"); out.trim
+    ProcTestUtil.runOrThrow(cmd*)
 
   test("interpreter result is the expected baseline"):
     interp() shouldBe "name,age"

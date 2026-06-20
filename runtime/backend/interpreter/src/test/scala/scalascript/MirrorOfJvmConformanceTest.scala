@@ -7,7 +7,6 @@ import scalascript.interpreter.Interpreter
 import scalascript.parser.Parser
 
 import java.nio.charset.StandardCharsets
-import scala.io.Source
 
 /** arch-meta-v2-p5 Track A — A1a: `summon[Mirror.Of[T]]` must expose the same
  *  product metadata (label / elemLabels / elemTypes / isProduct) on the JVM
@@ -34,10 +33,7 @@ class MirrorOfJvmConformanceTest extends AnyFunSuite with Matchers:
 
   private def has(cmd: String): Boolean = ProcTestUtil.commandOk(cmd)
   private def runProc(cmd: String*): String =
-    val p = ProcessBuilder(cmd*).start()
-    val out = Source.fromInputStream(p.getInputStream).mkString
-    val err = Source.fromInputStream(p.getErrorStream).mkString
-    if ProcTestUtil.awaitExit(p) != 0 then fail(s"${cmd.head} failed:\n$err"); out.trim
+    ProcTestUtil.runOrThrow(cmd*)
 
   test("interpreter result is the expected baseline"):
     interp() shouldBe "Person\nname|age\nString|Int\ntrue"

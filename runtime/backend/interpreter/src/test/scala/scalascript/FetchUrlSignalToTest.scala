@@ -4,7 +4,6 @@ import org.scalatest.funsuite.AnyFunSuite
 import scalascript.codegen.JsRuntimeSignals
 
 import java.nio.charset.StandardCharsets
-import scala.io.Source
 
 /** Regression for `fetchUrlSignalTo` (2026-06-15): the read-side counterpart of
  *  `fetchActionTo` — a `fetchUrlSignal` whose URL is a `Signal[String]` resolved at
@@ -25,10 +24,10 @@ class FetchUrlSignalToTest extends AnyFunSuite:
     val tmp = java.io.File.createTempFile("ssc-fetchurlto-", ".cjs")
     tmp.deleteOnExit()
     java.nio.file.Files.write(tmp.toPath, js.getBytes(StandardCharsets.UTF_8))
-    val proc = ProcessBuilder("node", tmp.getAbsolutePath).start()
-    val out = Source.fromInputStream(proc.getInputStream).mkString
-    val err = Source.fromInputStream(proc.getErrorStream).mkString
-    val ok = ProcTestUtil.awaitExit(proc)
+    val _r  = ProcTestUtil.runCaptured(Seq("node", tmp.getAbsolutePath))
+    val out = _r.out
+    val err = _r.err
+    val ok  = _r.exit
     assert(ok == 0, s"node run failed ($ok):\n$err")
     out.trim
 

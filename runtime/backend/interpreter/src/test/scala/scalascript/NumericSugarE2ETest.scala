@@ -7,7 +7,6 @@ import scalascript.interpreter.Interpreter
 import scalascript.parser.Parser
 
 import java.nio.charset.StandardCharsets
-import scala.io.Source
 
 /** exact-numerics v1.64.7 — literal sugar end-to-end: `123n`/`12.34m`/oversized
  *  integers flow through parse → eval and produce BigInt/Decimal, identically
@@ -25,10 +24,7 @@ class NumericSugarE2ETest extends AnyFunSuite with Matchers:
 
   private def has(cmd: String): Boolean = ProcTestUtil.commandOk(cmd)
   private def runProc(cmd: String*): String =
-    val p = ProcessBuilder(cmd*).start()
-    val out = Source.fromInputStream(p.getInputStream).mkString
-    val err = Source.fromInputStream(p.getErrorStream).mkString
-    if ProcTestUtil.awaitExit(p) != 0 then fail(s"${cmd.head} failed:\n$err"); out.trim
+    ProcTestUtil.runOrThrow(cmd*)
 
   test("interpreter: n / m suffixes and oversized ints"):
     interp("""

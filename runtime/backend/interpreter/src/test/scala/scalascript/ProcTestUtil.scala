@@ -59,3 +59,14 @@ object ProcTestUtil:
     ot.join(5000); et.join(5000)
     val exit = if finished then p.exitValue() else -1
     ProcResult(exit, outBuf.toString.trim, errBuf.toString.trim, timedOut = !finished)
+
+  /** Run `cmd`, return its trimmed stdout. Throws (so the test surfaces a failure)
+   *  on a non-zero exit or a timeout. Deadlock-free + hard-bounded via
+   *  [[runCaptured]] — the safe replacement for the
+   *  `Source.fromInputStream(p.getInputStream).mkString` + `awaitExit` pattern,
+   *  which parks the blocking read before the timeout and can pipe-buffer-deadlock. */
+  def runOrThrow(cmd: String*): String =
+    val r = runCaptured(cmd.toSeq)
+    if r.timedOut then throw new RuntimeException(s"${cmd.head} timed out (killed):\n${r.err}")
+    if r.exit != 0 then throw new RuntimeException(s"${cmd.head} failed (exit ${r.exit}):\n${r.err}")
+    r.out

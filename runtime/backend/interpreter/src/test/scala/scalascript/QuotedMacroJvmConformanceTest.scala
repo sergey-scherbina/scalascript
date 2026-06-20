@@ -7,7 +7,6 @@ import scalascript.interpreter.Interpreter
 import scalascript.parser.Parser
 
 import java.nio.charset.StandardCharsets
-import scala.io.Source
 
 /** arch-meta-v2 `macro-codegen-backends` — restricted quoted macros must produce
  *  the same output on the JVM backend (via the `MacroCodegen.expand` pre-codegen
@@ -39,10 +38,7 @@ class QuotedMacroJvmConformanceTest extends AnyFunSuite with Matchers:
 
   private def has(cmd: String): Boolean = ProcTestUtil.commandOk(cmd)
   private def runProc(cmd: String*): String =
-    val p   = ProcessBuilder(cmd*).start()
-    val out = Source.fromInputStream(p.getInputStream).mkString
-    val err = Source.fromInputStream(p.getErrorStream).mkString
-    if ProcTestUtil.awaitExit(p) != 0 then fail(s"${cmd.head} failed:\n$err"); out.trim
+    ProcTestUtil.runOrThrow(cmd*)
 
   test("interpreter result is the expected baseline"):
     interp() shouldBe "literal: 7\n42"

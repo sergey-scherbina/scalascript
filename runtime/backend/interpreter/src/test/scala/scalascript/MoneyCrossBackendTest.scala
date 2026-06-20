@@ -7,7 +7,6 @@ import scalascript.interpreter.Interpreter
 import scalascript.parser.Parser
 
 import java.nio.charset.StandardCharsets
-import scala.io.Source
 
 /** exact-numerics v1.64.6 — the std `money.ssc` module must produce identical
  *  output on the interpreter, JVM (scala-cli), and JS (node). */
@@ -42,11 +41,7 @@ class MoneyCrossBackendTest extends AnyFunSuite with Matchers:
   private def has(cmd: String): Boolean = ProcTestUtil.commandOk(cmd)
 
   private def runProc(cmd: String*): String =
-    val proc = ProcessBuilder(cmd*).start()
-    val out  = Source.fromInputStream(proc.getInputStream).mkString
-    val err  = Source.fromInputStream(proc.getErrorStream).mkString
-    if ProcTestUtil.awaitExit(proc) != 0 then fail(s"${cmd.head} failed:\n$err")
-    out.trim
+    ProcTestUtil.runOrThrow(cmd*)
 
   test("money.ssc — JVM output matches the interpreter"):
     assume(has("scala-cli"), "scala-cli not available")

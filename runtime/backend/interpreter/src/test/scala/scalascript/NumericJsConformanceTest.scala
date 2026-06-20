@@ -7,7 +7,6 @@ import scalascript.interpreter.Interpreter
 import scalascript.parser.Parser
 
 import java.nio.charset.StandardCharsets
-import scala.io.Source
 
 /** exact-numerics v1.64.5 — JS codegen conformance.
  *
@@ -34,10 +33,10 @@ class NumericJsConformanceTest extends AnyFunSuite with Matchers:
     val tmp = java.io.File.createTempFile("ssc-num-", ".cjs")
     tmp.deleteOnExit()
     java.nio.file.Files.write(tmp.toPath, js.getBytes(StandardCharsets.UTF_8))
-    val proc = ProcessBuilder("node", tmp.getAbsolutePath).start()
-    val out  = Source.fromInputStream(proc.getInputStream).mkString
-    val err  = Source.fromInputStream(proc.getErrorStream).mkString
-    val ok   = ProcTestUtil.awaitExit(proc)
+    val _r  = ProcTestUtil.runCaptured(Seq("node", tmp.getAbsolutePath))
+    val out = _r.out
+    val err = _r.err
+    val ok  = _r.exit
     if ok != 0 then fail(s"node run failed ($ok):\n$err")
     out.trim
 

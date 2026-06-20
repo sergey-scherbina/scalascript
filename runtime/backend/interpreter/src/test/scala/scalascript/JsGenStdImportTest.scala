@@ -5,7 +5,6 @@ import scalascript.codegen.{JsGen, JsRuntimeBrowserPatch}
 import scalascript.parser.Parser
 
 import java.nio.charset.StandardCharsets
-import scala.io.Source
 
 class JsGenStdImportTest extends AnyFunSuite:
 
@@ -20,20 +19,15 @@ class JsGenStdImportTest extends AnyFunSuite:
   private def checkNodeSyntax(js: String): Unit =
     assume(hasNode, "node not available")
     val tmp = writeTempJs("ssc-jsgen-std-import-check-", js)
-    val proc = ProcessBuilder("node", "--check", tmp.getAbsolutePath).start()
-    val err = Source.fromInputStream(proc.getErrorStream).mkString
-    val ok = ProcTestUtil.awaitExit(proc)
-    assert(ok == 0, s"node --check failed ($ok):\n$err")
+    val r = ProcTestUtil.runCaptured(Seq("node", "--check", tmp.getAbsolutePath))
+    assert(r.exit == 0, s"node --check failed (${r.exit}):\n${r.err}")
 
   private def runNode(js: String): String =
     assume(hasNode, "node not available")
     val tmp = writeTempJs("ssc-jsgen-std-import-run-", js)
-    val proc = ProcessBuilder("node", tmp.getAbsolutePath).start()
-    val out = Source.fromInputStream(proc.getInputStream).mkString
-    val err = Source.fromInputStream(proc.getErrorStream).mkString
-    val ok = ProcTestUtil.awaitExit(proc)
-    assert(ok == 0, s"node run failed ($ok):\n$err")
-    out.trim
+    val r = ProcTestUtil.runCaptured(Seq("node", tmp.getAbsolutePath))
+    assert(r.exit == 0, s"node run failed (${r.exit}):\n${r.err}")
+    r.out
 
   test("JsGen resolves bare std imports from project runtime tree"):
     val source =

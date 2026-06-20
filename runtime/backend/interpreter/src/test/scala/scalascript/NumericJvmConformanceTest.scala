@@ -7,7 +7,6 @@ import scalascript.interpreter.Interpreter
 import scalascript.parser.Parser
 
 import java.nio.charset.StandardCharsets
-import scala.io.Source
 
 /** exact-numerics v1.64.4 — JVM codegen conformance.
  *
@@ -38,10 +37,10 @@ class NumericJvmConformanceTest extends AnyFunSuite with Matchers:
     // Keep stdout (program output) separate from stderr (scala-cli's
     // "Compiling…/Compiled" progress + warnings) so the latter doesn't pollute
     // the compared output.
-    val proc = ProcessBuilder("scala-cli", "run", "--server=false", tmp.getAbsolutePath).start()
-    val out  = Source.fromInputStream(proc.getInputStream).mkString
-    val err  = Source.fromInputStream(proc.getErrorStream).mkString
-    val ok   = ProcTestUtil.awaitExit(proc)
+    val _r  = ProcTestUtil.runCaptured(Seq("scala-cli", "run", "--server=false", tmp.getAbsolutePath))
+    val out = _r.out
+    val err = _r.err
+    val ok  = _r.exit
     if ok != 0 then fail(s"scala-cli run failed ($ok):\n$err")
     out.trim
 
