@@ -6,7 +6,6 @@ import scalascript.interpreter.Interpreter
 import scalascript.parser.Parser
 
 import java.nio.charset.StandardCharsets
-import scala.io.Source
 import scala.util.Random
 
 /** Cross-backend property/differential test (xbackend-property-equivalence, slice 1).
@@ -533,12 +532,14 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     Interpreter(ps).run(m); ps.flush(); buf.toString.trim
 
   private def has(cmd: String): Boolean = ProcTestUtil.commandOk(cmd)
+  // Bounded + deadlock-free (drains both streams on threads, hard timeout that
+  // actually fires). A wedged scala-cli/node fails fast instead of hanging the
+  // whole suite — see ProcTestUtil.runCaptured.
   private def runProc(cmd: String*): String =
-    val p   = ProcessBuilder(cmd*).start()
-    val out = Source.fromInputStream(p.getInputStream).mkString
-    val err = Source.fromInputStream(p.getErrorStream).mkString
-    if ProcTestUtil.awaitExit(p) != 0 then fail(s"${cmd.head} failed:\n$err")
-    out.trim
+    val r = ProcTestUtil.runCaptured(cmd)
+    if r.timedOut then fail(s"${cmd.head} timed out (killed):\n${r.err}")
+    if r.exit != 0 then fail(s"${cmd.head} failed (exit ${r.exit}):\n${r.err}")
+    r.out
 
   private def runJs(m: scalascript.ast.Module): String =
     val tmp = java.io.File.createTempFile("ssc-prop-", ".cjs"); tmp.deleteOnExit()

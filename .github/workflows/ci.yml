@@ -120,6 +120,16 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # node enables the interp==JS(node) leg of CrossBackendPropertyTest (the
+      # cross-backend differential) under `sbt test`. Without it the test skips
+      # via `assume(has("node"))`. The interp==JVM(scala-cli) leg stays gated and
+      # is covered by the Conformance job; subprocess hangs are bounded by
+      # ProcTestUtil.runCaptured, so a wedged child fails fast, not the whole job.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Setup sbt
         uses: sbt/setup-sbt@v1
 
