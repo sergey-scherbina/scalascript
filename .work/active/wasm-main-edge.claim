@@ -1,0 +1,6 @@
+feature/wasm-main-edge 2026-06-20T17:43:18Z
+agent: codex
+heartbeat: 2026-06-20T17:43:18Z
+status: not-started
+done-so-far: improvement queue written to SPRINT.md and pushed
+next: create feature worktree, read global/WASM specs, write focused wasm-main-edge spec
