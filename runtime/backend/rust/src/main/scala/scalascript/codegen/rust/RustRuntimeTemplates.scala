@@ -44,10 +44,12 @@ object RustRuntimeTemplates:
       |            Value::Signal(_, v) => v.show(),
       |        }
       |    }
-      |    // Unwrap a signal to its current value (or itself if not a signal).
+      |    // Unwrap a signal to its current value (or itself if not a signal). Takes
+      |    // `&self` + clones so a signal read `loc.signal_value()` inside a (possibly
+      |    // repeatedly-called) computed-signal closure doesn't move the captured value.
       |    #[allow(dead_code)]
-      |    pub fn signal_value(self) -> Value {
-      |        match self { Value::Signal(_, v) => *v, other => other }
+      |    pub fn signal_value(&self) -> Value {
+      |        match self { Value::Signal(_, v) => (**v).clone(), other => other.clone() }
       |    }
       |}
       |

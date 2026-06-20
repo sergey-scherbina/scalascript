@@ -174,6 +174,28 @@ class RustGenWebToolkitTest extends AnyFunSuite:
            ui.contains("setInterval"),
       "client should use EventSource with a setInterval poll fallback")
 
+  test("computed signal reading another signal compiles + SSRs the dep value (S5)"):
+    // Before this fix `computedSignal(() => loc())` emitted `loc()`, which doesn't
+    // compile (`Value` is not callable). A 0-arg apply on a Signal-typed local is a
+    // signal READ → lowers to `loc.signal_value().show()`.
+    val src =
+      """```scalascript
+        |@main def run(): Unit =
+        |  val loc = signal("locale", "fr")
+        |  val txt = computedSignal(() => loc())
+        |  println(renderHtml(element("div", Map(), Map(), List(signalText(txt)))))
+        |```
+        |""".stripMargin
+    val prog = gen(src)
+    assert(prog.contains("loc.signal_value().show()"),
+      s"a signal read loc() inside a computed thunk should lower to loc.signal_value().show(), got:\n$prog")
+    assert(!prog.contains("{ loc() }"),
+      "the bare uncallable `loc()` should no longer be emitted")
+    // signal_value takes &self (so a repeatedly-called computed closure doesn't move it).
+    val v = assets(src)("src/value.rs")
+    assert(v.contains("pub fn signal_value(&self)"),
+      "signal_value should take &self for use in Fn closures")
+
   test("renderHtml(view) wires the SSR render entry"):
     val src =
       """```scalascript

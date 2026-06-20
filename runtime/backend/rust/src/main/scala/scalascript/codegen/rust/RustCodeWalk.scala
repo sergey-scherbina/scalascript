@@ -696,7 +696,11 @@ object RustCodeWalk:
       // first read moves it and the rest fail (E0382).  Single-use names stay clone-free
       // (so simple goldens keep their exact `f(x)` output).  Cloning a Copy value is a
       // harmless no-op, so we don't try to prove non-Copy-ness for match binds/locals.
-      multiUse: Set[String] = Set.empty
+      multiUse: Set[String] = Set.empty,
+      // Local val/var names bound to a Signal (`val x: Signal[_] = …` or `= signal/
+      // computedSignal/seedSignal/hashSignal(…)`).  A 0-arg apply on one — `x()` — is a
+      // signal READ and lowers to `x.signal_value()` (the value isn't callable). Per-def pre-pass.
+      localSignals: Set[String] = Set.empty
   ):
     def enumNames: Set[String] = ctorMap.values.map(_.enumName).toSet
     @annotation.unused def topValNames: Set[String] = topVals.map(_._1).toSet
@@ -771,7 +775,8 @@ object RustCodeWalk:
       val (lseqs, larrays) = collectLocalSeqs(d.body)
       val lstrings = collectLocalStrings(d.body)
       val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs, larrays, lstrings,
-                        multiUse = collectMultiUse(d.body) -- collectCopyNames(d))
+                        multiUse = collectMultiUse(d.body) -- collectCopyNames(d),
+                        localSignals = collectLocalSignals(d.body))
       val effName = defEffectName(d)
       val pNames  = extractParamNames(d)
       val useTCO  = pNames.nonEmpty && hasTailCallPath(name, pNames.size, d.body)
@@ -938,6 +943,34 @@ object RustCodeWalk:
       t.children.foreach(walk)
     walk(body)
     strs.toSet
+
+  /** Local val/var names bound to a `Signal` — by a `Signal[_]` type annotation or
+   *  a `signal`/`computedSignal`/`seedSignal`/`hashSignal(…)` RHS.  A 0-arg apply on
+   *  one (`x()`) is a signal read; the apply lowering emits `x.signal_value()`. */
+  private val SignalCtors = Set("signal", "computedSignal", "seedSignal", "hashSignal")
+  private def collectLocalSignals(body: m.Term): Set[String] =
+    val sigs = scala.collection.mutable.Set.empty[String]
+    def isSig(rhs: m.Term): Boolean = rhs match
+      case m.Term.Apply.After_4_6_0(m.Term.Name(n), _) if SignalCtors.contains(n) => true
+      case m.Term.Name(n)  => sigs.contains(n)
+      case m.Term.Block(stats) => stats.lastOption.collect { case t: m.Term => isSig(t) }.getOrElse(false)
+      case _               => false
+    def isSigType(t: Option[m.Type]): Boolean = t match
+      case Some(m.Type.Name("Signal"))                                => true
+      case Some(m.Type.Apply.After_4_6_0(m.Type.Name("Signal"), _))   => true
+      case _                                                          => false
+    def walk(t: m.Tree): Unit =
+      t match
+        case v: m.Defn.Val => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) => if isSigType(v.decltpe) || isSig(v.rhs) then sigs += n
+          case _                               => ()
+        case v: m.Defn.Var => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) => if isSigType(v.decltpe) || isSig(v.body) then sigs += n
+          case _                               => ()
+        case _ => ()
+      t.children.foreach(walk)
+    walk(body)
+    sigs.toSet
 
   /** Flatten a curried apply chain `base(a1)(a2)…` into `(base, a1 ++ a2 ++ …)`
    *  in source order, so a multi-group call lowers to a single Rust call matching
@@ -2392,7 +2425,13 @@ object RustCodeWalk:
                     if args.isEmpty then s"$rn(&mut _eff)"
                     else s"$rn($args, &mut _eff)"
                   else s"$rn($args)"
-                plainName.filter(ctx.userDefs.contains) match
+                // A 0-arg apply on a Signal-typed local (`loc()`) is a signal READ —
+                // `Value` is not callable. Lower to `loc.signal_value().show()`: `Signal[String]`
+                // is the UI/i18n signal type and `computedSignal` takes `() => String`, so the read
+                // yields the value's `String` form. (Typed non-String signal reads are a follow-up.)
+                if plainName.exists(n => joined.isEmpty && ctx.localSignals.contains(n)) then
+                  Right(s"${rustIdent(plainName.get)}.signal_value().show()")
+                else plainName.filter(ctx.userDefs.contains) match
                   case Some(n) => Right(withEff(n, joined))
                   case None    =>
                     // Fallback: assume closure parameter or local binding;
