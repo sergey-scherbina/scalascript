@@ -40,10 +40,12 @@ last — after everything else.**
    (server+client; needs an MCP transport workable in a jvm/js test — Http is JS-only, Stdio blocks;
    mirror `McpEndToEndTest`); (c) conformance (mock gateway + golden transcripts). P3b Embedded =
    deferred (needs rozum `rozum-embed`).
-3. **package-registry** ✓ DONE 2026-06-17 (in-repo CLI; spec was stale) — `ssc search`/`info`/`add`
+3. **package-registry** ✓ DONE 2026-06-20 (CLI + no-domain static registry) — `ssc search`/`info`/`add`
    over `RegistryClient` (URL-priority + 1h-TTL cache + `--refresh` + `--offline`) + seed
-   `registry/packages.yaml`. spec `specs/arch-registry.md` reconciled. REMAINING (external only): the
-   `scalascript/registry` GitHub repo + Pages HTML index + validate/publish CI.
+   `registry/packages.yaml`; generated `registry/site/` serves `packages.yaml`, HTML, search JSON, and
+   per-package JSON through GitHub Pages project URL
+   `https://sergey-scherbina.github.io/scalascript/`. spec `specs/arch-registry.md` reconciled. REMAINING:
+   optional custom-domain alias (`registry.scalascript.io`) and cross-repo/community governance.
 4. **sbt-plugin-finish** — `specs/arch-sbt-plugin.md` remaining surface: front-matter
    `dependencies:`→Coursier, cross-build targets (`sscBackends`), LSP/BSP polish. (Phases 1–4 landed;
    publication of the plugin itself = part of the deferred Maven step.) **← genuine remaining build work.**
@@ -337,8 +339,9 @@ enforcement.  Full analysis in `specs/arch-library-modularity.md`.
 ### Theme I — Package Registry (discoverability)
 
 Identified 2026-05-28. Without a registry the ecosystem cannot grow: users
-cannot find libraries, authors cannot reach users.  Solution: GitHub repo +
-GitHub Pages static site, zero server infrastructure, PR-based publishing.
+cannot find libraries, authors cannot reach users.  Current solution: in-repo
+catalog + GitHub Pages project site, zero server infrastructure, PR-based
+publishing. Custom domain/governance can layer on later.
 Full spec: `specs/arch-registry.md`.
 
 ### Theme J — Lightweight FFI (@jvm / @js + glue.jar)

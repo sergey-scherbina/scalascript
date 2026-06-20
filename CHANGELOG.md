@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-20 — feat(registry): no-domain static package registry
+
+The package registry now ships without requiring a domain registration. `RegistryClient.DefaultRegistryUrl`
+points at `https://sergey-scherbina.github.io/scalascript/packages.yaml`; `registry/site/` contains the
+generated Pages artifact (`packages.yaml`, HTML index, search JSON, per-package JSON), and
+`.github/workflows/registry-pages.yml` rebuilds/deploys it through GitHub Pages without `CNAME`.
+
+The registry docs/specs now record the hosting decision: use the GitHub Pages project URL for Phase A, add
+`registry.scalascript.io` later as an alias only. Verified locally with `scala-cli --server=false
+tools/registry-site/generate.sc -- registry/packages.yaml registry/site`, artifact file checks, and
+`core/testOnly scalascript.imports.RegistryClientTest scalascript.imports.RegistryPrivateTest
+scalascript.imports.RegistrySchemaTest scalascript.imports.RegistrySiteGeneratorTest` (56 tests).
+
 ## 2026-06-20 — feat(rust-web): direct-WS signal transport (S5 complete)
 
 The last rust-web S5 refinement. A `serve(view, port)` program now also exposes a WebSocket signal endpoint

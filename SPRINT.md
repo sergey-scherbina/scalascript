@@ -90,21 +90,6 @@ publication remains explicit-go only; the registry work below is intentionally d
       cross-backend harness; add/adjust `CrossBackendPropertyTest` coverage; implement a JS `Char` wrapper or
       equivalent representation that preserves `Char` methods without coercing all mapped results to strings.
       **Verify:** targeted cross-backend property test and a minimal JS/backend run.
-- [ ] **remote-registry-mvp** — create a remote registry MVP that does **not** require registering a domain.
-      **How:** extend/reconcile `specs/arch-registry.md` and `specs/arch-build-registry.md` around a static
-      registry index layout, validation, and publish flow that can be hosted at a GitHub Pages project URL
-      first (for example `https://<owner>.github.io/<repo>/`) and later moved behind a custom domain without
-      changing package metadata. Avoid Maven in this slice. **Verify:** local validation command/test over the
-      registry seed plus a documented default/fallback registry URL strategy.
-- [ ] **registry-domain-hosting-decision** — document the registry domain + hosting decision separately from
-      implementation. **Working recommendation:** start on GitHub Pages/project URL without a domain; later
-      attach `registry.scalascript.io` (or another chosen subdomain) via DNS/CNAME when the name is final.
-      **Research refs:** GitHub Pages supports project sites at `*.github.io/<repo>` and custom domains/HTTPS;
-      Cloudflare Pages supports Git-backed deploys and custom domains; Cloudflare Registrar can register
-      domains at-cost if the base domain is not already owned. **Done when:** the spec records Phase A
-      (no-domain static registry), Phase B (custom subdomain), DNS/HTTPS notes, and the rejected alternative
-      "block registry MVP on domain purchase".
-
 - [x] **real-workload-perf** (roadmap-next #1) ✓ DONE 2026-06-20 (all three axes). **(a) cold-start:**
       `tests/perf/coldstart/` + AppCDS in `bin/ssc`/`install.sh` → **378 → 182 ms (−51%)**, peak RSS −32%.
       **(b)+(c) steady-state RSS + GC:** `tests/perf/serverrss/` boots a real server under load → interp
