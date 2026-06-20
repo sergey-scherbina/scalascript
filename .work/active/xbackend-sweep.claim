@@ -1,0 +1,6 @@
+feature/xbackend-sweep 2026-06-20T13:48:33Z
+agent: claude
+heartbeat: 2026-06-20T13:48:33Z
+status: in-progress
+done-so-far: starting xbackend hang-proof sweep — convert remaining blocking-read test files to ProcTestUtil.runCaptured
+next: find all files with the Source.fromInputStream-before-awaitExit antipattern; convert; compile+pass
