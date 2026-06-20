@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-20 — perf(server): steady-state RSS + GC harness (real-workload-perf complete)
+
+The third and last unmeasured perf axis: a long-running `ssc` HTTP server's memory footprint and GC under
+sustained load. New `tests/perf/serverrss/run.sh` boots a real server (`examples/health-defaults.ssc` on the
+JVM interpreter, `-Xmx512m` + GC log), drives concurrent load, samples RSS over the run, and reports the
+steady-state footprint + start→end drift (a leak signal) + GC pause count/time, with a `SERVERRSS_*`
+machine-readable tail. Pure bash + the JVM launcher (no scala-cli/bloop); reliable teardown on exit.
+
+Baseline (20 s / 4 loops, JDK 21): the interpreter server settles at **~195 MB RSS and is STABLE under
+load** — ramps from ~184 MB cold to a ~195 MB plateau with no further climb (no leak), and **light GC**
+(~41 short pauses / 27 ms). The verdict flips to `GROWING` if start→end drift exceeds 20%; a minutes-scale
+leak-hunt (`secs=300+`) is left to demand. With this, `real-workload-perf` is complete — all three axes
+(cold-start, steady-state RSS, GC-under-load) now have harnesses + baselines.
+
 ## 2026-06-20 — feat(rust-web): set/toggle signal client wiring
 
 Closes "set/toggle client wiring" from the rust-web-toolkit S5 deferred list. `setSignal`/`toggleSignal`

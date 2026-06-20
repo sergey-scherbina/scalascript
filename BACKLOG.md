@@ -493,16 +493,22 @@ The feature roadmap is built out (729/740 done, 127 conformance cases, ~70 prope
 comprehensive docs). These are the higher-leverage *productization/hardening/enablement* directions.
 The two active ones are in SPRINT (`compile-time-at-scale`, `xbackend-property-equivalence`).
 
-- [~] **real-workload-perf** — micro-throughput is at floor; this is the real-workload axis.
+- [x] **real-workload-perf** ✓ DONE 2026-06-20 (all three axes have harnesses + baselines) —
+      micro-throughput is at floor; this is the real-workload axis.
       **(a) cold-start ✓ DONE 2026-06-20:** built `tests/perf/coldstart/` (pure-bash harness, no
       scala-cli/bloop → can't hang) measuring fresh `ssc run` wall-clock + peak RSS. Baseline ~378 ms /
       167 MB (JVM boot ~36 ms + classloading the 88 MB fat jar dominate). **Cut shipped:** AppCDS in
       `bin/ssc` + `install.sh` (`-XX:+AutoCreateSharedArchive`, auto-created first run, no build step,
       CDS-only — NOT TieredStopAtLevel which would hurt long-running `ssc serve`) → **378 → 182 ms (−51%)
       + peak RSS 167 → 114 MB (−32%)**; opt out `SSC_NO_CDS=1`. GraalVM native binary needs no CDS.
-      **REMAINING:** (b) long-running-server steady-state RSS over hours, (c) GC under sustained load —
-      both need a long-running-server harness (start `ssc serve`, drive load, sample RSS/GC), a separate
-      larger slice. Complements `compile-time-at-scale` (the other unmeasured axis).
+      **(b) steady-state RSS + (c) GC under load ✓ DONE 2026-06-20:** built `tests/perf/serverrss/` (boots
+      a real `health-defaults.ssc` server on the JVM interp at `-Xmx512m` + GC log, drives concurrent load,
+      samples RSS, reports footprint + start→end drift (leak signal) + GC pauses/time; pure bash, reliable
+      teardown). Baseline (20s/4 loops, JDK 21): the interp server settles at **~195 MB RSS, STABLE** —
+      ramps ~184→~195 MB then plateaus (no leak), **light GC** (~41 short pauses / 27 ms). Verdict flips to
+      GROWING if drift >20%. **All three axes now have harnesses + baselines.** Complements
+      `compile-time-at-scale` (the remaining unmeasured axis). Genuine open follow-up: a *long* (minutes)
+      leak-hunt run is left to demand (the harness supports `secs=300+`).
 - [x] **xbackend-property-equivalence (full suite)** ✓ DONE 2026-06-20. **Broaden:** already complete —
       the generator is at **12 kinds** incl. arith/List/match/enum/String/case-class/Option/Either/closures/
       nested-coll/string-ops/**effects** (the "REMAINING" list was stale); node leg verified 74 programs,

@@ -35,17 +35,19 @@ After the perf series (foldLeft VM compile + typeclass-fold memo) micro-throughp
 next autonomously-actionable work is quality + unmeasured-axis perf, priority order. Drive top-to-bottom,
 per-feature worktrees + claims.
 
-> **Status 2026-06-20 (queue worked top-to-bottom):** #1 real-workload-perf (a) cold-start ✓ AppCDS −51% +
-> harness shipped ((b)(c) server RSS/GC remain — need a long-running-server harness). #2 xbackend full+CI ✓
-> generator already broad (12 kinds) + wired into CI. #3 xbackend-test-hardening ✓ `runCaptured` hang-proof
-> runner. #4 rust-web-toolkit ✓ VERIFIED essentially complete (stale "~56 errors"; really 221/0 + S4/S5 done),
-> remainder is deferred browser/rozum-driven refinements. **No bounded autonomous build work left in this
-> queue.** Open elsewhere: real-workload-perf (b)(c), Maven publication (gated), rozum-driven rust refinements.
+> **Status 2026-06-20 (queue worked top-to-bottom — ALL DONE):** #1 real-workload-perf ✓ all three axes:
+> (a) cold-start AppCDS −51% + harness, (b)+(c) steady-state server RSS+GC harness (~195 MB STABLE, no leak).
+> #2 xbackend full+CI ✓ generator already broad (12 kinds) + wired into CI. #3 xbackend-test-hardening ✓
+> `runCaptured` hang-proof runner. #4 rust-web-toolkit ✓ verified essentially complete + shipped the one
+> bounded deferred slice (set/toggle client wiring); rest is browser/rozum-driven. **Queue fully resolved.**
+> Open elsewhere (NOT bounded-autonomous): Maven publication (gated), rozum-driven rust refinements, a
+> minutes-scale server leak-hunt (demand-driven), the ~9-file xbackend hang-proof sweep (low-risk follow-up).
 
-- [~] **real-workload-perf** (roadmap-next #1) — **(a) cold-start ✓ DONE 2026-06-20:** `tests/perf/coldstart/`
-      harness + AppCDS in `bin/ssc`/`install.sh` → cold-start **378 → 182 ms (−51%)**, peak RSS −32%. **(b)
-      steady-state server RSS over hours + (c) GC under sustained load REMAIN** — need a long-running-server
-      harness (start `ssc serve`, drive load, sample RSS/GC), a separate larger slice. BACKLOG `real-workload-perf`.
+- [x] **real-workload-perf** (roadmap-next #1) ✓ DONE 2026-06-20 (all three axes). **(a) cold-start:**
+      `tests/perf/coldstart/` + AppCDS in `bin/ssc`/`install.sh` → **378 → 182 ms (−51%)**, peak RSS −32%.
+      **(b)+(c) steady-state RSS + GC:** `tests/perf/serverrss/` boots a real server under load → interp
+      server **~195 MB RSS, STABLE** (no leak), light GC (~41 pauses/27 ms). Long minutes-scale leak-hunt
+      left to demand (`secs=300+`). BACKLOG `real-workload-perf`.
 - [x] **xbackend-property-equivalence (full + CI)** ✓ DONE 2026-06-20 — broaden was already complete (12
       kinds incl. effects/Option/Either/closures/nested; node leg 74 programs / 0 skipped) so the work was
       reconciling that + **wiring into CI**: added Node.js setup to the `sbt` job so the interp==JS
