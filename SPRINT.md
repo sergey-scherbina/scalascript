@@ -35,6 +35,13 @@ After the perf series (foldLeft VM compile + typeclass-fold memo) micro-throughp
 next autonomously-actionable work is quality + unmeasured-axis perf, priority order. Drive top-to-bottom,
 per-feature worktrees + claims.
 
+> **Status 2026-06-20 (queue worked top-to-bottom):** #1 real-workload-perf (a) cold-start ✓ AppCDS −51% +
+> harness shipped ((b)(c) server RSS/GC remain — need a long-running-server harness). #2 xbackend full+CI ✓
+> generator already broad (12 kinds) + wired into CI. #3 xbackend-test-hardening ✓ `runCaptured` hang-proof
+> runner. #4 rust-web-toolkit ✓ VERIFIED essentially complete (stale "~56 errors"; really 221/0 + S4/S5 done),
+> remainder is deferred browser/rozum-driven refinements. **No bounded autonomous build work left in this
+> queue.** Open elsewhere: real-workload-perf (b)(c), Maven publication (gated), rozum-driven rust refinements.
+
 - [~] **real-workload-perf** (roadmap-next #1) — **(a) cold-start ✓ DONE 2026-06-20:** `tests/perf/coldstart/`
       harness + AppCDS in `bin/ssc`/`install.sh` → cold-start **378 → 182 ms (−51%)**, peak RSS −32%. **(b)
       steady-state server RSS over hours + (c) GC under sustained load REMAIN** — need a long-running-server
@@ -49,10 +56,16 @@ per-feature worktrees + claims.
       stream drain + hard timeout that actually fires); `ProcTestUtilTest` proves a `sleep 60`@2s returns
       <15s + a stderr flood doesn't deadlock. `CrossBackendPropertyTest.runProc` delegates. (~9 other test
       files share the old antipattern but run fixed small programs — follow-up sweep, lower risk.)
-- [ ] **rust-web-toolkit finish** (external driver: rozum) — the in-flight feature: ~56 cargo
-      type-reconciliation errors → 0 (TkNode/i64, String/Value, struct-field i64, curried-vararg call-site
-      `vec![]`, `defaultTheme`), then S4 named/curried args + S5 signal reactivity. Concrete finish line,
-      multi-session. spec `specs/rust-web-toolkit.md`. (Coordinate via claim — rozum is the driver.)
+- [x] **rust-web-toolkit finish** ✓ VERIFIED ESSENTIALLY COMPLETE 2026-06-20 (the "~56 cargo errors" was
+      badly stale). Checked against the authoritative signal: **`backendRust` 221/0**, **`RustGenWebToolkitTest`
+      17/17** green. Per `specs/rust-web-toolkit.md`: cargo `build` of the std/ui crate is **290 → 0** (whole
+      toolkit compiles on Rust), **S4** named/curried args DONE, **S5a** (SSR initial value) + **S5b.1** (local
+      client reactivity) + **S5b.2 A/B/C** (generic push / rozum bridge / computed-derived) all DELIVERED at
+      poll-transport depth. **REMAINING = explicitly-deferred refinements**, NOT bounded build work: SSE/WS
+      streaming transport, client recompute of computed signals, set/toggle/show client wiring, direct-WS
+      client. All are **browser-dependent** (can't verify autonomously without a browser) and **rozum-driven**
+      (spec method: "drive from the target … ultimately `rozum-web.ssc`"). Hand back to the rozum driver; do
+      NOT push speculative client-JS refinements onto `feature/rust-web-toolkit` (rozum's active branch).
 
 
 - [x] **meta-v2-track-c** ✓ DONE 2026-06-18 (verified, no build needed) — Track C is COMPLETE. C1
