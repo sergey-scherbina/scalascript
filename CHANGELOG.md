@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-20 — feat(wasm): effectful `@main` args/non-Unit edge complete
+
+Closed the last `wasm-effects` edge. The effectful WASM path now derives the user `@main` from the AST
+instead of a name-only regex, emits a synthetic Scala.js wrapper that preserves a single Scala 3 main
+parameter clause (including `String*` splicing), and keeps the wrapper `Unit`-returning by discarding any
+user non-`Unit` return value. Raw `Array[String]` `@main` args now fail before scala-cli with a clear
+"use `String*`" diagnostic because Scala 3 `@main` does not accept raw argv arrays.
+
+Verified after rebase: `backendWasm/testOnly scalascript.codegen.WasmBackendTest` — 40/40 green. Gotcha
+recorded in `specs/wasm-main-edge.md`: Scala.js ES-module launcher argument delivery is out of scope; a
+direct Node probe supplies empty `String*` args.
+
 ## 2026-06-20 — feat(rust-web): computed-signal LIVE recompute + typed signal reads (S5)
 
 Computed signals on the Rust backend are now **fully reactive**, completing the S5 work. A derived signal

@@ -24,7 +24,7 @@ or blocked/deferred (kept for record, NOT actionable now — see "Excluded from 
 > verified already complete (no build). #2 sbt-plugin dep-resolution — ✓ built + tested (residuals
 > design-/Maven-gated). #3 wasm-effects — **effectively COMPLETE**: arithmetic (2a) + `_dispatch`
 > collection-HOFs (2b) + multi-shot (2c) + cross-module (2d) all built + run-verified on node (36 tests);
-> only a minor `@main`-args edge remains. #4 build-registry-phase4 — assessed, no concrete target → no
+> `@main` args/non-Unit edge later closed by `wasm-main-edge` (40 tests). #4 build-registry-phase4 — assessed, no concrete target → no
 > action. Then `sscBackends` cross-build ✓ DONE (user picked spec open-Q #2 → parallel outputs in one
 > `compile`; scripted `cross-build/`). **What remains is Maven-gated only:** Maven Central + Plugin Portal
 > publication (LAST, explicit-go). No bounded autonomous build work left.
@@ -67,14 +67,13 @@ SSE, computed-read compile+SSR all DONE). Remaining, priority order:
 Fresh do-soon queue after rust-web S5 closed. Work top-to-bottom, one claim/worktree per slice. Maven Central
 publication remains explicit-go only; the registry work below is intentionally domain-independent first.
 
-- [ ] **wasm-main-edge** — close the last small WASM effects tail: `@main` with CLI args and non-`Unit`
-      return values should compile/link/run consistently instead of being left as an undocumented backend
-      edge. **How:** read the global spec plus the existing WASM/effects notes (`SPEC.md`, this file's
-      `wasm-effects` entry, and the relevant WASM backend tests), write/commit a focused
-      `specs/wasm-main-edge.md`, then make an additive wasm-only change in `runtime/backend/wasm/`.
-      **Verify:** targeted `backendWasm/testOnly` for the new `@main` cases and the existing WASM test suite
-      slice that covers effects/main wiring. **Done when:** the spec behavior checkboxes are covered by tests
-      and the `wasm-effects` entry can be marked fully complete.
+- [x] **wasm-main-edge** ✓ DONE 2026-06-20 — closed the last WASM effects tail. Effectful WASM now derives
+      the user `@main` from the AST, preserves a single Scala 3 `@main` parameter clause (including
+      `String*` splicing), discards non-`Unit` returns in the synthetic wrapper, and rejects raw
+      `Array[String]` `@main` args with a clear "use `String*`" diagnostic. **Verified:**
+      `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/wasm-main-edge && sbt "backendWasm/testOnly scalascript.codegen.WasmBackendTest"`
+      → 40/40 green. Gotcha recorded in `specs/wasm-main-edge.md`: Scala.js ES-module launcher argument
+      delivery is out of scope; a direct Node probe supplies empty `String*` args.
 - [ ] **stable-plugin-spi-p3** — finish the remaining Phase 3 cleanup around stable plugin/SPI boundaries.
       **How:** read `specs/arch-stable-spi.md`; inventory direct `scalascript.interpreter.*` imports in
       `runtime/std/*/*Intrinsics.scala`; migrate one low-risk plugin or add a boundary/classpath regression
@@ -148,7 +147,7 @@ publication remains explicit-go only; the registry work below is intentionally d
       `BspIntegration`/`sscBspSetup` already landed Phase 4, no concrete remaining deliverable; (b) Maven
       Central publish + Plugin Portal — Maven-gated (LAST). So the only buildable remainder here is
       Maven-gated.
-- [~] **wasm-effects** (follow-up slices to the 2026-06-18 first slice) — additive, wasm-only.
+- [x] **wasm-effects** ✓ COMPLETE 2026-06-20 — additive, wasm-only.
       **arithmetic ✓ DONE (slice 2a):** `_binOp` (+`_bigIntOp`/`_bigDecOp`) — `a + b`/`sum * 2` over effect-op
       results link + run (test → 40). **`_dispatch` ✓ DONE (slice 2b):** collection HOFs on `Any` —
       `xs.map(..).filter(..).head` in a handler links + runs (test → 6); copied the pure subset of `_dispatch`
@@ -156,8 +155,10 @@ publication remains explicit-go only; the registry work below is intentionally d
       need a `_handle` rewrite (probe disproved it) — just the pure `_anyFlatMap` helper + a `usesEffects` fix
       to recognise `multi effect Foo:`; NonDet `{1,2}×{10,20}` runs on node (test → 4). **cross-module ✓ DONE
       (slice 2d, no code change):** an imported `effect` already works — `generateUserOnly` resolves imports via
-      `baseDir`; run test → `hello\nworld`. **Effectively COMPLETE (36 tests):** common + advanced cases all run;
-      only the minor `@main`-args/non-Unit edge remains. BACKLOG `wasm-effects`.
+      `baseDir`; run test → `hello\nworld`. **`@main` args/non-Unit edge ✓ DONE (wasm-main-edge):** effectful
+      `@main` wrappers preserve Scala 3 main parameter clauses, discard non-Unit returns, and reject invalid raw
+      `Array[String]` args clearly. **Complete:** common + advanced cases all run; `WasmBackendTest` 40/40 green.
+      BACKLOG `wasm-effects`.
 - [x] **build-registry-phase4** ✓ ASSESSED → no action 2026-06-18 (demand-driven). Surveyed the ~24
       `*Registry` classes: they are domain-distinct (Preprocessor / Interpolator / Backend / Capability /
       Route / Command / GlueClasspath / GlueJsPreamble / …), each registering a different kind of thing —

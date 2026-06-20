@@ -1,6 +1,0 @@
-feature/wasm-main-edge 2026-06-20T17:43:18Z
-agent: codex
-heartbeat: 2026-06-20T17:58:16Z
-status: in-progress
-done-so-far: spec committed; implementation + regression tests written; WasmBackendTest 40/40 green locally
-next: mark spec behavior/results, commit implementation, push branch to main, then close SPRINT/BACKLOG/CHANGELOG

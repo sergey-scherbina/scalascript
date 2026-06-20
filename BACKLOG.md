@@ -143,7 +143,7 @@ recommended first pick** (bounded, measurable, compounds with the perf work).
 The WASM backend (`runtime/backend/wasm`, Scala.js → `.wasm` via `scala-cli --js-emit-wasm`) now
 handles `@wasm` externs, local `.ssc` import inlining, and quoted macros (2026-06-18). What remains:
 
-- [~] **wasm-effects** — algebraic effects / handlers on WASM. **FIRST SLICE ✓ DONE 2026-06-18 — effects
+- [x] **wasm-effects** — algebraic effects / handlers on WASM. **COMPLETE 2026-06-20.** **FIRST SLICE ✓ DONE 2026-06-18 — effects
       compile AND run on wasm.** The approach (probe-proven): `JvmGen.generateUserOnly` (CPS-lowered code,
       *without* the 300 KB JVM preamble — that preamble's `Thread`/`java.nio` parts are what crash the
       Scala.js linker) + a minimal **Scala.js-linkable effect runtime** (`WasmEffectRuntime` =
@@ -171,9 +171,12 @@ handles `@wasm` externs, local `.ssc` import inlining, and quoted macros (2026-0
       resolves local imports via `baseDir` and lowers the whole graph (`object Log` + `_perform` + inlined
       `shout()`), and `collectSource` inlines the decl so `usesEffects` routes to the effect path. Verified by a
       run test 'cross-module effects RUN on wasm' (lib.ssc declares + performs, consumer handles) → `hello\nworld`.
-      **Effectively COMPLETE for wasm — common + advanced cases all run** (36 `WasmBackendTest`). Only remaining
-      edge: `@main` with args / non-`Unit` return; and any dynamic method outside the linkable `_dispatch` subset
-      now errors clearly (was a reflection call on JVM). All additive, wasm-only.
+      **`@main` args/non-Unit edge ✓ DONE 2026-06-20 (`wasm-main-edge`):** effectful WASM derives the user
+      `@main` from the AST, preserves a single Scala 3 main parameter clause (including `String*` splicing),
+      discards non-Unit returns in the synthetic wrapper, and rejects raw `Array[String]` args before scala-cli
+      with a clear diagnostic. **Complete for wasm — common + advanced cases all run** (40 `WasmBackendTest`);
+      any dynamic method outside the linkable `_dispatch` subset now errors clearly (was a reflection call on JVM).
+      All additive, wasm-only.
 - [ ] **`@wasmExport` / `@wasmImport`** — raw WASM ABI export/import. Out of scope **by design** (the
       Scala.js path owns the wasm ABI); would need a direct-emit wasm backend, not the Scala.js one.
 
