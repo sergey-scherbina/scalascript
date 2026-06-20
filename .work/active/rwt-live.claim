@@ -1,0 +1,6 @@
+feature/rwt-live 2026-06-20T17:23:45Z
+agent: claude
+heartbeat: 2026-06-20T17:23:45Z
+status: in-progress
+done-so-far: SPRINT queue + building live recompute (named computed + server closure registry + store-backed reads)
+next: move signal store to shared module; signal_value store-aware; name computed + registry; re-run on push; then typed reads
