@@ -155,47 +155,102 @@ end up as ordinary crate-level definitions; `cargo build` does not
 distinguish between SS-derived `pub fn run()` and user-written
 `pub fn util()`.
 
-This lets you escape into Rust whenever a feature is outside the R.1
-capability surface — for now, that includes pattern matching, type
-classes, mutable state, etc.  Treat `rust` blocks as a release valve
-until R.2 lands.
+This lets you escape into Rust whenever a feature is outside the
+current capability surface (see the support table below) — for
+example, `perform` / `handle` lowering (R.4.2) or type classes.  Treat
+`rust` blocks as a release valve.
 
 Non-rust backends (`jvm`, `js`, interpreter) reject a `rust` block as
 `Diagnostic.Generic` — never a silent miscompile.
 
 ---
 
-## What's supported in R.1
+## What's supported
 
-Phase R.1 accepts the hello-world shape:
+The Rust backend has grown well past the original R.1 hello-world
+shape.  Anything outside the supported surface returns
+`CompileResult.Failed` with a `Diagnostic.Generic` (or
+`Diagnostic.Unsupported`) naming the offending shape — never a silent
+miscompile — and you can always drop into a `rust` fence block as a
+release valve.
 
-- `@main def name(): Unit = …` and `def name(): Unit = …`
-- Body: a single expression or a `Term.Block`
-- Statements: `Lit.{Int, Long, Double, String, Boolean, Unit}` and
-  `Term.Apply` against a callee in the `RustIntrinsics` table
-  (`println`, `print`, `Console.println`, `Console.print`)
-
-Anything outside this surface returns `CompileResult.Failed` with a
-`Diagnostic.Generic` naming the offending shape.  Specifically:
-
-| Feature | Status | Slated for |
+| Feature | Status | Phase |
 |---|---|---|
-| Console I/O (`println`, `print`) | ✅ R.1 | — |
-| String interpolators (`s"…"`) | ✅ R.1 | — |
-| Module imports | ✅ R.1 | — |
-| `rust` fence blocks | ✅ R.1 | — |
-| Pattern matching, case classes | ❌ | R.2 |
-| `var`, `while` | ❌ | R.2 |
-| Closures, higher-order functions | ❌ | R.2 |
-| `for` comprehensions | ❌ | R.2 |
-| `std.io.readFile` / `writeFile` | ❌ | R.3 |
-| `sha256`, `base64`, JSON | ❌ | R.3 |
-| Algebraic effects (`perform` / `handle`) | ❌ | R.4 |
-| HTTP server (`std.http`) | ❌ | R.5 |
-| WebSockets, Auth, MCP, streams | ❌ | R.6 |
+| Console I/O (`println`, `print`), string interpolators (`s"…"`) | ✅ | R.1 |
+| Module imports, `rust` fence blocks | ✅ | R.1 |
+| `var` + reassignment, `while` loops | ✅ | R.2 |
+| Scala 3 `enum` + `match` pattern matching | ✅ | R.2 |
+| Closures / higher-order functions (`A => B` → `impl Fn`) | ✅ | R.2 |
+| `for … yield` (single-generator), `List(…)` → `Vec` | ✅ | R.2 |
+| Filesystem I/O (`readFile` / `writeFile`), env (`getenv`) | ✅ | R.3 |
+| `sha256`, `base64`, JSON (`jsonParse` / `jsonStringify` via `serde_json`) | ✅ | R.3 |
+| Algebraic-effects **runtime** (`effect.rs` emitted on `perform`/`handle`) | ◐ | R.4.1 |
+| `perform` / `handle` IR lowering (use a `rust` block until then) | ❌ | R.4.2 |
+| HTTP server — `route(method, path, handler)` + `serve(port)` (hyper + tokio) | ✅ | R.5 |
+| **Web toolkit `serve(view, port)` — SSR + reactive signals** | ✅ | R.5 |
+| WebSockets (signal transport ✅; general `std.ws` / Auth / MCP / streams) | ◐ | R.6 |
+
+The **web toolkit** in R.5 is the headline: a declarative `std/ui` view
+(`element` / `signal` / `signalText` / `computedSignal`) compiled with
+`serve(view, port)` emits a self-contained `tokio` + `hyper` HTTP
+server with server-side rendering, a reactive signal store, real-time
+**Server-Sent Events** push, **computed-signal live recompute**, typed
+signal reads, and a **direct WebSocket** signal endpoint — see the next
+section.  Dependencies are demand-driven: a program that never calls a
+networking intrinsic stays dependency-free.
 
 See [`../specs/rust-backend.md §8`](../specs/rust-backend.md) for the
 authoritative capability matrix per phase.
+
+---
+
+## Web toolkit on Rust — reactive `serve`
+
+A declarative `std/ui` view compiled to native Rust now boots a real
+HTTP server with server-side rendering **and** end-to-end reactivity —
+no JavaScript framework, no Node runtime.  The emitted crate pulls in
+`tokio` + `hyper` (and `tokio-tungstenite` for the WS endpoint) only
+when the program calls `serve`.
+
+```scalascript
+@main def run(): Unit =
+  val locale   = signal("locale", "fr")            // server-side signal store
+  val greeting = computedSignal(() => locale())    // derived; recomputes on change
+  val view = element("div", Map(), Map(), List(
+    signalText(greeting),                          // <span data-ssc-text="__c0">fr</span>
+    signalText(locale)
+  ))
+  serve(view, 8080)                                // HTTP on :8080, WebSocket on :8081
+```
+
+What the emitted server gives you:
+
+- **SSR** — `serve` renders the view to HTML on every request, with each
+  signal's current value inlined into a `data-ssc-text` span.
+- **A server-side signal store** — `signal(name, default)` seeds a shared,
+  thread-safe store. `setSignal(sig, value)` / `toggleSignal(sig)` buttons
+  and `inputChange` inputs persist back to `POST /__ssc/push`.
+- **Computed signals that recompute live** — `computedSignal(() => dep())`
+  registers a re-runnable closure. When a dependency changes the server
+  recomputes every derived signal (`ssc_recompute_all`) and pushes the new
+  value out before responding. A `Signal[Int]` read inside a computed thunk
+  is parsed back to `i64` (typed reads); `Signal[String]` stays textual.
+- **Server-Sent Events** — clients subscribe to `GET /__ssc/events`
+  (`text/event-stream`), which streams `data: <state-json>` frames off a
+  `tokio::sync::broadcast` channel. The client script prefers `EventSource`
+  and falls back to a 1 s state poll.
+- **Direct WebSocket** — a WS endpoint on `port + 1` sends the full signal
+  state on connect, streams updates, and accepts `name=value` text frames
+  (set → recompute → broadcast) for external/programmatic clients.
+
+Verify the reactive loop without a browser:
+
+```console
+$ ssc build-rust app.ssc && ./app &
+$ curl -s localhost:8080/__ssc/state          # {"__c0":"fr","locale":"fr"}
+$ curl -s -X POST localhost:8080/__ssc/push -d 'locale=de'
+$ curl -s localhost:8080/__ssc/state          # {"__c0":"de","locale":"de"}  ← recomputed
+```
 
 ---
 
@@ -224,17 +279,20 @@ full diagnostic.
 
 ## Roadmap
 
-Phases R.2 through R.6 widen the capability set incrementally; see the
-spec.  Highlights:
+Phases R.2 through R.5 have landed (see the support table); R.6 widens
+the remaining surface.  See the spec for the authoritative matrix.
 
-- **R.2** — core IR coverage: case classes, pattern matching, mutable
+- **R.2 ✅** — core IR coverage: `enum` + pattern matching, mutable
   state, `while`, closures, `for` comprehensions.
-- **R.3** — intrinsics MVP: filesystem I/O, time, sha256/base64, JSON
+- **R.3 ✅** — intrinsics MVP: filesystem I/O, env, sha256/base64, JSON
   via `serde_json` (added to `Cargo.toml` per-call demand).
-- **R.4** — algebraic effects via a Free-monad runtime in stable Rust.
-- **R.5** — `std.http` parity via `tokio` + `hyper` (only pulled in
-  when the program uses the HTTP intrinsics).
-- **R.6** — WebSockets (`tokio-tungstenite`), Auth (`argon2` +
+- **R.4 ◐** — algebraic-effects runtime (`effect.rs`) is emitted
+  (R.4.1); direct `perform` / `handle` IR lowering (R.4.2) is the next
+  slice — until then, drive the runtime from a `rust` block.
+- **R.5 ✅** — HTTP via `tokio` + `hyper`: `route` + `serve(port)`, and
+  the **web toolkit** `serve(view, port)` (SSR + reactive signals + SSE
+  + computed live recompute + direct WS), all dependency-gated.
+- **R.6** — general WebSockets (`std.ws`), Auth (`argon2` +
   `jsonwebtoken`), MCP, streams, type classes, multi-shot
   continuations, monomorphisation pass in core.
 

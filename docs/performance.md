@@ -177,6 +177,15 @@ Full cross-backend numbers and JFR findings are in
 [`specs/vm-jit-next.md`](vm-jit-next.md) and
 [`docs/interpreter-perf-findings-2026-06.md`](interpreter-perf-findings-2026-06.md).
 
+### Later work (2026-06)
+
+| Area | What shipped | Gains |
+|---|---|---|
+| **Cold start (AppCDS)** | Application Class-Data Sharing (`-XX:+AutoCreateSharedArchive`) in `bin/ssc` + the `install.sh` launcher; archive auto-created on first run, auto-recreated on classpath change. Opt out with `SSC_NO_CDS=1` | `ssc run hello.ssc` 378 → 182 ms (−51%); peak RSS 167 → 114 MB (−32%) |
+| **`foldLeft` VM compile** | `List[Int].foldLeft` lowered to an inline VM loop (SscVm list-iter opcodes + a VmCompiler recognizer) | combinator-heavy folds JIT instead of tree-walking |
+| **typeclass-fold memo** | Default-on memo for `combineAll`-style folds (FunV-local using-resolve cache) | ~19% on `combineAll` folds |
+| **real-workload-perf harnesses** | `tests/perf/coldstart/` (fresh-run wall + RSS), `tests/perf/serverrss/` (steady-state server RSS + leak detection), GC-under-load | server settles ~195 MB with no climb (no leak); light GC |
+
 **Outstanding from v1.61 spec:**
 - v1.61.5 JS codegen inlining — partially done (IIFE removal); full typed-dispatch inlining still open
 - v1.61.6 preamble sub-capabilities — tracked as `conf-fix` items in BACKLOG

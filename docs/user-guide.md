@@ -315,10 +315,35 @@ ssc build-rust hello.ssc      # → ./hello
 ssc run-rust hello.ssc        # build + execute in one step
 ```
 
-The R.1 capability surface is intentionally narrow (hello-world shape
-+ `rust` fence blocks for escape into hand-written Rust); see
-[`rust-backend.md`](rust-backend.md) for the full matrix and the
-R.2–R.6 roadmap.
+The Rust backend covers `var`/`while`, `enum` + pattern matching,
+closures, single-generator `for … yield`, filesystem/env I/O,
+`sha256`/`base64`/JSON, and an HTTP server. Anything outside the
+surface fails loudly (never a silent miscompile), and a `rust` fence
+block is always available as an escape into hand-written Rust. See
+[`rust-backend.md`](rust-backend.md) for the full matrix and roadmap.
+
+**Reactive web server.** A declarative `std/ui` view compiled with
+`serve(view, port)` emits a native `tokio` + `hyper` server with
+server-side rendering, a reactive **signal store**, **computed-signal
+live recompute**, **Server-Sent Events** push (`/__ssc/events`), and a
+**direct WebSocket** signal endpoint on `port + 1` — no JS framework,
+no Node runtime:
+
+```scalascript
+@main def run(): Unit =
+  val locale   = signal("locale", "fr")
+  val greeting = computedSignal(() => locale())   // recomputes server-side on change
+  serve(element("div", Map(), Map(), List(signalText(greeting))), 8080)
+```
+
+```bash
+ssc build-rust app.ssc && ./app &
+curl -s localhost:8080/__ssc/state                # {"__c0":"fr","locale":"fr"}
+curl -s -X POST localhost:8080/__ssc/push -d 'locale=de'
+curl -s localhost:8080/__ssc/state                # {"__c0":"de","locale":"de"}
+```
+
+See [`rust-backend.md`](rust-backend.md#web-toolkit-on-rust--reactive-serve).
 
 #### `ssc build --target jvm` output
 
@@ -346,6 +371,46 @@ java -Dscalascript.server.port=9090 -jar target/build/jvm/myapp.jar
 ---
 
 ## 3. Language Basics
+
+### Collections with real Scala semantics
+
+The interpreter models true Scala collection semantics, not a single uniform
+list type:
+
+| Type | Semantics |
+|------|-----------|
+| `List`, `Seq`, `Iterable` | Immutable singly-linked list |
+| `Vector`, `IndexedSeq` | Distinct indexed type with O(log₃₂ n) access / `updated` |
+| `Array` | **Mutable**, with reference identity — `a(i) = x` mutates in place |
+| `LazyList` | **Lazy** — backed by Scala `LazyList`, so `#::` defers evaluation and infinite streams work |
+| `Map`, `Set` | Immutable hash collections |
+
+Constructors and conversions are available across backends:
+
+```scalascript
+val v = Vector(1, 2, 3).updated(1, 20)   // Vector(1, 20, 3)
+val a = Array(1, 2, 3); a(0) = 99        // mutates in place
+val nats = LazyList.from(0)              // infinite, lazy
+val firstFive = nats.take(5).toList     // List(0, 1, 2, 3, 4)
+val asVec = List(1, 2, 3).toVector       // .toSeq / .toArray / .toList / .toLazyList
+```
+
+`Vector == List` compares structurally by element, so the two interoperate in
+equality checks.
+
+### Numeric and bitwise operators
+
+Integer arithmetic supports the full set of bitwise operators on `Int`:
+
+```scalascript
+val flags = 0x0F & 0x33   // and       → 3
+val set   = 0x01 | 0x10   // or        → 17
+val xor   = 0xFF ^ 0x0F   // xor       → 240
+val shl   = 1 << 4        // shift left → 16
+val shr   = -16 >> 2      // arithmetic shift right → -4
+val ushr  = -1 >>> 28     // logical shift right    → 15
+val inv   = ~0            // bitwise not            → -1
+```
 
 ### Markdown Frontend From Content
 
@@ -3087,6 +3152,24 @@ examples/run-wasm.sh out.wasm
 Examples: `wasm-fibonacci.ssc`, `wasm-sorting.ssc`, `wasm-matrix.ssc`,
 `wasm-primes.ssc`, `wasm-collections.ssc`, `wasm-scalascript.ssc`
 (Point geometry), `wasm-http.ssc` (HTTP Fetch via scalajs-dom).
+
+### Algebraic effects on Wasm
+
+Algebraic effects **compile and run** on the WASM backend. The effectful path
+uses a pure-Scala effect runtime (`WasmEffectRuntime`) and `generateUserOnly`
+codegen — there is no 300 KB preamble, and `backendWasm` depends only on
+`backendJvm`. Supported within effects: arithmetic (`_binOp`), collection
+higher-order functions (`_dispatch`), **multi-shot resume** (a continuation
+resumed many times), and cross-module effects — all with no source changes
+relative to the interpreter/JVM. An effectful `@main` (including a `String*`
+parameter clause and a non-`Unit` return) is supported; a raw `Array[String]`
+`@main` is rejected before scala-cli with a clear "use `String*`" diagnostic.
+
+### `@wasm` extern FFI
+
+`@wasm` externs bind to host functions, and cross-module inlining + macro
+expansion run on the WASM path. (`@wasmExport` / `@wasmImport` are out of scope
+by design.)
 
 Full reference: [`specs/wasm-backend.md`](wasm-backend.md).
 

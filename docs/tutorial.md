@@ -822,6 +822,8 @@ else
 - Use `Dataset.fromFile` + `runParallel` for bulk import of existing todos
 - Write a DSL parser for a natural-language todo syntax ("every day at 9am remind me to...")
 - Deploy with `ssc build` to generate a static dashboard alongside the API
+- Compile a reactive dashboard to a **native Rust binary** with `ssc build-rust` — a `serve(view, port)` `std/ui` view emits a self-contained `tokio`/`hyper` server with server-side rendering, reactive signals, computed-signal live recompute, Server-Sent Events, and a WebSocket signal endpoint (see [`rust-backend.md`](rust-backend.md#web-toolkit-on-rust--reactive-serve))
+- Ship the same logic to **WebAssembly** with `ssc emit-wasm` — algebraic effects compile and run on the Wasm backend
 
 ---
 

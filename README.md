@@ -8,7 +8,7 @@ Scala 3 code blocks.
 
 | Annotation | Language | Backends |
 |------------|----------|----------|
-| ` ```scalascript` | ScalaScript dialect — effects, handlers, content helpers, TCO | interpreter · JS transpiler · JVM · **Rust (R.1 hello-world subset)** |
+| ` ```scalascript` | ScalaScript dialect — effects, handlers, content helpers, TCO | interpreter · JS transpiler · JVM · **Rust (native binary; up to R.5 web toolkit)** · WebAssembly |
 | ` ```ssc` | Alias for `scalascript` | interpreter · JS transpiler · JVM · Rust |
 | ` ```scala` | Standard Scala 3 — no ScalaScript extensions | interpreter · **Scala.js** (JS) · JVM · Rust (passthrough) |
 | ` ```rust` | Standard Rust — passthrough verbatim into the emitted Cargo crate | **Rust** |
@@ -78,7 +78,7 @@ bin/jssc examples/hello.ssc
 bin/sscc examples/hello.ssc
 
 # Compile to a native binary via Rust + Cargo (requires `cargo` on PATH;
-# see docs/rust-backend.md for the R.1 capability surface).
+# see docs/rust-backend.md for the capability surface).
 bin/ssc build-rust examples/hello.ssc && ./hello
 bin/ssc run-rust   examples/hello.ssc
 
@@ -100,6 +100,7 @@ bin/http.ssc
 
 | | |
 |---|---|
+| [Project Summary](docs/project-summary.md) | One-page overview — what ScalaScript is, the five backends, and the headline capabilities |
 | [User Guide](docs/user-guide.md) | Installation, CLI commands, language basics, HTTP, effects, actors, Apache Spark, WebAssembly, frontend frameworks, cluster, x402 — practical day-to-day reference |
 | [Tutorial 1 — Todo API](docs/tutorial.md#tutorial-1-collaborative-todo-api) | Build a todo API step by step — data model → REST → auth → WebSocket → TLS → MCP |
 | [Tutorial 2 — Spark ETL](docs/tutorial.md#tutorial-2-etl-pipeline-with-apache-spark) | End-to-end Spark pipeline — `Dataset[T]` → `@SqlFn` UDF → `@TempView` → Delta Lake |
@@ -193,8 +194,10 @@ compiles them via Scala.js.
 | Pattern matching | `x match { case Some(n) => n; case None => 0 }` |
 | For comprehensions | `for x <- xs if x > 0 yield x * x` |
 | While loops | `while n > 0 do { ... }` |
-| Collections | `List`, `Map`, `Option`, `Set` with full method dispatch |
+| Collections | `List`, `Map`, `Option`, `Set`, `Vector`, `Array`, `LazyList`, `Seq`, `IndexedSeq`, `Iterable` — full method dispatch |
+| Real collection semantics | The interpreter models true Scala semantics — `Array` is mutable with reference identity (`a(i) = x`), `LazyList` is lazy (`#::` defers; infinite streams work), `Vector` is a distinct indexed type with O(log₃₂ n) access; constructors `Seq/Vector/Array/IndexedSeq/Iterable/LazyList(...)` + `.toSeq/.toVector/.toArray/.toList/.toLazyList` conversions |
 | Tuples | `val t = (1, "hello"); t._1` |
+| Bitwise operators | `a & b`, `a \| b`, `a ^ b`, `a << n`, `a >> n`, `a >>> n`, `~a` on `Int` |
 | String interpolation | `` s"Hello, $name" ``, `` md"..." `` (strips indent) |
 | Math | `math.sqrt`, `math.abs`, `math.pow`, `math.Pi`, … |
 | Extension methods | `extension (n: Int) def squared: Int = n * n` |
@@ -320,8 +323,8 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 |---------|--------|
 | Parser combinators | `runtime/std/parsing/*` — Parser ADT, `~/~>/~<`, rep, opt, sep, error recovery, indentation-aware |
 | Multi-pass pipelines | `runtime/std/dsl/*` — `Pass[A,B]`, `andThen/parallel/recover`, `Visitor`, `cata`, `ana` |
-| Metaprogramming | `inline def/val/if/match`, `compiletime.constValue/summonInline/error`, restricted quoted macro link/interpreter expansion (partial, with targeted unsupported-body diagnostics), interpreter `Mirror.Of[T]` custom derives |
-| Derives | `derives Eq/Show/Hash/Order/Foldable/Traversable/Functor` |
+| Metaprogramming | `inline def/val/if/match`, `compiletime.constValue/summonInline/error`. **Restricted quoted macros run on the interpreter, JVM, and JS backends** (`MacroCodegen.expand` pre-codegen pass), including `Expr.asValue match` compile-time constant folding and **cross-module** macro expansion, with targeted unsupported-body diagnostics; `ssc check` warns on interpreter-only macros. `Mirror.Of[T]` conformance + custom `derived(m: Mirror)` typeclasses (JVM + JS) |
+| Derives | `derives Eq/Show/Hash/Order/Foldable/Traversable/Functor`; structural stdlib + custom `derives` cross-backend (JVM + JS) |
 | Checked errors | `throws[A, E] = Either[E, A]`, `throwsRaw[A, E] = A \| E`, `attemptCatch`, `HasStackTrace` |
 
 ### Module system and tooling
@@ -334,7 +337,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | Dependency imports | `[X](dep:org/lib:1.2)` legacy source resolver, `[X](dep:org:name:version)` Coursier resolver, `[X](jitpack:com.github.owner:repo:tag)`, `[X](github:owner/repo@tag[#asset])`, `sha256:` pins, `ssc.lock` |
 | Project scaffolding | `ssc new my-app`, `--template lib|plugin|dsl|web-app|wasm-app`, bundled templates,`releases/install.sh`, Homebrew formula source |
 | Plugin system | `.sscpkg` format, `ssc plugin install/list/uninstall/check/pack`, `~/.scalascript/registry.yaml` |
-| sbt integration | `ScalascriptInteropPlugin`, `sscGenerateFacade`, `sscCompile`, `sscLink`, `sscTest`, `sscRun`, `sscRepl`, `sscWatch`, `sscBspSetup`, `src/main/scalascript/` source convention |
+| sbt integration | `ScalascriptInteropPlugin`, `sscGenerateFacade`, `sscCompile`, `sscLink`, `sscTest`, `sscRun`, `sscRepl`, `sscWatch`, `sscBspSetup`, `sscBackends` cross-build (emit JVM/JS/Rust/Wasm artifacts from one source), Phase 5 dependency resolution, `src/main/scalascript/` source convention |
 | Config system | `config:` front-matter, ` ```yaml config "name" ` fenced blocks, `config.files: [...]`, typed `derives Config`, `JsConfigEmitter`, `ScalaConfigEmitter` — see `specs/config-system.md` |
 | Separate compilation | `ssc emit-interface`, `ssc emit-ir`, `ssc compile-jvm/compile-js`, `ssc link`, `ssc build --incremental`, `.scim/.scir/.scjvm/.scjs`; `.scir` and `.sscc` preserve Markdown content snapshots when present |
 
@@ -355,7 +358,8 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | Fetch primitives | `fetchUrlSignal` — live GET binding (v2: real fetch + headers); `seedSignal` — editable draft seeded from another `Signal[String]` until user input makes it dirty, supported by the browser runtime and frontend emitters including JVM desktop; `fetchAction/fetchActionClear` — POST/PUT/DELETE on button click with optional `headers: Signal[String]` for bearer tokens; `dataTableView` over any `TableDataSource` — `staticRowsSource` (in-memory rows, no fetch), `signalRowsSource` (reactive rows signal), or a bare fetch signal (Remote) — on interpreter, JVM, and JS browser backends alike; `rowPostAction` bodies via `fieldPayload` / `wholeRowPayload` / `fieldsPayload`; `incSignal` — manual refresh; `emptyHeaders` sentinel |
 | Themes | `defaultTheme` (light) · `darkTheme` · custom `Theme(ColorPalette, SpacingScale, TypographyScale, RadiusScale)` |
 | Frontend Toolkit (v1.18 B+ / B++ / C) | High-level declarative UI via `Tk` facade (sbt API) — `vstack/hstack`, `card`, `textField`, `form` with validators, `router`, `modal/drawer/tabs`, `table`.  Backend-agnostic: lowers to React / Vue / Solid / Custom or to static HTML via `Ssr.renderToHtml`. |
-| WebAssembly target | `ssc emit-wasm file.ssc` — `scalascript` blocks lowered to Wasm; cross-backend `sql` fenced blocks supported |
+| WebAssembly target | `ssc emit-wasm file.ssc` — `scalascript` blocks lowered to Wasm; cross-backend `sql` fenced blocks supported. **Algebraic effects compile and run on Wasm** (arithmetic, collection HOFs, multi-shot resume, cross-module) via a pure-Scala effect runtime with no preamble bloat. `@wasm` extern FFI + cross-module inlining + macro expansion are wired |
+| Native Rust SSR server | `serve(view, port)` on the **Rust backend** (`ssc build-rust`) emits a self-contained `tokio` + `hyper` server with server-side rendering, a reactive **signal store**, **computed-signal live recompute**, **Server-Sent Events** push (`/__ssc/events`), and a **direct WebSocket** signal endpoint on `port + 1` — no JS framework, no Node runtime. See [`docs/rust-backend.md`](docs/rust-backend.md#web-toolkit-on-rust--reactive-serve) |
 | i18n | `translations:` frontmatter, `t(key)`, `setLocale(code)` |
 | Env access | `getenv(key)` / `getenv(key, default)` |
 | Content helpers | `doc(...)` / `render(...)` structured output |
@@ -556,6 +560,16 @@ accessed.  Scripts that never call a plugin skip the scan entirely.
 |--------|------------------------|
 | `hello.ssc` (no plugins) | ~0.31 s |
 | Script with HTTP/SQL/auth | ~0.35 s (scan runs on first access) |
+
+**Application Class-Data Sharing (AppCDS)** is enabled in `bin/ssc` and the
+`install.sh` launcher (`-XX:+AutoCreateSharedArchive`, JDK 19+; the archive is
+auto-created on first run and auto-recreated on classpath change — no build
+step). It cuts a fresh `ssc run hello.ssc` from **~378 ms → ~182 ms (−51%)** and
+peak RSS from **167 → 114 MB (−32%)**. Old JDKs ignore the flags; opt out with
+`SSC_NO_CDS=1`. Three `real-workload-perf` harnesses live under `tests/perf/`:
+`coldstart/` (fresh-run wall-clock + RSS), `serverrss/` (steady-state server RSS
++ leak detection — the interpreter server settles at ~195 MB with no climb), and
+GC-under-load.
 
 ### Microbenchmarks (`scripts/bench`)
 

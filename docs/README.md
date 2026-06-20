@@ -12,6 +12,7 @@ document by topic.
 
 ## Getting started & guides
 
+- [project-summary.md](project-summary.md) — Project Summary — one-page overview of the language, the five backends, and headline capabilities
 - [getting-started-standalone.md](getting-started-standalone.md) — Getting Started Standalone
 - [v2.0-getting-started.md](v2.0-getting-started.md) — v2.0 Separate Compilation — Getting Started
 - [tutorial.md](tutorial.md) — Tutorial 1: Collaborative Todo API
@@ -42,7 +43,7 @@ document by topic.
 
 - [architecture.md](architecture.md) — Architecture overview
 - [targets.md](targets.md) — Target Backends (index)
-- [rust-backend.md](rust-backend.md) — Rust target user guide (emit-rust / build-rust / run-rust + rust fence blocks)
+- [rust-backend.md](rust-backend.md) — Rust target user guide (emit-rust / build-rust / run-rust, rust fence blocks, + the reactive web toolkit `serve`: SSR + signals + SSE + WebSocket)
 - [typer-real-types-roadmap.md](typer-real-types-roadmap.md) — Typer real-type evidence roadmap
 - [modularity.md](modularity.md) — Modularity — three layers
 - [arch-library-modularity.md](arch-library-modularity.md) — Library Modularity spec
