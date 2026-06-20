@@ -1,0 +1,9 @@
+# Hello
+
+A trivial program: the cold-start harness measures time-to-completion of
+`ssc run hello.ssc`, which is dominated by JVM boot + classload + parse, not by
+the (negligible) work below. Keep it minimal.
+
+```scalascript
+println("hello")
+```

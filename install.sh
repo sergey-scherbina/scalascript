@@ -83,11 +83,29 @@ mkdir -p "$BIN"
 
 # Launcher: classpath-based, no fat jar needed.
 # bin/lib/jars/* holds runtime JARs; bin/lib/ssc.jar is the thin entry-point.
+# Keep this launcher in sync with the checked-in bin/ssc (AppCDS cold-start cut).
 cat > "$BIN/ssc" <<'LAUNCHER'
 #!/usr/bin/env bash
 _SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _SSC_ROOT="$(dirname "$_SSC_BIN")"
-exec java -Dssc.lib.path="$_SSC_ROOT" -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ssc.jar" scalascript.cli.ssc "$@"
+
+# AppCDS: mmap a class-data archive instead of parsing classes on every launch —
+# cuts `ssc` cold-start ~50%. Auto-created on first run (JDK 19+), auto-recreated
+# if the classpath changes; only CDS (NOT -XX:TieredStopAtLevel=1, which would hurt
+# long-running `ssc serve`). Old JDKs ignore the flags. Opt out with SSC_NO_CDS=1.
+_SSC_CDS_ARGS=()
+if [[ "${SSC_NO_CDS:-}" != "1" ]]; then
+  _SSC_CACHE="${SSC_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/scalascript}"
+  if mkdir -p "$_SSC_CACHE" 2>/dev/null; then
+    _SSC_CDS_ARGS=(-XX:+IgnoreUnrecognizedVMOptions \
+                   -XX:+AutoCreateSharedArchive \
+                   -XX:SharedArchiveFile="$_SSC_CACHE/ssc.jsa" \
+                   -Xlog:cds=off -Xlog:cds+dynamic=off)
+  fi
+fi
+
+exec java "${_SSC_CDS_ARGS[@]}" -Dssc.lib.path="$_SSC_ROOT" \
+  -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ssc.jar" scalascript.cli.ssc "$@"
 LAUNCHER
 chmod +x "$BIN/ssc"
 
