@@ -39,15 +39,16 @@ per-feature worktrees + claims.
       harness + AppCDS in `bin/ssc`/`install.sh` → cold-start **378 → 182 ms (−51%)**, peak RSS −32%. **(b)
       steady-state server RSS over hours + (c) GC under sustained load REMAIN** — need a long-running-server
       harness (start `ssc serve`, drive load, sample RSS/GC), a separate larger slice. BACKLOG `real-workload-perf`.
-- [ ] **xbackend-property-equivalence (full + CI)** — broaden the `CrossBackendPropertyTest` generator
-      (effects, Option/Either, nested data, closures-as-values; each needs per-class determinism care) and
-      wire it into CI as a standing interp==JVM==JS differential — the definitive guarantee for a
-      one-source-many-targets language. NOTE: the test spawns scala-cli/bloop and is flaky; harden it (see
-      next item) before/with CI wiring. BACKLOG `xbackend-property-equivalence`.
-- [ ] **xbackend-test-hardening** — `CrossBackendPropertyTest` spawns scala-cli/bloop, can hang
-      indefinitely, and a killed sbt corrupts the bloop daemon (observed firsthand during the foldtc work).
-      Add per-subprocess timeout guards + isolate/reuse bloop so a hang fails fast and doesn't poison later
-      runs. Dev-experience reliability; prerequisite for CI-wiring the differential.
+- [x] **xbackend-property-equivalence (full + CI)** ✓ DONE 2026-06-20 — broaden was already complete (12
+      kinds incl. effects/Option/Either/closures/nested; node leg 74 programs / 0 skipped) so the work was
+      reconciling that + **wiring into CI**: added Node.js setup to the `sbt` job so the interp==JS
+      differential now runs in CI (it was skipping). Made hang-safe first (next item). BACKLOG `xbackend-property-equivalence`.
+- [x] **xbackend-test-hardening** ✓ DONE 2026-06-20 — root cause was NOT bloop per se: `runProc` read
+      subprocess streams with blocking `mkString` BEFORE the bounded `awaitExit`, so a wedged child parked
+      the read forever (and could pipe-buffer-deadlock). Fixed via `ProcTestUtil.runCaptured` (threaded
+      stream drain + hard timeout that actually fires); `ProcTestUtilTest` proves a `sleep 60`@2s returns
+      <15s + a stderr flood doesn't deadlock. `CrossBackendPropertyTest.runProc` delegates. (~9 other test
+      files share the old antipattern but run fixed small programs — follow-up sweep, lower risk.)
 - [ ] **rust-web-toolkit finish** (external driver: rozum) — the in-flight feature: ~56 cargo
       type-reconciliation errors → 0 (TkNode/i64, String/Value, struct-field i64, curried-vararg call-site
       `vec![]`, `defaultTheme`), then S4 named/curried args + S5 signal reactivity. Concrete finish line,

@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-20 — test(xbackend): hang-proof subprocess runner + cross-backend differential in CI
+
+The cross-backend property differential (interp == JS(node) == JVM(scala-cli) over generated programs) is
+now standing in CI, after fixing the reliability bug that made it unsafe to run.
+
+- **Hardening:** `CrossBackendPropertyTest.runProc` read subprocess streams with blocking
+  `Source.fromInputStream(...).mkString` *before* the bounded `awaitExit`, so the read-to-EOF parked first —
+  a wedged scala-cli could hang the whole suite forever (observed firsthand), and a child flooding stderr
+  while we blocked on stdout could pipe-buffer-deadlock. New `ProcTestUtil.runCaptured` drains both streams
+  on daemon threads and applies a hard timeout that actually fires (force-kill → streams close → drain
+  threads finish). `ProcTestUtilTest` proves it: `sleep 60` bounded to 2s returns in <15s; a 5000-line
+  stderr flood doesn't deadlock.
+- **Broaden:** already complete — the generator covers 12 program kinds incl. effects / Option / Either /
+  closures-as-values / nested collections (the BACKLOG "REMAINING" list was stale); node leg verified at
+  74 programs, interp==JS, 0 skipped.
+- **CI:** the `sbt` job had only Java + sbt, so the test SKIPPED (`assume` node/scala-cli). Added Node.js
+  setup → the interp==JS differential now runs in CI, hang-safe via the timeout. The scala-cli JVM leg
+  stays gated (the Conformance job covers it).
+
 ## 2026-06-20 — perf(cli): AppCDS cuts `ssc` cold-start ~50% + cold-start harness
 
 `real-workload-perf` slice (a) — the cold-start axis `scripts/bench wall` deliberately excludes (it reports

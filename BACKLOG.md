@@ -503,9 +503,15 @@ The two active ones are in SPRINT (`compile-time-at-scale`, `xbackend-property-e
       **REMAINING:** (b) long-running-server steady-state RSS over hours, (c) GC under sustained load —
       both need a long-running-server harness (start `ssc serve`, drive load, sample RSS/GC), a separate
       larger slice. Complements `compile-time-at-scale` (the other unmeasured axis).
-- [ ] **xbackend-property-equivalence (full suite)** — slice 2 ✓ LANDED 2026-06-15 (broadened to 6 kinds: arith/List/match/enum/String/case-class; 48 JS + 6 JVM all agree). REMAINING: effects, Option/Either, nested data, closures-as-values (each needs per-class determinism care); wire into CI. ORIGINAL — beyond SPRINT slice 1: broaden the generator to
-      collections, ADTs, pattern matching, effects, closures; wire it into CI as a standing cross-backend
-      differential. The definitive guarantee for a one-source-many-targets language.
+- [x] **xbackend-property-equivalence (full suite)** ✓ DONE 2026-06-20. **Broaden:** already complete —
+      the generator is at **12 kinds** incl. arith/List/match/enum/String/case-class/Option/Either/closures/
+      nested-coll/string-ops/**effects** (the "REMAINING" list was stale); node leg verified 74 programs,
+      interp==JS, 0 skipped. **CI-wired:** the `sbt` CI job had only Java+sbt so `CrossBackendPropertyTest`
+      SKIPPED (assume node/scala-cli) — added Node.js setup so the interp==JS differential now runs in CI.
+      **Made CI-safe first** (see `xbackend-test-hardening`): `ProcTestUtil.runCaptured` gives the subprocess
+      runner a hard timeout that actually fires + deadlock-free stream draining, so a wedged scala-cli/node
+      fails fast instead of hanging the job. The interp==JVM(scala-cli) leg stays gated (Conformance job
+      covers it). Definitive cross-backend guarantee now standing in CI.
 - [ ] **registry.scalascript.io (remote package registry)** — the strategic platform move: the SPI +
       `.sscpkg` + `pkg:` resolver + `ssc install` are all built and local-only; a remote registry is the
       missing piece to unlock the third-party plugin ecosystem the SPI was designed for. Product decision
