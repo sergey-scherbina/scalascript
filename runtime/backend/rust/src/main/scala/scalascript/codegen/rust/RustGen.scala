@@ -52,7 +52,7 @@ object RustGen:
     val wsUsage     = scanWsUsage(astModule)
     val mcpUsage    = scanMcpUsage(astModule)
     val uiUsage     = scanUiUsage(astModule)
-    val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage)
+    val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage, uiUsage)
 
     RustCodeWalk.walk(astModule, intrinsics) match
       case Left(diags) =>
@@ -65,7 +65,7 @@ object RustGen:
         // annotated def, fall back to [lib].
         val cargoTomlFinal =
           if effectiveBin == hasMain then cargoToml
-          else renderCargoToml(crateName, version, descr, effectiveBin, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage)
+          else renderCargoToml(crateName, version, descr, effectiveBin, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage, uiUsage)
         val generatedMod = renderGeneratedMod(crateName)
         val rootFile     =
           if effectiveBin then renderMainRs(crateName, entry.get)
@@ -326,7 +326,8 @@ object RustGen:
       httpUsage:   Boolean     = false,
       authUsage:   Set[String] = Set.empty,
       wsUsage:     Set[String] = Set.empty,
-      mcpUsage:    Set[String] = Set.empty
+      mcpUsage:    Set[String] = Set.empty,
+      uiUsage:     Boolean     = false
   ): String =
     val descrLine = descr match
       case Some(d) => s"""description = "${escapeTomlString(d)}"
@@ -355,9 +356,10 @@ object RustGen:
       depLines += "argon2 = \"0.5\""
       depLines += "jsonwebtoken = \"9\""
       depLines += "serde = { version = \"1\", features = [\"derive\"] }"
-    // R.6 — WebSocket deps (tokio-tungstenite + futures-util).
-    // Tokio is only added when HTTP is not also present (HTTP already adds it).
-    if wsUsage.nonEmpty then
+    // R.6 — WebSocket deps (tokio-tungstenite + futures-util). Also added for
+    // a `serve(view, …)` UI program: it exposes a direct-WS signal endpoint.
+    // Dedup is by the Set below; tokio is added by the http/ui path already.
+    if wsUsage.nonEmpty || uiUsage then
       depLines += "tokio-tungstenite = \"0.21\""
       depLines += "futures-util = \"0.3\""
       if !httpUsage then

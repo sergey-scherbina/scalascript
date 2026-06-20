@@ -1084,6 +1084,49 @@ object RustRuntimeTemplates:
       |/// `serve(view, port)` — SSR the View tree once, then serve it (with a tiny reactivity
       |/// runtime) plus `/__ssc/state` (signal JSON) and `/__ssc/push` (server-side update).
       |#[allow(dead_code)]
+      |// direct-WS signal transport: a WebSocket server on `ws_port` (http port + 1) for
+      |// external/programmatic clients (the rozum bridge). Bidirectional + shares the same
+      |// store/broadcast/recompute as SSE: on connect it sends the current state JSON and then
+      |// streams every update; each incoming text frame `name=value` SETS a signal (→ recompute
+      |// + broadcast), so a WS client both observes and drives signals.
+      |async fn ssc_ws_serve(ws_port: u16) {
+      |    use futures_util::{SinkExt, StreamExt};
+      |    use tokio_tungstenite::tungstenite::Message;
+      |    let addr = SocketAddr::from(([0, 0, 0, 0], ws_port));
+      |    let listener = match TcpListener::bind(addr).await {
+      |        Ok(l) => l,
+      |        Err(e) => { eprintln!("signal ws bind {}: {}", ws_port, e); return; }
+      |    };
+      |    eprintln!("Signal WS on ws://{}", listener.local_addr().unwrap());
+      |    loop {
+      |        let (stream, _) = match listener.accept().await { Ok(p) => p, Err(_) => continue };
+      |        tokio::spawn(async move {
+      |            let ws = match tokio_tungstenite::accept_async(stream).await { Ok(w) => w, Err(_) => return };
+      |            let (mut tx, mut rx) = ws.split();
+      |            if tx.send(Message::Text(ssc_state_json())).await.is_err() { return; }
+      |            let mut sub = ssc_events().subscribe();
+      |            loop {
+      |                tokio::select! {
+      |                    incoming = rx.next() => match incoming {
+      |                        Some(Ok(Message::Text(t))) => {
+      |                            if let Some(eq) = t.find('=') {
+      |                                let (n, v) = (t[..eq].to_string(), t[eq + 1..].to_string());
+      |                                if !n.is_empty() { ssc_set_and_notify(n, v); }
+      |                            }
+      |                        }
+      |                        Some(Ok(_)) => {}
+      |                        _ => break,
+      |                    },
+      |                    update = sub.recv() => match update {
+      |                        Ok(json) => { if tx.send(Message::Text(json)).await.is_err() { break; } }
+      |                        Err(_)   => {}
+      |                    },
+      |                }
+      |            }
+      |        });
+      |    }
+      |}
+      |
       |pub fn _ui_serve(tree: crate::runtime::ui::View, port: i64) {
       |    let body = crate::runtime::ui::_ui_render(tree);
       |    let html = Arc::new(format!(
@@ -1095,6 +1138,9 @@ object RustRuntimeTemplates:
       |        let listener = TcpListener::bind(addr).await
       |            .unwrap_or_else(|e| panic!("serve(view, {}): {}", port, e));
       |        eprintln!("Listening on http://{}", listener.local_addr().unwrap());
+      |        // direct-WS signal endpoint for external/programmatic clients (e.g. the rozum
+      |        // bridge), on http port + 1. Shares the store/broadcast/recompute with SSE.
+      |        tokio::spawn(ssc_ws_serve((port as u16).wrapping_add(1)));
       |        loop {
       |            let (stream, _) = listener.accept().await
       |                .unwrap_or_else(|e| panic!("accept: {}", e));

@@ -249,6 +249,26 @@ class RustGenWebToolkitTest extends AnyFunSuite:
     assert(strProg.contains("loc.signal_value().show()") && !strProg.contains("loc.signal_value().show().parse"),
       s"a Signal[String] read should stay .show(), got:\n$strProg")
 
+  test("direct-WS signal endpoint: serve(view) exposes a bidirectional WS transport (S5)"):
+    val src =
+      """```scalascript
+        |@main def run(): Unit =
+        |  serve(element("div", Map(), Map(), List(signalText(signal("c", "0")))), 8240)
+        |```
+        |""".stripMargin
+    val a = assets(src)
+    val http = a("src/runtime/http.rs")
+    // a WS server on http port + 1, integrated with the signal store/broadcast/recompute.
+    assert(http.contains("async fn ssc_ws_serve") && http.contains("tokio_tungstenite::accept_async") &&
+           http.contains("tokio::spawn(ssc_ws_serve("),
+      s"serve(view) should spawn a direct-WS signal endpoint, got:\n$http")
+    assert(http.contains("ssc_set_and_notify(n, v)"),
+      "an incoming WS frame `name=value` should set+recompute the signal")
+    // deps for the WS endpoint are pulled in for a UI serve program.
+    val cargo = a("Cargo.toml")
+    assert(cargo.contains("tokio-tungstenite") && cargo.contains("futures-util"),
+      s"a serve(view) program should pull the WS deps, got:\n$cargo")
+
   test("renderHtml(view) wires the SSR render entry"):
     val src =
       """```scalascript
