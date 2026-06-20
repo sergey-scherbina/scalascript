@@ -62,6 +62,45 @@ SSE, computed-read compile+SSR all DONE). Remaining, priority order:
       `signal("n", 10)` + `n() + 5` → `15`. `backendRust` 225/0. **Whole rust-web S5 done except direct-WS
       (now low-value — SSE supersedes).**
 
+### ▶ Improvement queue (2026-06-20, with Sergiy — "занеси все в спринт и делай")
+
+Fresh do-soon queue after rust-web S5 closed. Work top-to-bottom, one claim/worktree per slice. Maven Central
+publication remains explicit-go only; the registry work below is intentionally domain-independent first.
+
+- [ ] **wasm-main-edge** — close the last small WASM effects tail: `@main` with CLI args and non-`Unit`
+      return values should compile/link/run consistently instead of being left as an undocumented backend
+      edge. **How:** read the global spec plus the existing WASM/effects notes (`SPEC.md`, this file's
+      `wasm-effects` entry, and the relevant WASM backend tests), write/commit a focused
+      `specs/wasm-main-edge.md`, then make an additive wasm-only change in `runtime/backend/wasm/`.
+      **Verify:** targeted `backendWasm/testOnly` for the new `@main` cases and the existing WASM test suite
+      slice that covers effects/main wiring. **Done when:** the spec behavior checkboxes are covered by tests
+      and the `wasm-effects` entry can be marked fully complete.
+- [ ] **stable-plugin-spi-p3** — finish the remaining Phase 3 cleanup around stable plugin/SPI boundaries.
+      **How:** read `specs/arch-stable-spi.md`; inventory direct `scalascript.interpreter.*` imports in
+      `runtime/std/*/*Intrinsics.scala`; migrate one low-risk plugin or add a boundary/classpath regression
+      that locks the intended rule. Keep this as small shippable slices, not a broad refactor. **Verify:**
+      affected plugin tests plus the smallest relevant backend/interpreter suite.
+- [ ] **js-char-wrapper-string-map** — fix the open JS cross-backend character semantics bug:
+      `"abc".map(_.toInt)` must return `Seq[Int]` while char-to-char mapping may still optimize back to a
+      `String`. **How:** use the `bugs` skill before starting; update `BUGS.md`; reproduce through the real
+      cross-backend harness; add/adjust `CrossBackendPropertyTest` coverage; implement a JS `Char` wrapper or
+      equivalent representation that preserves `Char` methods without coercing all mapped results to strings.
+      **Verify:** targeted cross-backend property test and a minimal JS/backend run.
+- [ ] **remote-registry-mvp** — create a remote registry MVP that does **not** require registering a domain.
+      **How:** extend/reconcile `specs/arch-registry.md` and `specs/arch-build-registry.md` around a static
+      registry index layout, validation, and publish flow that can be hosted at a GitHub Pages project URL
+      first (for example `https://<owner>.github.io/<repo>/`) and later moved behind a custom domain without
+      changing package metadata. Avoid Maven in this slice. **Verify:** local validation command/test over the
+      registry seed plus a documented default/fallback registry URL strategy.
+- [ ] **registry-domain-hosting-decision** — document the registry domain + hosting decision separately from
+      implementation. **Working recommendation:** start on GitHub Pages/project URL without a domain; later
+      attach `registry.scalascript.io` (or another chosen subdomain) via DNS/CNAME when the name is final.
+      **Research refs:** GitHub Pages supports project sites at `*.github.io/<repo>` and custom domains/HTTPS;
+      Cloudflare Pages supports Git-backed deploys and custom domains; Cloudflare Registrar can register
+      domains at-cost if the base domain is not already owned. **Done when:** the spec records Phase A
+      (no-domain static registry), Phase B (custom subdomain), DNS/HTTPS notes, and the rejected alternative
+      "block registry MVP on domain purchase".
+
 - [x] **real-workload-perf** (roadmap-next #1) ✓ DONE 2026-06-20 (all three axes). **(a) cold-start:**
       `tests/perf/coldstart/` + AppCDS in `bin/ssc`/`install.sh` → **378 → 182 ms (−51%)**, peak RSS −32%.
       **(b)+(c) steady-state RSS + GC:** `tests/perf/serverrss/` boots a real server under load → interp
