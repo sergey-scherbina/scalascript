@@ -52,16 +52,15 @@ per-feature worktrees + claims.
 The rust-web S5 refinements turned out to be autonomously buildable + curl/cargo-verifiable (set/toggle,
 SSE, computed-read compile+SSR all DONE). Remaining, priority order:
 
-- [ ] **computed-live-recompute** — computed signals now compile + SSR the dep value, but aren't reactive
-      (the span is anonymous `data-ssc-text=""`). Make them live: name the computed signal + a server-side
-      re-runnable closure registry + **store-backed reads** (`signal_value` reads `ssc_signals()`), re-run on
-      push + broadcast (SSE transport already built). Crux: the store is in http.rs but signal_value in
-      value.rs → move the store to a shared module. Verify cargo + curl (push a dep → computed value updates).
-      **← building now.**
-- [ ] **computed-typed-reads** — the signal read currently lowers to `loc.signal_value().show()` (assumes
-      `Signal[String]`). A `Signal[Int]` read in an arithmetic context would mismatch. Track the signal's
-      element type (from the `signal(name, default)` literal or `Signal[T]` annotation) and emit the right
-      coercion. Smaller follow-up.
+- [x] **computed-live-recompute** ✓ DONE 2026-06-20 — computed signals are now fully reactive. Moved the
+      signal store to `value.rs` (so `signal_value` can read it) + a computed-closure registry +
+      `ssc_register_computed`/`ssc_recompute_all`; `_ui_computed_signal` is a re-runnable `Fn` returning a
+      NAMED signal; `/__ssc/push` recomputes before broadcasting (SSE). **Verified cargo+curl:** push a dep →
+      the computed signal auto-updates (`{"__c0":"fr"}` → `{"__c0":"de"}`). `backendRust` 224/0.
+- [x] **computed-typed-reads** ✓ DONE 2026-06-20 — `collectLocalSignals` carries the element type; the apply
+      emits `.parse::<i64>()`/`.parse::<f64>()` for `Signal[Int]`/`[Double]`, `.show()` for String. Verified:
+      `signal("n", 10)` + `n() + 5` → `15`. `backendRust` 225/0. **Whole rust-web S5 done except direct-WS
+      (now low-value — SSE supersedes).**
 
 - [x] **real-workload-perf** (roadmap-next #1) ✓ DONE 2026-06-20 (all three axes). **(a) cold-start:**
       `tests/perf/coldstart/` + AppCDS in `bin/ssc`/`install.sh` → **378 → 182 ms (−51%)**, peak RSS −32%.

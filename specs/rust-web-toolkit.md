@@ -262,16 +262,27 @@ SSR at the primitive level first (no library needed), then layer the widget libr
      `.show()` yields the value's String form — `Signal[String]` is the UI/i18n signal type and
      `computedSignal` takes `() => String`. VERIFIED: `computedSignal(() => loc())` cargo-builds and the
      binary SSRs `signal("locale","fr")` → `…<span data-ssc-text="">fr</span>…`; `backendRust` 223/0.
-     **REMAINING — live recompute** (the client picks up dep changes): the computed span is still anonymous
-     (`data-ssc-text=""`), so name the computed signal + a server-side re-runnable closure registry +
-     **store-backed reads** (`signal_value` reading `ssc_signals()`, which crosses the value.rs↔http.rs
-     module boundary) + re-run on push (SSE already broadcasts). Typed non-String signal reads (arithmetic
-     on a `Signal[Int]`) are also a follow-up (`.show()` assumes String). (`seedSignal` already fine — named.)
+   - **computed-signal LIVE recompute ✓ DONE 2026-06-20.** Computed signals are now fully reactive: a
+     derived signal recomputes server-side when a dependency changes and streams to clients via SSE. The
+     signal store moved to `value.rs` (so `Value::signal_value` can read it; `http.rs`
+     `use crate::value::{ssc_signals, ssc_recompute_all}`); value.rs gained a computed-closure registry
+     (`Vec<(name, Box<dyn Fn() -> String + Send + Sync>)>`) + `ssc_register_computed` (name `__cN`, seed,
+     register) + `ssc_recompute_all`. `signal_value` is store-backed (named signal reads the live store,
+     inline fallback). `_ui_signal` seeds the store; `_ui_computed_signal` is `F: Fn(…)` (re-runnable),
+     registers, returns a NAMED signal so `signalText` emits `data-ssc-text="__cN"`. `/__ssc/push` calls
+     `ssc_recompute_all()` before broadcasting. VERIFIED end-to-end (cargo+curl): a server with
+     `signal("locale","fr")` + `computedSignal(() => loc())` returns `{"__c0":"fr","locale":"fr"}`, and after
+     `push locale=de` returns `{"__c0":"de","locale":"de"}`. `backendRust` 224/0.
+   - **typed signal reads ✓ DONE 2026-06-20.** The store is String-valued, so a `Signal[Int]` read in
+     arithmetic now coerces: `collectLocalSignals` carries the element type (from `Signal[T]` annotation or
+     the `signal(name, default)` literal), and the apply emits `.show()` for String, `.parse::<i64>()`/
+     `.parse::<f64>().unwrap_or_default()` for Int/Double. Verified: `signal("n", 10)` + `n() + 5` → `15`;
+     `backendRust` 225/0. (`seedSignal` already fine — named signal, poll/SSE updates it.)
    - **direct-WS client — LOW VALUE now.** Was for server→client push; **SSE now provides that** (and
      external→server is already `/__ssc/push`). A WS endpoint would be SSE-over-WS for marginal benefit +
      the upgrade-handshake complexity; rozum-bridge-specific. Superseded for the push direction.
-   **set/toggle (DONE) + SSE (DONE) were the genuinely-buildable refinements; computed-recompute is the one
-   real remaining feature (deep), direct-WS is now low-value.**
+   **set/toggle, SSE, computed (compile+SSR + live recompute), and typed reads all DONE + verified
+   (cargo/curl). Only direct-WS remains, and it's now low-value (superseded by SSE).**
 
 Prereq landed: **I1** `s"…${expr}…"` compound splices (`RustGenWebToolkitTest` 3/3).
 

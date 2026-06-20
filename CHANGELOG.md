@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-20 — feat(rust-web): computed-signal LIVE recompute + typed signal reads (S5)
+
+Computed signals on the Rust backend are now **fully reactive**, completing the S5 work. A derived signal
+recomputes server-side when a dependency changes and the new value streams to clients via the SSE transport.
+The signal store moved to `value.rs` so `Value::signal_value` can read it (store-backed reads); value.rs
+gained a computed-closure registry + `ssc_register_computed`/`ssc_recompute_all`; `_ui_computed_signal` is
+now a re-runnable `Fn` that registers + returns a NAMED signal (`data-ssc-text="__cN"`); `/__ssc/push`
+recomputes before broadcasting. Verified end-to-end (cargo+curl): `signal("locale","fr")` +
+`computedSignal(() => loc())` returns `{"__c0":"fr","locale":"fr"}`, and after `push locale=de` returns
+`{"__c0":"de","locale":"de"}` — the computed signal auto-recomputed.
+
+Also: **typed signal reads** — the store is String-valued, so a `Signal[Int]` read in arithmetic now coerces
+(`collectLocalSignals` carries the element type; the apply emits `.parse::<i64>()`/`.parse::<f64>()` for
+Int/Double, `.show()` for String). `signal("n", 10)` + `n() + 5` → renders `15`. `backendRust` 225/0 — no
+regression. The only remaining S5 item is direct-WS, now low-value (SSE supersedes it).
+
 ## 2026-06-20 — feat(rust-web): computed signal reading another signal compiles + SSRs (S5)
 
 The foundational computed-recompute fix. A computed signal that reads another signal —
