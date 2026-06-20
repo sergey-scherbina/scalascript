@@ -405,9 +405,11 @@ object RustRuntimeTemplates:
       |    pub exitCode: i64,
       |}
       |
-      |#[allow(dead_code)]
-      |pub fn _exec(cmd: &str, args: Vec<String>) -> ProcessResult {
-      |    let out = std::process::Command::new(cmd)
+      |// `_opts` is the std/process `ProcessOptions` (cwd/env/timeout) — accepted to match the
+      |// 3-arg `exec(cmd, args, opts)` surface; cwd/env/timeout aren't applied yet.
+      |#[allow(dead_code, unused_variables)]
+      |pub fn _exec<O>(cmd: String, args: Vec<String>, _opts: O) -> ProcessResult {
+      |    let out = std::process::Command::new(&cmd)
       |        .args(&args)
       |        .output()
       |        .unwrap_or_else(|e| panic!("exec({}): {}", cmd, e));
@@ -926,7 +928,7 @@ object RustRuntimeTemplates:
       |use std::sync::{Arc, Mutex};
       |use std::net::SocketAddr;
       |use bytes::Bytes;
-      |use http_body_util::Full;
+      |use http_body_util::{BodyExt, Full};
       |use hyper::{Request, Response, StatusCode};
       |use hyper::body::Incoming;
       |use hyper::server::conn::http1;
@@ -986,16 +988,33 @@ object RustRuntimeTemplates:
       |) -> Result<Response<Full<Bytes>>, hyper::Error> {
       |    let method = req.method().to_string();
       |    let path   = req.uri().path().to_owned();
-      |    let guard  = routes().lock().unwrap();
-      |    for (m, p, h) in guard.iter() {
-      |        if m == &method && p == &path {
-      |            let body = h(&path);
-      |            return Ok(Response::builder()
-      |                .status(StatusCode::OK)
-      |                .header("Content-Type", "text/plain; charset=utf-8")
-      |                .body(Full::new(Bytes::from(body)))
-      |                .unwrap());
-      |        }
+      |    // Read the body so POST/PUT handlers see what was submitted; GET/HEAD handlers still
+      |    // receive the path (routing is by exact method+path, so the handler keeps its context).
+      |    let body_bytes = req.into_body().collect().await.map(|c| c.to_bytes()).unwrap_or_default();
+      |    let arg = if method == "GET" || method == "HEAD" {
+      |        path.clone()
+      |    } else {
+      |        String::from_utf8_lossy(&body_bytes).into_owned()
+      |    };
+      |    let out = {
+      |        let guard = routes().lock().unwrap();
+      |        guard.iter()
+      |            .find(|(m, p, _)| m == &method && p == &path)
+      |            .map(|(_, _, h)| h(&arg))
+      |    };
+      |    if let Some(body) = out {
+      |        // Auto-detect HTML so a route can return a rendered page (toolkit SSR), not
+      |        // just plain text — keeps `route` usable as a dynamic page handler.
+      |        let ctype = if body.trim_start().starts_with('<') {
+      |            "text/html; charset=utf-8"
+      |        } else {
+      |            "text/plain; charset=utf-8"
+      |        };
+      |        return Ok(Response::builder()
+      |            .status(StatusCode::OK)
+      |            .header("Content-Type", ctype)
+      |            .body(Full::new(Bytes::from(body)))
+      |            .unwrap());
       |    }
       |    Ok(Response::builder()
       |        .status(StatusCode::NOT_FOUND)

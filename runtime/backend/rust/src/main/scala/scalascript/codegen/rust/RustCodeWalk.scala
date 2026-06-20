@@ -869,15 +869,21 @@ object RustCodeWalk:
   private def collectLocalSeqs(body: m.Term): (Set[String], Set[String]) =
     val seqs   = scala.collection.mutable.Set.empty[String]
     val arrays = scala.collection.mutable.Set.empty[String]
+    // Methods that yield an indexable (immutable) seq, so `val xs = e.split(",")` / `.toList`
+    // makes `xs(i)` lower to `xs[(i) as usize]`.
+    val SeqMethods = Set("split", "toList", "toArray", "toVector", "toSeq", "toIndexedSeq")
     def seqCtor(rhs: m.Term): Option[Boolean] = rhs match  // Some(isArray) iff a seq ctor
       case m.Term.Apply.After_4_6_0(fn, _) =>
         val nm = fn match
           case m.Term.Name(n) => n
           case m.Term.ApplyType.After_4_6_0(m.Term.Name(n), _) => n
+          case m.Term.Select(_, m.Term.Name(n)) => n   // a method call: `.split(...)` / `.toList(...)`
           case _ => ""
         if nm == "Array" then Some(true)
-        else if nm == "Vector" || nm == "List" then Some(false)
+        else if nm == "Vector" || nm == "List" || SeqMethods.contains(nm) then Some(false)
         else None
+      // No-arg seq conversions: `e.toList` / `e.toArray`.
+      case m.Term.Select(_, m.Term.Name(n)) if SeqMethods.contains(n) => Some(false)
       case _ => None
     def record(n: String, rhs: m.Term): Unit =
       seqCtor(rhs).foreach { isArr => seqs += n; if isArr then arrays += n }
