@@ -38,6 +38,18 @@ needs a proper entry point:
   println("Hello from WebAssembly!")
 ```
 
+For effectful ScalaScript modules, the backend lowers effects through the JVM CPS
+emitter and then adds a synthetic Scala.js `@main` wrapper. That wrapper preserves
+the two supported executable entry shapes:
+
+```scalascript
+@main def run(): A
+@main def run(args: Array[String]): A
+```
+
+The synthetic wrapper always returns `Unit`; if the user entry returns a value,
+the wrapper evaluates and discards it.
+
 Top-level statements without `@main` are not executable in `.wasm` output.
 Top-level definitions (case classes, defs, vals) are fine alongside `@main`.
 
