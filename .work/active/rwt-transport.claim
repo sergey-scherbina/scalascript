@@ -1,6 +1,0 @@
-feature/rwt-transport 2026-06-20T14:19:45Z
-agent: claude
-heartbeat: 2026-06-20T14:19:45Z
-status: in-progress
-done-so-far: building rust-web deferred refinements — SSE streaming, computed recompute, direct-WS; server-verifiable via curl
-next: study server+signal runtime; build SSE first (curl-verify), then computed recompute, then assess direct-WS
