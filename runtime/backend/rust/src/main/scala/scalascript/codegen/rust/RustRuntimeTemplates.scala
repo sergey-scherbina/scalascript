@@ -717,7 +717,7 @@ object RustRuntimeTemplates:
       |//  (3) server-push — poll `/__ssc/state` and patch `[data-ssc-text]` from server-side
       |//      signal updates (e.g. a new chat message pushed to `/__ssc/push`).
       |#[allow(dead_code)]
-      |pub const _UI_CLIENT_SCRIPT: &str = "<script>var _sscState={};function _sscSet(n,v){_sscState[n]=v;document.querySelectorAll('[data-ssc-text=\"'+n+'\"]').forEach(function(el){el.textContent=v;});}function _sscPush(n,v){try{fetch('/__ssc/push?name='+encodeURIComponent(n)+'&value='+encodeURIComponent(v));}catch(e){}}document.addEventListener('input',function(e){var n=e.target.getAttribute('data-ssc-input');if(n==null)return;_sscSet(n,e.target.value);});document.addEventListener('click',function(e){var s=e.target.getAttribute('data-ssc-set');if(s!=null){var i=s.indexOf(':');var n=s.slice(0,i);var v=s.slice(i+1);_sscSet(n,v);_sscPush(n,v);}var t=e.target.getAttribute('data-ssc-toggle');if(t!=null){var nv=(_sscState[t]==='true'||_sscState[t]===true)?'false':'true';_sscSet(t,nv);_sscPush(t,nv);}});setInterval(function(){fetch('/__ssc/state').then(function(r){return r.json();}).then(function(s){for(var n in s){_sscSet(n,s[n]);}}).catch(function(){});},1000);</script>";
+      |pub const _UI_CLIENT_SCRIPT: &str = "<script>var _sscState={};function _sscSet(n,v){_sscState[n]=v;document.querySelectorAll('[data-ssc-text=\"'+n+'\"]').forEach(function(el){el.textContent=v;});}function _sscPush(n,v){try{fetch('/__ssc/push?name='+encodeURIComponent(n)+'&value='+encodeURIComponent(v));}catch(e){}}document.addEventListener('input',function(e){var n=e.target.getAttribute('data-ssc-input');if(n==null)return;_sscSet(n,e.target.value);});document.addEventListener('click',function(e){var s=e.target.getAttribute('data-ssc-set');if(s!=null){var i=s.indexOf(':');var n=s.slice(0,i);var v=s.slice(i+1);_sscSet(n,v);_sscPush(n,v);}var t=e.target.getAttribute('data-ssc-toggle');if(t!=null){var nv=(_sscState[t]==='true'||_sscState[t]===true)?'false':'true';_sscSet(t,nv);_sscPush(t,nv);}});function _sscApply(s){for(var n in s){_sscSet(n,s[n]);}}if(typeof EventSource!=='undefined'){var _es=new EventSource('/__ssc/events');_es.onmessage=function(e){try{_sscApply(JSON.parse(e.data));}catch(_){}};}else{setInterval(function(){fetch('/__ssc/state').then(function(r){return r.json();}).then(_sscApply).catch(function(){});},1000);}</script>";
       |
       |/// Render a `View` to an HTML string (SSR).  Takes the tree by value so it
       |/// can be the tail of an SSR entry (`renderHtml(view)`); recursion borrows
@@ -953,9 +953,33 @@ object RustRuntimeTemplates:
       |fn ssc_signals() -> &'static Mutex<std::collections::HashMap<String, String>> {
       |    SSC_SIGNALS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
       |}
+      |// SSE push transport: a broadcast channel carrying the full signal-state JSON.
+      |// `/__ssc/push` (and `_ui_broadcast_signal`) send on it; `/__ssc/events` streams
+      |// `data: <json>\n\n` to every connected client, so updates arrive immediately
+      |// instead of on the next 1 s poll. The poll endpoint stays as a fallback.
+      |static SSC_EVENTS: std::sync::OnceLock<tokio::sync::broadcast::Sender<String>> =
+      |    std::sync::OnceLock::new();
+      |fn ssc_events() -> &'static tokio::sync::broadcast::Sender<String> {
+      |    SSC_EVENTS.get_or_init(|| tokio::sync::broadcast::channel::<String>(64).0)
+      |}
+      |// Snapshot the signal store as a JSON object string (shared by /__ssc/state and
+      |// the SSE broadcast).
+      |fn ssc_state_json() -> String {
+      |    let m = ssc_signals().lock().unwrap();
+      |    let entries: Vec<String> = m.iter()
+      |        .map(|(k, v)| format!("{}:{}", ssc_json_escape(k), ssc_json_escape(v)))
+      |        .collect();
+      |    format!("{{{}}}", entries.join(","))
+      |}
+      |// Update a signal and notify SSE subscribers. `let _ =` on send: an error just
+      |// means no clients are currently subscribed, which is fine.
+      |fn ssc_set_and_notify(name: String, value: String) {
+      |    ssc_signals().lock().unwrap().insert(name, value);
+      |    let _ = ssc_events().send(ssc_state_json());
+      |}
       |#[allow(dead_code)]
       |pub fn _ui_broadcast_signal(name: String, value: String) {
-      |    ssc_signals().lock().unwrap().insert(name, value);
+      |    ssc_set_and_notify(name, value);
       |}
       |fn ssc_json_escape(s: &str) -> String {
       |    let mut o = String::with_capacity(s.len() + 2);
@@ -1016,34 +1040,52 @@ object RustRuntimeTemplates:
       |                let svc = service_fn(move |req: Request<Incoming>| {
       |                    let page = page.clone();
       |                    async move {
+      |                        use http_body_util::BodyExt;
+      |                        type SscBody = http_body_util::combinators::BoxBody<Bytes, std::convert::Infallible>;
       |                        let path = req.uri().path().to_owned();
-      |                        let (ctype, payload) = if path == "/__ssc/state" {
-      |                            let m = ssc_signals().lock().unwrap();
-      |                            let entries: Vec<String> = m.iter()
-      |                                .map(|(k, v)| format!("{}:{}", ssc_json_escape(k), ssc_json_escape(v)))
-      |                                .collect();
-      |                            ("application/json", format!("{{{}}}", entries.join(",")))
-      |                        } else if path == "/__ssc/push" {
-      |                            let q = req.uri().query().unwrap_or("").to_owned();
-      |                            let (mut name, mut value) = (String::new(), String::new());
-      |                            for kv in q.split('&') {
-      |                                let mut it = kv.splitn(2, '=');
-      |                                match (it.next(), it.next()) {
-      |                                    (Some("name"),  Some(v)) => name  = ssc_urldecode(v),
-      |                                    (Some("value"), Some(v)) => value = ssc_urldecode(v),
-      |                                    _ => {}
-      |                                }
-      |                            }
-      |                            if !name.is_empty() { ssc_signals().lock().unwrap().insert(name, value); }
-      |                            ("text/plain; charset=utf-8", "ok".to_string())
+      |                        let resp: Response<SscBody> = if path == "/__ssc/events" {
+      |                            // Server-Sent Events: push signal-state updates immediately.
+      |                            use tokio_stream::StreamExt;
+      |                            let rx = ssc_events().subscribe();
+      |                            let initial = tokio_stream::once(Ok::<_, std::convert::Infallible>(
+      |                                hyper::body::Frame::data(Bytes::from(
+      |                                    format!("data: {}\n\n", ssc_state_json())))));
+      |                            let updates = tokio_stream::wrappers::BroadcastStream::new(rx)
+      |                                .filter_map(|m| m.ok().map(|json| Ok::<_, std::convert::Infallible>(
+      |                                    hyper::body::Frame::data(Bytes::from(format!("data: {}\n\n", json))))));
+      |                            let body = http_body_util::StreamBody::new(initial.chain(updates));
+      |                            Response::builder()
+      |                                .status(StatusCode::OK)
+      |                                .header("Content-Type", "text/event-stream")
+      |                                .header("Cache-Control", "no-cache")
+      |                                .body(body.boxed())
+      |                                .unwrap()
       |                        } else {
-      |                            ("text/html; charset=utf-8", (*page).clone())
+      |                            let (ctype, payload) = if path == "/__ssc/state" {
+      |                                ("application/json", ssc_state_json())
+      |                            } else if path == "/__ssc/push" {
+      |                                let q = req.uri().query().unwrap_or("").to_owned();
+      |                                let (mut name, mut value) = (String::new(), String::new());
+      |                                for kv in q.split('&') {
+      |                                    let mut it = kv.splitn(2, '=');
+      |                                    match (it.next(), it.next()) {
+      |                                        (Some("name"),  Some(v)) => name  = ssc_urldecode(v),
+      |                                        (Some("value"), Some(v)) => value = ssc_urldecode(v),
+      |                                        _ => {}
+      |                                    }
+      |                                }
+      |                                if !name.is_empty() { ssc_set_and_notify(name, value); }
+      |                                ("text/plain; charset=utf-8", "ok".to_string())
+      |                            } else {
+      |                                ("text/html; charset=utf-8", (*page).clone())
+      |                            };
+      |                            Response::builder()
+      |                                .status(StatusCode::OK)
+      |                                .header("Content-Type", ctype)
+      |                                .body(Full::new(Bytes::from(payload)).boxed())
+      |                                .unwrap()
       |                        };
-      |                        Ok::<_, hyper::Error>(Response::builder()
-      |                            .status(StatusCode::OK)
-      |                            .header("Content-Type", ctype)
-      |                            .body(Full::new(Bytes::from(payload)))
-      |                            .unwrap())
+      |                        Ok::<_, hyper::Error>(resp)
       |                    }
       |                });
       |                let _ = http1::Builder::new().serve_connection(io, svc).await;

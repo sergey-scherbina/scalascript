@@ -342,7 +342,10 @@ object RustGen:
       depLines += "serde_json = \"1.0\""
     // R.5 — HTTP server deps, only when serve/route are used.
     if httpUsage then
-      depLines += "tokio = { version = \"1\", features = [\"rt-multi-thread\", \"net\", \"macros\"] }"
+      // `sync` → broadcast channel for the SSE push transport (/__ssc/events);
+      // tokio-stream wraps the broadcast receiver as a Stream for StreamBody.
+      depLines += "tokio = { version = \"1\", features = [\"rt-multi-thread\", \"net\", \"macros\", \"sync\"] }"
+      depLines += "tokio-stream = { version = \"0.1\", features = [\"sync\"] }"
       depLines += "hyper = { version = \"1\", features = [\"server\", \"http1\"] }"
       depLines += "hyper-util = { version = \"0.1\", features = [\"tokio\"] }"
       depLines += "http-body-util = \"0.1\""

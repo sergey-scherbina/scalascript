@@ -150,6 +150,30 @@ class RustGenWebToolkitTest extends AnyFunSuite:
            ui.contains("_sscPush"),
       "client script should handle click→set/toggle and persist via _sscPush")
 
+  test("SSE push transport: /__ssc/events streams signal updates (S5 deferred refinement)"):
+    val src =
+      """```scalascript
+        |@main def run(): Unit =
+        |  serve(element("div", Map(), Map(), List(signalText(signal("c", "0")))), 8234)
+        |```
+        |""".stripMargin
+    val a = assets(src)
+    val http = a("src/runtime/http.rs")
+    // Server side: a broadcast channel + an /__ssc/events SSE endpoint that streams
+    // `data: <state-json>` frames; push notifies subscribers.
+    assert(http.contains("broadcast::Sender<String>") && http.contains("fn ssc_events"),
+      s"http.rs should have an SSE broadcast channel, got:\n$http")
+    assert(http.contains("/__ssc/events") && http.contains("text/event-stream") &&
+           http.contains("StreamBody") && http.contains("fn ssc_set_and_notify"),
+      "http.rs should serve /__ssc/events as a text/event-stream StreamBody + notify on push")
+    assert(http.contains("BoxBody<Bytes, std::convert::Infallible>"),
+      "response bodies should unify to BoxBody so the SSE stream and Full coexist")
+    // Client side: prefer EventSource('/__ssc/events'), fall back to the poll.
+    val ui = a("src/runtime/ui.rs")
+    assert(ui.contains("EventSource") && ui.contains("/__ssc/events") &&
+           ui.contains("setInterval"),
+      "client should use EventSource with a setInterval poll fallback")
+
   test("renderHtml(view) wires the SSR render entry"):
     val src =
       """```scalascript
