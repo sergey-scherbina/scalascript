@@ -692,6 +692,11 @@ object RustRuntimeTemplates:
       |        if let crate::value::Value::Str(s) = handler {
       |            if let Some(name) = s.strip_prefix("ssc-input:") {
       |                attrs.push(("data-ssc-input".to_string(), name.to_string()));
+      |            } else if let Some(rest) = s.strip_prefix("ssc-set:") {
+      |                // rest = "<name>:<value>"; client splits on the first ':'.
+      |                attrs.push(("data-ssc-set".to_string(), rest.to_string()));
+      |            } else if let Some(name) = s.strip_prefix("ssc-toggle:") {
+      |                attrs.push(("data-ssc-toggle".to_string(), name.to_string()));
       |            }
       |        }
       |    }
@@ -706,10 +711,13 @@ object RustRuntimeTemplates:
       |
       |// Client reactivity runtime appended by `serve(view, port)`:
       |//  (1) local — a signal-bound input (`data-ssc-input`) mirrors into `[data-ssc-text]`;
-      |//  (2) server-push — poll `/__ssc/state` and patch `[data-ssc-text]` from server-side
+      |//  (2) set/toggle — a `data-ssc-set="<name>:<value>"` element sets the signal on click,
+      |//      a `data-ssc-toggle="<name>"` flips its boolean; both patch `[data-ssc-text]` locally
+      |//      (via `_sscState`) and persist to the server (`/__ssc/push`) so the poll doesn't revert;
+      |//  (3) server-push — poll `/__ssc/state` and patch `[data-ssc-text]` from server-side
       |//      signal updates (e.g. a new chat message pushed to `/__ssc/push`).
       |#[allow(dead_code)]
-      |pub const _UI_CLIENT_SCRIPT: &str = "<script>function _sscSet(n,v){document.querySelectorAll('[data-ssc-text=\"'+n+'\"]').forEach(function(el){el.textContent=v;});}document.addEventListener('input',function(e){var n=e.target.getAttribute('data-ssc-input');if(n==null)return;_sscSet(n,e.target.value);});setInterval(function(){fetch('/__ssc/state').then(function(r){return r.json();}).then(function(s){for(var n in s){_sscSet(n,s[n]);}}).catch(function(){});},1000);</script>";
+      |pub const _UI_CLIENT_SCRIPT: &str = "<script>var _sscState={};function _sscSet(n,v){_sscState[n]=v;document.querySelectorAll('[data-ssc-text=\"'+n+'\"]').forEach(function(el){el.textContent=v;});}function _sscPush(n,v){try{fetch('/__ssc/push?name='+encodeURIComponent(n)+'&value='+encodeURIComponent(v));}catch(e){}}document.addEventListener('input',function(e){var n=e.target.getAttribute('data-ssc-input');if(n==null)return;_sscSet(n,e.target.value);});document.addEventListener('click',function(e){var s=e.target.getAttribute('data-ssc-set');if(s!=null){var i=s.indexOf(':');var n=s.slice(0,i);var v=s.slice(i+1);_sscSet(n,v);_sscPush(n,v);}var t=e.target.getAttribute('data-ssc-toggle');if(t!=null){var nv=(_sscState[t]==='true'||_sscState[t]===true)?'false':'true';_sscSet(t,nv);_sscPush(t,nv);}});setInterval(function(){fetch('/__ssc/state').then(function(r){return r.json();}).then(function(s){for(var n in s){_sscSet(n,s[n]);}}).catch(function(){});},1000);</script>";
       |
       |/// Render a `View` to an HTML string (SSR).  Takes the tree by value so it
       |/// can be the tail of an SSR entry (`renderHtml(view)`); recursion borrows
@@ -793,8 +801,16 @@ object RustRuntimeTemplates:
       |pub fn _ui_show_signal(cond: Value, when_true: View, when_false: View) -> View {
       |    if cond.is_truthy() { when_true } else { when_false }
       |}
+      |// setSignal(s, v) in an event map (e.g. `["click" -> setSignal(sig, v)]`) marks the
+      |// element so the client runtime sets the bound signal to `v` on the event. Encoded as
+      |// `ssc-set:<name>:<value>` (name is an identifier → first ':' after the prefix splits it).
       |#[allow(dead_code)]
-      |pub fn _ui_set_signal<T>(_s: Value, _v: T) -> Value { Value::Unit }
+      |pub fn _ui_set_signal<T: Into<Value>>(s: Value, v: T) -> Value {
+      |    match s {
+      |        Value::Signal(name, _) => Value::Str(format!("ssc-set:{}:{}", name, v.into().show())),
+      |        _                      => Value::Unit,
+      |    }
+      |}
       |// inputChange(s) marks the bound input so the client runtime mirrors its value into
       |// every `[data-ssc-text="<name>"]`.  `_ui_element` turns this marker into an attribute.
       |#[allow(dead_code)]
@@ -804,8 +820,15 @@ object RustRuntimeTemplates:
       |        _                      => Value::Unit,
       |    }
       |}
+      |// toggleSignal(s) marks the element so the client runtime flips the bound boolean signal
+      |// on the event (e.g. `["change" -> toggleSignal(checked)]`). Encoded as `ssc-toggle:<name>`.
       |#[allow(dead_code)]
-      |pub fn _ui_toggle_signal(_s: Value) -> Value { Value::Unit }
+      |pub fn _ui_toggle_signal(s: Value) -> Value {
+      |    match s {
+      |        Value::Signal(name, _) => Value::Str(format!("ssc-toggle:{}", name)),
+      |        _                      => Value::Unit,
+      |    }
+      |}
       |#[allow(dead_code)]
       |pub fn _ui_eq_signal<T: Into<Value>>(s: Value, value: T) -> Value {
       |    Value::Bool(s.signal_value() == value.into())

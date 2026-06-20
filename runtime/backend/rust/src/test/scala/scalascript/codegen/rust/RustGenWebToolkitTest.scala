@@ -124,6 +124,32 @@ class RustGenWebToolkitTest extends AnyFunSuite:
     assert(ui.contains("pub fn _ui_computed_signal") && ui.contains("pub fn _ui_seed_signal"),
       "computed/seed signal runtimes should be present")
 
+  test("set/toggle signal client wiring (S5 deferred refinement)"):
+    val src =
+      """```scalascript
+        |@main def run(): Unit =
+        |  val a = textNode("hi")
+        |  ()
+        |```
+        |""".stripMargin
+    val ui = assets(src)("src/runtime/ui.rs")
+    // setSignal/toggleSignal used to be no-op (Value::Unit) → no client wiring. Now they
+    // encode markers that _ui_element surfaces as data-ssc-set / data-ssc-toggle attributes.
+    assert(ui.contains("pub fn _ui_set_signal<T: Into<Value>>") &&
+           ui.contains("ssc-set:{}:{}"),
+      s"setSignal should encode an ssc-set:<name>:<value> marker, got:\n$ui")
+    assert(ui.contains("ssc-toggle:{}") &&
+           ui.contains("Value::Str(format!(\"ssc-toggle:{}\", name))"),
+      "toggleSignal should encode an ssc-toggle:<name> marker")
+    assert(ui.contains("data-ssc-set") && ui.contains("data-ssc-toggle"),
+      "_ui_element should surface set/toggle markers as data-ssc-* attributes")
+    // The appended client script wires click → set/toggle, with server-push so the poll
+    // doesn't revert the local change.
+    assert(ui.contains("getAttribute('data-ssc-set')") &&
+           ui.contains("getAttribute('data-ssc-toggle')") &&
+           ui.contains("_sscPush"),
+      "client script should handle click→set/toggle and persist via _sscPush")
+
   test("renderHtml(view) wires the SSR render entry"):
     val src =
       """```scalascript
