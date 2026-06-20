@@ -1,6 +1,0 @@
-feature/server-rss 2026-06-20T11:01:58Z
-agent: claude
-heartbeat: 2026-06-20T11:01:58Z
-status: in-progress
-done-so-far: starting real-workload-perf (b)(c) — steady-state server RSS + GC harness
-next: find serve-able .ssc; build harness: start ssc serve, drive load, sample RSS/GC over time; measure
