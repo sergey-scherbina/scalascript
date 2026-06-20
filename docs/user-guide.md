@@ -2672,6 +2672,30 @@ existing dep-sources chain. Coursier command lookup uses
 repositories can be supplied with `ssc.coursier.repositories` or
 `SSC_COURSIER_REPOSITORIES`.
 
+### Package Registry
+
+```bash
+ssc search json                     # search the public static registry
+ssc search json --refresh           # force a registry re-download
+ssc search json --offline           # use only the cached registry
+ssc info io.scalascript/json        # show registry metadata and install snippet
+ssc add io.scalascript/json         # add the latest registry version to a manifest
+ssc add io.scalascript/json 1.0.0 --file app.ssc
+```
+
+The built-in public registry URL is
+`https://sergey-scherbina.github.io/scalascript/packages.yaml`. The browseable
+HTML index is served from `https://sergey-scherbina.github.io/scalascript/`.
+No custom domain is required for the MVP.
+
+Use `--registry <url>` on registry commands for a local mirror or internal
+registry. To make that default persistent:
+
+```yaml
+registry:
+  url: https://internal.example/scalascript/packages.yaml
+```
+
 ### Plugin System
 
 ```bash

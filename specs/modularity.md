@@ -137,9 +137,9 @@ What's still open:
 - **Dep imports** — `[X](dep:com.org/lib:1.2)` with semver
   resolution and `ssc.lock`.  Steps toward a central
   registry.
-- **Registry** — `registry.scalascript.io` with publish /
-  yank / search.  Deferred (v0.7 future) until "the
-  surface above is well-trodden."
+- **Registry** — no-domain GitHub Pages registry with search/info/add
+  over `registry/packages.yaml`; a custom `registry.scalascript.io`
+  alias and publish/yank governance remain future work.
 
 ## 5. Decided — namespace policy for `std/`
 
@@ -332,8 +332,8 @@ Two resolution strategies:
 - **Dep imports**: resolved through a lookup chain —
   `dep:org.example/lib:1.2` first checks
   `~/.cache/scalascript/deps/`, then a `~/.config/scalascript/dep-sources`
-  list of HTTP endpoints, finally falls back to
-  `registry.scalascript.io` once it exists.
+  list of HTTP endpoints. Registry-backed discovery is handled by
+  `ssc search` / `ssc info` / `ssc add`.
 
 Both produce a `ssc.lock` file alongside the entry point;
 re-running `ssc check` re-validates lock file consistency.

@@ -335,6 +335,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | Module imports | `[name](./lib.ssc)` Markdown links bring definitions into scope; one pure Markdown paragraph may contain multiple import links |
 | URL imports | `[X](https://...)` URL fetch, cached at `~/.cache/ssc/` |
 | Dependency imports | `[X](dep:org/lib:1.2)` legacy source resolver, `[X](dep:org:name:version)` Coursier resolver, `[X](jitpack:com.github.owner:repo:tag)`, `[X](github:owner/repo@tag[#asset])`, `sha256:` pins, `ssc.lock` |
+| Package registry | `ssc search` / `ssc info` / `ssc add` against `https://sergey-scherbina.github.io/scalascript/packages.yaml` by default, overrideable with `--registry` or `registry.url` |
 | Project scaffolding | `ssc new my-app`, `--template lib|plugin|dsl|web-app|wasm-app`, bundled templates,`releases/install.sh`, Homebrew formula source |
 | Plugin system | `.sscpkg` format, `ssc plugin install/list/uninstall/check/pack`, `~/.scalascript/registry.yaml` |
 | sbt integration | `ScalascriptInteropPlugin`, `sscGenerateFacade`, `sscCompile`, `sscLink`, `sscTest`, `sscRun`, `sscRepl`, `sscWatch`, `sscBspSetup`, `sscBackends` cross-build (emit JVM/JS/Rust/Wasm artifacts from one source), Phase 5 dependency resolution, `src/main/scalascript/` source convention |
@@ -806,6 +807,9 @@ ssc emit-wc file.ssc          # Web Components bundle
 ssc test file.ssc             # run tests
 ssc preview file.ssc          # preview component variants
 ssc deps file.ssc             # show import closure
+ssc search json [--refresh|--offline]
+ssc info io.scalascript/json [--registry <url>]
+ssc add io.scalascript/json [<version>] [--file <manifest>]
 ssc info artifact.scjvm       # inspect artifact
 ssc plugin install/list/uninstall/check/pack/registry
 ssc --list-backends / --describe-backend <id>

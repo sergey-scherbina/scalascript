@@ -1,15 +1,18 @@
 # Package Registry — Specification
 
-Status: **IMPLEMENTED (in-repo CLI), 2026-06-17.** The `ssc search` / `ssc info` / `ssc add` CLI
+Status: **IMPLEMENTED (CLI + no-domain static registry), 2026-06-20.** The `ssc search` / `ssc info` / `ssc add` CLI
 is built (`LockCommands.SearchCmd`/`AddCmd`, `Main.InfoCmd` registry dispatch) over
 `scalascript.imports.RegistryClient` (URL priority `--registry` → config → default
 GitHub Pages project URL `https://sergey-scherbina.github.io/scalascript/packages.yaml`;
 1-hour-TTL cache at `~/.cache/scalascript/registry/`;
 `--refresh`; `--offline` cached-only search via `RegistryClient.loadOffline()`;
 substring+keyword search via `RegistryEntry`). In-repo seed catalog at
-`registry/packages.yaml` (5 first-party `io.scalascript/*` entries). REMAINING:
-custom-domain alias (`registry.scalascript.io`) and cross-repo/community governance. The MVP must not
-block on domain registration.
+`registry/packages.yaml` (5 first-party `io.scalascript/*` entries). `registry/site/`
+now contains the generated no-domain Pages artifact (`packages.yaml`, `index.html`,
+per-package JSON, `search-index.json`) and `.github/workflows/registry-pages.yml`
+deploys it without `CNAME`. REMAINING: custom-domain alias
+(`registry.scalascript.io`) and cross-repo/community governance. The MVP must not block
+on domain registration.
 This spec was previously stale ("planned") — the implementation had already landed.
 Companion: [`specs/arch-distribution.md`](arch-distribution.md),
 [`specs/arch-library-modularity.md`](arch-library-modularity.md),
@@ -182,12 +185,12 @@ ssc search json --offline   # use cached index only; error if no cache
 ```
 
 Cache path: `~/.cache/scalascript/registry/packages.yaml`.
-Cache TTL: 1 hour by default; configurable in `~/.config/scalascript/config.yaml`:
+Cache TTL: fixed at 1 hour. The registry URL is configurable in
+`~/.config/scalascript/config.yaml`:
 
 ```yaml
 registry:
   url: "https://sergey-scherbina.github.io/scalascript/packages.yaml"
-  cache_ttl_minutes: 60
 ```
 
 Users can point `url` at an internal mirror or a private registry file.

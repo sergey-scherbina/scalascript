@@ -423,9 +423,10 @@ only prerequisite is §5.1; the rest is incremental.
    "pure math" plugin should not be able to call `registerRoute`.
    Deferred to a future spec pass.
 
-2. **Remote registry** — v1 is local-only (local registry + `dep-sources`
-   endpoints).  A central `registry.scalascript.io` is deferred; the
-   `pkg:` URI grammar is designed to slot in once one exists.
+2. **Remote registry governance** — the no-domain GitHub Pages registry
+   covers discovery and `ssc add`; a custom `registry.scalascript.io`
+   alias, publish/yank policy, and any future `pkg:` URI grammar are
+   deferred.
 
 3. **Conflict resolution** — if two loaded `.sscpkg`s both declare
    `std.crypto.sha256`, the last one wins (map merge order).  A
