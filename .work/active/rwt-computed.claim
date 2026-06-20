@@ -1,0 +1,6 @@
+feature/rwt-computed 2026-06-20T16:47:21Z
+agent: claude
+heartbeat: 2026-06-20T16:47:21Z
+status: in-progress
+done-so-far: investigating computed-recompute feasibility — how localeSignal() apply lowers + store reachability
+next: if bounded+safe, build named computed + server closure registry + store-backed reads; else honest report
