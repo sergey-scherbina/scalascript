@@ -59,8 +59,13 @@ SSE, computed-read compile+SSR all DONE). Remaining, priority order:
       the computed signal auto-updates (`{"__c0":"fr"}` → `{"__c0":"de"}`). `backendRust` 224/0.
 - [x] **computed-typed-reads** ✓ DONE 2026-06-20 — `collectLocalSignals` carries the element type; the apply
       emits `.parse::<i64>()`/`.parse::<f64>()` for `Signal[Int]`/`[Double]`, `.show()` for String. Verified:
-      `signal("n", 10)` + `n() + 5` → `15`. `backendRust` 225/0. **Whole rust-web S5 done except direct-WS
-      (now low-value — SSE supersedes).**
+      `signal("n", 10)` + `n() + 5` → `15`. `backendRust` 225/0.
+- [x] **direct-WS** ✓ DONE 2026-06-20 — a `serve(view)` program also exposes a WS signal endpoint on
+      `port + 1` for external clients (rozum bridge), bidirectional + sharing the SSE store/broadcast/recompute.
+      `ssc_ws_serve` (accept_async) sends state on connect, streams updates, and an incoming `name=value` frame
+      sets+recomputes. **Verified cargo + raw-WS client (python):** WS-push `locale=de` → `{"__c0":"de"}`.
+      `backendRust` 226/0. **rust-web S5 now FULLY COMPLETE** (set/toggle, SSE, computed compile+SSR + live
+      recompute, typed reads, direct-WS — all built + cargo/curl/WS-verified).
 
 ### ▶ Improvement queue (2026-06-20, with Sergiy — "занеси все в спринт и делай")
 

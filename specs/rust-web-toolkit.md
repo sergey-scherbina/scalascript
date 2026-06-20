@@ -278,11 +278,18 @@ SSR at the primitive level first (no library needed), then layer the widget libr
      the `signal(name, default)` literal), and the apply emits `.show()` for String, `.parse::<i64>()`/
      `.parse::<f64>().unwrap_or_default()` for Int/Double. Verified: `signal("n", 10)` + `n() + 5` → `15`;
      `backendRust` 225/0. (`seedSignal` already fine — named signal, poll/SSE updates it.)
-   - **direct-WS client — LOW VALUE now.** Was for server→client push; **SSE now provides that** (and
-     external→server is already `/__ssc/push`). A WS endpoint would be SSE-over-WS for marginal benefit +
-     the upgrade-handshake complexity; rozum-bridge-specific. Superseded for the push direction.
-   **set/toggle, SSE, computed (compile+SSR + live recompute), and typed reads all DONE + verified
-   (cargo/curl). Only direct-WS remains, and it's now low-value (superseded by SSE).**
+   - **direct-WS signal transport ✓ DONE 2026-06-20.** A `serve(view, port)` program also exposes a
+     WebSocket signal endpoint on `port + 1` for external/programmatic clients (e.g. the rozum bridge),
+     integrated with the same store/broadcast/recompute as SSE. `ssc_ws_serve(ws_port)` (spawned alongside
+     the HTTP listener) accepts WS connections (`tokio_tungstenite::accept_async`), sends the current state
+     on connect, streams updates from the broadcast channel, and on each incoming `name=value` text frame
+     calls `ssc_set_and_notify` (set + recompute + broadcast) — so a WS client both observes and drives
+     signals. tokio-tungstenite + futures-util are pulled in for a UI serve program. VERIFIED end-to-end: a
+     raw WS client (python stdlib) pushed `locale=de` and HTTP `/__ssc/state` then returned
+     `{"__c0":"de","locale":"de"}` (set + recompute). `backendRust` 226/0. (Browser clients still use SSE;
+     WS is for programmatic/external pushers.)
+   **rust-web S5 COMPLETE: set/toggle, SSE, computed (compile+SSR + live recompute), typed reads, and
+   direct-WS — all built and cargo/curl/WS-verified.**
 
 Prereq landed: **I1** `s"…${expr}…"` compound splices (`RustGenWebToolkitTest` 3/3).
 

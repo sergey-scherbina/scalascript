@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-20 — feat(rust-web): direct-WS signal transport (S5 complete)
+
+The last rust-web S5 refinement. A `serve(view, port)` program now also exposes a WebSocket signal endpoint
+on `port + 1` for external/programmatic clients (e.g. the rozum bridge), integrated with the same signal
+store / broadcast / recompute as SSE. `ssc_ws_serve` (spawned beside the HTTP listener) accepts WS
+connections (`tokio_tungstenite::accept_async`), sends the current state on connect, streams updates, and on
+each incoming `name=value` text frame calls `ssc_set_and_notify` (set → recompute → broadcast) — bidirectional.
+tokio-tungstenite + futures-util are pulled in for a UI serve program.
+
+Verified end-to-end: a raw WS client (Python stdlib handshake + one masked text frame) pushed `locale=de`,
+and HTTP `/__ssc/state` then returned `{"__c0":"de","locale":"de"}` — the WS push set the signal and
+recomputed the derived one. `backendRust` 226/0 — no regression. **rust-web S5 is now complete**: set/toggle,
+SSE, computed (compile+SSR + live recompute), typed reads, and direct-WS — all built and cargo/curl/WS-verified.
+
 ## 2026-06-20 — feat(wasm): effectful `@main` args/non-Unit edge complete
 
 Closed the last `wasm-effects` edge. The effectful WASM path now derives the user `@main` from the AST
