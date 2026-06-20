@@ -13,6 +13,21 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `done` | reporter confirmed fixed (safe to trim) |
 
 
+## effect-op-trailing-comment — `fixed` (2026-06-20)
+
+- **Found by:** busi (building the v2 KSeF inbound port `effect Ksef`).
+- **Symptom:** a trailing `//` line-comment on an effect operation's declaration silently broke the
+  WHOLE effect. `effect Ksef:` / `  def pull(t: String, s: String): List[String]  // FA(3) docs`
+  made `Ksef` parse as a plain object, so every `Ksef.pull(...)` perform threw
+  `No method 'pull' on InstanceV(Ksef)` at runtime (the handler never caught it). Root: `preprocessEffects`
+  appended the synthetic `= __effectOp__` body at the absolute end of the op line, so a trailing comment
+  swallowed it → the op had no body → not an effect op. The same `!bodyLine.contains("=")` guard also
+  wrongly skipped an op whose param had a function type (`f: Int => Int`).
+- **FIXED (2026-06-20):** `preprocessEffects` now splits off any trailing line-comment first
+  (`splitLineComment`, string-literal aware) and inserts `= __effectOp__` into the CODE part, before the
+  comment; the "already has a body" check ignores `=>`. Guard: `PreprocessEffectsTest` (7 cases). 53
+  existing effect/parser tests green; real-harness repro now returns the handler's value, not a throw.
+
 ## collection-ctor-aliases — `fixed` (2026-06-15)
 
 - **Found by:** a collections survey (prompted by a "do we only have List/Map?" question).

@@ -1765,6 +1765,19 @@ object Parser:
   // the interpreter level; the op signatures may still mention `T`). The `(?:\[[^\]]*\])?`
   // makes the type-param clause optional — without it `effect State[S]:` was left un-rewritten
   // and reached the Scala parser as a bare `effect State[S]` expression.
+  // Split a line into (code, comment) at the first `//` that is not inside a string literal.
+  // Returns (line, "") when there is no trailing comment.
+  private[parser] def splitLineComment(line: String): (String, String) =
+    var inStr = false
+    var i = 0
+    var at = -1
+    while i < line.length - 1 && at < 0 do
+      val c = line.charAt(i)
+      if c == '"' then inStr = !inStr
+      else if !inStr && c == '/' && line.charAt(i + 1) == '/' then at = i
+      i += 1
+    if at < 0 then (line, "") else (line.substring(0, at), line.substring(at))
+
   private val effectLinePat = """^(\s*)(multi\s+)?effect\s+(\w+)(?:\[[^\]]*\])?(?:\s+extends\s+\S+)?\s*:""".r
   private[parser] def preprocessEffects(code: String): String =
     if !code.contains("effect") then return code
@@ -1789,9 +1802,16 @@ object Parser:
             l.isBlank || (l.nonEmpty && l.indexWhere(_ != ' ') > baseIndent)
           } do
             val bodyLine = lines(i)
+            // Insert the synthetic `= __effectOp__` body BEFORE any trailing line-comment, and only
+            // when the op has no real body. A `=>` in a function-type param is NOT a body; a trailing
+            // `// …` must not swallow the marker (which silently degraded the whole effect to a plain
+            // instance → `No method 'op' on InstanceV` at perform time).
             val processed =
-              if bodyLine.trim.startsWith("def ") && !bodyLine.contains("=")
-              then bodyLine.stripTrailing + " = __effectOp__"
+              if bodyLine.trim.startsWith("def ") then
+                val (codePart, commentPart) = splitLineComment(bodyLine)
+                if codePart.replace("=>", "").contains("=") then bodyLine
+                else codePart.stripTrailing + " = __effectOp__" +
+                  (if commentPart.isEmpty then "" else "  " + commentPart)
               else bodyLine
             result.append(processed).append("\n")
             i += 1
