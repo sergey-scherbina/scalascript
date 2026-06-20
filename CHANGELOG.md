@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-20 — feat(rust-web): SSE push transport for signal updates (S5)
+
+Replaces the rust-web SSR server's 1 s state-poll with real-time Server-Sent Events (poll kept as a
+fallback). New `/__ssc/events` endpoint streams `data: <signal-state-json>\n\n` frames as a `StreamBody`
+from a `tokio::sync::broadcast` channel; `/__ssc/push` and `_ui_broadcast_signal` notify subscribers via
+`ssc_set_and_notify`; response bodies unify to `BoxBody`; the client prefers `EventSource('/__ssc/events')`.
+Deps: tokio `sync` + `tokio-stream` (gated on http usage). **Verified end-to-end via curl** — a running
+server streams `data: {}` on connect then `data: {"count":"42"}` immediately after a push — not just
+codegen; `RustGenWebToolkitTest` +1, `backendRust` 223/0.
+
+This closes the SSE half of the S5 "streaming transport" deferral and corrects the earlier "browser-only,
+unverifiable" note (the server side is fully curl-verifiable). Remaining S5: **computed-signal recompute**
+(the one real remaining feature — deep: needs store-backed signal reads through the core `Value::Signal`
+apply path; designed, not rushed) and **direct-WS** (now low-value — SSE provides server→client push).
+
 ## 2026-06-20 — test: hang-proof the cross-backend subprocess tests + 4-min server leak-hunt
 
 Two follow-ups completing the quality/perf queue:
