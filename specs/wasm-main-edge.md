@@ -27,15 +27,16 @@ CLI-style trailing arguments are represented as `String*`, not `Array[String]`.
 
 ## Behavior
 
-- [ ] An effectful WASM module with `@main def main(): Int` compiles and runs; the
+- [x] An effectful WASM module with `@main def main(): Int` compiles and runs; the
       wrapper evaluates the user entry and discards the `Int`.
-- [ ] An effectful WASM module with `@main def main(args: String*): Unit`
+- [x] An effectful WASM module with `@main def main(args: String*): Unit`
       compiles and runs; the wrapper preserves the repeated-`String` parameter
       clause and calls the lowered user entry with `args*`.
-- [ ] An effectful WASM module with `@main def main(args: String*): Int`
-      compiles and runs; the wrapper forwards args and discards the `Int`.
-- [ ] Existing zero-arg effectful WASM programs keep compiling and running.
-- [ ] An effectful WASM module with raw `Array[String]` `@main` args fails before
+- [x] An effectful WASM module with `@main def main(args: String*): Int`
+      compiles and runs; the wrapper preserves the repeated-`String` parameter
+      clause and discards the `Int`.
+- [x] Existing zero-arg effectful WASM programs keep compiling and running.
+- [x] An effectful WASM module with raw `Array[String]` `@main` args fails before
       scala-cli with a clear "use `String*`" diagnostic.
 
 ## Out of scope
@@ -80,4 +81,18 @@ not become the synthetic main's return value.
 
 ## Results
 
-To be filled during verification.
+Verified 2026-06-20 with:
+
+```bash
+cd /Users/sergiy/work/my/scalascript/.worktrees/feature/wasm-main-edge && sbt "backendWasm/testOnly scalascript.codegen.WasmBackendTest"
+```
+
+Result: `WasmBackendTest` 40/40 green. The regression set covers non-`Unit`
+effectful main, `String*` effectful main, `String*` + non-`Unit`, and a clear
+pre-scala-cli diagnostic for raw `Array[String]` args.
+
+Gotcha: a direct Scala.js/WASM ES-module probe with `@main def run(args: String*)`
+and `node main.js red blue` produced empty args. That is launcher/runtime argument
+delivery, not the ScalaScript effect wrapper. This feature preserves the
+Scala.js-compatible main parameter clause and makes effectful WASM compile/run;
+it does not define a new argv transport for browser/ES-module WASM.
