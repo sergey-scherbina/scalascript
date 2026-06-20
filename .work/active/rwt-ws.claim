@@ -1,6 +1,0 @@
-feature/rwt-ws 2026-06-20T18:09:17Z
-agent: claude
-heartbeat: 2026-06-20T18:09:17Z
-status: in-progress
-done-so-far: building direct-WS — /__ssc/ws WebSocket endpoint streaming + accepting signal updates
-next: study WsRs + hyper upgrade; add WS endpoint to serve; cargo+verify
