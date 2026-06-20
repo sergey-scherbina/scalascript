@@ -1,0 +1,6 @@
+feature/xbackend-harden 2026-06-20T09:43:30Z
+agent: claude
+heartbeat: 2026-06-20T09:43:30Z
+status: in-progress
+done-so-far: starting xbackend work — reading CrossBackendPropertyTest to decide harden-first vs broaden-first
+next: understand scala-cli/node spawning + generator; harden timeouts then broaden kinds
