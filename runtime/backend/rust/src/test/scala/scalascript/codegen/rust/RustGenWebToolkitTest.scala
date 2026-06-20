@@ -224,6 +224,31 @@ class RustGenWebToolkitTest extends AnyFunSuite:
     assert(http.contains("ssc_recompute_all()"),
       "a /__ssc/push should recompute derived signals so they reflect the new dep value")
 
+  test("typed signal read: Signal[Int] read coerces to i64 (not String) (S5)"):
+    // The store is String-valued, so a Signal[Int] read must parse to i64 for arithmetic;
+    // a Signal[String] read stays `.show()`.
+    val intSrc =
+      """```scalascript
+        |@main def run(): Unit =
+        |  val n = signal("n", 10)
+        |  println(computedSignal(() => s"${n() + 5}"))
+        |```
+        |""".stripMargin
+    val intProg = gen(intSrc)
+    assert(intProg.contains("n.signal_value().show().parse::<i64>().unwrap_or_default()"),
+      s"a Signal[Int] read should parse to i64, got:\n$intProg")
+    // a String signal stays .show() (no parse)
+    val strSrc =
+      """```scalascript
+        |@main def run(): Unit =
+        |  val loc = signal("locale", "fr")
+        |  println(computedSignal(() => loc()))
+        |```
+        |""".stripMargin
+    val strProg = gen(strSrc)
+    assert(strProg.contains("loc.signal_value().show()") && !strProg.contains("loc.signal_value().show().parse"),
+      s"a Signal[String] read should stay .show(), got:\n$strProg")
+
   test("renderHtml(view) wires the SSR render entry"):
     val src =
       """```scalascript

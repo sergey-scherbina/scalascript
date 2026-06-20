@@ -697,10 +697,10 @@ object RustCodeWalk:
       // (so simple goldens keep their exact `f(x)` output).  Cloning a Copy value is a
       // harmless no-op, so we don't try to prove non-Copy-ness for match binds/locals.
       multiUse: Set[String] = Set.empty,
-      // Local val/var names bound to a Signal (`val x: Signal[_] = …` or `= signal/
-      // computedSignal/seedSignal/hashSignal(…)`).  A 0-arg apply on one — `x()` — is a
-      // signal READ and lowers to `x.signal_value()` (the value isn't callable). Per-def pre-pass.
-      localSignals: Set[String] = Set.empty
+      // Local val/var names bound to a Signal → element type ("String"/"Int"/"Double"/
+      // "Boolean").  A 0-arg apply on one — `x()` — is a signal READ and lowers to a
+      // store read coerced by element type (the value isn't callable). Per-def pre-pass.
+      localSignals: Map[String, String] = Map.empty
   ):
     def enumNames: Set[String] = ctorMap.values.map(_.enumName).toSet
     @annotation.unused def topValNames: Set[String] = topVals.map(_._1).toSet
@@ -944,12 +944,14 @@ object RustCodeWalk:
     walk(body)
     strs.toSet
 
-  /** Local val/var names bound to a `Signal` — by a `Signal[_]` type annotation or
-   *  a `signal`/`computedSignal`/`seedSignal`/`hashSignal(…)` RHS.  A 0-arg apply on
-   *  one (`x()`) is a signal read; the apply lowering emits `x.signal_value()`. */
+  /** Local val/var names bound to a `Signal`, mapped to their **element type**
+   *  ("String" / "Int" / "Double" / "Boolean", default "String") — by a `Signal[T]`
+   *  annotation or a `signal`/`computedSignal`/`seedSignal`/`hashSignal(…)` RHS. A
+   *  0-arg apply on one (`x()`) is a signal read; the apply lowering reads the (String)
+   *  store and coerces by element type (parse for Int/Double, `.show()` for String). */
   private val SignalCtors = Set("signal", "computedSignal", "seedSignal", "hashSignal")
-  private def collectLocalSignals(body: m.Term): Set[String] =
-    val sigs = scala.collection.mutable.Set.empty[String]
+  private def collectLocalSignals(body: m.Term): Map[String, String] =
+    val sigs = scala.collection.mutable.Map.empty[String, String]
     def isSig(rhs: m.Term): Boolean = rhs match
       case m.Term.Apply.After_4_6_0(m.Term.Name(n), _) if SignalCtors.contains(n) => true
       case m.Term.Name(n)  => sigs.contains(n)
@@ -959,18 +961,32 @@ object RustCodeWalk:
       case Some(m.Type.Name("Signal"))                                => true
       case Some(m.Type.Apply.After_4_6_0(m.Type.Name("Signal"), _))   => true
       case _                                                          => false
+    // Element type: prefer the `Signal[T]` annotation, else the `signal(name, default)`
+    // default literal's type; computedSignal/seedSignal/hashSignal are String.
+    def elemType(decltpe: Option[m.Type], rhs: m.Term): String =
+      decltpe match
+        case Some(m.Type.Apply.After_4_6_0(m.Type.Name("Signal"), ac)) =>
+          ac.values.headOption.collect { case m.Type.Name(tn) => tn }.getOrElse("String")
+        case _ => rhs match
+          case m.Term.Apply.After_4_6_0(m.Term.Name("signal"), ac) =>
+            ac.values.lift(1) match
+              case Some(m.Lit.Int(_))     => "Int"
+              case Some(m.Lit.Double(_))  => "Double"
+              case Some(m.Lit.Boolean(_)) => "Boolean"
+              case _                      => "String"
+          case _ => "String"
     def walk(t: m.Tree): Unit =
       t match
         case v: m.Defn.Val => v.pats match
-          case List(m.Pat.Var(m.Term.Name(n))) => if isSigType(v.decltpe) || isSig(v.rhs) then sigs += n
+          case List(m.Pat.Var(m.Term.Name(n))) => if isSigType(v.decltpe) || isSig(v.rhs) then sigs(n) = elemType(v.decltpe, v.rhs)
           case _                               => ()
         case v: m.Defn.Var => v.pats match
-          case List(m.Pat.Var(m.Term.Name(n))) => if isSigType(v.decltpe) || isSig(v.body) then sigs += n
+          case List(m.Pat.Var(m.Term.Name(n))) => if isSigType(v.decltpe) || isSig(v.body) then sigs(n) = elemType(v.decltpe, v.body)
           case _                               => ()
         case _ => ()
       t.children.foreach(walk)
     walk(body)
-    sigs.toSet
+    sigs.toMap
 
   /** Flatten a curried apply chain `base(a1)(a2)…` into `(base, a1 ++ a2 ++ …)`
    *  in source order, so a multi-group call lowers to a single Rust call matching
@@ -2426,21 +2442,26 @@ object RustCodeWalk:
                     else s"$rn($args, &mut _eff)"
                   else s"$rn($args)"
                 // A 0-arg apply on a Signal-typed local (`loc()`) is a signal READ —
-                // `Value` is not callable. Lower to `loc.signal_value().show()`: `Signal[String]`
-                // is the UI/i18n signal type and `computedSignal` takes `() => String`, so the read
-                // yields the value's `String` form. (Typed non-String signal reads are a follow-up.)
-                if plainName.exists(n => joined.isEmpty && ctx.localSignals.contains(n)) then
-                  Right(s"${rustIdent(plainName.get)}.signal_value().show()")
-                else plainName.filter(ctx.userDefs.contains) match
-                  case Some(n) => Right(withEff(n, joined))
-                  case None    =>
-                    // Fallback: assume closure parameter or local binding;
-                    // Cargo will reject if not.  See R.2.4.
-                    plainName match
+                // `Value` is not callable. The store is String-valued, so read it and coerce
+                // by the signal's element type: `.show()` for String, parse for Int/Double.
+                plainName.filter(n => joined.isEmpty && ctx.localSignals.contains(n)) match
+                  case Some(n) =>
+                    val sv = s"${rustIdent(n)}.signal_value().show()"
+                    Right(ctx.localSignals(n) match
+                      case "Int"    => s"$sv.parse::<i64>().unwrap_or_default()"
+                      case "Double" => s"$sv.parse::<f64>().unwrap_or_default()"
+                      case _        => sv)
+                  case None =>
+                    plainName.filter(ctx.userDefs.contains) match
                       case Some(n) => Right(withEff(n, joined))
-                      case None    => Left(List(unsupported(
-                        s"def `${ctx.defName}` calls `${fn.syntax}` which has no resolvable name"
-                      )))
+                      case None    =>
+                        // Fallback: assume closure parameter or local binding;
+                        // Cargo will reject if not.  See R.2.4.
+                        plainName match
+                          case Some(n) => Right(withEff(n, joined))
+                          case None    => Left(List(unsupported(
+                            s"def `${ctx.defName}` calls `${fn.syntax}` which has no resolvable name"
+                          )))
 
   /** Lower a `for x <- xs yield body` (single-generator) to
    *  `xs.into_iter().map(|x| body).collect::<Vec<_>>()`.  Multi-generator
