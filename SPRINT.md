@@ -29,6 +29,31 @@ or blocked/deferred (kept for record, NOT actionable now — see "Excluded from 
 > `compile`; scripted `cross-build/`). **What remains is Maven-gated only:** Maven Central + Plugin Portal
 > publication (LAST, explicit-go). No bounded autonomous build work left.
 
+### ▶ Quality / perf queue (2026-06-20, with Sergiy — "все эти задачи занеси в спринт и начинай делать")
+
+After the perf series (foldLeft VM compile + typeclass-fold memo) micro-throughput is at the floor. The
+next autonomously-actionable work is quality + unmeasured-axis perf, priority order. Drive top-to-bottom,
+per-feature worktrees + claims.
+
+- [ ] **real-workload-perf** (roadmap-next #1) — the unmeasured perf axis micro-benchmarks don't capture:
+      (a) cold-start / GraalVM native-image startup time, (b) long-running-server steady-state RSS over
+      hours, (c) GC behaviour under sustained load. Build a startup-time + steady-state-RSS measurement
+      harness, profile, cut the worst. BACKLOG `real-workload-perf`. **← starting here.**
+- [ ] **xbackend-property-equivalence (full + CI)** — broaden the `CrossBackendPropertyTest` generator
+      (effects, Option/Either, nested data, closures-as-values; each needs per-class determinism care) and
+      wire it into CI as a standing interp==JVM==JS differential — the definitive guarantee for a
+      one-source-many-targets language. NOTE: the test spawns scala-cli/bloop and is flaky; harden it (see
+      next item) before/with CI wiring. BACKLOG `xbackend-property-equivalence`.
+- [ ] **xbackend-test-hardening** — `CrossBackendPropertyTest` spawns scala-cli/bloop, can hang
+      indefinitely, and a killed sbt corrupts the bloop daemon (observed firsthand during the foldtc work).
+      Add per-subprocess timeout guards + isolate/reuse bloop so a hang fails fast and doesn't poison later
+      runs. Dev-experience reliability; prerequisite for CI-wiring the differential.
+- [ ] **rust-web-toolkit finish** (external driver: rozum) — the in-flight feature: ~56 cargo
+      type-reconciliation errors → 0 (TkNode/i64, String/Value, struct-field i64, curried-vararg call-site
+      `vec![]`, `defaultTheme`), then S4 named/curried args + S5 signal reactivity. Concrete finish line,
+      multi-session. spec `specs/rust-web-toolkit.md`. (Coordinate via claim — rozum is the driver.)
+
+
 - [x] **meta-v2-track-c** ✓ DONE 2026-06-18 (verified, no build needed) — Track C is COMPLETE. C1
       (multi-clause inline) ✓ done 2026-06-18. C2's high-value slice ✓ already done + wired:
       `MacroCodegen.codegenWarnings(module)` is computed in `ssc check` (`Main.scala:5265`, merged into
