@@ -44,11 +44,13 @@ the two supported executable entry shapes:
 
 ```scalascript
 @main def run(): A
-@main def run(args: Array[String]): A
+@main def run(name: String, count: Int): A
+@main def run(args: String*): A
 ```
 
 The synthetic wrapper always returns `Unit`; if the user entry returns a value,
-the wrapper evaluates and discards it.
+the wrapper evaluates and discards it. Use `String*` for raw CLI-style trailing
+arguments; Scala 3 `@main` does not accept raw `Array[String]` argv parameters.
 
 Top-level statements without `@main` are not executable in `.wasm` output.
 Top-level definitions (case classes, defs, vals) are fine alongside `@main`.

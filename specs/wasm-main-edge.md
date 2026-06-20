@@ -16,31 +16,38 @@ Supported user entry point forms:
 
 ```scala
 @main def main(): A
-@main def main(args: Array[String]): A
+@main def main(name: String, count: Int): A
+@main def main(args: String*): A
 ```
 
 `A` may be `Unit` or any compileable return type. The generated WASM wrapper is
 always `Unit`-returning and discards the user entry value after evaluating it.
+The parameter list must be a Scala 3 `@main`-compatible parameter clause. Raw
+CLI-style trailing arguments are represented as `String*`, not `Array[String]`.
 
 ## Behavior
 
 - [ ] An effectful WASM module with `@main def main(): Int` compiles and runs; the
       wrapper evaluates the user entry and discards the `Int`.
-- [ ] An effectful WASM module with `@main def main(args: Array[String]): Unit`
-      compiles and runs; the wrapper accepts `Array[String]` and forwards it to
-      the lowered user entry.
-- [ ] An effectful WASM module with `@main def main(args: Array[String]): Int`
+- [ ] An effectful WASM module with `@main def main(args: String*): Unit`
+      compiles and runs; the wrapper preserves the repeated-`String` parameter
+      clause and calls the lowered user entry with `args*`.
+- [ ] An effectful WASM module with `@main def main(args: String*): Int`
       compiles and runs; the wrapper forwards args and discards the `Int`.
 - [ ] Existing zero-arg effectful WASM programs keep compiling and running.
+- [ ] An effectful WASM module with raw `Array[String]` `@main` args fails before
+      scala-cli with a clear "use `String*`" diagnostic.
 
 ## Out of scope
 
 - Changing non-effectful WASM entry point handling. That path is owned directly by
   Scala.js / scala-cli and already sees the user's `@main`.
 - Defining browser-specific argument delivery. The wrapper only preserves the
-  Scala.js-compatible `Array[String]` parameter shape.
-- Supporting arbitrary `@main` parameter lists beyond zero args and a single
-  `Array[String]` parameter.
+  Scala.js-compatible `@main` parameter shape; the Scala.js launcher decides what
+  argument values are supplied in a given runtime.
+- Supporting raw `Array[String]` `@main` parameters. Scala 3 `@main` does not
+  accept raw argv arrays; use `String*` for raw CLI-style arguments.
+- Supporting multiple parameter clauses or `using` clauses on `@main`.
 
 ## Design
 
@@ -50,7 +57,8 @@ annotation, leaving a plain user function. `WasmGen` then emits a synthetic
 source `@main` declaration:
 
 - zero-arg source main -> `_ssc_wasm_main(): Unit = { entry(); () }`
-- single `Array[String]` source main -> `_ssc_wasm_main(args: Array[String]): Unit = { entry(args); () }`
+- single Scala 3 `@main` parameter clause -> the wrapper reuses that clause and
+  forwards each parameter; repeated parameters are spliced (`args*`)
 
 The wrapper must keep the explicit trailing `()` so a non-`Unit` user return does
 not become the synthetic main's return value.
@@ -60,10 +68,11 @@ not become the synthetic main's return value.
 - **Keep this WASM-only** - chosen because the bug is introduced by the WASM
   effect wrapper. Rejected: touching JVM/JS entry point code (larger surface with
   no evidence of the same issue).
-- **Support only Scala.js-compatible CLI arg shape** - chosen because `Array[String]`
-  is the standard Scala `@main` CLI args shape. Rejected: varargs and arbitrary
-  typed main params (scala-cli owns those for non-effectful code, and reproducing
-  that parser in `WasmGen` would be speculative).
+- **Mirror Scala 3 `@main` parameters instead of raw argv arrays** - chosen
+  because scala-cli/Scala.js rejects `@main def run(args: Array[String])` without
+  a `CommandLineParser.FromString[Array[String]]`, while `String*` and typed
+  parameters are the supported `@main` surface. Rejected: promising
+  `Array[String]` forwarding (not a valid Scala 3 `@main` contract).
 - **Discard non-Unit returns in the wrapper** - chosen because an executable
   backend runs for side effects; the observable contract is stdout/assets, not a
   returned value. Rejected: printing or exporting the return value (would create
