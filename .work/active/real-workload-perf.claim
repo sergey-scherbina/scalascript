@@ -1,6 +1,0 @@
-feature/real-workload-perf 2026-06-20T09:33:03Z
-agent: claude
-heartbeat: 2026-06-20T09:33:03Z
-status: in-progress
-done-so-far: starting real-workload-perf — auditing existing measurement infra before building
-next: check native-image/wall-bench/startup harness; build a startup + steady-state-RSS measurement; profile + cut worst
