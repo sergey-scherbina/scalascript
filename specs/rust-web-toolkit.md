@@ -241,8 +241,21 @@ SSR at the primitive level first (no library needed), then layer the widget libr
      handler sets/flips the signal locally (`_sscState`) + persists to `/__ssc/push` so the poll doesn't
      revert. Verified at codegen (`RustGenWebToolkitTest` 18/18) + a cargo build of a set/toggle probe
      (the runtime compiles as Rust); `backendRust` 222/0. Browser *click behaviour* not browser-tested.
-   Refinements still deferred (browser/transport-dependent): SSE/WS streaming transport, client recompute
-   of computed signals, direct-WS client.
+   Refinements still deferred. **Assessed 2026-06-20 — none is a clean, bounded, autonomously-verifiable
+   slice (unlike set/toggle, which just extended the existing `inputChange` marker→attr→handler mechanism):**
+   - **client recompute of computed signals** — `_ui_computed_signal` makes an *anonymous* signal (empty
+     name) wrapping an *opaque Rust thunk* evaluated once at SSR. Recompute needs (1) naming the anonymous
+     signal, (2) dependency tracking, and (3) re-running the derivation — impossible in browser JS (the
+     thunk is Rust), so it requires **server-side thunk storage + re-evaluation on dependency change**, a
+     real multi-session architecture. (Note: `seedSignal` is already fine — it produces a *named* signal,
+     so the existing `data-ssc-text` poll already updates it.)
+   - **SSE/WS streaming transport** — would replace the working 1 s `/__ssc/state` poll with a streaming
+     body + a `tokio` broadcast channel (new async server infra). The only autonomously-verifiable part is
+     "it compiles"; the latency/efficiency benefit over the working poll is browser-measured. Poor ROI vs
+     added hot-path complexity.
+   - **direct-WS client** — rozum-bridge-specific; needs the rozum driver + `rozum-web.ssc`.
+   All three are browser-behaviour- and/or rozum-driver-dependent → hand to the rozum driver. **set/toggle
+   was the one genuinely-bounded item, and it is DONE.**
 
 Prereq landed: **I1** `s"…${expr}…"` compound splices (`RustGenWebToolkitTest` 3/3).
 
