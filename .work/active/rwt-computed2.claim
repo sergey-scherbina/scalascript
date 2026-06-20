@@ -1,0 +1,6 @@
+feature/rwt-computed2 2026-06-20T16:55:18Z
+agent: claude
+heartbeat: 2026-06-20T16:55:18Z
+status: in-progress
+done-so-far: building computed-recompute compile+SSR fix — signal-local apply lowering
+next: track signal locals (scope-aware), lower x()->x.signal_value(), signal_value self->&self; cargo+full regression
