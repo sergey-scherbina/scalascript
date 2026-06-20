@@ -47,6 +47,22 @@ per-feature worktrees + claims.
 > definitively no leak (RSS peaked 205 MB, *ended 80 MB* as the JVM reclaimed heap; GC light/steady). **Only
 > Maven publication (gated, excluded) + rozum/browser-driven rust refinements remain.**
 
+### ▶ Rust-web computed-signal queue (2026-06-20, with Sergiy — "делай всё, заноси в спринт и делай")
+
+The rust-web S5 refinements turned out to be autonomously buildable + curl/cargo-verifiable (set/toggle,
+SSE, computed-read compile+SSR all DONE). Remaining, priority order:
+
+- [ ] **computed-live-recompute** — computed signals now compile + SSR the dep value, but aren't reactive
+      (the span is anonymous `data-ssc-text=""`). Make them live: name the computed signal + a server-side
+      re-runnable closure registry + **store-backed reads** (`signal_value` reads `ssc_signals()`), re-run on
+      push + broadcast (SSE transport already built). Crux: the store is in http.rs but signal_value in
+      value.rs → move the store to a shared module. Verify cargo + curl (push a dep → computed value updates).
+      **← building now.**
+- [ ] **computed-typed-reads** — the signal read currently lowers to `loc.signal_value().show()` (assumes
+      `Signal[String]`). A `Signal[Int]` read in an arithmetic context would mismatch. Track the signal's
+      element type (from the `signal(name, default)` literal or `Signal[T]` annotation) and emit the right
+      coercion. Smaller follow-up.
+
 - [x] **real-workload-perf** (roadmap-next #1) ✓ DONE 2026-06-20 (all three axes). **(a) cold-start:**
       `tests/perf/coldstart/` + AppCDS in `bin/ssc`/`install.sh` → **378 → 182 ms (−51%)**, peak RSS −32%.
       **(b)+(c) steady-state RSS + GC:** `tests/perf/serverrss/` boots a real server under load → interp
