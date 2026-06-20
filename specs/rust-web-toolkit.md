@@ -234,8 +234,15 @@ SSR at the primitive level first (no library needed), then layer the widget libr
        direct-WS client (skip polling, connect to rozum's WS) is an optional refinement.
 
    **S5 STATUS: all three S5b.2 variants delivered** (generic push, rozum bridge, computed/derived) at
-   poll-transport depth. Refinements deferred: SSE/WS streaming transport, client recompute of computed
-   signals, set/toggle/show client wiring, direct-WS client.
+   poll-transport depth.
+   - **set/toggle client wiring — DONE 2026-06-20.** `setSignal`/`toggleSignal` were no-ops (`Value::Unit`);
+     now `_ui_set_signal(s,v)`→`ssc-set:<name>:<value>` and `_ui_toggle_signal(s)`→`ssc-toggle:<name>`,
+     surfaced by `_ui_element` as `data-ssc-set`/`data-ssc-toggle`, and the client script's new `click`
+     handler sets/flips the signal locally (`_sscState`) + persists to `/__ssc/push` so the poll doesn't
+     revert. Verified at codegen (`RustGenWebToolkitTest` 18/18) + a cargo build of a set/toggle probe
+     (the runtime compiles as Rust); `backendRust` 222/0. Browser *click behaviour* not browser-tested.
+   Refinements still deferred (browser/transport-dependent): SSE/WS streaming transport, client recompute
+   of computed signals, direct-WS client.
 
 Prereq landed: **I1** `s"…${expr}…"` compound splices (`RustGenWebToolkitTest` 3/3).
 

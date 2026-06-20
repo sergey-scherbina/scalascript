@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-20 — feat(rust-web): set/toggle signal client wiring
+
+Closes "set/toggle client wiring" from the rust-web-toolkit S5 deferred list. `setSignal`/`toggleSignal`
+were no-ops in the Rust SSR runtime (`Value::Unit`) — a button `["click" -> setSignal(sig, v)]` or checkbox
+`["change" -> toggleSignal(s)]` produced no client wiring. Now they mirror how `inputChange` already works:
+`_ui_set_signal`/`_ui_toggle_signal` encode `ssc-set:<name>:<value>` / `ssc-toggle:<name>` markers,
+`_ui_element` surfaces them as `data-ssc-set` / `data-ssc-toggle` attributes, and the appended client script
+gains a `click` handler that sets/flips the signal locally (new `_sscState` map) and persists to
+`/__ssc/push` so the 1 s state-poll doesn't revert it. Verified: `RustGenWebToolkitTest` 18/18 (markers +
+attrs + client wiring) and a cargo build of a set/toggle probe confirming the changed runtime compiles as
+real Rust; `backendRust` 222/0. Browser *click behaviour* remains browser-dependent (unverified here).
+
 ## 2026-06-20 — test(xbackend): hang-proof subprocess runner + cross-backend differential in CI
 
 The cross-backend property differential (interp == JS(node) == JVM(scala-cli) over generated programs) is
