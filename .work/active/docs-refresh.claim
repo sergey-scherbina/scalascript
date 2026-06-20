@@ -1,6 +1,0 @@
-feature/docs-refresh 2026-06-20T18:26:25Z
-agent: claude
-heartbeat: 2026-06-20T18:26:25Z
-status: in-progress
-done-so-far: surveying recent feature commits + doc structure to refresh all docs
-next: update README/user-guide/tutorial + write a GitHub project summary covering all new features
