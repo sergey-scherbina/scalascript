@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-20 — perf(cli): AppCDS cuts `ssc` cold-start ~50% + cold-start harness
+
+`real-workload-perf` slice (a) — the cold-start axis `scripts/bench wall` deliberately excludes (it reports
+work-time only). New `tests/perf/coldstart/` harness (pure bash + JVM launcher, no scala-cli/bloop so it
+can't hang) measures fresh `ssc run hello.ssc` wall-clock + peak RSS, baseline vs AppCDS, with a
+`COLDSTART_MS`/`RSS` tail for regression capture. Measured baseline: ~378 ms / 167 MB peak for
+`println("hello")` — JVM boot (~36 ms) + classloading the 88 MB fat jar dominate.
+
+Cut shipped into `bin/ssc` and the `install.sh`-generated launcher: **Application Class-Data Sharing**
+(`-XX:+AutoCreateSharedArchive`, JDK 19+; archive auto-created on first run and auto-recreated on classpath
+change → no build step). **378 → 182 ms (−51%)**, and peak RSS **167 → 114 MB (−32%)** as a bonus (shared
+classes mmap'd read-only). Deliberately CDS-only, not `-XX:TieredStopAtLevel=1` (which would speed startup a
+touch more but cripple long-running `ssc serve` throughput). Old JDKs ignore the flags; opt out with
+`SSC_NO_CDS=1`; archive in `~/.cache/scalascript`. First-run CDS log silenced so it never pollutes piped
+stdout. The GraalVM native binary needs no CDS. Remaining slices (b) steady-state server RSS, (c) GC under
+load — documented, need a long-running-server harness.
+
 ## 2026-06-19 — feat(interp): typeclass-fold memo — ~19% on `combineAll`-style folds (default-on)
 
 The slow typeclass case (`xs.foldLeft(summon[M].empty)(summon[M].combine)`) is now ~19% faster — achieved

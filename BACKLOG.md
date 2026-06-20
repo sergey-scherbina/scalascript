@@ -493,10 +493,16 @@ The feature roadmap is built out (729/740 done, 127 conformance cases, ~70 prope
 comprehensive docs). These are the higher-leverage *productization/hardening/enablement* directions.
 The two active ones are in SPRINT (`compile-time-at-scale`, `xbackend-property-equivalence`).
 
-- [ ] **real-workload-perf** — micro-throughput is at floor, but real-workload perf dimensions are
-      unmeasured: (a) cold-start / GraalVM native-image startup time, (b) long-running-server memory
-      footprint over hours, (c) GC behaviour under sustained load. Build a startup-time + steady-state-RSS
-      measurement; profile + cut the worst. Complements `compile-time-at-scale` (the other unmeasured axis).
+- [~] **real-workload-perf** — micro-throughput is at floor; this is the real-workload axis.
+      **(a) cold-start ✓ DONE 2026-06-20:** built `tests/perf/coldstart/` (pure-bash harness, no
+      scala-cli/bloop → can't hang) measuring fresh `ssc run` wall-clock + peak RSS. Baseline ~378 ms /
+      167 MB (JVM boot ~36 ms + classloading the 88 MB fat jar dominate). **Cut shipped:** AppCDS in
+      `bin/ssc` + `install.sh` (`-XX:+AutoCreateSharedArchive`, auto-created first run, no build step,
+      CDS-only — NOT TieredStopAtLevel which would hurt long-running `ssc serve`) → **378 → 182 ms (−51%)
+      + peak RSS 167 → 114 MB (−32%)**; opt out `SSC_NO_CDS=1`. GraalVM native binary needs no CDS.
+      **REMAINING:** (b) long-running-server steady-state RSS over hours, (c) GC under sustained load —
+      both need a long-running-server harness (start `ssc serve`, drive load, sample RSS/GC), a separate
+      larger slice. Complements `compile-time-at-scale` (the other unmeasured axis).
 - [ ] **xbackend-property-equivalence (full suite)** — slice 2 ✓ LANDED 2026-06-15 (broadened to 6 kinds: arith/List/match/enum/String/case-class; 48 JS + 6 JVM all agree). REMAINING: effects, Option/Either, nested data, closures-as-values (each needs per-class determinism care); wire into CI. ORIGINAL — beyond SPRINT slice 1: broaden the generator to
       collections, ADTs, pattern matching, effects, closures; wire it into CI as a standing cross-backend
       differential. The definitive guarantee for a one-source-many-targets language.

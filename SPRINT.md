@@ -35,10 +35,10 @@ After the perf series (foldLeft VM compile + typeclass-fold memo) micro-throughp
 next autonomously-actionable work is quality + unmeasured-axis perf, priority order. Drive top-to-bottom,
 per-feature worktrees + claims.
 
-- [ ] **real-workload-perf** (roadmap-next #1) — the unmeasured perf axis micro-benchmarks don't capture:
-      (a) cold-start / GraalVM native-image startup time, (b) long-running-server steady-state RSS over
-      hours, (c) GC behaviour under sustained load. Build a startup-time + steady-state-RSS measurement
-      harness, profile, cut the worst. BACKLOG `real-workload-perf`. **← starting here.**
+- [~] **real-workload-perf** (roadmap-next #1) — **(a) cold-start ✓ DONE 2026-06-20:** `tests/perf/coldstart/`
+      harness + AppCDS in `bin/ssc`/`install.sh` → cold-start **378 → 182 ms (−51%)**, peak RSS −32%. **(b)
+      steady-state server RSS over hours + (c) GC under sustained load REMAIN** — need a long-running-server
+      harness (start `ssc serve`, drive load, sample RSS/GC), a separate larger slice. BACKLOG `real-workload-perf`.
 - [ ] **xbackend-property-equivalence (full + CI)** — broaden the `CrossBackendPropertyTest` generator
       (effects, Option/Either, nested data, closures-as-values; each needs per-class determinism care) and
       wire it into CI as a standing interp==JVM==JS differential — the definitive guarantee for a
