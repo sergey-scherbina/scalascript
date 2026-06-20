@@ -1,0 +1,6 @@
+feature/rwt-client2 2026-06-20T10:33:02Z
+agent: claude
+heartbeat: 2026-06-20T10:33:02Z
+status: in-progress
+done-so-far: continuing rust-web deferred refinements; picking next codegen-verifiable slice
+next: inspect computed-signal recompute + server endpoints + SSE option; build most bounded slice, cargo-verify
