@@ -1,0 +1,6 @@
+feature/remote-registry-mvp 2026-06-20T19:42:41Z
+agent: codex
+heartbeat: 2026-06-20T19:42:41Z
+status: not-started
+done-so-far: user confirmed registry should start without a custom domain
+next: create feature worktree; read registry specs/code; write no-domain static registry spec update before implementation
