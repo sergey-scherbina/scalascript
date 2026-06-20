@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-20 — feat(rust-web): computed signal reading another signal compiles + SSRs (S5)
+
+The foundational computed-recompute fix. A computed signal that reads another signal —
+`computedSignal(() => loc())` — did **not compile** before (the read `loc()` emitted a bare call, but the
+signal lowers to `Value`, which isn't callable: `error[E0618]`). Now a 0-arg apply on a `Signal`-typed local
+is recognized as a signal READ and lowers to `loc.signal_value().show()`: a per-def `collectLocalSignals`
+pre-pass tracks signal-bound locals into the render `Ctx` (scope-correct, inherited by closures), the apply
+lowering emits the read, and `Value::signal_value` now takes `&self` + clones (so a repeatedly-called
+computed closure doesn't move the captured signal). `.show()` yields the value's `String` form —
+`Signal[String]` is the UI/i18n signal type and `computedSignal` takes `() => String`.
+
+Verified: `computedSignal(() => loc())` cargo-builds and the binary SSRs the dependency's initial value
+(`signal("locale","fr")` → `…<span data-ssc-text="">fr</span>…`); `backendRust` 223/0 — no regression (the
+lowering is gated to 0-arg applies on tracked signal locals). This is the compile+SSR layer (the real
+blocker — it was broken). LIVE recompute (the client picks up dependency changes) is a further layer — named
+computed signals + a server-side closure registry + store-backed reads across the value↔http module
+boundary — designed, not in this commit.
+
 ## 2026-06-20 — feat(rust-web): SSE push transport for signal updates (S5)
 
 Replaces the rust-web SSR server's 1 s state-poll with real-time Server-Sent Events (poll kept as a

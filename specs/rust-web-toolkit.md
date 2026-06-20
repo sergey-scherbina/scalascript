@@ -250,24 +250,23 @@ SSR at the primitive level first (no library needed), then layer the widget libr
      curl:** a running server streams `data: {}` on connect then `data: {"count":"42"}` immediately after a
      `/__ssc/push`. (The earlier "browser-only, unverifiable" assessment was wrong — the server side is
      fully curl-verifiable.)
-   - **client recompute of computed signals — DEEPER THAN "STATIC": a computed signal that reads another
-     signal does not even COMPILE today.** PROVEN 2026-06-20 with a cargo build of
-     `computedSignal(() => loc())` (where `val loc = signal("locale","en")`): the codegen emits the thunk as
-     `move || { loc() }`, and `loc` is a `Value` → **`error[E0618]: expected function, found Value`**. (The
-     S5b.2-B "verified" example used a *string-literal* thunk `computedSignal(() => "x")`, which has no
-     signal read — that's why it passed. So the spec's earlier "renders static-only" was wrong: reading a
-     signal in a computed thunk is broken, not merely static.) ROOT CAUSE: a signal read `loc()` (apply on a
-     `Signal`-typed local, which lowers to `crate::value::Value`) is emitted as a bare `loc()` call, but
-     `Value` is not callable. **FIX (a dedicated codegen feature, not a session-tail change):** (1) track
-     `Signal`-typed locals (`val x: Signal[_] = …` or `val x = signal/computedSignal/seedSignal(…)`) with
-     proper *lexical scope* — the current `userDefs`/`ctorMap`/etc. tracking is module-global, so a new
-     scope-aware pass is needed (the read also happens inside the captured closure); (2) in the apply
-     lowering (RustCodeWalk ~2400, the local-binding fallback `s"$rn($args)"`), emit `x.signal_value()` for a
-     0-arg apply on a tracked signal local; (3) change `Value::signal_value(self)` → `(&self)` + clone so it
-     works in a repeatedly-called `Fn` closure and doesn't consume. That makes it COMPILE + SSR (read the
-     initial value). LIVE recompute is a further step on top: a generated name + a server-side re-runnable
-     closure registry + **store-backed reads** (signal_value reading `ssc_signals()`), re-run on every push.
-     Verifiable throughout via cargo + curl. (`seedSignal` is already fine — *named* signal, poll/SSE updates it.)
+   - **computed signal reading another signal — COMPILE + SSR ✓ DONE 2026-06-20.** This was *broken*, not
+     "static": `computedSignal(() => loc())` (where `val loc = signal("locale","en")`) did not compile —
+     the read `loc()` emitted a bare call but `loc` lowers to `Value`, which isn't callable
+     (`error[E0618]`). (The S5b.2-B "verified" example used a string-*literal* thunk with no signal read,
+     so it passed.) FIXED: a 0-arg apply on a Signal-typed local is a signal READ → lowers to
+     `loc.signal_value().show()`. Implementation: a per-def `collectLocalSignals` pre-pass (mirroring
+     `collectLocalStrings`/`Seqs`) tracks signal-bound locals into `Ctx.localSignals` (scope-correct: the
+     read inside the captured closure inherits the def's ctx via `renderClosure`'s `ctx.copy`); the apply
+     lowering emits `n.signal_value().show()`; `Value::signal_value` changed `self → &self` + clone.
+     `.show()` yields the value's String form — `Signal[String]` is the UI/i18n signal type and
+     `computedSignal` takes `() => String`. VERIFIED: `computedSignal(() => loc())` cargo-builds and the
+     binary SSRs `signal("locale","fr")` → `…<span data-ssc-text="">fr</span>…`; `backendRust` 223/0.
+     **REMAINING — live recompute** (the client picks up dep changes): the computed span is still anonymous
+     (`data-ssc-text=""`), so name the computed signal + a server-side re-runnable closure registry +
+     **store-backed reads** (`signal_value` reading `ssc_signals()`, which crosses the value.rs↔http.rs
+     module boundary) + re-run on push (SSE already broadcasts). Typed non-String signal reads (arithmetic
+     on a `Signal[Int]`) are also a follow-up (`.show()` assumes String). (`seedSignal` already fine — named.)
    - **direct-WS client — LOW VALUE now.** Was for server→client push; **SSE now provides that** (and
      external→server is already `/__ssc/push`). A WS endpoint would be SSE-over-WS for marginal benefit +
      the upgrade-handshake complexity; rozum-bridge-specific. Superseded for the push direction.
