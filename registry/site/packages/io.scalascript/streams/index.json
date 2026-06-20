@@ -1,0 +1,13 @@
+{
+  "name": "io.scalascript/streams",
+  "version": "1.0.0",
+  "description": "Lazy reactive streams and async pipelines for ScalaScript",
+  "keywords": ["streams", "reactive", "async", "pipeline", "source", "sink"],
+  "backends": ["jvm", "js"],
+  "url": "github:scalascript/scalascript@v1.0.0",
+  "license": "Apache-2.0",
+  "author": "ScalaScript Team",
+  "homepage": "https://scalascript.io/packages/streams",
+  "scalaScriptVersion": ">=1.51",
+  "install": "dep:io.scalascript/streams:1.0.0"
+}

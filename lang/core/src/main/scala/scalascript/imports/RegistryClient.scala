@@ -7,8 +7,8 @@ import java.net.{HttpURLConnection, URI}
  *
  *  Fetches `packages.yaml` from the registry URL.  URL priority:
  *    1. `--registry <url>` CLI flag (callers pass this explicitly)
- *    2. `registry.url` key in `~/.config/scalascript/config.yaml`
- *    3. Built-in default `https://registry.scalascript.io/packages.yaml`
+ *    2. `registry.url` or `registry: { url: ... }` in `~/.config/scalascript/config.yaml`
+ *    3. Built-in default `https://sergey-scherbina.github.io/scalascript/packages.yaml`
  *
  *  Results cached to `~/.cache/scalascript/registry/packages.yaml` with a
  *  1-hour TTL.  Search runs locally via substring + keyword matching.
@@ -16,7 +16,7 @@ import java.net.{HttpURLConnection, URI}
  *  See `specs/arch-registry.md §3c, §3d Phase 4`. */
 object RegistryClient:
 
-  val DefaultRegistryUrl  = "https://registry.scalascript.io/packages.yaml"
+  val DefaultRegistryUrl  = "https://sergey-scherbina.github.io/scalascript/packages.yaml"
   val CacheTtlMs: Long    = 60L * 60 * 1000   // 1 hour
   val ConfigFile: os.Path = os.home / ".config" / "scalascript" / "config.yaml"
 
@@ -34,7 +34,15 @@ object RegistryClient:
         import scalascript.parser.SimpleYaml
         import scala.jdk.CollectionConverters.*
         val raw = SimpleYaml.load[java.util.Map[String, Any]](os.read(ConfigFile))
-        Option(raw).flatMap(_.asScala.get("registry.url")).map(_.toString.trim).filter(_.nonEmpty)
+        Option(raw).flatMap { m =>
+          val fields = m.asScala
+          fields.get("registry.url").orElse {
+            fields.get("registry") match
+              case Some(nested: java.util.Map[?, ?]) =>
+                nested.asInstanceOf[java.util.Map[String, Any]].asScala.get("url")
+              case _ => None
+          }
+        }.map(_.toString.trim).filter(_.nonEmpty)
       }.toOption.flatten
 
   /** Effective registry URL: explicit override > config file > default. */

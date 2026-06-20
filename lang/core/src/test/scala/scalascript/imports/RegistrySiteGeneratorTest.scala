@@ -145,8 +145,19 @@ class RegistrySiteGeneratorTest extends AnyFunSuite:
       RegistrySiteGenerator.generate(List(e1, e3), tmpDir)
       assert(os.exists(tmpDir / "index.html"))
       assert(os.exists(tmpDir / "search-index.json"))
+      assert(os.exists(tmpDir / "packages.yaml"))
       assert(os.exists(tmpDir / "packages" / "io.scalascript" / "json" / "index.json"))
       assert(os.exists(tmpDir / "packages" / "unknown" / "mylib" / "index.json"))
+    finally os.remove.all(tmpDir)
+  }
+
+  test("generate writes parseable packages.yaml for the CLI default URL") {
+    val tmpDir = os.temp.dir()
+    try
+      RegistrySiteGenerator.generate(List(e1, e2), tmpDir)
+      val yaml = os.read(tmpDir / "packages.yaml")
+      val entries = RegistryEntry.parseAll(yaml).toOption.getOrElse(Nil)
+      assert(entries.map(_.name) == List("io.scalascript/json", "io.scalascript/http"))
     finally os.remove.all(tmpDir)
   }
 

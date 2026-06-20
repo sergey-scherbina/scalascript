@@ -1,0 +1,13 @@
+{
+  "name": "io.scalascript/http",
+  "version": "1.0.0",
+  "description": "HTTP client and server primitives for ScalaScript",
+  "keywords": ["http", "web", "client", "server", "rest"],
+  "backends": ["jvm", "js"],
+  "url": "github:scalascript/scalascript@v1.0.0",
+  "license": "Apache-2.0",
+  "author": "ScalaScript Team",
+  "homepage": "https://scalascript.io/packages/http",
+  "scalaScriptVersion": ">=1.0",
+  "install": "dep:io.scalascript/http:1.0.0"
+}

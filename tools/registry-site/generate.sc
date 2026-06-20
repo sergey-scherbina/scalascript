@@ -6,13 +6,14 @@
 /** Generate the ScalaScript package registry static site.
  *
  *  Usage:
- *    scala-cli run generate.sc -- [<packages-yaml>] [<output-dir>]
+ *    scala-cli generate.sc -- [<packages-yaml>] [<output-dir>]
  *
  *  Defaults:
- *    packages-yaml = ../../registry/packages.yaml  (relative to script dir)
- *    output-dir    = ../../registry/site
+ *    packages-yaml = registry/packages.yaml  (relative to repo root/current directory)
+ *    output-dir    = registry/site
  *
  *  Reads packages.yaml, generates:
+ *    site/packages.yaml
  *    site/packages/{group}/{artifact}/index.json
  *    site/search-index.json
  *    site/index.html
@@ -143,9 +144,8 @@ $tableRows
 
 // ── Main ────────────────────────────────────────────────────────────────────
 
-val scriptDir   = os.Path(sourcecode.File())  / os.up
-val defaultYaml = scriptDir / os.up / os.up / "registry" / "packages.yaml"
-val defaultOut  = scriptDir / os.up / os.up / "registry" / "site"
+val defaultYaml = os.pwd / "registry" / "packages.yaml"
+val defaultOut  = os.pwd / "registry" / "site"
 
 val args0 = args.toList
 val yamlPath = args0.headOption.map(os.Path(_, os.pwd)).getOrElse(defaultYaml)
@@ -159,6 +159,7 @@ val entries = parseEntries(os.read(yamlPath))
 println(s"Loaded ${entries.length} packages from ${yamlPath.last}")
 
 os.makeDir.all(outDir / "packages")
+os.write.over(outDir / "packages.yaml", os.read(yamlPath))
 
 entries.foreach { e =>
   val slash  = e.name.indexOf('/')
@@ -172,6 +173,7 @@ os.write.over(outDir / "search-index.json", searchIndex(entries))
 os.write.over(outDir / "index.html", indexHtml(entries))
 
 println(s"Generated site in ${outDir}")
+println(s"  site/packages.yaml")
 println(s"  site/index.html")
 println(s"  site/search-index.json")
 println(s"  site/packages/ (${entries.length} packages)")

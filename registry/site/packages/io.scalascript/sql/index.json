@@ -1,0 +1,13 @@
+{
+  "name": "io.scalascript/sql",
+  "version": "1.0.0",
+  "description": "SQL database access (PostgreSQL, SQLite) for ScalaScript",
+  "keywords": ["sql", "database", "postgresql", "sqlite", "jdbc"],
+  "backends": ["jvm"],
+  "url": "github:scalascript/scalascript@v1.0.0",
+  "license": "Apache-2.0",
+  "author": "ScalaScript Team",
+  "homepage": "https://scalascript.io/packages/sql",
+  "scalaScriptVersion": ">=1.27",
+  "install": "dep:io.scalascript/sql:1.0.0"
+}

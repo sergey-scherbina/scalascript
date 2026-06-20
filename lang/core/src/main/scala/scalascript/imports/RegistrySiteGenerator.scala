@@ -3,6 +3,7 @@ package scalascript.imports
 /** Generates the ScalaScript package registry static site.
  *
  *  Given a list of `RegistryEntry` values, produces:
+ *  - `site/packages.yaml` — registry catalog served at the CLI default URL
  *  - `site/packages/{group}/{artifact}/index.json` — per-package metadata
  *  - `site/search-index.json` — lunr.js-compatible search index
  *  - `site/index.html` — self-contained searchable HTML page
@@ -15,6 +16,7 @@ object RegistrySiteGenerator:
   /** Generate the full site under `outputDir`.  Creates all directories. */
   def generate(entries: List[RegistryEntry], outputDir: os.Path): Unit =
     os.makeDir.all(outputDir / "packages")
+    os.write.over(outputDir / "packages.yaml", RegistryEntry.toYaml(entries))
     entries.foreach { e => writePackageJson(e, outputDir) }
     writeSearchIndex(entries, outputDir)
     writeIndexHtml(entries, outputDir)

@@ -1,0 +1,13 @@
+{
+  "name": "io.scalascript/actors",
+  "version": "1.0.0",
+  "description": "Lightweight actor model for concurrent ScalaScript programs",
+  "keywords": ["actors", "concurrency", "async", "mailbox"],
+  "backends": ["jvm", "js"],
+  "url": "github:scalascript/scalascript@v1.0.0",
+  "license": "Apache-2.0",
+  "author": "ScalaScript Team",
+  "homepage": "https://scalascript.io/packages/actors",
+  "scalaScriptVersion": ">=1.40",
+  "install": "dep:io.scalascript/actors:1.0.0"
+}

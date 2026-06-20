@@ -1,0 +1,7 @@
+[
+  {"ref": "io.scalascript/json", "name": "io.scalascript/json", "version": "1.0.0", "description": "Built-in JSON encoding/decoding for ScalaScript", "body": "io.scalascript/json Built-in JSON encoding/decoding for ScalaScript json serialization codec parsing"},
+  {"ref": "io.scalascript/http", "name": "io.scalascript/http", "version": "1.0.0", "description": "HTTP client and server primitives for ScalaScript", "body": "io.scalascript/http HTTP client and server primitives for ScalaScript http web client server rest"},
+  {"ref": "io.scalascript/streams", "name": "io.scalascript/streams", "version": "1.0.0", "description": "Lazy reactive streams and async pipelines for ScalaScript", "body": "io.scalascript/streams Lazy reactive streams and async pipelines for ScalaScript streams reactive async pipeline source sink"},
+  {"ref": "io.scalascript/actors", "name": "io.scalascript/actors", "version": "1.0.0", "description": "Lightweight actor model for concurrent ScalaScript programs", "body": "io.scalascript/actors Lightweight actor model for concurrent ScalaScript programs actors concurrency async mailbox"},
+  {"ref": "io.scalascript/sql", "name": "io.scalascript/sql", "version": "1.0.0", "description": "SQL database access (PostgreSQL, SQLite) for ScalaScript", "body": "io.scalascript/sql SQL database access (PostgreSQL, SQLite) for ScalaScript sql database postgresql sqlite jdbc"}
+]

@@ -85,6 +85,21 @@ class RegistryPrivateTest extends AnyFunSuite:
         case None    => if os.exists(configPath) then os.remove(configPath)
   }
 
+  test("RegistryClient.registryUrlFromConfig: reads nested registry.url from config.yaml") {
+    val configPath = RegistryClient.ConfigFile
+    val oldContent = if os.exists(configPath) then Some(os.read(configPath)) else None
+    try
+      os.makeDir.all(configPath / os.up)
+      os.write.over(configPath, "registry:\n  url: https://nested.example/packages.yaml\n")
+      val url = RegistryClient.registryUrlFromConfig()
+      assert(url.contains("https://nested.example/packages.yaml"),
+        s"expected nested config URL; got $url")
+    finally
+      oldContent match
+        case Some(c) => os.write.over(configPath, c)
+        case None    => if os.exists(configPath) then os.remove(configPath)
+  }
+
   test("RegistryClient.effectiveUrl: config file URL beats default") {
     val configPath = RegistryClient.ConfigFile
     val oldContent = if os.exists(configPath) then Some(os.read(configPath)) else None

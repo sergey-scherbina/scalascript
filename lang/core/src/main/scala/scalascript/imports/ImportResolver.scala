@@ -282,7 +282,7 @@ object ImportResolver:
    *  When `state` is present (transitive-resolution session), cycle detection and
    *  version-conflict tracking are performed.
    *
-   *  v1.19.x: central registry (`registry.scalascript.io`) deferred.
+   *  The remote registry CLI search/add path is separate from this dep-source fallback.
    */
   private def resolveDep(
       depUri:   String,

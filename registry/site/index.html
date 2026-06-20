@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ScalaScript Package Registry</title>
+  <style>body{font-family:sans-serif;max-width:900px;margin:0 auto;padding:1rem}input{width:100%;padding:.5rem;font-size:1rem;margin-bottom:1rem;box-sizing:border-box}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:.4rem .6rem;border-bottom:1px solid #eee}th{background:#f5f5f5}.deprecated{color:#999;font-size:.8em}</style>
+</head>
+<body>
+  <h1>ScalaScript Package Registry</h1>
+  <input id="search" type="search" placeholder="Search packages..." autofocus>
+  <div id="count">5 packages</div>
+  <table><thead><tr><th>Package</th><th>Version</th><th>Description</th><th>Backends</th></tr></thead>
+  <tbody id="pkg-body">
+      <tr data-name="io.scalascript/actors" data-desc="Lightweight actor model for concurrent ScalaScript programs" data-keywords="actors concurrency async mailbox">
+        <td><a href="packages/io.scalascript/actors/index.json">io.scalascript/actors</a></td>
+        <td>1.0.0</td>
+        <td>Lightweight actor model for concurrent ScalaScript programs</td>
+        <td>jvm, js</td>
+      </tr>
+      <tr data-name="io.scalascript/http" data-desc="HTTP client and server primitives for ScalaScript" data-keywords="http web client server rest">
+        <td><a href="packages/io.scalascript/http/index.json">io.scalascript/http</a></td>
+        <td>1.0.0</td>
+        <td>HTTP client and server primitives for ScalaScript</td>
+        <td>jvm, js</td>
+      </tr>
+      <tr data-name="io.scalascript/json" data-desc="Built-in JSON encoding/decoding for ScalaScript" data-keywords="json serialization codec parsing">
+        <td><a href="packages/io.scalascript/json/index.json">io.scalascript/json</a></td>
+        <td>1.0.0</td>
+        <td>Built-in JSON encoding/decoding for ScalaScript</td>
+        <td>jvm, js</td>
+      </tr>
+      <tr data-name="io.scalascript/sql" data-desc="SQL database access (PostgreSQL, SQLite) for ScalaScript" data-keywords="sql database postgresql sqlite jdbc">
+        <td><a href="packages/io.scalascript/sql/index.json">io.scalascript/sql</a></td>
+        <td>1.0.0</td>
+        <td>SQL database access (PostgreSQL, SQLite) for ScalaScript</td>
+        <td>jvm</td>
+      </tr>
+      <tr data-name="io.scalascript/streams" data-desc="Lazy reactive streams and async pipelines for ScalaScript" data-keywords="streams reactive async pipeline source sink">
+        <td><a href="packages/io.scalascript/streams/index.json">io.scalascript/streams</a></td>
+        <td>1.0.0</td>
+        <td>Lazy reactive streams and async pipelines for ScalaScript</td>
+        <td>jvm, js</td>
+      </tr>
+  </tbody></table>
+  <script>
+    const rows=Array.from(document.querySelectorAll('#pkg-body tr'));
+    document.getElementById('search').addEventListener('input',function(){
+      const q=this.value.toLowerCase();let v=0;
+      rows.forEach(r=>{const show=!q||r.dataset.name.includes(q)||r.dataset.desc.includes(q)||r.dataset.keywords.includes(q);r.style.display=show?'':'none';if(show)v++;});
+      document.getElementById('count').textContent=v+' package'+(v===1?'':'s');
+    });
+  </script>
+</body>
+</html>

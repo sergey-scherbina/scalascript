@@ -1,0 +1,13 @@
+{
+  "name": "io.scalascript/json",
+  "version": "1.0.0",
+  "description": "Built-in JSON encoding/decoding for ScalaScript",
+  "keywords": ["json", "serialization", "codec", "parsing"],
+  "backends": ["jvm", "js"],
+  "url": "github:scalascript/scalascript@v1.0.0",
+  "license": "Apache-2.0",
+  "author": "ScalaScript Team",
+  "homepage": "https://scalascript.io/packages/json",
+  "scalaScriptVersion": ">=1.0",
+  "install": "dep:io.scalascript/json:1.0.0"
+}
