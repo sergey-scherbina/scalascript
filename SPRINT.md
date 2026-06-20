@@ -40,8 +40,12 @@ per-feature worktrees + claims.
 > #2 xbackend full+CI ✓ generator already broad (12 kinds) + wired into CI. #3 xbackend-test-hardening ✓
 > `runCaptured` hang-proof runner. #4 rust-web-toolkit ✓ verified essentially complete + shipped the one
 > bounded deferred slice (set/toggle client wiring); rest is browser/rozum-driven. **Queue fully resolved.**
-> Open elsewhere (NOT bounded-autonomous): Maven publication (gated), rozum-driven rust refinements, a
-> minutes-scale server leak-hunt (demand-driven), the ~9-file xbackend hang-proof sweep (low-risk follow-up).
+> Follow-ups also DONE 2026-06-20 (per "сделай всё кроме maven"): **xbackend hang-proof sweep** — converted
+> all 17 deadlock-risk (both-streams) subprocess-test files to `ProcTestUtil.runOrThrow`/`runCaptured` (the
+> 22 single-stream `redirectErrorStream` files are deadlock-safe + behaviour-subtle → left as-is, standard
+> set for new tests); 54 converted tests run green. **Server leak-hunt** — 4-min sustained-load run:
+> definitively no leak (RSS peaked 205 MB, *ended 80 MB* as the JVM reclaimed heap; GC light/steady). **Only
+> Maven publication (gated, excluded) + rozum/browser-driven rust refinements remain.**
 
 - [x] **real-workload-perf** (roadmap-next #1) ✓ DONE 2026-06-20 (all three axes). **(a) cold-start:**
       `tests/perf/coldstart/` + AppCDS in `bin/ssc`/`install.sh` → **378 → 182 ms (−51%)**, peak RSS −32%.

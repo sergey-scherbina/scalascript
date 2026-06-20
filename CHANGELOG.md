@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-20 — test: hang-proof the cross-backend subprocess tests + 4-min server leak-hunt
+
+Two follow-ups completing the quality/perf queue:
+
+- **xbackend hang-proof sweep.** The blocking-read-before-`awaitExit` antipattern (which hung
+  `CrossBackendPropertyTest`) was copy-pasted across ~30 test files. Added `ProcTestUtil.runOrThrow` (the
+  safe `runCaptured`-backed path) and converted all **17 both-streams (genuine deadlock-risk) files** to it,
+  removing the now-unused `scala.io.Source` imports. The ~22 `redirectErrorStream(true)` single-stream files
+  are deadlock-safe by construction (and some intentionally ignore exit code), so they're left as-is —
+  `runOrThrow`/`runCaptured` is the standard for new tests. Verified: test module compiles (-Werror), 54
+  converted tests run green across JS + JVM legs (behavior preserved).
+- **Server leak-hunt** (the demand-driven long run for `tests/perf/serverrss`). 4 minutes of sustained
+  load: **definitively no leak** — RSS peaked at 205 MB and *ended at 80 MB* (the JVM reclaimed and returned
+  heap to the OS as load tapered, the opposite of a leak's climb), GC light/steady (516 short pauses /
+  233 ms). Recorded in the serverrss README.
+
 ## 2026-06-20 — perf(server): steady-state RSS + GC harness (real-workload-perf complete)
 
 The third and last unmeasured perf axis: a long-running `ssc` HTTP server's memory footprint and GC under
