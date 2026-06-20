@@ -250,14 +250,24 @@ SSR at the primitive level first (no library needed), then layer the widget libr
      curl:** a running server streams `data: {}` on connect then `data: {"count":"42"}` immediately after a
      `/__ssc/push`. (The earlier "browser-only, unverifiable" assessment was wrong — the server side is
      fully curl-verifiable.)
-   - **client recompute of computed signals — DEEP, NOT rushed.** Genuinely harder than the others (not a
-     clean slice): `_ui_computed_signal` evaluates an *opaque Rust thunk* once at SSR into an *anonymous*
-     signal, and a signal read inside the thunk (`localeSignal()`) lowers through `Value::Signal` *apply*,
-     not a single chokepoint. Live recompute needs (1) a generated name for the computed signal, (2) a
-     server-side registry of re-runnable closures, and — the hard part — (3) **store-backed signal reads**
-     so a re-run picks up new dependency values, which touches the core Value::Signal apply lowering with
-     real regression risk across `backendRust`. Build-ready design recorded; do it as a dedicated effort,
-     not a session-tail rush. (`seedSignal` is already fine — *named* signal, the poll/SSE updates it.)
+   - **client recompute of computed signals — DEEPER THAN "STATIC": a computed signal that reads another
+     signal does not even COMPILE today.** PROVEN 2026-06-20 with a cargo build of
+     `computedSignal(() => loc())` (where `val loc = signal("locale","en")`): the codegen emits the thunk as
+     `move || { loc() }`, and `loc` is a `Value` → **`error[E0618]: expected function, found Value`**. (The
+     S5b.2-B "verified" example used a *string-literal* thunk `computedSignal(() => "x")`, which has no
+     signal read — that's why it passed. So the spec's earlier "renders static-only" was wrong: reading a
+     signal in a computed thunk is broken, not merely static.) ROOT CAUSE: a signal read `loc()` (apply on a
+     `Signal`-typed local, which lowers to `crate::value::Value`) is emitted as a bare `loc()` call, but
+     `Value` is not callable. **FIX (a dedicated codegen feature, not a session-tail change):** (1) track
+     `Signal`-typed locals (`val x: Signal[_] = …` or `val x = signal/computedSignal/seedSignal(…)`) with
+     proper *lexical scope* — the current `userDefs`/`ctorMap`/etc. tracking is module-global, so a new
+     scope-aware pass is needed (the read also happens inside the captured closure); (2) in the apply
+     lowering (RustCodeWalk ~2400, the local-binding fallback `s"$rn($args)"`), emit `x.signal_value()` for a
+     0-arg apply on a tracked signal local; (3) change `Value::signal_value(self)` → `(&self)` + clone so it
+     works in a repeatedly-called `Fn` closure and doesn't consume. That makes it COMPILE + SSR (read the
+     initial value). LIVE recompute is a further step on top: a generated name + a server-side re-runnable
+     closure registry + **store-backed reads** (signal_value reading `ssc_signals()`), re-run on every push.
+     Verifiable throughout via cargo + curl. (`seedSignal` is already fine — *named* signal, poll/SSE updates it.)
    - **direct-WS client — LOW VALUE now.** Was for server→client push; **SSE now provides that** (and
      external→server is already `/__ssc/push`). A WS endpoint would be SSE-over-WS for marginal benefit +
      the upgrade-handshake complexity; rozum-bridge-specific. Superseded for the push direction.
