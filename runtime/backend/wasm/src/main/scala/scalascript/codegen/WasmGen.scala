@@ -191,27 +191,70 @@ object WasmGen:
    *  (its `Thread`/`java.nio` parts crash the Scala.js linker), and supply a
    *  minimal pure-Scala effect runtime (`WasmEffectRuntime`) in `_ssc_runtime`.
    *  `generateUserOnly` strips the user's `@main` (returning a plain `def`), so
-   *  re-add a wasm entry that calls it. Covers single-module effect programs
-   *  using the core effect runtime + Scala stdlib; programs whose handler bodies
-   *  reach for other JVM-preamble helpers (`_dispatch`/`_binOp`) fail at link
-   *  for now — see BACKLOG `wasm-effects`. */
+   *  re-add a wasm entry that calls it and preserves the supported main-args
+   *  shape. */
   private def compileEffectfulToWasm(module: Module, baseDir: Option[os.Path]): WasmBundle =
     val lowered = scalascript.codegen.JvmGen.generateUserOnly(module, baseDir)
-    val entry   = mainEntryName(module).getOrElse(throw RuntimeException(
+    val entry   = mainEntry(module).getOrElse(throw RuntimeException(
       "An effectful WASM module needs an `@main def` entry point (effects run from it)."))
     val full =
       WasmEffectRuntime.source + "\n" + lowered +
-      s"\n@main def _ssc_wasm_main(): Unit = { $entry(); () }\n"
+      "\n" + entry.wrapperSource + "\n"
     compileSourceToWasm(full, baseDir)
 
-  /** Name of the user's `@main def` (lowered to a plain `def` of the same name
-   *  by `generateUserOnly`), scanned from the source. */
-  private def mainEntryName(module: Module): Option[String] =
-    def srcs(s: Section): List[String] =
-      s.content.collect { case cb: Content.CodeBlock if isCompilable(cb.lang) => cb.source } ++
-        s.subsections.flatMap(srcs)
-    val all = module.sections.flatMap(srcs).mkString("\n")
-    """@main\s+def\s+([A-Za-z_][A-Za-z0-9_]*)""".r.findFirstMatchIn(all).map(_.group(1))
+  private case class MainEntry(name: String, paramSig: String, callSig: String):
+    def wrapperSource: String =
+      s"@main def _ssc_wasm_main$paramSig: Unit = { $name$callSig; () }"
+
+  /** User `@main def` lowered by `generateUserOnly` to a plain `def` of the
+   *  same name. Only the Scala.js-compatible shapes documented in
+   *  `specs/wasm-main-edge.md` are wrapped here. */
+  private def mainEntry(module: Module): Option[MainEntry] =
+    def entries(s: Section): List[MainEntry] =
+      val here = s.content.collect {
+        case Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isCompilable(lang) =>
+          ScalaNode.fold(node) { tree =>
+            tree.collect {
+              case d: Defn.Def if d.mods.exists(m => annotName(m).contains("main")) =>
+                mainEntryForDef(d)
+            }
+          }
+      }.flatten
+      here ++ s.subsections.flatMap(entries)
+    module.sections.flatMap(entries).headOption
+
+  private def mainEntryForDef(d: Defn.Def): MainEntry =
+    val clauses = d.paramClauseGroups.flatMap(_.paramClauses).toList
+    if clauses.length > 1 then
+      throw RuntimeException(
+        s"Effectful WASM @main def ${d.name.syntax} must use a single parameter clause")
+    val paramSig = if d.paramClauseGroups.isEmpty then "()" else d.paramClauseGroups.map(_.syntax).mkString
+    val callSig = clauses match
+      case Nil => "()"
+      case clause :: Nil =>
+        clause.values.foreach { p =>
+          if p.decltpe.exists(isStringArrayType) then
+            throw RuntimeException(
+              s"Effectful WASM @main def ${d.name.syntax} uses Array[String], but Scala 3 @main expects typed parameters; use args: String* for raw CLI args")
+        }
+        clause.values.map(mainCallArg).mkString("(", ", ", ")")
+      case _ =>
+        throw RuntimeException(
+          s"Effectful WASM @main def ${d.name.syntax} must use a single parameter clause")
+    MainEntry(d.name.syntax, paramSig, callSig)
+
+  private def mainCallArg(p: Term.Param): String =
+    val name = p.name.syntax
+    if p.decltpe.exists(isRepeatedType) then s"$name*" else name
+
+  private def isRepeatedType(t: Type): Boolean =
+    t.syntax.filterNot(_.isWhitespace).endsWith("*")
+
+  private def isStringArrayType(t: Type): Boolean =
+    val compact = t.syntax.filterNot(_.isWhitespace)
+    compact == "Array[String]" ||
+      compact == "scala.Array[String]" ||
+      compact == "_root_.scala.Array[String]"
 
   def compileSourceToWasm(source: String, baseDir: Option[os.Path] = None): WasmBundle =
     if source.isBlank then return WasmBundle(Array.emptyByteArray, "", "")

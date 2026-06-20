@@ -1,5 +1,6 @@
 package scalascript.codegen
 
+import java.util.concurrent.TimeUnit
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.backend.spi.*
@@ -168,6 +169,37 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
   private lazy val hasNode: Boolean =
     try os.proc("node", "--version").call(check = false).exitCode == 0 catch case _: Throwable => false
 
+  private def runBundleOnNode(bundle: WasmGen.WasmBundle, prefix: String, args: Seq[String] = Nil): String =
+    bundle.wasmBytes should not be empty
+    val dir = os.temp.dir(prefix = prefix)
+    os.write(dir / "main.wasm", bundle.wasmBytes)
+    os.write(dir / "main.mjs",  bundle.mainJs)
+    os.write(dir / "__loader.js", bundle.loaderJs)
+    val p = ProcessBuilder((Seq("node", (dir / "main.mjs").toString) ++ args)*).directory(dir.toIO).start()
+    val out = StringBuilder()
+    val err = StringBuilder()
+    def drain(in: java.io.InputStream, sb: StringBuilder): Thread =
+      val t = new Thread(() =>
+        try
+          val r = java.io.BufferedReader(java.io.InputStreamReader(in))
+          var line = r.readLine()
+          while line != null do
+            sb.synchronized { sb.append(line).append('\n') }
+            line = r.readLine()
+        catch case _: Throwable => ()
+      )
+      t.setDaemon(true); t.start(); t
+    val ot = drain(p.getInputStream, out)
+    val et = drain(p.getErrorStream, err)
+    val finished = p.waitFor(180, TimeUnit.SECONDS)
+    if !finished then p.destroyForcibly()
+    ot.join(5000); et.join(5000)
+    val exit = if finished then p.exitValue() else -1
+    withClue(s"node exit=$exit timedOut=${!finished}\nstderr:\n$err\nstdout:\n$out\n") {
+      exit shouldBe 0
+    }
+    out.toString.trim
+
   test("effects RUN correctly on wasm (handler + resume, matches interpreter)"):
     assume(hasWasmSupport, "scala-cli --js-wasm not available")
     assume(hasNode, "node not available")
@@ -181,6 +213,79 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
     val out = scala.io.Source.fromInputStream(p.getInputStream).mkString
     p.waitFor()
     out.trim shouldBe "hello\nworld"
+
+  private val effectMainNonUnitProg =
+    """effect Counter:
+      |  def next(): Int
+      |
+      |def total(): Int =
+      |  Counter.next() + 1
+      |
+      |@main def main(): Int =
+      |  val result = handle(total()) {
+      |    case Counter.next(resume) => resume(41)
+      |  }
+      |  println(result)
+      |  result""".stripMargin
+
+  test("effectful wasm main may return a non-Unit value (wrapper discards it)"):
+    assume(hasWasmSupport, "scala-cli --js-wasm not available")
+    assume(hasNode, "node not available")
+    val bundle = WasmGen.compileToWasm(module(effectMainNonUnitProg))
+    runBundleOnNode(bundle, "ssc-wasm-main-nonunit-") shouldBe "42"
+
+  private val effectMainArgsUnitProg =
+    """effect Log:
+      |  def write(s: String): Unit
+      |
+      |def emit(s: String): Unit =
+      |  Log.write(s)
+      |
+      |@main def main(args: String*): Unit =
+      |  val msg = if args.isEmpty then "empty" else args.mkString("-")
+      |  handle(emit(msg)) {
+      |    case Log.write(value, resume) => println(value); resume(())
+      |  }""".stripMargin
+
+  test("effectful wasm main with String* args compiles and runs"):
+    assume(hasWasmSupport, "scala-cli --js-wasm not available")
+    assume(hasNode, "node not available")
+    val bundle = WasmGen.compileToWasm(module(effectMainArgsUnitProg))
+    runBundleOnNode(bundle, "ssc-wasm-main-args-") shouldBe "empty"
+
+  private val effectMainArgsNonUnitProg =
+    """effect Counter:
+      |  def next(): Int
+      |
+      |def total(seed: Int): Int =
+      |  Counter.next() + seed
+      |
+      |@main def main(args: String*): Int =
+      |  val seed = if args.isEmpty then 41 else args(0).toInt
+      |  val result = handle(total(seed)) {
+      |    case Counter.next(resume) => resume(1)
+      |  }
+      |  println(result)
+      |  result""".stripMargin
+
+  test("effectful wasm main may declare String* args and return a non-Unit value"):
+    assume(hasWasmSupport, "scala-cli --js-wasm not available")
+    assume(hasNode, "node not available")
+    val bundle = WasmGen.compileToWasm(module(effectMainArgsNonUnitProg))
+    runBundleOnNode(bundle, "ssc-wasm-main-args-nonunit-") shouldBe "42"
+
+  test("effectful wasm main rejects raw Array[String] args with a clear error"):
+    val ex = intercept[RuntimeException] {
+      WasmGen.compileToWasm(module(
+        """effect Log:
+          |  def write(s: String): Unit
+          |
+          |@main def main(args: Array[String]): Unit =
+          |  handle(Log.write(args.mkString("-"))) {
+          |    case Log.write(value, resume) => println(value); resume(())
+          |  }""".stripMargin))
+    }
+    ex.getMessage should include("use args: String*")
 
   // wasm-effects-2: arithmetic over Any-typed effect-op results uses `_binOp`,
   // now part of WasmEffectRuntime. handle(total())=20, doubled=40.
