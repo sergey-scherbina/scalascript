@@ -1,6 +1,0 @@
-feature/rwt-client 2026-06-20T10:22:18Z
-agent: claude
-heartbeat: 2026-06-20T10:22:18Z
-status: in-progress
-done-so-far: continuing rust-web-toolkit deferred refinements (codegen-verifiable slice)
-next: read existing client-JS emission (signal markers/polling); pick bounded slice (set/toggle/show wiring or computed recompute); build + RustGenWebToolkitTest
