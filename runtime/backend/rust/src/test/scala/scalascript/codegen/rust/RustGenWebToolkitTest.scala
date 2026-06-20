@@ -196,6 +196,34 @@ class RustGenWebToolkitTest extends AnyFunSuite:
     assert(v.contains("pub fn signal_value(&self)"),
       "signal_value should take &self for use in Fn closures")
 
+  test("computed signal LIVE recompute: registry + store-backed reads + recompute on push (S5)"):
+    val src =
+      """```scalascript
+        |@main def run(): Unit =
+        |  val loc = signal("locale", "fr")
+        |  val txt = computedSignal(() => loc())
+        |  serve(element("div", Map(), Map(), List(signalText(txt))), 8236)
+        |```
+        |""".stripMargin
+    val a = assets(src)
+    val v = a("src/value.rs")
+    // value.rs holds the live store + a computed-closure registry; signal_value reads the store.
+    assert(v.contains("fn ssc_register_computed") && v.contains("fn ssc_recompute_all") &&
+           v.contains("Box<dyn Fn() -> String + Send + Sync>"),
+      s"value.rs should host the computed registry + recompute, got:\n$v")
+    assert(v.contains("ssc_signals().lock().unwrap().get(name)"),
+      "signal_value should prefer the live store over the inline SSR value")
+    // _ui_computed_signal registers (re-runnable Fn) and returns a NAMED signal (__cN).
+    val ui = a("src/runtime/ui.rs")
+    assert(ui.contains("F: Fn() -> String + Send + Sync") && ui.contains("ssc_register_computed"),
+      "_ui_computed_signal should register a re-runnable Fn closure")
+    assert(ui.contains("ssc_signals().lock().unwrap().entry(name.clone()).or_insert"),
+      "_ui_signal should seed the live store with the initial value")
+    // push recomputes every derived signal before broadcasting.
+    val http = a("src/runtime/http.rs")
+    assert(http.contains("ssc_recompute_all()"),
+      "a /__ssc/push should recompute derived signals so they reflect the new dep value")
+
   test("renderHtml(view) wires the SSR render entry"):
     val src =
       """```scalascript

@@ -31,6 +31,48 @@ object RustRuntimeTemplates:
       |    Signal(String, Box<Value>),
       |}
       |
+      |// ── Reactive signal store + computed-signal recompute (live server state) ──────
+      |// String-valued (matches the `data-ssc-text` client wiring). Lives here so both
+      |// `Value::signal_value` (read) and the serve runtime (read/write) reach it. Dead
+      |// code for non-serve programs.
+      |#[allow(dead_code)]
+      |static SSC_SIGNALS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> =
+      |    std::sync::OnceLock::new();
+      |#[allow(dead_code)]
+      |pub fn ssc_signals() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
+      |    SSC_SIGNALS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+      |}
+      |// Computed signals registered for recompute: (generated-name, re-runnable closure).
+      |type SscComputed = Vec<(String, Box<dyn Fn() -> String + Send + Sync>)>;
+      |#[allow(dead_code)]
+      |static SSC_COMPUTED: std::sync::OnceLock<std::sync::Mutex<SscComputed>> = std::sync::OnceLock::new();
+      |#[allow(dead_code)]
+      |fn ssc_computed() -> &'static std::sync::Mutex<SscComputed> {
+      |    SSC_COMPUTED.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+      |}
+      |#[allow(dead_code)]
+      |static SSC_COMPUTED_N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+      |// Register a computed signal: evaluate once for SSR, seed the store, return its name.
+      |#[allow(dead_code)]
+      |pub fn ssc_register_computed(f: Box<dyn Fn() -> String + Send + Sync>) -> String {
+      |    let n = SSC_COMPUTED_N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+      |    let name = format!("__c{}", n);
+      |    let v = f();
+      |    ssc_signals().lock().unwrap().insert(name.clone(), v);
+      |    ssc_computed().lock().unwrap().push((name.clone(), f));
+      |    name
+      |}
+      |// Re-run every computed closure (its reads now see the updated store) + write back.
+      |#[allow(dead_code)]
+      |pub fn ssc_recompute_all() {
+      |    let results: Vec<(String, String)> = {
+      |        let reg = ssc_computed().lock().unwrap();
+      |        reg.iter().map(|(n, f)| (n.clone(), f())).collect()
+      |    };
+      |    let mut store = ssc_signals().lock().unwrap();
+      |    for (n, v) in results { store.insert(n, v); }
+      |}
+      |
       |impl Value {
       |    pub fn show(&self) -> String {
       |        match self {
@@ -47,9 +89,21 @@ object RustRuntimeTemplates:
       |    // Unwrap a signal to its current value (or itself if not a signal). Takes
       |    // `&self` + clones so a signal read `loc.signal_value()` inside a (possibly
       |    // repeatedly-called) computed-signal closure doesn't move the captured value.
+      |    // LIVE: prefer the server-side store (updated by push + recompute) over the
+      |    // inline SSR value, so a re-run of a computed closure sees new dependency values.
       |    #[allow(dead_code)]
       |    pub fn signal_value(&self) -> Value {
-      |        match self { Value::Signal(_, v) => (**v).clone(), other => other.clone() }
+      |        match self {
+      |            Value::Signal(name, v) => {
+      |                if !name.is_empty() {
+      |                    if let Some(s) = ssc_signals().lock().unwrap().get(name) {
+      |                        return Value::Str(s.clone());
+      |                    }
+      |                }
+      |                (**v).clone()
+      |            }
+      |            other => other.clone(),
+      |        }
       |    }
       |}
       |
@@ -784,7 +838,12 @@ object RustRuntimeTemplates:
       |// A signal carries its name (for client `data-ssc-*` wiring) + current value.
       |#[allow(dead_code)]
       |pub fn _ui_signal<T: Into<Value>>(name: String, default: T) -> Value {
-      |    Value::Signal(name, Box::new(default.into()))
+      |    let v = default.into();
+      |    // Seed the live store with the initial value (only if absent) so signal reads
+      |    // and recompute resolve against it consistently from the first render.
+      |    let sv = v.show();
+      |    crate::value::ssc_signals().lock().unwrap().entry(name.clone()).or_insert(sv);
+      |    Value::Signal(name, Box::new(v))
       |}
       |// signalText(s) → a `<span data-ssc-text="<name>">value</span>` so the client runtime
       |// can live-patch its text; a non-signal value renders as plain text.
@@ -839,8 +898,12 @@ object RustRuntimeTemplates:
       |// value (it reads other signals' current values).  Client recompute on a dependency
       |// change is a later slice; the result is an anonymous signal (no `data-ssc-*` name).
       |#[allow(dead_code)]
-      |pub fn _ui_computed_signal<F: FnOnce() -> String>(f: F) -> Value {
-      |    Value::Signal(String::new(), Box::new(Value::Str(f())))
+      |pub fn _ui_computed_signal<F: Fn() -> String + Send + Sync + 'static>(f: F) -> Value {
+      |    // Register the closure for live recompute (named `__cN`), seed the store with its
+      |    // initial value, and return the NAMED signal so signalText emits data-ssc-text="__cN".
+      |    let name = crate::value::ssc_register_computed(Box::new(f));
+      |    let v = crate::value::ssc_signals().lock().unwrap().get(&name).cloned().unwrap_or_default();
+      |    Value::Signal(name, Box::new(Value::Str(v)))
       |}
       |// seedSignal(name, source) — a named signal seeded from another signal's current value.
       |#[allow(dead_code)]
@@ -950,11 +1013,8 @@ object RustRuntimeTemplates:
       |// &value=` updates it; connected clients pick up the change on their next `/__ssc/state`
       |// poll (the client runtime patches every `[data-ssc-text="<name>"]`).  This is the
       |// server-push bridge — e.g. rozum's meeting daemon hits `/__ssc/push` on a new message.
-      |static SSC_SIGNALS: std::sync::OnceLock<Mutex<std::collections::HashMap<String, String>>> =
-      |    std::sync::OnceLock::new();
-      |fn ssc_signals() -> &'static Mutex<std::collections::HashMap<String, String>> {
-      |    SSC_SIGNALS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
-      |}
+      |// The signal store lives in `crate::value` so `Value::signal_value` can read it too.
+      |use crate::value::{ssc_signals, ssc_recompute_all};
       |// SSE push transport: a broadcast channel carrying the full signal-state JSON.
       |// `/__ssc/push` (and `_ui_broadcast_signal`) send on it; `/__ssc/events` streams
       |// `data: <json>\n\n` to every connected client, so updates arrive immediately
@@ -973,10 +1033,12 @@ object RustRuntimeTemplates:
       |        .collect();
       |    format!("{{{}}}", entries.join(","))
       |}
-      |// Update a signal and notify SSE subscribers. `let _ =` on send: an error just
-      |// means no clients are currently subscribed, which is fine.
+      |// Update a signal, recompute every derived (computed) signal so they reflect the new
+      |// dependency value, then notify SSE subscribers with the full state. `let _ =` on send:
+      |// an error just means no clients are currently subscribed, which is fine.
       |fn ssc_set_and_notify(name: String, value: String) {
       |    ssc_signals().lock().unwrap().insert(name, value);
+      |    ssc_recompute_all();
       |    let _ = ssc_events().send(ssc_state_json());
       |}
       |#[allow(dead_code)]
