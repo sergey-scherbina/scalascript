@@ -998,9 +998,14 @@ object RustRuntimeTemplates:
       |    };
       |    let out = {
       |        let guard = routes().lock().unwrap();
-      |        guard.iter()
-      |            .find(|(m, p, _)| m == &method && p == &path)
-      |            .map(|(_, _, h)| h(&arg))
+      |        // Exact method+path first; then a prefix route (a registered path ending in
+      |        // `/` matches any request path under it) so a handler can serve a whole
+      |        // namespace like `/r/<room>` and read the suffix from its `&str` arg (the path).
+      |        let exact = guard.iter().find(|(m, p, _)| m == &method && p == &path);
+      |        let chosen = exact.or_else(|| {
+      |            guard.iter().find(|(m, p, _)| m == &method && p.ends_with('/') && path.starts_with(p.as_str()))
+      |        });
+      |        chosen.map(|(_, _, h)| h(&arg))
       |    };
       |    if let Some(body) = out {
       |        // Content-Type by path extension first — so a route can serve a service
