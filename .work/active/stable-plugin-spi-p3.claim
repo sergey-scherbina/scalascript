@@ -1,0 +1,6 @@
+feature/stable-plugin-spi-p3 2026-06-21T16:50:18Z
+agent: codex
+heartbeat: 2026-06-21T16:50:18Z
+status: not-started
+done-so-far:
+next: read specs/arch-stable-spi.md and inventory runtime/std intrinsic imports
