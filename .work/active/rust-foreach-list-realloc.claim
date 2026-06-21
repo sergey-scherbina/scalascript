@@ -1,0 +1,6 @@
+feature/rust-foreach-realloc 2026-06-21T15:40:56Z
+agent: codex
+heartbeat: 2026-06-21T15:40:56Z
+status: not-started
+done-so-far:
+next: inspect existing rust-foreach worktree diff and reproduce emitted Rust realloc
