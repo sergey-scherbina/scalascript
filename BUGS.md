@@ -13,6 +13,20 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `done` | reporter confirmed fixed (safe to trim) |
 
 
+## asm-jit-effect-pathology — `open` (2026-06-21)
+
+- **Found by:** benchmark perf-divergence sweep (`./bench.sh`), accepted from `SPRINT.md`.
+- **Symptom:** the synthetic `ssc-asm` backend (`SSC_JIT_BACKEND=asm`) is orders of magnitude slower than
+  default `ssc` on `bench/corpus/effect-oneshot.ssc`, a hot loop that performs and handles a one-shot
+  algebraic effect (`Bump.tick(resume) => resume(1)`). Current worktree repro after `sbt cli/installBin`:
+  `./bench.sh effect-oneshot --backend ssc` = 0.043 ms/iter; `./bench.sh effect-oneshot --backend ssc-asm`
+  = 9.46 ms/iter.
+- **Hypothesis:** the asm register-VM JIT is compiling an effectful loop path that the default JIT avoids,
+  or it mishandles the `perform → handle → resume` trampoline. Fix should either make asm bail out on the
+  same effectful-loop shape as default or correct the asm lowering.
+- **Status:** open; next step is to inspect JIT bail reasons/while-loop compilation and add a regression
+  around effectful-loop asm fallback.
+
 ## rust-foreach-list-realloc — `fixed` (2026-06-21, `abbc98eee`)
 
 - **Found by:** benchmark perf-divergence sweep (`./bench.sh`), accepted from `SPRINT.md`.
