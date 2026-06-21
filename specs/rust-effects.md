@@ -265,3 +265,54 @@ when any effect is used.  Contains all trait definitions + `NoOpLogger` etc.
 4. **Phase 4 — Stream** (`effect-stream` bench)
 
 Each phase is independently shippable and doesn't break the previous one.
+
+---
+
+## 10. Custom effects + explicit `handle`/`resume` (R.4.2 — status 2026-06-21)
+
+The bench `effect-oneshot` / `effect-multishot` workloads use a USER-declared effect plus
+an explicit `handle(body) { case Eff.op(args, resume) => … }`, not a `runXxx` standard
+handler. This section scopes that case. **Probed 2026-06-21: the tagless-final infra is
+~70 % built; three concrete codegen gaps remain.** (Verified by emitting a minimal probe:
+`effect Bump: def tick(): Int` + `def useEff(): Int ! Bump = Bump.tick() + Bump.tick()` +
+`handle(useEff()) { case Bump.tick(resume) => resume(5) }`.)
+
+**Already built (reusable):**
+- `! E` return types are detected (`defEffectName`) and stripped (`mapType`).
+- An effectful def already gets `_eff: &mut impl ${E}Effect` (`renderParams`/`renderMutParams`).
+- Call sites already thread `&mut _eff` to effectful callees (`withEff` in `renderTerm`).
+- The Stream effect is fully lowered (`_eff.stream_emit` + a `VecStream` handler) — the
+  template to copy for a custom handler struct.
+- `effect Bump:` is already preprocessed (in `Parser`) to `object Bump { def tick(): Int = __effectOp__ }`;
+  `EffectAnalysis.isEffectOpDef` recognises the `__effectOp__` marker.
+
+**The 3 remaining gaps (each cargo-tested; nothing runs until all 3 land — all-or-nothing):**
+
+1. **Custom-effect trait emission.** Collect each `Defn.Object` whose op bodies are
+   `__effectOp__` → its name + ops (op name, params, return type). Emit
+   `pub trait ${Name}Effect { fn ${op}(&mut self, ${args}) -> ${ret}; }` in
+   `runtime/effects.rs`. Currently `RustRuntimeTemplates` emits only the *standard* traits
+   (State/Random/Stream) keyed by name; it must accept the parsed custom-effect op
+   signatures (plumb `Map[effectName, List[(op, params, ret)]]` from `RustCodeWalk` →
+   `RustGen` → `RustRuntimeTemplates`).
+2. **`Eff.op(args)` → `_eff.op(args)`.** In `renderTerm`, recognise a `Term.Select(Term.Name(eff), op)`
+   where `eff` is a known effect object and lower the apply to `_eff.${op}(${args})` (rust
+   snake-cases multi-word ops; `tick` stays `tick`).
+3. **`handle[Eff](body)(cases)` → handler struct + apply.** This is the current blocker
+   (`unsupported pattern: Pat.Extract (Bump.tick(resume))` at `RustCodeWalk` renderPattern).
+   For each `case Eff.op(binders…, resume) => handlerBody`, generate
+   `struct __H_${Eff}; impl ${Eff}Effect for __H_${Eff} { fn ${op}(&mut self, ${binders}) -> ${ret} { ${handlerBody with resume(v) ⇒ v} } }`,
+   then emit the handle expression as `{ let mut _eff = __H_${Eff}; ${render(body)} }` (the
+   body is an effectful call that already threads `&mut _eff`). `resume(v)` in **tail
+   position** lowers to just `v` (one-shot tail-resume); a non-tail or **multi-shot** resume
+   (e.g. `opts.flatMap(opt => resume(opt))` in `effect-multishot`) is OUT of scope here —
+   traits model "callback into handler", not "handler redirects the continuation" (see §8;
+   multi-shot stays `n/a`, an R.6 follow-up).
+
+With (1)–(3) the `while`-loop case (`effect-oneshot`) needs NO trampoline: the loop runs
+directly and `Bump.tick()` is just an `_eff.tick()` method call — the key advantage of the
+tagless-final lowering over the Free-monad CPS port. Multi-shot (`effect-multishot`) needs
+`FnMut`-style re-invocation and remains deferred.
+
+**Verify:** `cargo build` the minimal probe above → `10`; then `./bench.sh effect-oneshot
+--backend rust` goes from `n/a` to a real number; add a `RustGenR42Test`/`R44` codegen test.

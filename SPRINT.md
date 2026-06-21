@@ -100,13 +100,21 @@ Every `n/a` from a full `./bench.sh` sweep (31 workloads × ssc/ssc-asm/jvm/js/r
 against the current toolchain (the corpus comments were stale). The bench measures time only (no correctness
 check — that's `CrossBackendPropertyTest`, green); `n/a` = that backend's emit/build/run failed.
 
-- [ ] **rust-effects-handle-resume** (R.4.2) — `effect-oneshot` + `effect-multishot` are `n/a` on **rust**:
-      `emit-rust` fails with `unsupported pattern: Pat.Extract` on the handler case (`Bump.tick(resume)` and
-      `NonDet.choose(opts, resume)`). The rust backend does not lower custom-effect `handle`/`resume` IR at all
-      (consistent with the R.4.2 gap — `effect.rs` is runtime-infra only, `RustCodeWalk` has no handle/resume
-      case). **How:** add a `Pat.Extract` handler-case lowering + `resume` continuation in `RustCodeWalk`;
-      start with one-shot (`resume(x)` once), then multi-shot (`resume` in a `flatMap`). **Verify:**
-      `./bench.sh effect-oneshot effect-multishot --backend rust` no longer `n/a`; add a `backendRust` effect test.
+- [ ] **rust-effects-handle-resume** (R.4.2) — `effect-oneshot` + `effect-multishot` are `n/a` on **rust**
+      (`emit-rust` → `unsupported pattern: Pat.Extract` on the `Bump.tick(resume)` handler case). **SCOPED +
+      DE-RISKED 2026-06-21 — see `specs/rust-effects.md §10` (do NOT re-investigate from scratch).** Key
+      finding: rust effects use **tagless-final traits** (per `specs/rust-effects.md`), NOT the Free-monad CPS
+      port the old `rust-backend.md §R.4` implied — so a one-shot custom effect needs NO while-trampoline (the
+      loop runs directly; `Bump.tick()` is just `_eff.tick()`). The infra is **~70 % built** (effectful defs
+      already get `_eff: &mut impl ${E}Effect`, call sites thread `&mut _eff`, Stream has a `VecStream` handler
+      to copy). **3 remaining gaps (all-or-nothing — nothing compiles until all land):** (1) emit
+      `trait ${E}Effect` from the `object E { def op = __effectOp__ }` decl (plumb op sigs RustCodeWalk→RustGen→
+      RustRuntimeTemplates); (2) `Eff.op(args)` → `_eff.op(args)`; (3) `handle[E](body)(cases)` → a handler
+      `struct __H_E; impl ${E}Effect for __H_E { fn op(&mut self, binders) -> ret { <resume(v)⇒v> } }` +
+      `{ let mut _eff = __H_E; <render body> }`. One-shot tail-resume only; **multi-shot (`effect-multishot`)
+      stays `n/a`** (needs FnMut continuation re-invocation — R.6). Best done as its own focused pass (3 cargo-
+      tested codegen gaps). **Verify:** the minimal probe in §10 cargo-builds → `10`; `./bench.sh effect-oneshot
+      --backend rust` no longer `n/a`; add a `RustGenR42Test`/`R44` codegen test.
 - [x] **jvm-multishot-result-type** ✓ DONE 2026-06-21 — `effect-multishot` was `n/a` on **jvm** because
       CPS def emission widened total handled-effect wrappers from their declared result type to `Any`:
       `def workload(seed: Long): Long` emitted as `def workload(seed: Long): Any`, and the bench wrapper's

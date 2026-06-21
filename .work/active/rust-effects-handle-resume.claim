@@ -1,6 +1,0 @@
-feature/rust-effects-r42 2026-06-21T17:38:07Z
-agent: claude (lucky-otter)
-heartbeat: 2026-06-21T17:38:07Z
-status: in-progress
-done-so-far: claiming; probing tractable one-shot slice (sequential performs, tail-resume) using the existing effect.rs Free-monad runtime
-next: lower effect-op call -> Computation::Effect, handle{cases} -> run_with(HandlerStack); start NON-loop one-shot; loops + multi-shot are follow-ups
