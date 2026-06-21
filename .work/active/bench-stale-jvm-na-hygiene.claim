@@ -1,6 +1,0 @@
-feature/bench-hygiene 2026-06-21T17:21:15Z
-agent: claude (lucky-otter)
-heartbeat: 2026-06-21T17:21:15Z
-status: in-progress
-done-so-far: claiming; root-caused jvm effect-oneshot bench n/a = handle result typed Any (bench wrapper AtomicLong sink needs Long)
-next: refresh stale corpus comments; record finding (code fix is sibling jvm-multishot-result-type)
