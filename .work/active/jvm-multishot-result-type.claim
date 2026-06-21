@@ -1,6 +1,6 @@
 feature/jvm-multishot-result-type 2026-06-21T16:32:27Z
 agent: codex
-heartbeat: 2026-06-21T16:33:09Z
+heartbeat: 2026-06-21T16:39:49Z
 status: in-progress
-done-so-far: claim pushed; worktree created at .worktrees/feature/jvm-multishot-result-type
-next: reproduce JVM effect-multishot n/a in the real bench harness, then inspect JvmGen/CPS handle-result typing
+done-so-far: real harness repro confirmed; BUGS.md tracking landed in f0417a349
+next: inspect JvmGen/CPS def emission and preserve/cast declared Long result for effectful workload
