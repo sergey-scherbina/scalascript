@@ -1,8 +1,8 @@
 package scalascript.compiler.plugin.bench
 
 import scalascript.backend.spi.*
-import scalascript.interpreter.Value
 import scalascript.ir.QualifiedName
+import scalascript.plugin.api.{PluginComputation, PluginNative, PluginValue}
 
 /** Bench intrinsics — identity helpers used by the bench harness to defeat
  *  ahead-of-time constant folding on AOT backends.
@@ -21,9 +21,10 @@ object BenchIntrinsics:
 
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
-    // Fastest identity: bypass PluginValue.wrap/unwrap, just return the
-    // argument the interpreter passed in. Argument is already a Value (the
-    // interpreter wraps before calling NativeImpl.eval).
-    QualifiedName("Bench.opaque") -> NativeImpl((_, args) =>
-      if args.isEmpty then Value.UnitV else args.head)
+    // Stable-SPI identity: NativeImpl callers pass unwrapped Scala values,
+    // and the interpreter wraps the returned Any back into Value at the
+    // boundary. The hot interpreter path is still special-cased in EvalRuntime.
+    QualifiedName("Bench.opaque") -> PluginNative.eval { (_, args) =>
+      PluginComputation.pure(args.headOption.getOrElse(PluginValue.wrap(())))
+    }
   )
