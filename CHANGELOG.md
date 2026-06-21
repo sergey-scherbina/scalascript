@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-21 — docs: reconcile meta-v2 board state
+
+Closed `board-meta-v2-reconcile`. `SPRINT.md` and `BACKLOG.md` no longer present meta-v2 Track C/C2 as
+available build work: Track A/B/C are marked actionable-scope done, C2's practical warning guard is recorded
+as shipped, and the broader arbitrary post-expansion re-typecheck/source-position ambition is deferred by
+design. This keeps future agents from picking stale meta-v2 guidance.
+
 ## 2026-06-21 — refactor(bench): migrate `Bench.opaque` to stable plugin API
 
 Closed `stable-plugin-spi-p3` as a small Phase 3 slice. `bench-plugin` no longer imports

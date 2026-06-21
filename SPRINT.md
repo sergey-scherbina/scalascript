@@ -200,13 +200,14 @@ publication remains explicit-go only; the registry work below is intentionally d
       map (re-parse loses positions) + risks false positives (Typer may not grok expanded macro-runtime
       constructs), niche audience — low ROI vs the codegen warning that covers the real failure mode. Building
       it now = busywork against the spec's own judgment. **→ Next pick: sbt-plugin-finish.**
-- [ ] **board-meta-v2-reconcile** — remove stale meta-v2 Track C/C2 "still open" guidance from the board.
+- [x] **board-meta-v2-reconcile** ✓ DONE 2026-06-21 — removed stale meta-v2 Track C/C2 "still open"
+      guidance from the board.
       **How:** reconcile `SPRINT.md`'s later `[~] metaprogramming-v2` paragraph and `BACKLOG.md` roadmap text
       with the authoritative `meta-v2-track-c` done entry plus `specs/arch-metaprogramming-v2.md` §4b, which
       says the remaining arbitrary post-expansion re-typecheck ambition is deferred by design. Keep the
       historical spec rationale; change only active queue/backlog wording so future agents do not pick C2 as
-      buildable work. **Verify:** grep for stale phrases like "last open meta-v2 slice" / "Track C is the
-      genuine remaining build" and ensure remaining references describe C2 as deferred or historical only.
+      buildable work. **Verify:** targeted grep now leaves only spec/history/deferred wording; active
+      `SPRINT.md`/`BACKLOG.md` guidance no longer presents C2 as buildable work.
 - [~] **sbt-plugin-finish** (roadmap #4, Phase 5) — **dep-resolution ✓ DONE 2026-06-18**: the concrete
       actionable Phase 5 slice. `SscFrontMatter` lifts `.ssc` front-matter `dependencies:` `dep:` Maven
       coords into `sscManagedDependencies` → `libraryDependencies` (Java `%`, Scala-cross `%%`, local paths
@@ -279,11 +280,10 @@ publication remains explicit-go only; the registry work below is intentionally d
       LSP/BSP Phase 4 already landed with no concrete remaining deliverable. Publishing the plugin artifact
       itself is the deferred Maven Central / sbt Plugin Portal step and remains excluded from autonomous work.
 
-- [~] **metaprogramming-v2** (roadmap #5) — AUDIT 2026-06-17: NOT a from-scratch build. All three
+- [x] **metaprogramming-v2** ✓ ACTIONABLE SCOPE DONE 2026-06-21 — AUDIT 2026-06-17: NOT a from-scratch build. All three
       phases have working bases (P3 Linker `inlineTable`/`expandInlineSource`; P4 `${impl('x)}` + direct
       `'{ $x+1 }` + interp parity + `MacroImpl` IR; P5 runtime `Mirror` + user `derived(m: Mirror)`).
-      Remaining = the "Planned" extension bullets, broken into small slices in `specs/arch-metaprogramming-v2.md`
-      §4b. PROGRESS: **Track A** (P5 cross-backend derives conformance) ✓ DONE (A1a/b/c + A2 + A3,
+      PROGRESS: **Track A** (P5 cross-backend derives conformance) ✓ DONE (A1a/b/c + A2 + A3,
       2026-06-17; only deferred edge cases remain — sum-type/enum mirrors, generics, mixed-derives clauses).
       **Track B** (P4 const-folding `Expr.asValue match`): **B1 + B2 ✓ DONE 2026-06-18** (interp splice
       unwraps `Expr(v)`; `Linker.expandMacroSource` const-folds literal args to the `Some` branch, else the
@@ -293,9 +293,10 @@ publication remains explicit-go only; the registry work below is intentionally d
       points) expands + strips macros pre-codegen, no-op for macro-free modules;
       `QuotedMacroJvmConformanceTest` (scala-cli) + `QuotedMacroJsConformanceTest` (node) match interp.
       **Track B is complete (B1+B2+B3).** **Track C:** C1 (multi-clause inline) ✓ DONE 2026-06-18
-      (curry tail clauses into the body — no scanner/wire change); **C2** (post-expansion re-typecheck +
-      source-positioned errors) is the last open meta-v2 slice. Days-per-slice. Spec Status corrected from
-      stale "deferred/planning".
+      (curry tail clauses into the body — no scanner/wire change); C2's practical backend guard is already
+      wired through `MacroCodegen.codegenWarnings`, and the broader arbitrary post-expansion re-typecheck +
+      source-positioned-error ambition is deferred by design (position-map requirement + false-positive risk).
+      No bounded autonomous meta-v2 build slice remains on the board.
 
 ### Tier 2 — AUDIT 2026-06-17: most "themes" are already BUILT (specs stale)
 
@@ -343,11 +344,10 @@ verify residuals**, NOT from-scratch builds:
 - [ ] **wallet-browser-ws-itest** — BLOCKED autonomously: real browser-WebSocket integration; full run
       needs a browser.
 
-**Genuine remaining BUILD work** (across Tiers): `sbt-plugin-finish` Phase 5 (dep-resolution wiring +
-Maven publish — publish is Maven-gated), `build-registry` Phase 3 cleanup + optional Phase 4 (Phases 1–2
-landed), `metaprogramming-v2` — NOT large/from-scratch: all 3 phases have working bases; remaining =
-the §4b slice tracks (A: P5 cross-backend conformance [first], B: P4 const-fold, C: P3 robustness),
-days-per-slice. + the small residuals above. See BACKLOG "Roadmap reality check".
+**Genuine remaining BUILD work** (across Tiers): no bounded autonomous build slice is currently ready here.
+The old sbt-plugin build pieces are done and publication is Maven-gated; build-registry Phase 3 is moot and
+Phase 4 is demand-driven; meta-v2 Tracks A/B/C are actionable-scope done with only deferred edge cases. The
+small residuals above are blocked by real browser/device/external inputs. See BACKLOG "Roadmap reality check".
 
 ### Excluded from the sprint (deferred / blocked — stay in BACKLOG, NOT actionable now)
 

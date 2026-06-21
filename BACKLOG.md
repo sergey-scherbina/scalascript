@@ -46,17 +46,18 @@ last — after everything else.**
    per-package JSON through GitHub Pages project URL
    `https://sergey-scherbina.github.io/scalascript/`. spec `specs/arch-registry.md` reconciled. REMAINING:
    optional custom-domain alias (`registry.scalascript.io`) and cross-repo/community governance.
-4. **sbt-plugin-finish** — `specs/arch-sbt-plugin.md` remaining surface: front-matter
-   `dependencies:`→Coursier, cross-build targets (`sscBackends`), LSP/BSP polish. (Phases 1–4 landed;
-   publication of the plugin itself = part of the deferred Maven step.) **← genuine remaining build work.**
-5. **metaprogramming-v2** — `specs/arch-metaprogramming-v2.md`. AUDIT 2026-06-17: NOT from-scratch.
+4. **sbt-plugin-finish** ✓ ACTIONABLE SCOPE DONE — `specs/arch-sbt-plugin.md` build surface is closed:
+   front-matter `dependencies:`→Coursier and cross-build targets (`sscBackends`) landed; LSP/BSP polish has
+   no concrete remaining deliverable. Publication of the plugin itself is part of the deferred Maven step.
+5. **metaprogramming-v2** ✓ ACTIONABLE SCOPE DONE — `specs/arch-metaprogramming-v2.md`. AUDIT 2026-06-17: NOT from-scratch.
    All three phases have working bases (P3 Linker inline expansion; P4 `${impl('x)}`+`'{…}`+interp
-   parity+`MacroImpl` IR; P5 runtime `Mirror`+user `derived(m: Mirror)`). Remaining = the "Planned"
-   extension bullets, decomposed in spec §4b into small slices — **Track A** ✓ DONE (P5 cross-backend
+   parity+`MacroImpl` IR; P5 runtime `Mirror`+user `derived(m: Mirror)`). **Track A** ✓ DONE (P5 cross-backend
    derives conformance — A1a/b/c+A2+A3, 2026-06-17; deferred edge cases only), **B** (P4 const-fold:
    **B1+B2 ✓ DONE 2026-06-18**, **B3 ✓ DONE 2026-06-18 — JVM + JS** via `macro-codegen-backends`
-   (`MacroCodegen.expand`); Track B complete), **C** (P3 robustness — open, next slice). Days-per-slice,
-   not the old "~3 months". **← Track C is the genuine remaining build.**
+   (`MacroCodegen.expand`); Track B complete), **C** ✓ ACTIONABLE SCOPE DONE (C1 multi-clause inline +
+   C2's practical backend warning guard via `MacroCodegen.codegenWarnings`). The broader arbitrary
+   post-expansion re-typecheck + source-positioned-error ambition is deferred by design (position-map
+   requirement + false-positive risk), not current build work.
 
    *(macro-codegen-backends ✓ DONE 2026-06-18 — JVM + JS; moved to CHANGELOG. The default
    `emit`/`build`/`run` path does not use the Linker — `JvmGen`/`JsGen` inline imports at the
@@ -90,17 +91,14 @@ last — after everything else.**
    real duplication") remains, demand-driven.
 8. **arch-distribution-p3 / Maven Central + sbt Plugin Portal** — **LAST**, only on explicit go.
 
-> **Roadmap reality check (2026-06-17):** the codebase is well ahead of these specs/BACKLOG entries —
-> agent-sdk-remainder and package-registry were both found ALREADY BUILT (specs said "planned"), and
-> the audit shows A/E/F/H/J are largely built too. The genuine remaining **build** work is narrow:
-> **sbt-plugin-finish** (Phase 5 = dep-resolution wiring + Maven publish; publish is Maven-gated),
-> **build-registry Phase 3 cleanup + optional Phase 4** (Phases 1–2 landed), **metaprogramming-v2**
-> (also NOT from-scratch — all 3 phases have working bases; remaining = spec §4b slice tracks A/B/C,
-> days-per-slice), and Maven (last). The high-value next move is RECONCILING the stale specs +
-> filling small residuals, not re-building. **Update 2026-06-17:** `package-registry` + its `--offline`
-> flag closed; `agent-sdk-remainder` MCP bridge closed; `metaprogramming-v2` audited + spec/SPRINT
-> reconciled (it was the last "large from-scratch" entry — it isn't). Substantive remainder = §4b slices,
-> sbt Phase 5 (Maven-gated), build-registry Phase 3/4, all needing a steer on which to invest in.
+> **Roadmap reality check (2026-06-21):** the codebase is well ahead of these specs/BACKLOG entries —
+> agent-sdk-remainder and package-registry were both found already built, and the audit shows A/E/F/H/J
+> are largely built too. The previously listed autonomous build slices are now reconciled:
+> `sbt-plugin-finish` dep-resolution/cross-build landed and publication is Maven-gated; build-registry
+> Phase 3 is moot and Phase 4 is demand-driven; `metaprogramming-v2` Tracks A/B/C are actionable-scope done,
+> with only explicitly deferred edge cases. Remaining work is now product/external (domain/governance/
+> publication, browser/device harnesses, hardware, or a concrete demand signal), not an unclaimed
+> "just build it" queue.
 
 ## Architecture Review follow-ups (2026-06-14)
 
