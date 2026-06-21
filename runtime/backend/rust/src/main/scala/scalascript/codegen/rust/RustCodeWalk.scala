@@ -57,7 +57,6 @@ object RustCodeWalk:
     val standaloneCases   = collectStandaloneCaseClasses(module, traitEnums)
     val rustBlocks        = collectRustBlocks(module)
     val givens            = collectGivens(module)
-    _givenNames           = givens.map(_.instanceName).toSet
     val userDefs          = defs.map(_.name.value).toSet
     // Collect names of defs that carry a `T ! EffectName` return type so
     // call sites can thread the `_eff` parameter automatically.
@@ -364,10 +363,6 @@ object RustCodeWalk:
    *  no default).  A call that omits trailing defaulted params (`textField(v, label)`)
    *  fills them, since Rust has no default parameters. */
   private var _defaultsMap: Map[String, List[Option[m.Term]]] = Map.empty
-
-  /** `given` instance names — these ARE emitted as named Rust bindings, so a
-   *  reference uses the name (unlike a plain top-level `val`, which is inlined). */
-  private var _givenNames: Set[String] = Set.empty
 
   private def collectTypeLambdaAliases(module: ast.Module): Map[String, (List[String], m.Type)] =
     def fromContent(c: ast.Content): List[(String, (List[String], m.Type))] = c match
@@ -789,9 +784,10 @@ object RustCodeWalk:
       yield
         val signature = if ret.isEmpty then s"pub fn ${rustIdent(name)}($params)"
                         else                s"pub fn ${rustIdent(name)}($params) -> $ret"
+        val referencedTopVals = topValsReferencedBy(d.body, ctx.topVals)
         val topValPreamble =
-          if ctx.topVals.isEmpty then ""
-          else ctx.topVals.map { case (n, init) => s"let $n = $init;" }.mkString("\n") + "\n"
+          if referencedTopVals.isEmpty then ""
+          else referencedTopVals.map { case (n, init) => s"let $n = $init;" }.mkString("\n") + "\n"
         val src =
           s"""$signature {
              |${indent(topValPreamble + bodyRs)}
@@ -802,6 +798,13 @@ object RustCodeWalk:
   /** Extract just the parameter names from a def (all parameter groups). */
   private def extractParamNames(d: m.Defn.Def): List[String] =
     d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
+
+  private def topValsReferencedBy(body: m.Term, topVals: List[TopVal]): List[TopVal] =
+    val topValNames = topVals.map(_._1).toSet
+    val referenced =
+      body.collect { case m.Term.Name(n) if topValNames.contains(n) => n }.toSet
+    if referenced.isEmpty then Nil
+    else topVals.filter { case (n, _) => referenced.contains(n) }
 
   /** collection-rust-array: scan a def body for local `val/var x = Array(...)/Vector(...)/List(...)`
    *  bindings. Returns (allIndexableSeqLocals, mutableArrayLocals). A local seq lowers `x(i)` to
@@ -842,6 +845,7 @@ object RustCodeWalk:
     val counts = scala.collection.mutable.Map.empty[String, Int].withDefaultValue(0)
     def walk(t: m.Tree): Unit = t match
       case _: m.Pat.Var   => ()                 // a binder, not a use
+      case _: m.Term.Param => ()                // lambda/def parameter binder, not a use
       case m.Term.Name(n) => counts(n) += 1
       case _              => t.children.foreach(walk)
     walk(body)
@@ -1329,9 +1333,12 @@ object RustCodeWalk:
     // Top-level vals aren't emitted as Rust items, so inline their (already-rendered)
     // initializer at the reference site (e.g. `defaultTheme` → `Theme { … }`).
     case m.Term.Name(n) =>
-      ctx.topVals.collectFirst { case (vn, init) if vn == n && !_givenNames.contains(n) => init } match
-        case Some(init) => Right(init)
-        case None       => Right(n)
+      // A top-level val (and given instance) is bound once as `let n = init;` in every
+      // def preamble (see `topValPreamble`). Reference that binding by NAME rather than
+      // re-inlining the `init` literal: inlining re-allocated the whole collection at
+      // every use site — catastrophic inside a loop (`xs.foreach` rebuilt the `vec!`
+      // each iteration: pattern-match-heavy 68× the interpreter, list-fold 500× jvm).
+      Right(n)
 
     // `if (cond) thenp else elsep` — Rust if expression.
     case ifExpr: m.Term.If =>
@@ -2934,4 +2941,3 @@ object RustCodeWalk:
       case c    => sb.append(c)
     }
     sb.toString
-

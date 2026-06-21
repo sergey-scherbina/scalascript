@@ -49,3 +49,32 @@ class RustGenCollectionTest extends AnyFunSuite:
         |""".stripMargin
     )
     assert(rs.contains("v[(") && rs.contains("as usize]"), s"expected Vec indexing, got:\n$rs")
+
+  // A reference to a top-level `val` must use the `let`-bound name, not re-inline the
+  // collection literal — otherwise `xs.foreach` inside a loop rebuilt the whole `vec!`
+  // on every iteration (pattern-match-heavy 4.16→0.32 ms, list-fold 0.153→0.069 ms).
+  test("top-level val used in a loop references the binding, not the re-inlined literal"):
+    val rs = allRust(
+      """```scalascript
+        |val xs: List[Int] = List(1, 2, 3)
+        |def inc(x: Int): Int = x + 1
+        |def run(): Long =
+        |  var sum = 0L
+        |  var i = 0
+        |  while i < 1000 do
+        |    xs.foreach(x => { sum = sum + inc(x) })
+        |    i = i + 1
+        |  sum
+        |```
+        |""".stripMargin
+    )
+    // bound once at the top of the def body…
+    assert(rs.contains("let xs = vec![1i64, 2i64, 3i64];"), s"expected the topVal binding, got:\n$rs")
+    assert(
+      rs.sliding("let xs = vec![1i64, 2i64, 3i64];".length).count(_ == "let xs = vec![1i64, 2i64, 3i64];") == 1,
+      s"expected the topVal binding only in defs that reference it, got:\n$rs"
+    )
+    // …and the loop iterates the BINDING, not a fresh literal.
+    assert(rs.contains("for x in xs.iter()"), s"expected the foreach to reference `xs`, got:\n$rs")
+    assert(!rs.contains("for x in vec!"), s"the loop must NOT re-inline the vec! literal, got:\n$rs")
+    assert(!rs.contains("inc(x.clone())"), s"single-use foreach params should not be cloned, got:\n$rs")
