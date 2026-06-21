@@ -339,7 +339,7 @@ no Node runtime:
 ```bash
 ssc build-rust app.ssc && ./app &
 curl -s localhost:8080/__ssc/state                # {"__c0":"fr","locale":"fr"}
-curl -s -X POST localhost:8080/__ssc/push -d 'locale=de'
+curl -s 'localhost:8080/__ssc/push?name=locale&value=de'
 curl -s localhost:8080/__ssc/state                # {"__c0":"de","locale":"de"}
 ```
 

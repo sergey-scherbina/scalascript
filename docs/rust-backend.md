@@ -229,7 +229,7 @@ What the emitted server gives you:
   signal's current value inlined into a `data-ssc-text` span.
 - **A server-side signal store** — `signal(name, default)` seeds a shared,
   thread-safe store. `setSignal(sig, value)` / `toggleSignal(sig)` buttons
-  and `inputChange` inputs persist back to `POST /__ssc/push`.
+  and `inputChange` inputs persist back via `/__ssc/push?name=<n>&value=<v>`.
 - **Computed signals that recompute live** — `computedSignal(() => dep())`
   registers a re-runnable closure. When a dependency changes the server
   recomputes every derived signal (`ssc_recompute_all`) and pushes the new
@@ -247,9 +247,9 @@ Verify the reactive loop without a browser:
 
 ```console
 $ ssc build-rust app.ssc && ./app &
-$ curl -s localhost:8080/__ssc/state          # {"__c0":"fr","locale":"fr"}
-$ curl -s -X POST localhost:8080/__ssc/push -d 'locale=de'
-$ curl -s localhost:8080/__ssc/state          # {"__c0":"de","locale":"de"}  ← recomputed
+$ curl -s localhost:8080/__ssc/state                       # {"__c0":"fr","locale":"fr"}
+$ curl -s 'localhost:8080/__ssc/push?name=locale&value=de'
+$ curl -s localhost:8080/__ssc/state                       # {"__c0":"de","locale":"de"}  ← recomputed
 ```
 
 ---

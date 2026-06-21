@@ -1,0 +1,42 @@
+# Reactive web server on the Rust backend
+
+R.5 wires `serve(view, port)` to a self-contained `tokio` + `hyper`
+server with **server-side rendering** and **end-to-end reactivity** —
+no JavaScript framework, no Node runtime.  The networking crates are
+pulled into `Cargo.toml` only when `serve` is reached.
+
+- `signal(name, default)` seeds a server-side signal store.
+- `computedSignal(() => dep())` is a derived signal that recomputes
+  live whenever a dependency changes.
+- `signalText(sig)` renders the signal's current value into a
+  `data-ssc-text` span and keeps it in sync.
+- `serve(view, port)` serves the SSR page on `port`, streams updates
+  via Server-Sent Events (`/__ssc/events`), and exposes a direct
+  WebSocket signal endpoint on `port + 1`.
+
+```scalascript
+@main def run(): Unit =
+  val locale   = signal("locale", "fr")
+  val greeting = computedSignal(() => locale())
+  val view = element("div", Map(), Map(), List(
+    signalText(greeting),
+    signalText(locale)
+  ))
+  serve(view, 8080)
+```
+
+Build and run:
+
+```bash
+ssc build-rust web-signals.ssc
+./web-signals &
+
+# initial server-side state (greeting derived from locale)
+curl -s http://localhost:8080/__ssc/state                  # {"__c0":"fr","locale":"fr"}
+
+# push a new dependency value → the computed signal recomputes server-side
+curl -s 'http://localhost:8080/__ssc/push?name=locale&value=de'
+curl -s http://localhost:8080/__ssc/state                  # {"__c0":"de","locale":"de"}
+
+kill %1
+```

@@ -426,3 +426,25 @@ class RustGenWebToolkitTest extends AnyFunSuite:
       s"expected the two variant arms, got:\n$g")
     assert(!g.contains("=> other"),
       s"identity catch-all should be dropped on an exhaustive enum match, got:\n$g")
+
+  // ── computed-signal closure clone-capture (use-after-move) ─────────
+  // A `computedSignal(() => loc())` move-closure captures `loc` by value. If the
+  // same signal is also rendered afterwards (`signalText(loc)`), the bare move is a
+  // use-after-move → cargo `error[E0618]`/`E0382`. Caught only by actually building
+  // examples/rust/web-signals.ssc — the string-match tests above never `cargo build`.
+  // Fix: the closure captures a clone, leaving the original signal usable.
+  test("computed-signal closure clones a read signal local so a later use compiles (E0382)"):
+    val src =
+      """```scalascript
+        |@main def run(): Unit =
+        |  val loc = signal("locale", "fr")
+        |  val txt = computedSignal(() => loc())
+        |  serve(element("div", Map(), Map(), List(signalText(txt), signalText(loc))), 8080)
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("let loc = loc.clone();") && g.contains("move || { loc.signal_value().show() }"),
+      s"the computed closure should capture a clone of the signal local, got:\n$g")
+    // The original `loc` must remain usable after the computed (rendered separately).
+    assert(g.contains("_ui_signal_text(loc.clone())") || g.contains("_ui_signal_text(loc)"),
+      s"the signal should still be rendered after the computed, got:\n$g")

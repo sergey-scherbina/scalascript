@@ -2574,9 +2574,25 @@ object RustCodeWalk:
     val (errs, ok) = rendered.partitionMap(identity)
     if errs.nonEmpty then Left(errs.flatten)
     else
-      val bodyCtx = ctx.copy(closureParams = ctx.closureParams ++ params.map(_.name.value).toSet)
+      val paramNames = params.map(_.name.value).toSet
+      val bodyCtx = ctx.copy(closureParams = ctx.closureParams ++ paramNames)
+      // A `move` closure that reads a signal local (e.g. a `computedSignal(() => loc())`)
+      // captures that signal by value — moving it out of the enclosing scope, which breaks
+      // any later use of the same signal (`signalText(loc)` after the computed). Capture a
+      // clone of each read signal local instead, so the original stays usable. `Value` is
+      // cheaply cloneable (Arc-backed signal handle), and an unread clone is a benign warning.
+      val capturedSignals = body.collect {
+        case m.Term.Name(n) if ctx.localSignals.contains(n) && !paramNames.contains(n) => n
+      }.distinct
       for b <- renderTerm(body, bodyCtx)
-      yield s"move |${ok.mkString(", ")}| { $b }"
+      yield
+        val closure = s"move |${ok.mkString(", ")}| { $b }"
+        if capturedSignals.isEmpty then closure
+        else
+          val clones = capturedSignals
+            .map(n => s"let ${rustIdent(n)} = ${rustIdent(n)}.clone();")
+            .mkString(" ")
+          s"{ $clones $closure }"
 
   /** Lower a `Term.Match(subject, cases)` to a Rust `match` expression.
    *  Each case's pattern is lowered via `renderPattern`; the body is
