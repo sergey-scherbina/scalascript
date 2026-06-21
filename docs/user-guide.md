@@ -400,16 +400,17 @@ equality checks.
 
 ### Numeric and bitwise operators
 
-Integer arithmetic supports the full set of bitwise operators on `Int`:
+Integer arithmetic supports the full set of bitwise operators. Integers are
+64-bit, so the unsigned shift `>>>` fills from bit 63:
 
 ```scalascript
-val flags = 0x0F & 0x33   // and       → 3
-val set   = 0x01 | 0x10   // or        → 17
-val xor   = 0xFF ^ 0x0F   // xor       → 240
+val flags = 0x0F & 0x33   // and        → 3
+val set   = 0x01 | 0x10   // or         → 17
+val xor   = 0xFF ^ 0x0F   // xor        → 240
 val shl   = 1 << 4        // shift left → 16
-val shr   = -16 >> 2      // arithmetic shift right → -4
-val ushr  = -1 >>> 28     // logical shift right    → 15
-val inv   = ~0            // bitwise not            → -1
+val shr   = -16 >> 2      // arithmetic shift right (sign-extends) → -4
+val ushr  = -1 >>> 60     // logical shift right (64-bit, zero-fills) → 15
+val inv   = ~0            // bitwise not → -1
 ```
 
 ### Markdown Frontend From Content
