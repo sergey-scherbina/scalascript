@@ -67,6 +67,40 @@ SSE, computed-read compile+SSR all DONE). Remaining, priority order:
       `backendRust` 226/0. **rust-web S5 now FULLY COMPLETE** (set/toggle, SSE, computed compile+SSR + live
       recompute, typed reads, direct-WS — all built + cargo/curl/WS-verified).
 
+### ▶ Benchmark perf-divergence queue (2026-06-21, with Sergiy — "разбирайся в чем дела — в jit? В codegen? В bench?")
+
+The big per-workload outliers from the same `./bench.sh` sweep, each ROOT-CAUSED by hand (emit + read the
+generated code / toggle the JIT). Verdict per case: **codegen**, **jit**, or **bench** (intentional anti-fold).
+
+- [ ] **rust-foreach-list-realloc** (CODEGEN — highest ROI) — `localList.foreach(f)` re-emits the collection
+      **literal** instead of referencing the bound local, so inside a loop it RE-ALLOCATES the whole list every
+      iteration + clones each element. Verified in plain `emit-rust` (no bench instrumentation):
+      `pattern-match-heavy` → `while (i<100000) { for s in vec![Circle{..},Rect{..},..].iter().cloned() { total += area(s.clone()); } }` — the `let shapes = vec![..]` is emitted but DEAD; the `vec![5 shapes]` is rebuilt
+      100 000×. `list-fold` is identical (`vec![1..10]` rebuilt 10 000×). Explains rust `pattern-match-heavy`
+      **4.16 ms (68× the interpreter, 78× jvm)** and `list-fold` **0.153 ms (500× jvm)**. **Fix:** in
+      `RustCodeWalk`, lower `recv.foreach`/`for`-over-a-bound-local to `for s in <recv>.iter()` (reference the
+      binding, don't re-inline the ctor); drop `.cloned()` when the body only reads. **Verify:** the emitted
+      loop iterates `shapes`/`xs`; `./bench.sh pattern-match-heavy list-fold --backend rust` drops by orders.
+- [ ] **asm-jit-effect-pathology** (JIT) — `ssc-asm` = `ssc` with `SSC_JIT_BACKEND=asm`. On `effect-oneshot`
+      the asm register-VM JIT is **225× slower than default `ssc`** in the bench (verified locally: default
+      239 ms vs `SSC_JIT_BACKEND=asm` 1323 ms on a 200-rep run). The asm backend mis-handles the
+      `perform → handle → resume` trampoline (the default backend bails to tree-walk on effectful loop bodies;
+      the asm path apparently does not). **Fix:** make the asm JIT bail on an effectful loop body like the
+      default backend does, or fix the asm lowering of the effect trampoline. **Verify:**
+      `SSC_JIT_BACKEND=asm bin/ssc run` on an effect-in-loop is no worse than default.
+- [ ] **js-tuple-monoid-alloc** (CODEGEN) — `js` `tuple-monoid` is the **slowest cell in the whole table
+      (7.40 ms, 87× jvm)**. The emitted hot loop allocates + dispatches heavily PER ITERATION (×100 000):
+      `_tupleConcat(Object.assign([(s%4)|0,2],{_isTuple:true}), Object.assign([3,4],{_isTuple:true}))` (3 array
+      allocs + 2 `Object.assign`) then `acc = _arith('+', _arith('+', acc, _dispatch(t,'_1',[])), _dispatch(t,'_4',[]))`
+      — tuple element reads go through runtime `_dispatch` and integer `+` through `_arith`. **Fix (JsGen):**
+      emit a direct `t[0]`/`t[3]` for a static tuple-index `._N` access, native `+` for known-Int operands, and
+      a cheaper tuple tag than `Object.assign(...,{_isTuple:true})`. **Verify:** the loop has no per-iter
+      `_dispatch`/`_arith`/`Object.assign`; `./bench.sh tuple-monoid --backend js` drops.
+- NOTE (no task — **bench**, intentional): rust `arith-loop` **1.52 ms (4.7× jvm)** is largely the harness's
+      anti-fold — `run.sc` wraps every rust closure body + per-iter reassignment in `std::hint::black_box(...)`,
+      blocking LLVM loop optimization (the comment at `run.sc:176` even tunes this so rust "stops looking 3–4×
+      slower"). Not a codegen bug; leave as-is unless we want a lighter rust anti-fold.
+
 ### ▶ Benchmark backend-gap queue (2026-06-21, with Sergiy — "Запиши в спринт все n/a")
 
 Every `n/a` from a full `./bench.sh` sweep (31 workloads × ssc/ssc-asm/jvm/js/rust), each VERIFIED by hand
