@@ -1,6 +1,0 @@
-feature/jvm-multishot-result-type 2026-06-21T16:32:27Z
-agent: codex
-heartbeat: 2026-06-21T16:39:49Z
-status: in-progress
-done-so-far: real harness repro confirmed; BUGS.md tracking landed in f0417a349
-next: inspect JvmGen/CPS def emission and preserve/cast declared Long result for effectful workload
