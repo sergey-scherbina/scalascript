@@ -13,7 +13,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `done` | reporter confirmed fixed (safe to trim) |
 
 
-## rust-foreach-list-realloc — `open` (2026-06-21)
+## rust-foreach-list-realloc — `fixed` (2026-06-21, `abbc98eee`)
 
 - **Found by:** benchmark perf-divergence sweep (`./bench.sh`), accepted from `SPRINT.md`.
 - **Symptom:** Rust codegen re-inlines a top-level collection `val` at each use site instead of referencing
@@ -23,8 +23,14 @@ commit SHA until the reporter confirms, then they can be trimmed.
   shape for `xs`.
 - **Repro:** inspect generated Rust for `pattern-match-heavy` / `list-fold` with the real Rust emitter, then
   run `./bench.sh pattern-match-heavy list-fold --backend rust`.
-- **Status:** open; fix should make emitted loops iterate the bound local (`shapes.iter()` / `xs.iter()`)
-  rather than a fresh literal.
+- **FIXED (2026-06-21):** `RustCodeWalk` now references top-level vals by their generated `let` binding
+  instead of re-inlining the initializer at every use site, and only injects a top-val preamble into defs
+  that actually reference it. `collectMultiUse` also stops counting lambda/def parameter binders as reads,
+  removing the spurious `area(s.clone())` for a single-use foreach parameter. Guard:
+  `RustGenCollectionTest` asserts one `let xs = vec![...]`, `for x in xs.iter()`, no `for x in vec!`, and
+  no `inc(x.clone())`. Verified emitted Rust: `area` has no dead `shapes` preamble, `workload` builds
+  `shapes`/`xs` once and iterates the binding. Bench: `./bench.sh pattern-match-heavy list-fold --backend rust`
+  improved `list-fold` 0.153→0.044 ms and `pattern-match-heavy` 4.16→1.37 ms.
 
 ## effect-op-trailing-comment — `fixed` (2026-06-20)
 

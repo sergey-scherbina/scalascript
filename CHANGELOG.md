@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-21 — fix(rust): reuse top-level collection vals in hot loops
+
+Closed `rust-foreach-list-realloc`. Rust codegen now references top-level collection vals through the
+per-def `let` binding instead of re-inlining the constructor at every use site, and it injects that preamble
+only into defs that actually reference the val. This removes the old `for s in vec![...].iter().cloned()`
+hot-loop shape and the dead `let shapes = vec![...]` preamble from helper defs like `area`.
+
+Also fixed a clone-insertion false positive: lambda/def parameter binders are no longer counted as reads in
+`collectMultiUse`, so a single-use foreach param no longer becomes `area(s.clone())`. Verified with generated
+Rust inspection, `backendRust/test` (229 tests), and `./bench.sh pattern-match-heavy list-fold --backend rust`:
+`list-fold` improved 0.153→0.044 ms and `pattern-match-heavy` 4.16→1.37 ms.
+
 ## 2026-06-21 — fix(js): real Char type — `String.map(nonChar)` returns a Seq (interp-js-string-map-nonchar)
 
 Closed the last open cross-backend character bug. The JS backend had no distinct `Char` type — chars were

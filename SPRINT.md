@@ -72,15 +72,6 @@ SSE, computed-read compile+SSR all DONE). Remaining, priority order:
 The big per-workload outliers from the same `./bench.sh` sweep, each ROOT-CAUSED by hand (emit + read the
 generated code / toggle the JIT). Verdict per case: **codegen**, **jit**, or **bench** (intentional anti-fold).
 
-- [ ] **rust-foreach-list-realloc** (CODEGEN — highest ROI) — `localList.foreach(f)` re-emits the collection
-      **literal** instead of referencing the bound local, so inside a loop it RE-ALLOCATES the whole list every
-      iteration + clones each element. Verified in plain `emit-rust` (no bench instrumentation):
-      `pattern-match-heavy` → `while (i<100000) { for s in vec![Circle{..},Rect{..},..].iter().cloned() { total += area(s.clone()); } }` — the `let shapes = vec![..]` is emitted but DEAD; the `vec![5 shapes]` is rebuilt
-      100 000×. `list-fold` is identical (`vec![1..10]` rebuilt 10 000×). Explains rust `pattern-match-heavy`
-      **4.16 ms (68× the interpreter, 78× jvm)** and `list-fold` **0.153 ms (500× jvm)**. **Fix:** in
-      `RustCodeWalk`, lower `recv.foreach`/`for`-over-a-bound-local to `for s in <recv>.iter()` (reference the
-      binding, don't re-inline the ctor); drop `.cloned()` when the body only reads. **Verify:** the emitted
-      loop iterates `shapes`/`xs`; `./bench.sh pattern-match-heavy list-fold --backend rust` drops by orders.
 - [ ] **asm-jit-effect-pathology** (JIT) — `ssc-asm` = `ssc` with `SSC_JIT_BACKEND=asm`. On `effect-oneshot`
       the asm register-VM JIT is **225× slower than default `ssc`** in the bench (verified locally: default
       239 ms vs `SSC_JIT_BACKEND=asm` 1323 ms on a 200-rep run). The asm backend mis-handles the
