@@ -1492,6 +1492,11 @@ object RustCodeWalk:
     // `.toList` / `.toSeq` / `.toVector` → a Vec.  `clone().into_iter().collect()` is
     // type-agnostic: identity for a Vec, and turns a HashMap into a `Vec<(K, V)>`.
     // (Range/iterator forms collect to a Vec via the `isRangeExpr`-guarded cases below.)
+    // `(s: String).toList` → `Vec<char>` via `.chars()` (String is not IntoIterator,
+    // so the generic `.into_iter()` form below would not compile).
+    case m.Term.Select(qual, m.Term.Name("toList" | "toSeq" | "toVector" | "toIndexedSeq"))
+        if !isRangeExpr(qual) && isStringExpr(qual) =>
+      renderTerm(qual, ctx).map(q => s"$q.chars().collect::<Vec<char>>()")
     case m.Term.Select(qual, m.Term.Name("toList" | "toSeq" | "toVector" | "toIndexedSeq"))
         if !isRangeExpr(qual) =>
       renderTerm(qual, ctx).map(q => s"$q.clone().into_iter().collect::<Vec<_>>()")
@@ -1562,8 +1567,10 @@ object RustCodeWalk:
             renderTerm(fn.body, ctx).map(b => s"|&$p| { $b }")
           case other => renderTerm(other, ctx).map(f => s"|&x| ($f)(*x)")
       yield s"$q.$rustMethod($f)"
-    case m.Term.Select(qual, m.Term.Name("sum")) if isRangeExpr(qual) =>
-      renderTerm(qual, ctx).map(q => s"$q.sum::<i64>()")
+    // `.sum` over any range/collection → `i64`. `.into_iter()` is identity for a
+    // range/iterator and consumes a `Vec`, so this works for both shapes.
+    case m.Term.Select(qual, m.Term.Name("sum")) =>
+      renderTerm(qual, ctx).map(q => s"$q.into_iter().sum::<i64>()")
     case m.Term.Select(qual, m.Term.Name("toVector" | "toArray" | "toSeq")) if isRangeExpr(qual) =>
       renderTerm(qual, ctx).map(q => s"$q.collect::<Vec<_>>()")
     // `.toList` on a Source/range (property access form) — collect to Vec.
@@ -1928,7 +1935,7 @@ object RustCodeWalk:
         if args.values.size == 2 =>
       for
         q <- renderTerm(qual, ctx)
-        sep <- renderStrPatternArg(args.values(0))
+        sep <- renderStrPatternArg(args.values(0), ctx)
         lim <- renderTerm(args.values(1), ctx)
       yield s"$q.splitn($lim as usize, $sep).map(|p| p.to_string()).collect::<Vec<String>>()"
 
@@ -1938,8 +1945,31 @@ object RustCodeWalk:
         if args.values.size == 1 =>
       for
         q <- renderTerm(qual, ctx)
-        sep <- renderStrPatternArg(args.values.head)
+        sep <- renderStrPatternArg(args.values.head, ctx)
       yield s"""$q.split($sep).map(|p| p.to_string()).collect::<Vec<String>>()"""
+
+    // `(s: String).contains/startsWith/endsWith(pat)` — str predicates take a
+    // Pattern (&str/char), not an owned String. Render the literal/expr bare/borrowed.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name(pred)), args)
+        if args.values.size == 1 &&
+          Set("contains", "startsWith", "endsWith").contains(pred) =>
+      val rustPred = pred match
+        case "startsWith" => "starts_with"
+        case "endsWith"   => "ends_with"
+        case other        => other
+      for
+        q <- renderTerm(qual, ctx)
+        pat <- renderStrPatternArg(args.values.head, ctx)
+      yield s"$q.$rustPred($pat)"
+
+    // `(xs: Seq[String]).join(sep)` — slice::join takes a &str separator, not an
+    // owned String. Render the literal/expr as a &str pattern.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("join")), args)
+        if args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        sep <- renderStrPatternArg(args.values.head, ctx)
+      yield s"$q.join($sep)"
 
     // Range methods: `(a until b)` -> Rust range `a..b`, `(a to b)` -> `a..=b`.
     case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("until"), _, rhs)
@@ -2312,13 +2342,13 @@ object RustCodeWalk:
       r <- flattenTupleArg(rhs)
     yield l ++ r
 
-  // Render a separator/pattern argument for str::split/splitn as a &str literal.
-  // str::split requires Pattern (&str or char), not owned String.
-  private def renderStrPatternArg(t: m.Term): Either[List[Diagnostic], String] = t match
+  // Render a separator/pattern argument for str::split/splitn/contains as a &str
+  // pattern. str methods require Pattern (&str or char), not owned String — a string
+  // literal renders bare; any other term is borrowed (`&(expr)`) so an owned String
+  // value coerces to &str.
+  private def renderStrPatternArg(t: m.Term, ctx: Ctx): Either[List[Diagnostic], String] = t match
     case m.Lit.String(s) => Right("\"" + escapeRustString(s) + "\"")
-    case other           => Left(List(unsupported(
-      s"split separator must be a string literal, got: ${other.productPrefix}"
-    )))
+    case other           => renderTerm(other, ctx).map(e => s"&($e)")
 
   private def collectTupleConcat(t: m.Term): Option[List[m.Term]] = t match
     case m.Term.Tuple(values) =>
@@ -2458,6 +2488,10 @@ object RustCodeWalk:
   private val BorrowedArgIntrinsics: Set[String] = Set(
     "crate::runtime::_read_file",
     "crate::runtime::_write_file",
+    // R.3.1 — listDir/exists/isDir(path) take `&str`.
+    "crate::runtime::_list_dir",
+    "crate::runtime::_exists",
+    "crate::runtime::_is_dir",
     // R.3.2 — crypto/base64 helpers also take `&str` so callers can
     // re-use the input across encode/decode round-trips.
     "crate::runtime::_sha256",

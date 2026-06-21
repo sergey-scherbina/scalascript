@@ -1003,9 +1003,20 @@ object RustRuntimeTemplates:
       |            .map(|(_, _, h)| h(&arg))
       |    };
       |    if let Some(body) = out {
-      |        // Auto-detect HTML so a route can return a rendered page (toolkit SSR), not
-      |        // just plain text — keeps `route` usable as a dynamic page handler.
-      |        let ctype = if body.trim_start().starts_with('<') {
+      |        // Content-Type by path extension first — so a route can serve a service
+      |        // worker / web manifest / icon with the MIME the browser requires; else
+      |        // auto-detect HTML vs plain so `route` stays usable for dynamic pages (SSR).
+      |        let ctype = if path.ends_with(".js") {
+      |            "text/javascript; charset=utf-8"
+      |        } else if path.ends_with(".webmanifest") {
+      |            "application/manifest+json; charset=utf-8"
+      |        } else if path.ends_with(".json") {
+      |            "application/json; charset=utf-8"
+      |        } else if path.ends_with(".svg") {
+      |            "image/svg+xml; charset=utf-8"
+      |        } else if path.ends_with(".css") {
+      |            "text/css; charset=utf-8"
+      |        } else if body.trim_start().starts_with('<') {
       |            "text/html; charset=utf-8"
       |        } else {
       |            "text/plain; charset=utf-8"
@@ -1013,6 +1024,7 @@ object RustRuntimeTemplates:
       |        return Ok(Response::builder()
       |            .status(StatusCode::OK)
       |            .header("Content-Type", ctype)
+      |            .header("Cache-Control", "no-store")
       |            .body(Full::new(Bytes::from(body)))
       |            .unwrap());
       |    }
