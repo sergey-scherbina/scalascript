@@ -1567,6 +1567,30 @@ object RustCodeWalk:
             renderTerm(fn.body, ctx).map(b => s"|&$p| { $b }")
           case other => renderTerm(other, ctx).map(f => s"|&x| ($f)(*x)")
       yield s"$q.$rustMethod($f)"
+    // Vec `.take(n)` / `.drop(n)` (non-range): consume + re-collect. `.drop` must be
+    // intercepted here or it resolves to Rust's `Drop::drop` destructor.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("take")), a)
+        if !isRangeExpr(qual) && a.values.size == 1 =>
+      for q <- renderTerm(qual, ctx); k <- renderTerm(a.values.head, ctx)
+      yield s"$q.into_iter().take($k as usize).collect::<Vec<_>>()"
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("drop")), a)
+        if !isRangeExpr(qual) && a.values.size == 1 =>
+      for q <- renderTerm(qual, ctx); k <- renderTerm(a.values.head, ctx)
+      yield s"$q.into_iter().skip($k as usize).collect::<Vec<_>>()"
+    // Vec `.takeRight(n)` / `.dropRight(n)` → slice from the end (clones the kept tail).
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name(tr @ ("takeRight" | "dropRight"))), a)
+        if a.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        k <- renderTerm(a.values.head, ctx)
+      yield
+        val slice =
+          if tr == "takeRight" then "__v[__v.len().saturating_sub(__k)..].to_vec()"
+          else "__v[..__v.len().saturating_sub(__k)].to_vec()"
+        s"{ let __v = $q; let __k = ($k) as usize; $slice }"
+    // `xs.sorted` → ascending sort (clones into a fresh owned Vec, then sorts in place).
+    case m.Term.Select(qual, m.Term.Name("sorted")) if !isRangeExpr(qual) =>
+      renderTerm(qual, ctx).map(q => s"{ let mut __s = $q; __s.sort(); __s }")
     // `.sum` over any range/collection → `i64`. `.into_iter()` is identity for a
     // range/iterator and consumes a `Vec`, so this works for both shapes.
     case m.Term.Select(qual, m.Term.Name("sum")) =>
