@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-21 — fix(rust): chained Either map/flatMap/fold compiles (E0282) — `either-chain` n/a → 0.0040 ms
+
+The `either-chain` bench workload was `n/a` on the rust backend: `cargo build` failed with
+`error[E0282]: type annotations needed`. A chained `parse(n).map(..).flatMap(..).fold(..)` lowered to a
+nested `match match match …` where each Either arm was an immediately-applied closure `(move |x| { body })(v)`,
+and rustc cannot infer the closure parameter's type through that chain.
+
+Fix: a new `inlineArm` helper lowers a 1-parameter Either map/flatMap/fold arm to a `{ let x = v; body }`
+block instead of `(move |x| body)(v)`. The `let` binding flows `x`'s type straight from the matched value
+`v`, so no annotation is needed; the form is semantically identical (the closure was applied immediately
+anyway). A non-lambda arg (a function reference) keeps `(f)(v)`.
+
+Verified: `cargo build` green; the binary runs and matches the interpreter (`R=632`); `./bench.sh
+either-chain --backend rust` goes from `n/a` to **0.0040 ms**; `backendRust` 229/0 with a new `RustGenR23Test`
+regression test asserting the `{ let x = v; … }` lowering.
+
 ## 2026-06-21 — fix(jit): ASM one-shot effect lowering — `effect-oneshot` 9.46 → 0.032 ms
 
 Closed `asm-jit-effect-pathology`. `AsmJitBackend.walkLong` now mirrors Javac's one-shot tail-resume effect

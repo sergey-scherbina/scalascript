@@ -1,6 +1,0 @@
-feature/rust-either-chain 2026-06-21T16:25:31Z
-agent: claude (lucky-otter)
-heartbeat: 2026-06-21T16:25:31Z
-status: in-progress
-done-so-far: claiming; reproducing the E0282 in the chained Either-match closure codegen
-next: annotate the closure param type (or bind the intermediate) in RustCodeWalk

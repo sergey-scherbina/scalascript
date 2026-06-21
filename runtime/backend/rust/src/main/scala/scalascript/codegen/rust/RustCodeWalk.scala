@@ -1536,8 +1536,8 @@ object RustCodeWalk:
     ) if isEitherExpr(qual) && args.values.size == 1 =>
       for
         q <- renderTerm(qual, ctx)
-        f <- renderTerm(args.values.head, ctx)
-      yield s"match $q { Either::Left(v) => Either::Left(v), Either::Right(v) => Either::Right(($f)(v)) }"
+        f <- inlineArm(args.values.head, "v", ctx)
+      yield s"match $q { Either::Left(v) => Either::Left(v), Either::Right(v) => Either::Right($f) }"
 
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("flatMap")),
@@ -1545,8 +1545,8 @@ object RustCodeWalk:
     ) if isEitherExpr(qual) && args.values.size == 1 =>
       for
         q <- renderTerm(qual, ctx)
-        f <- renderTerm(args.values.head, ctx)
-      yield s"match $q { Either::Left(v) => Either::Left(v), Either::Right(v) => ($f)(v) }"
+        f <- inlineArm(args.values.head, "v", ctx)
+      yield s"match $q { Either::Left(v) => Either::Left(v), Either::Right(v) => $f }"
 
     case m.Term.Apply.After_4_6_0(
         m.Term.Apply.After_4_6_0(
@@ -1557,9 +1557,9 @@ object RustCodeWalk:
     ) if isEitherExpr(qual) && lArgs.values.size == 1 && rArgs.values.size == 1 =>
       for
         q <- renderTerm(qual, ctx)
-        l <- renderTerm(lArgs.values.head, ctx)
-        r <- renderTerm(rArgs.values.head, ctx)
-      yield s"match $q { Either::Left(v) => ($l)(v), Either::Right(v) => ($r)(v) }"
+        l <- inlineArm(lArgs.values.head, "v", ctx)
+        r <- inlineArm(rArgs.values.head, "v", ctx)
+      yield s"match $q { Either::Left(v) => $l, Either::Right(v) => $r }"
 
     case m.Term.Apply.After_4_6_0(
       m.Term.Select(qual, m.Term.Name("fold")),
@@ -1567,9 +1567,9 @@ object RustCodeWalk:
     ) if isEitherExpr(qual) && args.values.size == 2 =>
       for
         q <- renderTerm(qual, ctx)
-        l <- renderTerm(args.values.head, ctx)
-        r <- renderTerm(args.values(1), ctx)
-      yield s"match $q { Either::Left(v) => ($l)(v), Either::Right(v) => ($r)(v) }"
+        l <- inlineArm(args.values.head, "v", ctx)
+        r <- inlineArm(args.values(1), "v", ctx)
+      yield s"match $q { Either::Left(v) => $l, Either::Right(v) => $r }"
 
     case m.Term.Apply.After_4_6_0(
       m.Term.Select(qual, m.Term.Name("updated")),
@@ -2568,6 +2568,21 @@ object RustCodeWalk:
   /** Lower `(params) => body` to a Rust `move |params| body` closure.
    *  Parameter type annotations are honoured when present; otherwise
    *  Rust's inference picks them up from the call site. */
+  /** Apply an Either map/flatMap/fold arm function to the matched value `v`. An inline
+   *  1-param lambda is lowered to a `{ let p = v; body }` block instead of
+   *  `(move |p| { body })(v)`: the closure form defers `p`'s type, which rustc cannot
+   *  infer inside a chained `match match match …` (E0282) — a `let` binding flows the
+   *  type straight from `v`. A non-lambda arg (a function reference) keeps `(f)(v)`. */
+  private def inlineArm(arg: m.Term, v: String, ctx: Ctx): Either[List[Diagnostic], String] =
+    arg match
+      case fn: m.Term.Function if fn.paramClause.values.sizeIs == 1 =>
+        val raw = fn.paramClause.values.head.name.value
+        val p   = if raw.isEmpty || raw == "_" then "_" else raw
+        val bodyCtx = ctx.copy(closureParams = ctx.closureParams + p)
+        renderTerm(fn.body, bodyCtx).map(b => s"{ let $p = $v; $b }")
+      case other =>
+        renderTerm(other, ctx).map(f => s"($f)($v)")
+
   private def renderClosure(
       params: List[m.Term.Param], body: m.Term, ctx: Ctx
   ): Either[List[Diagnostic], String] =

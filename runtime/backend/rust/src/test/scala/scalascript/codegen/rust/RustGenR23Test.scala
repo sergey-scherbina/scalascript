@@ -305,3 +305,24 @@ class RustGenR23Test extends AnyFunSuite:
   test("RustCapabilities declares PatternMatching"):
     val caps = new RustBackend().capabilities.features
     assert(caps.contains(Feature.PatternMatching))
+
+  // A chained Either map/flatMap/fold lowered each arm as `(move |x| body)(v)`, whose
+  // closure param type rustc could not infer through the nested `match match match …`
+  // → `error[E0282]: type annotations needed` (either-chain was `n/a` on rust). Each
+  // 1-param arm now inlines as `{ let x = v; body }` so the type flows from `v`.
+  test("chained Either map/flatMap/fold inlines arms as `let` blocks (E0282 fix)"):
+    val src =
+      """```scalascript
+        |def parse(n: Int): Either[String, Int] =
+        |  if n > 0 then Right(n) else Left("neg")
+        |def run(n: Int): Int =
+        |  parse(n).map(x => x + 1).flatMap(x => parse(x)).fold(_ => 0, x => x)
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("{ let x = v;"),
+      s"expected an Either arm inlined as `{ let x = v; … }`, got:\n$g")
+    assert(g.contains("{ let _ = v;"),
+      s"expected the `_ => 0` fold arm inlined as `{ let _ = v; … }`, got:\n$g")
+    assert(!g.contains("(move |x| {"),
+      s"Either arms must not emit an un-annotated `(move |x| …)(v)` closure, got:\n$g")

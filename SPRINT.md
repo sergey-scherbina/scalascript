@@ -114,13 +114,13 @@ check — that's `CrossBackendPropertyTest`, green); `n/a` = that backend's emit
       transform, type the multi-shot handle result as the resume-collection type (`List[Int]`) instead of `Any`
       (or insert a cast). **Verify:** the wrapped `effect-multishot.ssc` workload runs on jvm; `./bench.sh
       effect-multishot --backend jvm` no longer `n/a`.
-- [ ] **rust-either-chain-closure-type** (E0282) — `either-chain` is `n/a` on **rust**: `cargo build` fails
-      `error[E0282]: type annotations needed` on a closure the chained-`Either` match emits —
-      `move |x| { black_box(parse(x.clone())) }` — rustc can't infer `x`'s type through the nested
-      `match match match … { Either::Left(v) => …, Either::Right(v) => (move |x| …)(v) }`. **How:** in
-      `RustCodeWalk`, annotate the closure parameter type for an `Either`/`Option` map-step closure (the type
-      is known from the prism arm), or bind the intermediate to a typed `let`. **Verify:** `./bench.sh
-      either-chain --backend rust` builds + runs; add a `backendRust` either-chain codegen test.
+- [x] **rust-either-chain-closure-type** (E0282) ✓ DONE 2026-06-21 — `either-chain` was `n/a` on **rust**
+      (`cargo build` → `error[E0282]: type annotations needed` because the chained `match match match …`
+      emitted each Either arm as `(move |x| { … })(v)`, whose closure param type rustc couldn't infer). Fix:
+      a new `inlineArm` lowers a 1-param Either map/flatMap/fold arm to a `{ let x = v; body }` block instead
+      of an immediately-applied closure — the `let` flows `x`'s type straight from `v`. Function-reference args
+      keep `(f)(v)`. **Verified:** `cargo build` green; interp == rust (`R=632`); `./bench.sh either-chain
+      --backend rust` n/a → **0.0040 ms**; `backendRust` 229/0 + a new `RustGenR23Test` E0282 regression test.
 - [ ] **bench-stale-jvm-na-hygiene** (bookkeeping) — `effect-oneshot` shows `n/a` for **jvm** in the bench,
       but the jvm backend RUNS it correctly now (verified: the real `effect-oneshot.ssc` workload → `OS=962` on
       both interp and jvm; `var`+`while`+`perform` jvm lowering landed earlier). The `n/a` is a stale artifact:
