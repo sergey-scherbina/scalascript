@@ -200,6 +200,13 @@ publication remains explicit-go only; the registry work below is intentionally d
       map (re-parse loses positions) + risks false positives (Typer may not grok expanded macro-runtime
       constructs), niche audience — low ROI vs the codegen warning that covers the real failure mode. Building
       it now = busywork against the spec's own judgment. **→ Next pick: sbt-plugin-finish.**
+- [ ] **board-meta-v2-reconcile** — remove stale meta-v2 Track C/C2 "still open" guidance from the board.
+      **How:** reconcile `SPRINT.md`'s later `[~] metaprogramming-v2` paragraph and `BACKLOG.md` roadmap text
+      with the authoritative `meta-v2-track-c` done entry plus `specs/arch-metaprogramming-v2.md` §4b, which
+      says the remaining arbitrary post-expansion re-typecheck ambition is deferred by design. Keep the
+      historical spec rationale; change only active queue/backlog wording so future agents do not pick C2 as
+      buildable work. **Verify:** grep for stale phrases like "last open meta-v2 slice" / "Track C is the
+      genuine remaining build" and ensure remaining references describe C2 as deferred or historical only.
 - [~] **sbt-plugin-finish** (roadmap #4, Phase 5) — **dep-resolution ✓ DONE 2026-06-18**: the concrete
       actionable Phase 5 slice. `SscFrontMatter` lifts `.ssc` front-matter `dependencies:` `dep:` Maven
       coords into `sscManagedDependencies` → `libraryDependencies` (Java `%`, Scala-cross `%%`, local paths
