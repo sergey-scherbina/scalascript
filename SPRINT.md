@@ -90,13 +90,13 @@ publication remains explicit-go only; the registry work below is intentionally d
       cross-backend harness; add/adjust `CrossBackendPropertyTest` coverage; implement a JS `Char` wrapper or
       equivalent representation that preserves `Char` methods without coercing all mapped results to strings.
       **Verify:** targeted cross-backend property test and a minimal JS/backend run.
-- [ ] **rust-web-example** (2026-06-21, with Sergiy — "Делай 3 и 2, занеси их в спринт и делай") — add a
-      committed, runnable rust-web example to `examples/rust/` so the documented reactive `serve(view, port)`
-      capability (SSR + signal store + computed live-recompute + SSE + direct-WS) is discoverable and
-      CI-checkable, not docs-only. **How:** mirror the verified `RustGenWebToolkitTest` program shape
-      (`signal`/`computedSignal`/`signalText`/`element`/`serve`); `emit-rust` + `cargo build` it with a
-      current toolchain; document build + `curl /__ssc/state` + `/__ssc/push` verification. **Verify:**
-      `cargo build` the emitted crate green; `curl` the running binary shows the computed signal recompute.
+- [x] **rust-web-example** ✓ DONE 2026-06-21 (a55e101f2) — added `examples/rust/web-signals.ssc`
+      (signal + computedSignal + signalText + serve), emit-rust + `cargo build` green, binary serves SSR and
+      `/__ssc/push?name=locale&value=de` recomputes the computed signal (`{"__c0":"fr"}` → `{"__c0":"de"}`).
+      Building it (vs the string-match tests, which never cargo-build) surfaced + fixed **two real bugs**:
+      (1) computed move-closure use-after-move (cargo E0382) — `renderClosure` now clone-captures read signal
+      locals; new regression test, backendRust 228/0; (2) docs showed `POST /__ssc/push -d` but the endpoint
+      reads query params `?name=&value=` — corrected example + rust-backend.md + user-guide.md.
 - [x] **real-workload-perf** (roadmap-next #1) ✓ DONE 2026-06-20 (all three axes). **(a) cold-start:**
       `tests/perf/coldstart/` + AppCDS in `bin/ssc`/`install.sh` → **378 → 182 ms (−51%)**, peak RSS −32%.
       **(b)+(c) steady-state RSS + GC:** `tests/perf/serverrss/` boots a real server under load → interp

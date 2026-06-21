@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-21 — feat(rust-web): runnable web-signals example + 2 bug fixes it surfaced
+
+Added `examples/rust/web-signals.ssc` — the first committed, **cargo-verified** reactive `serve(view, port)`
+example (`signal` + `computedSignal` + `signalText`). Building and running it end-to-end — not just
+string-matching the codegen, which the 23 existing `RustGenWebToolkitTest` tests do — surfaced two real bugs:
+
+1. **Codegen use-after-move (cargo `E0382`).** A `computedSignal(() => loc())` move-closure captured the
+   signal local `loc` by value, so rendering the same signal afterwards (`signalText(loc)`) failed to compile.
+   `RustCodeWalk.renderClosure` now clone-captures each signal local a closure reads
+   (`{ let loc = loc.clone(); move || … }`), leaving the original usable. New regression test; `backendRust`
+   228/0.
+2. **Wrong `/__ssc/push` format in the docs.** The endpoint reads query params
+   (`/__ssc/push?name=<n>&value=<v>`), not a POST body. Corrected the example plus `docs/rust-backend.md`
+   and `docs/user-guide.md` (they showed `curl -X POST -d 'locale=de'`, which silently no-ops).
+
+Verified: `cargo build --release` green; the binary SSRs, and `/__ssc/push?name=locale&value=de` flips state
+`{"__c0":"fr","locale":"fr"}` → `{"__c0":"de","locale":"de"}` — the computed signal recomputed server-side.
+LESSON: cargo-build the examples; `.contains`-on-codegen tests can't catch a borrow-checker error.
+
 ## 2026-06-20 — feat(registry): no-domain static package registry
 
 The package registry now ships without requiring a domain registration. `RegistryClient.DefaultRegistryUrl`
