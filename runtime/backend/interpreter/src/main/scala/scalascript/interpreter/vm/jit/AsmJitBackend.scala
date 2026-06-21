@@ -1001,6 +1001,13 @@ object AsmJitBackend extends JitBackend:
       walkBool(ti.cond, ctx, mv, Le) &&
         walkLong(ti.thenp, ctx, mv) && { mv.visitJumpInsn(GOTO, Ld); mv.visitLabel(Le); true } &&
         walkLong(ti.elsep, ctx, mv) && { mv.visitLabel(Ld); true }
+    // effect-vm-continuations: mirror JavacJitBackend.  During evalHandle a
+    // clean one-shot tail-resume arm installs a resolver, making Eff.op(args)
+    // pure for this dynamic extent.  The compiled bridge still goes through the
+    // resolver on every iteration, so handlers remain semantically in charge.
+    case Term.Apply.After_4_6_0(Term.Select(Term.Name(eff), Term.Name(op)), ac)
+        if resolvedEffectLongApply(eff, op, ac.values) =>
+      emitResolvedEffectLong(eff, op, ac.values, ctx, mv)
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, ac) if ac.values.lengthCompare(1) == 0 =>
       op.value match
         case "+" | "-" | "*" | "/" | "%" =>
@@ -1102,7 +1109,7 @@ object AsmJitBackend extends JitBackend:
     // `.toLong` / `.toInt` are no-ops in ScalaScript when inner is Long-typed.
     // Stage 8: when inner walks as ref (e.g. String.trim), route through emitRefChainLong("toInt").
     case Term.Select(inner: Term, Term.Name("toLong" | "toInt")) =>
-      if looksLongValue(inner, ctx) then walkLong(inner, ctx, mv)
+      if looksLongValue(inner, ctx) || isResolvedEffectLongApply(inner) then walkLong(inner, ctx, mv)
       else emitRefChainLong(inner, "toInt", Nil, ctx, mv)
     // `.toDouble` on a Long expression — widen.
     case Term.Select(inner: Term, Term.Name("toDouble")) =>
@@ -1158,6 +1165,36 @@ object AsmJitBackend extends JitBackend:
           emitLongCall(fn.value, ap.argClause.values, ctx, mv)
         case _ => false
     case _ => false
+
+  private def isResolvedEffectLongApply(t: Term): Boolean = t match
+    case Term.Apply.After_4_6_0(Term.Select(Term.Name(eff), Term.Name(op)), ac) =>
+      resolvedEffectLongApply(eff, op, ac.values)
+    case _ => false
+
+  private def resolvedEffectLongApply(eff: String, op: String, args: List[Term]): Boolean =
+    args.lengthCompare(2) <= 0 &&
+      scalascript.interpreter.EffectsRuntime.lookupResolver(eff, op) != null
+
+  private def emitResolvedEffectLong(
+    eff:  String,
+    op:   String,
+    args: List[Term],
+    ctx:  GenCtx,
+    mv:   MethodVisitor
+  ): Boolean =
+    mv.visitFieldInsn(GETSTATIC, globalsInt, "MODULE$", s"L$globalsInt;")
+    mv.visitLdcInsn(eff)
+    mv.visitLdcInsn(op)
+    var i = 0
+    while i < args.length do
+      if !walkLong(args(i), ctx, mv) then return false
+      i += 1
+    val (method, desc) =
+      if args.isEmpty then ("resolveEffectLong", "(Ljava/lang/String;Ljava/lang/String;)J")
+      else if args.lengthCompare(1) == 0 then ("resolveEffectLong1", "(Ljava/lang/String;Ljava/lang/String;J)J")
+      else ("resolveEffectLong2", "(Ljava/lang/String;Ljava/lang/String;JJ)J")
+    mv.visitMethodInsn(INVOKEVIRTUAL, globalsInt, method, desc, false)
+    true
 
   /** Stage 9: inline a val-bound lambda's body at the call site. Each arg is
    *  evaluated into a fresh local slot; the lambda param is bound to that

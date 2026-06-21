@@ -118,7 +118,7 @@ private[interpreter] object EffectsRuntime:
         case None    => st = st.tail
     null
 
-  private def withResolvers[A](frame: Map[(String, String), Resolver])(thunk: => A): A =
+  private[interpreter] def withResolvers[A](frame: Map[(String, String), Resolver])(thunk: => A): A =
     if frame.isEmpty then thunk
     else
       val st = resolverStack.get()
