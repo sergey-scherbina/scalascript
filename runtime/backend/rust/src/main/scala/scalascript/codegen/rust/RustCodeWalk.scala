@@ -33,7 +33,11 @@ object RustCodeWalk:
       generated:    String,
       defNames:     List[String],
       mainEntry:    Option[String],
-      effectNames:  Set[String]   // effect names used (e.g. "Logger") → drives effects.rs emit
+      effectNames:  Set[String],  // effect names used (e.g. "Logger") → drives effects.rs emit
+      // Custom (user-declared) effects: name → rendered trait method signatures
+      // (e.g. "Bump" → List("fn tick(&mut self) -> i64")). These become a
+      // `pub trait ${name}Effect` with REQUIRED methods (no no-op default). (R.4.2)
+      customEffectOps: Map[String, List[String]] = Map.empty
   )
 
   def walk(
@@ -41,7 +45,12 @@ object RustCodeWalk:
       intrinsics: Map[QualifiedName, IntrinsicImpl]
   ): Either[List[Diagnostic], WalkResult] =
     _typeLambdas          = collectTypeLambdaAliases(module)
-    val defs              = collectDefs(module)
+    // Custom effect declarations: `effect Bump: def tick(): Int` is preprocessed to
+    // `object Bump { def tick(): Int = __effectOp__ }`. Collect the op signatures for the
+    // trait, and drop the op-marker defs from normal function emission. (R.4.2)
+    _effectOps            = collectEffectOps(module)
+    val customEffectOps   = _effectOps.map { case (e, ops) => e -> effectTraitSigs(ops) }
+    val defs              = collectDefs(module).filterNot(d => isEffectOpMarker(d.body))
     _varargDefs = defs.flatMap { d =>
       val ps = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
       ps.lastOption match
@@ -118,7 +127,8 @@ object RustCodeWalk:
       val streamEffect  = if usesRunStream(module)  then Set("Stream")  else Set.empty[String]
       val stateEffect   = if usesRunState(module)   then Set("State")   else Set.empty[String]
       val randomEffect  = if usesRunRandom(module)  then Set("Random")  else Set.empty[String]
-      val effectNames = defs.flatMap(defEffectName).toSet ++ streamEffect ++ stateEffect ++ randomEffect
+      val effectNames = defs.flatMap(defEffectName).toSet ++ streamEffect ++ stateEffect ++
+                        randomEffect ++ customEffectOps.keySet
       val effectsImport =
         if effectNames.isEmpty then ""
         else "use crate::runtime::effects::*;\n\n"
@@ -126,10 +136,11 @@ object RustCodeWalk:
         if body.isEmpty then headerComment
         else headerComment + "\n" + effectsImport + body.dropWhile(_ == '\n')
       Right(WalkResult(
-        generated   = generatedText,
-        defNames    = ok.map(_.name),
-        mainEntry   = ok.find(_.isMain).map(_.name),
-        effectNames = effectNames
+        generated       = generatedText,
+        defNames        = ok.map(_.name),
+        mainEntry       = ok.find(_.isMain).map(_.name),
+        effectNames     = effectNames,
+        customEffectOps = customEffectOps
       ))
 
   /** Header for the generated file.  Stable so goldens diff cleanly. */
@@ -363,6 +374,49 @@ object RustCodeWalk:
    *  no default).  A call that omits trailing defaulted params (`textField(v, label)`)
    *  fills them, since Rust has no default parameters. */
   private var _defaultsMap: Map[String, List[Option[m.Term]]] = Map.empty
+
+  /** User-declared effects: effect name → its ops, each `(opName, rustParamTypes, rustRetType)`.
+   *  Drives the trait emission, `Eff.op` dispatch, and the `handle` handler-struct impl. (R.4.2) */
+  private var _effectOps: Map[String, List[(String, List[String], String)]] = Map.empty
+  private def _effectObjectNames: Set[String] = _effectOps.keySet
+
+  /** A `def`/op body that is the effect-op marker (`effect E: def op(...) = __effectOp__`). */
+  private def isEffectOpMarker(body: m.Term): Boolean = body match
+    case m.Term.Name("__effectOp__") => true
+    case _                           => false
+
+  /** Collect user-declared effects (`object E { def op(...): T = __effectOp__ }`) into
+   *  structured op info: `E → List((op, paramRustTypes, retRustType))`. (R.4.2) */
+  private def collectEffectOps(module: ast.Module): Map[String, List[(String, List[String], String)]] =
+    def objectsIn(c: ast.Content): List[m.Defn.Object] = c match
+      case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isScalaLang(lang) =>
+        node.tree.collect { case o: m.Defn.Object => o }.toList
+      case _ => Nil
+    def sectionObjects(s: ast.Section): List[m.Defn.Object] =
+      s.content.flatMap(objectsIn) ++ s.subsections.flatMap(sectionObjects)
+    module.sections.flatMap(sectionObjects).flatMap { o =>
+      val ops = o.templ.body.stats.toList.collect {
+        case dd: m.Defn.Def if isEffectOpMarker(dd.body) => effectOpInfo(dd)
+      }.flatten
+      if ops.nonEmpty then Some(o.name.value -> ops) else None
+    }.toMap
+
+  /** `(opName, List[rustParamType], rustRetType)` for one effect op; None if a type can't map. */
+  private def effectOpInfo(dd: m.Defn.Def): Option[(String, List[String], String)] =
+    val params = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+    val ptypes = params.map(p => p.decltpe.flatMap(t => mapType(t, dd.name.value, Set.empty).toOption))
+    if ptypes.exists(_.isEmpty) then None
+    else
+      val ret = dd.decltpe.flatMap(t => mapType(t, dd.name.value, Set.empty).toOption).filter(_.nonEmpty).getOrElse("")
+      Some((dd.name.value, ptypes.flatten, ret))
+
+  /** Render the trait method signatures (generic param names) for `renderTaglessEffectsRs`. */
+  private def effectTraitSigs(ops: List[(String, List[String], String)]): List[String] =
+    ops.map { case (op, ptypes, ret) =>
+      val args = if ptypes.isEmpty then "" else ", " + ptypes.zipWithIndex.map((t, i) => s"a$i: $t").mkString(", ")
+      val r    = if ret.isEmpty then "" else s" -> $ret"
+      s"fn $op(&mut self$args)$r"
+    }
 
   private def collectTypeLambdaAliases(module: ast.Module): Map[String, (List[String], m.Type)] =
     def fromContent(c: ast.Content): List[(String, (List[String], m.Type))] = c match
@@ -695,7 +749,10 @@ object RustCodeWalk:
       // Local val/var names bound to a Signal → element type ("String"/"Int"/"Double"/
       // "Boolean").  A 0-arg apply on one — `x()` — is a signal READ and lowers to a
       // store read coerced by element type (the value isn't callable). Per-def pre-pass.
-      localSignals: Map[String, String] = Map.empty
+      localSignals: Map[String, String] = Map.empty,
+      // Inside a `handle { case Eff.op(.., resume) => body }` arm, the `resume` param name.
+      // A one-shot tail-resume `resume(v)` lowers to just `v` (the op method returns it). (R.4.2)
+      resumeParam: Option[String] = None
   ):
     def enumNames: Set[String] = ctorMap.values.map(_.enumName).toSet
     @annotation.unused def topValNames: Set[String] = topVals.map(_._1).toSet
@@ -1514,6 +1571,26 @@ object RustCodeWalk:
     // Struct / case-class field access: `v.x` → `v.x` in Rust.
     case m.Term.Select(qual, m.Term.Name(field)) =>
       renderTerm(qual, ctx).map(q => s"$q.$field")
+    // A user effect op call `Eff.op(args)` → `_eff.op(args)` (tagless-final dispatch).
+    // The `_eff` handler parameter is threaded into every effectful def. (R.4.2)
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(m.Term.Name(eff), m.Term.Name(op)), args
+    ) if _effectObjectNames.contains(eff) =>
+      val (errs, oks) = args.values.toList.map(a => renderTerm(a, ctx)).partitionMap(identity)
+      if errs.nonEmpty then Left(errs.flatten)
+      else Right(s"_eff.$op(${oks.mkString(", ")})")
+    // One-shot tail-resume `resume(v)` inside a handler arm → just `v` (the op method returns it).
+    case m.Term.Apply.After_4_6_0(m.Term.Name(r), args)
+        if ctx.resumeParam.contains(r) && args.values.size == 1 =>
+      renderTerm(args.values.head, ctx)
+    // `handle(body) { case Eff.op(binders…, resume) => arm }` → a handler struct that impls the
+    // effect trait, then run the (effectful) body against it. One-shot tail-resume only. (R.4.2)
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Apply.After_4_6_0(m.Term.Name("handle"), bodyArgs),
+        caseArgs
+    ) if bodyArgs.values.size == 1 && caseArgs.values.size == 1 &&
+         handleCasesOf(caseArgs.values.head).nonEmpty =>
+      renderHandle(bodyArgs.values.head, handleCasesOf(caseArgs.values.head), ctx)
     // Either constructors and combinators.
     case m.Term.Apply.After_4_6_0(m.Term.Name("Left"), args)
         if args.values.size == 1 =>
@@ -2615,6 +2692,54 @@ object RustCodeWalk:
             .map(n => s"let ${rustIdent(n)} = ${rustIdent(n)}.clone();")
             .mkString(" ")
           s"{ $clones $closure }"
+
+  /** Extract the `case Eff.op(..) => …` arms from a `handle(body) { … }` cases argument
+   *  (a partial function, possibly wrapped in a one-statement block). (R.4.2) */
+  private def handleCasesOf(t: m.Term): List[m.Case] = t match
+    case pf: m.Term.PartialFunction                     => pf.cases.toList
+    case m.Term.Block(List(pf: m.Term.PartialFunction)) => pf.cases.toList
+    case _                                              => Nil
+
+  /** Lower `handle(body) { case Eff.op(binders…, resume) => arm }` to a tagless-final
+   *  handler struct that impls `${Eff}Effect`, then run the effectful `body` against it.
+   *  ONE-SHOT tail-resume only: `resume(v)` in tail position lowers to `v` (see the
+   *  `resumeParam` case in renderTerm). A multi-shot resume is out of scope. (R.4.2) */
+  private def renderHandle(body: m.Term, cases: List[m.Case], ctx: Ctx): Either[List[Diagnostic], String] =
+    val effNameOpt = cases.flatMap { c =>
+      c.pat match
+        case m.Pat.Extract.After_4_6_0(m.Term.Select(m.Term.Name(eff), _), _) => Some(eff)
+        case _                                                                => None
+    }.headOption
+    effNameOpt match
+      case None => Left(List(unsupported(s"def `${ctx.defName}` handle has no `Eff.op(.., resume)` case")))
+      case Some(effName) =>
+        val opInfos = _effectOps.getOrElse(effName, Nil).map(o => o._1 -> o).toMap
+        val methods = cases.map { c =>
+          (c.pat, c.cond) match
+            case (m.Pat.Extract.After_4_6_0(m.Term.Select(m.Term.Name(_), m.Term.Name(op)), argPats), None) =>
+              val binders = argPats.values.toList.collect { case m.Pat.Var(m.Term.Name(n)) => n }
+              val (opArgNames, resumeName) = binders match
+                case init :+ last => (init, Some(last))
+                case _            => (Nil, None)
+              opInfos.get(op) match
+                case None => Left(List(unsupported(s"def `${ctx.defName}` handle references unknown op `$op` of effect `$effName`")))
+                case Some((_, ptypes, ret)) =>
+                  val argList = opArgNames.zip(ptypes).map((n, t) => s"$n: $t")
+                  val argStr  = if argList.isEmpty then "" else ", " + argList.mkString(", ")
+                  val retStr  = if ret.isEmpty then "" else s" -> $ret"
+                  renderTerm(c.body, ctx.copy(resumeParam = resumeName))
+                    .map(b => s"    fn $op(&mut self$argStr)$retStr { $b }")
+            case _ =>
+              Left(List(unsupported(s"def `${ctx.defName}` handle case is not `Eff.op(.., resume) =>`")))
+        }
+        val (errs, oks) = methods.partitionMap(identity)
+        if errs.nonEmpty then Left(errs.flatten)
+        else
+          val structName = s"__H_$effName"
+          renderTerm(body, ctx).map { bodyRs =>
+            s"{ struct $structName; impl ${effName}Effect for $structName {\n" +
+            oks.mkString("\n") + s"\n} let mut _eff = $structName; $bodyRs }"
+          }
 
   /** Lower a `Term.Match(subject, cases)` to a Rust `match` expression.
    *  Each case's pattern is lowered via `renderPattern`; the body is

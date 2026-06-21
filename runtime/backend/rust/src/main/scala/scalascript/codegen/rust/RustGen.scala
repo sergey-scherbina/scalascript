@@ -122,7 +122,7 @@ object RustGen:
           if walked.effectNames.isEmpty then Nil
           else List(Segment.Asset(
             "src/runtime/effects.rs",
-            RustRuntimeTemplates.renderTaglessEffectsRs(walked.effectNames).getBytes("UTF-8"),
+            RustRuntimeTemplates.renderTaglessEffectsRs(walked.effectNames, walked.customEffectOps).getBytes("UTF-8"),
             "text/x-rust"
           ))
         val httpAsset =
