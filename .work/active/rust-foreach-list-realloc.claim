@@ -1,6 +1,6 @@
 feature/rust-foreach-realloc 2026-06-21T15:40:56Z
 agent: codex
-heartbeat: 2026-06-21T15:40:56Z
-status: not-started
-done-so-far:
-next: inspect existing rust-foreach worktree diff and reproduce emitted Rust realloc
+heartbeat: 2026-06-21T15:41:15Z
+status: in-progress
+done-so-far: claim created; existing rust-foreach worktree found with dirty Rust codegen/test edits
+next: inspect diff, reproduce generated realloc, finish fix and verify with backendRust + scripts/bench
