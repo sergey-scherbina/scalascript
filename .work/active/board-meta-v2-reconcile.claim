@@ -1,6 +1,6 @@
 feature/board-meta-v2-reconcile 2026-06-21T17:01:42Z
 agent: codex
-heartbeat: 2026-06-21T17:01:42Z
-status: not-started
-done-so-far: queued board-meta-v2-reconcile in SPRINT.md
-next: rebase feature/board-meta-v2-reconcile and reconcile stale meta-v2 Track C/C2 wording in SPRINT.md/BACKLOG.md
+heartbeat: 2026-06-21T17:01:59Z
+status: in-progress
+done-so-far: claim pushed; plan is visible in SPRINT.md
+next: reconcile stale meta-v2 Track C/C2 wording in SPRINT.md and BACKLOG.md, then grep stale phrases
