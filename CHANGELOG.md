@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-21 — fix(jit): ASM one-shot effect lowering — `effect-oneshot` 9.46 → 0.032 ms
+
+Closed `asm-jit-effect-pathology`. `AsmJitBackend.walkLong` now mirrors Javac's one-shot tail-resume effect
+bridge: active handler resolvers lower to `JitGlobals.resolveEffectLong*`, and resolved effect calls stay on
+the Long path through `.toLong` / `.toInt`. This restores `ssc-asm` parity with default `ssc` on the hot
+effect loop (`ssc` 0.025 ms/iter, `ssc-asm` 0.032 ms/iter) instead of falling back to the slow trampoline.
+
+Regression guard: `AsmEffectJitTest` compiles and runs `Bump.tick().toLong` through ASM with an active
+resolver; `EffectOneShotFastPathTest` and `JitLintTest` remain green.
+
 ## 2026-06-21 — perf(js): direct tuple indexing + single-alloc tuple concat — `tuple-monoid` 7.40 → 2.60 ms
 
 The `js` `tuple-monoid` benchmark was the slowest cell in the whole `./bench.sh` table. Two general JsGen

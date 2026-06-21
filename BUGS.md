@@ -13,7 +13,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `done` | reporter confirmed fixed (safe to trim) |
 
 
-## asm-jit-effect-pathology — `open` (2026-06-21)
+## asm-jit-effect-pathology — `fixed` (2026-06-21, `0d5e03b87`)
 
 - **Found by:** benchmark perf-divergence sweep (`./bench.sh`), accepted from `SPRINT.md`.
 - **Symptom:** the synthetic `ssc-asm` backend (`SSC_JIT_BACKEND=asm`) is orders of magnitude slower than
@@ -21,11 +21,17 @@ commit SHA until the reporter confirms, then they can be trimmed.
   algebraic effect (`Bump.tick(resume) => resume(1)`). Current worktree repro after `sbt cli/installBin`:
   `./bench.sh effect-oneshot --backend ssc` = 0.043 ms/iter; `./bench.sh effect-oneshot --backend ssc-asm`
   = 9.46 ms/iter.
-- **Hypothesis:** the asm register-VM JIT is compiling an effectful loop path that the default JIT avoids,
-  or it mishandles the `perform → handle → resume` trampoline. Fix should either make asm bail out on the
-  same effectful-loop shape as default or correct the asm lowering.
-- **Status:** open; next step is to inspect JIT bail reasons/while-loop compilation and add a regression
-  around effectful-loop asm fallback.
+- **Root cause:** `JavacJitBackend.walkLong` already lowered one-shot tail-resume effect calls to
+  `JitGlobals.resolveEffectLong*`, but `AsmJitBackend.walkLong` did not. The `Bump.tick().toLong` expression
+  therefore made ASM bytecode JIT bail and left the workload on the slow effect trampoline.
+- **FIXED (2026-06-21, `0d5e03b87`):** ASM now mirrors the Javac lowering for active one-shot effect
+  resolvers (`resolveEffectLong`, `resolveEffectLong1`, `resolveEffectLong2`) and treats a resolved effect
+  call as Long-shaped for `.toLong`/`.toInt` routing. Regression guard: `AsmEffectJitTest` compiles and runs
+  `acc + Bump.tick().toLong` through `AsmJitBackend` with an active resolver.
+- **Verified:** `sbt -no-colors "backendInterpreter/testOnly scalascript.interpreter.vm.jit.AsmEffectJitTest
+  scalascript.EffectOneShotFastPathTest scalascript.JitLintTest"` = 85/85; `sbt -no-colors cli/installBin`;
+  `./bench.sh effect-oneshot --backend ssc` = 0.025 ms/iter; `./bench.sh effect-oneshot --backend ssc-asm`
+  = 0.032 ms/iter (was 9.46 ms/iter in the accepted repro).
 
 ## rust-foreach-list-realloc — `fixed` (2026-06-21, `abbc98eee`)
 

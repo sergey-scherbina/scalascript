@@ -72,13 +72,13 @@ SSE, computed-read compile+SSR all DONE). Remaining, priority order:
 The big per-workload outliers from the same `./bench.sh` sweep, each ROOT-CAUSED by hand (emit + read the
 generated code / toggle the JIT). Verdict per case: **codegen**, **jit**, or **bench** (intentional anti-fold).
 
-- [ ] **asm-jit-effect-pathology** (JIT) — `ssc-asm` = `ssc` with `SSC_JIT_BACKEND=asm`. On `effect-oneshot`
-      the asm register-VM JIT is **225× slower than default `ssc`** in the bench (verified locally: default
-      239 ms vs `SSC_JIT_BACKEND=asm` 1323 ms on a 200-rep run). The asm backend mis-handles the
-      `perform → handle → resume` trampoline (the default backend bails to tree-walk on effectful loop bodies;
-      the asm path apparently does not). **Fix:** make the asm JIT bail on an effectful loop body like the
-      default backend does, or fix the asm lowering of the effect trampoline. **Verify:**
-      `SSC_JIT_BACKEND=asm bin/ssc run` on an effect-in-loop is no worse than default.
+- [x] **asm-jit-effect-pathology** (JIT) ✓ DONE 2026-06-21 — `ssc-asm` `effect-oneshot` **9.46 → 0.032
+      ms/iter**, now effectively matching default `ssc` (0.025 ms/iter). Root cause: Javac bytecode JIT lowered
+      active one-shot tail-resume effect ops through `JitGlobals.resolveEffectLong*`, but ASM `walkLong` did
+      not, so `Bump.tick().toLong` bailed out to the slow effect trampoline. Fix `0d5e03b87`: ASM mirrors the
+      resolver lowering and treats resolved effect calls as Long-shaped for `.toLong`/`.toInt`. Verified with
+      `AsmEffectJitTest`, `EffectOneShotFastPathTest`, `JitLintTest` (85/85), `sbt -no-colors cli/installBin`,
+      and `./bench.sh effect-oneshot --backend ssc{,-asm}`.
 - [x] **js-tuple-monoid-alloc** (CODEGEN) ✓ DONE 2026-06-21 — **`js` `tuple-monoid` 7.40 → 2.60 ms (2.85×)**,
       no longer the slowest cell. Two general JsGen fixes: (1) `t._N` on a statically-known tuple lowers to a
       direct `t[N-1]` array read (new `tupleVars` tracking + `isTupleExpr`), skipping the megamorphic
