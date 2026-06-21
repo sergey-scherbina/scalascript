@@ -1591,6 +1591,10 @@ object RustCodeWalk:
     // `xs.sorted` → ascending sort (clones into a fresh owned Vec, then sorts in place).
     case m.Term.Select(qual, m.Term.Name("sorted")) if !isRangeExpr(qual) =>
       renderTerm(qual, ctx).map(q => s"{ let mut __s = $q; __s.sort(); __s }")
+    // `xs.distinct` → first occurrence of each element, original order preserved.
+    case m.Term.Select(qual, m.Term.Name("distinct")) if !isRangeExpr(qual) =>
+      renderTerm(qual, ctx).map(q =>
+        s"{ let mut __seen = std::collections::HashSet::new(); $q.into_iter().filter(|__x| __seen.insert(__x.clone())).collect::<Vec<_>>() }")
     // `.sum` over any range/collection → `i64`. `.into_iter()` is identity for a
     // range/iterator and consumes a `Vec`, so this works for both shapes.
     case m.Term.Select(qual, m.Term.Name("sum")) =>
