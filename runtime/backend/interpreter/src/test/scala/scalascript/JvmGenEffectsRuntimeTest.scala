@@ -463,6 +463,27 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
     // All 6 combinations (1|2|3)+(10|20) sum to 102 per iteration × 2 = 204.
     assert(out == "204", s"expected 204, got: '$out'")
 
+  test("JvmGen: total CPS def keeps declared Long result type"):
+    assume(hasScalaCli, "scala-cli not available")
+    val (ec, out) = runWithScalaCli("""
+      multi effect NonDet:
+        def choose(options: List[Int]): Int
+      def program(seed: Long): Int ! NonDet =
+        val a = NonDet.choose(List(1, 2, 3))
+        val b = NonDet.choose(List(10, 20))
+        a + b + (seed % 5).toInt
+      def workload(seed: Long): Long =
+        val all = handle(program(seed)) {
+          case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))
+        }
+        all.foldLeft(0L)((acc, x) => acc + x.toLong)
+      def addLong(x: Long): Long = x + 1L
+      println(addLong(workload(0L)))
+    """)
+    assert(ec == 0, s"scala-cli run failed (exit $ec)")
+    // All 6 combinations for seed=0 sum to 102; addLong proves workload has static type Long.
+    assert(out == "103", s"expected 103, got: '$out'")
+
   // ── /_ssc-cluster/* — end-to-end e2e ───────────────────────────────
   // Build a codegen-emitted node with scala-cli, spawn it, curl each
   // of the five routes, and assert the wire shape matches what the

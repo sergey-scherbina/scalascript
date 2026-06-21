@@ -3174,6 +3174,19 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     if d.paramClauseGroups.isEmpty then "()"
     else d.paramClauseGroups.map(_.syntax).mkString
 
+  private[codegen] def declaredCpsResultType(d: Defn.Def): Option[String] =
+    d.decltpe.flatMap {
+      case Type.ApplyInfix(_, Type.Name("!"), _) => None
+      case Type.Name("Any")                      => None
+      case t                                     => Some(t.syntax)
+    }
+
+  private[codegen] def emitEffectfulResultType(d: Defn.Def): String =
+    declaredCpsResultType(d).map(t => s": $t").getOrElse(": Any")
+
+  private[codegen] def castCpsResultToDeclared(d: Defn.Def, body: String): String =
+    declaredCpsResultType(d).map(t => s"($body).asInstanceOf[$t]").getOrElse(body)
+
   /** Extract the first string literal argument from a named annotation in `mods`.
    *  Returns `Some(expr)` when `@name("expr")` is present, `None` otherwise. */
   private def extractAnnotationArg(mods: List[Mod], name: String): Option[String] =
@@ -3247,9 +3260,12 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).foreach { p =>
         p.decltpe.foreach(t => declaredVarTypes(p.name.value) = t.syntax)
       }
-      // Return type set to Any (could be a Free value the caller's
-      // `_bind` will unwrap).
-      s"def ${d.name.value}$params: Any = ${emitCpsExpr(d.body)}"
+      // Effect-row defs (`A ! Eff`) still return Any because they may
+      // produce a Free value that the caller/handler unwraps. Total defs
+      // that merely contain handled effects keep their declared result
+      // type; otherwise wrappers like the benchmark AtomicLong sink see
+      // `workload(...): Any` instead of the user's `: Long`.
+      s"def ${d.name.value}$params${emitEffectfulResultType(d)} = ${castCpsResultToDeclared(d, emitCpsExpr(d.body))}"
 
     // Non-effectful function with `T ! Eff` return-type annotation: strip the
     // effect row (not valid Scala syntax) and emit with `: Any` return type.
@@ -4470,4 +4486,3 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) if argClause.values.lengthCompare(1) == 0 =>
       s"(${emitCaseBody(lhs)} ${op.value} ${emitCaseBody(argClause.values.head)})"
     case other => other.syntax
-

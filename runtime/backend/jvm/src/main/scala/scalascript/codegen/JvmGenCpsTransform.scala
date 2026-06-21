@@ -1037,7 +1037,7 @@ private[codegen] trait JvmGenCpsTransform:
       // contains an effect primitive (same predicate dep-mode uses).
       def emitDefMaybeCps(d: Defn.Def): String =
         if containsEffectPrimitive(d.body) then
-          s"def ${d.name.value}${emitEffectfulParamGroups(d)}: Any = ${emitCpsExpr(d.body)}"
+          s"def ${d.name.value}${emitEffectfulParamGroups(d)}${emitEffectfulResultType(d)} = ${castCpsResultToDeclared(d, emitCpsExpr(d.body))}"
         else d.syntax
       def build(remaining: List[Stat]): String = remaining match
         case Nil => "()"
@@ -1118,4 +1118,3 @@ private[codegen] trait JvmGenCpsTransform:
       case Some(t) =>
         val tSyntax = t.syntax
         s"_bind($rhsEmit, ((${name}: ${tSyntax}) => ${body}).asInstanceOf[Any => Any])"
-
