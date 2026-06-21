@@ -12,7 +12,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
-## jvm-multishot-result-type — `open` (2026-06-21)
+## jvm-multishot-result-type — `fixed` (2026-06-21, `39b7c665f`)
 
 - **Found by:** benchmark perf-divergence sweep (`./bench.sh`), accepted from `SPRINT.md`.
 - **SHA at filing:** `0ee00a29f` (`feature/jvm-multishot-result-type` worktree, after
@@ -25,9 +25,18 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Repro (real harness):** `./bench.sh effect-multishot --backend jvm` -> `n/a`; then
   `scala-cli --java-opt -XX:CompileThreshold=100 --java-opt -XX:-BackgroundCompilation --server=false
   /tmp/ssc-bench-jvm-effect-multishot.sc` shows the three `getAndAdd(workload(...))` type errors.
-- **Notes:** the immediate failure is the top-level CPS def result type (`Long` widened to `Any`),
-  not just the local `val all = handle(...)` collection result. A robust JVM fix should preserve the
-  declared result type for effectful CPS defs or cast the final CPS result at the def boundary.
+- **Root cause:** the top-level CPS def emitter always generated `def f(...): Any = ...` for any
+  transitively effectful function. That is correct for effect-row defs (`A ! Eff`) that may return a
+  Free computation, but wrong for total wrappers such as `def workload(seed: Long): Long` that handle
+  their effects internally. The earlier handle-result fixes made `all.foldLeft(...)` compile, but the
+  def boundary still widened the declared `Long` to `Any`.
+- **FIXED (2026-06-21, `39b7c665f`):** JVM CPS def emission now keeps declared non-effect-row result
+  types and casts the final CPS result at the boundary; `A ! Eff` defs still emit `Any`. The same helper
+  is used for nested CPS defs inside CPS blocks. Regression guard: `JvmGenEffectsRuntimeTest` proves
+  `addLong(workload(0L))` compiles and runs, so the total CPS def has static type `Long`.
+- **Verified:** `sbt -no-colors "backendInterpreter/testOnly scalascript.JvmGenEffectsRuntimeTest"` =
+  34/34; `sbt -no-colors cli/installBin`; `./bench.sh effect-multishot --backend jvm` = 0.075 ms/iter
+  (was `n/a`); `./bench.sh effect-oneshot --backend jvm` = 0.160 ms/iter (same root cause).
 
 ## asm-jit-effect-pathology — `fixed` (2026-06-21, `0d5e03b87`)
 

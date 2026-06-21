@@ -107,13 +107,14 @@ check — that's `CrossBackendPropertyTest`, green); `n/a` = that backend's emit
       case). **How:** add a `Pat.Extract` handler-case lowering + `resume` continuation in `RustCodeWalk`;
       start with one-shot (`resume(x)` once), then multi-shot (`resume` in a `flatMap`). **Verify:**
       `./bench.sh effect-oneshot effect-multishot --backend rust` no longer `n/a`; add a `backendRust` effect test.
-- [ ] **jvm-multishot-result-type** — `effect-multishot` is `n/a` on **jvm** (one-shot is fine — see stale
-      note below). The multi-shot `handle(program()) { case NonDet.choose(opts, resume) => opts.flatMap(resume) }`
-      result is emitted with type `Any`, so a downstream collection op fails to compile:
-      `[E008] value foldLeft is not a member of Any` (`all.foldLeft(0L)(...)`). **How:** in `JvmGen`/CPS
-      transform, type the multi-shot handle result as the resume-collection type (`List[Int]`) instead of `Any`
-      (or insert a cast). **Verify:** the wrapped `effect-multishot.ssc` workload runs on jvm; `./bench.sh
-      effect-multishot --backend jvm` no longer `n/a`.
+- [x] **jvm-multishot-result-type** ✓ DONE 2026-06-21 — `effect-multishot` was `n/a` on **jvm** because
+      CPS def emission widened total handled-effect wrappers from their declared result type to `Any`:
+      `def workload(seed: Long): Long` emitted as `def workload(seed: Long): Any`, and the bench wrapper's
+      typed sink failed with `Found: Any; Required: Long`. Fix (`39b7c665f`): keep declared non-effect-row
+      result types at CPS def boundaries and cast the final CPS result there; effect-row defs (`A ! Eff`)
+      still return `Any` so handlers can unwrap Free computations. Guard: `JvmGenEffectsRuntimeTest`
+      `addLong(workload(0L))` e2e. **Verified:** `backendInterpreter/testOnly scalascript.JvmGenEffectsRuntimeTest`
+      34/34; `sbt -no-colors cli/installBin`; `./bench.sh effect-multishot --backend jvm` `n/a` -> 0.075 ms.
 - [x] **rust-either-chain-closure-type** (E0282) ✓ DONE 2026-06-21 — `either-chain` was `n/a` on **rust**
       (`cargo build` → `error[E0282]: type annotations needed` because the chained `match match match …`
       emitted each Either arm as `(move |x| { … })(v)`, whose closure param type rustc couldn't infer). Fix:
@@ -121,13 +122,11 @@ check — that's `CrossBackendPropertyTest`, green); `n/a` = that backend's emit
       of an immediately-applied closure — the `let` flows `x`'s type straight from `v`. Function-reference args
       keep `(f)(v)`. **Verified:** `cargo build` green; interp == rust (`R=632`); `./bench.sh either-chain
       --backend rust` n/a → **0.0040 ms**; `backendRust` 229/0 + a new `RustGenR23Test` E0282 regression test.
-- [ ] **bench-stale-jvm-na-hygiene** (bookkeeping) — `effect-oneshot` shows `n/a` for **jvm** in the bench,
-      but the jvm backend RUNS it correctly now (verified: the real `effect-oneshot.ssc` workload → `OS=962` on
-      both interp and jvm; `var`+`while`+`perform` jvm lowering landed earlier). The `n/a` is a stale artifact:
-      the `bench/corpus/effect-oneshot.ssc` (and `effect-multishot.ssc`) header comments still say "jvm/js/rust
-      n/a (2026-06-12)" though js + jvm one-shot now work. **How:** refresh the corpus comments to current
-      status, and find why the bench's jvm leg returns `None` for effect-oneshot despite the workload compiling
-      (likely a stale `.scjvm` cache or a wrapper-instrumentation mismatch) so the column reflects reality.
+- [x] **bench-stale-jvm-na-hygiene** ✓ DONE 2026-06-21 — the stale JVM `n/a` was not a cache issue; it shared
+      the `jvm-multishot-result-type` root cause. Total CPS wrappers declared as `Long` emitted as `Any`, so
+      the bench sink rejected both `effect-oneshot` and `effect-multishot`. Corpus comments were refreshed.
+      **Verified:** `./bench.sh effect-oneshot --backend jvm` = 0.160 ms; `./bench.sh effect-multishot --backend jvm`
+      = 0.075 ms; `./bench.sh effect-oneshot effect-multishot --backend js` = 0.347 / 0.224 ms.
 
 ### ▶ Improvement queue (2026-06-20, with Sergiy — "занеси все в спринт и делай")
 

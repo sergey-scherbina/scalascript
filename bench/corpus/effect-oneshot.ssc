@@ -4,10 +4,9 @@ A custom one-shot algebraic effect (`effect Bump`) performed in a hot loop; the
 handler resumes exactly once (`resume(1)`). Isolates the per-`perform` dispatch
 cost — the `Perform → handle → resume → continuation` trampoline — which is the
 regime that *could* in principle use a direct-style fast path (see
-`specs/direct-style-eval-spec.md` §10). Cross-backend status (2026-06-12): jvm/js/rust `n/a` because a `perform` inside
-an imperative `var`+`while` loop is not yet lowered (JvmGenCpsTransform binds `var`
-as an immutable lambda param + has no `while` case) — see SPRINT `effect-cps-loops`.
-Non-loop custom effects and built-in runLogger/runStream DO compile cross-backend.
+`specs/direct-style-eval-spec.md` §10). Cross-backend status (2026-06-21):
+jvm and js run this workload; rust remains `n/a` until R.4.2 wires custom
+effect `handle`/`resume` lowering.
 
 Tracks cross-backend effect support: a
 backend that cannot lower custom effects + handlers reports `n/a`.

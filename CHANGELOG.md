@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-21 — fix(jvm): CPS def result types — `effect-multishot` n/a → 0.075 ms
+
+Closed `jvm-multishot-result-type`. JVM CPS codegen no longer widens total handled-effect wrappers to
+`Any`: a user declaration such as `def workload(seed: Long): Long` now emits a `Long` result and casts the
+final CPS value at the def boundary. Effect-row defs (`A ! Eff`) still emit `Any`, preserving the Free-monad
+contract that handlers unwrap.
+
+This fixes the corpus JVM `n/a` for both effect workloads: `effect-multishot` now runs at 0.075 ms/iter and
+`effect-oneshot` at 0.160 ms/iter. Regression guard: `JvmGenEffectsRuntimeTest` compiles and runs
+`addLong(workload(0L))`, proving the CPS wrapper keeps static type `Long`; full targeted suite 34/34.
+
 ## 2026-06-21 — fix(rust): chained Either map/flatMap/fold compiles (E0282) — `either-chain` n/a → 0.0040 ms
 
 The `either-chain` bench workload was `n/a` on the rust backend: `cargo build` failed with

@@ -5,7 +5,9 @@ exploring all branches (`opts.flatMap(opt => resume(opt))`). Isolates the
 multi-shot trampoline — the regime that REQUIRES a re-callable monadic
 continuation and therefore cannot use the direct-style exception model
 (`specs/direct-style-eval-spec.md` §10.1). Tracks cross-backend multi-shot
-support: a backend without multi-shot resume reports `n/a`.
+support: a backend without multi-shot resume reports `n/a`. Cross-backend
+status (2026-06-21): jvm and js run this workload; rust remains `n/a` until
+R.4.2 wires custom effect `handle`/`resume` lowering.
 
 Honest-bench note: a carried 64-bit LCG (`s`) varies each branch's contribution
 so the summed result can't be constant-folded.
