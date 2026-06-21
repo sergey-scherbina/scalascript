@@ -13,6 +13,19 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `done` | reporter confirmed fixed (safe to trim) |
 
 
+## rust-foreach-list-realloc — `open` (2026-06-21)
+
+- **Found by:** benchmark perf-divergence sweep (`./bench.sh`), accepted from `SPRINT.md`.
+- **Symptom:** Rust codegen re-inlines a top-level collection `val` at each use site instead of referencing
+  the `let` binding emitted in each def preamble. In hot loops this rebuilds the whole `vec![...]` every
+  iteration: `pattern-match-heavy` emits `for s in vec![Circle { .. }, Rect { .. }, ..].iter().cloned()`
+  inside `while i < 100000`, leaving the preamble `let shapes = vec![...]` dead. `list-fold` has the same
+  shape for `xs`.
+- **Repro:** inspect generated Rust for `pattern-match-heavy` / `list-fold` with the real Rust emitter, then
+  run `./bench.sh pattern-match-heavy list-fold --backend rust`.
+- **Status:** open; fix should make emitted loops iterate the bound local (`shapes.iter()` / `xs.iter()`)
+  rather than a fresh literal.
+
 ## effect-op-trailing-comment — `fixed` (2026-06-20)
 
 - **Found by:** busi (building the v2 KSeF inbound port `effect Ksef`).
