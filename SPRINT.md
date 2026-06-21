@@ -67,6 +67,41 @@ SSE, computed-read compile+SSR all DONE). Remaining, priority order:
       `backendRust` 226/0. **rust-web S5 now FULLY COMPLETE** (set/toggle, SSE, computed compile+SSR + live
       recompute, typed reads, direct-WS — all built + cargo/curl/WS-verified).
 
+### ▶ Benchmark backend-gap queue (2026-06-21, with Sergiy — "Запиши в спринт все n/a")
+
+Every `n/a` from a full `./bench.sh` sweep (31 workloads × ssc/ssc-asm/jvm/js/rust), each VERIFIED by hand
+against the current toolchain (the corpus comments were stale). The bench measures time only (no correctness
+check — that's `CrossBackendPropertyTest`, green); `n/a` = that backend's emit/build/run failed.
+
+- [ ] **rust-effects-handle-resume** (R.4.2) — `effect-oneshot` + `effect-multishot` are `n/a` on **rust**:
+      `emit-rust` fails with `unsupported pattern: Pat.Extract` on the handler case (`Bump.tick(resume)` and
+      `NonDet.choose(opts, resume)`). The rust backend does not lower custom-effect `handle`/`resume` IR at all
+      (consistent with the R.4.2 gap — `effect.rs` is runtime-infra only, `RustCodeWalk` has no handle/resume
+      case). **How:** add a `Pat.Extract` handler-case lowering + `resume` continuation in `RustCodeWalk`;
+      start with one-shot (`resume(x)` once), then multi-shot (`resume` in a `flatMap`). **Verify:**
+      `./bench.sh effect-oneshot effect-multishot --backend rust` no longer `n/a`; add a `backendRust` effect test.
+- [ ] **jvm-multishot-result-type** — `effect-multishot` is `n/a` on **jvm** (one-shot is fine — see stale
+      note below). The multi-shot `handle(program()) { case NonDet.choose(opts, resume) => opts.flatMap(resume) }`
+      result is emitted with type `Any`, so a downstream collection op fails to compile:
+      `[E008] value foldLeft is not a member of Any` (`all.foldLeft(0L)(...)`). **How:** in `JvmGen`/CPS
+      transform, type the multi-shot handle result as the resume-collection type (`List[Int]`) instead of `Any`
+      (or insert a cast). **Verify:** the wrapped `effect-multishot.ssc` workload runs on jvm; `./bench.sh
+      effect-multishot --backend jvm` no longer `n/a`.
+- [ ] **rust-either-chain-closure-type** (E0282) — `either-chain` is `n/a` on **rust**: `cargo build` fails
+      `error[E0282]: type annotations needed` on a closure the chained-`Either` match emits —
+      `move |x| { black_box(parse(x.clone())) }` — rustc can't infer `x`'s type through the nested
+      `match match match … { Either::Left(v) => …, Either::Right(v) => (move |x| …)(v) }`. **How:** in
+      `RustCodeWalk`, annotate the closure parameter type for an `Either`/`Option` map-step closure (the type
+      is known from the prism arm), or bind the intermediate to a typed `let`. **Verify:** `./bench.sh
+      either-chain --backend rust` builds + runs; add a `backendRust` either-chain codegen test.
+- [ ] **bench-stale-jvm-na-hygiene** (bookkeeping) — `effect-oneshot` shows `n/a` for **jvm** in the bench,
+      but the jvm backend RUNS it correctly now (verified: the real `effect-oneshot.ssc` workload → `OS=962` on
+      both interp and jvm; `var`+`while`+`perform` jvm lowering landed earlier). The `n/a` is a stale artifact:
+      the `bench/corpus/effect-oneshot.ssc` (and `effect-multishot.ssc`) header comments still say "jvm/js/rust
+      n/a (2026-06-12)" though js + jvm one-shot now work. **How:** refresh the corpus comments to current
+      status, and find why the bench's jvm leg returns `None` for effect-oneshot despite the workload compiling
+      (likely a stale `.scjvm` cache or a wrapper-instrumentation mismatch) so the column reflects reality.
+
 ### ▶ Improvement queue (2026-06-20, with Sergiy — "занеси все в спринт и делай")
 
 Fresh do-soon queue after rust-web S5 closed. Work top-to-bottom, one claim/worktree per slice. Maven Central
