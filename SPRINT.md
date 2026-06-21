@@ -140,11 +140,12 @@ publication remains explicit-go only; the registry work below is intentionally d
       `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/wasm-main-edge && sbt "backendWasm/testOnly scalascript.codegen.WasmBackendTest"`
       → 40/40 green. Gotcha recorded in `specs/wasm-main-edge.md`: Scala.js ES-module launcher argument
       delivery is out of scope; a direct Node probe supplies empty `String*` args.
-- [ ] **stable-plugin-spi-p3** — finish the remaining Phase 3 cleanup around stable plugin/SPI boundaries.
-      **How:** read `specs/arch-stable-spi.md`; inventory direct `scalascript.interpreter.*` imports in
-      `runtime/std/*/*Intrinsics.scala`; migrate one low-risk plugin or add a boundary/classpath regression
-      that locks the intended rule. Keep this as small shippable slices, not a broad refactor. **Verify:**
-      affected plugin tests plus the smallest relevant backend/interpreter suite.
+- [x] **stable-plugin-spi-p3** ✓ DONE 2026-06-21 — completed one small Phase 3 SPI cleanup slice:
+      `bench-plugin` now implements `Bench.opaque` through `PluginNative.eval` / `PluginValue` instead of
+      importing `scalascript.interpreter.Value` directly. Added `BenchIntrinsicsTest` to lock identity
+      behavior (including empty args -> `Unit`) and to scan `bench-plugin/src/main` for direct interpreter
+      imports so this slice does not regress. **Verified:** `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/stable-plugin-spi-p3 && sbt -no-colors "benchPlugin/test; pluginApi/test; benchPlugin/checkPluginBoundary"`
+      → `BenchIntrinsicsTest` 2/2 green, `PluginApiTest` 14/14 green, `benchPlugin/checkPluginBoundary` green.
 - [x] **js-char-wrapper-string-map** ✓ DONE 2026-06-21 — added a JS `_Char` box (`JsRuntimePart2a`):
       `valueOf`→code point, `toString`→1-char string (so concat/arith/`_show` coerce). Iterated chars
       (`map`/`filter`/`foreach`/`flatMap`/`charAt`/`head`/`last`/`toList`/`forall`/`exists`/`count`) box;

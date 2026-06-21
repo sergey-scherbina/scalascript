@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-21 — refactor(bench): migrate `Bench.opaque` to stable plugin API
+
+Closed `stable-plugin-spi-p3` as a small Phase 3 slice. `bench-plugin` no longer imports
+`scalascript.interpreter.Value` from main sources; `Bench.opaque` now uses `PluginNative.eval` and
+returns the selected `PluginValue` unchanged, with the empty-arg case mapped to `Unit`.
+
+Regression guard: `BenchIntrinsicsTest` checks identity behavior and source-scans `bench-plugin/src/main`
+for direct interpreter imports. Verified with `sbt -no-colors "benchPlugin/test; pluginApi/test; benchPlugin/checkPluginBoundary"`
+from the `feature/stable-plugin-spi-p3` worktree: bench plugin 2/2, plugin API 14/14, boundary task green.
+
 ## 2026-06-21 — fix(jvm): CPS def result types — `effect-multishot` n/a → 0.075 ms
 
 Closed `jvm-multishot-result-type`. JVM CPS codegen no longer widens total handled-effect wrappers to
