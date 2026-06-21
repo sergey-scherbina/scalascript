@@ -1,0 +1,6 @@
+feature/asm-jit-effect-pathology 2026-06-21T16:11:35Z
+agent: codex
+heartbeat: 2026-06-21T16:11:35Z
+status: not-started
+done-so-far:
+next: reproduce effect-oneshot asm regression through bench.sh/bin/ssc and inspect JIT bail-out paths
