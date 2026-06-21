@@ -4,6 +4,27 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-21 — fix(js): real Char type — `String.map(nonChar)` returns a Seq (interp-js-string-map-nonchar)
+
+Closed the last open cross-backend character bug. The JS backend had no distinct `Char` type — chars were
+JS strings/numbers — so `"abc".map(_.toInt)` rebuilt a String instead of `Seq(97,98,99)`, and `c.toInt`
+inside a map was `parseInt` (NaN), not the code point. The interpreter already modelled this with `CharV`.
+
+Added a JS `_Char` box (`JsRuntimePart2a`): `valueOf` returns the code point and `toString` the 1-char
+string, so concatenation, arithmetic, and `_show` coerce naturally. A char produced by iterating a String
+(`map`/`filter`/`foreach`/`flatMap`/`charAt`/`head`/`last`/`toList`/`forall`/`exists`/`count`) is now boxed,
+and `String.map` returns a String only when *every* mapped element is a `_Char` — otherwise a `Seq` —
+mirroring the interpreter's `strMapResult`. `_dispatch` gained a `_Char` branch mirroring `dispatchChar`
+(`toInt`/`toLong`→code point, `isDigit`/`isLetter`/`isUpper`/`toUpper`/`toLower`/`asDigit`/…), and `_eq`
+bridges `_Char` to a 1-char String literal and to an Int (the interp allows `CharV == IntV`), so `c == 'a'`
+and char predicates keep working even though char *literals* stay JS strings.
+
+Verified: `CrossBackendPropertyTest` "String.map char vs non-char" now asserts **interp == JS == JVM**
+(`"abc".map(_.toInt).sum` = 294, plus a char-method map/filter case); 280 JS unit tests green (23 suites);
+a direct node probe matches the interpreter byte-for-byte. Residual (documented in `BUGS.md`): a char
+*literal*'s `.toInt` (`'5'.toInt`) still diverges — literals stay JS strings to avoid touching the
+literal-pattern `===` codegen; a separate, lower-value follow-up.
+
 ## 2026-06-21 — feat(rust-web): runnable web-signals example + 2 bug fixes it surfaced
 
 Added `examples/rust/web-signals.ssc` — the first committed, **cargo-verified** reactive `serve(view, port)`

@@ -84,12 +84,17 @@ publication remains explicit-go only; the registry work below is intentionally d
       `runtime/std/*/*Intrinsics.scala`; migrate one low-risk plugin or add a boundary/classpath regression
       that locks the intended rule. Keep this as small shippable slices, not a broad refactor. **Verify:**
       affected plugin tests plus the smallest relevant backend/interpreter suite.
-- [ ] **js-char-wrapper-string-map** — fix the open JS cross-backend character semantics bug:
-      `"abc".map(_.toInt)` must return `Seq[Int]` while char-to-char mapping may still optimize back to a
-      `String`. **How:** use the `bugs` skill before starting; update `BUGS.md`; reproduce through the real
-      cross-backend harness; add/adjust `CrossBackendPropertyTest` coverage; implement a JS `Char` wrapper or
-      equivalent representation that preserves `Char` methods without coercing all mapped results to strings.
-      **Verify:** targeted cross-backend property test and a minimal JS/backend run.
+- [x] **js-char-wrapper-string-map** ✓ DONE 2026-06-21 — added a JS `_Char` box (`JsRuntimePart2a`):
+      `valueOf`→code point, `toString`→1-char string (so concat/arith/`_show` coerce). Iterated chars
+      (`map`/`filter`/`foreach`/`flatMap`/`charAt`/`head`/`last`/`toList`/`forall`/`exists`/`count`) box;
+      `String.map` returns a String only when every result is a `_Char`, else a Seq (mirrors `strMapResult`).
+      `_dispatch` got a `_Char` branch mirroring the interp `dispatchChar` (`toInt`→code, `isDigit`/`toUpper`/
+      `asDigit`/…); `_eq` bridges `_Char` ↔ 1-char String literal and ↔ Int. `CrossBackendPropertyTest`
+      "String.map char vs non-char" now asserts interp == JS == JVM (+ a char-method map/filter case).
+      **Verified:** 280 JS unit tests green (23 suites, 0 fail); String.map + string-method-gaps cross-backend
+      green on all 3 backends; direct node probe matches interp byte-for-byte. Residual (BUGS.md): a char
+      *literal*'s `.toInt` (`'5'.toInt`) still diverges (literals stay strings to avoid literal-pattern
+      `===` codegen) — separate, lower-value follow-up.
 - [x] **rust-web-example** ✓ DONE 2026-06-21 (a55e101f2) — added `examples/rust/web-signals.ssc`
       (signal + computedSignal + signalText + serve), emit-rust + `cargo build` green, binary serves SSR and
       `/__ssc/push?name=locale&value=de` recomputes the computed signal (`{"__c0":"fr"}` → `{"__c0":"de"}`).

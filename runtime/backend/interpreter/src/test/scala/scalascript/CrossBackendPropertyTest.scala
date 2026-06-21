@@ -443,21 +443,26 @@ class CrossBackendPropertyTest extends AnyFunSuite:
       assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
       assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
 
-  // `String.map(f)` is a `String` only when `f` yields a `Char`; otherwise a `Seq[B]`. interp now
-  // matches JVM for the non-Char case (`"abc".map(_.toInt)` → `List(97,98,99)`, sum 294). JS can't
-  // agree here — it has no distinct Char type (chars are char-code numbers), so `_.toInt` vs `_.toUpper`
-  // are indistinguishable at runtime; the non-Char map is asserted interp == JVM only.
-  // (interp-js-string-map-nonchar — interp fixed, JS needs a Char type.)
+  // `String.map(f)` is a `String` only when `f` yields a `Char`; otherwise a `Seq[B]`. All three
+  // backends now agree for the non-Char case (`"abc".map(_.toInt)` → `List(97,98,99)`, sum 294):
+  // JS boxes an iterated char as a `_Char` (interp-js-string-map-nonchar — JS Char type added), so
+  // `_.toInt` (→ code point) is distinguishable from `_.toUpper` (→ Char), mirroring the interp.
   test("String.map char vs non-char cross-backend"):
     assume(has("node") && has("scala-cli"), "node/scala-cli not available")
     // char-to-char map stays a String on ALL three backends (regression guard).
     val cc  = module("println(\"abc\".map(c => c).length + \"abc\".reverse.length)\n")
     val ce  = interp(cc)
     assert(runJs(cc) == ce && runJvm(cc) == ce, s"char-map diverged: interp=$ce js=${runJs(cc)} jvm=${runJvm(cc)}")
-    // non-Char map → Seq: interp now matches JVM (294).
+    // non-Char map → Seq: interp, JS, and JVM now all agree (List(97,98,99), sum 294).
     val nc  = module("println(\"abc\".map(c => c.toInt).sum)\n")
     val nci = interp(nc)
-    assert(nci == runJvm(nc), s"non-char String.map interp != jvm: interp=$nci jvm=${runJvm(nc)}")
+    assert(nci == runJvm(nc) && nci == runJs(nc),
+      s"non-char String.map diverged: interp=$nci js=${runJs(nc)} jvm=${runJvm(nc)}")
+    // Char methods on an iterated char (isDigit/toInt/isLetter) agree on all three backends.
+    val cm  = module("println(\"a1B\".map(c => if (c.isDigit) c.toInt else 0).sum + \"|\" + \"a1B\".filter(c => c.isLetter))\n")
+    val cme = interp(cm)
+    assert(cme == runJvm(cm) && cme == runJs(cm),
+      s"char-method map/filter diverged: interp=$cme js=${runJs(cm)} jvm=${runJvm(cm)}")
 
   // Collection constructors beyond List/Map/Set. The interpreter backs every sequence type with a
   // single `ListV` (and JS with arrays), but `Seq(...)` / `Vector(...)` / `Array(...)` / `IndexedSeq(...)`

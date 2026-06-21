@@ -319,6 +319,30 @@ function _dispatch(obj, method, args) {
       case 'filterOrElse': return obj;
     }
   }
+  // A boxed Char (produced by iterating a String) — mirrors the interpreter's
+  // dispatchChar so `c.toInt` is the code point, not parseInt. (interp-js-string-map-nonchar.)
+  if (obj instanceof _Char) {
+    const _c = obj.__c, _s = String.fromCharCode(_c);
+    switch(method) {
+      case 'toInt': case 'toLong': case 'toShort': case 'toByte': return _c;
+      case 'toDouble': case 'toFloat': return _c;
+      case 'toChar': return obj;
+      case 'toString': case 'mkString': return _s;
+      case 'isDigit': return _c >= 48 && _c <= 57;
+      case 'isLetter': return /\p{L}/u.test(_s);
+      case 'isLetterOrDigit': return /[\p{L}\p{Nd}]/u.test(_s);
+      case 'isUpper': return /\p{Lu}/u.test(_s);
+      case 'isLower': return /\p{Ll}/u.test(_s);
+      case 'isWhitespace': return /\s/u.test(_s);
+      case 'isSpaceChar': return _s === ' ';
+      case 'asDigit': { const d = parseInt(_s, 36); return Number.isNaN(d) ? -1 : d; }
+      case 'toUpper': case 'toUpperCase': return _char(_s.toUpperCase().charCodeAt(0));
+      case 'toLower': case 'toLowerCase': return _char(_s.toLowerCase().charCodeAt(0));
+      case 'compare': case 'compareTo': { const o = args[0] instanceof _Char ? args[0].__c : args[0]; return _c < o ? -1 : _c > o ? 1 : 0; }
+      case 'equals': return _eq(obj, args[0]);
+      case 'hashCode': return _c;
+    }
+  }
   if (typeof obj === 'string') {
     switch(method) {
       case 'length': case 'size': return obj.length;
@@ -332,24 +356,35 @@ function _dispatch(obj, method, args) {
       case 'contains': return obj.includes(args[0]);
       case 'indexOf': { const a = typeof args[0] === 'number' ? String.fromCharCode(args[0]) : args[0]; return obj.indexOf(a, args[1]); }
       case 'lastIndexOf': { const a = typeof args[0] === 'number' ? String.fromCharCode(args[0]) : args[0]; return obj.lastIndexOf(a, args[1]); }
-      case 'forall': { for (const c of obj) { if (!args[0](c)) return false; } return true; }
-      case 'exists': { for (const c of obj) { if (args[0](c)) return true; } return false; }
+      // String char iteration boxes each UTF-16 unit as a `_Char` (so a predicate's
+      // `c.isDigit`/`c.toInt` works). (interp-js-string-map-nonchar.)
+      case 'forall': { for (let i=0;i<obj.length;i++) { if (!args[0](_char(obj.charCodeAt(i)))) return false; } return true; }
+      case 'exists': { for (let i=0;i<obj.length;i++) { if (args[0](_char(obj.charCodeAt(i)))) return true; } return false; }
+      case 'foreach': { for (let i=0;i<obj.length;i++) args[0](_char(obj.charCodeAt(i))); return undefined; }
+      case 'count': { let n=0; for (let i=0;i<obj.length;i++) if (args[0](_char(obj.charCodeAt(i)))) n++; return n; }
       case 'toInt': return parseInt(obj);
       case 'toDouble': return parseFloat(obj);
-      case 'toList': return [...obj];
-      case 'charAt': return obj[args[0]];
+      case 'toList': case 'toSeq': case 'toVector': case 'toIndexedSeq': case 'toArray': { const r=[]; for (let i=0;i<obj.length;i++) r.push(_char(obj.charCodeAt(i))); return r; }
+      case 'head': return _char(obj.charCodeAt(0));
+      case 'last': return _char(obj.charCodeAt(obj.length - 1));
+      case 'charAt': case 'apply': return _char(obj.charCodeAt(args[0]));
       case 'codePointAt': return obj.codePointAt(args[0]);
       case 'substring': return obj.substring(args[0], args[1]);
       case 'take': return obj.slice(0, args[0]);
       case 'drop': return obj.slice(args[0]);
-      // padTo(len, ch) — a Char arg arrives as a char-code number. (jsgen-string-padto.)
+      // padTo(len, ch) — a Char arg arrives as a char-code number or a boxed _Char.
+      // (jsgen-string-padto.)
       case 'padTo': { const ch = typeof args[1] === 'number' ? String.fromCharCode(args[1]) : args[1]; let s = obj; while (s.length < args[0]) s += ch; return s; }
       case 'mkString': return obj;
       case 'reverse': return [...obj].reverse().join('');
       case 'isEmpty': return obj.length === 0;
       case 'nonEmpty': return obj.length > 0;
       case 'toString': return obj;
-      case 'map': return [...obj].map(args[0]).join('');
+      case 'filter': case 'filterNot': { const neg = method === 'filterNot'; let s=''; for (let i=0;i<obj.length;i++){ const ch=obj.charCodeAt(i); if (args[0](_char(ch)) !== neg) s += String.fromCharCode(ch); } return s; }
+      case 'flatMap': { let s=''; for (let i=0;i<obj.length;i++){ const r = args[0](_char(obj.charCodeAt(i))); s += (typeof r === 'string' ? r : _show(r)); } return s; }
+      // String.map yields a String only when every mapped element is a Char; otherwise
+      // a Seq (e.g. `"abc".map(_.toInt)` → [97,98,99]). Mirrors DispatchRuntime.strMapResult.
+      case 'map': { const r=[]; for (let i=0;i<obj.length;i++) r.push(args[0](_char(obj.charCodeAt(i)))); return r.every(_isChar) ? r.map(x => String.fromCharCode(x.__c)).join('') : r; }
     }
   }
   if (typeof obj === 'number') {

@@ -2,6 +2,23 @@ package scalascript.codegen
 
 /** JS runtime preamble (part 2a) — see `JsRuntimePart1a`. */
 val JsRuntimePart2a: String = """
+// ── Char (interp-js-string-map-nonchar) ─────────────────────────────────────
+// JS has no distinct Char type, so a char produced by iterating a String
+// (`s.map`/`charAt`/`head`/…) is boxed as a `_Char(code)`. `valueOf` returns the
+// code point (so `c + 1`, `c < 'z'`, numeric coercion behave like Scala's Int
+// promotion) and `toString` returns the 1-char string (so `"x" + c`, `_show(c)`,
+// and passing `c` to a native String method via toString-coercion all work).
+// Prototype methods are non-enumerable, so `_eq`'s generic object path compares
+// two `_Char`s by their only own key, `__c`. The distinction lets `String.map`
+// tell a Char result (→ String) from a non-Char result (→ Seq).
+class _Char {
+  constructor(code) { this.__c = code; }
+  toString() { return String.fromCharCode(this.__c); }
+  valueOf()  { return this.__c; }
+}
+function _char(code) { return new _Char(code); }
+function _isChar(x)  { return x instanceof _Char; }
+
 // ── Exact numerics (v1.64): BigInt is native; Decimal is BigInt-backed ──────
 // A Decimal is { _type:'_Decimal', u: bigint, s: int } with value = u * 10^-s.
 const RoundingMode = { UP:'UP', DOWN:'DOWN', CEILING:'CEILING', FLOOR:'FLOOR',
@@ -111,6 +128,17 @@ function _toDec(v) {
 // (jsgen-structural-equality.)
 function _eq(a, b) {
   if (a === b) return true;
+  // A boxed `_Char` equals another `_Char` with the same code, an Int with the
+  // same code point (the interp allows `CharV == IntV`), or a 1-char String
+  // literal (char literals stay JS strings). (interp-js-string-map-nonchar.)
+  const _aC = a instanceof _Char, _bC = b instanceof _Char;
+  if (_aC || _bC) {
+    const cp = x => x instanceof _Char ? x.__c
+      : (typeof x === 'number' ? x
+        : (typeof x === 'string' && [...x].length === 1 ? x.codePointAt(0) : null));
+    const av = cp(a), bv = cp(b);
+    return av !== null && bv !== null && av === bv;
+  }
   if (a == null || b == null) return false;
   if (typeof a !== 'object' || typeof b !== 'object') return a === b;
   const aArr = Array.isArray(a), bArr = Array.isArray(b);
@@ -172,6 +200,7 @@ function _show(v) {
   if (typeof v === 'bigint') return v.toString();
   if (v && v._type === '_Decimal') return _decShow(v);
   if (typeof v === 'string') return v;
+  if (v instanceof _Char) return v.toString();
   // A lazy list renders `LazyList(<not computed>)` until forced — matches interp/JVM toString.
   if (v && v._lazy) return 'LazyList(<not computed>)';
   if (Array.isArray(v)) {
