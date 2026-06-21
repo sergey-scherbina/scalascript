@@ -1,6 +1,6 @@
 feature/jvm-multishot-result-type 2026-06-21T16:32:27Z
 agent: codex
-heartbeat: 2026-06-21T16:32:27Z
-status: not-started
-done-so-far:
-next: create worktree, reproduce JVM effect-multishot n/a, then inspect JvmGen/CPS handle-result typing
+heartbeat: 2026-06-21T16:33:09Z
+status: in-progress
+done-so-far: claim pushed; worktree created at .worktrees/feature/jvm-multishot-result-type
+next: reproduce JVM effect-multishot n/a in the real bench harness, then inspect JvmGen/CPS handle-result typing
