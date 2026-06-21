@@ -1,6 +1,6 @@
 feature/stable-plugin-spi-p3 2026-06-21T16:50:18Z
 agent: codex
-heartbeat: 2026-06-21T16:50:18Z
-status: not-started
-done-so-far:
-next: read specs/arch-stable-spi.md and inventory runtime/std intrinsic imports
+heartbeat: 2026-06-21T16:50:47Z
+status: in-progress
+done-so-far: claim pushed; worktree created at .worktrees/feature/stable-plugin-spi-p3
+next: read specs/arch-stable-spi.md, inventory runtime/std intrinsic imports, then choose a narrow boundary cleanup/test
