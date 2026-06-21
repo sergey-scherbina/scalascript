@@ -184,10 +184,29 @@ class JsGenStreamsTest extends AnyFunSuite:
     assert(rt.contains("_isTuple"),
       s"_tupleConcat must set _isTuple on result")
 
-  test("tuple ++ lowers to _tupleConcat call"):
+  test("tuple-literal ++ tuple-literal flattens to a single array (no _tupleConcat)"):
+    // A concat of two tuple LITERALS flattens into one `_isTuple` array literal instead
+    // of `_tupleConcat(Object.assign(..), Object.assign(..))` (3 allocations → 1). The
+    // value is identical; the single allocation matters in a hot loop (tuple-monoid).
     val out = js("val r = (1, 2) ++ (3, 4)")
+    assert(out.contains("Object.assign([1, 2, 3, 4], {_isTuple: true})"),
+      s"expected a single flattened tuple array: ${out.take(500)}")
+
+  test("tuple-var ++ tuple still uses _tupleConcat (shape not a literal)"):
+    // When a side is a variable (shape not statically a tuple literal) the runtime
+    // `_tupleConcat` is still used — only literal-literal concat is flattened.
+    val out = js("val a = (1, 2)\nval r = a ++ (3, 4)")
     assert(out.contains("_tupleConcat"),
-      s"expected _tupleConcat call in JS output: ${out.take(500)}")
+      s"expected _tupleConcat for a variable operand: ${out.take(500)}")
+
+  test("._N on a known tuple lowers to a direct index, not _dispatch"):
+    // `t._1`/`t._4` on a tuple var → `t[0]`/`t[3]` (a single array read) instead of the
+    // megamorphic `_dispatch(t, '_N', [])`. A case class's Product `._N` is unaffected.
+    val out = js("val t = (10, 20) ++ (30, 40)\nval x = t._1 + t._4")
+    assert(out.contains("t[0]") && out.contains("t[3]"),
+      s"expected direct tuple indexing t[0]/t[3]: ${out.take(500)}")
+    assert(!out.contains("_dispatch(t, '_1'"),
+      s"._N on a tuple should not go through _dispatch: ${out.take(500)}")
 
   test("list ++ also uses _tupleConcat (runtime polymorphism)"):
     val out = js("val r = List(1, 2) ++ List(3, 4)")

@@ -1,6 +1,0 @@
-feature/js-tuple-alloc 2026-06-21T15:59:49Z
-agent: claude (fast-otter)
-heartbeat: 2026-06-21T15:59:49Z
-status: in-progress
-done-so-far: claiming; investigating JsGen tuple ._N access + int arith codegen
-next: emit t[N-1] for static tuple index, native + for known ints, cheaper tuple tag

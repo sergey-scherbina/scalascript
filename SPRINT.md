@@ -79,14 +79,16 @@ generated code / toggle the JIT). Verdict per case: **codegen**, **jit**, or **b
       the asm path apparently does not). **Fix:** make the asm JIT bail on an effectful loop body like the
       default backend does, or fix the asm lowering of the effect trampoline. **Verify:**
       `SSC_JIT_BACKEND=asm bin/ssc run` on an effect-in-loop is no worse than default.
-- [ ] **js-tuple-monoid-alloc** (CODEGEN) — `js` `tuple-monoid` is the **slowest cell in the whole table
-      (7.40 ms, 87× jvm)**. The emitted hot loop allocates + dispatches heavily PER ITERATION (×100 000):
-      `_tupleConcat(Object.assign([(s%4)|0,2],{_isTuple:true}), Object.assign([3,4],{_isTuple:true}))` (3 array
-      allocs + 2 `Object.assign`) then `acc = _arith('+', _arith('+', acc, _dispatch(t,'_1',[])), _dispatch(t,'_4',[]))`
-      — tuple element reads go through runtime `_dispatch` and integer `+` through `_arith`. **Fix (JsGen):**
-      emit a direct `t[0]`/`t[3]` for a static tuple-index `._N` access, native `+` for known-Int operands, and
-      a cheaper tuple tag than `Object.assign(...,{_isTuple:true})`. **Verify:** the loop has no per-iter
-      `_dispatch`/`_arith`/`Object.assign`; `./bench.sh tuple-monoid --backend js` drops.
+- [x] **js-tuple-monoid-alloc** (CODEGEN) ✓ DONE 2026-06-21 — **`js` `tuple-monoid` 7.40 → 2.60 ms (2.85×)**,
+      no longer the slowest cell. Two general JsGen fixes: (1) `t._N` on a statically-known tuple lowers to a
+      direct `t[N-1]` array read (new `tupleVars` tracking + `isTupleExpr`), skipping the megamorphic
+      `_dispatch(t,'_N',[])`; case classes never match `isTupleExpr` so their Product `._N` is untouched.
+      (2) a tuple-LITERAL concat `(a,b) ++ (c,d)` flattens into ONE `Object.assign([a,b,c,d],{_isTuple:true})`
+      instead of `_tupleConcat(Object.assign(..),Object.assign(..))` (3 allocs → 1); a variable operand still
+      uses `_tupleConcat`. **Verified:** 281 JS unit tests green; interp == js on tuple flatten/`._N`/show/eq.
+      NOT done (left): native `+` for the `_arith('+')` on tuple-element reads (needs tuple-element type
+      tracking) — lower value. The `s` LCG interp/js delta in this workload is the separate 64-bit-Long-on-JS
+      precision limitation, not a tuple bug.
 - NOTE (no task — **bench**, intentional): rust `arith-loop` **1.52 ms (4.7× jvm)** is largely the harness's
       anti-fold — `run.sc` wraps every rust closure body + per-iter reassignment in `std::hint::black_box(...)`,
       blocking LLVM loop optimization (the comment at `run.sc:176` even tunes this so rust "stops looking 3–4×

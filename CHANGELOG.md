@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-21 — perf(js): direct tuple indexing + single-alloc tuple concat — `tuple-monoid` 7.40 → 2.60 ms
+
+The `js` `tuple-monoid` benchmark was the slowest cell in the whole `./bench.sh` table. Two general JsGen
+codegen fixes (root-caused by reading the emitted hot loop):
+
+1. **`t._N` → `t[N-1]`.** Tuple element access went through the megamorphic `_dispatch(t, '_N', [])` (a
+   function call + type switch per read). New `tupleVars` tracking + an `isTupleExpr` predicate let JsGen
+   emit a direct array index when the receiver is statically a tuple (literal, tuple `++` concat, or a val
+   bound to one). A case class is an object, never matches `isTupleExpr`, so its Product `._N` is untouched.
+2. **Single-allocation tuple concat.** A tuple-LITERAL concat `(a, b) ++ (c, d)` flattened to
+   `_tupleConcat(Object.assign([a,b],{_isTuple:true}), Object.assign([c,d],{_isTuple:true}))` — 3 array
+   allocations per evaluation. It now emits one `Object.assign([a, b, c, d], {_isTuple: true})` (identical
+   value). A variable operand keeps the runtime `_tupleConcat` (shape not statically known).
+
+Result: **7.40 → 2.60 ms (2.85×)** on the bench, and both fixes help any tuple-heavy code, not just the
+benchmark. Verified: 281 JS unit tests green; interp == js on tuple flatten / `._N` / `show` / equality.
+(The `s`-LCG interp/js value delta in this workload is the separate 64-bit-Long-on-float64 precision
+limitation, not a tuple bug.)
+
 ## 2026-06-21 — fix(rust): reuse top-level collection vals in hot loops
 
 Closed `rust-foreach-list-realloc`. Rust codegen now references top-level collection vals through the

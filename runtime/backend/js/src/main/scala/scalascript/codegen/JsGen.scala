@@ -487,6 +487,12 @@ class JsGen(
   // Lets `v.field` lower to a direct property read `v.field` (and `isIntExpr` see
   // an Int field) instead of the megamorphic `_dispatch(v, 'field', [])` call.
   private val instanceVars = scala.collection.mutable.Map[String, String]()
+  // Variables statically known to hold a TUPLE (a JS array). Lets `t._N` lower to a
+  // direct `t[N-1]` array read instead of the megamorphic `_dispatch(t, '_N', [])`,
+  // which mattered a lot in a hot loop (tuple-monoid bench). Only set when the RHS is
+  // provably a tuple (literal, tuple `++` concat, or another tuple var) — never a
+  // case class, whose `._N` Product accessor stays on the runtime dispatch.
+  private val tupleVars = scala.collection.mutable.Set[String]()
   // Variables holding a numeric-element collection (varName → "Int"/"Long"/"Double"/"Float").
   // Lets a HOF closure param over them be typed numeric, so `xs.map(x => x * 2)`
   // emits native `(x * 2)` instead of `_arith('*', x, 2)` + a string-repeat guard.
@@ -2191,6 +2197,7 @@ class JsGen(
         case List(Pat.Var(n)) =>
           if isIntExpr(rhs) then intVars += n.value
           else if isNumericExpr(rhs) then numericVars += n.value
+          else if isTupleExpr(rhs) then tupleVars += n.value
           declT.flatMap(numericListElem).orElse(numericSeqCtorElem(rhs))
             .foreach(e => listElemType(n.value) = e)
           line(s"const ${n.value} = ${genExpr(rhs)};")
@@ -3231,6 +3238,7 @@ class JsGen(
     case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
       if isIntExpr(rhs) then intVars += n.value
       else if isNumericExpr(rhs) then numericVars += n.value
+      else if isTupleExpr(rhs) then tupleVars += n.value
       s"const ${n.value} = ${genExpr(rhs)};"
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
       if isIntExpr(rhs) then intVars += n.value
@@ -3689,6 +3697,12 @@ class JsGen(
         case "toLong" if isIntExpr(qual)               => s"($qualJs)"
         case "toLong" if isNumericExpr(qual)           => s"Math.trunc($qualJs)"
         case "toDouble" if isNumericExpr(qual)         => s"($qualJs)"
+        // `t._N` on a statically-known tuple → a direct `t[N-1]` array read, skipping the
+        // megamorphic `_dispatch(t, '_N', [])` (a function call + type switch per access).
+        // This was a hot-loop cost in tuple-monoid. Case classes never match `isTupleExpr`,
+        // so their Product `._N` falls through to the runtime dispatch below.
+        case "_1" | "_2" | "_3" | "_4" if isTupleExpr(qual) =>
+          s"$qualJs[${name.value.drop(1).toInt - 1}]"
         // Built-in collection/string methods that need runtime dispatch (computed properties)
         case "head" | "tail" | "last" | "init" | "reverse" | "distinct" | "sorted" |
              "toList" | "toSet" | "sum" | "min" | "max" | "flatten" | "isEmpty" |
@@ -4261,12 +4275,25 @@ class JsGen(
           case ":+" => s"[...($lhsJs), ${genExpr(args.head)}]"
           case "+:" => s"[${genExpr(lhs)}, ...(${genExpr(args.head)})]"
           case "++" | ":::" =>
-            // Scalameta parses `a ++ (b, c)` as two infix args [b, c], not one Tuple(b,c).
-            // Wrap multiple args as a JS tuple so _tupleConcat sees the full RHS.
-            val rhsArgJs = args match
-              case List(single) => genExpr(single)
-              case multi        => s"Object.assign([${multi.map(a => genExpr(a.asInstanceOf[Term])).mkString(", ")}], {_isTuple: true})"
-            s"_tupleConcat($lhsJs, $rhsArgJs)"
+            // A tuple-LITERAL concat (`(a, b) ++ (c, d)`) flattens into ONE array literal
+            // instead of `_tupleConcat(Object.assign(..), Object.assign(..))` (3 allocations).
+            // Semantically identical (the result is the same flat `_isTuple` array), but the
+            // single allocation matters in a hot loop (tuple-monoid bench). Element exprs may
+            // be variable — only the tuple SHAPE on both sides needs to be statically known.
+            // Scalameta parses `a ++ (b, c)` as multiple infix args [b, c], not one Tuple.
+            val rhsTupleElems: Option[List[Term]] = args match
+              case List(t: Term.Tuple)      => Some(t.args)
+              case multi if multi.sizeIs > 1 => Some(multi)
+              case _                         => None
+            (lhs, rhsTupleElems) match
+              case (lt: Term.Tuple, Some(relems)) =>
+                val all = (lt.args ++ relems).map(genExpr).mkString(", ")
+                s"Object.assign([$all], {_isTuple: true})"
+              case _ =>
+                val rhsArgJs = args match
+                  case List(single) => genExpr(single)
+                  case multi        => s"Object.assign([${multi.map(a => genExpr(a.asInstanceOf[Term])).mkString(", ")}], {_isTuple: true})"
+                s"_tupleConcat($lhsJs, $rhsArgJs)"
           // HTML DSL: `attr.cls := "hero"` builds an Attr object.
           case ":=" => s"_attr($lhsJs, $rhsJs)"
           // v1.6 actors: `pid ! msg` enqueues into the receiver's mailbox.
@@ -4760,6 +4787,21 @@ class JsGen(
   private def withParamRenames[A](renames: Map[String, String])(f: => A): A =
     paramRenames ++= renames
     try f finally paramRenames --= renames.keys
+
+  /** Returns true if the term is provably a TUPLE (a JS array), so `t._N` can lower to a
+   *  direct `t[N-1]` read. Conservative: a tuple literal, a tuple `++` concat of two
+   *  provable tuples, or a var bound to one. A case class is an object (not a tuple) and
+   *  never matches, so its Product `._N` stays on the runtime dispatch. */
+  private def isTupleExpr(t: Term): Boolean = t match
+    case _: Term.Tuple                                     => true
+    case Term.Name(n)                                      => tupleVars.contains(n)
+    // `tupleA ++ rhs` lowers to `_tupleConcat(...)`, an array; element access by index
+    // is correct on the concatenation regardless of the `_isTuple` tag, so a tuple lhs
+    // is enough to make `result._N → result[N-1]` safe.
+    case Term.ApplyInfix.After_4_6_0(l, op, _, _) if op.value == "++" || op.value == ":::" =>
+      isTupleExpr(l)
+    case Term.Ascribe(e, _)                                => isTupleExpr(e)
+    case _                                                 => false
 
   /** Returns true if the term is provably integer-valued (no decimal arithmetic). */
   private[codegen] def isIntExpr(t: Term): Boolean = t match
