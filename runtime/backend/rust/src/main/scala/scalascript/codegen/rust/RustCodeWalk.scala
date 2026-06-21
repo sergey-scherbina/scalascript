@@ -1995,6 +1995,16 @@ object RustCodeWalk:
         sep <- renderStrPatternArg(args.values.head, ctx)
       yield s"$q.join($sep)"
 
+    // `(s: String).replace(from, to)` — str::replace takes a Pattern + &str, not
+    // owned Strings. Render both literals/exprs as &str patterns.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("replace")), args)
+        if args.values.size == 2 =>
+      for
+        q    <- renderTerm(qual, ctx)
+        from <- renderStrPatternArg(args.values(0), ctx)
+        to   <- renderStrPatternArg(args.values(1), ctx)
+      yield s"$q.replace($from, $to)"
+
     // Range methods: `(a until b)` -> Rust range `a..b`, `(a to b)` -> `a..=b`.
     case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("until"), _, rhs)
         if rhs.values.size == 1 =>
