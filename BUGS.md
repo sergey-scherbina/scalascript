@@ -12,6 +12,22 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## jvm-multishot-result-type — `open` (2026-06-21)
+
+- **Found by:** benchmark perf-divergence sweep (`./bench.sh`), accepted from `SPRINT.md`.
+- **SHA at filing:** `0ee00a29f` (`feature/jvm-multishot-result-type` worktree, after
+  `sbt -no-colors cli/installBin`).
+- **Symptom:** `bench/corpus/effect-multishot.ssc` reports `n/a` on the JVM backend even though the
+  source declares `def workload(seed: Long): Long`. The bench wrapper uses an `AtomicLong` sink and
+  emits `_ssc_sink.getAndAdd(workload(_ssc_sink.get()))`, but `emit-scala` currently lowers the CPS
+  effectful `workload` as `def workload(seed: Long): Any`, so `scala-cli` rejects the wrapper with
+  `Found: Any; Required: Long`.
+- **Repro (real harness):** `./bench.sh effect-multishot --backend jvm` -> `n/a`; then
+  `scala-cli --java-opt -XX:CompileThreshold=100 --java-opt -XX:-BackgroundCompilation --server=false
+  /tmp/ssc-bench-jvm-effect-multishot.sc` shows the three `getAndAdd(workload(...))` type errors.
+- **Notes:** the immediate failure is the top-level CPS def result type (`Long` widened to `Any`),
+  not just the local `val all = handle(...)` collection result. A robust JVM fix should preserve the
+  declared result type for effectful CPS defs or cast the final CPS result at the def boundary.
 
 ## asm-jit-effect-pathology — `fixed` (2026-06-21, `0d5e03b87`)
 
