@@ -123,3 +123,38 @@ class RustGenR44Test extends AnyFunSuite:
         |""".stripMargin)
     assert(!a.contains("src/runtime/effects.rs"),
       "effects.rs should not be emitted for a program with no effects")
+
+  // ── Custom one-shot effect + explicit handle/resume (R.4.2) ────────────
+  // A user `effect Bump: def tick(): Int` lowers to a `BumpEffect` trait; `Bump.tick()`
+  // becomes `_eff.tick()`; `handle(body) { case Bump.tick(resume) => resume(5) }` becomes
+  // a handler struct that impls the trait (with `resume(5)` ⇒ `5`), run against the body.
+  private val customEffSrc =
+    """```scalascript
+      |effect Bump:
+      |  def tick(): Int
+      |def useEff(): Int ! Bump =
+      |  Bump.tick() + Bump.tick()
+      |@main def run(): Unit =
+      |  println(handle(useEff()) { case Bump.tick(resume) => resume(5) })
+      |```
+      |""".stripMargin
+
+  test("custom effect emits a trait with required methods (no NoOp default)"):
+    val eff = assets(customEffSrc)("src/runtime/effects.rs")
+    assert(eff.contains("pub trait BumpEffect {") && eff.contains("fn tick(&mut self) -> i64;"),
+      s"BumpEffect trait missing in:\n$eff")
+    assert(!eff.contains("NoOpBump"), s"a custom effect must not get a NoOp struct:\n$eff")
+
+  test("effectful def gets the _eff param and Bump.tick() lowers to _eff.tick()"):
+    val g = assets(customEffSrc)("src/generated/ssc_program.rs")
+    assert(g.contains("pub fn useEff(_eff: &mut impl BumpEffect)"), s"_eff param missing:\n$g")
+    assert(g.contains("_eff.tick()"), s"Bump.tick() did not lower to _eff.tick():\n$g")
+
+  test("handle lowers to a handler struct + impl with resume(v) ⇒ v"):
+    val g = assets(customEffSrc)("src/generated/ssc_program.rs")
+    assert(g.contains("struct __H_Bump") && g.contains("impl BumpEffect for __H_Bump"),
+      s"handler struct/impl missing:\n$g")
+    assert(g.contains("fn tick(&mut self) -> i64 { 5i64 }"),
+      s"resume(5) should lower to the op method returning 5i64:\n$g")
+    assert(g.contains("let mut _eff = __H_Bump; useEff(&mut _eff)"),
+      s"body should run against the handler:\n$g")

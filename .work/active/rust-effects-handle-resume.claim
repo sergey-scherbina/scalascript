@@ -1,6 +1,0 @@
-feature/rust-effects-impl 2026-06-21T22:02:51Z
-agent: claude (lucky-otter)
-heartbeat: 2026-06-21T22:02:51Z
-status: in-progress
-done-so-far: starting implementation per specs/rust-effects.md §10; gap 1 = custom-effect trait emission
-next: collect effect objects -> emit trait EEffect; then Eff.op->_eff.op; then handle->handler struct

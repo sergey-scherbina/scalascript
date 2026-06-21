@@ -268,7 +268,14 @@ Each phase is independently shippable and doesn't break the previous one.
 
 ---
 
-## 10. Custom effects + explicit `handle`/`resume` (R.4.2 — status 2026-06-21)
+## 10. Custom effects + explicit `handle`/`resume` (R.4.2 — ONE-SHOT DONE 2026-06-22)
+
+> **Status: one-shot custom effects SHIPPED 2026-06-22** (`effect-oneshot` n/a → 0.0020 ms; the 3 gaps below
+> are implemented in `RustCodeWalk`/`RustGen`/`RustRuntimeTemplates`, guarded by `RustGenR44Test`). The
+> `while`-loop case needs no trampoline, as predicted. **Multi-shot (`effect-multishot`) remains out of scope
+> (R.6)** — a single trait-method return can't re-invoke the continuation. The original scoping is kept below
+> for the record.
+
 
 The bench `effect-oneshot` / `effect-multishot` workloads use a USER-declared effect plus
 an explicit `handle(body) { case Eff.op(args, resume) => … }`, not a `runXxx` standard

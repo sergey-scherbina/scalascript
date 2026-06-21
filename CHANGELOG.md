@@ -4,6 +4,29 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — feat(rust): one-shot algebraic effects (R.4.2) — `effect-oneshot` n/a → 0.0020 ms
+
+Custom algebraic effects with an explicit `handle` / `resume` now compile and run on the Rust backend (the
+`effect-oneshot` bench was `n/a`; it's now the *fastest* backend on it). Implemented via **tagless-final
+traits** (per `specs/rust-effects.md §10`), not a Free-monad CPS port — so the key win is that the
+`while`-loop-with-`perform` case needs **no trampoline**: the loop runs directly and `Bump.tick()` is just an
+`_eff.tick()` method call.
+
+Three codegen gaps closed in `RustCodeWalk` / `RustGen` / `RustRuntimeTemplates`:
+1. A user `effect Bump: def tick(): Int` (preprocessed to `object Bump { def tick(): Int = __effectOp__ }`)
+   emits `pub trait BumpEffect { fn tick(&mut self) -> i64; }` with REQUIRED methods (no no-op default / NoOp
+   struct — the handler supplies the impl). The op signatures are plumbed through `WalkResult.customEffectOps`.
+2. An effect-op call `Bump.tick(args)` lowers to `_eff.tick(args)` (the `_eff: &mut impl BumpEffect` param +
+   call-site threading already existed).
+3. `handle(body) { case Bump.tick(resume) => resume(5) }` lowers to an inline handler
+   `struct __H_Bump; impl BumpEffect for __H_Bump { fn tick(&mut self) -> i64 { 5 } }` then
+   `{ let mut _eff = __H_Bump; <body run against _eff> }`. A tail-position `resume(v)` lowers to just `v`.
+
+Verified: a minimal probe cargo-builds → `10`; the real `effect-oneshot.ssc` workload → `962` (matching
+interp/jvm); `backendRust` 230/0 with 3 new `RustGenR44Test` cases. **Multi-shot is out of scope** (R.6):
+`effect-multishot`'s `opts.flatMap(opt => resume(opt))` re-invokes the continuation, which a single
+trait-method return can't model — it stays `n/a` and fails cargo cleanly.
+
 ## 2026-06-21 — docs: reconcile meta-v2 board state
 
 Closed `board-meta-v2-reconcile`. `SPRINT.md` and `BACKLOG.md` no longer present meta-v2 Track C/C2 as
