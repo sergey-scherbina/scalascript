@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — core-min: Http effect runner extracted to the http-plugin (8th effect off core)
+
+`runHttp { … }` (real outbound I/O) and `runHttpStub(routes) { … }` (stub) leave the interpreter core for
+the already-bundled `http-plugin`'s `blockForms`, via the proven block-form template + two new SPI
+capabilities: **`BlockContext.makeRecord`** (a handler replies with a typed `Response { status, headers,
+body }` record the body field-accesses) and **`BlockContext.featureLocal`** (the handler reads the
+base-url/timeout/retry config the core `httpClient(baseUrl)` form sets). `HttpEffectRunner` ports the
+`java.net.http` request logic. Removed from core: the EvalRuntime `runHttp`/`runHttpStub` special-forms +
+2 `reservedApplyHeads` names + `EffectHandlers.httpRun`/`doHttpRequest`. `httpClient(baseUrl)` (a
+feature-local config setter, not an effect handler) stays a core form by design. Tests moved
+`StdEffectsTest` → `HttpEffectPluginTest` (4/4, lazy ServiceLoader, no `installPlugins`); `StdEffectsTest`
+15/15, no regression. (`f8f9ac4d3`)
+
 ## 2026-06-22 — feat(rust): multi-shot algebraic effects, Tier-1 List monad (R.6 Slice 1)
 
 First multi-shot effect support on the Rust backend (`specs/rust-effects.md §11`). A `multi effect`

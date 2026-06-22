@@ -189,10 +189,16 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       names-only `pluginBuiltins` seam. Per-plugin; run `ssc check` with the plugin loaded end-to-end (use the
       `interpreter-plugin-tests` classpath where plugins ARE loaded). Decide the signature convention for
       block-form keywords (`runLogger { … }`) vs ordinary `def` intrinsics. This is the payoff of the keystone.
-- [ ] **coremin-http-migrate** (A — after the keystone) — extract the Http runner (`httpClient`) to a plugin.
-      Needs a new SPI capability: `SpiValue` has no record case, so building a `Response` requires
-      `BlockContext.makeRecord(...)` (or an Opaque-instance helper). Copy the State/Retry/Cache template +
-      the new record hook. (makeRecord shape: lean to a generic `makeRecord(fields)` on `BlockContext`.)
+- [x] **coremin-http-migrate** ✓ DONE 2026-06-22 (`f8f9ac4d3`, mellow-shrew) — the Http effect runner
+      (`runHttp` real I/O + `runHttpStub(routes)` stub) extracted from interpreter core into the
+      already-bundled `http-plugin`'s `blockForms` — 8th effect off core. Two new SPI capabilities:
+      `BlockContext.makeRecord` (handler replies with a `Response` record) + `BlockContext.featureLocal`
+      (handler reads the base-url/timeout/retry config the core `httpClient(baseUrl)` form sets).
+      `HttpEffectRunner` ports the java.net request logic (Option-based). Removed from core: EvalRuntime
+      cases + 2 `reservedApplyHeads` + `EffectHandlers.httpRun`/`doHttpRequest`. `httpClient(baseUrl)` setter
+      stays core by design. Tests moved StdEffectsTest→HttpEffectPluginTest (4/4, lazy ServiceLoader);
+      StdEffectsTest 15/15. NOTE follow-up: `Interpreter.mkHttpCtx` now dead (minor cleanup).
+
 - [ ] **coremin-actors-migrate** (A) — extract the Actors runner (`runActors`). Needs a message-loop
       convention in the SPI (the handler owns the loop; re-invoke the body via `applyFn`). Larger than the
       pure-reply effects; design the loop seam first.
