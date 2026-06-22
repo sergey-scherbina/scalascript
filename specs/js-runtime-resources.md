@@ -1,6 +1,7 @@
 # JS runtime fragments as `.mjs` resources (not Scala string constants)
 
-Status: **in progress** — optics pilot landing 2026-06-22.
+Status: **done for JS** (2026-06-22) — all 18 `JsRuntime*` string fragments migrated to `.mjs`
+resources (optics pilot + the remaining 17). Closes polyglot-libraries §3 #8 for the JS backend.
 
 ## Problem
 
@@ -71,8 +72,23 @@ resource" refactor is immediately and end-to-end verifiable at minimal risk. Onc
 `tsc --checkJs` / `eslint` as a CI gate is a follow-up (the runtime JS is intentionally loose;
 gating on `tsc` would need JSDoc annotations first).
 
+## Migration result (2026-06-22)
+
+All 18 `JsRuntime*` fragments now load from `.mjs` resources via `JsRuntimeResource.load`:
+`optics` (pilot) + `part1a`/`part1b`/`part1c`/`part1d`, `part2a`/`part2b`, `asynca`/`asyncb`,
+`signals`, `dataset`, `indexeddb`, `browserpatch`, `graphql`, `mcp`, `mcpbrowser`, `payment`,
+`v14effects`. Each `.mjs` body is **byte-identical** to the prior Scala triple-quoted literal
+(mechanically extracted + `diff`-verified vs `git HEAD`), so the emitted JS is unchanged. The two
+aggregators in `JsGen.scala` (`JsRuntime`, `JsRuntimeAsync = JsRuntimeAsyncA + JsRuntimeAsyncB`) are
+computed and stay as-is. Verified: `backendJs` compiles + 65 JS codegen tests (tree-shaking,
+transitive imports, content-toolkit, optics node-smoke) green.
+
+Note on the "lintable" win: self-contained capability fragments (optics, signals, payment, graphql,
+mcp, …) are independently `node --check`-able; the `part1a`–`d` / `part2a`–`b` *core* is split for
+concatenation, so per-file parse may span a boundary — those still gain editor highlighting + clean
+diffs, and lint cleanly as the concatenated `JsRuntime` blob.
+
 ## Follow-ups
 
-- Migrate the remaining `JsRuntime*` string fragments to `.mjs` resources via the same loader
-  (closes polyglot-libraries §3 #8 for JS). Each is mechanical + guarded by its existing tests.
 - Mirror the pattern for JVM/Rust runtime-string fragments if the win proves out.
+- Optional `tsc --checkJs`/`eslint` CI gate on the self-contained `.mjs` (needs JSDoc first).
