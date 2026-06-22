@@ -157,31 +157,55 @@ class RustGenMultiShotTest extends AnyFunSuite:
       assert(res.out.text().trim.toLongOption.isDefined, s"expected an integer, got: ${res.out.text().trim}")
     finally os.remove.all(crateDir)
 
-  // ── Tier-1 Option monad (Slice 2) ────────────────────────────────────────
-  // NOTE: end-to-end (cargo-run) isn't possible yet — the Rust backend can't *consume* a native
-  // `Option` result (no `Some`/`None` match patterns, no `getOrElse`) — an orthogonal gap, BACKLOG
-  // `rust-option-consumption`. So this is a codegen golden on the (correct) lowering; the produced
-  // `Option<i64>` is well-formed and runs once Option consumption lands.
-  private val maybeSrc =
-    """```scalascript
-      |multi effect Maybe:
-      |  def get(o: Option[Int]): Int
-      |
-      |def program(): Int ! Maybe =
-      |  val a = Maybe.get(Some(5))
-      |  val b = Maybe.get(Some(7))
-      |  a + b
-      |
-      |def runMaybe(): Option[Int] = handle(program()) {
-      |  case Maybe.get(o, resume) => o.flatMap(v => resume(v))
-      |}
-      |```
-      |""".stripMargin
+  // ── Tier-1 Option monad (Slice 2) + Option consumption (rust-option-consumption) ──────────
+  private def maybeSrc(get1: String, get2: String): String =
+    s"""```scalascript
+       |multi effect Maybe:
+       |  def get(o: Option[Int]): Int
+       |
+       |def program(): Int ! Maybe =
+       |  val a = Maybe.get($get1)
+       |  val b = Maybe.get($get2)
+       |  a + b
+       |
+       |@main def run(): Unit =
+       |  val r = handle(program()) {
+       |    case Maybe.get(o, resume) => o.flatMap(v => resume(v))
+       |  }
+       |  r match
+       |    case Some(x) => println(x)
+       |    case None    => println(-1)
+       |```
+       |""".stripMargin
 
   test("multi-shot Option (Maybe) handle lowers to nested if-let Some / else None (Slice 2)"):
-    val rs = rustOf(maybeSrc)
+    val rs = rustOf(maybeSrc("Some(5)", "Some(7)"))
     assert(rs.contains("if let Some(a) ="), rs)
     assert(rs.contains("if let Some(b) ="), rs)
     assert(rs.contains("} else { None }"), rs)
     assert(rs.contains("Some((a + b))"), rs)
     assert(!rs.contains("__ms_acc"), "Option monad must not use the List Vec-accumulator path")
+
+  test("Option.getOrElse lowers to unwrap_or (rust-option-consumption)"):
+    val rs = rustOf("""```scalascript
+      |def f(o: Option[Int]): Int = o.getOrElse(-1)
+      |```""".stripMargin)
+    assert(rs.contains(".unwrap_or("), rs)
+
+  private def runMaybe(get1: String, get2: String): String =
+    val assets = new RustBackend().compile(Normalize(Parser.parse(maybeSrc(get1, get2))), opts) match
+      case CompileResult.Segmented(segs) => segs.collect { case a: Segment.Asset => a }
+      case other                         => fail(s"expected Segmented, got $other")
+    val crateDir = os.temp.dir(prefix = "ssc-rust-maybe-")
+    try
+      for a <- assets do
+        val out = crateDir / os.RelPath(a.name); os.makeDir.all(out / os.up); os.write.over(out, a.bytes)
+      val res = os.proc("cargo", "run", "--quiet").call(cwd = crateDir, check = false)
+      if res.exitCode != 0 then fail(s"cargo run failed (exit ${res.exitCode}):\n${res.err.text()}")
+      res.out.text().trim
+    finally os.remove.all(crateDir)
+
+  test("multi-shot Option runs end-to-end via cargo: Some-chain → sum, a None → short-circuit"):
+    assume(cargoAvailable, "cargo not on PATH — skipping end-to-end Rust smoke")
+    assert(runMaybe("Some(5)", "Some(7)") == "12", "Some(5)+Some(7) → Some(12) → 12")
+    assert(runMaybe("Some(5)", "None")    == "-1", "a None short-circuits → None → -1")

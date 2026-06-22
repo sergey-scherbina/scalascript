@@ -1848,6 +1848,11 @@ object RustCodeWalk:
         q   <- renderTerm(qual, ctx)
         sep <- args.values.headOption.map(renderTerm(_, ctx)).getOrElse(Right("\"\".to_string()"))
       yield s"$q.join(($sep).as_str())"
+    // `opt.getOrElse(default)` (one arg → native Option) → `opt.unwrap_or(default)`.  Map.getOrElse
+    // takes two args (key, default) and is excluded by the arity guard. (rust-option-consumption)
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("getOrElse")), a) if a.values.size == 1 =>
+      for q <- renderTerm(qual, ctx); d <- renderTerm(a.values.head, ctx)
+      yield s"$q.unwrap_or($d)"
 
     // ── Vec method chaining via Term.Apply ─────────────────────────────────
     // Matches: xs.foreach(f), xs.map(f), xs.filter(f), xs.foldLeft(z)(f).
@@ -2957,8 +2962,12 @@ object RustCodeWalk:
                 val nested = performs.foldRight(push) { case ((vn, _, it), acc) => s"for $vn in $it {\n${indent(acc)}\n}" }
                 Right(s"{ ${pre}let mut __ms_acc = Vec::new();\n${indent(nested)}\n__ms_acc }")
               else if argTypes.forall(_.exists(_.startsWith("Option<"))) then  // Option/Maybe monad
-                val nested = performs.foldRight(s"Some($tail)") {
-                  case ((vn, _, it), acc) => s"if let Some($vn) = $it {\n${indent(acc)}\n} else { None }"
+                // Bind each scrutinee to a typed `let` first — a bare `None` arg (e.g. `Maybe.get(None)`)
+                // has no type for `if let Some(x) = None` to infer; the op's param type (`Option<…>`) anchors it.
+                val nested = performs.zipWithIndex.foldRight(s"Some($tail)") {
+                  case (((vn, op, it), idx), acc) =>
+                    val optTy = opArgRustType(eff, op).getOrElse("Option<i64>")
+                    s"let __ms_opt$idx: $optTy = $it;\nif let Some($vn) = __ms_opt$idx {\n${indent(acc)}\n} else { None }"
                 }
                 Right(s"{ $pre$nested }")
               else
@@ -3092,6 +3101,12 @@ object RustCodeWalk:
     case m.Lit.Double(d)            => Right(s"${d}f64")
     case m.Lit.Boolean(b)           => Right(b.toString)
     case m.Lit.String(s)            => Right("\"" + escapeRustString(s) + "\"")
+    // Option patterns over a native Rust `Option` — `Some(x)` / `None`. (rust-option-consumption)
+    case m.Pat.Extract.After_4_6_0(m.Term.Name("Some"), argClause) =>
+      argClause.values match
+        case List(inner) => renderPattern(inner, ctx).map(p => s"Some($p)")
+        case _           => Left(List(unsupported(s"def `${ctx.defName}`: `Some` pattern takes exactly one binder")))
+    case m.Term.Name("None") => Right("None")
     case m.Pat.Extract.After_4_6_0(m.Term.Name(ctor), argClause) =>
       val args = argClause.values
       ctx.ctorMap.get(ctor) match
