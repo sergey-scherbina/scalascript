@@ -42,6 +42,23 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       per `runLogger`/`runLoggerJson`/`runLoggerToList`) + remove `loggerRun` from core + make the plugin
       default-loaded; then clock/random/env/state/actors. The SPI being proven is the hard part; the migrations are
       copy-the-template.
+- [~] **core-min-logger-migrate** (A) — IN PROGRESS. **Loading strategy = lazy-ServiceLoader (Sergiy's choice).**
+      `6875fbe1d` landed the **lazy block-form dispatch**: an unresolved single-arg applied name triggers
+      `ensurePluginsLoaded()` (in `evalPlainApply`, gated on the head being absent from env+globals → resolved
+      calls skip it → cold-start preserved) and dispatches via the shared `dispatchBlockForm`. No regression
+      (StdEffectsTest 48, InterpreterTest 141, BlockFormSpiTest 3). **Remaining = the build-heavy removal
+      (do as ONE careful pass, mind the active sibling — a `build.sbt` break hits them):** (1) new
+      `runtime/std/logger-effect-plugin` module — `LoggerEffectPlugin extends Backend` with `blockForms =
+      Map("runLogger"→…text, "runLoggerJson"→…json, "runLoggerToList"→…collect-with-`result`-tuple)` (copy the
+      3 handlers from `EffectHandlers.loggerRun`/`loggerToListRun`, now over `SpiValue`/`ctx.out`) +
+      `META-INF/services/scalascript.backend.spi.Backend`; (2) build.sbt: copy the **bench-plugin** pattern —
+      `lazy val loggerEffectPlugin` project def + a `PluginSpec("logger", …)` entry (≈2934) + the root aggregate
+      (≈3480) + `packagePlugin` (≈1115), so it bundles into the CLI (else users lose `runLogger`); (3) **move
+      the Logger cases out of `StdEffectsTest`** (`backendInterpreter`, no plugin on classpath) **into
+      `interpreter-plugin-tests`** (has the plugins via ServiceLoader); (4) remove the hardcoded
+      `runLogger`/`runLoggerJson`/`runLoggerToList` cases (`EvalRuntime`), `loggerRun`/`loggerToListRun`
+      (`EffectHandlers`), and `runLogger*` from `reservedApplyHeads`; (5) verify the moved Logger tests pass via
+      the lazy-loaded plugin. Then clock/random/env/state/actors copy this template.
 - [ ] **polyglot-phase2-optics-allhosts** (B) — prove the per-host library packaging end-to-end on the EASY case:
       take a PURE module (optics — zero effects, zero host coupling) and publish it to all four hosts (JVM jar +
       Java facade + npm + Rust crate) with a golden API-signature test per host. Validates the value-mapping +
