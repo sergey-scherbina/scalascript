@@ -1,6 +1,0 @@
-feature/js-runtime-resources 2026-06-22
-agent: claude (bright-quail)
-heartbeat: 2026-06-22T17:02:07Z
-status: in-progress
-done-so-far: nothing yet. Pilot for polyglot-libraries §3 #8 (move codegen runtime strings out of big Scala string-constants). Approach A: real .mjs resource files + a cached classpath loader; keep the public "val X: String" API so call-sites are unchanged. Pilot = optics (small, self-contained, already node-tested).
-next: (1) JsRuntimeResource.load(name) loader (cache, UTF-8 classpath resource under /scalascript/js-runtime/); (2) extract JsRuntimeOptics.scala triple-quoted content VERBATIM into resources/scalascript/js-runtime/optics.mjs (byte-identical -- emitted JS must not change; the string starts with a leading newline and JsGen relies on it); (3) JsRuntimeOptics.scala -> thin wrapper load("optics.mjs"); (4) JsRuntimeResourceTest: loader works + leading newline preserved + assume(node) node --check on the raw resource; (5) verify byte-identity via JsLibPackagerTest node-smoke + optics conformance. Spec specs/js-runtime-resources.md.

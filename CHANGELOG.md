@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — feat(js): JS runtime fragments as `.mjs` resources — optics pilot
+
+The JS backend stored its runtime helper code as large Scala string constants (`val X: String =
+""" …real JS… """`) — no syntax highlighting, no `eslint`/`node --check`/`tsc`, late error detection.
+First slice of the cleanup (polyglot-libraries §3 #8): move the **optics** runtime into a real
+`resources/scalascript/js-runtime/optics.mjs` file, loaded by a tiny cached classpath loader
+`JsRuntimeResource.load(name)`. `JsRuntimeOptics` keeps its `val X: String` API, so every call site
+and the **emitted JS are unchanged — verified byte-identical** (7555 bytes, `diff`-empty vs the prior
+string; `JsLibPackager` golden + node-ESM smoke pass unchanged). The `.mjs` is now lintable /
+`node --check`-able / editor-friendly. `JsRuntimeResourceTest` (5/5) pins the loader contract + the
+leading/trailing newline `JsGen` relies on + an `assume(node)` `node --check` on the raw resource.
+The remaining dozen+ `JsRuntime*` fragments migrate the same way. Spec `specs/js-runtime-resources.md`.
+
 ## 2026-06-22 — feat(polyglot-lib): JS optics npm-package packager (Task B, Phase 2 — JS host)
 
 First per-host library-packaging slice (`specs/polyglot-libraries.md` §4 / §6 Phase 2): the pure

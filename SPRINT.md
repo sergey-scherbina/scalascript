@@ -217,6 +217,16 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
         --emit-scala-facade`; author a thin facade since optics has no `.ssc` defs); (c) **Rust** crate — GREENFIELD
         optic `pub fn` codegen in `RustRuntimeTemplates`; (d) **Java** facade — GREENFIELD `JavaFacadeEmitter` +
         `java.util.List` value-mapping seam. Golden API-signature test per host (mirror this JS `.d.ts` golden).
+- [x] **js-runtime-resources** ✓ DONE 2026-06-22 (optics pilot) — first slice of polyglot-libraries §3 #8:
+      move JS backend runtime fragments out of big Scala string constants into real `.mjs` resource files
+      (lintable / `node --check`-able / editor-friendly). `JsRuntimeResource.load(name)` reads + caches a
+      classpath resource under `/scalascript/js-runtime/`; `JsRuntimeOptics` is now a thin wrapper
+      (`load("optics.mjs")`) keeping its `val X: String` API → call sites + emitted JS unchanged, verified
+      **byte-identical** (7555B, `diff`-empty; `JsLibPackager` golden+node-smoke unchanged). `JsRuntimeResourceTest`
+      5/5. Spec `specs/js-runtime-resources.md`. **REMAINING (follow-ups, mechanical, same loader):** migrate the
+      other `JsRuntime*` fragments (`Part2a/2b`, `Signals`, `Fs`, `Mcp`, `Graphql`, `AsyncA/B`, `BrowserPatch`,
+      `McpBrowser`, …) — each guarded by its existing tests; then optionally a `tsc --checkJs`/`eslint` CI gate
+      (needs JSDoc first). Closes §3 #8 for JS when the fragments are all migrated.
 - [ ] **rust-effects-multishot-r6** (Rust backend, R.6) — multi-shot algebraic effects on Rust (resume invoked
       more than once, e.g. NonDet `{1,2}×{10,20}`). One-shot handle/resume already SHIPPED (`a87afba34`, tagless-
       final, no trampoline). lucky-otter flagged multi-shot as out-of-scope/hard: needs an `FnMut` continuation
