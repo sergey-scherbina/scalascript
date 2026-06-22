@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — feat(rust): Tier-3 unbounded multi-shot (Free-monad MComp) — R.6 complete for recursion
+
+Final multi-shot tier: a `multi effect` performed inside **recursion** (dynamic, unbounded perform depth)
+now runs on Rust. `renderTier3Unbounded` lowers the recursive effectful def to a **Free-monad** builder
+`fn __comp(...) -> MComp` (`bodyToComp`: `if`→`if`; `val x = Eff.op(a)`→`MComp::Perform{op,args,k}`;
+`val x = self(a)`→`__comp(a).and_then(k)`; pure tail→`MComp::Pure(Value::from(..))`) and interprets it with
+`fn __run` whose `Perform` arm runs the handler body with `resume(v)` → `__run(k(Value::from(v)))` — a
+**re-invokable** `Rc<dyn Fn>` continuation (vs the one-shot `FnOnce` `Computation` already in the runtime).
+New runtime: `MComp` + `and_then` in `runtime/effect.rs`; `Value::as_int`; `Ctx.resumeViaComp`. Verified:
+recursive `Amb`/`flip` `program(2)` cargo-runs to `4` (sum over all 2² branches). Also **fixed a
+recursive/nested effectful-call reborrow** — inside an effectful def `_eff` is a `&mut impl Effect` param, so
+calls must reborrow `&mut *_eff` (not `&mut _eff` = `&mut &mut T`). `backendRust` 252/0; one-shot + Tier-1/2
+untouched. **Multi-shot algebraic effects on Rust are now complete for realistic programs** — Tier-1
+(List/Option), Tier-2 (static-depth nested), Tier-3 (unbounded recursion). Follow-ups (additive, no
+consumer): the loop form (vs recursion), op-args / multi-op in Tier-3.
+
 ## 2026-06-23 — core-min: the actor/cluster keyword set migrated off the Typer prelude (actors-prelude)
 
 Builds on the bundled actors provider plugin: the ~55-name actor/process/cluster keyword set

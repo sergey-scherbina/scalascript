@@ -77,12 +77,18 @@ Queued after the JS `.mjs`-resource cleanup + rename. Drive top-to-bottom (tract
       object `Ssc.Optics` (or a `.ssc` facade) over the same 4 optic shapes; reuse `FacadeGenerator`/`ssc link
       --emit-scala-facade`/`JarCommands`. Golden: mirror the JS `optics.d.ts` golden with a Scala signature golden.
       Then Rust crate + Java facade follow (same packager shape). Bigger; slice per host.
+- [x] **rust-multishot-unbounded** ✓ DONE 2026-06-23 — **Tier-3 UNBOUNDED (recursion)**: a `multi effect`
+      performed inside recursion (dynamic depth) lowers via a Free-monad `MComp` builder (`fn __comp`) +
+      multi-shot interpreter (`fn __run`, `resume(v)`→`__run(k(Value::from(v)))`, re-invokable `Rc<dyn Fn>`);
+      runtime `MComp`+`and_then` in `runtime/effect.rs`. Recursive Amb `program(2)` → `4`, cargo-run;
+      `backendRust` 252/0. + recursive/nested effectful-call reborrow fix (`&mut *_eff`). **Multi-shot effects
+      on Rust are now COMPLETE for realistic programs** (Tier-1 List/Option, Tier-2 static-nested, Tier-3
+      unbounded recursion). Follow-ups (additive, no consumer): loop-form unbounded, op-args/multi-op in Tier-3.
 - [x] **rust-effects-multishot-r6** ✓ ACTIONABLE SCOPE DONE 2026-06-22 — bounded Rust multi-shot support is done:
       Tier-1 List (`effect-multishot` bench now runs on rust), Tier-1 Option, and Tier-2 static-depth general
       handlers all landed and cargo-ran (`RustGenMultiShotTest`: List, Option, 1-flip Amb, 2-nested-flip Amb).
-      The only remaining R.6 idea is unbounded perform-in-loop via an explicit defunctionalized trampoline; it has
-      no current consumer, so it is recorded in `BACKLOG.md` rather than kept active in SPRINT. No Rust code in
-      this closeout.
+      Unbounded **recursion** later landed too (`rust-multishot-unbounded`, 2026-06-23, Free-monad MComp); only
+      the *loop* form (vs recursion) remains additive with no current consumer. No Rust code in this closeout.
 - [x] **rust-multishot-r6-closeout** ✓ DONE 2026-06-22 — docs-only closeout for R.6 after bounded Rust multi-shot
       slices landed. Updated the detailed `rust-effects-multishot-r6` SPRINT entry to actionable-scope done and
       replaced the obsolete BACKLOG wording that said the Rust bench was unavailable; the only deferred work is unbounded

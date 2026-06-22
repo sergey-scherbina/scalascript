@@ -464,9 +464,17 @@ Used when the monad is **not recognized** OR the perform structure is **dynamic*
    with `resume(v)` → `__k(v)`, via `Ctx.resumeClosure`) and **nests** each `val xᵢ = Eff.op(argsᵢ)` perform
    as `__h(<argsᵢ>, &|xᵢ| <rest>)` down to the pure tail — the continuation re-enters the handler at each
    perform. Handles **1..N performs at static depth** (`RustGenMultiShotTest` Amb/`flip`: 1 flip → `1`,
-   nested 2 flips → `22`, cargo-run). **REMAINING:** *unbounded* depth (a perform inside a loop / recursion,
-   where nesting isn't static) still needs the explicit defunctionalized trampoline — a separate slice,
-   currently a clean `unsupported`, no consumer.
+   nested 2 flips → `22`, cargo-run).
+4. **Unbounded depth — ✓ DONE 2026-06-23 (recursion).** A `multi effect` performed inside **recursion**
+   (dynamic depth) lowers via a Free-monad runtime: `renderTier3Unbounded` emits the recursive effectful def
+   as `fn __comp(...) -> MComp` (`bodyToComp`: `if`→`if`; perform→`MComp::Perform{op,args,k}`;
+   self-call→`__comp(args).and_then(k)`; pure tail→`MComp::Pure(Value::from(..))`) and interprets it with
+   `fn __run` whose `Perform` arm runs the handler with `resume(v)` → `__run(k(Value::from(v)))` (re-invokable
+   `Rc<dyn Fn>` continuation). Runtime `MComp` + `and_then` in `runtime/effect.rs`; `Ctx.resumeViaComp`.
+   `RustGenMultiShotTest`: recursive Amb `program(2)` → `4`, cargo-run. Also fixed a recursive/nested
+   effectful-call reborrow (`&mut *_eff`, not `&mut &mut T`). Scope: single no-arg op + single self-recursion
+   in ANF, Int/Bool. Follow-ups (additive, no consumer): the *loop* form (vs recursion), op-args / multi-op,
+   effect-free control-flow between Tier-1 performs.
 4. **Slice 4.** Perf hardening (capacity hints, avoid intermediate `Vec`s where a fold suffices) + multi-effect
    handlers.
 
