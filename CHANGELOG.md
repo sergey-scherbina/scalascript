@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — docs: collapse duplicate actors migration queue item
+
+Closed `coremin-actors-board-reconcile`. `SPRINT.md` now has exactly one open `coremin-actors-migrate`
+entry: the entangled scheduler/message-loop design item. The older shorter duplicate is marked superseded.
+No implementation changed.
+
 ## 2026-06-22 — docs: reconcile stale sprint open items
 
 Closed `sprint-stale-open-items-reconcile`. `coremin-prelude-migrate-ORIG` is now explicitly superseded by
