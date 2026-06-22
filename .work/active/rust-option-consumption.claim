@@ -1,6 +1,0 @@
-feature/rust-option-consumption 2026-06-22
-agent: claude (bright-quail)
-heartbeat: 2026-06-22T21:15:38Z
-status: in-progress
-done-so-far: probed. renderPattern (RustCodeWalk:3087) rejects Some(x) (generic ctorMap lookup fails) and None (a Term.Name pattern hits `case other`). Native Option results (from Option-effect Slice 2, and Option-typed code) can't be consumed. Term.Name <: Pat in scalameta (None reaches renderPattern as a Pat).
-next: (1) renderPattern: add `Pat.Extract(Term.Name("Some"), [inner])` -> `Some(<inner>)`, `Term.Name("None")` -> `None`. (2) renderTerm: `qual.getOrElse(d)` (1-arg => Option) -> `$qual.unwrap_or($d)` (Map.getOrElse has 2 args, excluded); optionally isDefined/nonEmpty->is_some(), isEmpty->is_none(), get->unwrap. (3) make the Option multi-shot Slice-2 test cargo-runnable (match Some/None or getOrElse) asserting 12 / -1. Verify backendRust green + the Option program now compiles+runs. Bookkeeping: BACKLOG rust-option-consumption done; spec §11.5 Slice 2 end-to-end now possible.

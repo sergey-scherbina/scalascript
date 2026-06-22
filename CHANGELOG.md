@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — feat(rust): consume native `Option` — `Some`/`None` patterns + `getOrElse` (rust-option-consumption)
+
+The Rust backend produced `Option<T>` values but couldn't consume them in user code. Added: `Some(x)` /
+`None` **match patterns** in `renderPattern` (lowering to Rust `Some(x)` / `None`), and `opt.getOrElse(d)`
+(one-arg ⇒ Option, so `Map.getOrElse` is excluded) → `opt.unwrap_or(d)`. Also made the Tier-1 Option
+multi-shot lowering bind each scrutinee to a **typed `let`** (the op's `Option<…>` param type) so a bare
+`None` argument (e.g. `Maybe.get(None)`) has a type to infer. This makes multi-shot **Option** effects
+(§11 Slice 2) **end-to-end** on rust — `RustGenMultiShotTest` cargo-runs a Some-chain → `12` and a
+short-circuiting `None` → `-1`. `backendRust` 247/0.
+
 ## 2026-06-22 — docs: reconcile optics packaging queue
 
 Closed `polyglot-optics-board-hygiene`. The top `SPRINT.md` claimable queue no longer lists stale open

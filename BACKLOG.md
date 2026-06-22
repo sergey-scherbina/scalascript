@@ -607,13 +607,3 @@ Multi-shot algebraic effects on the Rust backend (`effect-multishot` bench, NonD
 reified/re-invoked. Needs a Free-monad CPS lowering gated to `multi effect` (whole-body transform; risks the
 shipped one-shot path). Concrete design + blocker in `specs/rust-effects.md §11`. Multi-session, spec-first;
 `effect-multishot` stays `n/a` on rust until then.
-
-## rust-option-consumption — Rust backend can not consume a native Option result (2026-06-22)
-
-The Rust backend produces `Option<T>` values (e.g. optics `getOption`, and the Slice-2 Option-monad
-multi-shot lowering), but **cannot consume them in user code**: `Some(x)`/`None` are not recognised as
-match patterns ("`Some` is not a known enum constructor"; "unsupported pattern Term.Name (None)"), and
-`Option.getOrElse`/`.get`/`.map` are not lowered. So an Option-returning program cannot be completed
-end-to-end on rust. Needed to make Tier-1 Option multi-shot (rust-effects.md §11 Slice 2) runnable, and
-generally useful. Fix: lower `Some(x)`/`None` patterns to Rust `Some(x)`/`None` in renderPattern, and the
-common Option methods (`getOrElse`->`unwrap_or`, `map`, `isDefined`, `get`->`unwrap`). Orthogonal to effects.
