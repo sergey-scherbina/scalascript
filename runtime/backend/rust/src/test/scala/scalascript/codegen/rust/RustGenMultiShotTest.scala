@@ -209,3 +209,42 @@ class RustGenMultiShotTest extends AnyFunSuite:
     assume(cargoAvailable, "cargo not on PATH — skipping end-to-end Rust smoke")
     assert(runMaybe("Some(5)", "Some(7)") == "12", "Some(5)+Some(7) → Some(12) → 12")
     assert(runMaybe("Some(5)", "None")    == "-1", "a None short-circuits → None → -1")
+
+  // ── Tier-2 single-perform multi-shot — continuation-as-closure (spec §11.2) ────────────────
+  private val ambSrc =
+    """```scalascript
+      |multi effect Amb:
+      |  def flip(): Boolean
+      |
+      |def program(): Int ! Amb =
+      |  val x = Amb.flip()
+      |  if x then 1 else 0
+      |
+      |@main def run(): Unit =
+      |  val r = handle(program()) {
+      |    case Amb.flip(resume) => resume(true) + resume(false)
+      |  }
+      |  println(r)
+      |```
+      |""".stripMargin
+
+  test("Tier-2 single-perform multi-shot reifies the continuation as a closure (Amb)"):
+    val rs = rustOf(ambSrc)
+    assert(rs.contains("let __k = |x: bool| -> i64 {"), rs)
+    assert(rs.contains("__k(true)"), rs)
+    assert(rs.contains("__k(false)"), rs)
+    assert(!rs.contains("struct __H_Amb"), "Tier-2 must not use the one-shot handler-struct path")
+
+  test("Tier-2 Amb runs end-to-end via cargo: resume(true) + resume(false) = 1 + 0 = 1"):
+    assume(cargoAvailable, "cargo not on PATH — skipping end-to-end Rust smoke")
+    val assets = new RustBackend().compile(Normalize(Parser.parse(ambSrc)), opts) match
+      case CompileResult.Segmented(segs) => segs.collect { case a: Segment.Asset => a }
+      case other                         => fail(s"expected Segmented, got $other")
+    val crateDir = os.temp.dir(prefix = "ssc-rust-amb-")
+    try
+      for a <- assets do
+        val out = crateDir / os.RelPath(a.name); os.makeDir.all(out / os.up); os.write.over(out, a.bytes)
+      val res = os.proc("cargo", "run", "--quiet").call(cwd = crateDir, check = false)
+      if res.exitCode != 0 then fail(s"cargo run failed (exit ${res.exitCode}):\n${res.err.text()}")
+      assert(res.out.text().trim == "1", s"got: ${res.out.text().trim}")
+    finally os.remove.all(crateDir)

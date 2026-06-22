@@ -776,7 +776,10 @@ object RustCodeWalk:
       localSignals: Map[String, String] = Map.empty,
       // Inside a `handle { case Eff.op(.., resume) => body }` arm, the `resume` param name.
       // A one-shot tail-resume `resume(v)` lowers to just `v` (the op method returns it). (R.4.2)
-      resumeParam: Option[String] = None
+      resumeParam: Option[String] = None,
+      // Tier-2 multi-shot (§11.2): when set, `resume(v)` lowers to a CALL `<name>(v)` of the
+      // reified continuation closure (so the handler can resume any number of times), not `v`.
+      resumeClosure: Option[String] = None
   ):
     def enumNames: Set[String] = ctorMap.values.map(_.enumName).toSet
     @annotation.unused def topValNames: Set[String] = topVals.map(_._1).toSet
@@ -1663,10 +1666,13 @@ object RustCodeWalk:
       val (errs, oks) = args.values.toList.map(a => renderTerm(a, ctx)).partitionMap(identity)
       if errs.nonEmpty then Left(errs.flatten)
       else Right(s"_eff.$op(${oks.mkString(", ")})")
-    // One-shot tail-resume `resume(v)` inside a handler arm → just `v` (the op method returns it).
+    // `resume(v)` inside a handler arm: Tier-2 → a call of the reified continuation closure
+    // `__k(v)` (resume any number of times); one-shot → just `v` (the op method returns it).
     case m.Term.Apply.After_4_6_0(m.Term.Name(r), args)
         if ctx.resumeParam.contains(r) && args.values.size == 1 =>
-      renderTerm(args.values.head, ctx)
+      ctx.resumeClosure match
+        case Some(k) => renderTerm(args.values.head, ctx).map(v => s"$k($v)")
+        case None    => renderTerm(args.values.head, ctx)
     // `handle(body) { case Eff.op(binders…, resume) => arm }` → a handler struct that impls the
     // effect trait, then run the (effectful) body against it. One-shot tail-resume only. (R.4.2)
     case m.Term.Apply.After_4_6_0(
@@ -2900,22 +2906,84 @@ object RustCodeWalk:
     cases match
       case List(c) =>
         c.pat match
-          case m.Pat.Extract.After_4_6_0(m.Term.Select(m.Term.Name(`eff`), m.Term.Name(_)), argPats) =>
+          case m.Pat.Extract.After_4_6_0(m.Term.Select(m.Term.Name(`eff`), m.Term.Name(opName)), argPats) =>
             argPats.values.toList.collect { case m.Pat.Var(m.Term.Name(n)) => n } match
+              // Tier-1 — List/Option monad: `opts.flatMap(opt => resume(opt))` over a straight-line def.
               case List(optsName, resumeName) if isListFlatMapResume(c.body, optsName, resumeName) =>
                 inlineMultiShotBody(body, eff, ctx)
+              // Tier-2 (single-perform) — arbitrary handler over a single no-value-arg-op perform: reify
+              // the continuation (rest of the body) as a closure and let the handler call it any number
+              // of times (spec §11.2; the general nested-perform trampoline is a separate, larger slice).
+              case List(resumeName) =>
+                renderTier2SinglePerform(body, eff, opName, resumeName, c.body, ctx)
               case _ =>
                 Left(List(unsupported(
-                  s"multi-shot `$eff` handler is not the recognised List `opts.flatMap(opt => resume(opt))` shape (Slice 1)")))
+                  s"multi-shot `$eff` handler shape unsupported — Tier-1 = monad `flatMap(resume)`; " +
+                  "Tier-2 = single perform of a no-value-arg op (general nested multi-shot: TODO)")))
           case _ =>
-            Left(List(unsupported(s"multi-shot `$eff` handle case is not `$eff.op(opts, resume) =>`")))
+            Left(List(unsupported(s"multi-shot `$eff` handle case is not `$eff.op(…, resume) =>`")))
       case _ =>
-        Left(List(unsupported("multi-shot handle must have exactly one case (Slice 1)")))
+        Left(List(unsupported("multi-shot handle must have exactly one case")))
 
   /** The Rust type of effect `eff`'s op `op` first parameter (e.g. `Vec<i64>` / `Option<i64>`) —
    *  the monad discriminator for Tier-1 multi-shot (spec §11.2). */
   private def opArgRustType(eff: String, op: String): Option[String] =
     _effectOps.getOrElse(eff, Nil).collectFirst { case (o, ptypes, _) if o == op => ptypes }.flatMap(_.headOption)
+
+  /** The Rust return type of effect `eff`'s op `op` — the value a `resume` continuation accepts. */
+  private def opRetRustType(eff: String, op: String): Option[String] =
+    _effectOps.getOrElse(eff, Nil).collectFirst { case (o, _, ret) if o == op && ret.nonEmpty => ret }
+
+  /** True if `t` performs an op of effect `eff` (`Eff.op(…)`) anywhere. */
+  private def treePerformsEffect(t: m.Tree, eff: String): Boolean =
+    t.collect { case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(`eff`), _), _) => true }.nonEmpty
+
+  /** Tier-2 multi-shot (single perform) — spec §11.2. When the handler resumes in an arbitrary way (not a
+   *  recognised monad `flatMap`), inline `handle(defName(args))`, reify the continuation (the body after
+   *  the single `val x = Eff.op()` perform) as a Rust closure `__k`, and render the handler body with
+   *  `resume(v)` → `__k(v)`. Restricted to ONE perform of a no-value-arg op (nested performs need the
+   *  general defunctionalized trampoline, a separate slice). */
+  private def renderTier2SinglePerform(
+      body: m.Term, eff: String, opName: String, resumeName: String, handlerBody: m.Term, ctx: Ctx
+  ): Either[List[Diagnostic], String] =
+    body match
+      case m.Term.Apply.After_4_6_0(m.Term.Name(defName), callArgs) if _defBodies.contains(defName) =>
+        val dd     = _defBodies(defName)
+        val params = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
+        val args   = callArgs.values.toList
+        if params.size != args.size then
+          Left(List(unsupported(s"Tier-2 multi-shot: arity mismatch calling `$defName`")))
+        else dd.body match
+          case m.Term.Block((v: m.Defn.Val) :: rest) if rest.nonEmpty =>
+            (v.pats, v.rhs) match
+              case (List(m.Pat.Var(m.Term.Name(xn))),
+                    m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(`eff`), m.Term.Name(`opName`)), opArgs))
+                  if opArgs.values.isEmpty =>
+                if rest.exists(treePerformsEffect(_, eff)) then
+                  Left(List(unsupported(
+                    s"Tier-2 multi-shot (`$defName`): more than one perform — nested multi-shot needs the general trampoline (TODO)")))
+                else opRetRustType(eff, opName) match
+                  case None => Left(List(unsupported(s"Tier-2 multi-shot: unknown return type for `$eff.$opName`")))
+                  case Some(opRet) =>
+                    val progRet = dd.decltpe.flatMap(t => mapType(t, defName, Set.empty).toOption).filter(_.nonEmpty).getOrElse("i64")
+                    val restTerm: m.Term = rest match
+                      case List(t: m.Term) => t
+                      case _               => m.Term.Block(rest)
+                    val pbindEs   = params.zip(args).map { case (p, a) => renderTerm(a, ctx).map(r => s"let $p = $r;") }
+                    val restE     = renderTerm(restTerm, ctx)
+                    val handlerE  = renderTerm(handlerBody, ctx.copy(resumeParam = Some(resumeName), resumeClosure = Some("__k")))
+                    val (pErr, pbinds) = pbindEs.partitionMap(identity)
+                    val errs = pErr.flatten ++ restE.left.toOption.toList.flatten ++ handlerE.left.toOption.toList.flatten
+                    if errs.nonEmpty then Left(errs)
+                    else
+                      val pre = if pbinds.isEmpty then "" else pbinds.mkString("", " ", " ")
+                      Right(s"{ ${pre}let __k = |$xn: $opRet| -> $progRet { ${restE.toOption.get} }; ${handlerE.toOption.get} }")
+              case _ =>
+                Left(List(unsupported(s"Tier-2 multi-shot (`$defName`): body must start with `val x = $eff.$opName()` (a no-arg perform)")))
+          case _ =>
+            Left(List(unsupported(s"Tier-2 multi-shot: body of `$defName` is not a `val x = perform; …` block")))
+      case _ =>
+        Left(List(unsupported("Tier-2 multi-shot handle body must be a direct effectful def call `f(args)`")))
 
   /** Inline `handle(defName(args))` over a multi-shot handler: bind the def's params to the call args,
    *  then lower each `val x = Eff.op(arg)` perform per the monad of the op's argument type (spec §11.2):
