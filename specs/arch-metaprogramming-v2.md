@@ -279,15 +279,34 @@ generic case classes, and `derives` clauses mixing user + stdlib + unknown typec
   ordinary application → `((a) => (b) => body)(x)(y)`. `using`/`given` clauses dropped. `LinkerRewriteTest`
   (curried 2-/3-clause) + `InterfaceExtractorTest` (multi-clause body + using-drop).
 - **C2** — post-expansion re-typecheck pass + source-positioned errors when an expansion doesn't typecheck.
-  **Status (2026-06-18): the high-value slice is DONE differently; the rest is DEFERRED as low-ROI.** The
-  practical macro DX hole — a macro that *can't* compile to the generated backends — is now caught up front
-  by `MacroCodegen.codegenWarnings` (surfaced by `ssc check`; warns on interpreter-only macro impls). The
-  remaining C2 ambition (run the Typer over *arbitrary* inline/macro-expanded source and map type-errors
-  back to `.ssc` positions) is **deferred**: it needs the Typer to run on expanded code (re-parse loses
-  positions → a position map is required) AND risks **false positives** (the Typer may not understand the
-  expanded macro-runtime constructs), for a niche audience. Not worth the effort/risk vs the codegen
-  warning that covers the real failure mode. Revisit only if inline/macro type-errors become a real pain
-  point.
+  **Status: the high-value slice (2026-06-18) + a CONSERVATIVE re-typecheck slice (2026-06-22) are DONE; the
+  precise-position / full-inference ambition stays DEFERRED.**
+  - **Codegen-warning slice (2026-06-18).** The practical macro DX hole — a macro that *can't* compile to the
+    generated backends — is caught up front by `MacroCodegen.codegenWarnings` (`ssc check`; warns on
+    interpreter-only macro impls).
+  - **Conservative post-expansion re-typecheck (2026-06-22).** `MacroCodegen.expansionTypeWarnings` (wired into
+    `checkOneFile` in `ssc check`) catches the *other* hole: a macro/inline body whose **expansion** references
+    an undefined name (so the source type-checks but the expanded code does not, and today only fails later at
+    codegen/run with errors pointing into synthetic expanded text). It dodges both reasons the full version was
+    deferred:
+    - **No position map** (the hard part). Warnings are file-level, not per-expression. The expanders flatten
+      trees → strings → re-parse, destroying positions; building a per-offset map inside the four hand-written
+      `StringBuilder` scanners is the deferred big lift.
+    - **No false positives** — guaranteed by a **pre/post `Reference to undefined name` diff**: it reports only
+      names undefined *after* expansion that were not undefined *before*, so macro machinery (`__ssc_macro__` /
+      `Expr` / `__ssc_quote_expr__`, undefined pre-expansion but stripped post-expansion) cancels out, and a
+      name the user already left undefined is reported by the normal check, not blamed on the expansion. Also
+      excludes plugin builtins, the stripped entrypoint/impl names, and `_`-prefixed runtime helpers; emitted as
+      **warnings**; any exception is swallowed (never breaks `ssc check`); free no-op for macro-free modules.
+    - **Reach (honest bound):** the strict Typer's undefined-name check is deliberately *position-sensitive* —
+      it flags val-rhs / bare-statement positions, **not** call arguments / binary operands / call positions
+      (its own conservative scoping). So this slice catches expansion-introduced undefined refs in the positions
+      the Typer flags. Broadening reach = broadening the Typer's undefined-name check (a separate, higher-risk
+      change), not this pass. Tests: `MacroCodegenTest` (broken val-rhs expansion → 1 warning; valid const-fold
+      / direct-quote / interpreter macros → 0; macro-free → 0). Verified end-to-end via `ssc check`.
+  - **Still DEFERRED:** precise source-positioned errors (the position map) and full-type-inference re-checking
+    over expanded code (mismatch/assignability — higher false-positive risk on expanded macro-runtime
+    constructs). Revisit if inline/macro type-errors become a real pain point.
 
 **Recommended order:** originally "Track A first (smallest)" — but the 2026-06-17 A1 investigation
 shows Track A is the LARGEST of the three (it's a from-scratch backend feature, not a parity tweak).
