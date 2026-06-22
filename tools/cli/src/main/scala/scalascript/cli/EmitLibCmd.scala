@@ -1,21 +1,21 @@
 package scalascript.cli
 
-import scalascript.codegen.JsLibPackager
+import scalascript.codegen.{JsLibPackager, JvmLibPackager}
 
 /** `ssc emit-lib` — emit a ScalaScript feature as a standalone, host-native library package
- *  (Task B, `specs/polyglot-libraries.md` §4). The first host+feature is **JS optics**: it writes
- *  an `@scalascript/optics` npm ESM package (`package.json` + `index.mjs` + `optics.d.ts`) with no
- *  `.ssc`/ScalaScript runtime dependency at the consumer's edge. More host/feature combos follow
- *  the same packager shape. */
+ *  (Task B, `specs/polyglot-libraries.md` §4), with no `.ssc`/ScalaScript runtime dependency at the
+ *  consumer's edge. Supported today: **JS optics** (an `@scalascript/optics` npm ESM package) and
+ *  **JVM optics** (a buildable `ssc-optics` sbt Scala library). More host/feature combos follow the
+ *  same packager shape. */
 final class EmitLibCmd extends CliCommand:
   def name = "emit-lib"
   override def summary =
-    "Emit a feature as a standalone per-host library (e.g. JS optics → npm package)"
+    "Emit a feature as a standalone per-host library (e.g. optics → npm package / sbt library)"
   override def category = "Emit & transpile"
   override def details = List(
-    "Flags: --host <js> (default: js), --feature <optics> (default: optics),",
+    "Flags: --host <js|jvm> (default: js), --feature <optics> (default: optics),",
     "       -o <dir> (default: ./<feature>-<host>-lib/), --version <semver> (default: 0.1.0)",
-    "Supported today: --host js --feature optics",
+    "Supported today: --host js --feature optics, --host jvm --feature optics",
   )
 
   def run(args: List[String]): Unit =
@@ -35,17 +35,19 @@ final class EmitLibCmd extends CliCommand:
           sys.exit(1)
 
     val files: Map[String, String] = (host, feature) match
-      case ("js", "optics") => JsLibPackager.opticsNpmPackage(version)
+      case ("js",  "optics") => JsLibPackager.opticsNpmPackage(version)
+      case ("jvm", "optics") => JvmLibPackager.opticsScalaPackage(version)
       case _ =>
         System.err.println(
           s"emit-lib: unsupported combination --host $host --feature $feature " +
-          "(supported: --host js --feature optics)")
+          "(supported: --host js|jvm --feature optics)")
         sys.exit(1)
 
     val dir = os.Path(outDir.getOrElse(s"$feature-$host-lib"), os.pwd)
     os.makeDir.all(dir)
     for (fileName, content) <- files.toList.sortBy(_._1) do
-      val out = dir / fileName
+      val out = dir / os.RelPath(fileName)   // may be nested (e.g. src/main/scala/…)
+      os.makeDir.all(out / os.up)
       os.write.over(out, content)
       System.err.println(s"Wrote $out (${content.length} bytes)")
     System.err.println(s"$feature $host library written to $dir")
