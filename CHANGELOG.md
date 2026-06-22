@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — core-min: 6 more bundled-effect runner names migrated off the Typer prelude (prelude-migrate batch)
+
+Following the `runRandom` proof, six variadic bundled-effect runner keywords leave the hardcoded Typer
+prelude `effectBuiltins` and move into their plugins' `preludeSymbols`: `runRetry` / `runRetryNoSleep`
+(retry-plugin), `runCache` / `runCacheBypass` (cache-plugin), `runClock` (clock-plugin), `runEnv`
+(env-plugin). Each plugin now DECLARES its runner name(s) via `Backend.preludeSymbols`; `ssc check`
+resolves them through the bundled plugin rather than a core hardcode. The typed runner siblings
+(`runClockAt` / `runEnvWith`, `runnerType2`-typed) STAY in core for now — moving them needs the
+effect-discharge type to travel with the symbol. `PreludeMigratedRunnersTest` locks all six: a
+plugin-less strict typecheck flags the name, a typecheck carrying the plugin's `preludeSymbols`
+resolves it (so re-hardcoding to core, or dropping the plugin declaration, regresses). typer + full
+plugin-tests 668/0.
+
 ## 2026-06-22 — feat(rust): Tier-2 single-perform multi-shot (continuation-as-closure) — R.6 Slice 3
 
 Handles multi-shot effect handlers that resume in **arbitrary** ways (not a monad `flatMap` — e.g.
