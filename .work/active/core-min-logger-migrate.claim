@@ -1,6 +1,0 @@
-feature/logger-plugin-extract 2026-06-22T09:48:30Z
-agent: claude (lucky-otter)
-heartbeat: 2026-06-22T09:48:30Z
-status: in-progress
-done-so-far: lazy-ServiceLoader dispatch landed; now the build-heavy Logger removal per plan
-next: logger-effect-plugin module + PluginSpec wiring + move Logger tests + remove core Logger
