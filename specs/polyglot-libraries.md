@@ -1,6 +1,16 @@
 # ScalaScript as portable polyglot libraries (minimal core + cross-language reuse)
 
-Status: **draft spec (2026-06-22)**. Design only — no implementation yet.
+Status: **draft spec with implementation slices landed (2026-06-22)**.
+
+Implementation update (2026-06-22): the original "design only" baseline below is now
+partly implemented. The block-form SPI, typed `SpiValue` boundary, plugin
+`preludeSymbols`, logger/random/clock/env/state/retry/cache/http effect migrations,
+JS runtime-resource extraction, and the no-domain bundled plugin distribution split
+have landed. The standalone `Backend.effectHandlers` map sketched in early sections
+was superseded by the implemented `Backend.blockForms` + per-block `EffectHandler`
+contract described in §2d and proven by the effect plugins. Remaining extraction work
+is tracked by the active SPRINT items (`coremin-actors-migrate`, `core-min-phase3plus`,
+`core-min-value-unification`) instead of this spec-writing task.
 
 This spec unifies two sprint directives from Sergiy:
 

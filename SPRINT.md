@@ -273,13 +273,12 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       Typer hardcoded advanced compatibility names; strict opt-in typing waits for advanced plugins to
       publish enough `preludeSymbols`. Verification: `cd /Users/sergiy/work/my/scalascript-wt-coremin-hybrid-split && sbt "cli/compile"` passed in 82s; `cd /Users/sergiy/work/my/scalascript-wt-coremin-hybrid-split && sbt "cli/installBin"` passed and produced the two directories/counts above. Bonus guardrail: `installBin` now fails if the explicit `pluginPkgs` list is missing or duplicating an `allPlugins` id; this caught and fixed the pre-existing omission of `fs`/`os`/`yaml` from staged `.sscpkg` files.
 
-- [~] **polyglot-libraries-spec** ✓ SPEC DRAFTED 2026-06-22 — `specs/polyglot-libraries.md`. Unifies A (minimize
-      core) + B (cross-language reuse). Key findings: the SPI/plugin spine exists (40 std + 13 backend plugins,
-      `IntrinsicImpl`, lazy loading) but ~6–7.5K LOC of FEATURE code is still baked into the interpreter core
-      because the SPI can register named intrinsics but NOT (i) block-forms (`runLogger`/`runActors`/`httpClient`
-      — 27 hardcoded in `EvalRuntime`), (ii) effect handlers (`Perform` resolvers in `EffectHandlers.scala`), or
-      (iii) Typer prelude symbols (`effectBuiltins`/`pluginObjects`/`pluginBuiltins` — ~150 hardcoded names).
-      The keystone = 3 small additive SPI hooks (`blockForms`, `effectHandlers`, `preludeSymbols`/`typeSignatures`).
+- [x] **polyglot-libraries-spec** ✓ SPEC CLOSED 2026-06-22 — `specs/polyglot-libraries.md` now reflects that the
+      original draft has implementation slices landed. It unifies A (minimize core) + B (cross-language reuse);
+      the original baseline found ~6–7.5K LOC of feature code still baked into interpreter core, but since then
+      the block-form SPI, typed `SpiValue`, plugin `preludeSymbols`, multiple effect migrations, JS runtime-resource
+      extraction, and no-domain bundled plugin distribution split have landed. Remaining implementation work is
+      tracked by separate active items (`coremin-actors-migrate`, `core-min-phase3plus`, `core-min-value-unification`).
 - [x] **core-min-phase1-logger-keystone** (A — the SPI keystone) ✓ KEYSTONE PROVEN END-TO-END 2026-06-22. The
       block-form + effect-handler plugin SPI now works: a plugin can contribute a `keyword { body }` effect-runner
       and the interpreter dispatches to it. 5 increments on origin/main: (1) `c2eec8d3c` generic effect trampoline

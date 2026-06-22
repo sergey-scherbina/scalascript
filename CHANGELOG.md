@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — docs: close polyglot libraries spec-writing task
+
+Closed `polyglot-libraries-spec`. The spec now says the original design-only baseline
+has implementation slices landed: block-form SPI, typed `SpiValue`, plugin
+`preludeSymbols`, several effect migrations, JS runtime resources, and the no-domain
+bundled plugin split. Remaining implementation work stays in separate SPRINT items.
+
 ## 2026-06-22 — docs: close coremin stream migration board scope
 
 Closed `coremin-stream-migrate` as deliberately deferred. The prior investigation stands:
