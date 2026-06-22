@@ -119,18 +119,27 @@ the plugin to interpreter internals** — defeating the point.
 (`effect.rs`: `Handler = Box<dyn Fn(&[EffArg]) -> EffArg>` + a `run_with` driver that owns the
 loop). Concretely:
 
+The values crossing the boundary are typed — **not `Any`** — via a host-neutral, closed
+`SpiValue` ADT defined in the spi module (the interp converts its runtime `Value` ↔
+`SpiValue`). Effect ops are almost all primitives, so the closed cases cover them; an
+`Opaque(AnyRef)` case round-trips a closure/case-class unchanged. (Landed 2026-06-22 —
+`SpiValue.scala`.) The contract (also in the spi module, depends only on `SpiValue`):
+
 ```scala
-// In the SHARED spi module (NOT the interpreter) — depends only on `Value`:
-trait EffectHandler:
-  /** Reply to one operation; `state` is the handler's own mutable cell (e.g. a log
-   *  accumulator). The CORE drives the Perform/FlatMap trampoline and resumes with this
-   *  value — the plugin never touches `Computation`. */
-  def reply(ctx: EffectContext, op: String, args: List[Value], state: HandlerState): Value
+enum SpiValue:
+  case IntV(Long); case DoubleV(Double); case StrV(String); case BoolV(Boolean); case UnitV
+  case ListV(List[SpiValue]); case TupleV(List[SpiValue]); case OptV(Option[SpiValue])
+  case MapV(List[(SpiValue, SpiValue)]); case Opaque(AnyRef)   // closure/user object, passed through
+
+trait EffectHandler:                              // a stateful per-block-entry handler
+  /** Reply to one operation; the CORE drives the Perform/FlatMap trampoline and resumes with
+   *  this value — the plugin never touches `Computation`, and matches `SpiValue` type-safely. */
+  def reply(op: String, args: List[SpiValue]): SpiValue
 
 trait BlockForm:
-  def effectName: String                       // e.g. "Logger" — which Perform to intercept
-  def newState(ctx: BlockContext, args: List[Value]): HandlerState   // sink/format/accumulator
-  def result(bodyResult: Value, state: HandlerState): Value          // e.g. (result, collectedLogs)
+  def effectName: String                                          // e.g. "Logger"
+  def newHandler(ctx: BlockContext, args: List[SpiValue]): EffectHandler  // sink/format/accumulator
+  def result(bodyResult: SpiValue, handler: EffectHandler): SpiValue      // e.g. (result, collectedLogs)
 ```
 
 The `EffectsRuntime` `Perform`/`FlatMap` loop (which stays core) gains one fallback: for a

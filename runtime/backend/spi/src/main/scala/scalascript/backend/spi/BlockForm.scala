@@ -7,7 +7,8 @@ package scalascript.backend.spi
  *  The interpreter owns the effect trampoline (`EffectHandlers.runWithHandler`); a plugin
  *  supplies only a stateful per-entry handler whose `reply(op, args)` returns the value to
  *  resume the body with — it never touches the interpreter's `Computation`. Values cross the
- *  boundary as `Any`, using the same `Value`↔`Any` unwrap/wrap as `NativeImpl`. */
+ *  boundary as the typed, host-neutral [[SpiValue]] (the interp converts its runtime `Value`
+ *  to/from `SpiValue`), so the contract is type-safe and the plugin stays decoupled. */
 trait BlockForm:
   /** The `Perform` effect tag this runner intercepts within the body (e.g. `"Logger"`). */
   def effectName: String
@@ -15,16 +16,16 @@ trait BlockForm:
   /** A fresh stateful handler for one block entry. `args` are the head-clause argument values
    *  (e.g. a seed for `runRandomSeeded(seed) { … }`); `ctx` exposes the runtime sinks a handler
    *  may need (stdout, …). */
-  def newHandler(ctx: BlockContext, args: List[Any]): EffectHandler
+  def newHandler(ctx: BlockContext, args: List[SpiValue]): EffectHandler
 
   /** Combine the body's result with the handler's final state. Default: just the body result.
    *  Override for collectors like `runLoggerToList { … }` → `(result, collectedLogs)`. */
-  def result(bodyResult: Any, @scala.annotation.unused handler: EffectHandler): Any = bodyResult
+  def result(bodyResult: SpiValue, @scala.annotation.unused handler: EffectHandler): SpiValue = bodyResult
 
 /** Replies to one effect operation. The interpreter resumes the body with the returned value
  *  (one-shot). A handler is stateful (created per block entry by `BlockForm.newHandler`). */
 trait EffectHandler:
-  def reply(op: String, args: List[Any]): Any
+  def reply(op: String, args: List[SpiValue]): SpiValue
 
 /** Runtime sinks a block-form handler may consult, supplied by the interpreter at the call site. */
 trait BlockContext:
