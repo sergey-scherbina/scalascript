@@ -336,17 +336,17 @@ registry, DNS name, or hosting.
 
 **Behavior**
 
-- [ ] The build registry classifies every in-tree std plugin as either **essential**
+- [x] The build registry classifies every in-tree std plugin as either **essential**
   (bundled and auto-loaded from `bin/lib/compiler/plugins`) or **advanced** (bundled
   locally but not auto-loaded).
-- [ ] `installBin` stages essential `.sscpkg` files in the existing auto-load directory
+- [x] `installBin` stages essential `.sscpkg` files in the existing auto-load directory
   and stages advanced `.sscpkg` files in a sibling local-availability directory
   (`bin/lib/compiler/plugin-available`). No network, registry domain, or hosting is
   required for this artifact split.
-- [ ] Advanced plugins remain usable explicitly through existing local mechanisms:
+- [x] Advanced plugins remain usable explicitly through existing local mechanisms:
   `ssc --plugin <path-to-sscpkg> ...` for one command, or `ssc plugin install
   <path-to-sscpkg>` to copy the archive into the user's plugin directory.
-- [ ] The split must not remove advanced names from the Typer prelude in the same
+- [x] The split must not remove advanced names from the Typer prelude in the same
   change. Strict opt-in typing is a follow-up after each advanced plugin publishes
   adequate `preludeSymbols`; otherwise this slice would regress `ssc check` for
   existing examples without giving users a local install path first.
@@ -365,6 +365,19 @@ Advanced plugins are opt-in because they are provider-specific, security-sensiti
 heavy, peripheral, deployment-oriented, or UI/platform-specific: `swing`, `auth`,
 `oauth`, `sql`, `pwa`, `nfc`, `dstreams`, `graphql`, `payment-request`, `payments`,
 `crypto`, `pdf`, and `smtp`.
+
+**Results (2026-06-22)**
+
+- `cd /Users/sergiy/work/my/scalascript-wt-coremin-hybrid-split && sbt "cli/compile"`
+  passed in 82s.
+- `cd /Users/sergiy/work/my/scalascript-wt-coremin-hybrid-split && sbt "cli/installBin"`
+  passed in 10s after the compile warmup and staged **25** essential `.sscpkg` files in
+  `bin/lib/compiler/plugins` plus **13** advanced `.sscpkg` files in
+  `bin/lib/compiler/plugin-available`.
+- The explicit `installBin` package list now validates against `allPlugins` and fails
+  on missing or duplicate std plugin ids. The validation caught the pre-existing omission
+  of `fs`, `os`, and `yaml` from the staged `.sscpkg` list; those are now staged as
+  essential plugins.
 
 **Out of scope**
 

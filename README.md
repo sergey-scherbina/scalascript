@@ -337,7 +337,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | Dependency imports | `[X](dep:org/lib:1.2)` legacy source resolver, `[X](dep:org:name:version)` Coursier resolver, `[X](jitpack:com.github.owner:repo:tag)`, `[X](github:owner/repo@tag[#asset])`, `sha256:` pins, `ssc.lock` |
 | Package registry | `ssc search` / `ssc info` / `ssc add` against `https://sergey-scherbina.github.io/scalascript/packages.yaml` by default, overrideable with `--registry` or `registry.url` |
 | Project scaffolding | `ssc new my-app`, `--template lib|plugin|dsl|web-app|wasm-app`, bundled templates,`releases/install.sh`, Homebrew formula source |
-| Plugin system | `.sscpkg` format, `ssc plugin install/list/uninstall/check/pack`, `~/.scalascript/registry.yaml` |
+| Plugin system | `.sscpkg` format, essential bundled plugins auto-loaded from `bin/lib/compiler/plugins`, advanced bundled plugins available locally under `bin/lib/compiler/plugin-available` and enabled with `--plugin` / `ssc plugin install`, `~/.scalascript/registry.yaml` |
 | sbt integration | `ScalascriptInteropPlugin`, `sscGenerateFacade`, `sscCompile`, `sscLink`, `sscTest`, `sscRun`, `sscRepl`, `sscWatch`, `sscBspSetup`, `sscBackends` cross-build (emit JVM/JS/Rust/Wasm artifacts from one source), Phase 5 dependency resolution, `src/main/scalascript/` source convention |
 | Config system | `config:` front-matter, ` ```yaml config "name" ` fenced blocks, `config.files: [...]`, typed `derives Config`, `JsConfigEmitter`, `ScalaConfigEmitter` — see `specs/config-system.md` |
 | Separate compilation | `ssc emit-interface`, `ssc emit-ir`, `ssc compile-jvm/compile-js`, `ssc link`, `ssc build --incremental`, `.scim/.scir/.scjvm/.scjs`; `.scir` and `.sscc` preserve Markdown content snapshots when present |
@@ -769,6 +769,10 @@ ssc plugin pack  _pkg/   -o org.example.crypto-1.0.0.sscpkg
 ssc plugin install      ./org.example.crypto-1.0.0.sscpkg   # permanent
 ssc --plugin ./org.example.crypto-1.0.0.sscpkg run use-crypto.ssc  # ad-hoc
 ```
+
+Installed distributions also include first-party advanced plugins locally under
+`bin/lib/compiler/plugin-available`; use `--plugin` with one of those `.sscpkg`
+files when you want opt-in capabilities without a registry domain.
 
 See [`examples/plugins/crypto-plugin/`](examples/plugins/crypto-plugin/) for a
 complete worked example and `docs/user-guide.md §21` for the full API reference.

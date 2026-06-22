@@ -4213,11 +4213,14 @@ ssc plugin pack _pkg -o org.example.crypto-1.0.0.sscpkg
 ### 21.6 Installing and using plugins
 
 ```bash
-# Install permanently in ~/.scalascript/plugins/
+# Install permanently in ~/.scalascript/compiler/plugins/
 ssc plugin install ./org.example.crypto-1.0.0.sscpkg
 
 # Ad-hoc for a single run
 ssc --plugin ./org.example.crypto-1.0.0.sscpkg run my-script.ssc
+
+# Use a bundled advanced plugin without a public registry/domain
+ssc --plugin bin/lib/compiler/plugin-available/sql-plugin.sscpkg run my-script.ssc
 
 # Inspect installed plugins
 ssc plugin list
@@ -4235,18 +4238,32 @@ import — an unused plugin adds zero overhead.
 
 ### 21.7 Built-in plugins
 
-All standard capabilities beyond the core language are shipped as
-`.sscpkg` plugins bundled with `ssc`:
+Standard capabilities beyond the core language are shipped as `.sscpkg` plugins
+bundled with `ssc`.
+
+Essential plugins are auto-loaded from `bin/lib/compiler/plugins` so existing
+programs keep working without extra flags: `json`, `content`, `frontend`,
+`request`, `fetch`, `graph`, `http`, `ws`, `mcp`, `remote`, `streams`, `deploy`,
+`uuid`, `mime`, `fs`, `os`, `yaml`, `bench`, `logger`, `random`, `clock`, `env`,
+`state`, `retry`, and `cache`.
+
+Advanced plugins are bundled locally but not auto-loaded. They live under
+`bin/lib/compiler/plugin-available` and can be enabled with `ssc --plugin
+bin/lib/compiler/plugin-available/<name>.sscpkg ...` or installed permanently
+with `ssc plugin install bin/lib/compiler/plugin-available/<name>.sscpkg`.
+This is the no-domain path for opt-in capabilities such as `auth`, `oauth`,
+`sql`, `crypto`, `payments`, `payment-request`, `pdf`, `smtp`, `graphql`,
+`dstreams`, `pwa`, `nfc`, and `swing`.
 
 | Plugin | Intrinsics it provides |
 |--------|----------------------|
 | `std/json-plugin` | `jsonStringify`, `jsonParse`, `jsonRead`, `lookup`, `lookupOpt` |
 | `std/http-plugin` | `serve`, `route`, `httpGet`, `httpPost`, `Response.*` |
-| `std/sql-plugin` | `Db.query`, `Db.execute`, `Db.insert`, `Db.update`, `Db.transaction` |
+| `std/sql-plugin` | `Db.query`, `Db.execute`, `Db.insert`, `Db.update`, `Db.transaction` (advanced; opt-in) |
 | `std/ws-plugin` | `wsRoute`, `wsBroadcast`, `WsSession.*` |
 | `std/frontend-plugin` | `lower`, `serve` (UI), `emit` |
 | `std/fetch-plugin` | `fetchAction`, `fetchUrlSignal`, `incSignal` |
-| `std/auth-plugin` | `session`, `jwt`, `oauth2` |
+| `std/auth-plugin` | `session`, `jwt`, `oauth2` (advanced; opt-in) |
 | `std/mcp-plugin` | `mcpServer`, `mcpTool` |
 
 Third-party plugins follow the same `.sscpkg` format.  See
