@@ -36,47 +36,9 @@ private[interpreter] object EffectHandlers:
     run(initial)
 
   // ── Logger ──────────────────────────────────────────────────────────
-
-  def loggerRun(
-    initial: Computation,
-    format:  String,
-    sink:    java.io.PrintStream
-  ): Computation =
-    def write(level: String, msg: String): Unit = format match
-      case "json" =>
-        sink.println(s"""{"level":"$level","msg":${loggerJsonStr(msg)}}""")
-      case _ =>
-        sink.println(s"[${level.toUpperCase}] $msg")
-    runWithHandler(initial, "Logger", (op, args, resume) =>
-      args match
-        case List(v) => write(op, Value.show(v)); resume(Value.UnitV)
-        case _       => throw InterpretError(s"Logger.$op(msg)"))
-
-  // Returns (bodyResult, List((level, msg), …)) as a TupleV pair.
-  def loggerToListRun(initial: Computation): Computation =
-    val log = scala.collection.mutable.ListBuffer.empty[(String, String)]
-    val ran = runWithHandler(initial, "Logger", (op, args, resume) =>
-      args match
-        case List(v) => log += (op -> Value.show(v)); resume(Value.UnitV)
-        case _       => throw InterpretError(s"Logger.$op(msg)"))
-    ran.flatMap { v =>
-      val entries = Value.ListV(log.toList.map { (lv, msg) =>
-        Value.TupleV(Value.StringV(lv) :: Value.StringV(msg) :: Nil)
-      })
-      Pure(Value.TupleV(v :: entries :: Nil))
-    }
-
-  def loggerJsonStr(s: String): String =
-    val sb = new StringBuilder("\"")
-    s.foreach {
-      case '"'  => sb.append("\\\"")
-      case '\\' => sb.append("\\\\")
-      case '\n' => sb.append("\\n")
-      case '\r' => sb.append("\\r")
-      case '\t' => sb.append("\\t")
-      case c    => sb.append(c)
-    }
-    sb.append('"').toString
+  // EXTRACTED to `logger-effect-plugin` (core-minimization, polyglot-libraries §2d).
+  // The runners now live in the plugin and dispatch through `Backend.blockForms` +
+  // `runWithHandler` above; nothing Logger-specific remains in interpreter core.
 
   // ── Random ──────────────────────────────────────────────────────────
 

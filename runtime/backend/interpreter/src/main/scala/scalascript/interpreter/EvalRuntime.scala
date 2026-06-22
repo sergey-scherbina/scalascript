@@ -3016,7 +3016,7 @@ private[interpreter] object EvalRuntime:
     "bench", "computed", "effect", "handle", "httpClient", "receive", "restartable",
     "runActors", "runAsync", "runAsyncParallel", "runAuthWith", "runCache", "runCacheBypass",
     "runClock", "runClockAt", "runEnv", "runEnvWith", "runEphemeralStorage", "runHttp",
-    "runHttpStub", "runLogger", "runLoggerJson", "runLoggerToList", "runRandom",
+    "runHttpStub", "runRandom",
     "runRandomSeeded", "runRetry", "runRetryNoSleep", "runState", "runStorage", "runStream",
     "runSideEffect", "runTx", "timeout", "validate", "withFixedUuid", "Focus")
 
@@ -3493,18 +3493,9 @@ private[interpreter] object EvalRuntime:
       StorageRuntime.interp(eval(bodyArgClause.values.head, env, interp), None)
 
     // ── v1.4 Logger effect handlers ───────────────────────────────────────
-    // runLogger { body }        — writes "[LEVEL] msg\n" to `interp.out`
-    // runLoggerJson { body }    — writes {"level":"…","msg":"…"} newline JSON
-    // runLoggerToList { body }  — collects log lines; returns (result, list)
-    case Term.Apply.After_4_6_0(Term.Name("runLogger"), bodyArgClause)
-        if bodyArgClause.values.size == 1 =>
-      EffectHandlers.loggerRun(eval(bodyArgClause.values.head, env, interp), "text", interp.out)
-    case Term.Apply.After_4_6_0(Term.Name("runLoggerJson"), bodyArgClause)
-        if bodyArgClause.values.size == 1 =>
-      EffectHandlers.loggerRun(eval(bodyArgClause.values.head, env, interp), "json", interp.out)
-    case Term.Apply.After_4_6_0(Term.Name("runLoggerToList"), bodyArgClause)
-        if bodyArgClause.values.size == 1 =>
-      EffectHandlers.loggerToListRun(eval(bodyArgClause.values.head, env, interp))
+    // runLogger / runLoggerJson / runLoggerToList — EXTRACTED to `logger-effect-plugin`
+    // (core-minimization). They now resolve via the generic block-form dispatch below + the
+    // lazy ServiceLoader path in `evalPlainApply`. (polyglot-libraries §2d.)
 
     // Generic plugin-contributed block-form `keyword { body }` (polyglot-libraries §2d).
     // Fires only for a keyword a loaded plugin registered (`interp.blockForms` is empty until a

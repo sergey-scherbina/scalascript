@@ -18,42 +18,9 @@ class StdEffectsTest extends AnyFunSuite with Matchers:
     ps.flush()
     buf.toString.trim
 
-  // ── Logger ────────────────────────────────────────────────────────────
-
-  test("runLogger writes [LEVEL] lines to output"):
-    captured("""
-      runLogger {
-        Logger.info("hello")
-        Logger.warn("watch out")
-        Logger.error("boom")
-        Logger.debug("trace")
-      }
-    """) shouldBe "[INFO] hello\n[WARN] watch out\n[ERROR] boom\n[DEBUG] trace"
-
-  test("runLoggerJson writes newline-delimited JSON"):
-    captured("""
-      runLoggerJson {
-        Logger.info("hi")
-        Logger.error("oops")
-      }
-    """) shouldBe """{"level":"info","msg":"hi"}""" + "\n" + """{"level":"error","msg":"oops"}"""
-
-  test("runLoggerToList returns (result, log) pair"):
-    captured("""
-      val (result, log) = runLoggerToList {
-        Logger.info("a")
-        Logger.warn("b")
-        42
-      }
-      println(result)
-      log.foreach { case (level, msg) => println(level + ":" + msg) }
-    """) shouldBe "42\ninfo:a\nwarn:b"
-
-  test("Logger body result is returned by runLogger"):
-    captured("""
-      val x = runLogger { Logger.info("side"); 99 }
-      println(x)
-    """) shouldBe "[INFO] side\n99"
+  // ── Logger — MOVED to LoggerPluginTest (interpreter-plugin-tests) ─────────
+  // The Logger effect was extracted from interpreter core into `logger-effect-plugin`
+  // (core-minimization); its four cases now run there via the lazy ServiceLoader path.
 
   // ── Random (seeded) ────────────────────────────────────────────────────
 
