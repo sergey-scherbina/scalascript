@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — refactor(jvm): JVM runtime-source templates → `.scala` resources (polyglot §3 #8, JVM)
+
+Mirror of the JS `.mjs`-resource cleanup for the JVM backend. The big emitted-Scala runtime templates in
+`JvmGenRuntimeSources` (3656 → 61 lines) move into resource files under
+`resources/scalascript/jvm-runtime/`, loaded by a new cached `JvmRuntimeResource.load`. The 5 `memo()`
+runtimes become 11 resource chunks (`stubServeRuntime`, `fsRuntime`, `generatorRuntime`, `reactiveRuntime`,
+and `effectsRuntime1`–`7` — the effects runtime was a 7-way size-split for the JVM 64 KB string-constant
+cap). The resource holds the verbatim `|`-margined body and the loader applies `.stripMargin`, and the
+7 effects chunks stay `+`-concatenated in code — so the result is **byte-identical** to the former
+`"""…""".stripMargin` literals by construction (verified: each resource `diff`-clean vs `git HEAD`).
+`backendJvm` compiles; `JvmGenEffectsRuntimeTest` green. Spec `specs/js-runtime-resources.md`.
+
 ## 2026-06-22 — feat(cli): `ssc emit-lib` — emit a feature as a standalone host library
 
 Makes the optics npm packager (`JsLibPackager`, previously test-only) user-reachable. `ssc emit-lib

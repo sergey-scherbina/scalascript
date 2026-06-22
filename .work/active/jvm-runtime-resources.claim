@@ -1,6 +1,0 @@
-feature/jvm-runtime-resources 2026-06-22
-agent: claude (bright-quail)
-heartbeat: 2026-06-22T18:50:27Z
-status: in-progress
-done-so-far: JVM slice of jvm-rust-runtime-resources. Approach: verbatim body -> resource; loader applies .stripMargin -> byte-identical by construction (zero risk).
-next: JvmRuntimeResource.load(name) = read("/scalascript/jvm-runtime/"+name).stripMargin (cached). Script: for each `JvmGenRuntimeCache.memo("KEY"): """...""".stripMargin` in JvmGenRuntimeSources.scala, extract verbatim body -> resources/scalascript/jvm-runtime/KEY, replace the string expr with JvmRuntimeResource.load("KEY"). Verify: resource == verbatim body (extracted), backendJvm compiles, JVM codegen tests green. Then a separate rust-runtime-resources slice (17 stripMargin; SKIP the 1 s"""-interpolated).
