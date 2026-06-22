@@ -44,6 +44,11 @@ trait Backend:
    *  Default empty — most backends contribute no custom checks. */
   def interpolatorChecks: List[InterpolatorCheck] = Nil
 
+  /** Effect-runner block-forms this plugin contributes (`keyword { body }`), keyed by keyword
+   *  (e.g. `"runLogger"`). Lets feature runners live in plugins instead of being hardcoded in
+   *  the interpreter. Default empty. See `specs/polyglot-libraries.md §2d`. */
+  def blockForms: Map[String, BlockForm] = Map.empty
+
   /** One-shot compilation. */
   def compile(ir: NormalizedModule, opts: BackendOptions): CompileResult
 
