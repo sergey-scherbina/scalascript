@@ -1,6 +1,0 @@
-feature/state-plugin-extract 2026-06-22T11:21:33Z
-agent: claude (lucky-otter)
-heartbeat: 2026-06-22T11:21:33Z
-status: in-progress
-done-so-far: Logger/Random/Clock/Env extracted (pure-reply effects). State needs closure-apply (modify f).
-next: add BlockContext.applyFn (defaulted) → interp callValue; state-effect-plugin; remove core stateRun

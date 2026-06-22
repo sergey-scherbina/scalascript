@@ -95,6 +95,18 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       `reservedApplyHeads` names. Tests moved `StdEffectsTest`→`ClockPluginTest`+`EnvPluginTest`. Verified:
       interpreter **169 green**, full plugin-tests **647 green** (1 env-gated cancel). FOUR effects are now
       plugins: Logger, Random, Clock, Env.
+- [x] **core-min-state-migrate** (A) — ✓ DONE 2026-06-22. State extracted to `state-effect-plugin`. State is
+      the first NON-pure-reply effect: `State.modify(f)` must *apply a ScalaScript closure*, which the
+      pure-reply SPI couldn't do. **Grew the SPI by exactly one capability — `BlockContext.applyFn(fn, args)`**
+      (defaulted to throw → backward-compatible; the interpreter overrides it, routing back through
+      `callValue` + synchronous `Computation.run`, parity with the old `callValue1`). `StateBlockForm` under
+      `runState`; `newHandler` takes the initial state (config arg); get/set/modify reply over `SpiValue`;
+      the `result` hook returns `(finalState, bodyResult)`. Removed core `stateRun` + case + `reservedApplyHeads`
+      name. Tests `StdEffectsTest`→`StatePluginTest`. Verified: interpreter **165 green**, full plugin-tests
+      **651 green** (1 env cancel). **FIVE effects now plugins: Logger, Random, Clock, Env, State.** Probed and
+      recorded: the REMAINING runners (Retry/Cache/Http/Actors) also need interp callbacks — Retry/Cache via
+      `applyFn` (thunks); Http additionally needs to construct a `Response` record (no `SpiValue` record case
+      yet → would need a `BlockContext.makeRecord` or an Opaque-instance helper); Actors need the message loop.
 - [ ] **polyglot-phase2-optics-allhosts** (B) — prove the per-host library packaging end-to-end on the EASY case:
       take a PURE module (optics — zero effects, zero host coupling) and publish it to all four hosts (JVM jar +
       Java facade + npm + Rust crate) with a golden API-signature test per host. Validates the value-mapping +
