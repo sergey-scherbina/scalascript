@@ -1,6 +1,6 @@
 feature/coremin-actors-board-reconcile 2026-06-22T21:31:58Z
 agent: codex
-heartbeat: 2026-06-22T21:31:58Z
-status: not-started
-done-so-far: queued plan in SPRINT.md
-next: collapse duplicate coremin-actors-migrate entries; docs only
+heartbeat: 2026-06-22T21:32:07Z
+status: in-progress
+done-so-far: plan committed and claim pushed
+next: mark one actors duplicate superseded, verify exactly one open actors entry
