@@ -169,20 +169,25 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
 **B→A (enabler-first)**; language forms + hot-path stdlib stay core **forever**; **hybrid** distribution
 (essential plugins bundled, advanced opt-in via `pkg:`). Task sequence:
 
-- [ ] **coremin-prelude-spi** (B — THE keystone, do FIRST) — the `preludeSymbols`/`typeSignatures` SPI hook
-      so a plugin declares its check-time public symbols and `ssc check` resolves them without the ~150
-      names hardcoded in the Typer prelude (`effectBuiltins`/`pluginObjects`/`pluginBuiltins`). Today
-      `pluginBuiltins` is `Set[String]` from `BackendRegistry.inProcess.flatMap(_.intrinsics.keys)`
-      (`Main.scala:5485`) — names only, intrinsics only; block-form/effect/object symbols + types are NOT
-      covered. This hook makes ALL extraction check-clean. **DECIDED 2026-06-22 (Sergiy): names + full
-      type-signatures.** DESIGN (reuse, don't invent): the `.scim`/`ModuleInterface`/`ExportedSymbol` format
-      ALREADY carries typed symbols via `typeEvidence` (`tpe = SType.show` + `kind`) and `Typer.
-      typeCheckWithInterfaces(module, interfaces)` already consumes it for imports. So add a Backend SPI hook
-      `def preludeInterface: Option[ModuleInterface] = None` (plugin declares its public symbols with
-      signatures as `ExportedSymbol`s); `ssc check` (`Main.scala:5485`) merges plugin interfaces into the
-      `interfaces` map fed to the Typer → real type-checking of plugin-intrinsic calls, replacing names-only
-      `pluginBuiltins`. Spec slice in `specs/polyglot-libraries.md` first, then implement + wire + migrate one
-      plugin to prove it + tests.
+- [x] **coremin-prelude-spi** ✓ KEYSTONE DONE 2026-06-22 (`0ef0bde11`, mellow-shrew) — the SPI hook so a
+      plugin declares its check-time public symbols WITH type-signatures and `ssc check` resolves AND
+      type-checks calls to them, no hardcoded core list. Decided shape: names+full signatures. Reuse, don't
+      invent: `ExportedSymbol` already encodes typed symbols; `InterfaceScope.parseSType`/`parseKind`
+      (made `private[scalascript]`) invert `SType.show`. **`Backend.preludeSymbols: List[ExportedSymbol]`**
+      (chose the flat symbol list over a full `ModuleInterface` wrapper — no magic/abiVersion/sourceHash
+      boilerplate); Typer gains a `preludeSymbols` ctor param → `createPrelude` defines each with its declared
+      type (not the untyped `variadic`); `ssc check` (`Main.scala`) collects
+      `BackendRegistry.inProcess.flatMap(_.preludeSymbols)` + threads it in; `pluginBuiltins` (names-only) kept
+      as fallback. Additive/no-op when empty. Proof `TyperPreludeSymbolsTest` (without→undefined; with→resolves;
+      declared type flows — return-mismatch flagged, correct call passes); typer+artifact 499/0. Spec
+      `specs/core-min-prelude-spi.md`. NOTE: hook lives at the Typer/`check` layer only (codegen backends are a
+      separate concern).
+- [ ] **coremin-prelude-migrate** (B follow-on, after the keystone) — actually shrink core: migrate real
+      plugins to DECLARE their public symbols via `preludeSymbols` (typed) and REMOVE them from the core
+      `effectBuiltins`/`pluginObjects`/`pluginBuiltins` lists in `Typer.createPrelude` (~150 names) + the
+      names-only `pluginBuiltins` seam. Per-plugin; run `ssc check` with the plugin loaded end-to-end (use the
+      `interpreter-plugin-tests` classpath where plugins ARE loaded). Decide the signature convention for
+      block-form keywords (`runLogger { … }`) vs ordinary `def` intrinsics. This is the payoff of the keystone.
 - [ ] **coremin-http-migrate** (A — after the keystone) — extract the Http runner (`httpClient`) to a plugin.
       Needs a new SPI capability: `SpiValue` has no record case, so building a `Response` requires
       `BlockContext.makeRecord(...)` (or an Opaque-instance helper). Copy the State/Retry/Cache template +

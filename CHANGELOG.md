@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — core-min keystone: typed plugin prelude (`Backend.preludeSymbols`)
+
+The enabler for "extract everything into plugins" (charter: B→A). A plugin declares its public prelude
+symbols WITH type-signatures (`Backend.preludeSymbols: List[ExportedSymbol]`, `tpe` = `SType.show` string);
+`ssc check` resolves AND type-checks calls to them, with no hardcoded core list. Reuse, don't invent:
+`ExportedSymbol` already encodes typed symbols and `InterfaceScope.parseSType`/`parseKind` invert
+`SType.show` — the Typer prelude defines each plugin symbol with its declared type instead of the untyped
+`variadic`. `ssc check` collects `BackendRegistry.inProcess.flatMap(_.preludeSymbols)` and threads it into the
+Typer; `pluginBuiltins` (names-only) stays as fallback; additive/no-op when empty (no regression). Proof
+`TyperPreludeSymbolsTest` (resolves only with the hook; declared type flows — return-mismatch flagged,
+correct call passes); typer+artifact 499/0. Spec `specs/core-min-prelude-spi.md`. Next: `coremin-prelude-migrate`
+moves real plugins' symbols off the ~150-name core lists. (`0ef0bde11`)
+
 ## 2026-06-22 — feat(jvm): optics JVM library (`emit-lib --host jvm`) — Phase 2 second host
 
 Second per-host optics library (after JS), polyglot-libraries Phase 2. `ssc emit-lib --host jvm
