@@ -156,3 +156,32 @@ class RustGenMultiShotTest extends AnyFunSuite:
       if res.exitCode != 0 then fail(s"cargo run failed (exit ${res.exitCode}):\n${res.err.text()}")
       assert(res.out.text().trim.toLongOption.isDefined, s"expected an integer, got: ${res.out.text().trim}")
     finally os.remove.all(crateDir)
+
+  // ── Tier-1 Option monad (Slice 2) ────────────────────────────────────────
+  // NOTE: end-to-end (cargo-run) isn't possible yet — the Rust backend can't *consume* a native
+  // `Option` result (no `Some`/`None` match patterns, no `getOrElse`) — an orthogonal gap, BACKLOG
+  // `rust-option-consumption`. So this is a codegen golden on the (correct) lowering; the produced
+  // `Option<i64>` is well-formed and runs once Option consumption lands.
+  private val maybeSrc =
+    """```scalascript
+      |multi effect Maybe:
+      |  def get(o: Option[Int]): Int
+      |
+      |def program(): Int ! Maybe =
+      |  val a = Maybe.get(Some(5))
+      |  val b = Maybe.get(Some(7))
+      |  a + b
+      |
+      |def runMaybe(): Option[Int] = handle(program()) {
+      |  case Maybe.get(o, resume) => o.flatMap(v => resume(v))
+      |}
+      |```
+      |""".stripMargin
+
+  test("multi-shot Option (Maybe) handle lowers to nested if-let Some / else None (Slice 2)"):
+    val rs = rustOf(maybeSrc)
+    assert(rs.contains("if let Some(a) ="), rs)
+    assert(rs.contains("if let Some(b) ="), rs)
+    assert(rs.contains("} else { None }"), rs)
+    assert(rs.contains("Some((a + b))"), rs)
+    assert(!rs.contains("__ms_acc"), "Option monad must not use the List Vec-accumulator path")

@@ -2907,9 +2907,16 @@ object RustCodeWalk:
       case _ =>
         Left(List(unsupported("multi-shot handle must have exactly one case (Slice 1)")))
 
-  /** Inline `handle(defName(args))` over a multi-shot List handler: bind the def's params to the call
-   *  args, turn each `val x = Eff.op(arg)` perform into `for x in <arg> { … }`, and push the pure tail
-   *  into a `Vec`. Straight-line bodies only (Slice 1). */
+  /** The Rust type of effect `eff`'s op `op` first parameter (e.g. `Vec<i64>` / `Option<i64>`) —
+   *  the monad discriminator for Tier-1 multi-shot (spec §11.2). */
+  private def opArgRustType(eff: String, op: String): Option[String] =
+    _effectOps.getOrElse(eff, Nil).collectFirst { case (o, ptypes, _) if o == op => ptypes }.flatMap(_.headOption)
+
+  /** Inline `handle(defName(args))` over a multi-shot handler: bind the def's params to the call args,
+   *  then lower each `val x = Eff.op(arg)` perform per the monad of the op's argument type (spec §11.2):
+   *  **List/Vec** → nested `for x in <arg> { … }` collecting a `Vec` (Slice 1); **Option** → nested
+   *  `if let Some(x) = <arg> { … } else { None }` with the pure tail wrapped `Some(tail)` (Slice 2).
+   *  Straight-line bodies, all performs the same monad. */
   private def inlineMultiShotBody(body: m.Term, eff: String, ctx: Ctx): Either[List[Diagnostic], String] =
     body match
       case m.Term.Apply.After_4_6_0(m.Term.Name(defName), callArgs) if _defBodies.contains(defName) =>
@@ -2920,35 +2927,47 @@ object RustCodeWalk:
           Left(List(unsupported(s"multi-shot inline: arity mismatch calling `$defName`")))
         else dd.body match
           case m.Term.Block(stats) if stats.size >= 2 =>
-            val loopsEs: List[Either[List[Diagnostic], (String, String)]] = stats.init.toList.map {
+            // each init stat: `val vn = Eff.op(arg)` → (vn, op, renderedArg)
+            val performEs: List[Either[List[Diagnostic], (String, String, String)]] = stats.init.toList.map {
               case v: m.Defn.Val =>
                 (v.pats, v.rhs) match
                   case (List(m.Pat.Var(m.Term.Name(vn))),
-                        m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(`eff`), m.Term.Name(_)), opArgs))
+                        m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(`eff`), m.Term.Name(op)), opArgs))
                       if opArgs.values.size == 1 =>
-                    renderTerm(opArgs.values.head, ctx).map(it => (vn, it))
+                    renderTerm(opArgs.values.head, ctx).map(it => (vn, op, it))
                   case _ =>
-                    Left(List(unsupported(s"multi-shot inline (`$defName`): a statement is not `val x = $eff.op(arg)` (Slice 1)")))
+                    Left(List(unsupported(s"multi-shot inline (`$defName`): a statement is not `val x = $eff.op(arg)`")))
               case _ =>
-                Left(List(unsupported(s"multi-shot inline (`$defName`): a non-val statement before the tail (Slice 1)")))
+                Left(List(unsupported(s"multi-shot inline (`$defName`): a non-val statement before the tail")))
             }
             val pbindEs = params.zip(args).map { case (p, a) => renderTerm(a, ctx).map(r => s"let $p = $r;") }
             val tailE   = stats.last match
               case t: m.Term => renderTerm(t, ctx)
               case _         => Left(List(unsupported(s"multi-shot inline (`$defName`): block tail is not an expression")))
-            val (lErr, loops)  = loopsEs.partitionMap(identity)
-            val (pErr, pbinds) = pbindEs.partitionMap(identity)
-            val errs = lErr.flatten ++ pErr.flatten ++ tailE.left.toOption.toList.flatten
+            val (perr, performs) = performEs.partitionMap(identity)
+            val (pErr, pbinds)   = pbindEs.partitionMap(identity)
+            val errs = perr.flatten ++ pErr.flatten ++ tailE.left.toOption.toList.flatten
             if errs.nonEmpty then Left(errs)
             else
-              val push   = s"__ms_acc.push(${tailE.toOption.get});"
-              val nested = loops.foldRight(push) { case ((vn, it), acc) => s"for $vn in $it {\n${indent(acc)}\n}" }
-              val pre    = if pbinds.isEmpty then "" else pbinds.mkString("", " ", " ")
-              Right(s"{ ${pre}let mut __ms_acc = Vec::new();\n${indent(nested)}\n__ms_acc }")
+              val pre       = if pbinds.isEmpty then "" else pbinds.mkString("", " ", " ")
+              val tail      = tailE.toOption.get
+              val argTypes  = performs.map { case (_, op, _) => opArgRustType(eff, op) }
+              if argTypes.forall(_.exists(_.startsWith("Vec<"))) then          // List/NonDet monad
+                val push   = s"__ms_acc.push($tail);"
+                val nested = performs.foldRight(push) { case ((vn, _, it), acc) => s"for $vn in $it {\n${indent(acc)}\n}" }
+                Right(s"{ ${pre}let mut __ms_acc = Vec::new();\n${indent(nested)}\n__ms_acc }")
+              else if argTypes.forall(_.exists(_.startsWith("Option<"))) then  // Option/Maybe monad
+                val nested = performs.foldRight(s"Some($tail)") {
+                  case ((vn, _, it), acc) => s"if let Some($vn) = $it {\n${indent(acc)}\n} else { None }"
+                }
+                Right(s"{ $pre$nested }")
+              else
+                Left(List(unsupported(
+                  s"multi-shot inline (`$defName`): unrecognised/mixed monad — Tier-1 supports all-List or all-Option (spec §11.2)")))
           case _ =>
-            Left(List(unsupported(s"multi-shot inline: body of `$defName` is not a straight-line block (Slice 1)")))
+            Left(List(unsupported(s"multi-shot inline: body of `$defName` is not a straight-line block")))
       case _ =>
-        Left(List(unsupported("multi-shot handle body must be a direct effectful def call `f(args)` (Slice 1)")))
+        Left(List(unsupported("multi-shot handle body must be a direct effectful def call `f(args)`")))
 
   /** Lower a `Term.Match(subject, cases)` to a Rust `match` expression.
    *  Each case's pattern is lowered via `renderPattern`; the body is
