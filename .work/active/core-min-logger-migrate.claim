@@ -1,0 +1,6 @@
+feature/core-min-logger-lazy 2026-06-22T09:24:18Z
+agent: claude (lucky-otter)
+heartbeat: 2026-06-22T09:24:18Z
+status: in-progress
+done-so-far: keystone proven; Sergiy chose lazy-ServiceLoader. Migrating Logger off core.
+next: lazy block-form dispatch (ensurePluginsLoaded on unresolved head) -> logger-effect-plugin module -> remove core Logger -> parity
