@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — fix(rust): index read on a non-Copy seq clones (E0507)
+
+Follow-on bug fix to the rwt-followons below, caught by an end-to-end `cargo run` smoke (the
+`backendRust` suite is string-match only). `seq(i)` on a `Vec<String>` (from the new indexable
+`.split`/`.toList`) emitted a bare `seq[(i) as usize]`, which moves out of Rust's `Index`
+(`error[E0507]`). Index *reads* now `.clone()` (elided by rustc for `Copy` elements); the
+`seq(i) = v` *store* path stays bare via explicit `Term.Assign` handling. `backendRust` 235/0;
+BUGS.md `rust-index-read-moves-noncopy`. (`2aff7c982`)
+
 ## 2026-06-22 — feat(rust): collection / string / http codegen follow-ons (rwt-followons)
 
 Six additive Rust-backend codegen lowerings, landed on top of the now-complete rust-web toolkit

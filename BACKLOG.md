@@ -124,6 +124,18 @@ recommended first pick** (bounded, measurable, compounds with the perf work).
       actually unlock the third-party ecosystem the SPI was built for. Product decision (build when there's
       a real external plugin author), not debt. Spec: extend `specs/arch-build-registry.md`.
 
+- [ ] **rust-backend-cargo-smoke-coverage** (test debt, bounded) — the `backendRust` unit suite
+      (235 tests) is **string-match only**: it asserts the *shape* of generated Rust but never
+      compiles it. A whole class of bugs — move/borrow errors, type mismatches, missing trait
+      bounds in *valid-looking* generated Rust — is invisible to it. This already bit us:
+      `rust-index-read-moves-noncopy` (E0507, fixed 2026-06-22 @ `2aff7c982`) shipped green through
+      string-match tests and was only caught by an ad-hoc `cargo run` smoke. Proposal: a small,
+      `assume(RustToolchain.findCargo().isDefined)`-gated suite that emits a handful of
+      feature-exercising programs to a temp crate, `cargo run`s them, and asserts stdout (mirror
+      `BuildRustCmd`'s emit-to-disk). Keep it separate from the fast string-match suite (cargo is
+      slow); gate so CI without a Rust toolchain skips cleanly. Covers the common collection/string/
+      http lowerings end-to-end as a regression net.
+
 ## Native Platform follow-ups
 
 - [ ] **std-nfc-packager-adapters** — Consume
