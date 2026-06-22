@@ -14,6 +14,29 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Driven by the agreed roadmap (BACKLOG.md → "Roadmap — agreed priority order, 2026-06-17").
 Work top-to-bottom, one major theme at a time. **Maven/centralized publication is LAST.**
 
+### ▶ Newly queued (2026-06-22, with Sergiy — "бери все эти задачи если других нет, заноси в спринт")
+
+Queued after closing rust-web-toolkit follow-ons + fixing the index-read move bug it shipped.
+
+- [~] **rust-cargo-smoke-coverage** (mellow-shrew, claimed) — the `backendRust` unit suite (235
+      tests) is string-match only and never compiles the Rust it emits, so move/borrow/type errors
+      in valid-looking generated Rust are invisible (this shipped `rust-index-read-moves-noncopy`,
+      E0507, fixed `2aff7c982`). **How:** a new `backendRust` test suite, gated on
+      `assume(RustToolchain.findCargo().isDefined)` so toolchain-less CI skips cleanly; emit a few
+      feature-exercising `.ssc` programs (collection ops: take/drop/takeRight/dropRight/sorted/
+      distinct/sum; string: replace/contains/startsWith/endsWith/join/split/toList incl. `Vec<String>`
+      index reads; basic http if cheap) to a temp crate (mirror `BuildRustCmd`'s emit-to-disk:
+      `crateDir / os.RelPath(asset.name)` then `cargo run --quiet`, read stdout only), assert exact
+      output. Keep it OUT of the fast string-match path (cargo is slow). BACKLOG:
+      `rust-backend-cargo-smoke-coverage`. The throwaway harness from the bug hunt is the seed.
+
+- [ ] **metaprogramming-v2-track-c2** — the last open meta-v2 slice: post-expansion re-typecheck +
+      source-positioned errors. Run the Typer over macro-expanded source and map type errors back to
+      `.ssc` positions. **Non-trivial** (needs a position map — re-parse loses positions — and risks
+      false positives when the Typer doesn't grok expanded macro-runtime constructs); the spec
+      (`specs/arch-metaprogramming-v2.md` §4b, Track C) deferred it as lower-ROI vs the codegen
+      warning that already covers the real failure mode. Days, not hours. Write the spec slice first.
+
 ### ▶ emit-js whole-program effect analysis (2026-06-22, with Sergiy — "берись, запиши в спринт, напиши спеку, и делай") — busi-reported #3, transitive piece
 
 Closes the last open piece of the emit-js effect-handler cluster (BUGS.md
