@@ -307,6 +307,31 @@ built-in until its plugin lands; loud failure if a needed plugin is absent).
 - **Versioning.** Per-module semver across four ecosystems is real release engineering;
   start with one module (optics) to shake out the pipeline.
 
+## 7a. Decided direction (2026-06-22, with Sergiy)
+
+Sergiy's directive: *"вынести в плагины вообще всё что возможно."* Four decisions set the charter:
+
+1. **Strategy: B → A (enabler-first).** Build the Typer-prelude SPI hook
+   (`preludeSymbols`/`typeSignatures`) FIRST — so every plugin (the 40 existing + all future ones)
+   declares its check-time symbols and `ssc check` resolves them without the ~150 hardcoded names.
+   That hook is the keystone that makes aggressive extraction safe (otherwise `check` breaks or you
+   re-hardcode). THEN finish the effect layer (Http, Actors, the `effectHandlers` hook). Then extract
+   further cold features as the SPI allows.
+2. **The irreducible kernel is fixed.** Language forms — `handle`/`effect`/`resume`, `match`,
+   `for`/`while`/`if`, `val`/`def`, application — stay core **forever** (they are the language: syntax
+   + the effect trampoline). Only *features* (runners / handlers / intrinsics / cold stdlib) extract.
+3. **Hot-path stdlib stays core.** Collections / strings / numerics and the JIT path stay in core — no
+   dispatch/boxing regression. Extract only cold features. (Revisit only behind a zero-cost fast-path
+   SPI, not now.)
+4. **Distribution: hybrid.** Core + *essential* plugins ship bundled+default-loaded (UX unchanged);
+   *advanced* plugins (crypto / sql / ui / blockchain / payments / …) become opt-in via the existing
+   `pkg:` registry + `ssc add`. The essential/advanced split is a follow-on categorization (not
+   blocking the SPI work). "Minimize core" therefore means *minimize the code in the `core` module*,
+   not shrink the default UX.
+
+**Open sub-decision (blocks the keystone task):** the *shape* of the prelude metadata — names-only vs
+names+type-signatures (see SPRINT `coremin-prelude-spi`).
+
 ---
 
 ## 8. Related specs

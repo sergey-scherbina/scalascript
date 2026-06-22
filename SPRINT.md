@@ -165,6 +165,32 @@ Two complementary directives, ONE program. **Design spec written: `specs/polyglo
 (grounded in a full core-vs-plugin extraction analysis). A self-contained module is the unit of reuse:
 extract a feature behind the SPI (A) → publish it as a per-host library (B) is the same artifact.
 
+**DECIDED DIRECTION (2026-06-22, with Sergiy — "вынести в плагины всё что возможно"; spec §7a):**
+**B→A (enabler-first)**; language forms + hot-path stdlib stay core **forever**; **hybrid** distribution
+(essential plugins bundled, advanced opt-in via `pkg:`). Task sequence:
+
+- [ ] **coremin-prelude-spi** (B — THE keystone, do FIRST) — the `preludeSymbols`/`typeSignatures` SPI hook
+      so a plugin declares its check-time public symbols and `ssc check` resolves them without the ~150
+      names hardcoded in the Typer prelude (`effectBuiltins`/`pluginObjects`/`pluginBuiltins`). Today
+      `pluginBuiltins` is `Set[String]` from `BackendRegistry.inProcess.flatMap(_.intrinsics.keys)`
+      (`Main.scala:5485`) — names only, intrinsics only; block-form/effect/object symbols + types are NOT
+      covered. This hook makes ALL extraction check-clean. **OPEN SUB-DECISION (asked Sergiy):** metadata
+      shape — names-only (extend the `Set[String]` seam; resolve to `Any`) vs names+type-signatures (typed
+      arity/params/return in a host-neutral encoding → real type-checking of plugin calls) vs phased
+      (names first, signatures follow). Write the spec slice once decided, then implement + `ssc check` wiring.
+- [ ] **coremin-http-migrate** (A — after the keystone) — extract the Http runner (`httpClient`) to a plugin.
+      Needs a new SPI capability: `SpiValue` has no record case, so building a `Response` requires
+      `BlockContext.makeRecord(...)` (or an Opaque-instance helper). Copy the State/Retry/Cache template +
+      the new record hook. (makeRecord shape: lean to a generic `makeRecord(fields)` on `BlockContext`.)
+- [ ] **coremin-actors-migrate** (A) — extract the Actors runner (`runActors`). Needs a message-loop
+      convention in the SPI (the handler owns the loop; re-invoke the body via `applyFn`). Larger than the
+      pure-reply effects; design the loop seam first.
+- [ ] **coremin-effecthandlers-spi** (A) — the 3rd keystone hook: let a plugin own a CUSTOM algebraic-effect
+      `Perform` resolver (`EffectHandlers.scala`), while the generic trampoline (`runWithHandler`) stays core.
+- [ ] **coremin-hybrid-split** (follow-on, after more is extracted) — categorize plugins essential
+      (bundled+default) vs advanced (opt-in via `pkg:`/`ssc add`); wire `installBin`/default-load accordingly.
+      NOT blocking the SPI work.
+
 - [~] **polyglot-libraries-spec** ✓ SPEC DRAFTED 2026-06-22 — `specs/polyglot-libraries.md`. Unifies A (minimize
       core) + B (cross-language reuse). Key findings: the SPI/plugin spine exists (40 std + 13 backend plugins,
       `IntrinsicImpl`, lazy loading) but ~6–7.5K LOC of FEATURE code is still baked into the interpreter core
