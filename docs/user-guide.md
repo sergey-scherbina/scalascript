@@ -4640,9 +4640,23 @@ l.get(Map("a" -> Map("b" -> 5)))            // 5
 l.set(Map("a" -> Map("b" -> 5)), 9)         // Map(a -> Map(b -> 9))
 ```
 
-Flags: `--host <js|jvm>` (default `js`), `--feature <optics>` (default `optics`), `-o <dir>` (default
-`./<feature>-<host>-lib/`), `--version <semver>` (default `0.1.0`). Supported today: `--host js|jvm
---feature optics`; the Rust crate / Java facade hosts (and idiomatic typed/macro Scala optics) follow
+For the **Rust** host it emits a dependency-free `ssc-optics` crate (`cargo build`) — a native Rust
+optics implementation over a dynamic `Value` enum (`Obj`/`Arr`/`Opt`/`Str`/`Int`/`Bool`/`Null`):
+
+```bash
+ssc emit-lib --host rust --feature optics -o build/optics-rust
+# Cargo.toml, src/lib.rs, README.md
+```
+```rust
+use ssc_optics::*;
+let l = make_lens(vec!["a".to_string(), "b".to_string()]);
+l.get(&s);                    // Value::Int(5)
+l.set(&s, Value::Int(9));     // { a: { b: 9 } }  (immutable)
+```
+
+Flags: `--host <js|jvm|rust>` (default `js`), `--feature <optics>` (default `optics`), `-o <dir>` (default
+`./<feature>-<host>-lib/`), `--version <semver>` (default `0.1.0`). Supported today: `--host js|jvm|rust
+--feature optics`; the Java facade host (and idiomatic typed/macro Scala optics) follow
 the same shape.
 
 ### Key Environment Variables
