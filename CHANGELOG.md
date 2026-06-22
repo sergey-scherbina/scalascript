@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — meta-v2 Track C2 (conservative): catch undefined refs introduced by macro/inline expansion
+
+`ssc check` now re-type-checks the macro/inline-EXPANDED module and warns when an expansion references an
+undefined name — the source type-checks but the expanded code does not (today this only surfaces later at
+codegen/run, pointing into synthetic expanded text). `MacroCodegen.expansionTypeWarnings`, wired into
+`checkOneFile`. **Zero false positives** by construction: a pre/post `Reference to undefined name` diff
+cancels macro machinery (`__ssc_macro__`/`Expr`/…, undefined pre-expansion but stripped post-expansion) and
+leaves the user's own undefined names to the normal check; also excludes builtins / stripped entrypoint+impl
+names / `_`-helpers; warning-only; never breaks `ssc check`; free no-op for macro-free modules. File-level
+(no position map — the deferred hard part). Reach bounded by the strict Typer's position-sensitive
+undefined-name check (val-rhs / bare-statement). This is the safe slice of Track C2 — the full version
+(precise positions + full-inference recheck) stays deferred for false-positive risk. `MacroCodegenTest` +5;
+core artifact+typer 496/0; verified end-to-end. Spec `specs/arch-metaprogramming-v2.md` C2.
+
 ## 2026-06-22 — refactor(js): rename cryptic `part1X`/`v14effects` runtime fragments to meaningful names
 
 The JS runtime fragments had size-driven historical names (`part1a`–`d`, `part2a`/`b`, `v14effects`).

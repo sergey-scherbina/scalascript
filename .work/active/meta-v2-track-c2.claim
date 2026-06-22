@@ -1,6 +1,0 @@
-feature/meta-v2-c2 2026-06-22T13:35:00Z
-agent: claude (mellow-shrew)
-heartbeat: 2026-06-22T13:35:00Z
-status: in-progress
-done-so-far: probed the macro/inline pipeline (Explore). Full C2 (position-map through the 4 string-scanners + Typer over expanded code) confirmed deferred-trap: positions destroyed by expand-to-string + re-parse; false-positive risk real. Building the CONSERVATIVE slice instead (chosen with Sergiy).
-next: ssc check post-expansion re-typecheck — only when pre-expansion typechecks clean; expand via MacroCodegen.expand; typecheck expanded with the SAME builtins/interfaces; surface only NEW undefined-name-class errors not in a macro-runtime/builtin allowlist; emit as warnings, block/file-level attribution (no position-map). Validate ZERO false positives on existing macro examples/tests before default-on. Spec: arch-metaprogramming-v2.md C2.

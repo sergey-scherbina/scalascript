@@ -38,12 +38,19 @@ Queued after closing rust-web-toolkit follow-ons + fixing the index-read move bu
       the `Vec<String>` index-read regression (E0507). Closes the move/borrow/type bug class the
       string-match suite can't see. `backendRust` 236/0. BACKLOG `rust-backend-cargo-smoke-coverage` landed.
 
-- [ ] **metaprogramming-v2-track-c2** — the last open meta-v2 slice: post-expansion re-typecheck +
-      source-positioned errors. Run the Typer over macro-expanded source and map type errors back to
-      `.ssc` positions. **Non-trivial** (needs a position map — re-parse loses positions — and risks
-      false positives when the Typer doesn't grok expanded macro-runtime constructs); the spec
-      (`specs/arch-metaprogramming-v2.md` §4b, Track C) deferred it as lower-ROI vs the codegen
-      warning that already covers the real failure mode. Days, not hours. Write the spec slice first.
+- [x] **metaprogramming-v2-track-c2** ✓ DONE 2026-06-22 (mellow-shrew, with Sergiy — CONSERVATIVE slice).
+      Probed first: the full ambition (Typer over expanded code + map errors to `.ssc` positions) is a real
+      trap — both expanders flatten trees→string→re-parse (positions destroyed; a position map would have to
+      be built inside 4 hand-written char-scanners) AND full inference over expanded macro-runtime constructs
+      risks false positives (confirmed; spec deferred it for good reason). Built the SAFE slice instead:
+      `MacroCodegen.expansionTypeWarnings` (wired into `ssc check` `checkOneFile`) catches a macro/inline
+      **expansion** that references an undefined name (source type-checks, expansion doesn't). **Zero false
+      positives** via a pre/post `Reference to undefined name` DIFF (machinery cancels; user's own undefined
+      names stay with the normal check); warning-only; file-level (no position map); excludes builtins/stripped
+      names/`_`-helpers; never breaks `ssc check`. Reach is bounded by the strict Typer's position-sensitive
+      undefined-name check (val-rhs/bare-stmt). `MacroCodegenTest` +5 (broken→1, valid const-fold/direct-quote/
+      interpreter→0, no-op→0); core artifact+typer 496/0; verified end-to-end via `ssc check`. Spec
+      `specs/arch-metaprogramming-v2.md` C2 updated. DEFERRED still: precise positions + full-inference recheck.
 
 ### ▶ emit-js whole-program effect analysis (2026-06-22, with Sergiy — "берись, запиши в спринт, напиши спеку, и делай") — busi-reported #3, transitive piece
 
