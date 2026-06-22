@@ -16,6 +16,7 @@ scalascript.cli.DeployCmd
 scalascript.cli.NewCmd
 scalascript.cli.EmitScalaCmd
 scalascript.cli.EmitJsCmd
+scalascript.cli.EmitLibCmd
 scalascript.cli.EmitWasmCmd
 scalascript.cli.EmitRustCmd
 scalascript.cli.BuildRustCmd
