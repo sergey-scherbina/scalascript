@@ -4592,6 +4592,7 @@ ssc repl                            # REPL
 ssc test file.ssc                   # run tests
 ssc fmt file.ssc                    # format .ssc files
 ssc emit-js file.ssc                # transpile to JS
+ssc emit-lib --host js --feature optics -o dir/   # standalone host library
 ssc emit-spa file.ssc               # SPA bundle
 ssc emit-wc file.ssc                # Web Components
 ssc build myapp.ssc                 # build project file → dist/
@@ -4601,6 +4602,34 @@ ssc package myapp.ssc               # build all targets: from frontmatter
 ssc install [--prefix <dir>]        # install ssc to ~/.local
 ssc plugin install X                # install plugin
 ```
+
+### Emitting standalone host libraries (`emit-lib`)
+
+`ssc emit-lib` packages a ScalaScript feature as a **native library for a host ecosystem**, with no
+`.ssc` or ScalaScript-runtime dependency at the consumer's edge (see
+[`docs/polyglot-libraries`](../specs/polyglot-libraries.md)). The first host+feature is **JS optics**:
+
+```bash
+ssc emit-lib --host js --feature optics -o build/optics
+# Wrote build/optics/package.json
+# Wrote build/optics/index.mjs
+# Wrote build/optics/optics.d.ts
+```
+
+This produces a self-contained `@scalascript/optics` npm ESM package — the Lens/Optional/Traversal/Prism
+runtime plus a curated `optics.d.ts` — usable directly from JS/TypeScript:
+
+```javascript
+import { makeLens, makeOptional, field, index } from './build/optics/index.mjs';
+const l = makeLens(['a', 'b']);
+l.get({ a: { b: 5 } });            // 5
+l.set({ a: { b: 5 } }, 9);         // { a: { b: 9 } }  (immutable)
+```
+
+Flags: `--host <js>` (default `js`), `--feature <optics>` (default `optics`), `-o <dir>` (default
+`./<feature>-<host>-lib/`), `--version <semver>` (default `0.1.0`). Supported today: `--host js
+--feature optics`; more host/feature combinations (JVM jar / Rust crate / Java facade) follow the same
+shape.
 
 ### Key Environment Variables
 
