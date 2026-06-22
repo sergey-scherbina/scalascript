@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — feat(cli): `ssc emit-lib` — emit a feature as a standalone host library
+
+Makes the optics npm packager (`JsLibPackager`, previously test-only) user-reachable. `ssc emit-lib
+--host js --feature optics -o <dir>` writes the self-contained `@scalascript/optics` package
+(`package.json` + `index.mjs` + `optics.d.ts`) — Lens/Optional/Traversal/Prism + curated TypeScript
+types, no `.ssc`/runtime dependency at the consumer's edge. New `EmitLibCmd` registered via the
+ServiceLoader `CliCommand` SPI; flags `--host`/`--feature`/`--version`/`-o`. Supported today: `js`/`optics`;
+more host/feature combos (JVM jar / Rust crate / Java facade) follow the same shape. `EmitLibCmdTest` 2/2;
+README CLI row + user-guide section (`docs/polyglot-libraries` §4).
+
 ## 2026-06-22 — meta-v2 Track C2 (conservative): catch undefined refs introduced by macro/inline expansion
 
 `ssc check` now re-type-checks the macro/inline-EXPANDED module and warns when an expansion references an

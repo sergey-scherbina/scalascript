@@ -18,12 +18,11 @@ Work top-to-bottom, one major theme at a time. **Maven/centralized publication i
 
 Queued after the JS `.mjs`-resource cleanup + rename. Drive top-to-bottom (tractability order).
 
-- [ ] **optics-emit-lib-cli** — make the optics npm packager USER-reachable. `JsLibPackager.opticsNpmPackage`
-      exists + is node-proven but only callable from a test. Add CLI `ssc emit-lib --host js --feature optics
-      -o <dir>` that writes the 3 package files. New `final class EmitLibCmd extends CliCommand` (mirror
-      `EmitCommands.scala` `EmitRustCmd`'s dir-write) + register in `META-INF/services/scalascript.cli.CliCommand`
-      (ServiceLoader-backed `CommandRegistry`; cli already dependsOn backendJs). + example + README capabilities/CLI
-      row + user-guide subsection. Test: assert the 3 files written. **CLAIMED (bright-quail).**
+- [x] **optics-emit-lib-cli** ✓ DONE 2026-06-22 — `ssc emit-lib --host js --feature optics -o <dir>` writes the
+      `@scalascript/optics` npm package (package.json + index.mjs + optics.d.ts) from `JsLibPackager`. New
+      `EmitLibCmd` registered via the ServiceLoader `CliCommand` SPI; `EmitLibCmdTest` 2/2; README CLI row +
+      user-guide section. The optics packager is now user-reachable (was test-only). More host/feature combos
+      follow the same shape (see `optics-jvm-facade`).
 - [ ] **jvm-rust-runtime-resources** — mirror the JS `.mjs`-resource cleanup (polyglot §3 #8) for JVM
       (`JvmGenRuntimeSources`) + Rust (`RustRuntimeTemplates`) big runtime-string constants → resource files via
       a small cached loader (like `JsRuntimeResource`). **PROBE FIRST:** if the strings are `s"…"`-interpolated
