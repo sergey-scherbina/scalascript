@@ -9,7 +9,7 @@ import Computation.{Pure, Perform, FlatMap}
  *  Interpreter.scala to keep that file manageable.  This trait uses a
  *  self-type (`this: Interpreter =>`) so every Interpreter member is
  *  directly accessible without any forwarding. */
-private[interpreter] trait ActorInterp:
+private[interpreter] trait ActorInterp extends ActorRuntimeHost:
   this: Interpreter =>
 
   // ── v1.6 Actors — Phase 1 + Phase 2 runtime state ───────────────
@@ -47,6 +47,10 @@ private[interpreter] trait ActorInterp:
     // blocked senders: targetId → Queue[(senderId, msg, senderContinuation)]
     val blockedSends = mutable.LongMap.empty[mutable.Queue[(Long, Value, Value => Computation)]]
   private var actorRt: ActorRuntime = null
+  private var actorRuntimeProvider: ActorRuntimeProvider = CoreActorRuntimeProvider
+
+  private[interpreter] def installActorRuntimeProvider(provider: ActorRuntimeProvider): Unit =
+    actorRuntimeProvider = provider
 
   /** True when `runActors { ... }` is active (an `ActorRuntime` is installed).
    *  Used by `ActorGlobals.install` to make `stop()` a no-op outside actor
@@ -1273,6 +1277,9 @@ private[interpreter] trait ActorInterp:
   // The driver runs until every actor is either complete or blocked
   // with an empty mailbox.  The root actor's final value is returned.
   private[interpreter] def actorInterp(initial: Computation): Computation =
+    actorRuntimeProvider.runActors(this, initial)
+
+  private[interpreter] def runCoreActorRuntime(initial: Computation): Computation =
     val rt = new ActorRuntime
     val savedRt = actorRt
     actorRt = rt
