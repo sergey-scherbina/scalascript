@@ -1,11 +1,14 @@
-feature/coremin-http-migrate 2026-06-22T15:30:00Z
+feature/coremin-http-migrate 2026-06-22T15:55:00Z
 agent: claude (mellow-shrew)
-heartbeat: 2026-06-22T15:30:00Z
-status: in-progress — FOUNDATION SHIPPED (makeRecord), full port DESIGNED + ready (a ~6-file core-I/O build)
-DONE this turn:
-  - BlockContext.makeRecord SPI + interp override (EvalRuntime, beside applyFn) -> Value.InstanceV via Opaque round-trip. Shipped 351d10bd4. BlockFormSpiTest +1 (handler replies via ctx.makeRecord; body field-accesses r.status/r.body). 4/4.
-FULL-PORT DESIGN (resumable, exact):
-  - Three http forms (EvalRuntime): runHttp{body} (real I/O, httpRun(None)), runHttpStub(routes){body} (stub, httpRun(Some)), httpClient(baseUrl){body} (SETS interp feature-local base url — NOT an effect handler).
-  - Http.get/post/request -> Perform("Http", op, [fullUrl,...]) (StdEffectsRuntime). base url is applied INSIDE doHttpRequest via ctx.httpBaseUrl (NativeContext feature-local), NOT before the Perform.
-  - PLAN: (1) add BlockContext.featureLocal(key: String): Option[Any] = None (defaulted); interp override -> nativeFeatureLocalGet. (2) http-effect-plugin: HttpBlockForm effectName="Http" under "runHttp" (no cfg) + "runHttpStub" (cfg arg = routes MapV). reply(get/post/request): stub -> route lookup -> ctx.makeRecord("Response",{status,headers,body}); real -> read HttpBaseUrl/HttpTimeoutMs/HttpMaxRetries/HttpRetryDelayMs via ctx.featureLocal + port doHttpRequest's java.net logic (self-contained; keys in NativeContextFeatureKeys/IntrinsicImpl.scala:48) -> ctx.makeRecord. (3) remove runHttp/runHttpStub from EvalRuntime(3552-3562) + EffectHandlers.httpRun + doHttpRequest + reservedApplyHeads. KEEP httpClient(baseUrl) setter in core (feature-local config, separate concern — migrate later or leave). (4) build.sbt: PluginSpec("http-effect", ...) + installBin pluginPkgs. (5) migrate any runHttp/runHttpStub interp tests -> plugin-tests (no installPlugins); verify interp + plugin-tests green.
-  - makeRecord + the BlockForm SPI are proven; this is "assemble the plugin + port I/O + remove from core" — known shape, just sizeable. Do on feature branch; push to main only when fully green.
+heartbeat: 2026-06-22T15:55:00Z
+status: in-progress — FOUNDATION SHIPPED (makeRecord + check-iface consistency); full port DESIGNED, tractable, resumable
+SHIPPED (this session): BlockContext.makeRecord SPI+interp override (351d10bd4, BlockFormSpiTest 4/4); check-with-iface threads plugin prelude (35fda6d92).
+REFINED DESIGN (key simplification — NO new sbt module):
+  - The existing `http-plugin` (runtime/std/http-plugin) is ALREADY a Backend (HttpInterpreterPlugin), bundled (installBin build.sbt:1097), aggregated (:869), PluginSpec (:3006), on backendInterpreter %Test (:720). Add the Http effect BlockForm THERE — no new module, no build.sbt churn.
+  - httpClient(baseUrl){body} STAYS in core (a feature-local config SETTER, not an effect handler — the http-plugin authors say so, HttpIntrinsics.scala:233). Only runHttp/runHttpStub (the Http effect handlers) migrate.
+PLAN:
+  1. add BlockContext.featureLocal(key: String): Option[Any] = None (defaulted); interp override (EvalRuntime anon BlockContext, beside applyFn/makeRecord) -> interp.nativeFeatureLocalGet.
+  2. HttpInterpreterPlugin.blockForms = Map("runHttp" -> HttpBF(None), "runHttpStub" -> HttpBF(routes-cfg)). HttpBF effectName="Http"; newHandler(ctx, args) -> args.headOption = stub routes MapV (Some) or none. reply(get/post/request): stub -> route lookup -> ctx.makeRecord("Response",{status,headers,body}); real -> read HttpBaseUrl/HttpTimeoutMs/HttpMaxRetries/HttpRetryDelayMs (NativeContextFeatureKeys, IntrinsicImpl.scala:48) via ctx.featureLocal + port EffectHandlers.doHttpRequest java.net.http logic (GET/POST/PUT/DELETE + retry loop) -> ctx.makeRecord. base-url prepend: if base.nonEmpty && !url.startsWith("http") then base+url.
+  3. remove from core: EvalRuntime runHttp/runHttpStub cases (3552-3562) + EffectHandlers.httpRun + doHttpRequest + reservedApplyHeads "httpClient" stays (3016 — only remove runHttp/runHttpStub if listed). NOTE httpClient name + form stay.
+  4. tests: move any runHttp/runHttpStub interp tests -> http-plugin tests OR BlockFormSpiTest; verify backendInterpreter + http-plugin + plugin-tests green. installPlugins not needed where http-plugin is on the classpath.
+This is now a single-plugin edit + I/O port + core removal — tractable. Do on feature branch; push to main only when fully green.
