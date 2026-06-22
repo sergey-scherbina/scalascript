@@ -1,6 +1,0 @@
-feature/rust-multishot-r6 2026-06-22
-agent: claude (bright-quail)
-heartbeat: 2026-06-22T19:11:13Z
-status: in-progress
-done-so-far: PROBED renderHandle (RustCodeWalk:2809) + the effect-multishot bench (bench/corpus/effect-multishot.ssc). The one-shot lowering is tagless-final: Eff.op(args)->_eff.op(args) method call, resume(v)-> the op method returns v ONCE. The bench is NonDet.choose with `opts.flatMap(opt => resume(opt))` -> TRUE multi-shot + answer-type modification (op returns Int to program; handler produces List[Int]). A trait method returns once -> CANNOT express multi-shot. Needs the effectful body CPS-lowered (continuation reified as a re-callable Box<dyn Fn(V)->Answer>) or a Free-monad interpreter in Rust. NOT a bounded slice (research; would risk the working one-shot path).
-next: DOCUMENT, don't implement. Write the concrete design + blocker into specs/rust-effects.md §R.6 (Free-monad CPS path for multi-shot effects, the answer-type-modification issue, the Rust ownership challenge of re-invokable FnMut continuations). Mark SPRINT rust-effects-multishot-r6 as investigated/deferred-with-design + BACKLOG note. No code change.

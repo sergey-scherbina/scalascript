@@ -599,3 +599,11 @@ The two active ones are in SPRINT (`compile-time-at-scale`, `xbackend-property-e
 - Backend-specific fenced blocks + platform-type ban
 - std.fs / std.os / std.process — filesystem, OS & process abstraction
 - Requested by busi (real testbed) — 2026-06-09
+
+## Rust multi-shot effects (R.6) — deferred with design (2026-06-22)
+
+Multi-shot algebraic effects on the Rust backend (`effect-multishot` bench, NonDet.choose). Investigated
+2026-06-22: NOT a bounded slice — tagless-final trait methods return once, so the continuation can not be
+reified/re-invoked. Needs a Free-monad CPS lowering gated to `multi effect` (whole-body transform; risks the
+shipped one-shot path). Concrete design + blocker in `specs/rust-effects.md §11`. Multi-session, spec-first;
+`effect-multishot` stays `n/a` on rust until then.

@@ -323,3 +323,68 @@ tagless-final lowering over the Free-monad CPS port. Multi-shot (`effect-multish
 
 **Verify:** `cargo build` the minimal probe above → `10`; then `./bench.sh effect-oneshot
 --backend rust` goes from `n/a` to a real number; add a `RustGenR42Test`/`R44` codegen test.
+
+## 11. R.6 — multi-shot effects on Rust (INVESTIGATED 2026-06-22 — NOT a bounded slice; design below)
+
+**Probe (bright-quail, 2026-06-22):** read `RustCodeWalk.renderHandle` (the one-shot lowering) and
+the actual `effect-multishot` workload (`bench/corpus/effect-multishot.ssc`). Conclusion: multi-shot
+**cannot** be added as a bounded extension of the tagless-final lowering; it requires reifying the
+effectful body's continuation. Deferred with the design below so the next attempt starts from a spec,
+not a re-investigation.
+
+### Why the current lowering can't do it
+
+The one-shot lowering is **tagless-final**: `Eff.op(args)` → `_eff.op(args)` (a trait-method call), and
+`resume(v)` in tail position → the method *returns* `v`. A trait method returns **exactly once**, so the
+handler can hand control back to the body once. The `effect-multishot` bench is genuine multi-shot **with
+answer-type modification**:
+
+```scala
+multi effect NonDet: def choose(options: List[Int]): Int
+// program: a = choose([1,2,3]); b = choose([10,20]); a + b + …
+handle(program(s)) { case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt)) }
+```
+
+Here `resume` is called **once per option** and the results are flat-mapped — the continuation (the rest
+of `program` after each `choose`, which itself performs another `choose`) is re-entered 3×, then 2× each,
+exploring the 3×2 cross-product. Two things the tagless-final model structurally can't express:
+1. **Re-invocation.** `resume` must be a *value* (a callable continuation) the handler can invoke 0..n
+   times — not "the method's return".
+2. **Answer-type modification.** To the program, `choose: List[Int] => Int`; to the handler, the op
+   *produces* `List[Int]` (all collected branches). The op's program-facing return type (`Int`) differs
+   from the handler's answer type (`List[Int]`). A single Rust trait method has one fixed return type.
+
+This is exactly the regime the JVM/JS backends handle via their **Free-monad CPS interpreter** (and which
+`specs/direct-style-eval-spec.md` §10.1 calls out as requiring a re-callable monadic continuation).
+
+### The design that would work (Free-monad CPS path for multi-shot effects)
+
+Multi-shot needs a **second lowering path**, selected when an effect is declared `multi effect` (or a
+`handle` arm calls `resume` non-tail / more than once). Sketch:
+
+- **Reify the computation.** Lower a multi-shot effectful body to a `Computation<A>` enum in
+  `runtime/effects.rs` — `Pure(A)`, `Perform { op, args, k: Box<dyn FnMut(V) -> Computation<A>> }`,
+  i.e. the Free monad. `Eff.op(args)` becomes `Perform { op, args, k }` where `k` captures the rest of
+  the body (CPS). `perform`-sequencing (`val a = choose(...); …`) nests the continuations.
+- **Multi-shot handler interpret.** The handler op receives the reified continuation `k` and may call it
+  any number of times: `case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))` → a Rust
+  interpreter loop that, on `Perform{op:"choose", args, k}`, runs `opts.into_iter().flat_map(|opt|
+  run(k(opt)))`. The **answer type** is the handler's result (`Vec<i64>`), distinct from the op's
+  program-facing return.
+- **Ownership.** The continuation is `Box<dyn FnMut(V) -> Computation>` (re-invokable). The Rust
+  challenge: a continuation called multiple times must not move captured state out — captured locals
+  need `Clone` on each invocation (the clone-everywhere model already used in `RustCodeWalk` extends to
+  this, but each `k(opt)` must clone its captured environment). `Rc`/`Clone` for shared captured values.
+
+### Why it is deferred (cost/risk)
+
+- It is a **whole-body CPS transform** for multi-shot effectful functions — a parallel lowering to the
+  tagless-final one-shot path, not a `renderHandle` tweak. Touches body lowering, `val`-sequencing,
+  control flow, and adds a Free-monad runtime + interpreter to `runtime/effects.rs`.
+- Risk to the **working one-shot path** (`effect-oneshot`, shipped) is real if the two paths aren't
+  cleanly separated by `multi effect` detection.
+- It re-introduces exactly the trampoline/allocation cost the tagless-final design was chosen to avoid —
+  so it should be **gated to `multi effect` only**, leaving one-shot direct.
+
+**Recommendation:** keep `effect-multishot` `n/a` on Rust; pick this up as a dedicated, spec-first effort
+(it is multi-session). The one-shot path stays the fast default. Tracked in `BACKLOG.md`.
