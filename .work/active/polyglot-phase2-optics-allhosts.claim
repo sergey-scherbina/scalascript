@@ -1,0 +1,6 @@
+feature/polyglot-optics-allhosts 2026-06-22
+agent: claude (bright-quail)
+heartbeat: 2026-06-22T14:00:40Z
+status: in-progress
+done-so-far: nothing yet — scoped via Explore blueprint (in SPRINT entry). Optics is AST-level (Focus[T]/Prism), no .ssc module/exported symbols; the 4 optic shapes (Lens/Optional/Traversal/Prism) are the canonical contract, identical in OpticsRuntime (interp/JVM) + JsRuntimeOptics (JS). JS runtime exists + capability-gated.
+next: SLICE 1 = JS optics npm package. Emit an ESM wrapper over JsGen optics runtime re-exporting makeLens/makeOptional/makeTraversal/makePrism + package.json + curated optics.d.ts (the 4 shapes); golden API-signature test (mirror RustGenCargoTomlTest exact-string asserts). Then JVM facade, Rust crate, Java facade follow the same packager shape. Spec specs/polyglot-libraries.md §4/§6.
