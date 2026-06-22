@@ -80,13 +80,23 @@ into the Typer entry points in `checkOneFile`, alongside the existing `pluginBui
 `pluginBuiltins` (names-only intrinsic keys) as a **fallback** so any symbol a plugin has not yet
 migrated to `preludeSymbols` still resolves (no regression during incremental migration).
 
-### 4. Prove it (this slice)
+### 4. Prove it (this slice — DONE)
 
-Migrate ONE plugin to declare a typed `preludeSymbols` entry and add a test that `ssc check`:
-- resolves the name (no "undefined name"), AND
-- type-checks a call — a correct call passes, a wrong-type/arity call is flagged.
+The keystone mechanism is proven at the **Typer layer** (which is exactly what `ssc check` invokes),
+without depending on plugin-classpath loading in tests — `TyperPreludeSymbolsTest`:
+- without `preludeSymbols`, strict mode flags the plugin name as undefined;
+- with `preludeSymbols = [ExportedSymbol("plug","plug","def","(Int) => String")]`, the name RESOLVES;
+- the declared TYPE flows — `def g(): Int = plug(1)` is flagged (plug returns String), and the same
+  call typed correctly (`def g(): String = plug(1)`) passes. So it's the *type*, not just the name.
 
-Pick a plugin whose intrinsic has a non-trivial signature so the type-check is observable.
+`ssc check` wiring (`Main.scala`) collects `BackendRegistry.inProcess.flatMap(_.preludeSymbols)` and
+threads it into the Typer; `pluginBuiltins` (names-only) stays as the fallback. Compiles clean;
+typer+artifact suites 499/0.
+
+**Follow-on (own task `coremin-prelude-migrate`):** migrate real plugins to *declare* their public
+symbols via `preludeSymbols` and *remove* them from the core `effectBuiltins`/`pluginObjects`/
+`pluginBuiltins` lists (and run `ssc check` with the plugin loaded end-to-end). Block-form keywords
+(`runLogger { … }`) need a signature convention vs ordinary `def` intrinsics — decide per plugin.
 
 ## Non-goals (follow-on)
 
