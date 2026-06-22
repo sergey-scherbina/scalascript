@@ -223,10 +223,12 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       classpath resource under `/scalascript/js-runtime/`; `JsRuntimeOptics` is now a thin wrapper
       (`load("optics.mjs")`) keeping its `val X: String` API → call sites + emitted JS unchanged, verified
       **byte-identical** (7555B, `diff`-empty; `JsLibPackager` golden+node-smoke unchanged). `JsRuntimeResourceTest`
-      5/5. Spec `specs/js-runtime-resources.md`. **REMAINING (follow-ups, mechanical, same loader):** migrate the
-      other `JsRuntime*` fragments (`Part2a/2b`, `Signals`, `Fs`, `Mcp`, `Graphql`, `AsyncA/B`, `BrowserPatch`,
-      `McpBrowser`, …) — each guarded by its existing tests; then optionally a `tsc --checkJs`/`eslint` CI gate
-      (needs JSDoc first). Closes §3 #8 for JS when the fragments are all migrated.
+      5/5. Spec `specs/js-runtime-resources.md`. **✓ REST DONE 2026-06-22 (js-runtime-resources-rest):** the
+      remaining 17 fragments (`Part1a`–`d`, `Part2a/2b`, `AsyncA/B`, `Signals`, `Dataset`, `IndexedDb`,
+      `BrowserPatch`, `Graphql`, `Mcp`, `McpBrowser`, `Payment`, `V14Effects`) all migrated — `diff`-verified
+      byte-identical, backendJs compiles, 65 JS codegen tests green. **§3 #8 closed for JS** (all 18 fragments
+      now `.mjs`; the `JsRuntime`/`JsRuntimeAsync` aggregators in `JsGen.scala` stay computed). FOLLOW-UPS: same
+      pattern for JVM/Rust runtime strings; optional `tsc --checkJs`/`eslint` CI gate (needs JSDoc first).
 - [ ] **rust-effects-multishot-r6** (Rust backend, R.6) — multi-shot algebraic effects on Rust (resume invoked
       more than once, e.g. NonDet `{1,2}×{10,20}`). One-shot handle/resume already SHIPPED (`a87afba34`, tagless-
       final, no trampoline). lucky-otter flagged multi-shot as out-of-scope/hard: needs an `FnMut` continuation

@@ -1,6 +1,0 @@
-feature/js-runtime-resources-rest 2026-06-22
-agent: claude (bright-quail)
-heartbeat: 2026-06-22T17:22:02Z
-status: in-progress
-done-so-far: optics pilot already landed (0adf9718b). Now migrating the remaining 17 JsRuntime* string fragments to .mjs resources via the same JsRuntimeResource.load loader.
-next: 17 files (Part1a/1b/1c/1d, Part2a/2b, AsyncA/AsyncB, Signals, Dataset, IndexedDb, BrowserPatch, Graphql, Mcp, McpBrowser, Payment, V14Effects). Each: a single pure `val X: String = """..."""`. Script extracts the body VERBATIM to resources/scalascript/js-runtime/<suffix>.mjs, rewrites the val to JsRuntimeResource.load("<suffix>.mjs"), and diff-verifies byte-identity (emitted JS must not change). The two aggregators in JsGen.scala (JsRuntime, JsRuntimeAsync = AsyncA+AsyncB) are computed -> left as-is. Verify: per-file byte-identity diff + backendJs compile + JS test subset (JsLibPackagerTest, JsRuntimeResourceTest, a JsGen emission test). Closes polyglot-libraries §3 #8 for JS. Spec specs/js-runtime-resources.md.

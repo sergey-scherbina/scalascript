@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — feat(js): all JS runtime fragments now `.mjs` resources (§3 #8 closed for JS)
+
+Completes the cleanup the optics pilot started: the remaining **17** `JsRuntime*` string constants
+(`Part1a`–`d`, `Part2a`/`2b`, `AsyncA`/`B`, `Signals`, `Dataset`, `IndexedDb`, `BrowserPatch`,
+`Graphql`, `Mcp`, `McpBrowser`, `Payment`, `V14Effects`) moved out of Scala triple-quoted literals
+into real `.mjs` resource files under `resources/scalascript/js-runtime/`, loaded via
+`JsRuntimeResource.load`. Each `.mjs` body was mechanically extracted and **`diff`-verified
+byte-identical** to the prior literal vs `git HEAD` — so the emitted JS is unchanged. The two computed
+aggregators in `JsGen.scala` (`JsRuntime`, `JsRuntimeAsync = AsyncA + AsyncB`) stay as-is. All 18 JS
+runtime fragments now live as lintable / editor-friendly `.mjs`, closing polyglot-libraries §3 #8 for
+the JS backend. `backendJs` compiles; 65 JS codegen tests green (tree-shaking, transitive imports,
+content-toolkit, optics node-smoke). Spec `specs/js-runtime-resources.md`.
+
 ## 2026-06-22 — feat(js): JS runtime fragments as `.mjs` resources — optics pilot
 
 The JS backend stored its runtime helper code as large Scala string constants (`val X: String =
