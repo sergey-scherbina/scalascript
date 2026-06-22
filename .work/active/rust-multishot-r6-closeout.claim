@@ -1,0 +1,6 @@
+feature/rust-multishot-r6-closeout 2026-06-22T22:03:19Z
+agent: codex
+heartbeat: 2026-06-22T22:03:19Z
+status: in-progress
+done-so-far: queue entry committed and pushed; worktree exists at /Users/sergiy/work/my/scalascript-wt-rust-multishot-r6-closeout.
+next: mark R.6 actionable scope done in SPRINT, update stale BACKLOG wording, add CHANGELOG entry, verify no open `[~] rust-effects-multishot-r6` remains.
