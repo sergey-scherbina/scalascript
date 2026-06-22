@@ -1,6 +1,0 @@
-feature/coremin-hybrid-split 2026-06-22T21:37:14Z
-agent: codex
-heartbeat: 2026-06-22T21:46:03Z
-status: in-progress
-done-so-far: spec/SPRINT plan committed and pushed; build implementation drafted; `cd /Users/sergiy/work/my/scalascript-wt-coremin-hybrid-split && sbt "cli/compile"` passed in 82s.
-next: run `cli/installBin`, verify essential .sscpkg files land in compiler/plugins and advanced files land in compiler/plugin-available, then update docs/board and commit.
