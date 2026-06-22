@@ -1,0 +1,5 @@
+feature/polyglot-optics-java 2026-06-22T17:00:00Z
+agent: claude (mellow-shrew)
+heartbeat: 2026-06-22T17:00:00Z
+status: in-progress
+plan: JavaLibPackager (backend/jvm, beside JvmLibPackager) — opticsJavaPackage(version) -> {pom.xml, src/main/java/ssc/optics/Optics.java, README.md}. Optics.java = faithful Java port of the JVM/Rust dynamic optics over Object (Map<String,Object>/List<Object>/Optional<Object>/String/Integer/Boolean/null + "_type" sums): Lens(path) get/set/modify/andThen; Optional(steps) getOption/set/modify/andThen; Traversal getAll/modify/set/andThen; Prism(variant); Step Field/Index/At/Some/Each; makeLens/makeOptional/makeTraversal/makePrism + field/index/at/some/each. Wire EmitLibCmd --host java. JavaLibPackagerTest: file-set + API + javac-gated compile/run smoke (exercise all 4 optics).
