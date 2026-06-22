@@ -1,0 +1,136 @@
+//! ScalaScript runtime value enum (rust target).
+      |//! Emitted verbatim by RustGen; do not edit by hand.
+      |
+      |#[allow(dead_code)]
+      |#[derive(Debug, Clone, PartialEq)]
+      |pub enum Value {
+      |    Unit,
+      |    Bool(bool),
+      |    Int(i64),
+      |    Double(f64),
+      |    Str(String),
+      |    Tuple(Vec<Value>),
+      |    List(Vec<Value>),
+      |    // A reactive signal: its name (for client-side `data-ssc-*` wiring) + current value.
+      |    Signal(String, Box<Value>),
+      |}
+      |
+      |// ── Reactive signal store + computed-signal recompute (live server state) ──────
+      |// String-valued (matches the `data-ssc-text` client wiring). Lives here so both
+      |// `Value::signal_value` (read) and the serve runtime (read/write) reach it. Dead
+      |// code for non-serve programs.
+      |#[allow(dead_code)]
+      |static SSC_SIGNALS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> =
+      |    std::sync::OnceLock::new();
+      |#[allow(dead_code)]
+      |pub fn ssc_signals() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
+      |    SSC_SIGNALS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+      |}
+      |// Computed signals registered for recompute: (generated-name, re-runnable closure).
+      |type SscComputed = Vec<(String, Box<dyn Fn() -> String + Send + Sync>)>;
+      |#[allow(dead_code)]
+      |static SSC_COMPUTED: std::sync::OnceLock<std::sync::Mutex<SscComputed>> = std::sync::OnceLock::new();
+      |#[allow(dead_code)]
+      |fn ssc_computed() -> &'static std::sync::Mutex<SscComputed> {
+      |    SSC_COMPUTED.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+      |}
+      |#[allow(dead_code)]
+      |static SSC_COMPUTED_N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+      |// Register a computed signal: evaluate once for SSR, seed the store, return its name.
+      |#[allow(dead_code)]
+      |pub fn ssc_register_computed(f: Box<dyn Fn() -> String + Send + Sync>) -> String {
+      |    let n = SSC_COMPUTED_N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+      |    let name = format!("__c{}", n);
+      |    let v = f();
+      |    ssc_signals().lock().unwrap().insert(name.clone(), v);
+      |    ssc_computed().lock().unwrap().push((name.clone(), f));
+      |    name
+      |}
+      |// Re-run every computed closure (its reads now see the updated store) + write back.
+      |#[allow(dead_code)]
+      |pub fn ssc_recompute_all() {
+      |    let results: Vec<(String, String)> = {
+      |        let reg = ssc_computed().lock().unwrap();
+      |        reg.iter().map(|(n, f)| (n.clone(), f())).collect()
+      |    };
+      |    let mut store = ssc_signals().lock().unwrap();
+      |    for (n, v) in results { store.insert(n, v); }
+      |}
+      |
+      |impl Value {
+      |    pub fn show(&self) -> String {
+      |        match self {
+      |            Value::Unit       => "()".to_string(),
+      |            Value::Bool(b)    => b.to_string(),
+      |            Value::Int(n)     => n.to_string(),
+      |            Value::Double(f)  => format_double(*f),
+      |            Value::Str(s)     => s.clone(),
+      |            Value::Tuple(xs)  => render_seq("(", ")", xs),
+      |            Value::List(xs)   => render_seq("List(", ")", xs),
+      |            Value::Signal(_, v) => v.show(),
+      |        }
+      |    }
+      |    // Unwrap a signal to its current value (or itself if not a signal). Takes
+      |    // `&self` + clones so a signal read `loc.signal_value()` inside a (possibly
+      |    // repeatedly-called) computed-signal closure doesn't move the captured value.
+      |    // LIVE: prefer the server-side store (updated by push + recompute) over the
+      |    // inline SSR value, so a re-run of a computed closure sees new dependency values.
+      |    #[allow(dead_code)]
+      |    pub fn signal_value(&self) -> Value {
+      |        match self {
+      |            Value::Signal(name, v) => {
+      |                if !name.is_empty() {
+      |                    if let Some(s) = ssc_signals().lock().unwrap().get(name) {
+      |                        return Value::Str(s.clone());
+      |                    }
+      |                }
+      |                (**v).clone()
+      |            }
+      |            other => other.clone(),
+      |        }
+      |    }
+      |}
+      |
+      |// Lets a `Value` be formatted with `{}` (e.g. by the std/ui `_ui_attr` coercion),
+      |// reusing the same rendering as `.show()`.
+      |impl std::fmt::Display for Value {
+      |    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      |        write!(f, "{}", self.show())
+      |    }
+      |}
+      |
+      |impl Value {
+      |    // Truthiness for `showSignal(cond, …)` SSR: only `false`/`Unit` are falsey.
+      |    // A signal unwraps to its current value.
+      |    #[allow(dead_code)]
+      |    pub fn is_truthy(&self) -> bool {
+      |        match self {
+      |            Value::Bool(false) | Value::Unit => false,
+      |            Value::Signal(_, v)              => v.is_truthy(),
+      |            _                                => true,
+      |        }
+      |    }
+      |}
+      |
+      |// `From` conversions so a signal's initial value (`signal(name, default)`) of a
+      |// primitive type can be carried as a `Value` and SSR-rendered.
+      |impl From<String> for Value { fn from(s: String) -> Self { Value::Str(s) } }
+      |impl From<&str>   for Value { fn from(s: &str)   -> Self { Value::Str(s.to_string()) } }
+      |impl From<bool>   for Value { fn from(b: bool)   -> Self { Value::Bool(b) } }
+      |impl From<i64>    for Value { fn from(n: i64)    -> Self { Value::Int(n) } }
+      |impl From<f64>    for Value { fn from(f: f64)    -> Self { Value::Double(f) } }
+      |// (`From<Value> for Value` is already provided by std's reflexive `impl<T> From<T> for T`.)
+      |
+      |fn format_double(f: f64) -> String {
+      |    if f.fract() == 0.0 && f.is_finite() {
+      |        format!("{:.1}", f)
+      |    } else {
+      |        f.to_string()
+      |    }
+      |}
+      |
+      |fn render_seq(open: &str, close: &str, xs: &[Value]) -> String {
+      |    let parts: Vec<String> = xs.iter().map(|v| v.show()).collect();
+      |    format!("{}{}{}", open, parts.join(", "), close)
+      |}
+      |

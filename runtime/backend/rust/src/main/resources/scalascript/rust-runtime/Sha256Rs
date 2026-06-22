@@ -1,0 +1,11 @@
+
+      |// ── R.3.2 — sha256 (uses `sha2` crate; emitted on demand) ──
+      |
+      |/// `sha256(s)` — lowercase hex digest of the input bytes,
+      |/// matching the interpreter's and JVM target's contract.
+      |#[allow(dead_code)]
+      |pub fn _sha256(input: &str) -> String {
+      |    use sha2::{Sha256, Digest};
+      |    format!("{:x}", Sha256::digest(input.as_bytes()))
+      |}
+      |

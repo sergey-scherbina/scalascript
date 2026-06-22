@@ -1,0 +1,70 @@
+
+      |// ── R.6 — auth (argon2 + jsonwebtoken; emitted on demand) ──
+      |
+      |use argon2::{
+      |    password_hash::{
+      |        PasswordHash, PasswordHasher, PasswordVerifier,
+      |        SaltString, rand_core::OsRng,
+      |    },
+      |    Argon2,
+      |};
+      |use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+      |use serde::{Deserialize, Serialize};
+      |
+      |#[derive(Serialize, Deserialize)]
+      |struct _JwtClaims {
+      |    sub: String,
+      |    exp: u64,
+      |}
+      |
+      |/// `hashPassword(password)` — Argon2id hash with random salt.
+      |/// Returns the PHC-format hash string.
+      |#[allow(dead_code)]
+      |pub fn _hash_password(password: &str) -> String {
+      |    let salt = SaltString::generate(&mut OsRng);
+      |    Argon2::default()
+      |        .hash_password(password.as_bytes(), &salt)
+      |        .expect("hashPassword: argon2 hash failed")
+      |        .to_string()
+      |}
+      |
+      |/// `verifyPassword(hash, password)` — verify a PHC-format argon2 hash.
+      |/// Returns `true` if the password matches the hash.
+      |#[allow(dead_code)]
+      |pub fn _verify_password(hash: &str, password: &str) -> bool {
+      |    let parsed = PasswordHash::new(hash)
+      |        .expect("verifyPassword: invalid hash format");
+      |    Argon2::default()
+      |        .verify_password(password.as_bytes(), &parsed)
+      |        .is_ok()
+      |}
+      |
+      |/// `jwtSign(payload, secret)` — sign `payload` string as the `sub`
+      |/// claim in an HS256 JWT.  Expiry is set to the far future.
+      |#[allow(dead_code)]
+      |pub fn _jwt_sign(payload: &str, secret: &str) -> String {
+      |    let claims = _JwtClaims { sub: payload.to_string(), exp: 9_999_999_999 };
+      |    encode(
+      |        &Header::default(),
+      |        &claims,
+      |        &EncodingKey::from_secret(secret.as_bytes()),
+      |    )
+      |    .expect("jwtSign: encode failed")
+      |}
+      |
+      |/// `jwtVerify(token, secret)` — verify an HS256 JWT and return the `sub`
+      |/// claim (i.e. the payload passed to `jwtSign`).  Panics on invalid token.
+      |#[allow(dead_code)]
+      |pub fn _jwt_verify(token: &str, secret: &str) -> String {
+      |    let mut val = Validation::new(jsonwebtoken::Algorithm::HS256);
+      |    val.validate_exp = true;
+      |    decode::<_JwtClaims>(
+      |        token,
+      |        &DecodingKey::from_secret(secret.as_bytes()),
+      |        &val,
+      |    )
+      |    .expect("jwtVerify: invalid token")
+      |    .claims
+      |    .sub
+      |}
+      |

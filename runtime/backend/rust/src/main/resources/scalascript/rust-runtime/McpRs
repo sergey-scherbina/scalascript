@@ -1,0 +1,102 @@
+//! MCP server runtime (R.6) — JSON-RPC 2.0 over stdio.
+      |//! Emitted verbatim by RustGen when mcp intrinsics are reached.
+      |
+      |use std::sync::{Arc, Mutex};
+      |use std::io::{BufRead, Write};
+      |
+      |pub type McpToolFn = Arc<dyn Fn(String) -> String + Send + Sync>;
+      |
+      |#[derive(Clone)]
+      |pub struct McpTool {
+      |    pub name:        String,
+      |    pub description: String,
+      |    pub handler:     McpToolFn,
+      |}
+      |
+      |static MCP_TOOLS: std::sync::OnceLock<Arc<Mutex<Vec<McpTool>>>> =
+      |    std::sync::OnceLock::new();
+      |
+      |fn mcp_tools() -> &'static Arc<Mutex<Vec<McpTool>>> {
+      |    MCP_TOOLS.get_or_init(|| Arc::new(Mutex::new(Vec::new())))
+      |}
+      |
+      |/// `mcpRegisterTool(name, description, handler)` — register an MCP tool.
+      |/// Handler receives the arguments JSON object as a String and returns a String result.
+      |#[allow(dead_code)]
+      |pub fn _mcp_register_tool(
+      |    name:        String,
+      |    description: String,
+      |    handler:     impl Fn(String) -> String + Send + Sync + 'static,
+      |) {
+      |    mcp_tools().lock().unwrap().push(McpTool {
+      |        name,
+      |        description,
+      |        handler: Arc::new(handler),
+      |    });
+      |}
+      |
+      |/// `mcpServe()` — run the MCP server loop over stdin/stdout.
+      |/// Responds to `initialize`, `tools/list`, and `tools/call`.
+      |/// Blocks until stdin is closed.
+      |#[allow(dead_code)]
+      |pub fn _mcp_serve() {
+      |    let stdin  = std::io::stdin();
+      |    let stdout = std::io::stdout();
+      |    let mut out = std::io::BufWriter::new(stdout.lock());
+      |
+      |    for line in stdin.lock().lines() {
+      |        let line = match line {
+      |            Ok(l) if !l.trim().is_empty() => l,
+      |            _ => continue,
+      |        };
+      |        let req: serde_json::Value = match serde_json::from_str(&line) {
+      |            Ok(v)  => v,
+      |            Err(_) => continue,
+      |        };
+      |        let id     = req.get("id").cloned().unwrap_or(serde_json::Value::Null);
+      |        let method = req["method"].as_str().unwrap_or("");
+      |
+      |        let result: serde_json::Value = match method {
+      |            "initialize" => serde_json::json!({
+      |                "protocolVersion": "2024-11-05",
+      |                "capabilities":    { "tools": {} },
+      |                "serverInfo":      { "name": "ssc-mcp", "version": "1.0.0" }
+      |            }),
+      |            "tools/list" => {
+      |                let tools: Vec<serde_json::Value> = mcp_tools().lock().unwrap()
+      |                    .iter().map(|t| serde_json::json!({
+      |                        "name":        t.name,
+      |                        "description": t.description,
+      |                        "inputSchema": { "type": "object" }
+      |                    }))
+      |                    .collect();
+      |                serde_json::json!({ "tools": tools })
+      |            }
+      |            "tools/call" => {
+      |                let params  = &req["params"];
+      |                let name    = params["name"].as_str().unwrap_or("");
+      |                let args    = params.get("arguments")
+      |                    .map(|a| a.to_string())
+      |                    .unwrap_or_else(|| "{}".to_string());
+      |                let guard   = mcp_tools().lock().unwrap();
+      |                let reply   = guard.iter()
+      |                    .find(|t| t.name == name)
+      |                    .map(|t| (t.handler)(args.clone()))
+      |                    .unwrap_or_else(|| format!("unknown tool: {}", name));
+      |                serde_json::json!({
+      |                    "content": [{ "type": "text", "text": reply }]
+      |                })
+      |            }
+      |            _ => serde_json::json!({ "error": { "code": -32601, "message": "Method not found" } }),
+      |        };
+      |
+      |        let response = serde_json::json!({
+      |            "jsonrpc": "2.0",
+      |            "id":      id,
+      |            "result":  result
+      |        });
+      |        let _ = writeln!(out, "{}", response);
+      |        let _ = out.flush();
+      |    }
+      |}
+      |

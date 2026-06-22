@@ -1,0 +1,196 @@
+
+      |// Server-side signal store: a `broadcastSignal(name, value)` or a `GET /__ssc/push?name=
+      |// &value=` updates it; connected clients pick up the change on their next `/__ssc/state`
+      |// poll (the client runtime patches every `[data-ssc-text="<name>"]`).  This is the
+      |// server-push bridge — e.g. rozum's meeting daemon hits `/__ssc/push` on a new message.
+      |// The signal store lives in `crate::value` so `Value::signal_value` can read it too.
+      |use crate::value::{ssc_signals, ssc_recompute_all};
+      |// SSE push transport: a broadcast channel carrying the full signal-state JSON.
+      |// `/__ssc/push` (and `_ui_broadcast_signal`) send on it; `/__ssc/events` streams
+      |// `data: <json>\n\n` to every connected client, so updates arrive immediately
+      |// instead of on the next 1 s poll. The poll endpoint stays as a fallback.
+      |static SSC_EVENTS: std::sync::OnceLock<tokio::sync::broadcast::Sender<String>> =
+      |    std::sync::OnceLock::new();
+      |fn ssc_events() -> &'static tokio::sync::broadcast::Sender<String> {
+      |    SSC_EVENTS.get_or_init(|| tokio::sync::broadcast::channel::<String>(64).0)
+      |}
+      |// Snapshot the signal store as a JSON object string (shared by /__ssc/state and
+      |// the SSE broadcast).
+      |fn ssc_state_json() -> String {
+      |    let m = ssc_signals().lock().unwrap();
+      |    let entries: Vec<String> = m.iter()
+      |        .map(|(k, v)| format!("{}:{}", ssc_json_escape(k), ssc_json_escape(v)))
+      |        .collect();
+      |    format!("{{{}}}", entries.join(","))
+      |}
+      |// Update a signal, recompute every derived (computed) signal so they reflect the new
+      |// dependency value, then notify SSE subscribers with the full state. `let _ =` on send:
+      |// an error just means no clients are currently subscribed, which is fine.
+      |fn ssc_set_and_notify(name: String, value: String) {
+      |    ssc_signals().lock().unwrap().insert(name, value);
+      |    ssc_recompute_all();
+      |    let _ = ssc_events().send(ssc_state_json());
+      |}
+      |#[allow(dead_code)]
+      |pub fn _ui_broadcast_signal(name: String, value: String) {
+      |    ssc_set_and_notify(name, value);
+      |}
+      |fn ssc_json_escape(s: &str) -> String {
+      |    let mut o = String::with_capacity(s.len() + 2);
+      |    o.push('"');
+      |    for c in s.chars() {
+      |        match c {
+      |            '"'  => o.push_str("\\\""),
+      |            '\\' => o.push_str("\\\\"),
+      |            '\n' => o.push_str("\\n"),
+      |            '\r' => o.push_str("\\r"),
+      |            '\t' => o.push_str("\\t"),
+      |            _    => o.push(c),
+      |        }
+      |    }
+      |    o.push('"');
+      |    o
+      |}
+      |fn ssc_urldecode(s: &str) -> String {
+      |    let b = s.as_bytes();
+      |    let mut o = String::with_capacity(b.len());
+      |    let mut i = 0;
+      |    while i < b.len() {
+      |        match b[i] {
+      |            b'+' => { o.push(' '); i += 1; }
+      |            b'%' if i + 2 < b.len() => {
+      |                let h = |c: u8| (c as char).to_digit(16);
+      |                match (h(b[i + 1]), h(b[i + 2])) {
+      |                    (Some(hi), Some(lo)) => { o.push((hi * 16 + lo) as u8 as char); i += 3; }
+      |                    _ => { o.push('%'); i += 1; }
+      |                }
+      |            }
+      |            c => { o.push(c as char); i += 1; }
+      |        }
+      |    }
+      |    o
+      |}
+      |
+      |/// `serve(view, port)` — SSR the View tree once, then serve it (with a tiny reactivity
+      |/// runtime) plus `/__ssc/state` (signal JSON) and `/__ssc/push` (server-side update).
+      |#[allow(dead_code)]
+      |// direct-WS signal transport: a WebSocket server on `ws_port` (http port + 1) for
+      |// external/programmatic clients (the rozum bridge). Bidirectional + shares the same
+      |// store/broadcast/recompute as SSE: on connect it sends the current state JSON and then
+      |// streams every update; each incoming text frame `name=value` SETS a signal (→ recompute
+      |// + broadcast), so a WS client both observes and drives signals.
+      |async fn ssc_ws_serve(ws_port: u16) {
+      |    use futures_util::{SinkExt, StreamExt};
+      |    use tokio_tungstenite::tungstenite::Message;
+      |    let addr = SocketAddr::from(([0, 0, 0, 0], ws_port));
+      |    let listener = match TcpListener::bind(addr).await {
+      |        Ok(l) => l,
+      |        Err(e) => { eprintln!("signal ws bind {}: {}", ws_port, e); return; }
+      |    };
+      |    eprintln!("Signal WS on ws://{}", listener.local_addr().unwrap());
+      |    loop {
+      |        let (stream, _) = match listener.accept().await { Ok(p) => p, Err(_) => continue };
+      |        tokio::spawn(async move {
+      |            let ws = match tokio_tungstenite::accept_async(stream).await { Ok(w) => w, Err(_) => return };
+      |            let (mut tx, mut rx) = ws.split();
+      |            if tx.send(Message::Text(ssc_state_json())).await.is_err() { return; }
+      |            let mut sub = ssc_events().subscribe();
+      |            loop {
+      |                tokio::select! {
+      |                    incoming = rx.next() => match incoming {
+      |                        Some(Ok(Message::Text(t))) => {
+      |                            if let Some(eq) = t.find('=') {
+      |                                let (n, v) = (t[..eq].to_string(), t[eq + 1..].to_string());
+      |                                if !n.is_empty() { ssc_set_and_notify(n, v); }
+      |                            }
+      |                        }
+      |                        Some(Ok(_)) => {}
+      |                        _ => break,
+      |                    },
+      |                    update = sub.recv() => match update {
+      |                        Ok(json) => { if tx.send(Message::Text(json)).await.is_err() { break; } }
+      |                        Err(_)   => {}
+      |                    },
+      |                }
+      |            }
+      |        });
+      |    }
+      |}
+      |
+      |pub fn _ui_serve(tree: crate::runtime::ui::View, port: i64) {
+      |    let body = crate::runtime::ui::_ui_render(tree);
+      |    let html = Arc::new(format!(
+      |        "<!doctype html><meta charset=\"utf-8\">{}{}",
+      |        body, crate::runtime::ui::_UI_CLIENT_SCRIPT));
+      |    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+      |    rt.block_on(async move {
+      |        let addr = SocketAddr::from(([0, 0, 0, 0], port as u16));
+      |        let listener = TcpListener::bind(addr).await
+      |            .unwrap_or_else(|e| panic!("serve(view, {}): {}", port, e));
+      |        eprintln!("Listening on http://{}", listener.local_addr().unwrap());
+      |        // direct-WS signal endpoint for external/programmatic clients (e.g. the rozum
+      |        // bridge), on http port + 1. Shares the store/broadcast/recompute with SSE.
+      |        tokio::spawn(ssc_ws_serve((port as u16).wrapping_add(1)));
+      |        loop {
+      |            let (stream, _) = listener.accept().await
+      |                .unwrap_or_else(|e| panic!("accept: {}", e));
+      |            let io = hyper_util::rt::TokioIo::new(stream);
+      |            let page = html.clone();
+      |            tokio::task::spawn(async move {
+      |                let svc = service_fn(move |req: Request<Incoming>| {
+      |                    let page = page.clone();
+      |                    async move {
+      |                        use http_body_util::BodyExt;
+      |                        type SscBody = http_body_util::combinators::BoxBody<Bytes, std::convert::Infallible>;
+      |                        let path = req.uri().path().to_owned();
+      |                        let resp: Response<SscBody> = if path == "/__ssc/events" {
+      |                            // Server-Sent Events: push signal-state updates immediately.
+      |                            use tokio_stream::StreamExt;
+      |                            let rx = ssc_events().subscribe();
+      |                            let initial = tokio_stream::once(Ok::<_, std::convert::Infallible>(
+      |                                hyper::body::Frame::data(Bytes::from(
+      |                                    format!("data: {}\n\n", ssc_state_json())))));
+      |                            let updates = tokio_stream::wrappers::BroadcastStream::new(rx)
+      |                                .filter_map(|m| m.ok().map(|json| Ok::<_, std::convert::Infallible>(
+      |                                    hyper::body::Frame::data(Bytes::from(format!("data: {}\n\n", json))))));
+      |                            let body = http_body_util::StreamBody::new(initial.chain(updates));
+      |                            Response::builder()
+      |                                .status(StatusCode::OK)
+      |                                .header("Content-Type", "text/event-stream")
+      |                                .header("Cache-Control", "no-cache")
+      |                                .body(body.boxed())
+      |                                .unwrap()
+      |                        } else {
+      |                            let (ctype, payload) = if path == "/__ssc/state" {
+      |                                ("application/json", ssc_state_json())
+      |                            } else if path == "/__ssc/push" {
+      |                                let q = req.uri().query().unwrap_or("").to_owned();
+      |                                let (mut name, mut value) = (String::new(), String::new());
+      |                                for kv in q.split('&') {
+      |                                    let mut it = kv.splitn(2, '=');
+      |                                    match (it.next(), it.next()) {
+      |                                        (Some("name"),  Some(v)) => name  = ssc_urldecode(v),
+      |                                        (Some("value"), Some(v)) => value = ssc_urldecode(v),
+      |                                        _ => {}
+      |                                    }
+      |                                }
+      |                                if !name.is_empty() { ssc_set_and_notify(name, value); }
+      |                                ("text/plain; charset=utf-8", "ok".to_string())
+      |                            } else {
+      |                                ("text/html; charset=utf-8", (*page).clone())
+      |                            };
+      |                            Response::builder()
+      |                                .status(StatusCode::OK)
+      |                                .header("Content-Type", ctype)
+      |                                .body(Full::new(Bytes::from(payload)).boxed())
+      |                                .unwrap()
+      |                        };
+      |                        Ok::<_, hyper::Error>(resp)
+      |                    }
+      |                });
+      |                let _ = http1::Builder::new().serve_connection(io, svc).await;
+      |            });
+      |        }
+      |    });
+      |}
+      |

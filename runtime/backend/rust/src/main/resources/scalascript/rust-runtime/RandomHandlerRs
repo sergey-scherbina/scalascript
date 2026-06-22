@@ -1,0 +1,23 @@
+pub trait RandomEffect {
+      |    fn next_int(&mut self, bound: i64) -> i64;
+      |    fn next_float(&mut self) -> f64;
+      |}
+      |
+      |pub struct RandomHandler {
+      |    pub seed: u64,
+      |}
+      |
+      |impl RandomEffect for RandomHandler {
+      |    fn next_int(&mut self, bound: i64) -> i64 {
+      |        self.seed = self.seed.wrapping_mul(6364136223846793005)
+      |                              .wrapping_add(1442695040888963407);
+      |        (self.seed % bound.max(1) as u64) as i64
+      |    }
+      |    fn next_float(&mut self) -> f64 {
+      |        self.seed = self.seed.wrapping_mul(6364136223846793005)
+      |                              .wrapping_add(1442695040888963407);
+      |        (self.seed >> 11) as f64 / 9007199254740992.0
+      |    }
+      |}
+      |
+      |

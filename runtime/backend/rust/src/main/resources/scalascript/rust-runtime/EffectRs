@@ -1,0 +1,141 @@
+//! Algebraic-effects runtime (Free-monad shape).
+      |//!
+      |//! R.4.1 ships the runtime infrastructure only — `Perform` /
+      |//! `Handle` / `Resume` IR-node lowering lands in R.4.2.  The
+      |//! `#[test]` at the bottom exercises a `Pure` + a single-shot
+      |//! `Effect` to verify the runtime independently of codegen.
+      |//!
+      |//! Emitted verbatim by RustGen; do not edit by hand.
+      |
+      |use std::collections::HashMap;
+      |
+      |/// A single effect operation: `name` identifies the effect entry
+      |/// (e.g. `"State.get"`), `args` carry the call-site arguments
+      |/// as opaque `EffArg` values the handler interprets.
+      |#[allow(dead_code)]
+      |#[derive(Debug, Clone)]
+      |pub struct Op {
+      |    pub name: String,
+      |    pub args: Vec<EffArg>,
+      |}
+      |
+      |/// Boxed effect-runtime value.  Kept small + Clone so handlers can
+      |/// inspect arguments without taking ownership.  Distinct from the
+      |/// crate-wide `Value` enum so the effect runtime stays usable
+      |/// without a value-system dep.
+      |#[allow(dead_code)]
+      |#[derive(Debug, Clone)]
+      |pub enum EffArg {
+      |    Unit,
+      |    Bool(bool),
+      |    Int(i64),
+      |    Str(String),
+      |}
+      |
+      |/// Free-monad value over an output type `A`.
+      |///
+      |/// `Pure(a)` is a finished computation; `Effect(op, k)` is a
+      |/// suspended computation that needs the runtime to:
+      |/// 1. look up `op.name` in the handler stack,
+      |/// 2. invoke the handler with the args,
+      |/// 3. resume the continuation `k` with the handler's reply.
+      |#[allow(dead_code)]
+      |pub enum Computation<A> {
+      |    Pure(A),
+      |    Effect(Op, Box<dyn FnOnce(EffArg) -> Computation<A>>),
+      |}
+      |
+      |/// One handler entry — given the operation args, produce the
+      |/// reply the continuation should resume with.
+      |pub type Handler = Box<dyn Fn(&[EffArg]) -> EffArg>;
+      |
+      |/// Stack of handlers searched in registration order.  A handler
+      |/// covers a single effect-op name; an unhandled op panics with a
+      |/// clearly-labelled runtime error (multi-shot continuations are an
+      |/// R.6 follow-up).
+      |#[allow(dead_code)]
+      |pub struct HandlerStack {
+      |    handlers: HashMap<String, Handler>,
+      |}
+      |
+      |#[allow(dead_code)]
+      |impl HandlerStack {
+      |    pub fn new() -> Self { Self { handlers: HashMap::new() } }
+      |    pub fn with(mut self, name: impl Into<String>, h: Handler) -> Self {
+      |        self.handlers.insert(name.into(), h);
+      |        self
+      |    }
+      |    pub fn lookup(&self, name: &str) -> Option<&Handler> {
+      |        self.handlers.get(name)
+      |    }
+      |}
+      |
+      |/// Drive a `Computation` to its `Pure` result by dispatching every
+      |/// `Effect` through the handler stack.
+      |#[allow(dead_code)]
+      |pub fn run_with<A>(mut c: Computation<A>, h: &HandlerStack) -> A {
+      |    loop {
+      |        match c {
+      |            Computation::Pure(a) => return a,
+      |            Computation::Effect(op, k) => {
+      |                let handler = h.lookup(&op.name).unwrap_or_else(|| {
+      |                    panic!("no handler for effect op `{}`", op.name)
+      |                });
+      |                let reply = handler(&op.args);
+      |                c = k(reply);
+      |            }
+      |        }
+      |    }
+      |}
+      |
+      |/// Convenience constructor for `Pure(a)`.
+      |#[allow(dead_code)]
+      |pub fn pure<A>(a: A) -> Computation<A> { Computation::Pure(a) }
+      |
+      |/// Convenience constructor for a single-arg effect.
+      |#[allow(dead_code)]
+      |pub fn perform<A>(
+      |    name: impl Into<String>,
+      |    args: Vec<EffArg>,
+      |    k: impl FnOnce(EffArg) -> Computation<A> + 'static,
+      |) -> Computation<A> {
+      |    Computation::Effect(
+      |        Op { name: name.into(), args },
+      |        Box::new(k),
+      |    )
+      |}
+      |
+      |#[cfg(test)]
+      |mod tests {
+      |    use super::*;
+      |
+      |    #[test]
+      |    fn pure_returns_its_value() {
+      |        let c: Computation<i64> = pure(42);
+      |        let h = HandlerStack::new();
+      |        assert_eq!(run_with(c, &h), 42);
+      |    }
+      |
+      |    #[test]
+      |    fn single_effect_dispatches_through_handler() {
+      |        // perform("ask", []) → handler returns Int(7) → +1 → Pure(8)
+      |        let c: Computation<i64> = perform("ask", vec![], |reply| {
+      |            match reply {
+      |                EffArg::Int(n) => pure(n + 1),
+      |                other => panic!("expected Int, got {:?}", other),
+      |            }
+      |        });
+      |        let h = HandlerStack::new().with("ask",
+      |            Box::new(|_args| EffArg::Int(7)));
+      |        assert_eq!(run_with(c, &h), 8);
+      |    }
+      |
+      |    #[test]
+      |    #[should_panic(expected = "no handler for effect op `mystery`")]
+      |    fn unhandled_effect_panics_with_named_diagnostic() {
+      |        let c: Computation<i64> = perform("mystery", vec![], |_| pure(0));
+      |        let h = HandlerStack::new();
+      |        let _ = run_with(c, &h);
+      |    }
+      |}
+      |

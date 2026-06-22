@@ -1,0 +1,190 @@
+//! std/ui — server-side rendering of the View tree to HTML (SSR).
+      |//! Emitted verbatim by RustGen when element/textNode/fragment are reached.
+      |
+      |#[derive(Clone, Debug)]
+      |pub enum View {
+      |    Element { tag: String, attrs: Vec<(String, String)>, children: Vec<View> },
+      |    Text(String),
+      |    Fragment(Vec<View>),
+      |}
+      |
+      |pub fn _ui_element(
+      |    tag: String,
+      |    attrs: std::collections::HashMap<String, String>,
+      |    events: std::collections::HashMap<String, crate::value::Value>,
+      |    children: Vec<View>,
+      |) -> View {
+      |    let mut attrs: Vec<(String, String)> = attrs.into_iter().collect();
+      |    // A signal-bound event handler (e.g. `inputChange`) is encoded as a marker string;
+      |    // surface it as a `data-ssc-*` attribute the client reactivity runtime reads.
+      |    for (_evt, handler) in events {
+      |        if let crate::value::Value::Str(s) = handler {
+      |            if let Some(name) = s.strip_prefix("ssc-input:") {
+      |                attrs.push(("data-ssc-input".to_string(), name.to_string()));
+      |            } else if let Some(rest) = s.strip_prefix("ssc-set:") {
+      |                // rest = "<name>:<value>"; client splits on the first ':'.
+      |                attrs.push(("data-ssc-set".to_string(), rest.to_string()));
+      |            } else if let Some(name) = s.strip_prefix("ssc-toggle:") {
+      |                attrs.push(("data-ssc-toggle".to_string(), name.to_string()));
+      |            }
+      |        }
+      |    }
+      |    // Key-sorted attribute order → deterministic SSR output (HashMap is unordered).
+      |    attrs.sort_by(|a, b| a.0.cmp(&b.0));
+      |    View::Element { tag, attrs, children }
+      |}
+      |
+      |pub fn _ui_text(s: String) -> View { View::Text(s) }
+      |
+      |pub fn _ui_fragment(children: Vec<View>) -> View { View::Fragment(children) }
+      |
+      |// Client reactivity runtime appended by `serve(view, port)`:
+      |//  (1) local — a signal-bound input (`data-ssc-input`) mirrors into `[data-ssc-text]`;
+      |//  (2) set/toggle — a `data-ssc-set="<name>:<value>"` element sets the signal on click,
+      |//      a `data-ssc-toggle="<name>"` flips its boolean; both patch `[data-ssc-text]` locally
+      |//      (via `_sscState`) and persist to the server (`/__ssc/push`) so the poll doesn't revert;
+      |//  (3) server-push — poll `/__ssc/state` and patch `[data-ssc-text]` from server-side
+      |//      signal updates (e.g. a new chat message pushed to `/__ssc/push`).
+      |#[allow(dead_code)]
+      |pub const _UI_CLIENT_SCRIPT: &str = "<script>var _sscState={};function _sscSet(n,v){_sscState[n]=v;document.querySelectorAll('[data-ssc-text=\"'+n+'\"]').forEach(function(el){el.textContent=v;});}function _sscPush(n,v){try{fetch('/__ssc/push?name='+encodeURIComponent(n)+'&value='+encodeURIComponent(v));}catch(e){}}document.addEventListener('input',function(e){var n=e.target.getAttribute('data-ssc-input');if(n==null)return;_sscSet(n,e.target.value);});document.addEventListener('click',function(e){var s=e.target.getAttribute('data-ssc-set');if(s!=null){var i=s.indexOf(':');var n=s.slice(0,i);var v=s.slice(i+1);_sscSet(n,v);_sscPush(n,v);}var t=e.target.getAttribute('data-ssc-toggle');if(t!=null){var nv=(_sscState[t]==='true'||_sscState[t]===true)?'false':'true';_sscSet(t,nv);_sscPush(t,nv);}});function _sscApply(s){for(var n in s){_sscSet(n,s[n]);}}if(typeof EventSource!=='undefined'){var _es=new EventSource('/__ssc/events');_es.onmessage=function(e){try{_sscApply(JSON.parse(e.data));}catch(_){}};}else{setInterval(function(){fetch('/__ssc/state').then(function(r){return r.json();}).then(_sscApply).catch(function(){});},1000);}</script>";
+      |
+      |/// Render a `View` to an HTML string (SSR).  Takes the tree by value so it
+      |/// can be the tail of an SSR entry (`renderHtml(view)`); recursion borrows
+      |/// through `_ui_render_ref`.
+      |pub fn _ui_render(v: View) -> String { _ui_render_ref(&v) }
+      |
+      |fn _ui_render_ref(v: &View) -> String {
+      |    match v {
+      |        View::Text(s) => _ui_escape_text(s),
+      |        View::Fragment(cs) => cs.iter().map(_ui_render_ref).collect::<Vec<_>>().join(""),
+      |        View::Element { tag, attrs, children } => {
+      |            let mut s = String::new();
+      |            s.push('<');
+      |            s.push_str(tag);
+      |            for (k, val) in attrs {
+      |                s.push(' ');
+      |                s.push_str(k);
+      |                s.push_str("=\"");
+      |                s.push_str(&_ui_escape_attr(val));
+      |                s.push('"');
+      |            }
+      |            s.push('>');
+      |            // HTML void elements (meta/br/img/…) take no closing tag.
+      |            if !(_ui_is_void(tag) && children.is_empty()) {
+      |                for c in children { s.push_str(&_ui_render_ref(c)); }
+      |                s.push_str("</");
+      |                s.push_str(tag);
+      |                s.push('>');
+      |            }
+      |            s
+      |        }
+      |    }
+      |}
+      |
+      |fn _ui_is_void(tag: &str) -> bool {
+      |    matches!(tag,
+      |        "area" | "base" | "br" | "col" | "embed" | "hr" | "img" | "input"
+      |        | "link" | "meta" | "param" | "source" | "track" | "wbr")
+      |}
+      |
+      |fn _ui_escape_text(s: &str) -> String {
+      |    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+      |}
+      |
+      |fn _ui_escape_attr(s: &str) -> String {
+      |    _ui_escape_text(s).replace('"', "&quot;")
+      |}
+      |
+      |// ── std/ui signal primitives — SSR stubs ──────────────────────────────────
+      |// Signals/EventHandlers are `crate::value::Value` on Rust. For static SSR these
+      |// render the initial branch / no-op; full reactivity ships via the JS target.
+      |use crate::value::Value;
+      |
+      |// Coerce any attribute value (String / bool / i64 / Value) to a String — HTML
+      |// attribute values are strings, and a Rust HashMap needs one value type.
+      |#[allow(dead_code)]
+      |pub fn _ui_attr<T: std::fmt::Display>(v: T) -> String { v.to_string() }
+      |
+      |// Signals carry their initial value as a `Value` so the *initial* render is SSR'd
+      |// (static reactivity).  Live updates (client JS / server push) are a later slice;
+      |// the event-handler primitives below stay inert for SSR.
+      |// A signal carries its name (for client `data-ssc-*` wiring) + current value.
+      |#[allow(dead_code)]
+      |pub fn _ui_signal<T: Into<Value>>(name: String, default: T) -> Value {
+      |    let v = default.into();
+      |    // Seed the live store with the initial value (only if absent) so signal reads
+      |    // and recompute resolve against it consistently from the first render.
+      |    let sv = v.show();
+      |    crate::value::ssc_signals().lock().unwrap().entry(name.clone()).or_insert(sv);
+      |    Value::Signal(name, Box::new(v))
+      |}
+      |// signalText(s) → a `<span data-ssc-text="<name>">value</span>` so the client runtime
+      |// can live-patch its text; a non-signal value renders as plain text.
+      |#[allow(dead_code)]
+      |pub fn _ui_signal_text(s: Value) -> View {
+      |    match s {
+      |        Value::Signal(name, v) => View::Element {
+      |            tag: "span".to_string(),
+      |            attrs: vec![("data-ssc-text".to_string(), name)],
+      |            children: vec![View::Text(v.show())],
+      |        },
+      |        other => View::Text(other.show()),
+      |    }
+      |}
+      |#[allow(dead_code)]
+      |pub fn _ui_show_signal(cond: Value, when_true: View, when_false: View) -> View {
+      |    if cond.is_truthy() { when_true } else { when_false }
+      |}
+      |// setSignal(s, v) in an event map (e.g. `["click" -> setSignal(sig, v)]`) marks the
+      |// element so the client runtime sets the bound signal to `v` on the event. Encoded as
+      |// `ssc-set:<name>:<value>` (name is an identifier → first ':' after the prefix splits it).
+      |#[allow(dead_code)]
+      |pub fn _ui_set_signal<T: Into<Value>>(s: Value, v: T) -> Value {
+      |    match s {
+      |        Value::Signal(name, _) => Value::Str(format!("ssc-set:{}:{}", name, v.into().show())),
+      |        _                      => Value::Unit,
+      |    }
+      |}
+      |// inputChange(s) marks the bound input so the client runtime mirrors its value into
+      |// every `[data-ssc-text="<name>"]`.  `_ui_element` turns this marker into an attribute.
+      |#[allow(dead_code)]
+      |pub fn _ui_input_change(s: Value) -> Value {
+      |    match s {
+      |        Value::Signal(name, _) => Value::Str(format!("ssc-input:{}", name)),
+      |        _                      => Value::Unit,
+      |    }
+      |}
+      |// toggleSignal(s) marks the element so the client runtime flips the bound boolean signal
+      |// on the event (e.g. `["change" -> toggleSignal(checked)]`). Encoded as `ssc-toggle:<name>`.
+      |#[allow(dead_code)]
+      |pub fn _ui_toggle_signal(s: Value) -> Value {
+      |    match s {
+      |        Value::Signal(name, _) => Value::Str(format!("ssc-toggle:{}", name)),
+      |        _                      => Value::Unit,
+      |    }
+      |}
+      |#[allow(dead_code)]
+      |pub fn _ui_eq_signal<T: Into<Value>>(s: Value, value: T) -> Value {
+      |    Value::Bool(s.signal_value() == value.into())
+      |}
+      |// computedSignal(f) — derive a String signal; evaluate the thunk for the initial SSR
+      |// value (it reads other signals' current values).  Client recompute on a dependency
+      |// change is a later slice; the result is an anonymous signal (no `data-ssc-*` name).
+      |#[allow(dead_code)]
+      |pub fn _ui_computed_signal<F: Fn() -> String + Send + Sync + 'static>(f: F) -> Value {
+      |    // Register the closure for live recompute (named `__cN`), seed the store with its
+      |    // initial value, and return the NAMED signal so signalText emits data-ssc-text="__cN".
+      |    let name = crate::value::ssc_register_computed(Box::new(f));
+      |    let v = crate::value::ssc_signals().lock().unwrap().get(&name).cloned().unwrap_or_default();
+      |    Value::Signal(name, Box::new(Value::Str(v)))
+      |}
+      |// seedSignal(name, source) — a named signal seeded from another signal's current value.
+      |#[allow(dead_code)]
+      |pub fn _ui_seed_signal(name: String, source: Value) -> Value {
+      |    Value::Signal(name, Box::new(source.signal_value()))
+      |}
+      |#[allow(dead_code)]
+      |pub fn _ui_data_table_view(_source: Value, _columns: Vec<Value>, _actions: Vec<Value>) -> View {
+      |    View::Fragment(vec![])
+      |}
+      |

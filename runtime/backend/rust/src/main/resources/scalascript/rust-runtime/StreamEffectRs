@@ -1,0 +1,17 @@
+pub trait StreamEffect<T> {
+      |    fn stream_emit(&mut self, value: T);
+      |}
+      |
+      |pub struct VecStream<T> {
+      |    pub items: Vec<T>,
+      |}
+      |
+      |impl<T> VecStream<T> {
+      |    pub fn new() -> Self { VecStream { items: Vec::new() } }
+      |}
+      |
+      |impl<T> StreamEffect<T> for VecStream<T> {
+      |    fn stream_emit(&mut self, value: T) { self.items.push(value); }
+      |}
+      |
+      |

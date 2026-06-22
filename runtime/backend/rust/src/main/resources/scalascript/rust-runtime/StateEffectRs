@@ -1,0 +1,15 @@
+pub trait StateEffect {
+      |    fn get_state(&mut self) -> i64;
+      |    fn put_state(&mut self, s: i64);
+      |}
+      |
+      |pub struct StateHandler {
+      |    pub state: i64,
+      |}
+      |
+      |impl StateEffect for StateHandler {
+      |    fn get_state(&mut self) -> i64 { self.state }
+      |    fn put_state(&mut self, s: i64) { self.state = s; }
+      |}
+      |
+      |

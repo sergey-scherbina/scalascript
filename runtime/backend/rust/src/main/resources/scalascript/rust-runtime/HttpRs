@@ -1,0 +1,117 @@
+//! HTTP server runtime (R.5).
+      |//! Emitted verbatim by RustGen when serve/route are reached.
+      |
+      |use std::sync::{Arc, Mutex};
+      |use std::net::SocketAddr;
+      |use bytes::Bytes;
+      |use http_body_util::{BodyExt, Full};
+      |use hyper::{Request, Response, StatusCode};
+      |use hyper::body::Incoming;
+      |use hyper::server::conn::http1;
+      |use hyper::service::service_fn;
+      |use tokio::net::TcpListener;
+      |
+      |pub type RouteHandler = Box<dyn Fn(&str) -> String + Send + Sync>;
+      |
+      |static ROUTES: std::sync::OnceLock<
+      |    Arc<Mutex<Vec<(String, String, Arc<RouteHandler>)>>>
+      |> = std::sync::OnceLock::new();
+      |
+      |fn routes() -> &'static Arc<Mutex<Vec<(String, String, Arc<RouteHandler>)>>> {
+      |    ROUTES.get_or_init(|| Arc::new(Mutex::new(Vec::new())))
+      |}
+      |
+      |/// `route(method, path, handler)` — register a route.
+      |/// Handler takes `String` (matching ScalaScript String surface).
+      |#[allow(dead_code)]
+      |pub fn _http_route(
+      |    method:  String,
+      |    path:    String,
+      |    handler: impl Fn(String) -> String + Send + Sync + 'static,
+      |) {
+      |    let h: RouteHandler = Box::new(move |s: &str| handler(s.to_string()));
+      |    routes().lock().unwrap().push((
+      |        method.to_uppercase(),
+      |        path,
+      |        Arc::new(h),
+      |    ));
+      |}
+      |
+      |/// `serve(port)` — start the HTTP server and block until killed.
+      |#[allow(dead_code)]
+      |pub fn _http_serve(port: i64) {
+      |    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+      |    rt.block_on(async move {
+      |        let addr = SocketAddr::from(([0, 0, 0, 0], port as u16));
+      |        let listener = TcpListener::bind(addr).await
+      |            .unwrap_or_else(|e| panic!("serve({}): {}", port, e));
+      |        eprintln!("Listening on http://{}", listener.local_addr().unwrap());
+      |        loop {
+      |            let (stream, _) = listener.accept().await
+      |                .unwrap_or_else(|e| panic!("accept: {}", e));
+      |            let io = hyper_util::rt::TokioIo::new(stream);
+      |            tokio::task::spawn(async move {
+      |                let _ = http1::Builder::new()
+      |                    .serve_connection(io, service_fn(handle_request))
+      |                    .await;
+      |            });
+      |        }
+      |    });
+      |}
+      |
+      |async fn handle_request(
+      |    req: Request<Incoming>,
+      |) -> Result<Response<Full<Bytes>>, hyper::Error> {
+      |    let method = req.method().to_string();
+      |    let path   = req.uri().path().to_owned();
+      |    // Read the body so POST/PUT handlers see what was submitted; GET/HEAD handlers still
+      |    // receive the path (routing is by exact method+path, so the handler keeps its context).
+      |    let body_bytes = req.into_body().collect().await.map(|c| c.to_bytes()).unwrap_or_default();
+      |    let arg = if method == "GET" || method == "HEAD" {
+      |        path.clone()
+      |    } else {
+      |        String::from_utf8_lossy(&body_bytes).into_owned()
+      |    };
+      |    let out = {
+      |        let guard = routes().lock().unwrap();
+      |        // Exact method+path first; then a prefix route (a registered path ending in
+      |        // `/` matches any request path under it) so a handler can serve a whole
+      |        // namespace like `/r/<room>` and read the suffix from its `&str` arg (the path).
+      |        let exact = guard.iter().find(|(m, p, _)| m == &method && p == &path);
+      |        let chosen = exact.or_else(|| {
+      |            guard.iter().find(|(m, p, _)| m == &method && p.ends_with('/') && path.starts_with(p.as_str()))
+      |        });
+      |        chosen.map(|(_, _, h)| h(&arg))
+      |    };
+      |    if let Some(body) = out {
+      |        // Content-Type by path extension first — so a route can serve a service
+      |        // worker / web manifest / icon with the MIME the browser requires; else
+      |        // auto-detect HTML vs plain so `route` stays usable for dynamic pages (SSR).
+      |        let ctype = if path.ends_with(".js") {
+      |            "text/javascript; charset=utf-8"
+      |        } else if path.ends_with(".webmanifest") {
+      |            "application/manifest+json; charset=utf-8"
+      |        } else if path.ends_with(".json") {
+      |            "application/json; charset=utf-8"
+      |        } else if path.ends_with(".svg") {
+      |            "image/svg+xml; charset=utf-8"
+      |        } else if path.ends_with(".css") {
+      |            "text/css; charset=utf-8"
+      |        } else if body.trim_start().starts_with('<') {
+      |            "text/html; charset=utf-8"
+      |        } else {
+      |            "text/plain; charset=utf-8"
+      |        };
+      |        return Ok(Response::builder()
+      |            .status(StatusCode::OK)
+      |            .header("Content-Type", ctype)
+      |            .header("Cache-Control", "no-store")
+      |            .body(Full::new(Bytes::from(body)))
+      |            .unwrap());
+      |    }
+      |    Ok(Response::builder()
+      |        .status(StatusCode::NOT_FOUND)
+      |        .body(Full::new(Bytes::from("Not Found")))
+      |        .unwrap())
+      |}
+      |
