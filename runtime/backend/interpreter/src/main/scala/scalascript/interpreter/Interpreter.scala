@@ -208,6 +208,14 @@ class Interpreter(
   // Phase 2 lazy loading: set to true after ensurePluginsLoaded() has run.
   private[interpreter] var _pluginsLoaded = false
   private[interpreter] val pluginNativeNames = mutable.Set.empty[String]
+
+  // Effect-runner block-forms (`runLogger { … }`) contributed by installed plugins, keyed by
+  // keyword. Populated by installPlugins/ensurePluginsLoaded. Empty until a plugin loads, so a
+  // plugin-free script never pays for the lookup. polyglot-libraries §2d.
+  private val _blockForms = mutable.Map.empty[String, scalascript.backend.spi.BlockForm]
+  private[interpreter] def blockForms: collection.Map[String, scalascript.backend.spi.BlockForm] = _blockForms
+  private def installBlockForms(plugins: Iterable[scalascript.backend.spi.Backend]): Unit =
+    plugins.foreach(p => _blockForms ++= p.blockForms)
   // busi-p3-ratelimit-intrinsic-shadow — names where a user top-level `def`
   // collides with a plugin intrinsic of the same bare name. Policy: user wins
   // (see specs/intrinsic-shadow-policy.md); we record each colliding name here
@@ -269,6 +277,7 @@ class Interpreter(
         .toList
     installNativeIntrinsicEntries(pluginImpls)
     installSqlBlockRunners(plugins)
+    installBlockForms(plugins)
     installGraphqlBlockRunners(plugins)
     BuiltinsRuntime.setupPluginCompanions(this)
 
@@ -286,6 +295,7 @@ class Interpreter(
         .toList
     installNativeIntrinsicEntries(pluginImpls)
     installSqlBlockRunners(plugins)
+    installBlockForms(plugins)
     installGraphqlBlockRunners(plugins)
     BuiltinsRuntime.setupPluginCompanions(this)
     _pluginsLoaded = true
@@ -1526,6 +1536,36 @@ class Interpreter(
     case Value.BoolV(b)   => b
     case Value.UnitV      => ()
     case other            => other  // pass complex Values through unchanged
+
+  // ── Value ↔ SpiValue (typed block-form / effect-handler boundary) ─────
+  // The host-neutral, closed value the block-form/effect-handler SPI speaks
+  // (the spi module must not depend on `Value`). polyglot-libraries §2d.
+  import scalascript.backend.spi.SpiValue
+  private[interpreter] def valueToSpi(v: Value): SpiValue = v match
+    case Value.IntV(n)     => SpiValue.IntV(n)
+    case Value.DoubleV(d)  => SpiValue.DoubleV(d)
+    case Value.StringV(s)  => SpiValue.StrV(s)
+    case Value.CharV(c)    => SpiValue.StrV(c.toString)
+    case Value.BoolV(b)    => SpiValue.BoolV(b)
+    case Value.UnitV       => SpiValue.UnitV
+    case Value.ListV(xs)   => SpiValue.ListV(xs.map(valueToSpi))
+    case Value.VectorV(xs) => SpiValue.ListV(xs.toList.map(valueToSpi))
+    case Value.TupleV(xs)  => SpiValue.TupleV(xs.map(valueToSpi))
+    case Value.MapV(m)     => SpiValue.MapV(m.toList.map { (k, vv) => valueToSpi(k) -> valueToSpi(vv) })
+    case Value.OptionV(o)  => SpiValue.OptV(Option(o).map(valueToSpi))
+    case other             => SpiValue.Opaque(other)  // closure / case-class / etc. — round-trip unchanged
+
+  private[interpreter] def spiToValue(s: SpiValue): Value = s match
+    case SpiValue.IntV(n)     => Value.intV(n)
+    case SpiValue.DoubleV(d)  => Value.doubleV(d)
+    case SpiValue.StrV(s)     => Value.StringV(s)
+    case SpiValue.BoolV(b)    => Value.boolV(b)
+    case SpiValue.UnitV       => Value.UnitV
+    case SpiValue.ListV(xs)   => Value.ListV(xs.map(spiToValue))
+    case SpiValue.TupleV(xs)  => Value.TupleV(xs.map(spiToValue))
+    case SpiValue.OptV(o)     => o.fold(Value.NoneV)(x => Value.someV(spiToValue(x)))
+    case SpiValue.MapV(es)    => Value.MapV(es.map { (k, vv) => spiToValue(k) -> spiToValue(vv) }.toMap)
+    case SpiValue.Opaque(h)   => h.asInstanceOf[Value]
 
   private[interpreter] def wrapAnyAsValue(a: Any): Value = a match
     case n: Long    => Value.intV(n)

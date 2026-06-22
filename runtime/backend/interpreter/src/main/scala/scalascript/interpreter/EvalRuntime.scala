@@ -3479,6 +3479,20 @@ private[interpreter] object EvalRuntime:
         if bodyArgClause.values.size == 1 =>
       EffectHandlers.loggerToListRun(eval(bodyArgClause.values.head, env, interp))
 
+    // Generic plugin-contributed block-form `keyword { body }` (polyglot-libraries §2d).
+    // Fires only for a keyword a loaded plugin registered (`interp.blockForms` is empty until a
+    // plugin loads, so a plugin-free script never reaches here). The interpreter owns the
+    // Computation trampoline (`runWithHandler`); the plugin's handler replies over `SpiValue`.
+    case Term.Apply.After_4_6_0(Term.Name(kw), bodyArgClause)
+        if bodyArgClause.values.size == 1 && interp.blockForms.contains(kw) =>
+      val bf      = interp.blockForms(kw)
+      val bctx    = new scalascript.backend.spi.BlockContext { def out: java.io.PrintStream = interp.out }
+      val handler = bf.newHandler(bctx, Nil)
+      val body    = eval(bodyArgClause.values.head, env, interp)
+      val ran = EffectHandlers.runWithHandler(body, bf.effectName,
+        (op, args, resume) => resume(interp.spiToValue(handler.reply(op, args.map(interp.valueToSpi)))))
+      ran.flatMap(r => Computation.Pure(interp.spiToValue(bf.result(interp.valueToSpi(r), handler))))
+
     // ── v1.4 Random effect handlers ───────────────────────────────────────
     // runRandom { body }            — ThreadLocalRandom
     // runRandomSeeded(seed) { body } — deterministic LCG, seed is Long
