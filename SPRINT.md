@@ -85,6 +85,16 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       Removed core `randomRun` + 2 cases + 2 `reservedApplyHeads` names. Tests moved
       `StdEffectsTest`→`RandomPluginTest` (no `installPlugins`). Verified: StdEffectsTest+InterpreterTest **179
       green**, RandomPluginTest+LoggerPluginTest+BlockFormSpiTest **13 green** + full-suite sweep.
+- [x] **core-min-clock-env-migrate** (A) — ✓ DONE 2026-06-22. Clock + Env extracted to
+      `clock-effect-plugin` + `env-effect-plugin` (one effect = one library). Both curried-config siblings, so
+      they REUSE the config-args SPI path from `core-min-random-migrate` with ZERO new dispatch machinery:
+      `runClockAt(t0)` → `newHandler` reads frozen-ms; `runEnvWith(map)` → reads the overlay (exercises the
+      SPI's `MapV` config path). `ClockBlockForm`/`EnvBlockForm` registered under both plain+curried keywords;
+      handlers reply over `SpiValue` (Clock now/nowIso/sleep, frozen=no-op; Env get/set/required with per-block
+      mutable overlay + real-`getenv` fallback). Removed core `clockRun`/`envRun` + 4 cases + 4
+      `reservedApplyHeads` names. Tests moved `StdEffectsTest`→`ClockPluginTest`+`EnvPluginTest`. Verified:
+      interpreter **169 green**, full plugin-tests **647 green** (1 env-gated cancel). FOUR effects are now
+      plugins: Logger, Random, Clock, Env.
 - [ ] **polyglot-phase2-optics-allhosts** (B) — prove the per-host library packaging end-to-end on the EASY case:
       take a PURE module (optics — zero effects, zero host coupling) and publish it to all four hosts (JVM jar +
       Java facade + npm + Rust crate) with a golden API-signature test per host. Validates the value-mapping +
