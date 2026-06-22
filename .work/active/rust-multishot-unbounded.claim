@@ -1,0 +1,6 @@
+feature/rust-multishot-unbounded 2026-06-22
+agent: claude (bright-quail)
+heartbeat: 2026-06-22T23:43:16Z
+status: in-progress
+done-so-far: Tier-1 (List/Option) + Tier-2 (static-depth nested) done. This is Tier-3 = UNBOUNDED depth (perform in recursion/loop): Free-monad MComp + multi-shot interpreter. The existing EffectRs Computation<A> is ONE-SHOT (FnOnce cont, single-reply handler) — not reusable; need a Fn-cont multi-shot variant.
+next: (1) ValueRs += `pub fn as_int(&self)->i64`. (2) EffectRs += MComp { Pure(Value) | Perform{op,args,k: Rc<dyn Fn(Value)->MComp>} } + and_then (Rc, #[allow(dead_code)]). (3) RustCodeWalk: renderTier3Unbounded when the handled def is RECURSIVE (self-call in body) — emit `fn __comp(<params>) -> MComp { <bodyToComp> }` (self-calls -> __comp) + `fn __run(c: MComp) -> <progRet> { match: Pure(v)->v.<conv>; Perform{flip}-> handler with resume(x)->__run(k(x)) }` + __run(__comp(<args>)). bodyToComp lowers if/else, ANF blocks (`val x=Eff.op(a)`->Perform k=|__x:Value|{let x=__x.<conv>; rest}; `val x=self(a)`->__comp(a).and_then(|__x|{let x=__x.<conv>; rest}); pure tail->Pure(Value::from(tail))). Single-op effect, single self-recursion, ANF. Test: recursive Amb program(2) -> 4 (sum over 2^2 branches of b1+b2), cargo. one-shot+Tier-1/2 untouched. spec §11.5 Slice 3 unbounded.
