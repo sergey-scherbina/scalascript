@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — feat(rust): multi-shot Tier-1 Option monad lowering (R.6 Slice 2)
+
+Extends Tier-1 multi-shot (`specs/rust-effects.md §11`) from List to **Option**. `inlineMultiShotBody`
+now discriminates the monad by the effect op's argument Rust type: `Vec<…>` → nested `for` loops + a
+`Vec` (List/NonDet, Slice 1); `Option<…>` → nested `if let Some(x) = <arg> { … } else { None }` with the
+pure tail wrapped `Some(tail)` (Option/Maybe — short-circuiting). `RustGenMultiShotTest` golden verifies
+the if-let lowering. **NOTE:** end-to-end (cargo-run) Option isn't possible yet — the rust backend can't
+*consume* a native `Option` (no `Some`/`None` match patterns, no `getOrElse`), an orthogonal gap filed as
+BACKLOG `rust-option-consumption`; the produced `Option<i64>` is well-formed and will run once that lands.
+`backendRust` 241/0; List/NonDet end-to-end + one-shot untouched.
+
 ## 2026-06-22 — polyglot: Rust optics library (`emit-lib --host rust`) — Task B 3rd host
 
 `RustLibPackager` (counterpart of `JsLibPackager`/`JvmLibPackager`) emits a standalone, dependency-free

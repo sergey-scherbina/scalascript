@@ -457,7 +457,7 @@ Used when the monad is **not recognized** OR the perform structure is **dynamic*
    `effect-multishot.ssc` bench now **runs on rust too** — the orthogonal Long-overflow blocker was
    resolved alongside (`overflow-checks = false` in the emitted Cargo.toml ⇒ `i64` wraps like JVM/JS
    `Long` instead of debug-panicking on the LCG). All three backends (jvm/js/rust) run the workload.
-2. **Slice 2.** Tier-1 **Option** monad + effect-free `if`/`match` between performs.
+2. **Slice 2 — ✓ Option lowering DONE 2026-06-22** (golden). Tier-1 **Option** monad: `inlineMultiShotBody` discriminates the monad by the op-arg Rust type (`Vec<…>`→loops, `Option<…>`→nested `if let Some(x) = … else None`, pure tail `Some(tail)`); `RustGenMultiShotTest` golden. **End-to-end blocked** on an orthogonal gap — the rust backend can't *consume* a native `Option` (no `Some`/`None` patterns, no `getOrElse`): BACKLOG `rust-option-consumption`. (Effect-free `if`/`match` between performs still TODO.)
 3. **Slice 3.** Tier-2 **defunctionalized trampoline** (dynamic perform structure / unrecognized monad) +
    the `Computation`/`Cont`/`apply` runtime in `runtime/effects.rs`.
 4. **Slice 4.** Perf hardening (capacity hints, avoid intermediate `Vec`s where a fold suffices) + multi-effect
