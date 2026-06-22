@@ -143,7 +143,7 @@ class JsGenStreamsTest extends AnyFunSuite:
   // definitions and (b) the generated user code references Stream / runStream.
 
   test("JsRuntimeV14Effects contains Stream.emit _perform definition"):
-    // _makeAsyncStream lives in JsRuntimeAsyncB; capability detection always
+    // _makeAsyncStream lives in the Async runtime (async.mjs); capability detection always
     // adds both Async and Effects when runStream/Stream.* is detected in user code.
     val rt = JsGen.generateRuntime(Set(JsGen.Capability.Effects, JsGen.Capability.Async))
     assert(rt.contains("_perform('Stream', 'emit'"),   s"missing Stream.emit in Effects runtime")

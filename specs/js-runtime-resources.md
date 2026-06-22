@@ -79,14 +79,25 @@ All 18 `JsRuntime*` fragments now load from `.mjs` resources via `JsRuntimeResou
 `signals`, `dataset`, `indexeddb`, `browserpatch`, `graphql`, `mcp`, `mcpbrowser`, `payment`,
 `v14effects`. Each `.mjs` body is **byte-identical** to the prior Scala triple-quoted literal
 (mechanically extracted + `diff`-verified vs `git HEAD`), so the emitted JS is unchanged. The two
-aggregators in `JsGen.scala` (`JsRuntime`, `JsRuntimeAsync = JsRuntimeAsyncA + JsRuntimeAsyncB`) are
-computed and stay as-is. Verified: `backendJs` compiles + 65 JS codegen tests (tree-shaking,
-transitive imports, content-toolkit, optics node-smoke) green.
+aggregator `JsRuntime` in `JsGen.scala` is computed and stays as-is. Verified: `backendJs` compiles +
+65 JS codegen tests (tree-shaking, transitive imports, content-toolkit, optics node-smoke) green.
 
 Note on the "lintable" win: self-contained capability fragments (optics, signals, payment, graphql,
-mcp, …) are independently `node --check`-able; the `part1a`–`d` / `part2a`–`b` *core* is split for
-concatenation, so per-file parse may span a boundary — those still gain editor highlighting + clean
-diffs, and lint cleanly as the concatenated `JsRuntime` blob.
+mcp, …) are independently `node --check`-able; the always-included core (`part1a`, `part2a`, `part2b`)
+is split for concatenation/interleaving (gated `optics` sits between `part2a` and `part2b`), so per-file
+parse may span a boundary — those still gain editor highlighting + clean diffs, and lint as the
+concatenated `JsRuntime` blob.
+
+### Consolidating size-only splits (2026-06-22)
+
+The `.mjs` move removed the JVM 65 535-byte string-constant cap that originally forced some fragments
+to be split. Keeping **logical** boundaries, only the genuinely size-driven split was consolidated:
+`asynca.mjs` + `asyncb.mjs` → **`async.mjs`** (`JsRuntimeAsync` now `load("async.mjs")`; the
+`JsRuntimeAsyncA`/`B` vals + files are gone). The `part1*` fragments are NOT size-splits —
+`part1b`/`part1c`/`part1d` are each **capability-gated** (`HtmlDsl` / `Jwt` / `WsServer`; see
+`JsGen.generateRuntime`'s `if caps.contains(...)`), so they stay separate to preserve per-capability
+tree-shaking. `part2a`/`part2b` stay separate because gated `optics` is concatenated between them.
+Byte-identical (`async.mjs` == `asynca` + `asyncb`, `cmp`-clean; async/streams/effects tests green).
 
 ## Follow-ups
 

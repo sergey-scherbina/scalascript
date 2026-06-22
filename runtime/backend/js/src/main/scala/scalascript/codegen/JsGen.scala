@@ -311,14 +311,13 @@ val JsRuntime: String =
   JsRuntimePart2a + JsRuntimeOptics + JsRuntimePart2b + JsRuntimeSignals +
   TypedJsonCodecRuntime.jsFacade + JsRuntimeIndexedDb
 
-/** Built-in `Async` effect runtime — concatenated onto `JsRuntime`.
- *  Lives in its own val because together with the rest of the runtime
- *  it overflows the JVM's 65 535-byte string-literal limit.  Same
- *  semantics as the interpreter and JvmGen: `delay` blocks via
- *  Atomics on Node, thunks passed to `async` / `parallel` run
- *  synchronously, results come back in declared order.  Itself split
- *  into two halves to stay under that 65 KiB string-literal cap. */
-lazy val JsRuntimeAsync: String = JsRuntimeAsyncA + JsRuntimeAsyncB
+/** Built-in `Async` effect runtime (loaded from the `async.mjs` resource).  Same semantics as
+ *  the interpreter and JvmGen: `delay` blocks via Atomics on Node, thunks passed to `async` /
+ *  `parallel` run synchronously, results come back in declared order.  (Was formerly split into
+ *  `JsRuntimeAsyncA` + `JsRuntimeAsyncB` Scala string literals to stay under the JVM's
+ *  65 535-byte string-constant cap; that limit no longer applies now the JS lives in a `.mjs`
+ *  resource — see `specs/js-runtime-resources.md`.) */
+val JsRuntimeAsync: String = JsRuntimeResource.load("async.mjs")
 
 
 
@@ -1098,7 +1097,7 @@ class JsGen(
                    // them up before the Term-level lowering runs.
                    allText.contains("startNode") || allText.contains("connectNode") ||
                    allText.contains("joinCluster") ||
-                   // v1.9 coroutines and v1.10 generators — both live in JsRuntimeAsyncB
+                   // v1.9 coroutines and v1.10 generators — both live in the Async runtime (async.mjs)
                    allText.contains("coroutineCreate") || allText.contains("coroutineResume") ||
                    allText.contains("generator {") || allText.contains("generator[") ||
                    allText.contains("_makeGenerator") || allText.contains("fromGenerator")

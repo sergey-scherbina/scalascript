@@ -49,7 +49,7 @@ import java.time.Duration
  *  1. **JS-codegen `_runActors` scheduler block (FIXED earlier).** The original
  *     disable reason: a synchronous `while(true)` + `Atomics.wait` scheduler
  *     blocked Node's event loop. Now `async` + `setImmediate` yield
- *     (`JsRuntimeAsyncA`/`B`).
+ *     (Async runtime, `async.mjs`).
  *  2. **JVM-codegen WS server didn't echo the subprotocol.** The `/_ssc-actors`
  *     route registered protocols-less, so it never sent `Sec-WebSocket-Protocol`;
  *     the JS `ws` peer client rejected the upgrade. Now
@@ -57,7 +57,7 @@ import java.time.Duration
  *     (`JvmGenRuntimeSources`).
  *  3. **JS-codegen WS server didn't echo the subprotocol either** (symmetric).
  *     Now `onWebSocket('/_ssc-actors', [], ['ssc-actors-v1'])(handler)`
- *     (`JsRuntimeAsyncB`). With (2)+(3), JS↔JS and JVM↔JS upgrades negotiate
+ *     (Async runtime, `async.mjs`). With (2)+(3), JS↔JS and JVM↔JS upgrades negotiate
  *     `proto=ssc-actors-v1`.
  *  4. **JS-codegen server hung on non-WebSocket upgrades.** The test's
  *     `java.net.http` client defaults to HTTP/2 and probes cleartext with an
