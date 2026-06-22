@@ -1,0 +1,6 @@
+feature/optics-emit-lib-cli 2026-06-22
+agent: claude (bright-quail)
+heartbeat: 2026-06-22T18:14:49Z
+status: in-progress
+done-so-far: nothing yet. First of 4 queued tasks (operator: "запиши в спринт все эти задачи и делай автономно"). The optics npm packager (JsLibPackager) exists + is node-proven but is only reachable from a test — no CLI. This makes it user-reachable.
+next: add a CLI command `ssc emit-lib --host js --feature optics -o <dir>` that writes JsLibPackager.opticsNpmPackage(version) to a dir. Mechanics: new `final class EmitLibCmd extends CliCommand` (see EmitCommands.scala EmitRustCmd for the dir-write pattern) + register in META-INF/services/scalascript.cli.CliCommand (CommandRegistry is ServiceLoader-backed). cli already dependsOn backendJs. Add an example (examples/ or docs) + README capabilities/CLI row + user-guide subsection. Test: a CliCommand test asserting the 3 files are written. Then the other 3 queued tasks.
