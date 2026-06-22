@@ -77,15 +77,16 @@ Queued after the JS `.mjs`-resource cleanup + rename. Drive top-to-bottom (tract
       object `Ssc.Optics` (or a `.ssc` facade) over the same 4 optic shapes; reuse `FacadeGenerator`/`ssc link
       --emit-scala-facade`/`JarCommands`. Golden: mirror the JS `optics.d.ts` golden with a Scala signature golden.
       Then Rust crate + Java facade follow (same packager shape). Bigger; slice per host.
-- [~] **rust-effects-multishot-r6** — **Slice 1 ✓ DONE 2026-06-22** (Tier-1 List monad: `multi effect` handled by `opts.flatMap(resume)` over a straight-line def → nested `for`-loops + `Vec`; `RustGenMultiShotTest` cargo-runs `102` + `324`; backendRust 239/0; one-shot untouched). **The real `effect-multishot` bench now RUNS on rust** (multi-shot lowering + `overflow-checks=false` for wrapping i64; jvm/js/rust all run it). **Slice 2 (Tier-1 Option) ✓ DONE 2026-06-22, end-to-end** (lowering + `rust-option-consumption`: Some/None patterns + getOrElse; cargo-runs Some→12/None→-1). **Tier-2 (general, static depth) ✓ DONE 2026-06-22** (handler as nested `fn __h` + nested continuation closures; 1..N performs — Amb/flip cargo-runs 1 flip→1, nested 2 flips→22). REMAINING (additive, no current consumer): UNBOUNDED depth (perform-in-loop) via the explicit defunctionalized trampoline; effect-free control-flow between performs. ACCEPTED DESIGN 2026-06-22 (`specs/rust-effects.md §11`, two-tier, verified against code). Next actionable: **Slice 1** — `__multiShot__` gate + Tier-1 List-monad straight-line body → nested `for`-loops (exactly `effect-multishot.ssc`), cargo-smoke == JVM/JS, one-shot untouched. Then Tier-1 Option, Tier-2 defunctionalized trampoline. EARLIER: (NOT a bounded slice — deferred with design in `specs/rust-effects.md §11`). Probe: the bench is NonDet.choose (true multi-shot + answer-type modification); tagless-final trait methods return once → can't reify the continuation. Needs a Free-monad CPS path gated to `multi effect` (whole-body transform, risks the one-shot path) — multi-session, spec-first. Keep `effect-multishot` n/a on rust. ORIGINAL: — multi-shot algebraic effects on Rust (resume re-invoked, e.g. NonDet). One-
-      shot already shipped (`a87afba34`, tagless-final). RESEARCH: probe whether a captured-closure continuation
-      (`Box<dyn FnMut>`) or CPS/defunctionalized re-entry is tractable in `RustCodeWalk`'s handle lowering; if not
-      bounded, SCOPE DOWN + document the blocker in `specs/rust-effects.md` §R.6 + BACKLOG. Lower confidence.
-- [ ] **rust-multishot-r6-closeout** — docs-only closeout for R.6 after bounded Rust multi-shot slices landed.
-      Update the detailed `[~] rust-effects-multishot-r6` SPRINT entry to `DONE/actionable-scope done`, because
-      Tier-1 List, Tier-1 Option, and Tier-2 static-depth are already shipped and verified. Update `BACKLOG.md`
-      "Rust multi-shot effects (R.6)" so it no longer says `effect-multishot` is `n/a`; the only deferred work is
-      unbounded perform-in-loop / explicit trampoline, with no current consumer. Do not touch Rust code.
+- [x] **rust-effects-multishot-r6** ✓ ACTIONABLE SCOPE DONE 2026-06-22 — bounded Rust multi-shot support is done:
+      Tier-1 List (`effect-multishot` bench now runs on rust), Tier-1 Option, and Tier-2 static-depth general
+      handlers all landed and cargo-ran (`RustGenMultiShotTest`: List, Option, 1-flip Amb, 2-nested-flip Amb).
+      The only remaining R.6 idea is unbounded perform-in-loop via an explicit defunctionalized trampoline; it has
+      no current consumer, so it is recorded in `BACKLOG.md` rather than kept active in SPRINT. No Rust code in
+      this closeout.
+- [x] **rust-multishot-r6-closeout** ✓ DONE 2026-06-22 — docs-only closeout for R.6 after bounded Rust multi-shot
+      slices landed. Updated the detailed `rust-effects-multishot-r6` SPRINT entry to actionable-scope done and
+      replaced the obsolete BACKLOG wording that said the Rust bench was unavailable; the only deferred work is unbounded
+      perform-in-loop / explicit trampoline, with no current consumer.
 - [x] **rust-multishot-board-reconcile** ✓ DONE 2026-06-22 — docs-only cleanup after R.6 Tier-2 nested/static-depth landed.
       The older open `[ ] rust-effects-multishot-r6` entry later in `SPRINT.md` is stale/duplicative: Tier-1 List,
       Tier-1 Option, and Tier-2 static-depth are all done; only unbounded perform-in-loop remains, explicitly

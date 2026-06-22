@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — docs: close Rust multi-shot R.6 actionable scope
+
+Closed `rust-multishot-r6-closeout`. `SPRINT.md` now marks `rust-effects-multishot-r6`
+as actionable-scope done: Tier-1 List, Tier-1 Option, and Tier-2 static-depth all landed
+and are verified. `BACKLOG.md` now carries only the future unbounded perform-in-loop /
+defunctionalized-trampoline idea, explicitly deferred until a real consumer appears. No Rust code changed.
+
 ## 2026-06-22 — core-min: the LAST bundled runners migrated off the Typer prelude (prelude-migrate final)
 
 Finishes the bundled-effect prelude-migrate sweep. The remaining typed runner `s.define`s leave
