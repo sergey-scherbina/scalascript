@@ -1,0 +1,6 @@
+feature/coremin-prelude-spi 2026-06-22T14:10:00Z
+agent: claude (mellow-shrew)
+heartbeat: 2026-06-22T14:10:00Z
+status: in-progress
+done-so-far: design decided + validated (with Sergiy). names+full type-signatures; reuse ModuleInterface/ExportedSymbol typeEvidence (Typer.typeCheckWithInterfaces already consumes it). New hook Backend.preludeInterface.
+next: spec slice (specs/core-min-prelude-spi.md) → add Backend.preludeInterface hook (SPI) → ssc check (Main.scala:5485) merge plugin interfaces into the Typer's interfaces map → migrate ONE plugin to declare typed symbols + a test proving ssc check type-checks a call to a plugin intrinsic → keep pluginBuiltins as fallback. Spec FIRST.
