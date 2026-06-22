@@ -34,6 +34,18 @@ One-shot tagless-final + Tier-1 untouched; `backendRust` 250/0. **Only** *unboun
 a loop, where nesting isn't static) remains — the explicit defunctionalized trampoline, a separate slice
 with no current consumer.
 
+## 2026-06-22 — core-min: no-domain hybrid plugin distribution split
+
+Closed `coremin-hybrid-split`. The std plugin registry now classifies plugins as essential vs advanced:
+`installBin` auto-loads 25 essential `.sscpkg` files from `bin/lib/compiler/plugins` and stages 13 advanced
+bundled `.sscpkg` files under `bin/lib/compiler/plugin-available` for explicit `ssc --plugin <path>` or
+`ssc plugin install <path>` use. No package registry domain or hosting is required for this local opt-in path.
+`deploy` stays transitional-essential because the CLI still imports deploy types directly. The Typer hardcoded
+advanced compatibility names remain for now; strict opt-in typing is deferred until advanced plugins publish
+complete `preludeSymbols`. Verification: `cli/compile` passed in 82s and `cli/installBin` passed, producing
+the 25/13 split. The `installBin` package list now validates against `allPlugins` and caught/fixed the prior
+missing `fs`/`os`/`yaml` staged archives.
+
 ## 2026-06-22 — core-min: 6 more bundled-effect runner names migrated off the Typer prelude (prelude-migrate batch)
 
 Following the `runRandom` proof, six variadic bundled-effect runner keywords leave the hardcoded Typer
