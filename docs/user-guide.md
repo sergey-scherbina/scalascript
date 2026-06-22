@@ -4626,10 +4626,24 @@ l.get({ a: { b: 5 } });            // 5
 l.set({ a: { b: 5 } }, 9);         // { a: { b: 9 } }  (immutable)
 ```
 
-Flags: `--host <js>` (default `js`), `--feature <optics>` (default `optics`), `-o <dir>` (default
-`./<feature>-<host>-lib/`), `--version <semver>` (default `0.1.0`). Supported today: `--host js
---feature optics`; more host/feature combinations (JVM jar / Rust crate / Java facade) follow the same
-shape.
+For the **JVM** host it emits a buildable `ssc-optics` sbt project (a native Scala optics
+implementation over dynamic JSON-like values — `Map[String, Any]` / `List` / `Option`):
+
+```bash
+ssc emit-lib --host jvm --feature optics -o build/optics-jvm
+# build.sbt, src/main/scala/ssc/optics/Optics.scala, README.md
+```
+```scala
+import ssc.optics.Optics.*
+val l = makeLens(List("a", "b"))
+l.get(Map("a" -> Map("b" -> 5)))            // 5
+l.set(Map("a" -> Map("b" -> 5)), 9)         // Map(a -> Map(b -> 9))
+```
+
+Flags: `--host <js|jvm>` (default `js`), `--feature <optics>` (default `optics`), `-o <dir>` (default
+`./<feature>-<host>-lib/`), `--version <semver>` (default `0.1.0`). Supported today: `--host js|jvm
+--feature optics`; the Rust crate / Java facade hosts (and idiomatic typed/macro Scala optics) follow
+the same shape.
 
 ### Key Environment Variables
 
