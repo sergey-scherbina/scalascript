@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — docs: close coremin prelude migration board scope
+
+Closed `coremin-prelude-board-closeout`. `coremin-prelude-migrate` now reflects the landed sweep:
+16 bundled-effect runner names moved from the hardcoded Typer prelude into plugin `preludeSymbols`,
+`runnerType2` was removed, and only `runStream` remains in core under the separate stream item.
+Future strict opt-in for non-bundled/advanced names is separate work; no Typer/plugin code changed.
+
 ## 2026-06-22 — docs: close Rust multi-shot R.6 actionable scope
 
 Closed `rust-multishot-r6-closeout`. `SPRINT.md` now marks `rust-effects-multishot-r6`
