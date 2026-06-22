@@ -1,0 +1,23 @@
+#!/usr/bin/env ssc
+---
+name: fn-typed-field
+---
+
+# function-typed case-class field passed to a HOF
+
+Regression for the JS backend. A case-class field whose value is a function
+(`View.step`) was emitted as a variadic lambda (`(...__a) => …`, whose `.length`
+is 0), so accessing it as a *value* — e.g. handing `view.step` to `foldLeft` —
+tripped `_dispatch`'s zero-arg auto-invoke and CALLED it (returning NaN /
+"fn is not a function") instead of returning the function. A no-arg property
+access on a case-class/enum instance now returns the data field as-is.
+
+```scalascript
+case class View[S](name: String, init: S, step: (S, Int) => S)
+
+val v = View("sum", 0, (a, b) => a + b)
+
+println(v.name)
+println(v.step(1, 2))
+println(List(1, 2, 3).foldLeft(v.init)(v.step))
+```

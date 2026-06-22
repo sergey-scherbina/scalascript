@@ -12,6 +12,32 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## jsgen-emitjs-effect-handler — `open` (2026-06-22)
+
+- **Found by:** busi (deep-offline browser bundle) — blocker #3 of 5 in `src/v2/specs/lf-1-browser-bundle.md`. The maintained JIT path (`SSC_JIT_BACKEND=js`, busi `make v2-test-js`) runs the whole effectful v2 core fine; only the raw `emit-js` standalone bundle path is affected.
+- **Symptom:** raw `emit-js` of code using an effect + deep handler (busi's `Journal` / `runJournal` + a `query` that folds over `Journal.read`) fails at runtime — `TypeError: arr.reduce is not a function`, or (once that is worked around) `Unhandled effect: …`.
+- **Root cause — NOT one bug, a cluster of emit-js-standalone effect/CPS gaps (each high blast radius on the core effect path):**
+  - (a) **Imported effect not recognised.** An effect-performing function in an *imported* module (e.g. `query` calling `Journal.read`, both in `journal.ssc`) isn't treated as effectful: `genImport` creates the childGen and threads param-orders/subtype edges but never runs `analyzeEffects` on the imported module nor populates the childGen's `effectOps`/`effectfulFuns`. So `Journal.read(scope)` lowers to a generic `_dispatch` instead of `_perform`+`_bind`, the function isn't CPS-transformed, and the `_Perform` suspension leaks into the fold. (Single-file works; only the import boundary breaks.) A spike — `childGen.analyzeEffects(childModule)` + merging the discovered sets back — fixes the emission but exposes (b).
+  - (b) **`_run` wraps effect-PERFORMING calls inside a handler body.** Once `query` is known-effectful, a call to it in a handler-body thunk (`runJournal(() => … query …)`) is wrapped in `_run` (`runIfEffectful`, which assumes effectful fns are self-handling). `_run` throws on the unhandled `Journal.read` *before* the enclosing `_handleWithReturn` can catch it. The deeper issue: lambdas passed to `handle`/`_handleWithReturn` are not CPS-compiled, so a directly-effectful thunk body isn't sequenced into the handler.
+  - (c) A downstream `formatMoney` `.currency` `_dispatch` error surfaces after the effect machinery runs far enough.
+- **Minimal repro:** a 2-file program — module A defines `effect Box { def read(n): List[Int] }`, a generic `query[S](n, v: V[S]) = Box.read(n).foldLeft(v.init)(v.step)`, and a `handle { body() } { case Box.read(n, resume) => resume(List(1,2,3)); case Return(x) => x }`; module B imports them and runs `runBox(() => query(0, V(0, (a,b)=>a+b)))`. INT prints 6; raw `emit-js` → Node throws.
+- **Recommendation:** a DEDICATED effect-codegen effort (thread the effect analysis through `genImport`, CPS-compile handler-body lambdas, and fix `_run` placement so it only runs at the true top level). Not an autonomous-pass fix — attempted and reverted on 2026-06-22 because each layer is high-risk on the core effect path. Until then, offline *write* (busi lf-2…lf-4) stays on the JIT path; offline *read* (lf-read) needs none of this.
+
+## jsgen-toplevel-name-vs-preamble — `open` (2026-06-22)
+
+- **Found by:** busi (deep-offline browser bundle) — blocker #5 of 5 in `src/v2/specs/lf-1-browser-bundle.md`.
+- **Symptom:** a top-level user binding named exactly like a preamble helper (e.g. `val scope = …` vs the runtime's user-facing `function scope(scopeName)` for CSS scoping, SPEC §8.4) emits a colliding top-level `const scope = …` → `SyntaxError: Identifier 'scope' has already been declared` under `node --check`. Other preamble names (`doc`, `escape`, `assert`, `List`, `Decimal`, …) can collide the same way.
+- **Workaround (documented in the lf-1 spec):** name the top-level binding something the preamble doesn't define (e.g. `lfScope`). Low frequency.
+- **Fix sketch (deferred):** a robust fix needs the set of names the (capability-gated) preamble declares; emit a colliding top-level user binding under a renamed identifier (propagating references) or as a shadow. There is a curated `preambleConsts = Set("Console","attr","scope")` in JsGen used today only for *object* declarations (via `Object.assign`); it would need to cover `val`/`def`/`enum` and the full preamble surface. Left as a documented limitation pending the dedicated effort.
+
+## jsgen-fn-typed-field-autoinvoke — `fixed` (2026-06-22)
+
+- **Found by:** busi (deep-offline browser bundle) — facet of blocker #4 of 5 in `src/v2/specs/lf-1-browser-bundle.md` ("a generic `View.step` fold reaches syntax-valid JS but the `step` field is not callable").
+- **Symptom:** a case-class field whose value is a function (e.g. `View.step: (S, Int) => S`), passed as a *value* to a HOF (`xs.foldLeft(v.init)(v.step)`), threw `TypeError: fn is not a function` on the JS backend. A direct call `v.step(1, 2)` worked; only the eta/value position failed. interp + JVM were correct.
+- **Root cause:** lambdas are emitted variadic (`(...__a) => …`, to support tuple-destructuring), so their `.length` is 0. Accessing the field as a value lowers to `_dispatch(v, 'step', [])`, and `_dispatch`'s zero-arg branch auto-invoked any property whose `typeof === 'function' && .length === 0` — so it CALLED the variadic field-lambda (no args → NaN) instead of returning it.
+- **FIXED (2026-06-22):** in `_dispatch`, a no-arg property access on a case-class / enum instance (`obj._type !== undefined`) returns the data field as-is — case-class methods live in `_extensions`, never on the object, so an existing own-property is always a data field and must never be auto-invoked. Direct calls (`args.length > 0`) and all non-`_type` objects are unchanged.
+- **Guard:** `tests/conformance/fn-typed-field.ssc` (+expected) — field access, direct call, and field-as-value-to-`foldLeft` identical on INT/JS/JVM. busi `make v2-test-js` + `CrossBackendPropertyTest`/`MoneyCrossBackendTest`/`CustomDerivesMirrorCrossBackendTest` green.
+
 ## jsgen-dup-enum-global — `fixed` (2026-06-22)
 
 - **Found by:** busi (deep-offline browser bundle) — blocker #2 of 5 in `src/v2/specs/lf-1-browser-bundle.md` ("emit-js / emit-spa for tests/v2/local_journal.ssc fails syntax checks with duplicate global `Pending` declarations from ObligationStatus.Pending and DeferredActionStatus.Pending").

@@ -414,6 +414,13 @@ function _dispatch(obj, method, args) {
       return _show(obj);
     }
     if (obj[method] !== undefined) {
+      // Case-class / enum instance properties are DATA FIELDS — methods live in
+      // _extensions, never on the object. A no-arg access returns the field value
+      // as-is, including a function-typed field, so passing it to a HOF works
+      // (e.g. `view.step` handed to `foldLeft`). Without this, a field holding a
+      // variadic-emitted lambda (`(...__a) => …`, whose `.length` is 0) tripped the
+      // zero-arg auto-invoke below and was CALLED instead of returned.
+      if (obj._type !== undefined && args.length === 0) return obj[method];
       if (typeof obj[method] === 'function') {
         // If args is empty and the function takes args, return the function reference (eta-expansion)
         // If args is empty and the function takes no args, call it
