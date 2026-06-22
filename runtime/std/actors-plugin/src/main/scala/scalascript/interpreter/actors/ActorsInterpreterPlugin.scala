@@ -23,26 +23,44 @@ class ActorsInterpreterPlugin extends Backend, ActorRuntimeProviderBackend:
 
   def actorRuntimeProvider: ActorRuntimeProvider = CoreActorRuntimeProvider
 
-  override def preludeSymbols: List[ExportedSymbol] = List(
-    ExportedSymbol("runActors", "runActors", "def", "Any"),
-    ExportedSymbol("spawn", "spawn", "def", "Any"),
-    ExportedSymbol("spawnBounded", "spawnBounded", "def", "Any"),
-    ExportedSymbol("spawn_link", "spawn_link", "def", "Any"),
-    ExportedSymbol("self", "self", "def", "Any"),
-    ExportedSymbol("actorRef", "actorRef", "def", "Any"),
-    ExportedSymbol("actorRefAddress", "actorRefAddress", "def", "Any"),
-    ExportedSymbol("actorRefIsLocal", "actorRefIsLocal", "def", "Any"),
-    ExportedSymbol("actorRefTryLocal", "actorRefTryLocal", "def", "Any"),
-    ExportedSymbol("actorRefPublish", "actorRefPublish", "def", "Any"),
-    ExportedSymbol("registerBehavior", "registerBehavior", "def", "Any"),
-    ExportedSymbol("spawnRemote", "spawnRemote", "def", "Any"),
-    ExportedSymbol("exit", "exit", "def", "Any"),
-    ExportedSymbol("stop", "stop", "def", "Any"),
-    ExportedSymbol("link", "link", "def", "Any"),
-    ExportedSymbol("monitor", "monitor", "def", "Any"),
-    ExportedSymbol("demonitor", "demonitor", "def", "Any"),
-    ExportedSymbol("trapExit", "trapExit", "def", "Any"),
-  )
+  private def sym(n: String): ExportedSymbol = ExportedSymbol(n, n, "def", "Any")
+
+  /** core-min-prelude-migrate (actors): the actor/process/cluster keyword set, DECLARED here for
+   *  `ssc check` (the keystone) and removed from the hardcoded Typer prelude `effectBuiltins`. The
+   *  actors plugin is bundled (installBin stages it), so `BackendRegistry.inProcess` loads these in
+   *  production. The runtime stays in core (the provider seam delegates to `CoreActorRuntimeProvider`),
+   *  so these names still resolve at run time through `ActorInterp`/`ActorGlobals` — the typer does
+   *  not enforce effect discharge, so a plain `Any` declaration is sufficient for `ssc check`. */
+  override def preludeSymbols: List[ExportedSymbol] =
+    List(
+      // the runner
+      "runActors",
+      // process / actor primitives
+      "spawn", "spawnLink", "spawn_link", "spawnBounded", "spawnRemote", "self", "send", "exit", "stop",
+      "link", "monitor", "demonitor", "trapExit", "processInfo", "receive", "timeout", "recvFrom",
+      // actor references / behaviors
+      "actorRef", "actorRefAddress", "actorRefIsLocal", "actorRefTryLocal", "actorRefPublish",
+      "registerBehavior",
+      // cluster / node membership
+      "startNode", "connectNode", "joinCluster",
+      "register", "whereis", "globalRegister", "globalWhereis",
+      "clusterMembers", "subscribeClusterEvents",
+      "phiOf", "isSuspect", "selfNode", "clusterHealth", "broadcastHealth", "clusterIsDown",
+      // leader election
+      "electLeader", "currentLeader", "subscribeLeaderEvents", "setAutoReelect",
+      "useRaftLeaderElection", "useExternalCoordinator", "leaderProtocol", "leaderHistory",
+      // gossip / reconnect
+      "setReconnectPolicy", "requestGossip",
+      // cluster config
+      "clusterConfigSet", "clusterConfigGet", "clusterConfigKeys", "subscribeConfigEvents",
+      // draining
+      "setDraining", "isDraining", "drainingPeers", "subscribeDrainEvents",
+      // cluster metrics
+      "clusterMetricSet", "clusterMetricGet", "clusterMetricSum", "clusterMetricNames",
+      "subscribeMetricEvents",
+      // timers
+      "sendAfter", "sendInterval", "cancelTimer",
+    ).map(sym)
 
   def compile(module: NormalizedModule, opts: BackendOptions): CompileResult =
     CompileResult.Failed(List(Diagnostic.Generic("actors-plugin — interpreter only")))

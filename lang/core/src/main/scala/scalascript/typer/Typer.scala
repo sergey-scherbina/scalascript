@@ -278,31 +278,17 @@ class Typer(
     val effectBuiltins = List(
       "handle", "validate", "computed", "effect", "summon", "summonInline",
       "constValue", "direct", "Focus", "Prism",
-      "runActors", "runAsync", "runAsyncParallel", "runAuthWith",
+      "runAsync", "runAsyncParallel", "runAuthWith",
       "runEphemeralStorage",
       // runRandom — MIGRATED to random-effect-plugin.preludeSymbols (core-min-prelude-migrate);
       // resolves via the bundled plugin's typed prelude (the keystone), not this hardcoded list.
       "runStorage", "runTx",
-      "httpClient", "receive", "timeout",
-      // process / actor primitives
-      "spawn", "spawnLink", "spawnBounded", "self", "send", "exit",
-      "link", "monitor", "demonitor", "trapExit", "processInfo",
-      "startNode", "connectNode", "joinCluster",
-      "register", "whereis", "globalRegister", "globalWhereis",
-      "clusterMembers", "subscribeClusterEvents",
-      "phiOf", "isSuspect", "selfNode", "clusterHealth",
-      "broadcastHealth", "clusterIsDown",
-      "electLeader", "currentLeader", "subscribeLeaderEvents", "setAutoReelect",
-      "useRaftLeaderElection", "useExternalCoordinator", "leaderProtocol",
-      "leaderHistory",
-      "setReconnectPolicy", "requestGossip",
-      "clusterConfigSet", "clusterConfigGet", "clusterConfigKeys",
-      "subscribeConfigEvents",
-      "setDraining", "isDraining", "drainingPeers", "subscribeDrainEvents",
-      "clusterMetricSet", "clusterMetricGet", "clusterMetricSum",
-      "clusterMetricNames", "subscribeMetricEvents",
-      "sendAfter", "sendInterval", "cancelTimer",
-      "delay", "async", "await", "parallel", "recvFrom",
+      "httpClient",
+      // runActors + the whole actor/process/cluster keyword set (spawn/self/send/receive/timeout,
+      // membership/leader/gossip/config/metric/drain, timers, recvFrom) — MIGRATED to
+      // actors-plugin.preludeSymbols. The bundled actors plugin declares them for `ssc check`; the
+      // runtime stays in core via the ActorRuntimeProvider seam (CoreActorRuntimeProvider).
+      "delay", "async", "await", "parallel",
       // tests / DSL helpers
       "main", "test", "describe", "it", "expect", "check"
     )
