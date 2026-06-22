@@ -14,6 +14,26 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Driven by the agreed roadmap (BACKLOG.md → "Roadmap — agreed priority order, 2026-06-17").
 Work top-to-bottom, one major theme at a time. **Maven/centralized publication is LAST.**
 
+### ▶ Unblocked & claimable now (2026-06-22 eve, with Sergiy — "занеси в спринт всё что не заблокировано")
+
+These need NO design decision — claimable immediately, in priority/tractability order. Full blueprints
+live in the `polyglot-phase2-optics-allhosts` entry below (Task B = cross-language reuse, proven on the JS
+slice). Each is one host of the optics-library packaging, individually claimable.
+
+- [ ] **emit-lib-cli** — CLI command `emit-lib --host js --feature optics -o <dir>` (ServiceLoader
+      `CliCommand` + `META-INF/services/scalascript.cli.CliCommand`; `cli` already `dependsOn backendJs`).
+      Wraps the existing `JsLibPackager` (already landed + node-smoke-tested) so the npm package is
+      USER-reachable; + `examples/` demo + README/user-guide row. **Most user-facing + most tractable** —
+      good first pick. Spec `specs/polyglot-libraries.md` §4/§6.
+- [ ] **polyglot-optics-jvm** — JVM facade jar for optics via `FacadeGenerator` / `ssc link
+      --emit-scala-facade`. Optics has no compilable `.ssc` defs, so AUTHOR a thin facade exposing
+      Lens/Optional/Traversal/Prism; golden API-signature test (mirror the JS `.d.ts` golden).
+- [ ] **polyglot-optics-rust** — Rust optic `pub fn` codegen in `RustRuntimeTemplates` + lib-crate
+      (`renderLibRs`/`src/lib.rs`, Cargo `[lib]` skeleton exists). **GREENFIELD** codegen; golden
+      `RustGenCargoTomlTest`-style exact-string asserts. Larger than JVM.
+- [ ] **polyglot-optics-java** — Java facade (`JavaFacadeEmitter` + `java.util.List` value-mapping seam).
+      **GREENFIELD**; golden signature test. Largest of the four.
+
 ### ▶ JS-runtime + polyglot follow-ups (2026-06-22 eve, with Sergiy — "запиши в спринт все эти задачи и делай автономно")
 
 Queued after the JS `.mjs`-resource cleanup + rename. Drive top-to-bottom (tractability order).
