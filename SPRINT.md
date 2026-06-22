@@ -27,11 +27,20 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       — 27 hardcoded in `EvalRuntime`), (ii) effect handlers (`Perform` resolvers in `EffectHandlers.scala`), or
       (iii) Typer prelude symbols (`effectBuiltins`/`pluginObjects`/`pluginBuiltins` — ~150 hardcoded names).
       The keystone = 3 small additive SPI hooks (`blockForms`, `effectHandlers`, `preludeSymbols`/`typeSignatures`).
-- [ ] **core-min-phase1-logger-keystone** (A) — land the block-form + effect-handler SPI hooks via the smallest
-      proof: extract Logger (`runLogger`/`runLoggerJson`/`runLoggerToList`) into a `logger-effect-plugin`. Code
-      lives in 3 spots: `EvalRuntime.scala:3467` (block-forms), `EffectHandlers.scala:15` (handler),
-      `StdEffectsRuntime.scala:40` (emitters). Deterministic output → golden test in `interpreter-plugin-tests`.
-      This lands the reusable keystone; clock/random/env/state/actors then follow the same template.
+- [~] **core-min-phase1-logger-keystone** (A) — IN PROGRESS, 2 increments landed on origin/main:
+      (1) `c2eec8d3c` **generic effect trampoline** — `EffectHandlers.runWithHandler(initial, tag, dispatch)`
+      extracted from the shared `*Run` shape; `loggerRun`/`loggerToListRun` delegate to it (behaviour-preserving,
+      StdEffectsTest 48/0). This is the seam a plugin plugs into — the core owns `Computation`, the plugin
+      supplies only `(op,args)→reply`. (2) `f2d8b5304` **SPI contract** — `BlockForm`/`EffectHandler`/
+      `BlockContext` traits + `Backend.blockForms` (additive, `Any`-valued like `NativeImpl`). **Remaining (next
+      focused increment — careful, touches core dispatch + plugin loading):** (a) `BackendRegistry.blockForms`
+      cached aggregation; (b) `EvalRuntime` generic block-form dispatch — must hang off the existing
+      **lazy-load-on-name-miss** path (NOT a check on every `Term.Apply`, or it regresses cold-start), using
+      `runWithHandler` + `unwrapValueAsAny`/`wrapAnyAsValue`; (c) a `logger-effect-plugin` module (build.sbt +
+      META-INF/services + `BlockForm` impls for `runLogger`/`runLoggerJson`/`runLoggerToList`); (d) remove the
+      hardcoded `runLogger` cases (`EvalRuntime.scala:3467`) + `loggerRun`/`loggerToListRun` from core, with the
+      plugin eager-loaded so the forms still resolve; (e) parity: StdEffectsTest + a golden test in
+      `interpreter-plugin-tests`. Then clock/random/env/state/actors follow the same template.
 - [ ] **polyglot-phase2-optics-allhosts** (B) — prove the per-host library packaging end-to-end on the EASY case:
       take a PURE module (optics — zero effects, zero host coupling) and publish it to all four hosts (JVM jar +
       Java facade + npm + Rust crate) with a golden API-signature test per host. Validates the value-mapping +
