@@ -445,18 +445,38 @@ cat .git 2>/dev/null | head -1
 # NOT a worktree → file missing, or .git is a directory
 ```
 
-If the check shows you are **not** in a real worktree, create one now
-with plain git — no tool needed:
+If the check shows you are **not** in a real worktree, create one now.
+**Preferred — the packaged helper** (resolves the main checkout, fetches,
+creates the worktree at an external prune-safe path, ensures the hook):
 
 ```bash
-BRANCH="feature/your-task-name"
-WT=".worktrees/$BRANCH"                 # relative to the main checkout (run from there)
-git worktree add "$WT" -b "$BRANCH"
+scripts/new-worktree your-task-name        # → ../<repo>-wt-your-task-name on feature/your-task-name
 ```
 
-Then do **all** work (reads, writes, compiles, tests, commits) from `$WT`
-using relative paths or `$WT`-prefixed absolute paths.  The absolute-path
-trap applies here too — use `$WT/...`, never a bare `<repo-root>/...`.
+Or by hand:
+
+```bash
+MAIN=$(git worktree list | head -1 | awk '{print $1}')
+git -C "$MAIN" fetch origin
+git -C "$MAIN" worktree add "$(dirname "$MAIN")/$(basename "$MAIN")-wt-NAME" -b feature/NAME origin/main
+```
+
+**Do NOT put the worktree under `.worktrees/`** — sibling agents prune that
+directory (`git worktree prune` / `rm -rf .worktrees`) and it has killed
+in-flight worktrees mid-task.  Use an **external** path (sibling of the repo),
+which is what `scripts/new-worktree` does.
+
+Then do **all** work (reads, writes, compiles, tests, commits) from the
+worktree.  The absolute-path trap applies — use the worktree path, never a
+bare `<repo-root>/...`.
+
+**Guardrail (enforced):** a `pre-commit` hook (`.githooks/pre-commit`, activated
+by `scripts/setup-hooks` / `core.hooksPath=.githooks`) **refuses** a non-`.work/`
+commit made in the shared `main` checkout or on the `main` branch — so a feature
+commit that drifts into shared `main` fails loudly instead of silently parking the
+checkout on a feature branch (which has happened).  Coordination commits touching
+only `.work/` are allowed; `git commit --no-verify` is the escape hatch.  See
+[`specs/worktree-guardrail.md`](specs/worktree-guardrail.md).
 
 Push when done — **directly from the worktree branch**, skipping the
 shared `main` checkout entirely:
