@@ -1,7 +1,7 @@
 package scalascript.compiler.plugin.env
 
 import scalascript.backend.spi.*
-import scalascript.ir.{QualifiedName, NormalizedModule}
+import scalascript.ir.{QualifiedName, NormalizedModule, ExportedSymbol}
 
 /** The `Env` effect, extracted from the interpreter core into a ServiceLoader plugin
  *  (core-minimization, polyglot-libraries §2d). Contributes two block-form effect-runners:
@@ -18,6 +18,12 @@ class EnvEffectPlugin extends Backend:
     spiRange = SpiVersionRange(SpiVersion.Current, SpiVersion.Current))
   def intrinsics:      Map[QualifiedName, IntrinsicImpl] = Map.empty
   def acceptedSources: Set[String]                       = Set.empty
+
+  /** core-min-prelude-migrate: declare the runner name(s) for `ssc check` (the keystone),
+   *  removed from the hardcoded Typer prelude `effectBuiltins`; resolves via the bundled plugin. */
+  override def preludeSymbols: List[ExportedSymbol] = List(
+    ExportedSymbol("runEnv", "runEnv", "def", "Any"),
+  )
   def compile(module: NormalizedModule, opts: BackendOptions): CompileResult =
     CompileResult.Failed(List(Diagnostic.Generic("env-effect-plugin — interpreter only")))
 
