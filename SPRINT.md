@@ -174,10 +174,15 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       names hardcoded in the Typer prelude (`effectBuiltins`/`pluginObjects`/`pluginBuiltins`). Today
       `pluginBuiltins` is `Set[String]` from `BackendRegistry.inProcess.flatMap(_.intrinsics.keys)`
       (`Main.scala:5485`) — names only, intrinsics only; block-form/effect/object symbols + types are NOT
-      covered. This hook makes ALL extraction check-clean. **OPEN SUB-DECISION (asked Sergiy):** metadata
-      shape — names-only (extend the `Set[String]` seam; resolve to `Any`) vs names+type-signatures (typed
-      arity/params/return in a host-neutral encoding → real type-checking of plugin calls) vs phased
-      (names first, signatures follow). Write the spec slice once decided, then implement + `ssc check` wiring.
+      covered. This hook makes ALL extraction check-clean. **DECIDED 2026-06-22 (Sergiy): names + full
+      type-signatures.** DESIGN (reuse, don't invent): the `.scim`/`ModuleInterface`/`ExportedSymbol` format
+      ALREADY carries typed symbols via `typeEvidence` (`tpe = SType.show` + `kind`) and `Typer.
+      typeCheckWithInterfaces(module, interfaces)` already consumes it for imports. So add a Backend SPI hook
+      `def preludeInterface: Option[ModuleInterface] = None` (plugin declares its public symbols with
+      signatures as `ExportedSymbol`s); `ssc check` (`Main.scala:5485`) merges plugin interfaces into the
+      `interfaces` map fed to the Typer → real type-checking of plugin-intrinsic calls, replacing names-only
+      `pluginBuiltins`. Spec slice in `specs/polyglot-libraries.md` first, then implement + wire + migrate one
+      plugin to prove it + tests.
 - [ ] **coremin-http-migrate** (A — after the keystone) — extract the Http runner (`httpClient`) to a plugin.
       Needs a new SPI capability: `SpiValue` has no record case, so building a `Response` requires
       `BlockContext.makeRecord(...)` (or an Opaque-instance helper). Copy the State/Retry/Cache template +
