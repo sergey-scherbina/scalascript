@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — docs: reconcile stale sprint open items
+
+Closed `sprint-stale-open-items-reconcile`. `coremin-prelude-migrate-ORIG` is now explicitly superseded by
+the newer blocked/partial `coremin-prelude-migrate` finding, and `polyglot-phase2-optics-allhosts` is marked
+done because JS/JVM/Rust/Java optics library hosts all ship. No implementation changed.
+
 ## 2026-06-22 — feat(rust): consume native `Option` — `Some`/`None` patterns + `getOrElse` (rust-option-consumption)
 
 The Rust backend produced `Option<T>` values but couldn't consume them in user code. Added: `Some(x)` /
