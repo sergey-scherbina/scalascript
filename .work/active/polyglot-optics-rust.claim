@@ -1,5 +1,0 @@
-feature/polyglot-optics-rust 2026-06-22T16:30:00Z
-agent: claude (mellow-shrew)
-heartbeat: 2026-06-22T16:30:00Z
-status: in-progress
-plan: RustLibPackager (backend/rust, mirror JvmLibPackager) — opticsRustPackage(version) -> {Cargo.toml, src/lib.rs, README.md}. lib.rs = faithful dynamic port of the JS/JVM optics over a Value enum (Obj/Arr/Opt/Str/Int/Bool/Null): Lens(path) get/set/modify/and_then; Optional(steps) get_option/set/modify/and_then; Traversal(steps) get_all/modify/set/and_then; Prism(variant via "_type"); steps Field/Index/At/Some_/Each; make_lens/make_optional/make_traversal/make_prism + field/index/at/some/each. Wire EmitLibCmd --host rust. RustLibPackagerTest: file-set + API surface + cargo-build/run smoke (gated, mirror RustGenCargoSmokeTest).

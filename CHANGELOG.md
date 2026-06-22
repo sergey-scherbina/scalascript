@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — polyglot: Rust optics library (`emit-lib --host rust`) — Task B 3rd host
+
+`RustLibPackager` (counterpart of `JsLibPackager`/`JvmLibPackager`) emits a standalone, dependency-free
+`ssc-optics` Rust crate (Cargo.toml + src/lib.rs + README) for `ssc emit-lib --host rust --feature optics`.
+`lib.rs` is a faithful dynamic port of the JS `@scalascript/optics` / JVM `ssc-optics`: Lens / Optional /
+Traversal / Prism over a dynamic `Value` enum (`Obj`/`Arr`/`Opt`/`Str`/`Int`/`Bool`/`Null` + `"_type"`-tagged
+sums), with path steps (`field`/`index`/`at`/`some`/`each`) and `get`/`set`/`modify`/`and_then`/`get_all`/
+`get_option`/`reverse_get`. `RustLibPackagerTest` 4/4: golden (file set + API surface + dep-free `[lib]`) + a
+Rust-toolchain-gated cargo smoke that writes the crate + an integration test exercising all four optics and
+`cargo test`s it — the emitted Rust compiles AND behaves. user-guide + README updated. JS + JVM + Rust optics
+hosts now ship; only the Java facade remains. (`f13427d4b`)
+
 ## 2026-06-22 — fix(rust): 64-bit wrapping arithmetic (`overflow-checks = false`) — `effect-multishot` now runs on rust
 
 ScalaScript `Int`/`Long` are 64-bit **wrapping** (Java `Long` semantics; the interpreter, JVM and JS all

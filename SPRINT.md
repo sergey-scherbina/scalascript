@@ -28,9 +28,14 @@ slice). Each is one host of the optics-library packaging, individually claimable
 - [ ] **polyglot-optics-jvm** — JVM facade jar for optics via `FacadeGenerator` / `ssc link
       --emit-scala-facade`. Optics has no compilable `.ssc` defs, so AUTHOR a thin facade exposing
       Lens/Optional/Traversal/Prism; golden API-signature test (mirror the JS `.d.ts` golden).
-- [ ] **polyglot-optics-rust** — Rust optic `pub fn` codegen in `RustRuntimeTemplates` + lib-crate
-      (`renderLibRs`/`src/lib.rs`, Cargo `[lib]` skeleton exists). **GREENFIELD** codegen; golden
-      `RustGenCargoTomlTest`-style exact-string asserts. Larger than JVM.
+- [x] **polyglot-optics-rust** ✓ DONE 2026-06-22 (`f13427d4b`, mellow-shrew) — `RustLibPackager`
+      (counterpart of Js/JvmLibPackager) emits a dependency-free `ssc-optics` Rust crate (Cargo.toml +
+      src/lib.rs + README) via `emit-lib --host rust --feature optics`. lib.rs = faithful dynamic port of
+      the JS/JVM optics over a `Value` enum (Obj/Arr/Opt/Str/Int/Bool/Null + `_type` sums): Lens/Optional/
+      Traversal/Prism + steps field/index/at/some/each. `RustLibPackagerTest` 4/4: golden (file-set + API +
+      dep-free) + a Rust-toolchain-gated cargo smoke (writes the crate + an integration test exercising all
+      4 optics + `cargo test` — the emitted Rust compiles AND behaves). user-guide + README updated. 3rd of
+      4 optics hosts (JS+JVM done); only Java facade remains.
 - [ ] **polyglot-optics-java** — Java facade (`JavaFacadeEmitter` + `java.util.List` value-mapping seam).
       **GREENFIELD**; golden signature test. Largest of the four.
 
