@@ -1,0 +1,6 @@
+feature/clock-env-plugin-extract 2026-06-22T11:06:46Z
+agent: claude (lucky-otter)
+heartbeat: 2026-06-22T11:06:46Z
+status: in-progress
+done-so-far: Logger+Random extracted (config-args SPI path proven). Now Clock+Env (curried-config siblings).
+next: clock-effect-plugin + env-effect-plugin; remove core clockRun/envRun + 4 cases + reservedApplyHeads; move tests
