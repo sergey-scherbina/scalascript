@@ -1,6 +1,0 @@
-feature/rust-multishot-tier2-nested 2026-06-22
-agent: claude (bright-quail)
-heartbeat: 2026-06-22T21:39:52Z
-status: in-progress
-done-so-far: Tier-2 single-perform (continuation-as-closure) shipped. This generalizes it to MULTIPLE (nested) performs of a single-op multi effect with an arbitrary handler — closes general multi-shot for STATIC perform depth (unbounded/perform-in-loop still needs the explicit trampoline, no consumer).
-next: replace renderTier2SinglePerform with renderTier2General: collect all `val xi = Eff.opName(argsi)` performs (same opName, no other effect ops) + pure tail; emit a nested `fn __h(<opArgBinders typed>, k: &dyn Fn(<opRet>) -> <progRet>) -> <progRet> { <handler body, resume->k(...), op-arg binders -> params> }` once, then nest `__h(<args0>, &|x0| __h(<args1>, &|x1| ... <pure tail>))`. fn __h is non-capturing (handler uses only its binders + literals); closures capture earlier binders + def params. Update the Amb single-perform golden to the `fn __h` form; add a 2-flip nested Amb test (resume(t)+resume(f) over 2 flips → 4 combos) cargo-run. one-shot + Tier-1 untouched. spec §11.5 Slice 3 (nested static-depth done).

@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — feat(rust): Tier-2 multi-shot generalised to nested performs (static depth) — R.6 Slice 3
+
+Generalises the single-perform Tier-2 to **1..N nested performs** of a single-op `multi effect` with an
+arbitrary handler. `renderTier2General` emits the handler once as a non-capturing nested
+`fn __h(<op-arg params>, __k: &dyn Fn(<opRet>) -> <progRet>) -> <progRet>` (handler body with `resume(v)` →
+`__k(v)`) and **nests** each `val xᵢ = Eff.op(argsᵢ)` perform as `__h(<argsᵢ>, &|xᵢ| <rest>)` down to the
+pure tail — the continuation re-enters the handler at every perform. Example (`Amb`/`flip` nondeterminism,
+2 nested flips): `__h(&|x| __h(&|y| (x?1:0)+(y?10:0)))` with `__h(k)=k(true)+k(false)` → enumerates the 4
+combinations → `22`. `RustGenMultiShotTest`: golden + cargo-runs (1 flip → `1`, 2 nested flips → `22`).
+One-shot tagless-final + Tier-1 untouched; `backendRust` 250/0. **Only** *unbounded* depth (a perform inside
+a loop, where nesting isn't static) remains — the explicit defunctionalized trampoline, a separate slice
+with no current consumer.
+
 ## 2026-06-22 — core-min: 6 more bundled-effect runner names migrated off the Typer prelude (prelude-migrate batch)
 
 Following the `runRandom` proof, six variadic bundled-effect runner keywords leave the hardcoded Typer
