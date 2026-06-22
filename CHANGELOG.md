@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — core-min: the 3 TYPED bundled runners migrated off the Typer prelude (prelude-migrate typed)
+
+Completes the bundled-effect prelude-migrate family. The typed runners `runRandomSeeded` /
+`runClockAt` / `runEnvWith` — which carried the effect-discharge `runnerType2("…")` signature as
+standalone `s.define`s in `Typer.createPrelude` — now ship in their plugins' `preludeSymbols`
+(random/clock/env-effect-plugin). Key insight: the ScalaScript typer does **not** enforce effect
+discharge (no "unhandled effect" diagnostic), so the runner's `! Eff` row is tracked-but-not-checked;
+declaring each name `Any` is sufficient for `ssc check`, and the interpreter resolves the runner via
+the plugin's block-form (not the typer type). Production-sound because `installBin` stages all of
+`allPlugins` (the effect plugins included) onto the shipped classpath, so
+`BackendRegistry.inProcess.flatMap(_.preludeSymbols)` loads them. `PreludeMigratedRunnersTest`
+extended to 9 runners (exercising the two-arg `runX(seed){body}` form for the typed ones). With the
+earlier variadic batch this is **10 bundled-effect runner names** now off the core prelude
+(`runRandom` + 6 variadic + 3 typed). typer 196/0, plugin-tests 671/0. STILL in core: `runState` /
+`runHttp` / `runHttpStub` / `runLogger*` typed runners (their plugins can adopt the same pattern next)
+and `runStream` (owned by the in-flight Stream extraction).
+
 ## 2026-06-22 — feat(rust): Tier-2 multi-shot generalised to nested performs (static depth) — R.6 Slice 3
 
 Generalises the single-perform Tier-2 to **1..N nested performs** of a single-op `multi effect` with an
