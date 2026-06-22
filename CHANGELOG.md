@@ -18,6 +18,13 @@ via the plugin's block-form (verified — `StdEffectsTest` runs `runHttp`/`runSt
 unaffected by the typer-prelude change). `PreludeMigratedRunnersTest` now locks all 15 migrated
 runners. typer 196/0, plugin-tests 677/0.
 
+## 2026-06-22 — docs: reconcile stale Rust multi-shot R.6 queue duplicate
+
+Closed `rust-multishot-board-reconcile`. The old open `[ ] rust-effects-multishot-r6`
+entry is now marked superseded by the detailed status entry: Tier-1 List, Tier-1 Option,
+and Tier-2 static-depth are done; only unbounded perform-in-loop remains, explicitly
+additive with no current consumer. No Rust code changed.
+
 ## 2026-06-22 — core-min: the 3 TYPED bundled runners migrated off the Typer prelude (prelude-migrate typed)
 
 Completes the bundled-effect prelude-migrate family. The typed runners `runRandomSeeded` /
