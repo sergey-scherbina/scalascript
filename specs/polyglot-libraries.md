@@ -356,13 +356,15 @@ registry, DNS name, or hosting.
 Essential plugins are the first-party capabilities that are either already part of the
 default language experience, low-dependency utility modules, or migrated effect runners
 whose default behavior must remain available: `json`, `content`, `frontend`, `request`,
-`fetch`, `graph`, `http`, `ws`, `mcp`, `remote`, `streams`, `uuid`, `mime`, `fs`, `os`,
-`yaml`, `bench`, `logger`, `random`, `clock`, `env`, `state`, `retry`, and `cache`.
+`fetch`, `graph`, `http`, `ws`, `mcp`, `remote`, `streams`, `deploy`, `uuid`, `mime`,
+`fs`, `os`, `yaml`, `bench`, `logger`, `random`, `clock`, `env`, `state`, `retry`, and
+`cache`. `deploy` is transitional-essential because the CLI still imports deploy
+types directly and stages its jar on the startup classpath.
 
 Advanced plugins are opt-in because they are provider-specific, security-sensitive,
 heavy, peripheral, deployment-oriented, or UI/platform-specific: `swing`, `auth`,
-`oauth`, `sql`, `pwa`, `nfc`, `dstreams`, `graphql`, `deploy`, `payment-request`,
-`payments`, `crypto`, `pdf`, and `smtp`.
+`oauth`, `sql`, `pwa`, `nfc`, `dstreams`, `graphql`, `payment-request`, `payments`,
+`crypto`, `pdf`, and `smtp`.
 
 **Out of scope**
 
