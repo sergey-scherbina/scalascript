@@ -1,0 +1,6 @@
+feature/coremin-hybrid-split 2026-06-22T21:37:14Z
+agent: codex
+heartbeat: 2026-06-22T21:37:14Z
+status: not-started
+done-so-far:
+next: create worktree, write/commit the hybrid plugin distribution spec slice, then implement local bundled opt-in staging without a domain.
