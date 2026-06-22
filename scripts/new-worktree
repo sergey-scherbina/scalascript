@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+#
+# new-worktree <name> — create an isolated feature worktree the safe way
+# (specs/worktree-guardrail.md). Packages the reliable manual recipe so agents don't
+# fight a false-positive `EnterWorktree` (claude-code #27881) and don't improvise into
+# the shared main checkout.
+#
+# The worktree is created at an EXTERNAL path (sibling of the repo), deliberately NOT
+# under .worktrees/ — that directory gets pruned by sibling agents and has killed
+# in-flight worktrees.
+set -euo pipefail
+
+name="${1:-}"
+if [ -z "$name" ]; then
+  echo "usage: scripts/new-worktree <name>   # branch feature/<name>, off origin/main" >&2
+  exit 2
+fi
+name="${name#feature/}"   # tolerate a leading feature/
+
+MAIN=$(git worktree list | head -1 | awk '{print $1}')
+wt="$(dirname "$MAIN")/$(basename "$MAIN")-wt-${name}"
+
+if [ -e "$wt" ]; then
+  echo "✋ path already exists: $wt" >&2
+  exit 1
+fi
+
+git -C "$MAIN" fetch origin
+git -C "$MAIN" worktree add "$wt" -b "feature/${name}" origin/main
+# Make sure the guardrail hook is active for the whole repo (covers all worktrees).
+git -C "$MAIN" config core.hooksPath .githooks
+
+echo
+echo "✓ worktree ready: $wt"
+echo "  branch: feature/${name}  (off origin/main)"
+echo "  next:   cd \"$wt\""

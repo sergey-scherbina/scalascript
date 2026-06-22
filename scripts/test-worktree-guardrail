@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+#
+# test-worktree-guardrail — exercise every row of the behaviour matrix in
+# specs/worktree-guardrail.md against a throwaway repo. Exits 0 iff all pass.
+#
+# Run from the repo so it can find .githooks/pre-commit:
+#   scripts/test-worktree-guardrail
+set -uo pipefail
+
+HOOK_SRC="$(git rev-parse --show-toplevel)/.githooks/pre-commit"
+[ -f "$HOOK_SRC" ] || { echo "cannot find .githooks/pre-commit"; exit 2; }
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+fails=0
+
+check() { # <description> <expected: pass|fail> <actual-exit-code>
+  local desc="$1" expect="$2" code="$3"
+  local got=pass; [ "$code" -ne 0 ] && got=fail
+  if [ "$got" = "$expect" ]; then
+    echo "  ok   — $desc (expected $expect)"
+  else
+    echo "  FAIL — $desc: expected $expect, got $got (exit $code)"
+    fails=$((fails+1))
+  fi
+}
+
+# --- main checkout on `main`, with .githooks wired ---
+repo="$tmp/repo"
+git init -q -b main "$repo"
+mkdir -p "$repo/.githooks"; cp "$HOOK_SRC" "$repo/.githooks/pre-commit"; chmod +x "$repo/.githooks/pre-commit"
+git -C "$repo" config user.email t@t; git -C "$repo" config user.name t
+# seed an initial commit that COMMITS .githooks/ so linked worktrees inherit the hook
+# (a relative core.hooksPath resolves against each working tree's root).
+echo seed > "$repo/seed.txt"; git -C "$repo" add seed.txt .githooks
+git -C "$repo" commit -q -m seed
+git -C "$repo" config core.hooksPath .githooks
+
+# Case A: main checkout, normal file -> BLOCKED
+echo a > "$repo/a.txt"; git -C "$repo" add a.txt
+git -C "$repo" commit -q -m "feature in main" >/dev/null 2>&1; check "main checkout / normal file" fail $?
+git -C "$repo" reset -q a.txt; rm -f "$repo/a.txt"
+
+# Case B: main checkout, only .work/ -> ALLOWED
+mkdir -p "$repo/.work/active"; echo c > "$repo/.work/active/x.claim"; git -C "$repo" add .work/active/x.claim
+git -C "$repo" commit -q -m "claim" >/dev/null 2>&1; check "main checkout / .work-only (coordination)" pass $?
+
+# Case D: main checkout, normal file, --no-verify -> ALLOWED (escape hatch)
+echo d > "$repo/d.txt"; git -C "$repo" add d.txt
+git -C "$repo" commit -q --no-verify -m "override" >/dev/null 2>&1; check "main checkout / --no-verify escape hatch" pass $?
+
+# Case C: linked feature worktree -> ALLOWED
+git -C "$repo" worktree add -q "$tmp/wt-feat" -b feature/test >/dev/null 2>&1
+echo f > "$tmp/wt-feat/f.txt"; git -C "$tmp/wt-feat" add f.txt
+git -C "$tmp/wt-feat" commit -q -m "feature work in worktree" >/dev/null 2>&1; check "feature worktree / normal file" pass $?
+
+# Case E: linked worktree ON main (coord-main analog) -> BLOCKED for non-.work.
+# Detach the main checkout so `main` is free to be checked out in a linked worktree.
+git -C "$repo" checkout -q --detach
+git -C "$repo" worktree add -q "$tmp/wt-main" main >/dev/null 2>&1
+echo e > "$tmp/wt-main/e.txt"; git -C "$tmp/wt-main" add e.txt
+git -C "$tmp/wt-main" commit -q -m "feature on main via worktree" >/dev/null 2>&1; check "linked worktree on 'main' / normal file" fail $?
+
+echo
+if [ "$fails" -eq 0 ]; then echo "ALL PASS"; exit 0; else echo "$fails FAILED"; exit 1; fi

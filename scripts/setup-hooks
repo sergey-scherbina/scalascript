@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#
+# setup-hooks — activate the version-controlled git hooks (specs/worktree-guardrail.md).
+# Idempotent. One setting covers the main checkout AND every linked worktree, because
+# core.hooksPath lives in the shared repo config. Run once per clone.
+set -euo pipefail
+
+MAIN=$(git worktree list | head -1 | awk '{print $1}')
+git -C "$MAIN" config core.hooksPath .githooks
+chmod +x "$MAIN/.githooks/"* 2>/dev/null || true
+echo "✓ core.hooksPath = .githooks  (worktree guardrail active for all worktrees)"
