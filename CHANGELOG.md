@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — core-min: the LAST bundled runners migrated off the Typer prelude (prelude-migrate final)
+
+Finishes the bundled-effect prelude-migrate sweep. The remaining typed runner `s.define`s leave
+`Typer.createPrelude` for their plugins' `preludeSymbols`: `runLogger` / `runLoggerJson` /
+`runLoggerToList` (logger-effect-plugin), `runState` (state-effect-plugin), `runHttp` / `runHttpStub`
+(http-plugin). With their last user gone, the typed `runnerType2` prelude helper is also removed
+(`runnerType` stays — `runStream` still uses it). **16 bundled-effect runner names are now off the
+core prelude** (`runRandom` + 6 variadic + 3 typed + these 6); only `runStream` remains in core,
+pending the in-flight Stream extraction. Same proven mechanism: the typer does not enforce effect
+discharge, so an `Any` declaration suffices for `ssc check`, and the interpreter resolves each runner
+via the plugin's block-form (verified — `StdEffectsTest` runs `runHttp`/`runState`/… end-to-end, 15/0,
+unaffected by the typer-prelude change). `PreludeMigratedRunnersTest` now locks all 15 migrated
+runners. typer 196/0, plugin-tests 677/0.
+
 ## 2026-06-22 — core-min: the 3 TYPED bundled runners migrated off the Typer prelude (prelude-migrate typed)
 
 Completes the bundled-effect prelude-migrate family. The typed runners `runRandomSeeded` /
