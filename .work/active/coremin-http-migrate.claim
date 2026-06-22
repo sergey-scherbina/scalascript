@@ -1,16 +1,11 @@
-feature/coremin-http-migrate 2026-06-22T14:55:00Z
+feature/coremin-http-migrate 2026-06-22T15:30:00Z
 agent: claude (mellow-shrew)
-heartbeat: 2026-06-22T14:55:00Z
-status: in-progress (scoped + design validated; build not started — needs a focused session)
-design-validated:
-  - httpClient runner = EffectHandlers.httpRun (~80 LOC, line 58-140) + EvalRuntime block-form (3610-3638) + a request helper. Builds Value.InstanceV("Response", {status,headers,body}).
-  - SPI gap: SpiValue has no record case. Add BlockContext.makeRecord(typeName, fields: List[(String,SpiValue)]) — defaulted-throw; interp overrides at EvalRuntime.scala:3034 (the anon `new BlockContext` next to applyFn) → builds Value.InstanceV + returns SpiValue.Opaque(instanceV). spiToValue(Opaque) -> h.asInstanceOf[Value] round-trips it back (Interpreter.scala:1567); valueToSpi wraps unknown as Opaque (1555). CONFIRMED round-trip works.
-  - Template = StateEffectPlugin.scala (BlockForm + EffectHandler over SpiValue; applyFn precedent). 7 effects already migrated this way.
-remaining-detail: IMap (the InstanceV field map) only has fixed-arity Map1/Map2/Map3 ctors (no general from-List found in Ir.scala). makeRecord needs a general record builder — either find/add an IMap.from(entries) (locate the IMap definition first; not `object IMap` — search Map3 ctor) or build via repeated updated. Resolve this FIRST.
-next:
-  1. add BlockContext.makeRecord (SPI, defaulted-throw) + interp override (build InstanceV) + a focused test (a test block-form builds a record, interp unwraps it).
-  2. http-effect-plugin (copy State template): HttpBlockForm under "httpClient"; effectName = the http Perform tag (check httpRun); handler replies build Response via ctx.makeRecord; port httpRun's request/stub logic into the plugin.
-  3. remove httpClient from EvalRuntime (3610-3638) + EffectHandlers.httpRun + reservedApplyHeads (3016).
-  4. wire build.sbt allPlugins (PluginSpec("http", ...)) + installBin pluginPkgs.
-  5. tests (no installPlugins; lazy ServiceLoader dispatch) + interp/plugin-tests green.
-NOTE: httpClient NAME stays in Typer effectBuiltins (prelude) — that's the coremin-prelude-migrate concern, blocked separately. This task only moves the RUNTIME out of core.
+heartbeat: 2026-06-22T15:30:00Z
+status: in-progress — FOUNDATION SHIPPED (makeRecord), full port DESIGNED + ready (a ~6-file core-I/O build)
+DONE this turn:
+  - BlockContext.makeRecord SPI + interp override (EvalRuntime, beside applyFn) -> Value.InstanceV via Opaque round-trip. Shipped 351d10bd4. BlockFormSpiTest +1 (handler replies via ctx.makeRecord; body field-accesses r.status/r.body). 4/4.
+FULL-PORT DESIGN (resumable, exact):
+  - Three http forms (EvalRuntime): runHttp{body} (real I/O, httpRun(None)), runHttpStub(routes){body} (stub, httpRun(Some)), httpClient(baseUrl){body} (SETS interp feature-local base url — NOT an effect handler).
+  - Http.get/post/request -> Perform("Http", op, [fullUrl,...]) (StdEffectsRuntime). base url is applied INSIDE doHttpRequest via ctx.httpBaseUrl (NativeContext feature-local), NOT before the Perform.
+  - PLAN: (1) add BlockContext.featureLocal(key: String): Option[Any] = None (defaulted); interp override -> nativeFeatureLocalGet. (2) http-effect-plugin: HttpBlockForm effectName="Http" under "runHttp" (no cfg) + "runHttpStub" (cfg arg = routes MapV). reply(get/post/request): stub -> route lookup -> ctx.makeRecord("Response",{status,headers,body}); real -> read HttpBaseUrl/HttpTimeoutMs/HttpMaxRetries/HttpRetryDelayMs via ctx.featureLocal + port doHttpRequest's java.net logic (self-contained; keys in NativeContextFeatureKeys/IntrinsicImpl.scala:48) -> ctx.makeRecord. (3) remove runHttp/runHttpStub from EvalRuntime(3552-3562) + EffectHandlers.httpRun + doHttpRequest + reservedApplyHeads. KEEP httpClient(baseUrl) setter in core (feature-local config, separate concern — migrate later or leave). (4) build.sbt: PluginSpec("http-effect", ...) + installBin pluginPkgs. (5) migrate any runHttp/runHttpStub interp tests -> plugin-tests (no installPlugins); verify interp + plugin-tests green.
+  - makeRecord + the BlockForm SPI are proven; this is "assemble the plugin + port I/O + remove from core" — known shape, just sizeable. Do on feature branch; push to main only when fully green.
