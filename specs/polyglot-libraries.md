@@ -105,6 +105,56 @@ exists for `ssc check`). Each plugin declares its own names; the typer unions th
 These three hooks are *additive* and backward-compatible: core keeps its built-ins until
 each is migrated, one plugin at a time.
 
+### 2d. Resolving the `Computation`-exposure question (the keystone design fork)
+
+Probing the interpreter (2026-06-22) found the real blocker: every feature being extracted
+(Logger, optics, storage, actors) is coupled to **core types** — `Computation` / `Pure` /
+`Perform` / `FlatMap` / `Value` and `interp.callValue` — and several are wired into the
+`EvalRuntime` evaluator at *syntactic* points (`Focus[T]`, `.copy`, `runLogger { }`). A naive
+effect-handler SPI that passed the raw `Computation` tree to a plugin would just **re-couple
+the plugin to interpreter internals** — defeating the point.
+
+**Resolution: the core owns the `Computation` trampoline; a plugin only ever sees
+`(op, args) → reply` over `Value`.** This is exactly the shape the Rust runtime already uses
+(`effect.rs`: `Handler = Box<dyn Fn(&[EffArg]) -> EffArg>` + a `run_with` driver that owns the
+loop). Concretely:
+
+```scala
+// In the SHARED spi module (NOT the interpreter) — depends only on `Value`:
+trait EffectHandler:
+  /** Reply to one operation; `state` is the handler's own mutable cell (e.g. a log
+   *  accumulator). The CORE drives the Perform/FlatMap trampoline and resumes with this
+   *  value — the plugin never touches `Computation`. */
+  def reply(ctx: EffectContext, op: String, args: List[Value], state: HandlerState): Value
+
+trait BlockForm:
+  def effectName: String                       // e.g. "Logger" — which Perform to intercept
+  def newState(ctx: BlockContext, args: List[Value]): HandlerState   // sink/format/accumulator
+  def result(bodyResult: Value, state: HandlerState): Value          // e.g. (result, collectedLogs)
+```
+
+The `EffectsRuntime` `Perform`/`FlatMap` loop (which stays core) gains one fallback: for a
+`Perform(name, op, args)` it doesn't handle built-in, look up `BackendRegistry.effectHandlers(name)`
+and call `handler.reply(...)`, resuming with the returned `Value`. `EvalRuntime` replaces the
+27 hardcoded `runX { }` cases with: look up `blockForms(name)`, build `newState`, eval the body
+with that handler installed, return `result(bodyResult, state)`.
+
+What this buys:
+- **Plugins depend only on `Value` + the spi module**, never on the interpreter's `Computation`
+  internals — a genuine decoupling, and the same `(op,args)→Value` contract maps directly to the
+  per-host library boundary in §4 (a Java/JS/Rust host supplies the same reply function).
+- It covers **all one-shot-reply standard effects** (Logger.info→Unit, Random.nextInt→Int,
+  Clock.now→Long, Env.get→Option, State.get/put). **Multi-shot** (NonDet) and handlers that
+  inspect the *continuation* stay core/out-of-scope (same R.6 boundary as rust effects).
+- **Syntactic forms** (`Focus[T]`, `.copy`, `effect`/`handle`) are *language* forms, not feature
+  runners — they stay core. Optics' value-builders (`lensGet`/`lensSet`/`buildPrism`) can still
+  move to a plugin as plain `Value`-returning intrinsics; only the `Focus[T](_.a.b)` *path-syntax*
+  recogniser stays a thin core hook that calls the plugin's builder. So optics splits: ~450 LOC
+  of pure builders → plugin, ~40 LOC of syntax-recognition → core.
+
+With 2d resolved, the Logger keystone (phase 1) is implementable without re-coupling, and the
+same `(op,args)→reply` contract is the seam Task B's host libraries plug into.
+
 ---
 
 ## 3. Task A — core-minimization roadmap (phased, each independently shippable)
