@@ -4654,10 +4654,24 @@ l.get(&s);                    // Value::Int(5)
 l.set(&s, Value::Int(9));     // { a: { b: 9 } }  (immutable)
 ```
 
-Flags: `--host <js|jvm|rust>` (default `js`), `--feature <optics>` (default `optics`), `-o <dir>` (default
-`./<feature>-<host>-lib/`), `--version <semver>` (default `0.1.0`). Supported today: `--host js|jvm|rust
---feature optics`; the Java facade host (and idiomatic typed/macro Scala optics) follow
-the same shape.
+For the **Java** host it emits a dependency-free `ssc-optics` Maven project (Java 17+) — a native Java
+optics implementation over a dynamic `Object` (`Map<String,Object>` / `List<Object>` / `Optional<Object>`):
+
+```bash
+ssc emit-lib --host java --feature optics -o build/optics-java
+# pom.xml, src/main/java/ssc/optics/Optics.java, README.md
+```
+```java
+import static ssc.optics.Optics.*;
+var l = makeLens(List.of("a", "b"));
+l.get(s);                    // 5
+l.set(s, 9);                 // { a: { b: 9 } }  (immutable)
+```
+
+Flags: `--host <js|jvm|rust|java>` (default `js`), `--feature <optics>` (default `optics`), `-o <dir>`
+(default `./<feature>-<host>-lib/`), `--version <semver>` (default `0.1.0`). Supported today: `--host
+js|jvm|rust|java --feature optics` — all four optics hosts ship (idiomatic typed/macro Scala optics
+follow the same shape).
 
 ### Key Environment Variables
 

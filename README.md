@@ -802,7 +802,7 @@ ssc emit-ir file.ssc          # emit .scir normalized IR
 ssc link --backend jvm dir/   # link artifacts
 ssc build --incremental dir/  # incremental build
 ssc emit-js file.ssc          # transpile to JS
-ssc emit-lib --host js|jvm|rust --feature optics -o dir/   # standalone host library (npm/jar/crate)
+ssc emit-lib --host js|jvm|rust|java --feature optics -o dir/  # standalone host library (npm/jar/crate/maven)
 ssc emit-spa file.ssc         # SPA HTML bundle
 ssc emit-wc file.ssc          # Web Components bundle
 ssc test file.ssc             # run tests
