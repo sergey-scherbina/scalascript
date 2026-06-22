@@ -20,6 +20,19 @@ class RandomPluginTest extends AnyFunSuite with Matchers:
     ps.flush()
     buf.toString.trim
 
+  // core-min-prelude-migrate: `runRandom` is no longer hardcoded in the Typer prelude; it now
+  // resolves for `ssc check` via the bundled plugin's `preludeSymbols` (the keystone, in action).
+  test("runRandom resolves for `ssc check` via the plugin's preludeSymbols, not a core hardcode"):
+    val mod = Parser.parse("# T\n\n```scalascript\ndef f(): Int = runRandom { 1 }\n```\n")
+    // removed from `effectBuiltins` → a plugin-less strict typecheck flags it…
+    assert(scalascript.typer.Typer.typeCheckStrict(mod).errors.exists(_.msg.contains("runRandom")),
+      "runRandom should be undefined without the plugin's prelude")
+    // …the bundled plugin DECLARES it, so a typecheck with its preludeSymbols resolves it.
+    val prelude = new scalascript.compiler.plugin.random.RandomEffectPlugin().preludeSymbols
+    val typed   = scalascript.typer.Typer(strict = true, preludeSymbols = prelude).typeCheck(mod)
+    assert(!typed.errors.exists(_.msg.contains("undefined name: runRandom")),
+      s"runRandom should resolve via preludeSymbols; got: ${typed.errors.map(_.msg).mkString(" | ")}")
+
   test("runRandomSeeded produces deterministic nextInt (via plugin)"):
     val r1 = captured("""
       runRandomSeeded(42) {

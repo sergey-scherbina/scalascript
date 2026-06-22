@@ -293,7 +293,9 @@ class Typer(
       "runCache", "runCacheBypass",
       "runClock", "runEnv",
       "runEphemeralStorage",
-      "runRandom", "runRetry", "runRetryNoSleep",
+      // runRandom — MIGRATED to random-effect-plugin.preludeSymbols (core-min-prelude-migrate);
+      // resolves via the bundled plugin's typed prelude (the keystone), not this hardcoded list.
+      "runRetry", "runRetryNoSleep",
       "runStorage", "runTx",
       "httpClient", "receive", "timeout",
       // process / actor primitives

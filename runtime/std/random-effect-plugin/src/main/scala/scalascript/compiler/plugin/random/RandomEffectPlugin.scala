@@ -1,7 +1,7 @@
 package scalascript.compiler.plugin.random
 
 import scalascript.backend.spi.*
-import scalascript.ir.{QualifiedName, NormalizedModule}
+import scalascript.ir.{QualifiedName, NormalizedModule, ExportedSymbol}
 
 /** The `Random` effect, extracted from the interpreter core into a ServiceLoader plugin
  *  (core-minimization, polyglot-libraries §2d). Contributes two block-form effect-runners:
@@ -27,6 +27,14 @@ class RandomEffectPlugin extends Backend:
   override def blockForms: Map[String, BlockForm] = Map(
     "runRandom"       -> RandomBlockForm,
     "runRandomSeeded" -> RandomBlockForm,
+  )
+
+  /** core-min-prelude-migrate: the plugin DECLARES its runner name for `ssc check` (the keystone),
+   *  so it no longer has to be hardcoded in `Typer.createPrelude`'s `effectBuiltins`. Resolves via
+   *  the bundled plugin's preludeSymbols. (`runRandomSeeded` keeps its typed core def for now — it
+   *  carries the effect-discharge `runnerType2` signature, which migrates in a later step.) */
+  override def preludeSymbols: List[ExportedSymbol] = List(
+    ExportedSymbol("runRandom", "runRandom", "def", "Any"),
   )
 
 /** `runRandom { body }` / `runRandomSeeded(seed) { body }` — a per-block `java.util.Random`. */
