@@ -1,6 +1,6 @@
 feature/coremin-actors-migrate 2026-06-22T22:20:10Z
 agent: codex
-heartbeat: 2026-06-22T22:20:31Z
+heartbeat: 2026-06-22T22:23:32Z
 status: in-progress
-done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-coremin-actors-migrate.
-next: write and commit specs/coremin-actors-plugin.md before implementation.
+done-so-far: spec slice committed and pushed (`6538c10c6 spec: coremin-actors-plugin`).
+next: rebase worktree on origin/main, implement provider seam slice without moving runtime yet.
