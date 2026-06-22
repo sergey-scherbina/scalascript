@@ -41,49 +41,9 @@ private[interpreter] object EffectHandlers:
   // `runWithHandler` above; nothing Logger-specific remains in interpreter core.
 
   // ── Random ──────────────────────────────────────────────────────────
-
-  def randomRun(initial: Computation, seed: Option[Long]): Computation =
-    val rng = seed.fold(
-      new java.util.Random(): java.util.Random
-    )(s => new java.util.Random(s))
-    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
-      op match
-        case "nextInt" => args match
-          case List(Value.IntV(n)) =>
-            resume(Value.intV(rng.nextInt(n.toInt).toLong))
-          case _ => throw InterpretError("Random.nextInt(n: Int)")
-        case "nextDouble" =>
-          resume(Value.doubleV(rng.nextDouble()))
-        case "uuid" =>
-          val bytes = new Array[Byte](16)
-          rng.nextBytes(bytes)
-          bytes(6) = ((bytes(6) & 0x0f) | 0x40).toByte
-          bytes(8) = ((bytes(8) & 0x3f) | 0x80).toByte
-          def hex(b: Byte) = f"${b & 0xff}%02x"
-          val u = bytes.map(hex).mkString
-          resume(Value.StringV(s"${u.take(8)}-${u.slice(8,12)}-${u.slice(12,16)}-${u.slice(16,20)}-${u.drop(20)}"))
-        case "pick" => args match
-          case List(Value.ListV(items)) if items.nonEmpty =>
-            resume(items(rng.nextInt(items.size)))
-          case _ => throw InterpretError("Random.pick(xs: List[A]) — list must be non-empty")
-        case _ => throw InterpretError(s"Unknown Random operation: $op")
-    def run(current0: Computation): Computation =
-      var current = current0
-      while true do
-        current match
-          case Pure(_) => return current
-          case Perform("Random", op, args) =>
-            current = dispatch(op, args, v => Pure(v))
-          case Perform(_, _, _) => return current
-          case FlatMap(sub, f) => sub match
-            case Pure(v)                      => current = f(v)
-            case FlatMap(s2, g)               => current = FlatMap(s2, x => FlatMap(g(x), f))
-            case Perform("Random", op, args)  =>
-              current = dispatch(op, args, v => run(f(v)))
-            case Perform(_, _, _)             =>
-              return FlatMap(sub, v => run(f(v)))
-      throw InterpretError("unreachable")
-    run(initial)
+  // EXTRACTED to `random-effect-plugin` (core-minimization, polyglot-libraries §2d).
+  // The runners (`runRandom` / `runRandomSeeded(seed)`) now live in the plugin and dispatch
+  // through `Backend.blockForms` + `runWithHandler` above; nothing Random-specific in core.
 
   // ── Clock ───────────────────────────────────────────────────────────
 

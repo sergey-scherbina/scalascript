@@ -1114,6 +1114,7 @@ lazy val cli = project
         (smtpPlugin            / packagePlugin).value,
         (benchPlugin           / packagePlugin).value,
         (loggerEffectPlugin    / packagePlugin).value,
+        (randomEffectPlugin    / packagePlugin).value,
       )
       pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
       log.info(s"bin/lib/compiler/plugins/  (${pluginPkgs.size} .sscpkg files)")
@@ -2785,6 +2786,18 @@ lazy val loggerEffectPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.logger"))
 
+// ── Random effect — runRandom / runRandomSeeded as block-form plugins ──────
+lazy val randomEffectPlugin = project
+  .in(file("runtime/std/random-effect-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-random-effect-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.random"))
+
 // ── UUID — v4/v7 generation, parsing, validation ──────────────────────────
 lazy val uuidPlugin = project
   .in(file("runtime/std/uuid-plugin"))
@@ -2947,6 +2960,7 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("yaml",            yamlPlugin,            "scalascript-yaml-plugin"),
   PluginSpec("bench",           benchPlugin,           "scalascript-bench-plugin"),
   PluginSpec("logger",          loggerEffectPlugin,    "scalascript-logger-effect-plugin"),
+  PluginSpec("random",          randomEffectPlugin,    "scalascript-random-effect-plugin"),
 )
 
 // ── Frontend backend registry (arch-build-registry Phase 4) ─────────────

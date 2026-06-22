@@ -3016,20 +3016,24 @@ private[interpreter] object EvalRuntime:
     "bench", "computed", "effect", "handle", "httpClient", "receive", "restartable",
     "runActors", "runAsync", "runAsyncParallel", "runAuthWith", "runCache", "runCacheBypass",
     "runClock", "runClockAt", "runEnv", "runEnvWith", "runEphemeralStorage", "runHttp",
-    "runHttpStub", "runRandom",
-    "runRandomSeeded", "runRetry", "runRetryNoSleep", "runState", "runStorage", "runStream",
+    "runHttpStub",
+    "runRetry", "runRetryNoSleep", "runState", "runStorage", "runStream",
     "runSideEffect", "runTx", "timeout", "validate", "withFixedUuid", "Focus")
 
   /** Generic positional/named call dispatch for `f(args...)`, shared by the
    *  plain-application fast path and the `case _` fallthrough of `app.fun`. */
-  /** Run a plugin block-form `keyword { body }`: the interpreter owns the `runWithHandler`
-   *  trampoline; the plugin's handler replies over `SpiValue` (it never sees `Computation`).
-   *  Shared by the loaded-plugin special-form case and the lazy-load fallback below. §2d. */
+  /** Run a plugin block-form `keyword(config…) { body }`: the interpreter owns the `runWithHandler`
+   *  trampoline; the plugin's handler replies over `SpiValue` (it never sees `Computation`). The
+   *  leading `configTerms` (empty for `keyword { body }`) are evaluated to values and handed to
+   *  `BlockForm.newHandler` as handler-config args (e.g. the seed of `runRandomSeeded(seed){…}`).
+   *  Shared by the loaded-plugin special-form cases and the lazy-load fallbacks below. §2d. */
   private def dispatchBlockForm(
-      bf: scalascript.backend.spi.BlockForm, bodyTerm: Term, env: Env, interp: Interpreter
+      bf: scalascript.backend.spi.BlockForm, configTerms: List[Term], bodyTerm: Term,
+      env: Env, interp: Interpreter
   ): Computation =
     val bctx    = new scalascript.backend.spi.BlockContext { def out: java.io.PrintStream = interp.out }
-    val handler = bf.newHandler(bctx, Nil)
+    val cfgArgs = configTerms.map(t => interp.valueToSpi(Computation.run(eval(t, env, interp))))
+    val handler = bf.newHandler(bctx, cfgArgs)
     val body    = eval(bodyTerm, env, interp)
     val ran = EffectHandlers.runWithHandler(body, bf.effectName,
       (op, args, resume) => resume(interp.spiToValue(handler.reply(op, args.map(interp.valueToSpi)))))
@@ -3047,7 +3051,7 @@ private[interpreter] object EvalRuntime:
       case Term.Name(kw) if allArgTerms.sizeIs == 1 && !env.contains(kw) && !interp.globals.contains(kw) =>
         if !interp.blockForms.contains(kw) && !interp._pluginsLoaded then interp.ensurePluginsLoaded()
         interp.blockForms.get(kw) match
-          case Some(bf) => return dispatchBlockForm(bf, allArgTerms.head, env, interp)
+          case Some(bf) => return dispatchBlockForm(bf, Nil, allArgTerms.head, env, interp)
           case None     => ()
       case _ => ()
     val hasNamedArgs = allArgTerms.exists(_.isInstanceOf[Term.Assign])
@@ -3503,22 +3507,12 @@ private[interpreter] object EvalRuntime:
     // Computation trampoline (`runWithHandler`); the plugin's handler replies over `SpiValue`.
     case Term.Apply.After_4_6_0(Term.Name(kw), bodyArgClause)
         if bodyArgClause.values.size == 1 && interp.blockForms.contains(kw) =>
-      dispatchBlockForm(interp.blockForms(kw), bodyArgClause.values.head, env, interp)
+      dispatchBlockForm(interp.blockForms(kw), Nil, bodyArgClause.values.head, env, interp)
 
     // ── v1.4 Random effect handlers ───────────────────────────────────────
-    // runRandom { body }            — ThreadLocalRandom
-    // runRandomSeeded(seed) { body } — deterministic LCG, seed is Long
-    case Term.Apply.After_4_6_0(Term.Name("runRandom"), bodyArgClause)
-        if bodyArgClause.values.size == 1 =>
-      EffectHandlers.randomRun(eval(bodyArgClause.values.head, env, interp), None)
-    case Term.Apply.After_4_6_0(
-        Term.Apply.After_4_6_0(Term.Name("runRandomSeeded"), seedClause),
-        bodyClause)
-        if seedClause.values.size == 1 && bodyClause.values.size == 1 =>
-      val seed = Computation.run(eval(seedClause.values.head, env, interp)) match
-        case Value.IntV(n) => n
-        case _             => throw InterpretError("runRandomSeeded(seed: Long) { body }")
-      EffectHandlers.randomRun(eval(bodyClause.values.head, env, interp), Some(seed))
+    // runRandom / runRandomSeeded — EXTRACTED to `random-effect-plugin` (core-minimization).
+    // runRandom { body } resolves via the lazy single-clause path; runRandomSeeded(seed) { body }
+    // via the generic curried block-form cases below. (polyglot-libraries §2d.)
 
     // ── v1.4 Clock effect handlers ────────────────────────────────────────
     // runClock { body }        — real wall clock; Clock.sleep → Thread.sleep
@@ -3819,6 +3813,28 @@ private[interpreter] object EvalRuntime:
           EffectsRuntime.evalRestartable(bodyArgClause.values.head.asInstanceOf[Term], pf.cases, env, interp)
         case _ =>
           interp.located("restartable expects a partial function { case Error(…) => Restart.… }")
+
+    // Generic plugin-contributed block-form WITH config args: `keyword(config…) { body }`
+    // (e.g. `runRandomSeeded(seed) { … }`). Placed AFTER all hardcoded curried special-forms
+    // (runClockAt / runEnvWith / httpClient / …) so it only catches genuinely-unmatched applies.
+    // The leading clause carries handler-config args (→ `BlockForm.newHandler`); the trailing
+    // single-element clause is the body. Fires only for an already-registered block-form. §2d.
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(Term.Name(kw), cfgClause), bodyClause)
+        if bodyClause.values.size == 1 && interp.blockForms.contains(kw) =>
+      dispatchBlockForm(interp.blockForms(kw), cfgClause.values, bodyClause.values.head, env, interp)
+    // Lazy-load mirror for the curried form (the curried shape can't reach the evalPlainApply
+    // hook, whose fast path only fires for a `Term.Name` head). An unresolved curried head may be
+    // a config-args block-form a ServiceLoader plugin hasn't registered yet; same gate as the
+    // single-clause hook (unresolved head + not-yet-loaded → one-time scan, then re-check).
+    case t @ Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(Term.Name(kw), cfgClause), bodyClause)
+        if bodyClause.values.size == 1 && !env.contains(kw) && !interp.globals.contains(kw)
+           && !interp._pluginsLoaded =>
+      interp.ensurePluginsLoaded()
+      interp.blockForms.get(kw) match
+        case Some(bf) => dispatchBlockForm(bf, cfgClause.values, bodyClause.values.head, env, interp)
+        case None     => evalApplyGeneral(t, env, interp)
 
     // Function application: detect obj.method(args) and dispatch directly.
     // All sub-terms are evaluated eagerly here; the FlatMap chain composes

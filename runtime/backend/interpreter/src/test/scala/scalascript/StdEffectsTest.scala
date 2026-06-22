@@ -22,65 +22,10 @@ class StdEffectsTest extends AnyFunSuite with Matchers:
   // The Logger effect was extracted from interpreter core into `logger-effect-plugin`
   // (core-minimization); its four cases now run there via the lazy ServiceLoader path.
 
-  // ── Random (seeded) ────────────────────────────────────────────────────
-
-  test("runRandomSeeded produces deterministic nextInt"):
-    val r1 = captured("""
-      runRandomSeeded(42) {
-        println(Random.nextInt(100))
-        println(Random.nextInt(100))
-      }
-    """)
-    val r2 = captured("""
-      runRandomSeeded(42) {
-        println(Random.nextInt(100))
-        println(Random.nextInt(100))
-      }
-    """)
-    r1 shouldBe r2
-    r1.split("\n").length shouldBe 2
-
-  test("runRandomSeeded(42) nextInt(100) is in [0, 100)"):
-    captured("""
-      runRandomSeeded(1) {
-        val n = Random.nextInt(10)
-        println(n >= 0 && n < 10)
-      }
-    """) shouldBe "true"
-
-  test("runRandomSeeded nextDouble in [0, 1)"):
-    captured("""
-      runRandomSeeded(7) {
-        val d = Random.nextDouble()
-        println(d >= 0.0 && d < 1.0)
-      }
-    """) shouldBe "true"
-
-  test("Random.pick returns element from list"):
-    captured("""
-      runRandomSeeded(5) {
-        val xs = List(10, 20, 30)
-        val v  = Random.pick(xs)
-        println(xs.contains(v))
-      }
-    """) shouldBe "true"
-
-  test("Random.uuid returns a UUID-shaped string"):
-    captured("""
-      runRandomSeeded(99) {
-        val id = Random.uuid()
-        // basic UUID shape: 8-4-4-4-12
-        println(id.length)
-      }
-    """) shouldBe "36"
-
-  test("runRandom (unseeded) produces a string of expected length"):
-    val out = captured("""
-      runRandom {
-        println(Random.uuid().length)
-      }
-    """)
-    out shouldBe "36"
+  // ── Random — MOVED to RandomPluginTest (interpreter-plugin-tests) ────────
+  // The Random effect was extracted from interpreter core into `random-effect-plugin`
+  // (core-minimization); `runRandom` / `runRandomSeeded(seed)` now run there via the lazy
+  // ServiceLoader path. The seeded form also exercises the block-form SPI's config-args path.
 
   // ── Clock (frozen) ─────────────────────────────────────────────────────
 
