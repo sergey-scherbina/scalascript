@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — refactor(js): rename cryptic `part1X`/`v14effects` runtime fragments to meaningful names
+
+The JS runtime fragments had size-driven historical names (`part1a`–`d`, `part2a`/`b`, `v14effects`).
+Renamed to reflect content/capability (content byte-identical ⇒ emitted JS unchanged): `part1a`→`core`
+(base prelude), `part1b`→`http-server` (`HtmlDsl`), `part1c`→`jwt-auth` (`Jwt`), `part1d`→`ws-server`
+(`WsServer`), `part2a`→`core-dispatch`, `part2b`→`core-collections`, `v14effects`→`effects` (the v1.4
+built-in effects: Logger/Random/Clock/Env). Each `.mjs` resource + its `JsRuntime*` val + `.scala` file
+renamed; all references (JsGen assembly/concat/capability comments, `WebServer`, tests) updated and the
+now-stale doc comments rewritten. `backendJs` + `interpreterServer` compile; 48 JS tests green
+(streams/optics/effects/loader). Spec `specs/js-runtime-resources.md` updated.
+
 ## 2026-06-22 — refactor(js): consolidate the async-a/b size-split into one `async.mjs`
 
 Follow-up to the `.mjs` migration: with the JS runtime now in resource files, the JVM 65 535-byte
