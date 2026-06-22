@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — polyglot: Java optics library (`emit-lib --host java`) — Task B optics COMPLETE (4/4 hosts)
+
+`JavaLibPackager` (counterpart of Js/Jvm/RustLibPackager) emits a standalone, dependency-free `ssc-optics`
+Java/Maven project (pom.xml + `src/main/java/ssc/optics/Optics.java` + README) for `ssc emit-lib --host java
+--feature optics`. `Optics.java` is a faithful Java 17 port of the dynamic optics over `Object`
+(`Map<String,Object>` / `List<Object>` / `Optional<Object>` + `"_type"`-tagged sums): Lens / Optional /
+Traversal / Prism + `field`/`index`/`at`/`some`/`each`. `JavaLibPackagerTest` 5/5: golden + emit-lib layout +
+a javac-gated compile/run smoke exercising all four optics. **With JS + JVM + Rust + Java, all four optic
+library hosts now ship — the optics half of Task B (cross-language reuse) is complete.** (`09e174612`)
+
 ## 2026-06-22 — feat(rust): multi-shot Tier-1 Option monad lowering (R.6 Slice 2)
 
 Extends Tier-1 multi-shot (`specs/rust-effects.md §11`) from List to **Option**. `inlineMultiShotBody`

@@ -36,8 +36,12 @@ slice). Each is one host of the optics-library packaging, individually claimable
       dep-free) + a Rust-toolchain-gated cargo smoke (writes the crate + an integration test exercising all
       4 optics + `cargo test` — the emitted Rust compiles AND behaves). user-guide + README updated. 3rd of
       4 optics hosts (JS+JVM done); only Java facade remains.
-- [ ] **polyglot-optics-java** — Java facade (`JavaFacadeEmitter` + `java.util.List` value-mapping seam).
-      **GREENFIELD**; golden signature test. Largest of the four.
+- [x] **polyglot-optics-java** ✓ DONE 2026-06-22 (`09e174612`, mellow-shrew) — `JavaLibPackager` emits a
+      dependency-free `ssc-optics` Java/Maven project (pom.xml + Optics.java + README) via `emit-lib --host
+      java`. Optics.java = faithful Java 17 port over dynamic `Object` (Map/List/Optional/`_type` sums):
+      Lens/Optional_/Traversal/Prism + steps. `JavaLibPackagerTest` 5/5: golden + emit-lib layout + a
+      javac-gated compile/run smoke (exercises all 4 optics → 5/9/10/false/[1, 2]/true/false). **ALL FOUR
+      optics hosts now ship: JS (npm) + JVM (sbt) + Rust (cargo) + Java (maven) — Task B optics COMPLETE.**
 
 ### ▶ JS-runtime + polyglot follow-ups (2026-06-22 eve, with Sergiy — "запиши в спринт все эти задачи и делай автономно")
 
