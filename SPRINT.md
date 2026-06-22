@@ -50,6 +50,21 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       Typer feature tables onto `preludeSymbols` → move codegen feature runtime strings into plugin
       `runtimePreamble`. Each phase independently shippable; core keeps a built-in until its plugin lands; loud
       failure when a needed plugin is absent.
+- [ ] **core-min-value-unification** (A, big — week-scale; LATER, not blocking) — collapse the duplication
+      between the interpreter's `Value` and the SPI's `SpiValue` into ONE value type. Today they're separate by
+      necessity: `interpreter.Value` (in `core`) is entangled with *execution* — `FunV(closure: Env)`,
+      `NativeFnV(f: List[Value] => Computation)`, mutable `InstanceV`, `type Env = Map[String, Value]` — and
+      `backendSpi` (which `core` depends on, not vice versa) can't reference it, so the boundary uses the
+      host-neutral `SpiValue` (+ a `Value↔SpiValue` conversion). **Goal:** un-entangle `Value` from execution —
+      split the *pure-data* cases (`Int/Double/Str/Bool/Char/Unit/List/Vector/Array/Map/Tuple/Option/Instance`)
+      from the *runtime-carrier* cases (closures/native-fns hold an `Env`/`Computation`), moving closures +
+      `Computation` out of the `Value` ADT into a separate runtime structure. Then the data ADT can live in a
+      low shared module and **be** `SpiValue` — one value type across interp + SPI + host libraries (Task B),
+      deleting the conversion. **Caveat (why it's LATER):** it's a deep refactor touching every `Value` match in
+      the interpreter (DispatchRuntime/PatternRuntime/EvalRuntime), and it still privileges the interpreter's
+      shape, so it's lower-priority than the keystone extractions; the current `SpiValue` (= the safe data
+      subset) is correct in the meantime. **Verify:** full interp suite green; `Value↔SpiValue` conversion gone;
+      no `Env`/`Computation` reachable from the SPI value type.
 
 ### ▶ Prioritized build queue (2026-06-18, with Sergiy — "внеси всё и делай автономно")
 
