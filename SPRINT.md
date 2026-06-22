@@ -202,8 +202,20 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
 - [ ] **coremin-actors-migrate** (A) — extract the Actors runner (`runActors`). Needs a message-loop
       convention in the SPI (the handler owns the loop; re-invoke the body via `applyFn`). Larger than the
       pure-reply effects; design the loop seam first.
-- [ ] **coremin-effecthandlers-spi** (A) — the 3rd keystone hook: let a plugin own a CUSTOM algebraic-effect
-      `Perform` resolver (`EffectHandlers.scala`), while the generic trampoline (`runWithHandler`) stays core.
+- [x] **coremin-effecthandlers-spi** ✓ RECONCILED → SUBSUMED 2026-06-22 (mellow-shrew). The "3rd keystone
+      hook" turned out already covered by the **block-form SPI** (the 1st keystone): a plugin owns a custom
+      effect's `Perform` resolution via `Backend.blockForms` (`BlockForm.effectName` + `EffectHandler.reply`),
+      dispatched through the core `runWithHandler` trampoline — proven by **8 effects** migrated this way
+      (Logger/Random/Clock/Env/State/Retry/Cache/Http). The capability set is complete: stateful per-op reply,
+      config args (`newHandler`), closure-apply (`applyFn`), record-build (`makeRecord`), feature-local-read
+      (`featureLocal`), result-combination (`result`), stdout (`out`). No separate hook needed.
+- [ ] **coremin-stream-migrate** (A, entangled) — extract the Stream effect (`runStream { body }` → Source[A]).
+      NOT a clean block-form copy: `EffectHandlers.streamRun` builds the `Source` via `interp.globals("Source.from"/
+      "Source.failed")` + `interp.invoke` (interp internals the handler can't reach). Needs a small SPI addition
+      (e.g. `BlockContext.callGlobal(name, args)` or expose Source construction) before the block-form migration.
+- [ ] **coremin-actors-migrate** (A, entangled) — extract the Actors runner (`runActors`). Needs the actor
+      scheduler/message-loop, not a per-op reply — the biggest remaining effect; needs a loop-seam design.
+      NOTE: Stream/Actors are the only 2 effects still in core; both need an SPI addition (not just the template).
 - [ ] **coremin-hybrid-split** (follow-on, after more is extracted) — categorize plugins essential
       (bundled+default) vs advanced (opt-in via `pkg:`/`ssc add`); wire `installBin`/default-load accordingly.
       NOT blocking the SPI work.
