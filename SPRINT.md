@@ -244,9 +244,15 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
 - [ ] **coremin-actors-migrate** (A, entangled) — extract the Actors runner (`runActors`). Needs the actor
       scheduler/message-loop, not a per-op reply — the biggest remaining effect; needs a loop-seam design.
       NOTE: Stream/Actors are the only 2 effects still in core; both need an SPI addition (not just the template).
-- [ ] **coremin-hybrid-split** (follow-on, after more is extracted) — categorize plugins essential
-      (bundled+default) vs advanced (opt-in via `pkg:`/`ssc add`); wire `installBin`/default-load accordingly.
-      NOT blocking the SPI work.
+- [~] **coremin-hybrid-split** (follow-on, after more is extracted) — IN PROGRESS 2026-06-22 (codex).
+      Concrete no-domain slice: update `specs/polyglot-libraries.md §7b`, classify every `allPlugins`
+      entry as essential vs advanced in `project/PluginSpec.scala`/`build.sbt`, keep essential plugins
+      in the existing `bin/lib/compiler/plugins` auto-load directory, and stage advanced bundled archives
+      under `bin/lib/compiler/plugin-available` so users can opt in with `ssc --plugin <path>` or
+      `ssc plugin install <path>` without a registry domain/hosting. Do NOT remove Typer hardcoded
+      advanced compatibility names in this slice; strict opt-in typing waits for advanced plugins to
+      publish enough `preludeSymbols`. Done when `cli/installBin` produces both directories, docs mention
+      the local opt-in path, and the board/changelog record the split.
 
 - [~] **polyglot-libraries-spec** ✓ SPEC DRAFTED 2026-06-22 — `specs/polyglot-libraries.md`. Unifies A (minimize
       core) + B (cross-language reuse). Key findings: the SPI/plugin spine exists (40 std + 13 backend plugins,
