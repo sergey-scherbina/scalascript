@@ -278,6 +278,7 @@ class Interpreter(
     installNativeIntrinsicEntries(pluginImpls)
     installSqlBlockRunners(plugins)
     installBlockForms(plugins)
+    installActorRuntimeProviders(plugins)
     installGraphqlBlockRunners(plugins)
     BuiltinsRuntime.setupPluginCompanions(this)
 
@@ -296,6 +297,7 @@ class Interpreter(
     installNativeIntrinsicEntries(pluginImpls)
     installSqlBlockRunners(plugins)
     installBlockForms(plugins)
+    installActorRuntimeProviders(plugins)
     installGraphqlBlockRunners(plugins)
     BuiltinsRuntime.setupPluginCompanions(this)
     _pluginsLoaded = true
@@ -311,6 +313,12 @@ class Interpreter(
       case Nil => ()
       case runners =>
         graphqlBlockRunner = Some(runners.last)
+
+  private def installActorRuntimeProviders(plugins: Iterable[scalascript.backend.spi.Backend]): Unit =
+    plugins.iterator.collect { case p: ActorRuntimeProviderBackend => p.actorRuntimeProvider }.toList match
+      case Nil => ()
+      case providers =>
+        installActorRuntimeProvider(providers.last)
 
   // ThreadLocal so concurrent generator virtual threads each get their own counter.
   private[interpreter] val _phIdxTL: ThreadLocal[Int] = ThreadLocal.withInitial(() => 0)

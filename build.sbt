@@ -1128,6 +1128,7 @@ lazy val cli = project
         stdPluginSpec("state")           -> (stateEffectPlugin     / packagePlugin).value,
         stdPluginSpec("retry")           -> (retryEffectPlugin     / packagePlugin).value,
         stdPluginSpec("cache")           -> (cacheEffectPlugin     / packagePlugin).value,
+        stdPluginSpec("actors")          -> (actorsPlugin          / packagePlugin).value,
       )
       val packagedPluginIds = pluginPkgsBySpec.map(_._1.id).toSet
       val missingPluginIds  = allPlugins.map(_.id).toSet -- packagedPluginIds
@@ -2883,6 +2884,18 @@ lazy val cacheEffectPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.cache"))
 
+// ── Actors runtime — runActors provider skeleton; runtime move follows ────
+lazy val actorsPlugin = project
+  .in(file("runtime/std/actors-plugin"))
+  .dependsOn(backendSpi, backendInterpreter, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-actors-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.actors"))
+
 // ── UUID — v4/v7 generation, parsing, validation ──────────────────────────
 lazy val uuidPlugin = project
   .in(file("runtime/std/uuid-plugin"))
@@ -3051,6 +3064,7 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("state",           stateEffectPlugin,     "scalascript-state-effect-plugin"),
   PluginSpec("retry",           retryEffectPlugin,     "scalascript-retry-effect-plugin"),
   PluginSpec("cache",           cacheEffectPlugin,     "scalascript-cache-effect-plugin"),
+  PluginSpec("actors",          actorsPlugin,          "scalascript-actors-plugin"),
 )
 
 // ── Frontend backend registry (arch-build-registry Phase 4) ─────────────

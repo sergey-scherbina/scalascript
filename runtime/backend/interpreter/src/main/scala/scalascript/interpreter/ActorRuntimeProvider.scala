@@ -7,12 +7,15 @@ package scalascript.interpreter
  *  This narrow seam lets the current core implementation be delegated first, then moved into
  *  an interpreter-only actors plugin in a later slice.
  */
-private[interpreter] trait ActorRuntimeProvider:
+trait ActorRuntimeProvider:
   def runActors(host: ActorRuntimeHost, initial: Computation): Computation
 
-private[interpreter] trait ActorRuntimeHost:
-  private[interpreter] def runCoreActorRuntime(initial: Computation): Computation
+trait ActorRuntimeHost:
+  def runCoreActorRuntime(initial: Computation): Computation
 
-private[interpreter] object CoreActorRuntimeProvider extends ActorRuntimeProvider:
+trait ActorRuntimeProviderBackend:
+  def actorRuntimeProvider: ActorRuntimeProvider
+
+object CoreActorRuntimeProvider extends ActorRuntimeProvider:
   def runActors(host: ActorRuntimeHost, initial: Computation): Computation =
     host.runCoreActorRuntime(initial)

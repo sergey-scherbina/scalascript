@@ -1279,7 +1279,7 @@ private[interpreter] trait ActorInterp extends ActorRuntimeHost:
   private[interpreter] def actorInterp(initial: Computation): Computation =
     actorRuntimeProvider.runActors(this, initial)
 
-  private[interpreter] def runCoreActorRuntime(initial: Computation): Computation =
+  def runCoreActorRuntime(initial: Computation): Computation =
     val rt = new ActorRuntime
     val savedRt = actorRt
     actorRt = rt
