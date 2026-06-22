@@ -113,3 +113,46 @@ class RustGenMultiShotTest extends AnyFunSuite:
       if res.exitCode != 0 then fail(s"cargo run failed (exit ${res.exitCode}):\n${res.err.text()}")
       assert(res.out.text().trim == "324", s"got: ${res.out.text().trim}")
     finally os.remove.all(crateDir)
+
+  test("the real effect-multishot bench (LCG + multi-shot) runs on rust — n/a → real number"):
+    assume(cargoAvailable, "cargo not on PATH — skipping end-to-end Rust smoke")
+    // The actual bench workload: its LCG `s * 2862933555777941757` overflows i64; with
+    // `overflow-checks = false` (ScalaScript Long wraps, like JVM/JS) it no longer debug-panics.
+    val benchSrc =
+      """```scalascript
+        |multi effect NonDet:
+        |  def choose(options: List[Int]): Int
+        |
+        |def program(seed: Long): Int ! NonDet =
+        |  val a = NonDet.choose(List(1, 2, 3))
+        |  val b = NonDet.choose(List(10, 20))
+        |  a + b + (seed % 5).toInt
+        |
+        |def workload(seed: Long): Long =
+        |  var s = seed + 1
+        |  var total = 0L
+        |  var i = 0
+        |  while i < 100 do
+        |    s = s * 2862933555777941757L + 3037000493L
+        |    val all = handle(program(s)) {
+        |      case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))
+        |    }
+        |    total = total + all.foldLeft(0L)((acc, x) => acc + x.toLong)
+        |    i = i + 1
+        |  total
+        |
+        |@main def run(): Unit = println(workload(7))
+        |```
+        |""".stripMargin
+    val assets = new RustBackend().compile(Normalize(Parser.parse(benchSrc)), opts) match
+      case CompileResult.Segmented(segs) => segs.collect { case a: Segment.Asset => a }
+      case other                         => fail(s"expected Segmented, got $other")
+    val crateDir = os.temp.dir(prefix = "ssc-rust-msbench-")
+    try
+      for a <- assets do
+        val out = crateDir / os.RelPath(a.name)
+        os.makeDir.all(out / os.up); os.write.over(out, a.bytes)
+      val res = os.proc("cargo", "run", "--quiet").call(cwd = crateDir, check = false)
+      if res.exitCode != 0 then fail(s"cargo run failed (exit ${res.exitCode}):\n${res.err.text()}")
+      assert(res.out.text().trim.toLongOption.isDefined, s"expected an integer, got: ${res.out.text().trim}")
+    finally os.remove.all(crateDir)

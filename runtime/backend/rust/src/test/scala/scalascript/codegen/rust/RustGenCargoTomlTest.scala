@@ -105,5 +105,11 @@ class RustGenCargoTomlTest extends AnyFunSuite:
         |[[bin]]
         |name = "hello"
         |path = "src/main.rs"
+        |
+        |[profile.dev]
+        |overflow-checks = false
+        |
+        |[profile.release]
+        |overflow-checks = false
         |""".stripMargin
     assert(toml == expected, s"actual:\n$toml")

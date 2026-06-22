@@ -81,6 +81,12 @@ class RustGenMainAssemblyTest extends AnyFunSuite:
         |[[bin]]
         |name = "ssc_program"
         |path = "src/main.rs"
+        |
+        |[profile.dev]
+        |overflow-checks = false
+        |
+        |[profile.release]
+        |overflow-checks = false
         |""".stripMargin
     assert(a("Cargo.toml") == expectedCargo, s"Cargo.toml:\n${a("Cargo.toml")}")
 

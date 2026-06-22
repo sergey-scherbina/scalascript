@@ -383,13 +383,25 @@ object RustGen:
            |name = "$crateName"
            |path = "src/lib.rs"
            |""".stripMargin
+    // ScalaScript `Int`/`Long` are 64-bit **wrapping** (Java `Long` semantics; the interpreter,
+    // JVM and JS all wrap on overflow). Rust `i64` `*`/`+`/`-` panic on overflow in `cargo` *debug*
+    // builds (release already wraps). Turn overflow checks off in both profiles so emitted programs
+    // match the other backends instead of debug-panicking (BACKLOG `rust-long-wrapping-arithmetic`).
+    val profiles =
+      """|
+         |[profile.dev]
+         |overflow-checks = false
+         |
+         |[profile.release]
+         |overflow-checks = false
+         |""".stripMargin
     s"""[package]
        |name = "$crateName"
        |version = "$version"
        |edition = "$CargoEdition"
        |${descrLine}
        |[dependencies]
-       |$deps$target""".stripMargin
+       |$deps$target$profiles""".stripMargin
 
   /** Detect an `@main` annotation by scanning the module's `scalascript`
    *  / `ssc` fenced blocks textually.  A real AST walk lands in the
