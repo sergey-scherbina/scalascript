@@ -1,6 +1,6 @@
 feature/polyglot-libraries-spec 2026-06-22T22:17:18Z
 agent: codex
-heartbeat: 2026-06-22T22:17:18Z
-status: not-started
-done-so-far:
-next: create worktree, update polyglot-libraries spec status to reflect landed keystone/slices, close SPRINT item, add CHANGELOG note.
+heartbeat: 2026-06-22T22:17:43Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-polyglot-libraries-spec.
+next: update polyglot-libraries spec status to reflect landed keystone/slices, close SPRINT item, add CHANGELOG note.
