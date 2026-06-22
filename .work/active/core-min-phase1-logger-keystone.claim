@@ -1,0 +1,6 @@
+feature/core-min-logger 2026-06-22T03:39:29Z
+agent: claude (lucky-otter)
+heartbeat: 2026-06-22T03:39:29Z
+status: in-progress
+done-so-far: starting phase 1 per specs/polyglot-libraries.md §2d; gap = block-form + effect-handler SPI hooks via Logger extraction
+next: 1a add EffectHandler/BlockForm SPI + Backend hooks (additive); 1b generic core driver + EvalRuntime dispatch; 1c logger-effect-plugin
