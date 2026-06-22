@@ -453,10 +453,10 @@ Used when the monad is **not recognized** OR the perform structure is **dynamic*
    `for` loops + `Vec` (`RustCodeWalk.multiShotHandle`/`renderMultiShotList`/`inlineMultiShotBody`); the
    `resume→v` substitution is bypassed (multi-shot never reaches `renderHandle`). `RustGenMultiShotTest`:
    codegen golden + two `cargo`-runs (cross-product `102`; multi-shot-in-a-while-loop + foldLeft `324`).
-   One-shot untouched (`RustGenR44Test` + cargo-smoke green; full `backendRust` 239/0). **NOTE:** the actual
-   `effect-multishot.ssc` bench still reports `n/a` on rust for an *orthogonal* reason — its LCG
-   `s * 2862933555777941757` overflows `i64` and Rust debug-panics (JVM/JS `Long` wraps); needs
-   Long-wrapping arithmetic (BACKLOG `rust-long-wrapping-arithmetic`), independent of multi-shot.
+   One-shot untouched (`RustGenR44Test` + cargo-smoke green; full `backendRust` 239/0). The actual
+   `effect-multishot.ssc` bench now **runs on rust too** — the orthogonal Long-overflow blocker was
+   resolved alongside (`overflow-checks = false` in the emitted Cargo.toml ⇒ `i64` wraps like JVM/JS
+   `Long` instead of debug-panicking on the LCG). All three backends (jvm/js/rust) run the workload.
 2. **Slice 2.** Tier-1 **Option** monad + effect-free `if`/`match` between performs.
 3. **Slice 3.** Tier-2 **defunctionalized trampoline** (dynamic perform structure / unrecognized monad) +
    the `Computation`/`Cont`/`apply` runtime in `runtime/effects.rs`.

@@ -1,6 +1,0 @@
-feature/rust-long-wrapping 2026-06-22
-agent: claude (bright-quail)
-heartbeat: 2026-06-22T20:46:16Z
-status: in-progress
-done-so-far: multi-shot Slice 1 landed (5c679397c). This is the orthogonal blocker for the real effect-multishot bench: ScalaScript Int/Long is 64-bit WRAPPING (Java Long semantics; JVM/JS wrap), but rust i64 */+/- panics on overflow in cargo debug builds. Fix: overflow-checks=false in the emitted Cargo.toml (release already does this; semantically correct for ScalaScript wrapping; minimal, no codegen risk vs per-op wrapping_*).
-next: in RustGen.scala (Cargo.toml emission ~line 377) add `[profile.dev]\noverflow-checks = false` (+ explicit `[profile.release] overflow-checks = false`). Verify the real effect-multishot bench (LCG s*2862933555777941757) now cargo-runs (was: panic 'attempt to multiply with overflow'). Re-add the real-bench cargo-run test to RustGenMultiShotTest (n/a -> real integer). Spec/CHANGELOG/BACKLOG (rust-long-wrapping-arithmetic done).

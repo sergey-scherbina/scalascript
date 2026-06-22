@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — fix(rust): 64-bit wrapping arithmetic (`overflow-checks = false`) — `effect-multishot` now runs on rust
+
+ScalaScript `Int`/`Long` are 64-bit **wrapping** (Java `Long` semantics; the interpreter, JVM and JS all
+wrap on overflow), but Rust `i64` `*`/`+`/`-` **panic on overflow in `cargo` debug builds**. The emitted
+`Cargo.toml` now sets `overflow-checks = false` in both `[profile.dev]` and `[profile.release]`, so emitted
+programs wrap like the other backends instead of debug-panicking. This was the last (orthogonal) blocker
+for the `effect-multishot` bench on rust after multi-shot lowering (§11 Slice 1) — its LCG
+`s * 2862933555777941757` overflows `i64`. **All three backends (jvm/js/rust) now run `effect-multishot`.**
+`RustGenMultiShotTest` cargo-runs the real bench workload; `RustGenCargoTomlTest` / `RustGenMainAssemblyTest`
+goldens updated; `backendRust` 240/0. (Chose `overflow-checks = false` over per-op `wrapping_*` codegen:
+semantically correct for ScalaScript, minimal, zero codegen risk.)
+
 ## 2026-06-22 — core-min: Http effect runner extracted to the http-plugin (8th effect off core)
 
 `runHttp { … }` (real outbound I/O) and `runHttpStub(routes) { … }` (stub) leave the interpreter core for
