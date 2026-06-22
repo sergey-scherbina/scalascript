@@ -20,6 +20,17 @@ Closed `polyglot-optics-board-hygiene`. The top `SPRINT.md` claimable queue no l
 duplicates for `emit-lib-cli` or `polyglot-optics-jvm`; both now point at the later completed
 `optics-emit-lib-cli` and `optics-jvm-facade` entries. No implementation changed.
 
+## 2026-06-22 — core-min: first Typer-prelude name migrated to a plugin (`runRandom`, prelude-migrate proof)
+
+The `core-min-prelude-spi` keystone now removes its first real name from the ~150-name hardcoded Typer
+prelude: `random-effect-plugin` DECLARES `runRandom` via `Backend.preludeSymbols`, and it's removed from
+`Typer.createPrelude`'s `effectBuiltins`. `ssc check` resolves `runRandom` through the bundled plugin's typed
+prelude instead of a core hardcode — proving the keystone enables real prelude-shrink for a bundled plugin
+with zero breakage (`RandomPluginTest`: plugin-less typecheck flags `runRandom`; a typecheck with the plugin's
+`preludeSymbols` resolves it). typer + full plugin-tests 662/0. The safe pattern for variadic bundled-effect
+runner names; the rest of the ~150 names migrate incrementally (typed runners need the effect-type to move;
+non-bundled names need the hybrid bundling decision). (`754139832`)
+
 ## 2026-06-22 — polyglot: Java optics library (`emit-lib --host java`) — Task B optics COMPLETE (4/4 hosts)
 
 `JavaLibPackager` (counterpart of Js/Jvm/RustLibPackager) emits a standalone, dependency-free `ssc-optics`
