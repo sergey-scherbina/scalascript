@@ -10,6 +10,31 @@ import scala.collection.immutable.{Map => IMap}
  */
 private[interpreter] object EffectHandlers:
 
+  /** Generic deep one-effect handler trampoline — the shared shape behind every `*Run`
+   *  handler below. Walks `initial`, intercepts each `Perform(tag, op, args)` via
+   *  `dispatch(op, args, resume)`, and leaves Performs of other effects propagating outward.
+   *  This is also the seam the block-form/effect-handler plugin SPI plugs into: a plugin
+   *  supplies only the `dispatch` reply (it never sees `Computation`). (polyglot-libraries §2d) */
+  def runWithHandler(
+    initial:  Computation,
+    tag:      String,
+    dispatch: (String, List[Value], Value => Computation) => Computation
+  ): Computation =
+    def run(current0: Computation): Computation =
+      var current = current0
+      while true do
+        current match
+          case Pure(_)                  => return current
+          case Perform(`tag`, op, args) => current = dispatch(op, args, v => Pure(v))
+          case Perform(_, _, _)         => return current
+          case FlatMap(sub, f) => sub match
+            case Pure(v)                  => current = f(v)
+            case FlatMap(s2, g)           => current = FlatMap(s2, x => FlatMap(g(x), f))
+            case Perform(`tag`, op, args) => current = dispatch(op, args, v => run(f(v)))
+            case Perform(_, _, _)         => return FlatMap(sub, v => run(f(v)))
+      throw InterpretError("unreachable")
+    run(initial)
+
   // ── Logger ──────────────────────────────────────────────────────────
 
   def loggerRun(
@@ -22,50 +47,19 @@ private[interpreter] object EffectHandlers:
         sink.println(s"""{"level":"$level","msg":${loggerJsonStr(msg)}}""")
       case _ =>
         sink.println(s"[${level.toUpperCase}] $msg")
-    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
+    runWithHandler(initial, "Logger", (op, args, resume) =>
       args match
         case List(v) => write(op, Value.show(v)); resume(Value.UnitV)
-        case _       => throw InterpretError(s"Logger.$op(msg)")
-    var current: Computation = initial
-    while true do
-      current match
-        case Pure(_) => return current
-        case Perform("Logger", op, args) =>
-          current = dispatch(op, args, v => Pure(v))
-        case Perform(_, _, _) => return current
-        case FlatMap(sub, f) => sub match
-          case Pure(v)                      => current = f(v)
-          case FlatMap(s2, g)               => current = FlatMap(s2, x => FlatMap(g(x), f))
-          case Perform("Logger", op, args)  =>
-            current = dispatch(op, args, v => loggerRun(f(v), format, sink))
-          case Perform(_, _, _)             =>
-            return FlatMap(sub, v => loggerRun(f(v), format, sink))
-    throw InterpretError("unreachable")
+        case _       => throw InterpretError(s"Logger.$op(msg)"))
 
   // Returns (bodyResult, List((level, msg), …)) as a TupleV pair.
   def loggerToListRun(initial: Computation): Computation =
     val log = scala.collection.mutable.ListBuffer.empty[(String, String)]
-    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
+    val ran = runWithHandler(initial, "Logger", (op, args, resume) =>
       args match
         case List(v) => log += (op -> Value.show(v)); resume(Value.UnitV)
-        case _       => throw InterpretError(s"Logger.$op(msg)")
-    def run(current0: Computation): Computation =
-      var current = current0
-      while true do
-        current match
-          case Pure(_)                     => return current
-          case Perform("Logger", op, args) =>
-            current = dispatch(op, args, v => Pure(v))
-          case Perform(_, _, _)            => return current
-          case FlatMap(sub, f) => sub match
-            case Pure(v)                     => current = f(v)
-            case FlatMap(s2, g)              => current = FlatMap(s2, x => FlatMap(g(x), f))
-            case Perform("Logger", op, args) =>
-              current = dispatch(op, args, v => run(f(v)))
-            case Perform(_, _, _)            =>
-              return FlatMap(sub, v => run(f(v)))
-      throw InterpretError("unreachable")
-    run(initial).flatMap { v =>
+        case _       => throw InterpretError(s"Logger.$op(msg)"))
+    ran.flatMap { v =>
       val entries = Value.ListV(log.toList.map { (lv, msg) =>
         Value.TupleV(Value.StringV(lv) :: Value.StringV(msg) :: Nil)
       })
