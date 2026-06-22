@@ -1,0 +1,6 @@
+feature/core-min-logger-2 2026-06-22T04:27:44Z
+agent: claude (lucky-otter)
+heartbeat: 2026-06-22T04:27:44Z
+status: in-progress
+done-so-far: generic driver + type-safe SpiValue contract landed; now wiring dispatch + proof test (keep core Logger)
+next: Value<->SpiValue conv + _blockForms install + EvalRuntime generic dispatch + interpreter-plugin-test proof
