@@ -3256,7 +3256,10 @@ private[interpreter] object EvalRuntime:
     // (head is itself an Apply) and method calls (head is a Select) fall
     // through to the full match unchanged.
     case app: Term.Apply if (app.fun match
-          case n: Term.Name => !reservedApplyHeads.contains(n.value)
+          // A plugin-contributed block-form keyword (e.g. `runTally`) must reach the
+          // special-form cases below, not the fast path. `interp.blockForms` is empty until a
+          // plugin loads, so a plugin-free script keeps the original fast path unchanged.
+          case n: Term.Name => !reservedApplyHeads.contains(n.value) && !interp.blockForms.contains(n.value)
           case _            => false) =>
       evalPlainApply(app, env, interp)
     // Method calls (`recv.m(args)`) have a `Term.Select` head, which no
