@@ -217,6 +217,10 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       stays core by design. Tests moved StdEffectsTest→HttpEffectPluginTest (4/4, lazy ServiceLoader);
       StdEffectsTest 15/15. NOTE follow-up: `Interpreter.mkHttpCtx` now dead (minor cleanup).
 
+- [ ] **coremin-actors-board-reconcile** — collapse duplicate open `coremin-actors-migrate` entries.
+      **How:** keep one actionable actors item that states the real blocker (scheduler/message-loop seam)
+      and mark the older duplicate as superseded; do not touch code or claim the actual actors migration.
+      **Verify:** grep shows exactly one open `[ ] **coremin-actors-migrate**` in `SPRINT.md`.
 - [ ] **coremin-actors-migrate** (A) — extract the Actors runner (`runActors`). Needs a message-loop
       convention in the SPI (the handler owns the loop; re-invoke the body via `applyFn`). Larger than the
       pure-reply effects; design the loop seam first.
