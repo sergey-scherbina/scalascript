@@ -35,46 +35,10 @@ class StdEffectsTest extends AnyFunSuite with Matchers:
   // Extracted to `env-effect-plugin`; runEnv / runEnvWith(map) now run via the lazy
   // ServiceLoader path. runEnvWith(map) exercises the SPI's MapV config path.
 
-  // ── Http ──────────────────────────────────────────────────────────────
-
-  test("runHttpStub returns stubbed 200 response for known URL"):
-    captured("""
-      val routes = Map("http://example.com/hello" -> "world")
-      runHttpStub(routes) {
-        val resp = Http.get("http://example.com/hello")
-        println(resp.status)
-        println(resp.body)
-      }
-    """) shouldBe "200\nworld"
-
-  test("runHttpStub returns 404 for unknown URL"):
-    captured("""
-      val routes = Map("http://example.com/hello" -> "world")
-      runHttpStub(routes) {
-        val resp = Http.get("http://example.com/missing")
-        println(resp.status)
-      }
-    """) shouldBe "404"
-
-  test("runHttpStub post returns stubbed response"):
-    captured("""
-      val routes = Map("http://api.test/submit" -> "ok")
-      runHttpStub(routes) {
-        val resp = Http.post("http://api.test/submit", "data")
-        println(resp.status)
-        println(resp.body)
-      }
-    """) shouldBe "200\nok"
-
-  test("runHttpStub request with method returns stubbed response"):
-    captured("""
-      val routes = Map("http://api.test/item" -> "found")
-      runHttpStub(routes) {
-        val resp = Http.request("DELETE", "http://api.test/item", Map(), "")
-        println(resp.status)
-        println(resp.body)
-      }
-    """) shouldBe "200\nfound"
+  // ── Http — MOVED to HttpEffectPluginTest (interpreter-plugin-tests) ──────
+  // Extracted to the `http-plugin`'s blockForms; runHttp / runHttpStub(routes) now run via the
+  // lazy ServiceLoader path. The handler replies with a `Response` record via `BlockContext.
+  // makeRecord` and reads config via `BlockContext.featureLocal`. `httpClient(baseUrl)` stays core.
 
   // ── Retry / Cache — MOVED to RetryPluginTest / CachePluginTest (interpreter-plugin-tests) ──
   // Extracted to `retry-effect-plugin` / `cache-effect-plugin`; runRetry*/runCache* now run via

@@ -49,3 +49,9 @@ trait BlockContext:
   def makeRecord(@scala.annotation.unused typeName: String,
                  @scala.annotation.unused fields: List[(String, SpiValue)]): SpiValue =
     throw new UnsupportedOperationException("BlockContext.makeRecord is not supported by this host")
+
+  /** Read an execution-scoped feature-local value set by the host (e.g. the `httpClient(baseUrl)`
+   *  form sets `scalascript.http.baseUrl`). Lets a handler read host config a runner needs — the Http
+   *  effect handler reads the base URL / timeout / retry settings this way. Defaulted to `None` so a
+   *  host with no feature-local store, and handlers that never call it, are unaffected. */
+  def featureLocal(@scala.annotation.unused key: String): Option[Any] = None

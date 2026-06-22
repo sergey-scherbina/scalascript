@@ -3015,8 +3015,7 @@ private[interpreter] object EvalRuntime:
   private val reservedApplyHeads: Set[String] = Set(
     "bench", "computed", "effect", "handle", "httpClient", "receive", "restartable",
     "runActors", "runAsync", "runAsyncParallel", "runAuthWith",
-    "runEphemeralStorage", "runHttp",
-    "runHttpStub",
+    "runEphemeralStorage",
     "runStorage", "runStream",
     "runSideEffect", "runTx", "timeout", "validate", "withFixedUuid", "Focus")
 
@@ -3047,6 +3046,9 @@ private[interpreter] object EvalRuntime:
                               fields: List[(String, scalascript.backend.spi.SpiValue)]): scalascript.backend.spi.SpiValue =
         val m: Map[String, Value] = fields.iterator.map((kv) => kv._1 -> interp.spiToValue(kv._2)).toMap
         scalascript.backend.spi.SpiValue.Opaque(Value.InstanceV(typeName, m))
+      // Read an execution-scoped feature-local value (e.g. the http base URL set by httpClient(...)),
+      // so a handler can read host config a runner needs. §2d core-min.
+      override def featureLocal(key: String): Option[Any] = interp.nativeFeatureLocalGet(key)
     val cfgArgs = configTerms.map(t => interp.valueToSpi(Computation.run(eval(t, env, interp))))
     val handler = bf.newHandler(bctx, cfgArgs)
     val body    = eval(bodyTerm, env, interp)
@@ -3553,20 +3555,11 @@ private[interpreter] object EvalRuntime:
       try eval(bodyClause.values.head, env, interp)
       finally interp.nativeFeatureLocalRemove("scalascript.uuid.fixed")
 
-    // ── v1.4 Http effect handlers ─────────────────────────────────────────
-    // runHttp { body }                   — delegates to real httpGet/httpPost
-    // runHttpStub(routes) { body }       — test stub: url→body map
-    case Term.Apply.After_4_6_0(Term.Name("runHttp"), bodyArgClause)
-        if bodyArgClause.values.size == 1 =>
-      EffectHandlers.httpRun(eval(bodyArgClause.values.head, env, interp), None, interp)
-    case Term.Apply.After_4_6_0(
-        Term.Apply.After_4_6_0(Term.Name("runHttpStub"), routesClause),
-        bodyClause)
-        if routesClause.values.size == 1 && bodyClause.values.size == 1 =>
-      val routes = Computation.run(eval(routesClause.values.head, env, interp)) match
-        case m @ Value.MapV(_) => m
-        case _ => throw InterpretError("runHttpStub(routes: Map[String, String]) { body }")
-      EffectHandlers.httpRun(eval(bodyClause.values.head, env, interp), Some(routes), interp)
+    // ── v1.4 Http effect handlers — EXTRACTED to `http-plugin`.blockForms (core-min §2d) ──
+    // runHttp { body } (real I/O) + runHttpStub(routes) { body } (stub) now resolve via the lazy
+    // ServiceLoader path (single-clause + generic-curried block-form cases); the handler replies
+    // with a `Response` record via `BlockContext.makeRecord`, reading config via `featureLocal`.
+    // `httpClient(baseUrl) { body }` stays a core form (a feature-local config setter, below).
 
     // ── v1.51.6 Stream effect handler
     // runStream { body }  — discharges Stream.emit(x) performs; returns Source[A]
