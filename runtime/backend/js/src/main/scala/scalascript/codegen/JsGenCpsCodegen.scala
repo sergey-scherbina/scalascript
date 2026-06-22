@@ -98,6 +98,21 @@ private[codegen] trait JsGenCpsCodegen:
         s"Object.assign([${vs.mkString(", ")}], {_isTuple: true})"
       }
 
+    // Unary op (`!x`, `-x`, `~x`, `+x`) — bind the (possibly effectful) operand,
+    // then apply the op. Without this, `!query(...)` falls to genExpr and the
+    // effectful operand gets `_run`-wrapped, running the effect outside the handler.
+    case t: Term.ApplyUnary =>
+      val opJs = t.op.value match
+        case "!" => "!"
+        case "-" => "-"
+        case "+" => "+"
+        case "~" => "~"
+        case _   => ""
+      if opJs.isEmpty || isSimpleCpsExpr(t.arg) then genExpr(t)
+      else
+        val v = freshTmp()
+        s"_bind(${genCpsExpr(t.arg)}, $v => $opJs($v))"
+
     // Lambda — CPS body
     case Term.Function.After_4_6_0(paramClause, body) =>
       val params = paramClause.values.map(_.name.value)

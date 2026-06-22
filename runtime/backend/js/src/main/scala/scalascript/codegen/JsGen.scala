@@ -347,8 +347,14 @@ class JsGen(
     // Pre-populated with preamble-defined globals so imports of the same name are skipped
     // (e.g. `[Left, Right](std/either.ssc)` must not emit `const Left = …` since
     // `function Left` is already in the preamble and `const` cannot redeclare it).
+    // The std/fs file-ops are `extern def`s whose REAL implementation is the preamble
+    // `function readFile` (etc., JsRuntimeFs); importing them (`[readFile,…](std/fs.ssc)`)
+    // must NOT emit `const readFile = std.fs.readFile` — that both redeclares the preamble
+    // function (SyntaxError) and would shadow the real impl with the UI stub.
     private[codegen] val declaredBindings: mutable.Set[String] =
-      mutable.Set("Left", "Right", "Some", "None", "Nil"),
+      mutable.Set("Left", "Right", "Some", "None", "Nil",
+        "readFile", "writeFile", "appendFile", "readBytes", "writeBytes", "exists",
+        "isFile", "isDir", "mkdir", "mkdirs", "listDir", "deleteFile", "copyFile", "moveFile"),
     // Shared across parent + all child generators: top-level (global) enum-case binding names
     // already emitted. Two enums in different modules that share a parameterless case name
     // (e.g. ObligationStatus.Pending and DeferredActionStatus.Pending) each emit a global
@@ -2006,7 +2012,7 @@ class JsGen(
     if !importedFiles.contains(key) then
       importedFiles += key
       val childDir = resolvedPath / os.up
-      val childGen = new JsGen(Some(childDir), lockPath = lockPath, topLevelConsts = topLevelConsts, mergeHelperEmitted = mergeHelperEmitted, namespaceMembers = namespaceMembers, declaredBindings = declaredBindings, declaredEnumCases = declaredEnumCases, effectOps = effectOps, effectfulFuns = effectfulFuns, multiShotEffects = multiShotEffects)
+      val childGen = new JsGen(Some(childDir), intrinsics = intrinsics, lockPath = lockPath, topLevelConsts = topLevelConsts, mergeHelperEmitted = mergeHelperEmitted, namespaceMembers = namespaceMembers, declaredBindings = declaredBindings, declaredEnumCases = declaredEnumCases, effectOps = effectOps, effectfulFuns = effectfulFuns, multiShotEffects = multiShotEffects)
       childGen.importedFiles ++= importedFiles
       // Record the imported module's function / case-class param orders so that
       // (a) named-arg call sites later in THIS module (the importer) reorder, and

@@ -414,17 +414,19 @@ function _dispatch(obj, method, args) {
       return _show(obj);
     }
     if (obj[method] !== undefined) {
-      // Case-class / enum instance properties are DATA FIELDS — methods live in
-      // _extensions, never on the object. A no-arg access returns the field value
-      // as-is, including a function-typed field, so passing it to a HOF works
-      // (e.g. `view.step` handed to `foldLeft`). Without this, a field holding a
-      // variadic-emitted lambda (`(...__a) => …`, whose `.length` is 0) tripped the
-      // zero-arg auto-invoke below and was CALLED instead of returned.
-      if (obj._type !== undefined && args.length === 0) return obj[method];
       if (typeof obj[method] === 'function') {
         // If args is empty and the function takes args, return the function reference (eta-expansion)
-        // If args is empty and the function takes no args, call it
-        if (args.length === 0 && obj[method].length === 0) return obj[method]();
+        // If args is empty and the function takes no args, call it — UNLESS it is a
+        // variadic-emitted lambda `(...__a) => …` (a multi-arg user function stored as a
+        // data field, e.g. a case-class `step: (S,Int)=>S`). Such a lambda has arity 0
+        // because of the rest param, so the zero-arg auto-invoke would wrongly CALL it
+        // instead of returning it for a HOF. A genuine zero-arg method (`function(){…}`
+        // / `() => …`, e.g. JsonValue.asString) is still auto-invoked.
+        if (args.length === 0 && obj[method].length === 0) {
+          const _src = Function.prototype.toString.call(obj[method]);
+          if (/^\s*\(\s*\.\.\./.test(_src)) return obj[method];  // variadic field → reference
+          return obj[method]();
+        }
         if (args.length === 0) return obj[method];  // return as reference
         return obj[method](...args);
       }
@@ -434,6 +436,15 @@ function _dispatch(obj, method, args) {
       if (args.length > 0) return _dispatch(obj[method], 'apply', args);
       return obj[method];
     }
+  }
+  // Collection-companion statics on the NATIVE Array constructor (`Array.fill(n)(x)`,
+  // `Array.tabulate`, `Array.range`, `Array.empty`) route to List's companion: the
+  // `Array(...)` ctor is emitted as an array literal, so the bare `Array` value here is
+  // the native constructor, which lacks these Scala statics (List/Seq/Array share a JS
+  // array repr, so the List companion's result is the right runtime value).
+  if (obj === Array && typeof List !== 'undefined' && List[method] !== undefined) {
+    const val = List[method];
+    return (typeof val === 'function') ? (args.length ? val(...args) : val) : val;
   }
   // Function-object dispatch: for companion objects (List.fill, etc.)
   if (typeof obj === 'function' && obj[method] !== undefined) {

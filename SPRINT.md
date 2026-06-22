@@ -35,6 +35,25 @@ path is fine.
       (3-level, INT==JS==JVM) + `ssc emit-js tests/v2/ledger.ssc | node` runs e2e +
       `CrossBackendPropertyTest`/conformance/busi `make v2-test`+`v2-test-js` green.
 
+- [x] **emitjs-standalone-frontiers** ✓ DONE 2026-06-22 (claude-code, `fix/js-standalone-frontiers`) —
+      closes the three remaining busi standalone-bundle frontiers recorded under
+      `jsgen-emitjs-effect-handler` so `tests/v2/{trust,qr}.ssc` now run end-to-end as raw
+      `emit-js | node` bundles and `ksef.ssc` passes `node --check`. Three JS-codegen fixes +
+      one refinement: (1) `Term.ApplyUnary` CPS-lowers an effectful operand (`!x`/`-x`) via
+      `_bind` instead of `_run`-wrapping it outside the handler (fixes `trust.ssc`); (2) `_dispatch`
+      routes `Array.fill/tabulate/range/empty` to the `List` companion since `Array(...)` emits a
+      bare native-constructor value (fixes `qr.ssc`); (3) the 14 std/fs file-ops are seeded into
+      `declaredBindings` so importing them never re-emits a colliding top-level `const readFile`
+      (fixes `ksef.ssc` syntax); (4) refined the `fn-typed-field` `_dispatch` guard from a blanket
+      "_type instance → return field as-is" to a precise variadic-lambda check, so genuine zero-arg
+      methods (`JsonValue.asString`) auto-invoke again (`json-value` FAIL→PASS). Guards:
+      `tests/conformance/{js-applyunary-effect-cps,array-companion-statics}.ssc` + the existing
+      `fn-typed-field`/`json-value`. **Before/after emit-js+node sweep over all 113 conformance
+      tests: zero PASS→FAIL regressions** (82→85 PASS); busi `make v2-test`+`v2-test-js` green
+      (26 files, both backends). Next standalone frontier = the `nowMillis` clock capability +
+      crypto (`auth.ssc`) not emitted into the raw `emit-js` preamble — left to the
+      `core-min-clock-env-migrate` stream it overlaps.
+
 ### ▶ Core-minimization + polyglot-libraries program (2026-06-22, with Sergiy — "минимизировать ядро всех рантаймов и компиляторов, все вынести в библиотеки и плагины" + "сделать все переиспользуемым со всех рантаймов — из скалы, джавы, джаваскрипт, раста — в виде библиотек, сначала написать спеку")
 
 Two complementary directives, ONE program. **Design spec written: `specs/polyglot-libraries.md`**

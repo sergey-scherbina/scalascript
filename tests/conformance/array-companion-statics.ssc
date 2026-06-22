@@ -1,0 +1,21 @@
+---
+name: array-companion-statics
+---
+
+# `Array.fill/tabulate/range/empty` route to the List companion on the JS backend
+
+Regression for the JS backend (busi deep-offline standalone bundle, surfaced by
+`tests/v2/qr.ssc`). `Array(...)` is emitted as a JS array literal, so the bare
+`Array` value at a `_dispatch` site is the *native* `Array` constructor, which
+lacks the Scala collection statics. `Array.fill(n)(x)` (and `tabulate`/`range`/
+`empty`) therefore threw `Method not found`. Since List/Seq/Array share one JS
+array representation, `_dispatch` now routes these statics to the `List`
+companion, whose result is the correct runtime value.
+
+```scalascript
+println(Array.fill(3)(7).sum)
+println(Array.fill(2)("ab").mkString)
+println(Array.tabulate(4)(i => i * i).mkString(","))
+println(Array.range(0, 5).mkString("-"))
+println(Array.empty[Int].length)
+```
