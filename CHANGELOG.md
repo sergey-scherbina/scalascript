@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — core-min: the actor/cluster keyword set migrated off the Typer prelude (actors-prelude)
+
+Builds on the bundled actors provider plugin: the ~55-name actor/process/cluster keyword set
+(`runActors`, `spawn`/`spawnLink`/`self`/`send`/`receive`/`timeout`/`recvFrom`, the cluster
+membership/leader-election/gossip/config/drain/metric primitives, and the `sendAfter`/`sendInterval`/
+`cancelTimer` timers) leaves the hardcoded Typer prelude `effectBuiltins` and is DECLARED by
+`ActorsInterpreterPlugin.preludeSymbols`. The actors plugin is bundled (`installBin` stages it), so
+production `ssc check` resolves the names via `BackendRegistry.inProcess`; the runtime stays in core
+via the `ActorRuntimeProvider` seam (`CoreActorRuntimeProvider`), so `spawn`/`self`/… still resolve at
+run time through `ActorInterp`/`ActorGlobals` — verified unaffected (`ActorDistributedTest` +
+`ActorBinaryWsTest` 53/0, both `Interpreter.run`). After this the `effectBuiltins` list holds only
+language forms (`handle`/`validate`/`effect`/`summon`/`Focus`/`Prism`/…), the not-yet-bundled effect
+runners (`runAsync`/`runAuthWith`/`runStorage`/`runTx`/`httpClient`/async primitives), and test
+helpers. `ActorsPreludeMigrationTest` locks a representative name per category. typer 196/0,
+plugin-tests 693/0.
+
 ## 2026-06-22 — feat(actors): bundled actors provider plugin skeleton
 
 Added `runtime/std/actors-plugin` as an essential bundled plugin. It registers through

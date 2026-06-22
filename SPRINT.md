@@ -272,12 +272,23 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       plus 13 advanced.
       Verified: `backendInterpreter/compile` passed; actor targeted suites
       (`ActorSupervisionTest`, `ActorStopOutsideTest`, `ActorGroupTest`, `ActorDistributedTest`) passed 29/0
-      (ScalaTest printed a reporter `InterruptedException`, but sbt finished `[success]`). **Next:** move
-      `ActorRuntime`, scheduler loop, `handleActorOp`, and cluster/event drains behind the provider into
-      `runtime/std/actors-plugin`; keep `receive` syntax capture in core. **Gotcha:** do not store actor/cluster
-      mutable state on the ServiceLoader backend singleton; today's state is per `Interpreter`, so the move slice
-      needs per-host/per-interpreter state ownership. Stream is now deliberately deferred, so Actors is the
-      remaining active core effect extraction.
+      (ScalaTest printed a reporter `InterruptedException`, but sbt finished `[success]`).
+      **PRELUDE-NAMES SLICE DONE 2026-06-23 (this session):** the ~55-name actor/process/cluster keyword set
+      (`runActors` + spawn/self/send/receive/timeout/recvFrom + membership/leader/gossip/config/drain/metric +
+      timers) is now removed from the Typer `effectBuiltins` and DECLARED in `ActorsInterpreterPlugin.preludeSymbols`
+      (bundled → production `ssc check` resolves via `BackendRegistry.inProcess`; runtime stays in core via the
+      seam, so `spawn`/`self`/… still resolve through `ActorInterp`/`ActorGlobals`). Verified runtime-unaffected:
+      `ActorDistributedTest`+`ActorBinaryWsTest` 53/0; `ActorsPreludeMigrationTest` locks a representative name per
+      category; typer 196/0, plugin-tests 693/0. `effectBuiltins` now holds only language forms + the not-yet-bundled
+      runners (runAsync/runAuthWith/runStorage/runTx/httpClient/async primitives) + test helpers.
+      **Remaining (the hard code-move, optional):** move `ActorRuntime`, scheduler loop, `handleActorOp`, and
+      cluster/event drains behind the provider into `runtime/std/actors-plugin`; keep `receive` syntax capture in
+      core. **Gotcha:** do not store actor/cluster mutable state on the ServiceLoader backend singleton; today's
+      state is per `Interpreter`, so the move slice needs per-host/per-interpreter state ownership. This code-move is
+      a large interpreter-internal refactor with NO user-visible change (the seam already lets the runtime live
+      either side); deferred as low-ROI like Stream. **Net: the coremin prelude + extraction program is at its
+      practical end — all bundled effects + actor names off core, hybrid-split done; only the optional Stream/Actors
+      interpreter-internal code-moves remain, both deliberately deferred.**
 - [x] **coremin-hybrid-split** ✓ DONE 2026-06-22 (codex) — no-domain hybrid plugin distribution slice.
       `PluginSpec` now carries an essential/advanced tier; `installBin` stages 25 essential bundled
       `.sscpkg` files in `bin/lib/compiler/plugins` (auto-loaded) and 13 advanced bundled `.sscpkg`
