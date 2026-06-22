@@ -1,6 +1,16 @@
-feature/coremin-http-migrate 2026-06-22T14:40:00Z
+feature/coremin-http-migrate 2026-06-22T14:55:00Z
 agent: claude (mellow-shrew)
-heartbeat: 2026-06-22T14:40:00Z
-status: in-progress
-done-so-far: scoped. httpClient runner = EffectHandlers.httpRun (~80 LOC) + EvalRuntime block-form (3610-3638), builds Value.InstanceV("Response", status/headers/body). Needs new SPI capability BlockContext.makeRecord (SpiValue has no record case) — precedent: State added BlockContext.applyFn.
-next: copy State plugin template → http-effect-plugin; add BlockContext.makeRecord(typeName, fields) (defaulted throw, interp overrides → Value.InstanceV); HttpBlockForm under httpClient; move httpRun runtime; remove from EvalRuntime + EffectHandlers + reservedApplyHeads; wire allPlugins + installBin; tests (no installPlugins). Verify interp + plugin-tests green.
+heartbeat: 2026-06-22T14:55:00Z
+status: in-progress (scoped + design validated; build not started — needs a focused session)
+design-validated:
+  - httpClient runner = EffectHandlers.httpRun (~80 LOC, line 58-140) + EvalRuntime block-form (3610-3638) + a request helper. Builds Value.InstanceV("Response", {status,headers,body}).
+  - SPI gap: SpiValue has no record case. Add BlockContext.makeRecord(typeName, fields: List[(String,SpiValue)]) — defaulted-throw; interp overrides at EvalRuntime.scala:3034 (the anon `new BlockContext` next to applyFn) → builds Value.InstanceV + returns SpiValue.Opaque(instanceV). spiToValue(Opaque) -> h.asInstanceOf[Value] round-trips it back (Interpreter.scala:1567); valueToSpi wraps unknown as Opaque (1555). CONFIRMED round-trip works.
+  - Template = StateEffectPlugin.scala (BlockForm + EffectHandler over SpiValue; applyFn precedent). 7 effects already migrated this way.
+remaining-detail: IMap (the InstanceV field map) only has fixed-arity Map1/Map2/Map3 ctors (no general from-List found in Ir.scala). makeRecord needs a general record builder — either find/add an IMap.from(entries) (locate the IMap definition first; not `object IMap` — search Map3 ctor) or build via repeated updated. Resolve this FIRST.
+next:
+  1. add BlockContext.makeRecord (SPI, defaulted-throw) + interp override (build InstanceV) + a focused test (a test block-form builds a record, interp unwraps it).
+  2. http-effect-plugin (copy State template): HttpBlockForm under "httpClient"; effectName = the http Perform tag (check httpRun); handler replies build Response via ctx.makeRecord; port httpRun's request/stub logic into the plugin.
+  3. remove httpClient from EvalRuntime (3610-3638) + EffectHandlers.httpRun + reservedApplyHeads (3016).
+  4. wire build.sbt allPlugins (PluginSpec("http", ...)) + installBin pluginPkgs.
+  5. tests (no installPlugins; lazy ServiceLoader dispatch) + interp/plugin-tests green.
+NOTE: httpClient NAME stays in Typer effectBuiltins (prelude) — that's the coremin-prelude-migrate concern, blocked separately. This task only moves the RUNTIME out of core.
