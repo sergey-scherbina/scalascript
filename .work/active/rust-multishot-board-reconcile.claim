@@ -1,0 +1,6 @@
+feature/rust-multishot-board-reconcile 2026-06-22T21:57:01Z
+agent: codex
+heartbeat: 2026-06-22T21:57:01Z
+status: in-progress
+done-so-far: queue entry committed and pushed; worktree exists at /Users/sergiy/work/my/scalascript-wt-rust-multishot-board-reconcile.
+next: rebase worktree on origin/main, mark the stale open rust-effects-multishot-r6 duplicate superseded, add CHANGELOG line, verify grep.
