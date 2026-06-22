@@ -49,6 +49,13 @@ trait Backend:
    *  the interpreter. Default empty. See `specs/polyglot-libraries.md §2d`. */
   def blockForms: Map[String, BlockForm] = Map.empty
 
+  /** Public symbols this plugin contributes to the `ssc check` PRELUDE — names + type
+   *  signatures (`ExportedSymbol.tpe` is an `SType.show` string). Lets `ssc check` resolve
+   *  AND type-check calls to a plugin's intrinsics / objects / effect-runners without the
+   *  names being hardcoded in the Typer prelude. A symbol with `tpe == "Any"` degrades to the
+   *  old names-only behaviour. Default empty. See `specs/core-min-prelude-spi.md`. */
+  def preludeSymbols: List[scalascript.ir.ExportedSymbol] = Nil
+
   /** One-shot compilation. */
   def compile(ir: NormalizedModule, opts: BackendOptions): CompileResult
 

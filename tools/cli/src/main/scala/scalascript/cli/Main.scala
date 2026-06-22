@@ -5287,11 +5287,19 @@ private def checkOneFile(
       val elapsed = System.currentTimeMillis() - t0
       CheckResult(file, parseErrors = true, errors = Nil, elapsedMs = elapsed)
     else
+      // core-min-prelude-spi: typed prelude symbols contributed by loaded plugins, so `ssc check`
+      // type-checks calls to plugin intrinsics without the names being hardcoded in the Typer
+      // prelude. `pluginBuiltins` (names-only intrinsic keys) stays as the fallback.
+      val pluginPrelude = BackendRegistry.inProcess.flatMap(_.preludeSymbols)
       val typed = CompileStats.time("typer") {
-        if interfaces.isEmpty then Typer.typeCheckStrict(module, pluginBuiltins)
+        if interfaces.isEmpty then
+          Typer(Map.empty, strict = true, extraBuiltins = pluginBuiltins, preludeSymbols = pluginPrelude)
+            .typeCheck(module)
         else if strictNamespaces then
-          Typer.typeCheckStrictNamespaces(module, interfaces)
-        else Typer.typeCheckWithInterfaces(module, interfaces, strict = true, pluginBuiltins)
+          Typer(interfaces, strictNamespaces = true, preludeSymbols = pluginPrelude).typeCheck(module)
+        else
+          Typer(interfaces, strict = true, extraBuiltins = pluginBuiltins, preludeSymbols = pluginPrelude)
+            .typeCheck(module)
       }
       // declarative-ui Scope B.7 — warn on @ui=toolkit ids that reference no
       // registered action / data source (id-existence lint; warnings only).

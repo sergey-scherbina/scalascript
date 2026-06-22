@@ -25,7 +25,11 @@ class Typer(
     extraBuiltins: Set[String] = Set.empty,
     fatalWarnings: Boolean = false,
     strictNamespaces: Boolean = false,
-    suppressedCollisions: Set[(String, String)] = Set.empty
+    suppressedCollisions: Set[(String, String)] = Set.empty,
+    /** Typed prelude symbols contributed by plugins (core-min-prelude-spi). Each defines a
+     *  prelude `Symbol` with the declared `tpe` (parsed via `InterfaceScope.parseSType`) instead
+     *  of the untyped `variadic`, so `ssc check` can type-check calls to plugin intrinsics. */
+    preludeSymbols: List[scalascript.ir.ExportedSymbol] = Nil
 ):
   private val errors      = ListBuffer[TypeError]()
 
@@ -88,7 +92,7 @@ class Typer(
   def diagnostics: List[TypeError] = errors.toList
 
   def typeCheck(module: Module): TypedModule =
-    val prelude  = if extraBuiltins.isEmpty then Typer.sharedPrelude else createPrelude()
+    val prelude  = if extraBuiltins.isEmpty && preludeSymbols.isEmpty then Typer.sharedPrelude else createPrelude()
     // v2.0: if we have pre-compiled interfaces, build an InterfaceScope layer
     // between the prelude and the module's own top-level scope so that names
     // from imported modules resolve without re-parsing their source.
@@ -137,7 +141,7 @@ class Typer(
       module: Module,
       prevSnapshots: List[SectionSnapshot]
   ): (TypedModule, List[SectionSnapshot]) =
-    val prelude = if extraBuiltins.isEmpty then Typer.sharedPrelude else createPrelude()
+    val prelude = if extraBuiltins.isEmpty && preludeSymbols.isEmpty then Typer.sharedPrelude else createPrelude()
     val baseScope =
       if importedInterfaces.isEmpty then prelude.child("<module>")
       else
@@ -329,6 +333,15 @@ class Typer(
       "setHttpServerBackend", "Storage", "Source", "PipelineModel",
     )
     pluginBuiltins.foreach(n => s.define(Symbol(n, variadic, SymbolKind.Def)))
+    // core-min-prelude-spi: typed prelude symbols contributed by plugins. Defined with the
+    // declared `tpe` (parsed back from its `SType.show` string) so `ssc check` type-checks calls
+    // to plugin intrinsics; a symbol carrying `tpe == "Any"` degrades to the names-only behaviour.
+    preludeSymbols.foreach { es =>
+      s.define(Symbol(
+        es.name,
+        scalascript.artifact.InterfaceScope.parseSType(es.tpe),
+        scalascript.artifact.InterfaceScope.parseKind(es.kind)))
+    }
     s
 
   // ─── Pre-declaration pass ──────────────────────────────────────────────────

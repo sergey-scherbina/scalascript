@@ -637,7 +637,7 @@ object InterfaceScope:
         parseType()
   end TypeParser
 
-  private def parseKind(kind: String): TSymbolKind = kind match
+  private[scalascript] def parseKind(kind: String): TSymbolKind = kind match
     case "val"       => TSymbolKind.Val
     case "var"       => TSymbolKind.Var
     case "def"       => TSymbolKind.Def
