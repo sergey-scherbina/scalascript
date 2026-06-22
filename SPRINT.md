@@ -365,7 +365,7 @@ publication remains explicit-go only; the registry work below is intentionally d
 
 ---
 
-- [~] **rust-web-toolkit** (external driver: rozum) — bring the declarative std/ui toolkit
+- [x] **rust-web-toolkit** (external driver: rozum) — bring the declarative std/ui toolkit
       (`vstack/heading/text` → `lower(theme)` → `View` → `serve(view, port)`), which works on JVM,
       up on the **Rust** backend via an HTML/SSR binding (operator path A; native GUI rejected as
       too costly). **DONE 2026-06-19:** I1 `s"…${expr}…"` splices + S1a HTML/SSR View primitives
@@ -385,6 +385,12 @@ publication remains explicit-go only; the registry work below is intentionally d
       type-reconciliation tail (~56: TkNode/i64 + String/Value + struct-field i64 + curried-vararg
       **call-site** `vec![]` wrapping + `defaultTheme` val) — converging, multi-session. Then S4
       named/curried args · S5 signal reactivity (stubs are static-only). Spec `specs/rust-web-toolkit.md`.
+      **✓ CLOSED 2026-06-22:** S1–S5 all landed on `origin/main` (S4 named/curried args + omitted-default
+      fill; S5 SSR + local client + server-push + SSE/direct-WS + computed live recompute + typed signal
+      reads — see CHANGELOG 2026-06-19/06-20). The driving use case `examples/rozum-meeting.ssc` builds to a
+      binary and SSRs over hyper. General Rust-backend follow-ons (Vec `take/drop/sorted/distinct`, String
+      `.replace`, http prefix-routing/no-store/POST-body/MIME, indexable `split/toList`) landed on main via
+      `rwt-followons` (613c2bb21, `backendRust` 233/0). The `feature/rust-web-toolkit` branch is rozum's own.
 
 - [x] **agent-sdk-remainder** ✓ DONE 2026-06-17 (actionable scope) — consolidated `specs/agent-sdk.md`
       + **P3a MCP bridge both directions** (`runtime/std/agent-mcp.ssc`: `serveAgentToolsMcp` +

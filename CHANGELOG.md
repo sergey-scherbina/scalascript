@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — feat(rust): collection / string / http codegen follow-ons (rwt-followons)
+
+Six additive Rust-backend codegen lowerings, landed on top of the now-complete rust-web toolkit
+(`RustCodeWalk` + `RustRuntimeTemplates`; `backendRust` 233/0). General-purpose, not toolkit-specific —
+they fell out of driving the `rozum-meeting.ssc` SSR page end-to-end:
+
+- **`Vec` `.take` / `.drop` / `.takeRight` / `.dropRight` / `.sorted`** lowering.
+- **`Vec` `.distinct`** — order-preserving, `HashSet`-filtered (first occurrence wins).
+- **`(s: String).replace(from, to)`** → `str::replace` with `&str` patterns.
+- **string-method `&str` patterns + borrow intrinsics + `char` / `sum`**, and indexable `split` / `toList`.
+- **http**: a route handler now receives the POST body; `text/html` content-type; `no-store`; MIME map;
+  exec opts.
+- **http prefix routing** — a route path ending in `/` matches any subpath.
+
+These are pure backend additions (no other backend touched), each guarded by `RustGen*Test` cases.
+
 ## 2026-06-22 — feat(rust): one-shot algebraic effects (R.4.2) — `effect-oneshot` n/a → 0.0020 ms
 
 Custom algebraic effects with an explicit `handle` / `resume` now compile and run on the Rust backend (the
