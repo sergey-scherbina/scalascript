@@ -1,7 +1,7 @@
 package scalascript.compiler.plugin.http
 
 import scalascript.backend.spi.*
-import scalascript.ir.{QualifiedName, NormalizedModule}
+import scalascript.ir.{QualifiedName, NormalizedModule, ExportedSymbol}
 
 /** Interpreter-only plugin that wires HTTP intrinsics via NativeImpl.
  *  Registration: META-INF/services/scalascript.backend.spi.Backend */
@@ -19,6 +19,14 @@ class HttpInterpreterPlugin extends Backend:
 
   def intrinsics:      Map[QualifiedName, IntrinsicImpl] = HttpIntrinsics.table
   def acceptedSources: Set[String]                       = Set.empty
+
+  /** core-min-prelude-migrate: DECLARE the runner name(s) for `ssc check` (the keystone),
+   *  removed from the hardcoded Typer prelude. The typer does not enforce effect discharge, so
+   *  `Any` suffices; the interpreter resolves each runner via this plugin's block-form. */
+  override def preludeSymbols: List[ExportedSymbol] = List(
+    ExportedSymbol("runHttp", "runHttp", "def", "Any"),
+    ExportedSymbol("runHttpStub", "runHttpStub", "def", "Any"),
+  )
 
   /** The Http effect runner, extracted from interpreter core (core-min §2d). Both keywords share
    *  one `BlockForm`: `runHttp { … }` (real I/O) and `runHttpStub(routes) { … }` (stub) — the handler

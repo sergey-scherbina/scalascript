@@ -1,7 +1,7 @@
 package scalascript.compiler.plugin.logger
 
 import scalascript.backend.spi.*
-import scalascript.ir.{QualifiedName, NormalizedModule}
+import scalascript.ir.{QualifiedName, NormalizedModule, ExportedSymbol}
 
 /** The `Logger` effect, extracted from the interpreter core into a ServiceLoader plugin
  *  (core-minimization, polyglot-libraries §2d). Contributes three block-form effect-runners —
@@ -17,6 +17,15 @@ class LoggerEffectPlugin extends Backend:
     spiRange = SpiVersionRange(SpiVersion.Current, SpiVersion.Current))
   def intrinsics:      Map[QualifiedName, IntrinsicImpl] = Map.empty
   def acceptedSources: Set[String]                       = Set.empty
+
+  /** core-min-prelude-migrate: DECLARE the runner name(s) for `ssc check` (the keystone),
+   *  removed from the hardcoded Typer prelude. The typer does not enforce effect discharge, so
+   *  `Any` suffices; the interpreter resolves each runner via this plugin's block-form. */
+  override def preludeSymbols: List[ExportedSymbol] = List(
+    ExportedSymbol("runLogger", "runLogger", "def", "Any"),
+    ExportedSymbol("runLoggerJson", "runLoggerJson", "def", "Any"),
+    ExportedSymbol("runLoggerToList", "runLoggerToList", "def", "Any"),
+  )
   def compile(module: NormalizedModule, opts: BackendOptions): CompileResult =
     CompileResult.Failed(List(Diagnostic.Generic("logger-effect-plugin — interpreter only")))
 

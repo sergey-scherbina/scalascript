@@ -262,21 +262,12 @@ class Typer(
       SType.Function(Nil, SType.Any, SType.EffectRow(-1, Set(EffectOp(eff))))
     val runnerType: String => SType = eff =>
       SType.Function(List(bodyWithEff(eff)), SType.Any)
-    val runnerType2: String => SType = eff =>
-      SType.Function(List(SType.Any, bodyWithEff(eff)), SType.Any)
-    // runLogger / runLoggerJson / runLoggerToList
-    s.define(Symbol("runLogger",       runnerType("Logger"),  SymbolKind.Def))
-    s.define(Symbol("runLoggerJson",   runnerType("Logger"),  SymbolKind.Def))
-    s.define(Symbol("runLoggerToList", runnerType("Logger"),  SymbolKind.Def))
-    // runRandomSeeded(seed){body} / runClockAt(t0){body} / runEnvWith(map){body} — MIGRATED to their
-    // plugins' `preludeSymbols` (random/clock/env-effect-plugin). The typer does not enforce effect
-    // discharge, so these typed `runnerType2` defs need not live in core; the bundled plugin declares
-    // each name for `ssc check`, and the interpreter resolves the runner via the plugin's block-form.
-    // runState(s0) { body } — s0: S
-    s.define(Symbol("runState",        runnerType2("State"),  SymbolKind.Def))
-    // runHttp { body }
-    s.define(Symbol("runHttp",         runnerType("Http"),    SymbolKind.Def))
-    s.define(Symbol("runHttpStub",     runnerType2("Http"),   SymbolKind.Def))
+    // MIGRATED to plugin `preludeSymbols` (the typer does not enforce effect discharge, so a plain
+    // `Any` declaration suffices for `ssc check`; the interpreter resolves each runner via the
+    // bundled plugin's block-form): runLogger/runLoggerJson/runLoggerToList (logger-effect-plugin),
+    // runRandomSeeded/runClockAt/runEnvWith (random/clock/env-effect-plugin), runState
+    // (state-effect-plugin), runHttp/runHttpStub (http-plugin). The typed `runnerType2` helper was
+    // removed with its last user. Only `runStream` (below) stays in core until Stream is extracted.
     // runStream { body } — v1.51.6
     s.define(Symbol("runStream",       runnerType("Stream"),  SymbolKind.Def))
     s.define(Symbol("Stream",  SType.Named("Stream",  Nil), SymbolKind.Object))

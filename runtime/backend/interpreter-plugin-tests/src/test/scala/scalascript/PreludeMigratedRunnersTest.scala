@@ -21,6 +21,9 @@ class PreludeMigratedRunnersTest extends AnyFunSuite with Matchers:
   private val clock  = new scalascript.compiler.plugin.clock.ClockEffectPlugin().preludeSymbols
   private val env    = new scalascript.compiler.plugin.env.EnvEffectPlugin().preludeSymbols
   private val random = new scalascript.compiler.plugin.random.RandomEffectPlugin().preludeSymbols
+  private val logger = new scalascript.compiler.plugin.logger.LoggerEffectPlugin().preludeSymbols
+  private val state  = new scalascript.compiler.plugin.state.StateEffectPlugin().preludeSymbols
+  private val http   = new scalascript.compiler.plugin.http.HttpInterpreterPlugin().preludeSymbols
 
   /** (runner keyword, a call expression exercising its arity, the plugin's preludeSymbols) */
   private val migrated: List[(String, String, List[ExportedSymbol])] = List(
@@ -30,10 +33,16 @@ class PreludeMigratedRunnersTest extends AnyFunSuite with Matchers:
     ("runCacheBypass",  "runCacheBypass { 1 }",      cache),
     ("runClock",        "runClock { 1 }",            clock),
     ("runEnv",          "runEnv { 1 }",              env),
-    // typed runners (formerly `runnerType2` core defs) — two-arg call form `runX(seed){body}`
+    // typed runners (formerly `runnerType`/`runnerType2` core defs) — `Any` declarations suffice
     ("runRandomSeeded", "runRandomSeeded(1) { 1 }",  random),
     ("runClockAt",      "runClockAt(1) { 1 }",       clock),
     ("runEnvWith",      "runEnvWith(1) { 1 }",        env),
+    ("runLogger",       "runLogger { 1 }",           logger),
+    ("runLoggerJson",   "runLoggerJson { 1 }",       logger),
+    ("runLoggerToList", "runLoggerToList { 1 }",     logger),
+    ("runState",        "runState(1) { 1 }",         state),
+    ("runHttp",         "runHttp { 1 }",             http),
+    ("runHttpStub",     "runHttpStub(1) { 1 }",      http),
   )
 
   for (runner, call, prelude) <- migrated do
