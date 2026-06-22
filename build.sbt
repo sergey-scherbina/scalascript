@@ -1115,6 +1115,8 @@ lazy val cli = project
         (benchPlugin           / packagePlugin).value,
         (loggerEffectPlugin    / packagePlugin).value,
         (randomEffectPlugin    / packagePlugin).value,
+        (clockEffectPlugin     / packagePlugin).value,
+        (envEffectPlugin       / packagePlugin).value,
       )
       pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
       log.info(s"bin/lib/compiler/plugins/  (${pluginPkgs.size} .sscpkg files)")
@@ -2798,6 +2800,30 @@ lazy val randomEffectPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.random"))
 
+// ── Clock effect — runClock / runClockAt as block-form plugins ─────────────
+lazy val clockEffectPlugin = project
+  .in(file("runtime/std/clock-effect-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-clock-effect-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.clock"))
+
+// ── Env effect — runEnv / runEnvWith as block-form plugins ─────────────────
+lazy val envEffectPlugin = project
+  .in(file("runtime/std/env-effect-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-env-effect-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.env"))
+
 // ── UUID — v4/v7 generation, parsing, validation ──────────────────────────
 lazy val uuidPlugin = project
   .in(file("runtime/std/uuid-plugin"))
@@ -2961,6 +2987,8 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("bench",           benchPlugin,           "scalascript-bench-plugin"),
   PluginSpec("logger",          loggerEffectPlugin,    "scalascript-logger-effect-plugin"),
   PluginSpec("random",          randomEffectPlugin,    "scalascript-random-effect-plugin"),
+  PluginSpec("clock",           clockEffectPlugin,     "scalascript-clock-effect-plugin"),
+  PluginSpec("env",             envEffectPlugin,       "scalascript-env-effect-plugin"),
 )
 
 // ── Frontend backend registry (arch-build-registry Phase 4) ─────────────

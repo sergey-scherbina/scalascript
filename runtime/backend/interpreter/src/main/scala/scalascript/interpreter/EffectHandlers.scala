@@ -46,86 +46,12 @@ private[interpreter] object EffectHandlers:
   // through `Backend.blockForms` + `runWithHandler` above; nothing Random-specific in core.
 
   // ── Clock ───────────────────────────────────────────────────────────
-
-  def clockRun(initial: Computation, frozen: Option[Long]): Computation =
-    def nowMs(): Long  = frozen.getOrElse(java.lang.System.currentTimeMillis())
-    def nowIso(): String =
-      val inst = java.time.Instant.ofEpochMilli(nowMs())
-      java.time.format.DateTimeFormatter.ISO_INSTANT.format(inst)
-    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
-      op match
-        case "now"    => resume(Value.intV(nowMs()))
-        case "nowIso" => resume(Value.StringV(nowIso()))
-        case "sleep"  => args match
-          case List(Value.IntV(ms)) =>
-            if frozen.isEmpty && ms > 0 then Thread.sleep(ms)
-            resume(Value.UnitV)
-          case _ => throw InterpretError("Clock.sleep(ms: Long)")
-        case _ => throw InterpretError(s"Unknown Clock operation: $op")
-    def run(current0: Computation): Computation =
-      var current = current0
-      while true do
-        current match
-          case Pure(_) => return current
-          case Perform("Clock", op, args) =>
-            current = dispatch(op, args, v => Pure(v))
-          case Perform(_, _, _) => return current
-          case FlatMap(sub, f) => sub match
-            case Pure(v)                    => current = f(v)
-            case FlatMap(s2, g)             => current = FlatMap(s2, x => FlatMap(g(x), f))
-            case Perform("Clock", op, args) =>
-              current = dispatch(op, args, v => run(f(v)))
-            case Perform(_, _, _)           =>
-              return FlatMap(sub, v => run(f(v)))
-      throw InterpretError("unreachable")
-    run(initial)
+  // EXTRACTED to `clock-effect-plugin` (core-minimization, polyglot-libraries §2d).
+  // runClock / runClockAt(t0) dispatch through `Backend.blockForms` + `runWithHandler`.
 
   // ── Env ─────────────────────────────────────────────────────────────
-
-  def envRun(
-    initial: Computation,
-    overlay: Option[Map[String, String]]
-  ): Computation =
-    val local = scala.collection.mutable.Map.empty[String, String]
-    overlay.foreach(m => local ++= m)
-    def lookup(key: String): Option[String] =
-      local.get(key)
-        .orElse(if overlay.isEmpty then Option(java.lang.System.getenv(key)).filter(_.nonEmpty) else None)
-    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
-      op match
-        case "get" => args match
-          case List(Value.StringV(k)) =>
-            val sv = lookup(k).orNull
-            resume(if sv != null then Value.OptionV(Value.StringV(sv)) else Value.NoneV)
-          case _ => throw InterpretError("Env.get(key: String)")
-        case "set" => args match
-          case List(Value.StringV(k), v) =>
-            local(k) = Value.show(v); resume(Value.UnitV)
-          case _ => throw InterpretError("Env.set(key: String, value)")
-        case "required" => args match
-          case List(Value.StringV(k)) =>
-            lookup(k) match
-              case Some(v) => resume(Value.StringV(v))
-              case None    => throw InterpretError(s"Env.required: key '$k' not found in environment")
-          case _ => throw InterpretError("Env.required(key: String)")
-        case _ => throw InterpretError(s"Unknown Env operation: $op")
-    def run(current0: Computation): Computation =
-      var current = current0
-      while true do
-        current match
-          case Pure(_) => return current
-          case Perform("Env", op, args) =>
-            current = dispatch(op, args, v => Pure(v))
-          case Perform(_, _, _) => return current
-          case FlatMap(sub, f) => sub match
-            case Pure(v)                  => current = f(v)
-            case FlatMap(s2, g)           => current = FlatMap(s2, x => FlatMap(g(x), f))
-            case Perform("Env", op, args) =>
-              current = dispatch(op, args, v => run(f(v)))
-            case Perform(_, _, _)         =>
-              return FlatMap(sub, v => run(f(v)))
-      throw InterpretError("unreachable")
-    run(initial)
+  // EXTRACTED to `env-effect-plugin` (core-minimization, polyglot-libraries §2d).
+  // runEnv / runEnvWith(map) dispatch through `Backend.blockForms` + `runWithHandler`.
 
   // ── Http ────────────────────────────────────────────────────────────
 

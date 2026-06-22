@@ -3015,7 +3015,7 @@ private[interpreter] object EvalRuntime:
   private val reservedApplyHeads: Set[String] = Set(
     "bench", "computed", "effect", "handle", "httpClient", "receive", "restartable",
     "runActors", "runAsync", "runAsyncParallel", "runAuthWith", "runCache", "runCacheBypass",
-    "runClock", "runClockAt", "runEnv", "runEnvWith", "runEphemeralStorage", "runHttp",
+    "runEphemeralStorage", "runHttp",
     "runHttpStub",
     "runRetry", "runRetryNoSleep", "runState", "runStorage", "runStream",
     "runSideEffect", "runTx", "timeout", "validate", "withFixedUuid", "Focus")
@@ -3514,36 +3514,11 @@ private[interpreter] object EvalRuntime:
     // runRandom { body } resolves via the lazy single-clause path; runRandomSeeded(seed) { body }
     // via the generic curried block-form cases below. (polyglot-libraries §2d.)
 
-    // ── v1.4 Clock effect handlers ────────────────────────────────────────
-    // runClock { body }        — real wall clock; Clock.sleep → Thread.sleep
-    // runClockAt(t0) { body }  — frozen at t0 ms epoch; sleep is a no-op
-    case Term.Apply.After_4_6_0(Term.Name("runClock"), bodyArgClause)
-        if bodyArgClause.values.size == 1 =>
-      EffectHandlers.clockRun(eval(bodyArgClause.values.head, env, interp), None)
-    case Term.Apply.After_4_6_0(
-        Term.Apply.After_4_6_0(Term.Name("runClockAt"), t0Clause),
-        bodyClause)
-        if t0Clause.values.size == 1 && bodyClause.values.size == 1 =>
-      val t0 = Computation.run(eval(t0Clause.values.head, env, interp)) match
-        case Value.IntV(n) => n
-        case _             => throw InterpretError("runClockAt(t0: Long) { body }")
-      EffectHandlers.clockRun(eval(bodyClause.values.head, env, interp), Some(t0))
-
-    // ── v1.4 Env effect handlers ──────────────────────────────────────────
-    // runEnv { body }               — reads real process env; Env.set is local
-    // runEnvWith(Map(...)) { body }  — fixture map; Env.set mutates overlay
-    case Term.Apply.After_4_6_0(Term.Name("runEnv"), bodyArgClause)
-        if bodyArgClause.values.size == 1 =>
-      EffectHandlers.envRun(eval(bodyArgClause.values.head, env, interp), None)
-    case Term.Apply.After_4_6_0(
-        Term.Apply.After_4_6_0(Term.Name("runEnvWith"), mapClause),
-        bodyClause)
-        if mapClause.values.size == 1 && bodyClause.values.size == 1 =>
-      val overlay = Computation.run(eval(mapClause.values.head, env, interp)) match
-        case Value.MapV(m) =>
-          m.map { (k, v) => Value.show(k) -> Value.show(v) }.toMap
-        case _ => throw InterpretError("runEnvWith(map: Map[String, String]) { body }")
-      EffectHandlers.envRun(eval(bodyClause.values.head, env, interp), Some(overlay))
+    // ── v1.4 Clock + Env effect handlers ──────────────────────────────────
+    // runClock / runClockAt(t0) — EXTRACTED to `clock-effect-plugin`.
+    // runEnv / runEnvWith(map)  — EXTRACTED to `env-effect-plugin`.
+    // The plain forms resolve via the lazy single-clause path; the curried
+    // config-args forms via the generic curried block-form cases below. §2d.
 
     // ── v1.65 SideEffect handlers ─────────────────────────────────────────
     // runSideEffect { body }             — identity; just evaluates body

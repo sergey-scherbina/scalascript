@@ -27,109 +27,13 @@ class StdEffectsTest extends AnyFunSuite with Matchers:
   // (core-minimization); `runRandom` / `runRandomSeeded(seed)` now run there via the lazy
   // ServiceLoader path. The seeded form also exercises the block-form SPI's config-args path.
 
-  // ── Clock (frozen) ─────────────────────────────────────────────────────
+  // ── Clock — MOVED to ClockPluginTest (interpreter-plugin-tests) ──────────
+  // Extracted to `clock-effect-plugin`; runClock / runClockAt(t0) now run via the lazy
+  // ServiceLoader path. runClockAt exercises the block-form SPI's config-args path.
 
-  test("runClockAt freezes Clock.now at the given epoch ms"):
-    captured("""
-      runClockAt(1000000) {
-        println(Clock.now())
-        println(Clock.now())
-      }
-    """) shouldBe "1000000\n1000000"
-
-  test("runClockAt freezes Clock.nowIso"):
-    captured("""
-      runClockAt(0) {
-        println(Clock.nowIso())
-      }
-    """) shouldBe "1970-01-01T00:00:00Z"
-
-  test("runClockAt Clock.sleep is a no-op (does not delay)"):
-    val start = java.lang.System.currentTimeMillis()
-    captured("""
-      runClockAt(0) {
-        Clock.sleep(10000)  // would be 10 s if real
-        println("done")
-      }
-    """) shouldBe "done"
-    val elapsed = java.lang.System.currentTimeMillis() - start
-    elapsed should be < 2000L
-
-  test("runClock returns actual Clock.now (close to wall time)"):
-    val before = java.lang.System.currentTimeMillis()
-    val out = captured("""
-      runClock {
-        println(Clock.now())
-      }
-    """)
-    val after = java.lang.System.currentTimeMillis()
-    val t = out.toLong
-    t should be >= before
-    t should be <= after + 100L
-
-  // ── Env ────────────────────────────────────────────────────────────────
-
-  test("runEnvWith provides key lookup via Env.get"):
-    captured("""
-      runEnvWith(Map("FOO" -> "bar")) {
-        val v = Env.get("FOO")
-        v match
-          case Some(s) => println(s)
-          case None    => println("missing")
-      }
-    """) shouldBe "bar"
-
-  test("runEnvWith Env.get returns None for missing key"):
-    captured("""
-      runEnvWith(Map("A" -> "1")) {
-        val v = Env.get("MISSING")
-        v match
-          case Some(s) => println(s)
-          case None    => println("none")
-      }
-    """) shouldBe "none"
-
-  test("runEnvWith Env.required returns value"):
-    captured("""
-      runEnvWith(Map("HOST" -> "localhost")) {
-        println(Env.required("HOST"))
-      }
-    """) shouldBe "localhost"
-
-  test("runEnvWith Env.required throws on missing key"):
-    an[Exception] should be thrownBy captured("""
-      runEnvWith(Map()) {
-        Env.required("MISSING")
-      }
-    """)
-
-  test("Env.set mutates the local overlay"):
-    captured("""
-      runEnvWith(Map()) {
-        Env.set("X", "hello")
-        Env.get("X") match
-          case Some(s) => println(s)
-          case None    => println("none")
-      }
-    """) shouldBe "hello"
-
-  test("runEnv reads real process env (HOME or PATH is set)"):
-    val home = Option(java.lang.System.getenv("HOME"))
-      .orElse(Option(java.lang.System.getenv("PATH")))
-      .getOrElse("")
-    if home.nonEmpty then
-      captured("""
-        runEnv {
-          val h = Env.get("HOME")
-          h match
-            case Some(_) => println("found")
-            case None    =>
-              val p = Env.get("PATH")
-              p match
-                case Some(_) => println("found")
-                case None    => println("missing")
-        }
-      """) shouldBe "found"
+  // ── Env — MOVED to EnvPluginTest (interpreter-plugin-tests) ──────────────
+  // Extracted to `env-effect-plugin`; runEnv / runEnvWith(map) now run via the lazy
+  // ServiceLoader path. runEnvWith(map) exercises the SPI's MapV config path.
 
   // ── Http ──────────────────────────────────────────────────────────────
 

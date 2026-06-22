@@ -1803,9 +1803,9 @@ class Interpreter(
 
   // ── v1.4 effect handlers — see EffectHandlers.scala ────────────────────
   //
-  // clockRun / envRun / httpRun / retryRun / cacheRun / stateRun are in
-  // EffectHandlers.scala. Logger and Random were extracted to ServiceLoader
-  // plugins (logger-/random-effect-plugin) — core-minimization, §2d.
+  // httpRun / retryRun / cacheRun / stateRun are in EffectHandlers.scala.
+  // Logger, Random, Clock and Env were extracted to ServiceLoader plugins
+  // (logger-/random-/clock-/env-effect-plugin) — core-minimization, §2d.
 
 object Interpreter:
   def run(
