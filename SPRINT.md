@@ -205,6 +205,18 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
         ESM re-exporting `makeLens/makeOptional/makeTraversal/makePrism`, emit `package.json` + curated `optics.d.ts`
         (the 4 shapes above); golden test asserts the `.d.ts` + exported symbols. Then JVM/Rust/Java follow the
         same packager shape. Rank to ship: JS → JVM → Rust → Java.
+      • **✓ JS SLICE LANDED 2026-06-22** — `JsLibPackager` (in `backendJs`) emits the `@scalascript/optics` npm
+        ESM package (`package.json` + `index.mjs` + curated `optics.d.ts`); bundles the `JsRuntimeOptics` `_make*`
+        factories + only the `_None`/`_Some`/`_isMap` deps (HAMT narrowed to native `Map` at the edge) + step
+        builders; re-exports stable `makeLens/makeOptional/makeTraversal/makePrism/Some/None/field/index/at/some/each`.
+        `JsLibPackagerTest` 5/5 incl. a node ESM smoke that imports the generated package + exercises all 4 optics.
+        The `.d.ts` is the frozen API golden. **REMAINING slices** (each independently shippable, same packager
+        shape): (a) a CLI command `emit-lib --host js --feature optics -o <dir>` (ServiceLoader `CliCommand` +
+        `META-INF/services/scalascript.cli.CliCommand`; cli already dependsOn backendJs) + `examples/` demo +
+        README/user-guide row — makes it USER-reachable; (b) **JVM** facade jar (`FacadeGenerator`/`ssc link
+        --emit-scala-facade`; author a thin facade since optics has no `.ssc` defs); (c) **Rust** crate — GREENFIELD
+        optic `pub fn` codegen in `RustRuntimeTemplates`; (d) **Java** facade — GREENFIELD `JavaFacadeEmitter` +
+        `java.util.List` value-mapping seam. Golden API-signature test per host (mirror this JS `.d.ts` golden).
 - [ ] **rust-effects-multishot-r6** (Rust backend, R.6) — multi-shot algebraic effects on Rust (resume invoked
       more than once, e.g. NonDet `{1,2}×{10,20}`). One-shot handle/resume already SHIPPED (`a87afba34`, tagless-
       final, no trampoline). lucky-otter flagged multi-shot as out-of-scope/hard: needs an `FnMut` continuation

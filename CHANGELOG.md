@@ -4,6 +4,26 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — feat(polyglot-lib): JS optics npm-package packager (Task B, Phase 2 — JS host)
+
+First per-host library-packaging slice (`specs/polyglot-libraries.md` §4 / §6 Phase 2): the pure
+**optics** feature (Lens/Optional/Traversal/Prism) now packages as a standalone `@scalascript/optics`
+npm ESM package — no `.ssc` source or ScalaScript build dependency at the consumer's edge.
+
+`JsLibPackager` (in `backendJs`) produces `package.json` + `index.mjs` + `optics.d.ts`: it bundles the
+verbatim `JsRuntimeOptics` `_make*` factories plus only the Option/Map helpers they reference
+(`_None`/`_Some`/`_isMap`, with `_isMap` narrowed to native JS `Map` at the library edge — the internal
+HAMT is not part of the boundary), adds step builders (`field`/`index`/`at`/`some`/`each`), and
+re-exports stable public names (`makeLens`/`makeOptional`/`makeTraversal`/`makePrism`/`Some`/`None`). The
+curated `optics.d.ts` is the **frozen public API signature**.
+
+`JsLibPackagerTest` (5/5): file-set + `package.json` surface + `index.mjs` bundling/exports + an
+`optics.d.ts` **verbatim golden** + an `assume(node)`-gated ESM smoke that writes the generated package to
+a temp dir, `import`s it in real Node, and exercises all four optics end-to-end (get/set/modify, getOption,
+getAll/modify, prism match). This proves the value-mapping + stable-API + golden pipeline on the easy case.
+Remaining slices (queued in SPRINT): a `emit-lib` CLI command + example, then JVM facade / Rust crate /
+Java facade — each with its own per-host API-signature golden.
+
 ## 2026-06-22 — feat(core-min): extract Retry + Cache effects to plugins (core-min-retry-cache-migrate)
 
 Two more effects moved out of the interpreter core into ServiceLoader plugins, copying the
