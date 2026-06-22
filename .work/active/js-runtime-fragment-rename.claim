@@ -1,0 +1,14 @@
+feature/js-runtime-fragment-rename 2026-06-22
+agent: claude (bright-quail)
+heartbeat: 2026-06-22T18:02:35Z
+status: in-progress
+done-so-far: investigated content of each fragment. Renaming the cryptic part1X / v14effects names to capability/content-meaningful names. Content unchanged -> emitted JS byte-identical.
+next: rename (git mv .mjs + .scala + global token/string replace across *.scala):
+  Part1a->Core/core.mjs (base prelude: output/Console/core helpers, always);
+  Part1b->HttpServer/http-server.mjs (HtmlDsl: serve/route/sessions/metrics);
+  Part1c->JwtAuth/jwt-auth.mjs (Jwt: JWT/OAuth2/CSRF);
+  Part1d->WsServer/ws-server.mjs (WsServer: WebSocket/SSE/CORS);
+  Part2a->CoreDispatch/core-dispatch.mjs (Char/dispatch/_show/_tupleConcat/Free-monad/fs, always);
+  Part2b->CoreCollections/core-collections.mjs (seq/collection helpers + sync fallbacks, always);
+  V14Effects->Effects/effects.mjs (Effects cap: v1.4 Logger/Random/Clock/Env).
+Refs to update: JsGen.scala (sb.append block + JsRuntime concat + capability comments 131-133), the 7 fragment files (def + see-refs), JsRuntimeFs/Mcp/intrinsics.Http (comments), WebServer.scala + JsGenStreamsTest (V14Effects usages), ClusterMultiBackendMatrixTest (comment). Hand-rewrite the doc comments to be meaningful. Verify: backendJs compiles + JS test set green (content byte-identical so emit unchanged). Update specs/js-runtime-resources.md names. Bookkeeping: CHANGELOG + SPRINT.
