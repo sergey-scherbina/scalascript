@@ -49,8 +49,10 @@ object RustCodeWalk:
     // `object Bump { def tick(): Int = __effectOp__ }`. Collect the op signatures for the
     // trait, and drop the op-marker defs from normal function emission. (R.4.2)
     _effectOps            = collectEffectOps(module)
+    _multiShotEffects     = collectMultiShotEffects(module)
     val customEffectOps   = _effectOps.map { case (e, ops) => e -> effectTraitSigs(ops) }
     val defs              = collectDefs(module).filterNot(d => isEffectOpMarker(d.body))
+    _defBodies            = defs.map(d => d.name.value -> d).toMap
     _varargDefs = defs.flatMap { d =>
       val ps = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
       ps.lastOption match
@@ -380,6 +382,13 @@ object RustCodeWalk:
   private var _effectOps: Map[String, List[(String, List[String], String)]] = Map.empty
   private def _effectObjectNames: Set[String] = _effectOps.keySet
 
+  /** Effects declared `multi effect` (the parser injects `val __multiShot__ = true`). Their `handle`
+   *  goes through the Tier-1 multi-shot lowering (spec `rust-effects.md §11`), NOT the one-shot
+   *  tagless-final path — whose `resume(v)→v` substitution is unsound for multi-shot. */
+  private var _multiShotEffects: Set[String] = Set.empty
+  /** Effectful `def` bodies by name — for inlining a `handle(prog(args))` subject (spec §11.2). */
+  private var _defBodies: Map[String, m.Defn.Def] = Map.empty
+
   /** A `def`/op body that is the effect-op marker (`effect E: def op(...) = __effectOp__`). */
   private def isEffectOpMarker(body: m.Term): Boolean = body match
     case m.Term.Name("__effectOp__") => true
@@ -400,6 +409,21 @@ object RustCodeWalk:
       }.flatten
       if ops.nonEmpty then Some(o.name.value -> ops) else None
     }.toMap
+
+  /** Effect objects the parser marked `multi effect` — they carry `val __multiShot__ = true`. */
+  private def collectMultiShotEffects(module: ast.Module): Set[String] =
+    def objectsIn(c: ast.Content): List[m.Defn.Object] = c match
+      case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isScalaLang(lang) =>
+        node.tree.collect { case o: m.Defn.Object => o }.toList
+      case _ => Nil
+    def sectionObjects(s: ast.Section): List[m.Defn.Object] =
+      s.content.flatMap(objectsIn) ++ s.subsections.flatMap(sectionObjects)
+    module.sections.flatMap(sectionObjects).collect {
+      case o if o.templ.body.stats.exists {
+        case v: m.Defn.Val => v.pats.exists { case m.Pat.Var(m.Term.Name("__multiShot__")) => true; case _ => false }
+        case _             => false
+      } => o.name.value
+    }.toSet
 
   /** `(opName, List[rustParamType], rustRetType)` for one effect op; None if a type can't map. */
   private def effectOpInfo(dd: m.Defn.Def): Option[(String, List[String], String)] =
@@ -1650,7 +1674,9 @@ object RustCodeWalk:
         caseArgs
     ) if bodyArgs.values.size == 1 && caseArgs.values.size == 1 &&
          handleCasesOf(caseArgs.values.head).nonEmpty =>
-      renderHandle(bodyArgs.values.head, handleCasesOf(caseArgs.values.head), ctx)
+      val msCases = handleCasesOf(caseArgs.values.head)
+      multiShotHandle(bodyArgs.values.head, msCases, ctx)
+        .getOrElse(renderHandle(bodyArgs.values.head, msCases, ctx))
     // Either constructors and combinators.
     case m.Term.Apply.After_4_6_0(m.Term.Name("Left"), args)
         if args.values.size == 1 =>
@@ -2842,6 +2868,87 @@ object RustCodeWalk:
             s"{ struct $structName; impl ${effName}Effect for $structName {\n" +
             oks.mkString("\n") + s"\n} let mut _eff = $structName; $bodyRs }"
           }
+
+  /** Tier-1 multi-shot (List monad) `handle` lowering — spec `rust-effects.md §11.2`. Returns `Some`
+   *  when the handled effect is `multi effect` (which MUST NOT use the one-shot `resume(v)→v`
+   *  substitution): either the recognised List `flatMap(resume)` shape over a straight-line effectful
+   *  def (→ nested `for` loops + a `Vec` accumulator), or a clean `unsupported` for any other multi-shot
+   *  shape (Slice 1). Returns `None` for a plain one-shot effect → caller uses `renderHandle`. */
+  private def multiShotHandle(body: m.Term, cases: List[m.Case], ctx: Ctx): Option[Either[List[Diagnostic], String]] =
+    val effOpt = cases.flatMap { c =>
+      c.pat match
+        case m.Pat.Extract.After_4_6_0(m.Term.Select(m.Term.Name(eff), _), _) => Some(eff)
+        case _                                                                => None
+    }.headOption
+    effOpt.filter(_multiShotEffects.contains).map(eff => renderMultiShotList(body, cases, eff, ctx))
+
+  /** The handler body is `opts.flatMap(opt => resume(opt))` (List monad): a `flatMap`/`map`/`foreach`
+   *  on the `opts` binder whose body calls `resume`. */
+  private def isListFlatMapResume(t: m.Term, optsName: String, resumeName: String): Boolean = t match
+    case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(`optsName`), m.Term.Name("flatMap" | "map" | "foreach")), _) =>
+      t.collect { case m.Term.Apply.After_4_6_0(m.Term.Name(`resumeName`), _) => true }.nonEmpty
+    case _ => false
+
+  /** Recognise the List-monad handler + a straight-line effectful def, and lower to nested `for`
+   *  loops collecting a `Vec` (spec §11.2 Tier 1, Slice 1 — exactly `effect-multishot.ssc`). */
+  private def renderMultiShotList(body: m.Term, cases: List[m.Case], eff: String, ctx: Ctx): Either[List[Diagnostic], String] =
+    cases match
+      case List(c) =>
+        c.pat match
+          case m.Pat.Extract.After_4_6_0(m.Term.Select(m.Term.Name(`eff`), m.Term.Name(_)), argPats) =>
+            argPats.values.toList.collect { case m.Pat.Var(m.Term.Name(n)) => n } match
+              case List(optsName, resumeName) if isListFlatMapResume(c.body, optsName, resumeName) =>
+                inlineMultiShotBody(body, eff, ctx)
+              case _ =>
+                Left(List(unsupported(
+                  s"multi-shot `$eff` handler is not the recognised List `opts.flatMap(opt => resume(opt))` shape (Slice 1)")))
+          case _ =>
+            Left(List(unsupported(s"multi-shot `$eff` handle case is not `$eff.op(opts, resume) =>`")))
+      case _ =>
+        Left(List(unsupported("multi-shot handle must have exactly one case (Slice 1)")))
+
+  /** Inline `handle(defName(args))` over a multi-shot List handler: bind the def's params to the call
+   *  args, turn each `val x = Eff.op(arg)` perform into `for x in <arg> { … }`, and push the pure tail
+   *  into a `Vec`. Straight-line bodies only (Slice 1). */
+  private def inlineMultiShotBody(body: m.Term, eff: String, ctx: Ctx): Either[List[Diagnostic], String] =
+    body match
+      case m.Term.Apply.After_4_6_0(m.Term.Name(defName), callArgs) if _defBodies.contains(defName) =>
+        val dd     = _defBodies(defName)
+        val params = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
+        val args   = callArgs.values.toList
+        if params.size != args.size then
+          Left(List(unsupported(s"multi-shot inline: arity mismatch calling `$defName`")))
+        else dd.body match
+          case m.Term.Block(stats) if stats.size >= 2 =>
+            val loopsEs: List[Either[List[Diagnostic], (String, String)]] = stats.init.toList.map {
+              case v: m.Defn.Val =>
+                (v.pats, v.rhs) match
+                  case (List(m.Pat.Var(m.Term.Name(vn))),
+                        m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(`eff`), m.Term.Name(_)), opArgs))
+                      if opArgs.values.size == 1 =>
+                    renderTerm(opArgs.values.head, ctx).map(it => (vn, it))
+                  case _ =>
+                    Left(List(unsupported(s"multi-shot inline (`$defName`): a statement is not `val x = $eff.op(arg)` (Slice 1)")))
+              case _ =>
+                Left(List(unsupported(s"multi-shot inline (`$defName`): a non-val statement before the tail (Slice 1)")))
+            }
+            val pbindEs = params.zip(args).map { case (p, a) => renderTerm(a, ctx).map(r => s"let $p = $r;") }
+            val tailE   = stats.last match
+              case t: m.Term => renderTerm(t, ctx)
+              case _         => Left(List(unsupported(s"multi-shot inline (`$defName`): block tail is not an expression")))
+            val (lErr, loops)  = loopsEs.partitionMap(identity)
+            val (pErr, pbinds) = pbindEs.partitionMap(identity)
+            val errs = lErr.flatten ++ pErr.flatten ++ tailE.left.toOption.toList.flatten
+            if errs.nonEmpty then Left(errs)
+            else
+              val push   = s"__ms_acc.push(${tailE.toOption.get});"
+              val nested = loops.foldRight(push) { case ((vn, it), acc) => s"for $vn in $it {\n${indent(acc)}\n}" }
+              val pre    = if pbinds.isEmpty then "" else pbinds.mkString("", " ", " ")
+              Right(s"{ ${pre}let mut __ms_acc = Vec::new();\n${indent(nested)}\n__ms_acc }")
+          case _ =>
+            Left(List(unsupported(s"multi-shot inline: body of `$defName` is not a straight-line block (Slice 1)")))
+      case _ =>
+        Left(List(unsupported("multi-shot handle body must be a direct effectful def call `f(args)` (Slice 1)")))
 
   /** Lower a `Term.Match(subject, cases)` to a Rust `match` expression.
    *  Each case's pattern is lowered via `renderPattern`; the body is
