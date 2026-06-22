@@ -24,11 +24,21 @@ Queued after the JS `.mjs`-resource cleanup + rename. Drive top-to-bottom (tract
       user-guide section. The optics packager is now user-reachable (was test-only). More host/feature combos
       follow the same shape (see `optics-jvm-facade`).
 - [ ] **jvm-rust-runtime-resources** — mirror the JS `.mjs`-resource cleanup (polyglot §3 #8) for JVM
-      (`JvmGenRuntimeSources`) + Rust (`RustRuntimeTemplates`) big runtime-string constants → resource files via
-      a small cached loader (like `JsRuntimeResource`). **PROBE FIRST:** if the strings are `s"…"`-interpolated
-      or computed (not pure literals), they can't move to a static resource as-is — scope honestly (migrate the
-      pure ones, document the rest). Byte-identical discipline: `diff`-verify each vs `git HEAD`. Closes §3 #8 for
-      the remaining backends. Spec: extend `specs/js-runtime-resources.md` or a sibling.
+      (`JvmGenRuntimeSources`) + Rust (`RustRuntimeTemplates`). **PROBED 2026-06-22 (bright-quail) — NOT a clean
+      mechanical copy like JS; more involved:**
+      • **JVM** `JvmGenRuntimeSources.scala` (3656 lines): 13 runtime strings, each
+        `JvmGenRuntimeCache.memo("key"): """|…|""".stripMargin` — plain (NOT interpolated) but **margin-based**,
+        and lazily memo-cached. Migratable: strip the `|` margins → write the post-`stripMargin` content to a
+        resource (a `.scala`-fragment file), replace body with `memo("key"): JvmRuntimeResource.load("key")`.
+        Byte-identity = `stripMargin` output == resource (NOT a verbatim source copy like JS). Needs a new
+        `JvmRuntimeResource` loader.
+      • **Rust** `RustRuntimeTemplates.scala` (1570 lines): ~17 `stripMargin` strings (migratable, same shape) +
+        **1 `s"""` INTERPOLATED** template (computed at runtime — CANNOT move to a static resource; leave it).
+        Needs a `RustRuntimeResource` loader.
+      • Scope: feasible + bounded per backend, but each string needs `stripMargin`-output verification and the
+        win is smaller than JS (the `|`-margin source is already editable; gain = a real `.scala`/`.rs` file with
+        no margin noise + lint/highlight). Do JVM and Rust as **separate slices**. NOT a one-shot mechanical
+        sweep — budget per-backend. Spec: extend `specs/js-runtime-resources.md`.
 - [ ] **optics-jvm-facade** — Phase 2 next host (`specs/polyglot-libraries.md` §4/§6): publish optics as a JVM
       jar facade + golden API-signature test. Optics has no `.ssc` defs (AST-level) → author a thin Scala facade
       object `Ssc.Optics` (or a `.ssc` facade) over the same 4 optic shapes; reuse `FacadeGenerator`/`ssc link
