@@ -131,10 +131,17 @@ Interpreter core keeps:
   `ActorRuntimeProvider` / `ActorRuntimeHost` now exist in interpreter core, and `ActorInterp.actorInterp`
   dispatches through `CoreActorRuntimeProvider`, which delegates to the existing core scheduler. No actor
   runtime code has moved yet.
+- 2026-06-22 — bundled plugin skeleton landed as `539105e3c feat(actors): add bundled actors provider plugin`.
+  `runtime/std/actors-plugin` now builds as an essential `.sscpkg`, registers through ServiceLoader, contributes
+  actor `preludeSymbols`, and installs the current provider through `ActorRuntimeProviderBackend`.
 - Verification for the seam slice:
   - `cd /Users/sergiy/work/my/scalascript-wt-coremin-actors-migrate && sbt "backendInterpreter/compile"`
     passed.
   - `cd /Users/sergiy/work/my/scalascript-wt-coremin-actors-migrate && sbt "backendInterpreter/testOnly scalascript.ActorSupervisionTest scalascript.ActorStopOutsideTest scalascript.ActorGroupTest scalascript.ActorDistributedTest"`
     passed: 29 tests, 0 failed/canceled. ScalaTest printed a reporter `InterruptedException`, but sbt
     completed with `[success]` and all tests passed.
+  - `cd /Users/sergiy/work/my/scalascript-wt-coremin-actors-migrate && sbt "actorsPlugin/compile" "backendInterpreter/compile" "backendInterpreterPluginTests/testOnly scalascript.ActorsPluginProviderTest"`
+    passed: provider plugin test 2/0.
+  - `cd /Users/sergiy/work/my/scalascript-wt-coremin-actors-migrate && sbt "cli/installBin"` passed and
+    staged 26 essential `.sscpkg` files plus 13 advanced `.sscpkg` files.
 - Next slice: move the runtime implementation behind the provider without changing `.ssc` sources.

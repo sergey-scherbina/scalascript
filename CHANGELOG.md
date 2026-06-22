@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — feat(actors): bundled actors provider plugin skeleton
+
+Added `runtime/std/actors-plugin` as an essential bundled plugin. It registers through
+ServiceLoader, contributes actor `preludeSymbols`, and installs the current provider through
+`ActorRuntimeProviderBackend`; the actual scheduler still delegates to core until the next move
+slice. Verification: `actorsPlugin/compile`, `backendInterpreter/compile`, provider test 2/0,
+and `cli/installBin` passed; install staging is now 26 essential / 13 advanced `.sscpkg` files.
+
 ## 2026-06-22 — feat(interpreter): actor runtime provider seam
 
 Started `coremin-actors-migrate`. Added `specs/coremin-actors-plugin.md`, then introduced

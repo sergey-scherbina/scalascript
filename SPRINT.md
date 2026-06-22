@@ -266,6 +266,10 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       `specs/coremin-actors-plugin.md` (`6538c10c6`) defines the interpreter-local actor runtime seam.
       `ea898ca82` adds `ActorRuntimeProvider` / `ActorRuntimeHost`; `ActorInterp.actorInterp` now dispatches
       through `CoreActorRuntimeProvider`, which delegates to the existing core scheduler, so behavior is unchanged.
+      `539105e3c` adds the essential bundled `runtime/std/actors-plugin` skeleton, ServiceLoader descriptor,
+      provider installation via `ActorRuntimeProviderBackend`, actor `preludeSymbols`, and
+      `ActorsPluginProviderTest` (2/0). `cli/installBin` passed and now stages 26 essential `.sscpkg` files
+      plus 13 advanced.
       Verified: `backendInterpreter/compile` passed; actor targeted suites
       (`ActorSupervisionTest`, `ActorStopOutsideTest`, `ActorGroupTest`, `ActorDistributedTest`) passed 29/0
       (ScalaTest printed a reporter `InterruptedException`, but sbt finished `[success]`). **Next:** move
