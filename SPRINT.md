@@ -18,16 +18,17 @@ Work top-to-bottom, one major theme at a time. **Maven/centralized publication i
 
 Queued after closing rust-web-toolkit follow-ons + fixing the index-read move bug it shipped.
 
-- [~] **worktree-guardrail** (mellow-shrew, with Sergiy) — structural fix so feature commits can't land
-      in the shared `main` checkout again (root cause of the parked-feature-branch mess: a prior session
-      committed rust-web-toolkit directly in shared main instead of a worktree, partly due to the
-      `EnterWorktree` false-positive, claude-code #27881). **`.githooks/pre-commit`** blocks a non-`.work/`
-      commit when in the main checkout (`git-dir==git-common-dir`) OR on branch `main`; feature worktrees
-      unaffected; `--no-verify` escape hatch. **`scripts/new-worktree <name>`** = packaged external-path
+- [x] **worktree-guardrail** ✓ DONE 2026-06-22 (`bffef3447`, mellow-shrew, with Sergiy) — structural fix so
+      feature commits can't land in the shared `main` checkout again (root cause of the parked-feature-branch
+      mess: a prior session committed rust-web-toolkit directly in shared main instead of a worktree, partly
+      due to the `EnterWorktree` false-positive, claude-code #27881). **`.githooks/pre-commit`** blocks a
+      non-`.work/` commit when in the main checkout (`git-dir==git-common-dir`) OR on branch `main`; feature
+      worktrees unaffected; `--no-verify` escape hatch. **`scripts/new-worktree <name>`** = external-path
       worktree recipe (NOT under `.worktrees/`, which siblings prune). **`scripts/setup-hooks`** sets
-      `core.hooksPath`. Spec `specs/worktree-guardrail.md`; `scripts/test-worktree-guardrail` green (5/5
-      matrix rows). Files inert until `core.hooksPath` is set — activation is the final step after rozum
-      coordination + re-syncing the shared checkout to a commit that has `.githooks/`.
+      `core.hooksPath`. Spec `specs/worktree-guardrail.md`; `scripts/test-worktree-guardrail` 5/5.
+      **ACTIVATED** on the shared repo (`core.hooksPath=.githooks`) + verified live: a feature commit in
+      shared main is refused, a `.work/` coordination commit passes. (Other clones: run `scripts/setup-hooks`
+      once; worktrees off current `origin/main` already carry `.githooks/`.)
 
 - [x] **rust-cargo-smoke-coverage** ✓ DONE 2026-06-22 (`2c8032a5c`, mellow-shrew) — `RustGenCargoSmokeTest`:
       a Rust-toolchain-gated suite (`assume(cargoAvailable)` — probes `cargo --version` directly, since

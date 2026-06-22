@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — workflow: pre-commit guardrail keeps feature commits out of shared main (worktree-guardrail)
+
+Structural fix for the root cause of the parked-feature-branch mess (a prior session committed
+rust-web-toolkit directly in the shared `main` checkout instead of a worktree, abetted by the
+`EnterWorktree` false-positive — claude-code #27881). **`.githooks/pre-commit`** refuses a non-`.work/`
+commit made in the shared main checkout (`git-dir==git-common-dir`) or on branch `main`; feature
+worktrees are never affected; `--no-verify` is the escape hatch. **`scripts/new-worktree <name>`**
+packages the safe recipe (external, prune-safe path — not under `.worktrees/`); **`scripts/setup-hooks`**
+wires `core.hooksPath`; **`scripts/test-worktree-guardrail`** covers all 5 behaviour-matrix rows. Activated
+on the shared repo + verified live. Spec `specs/worktree-guardrail.md`; AGENTS.md §1 updated. (`bffef3447`)
+
 ## 2026-06-22 — test(rust): end-to-end cargo-run smoke suite (rust-cargo-smoke-coverage)
 
 `RustGenCargoSmokeTest` — the first `backendRust` test that actually **compiles + runs** the Rust it
