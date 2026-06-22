@@ -274,8 +274,10 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       (`ActorSupervisionTest`, `ActorStopOutsideTest`, `ActorGroupTest`, `ActorDistributedTest`) passed 29/0
       (ScalaTest printed a reporter `InterruptedException`, but sbt finished `[success]`). **Next:** move
       `ActorRuntime`, scheduler loop, `handleActorOp`, and cluster/event drains behind the provider into
-      `runtime/std/actors-plugin`; keep `receive` syntax capture in core. Stream is now deliberately deferred,
-      so Actors is the remaining active core effect extraction.
+      `runtime/std/actors-plugin`; keep `receive` syntax capture in core. **Gotcha:** do not store actor/cluster
+      mutable state on the ServiceLoader backend singleton; today's state is per `Interpreter`, so the move slice
+      needs per-host/per-interpreter state ownership. Stream is now deliberately deferred, so Actors is the
+      remaining active core effect extraction.
 - [x] **coremin-hybrid-split** ✓ DONE 2026-06-22 (codex) — no-domain hybrid plugin distribution slice.
       `PluginSpec` now carries an essential/advanced tier; `installBin` stages 25 essential bundled
       `.sscpkg` files in `bin/lib/compiler/plugins` (auto-loaded) and 13 advanced bundled `.sscpkg`

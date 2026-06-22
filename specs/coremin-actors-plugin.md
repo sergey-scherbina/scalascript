@@ -122,6 +122,12 @@ Interpreter core keeps:
 - **Interpreter-local seam, not generic `Backend.blockForms`.** Chosen because actors own a cooperative scheduler and must step `Computation` trees, manage blocked continuations, and drain external event queues. Rejected: widening host-neutral `BlockForm` to expose `Computation`, because that would re-couple ordinary plugins to interpreter internals and undo the `SpiValue` boundary.
 - **Keep `receive` syntax in core.** Chosen because `receive` captures ScalaMeta case trees plus lexical `Env`; the plugin should consume an opaque receive-spec token, not parse syntax. Rejected: moving `receive` into the plugin, because plugins do not own the parser/evaluator AST dispatch.
 - **Move all interpreter actor runtime state together.** Chosen because local actors, supervision, distributed delivery, cluster visibility, raft/coordinator, and event queues share the same scheduler thread and mailbox wakeup path. Rejected: moving only `runActors` local scheduling while leaving cluster state in core, because that would leave the main entanglement in place.
+- **Keep actor/cluster mutable state per interpreter, not on the ServiceLoader backend singleton.** `BackendRegistry.inProcess`
+  may reuse provider objects across interpreter sessions, while today's `ActorInterp` fields are per `Interpreter`
+  instance. The move slice must allocate `ActorRuntime` per `runActors` and store node/cluster state in a per-host
+  holder keyed by the `ActorRuntimeHost` / `Interpreter`, or otherwise bind provider state to the interpreter lifetime.
+  Rejected: putting `peerChannels`, `remoteInbox`, raft/coordinator state, or registries directly on the backend object,
+  because that would leak state across tests, servers, and embedded interpreters.
 - **No public API change.** Chosen because this is a core-minimization refactor. Rejected: using this slice to redesign ActorRef/Pid or cluster protocols.
 
 ## Results
