@@ -6800,9 +6800,18 @@ final class CheckWithIfaceCmd extends CliCommand:
             // prelude — surface as type errors with a non-zero exit code.
             // Other entry points (`compile`, `emit-interface`, `emit-ir`)
             // remain permissive for backward compatibility.
+            // core-min-prelude-spi: resolve loaded-plugin symbols here too (names via intrinsic
+            // keys + typed signatures via preludeSymbols) so `check-with-iface` is consistent with
+            // `ssc check` and doesn't false-positive on plugin-backed names. Strictly reduces errors.
+            val pluginBuiltins = BackendRegistry.inProcess
+              .flatMap(_.intrinsics.keys).flatMap(qn => qn.value :: qn.value.split('.').headOption.toList).toSet
+            val pluginPrelude  = BackendRegistry.inProcess.flatMap(_.preludeSymbols)
             val typed =
-              if interfaces.isEmpty then Typer.typeCheckStrict(module)
-              else Typer.typeCheckWithInterfaces(module, interfaces, strict = true)
+              if interfaces.isEmpty then
+                Typer(strict = true, extraBuiltins = pluginBuiltins, preludeSymbols = pluginPrelude).typeCheck(module)
+              else
+                Typer(interfaces, strict = true, extraBuiltins = pluginBuiltins, preludeSymbols = pluginPrelude)
+                  .typeCheck(module)
             if typed.hasErrors then
               hasErrors = true
               typed.errors.foreach(e => System.err.println(s"  Error: ${e.show}"))
