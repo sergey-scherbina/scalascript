@@ -6,8 +6,12 @@ multi-shot trampoline — the regime that REQUIRES a re-callable monadic
 continuation and therefore cannot use the direct-style exception model
 (`specs/direct-style-eval-spec.md` §10.1). Tracks cross-backend multi-shot
 support: a backend without multi-shot resume reports `n/a`. Cross-backend
-status (2026-06-21): jvm and js run this workload; rust remains `n/a` until
-R.4.2 wires custom effect `handle`/`resume` lowering.
+status (2026-06-22): jvm and js run this workload. **Rust now LOWERS multi-shot**
+(`rust-effects.md §11` Slice 1 — the List-monad handle compiles to nested `for`
+loops + a `Vec`; `RustGenMultiShotTest` cargo-runs it). The bench itself still
+reports `n/a` on rust for an **orthogonal** reason: its LCG `s * 2862933555777941757`
+overflows `i64` and Rust debug-panics, whereas JVM/JS `Long` wraps — see BACKLOG
+`rust-long-wrapping-arithmetic`. A non-overflowing multi-shot loop runs on rust today.
 
 Honest-bench note: a carried 64-bit LCG (`s`) varies each branch's contribution
 so the summed result can't be constant-folded.

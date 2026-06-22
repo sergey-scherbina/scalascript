@@ -607,3 +607,13 @@ Multi-shot algebraic effects on the Rust backend (`effect-multishot` bench, NonD
 reified/re-invoked. Needs a Free-monad CPS lowering gated to `multi effect` (whole-body transform; risks the
 shipped one-shot path). Concrete design + blocker in `specs/rust-effects.md §11`. Multi-session, spec-first;
 `effect-multishot` stays `n/a` on rust until then.
+
+## rust-long-wrapping-arithmetic — Long `*`/`+`/`-` overflow panics on rust (debug) (2026-06-22)
+
+ScalaScript `Long` (and `Int`) arithmetic is **wrapping** (JVM/JS semantics), but the Rust backend emits
+plain `i64` `*`/`+`/`-`, which **panic on overflow in cargo debug builds**. Surfaced by the `effect-multishot`
+bench (LCG `s * 2862933555777941757` → `attempt to multiply with overflow`) — the only remaining blocker for
+that bench on rust after multi-shot lowering landed (`rust-effects.md §11` Slice 1). Fix options: emit
+`wrapping_mul`/`wrapping_add`/`wrapping_sub` for 64-bit arithmetic, or set `overflow-checks = false` in the
+emitted `Cargo.toml` profiles (cheaper, but hides genuine overflow). Prefer the wrapping ops for matching
+JVM/JS `Long` semantics. Orthogonal to effects; affects all i64-heavy rust programs.

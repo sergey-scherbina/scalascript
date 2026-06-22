@@ -1,6 +1,0 @@
-feature/rust-multishot-slice1 2026-06-22
-agent: claude (bright-quail)
-heartbeat: 2026-06-22T20:19:57Z
-status: in-progress
-done-so-far: design accepted (specs/rust-effects.md §11). Slice 1 = Tier-1 List-monad multi-shot, exactly effect-multishot.ssc (NonDet.choose).
-next: in RustCodeWalk: (1) collect _multiShotEffects from effect objects containing `val __multiShot__ = true` (in/near collectEffectOps); (2) build a defName->Defn.Def map for effectful defs; (3) in the `handle(body){cases}` dispatch, if the handled effect is multi-shot AND the handler is the List shape `case Eff.op(opts,resume) => opts.flatMap(opt => resume(opt))` AND body is a direct call to a straight-line effectful def (Block of `val x = Eff.op(arg)` performs + pure tail) -> renderMultiShotHandle: emit `{ let <params>=<args>; let mut __acc: Vec<_> = Vec::new(); for x in <render arg> { ... __acc.push(<render tail>); } __acc }`; else (multi-shot but unrecognized) -> clean unsupported (NOT the one-shot resume->v substitution). Guard: RustGenR44Test + one-shot cargo-smoke unchanged (one-shot byte-identical). New: cargo-smoke on effect-multishot == JVM/JS (6-way). spec §11.5 slice 1.

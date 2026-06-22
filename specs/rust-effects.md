@@ -449,10 +449,14 @@ Used when the monad is **not recognized** OR the perform structure is **dynamic*
 
 ### 11.5 Slice plan (each independently shippable; one-shot path untouched + re-verified)
 
-1. **Slice 1 (the bench).** Add the `__multiShot__` gate; Tier-1 **List monad + straight-line body** → nested
-   loops, exactly `effect-multishot.ssc`. Disable the `resume→v` substitution under the gate. `cargo`-run
-   smoke asserting the 6-branch result **== JVM/JS**. Guard: `RustGenR44Test` + the one-shot `cargo`-smoke
-   stay green (one-shot byte-identical).
+1. **Slice 1 — ✓ DONE 2026-06-22.** `__multiShot__` gate + Tier-1 **List monad + straight-line body** → nested
+   `for` loops + `Vec` (`RustCodeWalk.multiShotHandle`/`renderMultiShotList`/`inlineMultiShotBody`); the
+   `resume→v` substitution is bypassed (multi-shot never reaches `renderHandle`). `RustGenMultiShotTest`:
+   codegen golden + two `cargo`-runs (cross-product `102`; multi-shot-in-a-while-loop + foldLeft `324`).
+   One-shot untouched (`RustGenR44Test` + cargo-smoke green; full `backendRust` 239/0). **NOTE:** the actual
+   `effect-multishot.ssc` bench still reports `n/a` on rust for an *orthogonal* reason — its LCG
+   `s * 2862933555777941757` overflows `i64` and Rust debug-panics (JVM/JS `Long` wraps); needs
+   Long-wrapping arithmetic (BACKLOG `rust-long-wrapping-arithmetic`), independent of multi-shot.
 2. **Slice 2.** Tier-1 **Option** monad + effect-free `if`/`match` between performs.
 3. **Slice 3.** Tier-2 **defunctionalized trampoline** (dynamic perform structure / unrecognized monad) +
    the `Computation`/`Cont`/`apply` runtime in `runtime/effects.rs`.

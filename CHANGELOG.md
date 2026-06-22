@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — feat(rust): multi-shot algebraic effects, Tier-1 List monad (R.6 Slice 1)
+
+First multi-shot effect support on the Rust backend (`specs/rust-effects.md §11`). A `multi effect`
+handled by `opts.flatMap(opt => resume(opt))` over a straight-line effectful def now lowers to **nested
+`for` loops + a `Vec` accumulator** — no reified continuations, no `Box<dyn Fn>`, no dynamic `Value`,
+fully typed and stack-safe (the design's Tier-1 fast path). Gated on the parser's `__multiShot__` marker;
+the one-shot tagless-final path (and its `resume(v)→v` substitution, which is unsound for multi-shot) is
+untouched. `RustCodeWalk`: `multiShotHandle` / `renderMultiShotList` / `inlineMultiShotBody` +
+`collectMultiShotEffects` + a `_defBodies` map for inlining the handled def. `RustGenMultiShotTest`:
+codegen golden + two `cargo`-runs (cross-product `102`; multi-shot in a `while`-loop + foldLeft `324`).
+`backendRust` 239/0; one-shot byte-identical. The `effect-multishot` *bench* still reports `n/a` on rust
+for an **orthogonal** reason — its LCG overflows `i64` and Rust debug-panics (JVM/JS `Long` wraps); filed
+as BACKLOG `rust-long-wrapping-arithmetic`. Next: Tier-1 Option, then Tier-2 defunctionalized trampoline.
+
 ## 2026-06-22 — core-min keystone: typed plugin prelude (`Backend.preludeSymbols`)
 
 The enabler for "extract everything into plugins" (charter: B→A). A plugin declares its public prelude
