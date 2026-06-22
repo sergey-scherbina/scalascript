@@ -31,3 +31,11 @@ trait EffectHandler:
 trait BlockContext:
   /** The interpreter's standard-output sink (e.g. for `runLogger` to write log lines). */
   def out: java.io.PrintStream
+
+  /** Apply a ScalaScript function value (received as a `SpiValue.Opaque` closure) to `args`,
+   *  returning its result. Lets a handler invoke a closure passed as an effect-op argument — e.g.
+   *  `State.modify(f)`, or a retry/cache thunk. Defaulted to throw so the contract stays
+   *  backward-compatible: hosts that can run ScalaScript closures (the interpreter) override it;
+   *  hosts that can't, and handlers that never call it, are unaffected. */
+  def applyFn(@scala.annotation.unused fn: SpiValue, @scala.annotation.unused args: List[SpiValue]): SpiValue =
+    throw new UnsupportedOperationException("BlockContext.applyFn is not supported by this host")

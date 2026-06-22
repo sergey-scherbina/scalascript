@@ -211,41 +211,9 @@ private[interpreter] object EffectHandlers:
     finally interp._cacheBypass.set(priorBypass)
 
   // ── State ───────────────────────────────────────────────────────────
-
-  def stateRun(initial: Computation, s0: Value, interp: Interpreter): Computation =
-    var state = s0
-    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
-      op match
-        case "get"    =>
-          resume(state)
-        case "set"    => args match
-          case List(s) => state = s; resume(Value.UnitV)
-          case _       => throw InterpretError("State.set(s)")
-        case "modify" => args match
-          case List(f) =>
-            val newState = Computation.run(interp.callValue1(f, state, Map.empty))
-            state = newState; resume(Value.UnitV)
-          case _ => throw InterpretError("State.modify(f: S => S)")
-        case _ => throw InterpretError(s"Unknown State operation: $op")
-    def run(current0: Computation): Computation =
-      var current = current0
-      while true do
-        current match
-          case Pure(_) => return current
-          case Perform("State", op, args) =>
-            current = dispatch(op, args, v => Pure(v))
-          case Perform(_, _, _) => return current
-          case FlatMap(sub, f) => sub match
-            case Pure(v)                      => current = f(v)
-            case FlatMap(s2, g)               => current = FlatMap(s2, x => FlatMap(g(x), f))
-            case Perform("State", op, args)   =>
-              current = dispatch(op, args, v => run(f(v)))
-            case Perform(_, _, _)             =>
-              return FlatMap(sub, v => run(f(v)))
-      throw InterpretError("unreachable")
-    run(initial).flatMap { result =>
-      Pure(Value.TupleV(state :: result :: Nil))
-    }
+  // EXTRACTED to `state-effect-plugin` (core-minimization, polyglot-libraries §2d).
+  // runState(s0) dispatches through `Backend.blockForms` + `runWithHandler`; `State.modify(f)`
+  // applies the closure via the new `BlockContext.applyFn`. `runWithHandler` stays in core.
 
   // ── HTTP request helper (used by httpRun above) ─────────────────────
   // Duplicated from HttpIntrinsics (std/http-plugin) which we can't import

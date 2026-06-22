@@ -1117,6 +1117,7 @@ lazy val cli = project
         (randomEffectPlugin    / packagePlugin).value,
         (clockEffectPlugin     / packagePlugin).value,
         (envEffectPlugin       / packagePlugin).value,
+        (stateEffectPlugin     / packagePlugin).value,
       )
       pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
       log.info(s"bin/lib/compiler/plugins/  (${pluginPkgs.size} .sscpkg files)")
@@ -2824,6 +2825,18 @@ lazy val envEffectPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.env"))
 
+// ── State effect — runState(s0) as a block-form plugin (uses applyFn) ──────
+lazy val stateEffectPlugin = project
+  .in(file("runtime/std/state-effect-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-state-effect-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.state"))
+
 // ── UUID — v4/v7 generation, parsing, validation ──────────────────────────
 lazy val uuidPlugin = project
   .in(file("runtime/std/uuid-plugin"))
@@ -2989,6 +3002,7 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("random",          randomEffectPlugin,    "scalascript-random-effect-plugin"),
   PluginSpec("clock",           clockEffectPlugin,     "scalascript-clock-effect-plugin"),
   PluginSpec("env",             envEffectPlugin,       "scalascript-env-effect-plugin"),
+  PluginSpec("state",           stateEffectPlugin,     "scalascript-state-effect-plugin"),
 )
 
 // ── Frontend backend registry (arch-build-registry Phase 4) ─────────────

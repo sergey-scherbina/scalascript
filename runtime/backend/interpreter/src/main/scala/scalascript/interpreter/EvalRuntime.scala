@@ -3017,7 +3017,7 @@ private[interpreter] object EvalRuntime:
     "runActors", "runAsync", "runAsyncParallel", "runAuthWith", "runCache", "runCacheBypass",
     "runEphemeralStorage", "runHttp",
     "runHttpStub",
-    "runRetry", "runRetryNoSleep", "runState", "runStorage", "runStream",
+    "runRetry", "runRetryNoSleep", "runStorage", "runStream",
     "runSideEffect", "runTx", "timeout", "validate", "withFixedUuid", "Focus")
 
   /** Generic positional/named call dispatch for `f(args...)`, shared by the
@@ -3031,7 +3031,15 @@ private[interpreter] object EvalRuntime:
       bf: scalascript.backend.spi.BlockForm, configTerms: List[Term], bodyTerm: Term,
       env: Env, interp: Interpreter
   ): Computation =
-    val bctx    = new scalascript.backend.spi.BlockContext { def out: java.io.PrintStream = interp.out }
+    val bctx    = new scalascript.backend.spi.BlockContext:
+      def out: java.io.PrintStream = interp.out
+      // Apply a ScalaScript closure (an op argument, e.g. `State.modify(f)`) by routing back into
+      // the interpreter's `callValue` and running it synchronously — parity with the former
+      // `interp.callValue1` path. The function + args cross the boundary as `SpiValue`.
+      override def applyFn(fn: scalascript.backend.spi.SpiValue,
+                           args: List[scalascript.backend.spi.SpiValue]): scalascript.backend.spi.SpiValue =
+        val res = Computation.run(interp.callValue(interp.spiToValue(fn), args.map(interp.spiToValue), Map.empty))
+        interp.valueToSpi(res)
     val cfgArgs = configTerms.map(t => interp.valueToSpi(Computation.run(eval(t, env, interp))))
     val handler = bf.newHandler(bctx, cfgArgs)
     val body    = eval(bodyTerm, env, interp)
@@ -3570,14 +3578,9 @@ private[interpreter] object EvalRuntime:
       else EffectHandlers.streamRun(eval(bodyTerm, env, interp), interp)
 
     // ── v1.4 State effect handlers ────────────────────────────────────────
-    // runState(s0) { body }  — runs body intercepting State performs;
-    //                          returns (finalState, result) as a tuple
-    case Term.Apply.After_4_6_0(
-        Term.Apply.After_4_6_0(Term.Name("runState"), s0Clause),
-        bodyClause)
-        if s0Clause.values.size == 1 && bodyClause.values.size == 1 =>
-      val s0 = Computation.run(eval(s0Clause.values.head, env, interp))
-      EffectHandlers.stateRun(eval(bodyClause.values.head, env, interp), s0, interp)
+    // runState(s0) { body } — EXTRACTED to `state-effect-plugin` (core-minimization).
+    // Resolves via the generic curried block-form cases below; `State.modify(f)` applies the
+    // closure through `BlockContext.applyFn`. Returns (finalState, result). §2d.
 
     // ── v1.4 Auth effect handlers ─────────────────────────────────────────
     // runAuthWith(user) { body }  — injects a fixed user via thread-local;

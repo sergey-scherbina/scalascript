@@ -127,46 +127,9 @@ class StdEffectsTest extends AnyFunSuite with Matchers:
       }
     """) shouldBe "42\n99"
 
-  // ── State ─────────────────────────────────────────────────────────────
-
-  test("runState returns (finalState, result) pair"):
-    captured("""
-      val (s, r) = runState(0) {
-        State.set(10)
-        State.set(42)
-        "done"
-      }
-      println(s)
-      println(r)
-    """) shouldBe "42\ndone"
-
-  test("State.get returns current state"):
-    captured("""
-      val (s, r) = runState(7) {
-        val v = State.get()
-        v
-      }
-      println(r)
-    """) shouldBe "7"
-
-  test("State.modify applies a function to the state"):
-    captured("""
-      val (s, r) = runState(10) {
-        State.modify(x => x * 2)
-        State.modify(x => x + 5)
-        State.get()
-      }
-      println(s)
-      println(r)
-    """) shouldBe "25\n25"
-
-  test("runState initial state is used when no set performed"):
-    captured("""
-      val (s, r) = runState(99) {
-        42
-      }
-      println(s)
-    """) shouldBe "99"
+  // ── State — MOVED to StatePluginTest (interpreter-plugin-tests) ──────────
+  // Extracted to `state-effect-plugin`; runState(s0) now runs via the lazy ServiceLoader path.
+  // `State.modify(f)` exercises the new `BlockContext.applyFn` (closure-apply) SPI capability.
 
   // ── Tx ────────────────────────────────────────────────────────────────
 
