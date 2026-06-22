@@ -20,6 +20,12 @@ These need NO design decision — claimable immediately, in priority/tractabilit
 live in the `polyglot-phase2-optics-allhosts` entry below (Task B = cross-language reuse, proven on the JS
 slice). Each is one host of the optics-library packaging, individually claimable.
 
+- [ ] **polyglot-optics-board-hygiene** — reconcile stale optics packaging entries at the top of `SPRINT.md`.
+      **How:** compare the open `emit-lib-cli` / `polyglot-optics-jvm` entries here with the later completed
+      `optics-emit-lib-cli`, `optics-jvm-facade`, `polyglot-optics-rust`, and `polyglot-optics-java` entries
+      plus `CHANGELOG.md`; mark stale duplicates as done/superseded instead of letting agents re-claim already
+      landed work. Do not touch implementation. **Verify:** grep shows no open `[ ]` optics packaging duplicate
+      remains in the top claimable queue; active claims are unchanged.
 - [ ] **emit-lib-cli** — CLI command `emit-lib --host js --feature optics -o <dir>` (ServiceLoader
       `CliCommand` + `META-INF/services/scalascript.cli.CliCommand`; `cli` already `dependsOn backendJs`).
       Wraps the existing `JsLibPackager` (already landed + node-smoke-tested) so the npm package is
