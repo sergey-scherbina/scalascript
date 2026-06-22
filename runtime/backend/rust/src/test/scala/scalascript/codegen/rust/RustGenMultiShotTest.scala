@@ -210,34 +210,31 @@ class RustGenMultiShotTest extends AnyFunSuite:
     assert(runMaybe("Some(5)", "Some(7)") == "12", "Some(5)+Some(7) → Some(12) → 12")
     assert(runMaybe("Some(5)", "None")    == "-1", "a None short-circuits → None → -1")
 
-  // ── Tier-2 single-perform multi-shot — continuation-as-closure (spec §11.2) ────────────────
-  private val ambSrc =
-    """```scalascript
-      |multi effect Amb:
-      |  def flip(): Boolean
-      |
-      |def program(): Int ! Amb =
-      |  val x = Amb.flip()
-      |  if x then 1 else 0
-      |
-      |@main def run(): Unit =
-      |  val r = handle(program()) {
-      |    case Amb.flip(resume) => resume(true) + resume(false)
-      |  }
-      |  println(r)
-      |```
-      |""".stripMargin
+  // ── Tier-2 multi-shot (general, static depth) — handler as `fn __h` + nested closures (§11.2) ──
+  private def ambSrc(flips: String, tail: String): String =
+    s"""```scalascript
+       |multi effect Amb:
+       |  def flip(): Boolean
+       |
+       |def program(): Int ! Amb =
+       |$flips
+       |  $tail
+       |
+       |@main def run(): Unit =
+       |  val r = handle(program()) {
+       |    case Amb.flip(resume) => resume(true) + resume(false)
+       |  }
+       |  println(r)
+       |```
+       |""".stripMargin
 
-  test("Tier-2 single-perform multi-shot reifies the continuation as a closure (Amb)"):
-    val rs = rustOf(ambSrc)
-    assert(rs.contains("let __k = |x: bool| -> i64 {"), rs)
-    assert(rs.contains("__k(true)"), rs)
-    assert(rs.contains("__k(false)"), rs)
-    assert(!rs.contains("struct __H_Amb"), "Tier-2 must not use the one-shot handler-struct path")
+  private val amb1 = ambSrc("  val x = Amb.flip()", "if x then 1 else 0")
+  // two nested performs: sum over x,y ∈ {T,F} of (x?1:0)+(y?10:0) = 11+1+10+0 = 22
+  private val amb2 = ambSrc("  val x = Amb.flip()\n  val y = Amb.flip()",
+                            "(if x then 1 else 0) + (if y then 10 else 0)")
 
-  test("Tier-2 Amb runs end-to-end via cargo: resume(true) + resume(false) = 1 + 0 = 1"):
-    assume(cargoAvailable, "cargo not on PATH — skipping end-to-end Rust smoke")
-    val assets = new RustBackend().compile(Normalize(Parser.parse(ambSrc)), opts) match
+  private def runRust(src: String): String =
+    val assets = new RustBackend().compile(Normalize(Parser.parse(src)), opts) match
       case CompileResult.Segmented(segs) => segs.collect { case a: Segment.Asset => a }
       case other                         => fail(s"expected Segmented, got $other")
     val crateDir = os.temp.dir(prefix = "ssc-rust-amb-")
@@ -246,5 +243,22 @@ class RustGenMultiShotTest extends AnyFunSuite:
         val out = crateDir / os.RelPath(a.name); os.makeDir.all(out / os.up); os.write.over(out, a.bytes)
       val res = os.proc("cargo", "run", "--quiet").call(cwd = crateDir, check = false)
       if res.exitCode != 0 then fail(s"cargo run failed (exit ${res.exitCode}):\n${res.err.text()}")
-      assert(res.out.text().trim == "1", s"got: ${res.out.text().trim}")
+      res.out.text().trim
     finally os.remove.all(crateDir)
+
+  test("Tier-2 multi-shot emits the handler as a nested fn + reifies each continuation (Amb)"):
+    val rs = rustOf(amb1)
+    assert(rs.contains("fn __h(__k: &dyn Fn(bool) -> i64) -> i64 {"), rs)
+    assert(rs.contains("__k(true)") && rs.contains("__k(false)"), rs)  // handler resumes both ways
+    assert(rs.contains("__h(&|x: bool|"), rs)                          // perform → nested __h call
+    assert(!rs.contains("struct __H_Amb"), "Tier-2 must not use the one-shot handler-struct path")
+
+  test("Tier-2 Amb (1 flip) runs end-to-end via cargo: resume(true)+resume(false) = 1+0 = 1"):
+    assume(cargoAvailable, "cargo not on PATH — skipping end-to-end Rust smoke")
+    assert(runRust(amb1) == "1", "1 flip → 1")
+
+  test("Tier-2 multi-shot handles NESTED performs (2 flips) end-to-end via cargo → 22"):
+    assume(cargoAvailable, "cargo not on PATH — skipping end-to-end Rust smoke")
+    val rs = rustOf(amb2)
+    assert(rs.contains("__h(&|x: bool|") && rs.contains("__h(&|y: bool|"), rs)  // nested __h calls
+    assert(runRust(amb2) == "22", "sum over x,y∈{T,F} of (x?1:0)+(y?10:0) = 22")

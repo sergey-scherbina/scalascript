@@ -2911,15 +2911,14 @@ object RustCodeWalk:
               // Tier-1 — List/Option monad: `opts.flatMap(opt => resume(opt))` over a straight-line def.
               case List(optsName, resumeName) if isListFlatMapResume(c.body, optsName, resumeName) =>
                 inlineMultiShotBody(body, eff, ctx)
-              // Tier-2 (single-perform) — arbitrary handler over a single no-value-arg-op perform: reify
-              // the continuation (rest of the body) as a closure and let the handler call it any number
-              // of times (spec §11.2; the general nested-perform trampoline is a separate, larger slice).
-              case List(resumeName) =>
-                renderTier2SinglePerform(body, eff, opName, resumeName, c.body, ctx)
+              // Tier-2 — arbitrary handler (resume any way) over a single-op effect: emit the handler as
+              // a nested `fn __h(<op-args>, k)` and nest each perform `__h(<args>, &|x| <rest>)` (spec
+              // §11.2). Handles 1..N (static-depth) performs; the binders are the op-arg binders + resume.
+              case binders if binders.nonEmpty =>
+                renderTier2General(body, eff, opName, binders.init, binders.last, c.body, ctx)
               case _ =>
                 Left(List(unsupported(
-                  s"multi-shot `$eff` handler shape unsupported — Tier-1 = monad `flatMap(resume)`; " +
-                  "Tier-2 = single perform of a no-value-arg op (general nested multi-shot: TODO)")))
+                  s"multi-shot `$eff` handler has no `resume` binder")))
           case _ =>
             Left(List(unsupported(s"multi-shot `$eff` handle case is not `$eff.op(…, resume) =>`")))
       case _ =>
@@ -2938,48 +2937,60 @@ object RustCodeWalk:
   private def treePerformsEffect(t: m.Tree, eff: String): Boolean =
     t.collect { case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(`eff`), _), _) => true }.nonEmpty
 
-  /** Tier-2 multi-shot (single perform) — spec §11.2. When the handler resumes in an arbitrary way (not a
-   *  recognised monad `flatMap`), inline `handle(defName(args))`, reify the continuation (the body after
-   *  the single `val x = Eff.op()` perform) as a Rust closure `__k`, and render the handler body with
-   *  `resume(v)` → `__k(v)`. Restricted to ONE perform of a no-value-arg op (nested performs need the
-   *  general defunctionalized trampoline, a separate slice). */
-  private def renderTier2SinglePerform(
-      body: m.Term, eff: String, opName: String, resumeName: String, handlerBody: m.Term, ctx: Ctx
+  /** Tier-2 multi-shot (general, static depth) — spec §11.2. For an arbitrary handler (resume any way,
+   *  not a monad `flatMap`) over a single-op `multi effect`, emit the handler as a non-capturing nested
+   *  `fn __h(<op-arg params>, __k: &dyn Fn(<opRet>) -> <progRet>) -> <progRet> { <handler, resume→__k> }`,
+   *  then **nest** each `val xᵢ = Eff.op(argsᵢ)` perform as `__h(<argsᵢ>, &|xᵢ| <rest>)` down to the pure
+   *  tail — so the continuation re-enters the handler at each perform. Handles 1..N performs at a *static*
+   *  depth; unbounded (a perform in a loop) still needs the explicit defunctionalized trampoline. */
+  private def renderTier2General(
+      body: m.Term, eff: String, opName: String, opArgBinders: List[String], resumeName: String,
+      handlerBody: m.Term, ctx: Ctx
   ): Either[List[Diagnostic], String] =
     body match
       case m.Term.Apply.After_4_6_0(m.Term.Name(defName), callArgs) if _defBodies.contains(defName) =>
-        val dd     = _defBodies(defName)
-        val params = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
-        val args   = callArgs.values.toList
+        val dd       = _defBodies(defName)
+        val params   = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
+        val args     = callArgs.values.toList
+        val opPtypes = _effectOps.getOrElse(eff, Nil).collectFirst { case (o, pts, _) if o == opName => pts }.getOrElse(Nil)
         if params.size != args.size then
           Left(List(unsupported(s"Tier-2 multi-shot: arity mismatch calling `$defName`")))
-        else dd.body match
-          case m.Term.Block((v: m.Defn.Val) :: rest) if rest.nonEmpty =>
-            (v.pats, v.rhs) match
-              case (List(m.Pat.Var(m.Term.Name(xn))),
-                    m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(`eff`), m.Term.Name(`opName`)), opArgs))
-                  if opArgs.values.isEmpty =>
-                if rest.exists(treePerformsEffect(_, eff)) then
-                  Left(List(unsupported(
-                    s"Tier-2 multi-shot (`$defName`): more than one perform — nested multi-shot needs the general trampoline (TODO)")))
-                else opRetRustType(eff, opName) match
-                  case None => Left(List(unsupported(s"Tier-2 multi-shot: unknown return type for `$eff.$opName`")))
-                  case Some(opRet) =>
-                    val progRet = dd.decltpe.flatMap(t => mapType(t, defName, Set.empty).toOption).filter(_.nonEmpty).getOrElse("i64")
-                    val restTerm: m.Term = rest match
-                      case List(t: m.Term) => t
-                      case _               => m.Term.Block(rest)
-                    val pbindEs   = params.zip(args).map { case (p, a) => renderTerm(a, ctx).map(r => s"let $p = $r;") }
-                    val restE     = renderTerm(restTerm, ctx)
-                    val handlerE  = renderTerm(handlerBody, ctx.copy(resumeParam = Some(resumeName), resumeClosure = Some("__k")))
-                    val (pErr, pbinds) = pbindEs.partitionMap(identity)
-                    val errs = pErr.flatten ++ restE.left.toOption.toList.flatten ++ handlerE.left.toOption.toList.flatten
-                    if errs.nonEmpty then Left(errs)
-                    else
-                      val pre = if pbinds.isEmpty then "" else pbinds.mkString("", " ", " ")
-                      Right(s"{ ${pre}let __k = |$xn: $opRet| -> $progRet { ${restE.toOption.get} }; ${handlerE.toOption.get} }")
+        else if opArgBinders.size != opPtypes.size then
+          Left(List(unsupported(s"Tier-2 multi-shot: `$eff.$opName` handler binds ${opArgBinders.size} op args, expected ${opPtypes.size}")))
+        else (dd.body, opRetRustType(eff, opName)) match
+          case (_, None) => Left(List(unsupported(s"Tier-2 multi-shot: unknown return type for `$eff.$opName`")))
+          case (m.Term.Block(stats), Some(opRet)) if stats.size >= 2 =>
+            stats.last match
+              case tail: m.Term if !treePerformsEffect(tail, eff) =>
+                val performEs: List[Either[List[Diagnostic], (String, String)]] = stats.init.toList.map {
+                  case v: m.Defn.Val =>
+                    (v.pats, v.rhs) match
+                      case (List(m.Pat.Var(m.Term.Name(xn))),
+                            m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(`eff`), m.Term.Name(`opName`)), opArgs)) =>
+                        val (e, ok) = opArgs.values.toList.map(renderTerm(_, ctx)).partitionMap(identity)
+                        if e.nonEmpty then Left(e.flatten) else Right((xn, ok.mkString(", ")))
+                      case _ => Left(List(unsupported(s"Tier-2 (`$defName`): a statement is not `val x = $eff.$opName(args)`")))
+                  case _ => Left(List(unsupported(s"Tier-2 (`$defName`): a non-val statement before the tail")))
+                }
+                val progRet  = dd.decltpe.flatMap(t => mapType(t, defName, Set.empty).toOption).filter(_.nonEmpty).getOrElse("i64")
+                val pbindEs  = params.zip(args).map { case (p, a) => renderTerm(a, ctx).map(r => s"let $p = $r;") }
+                val tailE    = renderTerm(tail, ctx)
+                val handlerE = renderTerm(handlerBody, ctx.copy(resumeParam = Some(resumeName), resumeClosure = Some("__k")))
+                val (perr, performs) = performEs.partitionMap(identity)
+                val (pErr, pbinds)   = pbindEs.partitionMap(identity)
+                val errs = perr.flatten ++ pErr.flatten ++ tailE.left.toOption.toList.flatten ++ handlerE.left.toOption.toList.flatten
+                if errs.nonEmpty then Left(errs)
+                else
+                  val hParams = (opArgBinders.zip(opPtypes).map { case (b, t) => s"$b: $t" } :+ s"__k: &dyn Fn($opRet) -> $progRet").mkString(", ")
+                  val hFn     = s"fn __h($hParams) -> $progRet { ${handlerE.toOption.get} }"
+                  val nested  = performs.foldRight(tailE.toOption.get) { case ((xn, argsRs), acc) =>
+                    val argPrefix = if argsRs.isEmpty then "" else s"$argsRs, "
+                    s"__h($argPrefix&|$xn: $opRet| { $acc })"
+                  }
+                  val pre = if pbinds.isEmpty then "" else pbinds.mkString("", " ", " ")
+                  Right(s"{ $pre$hFn $nested }")
               case _ =>
-                Left(List(unsupported(s"Tier-2 multi-shot (`$defName`): body must start with `val x = $eff.$opName()` (a no-arg perform)")))
+                Left(List(unsupported(s"Tier-2 (`$defName`): the block tail must be a pure expression (no perform)")))
           case _ =>
             Left(List(unsupported(s"Tier-2 multi-shot: body of `$defName` is not a `val x = perform; …` block")))
       case _ =>
