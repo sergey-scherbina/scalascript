@@ -458,8 +458,13 @@ Used when the monad is **not recognized** OR the perform structure is **dynamic*
    resolved alongside (`overflow-checks = false` in the emitted Cargo.toml ⇒ `i64` wraps like JVM/JS
    `Long` instead of debug-panicking on the LCG). All three backends (jvm/js/rust) run the workload.
 2. **Slice 2 — ✓ Option lowering DONE 2026-06-22** (golden). Tier-1 **Option** monad: `inlineMultiShotBody` discriminates the monad by the op-arg Rust type (`Vec<…>`→loops, `Option<…>`→nested `if let Some(x) = … else None`, pure tail `Some(tail)`); `RustGenMultiShotTest` golden. **Now end-to-end** (`rust-option-consumption`, 2026-06-22): added native-`Option` consumption — `Some(x)`/`None` match patterns in `renderPattern` + `getOrElse`→`unwrap_or`; the Option scrutinees are bound to a typed `let` (op param type) so a bare `None` arg infers. `RustGenMultiShotTest` cargo-runs Some-chain→12 / None→-1. (Effect-free `if`/`match` between performs still TODO.)
-3. **Slice 3.** Tier-2 **defunctionalized trampoline** (dynamic perform structure / unrecognized monad) +
-   the `Computation`/`Cont`/`apply` runtime in `runtime/effects.rs`.
+3. **Slice 3 — ✓ single-perform Tier-2 DONE 2026-06-22.** Arbitrary handlers (resume in any way, not a
+   monad `flatMap`) over a **single** no-value-arg-op perform: `renderTier2SinglePerform` reifies the
+   continuation (the body after the perform) as a Rust closure `__k` and renders the handler body with
+   `resume(v)` → `__k(v)` (`Ctx.resumeClosure`). `RustGenMultiShotTest` (Amb / `flip`): golden + cargo-run
+   `resume(true) + resume(false)` → `1`. **REMAINING:** the general **defunctionalized trampoline** for
+   *nested / multiple* performs (the `Computation`/`Cont`/`apply` runtime in `runtime/effects.rs`) — a
+   separate, larger slice; currently a clean `unsupported`, no consumer.
 4. **Slice 4.** Perf hardening (capacity hints, avoid intermediate `Vec`s where a fold suffices) + multi-effect
    handlers.
 

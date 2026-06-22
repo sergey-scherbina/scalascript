@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — feat(rust): Tier-2 single-perform multi-shot (continuation-as-closure) — R.6 Slice 3
+
+Handles multi-shot effect handlers that resume in **arbitrary** ways (not a monad `flatMap` — e.g.
+`resume(true) + resume(false)`), which Tier-1 (List/Option) can't express. For a `handle` over a
+**single** no-value-arg-op perform, `renderTier2SinglePerform` reifies the continuation (the body after
+the perform) as a Rust closure `__k = |x: <opRet>| -> <progRet> { <rest> }` and renders the handler body
+with `resume(v)` → `__k(v)` (new `Ctx.resumeClosure`). Example (`Amb`/`flip` nondeterminism): `handle`
+with `resume(true) + resume(false)` → `{ let __k = |x: bool| -> i64 { if x {1} else {0} }; __k(true) +
+__k(false) }` → `1`. `RustGenMultiShotTest` golden + cargo-run. One-shot tagless-final + Tier-1 untouched;
+`backendRust` 249/0. The **general** defunctionalized trampoline for *nested* performs (`Computation`/
+`Cont`/`apply` in `runtime/effects.rs`) remains a separate larger slice (clean `unsupported`, no consumer).
+
 ## 2026-06-22 — docs: collapse duplicate actors migration queue item
 
 Closed `coremin-actors-board-reconcile`. `SPRINT.md` now has exactly one open `coremin-actors-migrate`
