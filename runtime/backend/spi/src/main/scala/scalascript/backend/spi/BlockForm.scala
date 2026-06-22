@@ -39,3 +39,13 @@ trait BlockContext:
    *  hosts that can't, and handlers that never call it, are unaffected. */
   def applyFn(@scala.annotation.unused fn: SpiValue, @scala.annotation.unused args: List[SpiValue]): SpiValue =
     throw new UnsupportedOperationException("BlockContext.applyFn is not supported by this host")
+
+  /** Build a host record/instance value — a named type with string-keyed fields — and return it as
+   *  an opaque [[SpiValue]] the host round-trips unchanged. Lets a handler reply with a typed record
+   *  the SPI's primitive cases can't express, e.g. `Http.get` → a `Response { status, headers, body }`
+   *  the body then field-accesses (`resp.status`). Defaulted to throw so the contract stays
+   *  backward-compatible: a host that has a record value (the interpreter → `Value.InstanceV`)
+   *  overrides it; handlers that never call it are unaffected. */
+  def makeRecord(@scala.annotation.unused typeName: String,
+                 @scala.annotation.unused fields: List[(String, SpiValue)]): SpiValue =
+    throw new UnsupportedOperationException("BlockContext.makeRecord is not supported by this host")

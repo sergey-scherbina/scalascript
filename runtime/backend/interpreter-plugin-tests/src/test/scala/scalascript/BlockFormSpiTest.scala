@@ -134,3 +134,39 @@ class BlockFormSpiTest extends AnyFunSuite:
         |println(logCollect { prog() })""".stripMargin)
     // result(bodyResult=7, handler) → (7, List("a", "b")) — proves BlockForm.result.
     assert(out == "(7, List(a, b))", s"expected (7, List(a, b)) via result-combination, got: [$out]")
+
+  // BlockContext.makeRecord — a handler replies with a typed RECORD the body field-accesses
+  // (the Http.get → Response { status, headers, body } shape, the core-min-http-migrate need).
+  private class FetchPlugin extends Backend:
+    def id = "test-fetch"; def displayName = "Fetch (test)"; def spiVersion = SpiVersion.Current
+    def capabilities = Capabilities(Set.empty, Set.empty, Set.empty,
+      SpiVersionRange(SpiVersion.Current, SpiVersion.Current))
+    def intrinsics: Map[QualifiedName, IntrinsicImpl] = Map.empty
+    def acceptedSources: Set[String] = Set.empty
+    def compile(m: NormalizedModule, o: BackendOptions): CompileResult =
+      CompileResult.Failed(List(Diagnostic.Generic("test plugin")))
+    override def blockForms: Map[String, BlockForm] = Map(
+      "runFetch" -> new BlockForm:
+        def effectName = "Fetch"
+        def newHandler(ctx: BlockContext, args: List[SpiValue]): EffectHandler =
+          new EffectHandler:
+            def reply(op: String, args: List[SpiValue]): SpiValue = (op, args) match
+              case ("get", List(SpiValue.StrV(url))) =>
+                ctx.makeRecord("Resp", List(
+                  "status" -> SpiValue.IntV(200),
+                  "body"   -> SpiValue.StrV("ok:" + url)))
+              case _ => SpiValue.UnitV
+    )
+
+  test("block-form handler replies with a record via ctx.makeRecord; the body field-accesses it"):
+    val out = runWith(new FetchPlugin,
+      """effect Fetch:
+        |  def get(url: String): Resp
+        |def prog(): Unit =
+        |  val r = Fetch.get("/x")
+        |  println(r.status)
+        |  println(r.body)
+        |runFetch { prog() }""".stripMargin)
+    // makeRecord("Resp", {status:200, body:"ok:/x"}) round-trips through Opaque → InstanceV; the
+    // body field-accesses `r.status` / `r.body` exactly like a real Http Response.
+    assert(out == "200\nok:/x", s"expected the record's fields via makeRecord, got: [$out]")

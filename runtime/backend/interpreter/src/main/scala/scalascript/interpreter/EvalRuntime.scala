@@ -3040,6 +3040,13 @@ private[interpreter] object EvalRuntime:
                            args: List[scalascript.backend.spi.SpiValue]): scalascript.backend.spi.SpiValue =
         val res = Computation.run(interp.callValue(interp.spiToValue(fn), args.map(interp.spiToValue), Map.empty))
         interp.valueToSpi(res)
+      // Build a `Value.InstanceV(typeName, {fields})` and hand it back as an opaque SpiValue; the
+      // interp unwraps the Opaque to the record when resuming the body. Lets a handler reply with a
+      // typed record (e.g. `Http.get` → `Response { status, headers, body }`). §2d core-min.
+      override def makeRecord(typeName: String,
+                              fields: List[(String, scalascript.backend.spi.SpiValue)]): scalascript.backend.spi.SpiValue =
+        val m: Map[String, Value] = fields.iterator.map((kv) => kv._1 -> interp.spiToValue(kv._2)).toMap
+        scalascript.backend.spi.SpiValue.Opaque(Value.InstanceV(typeName, m))
     val cfgArgs = configTerms.map(t => interp.valueToSpi(Computation.run(eval(t, env, interp))))
     val handler = bf.newHandler(bctx, cfgArgs)
     val body    = eval(bodyTerm, env, interp)
