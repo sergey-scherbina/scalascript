@@ -18,10 +18,13 @@ class ClockEffectPlugin extends Backend:
   def intrinsics:      Map[QualifiedName, IntrinsicImpl] = Map.empty
   def acceptedSources: Set[String]                       = Set.empty
 
-  /** core-min-prelude-migrate: declare the runner name(s) for `ssc check` (the keystone),
-   *  removed from the hardcoded Typer prelude `effectBuiltins`; resolves via the bundled plugin. */
+  /** core-min-prelude-migrate: declare the runner name(s) for `ssc check` (the keystone), removed from
+   *  the hardcoded Typer prelude; resolves via the bundled plugin. `runClockAt` carried the typed
+   *  `runnerType2("Clock")` core def — the typer does not enforce effect discharge, so `Any` suffices
+   *  here (the interpreter resolves the runner via this plugin's block-form, not the type). */
   override def preludeSymbols: List[ExportedSymbol] = List(
-    ExportedSymbol("runClock", "runClock", "def", "Any"),
+    ExportedSymbol("runClock",   "runClock",   "def", "Any"),
+    ExportedSymbol("runClockAt", "runClockAt", "def", "Any"),
   )
   def compile(module: NormalizedModule, opts: BackendOptions): CompileResult =
     CompileResult.Failed(List(Diagnostic.Generic("clock-effect-plugin — interpreter only")))

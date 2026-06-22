@@ -29,12 +29,14 @@ class RandomEffectPlugin extends Backend:
     "runRandomSeeded" -> RandomBlockForm,
   )
 
-  /** core-min-prelude-migrate: the plugin DECLARES its runner name for `ssc check` (the keystone),
-   *  so it no longer has to be hardcoded in `Typer.createPrelude`'s `effectBuiltins`. Resolves via
-   *  the bundled plugin's preludeSymbols. (`runRandomSeeded` keeps its typed core def for now — it
-   *  carries the effect-discharge `runnerType2` signature, which migrates in a later step.) */
+  /** core-min-prelude-migrate: the plugin DECLARES its runner names for `ssc check` (the keystone),
+   *  so they no longer have to be hardcoded in `Typer.createPrelude`. Resolves via the bundled
+   *  plugin's preludeSymbols. `runRandomSeeded` carried the typed `runnerType2("Random")` core def;
+   *  since the typer does NOT enforce effect discharge, declaring it `Any` here is sufficient for
+   *  `ssc check` (the interpreter resolves the runner via this plugin's block-form, not the type). */
   override def preludeSymbols: List[ExportedSymbol] = List(
-    ExportedSymbol("runRandom", "runRandom", "def", "Any"),
+    ExportedSymbol("runRandom",       "runRandom",       "def", "Any"),
+    ExportedSymbol("runRandomSeeded", "runRandomSeeded", "def", "Any"),
   )
 
 /** `runRandom { body }` / `runRandomSeeded(seed) { body }` — a per-block `java.util.Random`. */

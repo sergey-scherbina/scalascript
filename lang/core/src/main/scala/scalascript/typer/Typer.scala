@@ -268,12 +268,10 @@ class Typer(
     s.define(Symbol("runLogger",       runnerType("Logger"),  SymbolKind.Def))
     s.define(Symbol("runLoggerJson",   runnerType("Logger"),  SymbolKind.Def))
     s.define(Symbol("runLoggerToList", runnerType("Logger"),  SymbolKind.Def))
-    // runRandomSeeded(seed) { body } — seed: Long
-    s.define(Symbol("runRandomSeeded", runnerType2("Random"), SymbolKind.Def))
-    // runClockAt(t0) { body } — t0: Long
-    s.define(Symbol("runClockAt",      runnerType2("Clock"),  SymbolKind.Def))
-    // runEnvWith(map) { body } — map: Map[String, String]
-    s.define(Symbol("runEnvWith",      runnerType2("Env"),    SymbolKind.Def))
+    // runRandomSeeded(seed){body} / runClockAt(t0){body} / runEnvWith(map){body} — MIGRATED to their
+    // plugins' `preludeSymbols` (random/clock/env-effect-plugin). The typer does not enforce effect
+    // discharge, so these typed `runnerType2` defs need not live in core; the bundled plugin declares
+    // each name for `ssc check`, and the interpreter resolves the runner via the plugin's block-form.
     // runState(s0) { body } — s0: S
     s.define(Symbol("runState",        runnerType2("State"),  SymbolKind.Def))
     // runHttp { body }
