@@ -5299,8 +5299,15 @@ private def checkOneFile(
       // arch-meta-v2 macro-codegen — warn on interpreter-only quoted macros that
       // can't compile to the JVM/JS backends (warnings only).
       val macroWarnings = scalascript.artifact.MacroCodegen.codegenWarnings(module)
+      // arch-meta-v2 C2 (conservative) — re-typecheck the macro/inline-EXPANDED module
+      // and warn on any undefined name the expansion INTRODUCED (a broken macro/inline
+      // body that the pre-expansion check above can't see). Self-gating via a pre/post
+      // diff; warnings only; never breaks `ssc check`; free no-op for macro-free modules.
+      val expansionWarnings = scalascript.artifact.MacroCodegen.expansionTypeWarnings(
+        module, interfaces, pluginBuiltins, strictNamespaces, Some(path / os.up))
       val elapsed = System.currentTimeMillis() - t0
-      CheckResult(file, parseErrors = false, errors = typed.errors ++ lintWarnings ++ macroWarnings, elapsedMs = elapsed)
+      CheckResult(file, parseErrors = false,
+        errors = typed.errors ++ lintWarnings ++ macroWarnings ++ expansionWarnings, elapsedMs = elapsed)
   catch case e: Exception =>
     val elapsed = System.currentTimeMillis() - t0
     // Treat an unexpected exception as a parse error so the caller can assign

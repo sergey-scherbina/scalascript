@@ -2,7 +2,7 @@ package scalascript.artifact
 
 import scalascript.ast.{Module, Section, Content, ScalaNode}
 import scalascript.parser.Parser
-import scalascript.typer.TypeError
+import scalascript.typer.{Typer, TypeError}
 import scala.meta.*
 
 /** arch-meta-v2 `macro-codegen-backends` — expand restricted quoted macros in an
@@ -80,6 +80,65 @@ object MacroCodegen:
             "or an `Expr.asValue match` body.",
           None, isWarning = true)
     }.distinct
+
+  /** arch-meta-v2 C2 (conservative slice) — re-typecheck the macro/inline-EXPANDED
+   *  module and surface a reference the expansion left dangling: a macro/inline body
+   *  that generates a bare name nothing defines. Today such a break passes `ssc check`
+   *  (which type-checks the PRE-expansion source) and only fails later at codegen/run,
+   *  with errors pointing into synthetic expanded text.
+   *
+   *  Conservative by construction — the full re-typecheck was deferred for false-positive
+   *  risk (`specs/arch-metaprogramming-v2.md` C2); this slice dodges it:
+   *   - only the `Reference to undefined name` class — NOT full type inference, so no
+   *     spurious mismatch/inference noise from expanded macro-runtime constructs;
+   *   - excludes plugin builtins, the stripped macro entrypoint/impl names (an
+   *     interpreter-only macro left unexpanded is `codegenWarnings`' concern, not a
+   *     broken expansion) and `_`-prefixed runtime helpers;
+   *   - emitted as WARNINGS;
+   *   - the CALLER invokes this ONLY when the pre-expansion module already type-checks
+   *     clean, so a flagged name is genuinely introduced BY the expansion.
+   *
+   *  No source-position map (the deferred hard part): warnings are file-level. Any
+   *  exception in expand/typecheck is swallowed — this never breaks `ssc check`. The
+   *  strict no-op invariant of `expand` makes it free for macro-free modules. */
+  def expansionTypeWarnings(
+      module: Module,
+      interfaces: Map[String, scalascript.ir.ModuleInterface] = Map.empty,
+      pluginBuiltins: Set[String] = Set.empty,
+      strictNamespaces: Boolean = false,
+      baseDir: Option[os.Path] = None
+  ): List[TypeError] =
+    try
+      val expanded = expand(module, baseDir)
+      if expanded eq module then Nil          // no expandable macros → free no-op
+      else
+        val strip  = collectMacros(module)._2 // entrypoint + impl names that expand strips
+        val Prefix = "Reference to undefined name: "
+        def undefinedNames(mod: Module): Set[String] =
+          val typed =
+            if interfaces.isEmpty then Typer.typeCheckStrict(mod, pluginBuiltins)
+            else if strictNamespaces then Typer.typeCheckStrictNamespaces(mod, interfaces)
+            else Typer.typeCheckWithInterfaces(mod, interfaces, strict = true, pluginBuiltins)
+          typed.errors.iterator
+            .filter(e => !e.isWarning && e.msg.startsWith(Prefix))
+            .map(_.msg.stripPrefix(Prefix).trim).toSet
+        // DIFF: names undefined AFTER expansion but not BEFORE = introduced by the
+        // expansion. Macro machinery (`__ssc_macro__`/`Expr`/…) is undefined pre-expansion
+        // but stripped post-expansion, so it cancels out; a name the user already left
+        // undefined is reported by the normal pre-expansion check, not blamed on expansion.
+        val pre  = undefinedNames(module)
+        val post = undefinedNames(expanded)
+        (post -- pre).iterator
+          .filterNot(name =>
+            name.isEmpty || name.startsWith("_")
+              || pluginBuiltins.contains(name) || strip.contains(name))
+          .toList.sorted
+          .map(name => TypeError(
+            s"post-expansion: macro/inline expansion references undefined name `$name` " +
+              "(the source type-checks but its expansion does not — likely a bug in the macro/" +
+              "inline body).",
+            None, isWarning = true))
+    catch case _: Throwable => Nil
 
   /** Cross-module path (Approach B) — expand + strip macros over an ALREADY
    *  ASSEMBLED set of code units (consumer blocks + inlined imported blocks),
