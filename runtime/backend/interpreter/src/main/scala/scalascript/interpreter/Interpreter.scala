@@ -1229,27 +1229,7 @@ class Interpreter(
               case e: Throwable =>
                 Left(scalascript.backend.spi.RemoteCallError.RemoteFailed("handler_failed", String.valueOf(e.getMessage)))
 
-  // ─── Minimal NativeContext for Http effect ───────────────────────────
-  //
-  // httpRun needs a NativeContext to call doHttpRequest.  This lightweight
-  // factory reads the same ThreadLocals used by httpClient{} scopes.
-
-  private[interpreter] def mkHttpCtx(): scalascript.backend.spi.NativeContext =
-    new scalascript.backend.spi.NativeContext:
-      def out = Interpreter.this.out
-      def err = System.err
-      override def featureGet(key: String): Option[Any] = Interpreter.this.nativeFeatureGet(key)
-      override def featureSet(key: String, value: Any): Unit = Interpreter.this.nativeFeatureSet(key, value)
-      override def featureRemove(key: String): Option[Any] = Interpreter.this.nativeFeatureRemove(key)
-      override def featureLocalGet(key: String): Option[Any] = Interpreter.this.nativeFeatureLocalGet(key)
-      override def featureLocalSet(key: String, value: Any): Unit = Interpreter.this.nativeFeatureLocalSet(key, value)
-      override def featureLocalRemove(key: String): Option[Any] = Interpreter.this.nativeFeatureLocalRemove(key)
-      override def httpBaseUrl: String    = Interpreter.this.httpBaseUrlState
-      override def httpTimeoutMs: Long    = Interpreter.this.httpTimeoutMsState
-      override def httpMaxRetries: Int    = Interpreter.this.httpMaxRetriesState
-      override def httpRetryDelayMs: Long = Interpreter.this.httpRetryDelayMsState
-      override def invokeCallback(fn: Any, args: List[Any]): Any =
-        Interpreter.this.invoke(fn.asInstanceOf[Value], args.map(wrapAnyAsValue))
+  // (mkHttpCtx removed — the Http effect runner moved to http-plugin; core-min §2d.)
 
   // ─── Health + cluster control routes — see ClusterRoutesRuntime.scala ──────
 
