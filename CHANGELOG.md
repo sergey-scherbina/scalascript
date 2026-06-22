@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — docs: reconcile optics packaging queue
+
+Closed `polyglot-optics-board-hygiene`. The top `SPRINT.md` claimable queue no longer lists stale open
+duplicates for `emit-lib-cli` or `polyglot-optics-jvm`; both now point at the later completed
+`optics-emit-lib-cli` and `optics-jvm-facade` entries. No implementation changed.
+
 ## 2026-06-22 — polyglot: Java optics library (`emit-lib --host java`) — Task B optics COMPLETE (4/4 hosts)
 
 `JavaLibPackager` (counterpart of Js/Jvm/RustLibPackager) emits a standalone, dependency-free `ssc-optics`

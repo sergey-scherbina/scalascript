@@ -20,20 +20,18 @@ These need NO design decision — claimable immediately, in priority/tractabilit
 live in the `polyglot-phase2-optics-allhosts` entry below (Task B = cross-language reuse, proven on the JS
 slice). Each is one host of the optics-library packaging, individually claimable.
 
-- [ ] **polyglot-optics-board-hygiene** — reconcile stale optics packaging entries at the top of `SPRINT.md`.
+- [x] **polyglot-optics-board-hygiene** ✓ DONE 2026-06-22 — reconciled stale optics packaging entries at the top of `SPRINT.md`.
       **How:** compare the open `emit-lib-cli` / `polyglot-optics-jvm` entries here with the later completed
       `optics-emit-lib-cli`, `optics-jvm-facade`, `polyglot-optics-rust`, and `polyglot-optics-java` entries
       plus `CHANGELOG.md`; mark stale duplicates as done/superseded instead of letting agents re-claim already
       landed work. Do not touch implementation. **Verify:** grep shows no open `[ ]` optics packaging duplicate
       remains in the top claimable queue; active claims are unchanged.
-- [ ] **emit-lib-cli** — CLI command `emit-lib --host js --feature optics -o <dir>` (ServiceLoader
-      `CliCommand` + `META-INF/services/scalascript.cli.CliCommand`; `cli` already `dependsOn backendJs`).
-      Wraps the existing `JsLibPackager` (already landed + node-smoke-tested) so the npm package is
-      USER-reachable; + `examples/` demo + README/user-guide row. **Most user-facing + most tractable** —
-      good first pick. Spec `specs/polyglot-libraries.md` §4/§6.
-- [ ] **polyglot-optics-jvm** — JVM facade jar for optics via `FacadeGenerator` / `ssc link
-      --emit-scala-facade`. Optics has no compilable `.ssc` defs, so AUTHOR a thin facade exposing
-      Lens/Optional/Traversal/Prism; golden API-signature test (mirror the JS `.d.ts` golden).
+- [x] **emit-lib-cli** ✓ SUPERSEDED/DONE 2026-06-22 — duplicate of the later `optics-emit-lib-cli` entry:
+      `ssc emit-lib --host js --feature optics -o <dir>` is already user-reachable through `EmitLibCmd`
+      (`EmitLibCmdTest` 2/2, README/user-guide updated).
+- [x] **polyglot-optics-jvm** ✓ SUPERSEDED/DONE 2026-06-22 — duplicate of the later `optics-jvm-facade`
+      entry: `emit-lib --host jvm` already emits the native Scala optics library with a compiled smoke and
+      golden API coverage.
 - [x] **polyglot-optics-rust** ✓ DONE 2026-06-22 (`f13427d4b`, mellow-shrew) — `RustLibPackager`
       (counterpart of Js/JvmLibPackager) emits a dependency-free `ssc-optics` Rust crate (Cargo.toml +
       src/lib.rs + README) via `emit-lib --host rust --feature optics`. lib.rs = faithful dynamic port of
