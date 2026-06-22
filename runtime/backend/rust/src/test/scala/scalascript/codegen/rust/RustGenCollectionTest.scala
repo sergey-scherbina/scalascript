@@ -50,6 +50,38 @@ class RustGenCollectionTest extends AnyFunSuite:
     )
     assert(rs.contains("v[(") && rs.contains("as usize]"), s"expected Vec indexing, got:\n$rs")
 
+  // An index *read* on a non-Copy element seq (`Vec<String>` from `.split`/`.toList`) must
+  // `.clone()` — Rust moves out of an `Index` otherwise (E0507: cannot move out of index of
+  // `Vec<String>`). Regression for the `indexable split/toList` follow-on (caught by an
+  // end-to-end cargo smoke; string-match tests alone missed it).
+  test("index read on a String seq clones the element (no move out of Index)"):
+    val rs = allRust(
+      """```scalascript
+        |def pick(): String =
+        |  val parts: List[String] = "a,b,c".split(",").toList
+        |  parts(1)
+        |```
+        |""".stripMargin
+    )
+    assert(rs.contains("parts[(1i64) as usize].clone()"),
+      s"expected a cloned index read, got:\n$rs")
+
+  // …but an index *store* `a(i) = v` keeps the target BARE — you can't assign to a clone.
+  test("index store on a mutable array stays bare (no .clone() on the target)"):
+    val rs = allRust(
+      """```scalascript
+        |def set(): Int =
+        |  val a = Array(1, 2, 3)
+        |  a(0) = 9
+        |  a(0)
+        |```
+        |""".stripMargin
+    )
+    assert(rs.contains("a[(0i64) as usize] = 9i64"),
+      s"expected a bare index store, got:\n$rs")
+    assert(!rs.contains("as usize].clone() ="),
+      s"the store target must not be cloned, got:\n$rs")
+
   // A reference to a top-level `val` must use the `let`-bound name, not re-inline the
   // collection literal — otherwise `xs.foreach` inside a loop rebuilt the whole `vec!`
   // on every iteration (pattern-match-heavy 4.16→0.32 ms, list-fold 0.153→0.069 ms).

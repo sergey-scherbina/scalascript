@@ -966,6 +966,17 @@ object RustCodeWalk:
    *  Copy value is a harmless no-op; `__pN` placeholder params, method-call projections and
    *  rendered primitive literals are left alone.  Used both for generic call args and for
    *  `element(…)` attr-map values (`_ui_attr(v)`), which move their `String`/`Value` too. */
+  /** `seq(i)` where `seq` is an indexable sequence val (a local Array/Vector/List or a
+   *  top-level `vec![…]`) — returns `(name, indexTerm)`. Mirrors the `seqIndexName`
+   *  detection in `renderTerm`'s apply case; used by `Term.Assign` to keep an index
+   *  *store* target bare (no `.clone()`). */
+  private def asSeqIndexTarget(t: m.Term, ctx: Ctx): Option[(String, m.Term)] = t match
+    case m.Term.Apply.After_4_6_0(m.Term.Name(n), args) if args.values.size == 1 &&
+      (ctx.localSeqs.contains(n) ||
+       ctx.topVals.exists { case (vn, init) => vn == n && init.startsWith("vec![") }) =>
+      Some((n, args.values.head))
+    case _ => None
+
   private def cloneIfMoved(arg: m.Term, rendered: String, ctx: Ctx): String =
     val topValNames = ctx.topVals.map(_._1).toSet
     def needs(r: String): Boolean =
@@ -1424,11 +1435,19 @@ object RustCodeWalk:
 
     // `lhs = rhs` — Rust reassignment of a previously declared `var`.
     case a: m.Term.Assign =>
-      for
-        l <- renderTerm(a.lhs, ctx)
-        r <- renderTerm(a.rhs, ctx)
-      yield
-        s"$l = $r"
+      // A `seq(i) = v` store must keep the index target BARE (`seq[(i) as usize] = v`),
+      // never the `.clone()` form used for index *reads* — you can't assign to a clone.
+      asSeqIndexTarget(a.lhs, ctx) match
+        case Some((n, idx)) =>
+          for
+            i <- renderTerm(idx, ctx)
+            r <- renderTerm(a.rhs, ctx)
+          yield s"$n[($i) as usize] = $r"
+        case None =>
+          for
+            l <- renderTerm(a.lhs, ctx)
+            r <- renderTerm(a.rhs, ctx)
+          yield s"$l = $r"
 
     // `subject match { case … => …; … }` — Rust `match` expression.
     case mt: m.Term.Match =>
@@ -2269,7 +2288,12 @@ object RustCodeWalk:
             if errs.nonEmpty then Left(errs.flatten)
             else Right(s"{ let mut __m = std::collections::HashMap::new(); ${ok.mkString(" ")} __m }")
         else seqIndexName match
-          case Some(n) => Right(s"$n[($joined) as usize]")
+          // Index *read* `seq(i)` → `seq[(i) as usize].clone()`. The `.clone()` is required
+          // for non-Copy elements (`Vec<String>` from `.split`/`.toList`, structs) — Rust
+          // moves out of an `Index` otherwise (E0507). For Copy elements (i64/char/bool) the
+          // clone is elided by rustc, so it costs nothing. The `seq(i) = v` *store* path keeps
+          // the target bare (handled in `Term.Assign`) — you can't assign to a clone.
+          case Some(n) => Right(s"$n[($joined) as usize].clone()")
           case None    => applyNonListCtor(fn, callee, renderedArgs, joined, ctx)
 
     // `String + any` / `any + String` — lower to `format!("{}{}", lhs, rhs)`.
