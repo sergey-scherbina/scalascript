@@ -334,6 +334,13 @@ class JsGen(
     // second occurrence merges via _ssc_mergeDeep instead of re-declaring the const.
     private[codegen] val topLevelConsts: mutable.Set[String] = mutable.Set.empty,
     private[codegen] val mergeHelperEmitted: Array[Boolean]  = Array(false),
+    // Shared across parent + all child generators: per namespace path, the member names
+    // already declared by EARLIER sections.  A module split across markdown sections is
+    // emitted as separate `_ssc_mergeDeep` IIFEs (e.g. std/money declares `Currency`/`Money`
+    // in one section and `defaultCurrencies` in another); a later section re-binds the
+    // earlier section's members from the live namespace (`const { Currency } = std.money;`)
+    // so bare references resolve instead of throwing `ReferenceError`.
+    private[codegen] val namespaceMembers: mutable.Map[String, mutable.Set[String]] = mutable.Map.empty,
     // Shared across parent + all child generators to track which import-binding `const` names
     // have been declared.  A module imported transitively (e.g. nodes.ssc pulled in by both
     // primitives.ssc and layout.ssc) must not emit duplicate `const TkNode = …` lines.
@@ -1957,7 +1964,7 @@ class JsGen(
     if !importedFiles.contains(key) then
       importedFiles += key
       val childDir = resolvedPath / os.up
-      val childGen = new JsGen(Some(childDir), lockPath = lockPath, topLevelConsts = topLevelConsts, mergeHelperEmitted = mergeHelperEmitted, declaredBindings = declaredBindings)
+      val childGen = new JsGen(Some(childDir), lockPath = lockPath, topLevelConsts = topLevelConsts, mergeHelperEmitted = mergeHelperEmitted, namespaceMembers = namespaceMembers, declaredBindings = declaredBindings)
       childGen.importedFiles ++= importedFiles
       // Record the imported module's function / case-class param orders so that
       // (a) named-arg call sites later in THIS module (the importer) reorder, and
@@ -2110,7 +2117,7 @@ class JsGen(
               val name = d.name.value
               if topLevelConsts.contains(name) then
                 emitMergeHelper()
-                line(s"_ssc_mergeDeep($name, ${genObjectAsExpr(d)});")
+                line(s"_ssc_mergeDeep($name, ${genObjectAsExpr(d, name)});")
               else
                 topLevelConsts += name
                 genStat(stat)
@@ -2435,9 +2442,9 @@ class JsGen(
       // Object.assign rather than re-declaring with `const` (which is a SyntaxError).
       val preambleConsts = Set("Console", "attr", "scope")
       if preambleConsts.contains(objName) then
-        line(s"Object.assign($objName, ${genObjectAsExpr(d)});")
+        line(s"Object.assign($objName, ${genObjectAsExpr(d, objName)});")
       else
-        line(s"const $objName = ${genObjectAsExpr(d)};")
+        line(s"const $objName = ${genObjectAsExpr(d, objName)};")
 
     case d: Defn.Enum =>
       val enumName = d.name.value
@@ -2589,7 +2596,12 @@ class JsGen(
    *  and as the right-hand side of a nested `const inner = (iife)()`
    *  inside another object's body, which is how the `package:`
    *  front-matter wrapper survives JS emission. */
-  private def genObjectAsExpr(d: Defn.Object): String =
+  /** `path` is the dotted JS access path of the namespace this object builds
+   *  (e.g. `std.money`).  When a later section of the same namespace is emitted as a
+   *  separate `_ssc_mergeDeep` IIFE, members declared by earlier sections are re-bound
+   *  from `path` at the top of this IIFE so bare references (e.g. `Currency` inside
+   *  `defaultCurrencies`) resolve. */
+  private def genObjectAsExpr(d: Defn.Object, path: String): String =
     val objectName = d.name.value
     val decls = mutable.ArrayBuffer.empty[String]
     val names = mutable.ArrayBuffer.empty[String]
@@ -2682,7 +2694,7 @@ class JsGen(
         decls += s"const ${n.value} = ${genExpr(rhs)};"
         names += n.value
       case nested: Defn.Object =>
-        decls += s"const ${nested.name.value} = ${genObjectAsExpr(nested)};"
+        decls += s"const ${nested.name.value} = ${genObjectAsExpr(nested, s"$path.${nested.name.value}")};"
         names += nested.name.value
       case d: Defn.Class =>
         val paramVals = d.ctor.paramClauses.flatMap(_.values)
@@ -2771,7 +2783,15 @@ class JsGen(
         }
       case _ => ()
     }
-    val body = decls.mkString(" ")
+    // Re-bind members declared by EARLIER sections of this same namespace (emitted as
+    // separate `_ssc_mergeDeep` IIFEs) from the live namespace, so a later section's bare
+    // references to them resolve. Skip members this section declares itself.
+    val thisMembers = names.toSet
+    val rebinds     = namespaceMembers.getOrElse(path, mutable.Set.empty[String])
+                        .toList.filterNot(thisMembers.contains).sorted
+    val rebindDecl  = if rebinds.isEmpty then "" else s"const { ${rebinds.mkString(", ")} } = $path; "
+    namespaceMembers.getOrElseUpdate(path, mutable.Set.empty[String]) ++= thisMembers
+    val body = rebindDecl + decls.mkString(" ")
     val ret  = names.mkString(", ")
     s"(() => { $body return { $ret }; })()"
 
