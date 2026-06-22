@@ -1,0 +1,6 @@
+feature/rust-multishot-slice2 2026-06-22
+agent: claude (bright-quail)
+heartbeat: 2026-06-22T20:54:20Z
+status: in-progress
+done-so-far: Slice 1 (List monad) + the wrapping fix landed; effect-multishot runs on all backends. Slice 2 = Tier-1 Option monad (spec §11.2): a `multi effect` op over Option, handler `opt.flatMap(v => resume(v))` (or match Some/None), short-circuit semantics.
+next: in RustCodeWalk.inlineMultiShotBody, discriminate the monad per perform by the op's first param Rust type from _effectOps: `Vec<...>` -> List (current loops+Vec), `Option<...>` -> Option (nested `if let Some(x) = <arg> { ... } else { None }`, pure tail -> `Some(tail)`, no accumulator). All-List or all-Option supported; mixed -> unsupported (Tier-2). isListFlatMapResume already matches the flatMap(resume) shape for both. Add Option case to RustGenMultiShotTest (golden + cargo-run: Some-chain -> Some(sum), a None -> None). backendRust green, one-shot + Slice-1 untouched. spec §11.5 Slice 2 done.
