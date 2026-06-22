@@ -81,6 +81,12 @@ Queued after the JS `.mjs`-resource cleanup + rename. Drive top-to-bottom (tract
       shot already shipped (`a87afba34`, tagless-final). RESEARCH: probe whether a captured-closure continuation
       (`Box<dyn FnMut>`) or CPS/defunctionalized re-entry is tractable in `RustCodeWalk`'s handle lowering; if not
       bounded, SCOPE DOWN + document the blocker in `specs/rust-effects.md` §R.6 + BACKLOG. Lower confidence.
+- [ ] **rust-multishot-board-reconcile** — docs-only cleanup after R.6 Tier-2 nested/static-depth landed.
+      The older open `[ ] rust-effects-multishot-r6` entry later in `SPRINT.md` is stale/duplicative: Tier-1 List,
+      Tier-1 Option, and Tier-2 static-depth are all done; only unbounded perform-in-loop remains, explicitly
+      additive with no current consumer. Do not touch Rust code. Mark the duplicate open entry as superseded by
+      the detailed `[~] rust-effects-multishot-r6` status above, add a concise CHANGELOG line, and verify `rg`
+      leaves no open `[ ] **rust-effects-multishot-r6**` duplicate.
 
 ### ▶ Newly queued (2026-06-22, with Sergiy — "бери все эти задачи если других нет, заноси в спринт")
 
