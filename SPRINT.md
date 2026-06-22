@@ -252,7 +252,7 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       (Logger/Random/Clock/Env/State/Retry/Cache/Http). The capability set is complete: stateful per-op reply,
       config args (`newHandler`), closure-apply (`applyFn`), record-build (`makeRecord`), feature-local-read
       (`featureLocal`), result-combination (`result`), stdout (`out`). No separate hook needed.
-- [~] **coremin-stream-migrate** — INVESTIGATED → low-ROI partial; effect stays core (mellow-shrew, 2026-06-22).
+- [x] **coremin-stream-migrate** ✓ ACTIONABLE SCOPE CLOSED 2026-06-22 — investigated and deliberately deferred; the Stream effect stays in core for now because extraction is low-ROI without a clean consumer for new SPI.
       `runStream` has a **FastTier** (`tryStreamEmitWhileFast`, AST-level `while … Stream.emit` bypass of the
       Free-monad trampoline — zero-FlatMap fast path) that is interp-internal and CANNOT move to a plugin
       (a `BlockForm` only sees `SpiValue` replies, no AST). So a migration is necessarily *partial*: the
@@ -261,7 +261,7 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       `runStream` case + FastTier + `installStreamGlobal` stay in core. ~40 lines shrunk for real complexity +
       a shared-trampoline change → not worth it. The two new SPI capabilities (terminate-signal + callGlobal)
       are designed + validated (runWithHandler: a resolver returning `Pure(term)` abandons the body) — add
-      them only when a clean consumer appears.
+      them only when a clean consumer appears. No code changed for this closeout.
 - [ ] **coremin-actors-migrate** (A, entangled) — extract the Actors runner (`runActors`). Needs the actor
       scheduler/message-loop, not a per-op reply — the biggest remaining effect; needs a loop-seam design.
       NOTE: Stream/Actors are the only 2 effects still in core; both need an SPI addition (not just the template).

@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — docs: close coremin stream migration board scope
+
+Closed `coremin-stream-migrate` as deliberately deferred. The prior investigation stands:
+`runStream` keeps an interpreter-only FastTier path, so moving only the small `streamRun`
+handler would add terminate-signal/callGlobal SPI complexity while leaving the dispatch,
+FastTier, and stream globals in core. Revisit only when a clean consumer needs that SPI.
+No code changed.
+
 ## 2026-06-22 — docs: close coremin prelude migration board scope
 
 Closed `coremin-prelude-board-closeout`. `coremin-prelude-migrate` now reflects the landed sweep:
