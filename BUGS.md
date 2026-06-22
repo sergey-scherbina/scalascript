@@ -13,6 +13,14 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `done` | reporter confirmed fixed (safe to trim) |
 
 
+## jsgen-module-section-scope — `fixed` (2026-06-22)
+
+- **Found by:** busi (deep-offline browser bundle) — the #1 raw `emit-js` full-bundle blocker codex recorded in `src/v2/specs/lf-1-browser-bundle.md` ("importing `std/money.ssc` fails at runtime with `Currency` not initialized before `defaultCurrencies`").
+- **Symptom:** any program that `emit-js`'d a markdown module split across sections (e.g. `std/money`, whose `Currency`/`Money` constructors are under one heading and `defaultCurrencies`/`currencyOf` under another) threw on Node — `ReferenceError: Currency is not defined`, or (when reached via the import binding) `not callable: ()`. `SSC_JIT_BACKEND=js` (the JIT path) was fine; only raw `emit-js`/`run-js` failed.
+- **Root cause:** each module section is emitted by a *separate* child `JsGen` sharing `topLevelConsts`; the first declares `const std = (()=>{ const money = (()=>{ function Currency… })(); … })()` and later sections merge via `_ssc_mergeDeep(std, (()=>{ const money = (()=>{ … defaultCurrencies = … Currency … })(); … })())`. Each section's IIFE is its own lexical scope, so a later section's bare reference to an earlier section's `Currency` had nothing to resolve to — even though `std.money.Currency` existed at runtime.
+- **FIXED (2026-06-22):** a shared `namespaceMembers: Map[path, Set[name]]` (threaded to child gens like `topLevelConsts`) records the members each section declares per namespace path. When emitting a section, `genObjectAsExpr(d, path)` prepends `const { <prior members not declared here> } = <path>;` (e.g. `const { Currency, Money } = std.money;`) so cross-section references resolve from the live, already-merged namespace. `mergeDeep` is unchanged. Keeps the JIT path identical.
+- **Guard:** `tests/conformance/money-multisection.ssc` (+ `expected/money-multisection.txt`) — imports `std/money`, calls `currencyOf` (which reaches `Currency` via `defaultCurrencies` and via its `getOrElse` fallback); runs identically on INT/JS/JVM. `MoneyCrossBackendTest` "money.ssc — JS output matches the interpreter" + busi `make v2-test-js` (full v2 core on JS) stay green.
+
 ## collection-ctor-aliases — `fixed` (2026-06-15)
 
 - **Found by:** a collections survey (prompted by a "do we only have List/Map?" question).

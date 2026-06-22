@@ -1,0 +1,27 @@
+#!/usr/bin/env ssc
+---
+name: money-multisection
+---
+
+# std/money multi-section namespace
+
+Regression for the JS backend. `std/money` is a markdown module split across
+sections: the `Currency` / `Money` constructors are declared under one heading
+and `defaultCurrencies` / `currencyOf` under another. Each section is emitted as
+a separate `_ssc_mergeDeep` IIFE, so the second section referenced the first
+section's `Currency` constructor across an isolated scope and threw
+`ReferenceError: Currency is not defined` on Node. A later section must re-bind
+the earlier section's members from the live namespace.
+
+`currencyOf` reaches `Currency` two ways — via `defaultCurrencies` (which builds
+`Currency` values) and via its `getOrElse` fallback `Currency(code, 2, code)`.
+
+[currencyOf](std/money.ssc)
+
+```scalascript
+println(currencyOf("PLN").symbol)
+println(currencyOf("PLN").scale)
+println(currencyOf("JPY").scale)
+println(currencyOf("XXX").symbol)
+println(currencyOf("XXX").scale)
+```
