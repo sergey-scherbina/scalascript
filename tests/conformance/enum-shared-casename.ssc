@@ -1,0 +1,34 @@
+#!/usr/bin/env ssc
+---
+name: enum-shared-casename
+---
+
+# two enums sharing a parameterless case name
+
+Regression for the JS backend. Two enums that share a parameterless case name
+(`ObligationStatus.Pending` and `DeferredActionStatus.Pending`) each hoisted a
+global `const Pending = …`, so the emitted bundle had a duplicate `const`
+declaration and Node rejected it with `Identifier 'Pending' has already been
+declared`. The second declaration is now skipped (tags are global-by-name, so
+the case objects are structurally identical); each enum's companion still
+resolves its own `.Pending`.
+
+```scalascript
+enum ObligationStatus:
+  case Pending
+  case Active
+
+enum DeferredActionStatus:
+  case Pending
+  case Done
+
+val o1 = ObligationStatus.Pending
+val d1 = DeferredActionStatus.Pending
+
+println(o1 == ObligationStatus.Pending)
+println(o1 == ObligationStatus.Active)
+println(d1 == DeferredActionStatus.Pending)
+println(d1 == DeferredActionStatus.Done)
+println(ObligationStatus.values.size)
+println(DeferredActionStatus.values.size)
+```

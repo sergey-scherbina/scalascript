@@ -349,6 +349,13 @@ class JsGen(
     // `function Left` is already in the preamble and `const` cannot redeclare it).
     private[codegen] val declaredBindings: mutable.Set[String] =
       mutable.Set("Left", "Right", "Some", "None", "Nil"),
+    // Shared across parent + all child generators: top-level (global) enum-case binding names
+    // already emitted. Two enums in different modules that share a parameterless case name
+    // (e.g. ObligationStatus.Pending and DeferredActionStatus.Pending) each emit a global
+    // `const Pending = {_type:'Pending', _tag:N}`; tags are global-by-name so the objects are
+    // structurally identical — the second declaration is skipped (its enum object references
+    // the first) instead of emitting a duplicate `const` that breaks the bundle on Node.
+    private[codegen] val declaredEnumCases: mutable.Set[String] = mutable.Set.empty,
     // When Some(set), only top-level declarations whose name is in the set are emitted.
     // None means no filtering (tree-shaking disabled — emit everything).
     // Populated by TreeShaker.shake() and threaded from the companion object entry points.
@@ -1964,7 +1971,7 @@ class JsGen(
     if !importedFiles.contains(key) then
       importedFiles += key
       val childDir = resolvedPath / os.up
-      val childGen = new JsGen(Some(childDir), lockPath = lockPath, topLevelConsts = topLevelConsts, mergeHelperEmitted = mergeHelperEmitted, namespaceMembers = namespaceMembers, declaredBindings = declaredBindings)
+      val childGen = new JsGen(Some(childDir), lockPath = lockPath, topLevelConsts = topLevelConsts, mergeHelperEmitted = mergeHelperEmitted, namespaceMembers = namespaceMembers, declaredBindings = declaredBindings, declaredEnumCases = declaredEnumCases)
       childGen.importedFiles ++= importedFiles
       // Record the imported module's function / case-class param orders so that
       // (a) named-arg call sites later in THIS module (the importer) reorder, and
@@ -2451,9 +2458,13 @@ class JsGen(
       val allCases = scala.collection.mutable.ListBuffer.empty[String]
       val nullary  = scala.collection.mutable.ListBuffer.empty[String]
       def emitNullary(caseName: String): Unit =
-        val tagField = caseClassTagMap.get(caseName).map(t => s", _tag: $t").getOrElse("")
-        line(s"const $caseName = {_type: '$caseName'${tagField}};")
-        line(jsTypedJsonRegisterProduct(caseName, Nil, None))
+        // Skip a duplicate global `const` when another enum already emitted this
+        // parameterless case name (tags are global-by-name → structurally identical).
+        if !declaredEnumCases.contains(caseName) then
+          declaredEnumCases += caseName
+          val tagField = caseClassTagMap.get(caseName).map(t => s", _tag: $t").getOrElse("")
+          line(s"const $caseName = {_type: '$caseName'${tagField}};")
+          line(jsTypedJsonRegisterProduct(caseName, Nil, None))
         allCases += caseName; nullary += caseName
       d.templ.body.stats.foreach {
         case ec: Defn.EnumCase =>
@@ -2462,11 +2473,13 @@ class JsGen(
           val params = paramVals.map(_.name.value)
           if params.isEmpty then emitNullary(caseName)
           else
-            val paramsStr = paramListWithDefaults(paramVals)
-            val fields    = params.map(p => s"$p: $p").mkString(", ")
-            val tagField  = caseClassTagMap.get(caseName).map(t => s"_tag: $t, ").getOrElse("")
-            line(s"function $caseName($paramsStr) { return {_type: '$caseName', ${tagField}$fields}; }")
-            line(jsTypedJsonRegisterProduct(caseName, params, caseName))
+            if !declaredEnumCases.contains(caseName) then
+              declaredEnumCases += caseName
+              val paramsStr = paramListWithDefaults(paramVals)
+              val fields    = params.map(p => s"$p: $p").mkString(", ")
+              val tagField  = caseClassTagMap.get(caseName).map(t => s"_tag: $t, ").getOrElse("")
+              line(s"function $caseName($paramsStr) { return {_type: '$caseName', ${tagField}$fields}; }")
+              line(jsTypedJsonRegisterProduct(caseName, params, caseName))
             allCases += caseName
         // `case A, B` (comma-separated parameterless cases) → RepeatedEnumCase.
         case rec: Defn.RepeatedEnumCase =>

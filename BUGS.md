@@ -12,6 +12,14 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## jsgen-dup-enum-global — `fixed` (2026-06-22)
+
+- **Found by:** busi (deep-offline browser bundle) — blocker #2 of 5 in `src/v2/specs/lf-1-browser-bundle.md` ("emit-js / emit-spa for tests/v2/local_journal.ssc fails syntax checks with duplicate global `Pending` declarations from ObligationStatus.Pending and DeferredActionStatus.Pending").
+- **Symptom:** two enums (in the same file or different modules) that share a *parameterless* case name each emitted a top-level global `const <Case> = {_type:'<Case>', _tag:N}`; child generators share the global scope, so the bundle had a duplicate `const` and Node rejected it: `SyntaxError: Identifier 'Pending' has already been declared`. `SSC_JIT_BACKEND=js` was fine; only raw `emit-js`/`emit-spa` failed (`node --check`).
+- **Root cause:** the top-level (`genStat`) `Defn.Enum` emission unconditionally emitted `const <Case>`/`function <Case>` per case. Enum-case tags are global-by-name, so the two `Pending` objects are byte-identical; qualified refs already go through the companion (`_dispatch(ObligationStatus, 'Pending', [])`), not the bare global.
+- **FIXED (2026-06-22):** a shared `declaredEnumCases: Set[String]` (threaded to child gens like `declaredBindings`) skips re-declaring a global enum-case binding already emitted by another enum; each companion still references the surviving (structurally identical) global. Only the global `genStat` path is guarded — module-IIFE (`genObjectAsExpr`) enum cases are scoped and don't collide. JIT/JVM/interp paths untouched.
+- **Guard:** `tests/conformance/enum-shared-casename.ssc` (+expected) — two enums with a shared `Pending` case; within-enum equality + `.values.size` identical on INT/JS/JVM (cross-enum equality is intentionally NOT asserted: after dedup the JS objects are shared, which never matters in well-typed code). `EnumCrossBackendTest` 3/3; busi `tests/v2/local_journal.ssc` emit-js now passes `node --check`.
+
 ## jvm-multishot-result-type — `fixed` (2026-06-21, `39b7c665f`)
 
 - **Found by:** benchmark perf-divergence sweep (`./bench.sh`), accepted from `SPRINT.md`.
