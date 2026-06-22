@@ -1,6 +1,6 @@
 feature/coremin-actors-migrate 2026-06-22T22:20:10Z
 agent: codex
-heartbeat: 2026-06-22T22:20:10Z
-status: not-started
-done-so-far:
-next: create worktree, write and commit specs/coremin-actors-plugin.md before implementation.
+heartbeat: 2026-06-22T22:20:31Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-coremin-actors-migrate.
+next: write and commit specs/coremin-actors-plugin.md before implementation.
