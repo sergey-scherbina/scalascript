@@ -1,6 +1,0 @@
-feature/js-runtime-async-merge 2026-06-22
-agent: claude (bright-quail)
-heartbeat: 2026-06-22T17:40:36Z
-status: in-progress
-done-so-far: investigated. part1a-d are per-capability (Part1b=HtmlDsl, 1c=Jwt, 1d=WsServer; Part1a/2a/2b=always-Core) -> logical boundaries, KEEP split. AsyncA/AsyncB are a pure size-split of the single Async capability fragment (JsRuntimeAsync = AsyncA + AsyncB, always together; no independent gating; only code ref is JsGen.scala:321). The 65KB string-literal cap that forced the async split is gone now that fragments are .mjs files.
-next: merge ONLY async-a/b -> async.mjs (cat asynca.mjs asyncb.mjs, byte-exact). Delete asynca.mjs/asyncb.mjs + JsRuntimeAsyncA.scala/JsRuntimeAsyncB.scala. JsGen.scala:321 -> `val JsRuntimeAsync = JsRuntimeResource.load("async.mjs")` + drop the obsolete 65KB-split comment. Fix stale "JsRuntimeAsyncB" mentions in comments (JsGen ~1101, JsGenStreamsTest:146, ClusterMultiBackendMatrixTest) to "async.mjs". Verify byte-identity: cat(git-HEAD asynca+asyncb) == async.mjs; backendJs compiles; JS async tests + the 65 codegen tests green. Bookkeeping: spec note + CHANGELOG + SPRINT.

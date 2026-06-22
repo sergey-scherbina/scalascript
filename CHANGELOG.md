@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — refactor(js): consolidate the async-a/b size-split into one `async.mjs`
+
+Follow-up to the `.mjs` migration: with the JS runtime now in resource files, the JVM 65 535-byte
+string-constant cap that forced `JsRuntimeAsyncA`/`AsyncB` to be split no longer applies, so they
+merge into a single `async.mjs` (`JsRuntimeAsync = JsRuntimeResource.load("async.mjs")`; the two
+`AsyncA/B` vals + files deleted). Byte-identical (`async.mjs` == `asynca` + `asyncb`, `cmp`-clean).
+Only the genuinely **size-driven** split was consolidated — all logical boundaries stay: `part1b/1c/1d`
+are each capability-gated (`HtmlDsl`/`Jwt`/`WsServer`) and `part2a/2b` are separated by gated `optics`,
+so those remain per-fragment to preserve tree-shaking. Obsolete comments naming the removed vals fixed.
+`backendJs` compiles; streams/effects/async/optics tests green.
+
 ## 2026-06-22 — feat(js): all JS runtime fragments now `.mjs` resources (§3 #8 closed for JS)
 
 Completes the cleanup the optics pilot started: the remaining **17** `JsRuntime*` string constants
