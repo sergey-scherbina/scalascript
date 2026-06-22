@@ -3022,10 +3022,34 @@ private[interpreter] object EvalRuntime:
 
   /** Generic positional/named call dispatch for `f(args...)`, shared by the
    *  plain-application fast path and the `case _` fallthrough of `app.fun`. */
+  /** Run a plugin block-form `keyword { body }`: the interpreter owns the `runWithHandler`
+   *  trampoline; the plugin's handler replies over `SpiValue` (it never sees `Computation`).
+   *  Shared by the loaded-plugin special-form case and the lazy-load fallback below. §2d. */
+  private def dispatchBlockForm(
+      bf: scalascript.backend.spi.BlockForm, bodyTerm: Term, env: Env, interp: Interpreter
+  ): Computation =
+    val bctx    = new scalascript.backend.spi.BlockContext { def out: java.io.PrintStream = interp.out }
+    val handler = bf.newHandler(bctx, Nil)
+    val body    = eval(bodyTerm, env, interp)
+    val ran = EffectHandlers.runWithHandler(body, bf.effectName,
+      (op, args, resume) => resume(interp.spiToValue(handler.reply(op, args.map(interp.valueToSpi)))))
+    ran.flatMap(r => Computation.Pure(interp.spiToValue(bf.result(interp.valueToSpi(r), handler))))
+
   private def evalPlainApply(app: Term.Apply, env: Env, interp: Interpreter): Computation =
     // Flatten nested Apply nodes so that curried calls like `f(a)(using b)`
     // are collected into a single `interp.callValue(f, [a, b])` invocation.
     val (baseFun, allArgTerms) = collectApplyArgs(app)
+    // Lazy plugin block-form (`runLogger { … }`): an unresolved single-arg applied name may be a
+    // block-form a ServiceLoader plugin hasn't registered yet. Only an *unresolved* head (absent
+    // from env + globals) reaches the load — a resolved call skips this, so a plugin-free script
+    // never triggers the ServiceLoader scan here. (polyglot-libraries §2d, lazy-ServiceLoader.)
+    baseFun match
+      case Term.Name(kw) if allArgTerms.sizeIs == 1 && !env.contains(kw) && !interp.globals.contains(kw) =>
+        if !interp.blockForms.contains(kw) && !interp._pluginsLoaded then interp.ensurePluginsLoaded()
+        interp.blockForms.get(kw) match
+          case Some(bf) => return dispatchBlockForm(bf, allArgTerms.head, env, interp)
+          case None     => ()
+      case _ => ()
     val hasNamedArgs = allArgTerms.exists(_.isInstanceOf[Term.Assign])
     // Pure-free fast lane: name/literal head + name/literal args (no named args,
     // no debug hooks). Reads head and args as Values with no Pure wrappers and
@@ -3488,13 +3512,7 @@ private[interpreter] object EvalRuntime:
     // Computation trampoline (`runWithHandler`); the plugin's handler replies over `SpiValue`.
     case Term.Apply.After_4_6_0(Term.Name(kw), bodyArgClause)
         if bodyArgClause.values.size == 1 && interp.blockForms.contains(kw) =>
-      val bf      = interp.blockForms(kw)
-      val bctx    = new scalascript.backend.spi.BlockContext { def out: java.io.PrintStream = interp.out }
-      val handler = bf.newHandler(bctx, Nil)
-      val body    = eval(bodyArgClause.values.head, env, interp)
-      val ran = EffectHandlers.runWithHandler(body, bf.effectName,
-        (op, args, resume) => resume(interp.spiToValue(handler.reply(op, args.map(interp.valueToSpi)))))
-      ran.flatMap(r => Computation.Pure(interp.spiToValue(bf.result(interp.valueToSpi(r), handler))))
+      dispatchBlockForm(interp.blockForms(kw), bodyArgClause.values.head, env, interp)
 
     // ── v1.4 Random effect handlers ───────────────────────────────────────
     // runRandom { body }            — ThreadLocalRandom
