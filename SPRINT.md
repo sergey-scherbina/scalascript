@@ -14,6 +14,27 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Driven by the agreed roadmap (BACKLOG.md → "Roadmap — agreed priority order, 2026-06-17").
 Work top-to-bottom, one major theme at a time. **Maven/centralized publication is LAST.**
 
+### ▶ emit-js whole-program effect analysis (2026-06-22, with Sergiy — "берись, запиши в спринт, напиши спеку, и делай") — busi-reported #3, transitive piece
+
+Closes the last open piece of the emit-js effect-handler cluster (BUGS.md
+`jsgen-emitjs-effect-handler`; #1/#2/#4 done, #3 core done on `6def53541`, #5
+documented). Spec: **`specs/emitjs-effect-whole-program.md`**. The per-module
+`EffectAnalysis` doesn't see effects reachable through a 3+-level import chain
+(busi: `ledger.accountBalance` → `journal.query` → `Journal`), so a function
+calling a transitively-imported effectful function isn't CPS-lowered and its Free
+value leaks at runtime. Raw `emit-js` of such a program throws on Node; the JIT
+path is fine.
+
+- [ ] **emitjs-effect-whole-program** — (1) `JsGen.analyzeEffects` collects trees
+      recursively across the import graph (reuse `genImport`'s resolution; parse
+      once; visited-set for cycles) and runs `EffectAnalysis.analyze` on the union;
+      (2) `effectOps`/`effectfulFuns`/`multiShotEffects` become shared constructor
+      params threaded to child gens (like `topLevelConsts`), populated once by the
+      entry gen's whole-program pre-pass; (3) drop the now-redundant per-`genImport`
+      `analyzeEffects`+merge. Guard: `tests/conformance/effect-transitive-handler.ssc`
+      (3-level, INT==JS==JVM) + `ssc emit-js tests/v2/ledger.ssc | node` runs e2e +
+      `CrossBackendPropertyTest`/conformance/busi `make v2-test`+`v2-test-js` green.
+
 ### ▶ Core-minimization + polyglot-libraries program (2026-06-22, with Sergiy — "минимизировать ядро всех рантаймов и компиляторов, все вынести в библиотеки и плагины" + "сделать все переиспользуемым со всех рантаймов — из скалы, джавы, джаваскрипт, раста — в виде библиотек, сначала написать спеку")
 
 Two complementary directives, ONE program. **Design spec written: `specs/polyglot-libraries.md`**
