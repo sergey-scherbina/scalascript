@@ -1,6 +1,0 @@
-feature/rust-multishot-design 2026-06-22
-agent: claude (bright-quail)
-heartbeat: 2026-06-22T20:13:37Z
-status: in-progress
-done-so-far: verified all design assumptions in code (read-only). Findings: (1) `multi effect` -> Parser injects `val __multiShot__ = true` (Parser.scala:1798), unread in rust = clean gate; (2) RustCodeWalk.Ctx has no typer/inferred types -> backend is syntactic -> monad inference (A2) must be syntactic; (3) the current `resume(v)->v` substitution (RustCodeWalk:1643) fires in ANY position, not tail-only -> UNSOUND for multi-shot -> must gate; (4) _effectOps gives Rust-mapped op arg types; (5) Value enum = Bool/Int(i64)/Float/Str/List(Vec<Value>), no Option variant.
-next: write the spec (replace specs/rust-effects.md §11 sketch with the verified two-tier design): operator goals = multi-shot + max speed + stack-safety. Tier 1 = monad-directed specialization (List flatMap-resume -> nested for-loops + Vec, typed, no Value); Tier 2 = defunctionalized continuations + explicit-stack trampoline (stack-safe, no Box<dyn Fn>/Rc), Value only at resume boundary. A2 = syntactic monad inference (known-monad table x handler form + op-arg type), return-clause only as Tier-2-unrecognized fallback. Decisions B/C/D/E resolved per operator. Slice plan + open checks. Commit `spec:`, no code.
