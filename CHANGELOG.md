@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — feat(interpreter): actor runtime provider seam
+
+Started `coremin-actors-migrate`. Added `specs/coremin-actors-plugin.md`, then introduced
+`ActorRuntimeProvider` / `ActorRuntimeHost` so `runActors` now dispatches through a provider
+while still delegating to the existing core scheduler. This creates the migration seam without
+moving runtime code yet. Verification: `backendInterpreter/compile` passed; targeted actor
+suites passed 29/0.
+
 ## 2026-06-22 — docs: close polyglot libraries spec-writing task
 
 Closed `polyglot-libraries-spec`. The spec now says the original design-only baseline

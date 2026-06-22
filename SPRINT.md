@@ -262,9 +262,16 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       a shared-trampoline change → not worth it. The two new SPI capabilities (terminate-signal + callGlobal)
       are designed + validated (runWithHandler: a resolver returning `Pure(term)` abandons the body) — add
       them only when a clean consumer appears. No code changed for this closeout.
-- [ ] **coremin-actors-migrate** (A, entangled) — extract the Actors runner (`runActors`). Needs the actor
-      scheduler/message-loop, not a per-op reply — the biggest remaining effect; needs a loop-seam design.
-      NOTE: Stream/Actors are the only 2 effects still in core; both need an SPI addition (not just the template).
+- [~] **coremin-actors-migrate** (A, entangled) — SPEC + PROVIDER SEAM LANDED 2026-06-22.
+      `specs/coremin-actors-plugin.md` (`6538c10c6`) defines the interpreter-local actor runtime seam.
+      `ea898ca82` adds `ActorRuntimeProvider` / `ActorRuntimeHost`; `ActorInterp.actorInterp` now dispatches
+      through `CoreActorRuntimeProvider`, which delegates to the existing core scheduler, so behavior is unchanged.
+      Verified: `backendInterpreter/compile` passed; actor targeted suites
+      (`ActorSupervisionTest`, `ActorStopOutsideTest`, `ActorGroupTest`, `ActorDistributedTest`) passed 29/0
+      (ScalaTest printed a reporter `InterruptedException`, but sbt finished `[success]`). **Next:** move
+      `ActorRuntime`, scheduler loop, `handleActorOp`, and cluster/event drains behind the provider into
+      `runtime/std/actors-plugin`; keep `receive` syntax capture in core. Stream is now deliberately deferred,
+      so Actors is the remaining active core effect extraction.
 - [x] **coremin-hybrid-split** ✓ DONE 2026-06-22 (codex) — no-domain hybrid plugin distribution slice.
       `PluginSpec` now carries an essential/advanced tier; `installBin` stages 25 essential bundled
       `.sscpkg` files in `bin/lib/compiler/plugins` (auto-loaded) and 13 advanced bundled `.sscpkg`

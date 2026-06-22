@@ -126,4 +126,15 @@ Interpreter core keeps:
 
 ## Results
 
-Pending implementation.
+- 2026-06-22 — spec slice landed as `6538c10c6 spec: coremin-actors-plugin`.
+- 2026-06-22 — provider seam slice landed as `ea898ca82 feat(interpreter): add actor runtime provider seam`.
+  `ActorRuntimeProvider` / `ActorRuntimeHost` now exist in interpreter core, and `ActorInterp.actorInterp`
+  dispatches through `CoreActorRuntimeProvider`, which delegates to the existing core scheduler. No actor
+  runtime code has moved yet.
+- Verification for the seam slice:
+  - `cd /Users/sergiy/work/my/scalascript-wt-coremin-actors-migrate && sbt "backendInterpreter/compile"`
+    passed.
+  - `cd /Users/sergiy/work/my/scalascript-wt-coremin-actors-migrate && sbt "backendInterpreter/testOnly scalascript.ActorSupervisionTest scalascript.ActorStopOutsideTest scalascript.ActorGroupTest scalascript.ActorDistributedTest"`
+    passed: 29 tests, 0 failed/canceled. ScalaTest printed a reporter `InterruptedException`, but sbt
+    completed with `[success]` and all tests passed.
+- Next slice: move the runtime implementation behind the provider without changing `.ssc` sources.
