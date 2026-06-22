@@ -1113,6 +1113,7 @@ lazy val cli = project
         (mimePlugin            / packagePlugin).value,
         (smtpPlugin            / packagePlugin).value,
         (benchPlugin           / packagePlugin).value,
+        (loggerEffectPlugin    / packagePlugin).value,
       )
       pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
       log.info(s"bin/lib/compiler/plugins/  (${pluginPkgs.size} .sscpkg files)")
@@ -2771,6 +2772,19 @@ lazy val benchPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.bench"))
 
+// ── Logger effect — runLogger/runLoggerJson/runLoggerToList block-forms ───
+// Extracted from interpreter core into a ServiceLoader plugin (polyglot-libraries §2d).
+lazy val loggerEffectPlugin = project
+  .in(file("runtime/std/logger-effect-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-logger-effect-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.logger"))
+
 // ── UUID — v4/v7 generation, parsing, validation ──────────────────────────
 lazy val uuidPlugin = project
   .in(file("runtime/std/uuid-plugin"))
@@ -2932,6 +2946,7 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("os",              osPlugin,              "scalascript-os-plugin"),
   PluginSpec("yaml",            yamlPlugin,            "scalascript-yaml-plugin"),
   PluginSpec("bench",           benchPlugin,           "scalascript-bench-plugin"),
+  PluginSpec("logger",          loggerEffectPlugin,    "scalascript-logger-effect-plugin"),
 )
 
 // ── Frontend backend registry (arch-build-registry Phase 4) ─────────────
