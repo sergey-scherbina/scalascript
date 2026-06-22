@@ -1,6 +1,6 @@
 feature/sprint-stale-open-items-reconcile 2026-06-22T21:28:32Z
 agent: codex
-heartbeat: 2026-06-22T21:28:32Z
-status: not-started
-done-so-far: queued plan in SPRINT.md
-next: mark superseded/done stale open items in SPRINT.md; docs only
+heartbeat: 2026-06-22T21:28:43Z
+status: in-progress
+done-so-far: plan committed and claim pushed
+next: update stale SPRINT entries, add changelog, verify grep
