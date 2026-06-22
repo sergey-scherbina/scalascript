@@ -1,6 +1,0 @@
-feature/coremin-prelude-board-closeout 2026-06-22T22:09:09Z
-agent: codex
-heartbeat: 2026-06-22T22:09:09Z
-status: in-progress
-done-so-far: queue entry committed and pushed; worktree exists at /Users/sergiy/work/my/scalascript-wt-coremin-prelude-board-closeout.
-next: rebase worktree on origin/main, mark coremin-prelude-migrate actionable-scope done, add CHANGELOG line, verify no open `[~] coremin-prelude-migrate`.
