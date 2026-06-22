@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+#
+# Worktree guardrail (specs/worktree-guardrail.md).
+#
+# Refuses a feature commit made in the shared `main` checkout or on the `main`
+# branch — that work belongs in a worktree on a feature/<name> branch (AGENTS.md §1).
+# Coordination commits that touch ONLY `.work/` (claims/releases/pause) stay allowed.
+# Commits in a feature worktree are never affected. Escape hatch: `git commit --no-verify`.
+set -euo pipefail
+
+# Resolve git-dir and the common git-dir as absolute paths so the comparison is correct
+# from any subdirectory. A linked worktree has git-dir = …/.git/worktrees/NAME, which
+# differs from the common dir …/.git; the main checkout has them equal.
+git_dir=$(git rev-parse --absolute-git-dir)
+common_dir=$(git rev-parse --git-common-dir)
+case "$common_dir" in
+  /*) : ;;                                  # already absolute
+  *)  common_dir="$(pwd)/$common_dir" ;;
+esac
+git_dir=$(cd "$git_dir" && pwd -P)
+common_dir=$(cd "$common_dir" && pwd -P)
+
+in_main_checkout=0
+[ "$git_dir" = "$common_dir" ] && in_main_checkout=1
+
+branch=$(git symbolic-ref --quiet --short HEAD || echo "(detached)")
+on_main_branch=0
+[ "$branch" = "main" ] && on_main_branch=1
+
+if [ "$in_main_checkout" -eq 1 ] || [ "$on_main_branch" -eq 1 ]; then
+  # Anything staged outside .work/ is feature work and must not land here.
+  offending=$(git diff --cached --name-only | grep -v '^\.work/' || true)
+  if [ -n "$offending" ]; then
+    where="the shared main checkout"
+    [ "$in_main_checkout" -eq 1 ] || where="branch 'main'"
+    cat >&2 <<EOF
+
+✋ pre-commit: refusing a non-coordination commit in ${where}.
+
+Feature work must happen in a worktree on a feature/<name> branch (AGENTS.md §1).
+Quick fix:
+  scripts/new-worktree <name>          # creates an external worktree off origin/main
+  # or, by hand:
+  MAIN=\$(git worktree list | head -1 | awk '{print \$1}')
+  git -C "\$MAIN" worktree add "\$(dirname "\$MAIN")/\$(basename "\$MAIN")-wt-<name>" -b feature/<name> origin/main
+
+Staged paths outside .work/ (coordination-only commits ARE allowed here):
+$(printf '  %s\n' $offending)
+
+Override (rarely correct): git commit --no-verify
+EOF
+    exit 1
+  fi
+fi
+exit 0

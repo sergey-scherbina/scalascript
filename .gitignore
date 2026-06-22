@@ -1,4 +1,4 @@
-# Hidden files and directories — catch-all; only .github/ is whitelisted
+# Hidden files and directories — catch-all; only the whitelisted ones below are tracked
 .*
 .*/
 !.github/
@@ -6,6 +6,8 @@
 !.gitattributes
 !.work/
 !.agents/
+!.githooks/
+!.githooks/**
 
 .ssc-artifacts/
 # Allow .ssc-artifacts/ inside scripted test fixtures (they are checked-in test data)
