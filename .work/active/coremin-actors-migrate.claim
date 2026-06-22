@@ -1,6 +1,0 @@
-feature/coremin-actors-migrate 2026-06-22T22:20:10Z
-agent: codex
-heartbeat: 2026-06-22T22:35:32Z
-status: in-progress
-done-so-far: spec (`6538c10c6`), provider seam (`ea898ca82`), actors plugin skeleton (`539105e3c`), and docs/board progress (`45276662a`) pushed; compile/tests/installBin passed.
-next: rebase worktree on origin/main; move ActorRuntime/scheduler/handleActorOp and cluster/event drains behind the provider into runtime/std/actors-plugin, keeping receive syntax capture in core.
