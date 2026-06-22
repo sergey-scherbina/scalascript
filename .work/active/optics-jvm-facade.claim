@@ -1,0 +1,6 @@
+feature/optics-jvm-facade 2026-06-22
+agent: claude (bright-quail)
+heartbeat: 2026-06-22T19:02:58Z
+status: in-progress
+done-so-far: scoped. Unlike JS (ready self-contained JsRuntimeOptics), JVM optics runs through the interpreter (OpticsRuntime, execution-coupled) — no standalone JVM impl. So the JVM library = a native self-contained Scala optics impl over dynamic JSON-like values (Map[String,Any]/List/Option), faithful to the 4 JS shapes (Lens/Optional/Traversal/Prism). Idiomatic typed/macro (Monocle-style) optics = larger follow-up, documented.
+next: JvmLibPackager.opticsScalaPackage(version) -> {Optics.scala (self-contained impl, no interpreter dep), build.sbt (pkg metadata)}. Wire `ssc emit-lib --host jvm --feature optics` in EmitLibCmd. Golden: JvmLibPackagerTest asserts the public signature (4 final classes + makeLens/makeOptional/makeTraversal/makePrism + field/index/at/some/each) verbatim + assume(scala-cli) compile-check of the emitted Optics.scala. README/user-guide note. Then optics-jvm-facade SPRINT entry done; Rust crate + Java facade remain queued.
