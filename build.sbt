@@ -58,8 +58,8 @@ val javafxClassifier: String = {
 // ── Plugin registry (arch-build-registry-p1) ─────────────────────────────
 // Single source of truth for all standard-library plugin projects.
 // `allPlugins` is the canonical seq; all five derived lists (cli test deps,
-// installBin jarPrefix set, installBin pluginPkgs, root aggregate, and
-// backendInterpreterPluginTests deps) are computed from it.
+// installBin jarPrefix/tier sets, installBin package validation, root aggregate,
+// and backendInterpreterPluginTests deps) are computed from it.
 //
 // PluginSpec is defined in project/PluginSpec.scala so it is visible in all
 // build.sbt segments (sbt limitation: bare class defs in .sbt are not always
@@ -999,7 +999,8 @@ lazy val cli = project
     //   $ROOT/lib/ssc.jar              ← cli entry-point (no dotty)
     //   $ROOT/lib/jars/*.jar           ← runtime deps (os-lib, scalameta, …)
     //   $ROOT/lib/compiler/jars/*.jar  ← scala3-compiler, asm, compiler-driver
-    //   $ROOT/lib/compiler/plugins/    ← .sscpkg files (auto-loaded at startup)
+    //   $ROOT/lib/compiler/plugins/          ← essential .sscpkg files (auto-loaded at startup)
+    //   $ROOT/lib/compiler/plugin-available/ ← advanced .sscpkg files (bundled opt-in; no registry/domain)
     // Launcher: java -cp "$ROOT/lib/jars/*:$ROOT/lib/ssc.jar" scalascript.cli.ssc
     // (lib/compiler/jars/ is NOT on startup CP — loaded lazily by CompilerLoader)
     installBin := {
@@ -1009,9 +1010,11 @@ lazy val cli = project
       val runtimeDir   = libDir / "jars"
       val compilerDir  = libDir / "compiler" / "jars"
       val plugDir      = libDir / "compiler" / "plugins"
+      val availableDir = libDir / "compiler" / "plugin-available"
       IO.delete(runtimeDir);  IO.createDirectory(runtimeDir)
       IO.delete(compilerDir); IO.createDirectory(compilerDir)
       IO.delete(plugDir);     IO.createDirectory(plugDir)
+      IO.delete(availableDir); IO.createDirectory(availableDir)
       // Thin cli entry-point JAR (no scala3-compiler dep).
       val appJar = (Compile / packageBin).value
       IO.copyFile(appJar, libDir / "ssc.jar")
@@ -1084,45 +1087,62 @@ lazy val cli = project
       // Package and install standard-library plugins as .sscpkg archives.
       // NOTE: sbt task-macro prevents dynamic .value in a loop, so this list
       // is explicit.  It must stay in sync with allPlugins (arch-build-registry-p1).
-      val pluginPkgs = Seq(
-        (jsonPlugin            / packagePlugin).value,
-        (contentPlugin         / packagePlugin).value,
-        (frontendPlugin        / packagePlugin).value,
-        (requestPlugin         / packagePlugin).value,
-        (authPlugin            / packagePlugin).value,
-        (oauthPlugin           / packagePlugin).value,
-        (fetchPlugin           / packagePlugin).value,
-        (graphPlugin           / packagePlugin).value,
-        (sqlPlugin             / packagePlugin).value,
-        (httpPlugin            / packagePlugin).value,
-        (wsPlugin              / packagePlugin).value,
-        (mcpPlugin             / packagePlugin).value,
-        (remotePlugin          / packagePlugin).value,
-        (swingPlugin           / packagePlugin).value,
-        (pwaPlugin             / packagePlugin).value,
-        (nfcPlugin             / packagePlugin).value,
-        (streamsPlugin         / packagePlugin).value,
-        (dstreamsPlugin        / packagePlugin).value,
-        (graphqlPlugin         / packagePlugin).value,
-        (deployPlugin          / packagePlugin).value,
-        (paymentRequestPlugin  / packagePlugin).value,
-        (paymentsPlugin        / packagePlugin).value,
-        (uuidPlugin            / packagePlugin).value,
-        (cryptoPlugin          / packagePlugin).value,
-        (pdfPlugin             / packagePlugin).value,
-        (mimePlugin            / packagePlugin).value,
-        (smtpPlugin            / packagePlugin).value,
-        (benchPlugin           / packagePlugin).value,
-        (loggerEffectPlugin    / packagePlugin).value,
-        (randomEffectPlugin    / packagePlugin).value,
-        (clockEffectPlugin     / packagePlugin).value,
-        (envEffectPlugin       / packagePlugin).value,
-        (stateEffectPlugin     / packagePlugin).value,
-        (retryEffectPlugin     / packagePlugin).value,
-        (cacheEffectPlugin     / packagePlugin).value,
+      def stdPluginSpec(id: String): PluginSpec =
+        allPlugins.find(_.id == id).getOrElse(sys.error(s"installBin references unknown std plugin id: $id"))
+      val pluginPkgsBySpec = Seq(
+        stdPluginSpec("json")            -> (jsonPlugin            / packagePlugin).value,
+        stdPluginSpec("content")         -> (contentPlugin         / packagePlugin).value,
+        stdPluginSpec("frontend")        -> (frontendPlugin        / packagePlugin).value,
+        stdPluginSpec("request")         -> (requestPlugin         / packagePlugin).value,
+        stdPluginSpec("auth")            -> (authPlugin            / packagePlugin).value,
+        stdPluginSpec("oauth")           -> (oauthPlugin           / packagePlugin).value,
+        stdPluginSpec("fetch")           -> (fetchPlugin           / packagePlugin).value,
+        stdPluginSpec("graph")           -> (graphPlugin           / packagePlugin).value,
+        stdPluginSpec("sql")             -> (sqlPlugin             / packagePlugin).value,
+        stdPluginSpec("http")            -> (httpPlugin            / packagePlugin).value,
+        stdPluginSpec("ws")              -> (wsPlugin              / packagePlugin).value,
+        stdPluginSpec("mcp")             -> (mcpPlugin             / packagePlugin).value,
+        stdPluginSpec("remote")          -> (remotePlugin          / packagePlugin).value,
+        stdPluginSpec("swing")           -> (swingPlugin           / packagePlugin).value,
+        stdPluginSpec("pwa")             -> (pwaPlugin             / packagePlugin).value,
+        stdPluginSpec("nfc")             -> (nfcPlugin             / packagePlugin).value,
+        stdPluginSpec("streams")         -> (streamsPlugin         / packagePlugin).value,
+        stdPluginSpec("dstreams")        -> (dstreamsPlugin        / packagePlugin).value,
+        stdPluginSpec("graphql")         -> (graphqlPlugin         / packagePlugin).value,
+        stdPluginSpec("deploy")          -> (deployPlugin          / packagePlugin).value,
+        stdPluginSpec("payment-request") -> (paymentRequestPlugin  / packagePlugin).value,
+        stdPluginSpec("payments")        -> (paymentsPlugin        / packagePlugin).value,
+        stdPluginSpec("uuid")            -> (uuidPlugin            / packagePlugin).value,
+        stdPluginSpec("crypto")          -> (cryptoPlugin          / packagePlugin).value,
+        stdPluginSpec("pdf")             -> (pdfPlugin             / packagePlugin).value,
+        stdPluginSpec("mime")            -> (mimePlugin            / packagePlugin).value,
+        stdPluginSpec("smtp")            -> (smtpPlugin            / packagePlugin).value,
+        stdPluginSpec("fs")              -> (fsPlugin              / packagePlugin).value,
+        stdPluginSpec("os")              -> (osPlugin              / packagePlugin).value,
+        stdPluginSpec("yaml")            -> (yamlPlugin            / packagePlugin).value,
+        stdPluginSpec("bench")           -> (benchPlugin           / packagePlugin).value,
+        stdPluginSpec("logger")          -> (loggerEffectPlugin    / packagePlugin).value,
+        stdPluginSpec("random")          -> (randomEffectPlugin    / packagePlugin).value,
+        stdPluginSpec("clock")           -> (clockEffectPlugin     / packagePlugin).value,
+        stdPluginSpec("env")             -> (envEffectPlugin       / packagePlugin).value,
+        stdPluginSpec("state")           -> (stateEffectPlugin     / packagePlugin).value,
+        stdPluginSpec("retry")           -> (retryEffectPlugin     / packagePlugin).value,
+        stdPluginSpec("cache")           -> (cacheEffectPlugin     / packagePlugin).value,
       )
-      pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
-      log.info(s"bin/lib/compiler/plugins/  (${pluginPkgs.size} .sscpkg files)")
+      val packagedPluginIds = pluginPkgsBySpec.map(_._1.id).toSet
+      val missingPluginIds  = allPlugins.map(_.id).toSet -- packagedPluginIds
+      if (missingPluginIds.nonEmpty)
+        sys.error(s"installBin pluginPkgs missing std plugin(s): ${missingPluginIds.toList.sorted.mkString(", ")}")
+      val duplicatedPluginIds = pluginPkgsBySpec.groupBy(_._1.id).collect {
+        case (id, entries) if entries.size > 1 => id
+      }.toList.sorted
+      if (duplicatedPluginIds.nonEmpty)
+        sys.error(s"installBin pluginPkgs duplicate std plugin(s): ${duplicatedPluginIds.mkString(", ")}")
+      val (autoLoadPkgs, optInPkgs) = pluginPkgsBySpec.partition(_._1.autoLoad)
+      autoLoadPkgs.map(_._2).foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
+      optInPkgs.map(_._2).foreach(pkg => IO.copyFile(pkg, availableDir / pkg.getName))
+      log.info(s"bin/lib/compiler/plugins/          (${autoLoadPkgs.size} essential .sscpkg files)")
+      log.info(s"bin/lib/compiler/plugin-available/ (${optInPkgs.size} advanced .sscpkg files)")
     },
     // ── GraalVM native-image (v1.50-native-p2) ───────────────────────────
     // Build: sbt cli/graalvm-native-image:packageBin
@@ -2996,30 +3016,30 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("json",            jsonPlugin,            "scalascript-json-plugin"),
   PluginSpec("content",         contentPlugin,         "scalascript-content-plugin"),
   PluginSpec("frontend",        frontendPlugin,        "scalascript-frontend-plugin"),
-  PluginSpec("swing",           swingPlugin,           "scalascript-swing-plugin"),
+  PluginSpec("swing",           swingPlugin,           "scalascript-swing-plugin",           tier = PluginTier.Advanced),
   PluginSpec("request",         requestPlugin,         "scalascript-request-plugin"),
-  PluginSpec("auth",            authPlugin,            "scalascript-auth-plugin"),
-  PluginSpec("oauth",           oauthPlugin,           "scalascript-oauth-plugin"),
+  PluginSpec("auth",            authPlugin,            "scalascript-auth-plugin",            tier = PluginTier.Advanced),
+  PluginSpec("oauth",           oauthPlugin,           "scalascript-oauth-plugin",           tier = PluginTier.Advanced),
   PluginSpec("fetch",           fetchPlugin,           "scalascript-fetch-plugin"),
   PluginSpec("graph",           graphPlugin,           "scalascript-graph-plugin"),
-  PluginSpec("sql",             sqlPlugin,             "scalascript-sql-plugin"),
+  PluginSpec("sql",             sqlPlugin,             "scalascript-sql-plugin",             tier = PluginTier.Advanced),
   PluginSpec("http",            httpPlugin,            "scalascript-http-plugin"),
   PluginSpec("ws",              wsPlugin,              "scalascript-ws-plugin"),
   PluginSpec("mcp",             mcpPlugin,             "scalascript-mcp-plugin"),
   PluginSpec("remote",          remotePlugin,          "scalascript-remote-plugin"),
-  PluginSpec("pwa",             pwaPlugin,             "scalascript-pwa-plugin"),
-  PluginSpec("nfc",             nfcPlugin,             "scalascript-nfc-plugin"),
+  PluginSpec("pwa",             pwaPlugin,             "scalascript-pwa-plugin",             tier = PluginTier.Advanced),
+  PluginSpec("nfc",             nfcPlugin,             "scalascript-nfc-plugin",             tier = PluginTier.Advanced),
   PluginSpec("streams",         streamsPlugin,         "scalascript-streams-plugin"),
-  PluginSpec("dstreams",        dstreamsPlugin,        "scalascript-dstreams-plugin"),
-  PluginSpec("graphql",         graphqlPlugin,         "scalascript-graphql-plugin"),
+  PluginSpec("dstreams",        dstreamsPlugin,        "scalascript-dstreams-plugin",        tier = PluginTier.Advanced),
+  PluginSpec("graphql",         graphqlPlugin,         "scalascript-graphql-plugin",         tier = PluginTier.Advanced),
   PluginSpec("deploy",          deployPlugin,          "scalascript-deploy-plugin"),
-  PluginSpec("payment-request", paymentRequestPlugin,  "scalascript-payment-request-plugin"),
-  PluginSpec("payments",        paymentsPlugin,        "scalascript-payments-plugin"),
+  PluginSpec("payment-request", paymentRequestPlugin,  "scalascript-payment-request-plugin", tier = PluginTier.Advanced),
+  PluginSpec("payments",        paymentsPlugin,        "scalascript-payments-plugin",        tier = PluginTier.Advanced),
   PluginSpec("uuid",            uuidPlugin,            "scalascript-uuid-plugin"),
-  PluginSpec("crypto",          cryptoPlugin,          "scalascript-crypto-plugin"),
-  PluginSpec("pdf",             pdfPlugin,             "scalascript-pdf-plugin"),
+  PluginSpec("crypto",          cryptoPlugin,          "scalascript-crypto-plugin",          tier = PluginTier.Advanced),
+  PluginSpec("pdf",             pdfPlugin,             "scalascript-pdf-plugin",             tier = PluginTier.Advanced),
   PluginSpec("mime",            mimePlugin,            "scalascript-mime-plugin"),
-  PluginSpec("smtp",            smtpPlugin,            "scalascript-smtp-plugin"),
+  PluginSpec("smtp",            smtpPlugin,            "scalascript-smtp-plugin",            tier = PluginTier.Advanced),
   PluginSpec("fs",              fsPlugin,              "scalascript-fs-plugin"),
   PluginSpec("os",              osPlugin,              "scalascript-os-plugin"),
   PluginSpec("yaml",            yamlPlugin,            "scalascript-yaml-plugin"),
