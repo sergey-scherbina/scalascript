@@ -1,6 +1,0 @@
-feature/core-min-retry-cache 2026-06-22
-agent: claude (bright-quail)
-heartbeat: 2026-06-22T13:15:08Z
-status: in-progress
-done-so-far: nothing yet — scoped the work. Retry/Cache are the next two effects to extract from interpreter core into plugins, copying the Logger/Random/Clock/Env/State template (all 5 migrated 2026-06-22). Sites: EffectHandlers.retryRun:131/cacheRun:172; EvalRuntime block-forms runRetry/runRetryNoSleep/runCache/runCacheBypass :3599-3616 + reservedApplyHeads :3017-3020; StdEffectsRuntime Retry:89/Cache:101 emitters. Thunk re-invocation uses BlockContext.applyFn (added by the State migration).
-next: create runtime/std/retry-effect-plugin + cache-effect-plugin (BlockForm per runRetry*/runCache*; handlers over SpiValue, re-invoke the body thunk via ctx.applyFn). Remove the core cases + reservedApplyHeads names + retryRun/cacheRun. Wire into build.sbt allPlugins registry. Move tests StdEffectsTest -> RetryPluginTest/CachePluginTest (run with NO installPlugins, proving lazy ServiceLoader dispatch). Verify interpreter + plugin-tests green.

@@ -4,6 +4,29 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — feat(core-min): extract Retry + Cache effects to plugins (core-min-retry-cache-migrate)
+
+Two more effects moved out of the interpreter core into ServiceLoader plugins, copying the
+Logger/Random/Clock/Env/State template (core-minimization, `specs/polyglot-libraries.md §2d`).
+**Seven effects are now plugins: Logger, Random, Clock, Env, State, Retry, Cache.**
+
+- `runtime/std/retry-effect-plugin` — `RetryBlockForm(sleep)` registered under `runRetry` (real sleep
+  between attempts) and `runRetryNoSleep` (test handler). `Retry.attempt(n, delayMs)(thunk)` re-invokes
+  the thunk via `BlockContext.applyFn` (like `State.modify`), retrying up to `n + 1` times and rethrowing
+  the last error if all fail.
+- `runtime/std/cache-effect-plugin` — `CacheBlockForm(bypass)` under `runCache` / `runCacheBypass`. The
+  memoized thunk runs via `applyFn`; the process-local TTL store moved into the plugin (`object CacheStore`,
+  was `interp._cacheStore`). Per-block `bypass` replaces the former `_cacheBypass` ThreadLocal — each block's
+  handler carries it, and the effect trampoline's dynamic scope matches the old ThreadLocal dynamic scope.
+
+Removed from core: 4 `EvalRuntime` block-form cases + their 4 `reservedApplyHeads` names;
+`EffectHandlers.retryRun`/`cacheRun`; `Interpreter._cacheStore`/`_cacheBypass`. The lightweight `Retry`/`Cache`
+emitter globals stay in `StdEffectsRuntime` (the State precedent — only the heavy handlers move). Wired into
+the `allPlugins` registry (auto aggregate + plugin-tests classpath) + the explicit `installBin` `pluginPkgs`
+list. Retry/Cache tests moved `StdEffectsTest` → `RetryPluginTest` (3) / `CachePluginTest` (2) in
+`interpreter-plugin-tests`, run with NO `installPlugins` — proving production lazy-ServiceLoader dispatch.
+The JS/JVM codegen keep their own `_cacheStore` runtime strings (unaffected — this is an interpreter-only change).
+
 ## 2026-06-22 — workflow: pre-commit guardrail keeps feature commits out of shared main (worktree-guardrail)
 
 Structural fix for the root cause of the parked-feature-branch mess (a prior session committed

@@ -169,10 +169,49 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       recorded: the REMAINING runners (Retry/Cache/Http/Actors) also need interp callbacks — Retry/Cache via
       `applyFn` (thunks); Http additionally needs to construct a `Response` record (no `SpiValue` record case
       yet → would need a `BlockContext.makeRecord` or an Opaque-instance helper); Actors need the message loop.
-- [ ] **polyglot-phase2-optics-allhosts** (B) — prove the per-host library packaging end-to-end on the EASY case:
-      take a PURE module (optics — zero effects, zero host coupling) and publish it to all four hosts (JVM jar +
-      Java facade + npm + Rust crate) with a golden API-signature test per host. Validates the value-mapping +
-      stable-public-API design before effects/actors. See spec §4 + §6.
+- [x] **core-min-retry-cache-migrate** (A) — ✓ DONE 2026-06-22. Retry + Cache extracted to `retry-effect-plugin` +
+      `cache-effect-plugin`, copying the State template (both re-invoke the body thunk via `BlockContext.applyFn`).
+      `RetryBlockForm(sleep)` under `runRetry`/`runRetryNoSleep`; `CacheBlockForm(bypass)` under
+      `runCache`/`runCacheBypass`. The Cache TTL store moved into the plugin (process-local `object CacheStore`,
+      was `interp._cacheStore`); per-block `bypass` replaces the `_cacheBypass` ThreadLocal (each block's handler
+      carries it; trampoline dynamic-scope == ThreadLocal). Removed from core: 4 `EvalRuntime` cases + 4
+      `reservedApplyHeads` names; `EffectHandlers.retryRun`/`cacheRun`; `Interpreter._cacheStore`/`_cacheBypass`.
+      Wired into `allPlugins` (auto aggregate + plugin-tests classpath) + the explicit `pluginPkgs` installBin list.
+      Tests moved `StdEffectsTest`→`RetryPluginTest`(3)+`CachePluginTest`(2) (no `installPlugins`, lazy dispatch).
+      Verified: plugin-tests **656/0** (1 env-gated cancel) + InterpreterTest+StdEffectsTest **160/0**. **SEVEN
+      effects now plugins: Logger, Random, Clock, Env, State, Retry, Cache.** NOTE: emitters (`Retry`/`Cache`
+      globals in `StdEffectsRuntime`) stay in core per the State precedent — only the heavy handlers move.
+- [ ] **polyglot-phase2-optics-allhosts** (B) — prove per-host library packaging on the EASY case: publish the
+      PURE optics feature to all four hosts (JVM jar + Java facade + npm + Rust crate) with a golden API-signature
+      test per host. Spec §4 + §6. **BLUEPRINT (Explore, 2026-06-22) — load-bearing:**
+      • Optics is **NOT** a `.ssc` module or named intrinsics — it's AST-level: `Focus[T](_.a.b)`
+        (`EvalRuntime.scala:4591`→`OpticsRuntime.evalFocus`) + `Prism[Outer,Variant]` (`:4318`→`buildPrism`); JS at
+        `JsGen.scala:4542`/`3746`, runtime `JsRuntimeOptics.scala` gated by `Capability.Optics`. **There is no
+        exported symbol table to read — the public facade must be AUTHORED.** The canonical contract is the 4 synth
+        optic shapes: Lens(get/set/modify/andThen), Optional(getOption/set/modify/andThen),
+        Traversal(getAll/modify/set/andThen), Prism(getOption/reverseGet/set/modify/andThen) — IDENTICAL between
+        `OpticsRuntime` (interp/JVM) and `JsRuntimeOptics` (JS). `PathStep`=Field/Some/Each/Index/AtKey.
+      • Packaging infra TODAY: `ssc package --lib` (`SsclibPackaging.scala`) emits a `.ssclib` SOURCE zip (NOT a
+        host artifact). `emit-js`/`emit-rust`/`emit-scala` emit programs. `ssc link --backend jvm --bytecode
+        --emit-scala-facade` (`FacadeGenerator`) is the closest jar/facade path. **Spec §4's `emit-rust --lib` is
+        FICTIONAL** — Rust lib mode = "module has no `@main`" (`RustGen.scala:62` → `renderLibRs()`/`src/lib.rs`,
+        Cargo `[lib]`, golden-tested in `RustGenRuntimeFilesTest`/`RustGenCargoTomlTest`).
+      • Per-host state: **JS = most tractable** (runtime exists+gated; only need ESM wrapper + `package.json` +
+        hand-written `.d.ts`; no new codegen). **JVM** = facade/link-to-jar exists but optics has no compilable
+        `.ssc` defs → author a thin facade. **Rust** = lib-crate skeleton exists but optic `pub fn` codegen is
+        GREENFIELD. **Java** = fully greenfield (`JavaFacadeEmitter` + value-mapping seam). Golden pattern: mirror
+        `RustGenCargoTomlTest` exact-string asserts, or `WireGoldenVectorTest` table.
+      • **First slice = JS optics npm package**: call `JsGen.generateRuntime(Set(Capability.Optics,Core))`, wrap as
+        ESM re-exporting `makeLens/makeOptional/makeTraversal/makePrism`, emit `package.json` + curated `optics.d.ts`
+        (the 4 shapes above); golden test asserts the `.d.ts` + exported symbols. Then JVM/Rust/Java follow the
+        same packager shape. Rank to ship: JS → JVM → Rust → Java.
+- [ ] **rust-effects-multishot-r6** (Rust backend, R.6) — multi-shot algebraic effects on Rust (resume invoked
+      more than once, e.g. NonDet `{1,2}×{10,20}`). One-shot handle/resume already SHIPPED (`a87afba34`, tagless-
+      final, no trampoline). lucky-otter flagged multi-shot as out-of-scope/hard: needs an `FnMut` continuation
+      that can be re-invoked — the tagless-final one-shot lowering (`resume(v)`→`v` tail-substitution) can't express
+      it. RESEARCH slice: probe whether a captured-closure continuation (`Box<dyn FnMut>`) or a CPS/defunctionalized
+      re-entry is tractable in `RustCodeWalk`'s handle lowering; if not bounded, SCOPE DOWN + document the blocker
+      in `specs/rust-effects.md` §R.6 and BACKLOG. Spec `specs/rust-effects.md`. Lower confidence than the other two.
 - [ ] **core-min-phase3plus** (A, then B) — widen per the spec §3 roadmap: clock/random/env/state effects →
       optics → storage/signals → actors-plugin → cluster-plugin (raft/gossip out of `ActorInterp`) → migrate
       Typer feature tables onto `preludeSymbols` → move codegen feature runtime strings into plugin
