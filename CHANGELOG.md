@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — refactor(rust): Rust runtime templates → `.rs` resources (polyglot §3 #8 closed)
+
+Mirror of the JS/JVM cleanup for the Rust backend, completing polyglot-libraries §3 #8 across all three
+string-heavy backends. 15 `val XxxRs` runtime templates in `RustRuntimeTemplates` (`ValueRs`,
+`RuntimeModRs`, `Sha256Rs`, `Base64Rs`, `JsonRs`, `AuthRs`, `EffectRs`, `UiRs`, `HttpRs`, `UiServeRs`,
+`WsRs`, `McpRs`, `StateEffectRs`, `RandomHandlerRs`, `StreamEffectRs`) move into
+`resources/scalascript/rust-runtime/` via the new cached `RustRuntimeResource.load`. The resource holds
+the verbatim `|`-margined body and the loader applies `.stripMargin` ⇒ **byte-identical** (each `diff`-clean
+vs `git HEAD`). The interpolated `renderTaglessEffectsRs` def (`s"""`) stays inline (computed at runtime).
+`backendRust` 236/0. Spec `specs/js-runtime-resources.md`.
+
 ## 2026-06-22 — refactor(jvm): JVM runtime-source templates → `.scala` resources (polyglot §3 #8, JVM)
 
 Mirror of the JS `.mjs`-resource cleanup for the JVM backend. The big emitted-Scala runtime templates in

@@ -43,7 +43,7 @@ Queued after the JS `.mjs`-resource cleanup + rename. Drive top-to-bottom (tract
       `EmitLibCmd` registered via the ServiceLoader `CliCommand` SPI; `EmitLibCmdTest` 2/2; README CLI row +
       user-guide section. The optics packager is now user-reachable (was test-only). More host/feature combos
       follow the same shape (see `optics-jvm-facade`).
-- [~] **jvm-rust-runtime-resources** (JVM ✓ DONE 2026-06-22; Rust pending) — mirror the JS `.mjs`-resource cleanup (polyglot §3 #8) for JVM
+- [x] **jvm-rust-runtime-resources** ✓ DONE 2026-06-22 (JVM + Rust; §3 #8 closed all backends) — mirror the JS `.mjs`-resource cleanup (polyglot §3 #8) for JVM
       (`JvmGenRuntimeSources`) + Rust (`RustRuntimeTemplates`). **PROBED 2026-06-22 (bright-quail) — NOT a clean
       mechanical copy like JS; more involved:**
       • **JVM** `JvmGenRuntimeSources.scala` (3656 lines): 13 runtime strings, each

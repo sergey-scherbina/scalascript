@@ -108,5 +108,6 @@ to be split. Keeping **logical** boundaries:
 - **JVM done (2026-06-22):** `JvmGenRuntimeSources` (3656→61 lines) → `resources/scalascript/jvm-runtime/`
   via `JvmRuntimeResource.load` (verbatim `|`-body + loader `.stripMargin` ⇒ byte-identical; `effectsRuntime`
   kept as 7 `+`-concatenated chunks for its former size-split). Rust (`RustRuntimeTemplates`) remains — 17
-  stripMargin strings migratable + 1 `s"""` interpolated to leave; same loader shape.
+  stripMargin strings migrated (15 `val XxxRs` → `rust-runtime/` via `RustRuntimeResource`; the
+  interpolated `renderTaglessEffectsRs` `s"""` def stays inline). **§3 #8 now closed for JS, JVM, and Rust.**
 - Optional `tsc --checkJs`/`eslint` CI gate on the self-contained `.mjs` (needs JSDoc first).

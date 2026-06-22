@@ -1,6 +1,0 @@
-feature/rust-runtime-resources 2026-06-22
-agent: claude (bright-quail)
-heartbeat: 2026-06-22T18:58:49Z
-status: in-progress
-done-so-far: Rust slice of jvm-rust-runtime-resources (JVM half already landed 1c826aeba). Same approach: verbatim |-body -> resource, RustRuntimeResource loader applies .stripMargin -> byte-identical.
-next: migrate the plain `val XxxRs: String = """...""".stripMargin` strings in RustRuntimeTemplates.scala (ValueRs/RuntimeModRs/Sha256Rs/Base64Rs/JsonRs/AuthRs/EffectRs/UiRs/HttpRs/UiServeRs/WsRs/McpRs/StateEffectRs + any others) -> resources/scalascript/rust-runtime/<name>, replace with RustRuntimeResource.load("<name>"). SKIP the interpolated `def renderTaglessEffectsRs` (s"""). Regex `val NAME: String =\s*\n\s*"""(.*?)"""\.stripMargin` auto-excludes s"""/defs. Verify: each resource diff-clean vs git HEAD; backendRust compiles + tests green. Then SPRINT jvm-rust entry -> fully DONE.
