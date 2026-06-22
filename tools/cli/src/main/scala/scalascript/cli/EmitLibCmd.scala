@@ -1,6 +1,6 @@
 package scalascript.cli
 
-import scalascript.codegen.{JsLibPackager, JvmLibPackager}
+import scalascript.codegen.{JsLibPackager, JvmLibPackager, JavaLibPackager}
 import scalascript.codegen.rust.RustLibPackager
 
 /** `ssc emit-lib` — emit a ScalaScript feature as a standalone, host-native library package
@@ -14,9 +14,9 @@ final class EmitLibCmd extends CliCommand:
     "Emit a feature as a standalone per-host library (e.g. optics → npm package / sbt library)"
   override def category = "Emit & transpile"
   override def details = List(
-    "Flags: --host <js|jvm|rust> (default: js), --feature <optics> (default: optics),",
+    "Flags: --host <js|jvm|rust|java> (default: js), --feature <optics> (default: optics),",
     "       -o <dir> (default: ./<feature>-<host>-lib/), --version <semver> (default: 0.1.0)",
-    "Supported today: --host js|jvm|rust --feature optics",
+    "Supported today: --host js|jvm|rust|java --feature optics",
   )
 
   def run(args: List[String]): Unit =
@@ -39,10 +39,11 @@ final class EmitLibCmd extends CliCommand:
       case ("js",   "optics") => JsLibPackager.opticsNpmPackage(version)
       case ("jvm",  "optics") => JvmLibPackager.opticsScalaPackage(version)
       case ("rust", "optics") => RustLibPackager.opticsRustPackage(version)
+      case ("java", "optics") => JavaLibPackager.opticsJavaPackage(version)
       case _ =>
         System.err.println(
           s"emit-lib: unsupported combination --host $host --feature $feature " +
-          "(supported: --host js|jvm|rust --feature optics)")
+          "(supported: --host js|jvm|rust|java --feature optics)")
         sys.exit(1)
 
     val dir = os.Path(outDir.getOrElse(s"$feature-$host-lib"), os.pwd)
