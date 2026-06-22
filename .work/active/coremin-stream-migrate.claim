@@ -1,0 +1,5 @@
+feature/coremin-stream-migrate 2026-06-22T17:30:00Z
+agent: claude (mellow-shrew)
+heartbeat: 2026-06-22T17:30:00Z
+status: in-progress
+plan: extract Stream effect (runStream{body}->Source[A]) to streams-plugin. Needs trampoline terminate-signal: EffectHandler.terminated: Option[SpiValue]=None (additive, default None -> 0 change for 8 existing effects); dispatchBlockForm checks it after reply -> Pure(term) (abandon body) vs resume. + BlockContext.callGlobal(name,args):Option[SpiValue] (interp.globals.get+invoke) for Source.from construction. StreamBlockForm: emit accumulate, complete/error set terminated, request no-op; result -> (Source via callGlobal Source.from, bodyResult). Remove streamRun + runStream case + reservedApplyHeads. Migrate Stream tests -> plugin-tests. VALIDATE: full plugin-tests 661/0 (the terminate change touches the shared trampoline resolver).
