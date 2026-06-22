@@ -1,0 +1,22 @@
+#!/usr/bin/env ssc
+---
+name: eff-a
+---
+
+# eff-a — effect + generic effectful reader + deep handler
+
+```scalascript
+effect Box:
+  def read(n: Int): List[Int]
+
+case class Acc[S](init: S, step: (S, Int) => S)
+
+def query[S](n: Int, a: Acc[S]): S =
+  Box.read(n).foldLeft(a.init)(a.step)
+
+def runBox[A](body: () => A): A =
+  handle { body() } {
+    case Box.read(n, resume) => resume(List(1, 2, 3))
+    case Return(x)           => x
+  }
+```

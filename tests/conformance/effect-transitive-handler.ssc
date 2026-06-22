@@ -1,0 +1,23 @@
+#!/usr/bin/env ssc
+---
+name: effect-transitive-handler
+---
+
+# effect / reader / handler split across a 3-level import chain
+
+Regression for the JS backend (emit-js standalone, whole-program effect
+analysis). `labeled` → `sumFrom` (both in `eff-b`) → `query` (in `eff-a`,
+imported into `eff-b`) → performs `Box.read`. Per-module effect analysis didn't
+see that `query` is effectful when analysing `eff-b`, so `sumFrom`/`labeled`
+weren't CPS-lowered and the Free value leaked (`"sum=" + <Free>` →
+`"sum=[object Object]"`, or a runtime throw). Whole-program analysis marks the
+whole transitive chain effectful.
+
+[sumFrom, labeled](./lib/eff-b.ssc)
+[runBox](./lib/eff-a.ssc)
+
+```scalascript
+println(runBox(() => sumFrom(0)))
+println(runBox(() => labeled(0)))
+println(runBox(() => labeled(0) + "!" + sumFrom(0)))
+```

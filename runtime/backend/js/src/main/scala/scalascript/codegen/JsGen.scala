@@ -356,6 +356,16 @@ class JsGen(
     // structurally identical — the second declaration is skipped (its enum object references
     // the first) instead of emitting a duplicate `const` that breaks the bundle on Node.
     private[codegen] val declaredEnumCases: mutable.Set[String] = mutable.Set.empty,
+    // Shared across parent + all child generators: the WHOLE-PROGRAM effect view,
+    // populated once by the entry generator's `analyzeEffects` (which collects trees
+    // across the entire import graph). Effect ops as "Eff.op"; functions that
+    // transitively perform an effect (emitted in CPS form so callers get a Free
+    // value); effect-object names carrying `val __multiShot__ = true`. Shared so a
+    // function calling a transitively-imported effectful function is recognised
+    // everywhere it is emitted (entry module or any child generator).
+    private[codegen] val effectOps: mutable.Set[String] = mutable.Set.empty,
+    private[codegen] val effectfulFuns: mutable.Set[String] = mutable.Set.empty,
+    private[codegen] val multiShotEffects: mutable.Set[String] = mutable.Set.empty,
     // When Some(set), only top-level declarations whose name is in the set are emitted.
     // None means no filtering (tree-shaking disabled — emit everything).
     // Populated by TreeShaker.shake() and threaded from the companion object entry points.
@@ -393,13 +403,8 @@ class JsGen(
   private val intVars = scala.collection.mutable.Set[String]()
   // fname → set of all group members (populated by analyzeMutualRecursion before emit)
   private var mutualGroups: Map[String, Set[String]] = Map.empty
-  // Effect operations declared in the module, as "Eff.op" strings.
-  private[codegen] val effectOps: scala.collection.mutable.Set[String] = scala.collection.mutable.Set.empty
-  // Functions that transitively perform effects — emitted in CPS form so callers
-  // get a Free value (Pure plain value or Perform node) and can compose them.
-  private[codegen] val effectfulFuns: scala.collection.mutable.Set[String] = scala.collection.mutable.Set.empty
-  // Effect object names that carry the `val __multiShot__ = true` marker.
-  private val multiShotEffects: scala.collection.mutable.Set[String] = scala.collection.mutable.Set.empty
+  // effectOps / effectfulFuns / multiShotEffects are SHARED constructor params (see above)
+  // so the whole-program effect view is consistent across the entry + child generators.
   // Maps summon key "TC_A" → local param name "A$TC" for context-bound params
   // of the current Defn.Def being emitted. Cleared before each function.
   private val cbSummonMap = scala.collection.mutable.Map.empty[String, String]
@@ -1622,7 +1627,37 @@ class JsGen(
           cb.tree.map(ScalaNode.fold(_)(identity))
       }.flatten ++ s.subsections.flatMap(collectTrees)
 
-    val trees = module.sections.flatMap(collectTrees)
+    def collectImports(s: Section): List[Content.Import] =
+      s.content.collect { case imp: Content.Import => imp } ++ s.subsections.flatMap(collectImports)
+
+    // Resolve an import to a file path, mirroring genImport's resolution.
+    def resolveImport(path: String, dir: os.Path): Option[os.Path] =
+      val initial =
+        try scalascript.imports.ImportResolver.resolve(path, dir, moduleDeps, lockPath)
+        catch case _: Throwable => dir / os.RelPath(path)
+      if os.exists(initial) then Some(initial)
+      else resolveStdImportFromProjectTree(path, dir).filter(os.exists)
+
+    // Effect analysis must be WHOLE-PROGRAM: a function is effectful if it
+    // transitively performs an effect, possibly via a function in an imported
+    // module (e.g. `accountBalance` → imported `query` → `Journal.read`). Collect
+    // the union of this module's trees and (recursively) every imported module's
+    // trees, so EffectAnalysis derives the transitive fixpoint in one pass. A
+    // visited-set guards diamonds/cycles; a module that fails to parse standalone
+    // is skipped (its effects, if any, are conservatively unseen).
+    val visited = scala.collection.mutable.Set.empty[String]
+    def collectTreesDeep(m: Module, dir: os.Path): List[scala.meta.Tree] =
+      val own = m.sections.flatMap(collectTrees)
+      val imported = m.sections.flatMap(collectImports).flatMap { imp =>
+        resolveImport(imp.path, dir) match
+          case Some(p) if visited.add(p.toString) =>
+            try collectTreesDeep(scalascript.artifact.MacroCodegen.expand(scalascript.parser.Parser.parse(os.read(p))), p / os.up)
+            catch case _: Throwable => Nil
+          case _ => Nil
+      }
+      own ++ imported
+
+    val trees = collectTreesDeep(module, baseDir.getOrElse(os.pwd))
     val r     = EffectAnalysis.analyze(trees, builtins)
 
     effectOps.clear();        effectOps        ++= r.effectOps
@@ -1971,7 +2006,7 @@ class JsGen(
     if !importedFiles.contains(key) then
       importedFiles += key
       val childDir = resolvedPath / os.up
-      val childGen = new JsGen(Some(childDir), lockPath = lockPath, topLevelConsts = topLevelConsts, mergeHelperEmitted = mergeHelperEmitted, namespaceMembers = namespaceMembers, declaredBindings = declaredBindings, declaredEnumCases = declaredEnumCases)
+      val childGen = new JsGen(Some(childDir), lockPath = lockPath, topLevelConsts = topLevelConsts, mergeHelperEmitted = mergeHelperEmitted, namespaceMembers = namespaceMembers, declaredBindings = declaredBindings, declaredEnumCases = declaredEnumCases, effectOps = effectOps, effectfulFuns = effectfulFuns, multiShotEffects = multiShotEffects)
       childGen.importedFiles ++= importedFiles
       // Record the imported module's function / case-class param orders so that
       // (a) named-arg call sites later in THIS module (the importer) reorder, and
@@ -1994,18 +2029,11 @@ class JsGen(
       }
       childGen.subtypeConcrete ++= subtypeConcrete
       childGen.recomputeSubtypeClosure()
-      // The childGen emits the imported module's bodies via genScalaNode, bypassing
-      // genModule's pre-pass — so run the effect analysis on the imported module here,
-      // and merge the discovered effect ops / effectful funs back into THIS module.
-      // Without this, an effectful function defined in the imported module (e.g. a
-      // `query` that performs `Journal.read`) is treated as pure: in the childGen its
-      // op lowers to a generic `_dispatch` instead of `_perform`+`_bind` so the Free
-      // suspension leaks; and in this module, callers (and effectful lambdas handed to
-      // a handler) aren't recognised as effectful either.
-      childGen.analyzeEffects(childModule)
-      effectOps ++= childGen.effectOps
-      effectfulFuns ++= childGen.effectfulFuns
-      multiShotEffects ++= childGen.multiShotEffects
+      // The childGen shares the WHOLE-PROGRAM effect sets (effectOps/effectfulFuns/
+      // multiShotEffects), populated once by the entry generator's `analyzeEffects`,
+      // which collects trees across the entire import graph. So an effect-performing
+      // function defined here — or one calling a transitively-imported effectful
+      // function — is already recognised; no per-import re-analysis is needed.
       // Emit only the definitions from the imported module (suppress top-level output)
       childModule.sections.foreach { section =>
         section.content.foreach {

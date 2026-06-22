@@ -25,7 +25,7 @@ calling a transitively-imported effectful function isn't CPS-lowered and its Fre
 value leaks at runtime. Raw `emit-js` of such a program throws on Node; the JIT
 path is fine.
 
-- [ ] **emitjs-effect-whole-program** — (1) `JsGen.analyzeEffects` collects trees
+- [x] **emitjs-effect-whole-program** ✓ DONE 2026-06-22 — busi `ledger.ssc` (+ obligation/plan/payment/gate/income) now run end-to-end as raw `emit-js` standalone bundles on Node; guard `tests/conformance/effect-transitive-handler.ssc` (3-level, INT==JS==JVM); busi `make v2-test`+`v2-test-js` + cross-backend green. (1) `JsGen.analyzeEffects` collects trees
       recursively across the import graph (reuse `genImport`'s resolution; parse
       once; visited-set for cycles) and runs `EffectAnalysis.analyze` on the union;
       (2) `effectOps`/`effectfulFuns`/`multiShotEffects` become shared constructor

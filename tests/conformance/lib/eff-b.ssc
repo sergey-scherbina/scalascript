@@ -1,0 +1,16 @@
+#!/usr/bin/env ssc
+---
+name: eff-b
+---
+
+# eff-b — transitively effectful via the imported reader
+
+[query, Acc](./eff-a.ssc)
+
+```scalascript
+def sumFrom(n: Int): Int =
+  query(n, Acc(0, (a, b) => a + b))
+
+def labeled(n: Int): String =
+  "sum=" + sumFrom(n)
+```
