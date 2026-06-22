@@ -2680,10 +2680,24 @@ class JsGen(
       case dd: Defn.Def if scalascript.transform.EffectAnalysis.isExternDef(dd.body) =>
         val fname = dd.name.value
         val stub = s"_ssc_ui_$fname"
-        // Forward to the corresponding Node.js runtime stub if present,
-        // otherwise leave as undefined.  Avoids TDZ issues that occur when
-        // the parent scope later does `const fname = pkg.fname` (shadowing).
-        decls += s"const $fname = (typeof $stub !== 'undefined') ? $stub : undefined;"
+        // Forward to the corresponding host UI runtime stub if present; else, if
+        // this extern ALSO has a `RuntimeCall` intrinsic (e.g. `sha256` → the
+        // preamble `_sha256`), fall back to that real impl so the namespace
+        // member resolves in a standalone `emit-js` bundle (Node) instead of
+        // `undefined`.  The inner `typeof` keeps it safe when the target isn't
+        // emitted (capability off) — it stays `undefined`, the old behaviour.
+        // Browser keeps preferring the `_ssc_ui_*` host stub. Avoids the TDZ
+        // issue from the parent scope's later `const fname = pkg.fname`.
+        // Only when the intrinsic renames to a DIFFERENT target (`sha256` →
+        // `_sha256`).  An identity RuntimeCall (`csrfToken` → `csrfToken`, as in
+        // std/auth) would make the fallback reference the very const being
+        // declared (`const csrfToken = … : csrfToken`) → a TDZ self-reference.
+        val fallback = intrinsics.get(scalascript.ir.QualifiedName(fname)).collect {
+          case scalascript.backend.spi.RuntimeCall(target) if target != fname => target
+        } match
+          case Some(target) => s"(typeof $target !== 'undefined' ? $target : undefined)"
+          case None         => "undefined"
+        decls += s"const $fname = (typeof $stub !== 'undefined') ? $stub : $fallback;"
         names += fname
       case dd: Defn.Def if isEffectOpDef(dd.body) =>
         val opName = dd.name.value
@@ -3502,6 +3516,20 @@ class JsGen(
         // NativeImpl / HostCallback don't emit target source; fall
         // through to scalameta's default emission.
         argClause.values.map(genExpr).mkString(s"$fname(", ", ", ")")
+    }
+
+  /** The JS runtime target for a `RuntimeCall` intrinsic named `fname`
+   *  (e.g. `nowMillis` → `Date.now`), or `None` if `fname` is not such an
+   *  intrinsic (or is shadowed by a local binding).  `dispatchIntrinsicJs`
+   *  applies this for `Term.Apply` sites in `genExpr`; the CPS path
+   *  (`genCpsApply`) needs the same rewrite, but it binds args itself, so it
+   *  only needs the target string — not the full dispatch.  Without it, a
+   *  `nowMillis()` call inside an effectful (CPS-lowered) function emits the
+   *  bare source name, which is undefined in a standalone `emit-js` bundle. */
+  private[codegen] def intrinsicRuntimeTarget(fname: String): Option[String] =
+    if declaredBindings.contains(fname) then None
+    else intrinsics.get(scalascript.ir.QualifiedName(fname)).collect {
+      case scalascript.backend.spi.RuntimeCall(target) => target
     }
 
   /** Minimum-viable IrExpr conversion for intrinsic dispatch — only

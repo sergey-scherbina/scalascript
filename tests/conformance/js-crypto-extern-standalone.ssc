@@ -1,0 +1,22 @@
+---
+name: js-crypto-extern-standalone
+backends: [int, js]
+---
+
+# a `std/crypto` extern resolves to the preamble impl in a standalone bundle
+
+Regression for the JS backend (busi deep-offline standalone bundle). Importing a
+`std/crypto` extern (`sha256`) emitted `const sha256 = std.crypto.sha256`, where
+the namespace member was `(typeof _ssc_ui_sha256 !== 'undefined') ? _ssc_ui_sha256
+: undefined` — `undefined` under Node, since the host UI stub is absent. That
+shadowed the `sha256` → `_sha256` `RuntimeCall` intrinsic (the import also added
+`sha256` to `declaredBindings`, disabling the call-site rewrite), so `sha256(...)`
+was `not callable`. The extern namespace member now falls back to the intrinsic
+target (`_sha256`, guarded by `typeof`) so it resolves to the real preamble impl
+under Node while the browser keeps preferring the `_ssc_ui_*` host stub.
+
+[sha256](std/crypto.ssc)
+
+```scalascript
+println(sha256("abc"))
+```

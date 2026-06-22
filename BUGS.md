@@ -12,6 +12,18 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `fixed` | landed on `origin/main`, reporter not yet re-confirmed |
 | `done` | reporter confirmed fixed (safe to trim) |
 
+## jsgen-emitjs-capability-standalone — `fixed` (2026-06-22)
+
+- **Found by:** busi (deep-offline browser/Node bundle) — the standalone-bundle frontier after `jsgen-emitjs-effect-handler`: `inbox`/`ksef`/`repo*` (clock) and the crypto path failed under raw `ssc emit-js | node`, while the JIT path (`SSC_JIT_BACKEND=js`) was green.
+- **Symptom (two distinct bugs):**
+  - **(clock)** A `RuntimeCall` intrinsic (`nowMillis` → `Date.now`) called inside an *effectful* (CPS-lowered) function emitted the bare source name (`nowMillis()`) → `ReferenceError: nowMillis is not defined`. `dispatchIntrinsicJs` rewrote it for `Term.Apply` sites in `genExpr`, but `genCpsApply`'s "regular call" path didn't.
+  - **(crypto)** Importing a `std/crypto` extern (`[sha256](std/crypto.ssc)`) emitted `const sha256 = std.crypto.sha256` AND added `sha256` to `declaredBindings` (disabling the `sha256` → `_sha256` intrinsic rewrite at call sites). The namespace member was `(typeof _ssc_ui_sha256 !== 'undefined') ? _ssc_ui_sha256 : undefined` = `undefined` under Node → `not callable: ()`.
+- **FIXED (2026-06-22):**
+  - **(clock)** `genCpsApply` now handles `Term.Name(fname)` whose `intrinsicRuntimeTarget(fname)` is defined: it binds the args CPS-style and emits `target(args)` (e.g. `Date.now()`). New `private[codegen]` helper `JsGen.intrinsicRuntimeTarget`.
+  - **(crypto)** In `genObjectAsExpr`, an extern namespace member falls back to its `RuntimeCall` intrinsic target (`_sha256`) instead of `undefined` when the host UI stub is absent — guarded by an inner `typeof` (stays `undefined` if the target isn't emitted) and by `target != fname` (so identity intrinsics like std/auth's `webauthnChallenge` don't self-reference → TDZ). Browser still prefers the `_ssc_ui_*` host stub.
+- **Guards:** `tests/conformance/js-cps-intrinsic-rewrite.ssc` (nowMillis in a CPS body) + `tests/conformance/js-crypto-extern-standalone.ssc` (`sha256("abc")` standalone), both INT==JS. busi standalone `ssc emit-js tests/v2/<f>.ssc | node` sweep: **13/21 → 20/21** v2 domain files (only `auth` remains — its WebAuthn externs are host-only, no Node preamble, a separate feature). busi `make v2-test` + `make v2-test-js` green (26 files); before/after emit-js+node sweep over all conformance tests: **zero PASS→FAIL regressions** (84→84).
+- **Still open (separate):** `auth.ssc` standalone needs Node WebAuthn impls (`webauthnChallenge`/`webauthnVerify*` are identity-`RuntimeCall` host externs with no `_webauthn*` preamble). `jsgen-toplevel-name-vs-preamble` (#5, general preamble-shadow) also still open.
+
 ## rust-index-read-moves-noncopy — `fixed` (2026-06-22)
 
 - **Found by:** mellow-shrew (self), via an end-to-end `cargo run` smoke against the just-landed rust-web-toolkit follow-ons (`origin/main` @ d0141a1d4). The `backendRust` unit suite is string-match only (no `cargo` compile), so it missed a generated-Rust move error.

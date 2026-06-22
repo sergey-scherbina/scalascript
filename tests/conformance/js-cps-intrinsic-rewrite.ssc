@@ -1,0 +1,24 @@
+---
+name: js-cps-intrinsic-rewrite
+backends: [int, js]
+---
+
+# a `RuntimeCall` intrinsic inside a CPS (effectful) body is still rewritten
+
+Regression for the JS backend (busi deep-offline standalone bundle). A call to a
+`RuntimeCall` intrinsic (here `nowMillis` → `Date.now`) that lands in a CPS
+context — because the enclosing function is effectful (`stamped` performs
+`Box.read`) — fell through `genCpsApply`'s "regular call" path, which emitted the
+bare source name (`nowMillis()`). `genExpr`/`dispatchIntrinsicJs` only rewrote
+`Term.Apply` sites, so the CPS path missed it and the bare name was undefined in
+a standalone `emit-js` bundle. `genCpsApply` now applies the same rewrite.
+
+[runBox, Box](./lib/effect-box.ssc)
+
+```scalascript
+def stamped(): Boolean =
+  Box.read(1)        // forces `stamped` effectful → its body is CPS-lowered
+  nowMillis() > 0    // a RuntimeCall intrinsic reached via the CPS path
+
+println(runBox(() => stamped()))
+```

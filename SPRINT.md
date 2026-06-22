@@ -81,9 +81,21 @@ path is fine.
       `tests/conformance/{js-applyunary-effect-cps,array-companion-statics}.ssc` + the existing
       `fn-typed-field`/`json-value`. **Before/after emit-js+node sweep over all 113 conformance
       tests: zero PASS→FAIL regressions** (82→85 PASS); busi `make v2-test`+`v2-test-js` green
-      (26 files, both backends). Next standalone frontier = the `nowMillis` clock capability +
-      crypto (`auth.ssc`) not emitted into the raw `emit-js` preamble — left to the
-      `core-min-clock-env-migrate` stream it overlaps.
+      (26 files, both backends).
+
+- [x] **emitjs-standalone-capability** ✓ DONE 2026-06-22 (claude-code) — the follow-on frontier:
+      emit `nowMillis` (clock) + crypto capabilities into the raw `emit-js` standalone bundle so
+      `inbox`/`ksef`/`repo*` run under `ssc emit-js | node`. Two bugs (see BUGS.md
+      `jsgen-emitjs-capability-standalone`): (1) a `RuntimeCall` intrinsic (`nowMillis`→`Date.now`)
+      reached via the CPS path wasn't rewritten — `genCpsApply` now applies it (new helper
+      `intrinsicRuntimeTarget`); (2) a `std/crypto` extern (`sha256`) bound to the `undefined` host
+      stub and shadowed its `_sha256` intrinsic — `genObjectAsExpr` now falls back to the intrinsic
+      target (guarded by `typeof` + `target != fname` so std/auth's identity webauthn externs don't
+      self-reference→TDZ). Standalone emit-js+node sweep **13/21 → 20/21** v2 domain files; guards
+      `tests/conformance/{js-cps-intrinsic-rewrite,js-crypto-extern-standalone}.ssc` (INT==JS);
+      before/after conformance sweep **zero PASS→FAIL** (84→84); busi `make v2-test`+`v2-test-js`
+      green. **Remaining:** `auth.ssc` standalone needs Node WebAuthn impls (host-only externs, no
+      `_webauthn*` preamble) — a separate feature, not a capability-emission gap.
 
 ### ▶ Core-minimization + polyglot-libraries program (2026-06-22, with Sergiy — "минимизировать ядро всех рантаймов и компиляторов, все вынести в библиотеки и плагины" + "сделать все переиспользуемым со всех рантаймов — из скалы, джавы, джаваскрипт, раста — в виде библиотек, сначала написать спеку")
 

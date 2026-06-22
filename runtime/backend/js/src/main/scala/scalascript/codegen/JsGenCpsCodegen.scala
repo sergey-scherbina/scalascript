@@ -575,6 +575,15 @@ private[codegen] trait JsGenCpsCodegen:
             s"_dispatch(${vs.head}, '$method', [${vs.tail.mkString(", ")}])"
           }
 
+      // RuntimeCall intrinsic (e.g. `nowMillis` → `Date.now`): apply the same
+      // rewrite `genExpr`/`dispatchIntrinsicJs` does for Term.Apply sites, but
+      // bind args CPS-style first so an effectful arg still threads through the
+      // handler. Without this the CPS path emits the bare source name
+      // (`nowMillis()`), which is undefined in a standalone `emit-js` bundle.
+      case Term.Name(fname) if intrinsicRuntimeTarget(fname).isDefined =>
+        val target = intrinsicRuntimeTarget(fname).get
+        bindArgsCps(args) { vs => s"$target(${vs.mkString(", ")})" }
+
       // Regular function call: bind args, then call (function value itself is simple)
       case fun =>
         if isSimpleCpsExpr(fun) then
