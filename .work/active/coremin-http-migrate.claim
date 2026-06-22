@@ -1,0 +1,6 @@
+feature/coremin-http-migrate 2026-06-22T14:40:00Z
+agent: claude (mellow-shrew)
+heartbeat: 2026-06-22T14:40:00Z
+status: in-progress
+done-so-far: scoped. httpClient runner = EffectHandlers.httpRun (~80 LOC) + EvalRuntime block-form (3610-3638), builds Value.InstanceV("Response", status/headers/body). Needs new SPI capability BlockContext.makeRecord (SpiValue has no record case) — precedent: State added BlockContext.applyFn.
+next: copy State plugin template → http-effect-plugin; add BlockContext.makeRecord(typeName, fields) (defaulted throw, interp overrides → Value.InstanceV); HttpBlockForm under httpClient; move httpRun runtime; remove from EvalRuntime + EffectHandlers + reservedApplyHeads; wire allPlugins + installBin; tests (no installPlugins). Verify interp + plugin-tests green.
