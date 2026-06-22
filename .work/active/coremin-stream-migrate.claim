@@ -1,6 +1,6 @@
 feature/coremin-stream-migrate 2026-06-22T22:14:22Z
 agent: codex
-heartbeat: 2026-06-22T22:14:22Z
-status: not-started
-done-so-far:
-next: create worktree, mark low-ROI stream migration investigation as closed/deferred in SPRINT, add CHANGELOG note.
+heartbeat: 2026-06-22T22:14:42Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-coremin-stream-migrate.
+next: mark low-ROI stream migration investigation as closed/deferred in SPRINT, add CHANGELOG note, verify board grep.
