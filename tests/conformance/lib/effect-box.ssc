@@ -1,0 +1,32 @@
+#!/usr/bin/env ssc
+---
+name: effect-box
+---
+
+# effect-box — an imported effect, a generic effectful reader, and a handler
+
+## effect
+
+```scalascript
+effect Box:
+  def read(n: Int): List[Int]
+```
+
+## query — generic, folds over the effect result (mirrors a domain `query[S]`)
+
+```scalascript
+case class Acc[S](init: S, step: (S, Int) => S)
+
+def query[S](n: Int, a: Acc[S]): S =
+  Box.read(n).foldLeft(a.init)(a.step)
+```
+
+## runner — a deep handler
+
+```scalascript
+def runBox[A](body: () => A): A =
+  handle { body() } {
+    case Box.read(n, resume) => resume(List(1, 2, 3))
+    case Return(x)           => x
+  }
+```

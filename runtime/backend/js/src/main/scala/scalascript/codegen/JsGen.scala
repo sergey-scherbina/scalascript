@@ -1994,6 +1994,18 @@ class JsGen(
       }
       childGen.subtypeConcrete ++= subtypeConcrete
       childGen.recomputeSubtypeClosure()
+      // The childGen emits the imported module's bodies via genScalaNode, bypassing
+      // genModule's pre-pass — so run the effect analysis on the imported module here,
+      // and merge the discovered effect ops / effectful funs back into THIS module.
+      // Without this, an effectful function defined in the imported module (e.g. a
+      // `query` that performs `Journal.read`) is treated as pure: in the childGen its
+      // op lowers to a generic `_dispatch` instead of `_perform`+`_bind` so the Free
+      // suspension leaks; and in this module, callers (and effectful lambdas handed to
+      // a handler) aren't recognised as effectful either.
+      childGen.analyzeEffects(childModule)
+      effectOps ++= childGen.effectOps
+      effectfulFuns ++= childGen.effectfulFuns
+      multiShotEffects ++= childGen.multiShotEffects
       // Emit only the definitions from the imported module (suppress top-level output)
       childModule.sections.foreach { section =>
         section.content.foreach {
@@ -3593,9 +3605,20 @@ class JsGen(
     // Lambda
     case Term.Function.After_4_6_0(paramClause, body) =>
       val params = paramClause.values.map(_.name.value)
-      val bodyJs = body match
-        case Term.Block(stats) => genBlockAsIife(stats)
-        case expr              => genExpr(expr)
+      // An effectful lambda (its body performs an effect or calls an effectful fun)
+      // must produce a Free computation, not a direct value — otherwise an effect-
+      // performing call in the body (e.g. a handler-body thunk `() => query(...)`)
+      // gets `_run`-wrapped and throws "Unhandled effect" before the enclosing
+      // handler can catch it. Emit such a body via the CPS path so the lambda
+      // returns the Free value for the handler / `_bind` to interpret. (Lambdas in
+      // an already-CPS context go through genCpsExpr; this covers the non-CPS ones.)
+      val bodyJs =
+        if jsForTermPerforms(body) then body match
+          case Term.Block(stats) => genCpsBlockAsIife(stats)
+          case expr              => genCpsExpr(expr)
+        else body match
+          case Term.Block(stats) => genBlockAsIife(stats)
+          case expr              => genExpr(expr)
       if params.length == 1 then s"${params.head} => $bodyJs"
       else
         // Auto-tuple: when this lambda is passed somewhere that supplies a

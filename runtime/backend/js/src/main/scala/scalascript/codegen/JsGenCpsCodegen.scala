@@ -822,7 +822,7 @@ private[codegen] trait JsGenCpsCodegen:
           case _ => None
       case _ => None
 
-  private def jsForTermPerforms(t: scala.meta.Tree): Boolean = t match
+  private[codegen] def jsForTermPerforms(t: scala.meta.Tree): Boolean = t match
     case Term.Select(Term.Name(eff), Term.Name(op)) if isEffectOpRef(eff, op)         => true
     case Term.Apply.After_4_6_0(Term.Name(n), _) if isEffectfulFun(n)                 => true
     case Term.Apply.After_4_6_0(Term.Select(_, Term.Name(n)), _) if isEffectfulFun(n) => true

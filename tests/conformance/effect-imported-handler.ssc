@@ -1,0 +1,21 @@
+#!/usr/bin/env ssc
+---
+name: effect-imported-handler
+---
+
+# effect performed in an imported module, run by an imported handler
+
+Regression for the JS backend (emit-js standalone). An effectful function in an
+*imported* module (`query` performing `Box.read`) was not recognised as effectful
+by the importer's codegen, so its op lowered to a generic `_dispatch` and the
+`_Perform` suspension leaked into the fold (`arr.reduce is not a function`); once
+recognised, an effect-performing call inside the handler-body thunk got
+`_run`-wrapped and threw "Unhandled effect". The childGen now runs the effect
+analysis on the imported module, and an effectful lambda emits a CPS body.
+
+[query, Acc, runBox](./lib/effect-box.ssc)
+
+```scalascript
+println(runBox(() => query(0, Acc(0, (a, b) => a + b))))
+println(runBox(() => query(0, Acc(100, (a, b) => a + b))))
+```
