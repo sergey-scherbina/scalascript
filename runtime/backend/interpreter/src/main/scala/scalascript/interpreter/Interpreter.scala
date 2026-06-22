@@ -627,9 +627,8 @@ class Interpreter(
   private[interpreter] def httpRetryDelayMsState: Long =
     nativeFeatureLocalGet(NativeFeatureKeys.HttpRetryDelayMs).collect { case n: Long => n }.getOrElse(1_000L)
 
-  // ── v1.4 Cache effect — process-local memoization store + bypass flag ──
-  private[interpreter] lazy val _cacheStore = new java.util.concurrent.ConcurrentHashMap[String, (Long, Value)]()
-  private[interpreter] val _cacheBypass = ThreadLocal.withInitial[Boolean](() => false)
+  // ── v1.4 Cache effect — EXTRACTED to `cache-effect-plugin` (the TTL store + bypass moved
+  //    into the plugin; the handler is reached via `Backend.blockForms`). ────────────────
 
   // ── Async parallel driver — future table (see AsyncRuntime.scala) ─────
   private[interpreter] lazy val parallelFutures =

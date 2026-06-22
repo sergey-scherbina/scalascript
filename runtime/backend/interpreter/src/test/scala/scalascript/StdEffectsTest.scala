@@ -76,56 +76,9 @@ class StdEffectsTest extends AnyFunSuite with Matchers:
       }
     """) shouldBe "200\nfound"
 
-  // ── Retry ─────────────────────────────────────────────────────────────
-
-  test("Retry.attempt returns value on immediate success"):
-    captured("""
-      runRetryNoSleep {
-        val r = Retry.attempt(3, 0) { () => 42 }
-        println(r)
-      }
-    """) shouldBe "42"
-
-  test("Retry.attempt rethrows after max attempts exhausted"):
-    an[Exception] should be thrownBy captured("""
-      runRetryNoSleep {
-        Retry.attempt(2, 0) { () =>
-          throw RuntimeException("always fails")
-        }
-      }
-    """)
-
-  test("Retry.attempt n=0 runs exactly once even if it succeeds"):
-    captured("""
-      runRetryNoSleep {
-        val r = Retry.attempt(0, 0) { () => "once" }
-        println(r)
-      }
-    """) shouldBe "once"
-
-  // ── Cache ─────────────────────────────────────────────────────────────
-
-  test("Cache.memoize returns same value on second call"):
-    // Verify both calls return the same cached result
-    captured("""
-      runCache {
-        val v1 = Cache.memoize("key1d", 60) { () => 99 }
-        val v2 = Cache.memoize("key1d", 60) { () => 99 }
-        println(v1)
-        println(v2)
-        println(v1 == v2)
-      }
-    """) shouldBe "99\n99\ntrue"
-
-  test("runCacheBypass returns fresh value each call"):
-    captured("""
-      runCacheBypass {
-        val v1 = Cache.memoize("bypassKey4", 60) { () => 42 }
-        val v2 = Cache.memoize("bypassKey4", 60) { () => 99 }
-        println(v1)
-        println(v2)
-      }
-    """) shouldBe "42\n99"
+  // ── Retry / Cache — MOVED to RetryPluginTest / CachePluginTest (interpreter-plugin-tests) ──
+  // Extracted to `retry-effect-plugin` / `cache-effect-plugin`; runRetry*/runCache* now run via
+  // the lazy ServiceLoader path. The retried/memoized thunk exercises `BlockContext.applyFn`.
 
   // ── State — MOVED to StatePluginTest (interpreter-plugin-tests) ──────────
   // Extracted to `state-effect-plugin`; runState(s0) now runs via the lazy ServiceLoader path.

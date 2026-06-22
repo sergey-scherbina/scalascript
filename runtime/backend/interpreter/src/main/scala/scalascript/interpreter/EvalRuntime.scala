@@ -3014,10 +3014,10 @@ private[interpreter] object EvalRuntime:
   // scan was the dominant self-cost of `eval` on hot recursive calls (JFR).
   private val reservedApplyHeads: Set[String] = Set(
     "bench", "computed", "effect", "handle", "httpClient", "receive", "restartable",
-    "runActors", "runAsync", "runAsyncParallel", "runAuthWith", "runCache", "runCacheBypass",
+    "runActors", "runAsync", "runAsyncParallel", "runAuthWith",
     "runEphemeralStorage", "runHttp",
     "runHttpStub",
-    "runRetry", "runRetryNoSleep", "runStorage", "runStream",
+    "runStorage", "runStream",
     "runSideEffect", "runTx", "timeout", "validate", "withFixedUuid", "Focus")
 
   /** Generic positional/named call dispatch for `f(args...)`, shared by the
@@ -3595,25 +3595,11 @@ private[interpreter] object EvalRuntime:
       try Pure(Computation.run(eval(bodyClause.values.head, env, interp)))
       finally interp._authUser.set(prior)
 
-    // ── v1.4 Retry effect handlers ────────────────────────────────────────
-    // runRetry { body }        — real sleep between attempts
-    // runRetryNoSleep { body } — test handler: retries without sleeping
-    case Term.Apply.After_4_6_0(Term.Name("runRetry"), bodyArgClause)
-        if bodyArgClause.values.size == 1 =>
-      EffectHandlers.retryRun(eval(bodyArgClause.values.head, env, interp), sleep = true, interp)
-    case Term.Apply.After_4_6_0(Term.Name("runRetryNoSleep"), bodyArgClause)
-        if bodyArgClause.values.size == 1 =>
-      EffectHandlers.retryRun(eval(bodyArgClause.values.head, env, interp), sleep = false, interp)
-
-    // ── v1.4 Cache effect handlers ────────────────────────────────────────
-    // runCache { body }        — explicit handler using process-local cache
-    // runCacheBypass { body }  — caching disabled; always recomputes
-    case Term.Apply.After_4_6_0(Term.Name("runCache"), bodyArgClause)
-        if bodyArgClause.values.size == 1 =>
-      EffectHandlers.cacheRun(eval(bodyArgClause.values.head, env, interp), bypass = false, interp)
-    case Term.Apply.After_4_6_0(Term.Name("runCacheBypass"), bodyArgClause)
-        if bodyArgClause.values.size == 1 =>
-      EffectHandlers.cacheRun(eval(bodyArgClause.values.head, env, interp), bypass = true, interp)
+    // ── v1.4 Retry / Cache effect handlers ────────────────────────────────
+    // EXTRACTED to `retry-effect-plugin` / `cache-effect-plugin` (core-minimization,
+    // polyglot-libraries §2d). runRetry/runRetryNoSleep and runCache/runCacheBypass now
+    // dispatch through `Backend.blockForms` + the generic block-form case below; the retried/
+    // memoized thunk is invoked via `BlockContext.applyFn`. `runWithHandler` stays in core.
 
     // ── v1.4 Tx effect handlers ───────────────────────────────────────────
     // runTx { body }  — default no-op handler (just runs body directly)

@@ -1118,6 +1118,8 @@ lazy val cli = project
         (clockEffectPlugin     / packagePlugin).value,
         (envEffectPlugin       / packagePlugin).value,
         (stateEffectPlugin     / packagePlugin).value,
+        (retryEffectPlugin     / packagePlugin).value,
+        (cacheEffectPlugin     / packagePlugin).value,
       )
       pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
       log.info(s"bin/lib/compiler/plugins/  (${pluginPkgs.size} .sscpkg files)")
@@ -2837,6 +2839,30 @@ lazy val stateEffectPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.state"))
 
+// ── Retry effect — runRetry/runRetryNoSleep as block-form plugins (uses applyFn) ──
+lazy val retryEffectPlugin = project
+  .in(file("runtime/std/retry-effect-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-retry-effect-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.retry"))
+
+// ── Cache effect — runCache/runCacheBypass as block-form plugins (uses applyFn) ──
+lazy val cacheEffectPlugin = project
+  .in(file("runtime/std/cache-effect-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-cache-effect-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.cache"))
+
 // ── UUID — v4/v7 generation, parsing, validation ──────────────────────────
 lazy val uuidPlugin = project
   .in(file("runtime/std/uuid-plugin"))
@@ -3003,6 +3029,8 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("clock",           clockEffectPlugin,     "scalascript-clock-effect-plugin"),
   PluginSpec("env",             envEffectPlugin,       "scalascript-env-effect-plugin"),
   PluginSpec("state",           stateEffectPlugin,     "scalascript-state-effect-plugin"),
+  PluginSpec("retry",           retryEffectPlugin,     "scalascript-retry-effect-plugin"),
+  PluginSpec("cache",           cacheEffectPlugin,     "scalascript-cache-effect-plugin"),
 )
 
 // ── Frontend backend registry (arch-build-registry Phase 4) ─────────────

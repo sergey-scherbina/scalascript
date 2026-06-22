@@ -126,89 +126,11 @@ private[interpreter] object EffectHandlers:
       throw InterpretError("unreachable")
     run(initial)
 
-  // ── Retry ───────────────────────────────────────────────────────────
-
-  def retryRun(initial: Computation, sleep: Boolean, interp: Interpreter): Computation =
-    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
-      op match
-        case "attempt" => args match
-          case List(Value.IntV(n), Value.IntV(delayMs), thunk) =>
-            var lastErr: Throwable = null
-            var result: Value = Value.UnitV
-            var attempt = 0
-            var succeeded = false
-            while attempt <= n && !succeeded do
-              try
-                result = Computation.run(interp.callValue(thunk, Nil, Map.empty))
-                succeeded = true
-              catch case e: Throwable =>
-                lastErr = e
-                attempt += 1
-                if attempt <= n && sleep && delayMs > 0 then Thread.sleep(delayMs)
-            if succeeded then resume(result)
-            else throw lastErr
-          case _ => throw InterpretError("Retry.attempt(n: Int, delayMs: Long)(thunk)")
-        case _ => throw InterpretError(s"Unknown Retry operation: $op")
-    def run(current0: Computation): Computation =
-      var current = current0
-      while true do
-        current match
-          case Pure(_) => return current
-          case Perform("Retry", op, args) =>
-            current = dispatch(op, args, v => Pure(v))
-          case Perform(_, _, _) => return current
-          case FlatMap(sub, f) => sub match
-            case Pure(v)                     => current = f(v)
-            case FlatMap(s2, g)             => current = FlatMap(s2, x => FlatMap(g(x), f))
-            case Perform("Retry", op, args)  =>
-              current = dispatch(op, args, v => run(f(v)))
-            case Perform(_, _, _)            =>
-              return FlatMap(sub, v => run(f(v)))
-      throw InterpretError("unreachable")
-    run(initial)
-
-  // ── Cache ───────────────────────────────────────────────────────────
-
-  def cacheRun(initial: Computation, bypass: Boolean, interp: Interpreter): Computation =
-    val priorBypass = interp._cacheBypass.get()
-    interp._cacheBypass.set(bypass)
-    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
-      op match
-        case "memoize" => args match
-          case List(Value.StringV(key), Value.IntV(ttlSeconds), thunk) =>
-            val result: Value =
-              if interp._cacheBypass.get() then
-                Computation.run(interp.callValue(thunk, Nil, Map.empty))
-              else
-                val nowMs = java.lang.System.currentTimeMillis()
-                val cached = Option(interp._cacheStore.get(key))
-                cached match
-                  case Some((expiry, v)) if nowMs < expiry => v
-                  case _ =>
-                    val v = Computation.run(interp.callValue(thunk, Nil, Map.empty))
-                    interp._cacheStore.put(key, (nowMs + ttlSeconds * 1000L, v))
-                    v
-            resume(result)
-          case _ => throw InterpretError("Cache.memoize(key: String, ttlSeconds: Long)(thunk)")
-        case _ => throw InterpretError(s"Unknown Cache operation: $op")
-    def run(current0: Computation): Computation =
-      var current = current0
-      while true do
-        current match
-          case Pure(_) => return current
-          case Perform("Cache", op, args) =>
-            current = dispatch(op, args, v => Pure(v))
-          case Perform(_, _, _) => return current
-          case FlatMap(sub, f) => sub match
-            case Pure(v)                     => current = f(v)
-            case FlatMap(s2, g)              => current = FlatMap(s2, x => FlatMap(g(x), f))
-            case Perform("Cache", op, args)  =>
-              current = dispatch(op, args, v => run(f(v)))
-            case Perform(_, _, _)            =>
-              return FlatMap(sub, v => run(f(v)))
-      throw InterpretError("unreachable")
-    try run(initial)
-    finally interp._cacheBypass.set(priorBypass)
+  // ── Retry / Cache ────────────────────────────────────────────────────
+  // EXTRACTED to `retry-effect-plugin` / `cache-effect-plugin` (core-minimization,
+  // polyglot-libraries §2d). runRetry/runRetryNoSleep and runCache/runCacheBypass dispatch
+  // through `Backend.blockForms` + `runWithHandler`; the retried/memoized thunk is invoked via
+  // `BlockContext.applyFn`. The cache TTL store moved into the plugin. `runWithHandler` stays in core.
 
   // ── State ───────────────────────────────────────────────────────────
   // EXTRACTED to `state-effect-plugin` (core-minimization, polyglot-libraries §2d).
