@@ -195,6 +195,14 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       declared type flows — return-mismatch flagged, correct call passes); typer+artifact 499/0. Spec
       `specs/core-min-prelude-spi.md`. NOTE: hook lives at the Typer/`check` layer only (codegen backends are a
       separate concern).
+- [ ] **sprint-stale-open-items-reconcile** — reconcile stale open items that are already superseded/done.
+      **How:** mark `coremin-prelude-migrate-ORIG` as superseded by the immediately preceding
+      `coremin-prelude-migrate` finding, and mark `polyglot-phase2-optics-allhosts` as complete because
+      JS/JVM/Rust/Java optics hosts now all ship (`optics-emit-lib-cli`, `optics-jvm-facade`,
+      `polyglot-optics-rust`, `polyglot-optics-java`). Do not change code. Leave genuinely open items
+      (`coremin-actors-migrate`, `coremin-hybrid-split`, `core-min-phase3plus`, etc.) untouched.
+      **Verify:** grep shows no open `[ ]` entries for `coremin-prelude-migrate-ORIG` or
+      `polyglot-phase2-optics-allhosts`; active claims remain unchanged.
 - [~] **coremin-prelude-migrate** (B follow-on) — **FINDING 2026-06-22 (mellow-shrew): NOT a blind name-removal; partially BLOCKED.** Investigated the hardcoded Typer prelude lists: (1) `pluginObjects`/`pluginBuiltins` (oauth/oidc/spark/http/Async/Wallets/X402/…) are hardcoded *precisely because those plugins are NOT default-bundled* (`Typer.scala:319` comment) — removing them makes `ssc check` flag not-added-plugin names (false-positives on examples) → BLOCKED on hybrid-distribution (`coremin-hybrid-split`: bundle them, or accept opt-in-strictness as a deliberate UX change). (2) Effect-runner names (`runRandom`/`httpClient`/…) in `effectBuiltins` + the typed `runnerType2` defs are entangled with the EFFECT type system → belong to `coremin-effecthandlers-spi`, not the plain prelude hook. (3) Plain intrinsic names already resolve via `BackendRegistry` intrinsic-keys (`Main.scala:5485`), not these lists. So the simple prelude hook has ~no safe-to-remove targets yet. **Unblock via:** `coremin-hybrid-split` (bundling decision) + `coremin-effecthandlers-spi` (runner typing). Until then, the keystone stands ready; real removal waits on those. (Safe groundwork available: thread `preludeSymbols`+`pluginBuiltins` into `check-with-iface` `Main.scala:6796` for consistency — strictly fewer false-positives.)
 - [ ] **coremin-prelude-migrate-ORIG** (original plan, superseded by the finding above) — actually shrink core: migrate real
       plugins to DECLARE their public symbols via `preludeSymbols` (typed) and REMOVE them from the core
