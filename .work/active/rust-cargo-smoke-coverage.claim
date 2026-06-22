@@ -1,6 +1,0 @@
-feature/rust-cargo-smoke 2026-06-22T12:20:00Z
-agent: claude (mellow-shrew)
-heartbeat: 2026-06-22T12:20:00Z
-status: in-progress
-done-so-far: nothing yet — wrote the throwaway harness earlier (emit Segmented crate to temp dir, cargo run, assert stdout) while finding the rust-index-read-moves-noncopy bug.
-next: a small assume(RustToolchain.findCargo().isDefined)-gated suite in backendRust that emits feature-exercising .ssc programs to a temp crate, cargo-runs them, asserts stdout. Keep separate from the fast string-match suite. Cover the collection/string/http lowerings end-to-end as a regression net.

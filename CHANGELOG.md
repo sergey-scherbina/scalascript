@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — test(rust): end-to-end cargo-run smoke suite (rust-cargo-smoke-coverage)
+
+`RustGenCargoSmokeTest` — the first `backendRust` test that actually **compiles + runs** the Rust it
+emits (the rest of the suite is string-match only, which is why the E0507 index-read bug shipped).
+Gated on a Rust toolchain (`assume(cargoAvailable)`, probes `cargo --version`); emits a feature-
+exercising program to a temp crate, `cargo run`s it, asserts stdout. Covers collection ops (take/drop/
+takeRight/dropRight/sorted/distinct/sum), string ops (replace/startsWith/endsWith/contains), and the
+`Vec<String>` index-read regression. Kept out of the fast string-match path; toolchain-less CI skips
+cleanly. `backendRust` 236/0. (`2c8032a5c`)
+
 ## 2026-06-22 — fix(rust): index read on a non-Copy seq clones (E0507)
 
 Follow-on bug fix to the rwt-followons below, caught by an end-to-end `cargo run` smoke (the

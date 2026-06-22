@@ -18,17 +18,13 @@ Work top-to-bottom, one major theme at a time. **Maven/centralized publication i
 
 Queued after closing rust-web-toolkit follow-ons + fixing the index-read move bug it shipped.
 
-- [~] **rust-cargo-smoke-coverage** (mellow-shrew, claimed) — the `backendRust` unit suite (235
-      tests) is string-match only and never compiles the Rust it emits, so move/borrow/type errors
-      in valid-looking generated Rust are invisible (this shipped `rust-index-read-moves-noncopy`,
-      E0507, fixed `2aff7c982`). **How:** a new `backendRust` test suite, gated on
-      `assume(RustToolchain.findCargo().isDefined)` so toolchain-less CI skips cleanly; emit a few
-      feature-exercising `.ssc` programs (collection ops: take/drop/takeRight/dropRight/sorted/
-      distinct/sum; string: replace/contains/startsWith/endsWith/join/split/toList incl. `Vec<String>`
-      index reads; basic http if cheap) to a temp crate (mirror `BuildRustCmd`'s emit-to-disk:
-      `crateDir / os.RelPath(asset.name)` then `cargo run --quiet`, read stdout only), assert exact
-      output. Keep it OUT of the fast string-match path (cargo is slow). BACKLOG:
-      `rust-backend-cargo-smoke-coverage`. The throwaway harness from the bug hunt is the seed.
+- [x] **rust-cargo-smoke-coverage** ✓ DONE 2026-06-22 (`2c8032a5c`, mellow-shrew) — `RustGenCargoSmokeTest`:
+      a Rust-toolchain-gated suite (`assume(cargoAvailable)` — probes `cargo --version` directly, since
+      `backendRust` doesn't depend on the CLI's `RustToolchain`) that emits a feature-exercising program
+      to a temp crate, `cargo run`s it, and asserts real stdout. Covers collection ops (take/drop/
+      takeRight/dropRight/sorted/distinct/sum), string ops (replace/startsWith/endsWith/contains), and
+      the `Vec<String>` index-read regression (E0507). Closes the move/borrow/type bug class the
+      string-match suite can't see. `backendRust` 236/0. BACKLOG `rust-backend-cargo-smoke-coverage` landed.
 
 - [ ] **metaprogramming-v2-track-c2** — the last open meta-v2 slice: post-expansion re-typecheck +
       source-positioned errors. Run the Typer over macro-expanded source and map type errors back to
