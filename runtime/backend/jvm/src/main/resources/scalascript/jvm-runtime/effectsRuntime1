@@ -1,0 +1,775 @@
+|
+       |// ── Algebraic effects runtime (trampolined Free Monad) ─────────────────
+       |sealed trait _Computation
+       |case class _Perform(eff: String, op: String, args: List[Any]) extends _Computation
+       |case class _FlatMap(sub: Any, k: Any => Any) extends _Computation
+       |
+       |def _bind(c: Any, f: Any => Any): Any = c match
+       |  case _: _Computation => _FlatMap(c, f)
+       |  case v               => f(v)
+       |
+       |def _perform(eff: String, op: String, args: Any*): _Computation =
+       |  _Perform(eff, op, args.toList)
+       |
+       |def _run(c0: Any): Any =
+       |  var current: Any = c0
+       |  while true do
+       |    current match
+       |      case _Perform(eff, op, _) =>
+       |        throw new RuntimeException(s"Unhandled effect: $eff.$op")
+       |      case _FlatMap(sub, f) => sub match
+       |        case _Perform(eff, op, _) =>
+       |          throw new RuntimeException(s"Unhandled effect: $eff.$op")
+       |        case _FlatMap(s2, g) =>
+       |          current = _FlatMap(s2, (x: Any) => _FlatMap(g.asInstanceOf[Any => Any](x), f))
+       |        case v =>
+       |          current = f.asInstanceOf[Any => Any](v)
+       |      case v => return v
+       |  throw new RuntimeException("unreachable")
+       |
+       |def _handle(
+       |  bodyThunk:  () => Any,
+       |  handledOps: Set[String],
+       |  handlers:   Map[String, List[Any] => Any]
+       |): Any =
+       |  def interp(initial: Any): Any =
+       |    var current: Any = initial
+       |    while true do
+       |      current match
+       |        case _Perform(eff, op, args) =>
+       |          val key = s"$eff.$op"
+       |          if handledOps(key) then
+       |            val resume: Any => Any = (v: Any) => v
+       |            current = handlers(key)(args :+ resume)
+       |          else return current
+       |        case _FlatMap(sub, f) => sub match
+       |          case _Perform(eff, op, args) =>
+       |            val key = s"$eff.$op"
+       |            val fn = f.asInstanceOf[Any => Any]
+       |            if handledOps(key) then
+       |              val resume: Any => Any = (v: Any) => interp(fn(v))
+       |              current = handlers(key)(args :+ resume)
+       |            else
+       |              return _FlatMap(_Perform(eff, op, args),
+       |                              (v: Any) => interp(fn(v)))
+       |          case _FlatMap(s2, g) =>
+       |            current = _FlatMap(s2,
+       |              (x: Any) => _FlatMap(g.asInstanceOf[Any => Any](x), f))
+       |          case v =>
+       |            current = f.asInstanceOf[Any => Any](v)
+       |        case v => return v
+       |    throw new RuntimeException("unreachable")
+       |  interp(bodyThunk())
+       |
+       |// Return-clause variant of `_handle`: applies `retMap` to the handled
+       |// computation's final pure value (and to each resumed continuation's
+       |// completion), enabling deep-handler accumulation `msg :: resume(())`.
+       |// RECURSIVE (resume = hwr(continuation)): the op-case-body result is returned
+       |// directly so `retMap` maps each continuation completion exactly once (never an
+       |// op-case-body result). Used only when the handler has a `case Return(_)` arm.
+       |def _handleWithReturn(
+       |  bodyThunk:  () => Any,
+       |  handledOps: Set[String],
+       |  handlers:   Map[String, List[Any] => Any],
+       |  retMap:     Any => Any
+       |): Any =
+       |  def hwr(comp: Any): Any =
+       |    var current: Any = comp
+       |    while true do
+       |      current match
+       |        case _Perform(eff, op, args) =>
+       |          val key = s"$eff.$op"
+       |          if handledOps(key) then
+       |            val resume: Any => Any = (v: Any) => hwr(v)
+       |            return handlers(key)(args :+ resume)
+       |          else return current
+       |        case _FlatMap(sub, f) => sub match
+       |          case _Perform(eff, op, args) =>
+       |            val key = s"$eff.$op"
+       |            val fn  = f.asInstanceOf[Any => Any]
+       |            if handledOps(key) then
+       |              val resume: Any => Any = (v: Any) => hwr(fn(v))
+       |              return handlers(key)(args :+ resume)
+       |            else
+       |              return _FlatMap(_Perform(eff, op, args), (v: Any) => hwr(fn(v)))
+       |          case _FlatMap(s2, g) =>
+       |            current = _FlatMap(s2,
+       |              (x: Any) => _FlatMap(g.asInstanceOf[Any => Any](x), f))
+       |          case v => current = f.asInstanceOf[Any => Any](v)
+       |        case v => return retMap(v)
+       |    throw new RuntimeException("unreachable")
+       |  hwr(bodyThunk())
+       |
+       |/** Loose flatMap used inside handler case bodies — accepts callbacks that
+       | *  return either an iterable (multi-shot resume) or a single value
+       | *  (one-shot resume), matching the duck-typed JS semantics. */
+       |def _anyFlatMap(xs: Any, f: Any => Any): Any = xs match
+       |  case ys: scala.collection.Iterable[_] =>
+       |    ys.asInstanceOf[Iterable[Any]].toList.flatMap { x =>
+       |      f(x) match
+       |        case zs: scala.collection.Iterable[_] => zs.asInstanceOf[Iterable[Any]].toList
+       |        case v                                => List(v)
+       |    }
+       |  case _ => xs
+       |
+       |// jvmgen-multishot-handle-result-any: a 0-arg collection method called on an Any-typed value
+       |// (typically the result of `handle(...)`, which `_handle` returns as Any — e.g. a multi-shot
+       |// `val all = handle(..); all.sum`). Dispatches dynamically on the runtime type; numeric folds go
+       |// through `_binOp` so Int/Long/Double elements all work without a static Numeric instance.
+       |def _anyCall0(recv: Any, m: String): Any = recv match
+       |  case ys: scala.collection.Iterable[_] =>
+       |    val it = ys.asInstanceOf[Iterable[Any]]
+       |    m match
+       |      case "sum"             => it.foldLeft(0: Any)((a, x) => _binOp("+", a, x))
+       |      case "product"         => it.foldLeft(1: Any)((a, x) => _binOp("*", a, x))
+       |      case "length" | "size" => it.size
+       |      case "head"            => it.head
+       |      case "last"            => it.last
+       |      case "min"             => it.reduce((a, x) => if _binOp("<", a, x).asInstanceOf[Boolean] then a else x)
+       |      case "max"             => it.reduce((a, x) => if _binOp(">", a, x).asInstanceOf[Boolean] then a else x)
+       |      case "isEmpty"         => it.isEmpty
+       |      case "nonEmpty"        => it.nonEmpty
+       |      case "toList"          => it.toList
+       |      case "reverse"         => it.toList.reverse
+       |      case "distinct"        => it.toList.distinct
+       |      case _                 => recv
+       |  case _ => recv
+       |
+       |// ── Exact numerics (v1.64): BigInt / Decimal ───────────────────────────
+       |// `Decimal`/`RoundingMode` are ScalaScript names; alias them to the native
+       |// Scala types so emitted `Decimal("1.5")`, `Decimal(123, 2)`, `val x: Decimal`,
+       |// and `RoundingMode.HALF_UP` all resolve.  `BigInt` is already native.
+       |type Decimal = scala.math.BigDecimal
+       |val Decimal = scala.math.BigDecimal
+       |val RoundingMode = scala.math.BigDecimal.RoundingMode
+       |// Conversions + non-native method names, matching the interpreter surface.
+       |extension (n: Int)
+       |  def toBigInt: BigInt      = BigInt(n)
+       |  def toDecimal: BigDecimal = BigDecimal(n)
+       |extension (n: BigInt)
+       |  def toDecimal: BigDecimal = BigDecimal(n)
+       |  def isEven: Boolean       = !n.testBit(0)
+       |  def isOdd: Boolean        = n.testBit(0)
+       |  def negate: BigInt        = -n
+       |extension (d: BigDecimal)
+       |  def toDecimal: BigDecimal = d
+       |  def negate: BigDecimal    = -d
+       |  def isZero: Boolean       = d.signum == 0
+       |  def divide(o: BigDecimal, scale: Int, mode: scala.math.BigDecimal.RoundingMode.Value): BigDecimal =
+       |    BigDecimal(d.bigDecimal.divide(o.bigDecimal, scale, java.math.RoundingMode.valueOf(mode.toString)))
+       |  def roundTo(mode: scala.math.BigDecimal.RoundingMode.Value): BigDecimal = d.setScale(0, mode)
+       |
+       |def _bigIntOp(op: String, x: BigInt, y: BigInt): Any = op match
+       |  case "+" => x + y
+       |  case "-" => x - y
+       |  case "*" => x * y
+       |  case "/" => x / y
+       |  case "%" => x % y
+       |  case "<" => x < y
+       |  case ">" => x > y
+       |  case "<=" => x <= y
+       |  case ">=" => x >= y
+       |  case "==" => x == y
+       |  case "!=" => x != y
+       |  case _ => sys.error(s"Cannot $op on BigInt")
+       |
+       |def _bigDecOp(op: String, x: BigDecimal, y: BigDecimal): Any = op match
+       |  case "+" => x + y
+       |  case "-" => x - y
+       |  case "*" => x * y
+       |  case "/" => x / y
+       |  case "%" => x % y
+       |  case "<" => x < y
+       |  case ">" => x > y
+       |  case "<=" => x <= y
+       |  case ">=" => x >= y
+       |  case "==" => x == y
+       |  case "!=" => x != y
+       |  case _ => sys.error(s"Cannot $op on Decimal")
+       |
+       |/** Dynamic binary operator dispatch for CPS contexts where operands are
+       | *  typed as `Any`. Mirrors the interpreter's `infix` table. */
+       |def _binOp(op: String, a: Any, b: Any): Any = (op, a, b) match
+       |  case ("+",  x: Int,    y: Int)    => x + y
+       |  case ("+",  x: Long,   y: Long)   => x + y
+       |  case ("+",  x: Long,   y: Int)    => x + y
+       |  case ("+",  x: Int,    y: Long)   => x + y
+       |  case ("+",  x: Double, y: Double) => x + y
+       |  case ("+",  x: Int,    y: Double) => x + y
+       |  case ("+",  x: Double, y: Int)    => x + y
+       |  case ("+",  x: String, _)         => x + b.toString
+       |  case ("+",  _,         y: String) => a.toString + y
+       |  case ("-",  x: Int,    y: Int)    => x - y
+       |  case ("-",  x: Long,   y: Long)   => x - y
+       |  case ("-",  x: Double, y: Double) => x - y
+       |  case ("-",  x: Int,    y: Double) => x.toDouble - y
+       |  case ("-",  x: Double, y: Int)    => x - y.toDouble
+       |  case ("*",  x: Int,    y: Int)    => x * y
+       |  case ("*",  x: Long,   y: Long)   => x * y
+       |  case ("*",  x: Double, y: Double) => x * y
+       |  case ("/",  x: Int,    y: Int)    => x / y
+       |  case ("/",  x: Long,   y: Long)   => x / y
+       |  case ("/",  x: Double, y: Double) => x / y
+       |  case ("%",  x: Int,    y: Int)    => x % y
+       |  case ("<",  x: Int,    y: Int)    => x < y
+       |  case ("<",  x: Long,   y: Long)   => x < y
+       |  case ("<",  x: Double, y: Double) => x < y
+       |  case (">",  x: Int,    y: Int)    => x > y
+       |  case (">",  x: Long,   y: Long)   => x > y
+       |  case (">",  x: Double, y: Double) => x > y
+       |  case ("<=", x: Int,    y: Int)    => x <= y
+       |  case ("<=", x: Long,   y: Long)   => x <= y
+       |  case ("<=", x: Double, y: Double) => x <= y
+       |  case (">=", x: Int,    y: Int)    => x >= y
+       |  case (">=", x: Long,   y: Long)   => x >= y
+       |  case (">=", x: Double, y: Double) => x >= y
+       |  case ("%",  x: Long,   y: Long)   => x % y
+       |  case ("%",  x: Double, y: Double) => x % y
+       |  // Mixed-width numeric ops — widen to the dominant primitive and retry,
+       |  // so `_binOp` is total over Int/Long/Double combinations (a `var s: Long`
+       |  // doing `s % 7` flows here as (Long, Int)). Same-type and String cases
+       |  // above win first; these only catch the remaining mixed pairs.
+       |  case (o, x: Long,   y: Int)    => _binOp(o, x, y.toLong)
+       |  case (o, x: Int,    y: Long)   => _binOp(o, x.toLong, y)
+       |  case (o, x: Double, y: Int)    => _binOp(o, x, y.toDouble)
+       |  case (o, x: Int,    y: Double) => _binOp(o, x.toDouble, y)
+       |  case (o, x: Double, y: Long)   => _binOp(o, x, y.toDouble)
+       |  case (o, x: Long,   y: Double) => _binOp(o, x.toDouble, y)
+       |  // Exact numerics (v1.64): BigInt / BigDecimal with Int/Long/BigInt
+       |  // widening.  Decimal⊕Double is intentionally absent → falls through to
+       |  // the error case (mixing exact and inexact is rejected).
+       |  case (o, x: BigInt, y: BigInt)         => _bigIntOp(o, x, y)
+       |  case (o, x: BigInt, y: Int)            => _bigIntOp(o, x, BigInt(y))
+       |  case (o, x: Int,    y: BigInt)         => _bigIntOp(o, BigInt(x), y)
+       |  case (o, x: BigInt, y: Long)           => _bigIntOp(o, x, BigInt(y))
+       |  case (o, x: Long,   y: BigInt)         => _bigIntOp(o, BigInt(x), y)
+       |  case (o, x: BigDecimal, y: BigDecimal) => _bigDecOp(o, x, y)
+       |  case (o, x: BigDecimal, y: Int)        => _bigDecOp(o, x, BigDecimal(y))
+       |  case (o, x: Int,    y: BigDecimal)     => _bigDecOp(o, BigDecimal(x), y)
+       |  case (o, x: BigDecimal, y: Long)       => _bigDecOp(o, x, BigDecimal(y))
+       |  case (o, x: Long,   y: BigDecimal)     => _bigDecOp(o, BigDecimal(x), y)
+       |  case (o, x: BigDecimal, y: BigInt)     => _bigDecOp(o, x, BigDecimal(y))
+       |  case (o, x: BigInt, y: BigDecimal)     => _bigDecOp(o, BigDecimal(x), y)
+       |  // Collection ops — `+`/`-` on Set/Map for membership update,
+       |  // `+` on List/Map for cons/insert (CPS dep code uses these
+       |  // via _binOp when operands' static types are Any).
+       |  case ("+", xs: Set[_], y)         => xs.asInstanceOf[Set[Any]] + y
+       |  case ("-", xs: Set[_], y)         => xs.asInstanceOf[Set[Any]] - y
+       |  case ("+", xs: Map[_, _], y: (_, _)) =>
+       |    xs.asInstanceOf[Map[Any, Any]] + y.asInstanceOf[(Any, Any)]
+       |  case _ => sys.error(s"Cannot $op on $a, $b")
+       |
+       |// ── Built-in `Async` effect + v1.11 coroutine-based `runAsync` ─────────
+       |//
+       |// v1.11: Async.* ops check _coHandleTL.  When set (inside a runAsync
+       |// virtual thread), they suspend with an IORequest case class instead of
+       |// returning a _Perform node.  The runAsync scheduler drives the coroutine
+       |// and dispatches IORequests.  runAsyncParallel still uses the old Free
+       |// monad path (Async.* return _perform nodes when _coHandleTL is null).
+       |
+       |// IORequest types for the runAsync coroutine scheduler
+       |private case class _DelayIO(ms: Long)
+       |private case class _AsyncIO(thunk: () => Any)
+       |private case class _AwaitIO(fut: Any)
+       |private case class _ParallelIO(thunks: List[() => Any])
+       |private case class _RecvFromIO(ws: Any)
+       |
+       |object Async:
+       |  def delay(ms: Int): Any =
+       |    val coH = _coHandleTL.get()
+       |    if coH != null then
+       |      coH.fromBody.put(Yielded(_DelayIO(ms.toLong)))
+       |      coH.toBody.take()
+       |    else _perform("Async", "delay", ms)
+       |  def async(thunk: () => Any): Any =
+       |    val coH = _coHandleTL.get()
+       |    if coH != null then
+       |      coH.fromBody.put(Yielded(_AsyncIO(thunk)))
+       |      coH.toBody.take()
+       |    else _perform("Async", "async", thunk)
+       |  def await(fut: Any): Any =
+       |    val coH = _coHandleTL.get()
+       |    if coH != null then
+       |      coH.fromBody.put(Yielded(_AwaitIO(fut)))
+       |      coH.toBody.take()
+       |    else _perform("Async", "await", fut)
+       |  def parallel(thunks: List[() => Any]): Any =
+       |    val coH = _coHandleTL.get()
+       |    if coH != null then
+       |      coH.fromBody.put(Yielded(_ParallelIO(thunks)))
+       |      coH.toBody.take()
+       |    else _perform("Async", "parallel", thunks)
+       |  def recvFrom(ws: Any): Any =
+       |    val coH = _coHandleTL.get()
+       |    if coH != null then
+       |      coH.fromBody.put(Yielded(_RecvFromIO(ws)))
+       |      coH.toBody.take()
+       |    else
+       |      ws.asInstanceOf[Map[String, Any]]("recv").asInstanceOf[() => Any]()
+       |
+       |case class Future(value: Any)
+       |
+       |// ── CPS-aware collection helpers (sequence Free callbacks) ──────────
+       |//
+       |// In CPS-emitted bodies the receiver of `xs.map(fn)` is typed `Any`
+       |// (the Free monad's value carrier), so Scala can't resolve `.map`
+       |// statically.  `_dispatch` runs the method at runtime — for HOFs
+       |// it routes through `_seq*` helpers that thread per-element Free
+       |// results into a single sequenced Free, matching the interpreter's
+       |// `Computation.sequence` semantics.  Pure callbacks short-circuit
+       |// (no Free anywhere → return the plain array).
+       |
+       |def _isFree(c: Any): Boolean = c.isInstanceOf[_Computation]
+       |
+       |def _seq(comps: List[Any]): Any =
+       |  if !comps.exists(_isFree) then comps
+       |  else
+       |    def loop(i: Int, acc: List[Any]): Any =
+       |      if i == comps.length then acc
+       |      else _bind(comps(i), (v: Any) => loop(i + 1, acc :+ v))
+       |    loop(0, Nil)
+       |
+       |def _seqMap(xs: List[Any], fn: Any => Any): Any =
+       |  _seq(xs.map(fn))
+       |
+       |def _seqFlatMap(xs: List[Any], fn: Any => Any): Any =
+       |  val s = _seqMap(xs, fn)
+       |  // Option-returning fns flatten via .toList (Some(v) → [v];
+       |  // None → []) so `xs.flatMap(x => Option[v])` works at
+       |  // runtime like the Scala stdlib does.
+       |  def flatten(v: Any): List[Any] = v match
+       |    case ys: List[_]   => ys.asInstanceOf[List[Any]]
+       |    case opt: Option[_] => opt.toList.asInstanceOf[List[Any]]
+       |    case other         => List(other)
+       |  s match
+       |    case c: _Computation =>
+       |      _bind(c, (rs: Any) => rs.asInstanceOf[List[Any]].flatMap(flatten))
+       |    case rs: List[_] => rs.asInstanceOf[List[Any]].flatMap(flatten)
+       |    case _ => s
+       |
+       |def _seqFilter(xs: List[Any], fn: Any => Any, neg: Boolean): Any =
+       |  val flags = xs.map(fn)
+       |  val pick = (bs: List[Any]) => xs.zip(bs).collect {
+       |    case (x, b: Boolean) if (if neg then !b else b) => x
+       |  }
+       |  _seq(flags) match
+       |    case c: _Computation => _bind(c, (bs: Any) => pick(bs.asInstanceOf[List[Any]]))
+       |    case bs: List[_]     => pick(bs.asInstanceOf[List[Any]])
+       |    case other           => other
+       |
+       |def _seqForeach(xs: List[Any], fn: Any => Any): Any =
+       |  _seq(xs.map(fn)) match
+       |    case c: _Computation => _bind(c, (_: Any) => ())
+       |    case _               => ()
+       |
+       |def _seqExists(xs: List[Any], fn: Any => Any): Any =
+       |  _seq(xs.map(fn)) match
+       |    case c: _Computation => _bind(c, (bs: Any) =>
+       |      bs.asInstanceOf[List[Any]].exists { case b: Boolean => b; case _ => false })
+       |    case bs: List[_]     =>
+       |      bs.asInstanceOf[List[Any]].exists { case b: Boolean => b; case _ => false }
+       |    case _ => false
+       |
+       |def _seqForall(xs: List[Any], fn: Any => Any): Any =
+       |  _seq(xs.map(fn)) match
+       |    case c: _Computation => _bind(c, (bs: Any) =>
+       |      bs.asInstanceOf[List[Any]].forall { case b: Boolean => b; case _ => false })
+       |    case bs: List[_]     =>
+       |      bs.asInstanceOf[List[Any]].forall { case b: Boolean => b; case _ => false }
+       |    case _ => true
+       |
+       |def _seqCount(xs: List[Any], fn: Any => Any): Any =
+       |  _seq(xs.map(fn)) match
+       |    case c: _Computation => _bind(c, (bs: Any) =>
+       |      bs.asInstanceOf[List[Any]].count { case b: Boolean => b; case _ => false })
+       |    case bs: List[_]     =>
+       |      bs.asInstanceOf[List[Any]].count { case b: Boolean => b; case _ => false }
+       |    case _ => 0
+       |
+       |def _seqFind(xs: List[Any], fn: Any => Any): Any =
+       |  val flags = xs.map(fn)
+       |  val pick  = (bs: List[Any]) =>
+       |    val i = bs.indexWhere { case b: Boolean => b; case _ => false }
+       |    if i < 0 then None else Some(xs(i))
+       |  _seq(flags) match
+       |    case c: _Computation => _bind(c, (bs: Any) => pick(bs.asInstanceOf[List[Any]]))
+       |    case bs: List[_]     => pick(bs.asInstanceOf[List[Any]])
+       |    case _               => None
+       |
+       |def _seqFoldLeft(xs: List[Any], init: Any, fn: (Any, Any) => Any): Any =
+       |  def loop(i: Int, acc: Any): Any =
+       |    if i == xs.length then acc
+       |    else
+       |      val next = fn(acc, xs(i))
+       |      next match
+       |        case c: _Computation => _bind(c, (v: Any) => loop(i + 1, v))
+       |        case v               => loop(i + 1, v)
+       |  loop(0, init)
+       |
+       |/** Runtime method dispatcher used in CPS contexts where the receiver
+       | *  is statically `Any`.  Covers the collection HOFs that need
+       | *  Free-aware sequencing plus the common direct methods used inside
+       | *  `runAsync`/`handle` bodies.  Methods we don't know about fall
+       | *  through to Java reflection so a typo at the call site surfaces
+       | *  as the same NoSuchMethod we'd get with a direct call. */
+       |def _dispatch(obj: Any, method: String, args: List[Any]): Any =
+       |  (obj, method, args) match
+       |    // List HOFs — CPS-aware
+       |    case (xs: List[_], "map",       List(fn))   => _seqMap     (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "flatMap",   List(fn))   => _seqFlatMap (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "filter",    List(fn))   => _seqFilter  (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any], neg = false)
+       |    case (xs: List[_], "filterNot", List(fn))   => _seqFilter  (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any], neg = true)
+       |    case (xs: List[_], "foreach",   List(fn))   => _seqForeach (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "exists",    List(fn))   => _seqExists  (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "forall",    List(fn))   => _seqForall  (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "find",      List(fn))   => _seqFind    (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "count",     List(fn))   => _seqCount   (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "foldLeft",  List(init)) =>
+       |      // Curried in Scala: foldLeft(init)(fn) — return the fn-taker.
+       |      (fn: ((Any, Any) => Any)) => _seqFoldLeft(xs.asInstanceOf[List[Any]], init, fn)
+       |    // Direct List methods we use commonly inside CPS bodies
+       |    case (xs: List[_], "head",     Nil)       => xs.head
+       |    case (xs: List[_], "tail",     Nil)       => xs.tail
+       |    case (xs: List[_], "size",     Nil)       => xs.size
+       |    case (xs: List[_], "length",   Nil)       => xs.length
+       |    case (xs: List[_], "isEmpty",  Nil)       => xs.isEmpty
+       |    case (xs: List[_], "nonEmpty", Nil)       => xs.nonEmpty
+       |    case (xs: List[_], "reverse",  Nil)       => xs.reverse
+       |    // `.toMap` / `.toSet` carry implicit evidence — reflection
+       |    // sees them as 1-arg methods that don't match a Nil call.
+       |    case (xs: List[_], "toMap",    Nil)       =>
+       |      xs.asInstanceOf[List[(Any, Any)]].toMap
+       |    case (xs: List[_], "toSet",    Nil)       => xs.toSet
+       |    case (xs: List[_], "zip",      List(other)) =>
+       |      xs.zip(other.asInstanceOf[Iterable[Any]])
+       |    case (xs: List[_], "zipWithIndex", Nil)   => xs.zipWithIndex
+       |    // `.sortBy(fn)` carries an implicit Ordering — like toMap,
+       |    // reflection-arity check rejects the 2-arg signature.
+       |    case (xs: List[_], "sortBy",  List(fn))   =>
+       |      given _ordAny: Ordering[Any] = new Ordering[Any]:
+       |        def compare(a: Any, b: Any): Int = (a, b) match
+       |          case (x: Int,    y: Int)    => x.compare(y)
+       |          case (x: Long,   y: Long)   => x.compare(y)
+       |          case (x: Double, y: Double) => x.compare(y)
+       |          case (x: String, y: String) => x.compare(y)
+       |          case _ => a.toString.compare(b.toString)
+       |      xs.asInstanceOf[List[Any]].sortBy(fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "sorted", Nil) =>
+       |      given _ordAny: Ordering[Any] = new Ordering[Any]:
+       |        def compare(a: Any, b: Any): Int = (a, b) match
+       |          case (x: Int,    y: Int)    => x.compare(y)
+       |          case (x: Long,   y: Long)   => x.compare(y)
+       |          case (x: Double, y: Double) => x.compare(y)
+       |          case (x: String, y: String) => x.compare(y)
+       |          case _ => a.toString.compare(b.toString)
+       |      xs.asInstanceOf[List[Any]].sorted
+       |    case (xs: List[_], "groupBy", List(fn))   =>
+       |      xs.asInstanceOf[List[Any]].groupBy(fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "headOption", Nil)     => xs.headOption
+       |    case (xs: List[_], "lastOption", Nil)     => xs.lastOption
+       |    case (xs: List[_], "drop",   List(n: Int))  => xs.drop(n)
+       |    case (xs: List[_], "take",   List(n: Int))  => xs.take(n)
+       |    case (xs: List[_], "distinct", Nil)       => xs.distinct
+       |    case (xs: List[_], "contains", List(x))   =>
+       |      xs.asInstanceOf[List[Any]].contains(x)
+       |    case (xs: List[_], "mkString", Nil)       => xs.mkString
+       |    case (xs: List[_], "mkString", List(s: String)) => xs.mkString(s)
+       |    case (xs: List[_], "sum",      Nil)       => xs.asInstanceOf[List[Any]].foldLeft(0: Any)((a, b) => _binOp("+", a, b))
+       |    case (s: String,   "length",   Nil)       => s.length
+       |    case (s: String,   "size",     Nil)       => s.length
+       |    case (s: String,   "toInt",    Nil)       => s.toInt
+       |    case (s: String,   "toLong",   Nil)       => s.toLong
+       |    case (s: String,   "toDouble", Nil)       => s.toDouble
+       |    case (s: String,   "take",     List(n: Int))  => s.take(n)
+       |    case (s: String,   "drop",     List(n: Int))  => s.drop(n)
+       |    case (s: String,   "head",     Nil)       => s.head
+       |    case (s: String,   "tail",     Nil)       => s.tail
+       |    case (s: String,   "isEmpty",  Nil)       => s.isEmpty
+       |    case (s: String,   "nonEmpty", Nil)       => s.nonEmpty
+       |    case (s: String,   "trim",     Nil)       => s.trim
+       |    case (s: String,   "toLowerCase", Nil)    => s.toLowerCase
+       |    case (s: String,   "toUpperCase", Nil)    => s.toUpperCase
+       |    case (s: String,   "split",    List(sep: String)) => s.split(sep).toList
+       |    // Option — `getOrElse` takes a by-name param which Java
+       |    // reflection can't resolve directly from a String arg.
+       |    case (opt: Option[_], "get",        Nil)       => opt.get
+       |    case (opt: Option[_], "getOrElse",  List(d))   => opt.getOrElse(d)
+       |    case (opt: Option[_], "isDefined",  Nil)       => opt.isDefined
+       |    case (opt: Option[_], "isEmpty",    Nil)       => opt.isEmpty
+       |    case (opt: Option[_], "nonEmpty",   Nil)       => opt.nonEmpty
+       |    case (opt: Option[_], "map",        List(fn))  =>
+       |      opt.asInstanceOf[Option[Any]].map(fn.asInstanceOf[Any => Any])
+       |    case (opt: Option[_], "flatMap",    List(fn))  =>
+       |      opt.asInstanceOf[Option[Any]].flatMap(x => fn.asInstanceOf[Any => Option[Any]](x))
+       |    case (opt: Option[_], "foreach",    List(fn))  =>
+       |      opt.asInstanceOf[Option[Any]].foreach(fn.asInstanceOf[Any => Any]); ()
+       |    // Map ops — by-name default arg in `getOrElse` confuses
+       |    // the reflection fallback, so dispatch explicitly.
+       |    case (m: Map[_, _], "getOrElse", List(k, d)) =>
+       |      m.asInstanceOf[Map[Any, Any]].getOrElse(k, d)
+       |    case (m: Map[_, _], "get",       List(k))    =>
+       |      m.asInstanceOf[Map[Any, Any]].get(k)
+       |    case (m: Map[_, _], "contains",  List(k))    =>
+       |      m.asInstanceOf[Map[Any, Any]].contains(k)
+       |    case (m: Map[_, _], "size",      Nil)        => m.size
+       |    case (m: Map[_, _], "isEmpty",   Nil)        => m.isEmpty
+       |    case (m: Map[_, _], "nonEmpty",  Nil)        => m.nonEmpty
+       |    case (m: Map[_, _], "keys",      Nil)        =>
+       |      m.asInstanceOf[Map[Any, Any]].keys
+       |    case (m: Map[_, _], "values",    Nil)        =>
+       |      m.asInstanceOf[Map[Any, Any]].values
+       |    // Map key access for runtime record types (e.g. `info.mailboxSize` on
+       |    // a ProcessInfo map).  Must come after the explicit method cases above.
+       |    case (m: Map[_, _], key, Nil)               =>
+       |      m.asInstanceOf[Map[Any, Any]].getOrElse(key, null)
+       |    // Set ops
+       |    case (s: Set[_], "contains",  List(x)) => s.asInstanceOf[Set[Any]].contains(x)
+       |    case (s: Set[_], "size",      Nil)     => s.size
+       |    case (s: Set[_], "isEmpty",   Nil)     => s.isEmpty
+       |    case (s: Set[_], "nonEmpty",  Nil)     => s.nonEmpty
+       |    // Numeric widening / narrowing conversions on a boxed primitive value
+       |    // (e.g. `Bump.tick().toLong` where the perform result flows through
+       |    // `_dispatch` as an Any). Java reflection can't resolve `toLong` on a
+       |    // boxed Integer, so dispatch them explicitly.
+       |    case (n: Int,    "toLong",   Nil) => n.toLong
+       |    case (n: Int,    "toDouble", Nil) => n.toDouble
+       |    case (n: Int,    "toFloat",  Nil) => n.toFloat
+       |    case (n: Int,    "toInt",    Nil) => n
+       |    case (n: Long,   "toInt",    Nil) => n.toInt
+       |    case (n: Long,   "toDouble", Nil) => n.toDouble
+       |    case (n: Long,   "toFloat",  Nil) => n.toFloat
+       |    case (n: Long,   "toLong",   Nil) => n
+       |    case (n: Double, "toInt",    Nil) => n.toInt
+       |    case (n: Double, "toLong",   Nil) => n.toLong
+       |    case (n: Double, "toFloat",  Nil) => n.toFloat
+       |    case (n: Double, "toDouble", Nil) => n
+       |    case (n: Float,  "toInt",    Nil) => n.toInt
+       |    case (n: Float,  "toLong",   Nil) => n.toLong
+       |    case (n: Float,  "toDouble", Nil) => n.toDouble
+       |    // Fallback: try Java reflection so non-HOF method calls still work
+       |    case _ =>
+       |      val cls = obj.getClass
+       |      val ms  = cls.getMethods.filter(m =>
+       |        m.getName == method && m.getParameterCount == args.length)
+       |      if ms.isEmpty then
+       |        sys.error(s"No method '$method' on ${cls.getName} with ${args.length} arg(s)")
+       |      val boxed: Array[Object] = args.map(_.asInstanceOf[AnyRef]).toArray
+       |      ms.head.invoke(obj, boxed*)
+       |
+       |// v1.11 coroutine-based runAsync scheduler
+       |def _driveAsyncCo(
+       |  fromBody: java.util.concurrent.SynchronousQueue[Any],
+       |  toBody:   java.util.concurrent.SynchronousQueue[Any]
+       |): Any =
+       |  while true do
+       |    fromBody.take() match
+       |      case Returned(v)           => return v
+       |      case Errored(msg)          => throw new RuntimeException(s"Async error: $msg")
+       |      case Yielded(_DelayIO(ms)) =>
+       |        if ms > 0 then Thread.sleep(ms)
+       |        toBody.put(())
+       |      case Yielded(_AsyncIO(thunk)) =>
+       |        toBody.put(Future(_runAsync(thunk)))
+       |      case Yielded(_AwaitIO(fut)) =>
+       |        toBody.put(fut match
+       |          case Future(v) => v
+       |          case other     => sys.error(s"Async.await: expected Future, got $other"))
+       |      case Yielded(_ParallelIO(thunks)) =>
+       |        toBody.put(thunks.map(_runAsync))
+       |      case Yielded(_RecvFromIO(ws)) =>
+       |        toBody.put(ws.asInstanceOf[Map[String, Any]]("recv").asInstanceOf[() => Any]())
+       |      case other =>
+       |        sys.error(s"_driveAsyncCo: unexpected step: $other")
+       |  sys.error("unreachable")
+       |
+       |def _runAsync(bodyThunk: () => Any): Any =
+       |  val fromBody = new java.util.concurrent.SynchronousQueue[Any]()
+       |  val toBody   = new java.util.concurrent.SynchronousQueue[Any]()
+       |  val handle   = _CoHandle(fromBody, toBody)
+       |  Thread.ofVirtual().start { () =>
+       |    _coHandleTL.set(handle)
+       |    toBody.take()
+       |    try
+       |      val result = bodyThunk()
+       |      fromBody.put(Returned(result))
+       |    catch case t: Throwable =>
+       |      val msg = Option(t.getMessage).getOrElse(t.getClass.getSimpleName)
+       |      try fromBody.put(Errored(msg)) catch case _: Throwable => ()
+       |  }
+       |  toBody.put(())
+       |  _driveAsyncCo(fromBody, toBody)
+       |
+       |// ── runAsyncParallel: real-thread alternate handler ────────────────────
+       |//
+       |// Same `Async.*` API as `runAsync` but `async` / `parallel` submit
+       |// their thunks to an `ExecutorService`.  `await` blocks the calling
+       |// thread on the future; `parallel` waits on each future in declared
+       |// order so the result list mirrors input order regardless of
+       |// completion order — value-deterministic code retains byte-identical
+       |// output across the single- and parallel-handler variants.
+       |
+       |val _parallelFutures =
+       |  new java.util.concurrent.ConcurrentHashMap[Long, java.util.concurrent.Future[Any]]()
+       |val _parallelFutureSeq = new java.util.concurrent.atomic.AtomicLong(0L)
+       |def _freshFutureId(): Long = _parallelFutureSeq.incrementAndGet()
+       |
+       |def _runAsyncParallel(bodyThunk: () => Any): Any =
+       |  // Java 21 requirement: virtual threads (Project Loom) for lightweight parallelism.
+       |  val _ex = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()
+       |  try
+       |    def dispatch(op: String, args: List[Any], resume: Any => Any): Any = op match
+       |      case "delay" =>
+       |        val ms = args(0).asInstanceOf[Int]
+       |        if ms > 0 then Thread.sleep(ms.toLong)
+       |        resume(())
+       |      case "async" =>
+       |        val thunk = args(0).asInstanceOf[() => Any]
+       |        val fut: java.util.concurrent.Future[Any] = _ex.submit(
+       |          new java.util.concurrent.Callable[Any] {
+       |            def call(): Any = interp(thunk())
+       |          })
+       |        val fid = _freshFutureId()
+       |        _parallelFutures.put(fid, fut)
+       |        resume(Future(("_parId", fid)))
+       |      case "await" =>
+       |        args(0) match
+       |          case Future(("_parId", fid: Long)) =>
+       |            val fut = _parallelFutures.remove(fid)
+       |            if fut == null then sys.error("Async.await: stale Future")
+       |            resume(fut.get())
+       |          case Future(v) => resume(v)
+       |          case _         => sys.error("Async.await(future)")
+       |      case "parallel" =>
+       |        val thunks = args(0).asInstanceOf[List[() => Any]]
+       |        val futs = thunks.map { t =>
+       |          _ex.submit(new java.util.concurrent.Callable[Any] {
+       |            def call(): Any = interp(t())
+       |          })
+       |        }
+       |        resume(futs.map(_.get()))
+       |      case _ => sys.error("Unknown Async operation: " + op)
+       |    def interp(initial: Any): Any =
+       |      var current: Any = initial
+       |      while true do
+       |        current match
+       |          case _Perform("Async", op, args) =>
+       |            current = dispatch(op, args, (v: Any) => v)
+       |          case _Perform(_, _, _) => return current
+       |          case _FlatMap(sub, f) => sub match
+       |            case _Perform("Async", op, args) =>
+       |              val fn = f.asInstanceOf[Any => Any]
+       |              current = dispatch(op, args, (v: Any) => interp(fn(v)))
+       |            case _Perform(_, _, _) =>
+       |              val fn = f.asInstanceOf[Any => Any]
+       |              return _FlatMap(sub, (v: Any) => interp(fn(v)))
+       |            case _FlatMap(s2, g) =>
+       |              current = _FlatMap(s2,
+       |                (x: Any) => _FlatMap(g.asInstanceOf[Any => Any](x), f))
+       |            case v =>
+       |              current = f.asInstanceOf[Any => Any](v)
+       |          case v => return v
+       |      throw new RuntimeException("unreachable")
+       |    interp(bodyThunk())
+       |  finally _ex.shutdown()
+       |
+       |// ── Storage: built-in key-value effect ─────────────────────────────────
+       |//
+       |// `Storage.{get,put,remove,has,keys}` produce `_Perform("Storage",
+       |// op, args)` nodes; `_runStorage(bodyThunk, path)` is the handler.
+       |// When `path` is non-null it hydrates from / flushes to that JSON
+       |// file on every mutation (file-backed); otherwise the map stays
+       |// in-process and is discarded at scope exit (ephemeral mode).
+       |
+       |def _storageLoad(path: String, state: scala.collection.mutable.LinkedHashMap[String, String]): Unit =
+       |  val p = java.nio.file.Paths.get(path)
+       |  if java.nio.file.Files.exists(p) then
+       |    val src = java.nio.file.Files.readString(p).trim
+       |    if src.startsWith("{") && src.endsWith("}") then
+       |      var i = 1
+       |      val end = src.length - 1
+       |      def skipWs(): Unit = while i < end && src.charAt(i).isWhitespace do i += 1
+       |      def readStr(): String =
+       |        if i >= end || src.charAt(i) != '"' then sys.error(s"Storage JSON: expected string at $i")
+       |        i += 1
+       |        val sb = new StringBuilder
+       |        while i < end && src.charAt(i) != '"' do
+       |          if src.charAt(i) == '\\' && i + 1 < end then
+       |            src.charAt(i + 1) match
+       |              case '"'  => sb.append('"');  i += 2
+       |              case '\\' => sb.append('\\'); i += 2
+       |              case 'n'  => sb.append('\n'); i += 2
+       |              case 't'  => sb.append('\t'); i += 2
+       |              case 'r'  => sb.append('\r'); i += 2
+       |              case c    => sb.append(c);    i += 2
+       |          else { sb.append(src.charAt(i)); i += 1 }
+       |        i += 1
+       |        sb.toString
+       |      skipWs()
+       |      while i < end do
+       |        val k = readStr(); skipWs()
+       |        if i >= end || src.charAt(i) != ':' then sys.error("Storage JSON: expected ':'")
+       |        i += 1; skipWs()
+       |        val v = readStr(); skipWs()
+       |        state(k) = v
+       |        if i < end && src.charAt(i) == ',' then i += 1
+       |        skipWs()
+       |
+       |def _storageSave(path: String, state: scala.collection.mutable.LinkedHashMap[String, String]): Unit =
+       |  def esc(s: String): String =
+       |    val sb = new StringBuilder
+       |    sb.append('"')
+       |    s.foreach {
+       |      case '"'  => sb.append("\\\"")
+       |      case '\\' => sb.append("\\\\")
+       |      case '\n' => sb.append("\\n")
+       |      case '\r' => sb.append("\\r")
+       |      case '\t' => sb.append("\\t")
+       |      case c    => sb.append(c)
+       |    }
+       |    sb.append('"').toString
+       |  val body = state.iterator.map { case (k, v) => esc(k) + ":" + esc(v) }.mkString(",")
+       |  java.nio.file.Files.writeString(java.nio.file.Paths.get(path), "{" + body + "}")
+       |
+       |def _runStorage(bodyThunk: () => Any, path: String): Any =
+       |  val state = scala.collection.mutable.LinkedHashMap.empty[String, String]
+       |  if path != null then _storageLoad(path, state)
+       |  def flush(): Unit = if path != null then _storageSave(path, state)
+       |  def dispatch(op: String, args: List[Any], resume: Any => Any): Any = op match
+       |    case "get" =>
+       |      val k = args(0).asInstanceOf[String]
+       |      resume(if state.contains(k) then Some(state(k)) else None)
+       |    case "put" =>
+       |      val k = args(0).asInstanceOf[String]
+       |      state(k) = _show(args(1))
+       |      flush()
+       |      resume(())
+       |    case "remove" =>
+       |      state.remove(args(0).asInstanceOf[String])
+       |      flush()
+       |      resume(())
+       |    case "has" => resume(state.contains(args(0).asInstanceOf[String]))
+       |    case "keys" => resume(state.keys.toList)
+       |    case _ => sys.error("Unknown Storage operation: " + op)
+       |  def interp(initial: Any): Any =
+       |    var current: Any = initial
+       |    while true do
+       |      current match
+       |        case _Perform("Storage", op, args) =>
+       |          current = dispatch(op, args, (v: Any) => v)
+       |        case _Perform(_, _, _) => return current
+       |        case _FlatMap(sub, f) => sub match
+       |          case _Perform("Storage", op, args) =>
+       |            val fn = f.asInstanceOf[Any => Any]
+       |            current = dispatch(op, args, (v: Any) => interp(fn(v)))
+       |          case _Perform(_, _, _) =>
+       |            val fn = f.asInstanceOf[Any => Any]
+       |            return _FlatMap(sub, (v: Any) => interp(fn(v)))
+       |          case _FlatMap(s2, g) =>
+       |            current = _FlatMap(s2,
+       |              (x: Any) => _FlatMap(g.asInstanceOf[Any => Any](x), f))
+       |          case v =>
+       |            current = f.asInstanceOf[Any => Any](v)
+       |        case v => return v
+       |    throw new RuntimeException("unreachable")
+       |  interp(bodyThunk())
+       |

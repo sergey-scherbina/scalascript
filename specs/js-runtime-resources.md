@@ -105,5 +105,8 @@ to be split. Keeping **logical** boundaries:
 
 ## Follow-ups
 
-- Mirror the pattern for JVM/Rust runtime-string fragments if the win proves out.
+- **JVM done (2026-06-22):** `JvmGenRuntimeSources` (3656→61 lines) → `resources/scalascript/jvm-runtime/`
+  via `JvmRuntimeResource.load` (verbatim `|`-body + loader `.stripMargin` ⇒ byte-identical; `effectsRuntime`
+  kept as 7 `+`-concatenated chunks for its former size-split). Rust (`RustRuntimeTemplates`) remains — 17
+  stripMargin strings migratable + 1 `s"""` interpolated to leave; same loader shape.
 - Optional `tsc --checkJs`/`eslint` CI gate on the self-contained `.mjs` (needs JSDoc first).

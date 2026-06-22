@@ -1,0 +1,883 @@
+|
+       |  def _resumeBlockedSender(state: _ActorState): Unit =
+       |    if state.cap <= 0 || state.blockedSends.isEmpty then return
+       |    if state.mailbox.size >= state.cap then return
+       |    while state.blockedSends.nonEmpty do
+       |      val (senderId, msg, senderK) = state.blockedSends.removeHead()
+       |      actors.get(senderId) match
+       |        case Some(ss) if ss != null =>
+       |          state.mailbox.offer(msg)
+       |          // Defer senderK(()) via _FlatMap so the continuation's side
+       |          // effects run in the sender's own stepActor turn, not in the
+       |          // current actor's turn (ordering fix: Block overflow).
+       |          ss.pending = _FlatMap((), senderK)
+       |          ready.append(senderId)
+       |          return
+       |        case _ => ()  // dead sender — skip
+       |
+       |  def tryDeliver(state: _ActorState, matcher: Any => Option[Any], wrapSome: Boolean): Option[Any] =
+       |    while !state.mailbox.isEmpty do
+       |      val msg = state.mailbox.peek()
+       |      matcher(msg) match
+       |        case Some(bodyC) =>
+       |          state.mailbox.poll()
+       |          _resumeBlockedSender(state)
+       |          if wrapSome then
+       |            return Some(_FlatMap(bodyC, (v: Any) => Some(v)))
+       |          else
+       |            return Some(bodyC)
+       |        case None =>
+       |          state.mailbox.poll()
+       |          _resumeBlockedSender(state)
+       |    None
+       |
+       |  def tryWakeBlocked(id: Long): Unit =
+       |    actors.get(id).foreach { st =>
+       |      if st.blocked != null then
+       |        val b = st.blocked
+       |        tryDeliver(st, b._1, b._4) match
+       |          case Some(c) =>
+       |            st.pending = _FlatMap(c, b._2)
+       |            st.blocked = null
+       |            ready.append(id)
+       |          case None => ()
+       |    }
+       |
+       |  def killActor(targetId: Long, reason: Any): Unit =
+       |    if !actors.contains(targetId) then return
+       |    val _dyingSt = actors(targetId)
+       |    actors.remove(targetId)
+       |    trapExitM.remove(targetId)
+       |    // Resume blocked senders: target died → send becomes silent no-op.
+       |    if _dyingSt.blockedSends.nonEmpty then
+       |      _dyingSt.blockedSends.foreach { (senderId, _, senderK) =>
+       |        actors.get(senderId).foreach { ss =>
+       |          ss.pending = _FlatMap((), senderK)
+       |          ready.append(senderId)
+       |        }
+       |      }
+       |      _dyingSt.blockedSends.clear()
+       |    val deadPid = _Pid("", targetId)
+       |    links.remove(targetId).foreach { linkedSet =>
+       |      linkedSet.foreach { linkedId =>
+       |        links.get(linkedId).foreach(_.remove(targetId))
+       |        if trapExitM.getOrElse(linkedId, false) then
+       |          actors.get(linkedId).foreach { st =>
+       |            st.mailbox.offer(Exit(deadPid, reason))
+       |            tryWakeBlocked(linkedId)
+       |          }
+       |        else
+       |          killActor(linkedId, reason)
+       |      }
+       |    }
+       |    monitors.remove(targetId).foreach { monMap =>
+       |      monMap.foreach { (monRef, observerId) =>
+       |        actors.get(observerId).foreach { st =>
+       |          st.mailbox.offer(Down(monRef, deadPid, reason))
+       |          tryWakeBlocked(observerId)
+       |        }
+       |      }
+       |    }
+       |
+       |  def handleActorOp(id: Long, state: _ActorState, op: String, args: List[Any], k: Any => Any): Either[Unit, Any] = op match
+       |    case "spawn" =>
+       |      val thunk = args(0).asInstanceOf[() => Any]
+       |      val childId = spawnActor(thunk)
+       |      Right(k(_Pid(_localNodeId, childId)))
+       |    case "spawnLink" =>
+       |      val thunk = args(0).asInstanceOf[() => Any]
+       |      val childId = spawnActor(thunk)
+       |      // Atomic bidirectional link
+       |      links.getOrElseUpdate(id,      scala.collection.mutable.Set.empty) += childId
+       |      links.getOrElseUpdate(childId, scala.collection.mutable.Set.empty) += id
+       |      Right(k(_Pid(_localNodeId, childId)))
+       |    case "spawnBounded" =>
+       |      val cap = args(0) match
+       |        case n: Int  => n
+       |        case n: Long => n.toInt
+       |        case _       => 0
+       |      val ov = args(1) match
+       |        case s: String => s
+       |        case m: scala.collection.immutable.Map[?, ?] =>
+       |          m.asInstanceOf[Map[String, Any]].getOrElse("_type", "DropNewest").toString
+       |        case _ => "DropNewest"
+       |      val thunk = args(2).asInstanceOf[() => Any]
+       |      val childId = spawnActor(thunk, cap, ov)
+       |      Right(k(_Pid(_localNodeId, childId)))
+       |    case "self" => Right(k(_Pid(_localNodeId, id)))
+       |    case "processInfo" =>
+       |      args(0) match
+       |        case _Pid(_, targetId) =>
+       |          actors.get(targetId) match
+       |            case None => Right(k(None))
+       |            case Some(ts) =>
+       |              val lnks = links.get(targetId).map(_.toList.map(lid => _Pid("", lid))).getOrElse(List.empty)
+       |              val status = if ts.blocked != null then "blocked" else "running"
+       |              val info = Map("_type" -> "ProcessInfo", "mailboxSize" -> ts.mailbox.size,
+       |                             "links" -> lnks, "status" -> status)
+       |              Right(k(Some(info)))
+       |        case _ => Right(k(None))
+       |    case "send" =>
+       |      args(0) match
+       |        case _Pid(pidNode, targetId) =>
+       |          if pidNode.nonEmpty && pidNode != _localNodeId then
+       |            // Remote send — serialize and enqueue to peer channel
+       |            Option(_peerChannels.get(pidNode)).foreach { sendFn =>
+       |              val body = _serializeValue(args(1))
+       |              sendFn(_mkMsgEnv(_localNodeId, id, pidNode, targetId, body))
+       |            }
+       |          else
+       |            actors.get(targetId) match
+       |              case Some(ts) =>
+       |                val _delivered =
+       |                  if ts.cap > 0 && ts.mailbox.size >= ts.cap then
+       |                    ts.overflow match
+       |                      case "DropOldest" =>
+       |                        ts.mailbox.poll(); ts.mailbox.offer(args(1)); true
+       |                      case "DropNewest" => false
+       |                      case "Fail" =>
+       |                        killActor(id, "mailbox_overflow")
+       |                        return if actors.contains(id) then Right(k(())) else Left(())
+       |                      case "Block" =>
+       |                        ts.blockedSends.append((id, args(1), k))
+       |                        return Left(())
+       |                      case _ => ts.mailbox.offer(args(1)); true
+       |                  else { ts.mailbox.offer(args(1)); true }
+       |                if _delivered && ts.blocked != null then
+       |                  val b = ts.blocked
+       |                  tryDeliver(ts, b._1, b._4) match
+       |                    case Some(c) =>
+       |                      ts.pending = _FlatMap(c, b._2)
+       |                      ts.blocked = null
+       |                      ready.append(targetId)
+       |                    case None => ()
+       |              case None => ()
+       |        case _ => ()
+       |      Right(k(()))
+       |    case "exit" =>
+       |      args(0) match
+       |        case _Pid(_, targetId) => killActor(targetId, args(1))
+       |        case _                 => ()
+       |      if actors.contains(id) then Right(k(())) else Left(())
+       |    case "receive" =>
+       |      val matcher = _receiveSpecs.get(args(0).asInstanceOf[Long])
+       |      tryDeliver(state, matcher, false) match
+       |        case Some(c) => Right(_FlatMap(c, k))
+       |        case None =>
+       |          state.blocked = (matcher, k, None, false)
+       |          Left(())
+       |    case "receive_t" =>
+       |      val matcher = _receiveSpecs.get(args(0).asInstanceOf[Long])
+       |      val ms = args(1) match
+       |        case n: Int  => n.toLong
+       |        case n: Long => n
+       |        case _       => 0L
+       |      tryDeliver(state, matcher, true) match
+       |        case Some(c) => Right(_FlatMap(c, k))
+       |        case None =>
+       |          state.blocked = (matcher, k, Some(System.currentTimeMillis() + ms), true)
+       |          Left(())
+       |    // ── v1.6 Phase 2 — supervision ─────────────────────────────────────
+       |    case "link" =>
+       |      args(0) match
+       |        case _Pid(nid, targetId) =>
+       |          if nid.nonEmpty && nid != _localNodeId then
+       |            if _peerChannels.containsKey(nid) then
+       |              _remoteLinks.computeIfAbsent(nid, _ => new java.util.concurrent.CopyOnWriteArrayList()).add((id, targetId))
+       |            else
+       |              if trapExitM.getOrElse(id, false) then
+       |                actors.get(id).foreach(_.mailbox.offer(Exit(_Pid(nid, targetId), noproc)))
+       |              else killActor(id, noproc)
+       |          else if actors.contains(targetId) then
+       |            links.getOrElseUpdate(id,       scala.collection.mutable.Set.empty) += targetId
+       |            links.getOrElseUpdate(targetId, scala.collection.mutable.Set.empty) += id
+       |          else
+       |            if trapExitM.getOrElse(id, false) then
+       |              actors.get(id).foreach(_.mailbox.offer(Exit(_Pid("", targetId), noproc)))
+       |            else
+       |              killActor(id, noproc)
+       |        case _ => ()
+       |      if actors.contains(id) then Right(k(())) else Left(())
+       |    case "monitor" =>
+       |      args(0) match
+       |        case _Pid(nid, targetId) =>
+       |          val monRef = nextMonRef; nextMonRef += 1
+       |          if nid.nonEmpty && nid != _localNodeId then
+       |            if _peerChannels.containsKey(nid) then
+       |              _remoteMonitors.computeIfAbsent(nid, _ => new java.util.concurrent.CopyOnWriteArrayList()).add((id, monRef, targetId))
+       |            else
+       |              actors.get(id).foreach { st =>
+       |                st.mailbox.offer(Down(monRef, _Pid(nid, targetId), "noconnection"))
+       |                tryWakeBlocked(id)
+       |              }
+       |            Right(k(monRef))
+       |          else if actors.contains(targetId) then
+       |            monitors.getOrElseUpdate(targetId, scala.collection.mutable.Map.empty)(monRef) = id
+       |            Right(k(monRef))
+       |          else
+       |            actors.get(id).foreach { st =>
+       |              st.mailbox.offer(Down(monRef, _Pid("", targetId), noproc))
+       |              tryWakeBlocked(id)
+       |            }
+       |            Right(k(monRef))
+       |        case _ => Right(k(-1L))
+       |    case "demonitor" =>
+       |      val monRef = args(0).asInstanceOf[Long]
+       |      monitors.foreachEntry((_, m) => m.remove(monRef))
+       |      Right(k(()))
+       |    case "trapExit" =>
+       |      trapExitM(id) = args(0) match
+       |        case b: Boolean => b
+       |        case _          => args(0) == true
+       |      Right(k(()))
+       |    // ── Phase 3 — distributed ────────────────────────────────────────────
+       |    case "startNode" =>
+       |      _localNodeId  = args(0).toString
+       |      _localNodeUrl = if args.length > 1 then args(1).toString else ""
+       |      // Register /_ssc-actors WS route for inbound peer connections.
+       |      // v1.23 — the blocking handshake + recv loop is wrapped in a
+       |      // virtual thread so the WS server's single-thread dispatch
+       |      // executor returns immediately and stays free to process the
+       |      // next peer.  Without this the FIRST inbound peer's recv loop
+       |      // monopolises the executor and subsequent handshakes stall
+       |      // in the queue — fragmented clusters where every node only
+       |      // sees the seed.
+       |      // protocols: echo the `ssc-actors-v1` subprotocol the peer clients
+       |      // dial with (both JS-codegen `connectNode` and JVM-codegen offer only
+       |      // v1). Without it the WS upgrade emits no `Sec-WebSocket-Protocol`
+       |      // header and a spec-compliant `ws` client (JS peer) rejects the
+       |      // connection ("Server sent no subprotocol") → no Bully convergence.
+       |      onWebSocket("/_ssc-actors", protocols = List("ssc-actors-v1")) { ws =>
+       |        Thread.ofVirtual().start { () =>
+       |          def wsSend(t: String): Unit = ws.send(t)
+       |          def wsRecv(): String | Null  = ws.recv() match
+       |            case Some(s) => s
+       |            case None    => null
+       |          val first = wsRecv()
+       |          if first != null then
+       |            val pnId = _parseNodeId(first)
+       |            if pnId.nonEmpty then
+       |              wsSend("{\"nodeId\":" + _jstr(_localNodeId) + "}")
+       |              _peerChannels.put(pnId, wsSend)
+       |              _peerLastPong.put(pnId, System.currentTimeMillis())
+       |              _fireClusterEvent("NodeJoined", pnId)
+       |              _sendConfigSnapshot(wsSend)
+       |              _sendDrainState(wsSend)
+       |              _sendMetricSnapshot(wsSend)
+       |              val hbThread = Thread.ofVirtual().start { () =>
+       |                try
+       |                  while _peerChannels.containsKey(pnId) do
+       |                    Thread.sleep(_peerHeartbeatIntervalMs)
+       |                    if _peerChannels.containsKey(pnId) then
+       |                      val age = System.currentTimeMillis() - _peerLastPong.getOrDefault(pnId, 0L)
+       |                      if age > _peerHeartbeatDeadAfterMs then _peerChannels.remove(pnId)
+       |                      else try _peerChannels.get(pnId)("{\"t\":\"ping\"}") catch case _: Throwable => ()
+       |                catch case _: InterruptedException => ()
+       |              }
+       |              var running = true
+       |              while running do
+       |                val msg = wsRecv()
+       |                if msg == null then running = false else _dispatchPeerEnv(pnId, msg)
+       |              hbThread.interrupt()
+       |              _peerChannels.remove(pnId)
+       |              _peerLastPong.remove(pnId)
+       |              _peerUrls.remove(pnId)
+       |              _peerPongHist.remove(pnId)
+       |              _peerPhiViews.remove(pnId)
+       |              _drainingPeers.remove(pnId)
+       |              _clusterMetrics.forEach { (_, inner) => inner.remove(pnId) }
+       |              _nodeDownQueue.offer(pnId)
+       |              _fireClusterEvent("NodeLeft", pnId, "disconnect")
+       |              if _currentLeader.compareAndSet(pnId, "") then
+       |                _fireLeaderEvent("LeaderLost", pnId)
+       |                if _autoReelect then _startElection()
+       |        }
+       |      }
+       |      // v1.23 — operational HTTP endpoints under /_ssc-cluster/* so
+       |      // ops tooling (`ssc cluster status / drain / events / step-down
+       |      // / metrics-prom`) can talk to codegen-built nodes just like
+       |      // interpreter nodes.  Idempotent — repeated startNode calls
+       |      // are no-ops for the route table.
+       |      _registerClusterStatusRoute()
+       |      _registerClusterDrainRoute()
+       |      _registerClusterEventsRoute()
+       |      _registerClusterStepDownRoute()
+       |      _registerClusterMetricsPromRoute()
+       |      _registerClusterHandlersRoute()
+       |      Right(k(()))
+       |    case "connectNode" =>
+       |      val url = args(0).toString
+       |      val tok = if args.length > 1 then args(1).toString else ""
+       |      _connectPeer(url, tok)
+       |      Right(k(()))
+       |    case "joinCluster" =>
+       |      _joinMode  = true
+       |      _joinToken = if args.length > 1 then args(1).toString else ""
+       |      val seeds = args(0) match
+       |        case lst: List[?] => lst.collect { case s: String => s }
+       |        case _            => Nil
+       |      seeds.foreach(u => _connectPeer(u, _joinToken))
+       |      Right(k(()))
+       |    case "register" =>
+       |      val name = args(0).toString
+       |      val localId = args(1) match { case _Pid(_, lid) => lid; case _ => id }
+       |      _nodeRegistry.put(name, localId)
+       |      Right(k(()))
+       |    case "whereis" =>
+       |      val name = args(0).toString
+       |      val result =
+       |        if _nodeRegistry.containsKey(name) && actors.contains(_nodeRegistry.get(name)) then
+       |          Some(_Pid(_localNodeId, _nodeRegistry.get(name)))
+       |        else
+       |          None
+       |      Right(k(result))
+       |    // v1.6.x — cluster-wide registry
+       |    case "globalRegister" =>
+       |      val grName    = args(0).toString
+       |      val grPidRaw  = args(1).asInstanceOf[_Pid]
+       |      // v1.23 — local-spawn Pids carry an empty nodeId.  Stamp the
+       |      // local node identity onto the registered Pid so cross-node
+       |      // lookups can route back here; without this the broadcast
+       |      // payload's `nodeId` is "" and remote nodes silently drop
+       |      // every cross-node send to this name.
+       |      val grNid     = if grPidRaw.nodeId.nonEmpty then grPidRaw.nodeId else _localNodeId
+       |      val grPid     = _Pid(grNid, grPidRaw.localId)
+       |      _globalRegistry.put(grName, grPid)
+       |      val payload = "{\"t\":\"global_reg\",\"name\":" + _jstr(grName) + ",\"nodeId\":" + _jstr(grNid) + ",\"localId\":" + _jstr(grPid.localId.toString) + "}"
+       |      _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+       |      Right(k(()))
+       |    case "globalWhereis" =>
+       |      val gwName = args(0).toString
+       |      val result = Option(_globalRegistry.get(gwName))
+       |      Right(k(result))
+       |    // v1.23 — cluster visibility
+       |    case "clusterMembers" =>
+       |      val buf = scala.collection.mutable.ListBuffer.empty[String]
+       |      _peerChannels.keySet().forEach(k0 => buf += k0)
+       |      Right(k(buf.toList))
+       |    case "subscribeClusterEvents" =>
+       |      val boxed = java.lang.Long.valueOf(id)
+       |      if !_clusterEventSubs.contains(boxed) then _clusterEventSubs.add(boxed)
+       |      Right(k(()))
+       |    // v1.23 — phi-accrual failure detector
+       |    case "phiOf" =>
+       |      Right(k(_computePhi(args(0).toString)))
+       |    case "isSuspect" =>
+       |      val thr = args(1) match
+       |        case d: Double => d
+       |        case l: Long   => l.toDouble
+       |        case i: Int    => i.toDouble
+       |        case _         => 8.0
+       |      Right(k(_computePhi(args(0).toString) >= thr))
+       |    // v1.23 — local node identity
+       |    case "selfNode" =>
+       |      Right(k(_localNodeId))
+       |    // v1.23 — cluster health (phi vector for connected peers)
+       |    case "clusterHealth" =>
+       |      val m = scala.collection.mutable.Map.empty[String, Double]
+       |      _peerChannels.keySet().forEach(k0 => m(k0) = _computePhi(k0))
+       |      Right(k(m.toMap))
+       |    // v1.23 — cluster-wide FD: broadcast phi vector to peers.
+       |    case "broadcastHealth" =>
+       |      val sb = new StringBuilder("{\"t\":\"phi_vector\",\"from\":")
+       |      sb.append(_jstr(_localNodeId)).append(",\"view\":[")
+       |      var first = true
+       |      _peerChannels.keySet().forEach { nid =>
+       |        val phi = _computePhi(nid)
+       |        if !phi.isInfinite && !phi.isNaN then
+       |          if !first then sb.append(',')
+       |          sb.append("[").append(_jstr(nid)).append(',').append(phi).append(']')
+       |          first = false
+       |      }
+       |      sb.append("]}")
+       |      val payload = sb.toString
+       |      _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+       |      Right(k(()))
+       |    // v1.23 — cluster-wide FD: majority vote across peer views.
+       |    case "clusterIsDown" =>
+       |      val target = args(0).toString
+       |      val thr    = args(1) match
+       |        case d: Double => d
+       |        case l: Long   => l.toDouble
+       |        case i: Int    => i.toDouble
+       |        case _         => 8.0
+       |      var votes = 0
+       |      var total = 0
+       |      if _peerChannels.containsKey(target) then
+       |        total += 1
+       |        if _computePhi(target) >= thr then votes += 1
+       |      _peerPhiViews.forEach { (peerNid, peerView) =>
+       |        if peerNid != target then
+       |          val p = peerView.get(target)
+       |          if p != null then
+       |            total += 1
+       |            if p.doubleValue() >= thr then votes += 1
+       |      }
+       |      val majority = (total + 1) / 2
+       |      Right(k(total > 0 && votes >= majority))
+       |    // v1.23 — leader election (Bully or Raft, picked by _leaderProtocol)
+       |    case "electLeader" =>
+       |      _leaderProtocol.get() match
+       |        case "raft" => _startRaftElection()
+       |        case _      => _startElection()
+       |      Right(k(()))
+       |    case "currentLeader" =>
+       |      _leaderProtocol.get() match
+       |        case "raft"  => Right(k(_raftLeaderId))
+       |        case "coord" =>
+       |          val holderFn = _coordHolderFn
+       |          val held: Option[String] =
+       |            if holderFn != null then
+       |              try holderFn.asInstanceOf[() => Option[String]]()
+       |              catch case _: Throwable => None
+       |            else None
+       |          Right(k(held.getOrElse("")))
+       |        case _       => Right(k(_currentLeader.get()))
+       |    case "subscribeLeaderEvents" =>
+       |      val boxed = java.lang.Long.valueOf(id)
+       |      if !_leaderEventSubs.contains(boxed) then _leaderEventSubs.add(boxed)
+       |      Right(k(()))
+       |    case "setAutoReelect" =>
+       |      _autoReelect = args(0) match
+       |        case b: Boolean => b
+       |        case _          => false
+       |      Right(k(()))
+       |    // v1.23 — protocol switch + history (cluster-raft.md §6).
+       |    case "useRaftLeaderElection" =>
+       |      _leaderProtocol.set("raft")
+       |      _raftLoad()
+       |      _raftState       = "follower"
+       |      _raftElectionDue = System.currentTimeMillis() + _raftRandTimeout
+       |      _ensureRaftTickThread()
+       |      Right(k(()))
+       |    case "useExternalCoordinator" =>
+       |      _leaderProtocol.set("coord")
+       |      if args.length >= 4 then
+       |        _coordAcquireFn = args(0).asInstanceOf[AnyRef]
+       |        _coordRenewFn   = args(1).asInstanceOf[AnyRef]
+       |        _coordReleaseFn = args(2).asInstanceOf[AnyRef]
+       |        _coordHolderFn  = args(3).asInstanceOf[AnyRef]
+       |        // Try once synchronously so callers don't wait a tick.
+       |        val got = try _coordAcquireFn.asInstanceOf[(String, Long) => Boolean](_localNodeId, _COORD_LEASE_TIMEOUT_MS)
+       |                  catch case _: Throwable => false
+       |        if got then
+       |          _coordIsLeader = true
+       |          val prev = _currentLeader.getAndSet(_localNodeId)
+       |          if prev != _localNodeId then
+       |            _fireLeaderEvent("LeaderElected", _localNodeId)
+       |            _recordLeaderHist(_localNodeId)
+       |        _ensureCoordTickThread()
+       |      Right(k(()))
+       |    case "leaderProtocol" =>
+       |      Right(k(_leaderProtocol.get()))
+       |    case "leaderHistory" =>
+       |      val buf = scala.collection.mutable.ListBuffer.empty[(Long, String, Long)]
+       |      _leaderHist.iterator().forEachRemaining(e => buf += e)
+       |      Right(k(buf.toList))
+       |    // v1.23 — auto-reconnect policy
+       |    case "setReconnectPolicy" =>
+       |      def _argL(i: Int): Long = if args.length > i then args(i) match
+       |        case l: Long   => l
+       |        case i2: Int   => i2.toLong
+       |        case d: Double => d.toLong
+       |        case _         => 0L
+       |      else 0L
+       |      _reconnectInitialMs = _argL(0).max(0L)
+       |      _reconnectMaxMs     = _argL(1).max(_reconnectInitialMs)
+       |      // v1.23 — optional 3rd arg: total wall-clock retry budget (ms)
+       |      // per URL; 0 = no cap (retry forever).
+       |      _reconnectGiveUpMs  = _argL(2).max(0L)
+       |      Right(k(()))
+       |    // v1.23 — heartbeat cadence + dead-after threshold
+       |    case "setHeartbeatTimeout" =>
+       |      val iv = args(0) match
+       |        case l: Long   => l
+       |        case i: Int    => i.toLong
+       |        case d: Double => d.toLong
+       |        case _         => 30000L
+       |      val dead = args(1) match
+       |        case l: Long   => l
+       |        case i: Int    => i.toLong
+       |        case d: Double => d.toLong
+       |        case _         => 40000L
+       |      _peerHeartbeatIntervalMs  = iv.max(1L)
+       |      _peerHeartbeatDeadAfterMs = dead.max(_peerHeartbeatIntervalMs)
+       |      Right(k(()))
+       |    // v1.23 — cluster endpoint shared-secret
+       |    case "setClusterAuthToken" =>
+       |      _clusterAuthToken = args.headOption.map(_.toString).getOrElse("")
+       |      Right(k(()))
+       |    // v1.23 — quorum-aware Bully threshold
+       |    case "setQuorumSize" =>
+       |      val n = args(0) match
+       |        case l: Long   => l
+       |        case i: Int    => i.toLong
+       |        case d: Double => d.toLong
+       |        case _         => 0L
+       |      _quorumSize = n.max(0L)
+       |      Right(k(()))
+       |    // v1.23 — periodic gossip re-discovery: ask every connected peer
+       |    // for their peer-URL list.  Replies come back via the existing
+       |    // `peers_resp` handler and feed `_connectPeer` for unknown URLs.
+       |    case "requestGossip" =>
+       |      val payload = "{\"t\":\"peers_req\",\"from\":" + _jstr(_localNodeId) + "}"
+       |      _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+       |      Right(k(()))
+       |    // v1.23 — cluster configuration distribution.
+       |    case "clusterConfigSet" =>
+       |      val key   = args(0).toString
+       |      val value = args(1).toString
+       |      val ts    = System.currentTimeMillis()
+       |      val orig  = _localNodeId
+       |      _applyConfigUpdate(key, value, ts, orig)
+       |      val payload = "{\"t\":\"config_set\",\"key\":" + _jstr(key) +
+       |                    ",\"value\":" + _jstr(value) +
+       |                    ",\"ts\":" + ts.toString +
+       |                    ",\"origin\":" + _jstr(orig) + "}"
+       |      _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+       |      Right(k(()))
+       |    case "clusterConfigGet" =>
+       |      val key = args(0).toString
+       |      val entry = _clusterConfig.get(key)
+       |      val result: Any = if entry == null then None else Some(entry._1)
+       |      Right(k(result))
+       |    case "clusterConfigKeys" =>
+       |      val buf = scala.collection.mutable.ListBuffer.empty[String]
+       |      _clusterConfig.keySet().forEach(k0 => buf += k0)
+       |      Right(k(buf.toList))
+       |    case "subscribeConfigEvents" =>
+       |      val boxed = java.lang.Long.valueOf(id)
+       |      if !_configEventSubs.contains(boxed) then _configEventSubs.add(boxed)
+       |      Right(k(()))
+       |    // v1.23 — drain / rolling-restart
+       |    case "setDraining" =>
+       |      val b = args(0) match
+       |        case bb: Boolean => bb
+       |        case _           => false
+       |      val prev = _isDrainingSelf.getAndSet(b)
+       |      if prev != b then
+       |        val payload = "{\"t\":\"drain\",\"from\":" + _jstr(_localNodeId) +
+       |                      ",\"draining\":" + b.toString + "}"
+       |        _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+       |        _fireDrainEvent(_localNodeId, b)
+       |        // v1.23 — drain-aware step-down: if we just flipped to
+       |        // draining and we're the leader, release leadership.
+       |        if b then _stepDownIfLeader()
+       |      Right(k(()))
+       |    case "isDraining" =>
+       |      Right(k(_isDrainingSelf.get()))
+       |    case "drainingPeers" =>
+       |      val buf = scala.collection.mutable.ListBuffer.empty[String]
+       |      _drainingPeers.forEach { (nid, v) => if v != null && v.booleanValue() then buf += nid }
+       |      Right(k(buf.toList))
+       |    case "subscribeDrainEvents" =>
+       |      val boxed = java.lang.Long.valueOf(id)
+       |      if !_drainEventSubs.contains(boxed) then _drainEventSubs.add(boxed)
+       |      Right(k(()))
+       |    // v1.23 — cluster metrics aggregation
+       |    case "clusterMetricSet" =>
+       |      val name = args(0).toString
+       |      val value = args(1) match
+       |        case d: Double => d
+       |        case l: Long   => l.toDouble
+       |        case i: Int    => i.toDouble
+       |        case _         => 0.0
+       |      _applyMetricUpdate(name, _localNodeId, value)
+       |      val payload = "{\"t\":\"metric\",\"from\":" + _jstr(_localNodeId) +
+       |                    ",\"name\":" + _jstr(name) +
+       |                    ",\"value\":" + value.toString + "}"
+       |      _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+       |      Right(k(()))
+       |    case "clusterMetricGet" =>
+       |      val name = args(0).toString
+       |      val inner = _clusterMetrics.get(name)
+       |      val m = scala.collection.mutable.Map.empty[String, Double]
+       |      if inner != null then
+       |        inner.forEach { (nid, v) => m(nid) = v.doubleValue() }
+       |      Right(k(m.toMap))
+       |    case "clusterMetricSum" =>
+       |      val name = args(0).toString
+       |      val inner = _clusterMetrics.get(name)
+       |      var sum = 0.0
+       |      if inner != null then
+       |        inner.forEach { (_, v) => sum += v.doubleValue() }
+       |      Right(k(sum))
+       |    case "clusterMetricNames" =>
+       |      val buf = scala.collection.mutable.ListBuffer.empty[String]
+       |      _clusterMetrics.keySet().forEach(s => buf += s)
+       |      Right(k(buf.toList))
+       |    case "subscribeMetricEvents" =>
+       |      val boxed = java.lang.Long.valueOf(id)
+       |      if !_metricEventSubs.contains(boxed) then _metricEventSubs.add(boxed)
+       |      Right(k(()))
+       |    // v1.6.x — scheduled sends
+       |    case "sendAfter" =>
+       |      val delayMs  = args(0).asInstanceOf[Long]
+       |      val targetId = args(1).asInstanceOf[_Pid].localId
+       |      val msg      = args(2)
+       |      val fireAt   = System.currentTimeMillis() + delayMs
+       |      val ref      = _nextTimerId; _nextTimerId += 1
+       |      _timers(ref) = (fireAt, None, targetId, msg)
+       |      Right(k(ref))
+       |    case "sendInterval" =>
+       |      val periodMs = args(0).asInstanceOf[Long]
+       |      val targetId = args(1).asInstanceOf[_Pid].localId
+       |      val msg      = args(2)
+       |      val fireAt   = System.currentTimeMillis() + periodMs
+       |      val ref      = _nextTimerId; _nextTimerId += 1
+       |      _timers(ref) = (fireAt, Some(periodMs), targetId, msg)
+       |      Right(k(ref))
+       |    case "cancelTimer" =>
+       |      _timers.remove(args(0).asInstanceOf[Long])
+       |      Right(k(()))
+       |    case other => sys.error("Unknown Actor op: " + other)
+       |
+       |  // Synchronous fallback handler for non-Actor effects performed
+       |  // inside an actor body — dep code like std/mapreduce/distributed
+       |  // calls `Random.uuid()` while running under `runActors`, and the
+       |  // value-producing primitives (Random.*, Clock.now/nowIso) can be
+       |  // evaluated in-place without a continuation.  Unsupported effects
+       |  // still throw with a clear message.  Blocking ops (Clock.sleep)
+       |  // intentionally don't appear here — they'd freeze the single
+       |  // actor scheduler thread.
+       |  lazy val _actorRng = new java.util.Random()
+       |  def _actorFallback(eff: String, op: String, args: List[Any]): Any =
+       |    (eff, op) match
+       |      case ("Random", "uuid") =>
+       |        val bytes = new Array[Byte](16)
+       |        _actorRng.nextBytes(bytes)
+       |        bytes(6) = ((bytes(6) & 0x0f) | 0x40).toByte
+       |        bytes(8) = ((bytes(8) & 0x3f) | 0x80).toByte
+       |        def hex(b: Byte) = f"${b & 0xff}%02x"
+       |        val u = bytes.map(hex).mkString
+       |        s"${u.take(8)}-${u.slice(8,12)}-${u.slice(12,16)}-${u.slice(16,20)}-${u.drop(20)}"
+       |      case ("Random", "nextInt") =>
+       |        val n = args(0) match { case x: Int => x; case x: Long => x.toInt; case _ => 1 }
+       |        _actorRng.nextInt(if n > 0 then n else 1)
+       |      case ("Random", "nextDouble") => _actorRng.nextDouble()
+       |      case ("Random", "pick") =>
+       |        val xs = args(0).asInstanceOf[List[Any]]
+       |        xs(_actorRng.nextInt(xs.size))
+       |      case ("Clock", "now")    => java.lang.System.currentTimeMillis()
+       |      case ("Clock", "nowIso") =>
+       |        java.time.format.DateTimeFormatter.ISO_INSTANT
+       |          .format(java.time.Instant.ofEpochMilli(java.lang.System.currentTimeMillis()))
+       |      case _ =>
+       |        throw new RuntimeException("Unhandled effect inside actor: " + eff + "." + op)
+       |
+       |  def stepActor(id: Long, initial: Any): Unit =
+       |    var current: Any = initial
+       |    while true do
+       |      current match
+       |        case _Perform("Actor", op, args) =>
+       |          handleActorOp(id, actors(id), op, args, (v: Any) => v) match
+       |            case Right(next) => current = next
+       |            case Left(_)     => return
+       |        case _Perform(eff, op, args) =>
+       |          // Plain perform with no continuation: compute via
+       |          // fallback and use the value as the final result of
+       |          // this actor step.
+       |          current = _actorFallback(eff, op, args)
+       |        case _FlatMap(sub, f) => sub match
+       |          case _Perform("Actor", op, args) =>
+       |            handleActorOp(id, actors(id), op, args, f.asInstanceOf[Any => Any]) match
+       |              case Right(next) => current = next
+       |              case Left(_)     => return
+       |          case _Perform(eff, op, args) =>
+       |            val v = _actorFallback(eff, op, args)
+       |            current = f.asInstanceOf[Any => Any](v)
+       |          case _FlatMap(s2, g) =>
+       |            current = _FlatMap(s2,
+       |              (x: Any) => _FlatMap(g.asInstanceOf[Any => Any](x), f))
+       |          case v =>
+       |            current = f.asInstanceOf[Any => Any](v)
+       |        case v =>
+       |          if id == rootId then rootResult = v
+       |          // Fire monitors with reason "normal" on natural completion.
+       |          val myPid = _Pid(_localNodeId, id)
+       |          monitors.remove(id).foreach { monMap =>
+       |            monMap.foreach { (monRef, observerId) =>
+       |              actors.get(observerId).foreach { st =>
+       |                st.mailbox.offer(Down(monRef, myPid, "normal"))
+       |                tryWakeBlocked(observerId)
+       |              }
+       |            }
+       |          }
+       |          links.remove(id).foreach { linkedSet =>
+       |            linkedSet.foreach { linkedId =>
+       |              links.get(linkedId).foreach(_.remove(id))
+       |            }
+       |          }
+       |          actors.remove(id)
+       |          return
+       |
+       |  def _mkMsgEnv(fromNode: String, fromId: Long, toNode: String, toId: Long, body: String): String =
+       |    "{\"t\":\"msg\",\"to\":{\"nodeId\":" + _jstr(toNode) + ",\"localId\":" + toId +
+       |    "},\"from\":{\"nodeId\":" + _jstr(fromNode) + ",\"localId\":" + fromId +
+       |    "},\"body\":" + body + "}"
+       |
+       |  def _serializeValue(v: Any): String = v match
+       |    case n: Long    => "{\"$t\":\"i\",\"v\":" + n + "}"
+       |    case n: Int     => "{\"$t\":\"i\",\"v\":" + n + "}"
+       |    case d: Double  => "{\"$t\":\"d\",\"v\":" + d + "}"
+       |    case s: String  => "{\"$t\":\"s\",\"v\":" + _jstr(s) + "}"
+       |    case b: Boolean => "{\"$t\":\"b\",\"v\":" + b + "}"
+       |    case ()         => "{\"$t\":\"u\"}"
+       |    case _Pid(nId, lId) => "{\"$t\":\"pid\",\"n\":" + _jstr(nId) + ",\"id\":" + lId + "}"
+       |    case xs: List[?] => "{\"$t\":\"l\",\"v\":[" + xs.map(_serializeValue).mkString(",") + "]}"
+       |    case _          => "{\"$t\":\"s\",\"v\":" + _jstr(v.toString) + "}"
+       |
+       |  val _isDistributed = _localNodeId.nonEmpty || !_peerChannels.isEmpty
+       |
+       |  while ready.nonEmpty ||
+       |        !_nodeDownQueue.isEmpty ||
+       |        !_clusterEventQueue.isEmpty ||
+       |        !_leaderEventQueue.isEmpty ||
+       |        !_configEventQueue.isEmpty ||
+       |        !_drainEventQueue.isEmpty ||
+       |        !_metricEventQueue.isEmpty ||
+       |        _electionInProgress ||
+       |        _timers.nonEmpty ||
+       |        actors.exists { (_, st) => st != null && st.blocked != null && st.blocked._3.isDefined } ||
+       |        (_isDistributed && actors.nonEmpty && actors.exists { (_, st) => st != null && st.blocked != null })
+       |  do
+       |    // Drain remote inbox
+       |    while !_remoteInbox.isEmpty do
+       |      val (targetId, msg) = _remoteInbox.poll()
+       |      actors.get(targetId).foreach { ts =>
+       |        ts.mailbox.offer(msg)
+       |        tryWakeBlocked(targetId)
+       |      }
+       |    // Drain node-down notifications
+       |    while !_nodeDownQueue.isEmpty do
+       |      _fireNodeDown(_nodeDownQueue.poll())
+       |    // v1.23 — deliver cluster events to subscribers.
+       |    while !_clusterEventQueue.isEmpty do
+       |      val (_tag, _nid, _reason) = _clusterEventQueue.poll()
+       |      val _msg: Any =
+       |        if _tag == "NodeJoined" then NodeJoined(_nid)
+       |        else NodeLeft(_nid, _reason)
+       |      val _it = _clusterEventSubs.iterator
+       |      while _it.hasNext do
+       |        val _aid = _it.next().longValue()
+       |        actors.get(_aid).foreach { ts =>
+       |          ts.mailbox.offer(_msg)
+       |          tryWakeBlocked(_aid)
+       |        }
+       |    // v1.23 — Bully election timeout: claim self if no higher-id peer
+       |    // responded with `alive` within the window.
+       |    if _electionInProgress && System.currentTimeMillis() - _electionStartedAt >= _ELECTION_TIMEOUT_MS then
+       |      _electionInProgress = false
+       |      // v1.23 — quorum gate: same as `_startElection.higher.isEmpty`
+       |      // branch — even though no higher peer responded, decline to
+       |      // self-claim when below quorum.
+       |      if !_gotAliveResponse && _hasQuorum then
+       |        val _prev = _currentLeader.getAndSet(_localNodeId)
+       |        _broadcastCoordinator()
+       |        if _prev != _localNodeId then
+       |          _fireLeaderEvent("LeaderElected", _localNodeId)
+       |          _recordLeaderHist(_localNodeId)
+       |    // v1.23 — deliver leader events to subscribers.
+       |    while !_leaderEventQueue.isEmpty do
+       |      val (_tag, _lid) = _leaderEventQueue.poll()
+       |      val _msg: Any =
+       |        if _tag == "LeaderElected" then LeaderElected(_lid)
+       |        else LeaderLost(_lid)
+       |      val _it = _leaderEventSubs.iterator
+       |      while _it.hasNext do
+       |        val _aid = _it.next().longValue()
+       |        actors.get(_aid).foreach { ts =>
+       |          ts.mailbox.offer(_msg)
+       |          tryWakeBlocked(_aid)
+       |        }
+       |    // v1.23 — deliver config-change events to subscribers.
+       |    while !_configEventQueue.isEmpty do
+       |      val (_key, _val) = _configEventQueue.poll()
+       |      val _msg: Any = ConfigChanged(_key, _val)
+       |      val _it = _configEventSubs.iterator
+       |      while _it.hasNext do
+       |        val _aid = _it.next().longValue()
+       |        actors.get(_aid).foreach { ts =>
+       |          ts.mailbox.offer(_msg)
+       |          tryWakeBlocked(_aid)
+       |        }
+       |    // v1.23 — deliver drain-state events to subscribers.
+       |    while !_drainEventQueue.isEmpty do
+       |      val (_nid, _drn) = _drainEventQueue.poll()
+       |      val _msg: Any = DrainStateChanged(_nid, _drn)
+       |      val _it = _drainEventSubs.iterator
+       |      while _it.hasNext do
+       |        val _aid = _it.next().longValue()
+       |        actors.get(_aid).foreach { ts =>
+       |          ts.mailbox.offer(_msg)
+       |          tryWakeBlocked(_aid)
+       |        }
+       |    // v1.23 — deliver metric events to subscribers.
+       |    while !_metricEventQueue.isEmpty do
+       |      val (_nm, _nid, _val) = _metricEventQueue.poll()
+       |      val _msg: Any = MetricChanged(_nm, _nid, _val)
+       |      val _it = _metricEventSubs.iterator
+       |      while _it.hasNext do
+       |        val _aid = _it.next().longValue()
+       |        actors.get(_aid).foreach { ts =>
+       |          ts.mailbox.offer(_msg)
+       |          tryWakeBlocked(_aid)
+       |        }
+       |    // Fire scheduled sends whose deadline has passed.
+       |    if _timers.nonEmpty then
+       |      val _nowMs = System.currentTimeMillis()
+       |      val _firedRefs = _timers.collect { case (r, (fa, _, _, _)) if _nowMs >= fa => r }.toList
+       |      for _ref <- _firedRefs; _entry <- _timers.get(_ref) do
+       |        val (fireAt, period, targetId, msg) = _entry
+       |        actors.get(targetId).foreach { ts =>
+       |          ts.mailbox.offer(msg)
+       |          tryWakeBlocked(targetId)
+       |        }
+       |        period match
+       |          case Some(p) => _timers(_ref) = (fireAt + p, period, targetId, msg)
+       |          case None    => _timers.remove(_ref)
+       |    if ready.isEmpty then
+       |      val _blockDeadline = actors.iterator.collect {
+       |        case (aid, st) if st != null && st.blocked != null && st.blocked._3.isDefined =>
+       |          (aid, st.blocked._3.get)
+       |      }.toList.minByOption(_._2)
+       |      val _timerDeadline = if _timers.isEmpty then None else Some(_timers.values.map(_._1).min)
+       |      val _sleepUntil = List(_blockDeadline.map(_._2), _timerDeadline).flatten.minOption
+       |      val _sleepFor   = _sleepUntil.map(_ - System.currentTimeMillis()).getOrElse(if _isDistributed then 30L else Long.MaxValue)
+       |      if _sleepFor > 0 then
+       |        try Thread.sleep(_sleepFor)
+       |        catch case _: InterruptedException => ()
+       |      _blockDeadline match
+       |        case Some((aid, deadline)) if System.currentTimeMillis() >= deadline =>
+       |          val st = actors(aid)
+       |          val (_, k, _, _) = st.blocked
+       |          st.pending = k(None)
+       |          st.blocked = null
+       |          ready.append(aid)
+       |        case _ => ()
+       |    else
+       |      val id = ready.removeHead()
+       |      actors.get(id).foreach { st =>
+       |        if st.pending != null then
+       |          val initial = st.pending
+       |          st.pending = null
+       |          stepActor(id, initial)
+       |      }
+       |
+       |  // v1.23 — graceful cluster shutdown: release the coord lease if we
+       |  // hold it, so the next leader can claim immediately instead of
+       |  // waiting for the TTL.  Raft's final (term, votedFor) is already
+       |  // on disk via _raftPersist().
+       |  if _leaderProtocol.get() == "coord" && _coordIsLeader then
+       |    val rel = _coordReleaseFn
+       |    if rel != null then
+       |      try rel.asInstanceOf[String => Unit](_localNodeId)
+       |      catch case _: Throwable => ()
+       |    _coordIsLeader = false
+       |  // Interrupt tick threads so they don't leak across reused JVMs
+       |  // (each `_runActors` call has its own closure-captured state, so
+       |  // an orphan thread would otherwise loop forever on stale refs).
+       |  val rtt = _raftTickThread.getAndSet(null);   if rtt != null then rtt.interrupt()
+       |  val ctt = _coordTickThread.getAndSet(null);  if ctt != null then ctt.interrupt()
+       |  rootResult
+       |

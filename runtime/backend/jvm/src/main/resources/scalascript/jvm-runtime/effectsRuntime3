@@ -1,0 +1,226 @@
+|  // v1.23 — Bearer-token gate shared by every /_ssc-cluster/* HTTP
+       |  // route.  Returns Some(401-response) when the token is set and the
+       |  // request's Authorization header doesn't carry `Bearer <token>`;
+       |  // None when the token is empty (endpoints open) or matches.  Mirrors
+       |  // `Interpreter.clusterAuthReject`.
+       |  def _clusterAuthReject(req: Request): Option[Response] =
+       |    val tok = _clusterAuthToken
+       |    if tok.isEmpty then None
+       |    else
+       |      val hdr = req.headers.getOrElse("authorization", "")
+       |      if hdr == ("Bearer " + tok) then None
+       |      else Some(Response(
+       |        401,
+       |        Map("Content-Type" -> "application/json"),
+       |        "{\"error\":\"unauthorized\",\"hint\":\"set Authorization: Bearer <token>\"}"))
+       |  // v1.23 — `GET /_ssc-cluster/status` JSON snapshot of cluster state.
+       |  // Idempotent: subsequent `startNode` calls are no-ops for the route
+       |  // table.  Mirrors `Interpreter.registerClusterStatusRoute`.
+       |  def _registerClusterStatusRoute(): Unit =
+       |    val path = "/_ssc-cluster/status"
+       |    if _routes.exists(r => r.method == "GET" && r.path == path) then return
+       |    route("GET", path) { req =>
+       |      _clusterAuthReject(req) match
+       |        case Some(r) => r
+       |        case None =>
+       |          val sb = new StringBuilder("{")
+       |          def kv(k: String, jsonVal: String, first: Boolean = false): Unit =
+       |            if !first then sb.append(',')
+       |            sb.append('"').append(k).append("\":").append(jsonVal)
+       |          def jsonStrArr(xs: Iterable[String]): String =
+       |            xs.map(_jstr).mkString("[", ",", "]")
+       |          val members = scala.collection.mutable.ListBuffer.empty[String]
+       |          _peerChannels.keySet().forEach(p => members += p)
+       |          val drainPeers = scala.collection.mutable.ListBuffer.empty[String]
+       |          _drainingPeers.forEach { (nid, dr) =>
+       |            if dr != null && dr.booleanValue() then drainPeers += nid
+       |          }
+       |          val leaderNow =
+       |            _leaderProtocol.get() match
+       |              case "raft" => _raftLeaderId
+       |              case _      => _currentLeader.get()
+       |          kv("nodeId",        _jstr(_localNodeId), first = true)
+       |          kv("leader",        _jstr(leaderNow))
+       |          kv("protocol",      _jstr(_leaderProtocol.get()))
+       |          kv("members",       jsonStrArr(members.toList))
+       |          kv("drainingSelf",  if _isDrainingSelf.get() then "true" else "false")
+       |          kv("drainingPeers", jsonStrArr(drainPeers.toList))
+       |          kv("raftTerm",      _raftCurrentTerm.toString)
+       |          kv("raftState",     _jstr(_raftState))
+       |          sb.append('}')
+       |          Response(200, Map("Content-Type" -> "application/json"), sb.toString)
+       |    }
+       |  // v1.23 — `POST /_ssc-cluster/drain` toggles local drain state.
+       |  // Body is JSON `{"enabled":true|false}` (empty body = enable).
+       |  // Mirrors the in-process `setDraining` effect: flips
+       |  // `_isDrainingSelf`, broadcasts DrainStateChanged to peers, steps
+       |  // down if we were leader.  Used by `ssc cluster drain <url> [--off]`.
+       |  def _registerClusterDrainRoute(): Unit =
+       |    val path = "/_ssc-cluster/drain"
+       |    if _routes.exists(r => r.method == "POST" && r.path == path) then return
+       |    route("POST", path) { req =>
+       |      _clusterAuthReject(req) match
+       |        case Some(r) => r
+       |        case None =>
+       |          val body = req.body
+       |          val enabled: Boolean =
+       |            if body.trim.isEmpty then true
+       |            else
+       |              val needle = "\"enabled\":"
+       |              val i = body.indexOf(needle)
+       |              if i < 0 then true
+       |              else
+       |                val rest = body.substring(i + needle.length).trim
+       |                !rest.startsWith("false")
+       |          val prev = _isDrainingSelf.getAndSet(enabled)
+       |          if prev != enabled then
+       |            val payload = "{\"t\":\"drain\",\"from\":" + _jstr(_localNodeId) +
+       |                          ",\"draining\":" + enabled.toString + "}"
+       |            _peerChannels.forEach { (_, send) =>
+       |              try send(payload) catch case _: Throwable => ()
+       |            }
+       |            _fireDrainEvent(_localNodeId, enabled)
+       |            if enabled then _stepDownIfLeader()
+       |          Response(
+       |            200,
+       |            Map("Content-Type" -> "application/json"),
+       |            "{\"drainingSelf\":" + (if enabled then "true" else "false") + "}")
+       |    }
+       |  // v1.23 — `GET /_ssc-cluster/events[?since=<ts>]` returns the bounded
+       |  // ring buffer of recent cluster events as a JSON array.  Optional
+       |  // `since` query filters to entries strictly newer than the given
+       |  // epoch-ms.  Idempotent registration.
+       |  def _registerClusterEventsRoute(): Unit =
+       |    val path = "/_ssc-cluster/events"
+       |    if _routes.exists(r => r.method == "GET" && r.path == path) then return
+       |    route("GET", path) { req =>
+       |      _clusterAuthReject(req) match
+       |        case Some(r) => r
+       |        case None =>
+       |          val sinceMs: Long =
+       |            req.query.get("since").flatMap(_.toLongOption).getOrElse(0L)
+       |          val sb = new StringBuilder("[")
+       |          var first = true
+       |          val it = _clusterEventLog.iterator()
+       |          while it.hasNext do
+       |            val line = it.next()
+       |            val tsMatch =
+       |              if sinceMs <= 0L then true
+       |              else
+       |                val tsPrefix = "{\"ts\":"
+       |                if line.startsWith(tsPrefix) then
+       |                  val end = line.indexOf(',', tsPrefix.length)
+       |                  if end > 0 then
+       |                    line.substring(tsPrefix.length, end).toLongOption
+       |                      .exists(_ > sinceMs)
+       |                  else false
+       |                else false
+       |            if tsMatch then
+       |              if !first then sb.append(',')
+       |              sb.append(line)
+       |              first = false
+       |          sb.append(']')
+       |          Response(200, Map("Content-Type" -> "application/json"), sb.toString)
+       |    }
+       |  // v1.23 — `POST /_ssc-cluster/step-down`.  If this node is the current
+       |  // leader, step down (clear `_currentLeader`, broadcast `LeaderLost`,
+       |  // surrender any external coordinator lease).  If it's not the leader,
+       |  // returns 409 Conflict so the operator notices.  Apps with
+       |  // `setAutoReelect(true)` re-elect automatically — that's the rolling-
+       |  // restart pattern.
+       |  def _registerClusterStepDownRoute(): Unit =
+       |    val path = "/_ssc-cluster/step-down"
+       |    if _routes.exists(r => r.method == "POST" && r.path == path) then return
+       |    route("POST", path) { req =>
+       |      _clusterAuthReject(req) match
+       |        case Some(r) => r
+       |        case None =>
+       |          val wasLeader =
+       |            _leaderProtocol.get() match
+       |              case "raft"  => _raftState == "leader"
+       |              case "coord" => _coordIsLeader
+       |              case _       => _currentLeader.get() == _localNodeId
+       |          if !wasLeader then
+       |            Response(
+       |              409,
+       |              Map("Content-Type" -> "application/json"),
+       |              "{\"error\":\"not_leader\",\"leader\":" + _jstr(_currentLeader.get()) + "}")
+       |          else
+       |            _stepDownIfLeader()
+       |            Response(
+       |              200,
+       |              Map("Content-Type" -> "application/json"),
+       |              "{\"steppedDown\":true,\"nodeId\":" + _jstr(_localNodeId) + "}")
+       |    }
+       |  // v1.23 — `GET /_ssc-cluster/metrics-prom` returns `_clusterMetrics`
+       |  // gauges in Prometheus text exposition format.  One
+       |  // `<sanitized-name>{nodeId="<id>"} <value>` line per (metric, peer)
+       |  // pair, plus `# TYPE … gauge` declarations.  Same Bearer-token gate.
+       |  def _registerClusterMetricsPromRoute(): Unit =
+       |    val path = "/_ssc-cluster/metrics-prom"
+       |    if _routes.exists(r => r.method == "GET" && r.path == path) then return
+       |    route("GET", path) { req =>
+       |      _clusterAuthReject(req) match
+       |        case Some(r) => r
+       |        case None =>
+       |          // Prometheus metric names must match `[a-zA-Z_:][a-zA-Z0-9_:]*`.
+       |          def sanitize(s: String): String =
+       |            val sb = new StringBuilder(s.length)
+       |            var i = 0
+       |            while i < s.length do
+       |              val c = s.charAt(i)
+       |              val ok =
+       |                (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+       |                (c >= '0' && c <= '9') || c == '_' || c == ':'
+       |              sb.append(if ok then c else '_')
+       |              i += 1
+       |            val out = sb.toString
+       |            if out.nonEmpty && out.charAt(0) >= '0' && out.charAt(0) <= '9'
+       |            then "_" + out else out
+       |          def escLabel(s: String): String =
+       |            s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+       |          val sb = new StringBuilder()
+       |          _clusterMetrics.forEach { (name, inner) =>
+       |            val pName = sanitize(name)
+       |            sb.append("# TYPE ").append(pName).append(" gauge\n")
+       |            inner.forEach { (nodeId, value) =>
+       |              sb.append(pName)
+       |                .append("{nodeId=\"").append(escLabel(nodeId)).append("\"} ")
+       |                .append(value.doubleValue())
+       |                .append('\n')
+       |            }
+       |          }
+       |          Response(
+       |            200,
+       |            Map("Content-Type" -> "text/plain; version=0.0.4; charset=utf-8"),
+       |            sb.toString)
+       |    }
+       |  // v1.63.5 — `GET /_ssc-cluster/handlers` returns the remote handler
+       |  // registry as a JSON array so `ssc cluster handlers` can list
+       |  // exported operations from a running node.
+       |  def _registerClusterHandlersRoute(): Unit =
+       |    val path = "/_ssc-cluster/handlers"
+       |    if _routes.exists(r => r.method == "GET" && r.path == path) then return
+       |    route("GET", path) { req =>
+       |      _clusterAuthReject(req) match
+       |        case Some(r) => r
+       |        case None =>
+       |          val sb = new StringBuilder("[")
+       |          var first = true
+       |          _remoteHandlers.forEach { (name, info) =>
+       |            if !first then sb.append(',')
+       |            first = false
+       |            sb.append('{')
+       |            sb.append("\"name\":").append(_jstr(name))
+       |            sb.append(",\"function\":").append(_jstr(info.function))
+       |            info.path.foreach { p => sb.append(",\"path\":").append(_jstr(p)) }
+       |            info.requestType.foreach { t => sb.append(",\"requestType\":").append(_jstr(t)) }
+       |            info.responseType.foreach { t => sb.append(",\"responseType\":").append(_jstr(t)) }
+       |            val transports = info.transports.map(t => "\"" + t + "\"").mkString(",")
+       |            sb.append(s",\"transports\":[$transports]")
+       |            sb.append('}')
+       |          }
+       |          sb.append(']')
+       |          Response(200, Map("Content-Type" -> "application/json"), sb.toString)
+       |    }
+       |

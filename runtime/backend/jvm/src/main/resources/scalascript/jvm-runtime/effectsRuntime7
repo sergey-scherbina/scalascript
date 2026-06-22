@@ -1,0 +1,143 @@
+|
+       |// ── v1.4 Cache effect ─────────────────────────────────────────────────────
+       |//
+       |// Cache.memoize(key, ttlSeconds)(thunk)  — process-local TTL memoization
+       |// runCache { body }        — uses module-level _cacheStore
+       |// runCacheBypass { body }  — always recomputes; skips cache
+       |
+       |private val _cacheStore = new java.util.concurrent.ConcurrentHashMap[String, (Long, Any)]()
+       |private val _cacheBypass = ThreadLocal.withInitial[Boolean](() => false)
+       |
+       |object Cache:
+       |  def memoize(key: Any, ttlSeconds: Any): Any => Any =
+       |    (thunk: Any) => _perform("Cache", "memoize", key, ttlSeconds, thunk)
+       |
+       |private def _cacheHandlers(bypass: Boolean): Map[String, List[Any] => Any] = Map(
+       |  "Cache.memoize" -> { (args: List[Any]) =>
+       |    val key = args(0).toString
+       |    val ttlMs = (args(1) match
+       |      case i: Int  => i.toLong
+       |      case l: Long => l
+       |      case _       => 0L
+       |    ) * 1000L
+       |    val thunk = args(2).asInstanceOf[() => Any]
+       |    val resume = args.last.asInstanceOf[Any => Any]
+       |    if bypass || _cacheBypass.get() then resume(thunk())
+       |    else
+       |      val nowMs = java.lang.System.currentTimeMillis()
+       |      val cached = Option(_cacheStore.get(key))
+       |      cached match
+       |        case Some((expiry, v)) if nowMs < expiry => resume(v)
+       |        case _ =>
+       |          val v = thunk()
+       |          _cacheStore.put(key, (nowMs + ttlMs, v))
+       |          resume(v)
+       |  },
+       |)
+       |
+       |def runCache(bodyThunk: () => Any): Any =
+       |  val prior = _cacheBypass.get()
+       |  _cacheBypass.set(false)
+       |  try _handle(bodyThunk, Set("Cache.memoize"), _cacheHandlers(false))
+       |  finally _cacheBypass.set(prior)
+       |
+       |def runCacheBypass(bodyThunk: () => Any): Any =
+       |  val prior = _cacheBypass.get()
+       |  _cacheBypass.set(true)
+       |  try _handle(bodyThunk, Set("Cache.memoize"), _cacheHandlers(true))
+       |  finally _cacheBypass.set(prior)
+       |
+       |// ── v1.4 State effect ─────────────────────────────────────────────────────
+       |//
+       |// State.get              → _perform("State", "get")
+       |// State.set(s)           → _perform("State", "set", s)
+       |// State.modify(f)        → _perform("State", "modify", f)
+       |// runState(s0) { body }  — returns (finalState, result)
+       |
+       |object State:
+       |  def get(): Any          = _perform("State", "get")
+       |  def set(s: Any): Any    = _perform("State", "set", s)
+       |  def modify(f: Any): Any = _perform("State", "modify", f)
+       |
+       |def runState(s0: Any)(bodyThunk: () => Any): Any =
+       |  var state: Any = s0
+       |  val handlers: Map[String, List[Any] => Any] = Map(
+       |    "State.get" -> { (args: List[Any]) =>
+       |      args.last.asInstanceOf[Any => Any](state)
+       |    },
+       |    "State.set" -> { (args: List[Any]) =>
+       |      state = args(0)
+       |      args.last.asInstanceOf[Any => Any](())
+       |    },
+       |    "State.modify" -> { (args: List[Any]) =>
+       |      state = args(0).asInstanceOf[Any => Any](state)
+       |      args.last.asInstanceOf[Any => Any](())
+       |    },
+       |  )
+       |  val ops = Set("State.get", "State.set", "State.modify")
+       |  val result = _handle(bodyThunk, ops, handlers)
+       |  (state, result)
+       |
+       |// ── v1.4 Tx effect ────────────────────────────────────────────────────────
+       |//
+       |// Tx.atomic { body }  — signals transactional scope; default is no-op
+       |// runTx { body }      — default no-op handler (just runs body directly)
+       |
+       |object Tx:
+       |  def atomic(thunk: () => Any): Any = thunk()
+       |
+       |def runTx(bodyThunk: () => Any): Any = bodyThunk()
+       |
+       |// ── v1.4 Auth effect ──────────────────────────────────────────────────────
+       |//
+       |// Auth.currentUser  — Option[Any] from thread-local
+       |// Auth.require      — current user or throw RuntimeException
+       |// runAuthWith(user) { body }  — injects a fixed user
+       |
+       |private val _authUser = ThreadLocal.withInitial[Option[Any]](() => None)
+       |
+       |object Auth:
+       |  def currentUser: Any = _authUser.get()
+       |  def require: Any = _authUser.get() match
+       |    case Some(u) => u
+       |    case None    => throw new RuntimeException("Auth.require: no authenticated user in context")
+       |
+       |def runAuthWith(user: Any)(bodyThunk: () => Any): Any =
+       |  val prior = _authUser.get()
+       |  _authUser.set(Some(user))
+       |  try bodyThunk() finally _authUser.set(prior)
+       |
+       |// ── v1.51.6 Stream algebraic effect ────────────────────────────────────────
+       |//
+       |// Stream.emit(x)       — push to the active stream buffer
+       |// Stream.complete()    — no-op (body ends naturally)
+       |// Stream.error(msg)    — throw a RuntimeException
+       |// Stream.request(n)    — advisory demand hint (no-op)
+       |// runStream(bodyThunk) — discharges Stream effect; returns (_Source, Any)
+       |//   where _Source.runToList() returns the emitted values.
+       |//   Uses a module-level var buffer so Stream.emit is a direct side effect;
+       |//   no CPS trampoline is needed, so while/var loops work inside the body.
+       |//   ArrayBuffer repr: O(1) length, no bulk-copy after loop.
+       |
+       |class _Source(val _data: scala.collection.mutable.ArrayBuffer[Any]):
+       |  def runToList(): scala.collection.mutable.ArrayBuffer[Any] = _data
+       |  def toList: List[Any] = _data.toList
+       |
+       |private var _streamBuf: scala.collection.mutable.ArrayBuffer[Any] = null
+       |
+       |object Stream:
+       |  def emit(x: Any): Any   = { if _streamBuf != null then _streamBuf += x; () }
+       |  def complete(): Any      = ()
+       |  def error(msg: Any): Any = throw new RuntimeException(String.valueOf(msg))
+       |  def request(n: Any): Any = ()
+       |
+       |def runStream(bodyThunk: () => Any): Any =
+       |  val buf = scala.collection.mutable.ArrayBuffer.empty[Any]
+       |  _streamBuf = buf
+       |  try
+       |    val result = bodyThunk()
+       |    (new _Source(buf), result)
+       |  finally
+       |    _streamBuf = null
+       |
+       |

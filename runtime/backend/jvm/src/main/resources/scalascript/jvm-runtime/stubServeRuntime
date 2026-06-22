@@ -1,0 +1,19 @@
+|
+       |// ── stub serve runtime (no HTTP server) ──────────────────────────────────────
+       |// No-op stubs for route/onWebSocket/_routes/_httpDoRequest so the actor and
+       |// Http-effect runtimes compile in scripts that don't use serve()/WebSockets.
+       |private case class _SscRouteEntry(method: String, path: String)
+       |private val _routes = scala.collection.mutable.ArrayBuffer.empty[_SscRouteEntry]
+       |private def route(method: String, path: String)(handler: Request => Any): Unit =
+       |  _routes.append(_SscRouteEntry(method, path))
+       |private trait _SscWs { def send(t: String): Unit; def recv(): Option[String] }
+       |// Signature mirrors the real `onWebSocket` in WebSocketRuntime (incl. the
+       |// `protocols` list the cluster actor route passes) so the actor runtime
+       |// compiles identically with or without a real serve runtime.
+       |private def onWebSocket(path: String, origins: List[String] = Nil,
+       |    protocols: List[String] = Nil, maxConnections: Int = 0,
+       |    maxMessagesPerSec: Int = 0)(handler: _SscWs => Unit): Unit = ()
+       |private def _httpDoRequest(method: String, url: String, body: String,
+       |    headers: Map[String, String]): Any =
+       |  sys.error("Http effect requires a serve runtime; call runHttp{} or add serve()")
+       |

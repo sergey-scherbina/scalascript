@@ -1,0 +1,514 @@
+|
+       |// ── v1.6 Actors — Phase 1 cooperative scheduler ────────────────────────
+       |//
+       |// Same Computation / Free-Monad walk as `_runAsync` but the outer
+       |// loop interleaves multiple actors.  Mailboxes are `LinkedBlockingQueue`s
+       |// (v1.9.x: same infrastructure as coroutines, thread-safe);
+       |// blocked-on-receive state lives on each actor along with the
+       |// captured continuation.  Quiescence with timeout-armed receives
+       |// sleeps until the earliest deadline and resumes that actor with
+       |// `None`.  Single-threaded for parity with the interpreter and
+       |// JsGen — a Loom variant can swap the scheduler later without
+       |// changing the API surface.
+       |
+       |// Phase 3: nodeId="" means local (backward-compatible default)
+       |case class _Pid(nodeId: String, localId: Long)
+       |// v1.6 Phase 2 — supervision message types visible to ScalaScript code
+       |case class Exit(from: Any, reason: Any)
+       |case class Down(ref: Any, from: Any, reason: Any)
+       |case object noproc
+       |// v1.23 — cluster visibility events
+       |case class NodeJoined(nodeId: String)
+       |case class NodeLeft(nodeId: String, reason: String)
+       |// v1.23 — leader election (Bully) events
+       |case class LeaderElected(nodeId: String)
+       |case class LeaderLost(nodeId: String)
+       |// v1.23 — config-distribution events
+       |case class ConfigChanged(key: String, value: String)
+       |// v1.23 — drain / rolling-restart events
+       |case class DrainStateChanged(nodeId: String, draining: Boolean)
+       |// v1.23 — cluster metrics aggregation events
+       |case class MetricChanged(name: String, nodeId: String, value: Double)
+       |
+       |/** Adapter: a partial-function literal becomes a total
+       | *  `Any => Option[Any]`.  Used by emitReceiveMatcher so the
+       | *  generated source doesn't fight Scala 3's `(x) => x match`
+       | *  postfix-match precedence trap. */
+       |def _pfToFun(pf: PartialFunction[Any, Option[Any]]): Any => Option[Any] =
+       |  (msg: Any) => pf.applyOrElse(msg, (_: Any) => None)
+       |
+       |val _receiveSpecs =
+       |  new java.util.concurrent.ConcurrentHashMap[Long, Any => Option[Any]]()
+       |val _receiveSpecSeq = new java.util.concurrent.atomic.AtomicLong(0L)
+       |def _registerReceive(matcher: Any => Option[Any]): Long =
+       |  val id = _receiveSpecSeq.incrementAndGet()
+       |  _receiveSpecs.put(id, matcher)
+       |  id
+       |
+       |object Actor:
+       |  def spawn(thunk: () => Any): Any              = _perform("Actor", "spawn",       thunk)
+       |  def spawn_link(thunk: () => Any): Any         = _perform("Actor", "spawnLink",   thunk)
+       |  def self(): Any                               = _perform("Actor", "self")
+       |  def send(pid: Any, msg: Any): Any             = _perform("Actor", "send",        pid, msg)
+       |  def exit(pid: Any, reason: Any): Any          = _perform("Actor", "exit",        pid, reason)
+       |  def receive_(specId: Long): Any               = _perform("Actor", "receive",     specId)
+       |  def receive_t(specId: Long, ms: Any): Any     = _perform("Actor", "receive_t",   specId, ms)
+       |  // v1.6 Phase 2 — supervision
+       |  def link(pid: Any): Any                       = _perform("Actor", "link",        pid)
+       |  def monitor(pid: Any): Any                    = _perform("Actor", "monitor",     pid)
+       |  def demonitor(ref: Any): Any                  = _perform("Actor", "demonitor",   ref)
+       |  def trapExit(b: Any): Any                     = _perform("Actor", "trapExit",    b)
+       |  // v1.6 Phase 3 — distributed
+       |  def startNode(nodeId: Any, url: Any = ""): Any = _perform("Actor", "startNode",   nodeId, url)
+       |  def connectNode(url: Any, tok: Any = ""): Any  = _perform("Actor", "connectNode", url, tok)
+       |  def joinCluster(seeds: Any, tok: Any = ""): Any = _perform("Actor", "joinCluster", seeds, tok)
+       |  def register(name: Any, pid: Any): Any             = _perform("Actor", "register",       name, pid)
+       |  def whereis(name: Any): Any                        = _perform("Actor", "whereis",        name)
+       |  // v1.6.x — cluster-wide registry
+       |  def globalRegister(name: Any, pid: Any): Any       = _perform("Actor", "globalRegister", name, pid)
+       |  def globalWhereis(name: Any): Any                  = _perform("Actor", "globalWhereis",  name)
+       |  // v1.6.x — scheduled sends
+       |  def sendAfter(delayMs: Any, pid: Any, msg: Any): Any   = _perform("Actor", "sendAfter",   delayMs, pid, msg)
+       |  def sendInterval(periodMs: Any, pid: Any, msg: Any): Any = _perform("Actor", "sendInterval", periodMs, pid, msg)
+       |  def cancelTimer(ref: Any): Any                          = _perform("Actor", "cancelTimer", ref)
+       |  // v1.6.x — bounded mailbox spawn
+       |  def spawnBounded(cap: Any, overflow: Any, thunk: () => Any): Any = _perform("Actor", "spawnBounded", cap, overflow, thunk)
+       |  // v1.6.x — process introspection
+       |  def processInfo(pid: Any): Any = _perform("Actor", "processInfo", pid)
+       |  // v1.23 — cluster visibility
+       |  def clusterMembers(): Any         = _perform("Actor", "clusterMembers")
+       |  def subscribeClusterEvents(): Any = _perform("Actor", "subscribeClusterEvents")
+       |  // v1.23 — phi-accrual failure detector
+       |  def phiOf(nid: Any): Any           = _perform("Actor", "phiOf", nid)
+       |  def isSuspect(nid: Any, thr: Any = 8.0): Any = _perform("Actor", "isSuspect", nid, thr)
+       |  // v1.23 — local node identity + phi vector
+       |  def selfNode(): Any      = _perform("Actor", "selfNode")
+       |  def clusterHealth(): Any = _perform("Actor", "clusterHealth")
+       |  // v1.23 — cluster-wide failure detector
+       |  def broadcastHealth(): Any                            = _perform("Actor", "broadcastHealth")
+       |  def clusterIsDown(nid: Any, thr: Any = 8.0): Any      = _perform("Actor", "clusterIsDown", nid, thr)
+       |  // v1.23 — leader election (Bully)
+       |  def electLeader(): Any                                = _perform("Actor", "electLeader")
+       |  def currentLeader(): Any                              = _perform("Actor", "currentLeader")
+       |  def subscribeLeaderEvents(): Any                      = _perform("Actor", "subscribeLeaderEvents")
+       |  def setAutoReelect(enabled: Any): Any                 = _perform("Actor", "setAutoReelect", enabled)
+       |  // v1.23 — leader-protocol switch (Raft / external coordinator stubs).
+       |  // See specs/cluster-raft.md for the spec.  Calling these promotes the
+       |  // node off Bully but the alternative protocols' actual algorithms
+       |  // land in subsequent phases — for now these mark intent and let
+       |  // `leaderProtocol()` observe it.
+       |  def useRaftLeaderElection(): Any                      = _perform("Actor", "useRaftLeaderElection")
+       |  def useExternalCoordinator(acquireLease: Any, renewLease: Any,
+       |                              releaseLease: Any, currentHolder: Any): Any =
+       |    _perform("Actor", "useExternalCoordinator", acquireLease, renewLease, releaseLease, currentHolder)
+       |  def leaderProtocol(): Any                             = _perform("Actor", "leaderProtocol")
+       |  // v1.23 — bounded ring buffer of accepted leader claims this node has
+       |  // observed.  Each entry is (term, leaderId, wallClockMs).
+       |  def leaderHistory(): Any                              = _perform("Actor", "leaderHistory")
+       |  // v1.23 — auto-reconnect policy (exponential backoff per peer)
+       |  def setReconnectPolicy(initialMs: Any, maxMs: Any): Any = _perform("Actor", "setReconnectPolicy", initialMs, maxMs)
+       |  def setReconnectPolicy(initialMs: Any, maxMs: Any, giveUpAfterMs: Any): Any =
+       |    _perform("Actor", "setReconnectPolicy", initialMs, maxMs, giveUpAfterMs)
+       |  // v1.23 — per-link heartbeat cadence + dead-after threshold
+       |  def setHeartbeatTimeout(intervalMs: Any, deadAfterMs: Any): Any =
+       |    _perform("Actor", "setHeartbeatTimeout", intervalMs, deadAfterMs)
+       |  // v1.23 — quorum-aware Bully threshold (split-brain guard)
+       |  def setQuorumSize(n: Any): Any = _perform("Actor", "setQuorumSize", n)
+       |  // v1.23 — cluster endpoint shared-secret
+       |  def setClusterAuthToken(token: Any): Any = _perform("Actor", "setClusterAuthToken", token)
+       |  // v1.23 — periodic gossip re-discovery (ask peers for their peer list)
+       |  def requestGossip(): Any = _perform("Actor", "requestGossip")
+       |  // v1.23 — cluster configuration distribution
+       |  def clusterConfigSet(key: Any, value: Any): Any  = _perform("Actor", "clusterConfigSet", key, value)
+       |  def clusterConfigGet(key: Any): Any              = _perform("Actor", "clusterConfigGet", key)
+       |  def clusterConfigKeys(): Any                     = _perform("Actor", "clusterConfigKeys")
+       |  def subscribeConfigEvents(): Any                 = _perform("Actor", "subscribeConfigEvents")
+       |  // v1.23 — drain / rolling-restart
+       |  def setDraining(b: Any): Any                     = _perform("Actor", "setDraining", b)
+       |  def isDraining(): Any                            = _perform("Actor", "isDraining")
+       |  def drainingPeers(): Any                         = _perform("Actor", "drainingPeers")
+       |  def subscribeDrainEvents(): Any                  = _perform("Actor", "subscribeDrainEvents")
+       |  // v1.23 — cluster metrics aggregation
+       |  def clusterMetricSet(name: Any, value: Any): Any = _perform("Actor", "clusterMetricSet", name, value)
+       |  def clusterMetricGet(name: Any): Any             = _perform("Actor", "clusterMetricGet", name)
+       |  def clusterMetricSum(name: Any): Any             = _perform("Actor", "clusterMetricSum", name)
+       |  def clusterMetricNames(): Any                    = _perform("Actor", "clusterMetricNames")
+       |  def subscribeMetricEvents(): Any                 = _perform("Actor", "subscribeMetricEvents")
+       |
+       |// v1.6.x — bounded mailbox overflow strategies.  Plain string values so
+       |// `spawnBounded(cap, Overflow.DropOldest, thunk)` compiles and passes the
+       |// right string to the actor scheduler.
+       |object Overflow:
+       |  val DropOldest: Any = "DropOldest"
+       |  val DropNewest: Any = "DropNewest"
+       |  val Block: Any = "Block"
+       |  val Fail: Any = "Fail"
+       |
+       |class _ActorState:
+       |  val mailbox = new java.util.concurrent.LinkedBlockingQueue[Any]()
+       |  var pending: Any = null
+       |  // (matcher, k, deadline?, wrapSome)
+       |  var blocked: (Any => Option[Any], Any => Any, Option[Long], Boolean) = null
+       |  // v1.6.x bounded mailbox
+       |  var cap:      Int    = 0   // 0 = unbounded
+       |  var overflow: String = ""
+       |  val blockedSends = scala.collection.mutable.ArrayDeque.empty[(Long, Any, Any => Any)]
+       |
+       |def _runActors(bodyThunk: () => Any): Any =
+       |  val actors    = scala.collection.mutable.LongMap.empty[_ActorState]
+       |  // Phase 2 supervision state
+       |  val links     = scala.collection.mutable.LongMap.empty[scala.collection.mutable.Set[Long]]
+       |  val monitors  = scala.collection.mutable.LongMap.empty[scala.collection.mutable.Map[Long, Long]]
+       |  val trapExitM = scala.collection.mutable.LongMap.empty[Boolean]
+       |  var nextMonRef: Long = 0L
+       |  // v1.6.x scheduled sends — timerId → (fireAt, periodMs, targetId, msg)
+       |  val _timers      = scala.collection.mutable.LongMap.empty[(Long, Option[Long], Long, Any)]
+       |  var _nextTimerId: Long = 0L
+       |  // Phase 3 distributed state
+       |  var _localNodeId:  String  = ""
+       |  var _localNodeUrl: String  = ""
+       |  @volatile var _joinMode:  Boolean = false
+       |  @volatile var _joinToken: String  = ""
+       |  val _peerUrls       = new java.util.concurrent.ConcurrentHashMap[String, String]()
+       |  val _nodeRegistry    = new java.util.concurrent.ConcurrentHashMap[String, Long]()
+       |  val _globalRegistry  = new java.util.concurrent.ConcurrentHashMap[String, _Pid]()
+       |  val _peerChannels    = new java.util.concurrent.ConcurrentHashMap[String, String => Unit]()
+       |  val _remoteInbox    = new java.util.concurrent.ConcurrentLinkedQueue[(Long, Any)]()
+       |  case class _RemoteHandlerInfo(function: String, path: Option[String], requestType: Option[String], responseType: Option[String], transports: Set[String])
+       |  val _remoteHandlers = new java.util.concurrent.ConcurrentHashMap[String, _RemoteHandlerInfo]()
+       |  val _peerLastPong   = new java.util.concurrent.ConcurrentHashMap[String, Long]()
+       |  val _nodeDownQueue  = new java.util.concurrent.ConcurrentLinkedQueue[String]()
+       |  // cross-node monitors: nodeId → [(localActorId, monRef, remotePid.localId)]
+       |  val _remoteMonitors = new java.util.concurrent.ConcurrentHashMap[String,
+       |    java.util.concurrent.CopyOnWriteArrayList[(Long, Long, Long)]]()
+       |  // cross-node links:   nodeId → [(localActorId, remotePid.localId)]
+       |  val _remoteLinks    = new java.util.concurrent.ConcurrentHashMap[String,
+       |    java.util.concurrent.CopyOnWriteArrayList[(Long, Long)]]()
+       |  // v1.23 — cluster visibility
+       |  val _clusterEventSubs  = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
+       |  val _clusterEventQueue = new java.util.concurrent.ConcurrentLinkedQueue[(String, String, String)]()
+       |  // JSON string-escape helper — hoisted above all subsequent vals so
+       |  // nested defs can forward-reference it without Scala 3 flagging the
+       |  // ref as "extending over" a val initialiser.
+       |  def _jstr(s: String): String =
+       |    val sb = new StringBuilder(s.length + 2).append('"')
+       |    s.foreach { case '"' => sb.append("\\\""); case '\\' => sb.append("\\\\")
+       |                case '\n' => sb.append("\\n"); case c => sb.append(c) }
+       |    sb.append('"').toString
+       |  // v1.23 — bounded ring buffer of cluster events as JSON lines.  Feeds
+       |  // `GET /_ssc-cluster/events`.  Independent of in-process subscribers
+       |  // — events land here whether or not any actor has called
+       |  // `subscribe*Events`, so ops tooling always has data.  Cap 200.
+       |  val _CLUSTER_EVENT_LOG_MAX = 200
+       |  val _clusterEventLog       = new java.util.concurrent.ConcurrentLinkedDeque[String]()
+       |  def _recordEventLog(json: String): Unit =
+       |    _clusterEventLog.offer(json)
+       |    while _clusterEventLog.size() > _CLUSTER_EVENT_LOG_MAX do _clusterEventLog.pollFirst()
+       |  // v1.23 — shared-secret Bearer token for /_ssc-cluster/* endpoints.
+       |  // Reads `SSC_CLUSTER_TOKEN` env at startup.  Empty ⇒ endpoints open.
+       |  @volatile var _clusterAuthToken: String =
+       |    Option(System.getenv("SSC_CLUSTER_TOKEN")).getOrElse("")
+       |  def _fireClusterEvent(tag: String, nodeId: String, reason: String = ""): Unit =
+       |    val ts = System.currentTimeMillis()
+       |    val logEntry =
+       |      if tag == "NodeJoined" then
+       |        "{\"ts\":" + ts.toString + ",\"type\":\"NodeJoined\",\"nodeId\":" + _jstr(nodeId) + "}"
+       |      else
+       |        "{\"ts\":" + ts.toString + ",\"type\":\"NodeLeft\",\"nodeId\":" + _jstr(nodeId) +
+       |        ",\"reason\":" + _jstr(reason) + "}"
+       |    _recordEventLog(logEntry)
+       |    if !_clusterEventSubs.isEmpty then _clusterEventQueue.offer((tag, nodeId, reason))
+       |  // v1.23 — phi-accrual failure detector: sliding window of inter-pong intervals.
+       |  val _PHI_HIST_MAX  = 100
+       |  val _peerPongHist  = new java.util.concurrent.ConcurrentHashMap[String,
+       |    java.util.concurrent.ConcurrentLinkedDeque[java.lang.Long]]()
+       |  // v1.23 — cluster-wide FD: peerNodeId -> view of (targetNodeId -> phi).
+       |  val _peerPhiViews  = new java.util.concurrent.ConcurrentHashMap[String,
+       |    java.util.concurrent.ConcurrentHashMap[String, java.lang.Double]]()
+       |  // v1.23 — leader election (Bully) state.  Single node-wide view.
+       |  val _currentLeader        = new java.util.concurrent.atomic.AtomicReference[String]("")
+       |  @volatile var _electionInProgress: Boolean = false
+       |  @volatile var _electionStartedAt:  Long    = 0L
+       |  @volatile var _gotAliveResponse:   Boolean = false
+       |  val _ELECTION_TIMEOUT_MS  = 2000L
+       |  val _leaderEventSubs      = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
+       |  val _leaderEventQueue     = new java.util.concurrent.ConcurrentLinkedQueue[(String, String)]()
+       |  def _fireLeaderEvent(tag: String, leaderId: String): Unit =
+       |    val ts = System.currentTimeMillis()
+       |    _recordEventLog("{\"ts\":" + ts.toString + ",\"type\":" + _jstr(tag) +
+       |                    ",\"nodeId\":" + _jstr(leaderId) + "}")
+       |    if !_leaderEventSubs.isEmpty then _leaderEventQueue.offer((tag, leaderId))
+       |  @volatile var _autoReelect: Boolean = false
+       |  // v1.23 — protocol dispatch (cluster-raft.md §6).  "bully" today;
+       |  //   Phase 3a flips to "raft", Phase 3b flips to "coord".
+       |  val _leaderProtocol      = new java.util.concurrent.atomic.AtomicReference[String]("bully")
+       |  @volatile var _leaderCoordinator: Any = null
+       |  // v1.23 — bounded leader-claim history (cluster-raft.md §6).
+       |  val _LEADER_HIST_MAX     = 100
+       |  val _leaderHistTermSeq   = new java.util.concurrent.atomic.AtomicLong(0L)
+       |  val _leaderHist          = new java.util.concurrent.ConcurrentLinkedDeque[(Long, String, Long)]()
+       |  def _recordLeaderHist(leaderId: String): Unit =
+       |    // Caller still gates on prev != new, so every call is a real change.
+       |    val term = _leaderHistTermSeq.incrementAndGet()
+       |    _leaderHist.offer((term, leaderId, System.currentTimeMillis()))
+       |    while _leaderHist.size() > _LEADER_HIST_MAX do _leaderHist.pollFirst()
+       |  // v1.23 — external-coordinator lease state (cluster-raft.md §5).
+       |  // Pulled out via `productElement` so the runtime can call them
+       |  // without structural types or reflection.
+       |  @volatile var _coordAcquireFn: AnyRef = null  // (String, Long) => Boolean
+       |  @volatile var _coordRenewFn:   AnyRef = null  // String => Boolean
+       |  @volatile var _coordReleaseFn: AnyRef = null  // String => Unit
+       |  @volatile var _coordHolderFn:  AnyRef = null  // () => Option[String]
+       |  @volatile var _coordIsLeader:  Boolean = false
+       |  val _coordTickThread = new java.util.concurrent.atomic.AtomicReference[Thread](null)
+       |  val _COORD_LEASE_TIMEOUT_MS  = 5000L
+       |  val _COORD_RENEW_INTERVAL_MS = 1000L
+       |  def _ensureCoordTickThread(): Unit =
+       |    if _coordTickThread.get() != null then return
+       |    val t = Thread.ofVirtual().start { () =>
+       |      try
+       |        var done = false
+       |        while !done && _leaderProtocol.get() == "coord" do
+       |          try
+       |            if !_coordIsLeader then
+       |              val acq = _coordAcquireFn
+       |              if acq != null then
+       |                val got = try acq.asInstanceOf[(String, Long) => Boolean](_localNodeId, _COORD_LEASE_TIMEOUT_MS)
+       |                          catch case _: Throwable => false
+       |                if got then
+       |                  _coordIsLeader = true
+       |                  val prev = _currentLeader.getAndSet(_localNodeId)
+       |                  if prev != _localNodeId then
+       |                    _fireLeaderEvent("LeaderElected", _localNodeId)
+       |                    _recordLeaderHist(_localNodeId)
+       |            else
+       |              val ren = _coordRenewFn
+       |              if ren != null then
+       |                val ok = try ren.asInstanceOf[String => Boolean](_localNodeId)
+       |                         catch case _: Throwable => false
+       |                if !ok then
+       |                  _coordIsLeader = false
+       |                  val prev = _currentLeader.getAndSet("")
+       |                  if prev.nonEmpty then _fireLeaderEvent("LeaderLost", prev)
+       |          catch case _: Throwable => ()
+       |          try Thread.sleep(_COORD_RENEW_INTERVAL_MS)
+       |          catch case _: InterruptedException => done = true
+       |      catch case _: Throwable => ()
+       |    }
+       |    if !_coordTickThread.compareAndSet(null, t) then t.interrupt()
+       |  // v1.23 — Raft state (cluster-raft.md §4.1).
+       |  @volatile var _raftCurrentTerm: Long   = 0L
+       |  @volatile var _raftVotedFor:    String = ""        // "" = None
+       |  @volatile var _raftState:       String = "follower" // follower | candidate | leader
+       |  @volatile var _raftLeaderId:    String = ""
+       |  @volatile var _raftElectionDue: Long   = 0L
+       |  @volatile var _raftVotes:       Int    = 0
+       |  val _RAFT_ELECTION_LO  = 150L
+       |  val _RAFT_ELECTION_HI  = 300L
+       |  val _RAFT_HEARTBEAT_MS = 50L
+       |  val _raftTickThread = new java.util.concurrent.atomic.AtomicReference[Thread](null)
+       |  val _raftRand       = new scala.util.Random()
+       |  def _raftRandTimeout: Long =
+       |    _RAFT_ELECTION_LO + _raftRand.nextInt((_RAFT_ELECTION_HI - _RAFT_ELECTION_LO).toInt + 1)
+       |  def _raftBroadcastHeartbeat(): Unit =
+       |    val payload = "{\"t\":\"raft_append\",\"from\":" + _jstr(_localNodeId) +
+       |                  ",\"term\":" + _raftCurrentTerm.toString + "}"
+       |    _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+       |  def _raftAdoptLeader(newLeader: String): Unit =
+       |    val prev = _currentLeader.getAndSet(newLeader)
+       |    if prev != newLeader then
+       |      _fireLeaderEvent("LeaderElected", newLeader)
+       |      _recordLeaderHist(newLeader)
+       |  def _startRaftElection(): Unit =
+       |    _raftState       = "candidate"
+       |    _raftCurrentTerm = _raftCurrentTerm + 1
+       |    _raftVotedFor    = _localNodeId
+       |    _raftVotes       = 1
+       |    _raftElectionDue = System.currentTimeMillis() + _raftRandTimeout
+       |    _raftPersist()
+       |    val peerIds = scala.collection.mutable.ListBuffer.empty[String]
+       |    _peerChannels.keySet().forEach(p => peerIds += p)
+       |    val total = peerIds.size + 1
+       |    // Single-node majority is trivially us — claim immediately.
+       |    if _raftVotes > total / 2 then
+       |      _raftState    = "leader"
+       |      _raftLeaderId = _localNodeId
+       |      _raftAdoptLeader(_localNodeId)
+       |      _raftBroadcastHeartbeat()
+       |    else
+       |      val payload = "{\"t\":\"raft_vote_req\",\"from\":" + _jstr(_localNodeId) +
+       |                    ",\"term\":" + _raftCurrentTerm.toString + ",\"lastLogTerm\":0}"
+       |      peerIds.foreach { nid =>
+       |        try Option(_peerChannels.get(nid)).foreach(_.apply(payload))
+       |        catch case _: Throwable => ()
+       |      }
+       |  def _ensureRaftTickThread(): Unit =
+       |    if _raftTickThread.get() != null then return
+       |    val t = Thread.ofVirtual().start { () =>
+       |      try
+       |        while _leaderProtocol.get() == "raft" do
+       |          Thread.sleep(_RAFT_HEARTBEAT_MS)
+       |          val now = System.currentTimeMillis()
+       |          _raftState match
+       |            case "leader" =>
+       |              _raftBroadcastHeartbeat()
+       |            case "follower" | "candidate" =>
+       |              if now >= _raftElectionDue then _startRaftElection()
+       |            case _ => ()
+       |      catch case _: InterruptedException => ()
+       |    }
+       |    if !_raftTickThread.compareAndSet(null, t) then t.interrupt()
+       |  // v1.23 — Raft persistence (cluster-raft.md §4.1).  One JSON file per
+       |  // node, written on every (term, votedFor) mutation so a crashed-and-
+       |  // restarted node doesn't double-vote in the same term.  Best-effort:
+       |  // IO errors are swallowed (the alternative is to refuse to start,
+       |  // which is worse for trusted-deployment use).
+       |  def _raftStatePath: java.nio.file.Path =
+       |    val key = if _localNodeId.isEmpty then "default" else _localNodeId.replaceAll("[^A-Za-z0-9._-]", "_")
+       |    java.nio.file.Paths.get(s".ssc-raft-state-$key.json")
+       |  def _raftPersist(): Unit =
+       |    try
+       |      val voted = _raftVotedFor.replace("\\", "\\\\").replace("\"", "\\\"")
+       |      val json  = "{\"currentTerm\":" + _raftCurrentTerm.toString + ",\"votedFor\":\"" + voted + "\"}"
+       |      java.nio.file.Files.writeString(_raftStatePath, json,
+       |        java.nio.charset.StandardCharsets.UTF_8,
+       |        java.nio.file.StandardOpenOption.CREATE,
+       |        java.nio.file.StandardOpenOption.TRUNCATE_EXISTING)
+       |    catch case _: Throwable => ()
+       |  def _raftLoad(): Unit =
+       |    try
+       |      val p = _raftStatePath
+       |      if java.nio.file.Files.exists(p) then
+       |        val s = java.nio.file.Files.readString(p)
+       |        val termIdx = s.indexOf("\"currentTerm\"")
+       |        if termIdx >= 0 then
+       |          val ci = s.indexOf(':', termIdx); var i = ci + 1
+       |          while i < s.length && s(i) == ' ' do i += 1
+       |          var j = i; while j < s.length && (s(j).isDigit || s(j) == '-') do j += 1
+       |          if j > i then s.substring(i, j).toLongOption.foreach(t => _raftCurrentTerm = t)
+       |        val vk = "\"votedFor\""
+       |        val ki = s.indexOf(vk)
+       |        if ki >= 0 then
+       |          val qi = s.indexOf('"', ki + vk.length + 1)
+       |          val qe = if qi > 0 then s.indexOf('"', qi + 1) else -1
+       |          if qe > qi then _raftVotedFor = s.substring(qi + 1, qe)
+       |    catch case _: Throwable => ()
+       |  // v1.23 — drain-aware step-down (cluster-raft.md §7).  Called when
+       |  // `setDraining(true)` flips while this node holds leadership.
+       |  // Releases the lease (coord), reverts to follower (Raft), or just
+       |  // clears the cached leader (Bully); always fires LeaderLost(self).
+       |  def _stepDownIfLeader(): Unit =
+       |    _leaderProtocol.get() match
+       |      case "raft" =>
+       |        if _raftState == "leader" then
+       |          _raftState    = "follower"
+       |          _raftLeaderId = ""
+       |          val prev = _currentLeader.getAndSet("")
+       |          if prev.nonEmpty then _fireLeaderEvent("LeaderLost", prev)
+       |      case "coord" =>
+       |        if _coordIsLeader then
+       |          _coordIsLeader = false
+       |          val rel = _coordReleaseFn
+       |          if rel != null then
+       |            try rel.asInstanceOf[String => Unit](_localNodeId)
+       |            catch case _: Throwable => ()
+       |          val prev = _currentLeader.getAndSet("")
+       |          if prev.nonEmpty then _fireLeaderEvent("LeaderLost", prev)
+       |      case _ =>
+       |        if _currentLeader.compareAndSet(_localNodeId, "") then
+       |          _fireLeaderEvent("LeaderLost", _localNodeId)
+       |  // v1.23 — auto-reconnect: exponential-backoff retry per peer URL after a
+       |  // disconnect.  Both fields 0 ⇒ disabled (default).  `setReconnectPolicy`
+       |  // sets them at runtime.  `_reconnectGiveUpMs` caps the total
+       |  // wall-clock retry budget per URL (0 = retry forever).
+       |  @volatile var _reconnectInitialMs: Long = 0L
+       |  @volatile var _reconnectMaxMs:     Long = 0L
+       |  @volatile var _reconnectGiveUpMs:  Long = 0L
+       |  // v1.23 — per-link heartbeat tuning.  Defaults 30s ping / 40s dead
+       |  // match the pre-v1.23 hardcoded values; `setHeartbeatTimeout` tunes
+       |  // them for low-latency / test clusters.
+       |  @volatile var _peerHeartbeatIntervalMs:  Long = 30000L
+       |  @volatile var _peerHeartbeatDeadAfterMs: Long = 40000L
+       |  // v1.23 — quorum-aware Bully threshold.  0 = no quorum check;
+       |  // set to N/2+1 of expected cluster size for split-brain guard.
+       |  @volatile var _quorumSize: Long = 0L
+       |  def _hasQuorum: Boolean = _quorumSize <= 0L || (_peerChannels.size + 1L) >= _quorumSize
+       |  // v1.23 — cluster configuration distribution.  LWW per key by timestamp;
+       |  // ties broken by lex-greatest nodeId so all nodes converge.
+       |  val _clusterConfig    = new java.util.concurrent.ConcurrentHashMap[String, (String, Long, String)]()
+       |  val _configEventSubs  = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
+       |  val _configEventQueue = new java.util.concurrent.ConcurrentLinkedQueue[(String, String)]()
+       |  def _fireConfigEvent(key: String, value: String): Unit =
+       |    val ts = System.currentTimeMillis()
+       |    _recordEventLog("{\"ts\":" + ts.toString + ",\"type\":\"ConfigChanged\",\"key\":" +
+       |                    _jstr(key) + ",\"value\":" + _jstr(value) + "}")
+       |    if !_configEventSubs.isEmpty then _configEventQueue.offer((key, value))
+       |  // Returns true if (ts, origin) wins over the stored (ts, origin) for key.
+       |  def _applyConfigUpdate(key: String, value: String, ts: Long, origin: String): Boolean =
+       |    val prev = _clusterConfig.get(key)
+       |    val accept =
+       |      prev == null || ts > prev._2 ||
+       |      (ts == prev._2 && origin > prev._3)
+       |    if accept then
+       |      _clusterConfig.put(key, (value, ts, origin))
+       |      _fireConfigEvent(key, value)
+       |    accept
+       |  // Snapshot every locally-known config entry to a single peer.  Called
+       |  // on every successful handshake so late-joining nodes pick up entries
+       |  // set before they joined.  LWW on the receiver protects us from
+       |  // downgrading any value the new peer might already have.
+       |  def _sendConfigSnapshot(targetSend: String => Unit): Unit =
+       |    _clusterConfig.forEach { (key, tuple) =>
+       |      val payload = "{\"t\":\"config_set\",\"key\":" + _jstr(key) +
+       |                    ",\"value\":" + _jstr(tuple._1) +
+       |                    ",\"ts\":" + tuple._2.toString +
+       |                    ",\"origin\":" + _jstr(tuple._3) + "}"
+       |      try targetSend(payload) catch case _: Throwable => ()
+       |    }
+       |  // v1.23 — drain / rolling-restart state
+       |  val _isDrainingSelf  = new java.util.concurrent.atomic.AtomicBoolean(false)
+       |  val _drainingPeers   = new java.util.concurrent.ConcurrentHashMap[String, java.lang.Boolean]()
+       |  val _drainEventSubs  = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
+       |  val _drainEventQueue = new java.util.concurrent.ConcurrentLinkedQueue[(String, Boolean)]()
+       |  def _fireDrainEvent(nodeId: String, draining: Boolean): Unit =
+       |    val ts = System.currentTimeMillis()
+       |    _recordEventLog("{\"ts\":" + ts.toString + ",\"type\":\"DrainStateChanged\",\"nodeId\":" +
+       |                    _jstr(nodeId) + ",\"draining\":" + draining.toString + "}")
+       |    if !_drainEventSubs.isEmpty then _drainEventQueue.offer((nodeId, draining))
+       |  // Tell a freshly-handshaken peer our current drain state.  No-op when we
+       |  // are not draining (peers default-assume `false`).
+       |  def _sendDrainState(targetSend: String => Unit): Unit =
+       |    if _isDrainingSelf.get() then
+       |      val payload = "{\"t\":\"drain\",\"from\":" + _jstr(_localNodeId) + ",\"draining\":true}"
+       |      try targetSend(payload) catch case _: Throwable => ()
+       |  // v1.23 — cluster metrics: per-node gauges.
+       |  //   _clusterMetrics(name)(nodeId) = latest value
+       |  val _clusterMetrics    = new java.util.concurrent.ConcurrentHashMap[String,
+       |    java.util.concurrent.ConcurrentHashMap[String, java.lang.Double]]()
+       |  val _metricEventSubs   = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
+       |  val _metricEventQueue  = new java.util.concurrent.ConcurrentLinkedQueue[(String, String, Double)]()
+       |  def _fireMetricEvent(name: String, nodeId: String, value: Double): Unit =
+       |    val ts = System.currentTimeMillis()
+       |    _recordEventLog("{\"ts\":" + ts.toString + ",\"type\":\"MetricChanged\",\"name\":" +
+       |                    _jstr(name) + ",\"nodeId\":" + _jstr(nodeId) +
+       |                    ",\"value\":" + value.toString + "}")
+       |    if !_metricEventSubs.isEmpty then _metricEventQueue.offer((name, nodeId, value))
+       |  def _applyMetricUpdate(name: String, nodeId: String, value: Double): Unit =
+       |    val inner = _clusterMetrics.computeIfAbsent(name, _ =>
+       |      new java.util.concurrent.ConcurrentHashMap[String, java.lang.Double]())
+       |    val boxed = java.lang.Double.valueOf(value)
+       |    val prev  = inner.put(nodeId, boxed)
+       |    if prev == null || prev.doubleValue() != value then
+       |      _fireMetricEvent(name, nodeId, value)
+       |  // Snapshot every local metric to a single peer on handshake so late
+       |  // joiners catch up without waiting for the next set.
+       |  def _sendMetricSnapshot(targetSend: String => Unit): Unit =
+       |    _clusterMetrics.forEach { (name, inner) =>
+       |      val localVal = inner.get(_localNodeId)
+       |      if localVal != null then
+       |        val payload = "{\"t\":\"metric\",\"from\":" + _jstr(_localNodeId) +
+       |                      ",\"name\":" + _jstr(name) +
+       |                      ",\"value\":" + localVal.doubleValue().toString + "}"
+       |        try targetSend(payload) catch case _: Throwable => ()
+       |    }
+       |
