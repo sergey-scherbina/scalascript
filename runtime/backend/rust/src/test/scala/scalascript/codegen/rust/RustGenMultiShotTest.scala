@@ -262,3 +262,36 @@ class RustGenMultiShotTest extends AnyFunSuite:
     val rs = rustOf(amb2)
     assert(rs.contains("__h(&|x: bool|") && rs.contains("__h(&|y: bool|"), rs)  // nested __h calls
     assert(runRust(amb2) == "22", "sum over x,y∈{T,F} of (x?1:0)+(y?10:0) = 22")
+
+  // ── Tier-3 unbounded multi-shot — Free-monad MComp interpreter for RECURSION (spec §11.2) ──────
+  private val ambRec =
+    """```scalascript
+      |multi effect Amb:
+      |  def flip(): Boolean
+      |
+      |def program(n: Int): Int ! Amb =
+      |  if n <= 0 then 0
+      |  else
+      |    val b = Amb.flip()
+      |    val rest = program(n - 1)
+      |    (if b then 1 else 0) + rest
+      |
+      |@main def run(): Unit =
+      |  val r = handle(program(2)) {
+      |    case Amb.flip(resume) => resume(true) + resume(false)
+      |  }
+      |  println(r)
+      |```
+      |""".stripMargin
+
+  test("Tier-3 unbounded multi-shot: recursive def → Free-monad MComp builder + interpreter"):
+    val rs = rustOf(ambRec)
+    assert(rs.contains("fn __comp(n: i64) -> crate::runtime::effect::MComp"), rs)
+    assert(rs.contains("crate::runtime::effect::MComp::Perform { op: \"flip\""), rs)
+    assert(rs.contains(".and_then("), rs)                                  // self-call sequenced monadically
+    assert(rs.contains("__run(k(crate::value::Value::from(true)))"), rs)   // resume re-runs the continuation
+
+  test("Tier-3 unbounded multi-shot runs end-to-end via cargo (recursion, 2 flips) → 4"):
+    assume(cargoAvailable, "cargo not on PATH — skipping end-to-end Rust smoke")
+    // program(2): sum over all 2² flip branches of (b1?1:0)+(b2?1:0) = 2+1+1+0 = 4
+    assert(runRust(ambRec) == "4", "recursive Amb program(2) → 4")

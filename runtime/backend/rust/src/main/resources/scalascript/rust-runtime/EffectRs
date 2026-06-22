@@ -139,3 +139,26 @@
       |    }
       |}
       |
+      |// ── Multi-shot Free monad (R.6, unbounded depth) ──────────────────────────────
+      |// Unlike `Computation<A>` above (one-shot `FnOnce` continuation), `MComp` carries a
+      |// RE-INVOKABLE continuation (`Rc<dyn Fn>`) so a handler can resume any number of times
+      |// (NonDet/Amb), and uses the crate-wide `Value` for resume values / answers. Used when a
+      |// `multi effect` is performed inside recursion/a loop, where the perform count is dynamic.
+      |#[allow(dead_code)]
+      |pub enum MComp {
+      |    Pure(crate::value::Value),
+      |    Perform { op: &'static str, args: Vec<crate::value::Value>, k: std::rc::Rc<dyn Fn(crate::value::Value) -> MComp> },
+      |}
+      |#[allow(dead_code)]
+      |impl MComp {
+      |    // Monadic bind: sequence `self` then `f`. Threads `f` into the continuation so a later
+      |    // perform's resume re-runs the whole tail (multi-shot safe — `f`/`k` are `Rc<Fn>`).
+      |    pub fn and_then(self, f: std::rc::Rc<dyn Fn(crate::value::Value) -> MComp>) -> MComp {
+      |        match self {
+      |            MComp::Pure(v) => f(v),
+      |            MComp::Perform { op, args, k } =>
+      |                MComp::Perform { op, args, k: std::rc::Rc::new(move |x| k(x).and_then(f.clone())) },
+      |        }
+      |    }
+      |}
+      |

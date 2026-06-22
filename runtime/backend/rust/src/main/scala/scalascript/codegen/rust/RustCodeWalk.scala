@@ -779,7 +779,10 @@ object RustCodeWalk:
       resumeParam: Option[String] = None,
       // Tier-2 multi-shot (§11.2): when set, `resume(v)` lowers to a CALL `<name>(v)` of the
       // reified continuation closure (so the handler can resume any number of times), not `v`.
-      resumeClosure: Option[String] = None
+      resumeClosure: Option[String] = None,
+      // Tier-3 unbounded multi-shot (§11.2): `resume(v)` lowers to `__run(<closure>(Value::from(v)))`
+      // — re-run the reified `MComp` continuation through the interpreter (perform-in-recursion/loop).
+      resumeViaComp: Boolean = false
   ):
     def enumNames: Set[String] = ctorMap.values.map(_.enumName).toSet
     @annotation.unused def topValNames: Set[String] = topVals.map(_._1).toSet
@@ -1671,6 +1674,8 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(m.Term.Name(r), args)
         if ctx.resumeParam.contains(r) && args.values.size == 1 =>
       ctx.resumeClosure match
+        case Some(k) if ctx.resumeViaComp =>
+          renderTerm(args.values.head, ctx).map(v => s"__run($k(crate::value::Value::from($v)))")
         case Some(k) => renderTerm(args.values.head, ctx).map(v => s"$k($v)")
         case None    => renderTerm(args.values.head, ctx)
     // `handle(body) { case Eff.op(binders…, resume) => arm }` → a handler struct that impls the
@@ -2660,9 +2665,13 @@ object RustCodeWalk:
                 // Thread `_eff` when calling an effectful user-defined function.
                 def withEff(n: String, args: String): String =
                   val rn = rustIdent(n)  // escape a call to a reserved-keyword-named def (e.g. `box`)
+                  // Inside an effectful def `_eff` is itself a `&mut impl Effect` param → reborrow
+                  // `&mut *_eff` (NOT `&mut _eff`, which is `&mut &mut T`). At a handle site `_eff` is a
+                  // local handler struct, so `&mut _eff`. Fixes recursive/nested effectful calls.
+                  val eff = if ctx.effectfulDefs.contains(ctx.defName) then "&mut *_eff" else "&mut _eff"
                   if ctx.effectfulDefs.contains(n) then
-                    if args.isEmpty then s"$rn(&mut _eff)"
-                    else s"$rn($args, &mut _eff)"
+                    if args.isEmpty then s"$rn($eff)"
+                    else s"$rn($args, $eff)"
                   else s"$rn($args)"
                 // A 0-arg apply on a Signal-typed local (`loc()`) is a signal READ —
                 // `Value` is not callable. The store is String-valued, so read it and coerce
@@ -2915,7 +2924,12 @@ object RustCodeWalk:
               // a nested `fn __h(<op-args>, k)` and nest each perform `__h(<args>, &|x| <rest>)` (spec
               // §11.2). Handles 1..N (static-depth) performs; the binders are the op-arg binders + resume.
               case binders if binders.nonEmpty =>
-                renderTier2General(body, eff, opName, binders.init, binders.last, c.body, ctx)
+                // Static perform depth (straight-line def) → Tier-2 nested closures; a RECURSIVE def
+                // (dynamic/unbounded perform count) → Tier-3 Free-monad `MComp` interpreter.
+                if defIsRecursive(body) then
+                  renderTier3Unbounded(body, eff, opName, binders.init, binders.last, c.body, ctx)
+                else
+                  renderTier2General(body, eff, opName, binders.init, binders.last, c.body, ctx)
               case _ =>
                 Left(List(unsupported(
                   s"multi-shot `$eff` handler has no `resume` binder")))
@@ -2936,6 +2950,107 @@ object RustCodeWalk:
   /** True if `t` performs an op of effect `eff` (`Eff.op(…)`) anywhere. */
   private def treePerformsEffect(t: m.Tree, eff: String): Boolean =
     t.collect { case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(`eff`), _), _) => true }.nonEmpty
+
+  /** True if `handle(defName(args))`'s `defName` calls itself (dynamic/unbounded perform depth). */
+  private def defIsRecursive(body: m.Term): Boolean = body match
+    case m.Term.Apply.After_4_6_0(m.Term.Name(defName), _) =>
+      _defBodies.get(defName).exists(dd =>
+        dd.body.collect { case m.Term.Apply.After_4_6_0(m.Term.Name(`defName`), _) => true }.nonEmpty)
+    case _ => false
+
+  /** The `Value`-unwrap method for a Rust scalar type (threading multi-shot resume values). */
+  private def valueConvFor(rustTy: Option[String]): Option[String] = rustTy match
+    case Some("i64")  => Some(".as_int()")
+    case Some("bool") => Some(".is_truthy()")
+    case _            => None
+
+  /** Lower an effectful-def body to a `crate::runtime::effect::MComp` builder expression (Tier-3,
+   *  spec §11.2): `if` → `if`; a pure tail → `MComp::Pure(Value::from(tail))`; an ANF block where each
+   *  `val x = …` is a perform (`Eff.op(args)` → `MComp::Perform{…, k: |x| <rest>}`), a self-call
+   *  (`selfName(args)` → `__comp(args).and_then(|x| <rest>)`), or a pure binding (`let x = …`). */
+  private def bodyToComp(t: m.Term, eff: String, opName: String, opConv: String, selfName: String,
+                         selfConv: String, ctx: Ctx): Either[List[Diagnostic], String] =
+    t match
+      case ifx: m.Term.If =>
+        for
+          c <- renderTerm(ifx.cond, ctx)
+          a <- bodyToComp(ifx.thenp, eff, opName, opConv, selfName, selfConv, ctx)
+          b <- bodyToComp(ifx.elsep, eff, opName, opConv, selfName, selfConv, ctx)
+        yield s"if $c { $a } else { $b }"
+      case m.Term.Block(stats) =>
+        blockToComp(stats.toList, eff, opName, opConv, selfName, selfConv, ctx)
+      case pure =>
+        renderTerm(pure, ctx).map(e => s"crate::runtime::effect::MComp::Pure(crate::value::Value::from($e))")
+
+  private def blockToComp(stats: List[m.Stat], eff: String, opName: String, opConv: String,
+                          selfName: String, selfConv: String, ctx: Ctx): Either[List[Diagnostic], String] =
+    stats match
+      case Nil => Left(List(unsupported("Tier-3: empty effectful block")))
+      case List(t: m.Term) =>
+        bodyToComp(t, eff, opName, opConv, selfName, selfConv, ctx)
+      case (v: m.Defn.Val) :: rest =>
+        (v.pats, v.rhs) match
+          case (List(m.Pat.Var(m.Term.Name(xn))), rhs) =>
+            def cont(restRs: String, conv: String): String =
+              s"std::rc::Rc::new(move |__$xn: crate::value::Value| { let $xn = __$xn$conv; $restRs })"
+            rhs match
+              case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(`eff`), m.Term.Name(`opName`)), opArgs) =>
+                val (e, argRs) = opArgs.values.toList.map(a => renderTerm(a, ctx).map(r => s"crate::value::Value::from($r)")).partitionMap(identity)
+                if e.nonEmpty then Left(e.flatten)
+                else blockToComp(rest, eff, opName, opConv, selfName, selfConv, ctx).map(restC =>
+                  s"""crate::runtime::effect::MComp::Perform { op: "$opName", args: vec![${argRs.mkString(", ")}], k: ${cont(restC, opConv)} }""")
+              case m.Term.Apply.After_4_6_0(m.Term.Name(`selfName`), callArgs) =>
+                val (e, argRs) = callArgs.values.toList.map(renderTerm(_, ctx)).partitionMap(identity)
+                if e.nonEmpty then Left(e.flatten)
+                else blockToComp(rest, eff, opName, opConv, selfName, selfConv, ctx).map(restC =>
+                  s"__comp(${argRs.mkString(", ")}).and_then(${cont(restC, selfConv)})")
+              case _ if !treePerformsEffect(rhs, eff) && rhs.collect { case m.Term.Apply.After_4_6_0(m.Term.Name(`selfName`), _) => true }.isEmpty =>
+                for r <- renderTerm(rhs, ctx); restC <- blockToComp(rest, eff, opName, opConv, selfName, selfConv, ctx)
+                yield s"{ let $xn = $r; $restC }"
+              case _ =>
+                Left(List(unsupported(s"Tier-3: `val $xn = …` rhs must be a perform, a self-call, or a pure expression (ANF)")))
+          case _ => Left(List(unsupported("Tier-3: complex val pattern in effectful def")))
+      case _ => Left(List(unsupported("Tier-3: a non-val statement before the tail (effectful def needs ANF)")))
+
+  /** Tier-3 unbounded multi-shot — spec §11.2. A `multi effect` performed inside RECURSION (dynamic
+   *  depth): lower the recursive effectful def to a `MComp` builder `fn __comp`, and interpret it with a
+   *  `fn __run` that, on `Perform`, runs the handler body with `resume(v)` → `__run(k(Value::from(v)))`
+   *  (re-invokable). Scoped to a single no-value-arg op + a single self-recursive def in ANF. */
+  private def renderTier3Unbounded(
+      body: m.Term, eff: String, opName: String, opArgBinders: List[String], resumeName: String,
+      handlerBody: m.Term, ctx: Ctx
+  ): Either[List[Diagnostic], String] =
+    if opArgBinders.nonEmpty then
+      Left(List(unsupported(s"Tier-3 unbounded multi-shot: op `$eff.$opName` with value args not yet supported")))
+    else body match
+      case m.Term.Apply.After_4_6_0(m.Term.Name(defName), callArgs) if _defBodies.contains(defName) =>
+        val dd     = _defBodies(defName)
+        val dps    = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+        val args   = callArgs.values.toList
+        val progRet = dd.decltpe.flatMap(t => mapType(t, defName, Set.empty).toOption).filter(_.nonEmpty).getOrElse("i64")
+        (valueConvFor(opRetRustType(eff, opName)), valueConvFor(Some(progRet)), valueConvFor(Some(progRet))) match
+          case (None, _, _) => Left(List(unsupported(s"Tier-3: unsupported op return type for `$eff.$opName` (need Int/Boolean)")))
+          case (_, None, _) => Left(List(unsupported(s"Tier-3: unsupported result type `$progRet` (need Int/Boolean)")))
+          case (Some(opConv), Some(progConv), _) =>
+            val paramTysE = dps.map(p => p.decltpe.flatMap(t => mapType(t, defName, Set.empty).toOption).filter(_.nonEmpty)
+              .toRight(List(unsupported(s"Tier-3: param `${p.name.value}` of `$defName` has no mappable type"))).map(ty => s"${p.name.value}: $ty"))
+            val argRsE   = args.map(renderTerm(_, ctx))
+            val compE    = bodyToComp(dd.body, eff, opName, opConv, defName, progConv, ctx)
+            val handlerE = renderTerm(handlerBody, ctx.copy(resumeParam = Some(resumeName), resumeClosure = Some("k"), resumeViaComp = true))
+            val (e1, ptys) = paramTysE.partitionMap(identity)
+            val (e2, argRs) = argRsE.partitionMap(identity)
+            val errs = e1.flatten ++ e2.flatten ++ compE.left.toOption.toList.flatten ++ handlerE.left.toOption.toList.flatten
+            if errs.nonEmpty then Left(errs)
+            else
+              val mc = "crate::runtime::effect::MComp"
+              val compFn = s"fn __comp(${ptys.mkString(", ")}) -> $mc { ${compE.toOption.get} }"
+              val runFn  = s"fn __run(__c: $mc) -> $progRet { match __c { " +
+                           s"$mc::Pure(__v) => __v$progConv, " +
+                           s"$mc::Perform { k, .. } => ${handlerE.toOption.get}, } }"
+              Right(s"{ $compFn $runFn __run(__comp(${argRs.mkString(", ")})) }")
+          case _ => Left(List(unsupported("Tier-3: unsupported types")))
+      case _ =>
+        Left(List(unsupported("Tier-3 unbounded multi-shot handle body must be a direct effectful def call")))
 
   /** Tier-2 multi-shot (general, static depth) — spec §11.2. For an arbitrary handler (resume any way,
    *  not a monad `flatMap`) over a single-op `multi effect`, emit the handler as a non-capturing nested

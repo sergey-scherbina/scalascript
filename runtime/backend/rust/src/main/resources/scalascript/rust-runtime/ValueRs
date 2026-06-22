@@ -110,6 +110,11 @@
       |            _                                => true,
       |        }
       |    }
+      |    // Unwrap an Int (used by the multi-shot effect interpreter to thread resume values). 0 otherwise.
+      |    #[allow(dead_code)]
+      |    pub fn as_int(&self) -> i64 {
+      |        match self { Value::Int(n) => *n, Value::Bool(b) => if *b { 1 } else { 0 }, _ => 0 }
+      |    }
       |}
       |
       |// `From` conversions so a signal's initial value (`signal(name, default)`) of a
