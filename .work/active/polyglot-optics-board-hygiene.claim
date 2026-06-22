@@ -1,0 +1,6 @@
+feature/polyglot-optics-board-hygiene 2026-06-22T21:25:07Z
+agent: codex
+heartbeat: 2026-06-22T21:25:07Z
+status: not-started
+done-so-far: queued plan in SPRINT.md
+next: mark stale top optics entries as done/superseded; no implementation changes
