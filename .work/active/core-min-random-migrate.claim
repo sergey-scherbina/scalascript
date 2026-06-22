@@ -1,6 +1,0 @@
-feature/random-plugin-extract 2026-06-22T10:06:49Z
-agent: claude (lucky-otter)
-heartbeat: 2026-06-22T10:06:49Z
-status: in-progress
-done-so-far: Logger extraction proven+merged (template); starting Random per core-min-phase3plus
-next: extend block-form SPI for (configArgs){body}; random-effect-plugin (runRandom + runRandomSeeded); remove core randomRun

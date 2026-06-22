@@ -53,6 +53,17 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       `installPlugins` — proving production lazy-ServiceLoader dispatch. Verified: StdEffectsTest+InterpreterTest
       **185 green**, LoggerPluginTest+BlockFormSpiTest **7 green**. **This is the reusable template** —
       clock/random/env/state/actors copy it (see `core-min-phase3plus`).
+- [x] **core-min-random-migrate** (A) — ✓ DONE 2026-06-22 (`2d525ea59`). Random extracted to
+      `runtime/std/random-effect-plugin` (`RandomEffectPlugin`; one `RandomBlockForm` registered under both
+      `runRandom` and `runRandomSeeded`; per-block `java.util.Random`, replies over `SpiValue` —
+      nextInt/nextDouble/uuid/pick, `pick` round-trips arbitrary list elements via `SpiValue.Opaque`). **This
+      slice GENERALIZED the block-form SPI to CONFIG ARGS** — `keyword(config…){body}`, not just `keyword{body}`:
+      `dispatchBlockForm` now evaluates leading config terms → `newHandler(ctx, cfgArgs)` (the seed). Added the
+      generic *curried* block-form cases in `EvalRuntime` (loaded + lazy-load mirror), placed AFTER all hardcoded
+      curried special-forms (runClockAt/runEnvWith/httpClient/…) so they only catch genuinely-unmatched applies.
+      Removed core `randomRun` + 2 cases + 2 `reservedApplyHeads` names. Tests moved
+      `StdEffectsTest`→`RandomPluginTest` (no `installPlugins`). Verified: StdEffectsTest+InterpreterTest **179
+      green**, RandomPluginTest+LoggerPluginTest+BlockFormSpiTest **13 green** + full-suite sweep.
 - [ ] **polyglot-phase2-optics-allhosts** (B) — prove the per-host library packaging end-to-end on the EASY case:
       take a PURE module (optics — zero effects, zero host coupling) and publish it to all four hosts (JVM jar +
       Java facade + npm + Rust crate) with a golden API-signature test per host. Validates the value-mapping +
