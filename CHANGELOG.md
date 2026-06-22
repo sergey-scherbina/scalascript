@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-22 — feat(jvm): optics JVM library (`emit-lib --host jvm`) — Phase 2 second host
+
+Second per-host optics library (after JS), polyglot-libraries Phase 2. `ssc emit-lib --host jvm
+--feature optics` emits a buildable `ssc-optics` sbt project: `build.sbt` + `src/main/scala/ssc/optics/
+Optics.scala` + `README.md`. Because JVM optics has no standalone runtime (it runs through the
+interpreter's `OpticsRuntime`), the library is a **native, self-contained Scala optics implementation**
+— Lens/Optional/Traversal/Prism over dynamic JSON-like values (`Map[String, Any]` / `List` / `Option` /
+`"_type"`-tagged variants), faithful to the JS shapes, with no ScalaScript dependency. `JvmLibPackager`
++ `EmitLibCmd --host jvm` (nested-path writing). `JvmLibPackagerTest` 5/5 incl. a **real `scala-cli`
+compile** of the emitted source + a signature golden. Idiomatic typed/macro (Monocle-style) optics +
+the Rust crate / Java facade hosts are documented follow-ups.
+
 ## 2026-06-22 — refactor(rust): Rust runtime templates → `.rs` resources (polyglot §3 #8 closed)
 
 Mirror of the JS/JVM cleanup for the Rust backend, completing polyglot-libraries §3 #8 across all three

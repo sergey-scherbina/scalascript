@@ -59,7 +59,7 @@ Queued after the JS `.mjs`-resource cleanup + rename. Drive top-to-bottom (tract
         win is smaller than JS (the `|`-margin source is already editable; gain = a real `.scala`/`.rs` file with
         no margin noise + lint/highlight). Do JVM and Rust as **separate slices**. NOT a one-shot mechanical
         sweep — budget per-backend. Spec: extend `specs/js-runtime-resources.md`.
-- [ ] **optics-jvm-facade** — Phase 2 next host (`specs/polyglot-libraries.md` §4/§6): publish optics as a JVM
+- [x] **optics-jvm-facade** ✓ DONE 2026-06-22 (emit-lib --host jvm; native Scala optics lib, scala-cli-compiled; Rust crate + Java facade + typed/macro optics remain) — Phase 2 next host (`specs/polyglot-libraries.md` §4/§6): publish optics as a JVM
       jar facade + golden API-signature test. Optics has no `.ssc` defs (AST-level) → author a thin Scala facade
       object `Ssc.Optics` (or a `.ssc` facade) over the same 4 optic shapes; reuse `FacadeGenerator`/`ssc link
       --emit-scala-facade`/`JarCommands`. Golden: mirror the JS `optics.d.ts` golden with a Scala signature golden.
