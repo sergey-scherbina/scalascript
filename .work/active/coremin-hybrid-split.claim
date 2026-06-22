@@ -1,6 +1,6 @@
 feature/coremin-hybrid-split 2026-06-22T21:37:14Z
 agent: codex
-heartbeat: 2026-06-22T21:37:14Z
-status: not-started
-done-so-far:
-next: create worktree, write/commit the hybrid plugin distribution spec slice, then implement local bundled opt-in staging without a domain.
+heartbeat: 2026-06-22T21:38:01Z
+status: in-progress
+done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-coremin-hybrid-split; existing polyglot spec says hybrid distribution, but needs a concrete no-domain local staging slice.
+next: update specs/polyglot-libraries.md and SPRINT.md with essential-vs-advanced policy, commit spec before touching build.sbt, then stage advanced .sscpkg files outside the auto-load directory.
