@@ -27,20 +27,21 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       — 27 hardcoded in `EvalRuntime`), (ii) effect handlers (`Perform` resolvers in `EffectHandlers.scala`), or
       (iii) Typer prelude symbols (`effectBuiltins`/`pluginObjects`/`pluginBuiltins` — ~150 hardcoded names).
       The keystone = 3 small additive SPI hooks (`blockForms`, `effectHandlers`, `preludeSymbols`/`typeSignatures`).
-- [~] **core-min-phase1-logger-keystone** (A) — IN PROGRESS, 2 increments landed on origin/main:
-      (1) `c2eec8d3c` **generic effect trampoline** — `EffectHandlers.runWithHandler(initial, tag, dispatch)`
-      extracted from the shared `*Run` shape; `loggerRun`/`loggerToListRun` delegate to it (behaviour-preserving,
-      StdEffectsTest 48/0). This is the seam a plugin plugs into — the core owns `Computation`, the plugin
-      supplies only `(op,args)→reply`. (2) `f2d8b5304` **SPI contract** — `BlockForm`/`EffectHandler`/
-      `BlockContext` traits + `Backend.blockForms` (additive, `Any`-valued like `NativeImpl`). **Remaining (next
-      focused increment — careful, touches core dispatch + plugin loading):** (a) `BackendRegistry.blockForms`
-      cached aggregation; (b) `EvalRuntime` generic block-form dispatch — must hang off the existing
-      **lazy-load-on-name-miss** path (NOT a check on every `Term.Apply`, or it regresses cold-start), using
-      `runWithHandler` + `unwrapValueAsAny`/`wrapAnyAsValue`; (c) a `logger-effect-plugin` module (build.sbt +
-      META-INF/services + `BlockForm` impls for `runLogger`/`runLoggerJson`/`runLoggerToList`); (d) remove the
-      hardcoded `runLogger` cases (`EvalRuntime.scala:3467`) + `loggerRun`/`loggerToListRun` from core, with the
-      plugin eager-loaded so the forms still resolve; (e) parity: StdEffectsTest + a golden test in
-      `interpreter-plugin-tests`. Then clock/random/env/state/actors follow the same template.
+- [x] **core-min-phase1-logger-keystone** (A — the SPI keystone) ✓ KEYSTONE PROVEN END-TO-END 2026-06-22. The
+      block-form + effect-handler plugin SPI now works: a plugin can contribute a `keyword { body }` effect-runner
+      and the interpreter dispatches to it. 5 increments on origin/main: (1) `c2eec8d3c` generic effect trampoline
+      `EffectHandlers.runWithHandler`; (2) `f2d8b5304` SPI contract `BlockForm`/`EffectHandler`/`BlockContext`;
+      (3) `7dc508c3b` made it **type-safe** — a host-neutral `SpiValue` ADT instead of `Any` (per Sergiy's review);
+      (4) `af58335bc` interp wiring — `valueToSpi`/`spiToValue`, a `_blockForms` registry populated by
+      `installPlugins`/`ensurePluginsLoaded`, and an `EvalRuntime` generic block-form case; (5) `0a578ab88` **proof**:
+      `reservedApplyHeads` fast-path also excludes `interp.blockForms` names so a plugin keyword reaches the
+      dispatch (empty until a plugin loads → plugin-free scripts unchanged). `BlockFormSpiTest`: a `runTally { }`
+      plugin block-form + stateful handler → `25`, Int args/replies round-tripped `Value↔SpiValue`. **No
+      regression** (StdEffectsTest 48/0, InterpreterTest 141/0). **Mechanical follow-up (each effect now a
+      template):** migrate Logger off the hardcoded `EvalRuntime` cases into a `logger-effect-plugin` (a `BlockForm`
+      per `runLogger`/`runLoggerJson`/`runLoggerToList`) + remove `loggerRun` from core + make the plugin
+      default-loaded; then clock/random/env/state/actors. The SPI being proven is the hard part; the migrations are
+      copy-the-template.
 - [ ] **polyglot-phase2-optics-allhosts** (B) — prove the per-host library packaging end-to-end on the EASY case:
       take a PURE module (optics — zero effects, zero host coupling) and publish it to all four hosts (JVM jar +
       Java facade + npm + Rust crate) with a golden API-signature test per host. Validates the value-mapping +
