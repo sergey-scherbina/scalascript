@@ -324,67 +324,143 @@ tagless-final lowering over the Free-monad CPS port. Multi-shot (`effect-multish
 **Verify:** `cargo build` the minimal probe above → `10`; then `./bench.sh effect-oneshot
 --backend rust` goes from `n/a` to a real number; add a `RustGenR42Test`/`R44` codegen test.
 
-## 11. R.6 — multi-shot effects on Rust (INVESTIGATED 2026-06-22 — NOT a bounded slice; design below)
+## 11. R.6 — multi-shot effects on Rust (DESIGN, verified 2026-06-22)
 
-**Probe (bright-quail, 2026-06-22):** read `RustCodeWalk.renderHandle` (the one-shot lowering) and
-the actual `effect-multishot` workload (`bench/corpus/effect-multishot.ssc`). Conclusion: multi-shot
-**cannot** be added as a bounded extension of the tagless-final lowering; it requires reifying the
-effectful body's continuation. Deferred with the design below so the next attempt starts from a spec,
-not a re-investigation.
+**Goal (operator, 2026-06-22):** support multi-shot algebraic effects on the Rust backend (`effect-multishot`
+bench, `NonDet.choose`) **with maximum speed and mandatory stack-safety**. The naive Free-monad
+interpreter (`Box<dyn Fn>` continuations + dynamic `Value` + recursive `run`) fails *both* — it heap-allocates
+per node, dispatches virtually, and overflows the stack on deep programs. This section is the accepted design.
 
-### Why the current lowering can't do it
+### 11.0 Verified facts (codebase probe, 2026-06-22 — `bright-quail`)
 
-The one-shot lowering is **tagless-final**: `Eff.op(args)` → `_eff.op(args)` (a trait-method call), and
-`resume(v)` in tail position → the method *returns* `v`. A trait method returns **exactly once**, so the
-handler can hand control back to the body once. The `effect-multishot` bench is genuine multi-shot **with
-answer-type modification**:
+Read `Parser`, `RustCodeWalk` (`renderHandle`, `Ctx`, `_effectOps`, the `resume` lowering), and the
+`Value` runtime. Findings that the design rests on:
+
+1. **`multi effect E:` is already marked.** The parser preprocesses it to inject `val __multiShot__ = true`
+   into the effect object (`lang/core/src/main/scala/scalascript/parser/Parser.scala:1798`). The **Rust
+   backend does not read `__multiShot__` yet** → a clean, additive gate.
+2. **`RustCodeWalk` is purely syntactic** — `Ctx` (line 724) threads no typer/inferred types. ⇒ monad
+   inference (decision A2) **must be syntactic** (handler-body shape + op-arg type), not type-directed.
+3. **The current `resume(v) → v` substitution is unsound for multi-shot.** It fires for *any* `resume(v)`
+   with one arg, not only a tail position (`RustCodeWalk` ~1643). So `opts.flatMap(opt => resume(opt))`
+   currently lowers to `opts.flatMap(|opt| opt)` — wrong, and it mis-compiles. ⇒ multi-shot **must** take a
+   separate, gated path that disables this substitution.
+4. **Op arg types are known.** `_effectOps: Map[eff, List[(op, rustParamTypes, rustRet)]]` already carries
+   each op's Rust-mapped parameter types (e.g. `choose(options: List[Int])` → arg type `Vec<i64>`).
+5. **`Ctx.effectfulDefs`** is the set of defs with a `T ! E` return type (which bodies to transform).
+6. **`Value` enum** (`runtime/rust-runtime/ValueRs`): `Bool(bool)`, `Int(i64)`, `Float`, `Str(String)`,
+   `List(Vec<Value>)` — **no `Option` variant** (a Tier-2 `Option` monad uses a 0/1-element list, or adds a
+   variant).
+
+### 11.1 Why the one-shot (tagless-final) lowering can't do multi-shot
+
+One-shot lowers `Eff.op(args)` → `_eff.op(args)` (a trait-method call) and a tail `resume(v)` → the method
+*returns* `v`. A trait method returns **once**. The bench is genuine multi-shot with **answer-type
+modification**:
 
 ```scala
 multi effect NonDet: def choose(options: List[Int]): Int
-// program: a = choose([1,2,3]); b = choose([10,20]); a + b + …
-handle(program(s)) { case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt)) }
+def program(seed: Long): Int ! NonDet =
+  val a = NonDet.choose(List(1, 2, 3))
+  val b = NonDet.choose(List(10, 20))
+  a + b + (seed % 5).toInt
+handle(program(s)) { case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt)) }   // : List[Int]
 ```
 
-Here `resume` is called **once per option** and the results are flat-mapped — the continuation (the rest
-of `program` after each `choose`, which itself performs another `choose`) is re-entered 3×, then 2× each,
-exploring the 3×2 cross-product. Two things the tagless-final model structurally can't express:
-1. **Re-invocation.** `resume` must be a *value* (a callable continuation) the handler can invoke 0..n
-   times — not "the method's return".
-2. **Answer-type modification.** To the program, `choose: List[Int] => Int`; to the handler, the op
-   *produces* `List[Int]` (all collected branches). The op's program-facing return type (`Int`) differs
-   from the handler's answer type (`List[Int]`). A single Rust trait method has one fixed return type.
+`resume` is called **once per option** and the results flat-mapped — the continuation (the rest of
+`program`) is re-entered, exploring the 3×2 cross-product. The op is `List[Int] => Int` to the program but
+the handler **produces** `List[Int]`. A single Rust trait method can model neither re-invocation nor the
+answer-type change. This is the regime the JVM/JS backends handle via a Free-monad CPS interpreter.
 
-This is exactly the regime the JVM/JS backends handle via their **Free-monad CPS interpreter** (and which
-`specs/direct-style-eval-spec.md` §10.1 calls out as requiring a re-callable monadic continuation).
+### 11.2 Accepted design — two tiers
 
-### The design that would work (Free-monad CPS path for multi-shot effects)
+Multi-shot is **gated on `__multiShot__`**; plain one-shot `effect` stays tagless-final, untouched and
+byte-identical. A `handle` over a multi-shot effect disables the `resume(v)→v` substitution (fact #3).
 
-Multi-shot needs a **second lowering path**, selected when an effect is declared `multi effect` (or a
-`handle` arm calls `resume` non-tail / more than once). Sketch:
+#### Tier 1 — monad-directed specialization (the fast path; covers the bench)
 
-- **Reify the computation.** Lower a multi-shot effectful body to a `Computation<A>` enum in
-  `runtime/effects.rs` — `Pure(A)`, `Perform { op, args, k: Box<dyn FnMut(V) -> Computation<A>> }`,
-  i.e. the Free monad. `Eff.op(args)` becomes `Perform { op, args, k }` where `k` captures the rest of
-  the body (CPS). `perform`-sequencing (`val a = choose(...); …`) nests the continuations.
-- **Multi-shot handler interpret.** The handler op receives the reified continuation `k` and may call it
-  any number of times: `case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))` → a Rust
-  interpreter loop that, on `Perform{op:"choose", args, k}`, runs `opts.into_iter().flat_map(|opt|
-  run(k(opt)))`. The **answer type** is the handler's result (`Vec<i64>`), distinct from the op's
-  program-facing return.
-- **Ownership.** The continuation is `Box<dyn FnMut(V) -> Computation>` (re-invokable). The Rust
-  challenge: a continuation called multiple times must not move captured state out — captured locals
-  need `Clone` on each invocation (the clone-everywhere model already used in `RustCodeWalk` extends to
-  this, but each `k(opt)` must clone its captured environment). `Rc`/`Clone` for shared captured values.
+Infer the handler's monad (syntactically) and emit **idiomatic Rust control flow**, with **no continuation
+reified at all**. This is where speed comes from: for the List/NonDet monad the whole `handle` becomes
+nested loops.
 
-### Why it is deferred (cost/risk)
+- **List / Vector** — handler shape `<coll>.flatMap(x => resume(x))` (or `.map`) where `<coll>` is the
+  op-arg list. Semantics = "enumerate every resume value, collect" → each `perform` becomes a `for` loop and
+  the program's pure tail pushes into a `Vec`. `pure v = vec![v]`.
+- **Option** — handler shape `<opt>.flatMap(x => resume(x))` / `match … resume` over `Option` → nested
+  `if let Some(x)` with early `None`. `pure v = Some(v)` (or `vec![v]` if `Option` is list-encoded).
 
-- It is a **whole-body CPS transform** for multi-shot effectful functions — a parallel lowering to the
-  tagless-final one-shot path, not a `renderHandle` tweak. Touches body lowering, `val`-sequencing,
-  control flow, and adds a Free-monad runtime + interpreter to `runtime/effects.rs`.
-- Risk to the **working one-shot path** (`effect-oneshot`, shipped) is real if the two paths aren't
-  cleanly separated by `multi effect` detection.
-- It re-introduces exactly the trampoline/allocation cost the tagless-final design was chosen to avoid —
-  so it should be **gated to `multi effect` only**, leaving one-shot direct.
+**Applicability.** The effectful body is a straight-line chain `val x = E.op(args); … ; <pure-tail>` (plus
+effect-free `if`/`match` between performs). Captures stay **typed** (`i64`, …) — **no `Value` in the hot
+path** (decision B). Anything outside this shape → Tier 2.
 
-**Recommendation:** keep `effect-multishot` `n/a` on Rust; pick this up as a dedicated, spec-first effort
-(it is multi-session). The one-shot path stays the fast default. Tracked in `BACKLOG.md`.
+The bench compiles to the ideal — typed, allocation-light, inherently stack-safe (loop nesting = static
+perform count), zero continuation overhead:
+
+```rust
+// handle(program(s)) { case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt)) }
+let mut all: Vec<i64> = Vec::with_capacity(6);
+for a in [1i64, 2, 3] {
+    for b in [10i64, 20] {
+        all.push(a + b + (s % 5));      // program's pure tail
+    }
+}
+// all == the JVM/JS result
+```
+
+#### Tier 2 — defunctionalized trampoline (general fallback; stack-safe)
+
+Used when the monad is **not recognized** OR the perform structure is **dynamic** (a `perform` inside a loop
+/ recursion, so static loop-nesting is impossible). Built for speed + stack-safety, **not** with
+`Box<dyn Fn>`:
+
+- **Defunctionalized continuations** (decisions D + E): a generated `enum Cont` with **one variant per
+  perform-site**, each holding its captured locals as **typed** fields; a `fn apply(k: Cont, v: Value) ->
+  Step` dispatches with a `match` — **static dispatch, no vtable, no heap `dyn Fn`, no `Rc`**.
+- **Explicit-stack trampoline** (decision C): `run` is a `loop` over an explicit `Vec<Cont>` work-stack
+  (and, for multi-shot collection, an accumulator) — **never recursion** → stack-safe at any depth.
+- **`Value` only at the resume boundary** (the value handed back to a continuation is dynamic); captured
+  locals stay typed in the `Cont` variants.
+- **pure**: from the inferred monad if recognized; otherwise this is the only place a `return` clause is
+  required (A1 survives strictly as a fallback-of-fallback, never the primary path).
+
+### 11.3 Decision record (operator forks, resolved)
+
+- **A — pure / answer-type → A2 (infer the monad).** Syntactic: a small **known-monad table**
+  (`List`/`Vector` → flat-map-collect → loops + `vec![v]`; `Option` → short-circuit → `Some(v)`) matched
+  against the handler-body shape, combined with the op-arg type from `_effectOps` (fact #4). Covers the
+  realistic multi-shot monads deterministically. Unrecognized → Tier 2 (monad-by-form, else a `return`
+  clause). *No full type-directed inference* (impossible here — fact #2). Open to revisit per operator.
+- **B — speed vs dynamic.** Tier 1 is **fully typed** (no `Value` in the hot path); `Value` appears only at
+  the Tier-2 resume boundary. The bench runs as native typed loops.
+- **C — stack-safety (mandatory).** Tier 1 = bounded loops; Tier 2 = explicit-stack trampoline. **No
+  unbounded recursion anywhere.**
+- **D — continuation representation.** **No `Box<dyn Fn>` / `Rc`.** Tier 1 has no continuations; Tier 2 uses
+  defunctionalized `Cont` enums on an explicit stack.
+- **E — defunctionalization vs boxed closures.** **Defunctionalization** (it *is* the speed + stack-safety
+  answer, not just an optimization). Only needed for Tier 2.
+
+### 11.4 Open checks to confirm at implementation start
+
+- Confirm `mapType(List[T])` = `Vec<rust(T)>` for the op-arg loop element type (very likely; `Value::List`
+  is `Vec<Value>` and list literals already lower to `vec![…]`).
+- `Value` has no `Option` variant → pick the Tier-2 `Option` encoding (0/1-element list, or add a variant).
+- Confirm a `multi effect` body currently reaches `renderHandle` (vs erroring earlier in `renderTerm`), so
+  the gate has a clean insertion point.
+
+### 11.5 Slice plan (each independently shippable; one-shot path untouched + re-verified)
+
+1. **Slice 1 (the bench).** Add the `__multiShot__` gate; Tier-1 **List monad + straight-line body** → nested
+   loops, exactly `effect-multishot.ssc`. Disable the `resume→v` substitution under the gate. `cargo`-run
+   smoke asserting the 6-branch result **== JVM/JS**. Guard: `RustGenR44Test` + the one-shot `cargo`-smoke
+   stay green (one-shot byte-identical).
+2. **Slice 2.** Tier-1 **Option** monad + effect-free `if`/`match` between performs.
+3. **Slice 3.** Tier-2 **defunctionalized trampoline** (dynamic perform structure / unrecognized monad) +
+   the `Computation`/`Cont`/`apply` runtime in `runtime/effects.rs`.
+4. **Slice 4.** Perf hardening (capacity hints, avoid intermediate `Vec`s where a fold suffices) + multi-effect
+   handlers.
+
+### 11.6 Acceptance
+
+`effect-multishot` on rust: `n/a` → a real number matching JVM/JS bit-for-bit; the shipped one-shot path
+(`effect-oneshot`) stays byte-identical (`RustGenR44Test` + cargo-smoke unchanged). Tier 1 emits no
+continuation machinery; Tier 2 is stack-safe by construction.
