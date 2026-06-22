@@ -135,10 +135,11 @@ object JsGen:
     case object Signals   extends Capability  // `JsRuntimeSignals` — reactive signals
     case object IndexedDb extends Capability  // `JsRuntimeIndexedDb` — client-side storage
     case object Graphql   extends Capability  // `JsRuntimeGraphql` — GraphQL server + client
+    case object WebAuthn  extends Capability  // `JsRuntimeWebAuthn` — FIDO2 server verifier (Node)
 
     val all: Set[Capability] = Set(Core, Async, Effects, Mcp, Dataset, Payment,
                                    HtmlDsl, Jwt, WsServer, Optics, Signals, IndexedDb,
-                                   Graphql)
+                                   Graphql, WebAuthn)
 
     /** Encode a capability as a stable, persistence-safe string.
      *  These strings appear in `.scjs-runtime` envelopes — do not rename. */
@@ -156,6 +157,7 @@ object JsGen:
       case Signals   => "signals"
       case IndexedDb => "indexeddb"
       case Graphql   => "graphql"
+      case WebAuthn  => "webauthn"
 
     def decode(s: String): Option[Capability] = s match
       case "core"      => Some(Core)
@@ -171,6 +173,7 @@ object JsGen:
       case "signals"   => Some(Signals)
       case "indexeddb" => Some(IndexedDb)
       case "graphql"   => Some(Graphql)
+      case "webauthn"  => Some(WebAuthn)
       case _           => None
 
   /** Inspect `module` and return the capability set its emitted JS would
@@ -263,6 +266,10 @@ object JsGen:
     if caps.contains(Capability.Graphql) then
       sb.append(JsRuntimeGraphql)
       if !JsRuntimeGraphql.endsWith("\n") then sb.append('\n')
+    // WebAuthn server verifier (reuses `_nodeCrypto` from Part2b + Core Option/Map).
+    if caps.contains(Capability.WebAuthn) then
+      sb.append(JsRuntimeWebAuthn)
+      if !JsRuntimeWebAuthn.endsWith("\n") then sb.append('\n')
     sb.toString
 
   /** Emit user code only — no runtime preamble.  In JS this is a synonym
@@ -1179,6 +1186,9 @@ class JsGen(
     // IndexedDb — client-side IndexedDB storage
     val hasIndexedDb = allText.contains("IndexedDb.")
     if hasIndexedDb then caps += IndexedDb
+    // WebAuthn — FIDO2 server verifier (challenge / verifyRegistration / verifyAssertion)
+    val hasWebAuthn = allText.contains("webauthn")
+    if hasWebAuthn then caps += WebAuthn
     // GraphQL — `JsRuntimeGraphql`.  Triggered by a `graphql` fenced block or
     // by any of the server/client intrinsics.  The runtime mounts on the full
     // HTTP server stack, which spans `route` (HttpServer/HtmlDsl), `_mkRequest`'s

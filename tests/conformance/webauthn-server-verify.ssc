@@ -1,0 +1,19 @@
+---
+name: webauthn-server-verify
+backends: [int, js]
+---
+
+# WebAuthn server verifier — challenge issuance + garbage rejection match on INT and JS.
+
+The interpreter uses the auth plugin (`scalascript.server.WebAuthn`); the JS backend uses the
+standalone Node port (`JsRuntimeWebAuthn`). Both must mint a non-empty challenge and return
+`None` for malformed registration/assertion input. (A full valid ceremony needs a real
+authenticator and is exercised by busi's device tests.)
+
+[webauthnChallenge, webauthnVerifyRegistration, webauthnVerifyAssertion](std/auth.ssc)
+
+```scalascript
+println(webauthnChallenge("owner").length > 10)
+println(webauthnVerifyRegistration("e30", "o2NmbXQ", "https://busi.example") match { case None => "reg-none"; case _ => "reg-some" })
+println(webauthnVerifyAssertion("e30", "AAAA", "MEUC", "cid", "https://busi.example") match { case None => "asr-none"; case _ => "asr-some" })
+```
