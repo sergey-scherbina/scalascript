@@ -6,7 +6,7 @@ import scalascript.ir.QualifiedName
 /** HTTP server + client intrinsics for the JS (Node.js) backend.
  *
  *  All symbols are JavaScript `function` declarations emitted into
- *  `JsRuntimePart1b` that JsGen always prepends.  `RuntimeCall` entries
+ *  `JsRuntimeHttpServer` that JsGen always prepends.  `RuntimeCall` entries
  *  here satisfy `CapabilityCheck` so any program calling these `extern def`s
  *  is accepted by the JS backend. */
 val JsHttpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(

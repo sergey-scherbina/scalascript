@@ -6,7 +6,7 @@ package scalascript.codegen
  *  Browser: throws descriptive errors for file-system and process ops;
  *           env/args return safe defaults; platform = 'Browser'.
  *
- *  Loaded unconditionally as part of the JS preamble (same as JsRuntimePart2b).
+ *  Loaded unconditionally as part of the JS preamble (same as JsRuntimeCoreCollections).
  *  See `specs/std-fs-os.md` and `std-fs-os-p3-js` in SPRINT.md.
  */
 object JsRuntimeFs:

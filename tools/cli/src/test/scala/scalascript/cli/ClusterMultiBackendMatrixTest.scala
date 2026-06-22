@@ -65,7 +65,7 @@ import java.time.Duration
  *     'upgrade' handler, so `/_ssc-cluster/status` GETs hit `_wsHandleUpgrade`,
  *     matched no WS route, and the socket hung with no response → status polls
  *     timed out (`js=` empty) even though the node was alive and the JVM peer had
- *     converged. Fixed in `JsRuntimePart1d`: the 'upgrade' listener now serves
+ *     converged. Fixed in `JsRuntimeWsServer`: the 'upgrade' listener now serves
  *     any non-`websocket` upgrade as a normal HTTP/1.1 request (via
  *     `http.ServerResponse` over the raw socket), so HTTP/2-preferring clients
  *     fall back to 1.1.

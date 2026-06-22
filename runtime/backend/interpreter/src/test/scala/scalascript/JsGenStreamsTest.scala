@@ -138,11 +138,11 @@ class JsGenStreamsTest extends AnyFunSuite:
 
   // ── v1.51.6 Stream algebraic effect JS lowering ─────────────────────────
   // Note: JsGen.generate returns user-code only (no runtime preamble).
-  // The `_perform('Stream', …)` definitions live in JsRuntimeV14Effects.
+  // The `_perform('Stream', …)` definitions live in JsRuntimeEffects.
   // These tests verify (a) the Effects runtime section contains the Stream op
   // definitions and (b) the generated user code references Stream / runStream.
 
-  test("JsRuntimeV14Effects contains Stream.emit _perform definition"):
+  test("JsRuntimeEffects contains Stream.emit _perform definition"):
     // _makeAsyncStream lives in the Async runtime (async.mjs); capability detection always
     // adds both Async and Effects when runStream/Stream.* is detected in user code.
     val rt = JsGen.generateRuntime(Set(JsGen.Capability.Effects, JsGen.Capability.Async))

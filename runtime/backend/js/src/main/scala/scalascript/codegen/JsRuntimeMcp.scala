@@ -7,5 +7,5 @@ package scalascript.codegen
  *  as `route(method, path)(handler)` + `serve(port)`.
  *  Client side: `mcpConnect(transport)` returns a synchronous McpClient
  *  backed by a Worker thread + Atomics.wait bridge (same pattern as the
- *  OAuth sync-fetch bridge in JsRuntimePart1c). */
+ *  OAuth sync-fetch bridge in JsRuntimeJwtAuth). */
 val JsRuntimeMcp: String = JsRuntimeResource.load("mcp.mjs")

@@ -74,30 +74,34 @@ gating on `tsc` would need JSDoc annotations first).
 
 ## Migration result (2026-06-22)
 
-All 18 `JsRuntime*` fragments now load from `.mjs` resources via `JsRuntimeResource.load`:
-`optics` (pilot) + `part1a`/`part1b`/`part1c`/`part1d`, `part2a`/`part2b`, `asynca`/`asyncb`,
-`signals`, `dataset`, `indexeddb`, `browserpatch`, `graphql`, `mcp`, `mcpbrowser`, `payment`,
-`v14effects`. Each `.mjs` body is **byte-identical** to the prior Scala triple-quoted literal
-(mechanically extracted + `diff`-verified vs `git HEAD`), so the emitted JS is unchanged. The two
-aggregator `JsRuntime` in `JsGen.scala` is computed and stays as-is. Verified: `backendJs` compiles +
-65 JS codegen tests (tree-shaking, transitive imports, content-toolkit, optics node-smoke) green.
+The JS runtime fragments now load from `.mjs` resources via `JsRuntimeResource.load`, with
+**content-meaningful names** (no cryptic `partNx` / version numbers). Always-included core:
+`core` (base — output/`Console`/helpers), `core-dispatch` (`_Char`/`_dispatch`/`_show`/`_tupleConcat`/
+Free-monad/fs), `core-collections` (seq + sync fallbacks). Capability-gated: `http-server` (`HtmlDsl`),
+`jwt-auth` (`Jwt`), `ws-server` (`WsServer`), `optics`, `signals`, `indexeddb`, `dataset`, `payment`,
+`mcp`, `mcpbrowser`, `graphql`, `effects` (the v1.4 built-in effects — Logger/Random/Clock/Env), plus
+`async` and `browserpatch`. Each `.mjs` body is **byte-identical** to the prior Scala literal
+(mechanically extracted + `diff`-verified vs `git HEAD`), so the emitted JS is unchanged. The aggregator
+`JsRuntime` in `JsGen.scala` is computed and stays as-is.
 
 Note on the "lintable" win: self-contained capability fragments (optics, signals, payment, graphql,
-mcp, …) are independently `node --check`-able; the always-included core (`part1a`, `part2a`, `part2b`)
-is split for concatenation/interleaving (gated `optics` sits between `part2a` and `part2b`), so per-file
-parse may span a boundary — those still gain editor highlighting + clean diffs, and lint as the
-concatenated `JsRuntime` blob.
+mcp, …) are independently `node --check`-able; the always-included core (`core`, `core-dispatch`,
+`core-collections`) is split for concatenation/interleaving (gated `optics` sits between `core-dispatch`
+and `core-collections`), so per-file parse may span a boundary — those still gain editor highlighting +
+clean diffs, and lint as the concatenated `JsRuntime` blob.
 
-### Consolidating size-only splits (2026-06-22)
+### Consolidating size-only splits + meaningful names (2026-06-22)
 
-The `.mjs` move removed the JVM 65 535-byte string-constant cap that originally forced some fragments
-to be split. Keeping **logical** boundaries, only the genuinely size-driven split was consolidated:
-`asynca.mjs` + `asyncb.mjs` → **`async.mjs`** (`JsRuntimeAsync` now `load("async.mjs")`; the
-`JsRuntimeAsyncA`/`B` vals + files are gone). The `part1*` fragments are NOT size-splits —
-`part1b`/`part1c`/`part1d` are each **capability-gated** (`HtmlDsl` / `Jwt` / `WsServer`; see
-`JsGen.generateRuntime`'s `if caps.contains(...)`), so they stay separate to preserve per-capability
-tree-shaking. `part2a`/`part2b` stay separate because gated `optics` is concatenated between them.
-Byte-identical (`async.mjs` == `asynca` + `asyncb`, `cmp`-clean; async/streams/effects tests green).
+The `.mjs` move removed the JVM 65 535-byte string-constant cap that originally forced several fragments
+to be split. Keeping **logical** boundaries:
+- The one genuinely size-driven split was consolidated: `asynca.mjs` + `asyncb.mjs` → **`async.mjs`**
+  (`JsRuntimeAsync` now `load("async.mjs")`; the `JsRuntimeAsyncA`/`B` vals + files are gone).
+- The remaining `partNx` fragments turned out to be real boundaries, so instead of merging they were
+  **renamed** to reflect their content/capability: `part1a`→`core`, `part1b`→`http-server` (`HtmlDsl`),
+  `part1c`→`jwt-auth` (`Jwt`), `part1d`→`ws-server` (`WsServer`), `part2a`→`core-dispatch`,
+  `part2b`→`core-collections`, `v14effects`→`effects`. `http-server`/`jwt-auth`/`ws-server` stay
+  separate to preserve per-capability tree-shaking; `core-dispatch`/`core-collections` stay separate
+  because gated `optics` is concatenated between them. Content unchanged ⇒ emitted JS byte-identical.
 
 ## Follow-ups
 

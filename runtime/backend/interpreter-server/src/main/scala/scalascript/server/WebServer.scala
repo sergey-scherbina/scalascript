@@ -2,7 +2,7 @@ package scalascript.server
 
 import scalascript.parser.Parser
 import scalascript.interpreter.Interpreter
-import scalascript.codegen.{JsGen, JsRuntime, JsRuntimeAsync, JsRuntimeV14Effects}
+import scalascript.codegen.{JsGen, JsRuntime, JsRuntimeAsync, JsRuntimeEffects}
 import scalascript.server.spi.{HttpServerSpi, TlsConfig}
 import com.sun.net.httpserver.HttpServer as JHttpServer
 import org.commonmark.parser.Parser as CmParser
@@ -208,7 +208,7 @@ object WebServer:
 try {
 ${JsRuntime}
 ${JsRuntimeAsync}
-${JsRuntimeV14Effects}
+${JsRuntimeEffects}
 ${generatedJs}
   document.getElementById('browser-output').textContent = _output.join('\\n') || '(no output)';
 } catch(e) {

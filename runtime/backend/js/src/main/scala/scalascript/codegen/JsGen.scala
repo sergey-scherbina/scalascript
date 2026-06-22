@@ -124,13 +124,13 @@ object JsGen:
      *  registry, JSON, Free Monad, fs helpers.  Always present. */
     case object Core      extends Capability
     case object Async     extends Capability  // `JsRuntimeAsync` — Async + Actor + Storage
-    case object Effects   extends Capability  // `JsRuntimeV14Effects` — Logger/Random/Clock/Env/Auth
+    case object Effects   extends Capability  // `JsRuntimeEffects` — Logger/Random/Clock/Env/Auth
     case object Mcp       extends Capability  // `JsRuntimeMcp` — MCP server / client
     case object Dataset   extends Capability  // `JsRuntimeDataset` — Dataset[T] lazy pipeline
     case object Payment   extends Capability  // `JsRuntimePayment` — Payment Request API
-    case object HtmlDsl   extends Capability  // `JsRuntimePart1b` — HTTP serve/route/sessions/metrics
-    case object Jwt       extends Capability  // `JsRuntimePart1c` — JWT/OAuth2/CSRF
-    case object WsServer  extends Capability  // `JsRuntimePart1d` — WebSocket/SSE/CORS
+    case object HtmlDsl   extends Capability  // `JsRuntimeHttpServer` — HTTP serve/route/sessions/metrics
+    case object Jwt       extends Capability  // `JsRuntimeJwtAuth` — JWT/OAuth2/CSRF
+    case object WsServer  extends Capability  // `JsRuntimeWsServer` — WebSocket/SSE/CORS
     case object Optics    extends Capability  // `JsRuntimeOptics` — Lens/Optional/Traversal/Prism
     case object Signals   extends Capability  // `JsRuntimeSignals` — reactive signals
     case object IndexedDb extends Capability  // `JsRuntimeIndexedDb` — client-side storage
@@ -205,27 +205,27 @@ object JsGen:
         sb.append(glue)
         if !glue.endsWith("\n") then sb.append('\n')
       }
-    // v1.61.6: build from individual parts so unused sections are omitted.
-    // Part1a is always included (Core).
-    sb.append(JsRuntimePart1a)
-    if !JsRuntimePart1a.endsWith("\n") then sb.append('\n')
+    // v1.61.6: build from individual fragments so unused sections are omitted.
+    // JsRuntimeCore (the base) is always included.
+    sb.append(JsRuntimeCore)
+    if !JsRuntimeCore.endsWith("\n") then sb.append('\n')
     if caps.contains(Capability.HtmlDsl) then
-      sb.append(JsRuntimePart1b)
-      if !JsRuntimePart1b.endsWith("\n") then sb.append('\n')
+      sb.append(JsRuntimeHttpServer)
+      if !JsRuntimeHttpServer.endsWith("\n") then sb.append('\n')
     if caps.contains(Capability.Jwt) then
-      sb.append(JsRuntimePart1c)
-      if !JsRuntimePart1c.endsWith("\n") then sb.append('\n')
+      sb.append(JsRuntimeJwtAuth)
+      if !JsRuntimeJwtAuth.endsWith("\n") then sb.append('\n')
     if caps.contains(Capability.WsServer) then
-      sb.append(JsRuntimePart1d)
-      if !JsRuntimePart1d.endsWith("\n") then sb.append('\n')
-    // Part2a and Part2b are always included (Core dispatch, _show, _tupleConcat, Free Monad, fs).
-    sb.append(JsRuntimePart2a)
-    if !JsRuntimePart2a.endsWith("\n") then sb.append('\n')
+      sb.append(JsRuntimeWsServer)
+      if !JsRuntimeWsServer.endsWith("\n") then sb.append('\n')
+    // CoreDispatch + CoreCollections are always included (dispatch, _show, _tupleConcat, Free Monad, fs).
+    sb.append(JsRuntimeCoreDispatch)
+    if !JsRuntimeCoreDispatch.endsWith("\n") then sb.append('\n')
     if caps.contains(Capability.Optics) then
       sb.append(JsRuntimeOptics)
       if !JsRuntimeOptics.endsWith("\n") then sb.append('\n')
-    sb.append(JsRuntimePart2b)
-    if !JsRuntimePart2b.endsWith("\n") then sb.append('\n')
+    sb.append(JsRuntimeCoreCollections)
+    if !JsRuntimeCoreCollections.endsWith("\n") then sb.append('\n')
     // std.fs / std.os / std.process — always included; Node.js uses node:fs/os/path,
     // browser stubs throw FsNotSupported / ProcessNotSupported (std-fs-os-p3-js).
     sb.append(JsRuntimeFs.source)
@@ -245,8 +245,8 @@ object JsGen:
       sb.append(JsRuntimeAsync)
       if !JsRuntimeAsync.endsWith("\n") then sb.append('\n')
     if caps.contains(Capability.Effects) then
-      sb.append(JsRuntimeV14Effects)
-      if !JsRuntimeV14Effects.endsWith("\n") then sb.append('\n')
+      sb.append(JsRuntimeEffects)
+      if !JsRuntimeEffects.endsWith("\n") then sb.append('\n')
     if caps.contains(Capability.Mcp) then
       sb.append(JsRuntimeMcp)
       if !JsRuntimeMcp.endsWith("\n") then sb.append('\n')
@@ -256,7 +256,7 @@ object JsGen:
     if caps.contains(Capability.Payment) then
       sb.append(JsRuntimePayment)
       if !JsRuntimePayment.endsWith("\n") then sb.append('\n')
-    // GraphQL runtime references `route` (Part1b) / `serve` (Part1d) /
+    // GraphQL runtime references `route` (HttpServer) / `serve` (WsServer) /
     // `_mkResp` / `_jsonConvert` (defined above), so it is appended last.
     // Capability detection forces HtmlDsl + WsServer + Async whenever Graphql
     // is present, so those parts are emitted.
@@ -307,8 +307,8 @@ object JsGen:
 
 
 val JsRuntime: String =
-  JsRuntimePart1a + JsRuntimePart1b + JsRuntimePart1c + JsRuntimePart1d +
-  JsRuntimePart2a + JsRuntimeOptics + JsRuntimePart2b + JsRuntimeSignals +
+  JsRuntimeCore + JsRuntimeHttpServer + JsRuntimeJwtAuth + JsRuntimeWsServer +
+  JsRuntimeCoreDispatch + JsRuntimeOptics + JsRuntimeCoreCollections + JsRuntimeSignals +
   TypedJsonCodecRuntime.jsFacade + JsRuntimeIndexedDb
 
 /** Built-in `Async` effect runtime (loaded from the `async.mjs` resource).  Same semantics as
@@ -1038,7 +1038,7 @@ class JsGen(
   // ─── v2.0 Phase 2 — capability detection ─────────────────────────────
   //
   // The split-runtime emit uses this to decide which optional preamble
-  // blocks (`JsRuntimeAsync`, `JsRuntimeV14Effects`, `JsRuntimeMcp`,
+  // blocks (`JsRuntimeAsync`, `JsRuntimeEffects`, `JsRuntimeMcp`,
   // `JsRuntimeDataset`) to include in the shared `_runtime.scjs-runtime`
   // artifact.  Heuristic: scan the module's scalascript blocks for
   // textual references to the corresponding effect/DSL namespaces.
@@ -1109,8 +1109,8 @@ class JsGen(
                     allText.contains("runStream") || allText.contains("Sink.") ||
                     allText.contains("Flow.")
     if hasAsync || hasStreams then caps += Async
-    // v1.4 effects: Logger / Random / Clock / Env / Auth — `JsRuntimeV14Effects`.
-    // v1.51.6: Stream algebraic effect also lives in JsRuntimeV14Effects (at the end).
+    // v1.4 effects: Logger / Random / Clock / Env / Auth — `JsRuntimeEffects`.
+    // v1.51.6: Stream algebraic effect also lives in JsRuntimeEffects (at the end).
     val hasV14 = allText.contains("Logger.") || allText.contains("Random.") ||
                  allText.contains("Clock.")  || allText.contains("Env.")    ||
                  allText.contains("Auth.")   || allText.contains("runLogger") ||
@@ -1129,18 +1129,18 @@ class JsGen(
     val hasPayment = allText.contains("PaymentRequest") || allText.contains("PaymentMethod.")
     if hasPayment then caps += Payment
     // v1.61.6 sub-capabilities
-    // HtmlDsl — Part1b: HTTP serve/route/sessions/metrics/password/TOTP
+    // HtmlDsl — HttpServer: HTTP serve/route/sessions/metrics/password/TOTP
     val hasHtmlDsl = allText.contains("serve(") || allText.contains("route(") ||
                      allText.contains("serveAsync(") ||
                      allText.contains("WsRoom(") || allText.contains(".session") ||
                      allText.contains("metrics.") || module.manifest.exists(_.routes.nonEmpty)
-    if hasHtmlDsl then { caps += HtmlDsl; caps += Jwt }  // Part1b uses _bearerFromAuth from Part1c
-    // Jwt — Part1c: JwtSign/JwtVerify/OAuth2/CSRF/BearerToken
+    if hasHtmlDsl then { caps += HtmlDsl; caps += Jwt }  // HttpServer uses _bearerFromAuth from JwtAuth
+    // Jwt — JwtAuth: JwtSign/JwtVerify/OAuth2/CSRF/BearerToken
     val hasJwt = allText.contains("JwtSign(") || allText.contains("JwtVerify(") ||
                  allText.contains("OAuth2.") || allText.contains("bearerToken") ||
                  allText.contains("csrf")
     if hasJwt then caps += Jwt
-    // WsServer — Part1d: WebSocket connections, SSE, CORS, outbound HTTP client
+    // WsServer — WsServer: WebSocket connections, SSE, CORS, outbound HTTP client
     val hasWsServer = allText.contains("WsConnection(") || allText.contains("WsRoom(") ||
                       allText.contains("serveAsync(") ||
                       allText.contains("sse(") || allText.contains("cors(") ||
@@ -1181,9 +1181,9 @@ class JsGen(
     if hasIndexedDb then caps += IndexedDb
     // GraphQL — `JsRuntimeGraphql`.  Triggered by a `graphql` fenced block or
     // by any of the server/client intrinsics.  The runtime mounts on the full
-    // HTTP server stack, which spans `route` (Part1b/HtmlDsl), `_mkRequest`'s
-    // auth helpers `_bearerFromAuth` / `jwtVerify` (Part1c/Jwt), and `serve` /
-    // `_ssc_http_serve` (Part1d/WsServer); resolvers run async.  Force all of
+    // HTTP server stack, which spans `route` (HttpServer/HtmlDsl), `_mkRequest`'s
+    // auth helpers `_bearerFromAuth` / `jwtVerify` (JwtAuth/Jwt), and `serve` /
+    // `_ssc_http_serve` (WsServer/WsServer); resolvers run async.  Force all of
     // HtmlDsl + Jwt + WsServer + Async whenever GraphQL is used.
     def hasGraphqlBlock(s: Section): Boolean =
       s.content.exists { case cb: Content.CodeBlock => Lang.isGraphql(cb.lang); case _ => false } ||
