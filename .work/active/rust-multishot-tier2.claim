@@ -1,0 +1,6 @@
+feature/rust-multishot-tier2 2026-06-22
+agent: claude (bright-quail)
+heartbeat: 2026-06-22T21:29:45Z
+status: in-progress
+done-so-far: Tier-1 List + Option done end-to-end. Tier-2 = general multi-shot (handler resumes in arbitrary ways, not just monad-flatMap). FULL general (nested performs / Free-monad trampoline) is multi-session; this slice = the BOUNDED, testable part: SINGLE-perform multi-shot via continuation-as-closure.
+next: when a multi effect handle's handler is NOT the Tier-1 List/Option flatMap shape AND the inlined def has exactly ONE perform of a no-value-arg op (only `resume` binder), emit the continuation as a Rust closure: `{ <param binds> let __k = |x: <opRet>| -> <progRet> { <rest of body, x bound> }; <handler body with resume -> __k(x)> }`. Needs: Ctx.resumeClosure: Option[String]; renderTerm resume-case uses it when set (else one-shot v); opRetRustType helper; progRet from the def return type (strip ! E). Wire as fallback in renderMultiShotList. Test (Amb): `multi effect Amb: def flip(): Boolean`; program `val x = Amb.flip(); if x then 1 else 0`; handle { case Amb.flip(resume) => resume(true) + resume(false) } -> 1+0=1, cargo-run. One-shot + Tier-1 untouched. spec §11.5 Slice 3 (partial: single-perform).
