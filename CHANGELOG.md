@@ -11,6 +11,15 @@ Closed the stale open `core-min-phase3plus` sprint line. Its bounded work has ei
 or is tracked separately (`core-min-value-unification`) / deliberately deferred as low-ROI
 interpreter-internal Stream/Actors code moves.
 
+## 2026-06-23 — rust backend: do not steal List `.map(functionRef)` as Either.map
+
+Fixed a Rust lowering regression where any top-level `foo(...)` call was treated as "maybe
+Either", so `foo().map(roomLineName)` could lower to `match foo() { Either::... }` even when
+`foo` was explicitly declared as `List[String]`. `isEitherExpr` now classifies named function
+calls as Either-shaped only when their declared return type lowers to `Either<_, _>`. Added a
+string regression and extended the cargo smoke with `roomStatusLines().map(roomLineName).toList`,
+so the case is checked both in generated Rust shape and by real `cargo run`.
+
 ## 2026-06-23 — core-min: strict opt-in for advanced plugin prelude names (advanced-optin)
 
 Removes the hardcoded `pluginObjects`/`pluginBuiltins` *plugin-owned* names from the Typer prelude and

@@ -2515,13 +2515,20 @@ object RustCodeWalk:
       m.Term.Select(inner, m.Term.Name("map" | "flatMap" | "fold")),
       _
     ) if isEitherExpr(inner) => true
-    // Top-level user function calls (e.g. `parse(x)`) may return Either.
-    // Only Name-based callees qualify — method calls like `csv.split(",")` are
-    // NOT treated as Either (they return collections/strings, not Either values).
+    // Top-level user function calls only qualify when their declared return type
+    // is explicitly Either-shaped. Treating every `foo(...)` as "maybe Either"
+    // lets `foo().map(f)` steal ordinary collection/String maps and emits
+    // `Either::...` without the Either enum in the crate.
     case m.Term.Apply.After_4_6_0(m.Term.Name(n), _)
         if n != "Some" && n != "List" && n != "Vec" && n != "Map"
-        && n != "Vector" && n != "Seq" && n != "IndexedSeq" && n != "Iterable" => !isOptionExpr(term)
+        && n != "Vector" && n != "Seq" && n != "IndexedSeq" && n != "Iterable" =>
+      defReturnsEither(n)
     case _ => false
+
+  private def defReturnsEither(name: String): Boolean =
+    _defBodies.get(name).flatMap(_.decltpe).exists { t =>
+      mapType(t, name, Set.empty).toOption.exists(_.startsWith("Either<"))
+    }
 
   /** Best-effort check that a term is an Option-shaped expression so we can
    *  route `.map/.flatMap/.getOrElse` to Rust `Option`.

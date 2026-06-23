@@ -110,3 +110,17 @@ class RustGenCollectionTest extends AnyFunSuite:
     assert(rs.contains("for x in xs.iter()"), s"expected the foreach to reference `xs`, got:\n$rs")
     assert(!rs.contains("for x in vec!"), s"the loop must NOT re-inline the vec! literal, got:\n$rs")
     assert(!rs.contains("inc(x.clone())"), s"single-use foreach params should not be cloned, got:\n$rs")
+
+  test("function-reference map over a named List-returning def does not lower as Either"):
+    val rs = allRust(
+      """```scalascript
+        |def roomLineName(l: String): String = l.trim
+        |def roomStatusLines(): List[String] = List("demo", "rozum")
+        |def roomNames(): List[String] = roomStatusLines().map(roomLineName).toList
+        |```
+        |""".stripMargin
+    )
+    assert(rs.contains("roomStatusLines().iter().cloned().map(roomLineName).collect::<Vec<_>>()"),
+      s"expected ordinary Vec map with a function reference, got:\n$rs")
+    assert(!rs.contains("Either::Left"), s"List-returning def must not be treated as Either:\n$rs")
+    assert(!rs.contains("Either::Right"), s"List-returning def must not be treated as Either:\n$rs")

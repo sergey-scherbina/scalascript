@@ -59,6 +59,10 @@ class RustGenCargoSmokeTest extends AnyFunSuite:
     assume(cargoAvailable, "cargo not on PATH — skipping end-to-end Rust smoke")
     val lines = runCrate(
       """```scalascript
+        |def roomLineName(l: String): String = l.trim
+        |def roomStatusLines(): List[String] = List("demo", "rozum")
+        |def roomNames(): List[String] = roomStatusLines().map(roomLineName).toList
+        |
         |@main def run(): Unit =
         |  // Vec ops — take/drop/takeRight/dropRight reduce via the generalized .sum
         |  println(List(10, 20, 30, 40).take(2).sum)        // 30
@@ -77,10 +81,13 @@ class RustGenCargoSmokeTest extends AnyFunSuite:
         |  val parts: List[String] = "a,b,c".split(",").toList
         |  println(parts(1))                                // b
         |  println("abc".toList.size)                       // 3  (String.toList → Vec<char>)
+        |  // Function reference over a named List-returning def must stay Vec.map,
+        |  // not the Either.map arm (`Either::...` without an Either enum).
+        |  println(roomNames().mkString("|"))                // demo|rozum
         |```
         |""".stripMargin
     )
     assert(lines == List(
       "30", "70", "70", "30", "100", "6", "1",
-      "a-b-c", "true", "true", "true", "b", "3"
+      "a-b-c", "true", "true", "true", "b", "3", "demo|rozum"
     ), s"unexpected program output:\n${lines.mkString("\n")}")
