@@ -403,9 +403,14 @@ validated + pushed:
         obtains the core provider (currently a direct `= CoreActorRuntimeProvider` reference). DECISION NEEDED:
         either that architectural SPI relocation, or EXEMPT runtime-provider plugins from the p3-enforce check
         (the check targets value-surface plugin jars; a provider that bridges the core runtime is a different category).
-- [ ] **p3-enforce** (after value-surface plugins clean) — remove `PluginNative.evalLegacy`; add the build/CI check rejecting
-      any plugin jar containing `scalascript/interpreter/`; delete residual shims; set `specs/arch-stable-spi.md`
-      Status to "Phase 3 complete". STATUS: 26/28 plugins clean (batch-A 10 + ws/pwa/json + uuid/os/request/smtp/
+- [~] **p3-enforce** — BUILD CHECK ✓ DONE: `StableSpiEnforcementTest` (backendInterpreterPluginTests) scans every
+      `runtime/std/*-plugin/src/main` and fails if a value-surface plugin references `scalascript.interpreter`;
+      a second test guards against STALE exemptions. Exemptions: `actors-plugin` (runtime provider) +
+      `graphql-plugin` (codegen-blocked, temporary). Both pass — the 26 migrations are locked in. REMAINING:
+      `PluginNative.evalLegacy` stays (still the legitimate untyped `(ctx, args)=>Any` entry the migrated plugins
+      use — bodies are clean, so it's no longer "transitional"; only its scaladoc's "may use Value.*" note is now
+      stale). Bytecode-level jar scan + the graphql/actors special cases are the only open items.
+      STATUS: 26/28 plugins clean (batch-A 10 + ws/pwa/json + uuid/os/request/smtp/
       sql/remote/frontend/http/dstreams/streams/content/oauth/mcp). PluginApi seam now exposes: nativeFn/callFn, Fn/isCallable, jsonEncode/
       jsonFacade/fromHostAny/parseJson/lookupKey, decimal/asDecimal/Dec, funArity/wrapTypedHandler, field/typeNameOf/
       InstAny, fields/orderedInstance, OAuthBridge(relocated). Remaining 2 are BOTH special, not mechanical:
