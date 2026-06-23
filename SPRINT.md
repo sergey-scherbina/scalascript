@@ -29,6 +29,11 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
       touches, lift them to a typed seam, then move the file. No user-visible change. **Verify:** `ActorDistributedTest`
       + `ActorBinaryWsTest` + the actor suites green on both sides of the move; core no longer references actor
       scheduler types. Do as a dedicated multi-session refactor; land in green sub-steps where possible.
+      **Slice 0/1 plan (2026-06-23, codex):** dependency audit found direct runtime use of `out`,
+      `callValue`/`callValue1`, `receiveSpecs` + receive guard/body `eval`, `nativeFeature*`, and distributed
+      server/WS integration. First green slice is therefore a host-service seam: add explicit `ActorRuntimeHost`
+      methods for the non-server services and lock them with provider tests, while keeping `runCoreActorRuntime`
+      as the temporary delegate. Do not attempt the 3500-LOC file move in the same commit.
 
 - [ ] **theme-a-stable-plugin-spi — Phase 3** (versioned stable API module) — Phases 1+2 landed (the stable
       surface exists: `PluginValue`/`PluginError`/`PluginComputation`/`JsonCodec`/`PluginContext` in

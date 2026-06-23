@@ -46,14 +46,14 @@ trait ActorRuntimeSession:
 
 trait ActorRuntimeHost:
   def out: java.io.PrintStream
-  def callValue(fn: Value, args: List[Value], env: Env): Computation
-  def callValue1(fn: Value, arg: Value, env: Env): Computation
-  def receiveSpecs: scala.collection.mutable.LongMap[(List[scala.meta.Case], Env)]
-  def nextReceiveSpecId(): Long
-  def matchReceive(cases: List[scala.meta.Case], env: Env, msg: Value): Option[Computation]
-  def nativeFeatureGet(key: String): Option[Any]
-  def nativeFeatureSet(key: String, value: Any): Unit
-  def nativeFeatureRemove(key: String): Option[Any]
+  def actorCallValue(fn: Value, args: List[Value], env: Env): Computation
+  def actorCallValue1(fn: Value, arg: Value, env: Env): Computation
+  def actorReceiveSpec(specId: Long): (List[scala.meta.Case], Env)
+  def actorMatchReceive(cases: List[scala.meta.Case], env: Env, msg: Value): Option[Computation]
+  def actorNativeFeatureGet(key: String): Option[Any]
+  def actorNativeFeatureSet(key: String, value: Any): Unit
+  def actorNativeFeatureRemove(key: String): Option[Any]
+  def runCoreActorRuntime(initial: Computation): Computation
 ```
 
 Exact method names may change during implementation, but the boundary must preserve the direction: the provider opens a session bound to one interpreter host; that session owns actor runtime state and scheduling. The provider object itself may be a ServiceLoader singleton and must not hold actor/cluster mutable state. The host exposes only the interpreter services needed to run ScalaScript closures, match `receive` cases, access the output sink, and reuse existing feature-state stores.
@@ -71,6 +71,9 @@ Exact method names may change during implementation, but the boundary must prese
 - [ ] `receive { case ... }` and `receive(timeout = n) { case ... }` preserve current pattern semantics, timeout wrapping (`Some`/`None`), and environment capture.
 - [ ] Remote WebSocket, cluster event, leader event, config event, drain event, metric event, publish queue, scheduled-send, and node-down drains remain driven by the actor scheduler.
 - [x] `ActorRuntimeProvider.open(host)` creates an interpreter-bound `ActorRuntimeSession`; installing a provider resets the cached session so mutable actor/cluster state cannot leak through a reused ServiceLoader backend singleton.
+- [ ] `ActorRuntimeHost` exposes an explicit interpreter-service API for the moved runtime (`out`, closure calls,
+  receive-spec lookup/matching, and native feature state) instead of requiring a broad `Interpreter` self-type in
+  the plugin runtime.
 - [ ] No actor scheduler/mailbox/cluster state remains in interpreter core except the minimal host bridge and dispatch stub.
 - [ ] Existing `.ssc` examples and conformance files under `tests/conformance/actors-*.ssc` require no source changes.
 
@@ -118,9 +121,11 @@ Interpreter core keeps:
 1. **Spec slice** — this file. No code changes.
 2. **Provider seam slice** — add `ActorRuntimeProvider`/`ActorRuntimeHost`, provider registration, and a no-op/mirror provider that delegates to the existing core implementation. Tests must remain green.
 3. **Session lifecycle seam slice** — change the provider contract to `open(host): ActorRuntimeSession`, cache one session per interpreter host, and reset it when a provider is installed. This makes state ownership explicit before any runtime move.
-4. **Move runtime slice** — move `ActorRuntime`, scheduler loop, actor op handling, and cluster helpers into `runtime/std/actors-plugin`; core dispatches through the session.
-5. **Prelude/check slice** — move actor runner/primitive names that are safe to type as `Any` into plugin `preludeSymbols`; keep syntax-only `receive` handling in core.
-6. **Cleanup slice** — remove stale actor scheduler state from interpreter core and update `SPRINT.md`/`CHANGELOG.md`.
+4. **Host-service seam slice** — enumerate the current runtime's direct `Interpreter` dependencies and expose the
+   minimal typed methods on `ActorRuntimeHost`. Keep `runCoreActorRuntime` only as the temporary core delegate.
+5. **Move runtime slice** — move `ActorRuntime`, scheduler loop, actor op handling, and cluster helpers into `runtime/std/actors-plugin`; core dispatches through the session.
+6. **Prelude/check slice** — move actor runner/primitive names that are safe to type as `Any` into plugin `preludeSymbols`; keep syntax-only `receive` handling in core.
+7. **Cleanup slice** — remove stale actor scheduler state from interpreter core and update `SPRINT.md`/`CHANGELOG.md`.
 
 ## Decisions
 
@@ -138,6 +143,12 @@ Interpreter core keeps:
   moved code a natural per-interpreter holder. Rejected: leaving `runActors(host, body)` on the provider as the only
   hook, because that API makes it too easy for a plugin author to store cluster/node state on the provider singleton.
 - **No public API change.** Chosen because this is a core-minimization refactor. Rejected: using this slice to redesign ActorRef/Pid or cluster protocols.
+- **First move attempt is a host-service seam, not a blind file move.** A 2026-06-23 dependency audit found the runtime
+  still reaches interpreter services directly: `out`, `callValue`/`callValue1`, `receiveSpecs`, `eval` through receive
+  guards/bodies, `nativeFeature*`, and distributed server/WS integration. Moving the file before naming those seams
+  would either keep a broad `Interpreter` dependency in the plugin or fail at the distributed actor path. Chosen first
+  slice: make the non-server services explicit on `ActorRuntimeHost`, then move scheduler code behind that host API in
+  later slices.
 
 ## Results
 
