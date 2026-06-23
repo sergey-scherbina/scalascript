@@ -61,6 +61,41 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
 When the clean autonomous coremin slices ran out (value-unification is sibling-active; NFC/wallet-ws are
 device/browser-blocked; Maven publish is explicit-go only), Sergiy directed: queue everything except Maven
 and execute autonomously. In priority order:
+
+**▶▶ stable-SPI Phase 3 — FULL breakdown (2026-06-23, Sergiy: "делай Phase 3 автономно … заноси в спринт
+сразу всё, потом делай постепенно").** GOAL: the **28** plugin `*Intrinsics.scala` that `import
+scalascript.interpreter.{Value, InterpretError, Computation, …}` depend ONLY on the stable
+`scalascript-plugin-api`, so a core/interpreter refactor (or a third-party plugin) can't break them, and the
+build can reject any plugin jar containing `scalascript/interpreter/`. **PROBED FINDING:**
+`PluginValue`/`PluginComputation` are opaque `Any` with NO accessors; `evalLegacy`'s own doc says full
+Value-decoupling is "v2.x". So import-removal is GATED on a **Value-surface in the stable API** — it does NOT
+come from `evalLegacy` (which only decouples the *context*). Cycle-checked: `pluginApi → core` is acyclic
+(core deps = `valueData, backendSpi, …`, not pluginApi). Do gradually, one plugin/small-batch per slice, each
+validated + pushed:
+- [ ] **p3-foundation** (THE enabler; do first) — expose a stable Value-surface through
+      `scalascript-plugin-api` so plugins stop importing `scalascript.interpreter.Value`. DESIGN (decided):
+      `pluginApi` gains a `core` dep = the ONE controlled seam (moves the coupling 28→1; opaque `PluginValue` +
+      stable extractors/constructors keep the plugin ABI stable even as core's `Value` repr changes — e.g.
+      value-unification). Add to `PluginValue`: extractors `asString/asInt/asDouble/asBool/asChar/asList/asTuple/
+      asMap/asOption` + constructors `string/int/double/bool/list/tuple/map/unit/some/none` + `show`; keep
+      `PluginError(msg)` (= InterpretError) + `PluginComputation.pure`. Stable bridges for the non-Value imports:
+      `JsonParser`/`jsonToJson` → `JsonCodec` (exists) or a parser bridge; `OAuthBridge` (mcp/oauth) → a
+      capability/stable surface. PROOF in this slice: migrate `mime-plugin` (simplest) end-to-end off
+      `scalascript.interpreter`. VERIFY: `pluginApi` compiles with the core dep (no cycle); mime compiles with no
+      `scalascript.interpreter` import + its tests green.
+- [ ] **p3-batch-A** (10 simple — Value-only, no ctx, mostly no Computation): mime (in foundation), fs, graph,
+      pdf, yaml, auth, fetch, nfc, payments/crypto, payments/payment-request. Mechanical: `Value.*`/`InterpretError`
+      → PluginValue/PluginError surface; drop the `scalascript.interpreter` import; tests green.
+- [ ] **p3-batch-B** (7 — Value + Computation): oauth, json (JsonParser→JsonCodec), dstreams, graphql, pwa,
+      streams, ws. Adds `PluginComputation` usage.
+- [ ] **p3-batch-C** (10 — ctx-heavy + special bridges): http (jsonToJson), mcp (OAuthBridge),
+      remote (JsonParser+RemoteCap), content, frontend, request, smtp, sql (DbCap), uuid, os. Migrate ctx →
+      capability traits (`evalLegacy`/`eval`) AND the value-surface.
+- [ ] **p3-enforce** (after all 28 clean) — remove `PluginNative.evalLegacy`; add the build/CI check rejecting
+      any plugin jar containing `scalascript/interpreter/`; delete residual shims; set `specs/arch-stable-spi.md`
+      Status to "Phase 3 complete".
+
+In priority order:
 - [x] **autonomous-hardening** ✓ DONE 2026-06-23 — broad sweep of the coremin-affected surface (cli
       `ExamplesSmokeTest` + interpreter `StdEffectsTest`/`InterpreterTest`/`Actor*`/`*Effect*`/`Stream*`):
       **all green, 2/0 + 338/0, no new breakages.** The one real stale-example breakage (`algebraic-effects.ssc`
