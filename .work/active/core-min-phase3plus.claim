@@ -1,6 +1,0 @@
-feature/core-min-phase3plus 2026-06-23T00:11:31Z
-agent: codex
-heartbeat: 2026-06-23T00:11:51Z
-status: in-progress
-done-so-far: worktree created at /Users/sergiy/work/my/scalascript-wt-core-min-phase3plus
-next: update SPRINT/spec with actor provider session lifecycle slice, then implement per-interpreter ActorRuntimeSession seam
