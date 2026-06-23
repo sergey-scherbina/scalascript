@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — docs: core-min Phase 3+ actionable scope closed
+
+Closed the stale open `core-min-phase3plus` sprint line. Its bounded work has either landed
+(effect plugins, runtime resources, optics host libraries, prelude minimization, actors session seam)
+or is tracked separately (`core-min-value-unification`) / deliberately deferred as low-ROI
+interpreter-internal Stream/Actors code moves.
+
 ## 2026-06-23 — core-min: strict opt-in for advanced plugin prelude names (advanced-optin)
 
 Removes the hardcoded `pluginObjects`/`pluginBuiltins` *plugin-owned* names from the Typer prelude and

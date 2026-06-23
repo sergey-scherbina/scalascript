@@ -317,7 +317,8 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       the original baseline found ~6–7.5K LOC of feature code still baked into interpreter core, but since then
       the block-form SPI, typed `SpiValue`, plugin `preludeSymbols`, multiple effect migrations, JS runtime-resource
       extraction, and no-domain bundled plugin distribution split have landed. Remaining implementation work is
-      tracked by separate active items (`coremin-actors-migrate`, `core-min-phase3plus`, `core-min-value-unification`).
+      tracked by separate active/deferred items (`coremin-actors-migrate` optional hard code-move,
+      `core-min-value-unification` deep value refactor).
 - [x] **core-min-phase1-logger-keystone** (A — the SPI keystone) ✓ KEYSTONE PROVEN END-TO-END 2026-06-22. The
       block-form + effect-handler plugin SPI now works: a plugin can contribute a `keyword { body }` effect-runner
       and the interpreter dispatches to it. 5 increments on origin/main: (1) `c2eec8d3c` generic effect trampoline
@@ -446,11 +447,14 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       it. RESEARCH slice: probe whether a captured-closure continuation (`Box<dyn FnMut>`) or a CPS/defunctionalized
       re-entry is tractable in `RustCodeWalk`'s handle lowering; if not bounded, SCOPE DOWN + document the blocker
       in `specs/rust-effects.md` §R.6 and BACKLOG. Spec `specs/rust-effects.md`. Lower confidence than the other two.
-- [ ] **core-min-phase3plus** (A, then B) — widen per the spec §3 roadmap: clock/random/env/state effects →
-      optics → storage/signals → actors-plugin → cluster-plugin (raft/gossip out of `ActorInterp`) → migrate
-      Typer feature tables onto `preludeSymbols` → move codegen feature runtime strings into plugin
-      `runtimePreamble`. Each phase independently shippable; core keeps a built-in until its plugin lands; loud
-      failure when a needed plugin is absent.
+- [x] **core-min-phase3plus** ✓ ACTIONABLE SCOPE DONE 2026-06-23 — the practical core-min/polyglot Phase 3+
+      queue has landed or been split into sharper items. Landed: Logger/Random/Clock/Env/State/Retry/Cache/Http
+      effect runners moved to plugins; JS/JVM/Rust runtime resources moved out of backend string blobs where
+      bounded; optics ships as native JS/JVM/Rust/Java host libraries via `emit-lib`; bundled prelude names are
+      minimized (`runStream`/`Stream`, actors keyword set, and advanced/essential plugin-owned names now come from
+      plugin `preludeSymbols`); actors have a provider + per-interpreter session seam. Not closed here:
+      `core-min-value-unification` stays as its own deep refactor, and the hard Stream/Actors interpreter-internal
+      code moves stay deferred/optional because they have low ROI without a new consumer.
 - [ ] **core-min-value-unification** (A, big — week-scale; LATER, not blocking) — collapse the duplication
       between the interpreter's `Value` and the SPI's `SpiValue` into ONE value type. Today they're separate by
       necessity: `interpreter.Value` (in `core`) is entangled with *execution* — `FunV(closure: Env)`,
