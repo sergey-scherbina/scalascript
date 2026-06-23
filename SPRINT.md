@@ -53,8 +53,13 @@ snapshot matches (assume(cargo)-gated, like `RustGenCargoSmokeTest`). Drive top-
       `frontendTui/test` 21/21 — cargo smoke builds an interactive crate (signal+button+text-input) and
       `cargo test` runs generated `event_handlers_run`/`text_input_typing`/`tab_moves_focus`/`reactive_rerender`.
       (UCC PoC step 2: composer.) Follow-ups: `A11y.focusOrder` seeding + hidden-`ShowSignal`-branch focus skip.
-- [ ] **frontend-tui-4-table-routing** — `Table/DataTable`→ratatui `Table`; `TabBar/Router/Link`→screen-stack/
-      tab index; `Badge/Spinner/Pill/Tag` chrome. **Gate:** table render + tab-switch snapshots. (UCC PoC step 3.)
+- [x] **frontend-tui-4-table-routing** ✓ DONE 2026-06-23 — `DataTable(StaticRows)`→ratatui `Table` (header from
+      column titles, cells from row `fieldPath`); `TabBar`→focusable tab headers (`Set(current,idx)` activation) +
+      runtime `match sig_int(current)` content; `NavigationStack`→runtime `match sig(current).as_str()` routes;
+      `sig_int` accessor added; `Badge/Spinner/Pill/Tag` already render as text via std/ui lowering. **Gate met:**
+      `frontendTui/test` 25/25 — 3 fast emitter cases + a 2nd cargo smoke building `TabBar[DataTable,…]` (snapshot
+      shows active `[Rooms]` + table header + rows). (UCC PoC step 3.) Follow-ups: hidden-tab focus skip,
+      ForModel/EditableCell, Sheet/AlertDialog overlays.
 - [ ] **frontend-tui-5-fetch-binding** — `fetchUrlSignal/fetchJsonSignal`→async HTTP fetch in the Rust runtime
       (ureq/reqwest) feeding a signal — the seam the rozum control-API binds to over HTTP. **Gate:** fetch-backed
       list renders from a mock endpoint. (UCC PoC step 5 readiness.) After this, rozum can retire its 1389-line

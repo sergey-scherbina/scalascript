@@ -6,8 +6,9 @@ Status: **IN PROGRESS** (2026-06-23, with Sergiy — "мы ведём всю к�
 `View` IR (layout + text) to a headless-snapshot-testable `render_root` (18/18 incl. cargo render smoke), and
 **Slice 2** added the runtime signal store + crossterm redraw loop (reactive `render_root`, 20/20 incl. a
 `cargo test` reactivity gate), and **Slice 3** made it interactive — a focus ring, keyboard nav, and
-`EventHandler` execution that mutates the signal store (21/21, incl. a `cargo test` event gate). Slices 4–5
-(table/routing/chrome, fetch-binding) remain.
+`EventHandler` execution that mutates the signal store (21/21, incl. a `cargo test` event gate), and **Slice 4**
+added `DataTable`→ratatui `Table`, reactive `TabBar`, and `NavigationStack` routing (25/25). Slice 5
+(fetch-binding) remains.
 
 Cross-repo: this is the **scalascript-side** half of the rozum **Unified Control Center (UCC)** initiative
 (`rozum:docs/specs/unified-control-center.md`, master `386a892`). The operator's decision: **scalascript
@@ -170,9 +171,17 @@ snapshot matches)
   `event_handlers_run` (button mutates the store), `text_input_typing`, `tab_moves_focus`, `reactive_rerender`.
   (UCC PoC step 2: composer.) Note: focus order = document order today; `A11y.focusOrder` seeding + hidden-branch
   focus skipping are follow-ups.
-- **Slice 4 — table/list + routing/tabs + chrome.** `Table/DataTable` → ratatui `Table`; `TabBar/Router/Link`
-  → screen-stack/tab index; `Badge/Spinner/Pill/Tag`. **Gate:** table render + tab switch snapshots. (UCC PoC
-  step 3: room switcher / unread badges.)
+- **Slice 4 — table/list + routing/tabs. ✓ DONE (2026-06-23).** `DataTable(StaticRows)` → a ratatui `Table`
+  (header from column titles, cells from each row's `fieldPath`; `Remote`/`SignalRows` → placeholder until
+  slice 5). `TabBar` → a header row of focusable tab labels (active = `[label]`) whose activation
+  `Set(current, idx)` switches the tab + a runtime `match sig_int(current)` rendering the active tab's content
+  (reuses the slice-3 focus/activate machinery — Tab to a header, Enter to switch). `NavigationStack` → a
+  runtime `match sig(current).as_str()` over the named routes. Added a `sig_int` accessor. `Badge/Spinner/
+  Pill/Tag` chrome already lowers to text via `std/ui` (`lower.ssc` → `Element`/`Text`) and renders as such —
+  no special case (color styling stays deferred). **Gate met:** `frontendTui/test` 25/25 — 3 fast emitter cases
+  + a second cargo smoke building a `TabBar[DataTable, …]` whose snapshot shows the active `[Rooms]` tab + the
+  table header (Room/Unread) + rows. (UCC PoC step 3: room switcher.) Follow-ups: hidden-tab focus skipping,
+  `ForModel`/`EditableCell`, overlays (`Sheet`/`AlertDialog`).
 - **Slice 5 — fetch-json data binding.** `fetchUrlSignal/fetchJsonSignal` → an async HTTP fetch in the Rust
   runtime (ureq/reqwest) feeding a signal — the seam the rozum control-API binds to over HTTP. **Gate:** a
   fetch-backed list renders from a mock endpoint. (UCC PoC step 5 readiness.)

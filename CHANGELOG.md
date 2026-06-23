@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — frontend/tui slice 4: tables + reactive tabs/routing
+
+`TuiEmitter` now lowers the data/navigation `View` nodes. `DataTable` with a `StaticRows` source → a ratatui
+`Table` (header from the column titles, cells from each row's `fieldPath`; `Remote`/`SignalRows` render a
+placeholder until slice 5). `TabBar` → a header row of focusable tab labels (the active one shown as
+`[label]`) whose activation `Set(current, idx)` switches tabs, plus a runtime `match sig_int(current)` that
+renders the active tab's content — reusing the slice-3 focus/activate machinery, so Tab-to-a-header + Enter
+switches tabs. `NavigationStack` → a runtime `match sig(current).as_str()` over the named routes. Added a
+`sig_int` accessor. `Badge`/`Spinner`/`Pill`/`Tag` chrome already lowers to text via `std/ui` and renders as
+such (color styling stays deferred). `frontendTui/test` 25/25 — three fast emitter cases plus a second cargo
+smoke that builds a `TabBar[DataTable, …]` crate and asserts its snapshot shows the active `[Rooms]` tab, the
+table header (Room/Unread), and the rows. This is UCC PoC step 3 (room switcher). Spec
+`specs/frontend-tui-ratatui.md`.
+
 ## 2026-06-23 — frontend/tui slice 3: focus ring + keyboard + events (interactive)
 
 The emitted ratatui crate is now interactive. `TuiEmitter` assigns each focusable widget
