@@ -98,14 +98,31 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
         bridge + `ssc plugin registry publish` + HTTP server + auth). Only EXTERNAL deploy (host the domain + TLS)
         remains — the `[~]` parent stays open on that deploy step alone.
 
-- [ ] **FROST-Ed25519** (threshold Ed25519 signing — wallet MPC stack) — implement the FROST flexible
-      round-optimized Schnorr threshold signature scheme over Ed25519 in the wallet/MPC vault stack (alongside
-      the existing MPC variants). Codeable now (the "concrete partner" deferral is overridden). Approach: add a
-      `walletVaultMpcFrost` variant implementing FROST key-gen (DKG) + threshold signing producing standard
-      Ed25519 signatures; reuse the `walletSpi`/MPC-vault seam the other variants use. **Verify:** key-gen +
-      t-of-n signing produces signatures that verify against the aggregate public key with a standard Ed25519
-      verifier; threshold/abort edge cases (insufficient shares, malformed share) covered; cross-check vectors if
-      a FROST test vector set is available. Spec: `specs/` wallet-MPC section.
+- [~] **FROST-Ed25519** (threshold Ed25519 signing — wallet MPC stack) — **FEASIBILITY PROBED + PLANNED INTO
+      SUB-SLICES 2026-06-23.** FROST = flexible round-optimized Schnorr threshold signatures over Ed25519, as a
+      self-contained `walletVaultMpcFrost` variant (the existing `walletVaultMpc*` are REMOTE/external-provider
+      clients — Fireblocks/Coinbase/Lit/Zengo — not in-house threshold crypto, so FROST is the first). **KEY
+      FINDING:** the codebase exposes NO usable Ed25519 GROUP operations — `payments/crypto/bouncycastle/Ed25519.scala`
+      is high-level sign/verify only (BC `Ed25519Signer`); FROST needs scalar field (mod L), point add, base+arbitrary
+      scalar mult, encode/decode. So **do NOT hand-roll curve math** (correctness-critical) — add a vetted group-ops
+      library (e.g. `cafe.cryptography:ed25519-elisabeth`, pure-Java Edwards-point + Scalar arithmetic). Correctness
+      gate throughout: a FROST signature MUST verify under the EXISTING standard verifier (`Ed25519.verify`) against
+      the group public key. Substantial multi-session crypto — do as discrete green sub-slices, one at a time:
+  - [ ] **frost-groupops** (slice 1) — add the Ed25519 group-ops dependency + a thin wrapper (`Scalar` mod L:
+        add/mul/invert/from-uniform-bytes; `Point`: add, `B·s`, `P·s`, encode/decode/equals). **Verify:** `B·sk`
+        matches RFC 8032 known public keys; scalar/point ops match published test vectors. (Foundation; no FROST yet.)
+  - [ ] **frost-keygen** (slice 2) — trusted-dealer key-gen first (simpler than DKG): split a signing scalar into
+        `t`-of-`n` Shamir shares over the scalar field + group public key `B·sk`; per-participant verification shares.
+        **Verify:** any `t` shares Lagrange-interpolate back to `sk`; `< t` do not.
+  - [ ] **frost-signing** (slice 3) — FROST 2-round signing: per-signer nonces `(d,e)` + commitments `(D,E)`;
+        binding factors `ρ_i = H(i, msg, B)`; group commitment `R = Σ(D_i + ρ_i·E_i)`; challenge `c = H(R, Y, msg)`
+        (Ed25519 SHA-512 form); partial sigs `z_i = d_i + ρ_i·e_i + λ_i·c·s_i`. **Verify:** each partial sig's
+        group-ops identity holds.
+  - [ ] **frost-aggregate-verify** (slice 4) — aggregate `z = Σ z_i`, signature `(R, z)`; **MUST verify under the
+        standard `Ed25519.verify`** against the group public key. Edge cases: insufficient shares, malformed share/
+        commitment, wrong-signer abort. THE correctness milestone.
+  - [ ] **frost-vault-integration** (slice 5) — wire as `walletVaultMpcFrost` via the `walletSpi`/MPC-vault seam.
+      Spec: write `specs/frost-ed25519.md` (do alongside slice 1).
 
 ### ▶ Autonomous queue (2026-06-23, with Sergiy — "все кроме мавена — в спринт и делай")
 When the clean autonomous coremin slices ran out (value-unification is sibling-active; NFC/wallet-ws are
