@@ -1,0 +1,6 @@
+feature/core-min-phase3plus 2026-06-23T00:11:31Z
+agent: codex
+heartbeat: 2026-06-23T00:11:31Z
+status: not-started
+done-so-far:
+next: actor provider session lifecycle seam; update SPRINT/spec first, then code and verify targeted actor/plugin tests
