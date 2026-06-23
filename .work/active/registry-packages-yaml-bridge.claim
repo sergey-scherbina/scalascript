@@ -1,0 +1,6 @@
+feature/registry-packages-yaml-bridge 2026-06-23T09:05:00Z
+agent: claude
+heartbeat: 2026-06-23T09:05:00Z
+status: in-progress
+done-so-far: registry slice 1 (RemoteRegistry/FileRegistry) landed; plan reconciled (client packages.yaml/RegistryClient exists).
+next: slice 2 = FileRegistry.exportPackagesYaml(baseUrl) → LocalRegistry.toYaml (latest version per id, url→stored artifact) + writePackagesYaml; test round-trips through LocalRegistry.parseFile (the EXISTING client format). Greenfield/additive.
