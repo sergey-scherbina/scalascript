@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — remote-package-registry slice 1: registry protocol + file-backed reference registry
+
+Started the remote half of the plugin registry (the client side — `LocalRegistry` alias map +
+`RemotePluginInstaller` URI download + `ssc install` — was already done). Added `RemoteRegistry` (protocol)
++ `FileRegistry` (reference server-side catalog): publish a `.sscpkg` by `(id, version)` with a SHA-256
+checksum, search by id/description substring, resolve by exact version or `latest`, list versions, and fetch
+bytes (checksum-verified). Releases are immutable (idempotent re-publish of identical content; different
+content under the same `(id,version)` rejected). The index + entries serialize as JSON — the wire format a
+future HTTP `registry.scalascript.io` will serve — so `FileRegistry` is both the round-trip test harness and
+the implementation an HTTP service wraps. Locked by `RemoteRegistryTest` (7/0). Follow-ups: `ssc publish`/
+`ssc search` CLI, an HTTP server, remote `pkg:` resolution. Greenfield/additive — no existing code changed.
+Spec: `specs/arch-build-registry.md` §6b.
+
 ## 2026-06-23 — stable-SPI Phase 3: foundation — stable Value-surface in plugin-api (+ mime migrated)
 
 Starts Phase 3 (decouple the 28 plugin `*Intrinsics` from `import scalascript.interpreter.*`). The blocker

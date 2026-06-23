@@ -44,14 +44,15 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
       SPI). Spec: `specs/arch-stable-spi.md` Phase 3. **Verify:** golden API-signature test locks the surface;
       a deliberately-bumped version is rejected/warned at load; existing plugins still load.
 
-- [ ] **remote-package-registry** (Tier 3 strategic — unlocks the 3rd-party plugin ecosystem) — the local story
-      is done (`~/.scalascript/registry.yaml` + `pkg:` resolver + `ssc install`, `.sscpkg` archives). Build the
-      REMOTE half: a registry protocol (publish/search/resolve/download a `.sscpkg` by name+version) + `ssc publish`
-      / `ssc search` / remote `pkg:` resolution against a **configurable endpoint**, all buildable + testable
-      against a local/mock registry server (no public hosting needed to land the code). EXTERNAL (separate, not a
-      code blocker): standing up `registry.scalascript.io` (hosting/domain) is a deploy step done when ready.
-      Spec: extend `specs/arch-build-registry.md`. **Verify:** round-trip integration test (publish → search →
-      install → run) against an in-process/local registry; auth + version-pinning + checksum covered.
+- [~] **remote-package-registry** (Tier 3 strategic — unlocks the 3rd-party plugin ecosystem) — the local story
+      is done (`~/.scalascript/registry.yaml` + `pkg:` resolver + `ssc install`, `.sscpkg`). **Slice 1 DONE
+      2026-06-23:** the registry protocol + reference server — `RemoteRegistry` (`Entry(id,version,sha256,desc)`
+      + JSON index wire format + `compareVersions` + `sha256Hex`) and `FileRegistry` (directory-backed catalog:
+      publish [immutable releases] / search / resolve [exact or latest] / versions / fetch [checksum-verified]).
+      `RemoteRegistryTest` 7/0. Greenfield/additive. Spec `specs/arch-build-registry.md` §6b. **NEXT slices:**
+      `ssc publish`/`ssc search` CLI over `FileRegistry`; an HTTP server wrapping it (JSON wire format ready);
+      remote `pkg:` resolution (name → `resolve` → URI → `RemotePluginInstaller`); publish auth. EXTERNAL
+      (deploy, not code): host `registry.scalascript.io`.
 
 - [ ] **FROST-Ed25519** (threshold Ed25519 signing — wallet MPC stack) — implement the FROST flexible
       round-optimized Schnorr threshold signature scheme over Ed25519 in the wallet/MPC vault stack (alongside

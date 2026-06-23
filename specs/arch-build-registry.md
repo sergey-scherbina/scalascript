@@ -189,6 +189,34 @@ existing sbt layout so future agents can audit the generated wiring quickly.
   (classpath, sscpkg, subprocess) exercised with test doubles.
 - Phase 3: regression — full test suite green.
 
+## 6b. Remote registry (remote-package-registry — IN PROGRESS 2026-06-23)
+
+The client side is done ([[LocalRegistry]] = static name→URL alias map; `RemotePluginInstaller` downloads a
+`.sscpkg` from a URI; `ssc install`). The missing half is the **server-side catalog** that lets third-party
+authors publish + others discover/resolve by name+version — what `registry.scalascript.io` will serve.
+
+**Protocol (slice 1, DONE).** `RemoteRegistry` (`lang/core/.../compiler/plugin/RemoteRegistry.scala`):
+- `Entry(id, version, sha256, description)` — a published artifact keyed by `(id, version)` with the SHA-256
+  of its `.sscpkg` bytes (the publish↔install integrity contract). JSON-serialized (`toJson`/`fromJson`).
+- `indexToJson`/`indexFromJson` — the catalog wire format (`{ "packages": [Entry…] }`), what an HTTP
+  registry returns.
+- `compareVersions` — dotted-numeric ordering (`1.2.10 > 1.2.9`; shorter prefix is smaller).
+- `sha256Hex` — artifact digest.
+
+**Reference registry (slice 1, DONE).** `FileRegistry(root)` — a directory-backed catalog
+(`root/index.json` + `root/packages/<id>/<version>.sscpkg`) implementing the full operation set, doubling as
+the round-trip test harness AND the implementation an HTTP service wraps:
+- `publish(id, version, bytes, description)` — stores bytes + indexes; **immutable releases** (re-publishing
+  identical content is idempotent, different content under the same `(id,version)` is rejected).
+- `search(query)` — case-insensitive substring over id+description (empty query = whole catalog).
+- `resolve(id, version)` — exact, or highest version for `""`/`"latest"`.
+- `versions(id)`, `fetch(id, version)` — fetch verifies the SHA-256 against the index (no silent corruption).
+- Locked by `RemoteRegistryTest` (7 cases: publish/round-trip/latest/absent/immutability/JSON-persistence/version-ordering).
+
+**Follow-up slices:** `ssc publish` / `ssc search` CLI commands over `FileRegistry`; an HTTP server wrapping
+it (the JSON wire format is ready); remote `pkg:` resolution (name → registry `resolve` → URI →
+`RemotePluginInstaller`); auth for publish. EXTERNAL (deploy, not code): host `registry.scalascript.io`.
+
 ## 7. Open questions
 
 1. Should `PluginSpec.project` hold the `lazy val` by reference or by
