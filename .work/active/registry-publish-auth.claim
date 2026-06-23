@@ -1,0 +1,6 @@
+feature/registry-publish-auth 2026-06-23T10:00:00Z
+agent: claude
+heartbeat: 2026-06-23T10:00:00Z
+status: in-progress
+done-so-far: registry slices 1-4 landed (protocol+FileRegistry, packages.yaml bridge, ssc plugin registry publish, RegistryHttpServer).
+next: slice 5 = publish auth on RegistryHttpServer — optional publishTokens Set; POST /publish requires Authorization: Bearer <token> when tokens configured (401 otherwise); empty set = open (dev default). Test: no/wrong token → 401, valid → 200. Last registry slice.
