@@ -41,7 +41,28 @@ verifies under the standard `Ed25519.verify` against the group public key):
 - **Slice 4 — aggregate + verify (DONE 2026-06-23).** GATE PASSED — FROST sigs verify under BouncyCastle Ed25519 (2-of-3 + every 3-of-5). `z = Σ z_i`; signature `(R, z)` **must verify under the standard
   `Ed25519.verify`** against the group public key. Edge cases: insufficient shares, malformed share/commitment,
   abort. THE correctness milestone.
-- **Slice 5 — vault integration.** Wire as `walletVaultMpcFrost` via the `walletSpi`/MPC-vault seam.
+- **Slice 5 — ops seam (the substitution mechanism).** Give FROST the same pluggable-backend model as
+  `CryptoBackend`: an `Ed25519Ops` trait (scalar field + point ops + `sha512`) that `FrostKeygen`/`FrostSign`
+  call through; the pure-BigInteger `Ed25519Group` is the DEFAULT reference; a registry (`default` + `register`)
+  lets a platform-native impl substitute transparently at runtime. SHA-512 routes through the seam (not
+  `java.security`).
+- **Slice 6 — cross-build.** `cryptoFrost` as `crossProject(JVM, JS)` so the reference compiles to JS too
+  (BigInteger works in Scala.js; SHA-512 via the seam → `CryptoBackend.hash` = Noble/JS, BC/JVM). "One
+  reference, every platform."
+- **Slice 7 — native backend.** A JVM `Ed25519Ops` backend delegating substitutable primitives (SHA-512,
+  final-signature verify) to BouncyCastle — proving transparent native substitution; reference stays the
+  fallback for what BC doesn't expose (the group ops).
+- **Slice 8 — vault integration.** Wire as `walletVaultMpcFrost` via the `walletSpi`/MPC-vault seam.
+
+## 3b. Architecture: portable reference + pluggable native substitution
+
+FROST follows the core ScalaScript design (and mirrors the existing `CryptoBackend` SPI): a **single portable
+reference implementation** (pure `Ed25519Group` + `FrostKeygen`/`FrostSign`, BigInteger — compiles to every
+backend) PLUS a **registry-based SPI seam** (`Ed25519Ops.register`/`default`) so the same calls resolve to a
+**platform-native implementation when one exists** (BouncyCastle on JVM, `@noble` on JS, a Rust crate on Rust),
+selected at runtime — exactly like `CryptoBackend` (BC auto-loaded via ServiceLoader on JVM; Noble `register`ed
+on JS). The reference is always the correctness fallback; native backends are the fast path. This is what lets
+"our own FROST" run anywhere AND transparently use a better platform implementation where available.
 
 ## 4. Non-goals
 

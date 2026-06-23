@@ -124,8 +124,24 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
         `z_i=d_i+ρ_i·e_i+λ_i·c·s_i`; aggregate → 64-byte `encode(R)‖scalarLE(z)`. **GATE PASSED:** `FrostSignTest`
         4/0 (cryptoFrost 14/0) — 2-of-3 AND every 3-of-5 subset verifies under BouncyCastle Ed25519; tampered
         partial + wrong message rejected. **FROST-Ed25519 functionally complete** (group ops + keygen + signing).
-  - [ ] **frost-vault-integration** (slice 5) — wire as `walletVaultMpcFrost` via the `walletSpi`/MPC-vault seam.
-      Spec: write `specs/frost-ed25519.md` (do alongside slice 1).
+  - [ ] **frost-ops-seam** (slice 5 — the substitution mechanism, per Sergiy 2026-06-23) — give FROST the same
+        pluggable-backend treatment as `CryptoBackend` (register/get registry; BC auto-loaded on JVM, Noble on
+        JS): extract an `Ed25519Ops` trait (scalar field + point ops + `sha512`/`sha512ModL`) that
+        `FrostKeygen`/`FrostSign` call through; the pure-BigInteger `Ed25519Group` is the DEFAULT reference impl;
+        a registry (`Ed25519Ops.default` + `register`) lets a platform-native impl substitute transparently at
+        runtime. Route the SHA-512 through the seam (not `java.security` directly). **Verify:** FROST tests pass
+        unchanged through the seam; registering a stub native backend is used in preference to the reference.
+  - [ ] **frost-crossbuild** (slice 6) — make `cryptoFrost` a `crossProject(JVM, JS)` so the REFERENCE FROST
+        compiles to JS too (BigInteger works in Scala.js; SHA-512 comes from the seam → `CryptoBackend.hash`, i.e.
+        Noble on JS / BC on JVM — no `java.security`). Realizes "one reference, every platform". **Verify:**
+        `cryptoFrostJVM` + `cryptoFrostJS` both compile + test (a small JS keygen/sign smoke).
+  - [ ] **frost-native-backend** (slice 7) — register a JVM `Ed25519Ops` backend that delegates the substitutable
+        primitives (SHA-512, final-signature verify) to BouncyCastle (the native fast path), proving transparent
+        substitution end-to-end; reference stays the fallback where BC exposes nothing (the group ops). **Verify:**
+        with the BC backend registered, FROST still produces signatures that verify; outputs identical to the
+        reference.
+  - [ ] **frost-vault-integration** (slice 8) — wire FROST as a `walletVaultMpcFrost` variant via the
+        `walletSpi`/MPC-vault seam (the in-house threshold counterpart to the remote `walletVaultMpc*`).
 
 ### ▶ Autonomous queue (2026-06-23, with Sergiy — "все кроме мавена — в спринт и делай")
 When the clean autonomous coremin slices ran out (value-unification is sibling-active; NFC/wallet-ws are

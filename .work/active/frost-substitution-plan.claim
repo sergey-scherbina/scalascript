@@ -1,6 +1,0 @@
-feature/frost-substitution-plan 2026-06-23T11:50:00Z
-agent: claude
-heartbeat: 2026-06-23T11:50:00Z
-status: in-progress
-done-so-far: FROST functionally complete (slices 1-4). Sergiy affirmed the architecture: portable reference + transparent pluggable native substitution (like the existing CryptoBackend SPI = BC on JVM / Noble on JS via a register/get registry). Gap: CryptoBackend has no Ed25519 GROUP ops; cryptoFrost uses java.security directly (JVM-only).
-next: plan the substitution slices into SPRINT (ops-seam → cross-build JVM+JS → native backends → vault integration) per plan-in-sprint-first; then execute the seam.
