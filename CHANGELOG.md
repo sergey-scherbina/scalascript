@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — frontend/tui slice 2: signal store + crossterm redraw loop
+
+The emitted ratatui crate is now reactive. `TuiEmitter` collects the View tree's `ReactiveSignal`s and emits a
+runtime signal store (`HashMap<String, Value>` with a `Value` enum `S/I/B`) seeded with their initial values;
+`render_root(frame, area, signals)` reads `SignalText` → `sig(...)`, `Toggle` → `toggle_text(...)`, `TextInput`
+→ `text_input_display(...)`, and `ShowSignal` → a runtime `if sig_truthy(...)` branch, re-read each frame.
+`main` runs a real crossterm event loop (raw mode + alternate screen → draw → `event::poll` → quit on `q`/Esc →
+teardown), reached through ratatui's crossterm re-export (no extra dependency); a headless `SSC_TUI_SNAPSHOT`
+env path renders one `TestBackend` frame for CI. `frontendTui/test` 20/20 — the cargo smoke builds the loop
+crate, renders a signal-bound frame headlessly, and runs `cargo test` on a generated `#[cfg(test)]
+reactive_rerender` that mutates a signal and asserts the frame changes. Events that *mutate* signals land in
+slice 3. Spec `specs/frontend-tui-ratatui.md`.
+
 ## 2026-06-23 — frontend/tui slice 1: static layout + text → ratatui
 
 `TuiEmitter` now lowers the framework-agnostic `View` IR (post `NativeElementLowering`) to a recursive

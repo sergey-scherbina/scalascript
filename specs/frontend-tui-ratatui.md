@@ -3,8 +3,9 @@
 Status: **IN PROGRESS** (2026-06-23, with Sergiy — "мы ведём всю компиляторную сторону сами. Оформляй
 спеку, вноси в спринт и делай все что нужно"). SPRINT track `frontend-tui-*`. **Slices 0–1 DONE 2026-06-23** —
 `frontend/tui` module registers & emits a cargo-buildable ratatui crate, and `TuiEmitter` lowers the static
-`View` IR (layout + text) to a headless-snapshot-testable `render_root` (18/18 incl. cargo render smoke).
-Slices 2–5 (signals/redraw loop, focus/events, table/routing, fetch-binding) remain.
+`View` IR (layout + text) to a headless-snapshot-testable `render_root` (18/18 incl. cargo render smoke), and
+**Slice 2** added the runtime signal store + crossterm redraw loop (reactive `render_root`, 20/20 incl. a
+`cargo test` reactivity gate). Slices 3–5 (focus/events, table/routing, fetch-binding) remain.
 
 Cross-repo: this is the **scalascript-side** half of the rozum **Unified Control Center (UCC)** initiative
 (`rozum:docs/specs/unified-control-center.md`, master `386a892`). The operator's decision: **scalascript
@@ -146,9 +147,15 @@ snapshot matches)
   Headless `TestBackend` buffer-snapshot harness (`buffer_to_lines`). **Gate met:** `frontendTui/test` 18/18 —
   10 fast `TuiEmitterTest` cases + `TuiCargoSmokeTest` (assume(cargo)) rendering heading+text+divider+row whose
   buffer snapshot has the laid-out text with row children side-by-side. (UCC PoC step 1: read-only message list.)
-- **Slice 2 — signals + redraw loop.** Rust signal store (`HashMap<String, Value>`) + dirty-flag → redraw;
-  crossterm event loop (draw → poll(timeout) → on tick/dirty redraw). `SignalText/ShowSignal/For/ForSignal`
-  re-read each frame. **Gate:** a tick-updated signal re-renders across two `TestBackend` frames.
+- **Slice 2 — signals + redraw loop. ✓ DONE (2026-06-23).** Emitted crate now holds a runtime signal store
+  (`HashMap<String, Value>` + a `Value` enum `S/I/B`) seeded from the View tree's `ReactiveSignal` initials;
+  `render_root(frame, area, signals)` reads `SignalText`→`sig(...)`, `Toggle`→`toggle_text(...)`,
+  `TextInput`→`text_input_display(...)`, and `ShowSignal`→a runtime `if sig_truthy(...)` branch (re-read each
+  frame). `main` runs a real **crossterm event loop** (`enable_raw_mode` + alternate screen → draw → `event::poll`
+  → quit on `q`/Esc → teardown), reached via ratatui's crossterm re-export (no extra dep). A headless
+  `SSC_TUI_SNAPSHOT` env path renders once via `TestBackend` for CI. **Gate met:** `frontendTui/test` 20/20 —
+  `TuiCargoSmokeTest` builds the loop crate, renders a signal-bound frame headlessly, AND runs `cargo test` on a
+  generated `#[cfg(test)] reactive_rerender` that mutates a signal and asserts the frame changes.
 - **Slice 3 — focus ring + keyboard + events.** Focus ring over focusable nodes (`Button`,`TextInput`,
   `Toggle`), Tab/Shift-Tab/arrow traversal (seeded by `A11y.focusOrder`), crossterm `KeyEvent` → `EventHandler`
   (`SetSignalLiteral/Increment/Toggle/InputChange/Simple`). `TextField` editing (buffer+cursor); `Button`

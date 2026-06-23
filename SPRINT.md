@@ -38,9 +38,13 @@ snapshot matches (assume(cargo)-gated, like `RustGenCargoSmokeTest`). Drive top-
       text (events → slice 3); Style mapping deferred. **Gate met:** `frontendTui/test` 18/18 — 10 fast
       `TuiEmitterTest` + `TuiCargoSmokeTest` (assume(cargo)) renders heading+text+divider+row, buffer snapshot
       has laid-out text + row children side-by-side.
-- [ ] **frontend-tui-2-signals-redraw** — Rust signal store (`HashMap<String,Value>`) + dirty-flag → redraw;
-      crossterm event loop (draw → poll(timeout) → redraw on tick/dirty); `SignalText/ShowSignal/For/ForSignal`
-      re-read each frame. **Gate:** tick-updated signal re-renders across two `TestBackend` frames.
+- [x] **frontend-tui-2-signals-redraw** ✓ DONE 2026-06-23 — emitted crate holds a runtime signal store
+      (`HashMap<String,Value>` + `Value` S/I/B) seeded from the View tree; `render_root(frame,area,signals)`
+      reads `SignalText`/`Toggle`/`TextInput` from it and `ShowSignal`→runtime `if sig_truthy(...)`; `main` runs a
+      crossterm loop (raw mode + alt screen → draw → `event::poll` → quit on q/Esc) via ratatui's crossterm
+      re-export; headless `SSC_TUI_SNAPSHOT` path for CI. **Gate met:** `frontendTui/test` 20/20 — cargo smoke
+      builds the loop crate, renders a signal-bound frame headlessly, AND `cargo test` runs a generated
+      `reactive_rerender` proving a signal mutation re-renders.
 - [ ] **frontend-tui-3-focus-events** — focus ring over focusable nodes (`Button/TextInput/Toggle`),
       Tab/Shift-Tab/arrow traversal (seeded by `A11y.focusOrder`), crossterm `KeyEvent`→`EventHandler`
       (`SetSignalLiteral/Increment/Toggle/InputChange/Simple`); `TextField` editing (buffer+cursor); `Button`
