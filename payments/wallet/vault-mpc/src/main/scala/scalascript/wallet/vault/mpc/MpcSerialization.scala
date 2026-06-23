@@ -66,6 +66,8 @@ object MpcSerialization:
     case HashAlgo.Keccak256  => "keccak256"
     case HashAlgo.Ripemd160  => "ripemd160"
     case HashAlgo.HmacSha512 => "hmac-sha512"
+    case HashAlgo.Blake2b224 => "blake2b-224"
+    case HashAlgo.Blake2b256 => "blake2b-256"
 
   // ─── Sign request / response builders ───────────────────────────────
 
