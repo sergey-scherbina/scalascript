@@ -1,0 +1,6 @@
+feature/value-unification-slice3-spike 2026-06-23T01:40:00Z
+agent: claude
+heartbeat: 2026-06-23T01:40:00Z
+status: in-progress
+done-so-far: ran the Slice-3 spike (throwaway scala-cli) — validated `type Value = DataValue | Callable` (union) + `export DataValue.*` from `object Value`: existing Value.IntV(n) construct + `case Value.IntV(n)` patterns compile unchanged, DataValue lives in a separate/low module (extends nothing core), exhaustiveness checking preserved under -Werror.
+next: record the decision in specs/value-unification.md Slice 3; push. Slice 4 (create value-data module + migrate first case) is a fresh focused session.
