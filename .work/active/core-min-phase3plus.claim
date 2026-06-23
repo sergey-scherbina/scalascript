@@ -1,0 +1,6 @@
+feature/core-min-phase3plus-closeout 2026-06-23T00:25:25Z
+agent: codex
+heartbeat: 2026-06-23T00:25:25Z
+status: in-progress
+done-so-far: verified broad core-min-phase3plus open line is stale after effect/prelude/runtime-resource/optics/actor-session slices landed
+next: docs-only closeout in SPRINT/CHANGELOG; leave core-min-value-unification and external-gated work open
