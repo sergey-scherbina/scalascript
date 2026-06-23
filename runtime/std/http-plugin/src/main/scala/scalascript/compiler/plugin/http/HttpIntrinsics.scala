@@ -2,9 +2,8 @@ package scalascript.compiler.plugin.http
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
-import scalascript.interpreter.{Value, InterpretError, Computation, jsonToJson}
-import scalascript.plugin.api.{HttpCap, PluginComputation, PluginNative, PluginValue}
-import scalascript.plugin.api.PluginContext
+import scalascript.plugin.api.{HttpCap, PluginComputation, PluginContext, PluginError, PluginNative, PluginValue}
+import scalascript.plugin.api.PluginValue.{Str, Num, Bool, Lst, MapVal, Inst}
 
 /** HTTP server + client intrinsics for the tree-walking interpreter.
  *
@@ -22,36 +21,36 @@ object HttpIntrinsics:
     QualifiedName("route") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(method: String, path: String) =>
-          Value.NativeFnV("route.handler", Computation.pureFn {
+          PluginValue.nativeFn("route.handler", {
             case List(handler) =>
               ctx.featureLocalRemove(NativeContextFeatureKeys.OpenApiPending) match
                 case Some(metadata: OpenApiGenerator.OpenApiMetadata) =>
                   ctx.registerRouteWithOpenApi(method, path, handler, metadata)
                 case _ =>
                   ctx.registerRoute(method, path, handler)
-              Value.UnitV
-            case _ => throw InterpretError("route(method, path) { handler }")
+              PluginValue.unit
+            case _ => PluginError.raise("route(method, path) { handler }")
           })
-        case _ => throw InterpretError("route(method, path) { handler }")
+        case _ => PluginError.raise("route(method, path) { handler }")
     },
 
     QualifiedName("openapi") -> PluginNative.evalLegacy { (ctx, args) =>
       def asString(v: Any): String = v match
         case s: String        => s
-        case Value.StringV(s) => s
-        case Value.UnitV      => ""
+        case Str(s) => s
+        case PluginValue.unit      => ""
         case null             => ""
         case other            => String.valueOf(other)
       def asBool(v: Any): Boolean = v match
         case b: Boolean      => b
-        case Value.BoolV(b)  => b
+        case Bool(b)  => b
         case s: String       => s.equalsIgnoreCase("true")
-        case Value.StringV(s) => s.equalsIgnoreCase("true")
+        case Str(s) => s.equalsIgnoreCase("true")
         case _               => false
       def asTags(v: Any): List[String] = v match
         case xs: List[?]    => xs.map(asString).filter(_.nonEmpty)
-        case Value.ListV(xs) => xs.map(asString).filter(_.nonEmpty)
-        case Value.UnitV     => Nil
+        case Lst(xs) => xs.map(asString).filter(_.nonEmpty)
+        case PluginValue.unit     => Nil
         case s: String if s.nonEmpty => List(s)
         case _             => Nil
       val padded = args.padTo(5, "")
@@ -63,7 +62,7 @@ object HttpIntrinsics:
         security    = asTags(padded(4))
       )
       ctx.featureLocalSet(NativeContextFeatureKeys.OpenApiPending, metadata)
-      Value.UnitV
+      PluginValue.unit
     },
 
     QualifiedName("openApiSecurity") -> PluginNative.evalLegacy { (ctx, args) =>
@@ -74,25 +73,25 @@ object HttpIntrinsics:
             .getOrElse(Nil)
             .filterNot(_.name == name) :+ OpenApiGenerator.OpenApiSecurityScheme(name, scheme, format)
           ctx.featureSet(NativeContextFeatureKeys.OpenApiSecuritySchemes, next)
-          Value.UnitV
+          PluginValue.unit
         case List(name: String, scheme: String) =>
           val next = ctx.featureGet(NativeContextFeatureKeys.OpenApiSecuritySchemes)
             .collect { case xs: List[?] => xs.collect { case s: OpenApiGenerator.OpenApiSecurityScheme => s } }
             .getOrElse(Nil)
             .filterNot(_.name == name) :+ OpenApiGenerator.OpenApiSecurityScheme(name, scheme, "")
           ctx.featureSet(NativeContextFeatureKeys.OpenApiSecuritySchemes, next)
-          Value.UnitV
-        case _ => throw InterpretError("openApiSecurity(name, scheme, format)")
+          PluginValue.unit
+        case _ => PluginError.raise("openApiSecurity(name, scheme, format)")
     },
 
     // openApiRegisterSchema(name, properties, required) — Phase 6 named schemas.
     // Registers a named object schema in components.schemas.
     QualifiedName("openApiRegisterSchema") -> PluginNative.evalLegacy { (ctx, args) =>
-      def extractStrMap(v: Value): Map[String, String] = v match
-        case Value.MapV(m) => m.collect { case (Value.StringV(k), Value.StringV(vv)) => k -> vv }.toMap
+      def extractStrMap(v: Any): Map[String, String] = v match
+        case MapVal(m) => m.collect { case (Str(k), Str(vv)) => k -> vv }.toMap
         case _             => Map.empty
-      def extractStrList(v: Value): List[String] = v match
-        case Value.ListV(xs) => xs.collect { case Value.StringV(s) => s }
+      def extractStrList(v: Any): List[String] = v match
+        case Lst(xs) => xs.collect { case Str(s) => s }
         case _               => Nil
       def parseNode(typeName: String): OpenApiGenerator.SchemaNode =
         OpenApiGenerator.SchemaNode.fromTypeName(typeName)
@@ -100,24 +99,24 @@ object HttpIntrinsics:
       args match
         case List(name: String) =>
           registerSchema(ctx, name, OpenApiGenerator.SchemaNode.ObjNode())
-          Value.UnitV
-        case List(name: String, propsV: Value) =>
+          PluginValue.unit
+        case List(name: String, propsV) =>
           val props = extractStrMap(propsV).map { (k, t) => k -> parseNode(t) }
           registerSchema(ctx, name, OpenApiGenerator.SchemaNode.ObjNode(props))
-          Value.UnitV
-        case List(name: String, propsV: Value, reqV: Value) =>
+          PluginValue.unit
+        case List(name: String, propsV, reqV) =>
           val props    = extractStrMap(propsV).map { (k, t) => k -> parseNode(t) }
           val required = extractStrList(reqV)
           registerSchema(ctx, name, OpenApiGenerator.SchemaNode.ObjNode(props, required))
-          Value.UnitV
-        case _ => throw InterpretError("openApiRegisterSchema(name, properties, required?)")
+          PluginValue.unit
+        case _ => PluginError.raise("openApiRegisterSchema(name, properties, required?)")
     },
 
     QualifiedName("tls") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(cert: String, key: String) =>
-          Value.InstanceV("TlsContext", Map("cert" -> Value.StringV(cert), "key" -> Value.StringV(key)))
-        case _ => throw InterpretError("tls(certPath, keyPath)")
+          PluginValue.instance("TlsContext", Map("cert" -> PluginValue.string(cert), "key" -> PluginValue.string(key)))
+        case _ => PluginError.raise("tls(certPath, keyPath)")
     },
 
     // Non-blocking variant of `serve` — fires the WS/HTTP server on a
@@ -138,19 +137,19 @@ object HttpIntrinsics:
           if ctx.openApiDryRun then ctx.abortOpenApiDryRun()
           ctx.startServerAsync(port.toInt, ".")
           ()
-        case List(port: Long, Value.InstanceV("TlsContext", tlsFields)) =>
+        case List(port: Long, Inst("TlsContext", tlsFields)) =>
           ctx.registerHealthDefaults()
           ctx.registerOpenApiDefaults()
           if ctx.openApiDryRun then ctx.abortOpenApiDryRun()
-          val cert = tlsFields.get("cert").collect { case Value.StringV(s) => s }.getOrElse("")
-          val key  = tlsFields.get("key").collect  { case Value.StringV(s) => s }.getOrElse("")
+          val cert = tlsFields.get("cert").collect { case Str(s) => s }.getOrElse("")
+          val key  = tlsFields.get("key").collect  { case Str(s) => s }.getOrElse("")
           // Block until the TLS socket is bound (same readiness contract as the
           // plain serveAsync(port) form) so a client connecting immediately
           // afterwards does not race the bind.  Headless is guarded inside the
           // startTlsServerAsync override, mirroring startServerAsync above.
           ctx.startTlsServerAsync(port.toInt, ".", cert, key)
           ()
-        case _ => throw InterpretError("serveAsync(port) or serveAsync(port, tls(cert, key))")
+        case _ => PluginError.raise("serveAsync(port) or serveAsync(port, tls(cert, key))")
     },
 
     // serve is handled by UiPrimitives (covers both frontend + REST variants)
@@ -166,68 +165,68 @@ object HttpIntrinsics:
       args match
         case List(url: String)        => doHttpRequest("GET", url, "", Map.empty, ctx)
         case List(url: String, hdrs)  => doHttpRequest("GET", url, "", headersArg(hdrs), ctx)
-        case _ => throw InterpretError("httpGet(url[, headers])")
+        case _ => PluginError.raise("httpGet(url[, headers])")
     },
 
     QualifiedName("httpPost") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(url: String, body: String)       => doHttpRequest("POST", url, body, Map.empty, ctx)
         case List(url: String, body: String, hdrs) => doHttpRequest("POST", url, body, headersArg(hdrs), ctx)
-        case _ => throw InterpretError("httpPost(url, body[, headers])")
+        case _ => PluginError.raise("httpPost(url, body[, headers])")
     },
 
     QualifiedName("httpPut") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(url: String, body: String)       => doHttpRequest("PUT", url, body, Map.empty, ctx)
         case List(url: String, body: String, hdrs) => doHttpRequest("PUT", url, body, headersArg(hdrs), ctx)
-        case _ => throw InterpretError("httpPut(url, body[, headers])")
+        case _ => PluginError.raise("httpPut(url, body[, headers])")
     },
 
     QualifiedName("httpPatch") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(url: String, body: String)       => doHttpRequest("PATCH", url, body, Map.empty, ctx)
         case List(url: String, body: String, hdrs) => doHttpRequest("PATCH", url, body, headersArg(hdrs), ctx)
-        case _ => throw InterpretError("httpPatch(url, body[, headers])")
+        case _ => PluginError.raise("httpPatch(url, body[, headers])")
     },
 
     QualifiedName("httpDelete") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(url: String)       => doHttpRequest("DELETE", url, "", Map.empty, ctx)
         case List(url: String, hdrs) => doHttpRequest("DELETE", url, "", headersArg(hdrs), ctx)
-        case _ => throw InterpretError("httpDelete(url[, headers])")
+        case _ => PluginError.raise("httpDelete(url[, headers])")
     },
 
     // Streaming variants: httpGetStream(url[, headers])(handler)
     QualifiedName("httpGetStream") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(url: String) =>
-          Value.NativeFnV("httpGetStream.handler", Computation.pureFn {
+          PluginValue.nativeFn("httpGetStream.handler", {
             case List(handler) => doHttpRequestStream("GET", url, "", Map.empty, handler, ctx)
-            case _ => throw InterpretError("httpGetStream(url)(handler)")
+            case _ => PluginError.raise("httpGetStream(url)(handler)")
           })
         case List(url: String, hdrs) =>
           val h = headersArg(hdrs)
-          Value.NativeFnV("httpGetStream.handler", Computation.pureFn {
+          PluginValue.nativeFn("httpGetStream.handler", {
             case List(handler) => doHttpRequestStream("GET", url, "", h, handler, ctx)
-            case _ => throw InterpretError("httpGetStream(url, headers)(handler)")
+            case _ => PluginError.raise("httpGetStream(url, headers)(handler)")
           })
-        case _ => throw InterpretError("httpGetStream(url[, headers])(handler)")
+        case _ => PluginError.raise("httpGetStream(url[, headers])(handler)")
     },
 
     QualifiedName("httpPostStream") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(url: String, body: String) =>
-          Value.NativeFnV("httpPostStream.handler", Computation.pureFn {
+          PluginValue.nativeFn("httpPostStream.handler", {
             case List(handler) => doHttpRequestStream("POST", url, body, Map.empty, handler, ctx)
-            case _ => throw InterpretError("httpPostStream(url, body)(handler)")
+            case _ => PluginError.raise("httpPostStream(url, body)(handler)")
           })
         case List(url: String, body: String, hdrs) =>
           val h = headersArg(hdrs)
-          Value.NativeFnV("httpPostStream.handler", Computation.pureFn {
+          PluginValue.nativeFn("httpPostStream.handler", {
             case List(handler) => doHttpRequestStream("POST", url, body, h, handler, ctx)
-            case _ => throw InterpretError("httpPostStream(url, body, headers)(handler)")
+            case _ => PluginError.raise("httpPostStream(url, body, headers)(handler)")
           })
-        case _ => throw InterpretError("httpPostStream(url, body[, headers])(handler)")
+        case _ => PluginError.raise("httpPostStream(url, body[, headers])(handler)")
     },
 
     // httpClient(baseUrl) { block } stays as Term.Apply special form in eval.
@@ -239,53 +238,53 @@ object HttpIntrinsics:
     QualifiedName("wsConnect") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(url: String) =>
-          Value.NativeFnV("wsConnect.handler", Computation.pureFn {
-            case List(handler) => ctx.wsConnectSync(url, Map.empty, Nil, handler); Value.UnitV
-            case _ => throw InterpretError("wsConnect(url) { ws => … }")
+          PluginValue.nativeFn("wsConnect.handler", {
+            case List(handler) => ctx.wsConnectSync(url, Map.empty, Nil, handler); PluginValue.unit
+            case _ => PluginError.raise("wsConnect(url) { ws => … }")
           })
         case List(url: String, hdrs) =>
           val headers = headersArg(hdrs)
-          Value.NativeFnV("wsConnect.handler", Computation.pureFn {
-            case List(handler) => ctx.wsConnectSync(url, headers, Nil, handler); Value.UnitV
-            case _ => throw InterpretError("wsConnect(url, headers) { ws => … }")
+          PluginValue.nativeFn("wsConnect.handler", {
+            case List(handler) => ctx.wsConnectSync(url, headers, Nil, handler); PluginValue.unit
+            case _ => PluginError.raise("wsConnect(url, headers) { ws => … }")
           })
-        case List(url: String, hdrs, Value.ListV(prots)) =>
+        case List(url: String, hdrs, Lst(prots)) =>
           val headers   = headersArg(hdrs)
-          val protocols = prots.collect { case Value.StringV(s) => s }
-          Value.NativeFnV("wsConnect.handler", Computation.pureFn {
-            case List(handler) => ctx.wsConnectSync(url, headers, protocols, handler); Value.UnitV
-            case _ => throw InterpretError("wsConnect(url, headers, protocols) { ws => … }")
+          val protocols = prots.collect { case Str(s) => s }
+          PluginValue.nativeFn("wsConnect.handler", {
+            case List(handler) => ctx.wsConnectSync(url, headers, protocols, handler); PluginValue.unit
+            case _ => PluginError.raise("wsConnect(url, headers, protocols) { ws => … }")
           })
-        case _ => throw InterpretError("wsConnect(url[, headers[, protocols]]) { ws => … }")
+        case _ => PluginError.raise("wsConnect(url[, headers[, protocols]]) { ws => … }")
     },
 
     // ── CORS / gzip / cache ────────────────────────────────────────────
 
     QualifiedName("cors") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
-        case List(Value.ListV(origins)) =>
+        case List(Lst(origins)) =>
           ctx.configureCors(
-            origins.collect { case Value.StringV(s) => s },
+            origins.collect { case Str(s) => s },
             List("GET","POST","PUT","DELETE","OPTIONS","PATCH"), Nil)
           ()
-        case List(Value.ListV(origins), Value.ListV(methods)) =>
+        case List(Lst(origins), Lst(methods)) =>
           ctx.configureCors(
-            origins.collect { case Value.StringV(s) => s },
-            methods.collect { case Value.StringV(s) => s }, Nil)
+            origins.collect { case Str(s) => s },
+            methods.collect { case Str(s) => s }, Nil)
           ()
-        case List(Value.ListV(origins), Value.ListV(methods), Value.ListV(hdrs)) =>
+        case List(Lst(origins), Lst(methods), Lst(hdrs)) =>
           ctx.configureCors(
-            origins.collect { case Value.StringV(s) => s },
-            methods.collect { case Value.StringV(s) => s },
-            hdrs.collect { case Value.StringV(s) => s })
+            origins.collect { case Str(s) => s },
+            methods.collect { case Str(s) => s },
+            hdrs.collect { case Str(s) => s })
           ()
-        case _ => throw InterpretError("cors(origins[, methods[, headers]])")
+        case _ => PluginError.raise("cors(origins[, methods[, headers]])")
     },
 
     QualifiedName("useGzip") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case Nil => ctx.enableGzip(); ()
-        case _   => throw InterpretError("useGzip()")
+        case _   => PluginError.raise("useGzip()")
     },
 
     QualifiedName("cacheable") -> PluginNative.evalLegacy { (_, args) =>
@@ -294,14 +293,14 @@ object HttpIntrinsics:
           addCacheHdrs(resp, Map("Cache-Control" -> s"public, max-age=$n"))
         case List(resp, n: Long, etag: String) =>
           addCacheHdrs(resp, Map("Cache-Control" -> s"public, max-age=$n", "ETag" -> etag))
-        case _ => throw InterpretError("cacheable(response, maxAge[, etag])")
+        case _ => PluginError.raise("cacheable(response, maxAge[, etag])")
     },
 
     QualifiedName("noCache") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(resp) =>
           addCacheHdrs(resp, Map("Cache-Control" -> "no-store, no-cache, must-revalidate"))
-        case _ => throw InterpretError("noCache(response)")
+        case _ => PluginError.raise("noCache(response)")
     },
 
     // ── Streaming / SSE ────────────────────────────────────────────────
@@ -311,21 +310,21 @@ object HttpIntrinsics:
     QualifiedName("streamResponse") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(n: Long) =>
-          Value.NativeFnV("streamResponse.block", Computation.pureFn {
-            case List(block) => Value.InstanceV("StreamResponse", Map(
-              "status" -> Value.intV(n), "headers" -> Value.EmptyMap, "callback" -> block))
-            case _ => throw InterpretError("streamResponse(status)(block)")
+          PluginValue.nativeFn("streamResponse.block", {
+            case List(block) => PluginValue.instance("StreamResponse", Map(
+              "status" -> PluginValue.int(n), "headers" -> PluginValue.mapOf(Map.empty[PluginValue, PluginValue]), "callback" -> block))
+            case _ => PluginError.raise("streamResponse(status)(block)")
           })
-        case List(n: Long, Value.MapV(hdrs)) =>
-          Value.NativeFnV("streamResponse.block", Computation.pureFn {
-            case List(block) => Value.InstanceV("StreamResponse", Map(
-              "status" -> Value.intV(n), "headers" -> Value.MapV(hdrs), "callback" -> block))
-            case _ => throw InterpretError("streamResponse(status, headers)(block)")
+        case List(n: Long, MapVal(hdrs)) =>
+          PluginValue.nativeFn("streamResponse.block", {
+            case List(block) => PluginValue.instance("StreamResponse", Map(
+              "status" -> PluginValue.int(n), "headers" -> PluginValue.mapOf(hdrs), "callback" -> block))
+            case _ => PluginError.raise("streamResponse(status, headers)(block)")
           })
         case List(block) =>
-          Value.InstanceV("StreamResponse", Map(
-            "status" -> Value.intV(200), "headers" -> Value.EmptyMap, "callback" -> block.asInstanceOf[Value]))
-        case _ => throw InterpretError("streamResponse(block)")
+          PluginValue.instance("StreamResponse", Map(
+            "status" -> PluginValue.int(200), "headers" -> PluginValue.mapOf(Map.empty[PluginValue, PluginValue]), "callback" -> PluginValue.wrap(block)))
+        case _ => PluginError.raise("streamResponse(block)")
     },
 
     // sse(req) { stream => stream.send(data) / stream.send(event, data) / stream.close() }
@@ -338,36 +337,36 @@ object HttpIntrinsics:
             "Connection"        -> "keep-alive",
             "X-Accel-Buffering" -> "no"
           )
-          val headerMap = Value.MapV(sseHeaders.map((k, v) =>
-            (Value.StringV(k): Value) -> (Value.StringV(v): Value)))
-          Value.NativeFnV("sse.block", Computation.pureFn {
+          val headerMap = PluginValue.mapOf(sseHeaders.map((k, v) =>
+            (PluginValue.string(k)) -> (PluginValue.string(v))))
+          PluginValue.nativeFn("sse.block", {
             case List(block) =>
-              val callback = Value.NativeFnV("sse.writer", Computation.pureFn {
+              val callback = PluginValue.nativeFn("sse.writer", {
                 case List(writeFn) =>
-                  val sseStream = Value.InstanceV("SseStream", Map(
-                    "send" -> Value.NativeFnV("SseStream.send", Computation.pureFn {
-                      case List(Value.StringV(data)) =>
-                        ctx.invokeCallback(writeFn, List(Value.StringV(s"data: $data\n\n")))
-                        Value.UnitV
-                      case List(Value.StringV(event), Value.StringV(data)) =>
-                        ctx.invokeCallback(writeFn, List(Value.StringV(s"event: $event\ndata: $data\n\n")))
-                        Value.UnitV
-                      case _ => throw InterpretError("SseStream.send(data) or send(event, data)")
+                  val sseStream = PluginValue.instance("SseStream", Map(
+                    "send" -> PluginValue.nativeFn("SseStream.send", {
+                      case List(Str(data)) =>
+                        ctx.invokeCallback(writeFn, List(PluginValue.string(s"data: $data\n\n")))
+                        PluginValue.unit
+                      case List(Str(event), Str(data)) =>
+                        ctx.invokeCallback(writeFn, List(PluginValue.string(s"event: $event\ndata: $data\n\n")))
+                        PluginValue.unit
+                      case _ => PluginError.raise("SseStream.send(data) or send(event, data)")
                     }),
-                    "close" -> Value.NativeFnV("SseStream.close", Computation.pureFn(_ => Value.UnitV))
+                    "close" -> PluginValue.nativeFn("SseStream.close", (_ => PluginValue.unit))
                   ))
                   ctx.invokeCallback(block, List(sseStream))
-                  Value.UnitV
-                case _ => throw InterpretError("sse internal writer error")
+                  PluginValue.unit
+                case _ => PluginError.raise("sse internal writer error")
               })
-              Value.InstanceV("StreamResponse", Map(
-                "status"   -> Value.intV(200),
+              PluginValue.instance("StreamResponse", Map(
+                "status"   -> PluginValue.int(200),
                 "headers"  -> headerMap,
                 "callback" -> callback
               ))
-            case _ => throw InterpretError("sse(req)(block)")
+            case _ => PluginError.raise("sse(req)(block)")
           })
-        case _ => throw InterpretError("sse(req)(block)")
+        case _ => PluginError.raise("sse(req)(block)")
     },
 
     // ── Body / upload limits ───────────────────────────────────────────
@@ -375,19 +374,19 @@ object HttpIntrinsics:
     QualifiedName("maxBodySize") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(n: Long) => ctx.setMaxBodySize(n); ()
-        case _ => throw InterpretError("maxBodySize(bytes: Int)")
+        case _ => PluginError.raise("maxBodySize(bytes: Int)")
     },
 
     QualifiedName("uploadSpoolThreshold") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(n: Long) => ctx.setSpoolThreshold(n); ()
-        case _ => throw InterpretError("uploadSpoolThreshold(bytes: Int)")
+        case _ => PluginError.raise("uploadSpoolThreshold(bytes: Int)")
     },
 
     QualifiedName("uploadDir") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(dir: String) => ctx.setUploadDir(dir); ()
-        case _ => throw InterpretError("uploadDir(path: String)")
+        case _ => PluginError.raise("uploadDir(path: String)")
     },
 
     // ── Middleware ─────────────────────────────────────────────────────
@@ -395,7 +394,7 @@ object HttpIntrinsics:
     QualifiedName("use") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(fn) => ctx.registerMiddleware(fn); ()
-        case _ => throw InterpretError("use(fn: (Request, () => Response) => Response)")
+        case _ => PluginError.raise("use(fn: (Request, () => Response) => Response)")
     },
 
     // ── HTTP client config (scoped by httpClient{} block) ─────────────
@@ -403,14 +402,14 @@ object HttpIntrinsics:
     QualifiedName("httpTimeout") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(ms: Long) => ctx.setHttpTimeout(ms); ()
-        case _ => throw InterpretError("httpTimeout(ms: Int)")
+        case _ => PluginError.raise("httpTimeout(ms: Int)")
     },
 
     QualifiedName("httpRetry") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(n: Long)         => ctx.setHttpRetry(n.toInt, ctx.httpRetryDelayMs); ()
         case List(n: Long, d: Long) => ctx.setHttpRetry(n.toInt, d); ()
-        case _ => throw InterpretError("httpRetry(maxAttempts[, delayMs])")
+        case _ => PluginError.raise("httpRetry(maxAttempts[, delayMs])")
     },
 
     // ── WebSocket server ───────────────────────────────────────────────
@@ -420,41 +419,41 @@ object HttpIntrinsics:
     QualifiedName("onWebSocket") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(path: String) =>
-          Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
-            case List(handler) => ctx.registerWsRoute(path, Nil, Nil, 0, 0, handler); Value.UnitV
-            case _ => throw InterpretError("onWebSocket(path) { ws => … }")
+          PluginValue.nativeFn("onWebSocket.handler", {
+            case List(handler) => ctx.registerWsRoute(path, Nil, Nil, 0, 0, handler); PluginValue.unit
+            case _ => PluginError.raise("onWebSocket(path) { ws => … }")
           })
-        case List(path: String, Value.ListV(origins)) =>
-          val origs = origins.collect { case Value.StringV(s) => s }
-          Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
-            case List(handler) => ctx.registerWsRoute(path, origs, Nil, 0, 0, handler); Value.UnitV
-            case _ => throw InterpretError("onWebSocket(path, origins) { ws => … }")
+        case List(path: String, Lst(origins)) =>
+          val origs = origins.collect { case Str(s) => s }
+          PluginValue.nativeFn("onWebSocket.handler", {
+            case List(handler) => ctx.registerWsRoute(path, origs, Nil, 0, 0, handler); PluginValue.unit
+            case _ => PluginError.raise("onWebSocket(path, origins) { ws => … }")
           })
-        case List(path: String, Value.ListV(origins), Value.ListV(protocols)) =>
-          val origs  = origins.collect   { case Value.StringV(s) => s }
-          val protos = protocols.collect { case Value.StringV(s) => s }
-          Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
-            case List(handler) => ctx.registerWsRoute(path, origs, protos, 0, 0, handler); Value.UnitV
-            case _ => throw InterpretError("onWebSocket(path, origins, protocols) { ws => … }")
+        case List(path: String, Lst(origins), Lst(protocols)) =>
+          val origs  = origins.collect   { case Str(s) => s }
+          val protos = protocols.collect { case Str(s) => s }
+          PluginValue.nativeFn("onWebSocket.handler", {
+            case List(handler) => ctx.registerWsRoute(path, origs, protos, 0, 0, handler); PluginValue.unit
+            case _ => PluginError.raise("onWebSocket(path, origins, protocols) { ws => … }")
           })
-        case List(path: String, Value.ListV(origins), Value.ListV(protocols), maxConn: Long) =>
-          val origs  = origins.collect   { case Value.StringV(s) => s }
-          val protos = protocols.collect { case Value.StringV(s) => s }
+        case List(path: String, Lst(origins), Lst(protocols), maxConn: Long) =>
+          val origs  = origins.collect   { case Str(s) => s }
+          val protos = protocols.collect { case Str(s) => s }
           val cap    = if maxConn > Int.MaxValue.toLong || maxConn < 0 then 0 else maxConn.toInt
-          Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
-            case List(handler) => ctx.registerWsRoute(path, origs, protos, cap, 0, handler); Value.UnitV
-            case _ => throw InterpretError("onWebSocket(path, origins, protocols, maxConnections) { ws => … }")
+          PluginValue.nativeFn("onWebSocket.handler", {
+            case List(handler) => ctx.registerWsRoute(path, origs, protos, cap, 0, handler); PluginValue.unit
+            case _ => PluginError.raise("onWebSocket(path, origins, protocols, maxConnections) { ws => … }")
           })
-        case List(path: String, Value.ListV(origins), Value.ListV(protocols), maxConn: Long, maxRate: Long) =>
-          val origs  = origins.collect   { case Value.StringV(s) => s }
-          val protos = protocols.collect { case Value.StringV(s) => s }
+        case List(path: String, Lst(origins), Lst(protocols), maxConn: Long, maxRate: Long) =>
+          val origs  = origins.collect   { case Str(s) => s }
+          val protos = protocols.collect { case Str(s) => s }
           val cap    = if maxConn > Int.MaxValue.toLong || maxConn < 0 then 0 else maxConn.toInt
           val rate   = if maxRate > Int.MaxValue.toLong || maxRate < 0 then 0 else maxRate.toInt
-          Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
-            case List(handler) => ctx.registerWsRoute(path, origs, protos, cap, rate, handler); Value.UnitV
-            case _ => throw InterpretError("onWebSocket(path, origins, protocols, maxConnections, maxMessagesPerSec) { ws => … }")
+          PluginValue.nativeFn("onWebSocket.handler", {
+            case List(handler) => ctx.registerWsRoute(path, origs, protos, cap, rate, handler); PluginValue.unit
+            case _ => PluginError.raise("onWebSocket(path, origins, protocols, maxConnections, maxMessagesPerSec) { ws => … }")
           })
-        case _ => throw InterpretError("onWebSocket(path[, origins[, protocols[, maxConnections[, maxMessagesPerSec]]]]) { ws => … }")
+        case _ => PluginError.raise("onWebSocket(path[, origins[, protocols[, maxConnections[, maxMessagesPerSec]]]]) { ws => … }")
     },
 
     // onWebSocketAuth(path, authFn)(handler) — pre-upgrade auth hook.
@@ -462,11 +461,11 @@ object HttpIntrinsics:
     QualifiedName("onWebSocketAuth") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(path: String, authFn) =>
-          Value.NativeFnV("onWebSocketAuth.handler", Computation.pureFn {
-            case List(handler) => ctx.registerWsAuthRoute(path, authFn, handler); Value.UnitV
-            case _ => throw InterpretError("onWebSocketAuth(path, authFn) { ws => … }")
+          PluginValue.nativeFn("onWebSocketAuth.handler", {
+            case List(handler) => ctx.registerWsAuthRoute(path, authFn, handler); PluginValue.unit
+            case _ => PluginError.raise("onWebSocketAuth(path, authFn) { ws => … }")
           })
-        case _ => throw InterpretError("onWebSocketAuth(path, authFn) { ws => … }")
+        case _ => PluginError.raise("onWebSocketAuth(path, authFn) { ws => … }")
     },
 
     // ── mount(method, path, file[, ctx]) ────────────────────────────────
@@ -475,13 +474,13 @@ object HttpIntrinsics:
       args match
         case List(method: String, path: String, file: String) =>
           mountFile(ctx, method, path, file, Map.empty)
-        case List(method: String, path: String, file: String, Value.MapV(rawCtx)) =>
+        case List(method: String, path: String, file: String, MapVal(rawCtx)) =>
           val mountCtx: Map[String, Any] = rawCtx.collect {
-            case (Value.StringV(k), v) => k -> (v: Any)
+            case (Str(k), v) => k -> (v: Any)
           }.toMap
           mountFile(ctx, method, path, file, mountCtx)
         case _ =>
-          throw InterpretError("mount(method, path, file[, ctx: Map[String, Any]])")
+          PluginError.raise("mount(method, path, file[, ctx: Map[String, Any]])")
     },
 
     // ── Response builders (Stage 5+/E) ────────────────────────────────────
@@ -489,57 +488,57 @@ object HttpIntrinsics:
     QualifiedName("Response.html") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(v) =>
-          Value.InstanceV("Response", Map(
-            "status"  -> Value.intV(200),
-            "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV("text/html; charset=utf-8"))),
-            "body"    -> Value.StringV(httpBodyOf(v))
+          PluginValue.instance("Response", Map(
+            "status"  -> PluginValue.int(200),
+            "headers" -> PluginValue.mapOf(Map(PluginValue.string("Content-Type") -> PluginValue.string("text/html; charset=utf-8"))),
+            "body"    -> PluginValue.string(httpBodyOf(v))
           ))
-        case _ => throw InterpretError("Response.html(body)")
+        case _ => PluginError.raise("Response.html(body)")
     },
 
     QualifiedName("Response.text") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(v) =>
-          httpMkResponse(200, Map(Value.StringV("Content-Type") -> Value.StringV("text/plain; charset=utf-8")), httpBodyOf(v))
+          httpMkResponse(200, Map(PluginValue.string("Content-Type") -> PluginValue.string("text/plain; charset=utf-8")), httpBodyOf(v))
         case List(v, statusV) =>
           val code = statusV match
             case n: Long   => n.toInt
             case n: Int    => n
-            case Value.IntV(n) => n.toInt
+            case Num(n) => n.toInt
             case s: String => s.toIntOption.getOrElse(200)
-            case Value.StringV(s) => s.toIntOption.getOrElse(200)
+            case Str(s) => s.toIntOption.getOrElse(200)
             case _ => 200
-          httpMkResponse(code, Map(Value.StringV("Content-Type") -> Value.StringV("text/plain; charset=utf-8")), httpBodyOf(v))
-        case _ => throw InterpretError("Response.text(body)")
+          httpMkResponse(code, Map(PluginValue.string("Content-Type") -> PluginValue.string("text/plain; charset=utf-8")), httpBodyOf(v))
+        case _ => PluginError.raise("Response.text(body)")
     },
 
     QualifiedName("Response.json") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(s: String) =>
-          httpMkResponse(200, Map(Value.StringV("Content-Type") -> Value.StringV("application/json")), s)
+          httpMkResponse(200, Map(PluginValue.string("Content-Type") -> PluginValue.string("application/json")), s)
         case List(v) =>
-          httpMkResponse(200, Map(Value.StringV("Content-Type") -> Value.StringV("application/json")), jsonToJson(httpAnyToValue(v)))
-        case _ => throw InterpretError("Response.json(body)")
+          httpMkResponse(200, Map(PluginValue.string("Content-Type") -> PluginValue.string("application/json")), PluginValue.jsonEncode(PluginValue.fromHostAny(v)))
+        case _ => PluginError.raise("Response.json(body)")
     },
 
     QualifiedName("Response.redirect") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(loc: String) => httpMkResponse(302, Map(Value.StringV("Location") -> Value.StringV(loc)), "")
-        case _ => throw InterpretError("Response.redirect(url)")
+        case List(loc: String) => httpMkResponse(302, Map(PluginValue.string("Location") -> PluginValue.string(loc)), "")
+        case _ => PluginError.raise("Response.redirect(url)")
     },
 
     QualifiedName("Response.notFound") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case Nil     => httpMkResponse(404, body = "Not Found")
         case List(v) => httpMkResponse(404, body = httpBodyOf(v))
-        case _       => throw InterpretError("Response.notFound([body])")
+        case _       => PluginError.raise("Response.notFound([body])")
     },
 
     QualifiedName("Response.status") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(s: Long)    => httpMkResponse(s.toInt)
         case List(s: Long, v) => httpMkResponse(s.toInt, body = httpBodyOf(v))
-        case _ => throw InterpretError("Response.status(code[, body])")
+        case _ => PluginError.raise("Response.status(code[, body])")
     },
 
   )
@@ -561,7 +560,7 @@ object HttpIntrinsics:
       path:     String,
       file:     String,
       mountCtx: Map[String, Any]
-  ): Value =
+  ): PluginValue =
     val baseDir = ctx.baseDirPath match
       case Some(d) => java.nio.file.Paths.get(d)
       case None    => java.nio.file.Paths.get(System.getProperty("user.dir"))
@@ -571,41 +570,36 @@ object HttpIntrinsics:
       (file.substring(0, i), Some(file.substring(i + 1)))
     else (file, None)
     val absPath = baseDir.resolve(actualFile).normalize().toAbsolutePath.toString
-    val rawResult = fnNameOpt match
-      case Some(fn) => ctx.evalFileGetNamedResult(absPath, fn).asInstanceOf[Value]
-      case None     => ctx.evalFileGetResult(absPath).asInstanceOf[Value]
+    val rawResult: PluginValue = fnNameOpt match
+      case Some(fn) => PluginValue.wrap(ctx.evalFileGetNamedResult(absPath, fn))
+      case None     => PluginValue.wrap(ctx.evalFileGetResult(absPath))
     // Shape detection: wrap bare values into a constant handler
-    val baseHandler: Value = rawResult match
-      case fn @ Value.FunV(params, _, _, _, _, _, _, _) if params.length >= 1 =>
-        fn  // 1-param or 2-param FunV — used as-is; dispatcher passes ctx for 2-param
-      case other =>
-        // Static response — auto-wrap as `_ => other`
-        Value.NativeFnV("mount.static", scalascript.interpreter.Computation.pureFn {
-          _ => other
-        })
+    val baseHandler: PluginValue = PluginValue.funArity(rawResult) match
+      case Some(n) if n >= 1 => rawResult  // 1-/2-param FunV used as-is; dispatcher passes ctx for 2-param
+      case _                 => PluginValue.nativeFn("mount.static", _ => rawResult)  // static → constant handler
     // Wrap typed handlers: auto-deser/ser if the handler uses typed params.
-    val invoke: (Value, List[Value]) => Value = (fn, args) =>
-      ctx.invokeCallback(fn, args).asInstanceOf[Value]
-    val handler = scalascript.interpreter.TypedHandlerWrapper.wrapIfTyped(
+    val invoke: (PluginValue, List[PluginValue]) => PluginValue = (fn, callArgs) =>
+      PluginValue.wrap(ctx.invokeCallback(fn, callArgs))
+    val handler = PluginValue.wrapTypedHandler(
       baseHandler, invoke, Map.empty, path, errorDetails = true)
     ctx.registerMountedRoute(method, path, handler, source = Some(absPath), mountCtx = mountCtx)
-    Value.UnitV
+    PluginValue.unit
 
   private def headersArg(v: Any): Map[String, String] = v match
-    case Value.MapV(m) => m.collect {
-      case (Value.StringV(k), Value.StringV(vv)) => k -> vv
+    case MapVal(m) => m.collect {
+      case (Str(k), Str(vv)) => k -> vv
     }.toMap
     case _ => Map.empty
 
-  private def addCacheHdrs(v: Any, extra: Map[String, String]): Value = v match
-    case Value.InstanceV("Response", fields) =>
+  private def addCacheHdrs(v: Any, extra: Map[String, String]): PluginValue = v match
+    case Inst("Response", fields) =>
       val h = fields.get("headers") match
-        case Some(Value.MapV(m)) => m
-        case _                   => Map.empty[Value, Value]
-      val merged = h ++ extra.map { (k, vv) => (Value.StringV(k): Value) -> (Value.StringV(vv): Value) }
-      Value.InstanceV("Response", fields + ("headers" -> Value.MapV(merged)))
-    case other: Value => other
-    case _            => Value.UnitV
+        case Some(MapVal(m)) => m
+        case _                   => Map.empty[PluginValue, PluginValue]
+      val merged = h ++ extra.map { (k, vv) => (PluginValue.string(k)) -> (PluginValue.string(vv)) }
+      PluginValue.instance("Response", fields + ("headers" -> PluginValue.mapOf(merged)))
+    case other if PluginValue.isRuntimeValue(other) => PluginValue.wrap(other)
+    case _            => PluginValue.unit
 
   private def doHttpRequest(
       method:  String,
@@ -613,7 +607,7 @@ object HttpIntrinsics:
       body:    String,
       headers: Map[String, String],
       ctx: PluginContext
-  ): Value =
+  ): PluginValue =
     import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
     import scala.jdk.CollectionConverters.*
     val base    = ctx.httpBaseUrl
@@ -642,14 +636,14 @@ object HttpIntrinsics:
       else attempt = maxTries
     if lastErr != null then throw lastErr
     val resp = lastResp.nn
-    val hdrs: Map[Value, Value] = resp.headers().map().entrySet().iterator().asScala.flatMap { e =>
+    val hdrs: Map[PluginValue, PluginValue] = resp.headers().map().entrySet().iterator().asScala.flatMap { e =>
       if e.getValue.isEmpty then None
-      else Some((Value.StringV(e.getKey): Value) -> (Value.StringV(e.getValue.get(0)): Value))
+      else Some((PluginValue.string(e.getKey)) -> (PluginValue.string(e.getValue.get(0))))
     }.toMap
-    Value.InstanceV("Response", Map(
-      "status"  -> Value.intV(resp.statusCode().toLong),
-      "body"    -> Value.StringV(resp.body()),
-      "headers" -> Value.MapV(hdrs)
+    PluginValue.instance("Response", Map(
+      "status"  -> PluginValue.int(resp.statusCode().toLong),
+      "body"    -> PluginValue.string(resp.body()),
+      "headers" -> PluginValue.mapOf(hdrs)
     ))
 
   private def doHttpRequestStream(
@@ -657,9 +651,9 @@ object HttpIntrinsics:
       rawUrl:  String,
       body:    String,
       headers: Map[String, String],
-      handler: Value,
+      handler: Any,
       ctx: PluginContext
-  ): Value =
+  ): PluginValue =
     import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
     import scala.jdk.CollectionConverters.*
     val base    = ctx.httpBaseUrl
@@ -673,39 +667,29 @@ object HttpIntrinsics:
       case "POST" => builder.POST(HttpRequest.BodyPublishers.ofString(body)).build()
       case m      => builder.method(m, HttpRequest.BodyPublishers.ofString(body)).build()
     val resp = client.send(req, HttpResponse.BodyHandlers.ofLines())
-    val hdrs: Map[Value, Value] = resp.headers().map().entrySet().iterator().asScala.flatMap { e =>
+    val hdrs: Map[PluginValue, PluginValue] = resp.headers().map().entrySet().iterator().asScala.flatMap { e =>
       if e.getValue.isEmpty then None
-      else Some((Value.StringV(e.getKey): Value) -> (Value.StringV(e.getValue.get(0)): Value))
+      else Some((PluginValue.string(e.getKey)) -> (PluginValue.string(e.getValue.get(0))))
     }.toMap
-    resp.body().forEach { line => ctx.invokeCallback(handler, List(Value.StringV(line))) }
-    Value.InstanceV("Response", Map(
-      "status"  -> Value.intV(resp.statusCode().toLong),
-      "body"    -> Value.EmptyStr,
-      "headers" -> Value.MapV(hdrs)
+    resp.body().forEach { line => ctx.invokeCallback(handler, List(PluginValue.string(line))) }
+    PluginValue.instance("Response", Map(
+      "status"  -> PluginValue.int(resp.statusCode().toLong),
+      "body"    -> PluginValue.string(""),
+      "headers" -> PluginValue.mapOf(hdrs)
     ))
 
-  private def httpMkResponse(status: Int, headers: Map[Value, Value] = Map.empty, body: String = ""): Value =
-    Value.InstanceV("Response", Map(
-      "status"  -> Value.intV(status),
-      "headers" -> Value.MapV(headers),
-      "body"    -> Value.StringV(body)
+  private def httpMkResponse(status: Int, headers: Map[PluginValue, PluginValue] = Map.empty, body: String = ""): PluginValue =
+    PluginValue.instance("Response", Map(
+      "status"  -> PluginValue.int(status),
+      "headers" -> PluginValue.mapOf(headers),
+      "body"    -> PluginValue.string(body)
     ))
 
   private def httpBodyOf(v: Any): String = v match
     case s: String                           => s
-    case Value.InstanceV("_Raw", fields)    => fields.get("html").map(Value.show).getOrElse("")
-    case other: Value                        => Value.show(other)
+    case Inst("_Raw", fields)    => fields.get("html").map(_.show).getOrElse("")
+    case other if PluginValue.isRuntimeValue(other) => PluginValue.showAny(other)
     case other                               => other.toString
-
-  private def httpAnyToValue(a: Any): Value = a match
-    case n: Long    => Value.intV(n)
-    case i: Int     => Value.intV(i.toLong)
-    case d: Double  => Value.doubleV(d)
-    case s: String  => Value.StringV(s)
-    case b: Boolean => Value.boolV(b)
-    case ()         => Value.UnitV
-    case v: Value   => v
-    case other      => Value.StringV(other.toString)
 
   private def registerSchema(ctx: PluginContext, name: String, node: OpenApiGenerator.SchemaNode): Unit =
     val current: Map[String, OpenApiGenerator.SchemaNode] =

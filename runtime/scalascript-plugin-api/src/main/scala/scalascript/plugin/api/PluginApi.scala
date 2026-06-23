@@ -63,6 +63,30 @@ object PluginValue:
   def parseJson(src: String): Either[String, PluginValue] =
     try Right(wrap(scalascript.interpreter.JsonParser.parse(src)))
     catch case e: scalascript.interpreter.JsonParser.ParseError => Left(e.getMessage)
+
+  /** Parameter count of a user-defined function value (`FunV`), or None when `pv`
+   *  is not a user closure (a native fn or a non-function).  Lets a plugin detect
+   *  a `req => …` handler vs a bare value to auto-wrap. */
+  def funArity(pv: PluginValue): Option[Int] =
+    pv match { case f: Value.FunV => Some(f.params.length); case _ => None }
+
+  /** Wrap an HTTP handler so any typed parameters auto-(de)serialize from path →
+   *  query → JSON body (the bundled `mount` typed-handler support).  Delegates to
+   *  the interpreter's `TypedHandlerWrapper` through the seam; returns `handler`
+   *  unchanged if it has no typed params.  `invoke` runs the underlying handler. */
+  def wrapTypedHandler(
+      handler:      PluginValue,
+      invoke:       (PluginValue, List[PluginValue]) => PluginValue,
+      globalsView:  collection.Map[String, PluginValue],
+      mountedPath:  String,
+      errorDetails: Boolean
+  ): PluginValue =
+    wrap(scalascript.interpreter.TypedHandlerWrapper.wrapIfTyped(
+      handler.asInstanceOf[Value],
+      (f, a) => invoke(wrap(f), a.map(wrap)).asInstanceOf[Value],
+      globalsView.view.mapValues(_.asInstanceOf[Value]).toMap,
+      mountedPath,
+      errorDetails))
   /** Render ANY value: a runtime value via the interpreter's `show`, a native Scala value via
    *  `toString`. Lets a plugin replace `value match { case v: Value => Value.show(v); case x => x.toString }`. */
   def showAny(v: Any): String = v match
