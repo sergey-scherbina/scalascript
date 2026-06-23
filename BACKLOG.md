@@ -14,6 +14,58 @@ Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open,
 explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
 are plain bullets without checkboxes so agents do not claim them as build work.
 
+## Crypto/finance roadmap — later epics (2026-06-23, with Sergiy)
+
+The larger / later items of the crypto/blockchain/identity/payments roadmap. Near-term codeable slices are in
+`SPRINT.md` → "Crypto/finance roadmap". Full plan + per-item "what / why / where / benefit":
+**[`docs/crypto-finance-roadmap.md`](docs/crypto-finance-roadmap.md)** (explainer) +
+**[`specs/crypto-finance-roadmap.md`](specs/crypto-finance-roadmap.md)** (engineering plan). All follow the
+**reference → seam → gate → native** FROST template. Grouped here so the area isn't scattered.
+
+**Track 1 — chains & currencies (deeper):**
+- [ ] **crypto-spi-pure-references** — pure-Scala references for Keccak-256, Blake2b, RIPEMD-160, secp256k1
+      scalar/point math, `register`-able as the SPI fallback so each primitive runs with no native provider
+      (deepens `crypto-spi-blake2b`). Gate: bit-for-bit vs BouncyCastle/`@noble` over RFC vectors + random inputs.
+- [ ] **chains-new-adapters** (epic) — a `ChainAdapter` per new chain: Aptos / Sui / Stellar / XRPL / Polkadot
+      (Ed25519 or secp256k1 + tidy encoding). "Mostly another adapter" once the primitive is in the SPI.
+      **Polkadot is BLOCKED on an sr25519 (Schnorrkel) reference** — `Curve.Sr25519` is enumerated but
+      unimplemented. Gate: address derivation + a signed-tx fixture per chain.
+
+**Track 2 — threshold & MPC (heavier, after `frost-secp256k1`):**
+- [ ] **musig2** — Bitcoin n-of-n as a single on-chain key; MuSig2 2-round aggregation over the secp256k1
+      Schnorr base from `frost-secp256k1`. Gate: aggregated sig verifies as an ordinary BIP-340 single-key sig;
+      BIP-327 vectors.
+- [ ] **threshold-ecdsa** (heaviest — genuinely multi-round MPC, NOT "implement a trait") — GG/Lindell
+      threshold ECDSA (Paillier/OT) for legacy Bitcoin/Ethereum (ECDSA) addresses. Own module; reuses only the
+      Shamir/Lagrange base. Gate: output verifies as standard ECDSA vs a reference for random t-of-n.
+- [ ] **vrf-bls** — VRF (RFC 9381 ECVRF) for leader-election/lottery randomness; BLS aggregate signatures over
+      **BLS12-381** (`Curve.Bls12_381` enumerated, unimplemented → **BLOCKED on a pairing-friendly-curve
+      reference**). Gate: VRF + BLS aggregate verify and match RFC/IETF vectors.
+
+**Track 3 — identity & token services (clusters):**
+- [ ] **webauthn-server-verify** — server-side passkey assertion verification (P-256/Ed25519 verify + CBOR
+      attestation), closing the loop with our existing client-assertion path (ERC-4337 passkey owner). Gate:
+      W3C WebAuthn vectors + round-trip with our own client assertions.
+- [ ] **token-formats** — PASETO / JWT / COSE token sign+verify over the crypto SPI (COSE pairs with
+      webauthn-server-verify). Gate: RFC 7519 (JWT) / PASETO / RFC 8152 (COSE) vectors.
+- [ ] **noise-protocol** — Noise handshake patterns over the existing X25519 + ChaCha20-Poly1305 primitives
+      (short hop — WalletConnect already uses them). Gate: Noise spec vectors (XX, IK).
+- [ ] **did-vc** (epic) — did:key / did:web resolvers + Verifiable Credential signing (JSON-LD or JWT) over the
+      crypto SPI; a whole decentralized-identity stack. Gate: W3C DID/VC test suites.
+- [ ] **age-encryption** — encrypt-to-public-key: age (X25519 + ChaCha20) first, PGP interop only if demanded.
+      Gate: age reference vectors; round-trip with the `age` CLI.
+
+**Track 4 — "invent our own" products:**
+- [ ] **threshold-custody-wallet** (the natural product; unblocked by `frost-secp256k1` +
+      `frost-distributed-transport`) — compose `cryptoFrost` + `walletVaultMpcFrost` + the transport into a
+      packaged, vendor-optional distributed threshold-custody wallet (~90% of parts already exist). Gate: a
+      deployable multi-host demo signs without co-located shares; shipped as a product example.
+- [ ] **micropayment-own-scheme** — a new off-chain settlement scheme behind the existing `ChannelProvider` SPI
+      (`payments/micropayment`). Gate: open→pay→settle lifecycle test, parity with existing providers.
+- [ ] **distributed-infra** (speculative) — reference-first oracle/attestation, content-addressed storage, and
+      gossip/CRDT layers over the actor/cluster substrate + crypto SPI. Gate: per-component correctness + a
+      cluster integration test.
+
 ## Roadmap — agreed priority order (2026-06-17, with Sergiy)
 
 Drive top-to-bottom, one major theme at a time. **Maven/centralized publication is dead

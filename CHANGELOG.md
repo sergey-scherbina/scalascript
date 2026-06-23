@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — Crypto/finance roadmap planned + grouped (docs + spec + SPRINT/BACKLOG)
+
+Turned the loose forward-looking brainstorm in `docs/capabilities.md §7` into a committed, grouped roadmap so
+the area isn't scattered: new explainer `docs/crypto-finance-roadmap.md` (what / why / where / benefit for every
+item — chains, threshold/MPC signing, identity & token services, "invent our own" products) + companion
+engineering plan `specs/crypto-finance-roadmap.md` (sliced work, file pointers, acceptance gates, sequencing,
+all on the FROST `reference → seam → gate → native` template). Near-term codeable slices queued in `SPRINT.md`
+(crypto-spi-blake2b, noble-js-hd-derivation, chains-backend-agnostic for Cardano/Bitcoin/Cosmos, client-solana-rpc,
+frost-secp256k1, frost-distributed-transport, totp-hotp, shamir-secret-backup); larger epics in `BACKLOG.md`
+(pure-Scala primitive references, new chain adapters, MuSig2, threshold-ECDSA, VRF/BLS, WebAuthn-verify,
+PASETO/JWT/COSE, Noise, DID/VC, age, threshold-custody-wallet, own micropayment scheme, distributed infra).
+Corrected two stale claims against the code while grouping: **Keccak-256 + RIPEMD-160 already exist in the SPI —
+Blake2b is the one missing hash**; **Solana already broadcasts** (via the generic RPC seam) — its only gap is a
+turnkey client module. Planning/docs only — no implementation in this change.
+
 ## 2026-06-23 — FROST-Ed25519 slice 8: wallet vault integration (`walletVaultMpcFrost`)
 
 FROST wired into the wallet stack as an in-house threshold provider. `FrostSigningClient` implements the existing
