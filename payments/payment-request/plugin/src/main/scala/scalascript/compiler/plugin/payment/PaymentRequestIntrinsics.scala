@@ -2,8 +2,7 @@ package scalascript.compiler.plugin.payment
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
-import scalascript.interpreter.{Value, InterpretError}
-import scalascript.plugin.api.PluginNative
+import scalascript.plugin.api.{PluginNative, PluginValue, PluginError}
 
 /** Payment Request API intrinsics for the tree-walking interpreter.
  *
@@ -19,146 +18,146 @@ object PaymentRequestIntrinsics:
 
     QualifiedName("PaymentRequest") -> PluginNative.evalLegacy { (_, args) =>
       // Store methods + details in an instance for show() to read
-      val fields: Map[String, Value] = args match
+      val fields: Map[String, PluginValue] = args match
         case List(methods, total, items, options, shippingOpts) =>
-          Map("methods" -> methods.asInstanceOf[Value], "total" -> total.asInstanceOf[Value],
-              "items" -> items.asInstanceOf[Value], "options" -> options.asInstanceOf[Value],
-              "shippingOptions" -> shippingOpts.asInstanceOf[Value])
+          Map("methods" -> methods.asInstanceOf[PluginValue], "total" -> total.asInstanceOf[PluginValue],
+              "items" -> items.asInstanceOf[PluginValue], "options" -> options.asInstanceOf[PluginValue],
+              "shippingOptions" -> shippingOpts.asInstanceOf[PluginValue])
         case List(methods, total, items) =>
-          Map("methods" -> methods.asInstanceOf[Value], "total" -> total.asInstanceOf[Value],
-              "items" -> items.asInstanceOf[Value])
+          Map("methods" -> methods.asInstanceOf[PluginValue], "total" -> total.asInstanceOf[PluginValue],
+              "items" -> items.asInstanceOf[PluginValue])
         case List(methods, total) =>
-          Map("methods" -> methods.asInstanceOf[Value], "total" -> total.asInstanceOf[Value])
-        case _ => throw InterpretError("PaymentRequest(methods, total, ...)")
-      Value.InstanceV("PaymentRequest", fields)
+          Map("methods" -> methods.asInstanceOf[PluginValue], "total" -> total.asInstanceOf[PluginValue])
+        case _ => PluginError.raise("PaymentRequest(methods, total, ...)")
+      PluginValue.instance("PaymentRequest", fields)
     },
 
     // ── canMakePayment ────────────────────────────────────────────────────
 
     QualifiedName("PaymentRequest.canMakePayment") -> PluginNative.evalLegacy { (_, _) =>
-      Value.InstanceV("Future", Map("value" -> Value.True))
+      PluginValue.instance("Future", Map("value" -> PluginValue.bool(true)))
     },
 
     // ── show — returns a mock PaymentResponse ─────────────────────────────
 
     QualifiedName("PaymentRequest.show") -> PluginNative.evalLegacy { (_, _) =>
-      val response = Value.InstanceV("PaymentResponse", Map(
-        "methodName"      -> Value.StringV("basic-card"),
-        "payerName"       -> Value.InstanceV("Some", Map("value" -> Value.StringV("Test User"))),
-        "payerEmail"      -> Value.InstanceV("Some", Map("value" -> Value.StringV("test@example.com"))),
-        "payerPhone"      -> Value.InstanceV("None", Map.empty),
-        "shippingAddress" -> Value.InstanceV("None", Map.empty),
-        "shippingOption"  -> Value.InstanceV("None", Map.empty),
-        "details"         -> Value.InstanceV("Map", Map.empty)
+      val response = PluginValue.instance("PaymentResponse", Map(
+        "methodName"      -> PluginValue.string("basic-card"),
+        "payerName"       -> PluginValue.instance("Some", Map("value" -> PluginValue.string("Test User"))),
+        "payerEmail"      -> PluginValue.instance("Some", Map("value" -> PluginValue.string("test@example.com"))),
+        "payerPhone"      -> PluginValue.instance("None", Map.empty),
+        "shippingAddress" -> PluginValue.instance("None", Map.empty),
+        "shippingOption"  -> PluginValue.instance("None", Map.empty),
+        "details"         -> PluginValue.instance("Map", Map.empty)
       ))
-      Value.InstanceV("Future", Map("value" -> response))
+      PluginValue.instance("Future", Map("value" -> response))
     },
 
     // ── complete ──────────────────────────────────────────────────────────
 
     QualifiedName("PaymentResponse.complete") -> PluginNative.evalLegacy { (_, _) =>
-      Value.InstanceV("Future", Map("value" -> Value.UnitV))
+      PluginValue.instance("Future", Map("value" -> PluginValue.unit))
     },
 
     // ── abort ─────────────────────────────────────────────────────────────
 
     QualifiedName("PaymentRequest.abort") -> PluginNative.evalLegacy { (_, _) =>
-      Value.UnitV
+      PluginValue.unit
     },
 
     // ── event hooks (no-ops in interpreter) ───────────────────────────────
 
-    QualifiedName("PaymentRequest.onMerchantValidation")    -> PluginNative.evalLegacy { (_, _) => Value.UnitV},
-    QualifiedName("PaymentRequest.onShippingAddressChange") -> PluginNative.evalLegacy { (_, _) => Value.UnitV},
-    QualifiedName("PaymentRequest.onShippingOptionChange")  -> PluginNative.evalLegacy { (_, _) => Value.UnitV},
+    QualifiedName("PaymentRequest.onMerchantValidation")    -> PluginNative.evalLegacy { (_, _) => PluginValue.unit},
+    QualifiedName("PaymentRequest.onShippingAddressChange") -> PluginNative.evalLegacy { (_, _) => PluginValue.unit},
+    QualifiedName("PaymentRequest.onShippingOptionChange")  -> PluginNative.evalLegacy { (_, _) => PluginValue.unit},
 
     // ── ApplePay server intrinsics (mocked) ───────────────────────────────
 
     QualifiedName("ApplePay.validateMerchant") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(Value.StringV(_), Value.StringV(id), Value.StringV(name), Value.StringV(domain), _, _) =>
+        case List(PluginValue.Str(_), PluginValue.Str(id), PluginValue.Str(name), PluginValue.Str(domain), _, _) =>
           val mockSession = s"""{"merchantSessionIdentifier":"MOCK_SESSION","merchantIdentifier":"$id","domainName":"$domain","displayName":"$name","nonce":"mock","signature":"mock"}"""
-          Value.StringV(mockSession)
-        case _ => throw InterpretError("ApplePay.validateMerchant(url, merchantId, merchantName, domain, certPath, keyPath)")
+          PluginValue.string(mockSession)
+        case _ => PluginError.raise("ApplePay.validateMerchant(url, merchantId, merchantName, domain, certPath, keyPath)")
     },
 
     QualifiedName("ApplePay.decryptToken") -> PluginNative.evalLegacy { (_, _) =>
-      Value.InstanceV("ApplePayDecryptedToken", Map(
-        "applicationPrimaryAccountNumber" -> Value.StringV("4111111111111111"),
-        "expirationDate"                  -> Value.StringV("2512"),
-        "currencyCode"                    -> Value.InstanceV("Some", Map("value" -> Value.StringV("USD"))),
-        "transactionAmount"               -> Value.InstanceV("Some", Map("value" -> Value.intV(4999L))),
-        "cardholderName"                  -> Value.InstanceV("Some", Map("value" -> Value.StringV("Test User"))),
-        "onlinePaymentCryptogram"         -> Value.InstanceV("Some", Map("value" -> Value.StringV("MOCK_CRYPTOGRAM")))
+      PluginValue.instance("ApplePayDecryptedToken", Map(
+        "applicationPrimaryAccountNumber" -> PluginValue.string("4111111111111111"),
+        "expirationDate"                  -> PluginValue.string("2512"),
+        "currencyCode"                    -> PluginValue.instance("Some", Map("value" -> PluginValue.string("USD"))),
+        "transactionAmount"               -> PluginValue.instance("Some", Map("value" -> PluginValue.int(4999L))),
+        "cardholderName"                  -> PluginValue.instance("Some", Map("value" -> PluginValue.string("Test User"))),
+        "onlinePaymentCryptogram"         -> PluginValue.instance("Some", Map("value" -> PluginValue.string("MOCK_CRYPTOGRAM")))
       ))
     },
 
     // ── GooglePay server intrinsics (mocked) ──────────────────────────────
 
     QualifiedName("GooglePay.decryptToken") -> PluginNative.evalLegacy { (_, _) =>
-      Value.InstanceV("GooglePayDecryptedCard", Map(
-        "pan"          -> Value.StringV("4111111111111111"),
-        "expiryMonth"  -> Value.StringV("12"),
-        "expiryYear"   -> Value.StringV("2025"),
-        "authMethod"   -> Value.StringV("PAN_ONLY"),
-        "cryptogram"   -> Value.InstanceV("None", Map.empty),
-        "eciIndicator" -> Value.InstanceV("None", Map.empty)
+      PluginValue.instance("GooglePayDecryptedCard", Map(
+        "pan"          -> PluginValue.string("4111111111111111"),
+        "expiryMonth"  -> PluginValue.string("12"),
+        "expiryYear"   -> PluginValue.string("2025"),
+        "authMethod"   -> PluginValue.string("PAN_ONLY"),
+        "cryptogram"   -> PluginValue.instance("None", Map.empty),
+        "eciIndicator" -> PluginValue.instance("None", Map.empty)
       ))
     },
 
     // ── PaymentMethod constructors ────────────────────────────────────────
 
     QualifiedName("PaymentMethod.Card") -> PluginNative.evalLegacy { (_, args) =>
-      val networks = args.headOption.getOrElse(Value.EmptyList).asInstanceOf[Value]
-      val types    = args.lift(1).getOrElse(Value.EmptyList).asInstanceOf[Value]
-      Value.InstanceV("PaymentMethod.Card", Map("networks" -> networks, "types" -> types))
+      val networks = args.headOption.getOrElse(PluginValue.list(Nil)).asInstanceOf[PluginValue]
+      val types    = args.lift(1).getOrElse(PluginValue.list(Nil)).asInstanceOf[PluginValue]
+      PluginValue.instance("PaymentMethod.Card", Map("networks" -> networks, "types" -> types))
     },
 
     QualifiedName("PaymentMethod.ApplePay") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(Value.StringV(id), Value.StringV(name)) =>
-          Value.InstanceV("PaymentMethod.ApplePay",
-            Map("merchantId" -> Value.StringV(id), "merchantName" -> Value.StringV(name),
-                "countryCode" -> Value.StringV("US")))
-        case List(Value.StringV(id), Value.StringV(name), Value.StringV(cc)) =>
-          Value.InstanceV("PaymentMethod.ApplePay",
-            Map("merchantId" -> Value.StringV(id), "merchantName" -> Value.StringV(name),
-                "countryCode" -> Value.StringV(cc)))
-        case _ => throw InterpretError("PaymentMethod.ApplePay(merchantId, merchantName[, countryCode])")
+        case List(PluginValue.Str(id), PluginValue.Str(name)) =>
+          PluginValue.instance("PaymentMethod.ApplePay",
+            Map("merchantId" -> PluginValue.string(id), "merchantName" -> PluginValue.string(name),
+                "countryCode" -> PluginValue.string("US")))
+        case List(PluginValue.Str(id), PluginValue.Str(name), PluginValue.Str(cc)) =>
+          PluginValue.instance("PaymentMethod.ApplePay",
+            Map("merchantId" -> PluginValue.string(id), "merchantName" -> PluginValue.string(name),
+                "countryCode" -> PluginValue.string(cc)))
+        case _ => PluginError.raise("PaymentMethod.ApplePay(merchantId, merchantName[, countryCode])")
     },
 
     QualifiedName("PaymentMethod.GooglePay") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(Value.StringV(id), Value.StringV(name)) =>
-          Value.InstanceV("PaymentMethod.GooglePay",
-            Map("merchantId" -> Value.StringV(id), "merchantName" -> Value.StringV(name),
-                "environment" -> Value.StringV("TEST")))
-        case List(Value.StringV(id), Value.StringV(name), env) =>
-          Value.InstanceV("PaymentMethod.GooglePay",
-            Map("merchantId" -> Value.StringV(id), "merchantName" -> Value.StringV(name),
-                "environment" -> env.asInstanceOf[Value]))
-        case _ => throw InterpretError("PaymentMethod.GooglePay(merchantId, merchantName[, environment])")
+        case List(PluginValue.Str(id), PluginValue.Str(name)) =>
+          PluginValue.instance("PaymentMethod.GooglePay",
+            Map("merchantId" -> PluginValue.string(id), "merchantName" -> PluginValue.string(name),
+                "environment" -> PluginValue.string("TEST")))
+        case List(PluginValue.Str(id), PluginValue.Str(name), env) =>
+          PluginValue.instance("PaymentMethod.GooglePay",
+            Map("merchantId" -> PluginValue.string(id), "merchantName" -> PluginValue.string(name),
+                "environment" -> env.asInstanceOf[PluginValue]))
+        case _ => PluginError.raise("PaymentMethod.GooglePay(merchantId, merchantName[, environment])")
     },
 
     // ── Amount constructor ────────────────────────────────────────────────
 
     QualifiedName("Amount") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(Value.StringV(currency), Value.StringV(value)) =>
-          Value.InstanceV("Amount", Map("currency" -> Value.StringV(currency), "value" -> Value.StringV(value)))
-        case _ => throw InterpretError("Amount(currency, value)")
+        case List(PluginValue.Str(currency), PluginValue.Str(value)) =>
+          PluginValue.instance("Amount", Map("currency" -> PluginValue.string(currency), "value" -> PluginValue.string(value)))
+        case _ => PluginError.raise("Amount(currency, value)")
     },
 
     // ── PaymentItem constructor ───────────────────────────────────────────
 
     QualifiedName("PaymentItem") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(Value.StringV(label), amount) =>
-          Value.InstanceV("PaymentItem", Map("label" -> Value.StringV(label), "amount" -> amount.asInstanceOf[Value],
-                                             "pending" -> Value.False))
-        case List(Value.StringV(label), amount, Value.BoolV(pending)) =>
-          Value.InstanceV("PaymentItem", Map("label" -> Value.StringV(label), "amount" -> amount.asInstanceOf[Value],
-                                             "pending" -> Value.boolV(pending)))
-        case _ => throw InterpretError("PaymentItem(label, amount[, pending])")
+        case List(PluginValue.Str(label), amount) =>
+          PluginValue.instance("PaymentItem", Map("label" -> PluginValue.string(label), "amount" -> amount.asInstanceOf[PluginValue],
+                                             "pending" -> PluginValue.bool(false)))
+        case List(PluginValue.Str(label), amount, PluginValue.Bool(pending)) =>
+          PluginValue.instance("PaymentItem", Map("label" -> PluginValue.string(label), "amount" -> amount.asInstanceOf[PluginValue],
+                                             "pending" -> PluginValue.bool(pending)))
+        case _ => PluginError.raise("PaymentItem(label, amount[, pending])")
     },
   )

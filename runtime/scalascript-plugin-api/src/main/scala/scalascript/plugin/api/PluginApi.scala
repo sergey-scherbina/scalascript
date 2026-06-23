@@ -69,6 +69,34 @@ object PluginValue:
     def asInstance: Option[(String, Map[String, PluginValue])] =
       pv match { case Value.InstanceV(tn, fs) => Some((tn, fs.map((k, v) => (k, wrap(v))))); case _ => None }
 
+  // ── Extractor objects: pattern-match a raw `List[Any]` arg / runtime value WITHOUT importing
+  //    `Value`. e.g. `args match { case List(Str(label), Bool(p)) => … }`. They accept `Any` because
+  //    `NativeImpl`/`evalLegacy` hand the plugin `List[Any]`. ──
+  object Str      { def unapply(v: Any): Option[String]            = wrap(v).asString }
+  object Num      { def unapply(v: Any): Option[Long]              = wrap(v).asInt }
+  object Dbl      { def unapply(v: Any): Option[Double]            = wrap(v).asDouble }
+  object Bool     { def unapply(v: Any): Option[Boolean]           = wrap(v).asBool }
+  object Chr      { def unapply(v: Any): Option[Char]              = wrap(v).asChar }
+  object Lst      { def unapply(v: Any): Option[List[PluginValue]] = wrap(v).asList }
+  object Tpl      { def unapply(v: Any): Option[List[PluginValue]] = wrap(v).asTuple }
+  object Inst     { def unapply(v: Any): Option[(String, Map[String, PluginValue])] = wrap(v).asInstance }
+  /** `Opt(None)` matches a runtime `None`; `Opt(Some(inner))` a runtime `Some(inner)`. */
+  object Opt      { def unapply(v: Any): Option[Option[PluginValue]] = wrap(v).asOption }
+  object Big      { def unapply(v: Any): Option[BigInt]              = wrap(v).asBigInt }
+  object MapVal   { def unapply(v: Any): Option[Map[PluginValue, PluginValue]] = wrap(v).asMap }
+  /** Host-object wrapper `(typeName, handle)` — backs the interpreter's `Foreign`. */
+  object Foreign  { def unapply(v: Any): Option[(String, Any)] =
+                      wrap(v) match { case Value.Foreign(tn, h) => Some((tn, h)); case _ => None } }
+  /** Native-function value `(name, fn)` — backs the interpreter's `NativeFnV`. */
+  object NativeFn { def unapply(v: Any): Option[(String, Any)] =
+                      wrap(v) match { case Value.NativeFnV(n, f) => Some((n, f)); case _ => None } }
+
+  // ── Constructors for the host-interop / null cases ──
+  def foreign(typeName: String, handle: Any): PluginValue = Value.Foreign(typeName, handle)
+  val nullV: PluginValue = Value.NullV
+  /** True if the runtime value is `()` (Unit) or `null` — the interpreter's empty sentinels. */
+  def isUnitOrNull(v: Any): Boolean = { val w = wrap(v); w == unit || w == nullV }
+
 /** Opaque wrapper for an interpreter-level runtime error. */
 opaque type PluginError = Throwable
 
