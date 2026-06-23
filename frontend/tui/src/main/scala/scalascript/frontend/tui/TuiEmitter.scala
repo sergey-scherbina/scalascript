@@ -72,7 +72,7 @@ object TuiEmitter:
        |use ratatui::backend::{TestBackend, CrosstermBackend};
        |use ratatui::{Terminal, Frame};
        |use ratatui::layout::{Layout, Constraint, Rect};
-       |use ratatui::widgets::{Paragraph, Block, Borders};
+       |use ratatui::widgets::{Paragraph, Block, Borders, Table, Row};
        |use ratatui::buffer::Buffer;
        |use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
        |use ratatui::crossterm::terminal::{enable_raw_mode, disable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
@@ -168,6 +168,9 @@ object TuiEmitter:
       |}
       |fn sig(signals: &HashMap<String, Value>, id: &str) -> String {
       |    signals.get(id).map(|v| v.display()).unwrap_or_default()
+      |}
+      |fn sig_int(signals: &HashMap<String, Value>, id: &str) -> i64 {
+      |    match signals.get(id) { Some(Value::I(n)) => *n, Some(Value::S(s)) => s.parse().unwrap_or(0), Some(Value::B(b)) => if *b { 1 } else { 0 }, None => 0 }
       |}
       |fn sig_truthy(signals: &HashMap<String, Value>, id: &str) -> bool {
       |    signals.get(id).map(|v| v.truthy()).unwrap_or(false)
@@ -330,6 +333,8 @@ object TuiEmitter:
       case View.LazyList(items, render, _, _)  => items().map(render).foreach(collectSignals(_, acc))
       case View.Show(cond, t, f)               => collectSignals(if cond() then t() else f(), acc)
       case View.Button(label, action, _, _)    => collectSignals(label, acc); collectHandlerSignal(action, add)
+      case View.TabBar(tabs, current, _)       => add(current.id, valueExpr(current()), false); tabs.foreach(t => collectSignals(t.content, acc))
+      case View.NavigationStack(routes, current, _) => add(current.id, valueExpr(current()), false); routes.values.foreach(r => collectSignals(r(), acc))
       case _                                   => ()
 
   private def collectHandlerSignal(h: EventHandler, add: (String, String, Boolean) => Unit): Unit = h match
@@ -386,6 +391,48 @@ object TuiEmitter:
         val idx = fs.size
         fs += Focusable(idx, None, Some(value.id))
         para(s"""format!("{}{}", focus_mark(focus, $idx), text_input_display(signals, ${rustStr(value.id)}, ${rustStr(placeholder)}, $secure))""", area, sb)
+      case View.DataTable(source, columns, _, _) =>
+        source match
+          case TableDataSource.StaticRows(rows) =>
+            val n = math.max(1, columns.size)
+            val widths = (0 until n).map(_ => s"Constraint::Ratio(1, $n)").mkString(", ")
+            val header = columns.map(c => rustStr(c.title)).mkString(", ")
+            val rowExprs = rows.map { row =>
+              val cells = columns.map(c => rustStr(String.valueOf(row.getOrElse(c.fieldPath, "")))).mkString(", ")
+              s"Row::new(vec![$cells])"
+            }.mkString(", ")
+            sb ++= s"    { let __rows = vec![$rowExprs]; let __t = Table::new(__rows, [$widths]).header(Row::new(vec![$header])); frame.render_widget(__t, $area); }\n"
+          case _ =>
+            para(rustStr("(table: remote/signal source — wired in slice 5)"), area, sb)
+      case View.TabBar(tabs, current, _) =>
+        val outer = s"tabs${ids.next()}"
+        sb ++= s"    let $outer = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split($area);\n"
+        val hdr = s"tabhdr${ids.next()}"
+        val n = math.max(1, tabs.size)
+        val hw = (0 until n).map(_ => s"Constraint::Ratio(1, $n)").mkString(", ")
+        sb ++= s"    let $hdr = Layout::horizontal([$hw]).split($outer[0]);\n"
+        tabs.zipWithIndex.foreach { case (t, i) =>
+          val fidx = fs.size
+          fs += Focusable(fidx, Some(Mutation.Set(current.id, s"Value::I($i)")), None)
+          val active   = rustStr("[" + t.label + "]")
+          val inactive = rustStr(" " + t.label + " ")
+          sb ++= s"""    frame.render_widget(Paragraph::new(format!("{}{}", focus_mark(focus, $fidx), if sig_int(signals, ${rustStr(current.id)}) == $i { $active } else { $inactive })), $hdr[$i]);\n"""
+        }
+        sb ++= s"    match sig_int(signals, ${rustStr(current.id)}) {\n"
+        tabs.zipWithIndex.foreach { case (t, i) =>
+          sb ++= s"        $i => {\n"
+          emit(t.content, s"$outer[1]", sb, ids, fs)
+          sb ++= "        }\n"
+        }
+        sb ++= "        _ => {}\n    }\n"
+      case View.NavigationStack(routes, current, _) =>
+        sb ++= s"    match sig(signals, ${rustStr(current.id)}).as_str() {\n"
+        routes.foreach { case (name, viewThunk) =>
+          sb ++= s"        ${rustStr(name)} => {\n"
+          emit(viewThunk(), area, sb, ids, fs)
+          sb ++= "        }\n"
+        }
+        sb ++= "        _ => {}\n    }\n"
       case View.Divider(_, _) =>
         sb ++= s"    frame.render_widget(Block::new().borders(Borders::TOP), $area);\n"
       case View.Spacer(_) => ()
@@ -422,6 +469,11 @@ object TuiEmitter:
     case View.Styled(child, _)              => measureHeight(child)
     case View.Show(cond, t, f)              => measureHeight(if cond() then t() else f())
     case View.ShowSignal(_, t, f)           => math.max(measureHeight(t), measureHeight(f))
+    case View.TabBar(tabs, _, _)            => 1 + tabs.map(t => measureHeight(t.content)).maxOption.getOrElse(0)
+    case View.NavigationStack(routes, _, _) => routes.values.map(r => measureHeight(r())).maxOption.getOrElse(1)
+    case View.DataTable(source, columns, _, _) => source match
+      case TableDataSource.StaticRows(rows) => rows.size + 1
+      case _                                => 1
     case View.Spacer(size)                  => math.max(0, size.map(_.round.toInt).getOrElse(1))
     case _                                  => 1
 

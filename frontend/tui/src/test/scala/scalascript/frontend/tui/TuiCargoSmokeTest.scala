@@ -76,6 +76,46 @@ final class TuiCargoSmokeTest extends AnyFunSuite:
     finally
       deleteRecursively(dir)
 
+  test("DataTable + TabBar render via cargo"):
+    assume(cargoAvailable, "cargo not on PATH — skipping ratatui smoke")
+    val tab = new ReactiveSignal[Int]("tab", 0)
+    val dt = View.DataTable(
+      TableDataSource.StaticRows(List(
+        Map("room" -> "demo", "unread" -> "2"),
+        Map("room" -> "rozum", "unread" -> "5")
+      )),
+      List(FieldColumnDef("Room", "room"), FieldColumnDef("Unread", "unread"))
+    )
+    val view = View.TabBar(
+      Seq(Tab("Rooms", None, dt), Tab("Models", None, View.Text(() => "models panel"))),
+      tab
+    )
+    val out = snapshotViaCargo(view)
+    assert(out.contains("[Rooms]"),                       s"active tab header missing:\n$out")
+    assert(out.contains("Room") && out.contains("Unread"), s"table header missing:\n$out")
+    assert(out.contains("demo") && out.contains("rozum"), s"table rows missing:\n$out")
+
+  /** Emit `view`'s crate, `cargo run` it in `SSC_TUI_SNAPSHOT` mode (no TTY),
+   *  return stdout. Cleans up the temp crate. */
+  private def snapshotViaCargo(view: View[?]): String =
+    val module = FrontendModule(List(ComponentDef("App", Nil, _ => view)), "App", "/", targetPlatform = Platform.Terminal)
+    val app = new TuiFrameworkBackend().emitNative(module, Platform.Terminal).getOrElse(fail("emitNative returned None"))
+    val dir = Files.createTempDirectory("ssc-tui-smoke2-")
+    try
+      app.sources.foreach { case (rel, content) =>
+        val p = dir.resolve(rel)
+        Files.createDirectories(p.getParent)
+        Files.writeString(p, content)
+      }
+      val out = new StringBuilder
+      val err = new StringBuilder
+      val log = ProcessLogger(l => out.append(l).append('\n'), l => err.append(l).append('\n'))
+      val code = Process(Seq("cargo", "run", "--quiet"), dir.toFile, "SSC_TUI_SNAPSHOT" -> "1").!(log)
+      assert(code == 0, s"cargo run failed (exit $code):\n${err.toString}")
+      out.toString
+    finally
+      deleteRecursively(dir)
+
   private def deleteRecursively(p: Path): Unit =
     try
       if Files.exists(p) then

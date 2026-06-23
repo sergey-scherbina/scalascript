@@ -116,6 +116,47 @@ final class TuiEmitterTest extends AnyFunSuite:
     assert(rs.contains("""Paragraph::new("say \"hi\"\tend")"""))
   }
 
+  test("DataTable with static rows lowers to a ratatui Table") {
+    val dt = View.DataTable(
+      TableDataSource.StaticRows(List(
+        Map("room" -> "demo", "unread" -> "2"),
+        Map("room" -> "rozum", "unread" -> "5")
+      )),
+      List(FieldColumnDef("Room", "room"), FieldColumnDef("Unread", "unread"))
+    )
+    val rs = emitMain(dt)
+    assert(rs.contains("Table::new("))
+    assert(rs.contains("""Row::new(vec!["Room", "Unread"])"""))   // header
+    assert(rs.contains("""Row::new(vec!["demo", "2"])"""))        // a data row
+    assert(rs.contains("""Row::new(vec!["rozum", "5"])"""))
+  }
+
+  test("TabBar lowers to a header row + a reactive content match; tabs set the current signal") {
+    val tab = new ReactiveSignal[Int]("tab", 0)
+    val rs = emitMain(View.TabBar(
+      Seq(Tab("Rooms", None, text("rooms panel")), Tab("Models", None, text("models panel"))),
+      tab
+    ))
+    assert(rs.contains("Layout::vertical([Constraint::Length(1), Constraint::Min(0)])"))
+    assert(rs.contains("""match sig_int(signals, "tab")"""))
+    assert(rs.contains("""Paragraph::new("rooms panel")"""))
+    assert(rs.contains("""Paragraph::new("models panel")"""))
+    // each tab header is a focusable whose activation sets the current tab index
+    assert(rs.contains("""signals.insert("tab".to_string(), Value::I(0));"""))
+    assert(rs.contains("""signals.insert("tab".to_string(), Value::I(1));"""))
+  }
+
+  test("NavigationStack lowers to a reactive route match") {
+    val route = new ReactiveSignal[String]("route", "home")
+    val rs = emitMain(View.NavigationStack(
+      Map("home" -> (() => text("home view")), "about" -> (() => text("about view"))),
+      route
+    ))
+    assert(rs.contains("""match sig(signals, "route").as_str()"""))
+    assert(rs.contains(""""home" => {"""))
+    assert(rs.contains("""Paragraph::new("home view")"""))
+  }
+
   test("Spacer reserves rows but renders nothing") {
     val rs = emitMain(View.Column(Seq(text("a"), View.Spacer(Some(2)), text("b"))))
     // three children → vertical split with the spacer measured at 2 rows
