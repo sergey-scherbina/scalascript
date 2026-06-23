@@ -233,8 +233,12 @@ client `LocalRegistry.resolve`.)
 the bound port; loopback by default. (`RegistryHttpServerTest` does an in-process round-trip with
 `java.net.http.HttpClient`.)
 
-**Follow-up slices:** auth for publish (token/API-key). EXTERNAL (deploy, not code): host + TLS for
-`registry.scalascript.io`.
+**publish auth (slice 5, DONE 2026-06-23).** `RegistryHttpServer` optional `publishTokens: Set[String]`:
+non-empty ⇒ `POST /publish` requires `Authorization: Bearer <token>` (else 401 + `WWW-Authenticate: Bearer`);
+empty ⇒ open (dev default); GET reads stay public.
+
+**Status: remote-package-registry CODE COMPLETE** (slices 1-5). The only remaining work is EXTERNAL deploy —
+host `registry.scalascript.io` (run `RegistryHttpServer` behind TLS) — not code.
 
 ## 7. Open questions
 

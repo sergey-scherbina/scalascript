@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — remote-package-registry slice 5: publish auth (Bearer token) — registry code COMPLETE
+
+`RegistryHttpServer` gains optional `publishTokens: Set[String]`: when non-empty, `POST /publish` requires
+`Authorization: Bearer <token>` with a token in the set (else 401 + `WWW-Authenticate: Bearer`); empty = open
+(the reference/dev default). GET reads stay public. Test: publish rejected with no/wrong token/wrong scheme,
+accepted with a valid token; reads still public. `RegistryHttpServerTest` 2/0. This completes the codeable
+scope of **remote-package-registry** — protocol + reference catalog (`FileRegistry`) + `packages.yaml` bridge
+to the existing client + `ssc plugin registry publish` + reference HTTP server + auth. Only EXTERNAL deploy
+(host `registry.scalascript.io` + TLS) remains. Spec `specs/arch-build-registry.md` §6b.
+
 ## 2026-06-23 — remote-package-registry slice 4: reference HTTP server over FileRegistry
 
 `RegistryHttpServer` — a minimal, dependency-free (JDK `com.sun.net.httpserver`) reference server over a

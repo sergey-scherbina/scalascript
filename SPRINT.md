@@ -91,8 +91,12 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
         dependency-free): `GET /packages.yaml` + `GET /packages/<id>/<version>.sscpkg` + `POST /publish/<id>/<version>`;
         auto-derives its self-referencing base URL from the bound port; loopback by default. In-process round-trip
         test (`java.net.http.HttpClient`). `RegistryHttpServerTest`+`RemoteRegistryTest` 10/0.
-  - [ ] **registry-publish-auth** (slice 5) — auth for `publish` (token/API-key; reject unauthenticated writes).
-        **Verify:** publish rejected without a valid token, accepted with one.
+  - [x] **registry-publish-auth** (slice 5) ✓ DONE 2026-06-23 — `RegistryHttpServer` optional
+        `publishTokens: Set[String]`: non-empty ⇒ `POST /publish` needs `Authorization: Bearer <token>` (else
+        401); empty ⇒ open (dev default); GET reads stay public. `RegistryHttpServerTest` 2/0.
+        **→ remote-package-registry CODE COMPLETE** (slices 1-5: protocol + `FileRegistry` + `packages.yaml`
+        bridge + `ssc plugin registry publish` + HTTP server + auth). Only EXTERNAL deploy (host the domain + TLS)
+        remains — the `[~]` parent stays open on that deploy step alone.
 
 - [ ] **FROST-Ed25519** (threshold Ed25519 signing — wallet MPC stack) — implement the FROST flexible
       round-optimized Schnorr threshold signature scheme over Ed25519 in the wallet/MPC vault stack (alongside
