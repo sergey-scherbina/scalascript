@@ -213,9 +213,17 @@ the round-trip test harness AND the implementation an HTTP service wraps:
 - `versions(id)`, `fetch(id, version)` — fetch verifies the SHA-256 against the index (no silent corruption).
 - Locked by `RemoteRegistryTest` (7 cases: publish/round-trip/latest/absent/immutability/JSON-persistence/version-ordering).
 
-**Follow-up slices:** `ssc publish` / `ssc search` CLI commands over `FileRegistry`; an HTTP server wrapping
-it (the JSON wire format is ready); remote `pkg:` resolution (name → registry `resolve` → URI →
-`RemotePluginInstaller`); auth for publish. EXTERNAL (deploy, not code): host `registry.scalascript.io`.
+**packages.yaml bridge (slice 2, DONE 2026-06-23).** The registry CLIENT already exists — `RegistryClient`
+fetches+caches `packages.yaml` from a URL; `ssc search`/`ssc install`/`LocalRegistry` consume it (`ssc publish`
+is taken by app-store upload). So `FileRegistry.exportPackagesYaml(baseUrl)` / `writePackagesYaml` project the
+catalog into the client's `LocalRegistry.Entry` `packages.yaml` shape (one entry per id at its latest version,
+`url`→the stored artifact) — a `FileRegistry`-served directory is consumed by the current client unchanged; the
+richer `index.json` (checksums/all-versions) stays the publish-side record. (`RemoteRegistryTest` round-trips the
+export through `LocalRegistry.parseFile`.)
+
+**Follow-up slices:** a publish command under a NON-conflicting name (`ssc registry publish` — not `ssc publish`);
+an HTTP server wrapping `FileRegistry` (GET `packages.yaml`+artifacts, POST publish — the client already speaks
+the GET side); auth for publish. EXTERNAL (deploy, not code): host `registry.scalascript.io`.
 
 ## 7. Open questions
 

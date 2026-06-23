@@ -69,12 +69,12 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
       + `ssc install` + `LocalRegistry` consume it; `ssc publish` is TAKEN (app-store upload). So the real gap is
       the SERVER/publish side, and `FileRegistry` must speak the client's **`packages.yaml`** format (not its own
       `index.json`). Slices corrected accordingly:
-  - [ ] **registry-packages-yaml-bridge** (slice 2, corrected) — make `FileRegistry` emit a `packages.yaml`
-        view (`LocalRegistry.Entry` shape: id→url+version+description, pointing at the stored artifacts) so the
-        EXISTING `RegistryClient`/`ssc search`/`ssc install` consume a `FileRegistry`-served directory unchanged.
-        Keep the richer `index.json` (sha256/versions) as the publish-side record; `packages.yaml` is the
-        client-facing projection. **Verify:** publish to a `FileRegistry`, point `RegistryClient`/`ssc search` at
-        its emitted `packages.yaml`, find + (offline) resolve the package.
+  - [x] **registry-packages-yaml-bridge** (slice 2) ✓ DONE 2026-06-23 — `FileRegistry.exportPackagesYaml(baseUrl)`
+        / `writePackagesYaml` project the catalog into the client `LocalRegistry.Entry` `packages.yaml` shape
+        (id→url+version+description, one entry per id at its latest version, `url`→stored artifact), so the
+        EXISTING `RegistryClient`/`ssc search`/`ssc install` consume a `FileRegistry`-served dir unchanged; the
+        richer `index.json` (sha256/all-versions) stays the publish-side record. Test round-trips through
+        `LocalRegistry.parseFile`/`resolve`. `RemoteRegistryTest` 8/0.
   - [ ] **registry-publish-cmd** (slice 3) — a publish command under a NON-conflicting name (`ssc registry
         publish <pkg.sscpkg>` subcommand, or extend `ssc plugin` — NOT `ssc publish`, which is app-store). Reads
         id+version from the `.sscpkg` manifest (`SscpkgManifest` via `SscpkgLoader`), calls `FileRegistry.publish`,

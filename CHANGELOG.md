@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — remote-package-registry slice 2: FileRegistry emits client `packages.yaml`
+
+Bridged the new server-side `FileRegistry` to the EXISTING client registry format. Probing revealed the
+client half is already complete — `RegistryClient` fetches+caches `packages.yaml` from a URL, and `ssc search`
+/ `ssc install` / `LocalRegistry` consume it (`ssc publish` is taken by app-store upload). So instead of a new
+`index.json` client contract, `FileRegistry.exportPackagesYaml(baseUrl)` / `writePackagesYaml` project the
+catalog into the client's `LocalRegistry.Entry` `packages.yaml` shape (one entry per id at its latest version,
+`url` → the stored artifact) — so a `FileRegistry`-served directory is consumed by the current client
+unchanged; the richer `index.json` (checksums/all-versions) stays the publish-side record. Test round-trips
+through the existing `LocalRegistry.parseFile`/`resolve`. `RemoteRegistryTest` 8/0. Spec
+`specs/arch-build-registry.md` §6b.
+
 ## 2026-06-23 — core-min actors: explicit runtime host-service seam
 
 Added the first green slice of `coremin-actors-codemove`: `ActorRuntimeHost` now exposes the non-server
