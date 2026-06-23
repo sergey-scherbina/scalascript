@@ -1,4 +1,4 @@
-package scalascript.crypto.frost
+package scalascript.crypto
 
 import java.math.BigInteger
 

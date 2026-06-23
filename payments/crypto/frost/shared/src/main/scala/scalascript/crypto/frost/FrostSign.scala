@@ -1,5 +1,7 @@
 package scalascript.crypto.frost
 
+import scalascript.crypto.Ed25519Group
+
 import java.math.BigInteger
 
 /** FROST-Ed25519 two-round threshold signing (FROST-Ed25519 slices 3+4). Produces a **standard Ed25519

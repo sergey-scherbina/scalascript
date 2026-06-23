@@ -1,4 +1,4 @@
-package scalascript.crypto.frost
+package scalascript.crypto
 
 import org.scalatest.funsuite.AnyFunSuite
 

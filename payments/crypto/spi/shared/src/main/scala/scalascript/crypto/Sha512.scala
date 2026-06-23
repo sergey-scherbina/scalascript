@@ -1,4 +1,4 @@
-package scalascript.crypto.frost
+package scalascript.crypto
 
 /** Portable SHA-512 (FIPS 180-4), pure Scala over 64-bit `Long` — works identically on the JVM and Scala.js
  *  (and any backend with `Long`), so the FROST reference backend needs no platform crypto API

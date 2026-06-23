@@ -1,5 +1,7 @@
 package scalascript.crypto.frost
 
+import scalascript.crypto.{Ed25519Group, Sha512}
+
 import java.math.BigInteger
 
 /** The Ed25519 primitive operations FROST is built on — the **pluggable backend seam**, mirroring the project's

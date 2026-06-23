@@ -1,5 +1,7 @@
 package scalascript.crypto.frost
 
+import scalascript.crypto.Ed25519Group
+
 import org.scalatest.funsuite.AnyFunSuite
 import java.math.BigInteger
 

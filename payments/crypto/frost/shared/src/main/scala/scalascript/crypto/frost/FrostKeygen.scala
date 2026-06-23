@@ -1,5 +1,7 @@
 package scalascript.crypto.frost
 
+import scalascript.crypto.Ed25519Group
+
 import java.math.BigInteger
 
 /** FROST key generation — **trusted-dealer** Shamir secret sharing over the Ed25519 scalar field (mod `L`)
