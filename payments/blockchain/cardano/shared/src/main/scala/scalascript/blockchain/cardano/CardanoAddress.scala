@@ -1,7 +1,6 @@
 package scalascript.blockchain.cardano
 
-import org.bouncycastle.crypto.digests.Blake2bDigest
-import scalascript.crypto.{Curve, PublicKey}
+import scalascript.crypto.{Blake2b, Curve, PublicKey}
 
 /** Cardano address utilities — CIP-19.
  *
@@ -77,9 +76,6 @@ object CardanoAddress:
       case 0xE0 | 0xF0 => Kind.Reward
       case _           => Kind.Other
 
-  private def blake2b224(data: Array[Byte]): Array[Byte] =
-    val digest = Blake2bDigest(224)
-    digest.update(data, 0, data.length)
-    val out = new Array[Byte](28)
-    digest.doFinal(out, 0)
-    out
+  // Cardano hashes the Ed25519 key with BLAKE2b-224 (CIP-19); the portable reference is
+  // backend-agnostic, so this module needs no `org.bouncycastle` dependency and cross-compiles to JS.
+  private def blake2b224(data: Array[Byte]): Array[Byte] = Blake2b.hash224(data)

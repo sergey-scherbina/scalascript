@@ -2429,17 +2429,29 @@ lazy val blockchainSolana = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
-lazy val blockchainCardano = project
-  .in(file("payments/blockchain/cardano"))
-  .dependsOn(blockchainSpi, cryptoSpi, cryptoBouncycastle, clientBlockfrost)
-  .settings(
-    name := "scalascript-blockchain-cardano",
-    libraryDependencies ++= Seq(
-      scalatestTest,
-    ),
-    Compile / scalacOptions ++= sharedScalacOptionsStrict,
-    Test    / scalacOptions ++= sharedScalacOptions,
-  )
+// Cross-compiled (JVM + Scala.js). The portable address / CBOR / Blake2b core
+// (shared/) is backend-agnostic and cross-compiles to JS for browser wallets; the
+// Blockfrost-backed `CardanoChainAdapter` (jvm/) stays JVM-only (sttp4 + Future I/O).
+lazy val blockchainCardanoCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Full)
+    .in(file("payments/blockchain/cardano"))
+    .dependsOn(cryptoSpiCross)
+    .settings(
+      name := "scalascript-blockchain-cardano",
+      libraryDependencies += "org.scalatest" %%% "scalatest" % scalatestV % Test,
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    // The JVM adapter additionally needs the blockchain SPI + Blockfrost client;
+    // BouncyCastle is a test-only runtime backend (ServiceLoader) for the HD tests.
+    .jvmConfigure(_.withId("blockchainCardano")
+      .dependsOn(blockchainSpi, clientBlockfrost, cryptoBouncycastle % Test))
+    .jsConfigure(_.withId("blockchainCardanoJs"))
+    .jsSettings(Test / fork := false)
+
+lazy val blockchainCardano   = blockchainCardanoCross.jvm
+lazy val blockchainCardanoJs = blockchainCardanoCross.js
 
 lazy val blockchainBitcoin = project
   .in(file("payments/blockchain/bitcoin"))
@@ -3689,7 +3701,7 @@ lazy val root = project
     x402Core, x402Server, x402Client, x402ClientJs,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoFrost, cryptoFrostJs, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, blockchainBitcoin, blockchainCosmos, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultTrezor, walletVaultMpcFireblocks, walletVaultMpcCoinbase, walletVaultMpcLit, walletVaultMpcZengo, walletVaultMpcFrost, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerJs, walletVaultLedgerBluetoothJs, walletVaultLedgerEthereum, walletVaultLedgerSolana, walletVaultLedgerBitcoin, walletVaultLedgerCardano, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
+    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoFrost, cryptoFrostJs, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, blockchainCardanoJs, blockchainBitcoin, blockchainCosmos, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultTrezor, walletVaultMpcFireblocks, walletVaultMpcCoinbase, walletVaultMpcLit, walletVaultMpcZengo, walletVaultMpcFrost, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerJs, walletVaultLedgerBluetoothJs, walletVaultLedgerEthereum, walletVaultLedgerSolana, walletVaultLedgerBitcoin, walletVaultLedgerCardano, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
     frontendCore,
     // Frontend backends — derived from allFrontends registry below (arch-build-registry Phase 4)

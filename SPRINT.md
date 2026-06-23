@@ -123,8 +123,14 @@ foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (high
       crossProject (currently all three are JVM-only `project`s). **Why:** this is the only crypto path still
       bypassing the SPI, and the sole reason these three are JVM-only + carry a heavy dep. The "FROST move",
       repeated → 3 chains gain JS + shed BouncyCastle.
-      - Slice 1 (Cardano): `CardanoAddress` Blake2b-224 → `crypto.hash(Blake2b224,…)` (needs `crypto-spi-blake2b`);
-        `blockchainCardano` → crossProject; verify CIP-19 fixtures JVM+JS.
+      - [x] Slice 1 (Cardano) ✓ DONE 2026-06-23 — `CardanoAddress` Blake2b-224 + `CardanoChainAdapter.txBodyHash`
+        Blake2b-256 now use the portable `scalascript.crypto.Blake2b` reference (zero `org.bouncycastle` in
+        `src/main`). `blockchainCardano` → `crossProject(JVM, JS)` `CrossType.Full`: the portable address / CBOR /
+        Blake2b / tx-type core moved to `shared/` (cross-compiles to JS); the Blockfrost-backed adapter stays in
+        `jvm/` (sttp4 + Future I/O). New `CardanoPortableTest` (shared, no `CryptoBackend`) pins byte-exact CIP-19
+        address goldens + RFC 7693 BLAKE2b vectors + tx-body-hash + bech32 + CBOR roundtrips → **JVM 42 / JS 19
+        green**, proving browser-wallet bytes are byte-identical to the JVM. HD-on-JS already covered by
+        `noble-js-hd-derivation`. Downstream `x402*Cardano*` consumers recompile clean (`.jvm` keeps the id).
       - Slice 2 (Bitcoin): `BitcoinCrypto` secp256k1-DER → `crypto.sign(Secp256k1,…)` + RIPEMD-160 →
         `crypto.hash(Ripemd160,…)`; `blockchainBitcoin` → crossProject; verify P2WPKH/PSBT fixtures JVM+JS.
         **Gotcha (open Q in spec §9):** confirm the SPI `sign(Secp256k1)` emits canonical low-S DER before
