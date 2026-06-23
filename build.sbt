@@ -1112,6 +1112,7 @@ lazy val cli = project
         (pdfPlugin             / packagePlugin).value,
         (mimePlugin            / packagePlugin).value,
         (smtpPlugin            / packagePlugin).value,
+        (tcpPlugin             / packagePlugin).value,
         (benchPlugin           / packagePlugin).value,
         (loggerEffectPlugin    / packagePlugin).value,
         (randomEffectPlugin    / packagePlugin).value,
@@ -2766,6 +2767,19 @@ lazy val smtpPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.smtp"))
 
+// ── TCP — raw line-oriented server/client sockets (IMAP/POP3/SMTP/Redis etc.) ──
+lazy val tcpPlugin = project
+  .in(file("runtime/std/tcp-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-tcp-plugin",
+    // Zero runtime deps: a hand-rolled, handle-based wrapper over java.net sockets.
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.tcp"))
+
 // ── Bench — bench-harness helpers (Bench.opaque identity / anti-folding) ──
 lazy val benchPlugin = project
   .in(file("runtime/std/bench-plugin"))
@@ -3020,6 +3034,7 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("pdf",             pdfPlugin,             "scalascript-pdf-plugin"),
   PluginSpec("mime",            mimePlugin,            "scalascript-mime-plugin"),
   PluginSpec("smtp",            smtpPlugin,            "scalascript-smtp-plugin"),
+  PluginSpec("tcp",             tcpPlugin,             "scalascript-tcp-plugin"),
   PluginSpec("fs",              fsPlugin,              "scalascript-fs-plugin"),
   PluginSpec("os",              osPlugin,              "scalascript-os-plugin"),
   PluginSpec("yaml",            yamlPlugin,            "scalascript-yaml-plugin"),
