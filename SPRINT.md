@@ -25,7 +25,7 @@ seam = `BackendOptions.extra("uiTarget"->"tui")`). The terminal analog of rust-w
       RustCodeWalk and `cargo run` (SSC_TUI_SNAPSHOT) prints the computed value. Proves transpile→ratatui e2e.
 - [x] **rust-tui-2-event-loop** ✓ DONE 2026-06-23 (cargo test: button activate → ssc_recompute_all → frame shows recomputed value; computedSignal LIVE in terminal) — — crossterm loop + focus ring over `data-ssc-*` + Enter→action→`ssc_recompute_all`→
       redraw. **Gate:** counter+computedSignal; cargo test feeds the key, computed text changes (LIVE).
-- [ ] **rust-tui-3-tag-mapping** — CSS flex/gap parse + all std/ui chrome (card/badge/divider/input/toggle/show)
+- [x] **rust-tui-3-tag-mapping** ✓ DONE 2026-06-23 (flex-direction:row→horizontal Layout, CSS color/background/font-weight→ratatui fg/bg/bold; cargo test asserts hstack side-by-side) — — CSS flex/gap parse + all std/ui chrome (card/badge/divider/input/toggle/show)
       + focus highlight + colors. **Gate:** rozum-meeting-style toolkit renders faithfully.
 - [ ] **rust-tui-4-fetch-datatable** — Rust runtimes for fetchUrlSignal/fetchRowsSource/staticRowsSource +
       rowsOf envelope drill + `_tui_data_table_view` (fetch→Table). (Absent on the Rust path entirely today.)

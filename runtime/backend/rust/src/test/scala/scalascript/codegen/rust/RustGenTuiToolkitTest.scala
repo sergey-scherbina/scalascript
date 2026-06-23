@@ -112,3 +112,19 @@ class RustGenTuiToolkitTest extends AnyFunSuite:
     assert(parts(0).contains("BEFORE"), s"initial frame should show the computed value BEFORE:\n${parts(0)}")
     assert(parts(1).contains("AFTER"),  s"after activating the button, the computedSignal must recompute to AFTER (LIVE):\n${parts(1)}")
     assert(!parts(1).contains("BEFORE"), s"the old value should be gone after recompute:\n${parts(1)}")
+
+  test("S3 — flex-direction:row lays children out horizontally (hstack)"):
+    assume(cargoAvailable, "cargo not on PATH — skipping rust-tui cargo smoke")
+    val prog =
+      """```scalascript
+        |@main def run(): Unit =
+        |  val page = element("div", Map("style" -> "display:flex;flex-direction:row"), Map(), List(
+        |    element("span", Map(), Map(), List(textNode("LEFT"))),
+        |    element("span", Map("style" -> "color:#ff0000"), Map(), List(textNode("RIGHT")))
+        |  ))
+        |  serve(page, 0)
+        |```
+        |""".stripMargin
+    val out = snapshotCrate(prog)
+    val sameLine = out.linesIterator.find(l => l.contains("LEFT") && l.contains("RIGHT"))
+    assert(sameLine.isDefined, s"flex-direction:row children must render on the same line (horizontal):\n$out")

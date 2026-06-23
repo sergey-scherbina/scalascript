@@ -99,7 +99,7 @@ The `Value` enum + signal store (`ValueRs`) and the computed/signal intrinsics a
   `ssc_recompute_all()` → redraw. **Gate:** a counter (`signal` + `computedSignal(()=>show(count*2))` + a
   `+`/button); a `cargo test` feeds the activate key and asserts the computed text changed — **computedSignal
   LIVE in the terminal.**
-- **S3 — full tag → ratatui mapping.** CSS-string parse for flex direction/gap (`div`), all `std/ui` chrome
+- **S3 — full tag → ratatui mapping. ✓ DONE (2026-06-23, layout+colors).** CSS-string parse for flex direction/gap (`div`), all `std/ui` chrome
   (card/badge/divider/spacer/input/toggle), `showSignal` conditional, focus highlight + colors. **Gate:** the
   `rozum-meeting.ssc`-style toolkit program renders to a faithful terminal snapshot.
 - **S4 — fetch family + DataTable/remoteTable.** Rust runtimes + intrinsic mappings for `fetchUrlSignal`/

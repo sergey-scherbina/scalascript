@@ -26,6 +26,55 @@
       |    attrs.iter().find(|(kk, _)| kk == k).map(|(_, v)| v.as_str())
       |}
       |
+      |/// Value of a CSS declaration in a `"k:v;k:v"` `style` string.
+      |fn _tui_css(attrs: &[(String, String)], prop: &str) -> Option<String> {
+      |    let style = _tui_attr(attrs, "style")?;
+      |    let needle = format!("{}:", prop);
+      |    for decl in style.split(';') {
+      |        let d = decl.trim();
+      |        if let Some(v) = d.strip_prefix(&needle) { return Some(v.trim().to_string()); }
+      |    }
+      |    None
+      |}
+      |
+      |/// Map a CSS color (`#rrggbb` or a basic name) to a ratatui `Color`.
+      |fn _tui_color(s: &str) -> Option<ratatui::style::Color> {
+      |    use ratatui::style::Color;
+      |    let s = s.trim();
+      |    if let Some(hex) = s.strip_prefix('#') {
+      |        if hex.len() == 6 {
+      |            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+      |            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+      |            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+      |            return Some(Color::Rgb(r, g, b));
+      |        }
+      |    }
+      |    match s {
+      |        "red" => Some(Color::Red), "green" => Some(Color::Green), "blue" => Some(Color::Blue),
+      |        "yellow" => Some(Color::Yellow), "cyan" => Some(Color::Cyan),
+      |        "magenta" | "purple" => Some(Color::Magenta), "white" => Some(Color::White),
+      |        "black" => Some(Color::Black), "gray" | "grey" => Some(Color::Gray),
+      |        _ => None,
+      |    }
+      |}
+      |
+      |/// Merge CSS `color` / `background` / `font-weight` from `style` onto `base`.
+      |fn _tui_text_style(attrs: &[(String, String)], base: Style) -> Style {
+      |    let mut st = base;
+      |    if let Some(c) = _tui_css(attrs, "color").as_deref().and_then(_tui_color) { st = st.fg(c); }
+      |    let bg = _tui_css(attrs, "background").or_else(|| _tui_css(attrs, "background-color"));
+      |    if let Some(c) = bg.as_deref().and_then(_tui_color) { st = st.bg(c); }
+      |    if _tui_css(attrs, "font-weight").map(|v| v == "bold" || v == "600" || v == "700").unwrap_or(false) {
+      |        st = st.add_modifier(Modifier::BOLD);
+      |    }
+      |    st
+      |}
+      |
+      |/// A container that lays its children out horizontally (CSS `flex-direction:row`)?
+      |fn _tui_is_row(attrs: &[(String, String)]) -> bool {
+      |    _tui_css(attrs, "flex-direction").map(|d| d == "row").unwrap_or(false)
+      |}
+      |
       |/// The action marker of an element, if it has one (a `data-ssc-set`/
       |/// `data-ssc-toggle` = a focusable widget).
       |fn _tui_action_of(attrs: &[(String, String)]) -> Option<String> {
@@ -89,7 +138,7 @@
       |            match tag.as_str() {
       |                "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
       |                | "p" | "span" | "button" | "input" | "a" | "label" | "hr" => 1,
-      |                _ => cs_sum(children),
+      |                _ => if _tui_is_row(attrs) { cs_max(children) } else { cs_sum(children) },
       |            }
       |        }
       |    }
@@ -100,6 +149,10 @@
       |    s.max(1)
       |}
       |
+      |fn cs_max(children: &[View]) -> u16 {
+      |    children.iter().map(_tui_height).max().unwrap_or(1).max(1)
+      |}
+      |
       |/// Render context: the focused index + a running focusable counter so the
       |/// focused widget renders highlighted.
       |struct _TuiCtx { focus: usize, counter: usize }
@@ -108,7 +161,7 @@
       |fn _tui_render(frame: &mut Frame, area: Rect, v: &View, ctx: &mut _TuiCtx) {
       |    match v {
       |        View::Text(s) => { frame.render_widget(Paragraph::new(s.clone()), area); }
-      |        View::Fragment(cs) => _tui_stack(frame, area, cs, ctx),
+      |        View::Fragment(cs) => _tui_stack(frame, area, cs, ctx, false),
       |        View::Element { tag, attrs, children } => {
       |            let focused = if _tui_action_of(attrs).is_some() {
       |                let idx = ctx.counter; ctx.counter += 1; idx == ctx.focus
@@ -116,30 +169,37 @@
       |            let mut style = Style::default();
       |            if focused { style = style.add_modifier(Modifier::REVERSED); }
       |            if _tui_attr(attrs, "data-ssc-text").is_some() {
-      |                frame.render_widget(Paragraph::new(_tui_text(v)).style(style), area);
+      |                frame.render_widget(Paragraph::new(_tui_text(v)).style(_tui_text_style(attrs, style)), area);
       |                return;
       |            }
       |            match tag.as_str() {
       |                "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
       |                    frame.render_widget(
-      |                        Paragraph::new(_tui_text(v)).style(style.add_modifier(Modifier::BOLD)), area);
+      |                        Paragraph::new(_tui_text(v)).style(_tui_text_style(attrs, style).add_modifier(Modifier::BOLD)), area);
       |                }
       |                "p" | "span" | "button" | "a" | "label" | "input" => {
-      |                    frame.render_widget(Paragraph::new(_tui_text(v)).style(style), area);
+      |                    frame.render_widget(Paragraph::new(_tui_text(v)).style(_tui_text_style(attrs, style)), area);
       |                }
       |                "hr" => { frame.render_widget(Block::default().borders(Borders::TOP), area); }
-      |                _ => _tui_stack(frame, area, children, ctx),
+      |                _ => _tui_stack(frame, area, children, ctx, _tui_is_row(attrs)),
       |            }
       |        }
       |    }
       |}
       |
-      |/// Stack children vertically (S3 adds flex-direction parsing for `div`).
-      |fn _tui_stack(frame: &mut Frame, area: Rect, children: &[View], ctx: &mut _TuiCtx) {
+      |/// Stack children — vertically (measured row heights) or, when the container
+      |/// is CSS `flex-direction:row`, horizontally (equal columns).
+      |fn _tui_stack(frame: &mut Frame, area: Rect, children: &[View], ctx: &mut _TuiCtx, horizontal: bool) {
       |    if children.is_empty() { return; }
       |    if children.len() == 1 { _tui_render(frame, area, &children[0], ctx); return; }
-      |    let constraints: Vec<Constraint> = children.iter().map(|c| Constraint::Length(_tui_height(c))).collect();
-      |    let chunks = Layout::vertical(constraints).split(area);
+      |    let n = children.len() as u32;
+      |    let chunks = if horizontal {
+      |        let cons: Vec<Constraint> = (0..n).map(|_| Constraint::Ratio(1, n)).collect();
+      |        Layout::horizontal(cons).split(area)
+      |    } else {
+      |        let cons: Vec<Constraint> = children.iter().map(|c| Constraint::Length(_tui_height(c))).collect();
+      |        Layout::vertical(cons).split(area)
+      |    };
       |    for (i, c) in children.iter().enumerate() { _tui_render(frame, chunks[i], c, ctx); }
       |}
       |

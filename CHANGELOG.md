@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — rust-tui-toolkit S3: faithful tag → ratatui (flex layout + colors)
+
+`tui.rs` now reads the CSS `style` attr (the std/ui `lower.ssc` bakes layout into it): a `div` with
+`flex-direction:row` lays its children out horizontally (so `hstack` renders side-by-side; vertical otherwise),
+and `color`/`background`/`font-weight` map to ratatui `fg`/`bg`/`BOLD` on the rendered `Paragraph` (`#rrggbb`
+and basic color names). `RustGenTuiToolkitTest` 5/5 — the S3 cargo smoke builds a `flex-direction:row` div with
+two spans (one `color:#ff0000`) and asserts both render on the same terminal line. Spec
+`specs/rust-tui-toolkit.md`.
+
 ## 2026-06-23 — rust-tui-toolkit S2: live event loop — computedSignal updates on a keypress in the terminal
 
 The emitted `tui.rs` now runs a real crossterm event loop: Tab/arrows move a focus ring over the action
