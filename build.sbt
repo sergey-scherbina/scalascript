@@ -1726,6 +1726,7 @@ lazy val cryptoFrostCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Full)
     .in(file("payments/crypto/frost"))
+    .dependsOn(cryptoSpiCross)   // for the optional CryptoBackend-backed Ed25519Ops (cryptoSpi has no external deps)
     .settings(
       name := "scalascript-crypto-frost",
       libraryDependencies += "org.scalatest" %%% "scalatest" % scalatestV % Test,
@@ -1734,7 +1735,9 @@ lazy val cryptoFrostCross =
     )
     .jvmConfigure(_.withId("cryptoFrost"))
     .jsConfigure(_.withId("cryptoFrostJs"))
+    // BouncyCastle (test-only) gives the JVM tests a registered CryptoBackend + cross-checks vs reference Ed25519.
     .jvmSettings(libraryDependencies += "org.bouncycastle" % "bcprov-jdk18on" % "1.78.1" % Test)
+    .jvmConfigure(_.dependsOn(cryptoBouncycastle % Test))
     .jsSettings(Test / fork := false)
 
 lazy val cryptoFrost   = cryptoFrostCross.jvm
