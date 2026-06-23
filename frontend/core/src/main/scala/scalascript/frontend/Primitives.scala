@@ -75,6 +75,7 @@ enum Platform:
   case Web
   case Desktop(os: DesktopOs = DesktopOs.All)
   case Mobile(os: MobileOs = MobileOs.All)
+  case Terminal
   case All
 
 enum DesktopOs:
@@ -94,6 +95,7 @@ enum AppFormat:
   case ScalaNativeBinary
   case GraalVMNativeImage
   case KotlinAndroidApk
+  case RatatuiApp
 
 enum CompilationBackend:
   case Js

@@ -501,6 +501,18 @@ lazy val frontendSwing = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+// Terminal-UI (ratatui) frontend backend — emits a self-contained Rust crate
+// via emitNative (the swing/javafx native pattern). See specs/frontend-tui-ratatui.md.
+lazy val frontendTui = project
+  .in(file("frontend/tui"))
+  .dependsOn(frontendCore)
+  .settings(
+    name := "scalascript-frontend-tui",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 lazy val frontendJavaFx = project
   .in(file("frontend/javafx"))
   .dependsOn(frontendCore)
@@ -3139,6 +3151,7 @@ lazy val allFrontends: Seq[FrontendSpec] = Seq(
   FrontendSpec("swing",    frontendSwing),
   FrontendSpec("javafx",   frontendJavaFx),
   FrontendSpec("swiftui",  frontendSwiftUI),
+  FrontendSpec("tui",      frontendTui),
 )
 
 // ── Payments — Stripe adapter ─────────────────────────────────────────────
