@@ -1,0 +1,6 @@
+feature/interp-stream-runforeach-var-capture 2026-06-23T00:30:00Z
+agent: claude
+heartbeat: 2026-06-23T00:30:00Z
+status: in-progress
+done-so-far: identified pre-existing bug (StreamsPluginInterpreterTest "runStream result supports runForeach": `var buf` mutated in src.runForeach(x => buf = buf :+ x) loses the FIRST emission → List(20) not List(10,20)). Fails on clean origin/main. runFold (explicit acc threading) passes → bug is in the outer-var-mutation-via-closure path of the stream consumer.
+next: create worktree; reduce repro (plain List.foreach var-mutation as control); localize whether it is the StreamsIntrinsics call/invoke path or runStream Source emission; fix + unblock the test.
