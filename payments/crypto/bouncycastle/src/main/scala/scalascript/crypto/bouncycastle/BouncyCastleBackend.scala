@@ -24,21 +24,21 @@ final class BouncyCastleBackend extends CryptoBackend:
   def sign(curve: Curve, privKey: Array[Byte], msg: Array[Byte], hash: HashAlgo): Array[Byte] =
     curve match
       case Curve.Secp256k1 => Secp256k1.sign(privKey, msg, hash)
-      case Curve.Ed25519   => Ed25519.sign(privKey, msg, hash)
+      case Curve.Ed25519   => BcEd25519.sign(privKey, msg, hash)
       case Curve.P256      => P256.sign(privKey, msg, hash)
       case other           => throw new UnsupportedOperationException(s"sign: curve not supported by $id: $other")
 
   def verify(curve: Curve, pubKey: Array[Byte], msg: Array[Byte], sig: Array[Byte], hash: HashAlgo): Boolean =
     curve match
       case Curve.Secp256k1 => Secp256k1.verify(pubKey, msg, sig, hash)
-      case Curve.Ed25519   => Ed25519.verify(pubKey, msg, sig, hash)
+      case Curve.Ed25519   => BcEd25519.verify(pubKey, msg, sig, hash)
       case Curve.P256      => P256.verify(pubKey, msg, sig, hash)
       case _               => false
 
   def derivePublic(curve: Curve, privKey: Array[Byte]): Array[Byte] =
     curve match
       case Curve.Secp256k1 => Secp256k1.derivePublic(privKey)
-      case Curve.Ed25519   => Ed25519.derivePublic(privKey)
+      case Curve.Ed25519   => BcEd25519.derivePublic(privKey)
       case Curve.P256      => P256.derivePublic(privKey)
       case other           => throw new UnsupportedOperationException(s"derivePublic: curve not supported by $id: $other")
 

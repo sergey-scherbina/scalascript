@@ -9,7 +9,7 @@ import scalascript.crypto.HashAlgo
  *  recovery — Ed25519 doesn't support `ecrecover`). The internal hash
  *  is SHA-512 and is performed by the signer itself; callers must
  *  pass `HashAlgo.None` and the raw message. */
-private[bouncycastle] object Ed25519:
+private[bouncycastle] object BcEd25519:
 
   def derivePublic(privKey: Array[Byte]): Array[Byte] =
     val sk = new Ed25519PrivateKeyParameters(privKey, 0)
