@@ -118,13 +118,12 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
         (`verifyShare`) + Lagrange `reconstruct` at x=0; `generateFrom` (explicit coeffs) for determinism + as the
         DKG building block. `FrostKeygenTest` 4/0 (cryptoFrost 10/0): t-subsets recover sk + match group key; <t
         don't; VSS accepts good / rejects tampered shares.
-  - [ ] **frost-signing** (slice 3) — FROST 2-round signing: per-signer nonces `(d,e)` + commitments `(D,E)`;
-        binding factors `ρ_i = H(i, msg, B)`; group commitment `R = Σ(D_i + ρ_i·E_i)`; challenge `c = H(R, Y, msg)`
-        (Ed25519 SHA-512 form); partial sigs `z_i = d_i + ρ_i·e_i + λ_i·c·s_i`. **Verify:** each partial sig's
-        group-ops identity holds.
-  - [ ] **frost-aggregate-verify** (slice 4) — aggregate `z = Σ z_i`, signature `(R, z)`; **MUST verify under the
-        standard `Ed25519.verify`** against the group public key. Edge cases: insufficient shares, malformed share/
-        commitment, wrong-signer abort. THE correctness milestone.
+  - [x] **frost-signing + frost-aggregate-verify** (slices 3+4) ✓ DONE 2026-06-23 (combined — signing isn't
+        verifiable until aggregation yields a checkable signature). `FrostSign`: round1 nonces `(d,e)`+commitments
+        `(D,E)`; `ρ_i=SHA512(domain‖id‖msg‖commits) mod L`; `R=Σ(D_i+ρ_i·E_i)`; `c=SHA512(R‖A‖msg) mod L`;
+        `z_i=d_i+ρ_i·e_i+λ_i·c·s_i`; aggregate → 64-byte `encode(R)‖scalarLE(z)`. **GATE PASSED:** `FrostSignTest`
+        4/0 (cryptoFrost 14/0) — 2-of-3 AND every 3-of-5 subset verifies under BouncyCastle Ed25519; tampered
+        partial + wrong message rejected. **FROST-Ed25519 functionally complete** (group ops + keygen + signing).
   - [ ] **frost-vault-integration** (slice 5) — wire as `walletVaultMpcFrost` via the `walletSpi`/MPC-vault seam.
       Spec: write `specs/frost-ed25519.md` (do alongside slice 1).
 

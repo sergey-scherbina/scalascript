@@ -1,6 +1,6 @@
 # FROST-Ed25519 — threshold Ed25519 signatures
 
-Status: **IN PROGRESS** (slice 1 — group arithmetic — landed 2026-06-23). SPRINT task `FROST-Ed25519`.
+Status: **IN PROGRESS** (slices 1-4 landed 2026-06-23 — FROST is functionally complete; only wallet-vault integration, slice 5, remains). SPRINT task `FROST-Ed25519`.
 
 ## 1. Goal
 
@@ -35,10 +35,10 @@ verifies under the standard `Ed25519.verify` against the group public key):
 - **Slice 2 — key generation (DONE 2026-06-23).** `FrostKeygen` — trusted-dealer Shamir + Feldman VSS: Shamir-split a signing
   scalar into `t`-of-`n` shares over the scalar field + the group public key `B·sk`; per-participant
   verification shares. Verify: any `t` shares Lagrange-interpolate to `sk`; `< t` do not.
-- **Slice 3 — signing rounds.** Per-signer nonces `(d,e)` + commitments `(D,E)`; binding factors
+- **Slice 3 — signing rounds (DONE 2026-06-23, `FrostSign`).** Per-signer nonces `(d,e)` + commitments `(D,E)`; binding factors
   `ρ_i = H(i, msg, B)`; group commitment `R = Σ(D_i + ρ_i·E_i)`; challenge `c = H(R, Y, msg)` (Ed25519 SHA-512
   form); partial signatures `z_i = d_i + ρ_i·e_i + λ_i·c·s_i`.
-- **Slice 4 — aggregate + verify.** `z = Σ z_i`; signature `(R, z)` **must verify under the standard
+- **Slice 4 — aggregate + verify (DONE 2026-06-23).** GATE PASSED — FROST sigs verify under BouncyCastle Ed25519 (2-of-3 + every 3-of-5). `z = Σ z_i`; signature `(R, z)` **must verify under the standard
   `Ed25519.verify`** against the group public key. Edge cases: insufficient shares, malformed share/commitment,
   abort. THE correctness milestone.
 - **Slice 5 — vault integration.** Wire as `walletVaultMpcFrost` via the `walletSpi`/MPC-vault seam.

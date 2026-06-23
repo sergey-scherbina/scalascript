@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — FROST-Ed25519 slices 3+4: threshold signing — verifies under standard Ed25519
+
+`FrostSign` (cryptoFrost): the FROST two-round threshold signing flow, producing a STANDARD 64-byte Ed25519
+signature any RFC 8032 verifier accepts. Round 1: per-signer nonces `(d,e)` + commitments `(D,E)=(B·d,B·e)`.
+Round 2: binding factor `ρ_i = SHA-512(domain‖id‖msg‖commitments) mod L`; group commitment `R = Σ(D_i+ρ_i·E_i)`;
+Ed25519 challenge `c = SHA-512(R‖A‖msg) mod L`; partial `z_i = d_i + ρ_i·e_i + λ_i·c·s_i`; aggregate
+`z = Σ z_i` → `(encode(R) ‖ scalarLE(z))`. Because `B·z = R + c·A`, the result verifies under plain Ed25519,
+so a `t`-of-`n` quorum signs without ever reconstructing the key; `ρ_i` binds nonces to the signing
+(Drijvers/ROS defense). **THE correctness gate:** `FrostSignTest` (4/0, cryptoFrost 14/0) — a 2-of-3 and EVERY
+3-of-5 subset's signature verifies under BouncyCastle Ed25519; a tampered partial and a wrong message are
+rejected. FROST-Ed25519 is now functionally complete (group ops + keygen + signing); only wallet-vault
+integration (slice 5) remains. Spec `specs/frost-ed25519.md` slices 3-4.
+
 ## 2026-06-23 — FROST-Ed25519 slice 2: trusted-dealer Shamir keygen + Feldman VSS
 
 `FrostKeygen` (cryptoFrost): trusted-dealer `t`-of-`n` secret sharing over the Ed25519 scalar field (mod L).
