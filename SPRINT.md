@@ -280,11 +280,12 @@ validated + pushed:
       `.collect { case (Str(k), Str(v)) => … }` (not only line-start `case`), and (b) bare `Value` TYPE
       annotations (`Option[Value]`/`: Value`/`[Value]`) → `PluginValue` (the `Value.`-only residual check
       misses them).
-- [~] **p3-batch-B**: **ws ✓ (3/0), pwa ✓** (2/7). ENABLER added: `PluginValue.nativeFn(name, List[PluginValue]=>PluginValue)`
-      (builds a `NativeFnV` via `Computation.pureFn`) + `pv.callFn(args)` (runs a fn value's Computation) — for
-      plugins that return callable records. Small/clean remaining: oauth, json (+`JsonParser`→`JsonCodec`), pwa.
-      Computation+ctx GIANTS (defer to batch-C-style): dstreams (56 NativeFnV/ctx), graphql (7+18ctx), streams
-      (67+38ctx) — huge + ctx-heavy, need capability migration too.
+- [~] **p3-batch-B**: **ws ✓ (3/0), pwa ✓, json ✓ (7)** (3/7). ENABLERS added: `PluginValue.nativeFn` +
+      `pv.callFn` (callable records); JSON BRIDGE through the seam — `jsonEncode`/`jsonFacade`/`fromHostAny`/
+      `parseJson` (delegate to core `jsonToJson`/`wrapJson`/`jsonAnyToValue`/`JsonParser`) + `pv.lookupKey` +
+      `decimal`/`asDecimal`/`Dec` (exact money) — so json's `navJson` facade migrates with no interpreter import.
+      Computation+ctx GIANTS remaining: oauth (5-file web + OAuthBridge move), dstreams (56 NativeFnV/ctx),
+      graphql (7+18ctx), streams (67+38ctx) — huge + ctx-heavy, need capability migration too.
 - [~] **p3-batch-C** (7/10): **uuid ✓ (17), os ✓ (14), request ✓ (2, ValidateCap), smtp ✓ (6, plugin-local
       `SmtpFail` marker → `PluginError` at boundary, since opaque `PluginError` can't be pattern-matched),
       sql ✓ (6, DbCap + SqlBlockContext returns `Any` not `Value` → migratable), remote ✓ (10, RemoteCap +

@@ -45,6 +45,24 @@ object PluginValue:
     Value.OptionV(o.map(_.asInstanceOf[Value]).orNull)
   val unit:                           PluginValue = Value.UnitV
   def bigint(n: BigInt):              PluginValue = Value.BigIntV(n)
+  /** Exact decimal (money) — backs the interpreter's `DecimalV`. */
+  def decimal(b: BigDecimal):         PluginValue = Value.DecimalV(b)
+
+  // ── JSON bridge (delegates to the shared core encoder/parser through the one
+  //    controlled seam, so plugins reach JSON<->value without importing the
+  //    interpreter's `JsonSupport`/`JsonParser`). ──
+  /** Encode a runtime value to a compact JSON string (the bundled Http / json encoder). */
+  def jsonEncode(pv: PluginValue): String = scalascript.interpreter.jsonToJson(pv.asInstanceOf[Value])
+  /** Wrap a runtime value as the navigable `JsonValue` facade (core `wrapJson`). */
+  def jsonFacade(pv: PluginValue): PluginValue = wrap(scalascript.interpreter.wrapJson(pv.asInstanceOf[Value]))
+  /** Normalise a host Scala value (Long/Int/Double/String/Boolean/Unit, or an
+   *  already-runtime value) into a runtime value. */
+  def fromHostAny(a: Any): PluginValue = wrap(scalascript.interpreter.jsonAnyToValue(a))
+  /** Parse JSON text into a runtime value tree via the interpreter's tolerant
+   *  parser.  `Left(msg)` on malformed input. */
+  def parseJson(src: String): Either[String, PluginValue] =
+    try Right(wrap(scalascript.interpreter.JsonParser.parse(src)))
+    catch case e: scalascript.interpreter.JsonParser.ParseError => Left(e.getMessage)
   /** Render ANY value: a runtime value via the interpreter's `show`, a native Scala value via
    *  `toString`. Lets a plugin replace `value match { case v: Value => Value.show(v); case x => x.toString }`. */
   def showAny(v: Any): String = v match
@@ -77,6 +95,10 @@ object PluginValue:
     def asOption: Option[Option[PluginValue]] =
       pv match { case Value.OptionV(o) => Some(Option(o).map(wrap)); case _ => None }
     def asBigInt: Option[BigInt] = pv match { case Value.BigIntV(n) => Some(n); case _ => None }
+    def asDecimal: Option[BigDecimal] = pv match { case Value.DecimalV(b) => Some(b); case _ => None }
+    /** Index into a runtime Map/List/Instance/String by `key` (the json-plugin `lookup`). */
+    def lookupKey(key: PluginValue): Option[PluginValue] =
+      scalascript.interpreter.lookupKey(pv.asInstanceOf[Value], key.asInstanceOf[Value]).map(wrap)
     /** Invoke `pv` as a native function value with `args` (running its computation to a result). */
     def callFn(args: List[PluginValue]): PluginValue = pv match
       case Value.NativeFnV(_, f) => wrap(Computation.run(f(args.map(_.asInstanceOf[Value]))))
@@ -102,6 +124,7 @@ object PluginValue:
   /** `Opt(None)` matches a runtime `None`; `Opt(Some(inner))` a runtime `Some(inner)`. */
   object Opt      { def unapply(v: Any): Option[Option[PluginValue]] = wrap(v).asOption }
   object Big      { def unapply(v: Any): Option[BigInt]              = wrap(v).asBigInt }
+  object Dec      { def unapply(v: Any): Option[BigDecimal]          = wrap(v).asDecimal }
   object MapVal   { def unapply(v: Any): Option[Map[PluginValue, PluginValue]] = wrap(v).asMap }
   /** Host-object wrapper `(typeName, handle)` — backs the interpreter's `Foreign`. */
   object Foreign  { def unapply(v: Any): Option[(String, Any)] =

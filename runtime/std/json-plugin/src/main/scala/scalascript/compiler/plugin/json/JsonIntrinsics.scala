@@ -2,9 +2,8 @@ package scalascript.compiler.plugin.json
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
-import scalascript.interpreter.{Value, InterpretError, JsonParser, Computation,
-                                 jsonToJson, wrapJson, lookupKey, jsonAnyToValue}
-import scalascript.plugin.api.{PluginComputation, PluginNative, PluginValue}
+import scalascript.plugin.api.{PluginComputation, PluginError, PluginNative, PluginValue}
+import scalascript.plugin.api.PluginValue.{Str, Num, Dbl, Bool, Dec, Lst, MapVal}
 
 object JsonIntrinsics:
 
@@ -17,42 +16,44 @@ object JsonIntrinsics:
 
     QualifiedName("jsonStringify") -> stableNative(args =>
       args match
-        case List(v) => jsonToJson(jsonAnyToValue(v))
-        case _       => throw InterpretError("jsonStringify(v)")
+        case List(v) => PluginValue.jsonEncode(PluginValue.fromHostAny(v))
+        case _       => PluginError.raise("jsonStringify(v)")
     ),
 
     QualifiedName("jsonParse") -> stableNative(args =>
       args match
         case List(s: String) =>
-          try JsonParser.parse(s)
-          catch case e: JsonParser.ParseError => throw InterpretError(e.getMessage)
-        case _ => throw InterpretError("jsonParse(s: String)")
+          PluginValue.parseJson(s) match
+            case Right(pv) => pv
+            case Left(msg) => PluginError.raise(msg)
+        case _ => PluginError.raise("jsonParse(s: String)")
     ),
 
     QualifiedName("jsonRead") -> stableNative(args =>
       args match
         case List(s: String) =>
-          try wrapJson(JsonParser.parse(s))
-          catch case e: JsonParser.ParseError => throw InterpretError(e.getMessage)
-        case List(v) => wrapJson(jsonAnyToValue(v))
-        case _       => throw InterpretError("jsonRead(s: String) or jsonRead(parsedAny)")
+          PluginValue.parseJson(s) match
+            case Right(pv) => PluginValue.jsonFacade(pv)
+            case Left(msg) => PluginError.raise(msg)
+        case List(v) => PluginValue.jsonFacade(PluginValue.fromHostAny(v))
+        case _       => PluginError.raise("jsonRead(s: String) or jsonRead(parsedAny)")
     ),
 
     QualifiedName("lookup") -> stableNative(args =>
       args match
         case List(v, k) =>
-          val vv = jsonAnyToValue(v)
-          val kk = jsonAnyToValue(k)
-          lookupKey(vv, kk) match
+          val vv = PluginValue.fromHostAny(v)
+          val kk = PluginValue.fromHostAny(k)
+          vv.lookupKey(kk) match
             case Some(x) => x
-            case None    => throw InterpretError(s"lookup: key ${Value.show(kk)} not found in ${Value.show(vv)}")
-        case _ => throw InterpretError("lookup(v, key)")
+            case None    => PluginError.raise(s"lookup: key ${kk.show} not found in ${vv.show}")
+        case _ => PluginError.raise("lookup(v, key)")
     ),
 
     QualifiedName("lookupOpt") -> stableNative(args =>
       args match
-        case List(v, k) => Value.optionV(lookupKey(jsonAnyToValue(v), jsonAnyToValue(k)))
-        case _          => throw InterpretError("lookupOpt(v, key)")
+        case List(v, k) => PluginValue.option(PluginValue.fromHostAny(v).lookupKey(PluginValue.fromHostAny(k)))
+        case _          => PluginError.raise("lookupOpt(v, key)")
     ),
 
     // ── Navigable JsonValue (std.json) — total accessors, never throw ──────────
@@ -63,86 +64,85 @@ object JsonIntrinsics:
     QualifiedName("jsonValue") -> stableNative(args =>
       args match
         case List(s: String) =>
-          navJson(try JsonParser.parse(s) catch case _: Throwable => Value.NullV)
-        case List(v) => navJson(jsonAnyToValue(v))
-        case _       => navJson(Value.NullV)
+          navJson(PluginValue.parseJson(s).getOrElse(PluginValue.nullV))
+        case List(v) => navJson(PluginValue.fromHostAny(v))
+        case _       => navJson(PluginValue.nullV)
     ),
 
   )
 
-  /** A navigable, **total** JsonValue wrapper.  Unlike core `wrapJson`, accessors
+  /** A navigable, **total** JsonValue wrapper.  Unlike core `jsonFacade`, accessors
    *  never throw (zero-defaults), `get`/`at` return a wrapped (Null-on-miss)
    *  JsonValue rather than an Option, and `asDecimal` extracts exact money. */
-  private def navJson(inner: Value): Value =
-    def numToLong(v: Value): Long = v match
-      case Value.IntV(n)     => n
-      case Value.DoubleV(d)  => d.toLong
-      case Value.DecimalV(b) => b.toLong
-      case Value.StringV(s)  => try BigDecimal(s).toLong catch case _: Throwable => 0L
-      case _                 => 0L
-    def toDecimal(v: Value): Option[BigDecimal] = v match
-      case Value.DecimalV(b) => Some(b)
-      case Value.IntV(n)     => Some(BigDecimal(n))
-      case Value.DoubleV(d)  => try Some(BigDecimal(d.toString)) catch case _: Throwable => None
-      case Value.StringV(s)  => try Some(BigDecimal(s)) catch case _: Throwable => None
-      case _                 => None
-    def fn(name: String)(f: List[Value] => Value): Value = Value.NativeFnV(name, Computation.pureFn(f))
-    Value.InstanceV("JsonValue", Map(
+  private def navJson(inner: PluginValue): PluginValue =
+    def numToLong(v: PluginValue): Long = v match
+      case Num(n) => n
+      case Dbl(d) => d.toLong
+      case Dec(b) => b.toLong
+      case Str(s) => try BigDecimal(s).toLong catch case _: Throwable => 0L
+      case _      => 0L
+    def toDecimal(v: PluginValue): Option[BigDecimal] = v match
+      case Dec(b) => Some(b)
+      case Num(n) => Some(BigDecimal(n))
+      case Dbl(d) => try Some(BigDecimal(d.toString)) catch case _: Throwable => None
+      case Str(s) => try Some(BigDecimal(s)) catch case _: Throwable => None
+      case _      => None
+    def fn(name: String)(f: List[PluginValue] => PluginValue): PluginValue = PluginValue.nativeFn(name, f)
+    def isNullish(v: PluginValue): Boolean = PluginValue.isUnitOrNull(v) || v == PluginValue.none
+    PluginValue.instance("JsonValue", Map(
       "_inner" -> inner,
       "get" -> fn("JsonValue.get") {
-        case List(Value.StringV(k)) => inner match
-          case Value.MapV(m) => navJson(m.getOrElse(Value.StringV(k), Value.NullV))
-          case _             => navJson(Value.NullV)
-        case _ => navJson(Value.NullV)
+        case List(Str(k)) => inner match
+          case MapVal(m) => navJson(m.getOrElse(PluginValue.string(k), PluginValue.nullV))
+          case _         => navJson(PluginValue.nullV)
+        case _ => navJson(PluginValue.nullV)
       },
       "at" -> fn("JsonValue.at") {
         case List(idx) =>
           val i = numToLong(idx)
           inner match
-            case Value.ListV(items) if i >= 0 && i < items.length => navJson(items(i.toInt))
-            case _                                                => navJson(Value.NullV)
-        case _ => navJson(Value.NullV)
+            case Lst(items) if i >= 0 && i < items.length => navJson(items(i.toInt))
+            case _                                        => navJson(PluginValue.nullV)
+        case _ => navJson(PluginValue.nullV)
       },
-      "isNull" -> fn("JsonValue.isNull")(_ => inner match
-        case Value.NullV | Value.UnitV | Value.NoneV => Value.True
-        case _                                       => Value.False),
+      "isNull" -> fn("JsonValue.isNull")(_ => PluginValue.bool(isNullish(inner))),
       "asString" -> fn("JsonValue.asString")(_ => inner match
-        case Value.StringV(s) => Value.StringV(s)
-        case _                => Value.StringV("")),
-      "asInt" -> fn("JsonValue.asInt")(_ => Value.intV(numToLong(inner))),
+        case Str(s) => PluginValue.string(s)
+        case _      => PluginValue.string("")),
+      "asInt" -> fn("JsonValue.asInt")(_ => PluginValue.int(numToLong(inner))),
       "asDouble" -> fn("JsonValue.asDouble")(_ => inner match
-        case Value.DoubleV(d)  => Value.doubleV(d)
-        case Value.IntV(n)     => Value.doubleV(n.toDouble)
-        case Value.DecimalV(b) => Value.doubleV(b.toDouble)
-        case Value.StringV(s)  => Value.doubleV(try s.toDouble catch case _: Throwable => 0.0)
-        case _                 => Value.doubleV(0.0)),
+        case Dbl(d) => PluginValue.double(d)
+        case Num(n) => PluginValue.double(n.toDouble)
+        case Dec(b) => PluginValue.double(b.toDouble)
+        case Str(s) => PluginValue.double(try s.toDouble catch case _: Throwable => 0.0)
+        case _      => PluginValue.double(0.0)),
       "asBool" -> fn("JsonValue.asBool")(_ => inner match
-        case b: Value.BoolV => b
-        case _              => Value.False),
+        case Bool(b) => PluginValue.bool(b)
+        case _       => PluginValue.bool(false)),
       "asList" -> fn("JsonValue.asList")(_ => inner match
-        case Value.ListV(items) => Value.ListV(items.map(navJson))
-        case _                  => Value.EmptyList),
+        case Lst(items) => PluginValue.list(items.map(navJson))
+        case _          => PluginValue.list(Nil)),
       // Exact-decimal — lossless for money.  A JSON string ("1000.00") keeps its
       // text; a bare DoubleV was already lossy at parse time (spec §3.1).
       "asDecimal" -> fn("JsonValue.asDecimal")(_ =>
-        Value.DecimalV(toDecimal(inner).getOrElse(BigDecimal(0)))),
+        PluginValue.decimal(toDecimal(inner).getOrElse(BigDecimal(0)))),
       "optString" -> fn("JsonValue.optString")(_ => inner match
-        case Value.StringV(s) => Value.optionV(Some(Value.StringV(s)))
-        case _                => Value.NoneV),
+        case Str(s) => PluginValue.some(PluginValue.string(s))
+        case _      => PluginValue.none),
       "optInt" -> fn("JsonValue.optInt")(_ => inner match
-        case n: Value.IntV                 => Value.optionV(Some(n))
-        case Value.DoubleV(d) if d.isWhole => Value.optionV(Some(Value.intV(d.toLong)))
-        case _                             => Value.NoneV),
+        case Num(n)                  => PluginValue.some(PluginValue.int(n))
+        case Dbl(d) if d.isWhole     => PluginValue.some(PluginValue.int(d.toLong))
+        case _                       => PluginValue.none),
       "optDecimal" -> fn("JsonValue.optDecimal")(_ =>
-        Value.optionV(toDecimal(inner).map(b => Value.DecimalV(b)))),
+        PluginValue.option(toDecimal(inner).map(PluginValue.decimal))),
       "getOrElse" -> fn("JsonValue.getOrElse") {
-        case List(Value.StringV(k), Value.StringV(fb)) => inner match
-          case Value.MapV(m) => m.get(Value.StringV(k)) match
-            case Some(Value.StringV(s)) => Value.StringV(s)
-            case Some(other)            => Value.StringV(Value.show(other))
-            case None                   => Value.StringV(fb)
-          case _ => Value.StringV(fb)
-        case _ => Value.StringV("")
+        case List(Str(k), Str(fb)) => inner match
+          case MapVal(m) => m.get(PluginValue.string(k)) match
+            case Some(Str(s)) => PluginValue.string(s)
+            case Some(other)  => PluginValue.string(other.show)
+            case None         => PluginValue.string(fb)
+          case _ => PluginValue.string(fb)
+        case _ => PluginValue.string("")
       },
       "raw" -> fn("JsonValue.raw")(_ => inner),
     ))
