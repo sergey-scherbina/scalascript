@@ -109,6 +109,14 @@ object PluginValue:
   /** Native-function value `(name, fn)` — backs the interpreter's `NativeFnV`. */
   object NativeFn { def unapply(v: Any): Option[(String, Any)] =
                       wrap(v) match { case Value.NativeFnV(n, f) => Some((n, f)); case _ => None } }
+  /** ANY callable runtime value — a user closure (`FunV`) or a native function
+   *  (`NativeFnV`).  Yields the raw value back, to hand to `ctx.invokeCallback`.
+   *  Use when a plugin accepts a ScalaScript function without caring which kind. */
+  object Fn       { def unapply(v: Any): Option[Any] =
+                      wrap(v) match { case _: Value.FunV | _: Value.NativeFnV => Some(v); case _ => None } }
+  /** True if `v` is a callable runtime value (a `FunV` or `NativeFnV`). */
+  def isCallable(v: Any): Boolean =
+    wrap(v) match { case _: Value.FunV | _: Value.NativeFnV => true; case _ => false }
 
   // ── Constructors for the host-interop / null cases ──
   def foreign(typeName: String, handle: Any): PluginValue = Value.Foreign(typeName, handle)
