@@ -115,7 +115,11 @@ lazy val backendSpi = project
 // this module; they never import scalascript.interpreter.* directly.
 lazy val pluginApi = project
   .in(file("runtime/scalascript-plugin-api"))
-  .dependsOn(backendSpi, ir)
+  // stable-spi-p3: pluginApi depends on `core` so it can expose a stable Value-surface
+  // (PluginValue accessors/constructors backed by the interpreter `Value`) — the ONE controlled
+  // seam, moving the interpreter coupling out of the 28 plugins. Acyclic: core does not depend on
+  // pluginApi (core deps = valueData/backendSpi/…).
+  .dependsOn(backendSpi, ir, core)
   .settings(
     name := "scalascript-plugin-api",
     libraryDependencies ++= Seq(

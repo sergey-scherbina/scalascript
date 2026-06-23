@@ -1,17 +1,16 @@
 package scalascript.compiler.plugin.mime
 
 import scalascript.backend.spi.*
-import scalascript.interpreter.{Value, InterpretError}
 import scalascript.ir.QualifiedName
-import scalascript.plugin.api.PluginNative
+import scalascript.plugin.api.{PluginNative, PluginValue, PluginError}
+import scalascript.plugin.api.PluginValue.*
 
 object MimeIntrinsics:
 
   private val CRLF = "\r\n"
 
-  private def str(v: Value): String = v match
-    case Value.StringV(s) => s
-    case other            => throw InterpretError(s"buildMimeMessage: expected a String, got ${Value.show(other)}")
+  private def str(v: PluginValue): String =
+    v.asString.getOrElse(PluginError.raise(s"buildMimeMessage: expected a String, got ${v.show}"))
 
   private def b64(bytes: Array[Byte]): String =
     java.util.Base64.getEncoder.encodeToString(bytes)
@@ -25,14 +24,15 @@ object MimeIntrinsics:
     if s.forall(c => c >= 32 && c < 127) then s
     else "=?UTF-8?B?" + b64(s.getBytes("UTF-8")) + "?="
 
-  private def attachments(v: Value): List[(String, String, String)] = v match
-    case Value.ListV(items) => items.map {
-      case Value.TupleV(List(fn, mt, ct)) => (str(fn), str(mt), str(ct))
-      case other => throw InterpretError(
-        s"buildMimeMessage: each attachment must be (filename, mimeType, contentBase64), got ${Value.show(other)}")
-    }
-    case other => throw InterpretError(
-      s"buildMimeMessage: attachments must be a List of (filename, mimeType, contentBase64), got ${Value.show(other)}")
+  private def attachments(v: PluginValue): List[(String, String, String)] =
+    v.asList.getOrElse(PluginError.raise(
+      s"buildMimeMessage: attachments must be a List of (filename, mimeType, contentBase64), got ${v.show}"))
+      .map { item =>
+        item.asTuple match
+          case Some(List(fn, mt, ct)) => (str(fn), str(mt), str(ct))
+          case _ => PluginError.raise(
+            s"buildMimeMessage: each attachment must be (filename, mimeType, contentBase64), got ${item.show}")
+      }
 
   private def newBoundary(): String =
     val r = java.util.concurrent.ThreadLocalRandom.current()
@@ -78,14 +78,14 @@ object MimeIntrinsics:
 
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
-    // NativeImpl unwraps scalar args (StringV → String) but leaves collections
-    // as `Value` (the attachment list arrives as a Value.ListV of Value.TupleV).
+    // NativeImpl unwraps scalar args (String → String) but leaves collections as a runtime value
+    // (the attachment list arrives as a PluginValue list of tuples).
     QualifiedName("buildMimeMessage") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case (from: String) :: (to: String) :: (subject: String) :: (htmlBody: String) :: (atts: Value) :: Nil =>
-          Value.StringV(buildMime(from, to, subject, htmlBody, attachments(atts)))
+        case (from: String) :: (to: String) :: (subject: String) :: (htmlBody: String) :: atts :: Nil =>
+          PluginValue.string(buildMime(from, to, subject, htmlBody, attachments(PluginValue.wrap(atts)))).unwrap
         case _ =>
-          throw InterpretError("buildMimeMessage(from, to, subject, htmlBody, attachments)")
+          PluginError.raise("buildMimeMessage(from, to, subject, htmlBody, attachments)")
     },
 
   )

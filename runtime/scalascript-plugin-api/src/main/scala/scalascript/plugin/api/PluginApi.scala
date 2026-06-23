@@ -1,6 +1,10 @@
 package scalascript.plugin.api
 
 import scalascript.backend.spi.{NativeContext, NativeImpl, OpenApiGenerator, RemoteCallError, RemoteHandlerInfo}
+// stable-spi-p3: the ONE controlled seam — pluginApi imports the interpreter `Value`/`InterpretError`
+// internally and re-exposes them through the stable `PluginValue`/`PluginError` surface, so plugins
+// never import `scalascript.interpreter.*` themselves.
+import scalascript.interpreter.{Value, InterpretError}
 
 import scala.util.control.NonFatal
 
@@ -22,15 +26,48 @@ opaque type PluginValue = Any
 
 object PluginValue:
   def wrap(v: Any): PluginValue = v
+
+  // ── Constructors (stable; backed by the interpreter `Value`) ──
+  def string(s: String):              PluginValue = Value.StringV(s)
+  def int(n: Long):                   PluginValue = Value.intV(n)
+  def double(d: Double):              PluginValue = Value.doubleV(d)
+  def bool(b: Boolean):               PluginValue = Value.boolV(b)
+  def char(c: Char):                  PluginValue = Value.CharV(c)
+  def list(xs: List[PluginValue]):    PluginValue = Value.ListV(xs.map(_.asInstanceOf[Value]))
+  def tuple(xs: List[PluginValue]):   PluginValue = Value.TupleV(xs.map(_.asInstanceOf[Value]))
+  def map(es: List[(PluginValue, PluginValue)]): PluginValue =
+    Value.MapV(es.map((k, v) => (k.asInstanceOf[Value], v.asInstanceOf[Value])).toMap)
+  def some(v: PluginValue):           PluginValue = Value.someV(v.asInstanceOf[Value])
+  val none:                           PluginValue = Value.NoneV
+  val unit:                           PluginValue = Value.UnitV
+
   extension (pv: PluginValue)
     def unwrap: Any = pv
+    /** Human-readable form (delegates to the interpreter's `Value.show`). */
+    def show: String = Value.show(pv.asInstanceOf[Value])
+    // ── Extractors (None if the runtime value is a different shape) ──
+    def asString: Option[String]  = pv match { case Value.StringV(s) => Some(s); case _ => None }
+    def asInt:    Option[Long]    = pv match { case Value.IntV(n)    => Some(n); case _ => None }
+    def asDouble: Option[Double]  = pv match { case Value.DoubleV(d) => Some(d); case _ => None }
+    def asBool:   Option[Boolean] = pv match { case Value.BoolV(b)   => Some(b); case _ => None }
+    def asChar:   Option[Char]    = pv match { case Value.CharV(c)   => Some(c); case _ => None }
+    def asList:   Option[List[PluginValue]]  = pv match { case Value.ListV(xs)  => Some(xs.map(wrap)); case _ => None }
+    def asTuple:  Option[List[PluginValue]]  = pv match { case Value.TupleV(xs) => Some(xs.map(wrap)); case _ => None }
+    def asMap:    Option[Map[PluginValue, PluginValue]] =
+      pv match { case Value.MapV(m) => Some(m.map((k, v) => (wrap(k), wrap(v)))); case _ => None }
+    def asOption: Option[Option[PluginValue]] =
+      pv match { case Value.OptionV(o) => Some(Option(o).map(wrap)); case _ => None }
 
 /** Opaque wrapper for an interpreter-level runtime error. */
 opaque type PluginError = Throwable
 
 object PluginError:
-  def apply(msg: String): PluginError   = new RuntimeException(msg)
+  /** Build the interpreter's `InterpretError` (so a plugin's error reports identically to before
+   *  the stable-spi migration), exposed opaquely. */
+  def apply(msg: String): PluginError   = InterpretError(msg)
   def wrap(t: Throwable): PluginError   = t
+  /** Throw an `InterpretError` — replaces a plugin's `throw InterpretError(msg)`. */
+  def raise(msg: String): Nothing       = throw InterpretError(msg)
   extension (pe: PluginError)
     def message: String   = pe.getMessage
     def unwrap:  Throwable = pe
