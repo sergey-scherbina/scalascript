@@ -66,6 +66,16 @@ class RustGenCollectionTest extends AnyFunSuite:
     assert(rs.contains("parts[(1i64) as usize].clone()"),
       s"expected a cloned index read, got:\n$rs")
 
+  test("index read on a List parameter lowers to Vec indexing"):
+    val rs = allRust(
+      """```scalascript
+        |def first(xs: List[String]): String = xs(0)
+        |```
+        |""".stripMargin
+    )
+    assert(rs.contains("xs[(0i64) as usize].clone()"),
+      s"expected a cloned parameter index read, got:\n$rs")
+
   // …but an index *store* `a(i) = v` keeps the target BARE — you can't assign to a clone.
   test("index store on a mutable array stays bare (no .clone() on the target)"):
     val rs = allRust(

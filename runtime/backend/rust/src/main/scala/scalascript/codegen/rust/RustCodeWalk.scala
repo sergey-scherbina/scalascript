@@ -855,8 +855,9 @@ object RustCodeWalk:
           Right(GeneratedDef(name = name, render = "", isMain = false))
     else
       val (lseqs, larrays) = collectLocalSeqs(d.body)
+      val paramSeqs = collectSeqParams(d)
       val lstrings = collectLocalStrings(d.body)
-      val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs, larrays, lstrings,
+      val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs ++ paramSeqs, larrays, lstrings,
                         multiUse = collectMultiUse(d.body) -- collectCopyNames(d),
                         localSignals = collectLocalSignals(d.body))
       val effName = defEffectName(d)
@@ -929,6 +930,20 @@ object RustCodeWalk:
       t.children.foreach(walk)
     walk(body)
     (seqs.toSet, arrays.toSet)
+
+  private def collectSeqParams(d: m.Defn.Def): Set[String] =
+    def isSeqType(t: m.Type): Boolean = t match
+      case m.Type.Apply.After_4_6_0(
+          m.Type.Name("List" | "Vec" | "Vector" | "Seq" | "IndexedSeq" | "Iterable"),
+          _
+        ) => true
+      case _ => false
+
+    d.paramClauseGroups
+      .flatMap(_.paramClauses)
+      .flatMap(_.values)
+      .collect { case p if p.decltpe.exists(isSeqType) => p.name.value }
+      .toSet
 
   /** Names *read* more than once in a def body — counting `Term.Name` uses but NOT
    *  their binding occurrences (`Pat.Var` binders are skipped).  A non-Copy value read

@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — rust backend: index `List` parameters as Vecs
+
+Fixed another Rust lowering gap exposed by the rozum meeting client rebuild: `xs(0)` on a
+parameter declared as `List[String]` was emitted as a Rust function call `xs(0)`, while only
+local/top-level sequence vals were marked indexable. Sequence-typed parameters now participate
+in the same Vec indexing path, so reads lower to `xs[(i) as usize].clone()`. Added a regression
+test for `def first(xs: List[String]): String = xs(0)`.
+
 ## 2026-06-23 — value-unification Slice 3 (spike): union `Value` + `export` decided
 
 De-risked the load-bearing mechanism for the value-unification migration with a throwaway scala-cli spike.
@@ -15,6 +23,7 @@ means the ~4387 `Value.<Case>` sites should largely survive the eventual module 
 extends Value` marker (wrong dep direction) and a bare union without `export` (would churn all 4387 sites).
 Spec updated (`specs/value-unification.md` Slice 3). No production code changed — next is Slice 4 (create the
 `value-data` module + migrate the first case behind the union+export bridge).
+
 ## 2026-06-23 — docs: board/spec hygiene after core-min/polyglot sprint
 
 Reconciled stale future-looking wording in `SPRINT.md` and `specs/polyglot-libraries.md`
