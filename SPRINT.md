@@ -108,9 +108,11 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
       library (e.g. `cafe.cryptography:ed25519-elisabeth`, pure-Java Edwards-point + Scalar arithmetic). Correctness
       gate throughout: a FROST signature MUST verify under the EXISTING standard verifier (`Ed25519.verify`) against
       the group public key. Substantial multi-session crypto — do as discrete green sub-slices, one at a time:
-  - [ ] **frost-groupops** (slice 1) — add the Ed25519 group-ops dependency + a thin wrapper (`Scalar` mod L:
-        add/mul/invert/from-uniform-bytes; `Point`: add, `B·s`, `P·s`, encode/decode/equals). **Verify:** `B·sk`
-        matches RFC 8032 known public keys; scalar/point ops match published test vectors. (Foundation; no FROST yet.)
+  - [x] **frost-groupops** (slice 1) ✓ DONE 2026-06-23 — FROM-SCRATCH (Sergiy's call, no new dep). New
+        `cryptoFrost` module (`payments/crypto/frost`, pure; BC test-only). `Ed25519Group` = RFC 8032 reference
+        group arithmetic (BigInteger): field mod 2^255-19, twisted-Edwards extended-coord add, scalar mult,
+        encode/decode, base point B, order L, scalar field, `secretScalar`. `Ed25519GroupTest` 6/0 incl. the
+        gate — generated pubkeys match BouncyCastle Ed25519 bit-for-bit (25 random seeds). Spec `specs/frost-ed25519.md`.
   - [ ] **frost-keygen** (slice 2) — trusted-dealer key-gen first (simpler than DKG): split a signing scalar into
         `t`-of-`n` Shamir shares over the scalar field + group public key `B·sk`; per-participant verification shares.
         **Verify:** any `t` shares Lagrange-interpolate back to `sk`; `< t` do not.

@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — FROST-Ed25519 slice 1: from-scratch Ed25519 group arithmetic
+
+First slice of the FROST threshold-signing feature (Sergiy chose from-scratch curve math over a new crypto
+dependency). New `cryptoFrost` module (`payments/crypto/frost`, pure — BouncyCastle test-only): `Ed25519Group`
+implements the RFC 8032 reference group arithmetic over `java.math.BigInteger` — field mod 2^255-19,
+twisted-Edwards points (extended coords, unified add), scalar mult (double-and-add), point encode/decode, base
+point B, order L, scalar field (add/mul/inv/reduce), and `secretScalar` (clamp∘SHA-512). Correctness-gated by
+`Ed25519GroupTest` (6/0): RFC-8032 base-point encoding, L·B = identity, encode/decode round-trip, group
+homomorphism, scalar inverse, and the authoritative check — generated public keys match BouncyCastle Ed25519
+bit-for-bit for 25 random seeds. Not constant-time (reference-first). Foundation for keygen/signing/aggregate
+slices. Spec `specs/frost-ed25519.md`.
+
 ## 2026-06-23 — remote-package-registry slice 5: publish auth (Bearer token) — registry code COMPLETE
 
 `RegistryHttpServer` gains optional `publishTokens: Set[String]`: when non-empty, `POST /publish` requires
