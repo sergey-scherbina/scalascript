@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — value-unification Slices 5-6: scalar leaves shared between `Value` and `SpiValue` (scalars-only COMPLETE)
+
+Finished the scalars-only value-unification. **Slice 5:** moved `DataValue` (the 9 scalar leaves split out in
+Slice 4) into a new low leaf module `lang/value-data` (no deps), below `core` and `backendSpi`. **Slice 6:**
+`SpiValue` is now `type SpiValue = DataValue | SpiRest` — its scalar leaves are the **same shared `DataValue`
+classes** the interpreter's `Value` uses (`SpiRest` = the SPI-private containers + `Opaque`). `object SpiValue`
+re-exports `DataValue` (`StringV` as `StrV`, the historical SPI name) + `SpiRest`, so all `SpiValue.IntV`/`StrV`/
+`ListV` sites — incl. the 9 effect plugins — are unchanged. `valueToSpi`/`spiToValue` now convert scalar leaves
+by **identity** (`case d: DataValue => d`, no realloc/rewrap), since a scalar `Value` already *is* an `SpiValue`;
+only containers + `Opaque` do real work. Bonus: `BigInt`/`Decimal`/`Null` now cross the SPI as structured cases
+instead of `Opaque`. The scalar half of the duplication is gone — one set of scalar classes across interp + SPI;
+the container half stays converted by design (a container can hold a closure, which isn't host-neutral data —
+the obstacle that made full merge a hot-path perf regression). Verified: valueData + backendSpi + interpreter +
+all plugins compile; core/test 1019/0, plugin-tests 712/0, round-trip + StdEffects + Interpreter + BigInt +
+Decimal 183/0. Spec: `specs/value-unification.md` (Slices 5-6).
 ## 2026-06-23 — value-unification Slice 4: `Value` is now a union, scalar leaves split into `DataValue`
 
 Flipped the interpreter's `Value` from a `sealed trait` to a **union** `type Value = DataValue | ValueRest`.

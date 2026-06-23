@@ -503,7 +503,7 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       plugin `preludeSymbols`); actors have a provider + per-interpreter session seam. Not closed here:
       `core-min-value-unification` stays as its own deep refactor, and the hard Stream/Actors interpreter-internal
       code moves stay deferred/optional because they have low ROI without a new consumer.
-- [~] **core-min-value-unification** (A, big — week-scale) — **SPEC + first slices LANDED 2026-06-23**
+- [x] **core-min-value-unification** ✓ SCALARS-ONLY SCOPE DONE 2026-06-23 — **SPEC + Slices 1-6 LANDED**
       (`specs/value-unification.md`), on two complementary tracks. PROBED the real surface: **4387
       `Value.<Case>` sites across 46 files**; `Value` = sealed trait co-defined with `Computation`/`Env`/
       `FrameMap` (circular) + perf pools; the SPI conversion was lossless via `Opaque` EXCEPT `Char`→`StrV`
@@ -530,10 +530,16 @@ extract a feature behind the SPI (A) → publish it as a per-host library (B) is
       `export DataValue.*` so all ~4387 sites are UNCHANGED. Astonishingly clean: the ONLY friction was one
       `java.util.Arrays.sort` over a union array (→ `Array[AnyRef]` cast); exhaustiveness preserved. Verified
       core+backendInterpreter+all plugins+server+dap compile; core/test 1019/0, plugin-tests 712/0, broad
-      interp/value/effects 218/0, numeric/collection/JIT 77/0 (~2026 green). **NEXT (Slice 5):** move `DataValue`
-      to a low `value-data` module (mechanical — it extends nothing core); **Slice 6:** alias `SpiValue` scalar
-      cases to `DataValue` so the scalar half of the conversion is identity. Original goal/notes below (NOTE:
-      the "delete the conversion / one type" end-state is superseded by the scalars-only decision above).
+      interp/value/effects 218/0, numeric/collection/JIT 77/0 (~2026 green). **Slice 5 DONE:** moved `DataValue`
+      to a new low leaf module `lang/value-data` (below core+backendSpi). **Slice 6 DONE:** `SpiValue` is now
+      `type SpiValue = DataValue | SpiRest` — scalar leaves are the SAME shared `DataValue` classes (SpiRest =
+      SPI-private containers + Opaque; `object SpiValue` re-exports `DataValue` w/ `StringV as StrV`, so the 9
+      plugins + all `SpiValue.*` sites are unchanged); `valueToSpi`/`spiToValue` convert scalars by IDENTITY.
+      **✅ SCALARS-ONLY UNIFICATION COMPLETE** — one shared set of scalar classes across `Value` + `SpiValue`;
+      the scalar half of the conversion is gone; the container half stays by design (closure-bearing obstacle).
+      plugin-tests 712/0, round-trip+effects+numeric 183/0. The actionable scope of this task is now CLOSED
+      (full merge deliberately off — perf). Original goal/notes below (NOTE: the "delete the conversion / one
+      type" end-state is SUPERSEDED by the scalars-only decision — the container half is correct to keep).
       <br>**Goal (original):** collapse the duplication
       between the interpreter's `Value` and the SPI's `SpiValue` into ONE value type. Today they're separate by
       necessity: `interpreter.Value` (in `core`) is entangled with *execution* — `FunV(closure: Env)`,

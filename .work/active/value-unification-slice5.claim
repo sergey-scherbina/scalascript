@@ -1,6 +1,0 @@
-feature/value-unification-slice5 2026-06-23T02:50:00Z
-agent: claude
-heartbeat: 2026-06-23T02:50:00Z
-status: in-progress
-done-so-far: Slice 4 landed (Value = DataValue | ValueRest union, scalars in DataValue, in core). 
-next: Slice 5 = move DataValue to a new low leaf sbt module `value-data` (lang/value-data, package scalascript.interpreter split-pkg), wire core.dependsOn(valueData) + root aggregate; verify core+backendInterpreter compile + suite green. (Slice 6 = SpiValue scalar aliasing next.)

@@ -1,7 +1,9 @@
 # Value unification — collapse `interpreter.Value` and `backend.spi.SpiValue` into one data type
 
-Status: **IN PROGRESS** (Slices 1-4 landed 2026-06-23; scope = SCALARS-ONLY per Sergiy's decision — full merge
-off the table, see the container/closure obstacle in §3). Task `core-min-value-unification` (SPRINT, roadmap A).
+Status: **SCALARS-ONLY UNIFICATION COMPLETE** (Slices 1-6 landed 2026-06-23). Scope = SCALARS-ONLY per Sergiy's
+decision — full merge off the table (container/closure obstacle, §3). The scalar leaves are now ONE shared set
+of classes (`DataValue`, module `value-data`) across interp `Value` + SPI `SpiValue`; the scalar half of the
+conversion is identity. Only the container half of the conversion remains (by design). `core-min-value-unification`.
 
 ## 1. Goal
 
@@ -145,11 +147,22 @@ step, where `DataValue` must equal the completed `SpiValue`.
   backendInterpreter + all plugins + interpreter-server + dap compile; **core/test 1019/0, plugin-tests
   712/0, broad interp/value/effects 218/0, numeric/collection/JIT 77/0** (~2026 green, 0 fail).
 
-- **Slice 5 — move `DataValue` to a low `value-data` module** (file move + build wiring; it extends nothing
-  core, so this is mechanical) so `backendSpi` can see it.
+- **Slice 5 — `DataValue` moved to a low `value-data` module (DONE 2026-06-23).** New leaf sbt module
+  `lang/value-data` (no deps); `DataValue.scala` moved there (package stays `scalascript.interpreter` — a
+  benign split package); `core.dependsOn(valueData)` + root aggregate. Pure relocation — `valueData`+`core`+
+  `backendInterpreter` compile, core/test 1019/0.
 
-- **Slice 6 — alias `SpiValue`'s scalar cases to `DataValue`** so the *scalar* half of `valueToSpi`/`spiToValue`
-  becomes identity (no realloc/rewrap). Container cases of the conversion stay (the obstacle). SPI version note.
+- **Slice 6 — `SpiValue` shares the scalar leaves (DONE 2026-06-23).** `backendSpi.dependsOn(valueData)`;
+  `SpiValue` is now `type SpiValue = DataValue | SpiRest` where `SpiRest` (enum) = the SPI-private containers
+  (`ListV`/`VectorV`/`TupleV`/`OptV`/`MapV`) + `Opaque`. `object SpiValue` re-exports `DataValue` (`StringV`
+  **as** `StrV` — the historical SPI name) + `SpiRest.*`, so existing `SpiValue.IntV`/`StrV`/`ListV` sites are
+  unchanged. **`valueToSpi`/`spiToValue` convert the scalar leaves by IDENTITY** (`case d: DataValue => d`,
+  no realloc) since a scalar `Value` already *is* an `SpiValue` (both are `… | DataValue` unions); only the
+  containers + `Opaque` do real work. Bonus: `BigInt`/`Decimal`/`Null` now cross the SPI as structured
+  `DataValue` cases instead of `Opaque`. backendSpi + interpreter + all plugins compile; plugin-tests 712/0,
+  round-trip + StdEffects + Interpreter + BigInt + Decimal 183/0. **The scalars-only unification is now
+  COMPLETE** — scalar leaves are one shared set of classes across `Value` + `SpiValue`; only the container
+  half of the conversion remains (the closure-bearing obstacle, by design).
 
 **Gate at every slice:** `backendInterpreter` + plugin-tests green; the `Value.<Case>` sites compile unchanged.
 
