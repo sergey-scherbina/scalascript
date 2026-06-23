@@ -44,11 +44,15 @@ class ShamirSecretSharingTest extends AnyFunSuite with Matchers:
     recovered.map(_.toSeq) should not be Some(secret.toSeq)
   }
 
-  test("a tampered share yields a wrong secret, not the original") {
-    val secret = secretOf(31)
+  test("a corrupted share yields a wrong secret, not the original") {
+    // Raw Shamir has no integrity check, and recover truncates each chunk to its low 31 bytes — so a
+    // single-byte flip in a share's high (or padding) region can be masked. A substantial corruption diffuses
+    // through the Lagrange combination and reliably changes the recovered secret.
+    val secret = secretOf(48)
     val shares = split(secret, 2, 3)
     val bad    = shares.head
-    bad.data(0) = (bad.data(0) ^ 0xFF).toByte
+    var i = 0
+    while i < bad.data.length do { bad.data(i) = (bad.data(i) ^ 0xFF).toByte; i += 1 }
     recover(List(bad, shares(1))).toSeq should not be secret.toSeq
   }
 
