@@ -194,7 +194,7 @@ validated + pushed:
       capability/stable surface. PROOF in this slice: migrate `mime-plugin` (simplest) end-to-end off
       `scalascript.interpreter`. VERIFY: `pluginApi` compiles with the core dep (no cycle); mime compiles with no
       `scalascript.interpreter` import + its tests green.
-- [~] **p3-batch-A**: **mime ✓, pdf ✓, fs ✓, crypto ✓ (58/0), payment-request ✓, nfc ✓, auth ✓, fetch ✓, graph ✓ (2/0)** (9/10).
+- [x] **p3-batch-A** ✓ DONE 2026-06-23 — ALL 10 migrated off scalascript.interpreter: mime/pdf/fs/crypto/payment-request/nfc/auth/fetch/graph/yaml (tests green). Surface complete: full Value-surface + extractor objects (Str/Num/Dbl/Bool/Chr/Lst/Tpl/Inst/Opt/Big/MapVal/Foreign/NativeFn) + foreign/nullV/isUnitOrNull/showAny/isRuntimeValue + asInstance via effectiveFields. Recipe mature (stateful line-aware swap; mid-line .collect{case}; strip pattern type-tests; bare Value types; OptionV-ctor->some/option; structural store->PluginValue+wrap; showAny for Value-vs-native).
       **BREAKTHROUGH 2026-06-23 — the hard problem is solved.** The blocker on the pattern-matching plugins:
       they use `Value.StringV(x)` etc. BOTH as constructors AND as `case` PATTERNS, and `PluginValue` (opaque)
       can't be pattern-matched. SOLUTION: added **extractor objects** to `PluginValue` — `Str/Num/Dbl/Bool/Chr/

@@ -1,7 +1,6 @@
 package scalascript.compiler.plugin.yaml
 
 import scalascript.backend.spi.*
-import scalascript.interpreter.Value
 import scalascript.ir.QualifiedName
 import scalascript.plugin.api.{PluginComputation, PluginNative, PluginValue}
 import scalascript.parser.SimpleYaml
@@ -10,82 +9,82 @@ import scala.jdk.CollectionConverters.*
 
 object YamlIntrinsics:
 
-  private def native(f: List[Any] => Value): NativeImpl =
+  private def native(f: List[Any] => PluginValue): NativeImpl =
     PluginNative.eval { (_, args) =>
       PluginComputation.pure(PluginValue.wrap(f(args.map(_.unwrap))))
     }
 
   // ── Any (from SimpleYaml) → YamlValue (as InstanceV) ─────────────────────
 
-  private def fromAny(raw: Any): Value = raw match
+  private def fromAny(raw: Any): PluginValue = raw match
     case null =>
-      Value.InstanceV("YNull", Map.empty)
+      PluginValue.instance("YNull", Map.empty)
     case b: java.lang.Boolean =>
-      Value.InstanceV("YBool", Map("value" -> Value.boolV(b.booleanValue)))
+      PluginValue.instance("YBool", Map("value" -> PluginValue.bool(b.booleanValue)))
     case i: java.lang.Integer =>
-      Value.InstanceV("YNum", Map("value" -> Value.DoubleV(i.doubleValue)))
+      PluginValue.instance("YNum", Map("value" -> PluginValue.double(i.doubleValue)))
     case l: java.lang.Long =>
-      Value.InstanceV("YNum", Map("value" -> Value.DoubleV(l.doubleValue)))
+      PluginValue.instance("YNum", Map("value" -> PluginValue.double(l.doubleValue)))
     case d: java.lang.Double =>
-      Value.InstanceV("YNum", Map("value" -> Value.DoubleV(d.doubleValue)))
+      PluginValue.instance("YNum", Map("value" -> PluginValue.double(d.doubleValue)))
     case f: java.lang.Float =>
-      Value.InstanceV("YNum", Map("value" -> Value.DoubleV(f.doubleValue)))
+      PluginValue.instance("YNum", Map("value" -> PluginValue.double(f.doubleValue)))
     case s: String =>
-      Value.InstanceV("YStr", Map("value" -> Value.StringV(s)))
+      PluginValue.instance("YStr", Map("value" -> PluginValue.string(s)))
     case m: java.util.Map[?, ?] =>
       val fields = m.asScala.map { case (k, v) =>
-        Value.StringV(k.toString).asInstanceOf[Value] -> fromAny(v)
+        PluginValue.string(k.toString) -> fromAny(v)
       }.toMap
-      Value.InstanceV("YObj", Map("fields" -> Value.MapV(fields)))
+      PluginValue.instance("YObj", Map("fields" -> PluginValue.mapOf(fields)))
     case lst: java.util.List[?] =>
       val items = lst.asScala.map(fromAny).toList
-      Value.InstanceV("YArr", Map("items" -> Value.ListV(items)))
+      PluginValue.instance("YArr", Map("items" -> PluginValue.list(items)))
     case other =>
-      Value.InstanceV("YStr", Map("value" -> Value.StringV(other.toString)))
+      PluginValue.instance("YStr", Map("value" -> PluginValue.string(other.toString)))
 
   // ── YamlValue (InstanceV) → YAML string ──────────────────────────────────
 
-  private def toYamlStr(v: Value, indent: Int = 0): String =
+  private def toYamlStr(v: Any, indent: Int = 0): String =
     val pad = " " * indent
     v match
-      case Value.InstanceV("YNull", _) => "null"
-      case Value.InstanceV("YBool", fields) =>
+      case PluginValue.Inst("YNull", _) => "null"
+      case PluginValue.Inst("YBool", fields) =>
         fields.get("value").map {
-          case Value.BoolV(b) => b.toString
+          case PluginValue.Bool(b) => b.toString
           case other          => other.toString
         }.getOrElse("null")
-      case Value.InstanceV("YNum", fields) =>
+      case PluginValue.Inst("YNum", fields) =>
         fields.get("value").map {
-          case Value.DoubleV(d) =>
+          case PluginValue.Dbl(d) =>
             if d == d.toLong.toDouble && !d.isInfinite && !d.isNaN then d.toLong.toString
             else d.toString
-          case Value.IntV(n) => n.toString
+          case PluginValue.Num(n) => n.toString
           case other         => other.toString
         }.getOrElse("0")
-      case Value.InstanceV("YStr", fields) =>
+      case PluginValue.Inst("YStr", fields) =>
         fields.get("value").map {
-          case Value.StringV(s) => quoteYamlStr(s)
+          case PluginValue.Str(s) => quoteYamlStr(s)
           case other            => quoteYamlStr(other.toString)
         }.getOrElse("''")
-      case Value.InstanceV("YArr", fields) =>
+      case PluginValue.Inst("YArr", fields) =>
         fields.get("items") match
-          case Some(Value.ListV(items)) if items.isEmpty => "[]"
-          case Some(Value.ListV(items)) =>
+          case Some(PluginValue.Lst(items)) if items.isEmpty => "[]"
+          case Some(PluginValue.Lst(items)) =>
             items.map { item =>
               val rendered = toYamlStr(item, indent + 2)
               if rendered.contains('\n') then s"$pad- |\n${rendered.split('\n').map(l => pad + "  " + l).mkString("\n")}"
               else s"$pad- $rendered"
             }.mkString("\n")
           case _ => "[]"
-      case Value.InstanceV("YObj", fields) =>
+      case PluginValue.Inst("YObj", fields) =>
         fields.get("fields") match
-          case Some(Value.MapV(m)) if m.isEmpty => "{}"
-          case Some(Value.MapV(m)) =>
+          case Some(PluginValue.MapVal(m)) if m.isEmpty => "{}"
+          case Some(PluginValue.MapVal(m)) =>
             m.toList.sortBy { case (k, _) => k match
-              case Value.StringV(s) => s
+              case PluginValue.Str(s) => s
               case other            => other.toString
             }.map { case (k, vv) =>
-              val key = k match { case Value.StringV(s) => quoteYamlKey(s); case other => other.toString }
+              val key = k match { case PluginValue.Str(s) => quoteYamlKey(s); case other => other.toString }
               val rendered = toYamlStr(vv, indent + 2)
               if rendered.contains('\n') then s"$pad$key:\n$rendered"
               else s"$pad$key: $rendered"
@@ -117,57 +116,56 @@ object YamlIntrinsics:
         try fromAny(SimpleYaml.load[Any](s))
         catch case e: SimpleYaml.ParseError =>
           throw RuntimeException(s"YAML parse error: ${e.getMessage}", e)
-      case _ => Value.InstanceV("YNull", Map.empty)
+      case _ => PluginValue.instance("YNull", Map.empty)
     },
 
     QualifiedName("toYaml") -> native {
-      case List(v: Value.InstanceV) => Value.StringV(toYamlStr(v) + "\n")
-      case List(other: Value)       => Value.StringV(toYamlStr(other) + "\n")
-      case _                        => Value.StringV("null\n")
+      case List(v) => PluginValue.string(toYamlStr(v) + "\n")
+      case _                        => PluginValue.string("null\n")
     },
 
     // Helper: extract type tag ("YStr", "YNum", "YBool", "YNull", "YArr", "YObj")
     QualifiedName("yamlType") -> native {
-      case List(v: Value.InstanceV) => Value.StringV(v.typeName)
-      case _                        => Value.StringV("unknown")
+      case List(PluginValue.Inst(tn, _)) => PluginValue.string(tn)
+      case _                        => PluginValue.string("unknown")
     },
 
     // Helper: extract string value from YStr
     QualifiedName("yamlStr") -> native {
-      case List(v: Value.InstanceV) if v.typeName == "YStr" =>
-        v.fields.getOrElse("value", Value.NullV)
-      case _ => Value.NullV
+      case List(PluginValue.Inst("YStr", _vf)) =>
+        _vf.getOrElse("value", PluginValue.nullV)
+      case _ => PluginValue.nullV
     },
 
     // Helper: extract numeric value from YNum
     QualifiedName("yamlNum") -> native {
-      case List(v: Value.InstanceV) if v.typeName == "YNum" =>
-        v.fields.getOrElse("value", Value.DoubleV(0.0))
-      case _ => Value.DoubleV(0.0)
+      case List(PluginValue.Inst("YNum", _vf)) =>
+        _vf.getOrElse("value", PluginValue.double(0.0))
+      case _ => PluginValue.double(0.0)
     },
 
     // Helper: extract bool from YBool
     QualifiedName("yamlBool") -> native {
-      case List(v: Value.InstanceV) if v.typeName == "YBool" =>
-        v.fields.getOrElse("value", Value.False)
-      case _ => Value.False
+      case List(PluginValue.Inst("YBool", _vf)) =>
+        _vf.getOrElse("value", PluginValue.bool(false))
+      case _ => PluginValue.bool(false)
     },
 
     // Helper: extract list from YArr
     QualifiedName("yamlArr") -> native {
-      case List(v: Value.InstanceV) if v.typeName == "YArr" =>
-        v.fields.getOrElse("items", Value.ListV(Nil))
-      case _ => Value.ListV(Nil)
+      case List(PluginValue.Inst("YArr", _vf)) =>
+        _vf.getOrElse("items", PluginValue.list(Nil))
+      case _ => PluginValue.list(Nil)
     },
 
     // Helper: get a field from YObj by key
     QualifiedName("yamlGet") -> native {
-      case List(v: Value.InstanceV, key: String) if v.typeName == "YObj" =>
-        v.fields.get("fields") match
-          case Some(Value.MapV(m)) =>
-            m.getOrElse(Value.StringV(key), Value.InstanceV("YNull", Map.empty))
-          case _ => Value.InstanceV("YNull", Map.empty)
-      case _ => Value.InstanceV("YNull", Map.empty)
+      case List(PluginValue.Inst("YObj", _vf), key: String) =>
+        _vf.get("fields") match
+          case Some(PluginValue.MapVal(m)) =>
+            m.getOrElse(PluginValue.string(key), PluginValue.instance("YNull", Map.empty))
+          case _ => PluginValue.instance("YNull", Map.empty)
+      case _ => PluginValue.instance("YNull", Map.empty)
     },
 
   )
