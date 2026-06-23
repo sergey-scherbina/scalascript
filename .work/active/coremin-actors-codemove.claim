@@ -1,6 +1,6 @@
 feature/coremin-actors-codemove 2026-06-23T05:12:25Z
 agent: codex
-heartbeat: 2026-06-23T05:12:43Z
+heartbeat: 2026-06-23T05:17:10Z
 status: in-progress
-done-so-far: worktree created
-next: read actor spec, probe core dependencies, define first green seam slice
+done-so-far: host-service seam planned in specs/coremin-actors-plugin.md + SPRINT.md and pushed to main
+next: implement ActorRuntimeHost service methods and provider tests, without moving scheduler code yet
