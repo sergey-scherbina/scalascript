@@ -1528,13 +1528,11 @@ class Interpreter(
   // The host-neutral, closed value the block-form/effect-handler SPI speaks
   // (the spi module must not depend on `Value`). polyglot-libraries §2d.
   import scalascript.backend.spi.SpiValue
+  // value-unification (scalars-only): the scalar leaves are the *shared* `DataValue` cases, so a scalar
+  // Value already IS an SpiValue (both are `… | DataValue` unions) — convert it by identity, no rewrap.
+  // Only the containers (which hold arbitrary Values) and the Opaque fallback need real conversion.
   private[interpreter] def valueToSpi(v: Value): SpiValue = v match
-    case Value.IntV(n)     => SpiValue.IntV(n)
-    case Value.DoubleV(d)  => SpiValue.DoubleV(d)
-    case Value.StringV(s)  => SpiValue.StrV(s)
-    case Value.CharV(c)    => SpiValue.CharV(c)
-    case Value.BoolV(b)    => SpiValue.BoolV(b)
-    case Value.UnitV       => SpiValue.UnitV
+    case d: DataValue      => d  // scalar leaf — shared, identity
     case Value.ListV(xs)   => SpiValue.ListV(xs.map(valueToSpi))
     case Value.VectorV(xs) => SpiValue.VectorV(xs.toList.map(valueToSpi))
     case Value.TupleV(xs)  => SpiValue.TupleV(xs.map(valueToSpi))
@@ -1543,12 +1541,7 @@ class Interpreter(
     case other             => SpiValue.Opaque(other)  // closure / case-class / etc. — round-trip unchanged
 
   private[interpreter] def spiToValue(s: SpiValue): Value = s match
-    case SpiValue.IntV(n)     => Value.intV(n)
-    case SpiValue.DoubleV(d)  => Value.doubleV(d)
-    case SpiValue.StrV(s)     => Value.StringV(s)
-    case SpiValue.CharV(c)    => Value.CharV(c)
-    case SpiValue.BoolV(b)    => Value.boolV(b)
-    case SpiValue.UnitV       => Value.UnitV
+    case d: DataValue         => d  // scalar leaf — shared, identity
     case SpiValue.ListV(xs)   => Value.ListV(xs.map(spiToValue))
     case SpiValue.VectorV(xs) => Value.VectorV(xs.map(spiToValue).toVector)
     case SpiValue.TupleV(xs)  => Value.TupleV(xs.map(spiToValue))

@@ -101,7 +101,7 @@ lazy val ir = project
 
 lazy val backendSpi = project
   .in(file("runtime/backend/spi"))
-  .dependsOn(ir, markupCore)
+  .dependsOn(valueData, ir, markupCore)
   .settings(
     name := "scalascript-backend-spi",
     libraryDependencies ++= Seq(scalatestTest),
