@@ -8,7 +8,10 @@ package scalascript.interpreter
  *  an interpreter-only actors plugin in a later slice.
  */
 trait ActorRuntimeProvider:
-  def runActors(host: ActorRuntimeHost, initial: Computation): Computation
+  def open(host: ActorRuntimeHost): ActorRuntimeSession
+
+trait ActorRuntimeSession:
+  def runActors(initial: Computation): Computation
 
 trait ActorRuntimeHost:
   def runCoreActorRuntime(initial: Computation): Computation
@@ -17,5 +20,7 @@ trait ActorRuntimeProviderBackend:
   def actorRuntimeProvider: ActorRuntimeProvider
 
 object CoreActorRuntimeProvider extends ActorRuntimeProvider:
-  def runActors(host: ActorRuntimeHost, initial: Computation): Computation =
-    host.runCoreActorRuntime(initial)
+  def open(host: ActorRuntimeHost): ActorRuntimeSession =
+    new ActorRuntimeSession:
+      def runActors(initial: Computation): Computation =
+        host.runCoreActorRuntime(initial)

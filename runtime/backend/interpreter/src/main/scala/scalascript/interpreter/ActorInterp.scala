@@ -48,9 +48,16 @@ private[interpreter] trait ActorInterp extends ActorRuntimeHost:
     val blockedSends = mutable.LongMap.empty[mutable.Queue[(Long, Value, Value => Computation)]]
   private var actorRt: ActorRuntime = null
   private var actorRuntimeProvider: ActorRuntimeProvider = CoreActorRuntimeProvider
+  private var actorRuntimeSession: ActorRuntimeSession = null
 
   private[interpreter] def installActorRuntimeProvider(provider: ActorRuntimeProvider): Unit =
     actorRuntimeProvider = provider
+    actorRuntimeSession = null
+
+  private def currentActorRuntimeSession: ActorRuntimeSession =
+    if actorRuntimeSession == null then
+      actorRuntimeSession = actorRuntimeProvider.open(this)
+    actorRuntimeSession
 
   /** True when `runActors { ... }` is active (an `ActorRuntime` is installed).
    *  Used by `ActorGlobals.install` to make `stop()` a no-op outside actor
@@ -1277,7 +1284,7 @@ private[interpreter] trait ActorInterp extends ActorRuntimeHost:
   // The driver runs until every actor is either complete or blocked
   // with an empty mailbox.  The root actor's final value is returned.
   private[interpreter] def actorInterp(initial: Computation): Computation =
-    actorRuntimeProvider.runActors(this, initial)
+    currentActorRuntimeSession.runActors(initial)
 
   def runCoreActorRuntime(initial: Computation): Computation =
     val rt = new ActorRuntime
