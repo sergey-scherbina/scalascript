@@ -1,14 +1,17 @@
 # `frontend/tui` — a ratatui terminal-UI backend for the Tk frontend SPI
 
-Status: **IN PROGRESS** (2026-06-23, with Sergiy — "мы ведём всю компиляторную сторону сами. Оформляй
-спеку, вноси в спринт и делай все что нужно"). SPRINT track `frontend-tui-*`. **Slices 0–1 DONE 2026-06-23** —
-`frontend/tui` module registers & emits a cargo-buildable ratatui crate, and `TuiEmitter` lowers the static
-`View` IR (layout + text) to a headless-snapshot-testable `render_root` (18/18 incl. cargo render smoke), and
-**Slice 2** added the runtime signal store + crossterm redraw loop (reactive `render_root`, 20/20 incl. a
-`cargo test` reactivity gate), and **Slice 3** made it interactive — a focus ring, keyboard nav, and
-`EventHandler` execution that mutates the signal store (21/21, incl. a `cargo test` event gate), and **Slice 4**
-added `DataTable`→ratatui `Table`, reactive `TabBar`, and `NavigationStack` routing (25/25). Slice 5
-(fetch-binding) remains.
+Status: **COMPLETE (slices 0–5)** (2026-06-23, with Sergiy — "мы ведём всю компиляторную сторону сами. Оформляй
+спеку, вноси в спринт и делай все что нужно"). SPRINT track `frontend-tui-*`. The `frontend/tui` ratatui backend
+lowers the framework-agnostic `View` IR end-to-end: static layout + text (slice 1), a reactive signal store +
+crossterm redraw loop (slice 2), a focus ring with keyboard events that mutate the store (slice 3),
+`DataTable`/`TabBar`/`NavigationStack` (slice 4), and bootstrap HTTP-fetch-bound signals (slice 5).
+`frontendTui/test` **28/28** — fast string-match cases + three `assume(cargo)` end-to-end smokes that build +
+run the emitted crate (incl. a local-`HttpServer` fetch test). Any backend-selection input
+(`-Dscalascript.frontend=tui` / front-matter / inline) resolves it. The rozum side can now author its control
+center as one `std/ui` Tk `.ssc` app and compile it to a terminal binary. Remaining are follow-ups (per-slice
+notes below): `Style`/`Theme` color mapping, `A11y.focusOrder` seeding + hidden-branch focus skip,
+typed-model/`DataTable.Remote` dynamic rows, overlays (`Sheet`/`AlertDialog`), and the CLI `--frontend tui`
+native-emit flag.
 
 Cross-repo: this is the **scalascript-side** half of the rozum **Unified Control Center (UCC)** initiative
 (`rozum:docs/specs/unified-control-center.md`, master `386a892`). The operator's decision: **scalascript
@@ -182,9 +185,17 @@ snapshot matches)
   + a second cargo smoke building a `TabBar[DataTable, …]` whose snapshot shows the active `[Rooms]` tab + the
   table header (Room/Unread) + rows. (UCC PoC step 3: room switcher.) Follow-ups: hidden-tab focus skipping,
   `ForModel`/`EditableCell`, overlays (`Sheet`/`AlertDialog`).
-- **Slice 5 — fetch-json data binding.** `fetchUrlSignal/fetchJsonSignal` → an async HTTP fetch in the Rust
-  runtime (ureq/reqwest) feeding a signal — the seam the rozum control-API binds to over HTTP. **Gate:** a
-  fetch-backed list renders from a mock endpoint. (UCC PoC step 5 readiness.)
+- **Slice 5 — fetch data binding. ✓ DONE (2026-06-23).** `collectFetches` finds every `FetchUrlSignal`
+  (it *is* a `ReactiveSignal[String]` carrying a URL) referenced by `SignalText`/`DataTable.Remote`/`ModelView`;
+  the crate emits `fetch_text(url)` (blocking `ureq` GET) + a `bootstrap(signals)` that populates each fetch
+  signal at startup, called before the first render in both the snapshot and interactive paths. A
+  `SignalText` bound to a fetch signal then renders the fetched body (slice-2 store read, unchanged). `ureq` is
+  added to `Cargo.toml` **only** when the app fetches (non-fetch crates stay lean; `bootstrap` is then empty).
+  **Gate met:** `frontendTui/test` 28/28 — 2 fast emitter cases (fetch emits `bootstrap`+`ureq`; non-fetch app
+  has empty `bootstrap`/no dep) + a 3rd cargo smoke that starts a local JDK `HttpServer`, builds a crate whose
+  `SignalText` is bound to it, and asserts the snapshot contains the fetched body. This is the seam the rozum
+  control-API binds to over HTTP. Follow-up: dynamic `DataTable.Remote` rows + typed-model views
+  (`ModelView`/`ForModel`) from fetched JSON (needs `serde_json` + runtime row iteration).
 
 After Slice 5, the rozum side reaches PoC parity with the 1389-line hand-written `crates/rozum-meeting/src/tui`
 and can retire it.

@@ -60,10 +60,20 @@ snapshot matches (assume(cargo)-gated, like `RustGenCargoSmokeTest`). Drive top-
       `frontendTui/test` 25/25 — 3 fast emitter cases + a 2nd cargo smoke building `TabBar[DataTable,…]` (snapshot
       shows active `[Rooms]` + table header + rows). (UCC PoC step 3.) Follow-ups: hidden-tab focus skip,
       ForModel/EditableCell, Sheet/AlertDialog overlays.
-- [ ] **frontend-tui-5-fetch-binding** — `fetchUrlSignal/fetchJsonSignal`→async HTTP fetch in the Rust runtime
-      (ureq/reqwest) feeding a signal — the seam the rozum control-API binds to over HTTP. **Gate:** fetch-backed
-      list renders from a mock endpoint. (UCC PoC step 5 readiness.) After this, rozum can retire its 1389-line
-      hand-written `crates/rozum-meeting/src/tui`.
+- [x] **frontend-tui-5-fetch-binding** ✓ DONE 2026-06-23 — `collectFetches` finds every `FetchUrlSignal`
+      (a `ReactiveSignal[String]` carrying a URL) in `SignalText`/`DataTable.Remote`/`ModelView`; emits
+      `fetch_text(url)` (blocking `ureq` GET) + `bootstrap(signals)` populating each at startup (before first
+      render, both snapshot + interactive); a fetch-bound `SignalText` then renders the body. `ureq` added to
+      Cargo.toml only when the app fetches. **Gate met:** `frontendTui/test` 28/28 — 2 fast emitter cases + a
+      3rd cargo smoke that starts a local JDK `HttpServer`, builds a crate bound to it, and asserts the snapshot
+      shows the fetched body. This is the seam the rozum control-API binds to over HTTP. Follow-up: dynamic
+      `DataTable.Remote` rows + typed-model views from fetched JSON (needs `serde_json`).
+
+  **▶ frontend-tui MILESTONE COMPLETE (slices 0–5).** The ratatui terminal-UI backend lowers the full `View`
+  IR; rozum can author its control center as one `std/ui` `.ssc` app and compile it to a terminal binary,
+  retiring the hand-written `crates/rozum-meeting/src/tui`. Spec `specs/frontend-tui-ratatui.md`. Open
+  follow-ups (not blocking): Style/Theme colors, A11y.focusOrder seeding, typed-model dynamic tables,
+  Sheet/AlertDialog overlays, CLI `--frontend tui` native-emit flag.
 
 ### ▶ Crypto/finance roadmap (2026-06-23, with Sergiy — "да хочу. все хочу. … внеси все это в спринт или в беклог")
 Sergiy asked to queue the whole forward-looking crypto/blockchain/identity/payments brainstorm. Plan + per-item

@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — frontend/tui slice 5: fetch data binding — MILESTONE COMPLETE (slices 0–5)
+
+`TuiEmitter.collectFetches` finds every `FetchUrlSignal` (which is a `ReactiveSignal[String]` carrying a URL)
+referenced by `SignalText`/`DataTable.Remote`/`ModelView`; the emitted crate gets `fetch_text(url)` (a blocking
+`ureq` GET) plus a `bootstrap(signals)` that populates each fetch signal at startup — called before the first
+render in both the snapshot and interactive paths — so a `SignalText` bound to a fetch signal renders the
+fetched body. `ureq` is added to `Cargo.toml` only when the app actually fetches (non-fetch crates stay lean).
+`frontendTui/test` 28/28 — two fast emitter cases plus a third cargo smoke that starts a local JDK `HttpServer`,
+builds a crate whose `SignalText` is bound to it, and asserts the snapshot contains the fetched body.
+
+**This completes the `frontend/tui` ratatui backend (slices 0–5):** scaffold + selection, static layout/text,
+reactive signal store + crossterm redraw loop, focus ring + keyboard + events, `DataTable`/`TabBar`/
+`NavigationStack`, and HTTP fetch-binding. The scalascript side of the rozum Unified Control Center is done — a
+single `std/ui` Tk `.ssc` app now compiles to a terminal binary (as well as web/desktop), so rozum can retire
+its hand-written `crates/rozum-meeting/src/tui`. Open follow-ups (non-blocking): `Style`/`Theme` color mapping,
+`A11y.focusOrder` seeding, typed-model dynamic tables, `Sheet`/`AlertDialog` overlays, CLI `--frontend tui`
+native-emit flag. Spec `specs/frontend-tui-ratatui.md`.
+
 ## 2026-06-23 — frontend/tui slice 4: tables + reactive tabs/routing
 
 `TuiEmitter` now lowers the data/navigation `View` nodes. `DataTable` with a `StaticRows` source → a ratatui
