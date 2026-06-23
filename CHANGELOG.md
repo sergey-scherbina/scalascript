@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — frontend/tui slice 1: static layout + text → ratatui
+
+`TuiEmitter` now lowers the framework-agnostic `View` IR (post `NativeElementLowering`) to a recursive
+`render_root` ratatui renderer: `Column/Fragment/For/LazyList` → vertical `Layout` with measured
+`Constraint::Length`, `Row` → horizontal `Layout` (`Constraint::Ratio(1,n)`), `Stack`/`ScrollView`/`Styled`
+pass-through, `Text/SignalText/TextNode` → `Paragraph`, `Divider` → top-border `Block`, `Spacer` → reserved
+rows, `Show/ShowSignal` static-evaluated; interactive nodes (`Button`/`TextInput`/`Toggle`) render as static
+text (events land in slice 3); `Style`/`Theme` mapping deferred. Emitted crate carries a headless
+`TestBackend` buffer-snapshot harness so it runs without a TTY. `frontendTui/test` 18/18 — 10 fast
+`TuiEmitterTest` string-match cases + a `TuiCargoSmokeTest` (assume(cargo)) that builds + runs the crate and
+asserts the rendered buffer (heading + text + divider + side-by-side row). Spec `specs/frontend-tui-ratatui.md`.
+
 ## 2026-06-23 — frontend/tui (ratatui terminal-UI backend) — spec + slice 0 scaffold
 
 Scalascript-side half of the rozum Unified Control Center: a new `frontend/tui` render backend so one `std/ui`

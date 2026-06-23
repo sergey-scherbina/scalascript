@@ -31,9 +31,13 @@ snapshot matches (assume(cargo)-gated, like `RustGenCargoSmokeTest`). Drive top-
       headless `TestBackend`, prints `ssc-tui: ok`); sibling frontend backends recompile clean. CLI
       `--frontend tui` native-emit wiring deferred (selection already works via `-Dscalascript.frontend=tui` /
       front-matter / inline).
-- [ ] **frontend-tui-1-static-layout** — lower `Column/Row/Spacer/Divider`→`Layout`; `Text/Heading/SignalText`
-      (static)→`Paragraph`; `Styled/Style/Theme`→styled `Span`; `Card`→bordered `Block`. Draw-once. **Gate:**
-      `vstack(heading,text)` → cargo build + `TestBackend` buffer snapshot. (UCC PoC step 1: read-only msg list.)
+- [x] **frontend-tui-1-static-layout** ✓ DONE 2026-06-23 — `TuiEmitter` lowers the static `View` IR to a
+      recursive `render_root`: `Column/Fragment/For`→vertical `Layout` (measured `Length`), `Row`→horizontal
+      (`Ratio(1,n)`), `Text/SignalText/TextNode`→`Paragraph`, `Divider`→top-border `Block`, `Spacer`→blank rows,
+      `Stack/ScrollView/Styled` pass-through, `Show/ShowSignal` static-eval; interactive nodes render as static
+      text (events → slice 3); Style mapping deferred. **Gate met:** `frontendTui/test` 18/18 — 10 fast
+      `TuiEmitterTest` + `TuiCargoSmokeTest` (assume(cargo)) renders heading+text+divider+row, buffer snapshot
+      has laid-out text + row children side-by-side.
 - [ ] **frontend-tui-2-signals-redraw** — Rust signal store (`HashMap<String,Value>`) + dirty-flag → redraw;
       crossterm event loop (draw → poll(timeout) → redraw on tick/dirty); `SignalText/ShowSignal/For/ForSignal`
       re-read each frame. **Gate:** tick-updated signal re-renders across two `TestBackend` frames.

@@ -1,9 +1,10 @@
 # `frontend/tui` — a ratatui terminal-UI backend for the Tk frontend SPI
 
 Status: **IN PROGRESS** (2026-06-23, with Sergiy — "мы ведём всю компиляторную сторону сами. Оформляй
-спеку, вноси в спринт и делай все что нужно"). SPRINT track `frontend-tui-*`. **Slice 0 (scaffold) DONE
-2026-06-23** — `frontend/tui` module + `TuiFrameworkBackend` register & emit a cargo-buildable ratatui crate
-(8/8 incl. cargo smoke). Slices 1–5 (the `View → ratatui` lowering table) remain.
+спеку, вноси в спринт и делай все что нужно"). SPRINT track `frontend-tui-*`. **Slices 0–1 DONE 2026-06-23** —
+`frontend/tui` module registers & emits a cargo-buildable ratatui crate, and `TuiEmitter` lowers the static
+`View` IR (layout + text) to a headless-snapshot-testable `render_root` (18/18 incl. cargo render smoke).
+Slices 2–5 (signals/redraw loop, focus/events, table/routing, fetch-binding) remain.
 
 Cross-repo: this is the **scalascript-side** half of the rozum **Unified Control Center (UCC)** initiative
 (`rozum:docs/specs/unified-control-center.md`, master `386a892`). The operator's decision: **scalascript
@@ -136,10 +137,15 @@ snapshot matches)
   crate `cargo run`s (ratatui 0.29, headless `TestBackend`, prints `ssc-tui: ok`). CLI `--frontend tui` native
   wiring deferred to a later slice (the browser `--frontend` set is web-only; selection already works via
   `-Dscalascript.frontend=tui` / front-matter / inline).
-- **Slice 1 — static layout + text (read-only).** `Column/Row/Spacer/Divider` → `Layout`; `Text/Heading/
-  SignalText` (static read) → `Paragraph`; `Styled/Style/Theme` → styled `Span`; `Card` → bordered `Block`.
-  Draw-once. **Gate:** a `vstack(heading, text)` program → cargo build + a `TestBackend` buffer snapshot of
-  the rendered text. (UCC PoC step 1: read-only message list `vstack(messages.map(msgRow))`.)
+- **Slice 1 — static layout + text (read-only). ✓ DONE (2026-06-23).** `TuiEmitter` lowers the `View` IR (post
+  `NativeElementLowering`) to a recursive `render_root`: `Column/Fragment/For/LazyList` → vertical `Layout`
+  (measured `Constraint::Length`), `Row` → horizontal `Layout` (`Constraint::Ratio(1,n)`),
+  `Stack`/`ScrollView`/`Styled` pass-through, `Text/SignalText/TextNode` → `Paragraph`, `Divider` → top-border
+  `Block`, `Spacer` → reserved blank rows, `Show/ShowSignal` evaluated once (static). Interactive nodes
+  (`Button`/`TextInput`/`Toggle`) render as static text (events → slice 3); `Style`/`Theme` mapping deferred.
+  Headless `TestBackend` buffer-snapshot harness (`buffer_to_lines`). **Gate met:** `frontendTui/test` 18/18 —
+  10 fast `TuiEmitterTest` cases + `TuiCargoSmokeTest` (assume(cargo)) rendering heading+text+divider+row whose
+  buffer snapshot has the laid-out text with row children side-by-side. (UCC PoC step 1: read-only message list.)
 - **Slice 2 — signals + redraw loop.** Rust signal store (`HashMap<String, Value>`) + dirty-flag → redraw;
   crossterm event loop (draw → poll(timeout) → on tick/dirty redraw). `SignalText/ShowSignal/For/ForSignal`
   re-read each frame. **Gate:** a tick-updated signal re-renders across two `TestBackend` frames.
