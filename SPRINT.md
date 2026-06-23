@@ -43,6 +43,10 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
       `InterruptedException`, sbt `[success]`). **Next slice:** add the distributed server/WS host hooks
       (`openWsClient`, `_ssc-actors` WS route registration, cluster status/drain/events/metrics routes), then
       move scheduler/cluster code behind the provider in a separate green step.
+      **Server/WS seam plan (2026-06-23, codex):** add `ActorRuntimeHost` methods for `openWsClient`,
+      `_ssc-actors` WS route registration, and cluster-control route registration. This should stay
+      behavior-preserving: `ActorInterp` remains the implementation owner, the future plugin runtime calls host
+      hooks instead of `InterpreterServerSupport.current`, `wsRoutes.register`, or `ClusterRoutesRuntime` directly.
 
 - [ ] **theme-a-stable-plugin-spi — Phase 3** (versioned stable API module) — Phases 1+2 landed (the stable
       surface exists: `PluginValue`/`PluginError`/`PluginComputation`/`JsonCodec`/`PluginContext` in

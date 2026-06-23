@@ -53,6 +53,9 @@ trait ActorRuntimeHost:
   def actorNativeFeatureGet(key: String): Option[Any]
   def actorNativeFeatureSet(key: String, value: Any): Unit
   def actorNativeFeatureRemove(key: String): Option[Any]
+  def actorOpenWsClient(url: String, headers: Map[String, String], protocols: List[String]): InterpreterWsClientSession
+  def actorRegisterWsRoute(path: String, handler: Value, protocols: List[String]): Unit
+  def actorRegisterClusterRoutes(): Unit
   def runCoreActorRuntime(initial: Computation): Computation
 ```
 
@@ -74,6 +77,9 @@ Exact method names may change during implementation, but the boundary must prese
 - [x] `ActorRuntimeHost` exposes an explicit interpreter-service API for the moved runtime (`out`, closure calls,
   receive-spec lookup/matching, and native feature state) instead of requiring a broad `Interpreter` self-type in
   the plugin runtime.
+- [ ] `ActorRuntimeHost` exposes distributed server hooks for the moved runtime (`openWsClient`, `_ssc-actors`
+  WebSocket route registration, and cluster-control HTTP route registration) without requiring the plugin runtime
+  to reach into `InterpreterServerSupport`, `wsRoutes`, or `ClusterRoutesRuntime` directly.
 - [ ] No actor scheduler/mailbox/cluster state remains in interpreter core except the minimal host bridge and dispatch stub.
 - [ ] Existing `.ssc` examples and conformance files under `tests/conformance/actors-*.ssc` require no source changes.
 
@@ -123,9 +129,11 @@ Interpreter core keeps:
 3. **Session lifecycle seam slice** — change the provider contract to `open(host): ActorRuntimeSession`, cache one session per interpreter host, and reset it when a provider is installed. This makes state ownership explicit before any runtime move.
 4. **Host-service seam slice** — enumerate the current runtime's direct `Interpreter` dependencies and expose the
    minimal typed methods on `ActorRuntimeHost`. Keep `runCoreActorRuntime` only as the temporary core delegate.
-5. **Move runtime slice** — move `ActorRuntime`, scheduler loop, actor op handling, and cluster helpers into `runtime/std/actors-plugin`; core dispatches through the session.
-6. **Prelude/check slice** — move actor runner/primitive names that are safe to type as `Any` into plugin `preludeSymbols`; keep syntax-only `receive` handling in core.
-7. **Cleanup slice** — remove stale actor scheduler state from interpreter core and update `SPRINT.md`/`CHANGELOG.md`.
+5. **Server/WS seam slice** — expose the distributed hooks the moved runtime needs for outbound WebSocket clients,
+   `_ssc-actors` route registration, and cluster-control HTTP routes.
+6. **Move runtime slice** — move `ActorRuntime`, scheduler loop, actor op handling, and cluster helpers into `runtime/std/actors-plugin`; core dispatches through the session.
+7. **Prelude/check slice** — move actor runner/primitive names that are safe to type as `Any` into plugin `preludeSymbols`; keep syntax-only `receive` handling in core.
+8. **Cleanup slice** — remove stale actor scheduler state from interpreter core and update `SPRINT.md`/`CHANGELOG.md`.
 
 ## Decisions
 
