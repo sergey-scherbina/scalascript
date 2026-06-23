@@ -186,9 +186,14 @@ foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (high
       valid signature with no single process holding all shares; same signature as in-process `FrostQuorum` for
       the same inputs. Unblocks the `threshold-custody-wallet` product (BACKLOG).
 
-- [ ] **totp-hotp** (quick service win) — HOTP (RFC 4226, counter) + TOTP (RFC 6238, time) over the existing
-      `hmac` SPI primitive; small `std`-level module. **Why:** ubiquitous 2FA for almost no code. **Gate:**
-      RFC 4226 / 6238 reference vectors. Add an `examples/` (per AGENTS.md, user-facing feature ⇒ example).
+- [x] **totp-hotp** ✓ DONE 2026-06-23 — HOTP (RFC 4226, counter) + TOTP (RFC 6238, time) in `Totp`
+      (cryptoSpi/shared), fully PORTABLE (no SPI backend): added portable `Sha1` (FIPS 180) + generic `Hmac`
+      (sha1/sha256/sha512) to crypto-spi/shared, then HOTP dynamic-truncation + TOTP time-step + a
+      `validate(window=±1)` skew check. Configurable digits + SHA-1/256/512 (`Totp.Algo`). **Gate MET:** byte-exact
+      RFC 4226 App. D (HOTP counters 0-9) + RFC 6238 App. B (TOTP 8-digit, SHA-1/256/512 at 6 timestamps) + FIPS
+      SHA-1 + RFC 2202 HMAC-SHA1 vectors. cryptoSpi JVM 51 / JS 51. (SHA-1 is collision-broken — included ONLY for
+      these legacy HMAC standards, documented as such.) No `.ssc` example yet — library primitive, not
+      plugin-exposed; `OtpTest` is the usage reference (a std/.ssc binding can be a follow-up).
 
 - [x] **shamir-secret-backup** ✓ DONE 2026-06-23 — `ShamirSecretSharing` (cryptoFrost/shared): `t`-of-`n` split /
       recover of ARBITRARY byte secrets (seed phrases, keys, blobs) over the prime field `GF(2^255−19)`
