@@ -8,14 +8,17 @@ import scalascript.frontend.*
  *  assume(cargo)-gated [[TuiCargoSmokeTest]]. */
 final class TuiEmitterTest extends AnyFunSuite:
 
-  private def emitMain(root: View[?]): String =
+  private def emitCrate(root: View[?]): (String, String) =
     val mod = FrontendModule(
       components     = List(ComponentDef("App", Nil, _ => root)),
       entryPoint     = "App",
       initialRoute   = "/",
       targetPlatform = Platform.Terminal
     )
-    new TuiFrameworkBackend().emitNative(mod, Platform.Terminal).get.sources("src/main.rs")
+    val app = new TuiFrameworkBackend().emitNative(mod, Platform.Terminal).get
+    (app.sources("Cargo.toml"), app.sources("src/main.rs"))
+
+  private def emitMain(root: View[?]): String = emitCrate(root)._2
 
   private def text(s: String): View[?] = View.Text(() => s)
 
@@ -155,6 +158,22 @@ final class TuiEmitterTest extends AnyFunSuite:
     assert(rs.contains("""match sig(signals, "route").as_str()"""))
     assert(rs.contains(""""home" => {"""))
     assert(rs.contains("""Paragraph::new("home view")"""))
+  }
+
+  test("fetch-bound SignalText emits a bootstrap GET + adds the ureq dep") {
+    val feed = new FetchUrlSignal("feed", "http://localhost:9/rooms", "tick")
+    val (cargo, rs) = emitCrate(View.SignalText(feed))
+    assert(cargo.contains("ureq = \"2\""))
+    assert(rs.contains("fn fetch_text(url: &str) -> Option<String>"))
+    assert(rs.contains("""fetch_text("http://localhost:9/rooms")"""))
+    assert(rs.contains("""signals.insert("feed".to_string(), Value::S(b));"""))
+    assert(rs.contains("bootstrap(&mut signals);"))
+  }
+
+  test("non-fetch app has an empty bootstrap and no ureq dependency") {
+    val (cargo, rs) = emitCrate(text("hi"))
+    assert(!cargo.contains("ureq"))
+    assert(rs.contains("fn bootstrap(_signals: &mut HashMap<String, Value>) {}"))
   }
 
   test("Spacer reserves rows but renders nothing") {

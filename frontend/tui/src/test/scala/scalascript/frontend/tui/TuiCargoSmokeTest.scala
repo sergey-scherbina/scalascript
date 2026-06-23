@@ -95,6 +95,27 @@ final class TuiCargoSmokeTest extends AnyFunSuite:
     assert(out.contains("Room") && out.contains("Unread"), s"table header missing:\n$out")
     assert(out.contains("demo") && out.contains("rozum"), s"table rows missing:\n$out")
 
+  test("fetch-bound signal renders the fetched body via cargo"):
+    assume(cargoAvailable, "cargo not on PATH — skipping ratatui smoke")
+    // A local HTTP server returning a known payload; the emitted crate fetches it
+    // at bootstrap and a SignalText renders it.
+    val payload = "ROOMS_FETCHED_OK"
+    val server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext("/rooms", (ex: com.sun.net.httpserver.HttpExchange) => {
+      val bytes = payload.getBytes("UTF-8")
+      ex.sendResponseHeaders(200, bytes.length.toLong)
+      val os = ex.getResponseBody; os.write(bytes); os.close()
+    })
+    server.start()
+    try
+      val port = server.getAddress.getPort
+      val feed = new FetchUrlSignal("feed", s"http://127.0.0.1:$port/rooms", "tick")
+      val view = View.Column(Seq(View.Text(() => "Rooms:"), View.SignalText(feed)))
+      val out = snapshotViaCargo(view)
+      assert(out.contains(payload), s"fetched body not rendered:\n$out")
+    finally
+      server.stop(0)
+
   /** Emit `view`'s crate, `cargo run` it in `SSC_TUI_SNAPSHOT` mode (no TTY),
    *  return stdout. Cleans up the temp crate. */
   private def snapshotViaCargo(view: View[?]): String =

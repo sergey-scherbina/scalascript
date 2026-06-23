@@ -44,10 +44,11 @@ final class TuiFrameworkBackend extends FrontendFrameworkSpi:
         val manifest = module.appManifest.getOrElse(
           AppManifest("com.example.app", "ScalaScript TUI", "1.0.0")
         )
+        val (cargoToml, mainRs) = TuiEmitter.crate(module, manifest)
         Some(EmittedArtifact.NativeApp(
           sources     = Map(
-            "Cargo.toml"   -> TuiEmitter.cargoToml(manifest),
-            "src/main.rs"  -> TuiEmitter.mainRs(module, manifest)
+            "Cargo.toml"   -> cargoToml,
+            "src/main.rs"  -> mainRs
           ),
           resources   = Map.empty,
           buildScript = "cargo run",
