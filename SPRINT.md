@@ -150,8 +150,16 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
         reference. `cryptoFrost dependsOn cryptoSpi` (no external dep). Verified (JVM 20/0): BC SHA-512 == our
         reference SHA-512; a BC-backed 2-of-3 FROST signature verifies under BouncyCastle Ed25519; JS still 6/0
         (bridge cross-compiles). Closes the loop — portable reference + transparent substitution down to the crypto provider.
-  - [ ] **frost-vault-integration** (slice 8) — wire FROST as a `walletVaultMpcFrost` variant via the
-        `walletSpi`/MPC-vault seam (the in-house threshold counterpart to the remote `walletVaultMpc*`).
+  - [x] **frost-vault-integration** (slice 8) ✓ DONE 2026-06-23 — FROST wired into the wallet stack as an
+        in-house threshold provider. `FrostSigningClient extends RemoteSigningClient` runs the FROST 2-round
+        protocol locally over a `FrostQuorum` (instead of an external TSS service), plugging straight into the
+        existing `McpVault` (kind=Mpc) delegate seam whose own doc already names "FROST for Ed25519" — so a
+        threshold wallet is just `McpVault("…", new FrostSigningClient(Seq(quorum)))`, no new `Vault` impl. New
+        module `walletVaultMpcFrost` dependsOn `walletVaultMpc` + `cryptoFrost` (BC test-only). Verified 3/0:
+        vault unlock → getSigner(Ed25519) → sign → 64-byte sig verifies under standard BouncyCastle Ed25519
+        (distinct subsets); non-Ed25519/unknown-account/sub-threshold rejected. **Closes the FROST track
+        (slices 1–8).** Remaining FROST refinements (constant-time field, full DKG, distributed transport,
+        JS @noble mirror) are future work, not slices.
 
 ### ▶ Autonomous queue (2026-06-23, with Sergiy — "все кроме мавена — в спринт и делай")
 When the clean autonomous coremin slices ran out (value-unification is sibling-active; NFC/wallet-ws are

@@ -1,7 +1,0 @@
-task: frost-vault-integration (FROST slice 8)
-owner: opus-autonomous
-started: 2026-06-23
-approach: FrostSigningClient extends the wallet RemoteSigningClient seam (in-house threshold
-  counterpart to the remote walletVaultMpc* provider clients). Plugs straight into McpVault
-  (kind=Mpc) — no new Vault impl needed. New module walletVaultMpcFrost dependsOn
-  walletVaultMpc + cryptoFrost. FrostQuorum runs the FROST 2-round protocol over the signing subset.

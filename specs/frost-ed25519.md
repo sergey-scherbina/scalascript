@@ -52,7 +52,16 @@ verifies under the standard `Ed25519.verify` against the group public key):
 - **Slice 7 — native backend (DONE 2026-06-23, `CryptoBackedEd25519Ops`).** A JVM `Ed25519Ops` backend delegating substitutable primitives (SHA-512,
   final-signature verify) to BouncyCastle — proving transparent native substitution; reference stays the
   fallback for what BC doesn't expose (the group ops).
-- **Slice 8 — vault integration.** Wire as `walletVaultMpcFrost` via the `walletSpi`/MPC-vault seam.
+- **Slice 8 — vault integration (DONE 2026-06-23, `walletVaultMpcFrost`).** FROST plugs into the existing
+  `McpVault` `RemoteSigningClient` seam — that vault's contract is "delegate signing to a threshold provider",
+  and its own doc already names "FROST for Ed25519" as the protocol. `FrostSigningClient extends
+  RemoteSigningClient` runs the in-house FROST 2-round protocol over a `FrostQuorum` (the trusted-coordinator /
+  single-node form; a distributed transport is the production counterpart of `HttpRemoteSigningClient`) instead
+  of calling an external TSS service. `McpVault("…", new FrostSigningClient(Seq(quorum)))` is a complete
+  threshold wallet — no new `Vault` impl. New module `walletVaultMpcFrost` dependsOn `walletVaultMpc` +
+  `cryptoFrost`; BouncyCastle is test-only. **Verified (3/0):** vault unlock → `getSigner(Ed25519)` → `sign`
+  yields a 64-byte signature that verifies under standard BouncyCastle Ed25519 (for distinct signing subsets);
+  non-Ed25519 curves + unknown accounts + sub-threshold quorums are rejected.
 
 ## 3b. Architecture: portable reference + pluggable native substitution
 

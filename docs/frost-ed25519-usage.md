@@ -86,6 +86,33 @@ reference stays the correctness fallback; the native one is the fast path. Rando
 so a deterministic test backend can supply fixed bytes, and on a platform without `SecureRandom` the backend
 supplies the platform CSPRNG.
 
+## As a wallet vault (`walletVaultMpcFrost`)
+
+FROST also plugs into the wallet stack as a threshold signer. The `McpVault` (kind `Mpc`) delegates every
+signing call to a `RemoteSigningClient` — the same seam the external MPC providers (Fireblocks, Coinbase, …)
+use. `FrostSigningClient` is the **in-house** implementation of that seam: instead of calling an external TSS
+service, it runs the FROST protocol locally over a `FrostQuorum`. So a threshold wallet is just an `McpVault`
+wired to a `FrostSigningClient` — no new vault type:
+
+```scala
+import scalascript.crypto.frost.FrostKeygen
+import scalascript.wallet.vault.mpc.McpVault
+import scalascript.wallet.vault.mpc.frost.{FrostQuorum, FrostSigningClient}
+
+val ks     = FrostKeygen.generate(threshold = 2, total = 3)
+val quorum = new FrostQuorum("treasury", "Treasury", ks, signerIds = List(1, 2))
+val vault: Vault = new McpVault("frost-treasury", new FrostSigningClient(Seq(quorum)))
+
+vault.unlock(UnlockCredential.None)
+val signer = vault.getSigner(Curve.Ed25519, "mpc/treasury").value.get.get
+val sig    = signer.sign("transfer 100 to alice".getBytes("UTF-8")).value.get.get  // 64-byte Ed25519 sig
+```
+
+`FrostQuorum` is the trusted-coordinator / single-node form (it holds the signing subset's shares in-process); a
+distributed deployment keeps each share on its own host and gathers the round-1 commitments + round-2 partials
+over a transport — the production counterpart of `HttpRemoteSigningClient`. Either way `sk` is never
+reconstructed. Module `walletVaultMpcFrost` (`payments/wallet/wallet-vault-mpc-frost`).
+
 ## Notes / limits
 
 - The reference is **correctness-first, not constant-time** (it uses `BigInteger`). For a side-channel-hardened

@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — FROST-Ed25519 slice 8: wallet vault integration (`walletVaultMpcFrost`)
+
+FROST wired into the wallet stack as an in-house threshold provider. `FrostSigningClient` implements the existing
+`McpVault` `RemoteSigningClient` seam — the same seam the external MPC providers (Fireblocks/Coinbase/Lit/Zengo)
+use — but runs the project's own FROST-Ed25519 protocol locally over a `FrostQuorum` instead of calling a
+third-party TSS service. A threshold wallet is therefore just `McpVault("…", new FrostSigningClient(Seq(quorum)))`
+(kind `Mpc`) with no new `Vault` implementation. The quorum is the trusted-coordinator / single-node form; a
+distributed transport (the production counterpart of `HttpRemoteSigningClient`) is the only remaining piece for a
+fully-distributed deployment, and `sk` is never reconstructed either way. New module `walletVaultMpcFrost`
+(dependsOn `walletVaultMpc` + `cryptoFrost`; BouncyCastle test-only). Verified 3/0: vault unlock → getSigner →
+sign yields a 64-byte signature that verifies under standard BouncyCastle Ed25519 (across distinct signing
+subsets); non-Ed25519 curves, unknown accounts, and sub-threshold quorums are rejected. Closes the FROST track
+(slices 1–8). Spec `specs/frost-ed25519.md`.
+
+---
+
 ## 2026-06-23 — FROST-Ed25519 slice 7: native crypto-provider backend (CryptoBackend → BC/noble)
 
 `CryptoBackedEd25519Ops` — an `Ed25519Ops` backend that delegates the substitutable primitives (SHA-512, secure
