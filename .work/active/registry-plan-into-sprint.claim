@@ -1,0 +1,6 @@
+feature/registry-plan-into-sprint 2026-06-23T08:30:00Z
+agent: claude
+heartbeat: 2026-06-23T08:30:00Z
+status: in-progress
+done-so-far: per Sergiy "все что планируешь — в спринт сначала". remote-registry slice 1 (RemoteRegistry+FileRegistry) landed; its follow-ups were inline prose.
+next: break the remote-package-registry follow-ups into explicit [ ] SPRINT sub-slices (cli-publish-search, remote-pkg-resolve, http-server, publish-auth) so they're claimable; push. Then execute gradually.
