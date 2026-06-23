@@ -20,9 +20,15 @@ enum SpiValue:
   case IntV(value: Long)
   case DoubleV(value: Double)
   case StrV(value: String)
+  /** A character — modelled distinctly from `StrV` so the boundary is lossless: a ScalaScript
+   *  `Char` (e.g. `Random.pick(List('a','b'))`) round-trips as a `Char`, not a 1-char `String`. */
+  case CharV(value: Char)
   case BoolV(value: Boolean)
   case UnitV
   case ListV(items: List[SpiValue])
+  /** A `Vector` — modelled distinctly from `ListV` so the boundary preserves the collection type
+   *  (and `Vector(…)` vs `List(…)` `toString`/indexing) across the round-trip. */
+  case VectorV(items: List[SpiValue])
   case TupleV(items: List[SpiValue])
   case OptV(value: Option[SpiValue])
   case MapV(entries: List[(SpiValue, SpiValue)])
