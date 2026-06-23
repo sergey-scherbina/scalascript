@@ -19,7 +19,11 @@ class PluginExamplesSmokeTest extends AnyFunSuite:
   // interpreter plugin); network / GUI / browser / server examples can't run headless.
   private val examples: List[String] = List(
     "crypto-demo.ssc", "crypto-encrypt-demo.ssc", "crypto-verify-demo.ssc",
-    "uuid-v7.ssc", "invoice-pdf.ssc", "invoice-email.ssc"
+    "uuid-v7.ssc", "invoice-pdf.ssc", "invoice-email.ssc",
+    // algebraic-effects exercises runLogger/runState/runRandomSeeded/runClockAt/runEnvWith — now
+    // bundled effect PLUGINS (extracted from core), so it belongs here (plugin classpath), not the
+    // cli core smoke test. Resolves via the lazy ServiceLoader path, like the rest.
+    "algebraic-effects.ssc"
   )
 
   private val errorMarkers = List("[ERROR]", "[error]", "Exception", "Undefined:",

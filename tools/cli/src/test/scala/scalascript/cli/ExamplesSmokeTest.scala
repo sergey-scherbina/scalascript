@@ -102,11 +102,11 @@ class ExamplesSmokeTest extends AnyFunSuite:
     "graph-storage-interpreter.ssc", "dataset-parallel-sum.ssc", "dataset-stats.ssc",
     // typed-data exercises `foreach(println)` end-to-end through Normalize (the bare
     // `println` rewrite that used to break with "Not callable: ()").
-    "typed-data.ssc",
-    // algebraic-effects exercises the full effect system across `##` subsections:
-    // Logger/State/NonDet (multi-shot) + stdlib runners + Stream. Regression for both
-    // interp-parameterized-effect-decl and the multi-shot-in-subsection registry fix.
-    "algebraic-effects.ssc"
+    "typed-data.ssc"
+    // NOTE: algebraic-effects.ssc was MOVED to PluginExamplesSmokeTest (core-min). It exercises
+    // runLogger/runState/runRandomSeeded/runClockAt/runEnvWith, which are now bundled PLUGINS
+    // (extracted from interpreter core), so it needs the plugin classpath this cli smoke test
+    // deliberately lacks. Keeping it here failed at runtime with "Undefined: runState".
   )
 
   test("curated core examples run and exit 0 (no silent no-op)"):
