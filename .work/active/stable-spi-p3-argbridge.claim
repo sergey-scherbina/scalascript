@@ -1,6 +1,0 @@
-feature/stable-spi-p3-argbridge 2026-06-23T07:30:00Z
-agent: claude
-heartbeat: 2026-06-23T07:30:00Z
-status: in-progress
-done-so-far: probed stable-spi-p3 — 30 plugin files import scalascript.interpreter.Value; intrinsics are NativeImpl(eval:(NativeContext,List[Any])=>Any) so return-side already decoupled (wrapAnyAsValue handles String/Long/List/Map); the GAP is reading structured ARGS without importing Value. PluginNative.evalLegacy is the crutch; code says "once Value is exposed via PluginApi, evalLegacy removed".
-next: Slice 1 = add NativeContext.toSpi(Any):SpiValue (default throws; interp overrides=valueToSpi) + a PluginContext ValueCap exposing it; migrate mime-plugin off interpreter.Value (read atts as SpiValue, return String). Verify mime tests green + no interpreter import in mime. Then more plugins follow same pattern.
