@@ -1,6 +1,0 @@
-feature/core-min-phase3plus-closeout 2026-06-23T00:23:52Z
-agent: codex
-heartbeat: 2026-06-23T00:23:52Z
-status: in-progress
-done-so-far: all practical phase3+ slices landed; preparing docs-only SPRINT/CHANGELOG closeout
-next: mark core-min-phase3plus actionable scope done and push/release
