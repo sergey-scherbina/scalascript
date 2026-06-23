@@ -1,6 +1,0 @@
-feature/coremin-advanced-optin 2026-06-23T00:22:03Z
-agent: codex
-heartbeat: 2026-06-23T00:22:03Z
-status: in-progress
-done-so-far: adopting existing clean feature/coremin-advanced-optin branch with strict advanced plugin prelude-name commits
-next: rebase on origin/main, record SPRINT/CHANGELOG result, run targeted typer/plugin/cli smoke tests, push or fix
