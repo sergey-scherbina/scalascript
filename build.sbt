@@ -76,6 +76,18 @@ val javafxClassifier: String = {
 // Stage 1.2: sources moved out of compiler/ into the new modules.
 // ---------------------------------------------------------------------------
 
+// ── value-data — shared pure-data scalar leaves (value-unification, scalars-only) ──
+// A leaf module (depends on nothing) holding `enum DataValue` — the host-neutral scalar
+// leaves of the interpreter's `Value` (and, later, of `SpiValue`). Lives below `core` and
+// `backendSpi` so both can share the same scalar cases. See specs/value-unification.md.
+lazy val valueData = project
+  .in(file("lang/value-data"))
+  .settings(
+    name := "scalascript-value-data",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 lazy val ir = project
   .in(file("lang/ir"))
   .settings(
@@ -161,7 +173,7 @@ lazy val yaml = project
 
 lazy val core = project
   .in(file("lang/core"))
-  .dependsOn(backendSpi, backendSqlRuntime, logger, yaml, markupCore)
+  .dependsOn(valueData, backendSpi, backendSqlRuntime, logger, yaml, markupCore)
   .settings(
     name := "scalascript-core",
     libraryDependencies ++= Seq(
@@ -3606,7 +3618,7 @@ lazy val bureauScheduler = project
 lazy val root = project
   .in(file("."))
   .aggregate(
-    backendSpi, pluginApi, ir, logger, yaml, core, interop, testUtils, pluginHost, wireCore,
+    valueData, backendSpi, pluginApi, ir, logger, yaml, core, interop, testUtils, pluginHost, wireCore,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
