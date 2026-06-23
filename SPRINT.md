@@ -11,6 +11,28 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ## Active tasks
 
+### ▶ rust-tui-toolkit (2026-06-23, with Sergiy — "делай вариант [полный транспайл .ssc → Rust]")
+Make `computedSignal` (and any thunk) run LIVE in the terminal by routing std/ui through the Rust codegen
+backend (RustCodeWalk) — the rust-web-toolkit path where computedSignal is already a re-runnable Rust closure —
+and rendering the `View` to **ratatui** instead of HTML/SSR. Spec **[`specs/rust-tui-toolkit.md`](specs/rust-tui-toolkit.md)**
+(grounded: reuses the import inliner + signal store + computed closures; obstacle = HTML-collapsed Rust `View`;
+seam = `BackendOptions.extra("uiTarget"->"tui")`). The terminal analog of rust-web-toolkit (was S1-S5).
+
+- [ ] **rust-tui-1-seam-render** — thread `uiTarget` into `RustGen` (gating sites :54/:128/:161/:362); minimal
+      `TuiRs` (`_tui_render(View)→ratatui`: Text/Fragment/Element core tags → Paragraph/Layout; read
+      `data-ssc-text` from `ssc_signals()`); `serve`→`_tui_run` (draw-once snapshot). **Gate:** a
+      `serve(lower(vstack(heading,text,signalText(computedSignal(...))),theme),0)` `.ssc` transpiles via
+      RustCodeWalk and `cargo run` (SSC_TUI_SNAPSHOT) prints the computed value. Proves transpile→ratatui e2e.
+- [ ] **rust-tui-2-event-loop** — crossterm loop + focus ring over `data-ssc-*` + Enter→action→`ssc_recompute_all`→
+      redraw. **Gate:** counter+computedSignal; cargo test feeds the key, computed text changes (LIVE).
+- [ ] **rust-tui-3-tag-mapping** — CSS flex/gap parse + all std/ui chrome (card/badge/divider/input/toggle/show)
+      + focus highlight + colors. **Gate:** rozum-meeting-style toolkit renders faithfully.
+- [ ] **rust-tui-4-fetch-datatable** — Rust runtimes for fetchUrlSignal/fetchRowsSource/staticRowsSource +
+      rowsOf envelope drill + `_tui_data_table_view` (fetch→Table). (Absent on the Rust path entirely today.)
+      **Gate:** remoteTable renders fetched rows vs a local server.
+- [ ] **rust-tui-5-converge** — point `frontend: tui` / `--frontend tui` at this path (supersede the static
+      emitter for dynamic apps) or unify the two pipelines.
+
 Driven by the agreed roadmap (BACKLOG.md → "Roadmap — agreed priority order, 2026-06-17").
 Work top-to-bottom, one major theme at a time. **Maven/centralized publication is LAST.**
 
