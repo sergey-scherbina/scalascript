@@ -138,3 +138,30 @@ class FileRegistry(root: os.Path):
           throw new IllegalStateException(s"checksum mismatch for ${e.id}@${e.version}: index ${e.sha256} != store $got")
         Some(bytes)
     }
+
+  /** Project the catalog into the client-facing `packages.yaml` format ([[LocalRegistry.Entry]]:
+   *  id → url + version + description), ONE entry per id at its latest version, with `url` pointing at the
+   *  stored artifact under `baseUrl`. This is exactly what the existing `RegistryClient` / `ssc search` /
+   *  `ssc install` consume — so a `FileRegistry`-served directory works with the current client unchanged
+   *  (the richer `index.json` with checksums/all-versions stays the publish-side record). */
+  def exportPackagesYaml(baseUrl: String): String =
+    val base = baseUrl.stripSuffix("/")
+    val latest = index.groupBy(_.id).values.toList.map { es =>
+      es.sortWith((a, b) => compareVersions(a.version, b.version) < 0).last
+    }
+    val entries = latest.sortBy(_.id).map { e =>
+      LocalRegistry.Entry(
+        id          = e.id,
+        url         = s"$base/packages/${e.id}/${e.version}.sscpkg",
+        version     = e.version,
+        description = e.description)
+    }
+    LocalRegistry.toYaml(entries)
+
+  /** Write the client-facing `packages.yaml` into the registry root (call after publish so the served
+   *  directory exposes the index the client fetches). Returns the written path. */
+  def writePackagesYaml(baseUrl: String): os.Path =
+    os.makeDir.all(root)
+    val p = root / "packages.yaml"
+    os.write.over(p, exportPackagesYaml(baseUrl))
+    p

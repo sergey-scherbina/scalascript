@@ -69,3 +69,22 @@ class RemoteRegistryTest extends AnyFunSuite:
     assert(compareVersions("1.0.0", "1.0.0") == 0)
     assert(compareVersions("2.0", "1.9.9") > 0)
     assert(compareVersions("1.2", "1.2.0") < 0)   // shorter prefix is smaller
+
+  // slice 2 — the packages.yaml bridge: a FileRegistry-served directory is consumable by the EXISTING
+  // client (LocalRegistry/RegistryClient/ssc search), which reads `packages.yaml`.
+  test("exportPackagesYaml emits the client format, latest version per id, round-trips via LocalRegistry"):
+    val root = freshRoot()
+    val reg  = FileRegistry(root)
+    reg.publish("org.example.redis", "1.0.0", bytes("r1"), "Redis client")
+    reg.publish("org.example.redis", "1.2.0", bytes("r2"), "Redis client")   // newer → wins in packages.yaml
+    reg.publish("org.example.kafka", "2.3.0", bytes("k"),  "Kafka streams")
+    val p = reg.writePackagesYaml("https://registry.example.com")
+    // the EXISTING client parser reads it
+    val entries = LocalRegistry.parseFile(p).get.sortBy(_.id)
+    assert(entries.map(_.id) == List("org.example.kafka", "org.example.redis"))
+    val redis = entries.find(_.id == "org.example.redis").get
+    assert(redis.version == "1.2.0")   // latest, not 1.0.0
+    assert(redis.url == "https://registry.example.com/packages/org.example.redis/1.2.0.sscpkg")
+    assert(redis.description == "Redis client")
+    // and LocalRegistry.resolve (the client alias lookup) finds it
+    assert(LocalRegistry.resolve("org.example.kafka", List(p)).map(_.version).contains("2.3.0"))
