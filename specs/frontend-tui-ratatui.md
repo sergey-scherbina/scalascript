@@ -17,9 +17,18 @@ backend's `supportedPlatforms`: web backends → html/js as before; native-only 
 source tree. `serve(view, port)` with a native backend now fails with a clear message (a terminal app isn't
 served over HTTP — use `emit`). This was the seam that blocked authoring a Tk `.ssc` for TUI.
 
-Remaining follow-ups (per-slice notes below): `Style`/`Theme` color mapping, `A11y.focusOrder` seeding +
-hidden-branch focus skip, typed-model/`DataTable.Remote` dynamic rows, overlays (`Sheet`/`AlertDialog`), and a
-dedicated `ssc` CLI verb (today the entrypoint is the `emit(view, dir)` intrinsic + `frontend: tui` front-matter).
+**Style → ratatui (2026-06-23):** `Style` is mapped to a ratatui `Style` per leaf — `text.foreground`/
+`decoration.background` `Color` (Rgb/Rgba/Hex/Named/System-token) → `.fg`/`.bg`; `fontWeight` → `BOLD`/`DIM`;
+`Underline` → `UNDERLINED`. Styles thread through `Styled` (the `.foreground(…)` modifier DSL) and merge
+parent→child. **Plus a focus highlight:** the focused widget renders with `Modifier::REVERSED` (so interactive
+focus is visible beyond the `> ` marker), including tab headers. Caveat: `std/ui` widgets that carry color as a
+CSS-string `style` attr lose it at `NativeElementLowering` (a shared native-backend limitation) — colors arrive
+only via the typed `Style`/modifier DSL; mapping the CSS strings is a separate follow-up.
+
+Remaining follow-ups (per-slice notes below): `A11y.focusOrder` seeding + hidden-branch focus skip,
+typed-model/`DataTable.Remote` dynamic rows from fetched JSON, overlays (`Sheet`/`AlertDialog`), CSS-string
+style decode in `NativeElementLowering`, and a dedicated `ssc` CLI verb (today the entrypoint is the
+`emit(view, dir)` intrinsic + `frontend: tui` front-matter).
 
 Cross-repo: this is the **scalascript-side** half of the rozum **Unified Control Center (UCC)** initiative
 (`rozum:docs/specs/unified-control-center.md`, master `386a892`). The operator's decision: **scalascript

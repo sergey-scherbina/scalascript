@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — frontend/tui: Style → ratatui colors + focus highlight
+
+`TuiEmitter` now maps the typed `Style` to a ratatui `Style` per leaf: `text.foreground` / `decoration.background`
+`Color` (Rgb/Rgba/Hex/Named/System-token) → `.fg`/`.bg`, `fontWeight` → `BOLD`/`DIM`, `Underline` → `UNDERLINED`;
+styles thread through `Styled` (the `.foreground(…)` modifier DSL) and merge parent→child. The focused widget
+also renders with `Modifier::REVERSED` (a visible focus highlight beyond the `> ` marker), tab headers included.
+Unstyled text emits no `.style` clause. `frontendTui/test` 32/32 (incl. the cargo smokes, which now build with
+the style clauses). Caveat: `std/ui` widgets carrying color as a CSS-string `style` attr lose it at
+`NativeElementLowering` (a shared native-backend limitation) — colors arrive via the typed `Style`/modifier DSL;
+decoding the CSS strings is a separate follow-up. Spec `specs/frontend-tui-ratatui.md`.
+
 ## 2026-06-23 — frontend/tui: native-emit dispatch for `emit(view, dir)` (unblocks authoring a TUI `.ssc`)
 
 The `emit(view, outDir)` UI intrinsic now dispatches by the active frontend backend's `supportedPlatforms`
