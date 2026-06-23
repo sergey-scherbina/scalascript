@@ -136,10 +136,10 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
           `Ed25519Ops.Reference.sha512` + `Ed25519Group.secretScalar` through it; **removed `java.security` from
           hashing**. `Sha512Test` (abc/empty FIPS vectors + matches `java.security` across padding boundaries);
           cryptoFrost 19/0.
-    - [ ] **6b RNG via seam** — abstract randomness through `Ed25519Ops` (`randomBytes(n)`), so FROST gets secure
-          random from the backend (JVM: `SecureRandom`; JS: `crypto.getRandomValues`) instead of a hardcoded
-          `SecureRandom` param. ALSO makes randomness a substitutable primitive (architecture-consistent). Drops
-          the last `java.security` from FROST's logic.
+    - [x] **6b RNG via seam** ✓ DONE 2026-06-23 — `Ed25519Ops.randomBytes(n)`/`randomScalar()` (Reference = JVM
+          `SecureRandom`). `FrostKeygen.generate`/`FrostSign.round1` dropped their `rng: SecureRandom` params and
+          source from `Ed25519Ops.current` → FROST logic is fully `java.security`-free (only the JVM default's
+          `randomBytes` uses it; 6c splits per-platform) AND the RNG is a substitutable primitive. cryptoFrost 19/0.
     - [ ] **6c crossProject** — `cryptoFrost` → `crossProject(JVM,JS)` (CrossType.Full; `%%%` scalatest; BC test-only
           on JVM); BC/`java.security` tests → `jvm/`; a shared self-verify test (`B·z == R + c·A`, no BC) runs on
           BOTH. **Verify:** `cryptoFrost` + `cryptoFrostJs` compile + test.

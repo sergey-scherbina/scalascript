@@ -1,6 +1,0 @@
-feature/frost-rng-seam 2026-06-23T12:55:00Z
-agent: claude
-heartbeat: 2026-06-23T12:55:00Z
-status: in-progress
-done-so-far: FROST 6a (portable SHA-512) done; last JVM-only dep = java.security.SecureRandom in keygen/nonces.
-next: slice 6b = add randomBytes(n)/randomScalar() to Ed25519Ops (Reference→SecureRandom); refactor FrostKeygen.generate + FrostSign.round1 to drop the `rng: SecureRandom` param and source from ops.randomScalar(); update tests (drop rng/setSeed — assertions are properties, any randomness OK; generateFrom stays for determinism). Removes last java.security from FROST logic + makes RNG substitutable.

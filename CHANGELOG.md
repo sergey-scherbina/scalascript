@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — FROST-Ed25519 slice 6b: randomness via the Ed25519Ops seam
+
+Routed FROST's randomness through the seam: `Ed25519Ops.randomBytes(n)` + `randomScalar()` (Reference = JVM
+`SecureRandom`). `FrostKeygen.generate` and `FrostSign.round1` dropped their hardcoded `rng: SecureRandom`
+params and now source secure randomness from `Ed25519Ops.current` — so FROST's LOGIC is fully `java.security`-free
+(only the JVM default backend's `randomBytes` uses `SecureRandom`, which slice 6c splits per-platform), AND
+randomness is now a substitutable primitive consistent with the architecture (a native backend / a deterministic
+test backend can supply it; JS will use `crypto.getRandomValues`). Tests updated (they assert properties —
+verify / reconstruct — so any secure randomness is valid); cryptoFrost 19/0. Spec `specs/frost-ed25519.md`.
+
 ## 2026-06-23 — FROST-Ed25519 slice 6a: portable SHA-512 (remove java.security from hashing)
 
 Toward cross-platform FROST: a pure-Scala `Sha512` (FIPS 180-4, 64-bit `Long` — identical on JVM and Scala.js,
