@@ -398,8 +398,8 @@ validated + pushed:
         and implements the ActorRuntimeProvider SPI — NOT an intrinsics table. Separate treatment (SPI relocation).
 - [ ] **p3-enforce** (after all clean) — remove `PluginNative.evalLegacy`; add the build/CI check rejecting
       any plugin jar containing `scalascript/interpreter/`; delete residual shims; set `specs/arch-stable-spi.md`
-      Status to "Phase 3 complete". STATUS: 25/28 plugins clean (batch-A 10 + ws/pwa/json + uuid/os/request/smtp/
-      sql/remote/frontend/http/dstreams/streams/content/oauth/mcp). 26/28 clean. PluginApi seam now exposes: nativeFn/callFn, Fn/isCallable, jsonEncode/
+      Status to "Phase 3 complete". STATUS: 26/28 plugins clean (batch-A 10 + ws/pwa/json + uuid/os/request/smtp/
+      sql/remote/frontend/http/dstreams/streams/content/oauth/mcp). PluginApi seam now exposes: nativeFn/callFn, Fn/isCallable, jsonEncode/
       jsonFacade/fromHostAny/parseJson/lookupKey, decimal/asDecimal/Dec, funArity/wrapTypedHandler, field/typeNameOf/
       InstAny, fields/orderedInstance, OAuthBridge(relocated). Remaining 2: graphql(blocked), actors(special SPI).
 
