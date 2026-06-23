@@ -190,11 +190,16 @@ foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (high
       `hmac` SPI primitive; small `std`-level module. **Why:** ubiquitous 2FA for almost no code. **Gate:**
       RFC 4226 / 6238 reference vectors. Add an `examples/` (per AGENTS.md, user-facing feature ⇒ example).
 
-- [ ] **shamir-secret-backup** (quick service win) — generalize FROST's scalar-field Shamir
-      (`FrostKeygen` split/Lagrange) to arbitrary byte secrets over a prime field (SLIP-0039-style t-of-n
-      split/recover of seed phrases, keys, files). **Why:** social-recovery/split-backup for ANY secret; we
-      already have the Shamir math. **Gate:** split→recombine round-trips for random secrets; `< t` shares fail
-      to recombine (reveal nothing); SLIP-0039 vectors where applicable. Add an `examples/`.
+- [x] **shamir-secret-backup** ✓ DONE 2026-06-23 — `ShamirSecretSharing` (cryptoFrost/shared): `t`-of-`n` split /
+      recover of ARBITRARY byte secrets (seed phrases, keys, blobs) over the prime field `GF(2^255−19)`
+      (`Ed25519Group.P`), generalizing FROST's single-element Shamir. Length-prefixed secret → 31-byte chunks
+      (`< 2^248 < p`), each split by an independent degree-`(t-1)` polynomial; shares = `id ‖ 32-byte-per-chunk`.
+      `recover` is total (truncates each reconstructed chunk to 31 bytes — raw Shamir has no integrity check, so
+      `<t`/tampered shares yield a wrong value, not the secret). **Gate MET:** round-trips across sizes
+      (0/1/16/31/32/33/64/100/256 B) × thresholds (1-of-1…5-of-5); every t-subset recovers the same secret;
+      `<t` reveals nothing; tampered → wrong. cryptoFrost JVM 34 / JS 20. NOT SLIP-0039 wire-compatible
+      (SLIP-0039 = GF(256)+mnemonics; this is the prime-field generalization the roadmap asked for). No `.ssc`
+      example — it is a Scala library primitive (not plugin-exposed); the test suite is the usage reference.
 
 ### ▶ Promoted to active by Sergiy (2026-06-23 — "все эти задачи внеси в спринт")
 Sergiy explicitly OVERRODE the deferred/backlog status of these four — they are now active sprint work, to be
