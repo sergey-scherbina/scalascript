@@ -5,7 +5,7 @@ version: 1.0.0
 description: On-chain-enforced x402 Cardano payment using Plutus V3 escrow (Scalus + bloxbean). Full Preprod flow — deposit → 402 request → facilitator claim.
 ---
 
-> **Advanced plugin:** this example uses the bundled-but-opt-in `payments` plugin, so its names (e.g. `X402Client / Wallets / DefaultSyncBackend`) are **not** in the default `ssc check` prelude (core-min strict opt-in). Add the plugin first: `ssc --plugin <…/lib/compiler/plugin-available/scalascript-payments-plugin*.sscpkg> check <file>` (or `ssc plugin install …`).
+> **Advanced plugin:** uses the bundled-but-opt-in `payments` plugin. `ssc check` auto-loads it from the `import scalascript.x402.*` (no `--plugin` needed in an installed `ssc`); load it manually only in a non-staged checkout or to *run* the example.
 
 # x402-cardano-scalus
 
