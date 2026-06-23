@@ -15,7 +15,14 @@ import java.nio.charset.StandardCharsets.UTF_8
  *  }}}
  *  The GET side matches exactly what the existing `RegistryClient` fetches, so this server is drop-in for the
  *  current client. */
-class RegistryHttpServer(registry: FileRegistry, baseUrl: String = "", host: String = "127.0.0.1"):
+class RegistryHttpServer(
+    registry: FileRegistry,
+    baseUrl: String = "",
+    host: String = "127.0.0.1",
+    /** Bearer tokens accepted for `POST /publish`. When EMPTY, publish is OPEN (the reference/dev default);
+     *  when non-empty, a publish must carry `Authorization: Bearer <token>` with a token in this set, else 401.
+     *  (GET reads are always public.) A hosted registry sets this so not anyone can write. */
+    publishTokens: Set[String] = Set.empty):
   @volatile private var server: HttpServer | Null = null
   // The base URL `packages.yaml` entries point at. If not given, derive `http://host:port` after binding
   // (so the emitted index self-references this server) — convenient for tests + a single-host deployment.
@@ -51,6 +58,10 @@ class RegistryHttpServer(registry: FileRegistry, baseUrl: String = "", host: Str
                 case None        => respondText(ex, 404, "not found")
             case None => respondText(ex, 404, "not found")
 
+        case ("POST", p) if p.startsWith("/publish/") && !authorized(ex) =>
+          ex.getResponseHeaders.add("WWW-Authenticate", "Bearer")
+          respondText(ex, 401, "unauthorized: POST /publish requires a valid Bearer token")
+
         case ("POST", p) if p.startsWith("/publish/") =>
           splitIdVersion(p.stripPrefix("/publish/")) match
             case Some((id, version)) =>
@@ -69,6 +80,14 @@ class RegistryHttpServer(registry: FileRegistry, baseUrl: String = "", host: Str
     val idx = rel.lastIndexOf('/')
     if idx <= 0 || idx == rel.length - 1 then None
     else Some((rel.substring(0, idx), rel.substring(idx + 1)))
+
+  /** True when publish is open (no tokens configured) or the request carries an accepted Bearer token. */
+  private def authorized(ex: HttpExchange): Boolean =
+    publishTokens.isEmpty || {
+      val hdr   = Option(ex.getRequestHeaders.getFirst("Authorization")).getOrElse("")
+      val token = if hdr.startsWith("Bearer ") then hdr.stripPrefix("Bearer ").trim else ""
+      token.nonEmpty && publishTokens.contains(token)
+    }
 
   private def queryParam(query: String | Null, key: String): Option[String] =
     Option(query).flatMap { q =>
