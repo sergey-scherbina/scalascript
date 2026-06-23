@@ -56,6 +56,13 @@ trait Backend:
    *  old names-only behaviour. Default empty. See `specs/core-min-prelude-spi.md`. */
   def preludeSymbols: List[scalascript.ir.ExportedSymbol] = Nil
 
+  /** Import-namespace prefixes this plugin owns (e.g. `"scalascript.x402"`). When a `.ssc` file
+   *  `import`s one of these, `ssc check` auto-loads this plugin's [[preludeSymbols]] even if the
+   *  plugin is bundled-but-opt-in (advanced tier, not auto-loaded) — so advanced names resolve
+   *  for the file that clearly intends them, without a manual `--plugin`. A file import matches a
+   *  prefix `p` when it equals `p` or starts with `p + "."`. Default empty (no auto-load). */
+  def providesImports: List[String] = Nil
+
   /** One-shot compilation. */
   def compile(ir: NormalizedModule, opts: BackendOptions): CompileResult
 

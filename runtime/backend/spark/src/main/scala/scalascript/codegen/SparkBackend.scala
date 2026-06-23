@@ -114,6 +114,10 @@ class SparkBackend extends Backend:
   def intrinsics:      Map[ir.QualifiedName, IntrinsicImpl] = Map.empty
   def acceptedSources: Set[String]                          = Set.empty
 
+  // core-min check-autoload: a file importing `scalascript.spark.*` maps to this backend (it's also
+  // on the CLI classpath, so its preludeSymbols already resolve — declared for consistency/future opt-in).
+  override def providesImports: List[String] = List("scalascript.spark")
+
   /** core-min-advanced-optin: the Spark surface names, moved off the hardcoded Typer
    *  `pluginObjects`/`pluginBuiltins`. The Spark backend is on the CLI classpath, so these
    *  resolve for `ssc check` whenever Spark codegen is available. */

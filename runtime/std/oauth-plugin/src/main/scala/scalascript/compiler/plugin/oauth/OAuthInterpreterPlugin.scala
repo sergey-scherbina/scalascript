@@ -22,6 +22,10 @@ class OAuthInterpreterPlugin extends Backend:
 
   def acceptedSources: Set[String] = Set.empty
 
+  // core-min check-autoload: a file importing `scalascript.oauth.*` / `scalascript.oidc.*` auto-loads
+  // these preludeSymbols in `ssc check`, even though oauth is advanced/opt-in.
+  override def providesImports: List[String] = List("scalascript.oauth", "scalascript.oidc")
+
   /** core-min-advanced-optin: this plugin DECLARES its prelude name(s) for `ssc check`,
    *  removed from the hardcoded Typer `pluginObjects`/`pluginBuiltins`. For an ADVANCED (opt-in)
    *  plugin these resolve only when the plugin is added (`--plugin`); for an essential plugin they

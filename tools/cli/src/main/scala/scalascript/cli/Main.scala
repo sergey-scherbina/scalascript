@@ -5252,6 +5252,33 @@ private case class CheckResult(
 ):
   def ok: Boolean = !missing && !parseErrors && !errors.exists(!_.isWarning)
 
+/** check-autoload-plugin-by-import: the dotted import prefixes a module declares (e.g.
+ *  `scalascript.x402.client` for `import scalascript.x402.client.{X402Client, Wallets}`). Used to
+ *  auto-load a bundled-but-opt-in plugin whose `providesImports` covers one of them. */
+private[cli] def importPrefixesOf(module: scalascript.ast.Module): Set[String] =
+  import scala.meta.*
+  // imports inside a ```scalascript fence are scala.meta.Import nodes in the block tree;
+  // doc-level (markdown) imports are `Content.Import`. Collect both.
+  def fromTree(t: scala.meta.Tree): List[String] =
+    t.collect { case i: Import => i.importers.map(_.ref.syntax) }.flatten
+  def loop(s: scalascript.ast.Section): List[String] =
+    s.content.flatMap {
+      case cb: scalascript.ast.Content.CodeBlock => cb.tree.toList.flatMap(n => fromTree(n.tree))
+      case imp: scalascript.ast.Content.Import   => List(imp.path)
+      case _                                     => Nil
+    } ++ s.subsections.flatMap(loop)
+  module.sections.flatMap(loop).toSet
+
+/** Directories holding bundled-but-opt-in `.sscpkg` plugins (`lib/compiler/plugin-available/`),
+ *  for `ssc check`'s import-driven auto-load. The install-relative dir plus an optional
+ *  `-Dscalascript.pluginAvailableDir=…` override (used by tests / custom layouts). */
+private[cli] def pluginAvailableDirs: List[os.Path] =
+  val fromInstall = scalascript.imports.ImportResolver.libPath
+    .map(_ / "bin" / "lib" / "compiler" / "plugin-available").toList
+  val fromProp = Option(System.getProperty("scalascript.pluginAvailableDir"))
+    .filter(_.nonEmpty).map(os.Path(_, os.pwd)).toList
+  (fromInstall ++ fromProp).filter(os.exists).distinct
+
 /** Check a single `.ssc` file.  Does NOT invoke any backend (no JvmGen / JsGen /
  *  Interpreter).  Returns a [[CheckResult]] summary.
  *
@@ -5290,7 +5317,12 @@ private def checkOneFile(
       // core-min-prelude-spi: typed prelude symbols contributed by loaded plugins, so `ssc check`
       // type-checks calls to plugin intrinsics without the names being hardcoded in the Typer
       // prelude. `pluginBuiltins` (names-only intrinsic keys) stays as the fallback.
-      val pluginPrelude = BackendRegistry.inProcess.flatMap(_.preludeSymbols)
+      // check-autoload-plugin-by-import: ALSO fold in preludeSymbols from bundled-but-opt-in plugins
+      // whose `providesImports` matches one of this file's imports — so advanced names resolve for a
+      // file that clearly intends them (e.g. `import scalascript.x402.*`) without a manual `--plugin`.
+      val pluginPrelude =
+        BackendRegistry.inProcess.flatMap(_.preludeSymbols) ++
+          BackendRegistry.importMatchedPreludeSymbols(importPrefixesOf(module), pluginAvailableDirs)
       val typed = CompileStats.time("typer") {
         if interfaces.isEmpty then
           Typer(Map.empty, strict = true, extraBuiltins = pluginBuiltins, preludeSymbols = pluginPrelude)
@@ -6805,7 +6837,9 @@ final class CheckWithIfaceCmd extends CliCommand:
             // `ssc check` and doesn't false-positive on plugin-backed names. Strictly reduces errors.
             val pluginBuiltins = BackendRegistry.inProcess
               .flatMap(_.intrinsics.keys).flatMap(qn => qn.value :: qn.value.split('.').headOption.toList).toSet
-            val pluginPrelude  = BackendRegistry.inProcess.flatMap(_.preludeSymbols)
+            // check-autoload-plugin-by-import: consistent with `ssc check` (above).
+            val pluginPrelude  = BackendRegistry.inProcess.flatMap(_.preludeSymbols) ++
+              BackendRegistry.importMatchedPreludeSymbols(importPrefixesOf(module), pluginAvailableDirs)
             val typed =
               if interfaces.isEmpty then
                 Typer(strict = true, extraBuiltins = pluginBuiltins, preludeSymbols = pluginPrelude).typeCheck(module)

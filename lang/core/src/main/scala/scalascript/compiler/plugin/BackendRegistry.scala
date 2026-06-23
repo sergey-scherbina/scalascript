@@ -219,6 +219,39 @@ object BackendRegistry extends PluginRegistry:
       inProcessCache.foreach(registerDslHooks)
     inProcessCache
 
+  /** A file import matches a provided prefix `p` when it equals `p` or is under it (`p + "."`).
+   *  Pure; the core of `check-autoload-plugin-by-import`. */
+  def importMatchesPrefix(importPrefixes: Set[String], provided: String): Boolean =
+    importPrefixes.exists(imp => imp == provided || imp.startsWith(provided + "."))
+
+  /** core-min check-autoload: `preludeSymbols` from bundled-but-opt-in plugins that are NOT
+   *  auto-loaded into `inProcess` but whose [[Backend.providesImports]] matches one of
+   *  `importPrefixes`. `ssc check` folds these in so a file importing an advanced plugin's namespace
+   *  (e.g. `scalascript.x402.*`) resolves the plugin's names without a manual `--plugin`.
+   *
+   *  Each candidate `.sscpkg` in `availableDirs` is scanned with a THROWAWAY `URLClassLoader`, so a
+   *  non-matching plugin is never committed to the runtime registry. Already-loaded packages (their
+   *  symbols are already in `inProcess`) and broken packages are skipped — best-effort, never fatal. */
+  def importMatchedPreludeSymbols(
+      importPrefixes: Set[String],
+      availableDirs:  List[os.Path]): List[scalascript.ir.ExportedSymbol] =
+    if importPrefixes.isEmpty then return Nil
+    val alreadyLoaded = loadedPkgIds.toSet
+    val pkgs = availableDirs.filter(os.isDir).flatMap(d => os.list(d).filter(_.ext == "sscpkg")).distinct
+    pkgs.flatMap { pkg =>
+      try
+        val res = SscpkgLoader.load(pkg)
+        if alreadyLoaded.contains(res.manifest.id) then Nil
+        else
+          val urls   = res.intrinsicJars.map(_.toIO.toURI.toURL).toArray
+          val loader = new java.net.URLClassLoader(urls, classOf[Backend].getClassLoader)
+          ServiceLoader.load(classOf[Backend], loader).iterator.asScala.toList
+            .filter(_.getClass.getClassLoader == loader)               // only THIS package's backends
+            .filter(b => b.providesImports.exists(p => importMatchesPrefix(importPrefixes, p)))
+            .flatMap(_.preludeSymbols)
+      catch case _: Throwable => Nil
+    }.distinct
+
   private def registerDslHooks(backend: Backend): Unit =
     InterpolatorRegistry.registerFrom(backend)
     PreprocessorRegistry.registerFrom(backend)
