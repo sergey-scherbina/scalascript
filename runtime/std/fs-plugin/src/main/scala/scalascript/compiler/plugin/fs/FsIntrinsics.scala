@@ -1,7 +1,6 @@
 package scalascript.compiler.plugin.fs
 
 import scalascript.backend.spi.*
-import scalascript.interpreter.Value
 import scalascript.ir.QualifiedName
 import scalascript.plugin.api.{PluginComputation, PluginNative, PluginValue}
 
@@ -10,7 +9,7 @@ import scala.jdk.CollectionConverters.*
 
 object FsIntrinsics:
 
-  private def native(f: List[Any] => Value): NativeImpl =
+  private def native(f: List[Any] => PluginValue): NativeImpl =
     PluginNative.eval { (_, args) =>
       PluginComputation.pure(PluginValue.wrap(f(args.map(_.unwrap))))
     }
@@ -19,29 +18,29 @@ object FsIntrinsics:
 
     QualifiedName("readFile") -> native {
       case List(p: String) =>
-        Value.StringV(Files.readString(Paths.get(p)))
-      case _ => Value.StringV("")
+        PluginValue.string(Files.readString(Paths.get(p)))
+      case _ => PluginValue.string("")
     },
 
     QualifiedName("writeFile") -> native {
       case List(p: String, content: String) =>
         Files.writeString(Paths.get(p), content)
-        Value.UnitV
-      case _ => Value.UnitV
+        PluginValue.unit
+      case _ => PluginValue.unit
     },
 
     QualifiedName("appendFile") -> native {
       case List(p: String, content: String) =>
         Files.writeString(Paths.get(p), content, StandardOpenOption.CREATE, StandardOpenOption.APPEND)
-        Value.UnitV
-      case _ => Value.UnitV
+        PluginValue.unit
+      case _ => PluginValue.unit
     },
 
     QualifiedName("readBytes") -> native {
       case List(p: String) =>
         val bytes = Files.readAllBytes(Paths.get(p))
-        Value.ListV(bytes.map(b => Value.IntV(b & 0xFF).asInstanceOf[Value]).toList)
-      case _ => Value.ListV(Nil)
+        PluginValue.list(bytes.map(b => PluginValue.int(b & 0xFF)).toList)
+      case _ => PluginValue.list(Nil)
     },
 
     QualifiedName("writeBytes") -> native {
@@ -52,38 +51,38 @@ object FsIntrinsics:
           case _       => 0.toByte
         }.toArray
         Files.write(Paths.get(p), bytes)
-        Value.UnitV
-      case _ => Value.UnitV
+        PluginValue.unit
+      case _ => PluginValue.unit
     },
 
     QualifiedName("exists") -> native {
-      case List(p: String) => Value.boolV(Files.exists(Paths.get(p)))
-      case _               => Value.False
+      case List(p: String) => PluginValue.bool(Files.exists(Paths.get(p)))
+      case _               => PluginValue.bool(false)
     },
 
     QualifiedName("isFile") -> native {
-      case List(p: String) => Value.boolV(Files.isRegularFile(Paths.get(p)))
-      case _               => Value.False
+      case List(p: String) => PluginValue.bool(Files.isRegularFile(Paths.get(p)))
+      case _               => PluginValue.bool(false)
     },
 
     QualifiedName("isDir") -> native {
-      case List(p: String) => Value.boolV(Files.isDirectory(Paths.get(p)))
-      case _               => Value.False
+      case List(p: String) => PluginValue.bool(Files.isDirectory(Paths.get(p)))
+      case _               => PluginValue.bool(false)
     },
 
     QualifiedName("mkdir") -> native {
       case List(p: String) =>
         val path = Paths.get(p)
         if !Files.exists(path) then Files.createDirectory(path)
-        Value.UnitV
-      case _ => Value.UnitV
+        PluginValue.unit
+      case _ => PluginValue.unit
     },
 
     QualifiedName("mkdirs") -> native {
       case List(p: String) =>
         Files.createDirectories(Paths.get(p))
-        Value.UnitV
-      case _ => Value.UnitV
+        PluginValue.unit
+      case _ => PluginValue.unit
     },
 
     QualifiedName("listDir") -> native {
@@ -91,31 +90,31 @@ object FsIntrinsics:
         val stream = Files.list(Paths.get(p))
         try
           val names = stream.iterator.asScala.map(_.getFileName.toString).toList
-          Value.ListV(names.map(Value.StringV(_)))
+          PluginValue.list(names.map(PluginValue.string(_)))
         finally
           stream.close()
-      case _ => Value.ListV(Nil)
+      case _ => PluginValue.list(Nil)
     },
 
     QualifiedName("deleteFile") -> native {
       case List(p: String) =>
         Files.deleteIfExists(Paths.get(p))
-        Value.UnitV
-      case _ => Value.UnitV
+        PluginValue.unit
+      case _ => PluginValue.unit
     },
 
     QualifiedName("copyFile") -> native {
       case List(src: String, dst: String) =>
         Files.copy(Paths.get(src), Paths.get(dst))
-        Value.UnitV
-      case _ => Value.UnitV
+        PluginValue.unit
+      case _ => PluginValue.unit
     },
 
     QualifiedName("moveFile") -> native {
       case List(src: String, dst: String) =>
         Files.move(Paths.get(src), Paths.get(dst))
-        Value.UnitV
-      case _ => Value.UnitV
+        PluginValue.unit
+      case _ => PluginValue.unit
     },
 
   )

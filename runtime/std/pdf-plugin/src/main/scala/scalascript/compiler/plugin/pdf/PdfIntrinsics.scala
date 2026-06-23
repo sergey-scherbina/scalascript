@@ -1,13 +1,12 @@
 package scalascript.compiler.plugin.pdf
 
 import scalascript.backend.spi.*
-import scalascript.interpreter.Value
 import scalascript.ir.QualifiedName
 import scalascript.plugin.api.{PluginComputation, PluginNative, PluginValue}
 
 object PdfIntrinsics:
 
-  private def native(f: List[Any] => Value): NativeImpl =
+  private def native(f: List[Any] => PluginValue): NativeImpl =
     PluginNative.eval { (_, args) =>
       PluginComputation.pure(PluginValue.wrap(f(args.map(_.unwrap))))
     }
@@ -68,17 +67,17 @@ object PdfIntrinsics:
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
     QualifiedName("htmlToPdfBase64") -> native {
-      case List(html: String) => Value.StringV(htmlToPdfBase64Raw(html))
+      case List(html: String) => PluginValue.string(htmlToPdfBase64Raw(html))
       case _                   => throw new RuntimeException("htmlToPdfBase64(html)")
     },
 
     QualifiedName("pdfPageCount") -> native {
-      case List(pdfBase64: String) => Value.intV(pdfPageCountRaw(pdfBase64))
+      case List(pdfBase64: String) => PluginValue.int(pdfPageCountRaw(pdfBase64))
       case _                       => throw new RuntimeException("pdfPageCount(pdfBase64)")
     },
 
     QualifiedName("pdfToMarkdown") -> native {
-      case List(pdfBase64: String) => Value.StringV(pdfToMarkdownRaw(pdfBase64))
+      case List(pdfBase64: String) => PluginValue.string(pdfToMarkdownRaw(pdfBase64))
       case _                       => throw new RuntimeException("pdfToMarkdown(pdfBase64)")
     },
 
