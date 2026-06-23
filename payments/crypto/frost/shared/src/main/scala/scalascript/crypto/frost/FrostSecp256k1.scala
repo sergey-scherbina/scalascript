@@ -84,54 +84,71 @@ object FrostSecp256k1:
     shares.foldLeft(BigInteger.ZERO)((acc, s) =>
       acc.add(s.value.multiply(lagrangeAtZero(s.id, ids))).mod(N))
 
-  // ── two-round signing ─────────────────────────────────────────────────────────
+  // ── two-round signing (composable rounds — in-process OR distributed) ─────────
 
-  /** A signer's round-1 nonce commitments `D_i = d_i·G`, `E_i = e_i·G` (public) with the secret nonces. */
-  private final case class Nonce(id: Int, d: BigInteger, e: BigInteger,
-                                 dCommit: Secp256k1Group.JPoint, eCommit: Secp256k1Group.JPoint)
+  /** A participant's PUBLIC round-1 commitment `(D_i, E_i)` as compressed points — broadcast to the
+   *  coordinator. Carries no secret. */
+  final case class Commitment(id: Int, dCommit: Array[Byte], eCommit: Array[Byte])
+
+  /** A participant's PRIVATE round-1 state — the secret nonces. Never leaves the participant's host. */
+  final case class NonceState(id: Int, d: BigInteger, e: BigInteger)
+
+  /** The public round-2 package every party derives from the broadcast commitments: the even-`y` group-nonce
+   *  x-coordinate `rx`, the BIP-340 challenge, whether `R` was negated, and the per-signer binding factors. */
+  final case class SigningPackage(rx: Array[Byte], challenge: BigInteger, negR: Boolean, binding: Map[Int, BigInteger])
+
+  /** Round 1: sample fresh nonces. Returns the private state (kept local) and the public commitment (broadcast).
+   *  `nonces` may be supplied for deterministic runs (e.g. to match an in-process reference). */
+  def commit(id: Int, nonces: Option[(BigInteger, BigInteger)] = None): (NonceState, Commitment) =
+    val (d, e) = nonces.getOrElse((randomScalar(), randomScalar()))
+    (NonceState(id, d, e), Commitment(id, Secp256k1Group.compress(mulG(d)), Secp256k1Group.compress(mulG(e))))
+
+  /** Round-2 prep from the broadcast commitments — fully public, computed identically by every party. */
+  def prepare(groupPublicKeyXonly: Array[Byte], commitments: List[Commitment], msg: Array[Byte]): SigningPackage =
+    val commitsEnc = encodeCommitments(commitments)
+    val binding = commitments.map(c => c.id -> bindingFactor(c.id, msg, commitsEnc)).toMap
+    val rFull = commitments.map { c =>
+      val dP = Secp256k1Group.decode(c.dCommit).getOrElse(sys.error("bad D commitment"))
+      val eP = Secp256k1Group.decode(c.eCommit).getOrElse(sys.error("bad E commitment"))
+      add(dP, mul(binding(c.id), eP))
+    }.reduce(add)
+    val negR  = yIsOdd(rFull)
+    val rEven = if negR then negate(rFull) else rFull
+    val rx    = to32(xOf(rEven))
+    val ch    = new BigInteger(1, Secp256k1Schnorr.taggedHash("BIP0340/challenge", rx ++ groupPublicKeyXonly ++ msg)).mod(N)
+    SigningPackage(rx, ch, negR, binding)
+
+  /** Round 2: a participant's partial signature, from its OWN secret share + private nonce state + the public
+   *  package. The share and the secret nonces never leave the participant. */
+  def partial(state: NonceState, share: BigInteger, signerIds: List[Int], pkg: SigningPackage): BigInteger =
+    val kappa0 = state.d.add(pkg.binding(state.id).multiply(state.e)).mod(N)   // d_i + ρ_i·e_i
+    val kappa  = if pkg.negR then N.subtract(kappa0).mod(N) else kappa0
+    kappa.add(pkg.challenge.multiply(lagrangeAtZero(state.id, signerIds)).multiply(share)).mod(N)
+
+  /** Coordinator: assemble the final 64-byte BIP-340 signature `r ‖ s` from the partials. */
+  def aggregate(pkg: SigningPackage, partials: List[BigInteger]): Array[Byte] =
+    pkg.rx ++ to32(partials.foldLeft(BigInteger.ZERO)((acc, z) => acc.add(z).mod(N)))
 
   /** Per-signer binding factor `ρ_i = SHA256("FROSTsecp256k1/rho" ‖ id ‖ msg ‖ commitments) mod n`. */
   private def bindingFactor(id: Int, msg: Array[Byte], commitsEnc: Array[Byte]): BigInteger =
     val pre = "FROSTsecp256k1/rho".getBytes("UTF-8") ++ to32(BigInteger.valueOf(id.toLong)) ++ msg ++ commitsEnc
     new BigInteger(1, Sha256.digest(pre)).mod(N)
 
-  private def encodeCommitments(ns: List[Nonce]): Array[Byte] =
-    ns.sortBy(_.id).foldLeft(Array.emptyByteArray) { (acc, n) =>
-      acc ++ to32(BigInteger.valueOf(n.id.toLong)) ++ Secp256k1Group.compress(n.dCommit) ++
-        Secp256k1Group.compress(n.eCommit)
+  private def encodeCommitments(cs: List[Commitment]): Array[Byte] =
+    cs.sortBy(_.id).foldLeft(Array.emptyByteArray) { (acc, c) =>
+      acc ++ to32(BigInteger.valueOf(c.id.toLong)) ++ c.dCommit ++ c.eCommit
     }
 
-  /** Produce a BIP-340 signature for `msg` from an in-process `t`-of-`n` quorum of the given `signerIds`
-   *  (length must be `>= threshold`). Holds all shares in one process (single-node simulation). */
+  /** Produce a BIP-340 signature for `msg` from an in-process `t`-of-`n` quorum of the given `signerIds` — all
+   *  shares in one process (single-node simulation). A thin orchestration over the round API above, so the
+   *  in-process and distributed ([[FrostDistributedSigning]]) paths are byte-identical for the same nonces. */
   def thresholdSign(ks: KeyShares, signerIds: List[Int], msg: Array[Byte]): Array[Byte] =
     require(signerIds.distinct.size == signerIds.size, "duplicate signer ids")
     require(signerIds.size >= ks.threshold, s"need >= ${ks.threshold} signers, got ${signerIds.size}")
     val shareOf = ks.shares.map(s => s.id -> s.value).toMap
     require(signerIds.forall(shareOf.contains), "unknown signer id")
-
-    // Round 1: each signer samples nonces and publishes commitments.
-    val nonces = signerIds.map { id =>
-      val d = randomScalar(); val e = randomScalar()
-      Nonce(id, d, e, mulG(d), mulG(e))
-    }
-    val commitsEnc = encodeCommitments(nonces)
-    val rho = nonces.map(n => n.id -> bindingFactor(n.id, msg, commitsEnc)).toMap
-
-    // Aggregate nonce R = Σ (D_i + ρ_i·E_i); force even-y.
-    val rFull = nonces.map(n => add(n.dCommit, mul(rho(n.id), n.eCommit))).reduce(add)
-    val negR  = yIsOdd(rFull)
-    val rEven = if negR then negate(rFull) else rFull
-    val rx    = to32(xOf(rEven))
-
-    // BIP-340 challenge against the x-only group key.
-    val c = new BigInteger(1, Secp256k1Schnorr.taggedHash("BIP0340/challenge", rx ++ ks.groupPublicKeyXonly ++ msg)).mod(N)
-
-    // Round 2: each signer's partial; aggregate.
-    val z = nonces.foldLeft(BigInteger.ZERO) { (acc, n) =>
-      val kappa0 = n.d.add(rho(n.id).multiply(n.e)).mod(N)   // d_i + ρ_i·e_i
-      val kappa  = if negR then N.subtract(kappa0).mod(N) else kappa0
-      val lambda = lagrangeAtZero(n.id, signerIds)
-      val zi     = kappa.add(c.multiply(lambda).multiply(shareOf(n.id))).mod(N)
-      acc.add(zi).mod(N)
-    }
-    rx ++ to32(z)
+    val states      = signerIds.map(id => commit(id))
+    val commitments = states.map(_._2)
+    val pkg         = prepare(ks.groupPublicKeyXonly, commitments, msg)
+    val partials    = states.map((st, _) => partial(st, shareOf(st.id), signerIds, pkg))
+    aggregate(pkg, partials)
