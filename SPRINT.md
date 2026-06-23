@@ -112,7 +112,7 @@ foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (high
       it's Cardano's last direct-BouncyCastle dependency. **Gate:** RFC 7693 vectors + Cardano address fixtures
       match across both backends + the reference. Unblocks `chains-backend-agnostic` (Cardano).
 
-- [ ] **noble-js-hd-derivation** (foundation, small-med) — implement `deriveMaster`/`deriveChild` in
+- [x] **noble-js-hd-derivation** ✓ DONE 2026-06-23 — implemented `deriveMaster`/`deriveChild` in
       `payments/crypto/noble-js` (they currently THROW "not yet implemented on Scala.js") via `@scure/bip32` /
       HMAC-SHA512, for secp256k1 + Ed25519 (SLIP-0010). **Why:** without BIP-32 HD on JS, wallets + chain
       adapters sign on JVM but not in-browser. **Gate:** byte-for-byte equal to the BouncyCastle backend for the

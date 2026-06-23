@@ -208,6 +208,16 @@ class BouncyCastleBackendTest extends AnyFunSuite:
     assert(child.chainCode.sameElements(expectedChainCode))
   }
 
+  test("BIP-32 non-hardened child m/0H/1 matches test-vector 1 (exercises compressPublic)") {
+    // m/0H/1 from BIP-32 appendix C test vector 1 (non-hardened — uses the parent public key).
+    val seed   = hex("000102030405060708090a0b0c0d0e0f")
+    val master = be.deriveMaster(Curve.Secp256k1, seed)
+    val c0h    = be.deriveChild(Curve.Secp256k1, master, 0L, hardened = true)
+    val c0h1   = be.deriveChild(Curve.Secp256k1, c0h, 1L, hardened = false)
+    assert(c0h1.privateKey.sameElements(hex("3c6cb8d0f6a264c91ea8b5030fadaa8e538b020f0a387421a12de9319dc93368")))
+    assert(c0h1.chainCode.sameElements(hex("2a7857631386ba23dacac34180dd1983734e444fdbf774041578e9b6adb37c19")))
+  }
+
   test("SLIP-0010 ed25519 master from test-vector 1 (000102…0f)") {
     // SLIP-0010 appendix B test vector 1 for ed25519
     val seed = hex("000102030405060708090a0b0c0d0e0f")

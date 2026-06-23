@@ -31,11 +31,12 @@ import scalascript.crypto.*
  *    SubtleCrypto is async and would force the SPI to fork — see
  *    `aesGcmEncrypt` comment + specs/wallet-spi-scalajs.md §5).
  *
+ *  - **HD key derivation** (`deriveMaster` / `deriveChild`) — BIP-32 (secp256k1) +
+ *    SLIP-0010 (ed25519) via the shared `HdDerivationCore` (HMAC-SHA-512 +
+ *    `java.math.BigInteger`, both available on Scala.js); byte-for-byte equal to the JVM.
+ *
  *  Not yet implemented on JS (raise `UnsupportedOperationException`):
  *
- *  - **HD key derivation** (`deriveMaster` / `deriveChild`) — BIP-32 /
- *    SLIP-0010. Deferred to a later stage once the strategy modules
- *    that need it cross-compile.
  *  - **Sr25519 / BLS12-381** — `supports` returns `false`.
  *
  *  Register the backend at app init: call
@@ -126,17 +127,25 @@ final class NobleCryptoBackend extends CryptoBackend:
       case HashAlgo.None       => throw new IllegalArgumentException("HMAC needs a digest, not HashAlgo.None")
     u8ToBytes(NobleFacades.hmac(fn, bytesToU8(key), bytesToU8(data)))
 
-  // ── HD derivation (deferred) ────────────────────────────────────────────
+  // ── HD derivation (BIP-32 secp256k1 / SLIP-0010 ed25519, via the shared core) ──────────
+
+  private def hmac512(key: Array[Byte], data: Array[Byte]): Array[Byte] =
+    hmac(HashAlgo.Sha512, key, data)
+
+  /** 33-byte compressed public key (0x02/0x03 || x), via `@noble/curves` base-point multiplication.
+   *  `derivePublic` returns the 64-byte uncompressed x||y, which we compress per BIP-32. */
+  private def compressPublicHd(curve: Curve, priv: Array[Byte]): Array[Byte] =
+    val uncompressed = derivePublic(curve, priv)
+    val x = uncompressed.slice(0, 32)
+    val y = uncompressed.slice(32, 64)
+    val parity = (y(31) & 1) == 1
+    (if parity then 0x03.toByte else 0x02.toByte) +: x
 
   def deriveMaster(curve: Curve, seed: Array[Byte]): HdKey =
-    throw new UnsupportedOperationException(
-      s"$id: HD derivation not yet implemented on Scala.js (Stage TBD)."
-    )
+    HdDerivationCore.deriveMaster(curve, seed, hmac512)
 
   def deriveChild(curve: Curve, parent: HdKey, index: Long, hardened: Boolean): HdKey =
-    throw new UnsupportedOperationException(
-      s"$id: HD derivation not yet implemented on Scala.js (Stage TBD)."
-    )
+    HdDerivationCore.deriveChild(curve, parent, index, hardened, hmac512, compressPublicHd)
 
   // ── KDF ─────────────────────────────────────────────────────────────────
 

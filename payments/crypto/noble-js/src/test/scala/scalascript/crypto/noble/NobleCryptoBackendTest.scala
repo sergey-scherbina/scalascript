@@ -80,6 +80,31 @@ class NobleCryptoBackendTest extends AnyFunSuite:
       assert(hex(backend.hash(HashAlgo.Blake2b224, data)) == out, s"noble blake2b-224($in)")
       assert(hex(Blake2b.hash224(data)) == out,                   s"reference blake2b-224($in)")
 
+  // ── HD derivation (BIP-32 / SLIP-0010) — byte-for-byte equal to the JVM BouncyCastle backend ──
+
+  test("BIP-32 secp256k1 master + hardened + non-hardened children (appendix C vector 1)"):
+    val seed   = fromHex("000102030405060708090a0b0c0d0e0f")
+    val master = backend.deriveMaster(Curve.Secp256k1, seed)
+    assert(hex(master.privateKey) == "e8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")
+    assert(hex(master.chainCode)  == "873dff81c02f525623fd1fe5167eac3a55a049de3d314bb42ee227ffed37d508")
+    // m/0H (hardened)
+    val c0h = backend.deriveChild(Curve.Secp256k1, master, 0L, hardened = true)
+    assert(hex(c0h.privateKey) == "edb2e14f9ee77d26dd93b4ecede8d16ed408ce149b6cd80b0715a2d911a0afea")
+    assert(hex(c0h.chainCode)  == "47fdacbd0f1097043b78c63c20c34ef4ed9a111d980047ad16282c7ae6236141")
+    // m/0H/1 (non-hardened — exercises compressPublic via @noble/curves)
+    val c0h1 = backend.deriveChild(Curve.Secp256k1, c0h, 1L, hardened = false)
+    assert(hex(c0h1.privateKey) == "3c6cb8d0f6a264c91ea8b5030fadaa8e538b020f0a387421a12de9319dc93368")
+    assert(hex(c0h1.chainCode)  == "2a7857631386ba23dacac34180dd1983734e444fdbf774041578e9b6adb37c19")
+
+  test("SLIP-0010 ed25519 master + m/0H (appendix B vector 1)"):
+    val seed   = fromHex("000102030405060708090a0b0c0d0e0f")
+    val master = backend.deriveMaster(Curve.Ed25519, seed)
+    assert(hex(master.privateKey) == "2b4be7f19ee27bbf30c667b642d5f4aa69fd169872f8fc3059c08ebae2eb19e7")
+    assert(hex(master.chainCode)  == "90046a93de5380a72b5e45010748567d5ea02bbf6522f979e05c0d8d8ca9fffb")
+    val child = backend.deriveChild(Curve.Ed25519, master, 0L, hardened = true)
+    assert(hex(child.privateKey) == "68e0fe46dfb67e368c75379acec591dad19df3cde26e63b93a8e704f1dade7a3")
+    assert(hex(child.chainCode)  == "8b59aa11380b624e81507a27fedda59fea6d0b779a778918a2fd3590e16e9c69")
+
   test("HMAC-SHA256 RFC 4231 test case 1"):
     // RFC 4231 §4.2: key = 0x0b*20, data = "Hi There"
     val key  = Array.fill[Byte](20)(0x0b.toByte)
