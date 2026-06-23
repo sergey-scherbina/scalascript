@@ -150,6 +150,8 @@ def pluginPack(args: List[String]): Unit =
  *    add <id> <url>        — add/update an entry in ~/.scalascript/registry.yaml
  *    remove <id>           — remove an entry
  *    search <query>        — search entries by id or description substring
+ *    publish <pkg.sscpkg>  — publish a package into a server-side FileRegistry (content + index +
+ *                            regenerated packages.yaml); flags --registry <dir> --base-url <url> --description <t>
  */
 def pluginRegistryCommand(args: List[String]): Unit =
   import scalascript.compiler.plugin.LocalRegistry
@@ -190,11 +192,43 @@ def pluginRegistryCommand(args: List[String]): Unit =
         val desc = if e.description.nonEmpty then s"  — ${e.description}" else ""
         println(s"${e.id}$desc")
       }
+    case "publish" :: rest =>
+      // ssc plugin registry publish <pkg.sscpkg> [--registry <dir>] [--base-url <url>]
+      // Publishes a .sscpkg into a server-side FileRegistry (content store + index.json), reading id/
+      // version/description from the package manifest, then regenerates the client-facing packages.yaml.
+      import scalascript.compiler.plugin.{FileRegistry, SscpkgLoader}
+      var pkgArg:  Option[String] = None
+      var regDir:  os.Path        = os.home / ".scalascript" / "registry"
+      var baseUrl: Option[String] = None
+      var desc:    String         = ""
+      val it = rest.iterator
+      while it.hasNext do
+        it.next() match
+          case "--registry"    if it.hasNext => regDir  = os.Path(it.next(), os.pwd)
+          case "--base-url"    if it.hasNext => baseUrl = Some(it.next())
+          case "--description" if it.hasNext => desc    = it.next()
+          case arg if !arg.startsWith("--") && pkgArg.isEmpty => pkgArg = Some(arg)
+          case arg =>
+            System.err.println(s"registry publish: unexpected argument '$arg'"); sys.exit(1)
+      val pkgPath = pkgArg.map(os.Path(_, os.pwd)).getOrElse {
+        System.err.println("Usage: ssc plugin registry publish <pkg.sscpkg> [--registry <dir>] [--base-url <url>] [--description <text>]")
+        sys.exit(1)
+      }
+      if !os.exists(pkgPath) then
+        System.err.println(s"registry publish: file not found: $pkgPath"); sys.exit(1)
+      val manifest = SscpkgLoader.loadManifest(pkgPath)
+      val reg      = FileRegistry(regDir)
+      val entry    = reg.publish(manifest.id, manifest.version, os.read.bytes(pkgPath), desc)
+      val base     = baseUrl.getOrElse(regDir.toNIO.toUri.toString.stripSuffix("/"))
+      reg.writePackagesYaml(base)
+      println(s"Published ${entry.id}@${entry.version} → $regDir")
+      println(s"  sha256: ${entry.sha256}")
+      println(s"  packages.yaml regenerated (base: $base)")
     case sub :: _ =>
       System.err.println(s"Unknown registry subcommand: '${sub}'")
-      System.err.println("Usage: ssc plugin registry list|add|remove|search ...")
+      System.err.println("Usage: ssc plugin registry list|add|remove|search|publish ...")
       System.exit(1)
     case Nil =>
-      System.err.println("Usage: ssc plugin registry list|add|remove|search ...")
+      System.err.println("Usage: ssc plugin registry list|add|remove|search|publish ...")
       System.exit(1)
 

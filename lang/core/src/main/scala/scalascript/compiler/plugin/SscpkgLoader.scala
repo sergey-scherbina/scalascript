@@ -26,6 +26,17 @@ object SscpkgLoader:
     sourcePaths:    List[String],         // archive-relative paths under sources/
   )
 
+  /** Read ONLY the `manifest.yaml` (id / version / description / …) from a `.sscpkg`, without extracting
+   *  intrinsic JARs or sources. Used by `ssc plugin registry publish` to index a package. */
+  def loadManifest(pkg: os.Path): SscpkgManifest =
+    val zip = new ZipFile(pkg.toIO)
+    try
+      val entry = zip.entries().asScala
+        .find(_.getName == "manifest.yaml")
+        .getOrElse(throw RuntimeException(s"${pkg.last}: missing manifest.yaml"))
+      SscpkgManifest.parseString(new String(zip.getInputStream(entry).readAllBytes(), "UTF-8")).get
+    finally zip.close()
+
   /** Load a `.sscpkg` archive.  Intrinsic JARs are extracted to a
    *  freshly-created temp directory that lives for the JVM lifetime
    *  (no explicit cleanup needed for a CLI process). */
