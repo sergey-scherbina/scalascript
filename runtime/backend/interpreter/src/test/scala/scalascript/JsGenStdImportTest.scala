@@ -390,6 +390,35 @@ class JsGenStdImportTest extends AnyFunSuite:
         |""".stripMargin
     assert(runNode(script) == "static-rows-ok")
 
+  // F1 (rozum/sunny-civet): three remoteTables sharing ONE fetchUrlSignal but with
+  // different rowsPath must each drill their own path. fetchRowsSource mutates
+  // sig._rowsPath, so without the build-time snapshot the last call clobbers all
+  // three -> two tables render empty. The snapshot freezes each table's path.
+  test("renderBody — three DataTables on one fetch signal each keep their own rowsPath"):
+    val runtime = JsGen.generateRuntime(Set(JsGen.Capability.Signals))
+    val script =
+      runtime + "\n" +
+      """
+        |function assertRuntime(c, m) { if (!c) throw new Error(m); }
+        |const st = _ssc_ui_fetchUrlSignal('st', '/control/status', null, null);
+        |const cols = [{ title: 'X', fieldPath: 'x', align: '', kind: { type: 'text' } }];
+        |const t1 = _ssc_ui_dataTableView(_ssc_ui_fetchRowsSource(st, 'installed'), cols, []);
+        |const t2 = _ssc_ui_dataTableView(_ssc_ui_fetchRowsSource(st, 'residency.residents'), cols, []);
+        |const t3 = _ssc_ui_dataTableView(_ssc_ui_fetchRowsSource(st, 'meetings'), cols, []);
+        |// each node froze its own path at build time (the shared-signal fix)
+        |assertRuntime(t1._rowsPath === 'installed', 't1 snapshot=' + t1._rowsPath);
+        |assertRuntime(t2._rowsPath === 'residency.residents', 't2 snapshot=' + t2._rowsPath);
+        |assertRuntime(t3._rowsPath === 'meetings', 't3 snapshot=' + t3._rowsPath);
+        |// and each emitted <div> carries its OWN data-ssc-datatable-rows-path
+        |const view = _ssc_ui_element('div', null, null, [t1, t2, t3]);
+        |const out  = _ssc_ui_renderBody(view).body;
+        |assertRuntime(out.indexOf('data-ssc-datatable-rows-path="installed"') >= 0, 'installed path missing: ' + out);
+        |assertRuntime(out.indexOf('data-ssc-datatable-rows-path="residency.residents"') >= 0, 'residents path missing: ' + out);
+        |assertRuntime(out.indexOf('data-ssc-datatable-rows-path="meetings"') >= 0, 'meetings path missing: ' + out);
+        |console.log('three-paths-ok');
+        |""".stripMargin
+    assert(runNode(script) == "three-paths-ok")
+
   test("emit-spa datatable-static-spa example binds the row-data natives and parses"):
     val source  = os.read(TestPaths.repoRoot / "examples" / "datatable-static-spa.ssc")
     val module  = Parser.parse(source)

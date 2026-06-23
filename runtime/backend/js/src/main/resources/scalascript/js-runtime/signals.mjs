@@ -345,7 +345,8 @@ function _ssc_ui_renderBody(view) {
         let dtAttrs = `data-ssc-datatable="${dtSigId}" data-ssc-datatable-url="${dtUrl}" data-ssc-datatable-cols="${dtCols}" data-ssc-datatable-acts="${dtActs}"`;
         if (isStatic) dtAttrs += ` data-ssc-datatable-rows="${_esc(JSON.stringify(src.rows || []))}"`;
         if (isSigRows && rowsSig && rowsSig.id != null) dtAttrs += ` data-ssc-datatable-rows-sig="${String(rowsSig.id)}"`;
-        if (src && src._rowsPath) dtAttrs += ` data-ssc-datatable-rows-path="${_esc(String(src._rowsPath))}"`;
+        const _rp = (v && v._rowsPath) || (src && src._rowsPath);  // node snapshot wins (per-table); shared signal is the fallback
+        if (_rp) dtAttrs += ` data-ssc-datatable-rows-path="${_esc(String(_rp))}"`;
         if (dtTick) dtAttrs += ` data-ssc-datatable-tick="${dtTick}"`;
         if (dtHdr)  dtAttrs += ` data-ssc-datatable-headers="${dtHdr}"`;
         if (dtUrlSig) dtAttrs += ` data-ssc-datatable-url-sig="${dtUrlSig}"`;
@@ -888,7 +889,11 @@ function _ssc_ui_rowDeleteAction(url, idField, tick, headers) { return { _type: 
 function _ssc_ui_rowPostAction(label, method, url, bodyField, tick, headers) { return { _type: '_RowPost', label, method, url, bodyField, tick, headers: headers || null }; }
 function _ssc_ui_rowLinkAction(label, signal, fieldPath) { return { _type: '_RowLink', label, signal, fieldPath }; }
 function _ssc_ui_rowEditAction(method, url, idField, tick, headers) { return { _type: '_RowInlineEdit', method, url, idField, tick, headers: headers || null }; }
-function _ssc_ui_dataTableView(signal, columns, actions) { return { _type: '_DataTableView', signal, columns: columns || [], actions: actions || [] }; }
+// Snapshot the source's `_rowsPath` onto the node at BUILD time so multiple
+// DataTables sharing one fetch signal each keep their OWN dotted path: a later
+// `fetchRowsSource(sameSig, otherPath)` mutates `sig._rowsPath`, but each node
+// already froze the path it was built with (the shared-signal collision fix).
+function _ssc_ui_dataTableView(signal, columns, actions) { return { _type: '_DataTableView', signal, columns: columns || [], actions: actions || [], _rowsPath: (signal && signal._rowsPath) || '' }; }
 // TableDataSource markers — first argument to dataTableView (parity with the
 // interpreter TableDataSource.StaticRows / SignalRows; the legacy bare
 // FetchUrlSignal Remote path is still accepted via `._fetchGet`).
