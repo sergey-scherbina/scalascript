@@ -18,10 +18,11 @@ final class TuiCargoSmokeTest extends AnyFunSuite:
 
   test("emitted ratatui crate compiles and runs via cargo"):
     assume(cargoAvailable, "cargo not on PATH — skipping ratatui smoke")
-    // A small static layout: heading + text, then a divider, then a two-column row.
+    // heading + a reactive signal-bound line, a divider, then a two-column row.
+    val msg = new ReactiveSignal[String]("msg", "first")
     val view = View.Column(Seq(
       View.Text(() => "Title"),
-      View.Text(() => "hello"),
+      View.SignalText(msg),
       View.Divider(),
       View.Row(Seq(View.Text(() => "left"), View.Text(() => "right")))
     ))
@@ -45,18 +46,28 @@ final class TuiCargoSmokeTest extends AnyFunSuite:
       val out = new StringBuilder
       val err = new StringBuilder
       val logger = ProcessLogger(l => out.append(l).append('\n'), l => err.append(l).append('\n'))
-      val code = Process(Seq("cargo", "run", "--quiet"), dir.toFile).!(logger)
+      // Headless snapshot — SSC_TUI_SNAPSHOT bypasses the interactive crossterm
+      // loop (which would need a TTY), rendering one frame to stdout.
+      val code = Process(Seq("cargo", "run", "--quiet"), dir.toFile, "SSC_TUI_SNAPSHOT" -> "1").!(logger)
       assert(code == 0, s"cargo run failed (exit $code) — emitted Rust did not compile:\n${err.toString}")
       val rendered = out.toString
-      // The buffer snapshot must contain the laid-out text content.
+      // The buffer snapshot must contain the laid-out content (signal value included).
       assert(rendered.contains("Title"),  s"missing heading:\n$rendered")
-      assert(rendered.contains("hello"),  s"missing text:\n$rendered")
+      assert(rendered.contains("first"),  s"missing signal value:\n$rendered")
       assert(rendered.contains("left"),   s"missing row-left:\n$rendered")
       assert(rendered.contains("right"),  s"missing row-right:\n$rendered")
       assert(rendered.contains("─"),      s"missing divider rule:\n$rendered")
       // Row children render side-by-side on the same line.
       val rowLine = rendered.linesIterator.find(l => l.contains("left") && l.contains("right"))
       assert(rowLine.isDefined, s"row children not on the same line:\n$rendered")
+
+      // Reactivity gate: the generated #[cfg(test)] reactive_rerender proves a
+      // signal mutation re-renders.
+      val testOut = new StringBuilder
+      val testErr = new StringBuilder
+      val testLog = ProcessLogger(l => testOut.append(l).append('\n'), l => testErr.append(l).append('\n'))
+      val testCode = Process(Seq("cargo", "test", "--quiet"), dir.toFile).!(testLog)
+      assert(testCode == 0, s"cargo test (reactive_rerender) failed:\n${testOut.toString}\n${testErr.toString}")
     finally
       deleteRecursively(dir)
 

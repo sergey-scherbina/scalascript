@@ -56,16 +56,37 @@ final class TuiEmitterTest extends AnyFunSuite:
     assert(rs.contains("""Paragraph::new("[Click]")"""))
   }
 
-  test("Toggle renders its checkbox + label from the signal") {
+  test("Toggle reads its checkbox + label from the runtime store") {
     val on  = new ReactiveSignal[Boolean]("t1", true)
     val rs  = emitMain(View.Toggle(on, "Enabled"))
-    assert(rs.contains("""Paragraph::new("[x] Enabled")"""))
+    assert(rs.contains("""toggle_text(signals, "t1", "Enabled")"""))
+    assert(rs.contains("""m.insert("t1".to_string(), Value::B(true));"""))
   }
 
-  test("SignalText reads the signal value at emit time (static slice)") {
+  test("SignalText reads from the runtime signal store (reactive)") {
     val sig = new ReactiveSignal[String]("s1", "live-value")
     val rs  = emitMain(View.SignalText(sig))
-    assert(rs.contains("""Paragraph::new("live-value")"""))
+    assert(rs.contains("""Paragraph::new(sig(signals, "s1"))"""))
+    // store seeded with the initial value
+    assert(rs.contains("""m.insert("s1".to_string(), Value::S("live-value".to_string()));"""))
+    // and a generated reactivity self-test exists (text signal present)
+    assert(rs.contains("fn reactive_rerender()"))
+  }
+
+  test("ShowSignal lowers to a runtime if on the signal store") {
+    val cond = new ReactiveSignal[Boolean]("c1", true)
+    val rs   = emitMain(View.ShowSignal(cond, text("yes"), text("no")))
+    assert(rs.contains("""if sig_truthy(signals, "c1") {"""))
+    assert(rs.contains("""Paragraph::new("yes")"""))
+    assert(rs.contains("""Paragraph::new("no")"""))
+  }
+
+  test("emits a crossterm interactive loop + signal store + render(signals)") {
+    val rs = emitMain(text("x"))
+    assert(rs.contains("fn run_interactive()"))
+    assert(rs.contains("event::poll(Duration::from_millis(100))"))
+    assert(rs.contains("fn initial_signals()"))
+    assert(rs.contains("fn render_root(frame: &mut Frame, area: Rect, signals: &HashMap<String, Value>)"))
   }
 
   test("string content is escaped into a Rust literal") {
