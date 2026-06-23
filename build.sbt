@@ -2476,18 +2476,30 @@ lazy val blockchainBitcoinCross =
 lazy val blockchainBitcoin   = blockchainBitcoinCross.jvm
 lazy val blockchainBitcoinJs = blockchainBitcoinCross.js
 
-lazy val blockchainCosmos = project
-  .in(file("payments/blockchain/cosmos"))
-  .dependsOn(blockchainSpi, cryptoSpi, cryptoBouncycastle)
-  .settings(
-    name := "scalascript-blockchain-cosmos",
-    libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "ujson" % upickleV,
-      scalatestTest,
-    ),
-    Compile / scalacOptions ++= sharedScalacOptionsStrict,
-    Test    / scalacOptions ++= sharedScalacOptions,
-  )
+// Cross-compiled (JVM + Scala.js). Backed by the from-scratch portable secp256k1 +
+// Ed25519 stack in crypto-spi/shared (no `org.bouncycastle`); the chain adapter is
+// stub-only, so the portable core (crypto, addresses, Amino sign-doc) runs in a
+// browser wallet. CrossType.Full because ServiceLoader discovery is JVM-only.
+lazy val blockchainCosmosCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Full)
+    .in(file("payments/blockchain/cosmos"))
+    .dependsOn(blockchainSpiCross, cryptoSpiCross)
+    .settings(
+      name := "scalascript-blockchain-cosmos",
+      libraryDependencies ++= Seq(
+        "com.lihaoyi"   %%% "ujson"     % upickleV,
+        "org.scalatest" %%% "scalatest" % scalatestV % Test,
+      ),
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    .jvmConfigure(_.withId("blockchainCosmos"))
+    .jsConfigure(_.withId("blockchainCosmosJs"))
+    .jsSettings(Test / fork := false)
+
+lazy val blockchainCosmos   = blockchainCosmosCross.jvm
+lazy val blockchainCosmosJs = blockchainCosmosCross.js
 
 // Micropayment platform SPI (specs/micropayment-spi.md)
 // ---------------------------------------------------------------------------
@@ -3712,7 +3724,7 @@ lazy val root = project
     x402Core, x402Server, x402Client, x402ClientJs,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoFrost, cryptoFrostJs, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, blockchainCardanoJs, blockchainBitcoin, blockchainBitcoinJs, blockchainCosmos, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultTrezor, walletVaultMpcFireblocks, walletVaultMpcCoinbase, walletVaultMpcLit, walletVaultMpcZengo, walletVaultMpcFrost, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerJs, walletVaultLedgerBluetoothJs, walletVaultLedgerEthereum, walletVaultLedgerSolana, walletVaultLedgerBitcoin, walletVaultLedgerCardano, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
+    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoFrost, cryptoFrostJs, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, blockchainCardanoJs, blockchainBitcoin, blockchainBitcoinJs, blockchainCosmos, blockchainCosmosJs, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultTrezor, walletVaultMpcFireblocks, walletVaultMpcCoinbase, walletVaultMpcLit, walletVaultMpcZengo, walletVaultMpcFrost, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerJs, walletVaultLedgerBluetoothJs, walletVaultLedgerEthereum, walletVaultLedgerSolana, walletVaultLedgerBitcoin, walletVaultLedgerCardano, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
     frontendCore,
     // Frontend backends — derived from allFrontends registry below (arch-build-registry Phase 4)

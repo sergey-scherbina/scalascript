@@ -82,8 +82,7 @@ object CosmosSignDoc:
         (base64(sig), base64(pubBytes))
       case Curve.Ed25519 =>
         val sig      = CosmosCrypto.signEd25519(privateKey, msgBytes)
-        val priv     = new org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters(privateKey.take(32))
-        val pubBytes = priv.generatePublicKey().getEncoded
+        val pubBytes = CosmosCrypto.deriveEd25519PublicKey(privateKey)
         (base64(sig), base64(pubBytes))
 
   private def base64(bytes: Array[Byte]): String =

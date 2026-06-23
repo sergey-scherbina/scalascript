@@ -118,7 +118,7 @@ foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (high
       adapters sign on JVM but not in-browser. **Gate:** byte-for-byte equal to the BouncyCastle backend for the
       existing JVM HD fixtures (BIP-32 + SLIP-0010 vectors).
 
-- [ ] **chains-backend-agnostic** (highest architectural value; 3 slices) — route Cardano/Bitcoin/Cosmos crypto
+- [x] **chains-backend-agnostic** ✓ COMPLETE 2026-06-23 (all 3 slices) — route Cardano/Bitcoin/Cosmos crypto
       through the `CryptoBackend` SPI instead of importing `org.bouncycastle.*` directly, then make each a
       crossProject (currently all three are JVM-only `project`s). **Why:** this is the only crypto path still
       bypassing the SPI, and the sole reason these three are JVM-only + carry a heavy dep. The "FROST move",
@@ -142,10 +142,18 @@ foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (high
         — cross-compiles, no shared/jvm split). cryptoBouncycastle dep dropped. **JVM 45 / JS 45 green** + 38
         portable-stack vectors JVM+JS. Downstream walletVaultLedgerBitcoin recompiles clean. The portable
         secp256k1 is **reusable for Slice 3 (Cosmos)**.
-      - Slice 3 (Cosmos): `CosmosCrypto` + `CosmosSignDoc` secp256k1 + RIPEMD-160 + Ed25519 → SPI;
-        `blockchainCosmos` → crossProject; verify Amino sign-doc fixtures JVM+JS.
-      - **Gate (all):** existing per-chain tests green on JVM **and** newly pass on JS; zero `org.bouncycastle`
-        imports left in the three modules' `src/main`.
+      - [x] Slice 3 (Cosmos) ✓ DONE 2026-06-23 — `CosmosCrypto` + `CosmosSignDoc` rewritten as thin shims over
+        the portable stack (secp256k1 via `Secp256k1Ecdsa`, RIPEMD-160 via `Ripemd160`, **Ed25519 via the new
+        portable RFC-8032 `Ed25519`** built on the relocated `Ed25519Group`/`Sha512`). `blockchainCosmos` →
+        `CrossType.Full` crossProject (Full, not Pure, because the `ServiceLoader` discovery test is JVM-only →
+        moved to `jvm/src/test`; `META-INF/services` registration moved to `jvm/src/main/resources`). cosmos
+        test de-BouncyCastled (Ed25519 pubkey via `deriveEd25519PublicKey`). cryptoBouncycastle dep dropped.
+        **JVM 41 / JS 40 green** (Amino sign-doc, secp256k1 + Ed25519 sign/verify, addresses — all byte-identical
+        cross-platform).
+      - **Gate (all): ✓ MET** — all three chains: per-chain tests green on JVM **and** newly pass on JS; zero
+        `org.bouncycastle` code in any `src/main`. **chains-backend-agnostic COMPLETE (Cardano + Bitcoin +
+        Cosmos).** Byproduct: a full portable from-scratch crypto stack in `crypto-spi/shared` (SHA-256/512,
+        RIPEMD-160, HMAC-SHA256, secp256k1 ECDSA+Schnorr+Taproot, Ed25519) reusable by any chain/wallet on JS.
 
 - [ ] **client-solana-rpc** (smallest gap, finishes a network) — new `payments/client/solana` providing a
       `ChainContext` over Solana JSON-RPC (`sendTransaction`, `getLatestBlockhash`, `getBalance`,

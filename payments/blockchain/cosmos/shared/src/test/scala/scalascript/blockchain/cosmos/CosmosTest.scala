@@ -1,11 +1,9 @@
 package scalascript.blockchain.cosmos
 
 import java.util.Base64
-import java.util.ServiceLoader
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scala.concurrent.ExecutionContext
-import scala.jdk.CollectionConverters.*
 import scalascript.blockchain.spi.*
 import scalascript.crypto.{Curve, PublicKey}
 
@@ -90,8 +88,7 @@ class CosmosTest extends AnyFunSuite with Matchers:
     val msg = "hello ed25519 cosmos".getBytes("UTF-8")
     val sig = CosmosCrypto.signEd25519(ed25519Seed, msg)
     sig.length shouldBe 64
-    val priv   = new org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters(ed25519Seed)
-    val pubKey = priv.generatePublicKey().getEncoded
+    val pubKey = CosmosCrypto.deriveEd25519PublicKey(ed25519Seed)
     CosmosCrypto.verifyEd25519(pubKey, msg, sig) shouldBe true
   }
 
@@ -99,8 +96,7 @@ class CosmosTest extends AnyFunSuite with Matchers:
     val msg1 = "message one".getBytes("UTF-8")
     val msg2 = "message two".getBytes("UTF-8")
     val sig  = CosmosCrypto.signEd25519(ed25519Seed, msg1)
-    val priv = new org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters(ed25519Seed)
-    val pub  = priv.generatePublicKey().getEncoded
+    val pub  = CosmosCrypto.deriveEd25519PublicKey(ed25519Seed)
     CosmosCrypto.verifyEd25519(pub, msg2, sig) shouldBe false
   }
 
@@ -356,14 +352,8 @@ class CosmosTest extends AnyFunSuite with Matchers:
     d.fields("to") shouldBe "cosmos1to"
   }
 
-  // ── BlockchainProvider ServiceLoader ──────────────────────────────────────
-
-  test("BlockchainProvider is discovered via ServiceLoader") {
-    val providers = ServiceLoader.load(classOf[BlockchainProvider]).asScala.toSeq
-    providers should not be empty
-    val cosmosProviders = providers.filter(_.isInstanceOf[CosmosBackend])
-    cosmosProviders should not be empty
-  }
+  // ── BlockchainProvider ───────────────────────────────────────────────────
+  // (ServiceLoader discovery is JVM-only — see jvm/src/test CosmosBackendDiscoveryTest)
 
   test("CosmosBackend provides adapters for CosmosHub, Osmosis, and Juno") {
     val backend  = new CosmosBackend
