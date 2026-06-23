@@ -1,0 +1,6 @@
+feature/remote-registry 2026-06-23T08:00:00Z
+agent: claude
+heartbeat: 2026-06-23T08:00:00Z
+status: in-progress
+done-so-far: stable-spi-p3 + actors-codemove are sibling-owned (deferred); taking remote-package-registry. Existing infra: RemotePluginInstaller (downloads .sscpkg from URI), LocalRegistry, SscpkgManifest (name/version), InstallCommands.
+next: Slice 1 = extend specs/arch-build-registry.md with the remote-registry protocol (index format + publish/search/resolve-by-name+version) + implement protocol model types + an in-process/local-file registry (publish/search/resolve) + round-trip test. CLI ssc publish/search + remote pkg: resolution = follow-up slices. Greenfield, no collision.
