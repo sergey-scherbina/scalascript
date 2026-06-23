@@ -49,7 +49,7 @@ verifies under the standard `Ed25519.verify` against the group public key):
 - **Slice 6 — cross-build (DONE 2026-06-23).** cryptoFrost is a crossProject(JVM,JS); FROST runs on Node 6/6 + JVM 19/0. `cryptoFrost` as `crossProject(JVM, JS)` so the reference compiles to JS too
   (BigInteger works in Scala.js; SHA-512 via the seam → `CryptoBackend.hash` = Noble/JS, BC/JVM). "One
   reference, every platform."
-- **Slice 7 — native backend.** A JVM `Ed25519Ops` backend delegating substitutable primitives (SHA-512,
+- **Slice 7 — native backend (DONE 2026-06-23, `CryptoBackedEd25519Ops`).** A JVM `Ed25519Ops` backend delegating substitutable primitives (SHA-512,
   final-signature verify) to BouncyCastle — proving transparent native substitution; reference stays the
   fallback for what BC doesn't expose (the group ops).
 - **Slice 8 — vault integration.** Wire as `walletVaultMpcFrost` via the `walletSpi`/MPC-vault seam.

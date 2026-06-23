@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — FROST-Ed25519 slice 7: native crypto-provider backend (CryptoBackend → BC/noble)
+
+`CryptoBackedEd25519Ops` — an `Ed25519Ops` backend that delegates the substitutable primitives (SHA-512, secure
+randomness) to the project's `CryptoBackend` SPI (BouncyCastle on JVM, `@noble` on JS), keeping the pure-BigInteger
+group math of the reference (CryptoBackend has no Ed25519 group ops). Register it and FROST's hashing/RNG
+transparently run on the platform-native crypto provider; `reset()` restores the pure reference. `cryptoFrost`
+now `dependsOn cryptoSpi` (which itself has no external deps). Verified (cryptoFrost JVM 20/0): the BC SHA-512
+equals our reference SHA-512, and a 2-of-3 FROST signature produced with the BC-backed backend verifies under
+BouncyCastle Ed25519; JS still 6/0 (the shared bridge cross-compiles). This closes the loop on the architecture
+— one portable FROST reference + transparent substitution down to the underlying crypto provider. Remaining:
+slice 8 (wallet-vault integration). Spec `specs/frost-ed25519.md`.
+
 ## 2026-06-23 — FROST-Ed25519 slice 6c: cross-build — the reference runs on JS (and JVM)
 
 `cryptoFrost` is now a `crossProject(JVM, JS)`: the FROST reference (Ed25519 curve math + own SHA-512 + keygen +

@@ -145,11 +145,11 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
           (JVM `SecureRandom` / JS WebCrypto). Shared tests run on BOTH: **JS 6/6 on Node** (incl. `generate(3,5)`
           via WebCrypto + the substitution test), JVM 19/0 (BC/java.security tests in `jvm/`). **→ FROST
           cross-platform story COMPLETE: one reference, identical on JVM + JS, native RNG, transparent substitution.**
-  - [ ] **frost-native-backend** (slice 7) — register a JVM `Ed25519Ops` backend that delegates the substitutable
-        primitives (SHA-512, final-signature verify) to BouncyCastle (the native fast path), proving transparent
-        substitution end-to-end; reference stays the fallback where BC exposes nothing (the group ops). **Verify:**
-        with the BC backend registered, FROST still produces signatures that verify; outputs identical to the
-        reference.
+  - [x] **frost-native-backend** (slice 7) ✓ DONE 2026-06-23 — `CryptoBackedEd25519Ops`: an `Ed25519Ops` backend
+        delegating SHA-512 + RNG to the project's `CryptoBackend` SPI (BC/JVM, noble/JS), group math stays the
+        reference. `cryptoFrost dependsOn cryptoSpi` (no external dep). Verified (JVM 20/0): BC SHA-512 == our
+        reference SHA-512; a BC-backed 2-of-3 FROST signature verifies under BouncyCastle Ed25519; JS still 6/0
+        (bridge cross-compiles). Closes the loop — portable reference + transparent substitution down to the crypto provider.
   - [ ] **frost-vault-integration** (slice 8) — wire FROST as a `walletVaultMpcFrost` variant via the
         `walletSpi`/MPC-vault seam (the in-house threshold counterpart to the remote `walletVaultMpc*`).
 
