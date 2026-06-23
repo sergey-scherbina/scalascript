@@ -862,6 +862,7 @@ class Interpreter(
     runInit(module)
     SectionRuntime.runModuleSections(module, this)
     autoCallMain()
+    autoRunView(module)
 
   /** Builtins + manifest/config setup without running sections.
    *  Extracted so [[runWithCheckpoints]] can share it without duplicating code. */
@@ -1018,6 +1019,37 @@ class Interpreter(
         case f: Value.FunV if f.params.isEmpty => Computation.run(callFun(f, Nil)); mainCalled = true
         case _ => ()
       }
+
+  /** `def view()` convention: when a UI frontend backend is explicitly selected
+   *  (front-matter `frontend:` / `--frontend` / inline) and the module defines a
+   *  zero-arg top-level `view` (and no `main` ran), render it through the active
+   *  backend — `serve(view(), 8080)` for a web backend (React/SSR SPA) or
+   *  `emit(view(), "tui-out")` for a native backend (e.g. the ratatui `tui`
+   *  crate). This lets one `.ssc` compile to web OR terminal with NO web-specific
+   *  `serve(..., port)` in the source — selection is purely the frontend backend.
+   *  Gated on an explicit frontend selection so non-UI modules with a stray
+   *  `view` def are never auto-served. */
+  private def autoRunView(module: Module): Unit =
+    if mainCalled then return
+    if scalascript.frontend.FrontendFrameworks.selectedName.isEmpty then return
+    if SectionRuntime.moduleCallsUiEntry(module) then return // the module renders itself explicitly
+    globals.get("view") match
+      case Some(f: Value.FunV) if f.params.isEmpty =>
+        val isWeb =
+          try scalascript.frontend.FrontendFrameworks.current().supportedPlatforms
+            .contains(scalascript.frontend.Platform.Web)
+          catch case _: Throwable => true
+        val viewCall = scala.meta.Term.Apply(scala.meta.Term.Name("view"), scala.meta.Term.ArgClause(Nil))
+        val entry =
+          if isWeb then
+            scala.meta.Term.Apply(scala.meta.Term.Name("serve"),
+              scala.meta.Term.ArgClause(List(viewCall, scala.meta.Lit.Int(8080))))
+          else
+            scala.meta.Term.Apply(scala.meta.Term.Name("emit"),
+              scala.meta.Term.ArgClause(List(viewCall, scala.meta.Lit.String("tui-out"))))
+        evalTerm(entry)
+        mainCalled = true
+      case _ => ()
 
   /** Snapshot the section-populated mutable state for incremental re-eval.
    *  Called by [[runWithCheckpoints]] after each section. */

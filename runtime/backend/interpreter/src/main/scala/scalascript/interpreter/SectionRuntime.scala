@@ -314,6 +314,31 @@ private[interpreter] object SectionRuntime:
       } || section.subsections.exists(loop)
     m.sections.exists(loop)
 
+  // True if the module already calls a UI render entry (`serve`/`emit`/`mount`/`serveAsync`)
+  // at top level. Used by the `def view()` convention (Interpreter.autoRunView) to NOT
+  // auto-render when the module renders itself explicitly.
+  private val uiEntryNames = Set("serve", "emit", "mount", "serveAsync")
+  private[interpreter] def moduleCallsUiEntry(m: Module): Boolean =
+    def fnName(fun: Term): Option[String] = fun match
+      case n: Term.Name   => Some(n.value)
+      case s: Term.Select => Some(s.name.value)
+      case _              => None
+    def isEntry(t: Stat): Boolean = t match
+      case a: Term.Apply => fnName(a.fun).exists(uiEntryNames)
+      case _             => false
+    def hasEntry(stats: List[Stat]): Boolean = stats.exists(isEntry)
+    def loop(section: Section): Boolean =
+      section.content.exists {
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+          cb.tree.exists(t => ScalaNode.fold(t) {
+            case s: Source     => hasEntry(s.stats)
+            case b: Term.Block => hasEntry(b.stats)
+            case _             => false
+          })
+        case _ => false
+      } || section.subsections.exists(loop)
+    m.sections.exists(loop)
+
   def runImport(imp: Content.Import, interp: Interpreter): Unit =
     import scalascript.parser.Parser
     val base = interp.baseDir.getOrElse(os.pwd)

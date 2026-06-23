@@ -383,7 +383,7 @@ private[cli] def injectDesktopTokenMiddleware(script: String): String =
  *  Adding a new frontend backend means adding it here and to the
  *  `dependsOn(...)` chain in `build.sbt`'s `cli` definition. */
 private[cli] val validFrontendNames: Set[String] =
-  Set("custom", "react", "solid", "vue", "electron", "swing", "javafx", "swiftui")
+  Set("custom", "react", "solid", "vue", "electron", "swing", "javafx", "swiftui", "tui")
 
 private[cli] val browserFrontendNames: Set[String] =
   Set("custom", "react", "solid", "vue")

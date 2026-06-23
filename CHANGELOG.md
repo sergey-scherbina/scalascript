@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — frontend: unified `def view()` entrypoint convention (web + TUI from one .ssc)
+
+A module that defines a zero-arg top-level `view` (and no `main`) is now auto-rendered through the active
+frontend backend when a frontend is explicitly selected (`frontend:` front-matter / `--frontend` / inline):
+`serve(view(), 8080)` for a web backend (React/SSR SPA) or `emit(view(), "tui-out")` for a native backend
+(the ratatui `tui` crate). So one `.ssc` compiles to web OR terminal with **no** web-specific `serve(..., port)`
+in the source — the only switch is the frontend backend. `Interpreter.autoRunView` (sibling of `autoCallMain`)
+implements it, gated three ways so it never disturbs existing apps: it fires only when a frontend is explicitly
+selected, when `view` is a 0-arg def, and when the module does **not** already call a UI entry
+(`serve`/`emit`/`mount`/`serveAsync`, detected by `SectionRuntime.moduleCallsUiEntry`). `"tui"` is added to the
+CLI `validFrontendNames` so `--frontend tui` (the explicit option) is accepted by `ssc run`. `frontendPlugin`
+13/13 (incl. a 3-case convention test: native→emit once, no-frontend→no-op, explicit-emit→no double-fire).
+Spec `specs/frontend-tui-ratatui.md`.
+
 ## 2026-06-23 — std/ui: remoteTable — DataTable from a nested JSON path of one fetch
 
 `remoteTable(fetchSignal, columns, rowsPath = "installed", actions = [])` (in `std/ui/data.ssc`) builds a
