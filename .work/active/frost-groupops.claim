@@ -1,0 +1,6 @@
+feature/frost-groupops 2026-06-23T10:45:00Z
+agent: claude
+heartbeat: 2026-06-23T10:45:00Z
+status: in-progress
+done-so-far: FROST planned (5 sub-slices). Sergiy chose FROM-SCRATCH curve math (no new dep).
+next: slice 1 frost-groupops = pure BigInteger Ed25519 group arithmetic (RFC 8032 reference: field mod 2^255-19, twisted-Edwards point add/mul in extended coords, encode/decode, base point B, scalar mod L). Correctness gate = my encode(B·clamp(SHA512(seed)[:32])) equals BouncyCastle Ed25519PrivateKeyParameters(seed).generatePublicKey() for random seeds. New module payments/crypto/frost.
