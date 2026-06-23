@@ -14,6 +14,13 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Driven by the agreed roadmap (BACKLOG.md → "Roadmap — agreed priority order, 2026-06-17").
 Work top-to-bottom, one major theme at a time. **Maven/centralized publication is LAST.**
 
+- [~] **board-spec-hygiene** — docs-only reconciliation pass after the core-min/polyglot sprint churn.
+      **Scope:** compare open `SPRINT.md`/`BACKLOG.md` items and selected specs against `CHANGELOG.md` and recent
+      `origin/main` commits; mark stale/duplicated already-landed work as done/superseded, and move not-current
+      but useful ideas to BACKLOG wording. **Do not touch code** and do not edit the active
+      `core-min-value-unification` implementation branch. **Verify:** no stale open `[ ]` item remains for already
+      landed optics/emit-lib/runtime-resources/core-min phase3+ work; active claims unchanged except this one.
+
 ### ▶ Unblocked & claimable now (2026-06-22 eve, with Sergiy — "занеси в спринт всё что не заблокировано")
 
 These need NO design decision — claimable immediately, in priority/tractability order. Full blueprints
