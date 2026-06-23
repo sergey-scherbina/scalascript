@@ -136,8 +136,19 @@ per platform.
 
 ## 7. Future / brainstorm — what we could do directly, with minimal dependencies
 
-*Forward-looking; not committed work. The thread: prefer our own dependency-light reference behind a
-provider-independent seam, with native backends only as an opt-in fast path.*
+*Forward-looking. The thread: prefer our own dependency-light reference behind a provider-independent seam,
+with native backends only as an opt-in fast path.*
+
+> **This brainstorm now has a committed, grouped home.** The full plan — what each item is, why, where it
+> applies, and the slice-by-slice engineering plan — lives in **one place** so it isn't scattered:
+> - explainer (what / why / where / benefit): [`crypto-finance-roadmap.md`](crypto-finance-roadmap.md)
+> - engineering plan (slices, file pointers, acceptance): [`../specs/crypto-finance-roadmap.md`](../specs/crypto-finance-roadmap.md)
+> - queued work: the "Crypto/finance roadmap" sections of `SPRINT.md` (near-term) and `BACKLOG.md` (later).
+>
+> The summary below stays as a quick map; the two files above are authoritative. Two facts were corrected
+> against the code while grouping this: **Keccak-256 and RIPEMD-160 already exist in the crypto SPI — Blake2b
+> is the one missing hash**; and **Solana already broadcasts** (via the generic RPC seam) — its only gap is a
+> turnkey client module like EVM's.
 
 ### Cryptocurrencies we could support with little/no heavy deps
 The offline surface (addresses, tx building, signing payloads) of most chains is just encoding + a signature,
