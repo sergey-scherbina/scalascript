@@ -108,12 +108,17 @@ validated + pushed:
       capability/stable surface. PROOF in this slice: migrate `mime-plugin` (simplest) end-to-end off
       `scalascript.interpreter`. VERIFY: `pluginApi` compiles with the core dep (no cycle); mime compiles with no
       `scalascript.interpreter` import + its tests green.
-- [~] **p3-batch-A** (10 simple — Value-only): **mime ✓, pdf ✓ (8/0), fs ✓ (14/0)** (3/10). Remaining clean
-      ones (Value-only, swap `Value.X`→`PluginValue.x`, drop import): auth, fetch, nfc, payments/crypto,
-      payments/payment-request. NEED MORE WORK: **graph, yaml** use `Value.InstanceV` (need surface
-      `instance(typeName, fields)`/`asInstance`) + `Value.OptionV` (need `option`), AND hold interpreter `Value`
-      in their internal store (`GraphStore`/Y* records) → those store types must also move to `PluginValue`/`Any`
-      (more than a swap). Extend `PluginValue` then migrate them.
+- [~] **p3-batch-A**: **mime ✓, pdf ✓ (8/0), fs ✓ (14/0), crypto ✓ (58/0)** (4/10). Surface EXTENDED 2026-06-23
+      with `instance`/`asInstance`, `bigint`/`asBigInt`, `option`, `mapOf` (for the instance/option-using
+      plugins). Remaining + their gotchas (need careful MANUAL migration — blind scripting breaks them):
+      **payment-request** (27× `Value.InstanceV` + `.asInstanceOf[Value]` casts + variable-bound field Maps),
+      **auth** (heavy: 58 StringV/14 MapV/9 OptionV/InstanceV/Computation), **nfc** (InstanceV/BigIntV/OptionV/
+      someV/show), and **graph, yaml** (`Value.InstanceV` AND hold interpreter `Value` in their internal
+      `GraphStore`/Y* records → store type must move to `PluginValue`/`Any` too). **fetch** is SPECIAL: uses
+      `Value.Foreign`×117 + `NativeFnV`/`NullV` (host-interop internals, NOT stable-surface-able) → needs a
+      dedicated Foreign bridge or stays on evalLegacy+Value; deferred to its own slice.
+      LESSON: scripted swap only works for the simple `native(f: List[Any] => Value)` transform plugins
+      (pdf/fs/crypto); plugins with casts / variable maps / internal Value storage / Foreign need manual care.
 - [ ] **p3-batch-B** (7 — Value + Computation): oauth, json (JsonParser→JsonCodec), dstreams, graphql, pwa,
       streams, ws. Adds `PluginComputation` usage.
 - [ ] **p3-batch-C** (10 — ctx-heavy + special bridges): http (jsonToJson), mcp (OAuthBridge),
