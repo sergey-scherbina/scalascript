@@ -1,6 +1,0 @@
-feature/frost-crossbuild 2026-06-23T12:30:00Z
-agent: claude
-heartbeat: 2026-06-23T12:30:00Z
-status: in-progress
-done-so-far: FROST slices 1-5 done (incl. Ed25519Ops seam). Reference uses java.security SHA-512 (JVM-only blocker for JS).
-next: slice 6 = add a pure-Scala portable Sha512 (Long-based, Scala.js-compatible) so Reference is self-contained; route Ed25519Ops.Reference.sha512 through it; restructure cryptoFrost as crossProject(JVM,JS). Verify: JVM tests pass (Sha512 matches java.security + 'abc' vector); JS compiles + a small keygen/sign smoke.

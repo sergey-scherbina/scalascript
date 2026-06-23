@@ -130,10 +130,19 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
         `Ed25519Ops.current` (incl. SHA-512 — no direct `java.security`), so a native backend substitutes
         transparently. Behaviour-preserving (14 prior tests pass through the seam) + a substitution test (a
         registered spy backend IS exercised by keygen+sign; reset restores reference). cryptoFrost 16/0.
-  - [ ] **frost-crossbuild** (slice 6) — make `cryptoFrost` a `crossProject(JVM, JS)` so the REFERENCE FROST
-        compiles to JS too (BigInteger works in Scala.js; SHA-512 comes from the seam → `CryptoBackend.hash`, i.e.
-        Noble on JS / BC on JVM — no `java.security`). Realizes "one reference, every platform". **Verify:**
-        `cryptoFrostJVM` + `cryptoFrostJS` both compile + test (a small JS keygen/sign smoke).
+  - [~] **frost-crossbuild** (slice 6) — make the REFERENCE FROST compile+run on JS. PROBE: the JVM-only deps
+        are `java.security` SHA-512 AND `java.security.SecureRandom` (Scala.js 1.20 has neither). Split:
+    - [x] **6a portable SHA-512** ✓ DONE 2026-06-23 — pure-Scala `Sha512` (Long-based, FIPS 180-4); routed
+          `Ed25519Ops.Reference.sha512` + `Ed25519Group.secretScalar` through it; **removed `java.security` from
+          hashing**. `Sha512Test` (abc/empty FIPS vectors + matches `java.security` across padding boundaries);
+          cryptoFrost 19/0.
+    - [ ] **6b RNG via seam** — abstract randomness through `Ed25519Ops` (`randomBytes(n)`), so FROST gets secure
+          random from the backend (JVM: `SecureRandom`; JS: `crypto.getRandomValues`) instead of a hardcoded
+          `SecureRandom` param. ALSO makes randomness a substitutable primitive (architecture-consistent). Drops
+          the last `java.security` from FROST's logic.
+    - [ ] **6c crossProject** — `cryptoFrost` → `crossProject(JVM,JS)` (CrossType.Full; `%%%` scalatest; BC test-only
+          on JVM); BC/`java.security` tests → `jvm/`; a shared self-verify test (`B·z == R + c·A`, no BC) runs on
+          BOTH. **Verify:** `cryptoFrost` + `cryptoFrostJs` compile + test.
   - [ ] **frost-native-backend** (slice 7) — register a JVM `Ed25519Ops` backend that delegates the substitutable
         primitives (SHA-512, final-signature verify) to BouncyCastle (the native fast path), proving transparent
         substitution end-to-end; reference stays the fallback where BC exposes nothing (the group ops). **Verify:**

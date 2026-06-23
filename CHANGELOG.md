@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — FROST-Ed25519 slice 6a: portable SHA-512 (remove java.security from hashing)
+
+Toward cross-platform FROST: a pure-Scala `Sha512` (FIPS 180-4, 64-bit `Long` — identical on JVM and Scala.js,
+no platform crypto API). Routed `Ed25519Ops.Reference.sha512` and `Ed25519Group.secretScalar` through it, so
+FROST hashing no longer uses `java.security`. `Sha512Test`: matches the FIPS 180-4 'abc' + empty-string vectors
+and `java.security.MessageDigest` across all padding boundaries (lengths 0..1000); all FROST tests still pass
+through the new hash (cryptoFrost 19/0). Probe finding (refines the cross-build plan): the remaining JVM-only
+dep is `java.security.SecureRandom` (Scala.js 1.20 lacks it) — slice 6b abstracts randomness through the
+`Ed25519Ops` seam (also making it a substitutable primitive), then 6c does the `crossProject(JVM,JS)` module.
+Spec `specs/frost-ed25519.md`.
+
 ## 2026-06-23 — FROST-Ed25519 slice 5: pluggable Ed25519Ops seam (transparent native substitution)
 
 Gave FROST the same pluggable-backend model as `CryptoBackend` (per Sergiy's architecture: portable reference +
