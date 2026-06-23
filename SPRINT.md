@@ -34,6 +34,15 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
       server/WS integration. First green slice is therefore a host-service seam: add explicit `ActorRuntimeHost`
       methods for the non-server services and lock them with provider tests, while keeping `runCoreActorRuntime`
       as the temporary delegate. Do not attempt the 3500-LOC file move in the same commit.
+      **Host-service seam DONE 2026-06-23 (codex):** `ActorRuntimeHost` now exposes `out`,
+      `actorCallValue`/`actorCallValue1`, receive-spec lookup/matching, and native feature state. Added
+      `ActorsPluginProviderTest` coverage for a custom provider using those services without a direct
+      `Interpreter` self-type; actor runtime behavior unchanged. Verified after rebase:
+      provider 4/0 + actor targeted suites 53/0 (`ActorSupervisionTest`, `ActorStopOutsideTest`,
+      `ActorGroupTest`, `ActorDistributedTest`, `ActorBinaryWsTest`; known ScalaTest reporter
+      `InterruptedException`, sbt `[success]`). **Next slice:** add the distributed server/WS host hooks
+      (`openWsClient`, `_ssc-actors` WS route registration, cluster status/drain/events/metrics routes), then
+      move scheduler/cluster code behind the provider in a separate green step.
 
 - [ ] **theme-a-stable-plugin-spi — Phase 3** (versioned stable API module) — Phases 1+2 landed (the stable
       surface exists: `PluginValue`/`PluginError`/`PluginComputation`/`JsonCodec`/`PluginContext` in

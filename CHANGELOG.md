@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — core-min actors: explicit runtime host-service seam
+
+Added the first green slice of `coremin-actors-codemove`: `ActorRuntimeHost` now exposes the non-server
+interpreter services needed by a moved actors runtime (`out`, closure calls, receive-spec lookup/matching,
+and native feature state). The bundled actors plugin still delegates through the core scheduler for now, so
+behavior is unchanged; provider tests now prove a custom provider can use the explicit host services without
+a direct `Interpreter` self-type.
+
 ## 2026-06-23 — remote-package-registry slice 1: registry protocol + file-backed reference registry
 
 Started the remote half of the plugin registry (the client side — `LocalRegistry` alias map +

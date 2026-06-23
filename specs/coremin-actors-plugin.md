@@ -71,7 +71,7 @@ Exact method names may change during implementation, but the boundary must prese
 - [ ] `receive { case ... }` and `receive(timeout = n) { case ... }` preserve current pattern semantics, timeout wrapping (`Some`/`None`), and environment capture.
 - [ ] Remote WebSocket, cluster event, leader event, config event, drain event, metric event, publish queue, scheduled-send, and node-down drains remain driven by the actor scheduler.
 - [x] `ActorRuntimeProvider.open(host)` creates an interpreter-bound `ActorRuntimeSession`; installing a provider resets the cached session so mutable actor/cluster state cannot leak through a reused ServiceLoader backend singleton.
-- [ ] `ActorRuntimeHost` exposes an explicit interpreter-service API for the moved runtime (`out`, closure calls,
+- [x] `ActorRuntimeHost` exposes an explicit interpreter-service API for the moved runtime (`out`, closure calls,
   receive-spec lookup/matching, and native feature state) instead of requiring a broad `Interpreter` self-type in
   the plugin runtime.
 - [ ] No actor scheduler/mailbox/cluster state remains in interpreter core except the minimal host bridge and dispatch stub.
@@ -164,6 +164,17 @@ Interpreter core keeps:
   bound to one `ActorRuntimeHost`; `ActorInterp` lazily caches that session per `Interpreter` and clears it
   when a replacement provider is installed. The bundled actors plugin still delegates to the core scheduler,
   so no actor runtime code moved in this slice.
+- 2026-06-23 — host-service seam landed. `ActorRuntimeHost` now exposes the non-server interpreter services
+  the moved runtime needs: `out`, closure calls, receive-spec lookup/matching, and native feature state. The
+  current core delegate remains in place through `runCoreActorRuntime`, so this is a behavior-preserving
+  preparatory slice before moving the scheduler/cluster runtime itself.
+- Verification for the host-service seam:
+  - `cd /Users/sergiy/work/my/scalascript-wt-coremin-actors-codemove && sbt "actorsPlugin/compile" "backendInterpreter/compile" "backendInterpreterPluginTests/testOnly scalascript.ActorsPluginProviderTest"`
+    passed: provider plugin test 4/0, including a custom provider that uses the explicit host services without
+    a direct `Interpreter` self-type.
+  - `cd /Users/sergiy/work/my/scalascript-wt-coremin-actors-codemove && sbt "backendInterpreterPluginTests/testOnly scalascript.ActorsPluginProviderTest" "backendInterpreter/testOnly scalascript.ActorSupervisionTest scalascript.ActorStopOutsideTest scalascript.ActorGroupTest scalascript.ActorDistributedTest scalascript.ActorBinaryWsTest"`
+    passed after rebase: provider 4/0 and actor targeted suites 53/0. ScalaTest printed the known reporter
+    `InterruptedException`, but sbt completed with `[success]` and all tests passed.
 - Verification for the session lifecycle seam:
   - `cd /Users/sergiy/work/my/scalascript-wt-core-min-phase3plus && sbt "actorsPlugin/compile" "backendInterpreter/compile" "backendInterpreterPluginTests/testOnly scalascript.ActorsPluginProviderTest"`
     passed: provider plugin test 3/0, including the session cache/reset regression.
