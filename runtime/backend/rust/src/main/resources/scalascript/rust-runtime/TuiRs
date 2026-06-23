@@ -1,0 +1,115 @@
+      |//! std/ui — terminal (ratatui) rendering of the `View` tree.
+      |//! Emitted by RustGen when `uiTarget == "tui"`. Renders the SAME
+      |//! `crate::runtime::ui::View` the web target builds, but to ratatui
+      |//! widgets instead of HTML — reading the LIVE `ssc_signals()` store so a
+      |//! `signalText`/`computedSignal` value is current each frame (after a
+      |//! `ssc_recompute_all()` it shows the recomputed value).
+      |//!
+      |//! Slice 1: draw-once headless snapshot via `TestBackend` (the crossterm
+      |//! event loop + focus/events land in slice 2).
+      |#![allow(dead_code)]
+      |use ratatui::backend::TestBackend;
+      |use ratatui::{Terminal, Frame};
+      |use ratatui::layout::{Layout, Constraint, Rect};
+      |use ratatui::widgets::{Paragraph, Block, Borders};
+      |use ratatui::style::{Style, Modifier};
+      |use ratatui::buffer::Buffer;
+      |use crate::runtime::ui::View;
+      |
+      |fn _tui_attr<'a>(attrs: &'a [(String, String)], k: &str) -> Option<&'a str> {
+      |    attrs.iter().find(|(kk, _)| kk == k).map(|(_, v)| v.as_str())
+      |}
+      |
+      |/// Plain text of a subtree. A `data-ssc-text` element reads the LIVE signal
+      |/// value from the store, so computed/signal values are current.
+      |fn _tui_text(v: &View) -> String {
+      |    match v {
+      |        View::Text(s) => s.clone(),
+      |        View::Fragment(cs) => cs.iter().map(_tui_text).collect::<Vec<_>>().join(""),
+      |        View::Element { attrs, children, .. } => {
+      |            if let Some(name) = _tui_attr(attrs, "data-ssc-text") {
+      |                crate::value::ssc_signals().lock().unwrap().get(name).cloned().unwrap_or_default()
+      |            } else {
+      |                children.iter().map(_tui_text).collect::<Vec<_>>().join("")
+      |            }
+      |        }
+      |    }
+      |}
+      |
+      |/// Rows a node occupies (drives vertical `Constraint::Length`).
+      |fn _tui_height(v: &View) -> u16 {
+      |    match v {
+      |        View::Text(_) => 1,
+      |        View::Fragment(cs) => cs.iter().map(_tui_height).sum::<u16>().max(1),
+      |        View::Element { tag, attrs, children } => {
+      |            if _tui_attr(attrs, "data-ssc-text").is_some() { return 1; }
+      |            match tag.as_str() {
+      |                "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
+      |                | "p" | "span" | "button" | "input" | "a" | "label" | "hr" => 1,
+      |                _ => cs_sum(children),
+      |            }
+      |        }
+      |    }
+      |}
+      |
+      |fn cs_sum(children: &[View]) -> u16 {
+      |    let s: u16 = children.iter().map(_tui_height).sum();
+      |    s.max(1)
+      |}
+      |
+      |/// Render a `View` into `area`.
+      |fn _tui_render(frame: &mut Frame, area: Rect, v: &View) {
+      |    match v {
+      |        View::Text(s) => { frame.render_widget(Paragraph::new(s.clone()), area); }
+      |        View::Fragment(cs) => _tui_stack(frame, area, cs),
+      |        View::Element { tag, attrs, children } => {
+      |            if _tui_attr(attrs, "data-ssc-text").is_some() {
+      |                frame.render_widget(Paragraph::new(_tui_text(v)), area);
+      |                return;
+      |            }
+      |            match tag.as_str() {
+      |                "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+      |                    frame.render_widget(
+      |                        Paragraph::new(_tui_text(v)).style(Style::default().add_modifier(Modifier::BOLD)),
+      |                        area);
+      |                }
+      |                "p" | "span" | "button" | "a" | "label" | "input" => {
+      |                    frame.render_widget(Paragraph::new(_tui_text(v)), area);
+      |                }
+      |                "hr" => { frame.render_widget(Block::default().borders(Borders::TOP), area); }
+      |                _ => _tui_stack(frame, area, children),
+      |            }
+      |        }
+      |    }
+      |}
+      |
+      |/// Stack children vertically (S3 adds flex-direction parsing for `div`).
+      |fn _tui_stack(frame: &mut Frame, area: Rect, children: &[View]) {
+      |    if children.is_empty() { return; }
+      |    if children.len() == 1 { _tui_render(frame, area, &children[0]); return; }
+      |    let constraints: Vec<Constraint> = children.iter().map(|c| Constraint::Length(_tui_height(c))).collect();
+      |    let chunks = Layout::vertical(constraints).split(area);
+      |    for (i, c) in children.iter().enumerate() { _tui_render(frame, chunks[i], c); }
+      |}
+      |
+      |fn _tui_buffer_to_string(buf: &Buffer) -> String {
+      |    let a = buf.area;
+      |    let mut out = String::new();
+      |    for y in 0..a.height {
+      |        let mut line = String::new();
+      |        for x in 0..a.width { line.push_str(buf[(x, y)].symbol()); }
+      |        out.push_str(line.trim_end());
+      |        out.push('\n');
+      |    }
+      |    out
+      |}
+      |
+      |/// `serve(view, port)` on the tui target lands here. Slice 1: draw once
+      |/// headlessly and print the buffer (the interactive crossterm loop is
+      |/// slice 2). The View is built by the transpiled `.ssc`, so signals /
+      |/// computedSignal closures have already seeded the store.
+      |pub fn _tui_run(view: View) {
+      |    let mut terminal = Terminal::new(TestBackend::new(100, 40)).expect("tui init");
+      |    terminal.draw(|f| { let a = f.area(); _tui_render(f, a, &view); }).expect("draw");
+      |    print!("{}", _tui_buffer_to_string(terminal.backend().buffer()));
+      |}

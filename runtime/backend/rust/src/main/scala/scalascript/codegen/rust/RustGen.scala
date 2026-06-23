@@ -52,7 +52,11 @@ object RustGen:
     val wsUsage     = scanWsUsage(astModule)
     val mcpUsage    = scanMcpUsage(astModule)
     val uiUsage     = scanUiUsage(astModule)
-    val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage, uiUsage)
+    // rust-tui-toolkit (S1): `uiTarget=tui` renders the View to ratatui instead of
+    // HTML/SSR — `serve` routes to a ratatui run (not a hyper server), so the http
+    // server runtime + deps are suppressed and a `tui.rs` + ratatui deps are emitted.
+    val tuiTarget   = opts.extra.get("uiTarget").contains("tui")
+    val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage, uiUsage, tuiTarget)
 
     RustCodeWalk.walk(astModule, intrinsics) match
       case Left(diags) =>
@@ -65,7 +69,7 @@ object RustGen:
         // annotated def, fall back to [lib].
         val cargoTomlFinal =
           if effectiveBin == hasMain then cargoToml
-          else renderCargoToml(crateName, version, descr, effectiveBin, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage, uiUsage)
+          else renderCargoToml(crateName, version, descr, effectiveBin, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage, uiUsage, tuiTarget)
         val generatedMod = renderGeneratedMod(crateName)
         val rootFile     =
           if effectiveBin then renderMainRs(crateName, entry.get)
@@ -102,6 +106,9 @@ object RustGen:
           if uiUsage then
             sb.append("\n// ── std/ui — SSR View runtime ──\n")
             sb.append("pub mod ui;\n")
+          if tuiTarget then
+            sb.append("\n// ── rust-tui-toolkit — ratatui View renderer ──\n")
+            sb.append("pub mod tui;\n")
           sb.toString
         val baseAssets = List(
           Segment.Asset("Cargo.toml",                   cargoTomlFinal.getBytes("UTF-8"),       "application/toml"),
@@ -127,6 +134,14 @@ object RustGen:
           ))
         val httpAsset =
           if !httpUsage then Nil
+          else if tuiTarget then
+            // tui target: `serve(view, port)` → `crate::runtime::http::_ui_serve` is a
+            // shim that runs the ratatui renderer (no hyper SSR server).
+            List(Segment.Asset(
+              "src/runtime/http.rs",
+              RustRuntimeTemplates.TuiServeShimRs.getBytes("UTF-8"),
+              "text/x-rust"
+            ))
           else
             // Append the std/ui `serve(view, port)` SSR overload only when the
             // program also uses the View primitives (it references `runtime::ui`).
@@ -165,7 +180,14 @@ object RustGen:
             RustRuntimeTemplates.UiRs.getBytes("UTF-8"),
             "text/x-rust"
           ))
-        CompileResult.Segmented(baseAssets ++ effectAsset ++ taglessEffectAsset ++ httpAsset ++ authAsset ++ wsAsset ++ mcpAsset ++ uiAsset)
+        val tuiAsset =
+          if !tuiTarget then Nil
+          else List(Segment.Asset(
+            "src/runtime/tui.rs",
+            RustRuntimeTemplates.TuiRs.getBytes("UTF-8"),
+            "text/x-rust"
+          ))
+        CompileResult.Segmented(baseAssets ++ effectAsset ++ taglessEffectAsset ++ httpAsset ++ authAsset ++ wsAsset ++ mcpAsset ++ uiAsset ++ tuiAsset)
 
   /** R.3.2 — IR walk for crypto-intrinsic usage.  Returns the set of
    *  intrinsic names actually reached so RustGen can decide which
@@ -327,7 +349,8 @@ object RustGen:
       authUsage:   Set[String] = Set.empty,
       wsUsage:     Set[String] = Set.empty,
       mcpUsage:    Set[String] = Set.empty,
-      uiUsage:     Boolean     = false
+      uiUsage:     Boolean     = false,
+      tuiTarget:   Boolean     = false
   ): String =
     val descrLine = descr match
       case Some(d) => s"""description = "${escapeTomlString(d)}"
@@ -341,8 +364,13 @@ object RustGen:
     // R.3.3 — serde_json gates on either JSON intrinsic.
     if cryptoUsage.exists(n => n == "jsonParse" || n == "jsonStringify") then
       depLines += "serde_json = \"1.0\""
-    // R.5 — HTTP server deps, only when serve/route are used.
-    if httpUsage then
+    // rust-tui-toolkit — a tui-target UI program renders to the terminal, so it
+    // depends on ratatui (not the hyper/tokio HTTP server) and `serve` is a shim.
+    if tuiTarget then
+      depLines += "ratatui = \"0.29\""
+    // R.5 — HTTP server deps, only when serve/route are used (NOT on the tui target,
+    // where `serve` is the ratatui run shim).
+    if httpUsage && !tuiTarget then
       // `sync` → broadcast channel for the SSE push transport (/__ssc/events);
       // tokio-stream wraps the broadcast receiver as a Stream for StreamBody.
       depLines += "tokio = { version = \"1\", features = [\"rt-multi-thread\", \"net\", \"macros\", \"sync\"] }"
@@ -359,7 +387,7 @@ object RustGen:
     // R.6 — WebSocket deps (tokio-tungstenite + futures-util). Also added for
     // a `serve(view, …)` UI program: it exposes a direct-WS signal endpoint.
     // Dedup is by the Set below; tokio is added by the http/ui path already.
-    if wsUsage.nonEmpty || uiUsage then
+    if (wsUsage.nonEmpty || uiUsage) && !tuiTarget then
       depLines += "tokio-tungstenite = \"0.21\""
       depLines += "futures-util = \"0.3\""
       if !httpUsage then

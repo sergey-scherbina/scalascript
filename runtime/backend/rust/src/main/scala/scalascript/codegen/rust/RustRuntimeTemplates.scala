@@ -79,6 +79,22 @@ object RustRuntimeTemplates:
   val UiServeRs: String =
     RustRuntimeResource.load("UiServeRs")
 
+  /** rust-tui-toolkit — terminal (ratatui) `View` renderer + run.  Emitted as
+   *  `src/runtime/tui.rs` only when `uiTarget == "tui"`.  Renders the same
+   *  `crate::runtime::ui::View` to ratatui, reading the live signal store so
+   *  `computedSignal` is current each frame (spec: rust-tui-toolkit.md, S1). */
+  val TuiRs: String =
+    RustRuntimeResource.load("TuiRs")
+
+  /** rust-tui-toolkit — the `serve(view, port)` entry on the tui target.  Used
+   *  as `src/runtime/http.rs` INSTEAD of the hyper SSR server, so the emitted
+   *  `crate::runtime::http::_ui_serve(view, port)` (from the `serve` dispatch)
+   *  routes to the ratatui run instead of starting an HTTP server. */
+  val TuiServeShimRs: String =
+    "pub fn _ui_serve(view: crate::runtime::ui::View, _port: i64) {\n" +
+    "    crate::runtime::tui::_tui_run(view);\n" +
+    "}\n"
+
   /** R.6 — WebSocket server + client helpers.
    *  `wsRoute(path, handler)` registers a string-echo handler; `wsServe(port)`
    *  starts the server; `wsConnectSync(url, handler)` is a blocking client.

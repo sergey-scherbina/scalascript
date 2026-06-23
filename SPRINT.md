@@ -18,7 +18,7 @@ and rendering the `View` to **ratatui** instead of HTML/SSR. Spec **[`specs/rust
 (grounded: reuses the import inliner + signal store + computed closures; obstacle = HTML-collapsed Rust `View`;
 seam = `BackendOptions.extra("uiTarget"->"tui")`). The terminal analog of rust-web-toolkit (was S1-S5).
 
-- [ ] **rust-tui-1-seam-render** — thread `uiTarget` into `RustGen` (gating sites :54/:128/:161/:362); minimal
+- [x] **rust-tui-1-seam-render** ✓ DONE 2026-06-23 (RustGenTuiToolkitTest 3/3 incl. cargo smoke: computed value renders in terminal) — — thread `uiTarget` into `RustGen` (gating sites :54/:128/:161/:362); minimal
       `TuiRs` (`_tui_render(View)→ratatui`: Text/Fragment/Element core tags → Paragraph/Layout; read
       `data-ssc-text` from `ssc_signals()`); `serve`→`_tui_run` (draw-once snapshot). **Gate:** a
       `serve(lower(vstack(heading,text,signalText(computedSignal(...))),theme),0)` `.ssc` transpiles via

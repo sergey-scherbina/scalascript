@@ -1,7 +1,10 @@
 # rust-tui-toolkit — std/ui → ratatui via the Rust codegen backend (live thunks)
 
 Status: **IN PROGRESS** (2026-06-23, with Sergiy — "делай вариант [полный транспайл .ssc → Rust]"). SPRINT
-track `rust-tui-*`. The terminal analog of [`rust-web-toolkit.md`](rust-web-toolkit.md).
+track `rust-tui-*`. The terminal analog of [`rust-web-toolkit.md`](rust-web-toolkit.md). **S1 (seam + render) DONE
+2026-06-23** — a `signal`/`computedSignal`/`signalText`/`serve` program transpiles via RustCodeWalk and the emitted
+ratatui crate `cargo run`s rendering the computed value in the terminal (`RustGenTuiToolkitTest`, incl. cargo
+smoke). Proves computedSignal renders via the full transpile path; the live event loop is S2.
 
 ## 1. Why (the decision)
 
@@ -85,7 +88,7 @@ The `Value` enum + signal store (`ValueRs`) and the computed/signal intrinsics a
 ## 5. Slices (each independently green; gate = the emitted crate `cargo build`s + a `TestBackend` snapshot or a
 `cargo test`)
 
-- **S1 — seam + minimal render (foundation).** `uiTarget` flag threaded into `RustGen`; a minimal `TuiRs`
+- **S1 — seam + minimal render (foundation). ✓ DONE (2026-06-23).** `uiTarget` flag threaded into `RustGen`; a minimal `TuiRs`
   (`_tui_render(View) → ratatui`: `Text`/`Fragment`/`Element` with the core tags → Paragraph/Layout; reads
   `data-ssc-text` from `ssc_signals()`); draw-once via `TestBackend`; `serve`→`_tui_run` (draw-once + print
   snapshot). **Gate:** a `.ssc` `serve(lower(vstack(heading,text,signalText(computedSignal(...))),theme),0)`

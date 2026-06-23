@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — rust-tui-toolkit S1: std/ui → ratatui via RustCodeWalk (computedSignal renders in the terminal)
+
+First slice of routing the terminal through the Rust codegen backend so real `.ssc` UI logic — including
+`computedSignal` thunks (already re-runnable Rust closures on this path) — transpiles to Rust and renders to
+**ratatui** instead of HTML/SSR. `BackendOptions.extra("uiTarget"->"tui")` branches `RustGen`: emits a new
+`src/runtime/tui.rs` (a `_tui_render(View)→ratatui` that reads the LIVE `ssc_signals()` store so signal/computed
+values are current, + a draw-once `_tui_run`), routes `serve(view,port)` to a ratatui shim instead of the hyper
+SSR server, and swaps the Cargo deps (ratatui, not hyper/tokio/ws). `RustGenTuiToolkitTest` 3/3 — string-match
+(tui.rs + ratatui dep + shim, no hyper) + an `assume(cargo)` smoke that builds the emitted crate and asserts the
+rendered terminal buffer contains the `computedSignal` value ("TUI_OK"). Web path unchanged (38/38 toolkit/
+cargo-toml/runtime-files green). The interactive crossterm loop (making the value update live on a key) is S2.
+Spec `specs/rust-tui-toolkit.md`.
+
 ## 2026-06-23 — frontend: unified `def view()` entrypoint convention (web + TUI from one .ssc)
 
 A module that defines a zero-arg top-level `view` (and no `main`) is now auto-rendered through the active
