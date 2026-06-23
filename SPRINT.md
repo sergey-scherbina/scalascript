@@ -184,14 +184,7 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
       scheduler/cluster implementation into `runtime/std/actors-plugin` in a dedicated worktree step; keep
       `receive` syntax + host bridge in core.
 
-- [ ] **theme-a-stable-plugin-spi — Phase 3** (versioned stable API module) — Phases 1+2 landed (the stable
-      surface exists: `PluginValue`/`PluginError`/`PluginComputation`/`JsonCodec`/`PluginContext` in
-      `scalascript-plugin-api`; plugins depend only on it). Phase 3 = make it a **versioned, compatibility-gated**
-      module: pick a SemVer line for the plugin API, add a stable-API version constant + a compat check at plugin
-      load (a plugin built against API vX refuses/warns on an incompatible host), and a golden signature test
-      that fails on any breaking change to the stable surface (mirrors `SpiVersion`/`spiRange` for the backend
-      SPI). Spec: `specs/arch-stable-spi.md` Phase 3. **Verify:** golden API-signature test locks the surface;
-      a deliberately-bumped version is rejected/warned at load; existing plugins still load.
+- [~] **theme-a-stable-plugin-spi — Phase 3 (versioning)** — the stable surface exists AND the migration is complete (27/28 plugins on `scalascript-plugin-api`; `StableSpiEnforcementTest` locks it). VERSIONING: ✓ `PluginApiVersion.Current = "1.0.0"` + `isCompatible` (SemVer: same MAJOR, host MINOR >= plugin MINOR); ✓ `PluginApiSignatureTest` — a GOLDEN signature lock that reflects the binary surface (185 members: all `PluginValue` ctors/extractors/extension methods, the 16 extractor objects, `PluginError`/`PluginComputation`/`JsonCodec`/`PluginNative`/the capability traits) and fails on ANY change until the version is bumped + golden updated. REMAINING: a load-time compat check (a plugin declares the API version it built against; the host warns/refuses on incompatible — touches the `Backend` SPI + plugin loader, mirrors `spiRange`).
 
 - [~] **remote-package-registry** (Tier 3 strategic — unlocks the 3rd-party plugin ecosystem) — the local story
       is done (`~/.scalascript/registry.yaml` + `pkg:` resolver + `ssc install`, `.sscpkg`). **Slice 1 DONE
