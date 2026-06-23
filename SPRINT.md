@@ -354,7 +354,7 @@ validated + pushed:
       frontend ✓ (8, ctx=22 all caps; FunV/NativeFnV arms → new `PluginValue.Fn` extractor)** — all single-file.
       ENABLERS added to PluginApi: `Fn` extractor (any callable: FunV|NativeFnV) + `isCallable`.
       Remaining (2): mcp, content — the genuinely ctx-heavy / bridge-coupled giants.
-- [~] **p3-giants** (4 left). All ctx is covered by EXISTING caps — big-but-mechanical value/NativeFnV
+- [~] **p3-giants** (3 left). All ctx is covered by EXISTING caps — big-but-mechanical value/NativeFnV
       passes PLUS one bridge each. Per-plugin scope:
   - **http** ✓ DONE (4 unit + 58 integration tests: MountHandler/TypedHandler/HttpClient/TypedRpcBinary).
         jsonToJson → `jsonEncode`; the `TypedHandlerWrapper.wrapIfTyped` coupling → new `PluginValue.wrapTypedHandler`
@@ -364,11 +364,11 @@ validated + pushed:
         sites). New PluginApi accessors: `pv.field(name)`, `pv.typeNameOf`, `InstAny` extractor (binds a whole
         instance value, replacing `case x: Value.InstanceV`). `.fields.get`→`.field`, `Inst`/`InstAny`/`Lst`/`Str`
         extractors, all 56 `Computation.pureFn`→`nativeFn`. ctx (featureGet/Set, invokeCallback, registerRoute) on caps.
-  - **oauth** (5-file web: OAuthIntrinsics 335 + OAuthHttp + OidcHttp + OAuthClientIntrinsics + OidcHelpers, all
-        share `Value`-typed helpers `toStringSet`/`ujsonToValue`/`valueToUjson` across files → migrate the WHOLE
-        plugin at once). PLUS move `OAuthBridge` (1-field ConcurrentHashMap in lang/core/interpreter, shared with
-        mcp + 1 interp test) → `scalascript.plugin.api.OAuthBridge`; update mcp + McpOAuthBridgeTest imports.
-        ctx.invokeCallback already on MountCap. Uses ujson directly (visible to plugins, confirmed via remote).
+  - **oauth** ✓ DONE (4 unit + 58 integration: McpOAuthBridge/OAuthGuard/OAuthRsa/OAuthScript/Oidc/OAuthAuthServer).
+        5-file web (OAuthIntrinsics 334 + OAuthHttp + OidcHttp + OAuthClientIntrinsics + OidcHelpers) migrated together;
+        `OAuthBridge` (1-field ConcurrentHashMap) RELOCATED lang/core/interpreter → `scalascript.plugin.api.OAuthBridge`
+        (core only defined it; mcp + the test reference it indirectly). ujson.Value protected via `(?<![A-Za-z.])`
+        anchored regex; shared `Value`-typed helpers (toStringSet/resolveAuthServer) retyped to `Any`.
   - **mcp** (1508 loc) — needs the OAuthBridge move (do with oauth) + big value pass.
   - **streams** ✓ DONE (88 tests). dstreams' sibling — same recipe; extra: 26 `.asInstanceOf[Value]`→`[PluginValue]`
         (valid no-op cast, PluginValue erases to Any), OptionV/TupleV unfold inspection → `Opt`/`asTuple`, NativeFnV
@@ -395,10 +395,10 @@ validated + pushed:
         and implements the ActorRuntimeProvider SPI — NOT an intrinsics table. Separate treatment (SPI relocation).
 - [ ] **p3-enforce** (after all clean) — remove `PluginNative.evalLegacy`; add the build/CI check rejecting
       any plugin jar containing `scalascript/interpreter/`; delete residual shims; set `specs/arch-stable-spi.md`
-      Status to "Phase 3 complete". STATUS: 24/28 plugins clean (batch-A 10 + ws/pwa/json + uuid/os/request/smtp/
-      sql/remote/frontend/http/dstreams/streams/content). PluginApi seam now exposes: nativeFn/callFn, Fn/isCallable, jsonEncode/
+      Status to "Phase 3 complete". STATUS: 25/28 plugins clean (batch-A 10 + ws/pwa/json + uuid/os/request/smtp/
+      sql/remote/frontend/http/dstreams/streams/content/oauth). PluginApi seam now exposes: nativeFn/callFn, Fn/isCallable, jsonEncode/
       jsonFacade/fromHostAny/parseJson/lookupKey, decimal/asDecimal/Dec, funArity/wrapTypedHandler, field/typeNameOf/
-      InstAny, fields/orderedInstance. Remaining 4: oauth, mcp, graphql, actors(special SPI).
+      InstAny, fields/orderedInstance, OAuthBridge(relocated). Remaining 3: mcp, graphql(blocked), actors(special SPI).
 
 In priority order:
 - [x] **autonomous-hardening** ✓ DONE 2026-06-23 — broad sweep of the coremin-affected surface (cli

@@ -2,7 +2,8 @@ package scalascript.compiler.plugin.mcp
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
-import scalascript.interpreter.{Value, InterpretError, Computation, OAuthBridge}
+import scalascript.interpreter.{Value, InterpretError, Computation}
+import scalascript.plugin.api.OAuthBridge
 import scalascript.mcp.*
 import java.io.{BufferedReader, BufferedWriter, InputStreamReader, OutputStreamWriter}
 import scala.collection.mutable

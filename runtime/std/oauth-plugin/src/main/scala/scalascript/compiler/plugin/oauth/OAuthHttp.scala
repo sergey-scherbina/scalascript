@@ -1,7 +1,8 @@
 package scalascript.compiler.plugin.oauth
 
 import scalascript.plugin.api.HttpCap
-import scalascript.interpreter.{Computation, Value}
+import scalascript.plugin.api.PluginValue
+import scalascript.plugin.api.PluginValue.{Str, MapVal, Inst}
 import scalascript.oauth.*
 
 object OAuthHttp:
@@ -53,60 +54,60 @@ object OAuthHttp:
     method: String,
     path:   String,
     name:   String
-  )(run: Map[String, Value] => OAuthRoutes.RouteOutcome): Unit =
-    val handler = Value.NativeFnV(name, Computation.pureFn {
-      case List(Value.InstanceV("Request", fields)) =>
+  )(run: Map[String, PluginValue] => OAuthRoutes.RouteOutcome): Unit =
+    val handler = PluginValue.nativeFn(name, {
+      case List(Inst("Request", fields)) =>
         routeOutcomeToValue(run(fields))
-      case _ => Value.InstanceV("Response", Map(
-        "status"  -> Value.intV(400L),
-        "headers" -> Value.EmptyMap,
-        "body"    -> Value.StringV("expected Request")
+      case _ => PluginValue.instance("Response", Map(
+        "status"  -> PluginValue.int(400L),
+        "headers" -> PluginValue.mapOf(Map.empty[PluginValue, PluginValue]),
+        "body"    -> PluginValue.string("expected Request")
       ))
     })
     ctx.registerRoute(method, path, handler)
 
-  def routeOutcomeToValue(o: OAuthRoutes.RouteOutcome): Value = o match
+  def routeOutcomeToValue(o: OAuthRoutes.RouteOutcome): PluginValue = o match
     case OAuthRoutes.RouteOutcome.Json(status, body, extra) =>
       val hdrs = ujsonHeaders("Content-Type" -> "application/json") ++ extra.iterator.map {
-        (k, v) => (Value.StringV(k): Value) -> (Value.StringV(v): Value)
+        (k, v) => (PluginValue.string(k): PluginValue) -> (PluginValue.string(v): PluginValue)
       }
-      Value.InstanceV("Response", Map(
-        "status"  -> Value.intV(status.toLong),
-        "headers" -> Value.MapV(hdrs.toMap),
-        "body"    -> Value.StringV(body.render())
+      PluginValue.instance("Response", Map(
+        "status"  -> PluginValue.int(status.toLong),
+        "headers" -> PluginValue.mapOf(hdrs.toMap),
+        "body"    -> PluginValue.string(body.render())
       ))
     case OAuthRoutes.RouteOutcome.Redirect(status, location) =>
-      Value.InstanceV("Response", Map(
-        "status"  -> Value.intV(status.toLong),
-        "headers" -> Value.MapV(Map(
-          (Value.StringV("Location"): Value) -> (Value.StringV(location): Value)
+      PluginValue.instance("Response", Map(
+        "status"  -> PluginValue.int(status.toLong),
+        "headers" -> PluginValue.mapOf(Map(
+          (PluginValue.string("Location"): PluginValue) -> (PluginValue.string(location): PluginValue)
         )),
-        "body"    -> Value.EmptyStr
+        "body"    -> PluginValue.string("")
       ))
     case OAuthRoutes.RouteOutcome.Empty(status) =>
-      Value.InstanceV("Response", Map(
-        "status"  -> Value.intV(status.toLong),
-        "headers" -> Value.EmptyMap,
-        "body"    -> Value.EmptyStr
+      PluginValue.instance("Response", Map(
+        "status"  -> PluginValue.int(status.toLong),
+        "headers" -> PluginValue.mapOf(Map.empty[PluginValue, PluginValue]),
+        "body"    -> PluginValue.string("")
       ))
 
-  private def ujsonHeaders(pairs: (String, String)*): Map[Value, Value] =
-    pairs.iterator.map((k, v) => (Value.StringV(k): Value) -> (Value.StringV(v): Value)).toMap
+  private def ujsonHeaders(pairs: (String, String)*): Map[PluginValue, PluginValue] =
+    pairs.iterator.map((k, v) => (PluginValue.string(k): PluginValue) -> (PluginValue.string(v): PluginValue)).toMap
 
-  private def stringField(fields: Map[String, Value], name: String): Option[String] =
-    fields.get(name).collect { case Value.StringV(s) => s }
+  private def stringField(fields: Map[String, PluginValue], name: String): Option[String] =
+    fields.get(name).collect { case Str(s) => s }
 
-  def extractHeaderMap(fields: Map[String, Value]): Map[String, String] =
+  def extractHeaderMap(fields: Map[String, PluginValue]): Map[String, String] =
     fields.get("headers").collect {
-      case Value.MapV(m) => m.iterator.collect {
-        case (Value.StringV(k), Value.StringV(v)) => k -> v
+      case MapVal(m) => m.iterator.collect {
+        case (Str(k), Str(v)) => k -> v
       }.toMap
     }.getOrElse(Map.empty)
 
-  private def extractQueryMap(fields: Map[String, Value]): Map[String, String] =
+  private def extractQueryMap(fields: Map[String, PluginValue]): Map[String, String] =
     fields.get("query").collect {
-      case Value.MapV(m) => m.iterator.collect {
-        case (Value.StringV(k), Value.StringV(v)) => k -> v
+      case MapVal(m) => m.iterator.collect {
+        case (Str(k), Str(v)) => k -> v
       }.toMap
     }.orElse(
       stringField(fields, "rawQuery").map(OAuthRoutes.parseForm)

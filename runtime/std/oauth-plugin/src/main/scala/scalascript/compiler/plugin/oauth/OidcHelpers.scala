@@ -1,7 +1,8 @@
 package scalascript.compiler.plugin.oauth
 
 import scalascript.plugin.api.HttpCap
-import scalascript.interpreter.{Value, InterpretError, Computation}
+import scalascript.plugin.api.{PluginError, PluginValue}
+import scalascript.plugin.api.PluginValue.{Str, Bool, MapVal, Inst}
 import scalascript.oauth.*
 import scalascript.oidc.*
 import java.util.concurrent.ConcurrentHashMap
@@ -11,61 +12,61 @@ object OidcIntrinsicHelpers:
 
   private val registry = ConcurrentHashMap[String, OidcServer]()
 
-  def resolveOidcServer(v: Value): Option[OidcServer] = v match
-    case Value.InstanceV("OidcServer", fields) =>
-      fields.get("_id").collect { case Value.StringV(id) => id }
+  def resolveOidcServer(v: Any): Option[OidcServer] = v match
+    case Inst("OidcServer", fields) =>
+      fields.get("_id").collect { case Str(id) => id }
         .flatMap(id => Option(registry.get(id)))
     case _ => None
 
-  def makeOidcServerInstance(idp: OidcServer): Value =
+  def makeOidcServerInstance(idp: OidcServer): PluginValue =
     val id = "idp-" + OAuth.randomOpaqueToken(12)
     registry.put(id, idp)
-    val fields = mutable.LinkedHashMap.empty[String, Value]
-    fields("_id") = Value.StringV(id)
-    fields("issuer") = Value.StringV(idp.as.config.issuer)
+    val fields = mutable.LinkedHashMap.empty[String, PluginValue]
+    fields("_id") = PluginValue.string(id)
+    fields("issuer") = PluginValue.string(idp.as.config.issuer)
 
-    fields("addUser") = Value.NativeFnV("OidcServer.addUser", Computation.pureFn {
-      case List(claimsV: Value) =>
+    fields("addUser") = PluginValue.nativeFn("OidcServer.addUser", {
+      case List(claimsV) =>
         idp.userInfo.put(decodeUserClaims(claimsV))
-        Value.UnitV
-      case _ => throw InterpretError("idp.addUser(claims)")
+        PluginValue.unit
+      case _ => PluginError.raise("idp.addUser(claims)")
     })
 
-    fields("userInfo") = Value.NativeFnV("OidcServer.userInfo", Computation.pureFn {
-      case List(Value.StringV(token)) => idp.userInfoFor(token) match
+    fields("userInfo") = PluginValue.nativeFn("OidcServer.userInfo", {
+      case List(Str(token)) => idp.userInfoFor(token) match
         case UserInfoOutcome.Found(c)    =>
-          Value.OptionV(OAuthIntrinsicHelpers.ujsonToValue(c))
-        case _                            => Value.NoneV
-      case _ => throw InterpretError("idp.userInfo(token)")
+          PluginValue.some(OAuthIntrinsicHelpers.ujsonToValue(c))
+        case _                            => PluginValue.none
+      case _ => PluginError.raise("idp.userInfo(token)")
     })
 
-    fields("mintIdToken") = Value.NativeFnV("OidcServer.mintIdToken", Computation.pureFn {
-      case List(Value.StringV(sub), Value.StringV(cid), scopesV) =>
-        Value.StringV(idp.mintIdToken(sub, cid, OAuthIntrinsicHelpers.toStringSet(scopesV)))
-      case _ => throw InterpretError("idp.mintIdToken(subject, clientId, scopes)")
+    fields("mintIdToken") = PluginValue.nativeFn("OidcServer.mintIdToken", {
+      case List(Str(sub), Str(cid), scopesV) =>
+        PluginValue.string(idp.mintIdToken(sub, cid, OAuthIntrinsicHelpers.toStringSet(scopesV)))
+      case _ => PluginError.raise("idp.mintIdToken(subject, clientId, scopes)")
     })
 
-    fields("discovery") = Value.NativeFnV("OidcServer.discovery", Computation.pureFn {
+    fields("discovery") = PluginValue.nativeFn("OidcServer.discovery", {
       _ => OAuthIntrinsicHelpers.ujsonToValue(idp.discoveryJson())
     })
 
-    Value.InstanceV("OidcServer", fields.toMap)
+    PluginValue.instance("OidcServer", fields.toMap)
 
   def serveOidc(idpValue: Any, basePath: String, ctx: HttpCap): Unit =
     val idp = idpValue match
-      case v: Value => resolveOidcServer(v).getOrElse(
-        throw InterpretError("oidc.serve: argument is not an OidcServer (use oidc.server(authServer))"))
-      case _ => throw InterpretError("oidc.serve(idp[, basePath])")
+      case v if PluginValue.isRuntimeValue(v) => resolveOidcServer(v).getOrElse(
+        PluginError.raise("oidc.serve: argument is not an OidcServer (use oidc.server(authServer))"))
+      case _ => PluginError.raise("oidc.serve(idp[, basePath])")
     OidcHttp.installRoutes(idp, ctx, basePath)
 
-  private def decodeUserClaims(v: Value): UserClaims =
+  private def decodeUserClaims(v: PluginValue): UserClaims =
     val fields = v match
-      case Value.MapV(m)         => m.iterator.collect { case (Value.StringV(k), vv) => k -> vv }.toMap
-      case Value.InstanceV(_, fs) => fs
-      case _ => throw InterpretError("idp.addUser: expected a Map or record")
+      case MapVal(m)         => m.iterator.collect { case (Str(k), vv) => k -> vv }.toMap
+      case Inst(_, fs) => fs
+      case _ => PluginError.raise("idp.addUser: expected a Map or record")
     val subject = fields.get("subject").orElse(fields.get("sub")).collect {
-      case Value.StringV(s) => s
-    }.getOrElse(throw InterpretError("idp.addUser: missing 'subject'"))
+      case Str(s) => s
+    }.getOrElse(PluginError.raise("idp.addUser: missing 'subject'"))
     val extraFields = Set("subject", "sub", "name", "email", "emailVerified", "email_verified",
                           "picture", "locale", "preferredUsername", "preferred_username")
     val extraJson = ujson.Obj()
@@ -75,15 +76,15 @@ object OidcIntrinsicHelpers:
     }
     UserClaims(
       subject           = subject,
-      name              = fields.get("name").collect { case Value.StringV(s) => s },
-      email             = fields.get("email").collect { case Value.StringV(s) => s },
+      name              = fields.get("name").collect { case Str(s) => s },
+      email             = fields.get("email").collect { case Str(s) => s },
       emailVerified     = fields.get("emailVerified")
                             .orElse(fields.get("email_verified"))
-                            .collect { case Value.BoolV(b) => b },
-      picture           = fields.get("picture").collect { case Value.StringV(s) => s },
-      locale            = fields.get("locale").collect { case Value.StringV(s) => s },
+                            .collect { case Bool(b) => b },
+      picture           = fields.get("picture").collect { case Str(s) => s },
+      locale            = fields.get("locale").collect { case Str(s) => s },
       preferredUsername = fields.get("preferredUsername")
                             .orElse(fields.get("preferred_username"))
-                            .collect { case Value.StringV(s) => s },
+                            .collect { case Str(s) => s },
       extra             = extraJson
     )

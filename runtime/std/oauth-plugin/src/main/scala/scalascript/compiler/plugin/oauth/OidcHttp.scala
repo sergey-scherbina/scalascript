@@ -1,7 +1,8 @@
 package scalascript.compiler.plugin.oauth
 
 import scalascript.plugin.api.HttpCap
-import scalascript.interpreter.{Computation, Value}
+import scalascript.plugin.api.PluginValue
+import scalascript.plugin.api.PluginValue.{Str, MapVal, Inst}
 import scalascript.oauth.*
 import scalascript.oidc.*
 
@@ -54,25 +55,25 @@ object OidcHttp:
     path:   String,
     name:   String
   )(run: (String, Map[String, String], Map[String, String]) => OAuthRoutes.RouteOutcome): Unit =
-    val handler = Value.NativeFnV(name, Computation.pureFn {
-      case List(Value.InstanceV("Request", fields)) =>
-        val body    = fields.get("body").collect { case Value.StringV(s) => s }.getOrElse("")
+    val handler = PluginValue.nativeFn(name, {
+      case List(Inst("Request", fields)) =>
+        val body    = fields.get("body").collect { case Str(s) => s }.getOrElse("")
         val headers = OAuthHttp.extractHeaderMap(fields)
         val query   = extractQueryMap(fields)
         OAuthHttp.routeOutcomeToValue(run(body, headers, query))
-      case _ => Value.InstanceV("Response", Map(
-        "status"  -> Value.intV(400L),
-        "headers" -> Value.EmptyMap,
-        "body"    -> Value.StringV("expected Request")
+      case _ => PluginValue.instance("Response", Map(
+        "status"  -> PluginValue.int(400L),
+        "headers" -> PluginValue.mapOf(Map.empty[PluginValue, PluginValue]),
+        "body"    -> PluginValue.string("expected Request")
       ))
     })
     ctx.registerRoute(method, path, handler)
 
-  private def extractQueryMap(fields: Map[String, Value]): Map[String, String] =
+  private def extractQueryMap(fields: Map[String, PluginValue]): Map[String, String] =
     fields.get("query").collect {
-      case Value.MapV(m) => m.iterator.collect {
-        case (Value.StringV(k), Value.StringV(v)) => k -> v
+      case MapVal(m) => m.iterator.collect {
+        case (Str(k), Str(v)) => k -> v
       }.toMap
     }.orElse(
-      fields.get("rawQuery").collect { case Value.StringV(s) => OAuthRoutes.parseForm(s) }
+      fields.get("rawQuery").collect { case Str(s) => OAuthRoutes.parseForm(s) }
     ).getOrElse(Map.empty)
