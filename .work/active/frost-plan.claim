@@ -1,0 +1,6 @@
+feature/frost-plan 2026-06-23T10:25:00Z
+agent: claude
+heartbeat: 2026-06-23T10:25:00Z
+status: in-progress
+done-so-far: FROST feasibility probed — NO Ed25519 group-ops primitive exposed (existing Ed25519.scala = high-level sign/verify only via BC Ed25519Signer); NO in-house threshold crypto (walletVaultMpc* = remote/external-provider clients). So FROST needs group arithmetic (vetted lib, not hand-rolled) + Shamir/DKG + signing rounds. Correctness-critical.
+next: break FROST-Ed25519 into explicit SPRINT sub-slices (groupops dep → keygen/Shamir → signing → aggregate+verify-vs-standard-Ed25519 → vault integration); plan-in-sprint-first. NOT rushing curve crypto at session tail.
