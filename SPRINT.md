@@ -184,17 +184,21 @@ validated + pushed:
       capability/stable surface. PROOF in this slice: migrate `mime-plugin` (simplest) end-to-end off
       `scalascript.interpreter`. VERIFY: `pluginApi` compiles with the core dep (no cycle); mime compiles with no
       `scalascript.interpreter` import + its tests green.
-- [~] **p3-batch-A**: **mime ✓, pdf ✓ (8/0), fs ✓ (14/0), crypto ✓ (58/0)** (4/10). Surface EXTENDED 2026-06-23
-      with `instance`/`asInstance`, `bigint`/`asBigInt`, `option`, `mapOf` (for the instance/option-using
-      plugins). Remaining + their gotchas (need careful MANUAL migration — blind scripting breaks them):
-      **payment-request** (27× `Value.InstanceV` + `.asInstanceOf[Value]` casts + variable-bound field Maps),
-      **auth** (heavy: 58 StringV/14 MapV/9 OptionV/InstanceV/Computation), **nfc** (InstanceV/BigIntV/OptionV/
-      someV/show), and **graph, yaml** (`Value.InstanceV` AND hold interpreter `Value` in their internal
-      `GraphStore`/Y* records → store type must move to `PluginValue`/`Any` too). **fetch** is SPECIAL: uses
-      `Value.Foreign`×117 + `NativeFnV`/`NullV` (host-interop internals, NOT stable-surface-able) → needs a
-      dedicated Foreign bridge or stays on evalLegacy+Value; deferred to its own slice.
-      LESSON: scripted swap only works for the simple `native(f: List[Any] => Value)` transform plugins
-      (pdf/fs/crypto); plugins with casts / variable maps / internal Value storage / Foreign need manual care.
+- [~] **p3-batch-A**: **mime ✓, pdf ✓ (8/0), fs ✓ (14/0), crypto ✓ (58/0), payment-request ✓** (5/10).
+      **BREAKTHROUGH 2026-06-23 — the hard problem is solved.** The blocker on the pattern-matching plugins:
+      they use `Value.StringV(x)` etc. BOTH as constructors AND as `case` PATTERNS, and `PluginValue` (opaque)
+      can't be pattern-matched. SOLUTION: added **extractor objects** to `PluginValue` — `Str/Num/Dbl/Bool/Chr/
+      Lst/Tpl/Inst/Opt/Big/MapVal/Foreign/NativeFn` (each `unapply(v: Any)`), plus `foreign`/`nullV`/`isUnitOrNull`.
+      Now `args match { case List(Str(label), Bool(p)) => … }` works without importing `Value`. Migration recipe
+      (proven on payment-request): **line-aware** swap — on `case` lines (left of `=>`) use the extractors
+      (`Value.StringV`→`Str`), elsewhere use constructors (`Value.StringV`→`PluginValue.string`); `.asInstanceOf
+      [Value]`→`.asInstanceOf[PluginValue]`; `Map[String, Value]`→`Map[String, PluginValue]`; `throw
+      InterpretError`→`PluginError.raise`. **`Value.Foreign(tn, handle: Any)` IS exposable** (generic host-object
+      wrapper, not interpreter-internal) — so fetch is NOT blocked, just Foreign-heavy.
+      REMAINING with their specific manual bits: **nfc** (nested `Opt(Some(Str(s)))` patterns + `InstanceV.
+      effectiveFields` → use `Inst` fields + `show`), **auth** (heavy: MapV/OptionV/Instance), **graph/yaml**
+      (also move internal `Value` store to `PluginValue`/`Any`), **fetch** (Foreign×117 + NativeFnV + Unit/Null
+      `==` comparisons → use `isUnitOrNull`).
 - [ ] **p3-batch-B** (7 — Value + Computation): oauth, json (JsonParser→JsonCodec), dstreams, graphql, pwa,
       streams, ws. Adds `PluginComputation` usage.
 - [ ] **p3-batch-C** (10 — ctx-heavy + special bridges): http (jsonToJson), mcp (OAuthBridge),
