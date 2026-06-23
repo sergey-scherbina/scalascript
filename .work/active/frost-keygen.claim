@@ -1,6 +1,0 @@
-feature/frost-keygen 2026-06-23T11:05:00Z
-agent: claude
-heartbeat: 2026-06-23T11:05:00Z
-status: in-progress
-done-so-far: FROST slice 1 (Ed25519Group, BC-verified) landed. cryptoFrost module exists.
-next: slice 2 frost-keygen = trusted-dealer Shamir over scalar field mod L (degree t-1 poly, shares (i,f(i)), group pubkey B·sk) + Lagrange reconstruct at x=0. Test: any t shares recover sk (and B·sk matches pubkey); <t do not; all t-subsets agree.

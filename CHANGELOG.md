@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — FROST-Ed25519 slice 2: trusted-dealer Shamir keygen + Feldman VSS
+
+`FrostKeygen` (cryptoFrost): trusted-dealer `t`-of-`n` secret sharing over the Ed25519 scalar field (mod L).
+A signing scalar is split via a degree-(t-1) polynomial into shares `(id, f(id))`; the group public key is
+`B·sk`; Feldman commitments `B·a_j` let each participant verify its share (`B·value == Σ commitment_j·id^j`).
+`reconstruct` Lagrange-interpolates the secret at x=0 from any `t` shares. `generateFrom` (explicit coeffs) is
+the deterministic-test hook and the building block a real DKG sums per-party polynomials with. Tested
+(`FrostKeygenTest` 4/0, cryptoFrost 10/0): any t-subset recovers sk + B·sk matches the group key; <t do not;
+all t-subsets agree; VSS verifies good shares and rejects a tampered one. Spec `specs/frost-ed25519.md` slice 2.
+
 ## 2026-06-23 — FROST-Ed25519 slice 1: from-scratch Ed25519 group arithmetic
 
 First slice of the FROST threshold-signing feature (Sergiy chose from-scratch curve math over a new crypto

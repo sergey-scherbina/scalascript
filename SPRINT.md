@@ -113,9 +113,11 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
         group arithmetic (BigInteger): field mod 2^255-19, twisted-Edwards extended-coord add, scalar mult,
         encode/decode, base point B, order L, scalar field, `secretScalar`. `Ed25519GroupTest` 6/0 incl. the
         gate — generated pubkeys match BouncyCastle Ed25519 bit-for-bit (25 random seeds). Spec `specs/frost-ed25519.md`.
-  - [ ] **frost-keygen** (slice 2) — trusted-dealer key-gen first (simpler than DKG): split a signing scalar into
-        `t`-of-`n` Shamir shares over the scalar field + group public key `B·sk`; per-participant verification shares.
-        **Verify:** any `t` shares Lagrange-interpolate back to `sk`; `< t` do not.
+  - [x] **frost-keygen** (slice 2) ✓ DONE 2026-06-23 — `FrostKeygen`: trusted-dealer `t`-of-`n` Shamir over the
+        scalar field (degree-(t-1) poly, shares `(id,f(id))`, group key `B·sk`) + Feldman VSS commitments `B·a_j`
+        (`verifyShare`) + Lagrange `reconstruct` at x=0; `generateFrom` (explicit coeffs) for determinism + as the
+        DKG building block. `FrostKeygenTest` 4/0 (cryptoFrost 10/0): t-subsets recover sk + match group key; <t
+        don't; VSS accepts good / rejects tampered shares.
   - [ ] **frost-signing** (slice 3) — FROST 2-round signing: per-signer nonces `(d,e)` + commitments `(D,E)`;
         binding factors `ρ_i = H(i, msg, B)`; group commitment `R = Σ(D_i + ρ_i·E_i)`; challenge `c = H(R, Y, msg)`
         (Ed25519 SHA-512 form); partial sigs `z_i = d_i + ρ_i·e_i + λ_i·c·s_i`. **Verify:** each partial sig's

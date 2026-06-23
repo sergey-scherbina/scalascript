@@ -32,7 +32,7 @@ verifies under the standard `Ed25519.verify` against the group public key):
   `Ed25519GroupTest` (6): base-point encoding = RFC value; `L·B = identity`; encode/decode round-trip; group
   homomorphism; scalar inverse; **and the gate — generated public keys match BouncyCastle Ed25519 bit-for-bit
   for 25 random seeds.** NOT constant-time (BigInteger) — correctness-first reference; harden later.
-- **Slice 2 — key generation.** Trusted-dealer keygen first (simpler than full DKG): Shamir-split a signing
+- **Slice 2 — key generation (DONE 2026-06-23).** `FrostKeygen` — trusted-dealer Shamir + Feldman VSS: Shamir-split a signing
   scalar into `t`-of-`n` shares over the scalar field + the group public key `B·sk`; per-participant
   verification shares. Verify: any `t` shares Lagrange-interpolate to `sk`; `< t` do not.
 - **Slice 3 — signing rounds.** Per-signer nonces `(d,e)` + commitments `(D,E)`; binding factors
