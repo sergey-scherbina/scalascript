@@ -176,6 +176,28 @@ final class TuiEmitterTest extends AnyFunSuite:
     assert(rs.contains("fn bootstrap(_signals: &mut HashMap<String, Value>) {}"))
   }
 
+  test("focusable widget gets a REVERSED focus highlight") {
+    val rs = emitMain(View.Button(text("Go"), EventHandler.Simple(() => ())))
+    assert(rs.contains("if focus == 0 { Style::default().add_modifier(Modifier::REVERSED) }"))
+  }
+
+  test("Style foreground + bold map to ratatui fg + BOLD modifier") {
+    val s  = Style(text = TextStyle(foreground = Some(Color.Named("red")), fontWeight = Some(FontWeight.Bold)))
+    val rs = emitMain(View.Text(() => "warn", s))
+    assert(rs.contains(".style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))"))
+  }
+
+  test("Styled wrapper pushes a hex color down to the leaf") {
+    val s  = Style(text = TextStyle(foreground = Some(Color.Hex("#00ff00"))))
+    val rs = emitMain(View.Styled(text("x"), s))
+    assert(rs.contains("Color::Rgb(0, 255, 0)"))
+  }
+
+  test("unstyled text emits no .style clause") {
+    val rs = emitMain(text("plain"))
+    assert(rs.contains("""Paragraph::new("plain"), area"""))
+  }
+
   test("Spacer reserves rows but renders nothing") {
     val rs = emitMain(View.Column(Seq(text("a"), View.Spacer(Some(2)), text("b"))))
     // three children → vertical split with the spacer measured at 2 rows

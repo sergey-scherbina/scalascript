@@ -52,7 +52,7 @@ object TuiEmitter:
 
     val focusables = mutable.ArrayBuffer.empty[Focusable]
     val body = StringBuilder()
-    emit(root, "area", body, Iterator.from(0), focusables)
+    emit(root, "area", body, Iterator.from(0), focusables, TermStyle.empty)
 
     (cargoToml(manifest, fetches.nonEmpty), mainRs(manifest, signals, fetches, focusables, body))
 
@@ -88,6 +88,7 @@ object TuiEmitter:
        |use ratatui::{Terminal, Frame};
        |use ratatui::layout::{Layout, Constraint, Rect};
        |use ratatui::widgets::{Paragraph, Block, Borders, Table, Row};
+       |use ratatui::style::{Style, Modifier, Color};
        |use ratatui::buffer::Buffer;
        |use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
        |use ratatui::crossterm::terminal::{enable_raw_mode, disable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
@@ -423,38 +424,38 @@ object TuiEmitter:
 
   private enum Dir { case Vertical, Horizontal }
 
-  private def emit(view: View[?], area: String, sb: StringBuilder, ids: Iterator[Int], fs: mutable.ArrayBuffer[Focusable]): Unit =
+  private def emit(view: View[?], area: String, sb: StringBuilder, ids: Iterator[Int], fs: mutable.ArrayBuffer[Focusable], st: TermStyle): Unit =
     view match
-      case View.Column(children, _, _, _)     => emitStack(children, area, Dir.Vertical, sb, ids, fs)
-      case View.Fragment(children)            => emitStack(children, area, Dir.Vertical, sb, ids, fs)
-      case View.For(items, render)            => emitStack(items().map(render), area, Dir.Vertical, sb, ids, fs)
-      case View.LazyList(items, render, _, _) => emitStack(items().map(render), area, Dir.Vertical, sb, ids, fs)
-      case View.Row(children, _, _, _)        => emitStack(children, area, Dir.Horizontal, sb, ids, fs)
-      case View.Stack(children, _)            => children.foreach(c => emit(c, area, sb, ids, fs))
-      case View.ScrollView(child, _, _)       => emit(child, area, sb, ids, fs)
-      case View.Styled(child, _)              => emit(child, area, sb, ids, fs)
-      case View.Show(cond, t, f)              => emit(if cond() then t() else f(), area, sb, ids, fs)
+      case View.Column(children, _, _, _)     => emitStack(children, area, Dir.Vertical, sb, ids, fs, st)
+      case View.Fragment(children)            => emitStack(children, area, Dir.Vertical, sb, ids, fs, st)
+      case View.For(items, render)            => emitStack(items().map(render), area, Dir.Vertical, sb, ids, fs, st)
+      case View.LazyList(items, render, _, _) => emitStack(items().map(render), area, Dir.Vertical, sb, ids, fs, st)
+      case View.Row(children, _, _, _)        => emitStack(children, area, Dir.Horizontal, sb, ids, fs, st)
+      case View.Stack(children, _)            => children.foreach(c => emit(c, area, sb, ids, fs, st))
+      case View.ScrollView(child, _, _)       => emit(child, area, sb, ids, fs, st)
+      case View.Styled(child, style)          => emit(child, area, sb, ids, fs, st.merge(termStyleOf(style)))
+      case View.Show(cond, t, f)              => emit(if cond() then t() else f(), area, sb, ids, fs, st)
       case View.ShowSignal(cond, t, f) =>
         sb ++= s"    if sig_truthy(signals, ${rustStr(cond.id)}) {\n"
-        emit(t, area, sb, ids, fs)
+        emit(t, area, sb, ids, fs, st)
         sb ++= "    } else {\n"
-        emit(f, area, sb, ids, fs)
+        emit(f, area, sb, ids, fs, st)
         sb ++= "    }\n"
-      case View.Text(content, _)              => para(rustStr(content()), area, sb)
-      case View.TextNode(value)               => para(rustStr(value()), area, sb)
-      case View.SignalText(signal, _)         => para(s"sig(signals, ${rustStr(signal.id)})", area, sb)
-      case View.Button(label, action, _, _) =>
+      case View.Text(content, style)          => para(rustStr(content()), area, sb, st.merge(termStyleOf(style)), None)
+      case View.TextNode(value)               => para(rustStr(value()), area, sb, st, None)
+      case View.SignalText(signal, style)     => para(s"sig(signals, ${rustStr(signal.id)})", area, sb, st.merge(termStyleOf(style)), None)
+      case View.Button(label, action, _, style) =>
         val idx = fs.size
         fs += Focusable(idx, activationOf(action), None)
-        para(s"""format!("{}[{}]", focus_mark(focus, $idx), ${rustStr(staticText(label))})""", area, sb)
-      case View.Toggle(checked, label, _) =>
+        para(s"""format!("{}[{}]", focus_mark(focus, $idx), ${rustStr(staticText(label))})""", area, sb, st.merge(termStyleOf(style)), Some(idx))
+      case View.Toggle(checked, label, style) =>
         val idx = fs.size
         fs += Focusable(idx, Some(Mutation.Toggle(checked.id)), None)
-        para(s"""format!("{}{}", focus_mark(focus, $idx), toggle_text(signals, ${rustStr(checked.id)}, ${rustStr(label)}))""", area, sb)
-      case View.TextInput(value, placeholder, _, secure, _) =>
+        para(s"""format!("{}{}", focus_mark(focus, $idx), toggle_text(signals, ${rustStr(checked.id)}, ${rustStr(label)}))""", area, sb, st.merge(termStyleOf(style)), Some(idx))
+      case View.TextInput(value, placeholder, _, secure, style) =>
         val idx = fs.size
         fs += Focusable(idx, None, Some(value.id))
-        para(s"""format!("{}{}", focus_mark(focus, $idx), text_input_display(signals, ${rustStr(value.id)}, ${rustStr(placeholder)}, $secure))""", area, sb)
+        para(s"""format!("{}{}", focus_mark(focus, $idx), text_input_display(signals, ${rustStr(value.id)}, ${rustStr(placeholder)}, $secure))""", area, sb, st.merge(termStyleOf(style)), Some(idx))
       case View.DataTable(source, columns, _, _) =>
         source match
           case TableDataSource.StaticRows(rows) =>
@@ -467,7 +468,7 @@ object TuiEmitter:
             }.mkString(", ")
             sb ++= s"    { let __rows = vec![$rowExprs]; let __t = Table::new(__rows, [$widths]).header(Row::new(vec![$header])); frame.render_widget(__t, $area); }\n"
           case _ =>
-            para(rustStr("(table: remote/signal source — wired in slice 5)"), area, sb)
+            para(rustStr("(table: remote/signal source — wired in slice 5)"), area, sb, st, None)
       case View.TabBar(tabs, current, _) =>
         val outer = s"tabs${ids.next()}"
         sb ++= s"    let $outer = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split($area);\n"
@@ -480,12 +481,12 @@ object TuiEmitter:
           fs += Focusable(fidx, Some(Mutation.Set(current.id, s"Value::I($i)")), None)
           val active   = rustStr("[" + t.label + "]")
           val inactive = rustStr(" " + t.label + " ")
-          sb ++= s"""    frame.render_widget(Paragraph::new(format!("{}{}", focus_mark(focus, $fidx), if sig_int(signals, ${rustStr(current.id)}) == $i { $active } else { $inactive })), $hdr[$i]);\n"""
+          sb ++= s"""    frame.render_widget(Paragraph::new(format!("{}{}", focus_mark(focus, $fidx), if sig_int(signals, ${rustStr(current.id)}) == $i { $active } else { $inactive })).style(if focus == $fidx { Style::default().add_modifier(Modifier::REVERSED) } else { Style::default() }), $hdr[$i]);\n"""
         }
         sb ++= s"    match sig_int(signals, ${rustStr(current.id)}) {\n"
         tabs.zipWithIndex.foreach { case (t, i) =>
           sb ++= s"        $i => {\n"
-          emit(t.content, s"$outer[1]", sb, ids, fs)
+          emit(t.content, s"$outer[1]", sb, ids, fs, st)
           sb ++= "        }\n"
         }
         sb ++= "        _ => {}\n    }\n"
@@ -493,7 +494,7 @@ object TuiEmitter:
         sb ++= s"    match sig(signals, ${rustStr(current.id)}).as_str() {\n"
         routes.foreach { case (name, viewThunk) =>
           sb ++= s"        ${rustStr(name)} => {\n"
-          emit(viewThunk(), area, sb, ids, fs)
+          emit(viewThunk(), area, sb, ids, fs, st)
           sb ++= "        }\n"
         }
         sb ++= "        _ => {}\n    }\n"
@@ -502,10 +503,10 @@ object TuiEmitter:
       case View.Spacer(_) => ()
       case _              => ()
 
-  private def emitStack(children: Seq[View[?]], area: String, dir: Dir, sb: StringBuilder, ids: Iterator[Int], fs: mutable.ArrayBuffer[Focusable]): Unit =
+  private def emitStack(children: Seq[View[?]], area: String, dir: Dir, sb: StringBuilder, ids: Iterator[Int], fs: mutable.ArrayBuffer[Focusable], st: TermStyle): Unit =
     val kids = children.filterNot(isEmpty)
     if kids.isEmpty then ()
-    else if kids.sizeIs == 1 then emit(kids.head, area, sb, ids, fs)
+    else if kids.sizeIs == 1 then emit(kids.head, area, sb, ids, fs, st)
     else
       val chunks = s"chunks${ids.next()}"
       val constraints = dir match
@@ -513,10 +514,100 @@ object TuiEmitter:
         case Dir.Horizontal => kids.map(_ => s"Constraint::Ratio(1, ${kids.size})").mkString(", ")
       val ctor = dir match { case Dir.Vertical => "vertical"; case Dir.Horizontal => "horizontal" }
       sb ++= s"    let $chunks = Layout::$ctor([$constraints]).split($area);\n"
-      kids.zipWithIndex.foreach { case (k, i) => emit(k, s"$chunks[$i]", sb, ids, fs) }
+      kids.zipWithIndex.foreach { case (k, i) => emit(k, s"$chunks[$i]", sb, ids, fs, st) }
 
-  private def para(expr: String, area: String, sb: StringBuilder): Unit =
-    sb ++= s"    frame.render_widget(Paragraph::new($expr), $area);\n"
+  /** Emit `frame.render_widget(Paragraph::new(<expr>)[.style(...)], <area>)`.
+   *  A focusable leaf (`focusIdx`) gets `Modifier::REVERSED` when focused, so
+   *  the focused widget is visibly highlighted on top of its own style. */
+  private def para(expr: String, area: String, sb: StringBuilder, st: TermStyle, focusIdx: Option[Int]): Unit =
+    val styleClause = focusIdx match
+      case Some(idx) =>
+        val base = if st.isEmpty then "Style::default()" else st.rustExpr
+        s".style(if focus == $idx { $base.add_modifier(Modifier::REVERSED) } else { $base })"
+      case None =>
+        if st.isEmpty then "" else s".style(${st.rustExpr})"
+    sb ++= s"    frame.render_widget(Paragraph::new($expr)$styleClause, $area);\n"
+
+  // ── Style → ratatui terminal style ─────────────────────────────────────
+
+  /** The terminal-renderable subset of a `Style`: fg/bg colors (as ratatui
+   *  `Color` expressions) + bold/dim/underline modifiers. */
+  private final case class TermStyle(fg: Option[String], bg: Option[String], bold: Boolean, dim: Boolean, underline: Boolean):
+    def isEmpty: Boolean = fg.isEmpty && bg.isEmpty && !bold && !dim && !underline
+    /** Child wins on colors; modifiers accumulate. */
+    def merge(c: TermStyle): TermStyle =
+      TermStyle(c.fg.orElse(fg), c.bg.orElse(bg), bold || c.bold, dim || c.dim, underline || c.underline)
+    def rustExpr: String =
+      val b = StringBuilder("Style::default()")
+      fg.foreach(c => b ++= s".fg($c)")
+      bg.foreach(c => b ++= s".bg($c)")
+      val mods = List(
+        if bold then "Modifier::BOLD" else "",
+        if dim then "Modifier::DIM" else "",
+        if underline then "Modifier::UNDERLINED" else "",
+      ).filter(_.nonEmpty)
+      if mods.nonEmpty then b ++= s".add_modifier(${mods.mkString(" | ")})"
+      b.toString
+
+  private object TermStyle:
+    val empty: TermStyle = TermStyle(None, None, false, false, false)
+
+  private def termStyleOf(s: Style): TermStyle =
+    TermStyle(
+      fg        = s.text.foreground.flatMap(colorExpr),
+      bg        = s.decoration.background.flatMap(colorExpr),
+      bold      = s.text.fontWeight.exists(isBoldWeight),
+      dim       = s.text.fontWeight.exists(isDimWeight),
+      underline = s.text.textDecoration.contains(TextDecoration.Underline),
+    )
+
+  private def isBoldWeight(w: FontWeight): Boolean = w match
+    case FontWeight.SemiBold | FontWeight.Bold | FontWeight.ExtraBold | FontWeight.Black => true
+    case FontWeight.Custom(v) => v >= 600
+    case _ => false
+
+  private def isDimWeight(w: FontWeight): Boolean = w match
+    case FontWeight.Thin | FontWeight.ExtraLight | FontWeight.Light => true
+    case _ => false
+
+  /** Map a `Color` to a ratatui `Color` expression, or `None` to leave the
+   *  default (e.g. semantic tokens we don't resolve, or `Transparent`). */
+  private def colorExpr(c: Color): Option[String] = c match
+    case Color.Rgb(r, g, b)     => Some(s"Color::Rgb($r, $g, $b)")
+    case Color.Rgba(r, g, b, _) => Some(s"Color::Rgb($r, $g, $b)")
+    case Color.Hex(v)           => hexToRgb(v).map((r, g, b) => s"Color::Rgb($r, $g, $b)")
+    case Color.Named(name)      => namedColor(name.trim.toLowerCase)
+    case Color.System(token)    => systemColor(token.trim.toLowerCase)
+    case Color.Transparent      => None
+
+  private def hexToRgb(v: String): Option[(Int, Int, Int)] =
+    val h = v.trim.stripPrefix("#")
+    if h.length == 6 && h.forall(isHexDigit) then
+      Some((Integer.parseInt(h.substring(0, 2), 16), Integer.parseInt(h.substring(2, 4), 16), Integer.parseInt(h.substring(4, 6), 16)))
+    else None
+
+  private def isHexDigit(ch: Char): Boolean = ch.isDigit || ('a' to 'f').contains(ch.toLower)
+
+  private def namedColor(name: String): Option[String] = name match
+    case "black"   => Some("Color::Black")
+    case "red"     => Some("Color::Red")
+    case "green"   => Some("Color::Green")
+    case "yellow"  => Some("Color::Yellow")
+    case "blue"    => Some("Color::Blue")
+    case "magenta" | "purple" => Some("Color::Magenta")
+    case "cyan"    => Some("Color::Cyan")
+    case "white"   => Some("Color::White")
+    case "gray" | "grey" => Some("Color::Gray")
+    case "darkgray" | "darkgrey" => Some("Color::DarkGray")
+    case _         => None
+
+  private def systemColor(token: String): Option[String] = token match
+    case "error" | "ondanger"     => Some("Color::Red")
+    case "primary" | "accent"     => Some("Color::Cyan")
+    case "secondary"              => Some("Color::Magenta")
+    case "muted" | "border"       => Some("Color::DarkGray")
+    case "foreground" | "onprimary" => Some("Color::White")
+    case _                        => None
 
   private def isEmpty(v: View[?]): Boolean = v match
     case View.Fragment(ch) => ch.forall(isEmpty)
