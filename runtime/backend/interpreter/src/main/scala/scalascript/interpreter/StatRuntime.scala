@@ -170,7 +170,20 @@ private[interpreter] object StatRuntime:
         case List(pat) =>
           val patEnv = PatternRuntime.matchPat(pat, rhsVal, envView, interp)
           if patEnv == null then interp.located(s"Val pattern match failed")
-          else patEnv.foreach { (k, v) => env(k) = v; interp.valNames += k }
+          else
+            // Bind ONLY the names this pattern introduces. `matchPat` returns the
+            // full threaded env (`cur ++ new bindings`), so iterating all of `patEnv`
+            // would (a) needlessly rebind every pre-existing name and (b) add them to
+            // `valNames` — wrongly marking a pre-existing `var` as a `val`, which then
+            // makes a later lambda snapshot-capture it instead of re-reading it live
+            // (e.g. `var n = 0; val (a, b) = …; xs.runForeach(_ => n += 1)` lost all
+            // but the last write). interp-stream-runforeach-var-capture.
+            PatternRuntime.patVarNames(pat).foreach { k =>
+              val v = patEnv.getOrElse(k, null)
+              if v != null then
+                env(k) = v
+                interp.valNames += k
+            }
         case _ => ()
 
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>

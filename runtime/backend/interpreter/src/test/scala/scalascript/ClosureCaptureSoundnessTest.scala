@@ -48,3 +48,25 @@ class ClosureCaptureSoundnessTest extends AnyFunSuite with Matchers:
         |g = 2
         |println(f())
         |""".stripMargin) shouldBe "2"
+
+  test("a destructuring `val (a, b) = …` must not mark a pre-existing var as a val"):
+    // interp-stream-runforeach-var-capture: `matchPat` for a tuple pattern returns the
+    // *full* threaded env, so binding all of it (and adding every name to `valNames`)
+    // wrongly marked the earlier `var n` as a `val`. A later var-mutating lambda then
+    // snapshot-captured `n` instead of re-reading it live, so every call but the last
+    // was lost — `n` ended at 1, not 3.
+    run(
+      """def thrice(g: Int => Unit): Unit = { g(1); g(1); g(1) }
+        |var n = 0
+        |val (a, b) = (7, 8)
+        |thrice(x => { n = n + 1 })
+        |println(n)
+        |""".stripMargin) shouldBe "3"
+
+  test("destructured names are still captured correctly (a real val, not re-read-live)"):
+    // the fix must keep binding the pattern's OWN names — and still mark them vals.
+    run(
+      """def call0(g: () => Int): Int = g()
+        |val (p, q) = (10, 20)
+        |println(call0(() => p + q))
+        |""".stripMargin) shouldBe "30"
