@@ -1,11 +1,13 @@
 # Stable Plugin SPI — Specification
 
-Status: **Phase 3 value-surface migration complete (26/28 plugins)**.  Phase 1 landed
-2026-05-29; Phase 2 landed 2026-05-29 as a source-compatible capability bridge; Phase 3
-(2026-06-23) migrated every value-surface plugin off `scalascript.interpreter` onto the stable
-`scalascript-plugin-api` and added `StableSpiEnforcementTest` to lock it in.  Two plugins are
-explicit exemptions: `actors-plugin` (a runtime PROVIDER, not a value-surface plugin) and
-`graphql-plugin` (temporarily, blocked on a scalac `eq`-identity codegen issue).  Tracked as
+Status: **Phase 3 COMPLETE — 27/28 value-surface plugins migrated; 1 permanent exemption**.
+Phase 1 landed 2026-05-29; Phase 2 landed 2026-05-29 as a source-compatible capability bridge;
+Phase 3 (2026-06-23) migrated every value-surface plugin off `scalascript.interpreter` onto the
+stable `scalascript-plugin-api` and added `StableSpiEnforcementTest` to lock it in.  The sole
+remaining plugin, `actors-plugin`, is a PERMANENT, correct exemption: it is an interpreter-only
+runtime PROVIDER (not a value-surface plugin), and its `ActorRuntimeProvider` SPI is fundamentally
+interpreter-coupled by design (it traffics in `Computation`/`Value`/`Env`/`scala.meta.Case`) — there
+is no host-neutral form to migrate to.  Tracked as
 `arch-stable-spi` milestone in `BACKLOG.md`.
 Companion specs: [`specs/plugin-architecture.md`](plugin-architecture.md),
 [`specs/spi-intrinsics-design.md`](spi-intrinsics-design.md).
@@ -152,9 +154,14 @@ Callers of existing plugin APIs are not affected (API is additive).
 - ✓ Landed 2026-06-23: `StableSpiEnforcementTest` (the CI check) — scans every value-surface
   plugin source and fails on any `scalascript.interpreter` reference; a second test rejects stale
   exemptions.  (Source-level; a bytecode/jar-level scan is a possible hardening.)
-- Exemptions: `actors-plugin` (runtime `ActorRuntimeProviderBackend` provider — needs the
-  ActorRuntimeProvider SPI relocated to a stable module, or a permanent provider-plugin exemption);
-  `graphql-plugin` (blocked on a scalac `eq`-identity codegen interaction — needs a minimal repro).
+- ✓ Landed 2026-06-23: graphql migrated (162 tests).  The earlier "codegen blocker" was a
+  MISDIAGNOSIS: `GraphQLSubscriptionTest` asserts resolver reference-identity (`x eq fn`); an `Any`-
+  typed carrier makes the lookup statically `Any` (no `.eq`), so scalatest's `assert` macro routes it
+  through its `Equalizer` and compares the *wrapper*.  Fix = `AnyRef`-typed carrier (every resolver
+  value is a runtime `Value`, `<: AnyRef`), matching the original `Map[String, Value]`.  Not a scalac bug.
+- PERMANENT exemption: `actors-plugin` — an interpreter-only runtime provider whose `ActorRuntimeProvider`
+  SPI is interpreter-coupled by design (`Computation`/`Value`/`Env`/`scala.meta.Case`); no host-neutral
+  form exists to migrate to.  The enforcement test's stale-exemption guard keeps the allowlist honest.
 - `PluginNative.evalLegacy` is RETAINED (the legitimate untyped `(ctx, args) => Any` entry; bodies
   are now clean of interpreter types, enforced by the test).
 

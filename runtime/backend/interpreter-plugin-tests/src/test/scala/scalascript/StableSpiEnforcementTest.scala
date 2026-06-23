@@ -10,13 +10,17 @@ import org.scalatest.funsuite.AnyFunSuite
  *  `scalascript-plugin-api` module is the ONE controlled seam that wraps the interpreter `Value`
  *  and re-exposes it through the opaque `PluginValue`/`PluginError`/capability surface.
  *
- *  EXEMPTIONS (intentionally NOT value-surface plugins, or known-blocked):
+ *  EXEMPTION — `actors-plugin` is PERMANENT and correct, NOT unfinished work:
  *
- *    - `actors-plugin`: a runtime PROVIDER (`extends Backend, ActorRuntimeProviderBackend`) living
- *      in package `scalascript.interpreter.actors` that delegates to `CoreActorRuntimeProvider`.
- *      The actor runtime stays in core by design; this plugin is a provider seam + a `preludeSymbols`
- *      keyword declaration (`intrinsics = Map.empty`).  Decoupling it needs the ActorRuntimeProvider
- *      SPI relocated to a stable module — an architectural task, not a value-surface migration. */
+ *    It is an interpreter-only runtime PROVIDER (`extends Backend, ActorRuntimeProviderBackend`,
+ *    `intrinsics = Map.empty`), not a value-surface plugin.  Its `ActorRuntimeProvider` SPI is
+ *    fundamentally interpreter-coupled BY DESIGN: `ActorRuntimeHost` traffics in `Computation`
+ *    (the interpreter's eval monad), `Value`, `Env`, and `scala.meta.Case` (AST receive-blocks).
+ *    The SPI's own doc states actors "cannot use the host-neutral `BlockForm` SPI without leaking
+ *    interpreter internals into every plugin" — there is no host-neutral form to migrate to.  The
+ *    plugin is a `preludeSymbols` keyword declaration + the actor-runtime provider seam; it stays
+ *    in package `scalascript.interpreter.actors` by design.  Value-surface migration is complete
+ *    at 27/28; this is the deliberate 28th. */
 class StableSpiEnforcementTest extends AnyFunSuite:
 
   /** Plugins allowed to still reference `scalascript.interpreter` (see scaladoc above). */

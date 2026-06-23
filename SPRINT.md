@@ -354,7 +354,7 @@ validated + pushed:
       frontend ✓ (8, ctx=22 all caps; FunV/NativeFnV arms → new `PluginValue.Fn` extractor)** — all single-file.
       ENABLERS added to PluginApi: `Fn` extractor (any callable: FunV|NativeFnV) + `isCallable`.
       Remaining (2): mcp, content — the genuinely ctx-heavy / bridge-coupled giants.
-- [~] **p3-giants** (1 left: actors, a provider — permanent exemption). All ctx is covered by EXISTING caps — big-but-mechanical value/NativeFnV
+- [x] **p3-giants** ✓ DONE — all migrated; `actors` is a PERMANENT exemption (interpreter-only runtime provider). All ctx is covered by EXISTING caps — big-but-mechanical value/NativeFnV
       passes PLUS one bridge each. Per-plugin scope:
   - **http** ✓ DONE (4 unit + 58 integration tests: MountHandler/TypedHandler/HttpClient/TypedRpcBinary).
         jsonToJson → `jsonEncode`; the `TypedHandlerWrapper.wrapIfTyped` coupling → new `PluginValue.wrapTypedHandler`
@@ -392,16 +392,13 @@ validated + pushed:
         original `Map[String, Value]` (`Value = DataValue|ValueRest` is `<: AnyRef`). NOT a scalac bug; the
         debug-println "passes" were my explicit `.asInstanceOf[AnyRef]` casts bypassing the Equalizer. anchored
         regex protects `ujson.Value`; `valueToJava`/`addResolver`/`byType`/`entities` retyped to AnyRef.
-  - **actors** (ActorsInterpreterPlugin, 66 loc) is SPECIAL — NOT a value-surface plugin: `intrinsics = Map.empty`.
-        It's a runtime PROVIDER (`class … extends Backend, ActorRuntimeProviderBackend`) in package
-        `scalascript.interpreter.actors` that delegates to `CoreActorRuntimeProvider` (the actor runtime stays in
-        core BY DESIGN; the plugin is a provider seam + a `preludeSymbols` keyword declaration). Migrating it off
-        `scalascript.interpreter` is NOT mechanical — it requires relocating the `ActorRuntimeProvider`/
-        `ActorRuntimeProviderBackend`/`CoreActorRuntimeProvider` SPI to a stable module AND rewiring how the plugin
-        obtains the core provider (currently a direct `= CoreActorRuntimeProvider` reference). DECISION NEEDED:
-        either that architectural SPI relocation, or EXEMPT runtime-provider plugins from the p3-enforce check
-        (the check targets value-surface plugin jars; a provider that bridges the core runtime is a different category).
-- [~] **p3-enforce** — BUILD CHECK ✓ DONE: `StableSpiEnforcementTest` (backendInterpreterPluginTests) scans every
+  - **actors** — PERMANENT exemption (correct, not unfinished). Interpreter-only runtime PROVIDER
+        (`intrinsics = Map.empty`); its `ActorRuntimeProvider` SPI is interpreter-coupled BY DESIGN —
+        `ActorRuntimeHost` traffics in `Computation`/`Value`/`Env`/`scala.meta.Case`, and the SPI doc says
+        actors "cannot use the host-neutral `BlockForm` SPI without leaking interpreter internals". No
+        host-neutral form exists to migrate to. `StableSpiEnforcementTest` exempts it; the stale-exemption
+        guard keeps the allowlist honest.
+- [x] **p3-enforce** ✓ DONE — BUILD CHECK: `StableSpiEnforcementTest` (backendInterpreterPluginTests) scans every
       `runtime/std/*-plugin/src/main` and fails if a value-surface plugin references `scalascript.interpreter`;
       a second test guards against STALE exemptions. Exemption: `actors-plugin` (runtime provider) only — graphql now migrated. The 27 migrations are locked in. REMAINING:
       `PluginNative.evalLegacy` stays (still the legitimate untyped `(ctx, args)=>Any` entry the migrated plugins
