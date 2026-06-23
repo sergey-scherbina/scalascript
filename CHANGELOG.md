@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — frontend/tui slice 3: focus ring + keyboard + events (interactive)
+
+The emitted ratatui crate is now interactive. `TuiEmitter` assigns each focusable widget
+(`Button`/`TextInput`/`Toggle`) a document-order focus index and generates `FOCUS_COUNT`, `is_text_input`,
+`focus_mark` (a `> ` indicator the focused widget renders), per-index `activate`/`type_char`/`backspace` match
+arms, and a `handle_key` dispatcher (Tab/↓ + Shift-Tab/↑ traversal, Enter/Space → activate, typing → edit a
+focused `TextInput`, Backspace, Esc/`q` → quit). `render_root(frame, area, signals, focus)` threads focus and
+the crossterm loop holds `mut signals` + `mut focus`. `EventHandler` execution covers the declarative handlers
+(`SetSignalLiteral`/`IncrementSignal`/`ToggleSignal`, plus `TextInput` `InputChange`); `Simple`/`WithEvent` are
+Scala closures with no Rust equivalent → no-op. `frontendTui/test` 21/21 — the cargo smoke builds an interactive
+crate (signal + button + text-input) and `cargo test` runs generated `event_handlers_run` (button mutates the
+store), `text_input_typing`, `tab_moves_focus`, and `reactive_rerender`. This is UCC PoC step 2 (composer).
+Follow-ups: `A11y.focusOrder` seeding, hidden-branch focus skipping. Spec `specs/frontend-tui-ratatui.md`.
+
 ## 2026-06-23 — frontend/tui slice 2: signal store + crossterm redraw loop
 
 The emitted ratatui crate is now reactive. `TuiEmitter` collects the View tree's `ReactiveSignal`s and emits a

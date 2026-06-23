@@ -45,12 +45,14 @@ snapshot matches (assume(cargo)-gated, like `RustGenCargoSmokeTest`). Drive top-
       re-export; headless `SSC_TUI_SNAPSHOT` path for CI. **Gate met:** `frontendTui/test` 20/20 — cargo smoke
       builds the loop crate, renders a signal-bound frame headlessly, AND `cargo test` runs a generated
       `reactive_rerender` proving a signal mutation re-renders.
-- [ ] **frontend-tui-3-focus-events** — focus ring over focusable nodes (`Button/TextInput/Toggle`),
-      Tab/Shift-Tab/arrow traversal (seeded by `A11y.focusOrder`), crossterm `KeyEvent`→`EventHandler`
-      (`SetSignalLiteral/Increment/Toggle/InputChange/Simple`); `TextField` editing (buffer+cursor); `Button`
-      Enter→handler. **Gate:** `textField`+`actionButton` program; feed keys to `TestBackend`; assert signal
-      mutation + re-render. (UCC PoC step 2: composer.) NOTE: focus engine is backend-side (core has only
-      declarative `A11y.focusOrder`/`focusable` hints — see spec §2 Q2).
+- [x] **frontend-tui-3-focus-events** ✓ DONE 2026-06-23 — document-order focus ring (`FOCUS_COUNT`,
+      `is_text_input`, `focus_mark`), `handle_key` (Tab/↓ + Shift-Tab/↑, Enter/Space→`activate`, typing→
+      `type_char`, Backspace, Esc/`q`→quit), generated `activate`/`type_char`/`backspace` match arms; declarative
+      `EventHandler`s (`SetSignalLiteral`/`IncrementSignal`/`ToggleSignal` + `TextInput` `InputChange`) mutate the
+      store, `Simple`/`WithEvent`→no-op; `render_root(...,focus)` shows the focus marker. **Gate met:**
+      `frontendTui/test` 21/21 — cargo smoke builds an interactive crate (signal+button+text-input) and
+      `cargo test` runs generated `event_handlers_run`/`text_input_typing`/`tab_moves_focus`/`reactive_rerender`.
+      (UCC PoC step 2: composer.) Follow-ups: `A11y.focusOrder` seeding + hidden-`ShowSignal`-branch focus skip.
 - [ ] **frontend-tui-4-table-routing** — `Table/DataTable`→ratatui `Table`; `TabBar/Router/Link`→screen-stack/
       tab index; `Badge/Spinner/Pill/Tag` chrome. **Gate:** table render + tab-switch snapshots. (UCC PoC step 3.)
 - [ ] **frontend-tui-5-fetch-binding** — `fetchUrlSignal/fetchJsonSignal`→async HTTP fetch in the Rust runtime
