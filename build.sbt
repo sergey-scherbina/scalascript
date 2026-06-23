@@ -1698,6 +1698,7 @@ lazy val cryptoSpiCross =
     .in(file("payments/crypto/spi"))
     .settings(
       name := "scalascript-crypto-spi",
+      libraryDependencies += "org.scalatest" %%% "scalatest" % scalatestV % Test,
       Compile / scalacOptions ++= sharedScalacOptionsStrict,
       Test    / scalacOptions ++= sharedScalacOptions,
     )
