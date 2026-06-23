@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — std/ui: remoteTable — DataTable from a nested JSON path of one fetch
+
+`remoteTable(fetchSignal, columns, rowsPath = "installed", actions = [])` (in `std/ui/data.ssc`) builds a
+`DataTable` whose rows live at a nested field of one fetch's response — e.g. `/control/status` returns an object
+and the table is its `.installed` array. It composes the existing `fetchRowsSource(sig, rowsPath)` +
+`dataTableView(source, …)` externs, so the `Remote` source carries the dotted `rowsPath` envelope; `""` = the
+response root array or the built-in `{data|rows|items|results}` keys. Backend-agnostic: the React/web backend
+drills the envelope and the terminal (ratatui) backend parses it (`fetch_rows`) — the same `.ssc` renders on
+both. Pure `.ssc` addition (no Scala change); `fetchPlugin` 10/10 (a static check that the builder imports
+`fetchRowsSource` and composes it into `dataTableView`, plus the existing behavioral test that the expansion
+yields `Remote(sig, rowsPath)`). Example `examples/ui-remote-table.ssc`.
+
 ## 2026-06-23 — frontend/tui: DataTable.Remote live tables (fetched JSON → ratatui Table)
 
 `DataTable` with a `Remote(FetchUrlSignal, rowsPath)` source now renders live data: the body is fetched into

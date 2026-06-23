@@ -149,6 +149,20 @@ class FetchPluginInterpreterTest extends AnyFunSuite:
       s"std/ui/data.ssc rowEdit helper must import rowEditAction; import line was: $primitiveImport"
     )
 
+  test("std/ui data exposes remoteTable composing fetchRowsSource + dataTableView (nested rowsPath)"):
+    val source = os.read(repoRoot / "runtime" / "std" / "ui" / "data.ssc")
+    val primitiveImport =
+      source.linesIterator.find(_.contains("](primitives.ssc)")).getOrElse("")
+    assert(
+      primitiveImport.contains("fetchRowsSource"),
+      s"remoteTable needs fetchRowsSource imported; import line was: $primitiveImport"
+    )
+    assert(source.contains("def remoteTable("), "std/ui/data.ssc must define remoteTable")
+    assert(
+      source.contains("dataTableView(fetchRowsSource("),
+      "remoteTable must compose fetchRowsSource(...) into dataTableView (so the Remote source carries rowsPath)"
+    )
+
   test("Fetch plugin: fetchRowsSource builds a Remote table data source (Scope B.3)"):
     val result = interp.eval(
       """

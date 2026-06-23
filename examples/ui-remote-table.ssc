@@ -1,0 +1,32 @@
+---
+name: ui-remote-table
+description: remoteTable — a DataTable whose rows live at a NESTED JSON path of one fetch (rowsPath). Same .ssc on web (React) + terminal (ratatui).
+---
+
+# Remote table from a nested JSON field
+
+When one fetch returns an **object** and the table is a field inside it — e.g.
+`/control/status` → `.installed` (a list of `{spec, size_bytes}`) — use
+`remoteTable(fetchSignal, columns, rowsPath = "installed")`. The `rowsPath` is a
+dotted envelope path that drills into the response; `""` means the response root
+array or the built-in `{data|rows|items|results}` keys.
+
+Backend-agnostic: the React/web backend drills the envelope, and the terminal
+(ratatui) backend parses it with `fetch_rows` — the **same** source compiles to both.
+
+[remoteTable](std/ui/data.ssc)
+[fetchUrlSignal, signal, fieldColumn](std/ui/primitives.ssc)
+
+```scalascript
+val tick   = signal("tick", 0)
+val status = fetchUrlSignal("status", "/control/status", tick)
+
+// rows live at the nested `.installed` field of the fetched object
+val table = remoteTable(
+  status,
+  [fieldColumn("Spec", "spec"), fieldColumn("Size", "size_bytes")],
+  "installed"
+)
+
+println("remote-table:ok")
+```

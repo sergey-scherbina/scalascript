@@ -34,7 +34,7 @@ that set the provided `Signal[String]` to the clicked column's key — the
 caller is responsible for re-building the rows in sorted order.
 
 [TkNode, TableColumn, TableNode, DataTableNode](nodes.ssc)
-[fieldColumn, rowDeleteAction, rowPostAction, rowLinkAction, rowEditAction, dataTableView, emptyHeaders, staticRowsSource, signalRowsSource, fieldPayload, wholeRowPayload, fieldsPayload, dateColumn, moneyColumn, statusColumn, linkColumn](primitives.ssc)
+[fieldColumn, rowDeleteAction, rowPostAction, rowLinkAction, rowEditAction, dataTableView, emptyHeaders, staticRowsSource, signalRowsSource, fetchRowsSource, fieldPayload, wholeRowPayload, fieldsPayload, dateColumn, moneyColumn, statusColumn, linkColumn](primitives.ssc)
 
 ```scalascript
 def tableCol(label: String, key: String): TableColumn = TableColumn(label, key)
@@ -90,6 +90,16 @@ def staticDataTable(rows: List[Any], columns: List[Any],
 def signalDataTable(sig: Any, columns: List[Any],
                     actions: List[Any] = []): Any =
   dataTableView(signalRowsSource(sig), columns, actions)
+
+// remoteTable — a DataTable from a fetch whose rows live at a NESTED JSON path.
+// Use when one fetch returns an object and the table is a field inside it, e.g.
+//   remoteTable(fetchUrlSignal("st", "/control/status", tick), cols, rowsPath = "installed")
+// rowsPath is a dotted envelope path ("installed", "result.items"); "" = the
+// response root array or the built-in {data|rows|items|results} keys. Backend-
+// agnostic: web drills the envelope, tui parses it (fetch_rows) — same .ssc.
+def remoteTable(fetchSignal: Any, columns: List[Any], rowsPath: String = "",
+                actions: List[Any] = []): Any =
+  dataTableView(fetchRowsSource(fetchSignal, rowsPath), columns, actions)
 
 // ── Column kind shorthand helpers ─────────────────────────────────────────────
 // dcol — date column: renders field value as locale-aware date string.
