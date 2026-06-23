@@ -1,0 +1,6 @@
+feature/capabilities-docs 2026-06-23T13:30:00Z
+agent: claude
+heartbeat: 2026-06-23T13:30:00Z
+status: in-progress
+done-so-far: inventoried the codebase (crypto/wallet, blockchain, payments, runtime/extensibility) via 4 Explore agents — grounded, file-cited.
+next: write docs/frost-ed25519-usage.md (how to use FROST + substitution) + docs/capabilities.md (capabilities overview + the portable-reference+pluggable-provider pattern + future brainstorm on crypto/services we could do directly with minimal deps). Then continue FROST slices 6c/7/8.
