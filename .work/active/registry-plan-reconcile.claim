@@ -1,6 +1,0 @@
-feature/registry-plan-reconcile 2026-06-23T08:50:00Z
-agent: claude
-heartbeat: 2026-06-23T08:50:00Z
-status: in-progress
-done-so-far: DISCOVERY — the remote-registry CLIENT already exists: RegistryClient (fetch+cache packages.yaml from a URL) + ssc search + ssc install + LocalRegistry. `ssc publish` is TAKEN (app-store). So my slice-1 FileRegistry (index.json) overlaps + uses a different format than the client (packages.yaml). Real gap = server/publish side in the client's format.
-next: correct the SPRINT registry slices — slice 2 = FileRegistry emits packages.yaml so existing client consumes it; slice 3 = publish under non-conflicting name (ssc registry publish / ssc plugin publish); slice 4 HTTP server; slice 5 auth. Push corrected plan.

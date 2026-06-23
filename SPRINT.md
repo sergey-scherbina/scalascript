@@ -60,20 +60,26 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
       publish [immutable releases] / search / resolve [exact or latest] / versions / fetch [checksum-verified]).
       `RemoteRegistryTest` 7/0. Greenfield/additive. Spec `specs/arch-build-registry.md` §6b. Follow-up slices
       below (do gradually, one at a time). EXTERNAL (deploy, not code): host `registry.scalascript.io`.
-  - [ ] **registry-cli-publish-search** (slice 2) — `ssc publish <pkg.sscpkg> [--registry <dir>]` and
-        `ssc search <query> [--registry <dir>]` CLI commands over `FileRegistry`, registered via the
-        `CliCommand` ServiceLoader SPI (mirror `EmitLibCmd`). Reads version+id from the `.sscpkg` manifest
-        (`SscpkgManifest`). **Verify:** a CliCommand test publishes a temp `.sscpkg` then searches/lists it.
-  - [ ] **registry-remote-pkg-resolve** (slice 3) — remote `pkg:<id>[@version]` resolution: a configurable
-        registry endpoint (dir/URL) → `FileRegistry.resolve` → artifact URI → existing `RemotePluginInstaller`
-        download+verify+install. Wire into the `pkg:` import path next to `LocalRegistry`. **Verify:** resolve
-        + install a published package from a local registry end-to-end.
-  - [ ] **registry-http-server** (slice 4) — a minimal HTTP server wrapping `FileRegistry` (GET index/resolve/
-        fetch, POST publish) serving the JSON wire format, so a real `registry.scalascript.io` can run it.
-        **Verify:** in-process HTTP round-trip (publish → search → fetch).
-  - [ ] **registry-publish-auth** (slice 5) — auth for `publish` (token/API-key; reject unauthenticated
-        writes), so a hosted registry can't be written by anyone. **Verify:** publish rejected without a valid
-        token, accepted with one.
+      **RECONCILE NOTE 2026-06-23 (probed existing infra):** the registry CLIENT already exists more fully than
+      slice 1 assumed — `RegistryClient` fetches+caches `packages.yaml` from a configurable URL, and `ssc search`
+      + `ssc install` + `LocalRegistry` consume it; `ssc publish` is TAKEN (app-store upload). So the real gap is
+      the SERVER/publish side, and `FileRegistry` must speak the client's **`packages.yaml`** format (not its own
+      `index.json`). Slices corrected accordingly:
+  - [ ] **registry-packages-yaml-bridge** (slice 2, corrected) — make `FileRegistry` emit a `packages.yaml`
+        view (`LocalRegistry.Entry` shape: id→url+version+description, pointing at the stored artifacts) so the
+        EXISTING `RegistryClient`/`ssc search`/`ssc install` consume a `FileRegistry`-served directory unchanged.
+        Keep the richer `index.json` (sha256/versions) as the publish-side record; `packages.yaml` is the
+        client-facing projection. **Verify:** publish to a `FileRegistry`, point `RegistryClient`/`ssc search` at
+        its emitted `packages.yaml`, find + (offline) resolve the package.
+  - [ ] **registry-publish-cmd** (slice 3) — a publish command under a NON-conflicting name (`ssc registry
+        publish <pkg.sscpkg>` subcommand, or extend `ssc plugin` — NOT `ssc publish`, which is app-store). Reads
+        id+version from the `.sscpkg` manifest (`SscpkgManifest` via `SscpkgLoader`), calls `FileRegistry.publish`,
+        regenerates `packages.yaml`. **Verify:** CliCommand test publishes a temp `.sscpkg`; `ssc search` finds it.
+  - [ ] **registry-http-server** (slice 4) — a minimal HTTP server wrapping `FileRegistry` (GET `packages.yaml`
+        + artifact bytes, POST publish) so a real `registry.scalascript.io` can run it; the existing
+        `RegistryClient` already speaks the GET side. **Verify:** in-process HTTP round-trip (publish → search → fetch).
+  - [ ] **registry-publish-auth** (slice 5) — auth for `publish` (token/API-key; reject unauthenticated writes).
+        **Verify:** publish rejected without a valid token, accepted with one.
 
 - [ ] **FROST-Ed25519** (threshold Ed25519 signing — wallet MPC stack) — implement the FROST flexible
       round-optimized Schnorr threshold signature scheme over Ed25519 in the wallet/MPC vault stack (alongside
