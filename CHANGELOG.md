@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — FROST-Ed25519 slice 5: pluggable Ed25519Ops seam (transparent native substitution)
+
+Gave FROST the same pluggable-backend model as `CryptoBackend` (per Sergiy's architecture: portable reference +
+transparent native substitution). New `Ed25519Ops` trait — the Ed25519 primitives FROST needs (point ops,
+scalar field, `secretScalar`, `sha512`) — with `Ed25519Ops.Reference` (the pure-BigInteger `Ed25519Group` + JDK
+SHA-512) as the DEFAULT and a registry (`current`/`register`/`reset`). `FrostKeygen`/`FrostSign` now call only
+through `Ed25519Ops.current` (incl. SHA-512 — no more direct `java.security`), so a platform may register a
+native implementation (BouncyCastle on JVM, @noble on JS, a Rust crate on Rust) that FROST uses transparently;
+the reference stays the correctness fallback. Behaviour-preserving (all 14 prior FROST tests pass through the
+seam) + a substitution test: a registered spy backend IS exercised by a full keygen+sign, reset restores the
+reference. cryptoFrost 16/0. Spec `specs/frost-ed25519.md` §3b. Next: cross-build (JS) + a JVM native backend.
+
 ## 2026-06-23 — FROST-Ed25519 slices 3+4: threshold signing — verifies under standard Ed25519
 
 `FrostSign` (cryptoFrost): the FROST two-round threshold signing flow, producing a STANDARD 64-byte Ed25519

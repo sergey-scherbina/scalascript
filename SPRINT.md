@@ -124,13 +124,12 @@ done (each is genuinely codeable; the external parts are called out). Drive top-
         `z_i=d_i+ρ_i·e_i+λ_i·c·s_i`; aggregate → 64-byte `encode(R)‖scalarLE(z)`. **GATE PASSED:** `FrostSignTest`
         4/0 (cryptoFrost 14/0) — 2-of-3 AND every 3-of-5 subset verifies under BouncyCastle Ed25519; tampered
         partial + wrong message rejected. **FROST-Ed25519 functionally complete** (group ops + keygen + signing).
-  - [ ] **frost-ops-seam** (slice 5 — the substitution mechanism, per Sergiy 2026-06-23) — give FROST the same
-        pluggable-backend treatment as `CryptoBackend` (register/get registry; BC auto-loaded on JVM, Noble on
-        JS): extract an `Ed25519Ops` trait (scalar field + point ops + `sha512`/`sha512ModL`) that
-        `FrostKeygen`/`FrostSign` call through; the pure-BigInteger `Ed25519Group` is the DEFAULT reference impl;
-        a registry (`Ed25519Ops.default` + `register`) lets a platform-native impl substitute transparently at
-        runtime. Route the SHA-512 through the seam (not `java.security` directly). **Verify:** FROST tests pass
-        unchanged through the seam; registering a stub native backend is used in preference to the reference.
+  - [x] **frost-ops-seam** (slice 5) ✓ DONE 2026-06-23 — the substitution mechanism. `Ed25519Ops` trait (point
+        ops + scalar field + `secretScalar` + `sha512`) with `Ed25519Ops.Reference` (pure `Ed25519Group` + JDK
+        SHA-512) as DEFAULT + registry (`current`/`register`/`reset`). `FrostKeygen`/`FrostSign` route ONLY through
+        `Ed25519Ops.current` (incl. SHA-512 — no direct `java.security`), so a native backend substitutes
+        transparently. Behaviour-preserving (14 prior tests pass through the seam) + a substitution test (a
+        registered spy backend IS exercised by keygen+sign; reset restores reference). cryptoFrost 16/0.
   - [ ] **frost-crossbuild** (slice 6) — make `cryptoFrost` a `crossProject(JVM, JS)` so the REFERENCE FROST
         compiles to JS too (BigInteger works in Scala.js; SHA-512 comes from the seam → `CryptoBackend.hash`, i.e.
         Noble on JS / BC on JVM — no `java.security`). Realizes "one reference, every platform". **Verify:**

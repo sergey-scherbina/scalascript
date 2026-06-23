@@ -41,7 +41,7 @@ verifies under the standard `Ed25519.verify` against the group public key):
 - **Slice 4 — aggregate + verify (DONE 2026-06-23).** GATE PASSED — FROST sigs verify under BouncyCastle Ed25519 (2-of-3 + every 3-of-5). `z = Σ z_i`; signature `(R, z)` **must verify under the standard
   `Ed25519.verify`** against the group public key. Edge cases: insufficient shares, malformed share/commitment,
   abort. THE correctness milestone.
-- **Slice 5 — ops seam (the substitution mechanism).** Give FROST the same pluggable-backend model as
+- **Slice 5 — ops seam (the substitution mechanism) — DONE 2026-06-23 (`Ed25519Ops`).** Give FROST the same pluggable-backend model as
   `CryptoBackend`: an `Ed25519Ops` trait (scalar field + point ops + `sha512`) that `FrostKeygen`/`FrostSign`
   call through; the pure-BigInteger `Ed25519Group` is the DEFAULT reference; a registry (`default` + `register`)
   lets a platform-native impl substitute transparently at runtime. SHA-512 routes through the seam (not

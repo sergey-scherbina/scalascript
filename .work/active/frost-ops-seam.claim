@@ -1,6 +1,0 @@
-feature/frost-ops-seam 2026-06-23T12:05:00Z
-agent: claude
-heartbeat: 2026-06-23T12:05:00Z
-status: in-progress
-done-so-far: FROST functionally complete (slices 1-4); substitution slices 5-8 planned in SPRINT.
-next: slice 5 = Ed25519Ops trait (base/identity/add/mul/mulBase/encode/decode/samePoint/scalar*/secretScalar/sha512) + Reference default (wraps Ed25519Group + SHA-512) + registry (current/register/reset). Refactor FrostKeygen/FrostSign to call Ed25519Ops.current (default param). Tests: FROST passes through seam; a registered spy/alt backend is used.
