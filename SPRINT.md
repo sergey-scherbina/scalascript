@@ -162,11 +162,20 @@ foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (high
       doesn't, so callers must hand-roll a `ChainContext`. **Gate:** an `examples/` build→sign→broadcast against
       a devnet/mock RPC; shape parity with `clientEvm`.
 
-- [ ] **frost-secp256k1** (high reach, reuses FROST scaffolding) — port FROST to secp256k1: a `Secp256k1Ops`
-      seam mirroring `Ed25519Ops`, reusing `FrostKeygen`/`FrostSign` (curve-agnostic). Produces BIP-340 Schnorr
-      → **Bitcoin Taproot + Ethereum** threshold custody. **Why:** FROST-Ed25519 is done; most code is already
-      written, secp256k1 is the curve of the two largest chains. **Gate:** a FROST-secp256k1 signature verifies
-      under a standard BIP-340 verifier (BouncyCastle/`@noble`, test-only) for random t-of-n.
+- [x] **frost-secp256k1** ✓ DONE 2026-06-23 — FROST threshold Schnorr on secp256k1 producing **standard BIP-340**
+      signatures, in `FrostSecp256k1` (cryptoFrost/shared), built directly on the portable `Secp256k1Group` +
+      `Secp256k1Schnorr` from chains-backend-agnostic. Trusted-dealer Shamir over the scalar field `n` (even-`y`
+      group key forced at keygen) + two-round signing (per-signer binding via SHA-256, aggregate nonce `R` forced
+      even-`y` with per-signer nonce flip, BIP-340 tagged-hash challenge, Lagrange-weighted partials). **Gate MET:**
+      every `t`-of-`n` aggregate verifies under the standard BIP-340 verifier `Secp256k1Schnorr.verify` (2-of-3 all
+      subsets, 3-of-5, 5-of-5, 1-of-1, over-quorum) — **cryptoFrost JVM 27 / JS 13 green**, plus a 600-run random
+      soak (0 failures). In-process quorum (matches `FrostSign`); the networked transport is the separate
+      `frost-distributed-transport` slice. **Also fixed a latent origin/main regression**: the new
+      `scalascript.crypto.Ed25519` (added in the Cosmos slice) shadowed BouncyCastle's `object Ed25519` via
+      `import scalascript.crypto.*`, breaking `cryptoBouncycastle` compile (uncaught — that module wasn't
+      recompiled then); renamed the BC helper → `BcEd25519`. cryptoBouncycastle 52 green. GOTCHA: BIP-340
+      `Secp256k1Schnorr.verify` REQUIRES a 32-byte message — short test strings silently return false (not a sig
+      bug); always sign a 32-byte hash.
 
 - [ ] **frost-distributed-transport** (most productizing — the missing 10%) — a networked
       `RemoteSigningClient` impl that keeps each FROST share on its own host and exchanges round-1 commitments +

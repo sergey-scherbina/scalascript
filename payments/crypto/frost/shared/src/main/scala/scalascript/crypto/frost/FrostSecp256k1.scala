@@ -1,0 +1,137 @@
+package scalascript.crypto.frost
+
+import java.math.BigInteger
+import scalascript.crypto.{Secp256k1Group, Secp256k1Schnorr, Sha256}
+
+/** FROST threshold Schnorr on **secp256k1**, producing a **standard BIP-340** signature (FROST-secp256k1).
+ *
+ *  Mirrors the FROST-Ed25519 design ([[FrostKeygen]] / [[FrostSign]]) on the portable secp256k1 group
+ *  ([[Secp256k1Group]]) + BIP-340 challenge ([[Secp256k1Schnorr]]). Any `t`-of-`n` quorum produces a 64-byte
+ *  signature `r ‖ s` that verifies under a plain BIP-340 verifier against the x-only group public key — so the
+ *  same threshold custody now reaches **Bitcoin Taproot key-path spends and Ethereum** (Schnorr).
+ *
+ *  Two BIP-340 specifics beyond the Ed25519 case are handled: the group public key is forced even-`y` at keygen
+ *  (negate the secret if `Y` is odd), and the aggregate nonce `R` is forced even-`y` at signing (each signer
+ *  flips its effective nonce when `R` is odd). The internal per-signer binding hash is implementation-defined
+ *  (SHA-256 here) — only the final aggregate signature is constrained, and it is exactly BIP-340.
+ *
+ *  This quorum is **in-process** (all shares in one process — the trusted-dealer + single-node simulation,
+ *  matching `FrostSign`); a networked transport keeping shares non-co-located is a separate slice
+ *  (`frost-distributed-transport`). Correctness-first reference (BigInteger, not constant-time). */
+object FrostSecp256k1:
+
+  import Secp256k1Group.{N, mulG, mul, add, negate, toAffine, to32}
+
+  // ── scalar field (mod n) ──
+  private def sInv(a: BigInteger): BigInteger = a.modPow(N.subtract(BigInteger.valueOf(2)), N)
+  private def randomScalar(): BigInteger =
+    var s = BigInteger.ZERO
+    while s.signum() == 0 do s = new BigInteger(1, PlatformEntropy.bytes(48)).mod(N)
+    s
+
+  private def xOf(p: Secp256k1Group.JPoint): BigInteger =
+    toAffine(p).getOrElse(sys.error("point at infinity"))._1
+  private def yIsOdd(p: Secp256k1Group.JPoint): Boolean =
+    toAffine(p).getOrElse(sys.error("point at infinity"))._2.testBit(0)
+
+  // ── key generation (trusted dealer) ──────────────────────────────────────────
+
+  /** One participant's secret share `f(id)` over the secp256k1 scalar field (`id` is 1-based). */
+  final case class Share(id: Int, value: BigInteger)
+
+  /** Group x-only public key (32 bytes, even-`y`), the `n` shares, and the threshold `t`. */
+  final case class KeyShares(groupPublicKeyXonly: Array[Byte], shares: List[Share], threshold: Int)
+
+  /** Trusted-dealer split: fresh random secret, degree-`(t-1)` polynomial, shares `f(1..n)`. The secret is
+   *  negated if needed so the group key `Y = secret·G` has even `y` (BIP-340). */
+  def generate(threshold: Int, total: Int): KeyShares =
+    require(threshold >= 1 && threshold <= total, s"need 1 <= t($threshold) <= n($total)")
+    val coeffs = Array.fill(threshold)(randomScalar())
+    generateFrom(coeffs, total)
+
+  /** Like [[generate]] but with explicit polynomial coefficients (`coeffs(0)` = secret) — for deterministic
+   *  tests. The secret (and thus the whole polynomial constant term) is negated for even-`y` `Y`. */
+  def generateFrom(coeffs: Array[BigInteger], total: Int): KeyShares =
+    val t = coeffs.length
+    require(t >= 1 && t <= total, s"need 1 <= t($t) <= n($total)")
+    val sk0 = coeffs(0).mod(N)
+    val yOdd = yIsOdd(mulG(sk0))
+    // Force even-y Y: negating the secret negates only the constant term; negate the whole polynomial so the
+    // shares stay consistent points on f with f(0) = the (possibly negated) secret.
+    val c = if yOdd then coeffs.map(a => N.subtract(a.mod(N)).mod(N)) else coeffs.map(_.mod(N))
+    val sk = c(0)
+    val shares = (1 to total).map(id => Share(id, evalPoly(c, BigInteger.valueOf(id.toLong)))).toList
+    KeyShares(to32(xOf(mulG(sk))), shares, t)
+
+  private def evalPoly(coeffs: Array[BigInteger], x: BigInteger): BigInteger =
+    var acc = BigInteger.ZERO
+    var j = coeffs.length - 1
+    while j >= 0 do { acc = acc.multiply(x).add(coeffs(j)).mod(N); j -= 1 }
+    acc
+
+  /** Lagrange coefficient `λ_i(0)` over the signing set `ids`, mod `n`. */
+  def lagrangeAtZero(i: Int, ids: List[Int]): BigInteger =
+    val xi = BigInteger.valueOf(i.toLong)
+    ids.filter(_ != i).foldLeft(BigInteger.ONE) { (acc, j) =>
+      val xj = BigInteger.valueOf(j.toLong)
+      acc.multiply(xj).multiply(sInv(xj.subtract(xi).mod(N))).mod(N)
+    }
+
+  /** Reconstruct the secret scalar from `>= t` shares (Lagrange at `x=0`) — for tests / recovery. */
+  def reconstruct(shares: List[Share]): BigInteger =
+    require(shares.map(_.id).distinct.size == shares.size, "duplicate share ids")
+    val ids = shares.map(_.id)
+    shares.foldLeft(BigInteger.ZERO)((acc, s) =>
+      acc.add(s.value.multiply(lagrangeAtZero(s.id, ids))).mod(N))
+
+  // ── two-round signing ─────────────────────────────────────────────────────────
+
+  /** A signer's round-1 nonce commitments `D_i = d_i·G`, `E_i = e_i·G` (public) with the secret nonces. */
+  private final case class Nonce(id: Int, d: BigInteger, e: BigInteger,
+                                 dCommit: Secp256k1Group.JPoint, eCommit: Secp256k1Group.JPoint)
+
+  /** Per-signer binding factor `ρ_i = SHA256("FROSTsecp256k1/rho" ‖ id ‖ msg ‖ commitments) mod n`. */
+  private def bindingFactor(id: Int, msg: Array[Byte], commitsEnc: Array[Byte]): BigInteger =
+    val pre = "FROSTsecp256k1/rho".getBytes("UTF-8") ++ to32(BigInteger.valueOf(id.toLong)) ++ msg ++ commitsEnc
+    new BigInteger(1, Sha256.digest(pre)).mod(N)
+
+  private def encodeCommitments(ns: List[Nonce]): Array[Byte] =
+    ns.sortBy(_.id).foldLeft(Array.emptyByteArray) { (acc, n) =>
+      acc ++ to32(BigInteger.valueOf(n.id.toLong)) ++ Secp256k1Group.compress(n.dCommit) ++
+        Secp256k1Group.compress(n.eCommit)
+    }
+
+  /** Produce a BIP-340 signature for `msg` from an in-process `t`-of-`n` quorum of the given `signerIds`
+   *  (length must be `>= threshold`). Holds all shares in one process (single-node simulation). */
+  def thresholdSign(ks: KeyShares, signerIds: List[Int], msg: Array[Byte]): Array[Byte] =
+    require(signerIds.distinct.size == signerIds.size, "duplicate signer ids")
+    require(signerIds.size >= ks.threshold, s"need >= ${ks.threshold} signers, got ${signerIds.size}")
+    val shareOf = ks.shares.map(s => s.id -> s.value).toMap
+    require(signerIds.forall(shareOf.contains), "unknown signer id")
+
+    // Round 1: each signer samples nonces and publishes commitments.
+    val nonces = signerIds.map { id =>
+      val d = randomScalar(); val e = randomScalar()
+      Nonce(id, d, e, mulG(d), mulG(e))
+    }
+    val commitsEnc = encodeCommitments(nonces)
+    val rho = nonces.map(n => n.id -> bindingFactor(n.id, msg, commitsEnc)).toMap
+
+    // Aggregate nonce R = Σ (D_i + ρ_i·E_i); force even-y.
+    val rFull = nonces.map(n => add(n.dCommit, mul(rho(n.id), n.eCommit))).reduce(add)
+    val negR  = yIsOdd(rFull)
+    val rEven = if negR then negate(rFull) else rFull
+    val rx    = to32(xOf(rEven))
+
+    // BIP-340 challenge against the x-only group key.
+    val c = new BigInteger(1, Secp256k1Schnorr.taggedHash("BIP0340/challenge", rx ++ ks.groupPublicKeyXonly ++ msg)).mod(N)
+
+    // Round 2: each signer's partial; aggregate.
+    val z = nonces.foldLeft(BigInteger.ZERO) { (acc, n) =>
+      val kappa0 = n.d.add(rho(n.id).multiply(n.e)).mod(N)   // d_i + ρ_i·e_i
+      val kappa  = if negR then N.subtract(kappa0).mod(N) else kappa0
+      val lambda = lagrangeAtZero(n.id, signerIds)
+      val zi     = kappa.add(c.multiply(lambda).multiply(shareOf(n.id))).mod(N)
+      acc.add(zi).mod(N)
+    }
+    rx ++ to32(z)
