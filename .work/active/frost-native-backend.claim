@@ -1,0 +1,6 @@
+feature/frost-native-backend 2026-06-23T14:25:00Z
+agent: claude
+heartbeat: 2026-06-23T14:25:00Z
+status: in-progress
+done-so-far: FROST 1-6c done (functionally complete, substitutable, cross-platform JVM+JS).
+next: slice 7 = CryptoBackedEd25519Ops (shared) — an Ed25519Ops backend that delegates sha512+randomBytes to the existing CryptoBackend SPI (BC/JVM, Noble/JS), group ops stay reference. cryptoFrostCross dependsOn cryptoSpiCross (cryptoSpi is dep-free → no new external dep). JVM test (with cryptoBouncycastle): register it, FROST signs+verifies, sha512 matches reference. Proves FROST transparently using the platform-native crypto provider.
