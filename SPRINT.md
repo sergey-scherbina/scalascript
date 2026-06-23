@@ -14,6 +14,28 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 Driven by the agreed roadmap (BACKLOG.md → "Roadmap — agreed priority order, 2026-06-17").
 Work top-to-bottom, one major theme at a time. **Maven/centralized publication is LAST.**
 
+### ▶ Autonomous queue (2026-06-23, with Sergiy — "все кроме мавена — в спринт и делай")
+When the clean autonomous coremin slices ran out (value-unification is sibling-active; NFC/wallet-ws are
+device/browser-blocked; Maven publish is explicit-go only), Sergiy directed: queue everything except Maven
+and execute autonomously. In priority order:
+- [x] **autonomous-hardening** ✓ DONE 2026-06-23 — broad sweep of the coremin-affected surface (cli
+      `ExamplesSmokeTest` + interpreter `StdEffectsTest`/`InterpreterTest`/`Actor*`/`*Effect*`/`Stream*`):
+      **all green, 2/0 + 338/0, no new breakages.** The one real stale-example breakage (`algebraic-effects.ssc`
+      ran `Undefined: runState` in the no-plugin cli smoke) was already caught+fixed in the advanced-optin turn.
+      So the effect extractions + prelude minimization did not leave other regressions in the high-signal areas.
+      (Did NOT run the ~20-min scala-cli `CrossBackendPropertyTest` — that's a codegen-vs-interp regression
+      catcher, orthogonal to the coremin churn; siblings exercise it.)
+- [ ] **coremin-actors-codemove** — DEFERRED after probe 2026-06-23: NOT decomposable into safe slices.
+      `ActorInterp.scala` (2904 LOC) consumes `ActorGlobals` (519) + `ActorWireProtocol` (55) and is itself
+      consumed by the `ActorRuntimeProvider` seam — and core can't depend on a plugin, so no piece can move
+      alone; it's an ATOMIC ~3500-LOC move of `private[interpreter]`-coupled scheduler/cluster code (would need
+      either split-package-across-JARs for `private[interpreter]` access, or widening many core internals — both
+      bad). Large + interpreter-internal + ZERO user-visible change (the seam already lets the runtime live
+      either side). The seam-builder deliberately deferred it for exactly this; not a responsible autonomous
+      slice. Revisit only as a dedicated multi-session refactor with a clear consumer need.
+- [ ] **strategic-theme-pick** — after the above, pick one BACKLOG strategic theme (remote-package-registry /
+      FFI `@jvm`/`@js` Theme J / Library Modularity Theme H) and slice it. Maven publication stays EXCLUDED.
+
 - [x] **board-spec-hygiene** ✓ DONE 2026-06-23 — reconciled stale core-min/polyglot board/spec wording.
       Updated `specs/polyglot-libraries.md` to the 2026-06-23 landed state, removed future-looking optics
       follow-ups from completed SPRINT entries now that JS/JVM/Rust/Java optics all ship, clarified that
