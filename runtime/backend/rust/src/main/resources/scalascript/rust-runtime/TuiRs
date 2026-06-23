@@ -2,22 +2,65 @@
       |//! Emitted by RustGen when `uiTarget == "tui"`. Renders the SAME
       |//! `crate::runtime::ui::View` the web target builds, but to ratatui
       |//! widgets instead of HTML — reading the LIVE `ssc_signals()` store so a
-      |//! `signalText`/`computedSignal` value is current each frame (after a
-      |//! `ssc_recompute_all()` it shows the recomputed value).
+      |//! `signalText`/`computedSignal` value is current each frame.
       |//!
-      |//! Slice 1: draw-once headless snapshot via `TestBackend` (the crossterm
-      |//! event loop + focus/events land in slice 2).
+      |//! Slice 2: a crossterm event loop drives reactivity — Tab/arrows move a
+      |//! focus ring over the action elements (`data-ssc-set`/`data-ssc-toggle`),
+      |//! Enter/Space runs the focused action → `ssc_recompute_all()` → redraw, so
+      |//! a `computedSignal` updates LIVE on a keypress. `SSC_TUI_SNAPSHOT` renders
+      |//! headlessly (initial frame, then the first action applied + recomputed)
+      |//! so the pipeline is testable without a TTY.
       |#![allow(dead_code)]
-      |use ratatui::backend::TestBackend;
+      |use ratatui::backend::{TestBackend, CrosstermBackend};
       |use ratatui::{Terminal, Frame};
       |use ratatui::layout::{Layout, Constraint, Rect};
       |use ratatui::widgets::{Paragraph, Block, Borders};
       |use ratatui::style::{Style, Modifier};
       |use ratatui::buffer::Buffer;
+      |use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
+      |use ratatui::crossterm::terminal::{enable_raw_mode, disable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+      |use ratatui::crossterm::execute;
       |use crate::runtime::ui::View;
       |
       |fn _tui_attr<'a>(attrs: &'a [(String, String)], k: &str) -> Option<&'a str> {
       |    attrs.iter().find(|(kk, _)| kk == k).map(|(_, v)| v.as_str())
+      |}
+      |
+      |/// The action marker of an element, if it has one (a `data-ssc-set`/
+      |/// `data-ssc-toggle` = a focusable widget).
+      |fn _tui_action_of(attrs: &[(String, String)]) -> Option<String> {
+      |    if let Some(s) = _tui_attr(attrs, "data-ssc-set") { Some(format!("set:{}", s)) }
+      |    else if let Some(s) = _tui_attr(attrs, "data-ssc-toggle") { Some(format!("toggle:{}", s)) }
+      |    else { None }
+      |}
+      |
+      |/// Collect the action markers (focusables) in document order.
+      |fn _tui_collect_actions(v: &View, out: &mut Vec<String>) {
+      |    match v {
+      |        View::Element { attrs, children, .. } => {
+      |            if let Some(a) = _tui_action_of(attrs) { out.push(a); }
+      |            for c in children { _tui_collect_actions(c, out); }
+      |        }
+      |        View::Fragment(cs) => { for c in cs { _tui_collect_actions(c, out); } }
+      |        _ => {}
+      |    }
+      |}
+      |
+      |/// Apply a focused action to the signal store, then recompute every
+      |/// `computedSignal` so derived values reflect the change.
+      |fn _tui_apply_action(marker: &str) {
+      |    {
+      |        let mut store = crate::value::ssc_signals().lock().unwrap();
+      |        if let Some(rest) = marker.strip_prefix("set:") {
+      |            if let Some(i) = rest.find(':') {
+      |                store.insert(rest[..i].to_string(), rest[i + 1..].to_string());
+      |            }
+      |        } else if let Some(name) = marker.strip_prefix("toggle:") {
+      |            let cur = store.get(name).map(|s| s == "true").unwrap_or(false);
+      |            store.insert(name.to_string(), (!cur).to_string());
+      |        }
+      |    }
+      |    crate::value::ssc_recompute_all();
       |}
       |
       |/// Plain text of a subtree. A `data-ssc-text` element reads the LIVE signal
@@ -40,7 +83,7 @@
       |fn _tui_height(v: &View) -> u16 {
       |    match v {
       |        View::Text(_) => 1,
-      |        View::Fragment(cs) => cs.iter().map(_tui_height).sum::<u16>().max(1),
+      |        View::Fragment(cs) => cs_sum(cs),
       |        View::Element { tag, attrs, children } => {
       |            if _tui_attr(attrs, "data-ssc-text").is_some() { return 1; }
       |            match tag.as_str() {
@@ -57,39 +100,47 @@
       |    s.max(1)
       |}
       |
+      |/// Render context: the focused index + a running focusable counter so the
+      |/// focused widget renders highlighted.
+      |struct _TuiCtx { focus: usize, counter: usize }
+      |
       |/// Render a `View` into `area`.
-      |fn _tui_render(frame: &mut Frame, area: Rect, v: &View) {
+      |fn _tui_render(frame: &mut Frame, area: Rect, v: &View, ctx: &mut _TuiCtx) {
       |    match v {
       |        View::Text(s) => { frame.render_widget(Paragraph::new(s.clone()), area); }
-      |        View::Fragment(cs) => _tui_stack(frame, area, cs),
+      |        View::Fragment(cs) => _tui_stack(frame, area, cs, ctx),
       |        View::Element { tag, attrs, children } => {
+      |            let focused = if _tui_action_of(attrs).is_some() {
+      |                let idx = ctx.counter; ctx.counter += 1; idx == ctx.focus
+      |            } else { false };
+      |            let mut style = Style::default();
+      |            if focused { style = style.add_modifier(Modifier::REVERSED); }
       |            if _tui_attr(attrs, "data-ssc-text").is_some() {
-      |                frame.render_widget(Paragraph::new(_tui_text(v)), area);
+      |                frame.render_widget(Paragraph::new(_tui_text(v)).style(style), area);
       |                return;
       |            }
       |            match tag.as_str() {
       |                "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
       |                    frame.render_widget(
-      |                        Paragraph::new(_tui_text(v)).style(Style::default().add_modifier(Modifier::BOLD)),
-      |                        area);
+      |                        Paragraph::new(_tui_text(v)).style(style.add_modifier(Modifier::BOLD)), area);
       |                }
       |                "p" | "span" | "button" | "a" | "label" | "input" => {
-      |                    frame.render_widget(Paragraph::new(_tui_text(v)), area);
+      |                    frame.render_widget(Paragraph::new(_tui_text(v)).style(style), area);
       |                }
       |                "hr" => { frame.render_widget(Block::default().borders(Borders::TOP), area); }
-      |                _ => _tui_stack(frame, area, children),
+      |                _ => _tui_stack(frame, area, children, ctx),
       |            }
       |        }
       |    }
       |}
       |
       |/// Stack children vertically (S3 adds flex-direction parsing for `div`).
-      |fn _tui_stack(frame: &mut Frame, area: Rect, children: &[View]) {
+      |fn _tui_stack(frame: &mut Frame, area: Rect, children: &[View], ctx: &mut _TuiCtx) {
       |    if children.is_empty() { return; }
-      |    if children.len() == 1 { _tui_render(frame, area, &children[0]); return; }
+      |    if children.len() == 1 { _tui_render(frame, area, &children[0], ctx); return; }
       |    let constraints: Vec<Constraint> = children.iter().map(|c| Constraint::Length(_tui_height(c))).collect();
       |    let chunks = Layout::vertical(constraints).split(area);
-      |    for (i, c) in children.iter().enumerate() { _tui_render(frame, chunks[i], c); }
+      |    for (i, c) in children.iter().enumerate() { _tui_render(frame, chunks[i], c, ctx); }
       |}
       |
       |fn _tui_buffer_to_string(buf: &Buffer) -> String {
@@ -104,12 +155,69 @@
       |    out
       |}
       |
-      |/// `serve(view, port)` on the tui target lands here. Slice 1: draw once
-      |/// headlessly and print the buffer (the interactive crossterm loop is
-      |/// slice 2). The View is built by the transpiled `.ssc`, so signals /
-      |/// computedSignal closures have already seeded the store.
-      |pub fn _tui_run(view: View) {
+      |fn _tui_snapshot(view: &View, focus: usize) -> String {
       |    let mut terminal = Terminal::new(TestBackend::new(100, 40)).expect("tui init");
-      |    terminal.draw(|f| { let a = f.area(); _tui_render(f, a, &view); }).expect("draw");
-      |    print!("{}", _tui_buffer_to_string(terminal.backend().buffer()));
+      |    terminal.draw(|f| {
+      |        let a = f.area();
+      |        let mut ctx = _TuiCtx { focus, counter: 0 };
+      |        _tui_render(f, a, view, &mut ctx);
+      |    }).expect("draw");
+      |    _tui_buffer_to_string(terminal.backend().buffer())
+      |}
+      |
+      |/// Interactive crossterm loop: draw → poll → Tab/arrows move focus,
+      |/// Enter/Space runs the focused action (→ recompute → redraw), q/Esc quits.
+      |fn _tui_interactive(view: View) -> std::io::Result<()> {
+      |    enable_raw_mode()?;
+      |    let mut stdout = std::io::stdout();
+      |    execute!(stdout, EnterAlternateScreen)?;
+      |    let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
+      |    let mut actions: Vec<String> = Vec::new();
+      |    _tui_collect_actions(&view, &mut actions);
+      |    let mut focus: usize = 0;
+      |    let result = (|| -> std::io::Result<()> {
+      |        loop {
+      |            terminal.draw(|f| {
+      |                let a = f.area();
+      |                let mut ctx = _TuiCtx { focus, counter: 0 };
+      |                _tui_render(f, a, &view, &mut ctx);
+      |            })?;
+      |            if event::poll(std::time::Duration::from_millis(100))? {
+      |                if let Event::Key(key) = event::read()? {
+      |                    if key.kind == KeyEventKind::Press {
+      |                        match key.code {
+      |                            KeyCode::Char('q') | KeyCode::Esc => break,
+      |                            KeyCode::Tab | KeyCode::Down => { if !actions.is_empty() { focus = (focus + 1) % actions.len(); } }
+      |                            KeyCode::BackTab | KeyCode::Up => { if !actions.is_empty() { focus = (focus + actions.len() - 1) % actions.len(); } }
+      |                            KeyCode::Enter | KeyCode::Char(' ') => { if focus < actions.len() { _tui_apply_action(&actions[focus]); } }
+      |                            _ => {}
+      |                        }
+      |                    }
+      |                }
+      |            }
+      |        }
+      |        Ok(())
+      |    })();
+      |    disable_raw_mode()?;
+      |    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+      |    result
+      |}
+      |
+      |/// `serve(view, port)` on the tui target. `SSC_TUI_SNAPSHOT` = headless:
+      |/// render the initial frame, then apply the first action + recompute and
+      |/// render again, printing both (so a test sees a LIVE computedSignal update
+      |/// without a TTY). Otherwise run the interactive crossterm loop.
+      |pub fn _tui_run(view: View) {
+      |    if std::env::var("SSC_TUI_SNAPSHOT").is_ok() {
+      |        print!("{}", _tui_snapshot(&view, 0));
+      |        let mut actions: Vec<String> = Vec::new();
+      |        _tui_collect_actions(&view, &mut actions);
+      |        if let Some(first) = actions.first() {
+      |            _tui_apply_action(first);
+      |            println!("---FRAME2---");
+      |            print!("{}", _tui_snapshot(&view, 0));
+      |        }
+      |    } else {
+      |        let _ = _tui_interactive(view);
+      |    }
       |}

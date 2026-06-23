@@ -64,9 +64,10 @@ class RustGenTuiToolkitTest extends AnyFunSuite:
     try os.proc("cargo", "--version").call(check = false).exitCode == 0
     catch case _: Throwable => false
 
-  test("the emitted tui crate compiles + renders the computed value in the terminal"):
-    assume(cargoAvailable, "cargo not on PATH — skipping rust-tui cargo smoke")
-    val a = assets(uiProg, tuiOpts)
+  /** Build `prog`'s tui crate and `cargo run` it headlessly (SSC_TUI_SNAPSHOT —
+   *  bypasses the interactive crossterm loop, which needs a TTY). Returns stdout. */
+  private def snapshotCrate(prog: String): String =
+    val a = assets(prog, tuiOpts)
     val crateDir = os.temp.dir(prefix = "ssc-rust-tui-")
     try
       a.foreach { case (rel, content) =>
@@ -74,11 +75,40 @@ class RustGenTuiToolkitTest extends AnyFunSuite:
         os.makeDir.all(out / os.up)
         os.write.over(out, content)
       }
-      val res = os.proc("cargo", "run", "--quiet").call(cwd = crateDir, check = false)
+      val res = os.proc("cargo", "run", "--quiet").call(
+        cwd = crateDir, check = false, env = Map("SSC_TUI_SNAPSHOT" -> "1"))
       assert(res.exitCode == 0, s"cargo run failed:\n${res.err.text()}")
-      val out = res.out.text()
-      assert(out.contains("Title"),  s"heading missing:\n$out")
-      assert(out.contains("base"),   s"text missing:\n$out")
-      assert(out.contains("TUI_OK"), s"computed signal value missing — computedSignal did not render:\n$out")
+      res.out.text()
     finally
       os.remove.all(crateDir)
+
+  test("the emitted tui crate compiles + renders the computed value in the terminal"):
+    assume(cargoAvailable, "cargo not on PATH — skipping rust-tui cargo smoke")
+    val out = snapshotCrate(uiProg)
+    assert(out.contains("Title"),  s"heading missing:\n$out")
+    assert(out.contains("base"),   s"text missing:\n$out")
+    assert(out.contains("TUI_OK"), s"computed signal value missing — computedSignal did not render:\n$out")
+
+  test("S2 — a focused action recomputes a computedSignal LIVE (frame changes on activate)"):
+    assume(cargoAvailable, "cargo not on PATH — skipping rust-tui cargo smoke")
+    // A computedSignal echoing a signal, and a button that SETS the signal.
+    // SSC_TUI_SNAPSHOT renders frame 1, applies the first action + ssc_recompute_all(),
+    // and renders frame 2 — proving the derived value updates on a keypress.
+    val prog =
+      """```scalascript
+        |@main def run(): Unit =
+        |  val name = signal("name", "BEFORE")
+        |  val shown = computedSignal(() => name())
+        |  val page = element("div", Map(), Map(), List(
+        |    signalText(shown),
+        |    element("button", Map(), Map("click" -> setSignal(name, "AFTER")), List(textNode("go")))
+        |  ))
+        |  serve(page, 0)
+        |```
+        |""".stripMargin
+    val out = snapshotCrate(prog)
+    val parts = out.split("---FRAME2---")
+    assert(parts.length == 2, s"expected two frames (initial + after-activate), got:\n$out")
+    assert(parts(0).contains("BEFORE"), s"initial frame should show the computed value BEFORE:\n${parts(0)}")
+    assert(parts(1).contains("AFTER"),  s"after activating the button, the computedSignal must recompute to AFTER (LIVE):\n${parts(1)}")
+    assert(!parts(1).contains("BEFORE"), s"the old value should be gone after recompute:\n${parts(1)}")

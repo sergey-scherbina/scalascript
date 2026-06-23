@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-23 — rust-tui-toolkit S2: live event loop — computedSignal updates on a keypress in the terminal
+
+The emitted `tui.rs` now runs a real crossterm event loop: Tab/arrows move a focus ring over the action
+elements (`data-ssc-set`/`data-ssc-toggle`), Enter/Space runs the focused action → `ssc_recompute_all()` →
+redraw, so a `computedSignal` recomputes and re-renders on a keypress (the focused widget shows reversed). A
+`SSC_TUI_SNAPSHOT` headless path renders the initial frame, applies the first action + recomputes, and renders
+again — so the live update is testable without a TTY. `RustGenTuiToolkitTest` 4/4 — the new S2 cargo smoke
+builds a `signal` + `computedSignal(()=>name())` + a `setSignal` button, and asserts frame 1 shows `BEFORE`
+while frame 2 (after activating the button) shows `AFTER` — proving the derived value updates LIVE in the
+terminal, the thing the static `frontend/tui` emitter could not do. Spec `specs/rust-tui-toolkit.md`.
+
 ## 2026-06-23 — rust-tui-toolkit S1: std/ui → ratatui via RustCodeWalk (computedSignal renders in the terminal)
 
 First slice of routing the terminal through the Rust codegen backend so real `.ssc` UI logic — including

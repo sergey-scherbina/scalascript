@@ -94,7 +94,7 @@ The `Value` enum + signal store (`ValueRs`) and the computed/signal intrinsics a
   snapshot). **Gate:** a `.ssc` `serve(lower(vstack(heading,text,signalText(computedSignal(...))),theme),0)`
   transpiles via RustCodeWalk and `cargo run` (SSC_TUI_SNAPSHOT) prints the rendered buffer with the computed
   value. Proves the whole pipeline (transpile → ratatui) end to end.
-- **S2 — live event loop.** Crossterm event loop (raw mode + alt screen → draw → poll → quit on q/Esc), focus
+- **S2 — live event loop. ✓ DONE (2026-06-23).** Crossterm event loop (raw mode + alt screen → draw → poll → quit on q/Esc), focus
   ring over `data-ssc-*` focusables, Enter/Space → run the focused element's action (`setSignal`/`toggle`) →
   `ssc_recompute_all()` → redraw. **Gate:** a counter (`signal` + `computedSignal(()=>show(count*2))` + a
   `+`/button); a `cargo test` feeds the activate key and asserts the computed text changed — **computedSignal
